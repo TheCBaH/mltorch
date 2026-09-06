@@ -33,7 +33,7 @@ let is_region_authored = function
       true
   | _ -> false
 
-let program ~limits ~op ~output ~output_shape ~operand ~fill =
+let built ~limits ~op ~output ~output_shape ~operand ~fill =
   let open Graph_ir in
   match op with
   | Rms_norm { Norm.RmsNorm.params; x = x_id; weight } ->
@@ -143,3 +143,25 @@ let program ~limits ~op ~output ~output_shape ~operand ~fill =
           | Region_context.Invalid_program error -> Invalid_program error)
         (Reduce.Softmax.Computation.program ~limits params ~x)
   | _ -> assert false
+
+(* The OPERATION boundary: [built] resolves operands and dispatches into the
+   op's own formula, but [Region_program.check] alone (what [Builder.finish]
+   already runs) is not enough once scans exist -- a program is also
+   [preflight]ed here, against this call's own [limits] and [output_shape],
+   before it reaches Direct/Symbolic/Kernel construction. Wrapping the WHOLE
+   dispatch once, rather than duplicating the call in each of the four
+   [Computation.program] arms above, is what keeps this a single funnel. *)
+let program ~(limits : Kernel.Limits.t) ~op ~output ~output_shape ~operand ~fill
+    =
+  let open Err.Syntax in
+  let* program = built ~limits ~op ~output ~output_shape ~operand ~fill in
+  let+ () =
+    Err.map_error
+      (fun e -> Invalid_program e)
+      (Region_program.preflight
+         ~max_local_slots:limits.Kernel.Limits.max_local_slots
+         ~max_scan_state:limits.Kernel.Limits.max_scan_state
+         ~max_scan_updates:limits.Kernel.Limits.max_scan_updates_per_key
+         ~output_shape program)
+  in
+  program

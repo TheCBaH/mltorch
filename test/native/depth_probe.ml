@@ -225,7 +225,9 @@ let%expect_test "the accepted frontier survives in combination" =
     Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:4096 ~max_depth:255 ~max_values:4095
          ~max_dep_depth:1024 ~max_inputs:1024 ~max_outputs:1024
-         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL)
+         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL ~max_local_slots:8192
+         ~max_scan_state:8192 ~max_scan_updates_per_key:8192L
+         ~max_scan_updates_total:16_000_000L)
   in
   Printf.printf "n=  6 d=254 at Hard.depth: %s\n"
     (run_chain ~limits:at_hard_depth ~d:254 6);
@@ -265,7 +267,9 @@ let%expect_test "the static DAG limits reject before execution" =
     Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:4096 ~max_depth:128 ~max_values:4096
          ~max_dep_depth ~max_inputs:1024 ~max_outputs:1024
-         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL)
+         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL ~max_local_slots:8192
+         ~max_scan_state:8192 ~max_scan_updates_per_key:8192L
+         ~max_scan_updates_total:16_000_000L)
   in
   let report name r =
     Printf.printf "%s: %s\n" name

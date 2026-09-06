@@ -572,6 +572,20 @@ module type S = sig
         local may legally be. Disjoint from [scalar_locals]/[vector_locals] in a
         well-formed program, for the same shape-agreement reason. *)
 
+    val scan_cost : Value.t -> int64 * int
+    (** [(updates, state)]: the lane-update count and peak live scan state a
+        single evaluation of this expression costs through the standalone inline
+        evaluator. A [Scan_at] node costs
+        [width * updates(init) + steps * width * (1 + updates(update))] lane
+        updates and [2*width + max(state(init), state(update))] peak state; a
+        cached [Local_scan_at] read costs neither, since Region already
+        materialized its trace. Both aggregate via saturating [Int64] arithmetic
+        (capped at [Int64.max_int], never wrapped). Deliberately does not
+        multiply through an enclosing [Reduce]'s extent --
+        [Scan_admission.check] is the complementary, reduction-aware guard for a
+        scan actually composed under one; this measure targets flat Region-local
+        scans. *)
+
     val output_axes : Value.t -> Axis.t list
     val intrinsics : Value.t -> int
 

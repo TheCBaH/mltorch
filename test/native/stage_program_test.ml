@@ -256,7 +256,10 @@ let%expect_test "Stage_program: an intermediate stage result is rounded to f32"
     let two24 = 16777216.0 in
     let x = Tensor.materialize (s1c 1) (fun _ -> two24) in
     let bind id = List.assoc id (List.combine g.Graph.inputs [ x ]) in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let read id =
       match Tensor_id.Map.find_opt id grounded with
       | None -> nan

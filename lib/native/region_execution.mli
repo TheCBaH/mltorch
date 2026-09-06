@@ -14,16 +14,27 @@ val counters : unit -> counters
 val lower :
   max_size:int ->
   max_depth:int ->
+  max_local_slots:int ->
+  max_scan_state:int ->
+  max_scan_updates:int64 ->
+  output_shape:Vec6.shape ->
   Region_program.t ->
   (t, Region_program.error) Err.t
-(** Re-validates [program] against [max_size]/[max_depth] before lowering it, so
-    a caller holding a [t] never has to trust that an intervening rewrite (e.g.
+(** Re-validates [program] -- [Region_program.check] against [max_size]/
+    [max_depth], then [Region_program.preflight] against the three scan resource
+    dimensions and [output_shape] -- before lowering it, so a caller holding a
+    [t] never has to trust that an intervening rewrite (e.g.
     [Kernel.Result_conversion.apply] via [Region_program.with_output]) left it
-    well-formed. *)
+    well-formed. Applies to a Pixel program too: [pixel_expression = Some] used
+    to reach [Pixel_loop] with no validation at all. *)
 
 val lower_region :
   max_size:int ->
   max_depth:int ->
+  max_local_slots:int ->
+  max_scan_state:int ->
+  max_scan_updates:int64 ->
+  output_shape:Vec6.shape ->
   Region_program.t ->
   (lowered, Region_program.error) Err.t
 (** As [lower], for a caller that already knows -- structurally, e.g. from
@@ -34,13 +45,13 @@ val lower_region :
 val materialize :
   ?counters:counters ->
   lowered ->
-  output_shape:Vec6.shape ->
   env:Expr.Eval.Env.t ->
   (Tensor.packed, Region_eval.error) Err.t
+(** [lowered] retains the [output_shape] validated at [lower_region] time, so
+    this can no longer be called with a shape that disagrees with it. *)
 
 val value_at :
   lowered ->
-  output_shape:Vec6.shape ->
   env:Expr.Eval.Env.t ->
   output:Vec6.coord ->
   (float, Region_eval.error) Err.t

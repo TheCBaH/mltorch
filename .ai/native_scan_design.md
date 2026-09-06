@@ -2,19 +2,23 @@
 
 ## Status and scope
 
-Status: **contracts recorded; the `Expr` primitive and Region-side
-construction/checking/rendering are landed, execution is not.** This record
-fixes the representation, error, meter, budget, and rendering contracts for
-the bounded-scan primitive, per the LSTM foundation's staged plan, and is
-updated in place as each piece lands rather than only once at the end: `Expr`
+Status: **contracts recorded; the `Expr` primitive, Region-side
+construction/checking/rendering, and the resource-preflight boundary are
+landed; execution is not.** This record fixes the representation, error,
+meter, budget, and rendering contracts for the bounded-scan primitive, per the
+LSTM foundation's staged plan, and is updated in place as each piece lands
+rather than only once at the end: `Expr`
 (`Scan`/`Scan_limits`/`Scan_meter`/`Scan_admission`, both value projections,
 inline evaluation) landed first; `Region_local`/`Region_program` construction,
-checking and rendering (this section and "RHS rendering" below) landed next.
-Running a scan-backed Region program — `Region_execution`/`Region_eval`
-actually executing a trace, with a shared metered budget — has not, and fails
-with an explicit, typed, temporary error (see "Region propagation") rather
-than an inexhaustive match or silent wrong answer. Read it together with
-`native_compute_design.md` (Region computation) and
+checking and rendering (this section and "RHS rendering" below) landed next;
+the four `Kernel.Limits` resource fields, `Region_program.preflight`'s static
+measures, and `Region_execution.lower`/`lower_region`'s validated artifact
+(see "Static measures" and "Validated execution artifact" below) landed
+third. Running a scan-backed Region program — `Region_execution`/
+`Region_eval` actually executing a trace, with a shared metered budget — has
+not, and fails with an explicit, typed, temporary error (see "Region
+propagation") rather than an inexhaustive match or silent wrong answer. Read
+it together with `native_compute_design.md` (Region computation) and
 `native_kernel_dsl_design.md` (Kernel IR and `Hard` ceilings), which it
 extends rather than restates.
 
@@ -564,6 +568,83 @@ performance guarantee at the ceiling — only that allocation and indexing at
 that scale does not crash either backend; wall-clock cost at the ceiling is
 a caller's problem, exactly as it already is for `Hard.size`.
 
+**Landed.** `Kernel.Limits.t` gains all four fields with `Hard` counterparts
+exactly as chosen above; `create` validates each with the same exclusive
+`v >= hard` rule as the existing fields, and `scan_limits : t ->
+Expr.Scan_limits.t` is a pure accessor narrowing `max_scan_state`/
+`max_scan_updates_per_key` to what `Expr` needs. `default`'s two `Expr`-shared
+fields are derived from `Expr.Scan_limits.default`, not restated, so the two
+constants cannot drift apart (pinned by
+`test/native/kernel_test.ml`'s "the four scan fields are checked and
+derived").
+
+`Expr.Fold.scan_cost : Value.t -> int64 * int` (`lib/expr_internal/fold.ml`,
+aliased through `expr_api.ml`) is the one traversal both formulas below are
+built from: `Scan_at (s, _, _)` costs `width * updates(init) + steps * width *
+(1 + updates(update))` lane updates and `2*width + max(state(init),
+state(update))` peak state; every other node's cost is the structural
+combination of its children (sum for updates, max for state); `Local_scan_at`
+costs neither, since Region already materialized its trace. Both aggregate
+via saturating (not wrapping) `Int64` arithmetic. **Deliberately does not
+multiply through an enclosing `Reduce`'s extent** — unlike `Scan_admission`,
+which already guards exactly that composition at a different layer (raw
+`Expr` construction and, later, rewrite re-measurement). The two checks are
+complementary: `scan_cost` measures a program's own declared locals and
+emitter at Region-key granularity, which is where every scan built through
+`Region_program.Builder.scan` sits (flat, never nested under a Region-level
+reduction), while `Scan_admission` is the one that would catch a raw
+composition this measure does not model. Re-verify this split if a later step
+lets a scan's own `init`/`update` be built by a caller that can embed a
+`Reduce` directly.
+
+`Region_program.preflight ~max_local_slots ~max_scan_state ~max_scan_updates
+~output_shape` (`lib/native/region_program.ml`) composes three checks over an
+already-`check`ed program: `checked_slot_total` (renamed in effect, not in
+signature — it now bills `max_local_slots`, never `max_size`, closing the
+"stop charging storage against syntax size" gap; its own doc comment is
+rewritten to match) over every local; `scan_peak` — `trace_slot_total`
+(`Int64`-checked `(steps+1)*width` summed over TRACE locals only, distinct
+from `checked_slot_total`'s all-locals sum) plus the peak `Fold.scan_cost`
+state across every scalar/vector local's value, every trace local's OWN
+nested state (`max(state(init), state(update))`, deliberately excluding its
+own `2*width` — that resource is already the trace's slot allocation, not a
+rolling two-row buffer), and the output — against `max_scan_state`, reported
+as `` `Scan (Expr.Scan.State_over_limit { limit }) ``, reusing `Scan.error`'s
+existing tag rather than adding a new one, since "peak live state over a
+limit" is the same concept whether measured for one descriptor or aggregated
+across a whole key; and `per_key` — each local's `Fold.scan_cost` updates,
+weighted by its multiplicity (1 for scalar/scan, `extent` for vector), plus
+`outputs_per_key * updates(output)` where `outputs_per_key` is the product of
+`output_shape`'s extents over the partition's WHOLE axes — against
+`max_scan_updates`, reported as the new `` `Scan_updates_over_limit `` (per-key
+aggregation is genuinely Region-level, not any single `Scan.error` case, so it
+gets its own tag). `scan_peak = 0` and `per_key = 0` fall out of the same
+formula with no special case whenever no scan is reachable anywhere in the
+program — the "disabling scans must never reject a scan-free program"
+invariant is structural, not a branch, and is regression-tested directly
+(`test/native/region_preflight_test.ml`).
+
+`Region_program.scan_updates_total ~output_shape` is `keys * per_key` for one
+program (`keys` = the product of `output_shape`'s extents over the SINGLETON
+axes, the complement of `outputs_per_key`'s whole axes) — exposed separately
+from `preflight` because `max_scan_updates_total` is enforced only at
+`Kernel.create`, summing this measure across every logical value with its own
+saturating accumulator and reporting `` `Scan_updates_total_over_limit ``
+(classified `Over_limit`, not `Fatal`, in `Me_classify.kernel`).
+
+Every preparation entry now preflights, not just checks: `Region_execution.
+lower`/`lower_region` (see "Validated execution artifact"), `Region_computation.
+program` (the OPERATION boundary — one funnel wrapping all four
+`Rms_norm`/`Layer_norm`/`Sdpa`/`Softmax` arms, rather than one call per arm),
+`Stage_program.ground` (the STAGE boundary, preflighting every stage before
+materializing the first), and `Kernel.create` (the KERNEL boundary, per-value
+preflight plus the `max_scan_updates_total` aggregate). Regressions:
+`test/native/region_preflight_test.ml` (storage/state/per-key/outputs_per_key/
+scan-free-with-scans-disabled), `test/native/kernel_scan_test.ml`
+(`max_scan_updates_total`), and dedicated cases in `region_compute_test.ml`
+("Region construction preflights local/trace storage too") and
+`kernel_test.ml` ("the four scan fields are checked and derived").
+
 ## Validated execution artifact
 
 Today, `Region_execution.lower : Region_program.t -> t` and `lower_region :
@@ -617,6 +698,80 @@ across a Kernel's logical values; there is no whole-graph choke point
 upstream of `Eval_direct.run` or `Stage_program.ground`, so this bound is
 named as Kernel-scoped rather than implied as universal (matching census 3
 above).
+
+**Landed.** `Region_execution.lower`/`lower_region` match the signatures
+above exactly (the `limits:…` ellipsis resolved to the same explicit
+`~max_size ~max_depth ~max_local_slots ~max_scan_state ~max_scan_updates`
+fields every call site already threads individually, not a new record type —
+consistent with `Region_program.check`'s own existing style and with
+`Kernel.Limits`, which stays a plain field bag rather than crossing into
+`Region_program`'s dependency direction). Both call a shared `validate`
+running `Region_program.check` then `preflight`; `lowered` gains an
+`output_shape : Vec6.shape` field, so `materialize`/`value_at` no longer take
+one. A real gap surfaced in the same change: the PIXEL branch of `lower`
+previously returned `Pixel_loop` with **no validation at all** — not even the
+pre-existing `max_size`/`max_depth` check, since only the `None` (Region)
+branch called `check`. `Region_program.preflight` applies unchanged to that
+case too: `pixel_expression = Some` implies an empty local list and a
+singleton partition, so `outputs_per_key` is 1 and `per_key` collapses to
+exactly one evaluation's cost — the same bound the per-output-coordinate
+runtime meter (see "Runtime metering") independently enforces once execution
+lands. Fixed in the same commit as the rest of this section, not deferred, since
+leaving the Pixel branch unchecked while the Region branch gained MORE
+validation would have been a visible inconsistency in the exact code being
+changed.
+
+Every migration below is landed. `kernel_eval.ml`'s `converted` now takes
+`~limits:Kernel.Limits.t` (not separate `~max_size`/`~max_depth`) and derives
+`output_shape` from the value's own signature, so `lower_region`'s
+revalidation after `Result_conversion.apply` covers the new dimensions too.
+`eval_direct.ml:137`, `native4d/eval_direct4.ml:142`, and the two test call
+sites (`test/native/region_program_test.ml`, `region_compute_test.ml`, both
+renamed slightly from the line numbers above as the file grew) thread the
+kernel's own limits and output shape through unchanged.
+
+`Schedule.ground` itself changed, not just its caller: its internal
+`Tensor.materialize` callback now crosses through `Err.Escape` instead of
+`Err.or_raise`, so `Schedule.ground` is `(Tensor.packed, Expr.Eval.error)
+Err.t`-returning rather than raising — this is the "`Schedule.ground`'s
+materialization callback" the plan names, not a separate future change.
+`Stage_program.ground` gains `?limits` (defaulting to `Kernel.Limits.default`)
+and a `type error = [ Region_program.error | Region_eval.error ]`; it wraps
+its whole body in one `Err.Escape.with_escape`, preflights every stage via a
+shared `lower` helper before materializing the first one, and both the
+Pixel (`Schedule.ground`) and Region (`Region_execution.materialize`) arms
+inside the per-stage fold cross the same escape. `lib/native_op_walk/
+native_verify.ml` pattern-matches the new result and reports a ground failure
+the same way it already reports an `Eval_direct.run` failure. Every test call
+site (`test/native/graph_symbolic_{activation,pointwise,shape,norm,pad_slice,
+pool,conv,combine}_test.ml`, `stage_program_test.ml`, `kernel_eval_test.ml`,
+`test/native4d/compute_test.ml`, and `symbolic_test.ml`'s `compare_grounded`,
+which unwraps `Schedule.ground` with `Err.or_raise` since its own ambient
+error row is otherwise disjoint from `Expr.Eval.error`) now unwraps with
+`Err.or_raise ~pp_error:Stage_program.pp_error` (or `Expr.Eval.pp_error` for
+the one direct `Schedule.ground` caller) around the same call, preserving
+every existing assertion unchanged — none of these fixtures exercises a
+resource limit, so every one still succeeds.
+
+The OPERATION boundary (`Region_computation.program`) is one funnel: the
+existing four-armed dispatch is renamed `built`, and `program` wraps its
+result with one `Region_program.preflight` call before returning, so all four
+op modules (`Rms_norm`/`Layer_norm`/`Sdpa`/`Softmax`) gain the check with no
+per-arm duplication and no `Computation.program` signature change. The KERNEL
+boundary (`Kernel.create`) preflights each value immediately after its
+existing `check`, both wrapped in the same `` `Body `` payload, and separately
+sums `Region_program.scan_updates_total` across every value with a local
+saturating accumulator for `max_scan_updates_total`, reported as the new
+`` `Scan_updates_total_over_limit `` (classified `Over_limit` in
+`Me_classify.kernel`, alongside the kernel's other size limits).
+
+`make precommit`, `NO_COLOR=1 opam exec -- dune runtest` (whole tree),
+`make jsoo.runtest`, `make jsoo.inline-runtest`, and `make melange.runtest`
+all pass. (`make precommit`'s own `format` step could not be verified end to
+end in this session: `dune fmt` fails on unrelated, pre-existing content
+outside this change's scope — see the project execution ledger. Every file
+this change touches was independently confirmed correctly formatted, and
+`build`/`runtest`/`check.file-size`/`check.whitespace` all pass directly.)
 
 ## Specialization and rewrite re-measurement
 

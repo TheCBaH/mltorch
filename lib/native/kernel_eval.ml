@@ -176,7 +176,8 @@ let values_by_id (k : Kernel.t) =
    [with_output] is a raw record update, not [Region_program.create] -- so
    [lower_region]'s own re-validation against the kernel's limits is what
    covers this rewritten expression; nothing upstream of it does. *)
-let converted esc ?region_counters ~max_size ~max_depth (v : Kernel.Value.t) =
+let converted esc ?region_counters ~(limits : Kernel.Limits.t)
+    (v : Kernel.Value.t) =
   match Region_program.pixel_expression v.Kernel.Value.computation with
   | Some body ->
       `Pixel (Kernel.Result_conversion.apply v.Kernel.Value.result body)
@@ -184,7 +185,13 @@ let converted esc ?region_counters ~max_size ~max_depth (v : Kernel.Value.t) =
       let lowered =
         Err.Escape.or_throw esc
           (widen_program
-             (Region_execution.lower_region ~max_size ~max_depth
+             (Region_execution.lower_region
+                ~max_size:limits.Kernel.Limits.max_size
+                ~max_depth:limits.Kernel.Limits.max_depth
+                ~max_local_slots:limits.Kernel.Limits.max_local_slots
+                ~max_scan_state:limits.Kernel.Limits.max_scan_state
+                ~max_scan_updates:limits.Kernel.Limits.max_scan_updates_per_key
+                ~output_shape:v.Kernel.Value.sg.Tensor_sig.shape
                 (Region_program.with_output v.Kernel.Value.computation
                    (Kernel.Result_conversion.apply v.Kernel.Value.result
                       (Region_program.output v.Kernel.Value.computation)))))
@@ -209,9 +216,7 @@ let machine esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses =
   let values = values_by_id k in
   let bodies =
     Tensor_id.Map.map
-      (converted esc ?region_counters
-         ~max_size:k.Kernel.limits.Kernel.Limits.max_size
-         ~max_depth:k.Kernel.limits.Kernel.Limits.max_depth)
+      (converted esc ?region_counters ~limits:k.Kernel.limits)
       values
   in
   let bound = ref inputs in
@@ -253,7 +258,6 @@ let machine esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses =
                       Err.Escape.or_throw esc
                         (widen_region
                            (Region_execution.value_at lowered
-                              ~output_shape:v.Kernel.Value.sg.Tensor_sig.shape
                               ~env:(env_for ~depth id)
                               ~output:
                                 (Vec6.map Dim.index
@@ -315,9 +319,7 @@ let machine esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses =
                       body)))
       | `Region (lowered, counters) ->
           Err.Escape.or_throw esc
-            (widen_region
-               (Region_execution.materialize ?counters lowered
-                  ~output_shape:v.Kernel.Value.sg.Tensor_sig.shape ~env))
+            (widen_region (Region_execution.materialize ?counters lowered ~env))
     in
     bound := Tensor_id.Map.add v.Kernel.Value.id t !bound;
     t

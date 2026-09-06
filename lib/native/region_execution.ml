@@ -21,40 +21,82 @@ type counters = {
   mutable reductions : int;
 }
 
-type lowered = { program : Region_program.t; slots : Region_slots.t }
+type lowered = {
+  program : Region_program.t;
+  slots : Region_slots.t;
+  output_shape : Vec6.shape;
+}
+
 type t = Pixel_loop of Expr.Value.t | Region_loop of lowered
 
 let counters () =
   { keys = 0; locals = 0; emitters = 0; loads = 0; reductions = 0 }
 
-(* For a caller that already knows, structurally, that [program] is not a
-   plain pixel expression -- e.g. it just matched [pixel_expression = None] --
-   so it need not re-discover that fact by lowering and matching on [t].
-
-   Re-running [Region_program.check] here is what makes the claim "an
-   already-validated lowered Region program" true regardless of how [program]
-   was produced: [Region_program.t] is only ever built through [create], which
-   already checks it once, but [Region_program.with_output] is a raw record
-   update with no check of its own -- [Kernel_eval.converted] uses exactly
-   that to splice in a result conversion after construction, so its rewritten
-   emitter has never been checked before it reaches here.
+(* Re-running [Region_program.check]/[Region_program.preflight] here is what
+   makes the claim "an already-validated lowered Region program" true
+   regardless of how [program] was produced: [Region_program.t] is only ever
+   built through [create], which already checks it once, but
+   [Region_program.with_output] is a raw record update with no check of its
+   own -- [Kernel_eval.converted] uses exactly that to splice in a result
+   conversion after construction, so its rewritten emitter has never been
+   checked before it reaches here. [preflight] needs [output_shape] to derive
+   one Region key's [outputs_per_key] from the program's own partition, which
+   is also why [lowered] retains it: [materialize]/[value_at] can then stop
+   taking a shape parameter at all, since it can no longer disagree with what
+   was validated.
 
    [Region_slots.of_locals]'s running offset is plain [int] arithmetic, not
    [Int64]-checked: the [check] just above already bounds the SUM of every
-   local's slot count against [max_size] on [Int64], so by the time a program
-   is lowered the total is already proven to fit -- this only has to use that
-   proof, not re-derive it. *)
-let lower_region ~max_size ~max_depth program =
+   local's slot count against [max_local_slots] on [Int64], so by the time a
+   program is lowered the total is already proven to fit -- this only has to
+   use that proof, not re-derive it. *)
+let validate ~max_size ~max_depth ~max_local_slots ~max_scan_state
+    ~max_scan_updates ~output_shape program =
   let open Err.Syntax in
-  let+ () = Region_program.check ~max_size ~max_depth program in
-  { program; slots = Region_slots.of_locals (Region_program.locals program) }
+  let* () = Region_program.check ~max_size ~max_depth program in
+  Region_program.preflight ~max_local_slots ~max_scan_state ~max_scan_updates
+    ~output_shape program
 
-let lower ~max_size ~max_depth program =
+(* For a caller that already knows, structurally, that [program] is not a
+   plain pixel expression -- e.g. it just matched [pixel_expression = None] --
+   so it need not re-discover that fact by lowering and matching on [t]. *)
+let lower_region ~max_size ~max_depth ~max_local_slots ~max_scan_state
+    ~max_scan_updates ~output_shape program =
+  let open Err.Syntax in
+  let+ () =
+    validate ~max_size ~max_depth ~max_local_slots ~max_scan_state
+      ~max_scan_updates ~output_shape program
+  in
+  {
+    program;
+    slots = Region_slots.of_locals (Region_program.locals program);
+    output_shape;
+  }
+
+let lower ~max_size ~max_depth ~max_local_slots ~max_scan_state
+    ~max_scan_updates ~output_shape program =
   match Region_program.pixel_expression program with
-  | Some expression -> Err.return (Pixel_loop expression)
+  | Some expression ->
+      (* A pixel program previously reached here with NO validation at all --
+         not even [max_size]/[max_depth] -- since only the [None] branch
+         called [check]. [Region_program.preflight] applies unchanged here
+         too: [pixel_expression = Some] implies an empty local list and a
+         singleton partition, so [outputs_per_key] is 1 and [per_key]
+         collapses to exactly [U(t.output)] -- the same one-evaluation cost
+         the per-output-coordinate runtime meter (see the scan design
+         record's "Runtime metering") independently bounds. *)
+      let open Err.Syntax in
+      let+ () =
+        validate ~max_size ~max_depth ~max_local_slots ~max_scan_state
+          ~max_scan_updates ~output_shape program
+      in
+      Pixel_loop expression
   | None ->
       let open Err.Syntax in
-      let+ lowered = lower_region ~max_size ~max_depth program in
+      let+ lowered =
+        lower_region ~max_size ~max_depth ~max_local_slots ~max_scan_state
+          ~max_scan_updates ~output_shape program
+      in
       Region_loop lowered
 
 let widened r =
@@ -154,8 +196,9 @@ let emit ?counters lowered ~env ~values ~output =
        ~output:(expr_coord output)
        (Region_program.output lowered.program))
 
-let materialize ?counters lowered ~output_shape ~env =
+let materialize ?counters lowered ~env =
   Err.Escape.with_escape @@ fun esc ->
+  let output_shape = lowered.output_shape in
   let tensor = Tensor.create output_shape in
   let partition = Region_program.partition lowered.program in
   Region_partition.fold_keys ~output_shape ~init:()
@@ -178,5 +221,6 @@ let materialize ?counters lowered ~output_shape ~env =
     partition;
   tensor
 
-let value_at lowered ~output_shape ~env ~output =
-  Region_eval.value_at lowered.program ~output_shape ~env ~output
+let value_at lowered ~env ~output =
+  Region_eval.value_at lowered.program ~output_shape:lowered.output_shape ~env
+    ~output

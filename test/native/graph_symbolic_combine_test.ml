@@ -21,7 +21,10 @@ let%expect_test "Symbolic graph: concat stage DAG + ground matches Direct" =
     let b = Tensor.materialize (s1c 3) (fun c -> float_of_int (10 + chan c)) in
     let inputs = List.combine g.Graph.inputs [ a; b ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     compare_output g grounded direct
   in
@@ -71,7 +74,10 @@ let%expect_test
     in
     let inputs = List.combine g.Graph.inputs [ a; b ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     compare_output g grounded direct
   in
@@ -107,7 +113,10 @@ let%expect_test "Symbolic graph: unbind emits one stage per slice" =
     in
     let inputs = List.combine g.Graph.inputs [ x ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     Err.return
       (List.map
@@ -162,7 +171,10 @@ let%expect_test "Symbolic graph: split_with_sizes emits one stage per piece" =
     in
     let inputs = List.combine g.Graph.inputs [ x ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     Err.return
       (List.map

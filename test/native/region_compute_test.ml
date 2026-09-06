@@ -472,7 +472,9 @@ let%expect_test "Native Direct materializes authored Regions once per key" =
     Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:1 ~max_depth:128 ~max_values:16
          ~max_dep_depth:16 ~max_inputs:16 ~max_outputs:16
-         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL)
+         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL ~max_local_slots:8192
+         ~max_scan_state:8192 ~max_scan_updates_per_key:8192L
+         ~max_scan_updates_total:16_000_000L)
   in
   let tight_result =
     Eval_direct.run ~limits:tight
@@ -669,13 +671,17 @@ let%expect_test "Region construction honors the graph-boundary contract" =
     Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:1 ~max_depth:128 ~max_values:16
          ~max_dep_depth:16 ~max_inputs:16 ~max_outputs:16
-         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL)
+         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL ~max_local_slots:8192
+         ~max_scan_state:8192 ~max_scan_updates_per_key:8192L
+         ~max_scan_updates_total:16_000_000L)
   in
   let expanded =
     Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:256 ~max_depth:128 ~max_values:256
          ~max_dep_depth:256 ~max_inputs:256 ~max_outputs:256
-         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL)
+         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL ~max_local_slots:8192
+         ~max_scan_state:8192 ~max_scan_updates_per_key:8192L
+         ~max_scan_updates_total:16_000_000L)
   in
   let present id =
     if Tensor_id.equal id x.Tensor_sig.id then Some x else None
@@ -700,6 +706,51 @@ let%expect_test "Region construction honors the graph-boundary contract" =
   [%expect
     {|
     default=ok expanded=ok tight=local list exceeds limit 1 ordinal=unsupported output ordinal 1 shape=output shape does not match the input missing=missing operand t10 |}]
+
+(* The OPERATION boundary now also [preflight]s: [check] alone (what [tight]
+   above exercises via [max_size]) does not cover [max_local_slots]. RMSNorm's
+   own program has exactly two scalar locals (its sum-of-squares and the
+   inverse RMS), costing two slots total -- a [max_local_slots = 1] kernel
+   rejects it with the SAME [Region_computation.Invalid_program] wrapper
+   [max_size] already uses, carrying the real [Region_program.error] through.
+*)
+let%expect_test "Region construction preflights local/trace storage too" =
+  let signature id shape =
+    Tensor_sig.create ~id:(Tensor_id.of_int id) ~name:"" ~shape
+      ~fmt:(Payload.Fmt Payload.F32) ()
+  in
+  let x = signature 10 shape in
+  let op =
+    Graph_ir.Rms_norm
+      {
+        Norm.RmsNorm.params = { dims = [ Axis.C ]; eps = 1e-5 };
+        x = x.Tensor_sig.id;
+        weight = None;
+      }
+  in
+  let build ~limits =
+    Region_computation.program ~limits ~op ~output:0 ~output_shape:shape
+      ~operand:(fun id ->
+        if Tensor_id.equal id x.Tensor_sig.id then Some x else None)
+      ~fill:(fun _role _value shape -> signature 11 shape)
+  in
+  let show = function
+    | Ok _ -> "ok"
+    | Error error ->
+        Format.asprintf "%a" Region_computation.pp_error (Err.Error.kind error)
+  in
+  let one_slot =
+    Err.or_raise ~pp_error:Kernel.Limits.pp_error
+      (Kernel.Limits.create ~max_size:256 ~max_depth:128 ~max_values:16
+         ~max_dep_depth:16 ~max_inputs:16 ~max_outputs:16
+         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL ~max_local_slots:1
+         ~max_scan_state:8192 ~max_scan_updates_per_key:8192L
+         ~max_scan_updates_total:16_000_000L)
+  in
+  Fmt.pr "default=%s one_slot=%s@."
+    (show (build ~limits:Kernel.Limits.default))
+    (show (build ~limits:one_slot));
+  [%expect {| default=ok one_slot=total local slot count exceeds limit 1 |}]
 
 let%expect_test "Region executor traverses keys, locals, and emitters once" =
   let partition =
@@ -728,7 +779,9 @@ let%expect_test "Region executor traverses keys, locals, and emitters once" =
   let lowered =
     match
       Err.or_raise ~pp_error:Region_program.pp_error
-        (Region_execution.lower ~max_size:32 ~max_depth:16 program)
+        (Region_execution.lower ~max_size:32 ~max_depth:16 ~max_local_slots:8192
+           ~max_scan_state:8192 ~max_scan_updates:8192L ~output_shape:shape
+           program)
     with
     | Region_execution.Pixel_loop _ -> assert false
     | Region_execution.Region_loop lowered -> lowered
@@ -746,7 +799,7 @@ let%expect_test "Region executor traverses keys, locals, and emitters once" =
   in
   let output =
     Err.or_raise ~pp_error:Region_eval.pp_error
-      (Region_execution.materialize ~counters lowered ~output_shape:shape ~env)
+      (Region_execution.materialize ~counters lowered ~env)
   in
   Fmt.pr
     "cells=%g,%g,%g,%g,%g,%g keys=%d locals=%d emitters=%d loads=%d \
@@ -793,7 +846,10 @@ let%expect_test
   in
   let rewritten = Region_program.with_output program oversized_output in
   let show program =
-    match Region_execution.lower ~max_size:32 ~max_depth:16 program with
+    match
+      Region_execution.lower ~max_size:32 ~max_depth:16 ~max_local_slots:8192
+        ~max_scan_state:8192 ~max_scan_updates:8192L ~output_shape:shape program
+    with
     | Ok _ -> "ok"
     | Error error ->
         Format.asprintf "%a" Region_program.pp_error (Err.Error.kind error)

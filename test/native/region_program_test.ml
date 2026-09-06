@@ -218,20 +218,21 @@ let%expect_test
   let lowered =
     match
       Err.or_raise ~pp_error:Region_program.pp_error
-        (Region_execution.lower ~max_size:32 ~max_depth:16 program)
+        (Region_execution.lower ~max_size:32 ~max_depth:16 ~max_local_slots:8192
+           ~max_scan_state:8192 ~max_scan_updates:8192L ~output_shape program)
     with
     | Region_execution.Region_loop lowered -> lowered
     | Region_execution.Pixel_loop _ -> assert false
   in
   let tensor =
     Err.or_raise ~pp_error:Region_eval.pp_error
-      (Region_execution.materialize lowered ~output_shape ~env)
+      (Region_execution.materialize lowered ~env)
   in
   let agrees =
     Vec6.fold_coords output_shape ~init:true ~f:(fun agrees output ->
         let projected =
           Err.or_raise ~pp_error:Region_eval.pp_error
-            (Region_execution.value_at lowered ~output_shape ~env ~output)
+            (Region_execution.value_at lowered ~env ~output)
         in
         agrees
         && Core.Float_bits.equal_exact (Tensor.read tensor output) projected)

@@ -729,7 +729,10 @@ let agree name g ~inputs ~constants =
         | Some t -> t
         | None -> invalid_arg "unbound")
   in
-  let grounded = Stage_program.ground program ~bind in
+  let grounded =
+    Err.or_raise ~pp_error:Stage_program.pp_error
+      (Stage_program.ground program ~bind)
+  in
   (* EVERY output, not [List.hd]. For the eighteen single-output ops that is the
      same thing; for [Unbind] it is the difference between comparing the whole
      op and comparing its first slice, and a per-ordinal bug is exactly what a

@@ -36,7 +36,10 @@ let%expect_test "Symbolic graph: max_pool2d_with_indices ground matches Direct"
     in
     let inputs = List.combine g.Graph.inputs [ x ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     Err.return
       (List.map
@@ -96,7 +99,10 @@ let%expect_test
     in
     let inputs = List.combine g.Graph.inputs [ x ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     Err.return
       (List.map

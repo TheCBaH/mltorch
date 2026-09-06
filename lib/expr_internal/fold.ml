@@ -404,6 +404,65 @@ let scan_locals e =
       | Scan_ref v -> keep bound acc v | Scalar_ref _ | Vector_ref _ -> acc)
     Local_var.Set.empty Local_var.Set.empty e
 
+(* Saturating, not wrapping: this repository's 32-bit rule for
+   js_of_ocaml-reachable code (this library is one) requires that an
+   aggregate never silently wrap, and [scan_cost] is a cost ESTIMATE, not a
+   value anything stores or replays, so capping at [Int64.max_int] is exactly
+   as sound as failing outright while needing no error channel here -- the
+   caller compares the result against a configured limit and every limit sits
+   far below this ceiling. *)
+let sat_add_i64 a b =
+  if Int64.compare a (Int64.sub Int64.max_int b) > 0 then Int64.max_int
+  else Int64.add a b
+
+let sat_mul_i64 a b =
+  if Int64.equal a 0L || Int64.equal b 0L then 0L
+  else if Int64.compare a (Int64.div Int64.max_int b) > 0 then Int64.max_int
+  else Int64.mul a b
+
+(* [(updates, state)]: the lane-update count and peak live scan state one
+   evaluation of [e] costs through the standalone inline evaluator
+   ([Eval.value]'s [Scan_at] arm). Deliberately does NOT multiply through an
+   enclosing [Reduce]'s extent -- [Scan_admission.check] is the complementary,
+   reduction-aware guard for a scan actually composed under one; every scan
+   this measure targets sits at Region-local top level, per the scan design
+   record's own census. Since neither [Role.Position.t Index.t] nor
+   [Role.Delta.t Index.t] can embed a [value] (the two languages are not
+   mutually recursive), a [Scan_at]/[Local_scan_at] read's row/lane/step
+   arguments and a [Reduce]'s bounds can never hide a scan, so every other
+   node contributes only its children's cost. *)
+let rec scan_cost (e : Value.t) : int64 * int =
+  match e with
+  | Value.Const _ | Value.Intrinsic _ | Value.Load _ | Value.Local _
+  | Value.Local_at _ | Value.Local_scan_at _ | Value.Value_of_index _ ->
+      (0L, 0)
+  | Value.Unary (_, a) | Value.Round_f32 a -> scan_cost a
+  | Value.Reduce r -> scan_cost r.Reduction.body
+  | Value.Binary (_, a, b) ->
+      let ua, sa = scan_cost a and ub, sb = scan_cost b in
+      (sat_add_i64 ua ub, Stdlib.max sa sb)
+  | Value.Select (c, a, b) ->
+      let uc, sc =
+        match c with
+        | Bool.Value_lt (x, y) ->
+            let ux, sx = scan_cost x and uy, sy = scan_cost y in
+            (sat_add_i64 ux uy, Stdlib.max sx sy)
+        | Bool.Index_eq _ -> (0L, 0)
+      in
+      let ua, sa = scan_cost a and ub, sb = scan_cost b in
+      (sat_add_i64 uc (sat_add_i64 ua ub), Stdlib.max sc (Stdlib.max sa sb))
+  | Value.Scan_at (s, _, _) ->
+      let u_init, s_init = scan_cost s.Scan.init in
+      let u_update, s_update = scan_cost s.Scan.update in
+      let width = Int64.of_int s.Scan.width
+      and steps = Int64.of_int s.Scan.steps in
+      let updates =
+        sat_add_i64 (sat_mul_i64 width u_init)
+          (sat_mul_i64 steps (sat_mul_i64 width (Int64.add 1L u_update)))
+      in
+      let state = (2 * s.Scan.width) + Stdlib.max s_init s_update in
+      (updates, state)
+
 let output_axes e =
   walk ~value:nothing ~index:{ idx = index_axes } ~intrinsic:nothing [] e
   |> List.sort Axis.compare

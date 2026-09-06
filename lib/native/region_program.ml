@@ -24,6 +24,7 @@ type error =
   | `Local_words_over_limit of int
   | `Non_invariant_local of Non_invariant.t
   | `Scan of Expr.Scan.error
+  | `Scan_updates_over_limit of int64
   | `Shape_mismatch of Shape_mismatch.t
   | `Unknown_emitter_local of Expr.Local_var.t
   | `Unknown_local of Local_scope.t ]
@@ -179,6 +180,8 @@ let pp_error fmt : [< error ] -> unit = function
       Fmt.pf fmt "local %a varies over whole axis %a" Expr.Local_var.pp local
         Expr.Axis.pp axis
   | `Scan error -> Expr.Scan.pp_error fmt error
+  | `Scan_updates_over_limit limit ->
+      Fmt.pf fmt "region key's scan updates exceed limit %Ld" limit
   | `Shape_mismatch { Shape_mismatch.local; read; declared } ->
       Fmt.pf fmt "local %a is read as %s but declared %a" Expr.Local_var.pp
         local
@@ -260,11 +263,10 @@ let shape_error ~shapes expr =
    op's own [total_work_bounded]-style product), but the SUM across several
    vector locals is an aggregate, and CLAUDE.md's 32-bit rule is explicit that
    a check on individually-in-range factors does not bound their sum --
-   [lib/native] is js_of_ocaml-reachable. [max_size] doubles as the ceiling
-   here: it is already the general "how big may this Region program be"
-   budget threaded through [create]/[check], and a program's total local
-   footprint is part of that same budget rather than a new, separately-tuned
-   knob. *)
+   [lib/native] is js_of_ocaml-reachable. Billed against [max_local_slots], a
+   dimension of its own: a program's total local/trace storage footprint is a
+   resource distinct from [max_size]'s "how many syntax nodes" budget, which
+   [preflight] enforces separately at the same call. *)
 let checked_slot_total ~limit locals =
   let limit64 = Int64.of_int limit in
   let rec go total = function
@@ -294,7 +296,6 @@ let check ~max_size ~max_depth t =
   let open Err.Syntax in
   if over_limit max_size t.locals then Err.fail (`Local_list_too_large max_size)
   else
-    let* () = checked_slot_total ~limit:max_size t.locals in
     let all = all_local_ids t.locals in
     let shapes = all_local_shapes t.locals in
     let rec check_locals remaining defined seen = function
@@ -393,6 +394,138 @@ let create ~max_size ~max_depth ~partition ~locals ~output =
   let open Err.Syntax in
   let* () = check ~max_size ~max_depth t in
   Err.return t
+
+(* ---- scan resource preflight -----------------------------------------------
+
+   [max_local_slots]/[max_scan_state]/[max_scan_updates] gate a dimension
+   [check] does not: the three RESOURCE costs of actually running an
+   already-well-formed program (storage, peak nested state, recurrence
+   iterations), rather than its syntax. See the scan design record's "Static
+   measures" -- these are COST ESTIMATES, admission and reporting only, never
+   a runtime guarantee the meter could contradict. All aggregates use
+   saturating [Int64] arithmetic, capped at [Int64.max_int] rather than
+   wrapped, per CLAUDE.md's 32-bit rule for this js_of_ocaml-reachable
+   library. *)
+
+let sat_add_i64 a b =
+  if Int64.compare a (Int64.sub Int64.max_int b) > 0 then Int64.max_int
+  else Int64.add a b
+
+let sat_mul_i64 a b =
+  if Int64.equal a 0L || Int64.equal b 0L then 0L
+  else if Int64.compare a (Int64.div Int64.max_int b) > 0 then Int64.max_int
+  else Int64.mul a b
+
+(* [Region_partition]'s "whole" axes vary per output sharing one key; a
+   [Singleton] axis is fixed by the key and contributes nothing here. *)
+let outputs_per_key ~output_shape partition =
+  List.fold_left
+    (fun acc axis ->
+      sat_mul_i64 acc (Int64.of_int (Dim.to_int (Vec6.get output_shape axis))))
+    1L
+    (Region_partition.whole_axes partition)
+
+(* The sum of [(steps+1)*width] over TRACE locals only -- distinct from
+   [checked_slot_total]'s sum over every local (which bills [max_local_slots]
+   and includes scalar/vector locals too): several already-bounded scan
+   locals' own slot counts can still overflow a 32-bit [int] in aggregate, so
+   this is [Int64]-checked exactly like that one. *)
+let trace_slot_total locals =
+  List.fold_left
+    (fun acc local ->
+      match local.Region_local.rhs with
+      | Region_local.Rhs.Scan _ ->
+          sat_add_i64 acc
+            (Int64.of_int (Region_local.Rhs.slot_count local.Region_local.rhs))
+      | Region_local.Rhs.Scalar _ | Region_local.Rhs.Vector _ -> acc)
+    0L locals
+
+(* A trace local's OWN peak state never includes its own [2*width]: that
+   resource is already reserved differently, as the whole materialized trace
+   in [trace_slot_total], not as the inline evaluator's rolling two-row
+   buffer. Only a scan NESTED inside this scan's own [init]/[update] would
+   still pay the inline (executable) cost, which is exactly what
+   [Fold.scan_cost] reports for each. *)
+let nested_scan_state (s : Expr.Scan.t) =
+  Stdlib.max
+    (snd (Expr.Fold.scan_cost s.Expr.Scan.init))
+    (snd (Expr.Fold.scan_cost s.Expr.Scan.update))
+
+(* [scan_peak = 0] falls out of this formula with no special case whenever no
+   [Scan_at]/trace local is reachable anywhere in the program: every term
+   below is then structurally 0. *)
+let scan_peak locals output =
+  let peak_state =
+    List.fold_left
+      (fun acc local ->
+        match local.Region_local.rhs with
+        | Region_local.Rhs.Scan s -> Stdlib.max acc (nested_scan_state s)
+        | Region_local.Rhs.Scalar _ | Region_local.Rhs.Vector _ ->
+            Stdlib.max acc
+              (snd
+                 (Expr.Fold.scan_cost
+                    (Region_local.Rhs.value local.Region_local.rhs))))
+      (snd (Expr.Fold.scan_cost output))
+      locals
+  in
+  sat_add_i64 (trace_slot_total locals) (Int64.of_int peak_state)
+
+(* [per_key]: every local is materialized once per Region key (a vector local
+   [extent] times, over its own per-element body); the emitter runs once per
+   OUTPUT sharing that key, [outputs_per_key] of them. *)
+let per_key ~output_shape t =
+  let multiplicity local =
+    match local.Region_local.rhs with
+    | Region_local.Rhs.Scalar _ | Region_local.Rhs.Scan _ -> 1L
+    | Region_local.Rhs.Vector { extent; _ } -> Int64.of_int extent
+  in
+  let locals_total =
+    List.fold_left
+      (fun acc local ->
+        sat_add_i64 acc
+          (sat_mul_i64 (multiplicity local)
+             (fst
+                (Expr.Fold.scan_cost
+                   (Region_local.Rhs.value local.Region_local.rhs)))))
+      0L t.locals
+  in
+  sat_add_i64 locals_total
+    (sat_mul_i64
+       (outputs_per_key ~output_shape t.partition)
+       (fst (Expr.Fold.scan_cost t.output)))
+
+let preflight ~max_local_slots ~max_scan_state ~max_scan_updates ~output_shape t
+    =
+  let open Err.Syntax in
+  let* () = checked_slot_total ~limit:max_local_slots t.locals in
+  let* () =
+    let peak = scan_peak t.locals t.output in
+    if Int64.compare peak (Int64.of_int max_scan_state) > 0 then
+      Err.fail (`Scan (Expr.Scan.State_over_limit { limit = max_scan_state }))
+    else Err.return ()
+  in
+  let total = per_key ~output_shape t in
+  if Int64.compare total max_scan_updates > 0 then
+    Err.fail (`Scan_updates_over_limit max_scan_updates)
+  else Err.return ()
+
+(* [keys * per_key] for this one program -- the number [max_scan_updates_total]
+   sums across a Kernel's logical values (see [Kernel.create]). [keys] is the
+   count of distinct Region keys: the product of [output_shape]'s extents over
+   the partition's SINGLETON axes only, the complement of [outputs_per_key]'s
+   own "whole" axes. *)
+let scan_updates_total ~output_shape t =
+  let keys =
+    List.fold_left
+      (fun acc axis ->
+        match Region_partition.mode t.partition axis with
+        | Region_partition.Axis_mode.Whole -> acc
+        | Region_partition.Axis_mode.Singleton ->
+            sat_mul_i64 acc
+              (Int64.of_int (Dim.to_int (Vec6.get output_shape axis))))
+      1L Expr.Axis.all
+  in
+  sat_mul_i64 keys (per_key ~output_shape t)
 
 module Fold = struct
   let expressions t =

@@ -21,19 +21,24 @@ let run ppf (s : Native_subject.t) : bool =
       Fmt.pf ppf "[native] %s: eval error: %a@." s.Native_subject.target
         Eval_direct.pp_error (Err.Error.kind e);
       false
-  | Ok direct ->
+  | Ok direct -> (
       let prog = Eval_symbolic.run g in
       let bind id = List.assoc id s.Native_subject.inputs in
-      let grounded = Stage_program.ground prog ~bind in
-      let agree oid =
-        let d = Tensor_id.Map.find oid direct in
-        let gr = Tensor_id.Map.find oid grounded in
-        tensors_match (shape_of oid) d gr
-      in
-      if List.for_all agree g.Graph_ir.Graph.outputs then (
-        Fmt.pf ppf "[native] %s: direct==symbolic@." s.Native_subject.target;
-        true)
-      else (
-        Fmt.pf ppf "[native] %s: MISMATCH direct vs symbolic@."
-          s.Native_subject.target;
-        false)
+      match Stage_program.ground prog ~bind with
+      | Error e ->
+          Fmt.pf ppf "[native] %s: ground error: %a@." s.Native_subject.target
+            Stage_program.pp_error (Err.Error.kind e);
+          false
+      | Ok grounded ->
+          let agree oid =
+            let d = Tensor_id.Map.find oid direct in
+            let gr = Tensor_id.Map.find oid grounded in
+            tensors_match (shape_of oid) d gr
+          in
+          if List.for_all agree g.Graph_ir.Graph.outputs then (
+            Fmt.pf ppf "[native] %s: direct==symbolic@." s.Native_subject.target;
+            true)
+          else (
+            Fmt.pf ppf "[native] %s: MISMATCH direct vs symbolic@."
+              s.Native_subject.target;
+            false))

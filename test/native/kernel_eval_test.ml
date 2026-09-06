@@ -69,7 +69,10 @@ let compare_all ?inputs g =
   let* direct =
     lift (fun e -> `Direct e) (Eval_direct.run ~constants g ~inputs:plain)
   in
-  let grounded = Stage_program.ground prog ~bind:bind_total in
+  let grounded =
+    Err.or_raise ~pp_error:Stage_program.pp_error
+      (Stage_program.ground prog ~bind:bind_total)
+  in
   (* [value_at] at every coordinate of every value. *)
   let* recursive =
     List.fold_left

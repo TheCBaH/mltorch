@@ -48,8 +48,18 @@ type t = {
 
 val pp : Format.formatter -> t -> unit
 
+type error = [ Region_program.error | Region_eval.error ]
+
+val pp_error : Format.formatter -> [< error ] -> unit
+
 (* Chain-ground the stages: [bind] supplies a tensor for each graph input id; the
    result maps every stage's edge id to its grounded tensor (the intermediates),
-   so the graph outputs are looked up by id. *)
+   so the graph outputs are looked up by id. Every stage is preflighted --
+   [Region_execution.lower], which runs both [Region_program.check] and
+   [Region_program.preflight] -- before the first one is materialized;
+   [?limits] defaults to [Kernel.Limits.default]. *)
 val ground :
-  t -> bind:(Tensor_id.t -> Tensor.packed) -> Tensor.packed Tensor_id.Map.t
+  ?limits:Kernel.Limits.t ->
+  t ->
+  bind:(Tensor_id.t -> Tensor.packed) ->
+  (Tensor.packed Tensor_id.Map.t, error) Err.t

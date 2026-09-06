@@ -45,8 +45,36 @@ let pp fmt (p : t) =
     p.stages;
   Format.fprintf fmt "outputs: %s@]" (comma (List.map name_of p.outputs))
 
-let ground (p : t) ~(bind : Tensor_id.t -> Tensor.packed) :
-    Tensor.packed Tensor_id.Map.t =
+type error = [ Region_program.error | Region_eval.error ]
+
+let pp_error fmt : [< error ] -> unit = function
+  | #Region_program.error as e -> Region_program.pp_error fmt e
+  | #Region_eval.error as e -> Region_eval.pp_error fmt e
+
+let widen_program r =
+  Err.map_error (fun (e : Region_program.error) -> (e :> error)) r
+
+let lower ~(limits : Kernel.Limits.t) (st : Stage.t) =
+  widen_program
+    (Region_execution.lower ~max_size:limits.Kernel.Limits.max_size
+       ~max_depth:limits.Kernel.Limits.max_depth
+       ~max_local_slots:limits.Kernel.Limits.max_local_slots
+       ~max_scan_state:limits.Kernel.Limits.max_scan_state
+       ~max_scan_updates:limits.Kernel.Limits.max_scan_updates_per_key
+       ~output_shape:st.Stage.sg.Tensor_sig.shape (Stage.computation st))
+
+let ground ?(limits = Kernel.Limits.default) (p : t)
+    ~(bind : Tensor_id.t -> Tensor.packed) :
+    (Tensor.packed Tensor_id.Map.t, error) Err.t =
+  Err.Escape.with_escape @@ fun esc ->
+  (* Preflight every stage before materializing the first one: a program that
+     fails halfway through an otherwise-successful ground would have already
+     mutated no shared state (each stage's tensor is a fresh value), but
+     reporting the failure only after doing part of the graph's real work is
+     still the wrong contract for a validation step this cheap to run first. *)
+  List.iter
+    (fun st -> ignore (Err.Escape.or_throw esc (lower ~limits st)))
+    p.stages;
   let seed =
     List.fold_left
       (fun m (id, (s : Tensor_sig.t)) -> Tensor_id.Map.add s.id (bind id) m)
@@ -68,22 +96,18 @@ let ground (p : t) ~(bind : Tensor_id.t -> Tensor.packed) :
            before any error path exists. *)
         let binding id = Tensor_id.Map.find_opt id binds in
         let t =
-          (* [?limits] does not reach here yet -- [Eval_symbolic.run] hardcodes
-             [Kernel.Limits.default] the same way, and both are threaded a real
-             configured value together later. *)
-          match
-            Err.or_raise ~pp_error:Region_program.pp_error
-              (Region_execution.lower
-                 ~max_size:Kernel.Limits.default.Kernel.Limits.max_size
-                 ~max_depth:Kernel.Limits.default.Kernel.Limits.max_depth
-                 (Stage.computation st))
-          with
+          match Err.Escape.or_throw esc (lower ~limits st) with
           | Region_execution.Pixel_loop body ->
-              Schedule.ground st.sg.shape ~binding body
+              Err.Escape.or_throw esc
+                (Err.map_error
+                   (fun (e : Expr.Eval.error) -> (e :> error))
+                   (Schedule.ground st.sg.shape ~binding body))
           | Region_execution.Region_loop lowered ->
-              Err.or_raise ~pp_error:Region_eval.pp_error
-                (Region_execution.materialize lowered ~output_shape:st.sg.shape
-                   ~env:(Expr_bridge.env ~binding))
+              Err.Escape.or_throw esc
+                (Err.map_error
+                   (fun (e : Region_eval.error) -> (e :> error))
+                   (Region_execution.materialize lowered
+                      ~env:(Expr_bridge.env ~binding)))
         in
         (Tensor_id.Map.add st.sg.id t binds, Tensor_id.Map.add st.id t result))
       (seed, Tensor_id.Map.empty)

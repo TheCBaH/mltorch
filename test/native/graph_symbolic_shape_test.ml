@@ -25,7 +25,10 @@ let%expect_test "Symbolic graph: Discard emits no stage; ground matches Direct"
     let b = Tensor.materialize (s1c 3) (fun c -> [| -3.; 1.; 2. |].(chan c)) in
     let inputs = List.combine g.Graph.inputs [ a; b ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     compare_output g grounded direct
   in
@@ -64,7 +67,10 @@ let%expect_test "Symbolic graph: reshape ground matches Direct" =
     in
     let inputs = List.combine g.Graph.inputs [ x ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     compare_output g grounded direct
   in
@@ -95,7 +101,10 @@ let%expect_test "Symbolic graph: repeat ground matches Direct" =
     let x = Tensor.materialize (s1c 2) (fun c -> float_of_int (chan c)) in
     let inputs = List.combine g.Graph.inputs [ x ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     compare_output g grounded direct
   in
@@ -131,7 +140,10 @@ let%expect_test "Symbolic graph: repeat_interleave ground matches Direct" =
     let x = Tensor.materialize (s1c 2) (fun c -> float_of_int (chan c)) in
     let inputs = List.combine g.Graph.inputs [ x ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     compare_output g grounded direct
   in
@@ -168,7 +180,10 @@ let%expect_test "Symbolic graph: unfold ground matches Direct" =
     let x = Tensor.materialize (s1c 8) (fun c -> float_of_int (chan c)) in
     let inputs = List.combine g.Graph.inputs [ x ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     compare_output g grounded direct
   in

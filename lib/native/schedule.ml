@@ -39,15 +39,15 @@ let evaluate (shape : Vec6.shape) (pixel : Vec6.coord -> float) =
 let ground (shape : Vec6.shape) ~(binding : Tensor_id.t -> Tensor.packed option)
     (e : Expr.Value.t) =
   let env = Expr_bridge.env ~binding in
-  (* [Err.or_raise ~pp_error:] once per PIXEL, not per node, and only here.
+  (* [Err.Escape] once per PIXEL, not per node, and only here.
      [Tensor.materialize] takes [Vec6.coord -> float] and is the engine's
      iteration seam; threading a result through it would make [Direct] -- the
-     actual hot path -- pay for the symbolic one. [Direct]'s pixels already
-     raise [Invalid_argument] out of [Dim.index], so this matches [ground]'s
-     existing contract rather than widening it. The named helper is what keeps
-     the deliberate wrapper-drop distinguishable from the defect. *)
+     actual hot path -- pay for the symbolic one. [Stage_program.ground]
+     crosses this same boundary the same way, so both share one contract for
+     what happens when [Expr.Eval] fails mid-materialization. *)
+  Err.Escape.with_escape @@ fun esc ->
   Tensor.materialize shape (fun c ->
-      Err.or_raise ~pp_error:Expr.Eval.pp_error
+      Err.Escape.or_throw esc
         (Expr.Eval.value env
            ~output:(Expr_bridge.coord_of_vec6 (Vec6.map Dim.to_int c))
            e))

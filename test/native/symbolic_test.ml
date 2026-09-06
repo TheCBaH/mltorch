@@ -72,7 +72,10 @@ let compare_grounded out_shape_result ~binding ~expr ~eval_direct =
   let open Err.Syntax in
   let* out_shape = out_shape_result in
   let direct = Schedule.evaluate out_shape eval_direct in
-  let grounded = Schedule.ground out_shape ~binding expr in
+  let grounded =
+    Err.or_raise ~pp_error:Expr.Eval.pp_error
+      (Schedule.ground out_shape ~binding expr)
+  in
   Err.return (grounded, Tensor.equal_bits direct grounded)
 
 let%expect_test "Symbolic: pointwise expr pp" =

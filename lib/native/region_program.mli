@@ -24,6 +24,7 @@ type error =
   | `Local_words_over_limit of int
   | `Non_invariant_local of Non_invariant.t
   | `Scan of Expr.Scan.error
+  | `Scan_updates_over_limit of int64
   | `Shape_mismatch of Shape_mismatch.t
   | `Unknown_emitter_local of Expr.Local_var.t
   | `Unknown_local of Local_scope.t ]
@@ -64,6 +65,30 @@ val create :
   (t, error) Err.t
 
 val check : max_size:int -> max_depth:int -> t -> (unit, error) Err.t
+
+val preflight :
+  max_local_slots:int ->
+  max_scan_state:int ->
+  max_scan_updates:int64 ->
+  output_shape:Vec6.shape ->
+  t ->
+  (unit, error) Err.t
+(** The RESOURCE dimensions [check] does not cover: total local/trace storage
+    against [max_local_slots], peak nested scan state against [max_scan_state],
+    and one Region key's worst-case recurrence-update count (every local
+    materialized once, a vector [extent] times, the emitter once per output
+    sharing a key -- [outputs_per_key], derived from [output_shape] and the
+    program's own partition) against [max_scan_updates]. A cost ESTIMATE and
+    admission tool, not a runtime guarantee: call on an already-[check]ed
+    program. *)
+
+val scan_updates_total : output_shape:Vec6.shape -> t -> int64
+(** [keys * per_key]'s worst-case recurrence-update count for this ONE program,
+    where [keys] is the count of distinct Region keys (the product of
+    [output_shape]'s extents over the partition's singleton axes). Summed across
+    a Kernel's logical values, this is [max_scan_updates_total]'s own measure --
+    a Kernel-scoped aggregate, deliberately not part of [preflight] itself. *)
+
 val pp_error : Format.formatter -> [< error ] -> unit
 val pp : Format.formatter -> t -> unit
 
