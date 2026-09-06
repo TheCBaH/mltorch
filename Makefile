@@ -1,4 +1,4 @@
-.PHONY: visualizer.submodule visualizer.patch visualizer.build spike.setup spike.runtest webapp.npm-install webapp.build webapp.serve webapp.runtest webapp.bridge-runtest webapp.browser-runtest melange.build melange.build.scaffold melange.runtest build test format runtest verify.pristine clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars pt2.json-model-support inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% benchmark.region_pixel benchmark.region_compute tailcall.runtest tailcall.js-benchmark jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.run jsoo.pt2.download jsoo.pt2.vars js.build js.runtest check.file-size check.whitespace check precommit
+.PHONY: visualizer.submodule visualizer.patch visualizer.build spike.setup spike.runtest webapp.npm-install webapp.build webapp.serve webapp.runtest webapp.bridge-runtest webapp.browser-runtest melange.build melange.build.scaffold melange.runtest build test format runtest verify.pristine clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars pt2.json-model-support inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% benchmark.region_pixel benchmark.region_compute tailcall.runtest tailcall.js-benchmark inline-timing-report inline-timing-report-js jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.run jsoo.pt2.download jsoo.pt2.vars js.build js.runtest check.file-size check.whitespace check precommit
 all: build
 
 # Functional ATen model release, pinned alongside the producer submodule.
@@ -325,6 +325,24 @@ test:
 # runner.
 runtest:
 	NO_COLOR=1 opam exec -- dune runtest --auto-promote
+
+# Per-partition inline-test timing report + regression gate, over every
+# (inline_tests) library in the project -- see
+# scripts/inline-test-timing-report-all.sh and
+# _ai_/lstm_scale_test_timing_notes.md. Split into best/js like
+# runtest/js.runtest: js needs node and is heavier to build.
+#
+# Separate thresholds: js_of_ocaml is slower per-op than native (measured on
+# lstm_scale_test.ml's shrunk fixture -- 6.7s native, 36s under node), so a
+# shared threshold would either be too loose natively or too tight on js.
+INLINE_TIMING_THRESHOLD_SECONDS := 10
+INLINE_TIMING_THRESHOLD_SECONDS_JS := 60
+
+inline-timing-report:
+	opam exec -- scripts/inline-test-timing-report-all.sh best $(INLINE_TIMING_THRESHOLD_SECONDS)
+
+inline-timing-report-js:
+	opam exec -- scripts/inline-test-timing-report-all.sh js $(INLINE_TIMING_THRESHOLD_SECONDS_JS)
 
 # Standalone recursion experiment.  These are committed backend-specific
 # expectations rather than a native-vs-JS diff: the point is precisely that
