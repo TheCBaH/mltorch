@@ -1,6 +1,7 @@
-(* Region-level scan construction, checking and rendering -- Stage 1's
-   Region-side half (see .ai/native_scan_design.md). Execution is a later
-   step: these tests only build, check and print scan-backed programs. *)
+(* Region-level scan construction, checking, rendering and (Stage 1's final
+   acceptance step, see .ai/native_scan_design.md) execution through the
+   whole-graph Stage and Kernel paths -- not just Region's own materializer,
+   which test/native/region_scan_execution_test.ml already covers. *)
 
 open Expr
 
@@ -115,3 +116,162 @@ let%expect_test "a scan's update cannot forward-reference a later local" =
          ]
        ~output:(Value.local_scan_at scan_id ~row:Index.zero ~lane:Index.zero));
   [%expect {| local #0 refers forward to #1 |}]
+
+(* ---- Stage 1 acceptance: the same construction, executed end to end ------ *)
+
+let s1 = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1
+
+let out_sig =
+  Tensor_sig.create ~id:(Tensor_id.of_int 0) ~name:"" ~shape:s1
+    ~fmt:(Payload.Fmt Payload.F32) ()
+
+let read_out (m : Tensor.packed Tensor_id.Map.t) =
+  match Tensor_id.Map.find_opt (Tensor_id.of_int 0) m with
+  | Some t -> Tensor.read t Vec6.origin
+  | None -> assert false
+
+(* The scan reads row [steps] -- trace.(steps,_) = steps, so the single
+   output cell (a constant expression, independent of the output
+   coordinate: [build_counter] does not thread it through) is exactly
+   [float_of_int steps]. *)
+let%expect_test
+    "a scan-backed Region program executes through Stage_program.ground and \
+     Kernel_eval.run, and both agree" =
+  let program =
+    Err.or_raise ~pp_error:Region_program.pp_error
+      (build_counter ~width:2 ~steps:5 ~row:5 ~lane:0)
+  in
+  let stage_program : Stage_program.t =
+    {
+      Stage_program.inputs = [];
+      input_kinds = Tensor_id.Map.empty;
+      consts = [];
+      stages =
+        [
+          {
+            Stage_program.Stage.id = Tensor_id.of_int 0;
+            sg = out_sig;
+            computation = program;
+          };
+        ];
+      outputs = [ Tensor_id.of_int 0 ];
+    }
+  in
+  let via_stage =
+    Err.or_raise ~pp_error:Stage_program.pp_error
+      (Stage_program.ground stage_program ~bind:(fun _ -> assert false))
+  in
+  let kernel =
+    Err.or_raise ~pp_error:Kernel.pp_error
+      (Kernel.create ~inputs:[]
+         ~values:
+           [
+             {
+               Kernel.Value.id = Tensor_id.of_int 0;
+               sg = out_sig;
+               computation = program;
+               result = Kernel.Result_conversion.Round_f32;
+             };
+           ]
+         ~outputs:[ Tensor_id.of_int 0 ]
+         ())
+  in
+  let via_kernel =
+    Err.or_raise ~pp_error:Kernel_eval.pp_error
+      (Kernel_eval.run kernel ~bind:(fun _ -> None))
+  in
+  Fmt.pr "stage=%g kernel=%g@." (read_out via_stage) (read_out via_kernel);
+  [%expect {| stage=5 kernel=5 |}]
+
+(* Closes the remaining leg of the Stage 1 exit conditions' "agrees across
+   production/reference Region execution, specialized Expr evaluation":
+   [specialize_pixel] fully inlines every local, so the result has no [Local]/
+   [Local_at]/[Local_scan_at] left -- evaluating it needs no [env] and no
+   [reducer] seed, only a fresh [Scan_meter.t] for its own inline [Scan_at]. *)
+let%expect_test
+    "specializing and directly evaluating a scan-backed program agrees with \
+     materializing it through Region" =
+  let program =
+    Err.or_raise ~pp_error:Region_program.pp_error
+      (build_counter ~width:2 ~steps:5 ~row:5 ~lane:0)
+  in
+  let specialized =
+    Err.or_raise ~pp_error:Region_program.pp_error
+      (Region_program.specialize_pixel ~max_size:64 ~max_depth:16
+         ~scan_limits:limits program)
+  in
+  let env =
+    {
+      Eval.Env.load = (fun _ _ -> assert false);
+      load_index = (fun _ _ -> assert false);
+    }
+  in
+  let evaluated =
+    Err.or_raise ~pp_error:Eval.pp_error
+      (Eval.value env
+         ~scan_meter:(Scan_meter.create ~limits)
+         ~output:(Expr_bridge.coord_of_vec6 (Vec6.map Dim.to_int Vec6.origin))
+         specialized)
+  in
+  let materialized =
+    Err.or_raise ~pp_error:Region_eval.pp_error
+      (Region_eval.materialize program ~output_shape:s1 ~env)
+  in
+  Fmt.pr "evaluated=%g materialized=%g@." evaluated
+    (Tensor.read materialized Vec6.origin);
+  [%expect {| evaluated=5 materialized=5 |}]
+
+(* The Stage 1 exit conditions also claim the specialized AST's size is
+   INDEPENDENT of [width]/[steps] -- true by construction, since [Scan.t]
+   stores both as plain integer fields rather than unrolling, but never
+   directly measured until now: two programs differing only in [steps] (5 vs.
+   500, a 100x difference) specialize to exactly the same size and depth. *)
+let%expect_test "a specialized scan's size and depth do not grow with steps" =
+  let specialize ~steps =
+    Err.or_raise ~pp_error:Region_program.pp_error
+      (build_counter ~width:2 ~steps ~row:steps ~lane:0)
+    |> Region_program.specialize_pixel ~max_size:64 ~max_depth:16
+         ~scan_limits:limits
+    |> Err.or_raise ~pp_error:Region_program.pp_error
+  in
+  let small = specialize ~steps:5 and large = specialize ~steps:500 in
+  Fmt.pr "small=(%d,%d) large=(%d,%d) equal=%b@." (Expr.Fold.size small)
+    (Expr.Fold.depth small) (Expr.Fold.size large) (Expr.Fold.depth large)
+    (Expr.Fold.size small = Expr.Fold.size large
+    && Expr.Fold.depth small = Expr.Fold.depth large);
+  [%expect {| small=(10,4) large=(10,4) equal=true |}]
+
+(* The Stage 1 exit conditions name "grounding" alongside production/reference
+   execution and specialization -- grounding itself does not yet execute a
+   scan (a later step), so what agreement means here is that it REJECTS one
+   with the exact typed error, rather than mishandling it silently. Nothing
+   before this exercised that arm at all. *)
+let%expect_test "grounding rejects a scan-backed stage with Scan_at_unsupported"
+    =
+  let program =
+    Err.or_raise ~pp_error:Region_program.pp_error
+      (build_counter ~width:2 ~steps:5 ~row:5 ~lane:0)
+  in
+  let stage_program : Stage_program.t =
+    {
+      Stage_program.inputs = [];
+      input_kinds = Tensor_id.Map.empty;
+      consts = [];
+      stages =
+        [
+          {
+            Stage_program.Stage.id = Tensor_id.of_int 0;
+            sg = out_sig;
+            computation = program;
+          };
+        ];
+      outputs = [ Tensor_id.of_int 0 ];
+    }
+  in
+  let ground_env = Ground_eval.Env.of_program stage_program ~side:`Src in
+  let meter = Ground_eval.Meter.create Ground_eval.default_budget in
+  Fmt.pr "%a@."
+    (Core.Pretty.err_result ~ok:Ground_expr.pp ~error:Ground_eval.pp_error)
+    (Result.map Ground_eval.Term.expression
+       (Ground_eval.at ~meter ground_env (Tensor_id.of_int 0) Vec6.origin));
+  [%expect {| grounding does not support a scan yet |}]

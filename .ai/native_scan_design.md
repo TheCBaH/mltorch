@@ -2,29 +2,35 @@
 
 ## Status and scope
 
-Status: **landed, including execution.** This record fixes the
-representation, error, meter, budget, and rendering contracts for the
-bounded-scan primitive, per the LSTM foundation's staged plan, and is updated
-in place as each piece lands rather than only once at the end: `Expr`
-(`Scan`/`Scan_limits`/`Scan_meter`/`Scan_admission`, both value projections,
-inline evaluation) landed first; `Region_local`/`Region_program` construction,
-checking and rendering (this section and "RHS rendering" below) landed next;
-the four `Kernel.Limits` resource fields, `Region_program.preflight`'s static
-measures, and `Region_execution.lower`/`lower_region`'s validated artifact
-(see "Static measures" and "Validated execution artifact" below) landed
-third. Running a scan-backed Region program — `Region_execution`/`Region_eval`
-actually executing a trace, sharing one metered budget across a Region key —
-landed fourth (see "Region propagation" and "Runtime metering" below);
-re-measuring `specialize_pixel`'s inlined result against scan limits and
-rejecting a scan outright at the shared `Kernel_elab.admit` fusion rule
-landed fifth (see "Specialization and rewrite re-measurement" and "Fusion
-admission" below). Grounding's own scan support (`Ground_eval`'s `Budget`/
-`Meter`/`Term`) is not yet landed — grounding still rejects any `Scan_at` it
-reaches with `` `Scan_at_unsupported ``. LSTM arithmetic itself is a later,
-separate step and is still not implemented. Read
-it together with `native_compute_design.md` (Region computation) and
-`native_kernel_dsl_design.md` (Kernel IR and `Hard` ceilings), which it
-extends rather than restates.
+Status: **Stage 1 (the reusable scan foundation) landed and accepted.** This
+record fixes the representation, error, meter, budget, and rendering
+contracts for the bounded-scan primitive, per the LSTM foundation's staged
+plan, and is updated in place as each piece lands rather than only once at
+the end: `Expr` (`Scan`/`Scan_limits`/`Scan_meter`/`Scan_admission`, both
+value projections, inline evaluation) landed first; `Region_local`/
+`Region_program` construction, checking and rendering (this section and "RHS
+rendering" below) landed next; the four `Kernel.Limits` resource fields,
+`Region_program.preflight`'s static measures, and `Region_execution.lower`/
+`lower_region`'s validated artifact (see "Static measures" and "Validated
+execution artifact" below) landed third. Running a scan-backed Region
+program — `Region_execution`/`Region_eval` actually executing a trace,
+sharing one metered budget across a Region key — landed fourth (see "Region
+propagation" and "Runtime metering" below); re-measuring `specialize_pixel`'s
+inlined result against scan limits and rejecting a scan outright at the
+shared `Kernel_elab.admit` fusion rule landed fifth (see "Specialization and
+rewrite re-measurement" and "Fusion admission" below); grounding's own
+construction-fuel/pair-size budget accounting (`Ground_eval`'s `Budget`/
+`Meter`/`Term`, general to all grounding, not scan-specific) landed sixth
+(see "Grounding meter and verdict mapping" below). Grounding still rejects
+any `Scan_at` it reaches with `` `Scan_at_unsupported `` — executing a scan
+during grounding itself remains unimplemented, tracked as a later, separate
+step, not a Stage 1 requirement. A scan-backed Region program now executes,
+agrees, and is checked end to end through Direct, Region, Stage and Kernel
+paths (`test/native/region_scan_construction_test.ml`'s Stage 1 acceptance
+tests); LSTM arithmetic itself is a later, separate step and is still not
+implemented. Read it together with `native_compute_design.md` (Region
+computation) and `native_kernel_dsl_design.md` (Kernel IR and `Hard`
+ceilings), which it extends rather than restates.
 
 Everything here targets an inference-only, ordered, single-step-lookback
 recurrence over two indices (`row`, `lane`), sufficient for LSTM's per-batch,
