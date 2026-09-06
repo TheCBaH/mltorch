@@ -113,7 +113,7 @@ module Linear : sig
 end
 
 module Lstm : sig
-  type error = Batch_first_unsupported | Empty_layers | Nonuniform_direction
+  type error = Empty_layers | Nonuniform_direction
 
   val pp_error : Format.formatter -> error -> unit
 end

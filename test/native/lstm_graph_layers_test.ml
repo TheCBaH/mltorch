@@ -16,7 +16,9 @@ let mat_shape ~rows ~cols = Vec6.shape ~n:rows ~t:1 ~d:1 ~h:1 ~w:1 ~c:cols
 let vec_shape ~n = Vec6.shape ~n ~t:1 ~d:1 ~h:1 ~w:1 ~c:1
 let state_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:batch ~c:k
 let seq_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:seq ~w:batch ~c:isz
-let params : Lstm.Lstm.params = { hidden_size = k; input_size = isz }
+
+let params : Lstm.Lstm.params =
+  { hidden_size = k; input_size = isz; batch_first = false }
 
 (* Q=2 stacked layers, R=1, time-first: layer 0 reads the raw input;
    layer 1 reads layer 0's completed hidden trace as its own per-timestep
@@ -121,7 +123,9 @@ module Stacked = struct
   let h0 = [| 0.3; -0.4; 0.1; 0.2 |] (* [layer0; layer1], each width k *)
   let c0 = [| 0.5; 0.1; -0.2; 0.3 |]
   let input = [| 1.0; -0.5; 0.2; 0.7; -0.3; 0.4 |]
-  let params : Lstm.Lstm.params = { hidden_size = k; input_size = isz }
+
+  let params : Lstm.Lstm.params =
+    { hidden_size = k; input_size = isz; batch_first = false }
 
   let graph =
     Err.or_raise ~pp_error:Graph_builder.pp_error
@@ -397,7 +401,9 @@ module Bidirectional = struct
   let h0 = [| 0.3; -0.4; 0.1; 0.2 |] (* [forward; reverse] *)
   let c0 = [| 0.5; 0.1; -0.2; 0.3 |]
   let input = [| 1.0; -0.5; 0.2; 0.7; -0.3; 0.4 |] (* asymmetric across t *)
-  let params : Lstm.Lstm.params = { hidden_size = k; input_size = isz }
+
+  let params : Lstm.Lstm.params =
+    { hidden_size = k; input_size = isz; batch_first = false }
 
   let graph =
     Err.or_raise ~pp_error:Graph_builder.pp_error

@@ -1,19 +1,21 @@
 (* `aten.lstm.input`'s Native form. WORK IN PROGRESS (project step 13 /
-   M3+M3b): stacked layers (Q>=1) and bidirectionality (R=1 or 2, uniform
-   across layers) are supported; batch-first layout is
-   validated-but-rejected with a typed diagnostic, not silently mishandled
-   -- see [Shape_error.Lstm]. No LSTM support claim is made by this file
-   alone; see _ai_/project_todo.md step 13.
+   M3+M3b): stacked layers (Q>=1), bidirectionality (R=1 or 2, uniform
+   across layers), and both input layouts (batch-first/time-first) are
+   supported. No LSTM support claim is made by this file alone -- training,
+   packed/unbatched input, projections and dtype/config validation beyond
+   basic shape checks remain out of scope (M4's importer boundary); see
+   _ai_/project_todo.md step 13.
 
-   Tensor layout (lstm-plan.md §2's table, time-first only so far):
-   input/output on [H=seq, W=batch, C=channel] ([output]'s C is [R*hidden_size]);
-   h0/c0/h_n/c_n on [H=layer*R+direction, W=batch, C=hidden] -- fixed
-   regardless of layout. weight_ih/weight_hh pack all 4 gates' rows on
-   [N=row, C=col], matching [Linear]'s [Out,1,1,1,1,In] convention;
-   bias_ih/bias_hh pack them on [N=row], scalar per row. Layer 0 reads the
-   raw input width; every later layer reads the previous layer's [R]-wide
-   hidden trace (forward then reverse, concatenated in original time
-   order), so [I_0=input_size], [I_q=R*hidden_size] for [q>0]. *)
+   Tensor layout (lstm-plan.md §2's table): time-first input/output use
+   [H=seq, W=batch, C=channel]; batch-first swaps [H]/[W] ([time_axis]/
+   [batch_axis] below). [output]'s C is [R*hidden_size]. h0/c0/h_n/c_n
+   always use [H=layer*R+direction, W=batch, C=hidden], regardless of
+   layout. weight_ih/weight_hh pack all 4 gates' rows on [N=row, C=col],
+   matching [Linear]'s [Out,1,1,1,1,In] convention; bias_ih/bias_hh pack
+   them on [N=row], scalar per row. Layer 0 reads the raw input width;
+   every later layer reads the previous layer's [R]-wide hidden trace
+   (forward then reverse, concatenated in original time order), so
+   [I_0=input_size], [I_q=R*hidden_size] for [q>0]. *)
 
 module Lstm = struct
   (* One direction's parameters: any layer's forward or reverse. *)
@@ -114,18 +116,25 @@ module Lstm = struct
         t.reverse
   end
 
-  type params = { hidden_size : int; input_size : int }
+  type params = { hidden_size : int; input_size : int; batch_first : bool }
 
   let params_jsont : params Jsont.t =
-    Jsont.Object.map ~kind:"lstm_params" (fun hidden_size input_size ->
-        { hidden_size; input_size })
+    Jsont.Object.map ~kind:"lstm_params"
+      (fun hidden_size input_size batch_first ->
+        { hidden_size; input_size; batch_first })
     |> Jsont.Object.mem "hidden_size" Jsont.int ~enc:(fun p -> p.hidden_size)
     |> Jsont.Object.mem "input_size" Jsont.int ~enc:(fun p -> p.input_size)
+    |> Jsont.Object.mem "batch_first" Jsont.bool ~enc:(fun p -> p.batch_first)
     |> Jsont.Object.finish
 
   let pp_params fmt (p : params) =
-    Fmt.pf fmt "@[<hv>{hidden_size=%d;@ input_size=%d}@]" p.hidden_size
-      p.input_size
+    Fmt.pf fmt "@[<hv>{hidden_size=%d;@ input_size=%d;@ batch_first=%b}@]"
+      p.hidden_size p.input_size p.batch_first
+
+  (* Time-first: seq on H, batch on W. Batch-first: batch on H, seq on W.
+     Channel is C either way (lstm-plan.md §2's table). *)
+  let time_axis (p : params) = if p.batch_first then Axis.W else Axis.H
+  let batch_axis (p : params) = if p.batch_first then Axis.H else Axis.W
 
   type t = {
     params : params;
@@ -203,7 +212,8 @@ module Lstm = struct
       Err.fail
         (`Operand_shape Shape_error.Operand_shape.{ operand; expected; actual })
 
-  (* Time-first only: [N=T=D=1], seq on [H], batch on [W], channel on [C]. *)
+  (* [N=T=D=1] regardless of layout -- seq/batch's own H-vs-W placement
+     ([time_axis]/[batch_axis]) doesn't matter to this check. *)
   let check_input_layout ~(input_shape : Vec6.shape) =
     let expected =
       Vec6.shape ~n:1 ~t:1 ~d:1
@@ -261,8 +271,8 @@ module Lstm = struct
       ~(layers : Layer_shapes.t list) ~h0_shape ~c0_shape =
     let open Err.Syntax in
     let* () = check_input_layout ~input_shape in
-    let batch = Dim.to_int (Vec6.get input_shape Axis.W) in
-    let seq = Dim.to_int (Vec6.get input_shape Axis.H) in
+    let batch = Dim.to_int (Vec6.get input_shape (batch_axis p)) in
+    let seq = Dim.to_int (Vec6.get input_shape (time_axis p)) in
     let* () =
       if layers = [] then Err.fail (`Lstm Shape_error.Lstm.Empty_layers)
       else Err.return ()
@@ -299,7 +309,12 @@ module Lstm = struct
         ~actual:c0_shape
     in
     let out_shape =
-      Vec6.shape ~n:1 ~t:1 ~d:1 ~h:seq ~w:batch ~c:(directions * p.hidden_size)
+      let base =
+        Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:(directions * p.hidden_size)
+      in
+      Vec6.set
+        (Vec6.set base (time_axis p) (Dim.extent seq))
+        (batch_axis p) (Dim.extent batch)
     in
     (out_shape, expected_state, expected_state)
 
@@ -525,17 +540,22 @@ module Lstm = struct
        (read the original [input] instead) and [Some] the previous layer's
        (forward_read, reverse_read option) otherwise. [state_row] (static:
        [q*directions+d]) selects this direction's own [h0]/[c0] slice. *)
-    let build_one ~scan_limits ~k ~seq ~batch ~input_size ~input ~h0 ~c0
-        ~is_reverse ~state_row ~prev (dir : Direction_operands.t)
+    let build_one ~scan_limits ~k ~seq ~batch ~time_axis ~batch_axis ~input_size
+        ~input ~h0 ~c0 ~is_reverse ~state_row ~prev (dir : Direction_operands.t)
         (continue : read_fn -> 'a Region_program.Builder.t) :
         'a Region_program.Builder.t =
       let layer_input ~step ~col =
         let t = original_time ~seq ~is_reverse step in
         match prev with
         | None ->
+            let base =
+              Expr.Coord.make ~n:Expr.Index.zero ~t:Expr.Index.zero
+                ~d:Expr.Index.zero ~h:Expr.Index.zero ~w:Expr.Index.zero ~c:col
+            in
             Region_context.load input
-              (Expr.Coord.make ~n:Expr.Index.zero ~t:Expr.Index.zero
-                 ~d:Expr.Index.zero ~h:t ~w:batch ~c:col)
+              (Expr.Coord.set
+                 (Expr.Coord.set base time_axis t)
+                 batch_axis batch)
         | Some prev -> read_prev_layer ~k ~seq ~t ~col prev
       in
       let init ~lane =
@@ -570,8 +590,9 @@ module Lstm = struct
        (lstm-plan.md §2), accumulating a FLAT [(a, read_fn)] list in [a]
        order ([a = layer*directions+direction]) -- what the [h_n]/[c_n]
        select chain below reads. *)
-    let rec build_layers ~scan_limits ~k ~seq ~batch ~directions ~input_size
-        ~input ~h0 ~c0 ~(layers : (int * Layer_operands.t) list) ~prev ~acc
+    let rec build_layers ~scan_limits ~k ~seq ~batch ~time_axis ~batch_axis
+        ~directions ~input_size ~input ~h0 ~c0
+        ~(layers : (int * Layer_operands.t) list) ~prev ~acc
         (finish :
           (int * read_fn) list ->
           (Region_program.t, Region_program.error) Err.t
@@ -584,25 +605,27 @@ module Lstm = struct
           let this_layer_input_size =
             if q = 0 then input_size else k * directions
           in
-          build_one ~scan_limits ~k ~seq ~batch
+          build_one ~scan_limits ~k ~seq ~batch ~time_axis ~batch_axis
             ~input_size:this_layer_input_size ~input ~h0 ~c0 ~is_reverse:false
             ~state_row:(q * directions) ~prev layer.forward (fun forward_read ->
               match layer.reverse with
               | None ->
-                  build_layers ~scan_limits ~k ~seq ~batch ~directions
-                    ~input_size ~input ~h0 ~c0 ~layers:rest
+                  build_layers ~scan_limits ~k ~seq ~batch ~time_axis
+                    ~batch_axis ~directions ~input_size ~input ~h0 ~c0
+                    ~layers:rest
                     ~prev:(Some (forward_read, None))
                     ~acc:((q * directions, forward_read) :: acc)
                     finish
               | Some reverse ->
-                  build_one ~scan_limits ~k ~seq ~batch
+                  build_one ~scan_limits ~k ~seq ~batch ~time_axis ~batch_axis
                     ~input_size:this_layer_input_size ~input ~h0 ~c0
                     ~is_reverse:true
                     ~state_row:((q * directions) + 1)
                     ~prev reverse
                     (fun reverse_read ->
-                      build_layers ~scan_limits ~k ~seq ~batch ~directions
-                        ~input_size ~input ~h0 ~c0 ~layers:rest
+                      build_layers ~scan_limits ~k ~seq ~batch ~time_axis
+                        ~batch_axis ~directions ~input_size ~input ~h0 ~c0
+                        ~layers:rest
                         ~prev:(Some (forward_read, Some reverse_read))
                         ~acc:
                           (((q * directions) + 1, reverse_read)
@@ -614,20 +637,31 @@ module Lstm = struct
         ~(layers : Layer_operands.t list) ~(input : Tensor_sig.t) ~h0 ~c0 =
       let open Err.Syntax in
       let k = p.hidden_size in
-      let seq = Dim.to_int (Vec6.get input.Tensor_sig.shape Axis.H) in
+      let time_axis = time_axis p and batch_axis = batch_axis p in
+      let seq = Dim.to_int (Vec6.get input.Tensor_sig.shape time_axis) in
       let num_layers = List.length layers in
       let directions =
         if (List.hd layers).Layer_operands.reverse <> None then 2 else 1
       in
       let scan_limits = Kernel.Limits.scan_limits limits in
-      let* partition = Region_context.partition [ Axis.H; Axis.C ] in
-      let batch = Expr.Index.output Axis.W in
+      (* [output]'s output/h_n/c_n each have their OWN axis meanings
+         (lstm-plan.md §4): [output]'s time axis is layout-dependent and
+         its batch axis is whichever of H/W is left; [h_n]/[c_n] are
+         layout-independent (always [H=layer*R+direction, W=batch]). Each
+         ordinal's partition/batch-key axis follows its own layout. *)
+      let* partition =
+        Region_context.partition
+          (if output = 0 then [ time_axis; Axis.C ] else [ Axis.H; Axis.C ])
+      in
+      let batch =
+        Expr.Index.output (if output = 0 then batch_axis else Axis.W)
+      in
       let indexed = List.mapi (fun i l -> (i, l)) layers in
       Region_context.program
         (Region_program.Builder.run
-           (build_layers ~scan_limits ~k ~seq ~batch ~directions
-              ~input_size:p.input_size ~input ~h0 ~c0 ~layers:indexed ~prev:None
-              ~acc:[] (fun reads ->
+           (build_layers ~scan_limits ~k ~seq ~batch ~time_axis ~batch_axis
+              ~directions ~input_size:p.input_size ~input ~h0 ~c0
+              ~layers:indexed ~prev:None ~acc:[] (fun reads ->
                 let by_a =
                   Array.make (num_layers * directions) (fun ~row:_ ~lane:_ ->
                       assert false)
@@ -650,7 +684,7 @@ module Lstm = struct
                       mod_k ~k
                         (Expr.Index.of_position (Expr.Index.output Axis.C))
                     in
-                    let t_out = Expr.Index.output Axis.H in
+                    let t_out = Expr.Index.output time_axis in
                     match snd last with
                     | None ->
                         let row =
