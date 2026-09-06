@@ -101,6 +101,13 @@ let in_optional_tensors name entries =
           entries))
     None
 
+(* [lstm.input]'s [hx]/[params] -- a plain (always-live) [Tensor[]] argument,
+   unlike [in_optional_tensors]'s mixed live/[None] list. *)
+let in_tensors name names =
+  PT.NamedArgument.make name
+    (PT.Argument.Tensors (List.map PT.TensorArgument.make names))
+    None
+
 (* Bind each (name, ATen tensor) into an env and dispatch a one-node graph;
    print each native output as "shape {values}".  The env key and the input's
    TensorArgument name are the same [name], which is how the bridge resolves it. *)

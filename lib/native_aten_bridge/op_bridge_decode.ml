@@ -230,6 +230,20 @@ let perm_linear_weight : Permute.Permute.perm =
   let open Axis in
   [ (N, W); (T, T); (D, D); (H, H); (W, N); (C, C) ]
 
+(* [lstm.input]'s [weight_ih]/[weight_hh] are rank-2 [4*hidden_size, In],
+   the same [W=rows, C=cols] -> [N=rows, C=cols] relayout [perm_linear_weight]
+   already gives [Linear]'s weight, reused rather than restated. *)
+let perm_lstm_weight = perm_linear_weight
+
+(* [lstm.input]'s [bias_ih]/[bias_hh] are rank-1 [4*hidden_size], landing on
+   [C] under right-alignment; [Lstm.Lstm.bias_shape] carries the count on
+   [N] instead (a row per gate, matching [weight_ih]/[weight_hh]'s own [N]),
+   so this swaps [N]/[C] rather than reusing [perm_linear_weight] (whose
+   [C] is untouched, wrong here since [C] must become the singleton axis). *)
+let perm_lstm_bias : Permute.Permute.perm =
+  let open Axis in
+  [ (N, C); (T, T); (D, D); (H, H); (W, W); (C, N) ]
+
 (* --- Arg helpers shared by mean.dim, rms_norm, permute --- *)
 
 (* [mean.dim] and [rms_norm] reference frame axes through [Aten_shape.axis_of_dim],

@@ -142,6 +142,7 @@ type error =
   | `Invalid_hw_arg of invalid_hw_arg
   | `Invalid_w_arg of invalid_hw_arg
   | `Linear_invalid_weight_rank of int array
+  | `Lstm_reject of Lstm.Lstm.Reject.t
   | `Matmul_unsupported_shape of Matmul_unsupported_shape.t
   | `Normalized_rank of Normalized_rank.t
   | `Normalized_shape of Normalized_shape.t
@@ -226,6 +227,7 @@ let pp_error ppf : [< error ] -> unit = function
   | `Linear_invalid_weight_rank shape ->
       Fmt.pf ppf "linear: weight must be rank-2, got shape %a" pp_int_array
         shape
+  | `Lstm_reject e -> Lstm.Lstm.Reject.pp ppf e
   | `Matmul_unsupported_shape
       { Matmul_unsupported_shape.self_shape; other_shape } ->
       Fmt.pf ppf

@@ -116,6 +116,72 @@ module Lstm = struct
         t.reverse
   end
 
+  (* The typed rejection boundary for `aten.lstm.input`'s importer-only
+     concerns (project step 14), shared by [Op_bridge]'s and
+     [Native_interp]'s recurrent arms so the two cannot drift -- the same
+     role [Attention.Sdpa.Reject] plays for sdpa. *)
+  module Reject = struct
+    type t =
+      | Hx_arity of int (* [hx] must be exactly [[h0; c0]] *)
+      | Params_arity of { expected : int; got : int }
+      | Train (* [train=true] is not supported *)
+
+    let pp fmt = function
+      | Hx_arity got ->
+          Fmt.pf fmt "lstm: hx must have exactly 2 tensors (h0, c0), got %d" got
+      | Params_arity { expected; got } ->
+          Fmt.pf fmt
+            "lstm: params has %d tensors, expected %d for this \
+             num_layers/bidirectional/has_biases configuration"
+            got expected
+      | Train -> Fmt.string fmt "lstm: train=true is not supported"
+  end
+
+  let params_per_direction ~has_biases = if has_biases then 4 else 2
+
+  let params_length ~has_biases ~bidirectional ~num_layers =
+    num_layers
+    * (if bidirectional then 2 else 1)
+    * params_per_direction ~has_biases
+
+  (* Groups ATen's flat `lstm.input` [params] argument into per-layer/
+     direction chunks, in lstm-plan.md §2's declared order: layer
+     0..num_layers-1, forward before reverse, weight_ih/weight_hh/
+     [bias_ih,bias_hh] per direction (`RNN.cpp:gather_params`/`pair_vec`/
+     `apply_layer_stack` establish this ordering upstream). Polymorphic so a
+     caller can group real ATen tensors, SSA names, or graph ids with the one
+     rule instead of each importer re-deriving it. Raises on a list whose
+     length is not an exact multiple of the expected chunk size -- a caller
+     decoding an untrusted flat list must check its length against
+     [params_length] first ([Reject.Params_arity]), turning a ragged list
+     into a typed rejection rather than this exception. *)
+  let group_params ~has_biases ~bidirectional ~num_layers (flat : 'a list) :
+      (('a * 'a * ('a * 'a) option) * ('a * 'a * ('a * 'a) option) option) list
+      =
+    let take_direction lst =
+      match (has_biases, lst) with
+      | false, wih :: whh :: rest -> ((wih, whh, None), rest)
+      | true, wih :: whh :: bih :: bhh :: rest ->
+          ((wih, whh, Some (bih, bhh)), rest)
+      | _ -> invalid_arg "Lstm.group_params: ragged params list"
+    in
+    let rec go layer lst =
+      if layer >= num_layers then
+        match lst with
+        | [] -> []
+        | _ -> invalid_arg "Lstm.group_params: leftover params"
+      else
+        let forward, lst = take_direction lst in
+        let reverse, lst =
+          if bidirectional then
+            let r, lst = take_direction lst in
+            (Some r, lst)
+          else (None, lst)
+        in
+        (forward, reverse) :: go (layer + 1) lst
+    in
+    go 0 flat
+
   type params = { hidden_size : int; input_size : int; batch_first : bool }
 
   let params_jsont : params Jsont.t =

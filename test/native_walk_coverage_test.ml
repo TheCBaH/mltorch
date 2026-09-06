@@ -295,13 +295,13 @@ let%expect_test "bridge coverage" =
     step 3 [shape]: {shape=[2,3,3,4]}
     [spec] torch.ops.aten.logical_not.default: skipped (no native impl)
     step 0: {batch=3 seq=4 input=5 hidden=6 layers=1 bidirectional=false has_biases=true batch_first=false dropout=0}
-    [spec] torch.ops.aten.lstm.input: skipped (no native impl)
+    [spec] torch.ops.aten.lstm.input: matched
     step 1 [input_size]: {batch=3 seq=4 input=5 hidden=6 layers=1 bidirectional=false has_biases=true batch_first=false dropout=0}
-    [spec] torch.ops.aten.lstm.input: skipped (no native impl)
+    [spec] torch.ops.aten.lstm.input: matched
     step 2 [seq]: {batch=3 seq=1 input=5 hidden=6 layers=1 bidirectional=false has_biases=true batch_first=false dropout=0}
-    [spec] torch.ops.aten.lstm.input: skipped (no native impl)
+    [spec] torch.ops.aten.lstm.input: matched
     step 3 [batch]: {batch=3 seq=1 input=5 hidden=6 layers=1 bidirectional=false has_biases=true batch_first=false dropout=0}
-    [spec] torch.ops.aten.lstm.input: skipped (no native impl)
+    [spec] torch.ops.aten.lstm.input: matched
     step 0: {self=[1,1,3,4] other=[1,1,4,5]}
     [spec] torch.ops.aten.matmul.default: matched
     step 1 [h]: {self=[1,2,3,4] other=[1,2,4,5]}
