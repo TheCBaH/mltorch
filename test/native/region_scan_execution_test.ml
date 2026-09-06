@@ -213,3 +213,57 @@ let%expect_test "an exactly-per-key limit still succeeds across many keys" =
        ~error:Region_eval.pp_error)
     result;
   [%expect {| ok |}]
+
+let pos n = Index.clamp_low (Index.const n)
+
+(* A single-key program reading a FIXED (not output-derived) row/lane, so a
+   much wider/longer trace -- [(steps+1)*width] slots in ONE key's array,
+   larger than the earlier tests' -- is actually filled and read end to end,
+   not just its first cell. Exercises the streaming per-key materializer
+   ([Region_eval.materialize]/[Region_execution.materialize] both hold only
+   one key's array at a time) at a nontrivial storage size. *)
+(* [limits] above (max_state:100) is too small: [Region_program.preflight]'s
+   [scan_peak] bills a trace local's WHOLE storage ([(steps+1)*width]) against
+   [max_scan_state], not just [max_local_slots] -- see the scan design
+   record's "Static measures". [Expr.Scan_limits.default] (8192/8192) covers
+   both this program's 306-slot trace and its 300 charged updates. *)
+let wide_limits = Expr.Scan_limits.default
+
+let wide_counter_program ~width ~steps ~row ~lane =
+  Region_program.Builder.run
+    (Region_program.Builder.scan ~limits:wide_limits ~width ~steps
+       ~init:(fun ~lane:_ -> Builder.return (Value.const 0.))
+       ~update:(fun ~step:_ ~lane ~previous_at ->
+         Builder.return (Value.add (previous_at lane) (Value.const 1.)))
+       (fun scan_read ->
+         Region_program.Builder.finish ~max_size:64 ~max_depth:16 ~partition
+           ~output:(scan_read ~row:(pos row) ~lane:(pos lane))))
+
+let%expect_test
+    "a wider/longer scan trace still agrees between reference and production" =
+  let width = 6 and steps = 50 in
+  let output_shape = shape ~rows:1 ~lanes:1 in
+  let program =
+    Err.or_raise ~pp_error:Region_program.pp_error
+      (wide_counter_program ~width ~steps ~row:steps ~lane:(width - 1))
+  in
+  let lowered =
+    Err.or_raise ~pp_error:Region_program.pp_error
+      (Region_execution.lower_region ~max_size:64 ~max_depth:16
+         ~max_local_slots:8192 ~scan_limits:wide_limits ~output_shape program)
+  in
+  let production =
+    Err.or_raise ~pp_error:Region_eval.pp_error
+      (Region_execution.materialize lowered ~env)
+  in
+  let reference =
+    Err.or_raise ~pp_error:Region_eval.pp_error
+      (Region_eval.materialize ~scan_limits:wide_limits program ~output_shape
+         ~env)
+  in
+  Fmt.pr "production=%g reference=%g slots=%d bitwise_equal=%b@."
+    (Tensor.read production Vec6.origin)
+    (Tensor.read reference Vec6.origin)
+    ((steps + 1) * width)
+    (Tensor.equal_bits production reference);
+  [%expect {| production=50 reference=50 slots=306 bitwise_equal=true |}]
