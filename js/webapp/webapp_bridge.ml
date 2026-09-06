@@ -323,6 +323,50 @@ let prepare expected_id meta_text document =
     | Error message -> response false ~error:message
   with exn -> response false ~error:(error_text exn)
 
+(* Presentation-only: reassigns constant namespaces (see
+   [Me_group_constants]) and hands back the transformed document, so the
+   page can install it through the ordinary renderer lifecycle with no new
+   worker request. Takes the already-prepared document text directly rather
+   than a token -- unlike [prepare]/[commit]/[abort] this never touches
+   [staged], because it installs nothing itself.
+
+   Re-validated against [Me_limits.Limits.untrusted] rather than skipped:
+   [Me_group_constants.apply] only ever copies an existing, already-valid
+   namespace or substitutes the short literal ["parameters"], so it cannot
+   newly violate a per-component or total-depth ceiling -- but a cheap check
+   is what actually distinguishes "safe to show" from "the transform did not
+   raise", and every other boundary in this bridge validates before it
+   answers rather than trusting its own reasoning about why it must be fine. *)
+let group_constants document =
+  try
+    let session =
+      match Jsont_bytesrw.decode_string Me_session.Session.jsont document with
+      | Ok s -> s
+      | Error message -> failwith message
+    in
+    let grouped =
+      {
+        session with
+        Me_session.Session.graph_collections =
+          List.map
+            (fun (c : Model_explorer.GraphCollection.t) ->
+              {
+                c with
+                Model_explorer.GraphCollection.graphs =
+                  List.map
+                    (Me_group_constants.apply Me_group_constants.Grouped)
+                    c.Model_explorer.GraphCollection.graphs;
+              })
+            session.Me_session.Session.graph_collections;
+      }
+    in
+    Err.or_raise ~pp_error:Me_session.Session.pp_error
+      (Me_session.Session.validate ~limits:Me_limits.Limits.untrusted grouped);
+    match Jsont_bytesrw.encode_string Me_session.Session.jsont grouped with
+    | Ok render -> response true ~render
+    | Error message -> response false ~error:message
+  with exn -> response false ~error:(error_text exn)
+
 let commit token =
   if !staged = Some token then (
     staged := None;
@@ -379,6 +423,10 @@ let () =
           Js.Unsafe.inject
             (Js.wrap_callback (fun token -> abort (Js.to_string token))) );
         ("reset", Js.Unsafe.inject (Js.wrap_callback reset));
+        ( "groupConstants",
+          Js.Unsafe.inject
+            (Js.wrap_callback (fun document ->
+                 group_constants (Js.to_string document))) );
       |]
   in
   Js.export "mltorch"

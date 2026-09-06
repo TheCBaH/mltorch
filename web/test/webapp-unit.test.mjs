@@ -65,7 +65,7 @@ function scenario({ session = {}, render = {} } = {}) {
   const workers = [];
   const errors = [];
   const statuses = [];
-  const calls = { prepare: [], commit: [], abort: [], install: [], finalize: [], abortReady: [], markInconsistent: [], cancel: 0, buildSession: [], sessions: [] };
+  const calls = { prepare: [], commit: [], abort: [], install: [], finalize: [], abortReady: [], markInconsistent: [], cancel: 0, buildSession: [], sessions: [], groupConstants: [] };
   /* Shaped exactly like `Renderer`'s own handle, `presentation` included: the
    * coordinator retains that descriptor and DERIVES `view` from it, so a stub
    * carrying only `viewId` would prove a contract nothing implements. */
@@ -85,6 +85,10 @@ function scenario({ session = {}, render = {} } = {}) {
       prepare: (id) => { calls.prepare.push(id); return (session.prepare ?? (() => ({ ok: true, token: id, render: '{}' })))(id); },
       commit: (token) => { calls.commit.push(token); return (session.commit ?? (() => ({ ok: true })))(token); },
       abort: (token) => { calls.abort.push(token); return (session.abort ?? (() => ({ ok: true })))(token); },
+      /* Passthrough by default -- the coordinator defaults to `grouped`, so
+       * every existing scenario calls this on the way to `render.install`,
+       * and a stub that echoed nothing back would break every one of them. */
+      groupConstants: (text) => { calls.groupConstants.push(text); return (session.groupConstants ?? ((t) => ({ ok: true, render: t })))(text); },
     },
   };
   const view = {
@@ -576,6 +580,63 @@ test('a presentation change runs no worker and touches no bridge state', async (
   assert.equal(s.workers.reduce((n, w) => n + w.posted.length, 0), posts);
   assert.equal(s.calls.prepare.length + s.calls.commit.length + s.calls.abort.length, bridgeCalls);
   assert.deepEqual(s.calls.install.at(-1), { text: '{}', selection: { view: 'v/source' } });
+  assert.equal(s.statuses.at(-1), 'View changed');
+});
+
+/* -------------------------------------------------------------- constants */
+
+test('a fresh load defaults to grouped, so it calls the bridge transform once', async () => {
+  const s = await loaded();
+  assert.equal(s.coordinator.constants, 'grouped');
+  assert.equal(s.calls.groupConstants.length, 1);
+  // The stub echoes its input, so the passthrough is exact.
+  assert.equal(s.calls.install.at(-1).text, s.calls.groupConstants[0]);
+});
+
+test('setConstants re-presents the same view through groupConstants, and back without it', async () => {
+  const s = await loaded();
+  assert.equal(s.calls.groupConstants.length, 1);
+
+  await s.coordinator.setConstants('explicit');
+  assert.equal(s.coordinator.constants, 'explicit');
+  // No new call: explicit never reaches the bridge transform at all.
+  assert.equal(s.calls.groupConstants.length, 1);
+  assert.deepEqual(s.calls.install.at(-1), { text: '{}', selection: { view: 'v/canonical' } });
+  assert.equal(s.statuses.at(-1), 'View changed');
+
+  await s.coordinator.setConstants('grouped');
+  assert.equal(s.calls.groupConstants.length, 2);
+  assert.deepEqual(s.calls.install.at(-1).selection, { view: 'v/canonical' });
+});
+
+test('setConstants before any load only records the mode, no bridge call', async () => {
+  const s = scenario();
+  await s.coordinator.setConstants('explicit');
+  assert.equal(s.coordinator.constants, 'explicit');
+  assert.equal(s.calls.groupConstants.length, 0);
+
+  const request = await s.start();
+  await s.deliver(request);
+  // The mode set before the load governs the load's own install.
+  assert.equal(s.calls.groupConstants.length, 0);
+});
+
+/* Presentation-only, so a rejection here is exactly the `known_old` shape:
+ * recoverable, the previous view stands, and the page keeps working. */
+test('a groupConstants rejection is a recoverable presentation error', async () => {
+  const s = await loaded();
+  await s.coordinator.setConstants('explicit'); // clean baseline, no pending transform
+  s.bridge.session.groupConstants = () => ({ ok: false, error: 'grouping exploded' });
+
+  await s.coordinator.setConstants('grouped');
+  assert.equal(s.errors.length, 1);
+  assert.match(s.errors[0], /grouping exploded/);
+  assert.equal(s.coordinator.constants, 'grouped'); // the mode still switched
+  assert.deepEqual(s.coordinator.presentation, { kind: 'single', view: 'v/canonical' });
+
+  // And the page still works.
+  s.bridge.session.groupConstants = (t) => ({ ok: true, render: t });
+  await s.coordinator.present({ view: 'v/source' });
   assert.equal(s.statuses.at(-1), 'View changed');
 });
 

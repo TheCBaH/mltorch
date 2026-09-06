@@ -160,7 +160,7 @@ jobs:
         ${{ env.EXEC }} make spike.runtest
     - name: webapp unit and assembled-site gates
       run: |
-        ${{ env.EXEC }} make webapp.runtest webapp.browser-runtest
+        ${{ env.EXEC }} make webapp.runtest webapp.bridge-runtest webapp.browser-runtest
 
   melange:
     runs-on: ubuntu-latest

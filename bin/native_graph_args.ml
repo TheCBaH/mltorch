@@ -130,6 +130,26 @@ let format_arg =
         `Session
     & info [ "format" ] ~doc)
 
+let constants_arg =
+  let doc =
+    "Where a constant boundary node's namespace comes from: $(b,explicit) (the \
+     default) leaves it at the root, exactly as the exporter emits it; \
+     $(b,grouped) moves it into the longest common namespace of its consumers \
+     (see [Me_group_constants]), which is what the browser defaults to and \
+     what keeps a large model's initial layout from collapsing into one \
+     unreadable rank of independent parameters."
+  in
+  Arg.(
+    value
+    & opt
+        (Arg.enum
+           [
+             ("explicit", Me_group_constants.Explicit);
+             ("grouped", Me_group_constants.Grouped);
+           ])
+        Me_group_constants.Explicit
+    & info [ "constants" ] ~doc)
+
 let model_arg =
   let doc = "Path to the model: a .pt2 archive or an exported model.json." in
   Arg.(

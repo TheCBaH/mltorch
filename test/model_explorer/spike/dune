@@ -6,3 +6,14 @@
  (name gen_fixture)
  (modules gen_fixture)
  (libraries jsont jsont.bytesrw model_explorer))
+
+(executable
+ (name group_experiment)
+ (modules group_experiment)
+ (libraries
+  core
+  err_trace
+  jsont
+  jsont.bytesrw
+  model_explorer
+  model_explorer_export))

@@ -107,6 +107,15 @@
   (pps ppx_expect)))
 
 (library
+ (name me_group_constants_test)
+ (modules me_group_constants_test)
+ (libraries model_explorer model_explorer_export)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))
+
+(library
  (name me_verify_test)
  (modules me_verify_test)
  (libraries core err_trace fmt model_explorer model_explorer_export native)

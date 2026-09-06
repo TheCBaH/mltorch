@@ -34,7 +34,7 @@ let read_bounded limits path =
     Ok s
   end
 
-let visualize model limits output format fold verify_symbolic :
+let visualize model limits output format fold verify_symbolic constants :
     (unit, string) result =
   (* Size is rejected BEFORE the rest of the file is read, so an oversized
      file never becomes an OCaml string. Only a filesystem caller can do
@@ -61,6 +61,41 @@ let visualize model limits output format fold verify_symbolic :
              source_sha256 = None;
            }
          ~bytes)
+  in
+  (* Presentation-only, applied after the export the browser bridge's own
+     [groupConstants] also starts from -- see [Me_group_constants]. [Explicit]
+     is the default and the identity, left untouched and unvalidated a second
+     time so every existing golden and every caller that never asks for this
+     stays byte-identical to before this flag existed. [Grouped] is
+     re-validated for the same reason the bridge does: the transform can only
+     ever reuse or shorten an already-valid namespace, but a cheap check is
+     what actually distinguishes "safe to show" from "the transform did not
+     raise". *)
+  let* session =
+    match constants with
+    | Me_group_constants.Explicit -> Ok session
+    | Me_group_constants.Grouped ->
+        let grouped =
+          {
+            session with
+            Me_session.Session.graph_collections =
+              List.map
+                (fun (c : Model_explorer.GraphCollection.t) ->
+                  {
+                    c with
+                    Model_explorer.GraphCollection.graphs =
+                      List.map
+                        (Me_group_constants.apply Me_group_constants.Grouped)
+                        c.Model_explorer.GraphCollection.graphs;
+                  })
+                session.Me_session.Session.graph_collections;
+          }
+        in
+        let* () =
+          to_cli Me_session.Session.pp_error
+            (Me_session.Session.validate ~limits grouped)
+        in
+        Ok grouped
   in
   let* text =
     match format with
@@ -151,4 +186,4 @@ let visualize_cmd =
     (Cmd.info "visualize" ~doc)
     Term.(
       const visualize $ model_arg $ limits_arg $ output_arg $ format_arg
-      $ fold_arg $ verify_symbolic_arg)
+      $ fold_arg $ verify_symbolic_arg $ constants_arg)

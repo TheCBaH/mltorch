@@ -363,3 +363,52 @@ rather than by the caller.
   native_graph: option '--limits': invalid value 'large', expected either
                 'untrusted' or 'small'
   [124]
+
+--constants defaults to explicit, the exporter's own boundary graph: all 314
+constants sit at the root namespace, which is the layout defect the web
+graph rendering investigation traced to a rank of hundreds of unrelated
+nodes dominating a large model's initial fit. This is the STRUCTURAL proxy
+for that defect -- stable across an unrelated projection tweak in a way a
+screenshot is not, and it is what a regression would actually trip.
+
+  $ ../bin/native_graph.exe visualize --model model.json --output explicit.json
+  $ python3 -c "
+  > import json
+  > g = {g['id']: g for g in json.load(open('explicit.json'))['graphCollections'][0]['graphs']}['pt2/root']
+  > root_constants = [n for n in g['nodes'] if n['id'].startswith('const:') and n['namespace'] == '']
+  > print('root constants', len(root_constants))"
+  root constants 314
+
+--constants grouped moves every one of them into the namespace its consumer
+already has, and mobilenetv2_050 has no constant this projection leaves
+unconsumed, so none remain at root at all.
+
+  $ ../bin/native_graph.exe visualize --model model.json --constants grouped --output grouped.json
+  $ python3 -c "
+  > import json
+  > g = {g['id']: g for g in json.load(open('grouped.json'))['graphCollections'][0]['graphs']}['pt2/root']
+  > root_constants = [n for n in g['nodes'] if n['id'].startswith('const:') and n['namespace'] == '']
+  > print('root constants', len(root_constants))
+  > print('op node count unchanged', len(g['nodes']))"
+  root constants 0
+  op node count unchanged 468
+
+Every other graph, node, edge, attribute and id is untouched -- only
+constant namespaces move. Diffing the two documents with the constant
+namespaces themselves excluded is what proves that rather than merely
+asserting it: a stray change to an id, an edge or a non-constant's
+namespace would show up here as a real difference, not as noise from the
+transform itself.
+
+  $ python3 -c "
+  > import json
+  > def strip(doc):
+  >     for g in doc['graphCollections'][0]['graphs']:
+  >         for n in g['nodes']:
+  >             if n['id'].startswith('const:'):
+  >                 n['namespace'] = ''
+  >     return doc
+  > e = strip(json.load(open('explicit.json')))
+  > g = strip(json.load(open('grouped.json')))
+  > print('identical once constant namespaces are ignored', e == g)"
+  identical once constant namespaces are ignored True

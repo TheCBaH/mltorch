@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  ALL_STAGES, BACKBONE_STAGES, OPTIONAL_STAGES, RANK_BUCKETS,
+  ALL_STAGES, BACKBONE_STAGES, CONSTANTS_MODES, DEFAULT_CONSTANTS, OPTIONAL_STAGES, RANK_BUCKETS,
   bucketOfRank, buildIndex, capabilityWording, comparisonPresentation,
-  controlsFromOptions, decodeUrl, defaultPresentation, encodeUrl,
+  constantsFromUrl, controlsFromOptions, decodeUrl, defaultPresentation, encodeUrl,
   modelMatchesStages, optionsFromControls, optionsFromUrl, preferredViews,
   requestKey, flowPresentation, resolvePresentation, samePresentation,
   singlePresentation, stageSupport, staleNotice, staleComparisonNotice,
@@ -259,6 +259,30 @@ test('a fold parameter is ignored, and never written back', () => {
     requestKey('m', optionsFromControls(controlsFromOptions(optionsFromUrl(decoded)))),
     requestKey('m', optionsFromUrl(decoded)),
   );
+});
+
+test('constants defaults to grouped and round-trips only away from it', () => {
+  assert.equal(DEFAULT_CONSTANTS, 'grouped');
+  assert.equal(constantsFromUrl(decodeUrl('?model=m')), 'grouped');
+  assert.equal(decodeUrl('?model=m').constants, null);
+
+  const options = optionsFromControls({});
+  const atDefault = encodeUrl({
+    model: 'm', options, presentation: singlePresentation('v/source'), constants: 'grouped',
+  });
+  assert.equal(atDefault.includes('constants'), false);
+
+  const away = encodeUrl({
+    model: 'm', options, presentation: singlePresentation('v/source'), constants: 'explicit',
+  });
+  assert.match(away, /constants=explicit/);
+  assert.equal(constantsFromUrl(decodeUrl(away)), 'explicit');
+});
+
+test('an unknown constants value is treated as absent, never as a request for nothing', () => {
+  assert.equal(decodeUrl('?constants=nope').constants, null);
+  assert.equal(constantsFromUrl(decodeUrl('?constants=nope')), DEFAULT_CONSTANTS);
+  assert.deepEqual([...CONSTANTS_MODES].sort(), ['explicit', 'grouped']);
 });
 
 test('a local source claims no reproducible URL', () => {

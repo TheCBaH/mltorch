@@ -1001,8 +1001,11 @@ capability table accepts, so it cannot show `propagate` carrying forward somethi
 ```
 native_graph visualize --model MODEL.json|MODEL.pt2   (--pt2 is an alias)
     [--output SESSION.json] [--format session|collections]
-    [--limits untrusted|small] [--fold]
+    [--limits untrusted|small] [--fold] [--constants explicit|grouped]
 ```
+
+`--constants` (default `explicit`) is §21's flag, not this section's — a constant
+boundary's namespace, moved into its consumers' or left as the exporter emits it.
 
 **Format detection is content plus declaration, never extension alone.** `{` means a
 `model.json`, `PK\x03\x04` a zip; a mislabelled file is the ordinary case, not the
@@ -1948,3 +1951,83 @@ author `display` on the same element silently beats it.** `.panel` and the grid 
 were all un-hiding themselves; an empty container merely *looked* hidden because a
 zero-height box reads as invisible. `[hidden] { display: none !important; }` is
 stated once rather than remembered at each new container.
+
+## 21. Constant-namespace grouping — `Me_group_constants`
+
+**Both projectors emit a constant boundary node at namespace `""`.** On a graph with
+hundreds of parameters that puts them all on one layered-layout rank; on
+mobilenetv2_050's `pt2/root` that rank is 314 of 468 nodes, and the initial fit
+collapses to a single unreadable line rather than showing the compute path. `Grouped`
+moves a constant into the namespace its consumers already have, so Model Explorer's own
+collapsed-group layout absorbs it into the module that uses it — reproducing, in code,
+the same "longest common namespace prefix" rule `Me_verify`'s cluster placement already
+uses (§9's `Graph_view.common_group`), just one layer up: over the *projected*
+`Model_explorer.Graph.t` rather than over a `Graph_ir.Group` tree, which is what lets one
+implementation serve `pt2/root`'s `nn_module_stack`-derived namespaces and every
+Native/Native4D/Kernel graph's `Graph_ir.Group`-derived ones alike, with no projector
+taught its own rule.
+
+`Me_group_constants.apply : mode -> Model_explorer.Graph.t -> Model_explorer.Graph.t` is
+presentation-only — it changes `GraphNode.namespace` and nothing else, so it is safe to
+apply after either projector has run, with no re-derivation of ids, edges or attributes.
+`Explicit` is the identity. `Grouped`: one consumer takes that consumer's namespace
+directly; several consumers take their longest common `/`-prefix; **no shared prefix, or
+no consumer at all, both land in one dedicated root namespace, `"parameters"`.** The two
+cases are folded together deliberately: a render against the real pinned element (not a
+paper design) caught that mobilenetv2_050 carries 52 unconsumed `num_batches_tracked`
+buffers — declared, never read by the traced graph — and leaving *those* at `""` alone
+was enough to keep the root rank as wide as the ungrouped baseline. `is_constant_id`
+classifies by the `const:` id prefix both `Me_ids.pt2_boundary` and `Me_ids.boundary`
+already spell, in this one function, because neither projector emits a dedicated
+boundary-kind attribute yet (§4) — the day one does, this is the only call site that
+needs to change.
+
+**Canonical Native, Native4D and Kernel are unaffected, and that is not a defect.** Their
+op nodes carry no namespace hierarchy at all past canonicalization — a pre-existing,
+separate fact about those stages — so every constant's sole consumer already sits at
+`""`, `Grouped` reproduces it exactly, and the graph renders as the same wide/tall
+unstructured shape either way. Fixing *that* is a namespace-attribution question for
+those stages, not a constants question, and is out of this scope.
+
+**The CLI:** `native_graph visualize --constants explicit|grouped` (`explicit` is the
+default). `Explicit` skips the transform AND the extra validation pass entirely, so
+every existing golden and caller is byte-for-byte unaffected by this flag's existence.
+`Grouped` re-validates the transformed session against the same `limits` the export
+already used, mirroring the browser bridge below — the transform can only ever reuse or
+shorten an already-valid namespace, so it cannot newly violate a ceiling, but a cheap
+check is what actually distinguishes "safe to show" from "the transform did not raise".
+`test/me_visualize_json_cram.t` pins the STRUCTURAL proxy for the layout defect, in place
+of a screenshot: mobilenetv2_050's 314 root-namespace constants become 0 once grouped,
+and — the part that actually catches a scope regression — the two documents are
+byte-identical once constant namespaces are excluded from the comparison, so a stray
+change to an id, an edge or a non-constant's namespace fails here rather than only being
+visible in a rendering.
+
+**The browser control mirrors the CLI flag, wired through `js/webapp/webapp_bridge.ml`'s
+`groupConstants`** — a synchronous call from the page's OWN script (`index.html` loads
+`webapp_bridge.js` directly; it never runs inside the worker), so switching modes is
+presentation-only exactly like a view switch: no `request.buildSession`, no worker
+message. `Coordinator#session` always retains the untransformed, bridge-committed text —
+`onSession`'s `sessionText`, which `presentation.js`'s `buildIndex` reads, is therefore
+always the canonical document regardless of display mode — and a private `#installText`
+applies `groupConstants` only at the two `render.install` call sites. `setConstants`
+replays whatever is currently on screen (`#currentSelection`, the inverse of
+`handle.presentation`) through the ordinary `present()`, so it inherits every
+candidate-lifecycle guarantee §19 already established for free; a plain `constants`
+*setter* (no re-present) exists only so `app.js` can prime the mode before a `load()`
+that is about to replace the very session a re-present would have redisplayed. The URL
+carries `constants=explicit` only — `grouped` is the default and is never written — and
+an unrecognised value is silently treated as absent, the same as an unusable
+`stages`/`verify` value, rather than earning the notice a stale view/comparison/flow
+does: it is a preference, not a destination that can fail to exist.
+
+Tests: `me_group_constants_test.ml` (nine cases, pure OCaml, no session or limits);
+`test/model_explorer/spike/group_experiment.ml`, a checked-in but unlisted tool that
+renders both modes of a real model through the real pinned element for a by-eye judgment
+no unit test can make — the one that found the `parameters`-fallback case above;
+`bridge-unit.test.mjs` (the bridge's
+own decode-failure path); `presentation-unit.test.mjs` and `webapp-unit.test.mjs` (URL
+round-trip and `Coordinator` behavior against fakes); and a `webapp.spec.ts` section
+proving, against the real built app, that toggling sends no worker message, never shows
+two visualizer slots at once, and survives history back/forward and a direct reload of
+the `constants=explicit` URL.

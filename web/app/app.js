@@ -8,6 +8,7 @@ const $ = (id) => document.getElementById(id);
 const status = $('status'), error = $('error'), notice = $('notice');
 const select = $('catalogue'), file = $('local-file'), viewSelect = $('view');
 const compareSelect = $('comparison');
+const constantsSelect = $('constants');
 const reload = $('reload'), clearLocal = $('clear-local');
 const flowButton = $('flow-open');
 const bridge = globalThis.mltorch;
@@ -79,7 +80,13 @@ async function main() {
     panels.renderFoldControl($('fold'), $('fold-note'), index);
     panels.renderEffectiveOptions($('effective-options'), coordinator.effectiveOptions);
     panels.renderCatalogueOptions(select, catalog, controls.optional, selectedId);
+    renderConstantsControl();
   };
+
+  /* Reflects the coordinator's OWN mode, never a browser-local copy of it --
+   * `coordinator.constants` already defaults to `P.DEFAULT_CONSTANTS` before
+   * any load, so there is nothing this control needs to track on its own. */
+  const renderConstantsControl = () => { constantsSelect.value = coordinator.constants; };
 
   /* Everything that describes WHAT IS ON SCREEN, from the presentation actually
    * opened. The pane headings and the comparison summary are rendered from the
@@ -162,7 +169,9 @@ async function main() {
   const writeUrl = (mode, presentation) => {
     // A local file cannot be reproduced from a URL, so its URL claims nothing.
     const url = loadedModel
-      ? `${location.pathname}${P.encodeUrl({ model: loadedModel, options: coordinator.effectiveOptions, presentation })}`
+      ? `${location.pathname}${P.encodeUrl({
+        model: loadedModel, options: coordinator.effectiveOptions, presentation, constants: coordinator.constants,
+      })}`
       : location.pathname;
     if (mode === 'push') history.pushState({}, '', url);
     else history.replaceState({}, '', url);
@@ -286,6 +295,17 @@ async function main() {
       ? P.singlePresentation(viewSelect.value)
       : P.comparisonPresentation(id));
   });
+  /* No worker, no bridge `prepare`/`commit` -- only `groupConstants` -- and no
+   * change to which graph or view is on screen. The same failure handling as
+   * `changeFromControl`: on error the control reverts to what is actually
+   * showing rather than keeping the selection the page failed to reach. */
+  constantsSelect.addEventListener('change', () => {
+    clearError(); clearNotice();
+    coordinator.cancel();
+    coordinator.setConstants(constantsSelect.value).then(() => {
+      writeUrl('push', coordinator.presentation);
+    }, (e) => showError(e.message)).finally(renderConstantsControl);
+  });
 
   /* Startup and history share one rule: compare the request the URL describes
    * with the request behind the retained session. A difference is a load; an
@@ -294,6 +314,7 @@ async function main() {
    * already navigating. */
   const applyUrl = async (mode) => {
     const decoded = P.decodeUrl(location.search);
+    const desiredConstants = P.constantsFromUrl(decoded);
     const id = decoded.model ?? catalog.defaultModel;
     if (!catalog.models.some((model) => model.id === id)) return showError('unknown catalogue model');
     const options = P.optionsFromUrl(decoded);
@@ -301,6 +322,10 @@ async function main() {
       ? P.requestKey(loadedModel, coordinator.effectiveOptions)
       : null;
     if (P.requestKey(id, options) !== retained) {
+      // No re-present: the plain setter, since the load about to start (never
+      // the session on screen right now, which `cancel()` is about to tear
+      // down anyway) is what will pick this mode up.
+      coordinator.constants = desiredConstants;
       controls = P.controlsFromOptions(options);
       // Renders the selector with `id` kept and reselected, ahead of the load
       // this triggers below -- the model about to load must already be the one
@@ -309,6 +334,13 @@ async function main() {
       // Never a push: startup has no entry to add to, and a `popstate` is
       // already navigating.
       return loadCatalog(id, options, decoded.presentation, false);
+    }
+    // Same document already on screen: a changed `constants` is a
+    // presentation change of its own, independent of which view/comparison
+    // the rest of this function goes on to resolve.
+    if (desiredConstants !== coordinator.constants) {
+      await coordinator.setConstants(desiredConstants);
+      renderConstantsControl();
     }
     const wanted = P.resolvePresentation(index, decoded.presentation);
     if (wanted) {

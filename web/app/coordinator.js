@@ -46,6 +46,11 @@ export class Coordinator {
    * it: two fields could disagree, and "which view is showing" has no answer
    * while a comparison is on screen. */
   #presentation = null;
+  /* A display preference, not a request: it changes no options, no worker
+   * message and no retained `#session` -- only which text `render.install`
+   * is given. Defaults to the browser's own default so a coordinator built
+   * before any URL is read already matches `presentation.js`'s. */
+  #constantsMode = 'grouped';
 
   constructor({ workerFactory, bridge, render, onStatus = () => {}, onError = () => {}, onSession = () => {}, hard }) {
     Object.assign(this, { workerFactory, bridge, render, onStatus, onError, onSession, hard });
@@ -54,9 +59,52 @@ export class Coordinator {
   get session() { return this.#session; }
   get effectiveOptions() { return this.#options; }
   get presentation() { return this.#presentation; }
+  get constants() { return this.#constantsMode; }
+  /* Records the mode with no re-present, for a caller about to `load()` a
+   * different document anyway -- `setConstants` would otherwise re-present
+   * the session this is REPLACING, wastefully and just before `cancel()`
+   * tears it down. */
+  set constants(mode) { this.#constantsMode = mode; }
   /** The single view on screen, or `null` -- including while a comparison is. */
   get view() {
     return this.#presentation?.kind === 'single' ? this.#presentation.view : null;
+  }
+
+  /* The text actually handed to the renderer: `#session` unchanged, or the
+   * bridge's `groupConstants` transform of it. Called at every `render.install`
+   * site rather than cached on `#session`, so the mode can change between two
+   * presentations of the SAME retained document without a second bridge call
+   * lingering on the wrong one. A rejection becomes a plain `Error` -- neither
+   * `inconsistent` nor `cancelled` -- so it takes the ordinary "this attempt
+   * failed, the previous view stands" path both call sites already have. */
+  #installText(sessionText) {
+    if (this.#constantsMode !== 'grouped') return sessionText;
+    const result = this.bridge.session.groupConstants(sessionText);
+    if (!result.ok) throw new Error(result.error || 'constant grouping failed');
+    return result.render;
+  }
+
+  /* The renderer selection that reopens whatever is on screen right now, for
+   * `setConstants` to replay through the ordinary `present()` path -- the
+   * inverse of the descriptor `render.install` hands back as
+   * `handle.presentation`. `undefined` (load with no selection) when nothing
+   * is on screen yet, since `present()` itself already refuses that case. */
+  #currentSelection() {
+    const p = this.#presentation;
+    if (!p) return undefined;
+    if (p.kind === 'comparison') return { comparison: p.comparison };
+    if (p.kind === 'flow') return { flow: p.view };
+    return { view: p.view };
+  }
+
+  /* Changes the constants display mode and, if a session is already on
+   * screen, re-presents it -- same graph, same view, through the existing
+   * candidate lifecycle, no worker request. Before the first load this only
+   * records the mode for the load to pick up. */
+  async setConstants(mode) {
+    this.#constantsMode = mode;
+    if (!this.#session) return;
+    return this.present(this.#currentSelection());
   }
 
   /* Authority. Everything user-visible and everything that touches the bridge is
@@ -234,7 +282,7 @@ export class Coordinator {
     pending.token = prepared.token;                     // stored BEFORE any await
     let handle;
     try {
-      handle = await this.render.install(prepared.render, { prefer: pending.prefer });
+      handle = await this.render.install(this.#installText(prepared.render), { prefer: pending.prefer });
     } catch (error) {
       this.#settleToken(pending, 'abort');
       // Classify by kind BEFORE applying the stale rule: staleness decides
@@ -329,7 +377,7 @@ export class Coordinator {
     };
     let handle;
     try {
-      handle = await this.render.install(this.#session, selection);
+      handle = await this.render.install(this.#installText(this.#session), selection);
     } catch (error) {
       // Same classification as a load: a terminal renderer is a fact about the
       // whole application, staleness is about one request.

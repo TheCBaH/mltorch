@@ -21,6 +21,16 @@ export const OPTIONAL_STAGES = Object.freeze(['native4d', 'stage_program', 'kern
 export const ALL_STAGES = Object.freeze([...BACKBONE_STAGES, ...OPTIONAL_STAGES]);
 export const EFFORTS = Object.freeze(['quick', 'standard', 'thorough']);
 
+/* Whether a constant boundary node renders at namespace "" (`explicit`, the
+ * exporter's own output) or inside the longest common namespace of its
+ * consumers (`grouped`, via the bridge's `groupConstants`). `grouped` is the
+ * default: it is the one that gives a large model's initial fit a readable
+ * architectural summary, and `explicit` is for a reader after the exporter's
+ * own boundary graph. Independent of `stages`/`verify` -- it changes no
+ * request, only which document text the renderer installs. */
+export const CONSTANTS_MODES = Object.freeze(['explicit', 'grouped']);
+export const DEFAULT_CONSTANTS = 'grouped';
+
 const SOURCE_VIEW = 'v/source';
 const STAGE_KIND = 'stage:';
 
@@ -438,6 +448,7 @@ export function decodeUrl(search) {
   const rawStages = query.get('stages');
   const stages = rawStages === null ? null : canonicalStages(rawStages.split(','));
   const verify = query.get('verify');
+  const constants = query.get('constants');
   /* One closed choice, so a URL carrying ANY TWO of these names NEITHER: no
    * rule for picking a winner is non-arbitrary, and guessing would open a
    * presentation the link did not unambiguously ask for. */
@@ -453,8 +464,14 @@ export function decodeUrl(search) {
       : null,
     stages: stages && stages.length > 0 ? stages : null,
     verify: EFFORTS.includes(verify) ? verify : null,
+    constants: CONSTANTS_MODES.includes(constants) ? constants : null,
   };
 }
+
+/** The constants mode a decoded URL implies -- `DEFAULT_CONSTANTS` absent a
+ * recognised value, exactly as an unusable `stages`/`verify` falls back
+ * rather than becoming an error. */
+export const constantsFromUrl = (decoded) => decoded?.constants ?? DEFAULT_CONSTANTS;
 
 /**
  * The query string for a reproducible catalogue selection, leading `?` included.
@@ -463,12 +480,17 @@ export function decodeUrl(search) {
  * BRANCH rather than from two optional arguments -- which is what makes the
  * exclusivity above structural instead of a rule each caller has to remember.
  */
-export function encodeUrl({ model, options, presentation } = {}) {
+export function encodeUrl({ model, options, presentation, constants } = {}) {
   const query = new URLSearchParams();
   if (model) query.set('model', model);
   const stages = canonicalStages(options?.stages);
   if (stages.length > 0) query.set('stages', stages.join(','));
   if (EFFORTS.includes(options?.verifySymbolic)) query.set('verify', options.verifySymbolic);
+  // Written only away from the default, so a plain shared link stays the
+  // short, common case rather than always naming both toggle values.
+  if (CONSTANTS_MODES.includes(constants) && constants !== DEFAULT_CONSTANTS) {
+    query.set('constants', constants);
+  }
   if (presentation?.kind === 'comparison' && presentation.comparison) {
     query.set('comparison', presentation.comparison);
   } else if (presentation?.kind === 'flow' && presentation.view) {

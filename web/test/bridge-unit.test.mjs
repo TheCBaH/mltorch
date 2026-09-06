@@ -155,3 +155,24 @@ test('a request-domain failure reports its own reason, not an opaque exception',
   assert.equal(digest.ok, false);
   assert.equal(digest.error, 'source digest is not 64 lowercase hex bytes');
 });
+
+/* ------------------------------------------------------- groupConstants */
+
+/* The success path -- a real document's constants actually moving into their
+ * consumers' namespace -- is exercised against a real export in
+ * `test/model_explorer/spike/group_experiment.ml` and unit-tested purely in
+ * `test/model_explorer/me_group_constants_test.ml`; `group_constants` in
+ * `webapp_bridge.ml` adds only decode/map/validate/encode glue around
+ * `Me_group_constants.apply`, so what is left to check here, against the real
+ * built artifact, is that glue's OWN failure handling -- the same boundary
+ * `prepare` already has a test for below it in that file, just never yet a
+ * document neither of them can decode at all. */
+test('groupConstants reports its own reason for input it cannot decode', () => {
+  const notJson = mltorch.session.groupConstants('not json');
+  assert.equal(notJson.ok, false);
+  assert.ok(notJson.error, 'expected a reason');
+
+  const wrongShape = mltorch.session.groupConstants(JSON.stringify({ hello: 'world' }));
+  assert.equal(wrongShape.ok, false);
+  assert.ok(wrongShape.error, 'expected a reason');
+});

@@ -285,6 +285,88 @@ test('a stale view in the URL falls back to Source with a notice', async ({ page
   expect(new URL(page.url()).searchParams.get('view')).toBe('v/source');
 });
 
+/* ------------------------------------------------- constants: grouped/explicit */
+
+/* No worker call, and every other candidate-lifecycle guarantee a view switch
+ * already has -- `Coordinator.setConstants` reaches the bridge's own
+ * `groupConstants`, never `request.buildSession`, and replays the current
+ * presentation through the same `present()` a view switch uses. */
+test('toggling constants sends no worker message and keeps the same view', async ({ page }) => {
+  await page.goto('/index.html');
+  await loaded(page);
+  expect(await page.locator('#constants').inputValue()).toBe('grouped');
+  // The default is never written, so a plain load names nothing.
+  expect(new URL(page.url()).searchParams.get('constants')).toBeNull();
+  const before = await posts(page);
+  const from = (await samples(page)).length;
+
+  await page.locator('#constants').selectOption('explicit');
+  await expect.poll(() => new URL(page.url()).searchParams.get('constants'),
+    { timeout: 90_000, message: 'switching to explicit' }).toBe('explicit');
+  expect(await posts(page), 'switching to explicit posted to the app worker').toBe(before);
+  await expect(page.locator('#view')).toHaveValue('v/source');
+
+  await page.locator('#constants').selectOption('grouped');
+  // Back at the default, so the URL drops the parameter again.
+  await expect.poll(() => new URL(page.url()).searchParams.get('constants'),
+    { timeout: 90_000, message: 'switching back to grouped' }).toBeNull();
+  expect(await posts(page), 'switching back to grouped posted to the app worker').toBe(before);
+  await expect(page.locator('#view')).toHaveValue('v/source');
+
+  await expect(page.locator('#error')).toBeHidden();
+  await neverTwoOnScreen(page, 'constants toggling');
+  expect((await samples(page)).length).toBeGreaterThan(from);
+});
+
+test('back and forward across a constants-only change sends no worker message', async ({ page }) => {
+  await page.goto('/index.html');
+  await loaded(page);
+  const before = await posts(page);
+
+  await page.locator('#constants').selectOption('explicit');
+  await expect.poll(() => new URL(page.url()).searchParams.get('constants'), { timeout: 90_000 })
+    .toBe('explicit');
+
+  await page.goBack();
+  await expect(page.locator('#constants')).toHaveValue('grouped', { timeout: 90_000 });
+  expect(new URL(page.url()).searchParams.get('constants')).toBeNull();
+  expect(await posts(page), 'going back re-ran the worker').toBe(before);
+
+  await page.goForward();
+  await expect(page.locator('#constants')).toHaveValue('explicit', { timeout: 90_000 });
+  expect(new URL(page.url()).searchParams.get('constants')).toBe('explicit');
+  expect(await posts(page), 'going forward re-ran the worker').toBe(before);
+});
+
+/* Unlike a stale view/comparison/flow -- which name a destination that does
+ * not exist and so earn a notice -- an unusable `constants` is the same kind
+ * of unusable as an unknown `stages`/`verify` value: silently treated as
+ * absent, never a request for nothing and never worth alarming the reader
+ * about. */
+test('an unknown constants value in the URL is silently treated as the default', async ({ page }) => {
+  await page.goto('/index.html?model=mobilenetv2_050&constants=bogus');
+  await loaded(page);
+  await expect(page.locator('#constants')).toHaveValue('grouped');
+  await expect(page.locator('#notice')).toBeHidden();
+  await expect(page.locator('#error')).toBeHidden();
+});
+
+test('reload preserves an explicit constants selection', async ({ page }) => {
+  await page.goto('/index.html');
+  await loaded(page);
+  await page.locator('#constants').selectOption('explicit');
+  await expect.poll(() => new URL(page.url()).searchParams.get('constants'), { timeout: 90_000 })
+    .toBe('explicit');
+
+  const before = await posts(page);
+  const from = (await samples(page)).length;
+  await page.locator('#reload').click();
+  await expect.poll(() => posts(page), { timeout: 90_000 }).toBe(before + 1);
+  await replaced(page, from, 240_000);
+  await expect(page.locator('#constants')).toHaveValue('explicit');
+  expect(new URL(page.url()).searchParams.get('constants')).toBe('explicit');
+});
+
 /* --------------------------------------------------- exported comparisons */
 
 /* The two the exporter declares: `c/import` (source -> initial, with its
