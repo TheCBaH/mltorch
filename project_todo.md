@@ -1360,7 +1360,7 @@ implementation detail -- left for explicit direction rather than assumed.
 
 ### 19. Design and implement shared multi-output computation
 
-- [ ] Measure duplicate trace execution when all LSTM outputs are live after step 16.
+- [x] Measure duplicate trace execution when all LSTM outputs are live after step 16.
 - [ ] Specify computation groups with shared locals and multiple emitters, including per-output
   shapes, liveness, scheduling, conversion and resource-accounting rules.
 - [ ] Implement shared recurrence execution and selected-output materialization through the
@@ -1371,6 +1371,51 @@ implementation detail -- left for explicit direction rather than assumed.
 Completion: requested outputs reuse traces with correct scheduling and budgets. This step
 does not depend on the ground-IR representation chosen in step 18; it follows it here as the
 default priority order. Retain separate output programs if evidence does not justify the change.
+
+Status (2026-09-06): first bullet only, same pause as step 18 and for the
+same reason -- the remaining three bullets are a real Native/Stage/Kernel/
+Native4D implementation effort, not a documentation or measurement task,
+and this step's own completion line names a real "retain separate output
+programs if evidence does not justify the change" branch that the
+measurement below is exactly what informs.
+
+Evidence for the first bullet: extended `test/native/lstm_scale_test.ml`
+with a `?states_live` toggle. When `false`, `h_n`/`c_n` are routed through
+`Graph_builder.discard` in the source graph and only `output` is exposed as
+a graph output -- the same shape `test/native4d/fixtures.ml`'s
+`lstm_states_discarded` fixture uses (step 15), but here measuring
+`Region_execution.counters`, not just domain-check acceptance. Binding the
+counters to the lstm NODE's own three output edges (not
+`g.Graph_ir.Graph.outputs`, which shrinks to one when discarded, and would
+otherwise measure "how much of the work this test bothered to count," not
+"how much work happened") gives a clean comparison: the two runs' counters
+are IDENTICAL (`keys=3 locals=19584 emitters=3456 loads=6839424
+reductions=6451200 scans=6 scan_updates=18432`, both). This confirms
+`.ai/native_multi_output_design.md` §2's existing claim empirically rather
+than only by citation ("Direct eval still materialises the discarded
+producer's edge... the sink only records deadness, it does not suppress
+computation") -- `Eval_direct` iterates every node's full `Node.outputs`
+arity unconditionally, with no graph-reachability-based elision at all.
+
+So the "duplicate trace execution" this step's own first bullet asks to
+measure is not a partial inefficiency to quantify -- it is total and
+unconditional: **today, requesting only `output` costs exactly the same as
+requesting all three**, for every occurrence of `lstm.input` in the corpus,
+independent of whether `h_n`/`c_n` are ever read downstream (all 36
+`sequencer2d_s` occurrences discard both, per step 14's own real-corpus
+finding). This is the concrete evidence step 19's later bullets would act
+on: a shared-computation implementation would not just optimize the
+"all three live" case, it would recover the SAME savings on every real
+corpus occurrence, since none of them are in the "all three live" case at
+all. Whether that recovery is worth the "Native, Stage, Kernel and
+Native4D paths" implementation cost this step's own second and third
+bullets describe is the same kind of scope decision step 18 is paused on,
+for the same reason: a real architectural commitment, not an incremental
+extension of already-landed work, and left for explicit direction.
+
+`NO_COLOR=1 opam exec -- dune runtest`, `opam exec -- dune build` all pass;
+this bullet only extended an existing test file with a new expect-test
+(no production code changed).
 
 ### 20. Reassess the remaining broader proposals
 
