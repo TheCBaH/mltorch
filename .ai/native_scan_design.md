@@ -27,8 +27,13 @@ during grounding itself remains unimplemented, tracked as a later, separate
 step, not a Stage 1 requirement. A scan-backed Region program now executes,
 agrees, and is checked end to end through Direct, Region, Stage and Kernel
 paths (`test/native/region_scan_construction_test.ml`'s Stage 1 acceptance
-tests); LSTM arithmetic itself is a later, separate step and is still not
-implemented. Read it together with `native_compute_design.md` (Region
+tests). **LSTM arithmetic itself has since landed** (project steps 12-16;
+see `.ai/pt2_model_support.md`'s 2026-09-06 entry for the real-corpus
+evidence) — the "later, separate step" this line used to describe is done;
+`Scan_at_unsupported` in grounding is the one piece of this record's own
+scope that remains open, and project step 18 is where its cost is assessed
+before any implementation is attempted. Read it together with
+`native_compute_design.md` (Region
 computation) and `native_kernel_dsl_design.md` (Kernel IR and `Hard`
 ceilings), which it extends rather than restates.
 
@@ -576,9 +581,17 @@ cannot compute without walking the finished graph. This is exactly why
 stated as a narrowing rather than implied as a whole-graph guarantee: there
 is no single choke point before `Eval_direct.run` or `Stage_program.ground`
 begin materializing. Direct and Stage-ground executions remain covered by
-the per-key bound and the runtime meter alone. Re-verify all three censuses
-against the finished LSTM programs in step 16, once real liveness and
-fan-out are measurable.
+the per-key bound and the runtime meter alone.
+
+**Re-verified against the finished LSTM programs in step 16**
+(`test/native/lstm_scale_test.ml`, both checked-in `sequencer2d_s` shapes):
+measured `scan_updates / keys` is exactly `6144` for both corpus shape
+families, matching this section's own max-per-key estimate precisely, not
+approximately. `Kernel.Limits.default` admits real corpus scale; a limit
+tightened to just under the real per-key count rejects it with a typed
+error. See `.ai/pt2_model_support.md`'s 2026-09-06 entry for the full
+reconciliation, including the `loads`/`reductions` invariant across the two
+shape families this record's own census first noted.
 
 ### Chosen defaults and hard ceilings
 
