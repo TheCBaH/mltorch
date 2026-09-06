@@ -1,0 +1,3 @@
+# backend_driver.ml is cppo-preprocessed source (#if/#else/#endif), not
+# valid standalone OCaml syntax, so ocamlformat cannot parse it directly.
+backend_driver.ml
