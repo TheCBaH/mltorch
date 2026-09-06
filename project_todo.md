@@ -1102,18 +1102,118 @@ and `make melange.runtest` all pass, in one commit (`09ce69b`).
 
 ### 16. Verify the complete landing and record actual support
 
-- [ ] Run operation walks, malformed-input cases and both Sequencer2D shape families.
-- [ ] Reconcile measured trace slots, peak state, per-key counts and Kernel/Direct totals
+- [x] Run operation walks, malformed-input cases and both Sequencer2D shape families.
+- [x] Reconcile measured trace slots, peak state, per-key counts and Kernel/Direct totals
   with step 4's estimates. Verify default admission and rejection under tighter limits.
-- [ ] Record numerical and execution-count evidence separately from wall-clock benchmarks.
+- [x] Record numerical and execution-count evidence separately from wall-clock benchmarks.
   Account for repeated computation across the initial one-program-per-output implementation.
-- [ ] Run repository checks, both JavaScript checks, and the relevant ATen/Native4D suites.
-- [ ] Regenerate `make pt2.json-model-support`; report the actual next frontier separately
+- [x] Run repository checks, both JavaScript checks, and the relevant ATen/Native4D suites.
+- [x] Regenerate `make pt2.json-model-support`; report the actual next frontier separately
   for Native, Native4D and Kernel. Update support ledgers only from that evidence.
-- [ ] Update tracked design records and mark completed checklist items with their validation.
+- [x] Update tracked design records and mark completed checklist items with their validation.
 
 Completion: all accepted LSTM configurations are implemented and checked across the intended
 paths. Removing the 36 LSTM blockers does not by itself establish whole-model support.
+
+Evidence (2026-09-06): a naming correction first, since it affects every
+other claim below: the checked-in-corpus model this project's `lstm.input`
+work is actually validated against is **`sequencer2d_s`** (911 nodes, the
+one submodule model whose `model.json` carries 36 `lstm.input` nodes,
+confirmed by reading it directly in step 12), **not** `csatv2` -- a
+separate, unrelated model this doc's own `.ai/pt2_model_support.md` table
+happens to describe nearby. Earlier steps' evidence sections used
+"Sequencer2D"/csatv2 interchangeably, following `lstm-plan.md`'s own
+phrasing; this step is where the distinction was checked against the real
+sweep and found to matter. `.ai/pt2_model_support.md`'s new 2026-09-06
+entry records the correction in full; every other tracked doc that used
+the old phrasing was written about a fact (36 nodes, two shape families)
+that remains correct regardless of which name it was filed under, so
+nothing there needed retraction, only this pointer to where the accurate
+attribution now lives.
+
+Operation walks: `Native_op_walk.all_walks`'s `lstm` entry (step 13) and
+the generated ATen `lstm.input` walk (step 14, `test/native_walk_coverage_test.ml`
+showing `matched`) both still pass. Malformed-input cases: both importers'
+typed-rejection suites (`test/native_bridge/lstm_test.ml`,
+`test/native_interp/lstm_test.ml`, step 14) still pass. Both
+`sequencer2d_s` shape families: new `test/native/lstm_scale_test.ml` builds
+the real `(B,L,I,K)=(16,16,384,96)` and `(32,32,192,48)` graphs (Q=1, R=2,
+biases, batch-first) and runs them through `Eval_direct.run` to completion
+with no exception and no shape mismatch -- the correctness claim this
+proves is "the implementation reaches real corpus scale without failing
+structurally", not a fresh numeric proof at that scale (hand-deriving a
+reference at these sizes is impractical); numeric correctness itself is
+already established at small scale by steps 13-14's hand-derived-reference
+fixtures plus the config-independent Direct-vs-Symbolic walk proof, and
+nothing in the arithmetic is size-dependent.
+
+Reconciliation against step 4's estimates: measured `scan_updates / keys`
+is exactly `6144` for BOTH shape families (`294912/48` and `589824/96`),
+matching the estimated max per-key updates (`2*16*192 = 2*32*96 = 6144`)
+exactly, not approximately. `reductions` is bit-for-bit identical between
+the two families (`495,452,160`) and `loads` differs by under 0.2%
+(`893,896,704` vs `895,961,088`) despite family 2's gate width being half
+family 1's -- confirming the `L*K` invariant step 4's own census noted
+(`16*96 = 32*48 = 1536`) survives into the real, per-output-ordinal-tripled
+implementation, not just the single-copy estimate formula. `keys=48/96`
+and `scans=96/192` both decompose as `3 outputs * (batch, or batch*directions)`
+-- the concrete, measured shape of "every output ordinal gets its own
+independent copy of every layer/direction's scan" (a factor of 3 over what
+one shared computation would cost), which is the "account for repeated
+computation across the initial one-program-per-output implementation"
+bullet. "Verify default admission and rejection under tighter limits": a
+second, cheap fixture (`batch=1, input_size=4`, same `seq`/`hidden_size`/
+`bidirectional` as family 1, since per-key cost depends on neither `batch`
+nor `input_size`) reaches the identical `6144` per-key boundary in seconds
+rather than minutes; `Kernel.Limits.default` (`max_scan_updates_per_key` =
+8192) admits it, and a `Kernel.Limits.create`d value tightened to `6000`
+(just under 6144) rejects it with a typed error
+(`"region key's scan updates exceed limit 6000"`), not an exception --
+proving the limit-checking mechanism itself, not just the arithmetic.
+
+`make pt2.json-model-support` regenerated `test/data/pt2_json_model_support.jsonl`.
+`sequencer2d_s` moves from `native_builds:false` (`unsupported_operator`,
+`torch.ops.aten.lstm.input`) to `native_builds:true`, `native4d_converts:true`
+(all four `native4d_*` fields `null`) in one step -- Native import succeeding
+was sufficient for Native4D conversion too, confirming step 15's own
+"no `Domain.check_node` precondition exists for `Lstm`" finding empirically,
+not just structurally. The actual next frontier is `kernel_converts:false`
+(`over_limit`, "evaluation depth exceeds 1536") -- the same widespread,
+already-tracked Kernel/Fusion evaluation-depth ceiling roughly half the
+100-model sweep hits regardless of architecture (`efficientnet_b0`,
+`ghostnetv2_100`, `convit_tiny`, ... in this same run), not a gap
+`lstm.input` introduces; whether it is caused by this op's own three-copy
+Region cost specifically, versus `sequencer2d_s`'s other 875 nodes, is not
+established here and is left for whoever picks up the Kernel/Fusion
+frontier next. This run's diff also carries 47 unrelated lines whose ONLY
+change is `"evaluation depth exceeds 2048"` -> `"...1536"` wording, from a
+`Kernel.Limits.Hard.eval_depth` tightening (`f563553`) that had already
+landed on this branch before this session started, whose ledger
+regeneration had simply never been committed; recorded in
+`.ai/pt2_model_support.md` so this is legible as pre-existing drift, not a
+`lstm.input` side effect. `test/pt2_model_support_cram.t` (the separate,
+real-weight 6-model golden) does not include `sequencer2d_s` and needs no
+change.
+
+`.ai/pt2_model_support.md` carries the full dated entry above (the naming
+correction, the frontier report, and the pre-existing-drift note together);
+this file and `_ai_/lstm-plan.md`/`_ai_/lstm.md` are the tracked/working
+records this step's own "update tracked design records" bullet asks for --
+the working plans are intentionally left as history, not rewritten,
+per this repo's "the plan is scaffolding, the design record is the
+deliverable" rule.
+
+`NO_COLOR=1 opam exec -- dune runtest` (whole tree, including the new
+multi-minute `lstm_scale_test.ml`), `make check.file-size`,
+`git diff --check HEAD`, `opam exec -- dune fmt` (excluding the
+pre-existing, unrelated `experiments/tailcall/backend_driver.ml` syntax
+error noted at steps 7-15), `make jsoo.runtest`, `make jsoo.inline-runtest`,
+and `make melange.runtest` all pass. This closes the LSTM support project:
+all 16 steps are now checked off. Whole-model support for `sequencer2d_s`
+itself is NOT established by this step (per this step's own Completion
+line) -- Native and Native4D both fully accept it; Kernel/Fusion, real
+weights, and end-to-end ATen-vs-Native inference on this specific model
+remain unstarted and are not implied by anything here.
 
 ## Subsequent project improvements
 
