@@ -1,0 +1,11 @@
+(copy_files
+ (files
+  %{workspace_root}/experiments/tailcall/{tailcall_cases,tailcall_js_bench}.ml))
+
+(melange.emit
+ (target output)
+ (alias tailcall-bench-melange)
+ (module_systems commonjs)
+ (enabled_if
+  (= %{profile} melange))
+ (modules tailcall_cases tailcall_js_bench))

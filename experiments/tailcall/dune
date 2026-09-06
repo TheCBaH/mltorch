@@ -1,0 +1,7 @@
+(executable
+ (name tailcall_probe)
+ (modes exe byte)
+ (modules tailcall_cases backend_driver tailcall_probe)
+ (preprocess
+  (action
+   (run %{bin:cppo} %{input-file}))))

@@ -87,11 +87,11 @@ module Limits = struct
        depth, since the buffer-based evaluator never recurses through it.
 
        Re-measured after the scan primitive widened [Value.t] and [Eval.value]
-       (two more constructors, plus the inline [Scan_at] recurrence): the
-       frontier moved from 2048, which now overflows, down to 1536 -- confirmed
-       stable over repeated runs, with 1820 the last value observed to survive
-       and 1850 the first to overflow. 1536 keeps roughly 2x headroom over
-       resnet18's requirement, matching the margin the original ceiling had. *)
+       (two more constructors, plus the inline [Scan_at] recurrence): 1536 is
+       the accepted ceiling pinned under node. The exact failure frontier is
+       deliberately not a contract: it changes with whole-program linking and
+       V8 optimization. 1536 keeps roughly 2x headroom over resnet18's
+       requirement, matching the margin the original ceiling had. *)
     let depth = 256
     let eval_depth = 1536
 

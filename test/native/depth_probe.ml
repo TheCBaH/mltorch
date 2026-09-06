@@ -18,12 +18,14 @@
    clearing the checker's threshold says nothing about [Fold]'s or the
    printer's. Last depth at which everything survives under node: 1024.
 
-   [Eval.value] is the outlier in the other direction — it survives 4096 under
-   node and fails at 8192 — which is why the combined [eval_depth] ceiling is
-   set higher than the per-body one. It has to be: a whole-program resnet18
-   kernel reaches roughly 70 layers x 11 levels of combined depth, and the
-   bound must not reject a model the buffer-based evaluator never recurses
-   through.
+   Before [Scan_at] widened [Value.t] and [Eval.value], the evaluator was the
+   outlier in the other direction: it survived 4096 under node and failed at
+   8192. The current accepted ceiling is 1536 and is asserted below. Exact
+   failure frontiers are diagnostic rather than contractual because they move
+   with whole-program linking and V8 optimization. The combined ceiling remains
+   higher than the per-body one because a whole-program resnet18 kernel reaches
+   roughly 70 layers x 11 levels of combined depth, and the bound must not
+   reject a model the buffer-based evaluator never recurses through.
 
    The verdicts are booleans, so the golden is identical on both backends. *)
 

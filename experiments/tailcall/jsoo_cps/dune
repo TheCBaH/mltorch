@@ -1,0 +1,16 @@
+; js_of_ocaml documents CPS as an opt-in fallback for unknown tail calls.  It
+; is compiled separately so the ordinary jsoo result remains visible.
+
+(copy_files
+ (files
+  %{workspace_root}/experiments/tailcall/{tailcall_cases,backend_driver,tailcall_probe}.ml))
+
+(executable
+ (name tailcall_probe)
+ (modes js)
+ (modules tailcall_cases backend_driver tailcall_probe)
+ (preprocess
+  (action
+   (run %{bin:cppo} -D JS_BACKEND %{input-file})))
+ (js_of_ocaml
+  (flags :standard --effects=cps)))
