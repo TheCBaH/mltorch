@@ -144,7 +144,31 @@ let measure ?limits ?(states_live = true) ~label ~batch ~seq ~input_size
         label counters.keys counters.locals counters.emitters counters.loads
         counters.reductions counters.scans counters.scan_updates
 
-let%expect_test "lstm real-scale resource counters: both corpus shapes" =
+(* Same [seq]/[hidden_size]/[bidirectional] per family as the real corpus
+   shapes below (same 6144 per-key boundary), [batch]/[input_size] shrunk
+   like tests 2/3. Doesn't validate the real worst-case totals -- that's the
+   gated test below -- but keeps the default run under a second. *)
+let%expect_test
+    "lstm real-scale resource counters: both corpus shapes (fast fixture)" =
+  measure ~label:"family1 (16,16,384,96)" ~batch:1 ~seq:16 ~input_size:4
+    ~hidden_size:96 ~bidirectional:true ~batch_first:true ();
+  measure ~label:"family2 (32,32,192,48)" ~batch:1 ~seq:32 ~input_size:4
+    ~hidden_size:48 ~bidirectional:true ~batch_first:true ();
+  [%expect
+    {|
+    family1 (16,16,384,96): keys=3 locals=19584 emitters=3456 loads=6839424 reductions=6451200 scans=6 scan_updates=18432
+    family2 (32,32,192,48): keys=3 locals=19008 emitters=3264 loads=3742272 reductions=3354624 scans=6 scan_updates=18432 |}]
+
+(* Real corpus shapes, full [batch]/[input_size]. [@tags "disabled"] is
+   ppx_inline_test's own gate: dropped by default, so plain `dune runtest`
+   skips it. Re-run with `-require-tag disabled` on the built runner:
+     _build/default/test/native/.native_test.inline-tests/inline-test-runner.exe \
+       inline-test-runner native_test -require-tag disabled \
+       -partition lstm_scale_test.ml -source-tree-root ../.. -diff-cmd -
+   (from _build/default/test/native). *)
+let%expect_test
+    ("lstm real-scale resource counters: both corpus shapes (full, gated)"
+     [@tags "disabled"]) =
   measure ~label:"family1 (16,16,384,96)" ~batch:16 ~seq:16 ~input_size:384
     ~hidden_size:96 ~bidirectional:true ~batch_first:true ();
   measure ~label:"family2 (32,32,192,48)" ~batch:32 ~seq:32 ~input_size:192
