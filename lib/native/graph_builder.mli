@@ -223,9 +223,7 @@ val lstm :
   ?name:string ->
   Lstm.Lstm.params ->
   input:tensor_ref ->
-  weight_ih:tensor_ref ->
-  weight_hh:tensor_ref ->
-  ?bias:tensor_ref * tensor_ref ->
+  layers:Lstm.Lstm.Layer.t list ->
   h0:tensor_ref ->
   c0:tensor_ref ->
   unit ->

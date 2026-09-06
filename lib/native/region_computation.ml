@@ -81,40 +81,56 @@ let built ~limits ~op ~output ~output_shape ~operand ~fill =
           | Region_context.Invalid_partition -> Invalid_partition
           | Region_context.Invalid_program error -> Invalid_program error)
         (Norm.LayerNorm.Computation.program ~limits params ~x ~weight ~bias)
-  | Lstm
-      {
-        Lstm.Lstm.params;
-        input = input_id;
-        weight_ih = weight_ih_id;
-        weight_hh = weight_hh_id;
-        bias;
-        h0 = h0_id;
-        c0 = c0_id;
-      } ->
+  | Lstm { Lstm.Lstm.params; layers; input = input_id; h0 = h0_id; c0 = c0_id }
+    ->
       let open Err.Syntax in
       let* input = required ~operand input_id in
-      let* weight_ih = required ~operand weight_ih_id in
-      let* weight_hh = required ~operand weight_hh_id in
       let* h0 = required ~operand h0_id in
       let* c0 = required ~operand c0_id in
-      let* bias =
-        match bias with
-        | None -> Err.return None
-        | Some (bi_id, bh_id) ->
-            let* bi = required ~operand bi_id in
-            let+ bh = required ~operand bh_id in
-            Some (bi, bh)
+      let resolve_direction (d : Lstm.Lstm.Direction.t) :
+          (Lstm.Lstm.Direction_operands.t, error) Err.t =
+        let* weight_ih = required ~operand d.weight_ih in
+        let* weight_hh = required ~operand d.weight_hh in
+        let+ bias =
+          match d.bias with
+          | None -> Err.return None
+          | Some (bi_id, bh_id) ->
+              let* bi = required ~operand bi_id in
+              let+ bh = required ~operand bh_id in
+              Some (bi, bh)
+        in
+        { Lstm.Lstm.Direction_operands.weight_ih; weight_hh; bias }
+      in
+      (* [output_shape] already rejects a present [reverse]; forward-only
+         resolution here is sound because that check runs first. *)
+      let* forward_layers =
+        Err.List.map
+          (fun (l : Lstm.Lstm.Layer.t) -> resolve_direction l.forward)
+          layers
+      in
+      let shape_of (o : Lstm.Lstm.Direction_operands.t) :
+          Lstm.Lstm.Direction_shapes.t =
+        {
+          Lstm.Lstm.Direction_shapes.weight_ih = o.weight_ih.Tensor_sig.shape;
+          weight_hh = o.weight_hh.Tensor_sig.shape;
+          bias =
+            Option.map
+              (fun (bi, bh) -> (bi.Tensor_sig.shape, bh.Tensor_sig.shape))
+              o.bias;
+        }
       in
       let* out_shape, hn_shape, cn_shape =
         Err.map_error
           (fun e -> Invalid_shape e)
           (Lstm.Lstm.output_shape params ~input_shape:input.Tensor_sig.shape
-             ~weight_ih_shape:weight_ih.Tensor_sig.shape
-             ~weight_hh_shape:weight_hh.Tensor_sig.shape
-             ~bias_shapes:
-               (Option.map
-                  (fun (bi, bh) -> (bi.Tensor_sig.shape, bh.Tensor_sig.shape))
-                  bias)
+             ~layers:
+               (List.map
+                  (fun d ->
+                    {
+                      Lstm.Lstm.Layer_shapes.forward = shape_of d;
+                      reverse = None;
+                    })
+                  forward_layers)
              ~h0_shape:h0.Tensor_sig.shape ~c0_shape:c0.Tensor_sig.shape)
       in
       let* expected =
@@ -132,8 +148,8 @@ let built ~limits ~op ~output ~output_shape ~operand ~fill =
         (function
           | Region_context.Invalid_partition -> Invalid_partition
           | Region_context.Invalid_program error -> Invalid_program error)
-        (Lstm.Lstm.Computation.program ~limits params ~output ~weight_ih
-           ~weight_hh ~bias ~input ~h0 ~c0)
+        (Lstm.Lstm.Computation.program ~limits params ~output
+           ~layers:forward_layers ~input ~h0 ~c0)
   | Sdpa
       {
         Attention.Sdpa.params;

@@ -171,6 +171,24 @@ module Linear = struct
           actual Dim.pp expected
 end
 
+(* Configuration rejections for the WIP `Lstm` op (project step 13):
+   payload/domain facts no per-operand shape comparison can express, distinct
+   from [Operand_shape]'s `Lstm_*` rows (which compare one operand's shape
+   against an expected one). Each is a real _ai_/project_todo.md M3b/M5 gap,
+   not a placeholder -- rejected with a typed diagnostic rather than silently
+   mishandled. *)
+module Lstm = struct
+  type error = Batch_first_unsupported | Empty_layers | Reverse_unsupported
+
+  let pp_error ppf = function
+    | Batch_first_unsupported ->
+        Fmt.string ppf "lstm: batch_first layout is not yet supported"
+    | Empty_layers -> Fmt.string ppf "lstm: at least one layer is required"
+    | Reverse_unsupported ->
+        Fmt.string ppf
+          "lstm: bidirectional (reverse direction) is not yet supported"
+end
+
 module Bmm = struct
   type dims_mismatch = { lhs : Dim.extent Dim.t; rhs : Dim.extent Dim.t }
 
@@ -667,6 +685,7 @@ type t =
   | `Group_norm of Group_norm.t
   | `Index_tensor of Index_tensor.t
   | `Linear of Linear.error
+  | `Lstm of Lstm.error
   | `Numel_over_limit of Vec6.Numel_bound.t
   | `Operand_shape of Operand_shape.t
   | `Output_count_over_limit of Output_count.t
@@ -695,6 +714,7 @@ let pp ppf = function
   | `Group_norm e -> Group_norm.pp ppf e
   | `Index_tensor e -> Index_tensor.pp ppf e
   | `Linear e -> Linear.pp_error ppf e
+  | `Lstm e -> Lstm.pp_error ppf e
   | `Numel_over_limit e -> Vec6.Numel_bound.pp ppf e
   | `Operand_shape e -> Operand_shape.pp ppf e
   | `Output_count_over_limit e -> Output_count.pp ppf e

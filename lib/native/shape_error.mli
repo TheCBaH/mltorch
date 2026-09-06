@@ -112,6 +112,12 @@ module Linear : sig
   val pp_error : Format.formatter -> error -> unit
 end
 
+module Lstm : sig
+  type error = Batch_first_unsupported | Empty_layers | Reverse_unsupported
+
+  val pp_error : Format.formatter -> error -> unit
+end
+
 module Bmm : sig
   type dims_mismatch = { lhs : Dim.extent Dim.t; rhs : Dim.extent Dim.t }
 
@@ -466,6 +472,7 @@ type t =
   | `Group_norm of Group_norm.t
   | `Index_tensor of Index_tensor.t
   | `Linear of Linear.error
+  | `Lstm of Lstm.error
   | `Numel_over_limit of Vec6.Numel_bound.t
   | `Operand_shape of Operand_shape.t
   | `Output_count_over_limit of Output_count.t

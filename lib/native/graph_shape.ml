@@ -251,24 +251,41 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
         widen (Linear.Linear.output_shape params ~x_shape ~weight_shape)
       in
       [ out ]
-  | Lstm { Lstm.Lstm.params; input; weight_ih; weight_hh; bias; h0; c0 } ->
+  | Lstm { Lstm.Lstm.params; layers; input; h0; c0 } ->
       let* input_shape = shape input in
-      let* weight_ih_shape = shape weight_ih in
-      let* weight_hh_shape = shape weight_hh in
-      let* bias_shapes =
-        match bias with
-        | None -> Err.return None
-        | Some (bi, bh) ->
-            let* bi_shape = shape bi in
-            let+ bh_shape = shape bh in
-            Some (bi_shape, bh_shape)
+      let direction_shapes (d : Lstm.Lstm.Direction.t) :
+          (Lstm.Lstm.Direction_shapes.t, error) Err.t =
+        let* weight_ih = shape d.weight_ih in
+        let* weight_hh = shape d.weight_hh in
+        let+ bias =
+          match d.bias with
+          | None -> Err.return None
+          | Some (bi, bh) ->
+              let* bi_shape = shape bi in
+              let+ bh_shape = shape bh in
+              Some (bi_shape, bh_shape)
+        in
+        { Lstm.Lstm.Direction_shapes.weight_ih; weight_hh; bias }
       in
+      let layer_shapes (l : Lstm.Lstm.Layer.t) :
+          (Lstm.Lstm.Layer_shapes.t, error) Err.t =
+        let* forward = direction_shapes l.forward in
+        let+ reverse =
+          match l.reverse with
+          | None -> Err.return None
+          | Some d ->
+              let+ d_shapes = direction_shapes d in
+              Some d_shapes
+        in
+        { Lstm.Lstm.Layer_shapes.forward; reverse }
+      in
+      let* layers = Err.List.map layer_shapes layers in
       let* h0_shape = shape h0 in
       let* c0_shape = shape c0 in
       let+ out, h_n, c_n =
         widen
-          (Lstm.Lstm.output_shape params ~input_shape ~weight_ih_shape
-             ~weight_hh_shape ~bias_shapes ~h0_shape ~c0_shape)
+          (Lstm.Lstm.output_shape params ~input_shape ~layers ~h0_shape
+             ~c0_shape)
       in
       [ out; h_n; c_n ]
   | Max_pool2d { Pool.MaxPool2d.params; x } ->

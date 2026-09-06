@@ -321,10 +321,8 @@ let linear ?name params ~x ~weight ?bias () =
 
 (* Three outputs (output, h_n, c_n): allocate an edge per output shape,
    append the node with all three, and return them as a triple. *)
-let lstm ?name params ~input ~weight_ih ~weight_hh ?bias ~h0 ~c0 () =
-  let op =
-    Lstm { Lstm.Lstm.params; input; weight_ih; weight_hh; bias; h0; c0 }
-  in
+let lstm ?name params ~input ~layers ~h0 ~c0 () =
+  let op = Lstm { Lstm.Lstm.params; layers; input; h0; c0 } in
   let* s = get in
   let* shapes =
     lift_result
