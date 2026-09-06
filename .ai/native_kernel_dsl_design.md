@@ -1151,8 +1151,7 @@ ones, because `Expr.Check.value` is itself recursive and bounded by the
 it reaches the limit it was asked to enforce.
 
 `Hard.depth` and `Hard.eval_depth` are empirical stack limits under **node**,
-which has the tighter stack. Measured on this tree, natively every traversal
-survives depth 16384; under node:
+which has the tighter stack. The original, pre-scan calibration found:
 
 | Depth | Node result |
 |---:|---|
@@ -1168,16 +1167,17 @@ Two consequences fix the constants:
   `Hard.depth` must sit below the *minimum* over every recursive traversal
   applied to a validated body — not below the checker's own threshold. Adding a
   traversal to `Expr` means re-running the probe.
-- **`Eval.value` is the outlier upward**, surviving 4096 and failing at 8192, so
-  the combined ceiling is legitimately higher than the per-body one. It has to
-  be: a whole-program resnet18 kernel reaches roughly 70 layers x 11 levels of
-  combined depth, and a bound below that would reject a model the buffer-based
-  evaluator never recurses through.
+- **`Eval.value` was the outlier upward**, surviving 4096 and failing at 8192.
+  The scan primitive subsequently widened its frame, so these are historical
+  calibration figures, not the current frontier.
 
 `Hard.depth = 256` (8x margin under node's 2048, 18x the largest observed body
-depth) and `Hard.eval_depth = 2048` (4x margin, 2.6x resnet18). The remaining
-`Hard` values bound memory and time rather than stack. `Hard.extent` and
-`Hard.numel` are `2^31`, the JS-reachable runtime domain.
+depth). `Hard.eval_depth` is now 1536 after the scan extension, still roughly 2x
+the resnet18 requirement. The test pins that accepted ceiling, not an exact
+failure point: the latter changes with whole-program linking and V8
+optimization. The remaining `Hard` values bound memory and time rather than
+stack. `Hard.extent` and `Hard.numel` are `2^31`, the JS-reachable runtime
+domain.
 
 `test/native/depth_probe.ml` pins both constants on both backends and is what
 makes the claim falsifiable — a compiler, jsoo or node change that lowers the

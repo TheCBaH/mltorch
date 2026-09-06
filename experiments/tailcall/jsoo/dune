@@ -1,0 +1,15 @@
+; A separate compilation is necessary for cppo selection.  A `(modes js)`
+; executable normally consumes the same bytecode library as native code, so a
+; preprocessor cannot infer which eventual executable backend will link it.
+
+(copy_files
+ (files
+  %{workspace_root}/experiments/tailcall/{tailcall_cases,backend_driver,tailcall_probe}.ml))
+
+(executable
+ (name tailcall_probe)
+ (modes js)
+ (modules tailcall_cases backend_driver tailcall_probe)
+ (preprocess
+  (action
+   (run %{bin:cppo} -D JS_BACKEND %{input-file}))))

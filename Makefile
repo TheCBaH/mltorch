@@ -1,4 +1,4 @@
-.PHONY: visualizer.submodule visualizer.patch visualizer.build spike.setup spike.runtest webapp.npm-install webapp.build webapp.serve webapp.runtest webapp.bridge-runtest webapp.browser-runtest melange.build melange.build.scaffold melange.runtest build test format runtest verify.pristine clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars pt2.json-model-support inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% benchmark.region_pixel benchmark.region_compute jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.run jsoo.pt2.download jsoo.pt2.vars js.build js.runtest check.file-size check.whitespace check precommit
+.PHONY: visualizer.submodule visualizer.patch visualizer.build spike.setup spike.runtest webapp.npm-install webapp.build webapp.serve webapp.runtest webapp.bridge-runtest webapp.browser-runtest melange.build melange.build.scaffold melange.runtest build test format runtest verify.pristine clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars pt2.json-model-support inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% benchmark.region_pixel benchmark.region_compute tailcall.runtest tailcall.js-benchmark jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.run jsoo.pt2.download jsoo.pt2.vars js.build js.runtest check.file-size check.whitespace check precommit
 all: build
 
 # Functional ATen model release, pinned alongside the producer submodule.
@@ -325,6 +325,40 @@ test:
 # runner.
 runtest:
 	NO_COLOR=1 opam exec -- dune runtest --auto-promote
+
+# Standalone recursion experiment.  These are committed backend-specific
+# expectations rather than a native-vs-JS diff: the point is precisely that
+# the compilers support different recursive call shapes.  See
+# .ai/expr_tailcall_design.md.
+TAILCALL_BUILD := _build/default/experiments/tailcall
+
+tailcall.runtest:
+	opam exec -- dune build --profile melange \
+	  experiments/tailcall/jsoo/tailcall_probe.bc.js \
+	  experiments/tailcall/jsoo_cps/tailcall_probe.bc.js \
+	  @tailcall-melange
+	@node $(TAILCALL_BUILD)/jsoo/tailcall_probe.bc.js 200000 \
+	  > $(TAILCALL_BUILD)/actual.jsoo
+	@diff -u experiments/tailcall/expected.jsoo $(TAILCALL_BUILD)/actual.jsoo
+	@node $(TAILCALL_BUILD)/jsoo_cps/tailcall_probe.bc.js 200000 \
+	  > $(TAILCALL_BUILD)/actual.jsoo-cps
+	@diff -u experiments/tailcall/expected.jsoo-cps \
+	  $(TAILCALL_BUILD)/actual.jsoo-cps
+	@node $(TAILCALL_BUILD)/melange/output/experiments/tailcall/melange/tailcall_probe.js \
+	  200000 > $(TAILCALL_BUILD)/actual.melange
+	@diff -u experiments/tailcall/expected.melange \
+	  $(TAILCALL_BUILD)/actual.melange
+	@echo "tailcall: jsoo, jsoo CPS, and melange match their stack-safety contracts"
+
+tailcall.js-benchmark:
+	opam exec -- dune build --profile melange \
+	  experiments/tailcall/jsoo_bench/tailcall_js_bench.bc.js \
+	  @tailcall-bench-melange
+	@echo "js_of_ocaml"
+	node $(TAILCALL_BUILD)/jsoo_bench/tailcall_js_bench.bc.js 64 200000
+	@echo "melange"
+	node $(TAILCALL_BUILD)/melange_bench/output/experiments/tailcall/melange_bench/tailcall_js_bench.js \
+	  64 200000
 
 # JavaScript backends. Deliberately outside `runtest`, same reasoning as
 # pt2.runtest: linking js_of_ocaml on every local test run is not worth it, and

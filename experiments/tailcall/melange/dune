@@ -1,0 +1,14 @@
+(copy_files
+ (files
+  %{workspace_root}/experiments/tailcall/{tailcall_cases,backend_driver,tailcall_probe}.ml))
+
+(melange.emit
+ (target output)
+ (alias tailcall-melange)
+ (module_systems commonjs)
+ (enabled_if
+  (= %{profile} melange))
+ (modules tailcall_cases backend_driver tailcall_probe)
+ (preprocess
+  (action
+   (run %{bin:cppo} -D JS_BACKEND %{input-file}))))

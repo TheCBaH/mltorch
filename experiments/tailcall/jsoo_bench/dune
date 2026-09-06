@@ -1,0 +1,8 @@
+(copy_files
+ (files
+  %{workspace_root}/experiments/tailcall/{tailcall_cases,tailcall_js_bench}.ml))
+
+(executable
+ (name tailcall_js_bench)
+ (modes js)
+ (modules tailcall_cases tailcall_js_bench))

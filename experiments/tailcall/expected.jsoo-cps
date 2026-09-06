@@ -1,0 +1,28 @@
+depth 200000
+self tail                ok
+mutual tail              ok
+mutual via variant       ok
+mutual via tag args      ok
+indirect tail            ok
+direct binary            raised
+direct unary             raised
+direct value/guard       ok
+variant binary           raised
+variant unary            raised
+variant value/guard      raised
+eager trampoline binary  ok
+eager trampoline unary   ok
+eager trampoline guard   ok
+delayed trampoline binary ok
+delayed trampoline unary ok
+delayed trampoline guard ok
+machine binary           ok
+machine unary            ok
+machine value/guard      ok
+reused frames binary     ok
+reused frames unary      ok
+reused frames guard      ok
+hybrid binary            ok
+hybrid unary             ok
+hybrid guard             ok
+cppo-selected tag-state-loop ok
