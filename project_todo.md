@@ -472,16 +472,83 @@ preserve existing edits, they were left uncommitted and excluded from both commi
 
 ### 9. Bound specialization and reject unsupported fusion
 
-- [ ] Re-measure the final expression after `specialize_pixel`, `substitute_loads` and
+- [x] Re-measure the final expression after `specialize_pixel`, `substitute_loads` and
   `substitute_locals`; propagate scan limits and typed failures to callers.
-- [ ] Keep scope-preserving renaming and simple index/source rewrites cheap as specified.
-- [ ] Add a chained-scan case whose cached Region execution fits but whose specialized
+- [x] Keep scope-preserving renaming and simple index/source rewrites cheap as specified.
+- [x] Add a chained-scan case whose cached Region execution fits but whose specialized
   replay exceeds its update allowance; reject before replay begins.
-- [ ] Add a recurrent-computation summary to shared fusion admission. Exercise both planner
+- [x] Add a recurrent-computation summary to shared fusion admission. Exercise both planner
   and direct `Kernel_elab.admit` entry points, including a singleton inline scan.
 
 Completion: compact syntax cannot bypass execution-cost admission after substitution, and
 both fusion entry points reject recurrent computations consistently.
+
+Evidence (2026-09-06): `Region_program.specialize_pixel`/`reconstructs` take
+`~scan_limits:Expr.Scan_limits.t` and, once `max_size`/`max_depth` hold, call
+`Expr.Fold.scan_cost` on the fully-inlined result and compare it to
+`scan_limits`, failing with the existing `` `Scan (Expr.Scan.State_over_limit _
+| Updates_over_limit _) `` -- no new error case, since a chain's multiplied
+cost is exactly what `scan_cost`'s own recursive `Scan_at` case already
+computes over the substituted tree (`Expr.Rewrite.substitute_locals`'s `Scan`
+case reuses the `Scan_at` wrapper unchanged). This made `substitute_loads`/
+`substitute_locals` gaining their own `limits` parameter unnecessary: the one
+re-measurement at `specialize_pixel`'s own boundary already covers every
+value they can produce, so they and the cheap scope-preserving helpers
+(`freshen`, `alpha_normalize`, `substitute_output`, `substitute_reducer`,
+`map_sources`) are untouched. Scan limits reach `specialize_pixel` from
+`Stage_program.Stage.pixel_body` and `Ground_eval.Env.pixel_body`/`body_at`,
+narrowed from `Kernel.Limits.t` the same way `Region_execution.lower` already
+does.
+
+A real bug surfaced and was fixed in the same change: `Expr.Fold
+.measure_with_locals` (the size/depth re-measurement `specialize_pixel`'s
+private `preflight` already ran) called its `local` callback for every
+`Local`/`Local_at`/`Local_scan_at` node without regard to scope, including a
+scan's own `prev` binder occurrences inside `update` -- a bound reference to
+the scan's own state row, never a Region local, with no entry in the
+caller's id-keyed map. This raised `Not_found` on ANY scan-backed program
+reaching `specialize_pixel`, even a single non-chained one, before this
+step's fix -- nothing before now had exercised that path. Fixed by threading
+a `bound : Local_var.Set.t` scope through `measure_with_locals`'s walk
+(adding `s.Scan.prev` to `bound` only for `s.Scan.update`, matching `prev`'s
+own scope), the same bound-tracking convention `scoped_locals`/`keep`
+already use for the analogous free-locals queries.
+
+`Kernel_elab.admit` gains a `has_scan` check (reusing `Expr.Fold.scan_cost`:
+`snd (scan_cost e) > 0` holds exactly when a `Scan_at` node is present, since
+every scan reserves nonzero live state) over both resolved pixel expressions,
+failing with the new `` `Recurrent_use of Kernel.Use.t `` (inserted
+alphabetically). Both `site` and `site_in` call this one `admit`, so both the
+direct entry point and the planner (`Fusion_plan.plan`, which routes through
+`site_in`) reject consistently with no separate planner-side code --
+confirmed by `Fusion_plan`'s own `pointwise` table only screening the
+*consumer* side, so a scan-containing *producer* loaded by an
+otherwise-pointwise consumer previously reached `site_in` unguarded.
+
+Tests: `test/native/region_program_test.ml` ("specialize_pixel rejects a
+chained scan whose replay exceeds updates even though Region execution
+fits") builds two chained width-2/steps-5 scans (the second reading the
+first's trace via the cheap `Local_scan_at` reader) under
+`max_updates=50L`; `Region_program.preflight` succeeds (Region's own
+`per_key` is 20) while `specialize_pixel` fails at the same limits (the
+inlined replay costs 110 updates) -- demonstrating "efficient materialization
+succeeds, specialized replay is rejected before any evaluator replays it".
+`test/native/fusion_test.ml` ("both admission entry points reject a scan
+producer, including a singleton inline scan") builds a two-value `Kernel.t`
+by hand: a producer whose pixel expression is a bare `Scan_at` (no Region
+local at all, built directly from `Expr.Builder.scan`) loaded once,
+pointwise, by a scan-free consumer -- accepted by every pre-existing check,
+rejected only by the new one, at `Kernel_elab.site`, `site_in`, and through
+`Fusion_plan.plan`. `NO_COLOR=1 opam exec -- dune runtest` (whole tree),
+`make jsoo.runtest`, `make jsoo.inline-runtest`, and `make melange.runtest`
+all pass; `make build`/`runtest`/`check.file-size`/`check.whitespace` and
+`opam exec -- dune build @lib/fmt @test/fmt` all pass on every file this step
+touches.
+
+Limitation: `make precommit`'s aggregate `format` step still cannot be
+verified end to end -- `dune fmt` fails on the tracked, cppo-preprocessed
+`experiments/tailcall/backend_driver.ml`, unrelated to this step and present
+before it began (see steps 7/8's identical limitation note).
 
 ### 10. Bound grounding and migrate verifier budgets
 
