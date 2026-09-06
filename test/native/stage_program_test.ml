@@ -106,7 +106,8 @@ let%expect_test "Stage_program: Pixel computation retains its expression object"
   in
   let embedded =
     Err.or_raise ~pp_error:Region_program.pp_error
-      (Stage_program.Stage.pixel_body ~max_size:32 ~max_depth:32 stage)
+      (Stage_program.Stage.pixel_body ~max_size:32 ~max_depth:32
+         ~scan_limits:Expr.Scan_limits.default stage)
   in
   Format.printf "same_object=%b@." (body == embedded);
   [%expect {| same_object=true |}]

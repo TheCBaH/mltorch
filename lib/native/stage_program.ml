@@ -14,8 +14,9 @@ module Stage = struct
   let computation t = t.computation
   let sources t = Region_program.Fold.sources (computation t)
 
-  let pixel_body ~max_size ~max_depth t =
-    Region_program.specialize_pixel ~max_size ~max_depth t.computation
+  let pixel_body ~max_size ~max_depth ~scan_limits t =
+    Region_program.specialize_pixel ~max_size ~max_depth ~scan_limits
+      t.computation
 
   let check ~max_size ~max_depth t =
     Region_program.check ~max_size ~max_depth (computation t)

@@ -163,14 +163,17 @@ module Env = struct
 
   let stage_of_id t id = Tensor_id.Map.find_opt id t.stages
 
-  let pixel_body t ~max_size ~max_depth (st : Stage_program.Stage.t) =
+  let pixel_body t ~max_size ~max_depth ~scan_limits
+      (st : Stage_program.Stage.t) =
     match
       Tensor_id.Map.find_opt st.Stage_program.Stage.id !(t.pixel_bodies)
     with
     | Some body -> Err.return body
     | None ->
         let open Err.Syntax in
-        let+ body = Stage_program.Stage.pixel_body ~max_size ~max_depth st in
+        let+ body =
+          Stage_program.Stage.pixel_body ~max_size ~max_depth ~scan_limits st
+        in
         t.pixel_bodies :=
           Tensor_id.Map.add st.Stage_program.Stage.id body !(t.pixel_bodies);
         body
@@ -427,7 +430,9 @@ let body_at esc env (st : Stage_program.Stage.t) coord =
       (Err.map_error
          (fun e -> `Region e)
          (Env.pixel_body env ~max_size:limits.Kernel.Limits.max_size
-            ~max_depth:limits.Kernel.Limits.max_depth st))
+            ~max_depth:limits.Kernel.Limits.max_depth
+            ~scan_limits:(Kernel.Limits.scan_limits limits)
+            st))
   in
   ground esc ~env
     ~coord:(Expr_bridge.coord_of_vec6 (Vec6.map Dim.to_int coord))

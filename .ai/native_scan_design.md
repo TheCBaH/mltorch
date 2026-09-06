@@ -14,8 +14,14 @@ measures, and `Region_execution.lower`/`lower_region`'s validated artifact
 (see "Static measures" and "Validated execution artifact" below) landed
 third. Running a scan-backed Region program — `Region_execution`/`Region_eval`
 actually executing a trace, sharing one metered budget across a Region key —
-landed fourth (see "Region propagation" and "Runtime metering" below); LSTM
-arithmetic itself is a later, separate step and is still not implemented. Read
+landed fourth (see "Region propagation" and "Runtime metering" below);
+re-measuring `specialize_pixel`'s inlined result against scan limits and
+rejecting a scan outright at the shared `Kernel_elab.admit` fusion rule
+landed fifth (see "Specialization and rewrite re-measurement" and "Fusion
+admission" below). Grounding's own scan support (`Ground_eval`'s `Budget`/
+`Meter`/`Term`) is not yet landed — grounding still rejects any `Scan_at` it
+reaches with `` `Scan_at_unsupported ``. LSTM arithmetic itself is a later,
+separate step and is still not implemented. Read
 it together with `native_compute_design.md` (Region computation) and
 `native_kernel_dsl_design.md` (Kernel IR and `Hard` ceilings), which it
 extends rather than restates.
@@ -816,18 +822,50 @@ this change touches was independently confirmed correctly formatted, and
 ## Specialization and rewrite re-measurement
 
 Region validation admits `Local_scan_at` as a constant-time cached read, but
-`specialize_pixel` replaces it with an inline `Scan_at` — so a chain where a
-later scan cheaply reads an earlier trace becomes, after specialization, a
-descriptor that **re-executes** the earlier scan inside its own update. Cost
-can multiply past the admitted limits while the specialized AST stays
-compact, and today's contract only carries `max_size`/`max_depth`
-(`region_program.mli:39-40`), neither of which is sensitive to this. So
-`specialize_pixel` takes scan limits and re-measures the fully rewritten
-value with a typed error, threaded through `Stage.pixel_body` and
-`Ground_eval`; likewise `substitute_loads` and `substitute_locals` take
-`limits` and re-measure their result. `freshen`, `alpha_normalize`,
-`substitute_output`, `substitute_reducer`, and `map_sources` stay cheap and
-unmeasured — none of them can turn a cached read into a re-executing one.
+`specialize_pixel` (`region_program.ml:84-161`) replaces it with an inline
+`Scan_at` via `Expr.Rewrite.substitute_locals`'s `Scan` case — so a chain
+where a later scan cheaply reads an earlier trace becomes, after
+specialization, a descriptor that **re-executes** the earlier scan inside its
+own update. Cost can multiply past the admitted limits while the specialized
+AST stays compact, and the size/depth budget alone is not sensitive to this.
+
+Landed: `specialize_pixel` and `reconstructs` take `~scan_limits:
+Expr.Scan_limits.t` and, once `max_size`/`max_depth` hold (both branches:
+already-Pixel and freshly-rewritten), call `Expr.Fold.scan_cost` on the
+**final** value and compare against `scan_limits`, failing with the existing
+`` `Scan (Expr.Scan.State_over_limit _ | Updates_over_limit _) `` — no new
+error case, since the payload is already exactly "the limit", matching this
+file's own convention. This is sound as one linear pass, not a second
+unbounded traversal: by construction the size/depth check that already ran
+bounds the tree `scan_cost` walks. It is also sufficient on its own —
+`substitute_locals`'s `Scan` case reuses the `Scan_at` wrapper unchanged
+(only `init`/`update`'s subtrees and identities change), so a nested chain's
+multiplied cost is exactly what `scan_cost`'s own recursive `Scan_at` case
+already computes; `substitute_loads` and `substitute_locals` do not need
+their own `limits` parameter or re-measurement, and neither do the cheap
+scope-preserving helpers (`freshen`, `alpha_normalize`, `substitute_output`,
+`substitute_reducer`, `map_sources`), none of which can turn a cached read
+into a re-executing one. The scan limits reach `specialize_pixel` from
+`Stage_program.Stage.pixel_body` and `Ground_eval.Env.pixel_body`/`body_at`,
+which narrows them from `Kernel.Limits.t` via `Kernel.Limits.scan_limits`
+exactly as `Region_execution.lower`/`Stage_program.lower` already do.
+
+**A real, load-bearing bug surfaced and was fixed in the same change.**
+`Expr.Fold.measure_with_locals` (the traversal `specialize_pixel`'s own
+private `preflight` uses to re-measure size/depth as each local is inlined)
+called its `local` callback for *every* `Local`/`Local_at`/`Local_scan_at`
+node, including a scan's own `prev` binder occurrences inside `update` —
+which is a bound reference to the scan's own state row, never a Region
+local, and has no entry in the caller's id-keyed map. Measuring any
+scan-backed program through `specialize_pixel` — even a single, non-chained
+scan — raised `Not_found` before this fix. `measure_with_locals` now threads
+a `bound : Local_var.Set.t` scope through its `value` walk, adding
+`s.Scan.prev` to `bound` only for `s.Scan.update` (matching `prev`'s own
+scope: free in `init`, bound in `update`), and skips the `local` callback for
+a bound id — the same bound-tracking convention `scoped_locals`/`keep`
+already use for the analogous free-locals queries. The chained-scan
+regression in `test/native/region_program_test.ml` is what surfaced this: it
+could not even reach its intended budget check until this fix landed.
 
 ## Grounding meter and verdict mapping
 
@@ -959,15 +997,32 @@ the two verdicts).
 
 ## Fusion admission
 
-`Kernel_elab.admit` (`kernel_elab.ml:71-76`) rejects fusion only when
-`Kernel.pixel_expression` is `None` — a singleton `Scan_at` program is still
-a pixel expression by that test, so it is not rejected today. `admit` gains
-an explicit scan/recurrent-effect summary, tested at both the planner and
-direct entry points. `Fusion_plan`'s `pointwise` test
-(`fusion_plan.ml:145-148`) already covers the *planner* path only, because it
-happens to consult `Region_program.Fold.binders`, which will report a scan's
-`lane`/`step` binders once they exist — `Kernel_elab.admit` needs its own
-check because it does not consult `Fold.binders` at all.
+`Kernel_elab.admit` previously rejected fusion only when
+`Kernel.pixel_expression` was `None` — a singleton `Scan_at` program is still
+a pixel expression by that test, so it was not rejected. Landed: `admit`
+(`kernel_elab.ml:81-99`) now checks, once both endpoints resolve to a pixel
+expression, whether *either* one's pixel expression contains a scan, via a
+`has_scan` predicate reusing `Expr.Fold.scan_cost` (`snd (scan_cost e) > 0`
+holds exactly when a `Scan_at` node is present, since every scan reserves
+`2 * width >= 2` live state and `Expr.Builder.scan` rejects `width <= 0` —
+including a zero-step scan, whose `updates` alone would read as zero). A hit
+fails with the new `` `Recurrent_use of Kernel.Use.t ``, inserted
+alphabetically between `` `Not_a_dependency `` and `` `Regional_computation ``.
+Fusion between two scan-free values (including ones containing ordinary
+`Reduce`s) is unaffected.
+
+Because `site_in` and `site` both call this one `admit`, both the planner
+and a direct caller reject consistently — no separate planner-side check was
+added. `Fusion_plan`'s own `pointwise` table (`fusion_plan.ml:145-148`)
+excludes *any* value with binders (a reduction or a scan) from being a fusion
+*producer* at all, but only screens the `consumer_is_pointwise` side; a
+scan-containing *producer* loaded by an otherwise-pointwise consumer reaches
+`site_in` regardless, which is exactly the case `test/native/fusion_test.ml`
+("both admission entry points reject a scan producer, including a singleton
+inline scan") exercises: a plain `Scan_at` pixel value (no Region local)
+loaded once, pointwise, by a scan-free consumer — accepted by every
+pre-existing check, rejected only by the new one, at `site`, `site_in`, and
+through `Fusion_plan.plan`.
 
 ## RHS rendering
 

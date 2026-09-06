@@ -193,7 +193,9 @@ let%expect_test "Authored Regions reconstruct their legacy scalar oracles" =
     let program = (List.hd symbolic.Stage_program.stages).computation in
     Err.or_raise ~pp_error:Region_program.pp_error
       (Region_program.reconstructs ~max_size:Kernel.Limits.default.max_size
-         ~max_depth:Kernel.Limits.default.max_depth ~pixel program)
+         ~max_depth:Kernel.Limits.default.max_depth
+         ~scan_limits:(Kernel.Limits.scan_limits Kernel.Limits.default)
+         ~pixel program)
   in
   let rms_pixel =
     let module C = Norm.RmsNorm.Legacy_pixel (Symbolic) in

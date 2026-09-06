@@ -3,6 +3,7 @@
 type error =
   [ `Body of Kernel.Body_error.t
   | `Not_a_dependency of Kernel.Use.t
+  | `Recurrent_use of Kernel.Use.t
   | `Regional_computation of Kernel.Use.t
   | `Unknown_use of Kernel.Use.t
   | `Unsupported_use of Kernel.Use.t ]
@@ -12,6 +13,8 @@ let pp_error fmt : [< error ] -> unit = function
       Fmt.pf fmt "%a: %a" Tensor_id.pp at Region_program.pp_error error
   | `Not_a_dependency u ->
       Fmt.pf fmt "%a is not an ordinary-load edge" Kernel.Use.pp u
+  | `Recurrent_use u ->
+      Fmt.pf fmt "%a has a scan in its pixel expression" Kernel.Use.pp u
   | `Regional_computation u ->
       Fmt.pf fmt "%a has a regional computation" Kernel.Use.pp u
   | `Unknown_use u ->
@@ -65,25 +68,35 @@ type occurrence =
   | One of Expr.Role.Position.t Expr.Index.t Expr.Coord.t
   | Several
 
+(* A pixel expression's own scan presence, independent of any budget: every
+   scan reserves [2 * width >= 2] live state ([Expr.Builder.scan] rejects
+   [width <= 0]), so a nonzero [state] from [Expr.Fold.scan_cost] holds
+   exactly when a [Scan_at] node is present, including a zero-step one whose
+   [updates] alone would read as zero. *)
+let has_scan pixel = snd (Expr.Fold.scan_cost pixel) > 0
+
 (* The one legality rule, over already-extracted data. Both entry points below
    call it, so the predicate cannot differ between the planner and a direct
    caller — and neither can pay for the extraction twice. *)
 let admit ~limits ~(u : Kernel.Use.t) ~(producer : Kernel.Value.t)
     ~(consumer : Kernel.Value.t) ~occurrence =
-  if
-    Option.is_none (Kernel.pixel_expression producer)
-    || Option.is_none (Kernel.pixel_expression consumer)
-  then Err.fail (`Regional_computation u)
-  else
-    match occurrence with
-    | None -> Err.fail (`Not_a_dependency u)
-    | Some Several -> Err.fail (`Unsupported_use u)
-    | Some (One coord) ->
-        if
-          pointwise ~producer:producer.Kernel.Value.sg
-            ~consumer:consumer.Kernel.Value.sg coord
-        then Err.return { Site.use = u; producer; consumer; coord; limits }
-        else Err.fail (`Unsupported_use u)
+  match
+    (Kernel.pixel_expression producer, Kernel.pixel_expression consumer)
+  with
+  | None, _ | _, None -> Err.fail (`Regional_computation u)
+  | Some producer_pixel, Some consumer_pixel -> (
+      if has_scan producer_pixel || has_scan consumer_pixel then
+        Err.fail (`Recurrent_use u)
+      else
+        match occurrence with
+        | None -> Err.fail (`Not_a_dependency u)
+        | Some Several -> Err.fail (`Unsupported_use u)
+        | Some (One coord) ->
+            if
+              pointwise ~producer:producer.Kernel.Value.sg
+                ~consumer:consumer.Kernel.Value.sg coord
+            then Err.return { Site.use = u; producer; consumer; coord; limits }
+            else Err.fail (`Unsupported_use u))
 
 module Analysis = struct
   (* The extracted evidence, OWNED. Derived from a [Kernel.t] and reachable only

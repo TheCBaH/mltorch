@@ -45,13 +45,23 @@ val with_output : t -> Expr.Value.t -> t
 val pixel_expression : t -> Expr.Value.t option
 
 val specialize_pixel :
-  max_size:int -> max_depth:int -> t -> (Expr.Value.t, error) Err.t
+  max_size:int ->
+  max_depth:int ->
+  scan_limits:Expr.Scan_limits.t ->
+  t ->
+  (Expr.Value.t, error) Err.t
 (** Symbolic expansion of a Region program into one Pixel expression. This is
-    distinct from concrete scalar projection. *)
+    distinct from concrete scalar projection. Inlining a [Local_scan_at] read
+    turns it into the referenced scan's own [Scan_at] node (a real re-execution,
+    not a slot read), so the result is re-measured against [scan_limits] after
+    [max_size]/[max_depth] hold -- a chain that was cheap to materialize through
+    Region execution can still be rejected here before any evaluator ever
+    replays it. *)
 
 val reconstructs :
   max_size:int ->
   max_depth:int ->
+  scan_limits:Expr.Scan_limits.t ->
   pixel:Expr.Value.t ->
   t ->
   (bool, error) Err.t

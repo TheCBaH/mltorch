@@ -271,20 +271,23 @@ let%expect_test
                     ~partition ~output:(Value.add second second)))))
   in
   let specialized =
-    Region_program.specialize_pixel ~max_size:32 ~max_depth:16 program
+    Region_program.specialize_pixel ~max_size:32 ~max_depth:16
+      ~scan_limits:Expr.Scan_limits.default program
   in
   Fmt.pr "specialized: %a@.reconstructs: %a@.too-small: %a@." Pp.value
     (Err.or_raise ~pp_error:Region_program.pp_error specialized)
     Fmt.bool
     (Err.or_raise ~pp_error:Region_program.pp_error
        (Region_program.reconstructs ~max_size:32 ~max_depth:16
+          ~scan_limits:Expr.Scan_limits.default
           ~pixel:
             (Value.add
                (Value.add (Value.const 2.) (Value.const 2.))
                (Value.add (Value.const 2.) (Value.const 2.)))
           program))
     (Core.Pretty.err_result ~ok:Pp.value ~error:Region_program.pp_error)
-    (Region_program.specialize_pixel ~max_size:6 ~max_depth:16 program);
+    (Region_program.specialize_pixel ~max_size:6 ~max_depth:16
+       ~scan_limits:Expr.Scan_limits.default program);
   [%expect
     {|
     specialized: ((2 + 2) + (2 + 2))
@@ -296,11 +299,13 @@ let%expect_test "Region_program leaves Pixel programs untouched" =
   let program = Region_program.pixel pixel in
   let specialized =
     Err.or_raise ~pp_error:Region_program.pp_error
-      (Region_program.specialize_pixel ~max_size:8 ~max_depth:8 program)
+      (Region_program.specialize_pixel ~max_size:8 ~max_depth:8
+         ~scan_limits:Expr.Scan_limits.default program)
   in
   let mismatch =
     Err.or_raise ~pp_error:Region_program.pp_error
       (Region_program.reconstructs ~max_size:8 ~max_depth:8
+         ~scan_limits:Expr.Scan_limits.default
          ~pixel:(Value.add (Value.const 3.) (Value.const 2.))
          program)
   in
@@ -308,3 +313,53 @@ let%expect_test "Region_program leaves Pixel programs untouched" =
   [%expect {|
     physical: true
     mismatch: false |}]
+
+(* A chain where a later scan cheaply READS an earlier one's trace through
+   [Local_scan_at] (region execution cost 0 for the read) is efficient to
+   materialize, but inlining that read during [specialize_pixel] splices in
+   the earlier scan's own [Scan_at] descriptor, which then re-executes once
+   per lane of every step of the LATER scan -- see [Region_program]'s
+   [check_scan_cost] comment. Both scans individually satisfy [scan_limits]
+   at construction and at Region's own [preflight]; only the specialized
+   replay's multiplied update count exceeds it. *)
+let%expect_test
+    "specialize_pixel rejects a chained scan whose replay exceeds updates even \
+     though Region execution fits" =
+  let scan_limits =
+    Err.or_raise ~pp_error:Scan_limits.pp_error
+      (Scan_limits.create ~max_state:100 ~max_updates:50L)
+  in
+  let pos n = Index.clamp_low (Index.const n) in
+  let partition = Region_partition.singleton in
+  let counter ~update continue =
+    Region_program.Builder.scan ~limits:scan_limits ~width:2 ~steps:5
+      ~init:(fun ~lane:_ -> Builder.return (Value.const 0.))
+      ~update continue
+  in
+  let program =
+    Err.or_raise ~pp_error:Region_program.pp_error
+      (Region_program.Builder.run
+         (counter
+            ~update:(fun ~step:_ ~lane ~previous_at ->
+              Builder.return (Value.add (previous_at lane) (Value.const 1.)))
+            (fun a_read ->
+              counter
+                ~update:(fun ~step ~lane ~previous_at ->
+                  Builder.return
+                    (Value.add (previous_at lane) (a_read ~row:step ~lane)))
+                (fun b_read ->
+                  Region_program.Builder.finish ~max_size:256 ~max_depth:32
+                    ~partition
+                    ~output:(b_read ~row:(pos 5) ~lane:(pos 0))))))
+  in
+  Fmt.pr "region preflight: %a@.specialize: %a@."
+    (Core.Pretty.err_result ~ok:(Fmt.any "()") ~error:Region_program.pp_error)
+    (Region_program.preflight ~max_local_slots:1000 ~max_scan_state:100
+       ~max_scan_updates:50L ~output_shape:shape program)
+    (Core.Pretty.err_result ~ok:Pp.value ~error:Region_program.pp_error)
+    (Region_program.specialize_pixel ~max_size:100_000 ~max_depth:1000
+       ~scan_limits program);
+  [%expect
+    {|
+    region preflight: ()
+    specialize: scan updates exceed limit 50 |}]
