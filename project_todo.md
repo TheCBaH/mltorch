@@ -379,23 +379,96 @@ this step changed.
 
 ### 8. Execute Region traces and propagate configured meters
 
-- [ ] Run each trace descriptor once per key, writing directly into its validated slot range.
+- [x] Run each trace descriptor once per key, writing directly into its validated slot range.
   Charge each lane update before evaluating its body; cached projections spend no updates.
-- [ ] Share one meter across all locals and emitters for a Region key. Allocate a fresh
+- [x] Share one meter across all locals and emitters for a Region key. Allocate a fresh
   meter per standalone value, `value_at` invocation, and Pixel output coordinate as specified.
-- [ ] Extend the streaming reference materializer from step 5 to traces, retaining one
+- [x] Extend the streaming reference materializer from step 5 to traces, retaining one
   slot array at a time and verifying the larger storage workload.
-- [ ] Thread limits through `Eval_symbolic.run`, `Region_kernel.of_graph`, Direct execution,
+- [x] Thread limits through `Eval_symbolic.run`, `Region_kernel.of_graph`, Direct execution,
   Stage grounding and both Kernel Pixel paths. Remove silent default substitution.
-- [ ] Make `Stage_program.ground` preflight all stages before materializing the first and
+- [x] Make `Stage_program.ground` preflight all stages before materializing the first and
   return `Err.t`. Use `Err.Escape` across `Schedule.ground`'s materialization callback.
-- [ ] Complete all signature/caller migrations, including Native4D's Direct path and tests.
-- [ ] Extend optional counters to observe scan starts and exact combined update charges
+- [x] Complete all signature/caller migrations, including Native4D's Direct path and tests.
+- [x] Extend optional counters to observe scan starts and exact combined update charges
   in successfully executed programs, separately from preflight-rejection tests.
 
 Completion: reference and production results agree; counters establish sharing and reset
 scope. Repeated same-key `value_at` calls remain independent, custom limits survive every
 path, and many-key materialization respects the one-array scratch assumption.
+
+Evidence (2026-09-06): `0eb6fcf` implements execution; `34e8cd8` adds the larger-storage
+regression. `Region_execution.evaluate_locals`/`Region_eval.evaluate_locals` both fill a
+`Rhs.Scan s` local's whole preflighted slot range directly, row-major: row 0 is one
+evaluation of `s.init` per lane (`~reducer:[(s.lane, l)]`, no update charge); row `r`
+(`1<=r<=steps`) is one evaluation of `s.update` per lane
+(`~reducer:[(s.lane, l); (s.step, r-1)]`), charging `Expr.Scan_meter.charge_update` once
+per lane BEFORE evaluating its body, with `prev` answered by an ordinary `local_at`
+resolver override reading row `r-1` from the slots just written -- deliberately NOT
+`Eval.value`'s own inline `Scan_at` machinery (no `reserve`/`release` of `2*width` state),
+since a trace local's storage was already accounted for by `max_local_slots`/
+`max_scan_state` at preflight and only ever needs the public `charge_update` operation.
+`Expr.Eval.value`'s `?reducer` widened from one optional `(Reduce_var.t * int)` pair to a
+list, since a scan row's `update` needs `lane` and `step` bound simultaneously; the two
+production call sites (both evaluators' `Vector` case) and one test call site pass a
+singleton list, unaffected otherwise. `Region_slots.scan_reader : t -> float array ->
+Expr.Eval.scan_reader` factors the cached-`Local_scan_at`-read half (bounds-check row then
+lane against a trace local's own `(width, steps)`, now recorded in `Region_slots.t`
+alongside the existing `(offset, count)` map, so lookup stays O(1) setup like `reader`),
+shared by both evaluators the same way `reader` already is.
+
+Meter allocation matches the design record's four-row reset-scope table exactly:
+`Region_execution.materialize`/`Region_eval.materialize` create one fresh
+`Expr.Scan_meter.t` per Region key (shared by every local, including a scan's own trace
+fill, and the emitter for that key); `value_at` on either module creates one per
+invocation; `Schedule.ground` and both of `Kernel_eval.machine`'s Pixel arms (the
+on-demand `eval_value` path and the whole-tensor `materialize` path) create one per
+output coordinate. `Region_execution.lower`/`lower_region` take `~scan_limits:
+Expr.Scan_limits.t` directly (replacing the separate `~max_scan_state:int
+~max_scan_updates:int64` pair) since `lowered` needs exactly that type to build a meter
+later; `Region_program.preflight` keeps its original two-field signature unchanged,
+narrowed from `scan_limits` at the one call site inside `Region_execution.validate`. Every
+caller already held a `Kernel.Limits.t` and narrows it once via the existing
+`Kernel.Limits.scan_limits` accessor: `kernel_eval.ml`, `eval_direct.ml`,
+`eval_direct4.ml` (Native4D), `stage_program.ml`, and two test call sites
+(`region_program_test.ml`, `region_compute_test.ml`, both migrated to
+`Expr.Scan_limits.default` since their literals already matched it exactly).
+`Eval_symbolic.run` gained `?limits` (default `Kernel.Limits.default`), threaded into
+`Region_computation.program`, replacing a hardcoded default; `Region_kernel.of_graph`
+resolves its own `?limits` once and passes that SAME value to both `Eval_symbolic.run`
+and `Kernel_adapt.of_stage_program` rather than only the latter.
+`Stage_program.ground`'s preflight-every-stage-first pass and `Schedule.ground`'s
+`Err.Escape` crossing were already landed in step 7 (`46a5a6b`); this step additionally
+threads `~scan_limits:Expr.Scan_limits.t` through `Schedule.ground` (one fresh meter per
+Pixel output coordinate) and its `stage_program.ml`/test call sites.
+`Scan_execution_not_implemented` is removed from `Region_eval.error`/`Kernel_eval.error`
+(no longer reachable) along with its `pp_error` arms.
+
+New test `test/native/region_scan_execution_test.ml`: production/reference agreement on a
+counter-scan oracle (`trace[row,lane]=row`) across an 8-key partition; `counters.scans`/
+`scan_updates`/`locals`/`emitters`/`keys` match hand-derived expected counts exactly;
+`value_at` called twice at the same output succeeds both times (proving a fresh
+per-invocation meter, not a shared one); a `max_state:0` limit still succeeds (proving a
+trace local never reserves inline state); a tight `max_updates:5L` limit against
+`Region_eval.materialize` directly (which never preflights) genuinely raises
+`Updates_exhausted` -- confirmed non-vacuous by temporarily bypassing the `charge_update`
+call and watching this same test fail, then restoring it; an exactly-one-key-sized limit
+still succeeds across 8 keys (proving per-key reset, not a shared budget); and a 306-slot
+single-key trace (`width=6, steps=50`) agrees bitwise between both evaluators, covering
+"verify the larger storage workload". `NO_COLOR=1 opam exec -- dune runtest` (whole tree),
+`make jsoo.runtest`, `make jsoo.inline-runtest`, and `make melange.runtest` all pass;
+`make check.file-size`/`check.whitespace` pass; every file this step touches was
+independently confirmed correctly formatted (`dune build @lib/fmt @test/fmt`).
+
+Limitation: `make precommit`'s aggregate `format` step still cannot be verified end to
+end in this session, for the same pre-existing reason recorded at step 7 -- `dune fmt`
+fails on unrelated, untracked, cppo-preprocessed `experiments/tailcall/backend_driver.ml`,
+present before this step's edits began and left untouched. Separately, and unrelated to
+this step's own edits, `.ai/native_kernel_dsl_design.md`, `lib/native/kernel.ml`, and
+`test/native/depth_probe.ml` were found modified on disk (an `Eval.value` frame-depth
+comment rewording, no `Hard.eval_depth` value change) partway through this session by a
+concurrent process outside this session's control; per this file's own instruction to
+preserve existing edits, they were left uncommitted and excluded from both commits above.
 
 ### 9. Bound specialization and reject unsupported fusion
 
