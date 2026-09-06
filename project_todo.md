@@ -302,22 +302,80 @@ all pass.
 
 ### 7. Separate resource dimensions and validate executable artifacts
 
-- [ ] Add `max_local_slots`, `max_scan_state`, `max_scan_updates_per_key` and
+- [x] Add `max_local_slots`, `max_scan_state`, `max_scan_updates_per_key` and
   `max_scan_updates_total` with checked construction, hard ceilings and consistent defaults.
-- [ ] Use bounded arithmetic for all aggregates. Implement the plan's occurrence-based
+- [x] Use bounded arithmetic for all aggregates. Implement the plan's occurrence-based
   measures, including vector extents, emitter multiplicity, enclosing reductions and key counts.
-- [ ] Stop charging storage against syntax size. Count resident slots once in scan peak
+- [x] Stop charging storage against syntax size. Count resident slots once in scan peak
   state, omit nonexistent trace row buffers, and give scan-free programs zero scan-state cost.
-- [ ] Extend step 5's result-valued `lower`/`lower_region` preparation to validate and retain
+- [x] Extend step 5's result-valued `lower`/`lower_region` preparation to validate and retain
   the new limits and measures. Cover both Pixel and Region branches.
-- [ ] Revalidate converted emitters, expose no unchecked constructor for a validated token,
+- [x] Revalidate converted emitters, expose no unchecked constructor for a validated token,
   and run preflight from the operation, Stage and Kernel boundaries.
-- [ ] Preserve the full typed program/limit failure through operation-facing errors.
+- [x] Preserve the full typed program/limit failure through operation-facing errors.
   Apply total-update aggregation at Kernel scope only.
 
 Completion: every preparation entry rejects the same relevant invalid program before scan
 execution. Tests distinguish storage, state, per-key and Kernel-total failures, including
 scan-free programs with scan limits disabled and exact error payloads at the operation boundary.
+
+Evidence (2026-09-06): the tracked design record's "Static measures" and "Validated execution
+artifact" sections carry the full landed contract; summarized here. `Kernel.Limits.t` gains
+`max_local_slots`/`max_scan_state` (`int`) and `max_scan_updates_per_key`/`max_scan_updates_total`
+(`int64`), each checked against a new `Hard` ceiling by the same exclusive `v >= hard` rule as the
+existing fields; `scan_limits : t -> Expr.Scan_limits.t` narrows the two `Expr`-shared fields, and
+`default` derives them from `Expr.Scan_limits.default` rather than restating the constants.
+`Expr.Fold.scan_cost : Value.t -> int64 * int` is the one traversal both static measures are built
+from (lane-update count and peak live state a single evaluation costs), aggregating via saturating
+`Int64` arithmetic; it deliberately does not multiply through an enclosing `Reduce`'s extent, which
+is `Scan_admission.check`'s complementary job at a different layer (raw `Expr` construction/
+rewrite) -- a documented split, not an oversight, since every scan built through
+`Region_program.Builder.scan` sits flat at Region-local top level. `Region_program.preflight
+~max_local_slots ~max_scan_state ~max_scan_updates ~output_shape` composes the renamed-in-effect
+`checked_slot_total` (now billed against `max_local_slots`, never `max_size`) with a `scan_peak`
+check (reusing `Scan.error`'s existing `State_over_limit` tag) and a `per_key` check (the new
+`` `Scan_updates_over_limit ``); both formulas collapse to `0` with no special case for a scan-free
+program, regression-tested directly. `Region_program.scan_updates_total` (`keys * per_key`) is
+exposed separately and summed only at `Kernel.create`, the one Kernel-scoped
+`` `Scan_updates_total_over_limit `` check.
+
+`Region_execution.lower`/`lower_region` take the four new fields plus `~output_shape`, share one
+`validate` helper running `check` then `preflight`, and `lowered` now retains `output_shape` so
+`materialize`/`value_at` drop that parameter entirely. A real pre-existing gap surfaced and was
+fixed in the same change: `lower`'s Pixel branch previously returned `Pixel_loop` with no
+validation at all (not even `max_size`/`max_depth`); it now preflights too, which is sound because
+a Pixel program's `outputs_per_key` is always 1. `Schedule.ground` itself became `Err.t`-returning
+(crossing its `Tensor.materialize` callback with `Err.Escape` instead of `Err.or_raise`, per the
+design record's own wording), and `Stage_program.ground` gained `?limits`, a `type error =
+[Region_program.error | Region_eval.error]`, and a preflight-every-stage-first pass inside one
+`Err.Escape` scope. `Kernel_eval.converted`, `eval_direct.ml`, `native4d/eval_direct4.ml`,
+`lib/native_op_walk/native_verify.ml`, and roughly forty test call sites across
+`test/native/graph_symbolic_*_test.ml`, `stage_program_test.ml`, `kernel_eval_test.ml`,
+`symbolic_test.ml`, and `test/native4d/compute_test.ml` are migrated; none exercises a resource
+limit, so every existing assertion is unchanged. The operation boundary
+(`Region_computation.program`) is one funnel wrapping the existing four-op dispatch (renamed
+`built`) with a single `preflight` call, not four; the Kernel boundary (`Kernel.create`) preflights
+each value and separately aggregates `max_scan_updates_total`; `Me_classify.kernel` classifies the
+new tag `Over_limit`, alongside the kernel's other size limits.
+
+New tests: `test/native/region_preflight_test.ml` (storage/state/per-key/`outputs_per_key`/
+scan-free-with-scans-disabled, all against a real scan-backed `Region_program.t`),
+`test/native/kernel_scan_test.ml` (`max_scan_updates_total`, split into its own file to keep
+`kernel_test.ml` under the file-size cap), plus dedicated cases in `region_compute_test.ml`
+("Region construction preflights local/trace storage too") and `kernel_test.ml` ("the four scan
+fields are checked and derived"). `opam exec -- dune build lib/expr`, `NO_COLOR=1 opam exec --
+dune runtest test/expr test/native`, the whole-tree `NO_COLOR=1 opam exec -- dune runtest`,
+`make jsoo.runtest`, `make jsoo.inline-runtest`, and `make melange.runtest` all pass.
+
+Limitation: `make precommit`'s `format` step could not be verified end to end -- `dune fmt` fails
+on `experiments/tailcall/backend_driver.ml`, untracked, cppo-preprocessed content unrelated to this
+step that was already present in the working tree (alongside an untracked `.ai/expr_tailcall_design.md`
+and an uncommitted `Makefile` addition wiring `tailcall.runtest`/`tailcall.benchmark`) before this
+session's edits began and is left untouched, per this file's own instruction to preserve existing
+edits. Every file this step touches was independently confirmed already correctly formatted
+(auto-promoted cleanly before the aggregate `dune fmt` command reached the unrelated file), and
+`build`/`runtest`/`check.file-size`/`check.whitespace` all pass directly against exactly the files
+this step changed.
 
 ### 8. Execute Region traces and propagate configured meters
 
