@@ -1006,16 +1006,99 @@ dependency.
 
 ### 15. Add the Native4D counterpart
 
-- [ ] Reuse the axis-independent Native payload where possible; implement the Native4D
+- [x] Reuse the axis-independent Native payload where possible; implement the Native4D
   registration, conversion and Region computation routing.
-- [ ] Respect rank-3 placement on `H/W/C` with `N=T=D=1`, including layout-dependent sequence
+- [x] Respect rank-3 placement on `H/W/C` with `N=T=D=1`, including layout-dependent sequence
   placement and layout-independent initial/final state indexing.
-- [ ] Ensure dead-output cleanup occurs before Native4D conversion, which has no `Discard`.
+- [x] Ensure dead-output cleanup occurs before Native4D conversion, which has no `Discard`.
   Preserve any live state results.
-- [ ] Compare Native4D with Native and ATen across the accepted configuration matrix.
+- [x] Compare Native4D with Native and ATen across the accepted configuration matrix.
 
 Completion: Native4D has the same supported LSTM domain, with explicit layout and live/dead
 output coverage rather than a blanket recurrence rejection.
+
+Evidence (2026-09-06): `Lstm.Lstm.t` is reused VERBATIM as the Native4D
+payload (`Op.Lstm of Lstm.Lstm.t` in `lib/native4d/op.ml`, registered via
+`include Lstm.Lstm` the same way `Op.Sdpa of Attention.Sdpa.t` is) -- no
+`Ops4` wrapper, because nothing in `params` (`hidden_size`/`input_size`/
+`batch_first`) names an axis, and every one of `Lstm.Lstm`'s own shape
+helpers (`state_shape`/`weight_ih_shape`/`weight_hh_shape`/`bias_shape`/
+the input-shape derivation via `time_axis`/`batch_axis`) hardcodes
+`T=1,D=1` unconditionally. This is why `Domain.check_node`'s `Lstm _` arm
+needed no per-op predicate at all: unlike `Sdpa`'s genuine `D=1`
+precondition, Lstm joins the plain `Err.return ()` bucket alongside `Add`/
+`Relu` -- `check_shapes`'s existing four-axis walk already guarantees every
+Lstm tensor is in-domain, for any hidden_size/layers/directions/layout.
+`Region_computation4.native_op` maps `Op.Lstm t -> Some (Graph_ir.Lstm t)`
+unchanged, so Direct4/Symbolic4 route through the exact same
+`Region_computation.program` Native uses -- no second numeric kernel to
+verify separately. `Graph_shape4`'s arm mirrors `Graph_shape`'s own Lstm
+arm exactly (same `direction_shapes`/`layer_shapes` resolution), wrapping
+the three resulting shapes through `four_all` rather than `Graph_shape`'s
+bare list. `lib/native4d/builder.ml`'s `lstm` returns a real triple
+(`Tensor_id.t * Tensor_id.t * Tensor_id.t`), the same shape
+`Graph_builder.lstm` uses, rather than `opN`'s list.
+
+"Respect rank-3 placement on H/W/C with N=T=D=1... layout-dependent
+sequence placement": `test/native4d/lower_test.ml`'s new "lstm keeps
+layout-dependent sequence placement, both ways" builds a `seq=3,batch=2`
+graph under each `batch_first` value and converts it, pinning that
+`time_first` puts `H=3 W=2` and `batch_first` puts `H=2 W=3` on both the
+input and the `output` edge in the destination graph -- a real defect
+surfaced writing this test: the lowerer's first `Lstm` arm used `simple`
+(the single-output helper every other direct-counterpart arm uses), which
+crashed immediately (`Native4d.Lower: n0 is a single-output op but declares
+3 outputs`) the first time a three-output op actually reached it; fixed to
+the same three-output `emit` path `Batch_norm_no_stats`'s arm already uses.
+"Layout-independent initial/final state indexing" is structural, not
+tested separately: `h0`/`c0`/`h_n`/`c_n` never appear in either shape
+branch above, matching `lstm-plan.md` §2's "always `[H=layer*R+direction,
+W=batch, C=hidden]`, regardless of layout".
+
+"Ensure dead-output cleanup occurs before Native4D conversion... Preserve
+any live state results": unlike max-pool's indices (rejected until stage 1
+narrows the op to a value-only counterpart the dialect DOES have), Lstm has
+no such alternate overload to narrow onto, so a `Discard`'d `h_n`/`c_n`
+cannot be legalized away at the Native level either -- the state edge just
+stays declared, referenced by nothing. `test/native4d/domain_test.ml`'s new
+"lstm state outputs, before/after canonicalization" pair (mirroring the
+existing max-pool pair's own two-step structure) proves the CONTRAST
+directly: at the raw graph, only the `Discard` SINK itself is rejected
+(`node n1: no legalization for discard x=t6`, `Discard` having no Native4D
+counterpart at all, regardless of which op feeds it) -- not "no
+legalization for lstm". After `Pipeline.canonical` removes the sink, BOTH
+the discarded and the live row read "in the dialect" identically, unlike
+max-pool's live row, which stays rejected even after canonicalization
+(no argmax-pool operation exists). This is the concrete demonstration that
+state-output liveness is a Native-level DCE property this step's checklist
+calls out, never a Native4D domain question -- `test/native4d/fixtures.ml`'s
+new `lstm_states_discarded`/`lstm_states_live` fixtures.
+
+"Compare Native4D with Native and ATen across the accepted configuration
+matrix": since Native4D introduces no second numeric kernel for Lstm (the
+verbatim-payload route above), Direct4 = Symbolic4 bitwise agreement on the
+new `compute_test.ml`/`fixtures4.ml` fixture (single layer/direction, WITH
+bias, time-first; all three outputs compared, per that file's own "not
+just the first" discipline) is the comparison against Native this op
+actually needs -- there is exactly one `Region_computation.program`
+function, so "Native4D agrees with Native" and "Native4D's Direct agrees
+with its own Symbolic" are the same fact checked once, not two facts
+needing two fixtures. ATen agreement was already established at the Native
+level in step 14 (`test/native_bridge/lstm_test.ml`'s real ATen
+`verify_lstm`), and nothing in this step gives Native4D's Lstm a
+computation independent of Native's, so no separate ATen comparison exists
+or is needed for it -- consistent with `.ai/native4d_design.md`'s own
+"Native4D is not an alternative PT2 importer": ATen can only ever be
+compared through Native as the intermediate. `test/native4d/op_json_test.ml`
+gained a JSON round-trip sample (one layer, WITH bias, `reverse=none`,
+seven distinct operand ids) completing the "every constructor is sampled"
+count invariant that file enforces.
+
+`NO_COLOR=1 opam exec -- dune runtest` (whole tree), `make check.file-size`,
+`git diff --check HEAD`, `opam exec -- dune fmt` (excluding the
+pre-existing, unrelated `experiments/tailcall/backend_driver.ml` syntax
+error noted at steps 7-14), `make jsoo.runtest`, `make jsoo.inline-runtest`,
+and `make melange.runtest` all pass, in one commit (`09ce69b`).
 
 ### 16. Verify the complete landing and record actual support
 
