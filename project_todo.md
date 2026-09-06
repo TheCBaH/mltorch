@@ -700,15 +700,98 @@ LSTM support is made by this record.
 
 ### 12. Integrate the ATen binding and full-output oracle
 
-- [ ] Turn the feasibility probe into the registered `lstm.input` binding and add its
+- [x] Turn the feasibility probe into the registered `lstm.input` binding and add its
   `Tensor[]` walk metadata/recipe.
-- [ ] Require exactly three oracle outputs with ordinal mapping `0=output`, `1=h_n`,
+- [x] Require exactly three oracle outputs with ordinal mapping `0=output`, `1=h_n`,
   `2=c_n`. Keep legitimate dropped-output verification policies for other operations.
-- [ ] Extend fixtures across layer counts, biases, directions, input layouts, nonzero
+- [x] Extend fixtures across layer counts, biases, directions, input layouts, nonzero
   runtime initial states and inference dropout values `0`, `0.5`, and `1`.
 
 Completion: the real binding and fixture generator exercise all three outputs, including
 configurations beyond the corpus's single-layer, bidirectional case.
+
+Evidence (2026-09-06): `op "lstm" ~overload:"input"` moved from the separate,
+step-3-introduced `binding_selection` straight into `bin/aten_ops_gen.ml`'s
+public `curated_selection`; `binding_selection` is deleted (`resolve` and
+`dispatch_ops` both consume the one `selection` list now). No generator change
+was needed for either of `lstm.input`'s two `Tensor[]` arguments (`hx`,
+`params`) or its three-`Tensor` return: `Aten_decode_gen.decode_arg`'s
+`List (Base Tensor, _)` arm and `Aten_c_type.Tensors_ret 3` arm already existed,
+proven independently by `cat`/`stack` (one `Tensor[]` arg each) and
+`native_layer_norm` (a three-`Tensor` return) -- confirmed by building
+`interp_dispatch.ml`/`aten_op_config.ml`/`aten_op_spec.ml`/`aten_op_walk.ml`
+and seeing `lstm.input` appear with no arm dropped. The generated
+`Aten_op_spec.Op_lstm_input.t` record's nine fields match the schema
+positionally and by name (`input`, `hx`, `params`, `has_biases`, `num_layers`,
+`dropout`, `train`, `bidirectional`, `batch_first`), confirmed by inspecting
+the generated module directly.
+
+New `lib/aten_walk_recipes/recipe_lstm.ml` (`Recipe_lstm`) and
+`lib/aten_gen/walk_meta_recurrent.ml` (`Walk_meta.lstm`, registered in
+`walk_meta.ml`'s `entries`) give `lstm.input` a full Meta-tier walk: every
+shape (`input`, `h0`/`c0`, and the per-layer/per-direction `param_shapes` list)
+is derived from one record (`batch`/`seq`/`input_size`/`hidden_size`/`layers`/
+`bidirectional`/`has_biases`/`batch_first`/`dropout`), so `cascade` has nothing
+to repair, matching `Recipe_sdpa`/`Recipe_norm`'s discipline. `param_shapes`
+encodes the exact contract `lstm-plan.md` §2 records -- layer by layer, forward
+before reverse, `weight_ih, weight_hh[, bias_ih, bias_hh]` per direction, with
+layer 0 reading the raw input width and every later layer reading
+`directions*hidden_size` regardless of which direction reads it. Without this
+recipe `lstm.input` would have landed in `Aten_op_walk.needs_meta`
+(`default_tensor` refuses any op with a tensor-list argument); the promoted
+`test/native_walk_coverage_test.ml` golden shows it walked instead (`skipped
+(no native impl)` for all three outputs, since the Native operation is a later
+step) and confirms `needs_meta` gained no new entry. The golden's other lines
+moved only because inserting one alphabetically-earlier op reseeds every
+later op's PCG stream in the same coverage sweep -- a mechanical, expected
+diff (every other line still reads `matched`), not a regression.
+
+`test/aten_ops_test.ml`'s single detailed fixture from step 3 is unchanged;
+a new `lstm.input: layer/direction/bias/layout/dropout coverage` test adds
+nine configurations sharing one `run_lstm`/`lstm_params` helper pair: single-
+and stacked-layer (`Q=1,2`), both direction counts, both bias states, both
+input layouts, and dropout `0`/`0.5`/`1` (numerically inactive at
+`train=false`, lstm-plan.md §2, but a value the binding must still accept).
+Two configurations reach the corpus's own actual shape family
+(`batch_first=true`, biases, `R=2` -- `lstm-plan.md`'s "checked-in corpus" note,
+not a hypothetical edge case) at `Q=1` and `Q=2`. Every configuration prints
+`status=0` and all three output shapes in ordinal order (`output`/`h_n`/`c_n`),
+which is what "exactly three oracle outputs, `0=output`/`1=h_n`/`2=c_n`" means
+at this integration step -- the schema's fixed three-`Tensor` return already
+makes the count structural, so the fixtures assert the ORDER and SHAPE outcome
+a miscounted or mis-ordered parameter list would actually get wrong. No other
+operation's verification policy (`Aten_native_verify.Verify`'s fixed-tuple
+leading-outputs leniency, used elsewhere for e.g. `max_pool2d_with_indices`)
+was touched.
+
+A real, previously-latent archive gap surfaced widening the fixtures to
+`batch_first=true` with biases: `at::native::linear`'s non-fused rank>2 CPU
+path calls `bias->_fw_grad(0)` directly on `TensorImpl` (bypassing the operator
+dispatcher entirely, so `c10::InferenceMode` -- tried first -- compiles, links,
+and changes nothing), which reaches `c10::impl::GetAutogradMetaFactory()` and
+throws "Support for autograd has not been loaded" because this archive
+deliberately excludes `torch/csrc/autograd/variable.cpp`, the one translation
+unit that registers a factory. Root-caused via bisecting `fprintf`/`fflush`
+markers through `RNN.cpp`'s `lstm`/`_lstm_impl`/`FullBidirectionalLayer` (no
+`gdb`/`lldb` in this environment; upstream `RNN.cpp` was restored to pristine
+afterward, confirmed by `git status` in the submodule). Fixed with
+`lib/aten/atg_shim.cpp`'s `MinimalAutogradMetaFactory`, a minimal
+always-untracked `c10::impl::AutogradMetaFactory` registered once at
+static-init time -- exactly what a tensor that is never told to require grad
+needs, without linking the real autograd runtime. `.ai/aten_core_build.md`
+records the full call chain and why `InferenceMode` does not apply here.
+This is a general archive fix, not lstm-specific: any composite CPU kernel
+reaching the same direct `TensorImpl` accessor on an untracked tensor was
+latently broken before it, for any bound op.
+
+`NO_COLOR=1 opam exec -- dune runtest` (whole tree, only the one expected
+coverage-sweep golden reseed promoted), `make check.file-size`,
+`git diff --check HEAD`, `opam exec -- dune build @lib/fmt @test/fmt @bin/fmt`
+(excluding the pre-existing, unrelated `experiments/tailcall/backend_driver.ml`
+`dune fmt` failure noted at steps 7-11), `make jsoo.runtest`,
+`make jsoo.inline-runtest`, and `make melange.runtest` all pass. No file this
+step touches gained an ATen/ctypes dependency outside `lib/aten*`/`test/
+aten_ops_test.ml`, which already have one.
 
 ### 13. Implement the full Native LSTM operation
 
