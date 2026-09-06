@@ -87,6 +87,10 @@ let curated_selection =
     op "native_layer_norm";
     op "rms_norm";
     op "scaled_dot_product_attention";
+    (* stacked LSTM inference: two Tensor[] inputs (hx, params), three Tensor
+       outputs (output, h_n, c_n). Feasibility proved by an ABI-only probe
+       before this op joined the curated selection; see .ai/aten_core_build.md. *)
+    op "lstm" ~overload:"input";
     op "max_pool2d_with_indices";
     op "max_pool2d";
     op "adaptive_avg_pool2d";
@@ -147,16 +151,6 @@ let selection =
     (fun a b -> String.compare (selection_key a) (selection_key b))
     curated_selection
 
-(* The LSTM feasibility probe needs a real ABI binding before its importer and
-   walk recipe exist. Keep it out of the public decode/config/walk selection:
-   those consumers correctly require an operation-specific recipe, which is a
-   later integration step. [resolve] alone consumes this small binding-only
-   extension. *)
-let binding_selection =
-  List.sort
-    (fun a b -> String.compare (selection_key a) (selection_key b))
-    (op "lstm" ~overload:"input" :: curated_selection)
-
 let die fmt =
   Printf.ksprintf
     (fun s ->
@@ -198,10 +192,8 @@ let style_of (e : Aten_raw.t) =
   | [] -> `Function
   | vs -> if List.mem Aten_raw.Variant.Function vs then `Function else `Method
 
-(* Parse every public interpreter-selected op for the schema-driven dispatch
-   generator (Aten_decode_gen). [binding_selection] may additionally contain a
-   feasibility-only ABI probe, whose importer/config/walk contract has not yet
-   been implemented. Ops whose argument/return types the generator cannot
+(* Parse every curated op for the schema-driven dispatch generator
+   (Aten_decode_gen). Ops whose argument/return types the generator cannot
    decode simply produce no arm (Aten_decode_gen.dispatch_arm returns None) and
    fall through to the interpreter's failwith. *)
 let dispatch_ops entries =
@@ -226,7 +218,7 @@ let resolve entries =
           generate_sig ~origin:"schema" ~style:(style_of e) e.func
       | Override { signature; style } ->
           generate_sig ~origin:"override" ~style signature)
-    binding_selection
+    selection
 
 let () =
   if Array.length Sys.argv <> 3 then

@@ -21,5 +21,6 @@
   walk_meta_shape
   walk_meta_linalg
   walk_meta_norm
-  walk_meta_attention)
+  walk_meta_attention
+  walk_meta_recurrent)
  (libraries aten_schema err_trace))

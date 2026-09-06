@@ -235,6 +235,146 @@ let%expect_test "lstm.input (Tensor[] inputs, three outputs)" =
     [1x3x5] = [0.0124974; 0.0249792; 0.0374298; 0.049834; 0.0621765; 0.0744425; 0.0866176; 0.0986877; 0.110639; 0.122459; 0.134136; 0.145656; 0.15701; 0.168188; 0.179179]
     [1x3x5] = [0.025; 0.05; 0.075; 0.1; 0.125; 0.15; 0.175; 0.2; 0.225; 0.25; 0.275; 0.3; 0.325; 0.35; 0.375] |}]
 
+(* [lstm.input]'s parameter list: layer by layer, forward before reverse, and
+   within a direction [weight_ih, weight_hh, [bias_ih, bias_hh]]
+   (lstm-plan.md §2 -- RNN.cpp:gather_params/pair_vec/apply_layer_stack).
+   Layer 0 reads the raw input width; every later layer reads
+   [directions*hidden_size], the same width regardless of which direction of
+   that layer is reading it (a bidirectional layer's output concatenates
+   both directions). Values are a running count /100 so no two tensors in a
+   multi-layer/multi-direction call share contents, which would hide a
+   layer/direction mixup behind an accidental match. *)
+let lstm_params ~has_biases ~layers ~directions ~input_size ~hidden_size =
+  let shapes =
+    List.concat_map
+      (fun layer ->
+        let in_size =
+          if layer = 0 then input_size else hidden_size * directions
+        in
+        let core =
+          [ [ 4 * hidden_size; in_size ]; [ 4 * hidden_size; hidden_size ] ]
+        in
+        let per_direction =
+          if has_biases then core @ [ [ 4 * hidden_size ]; [ 4 * hidden_size ] ]
+          else core
+        in
+        List.concat_map (fun _ -> per_direction) (List.init directions Fun.id))
+      (List.init layers Fun.id)
+  in
+  let _, tensors =
+    List.fold_left
+      (fun (base, acc) shape ->
+        let n = List.fold_left ( * ) 1 shape in
+        let vals = List.init n (fun i -> float_of_int (base + i) /. 100.) in
+        (base + n, make shape vals :: acc))
+      (0, []) shapes
+  in
+  List.rev tensors
+
+(* Run one [lstm.input] configuration and print the status plus all three
+   outputs' shapes in ordinal order (0=output, 1=h_n, 2=c_n) -- exactly what
+   the oracle must expose, whatever the layer/direction/bias/layout/dropout
+   configuration. A wrong parameter shape or ordering here either makes ATen
+   reject the call (status<>0) or silently mismatches a matrix-multiply
+   dimension (a shape distinguishable from the expected one), so printing the
+   shapes is itself a check, not merely a status probe. *)
+let run_lstm ~batch ~seq ~input_size ~hidden_size ~layers ~bidirectional
+    ~has_biases ~batch_first ~dropout =
+  let directions = if bidirectional then 2 else 1 in
+  let input_shape =
+    if batch_first then [ batch; seq; input_size ]
+    else [ seq; batch; input_size ]
+  in
+  let iota shape = List.init (List.fold_left ( * ) 1 shape) (fun i -> i) in
+  let input =
+    make input_shape
+      (List.map (fun i -> float_of_int (i + 1) /. 10.) (iota input_shape))
+  in
+  let state_shape = [ layers * directions; batch; hidden_size ] in
+  let h0 =
+    make state_shape
+      (List.map (fun i -> float_of_int (i + 1)) (iota state_shape))
+  in
+  let c0 =
+    make state_shape
+      (List.map (fun i -> float_of_int (i + 1) /. 10.) (iota state_shape))
+  in
+  let hx = tensor_arr [ h0; c0 ] in
+  let param_tensors =
+    lstm_params ~has_biases ~layers ~directions ~input_size ~hidden_size
+  in
+  let params = tensor_arr param_tensors in
+  let out = Ctypes.make Aten_types_generated.tensors3_struct in
+  let status =
+    O.lstm_input input hx 2 params
+      (List.length param_tensors)
+      has_biases (Int64.of_int layers) dropout false bidirectional batch_first
+      (addr out)
+  in
+  Printf.printf "status=%d\n" status;
+  if status = 0 then
+    let shape_of t = Format.asprintf "%a" pp_shape (T.shape t) in
+    Printf.printf "output=%s h_n=%s c_n=%s\n"
+      (shape_of (tget out Aten_types_generated.tensors3_v0))
+      (shape_of (tget out Aten_types_generated.tensors3_v1))
+      (shape_of (tget out Aten_types_generated.tensors3_v2))
+
+(* Coverage beyond the corpus's single shape family (checked-in corpus: Q=1,
+   R=2, biases, batch-first, dropout=0 -- lstm-plan.md §2): stacked layers,
+   the opposite direction count, no biases, and the opposite input layout,
+   each varied independently from a shared base config; the corpus family
+   itself (config 6) and a stacked version of it (config 7); and every
+   accepted inference dropout probability (numerically inactive since
+   [train=false], but still a value the importer must accept and pass
+   through). Configs 6/7 (batch_first with biases) exercise
+   [linear_ih]'s non-contiguous-input path -- see the [MinimalAutogradMetaFactory]
+   registration in atg_shim.cpp, whose absence made exactly this combination
+   throw before this session's fix. *)
+let%expect_test "lstm.input: layer/direction/bias/layout/dropout coverage" =
+  let base ~layers ~bidirectional ~has_biases ~batch_first ~dropout =
+    run_lstm ~batch:3 ~seq:2 ~input_size:4 ~hidden_size:5 ~layers ~bidirectional
+      ~has_biases ~batch_first ~dropout
+  in
+  base ~layers:1 ~bidirectional:false ~has_biases:true ~batch_first:false
+    ~dropout:0.0;
+  base ~layers:2 ~bidirectional:false ~has_biases:true ~batch_first:false
+    ~dropout:0.0;
+  base ~layers:1 ~bidirectional:true ~has_biases:true ~batch_first:false
+    ~dropout:0.0;
+  base ~layers:2 ~bidirectional:true ~has_biases:false ~batch_first:false
+    ~dropout:0.0;
+  base ~layers:1 ~bidirectional:false ~has_biases:false ~batch_first:false
+    ~dropout:0.0;
+  base ~layers:1 ~bidirectional:true ~has_biases:true ~batch_first:true
+    ~dropout:0.0;
+  base ~layers:2 ~bidirectional:true ~has_biases:true ~batch_first:true
+    ~dropout:0.0;
+  base ~layers:1 ~bidirectional:false ~has_biases:true ~batch_first:false
+    ~dropout:0.5;
+  base ~layers:1 ~bidirectional:false ~has_biases:true ~batch_first:false
+    ~dropout:1.0;
+  [%expect
+    {|
+    status=0
+    output=[2x3x5] h_n=[1x3x5] c_n=[1x3x5]
+    status=0
+    output=[2x3x5] h_n=[2x3x5] c_n=[2x3x5]
+    status=0
+    output=[2x3x10] h_n=[2x3x5] c_n=[2x3x5]
+    status=0
+    output=[2x3x10] h_n=[4x3x5] c_n=[4x3x5]
+    status=0
+    output=[2x3x5] h_n=[1x3x5] c_n=[1x3x5]
+    status=0
+    output=[3x2x10] h_n=[2x3x5] c_n=[2x3x5]
+    status=0
+    output=[3x2x10] h_n=[4x3x5] c_n=[4x3x5]
+    status=0
+    output=[2x3x5] h_n=[1x3x5] c_n=[1x3x5]
+    status=0
+    output=[2x3x5] h_n=[1x3x5] c_n=[1x3x5]
+    |}]
+
 let%expect_test "batch_norm (inference)" =
   let x = make [ 1; 2; 1; 2 ] [ 1.; 2.; 3.; 4. ] in
   let w = make [ 2 ] [ 2.; 2. ] and b = make [ 2 ] [ 1.; 1. ] in

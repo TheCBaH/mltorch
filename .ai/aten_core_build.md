@@ -108,6 +108,46 @@ all three output shapes, and their values; an archive that merely links has not
 met this contract. The later operation implementation can rely on this binding
 and tensor-list ABI, but must retain its own Native arithmetic oracle.
 
+`lstm.input` joined the curated selection (`bin/aten_ops_gen.ml`'s
+`curated_selection`, dropping the earlier binding-only `binding_selection`
+split) once its `Tensor[]` walk recipe (`Recipe_lstm`/`Walk_meta.lstm`) landed,
+so it now flows through `interp_dispatch.ml`/`aten_op_config.ml`/
+`aten_op_spec.ml`/`aten_op_walk.ml` like every other bound op — no generator
+change was needed: `Aten_decode_gen`'s existing `List (Base Tensor, _)` arg
+arm and `Tensors_ret 3` return arm already cover two independent `Tensor[]`
+arguments and a three-output composite return, proven by `cat`/`stack` and
+`native_layer_norm` respectively.
+
+**A real archive gap surfaced widening the oracle fixtures to `batch_first`.**
+`at::native::linear`'s non-fused rank>2 path (`native/Linear.cpp`) calls
+`bias->_fw_grad(0)` to choose between an out-of-place and in-place bias add —
+a direct `TensorImpl` method call, not a dispatcher op, so it is invisible to
+`--gc-sections` and untouched by any dispatch-key guard. When `autograd_meta_`
+is null (every tensor here: none is ever told to require grad),
+`TensorImpl::_fw_grad` calls `c10::impl::GetAutogradMetaFactory()`, which
+`TORCH_CHECK`-fails with "Support for autograd has not been loaded" because
+the one translation unit that registers a factory
+(`torch/csrc/autograd/variable.cpp`) is deliberately excluded from this
+archive. The path is reached only when linear's fast fused branch is skipped —
+input rank >= 3 AND non-contiguous AND bias defined — which is exactly
+`lstm.input`'s `batch_first=true` layout feeding `CellParams::linear_ih` a
+transposed view of the input, with biases enabled. This is also the corpus's
+*actual* shape family (`lstm-plan.md` §2: `batch_first=true`, biases, `R=2`),
+not a corner case, so it had to be fixed rather than routed around: silently
+avoiding one `bidirectional`/`batch_first`/bias combination in the oracle
+fixtures would have left the corpus's own configuration unverifiable later.
+
+The fix is `atg_shim.cpp`'s `MinimalAutogradMetaFactory`: a `c10::impl::
+AutogradMetaFactory` registered once at static-init time whose `make()`/
+`undefined_tensor()` answer exactly what full autograd would for a tensor that
+was never asked to track gradients, without linking that runtime. `c10::
+InferenceMode` was tried first and rejected — it only changes which dispatch
+key resolves a *boxed* op call, and this call bypasses the dispatcher
+entirely, so the guard compiled and linked cleanly but left the crash
+unchanged; do not reach for it again for a similar "autograd not loaded"
+report without first checking whether the throwing call is a direct C++
+method (this one) or a real `at::_ops::*::call` dispatch.
+
 ### `scaled_dot_product_attention`: a `--gc-sections` archive still needs the
 ### whole switch, and one dependency was genuinely unpredictable
 
