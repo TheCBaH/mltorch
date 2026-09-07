@@ -275,8 +275,8 @@ let%expect_test "a detail request answers with a delta, not a session" =
   [%expect
     {|
     phases:
-    delta payload=1334 bytes
-    {"kind":"delta","id":"0f8fad5b-d9cb-469f-a165-70867728950e-1","key":{"parentGraph":"g/kernel/000","value":1},"bytes":1334} |}]
+    delta payload=6711 bytes
+    {"kind":"delta","id":"0f8fad5b-d9cb-469f-a165-70867728950e-1","key":{"parentGraph":"g/kernel/000","value":1},"bytes":6711} |}]
 
 let%expect_test "a detail request for a value the model does not produce" =
   (* A valid request about something ABSENT, which is a different fact from a

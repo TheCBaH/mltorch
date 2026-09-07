@@ -291,12 +291,15 @@ let%expect_test "an expression becomes one node per AST node" =
   [%expect
     {|
     expr/g/kernel/000/t7/t7
-      e0  +         from []
-      e1  *         from [e0]
-      e2  const 2   from [e1]
-      e3  const 3   from [e1]
-      e4  round_f32 from [e0]
-      e5  const 4   from [e4] |}]
+      e0  round_f32 from []
+      e1  region    from [e0]
+      e2  emitter   from [e1]
+      e3  +         from [e2]
+      e4  *         from [e3]
+      e5  const 2   from [e4]
+      e6  const 3   from [e4]
+      e7  round_f32 from [e3]
+      e8  const 4   from [e7] |}]
 
 let%expect_test "the size ceiling is checked BEFORE the walk" =
   let tight =
@@ -357,7 +360,12 @@ let%expect_test "a Region detail includes its locals and emitter" =
     graph.ME.Graph.nodes;
   [%expect
     {|
-    l0-e0 const 2
-    emit-e0 +
-    emit-e1 local
-    emit-e2 const 1 |}]
+    e0 round_f32
+    e1 region
+    e2 local l0
+    e3 l0
+    e4 const 2
+    e5 emitter
+    e6 +
+    e7 local
+    e8 const 1 |}]

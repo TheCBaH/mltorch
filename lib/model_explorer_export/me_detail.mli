@@ -41,25 +41,15 @@ val of_value :
   key:Me_request.Detail_key.t ->
   Kernel.Value.t ->
   (Model_explorer.Graph.t, [> Me_limits.over_limit_error ]) Err.t
-(** The value's expression as a graph: one node per AST node, edges from child
-    to parent, bounded by [max_detail_nodes] BEFORE the walk that would build
-    them — an expression is exactly the shape whose size is not apparent from
-    the thing that names it.
+(** One typed Region/Expr decomposition graph. Its edges go from a construct to
+    its constituents and carry a [role] metadata field; value, Boolean, index,
+    region, binding, and presentation nodes state their language and closed
+    constructor as attributes. Bound variables retain their lexical binder id as
+    data rather than becoming misleading dataflow edges.
 
-    The measure is [Expr.Fold.size], which counts INDEX TREES too and so exceeds
-    the number of value nodes produced: a convolution is 88 by that measure and
-    8 nodes here. The bound is conservative deliberately — the index trees are
-    what the bounded per-node rendering pays for, so they belong in the figure
-    the ceiling governs — and the rejection is named for what was measured
-    rather than for what would have been built.
-
-    A [Select]'s condition and a [Reduce]'s bounds are NOT walked: they are
-    index-level terms, not value-level ones, and giving them nodes would put two
-    languages in one graph. Every node instead carries the subtree rooted there,
-    rendered and bounded — [Expr.Pp.index] takes a [names] function precisely so
-    its output cannot depend on allocation history, and this walk holds no
-    scoped naming environment to give it, while [Expr.Pp.value] builds its own.
-*)
+    The exact number of emitted nodes, including presentation roots, binders,
+    Boolean terms, index terms, coordinates, and Region locals, is measured
+    before allocating graph nodes and checked against [max_detail_nodes]. *)
 
 (** {1 The delta} *)
 
