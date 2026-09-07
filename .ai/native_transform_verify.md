@@ -107,6 +107,37 @@ Because no binders survive, **structural equality is the whole `Identical`
 test**: two ground terms denote the same value exactly when they are the same
 term. There is no algebra in the structural tier.
 
+### 2a. `Ground_expr.t` is a hash-consed DAG, not a tree
+
+Grounding a recurrence (a scan's `update` reading its own previous row) by
+inlining re-embeds the whole prior-step subtree at every later step, giving a
+term whose SIZE grows with the branching factor to the power of the step
+count rather than with the step count itself — unusable for verification at
+the sizes this project cares about. `Ground_expr.t`/`guard` are therefore
+handles into an `Arena.t`: every smart constructor interns its argument
+shape, so a repeated subtree (a scan's `prev` reference, a repeated-squaring
+chain, a repeated max-pool accumulator) is built once and shared, and
+`size`/`cells`/`compare`/`hash` all see it once rather than once per
+occurrence. Each registered root (`Ground_eval.Term.t`) owns its own arena,
+so two different obligations' terms are never accidentally shared, and
+`compare`/`equal`/`hash` work across arenas by construction — a proof always
+compares one side's root against the other's, never a root against itself.
+Comparison stays exactly `Identical` = same term (§4): sharing changes how a
+term is built and stored, never what two terms denote or how they are
+compared. `size`/`cells`/`project`/`erase_rounds`/`pp` use an explicit-stack
+walk with no recursion-depth limit, exploiting that a node's children always
+have a strictly smaller arena id than the node itself; `eval`/`normalise`/
+`compare` are memoised (so a *shared*, wide term stays cheap) but still use
+plain recursion, because `Select` must evaluate only its guard's taken
+branch — a term whose true DEPTH (not just size) scales with a scan's step
+count could still exhaust the native call stack, which no current call site
+does. `Ground_eval.body_at` grounds a stage's `Region_program.t` directly:
+its locals (scalar/vector/scan) are grounded once, in declaration order, into
+a frame mirroring `Region_execution.evaluate_locals`'s own slot array, before
+the stage's output is grounded against it — covering both a Region-authored
+trace local (read via `Local_scan_at`, including one scan reading an earlier
+one's completed trace) and an inline, standalone `Scan_at`.
+
 ## 3. Rounding is part of the semantics
 
 `Schedule.evaluate`/`ground` call `Tensor.materialize`, which writes a **float32**
