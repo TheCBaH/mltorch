@@ -384,3 +384,89 @@ let%expect_test
     row=1 lane=1 grounded=5 region=5 agree=true
     row=2 lane=0 grounded=22 region=22 agree=true
     row=2 lane=1 grounded=26 region=26 agree=true |}]
+
+(* CHAINED scans: local [b]'s own [update] reads an EARLIER local, [a]'s,
+   completed trace via [Local_scan_at] ([scan_read_a] below, captured from the
+   outer [Builder.scan]'s [continue]) -- not [b]'s own [previous_at], and not
+   an inline [Scan_at]. Structurally supported since [Ground_eval.Frame] is
+   built in declaration order (every earlier local is already in scope by the
+   time a later one is grounded, ground_eval.ml's [body_at]), but until now
+   untested. a(s) = s (the same counter); b(0) = 0, b(s+1) = b(s) + a(s), so
+   b is the triangular numbers: b(1)=0, b(2)=1, b(3)=3, b(4)=6, b(5)=10. *)
+let chained_scan ~steps continue =
+  Region_program.Builder.scan ~limits ~width:1 ~steps
+    ~init:(fun ~lane:_ -> Builder.return (Value.const 0.))
+    ~update:(fun ~step:_ ~lane ~previous_at ->
+      Builder.return (Value.add (previous_at lane) (Value.const 1.)))
+    (fun scan_read_a ->
+      Region_program.Builder.scan ~limits ~width:1 ~steps
+        ~init:(fun ~lane:_ -> Builder.return (Value.const 0.))
+        ~update:(fun ~step ~lane ~previous_at ->
+          Builder.return
+            (Value.add (previous_at lane) (scan_read_a ~row:step ~lane)))
+        continue)
+
+let build_chained ~steps ~row =
+  Region_program.Builder.run
+    (chained_scan ~steps (fun scan_read_b ->
+         Region_program.Builder.finish ~max_size:64 ~max_depth:16 ~partition
+           ~output:(scan_read_b ~row:(pos row) ~lane:Index.zero)))
+
+let%expect_test
+    "grounding a chained scan (one scan's update reading an earlier scan's \
+     completed trace) agrees with Region_execution, at every row" =
+  List.iter
+    (fun row ->
+      let stage_program =
+        stage_of
+          (Err.or_raise ~pp_error:Region_program.pp_error
+             (build_chained ~steps:5 ~row))
+      in
+      let g = ground_row stage_program and r = region_row stage_program in
+      Fmt.pr "row=%d grounded=%g region=%g agree=%b@." row g r (Float.equal g r))
+    [ 0; 1; 2; 3; 4; 5 ];
+  [%expect
+    {|
+    row=0 grounded=0 region=0 agree=true
+    row=1 grounded=0 region=0 agree=true
+    row=2 grounded=1 region=1 agree=true
+    row=3 grounded=3 region=3 agree=true
+    row=4 grounded=6 region=6 agree=true
+    row=5 grounded=10 region=10 agree=true |}]
+
+(* The measurement project step 18 asks for: grounding a scan must NOT
+   re-embed the whole prior-step subtree at every later step -- the failure
+   mode identified before any sharing-aware representation existed, from
+   Ground_expr.t's OLD definition as a plain unshared tree (a branching-
+   factor^steps blowup for a coupled recurrence, or a size linear in [width *
+   steps] even for this single-lane counter). Ground_expr's hash-consed
+   arena means each row's own body is built once and its [previous_at] read
+   is a single shared reference to the prior row's already-built node, so the
+   grounded term's SIZE should scale LINEARLY with [steps] -- not with
+   [steps] as an exponent. It is in fact exactly [steps + 3] here: one
+   [Binary] per row, plus row 0's [Const 0.], the update's [Const 1.] --
+   interned ONCE and shared by every row's [Binary], since every row builds
+   the identical constant -- and the stage's own materialization [Round]. *)
+let%expect_test
+    "grounding a scan's size scales linearly with steps, not exponentially" =
+  List.iter
+    (fun steps ->
+      let stage_program =
+        stage_of
+          (Err.or_raise ~pp_error:Region_program.pp_error
+             (build_counter ~width:1 ~steps ~row:steps ~lane:0))
+      in
+      let ground_env = Ground_eval.Env.of_program stage_program ~side:`Src in
+      let meter = Ground_eval.Meter.create Ground_eval.default_budget in
+      let term =
+        Err.or_raise ~pp_error:Ground_eval.pp_error
+          (Ground_eval.at ~meter ground_env (Tensor_id.of_int 0) Vec6.origin)
+      in
+      let size = Ground_expr.size (Ground_eval.Term.expression term) in
+      Fmt.pr "steps=%d size=%d@." steps size)
+    [ 10; 100; 1000 ];
+  [%expect
+    {|
+    steps=10 size=13
+    steps=100 size=103
+    steps=1000 size=1003 |}]

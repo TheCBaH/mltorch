@@ -21,21 +21,35 @@ shared `Kernel_elab.admit` fusion rule landed fifth (see "Specialization and
 rewrite re-measurement" and "Fusion admission" below); grounding's own
 construction-fuel/pair-size budget accounting (`Ground_eval`'s `Budget`/
 `Meter`/`Term`, general to all grounding, not scan-specific) landed sixth
-(see "Grounding meter and verdict mapping" below). Grounding still rejects
-any `Scan_at` it reaches with `` `Scan_at_unsupported `` — executing a scan
-during grounding itself remains unimplemented, tracked as a later, separate
-step, not a Stage 1 requirement. A scan-backed Region program now executes,
-agrees, and is checked end to end through Direct, Region, Stage and Kernel
-paths (`test/native/region_scan_construction_test.ml`'s Stage 1 acceptance
-tests). **LSTM arithmetic itself has since landed** (project steps 12-16;
-see `.ai/pt2_model_support.md`'s 2026-09-06 entry for the real-corpus
-evidence) — the "later, separate step" this line used to describe is done;
-`Scan_at_unsupported` in grounding is the one piece of this record's own
-scope that remains open, and project step 18 is where its cost is assessed
-before any implementation is attempted. Read it together with
-`native_compute_design.md` (Region
-computation) and `native_kernel_dsl_design.md` (Kernel IR and `Hard`
-ceilings), which it extends rather than restates.
+(see "Grounding meter and verdict mapping" below). A scan-backed Region
+program now executes, agrees, and is checked end to end through Direct,
+Region, Stage and Kernel paths (`test/native/region_scan_construction_test.ml`'s
+Stage 1 acceptance tests). **LSTM arithmetic itself has since landed**
+(project steps 12-16; see `.ai/pt2_model_support.md`'s 2026-09-06 entry for
+the real-corpus evidence).
+
+**`` `Scan_at_unsupported `` is gone.** `Ground_expr` was migrated to a
+hash-consed arena DAG first (so a re-embedded prior-step subtree during
+grounding shares structure instead of duplicating it — see
+`native_transform_verify.md`'s representation note), and `Ground_eval`'s
+`body_at` now grounds a stage's own `Region_program.t` directly: locals
+(scalar/vector/scan) are grounded once, in declaration order, into a `Frame`
+mirroring `Region_execution.evaluate_locals`'s slot array, and the stage's
+output is grounded against it. Both scan shapes are covered — a
+Region-authored trace local (read via a cached `Local_scan_at`, including one
+scan's `update` reading an EARLIER scan local's completed trace) and an
+inline, standalone `Scan_at` with no Region local at all. `Map_verify` proves
+a small scan-backed stage (`Lstm`) end to end through its own cross-graph
+machinery (`test/native/verify_scan_test.ml`), not only against a direct
+evaluator. Not yet done: a memo cache for repeated grounding of the same
+(stage, key) or the same inline `Scan_at` occurrence (a CPU-work gap only —
+hash-consing already deduplicates the resulting nodes), and the atomic
+per-root expansion round `native_transform_verify.md`'s own budget section
+describes as a possible refinement over today's greedy per-cell walk.
+Read this record together with `native_compute_design.md` (Region
+computation), `native_kernel_dsl_design.md` (Kernel IR and `Hard` ceilings),
+and `native_transform_verify.md` (grounding and the map verifier), which it
+extends rather than restates.
 
 Everything here targets an inference-only, ordered, single-step-lookback
 recurrence over two indices (`row`, `lane`), sufficient for LSTM's per-batch,
