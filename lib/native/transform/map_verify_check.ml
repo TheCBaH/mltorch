@@ -182,29 +182,32 @@ let unproved_of_eval_error (e : Ground_eval.error Err.Error.t) =
   | `Pair_nodes_over_limit limit -> Verdict.Unproved (Unproved.Max_nodes limit)
   | other -> Verdict.Unproved (Unproved.Eval other)
 
-let rec settle ~budget ~probe ~tolerance ~label ~proof ~rounds ~meter ~lhs ~rhs
-    ~lhs_env ~rhs_env ~lhs_boundary ~rhs_boundary ~coord ~members =
+let rec settle ~budget ~probe ~tolerance ~label ~proof ~rounds ~meter ~scratch
+    ~lhs ~rhs ~lhs_env ~rhs_env ~lhs_boundary ~rhs_boundary ~coord ~members =
   let lhs_expr = Ground_eval.Term.expression lhs
   and rhs_expr = Ground_eval.Term.expression rhs in
   let lhs_member, rhs_member = members in
   let seen () =
-    ( Ground_expr.project ~boundary:lhs_boundary lhs_expr,
-      Ground_expr.project ~boundary:rhs_boundary rhs_expr )
+    ( Ground_expr.project ~into:scratch ~boundary:lhs_boundary lhs_expr,
+      Ground_expr.project ~into:scratch ~boundary:rhs_boundary rhs_expr )
   in
   let projected_lhs, projected_rhs = seen () in
   if Ground_expr.equal projected_lhs projected_rhs then Verdict.Proved proof
   else
     let ln =
-      Ground_expr.normalise
+      Ground_expr.normalise ~into:scratch
         ~stored_f32:(Ground_eval.Env.stored_f32 lhs_env)
         lhs_expr
     and rn =
-      Ground_expr.normalise
+      Ground_expr.normalise ~into:scratch
         ~stored_f32:(Ground_eval.Env.stored_f32 rhs_env)
         rhs_expr
     in
-    let projected_ln = Ground_expr.project ~boundary:lhs_boundary ln.expr
-    and projected_rn = Ground_expr.project ~boundary:rhs_boundary rn.expr in
+    let projected_ln =
+      Ground_expr.project ~into:scratch ~boundary:lhs_boundary ln.expr
+    and projected_rn =
+      Ground_expr.project ~into:scratch ~boundary:rhs_boundary rn.expr
+    in
     if Ground_expr.equal projected_ln projected_rn then Verdict.Proved proof
     else
       (* RECONCILE THE FRONTIERS. A variable naming a value only one side reads
@@ -277,8 +280,9 @@ let rec settle ~budget ~probe ~tolerance ~label ~proof ~rounds ~meter ~lhs ~rhs
                   Verdict.Unproved (Unproved.Max_nodes budget.Budget.max_nodes)
                 else
                   settle ~budget ~probe ~tolerance ~label ~proof
-                    ~rounds:(rounds + 1) ~meter ~lhs:lhs' ~rhs:rhs' ~lhs_env
-                    ~rhs_env ~lhs_boundary ~rhs_boundary ~coord ~members)
+                    ~rounds:(rounds + 1) ~meter ~scratch ~lhs:lhs' ~rhs:rhs'
+                    ~lhs_env ~rhs_env ~lhs_boundary ~rhs_boundary ~coord
+                    ~members)
       else
         (* The LOCAL frontier is complete and the terms still differ. That is
            the prover failing, not a counterexample: no assignment has been
@@ -423,6 +427,14 @@ let compare_at ~budget ~index ~probe ~tolerance ~label ~under_test sides
           max_nodes = budget.Budget.max_nodes;
         }
     in
+    (* One short-lived comparison arena per attempt, for [project]/[normalise]'s
+       rebuilt copies only -- never for [Ground_eval.at]'s raw roots, which own
+       their own arenas for the reason given at [Ground_eval.Term.t]. Shared by
+       both sides: they never need to compare structurally against each other's
+       nodes (only [Ground_expr.equal]/[compare] cross arenas, which already
+       works for any two arenas), so one scratch table is simpler than two and
+       loses nothing. *)
+    let scratch = Ground_expr.Arena.create () in
     (* Left then right EXPLICITLY, not via tuple-argument evaluation order:
        both roots share [meter]'s pair total, so which one registers first
        can change whether the other still fits. *)
@@ -446,7 +458,8 @@ let compare_at ~budget ~index ~probe ~tolerance ~label ~under_test sides
             | Some c -> Verdict.Unproved (Unproved.Out_of_bounds c)
             | None ->
                 settle ~budget ~probe ~tolerance ~label ~proof ~rounds:0 ~meter
-                  ~lhs ~rhs ~lhs_env ~rhs_env ~lhs_boundary:lhs_at.loc_boundary
+                  ~scratch ~lhs ~rhs ~lhs_env ~rhs_env
+                  ~lhs_boundary:lhs_at.loc_boundary
                   ~rhs_boundary:rhs_at.loc_boundary ~coord ~members))
   in
   (* Unqualified first, purely to STRENGTHEN: a proof with the constants left

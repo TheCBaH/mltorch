@@ -241,13 +241,13 @@ let%expect_test "a specialized scan's size and depth do not grow with steps" =
     && Expr.Fold.depth small = Expr.Fold.depth large);
   [%expect {| small=(10,4) large=(10,4) equal=true |}]
 
-(* The Stage 1 exit conditions name "grounding" alongside production/reference
-   execution and specialization -- grounding itself does not yet execute a
-   scan (a later step), so what agreement means here is that it REJECTS one
-   with the exact typed error, rather than mishandling it silently. Nothing
-   before this exercised that arm at all. *)
-let%expect_test "grounding rejects a scan-backed stage with Scan_at_unsupported"
-    =
+(* Superseded: grounding now executes a scan-backed Region program directly,
+   instead of rejecting it with `Scan_at_unsupported. The counter trace's
+   row-5 value is 0+1+1+1+1+1 = 5,
+   wrapped in the stage's own materialization [Round] -- the same value
+   [test/native/region_scan_execution_test.ml]'s production/reference
+   execution already established, now also reachable through [Ground_eval]. *)
+let%expect_test "grounding executes a scan-backed stage" =
   let program =
     Err.or_raise ~pp_error:Region_program.pp_error
       (build_counter ~width:2 ~steps:5 ~row:5 ~lane:0)
@@ -274,4 +274,113 @@ let%expect_test "grounding rejects a scan-backed stage with Scan_at_unsupported"
     (Core.Pretty.err_result ~ok:Ground_expr.pp ~error:Ground_eval.pp_error)
     (Result.map Ground_eval.Term.expression
        (Ground_eval.at ~meter ground_env (Tensor_id.of_int 0) Vec6.origin));
-  [%expect {| grounding does not support a scan yet |}]
+  [%expect
+    {| f32((((((0x0p+0 + 0x1p+0) + 0x1p+0) + 0x1p+0) + 0x1p+0) + 0x1p+0)) |}]
+
+let stage_of program =
+  {
+    Stage_program.inputs = [];
+    input_kinds = Tensor_id.Map.empty;
+    consts = [];
+    stages =
+      [
+        {
+          Stage_program.Stage.id = Tensor_id.of_int 0;
+          sg = out_sig;
+          computation = program;
+        };
+      ];
+    outputs = [ Tensor_id.of_int 0 ];
+  }
+
+let ground_row stage_program =
+  let ground_env = Ground_eval.Env.of_program stage_program ~side:`Src in
+  let meter = Ground_eval.Meter.create Ground_eval.default_budget in
+  let term =
+    Err.or_raise ~pp_error:Ground_eval.pp_error
+      (Ground_eval.at ~meter ground_env (Tensor_id.of_int 0) Vec6.origin)
+  in
+  Ground_expr.eval
+    (Ground_eval.Term.expression term)
+    Ground_expr.Valuation.empty
+
+let region_row stage_program =
+  read_out
+    (Err.or_raise ~pp_error:Stage_program.pp_error
+       (Stage_program.ground stage_program ~bind:(fun _ -> assert false)))
+
+(* Every row of the same counter trace, compared bitwise against the
+   production evaluator ([Stage_program.ground], which runs
+   [Region_execution.materialize]) -- not just the one row the earlier test
+   pins. *)
+let%expect_test
+    "grounding agrees with Region_execution across every row, including row 0" =
+  List.iter
+    (fun row ->
+      let stage_program =
+        stage_of
+          (Err.or_raise ~pp_error:Region_program.pp_error
+             (build_counter ~width:2 ~steps:5 ~row ~lane:0))
+      in
+      let g = ground_row stage_program and r = region_row stage_program in
+      Fmt.pr "row=%d grounded=%g region=%g agree=%b@." row g r (Float.equal g r))
+    [ 0; 1; 2; 3; 4; 5 ];
+  [%expect
+    {|
+    row=0 grounded=0 region=0 agree=true
+    row=1 grounded=1 region=1 agree=true
+    row=2 grounded=2 region=2 agree=true
+    row=3 grounded=3 region=3 agree=true
+    row=4 grounded=4 region=4 agree=true
+    row=5 grounded=5 region=5 agree=true |}]
+
+(* A two-lane COUPLED recurrence: each lane's update reads the OTHER lane's
+   previous row ([other_lane = 1 - lane], via plain [Index] arithmetic on the
+   symbolic per-position [lane]), which an accidental in-place row update (row
+   r's lane 1 read after lane 0 has already overwritten row r in place) would
+   corrupt starting at row 1. Hand-computed: a0=1,b0=2;
+   a1=a0+3*b0=7, b1=b0+3*a0=5; a2=a1+3*b1=22, b2=b1+3*a1=26. *)
+let coupled_scan ~steps continue =
+  let other lane =
+    Index.clamp_low
+      (Index.add (Index.const 1) (Index.scale (-1) (Index.of_position lane)))
+  in
+  Region_program.Builder.scan ~limits ~width:2 ~steps
+    ~init:(fun ~lane ->
+      Builder.return
+        (Value.value_of_index
+           (Index.add (Index.const 1) (Index.of_position lane))))
+    ~update:(fun ~step:_ ~lane ~previous_at ->
+      Builder.return
+        (Value.add (previous_at lane)
+           (Value.mul (previous_at (other lane)) (Value.const 3.))))
+    continue
+
+let build_coupled ~steps ~row ~lane =
+  Region_program.Builder.run
+    (coupled_scan ~steps (fun scan_read ->
+         Region_program.Builder.finish ~max_size:64 ~max_depth:16 ~partition
+           ~output:(scan_read ~row:(pos row) ~lane:(pos lane))))
+
+let%expect_test
+    "grounding a coupled two-lane scan agrees with Region_execution, per lane \
+     and per row" =
+  List.iter
+    (fun (row, lane) ->
+      let stage_program =
+        stage_of
+          (Err.or_raise ~pp_error:Region_program.pp_error
+             (build_coupled ~steps:3 ~row ~lane))
+      in
+      let g = ground_row stage_program and r = region_row stage_program in
+      Fmt.pr "row=%d lane=%d grounded=%g region=%g agree=%b@." row lane g r
+        (Float.equal g r))
+    [ (0, 0); (0, 1); (1, 0); (1, 1); (2, 0); (2, 1) ];
+  [%expect
+    {|
+    row=0 lane=0 grounded=1 region=1 agree=true
+    row=0 lane=1 grounded=2 region=2 agree=true
+    row=1 lane=0 grounded=7 region=7 agree=true
+    row=1 lane=1 grounded=5 region=5 agree=true
+    row=2 lane=0 grounded=22 region=22 agree=true
+    row=2 lane=1 grounded=26 region=26 agree=true |}]

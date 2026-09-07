@@ -43,22 +43,23 @@ let reshape_source_coord ~(input : Tensor_sig.t) ~(output : Tensor_sig.t) coord
    generic [pow] node, or map verification would compare a different
    function than the one materialization (which calls this same Compute
    functor via Eval_direct) actually produces. *)
-let pow_expr ~scalar (v : Ground_expr.t) : Ground_expr.t =
-  let mul a b = Ground_expr.Binary (Expr.Value.Mul, a, b) in
+let pow_expr arena ~scalar (v : Ground_expr.t) : Ground_expr.t =
+  let mul a b = Ground_expr.binary arena Expr.Value.Mul a b in
   let reciprocal v =
-    Ground_expr.Binary (Expr.Value.Div, Ground_expr.Const 1., v)
+    Ground_expr.binary arena Expr.Value.Div (Ground_expr.const arena 1.) v
   in
   if scalar = 2.0 then mul v v
   else if scalar = 3.0 then mul (mul v v) v
   else if scalar = -2.0 then reciprocal (mul v v)
-  else if scalar = 0.5 then Ground_expr.Unary (Expr.Value.Sqrt, v)
-  else if scalar = -0.5 then reciprocal (Ground_expr.Unary (Expr.Value.Sqrt, v))
+  else if scalar = 0.5 then Ground_expr.unary arena Expr.Value.Sqrt v
+  else if scalar = -0.5 then
+    reciprocal (Ground_expr.unary arena Expr.Value.Sqrt v)
   else if scalar = -1.0 then reciprocal v
   else
-    Ground_expr.Unary
-      ( Expr.Value.Exp,
-        mul (Ground_expr.Const scalar) (Ground_expr.Unary (Expr.Value.Log, v))
-      )
+    Ground_expr.unary arena Expr.Value.Exp
+      (mul
+         (Ground_expr.const arena scalar)
+         (Ground_expr.unary arena Expr.Value.Log v))
 
 (* Mirrors [Pointwise_activation.Sigmoid.Compute.pixel] exactly: [1 / (1 +
    exp(0 - v))], not a generic sigmoid primitive -- the same reason [pow_expr]
@@ -66,18 +67,17 @@ let pow_expr ~scalar (v : Ground_expr.t) : Ground_expr.t =
    equivalent one, since map verification compares this grounding against
    materialization (which calls the same [Compute] functor via
    [Eval_direct]). *)
-let sigmoid_expr (v : Ground_expr.t) : Ground_expr.t =
-  Ground_expr.Binary
-    ( Expr.Value.Div,
-      Ground_expr.Const 1.,
-      Ground_expr.Binary
-        ( Expr.Value.Add,
-          Ground_expr.Const 1.,
-          Ground_expr.Unary
-            (Expr.Value.Exp, Ground_expr.Binary (Expr.Value.Sub, Const 0., v))
-        ) )
+let sigmoid_expr arena (v : Ground_expr.t) : Ground_expr.t =
+  Ground_expr.binary arena Expr.Value.Div
+    (Ground_expr.const arena 1.)
+    (Ground_expr.binary arena Expr.Value.Add
+       (Ground_expr.const arena 1.)
+       (Ground_expr.unary arena Expr.Value.Exp
+          (Ground_expr.binary arena Expr.Value.Sub
+             (Ground_expr.const arena 0.)
+             v)))
 
-let rec ground store id coord =
+let rec ground arena store id coord =
   let value =
     Option.value
       (Constant_store.binding store id)
@@ -86,7 +86,7 @@ let rec ground store id coord =
   match Const_ssa.find (Constant_store.plan store) value with
   | Some (Const_ssa.Leaf { leaf = Const_ssa.Captured capture; _ }) ->
       Some
-        (Ground_expr.Cell
+        (Ground_expr.cell arena
            {
              Ground_expr.Cell.origin = Ground_expr.Origin.Capture capture;
              coord;
@@ -102,7 +102,7 @@ let rec ground store id coord =
                     (fun (out_axis, in_axis) -> (in_axis, out_axis))
                     perm)))
       in
-      ground store x input_coord
+      ground arena store x input_coord
   | Some
       (Const_ssa.Apply
          { op = Graph_ir.Reshape { Reshape.Reshape.x; _ }; output }) ->
@@ -111,7 +111,7 @@ let rec ground store id coord =
            (Constant_store.plan store)
            (Const_ssa.Value_id.of_tensor_id x))
         (fun input ->
-          ground store x (reshape_source_coord ~input ~output coord))
+          ground arena store x (reshape_source_coord ~input ~output coord))
   | Some
       (Const_ssa.Apply
          { op = Graph_ir.Expand { Pointwise.Expand.x; _ }; output }) ->
@@ -119,7 +119,8 @@ let rec ground store id coord =
         (Const_ssa.sig_of
            (Constant_store.plan store)
            (Const_ssa.Value_id.of_tensor_id x))
-        (fun input -> ground store x (broadcast_coord ~input ~output coord))
+        (fun input ->
+          ground arena store x (broadcast_coord ~input ~output coord))
   | Some
       (Const_ssa.Apply
          {
@@ -135,7 +136,8 @@ let rec ground store id coord =
           (Const_ssa.sig_of
              (Constant_store.plan store)
              (Const_ssa.Value_id.of_tensor_id id))
-          (fun input -> ground store id (broadcast_coord ~input ~output coord))
+          (fun input ->
+            ground arena store id (broadcast_coord ~input ~output coord))
       in
       Option.bind (operand a) (fun a ->
           Option.map
@@ -148,7 +150,7 @@ let rec ground store id coord =
                 | Graph_ir.Div _ -> Expr.Value.Div
                 | _ -> assert false
               in
-              Ground_expr.Round (Ground_expr.Binary (op, a, b)))
+              Ground_expr.round arena (Ground_expr.binary arena op a b))
             (operand b))
   | Some (Const_ssa.Apply { op = Graph_ir.Sqrt { Pointwise.Sqrt.x }; output })
     ->
@@ -159,8 +161,9 @@ let rec ground store id coord =
         (fun input ->
           Option.map
             (fun x ->
-              Ground_expr.Round (Ground_expr.Unary (Expr.Value.Sqrt, x)))
-            (ground store x (broadcast_coord ~input ~output coord)))
+              Ground_expr.round arena
+                (Ground_expr.unary arena Expr.Value.Sqrt x))
+            (ground arena store x (broadcast_coord ~input ~output coord)))
   | Some
       (Const_ssa.Apply
          {
@@ -169,9 +172,10 @@ let rec ground store id coord =
          }) ->
       Option.map
         (fun x ->
-          Ground_expr.Round
-            (Ground_expr.Binary (Expr.Value.Mul, x, Ground_expr.Const scalar)))
-        (ground store x coord)
+          Ground_expr.round arena
+            (Ground_expr.binary arena Expr.Value.Mul x
+               (Ground_expr.const arena scalar)))
+        (ground arena store x coord)
   | Some
       (Const_ssa.Apply
          {
@@ -180,15 +184,16 @@ let rec ground store id coord =
          }) ->
       Option.map
         (fun x ->
-          Ground_expr.Round
-            (Ground_expr.Binary (Expr.Value.Add, x, Ground_expr.Const scalar)))
-        (ground store x coord)
+          Ground_expr.round arena
+            (Ground_expr.binary arena Expr.Value.Add x
+               (Ground_expr.const arena scalar)))
+        (ground arena store x coord)
   | Some
       (Const_ssa.Apply
          { op = Graph_ir.Pow { Pointwise_binary.Scalar_bin.x; scalar }; _ }) ->
       Option.map
-        (fun x -> Ground_expr.Round (pow_expr ~scalar x))
-        (ground store x coord)
+        (fun x -> Ground_expr.round arena (pow_expr arena ~scalar x))
+        (ground arena store x coord)
   | Some
       (Const_ssa.Apply
          {
@@ -199,13 +204,13 @@ let rec ground store id coord =
          }) ->
       Option.map
         (fun x ->
-          Ground_expr.Round
-            (Ground_expr.Binary
-               ( Expr.Value.Sub,
-                 Ground_expr.Const other,
-                 Ground_expr.Binary (Expr.Value.Mul, Ground_expr.Const alpha, x)
-               )))
-        (ground store x coord)
+          Ground_expr.round arena
+            (Ground_expr.binary arena Expr.Value.Sub
+               (Ground_expr.const arena other)
+               (Ground_expr.binary arena Expr.Value.Mul
+                  (Ground_expr.const arena alpha)
+                  x)))
+        (ground arena store x coord)
   | Some
       (Const_ssa.Apply { op = Graph_ir.Sigmoid { Pointwise.Sigmoid.x }; output })
     ->
@@ -215,13 +220,13 @@ let rec ground store id coord =
            (Const_ssa.Value_id.of_tensor_id x))
         (fun input ->
           Option.map
-            (fun v -> Ground_expr.Round (sigmoid_expr v))
-            (ground store x (broadcast_coord ~input ~output coord)))
+            (fun v -> Ground_expr.round arena (sigmoid_expr arena v))
+            (ground arena store x (broadcast_coord ~input ~output coord)))
   | Some
       (Const_ssa.Leaf
          { leaf = Literal payload | Opaque_materialized payload; output; _ }) ->
       Some
-        (Ground_expr.Const
+        (Ground_expr.const arena
            (Tensor.read_at_raw payload (fun axis ->
                 Dim.to_int (Vec6.get (leaf_coord output coord) axis))))
   | Some (Const_ssa.Apply _) | None -> None

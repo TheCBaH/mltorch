@@ -104,7 +104,11 @@ module Term : sig
   (* A grounded root or its successor after [expand]. Belongs to the
      [Meter.t] that produced it -- there is no way to construct one outside
      this module, so a caller cannot fabricate a size that disagrees with the
-     expression it pairs. *)
+     expression it pairs. Its expression's own [Ground_expr.arena] is this
+     root's OWN raw arena, allocated once at [at] and retained through every
+     [expand] on it -- never shared with a different registered root, even one
+     from the same graph, so [Ground_expr.size] of one root never silently
+     counts a node another root also reaches. *)
   type t
 
   val expression : t -> Ground_expr.t
@@ -112,7 +116,13 @@ module Term : sig
 end
 
 (* [Expr.Eval.error] joins the row: grounding evaluates indices, and checked
-   arithmetic can fail where it previously wrapped.
+   arithmetic can fail where it previously wrapped. It also carries
+   [`Scan_projection]/[`Unbound_local] -- a Region program's local/trace
+   reads are resolved against the same declaration-order frame
+   [Region_execution.evaluate_locals] fills, so an out-of-range row/lane or a
+   reference to a local that turned out not to be a trace fails with exactly
+   the vocabulary [Region_eval]/[Region_execution] already use for the same
+   condition.
    [`Data_index_unresolved] is a [Data] source [resolve_data_source] cannot
    resolve to an exact value (anything but a directly-bound constant) -- it
    feeds [map_verify_check.ml]'s existing generic
@@ -120,14 +130,17 @@ end
    [`Ground_nodes_over_limit]/[`Pair_nodes_over_limit] carry the configured
    LIMIT, not the observed size, matching this repository's "payload is the
    limit" convention; [map_verify_check.ml] maps them to their own named
-   verdicts rather than the generic [Eval] one. *)
+   verdicts rather than the generic [Eval] one.
+   [`Partition] is [Region_partition.key_of_output]'s own failure (an
+   out-of-bounds requested coordinate) -- distinct from [`Region], which is
+   [Region_program.check]/[preflight]'s row. *)
 type error =
   [ Expr.Eval.error
   | `Data_index_unresolved
   | `Ground_nodes_over_limit of int64
   | `Pair_nodes_over_limit of int
+  | `Partition of Region_partition.error
   | `Region of Region_program.error
-  | `Scan_at_unsupported
   | `Unknown_edge of Tensor_id.t ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
