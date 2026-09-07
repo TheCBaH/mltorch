@@ -38,7 +38,7 @@ let scan_value id shape =
   {
     Kernel.Value.id = tid id;
     sg = sg id shape;
-    computation = program;
+    computation = Region_group.Ref.Solo program;
     result = Kernel.Result_conversion.Round_f32;
   }
 

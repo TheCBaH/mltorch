@@ -141,11 +141,11 @@ let plan (k : Kernel.t) =
           if not (Hashtbl.mem intrinsic_edges pid) then
             Hashtbl.add intrinsic_edges pid
               { Kernel.Use.producer; consumer = v.Kernel.Value.id })
-        (Region_program.Fold.intrinsic_sources v.Kernel.Value.computation);
+        (Region_group.Ref.intrinsic_sources v.Kernel.Value.computation);
       Hashtbl.replace pointwise cid
         (Option.is_some (Kernel.pixel_expression v)
-        && Region_program.Fold.binders v.Kernel.Value.computation = []
-        && Region_program.Fold.intrinsics v.Kernel.Value.computation = 0))
+        && Region_group.Ref.binders v.Kernel.Value.computation = []
+        && Region_group.Ref.intrinsics v.Kernel.Value.computation = 0))
     k.Kernel.values;
   let load_count id = Kernel_elab.Analysis.load_count analysis id in
   let intrinsic_edge id =

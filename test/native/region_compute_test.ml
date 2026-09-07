@@ -61,7 +61,7 @@ let run name graph =
   let region =
     List.for_all
       (fun (value : Kernel.Value.t) ->
-        Region_program.pixel_expression value.computation = None)
+        Region_group.Ref.pixel_expression value.computation = None)
       kernel.Kernel.values
   in
   Fmt.pr "%s: region=%b legacy_bits=%b@." name region
@@ -141,7 +141,7 @@ let%expect_test "Symbolic stages carry the authoritative Region program" =
   let carried = stage.Stage_program.Stage.computation in
   let received = (List.hd kernel.Kernel.values).Kernel.Value.computation in
   Fmt.pr "region=%b same_object=%b@."
-    (Region_program.pixel_expression carried = None)
+    (Region_group.Ref.pixel_expression carried = None)
     (carried == received);
   [%expect {| region=true same_object=true |}]
 
@@ -190,7 +190,12 @@ let%expect_test "Authored Regions reconstruct their legacy scalar oracles" =
   in
   let reconstruct graph pixel =
     let symbolic = Eval_symbolic.run graph in
-    let program = (List.hd symbolic.Stage_program.stages).computation in
+    let program =
+      match (List.hd symbolic.Stage_program.stages).computation with
+      | Region_group.Ref.Solo p -> p
+      | Region_group.Ref.Grouped _ ->
+          assert false (* single-output Region-authored ops only *)
+    in
     Err.or_raise ~pp_error:Region_program.pp_error
       (Region_program.reconstructs ~max_size:Kernel.Limits.default.max_size
          ~max_depth:Kernel.Limits.default.max_depth
@@ -546,7 +551,13 @@ let%expect_test "Native authored Region trace matrix" =
   let trace name graph =
     let symbolic = Eval_symbolic.run graph in
     let stage = List.hd symbolic.Stage_program.stages in
-    let program = Stage_program.Stage.computation stage in
+    let program =
+      Err.or_raise ~pp_error:Region_group.pp_error
+        (Region_group.Ref.project
+           ~max_size:Kernel.Limits.default.Kernel.Limits.max_size
+           ~max_depth:Kernel.Limits.default.Kernel.Limits.max_depth
+           (Stage_program.Stage.computation stage))
+    in
     let trace =
       Err.or_raise ~pp_error:Region_trace.pp_error
         (Region_trace.collect program ~output_shape:stage.sg.shape)

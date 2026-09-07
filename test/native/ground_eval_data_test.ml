@@ -54,7 +54,7 @@ let out_stage =
   {
     Stage_program.Stage.id = out_id;
     sg = out_sig;
-    computation = Region_program.pixel body;
+    computation = Region_group.Ref.Solo (Region_program.pixel body);
   }
 
 let program ~index_kind ~extra_inputs ~extra_stages =
@@ -130,8 +130,9 @@ let%expect_test
       Stage_program.Stage.id = index_id;
       sg = index_sig;
       computation =
-        Region_program.pixel
-          (Expr.Value.load (Expr_bridge.source_of_id raw_id) zero);
+        Region_group.Ref.Solo
+          (Region_program.pixel
+             (Expr.Value.load (Expr_bridge.source_of_id raw_id) zero));
     }
   in
   let p =

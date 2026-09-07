@@ -39,34 +39,66 @@ let run ?(limits = Kernel.Limits.default) (g : graph) : Stage_program.t =
     let op = node.Node.op in
     let operand r = Tensor_id.Map.find r env in
     let shape_of r = (Tensor_id.Map.find r env).Tensor_sig.shape in
-    (* One stage per output edge: single-output ops emit one; a [Discard]-style
-           zero-output op emits none (the fold body, hence [E.pixel], never runs). *)
-    List.fold_left
-      (fun (env, stages) (output, oid) ->
-        let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
-        let regional =
-          if Region_computation.is_region_authored op then
-            Some
-              (Region_computation.program ~limits ~op ~output
-                 ~output_shape:out_sig.shape
-                 ~operand:(fun id -> Tensor_id.Map.find_opt id env)
-                 ~fill:(fun _role value shape -> fill value shape))
-          else None
-        in
-        let computation =
-          match regional with
-          | Some (Ok program) -> program
-          | Some (Error error) ->
-              Err.raise_error ~pp_error:Region_computation.pp_error error
-          | None ->
-              Region_program.pixel
-                (Expr.Builder.run
-                   (E.pixel op ~output ~operand ~shape_of ~fill Symbolic.out_vec))
-        in
-        let st = { Stage_program.Stage.id = oid; sg = out_sig; computation } in
-        (Tensor_id.Map.add oid out_sig env, st :: stages))
-      (env, stages)
-      (List.mapi (fun i oid -> (i, oid)) node.Node.outputs)
+    let outs = List.mapi (fun i oid -> (i, oid)) node.Node.outputs in
+    (* A multi-output Region-authored node (project step 19: today only
+       Lstm) builds ONE shared group and hands every sibling stage a
+       [Grouped] reference into it, rather than each independently building
+       its own projected program -- see [Region_computation.group]. Every
+       other case (single-output, or not Region-authored at all) keeps the
+       existing one-stage-per-output-edge path unchanged, just wrapping its
+       [Region_program.t] as [Solo]. *)
+    if List.length outs > 1 && Region_computation.is_region_authored op then
+      let group =
+        match
+          Region_computation.group ~limits ~op ~operand:(fun id ->
+              Tensor_id.Map.find_opt id env)
+        with
+        | Ok group -> group
+        | Error error ->
+            Err.raise_error ~pp_error:Region_computation.pp_error error
+      in
+      List.fold_left
+        (fun (env, stages) (output, oid) ->
+          let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+          let st =
+            {
+              Stage_program.Stage.id = oid;
+              sg = out_sig;
+              computation = Region_group.Ref.Grouped (group, output);
+            }
+          in
+          (Tensor_id.Map.add oid out_sig env, st :: stages))
+        (env, stages) outs
+    else
+      List.fold_left
+        (fun (env, stages) (output, oid) ->
+          let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+          let regional =
+            if Region_computation.is_region_authored op then
+              Some
+                (Region_computation.program ~limits ~op ~output
+                   ~output_shape:out_sig.shape
+                   ~operand:(fun id -> Tensor_id.Map.find_opt id env)
+                   ~fill:(fun _role value shape -> fill value shape))
+            else None
+          in
+          let computation =
+            match regional with
+            | Some (Ok program) -> Region_group.Ref.Solo program
+            | Some (Error error) ->
+                Err.raise_error ~pp_error:Region_computation.pp_error error
+            | None ->
+                Region_group.Ref.Solo
+                  (Region_program.pixel
+                     (Expr.Builder.run
+                        (E.pixel op ~output ~operand ~shape_of ~fill
+                           Symbolic.out_vec)))
+          in
+          let st =
+            { Stage_program.Stage.id = oid; sg = out_sig; computation }
+          in
+          (Tensor_id.Map.add oid out_sig env, st :: stages))
+        (env, stages) outs
   in
   let _env, rev_stages =
     List.fold_left

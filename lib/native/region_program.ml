@@ -667,4 +667,6 @@ module Builder = struct
   let finish ~max_size ~max_depth ~partition ~output state locals =
     ( create ~max_size ~max_depth ~partition ~locals:(List.rev locals) ~output,
       state )
+
+  let of_fn f = f
 end

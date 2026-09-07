@@ -41,8 +41,10 @@ module Value : sig
   type t = {
     id : Tensor_id.t;
     sg : Tensor_sig.t;  (** [sg.id] must equal [id] *)
-    computation : Region_program.t;
-        (** at an arbitrary output coordinate, WITHOUT [result] applied *)
+    computation : Region_group.Ref.t;
+        (** at an arbitrary output coordinate, WITHOUT [result] applied. Either
+            a standalone program, or a reference into one ordinal of a group
+            several sibling values share (project step 19). *)
     result : Result_conversion.t;
   }
 end
@@ -217,7 +219,7 @@ module Format_rule : sig
 end
 
 module Body_error : sig
-  type t = { at : Tensor_id.t; error : Region_program.error }
+  type t = { at : Tensor_id.t; error : Region_group.error }
 end
 
 type error =

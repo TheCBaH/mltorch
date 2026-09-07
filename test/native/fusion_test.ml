@@ -461,8 +461,9 @@ let%expect_test "Fusion: planning a wide kernel completes" =
                   (* even i: producer, reads the input.
                      odd  i: consumer, reads the producer before it. *)
                   computation =
-                    Region_program.pixel
-                      (body ~src:(if i mod 2 = 0 then 0 else i));
+                    Region_group.Ref.Solo
+                      (Region_program.pixel
+                         (body ~src:(if i mod 2 = 0 then 0 else i)));
                   result = Kernel.Result_conversion.Round_f32;
                 }))
          ~outputs:(List.init n (fun i -> Tensor_id.of_int (i + 1)))
@@ -540,13 +541,13 @@ let%expect_test "Fusion: a Site.t cannot be forged from outside" =
              {
                Kernel.Value.id = Tensor_id.of_int 1;
                sg = vsg 1 producer_shape;
-               computation = Region_program.pixel (ld 0);
+               computation = Region_group.Ref.Solo (Region_program.pixel (ld 0));
                result = Kernel.Result_conversion.Round_f32;
              };
              {
                Kernel.Value.id = Tensor_id.of_int 2;
                sg = vsg 2 consumer_shape;
-               computation = Region_program.pixel body;
+               computation = Region_group.Ref.Solo (Region_program.pixel body);
                result = Kernel.Result_conversion.Round_f32;
              };
            ]
@@ -620,15 +621,17 @@ let%expect_test
              {
                Kernel.Value.id = Tensor_id.of_int 0;
                sg = vsg 0 (s1c 1);
-               computation = Region_program.pixel scan_pixel;
+               computation =
+                 Region_group.Ref.Solo (Region_program.pixel scan_pixel);
                result = Kernel.Result_conversion.Round_f32;
              };
              {
                Kernel.Value.id = Tensor_id.of_int 1;
                sg = vsg 1 (s1c 1);
                computation =
-                 Region_program.pixel
-                   (Expr.Value.add (ld 0) (Expr.Value.const 1.));
+                 Region_group.Ref.Solo
+                   (Region_program.pixel
+                      (Expr.Value.add (ld 0) (Expr.Value.const 1.)));
                result = Kernel.Result_conversion.Round_f32;
              };
            ]
@@ -656,3 +659,87 @@ let%expect_test
     site_in=t0->t1 has a scan in its pixel expression
     planner:
     reject t0: t0->t1 is not a pointwise site (t0->t1 has a scan in its pixel expression) |}]
+
+(* Project step 19 / Section D, acceptance matrix §8 ("Compatibility"):
+   the test above shows a Solo scan-backed producer rejected by [admit]'s
+   LATER [has_scan] check (its [pixel_expression] is [Some], since the scan
+   is a bare inline expression, not a Region_group emitter). A real
+   [Region_group.Ref.Grouped] value's [pixel_expression] is unconditionally
+   [None] (design record §5.4), so it must instead trip [admit]'s FIRST
+   check, [Regional_computation] -- a different rejection reason, not
+   merely the same has_scan verdict by coincidence. Confirms this with an
+   actual [Region_group.t] (one shared scalar local, one emitter), not an
+   inline [Scan_at], since [Regional_computation] fires on ANY [None]
+   pixel_expression regardless of whether the group happens to contain a
+   scan. *)
+let%expect_test
+    "Fusion: both admission entry points reject a real Grouped value via \
+     Regional_computation, distinct from the scan check above" =
+  let canonical_shape = s1c 1 in
+  let local_id, _ =
+    Expr.Builder.run_from Expr.Builder.initial Expr.Builder.fresh_local
+  in
+  let local = Region_local.scalar ~id:local_id ~value:(Expr.Value.const 1.) in
+  let group =
+    Err.or_raise ~pp_error:Region_group.pp_error
+      (Region_group.create ~max_size:64 ~max_depth:16 ~canonical_shape
+         ~locals:[ local ]
+         ~emitters:
+           [
+             {
+               Region_group.Emitter.output_shape = s1c 1;
+               partition = Region_partition.singleton;
+               key_axes = [];
+               output = Expr.Value.local local_id;
+             };
+           ])
+  in
+  let vsg id shape =
+    Tensor_sig.create ~id:(Tensor_id.of_int id) ~name:"" ~shape
+      ~fmt:(Payload.Fmt Payload.F32) ()
+  in
+  let ld id =
+    Expr.Value.load
+      (Expr_bridge.source_of_id (Tensor_id.of_int id))
+      (Expr_bridge.coord_of_vec6 Symbolic.out_vec)
+  in
+  let k =
+    Err.or_raise ~pp_error:Kernel.pp_error
+      (Kernel.create ~inputs:[]
+         ~values:
+           [
+             {
+               Kernel.Value.id = Tensor_id.of_int 0;
+               sg = vsg 0 (s1c 1);
+               computation = Region_group.Ref.Grouped (group, 0);
+               result = Kernel.Result_conversion.Round_f32;
+             };
+             {
+               Kernel.Value.id = Tensor_id.of_int 1;
+               sg = vsg 1 (s1c 1);
+               computation =
+                 Region_group.Ref.Solo
+                   (Region_program.pixel
+                      (Expr.Value.add (ld 0) (Expr.Value.const 1.)));
+               result = Kernel.Result_conversion.Round_f32;
+             };
+           ]
+         ~outputs:[ Tensor_id.of_int 1 ]
+         ())
+  in
+  let edge =
+    { Kernel.Use.producer = Tensor_id.of_int 0; consumer = Tensor_id.of_int 1 }
+  in
+  let verdict r =
+    match r with
+    | Ok _ -> "accepted"
+    | Error e ->
+        Format.asprintf "%a" (Core.Pretty.error_kind Kernel_elab.pp_error) e
+  in
+  Format.printf "site=%s@.site_in=%s@."
+    (verdict (Kernel_elab.site k edge))
+    (verdict (Kernel_elab.site_in (Kernel_elab.Analysis.of_kernel k) edge));
+  [%expect
+    {|
+    site=t0->t1 has a regional computation
+    site_in=t0->t1 has a regional computation |}]

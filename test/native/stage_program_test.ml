@@ -101,11 +101,11 @@ let%expect_test "Stage_program: Pixel computation retains its expression object"
       sg =
         Tensor_sig.create ~id:(Tensor_id.of_int 0) ~name:"" ~shape:(s1c 1)
           ~fmt:(Payload.Fmt Payload.F32) ();
-      computation = Region_program.pixel body;
+      computation = Region_group.Ref.Solo (Region_program.pixel body);
     }
   in
   let embedded =
-    Err.or_raise ~pp_error:Region_program.pp_error
+    Err.or_raise ~pp_error:Stage_program.Stage.pp_pixel_body_error
       (Stage_program.Stage.pixel_body ~max_size:32 ~max_depth:32
          ~scan_limits:Expr.Scan_limits.default stage)
   in
@@ -172,7 +172,7 @@ let%expect_test
          List.iter
            (fun (st : Stage_program.Stage.t) ->
              Format.fprintf ppf "%a = %a@," Tensor_id.pp st.id Expr.Pp.value
-               (Option.get (Region_program.pixel_expression st.computation)))
+               (Option.get (Region_group.Ref.pixel_expression st.computation)))
            p.Stage_program.stages;
          Format.fprintf ppf "@]"))
     result;
@@ -388,7 +388,7 @@ let%expect_test
   Format.printf "%a@."
     (pp_result (fun ppf (p : Stage_program.t) ->
          let binders (st : Stage_program.Stage.t) =
-           Region_program.pixel_expression st.computation
+           Region_group.Ref.pixel_expression st.computation
            |> Option.value ~default:(Expr.Value.const 0.)
            |> Expr.Fold.binders
          in

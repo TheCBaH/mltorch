@@ -37,3 +37,8 @@ let program ~limits ~op ~output ~output_shape ~operand ~fill =
       Region_computation.program ~limits ~op ~output ~output_shape ~operand
         ~fill
   | None -> assert false
+
+let group ~limits ~op ~operand =
+  match native_op op with
+  | Some op -> Region_computation.group ~limits ~op ~operand
+  | None -> assert false

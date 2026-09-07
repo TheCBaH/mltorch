@@ -202,7 +202,7 @@ let%expect_test "Kernel_eval: Region values execute through run and value_at" =
       sg =
         Tensor_sig.create ~id:(Tensor_id.of_int 1) ~name:"" ~shape:(s1c 3)
           ~fmt:(Payload.Fmt Payload.F32) ();
-      computation = program;
+      computation = Region_group.Ref.Solo program;
       result = Kernel.Result_conversion.Round_f32;
     }
   in
@@ -284,16 +284,17 @@ let%expect_test
                Kernel.Value.id = Tensor_id.of_int 1;
                sg = sg 1;
                computation =
-                 Region_program.pixel
-                   (Expr.Value.add
-                      (source 0 (Expr_bridge.coord_of_vec6 Symbolic.out_vec))
-                      (Expr.Value.const 1.));
+                 Region_group.Ref.Solo
+                   (Region_program.pixel
+                      (Expr.Value.add
+                         (source 0 (Expr_bridge.coord_of_vec6 Symbolic.out_vec))
+                         (Expr.Value.const 1.)));
                result = Kernel.Result_conversion.Round_f32;
              };
              {
                Kernel.Value.id = Tensor_id.of_int 2;
                sg = sg 2;
-               computation = region;
+               computation = Region_group.Ref.Solo region;
                result = Kernel.Result_conversion.Round_f32;
              };
            ]
@@ -360,7 +361,7 @@ let%expect_test "Kernel_eval: Pixel scan is C-innermost with one load per cell"
              {
                Kernel.Value.id = Tensor_id.of_int 1;
                sg = sg 1;
-               computation = Region_program.pixel body;
+               computation = Region_group.Ref.Solo (Region_program.pixel body);
                result = Kernel.Result_conversion.Round_f32;
              };
            ]
@@ -560,10 +561,11 @@ let%expect_test "Kernel_eval: a Filled constant is stored through f32" =
                  Tensor_sig.create ~id:(Tensor_id.of_int 2) ~name:""
                    ~shape:(s1c 1) ~fmt:(Payload.Fmt Payload.F32) ();
                computation =
-                 Region_program.pixel
-                   (Expr.Value.load
-                      (Expr_bridge.source_of_id (Tensor_id.of_int 1))
-                      (Expr_bridge.coord_of_vec6 Symbolic.out_vec));
+                 Region_group.Ref.Solo
+                   (Region_program.pixel
+                      (Expr.Value.load
+                         (Expr_bridge.source_of_id (Tensor_id.of_int 1))
+                         (Expr_bridge.coord_of_vec6 Symbolic.out_vec)));
                result = Kernel.Result_conversion.Round_f32;
              };
            ]
@@ -606,10 +608,11 @@ let%expect_test "Kernel_eval: a bound tensor is validated against its signature"
                Kernel.Value.id = Tensor_id.of_int 2;
                sg = sg 2 (s1c 3);
                computation =
-                 Region_program.pixel
-                   (Expr.Value.load
-                      (Expr_bridge.source_of_id (Tensor_id.of_int 0))
-                      (Expr_bridge.coord_of_vec6 Symbolic.out_vec));
+                 Region_group.Ref.Solo
+                   (Region_program.pixel
+                      (Expr.Value.load
+                         (Expr_bridge.source_of_id (Tensor_id.of_int 0))
+                         (Expr_bridge.coord_of_vec6 Symbolic.out_vec)));
                result = Kernel.Result_conversion.Round_f32;
              };
            ]

@@ -29,7 +29,7 @@ let%expect_test "Symbolic lowering: stages are well-scoped, and reuse ordinals"
       List.for_all
         (fun (st : Stage_program.Stage.t) ->
           match
-            Region_program.pixel_expression st.Stage_program.Stage.computation
+            Region_group.Ref.pixel_expression st.Stage_program.Stage.computation
           with
           | None -> false
           | Some body -> (
@@ -47,7 +47,7 @@ let%expect_test "Symbolic lowering: stages are well-scoped, and reuse ordinals"
     let binders =
       List.concat_map
         (fun (st : Stage_program.Stage.t) ->
-          Region_program.pixel_expression st.Stage_program.Stage.computation
+          Region_group.Ref.pixel_expression st.Stage_program.Stage.computation
           |> Option.value ~default:(Expr.Value.const 0.)
           |> Expr.Fold.binders)
         prog.Stage_program.stages
@@ -62,9 +62,9 @@ let%expect_test "Symbolic lowering: stages are well-scoped, and reuse ordinals"
       List.for_all2
         (fun (a : Stage_program.Stage.t) (b : Stage_program.Stage.t) ->
           match
-            ( Region_program.pixel_expression a.Stage_program.Stage.computation,
-              Region_program.pixel_expression b.Stage_program.Stage.computation
-            )
+            ( Region_group.Ref.pixel_expression a.Stage_program.Stage.computation,
+              Region_group.Ref.pixel_expression
+                b.Stage_program.Stage.computation )
           with
           | Some a, Some b -> Expr.Value.equal a b
           | None, None -> true

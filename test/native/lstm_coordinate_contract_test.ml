@@ -40,13 +40,31 @@ let show_partition ~label ~batch_first ~output =
   let layer : Lstm.Lstm.Layer_operands.t =
     { forward = direction; reverse = None }
   in
+  let direction_shapes : Lstm.Lstm.Direction_shapes.t =
+    {
+      weight_ih = wih_shape;
+      weight_hh = whh_shape;
+      bias = Some (bias_shape, bias_shape);
+    }
+  in
+  let out_shape, hn_shape, cn_shape =
+    Err.or_raise ~pp_error:Shape_error.pp
+      (Lstm.Lstm.output_shape params ~input_shape:seq_shape
+         ~layers:
+           [
+             {
+               Lstm.Lstm.Layer_shapes.forward = direction_shapes;
+               reverse = None;
+             };
+           ]
+         ~h0_shape:state_shape ~c0_shape:state_shape)
+  in
   match
     Lstm.Lstm.Computation.program ~limits:Kernel.Limits.default params ~output
-      ~layers:[ layer ] ~input ~h0 ~c0
+      ~layers:[ layer ] ~input ~h0 ~c0 ~out_shape ~hn_shape ~cn_shape
   with
   | Error e ->
-      Fmt.pr "%s: rejected: %a@." label Region_context.pp_error
-        (Err.Error.kind e)
+      Fmt.pr "%s: rejected: %a@." label Region_group.pp_error (Err.Error.kind e)
   | Ok program ->
       let partition = Region_program.partition program in
       Fmt.pr "%s: %a@." label Region_partition.pp partition

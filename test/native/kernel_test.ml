@@ -33,7 +33,7 @@ let value ?(result = Kernel.Result_conversion.Round_f32) id shape body =
   {
     Kernel.Value.id = tid id;
     sg = sg id shape;
-    computation = Region_program.pixel body;
+    computation = Region_group.Ref.Solo (Region_program.pixel body);
     result;
   }
 
@@ -647,8 +647,13 @@ let%expect_test "Kernel_adapt: a selected forward source is caught" =
               {
                 st with
                 Stage_program.Stage.computation =
-                  Region_program.with_output st.computation
-                    (load (Tensor_id.to_int b));
+                  (match st.computation with
+                  | Region_group.Ref.Solo p ->
+                      Region_group.Ref.Solo
+                        (Region_program.with_output p
+                           (load (Tensor_id.to_int b)))
+                  | Region_group.Ref.Grouped _ ->
+                      assert false (* [branches ()] is pixel-authored only *));
               }
             else st)
           p.Stage_program.stages;
@@ -682,7 +687,11 @@ let%expect_test "Kernel_adapt: an oversized body is caught in both entries" =
               {
                 st with
                 Stage_program.Stage.computation =
-                  Region_program.with_output st.computation deep;
+                  (match st.computation with
+                  | Region_group.Ref.Solo p ->
+                      Region_group.Ref.Solo (Region_program.with_output p deep)
+                  | Region_group.Ref.Grouped _ ->
+                      assert false (* [branches ()] is pixel-authored only *));
               }
             else st)
           p.Stage_program.stages;
@@ -724,7 +733,7 @@ let stage id shape body =
   {
     Stage_program.Stage.id = tid id;
     sg = sg id shape;
-    computation = Region_program.pixel body;
+    computation = Region_group.Ref.Solo (Region_program.pixel body);
   }
 
 let%expect_test "Kernel_adapt: the boundary table rejects collisions" =

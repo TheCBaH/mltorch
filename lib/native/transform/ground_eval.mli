@@ -138,6 +138,7 @@ type error =
   [ Expr.Eval.error
   | `Data_index_unresolved
   | `Ground_nodes_over_limit of int64
+  | `Group of Region_group.error
   | `Pair_nodes_over_limit of int
   | `Partition of Region_partition.error
   | `Region of Region_program.error

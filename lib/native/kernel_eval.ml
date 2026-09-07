@@ -24,7 +24,9 @@ end
 type error =
   [ Expr.Eval.error
   | `Binding_mismatch of Binding_mismatch.t
+  | `Duplicate_group_ordinal of int
   | `Recursion_too_deep of int
+  | Region_group.error
   | Region_partition.error
   | Region_program.error
   | `Unbound_input of Tensor_id.t
@@ -33,8 +35,11 @@ type error =
 let pp_error fmt : [< error ] -> unit = function
   | #Expr.Eval.error as e -> Expr.Eval.pp_error fmt e
   | `Binding_mismatch m -> Binding_mismatch.pp fmt m
+  | `Duplicate_group_ordinal ordinal ->
+      Fmt.pf fmt "group run repeats emitter ordinal %d" ordinal
   | `Recursion_too_deep n ->
       Fmt.pf fmt "recursive evaluation nested more than %d producers deep" n
+  | #Region_group.error as e -> Region_group.pp_error fmt e
   | #Region_partition.error as e -> Region_partition.pp_error fmt e
   | #Region_program.error as e -> Region_program.pp_error fmt e
   | `Unbound_input id -> Fmt.pf fmt "no binding for input %a" Tensor_id.pp id
@@ -148,6 +153,9 @@ let widen_region r =
 let widen_program r =
   Err.map_error (fun (e : Region_program.error) -> (e :> error)) r
 
+let widen_group r =
+  Err.map_error (fun (e : Region_group.error) -> (e :> error)) r
+
 let coord_key (c : int Expr.Coord.t) =
   ( c.Expr.Coord.n,
     c.Expr.Coord.t,
@@ -174,10 +182,23 @@ let values_by_id (k : Kernel.t) =
    covers this rewritten expression; nothing upstream of it does. *)
 let converted esc ?region_counters ~(limits : Kernel.Limits.t)
     (v : Kernel.Value.t) =
-  match Region_program.pixel_expression v.Kernel.Value.computation with
+  match Region_group.Ref.pixel_expression v.Kernel.Value.computation with
   | Some body ->
       `Pixel (Kernel.Result_conversion.apply v.Kernel.Value.result body)
   | None ->
+      (* [v.Kernel.Value.computation] is PROJECTED to a concrete
+         [Region_program.t] first (a [Grouped] value's shared locals are
+         rebuilt/re-checked here independently of any sibling -- project
+         step 19's Section C milestone 2 is what removes this per-value
+         duplication for real), then the result conversion is spliced in
+         and re-lowered exactly as before. *)
+      let program =
+        Err.Escape.or_throw esc
+          (widen_group
+             (Region_group.Ref.project ~max_size:limits.Kernel.Limits.max_size
+                ~max_depth:limits.Kernel.Limits.max_depth
+                v.Kernel.Value.computation))
+      in
       let lowered =
         Err.Escape.or_throw esc
           (widen_program
@@ -187,9 +208,9 @@ let converted esc ?region_counters ~(limits : Kernel.Limits.t)
                 ~max_local_slots:limits.Kernel.Limits.max_local_slots
                 ~scan_limits:(Kernel.Limits.scan_limits limits)
                 ~output_shape:v.Kernel.Value.sg.Tensor_sig.shape
-                (Region_program.with_output v.Kernel.Value.computation
+                (Region_program.with_output program
                    (Kernel.Result_conversion.apply v.Kernel.Value.result
-                      (Region_program.output v.Kernel.Value.computation)))))
+                      (Region_program.output program)))))
       in
       `Region
         ( lowered,
@@ -324,18 +345,85 @@ let machine esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses =
     bound := Tensor_id.Map.add v.Kernel.Value.id t !bound;
     t
   in
-  (materialize, fun id coord -> eval_value ~depth:0 id coord)
+  (* Materialises several sibling [Kernel.Value.t]s that share one physically
+     identical [Region_group.t] in ONE shared evaluation (project step 19,
+     Section C milestone 2 -- the Kernel-side counterpart of
+     [Stage_program.ground]'s own [execute_run] [Group_run] arm). Every
+     [members] entry is guaranteed never-virtual: [Kernel_elab.admit]'s very
+     first check rejects any [Use] naming a [Regional_computation] endpoint,
+     and [Region_group.Ref.pixel_expression] is unconditionally [None] for a
+     [Grouped] value, so no fusion plan can ever place one on either side of
+     [virtual_uses] -- which is what makes ANY single member's own id a safe
+     [~consumer] for [env_for]'s virtual-load lookups here, regardless of
+     which one is chosen. Updates the SAME [bound] ref [materialize]'s solo
+     path does, so a later solo value that loads a grouped sibling as an
+     ordinary source resolves it correctly. *)
+  let materialize_group (g : Region_group.t)
+      (members : (int * Kernel.Value.t) list) =
+    (match
+       Region_group.Run.duplicate_ordinal (Region_group.Run.Group (g, members))
+     with
+    | Some ordinal -> Err.Escape.throw esc (`Duplicate_group_ordinal ordinal)
+    | None -> ());
+    match members with
+    | [] -> []
+    | (_, first) :: _ ->
+        let lowered_group =
+          Err.Escape.or_throw esc
+            (widen_group
+               (Region_execution.lower_group
+                  ~max_size:k.Kernel.limits.Kernel.Limits.max_size
+                  ~max_depth:k.Kernel.limits.Kernel.Limits.max_depth
+                  ~max_local_slots:k.Kernel.limits.Kernel.Limits.max_local_slots
+                  ~scan_limits g))
+        in
+        let env = env_for ~depth:0 first.Kernel.Value.id in
+        let counters =
+          Option.bind region_counters (fun m ->
+              Tensor_id.Map.find_opt first.Kernel.Value.id m)
+        in
+        let results =
+          Err.Escape.or_throw esc
+            (widen_region
+               (Region_execution.materialize_group ?counters lowered_group ~env
+                  ~selected:(List.map fst members)))
+        in
+        List.map
+          (fun (ordinal, tensor) ->
+            let st = List.assoc ordinal members in
+            bound := Tensor_id.Map.add st.Kernel.Value.id tensor !bound;
+            (st.Kernel.Value.id, tensor))
+          results
+  in
+  (materialize, materialize_group, fun id coord -> eval_value ~depth:0 id coord)
 
 let execute esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses
     ~stores =
-  let materialize, _ =
+  let materialize, materialize_group, _ =
     machine esc ?on_load ?region_counters k ~bind ~virtual_uses
   in
+  let runs =
+    Region_group.runs
+      ~computation:(fun (v : Kernel.Value.t) -> v.Kernel.Value.computation)
+      k.Kernel.values
+  in
   List.fold_left
-    (fun results (v : Kernel.Value.t) ->
-      if not (Tensor_id.Set.mem v.Kernel.Value.id stores) then results
-      else Tensor_id.Map.add v.Kernel.Value.id (materialize v) results)
-    Tensor_id.Map.empty k.Kernel.values
+    (fun results run ->
+      match run with
+      | Region_group.Run.Solo v ->
+          if not (Tensor_id.Set.mem v.Kernel.Value.id stores) then results
+          else Tensor_id.Map.add v.Kernel.Value.id (materialize v) results
+      | Region_group.Run.Group (g, members) ->
+          let selected =
+            List.filter
+              (fun (_, v) -> Tensor_id.Set.mem v.Kernel.Value.id stores)
+              members
+          in
+          List.fold_left
+            (fun results (id, tensor) -> Tensor_id.Map.add id tensor results)
+            results
+            (materialize_group g selected))
+    Tensor_id.Map.empty runs
 
 let run ?on_load ?region_counters k ~bind =
   Err.Escape.with_escape @@ fun esc ->
@@ -372,5 +460,5 @@ let value_at k ~bind id coord =
              source made setup O(values x source occurrences) before evaluation
              or memoisation had begun — the same linear-lookup-per-source shape
              already removed from [edges_of]. *)
-          let _, eval = machine esc k ~bind ~virtual_uses:(Kernel.uses k) in
+          let _, _, eval = machine esc k ~bind ~virtual_uses:(Kernel.uses k) in
           eval id coord)

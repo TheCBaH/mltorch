@@ -164,17 +164,18 @@ let chain ?limits ?(d = 1) n =
              Kernel.Value.id = tid (i + 1);
              sg = vsig (i + 1);
              computation =
-               Region_program.pixel
-                 (let e =
-                    ref
-                      (Expr.Value.load
-                         (Expr_bridge.source_of_id (tid i))
-                         (Expr_bridge.coord_of_vec6 Symbolic.out_vec))
-                  in
-                  for _ = 2 to d do
-                    e := Expr.Value.add !e (Expr.Value.const 1.0)
-                  done;
-                  !e);
+               Region_group.Ref.Solo
+                 (Region_program.pixel
+                    (let e =
+                       ref
+                         (Expr.Value.load
+                            (Expr_bridge.source_of_id (tid i))
+                            (Expr_bridge.coord_of_vec6 Symbolic.out_vec))
+                     in
+                     for _ = 2 to d do
+                       e := Expr.Value.add !e (Expr.Value.const 1.0)
+                     done;
+                     !e));
              result = Kernel.Result_conversion.Round_f32;
            }))
     ~outputs:[ tid n ]

@@ -146,10 +146,15 @@ let rec each_lane f l width =
     let* () = f l in
     each_lane f (l + 1) width
 
-let evaluate_locals ?counters lowered ~env ~key ~scan_meter =
-  let values = Array.make (Region_slots.total lowered.slots) 0. in
-  let local, local_at = Region_slots.reader lowered.slots values in
-  let scan = Region_slots.scan_reader lowered.slots values in
+(* Takes [~locals]/[~slots] directly rather than a whole [lowered]: neither
+   this nor [emit] below ever reads [lowered.output_shape]/[lowered.scan_limits]
+   (only their callers -- [materialize]/[value_at] -- do), so both are exactly
+   as usable against a [Region_group]'s shared locals (see [materialize_group])
+   as against a single [Region_program.t]'s own. *)
+let evaluate_locals ?counters locals slots ~env ~key ~scan_meter =
+  let values = Array.make (Region_slots.total slots) 0. in
+  let local, local_at = Region_slots.reader slots values in
+  let scan = Region_slots.scan_reader slots values in
   let env = instrument ?counters env in
   let on_reduction () =
     Option.iter
@@ -182,7 +187,7 @@ let evaluate_locals ?counters lowered ~env ~key ~scan_meter =
            the vector's own per-element binder (present by construction -- see
            [Region_program.Builder.vector]) then raised [Unbound_reducer]. *)
         let offset, count =
-          Option.get (Region_slots.offset lowered.slots binding.Region_local.id)
+          Option.get (Region_slots.offset slots binding.Region_local.id)
         in
         match binding.Region_local.rhs with
         | Region_local.Rhs.Scalar value ->
@@ -274,11 +279,11 @@ let evaluate_locals ?counters lowered ~env ~key ~scan_meter =
             let* () = each_row 0 in
             fill rest)
   in
-  fill (Region_program.locals lowered.program)
+  fill locals
 
-let emit ?counters lowered ~env ~values ~output ~scan_meter =
-  let local, local_at = Region_slots.reader lowered.slots values in
-  let scan = Region_slots.scan_reader lowered.slots values in
+let emit ?counters slots output_expr ~env ~values ~output ~scan_meter =
+  let local, local_at = Region_slots.reader slots values in
+  let scan = Region_slots.scan_reader slots values in
   let env = instrument ?counters env in
   let on_reduction () =
     Option.iter
@@ -290,8 +295,7 @@ let emit ?counters lowered ~env ~values ~output ~scan_meter =
     counters;
   widened
     (Expr.Eval.value ~local ~local_at ~scan ~scan_meter ~on_reduction env
-       ~output:(expr_coord output)
-       (Region_program.output lowered.program))
+       ~output:(expr_coord output) output_expr)
 
 let materialize ?counters lowered ~env =
   Err.Escape.with_escape @@ fun esc ->
@@ -307,14 +311,18 @@ let materialize ?counters lowered ~env =
       let scan_meter = Expr.Scan_meter.create ~limits:lowered.scan_limits in
       let values =
         Err.Escape.or_throw esc
-          (evaluate_locals ?counters lowered ~env ~key ~scan_meter)
+          (evaluate_locals ?counters
+             (Region_program.locals lowered.program)
+             lowered.slots ~env ~key ~scan_meter)
       in
       let () =
         Region_partition.fold_outputs ~output_shape ~key ~init:()
           ~f:(fun () output ->
             let value =
               Err.Escape.or_throw esc
-                (emit ?counters lowered ~env ~values ~output ~scan_meter)
+                (emit ?counters lowered.slots
+                   (Region_program.output lowered.program)
+                   ~env ~values ~output ~scan_meter)
             in
             Tensor.set_float tensor output value)
           partition
@@ -326,3 +334,118 @@ let materialize ?counters lowered ~env =
 let value_at lowered ~env ~output =
   Region_eval.value_at ~scan_limits:lowered.scan_limits lowered.program
     ~output_shape:lowered.output_shape ~env ~output
+
+(* The shared-computation counterpart of [lowered]/[materialize]: [group]'s
+   locals are validated once (project step 19, Section B); this only has to
+   preflight each emitter's own projected program before retaining the slot
+   layout for the shared locals -- [slots] is sized by [Region_group.locals
+   group] alone, never by any one emitter's projection. *)
+type lowered_group = {
+  group : Region_group.t;
+  slots : Region_slots.t;
+  scan_limits : Expr.Scan_limits.t;
+}
+
+(* Deliberately conservative, sound-but-not-tight: preflights each emitter's
+   full PROJECTED program independently (reusing [Region_group.project], the
+   same operation [Region_group.create] already used once to prove every
+   projection well-formed), which counts the shared locals' own cost once PER
+   EMITTER rather than once for the whole group -- the design record's §4.2
+   aggregate formula ("locals_updates + sum(...)") avoids that double-count,
+   but implementing it exactly is out of scope for this pass. This is still
+   sound: it can only reject a group whose real (shared, once-per-key) cost is
+   already within budget, never admit one that is not -- the actual runtime
+   executor below does strictly less work than any single one of these
+   per-emitter checks assumes. *)
+let lower_group ~max_size ~max_depth ~max_local_slots ~scan_limits group =
+  let open Err.Syntax in
+  let emitters = Region_group.emitters group in
+  let* () =
+    Err.List.iter
+      (fun (i, (e : Region_group.Emitter.t)) ->
+        let* projected = Region_group.project ~max_size ~max_depth group i in
+        Err.map_error
+          (fun err -> `Program err)
+          (Region_program.preflight ~max_local_slots
+             ~max_scan_state:(Expr.Scan_limits.max_state scan_limits)
+             ~max_scan_updates:(Expr.Scan_limits.max_updates scan_limits)
+             ~output_shape:e.Region_group.Emitter.output_shape projected))
+      (List.mapi (fun i e -> (i, e)) emitters)
+  in
+  Err.return
+    {
+      group;
+      slots = Region_slots.of_locals (Region_group.locals group);
+      scan_limits;
+    }
+
+(* One emitter's canonical-to-physical key: [Vec6.origin] (all zero, matching
+   [Region_partition.key_of_output]'s own convention for an axis the key
+   doesn't own) with each declared [key_axes] pair's physical axis copied from
+   the canonical key's own value at its canonical axis. Every physical
+   Singleton axis with extent > 1 is covered by exactly one such pair (proven
+   at [Region_group.create] time), so this is a total, correct derivation for
+   any emitter -- never a partial or defaulted one. *)
+let physical_key_of ~canonical_key (e : Region_group.Emitter.t) =
+  List.fold_left
+    (fun key (canon, phys) -> Vec6.set key phys (Vec6.get canonical_key canon))
+    Vec6.origin e.Region_group.Emitter.key_axes
+
+(* An empty [selected] returns no tensors and performs no recurrence work at
+   all -- not even evaluating the shared locals once per canonical key --
+   per the design record's own §4.2 contract. Checked first, before any
+   [fold_keys]/[evaluate_locals] call, rather than relying on the inner
+   per-emitter [List.iter selected] being a no-op: that would still pay for
+   the shared locals' full scan work on every key for nothing. *)
+let materialize_group ?counters lowered_group ~env ~selected =
+  Err.Escape.with_escape @@ fun esc ->
+  match selected with
+  | [] -> []
+  | _ :: _ ->
+      let group = lowered_group.group in
+      let canonical_shape = Region_group.canonical_shape group in
+      let canonical_partition = Region_group.canonical_partition group in
+      let tensors =
+        List.map
+          (fun ordinal ->
+            let e = Option.get (Region_group.emitter group ordinal) in
+            (ordinal, Tensor.create e.Region_group.Emitter.output_shape))
+          selected
+      in
+      Region_partition.fold_keys ~output_shape:canonical_shape ~init:()
+        ~f:(fun () key ->
+          Option.iter
+            (fun counters -> counters.keys <- counters.keys + 1)
+            counters;
+          (* One fresh meter per CANONICAL key, shared by the shared locals and
+         every SELECTED emitter visiting that key -- never reset per
+         emitter. *)
+          let scan_meter =
+            Expr.Scan_meter.create ~limits:lowered_group.scan_limits
+          in
+          let values =
+            Err.Escape.or_throw esc
+              (evaluate_locals ?counters
+                 (Region_group.locals group)
+                 lowered_group.slots ~env ~key ~scan_meter)
+          in
+          List.iter
+            (fun ordinal ->
+              let e = Option.get (Region_group.emitter group ordinal) in
+              let tensor = List.assoc ordinal tensors in
+              let physical_key = physical_key_of ~canonical_key:key e in
+              Region_partition.fold_outputs
+                ~output_shape:e.Region_group.Emitter.output_shape
+                ~key:physical_key ~init:()
+                ~f:(fun () output ->
+                  let value =
+                    Err.Escape.or_throw esc
+                      (emit ?counters lowered_group.slots
+                         e.Region_group.Emitter.output ~env ~values ~output
+                         ~scan_meter)
+                  in
+                  Tensor.set_float tensor output value)
+                e.Region_group.Emitter.partition)
+            selected)
+        canonical_partition;
+      tensors

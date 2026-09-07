@@ -159,3 +159,76 @@ string, which would be a second list to keep in sync with the bindings.
 
 See `native_aten_bridge_layout.md` for the per-op relayout tables and
 `native_add_op.md` for the full site list when adding an op.
+
+## 5. Shared multi-output computation (project step 19)
+
+§2's own claim — "Direct eval still materialises the discarded producer's
+edge... the sink only records deadness, it does not suppress computation" —
+described the ORIGINAL LSTM landing, where `output`/`h_n`/`c_n` each rebuilt
+an independent copy of the whole layer/direction recurrence. That is no
+longer the implementation, though it remains true today's four callers
+(Direct, Native4D Direct, `Stage_program.ground`, `Kernel_eval.run`/
+`run_plan`) always request all three ordinals regardless of `Discard` — so
+the OBSERVABLE per-caller behavior described in §2 is unchanged; what
+changed is how much work computing "all three" actually costs.
+
+`Region_group.t` is a validated bundle of shared Region locals plus several
+ordered emitters, each reading those locals through a checked canonical-to-
+physical axis mapping (`lib/native/region_group.mli`). LSTM's shared
+layer/direction scans are built once (`Lstm.Lstm.Computation.group`); the
+single-output `Computation.program` compatibility entry point is now a thin
+projection of it. `Region_group.Ref.t = Grouped of Region_group.t * int |
+Solo of Region_program.t` is the storage type both `Stage_program.Stage.t`
+and `Kernel.Value.t` carry instead of a bare `Region_program.t`.
+
+All four tensor-execution paths evaluate the shared locals exactly once per
+canonical batch key and read every requested emitter off that one
+evaluation (`Region_execution.lower_group`/`materialize_group`):
+
+- Native Direct / Native4D Direct: `Eval_direct`/`Eval_direct4` detect a
+  multi-output region-authored node (`List.length outs > 1`) and route it
+  through one `Region_computation(4).group` + `materialize_group` call
+  instead of one `program` call per output.
+- `Stage_program.ground`: both symbolic builders (`Eval_symbolic`,
+  `Eval_symbolic4`) build one group per multi-output node and construct
+  sibling stages as `Grouped` references into the SAME physical instance;
+  `ground` partitions its stage list into maximal contiguous runs sharing one
+  physical group (`Region_group.runs`) and materializes each run once.
+- Kernel (`Kernel_eval.run`/`run_plan`): `execute`'s eager materialize loop
+  partitions `Kernel.Value.t` the same way and shares the evaluation across a
+  run's stored members. `Kernel_elab`'s fusion admission rejects any
+  `Grouped` value unconditionally (its `pixel_expression` is always `None`,
+  tripping the `Regional_computation` check before `has_scan` is ever
+  consulted) — a `Grouped` value can never be virtualized on either side of a
+  `Kernel.Use.t`, which is what makes sharing at this layer safe without any
+  fusion-side change. `Kernel_eval.value_at`'s on-demand scalar path keeps
+  using the per-emitter projection (`Region_group.Ref.project`) — an
+  explicit, disclosed scalar-path exception, not a gap.
+
+Measured effect (project step 19's own exit criterion): `lstm_scale_test.ml`
+went from `keys=3 scans=6 scan_updates=18432` (each of the three outputs
+independently costed) to `keys=1 scans=2 scan_updates=6144` for both the
+tiny and fast-family fixtures, matching the shared multi-output
+implementation plan's own predicted formula (`shared scans = B*L*R`,
+`shared scan_updates = B*L*R*T*2*K`) exactly; `stage_group_scale_test.ml`/
+`kernel_group_scale_test.ml` show the identical reduction for the Stage and
+Kernel paths.
+
+Two disclosed, deliberate simplifications remain, both sound (never admit an
+actually-oversized program) but not tight:
+
+- `Region_execution.lower_group`'s preflight projects and preflights each
+  emitter independently, so it counts the shared locals' cost once PER
+  EMITTER rather than once per group — an overcount, not an undercount.
+  `Kernel.create`'s `max_scan_updates_total` aggregation inherits the same
+  overcount (it preflights each `Grouped` value via the same projection).
+  The plan's own §4.2 formula (count locals once, sum only the emitter
+  deltas) is not implemented; nothing currently depends on the tighter bound.
+- A group's canonical key is always `W` for LSTM specifically (the only
+  Region-authored op with a `group` arm today); `Region_group` itself is
+  general over any set of declared canonical axes, but no second op has
+  exercised that generality yet.
+
+Status: landed and verified across all four execution paths, project step
+19. The working plan this section summarizes lives in the project's
+execution ledger, outside this tracked design record.

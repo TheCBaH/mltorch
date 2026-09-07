@@ -24,7 +24,7 @@ module Value = struct
   type t = {
     id : Tensor_id.t;
     sg : Tensor_sig.t;
-    computation : Region_program.t;
+    computation : Region_group.Ref.t;
     result : Result_conversion.t;
   }
 end
@@ -241,7 +241,7 @@ module Format_rule = struct
 end
 
 module Body_error = struct
-  type t = { at : Tensor_id.t; error : Region_program.error }
+  type t = { at : Tensor_id.t; error : Region_group.error }
 end
 
 type error =
@@ -297,7 +297,7 @@ let pp_error fmt : [< error ] -> unit = function
   | `Scan_updates_total_over_limit limit ->
       Fmt.pf fmt "summed scan updates across all values exceed limit %Ld" limit
   | `Body { Body_error.at; error } ->
-      Fmt.pf fmt "%a: %a" Tensor_id.pp at Region_program.pp_error error
+      Fmt.pf fmt "%a: %a" Tensor_id.pp at Region_group.pp_error error
 
 (* ---- bounds ---------------------------------------------------------------
 
@@ -434,30 +434,39 @@ let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
   (* Budgets before any unmetered traversal. [Expr.Fold]'s queries walk the whole
      tree; running one first would exhaust the stack on precisely the oversized
      body the limit exists to reject. *)
-  let* () =
+  (* [computation] is a [Region_group.Ref.t]: [project] resolves it to a
+     concrete [Region_program.t] once per value (a [Grouped] value's shared
+     locals are rebuilt/re-checked here independently of any sibling --
+     project step 19's Section C milestone 2 is what removes that per-value
+     duplication for real). *)
+  let* programs =
     List.fold_left
       (fun acc (v : Value.t) ->
-        let* () = acc in
+        let* acc = acc in
         (* [Err.map_error], not a hand-rolled rebuild: it preserves the
            original detection backtrace, which unwrapping [.kind] and calling
            [Err.fail] silently would not. The KERNEL boundary: [check] alone
            (as before) is not enough once scans exist, so every value is also
            [preflight]ed against this kernel's own resource limits and its own
            output shape, closed over the same [Body_error] wrapper. *)
-        let* () =
+        let* program =
           Err.map_error
             (fun e -> `Body { Body_error.at = v.id; error = e })
-            (Region_program.check ~max_size:limits.Limits.max_size
+            (Region_group.Ref.project ~max_size:limits.Limits.max_size
                ~max_depth:limits.Limits.max_depth v.computation)
         in
-        Err.map_error
-          (fun e -> `Body { Body_error.at = v.id; error = e })
-          (Region_program.preflight
-             ~max_local_slots:limits.Limits.max_local_slots
-             ~max_scan_state:limits.Limits.max_scan_state
-             ~max_scan_updates:limits.Limits.max_scan_updates_per_key
-             ~output_shape:v.sg.Tensor_sig.shape v.computation))
-      (Err.return ()) values
+        let+ () =
+          Err.map_error
+            (fun e -> `Body { Body_error.at = v.id; error = `Program e })
+            (Region_program.preflight
+               ~max_local_slots:limits.Limits.max_local_slots
+               ~max_scan_state:limits.Limits.max_scan_state
+               ~max_scan_updates:limits.Limits.max_scan_updates_per_key
+               ~output_shape:v.sg.Tensor_sig.shape program)
+        in
+        Tensor_id.Map.add v.id program acc)
+      (Err.return Tensor_id.Map.empty)
+      values
   in
   (* [max_scan_updates_total] is Kernel-scoped only: there is no whole-graph
      choke point upstream of Direct or Stage-ground execution to enforce it
@@ -477,7 +486,8 @@ let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
         (fun acc (v : Value.t) ->
           sat_add_i64 acc
             (Region_program.scan_updates_total
-               ~output_shape:v.sg.Tensor_sig.shape v.computation))
+               ~output_shape:v.sg.Tensor_sig.shape
+               (Tensor_id.Map.find v.id programs)))
         0L values
     in
     if Int64.compare total limits.Limits.max_scan_updates_total > 0 then
@@ -556,7 +566,7 @@ let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
                       Err.fail
                         (`Unresolved_source
                            { Unresolved.at = v.Value.id; source = src }))
-            (Region_program.Fold.sources v.Value.computation)
+            (Region_group.Ref.sources v.Value.computation)
             (Err.return (0, 0))
         in
         (* The CONVERTED body, not the raw one: every consumer — a store, a
@@ -569,7 +579,7 @@ let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
            weighted sum, is bounded at runtime by [Hard.eval_recursion] instead
            of being folded into a static weight here. *)
         let d = d + 1
-        and e = e + 1 + Region_program.Fold.max_depth v.Value.computation in
+        and e = e + 1 + Region_group.Ref.max_depth v.Value.computation in
         let* () =
           if d > limits.Limits.max_dep_depth then
             Err.fail (`Dependency_too_deep limits.Limits.max_dep_depth)
@@ -622,7 +632,7 @@ let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
           if Tensor_id.Set.mem v.Value.id live then
             Expr.Source.Set.fold
               (fun src s -> Tensor_id.Set.add (Expr_bridge.id_of_source src) s)
-              (Region_program.Fold.sources v.Value.computation)
+              (Region_group.Ref.sources v.Value.computation)
               live
           else live)
         live (List.rev values)
@@ -683,9 +693,9 @@ let pp fmt (k : t) =
   List.iter
     (fun (v : Value.t) ->
       let body =
-        match Region_program.pixel_expression v.Value.computation with
+        match Region_group.Ref.pixel_expression v.Value.computation with
         | Some body -> Core.Pretty.to_string Expr.Pp.value body
-        | None -> Core.Pretty.to_string Region_program.pp v.Value.computation
+        | None -> Core.Pretty.to_string Region_group.Ref.pp v.Value.computation
       in
       Fmt.pf fmt "%a = %s(%s)@," Tensor_id.pp v.Value.id
         (Result_conversion.name v.Value.result)
@@ -733,11 +743,21 @@ let edges_of (k : t) project =
 
 let uses k =
   edges_of k (fun computation ->
-      Expr.Source.Set.elements (Region_program.Fold.sources computation))
+      Expr.Source.Set.elements (Region_group.Ref.sources computation))
 
+(* [Fold.loads] (coordinate-aware, unlike [sources]) has no direct
+   [Region_group.Ref] equivalent, so this projects to a concrete
+   [Region_program.t] first -- safe to [Err.or_raise] here since every
+   [computation] in a live [Kernel.t] already passed [create]'s own
+   [Region_group.Ref.project]-based validation. *)
 let load_uses k =
   edges_of k (fun computation ->
-      List.map fst (Region_program.Fold.loads computation))
+      let program =
+        Err.or_raise ~pp_error:Region_group.pp_error
+          (Region_group.Ref.project ~max_size:k.limits.Limits.max_size
+             ~max_depth:k.limits.Limits.max_depth computation)
+      in
+      List.map fst (Region_program.Fold.loads program))
 
 let pixel_expression (v : Value.t) =
-  Region_program.pixel_expression v.computation
+  Region_group.Ref.pixel_expression v.computation

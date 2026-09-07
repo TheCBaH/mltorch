@@ -145,8 +145,8 @@ module Builder : sig
     ((row:Expr.Role.Position.t Expr.Index.t ->
      lane:Expr.Role.Position.t Expr.Index.t ->
      Expr.Value.t) ->
-    (program, error) Err.t t) ->
-    (program, error) Err.t t
+    ('v, ([> `Scan of Expr.Scan.error ] as 'e)) Err.t t) ->
+    ('v, 'e) Err.t t
   (** Declares a trace local via [Expr.Builder.scan] and hands [continue] a
       cached reader: [Expr.Value.local_scan_at id], applied at whatever row/lane
       its caller supplies -- the trace-local counterpart to [vector]'s
@@ -154,7 +154,14 @@ module Builder : sig
       [Expr.Builder.scan]'s own construction-time checks (steps/width sanity,
       [step]/[prev] not free in [init], the descriptor's worst case against
       [limits]) can reject the descriptor, in which case [continue] is never
-      invoked and the whole chain short-circuits with [Err.fail (`Scan _)]. *)
+      invoked and the whole chain short-circuits with [Err.fail (`Scan _)].
+      Polymorphic in [continue]'s own result (['v], and its error row ['e],
+      which must include [`Scan]) rather than fixed to [(program, error) Err.t]
+      -- a single Region computation still instantiates it that way, but
+      [Region_group.finish] instantiates the SAME [scan]/[vector]/ [scalar]
+      combinators at [(Region_group.t, Region_group.error) Err.t] instead (see
+      [Region_group]'s design record), which is what lets one builder run finish
+      either as a program or as a group. *)
 
   val finish :
     max_size:int ->
@@ -162,4 +169,15 @@ module Builder : sig
     partition:Region_partition.t ->
     output:Expr.Value.t ->
     (program, error) Err.t t
+
+  val of_fn :
+    (Expr.Builder.state -> Region_local.t list -> 'a * Expr.Builder.state) ->
+    'a t
+  (** Lifts a raw completion function into this (otherwise abstract) monad --
+      the escape hatch a GROUP-level "finish" needs: [Region_group] cannot live
+      in this file (it depends on [Region_program.t]/[check]/[error], so the
+      reverse dependency would cycle), so its own [Region_group.finish] cannot
+      be one of the constructors above. [f] receives exactly the accumulated
+      [state]/[locals] [scalar]/[vector]/[scan] already thread; [of_fn] performs
+      no scan/local bookkeeping of its own. *)
 end

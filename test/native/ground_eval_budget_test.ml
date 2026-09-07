@@ -17,7 +17,7 @@ let stage id body : Stage_program.Stage.t =
   {
     Stage_program.Stage.id;
     sg = sg id;
-    computation = Region_program.pixel body;
+    computation = Region_group.Ref.Solo (Region_program.pixel body);
   }
 
 let program stages : Stage_program.t =

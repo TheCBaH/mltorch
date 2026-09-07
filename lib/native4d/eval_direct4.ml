@@ -153,6 +153,41 @@ let region_result ~limits ~region_counters g ~op ~output ~out_shape ~operand_env
       Region_execution.materialize ?counters:region_counters lowered ~env
       |> Err.map_error (fun error -> `Region_execution error)
 
+(* The multi-output counterpart of [region_result] (project step 19), the
+   twin of [Eval_direct.region_group_result]: builds the shared
+   [Region_group.t] ONCE for the whole node and materializes every ordinal in
+   [outs] from one shared per-key evaluation. No [Shape4] conversion is
+   needed here beyond this function's own boundary -- [Region_group.Emitter.t]
+   values are already [Vec6.shape]s, produced by [Lstm.Lstm.Computation.group]
+   the same way regardless of caller (Native4D's [Lstm] payload is reused
+   verbatim, per the Native4D design record). No synthetic [fill] machinery
+   either, for the same reason as the Native twin: [Lstm] has no optional
+   operand with a synthetic default. *)
+let region_group_result ~limits ~region_counters (g : Graph.graph) ~op ~outs
+    ~operand_env =
+  let open Err.Syntax in
+  let* group =
+    Region_computation4.group ~limits ~op ~operand:(fun id ->
+        Tensor_id.Map.find_opt id g.Graph.Graph.tensors)
+    |> Err.map_error (fun error -> `Region_construction error)
+  in
+  let env =
+    Expr_bridge.env ~binding:(fun id -> Tensor_id.Map.find_opt id operand_env)
+  in
+  let* lowered_group =
+    Region_execution.lower_group ~max_size:limits.Kernel.Limits.max_size
+      ~max_depth:limits.Kernel.Limits.max_depth
+      ~max_local_slots:limits.Kernel.Limits.max_local_slots
+      ~scan_limits:(Kernel.Limits.scan_limits limits)
+      group
+    |> Err.map_error (fun error ->
+        `Region_construction (Region_computation.Invalid_group error))
+  in
+  Region_execution.materialize_group ?counters:region_counters lowered_group
+    ~env
+    ~selected:(List.map (fun (output, _, _) -> output) outs)
+  |> Err.map_error (fun error -> `Region_execution error)
+
 let eval_node ?region_counters ~limits ~synthetic_ids (g : Graph.graph) env
     (node : Graph.node) =
   let open Err.Syntax in
@@ -185,65 +220,90 @@ let eval_node ?region_counters ~limits ~synthetic_ids (g : Graph.graph) env
       (fun oid out_shape -> Err.return (oid, out_shape))
       node.Graph.Node.outputs shapes
   in
-  Err.List.fold_left
-    (fun env (output, oid, out_shape) ->
-      let* result =
-        match op with
-        | Op.Unbind { Ops4.Unbind.params; x } ->
-            Err.return
-              (Tensor.unbind
-                 (Tensor_id.Map.find x operand_env)
-                 ~axis:(Axis4.to_axis params.axis)
-                 ~output ~shape:(Shape4.to_vec6 out_shape))
-        | Op.Zeros4 { Ops4.Zeros4.params } ->
-            Err.return
-              (Tensor.materialize_fmt params.fmt (Shape4.to_vec6 out_shape)
-                 (fun _ -> 0.))
-        | Op.Arange4 { Ops4.Arange4.params } -> (
-            let params =
-              Factory.Arange.
-                {
-                  start = params.start;
-                  stop = params.stop;
-                  step = params.step;
-                  fmt = params.fmt;
-                }
-            in
-            match params.fmt with
-            | Payload.Fmt Payload.I64 ->
+  let outs =
+    List.mapi (fun output (oid, out_shape) -> (output, oid, out_shape)) pairs
+  in
+  (* See Eval_direct.eval_node's identical branch for the full rationale:
+     a multi-output region-authored node (today, only [Lstm]) shares one
+     recurrence across all its outputs instead of folding [region_result]
+     once per ordinal. *)
+  match outs with
+  | _ :: _ :: _ when Region_computation4.is_region_authored op ->
+      let* results =
+        region_group_result ~limits
+          ~region_counters:
+            (let _, first_oid, _ = List.hd outs in
+             Option.bind region_counters (fun counters ->
+                 Tensor_id.Map.find_opt first_oid counters))
+          g ~op ~outs ~operand_env
+      in
+      Err.return
+        (List.fold_left
+           (fun env (output, oid, _) ->
+             Tensor_id.Map.add oid (List.assoc output results) env)
+           env outs)
+  | _ ->
+      Err.List.fold_left
+        (fun env (output, oid, out_shape) ->
+          let* result =
+            match op with
+            | Op.Unbind { Ops4.Unbind.params; x } ->
                 Err.return
-                  (Tensor.materialize_i64 (Shape4.to_vec6 out_shape)
-                     (fun coord ->
-                       Int64.of_float
-                         (Factory.Arange.value params (Dim.to_int coord.Vec6.c))))
-            | _ ->
+                  (Tensor.unbind
+                     (Tensor_id.Map.find x operand_env)
+                     ~axis:(Axis4.to_axis params.axis)
+                     ~output ~shape:(Shape4.to_vec6 out_shape))
+            | Op.Zeros4 { Ops4.Zeros4.params } ->
+                Err.return
+                  (Tensor.materialize_fmt params.fmt (Shape4.to_vec6 out_shape)
+                     (fun _ -> 0.))
+            | Op.Arange4 { Ops4.Arange4.params } -> (
+                let params =
+                  Factory.Arange.
+                    {
+                      start = params.start;
+                      stop = params.stop;
+                      step = params.step;
+                      fmt = params.fmt;
+                    }
+                in
+                match params.fmt with
+                | Payload.Fmt Payload.I64 ->
+                    Err.return
+                      (Tensor.materialize_i64 (Shape4.to_vec6 out_shape)
+                         (fun coord ->
+                           Int64.of_float
+                             (Factory.Arange.value params
+                                (Dim.to_int coord.Vec6.c))))
+                | _ ->
+                    Err.return
+                      (Tensor.materialize_fmt params.fmt
+                         (Shape4.to_vec6 out_shape) (fun coord ->
+                           Factory.Arange.value params (Dim.to_int coord.Vec6.c)))
+                )
+            | Op.Eye4 { Ops4.Eye4.params } ->
                 Err.return
                   (Tensor.materialize_fmt params.fmt (Shape4.to_vec6 out_shape)
                      (fun coord ->
-                       Factory.Arange.value params (Dim.to_int coord.Vec6.c))))
-        | Op.Eye4 { Ops4.Eye4.params } ->
-            Err.return
-              (Tensor.materialize_fmt params.fmt (Shape4.to_vec6 out_shape)
-                 (fun coord ->
-                   if Dim.to_int coord.Vec6.w = Dim.to_int coord.Vec6.c then 1.
-                   else 0.))
-        | _ when Region_computation4.is_region_authored op ->
-            region_result ~limits
-              ~region_counters:
-                (Option.bind region_counters (fun counters ->
-                     Tensor_id.Map.find_opt oid counters))
-              g ~op ~output ~out_shape ~operand_env ~synthetic_ids
-        | _ ->
-            Err.return
-              (Schedule.evaluate (Shape4.to_vec6 out_shape)
-                 (E.pixel op ~output
-                    ~operand:(fun r -> Tensor_id.Map.find r operand_env)
-                    ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
-                    ~fill))
-      in
-      Err.return (Tensor_id.Map.add oid result env))
-    env
-    (List.mapi (fun output (oid, out_shape) -> (output, oid, out_shape)) pairs)
+                       if Dim.to_int coord.Vec6.w = Dim.to_int coord.Vec6.c then
+                         1.
+                       else 0.))
+            | _ when Region_computation4.is_region_authored op ->
+                region_result ~limits
+                  ~region_counters:
+                    (Option.bind region_counters (fun counters ->
+                         Tensor_id.Map.find_opt oid counters))
+                  g ~op ~output ~out_shape ~operand_env ~synthetic_ids
+            | _ ->
+                Err.return
+                  (Schedule.evaluate (Shape4.to_vec6 out_shape)
+                     (E.pixel op ~output
+                        ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                        ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                        ~fill))
+          in
+          Err.return (Tensor_id.Map.add oid result env))
+        env outs
 
 let run ?region_counters ?(limits = Kernel.Limits.default) ?(constants = [])
     (g : Graph.graph) ~(inputs : (Tensor_id.t * Tensor.packed) list) =

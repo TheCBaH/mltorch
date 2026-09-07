@@ -3,6 +3,7 @@
    the operation-owned builder; it owns no operation arithmetic or fallback. *)
 
 type error =
+  | Invalid_group of Region_group.error
   | Invalid_partition
   | Invalid_program of Region_program.error
   | Invalid_shape of Shape_error.t
@@ -13,6 +14,7 @@ type error =
 type synthetic_role = Layer_bias | Layer_weight | Rms_weight | Sdpa_mask
 
 let pp_error fmt = function
+  | Invalid_group error -> Region_group.pp_error fmt error
   | Invalid_partition -> Region_context.pp_error fmt Invalid_partition
   | Invalid_program error ->
       Region_context.pp_error fmt (Region_context.Invalid_program error)
@@ -34,6 +36,70 @@ let is_region_authored = function
   | Graph_ir.Sdpa _ | Graph_ir.Softmax _ ->
       true
   | _ -> false
+
+(* Shared by [built]'s [Lstm] arm and [built_group]: resolves every operand
+   and derives all three output shapes exactly once, so the two entry points
+   cannot decode the same node two different ways. *)
+let resolve_lstm ~operand
+    ({ Lstm.Lstm.params; layers; input = input_id; h0 = h0_id; c0 = c0_id } :
+      Lstm.Lstm.t) =
+  let open Err.Syntax in
+  let* input = required ~operand input_id in
+  let* h0 = required ~operand h0_id in
+  let* c0 = required ~operand c0_id in
+  let resolve_direction (d : Lstm.Lstm.Direction.t) :
+      (Lstm.Lstm.Direction_operands.t, error) Err.t =
+    let* weight_ih = required ~operand d.weight_ih in
+    let* weight_hh = required ~operand d.weight_hh in
+    let+ bias =
+      match d.bias with
+      | None -> Err.return None
+      | Some (bi_id, bh_id) ->
+          let* bi = required ~operand bi_id in
+          let+ bh = required ~operand bh_id in
+          Some (bi, bh)
+    in
+    { Lstm.Lstm.Direction_operands.weight_ih; weight_hh; bias }
+  in
+  let resolve_layer (l : Lstm.Lstm.Layer.t) :
+      (Lstm.Lstm.Layer_operands.t, error) Err.t =
+    let* forward = resolve_direction l.forward in
+    let+ reverse =
+      match l.reverse with
+      | None -> Err.return None
+      | Some d ->
+          let+ d_resolved = resolve_direction d in
+          Some d_resolved
+    in
+    { Lstm.Lstm.Layer_operands.forward; reverse }
+  in
+  let* resolved_layers = Err.List.map resolve_layer layers in
+  let shape_of (o : Lstm.Lstm.Direction_operands.t) :
+      Lstm.Lstm.Direction_shapes.t =
+    {
+      Lstm.Lstm.Direction_shapes.weight_ih = o.weight_ih.Tensor_sig.shape;
+      weight_hh = o.weight_hh.Tensor_sig.shape;
+      bias =
+        Option.map
+          (fun (bi, bh) -> (bi.Tensor_sig.shape, bh.Tensor_sig.shape))
+          o.bias;
+    }
+  in
+  let+ out_shape, hn_shape, cn_shape =
+    Err.map_error
+      (fun e -> Invalid_shape e)
+      (Lstm.Lstm.output_shape params ~input_shape:input.Tensor_sig.shape
+         ~layers:
+           (List.map
+              (fun (l : Lstm.Lstm.Layer_operands.t) ->
+                {
+                  Lstm.Lstm.Layer_shapes.forward = shape_of l.forward;
+                  reverse = Option.map shape_of l.reverse;
+                })
+              resolved_layers)
+         ~h0_shape:h0.Tensor_sig.shape ~c0_shape:c0.Tensor_sig.shape)
+  in
+  (params, input, h0, c0, resolved_layers, out_shape, hn_shape, cn_shape)
 
 let built ~limits ~op ~output ~output_shape ~operand ~fill =
   let open Graph_ir in
@@ -81,63 +147,11 @@ let built ~limits ~op ~output ~output_shape ~operand ~fill =
           | Region_context.Invalid_partition -> Invalid_partition
           | Region_context.Invalid_program error -> Invalid_program error)
         (Norm.LayerNorm.Computation.program ~limits params ~x ~weight ~bias)
-  | Lstm { Lstm.Lstm.params; layers; input = input_id; h0 = h0_id; c0 = c0_id }
-    ->
+  | Lstm lstm ->
       let open Err.Syntax in
-      let* input = required ~operand input_id in
-      let* h0 = required ~operand h0_id in
-      let* c0 = required ~operand c0_id in
-      let resolve_direction (d : Lstm.Lstm.Direction.t) :
-          (Lstm.Lstm.Direction_operands.t, error) Err.t =
-        let* weight_ih = required ~operand d.weight_ih in
-        let* weight_hh = required ~operand d.weight_hh in
-        let+ bias =
-          match d.bias with
-          | None -> Err.return None
-          | Some (bi_id, bh_id) ->
-              let* bi = required ~operand bi_id in
-              let+ bh = required ~operand bh_id in
-              Some (bi, bh)
-        in
-        { Lstm.Lstm.Direction_operands.weight_ih; weight_hh; bias }
-      in
-      let resolve_layer (l : Lstm.Lstm.Layer.t) :
-          (Lstm.Lstm.Layer_operands.t, error) Err.t =
-        let* forward = resolve_direction l.forward in
-        let+ reverse =
-          match l.reverse with
-          | None -> Err.return None
-          | Some d ->
-              let+ d_resolved = resolve_direction d in
-              Some d_resolved
-        in
-        { Lstm.Lstm.Layer_operands.forward; reverse }
-      in
-      let* resolved_layers = Err.List.map resolve_layer layers in
-      let shape_of (o : Lstm.Lstm.Direction_operands.t) :
-          Lstm.Lstm.Direction_shapes.t =
-        {
-          Lstm.Lstm.Direction_shapes.weight_ih = o.weight_ih.Tensor_sig.shape;
-          weight_hh = o.weight_hh.Tensor_sig.shape;
-          bias =
-            Option.map
-              (fun (bi, bh) -> (bi.Tensor_sig.shape, bh.Tensor_sig.shape))
-              o.bias;
-        }
-      in
-      let* out_shape, hn_shape, cn_shape =
-        Err.map_error
-          (fun e -> Invalid_shape e)
-          (Lstm.Lstm.output_shape params ~input_shape:input.Tensor_sig.shape
-             ~layers:
-               (List.map
-                  (fun (l : Lstm.Lstm.Layer_operands.t) ->
-                    {
-                      Lstm.Lstm.Layer_shapes.forward = shape_of l.forward;
-                      reverse = Option.map shape_of l.reverse;
-                    })
-                  resolved_layers)
-             ~h0_shape:h0.Tensor_sig.shape ~c0_shape:c0.Tensor_sig.shape)
+      let* params, input, h0, c0, resolved_layers, out_shape, hn_shape, cn_shape
+          =
+        resolve_lstm ~operand lstm
       in
       let* expected =
         match output with
@@ -151,11 +165,9 @@ let built ~limits ~op ~output ~output_shape ~operand ~fill =
         else Err.fail Output_shape
       in
       Err.map_error
-        (function
-          | Region_context.Invalid_partition -> Invalid_partition
-          | Region_context.Invalid_program error -> Invalid_program error)
+        (fun e -> Invalid_group e)
         (Lstm.Lstm.Computation.program ~limits params ~output
-           ~layers:resolved_layers ~input ~h0 ~c0)
+           ~layers:resolved_layers ~input ~h0 ~c0 ~out_shape ~hn_shape ~cn_shape)
   | Sdpa
       {
         Attention.Sdpa.params;
@@ -242,3 +254,28 @@ let program ~(limits : Kernel.Limits.t) ~op ~output ~output_shape ~operand ~fill
          ~output_shape program)
   in
   program
+
+(* The multi-output counterpart of [built]/[program]: builds every output
+   ordinal's Region computation from one shared recurrence (project step 19),
+   for the subset of [is_region_authored] operations that support it. Only
+   [Lstm] does today -- the others are already single-output, so they need no
+   group arm. There is no single [output]/[output_shape] to check here: the
+   per-ordinal shape checks already happened inside [resolve_lstm]. *)
+let built_group ~limits ~op ~operand : (Region_group.t, error) Err.t =
+  let open Graph_ir in
+  match op with
+  | Lstm lstm ->
+      let open Err.Syntax in
+      let* params, input, h0, c0, resolved_layers, out_shape, hn_shape, cn_shape
+          =
+        resolve_lstm ~operand lstm
+      in
+      Err.map_error
+        (fun e -> Invalid_group e)
+        (Lstm.Lstm.Computation.group ~limits params ~layers:resolved_layers
+           ~input ~h0 ~c0 ~out_shape ~hn_shape ~cn_shape)
+  | _ -> assert false
+
+let group ~(limits : Kernel.Limits.t) ~op ~operand :
+    (Region_group.t, error) Err.t =
+  built_group ~limits ~op ~operand

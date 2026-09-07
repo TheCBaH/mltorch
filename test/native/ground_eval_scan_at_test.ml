@@ -39,7 +39,7 @@ let ground_value pixel_expr =
           {
             Stage_program.Stage.id = Tensor_id.of_int 0;
             sg = out_sig;
-            computation = program;
+            computation = Region_group.Ref.Solo program;
           };
         ];
       outputs = [ Tensor_id.of_int 0 ];

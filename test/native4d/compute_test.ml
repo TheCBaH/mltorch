@@ -559,7 +559,7 @@ let%expect_test "symbolic4: authored Regions carry into the Kernel unchanged" =
       in
       let received = (List.hd kernel.Kernel.values).Kernel.Value.computation in
       Format.printf "%s region=%b same_object=%b@." name
-        (Region_program.pixel_expression carried = None)
+        (Region_group.Ref.pixel_expression carried = None)
         (carried == received))
     cases;
   [%expect
@@ -580,7 +580,13 @@ let%expect_test "symbolic4: authored Region traces retain unit T and D" =
   let trace name graph =
     let symbolic = Eval_symbolic4.run graph in
     let stage = List.hd symbolic.Stage_program.stages in
-    let program = Stage_program.Stage.computation stage in
+    let program =
+      Region_group.Ref.project
+        ~max_size:Kernel.Limits.default.Kernel.Limits.max_size
+        ~max_depth:Kernel.Limits.default.Kernel.Limits.max_depth
+        (Stage_program.Stage.computation stage)
+      |> Err.or_raise ~pp_error:Region_group.pp_error
+    in
     let trace =
       Region_trace.collect program ~output_shape:stage.sg.shape
       |> Err.or_raise ~pp_error:Region_trace.pp_error
@@ -632,10 +638,15 @@ let%expect_test "symbolic4: norm Region matrix covers Axis4 and affine states" =
   let check graph =
     let symbolic = Eval_symbolic4.run graph in
     let stage = List.hd symbolic.Stage_program.stages in
-    let trace =
-      Region_trace.collect
+    let program =
+      Region_group.Ref.project
+        ~max_size:Kernel.Limits.default.Kernel.Limits.max_size
+        ~max_depth:Kernel.Limits.default.Kernel.Limits.max_depth
         (Stage_program.Stage.computation stage)
-        ~output_shape:stage.sg.shape
+      |> Err.or_raise ~pp_error:Region_group.pp_error
+    in
+    let trace =
+      Region_trace.collect program ~output_shape:stage.sg.shape
       |> Err.or_raise ~pp_error:Region_trace.pp_error
     in
     List.for_all

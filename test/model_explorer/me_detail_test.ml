@@ -279,7 +279,7 @@ let%expect_test "an expression becomes one node per AST node" =
           ~name:""
           ~shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1)
           ~fmt:(Payload.Fmt Payload.F32) ();
-      computation = Region_program.pixel body;
+      computation = Region_group.Ref.Solo (Region_program.pixel body);
       result = Kernel.Result_conversion.Round_f32;
     }
   in
@@ -326,7 +326,7 @@ let%expect_test "the size ceiling is checked BEFORE the walk" =
           ~name:""
           ~shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1)
           ~fmt:(Payload.Fmt Payload.F32) ();
-      computation = Region_program.pixel body;
+      computation = Region_group.Ref.Solo (Region_program.pixel body);
       result = Kernel.Result_conversion.Round_f32;
     }
   in
@@ -356,7 +356,7 @@ let%expect_test "a Region detail includes its locals and emitter" =
           ~name:""
           ~shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:2)
           ~fmt:(Payload.Fmt Payload.F32) ();
-      computation = program;
+      computation = Region_group.Ref.Solo program;
       result = Kernel.Result_conversion.Round_f32;
     }
   in

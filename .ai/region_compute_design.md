@@ -204,6 +204,30 @@ scalar production algorithm.  Repository-wide references to the four
 `Legacy_pixel` implementations are their definitions, explanatory comments,
 and test invocations only; production dispatch does not invoke them.
 
+## Multi-output computation: `Region_group`
+
+The contract above describes one program with one output. `Lstm` (project
+step 19) needs three outputs built from one shared recurrence, which this
+document's `Region_program.t`/`Region_partition.t`/`Region_execution.t`
+triple has no room for on its own: a program has exactly one `output`
+expression and one partition. `Region_group.t` sits beside
+`Region_program.t`, not inside it — a validated bundle of shared
+`Region_local.t`s plus several ordered `Emitter.t`s, each with its own
+`output_shape`/`Region_partition.t`/output expression and a checked mapping
+from the group's canonical batch coordinate to that emitter's own physical
+axis. `Region_group.project` recovers an ordinary `Region_program.t` for one
+emitter (substituting the canonical axis references, never the emitter's own
+already-physical output); `Region_execution.lower_group`/`materialize_group`
+are the group-level counterparts of `lower`/`lower_region`/`materialize`,
+evaluating the shared locals once per canonical key and reading every
+selected emitter off that one evaluation. `Region_group.Ref.t = Grouped of
+Region_group.t * int | Solo of Region_program.t` is the one storage type
+`Stage_program.Stage.t`/`Kernel.Value.t` now carry, so a single-output op's
+existing `Solo` path is unchanged.
+
+See `native_multi_output_design.md` §5 for the full landing (all four
+execution paths, measured before/after counters, disclosed simplifications).
+
 ## Cost model and evidence
 
 For `R` region keys and reduction extent `K`, a Region materialization owns

@@ -20,7 +20,7 @@ let value ~shape id body =
   {
     Kernel.Value.id = tid id;
     sg = signature ~shape ~fmt:f32 id;
-    computation = Region_program.pixel body;
+    computation = Region_group.Ref.Solo (Region_program.pixel body);
     result = Kernel.Result_conversion.Round_f32;
   }
 

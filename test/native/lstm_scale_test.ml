@@ -156,8 +156,8 @@ let%expect_test
     ~hidden_size:48 ~bidirectional:true ~batch_first:true ();
   [%expect
     {|
-    family1 (16,16,384,96): keys=3 locals=19584 emitters=3456 loads=6839424 reductions=6451200 scans=6 scan_updates=18432
-    family2 (32,32,192,48): keys=3 locals=19008 emitters=3264 loads=3742272 reductions=3354624 scans=6 scan_updates=18432 |}]
+    family1 (16,16,384,96): keys=1 locals=6528 emitters=3456 loads=2279808 reductions=2150400 scans=2 scan_updates=6144
+    family2 (32,32,192,48): keys=1 locals=6336 emitters=3264 loads=1247424 reductions=1118208 scans=2 scan_updates=6144 |}]
 
 (* Real corpus shapes, full [batch]/[input_size]. [@tags "disabled"] is
    ppx_inline_test's own gate: dropped by default, so plain `dune runtest`
@@ -175,8 +175,8 @@ let%expect_test
     ~hidden_size:48 ~bidirectional:true ~batch_first:true ();
   [%expect
     {|
-    family1 (16,16,384,96): keys=48 locals=313344 emitters=55296 loads=893896704 reductions=495452160 scans=96 scan_updates=294912
-    family2 (32,32,192,48): keys=96 locals=608256 emitters=104448 loads=895961088 reductions=495452160 scans=192 scan_updates=589824 |}]
+    family1 (16,16,384,96): keys=16 locals=104448 emitters=55296 loads=297965568 reductions=165150720 scans=32 scan_updates=98304
+    family2 (32,32,192,48): keys=32 locals=202752 emitters=104448 loads=298653696 reductions=165150720 scans=64 scan_updates=196608 |}]
 
 (* "Verify default admission and rejection under tighter limits" (project
    step 16): the per-key update count this op needs at real corpus scale is
@@ -206,24 +206,29 @@ let%expect_test
     ~batch_first:true ();
   [%expect
     {|
-    default limits (per-key=6144): keys=3 locals=19584 emitters=3456 loads=6839424 reductions=6451200 scans=6 scan_updates=18432
+    default limits (per-key=6144): keys=1 locals=6528 emitters=3456 loads=2279808 reductions=2150400 scans=2 scan_updates=6144
     tightened limits (cap=6000 < 6144): rejected: region key's scan updates exceed limit 6000 |}]
 
 (* "Measure duplicate trace execution when all LSTM outputs are live"
    (project step 19's own first bullet, explicitly independent of step 18's
-   still-open ground-IR question). Discarding [h_n]/[c_n] in the SOURCE
-   graph ([states_live:false]) does NOT reduce [Eval_direct]'s cost at all:
-   [Discard] only marks an edge unread, it does not suppress computation
-   (.ai/native_multi_output_design.md §2, "Direct eval still materialises
-   the discarded producer's edge"), and [Eval_direct] iterates every node's
-   FULL [Node.outputs] arity unconditionally, with no graph-reachability-
-   based elision. This run confirms that structural claim empirically
-   rather than only citing it: the two counter lines below are IDENTICAL.
-   That identity IS this bullet's measurement -- today, requesting only
-   `output` costs exactly the same as requesting all three, which is the
-   concrete "duplicate trace execution" step 19 proposes to eliminate by
-   sharing one computation across selected outputs instead of building
-   three independent copies regardless of what is asked for.
+   still-open ground-IR question). Originally recorded (2026-09-06, before
+   Section C's shared executor landed) that discarding [h_n]/[c_n] in the
+   SOURCE graph ([states_live:false]) did not reduce [Eval_direct]'s cost at
+   all: [Discard] only marks an edge unread, it does not suppress computation
+   (.ai/native_multi_output_design.md §2), and [Eval_direct] iterated every
+   node's FULL [Node.outputs] arity unconditionally. That structural fact is
+   UNCHANGED by Section C -- Direct's own contract stays "materialize every
+   represented output regardless of downstream liveness" (design record §5.4;
+   [Region_execution.materialize_group] is a general SHARED-selection
+   primitive, but this call site always passes every ordinal as [selected]) --
+   so the two counter lines below are still IDENTICAL to each other. What
+   changed is their absolute size: both now measure the ONE shared recurrence
+   `Region_execution.materialize_group` actually runs, a third of what the
+   pre-Section-C tripled/independent path measured here (`scans=6`,
+   `scan_updates=48`, before this pass -- see this file's own git history).
+   General dead-output elision (skipping discarded emitters even when others
+   are selected) remains future work Section C's own scope explicitly leaves
+   to a caller with a real selection contract, e.g. Kernel's `run_plan`.
 
    A tiny fixture is sufficient here: the property is equality between the
    live/discarded executions, not a corpus-scale counter boundary (the two
@@ -237,5 +242,5 @@ let%expect_test "lstm: discarding unread state outputs saves nothing today" =
     ~input_size:2 ~hidden_size:2 ~bidirectional:true ~batch_first:true ();
   [%expect
     {|
-    all three live: keys=3 locals=72 emitters=16 loads=1368 reductions=672 scans=6 scan_updates=48
-    h_n/c_n discarded: keys=3 locals=72 emitters=16 loads=1368 reductions=672 scans=6 scan_updates=48 |}]
+    all three live: keys=1 locals=24 emitters=16 loads=456 reductions=224 scans=2 scan_updates=16
+    h_n/c_n discarded: keys=1 locals=24 emitters=16 loads=456 reductions=224 scans=2 scan_updates=16 |}]

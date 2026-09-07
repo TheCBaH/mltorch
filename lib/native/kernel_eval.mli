@@ -26,7 +26,9 @@ end
 type error =
   [ Expr.Eval.error
   | `Binding_mismatch of Binding_mismatch.t
+  | `Duplicate_group_ordinal of int
   | `Recursion_too_deep of int
+  | Region_group.error
   | Region_partition.error
   | Region_program.error
   | `Unbound_input of Tensor_id.t

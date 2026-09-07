@@ -207,6 +207,7 @@ type error =
   [ Expr.Eval.error
   | `Data_index_unresolved
   | `Ground_nodes_over_limit of int64
+  | `Group of Region_group.error
   | `Pair_nodes_over_limit of int
   | `Partition of Region_partition.error
   | `Region of Region_program.error
@@ -220,6 +221,7 @@ let pp_error fmt : [< error ] -> unit = function
          constant"
   | `Ground_nodes_over_limit limit ->
       Fmt.pf fmt "grounding exceeds max_ground_nodes (%Ld)" limit
+  | `Group e -> Region_group.pp_error fmt e
   | `Pair_nodes_over_limit limit ->
       Fmt.pf fmt "grounding exceeds max_nodes (%d)" limit
   | `Partition e -> Region_partition.pp_error fmt e
@@ -688,8 +690,14 @@ let body_at esc env ~meter ~arena (st : Stage_program.Stage.t) coord =
   let max_size = limits.Kernel.Limits.max_size
   and max_depth = limits.Kernel.Limits.max_depth in
   let scan_limits = Kernel.Limits.scan_limits limits in
-  let program = Stage_program.Stage.computation st in
   let region e = Err.map_error (fun e -> `Region e) e in
+  let program =
+    or_throw esc
+      (Err.map_error
+         (fun e -> `Group e)
+         (Region_group.Ref.project ~max_size ~max_depth
+            (Stage_program.Stage.computation st)))
+  in
   or_throw esc (region (Region_program.check ~max_size ~max_depth program));
   or_throw esc
     (region

@@ -66,3 +66,34 @@ val value_at :
     The output coordinate is bounds-checked by [Region_partition.key_of_output].
     Production tensor execution uses [materialize] once, never this function per
     output. *)
+
+type lowered_group
+
+val lower_group :
+  max_size:int ->
+  max_depth:int ->
+  max_local_slots:int ->
+  scan_limits:Expr.Scan_limits.t ->
+  Region_group.t ->
+  (lowered_group, Region_group.error) Err.t
+(** Preflights every emitter's own projected program independently (a
+    deliberately conservative, sound-but-not-tight admission -- it charges the
+    shared locals' cost once per emitter rather than once for the whole group;
+    see the design record's §4.2 exact aggregate formula for the tighter,
+    not-yet-implemented alternative) before retaining the shared locals' slot
+    layout. *)
+
+val materialize_group :
+  ?counters:counters ->
+  lowered_group ->
+  env:Expr.Eval.Env.t ->
+  selected:int list ->
+  ((int * Tensor.packed) list, Region_eval.error) Err.t
+(** One shared recurrence per canonical Region key: the group's shared locals
+    are evaluated ONCE per key (one meter, shared by every selected emitter
+    visiting that key), then each ordinal in [selected] is read off that same
+    evaluation at its own mapped physical coordinate. Returns one tensor per
+    [selected] ordinal, in [selected]'s order. An emitter ordinal outside
+    [group]'s own range is a caller defect ([Option.get] on
+    [Region_group.emitter], not a typed error) -- every caller of this function
+    derives [selected] from [group] itself. *)

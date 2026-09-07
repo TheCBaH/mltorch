@@ -151,7 +151,7 @@ let%expect_test
           {
             Stage_program.Stage.id = Tensor_id.of_int 0;
             sg = out_sig;
-            computation = program;
+            computation = Region_group.Ref.Solo program;
           };
         ];
       outputs = [ Tensor_id.of_int 0 ];
@@ -169,7 +169,7 @@ let%expect_test
              {
                Kernel.Value.id = Tensor_id.of_int 0;
                sg = out_sig;
-               computation = program;
+               computation = Region_group.Ref.Solo program;
                result = Kernel.Result_conversion.Round_f32;
              };
            ]
@@ -262,7 +262,7 @@ let%expect_test "grounding executes a scan-backed stage" =
           {
             Stage_program.Stage.id = Tensor_id.of_int 0;
             sg = out_sig;
-            computation = program;
+            computation = Region_group.Ref.Solo program;
           };
         ];
       outputs = [ Tensor_id.of_int 0 ];
@@ -287,7 +287,7 @@ let stage_of program =
         {
           Stage_program.Stage.id = Tensor_id.of_int 0;
           sg = out_sig;
-          computation = program;
+          computation = Region_group.Ref.Solo program;
         };
       ];
     outputs = [ Tensor_id.of_int 0 ];

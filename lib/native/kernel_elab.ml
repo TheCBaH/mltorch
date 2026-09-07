@@ -10,7 +10,7 @@ type error =
 
 let pp_error fmt : [< error ] -> unit = function
   | `Body { Kernel.Body_error.at; error } ->
-      Fmt.pf fmt "%a: %a" Tensor_id.pp at Region_program.pp_error error
+      Fmt.pf fmt "%a: %a" Tensor_id.pp at Region_group.pp_error error
   | `Not_a_dependency u ->
       Fmt.pf fmt "%a is not an ordinary-load edge" Kernel.Use.pp u
   | `Recurrent_use u ->
@@ -128,6 +128,20 @@ module Analysis = struct
       (fun (v : Kernel.Value.t) ->
         let cid = Tensor_id.to_int v.Kernel.Value.id in
         let rev = ref [] in
+        (* [Fold.loads]' COORDINATES (unlike [sources]) depend on projection --
+           a load's coordinate can itself reference [Output axis], which
+           [project] rewrites from canonical to this value's own physical
+           axis -- so this needs a real [Region_program.t], not the raw group.
+           Safe to [Err.or_raise]: every [computation] in a live [Kernel.t]
+           already passed [create]'s own [Region_group.Ref.project]-based
+           validation. *)
+        let program =
+          Err.or_raise ~pp_error:Region_group.pp_error
+            (Region_group.Ref.project
+               ~max_size:k.Kernel.limits.Kernel.Limits.max_size
+               ~max_depth:k.Kernel.limits.Kernel.Limits.max_depth
+               v.Kernel.Value.computation)
+        in
         List.iter
           (fun (s, c) ->
             let producer = Expr_bridge.id_of_source s in
@@ -146,7 +160,7 @@ module Analysis = struct
                   rev :=
                     { Kernel.Use.producer; consumer = v.Kernel.Value.id }
                     :: !rev)
-          (Region_program.Fold.loads v.Kernel.Value.computation);
+          (Region_program.Fold.loads program);
         Hashtbl.replace order cid (List.rev !rev))
       k.Kernel.values;
     { kernel = k; occurrences; order; counts }
@@ -203,11 +217,21 @@ let site (k : Kernel.t) (u : Kernel.Use.t) =
   with
   | None, _ | _, None -> Err.fail (`Unknown_use u)
   | Some producer, Some consumer ->
+      let open Err.Syntax in
+      let* program =
+        Err.map_error
+          (fun e ->
+            `Body { Kernel.Body_error.at = consumer.Kernel.Value.id; error = e })
+          (Region_group.Ref.project
+             ~max_size:k.Kernel.limits.Kernel.Limits.max_size
+             ~max_depth:k.Kernel.limits.Kernel.Limits.max_depth
+             consumer.Kernel.Value.computation)
+      in
       admit ~limits:k.Kernel.limits ~u ~producer ~consumer
         ~occurrence:
           (summarize
              ~src:(Expr_bridge.source_of_id u.Kernel.Use.producer)
-             (Region_program.Fold.loads consumer.Kernel.Value.computation))
+             (Region_program.Fold.loads program))
 
 let elaborate_site (s : Site.t) =
   let open Err.Syntax in
@@ -247,7 +271,11 @@ let elaborate_site (s : Site.t) =
   let+ () =
     Err.map_error
       (fun e ->
-        `Body { Kernel.Body_error.at = u.Kernel.Use.consumer; error = `Expr e })
+        `Body
+          {
+            Kernel.Body_error.at = u.Kernel.Use.consumer;
+            error = `Program (`Expr e);
+          })
       (Expr.Check.value ~max_size:s.Site.limits.Kernel.Limits.max_size
          ~max_depth:s.Site.limits.Kernel.Limits.max_depth body)
   in

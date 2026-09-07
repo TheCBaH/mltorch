@@ -145,6 +145,17 @@ let build ~limits ~id ~inputs ~outputs ~values =
   in
   ME.Graph.create ~id ~nodes:all ()
 
+(* [build]'s [~values] rendering needs a concrete [Region_program.t], not a
+   [Region_group.Ref.t]. Neither [stage_program] nor [kernel] necessarily has
+   the ORIGINAL construction limits in scope at this rendering-only call
+   site, so this re-checks at the [Hard] ceiling -- an upper bound over any
+   valid configured [Kernel.Limits.t], so it can only reject a computation
+   that was never validly constructible in the first place. *)
+let project_exn computation =
+  Err.or_raise ~pp_error:Region_group.pp_error
+    (Region_group.Ref.project ~max_size:Kernel.Limits.Hard.size
+       ~max_depth:Kernel.Limits.Hard.depth computation)
+
 let stage_program ~limits ~id (p : Stage_program.t) =
   let by_id =
     List.fold_left
@@ -182,7 +193,7 @@ let stage_program ~limits ~id (p : Stage_program.t) =
            ( s.Stage_program.Stage.id,
              "stage",
              s.Stage_program.Stage.sg,
-             s.Stage_program.Stage.computation ))
+             project_exn s.Stage_program.Stage.computation ))
          p.Stage_program.stages)
     ~outputs:
       (List.filter_map
@@ -211,7 +222,7 @@ let kernel ~limits ~id (k : Kernel.t) =
            ( v.Kernel.Value.id,
              Kernel.Result_conversion.name v.Kernel.Value.result,
              v.Kernel.Value.sg,
-             v.Kernel.Value.computation ))
+             project_exn v.Kernel.Value.computation ))
          k.Kernel.values)
     ~outputs:
       (List.map

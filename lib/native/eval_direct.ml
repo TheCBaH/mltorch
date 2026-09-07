@@ -148,6 +148,38 @@ let region_result ~limits ~region_counters g ~op ~output ~out_shape ~operand_env
       Region_execution.materialize ?counters:region_counters lowered ~env
       |> Err.map_error (fun error -> `Region_execution error)
 
+(* The multi-output counterpart of [region_result] (project step 19): builds
+   the shared [Region_group.t] ONCE for the whole node and materializes every
+   ordinal in [outs] from one shared per-key evaluation, instead of folding
+   [region_result] (which would rebuild the whole recurrence) once per
+   ordinal. No synthetic [fill]/[synthetic_ids] machinery is needed here --
+   [Region_computation.group] only ever builds [Lstm], which (unlike
+   [Rms_norm]/[Layer_norm]/[Sdpa]) has no optional operand with a synthetic
+   default. *)
+let region_group_result ~limits ~region_counters g ~op ~outs ~operand_env =
+  let open Err.Syntax in
+  let* group =
+    Region_computation.group ~limits ~op ~operand:(fun id ->
+        Tensor_id.Map.find_opt id g.Graph.tensors)
+    |> Err.map_error (fun error -> `Region_construction error)
+  in
+  let env =
+    Expr_bridge.env ~binding:(fun id -> Tensor_id.Map.find_opt id operand_env)
+  in
+  let* lowered_group =
+    Region_execution.lower_group ~max_size:limits.Kernel.Limits.max_size
+      ~max_depth:limits.Kernel.Limits.max_depth
+      ~max_local_slots:limits.Kernel.Limits.max_local_slots
+      ~scan_limits:(Kernel.Limits.scan_limits limits)
+      group
+    |> Err.map_error (fun error ->
+        `Region_construction (Region_computation.Invalid_group error))
+  in
+  Region_execution.materialize_group ?counters:region_counters lowered_group
+    ~env
+    ~selected:(List.map (fun (output, _, _) -> output) outs)
+  |> Err.map_error (fun error -> `Region_execution error)
+
 let rec run_graph ?hooks ?region_counters ?(limits = Kernel.Limits.default)
     ~constants (g : graph) (env : Tensor.packed Tensor_id.Map.t) :
     (Tensor.packed Tensor_id.Map.t, error) Err.t =
@@ -208,63 +240,91 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
   let outs =
     List.mapi (fun output (oid, out_shape) -> (output, oid, out_shape)) pairs
   in
-  Err.List.fold_left
-    (fun env (output, oid, out_shape) ->
-      let* result =
-        match op with
-        | Unbind { Split.Unbind.params; x } ->
-            Err.return
-              (Tensor.unbind
-                 (Tensor_id.Map.find x operand_env)
-                 ~axis:params.axis ~output ~shape:out_shape)
-        (* Same dtype-preserving bypass as [Unbind], and for the same reason:
+  (* A multi-output region-authored node (today, only [Lstm]) shares one
+     recurrence across all its outputs (project step 19) instead of folding
+     [region_result] -- which would rebuild the shared computation once per
+     ordinal -- over [outs]. Every other multi-output op (`Unbind`,
+     `Split_with_sizes`, ...) has its own dedicated arm above the
+     [is_region_authored] branch, so this length check only ever selects a
+     region-authored multi-output op; single-output region-authored ops
+     (`Rms_norm`/`Layer_norm`/`Sdpa`/`Softmax`) keep the exact existing path,
+     unchanged. *)
+  match outs with
+  | _ :: _ :: _ when Region_computation.is_region_authored op ->
+      let* results =
+        region_group_result ~limits
+          ~region_counters:
+            (let _, first_oid, _ = List.hd outs in
+             Option.bind region_counters (fun counters ->
+                 Tensor_id.Map.find_opt first_oid counters))
+          g ~op ~outs ~operand_env
+      in
+      Err.return
+        (List.fold_left
+           (fun env (output, oid, _) ->
+             Tensor_id.Map.add oid (List.assoc output results) env)
+           env outs)
+  | _ ->
+      Err.List.fold_left
+        (fun env (output, oid, out_shape) ->
+          let* result =
+            match op with
+            | Unbind { Split.Unbind.params; x } ->
+                Err.return
+                  (Tensor.unbind
+                     (Tensor_id.Map.find x operand_env)
+                     ~axis:params.axis ~output ~shape:out_shape)
+            (* Same dtype-preserving bypass as [Unbind], and for the same reason:
            [offset] is the sum of every earlier piece's size, computed the
            same way [Eval_op]'s arm computes it for the generic path. *)
-        | Split_with_sizes { Split.Split_with_sizes.params; x } ->
-            let offset =
-              Split.Split_with_sizes.offset_of ~output
-                params.Split.Split_with_sizes.sizes
-            in
-            Err.return
-              (Tensor.split_with_sizes
-                 (Tensor_id.Map.find x operand_env)
-                 ~axis:params.Split.Split_with_sizes.axis ~offset
-                 ~shape:out_shape)
-        | Zeros { Factory.Zeros.params } ->
-            Err.return
-              (Tensor.materialize_fmt params.fmt out_shape (fun _ -> 0.))
-        | Eye { Factory.Eye.params } ->
-            Err.return
-              (Tensor.materialize_fmt params.fmt out_shape (fun coord ->
-                   if Dim.to_int coord.Vec6.w = Dim.to_int coord.Vec6.c then 1.
-                   else 0.))
-        | Arange { Factory.Arange.params } -> (
-            match params.fmt with
-            | Payload.Fmt Payload.I64 ->
+            | Split_with_sizes { Split.Split_with_sizes.params; x } ->
+                let offset =
+                  Split.Split_with_sizes.offset_of ~output
+                    params.Split.Split_with_sizes.sizes
+                in
                 Err.return
-                  (Tensor.materialize_i64 out_shape (fun coord ->
-                       Int64.of_float
-                         (Factory.Arange.value params (Dim.to_int coord.Vec6.c))))
-            | _ ->
+                  (Tensor.split_with_sizes
+                     (Tensor_id.Map.find x operand_env)
+                     ~axis:params.Split.Split_with_sizes.axis ~offset
+                     ~shape:out_shape)
+            | Zeros { Factory.Zeros.params } ->
+                Err.return
+                  (Tensor.materialize_fmt params.fmt out_shape (fun _ -> 0.))
+            | Eye { Factory.Eye.params } ->
                 Err.return
                   (Tensor.materialize_fmt params.fmt out_shape (fun coord ->
-                       Factory.Arange.value params (Dim.to_int coord.Vec6.c))))
-        | _ when Region_computation.is_region_authored op ->
-            region_result ~limits
-              ~region_counters:
-                (Option.bind region_counters (fun counters ->
-                     Tensor_id.Map.find_opt oid counters))
-              g ~op ~output ~out_shape ~operand_env ~synthetic_ids
-        | _ ->
-            Err.return
-              (Schedule.evaluate out_shape
-                 (E.pixel op ~output
-                    ~operand:(fun r -> Tensor_id.Map.find r operand_env)
-                    ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
-                    ~fill))
-      in
-      Err.return (Tensor_id.Map.add oid result env))
-    env outs
+                       if Dim.to_int coord.Vec6.w = Dim.to_int coord.Vec6.c then
+                         1.
+                       else 0.))
+            | Arange { Factory.Arange.params } -> (
+                match params.fmt with
+                | Payload.Fmt Payload.I64 ->
+                    Err.return
+                      (Tensor.materialize_i64 out_shape (fun coord ->
+                           Int64.of_float
+                             (Factory.Arange.value params
+                                (Dim.to_int coord.Vec6.c))))
+                | _ ->
+                    Err.return
+                      (Tensor.materialize_fmt params.fmt out_shape (fun coord ->
+                           Factory.Arange.value params (Dim.to_int coord.Vec6.c)))
+                )
+            | _ when Region_computation.is_region_authored op ->
+                region_result ~limits
+                  ~region_counters:
+                    (Option.bind region_counters (fun counters ->
+                         Tensor_id.Map.find_opt oid counters))
+                  g ~op ~output ~out_shape ~operand_env ~synthetic_ids
+            | _ ->
+                Err.return
+                  (Schedule.evaluate out_shape
+                     (E.pixel op ~output
+                        ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                        ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                        ~fill))
+          in
+          Err.return (Tensor_id.Map.add oid result env))
+        env outs
 
 let run ?hooks ?region_counters ?(limits = Kernel.Limits.default)
     ?(constants = []) (g : graph) ~(inputs : (Tensor_id.t * Tensor.packed) list)

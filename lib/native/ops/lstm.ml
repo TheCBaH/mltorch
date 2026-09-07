@@ -773,52 +773,153 @@ module Lstm = struct
        (lstm-plan.md §2), accumulating a FLAT [(a, read_fn)] list in [a]
        order ([a = layer*directions+direction]) -- what the [h_n]/[c_n]
        select chain below reads. *)
-    let rec build_layers ~scan_limits ~k ~seq ~batch ~time_axis ~batch_axis
+    (* Polymorphic in the [finish] continuation's own result so ONE
+       definition can finish either as a single output's [Region_program.t]
+       ([program], below) or as a whole [Region_group.t] ([group]) --
+       lstm-implementation-plan.md §4.1's "generalize that continuation
+       result so one Builder run can finish a group... do not reimplement
+       the scan builder inside LSTM". *)
+    (* [go] recurses monomorphically WITHIN one top-level call (a single
+       call never needs a second result type), but the outer [build_layers]
+       is an ordinary, non-recursive binding closing over [finish] -- so
+       plain automatic let-generalization makes ITS ['a] free per call site,
+       with no [type r.]/GADT-style annotation needed. Calling it once from
+       [program] and once from [group] below, each with a different
+       ['a Region_program.Builder.t], is exactly the polymorphism this
+       needs. *)
+    let build_layers ~scan_limits ~k ~seq ~batch ~time_axis ~batch_axis
         ~directions ~input_size ~input ~h0 ~c0
-        ~(layers : (int * Layer_operands.t) list) ~prev ~acc
-        (finish :
-          (int * read_fn) list ->
-          (Region_program.t, Region_program.error) Err.t
-          Region_program.Builder.t) :
-        (Region_program.t, Region_program.error) Err.t Region_program.Builder.t
-        =
-      match layers with
-      | [] -> finish (List.rev acc)
-      | (q, (layer : Layer_operands.t)) :: rest ->
-          let this_layer_input_size =
-            if q = 0 then input_size else k * directions
-          in
-          build_one ~scan_limits ~k ~seq ~batch ~time_axis ~batch_axis
-            ~input_size:this_layer_input_size ~input ~h0 ~c0 ~is_reverse:false
-            ~state_row:(q * directions) ~prev layer.forward (fun forward_read ->
-              match layer.reverse with
-              | None ->
-                  build_layers ~scan_limits ~k ~seq ~batch ~time_axis
-                    ~batch_axis ~directions ~input_size ~input ~h0 ~c0
-                    ~layers:rest
-                    ~prev:(Some (forward_read, None))
-                    ~acc:((q * directions, forward_read) :: acc)
-                    finish
-              | Some reverse ->
-                  build_one ~scan_limits ~k ~seq ~batch ~time_axis ~batch_axis
-                    ~input_size:this_layer_input_size ~input ~h0 ~c0
-                    ~is_reverse:true
-                    ~state_row:((q * directions) + 1)
-                    ~prev reverse
-                    (fun reverse_read ->
-                      build_layers ~scan_limits ~k ~seq ~batch ~time_axis
-                        ~batch_axis ~directions ~input_size ~input ~h0 ~c0
-                        ~layers:rest
-                        ~prev:(Some (forward_read, Some reverse_read))
-                        ~acc:
-                          (((q * directions) + 1, reverse_read)
-                          :: (q * directions, forward_read)
-                          :: acc)
-                        finish))
+        ~(layers : (int * Layer_operands.t) list) ~prev ~acc ~finish =
+      let rec go ~(layers : (int * Layer_operands.t) list) ~prev ~acc ~finish =
+        match layers with
+        | [] -> finish (List.rev acc)
+        | (q, (layer : Layer_operands.t)) :: rest ->
+            let this_layer_input_size =
+              if q = 0 then input_size else k * directions
+            in
+            build_one ~scan_limits ~k ~seq ~batch ~time_axis ~batch_axis
+              ~input_size:this_layer_input_size ~input ~h0 ~c0 ~is_reverse:false
+              ~state_row:(q * directions) ~prev layer.forward
+              (fun forward_read ->
+                match layer.reverse with
+                | None ->
+                    go ~layers:rest
+                      ~prev:(Some (forward_read, None))
+                      ~acc:((q * directions, forward_read) :: acc)
+                      ~finish
+                | Some reverse ->
+                    build_one ~scan_limits ~k ~seq ~batch ~time_axis ~batch_axis
+                      ~input_size:this_layer_input_size ~input ~h0 ~c0
+                      ~is_reverse:true
+                      ~state_row:((q * directions) + 1)
+                      ~prev reverse
+                      (fun reverse_read ->
+                        go ~layers:rest
+                          ~prev:(Some (forward_read, Some reverse_read))
+                          ~acc:
+                            (((q * directions) + 1, reverse_read)
+                            :: (q * directions, forward_read)
+                            :: acc)
+                          ~finish))
+      in
+      go ~layers ~prev ~acc ~finish
 
-    let program ~(limits : Kernel.Limits.t) (p : params) ~output
-        ~(layers : Layer_operands.t list) ~(input : Tensor_sig.t) ~h0 ~c0 =
-      let open Err.Syntax in
+    (* One output ordinal's expression, read off every layer/direction's
+       completed trace ([by_a], indexed [layer*directions+direction]) --
+       factored out of [program] so [group] can build all three ordinals
+       from the SAME shared traces instead of rebuilding them. Formerly
+       inline in [program]; unchanged logic, only parameterized. *)
+    let output_expr ~output ~by_a ~num_layers ~directions ~k ~seq ~time_axis =
+      if output = 0 then
+        let last_layer_first_dir = (num_layers - 1) * directions in
+        let last =
+          ( by_a.(last_layer_first_dir),
+            if directions = 2 then Some by_a.(last_layer_first_dir + 1)
+            else None )
+        in
+        let c_val =
+          Expr.Value.value_of_index
+            (Expr.Index.of_position (Expr.Index.output Axis.C))
+        in
+        let k_idx =
+          mod_k ~k (Expr.Index.of_position (Expr.Index.output Axis.C))
+        in
+        let t_out = Expr.Index.output time_axis in
+        match snd last with
+        | None ->
+            let row =
+              Expr.Index.clamp_low
+                (Expr.Index.add
+                   (Expr.Index.of_position t_out)
+                   (Expr.Index.const 1))
+            in
+            (fst last) ~row ~lane:k_idx
+        | Some reverse_read ->
+            let is_fwd =
+              Expr.Bool.value_lt c_val (Expr.Value.const (float_of_int k))
+            in
+            let row_fwd =
+              Expr.Index.clamp_low
+                (Expr.Index.add
+                   (Expr.Index.of_position t_out)
+                   (Expr.Index.const 1))
+            in
+            let row_rev =
+              Expr.Index.clamp_low
+                (Expr.Index.add (Expr.Index.const seq)
+                   (Expr.Index.scale (-1) (Expr.Index.of_position t_out)))
+            in
+            Expr.Value.select is_fwd
+              ((fst last) ~row:row_fwd ~lane:k_idx)
+              (reverse_read ~row:row_rev ~lane:k_idx)
+      else
+        let row = Expr.Index.clamp_low (Expr.Index.const seq) in
+        let lane =
+          if output = 1 then Expr.Index.output Axis.C
+          else
+            Expr.Index.clamp_low
+              (Expr.Index.add (Expr.Index.const k)
+                 (Expr.Index.of_position (Expr.Index.output Axis.C)))
+        in
+        let h_val =
+          Expr.Value.value_of_index
+            (Expr.Index.of_position (Expr.Index.output Axis.H))
+        in
+        let total = num_layers * directions in
+        let rec chain a =
+          let read = by_a.(a) in
+          if a = total - 1 then read ~row ~lane
+          else
+            Expr.Value.select
+              (Expr.Bool.value_lt h_val
+                 (Expr.Value.const (float_of_int (a + 1))))
+              (read ~row ~lane)
+              (chain (a + 1))
+        in
+        chain 0
+
+    let whole_partition axes =
+      match Region_partition.of_whole_axes axes with
+      | Ok p -> p
+      | Error _ ->
+          (* [axes] is always one of the two hand-written, duplicate-free
+             lists below. *)
+          assert false
+
+    (* Builds the shared recurrence ONCE (project step 19: LSTM's three
+       outputs previously each rebuilt an independent copy of every
+       layer/direction's scan) and derives all three output ordinals from
+       it via [output_expr]. Canonical batch is always [W]
+       (lib/native/region_group.mli's contract), regardless of layout --
+       confirmed against both layouts by
+       test/native/lstm_coordinate_contract_test.ml (project step 19,
+       Section A): time-first keys its sequence output on physical [W]
+       (identity), batch-first keys it on physical [H]; both state outputs
+       key on physical [W] under either layout. *)
+    let group ~(limits : Kernel.Limits.t) (p : params)
+        ~(layers : Layer_operands.t list) ~(input : Tensor_sig.t) ~h0 ~c0
+        ~out_shape ~hn_shape ~cn_shape :
+        (Region_group.t, Region_group.error) Err.t =
       let k = p.hidden_size in
       let time_axis = time_axis p and batch_axis = batch_axis p in
       let seq = Dim.to_int (Vec6.get input.Tensor_sig.shape time_axis) in
@@ -827,105 +928,72 @@ module Lstm = struct
         if (List.hd layers).Layer_operands.reverse <> None then 2 else 1
       in
       let scan_limits = Kernel.Limits.scan_limits limits in
-      (* [output]'s output/h_n/c_n each have their OWN axis meanings
-         (lstm-plan.md §4): [output]'s time axis is layout-dependent and
-         its batch axis is whichever of H/W is left; [h_n]/[c_n] are
-         layout-independent (always [H=layer*R+direction, W=batch]). Each
-         ordinal's partition/batch-key axis follows its own layout. *)
-      let* partition =
-        Region_context.partition
-          (if output = 0 then [ time_axis; Axis.C ] else [ Axis.H; Axis.C ])
+      let batch_extent =
+        Dim.to_int (Vec6.get input.Tensor_sig.shape batch_axis)
       in
-      let batch =
-        Expr.Index.output (if output = 0 then batch_axis else Axis.W)
+      let canonical_shape =
+        Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:batch_extent ~c:1
       in
+      let batch = Expr.Index.output Axis.W in
       let indexed = List.mapi (fun i l -> (i, l)) layers in
-      Region_context.program
-        (Region_program.Builder.run
-           (build_layers ~scan_limits ~k ~seq ~batch ~time_axis ~batch_axis
-              ~directions ~input_size:p.input_size ~input ~h0 ~c0
-              ~layers:indexed ~prev:None ~acc:[] (fun reads ->
-                let by_a =
-                  Array.make (num_layers * directions) (fun ~row:_ ~lane:_ ->
-                      assert false)
-                in
-                List.iter (fun (a, read) -> by_a.(a) <- read) reads;
-                let output_expr =
-                  if output = 0 then
-                    let last_layer_first_dir = (num_layers - 1) * directions in
-                    let last =
-                      ( by_a.(last_layer_first_dir),
-                        if directions = 2 then
-                          Some by_a.(last_layer_first_dir + 1)
-                        else None )
-                    in
-                    let c_val =
-                      Expr.Value.value_of_index
-                        (Expr.Index.of_position (Expr.Index.output Axis.C))
-                    in
-                    let k_idx =
-                      mod_k ~k
-                        (Expr.Index.of_position (Expr.Index.output Axis.C))
-                    in
-                    let t_out = Expr.Index.output time_axis in
-                    match snd last with
-                    | None ->
-                        let row =
-                          Expr.Index.clamp_low
-                            (Expr.Index.add
-                               (Expr.Index.of_position t_out)
-                               (Expr.Index.const 1))
-                        in
-                        (fst last) ~row ~lane:k_idx
-                    | Some reverse_read ->
-                        let is_fwd =
-                          Expr.Bool.value_lt c_val
-                            (Expr.Value.const (float_of_int k))
-                        in
-                        let row_fwd =
-                          Expr.Index.clamp_low
-                            (Expr.Index.add
-                               (Expr.Index.of_position t_out)
-                               (Expr.Index.const 1))
-                        in
-                        let row_rev =
-                          Expr.Index.clamp_low
-                            (Expr.Index.add (Expr.Index.const seq)
-                               (Expr.Index.scale (-1)
-                                  (Expr.Index.of_position t_out)))
-                        in
-                        Expr.Value.select is_fwd
-                          ((fst last) ~row:row_fwd ~lane:k_idx)
-                          (reverse_read ~row:row_rev ~lane:k_idx)
-                  else
-                    let row = Expr.Index.clamp_low (Expr.Index.const seq) in
-                    let lane =
-                      if output = 1 then Expr.Index.output Axis.C
-                      else
-                        Expr.Index.clamp_low
-                          (Expr.Index.add (Expr.Index.const k)
-                             (Expr.Index.of_position (Expr.Index.output Axis.C)))
-                    in
-                    let h_val =
-                      Expr.Value.value_of_index
-                        (Expr.Index.of_position (Expr.Index.output Axis.H))
-                    in
-                    let total = num_layers * directions in
-                    let rec chain a =
-                      let read = by_a.(a) in
-                      if a = total - 1 then read ~row ~lane
-                      else
-                        Expr.Value.select
-                          (Expr.Bool.value_lt h_val
-                             (Expr.Value.const (float_of_int (a + 1))))
-                          (read ~row ~lane)
-                          (chain (a + 1))
-                    in
-                    chain 0
-                in
-                Region_program.Builder.finish
-                  ~max_size:limits.Kernel.Limits.max_size
-                  ~max_depth:limits.Kernel.Limits.max_depth ~partition
-                  ~output:output_expr)))
+      let partition_seq = whole_partition [ time_axis; Axis.C ] in
+      let partition_state = whole_partition [ Axis.H; Axis.C ] in
+      Region_program.Builder.run
+        (build_layers ~scan_limits ~k ~seq ~batch ~time_axis ~batch_axis
+           ~directions ~input_size:p.input_size ~input ~h0 ~c0 ~layers:indexed
+           ~prev:None ~acc:[] ~finish:(fun reads ->
+             let by_a =
+               Array.make (num_layers * directions) (fun ~row:_ ~lane:_ ->
+                   assert false)
+             in
+             List.iter (fun (a, read) -> by_a.(a) <- read) reads;
+             let expr output =
+               output_expr ~output ~by_a ~num_layers ~directions ~k ~seq
+                 ~time_axis
+             in
+             let emitters =
+               [
+                 {
+                   Region_group.Emitter.output_shape = out_shape;
+                   partition = partition_seq;
+                   key_axes = [ (Axis.W, batch_axis) ];
+                   output = expr 0;
+                 };
+                 {
+                   Region_group.Emitter.output_shape = hn_shape;
+                   partition = partition_state;
+                   key_axes = [ (Axis.W, Axis.W) ];
+                   output = expr 1;
+                 };
+                 {
+                   Region_group.Emitter.output_shape = cn_shape;
+                   partition = partition_state;
+                   key_axes = [ (Axis.W, Axis.W) ];
+                   output = expr 2;
+                 };
+               ]
+             in
+             Region_group.finish ~max_size:limits.Kernel.Limits.max_size
+               ~max_depth:limits.Kernel.Limits.max_depth ~canonical_shape
+               ~emitters))
+
+    (* Compatibility projection: [program]'s callers ask for one output
+       ordinal at a time (Direct/Symbolic/Kernel/Stage all still do, project
+       step 19 Section C's job to change), so this builds the shared group
+       once and projects it -- never a second, independent construction of
+       the recurrence. Numerical agreement with the pre-group
+       implementation is what test/native/lstm_graph_test.ml,
+       lstm_graph_layers_test.ml, lstm_graph_batch_first_test.ml and
+       lstm_scale_test.ml (unchanged) now exercise. *)
+    let program ~(limits : Kernel.Limits.t) (p : params) ~output
+        ~(layers : Layer_operands.t list) ~(input : Tensor_sig.t) ~h0 ~c0
+        ~out_shape ~hn_shape ~cn_shape :
+        (Region_program.t, Region_group.error) Err.t =
+      let open Err.Syntax in
+      let* g =
+        group ~limits p ~layers ~input ~h0 ~c0 ~out_shape ~hn_shape ~cn_shape
+      in
+      Region_group.project ~max_size:limits.Kernel.Limits.max_size
+        ~max_depth:limits.Kernel.Limits.max_depth g output
   end
 end

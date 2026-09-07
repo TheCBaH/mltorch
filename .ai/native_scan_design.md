@@ -51,6 +51,18 @@ computation), `native_kernel_dsl_design.md` (Kernel IR and `Hard` ceilings),
 and `native_transform_verify.md` (grounding and the map verifier), which it
 extends rather than restates.
 
+**Shared multi-output scan execution has since landed** (project step 19):
+LSTM's three outputs now share one recurrence evaluation per canonical batch
+key, across Native Direct, Native4D Direct, `Stage_program.ground`, and
+Kernel, rather than each output independently re-running the scan. This is a
+sharing/scheduling change over the scan primitive fixed here, not a change
+to scan semantics, budgets, or the meter-reset contract this record
+specifies — one `Expr.Scan_meter.t` per canonical key is still exactly the
+reset scope "Runtime metering" below describes; a group's shared locals are
+just one more kind of per-key local sharing that meter. See
+`native_multi_output_design.md` §5 for the representation
+(`Region_group.t`/`Region_group.Ref.t`) and measured evidence.
+
 Everything here targets an inference-only, ordered, single-step-lookback
 recurrence over two indices (`row`, `lane`), sufficient for LSTM's per-batch,
 per-timestep gate recurrence and general enough to host other recurrences

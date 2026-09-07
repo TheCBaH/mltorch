@@ -110,7 +110,7 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
         charge () && measure_bool b && measure_value t && measure_value f
     | Expr.Value.Value_of_index i -> charge () && measure_index i
   in
-  let measure_region p =
+  let measure_region ~locals ~output =
     charge ()
     && List.for_all
          (fun local ->
@@ -127,12 +127,23 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
                && measure_value
                     (Expr.Value.scan_at scan ~row:Expr.Index.zero
                        ~lane:Expr.Index.zero))
-         (Region_program.locals p)
-    && charge ()
-    && measure_value (Region_program.output p)
+         locals
+    && charge () && measure_value output
+  in
+  (* A [Region_group.Ref.Grouped] value renders the raw (unprojected) shared
+     locals and this one emitter's own raw output -- never a fabricated
+     projection, the same rule [Region_group.pp]/scan rendering already
+     follow. *)
+  let locals, output =
+    match v.Kernel.Value.computation with
+    | Region_group.Ref.Solo p ->
+        (Region_program.locals p, Region_program.output p)
+    | Region_group.Ref.Grouped (g, i) ->
+        ( Region_group.locals g,
+          (Option.get (Region_group.emitter g i)).Region_group.Emitter.output )
   in
   let* () =
-    if charge () && measure_region v.Kernel.Value.computation then Err.return ()
+    if charge () && measure_region ~locals ~output then Err.return ()
     else
       count Me_limits.Field.Expression_nodes (!emitted + 1)
         ~ceiling:limits.Me_limits.Limits.max_detail_nodes
@@ -485,13 +496,12 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
       | Region_local.Rhs.Scan scan ->
           walk_value !scope ~parent:local_node ~role:"body"
             (Expr.Value.scan_at scan ~row:Expr.Index.zero ~lane:Expr.Index.zero))
-    (Region_program.locals v.Kernel.Value.computation);
+    locals;
   let emitter =
     add ~parent:region ~role:"emitter" ~language:"region" ~constructor:"emitter"
       ~label:"emitter" ()
   in
-  walk_value !scope ~parent:emitter ~role:"body"
-    (Region_program.output v.Kernel.Value.computation);
+  walk_value !scope ~parent:emitter ~role:"body" output;
   Err.return
     (ME.Graph.create
        ~id:(Me_request.Detail_key.id key)
