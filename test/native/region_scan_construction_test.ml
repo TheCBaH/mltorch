@@ -433,3 +433,40 @@ let%expect_test
     row=3 grounded=3 region=3 agree=true
     row=4 grounded=6 region=6 agree=true
     row=5 grounded=10 region=10 agree=true |}]
+
+(* The measurement project step 18 asks for: grounding a scan must NOT
+   re-embed the whole prior-step subtree at every later step -- the failure
+   mode identified before any sharing-aware representation existed, from
+   Ground_expr.t's OLD definition as a plain unshared tree (a branching-
+   factor^steps blowup for a coupled recurrence, or a size linear in [width *
+   steps] even for this single-lane counter). Ground_expr's hash-consed
+   arena means each row's own body is built once and its [previous_at] read
+   is a single shared reference to the prior row's already-built node, so the
+   grounded term's SIZE should scale LINEARLY with [steps] -- not with
+   [steps] as an exponent. It is in fact exactly [steps + 3] here: one
+   [Binary] per row, plus row 0's [Const 0.], the update's [Const 1.] --
+   interned ONCE and shared by every row's [Binary], since every row builds
+   the identical constant -- and the stage's own materialization [Round]. *)
+let%expect_test
+    "grounding a scan's size scales linearly with steps, not exponentially" =
+  List.iter
+    (fun steps ->
+      let stage_program =
+        stage_of
+          (Err.or_raise ~pp_error:Region_program.pp_error
+             (build_counter ~width:1 ~steps ~row:steps ~lane:0))
+      in
+      let ground_env = Ground_eval.Env.of_program stage_program ~side:`Src in
+      let meter = Ground_eval.Meter.create Ground_eval.default_budget in
+      let term =
+        Err.or_raise ~pp_error:Ground_eval.pp_error
+          (Ground_eval.at ~meter ground_env (Tensor_id.of_int 0) Vec6.origin)
+      in
+      let size = Ground_expr.size (Ground_eval.Term.expression term) in
+      Fmt.pr "steps=%d size=%d@." steps size)
+    [ 10; 100; 1000 ];
+  [%expect
+    {|
+    steps=10 size=13
+    steps=100 size=103
+    steps=1000 size=1003 |}]
