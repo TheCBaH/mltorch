@@ -104,7 +104,11 @@ module Term : sig
   (* A grounded root or its successor after [expand]. Belongs to the
      [Meter.t] that produced it -- there is no way to construct one outside
      this module, so a caller cannot fabricate a size that disagrees with the
-     expression it pairs. *)
+     expression it pairs. Its expression's own [Ground_expr.arena] is this
+     root's OWN raw arena, allocated once at [at] and retained through every
+     [expand] on it -- never shared with a different registered root, even one
+     from the same graph, so [Ground_expr.size] of one root never silently
+     counts a node another root also reaches. *)
   type t
 
   val expression : t -> Ground_expr.t

@@ -70,7 +70,7 @@ let as_constant (p : t) =
   | _ -> None
 
 let rec of_ground (e : Ground_expr.t) : t =
-  match e with
+  match Ground_expr.out e with
   | Ground_expr.Const v -> constant v
   | Ground_expr.Round x -> of_ground x (* the [Equivalent] reading *)
   | Ground_expr.Binary (Expr.Value.Add, a, b) -> add (of_ground a) (of_ground b)
@@ -103,7 +103,7 @@ let agree_within ~tolerance a b =
    non-arithmetic heads recurse, so a relu wrapping the fold compares its
    operands rather than two unequal opaque generators. *)
 let rec agree ~tolerance (a : Ground_expr.t) (b : Ground_expr.t) =
-  match (a, b) with
+  match (Ground_expr.out a, Ground_expr.out b) with
   | Ground_expr.Round x, _ -> agree ~tolerance x b
   | _, Ground_expr.Round y -> agree ~tolerance a y
   | Ground_expr.Select (g1, x1, y1), Ground_expr.Select (g2, x2, y2) ->
@@ -116,7 +116,7 @@ let rec agree ~tolerance (a : Ground_expr.t) (b : Ground_expr.t) =
   | _ -> agree_within ~tolerance (of_ground a) (of_ground b)
 
 and agree_guard ~tolerance g1 g2 =
-  match (g1, g2) with
+  match (Ground_expr.guard_out g1, Ground_expr.guard_out g2) with
   | Ground_expr.Lt (a1, b1), Ground_expr.Lt (a2, b2) ->
       agree ~tolerance a1 a2 && agree ~tolerance b1 b2
   | Ground_expr.Pool_better p1, Ground_expr.Pool_better p2 ->

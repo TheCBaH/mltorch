@@ -14,6 +14,9 @@ open Verify_fixtures
 (* [Src] arbitrarily: these are unit tests of normalisation, where the side an
    id belongs to is not what is under test — only that both cells carry the same
    one, since normalisation never compares across graphs. *)
+let arena = Ground_expr.Arena.create ()
+let scratch = Ground_expr.Arena.create ()
+
 let cell n =
   {
     Ground_expr.Cell.origin = Ground_expr.Origin.Src (Tensor_id.of_int n);
@@ -21,20 +24,23 @@ let cell n =
   }
 
 let show_norm ~stored_f32 e =
-  let n = Ground_expr.normalise ~stored_f32 e in
+  let n = Ground_expr.normalise ~into:scratch ~stored_f32 e in
   Format.printf "%a  blocked=[%a]@." Ground_expr.pp n.Ground_expr.expr
     (Fmt.list ~sep:Fmt.comma Ground_expr.Cell.pp)
     (Ground_expr.Cell.Set.elements n.Ground_expr.blocked)
 
 let%expect_test "normalise: a cell is already stored, so its Round collapses" =
   let all_f32 _ = true in
-  show_norm ~stored_f32:all_f32 (Ground_expr.Round (Ground_expr.Cell (cell 0)));
+  show_norm ~stored_f32:all_f32
+    (Ground_expr.round arena (Ground_expr.cell arena (cell 0)));
   (* idempotent *)
   show_norm ~stored_f32:all_f32
-    (Ground_expr.Round (Ground_expr.Round (Ground_expr.Cell (cell 0))));
+    (Ground_expr.round arena
+       (Ground_expr.round arena (Ground_expr.cell arena (cell 0))));
   (* a constant is folded to its f32 image, so a fold can be compared bitwise
      against a payload the pass computed through the same materialization *)
-  show_norm ~stored_f32:all_f32 (Ground_expr.Round (Ground_expr.Const 0.1));
+  show_norm ~stored_f32:all_f32
+    (Ground_expr.round arena (Ground_expr.const arena 0.1));
   [%expect
     {|
     src.t0(0)  blocked=[]
@@ -47,9 +53,10 @@ let%expect_test "normalise: a computed Round is NOT removed" =
      materialize do not compare equal. *)
   show_norm
     ~stored_f32:(fun _ -> true)
-    (Ground_expr.Round
-       (Ground_expr.Binary
-          (Expr.Value.Add, Ground_expr.Cell (cell 0), Ground_expr.Cell (cell 1))));
+    (Ground_expr.round arena
+       (Ground_expr.binary arena Expr.Value.Add
+          (Ground_expr.cell arena (cell 0))
+          (Ground_expr.cell arena (cell 1))));
   [%expect {| f32((src.t0(0) + src.t1(0)))  blocked=[] |}]
 
 let%expect_test "normalise: a non-f32 cell blocks the collapse" =
@@ -58,7 +65,7 @@ let%expect_test "normalise: a non-f32 cell blocks the collapse" =
      For those the materialization is observable, so the Round has to stay. *)
   show_norm
     ~stored_f32:(fun _ -> false)
-    (Ground_expr.Round (Ground_expr.Cell (cell 0)));
+    (Ground_expr.round arena (Ground_expr.cell arena (cell 0)));
   [%expect {| f32(src.t0(0))  blocked=[src.t0(0)] |}]
 
 (* End to end: trimming an identity permute off a non-F32 input is not merely

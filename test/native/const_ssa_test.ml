@@ -3,6 +3,7 @@
 
 open Graph_ir
 
+let arena = Ground_expr.Arena.create ()
 let t_ = Tensor_id.of_int
 let value id = Const_ssa.Value_id.of_tensor_id (t_ id)
 let f32 = Payload.Fmt Payload.F32
@@ -112,7 +113,7 @@ let%expect_test "Const-SSA: reshape grounds to the row-major source coordinate"
     |> Err.or_raise ~pp_error:Constant_store.pp_error
   in
   Vec6.iter output.shape (fun coord ->
-      match Const_ssa_symbolic.ground store (t_ 2) coord with
+      match Const_ssa_symbolic.ground arena store (t_ 2) coord with
       | None -> Format.printf "%a -> none@." Vec6.pp_coord coord
       | Some expr ->
           Format.printf "%a -> %a@." Vec6.pp_coord coord Ground_expr.pp expr);
@@ -212,7 +213,7 @@ let%expect_test "Const-SSA: expand grounds by collapsing the broadcast axis" =
     |> Err.or_raise ~pp_error:Constant_store.pp_error
   in
   let show coord =
-    match Const_ssa_symbolic.ground store (t_ 2) coord with
+    match Const_ssa_symbolic.ground arena store (t_ 2) coord with
     | None -> Format.printf "%a -> none@." Vec6.pp_coord coord
     | Some expr ->
         Format.printf "%a -> %a@." Vec6.pp_coord coord Ground_expr.pp expr
@@ -310,7 +311,7 @@ let%expect_test "Const-SSA: add_scalar grounds to a rounded sum" =
     |> Err.or_raise ~pp_error:Constant_store.pp_error
   in
   (match
-     Const_ssa_symbolic.ground store (t_ 2)
+     Const_ssa_symbolic.ground arena store (t_ 2)
        (Vec6.coord ~n:0 ~t:0 ~d:0 ~h:1 ~w:0 ~c:0)
    with
   | None -> Format.printf "none@."
@@ -401,7 +402,7 @@ let%expect_test "Const-SSA: mul_scalar grounds to a rounded product" =
     |> Err.or_raise ~pp_error:Constant_store.pp_error
   in
   (match
-     Const_ssa_symbolic.ground store (t_ 2)
+     Const_ssa_symbolic.ground arena store (t_ 2)
        (Vec6.coord ~n:0 ~t:0 ~d:0 ~h:1 ~w:0 ~c:0)
    with
   | None -> Format.printf "none@."
@@ -494,7 +495,7 @@ let%expect_test
           (Graph_ir.Pow { Pointwise_binary.Scalar_bin.x = t_ 1; scalar })
         |> Err.or_raise ~pp_error:Constant_store.pp_error
       in
-      match Const_ssa_symbolic.ground store (t_ 2) Vec6.origin with
+      match Const_ssa_symbolic.ground arena store (t_ 2) Vec6.origin with
       | None -> Format.printf "%g: none@." scalar
       | Some expr ->
           Format.printf "%g: %.6f  (%a)@." scalar
@@ -602,7 +603,7 @@ let%expect_test "Const-SSA: rsub_scalar grounds to [other - alpha * x], rounded"
     |> Err.or_raise ~pp_error:Constant_store.pp_error
   in
   (match
-     Const_ssa_symbolic.ground store (t_ 2)
+     Const_ssa_symbolic.ground arena store (t_ 2)
        (Vec6.coord ~n:0 ~t:0 ~d:0 ~h:1 ~w:0 ~c:0)
    with
   | None -> Format.printf "none@."
@@ -691,7 +692,7 @@ let%expect_test
       (Graph_ir.Sigmoid { Pointwise.Sigmoid.x = t_ 1 })
     |> Err.or_raise ~pp_error:Constant_store.pp_error
   in
-  (match Const_ssa_symbolic.ground store (t_ 2) Vec6.origin with
+  (match Const_ssa_symbolic.ground arena store (t_ 2) Vec6.origin with
   | None -> Format.printf "none@."
   | Some expr ->
       Format.printf "%.6f  (%a)@."
