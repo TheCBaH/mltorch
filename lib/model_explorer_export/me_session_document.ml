@@ -358,11 +358,21 @@ module Session = struct
             Err.fail (`Duplicate_view v.View.id)
           else begin
             Hashtbl.add view_ids v.View.id v;
-            let+ _ =
+            let* _ =
               Graph_index.graph_in graphs ~collection:v.View.collection
                 v.View.graph
             in
-            ()
+            match v.View.kind with
+            | View.Detail { parent_graph; parent_node } ->
+                let* _ =
+                  Graph_index.graph_in graphs ~collection:v.View.collection
+                    parent_graph
+                in
+                let+ _ =
+                  Graph_index.node graphs ~graph:parent_graph parent_node
+                in
+                ()
+            | View.Compare | View.Flow | View.Stage _ -> Err.return ()
           end)
         s.views
     in
@@ -558,7 +568,7 @@ module Session = struct
                   Err.fail (`Flow_view_unknown { Flow_state_view.state; view })
               | Some (v : View.t) -> (
                   match v.View.kind with
-                  | View.Flow | View.Compare ->
+                  | View.Flow | View.Compare | View.Detail _ ->
                       Err.fail
                         (`Flow_view_not_stage { Flow_state_view.state; view })
                   | View.Stage _ ->

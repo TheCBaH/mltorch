@@ -204,10 +204,10 @@ test('the key separates model, stages and effort', () => {
 
 /* -------------------------------------------------------------- selection */
 
-test('the preference is the URL view then source', () => {
-  assert.deepEqual(preferredViews('v/kernel'), ['v/kernel', 'v/source']);
-  assert.deepEqual(preferredViews(null), ['v/source']);
-  assert.deepEqual(preferredViews('v/source'), ['v/source']);
+test('the preference is the URL view then canonical Native', () => {
+  assert.deepEqual(preferredViews('v/kernel'), ['v/kernel', 'v/canonical']);
+  assert.deepEqual(preferredViews(null), ['v/canonical']);
+  assert.deepEqual(preferredViews('v/source'), ['v/source', 'v/canonical']);
 });
 
 /* Staleness is two strings compared, not a flag: "a view was asked for and a
@@ -389,7 +389,7 @@ test('two descriptors are the same only within one branch', () => {
   assert.equal(samePresentation(singlePresentation('v/a'), singlePresentation('v/b')), false);
   assert.equal(samePresentation(comparisonPresentation('c'), comparisonPresentation('c')), true);
   assert.equal(samePresentation(singlePresentation('x'), comparisonPresentation('x')), false);
-  assert.equal(samePresentation(defaultPresentation(), singlePresentation('v/source')), true);
+  assert.equal(samePresentation(defaultPresentation(), singlePresentation('v/canonical')), true);
 });
 
 /* --------------------------------------------------------- the URL branch */

@@ -260,6 +260,9 @@ export function buildIndex(sessionText) {
   /* `flow` and `compare` kinds are excluded: neither is a single-graph
    * destination this delivery can open. */
   const views = (Array.isArray(session?.views) ? session.views : []).filter(isStageView);
+  const detailViews = (Array.isArray(session?.views) ? session.views : []).filter((view) =>
+    view?.kind === 'detail' && typeof view.id === 'string'
+    && typeof view.parentGraph === 'string' && typeof view.parentNode === 'string');
   const verification = payload(capabilityByKey.get('feature:verification'), 'verification_summary');
   const audits = payload(capabilityByKey.get('feature:pass_audits'), 'pass_audit_status');
   const { comparisons, comparisonById } = indexComparisons(session?.comparisons);
@@ -279,6 +282,7 @@ export function buildIndex(sessionText) {
     defaultView: typeof session?.defaultView === 'string' ? session.defaultView : null,
     views,
     viewById,
+    detailByParent: new Map(detailViews.map((view) => [`${view.parentGraph}\u0000${view.parentNode}`, view])),
     /* Null unless the whole destination resolves, so a control can key on it
      * directly rather than re-deriving the condition. */
     flowView: flow ? flowView : null,
@@ -314,7 +318,8 @@ export function buildIndex(sessionText) {
  * the exporter keeps Canonical as its own `defaultView` for the CLI.
  */
 export function preferredViews(urlView) {
-  return urlView && urlView !== SOURCE_VIEW ? [urlView, SOURCE_VIEW] : [SOURCE_VIEW];
+  const canonical = 'v/canonical';
+  return urlView && urlView !== canonical ? [urlView, canonical] : [canonical];
 }
 
 /* ---------------------------------------------------------- presentation */
@@ -332,7 +337,7 @@ export const comparisonPresentation = (comparison) => ({ kind: 'comparison', com
 export const flowPresentation = (view) => ({ kind: 'flow', view });
 
 /** The browser's own default: source first, for reading order. */
-export const defaultPresentation = () => singlePresentation(SOURCE_VIEW);
+export const defaultPresentation = () => singlePresentation('v/canonical');
 
 /**
  * A descriptor resolved against a session, or `null` if it names nothing the

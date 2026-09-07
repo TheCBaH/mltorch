@@ -319,7 +319,12 @@ let detail ~limits ~(options : Options.t) ~key ~bytes =
         {
           Me_session.View.id = Me_request.Detail_key.id key;
           label = "expression";
-          kind = Me_session.View.Stage Me_session.Capability.Kernel;
+          kind =
+            Me_session.View.Detail
+              {
+                parent_graph = Me_request.Detail_key.parent_graph key;
+                parent_node = Me_request.Detail_key.session_node key;
+              };
           collection;
           graph = Me_request.Detail_key.id key;
         };

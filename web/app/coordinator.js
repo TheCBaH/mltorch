@@ -40,6 +40,7 @@ export class Coordinator {
    * leaves the previous triple in place, so the visible view, the controls and
    * the URL keep describing one document. */
   #session = null;
+  #source = null;
   #options = null;
   /* The closed presentation descriptor the renderer actually opened -- a single
    * view or a comparison. `view` is DERIVED from it rather than stored beside
@@ -52,8 +53,8 @@ export class Coordinator {
    * before any URL is read already matches `presentation.js`'s. */
   #constantsMode = 'grouped';
 
-  constructor({ workerFactory, bridge, render, onStatus = () => {}, onError = () => {}, onSession = () => {}, hard }) {
-    Object.assign(this, { workerFactory, bridge, render, onStatus, onError, onSession, hard });
+  constructor({ workerFactory, bridge, render, onStatus = () => {}, onError = () => {}, onSession = () => {}, onDetail = () => {}, hard }) {
+    Object.assign(this, { workerFactory, bridge, render, onStatus, onError, onSession, onDetail, hard });
   }
 
   get session() { return this.#session; }
@@ -155,6 +156,7 @@ export class Coordinator {
     const pending = this.#pending = {
       epoch, id, worker, terminal: false, cancelled: false, retired: false,
       token: null, tokenSettled: false, prefer, options: built.options ?? null,
+      kind: 'session', source,
     };
     worker.onmessage = (event) => this.#message(pending, event);
     worker.onerror = () => this.#terminal(pending, { message: 'worker failed' });
@@ -272,6 +274,7 @@ export class Coordinator {
     if (!['progress', ...terminal].includes(meta.kind) || (meta.id && meta.id !== pending.id)) return this.#terminal(pending, { message: 'unexpected worker response' });
     if (meta.kind === 'progress') { this.onStatus(`${meta.phase}: ${meta.done}${meta.total ? `/${meta.total}` : ''}`); return; }
     pending.terminal = true;
+    if (pending.kind === 'detail') return this.#handleDetail(pending, frame, meta);
     if (meta.kind !== 'session') return this.#terminal(pending, { message: meta.kind === 'delta' ? 'unexpected detail response' : (meta.error?.message || 'model export failed') });
     if (!(frame.payload instanceof ArrayBuffer) || frame.payload.byteLength !== meta.bytes || frame.payload.byteLength > this.hard.maxResponseDocumentBytes) return this.#terminal(pending, { message: 'invalid session payload' });
     let documentText;
@@ -337,6 +340,7 @@ export class Coordinator {
     // and it became true the instant the commit was confirmed. Only the
     // outward-facing callbacks wait on `undisturbed` below.
     this.#session = prepared.render;
+    this.#source = pending.source;
     this.#options = pending.options;
     this.#presentation = handle.presentation ?? null;
     const settled = this.#terminal(pending, {});        // detach + terminate, no error
@@ -351,6 +355,72 @@ export class Coordinator {
       viewId: this.view,
     });
     this.onStatus('Model loaded');
+  }
+
+  /* A detail is a second worker transaction over the retained source.  The
+   * bridge validates and merges the delta before a candidate is made, so a
+   * failed request leaves the parent document and its selected operator intact. */
+  async openDetail(key) {
+    if (this.#poisoned) throw new Error(POISONED);
+    if (this.#pending) throw new Error('a request is already in flight');
+    if (!this.#session || !this.#source || !this.#options) throw new Error('no model is loaded');
+    const epoch = ++this.#epoch;
+    const id = `${crypto.randomUUID()}-0`;
+    const source = this.#source;
+    const requestSource = {
+      name: source.name, bytes: source.bytes.toString(), kind: source.kind,
+      ...(source.catalog ? { catalog: source.catalog } : {}),
+    };
+    const built = this.bridge.request.buildDetail({ id, source: requestSource, options: this.#options, key });
+    if (!built.ok) throw new Error(built.error || 'detail request construction failed');
+    const worker = this.workerFactory();
+    const detailId = `expr/${key.parentGraph}/n${key.node}`;
+    const pending = this.#pending = {
+      epoch, id, worker, terminal: false, cancelled: false, retired: false,
+      token: null, tokenSettled: false, kind: 'detail', key, detailId,
+    };
+    worker.onmessage = (event) => this.#message(pending, event);
+    worker.onerror = () => this.#terminal(pending, { message: 'worker failed' });
+    const bytes = await source.readBytes();
+    if (this.#pending !== pending) return;
+    worker.postMessage({ request: built.request, bytes }, [built.request, bytes]);
+    this.onStatus('Building symbolic computation…');
+  }
+
+  async #handleDetail(pending, frame, meta) {
+    if (meta.kind !== 'delta') {
+      return this.#terminal(pending, { message: meta.error?.message || 'symbolic computation failed' });
+    }
+    if (!(frame.payload instanceof ArrayBuffer) || frame.payload.byteLength !== meta.bytes
+        || frame.payload.byteLength > this.hard.maxResponseDocumentBytes) {
+      return this.#terminal(pending, { message: 'invalid symbolic detail payload' });
+    }
+    let documentText;
+    try { documentText = new TextDecoder('utf-8', { fatal: true }).decode(frame.payload); }
+    catch { return this.#terminal(pending, { message: 'symbolic detail is not UTF-8' }); }
+    const merged = this.bridge.session.applyDetail(
+      pending.id, pending.key, this.#session, frame.meta, documentText,
+    );
+    if (!merged.ok) return this.#terminal(pending, { message: merged.error || 'invalid symbolic detail' });
+    let handle;
+    try {
+      handle = await this.render.install(this.#installText(merged.render), { view: pending.detailId });
+    } catch (error) {
+      if (!this.#isCurrent(pending)) return;
+      return this.#terminal(pending, { message: error?.message || 'renderer failed' });
+    }
+    if (!this.#isCurrent(pending)) {
+      this.#consumeAbort(pending, this.render.abortReady(handle), { silent: true });
+      return;
+    }
+    const finalized = this.render.finalize(handle);
+    if (!finalized.ok) return this.#terminal(pending, { message: presentMessage(finalized) });
+    this.#session = merged.render;
+    this.#presentation = handle.presentation ?? null;
+    const settled = this.#terminal(pending, {});
+    if (!settled.undisturbed) return;
+    this.onDetail({ sessionText: this.#session, effectiveOptions: this.#options, viewId: this.view });
+    this.onStatus('Symbolic computation opened');
   }
 
   /* ---------------------------------------------------------- presentation */
