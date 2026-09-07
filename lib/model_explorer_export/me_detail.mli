@@ -51,6 +51,15 @@ val of_value :
     Boolean terms, index terms, coordinates, and Region locals, is measured
     before allocating graph nodes and checked against [max_detail_nodes]. *)
 
+val of_operator :
+  limits:Me_limits.Limits.t ->
+  key:Me_request.Detail_key.t ->
+  outputs:Kernel.Value.t list ->
+  (Model_explorer.Graph.t, [> Me_limits.over_limit_error ]) Err.t
+(** One graph for every ordered output of a canonical Native operator. The
+    caller derives [outputs] from the rebuilt node; this function only projects
+    the already-authoritative Region computations. *)
+
 (** {1 The delta} *)
 
 module Delta : sig

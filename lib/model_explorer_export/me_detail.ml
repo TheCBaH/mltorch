@@ -497,6 +497,86 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
        ~id:(Me_request.Detail_key.id key)
        ~nodes:(List.rev !nodes) ())
 
+let of_operator ~limits ~key ~outputs =
+  let open Err.Syntax in
+  let* graphs = Err.List.map (of_value ~limits ~key) outputs in
+  let output_node i (value : Kernel.Value.t) =
+    ME.GraphNode.create ~id:(Fmt.str "out%d" i)
+      ~label:(Fmt.str "output %d: t%d" i (Graph_ir.Tensor_id.to_int value.id))
+      ~namespace:"" ~incomingEdges:[]
+      ~outputsMetadata:[ ME.MetadataItem.create ~id:"0" ~attrs:[] ]
+      ~attrs:
+        [
+          attr "language" "presentation";
+          attr "constructor" "output";
+          attr "tensor" (Fmt.str "t%d" (Graph_ir.Tensor_id.to_int value.id));
+        ]
+      ()
+  in
+  let operator =
+    ME.GraphNode.create ~id:"operator"
+      ~label:("operator " ^ Me_request.Detail_key.parent_node key)
+      ~namespace:"" ~incomingEdges:[]
+      ~outputsMetadata:[ ME.MetadataItem.create ~id:"0" ~attrs:[] ]
+      ~attrs:
+        [
+          attr "language" "presentation";
+          attr "constructor" "operator";
+          attr "detail" "symbolic_computation";
+        ]
+      ()
+  in
+  let nodes = ref [ operator ] in
+  List.iteri
+    (fun i ((value : Kernel.Value.t), (graph : ME.Graph.t)) ->
+      let output = output_node i value in
+      let prefix = Fmt.str "o%d/" i in
+      let rename id = prefix ^ id in
+      let projected =
+        List.map
+          (fun (node : ME.GraphNode.t) ->
+            let root =
+              Option.value ~default:[] node.ME.GraphNode.incomingEdges = []
+            in
+            let incomingEdges =
+              if root then
+                [ edge ~parent:output.ME.GraphNode.id ~role:"result" ]
+              else
+                Option.value ~default:[] node.ME.GraphNode.incomingEdges
+                |> List.map (fun edge ->
+                    {
+                      edge with
+                      ME.IncomingEdge.sourceNodeId =
+                        rename edge.ME.IncomingEdge.sourceNodeId;
+                    })
+            in
+            {
+              node with
+              ME.GraphNode.id = rename node.ME.GraphNode.id;
+              incomingEdges = Some incomingEdges;
+            })
+          graph.nodes
+      in
+      let output =
+        {
+          output with
+          incomingEdges =
+            Some
+              [
+                edge ~parent:operator.ME.GraphNode.id
+                  ~role:(Fmt.str "output:%d" i);
+              ];
+        }
+      in
+      nodes := !nodes @ [ output ] @ projected)
+    (List.combine outputs graphs);
+  let* () =
+    count Me_limits.Field.Expression_nodes (List.length !nodes)
+      ~ceiling:limits.Me_limits.Limits.max_detail_nodes
+  in
+  Err.return
+    (ME.Graph.create ~id:(Me_request.Detail_key.id key) ~nodes:!nodes ())
+
 (* --- the delta ----------------------------------------------------------- *)
 
 module Delta = struct
@@ -544,8 +624,8 @@ let apply ~key ~limits (s : Me_session.Session.t) (d : Delta.t) =
     then Err.return ()
     else Err.fail `Key_disagrees_with_ids
   in
-  let parent = key.Me_request.Detail_key.parent_graph in
-  let node = Me_ids.value_node key.Me_request.Detail_key.value in
+  let parent = Me_request.Detail_key.parent_graph key in
+  let node = Me_request.Detail_key.session_node key in
   let* () =
     if
       List.exists

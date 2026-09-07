@@ -86,6 +86,11 @@ let%expect_test "the kernel graph offers value nodes to ask about" =
     (String.concat " " (List.map string_of_int (kernel_value_nodes session)));
   [%expect {| 1 2 |}]
 
+let operator_key node =
+  Err.or_raise ~pp_error:MR.Request.pp_error
+    (MR.Detail_key.create_operator ~limits ~parent_graph:"g/native/001"
+       ~node:(Graph_ir.Node_id.of_int node))
+
 let key ?(parent = kernel_id) v =
   Err.or_raise ~pp_error:MR.Request.pp_error
     (MR.Detail_key.create ~limits ~parent_graph:parent
@@ -147,6 +152,11 @@ let%expect_test "two details on two different value nodes" =
   [%expect {|
     one   graphs=8 views=8
     two   graphs=9 views=9 |}]
+
+let%expect_test "an operator detail links its canonical Native parent" =
+  let k = operator_key 0 in
+  Format.printf "%a@." pp (Me_detail.apply ~key:k ~limits session (delta k));
+  [%expect {| graphs=8 views=8 |}]
 
 let%expect_test "re-requesting one REPLACES it" =
   (* Aggregates are counted over what is installed, so an accumulating merge

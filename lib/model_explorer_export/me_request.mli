@@ -56,10 +56,10 @@ end
 (** {1 What a detail request names} *)
 
 module Detail_key : sig
-  type t = private { parent_graph : string; value : Graph_ir.Tensor_id.t }
-  (** ONE identity, not two. A Kernel value has exactly one tensor id and one
-      body, so carrying [parent_node] alongside would admit a mismatched pair
-      that validation would then have to reject; here it is DERIVED. *)
+  type t
+  (** Value and operator parents are distinct variants. A request can therefore
+      never make a canonical Native operator look like a Kernel value merely
+      because their rendered ids happen to share a graph prefix. *)
 
   type invalid = [ `Derived_id_too_long | `Parent_too_long ]
 
@@ -70,13 +70,23 @@ module Detail_key : sig
     parent_graph:string ->
     value:Graph_ir.Tensor_id.t ->
     (t, [> `Invalid_detail_key of invalid ]) Err.t
-  (** [parent_graph] against [max_id_bytes] AND the derived {!id} against it,
+  (** The advanced Kernel-value key. Kept for the existing Kernel view.
+
+      [parent_graph] against [max_id_bytes] AND the derived {!id} against it,
       since a component can expand threefold under encoding — checking only the
       input would approve a key whose rendered id is over.
 
       Distinct from an unsupported key, which is a well-formed key naming no
       value: one is a malformed request and the other a valid request about
       something absent, and they carry different diagnostic codes. *)
+
+  val create_operator :
+    limits:Me_limits.Limits.t ->
+    parent_graph:string ->
+    node:Graph_ir.Node_id.t ->
+    (t, [> `Invalid_detail_key of invalid ]) Err.t
+  (** A canonical Native operator key. Its outputs are derived by the exporter
+      from the rebuilt graph; the request never carries a user-supplied list. *)
 
   val validate :
     limits:Me_limits.Limits.t ->
@@ -88,7 +98,16 @@ module Detail_key : sig
       request knows which profile applies. *)
 
   val parent_node : t -> string
-  (** ["t<k>"], the Kernel value's node. *)
+  (** ["t<k>"] for a value parent or ["n<k>"] for an operator parent. *)
+
+  val parent_graph : t -> string
+
+  val session_node : t -> string
+  (** The exact parent graph-node id: [v<k>] for a Kernel value and [n<k>] for a
+      canonical Native operator. *)
+
+  val value : t -> Graph_ir.Tensor_id.t option
+  val operator_node : t -> Graph_ir.Node_id.t option
 
   val id : t -> string
   (** The derived detail graph/view id,

@@ -1301,6 +1301,15 @@ both. The aggregates are checked on the **merged** session, over every installed
 node ceiling is checked on the **delta alone**, because a merged check would let an
 over-ceiling delta through whenever the session it joins is small.
 
+**Detail parents are a closed key variant.** The established value parent remains available
+for the advanced Kernel view as `{kind:"value", parentGraph, value}`. The operator path uses
+`{kind:"operator", parentGraph:"g/native/001", node}`. They derive different ids and session
+parent-node ids, so no spelling heuristic can confuse a value with a canonical Native operator.
+The exporter rebuilds the canonical graph, resolves the named node, derives its ordered output
+ids, and projects them together under one operator and one output root per slot. Symbolic
+Stage computations are the authority; Kernel conversion metadata enriches a successful
+adaptation, while an unavailable adaptation is labelled rather than fabricated.
+
 **The size ceiling runs before the walk, over what the projector emits.** The measurement
 includes presentation roots, Region locals, binders, value, Boolean and index terms, and
 each coordinate component. It stops at the configured ceiling before graph-node allocation;

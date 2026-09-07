@@ -73,29 +73,64 @@ end
 (* --- what a detail request names ---------------------------------------- *)
 
 module Detail_key = struct
-  type t = { parent_graph : string; value : Graph_ir.Tensor_id.t }
+  module Value = struct
+    type t = { parent_graph : string; value : Graph_ir.Tensor_id.t }
+  end
+
+  module Operator = struct
+    type t = { parent_graph : string; node : Graph_ir.Node_id.t }
+  end
+
+  type t = Operator of Operator.t | Value of Value.t
   type invalid = [ `Derived_id_too_long | `Parent_too_long ]
 
   let pp_invalid fmt : [< invalid ] -> unit = function
     | `Derived_id_too_long -> Fmt.string fmt "derived detail id is too long"
     | `Parent_too_long -> Fmt.string fmt "detail key parent graph is too long"
 
-  let parent_node t = Core.Pretty.to_string Graph_ir.Tensor_id.pp t.value
+  let parent_graph = function
+    | Operator t -> t.Operator.parent_graph
+    | Value t -> t.Value.parent_graph
+
+  let parent_node = function
+    | Operator t -> Core.Pretty.to_string Graph_ir.Node_id.pp t.Operator.node
+    | Value t -> Core.Pretty.to_string Graph_ir.Tensor_id.pp t.Value.value
+
+  let session_node = function
+    | Operator t -> Fmt.str "n%d" (Graph_ir.Node_id.to_int t.Operator.node)
+    | Value t -> Fmt.str "v%d" (Graph_ir.Tensor_id.to_int t.Value.value)
+
+  let value = function Value t -> Some t.Value.value | Operator _ -> None
+
+  let operator_node = function
+    | Operator t -> Some t.Operator.node
+    | Value _ -> None
 
   (* The same string [Me_ids.detail] assembles, built here without a ceiling so
      that [id] is total: the LENGTH rule belongs to [create]/[validate], which
      have a profile, and recomputing the string is not where it lives. *)
-  let id t =
-    Printf.sprintf "expr/%s/%s/t%d" t.parent_graph (parent_node t)
-      (Graph_ir.Tensor_id.to_int t.value)
+  let id = function
+    | Value t ->
+        Printf.sprintf "expr/%s/%s/t%d" t.Value.parent_graph
+          (Core.Pretty.to_string Graph_ir.Tensor_id.pp t.Value.value)
+          (Graph_ir.Tensor_id.to_int t.Value.value)
+    | Operator t ->
+        Printf.sprintf "expr/%s/n%d" t.Operator.parent_graph
+          (Graph_ir.Node_id.to_int t.Operator.node)
 
   let equal a b =
-    String.equal a.parent_graph b.parent_graph
-    && Graph_ir.Tensor_id.equal a.value b.value
+    match (a, b) with
+    | Value a, Value b ->
+        String.equal a.Value.parent_graph b.Value.parent_graph
+        && Graph_ir.Tensor_id.equal a.Value.value b.Value.value
+    | Operator a, Operator b ->
+        String.equal a.Operator.parent_graph b.Operator.parent_graph
+        && Graph_ir.Node_id.equal a.Operator.node b.Operator.node
+    | Operator _, Value _ | Value _, Operator _ -> false
 
   let validate ~limits t =
     let max = limits.Me_limits.Limits.max_id_bytes in
-    if String.length t.parent_graph > max then
+    if String.length (parent_graph t) > max then
       Err.fail (`Invalid_detail_key `Parent_too_long)
     else if String.length (id t) > max then
       Err.fail (`Invalid_detail_key `Derived_id_too_long)
@@ -103,7 +138,13 @@ module Detail_key = struct
 
   let create ~limits ~parent_graph ~value =
     let open Err.Syntax in
-    let t = { parent_graph; value } in
+    let t = Value { Value.parent_graph; value } in
+    let+ () = validate ~limits t in
+    t
+
+  let create_operator ~limits ~parent_graph ~node =
+    let open Err.Syntax in
+    let t = Operator { Operator.parent_graph; node } in
     let+ () = validate ~limits t in
     t
 
@@ -111,16 +152,32 @@ module Detail_key = struct
     (* [Limits.trusted] is the FIXED half: a parameterless codec cannot pick a
        profile, and picking the wrong one is the defect [Wire_limits] exists to
        prevent. [Request.jsont] runs [validate] under the decoded profile. *)
-    Jsont.Object.map ~kind:"detailKey" (fun parent_graph value ->
-        or_jsont pp_invalid
-          (Err.map_error
-             (fun (`Invalid_detail_key e) -> e)
-             (create ~limits:Me_limits.Limits.trusted ~parent_graph
-                ~value:(Graph_ir.Tensor_id.of_int value))))
+    Jsont.Object.map ~kind:"detailKey" (fun kind parent_graph value node ->
+        let invalid r =
+          or_jsont pp_invalid
+            (Err.map_error (fun (`Invalid_detail_key e) -> e) r)
+        in
+        match (kind, value, node) with
+        | "value", Some value, None ->
+            invalid
+              (create ~limits:Me_limits.Limits.trusted ~parent_graph
+                 ~value:(Graph_ir.Tensor_id.of_int value))
+        | "operator", None, Some node ->
+            invalid
+              (create_operator ~limits:Me_limits.Limits.trusted ~parent_graph
+                 ~node:(Graph_ir.Node_id.of_int node))
+        | _ -> Jsont.Error.msgf Jsont.Meta.none "invalid detail key variant")
+    |> Jsont.Object.mem "kind" Jsont.string ~enc:(function
+      | Value _ -> "value"
+      | Operator _ -> "operator")
     |> Jsont.Object.mem "parentGraph" Jsont.string ~enc:(fun t ->
-        t.parent_graph)
-    |> Jsont.Object.mem "value" Jsont.int ~enc:(fun t ->
-        Graph_ir.Tensor_id.to_int t.value)
+        parent_graph t)
+    |> Jsont.Object.opt_mem "value" Jsont.int ~enc:(function
+      | Value t -> Some (Graph_ir.Tensor_id.to_int t.Value.value)
+      | Operator _ -> None)
+    |> Jsont.Object.opt_mem "node" Jsont.int ~enc:(function
+      | Operator t -> Some (Graph_ir.Node_id.to_int t.Operator.node)
+      | Value _ -> None)
     |> Jsont.Object.finish
 end
 

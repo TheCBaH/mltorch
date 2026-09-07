@@ -211,17 +211,99 @@ let detail ~limits ~(options : Options.t) ~key ~bytes =
          ~passes:(passes ~fold:options.Options.fold))
   in
   let (Native_interp.Transformed t) = transformed in
-  let* k =
-    wrap
-      (fun e -> `Kernel e)
-      (Kernel_adapt.of_stage_program (Eval_symbolic.run t.graph))
-  in
-  let* value =
-    Err.of_option `Unsupported_detail_key
-      (Kernel.value k key.Me_request.Detail_key.value)
-  in
+  let stage_program = Eval_symbolic.run t.graph in
   let* graph =
-    wrap (fun e -> `Value_graph e) (Me_detail.of_value ~limits ~key value)
+    match Me_request.Detail_key.value key with
+    | Some value ->
+        let* kernel =
+          wrap
+            (fun e -> `Kernel e)
+            (Kernel_adapt.of_stage_program stage_program)
+        in
+        let* value =
+          Err.of_option `Unsupported_detail_key (Kernel.value kernel value)
+        in
+        wrap (fun e -> `Value_graph e) (Me_detail.of_value ~limits ~key value)
+    | None -> (
+        match Me_request.Detail_key.operator_node key with
+        | None -> Err.fail `Unsupported_detail_key
+        | Some node_id ->
+            let node =
+              List.find_opt
+                (fun (node : Graph_ir.node) ->
+                  Graph_ir.Node_id.equal node.id node_id)
+                t.graph.Graph_ir.Graph.nodes
+            in
+            let* node = Err.of_option `Unsupported_detail_key node in
+            let stage id =
+              List.find_opt
+                (fun (stage : Stage_program.Stage.t) ->
+                  Graph_ir.Tensor_id.equal stage.id id)
+                stage_program.Stage_program.stages
+            in
+            let* stages =
+              Err.List.map
+                (fun output ->
+                  Err.of_option `Unsupported_detail_key (stage output))
+                node.Graph_ir.Node.outputs
+            in
+            let kernel = Kernel_adapt.of_stage_program stage_program in
+            let values, kernel_available =
+              match kernel with
+              | Ok kernel ->
+                  ( List.map
+                      (fun (stage : Stage_program.Stage.t) ->
+                        Option.value
+                          ~default:
+                            {
+                              Kernel.Value.id = stage.id;
+                              sg = stage.sg;
+                              computation = stage.computation;
+                              result = Kernel.Result_conversion.Round_f32;
+                            }
+                          (Kernel.value kernel stage.id))
+                      stages,
+                    true )
+              | Error _ ->
+                  ( List.map
+                      (fun (stage : Stage_program.Stage.t) ->
+                        {
+                          Kernel.Value.id = stage.id;
+                          sg = stage.sg;
+                          computation = stage.computation;
+                          result = Kernel.Result_conversion.Round_f32;
+                        })
+                      stages,
+                    false )
+            in
+            let* graph =
+              wrap
+                (fun e -> `Value_graph e)
+                (Me_detail.of_operator ~limits ~key ~outputs:values)
+            in
+            let graph =
+              if kernel_available then graph
+              else
+                {
+                  graph with
+                  Model_explorer.Graph.nodes =
+                    List.map
+                      (fun (node : Model_explorer.GraphNode.t) ->
+                        if
+                          String.length node.id > 3
+                          && String.sub node.id (String.length node.id - 3) 3
+                             = "/e0"
+                        then
+                          {
+                            node with
+                            Model_explorer.GraphNode.label =
+                              "kernel boundary unavailable";
+                          }
+                        else node)
+                      graph.nodes;
+                }
+            in
+            Err.return graph)
   in
   let* collection =
     wrap

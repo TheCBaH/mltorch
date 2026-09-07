@@ -205,11 +205,20 @@ let%expect_test "a session request, and a detail request" =
   Format.printf "detail  %a@." pp_req
     (MR.Request.build_detail ~id ~source ~options ~limits:wire ~key);
   Printf.printf "parent node %s\n" (MR.Detail_key.parent_node key);
+  let operator =
+    Err.or_raise ~pp_error:MR.Request.pp_error
+      (MR.Detail_key.create_operator ~limits ~parent_graph:"g/native/001"
+         ~node:(Graph_ir.Node_id.of_int 17))
+  in
+  Printf.printf "operator %s %s\n"
+    (MR.Detail_key.id operator)
+    (MR.Detail_key.session_node operator);
   [%expect
     {|
     session ok epoch=0f8fad5b-d9cb-469f-a165-70867728950e key=none
     detail  ok epoch=0f8fad5b-d9cb-469f-a165-70867728950e key=expr/g/native/001/t12/t12
-    parent node t12 |}]
+    parent node t12
+    operator expr/g/native/001/n17 n17 |}]
 
 let%expect_test "a component valid ALONE can be invalid in its request" =
   (* This is what revalidation buys, and it is the row a "were the components
