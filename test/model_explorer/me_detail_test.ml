@@ -86,6 +86,11 @@ let%expect_test "the kernel graph offers value nodes to ask about" =
     (String.concat " " (List.map string_of_int (kernel_value_nodes session)));
   [%expect {| 1 2 |}]
 
+let operator_key node =
+  Err.or_raise ~pp_error:MR.Request.pp_error
+    (MR.Detail_key.create_operator ~limits ~parent_graph:"g/native/001"
+       ~node:(Graph_ir.Node_id.of_int node))
+
 let key ?(parent = kernel_id) v =
   Err.or_raise ~pp_error:MR.Request.pp_error
     (MR.Detail_key.create ~limits ~parent_graph:parent
@@ -147,6 +152,11 @@ let%expect_test "two details on two different value nodes" =
   [%expect {|
     one   graphs=8 views=8
     two   graphs=9 views=9 |}]
+
+let%expect_test "an operator detail links its canonical Native parent" =
+  let k = operator_key 0 in
+  Format.printf "%a@." pp (Me_detail.apply ~key:k ~limits session (delta k));
+  [%expect {| graphs=8 views=8 |}]
 
 let%expect_test "re-requesting one REPLACES it" =
   (* Aggregates are counted over what is installed, so an accumulating merge
@@ -291,12 +301,15 @@ let%expect_test "an expression becomes one node per AST node" =
   [%expect
     {|
     expr/g/kernel/000/t7/t7
-      e0  +         from []
-      e1  *         from [e0]
-      e2  const 2   from [e1]
-      e3  const 3   from [e1]
-      e4  round_f32 from [e0]
-      e5  const 4   from [e4] |}]
+      e0  round_f32 from []
+      e1  region    from [e0]
+      e2  emitter   from [e1]
+      e3  +         from [e2]
+      e4  *         from [e3]
+      e5  const 2   from [e4]
+      e6  const 3   from [e4]
+      e7  round_f32 from [e3]
+      e8  const 4   from [e7] |}]
 
 let%expect_test "the size ceiling is checked BEFORE the walk" =
   let tight =
@@ -357,7 +370,12 @@ let%expect_test "a Region detail includes its locals and emitter" =
     graph.ME.Graph.nodes;
   [%expect
     {|
-    l0-e0 const 2
-    emit-e0 +
-    emit-e1 local
-    emit-e2 const 1 |}]
+    e0 round_f32
+    e1 region
+    e2 local l0
+    e3 l0
+    e4 const 2
+    e5 emitter
+    e6 +
+    e7 local
+    e8 const 1 |}]

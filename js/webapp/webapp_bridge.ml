@@ -23,6 +23,7 @@ module Js_read = struct
     | `Not_an_array of string
     | `Not_a_string_element of string
     | `Not_a_decimal of string
+    | `Not_an_integer of string
     | `Unknown_stage of string
     | `Unknown_effort of string
     | `Unknown_source_kind of string ]
@@ -39,6 +40,7 @@ module Js_read = struct
         Format.fprintf fmt "every %s entry must be a string" field
     | `Not_a_decimal field ->
         Format.fprintf fmt "%s must be a decimal string" field
+    | `Not_an_integer field -> Format.fprintf fmt "%s must be an integer" field
     | `Unknown_stage s -> Format.fprintf fmt "unknown output stage %S" s
     | `Unknown_effort s -> Format.fprintf fmt "unknown verification effort %S" s
     | `Unknown_source_kind s -> Format.fprintf fmt "unknown source kind %S" s
@@ -101,6 +103,20 @@ module Js_read = struct
             else fail (`Not_a_string_element name)
       in
       go [] (Array.to_list (Js.to_array (Js.Unsafe.coerce v)))
+
+  let int_field ?label o name =
+    let label = match label with Some l -> l | None -> name in
+    let v = field o name in
+    if String.equal (typeof v) "number" then
+      let f = Js.float_of_number (Js.Unsafe.coerce v) in
+      if
+        Float.is_finite f
+        && Float.floor f = f
+        && f >= float_of_int min_int
+        && f <= float_of_int max_int
+      then Err.return (int_of_float f)
+      else fail (`Not_an_integer label)
+    else fail (`Not_an_integer label)
 end
 
 open Err.Syntax
@@ -289,6 +305,74 @@ let build_session raw =
     | Error message -> response false ~error:message
   with exn -> response false ~error:(error_text exn)
 
+(* A detail uses the same source and normalised options as a session request;
+   only its closed parent key differs.  Keeping construction here means the
+   page never serialises an unchecked rendered node id into the worker wire. *)
+let build_detail raw =
+  try
+    let id_text =
+      Err.or_raise ~pp_error:Js_read.pp_error (Js_read.string_field raw "id")
+    in
+    let id =
+      Err.or_raise ~pp_error:Me_request.Request.pp_error
+        (Me_request.Request_id.of_string id_text)
+    in
+    let source_raw = Js_read.field raw "source" in
+    let origin =
+      Err.or_raise ~pp_error:Js_read.pp_error (read_origin source_raw)
+    in
+    let bytes =
+      Err.or_raise ~pp_error:Js_read.pp_error (read_bytes source_raw)
+    in
+    let name =
+      Err.or_raise ~pp_error:Js_read.pp_error
+        (Js_read.string_field source_raw "name" ~label:"source.name")
+    in
+    let source =
+      Err.or_raise ~pp_error:Me_request.Request.pp_error
+        (Me_request.Source.create ~limits:Me_limits.Limits.untrusted ~origin
+           ~name ~bytes ~format:`Model_json)
+    in
+    let stages, fold, verify_symbolic =
+      Err.or_raise ~pp_error:Js_read.pp_error (read_options raw)
+    in
+    let options =
+      Err.or_raise ~pp_error:Me_request.Request.pp_error
+        (Me_request.Options.create ~stages ~fold ~verify_symbolic
+           ~namespace:Me_request.Options.Structural)
+    in
+    let key_raw = Js_read.field raw "key" in
+    if not (Js_read.is_object key_raw) then
+      Err.or_raise ~pp_error:Js_read.pp_error
+        (Js_read.fail (`Not_an_object "key"));
+    let parent_graph =
+      Err.or_raise ~pp_error:Js_read.pp_error
+        (Js_read.string_field key_raw "parentGraph" ~label:"key.parentGraph")
+    in
+    let node =
+      Err.or_raise ~pp_error:Js_read.pp_error
+        (Js_read.int_field key_raw "node" ~label:"key.node")
+    in
+    let limits =
+      Err.or_raise ~pp_error:Me_limits.pp_error
+        (Me_limits.Wire_limits.of_limits ~ceiling:Me_limits.Limits.untrusted
+           Me_limits.Limits.untrusted)
+    in
+    let key =
+      Err.or_raise ~pp_error:Me_request.Request.pp_error
+        (Me_request.Detail_key.create_operator
+           ~limits:Me_limits.Limits.untrusted ~parent_graph
+           ~node:(Graph_ir.Node_id.of_int node))
+    in
+    let request =
+      Err.or_raise ~pp_error:Me_request.Request.pp_error
+        (Me_request.Request.build_detail ~id ~source ~options ~limits ~key)
+    in
+    match Jsont_bytesrw.encode_string Me_request.Request.jsont request with
+    | Ok json -> response true ~request:(Buffer.fresh_array_buffer json)
+    | Error message -> response false ~error:message
+  with exn -> response false ~error:(error_text exn)
+
 let staged = ref None
 
 let prepare expected_id meta_text document =
@@ -320,6 +404,61 @@ let prepare expected_id meta_text document =
     | Ok render ->
         staged := Some expected_id;
         response true ~token:expected_id ~render
+    | Error message -> response false ~error:message
+  with exn -> response false ~error:(error_text exn)
+
+(* The delta payload never repeats its request key.  This boundary rebuilds
+   that typed key from the pending action and gives it to [Me_detail.apply], so
+   a valid delta for one operator cannot be installed on another. *)
+let apply_detail expected_id raw_key session_text meta_text document =
+  try
+    let expected =
+      Err.or_raise ~pp_error:Me_request.Request.pp_error
+        (Me_request.Request_id.of_string expected_id)
+    in
+    let parent_graph =
+      Err.or_raise ~pp_error:Js_read.pp_error
+        (Js_read.string_field raw_key "parentGraph" ~label:"key.parentGraph")
+    in
+    let node =
+      Err.or_raise ~pp_error:Js_read.pp_error
+        (Js_read.int_field raw_key "node" ~label:"key.node")
+    in
+    let key =
+      Err.or_raise ~pp_error:Me_request.Request.pp_error
+        (Me_request.Detail_key.create_operator
+           ~limits:Me_limits.Limits.untrusted ~parent_graph
+           ~node:(Graph_ir.Node_id.of_int node))
+    in
+    let meta =
+      Err.or_raise ~pp_error:Me_response.Meta.pp_error
+        (Me_response.Meta.decode meta_text)
+    in
+    (match meta with
+    | Me_response.Meta.Delta d
+      when Me_request.Request_id.equal expected d.id
+           && Me_request.Detail_key.equal key d.key
+           && d.bytes = String.length document ->
+        ()
+    | _ -> raise Exit);
+    let session =
+      match
+        Jsont_bytesrw.decode_string Me_session.Session.jsont session_text
+      with
+      | Ok value -> value
+      | Error _ -> raise Exit
+    in
+    let delta =
+      match Jsont_bytesrw.decode_string Me_detail.Delta.jsont document with
+      | Ok value -> value
+      | Error _ -> raise Exit
+    in
+    let merged =
+      Err.or_raise ~pp_error:Me_detail.pp_error
+        (Me_detail.apply ~key ~limits:Me_limits.Limits.untrusted session delta)
+    in
+    match Jsont_bytesrw.encode_string Me_session.Session.jsont merged with
+    | Ok render -> response true ~render
     | Error message -> response false ~error:message
   with exn -> response false ~error:(error_text exn)
 
@@ -406,7 +545,10 @@ let () =
   in
   let request =
     Js.Unsafe.obj
-      [| ("buildSession", Js.Unsafe.inject (Js.wrap_callback build_session)) |]
+      [|
+        ("buildSession", Js.Unsafe.inject (Js.wrap_callback build_session));
+        ("buildDetail", Js.Unsafe.inject (Js.wrap_callback build_detail));
+      |]
   in
   let session =
     Js.Unsafe.obj
@@ -427,6 +569,11 @@ let () =
           Js.Unsafe.inject
             (Js.wrap_callback (fun document ->
                  group_constants (Js.to_string document))) );
+        ( "applyDetail",
+          Js.Unsafe.inject
+            (Js.wrap_callback (fun id key session meta document ->
+                 apply_detail (Js.to_string id) key (Js.to_string session)
+                   (Js.to_string meta) (Js.to_string document))) );
       |]
   in
   Js.export "mltorch"

@@ -11,6 +11,8 @@ const compareSelect = $('comparison');
 const constantsSelect = $('constants');
 const reload = $('reload'), clearLocal = $('clear-local');
 const flowButton = $('flow-open');
+const symbolicAction = $('symbolic-action'), symbolicSelection = $('symbolic-selection');
+const symbolicOpen = $('symbolic-open');
 const bridge = globalThis.mltorch;
 
 function showError(message) { error.textContent = message; error.hidden = false; }
@@ -19,7 +21,7 @@ function showNotice(message) { notice.textContent = message; notice.hidden = fal
 function clearNotice() { notice.hidden = true; notice.textContent = ''; }
 
 async function main() {
-  if (!bridge?.hard || !bridge?.request || !bridge?.session) throw new Error('MLTorch bridge did not load');
+  if (!bridge?.hard || !bridge?.request?.buildDetail || !bridge?.session?.applyDetail) throw new Error('MLTorch bridge did not load');
   const store = new SourceStore({ hard: bridge.hard });
   // The quarantine ceiling is the OCaml one: `Me_limits.response_live_bytes`
   // budgets the browser's retained elements against exactly this number.
@@ -29,7 +31,17 @@ async function main() {
   const renderer = new Renderer({
     mount: $('visualizer'),
     hardMaxQuarantined: bridge.hard.maxQuarantinedElements,
-    onFlowSelect: (selection) => { flowSelection = selection; renderFlowChrome(); },
+    onFlowSelect: (selection) => {
+      flowSelection = selection;
+      const canonical = index?.viewById.get('v/canonical');
+      operatorSelection = coordinator?.presentation?.kind === 'single'
+        && coordinator.presentation.view === 'v/canonical'
+        && selection?.graphId === canonical?.graph
+        && selection?.collectionLabel === canonical?.collection
+        && /^n[0-9]+$/.test(selection.nodeId)
+        ? selection : null;
+      renderFlowChrome(); renderSymbolicAction();
+    },
   });
 
   /* Browser-owned state. `index` is derived from the coordinator's retained
@@ -47,6 +59,7 @@ async function main() {
   /* The flow node the user last selected, or null. Browser-only state: it is not
    * part of any presentation, so it never reaches the URL. */
   let flowSelection = null;
+  let operatorSelection = null;
 
   const asView = (presentation) =>
     (presentation?.kind === 'single' ? presentation.view : null);
@@ -105,6 +118,13 @@ async function main() {
       });
   };
 
+  const renderSymbolicAction = () => {
+    symbolicAction.hidden = !operatorSelection;
+    if (operatorSelection) {
+      symbolicSelection.textContent = `Selected canonical operator ${operatorSelection.nodeId}`;
+    }
+  };
+
   const renderSession = (presentation) => {
     if (!index) return;
     const comparisonId = asComparison(presentation);
@@ -114,6 +134,7 @@ async function main() {
     panels.renderPaneLabels($('pane-labels'), index, comparison);
     panels.renderComparisonSummary($('presentation-note'), comparison);
     renderFlowChrome();
+    renderSymbolicAction();
     panels.renderUnavailable($('unavailable-list'), $('unavailable').firstElementChild, index);
     panels.renderDiagnostics($('diagnostics-list'), $('diagnostics').firstElementChild, index);
     panels.renderValidation($('validation-body'), $('validation').firstElementChild, index);
@@ -163,6 +184,13 @@ async function main() {
       if (resolved && resolved.kind !== 'single') {
         changePresentation(resolved, 'replace').catch((e) => showError(e.message));
       }
+    },
+    onDetail: ({ sessionText, viewId }) => {
+      index = P.buildIndex(sessionText);
+      operatorSelection = null;
+      if (viewId) lastView = viewId;
+      renderSession(coordinator.presentation);
+      writeUrl('push', coordinator.presentation);
     },
   });
 
@@ -294,6 +322,20 @@ async function main() {
     changeFromControl(id === panels.NO_COMPARISON
       ? P.singlePresentation(viewSelect.value)
       : P.comparisonPresentation(id));
+  });
+  symbolicOpen.addEventListener('click', () => {
+    const selected = operatorSelection;
+    if (!selected) return;
+    const node = Number(selected.nodeId.slice(1));
+    if (!Number.isSafeInteger(node)) return showError('selected operator id is invalid');
+    clearError(); clearNotice();
+    const installed = index.detailByParent.get(`${selected.graphId}\u0000${selected.nodeId}`);
+    if (installed) {
+      changePresentation(P.singlePresentation(installed.id), 'push').catch((e) => showError(e.message));
+      return;
+    }
+    coordinator.openDetail({ parentGraph: selected.graphId, node })
+      .catch((e) => showError(e.message));
   });
   /* No worker, no bridge `prepare`/`commit` -- only `groupConstants` -- and no
    * change to which graph or view is on screen. The same failure handling as

@@ -35,10 +35,10 @@ const describe = (d) => (d.kind === 'comparison'
  * inconsistency -- the DOM is coherent -- but they hold quarantine slots. */
 const isDebt = (state) => state === 'cleanup_failed' || state === 'cleanup_abandoned';
 
-/* `View.kind` is `stage:<name>`, `flow`, or `compare`. Only a stage view names
- * a graph this shell can open as a single view, so every selection rung below
- * filters on this and not merely on "the id resolves". */
+/* `View.kind` is `stage:<name>`, `detail`, `flow`, or `compare`. A detail is
+ * opened only by its parent action; stage views remain the only fallbacks. */
 const isStage = (view) => typeof view?.kind === 'string' && view.kind.startsWith('stage:');
+const isDetail = (view) => view?.kind === 'detail';
 
 /* The one graph-addressed set the shell interprets rather than merely relays.
  * `Me_verify` names it, and `Me_fusion`'s "fusion" is the only other. */
@@ -192,11 +192,12 @@ export class Renderer {
       return view && isStage(view) ? view : null;
     };
     if (selection?.view != null) {
-      const view = stage(selection.view);
-      if (!view) {
-        throw new RenderFailure('invalid', `session has no stage view "${selection.view}"`);
+      const view = views.find((v) => v.id === selection.view);
+      const single = view && (isStage(view) || isDetail(view)) ? view : null;
+      if (!single) {
+        throw new RenderFailure('invalid', `session has no single-graph view "${selection.view}"`);
       }
-      return { graphId: view.graph, viewId: view.id };
+      return { graphId: single.graph, viewId: single.id };
     }
     if (Array.isArray(selection?.prefer)) {
       for (const id of selection.prefer) {
@@ -801,10 +802,11 @@ export class Renderer {
   }
 
   /* Attached by `finalize` to the entry it promotes, because a hidden candidate
-   * must never navigate: its slot is `pointer-events: none`, so every event it
-   * could see is one this renderer caused. */
+   * must never route a selection: its slot is `pointer-events: none`, so every
+   * event it could see is one this renderer caused.  Flow and ordinary single
+   * views share the same non-navigating select-then-act route. */
   #attachRouter(entry) {
-    if (entry.descriptor.kind !== 'flow' || entry.router) return;
+    if ((entry.descriptor.kind !== 'flow' && entry.descriptor.kind !== 'single') || entry.router) return;
     entry.router = (event) =>
       this.#guard(entry, 'selectedNodeChanged', () => this.#onSelected(entry, event));
     entry.element.addEventListener('selectedNodeChanged', entry.router);

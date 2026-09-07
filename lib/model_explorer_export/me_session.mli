@@ -223,6 +223,8 @@ end
 module View : sig
   type kind =
     | Compare  (** names a {!Comparison} by the same id *)
+    | Detail of { parent_graph : string; parent_node : string }
+        (** an on-demand expression graph linked from one canonical operator *)
     | Flow
     | Stage of Capability.graph_stage
         (** the exported graph this view shows; "canonical" is a VIEW naming the

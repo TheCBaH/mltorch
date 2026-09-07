@@ -1301,26 +1301,36 @@ both. The aggregates are checked on the **merged** session, over every installed
 node ceiling is checked on the **delta alone**, because a merged check would let an
 over-ceiling delta through whenever the session it joins is small.
 
-**The size ceiling runs before the walk.** `Fold.size` is an unmetered traversal but
-allocates nothing, while building nodes allocates per node — and an expression is exactly
-the shape whose size is not apparent from the thing that names it.
+**Detail parents are a closed key variant.** The established value parent remains available
+for the advanced Kernel view as `{kind:"value", parentGraph, value}`. The operator path uses
+`{kind:"operator", parentGraph:"g/native/001", node}`. They derive different ids and session
+parent-node ids, so no spelling heuristic can confuse a value with a canonical Native operator.
+The exporter rebuilds the canonical graph, resolves the named node, derives its ordered output
+ids, and projects them together under one operator and one output root per slot. Symbolic
+Stage computations are the authority; Kernel conversion metadata enriches a successful
+adaptation, while an unavailable adaptation is labelled rather than fabricated.
 
-**Every node carries the subtree rooted there, rendered and bounded — one attribute, not
-per-constructor ones.** `Expr.Pp.index` takes a `names` function precisely so its output
-cannot depend on allocation history, and this walk holds no scoped naming environment to
-give it; `Expr.Pp.value` builds its own. So a `Select`'s condition and a `Reduce`'s bounds
-are visible in their node's rendering rather than as index-language nodes, which would put
-two languages in one graph.
+**The size ceiling runs before the walk, over what the projector emits.** The measurement
+includes presentation roots, Region locals, binders, value, Boolean and index terms, and
+each coordinate component. It stops at the configured ceiling before graph-node allocation;
+`Expr.Fold.size` remains a semantic input validation measure, not a proxy for this output.
+
+**The graph is a typed decomposition tree.** Edges go from a construct to its constituents
+and carry a `role` metadata field such as `lhs`, `lower`, `body`, or `coord:H`. The endpoint
+slots remain ordinary Model Explorer slots. Each node records `language` and `constructor`;
+index nodes also record their position or delta role. A reduction or scan reference records
+its lexical `bound_by` node id and display name as attributes. It does not draw a cross-tree
+binder edge, because scope is not dataflow.
 
 **The worker's detail path is a smaller pipeline than its session path**, and re-lowers
 rather than caching. That is what a self-contained request means: the worker holds no session
 between requests, so there is nothing that could be stale.
 
-**The measure is `Expr.Fold.size`, which counts index trees too**, so it exceeds the number
-of value nodes produced — a convolution is 88 by that measure and 8 nodes here. The bound is
-conservative deliberately, because the index trees are what the bounded per-node rendering
-pays for, and the rejection is named for what was *measured* rather than for what would have
-been built.
+**Region programs remain structural.** The detail graph starts at the kernel result
+conversion, then a Region root with declaration-ordered local definitions and an emitter.
+Loads, data indices, reduction bounds, predicates and all six coordinate components are
+walked as their real typed terms. Intrinsics remain semantic leaves with their addressing
+coordinates exposed, rather than being presented as a fabricated lowering.
 
 **`native_graph detail` is its own command, not a flag on `visualize`.** The two produce
 different documents with different lifetimes — a session is a whole model, a delta is one

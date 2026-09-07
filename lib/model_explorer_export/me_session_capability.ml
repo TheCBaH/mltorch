@@ -237,7 +237,11 @@ module Capability = struct
 end
 
 module View = struct
-  type kind = Compare | Flow | Stage of Capability.graph_stage
+  type kind =
+    | Compare
+    | Detail of { parent_graph : string; parent_node : string }
+    | Flow
+    | Stage of Capability.graph_stage
 
   type t = {
     id : string;
@@ -247,20 +251,39 @@ module View = struct
     graph : string;
   }
 
-  let kind_jsont =
-    Jsont.enum ~kind:"view_kind"
-      (List.map
-         (fun s -> ("stage:" ^ Capability.stage_name s, Stage s))
-         Capability.all_stages
-      @ [ ("compare", Compare); ("flow", Flow) ])
-
   let jsont =
-    Jsont.Object.map ~kind:"view" (fun id label kind collection graph ->
-        { id; label; kind; collection; graph })
+    Jsont.Object.map ~kind:"view"
+      (fun id label kind collection graph parent_graph parent_node ->
+        let make kind = { id; label; kind; collection; graph } in
+        match (kind, parent_graph, parent_node) with
+        | "compare", None, None -> make Compare
+        | "flow", None, None -> make Flow
+        | "detail", Some parent_graph, Some parent_node ->
+            make (Detail { parent_graph; parent_node })
+        | _, None, None -> (
+            match
+              List.find_opt
+                (fun s ->
+                  String.equal kind ("stage:" ^ Capability.stage_name s))
+                Capability.all_stages
+            with
+            | Some stage -> make (Stage stage)
+            | None ->
+                Jsont.Error.msgf Jsont.Meta.none "unknown view kind %S" kind)
+        | _ -> Jsont.Error.msgf Jsont.Meta.none "invalid detail view")
     |> Jsont.Object.mem "id" Jsont.string ~enc:(fun v -> v.id)
     |> Jsont.Object.mem "label" Jsont.string ~enc:(fun v -> v.label)
-    |> Jsont.Object.mem "kind" kind_jsont ~enc:(fun v -> v.kind)
+    |> Jsont.Object.mem "kind" Jsont.string ~enc:(fun v ->
+        match v.kind with
+        | Compare -> "compare"
+        | Detail _ -> "detail"
+        | Flow -> "flow"
+        | Stage stage -> "stage:" ^ Capability.stage_name stage)
     |> Jsont.Object.mem "collection" Jsont.string ~enc:(fun v -> v.collection)
     |> Jsont.Object.mem "graph" Jsont.string ~enc:(fun v -> v.graph)
+    |> Jsont.Object.opt_mem "parentGraph" Jsont.string ~enc:(fun v ->
+        match v.kind with Detail d -> Some d.parent_graph | _ -> None)
+    |> Jsont.Object.opt_mem "parentNode" Jsont.string ~enc:(fun v ->
+        match v.kind with Detail d -> Some d.parent_node | _ -> None)
     |> Jsont.Object.finish
 end
