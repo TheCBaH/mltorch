@@ -104,3 +104,9 @@ let%expect_test "the matching kernel value stays in the canonical group" =
   in
   Fmt.pr "%s@." value.ME.GraphNode.namespace;
   [%expect {| LayerNorm#g0 |}]
+
+let%expect_test "the matching kernel value preserves its canonical origin" =
+  Fmt.pr "%s output %s@."
+    (Option.get (attr "canonical_native_node"))
+    (Option.get (attr "canonical_output_slot"));
+  [%expect {| n0 output 0 |}]

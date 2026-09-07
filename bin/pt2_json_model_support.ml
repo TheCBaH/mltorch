@@ -178,7 +178,7 @@ let row_of_error ~model (e : Me_export.error) =
     | `Declared_format_disagrees | `Archive _ | `Kernel _
     | `Unsupported_detail_key | `Value_graph _ | `Fusion _ | `Source_view _
     | `View _ | `Project _ | `Navigation _ | `Flow_graph _ | `Verification _
-    | `Identifier _ | `Document _ ->
+    | `Detail _ | `Detail_key _ | `Document _ | `Identifier _ ->
         ("process", "process_error")
   in
   let shared =

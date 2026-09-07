@@ -128,8 +128,8 @@ let%expect_test "a model the lowerer handles" =
   [%expect
     {|
     phases: decode encode
-    session payload=6873 bytes
-    {"kind":"session","id":"0f8fad5b-d9cb-469f-a165-70867728950e-1","limits":{},"bytes":6873} |}]
+    session payload=14384 bytes
+    {"kind":"session","id":"0f8fad5b-d9cb-469f-a165-70867728950e-1","limits":{},"bytes":14384} |}]
 
 let%expect_test "a model the lowerer does NOT handle is still a session" =
   (* The one row that makes this a capability protocol rather than an error

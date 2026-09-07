@@ -239,19 +239,31 @@ let kernel ~limits ~id ?origin (k : Kernel.t) =
     ~values:
       (List.map
          (fun (v : Kernel.Value.t) ->
+           let origin =
+             Option.bind origin (fun origin -> origin v.Kernel.Value.id)
+           in
            let namespace =
-             match
-               Option.bind origin (fun origin -> origin v.Kernel.Value.id)
-             with
+             match origin with
              | None -> ""
              | Some (origin : Origin.t) -> origin.namespace
+           in
+           let origin_attrs =
+             match origin with
+             | None -> []
+             | Some (origin : Origin.t) ->
+                 [
+                   attr "canonical_native_node"
+                     (Core.Pretty.to_string Graph_ir.Node_id.pp origin.node);
+                   attr "canonical_output_slot"
+                     (string_of_int origin.output_slot);
+                 ]
            in
            ( v.Kernel.Value.id,
              Kernel.Result_conversion.name v.Kernel.Value.result,
              v.Kernel.Value.sg,
              project_exn v.Kernel.Value.computation,
              namespace,
-             [] ))
+             origin_attrs ))
          k.Kernel.values)
     ~outputs:
       (List.map

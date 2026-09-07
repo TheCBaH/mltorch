@@ -654,11 +654,11 @@ export class Renderer {
       if (d.kind === 'comparison') {
         entry.element.selectNode(target.firstNodeId, target.graph, target.collectionLabel, 0);
       } else {
-        /* [D2] A flow candidate arms its expectation and its OBSERVER before
-         * the call, not after: the emission can land in either order relative
-         * to finalize, and only an observation -- never an assumption about
-         * timing -- can tell which happened. */
-        if (d.kind === 'flow') this.#observe(entry, target);
+        /* [D2] Every single-graph candidate arms its expectation and its
+         * OBSERVER before the call, not after: the emission can land in either
+         * order relative to finalize, and only an observation -- never an
+         * assumption about timing -- can tell which happened. */
+        this.#observe(entry, target);
         entry.element.selectNode(target.firstNodeId, target.graph, target.collectionLabel);
       }
       return;

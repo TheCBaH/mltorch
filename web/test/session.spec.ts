@@ -49,6 +49,11 @@ test('the exported session renders in the pinned element', async ({ page }) => {
   // this gate stopped covering what it claims to.
   expect(gate.graphs.length, 'graphs entered').toBeGreaterThanOrEqual(3);
 
+  // Expression graphs are installed eagerly. The browser gate enters one
+  // representative alongside every primary pipeline graph; the cram suite
+  // checks the complete expression-graph inventory.
+  expect(gate.expressionGraph, 'no eagerly-installed expression graph was entered').toMatch(/^expr\//);
+
   // The one hard assertion. A graph that never finishes processing is a defect
   // in what we emitted however the renderer chooses to display it.
   for (const g of gate.graphs) {

@@ -1,10 +1,10 @@
 (* Expression detail: one Kernel value's AST, and how it is merged into a
-   session that has already been rendered.
+   session.
 
-   ON DEMAND, and that is the whole reason it is a delta rather than a stage. A
-   kernel value's expression can be far larger than the graph node that produced
-   it, and a session that carried every one of them up front would pay for every
-   expression to show one.
+   INITIAL SESSIONS are referentially complete: they carry one expression graph
+   per canonical operator and native links from that operator and its projected
+   Stage/Kernel values. The delta remains the standalone CLI and protocol form,
+   where it can merge one independently requested detail into a session.
 
    THE DELTA CARRIES NO EPOCH AND NO KEY. Three identities take part in a detail
    response — the pending request's, the metadata's, and the payload's — and
@@ -16,9 +16,8 @@
    the bridge holds it, so the staleness check lives there and this stays pure
    in the session and the delta.
 
-   THE INITIAL SESSION STAYS REFERENTIALLY VALID. A Kernel value node carries no
-   [subGraphIds] until its detail exists — only a [detail] attribute the shell
-   reads — so nothing in a fresh session points at a graph that is not there.
+   INITIAL LINKS STAY REFERENTIALLY VALID. The graph, view and [subGraphIds]
+   links arrive together, so no document ever points at a graph it lacks.
 
    See .ai/model_explorer_design.md. *)
 
@@ -100,5 +99,7 @@ val apply :
 
     Re-requesting a detail REPLACES the existing one by [Detail_key.equal], so
     repeated requests cannot inflate the aggregates — only the committed result
-    counts. Installing the graph, the view and the parent node's [subGraphIds]
-    happens together, because a detail commits all of them or none. *)
+    counts. Installing the graph, view and parent-node [subGraphIds] happens
+    together. An operator detail also links every Stage or Kernel value with its
+    exact canonical-origin attribute, so those values are alternate entry points
+    to the same graph rather than eager copies of it. *)

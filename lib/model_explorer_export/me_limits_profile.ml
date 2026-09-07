@@ -630,7 +630,7 @@ module Limits = struct
            ~max_namespace_component_bytes:256 ~max_label_bytes:1024
            ~max_id_bytes:1024 ~max_attr_chars:0x2000 ~max_url_bytes:2048
            ~max_graphs:1024 ~max_total_nodes:0x100_0000L
-           ~max_total_edges:0x200_0000L ~max_views:256 ~max_comparisons:64
+           ~max_total_edges:0x200_0000L ~max_views:1024 ~max_comparisons:64
            ~max_node_data_sets:64 ~max_states:256 ~max_transitions:1024
            ~max_mapping_entries_per_comparison:0x2_0000
            ~max_mapping_members_per_entry:64
@@ -640,7 +640,7 @@ module Limits = struct
            ~max_overlay_edges_total:0x20_0000 ~max_diagnostics:32
            ~max_diagnostic_bytes:512 ~max_session_bytes:0x40_0000
            ~max_trace_entries:0x4_0000 ~max_audit_reports:0x1000
-           ~max_detail_nodes:0x4000 ~max_detail_graphs:256
+           ~max_detail_nodes:0x4000 ~max_detail_graphs:1024
            ~max_detail_bytes:0x10_0000 trusted)
 
   (* Fieldwise no looser than [untrusted], so it is wire-selectable. *)
@@ -653,8 +653,8 @@ module Limits = struct
            ~max_metadata_items_per_node:64 ~max_outputs_metadata_per_node:64
            ~max_namespace_depth:16 ~max_namespace_component_bytes:128
            ~max_label_bytes:256 ~max_id_bytes:256 ~max_attr_chars:0x800
-           ~max_url_bytes:1024 ~max_graphs:128 ~max_total_nodes:0x10_0000L
-           ~max_total_edges:0x20_0000L ~max_views:64 ~max_comparisons:16
+           ~max_url_bytes:1024 ~max_graphs:1024 ~max_total_nodes:0x10_0000L
+           ~max_total_edges:0x20_0000L ~max_views:1024 ~max_comparisons:16
            ~max_node_data_sets:16 ~max_states:64 ~max_transitions:256
            ~max_mapping_entries_per_comparison:0x4000
            ~max_mapping_members_per_entry:16 ~max_mapping_members_total:0x4_0000
@@ -663,7 +663,7 @@ module Limits = struct
            ~max_overlay_edges_total:0x4_0000 ~max_diagnostics:16
            ~max_diagnostic_bytes:256 ~max_session_bytes:0x8_0000
            ~max_trace_entries:0x8000 ~max_audit_reports:256
-           ~max_detail_nodes:0x1000 ~max_detail_graphs:64
+           ~max_detail_nodes:0x1000 ~max_detail_graphs:1024
            ~max_detail_bytes:0x4_0000 untrusted)
 
   (* Between [untrusted] and [Hard], for internal callers holding data they

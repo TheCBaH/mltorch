@@ -61,5 +61,5 @@ val kernel :
     BINDING — caller, captured constant, or filled — because that is the
     distinction the adaptation exists to make and it appears nowhere in the
     graph shape. When an origin is supplied, its values share the canonical
-    operator groups used by the Stage Program. Outputs carry their quantisation,
-    likewise. *)
+    operator groups and origin attributes used by the Stage Program. Outputs
+    carry their quantisation, likewise. *)

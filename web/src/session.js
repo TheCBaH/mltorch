@@ -67,12 +67,18 @@ async function run() {
   const collections = session.graphCollections;
   const label = collections[0].label;
 
-  /* Every graph the session offers, entered in turn through the SAME element.
-   * Entering them one at a time rather than trusting the first is what makes
-   * this a check of the whole document: the source graph, the initial Native
-   * graph and the canonical one are three different projections, and only one
-   * of them is the default view. */
-  for (const g of collections[0].graphs) {
+  /* Every primary graph, plus one eagerly-installed expression subgraph,
+   * entered in turn through the SAME element. There can be hundreds of
+   * expression graphs, so rendering each one serially would turn this browser
+   * gate into a timeout rather than a useful schema check. The export crams
+   * cover that complete set; here one expression graph establishes that the
+   * renderer accepts the new graph kind, alongside the source, initial Native
+   * and canonical pipeline projections. */
+  const primaryGraphs = collections[0].graphs.filter((g) => !g.id.startsWith('expr/'));
+  const expressionGraph = collections[0].graphs.find((g) => g.id.startsWith('expr/'));
+  const graphsToEnter = expressionGraph ? [...primaryGraphs, expressionGraph] : primaryGraphs;
+  result.expressionGraph = expressionGraph?.id;
+  for (const g of graphsToEnter) {
     const el = document.createElement('model-explorer-visualizer');
     el.graphCollections = collections;
     el.config = { defaultGraphId: g.id };
@@ -130,9 +136,15 @@ async function run() {
      * unreachable. */
     const parentId = delta.view.id.split('/').slice(1, -2).join('/');
     const parent = coll.graphs.find((g) => g.id === parentId);
+    /* Expression subgraphs are now installed eagerly, so the target node may
+     * already carry its OWN operator detail's subgraph id -- this delta's link
+     * joins that list rather than replacing it, the same as `Me_detail.apply`
+     * (`add_subgraph`) does on the OCaml side. */
     const node = parent && parent.nodes.find(
-      (n) => (n.subgraphIds || []).length === 0 && n.id === 'v' + delta.view.id.split('/').at(-1).slice(1));
-    if (node) node.subgraphIds = [delta.graph.id];
+      (n) => n.id === 'v' + delta.view.id.split('/').at(-1).slice(1));
+    if (node) {
+      node.subgraphIds = [...new Set([...(node.subgraphIds || []), delta.graph.id])];
+    }
 
     const el = document.createElement('model-explorer-visualizer');
     el.graphCollections = merged;

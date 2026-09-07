@@ -14,12 +14,16 @@ see test/native4d_to4d_cram.t).
   > m = s['model']
   > print('sourceKind', m['sourceKind'])
   > print('sha256', m.get('sourceSha256', 'absent'))
-  > print('views=%d comparisons=%d graphs=%d' % (
-  >     len(s['views']), len(s['comparisons']),
-  >     len(s['graphCollections'][0]['graphs'])))"
+  > graphs = s['graphCollections'][0]['graphs']
+  > primary = lambda x: not x['id'].startswith('expr/')
+  > print('views=%d expressionViews=%d comparisons=%d graphs=%d expressionGraphs=%d' % (
+  >     len([v for v in s['views'] if primary(v)]),
+  >     len([v for v in s['views'] if not primary(v)]), len(s['comparisons']),
+  >     len([g for g in graphs if primary(g)]),
+  >     len([g for g in graphs if not primary(g)])))"
   sourceKind pt2
   sha256 absent
-  views=7 comparisons=2 graphs=7
+  views=7 expressionViews=100 comparisons=2 graphs=7 expressionGraphs=100
 
 The digest is absent because no expected one was supplied: a locally chosen
 file has nothing to verify against, and recording a digest we computed
@@ -53,8 +57,9 @@ running a fold that folded nothing while reporting the capability available.
   $ python3 -c "
   > import json
   > s = json.load(open('n4.json'))
-  > print('graphs', [(g['id'], len(g['nodes'])) for g in s['graphCollections'][0]['graphs']])
-  > print('views', [v['id'] for v in s['views']])
+  > primary = lambda x: not x['id'].startswith('expr/')
+  > print('graphs', [(g['id'], len(g['nodes'])) for g in s['graphCollections'][0]['graphs'] if primary(g)])
+  > print('views', [v['id'] for v in s['views'] if primary(v)])
   > print('states', [x['id'] for x in s['flow']['states']])
   > print('transitions', [(t['id'], t['kind']['kind']) for t in s['flow']['transitions']])
   > print('native4d', [c['status']['state'] for c in s['capabilities']

@@ -17,7 +17,7 @@ pinned here is the shape, the counts, and the COMPLETE capability vector.
   > print('views=%d comparisons=%d capabilities=%d graphs=%d' % (
   >     len(s['views']), len(s['comparisons']), len(s['capabilities']),
   >     len(s['graphCollections'][0]['graphs'])))"
-  views=7 comparisons=2 capabilities=14 graphs=7
+  views=107 comparisons=2 capabilities=14 graphs=107
 
 The complete capability vector, which is what a drifting downstream row would
 show up in. A test asserting only the interesting key would let the rest move.
@@ -110,7 +110,7 @@ fit, or don't fit the four-axis dialect at all.
   > print('graphs', [g['id'] for g in s['graphCollections'][0]['graphs']])
   > print('states', [x['id'] for x in s['flow']['states']])"
   []
-  graphs ['pt2/root', 'g/native/000', 'g/native/001', 'g/symbolic/000', 'g/native4d/000', 'g/kernel/000', 'g/flow']
+  graphs ['pt2/root', 'g/native/000', 'g/native/001', 'g/symbolic/000', 'g/native4d/000', 'g/kernel/000', 'g/flow', 'expr/g/native/001/n0', 'expr/g/native/001/n415', 'expr/g/native/001/n416', 'expr/g/native/001/n417', 'expr/g/native/001/n418', 'expr/g/native/001/n419', 'expr/g/native/001/n420', 'expr/g/native/001/n421', 'expr/g/native/001/n422', 'expr/g/native/001/n423', 'expr/g/native/001/n424', 'expr/g/native/001/n425', 'expr/g/native/001/n426', 'expr/g/native/001/n427', 'expr/g/native/001/n428', 'expr/g/native/001/n429', 'expr/g/native/001/n430', 'expr/g/native/001/n431', 'expr/g/native/001/n432', 'expr/g/native/001/n433', 'expr/g/native/001/n434', 'expr/g/native/001/n435', 'expr/g/native/001/n436', 'expr/g/native/001/n437', 'expr/g/native/001/n438', 'expr/g/native/001/n439', 'expr/g/native/001/n440', 'expr/g/native/001/n441', 'expr/g/native/001/n442', 'expr/g/native/001/n443', 'expr/g/native/001/n444', 'expr/g/native/001/n445', 'expr/g/native/001/n446', 'expr/g/native/001/n447', 'expr/g/native/001/n448', 'expr/g/native/001/n449', 'expr/g/native/001/n450', 'expr/g/native/001/n451', 'expr/g/native/001/n452', 'expr/g/native/001/n453', 'expr/g/native/001/n454', 'expr/g/native/001/n455', 'expr/g/native/001/n456', 'expr/g/native/001/n457', 'expr/g/native/001/n458', 'expr/g/native/001/n459', 'expr/g/native/001/n460', 'expr/g/native/001/n461', 'expr/g/native/001/n462', 'expr/g/native/001/n463', 'expr/g/native/001/n464', 'expr/g/native/001/n465', 'expr/g/native/001/n466', 'expr/g/native/001/n467', 'expr/g/native/001/n468', 'expr/g/native/001/n469', 'expr/g/native/001/n470', 'expr/g/native/001/n471', 'expr/g/native/001/n472', 'expr/g/native/001/n473', 'expr/g/native/001/n474', 'expr/g/native/001/n475', 'expr/g/native/001/n476', 'expr/g/native/001/n477', 'expr/g/native/001/n478', 'expr/g/native/001/n479', 'expr/g/native/001/n480', 'expr/g/native/001/n481', 'expr/g/native/001/n482', 'expr/g/native/001/n483', 'expr/g/native/001/n484', 'expr/g/native/001/n485', 'expr/g/native/001/n486', 'expr/g/native/001/n487', 'expr/g/native/001/n488', 'expr/g/native/001/n489', 'expr/g/native/001/n490', 'expr/g/native/001/n491', 'expr/g/native/001/n492', 'expr/g/native/001/n493', 'expr/g/native/001/n494', 'expr/g/native/001/n495', 'expr/g/native/001/n496', 'expr/g/native/001/n497', 'expr/g/native/001/n498', 'expr/g/native/001/n499', 'expr/g/native/001/n500', 'expr/g/native/001/n501', 'expr/g/native/001/n502', 'expr/g/native/001/n503', 'expr/g/native/001/n504', 'expr/g/native/001/n505', 'expr/g/native/001/n506', 'expr/g/native/001/n507', 'expr/g/native/001/n508', 'expr/g/native/001/n509', 'expr/g/native/001/n510', 'expr/g/native/001/n511', 'expr/g/native/001/n410', 'expr/g/native/001/n414']
   states ['s/pt2/000', 's/native/000', 's/native/001', 's/native4d/000', 's/symbolic/000', 's/kernel/000']
 
 The Native4D graph and its flow state ARE present here, which is the same rule
@@ -327,7 +327,7 @@ dropping half the document.
   > import json
   > c = json.load(open('c.json'))
   > print(type(c).__name__, len(c), c[0]['label'], len(c[0]['graphs']))"
-  list 1 mltorch:model 7
+  list 1 mltorch:model 107
 
 Format detection is CONTENT, never the extension. The worker also carries a
 declared format and checks the two agree; the CLI has only the bytes.

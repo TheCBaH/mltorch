@@ -360,7 +360,7 @@ export class Coordinator {
   /* A detail is a second worker transaction over the retained source.  The
    * bridge validates and merges the delta before a candidate is made, so a
    * failed request leaves the parent document and its selected operator intact. */
-  async openDetail(key) {
+  async openDetail(key, { returnTo = null } = {}) {
     if (this.#poisoned) throw new Error(POISONED);
     if (this.#pending) throw new Error('a request is already in flight');
     if (!this.#session || !this.#source || !this.#options) throw new Error('no model is loaded');
@@ -377,7 +377,7 @@ export class Coordinator {
     const detailId = `expr/${key.parentGraph}/n${key.node}`;
     const pending = this.#pending = {
       epoch, id, worker, terminal: false, cancelled: false, retired: false,
-      token: null, tokenSettled: false, kind: 'detail', key, detailId,
+      token: null, tokenSettled: false, kind: 'detail', key, detailId, returnTo,
     };
     worker.onmessage = (event) => this.#message(pending, event);
     worker.onerror = () => this.#terminal(pending, { message: 'worker failed' });
@@ -404,7 +404,10 @@ export class Coordinator {
     if (!merged.ok) return this.#terminal(pending, { message: merged.error || 'invalid symbolic detail' });
     let handle;
     try {
-      handle = await this.render.install(this.#installText(merged.render), { view: pending.detailId });
+      handle = await this.render.install(
+        this.#installText(merged.render),
+        { view: pending.returnTo ?? pending.detailId },
+      );
     } catch (error) {
       if (!this.#isCurrent(pending)) return;
       return this.#terminal(pending, { message: error?.message || 'renderer failed' });

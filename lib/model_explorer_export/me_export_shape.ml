@@ -53,6 +53,7 @@ let unlowered_shape ~stages ~source ~source_id ~source_view ~reason ~detail =
             | _ -> C.Not_requested))
         C.all_keys;
     default_view = "v/source";
+    details = [];
   }
 
 let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
@@ -164,9 +165,8 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
      kernel value adapted from it, so the two panes pair without a mapping. *)
   let stage_id = Me_ids.graph Me_ids.Layer.Symbolic 0 in
   let kernel_id = Me_ids.graph Me_ids.Layer.Kernel 0 in
-  (* [Eval_symbolic.run] is the expensive symbolic evaluation the review
-     flagged, not [Me_kernel.stage_program]'s projection of it -- the two are
-     gated together since the projection has nothing to project without it. *)
+  (* [Eval_symbolic.run] supplies both the optional Stage projection and the
+     initial expression subgraphs. *)
   let* stage_origin =
     let add_node origins (node : Graph_ir.node) =
       let* namespace =
@@ -190,10 +190,14 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
     Err.List.fold_left add_node Graph_ir.Tensor_id.Map.empty
       t.graph.Graph_ir.Graph.nodes
   in
+  (* Detail navigation belongs to the initial document.  It needs the symbolic
+     program even when its Stage view was not requested: a presentation choice
+     must not leave a native subgraph link without its target. *)
+  let program = Eval_symbolic.run t.graph in
+  let kernel_for_details = Kernel_adapt.of_stage_program program in
   let* program_and_stage_graph =
     if not needed_stage_program then Err.return None
     else
-      let program = Eval_symbolic.run t.graph in
       let+ stage_graph =
         wrap
           (fun e -> `Value_graph e)
@@ -210,8 +214,7 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
     else
       (* [needed_kernel] implies [needed_stage_program] by construction, so
          [program_and_stage_graph] is always [Some] here. *)
-      let program, _ = Option.get program_and_stage_graph in
-      match Kernel_adapt.of_stage_program program with
+      match kernel_for_details with
       | Error e -> (
           match Me_classify.kernel (Err.Error.kind e) with
           | Me_classify.Unavailable reason ->
@@ -498,6 +501,84 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
     if verify_symbolic = None then C.Not_requested
     else C.Available (C.Pass_audit_status (Me_verify.audit_status t.audits))
   in
+  (* One canonical operator owns one expression graph.  Its canonical node and
+     every projected Stage/Kernel value use that one graph as a native Model
+     Explorer subgraph, so no selection has to replace the live document. *)
+  let* details =
+    Err.List.map
+      (fun (node : Graph_ir.node) ->
+        let* key =
+          wrap
+            (fun e -> `Detail_key e)
+            (Me_request.Detail_key.create_operator ~limits
+               ~parent_graph:canonical_id ~node:node.id)
+        in
+        let stage id =
+          List.find_opt
+            (fun (stage : Stage_program.Stage.t) ->
+              Graph_ir.Tensor_id.equal stage.id id)
+            program.Stage_program.stages
+        in
+        let* stages =
+          Err.List.map
+            (fun output -> Err.of_option `Unsupported_detail_key (stage output))
+            node.Graph_ir.Node.outputs
+        in
+        let outputs =
+          match kernel_for_details with
+          | Ok kernel ->
+              List.map
+                (fun (stage : Stage_program.Stage.t) ->
+                  Option.value
+                    ~default:
+                      {
+                        Kernel.Value.id = stage.id;
+                        sg = stage.sg;
+                        computation = stage.computation;
+                        result = Kernel.Result_conversion.Round_f32;
+                      }
+                    (Kernel.value kernel stage.id))
+                stages
+          | Error _ ->
+              List.map
+                (fun (stage : Stage_program.Stage.t) ->
+                  {
+                    Kernel.Value.id = stage.id;
+                    sg = stage.sg;
+                    computation = stage.computation;
+                    result = Kernel.Result_conversion.Round_f32;
+                  })
+                stages
+        in
+        let* graph =
+          wrap
+            (fun e -> `Value_graph e)
+            (Me_detail.of_operator ~limits ~key ~outputs)
+        in
+        Err.return
+          ( key,
+            {
+              Me_detail.Delta.schema_version = 1;
+              collection = label;
+              graph;
+              view =
+                {
+                  Me_session.View.id = Me_request.Detail_key.id key;
+                  label = "expression";
+                  kind =
+                    Me_session.View.Detail
+                      {
+                        parent_graph = Me_request.Detail_key.parent_graph key;
+                        parent_node = Me_request.Detail_key.session_node key;
+                      };
+                  collection = label;
+                  graph = Me_request.Detail_key.id key;
+                };
+              node_data = [];
+              diagnostics = [];
+            } ))
+      t.graph.Graph_ir.Graph.nodes
+  in
   Err.return
     {
       graphs =
@@ -649,4 +730,5 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
               | _ -> C.Not_requested))
           C.all_keys;
       default_view = "v/canonical";
+      details;
     }

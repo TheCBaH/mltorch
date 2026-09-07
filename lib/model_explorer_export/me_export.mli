@@ -25,6 +25,8 @@ type error =
   | `Declared_format_disagrees
     (** the request declared a format the bytes are not. DECLARED is a hint; the
         content decides, and a disagreement is a fact about the source *)
+  | `Detail of Me_detail.error
+  | `Detail_key of [ `Invalid_detail_key of Me_request.Detail_key.invalid ]
   | `Document of Me_session.Session.error
   | `Document_too_large
     (** the ENCODED document overran [max_session_bytes]/[max_detail_bytes]. No
@@ -74,12 +76,9 @@ module Options : sig
     stages : Me_session.Capability.graph_stage list;
         (** {!session} only -- {!detail} reaches the kernel through its own
             smaller pipeline and does not read this field. A stage not listed
-            here is [Not_requested] in the result, and its own computation (and
-            that of anything ONLY it needs, e.g. the symbolic evaluation
-            [Stage_program]/[Kernel] share) does not run -- unlike
-            [Initial_native]/[Canonical], which are the backbone every
-            comparison and every later stage builds on, cheap to project, and
-            always present regardless of this list. *)
+            here is [Not_requested] in the result and its graph is not
+            projected. Symbolic evaluation and kernel adaptation still run to
+            construct the initial expression-detail subgraphs. *)
     fold : bool;
     verify_symbolic : Map_verify.Effort.t option;
     name : string;  (** the model's own name, which becomes the collection *)

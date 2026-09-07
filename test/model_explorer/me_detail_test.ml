@@ -150,13 +150,57 @@ let%expect_test "two details on two different value nodes" =
   | Ok s ->
       Format.printf "two   %a@." pp (Me_detail.apply ~key:b ~limits s (delta b)));
   [%expect {|
-    one   graphs=8 views=8
-    two   graphs=9 views=9 |}]
+    one   graphs=10 views=10
+    two   graphs=11 views=11 |}]
 
 let%expect_test "an operator detail links its canonical Native parent" =
   let k = operator_key 0 in
   Format.printf "%a@." pp (Me_detail.apply ~key:k ~limits session (delta k));
-  [%expect {| graphs=8 views=8 |}]
+  [%expect {| graphs=9 views=9 |}]
+
+let%expect_test "an operator detail also links its Stage and Kernel values" =
+  let stage_id = Me_ids.graph Me_ids.Layer.Symbolic 0 in
+  let k = operator_key 0 in
+  let linked =
+    Err.or_raise ~pp_error:Me_detail.pp_error
+      (Me_detail.apply ~key:k ~limits session (delta k))
+  in
+  List.iter
+    (fun (c : ME.GraphCollection.t) ->
+      List.iter
+        (fun (g : ME.Graph.t) ->
+          if
+            String.equal g.ME.Graph.id stage_id
+            || String.equal g.ME.Graph.id kernel_id
+          then
+            List.iter
+              (fun (n : ME.GraphNode.t) ->
+                let origin =
+                  List.find_map
+                    (fun (attr : ME.NodeAttribute.t) ->
+                      if
+                        String.equal attr.ME.NodeAttribute.key
+                          "canonical_native_node"
+                      then
+                        match attr.ME.NodeAttribute.value with
+                        | ME.NodeAttributeValue.Str value -> Some value
+                        | ME.NodeAttributeValue.NodeIds _
+                        | ME.NodeAttributeValue.NodeWithAttrs _ ->
+                            None
+                      else None)
+                    (Option.value n.ME.GraphNode.attrs ~default:[])
+                in
+                if origin = Some "n0" then
+                  Fmt.pr "%s %s -> [%s]@." g.ME.Graph.id n.ME.GraphNode.id
+                    (String.concat " "
+                       (Option.value n.ME.GraphNode.subgraphIds ~default:[])))
+              g.ME.Graph.nodes)
+        c.ME.GraphCollection.graphs)
+    linked.Me_session.Session.graph_collections;
+  [%expect
+    {|
+    g/symbolic/000 v1 -> [expr/g/native/001/n0]
+    g/kernel/000 v1 -> [expr/g/native/001/n0] |}]
 
 let%expect_test "re-requesting one REPLACES it" =
   (* Aggregates are counted over what is installed, so an accumulating merge
@@ -170,13 +214,13 @@ let%expect_test "re-requesting one REPLACES it" =
   Format.printf "once  %a@." pp (Ok once);
   Format.printf "twice %a@." pp (Me_detail.apply ~key:a ~limits once (delta a));
   [%expect {|
-    once  graphs=8 views=8
-    twice graphs=8 views=8 |}]
+    once  graphs=10 views=10
+    twice graphs=10 views=10 |}]
 
-let%expect_test "the parent node gains subGraphIds, and only then" =
-  (* A fresh session carries none: a link to a graph that is not installed is a
-     dangling reference the session validator rejects, so the graph, the view
-     and the link commit together or not at all. *)
+let%expect_test "the initial session already links the parent node" =
+  (* The canonical operator detail is part of the initial session, so the
+     Stage/Kernel value starts with its native Model Explorer link. A later
+     value delta remains an additional, independently keyed link. *)
   let a = key (List.hd (kernel_value_nodes session)) in
   let node =
     Me_ids.value_node
@@ -206,8 +250,8 @@ let%expect_test "the parent node gains subGraphIds, and only then" =
        (Me_detail.apply ~key:a ~limits session (delta a)));
   [%expect
     {|
-    before  v1 -> absent
-    after   v1 -> [expr/g/kernel/000/t1/t1] |}]
+    before  v1 -> [expr/g/native/001/n0]
+    after   v1 -> [expr/g/kernel/000/t1/t1 expr/g/native/001/n0] |}]
 
 (* --- what it refuses --- *)
 
@@ -240,27 +284,27 @@ let%expect_test "a key naming no value in that graph" =
     absent value the key names no value in that graph
     absent graph the key names no value in that graph |}]
 
-let%expect_test "each passes alone, the SECOND merge does not" =
-  (* The aggregate is over every installed detail, not over the delta in hand,
-     which is the whole reason it is checked on the merged session. *)
+let%expect_test "the initial details obey the aggregate ceiling" =
+  (* Static links move the aggregate check to session construction: a document
+     cannot offer native links for more details than its profile admits. *)
   let tight =
     Err.or_raise ~pp_error:Me_limits.pp_error
       (L.create ~max_detail_graphs:1 limits)
   in
-  let s = session_of ~limits:tight in
-  let values = kernel_value_nodes s in
-  let a = key (List.nth values 0) and b = key (List.nth values 1) in
-  let first = Me_detail.apply ~key:a ~limits:tight s (delta a) in
-  Format.printf "first  %a@." pp first;
-  (match first with
-  | Error _ -> ()
-  | Ok s' ->
-      Format.printf "second %a@." pp
-        (Me_detail.apply ~key:b ~limits:tight s' (delta b)));
-  [%expect
-    {|
-    first  graphs=8 views=8
-    second detail detailGraphs = 2 is over the ceiling |}]
+  Format.printf "%a@."
+    (Core.Pretty.err_result ~ok:(Fmt.any "built") ~error:Me_export.pp_error)
+    (Me_export.session ~limits:tight
+       ~options:
+         {
+           Me_export.Options.stages = Me_session.Capability.all_stages;
+           fold = false;
+           verify_symbolic = None;
+           name = "tiny";
+           source_bytes = Int64.of_int (String.length model);
+           source_sha256 = None;
+         }
+       ~bytes:model);
+  [%expect {| detail detailGraphs = 2 is over the ceiling |}]
 
 (* --- the expression graph --- *)
 

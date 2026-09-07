@@ -624,6 +624,27 @@ let is_detail (g : ME.Graph.t) =
   let id = g.ME.Graph.id in
   String.length id >= 5 && String.sub id 0 5 = "expr/"
 
+let has_canonical_origin node origin =
+  List.exists
+    (fun (attr : ME.NodeAttribute.t) ->
+      String.equal attr.ME.NodeAttribute.key "canonical_native_node"
+      &&
+      match attr.ME.NodeAttribute.value with
+      | ME.NodeAttributeValue.Str value -> String.equal value origin
+      | ME.NodeAttributeValue.NodeIds _ | ME.NodeAttributeValue.NodeWithAttrs _
+        ->
+          false)
+    (Option.value node.ME.GraphNode.attrs ~default:[])
+
+let add_subgraph id (node : ME.GraphNode.t) =
+  {
+    node with
+    ME.GraphNode.subgraphIds =
+      Some
+        (List.sort_uniq compare
+           (id :: Option.value node.ME.GraphNode.subgraphIds ~default:[]));
+  }
+
 let apply ~key ~limits (s : Me_session.Session.t) (d : Delta.t) =
   let open Err.Syntax in
   let expected = Me_request.Detail_key.id key in
@@ -636,6 +657,11 @@ let apply ~key ~limits (s : Me_session.Session.t) (d : Delta.t) =
   in
   let parent = Me_request.Detail_key.parent_graph key in
   let node = Me_request.Detail_key.session_node key in
+  let operator_origin =
+    Option.map
+      (fun node -> Core.Pretty.to_string Graph_ir.Node_id.pp node)
+      (Me_request.Detail_key.operator_node key)
+  in
   let* () =
     if
       List.exists
@@ -680,30 +706,26 @@ let apply ~key ~limits (s : Me_session.Session.t) (d : Delta.t) =
              TOGETHER with the graph, because a detail commits all of them or
              none: a link to a graph that is not installed is a dangling
              reference the session validator rejects, and a graph nobody links
-             to is unreachable. *)
+             to is unreachable. An operator detail also links every projected
+             Stage or Kernel value that records that canonical origin. Those
+             value nodes are alternate entry points to the same computation,
+             not duplicate detail graphs. *)
           let graphs =
             List.map
               (fun (g : ME.Graph.t) ->
-                if not (String.equal g.ME.Graph.id parent) then g
-                else
-                  {
-                    g with
-                    ME.Graph.nodes =
-                      List.map
-                        (fun (n : ME.GraphNode.t) ->
-                          if not (String.equal n.ME.GraphNode.id node) then n
-                          else
-                            {
-                              n with
-                              ME.GraphNode.subgraphIds =
-                                Some
-                                  (List.sort_uniq compare
-                                     (expected
-                                     :: Option.value n.ME.GraphNode.subgraphIds
-                                          ~default:[]));
-                            })
-                        g.ME.Graph.nodes;
-                  })
+                let nodes =
+                  List.map
+                    (fun (n : ME.GraphNode.t) ->
+                      if
+                        String.equal g.ME.Graph.id parent
+                        && String.equal n.ME.GraphNode.id node
+                        || Option.fold ~none:false
+                             ~some:(has_canonical_origin n) operator_origin
+                      then add_subgraph expected n
+                      else n)
+                    g.ME.Graph.nodes
+                in
+                { g with ME.Graph.nodes })
               graphs
           in
           { c with ME.GraphCollection.graphs })

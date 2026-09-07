@@ -86,7 +86,7 @@ let%expect_test "small round-trips through its own encoding" =
            same)
        ~error:Fmt.string)
     (round_trip (wire L.small));
-  [%expect {| 36 members, stable: true |}]
+  [%expect {| 33 members, stable: true |}]
 
 (* --- what does not cross --- *)
 

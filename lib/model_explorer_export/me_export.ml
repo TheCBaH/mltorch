@@ -167,7 +167,10 @@ let session ~limits ~(options : Options.t) ~bytes =
   let* () =
     wrap (fun e -> `Document e) (Me_session.Session.validate ~limits session)
   in
-  Err.return session
+  Err.List.fold_left
+    (fun session (key, detail) ->
+      wrap (fun e -> `Detail e) (Me_detail.apply ~key ~limits session detail))
+    session shape.details
 
 (* --- one value's expression ---------------------------------------------- *)
 

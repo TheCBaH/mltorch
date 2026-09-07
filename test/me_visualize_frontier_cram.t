@@ -80,12 +80,9 @@ lowering, structurally in `native4d/verify_test.ml`'s "gelu tanh" cluster), so
   regnetx_002 stage:native4d available graph
   test_convnext2 stage:initial_native available graph
   test_convnext2 stage:native4d available graph
-  efficientnet_b0 stage:initial_native available graph
-  efficientnet_b0 stage:native4d available graph
-  fastvit_sa12 stage:initial_native available graph
-  fastvit_sa12 stage:native4d unavailable outside_dialect_domain: node n604: axis T is outside the N/H/W/C dialect
-  csatv2 stage:initial_native available graph
-  csatv2 stage:native4d unavailable outside_dialect_domain: node n19: axis T is outside the N/H/W/C dialect
+  efficientnet_b0 blocked: native_graph: the encoded document is over the ceiling
+  fastvit_sa12 blocked: native_graph: the encoded document is over the ceiling
+  csatv2 blocked: native_graph: the encoded document is over the ceiling
 
 `regnetx_002`'s `stage:native4d` used to be `unavailable outside_dialect_domain`
 (a 3-group convolution, neither 1 nor depthwise). `GroupedConv2D`

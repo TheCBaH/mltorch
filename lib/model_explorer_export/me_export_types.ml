@@ -27,6 +27,8 @@ let max_bytes_for ~limits bytes =
 type error =
   [ `Archive of Pt2_archive.error
   | `Declared_format_disagrees
+  | `Detail of Me_detail.error
+  | `Detail_key of [ `Invalid_detail_key of Me_request.Detail_key.invalid ]
   | `Document of Me_session.Session.error
   | `Document_too_large
     (** the ENCODED document overran [max_session_bytes]/[max_detail_bytes]. No
@@ -53,6 +55,8 @@ let pp_error fmt : [< error ] -> unit = function
   | `Archive e -> Pt2_archive.pp_error fmt e
   | `Declared_format_disagrees ->
       Fmt.string fmt "the bytes are not the format the request declared"
+  | `Detail e -> Me_detail.pp_error fmt e
+  | `Detail_key e -> Me_request.Request.pp_error fmt e
   | `Document e -> Me_session.Session.pp_error fmt e
   | `Document_too_large ->
       Fmt.string fmt "the encoded document is over the ceiling"
@@ -90,6 +94,7 @@ let diagnostic_code : [< error ] -> Me_limits.Diagnostic.Code.t =
   | `Document_too_large | `Too_large _ -> Code.Over_limit
   | `Unsupported_detail_key -> Code.Unsupported_detail_key
   | `Kernel _ | `Lowering _ | `Native4d _ -> Code.Internal
+  | `Detail (`Over_limit _)
   | `Document (`Over_limit _)
   | `Flow_graph (`Over_limit _)
   | `Fusion (`Over_limit _)
@@ -99,8 +104,9 @@ let diagnostic_code : [< error ] -> Me_limits.Diagnostic.Code.t =
   | `Value_graph (`Over_limit _)
   | `Verification (`Over_limit _) ->
       Code.Over_limit
-  | `Document _ | `Flow_graph _ | `Identifier _ | `Navigation _ | `Project _
-  | `Source_view _ | `Value_graph _ | `Verification _ | `View _ ->
+  | `Detail _ | `Detail_key _ | `Document _ | `Flow_graph _ | `Identifier _
+  | `Navigation _ | `Project _ | `Source_view _ | `Value_graph _
+  | `Verification _ | `View _ ->
       Code.Internal
 
 (* The one place a component's error is widened into this module's. Named,
@@ -205,6 +211,7 @@ type shape = {
   flow : Me_flow.t option;
   capabilities : Me_session.Capability.t list;
   default_view : string;
+  details : (Me_request.Detail_key.t * Me_detail.Delta.t) list;
 }
 
 (* A model this repository cannot lower still has a source view: decoding

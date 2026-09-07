@@ -883,6 +883,15 @@ The presentation instead selects the first namespaced value when it opens a Stag
 or Kernel view. That preserves the full graph for navigation while initially showing one
 canonical operator group with its value and neighbours.
 
+**A value owns its computation from the initial session.** A Stage or Kernel value carries
+its exact canonical-origin attributes and a Model Explorer subgraph link to the typed
+Region/Expr graph its canonical operator owns. The native indicator opens that graph and
+the visualizer's breadcrumb returns to the value graph. Detail graphs are separate graph
+entries, rather than nodes inserted into the whole-program value graph, so the overview
+remains readable. They are constructed before the initial document is installed: adding a
+link later requires replacing the live visualizer element and loses its navigation state.
+The bounded `body` attribute remains a compact cross-check, not the sole representation.
+
 **Fusion says which unavailability it is.** Where the kernel is available, fusion is
 `Not_implemented` — it is a view over an unchanged kernel that has not landed. Where the
 kernel is not, fusion is `Prerequisite_unavailable`. Two different facts, and reporting both
@@ -1299,9 +1308,11 @@ real model can be too big and that is a bound doing its job — and an invariant
 
 ## 15. Expression detail — `Me_detail`
 
-**On demand, which is the whole reason it is a delta rather than a stage.** A kernel value's
-expression can be far larger than the graph node that produced it, and a session carrying
-every one of them up front would pay for every expression to show one.
+**Initial and referentially complete.** A session carries one detail graph per canonical
+operator, shared by that operator and its projected Stage/Kernel values. The initial
+document therefore contains every `subGraphIds` target before Model Explorer processes it;
+native navigation never needs a late document replacement. The normal session graph, view,
+node, and byte limits bound this cost.
 
 **The delta carries no epoch and no key.** Three identities take part in a detail response —
 the pending request's, the metadata's, and the payload's — and comparing only the first two
@@ -1311,11 +1322,10 @@ it: the validated key arrives as an **argument** to `apply`, so metadata and pay
 name different values at all. The epoch belongs to the browser runtime and only the bridge
 holds it, so staleness is checked there and this stays pure in the session and the delta.
 
-**The initial session stays referentially valid.** A kernel value node carries no
-`subGraphIds` until its detail exists, so nothing in a fresh session points at a graph that
-is not there. The graph, the view and the link are installed **together**, because a link to
-an uninstalled graph is a dangling reference the validator rejects and a graph nobody links
-to is unreachable — a detail commits all three or none.
+**Every initial link is referentially valid.** The graph, view and every parent-node
+`subGraphIds` link are created together before the session reaches the browser. A late delta
+uses the same all-or-none merge rule for the CLI and protocol path, but the web session does
+not depend on that path for navigation.
 
 **Re-requesting replaces.** Only the committed result counts toward the aggregates, so asking
 twice cannot inflate them. The graph and the view carry the same id, so one predicate removes
