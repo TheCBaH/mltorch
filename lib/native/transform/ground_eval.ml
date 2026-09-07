@@ -21,12 +21,6 @@ module Env = struct
     consts : float Tensor_id.Map.t;
     fmts : Payload.packed_fmt Tensor_id.Map.t;
     inputs : Tensor_id.Set.t;
-    (* [Stage.pixel_body] specializes and re-checks a stage's whole computation
-       and is stage-invariant, so it is worth caching per stage id rather than
-       redone at every coordinate [body_at] grounds. Keyed by stage id alone:
-       every caller in this module reaches [pixel_body] through [body_at],
-       which always passes [Kernel.Limits.default]. *)
-    pixel_bodies : Expr.Value.t Tensor_id.Map.t ref;
     shapes : Vec6.shape Tensor_id.Map.t;
     side : [ `Dst | `Src ];
     stages : Stage_program.Stage.t Tensor_id.Map.t;
@@ -92,7 +86,6 @@ module Env = struct
       consts;
       fmts;
       inputs;
-      pixel_bodies = ref Tensor_id.Map.empty;
       shapes;
       side;
       stages;
@@ -162,21 +155,6 @@ module Env = struct
     Option.bind (Origin.edge o) (fun id -> Tensor_id.Map.find_opt id t.stages)
 
   let stage_of_id t id = Tensor_id.Map.find_opt id t.stages
-
-  let pixel_body t ~max_size ~max_depth ~scan_limits
-      (st : Stage_program.Stage.t) =
-    match
-      Tensor_id.Map.find_opt st.Stage_program.Stage.id !(t.pixel_bodies)
-    with
-    | Some body -> Err.return body
-    | None ->
-        let open Err.Syntax in
-        let+ body =
-          Stage_program.Stage.pixel_body ~max_size ~max_depth ~scan_limits st
-        in
-        t.pixel_bodies :=
-          Tensor_id.Map.add st.Stage_program.Stage.id body !(t.pixel_bodies);
-        body
 end
 
 (* Two exact accounts over grounding's own construction, both reset per proof
@@ -230,8 +208,8 @@ type error =
   | `Data_index_unresolved
   | `Ground_nodes_over_limit of int64
   | `Pair_nodes_over_limit of int
+  | `Partition of Region_partition.error
   | `Region of Region_program.error
-  | `Scan_at_unsupported
   | `Unknown_edge of Tensor_id.t ]
 
 let pp_error fmt : [< error ] -> unit = function
@@ -244,9 +222,8 @@ let pp_error fmt : [< error ] -> unit = function
       Fmt.pf fmt "grounding exceeds max_ground_nodes (%Ld)" limit
   | `Pair_nodes_over_limit limit ->
       Fmt.pf fmt "grounding exceeds max_nodes (%d)" limit
+  | `Partition e -> Region_partition.pp_error fmt e
   | `Region e -> Region_program.pp_error fmt e
-  | `Scan_at_unsupported ->
-      Fmt.string fmt "grounding does not support a scan yet"
   | `Unknown_edge id -> Fmt.pf fmt "unknown edge %a" Tensor_id.pp id
 
 (* Saturating: matches this repository's 32-bit-safe-aggregate rule
@@ -336,15 +313,68 @@ let or_throw esc : ('a, [< error ]) Err.t -> 'a = function
 
 (* ---- grounding one stage body -------------------------------------------- *)
 
+(* The local environment a Region program's body is grounded against --
+   [Ground_expr.t] counterparts of [Region_execution.evaluate_locals]'s slot
+   array, built in declaration order so a later local's body may read an
+   earlier one (checked at construction; [Region_program.check] rejects a
+   forward reference before grounding ever sees the program). A scalar local
+   is one node; a vector local is one node per position; a scan (trace) local
+   is one node per (row, lane), flattened row-major exactly as
+   [Region_slots]/[Expr.Scan]'s own doc comment specifies -- [width] is
+   retained alongside the table only to turn a (row, lane) pair back into a
+   flat offset. *)
+module Frame = struct
+  type t = {
+    scalars : Ground_expr.t Expr.Local_var.Map.t;
+    vectors : Ground_expr.t array Expr.Local_var.Map.t;
+    scans : (Ground_expr.t array * int) Expr.Local_var.Map.t;
+  }
+
+  let empty =
+    {
+      scalars = Expr.Local_var.Map.empty;
+      vectors = Expr.Local_var.Map.empty;
+      scans = Expr.Local_var.Map.empty;
+    }
+
+  let with_scalar t id g =
+    { t with scalars = Expr.Local_var.Map.add id g t.scalars }
+
+  let with_vector t id arr =
+    { t with vectors = Expr.Local_var.Map.add id arr t.vectors }
+
+  let with_scan t id table width =
+    { t with scans = Expr.Local_var.Map.add id (table, width) t.scans }
+
+  (* [prev]'s scope is exactly one scan's own [update] evaluation -- overriding
+     just its entry in [vectors], never touching [t]'s own bindings, is what
+     lets every OTHER local reference in [update] keep resolving through the
+     enclosing frame unchanged, mirroring [Expr.Eval.value]'s [local_at_ref]
+     override for the same binder. *)
+  let with_prev t prev row = with_vector t prev row
+end
+
+(* [Local_scan_at]/[Scan_at] bounds failures reuse [Expr.Eval]'s own
+   [scan_error] vocabulary -- the same tags [Region_eval]/[Region_execution]
+   report for exactly the same conditions, so a caller sees one error
+   vocabulary for a trace-shape violation regardless of which evaluator
+   caught it. *)
+let scan_bounds ~local ~row ~lane ~extent kind =
+  let projection = { Expr.Eval.Scan_projection.local; row; lane } in
+  `Scan_projection (kind { Expr.Eval.Scan_bounds.projection; extent })
+
 (* [Load]s become leaves through [leaf]; every index is evaluated at [coord]
    (and at the enclosing reduction variables), which is what removes the
    binders. Every node this builds is interned into [arena] -- the current
    root lineage's own raw arena, so a recurrence's or a repeated max-pool
    accumulator's structurally-equal subterms share one node instead of
-   duplicating it. *)
-let rec ground esc ~env ~meter ~arena ~coord ~rvars (e : Expr.Value.t) :
+   duplicating it. [frame] resolves [Local]/[Local_at]/[Local_scan_at] against
+   the enclosing Region program's already-grounded locals; a legacy Pixel
+   stage (no locals at all) grounds with [Frame.empty], so this is the SAME
+   traversal for both, never a special-cased Pixel path. *)
+let rec ground esc ~env ~meter ~arena ~frame ~coord ~rvars (e : Expr.Value.t) :
     Ground_expr.t =
-  let recur = ground esc ~env ~meter ~arena ~coord ~rvars in
+  let recur = ground esc ~env ~meter ~arena ~frame ~coord ~rvars in
   (* Calls [eval_index] directly (not the public [Expr.Eval.index]), passing
      THIS module's own escape token: both use the identical escape-based
      non-local-exit pattern, so a [Data] failure inside [eval_index] throws
@@ -367,11 +397,34 @@ let rec ground esc ~env ~meter ~arena ~coord ~rvars (e : Expr.Value.t) :
   in
   match e with
   | Expr.Value.Const x -> node esc meter (Ground_expr.const arena x)
-  | Expr.Value.Local v -> Err.Escape.throw esc (`Unbound_local v)
-  | Expr.Value.Local_at (v, _) -> Err.Escape.throw esc (`Unbound_local v)
-  | Expr.Value.Local_scan_at (v, _, _) ->
-      Err.Escape.throw esc (`Unbound_local v)
-  | Expr.Value.Scan_at (_, _, _) -> Err.Escape.throw esc `Scan_at_unsupported
+  | Expr.Value.Local v -> (
+      match Expr.Local_var.Map.find_opt v frame.Frame.scalars with
+      | Some g -> g
+      | None -> Err.Escape.throw esc (`Unbound_local v))
+  | Expr.Value.Local_at (v, i) -> (
+      let pos = index i in
+      match Expr.Local_var.Map.find_opt v frame.Frame.vectors with
+      | Some arr when pos >= 0 && pos < Array.length arr -> arr.(pos)
+      | Some _ | None -> Err.Escape.throw esc (`Unbound_local v))
+  | Expr.Value.Local_scan_at (v, row_i, lane_i) -> (
+      let row = index row_i and lane = index lane_i in
+      match Expr.Local_var.Map.find_opt v frame.Frame.scans with
+      | None ->
+          Err.Escape.throw esc (`Scan_projection (Expr.Eval.Unknown_local v))
+      | Some (table, width) ->
+          if row < 0 || row * width >= Array.length table then
+            Err.Escape.throw esc
+              (scan_bounds ~local:(Some v) ~row ~lane
+                 ~extent:(Array.length table / width)
+                 (fun b -> Expr.Eval.Row_out_of_range b))
+          else if lane < 0 || lane >= width then
+            Err.Escape.throw esc
+              (scan_bounds ~local:(Some v) ~row ~lane ~extent:width (fun b ->
+                   Expr.Eval.Lane_out_of_range b))
+          else table.((row * width) + lane))
+  | Expr.Value.Scan_at (s, row_i, lane_i) ->
+      let row = index row_i and lane = index lane_i in
+      ground_scan_at esc ~env ~meter ~arena ~frame ~coord ~rvars s ~row ~lane
   | Expr.Value.Binary (op, a, b) ->
       node esc meter (Ground_expr.binary arena op (recur a) (recur b))
   | Expr.Value.Unary (op, x) ->
@@ -423,11 +476,88 @@ let rec ground esc ~env ~meter ~arena ~coord ~rvars (e : Expr.Value.t) :
         else
           fold (i + 1)
             (combine acc
-               (ground esc ~env ~meter ~arena ~coord
+               (ground esc ~env ~meter ~arena ~frame ~coord
                   ~rvars:((r.Expr.Reduction.var, i) :: rvars)
                   r.Expr.Reduction.body))
       in
       fold lo seed
+
+(* Inline [Scan_at]: [row]/[lane] are already evaluated (the caller needs them
+   to key a bounds error against the RIGHT descriptor, [None] rather than
+   [Some id] -- see [Expr.Eval.Scan_projection.local]). Builds the whole
+   prefix from row 0 up to [row] fresh, exactly mirroring
+   [Expr_internal.Eval.eval_scan_at]'s two-buffer loop but producing
+   [Ground_expr.t] nodes: [init] grounds each lane once with [lane] bound;
+   each later row grounds [update] with [lane]/[step] bound and [prev]
+   resolved by overriding just that one binder in [frame] (never a mutable
+   ref -- grounding is a pure recursive builder, so there is no unwind to
+   protect). Hash-consing already deduplicates a node this rebuilds against
+   an identical earlier construction call within the same arena; what is NOT
+   cached across separate [Scan_at] occurrences is the CONSTRUCTION WORK
+   itself (each occurrence re-walks and re-charges fuel for its own prefix) --
+   a disclosed performance gap relative to the design record's per-instance
+   prefix cache, not a correctness one. *)
+and ground_scan_at esc ~env ~meter ~arena ~frame ~coord ~rvars (s : Expr.Scan.t)
+    ~row ~lane : Ground_expr.t =
+  if row < 0 || row > s.Expr.Scan.steps then
+    Err.Escape.throw esc
+      (scan_bounds ~local:None ~row ~lane ~extent:(s.Expr.Scan.steps + 1)
+         (fun b -> Expr.Eval.Row_out_of_range b))
+  else if lane < 0 || lane >= s.Expr.Scan.width then
+    Err.Escape.throw esc
+      (scan_bounds ~local:None ~row ~lane ~extent:s.Expr.Scan.width (fun b ->
+           Expr.Eval.Lane_out_of_range b))
+  else
+    let width = s.Expr.Scan.width in
+    let init_row () =
+      Array.init width (fun l ->
+          ground esc ~env ~meter ~arena ~frame ~coord
+            ~rvars:((s.Expr.Scan.lane, l) :: rvars)
+            s.Expr.Scan.init)
+    in
+    let next_row ~step prev_row =
+      let frame' = Frame.with_prev frame s.Expr.Scan.prev prev_row in
+      Array.init width (fun l ->
+          ground esc ~env ~meter ~arena ~frame:frame' ~coord
+            ~rvars:((s.Expr.Scan.lane, l) :: (s.Expr.Scan.step, step) :: rvars)
+            s.Expr.Scan.update)
+    in
+    let rec run r prev_row =
+      if r = row then prev_row.(lane)
+      else run (r + 1) (next_row ~step:r prev_row)
+    in
+    run 0 (init_row ())
+
+(* The full trace of a Region-authored scan LOCAL, eager and row-major --
+   [Region_execution.evaluate_locals]'s own contract for a trace local,
+   reproduced here as [Ground_expr.t] nodes rather than floats. Every row
+   after the first overrides [prev] in [frame] with the PREVIOUS row alone (an
+   [Array.sub] slice -- a small, deliberate allocation per row, not a
+   correctness concern), the same override [ground_scan_at]'s own [next_row]
+   uses. Not shared code with it: this fills every row unconditionally (no
+   target row to stop at) and returns the whole table for the enclosing
+   [Frame.t], where [ground_scan_at] returns one cell. *)
+and ground_scan_local esc ~env ~meter ~arena ~frame ~coord (s : Expr.Scan.t) :
+    Ground_expr.t array =
+  let width = s.Expr.Scan.width and steps = s.Expr.Scan.steps in
+  let table = Array.make ((steps + 1) * width) (Ground_expr.const arena 0.) in
+  for l = 0 to width - 1 do
+    table.(l) <-
+      ground esc ~env ~meter ~arena ~frame ~coord
+        ~rvars:[ (s.Expr.Scan.lane, l) ]
+        s.Expr.Scan.init
+  done;
+  for r = 1 to steps do
+    let prev_row = Array.sub table ((r - 1) * width) width in
+    let frame' = Frame.with_prev frame s.Expr.Scan.prev prev_row in
+    for l = 0 to width - 1 do
+      table.((r * width) + l) <-
+        ground esc ~env ~meter ~arena ~frame:frame' ~coord
+          ~rvars:[ (s.Expr.Scan.lane, l); (s.Expr.Scan.step, r - 1) ]
+          s.Expr.Scan.update
+    done
+  done;
+  table
 
 (* A [Load] of a synthetic constant fill is that constant; a [Load] of a bound
    model constant is its stored element, read exactly the way [Expr.Eval.value] reads
@@ -534,21 +664,80 @@ and max_pool esc ~env ~meter ~arena ~coord ~rvars
 
 (* ---- the interface -------------------------------------------------------- *)
 
-(* Internal: escapes through [esc]. The public entries below establish it. *)
+(* Internal: escapes through [esc]. The public entries below establish it.
+   Grounds the stage's own [Region_program.t] DIRECTLY -- never through
+   [Region_program.specialize_pixel], which would inline every trace read as a
+   re-executing [Scan_at] and re-embed the whole prior-step subtree at every
+   later step -- the same "no expression-level sharing duplicates the whole
+   subtree" hazard CLAUDE.md's construction rules flag elsewhere, here at the
+   grounding layer. [check]/[preflight] run with the same shape and limits
+   [Region_execution.validate] uses, so grounding rejects the same programs
+   Region execution would.
+
+   Locals are grounded ONCE, at the Region KEY [coord] maps to -- exactly the
+   coordinate [Region_execution.evaluate_locals] would fill one slot array
+   for -- in declaration order, each added to [frame] before the next local's
+   body can reference it. The stage's OWN output expression is then grounded
+   at the full requested [coord] (which may differ from the key on a
+   non-singleton axis), reading the frame [Region_execution.emit] would read
+   from the same slot array. A legacy Pixel stage's program has no locals and
+   a singleton partition, so it takes this exact path with an empty frame and
+   [key = coord] -- there is no separate Pixel case here at all. *)
 let body_at esc env ~meter ~arena (st : Stage_program.Stage.t) coord =
   let limits = Kernel.Limits.default in
-  let body =
+  let max_size = limits.Kernel.Limits.max_size
+  and max_depth = limits.Kernel.Limits.max_depth in
+  let scan_limits = Kernel.Limits.scan_limits limits in
+  let program = Stage_program.Stage.computation st in
+  let region e = Err.map_error (fun e -> `Region e) e in
+  or_throw esc (region (Region_program.check ~max_size ~max_depth program));
+  or_throw esc
+    (region
+       (Region_program.preflight
+          ~max_local_slots:limits.Kernel.Limits.max_local_slots
+          ~max_scan_state:(Expr.Scan_limits.max_state scan_limits)
+          ~max_scan_updates:(Expr.Scan_limits.max_updates scan_limits)
+          ~output_shape:st.Stage_program.Stage.sg.Tensor_sig.shape program));
+  let key =
     or_throw esc
       (Err.map_error
-         (fun e -> `Region e)
-         (Env.pixel_body env ~max_size:limits.Kernel.Limits.max_size
-            ~max_depth:limits.Kernel.Limits.max_depth
-            ~scan_limits:(Kernel.Limits.scan_limits limits)
-            st))
+         (fun e -> `Partition e)
+         (Region_partition.key_of_output
+            ~output_shape:st.Stage_program.Stage.sg.Tensor_sig.shape
+            (Region_program.partition program)
+            coord))
   in
-  ground esc ~env ~meter ~arena
+  let key_coord = Expr_bridge.coord_of_vec6 (Vec6.map Dim.to_int key) in
+  let frame =
+    List.fold_left
+      (fun frame (local : Region_local.t) ->
+        match local.Region_local.rhs with
+        | Region_local.Rhs.Scalar value ->
+            let g =
+              ground esc ~env ~meter ~arena ~frame ~coord:key_coord ~rvars:[]
+                value
+            in
+            Frame.with_scalar frame local.Region_local.id g
+        | Region_local.Rhs.Vector { extent; var; body } ->
+            let arr =
+              Array.init extent (fun p ->
+                  ground esc ~env ~meter ~arena ~frame ~coord:key_coord
+                    ~rvars:[ (var, p) ]
+                    body)
+            in
+            Frame.with_vector frame local.Region_local.id arr
+        | Region_local.Rhs.Scan s ->
+            let table =
+              ground_scan_local esc ~env ~meter ~arena ~frame ~coord:key_coord s
+            in
+            Frame.with_scan frame local.Region_local.id table s.Expr.Scan.width)
+      Frame.empty
+      (Region_program.locals program)
+  in
+  ground esc ~env ~meter ~arena ~frame
     ~coord:(Expr_bridge.coord_of_vec6 (Vec6.map Dim.to_int coord))
-    ~rvars:[] body
+    ~rvars:[]
+    (Region_program.output program)
 
 (* Registers a NEW root, in a freshly allocated arena that belongs to it for
    the rest of its lifetime -- including every later [expand] on the [Term.t]
