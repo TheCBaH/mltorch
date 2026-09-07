@@ -8,10 +8,10 @@ evaluate as a whole, print intermediates of, and — the long-term purpose —
 modules `Graph_ir`, `Graph_builder`, `Graph_shape`, `Eval_op`, `Eval_direct`,
 `Stage_program`, `Eval_symbolic`.
 
-The immediate goal is **evaluation**; the transformation framework has moved to its
-own doc, `native_transform_design.md`, and is **not yet implemented** (the conv
-decomposition is demonstrated by *constructing* the decomposed graph, §6). Where a
-choice here was made with transformation in mind, it is called out.
+The immediate goal here was **evaluation**; the transformation framework moved to its
+own doc, `native_transform_design.md`, and is now implemented (structural passes,
+symbolic verification, the pipeline driver). Where a choice here was made with
+transformation in mind, it is called out.
 
 ## 1. The IR (`graph_ir.ml`)
 

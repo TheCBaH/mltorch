@@ -11,8 +11,8 @@ verification, the pipeline hook, the coefficient tier, sampling, and the CLI.
 
 The proposition it checks was corrected after this doc was first written: a
 cluster is a **local** obligation over correspondence-frontier variables, not an
-origin-to-endpoint one. `.ai/native_transform_local_verify_plan.md` is the record
-of that change, and §§1, 5-8 below are stated in its terms.
+origin-to-endpoint one. Sections 1 and 5–8 below record the corrected contract
+and the failure modes that motivated it.
 
 ## 1. What it proves, and what it assumes
 
@@ -241,7 +241,7 @@ protection lands where the bug was; the printed form is unchanged.
 > different proposition; the second needed the cluster DAG to be acyclic. A cell
 > now carries a side-qualified ORIGIN, and `Ground_expr.project` turns it into a
 > `Boundary` variable at comparison time on the strength of cluster MEMBERSHIP
-> alone. See `native_transform_local_verify_plan.md` §§4-5.
+> alone. See §§6–8 below for the replacement frontier rules.
 
 ## 6. Iterative deepening, and which edges it crosses
 
@@ -256,8 +256,8 @@ rewrites `t4 = add(P(t0), t1)` into `t4 = P(add(t0, Q(t1)))`, so the source side
 reads `t1` where the destination reads `t3`. Stopping at both would leave the two
 sides as functions of different variables — unequal, and a probe assigning them
 independently would separate a correct rewrite, since `t3 = Q(t1)` is exactly the
-fact a local frontier drops. Crossing recovers it. See
-`native_transform_local_verify_plan.md` §13.
+fact a local frontier drops. Crossing recovers it; §8 explains when the
+resulting frontier permits refutation.
 
 A cluster is also denied its OWN variable, unless the edge is a user-data graph
 input; otherwise it would name both its sides the same thing before either

@@ -1,10 +1,11 @@
 # Interpreter design (graph executor for `.pt2` models)
 
-Status: **design only** — the pt2 reader (`lib/pt2`), the ATen bridge
-(`lib/pt2_aten`), and the op layer (`lib/aten`, ~1300 generated ops + Tensor API)
-all exist and are tested. This document is the plan for the executor that ties
-them together to actually run inference. Start with **resnet18** (9 distinct
-ops, all already bound).
+Status: **implemented** — `lib/interp` walks an `ExportedProgram` graph directly
+against the pt2 reader (`lib/pt2`), the ATen bridge (`lib/pt2_aten`), and the op
+layer (`lib/aten`, ~1300 generated ops + Tensor API), and runs real inference
+end-to-end (`make inference`, `make pt2.runtest`). This document remains the
+design record for that dispatch; a separate, graph-IR-based executor is
+described in `native_graph_design.md`/`native_compute_design.md`.
 
 ## What's already in place
 

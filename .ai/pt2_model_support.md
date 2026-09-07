@@ -367,8 +367,7 @@ losslessly for any real tensor (libtorch's own slice kernel already clamps
 `end` to the dimension size). Ordinary struct `int` fields (counts, indices,
 versions) are untouched and still reject an out-of-range value as invalid.
 
-**Updated 2026-09-03**, verifying `.ai/native4d-sdpa-compatibility-plan.md`
-§3.2's "check before claiming model movement" after `Sdpa`/`Batched_matmul`
+**Updated 2026-09-03**, checking model support after `Sdpa`/`Batched_matmul`
 were admitted into Native4D at `D = 1` (`97163cf`): re-running
 `make pt2.json-model-support` moves exactly one model,
 `efficientvit_b0` (`native4d_converts` `false` -> `true`, `native4d_stage`/

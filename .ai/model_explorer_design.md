@@ -2,8 +2,8 @@
 
 The durable half of the Model Explorer graph-visualization work: what is in the tree,
 why it has the shape it has, and which decisions later stages may not quietly reverse.
-`.ai/model_explorer_plan.md` is the research-backed high-level plan; the round-by-round
-implementation plan is a gitignored working file. **This document is the source of
+The research-backed high-level plan and the round-by-round implementation plan are
+gitignored working files. **This document is the source of
 truth** — when a design here changes materially, it changes here in the same commit.
 
 Sections appear as their code lands. What is not below is not yet written.
@@ -1342,6 +1342,22 @@ ids, and projects them together under one operator and one output root per slot.
 Stage computations are the authority; Kernel conversion metadata enriches a successful
 adaptation, while an unavailable adaptation is labelled rather than fabricated.
 
+**Canonical Native is the attach point, not the PT2 node.** Every canonical Native node's
+ordered output ids survive unchanged through symbolic evaluation (as stage ids) and Kernel
+adaptation (as Kernel value ids), so the correspondence from operator to computation is
+structural and exact. PT2-to-Native provenance is N:M and Initial-to-Canonical transforms can
+create, delete or replace nodes, so attaching a detail graph there first would be a false
+provenance claim; composing both relations to attach detail to a PT2 node honestly is a later
+feature. Initial Native is not a valid attach point either, since symbolic evaluation does not
+run over that snapshot.
+
+**One node per AST occurrence, never a structurally interned DAG.** Equal terms can occur under
+different lexical environments, operand position and edge role are occurrence properties, and
+alpha-equivalent reducers are not the same occurrence — so the graph is a tree beneath each
+root rather than deduplicating equal subtrees. Sharing would also suggest an execution/storage
+decision the expression IR itself does not make; that decision belongs to the fusion plan, not
+this projection.
+
 **The size ceiling runs before the walk, over what the projector emits.** The measurement
 includes presentation roots, Region locals, binders, value, Boolean and index terms, and
 each coordinate component. It stops at the configured ceiling before graph-node allocation;
@@ -1349,7 +1365,10 @@ each coordinate component. It stops at the configured ceiling before graph-node 
 
 **The graph is a typed decomposition tree.** Edges go from a construct to its constituents
 and carry a `role` metadata field such as `lhs`, `lower`, `body`, or `coord:H`. The endpoint
-slots remain ordinary Model Explorer slots. Each node records `language` and `constructor`;
+slots remain ordinary Model Explorer slots. These edges represent containment: a reduction
+points to its bounds and body, and a load to its six coordinates. Using this direction
+consistently avoids mixing operand-to-result dataflow with lexical scope.
+Each node records `language` and `constructor`;
 index nodes also record their position or delta role. A reduction or scan reference records
 its lexical `bound_by` node id and display name as attributes. It does not draw a cross-tree
 binder edge, because scope is not dataflow.

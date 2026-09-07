@@ -266,8 +266,8 @@ the tag `Snapshot.create` already chose.
 > acyclic, which two graphs quotiented by a correspondence need not be. What
 > replaced them is cluster MEMBERSHIP alone: `Cluster_var`, `Boundary_index` and
 > `Ground_expr.project`, with `Input_var` generalised to `Cluster_var` and
-> `Cell_origin` deleted. See `.ai/native_transform_local_verify_plan.md` — §4 for
-> the diagnosis, §§5-6 for the replacement, §13 for the one-sided-variable rule
+> `Cell_origin` deleted. See [the verification design](native_transform_verify.md)
+> — §5 for the diagnosis, §§6–8 for the replacement and the one-sided-variable rule
 > that keeps `reuse_permute` provable. The section is kept because the false
 > proof it diagnoses is real and the tests that pin it are still in the suite;
 > only the cure changed.

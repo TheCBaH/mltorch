@@ -1,8 +1,28 @@
 # Deferred constant SSA
 
-## Problem
+## Status
 
-The current constant-folding pass has two jobs at once:
+**Implemented**, 2026-08-22 (`ffbef44`). In `lib/native/transform/`,
+`const_ssa.ml` defines the plan and capability predicate, `constant_store.ml`
+holds the plan, graph bindings, and materialized cache, `passes/fold_const.ml`
+performs deferred folding, `const_ssa_symbolic.ml` grounds deferred values for
+verification, and `const_ssa_materialize.ml` provides the materialization boundary.
+The representation below is a conceptual sketch: the implementation uses
+`Const_ssa.Leaf`/`Apply`, including an `Opaque_materialized` leaf, and reuses
+`Graph_ir.op` rather than introducing a separate `Const_op.t`.
+
+`Const_ssa.allows` has grown past the "initial
+permitted set" below as new models exposed more constant-only ops. It landed as
+`{Add, Sub, Mul, Div, Sqrt, Permute}` and now also admits `{Reshape, Expand,
+Add_scalar, Mul_scalar, Pow}` (`8c1fbea`) and `{Rsub_scalar, Sigmoid}`
+(`cde812e`). Multi-output operations remain out of
+scope, as designed. Extending the set requires checking shape inference,
+materialization, and symbolic grounding, plus regression tests; changing
+`allows` alone does not establish support in all of these paths.
+
+## Original problem
+
+Before deferred evaluation, the constant-folding pass had two jobs at once:
 
 1. prove that a node depends only on constants; and
 2. evaluate the node and attach its resulting `Tensor.packed` payload.
@@ -17,7 +37,7 @@ sees it as dynamic; Native4D then inherits a non-canonical Native graph.
 The conversion needs a statically known weight, shape, format, and layout.  It
 does not inherently need the weight's bytes at graph-analysis time.
 
-## Proposal
+## Design
 
 Split a constant's *static identity* from its *materialised payload*.  A
 constant may be captured data, a literal, or a pure expression over other
@@ -275,7 +295,10 @@ definitions.
 - An unrestricted embedded operation graph would duplicate most of `Graph_ir`.
   The dialect must stay tied to genuine compile-time constant operations.
 
-## Recommended implementation order
+## Original implementation sequence
+
+This records the planned dependencies, not a commit-by-commit history. Names
+such as `Constant_plan` below are conceptual; see Status for the landed modules.
 
 1. Introduce `Constant_plan`, `is_effective_constant`, and distinct symbolic
    and materialized transform states.

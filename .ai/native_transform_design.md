@@ -1206,8 +1206,8 @@ alternate-layout edge the graph already computes rather than declining.
 ### 12e. Reusing an existing layout, and bypassing individual inverse consumers
 
 Status: **implemented** — `lib/native/transform/passes/reuse_permute.ml` and
-`bypass_permute.ml`, tests in `test/native/reuse_permute_test.ml` and `test/native/bypass_permute_test.ml`. Design record:
-`.ai/native_layout_reuse_plan.md`.
+`bypass_permute.ml`, tests in `test/native/reuse_permute_test.ml` and
+`test/native/bypass_permute_test.ml`. The contracts are recorded in this section.
 
 `Sink_permute` declines a mixed elementwise op outright: `add(P(a), b)` has no
 uniform `p` to factor out. But `b` is not necessarily relayout-free — the
