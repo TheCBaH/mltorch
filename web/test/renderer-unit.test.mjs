@@ -595,7 +595,9 @@ const kinded = ({ defaultView = 'v/canonical', views, nodeDataSets = [] }) => JS
   graphCollections: [{ label: 'c', graphs: [
     { id: 'pt2/root', nodes: [{ id: 's0' }] },
     { id: 'g/native/001', nodes: [{ id: 'c0' }] },
+    { id: 'g/kernel/000', nodes: [{ id: 'k0' }] },
     { id: 'g/flow', nodes: [{ id: 'f0' }] },
+    { id: 'g/symbolic/000', nodes: [{ id: 'v0' }] },
   ] }],
   nodeDataSets,
 });
@@ -603,6 +605,10 @@ const kinded = ({ defaultView = 'v/canonical', views, nodeDataSets = [] }) => JS
 const STAGE_VIEWS = [
   { id: 'v/canonical', label: 'Canonical', kind: 'stage:canonical', collection: 'c', graph: 'g/native/001' },
   { id: 'v/source', label: 'Source', kind: 'stage:source', collection: 'c', graph: 'pt2/root' },
+];
+const VALUE_VIEWS = [
+  { id: 'v/kernel', label: 'Kernel', kind: 'stage:kernel', collection: 'c', graph: 'g/kernel/000' },
+  { id: 'v/stage_program', label: 'Stage Program', kind: 'stage:stage_program', collection: 'c', graph: 'g/symbolic/000' },
 ];
 const FLOW_VIEW = { id: 'v/flow', label: 'Flow', kind: 'flow', collection: 'c', graph: 'g/flow' };
 
@@ -801,6 +807,50 @@ test('a selection naming both a view and a comparison is refused', async () => {
 /* --------------------------------------------------------------- the config */
 
 const configOf = (h, slot) => h.element(slot).config;
+
+test('value views retain single-child canonical operator groups', async () => {
+  const h = harness();
+  const stage = await enter(h, kinded({ views: [...STAGE_VIEWS, ...VALUE_VIEWS] }),
+    { view: 'v/stage_program' }, 'g/symbolic/000');
+  assert.equal(configOf(h, h.last()).keepLayersWithASingleChild, true);
+  h.renderer.finalize(stage);
+
+  const kernel = await enter(h, kinded({ views: [...STAGE_VIEWS, ...VALUE_VIEWS] }),
+    { view: 'v/kernel' }, 'g/kernel/000');
+  assert.equal(configOf(h, h.last()).keepLayersWithASingleChild, true);
+  h.renderer.finalize(kernel);
+
+  const canonical = await enter(h, kinded({ views: STAGE_VIEWS }),
+    { view: 'v/canonical' }, 'g/native/001');
+  assert.ok(!('keepLayersWithASingleChild' in configOf(h, h.last())));
+  h.renderer.finalize(canonical);
+});
+
+test('value views initially select a node inside the first canonical operator group', async () => {
+  const h = harness();
+  const text = JSON.stringify({
+    model: { name: 'm' },
+    defaultView: 'v/stage_program',
+    views: VALUE_VIEWS,
+    graphCollections: [{ label: 'c', graphs: [{
+      id: 'g/symbolic/000',
+      nodes: [
+        { id: 'const:t1', namespace: '' },
+        { id: 'v1', namespace: 'Conv2d#g0' },
+      ],
+    }, {
+      id: 'g/kernel/000', nodes: [{ id: 'k0' }],
+    }] }],
+  });
+  const promise = h.renderer.install(text, { view: 'v/stage_program' });
+  const slot = h.last();
+  h.emit(slot, 'some-other-graph');
+  assert.deepEqual(h.element(slot).selected, {
+    nodeId: 'v1', graphId: 'g/symbolic/000', label: 'c',
+  });
+  h.emit(slot, 'g/symbolic/000');
+  await promise;
+});
 
 test('mapping entries cross as arrays, never as a Cartesian product', async () => {
   const h = harness();

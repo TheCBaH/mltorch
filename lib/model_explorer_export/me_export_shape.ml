@@ -167,6 +167,29 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
   (* [Eval_symbolic.run] is the expensive symbolic evaluation the review
      flagged, not [Me_kernel.stage_program]'s projection of it -- the two are
      gated together since the projection has nothing to project without it. *)
+  let* stage_origin =
+    let add_node origins (node : Graph_ir.node) =
+      let* namespace =
+        wrap
+          (fun e -> `Identifier e)
+          (Me_ids.namespace_component ~limits ~label:(Graph_ir.op_name node.op)
+             (Graph_ir.Node_id.to_int node.id))
+      in
+      let rec add_outputs slot origins = function
+        | [] -> origins
+        | output :: outputs ->
+            add_outputs (slot + 1)
+              (Graph_ir.Tensor_id.Map.add output
+                 Me_kernel.Origin.
+                   { node = node.id; output_slot = slot; namespace }
+                 origins)
+              outputs
+      in
+      Err.return (add_outputs 0 origins node.outputs)
+    in
+    Err.List.fold_left add_node Graph_ir.Tensor_id.Map.empty
+      t.graph.Graph_ir.Graph.nodes
+  in
   let* program_and_stage_graph =
     if not needed_stage_program then Err.return None
     else
@@ -174,7 +197,10 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
       let+ stage_graph =
         wrap
           (fun e -> `Value_graph e)
-          (Me_kernel.stage_program ~limits ~id:stage_id program)
+          (Me_kernel.stage_program ~limits ~id:stage_id
+             ~origin:(fun value ->
+               Graph_ir.Tensor_id.Map.find_opt value stage_origin)
+             program)
       in
       Some (program, stage_graph)
   in
@@ -203,7 +229,10 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
           let* g =
             wrap
               (fun e -> `Value_graph e)
-              (Me_kernel.kernel ~limits ~id:kernel_id k)
+              (Me_kernel.kernel ~limits ~id:kernel_id
+                 ~origin:(fun value ->
+                   Graph_ir.Tensor_id.Map.find_opt value stage_origin)
+                 k)
           in
           let+ f =
             wrap

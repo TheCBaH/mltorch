@@ -39,6 +39,8 @@ const isDebt = (state) => state === 'cleanup_failed' || state === 'cleanup_aband
  * opened only by its parent action; stage views remain the only fallbacks. */
 const isStage = (view) => typeof view?.kind === 'string' && view.kind.startsWith('stage:');
 const isDetail = (view) => view?.kind === 'detail';
+const keepsValueGroups = (view) =>
+  view?.kind === 'stage:kernel' || view?.kind === 'stage:stage_program';
 
 /* The one graph-addressed set the shell interprets rather than merely relays.
  * `Me_verify` names it, and `Me_fusion`'s "fusion" is the only other. */
@@ -187,6 +189,11 @@ export class Renderer {
    * back door. */
   #select(state, selection) {
     const views = Array.isArray(state.views) ? state.views : [];
+    const selected = (view) => ({
+      graphId: view.graph,
+      viewId: view.id,
+      keepLayersWithASingleChild: keepsValueGroups(view),
+    });
     const stage = (id) => {
       const view = views.find((v) => v.id === id);
       return view && isStage(view) ? view : null;
@@ -197,24 +204,27 @@ export class Renderer {
       if (!single) {
         throw new RenderFailure('invalid', `session has no single-graph view "${selection.view}"`);
       }
-      return { graphId: single.graph, viewId: single.id };
+      return selected(single);
     }
     if (Array.isArray(selection?.prefer)) {
       for (const id of selection.prefer) {
         const view = stage(id);
-        if (view) return { graphId: view.graph, viewId: view.id };
+        if (view) return selected(view);
       }
       const fallback = stage(state.defaultView) ?? views.find(isStage);
       if (!fallback) throw new RenderFailure('invalid', 'session declares no stage view');
-      return { graphId: fallback.graph, viewId: fallback.id };
+      return selected(fallback);
     }
     // No descriptor: the original behaviour, kind filter and all, so the
     // callers and tests that predate selection keep their contract.
     const view = views.find((v) => v.id === state.defaultView);
-    return {
-      graphId: view?.graph || state.graphCollections?.[0]?.graphs?.[0]?.id,
-      viewId: view?.id ?? null,
-    };
+    return view
+      ? selected(view)
+      : {
+        graphId: state.graphCollections?.[0]?.graphs?.[0]?.id,
+        viewId: null,
+        keepLayersWithASingleChild: false,
+      };
   }
 
   /* One pane, resolved against the collection that DECLARES it.
@@ -223,7 +233,7 @@ export class Renderer {
    * `Session.validate` checks -- a graph id that exists in some OTHER
    * collection is `Wrong_collection` there, and must be a refusal here too
    * rather than a lookup that happens to find something. */
-  #pane(collections, side, label) {
+  #pane(collections, side, label, { preferGroupedNode = false } = {}) {
     const holder = collections.find((c) => c.label === side?.collection);
     if (!holder) {
       throw new RenderFailure('invalid', `${label}: session has no collection "${side?.collection}"`);
@@ -233,7 +243,15 @@ export class Renderer {
       throw new RenderFailure('invalid',
         `${label}: collection "${side.collection}" has no graph "${side.graph}"`);
     }
-    const firstNodeId = graph.nodes?.[0]?.id;
+    /* Value graphs deliberately put constants and inputs at the root. Selecting
+     * the first such boundary makes Model Explorer fit the entire graph, which
+     * hides every single-value canonical-operator group at once. A node with a
+     * namespace belongs to one of those groups, and selecting it makes the
+     * renderer focus the group just as it does for Canonical Native. */
+    const groupedNode = preferGroupedNode
+      ? graph.nodes?.find((node) => typeof node?.namespace === 'string' && node.namespace !== '')
+      : undefined;
+    const firstNodeId = groupedNode?.id ?? graph.nodes?.[0]?.id;
     // A graph with no node cannot be navigated to: `selectNode` is the only way
     // to reach a pane, and it takes a node. Refusing here keeps that a
     // pre-connection failure rather than a candidate that never becomes ready.
@@ -356,19 +374,26 @@ export class Renderer {
     if (selection?.flow != null) {
       return { ...shared, ...this.#selectFlow(state, selection.flow) };
     }
-    const { graphId, viewId } = this.#select(state, selection);
+    const { graphId, viewId, keepLayersWithASingleChild } = this.#select(state, selection);
     if (!graphId) throw new RenderFailure('invalid', 'session has no renderable graph');
     // The collection that actually HOLDS the target, not collection zero:
     // `selectNode` is addressed by collection label, and a view may name a
     // graph in any of them.
     const holder = collections.find((c) => (c.graphs ?? []).some((g) => g.id === graphId));
+    const pane = this.#pane(
+      collections,
+      { collection: holder?.label, graph: graphId },
+      `view ${viewId ?? graphId}`,
+      { preferGroupedNode: keepLayersWithASingleChild },
+    );
     return {
       ...shared,
       kind: 'single',
       graphId,
       viewId,
-      collectionLabel: holder?.label,
-      targetFirstNodeId: (holder?.graphs ?? []).find((g) => g.id === graphId)?.nodes?.[0]?.id,
+      keepLayersWithASingleChild,
+      collectionLabel: pane.collectionLabel,
+      targetFirstNodeId: pane.firstNodeId,
     };
   }
 
@@ -479,7 +504,12 @@ export class Renderer {
    * adds it, but nothing depends on it. The library auto-selects some graph on
    * its own; `selectNode` is what navigates to the one we want. */
   #config(d) {
-    if (d.kind !== 'comparison') return { defaultGraphId: d.graphId };
+    if (d.kind !== 'comparison') {
+      return {
+        defaultGraphId: d.graphId,
+        ...(d.keepLayersWithASingleChild ? { keepLayersWithASingleChild: true } : {}),
+      };
+    }
     return {
       defaultGraphId: d.left.graph,
       syncNavigationData: {

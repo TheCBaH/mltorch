@@ -30,22 +30,36 @@ type error =
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
+(** The canonical Native output that produced a symbolic stage value. A symbolic
+    computation retains its output tensor id, so this relation is exact and an
+    operator with several outputs produces one origin record per output slot.
+    [namespace] is the original operator's group in the value graphs. *)
+module Origin : sig
+  type t = { node : Graph_ir.Node_id.t; output_slot : int; namespace : string }
+end
+
 val stage_program :
   limits:Me_limits.Limits.t ->
   id:string ->
+  origin:(Graph_ir.Tensor_id.t -> Origin.t option) ->
   Stage_program.t ->
   (Model_explorer.Graph.t, [> error ]) Err.t
 (** One node per stage, plus a pinned boundary node per graph input and per
     program output. The attribute is the stage's BODY, rendered through
     [Me_build.bounded] — an expression tree is exactly the value whose printing
-    has to be stopped at the cap rather than built and cut. *)
+    has to be stopped at the cap rather than built and cut. A stage node whose
+    value came from a canonical Native output also identifies that operator and
+    output slot in its attributes. *)
 
 val kernel :
   limits:Me_limits.Limits.t ->
   id:string ->
+  ?origin:(Graph_ir.Tensor_id.t -> Origin.t option) ->
   Kernel.t ->
   (Model_explorer.Graph.t, [> error ]) Err.t
 (** One node per kernel value. Kernel inputs are boundary nodes carrying their
     BINDING — caller, captured constant, or filled — because that is the
     distinction the adaptation exists to make and it appears nowhere in the
-    graph shape. Outputs carry their quantisation, likewise. *)
+    graph shape. When an origin is supplied, its values share the canonical
+    operator groups used by the Stage Program. Outputs carry their quantisation,
+    likewise. *)

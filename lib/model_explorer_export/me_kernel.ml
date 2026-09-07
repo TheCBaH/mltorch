@@ -18,6 +18,10 @@ let attr key value =
 let kv key value = ME.KeyValue.create ~key ~value
 let tid_name id = Core.Pretty.to_string Graph_ir.Tensor_id.pp id
 
+module Origin = struct
+  type t = { node : Graph_ir.Node_id.t; output_slot : int; namespace : string }
+end
+
 let shape (sg : Tensor_sig.t) =
   let text, _ =
     Me_build.bounded ~max:256
@@ -49,7 +53,7 @@ let build ~limits ~id ~inputs ~outputs ~values =
         (Me_ids.boundary `In vid))
     inputs;
   List.iter
-    (fun (vid, _, _, _) ->
+    (fun (vid, _, _, _, _, _) ->
       Hashtbl.replace producer
         (Graph_ir.Tensor_id.to_int vid)
         (Me_ids.value_node vid))
@@ -73,7 +77,7 @@ let build ~limits ~id ~inputs ~outputs ~values =
   let input_nodes = List.map (boundary `In) inputs in
   let* value_nodes =
     Err.List.map
-      (fun (vid, label, sg, program) ->
+      (fun (vid, label, sg, program, namespace, extra_attrs) ->
         let+ incoming =
           Err.List.map
             (fun src ->
@@ -92,7 +96,7 @@ let build ~limits ~id ~inputs ~outputs ~values =
           Me_build.bounded ~max:limits.Me_limits.Limits.max_attr_chars
             Region_program.pp program
         in
-        ME.GraphNode.create ~id:(Me_ids.value_node vid) ~label ~namespace:""
+        ME.GraphNode.create ~id:(Me_ids.value_node vid) ~label ~namespace
           ~incomingEdges:incoming
           ~outputsMetadata:
             [
@@ -106,7 +110,8 @@ let build ~limits ~id ~inputs ~outputs ~values =
                  (string_of_int (Region_program.Fold.max_depth program));
                attr "body" text;
              ]
-            @ if capped then [ attr "body_truncated" "true" ] else [])
+            @ (if capped then [ attr "body_truncated" "true" ] else [])
+            @ extra_attrs)
           ())
       values
   in
@@ -156,7 +161,7 @@ let project_exn computation =
     (Region_group.Ref.project ~max_size:Kernel.Limits.Hard.size
        ~max_depth:Kernel.Limits.Hard.depth computation)
 
-let stage_program ~limits ~id (p : Stage_program.t) =
+let stage_program ~limits ~id ~origin (p : Stage_program.t) =
   let by_id =
     List.fold_left
       (fun m (s : Stage_program.Stage.t) ->
@@ -190,10 +195,25 @@ let stage_program ~limits ~id (p : Stage_program.t) =
     ~values:
       (List.map
          (fun (s : Stage_program.Stage.t) ->
+           let origin_attrs =
+             match origin s.Stage_program.Stage.id with
+             | None -> []
+             | Some (origin : Origin.t) ->
+                 [
+                   attr "canonical_native_node"
+                     (Core.Pretty.to_string Graph_ir.Node_id.pp origin.node);
+                   attr "canonical_output_slot"
+                     (string_of_int origin.output_slot);
+                 ]
+           in
            ( s.Stage_program.Stage.id,
              "stage",
              s.Stage_program.Stage.sg,
-             project_exn s.Stage_program.Stage.computation ))
+             project_exn s.Stage_program.Stage.computation,
+             (match origin s.Stage_program.Stage.id with
+             | None -> ""
+             | Some (origin : Origin.t) -> origin.namespace),
+             origin_attrs ))
          p.Stage_program.stages)
     ~outputs:
       (List.filter_map
@@ -204,7 +224,7 @@ let stage_program ~limits ~id (p : Stage_program.t) =
              (Graph_ir.Tensor_id.Map.find_opt vid by_id))
          p.Stage_program.outputs)
 
-let kernel ~limits ~id (k : Kernel.t) =
+let kernel ~limits ~id ?origin (k : Kernel.t) =
   build ~limits ~id
     ~inputs:
       (List.map
@@ -219,10 +239,19 @@ let kernel ~limits ~id (k : Kernel.t) =
     ~values:
       (List.map
          (fun (v : Kernel.Value.t) ->
+           let namespace =
+             match
+               Option.bind origin (fun origin -> origin v.Kernel.Value.id)
+             with
+             | None -> ""
+             | Some (origin : Origin.t) -> origin.namespace
+           in
            ( v.Kernel.Value.id,
              Kernel.Result_conversion.name v.Kernel.Value.result,
              v.Kernel.Value.sg,
-             project_exn v.Kernel.Value.computation ))
+             project_exn v.Kernel.Value.computation,
+             namespace,
+             [] ))
          k.Kernel.values)
     ~outputs:
       (List.map

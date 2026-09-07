@@ -861,6 +861,28 @@ node-indexed and these are value-indexed; a stage and the kernel value adapted f
 this id precisely so the two panes pair without an explicit mapping — the same argument the
 Native comparison rests on.
 
+**A Stage value records its canonical Native origin.** Symbolic evaluation preserves each
+canonical output tensor id, so a Stage node `v<k>` can carry the exact producing Native node
+and output slot. This is metadata for recovering operator context while inspecting the
+whole-program value graph; it does not relabel the Stage node or pretend that a value graph
+is an operator overview. The Stage and Kernel project those values into the same namespace
+group, labelled with the canonical operator type and id, so every multi-output operator owns
+one group containing its output values. Inputs and constants remain at the root because they
+have no producing Native operator.
+
+**Single-value operator groups stay visible.** The visualizer normally removes a namespace
+layer with exactly one operation, which would erase almost every operator group in these
+value graphs. The Stage Program and Kernel presentations therefore set its
+`keepLayersWithASingleChild` option; grouping is structural context here, not incidental
+layout nesting.
+
+**Initial navigation enters an operator group.** Value graphs list their root boundary
+inputs and constants before their values. Selecting the first node would make the
+visualizer fit the whole graph and shrink every operator group into an unreadable chain.
+The presentation instead selects the first namespaced value when it opens a Stage Program
+or Kernel view. That preserves the full graph for navigation while initially showing one
+canonical operator group with its value and neighbours.
+
 **Fusion says which unavailability it is.** Where the kernel is available, fusion is
 `Not_implemented` — it is a view over an unchanged kernel that has not landed. Where the
 kernel is not, fusion is `Prerequisite_unavailable`. Two different facts, and reporting both
