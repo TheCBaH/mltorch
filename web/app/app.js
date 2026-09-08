@@ -248,7 +248,14 @@ async function main() {
   const response = await fetch(new URL('./catalog.json', document.baseURI));
   if (!response.ok) throw new Error(`catalogue unavailable (${response.status})`);
   const catalog = validateCatalog(await response.json());
-  renderControls(catalog.defaultModel);
+  // The build's `defaultModel` is an arbitrary pick with no capability signal
+  // of its own -- it must go through the same filter as everything else in
+  // the selector, never bypass it via `keepId`. Falling back to the raw
+  // `defaultModel` only when nothing in the catalogue passes keeps a model on
+  // screen instead of an empty selector.
+  const initialModel = catalog.models.find((m) => P.modelMatchesStages(m.support, controls.optional))?.id
+    ?? catalog.defaultModel;
+  renderControls(initialModel);
 
   select.addEventListener('change', () => {
     loadCatalog(select.value, P.optionsFromControls(controls), null, true)
@@ -324,7 +331,7 @@ async function main() {
   const applyUrl = async (mode) => {
     const decoded = P.decodeUrl(location.search);
     const desiredConstants = P.constantsFromUrl(decoded);
-    const id = decoded.model ?? catalog.defaultModel;
+    const id = decoded.model ?? initialModel;
     if (!catalog.models.some((model) => model.id === id)) return showError('unknown catalogue model');
     const options = P.optionsFromUrl(decoded);
     const retained = coordinator.session && loadedModel
