@@ -22,10 +22,16 @@ let sdpa =
     recipe = "Recipe_sdpa";
     initial =
       "Aten_walk_recipes.Recipe_sdpa.{ batch = 1; heads = 2; sq = 3; sk = 4; e \
-       = 5; mask = Aten_walk_recipes.Recipe_sdpa.No_mask; scale = None }";
+       = 5; batch_bc = Aten_walk_recipes.Recipe_sdpa.All_real; heads_bc = \
+       Aten_walk_recipes.Recipe_sdpa.All_real; mask = \
+       Aten_walk_recipes.Recipe_sdpa.No_mask; scale = None }";
     axes =
       "Aten_walk_recipes.Recipe_sdpa.axes ~batch:[ 1; 2 ] ~heads:[ 1; 2; 3 ] \
        ~sq:[ 1; 3; 5 ] ~sk:[ 1; 4; 6 ] ~e:[ 1; 3; 8 ] \
+       ~batch_bc:Aten_walk_recipes.Recipe_sdpa.[ All_real; Q_one; K_one; \
+       V_one; Qk_one; Qv_one; Kv_one ] \
+       ~heads_bc:Aten_walk_recipes.Recipe_sdpa.[ All_real; Q_one; K_one; \
+       V_one; Qk_one; Qv_one; Kv_one ] \
        ~mask:Aten_walk_recipes.Recipe_sdpa.all_mask_kinds ~scale:[ None; Some \
        0.1; Some 1.0; Some 2.0 ] ()";
     build =

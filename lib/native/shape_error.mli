@@ -6,6 +6,12 @@ module Broadcast : sig
   val pp : Format.formatter -> t -> unit
 end
 
+module Meshgrid : sig
+  type t = Vec6.shape
+
+  val pp : Format.formatter -> t -> unit
+end
+
 module Window : sig
   type t = {
     out : int64;
@@ -292,6 +298,22 @@ module Unfold : sig
   val pp : Format.formatter -> t -> unit
 end
 
+(** The rank/layout boundary for the paired 2-D column operators. Native stores
+    the channel-last working input on [D,H,W,C]; [im2col] produces the rank-3
+    ATen column layout on [H,W,C], and [col2im] consumes that layout. Outer axes
+    must consequently be unit rather than silently discarded. *)
+module Im2col : sig
+  type fault =
+    [ `Col_input_rank
+    | `Column_channels
+    | `Column_locations
+    | `Image_input_rank ]
+
+  type t = { fault : fault }
+
+  val pp : Format.formatter -> t -> unit
+end
+
 module Convolution : sig
   type channels_divisibility = { channels : int; groups : int }
 
@@ -415,12 +437,22 @@ module Group_norm : sig
   val pp : Format.formatter -> t -> unit
 end
 
-(* `index.Tensor`'s round-12 [Graph_ir]-level enforcement of the rank-1
-   restriction: an index frame axis other than [C] with a non-unit extent,
-   reachable from a direct [Graph_builder] call or a JSON-decoded graph even
-   though neither importer can ever produce one. *)
+(* `index.Tensor`'s [Graph_ir]-level shape-fit enforcement, reachable from a
+   direct [Graph_builder] call or a JSON-decoded graph even though neither
+   importer can ever produce an invalid one. *)
 module Index_tensor : sig
-  type t = { axis : Axis.t; extent : Dim.extent Dim.t }
+  type t =
+    | Index_shape_mismatch of {
+        index_rank : int;
+        axis : Axis.t;
+        extent : Dim.extent Dim.t;
+      }
+    | Rank_overflow of { axis : Axis.t; index_rank : int }
+    | Self_collision of {
+        axis : Axis.t;
+        colliding_axis : Axis.t;
+        extent : Dim.extent Dim.t;
+      }
 
   val pp : Format.formatter -> t -> unit
 end
@@ -459,6 +491,21 @@ module Resize_nearest : sig
   val pp : Format.formatter -> t -> unit
 end
 
+(** `upsample_bicubic2d.vec`'s own aggregate -- the same numerator magnitude as
+    {!Resize}'s, a distinct variant only because the message must name the right
+    op. *)
+module Resize_bicubic : sig
+  type t = {
+    axis : Axis.t;
+    in_extent : Dim.extent Dim.t;
+    out_extent : Op_config.Pos.t;
+    aggregate : int64;
+    limit : int64;
+  }
+
+  val pp : Format.formatter -> t -> unit
+end
+
 module Arange : sig
   type fault = [ `Empty | `Non_finite | `Non_positive_step | `Over_limit ]
   type t = { start : float; stop : float; step : float; fault : fault }
@@ -476,8 +523,10 @@ type t =
   | `Convolution of Convolution.error
   | `Group_norm of Group_norm.t
   | `Index_tensor of Index_tensor.t
+  | `Im2col of Im2col.t
   | `Linear of Linear.error
   | `Lstm of Lstm.error
+  | `Meshgrid of Meshgrid.t
   | `Numel_over_limit of Vec6.Numel_bound.t
   | `Operand_shape of Operand_shape.t
   | `Output_count_over_limit of Output_count.t
@@ -486,6 +535,7 @@ type t =
   | `Reshape of Reshape.t
   | `Arange of Arange.t
   | `Resize of Resize.t
+  | `Resize_bicubic of Resize_bicubic.t
   | `Resize_nearest of Resize_nearest.t
   | `Sdpa of Sdpa.error
   | `Select_scatter of Select_scatter.t

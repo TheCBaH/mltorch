@@ -88,7 +88,7 @@ module M = struct
               ~name:"index" ()
           in
           index_tensor ~name:"out"
-            { Index_tensor.Index_tensor.axis = c.axis }
+            { Index_tensor.Index_tensor.axis = c.axis; index_rank = 1 }
             ~self ~index)
     in
     let inputs = List.combine g.Graph_ir.Graph.inputs [ self_v; index_v ] in

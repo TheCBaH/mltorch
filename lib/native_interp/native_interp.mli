@@ -72,6 +72,7 @@ type metadata_role =
   | `Convolution_bias
   | `Convolution_weight
   | `Cumsum_input
+  | `Einsum_operand
   | `Expand_input
   | `Group_norm_bias
   | `Group_norm_weight
@@ -137,9 +138,11 @@ type metadata_role =
         [permute.default] have separate arms, and a shared label would leave the
         row unable to say which one failed -- the same reasoning as
         [`Conv2d_weight] vs [`Convolution_weight] above. *)
+  | `Type_as_other
   | `Unbind_input
   | `Unfold_input
   | `Unsqueeze_input
+  | `Upsample_bicubic2d_input
   | `Upsample_bilinear2d_input
   | `Upsample_nearest2d_input
   | `Vector_norm_input ]
@@ -169,9 +172,11 @@ type unsupported_option =
   | `Dilation of int list
   | `Divisor_override of int
   | `Dtype
+  | `Indexing of string
   | `Memory_format of [ `Channels_last | `Channels_last_3d | `Unknown ]
   | `Momentum of float
   | `Repeat_interleave_dim
+  | `Rounding_mode of string
   | `Training of bool
   | `Vector_norm_ord of float ]
 (** Options this lowering rejects rather than silently drops: a non-unit [alpha]
@@ -332,6 +337,14 @@ module Bad_select : sig
   type t = { index : int; fault : [ `Aten_shape of Aten_shape.error ] }
 end
 
+(** [tile.default]'s own row, not {!Bad_repeat}'s: the fault is unreachable in
+    practice ({!Native_interp_decode.resolve_tile} pre-pads [dims] to at least
+    [self]'s rank before calling {!Aten_shape.resolve_tile_size}), but a [tile]
+    failure printing "repeat repeats [...]" would misname its own op. *)
+module Bad_tile : sig
+  type t = { dims : int list; fault : [ `Aten_shape of Aten_shape.error ] }
+end
+
 (** [cat.default]/[stack.default]: every tensor in the list must share one rank,
     the same check {!Op_bridge}'s [Concat_rank_mismatch] makes and for the same
     reason. *)
@@ -356,11 +369,20 @@ module Matmul_unsupported_shape : sig
   type t = { self : int list; other : int list }
 end
 
-(** `index.Tensor`'s locked list-acceptance rule (`.ai/index_tensor_design.md`
-    round 3): [indices] is accepted iff its length equals [self]'s ATen rank,
-    exactly one entry is a Long-dtype tensor of ATen rank exactly 1, and every
-    other entry is an explicit [None]. Mirrors {!Op_bridge}'s [Index_list]
-    exactly -- the two importers must reject the same graphs the same way. *)
+(** `einsum.default`, restricted to [Aten_shape.Einsum]'s two evidenced equation
+    strings, each paired with exactly two operands of ATen rank 5 and 3
+    respectively (`.ai/einsum_design.md`). Mirrors {!Op_bridge}'s
+    [Einsum_unsupported] exactly. *)
+module Einsum_unsupported : sig
+  type t = { equation : string; ranks : int list }
+end
+
+(** `index.Tensor`'s list-acceptance rule (`.ai/index_tensor_design.md` round 3,
+    generalized for the multi-entry-gather landing): [indices] is accepted iff
+    its length is at most [self]'s ATen rank, exactly one entry is a Long-dtype
+    tensor of ATen rank at least 1, and every other entry is an explicit [None].
+    Mirrors {!Op_bridge}'s [Index_list] exactly -- the two importers must reject
+    the same graphs the same way. *)
 module Index_list : sig
   type fault =
     | Length_mismatch of { expected : int; got : int }
@@ -400,10 +422,12 @@ type malformed =
   | `Bad_repeat of Bad_repeat.t
   | `Bad_select of Bad_select.t
   | `Bad_slice of Bad_slice.t
+  | `Bad_tile of Bad_tile.t
   | `Bad_upsample_size of Bad_upsample_size.t
   | `Bad_view of Bad_view.t
   | `Concat_no_tensors of string
   | `Concat_rank_mismatch of Concat_rank_mismatch.t
+  | `Einsum_unsupported of Einsum_unsupported.t
   | `Index_list of Index_list.t
   | `Live_layer_norm_stats of Live_layer_norm_stats.t
   | `Lstm_reject of Lstm.Lstm.Reject.t

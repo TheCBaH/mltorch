@@ -7,6 +7,7 @@
 
 open Pytorch_types
 open Native_interp_decode
+open Native_interp_decode_shape
 
 (* [Conv2d.params.in_channels] is the ACTIVATION's channel count: the weight's
    per-group input extent times the group count. Same rule as

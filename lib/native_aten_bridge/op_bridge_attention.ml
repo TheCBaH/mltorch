@@ -5,6 +5,25 @@ open Pytorch_types
 open Op_bridge_error
 open Op_bridge_decode
 
+(* Query/key/value accept rank 4 (ordinary [B,H,seq,E]) or rank 5 (Hiera-style
+   windowed attention, [B,H,windows,seq,E]) -- the two shapes the corpus is
+   confirmed to use, not an open-ended "whatever fits the six-axis frame".
+   [Tensor_bridge.of_aten]'s right-alignment needs NO help for rank 5: a
+   rank-5 ATen tensor lands on [T,D,H,W,C] the same mechanical way rank 4
+   lands on [D,H,W,C], and [Attention.Sdpa]'s own [batch_axes = [N; T; D; H]]
+   already treats all four as ordinary ATen-broadcast batch dimensions (see
+   "sdpa -- batch and head extents independently" in sdpa_test.ml, which
+   already proves D and H batch independently with no cross term) -- so the
+   extra leading window axis is just one more already-supported batch axis,
+   not a new primitive or a reshape-around-the-op legalization. *)
+let require_qkv_rank arg_name t =
+  let got = aten_rank t in
+  if got = 4 || got = 5 then return ()
+  else
+    fail
+      (`Sdpa_reject
+         (Attention.Sdpa.Reject.Rank { arg_name; expected = [ 4; 5 ]; got }))
+
 let dispatch ~(aten_env : aten_env) (node : Node.t) :
     (Graph_ir.graph * (Graph_ir.Tensor_id.t * Tensor.packed) list, error) Err.t
     option =
@@ -27,9 +46,9 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
         (let* query = tensor_arg aten_env node "query" in
          let* key = tensor_arg aten_env node "key" in
          let* value = tensor_arg aten_env node "value" in
-         let* () = require_rank "sdpa query" ~expected:4 query in
-         let* () = require_rank "sdpa key" ~expected:4 key in
-         let* () = require_rank "sdpa value" ~expected:4 value in
+         let* () = require_qkv_rank "sdpa query" query in
+         let* () = require_qkv_rank "sdpa key" key in
+         let* () = require_qkv_rank "sdpa value" value in
          let* () = require_f32 "sdpa query" query in
          let* () = require_f32 "sdpa key" key in
          let* () = require_f32 "sdpa value" value in

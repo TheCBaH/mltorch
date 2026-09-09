@@ -10,7 +10,6 @@ type t =
   | `Batched_matmul_batch_axis of Node_id.t
   | `Constant_store of Constant_store.error
   | `Dynamic_batch_norm of Node_id.t
-  | `Live_max_pool_indices of Node_id.t * Tensor_id.t
   | `Map of Graph_map.error
   | `Missing_constant_payload of Node_id.t * Tensor_id.t
   | `Non_four_dimensional_tensor of Tensor_id.t * Vec6.shape
@@ -44,11 +43,6 @@ let pp fmt : [< t ] -> unit = function
         "@[node %a: batch norm parameters are not all constant, so no \
          per-channel scale can be precomputed@]"
         Node_id.pp node
-  | `Live_max_pool_indices (node, id) ->
-      Fmt.pf fmt
-        "@[node %a: max-pool index output %a is live; the dialect has no \
-         argmax-pool operation@]"
-        Node_id.pp node Tensor_id.pp id
   | `Map e -> Fmt.pf fmt "@[map: %a@]" Graph_map.pp_error e
   | `Missing_constant_payload (node, id) ->
       Fmt.pf fmt

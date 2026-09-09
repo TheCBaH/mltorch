@@ -8,82 +8,12 @@ module Tensor_id = Tensor_id
 module Node_id = Graph_common.Node_id
 module Input = Graph_common.Input
 
-type tensor_ref = Tensor_id.t
-
-type op =
-  (* Constructors kept in global alphabetical order (see graph_ir.mli). Each
-     each op carries its own payload record (params + operand refs),
-     defined in that op's module; the shared serialise / dataflow / pp logic is
-     driven from [op_registry] below, not a per-constructor match. *)
-  | Add of Pointwise.Add.t
-  | Add_scalar of Pointwise.Add_scalar.t
-  | Adaptive_avg_pool2d of Pool.AdaptiveAvgPool2d.t
-  | Adaptive_max_pool2d of Pool.AdaptiveMaxPool2d.t
-  | Adaptive_max_pool2d_with_indices of Pool.AdaptiveMaxPool2dWithIndices.t
-  | Amax of Reduce.Amax.t
-  | Avg_pool2d of Pool.AvgPool2d.t
-  | Batch_norm of Norm.BatchNorm.t
-  | Batch_norm_no_stats of Norm.BatchNormNoStats.t
-  | Batched_matmul of Matmul.Batched_matmul.t
-  | Bmm of Matmul.Bmm.t
-  | Clamp of Pointwise.Clamp.t
-  | Clone of Pointwise.Clone.t
-  | Concat of Concat.Concat.t
-  | Conv1d of Conv.Conv1d.t
-  | Conv2d of Conv.Conv2d.t
-  | Conv2d_padding of Conv.Conv2d_padding.t
-  | Conv3d of Conv.Conv3d.t
-  | Convolution of Conv.Convolution.t
-  | Cumsum of Reduce.Cumsum.t
-  | Div of Pointwise.Div.t
-  | Div_scalar of Pointwise.Div_scalar.t
-  | Discard of { x : tensor_ref }
-  | Expand of Pointwise.Expand.t
-  | Eye of Factory.Eye.t
-  | Gelu of Pointwise.Gelu.t
-  | Group_norm of Norm.GroupNorm.t
-  | Hardsigmoid of Pointwise.Hardsigmoid.t
-  | Hardswish of Pointwise.Hardswish.t
-  | Hardtanh of Pointwise.Hardtanh.t
-  | Index_tensor of Index_tensor.Index_tensor.t
-  | Layer_norm of Norm.LayerNorm.t
-  | Leaky_relu of Pointwise.Leaky_relu.t
-  | Linear of Linear.Linear.t
-  | Lstm of Lstm.Lstm.t
-  | Max_pool2d of Pool.MaxPool2d.t
-  | Max_pool2d_with_indices of Pool.MaxPool2dWithIndices.t
-  | Mean of Reduce.Mean.t
-  | Mul of Pointwise.Mul.t
-  | Mul_scalar of Pointwise.Mul_scalar.t
-  | Pad of Pad.Pad.t
-  | Permute of Permute.Permute.t
-  | Pow of Pointwise.Pow.t
-  | Relu of Pointwise.Relu.t
-  | Repeat of Repeat.Repeat.t
-  | RepeatInterleave of Repeat.RepeatInterleave.t
-  | Reshape of Reshape.Reshape.t
-  | Rms_norm of Norm.RmsNorm.t
-  | Rsub_scalar of Pointwise.Rsub_scalar.t
-  | Sdpa of Attention.Sdpa.t
-  | Select of Split.Select.t
-  | Select_scatter of Split.Select_scatter.t
-  | Sigmoid of Pointwise.Sigmoid.t
-  | Silu of Pointwise.Silu.t
-  | Softmax of Reduce.Softmax.t
-  | Slice of Split.Slice.t
-  | Split_with_sizes of Split.Split_with_sizes.t
-  | Sqrt of Pointwise.Sqrt.t
-  | Stack of Concat.Stack.t
-  | Sub of Pointwise.Sub.t
-  | Sum of Reduce.Sum.t
-  | To_copy of Pointwise.To_copy.t
-  | Unbind of Split.Unbind.t
-  | Unfold of Unfold.Unfold.t
-  | Upsample_bilinear2d of Resize.Bilinear2d.t
-  | Upsample_nearest2d of Resize.Nearest2d.t
-  | Vector_norm of Reduce.Vector_norm.t
-  | Arange of Factory.Arange.t
-  | Zeros of Factory.Zeros.t
+(* [type op], [type tensor_ref] and [module type OP] live in Graph_ir_op
+   (graph_ir_op.ml), split out when this file crossed the tracked
+   1000-line ceiling (scripts/check-file-size.sh). Neither is part of
+   graph_ir.mli's own surface except [op]/[tensor_ref], which this [open]
+   brings in matching that .mli's own type equations. *)
+include Graph_ir_op
 
 (* A module ALIAS, so field access [n.Node.outputs] still resolves — the fields
    belong to the module this names. OCaml will not let a parameterised record be
@@ -108,23 +38,6 @@ module Printer = struct
 end
 
 let input_kind = Graph_common.input_kind
-
-(* Per-op interface. Each op module supplies the name, codec, dataflow accessors
-   and printer for its OWN payload; [inject]/[project] (added by the wrappers in
-   [op_registry], since they name the variant) splice that payload in and out of
-   [op]. The common code below folds the registry instead of matching every
-   constructor, so adding an op needs only its module plus one registry entry. *)
-module type OP = sig
-  type t
-
-  val name : string
-  val jsont : t Jsont.t
-  val operands : t -> tensor_ref list
-  val map_operands : (tensor_ref -> tensor_ref) -> t -> t
-  val pp : tensor_ref Fmt.t -> Format.formatter -> t -> unit
-  val inject : t -> op
-  val project : op -> t option
-end
 
 (* In global alphabetical order, mirroring the [op] constructors. *)
 let op_registry : (module OP) list =
@@ -193,6 +106,12 @@ let op_registry : (module OP) list =
       let project = function Batched_matmul t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Pointwise.Bitwise_not
+
+      let inject t = Bitwise_not t
+      let project = function Bitwise_not t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Matmul.Bmm
 
       let inject t = Bmm t
@@ -209,6 +128,12 @@ let op_registry : (module OP) list =
 
       let inject t = Clone t
       let project = function Clone t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Im2col.Col2im
+
+      let inject t = Col2im t
+      let project = function Col2im t -> Some t | _ -> None
     end : OP);
     (module struct
       include Concat.Concat
@@ -247,6 +172,12 @@ let op_registry : (module OP) list =
       let project = function Convolution t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Pointwise.Cos
+
+      let inject t = Cos t
+      let project = function Cos t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Reduce.Cumsum
 
       let inject t = Cumsum t
@@ -275,6 +206,12 @@ let op_registry : (module OP) list =
 
       let inject t = Eye t
       let project = function Eye t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Floor_div_scalar
+
+      let inject t = Floor_div_scalar t
+      let project = function Floor_div_scalar t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pointwise.Gelu
@@ -311,6 +248,12 @@ let op_registry : (module OP) list =
 
       let inject t = Index_tensor t
       let project = function Index_tensor t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Im2col.Im2col
+
+      let inject t = Im2col t
+      let project = function Im2col t -> Some t | _ -> None
     end : OP);
     (module struct
       include Norm.LayerNorm
@@ -353,6 +296,12 @@ let op_registry : (module OP) list =
 
       let inject t = Mean t
       let project = function Mean t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Meshgrid.Meshgrid
+
+      let inject t = Meshgrid t
+      let project = function Meshgrid t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pointwise.Mul
@@ -415,6 +364,12 @@ let op_registry : (module OP) list =
       let project = function Rms_norm t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Pointwise.Rpow_scalar
+
+      let inject t = Rpow_scalar t
+      let project = function Rpow_scalar t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Pointwise.Rsub_scalar
 
       let inject t = Rsub_scalar t
@@ -449,6 +404,12 @@ let op_registry : (module OP) list =
 
       let inject t = Silu t
       let project = function Silu t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Sin
+
+      let inject t = Sin t
+      let project = function Sin t -> Some t | _ -> None
     end : OP);
     (module struct
       include Reduce.Softmax
@@ -509,6 +470,12 @@ let op_registry : (module OP) list =
 
       let inject t = Unfold t
       let project = function Unfold t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Resize.Bicubic2d
+
+      let inject t = Upsample_bicubic2d t
+      let project = function Upsample_bicubic2d t -> Some t | _ -> None
     end : OP);
     (module struct
       include Resize.Bilinear2d

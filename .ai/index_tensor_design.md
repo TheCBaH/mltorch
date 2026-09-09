@@ -4,6 +4,10 @@
 not implemented" verdict, recorded the same day). This is now a design record
 for landed code, the same role `.ai/matmul_softmax_design.md` plays for the
 batched-matmul family — not a scoping record for a deferred item.
+**§5 below (2026-09-10) generalizes it** to accept a multi-axis gather index
+and a shorter-than-rank `indices` list, unblocking `maxxvitv2_nano_rw_256`/
+`mvitv2_tiny` — see that section for what changed and, just as importantly,
+what turned out NOT to be needed.
 
 ## 1. The one occurrence
 
@@ -221,3 +225,105 @@ five gated commits, each independently built and tested:
   the op-specific `Index_list.Wrong_dtype` check to reject with its own
   message). `Pow is not a Const-SSA operation` is `to4d --fold`'s blocker
   post-fix, confirmed by `test/pt2_model_support_cram.t`.
+
+## 5. The multi-entry-gather generalization (2026-09-10)
+
+`ops-remaining.md`'s backlog named `index.Tensor` "multi-entry gather" as
+`maxxvitv2_nano_rw_256`/`mvitv2_tiny`'s current frontier, guessed to be "a
+genuinely different runtime-gather shape (`indices: Tensor?[]`)... out of
+this doc's current acceptance domain" — comparable in scope to the original
+five-gate landing. Inspecting the two models' actual JSON nodes directly
+(`modules/devcontainer.pytorch-image-models/models/*/models/model.json`)
+showed the real gap was smaller and different in kind:
+
+- **Both models' `indices` list has exactly ONE entry** (never truly
+  multi-tensor) — but with every entry live, ATen's exporter encodes
+  `Tensor?[]` as a plain `Argument.Tensors` rather than
+  `Argument.Optional_tensors`, and neither importer's decode helper
+  (`Op_bridge`'s `optional_tensors_arg`/`Native_interp`'s
+  `optional_tensor_names_arg`) accepted that encoding — the literal
+  `... is not an optional tensor list` blocker. Fixed by accepting
+  `Argument.Tensors` in both, each entry wrapped `Some` (`lib/interp/interp_decode.ml`,
+  `lib/native_interp/native_interp_decode.ml`).
+- **`maxxvitv2_nano_rw_256`'s occurrence** (`self` rank 2, single-entry
+  rank-1 `index`) fit the ALREADY-LANDED single-entry scope exactly, once
+  decoded — no runtime-gather generalization needed at all for this model.
+- **`mvitv2_tiny`'s occurrence** (`self` rank 2, single-entry index of ATen
+  rank 2, e.g. `rel_pos_h[relative_coords_h]` — the classic Swin/MViT
+  relative-position-bias gather) needed the real generalization: a rank-M
+  index inserts M-1 EXTRA axes rather than replacing exactly one
+  (`output = self.shape[:axis] ++ index.shape ++ self.shape[axis+1:]`),
+  breaking the original op's `output_rank = self_rank` identity. Also
+  needed: real ATen implicitly full-slices any of `self`'s trailing dims
+  `indices` doesn't mention, so a list SHORTER than `self`'s rank
+  (`mvitv2_tiny`'s own encoding) had to stop being a `Length_mismatch`.
+
+### What changed in `Graph_ir.Index_tensor`
+
+A new `index_rank : int` param (the live entry's ATen rank, read once at
+import time before the six-axis frame erases it — the same "compile-time
+claim, proven against the actual shape" discipline the original `axis`
+param already has). `output_shape`/`Compute.pixel` (`lib/native/ops/index_tensor.ml`)
+build a `window` of `index_rank` frame axes ending at `axis` (counting
+backward) — index's own real content, read from its natural
+`Aten_shape.used_axes`-aligned position and re-anchored there; `self`'s
+own extent everywhere else. Two NEW typed rejections, both at the
+`Graph_ir` level (reachable from a direct `Graph_builder` call, not only
+from importer validation — round 12's own precedent):
+
+- `Rank_overflow`: `index_rank` frame axes ending at `axis` don't fit
+  (would reach past axis `N`).
+- `Self_collision`: the window's borrowed room is already occupied by
+  real (non-unit) content of `self`'s own — true ATen never discards
+  `self.shape[:axis]`, so this restricts to the shape family (both corpus
+  occurrences: `axis` is `self`'s own OUTERMOST dim, so there is nothing
+  of `self`'s to lose) where there is nothing to lose. Reachable through
+  the importer too (a real ATen graph can name any dim position, not only
+  the outermost) — unlike `Rank_overflow`, proven with dispatch-level
+  fixtures, not just a `Graph_ir`-direct one.
+
+A third, `Index_shape_mismatch`, proves `index_rank`'s claim against
+`index`'s own shape (round 12's original check, generalized from a fixed
+"rank 1" to the declared `index_rank`) — defense against a hand-built or
+JSON-decoded graph pairing a rank claim with a mismatched tensor, since
+`index_rank` is no longer inferable from extents alone the way the
+rank-1-only version could approximate it.
+
+`Native4D`'s own `IndexTensor4` keeps its ORIGINAL single-axis shape
+invariant unconditionally: `Lower_engine`'s conversion arm rejects
+(`` `Unsupported_op ``) whenever `index_rank <> 1`, since a rank-M index
+can need `T`/`D` even when `self` doesn't — unevidenced in any corpus
+model that also needs Native4D conversion, so left unhandled rather than
+re-derived. `Ops4.IndexTensor4.params` is untouched (still just `axis`).
+
+### Const-SSA (chained frontier)
+
+Fixing the decode gap moved `maxxvitv2_nano_rw_256` to a NEW blocker,
+`IndexTensor is not a Const-SSA operation` — its own `index.Tensor`
+occurrence is over a captured constant. Admitted to `Const_ssa.allows`
+with no `ground` arm: `check_definition`'s `Apply` validation (what
+actually gates `native_builds`/`native4d_converts`) never reads a value,
+only shape/operand-existence, both already generic over any `op`
+(`Graph_shape.output_shape`/`Eval_direct.run`). A `ground` arm would need
+to read `index`'s own CONCRETE bytes mid-symbolic-trace (its gathered
+coordinate is DATA, not a pure function of the output coordinate the way
+every other admitted op's grounding is) — a materially different
+capability, deliberately not built since nothing currently landed needs
+it (see `.ai/const_ssa_design.md`'s own Status entry for the full
+reasoning). Admitting `IndexTensor` immediately chained to one more
+frontier in the same model, `Clone is not a Const-SSA operation` — `Clone`
+is a value-preserving identity, admitted with the simplest possible
+`ground` arm (recurse into its one operand at the same coordinate).
+
+### Outcome
+
+`maxxvitv2_nano_rw_256` now reaches `native_builds:true` (531 nodes),
+stopping at Native4D's `axis T is outside the N/H/W/C dialect` (an
+intrinsic boundary, not an op gap — see `ops-remaining.md`'s "Native-only,
+deliberately bounded operations") and Kernel's `over_limit` (the
+corpus-wide evaluation-depth ceiling). `mvitv2_tiny` stays
+`native_builds:false` (its 1052-node PT2 graph is just the raw import
+size, unconditional on Native succeeding) but its blocker moved from
+`index.Tensor`'s decode gap to `unsupported PT2 operator:
+torch.ops.aten.einsum.default` — a genuine zero-support op, not yet
+implemented, exactly the chained frontier `ops-tracker.md` predicted.

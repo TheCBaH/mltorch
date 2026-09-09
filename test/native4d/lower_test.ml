@@ -534,6 +534,32 @@ let%expect_test "lower: mean keepdim=false gains a reshape" =
       n1: [t1] = reshape4 x=t2 params={shape=[N=1 H=1 W=1 C=3]}
     outputs: [t1 [C=3]] |}]
 
+(* Two outputs (value, indices), converted end to end -- [values] and the
+   live [indices] read (through [relu], then summed back into [values])
+   both survive as ordinary edges, the same [output]-keyed dispatch
+   [Eval_op4] uses to tell them apart at evaluation time. No axis
+   conversion: [Pool.MaxPool2dWithIndices.params] names no axis. *)
+let%expect_test
+    "lower: max-pool with indices converts, value and indices both live" =
+  show "max-pool with indices" (Fixtures.maxpool_indices_live ());
+  [%expect
+    {|
+    max-pool with indices:
+      graph4
+    inputs: [t0 [H=4 W=4 C=3]]
+    nodes:
+      n0: [t1,
+        t2] =
+        max_pool2d_with_indices
+          x=t0
+          params={kernel={h=2; w=2};
+                 stride={h=2; w=2};
+                 pad={h=0; w=0};
+                 ceil_mode=false}
+      n1: [t3] = relu x=t2
+      n2: [t4] = add a=t1 b=t3
+    outputs: [t4 [H=2 W=2 C=3]] |}]
+
 (* ---- what it refuses ------------------------------------------------------ *)
 
 let%expect_test "lower: the domain's rejections are the lowerer's" =
@@ -543,14 +569,12 @@ let%expect_test "lower: the domain's rejections are the lowerer's" =
       ("non-unit D", Fixtures.non_unit_d);
       ("unused non-4D input", Fixtures.unused_input_non_4d);
       ("mean over D", Fixtures.mean_over_d);
-      ("live max-pool indices", Fixtures.maxpool_indices_live);
     ];
   [%expect
     {|
     non-unit D                 tensor t0 has extent on T or D: [D=2 H=4 W=4 C=3]
     unused non-4D input        tensor t1 has extent on T or D: [D=5 H=4 W=4 C=3]
-    mean over D                node n0: axis D is outside the N/H/W/C dialect
-    live max-pool indices      node n0: max-pool index output t2 is live; the dialect has no argmax-pool operation |}]
+    mean over D                node n0: axis D is outside the N/H/W/C dialect |}]
 
 (* §7.2/§8: a grouping that is neither 1 nor depthwise used to be rejected here;
    it now normalizes to [GroupedConv2D], the general form, with [groups] itself

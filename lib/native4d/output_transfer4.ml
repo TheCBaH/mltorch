@@ -10,14 +10,15 @@
 
 open Op
 
-(* Simpler than Native's for pooling: there is no argmax-pool, so no POOL op
-   here answers [Discontinuous]. The pooled VALUE is branch-selecting but
-   continuous — the branches agree at the boundary — and only a genuine argmax
-   would not be. If [ArgMaxPool] is ever added (design §8 lists it as the
-   smallest honest extension for live indices), it would be a second
-   [Discontinuous] pooling arm alongside [To_copy]'s below. *)
-let classify (op : Op.t) ~output:_ =
+(* [Adaptive_max_pool2d_with_indices]/[Max_pool2d_with_indices] are now the
+   two POOL ops that DO answer [Discontinuous] -- their index output (§9,
+   design §8's "smallest honest extension for live indices"), the same
+   argmax-shaped reasoning [To_copy]'s below gets. Every other pooled VALUE
+   is branch-selecting but continuous: the branches agree at the boundary,
+   and only a genuine argmax is not. *)
+let classify (op : Op.t) ~output =
   match op with
+  | Col2im _ | Im2col _ -> Output_transfer.Continuous
   (* Data movement: every output element is COPIED from an input element with no
      arithmetic, so an incoming [Approximate] claim crosses unchanged rather than
      being downgraded to [Unverifiable] the way continuity would downgrade it.
@@ -29,20 +30,26 @@ let classify (op : Op.t) ~output:_ =
   | Add _ | Add_scalar _ | Adaptive_avg_pool2d _ | Adaptive_max_pool2d _
   | Avg_pool2d _ | Clamp _ ->
       Output_transfer.Continuous
+  (* out0 (the pooled value) is Continuous; out1 (the argmax indices) is
+     Discontinuous -- the same [output]-keyed split Native's own
+     [Output_transfer] gives these two ops. *)
+  | Adaptive_max_pool2d_with_indices _ | Max_pool2d_with_indices _ ->
+      if output = 0 then Output_transfer.Continuous
+      else Output_transfer.Discontinuous
   | Concat4 _ -> Output_transfer.Reindexing
   (* The pure-broadcast case, the same argument Native's own [Output_transfer]
      makes for [Expand]: every output reads exactly one input element, a
      broadcast axis read repeatedly and a non-broadcast axis read once each --
      no arithmetic on any of them. *)
   | Expand4 _ -> Output_transfer.Reindexing
-  | Conv2d _ | Depthwise_conv2d _ | Div _ | Div_scalar _ | Gelu _
+  | Conv2d _ | Depthwise_conv2d _ | Cos _ | Div _ | Div_scalar _ | Gelu _
   | Batch_norm_no_stats _ | Batched_matmul _ | Group_norm4 _ | Grouped_conv2d _
   | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Layer_norm _ | Leaky_relu _
   | Lstm _ | Max_keepdims _ | Max_pool2d _ | Mean_keepdims _ | Mul _
   | Mul_scalar _ | Pad4 _ ->
       Output_transfer.Continuous
   | Permute4 _ -> Output_transfer.Reindexing
-  | Pow _ | Relu _ -> Output_transfer.Continuous
+  | Pow _ | Relu _ | Rpow_scalar _ -> Output_transfer.Continuous
   (* Data movement, the same argument [Expand4] above makes: every output
      element is COPIED from an input element with no arithmetic -- taken
      modulo ([Repeat4]) or by floor-divided position ([RepeatInterleave4])
@@ -75,7 +82,7 @@ let classify (op : Op.t) ~output:_ =
      the choice is a structural fact about the output coordinate -- the same
      argument Native's own [Output_transfer] makes for [Select_scatter]. *)
   | Select_scatter4 _ -> Output_transfer.Reindexing
-  | Sigmoid _ | Silu _ -> Output_transfer.Continuous
+  | Sigmoid _ | Silu _ | Sin _ -> Output_transfer.Continuous
   | Slice4 _ -> Output_transfer.Reindexing
   (* A genuine reduction, not a copy: every output element depends on the
      whole reduced axis (the max and the sum both range over it), so an
@@ -103,7 +110,16 @@ let classify (op : Op.t) ~output:_ =
      [Discontinuous] rather than reading the payload to special-case the
      float target. *)
   | To_copy _ -> Output_transfer.Discontinuous
+  (* Same zero-test/floor-boundary reasoning as Native's own [Output_transfer]
+     gives [Bitwise_not]/[Floor_div_scalar]: an arbitrarily small change
+     across the boundary flips the result. *)
+  | Bitwise_not _ | Floor_div_scalar _ -> Output_transfer.Discontinuous
   | Unbind _ -> Output_transfer.Reindexing
+  (* A weighted blend of up to sixteen input elements, the same argument
+     Native's own [Output_transfer] makes for [Upsample_bilinear2d]'s own
+     up-to-four -- see that arm for the full comparison against
+     [Upsample_nearest2d]'s pure gather. *)
+  | Upsample_bicubic2d _ -> Output_transfer.Continuous
   | Upsample_bilinear2d _ -> Output_transfer.Continuous
   (* A gather, not a blend, unlike [Upsample_bilinear2d] just above -- see
      [Output_transfer]'s own [Upsample_nearest2d] arm for the full argument. *)

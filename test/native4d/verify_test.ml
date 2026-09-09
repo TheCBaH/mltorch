@@ -324,6 +324,22 @@ let%expect_test "verify: unbind, numerically, over every slice" =
     native4d: tensor f32 [W=2 C=2] {1, 4, 7, 10} | tensor f32 [W=2 C=2] {2, 5, 8, 11} | tensor f32 [W=2 C=2] {3, 6, 9, 12}
     agree: true |}]
 
+(* Both outputs, end to end: [values] and the live [indices] (read through
+   [relu], then summed back into [values] -- [Fixtures.maxpool_indices_live]
+   is the same graph `domain_test.ml`/`lower_test.ml` use, reused here rather
+   than restated). Values and indices differ enough in KIND (a pooled max vs.
+   an argmax position) that a wrong per-output dispatch in [Eval_op4.pixel]
+   -- reading [value_pixel] where [index_pixel] belongs, or the reverse --
+   would show up as a numeric disagreement here, not just a shape one. *)
+let%expect_test
+    "verify: max-pool with indices, numerically, value and indices both live" =
+  native_vs_four (Fixtures.maxpool_indices_live ());
+  [%expect
+    {|
+    native:   tensor f32 [H=2 W=2 C=3] {21, 22, 23, 29, 30, 31, 53, 54, ...}
+    native4d: tensor f32 [H=2 W=2 C=3] {21, 22, 23, 29, 30, 31, 53, 54, ...}
+    agree: true |}]
+
 (* [Unbind]'s single-output sibling, numerically: the one slice a select at a
    given index reads must agree with the identically-indexed slice
    [unbind_c_batch1] compares above -- both are the same window through the

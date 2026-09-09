@@ -1,7 +1,8 @@
 (* `index.Tensor(Tensor self, Tensor?[] indices) -> Tensor`, restricted to
-   the one evidenced shape family (`.ai/index_tensor_design.md`): [indices]
-   has exactly one live entry, of ATen rank 1, every other position [None].
-   Metadata-only decode (unlike [Op_bridge]'s dispatch, tested separately in
+   the evidenced shape family (`.ai/index_tensor_design.md`): [indices] has
+   at most [self]'s ATen rank many entries, exactly one live entry of ATen
+   rank at least 1, every other listed position [None]. Metadata-only
+   decode (unlike [Op_bridge]'s dispatch, tested separately in
    test/native_bridge/index_tensor_dispatch_test.ml), including the
    trace-past-Clone rule (round 6) for a Long constant behind a plain,
    format-preserving `clone.default` -- CSATv2's own real occurrence. *)
@@ -37,7 +38,9 @@ let index_node ~self ~indices ~out =
     (as_optional_tensors indices)
     (as_tensor out)
 
-(* [x] is rank 2 ([2;3]) throughout, so [indices] always has 2 entries. *)
+(* [x] is rank 2 ([2;3]) in most fixtures below, so a 2-entry [indices]
+   matches its rank exactly; a few name their own [x_sizes]/list length to
+   exercise the shorter-list and rank-3 cases. *)
 
 let%expect_test
     "index.Tensor: the full Long constant -> clone.default -> index.Tensor \
@@ -90,7 +93,13 @@ let%expect_test
           | Some _ -> assert false));
       [%expect {| index operand's ssa name: idx_raw |}]
 
-let%expect_test "index.Tensor: rejects a wrong-length indices list" =
+(* Real ATen implicitly full-slices any dims [indices] doesn't mention, so a
+   list SHORTER than [self]'s rank is not itself a fault -- exactly
+   `mvitv2_tiny`/`maxxvitv2_nano_rw_256`'s own encoding
+   (`.ai/index_tensor_design.md`): a length-1 [indices] against a rank-2
+   [self]. *)
+let%expect_test "index.Tensor: accepts an indices list shorter than self's rank"
+    =
   let prog =
     program ~x_sizes:[ 2; 3 ] ~params:[ "idx_raw" ]
       ~extra_tensor_values:[ ("idx_raw", tensor_meta_dtype long [ 2 ]) ]
@@ -98,9 +107,24 @@ let%expect_test "index.Tensor: rejects a wrong-length indices list" =
       ~graph_outputs:[ as_tensor "y" ]
       ()
   in
-  show "wrong length:" prog;
+  show "short list:" prog;
+  [%expect {| short list:                lowered, nodes=1 |}]
+
+let%expect_test "index.Tensor: rejects an indices list longer than self's rank"
+    =
+  let prog =
+    program ~x_sizes:[ 2; 3 ] ~params:[ "idx_raw" ]
+      ~extra_tensor_values:[ ("idx_raw", tensor_meta_dtype long [ 2 ]) ]
+      ~nodes:
+        [
+          index_node ~self:"x" ~indices:[ `T "idx_raw"; `None; `None ] ~out:"y";
+        ]
+      ~graph_outputs:[ as_tensor "y" ]
+      ()
+  in
+  show "long list:" prog;
   [%expect
-    {| wrong length:              malformed PT2 graph: index.Tensor: indices has 1 entries, expected 2 (self's rank) |}]
+    {| long list:                 malformed PT2 graph: index.Tensor: indices has 3 entries, more than self's rank 2 |}]
 
 let%expect_test
     "index.Tensor: rejects a live entry at a non-last position and two live \
@@ -151,7 +175,10 @@ let%expect_test "index.Tensor: rejects a boolean-mask entry (wrong dtype)" =
   [%expect
     {| boolean mask:              malformed PT2 graph: index.Tensor: indices[0] must be Long, got BOOL |}]
 
-let%expect_test "index.Tensor: rejects a live entry of ATen rank 2" =
+(* `mvitv2_tiny`/`maxxvitv2_nano_rw_256`'s own shape family: a live entry of
+   ATen rank 2, accepted since [axis] (dim 0) is [self]'s own outermost dim
+   here, so there is nothing of [self]'s own to lose to index's extra axis. *)
+let%expect_test "index.Tensor: accepts a live entry of ATen rank 2" =
   let prog =
     program ~x_sizes:[ 2; 3 ] ~params:[ "idx_raw" ]
       ~extra_tensor_values:[ ("idx_raw", tensor_meta_dtype long [ 2; 1 ]) ]
@@ -160,8 +187,31 @@ let%expect_test "index.Tensor: rejects a live entry of ATen rank 2" =
       ()
   in
   show "rank 2 live entry:" prog;
+  [%expect {| rank 2 live entry:         lowered, nodes=1 |}]
+
+(* [Self_collision]: a rank-3 [self] with real content on every axis,
+   gathered at a MIDDLE position (dim 1) with a rank-2 live entry -- index's
+   extra axis would have to borrow [self]'s own leading axis, which real
+   ATen never discards. Reachable through the importer itself, unlike
+   [Rank_overflow] (`test/native/graph_direct_index_tensor_test.ml`'s own
+   proof), since a real PT2 graph can name any dim position, not only
+   self's outermost. *)
+let%expect_test
+    "index.Tensor: rejects a rank-2 entry that would overwrite self's own axis"
+    =
+  let prog =
+    program ~x_sizes:[ 2; 3; 4 ] ~params:[ "idx_raw" ]
+      ~extra_tensor_values:[ ("idx_raw", tensor_meta_dtype long [ 2; 1 ]) ]
+      ~nodes:
+        [
+          index_node ~self:"x" ~indices:[ `None; `T "idx_raw"; `None ] ~out:"y";
+        ]
+      ~graph_outputs:[ as_tensor "y" ]
+      ()
+  in
+  show "middle-position rank-2 entry:" prog;
   [%expect
-    {| rank 2 live entry:         malformed PT2 graph: index.Tensor: indices[0] must be rank 1, got rank 2 |}]
+    {| middle-position rank-2 entry: index.Tensor: a multi-axis index at axis W would overwrite self's own axis H, which must have extent 1 (got 2) |}]
 
 let%expect_test "index.Tensor: rejects an all-None indices list (no live entry)"
     =

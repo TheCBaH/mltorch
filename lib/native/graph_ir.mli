@@ -39,9 +39,11 @@ type op =
   | Batch_norm of Norm.BatchNorm.t
   | Batch_norm_no_stats of Norm.BatchNormNoStats.t
   | Batched_matmul of Matmul.Batched_matmul.t
+  | Bitwise_not of Pointwise.Bitwise_not.t
   | Bmm of Matmul.Bmm.t
   | Clamp of Pointwise.Clamp.t
   | Clone of Pointwise.Clone.t
+  | Col2im of Im2col.Col2im.t
   (* Variadic: joins its whole operand list along one axis. The only op
      besides [Unbind] whose arity is not fixed by the op itself, but on the
      INPUT side rather than the output — [operands]/[map_operands] already
@@ -52,6 +54,7 @@ type op =
   | Conv2d_padding of Conv.Conv2d_padding.t
   | Conv3d of Conv.Conv3d.t
   | Convolution of Conv.Convolution.t
+  | Cos of Pointwise.Cos.t
   | Cumsum of Reduce.Cumsum.t
   | Div of Pointwise.Div.t
   | Div_scalar of Pointwise.Div_scalar.t
@@ -63,6 +66,7 @@ type op =
        [Discard], it is handled inline wherever the [op_registry] is folded. *)
   | Expand of Pointwise.Expand.t
   | Eye of Factory.Eye.t
+  | Floor_div_scalar of Pointwise.Floor_div_scalar.t
   | Gelu of Pointwise.Gelu.t
   (* Reshapes [channel] into [groups] equal chunks and normalises each
      (N, group) slice over that chunk plus every axis but N and [channel] --
@@ -81,6 +85,7 @@ type op =
      the one op in this engine whose index arithmetic is genuinely
      data-dependent, via [Semantics.load_index]/[Index.Data]. *)
   | Index_tensor of Index_tensor.Index_tensor.t
+  | Im2col of Im2col.Im2col.t
   | Layer_norm of Norm.LayerNorm.t
   | Leaky_relu of Pointwise.Leaky_relu.t
   | Linear of Linear.Linear.t
@@ -88,6 +93,10 @@ type op =
   | Max_pool2d of Pool.MaxPool2d.t
   | Max_pool2d_with_indices of Pool.MaxPool2dWithIndices.t
   | Mean of Reduce.Mean.t
+  (* `meshgrid.indexing`'s own factory-adjacent op: one axis per input, output
+     k reads only input k, broadcast along the rest -- see [Meshgrid.Meshgrid]
+     for the corpus-restricted domain (every input rank-1, `indexing="ij"`). *)
+  | Meshgrid of Meshgrid.Meshgrid.t
   | Mul of Pointwise.Mul.t
   | Mul_scalar of Pointwise.Mul_scalar.t
   | Pad of Pad.Pad.t
@@ -98,6 +107,9 @@ type op =
   | RepeatInterleave of Repeat.RepeatInterleave.t
   | Reshape of Reshape.Reshape.t
   | Rms_norm of Norm.RmsNorm.t
+  (* `pow.Scalar`'s own op: [scalar ** self], the reverse of
+     [pow.Tensor_Scalar]'s [self ** scalar] -- see [Pow] above. *)
+  | Rpow_scalar of Pointwise.Rpow_scalar.t
   (* `rsub.Scalar`'s own op: [other - alpha * self], the reverse of
      [sub.Tensor]'s scalar form, which legalizes to [Add_scalar] instead --
      this one needs its own node because it composes a multiply and a
@@ -117,6 +129,7 @@ type op =
   | Select_scatter of Split.Select_scatter.t
   | Sigmoid of Pointwise.Sigmoid.t
   | Silu of Pointwise.Silu.t
+  | Sin of Pointwise.Sin.t
   (* Softmax over a single axis, keeping the input's full shape -- unlike
      [Amax]/[Mean]/[Vector_norm], which drop or collapse the reduced axes.
      General, not attention-specific: see .ai/matmul_softmax_design.md. *)
@@ -156,6 +169,11 @@ type op =
      overlap, not a reshape. See unfold.ml's own header for how a rank-
      increasing ATen op is represented in Native's fixed six-axis frame. *)
   | Unfold of Unfold.Unfold.t
+  (* Bicubic resize to an explicit output size, either `align_corners` value.
+     Its own coordinate transform, distinct from [Upsample_bilinear2d]'s: it
+     keeps a possibly-negative source coordinate and clamps each of its four
+     taps independently, rather than clamping the coordinate itself. *)
+  | Upsample_bicubic2d of Resize.Bicubic2d.t
   (* Bilinear resize to an explicit output size, either `align_corners`
      value. The per-axis coordinate transform is its own shape/compute
      concern, not a legalization onto any existing op. *)

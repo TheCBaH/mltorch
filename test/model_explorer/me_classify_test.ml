@@ -29,7 +29,6 @@ let%expect_test "every Native4D row, classified" =
       ( "Batch_norm_extent",
         `Batch_norm_extent (nid 0, tid 0, Dim.extent 1, Dim.extent 2) );
       ("Dynamic_batch_norm", `Dynamic_batch_norm (nid 0));
-      ("Live_max_pool_indices", `Live_max_pool_indices (nid 0, tid 0));
       ( "Non_four_dimensional_tensor",
         `Non_four_dimensional_tensor (tid 0, shape) );
       ( "Unsupported_grouped_transposed_conv",
@@ -46,7 +45,6 @@ let%expect_test "every Native4D row, classified" =
     Axis_outside_dialect                   unavailable outside_dialect_domain
     Batch_norm_extent                      unavailable outside_dialect_domain
     Dynamic_batch_norm                     unavailable outside_dialect_domain
-    Live_max_pool_indices                  unavailable outside_dialect_domain
     Non_four_dimensional_tensor            unavailable outside_dialect_domain
     Unsupported_grouped_transposed_conv    unavailable outside_dialect_domain
     Unsupported_op                         unavailable outside_dialect_domain
@@ -158,6 +156,20 @@ let%expect_test "every Kernel_adapt row, classified" =
   let rows : (string * Kernel_adapt.error) list =
     [
       ("Passthrough_output", `Passthrough_output (tid 0));
+      ( "Not_materializable Stored_value",
+        `Not_materializable
+          {
+            Kernel.Format_rule.id = tid 0;
+            role = Kernel.Format_rule.Stored_value;
+            fmt = Payload.Fmt Payload.I64;
+          } );
+      ( "Not_materializable Filled_input",
+        `Not_materializable
+          {
+            Kernel.Format_rule.id = tid 0;
+            role = Kernel.Format_rule.Filled_input;
+            fmt = Payload.Fmt Payload.I64;
+          } );
       ("Too_many_values", `Too_many_values 4096);
       ("Too_many_inputs", `Too_many_inputs 1024);
       ("Too_many_outputs", `Too_many_outputs 1024);
@@ -178,6 +190,8 @@ let%expect_test "every Kernel_adapt row, classified" =
   [%expect
     {|
     Passthrough_output                     unavailable unsupported_graph_shape
+    Not_materializable Stored_value        unavailable outside_dialect_domain
+    Not_materializable Filled_input        fatal
     Too_many_values                        unavailable over_limit
     Too_many_inputs                        unavailable over_limit
     Too_many_outputs                       unavailable over_limit

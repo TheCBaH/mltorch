@@ -35,25 +35,46 @@ section for the full accounting.
 
 ## 2. Supported rank/layout and axis mapping
 
-Q/K/V are rank-4, right-aligned by `Aten_shape.of_aten` (purely positional)
-onto the six-axis frame's innermost four axes:
+Q/K/V are rank 4 or rank 5, right-aligned by `Aten_shape.of_aten` (purely
+positional) onto the six-axis frame's innermost four or five axes:
 
 ```text
+rank 4:
 query [D=batch, H=heads, W=Wq (query sequence), C=E (head dim)]
 key   [D=batch, H=heads, W=Wk (key sequence),   C=E]
 value [D=batch, H=heads, W=Wk,                  C=Ev]
 out   [D=batch, H=heads, W=Wq,                  C=Ev]
+
+rank 5 (Hiera-style windowed attention, e.g. hiera_tiny_224):
+query [T=batch, D=heads, H=windows, W=Wq, C=E]
+key   [T=batch, D=heads, H=windows, W=Wk, C=E]
+value [T=batch, D=heads, H=windows, W=Wk, C=Ev]
+out   [T=batch, D=heads, H=windows, W=Wq, C=Ev]
 ```
 
-**No relayout is needed.** This is `Bmm`'s "no relayout needed" case
-(`.ai/native_aten_bridge_layout.md`), generalized to two batch-like axes
-(`D`=batch, `H`=heads) instead of one: the axes the op reads are exactly the
-axes the data lands on under right-alignment, so neither importer needs a
+Rank 5 adds no new machinery: `batch_axes = [N; T; D; H]` (§ immediately
+below) already treats every one of `N`/`T`/`D`/`H` as an ordinary
+ATen-broadcast batch axis, with proven no-cross-term independence
+(`sdpa_test.ml`'s "batch and head extents independently" fixture predates
+this and already exercises `D`/`H` simultaneously) — a rank-5 tensor is
+simply one more already-supported batch axis (whichever of `N`/`T`/`D`/`H`
+right-alignment happens to land it on) filled in, never a new kernel
+semantic. Confirmed against the real corpus (`hiera_tiny_224`'s twelve
+`scaled_dot_product_attention.default` nodes) before landing: query, key
+and value always share the same leading batch/heads/windows axes; only the
+query/key sequence axis (`W`) legitimately differs between them (ordinary
+pooled-query attention), never a batch mismatch.
+
+**No relayout is needed**, at either rank. This is `Bmm`'s "no relayout
+needed" case (`.ai/native_aten_bridge_layout.md`), generalized to up to four
+batch-like axes instead of one: the axes the op reads are exactly the axes
+the data lands on under right-alignment, so neither importer needs a
 `Permute` around the op, and `Verify.compare_tensors` works directly.
 
-**And this settles Native4D by construction.** The op names `D` as its batch
-axis, and `Axis4.of_axis Axis.D = None` — the four-axis dialect has no name
-for `D` at any extent, including 1. See §9.
+**And this settles Native4D by construction, at either rank.** The op names
+`D` (and, at rank 5, `T` too) as batch axes, and `Axis4.of_axis` returns
+`None` for both — the four-axis dialect has no name for either at any
+extent, including 1. See §9.
 
 ## 3. `Ev = E`: the supported scope is exactly what keeps the flash kernel
 
@@ -119,9 +140,11 @@ the identical Native shape once `Tensor_bridge.of_aten` erases the ATen
 rank. The first and third are flash-admissible; the middle is not, and only
 a check on the RAW ATen rank, before conversion, can tell them apart.
 
-Both importers therefore check Q/K/V at exactly rank 4 and the mask at rank
-2 or 4, on the raw tensor/metadata, before calling `Tensor_bridge.of_aten` /
-right-aligning the serialized `sizes` list. **A standalone Native or
+Both importers therefore check Q/K/V at rank 4 OR 5 (§2) and the mask at
+rank 2 or 4, on the raw tensor/metadata, before calling `Tensor_bridge.of_aten` /
+right-aligning the serialized `sizes` list — a shared `Attention.Sdpa.Reject.Rank`
+row for any other rank on either argument, so the two importers cannot drift
+on what they accept. **A standalone Native or
 JSON-decoded graph carries no ATen rank at all** — this is not a gap to
 close later, it is a property of the boundary: nothing downstream of
 `of_aten` has anywhere to keep a rank, and a hand-built Native graph holding
@@ -266,8 +289,8 @@ operation-authored `Region_program.t` shared with Native, a genuine
 `Shape4.of_vec6` already admits any axis at unit extent, `D` included, the
 same way it admits `Batched_matmul`'s own `D = 1` case (§7.4). Its own
 `Domain.check_node` arm rejects only `D > 1`, with `` `Sdpa_batch_axis ``,
-an operation-specific reason (`Live_max_pool_indices`'s precedent) naming
-that the batch axis is `D`. Model Explorer reports
+an operation-specific reason (`Batched_matmul_batch_axis`'s own precedent,
+§7.4) naming that the batch axis is `D`. Model Explorer reports
 `stage:native4d unavailable outside_dialect_domain` for `D > 1`; the source
 and Native projections stay available. See `.ai/native4d_design.md` §7.9 for
 the full record, including why direct `Ops4.Sdpa` and a sound legalization

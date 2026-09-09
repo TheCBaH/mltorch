@@ -364,3 +364,98 @@ module To_copy = struct
             (S.select (S.lt v (S.const 0.)) (S.const 1.) (S.const 0.))
   end
 end
+
+(* [bitwise_not.default] on the corpus's only observed operand: a bool tensor
+   (EdgeNeXt's `PositionalEncodingFourier` builds an all-zero mask via
+   [_to_copy(dtype=BOOL)] then inverts it). Bool is a 0.0/1.0 encoding in
+   Native's float domain (see [To_copy]'s [Bool] target above), so logical
+   NOT is a genuine nonzero test negated: zero stays 1.0, anything else goes
+   to 0.0. Real ATen's bitwise-complement on an integer dtype (two's-complement
+   [~x]) has no analogue here -- Native carries no signed-integer bit
+   representation to complement -- so this op only ever means the bool case;
+   nothing routes an integer operand here today. *)
+module Bitwise_not = struct
+  type t = { x : Tensor_ref.t }
+
+  let name = "Bitwise_not"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        { x = Json_util.req_field ms "x" Tensor_ref.jsont name })
+      ~enc:(fun t ->
+        Json_util.jobj [ ("x", Json_util.enc Tensor_ref.jsont t.x) ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>bitwise_not@ x=%a@]" pp_ref t.x
+
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    let pixel x (out : Semantics.position S.index Vec6.t) =
+      let v = S.load x out in
+      S.select
+        (S.lt (S.const 0.) v)
+        (S.const 0.)
+        (S.select (S.lt v (S.const 0.)) (S.const 0.) (S.const 1.))
+  end
+end
+
+module Cos = struct
+  type t = { x : Tensor_ref.t }
+
+  let name = "Cos"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        { x = Json_util.req_field ms "x" Tensor_ref.jsont name })
+      ~enc:(fun t ->
+        Json_util.jobj [ ("x", Json_util.enc Tensor_ref.jsont t.x) ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>cos@ x=%a@]" pp_ref t.x
+
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    let pixel x (out : Semantics.position S.index Vec6.t) = S.cos (S.load x out)
+  end
+end
+
+module Sin = struct
+  type t = { x : Tensor_ref.t }
+
+  let name = "Sin"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        { x = Json_util.req_field ms "x" Tensor_ref.jsont name })
+      ~enc:(fun t ->
+        Json_util.jobj [ ("x", Json_util.enc Tensor_ref.jsont t.x) ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>sin@ x=%a@]" pp_ref t.x
+
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    let pixel x (out : Semantics.position S.index Vec6.t) = S.sin (S.load x out)
+  end
+end

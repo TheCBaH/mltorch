@@ -372,7 +372,7 @@ let jsont ?(max_elts : int option) () : packed Jsont.t =
   in
   Jsont.map ~kind:"tensor" ~dec:dec_packed ~enc:enc_packed Jsont.json
 
-let pp fmt (Tensor t) =
+let pp_with_digits ~digits fmt (Tensor t) =
   Format.fprintf fmt "tensor %a %a {" Payload.pp t.payload Vec6.pp_shape t.shape;
   let n = (Vec6.numel t.shape :> int) in
   let k = min n 8 in
@@ -386,9 +386,11 @@ let pp fmt (Tensor t) =
          | Payload.I32 -> Format.fprintf fmt "%ld" t.payload.data.{i}
          | Payload.I64 -> Format.fprintf fmt "%Ld" t.payload.data.{i}
          | _ ->
-             Format.fprintf fmt "%g"
+             Format.fprintf fmt "%.*g" digits
                (Payload.get_float t.payload ~c:(channel c) ~i));
          incr count)
    with Exit -> ());
   if n > k then Format.fprintf fmt ", ...";
   Format.fprintf fmt "}"
+
+let pp = pp_with_digits ~digits:6

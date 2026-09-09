@@ -771,8 +771,9 @@ section's original argument did not have was landed separately (see
   other two are unavailable, which is the case here.~~
 
 `Domain.check_node` rejects `D > 1` with `` `Sdpa_batch_axis ``, an
-operation-specific reason (following `` `Live_max_pool_indices ``'s precedent
-at §7.8/§10: a reason that names *why*, not the generic `` `Unsupported_op ``)
+operation-specific reason (following `` `Batched_matmul_batch_axis ``'s own
+precedent at §7.4: a reason that names *why*, not the generic
+`` `Unsupported_op ``)
 rather than a `check_dims`-style row: `check_dims` answers "which named axis
 is the fault", appropriate when an op's OWN parameter picks the offending
 axis (`Mean`'s `dims`, `Layer_norm`'s `normalized_shape`), but Sdpa's fault
@@ -850,7 +851,8 @@ The initial dialect does not need:
 - general grouped convolution (**landed**: `GroupedConv2D`, §7.2, §8 table);
 - `Split`, `Slice`, or `Concat`, if unsupported grouped convolution is rejected;
 - general BMM/MatMul, if only the single-batch legal form is accepted;
-- argmax-pool indices, if live indices are rejected;
+- argmax-pool indices (**landed**: `Max_pool2d_with_indices`/
+  `Adaptive_max_pool2d_with_indices`, §8 table);
 - BatchNorm, if conversion requires it to be folded;
 - RMSNorm, if `Equivalent` decomposition is acceptable.
 
@@ -860,7 +862,7 @@ If conversion later needs to become more complete, the smallest additions are:
 |---|---|
 | General grouped convolution | **Landed**: retained as `GroupedConv2D`, a fourth convolution constructor whose `groups` is a real field (§7.2) |
 | Batched BMM | Retain BMM/MatMul |
-| Live max-pool indices | ArgMaxPool/MaxPoolWithIndices |
+| Live max-pool indices | **Landed** (2026-09-10): no new `Ops4` type at all -- `Max_pool2d_with_indices`/`Adaptive_max_pool2d_with_indices` `include` Native's own payload directly, since neither names an axis, with the multi-output plumbing `Unbind` established (§8 above) layered on top |
 | Dynamic standalone BatchNorm | BatchNorm or per-channel affine op |
 | Bit-identical RMSNorm | Fused RMSNorm |
 
@@ -950,7 +952,6 @@ type error =
   | `Unsupported_op of Node_id.t * Native.op
   | `Unsupported_grouped_conv of Node_id.t * int
   | `Unsupported_grouped_transposed_conv of Node_id.t * int
-  | `Live_max_pool_indices of Node_id.t * Tensor_id.t
   | `Dynamic_batch_norm of Node_id.t
   | `Shape of Native4d_shape.error
   | `Build of Native4d_builder.error

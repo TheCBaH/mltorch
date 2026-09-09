@@ -5,6 +5,7 @@
 open Pytorch_types
 open Native_interp_error
 open Native_interp_decode
+open Native_interp_decode_shape
 
 let targets =
   [
@@ -14,8 +15,11 @@ let targets =
     "torch.ops.aten.alias.default";
     "torch.ops.aten.cat.default";
     "torch.ops.aten.copy.default";
+    "torch.ops.aten.col2im.default";
     "torch.ops.aten.expand.default";
     "torch.ops.aten.eye.m";
+    "torch.ops.aten.im2col.default";
+    "torch.ops.aten.meshgrid.indexing";
     "torch.ops.aten.pad.default";
     "torch.ops.aten.permute.default";
     "torch.ops.aten.repeat.default";
@@ -27,13 +31,16 @@ let targets =
     "torch.ops.aten.split_with_sizes.default";
     "torch.ops.aten.squeeze.dim";
     "torch.ops.aten.stack.default";
+    "torch.ops.aten.tile.default";
     "torch.ops.aten.arange.default";
     "torch.ops.aten.arange.start";
     "torch.ops.aten.zeros.default";
     "torch.ops.aten.transpose.int";
+    "torch.ops.aten.type_as.default";
     "torch.ops.aten.unbind.int";
     "torch.ops.aten.unfold.default";
     "torch.ops.aten.unsqueeze.default";
+    "torch.ops.aten.upsample_bicubic2d.vec";
     "torch.ops.aten.upsample_bilinear2d.vec";
     "torch.ops.aten.upsample_nearest2d.vec";
     "torch.ops.aten.view.default";
@@ -210,6 +217,18 @@ let dispatch ~ctx ~env (node : Node.t) =
            in
            let* y = eye { Factory.Eye.shape; fmt } in
            return [ y ]
+       (* [meshgrid.indexing(Tensor[] tensors, *, str indexing) -> Tensor[]],
+         restricted to the corpus's own shape -- see [Meshgrid.Meshgrid]'s
+         own comment: every input rank-1, [indexing="ij"] only. Rank itself
+         is [Graph_shape]'s own check, not restated here. *)
+       | "torch.ops.aten.meshgrid.indexing" ->
+           let indexing = string_arg esc ~default:"ij" node "indexing" in
+           if not (String.equal indexing "ij") then
+             malformed esc
+               (`Unsupported_option
+                  { op = node.target; option = `Indexing indexing });
+           let names = tensor_names_arg esc node "tensors" in
+           meshgrid (List.map (env_find esc env) names)
        (* [_assert_tensor_metadata(Tensor a, SymInt[]? size=None, SymInt[]?
          stride=None, ScalarType? dtype=None, *, Device? device=None, Layout?
          layout=None) -> ()] is a pure debug assertion the exporter inserts to
@@ -286,6 +305,29 @@ let dispatch ~ctx ~env (node : Node.t) =
                  (`Wrong_arg_kind
                     { op = node.target; arg = "pin_memory"; expected = `Bool }));
            let (_ : bool) = bool_arg esc node "non_blocking" in
+           let* y = to_copy target (get "self") in
+           return [ y ]
+       (* `type_as(Tensor self, Tensor other) -> Tensor` (method):
+         `self.to(other.dtype)`, so this legalizes onto the SAME
+         [Pointwise.To_copy] node [_to_copy.default] above builds -- the
+         target comes from [other]'s own DECLARED metadata dtype rather
+         than an explicit scalar argument (there is none), restricted to
+         the same three-way domain [_to_copy.default]'s own [Some _] arm
+         rejects outside of. *)
+       | "torch.ops.aten.type_as.default" ->
+           let other_name = tensor_name esc node "other" in
+           let target =
+             match
+               (tensor_meta esc graph ~ssa:other_name ~role:`Type_as_other)
+                 .TensorMeta.dtype
+             with
+             | ScalarType.BOOL -> Pointwise.To_copy.Bool
+             | ScalarType.FLOAT -> Pointwise.To_copy.Float
+             | ScalarType.LONG -> Pointwise.To_copy.Long
+             | _ ->
+                 malformed esc
+                   (`Unsupported_option { op = node.target; option = `Dtype })
+           in
            let* y = to_copy target (get "self") in
            return [ y ]
        | "torch.ops.aten.permute.default" ->
@@ -411,6 +453,81 @@ let dispatch ~ctx ~env (node : Node.t) =
            let target = tensor_shape esc graph self_name in
            let (_ : bool) = bool_arg esc node "non_blocking" in
            let* y = expand { Pointwise.Expand.size = target } (get "src") in
+           return [ y ]
+       | "torch.ops.aten.col2im.default" ->
+           let op = "col2im.default" in
+           let out_h, out_w =
+             hw2 esc `Output_size (ints_arg esc node "output_size")
+           in
+           let kh, kw =
+             hw2 esc `Kernel_size (ints_arg esc node "kernel_size")
+           in
+           let dh, dw = hw2 esc `Dilation (ints_arg esc node "dilation") in
+           let ph, pw = hw2 esc `Padding (ints_arg esc node "padding") in
+           let sh, sw = hw2 esc `Stride (ints_arg esc node "stride") in
+           let window =
+             Im2col.Params.
+               {
+                 h =
+                   {
+                     Im2col.Window.kernel =
+                       extent esc ~op ~param:`Kernel_size kh;
+                     dilation = pos esc ~op ~param:`Dilation dh;
+                     pad = nonneg esc ~op ~param:`Padding ph;
+                     stride = pos esc ~op ~param:`Stride sh;
+                   };
+                 w =
+                   {
+                     Im2col.Window.kernel =
+                       extent esc ~op ~param:`Kernel_size kw;
+                     dilation = pos esc ~op ~param:`Dilation dw;
+                     pad = nonneg esc ~op ~param:`Padding pw;
+                     stride = pos esc ~op ~param:`Stride sw;
+                   };
+               }
+           in
+           let params =
+             Im2col.Col2im.
+               {
+                 window;
+                 output_h = extent esc ~op ~param:`Output_size out_h;
+                 output_w = extent esc ~op ~param:`Output_size out_w;
+               }
+           in
+           let* y' = col2im params (get "self") in
+           let* y = permute perm_nhwc_to_nchw y' in
+           return [ y ]
+       | "torch.ops.aten.im2col.default" ->
+           let op = "im2col.default" in
+           let kh, kw =
+             hw2 esc `Kernel_size (ints_arg esc node "kernel_size")
+           in
+           let dh, dw = hw2 esc `Dilation (ints_arg esc node "dilation") in
+           let ph, pw = hw2 esc `Padding (ints_arg esc node "padding") in
+           let sh, sw = hw2 esc `Stride (ints_arg esc node "stride") in
+           let params =
+             Im2col.Params.
+               {
+                 h =
+                   {
+                     Im2col.Window.kernel =
+                       extent esc ~op ~param:`Kernel_size kh;
+                     dilation = pos esc ~op ~param:`Dilation dh;
+                     pad = nonneg esc ~op ~param:`Padding ph;
+                     stride = pos esc ~op ~param:`Stride sh;
+                   };
+                 w =
+                   {
+                     Im2col.Window.kernel =
+                       extent esc ~op ~param:`Kernel_size kw;
+                     dilation = pos esc ~op ~param:`Dilation dw;
+                     pad = nonneg esc ~op ~param:`Padding pw;
+                     stride = pos esc ~op ~param:`Stride sw;
+                   };
+               }
+           in
+           let* x = permute perm_nchw_to_nhwc (get "self") in
+           let* y = im2col params x in
            return [ y ]
        (* One [Stack] node: inserts a size-1 axis per operand at [axis], then
          joins them -- see [Op_bridge]'s arm for why (ATen's own definition),
@@ -729,6 +846,39 @@ let dispatch ~ctx ~env (node : Node.t) =
          resolution [Op_bridge]'s arm performs, restated here only because
          this importer reads serialized metadata where that one reads a live
          tensor. *)
+       (* Schema: `upsample_bicubic2d.vec(Tensor input, SymInt[]? output_size,
+         bool align_corners, float[]? scale_factors)` -- same shape as
+         [upsample_bilinear2d.vec] just below, including the output_size/
+         scale_factors resolution; only the Native op differs. *)
+       | "torch.ops.aten.upsample_bicubic2d.vec" ->
+           let x_name = tensor_name esc node "input" in
+           let _n, _c, in_h, in_w =
+             sizes_rank_4 esc ~tensor:x_name
+               (static_sizes esc ~tensor:x_name
+                  (tensor_meta esc graph ~ssa:x_name
+                     ~role:`Upsample_bicubic2d_input))
+           in
+           let output_size = ints_arg esc node "output_size" in
+           let scale_factors = floats_arg esc node "scale_factors" in
+           let align_corners = bool_arg esc node "align_corners" in
+           let out_h, out_w =
+             resolve_upsample_size esc ~op:node.target ~in_h ~in_w output_size
+               scale_factors
+           in
+           let params =
+             {
+               Resize.Bicubic2d.output_size =
+                 {
+                   h = pos esc ~op:node.target ~param:`Output_size out_h;
+                   w = pos esc ~op:node.target ~param:`Output_size out_w;
+                 };
+               align_corners;
+             }
+           in
+           let* x = permute perm_nchw_to_nhwc (get "input") in
+           let* y = upsample_bicubic2d params x in
+           let* y = permute perm_nhwc_to_nchw y in
+           return [ y ]
        | "torch.ops.aten.upsample_bilinear2d.vec" ->
            let x_name = tensor_name esc node "input" in
            let _n, _c, in_h, in_w =
@@ -859,6 +1009,28 @@ let dispatch ~ctx ~env (node : Node.t) =
                  Repeat.Repeat.repeats =
                    resolve_repeat esc ~tensor:x_name ~self_dims
                      (ints_arg esc node "repeats");
+               }
+               (get "self")
+           in
+           return [ y ]
+       (* `tile(Tensor self, SymInt[] dims) -> Tensor`: legalizes onto the
+         SAME [Repeat.Repeat] node [repeat.default] above builds, via
+         [resolve_tile]'s left-pad rule instead of [resolve_repeat]'s --
+         genuinely no new op, since ATen itself defines [tile] as [repeat]
+         after that padding. *)
+       | "torch.ops.aten.tile.default" ->
+           let x_name = tensor_name esc node "self" in
+           let rank =
+             meta_rank (tensor_meta esc graph ~ssa:x_name ~role:`Repeat_input)
+           in
+           let shape = tensor_shape esc graph x_name in
+           let self_dims = Aten_shape.to_aten ~rank shape in
+           let* y =
+             repeat
+               {
+                 Repeat.Repeat.repeats =
+                   resolve_tile esc ~tensor:x_name ~self_dims
+                     (ints_arg esc node "dims");
                }
                (get "self")
            in

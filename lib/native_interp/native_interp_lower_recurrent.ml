@@ -15,6 +15,7 @@
 open Pytorch_types
 open Schema_runtime
 open Native_interp_decode
+open Native_interp_decode_shape
 
 (* [lstm.input]'s [bias_ih]/[bias_hh]: rank-1 [4*hidden_size], landing on [C]
    under right-alignment; [Lstm.Lstm.bias_shape] carries the count on [N]

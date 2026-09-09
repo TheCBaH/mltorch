@@ -646,7 +646,9 @@ let index_tensor_graph name ~self_shape ~index_shape ~axis () =
     (let open Graph_builder in
      let* self = input ~shape:self_shape () in
      let* index = input ~shape:index_shape () in
-     index_tensor { Index_tensor.Index_tensor.axis } ~self ~index)
+     index_tensor
+       { Index_tensor.Index_tensor.axis; index_rank = 1 }
+       ~self ~index)
   |> Err.or_raise ~pp_error:(fun ppf e ->
       Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
 

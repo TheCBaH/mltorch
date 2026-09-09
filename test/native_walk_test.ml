@@ -433,6 +433,69 @@ let%expect_test "slice.Tensor walk 20 steps" =
     step 20 [n]: {shape=[3,3,2,7] dim=1 pattern=stride3_offset [1,none) step=3}
     [spec] torch.ops.aten.slice.Tensor: matched |}]
 
+(* 20 steps, and this seed: it draws [d_bc]/[h_bc] AND [self_rank]/
+   [other_rank] repeatedly, including a genuine visible broadcast (step 12,
+   [self]'s own D=1 against [other]'s real D=2 -- not the degenerate "both
+   already 1" case a shorter run would settle for) and a rank-2 operand
+   (step 9, [self=[2,4]], no batch axes at all). Every line must read
+   "matched": a mismatch would mean [Batched_matmul]'s real per-axis
+   broadcasting or the importer's unequal-rank prepend disagrees with ATen
+   in a configuration neither the hand-derived fixtures nor "bridge
+   coverage"'s three-step budget (which never draws these axes on its own
+   per-index seed) exercises. *)
+let%expect_test "matmul.default walk 20 steps" =
+  capture (fun ppf ->
+      assert (
+        Op_walk.run
+          (module Aten_op_walk.Matmul_walk)
+          ~ppf
+          ~pcg:(Pcg.seed ~seed:1L ~seq:1L)
+          ~steps:20));
+  [%expect
+    {|
+    step 0: {self=[1,1,3,4] other=[1,1,4,5] d_bc=neither h_bc=neither}
+    [spec] torch.ops.aten.matmul.default: matched
+    step 1 [d_bc]: {self=[1,1,3,4] other=[1,1,4,5] d_bc=other h_bc=neither}
+    [spec] torch.ops.aten.matmul.default: matched
+    step 2 [self_rank]: {self=[1,3,4] other=[1,1,4,5] d_bc=other h_bc=neither}
+    [spec] torch.ops.aten.matmul.default: matched
+    step 3 [self_rank]: {self=[1,1,3,4] other=[1,1,4,5] d_bc=other h_bc=neither}
+    [spec] torch.ops.aten.matmul.default: matched
+    step 4 [h_bc]: {self=[1,1,3,4] other=[1,1,4,5] d_bc=other h_bc=neither}
+    [spec] torch.ops.aten.matmul.default: matched
+    step 5 [self_rank]: {self=[1,3,4] other=[1,1,4,5] d_bc=other h_bc=neither}
+    [spec] torch.ops.aten.matmul.default: matched
+    step 6 [d_bc]: {self=[1,3,4] other=[1,1,4,5] d_bc=self h_bc=neither}
+    [spec] torch.ops.aten.matmul.default: matched
+    step 7 [n]: {self=[1,2,4] other=[1,1,4,5] d_bc=self h_bc=neither}
+    [spec] torch.ops.aten.matmul.default: matched
+    step 8 [d]: {self=[1,2,4] other=[1,1,4,5] d_bc=self h_bc=neither}
+    [spec] torch.ops.aten.matmul.default: matched
+    step 9 [self_rank]: {self=[2,4] other=[1,1,4,5] d_bc=self h_bc=neither}
+    [spec] torch.ops.aten.matmul.default: matched
+    step 10 [h_bc]: {self=[2,4] other=[1,1,4,5] d_bc=self h_bc=other}
+    [spec] torch.ops.aten.matmul.default: matched
+    step 11 [self_rank]: {self=[1,1,2,4] other=[1,1,4,5] d_bc=self h_bc=other}
+    [spec] torch.ops.aten.matmul.default: matched
+    step 12 [d]: {self=[1,1,2,4] other=[2,1,4,5] d_bc=self h_bc=other}
+    [spec] torch.ops.aten.matmul.default: matched
+    step 13 [p]: {self=[1,1,2,4] other=[2,1,4,2] d_bc=self h_bc=other}
+    [spec] torch.ops.aten.matmul.default: matched
+    step 14 [other_rank]: {self=[1,1,2,4] other=[1,4,2] d_bc=self h_bc=other}
+    [spec] torch.ops.aten.matmul.default: matched
+    step 15 [m]: {self=[1,1,2,6] other=[1,6,2] d_bc=self h_bc=other}
+    [spec] torch.ops.aten.matmul.default: matched
+    step 16 [p]: {self=[1,1,2,6] other=[1,6,7] d_bc=self h_bc=other}
+    [spec] torch.ops.aten.matmul.default: matched
+    step 17 [h_bc]: {self=[1,1,2,6] other=[1,6,7] d_bc=self h_bc=self}
+    [spec] torch.ops.aten.matmul.default: matched
+    step 18 [h_bc]: {self=[1,1,2,6] other=[1,6,7] d_bc=self h_bc=other}
+    [spec] torch.ops.aten.matmul.default: matched
+    step 19 [p]: {self=[1,1,2,6] other=[1,6,7] d_bc=self h_bc=other}
+    [spec] torch.ops.aten.matmul.default: matched
+    step 20 [n]: {self=[1,1,2,6] other=[1,6,7] d_bc=self h_bc=other}
+    [spec] torch.ops.aten.matmul.default: matched |}]
+
 (* Every one of [Recipe_sdpa.all_mask_kinds], enumerated directly rather than
    hoped for from a seed (op8-impl-review.md P2, round 2). The shared random
    walk draws one axis uniformly from all seven (batch/heads/sq/sk/e/mask/
@@ -470,45 +533,110 @@ let%expect_test "scaled_dot_product_attention.default: every mask kind" =
         Aten_walk_recipes.Recipe_sdpa.all_mask_kinds);
   [%expect
     {|
-    {batch=1 heads=2 sq=3 sk=4 e=5 mask=none scale=default}
+    {batch=1 heads=2 sq=3 sk=4 e=5 batch_bc=real heads_bc=real mask=none scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
-    {batch=1 heads=2 sq=3 sk=4 e=5 mask=2d(q=false,k=false) scale=default}
+    {batch=1 heads=2 sq=3 sk=4 e=5 batch_bc=real heads_bc=real mask=2d(q=false,k=false) scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
-    {batch=1 heads=2 sq=3 sk=4 e=5 mask=2d(q=false,k=true) scale=default}
+    {batch=1 heads=2 sq=3 sk=4 e=5 batch_bc=real heads_bc=real mask=2d(q=false,k=true) scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
-    {batch=1 heads=2 sq=3 sk=4 e=5 mask=2d(q=true,k=false) scale=default}
+    {batch=1 heads=2 sq=3 sk=4 e=5 batch_bc=real heads_bc=real mask=2d(q=true,k=false) scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
-    {batch=1 heads=2 sq=3 sk=4 e=5 mask=2d(q=true,k=true) scale=default}
+    {batch=1 heads=2 sq=3 sk=4 e=5 batch_bc=real heads_bc=real mask=2d(q=true,k=true) scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
-    {batch=1 heads=2 sq=3 sk=4 e=5 mask=4d(d=false,h=false,q=false,k=false) scale=default}
+    {batch=1 heads=2 sq=3 sk=4 e=5 batch_bc=real heads_bc=real mask=4d(d=false,h=false,q=false,k=false) scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
-    {batch=1 heads=2 sq=3 sk=4 e=5 mask=4d(d=false,h=false,q=false,k=true) scale=default}
+    {batch=1 heads=2 sq=3 sk=4 e=5 batch_bc=real heads_bc=real mask=4d(d=false,h=false,q=false,k=true) scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
-    {batch=1 heads=2 sq=3 sk=4 e=5 mask=4d(d=false,h=false,q=true,k=false) scale=default}
+    {batch=1 heads=2 sq=3 sk=4 e=5 batch_bc=real heads_bc=real mask=4d(d=false,h=false,q=true,k=false) scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
-    {batch=1 heads=2 sq=3 sk=4 e=5 mask=4d(d=false,h=false,q=true,k=true) scale=default}
+    {batch=1 heads=2 sq=3 sk=4 e=5 batch_bc=real heads_bc=real mask=4d(d=false,h=false,q=true,k=true) scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
-    {batch=1 heads=2 sq=3 sk=4 e=5 mask=4d(d=false,h=true,q=false,k=false) scale=default}
+    {batch=1 heads=2 sq=3 sk=4 e=5 batch_bc=real heads_bc=real mask=4d(d=false,h=true,q=false,k=false) scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
-    {batch=1 heads=2 sq=3 sk=4 e=5 mask=4d(d=false,h=true,q=false,k=true) scale=default}
+    {batch=1 heads=2 sq=3 sk=4 e=5 batch_bc=real heads_bc=real mask=4d(d=false,h=true,q=false,k=true) scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
-    {batch=1 heads=2 sq=3 sk=4 e=5 mask=4d(d=false,h=true,q=true,k=false) scale=default}
+    {batch=1 heads=2 sq=3 sk=4 e=5 batch_bc=real heads_bc=real mask=4d(d=false,h=true,q=true,k=false) scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
-    {batch=1 heads=2 sq=3 sk=4 e=5 mask=4d(d=false,h=true,q=true,k=true) scale=default}
+    {batch=1 heads=2 sq=3 sk=4 e=5 batch_bc=real heads_bc=real mask=4d(d=false,h=true,q=true,k=true) scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
-    {batch=1 heads=2 sq=3 sk=4 e=5 mask=4d(d=true,h=false,q=false,k=false) scale=default}
+    {batch=1 heads=2 sq=3 sk=4 e=5 batch_bc=real heads_bc=real mask=4d(d=true,h=false,q=false,k=false) scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
-    {batch=1 heads=2 sq=3 sk=4 e=5 mask=4d(d=true,h=false,q=false,k=true) scale=default}
+    {batch=1 heads=2 sq=3 sk=4 e=5 batch_bc=real heads_bc=real mask=4d(d=true,h=false,q=false,k=true) scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
-    {batch=1 heads=2 sq=3 sk=4 e=5 mask=4d(d=true,h=false,q=true,k=false) scale=default}
+    {batch=1 heads=2 sq=3 sk=4 e=5 batch_bc=real heads_bc=real mask=4d(d=true,h=false,q=true,k=false) scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
-    {batch=1 heads=2 sq=3 sk=4 e=5 mask=4d(d=true,h=false,q=true,k=true) scale=default}
+    {batch=1 heads=2 sq=3 sk=4 e=5 batch_bc=real heads_bc=real mask=4d(d=true,h=false,q=true,k=true) scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
-    {batch=1 heads=2 sq=3 sk=4 e=5 mask=4d(d=true,h=true,q=false,k=false) scale=default}
+    {batch=1 heads=2 sq=3 sk=4 e=5 batch_bc=real heads_bc=real mask=4d(d=true,h=true,q=false,k=false) scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
-    {batch=1 heads=2 sq=3 sk=4 e=5 mask=4d(d=true,h=true,q=false,k=true) scale=default}
+    {batch=1 heads=2 sq=3 sk=4 e=5 batch_bc=real heads_bc=real mask=4d(d=true,h=true,q=false,k=true) scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
-    {batch=1 heads=2 sq=3 sk=4 e=5 mask=4d(d=true,h=true,q=true,k=false) scale=default}
+    {batch=1 heads=2 sq=3 sk=4 e=5 batch_bc=real heads_bc=real mask=4d(d=true,h=true,q=true,k=false) scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
-    {batch=1 heads=2 sq=3 sk=4 e=5 mask=4d(d=true,h=true,q=true,k=true) scale=default}
+    {batch=1 heads=2 sq=3 sk=4 e=5 batch_bc=real heads_bc=real mask=4d(d=true,h=true,q=true,k=true) scale=default}
+    [spec] torch.ops.aten.scaled_dot_product_attention.default: matched |}]
+
+(* 20 steps, this seed: it draws [batch_bc]/[heads_bc] repeatedly, including
+   a genuine visible broadcast (one of query/key/value pinned to 1 on its
+   own [batch] or [heads] axis while the other two keep the shared real
+   extent) -- the hand-derived [sdpa_test.ml] fixtures cover a single
+   broadcast axis at a time; this walk covers the SAME pin pattern crossed
+   against [batch]/[heads]/[sq]/[sk]/[e]/[mask]/[scale] all varying too.
+   Every line must read "matched": a mismatch would mean
+   [Attention.Sdpa.broadcast_batch]'s per-axis "equal, or one side 1" rule
+   disagrees with real ATen at a pin/shape/mask/scale combination neither the
+   fixtures nor "bridge coverage"'s three-step budget (which never draws
+   [batch_bc]/[heads_bc] off [All_real] on sdpa's own per-index seed)
+   exercises. *)
+let%expect_test "scaled_dot_product_attention.default walk 20 steps" =
+  capture (fun ppf ->
+      assert (
+        Op_walk.run
+          (module Aten_op_walk.Sdpa_walk)
+          ~ppf
+          ~pcg:(Pcg.seed ~seed:1L ~seq:1L)
+          ~steps:20));
+  [%expect
+    {|
+    step 0: {batch=1 heads=2 sq=3 sk=4 e=5 batch_bc=real heads_bc=real mask=none scale=default}
+    [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
+    step 1 [heads_bc]: {batch=1 heads=2 sq=3 sk=4 e=5 batch_bc=real heads_bc=k mask=none scale=default}
+    [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
+    step 2 [sq]: {batch=1 heads=2 sq=3 sk=4 e=5 batch_bc=real heads_bc=k mask=none scale=default}
+    [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
+    step 3 [scale]: {batch=1 heads=2 sq=3 sk=4 e=5 batch_bc=real heads_bc=k mask=none scale=default}
+    [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
+    step 4 [batch]: {batch=2 heads=2 sq=3 sk=4 e=5 batch_bc=real heads_bc=k mask=none scale=default}
+    [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
+    step 5 [mask]: {batch=2 heads=2 sq=3 sk=4 e=5 batch_bc=real heads_bc=k mask=4d(d=true,h=false,q=false,k=true) scale=default}
+    [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
+    step 6 [sq]: {batch=2 heads=2 sq=5 sk=4 e=5 batch_bc=real heads_bc=k mask=4d(d=true,h=false,q=false,k=true) scale=default}
+    [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
+    step 7 [mask]: {batch=2 heads=2 sq=5 sk=4 e=5 batch_bc=real heads_bc=k mask=4d(d=false,h=true,q=false,k=true) scale=default}
+    [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
+    step 8 [mask]: {batch=2 heads=2 sq=5 sk=4 e=5 batch_bc=real heads_bc=k mask=2d(q=true,k=true) scale=default}
+    [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
+    step 9 [sk]: {batch=2 heads=2 sq=5 sk=6 e=5 batch_bc=real heads_bc=k mask=2d(q=true,k=true) scale=default}
+    [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
+    step 10 [heads]: {batch=2 heads=3 sq=5 sk=6 e=5 batch_bc=real heads_bc=k mask=2d(q=true,k=true) scale=default}
+    [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
+    step 11 [heads_bc]: {batch=2 heads=3 sq=5 sk=6 e=5 batch_bc=real heads_bc=qv mask=2d(q=true,k=true) scale=default}
+    [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
+    step 12 [mask]: {batch=2 heads=3 sq=5 sk=6 e=5 batch_bc=real heads_bc=qv mask=4d(d=false,h=true,q=false,k=true) scale=default}
+    [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
+    step 13 [batch]: {batch=2 heads=3 sq=5 sk=6 e=5 batch_bc=real heads_bc=qv mask=4d(d=false,h=true,q=false,k=true) scale=default}
+    [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
+    step 14 [heads_bc]: {batch=2 heads=3 sq=5 sk=6 e=5 batch_bc=real heads_bc=real mask=4d(d=false,h=true,q=false,k=true) scale=default}
+    [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
+    step 15 [mask]: {batch=2 heads=3 sq=5 sk=6 e=5 batch_bc=real heads_bc=real mask=4d(d=true,h=false,q=true,k=false) scale=default}
+    [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
+    step 16 [batch_bc]: {batch=2 heads=3 sq=5 sk=6 e=5 batch_bc=q heads_bc=real mask=4d(d=true,h=false,q=true,k=false) scale=default}
+    [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
+    step 17 [e]: {batch=2 heads=3 sq=5 sk=6 e=1 batch_bc=q heads_bc=real mask=4d(d=true,h=false,q=true,k=false) scale=default}
+    [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
+    step 18 [heads_bc]: {batch=2 heads=3 sq=5 sk=6 e=1 batch_bc=q heads_bc=qv mask=4d(d=true,h=false,q=true,k=false) scale=default}
+    [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
+    step 19 [scale]: {batch=2 heads=3 sq=5 sk=6 e=1 batch_bc=q heads_bc=qv mask=4d(d=true,h=false,q=true,k=false) scale=default}
+    [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
+    step 20 [heads]: {batch=2 heads=1 sq=5 sk=6 e=1 batch_bc=q heads_bc=qv mask=4d(d=true,h=false,q=true,k=false) scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched |}]

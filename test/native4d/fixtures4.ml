@@ -57,8 +57,23 @@ let adaptive_max_params : Pool.AdaptiveMaxPool2d.params =
 let upsample_params : Resize.Bilinear2d.params =
   { output_size = hw (Op_config.Pos.of_int 7); align_corners = true }
 
+let bicubic_params : Resize.Bicubic2d.params =
+  { output_size = hw (Op_config.Pos.of_int 7); align_corners = true }
+
 let nearest_params : Resize.Nearest2d.params =
   { output_size = hw (Op_config.Pos.of_int 7) }
+
+let im2col_params : Im2col.Params.t =
+  let window =
+    Im2col.Window.
+      {
+        kernel = Dim.extent 2;
+        dilation = Op_config.Pos.of_int 1;
+        pad = Op_config.Nonneg.of_int 0;
+        stride = Op_config.Pos.of_int 1;
+      }
+  in
+  Im2col.Params.{ h = window; w = window }
 
 let conv_params ~in_channels ~kernel : Ops4.Conv_params.t =
   {
@@ -177,6 +192,8 @@ let per_op () =
       ("div", binary ~shape:nhwc Builder.div);
       ("add_scalar", unary ~shape:nhwc (Builder.add_scalar 0.5));
       ("div_scalar", unary ~shape:nhwc (Builder.div_scalar 2.));
+      ("floor_div_scalar", unary ~shape:nhwc (Builder.floor_div_scalar 2.));
+      ("bitwise_not", unary ~shape:nhwc Builder.bitwise_not);
       (* Two DIFFERENT fanned axes (H and C), so a fixture that only ever
          broadcast one axis could not catch a wrong per-axis broadcast
          coordinate. *)
@@ -193,6 +210,9 @@ let per_op () =
         (g, [ x_shape ]) );
       ("mul_scalar", unary ~shape:nhwc (Builder.mul_scalar 2.));
       ("pow", unary ~shape:nhwc (Builder.pow 2.));
+      ("rpow_scalar", unary ~shape:nhwc (Builder.rpow_scalar 2.));
+      ("cos", unary ~shape:nhwc Builder.cos);
+      ("sin", unary ~shape:nhwc Builder.sin);
       ( "rsub_scalar",
         unary ~shape:nhwc
           (Builder.rsub_scalar { Pointwise.Rsub_scalar.other = 1.; alpha = 2. })
@@ -200,10 +220,21 @@ let per_op () =
       ( "clamp",
         unary ~shape:nhwc
           (Builder.clamp { Pointwise.Clamp.min = Some 0.5; max = Some 2. }) );
+      ( "col2im",
+        unary ~shape:(s4 ~n:1 ~h:1 ~w:8 ~c:6)
+          (Builder.col2im
+             Im2col.Col2im.
+               {
+                 window = im2col_params;
+                 output_h = Dim.extent 3;
+                 output_w = Dim.extent 4;
+               }) );
       ( "hardtanh",
         unary ~shape:nhwc
           (Builder.hardtanh { Pointwise.Hardtanh.min_val = 0.; max_val = 1. })
       );
+      ( "im2col",
+        unary ~shape:(s4 ~n:1 ~h:3 ~w:4 ~c:2) (Builder.im2col im2col_params) );
       ( "leaky_relu",
         unary ~shape:nhwc
           (Builder.leaky_relu { Pointwise.Leaky_relu.negative_slope = 0.2 }) );
@@ -276,10 +307,30 @@ let per_op () =
       ("sqrt", unary ~shape:nhwc Builder.sqrt);
       ("to_copy", unary ~shape:nhwc (Builder.to_copy Pointwise.To_copy.Long));
       ("max_pool2d", unary ~shape:nhwc (Builder.max_pool2d pool_params));
+      (* Two outputs (value, indices) sharing the pooled window shape --
+         both must independently re-enter the dialect, the same
+         [build ~outputs:Fun.id] shape [unbind]/[split_with_sizes4] use for
+         their own multi-output fixtures. *)
+      ( "max_pool2d_with_indices",
+        let g =
+          build ~outputs:Fun.id
+            (let open Builder in
+             let* x = input ~shape:nhwc () in
+             max_pool2d_with_indices pool_params x)
+        in
+        (g, [ nhwc ]) );
       ( "adaptive_avg_pool2d",
         unary ~shape:nhwc (Builder.adaptive_avg_pool2d adaptive_params) );
       ( "adaptive_max_pool2d",
         unary ~shape:nhwc (Builder.adaptive_max_pool2d adaptive_max_params) );
+      ( "adaptive_max_pool2d_with_indices",
+        let g =
+          build ~outputs:Fun.id
+            (let open Builder in
+             let* x = input ~shape:nhwc () in
+             adaptive_max_pool2d_with_indices adaptive_max_params x)
+        in
+        (g, [ nhwc ]) );
       ("avg_pool2d", unary ~shape:nhwc (Builder.avg_pool2d avg_params));
       ( "mean_keepdims",
         unary ~shape:nhwc (Builder.mean_keepdims [ Axis4.H; Axis4.W ]) );
@@ -590,6 +641,8 @@ let per_op () =
              split_with_sizes4 Axis4.W [ 1; 3 ] x)
         in
         (g, [ nhwc ]) );
+      ( "upsample_bicubic2d",
+        unary ~shape:nhwc (Builder.upsample_bicubic2d bicubic_params) );
       ( "upsample_bilinear2d",
         unary ~shape:nhwc (Builder.upsample_bilinear2d upsample_params) );
       ( "upsample_nearest2d",

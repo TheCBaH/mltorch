@@ -30,6 +30,9 @@ let pp fmt = function
    branches agree at the boundary — so only a genuine argmax is discontinuous. *)
 let classify (op : op) ~output =
   match op with
+  (* im2col inserts padding zeros and col2im overlap-adds columns, so neither
+     is a pure coordinate transfer. *)
+  | Col2im _ | Im2col _ -> Continuous
   (* [Clone] is the identity, and identity is the degenerate permutation — so it
      is reindexing, not merely continuous. The difference is real: continuity
      downgrades an incoming [Approximate] claim to [Unverifiable], while
@@ -52,7 +55,8 @@ let classify (op : op) ~output =
      shape the routing takes — "copied without arithmetic" holds regardless of
      whether the map is injective or surjective — unlike [Upsample_bilinear2d]
      just below, whose output is a weighted BLEND of up to four input elements
-     and is therefore [Continuous], not [Reindexing]. *)
+     and is therefore [Continuous], not [Reindexing]. [Upsample_bicubic2d] is
+     the same argument at a wider blend (up to sixteen input elements). *)
   (* [Expand] is a third kind of gather, the pure-broadcast case: every output
      reads exactly one input element ([Pointwise_binary.broadcast_coord]), with
      a broadcast axis read repeatedly and a non-broadcast axis read once each
@@ -78,7 +82,10 @@ let classify (op : op) ~output =
   (* [Unfold]'s window/offset pair selects exactly one source element per
      output -- a gather, not a reduction, the same argument as [Unbind]'s own
      selection just above -- so [Reindexing] here too. *)
-  | Concat _ | Expand _ | Repeat _ | RepeatInterleave _ | Select _
+  (* [Meshgrid] is the same pure-broadcast case as [Expand], per-output:
+     output k reads only input k, broadcast along every other axis, no
+     arithmetic -- the coordinate remap just moves which axis is real. *)
+  | Concat _ | Expand _ | Meshgrid _ | Repeat _ | RepeatInterleave _ | Select _
   | Select_scatter _ | Slice _ | Split_with_sizes _ | Stack _ | Unbind _
   | Unfold _ | Upsample_nearest2d _ ->
       Reindexing
@@ -112,15 +119,25 @@ let classify (op : op) ~output =
      conservatively across every [To_copy] target rather than reading the
      payload to special-case the float one. *)
   | To_copy _ -> Discontinuous
+  (* The same zero-test/boundary reasoning as [To_copy]'s [Bool] target above,
+     applied unconditionally since this op IS that test (nonzero -> 0.0, zero
+     -> 1.0): an arbitrarily small change across the zero boundary flips the
+     result. *)
+  | Bitwise_not _ -> Discontinuous
+  (* [floor]'s own boundary: an arbitrarily small change to the quotient
+     across an integer crosses to the next (or previous) floor value, the
+     same argmax-shaped reasoning [Index_tensor]/[To_copy] get. *)
+  | Floor_div_scalar _ -> Discontinuous
   | Add _ | Add_scalar _ | Adaptive_avg_pool2d _ | Adaptive_max_pool2d _
   | Amax _ | Avg_pool2d _ | Batch_norm _ | Batch_norm_no_stats _
   | Batched_matmul _ | Bmm _ | Clamp _ | Conv1d _ | Conv2d _ | Conv2d_padding _
-  | Conv3d _ | Convolution _ | Cumsum _ | Div _ | Div_scalar _ | Eye _ | Gelu _
-  | Group_norm _ | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Layer_norm _
-  | Leaky_relu _ | Linear _ | Lstm _ | Max_pool2d _ | Mean _ | Mul _
-  | Mul_scalar _ | Pow _ | Relu _ | Rms_norm _ | Rsub_scalar _ | Sdpa _
-  | Sigmoid _ | Silu _ | Softmax _ | Arange _ | Sqrt _ | Sub _ | Sum _
-  | Upsample_bilinear2d _ | Vector_norm _ | Zeros _ ->
+  | Conv3d _ | Convolution _ | Cos _ | Cumsum _ | Div _ | Div_scalar _ | Eye _
+  | Gelu _ | Group_norm _ | Hardsigmoid _ | Hardswish _ | Hardtanh _
+  | Layer_norm _ | Leaky_relu _ | Linear _ | Lstm _ | Max_pool2d _ | Mean _
+  | Mul _ | Mul_scalar _ | Pow _ | Relu _ | Rms_norm _ | Rpow_scalar _
+  | Rsub_scalar _ | Sdpa _ | Sigmoid _ | Silu _ | Sin _ | Softmax _ | Arange _
+  | Sqrt _ | Sub _ | Sum _ | Upsample_bicubic2d _ | Upsample_bilinear2d _
+  | Vector_norm _ | Zeros _ ->
       Continuous
 
 (* [Identical] survives everything, evaluation being deterministic. [Equivalent]

@@ -79,6 +79,7 @@ type metadata_role =
   | `Convolution_bias
   | `Convolution_weight
   | `Cumsum_input
+  | `Einsum_operand
   | `Expand_input
   | `Group_norm_bias
   | `Group_norm_weight
@@ -119,9 +120,11 @@ type metadata_role =
   | `Sum_input
   | `Tensor
   | `Transpose_input
+  | `Type_as_other
   | `Unbind_input
   | `Unfold_input
   | `Unsqueeze_input
+  | `Upsample_bicubic2d_input
   | `Upsample_bilinear2d_input
   | `Upsample_nearest2d_input
   | `Vector_norm_input ]
@@ -152,9 +155,11 @@ type unsupported_option =
   | `Dilation of int list
   | `Divisor_override of int
   | `Dtype
+  | `Indexing of string
   | `Memory_format of [ `Channels_last | `Channels_last_3d | `Unknown ]
   | `Momentum of float
   | `Repeat_interleave_dim
+  | `Rounding_mode of string
   | `Training of bool
   | `Vector_norm_ord of float ]
 
@@ -236,6 +241,15 @@ module Bad_repeat = struct
   type t = { repeats : int list; fault : [ `Aten_shape of Aten_shape.error ] }
 end
 
+(* [aten.tile.default]'s own row, not [Bad_repeat]'s: the fault (unreachable
+   in practice -- [Native_interp_decode.resolve_tile] pre-pads [dims] to at
+   least [self]'s rank before calling [Aten_shape.resolve_tile_size], so its
+   own [`Repeat_size] can never actually fire) still deserves its own name
+   rather than printing "repeat repeats [...]" for a [tile] failure. *)
+module Bad_tile = struct
+  type t = { dims : int list; fault : [ `Aten_shape of Aten_shape.error ] }
+end
+
 module Bad_slice = struct
   type t = {
     start : int option;
@@ -278,11 +292,20 @@ module Bad_upsample_size = struct
   type t = { op : string; fault : fault }
 end
 
-(* `index.Tensor`'s locked list-acceptance rule (`.ai/index_tensor_design.md`
-   round 3): [indices] is accepted iff its length equals [self]'s ATen rank,
-   exactly one entry is a Long-dtype tensor of ATen rank exactly 1, and every
-   other entry is an explicit [None]. Mirrors [Op_bridge_error.Index_list]
-   exactly -- the two importers must reject the same graphs the same way. *)
+(* `einsum.default`, restricted to [Aten_shape.Einsum]'s two evidenced
+   equation strings, each paired with exactly two operands of ATen rank 5
+   and 3 respectively (`.ai/einsum_design.md`). Mirrors
+   [Op_bridge_error.Einsum_unsupported] exactly. *)
+module Einsum_unsupported = struct
+  type t = { equation : string; ranks : int list }
+end
+
+(* `index.Tensor`'s list-acceptance rule (`.ai/index_tensor_design.md` round 3,
+   generalized for the multi-entry-gather landing): [indices] is accepted iff
+   its length is at most [self]'s ATen rank, exactly one entry is a
+   Long-dtype tensor of ATen rank at least 1, and every other entry is an
+   explicit [None]. Mirrors [Op_bridge_error.Index_list] exactly -- the two
+   importers must reject the same graphs the same way. *)
 module Index_list = struct
   type fault =
     | Length_mismatch of { expected : int; got : int }
@@ -310,10 +333,12 @@ type malformed =
   | `Bad_repeat of Bad_repeat.t
   | `Bad_select of Bad_select.t
   | `Bad_slice of Bad_slice.t
+  | `Bad_tile of Bad_tile.t
   | `Bad_upsample_size of Bad_upsample_size.t
   | `Bad_view of Bad_view.t
   | `Concat_no_tensors of string
   | `Concat_rank_mismatch of Concat_rank_mismatch.t
+  | `Einsum_unsupported of Einsum_unsupported.t
   | `Index_list of Index_list.t
   | `Live_layer_norm_stats of Live_layer_norm_stats.t
   | `Lstm_reject of Lstm.Lstm.Reject.t
@@ -411,6 +436,7 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Convolution_bias -> Fmt.string ppf "convolution bias"
   | `Convolution_weight -> Fmt.string ppf "convolution weight"
   | `Cumsum_input -> Fmt.string ppf "cumsum input"
+  | `Einsum_operand -> Fmt.string ppf "einsum operand"
   | `Expand_input -> Fmt.string ppf "expand input"
   | `Group_norm_bias -> Fmt.string ppf "group_norm bias"
   | `Group_norm_weight -> Fmt.string ppf "group_norm weight"
@@ -451,9 +477,11 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Sum_input -> Fmt.string ppf "sum input"
   | `Tensor -> Fmt.string ppf "tensor"
   | `Transpose_input -> Fmt.string ppf "transpose input"
+  | `Type_as_other -> Fmt.string ppf "type_as other"
   | `Unbind_input -> Fmt.string ppf "unbind input"
   | `Unfold_input -> Fmt.string ppf "unfold input"
   | `Unsqueeze_input -> Fmt.string ppf "unsqueeze input"
+  | `Upsample_bicubic2d_input -> Fmt.string ppf "upsample_bicubic2d input"
   | `Upsample_bilinear2d_input -> Fmt.string ppf "upsample_bilinear2d input"
   | `Upsample_nearest2d_input -> Fmt.string ppf "upsample_nearest2d input"
   | `Vector_norm_input -> Fmt.string ppf "vector_norm input"
@@ -521,6 +549,11 @@ let pp_malformed ppf : [< malformed ] -> unit = function
       | `Aten_shape e ->
           Fmt.pf ppf "slice [%a, %a) step %d: %a" bound start bound stop step
             Aten_shape.pp_error e)
+  | `Bad_tile { Bad_tile.dims; fault } -> (
+      let ints = Fmt.(list ~sep:(any ", ") int) in
+      match fault with
+      | `Aten_shape e ->
+          Fmt.pf ppf "tile dims [%a]: %a" ints dims Aten_shape.pp_error e)
   | `Bad_upsample_size { Bad_upsample_size.op; fault } -> (
       match fault with
       | Bad_upsample_size.Bad_scale_arity got ->
@@ -543,12 +576,20 @@ let pp_malformed ppf : [< malformed ] -> unit = function
   | `Concat_rank_mismatch { Concat_rank_mismatch.op; first; other } ->
       Fmt.pf ppf "%s: every tensor must have the same rank: %d vs %d" op first
         other
+  | `Einsum_unsupported { Einsum_unsupported.equation; ranks } ->
+      Fmt.pf ppf
+        "einsum.default: unsupported equation %S with operand ranks %a (only \
+         \"byhwc,hkc->byhwk\"/\"byhwc,wkc->byhwk\", each with a rank-5 self \
+         and rank-3 other, are recognized)"
+        equation
+        Fmt.(list ~sep:(any ", ") int)
+        ranks
   | `Index_list { Index_list.fault } -> (
       match fault with
       | Index_list.Length_mismatch { expected; got } ->
           Fmt.pf ppf
-            "index.Tensor: indices has %d entries, expected %d (self's rank)"
-            got expected
+            "index.Tensor: indices has %d entries, more than self's rank %d" got
+            expected
       | Index_list.Multiple_live_entries positions ->
           Fmt.pf ppf
             "index.Tensor: indices has more than one live entry, at positions \
@@ -561,7 +602,8 @@ let pp_malformed ppf : [< malformed ] -> unit = function
           Fmt.pf ppf "index.Tensor: indices[%d] must be Long, got %s" position
             dtype
       | Index_list.Wrong_rank { position; rank } ->
-          Fmt.pf ppf "index.Tensor: indices[%d] must be rank 1, got rank %d"
+          Fmt.pf ppf
+            "index.Tensor: indices[%d] must be at least rank 1, got rank %d"
             position rank)
   | `Live_layer_norm_stats { Live_layer_norm_stats.op; stat; ssa } ->
       Fmt.pf ppf "%s: %s output %S is read, and this graph does not have it" op
@@ -612,6 +654,8 @@ let pp_malformed ppf : [< malformed ] -> unit = function
       | `Divisor_override d ->
           Fmt.pf ppf "%s: divisor_override=%d is not supported (only none)" op d
       | `Dtype -> Fmt.pf ppf "%s: dtype is not supported" op
+      | `Indexing i ->
+          Fmt.pf ppf "%s: indexing=%S is not supported (only \"ij\")" op i
       | `Memory_format mf ->
           Fmt.pf ppf "%s: memory_format=%s is not supported" op
             (match mf with
@@ -623,6 +667,9 @@ let pp_malformed ppf : [< malformed ] -> unit = function
       | `Repeat_interleave_dim ->
           Fmt.pf ppf
             "%s: dim=None (flatten-first) is not supported (dim required)" op
+      | `Rounding_mode m ->
+          Fmt.pf ppf "%s: rounding_mode=%S is not supported (only \"floor\")" op
+            m
       | `Training training ->
           Fmt.pf ppf "%s: training=%b is not supported (only true)" op training
       | `Vector_norm_ord o ->

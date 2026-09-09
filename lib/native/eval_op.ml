@@ -78,6 +78,9 @@ module Make (S : Semantics.SEMANTICS) = struct
         let module C = Matmul.Batched_matmul.Compute (S) in
         C.pixel ~input_shape:(shape_of input) ~mat2_shape:(shape_of mat2)
           ~input:(operand input) ~mat2:(operand mat2) out
+    | Bitwise_not { Pointwise.Bitwise_not.x } ->
+        let module C = Pointwise.Bitwise_not.Compute (S) in
+        C.pixel (operand x) out
     | Bmm { Matmul.Bmm.input; mat2 } ->
         let module C = Matmul.Bmm.Compute (S) in
         C.pixel ~input_shape:(shape_of input) ~input:(operand input)
@@ -88,6 +91,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Clone { Pointwise.Clone.x } ->
         let module C = Pointwise.Clone.Compute (S) in
         C.pixel (operand x) out
+    | Col2im { Im2col.Col2im.params; x } ->
+        let module C = Im2col.Col2im.Compute (S) in
+        C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
     | Concat { Concat.Concat.params; xs } ->
         let module C = Concat.Concat.Compute (S) in
         C.pixel params ~xs:(List.map (fun r -> (shape_of r, operand r)) xs) out
@@ -139,6 +145,9 @@ module Make (S : Semantics.SEMANTICS) = struct
         in
         C.pixel params ~x_shape:(shape_of x) ~weight_shape:(shape_of weight)
           ~x:(operand x) ~weight:(operand weight) ~bias out
+    | Cos { Pointwise.Cos.x } ->
+        let module C = Pointwise.Cos.Compute (S) in
+        C.pixel (operand x) out
     | Cumsum { Reduce.Cumsum.params; x } ->
         let module C = Reduce.Cumsum.Compute (S) in
         C.pixel params ~x:(operand x) out
@@ -148,6 +157,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Eye { Factory.Eye.params } ->
         let module C = Factory.Eye.Compute (S) in
         C.pixel params out
+    | Floor_div_scalar { Pointwise.Scalar_bin.x; scalar } ->
+        let module C = Pointwise.Floor_div_scalar.Compute (S) in
+        C.pixel ~scalar (operand x) out
     | Gelu { Pointwise.Gelu.x; approximate } ->
         let module C = Pointwise.Gelu.Compute (S) in
         C.pixel approximate (operand x) out
@@ -175,6 +187,9 @@ module Make (S : Semantics.SEMANTICS) = struct
         let module C = Index_tensor.Index_tensor.Compute (S) in
         C.pixel params ~self_shape:(shape_of self) ~self:(operand self)
           ~index:(operand index) out
+    | Im2col { Im2col.Im2col.params; x } ->
+        let module C = Im2col.Im2col.Compute (S) in
+        C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
     | Layer_norm _ -> invalid_arg "Eval_op.pixel: LayerNorm is Region-authored"
     | Leaky_relu { Pointwise.Leaky_relu.params; x } ->
         let module C = Pointwise.Leaky_relu.Compute (S) in
@@ -198,6 +213,12 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Mean { Reduce.Mean.params; x } ->
         let module C = Reduce.Mean.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
+    | Meshgrid { Meshgrid.Meshgrid.tensors } ->
+        let module C = Meshgrid.Meshgrid.Compute (S) in
+        let axis =
+          List.nth (Aten_shape.used_axes ~rank:(List.length tensors)) output
+        in
+        C.pixel ~axis (operand (List.nth tensors output)) out
     | Div { Pointwise.Bin.a; b } ->
         let module C = Pointwise.Div.Compute (S) in
         C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)
@@ -234,6 +255,9 @@ module Make (S : Semantics.SEMANTICS) = struct
         let module C = Reshape.Reshape.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
     | Rms_norm _ -> invalid_arg "Eval_op.pixel: RMSNorm is Region-authored"
+    | Rpow_scalar { Pointwise.Scalar_bin.x; scalar } ->
+        let module C = Pointwise.Rpow_scalar.Compute (S) in
+        C.pixel ~scalar (operand x) out
     | Rsub_scalar { Pointwise.Rsub_scalar.params; x } ->
         let module C = Pointwise.Rsub_scalar.Compute (S) in
         C.pixel params (operand x) out
@@ -249,6 +273,9 @@ module Make (S : Semantics.SEMANTICS) = struct
         C.pixel (operand x) out
     | Silu { Pointwise.Silu.x } ->
         let module C = Pointwise.Silu.Compute (S) in
+        C.pixel (operand x) out
+    | Sin { Pointwise.Sin.x } ->
+        let module C = Pointwise.Sin.Compute (S) in
         C.pixel (operand x) out
     | Softmax _ -> invalid_arg "Eval_op.pixel: Softmax is Region-authored"
     | Sqrt { Pointwise.Sqrt.x } ->
@@ -289,6 +316,9 @@ module Make (S : Semantics.SEMANTICS) = struct
             params.Split.Split_with_sizes.sizes
         in
         C.pixel ~offset params ~x:(operand x) out
+    | Upsample_bicubic2d { Resize.Bicubic2d.params; x } ->
+        let module C = Resize.Bicubic2d.Compute (S) in
+        C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
     | Upsample_bilinear2d { Resize.Bilinear2d.params; x } ->
         let module C = Resize.Bilinear2d.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out

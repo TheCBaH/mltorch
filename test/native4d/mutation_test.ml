@@ -750,6 +750,71 @@ let%expect_test "mutation: swapping two unbind slices is refuted" =
     slices in order            3 clusters: 3 proved (structural)
     slices swapped             3 clusters: 1 proved (structural), 2 refuted (counterexample) |}]
 
+(* [Max_pool2d_with_indices]'s own version of the same swap mutation --
+   unlike [Unbind]'s two slices of one axis, here the two outputs are
+   different KINDS (a pooled value, an argmax index), so swapping them is a
+   real content swap, not merely a reordering, but structurally
+   indistinguishable the same way: both outputs share the pooled window
+   shape, so the graph's signature is unchanged either way. A 4x4 input over
+   a 2x2/stride-2 window gives a 2x2 pooled output -- more than one element,
+   so a bug that only gets the FIRST pooled position right cannot pass. *)
+let maxpool_pool_params : Pool.MaxPool2d.params =
+  {
+    ceil_mode = false;
+    kernel = Op_config.Hw.{ h = Dim.extent 2; w = Dim.extent 2 };
+    stride =
+      Op_config.Hw.{ h = Op_config.Pos.of_int 2; w = Op_config.Pos.of_int 2 };
+    pad =
+      Op_config.Hw.
+        { h = Op_config.Nonneg.of_int 0; w = Op_config.Nonneg.of_int 0 };
+  }
+
+let maxpool_wide = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:4 ~w:4 ~c:1
+let maxpool_wide4 = Shape4.of_ints ~n:1 ~h:4 ~w:4 ~c:1
+
+let maxpool_indices_pair ~swap =
+  let src =
+    Graph_builder.build ~name:"max_pool2d_with_indices"
+      ~outputs:(fun (v, i) -> [ v; i ])
+      Graph_builder.(
+        let* x = input ~shape:maxpool_wide () in
+        max_pool2d_with_indices maxpool_pool_params x)
+    |> Err.or_raise ~pp_error:Graph_builder.pp_error
+  in
+  let dst =
+    Builder.build ~outputs:Fun.id
+      Builder.(
+        let* x = input ~shape:maxpool_wide4 () in
+        max_pool2d_with_indices maxpool_pool_params x)
+    |> Err.or_raise ~pp_error:Builder.pp_error
+  in
+  let dst =
+    if not swap then dst
+    else
+      {
+        dst with
+        Graph_common.Graph.nodes =
+          List.map
+            (fun (n : Graph.node) ->
+              match n.Graph_common.Node.outputs with
+              | a :: b :: rest ->
+                  { n with Graph_common.Node.outputs = b :: a :: rest }
+              | outs -> { n with Graph_common.Node.outputs = outs })
+            dst.Graph_common.Graph.nodes;
+      }
+  in
+  (src, dst)
+
+let%expect_test "mutation: swapping max-pool's value and indices is refuted" =
+  let src, dst = maxpool_indices_pair ~swap:false in
+  mutated "value, indices in order" src dst;
+  let src, dst = maxpool_indices_pair ~swap:true in
+  mutated "value, indices swapped" src dst;
+  [%expect
+    {|
+    value, indices in order    3 clusters: 3 proved (structural)
+    value, indices swapped     3 clusters: 1 proved (structural), 2 refuted (counterexample) |}]
+
 (* [Split_with_sizes4]'s own version of the same mutation. Unlike [Unbind]'s
    axis-derived count, EQUAL sizes have to be chosen deliberately -- [1;1] on
    W's extent 2 -- for the two slices to share a shape; unequal sizes would

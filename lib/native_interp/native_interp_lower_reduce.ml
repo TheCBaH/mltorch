@@ -7,8 +7,9 @@
 
 open Pytorch_types
 open Native_interp_decode
+open Native_interp_decode_shape
 
-let targets = [ "torch.ops.aten.cumsum.default" ]
+let targets = [ "torch.ops.aten.cumsum.default"; "torch.ops.aten.max.dim" ]
 
 let dispatch ~ctx ~env (node : Node.t) =
   if not (List.mem node.target targets) then None
@@ -19,6 +20,33 @@ let dispatch ~ctx ~env (node : Node.t) =
        let graph = ctx.Native_interp_lower_context.graph in
        let get = Native_interp_lower_context.get ctx env node in
        match node.target with
+       (* The serialized output tuple is (values, indices).  This importer has
+          the same established dead-index contract as its adaptive/max-pool
+          arms: [materialized_output_names] retains the values name only, so a
+          later consumer of the index cannot be silently wired to anything.
+          The corpus's sole occurrence has exactly that dead trailing output.
+          Values are precisely the existing single-axis [Amax] reduction. *)
+       | "torch.ops.aten.max.dim" ->
+           let x_name = tensor_name esc node "self" in
+           let rank =
+             meta_rank (tensor_meta esc graph ~ssa:x_name ~role:`Amax_input)
+           in
+           let axis =
+             match
+               axes_for_rank esc ~tensor:x_name rank [ int_arg esc node "dim" ]
+             with
+             | [ axis ] -> axis
+             | _ -> invalid_arg "Native_interp: max.dim lost its singleton axis"
+           in
+           let* y =
+             amax
+               {
+                 Reduce.Amax.dims = [ axis ];
+                 keepdim = bool_arg esc node "keepdim";
+               }
+               (get "self")
+           in
+           return [ y ]
        (* [dim] is required by the schema (no default), the same singleton-
           axis convention [softmax.int]'s arm (native_interp_lower_compute.ml)
           takes. Unlike every [reject_dtype] user in that file, [dtype] here

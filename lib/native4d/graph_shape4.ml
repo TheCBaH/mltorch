@@ -166,10 +166,13 @@ let repeat_interleave_params (p : Ops4.RepeatInterleave4.params) :
 
 (* Shared with [Eval_op4], which needs the same translation for the same op:
    one adapter, so the shape rule and the compute cannot disagree about which
-   axis is gathered. *)
+   axis is gathered. [index_rank] is always 1 here -- [Lower_engine] only
+   ever builds an [IndexTensor4] node from a rank-1 Native [Index_tensor]
+   (see its own comment), so [IndexTensor4.params] carries no [index_rank]
+   field of its own to translate. *)
 let index_tensor_params (p : Ops4.IndexTensor4.params) :
     Index_tensor.Index_tensor.params =
-  { axis = Axis4.to_axis p.Ops4.IndexTensor4.axis }
+  { axis = Axis4.to_axis p.Ops4.IndexTensor4.axis; index_rank = 1 }
 
 (* Shared with [Eval_op4], which needs the same translation for the same op:
    one adapter, so the shape rule and the compute cannot disagree about which
@@ -244,6 +247,15 @@ let output_shape (op : Op.t)
   | Adaptive_max_pool2d { Pool.AdaptiveMaxPool2d.params; x } ->
       let* x_shape = shape x in
       one (four (Pool.AdaptiveMaxPool2d.output_shape ~x_shape params))
+  (* Two outputs (value, indices) sharing the pooled window shape, the same
+     [out; out] Native's own [Graph_shape] arm returns -- [four_all], not
+     [one], since both must independently re-enter the dialect. *)
+  | Adaptive_max_pool2d_with_indices
+      { Pool.AdaptiveMaxPool2dWithIndices.params; x } ->
+      let* x_shape = shape x in
+      four_all
+        ( Pool.AdaptiveMaxPool2dWithIndices.output_shape ~x_shape params
+        >>| fun out -> [ out; out ] )
   | Avg_pool2d { Pool.AvgPool2d.params; x } ->
       let* x_shape = shape x in
       one (four (Pool.AvgPool2d.output_shape ~x_shape params))
@@ -263,9 +275,15 @@ let output_shape (op : Op.t)
       let* input_shape = shape input in
       let* mat2_shape = shape mat2 in
       one (four (Matmul.Batched_matmul.output_shape ~input_shape ~mat2_shape))
+  | Bitwise_not { Pointwise.Bitwise_not.x } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.Bitwise_not.output_shape x_shape))
   | Clamp { Pointwise.Clamp.params; x } ->
       let* x_shape = shape x in
       one (four (Pointwise.Clamp.output_shape params x_shape))
+  | Col2im { Im2col.Col2im.params; x } ->
+      let* x_shape = shape x in
+      one (four (Im2col.Col2im.output_shape ~x_shape params))
   (* Variadic OPERANDS, not variadic outputs -- unlike [Unbind]'s [four_all],
      this stays a single-shape arm, one [xs_shapes] gathered over every
      operand rather than one [x_shape]. *)
@@ -288,6 +306,9 @@ let output_shape (op : Op.t)
         (four
            (Conv.Conv2d.output_shape ~x_shape ~weight_shape
               (conv2d_params params ~groups)))
+  | Cos { Pointwise.Cos.x } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.Cos.output_shape x_shape))
   (* Cumsum rescales nothing and drops no axis, exactly [Softmax4]'s reason:
      [Reduce.Cumsum.output_shape] is the identity on [x_shape] -- delegated
      rather than restated. *)
@@ -314,6 +335,9 @@ let output_shape (op : Op.t)
               {
                 Pointwise.Expand.size = Shape4.to_vec6 params.Ops4.Expand4.size;
               }))
+  | Floor_div_scalar { Pointwise.Scalar_bin.x; _ } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.Floor_div_scalar.output_shape x_shape))
   | Gelu { Pointwise.Gelu.x; _ } ->
       let* x_shape = shape x in
       one (four (Pointwise.Gelu.output_shape x_shape))
@@ -365,6 +389,9 @@ let output_shape (op : Op.t)
         (four
            (Index_tensor.Index_tensor.output_shape ~self_shape ~index_shape
               (index_tensor_params params)))
+  | Im2col { Im2col.Im2col.params; x } ->
+      let* x_shape = shape x in
+      one (four (Im2col.Im2col.output_shape ~x_shape params))
   (* The affine check that Native's own [Graph_shape] runs and this file's
      [Rms_norm] arm does NOT (see below). A JSON-decoded Native4D graph reaches
      this rule and no other, so leaving it out means an operand of the wrong
@@ -438,6 +465,11 @@ let output_shape (op : Op.t)
   | Max_pool2d { Pool.MaxPool2d.params; x } ->
       let* x_shape = shape x in
       one (four (Pool.MaxPool2d.output_shape ~x_shape params))
+  | Max_pool2d_with_indices { Pool.MaxPool2dWithIndices.params; x } ->
+      let* x_shape = shape x in
+      four_all
+        ( Pool.MaxPool2dWithIndices.output_shape ~x_shape params >>| fun out ->
+          [ out; out ] )
   | Mean_keepdims { Ops4.Mean_keepdims.params; x } ->
       let* x_shape = shape x in
       one (four (Reduce.Mean.output_shape ~x_shape (mean_params params)))
@@ -500,6 +532,9 @@ let output_shape (op : Op.t)
   | Rms_norm { Ops4.Rms_norm.params; x; _ } ->
       let* x_shape = shape x in
       one (four (Norm.RmsNorm.output_shape ~x_shape (rms_params params)))
+  | Rpow_scalar { Pointwise.Scalar_bin.x; _ } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.Rpow_scalar.output_shape x_shape))
   | Rsub_scalar { Pointwise.Rsub_scalar.x; _ } ->
       let* x_shape = shape x in
       one (four (Pointwise.Rsub_scalar.output_shape x_shape))
@@ -544,6 +579,9 @@ let output_shape (op : Op.t)
   | Silu { Pointwise.Silu.x } ->
       let* x_shape = shape x in
       one (four (Pointwise.Silu.output_shape x_shape))
+  | Sin { Pointwise.Sin.x } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.Sin.output_shape x_shape))
   | Slice4 { Ops4.Slice4.params; x } ->
       let* x_shape = shape x in
       one (four (Split.Slice.output_shape ~x_shape (slice_params params)))
@@ -594,6 +632,9 @@ let output_shape (op : Op.t)
   | Unbind { Ops4.Unbind.params; x } ->
       let* x_shape = shape x in
       four_all (Split.Unbind.output_shapes ~x_shape (unbind_params params))
+  | Upsample_bicubic2d { Resize.Bicubic2d.params; x } ->
+      let* x_shape = shape x in
+      one (four (Resize.Bicubic2d.output_shape ~x_shape params))
   | Upsample_bilinear2d { Resize.Bilinear2d.params; x } ->
       let* x_shape = shape x in
       one (four (Resize.Bilinear2d.output_shape ~x_shape params))

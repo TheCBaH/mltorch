@@ -157,9 +157,9 @@ let%expect_test "dispatch: sdpa rejects wrong-rank query/key/value/mask" =
     ~noutputs:1;
   [%expect
     {|
-    error: sdpa query must be rank-4, got rank-3
-    error: sdpa key must be rank-4, got rank-3
-    error: sdpa value must be rank-4, got rank-3
+    error: sdpa: sdpa query has rank 3, expected 4 or 5
+    error: sdpa: sdpa key has rank 3, expected 4 or 5
+    error: sdpa: sdpa value has rank 3, expected 4 or 5
     error: sdpa: sdpa attn_mask has rank 3, expected 2 or 4 |}]
 
 (* Real-ATen grounding for head broadcasting (query H=2, key/value H=1,
@@ -209,6 +209,52 @@ let%expect_test
   in
   let k = float_tensor [ 1; 1; 2; 2 ] [ 1.; 0.; 0.; 1. ] in
   let v = float_tensor [ 1; 1; 2; 2 ] [ 10.; 20.; 30.; 40. ] in
+  verify_print ~target:"torch.ops.aten.scaled_dot_product_attention.default"
+    ~bindings:[ ("query", q); ("key", k); ("value", v) ]
+    ~inputs:
+      [
+        in_tensor "query";
+        in_tensor "key";
+        in_tensor "value";
+        in_none "attn_mask";
+        in_float "dropout_p" 0.0;
+        in_bool "is_causal" false;
+        in_float "scale" 1.0;
+        in_bool "enable_gqa" false;
+      ];
+  [%expect {| aten and native agree |}]
+
+(* Rank 5: Hiera-style windowed attention, [B, heads, windows, seq, E] --
+   confirmed against the real corpus (hiera_tiny_224's own
+   scaled_dot_product_attention.default nodes all carry this shape, e.g.
+   [1,1,49,64,96]). No new Native machinery: a rank-5 ATen tensor
+   right-aligns onto [T,D,H,W,C] the same mechanical way rank 4 lands on
+   [D,H,W,C], and [Attention.Sdpa]'s own [batch_axes = [N; T; D; H]] already
+   treats all four as ordinary broadcast batch axes. Two windows with
+   IDENTICAL query/key (so each picks out its own matching row via the
+   dot-product) but SIGN-FLIPPED value content between windows: real ATen's
+   own answer is what proves the windows stay independent -- a bug that
+   accidentally let window 0's softmax see window 1's keys/values would show
+   up as this test's own agreement check failing, not as a hand-predicted
+   number here. Kept to the same single-digit-times-ten magnitude the other
+   `verify:` cases in this file use (not the three-digit values an earlier
+   draft of this test used): at [atol_for_target]'s fixed 1e-5, a value's own
+   f32 quantization step grows with its magnitude (~3e-5 already at ~250),
+   so a bigger value trips this comparison on ordinary f32 rounding alone,
+   with no real computation bug behind it. *)
+let%expect_test
+    "verify: sdpa accepts rank 5 (windowed batch axis) against real ATen" =
+  let q =
+    float_tensor [ 1; 1; 2; 2; 2 ]
+      [ 1.; 0.; 0.; 1. (* window 0 *); 1.; 0.; 0.; 1. (* window 1 *) ]
+  in
+  let k = q in
+  let v =
+    float_tensor [ 1; 1; 2; 2; 2 ]
+      [
+        10.; 20.; 30.; 40. (* window 0 *); -10.; -20.; -30.; -40. (* window 1 *);
+      ]
+  in
   verify_print ~target:"torch.ops.aten.scaled_dot_product_attention.default"
     ~bindings:[ ("query", q); ("key", k); ("value", v) ]
     ~inputs:

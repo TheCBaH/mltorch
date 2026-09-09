@@ -12,6 +12,25 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
     (Graph_ir.graph * (Graph_ir.Tensor_id.t * Tensor.packed) list, error) Err.t
     option =
   match node.target with
+  (* [max.dim] is a fixed (values, indices) tuple.  The Native bridge's graph
+     result models the live values output; the PT2 importer below separately
+     applies its dead-index SSA policy.  The value is exactly a singleton-axis
+     [Amax], including [keepdim]'s packing rule. *)
+  | "torch.ops.aten.max.dim" ->
+      Some
+        (let* t = tensor_arg aten_env node "self" in
+         let rank = aten_rank t in
+         let* dim = int_arg node "dim" in
+         let* axis = dim_axis ~op:"max.dim" ~rank dim in
+         let* keepdim = bool_arg node "keepdim" in
+         let* x = native_of_aten "self" t in
+         let params = { Reduce.Amax.dims = [ axis ]; keepdim } in
+         build_g ~name:"max_dim_values" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = amax params x_id in
+               [ y ]
+           | _ -> assert false))
   | "torch.ops.aten.amax.default" ->
       Some
         (let* t = tensor_arg aten_env node "self" in

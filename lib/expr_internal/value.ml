@@ -1,5 +1,13 @@
 type binary_op = Expr_repr.binary_op = Add | Div | Mul | Sub
-type unary_op = Expr_repr.unary_op = Erf | Exp | Log | Sqrt | Trunc
+
+type unary_op = Expr_repr.unary_op =
+  | Cos
+  | Erf
+  | Exp
+  | Log
+  | Sin
+  | Sqrt
+  | Trunc
 
 type t = Expr_repr.value =
   | Binary of binary_op * t * t
@@ -28,6 +36,8 @@ let sqrt a = Unary (Sqrt, a)
 let erf a = Unary (Erf, a)
 let log a = Unary (Log, a)
 let trunc a = Unary (Trunc, a)
+let cos a = Unary (Cos, a)
+let sin a = Unary (Sin, a)
 let select c a b = Select (c, a, b)
 let value_of_index i = Value_of_index i
 let load s c = Load (s, c)
@@ -61,18 +71,22 @@ let erf_approx x =
   sign *. (1. -. (poly *. Stdlib.exp (-.ax *. ax)))
 
 let apply_unary = function
+  | Cos -> Stdlib.cos
   | Erf -> erf_approx
   | Exp -> Stdlib.exp
   | Log -> Stdlib.log
+  | Sin -> Stdlib.sin
   | Sqrt -> Stdlib.sqrt
   | Trunc -> Float.trunc
 
 let binary_sym = function Add -> "+" | Div -> "/" | Mul -> "*" | Sub -> "-"
 
 let unary_name = function
+  | Cos -> "cos"
   | Erf -> "erf"
   | Exp -> "exp"
   | Log -> "log"
+  | Sin -> "sin"
   | Sqrt -> "sqrt"
   | Trunc -> "trunc"
 

@@ -12,9 +12,12 @@
 let broadcast_output_shape = Pointwise_binary.broadcast_output_shape
 let broadcast_coord = Pointwise_binary.broadcast_coord
 
+module Bitwise_not = Pointwise_unary.Bitwise_not
 module Clamp = Pointwise_unary.Clamp
 module Clone = Pointwise_unary.Clone
+module Cos = Pointwise_unary.Cos
 module Expand = Pointwise_unary.Expand
+module Sin = Pointwise_unary.Sin
 module Sqrt = Pointwise_unary.Sqrt
 module To_copy = Pointwise_unary.To_copy
 module Hardsigmoid = Pointwise_activation.Hardsigmoid
@@ -33,8 +36,10 @@ module Add = Pointwise_binary.Add
 module Add_scalar = Pointwise_binary.Add_scalar
 module Div = Pointwise_binary.Div
 module Div_scalar = Pointwise_binary.Div_scalar
+module Floor_div_scalar = Pointwise_binary.Floor_div_scalar
 module Mul = Pointwise_binary.Mul
 module Mul_scalar = Pointwise_binary.Mul_scalar
 module Pow = Pointwise_binary.Pow
+module Rpow_scalar = Pointwise_binary.Rpow_scalar
 module Rsub_scalar = Pointwise_binary.Rsub_scalar
 module Sub = Pointwise_binary.Sub

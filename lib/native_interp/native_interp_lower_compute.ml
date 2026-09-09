@@ -7,18 +7,17 @@ open Schema_runtime
 open Native_interp_error
 open Native_interp_decode
 open Native_interp_decode_conv
+open Native_interp_decode_shape
 
 let targets =
   [
     "torch.ops.aten._native_batch_norm_legit_no_training.default";
     "torch.ops.aten._native_batch_norm_legit.no_stats";
     "torch.ops.aten.add.Tensor";
-    "torch.ops.aten.adaptive_avg_pool2d.default";
-    "torch.ops.aten.adaptive_max_pool2d.default";
     "torch.ops.aten.addcmul.default";
     "torch.ops.aten.addmm.default";
     "torch.ops.aten.amax.default";
-    "torch.ops.aten.avg_pool2d.default";
+    "torch.ops.aten.bitwise_not.default";
     "torch.ops.aten.clamp.default";
     "torch.ops.aten.clamp_min.default";
     "torch.ops.aten.clone.default";
@@ -27,7 +26,10 @@ let targets =
     "torch.ops.aten.conv2d.padding";
     "torch.ops.aten.conv3d.default";
     "torch.ops.aten.convolution.default";
+    "torch.ops.aten.cos.default";
     "torch.ops.aten.div.Tensor";
+    "torch.ops.aten.div.Tensor_mode";
+    "torch.ops.aten.einsum.default";
     "torch.ops.aten.gelu.default";
     "torch.ops.aten.group_norm.default";
     "torch.ops.aten.hardsigmoid.default";
@@ -41,12 +43,12 @@ let targets =
     "torch.ops.aten.linalg_vector_norm.default";
     "torch.ops.aten.linear.default";
     "torch.ops.aten.matmul.default";
-    "torch.ops.aten.max_pool2d.default";
-    "torch.ops.aten.max_pool2d_with_indices.default";
     "torch.ops.aten.mean.dim";
     "torch.ops.aten.mul.Scalar";
     "torch.ops.aten.mul.Tensor";
     "torch.ops.aten.native_layer_norm.default";
+    "torch.ops.aten.neg.default";
+    "torch.ops.aten.pow.Scalar";
     "torch.ops.aten.pow.Tensor_Scalar";
     "torch.ops.aten.relu.default";
     "torch.ops.aten.rms_norm.default";
@@ -56,6 +58,7 @@ let targets =
     "torch.ops.aten.sigmoid.default";
     "torch.ops.aten.silu.default";
     "torch.ops.aten.silu_.default";
+    "torch.ops.aten.sin.default";
     "torch.ops.aten.softmax.int";
     "torch.ops.aten.sub.Tensor";
     "torch.ops.aten.sum.dim_IntList";
@@ -427,9 +430,35 @@ let dispatch ~ctx ~env (node : Node.t) =
            let query_name = tensor_name esc node "query" in
            let key_name = tensor_name esc node "key" in
            let value_name = tensor_name esc node "value" in
-           require_rank esc graph ~ssa:query_name ~role:`Sdpa_query ~expected:4;
-           require_rank esc graph ~ssa:key_name ~role:`Sdpa_key ~expected:4;
-           require_rank esc graph ~ssa:value_name ~role:`Sdpa_value ~expected:4;
+           (* Rank 4 (ordinary [B,H,seq,E]) or rank 5 (Hiera-style windowed
+             attention, [B,H,windows,seq,E]) -- the two shapes the corpus is
+             confirmed to use. [Sdpa_reject]/[Rank], not the generic
+             [require_rank]/[Bad_dimension]: this is the SAME typed
+             rejection [Op_bridge]'s twin arm raises (op8-impl.md commit 3),
+             now widened on both sides together so they cannot drift. A
+             rank-5 tensor needs no other change anywhere: it right-aligns
+             onto [T,D,H,W,C] the same mechanical way rank 4 lands on
+             [D,H,W,C], and [Attention.Sdpa]'s own [batch_axes = [N; T; D;
+             H]] already treats all four as ordinary broadcast batch
+             dimensions (see "sdpa -- batch and head extents independently"
+             in sdpa_test.ml, which already proves D and H batch
+             independently with no cross term) -- the extra leading window
+             axis is one more already-supported batch axis, not a reshape-
+             around-the-op legalization. *)
+           let require_qkv_rank ~ssa ~role ~arg_name =
+             let got = meta_rank (tensor_meta esc graph ~ssa ~role) in
+             if got = 4 || got = 5 then ()
+             else
+               malformed esc
+                 (`Sdpa_reject
+                    (Attention.Sdpa.Reject.Rank
+                       { arg_name; expected = [ 4; 5 ]; got }))
+           in
+           require_qkv_rank ~ssa:query_name ~role:`Sdpa_query
+             ~arg_name:"sdpa query";
+           require_qkv_rank ~ssa:key_name ~role:`Sdpa_key ~arg_name:"sdpa key";
+           require_qkv_rank ~ssa:value_name ~role:`Sdpa_value
+             ~arg_name:"sdpa value";
            let dropout_p = float_arg esc ~default:0.0 node "dropout_p" in
            if not (Float.equal dropout_p 0.0) then
              malformed esc
@@ -485,6 +514,13 @@ let dispatch ~ctx ~env (node : Node.t) =
                ?mask:(Option.map (env_find esc env) mask_name)
                ()
            in
+           return [ y ]
+       (* Reverse of [pow.Tensor_Scalar] below: the compile-time constant is
+          the BASE, the tensor is the exponent -- serialized twin of
+          [Op_bridge_pointwise]'s [pow.Scalar] arm. *)
+       | "torch.ops.aten.pow.Scalar" ->
+           let base = required_scalar_arg esc node "self" in
+           let* y = rpow_scalar base (get "exponent") in
            return [ y ]
        | "torch.ops.aten.pow.Tensor_Scalar" ->
            let exponent = required_scalar_arg esc node "exponent" in
@@ -561,6 +597,11 @@ let dispatch ~ctx ~env (node : Node.t) =
            in
            let* y = sum params (get "self") in
            return [ y ]
+       (* Restricted to the corpus's own bool operand -- see
+          [Op_bridge_pointwise]'s [bitwise_not.default] arm comment. *)
+       | "torch.ops.aten.bitwise_not.default" ->
+           let* y = bitwise_not (get "self") in
+           return [ y ]
        | "torch.ops.aten.clamp.default" ->
            let params : Pointwise.Clamp.params =
              {
@@ -582,6 +623,9 @@ let dispatch ~ctx ~env (node : Node.t) =
            check_clone_memory_format esc node;
            let* y = clone (get "self") in
            return [ y ]
+       | "torch.ops.aten.cos.default" ->
+           let* y = cos (get "self") in
+           return [ y ]
        | "torch.ops.aten.div.Tensor" -> (
            match tensor_or_scalar "other" with
            | `Tensor other ->
@@ -590,6 +634,49 @@ let dispatch ~ctx ~env (node : Node.t) =
            | `Scalar s ->
                let* y = div_scalar s (get "self") in
                return [ y ])
+       (* Distinct rounding-mode overload from [div.Tensor] above -- serialized
+          twin of [Op_bridge_pointwise]'s [div.Tensor_mode] arm, restricted the
+          same way: a compile-time scalar [other] and floor rounding only. *)
+       | "torch.ops.aten.div.Tensor_mode" -> (
+           let rounding_mode =
+             string_arg esc ~default:"" node "rounding_mode"
+           in
+           match (rounding_mode, tensor_or_scalar "other") with
+           | "floor", `Scalar scalar ->
+               let* y = floor_div_scalar scalar (get "self") in
+               return [ y ]
+           | "floor", `Tensor _ ->
+               malformed esc
+                 (`Wrong_arg_kind
+                    { op = node.target; arg = "other"; expected = `Scalar })
+           | mode, _ ->
+               malformed esc
+                 (`Unsupported_option
+                    { op = node.target; option = `Rounding_mode mode }))
+       (* `einsum.default`, restricted to [Aten_shape.Einsum]'s two evidenced
+          equations (`.ai/einsum_design.md`): exactly two operands, rank 5
+          then 3. Legalizes onto [Graph_builder.einsum], no dedicated node. *)
+       | "torch.ops.aten.einsum.default" -> (
+           let equation = string_arg esc ~default:"" node "equation" in
+           let names = tensor_names_arg esc node "tensors" in
+           let rank name =
+             meta_rank (tensor_meta esc graph ~ssa:name ~role:`Einsum_operand)
+           in
+           let unsupported () =
+             malformed esc
+               (`Einsum_unsupported
+                  { Einsum_unsupported.equation; ranks = List.map rank names })
+           in
+           match (names, Aten_shape.Einsum.of_equation equation) with
+           | [ self_name; other_name ], Some plan
+             when rank self_name = 5 && rank other_name = 3 ->
+               let* y =
+                 einsum plan
+                   (env_find esc env self_name)
+                   (env_find esc env other_name)
+               in
+               return [ y ]
+           | _ -> unsupported ())
        | "torch.ops.aten.hardsigmoid.default"
        | "torch.ops.aten.hardsigmoid_.default" ->
            let* y = hardsigmoid (get "self") in
@@ -603,6 +690,9 @@ let dispatch ~ctx ~env (node : Node.t) =
            return [ y ]
        | "torch.ops.aten.silu.default" | "torch.ops.aten.silu_.default" ->
            let* y = silu (get "self") in
+           return [ y ]
+       | "torch.ops.aten.sin.default" ->
+           let* y = sin (get "self") in
            return [ y ]
        | "torch.ops.aten.gelu.default" ->
            let approximate =
@@ -650,94 +740,15 @@ let dispatch ~ctx ~env (node : Node.t) =
            | `Scalar s ->
                let* y = mul_scalar s (get "self") in
                return [ y ])
+       (* [-x] legalizes to [x * -1]: exact IEEE negation, so this is
+         bit-identical to a genuine negate. No dedicated node -- the same
+         reasoning [sub.Tensor]'s scalar form takes for [add_scalar]. *)
+       | "torch.ops.aten.neg.default" ->
+           let* y = mul_scalar (-1.) (get "self") in
+           return [ y ]
        (* The functional overload has ONE output and takes the generic path:
          [materialized_output_names] must not gain it, since that list is for
          nodes whose trailing outputs are dropped. *)
-       | "torch.ops.aten.max_pool2d.default" ->
-           let* x = permute perm_nchw_to_nhwc (get "self") in
-           let* y = max_pool2d (pool_params esc node) x in
-           let* y = permute perm_nhwc_to_nchw y in
-           return [ y ]
-       | "torch.ops.aten.adaptive_avg_pool2d.default" ->
-           let x_name = tensor_name esc node "self" in
-           let got =
-             meta_rank
-               (tensor_meta esc graph ~ssa:x_name
-                  ~role:`Adaptive_avg_pool2d_input)
-           in
-           if got <> 3 && got <> 4 then
-             malformed esc (`Adaptive_pool_rank { tensor = x_name; got });
-           let out_h, out_w =
-             match ints_arg esc node "output_size" with
-             | [ h; w ] -> (h, w)
-             | xs ->
-                 malformed esc
-                   (`Bad_arity
-                      { Bad_arity.param = `Output_size; got = List.length xs })
-           in
-           let params =
-             {
-               Pool.AdaptiveAvgPool2d.output_size =
-                 {
-                   h = pos esc ~op:node.target ~param:`Output_size out_h;
-                   w = pos esc ~op:node.target ~param:`Output_size out_w;
-                 };
-             }
-           in
-           let* x = permute perm_nchw_to_nhwc (get "self") in
-           let* y = adaptive_avg_pool2d params x in
-           let* y = permute perm_nhwc_to_nchw y in
-           return [ y ]
-       (* ATen has no value-only overload here (unlike [max_pool2d.default]'s
-          genuine two-op split), so this always returns (values, indices);
-          the indices edge is routed to the same [Discard] sink
-          [max_pool2d_with_indices.default] uses just below, and
-          [materialized_output_names] drops its serialized name from tracking
-          the same way it does for that op (see native_interp_decode.ml). *)
-       | "torch.ops.aten.adaptive_max_pool2d.default" ->
-           let x_name = tensor_name esc node "self" in
-           let got =
-             meta_rank
-               (tensor_meta esc graph ~ssa:x_name
-                  ~role:`Adaptive_max_pool2d_input)
-           in
-           if got <> 3 && got <> 4 then
-             malformed esc (`Adaptive_pool_rank { tensor = x_name; got });
-           let out_h, out_w =
-             match ints_arg esc node "output_size" with
-             | [ h; w ] -> (h, w)
-             | xs ->
-                 malformed esc
-                   (`Bad_arity
-                      { Bad_arity.param = `Output_size; got = List.length xs })
-           in
-           let params =
-             {
-               Pool.AdaptiveMaxPool2d.output_size =
-                 {
-                   h = pos esc ~op:node.target ~param:`Output_size out_h;
-                   w = pos esc ~op:node.target ~param:`Output_size out_w;
-                 };
-             }
-           in
-           let* x = permute perm_nchw_to_nhwc (get "self") in
-           let* values, indices = adaptive_max_pool2d_with_indices params x in
-           let* () = discard indices in
-           let* values = permute perm_nhwc_to_nchw values in
-           return [ values ]
-       | "torch.ops.aten.avg_pool2d.default" ->
-           let* x = permute perm_nchw_to_nhwc (get "self") in
-           let* y = avg_pool2d (avg_pool_params esc node) x in
-           let* y = permute perm_nhwc_to_nchw y in
-           return [ y ]
-       | "torch.ops.aten.max_pool2d_with_indices.default" ->
-           let* x = permute perm_nchw_to_nhwc (get "self") in
-           let* values, indices =
-             max_pool2d_with_indices (pool_params esc node) x
-           in
-           let* () = discard indices in
-           let* values = permute perm_nhwc_to_nchw values in
-           return [ values ]
        | "torch.ops.aten.mean.dim" ->
            let x_name = tensor_name esc node "self" in
            let rank =
@@ -910,14 +921,16 @@ let dispatch ~ctx ~env (node : Node.t) =
            in
            return [ y ]
        (* `index.Tensor(Tensor self, Tensor?[] indices) -> Tensor`, restricted
-          to the one evidenced shape family (`.ai/index_tensor_design.md`):
-          [indices] has exactly one live entry, of ATen rank 1, every other
-          position [None]. Metadata-only, unlike [Op_bridge]'s arm: the live
-          entry's dtype/rank come from [tensor_meta], never a materialized
-          value, and its NAME may need tracing past a wrapping
-          [clone.default] before it can be bound (round 6) -- a step
-          [Op_bridge] does not need, since it already resolves the live
-          entry's real ATen VALUE directly, clone or not. *)
+          to the evidenced shape family (`.ai/index_tensor_design.md`):
+          [indices] has at most [self]'s ATen rank many entries (real ATen
+          implicitly full-slices any missing trailing dims), exactly one
+          live entry, of ATen rank at least 1, every other listed position
+          [None]. Metadata-only, unlike [Op_bridge]'s arm: the live entry's
+          dtype/rank come from [tensor_meta], never a materialized value,
+          and its NAME may need tracing past a wrapping [clone.default]
+          before it can be bound (round 6) -- a step [Op_bridge] does not
+          need, since it already resolves the live entry's real ATen VALUE
+          directly, clone or not. *)
        | "torch.ops.aten.index.Tensor" ->
            let self_name = tensor_name esc node "self" in
            let self_rank =
@@ -929,7 +942,7 @@ let dispatch ~ctx ~env (node : Node.t) =
            let index_list_fail (fault : Index_list.fault) =
              malformed esc (`Index_list { Index_list.fault })
            in
-           if got <> self_rank then
+           if got > self_rank then
              index_list_fail
                (Index_list.Length_mismatch { expected = self_rank; got })
            else
@@ -956,7 +969,7 @@ let dispatch ~ctx ~env (node : Node.t) =
                    (Index_list.Wrong_dtype
                       { position = p; dtype = Pt2_dtype.scalar_type_name dtype }));
              let index_rank = meta_rank meta in
-             if index_rank <> 1 then
+             if index_rank < 1 then
                index_list_fail
                  (Index_list.Wrong_rank { position = p; rank = index_rank })
              else
@@ -974,7 +987,7 @@ let dispatch ~ctx ~env (node : Node.t) =
                in
                let* y =
                  index_tensor
-                   { Index_tensor.Index_tensor.axis }
+                   { Index_tensor.Index_tensor.axis; index_rank }
                    ~self:(get "self")
                    ~index:(env_find esc env index_name)
                in

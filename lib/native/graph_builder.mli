@@ -92,6 +92,10 @@ val batch_norm_no_stats :
   Tensor_id.t list t
 
 val batched_matmul : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
+
+(* [bitwise_not.default] restricted to bool operands (a 0.0/1.0 encoding) --
+   see [Pointwise.Bitwise_not]. *)
+val bitwise_not : ?name:string -> tensor_ref -> Tensor_id.t t
 val bmm : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 
 (* Errors with [`Clamp No_bounds] if neither bound is given, as ATen does. *)
@@ -99,6 +103,7 @@ val clamp :
   ?name:string -> Pointwise.Clamp.params -> tensor_ref -> Tensor_id.t t
 
 val clone : ?name:string -> tensor_ref -> Tensor_id.t t
+val col2im : ?name:string -> Im2col.Col2im.params -> tensor_ref -> Tensor_id.t t
 
 val concat :
   ?name:string -> Concat.Concat.params -> tensor_ref list -> Tensor_id.t t
@@ -148,6 +153,7 @@ val convolution :
   unit ->
   Tensor_id.t t
 
+val cos : ?name:string -> tensor_ref -> Tensor_id.t t
 val cumsum : ?name:string -> Reduce.Cumsum.params -> tensor_ref -> Tensor_id.t t
 val div : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 val div_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
@@ -155,6 +161,17 @@ val div_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
 (* Route a dead edge into a [Discard] sink node (no output). Used to keep a
    multi-output op's full arity while marking an unused result for later pruning. *)
 val discard : tensor_ref -> unit t
+
+(* `aten.einsum.default`, restricted to [Aten_shape.Einsum.plan]'s two
+   evidenced shapes — legalizes onto a [Permute]/[Batched_matmul] chain, no
+   dedicated [Graph_ir] node. See the implementation for the frame-position
+   derivation. *)
+val einsum :
+  ?name:string ->
+  Aten_shape.Einsum.plan ->
+  tensor_ref ->
+  tensor_ref ->
+  Tensor_id.t t
 
 (* Broadcasts [x] to [params.size]. [Graph_shape] rejects a target that is not
    broadcast-compatible with [x]'s own shape (see [Pointwise.Expand.output_shape]). *)
@@ -164,6 +181,10 @@ val expand :
 (* A rank-2 identity-matrix factory, matching [zeros]/[arange]'s dtype
    retention. *)
 val eye : ?name:string -> Factory.Eye.params -> Tensor_id.t t
+
+(* [div.Tensor_mode] with [rounding_mode="floor"] and a compile-time scalar
+   [other] -- see [Pointwise.Floor_div_scalar]. *)
+val floor_div_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
 
 val gelu :
   ?name:string -> Pointwise.Gelu.approximate -> tensor_ref -> Tensor_id.t t
@@ -191,6 +212,8 @@ val index_tensor :
   self:tensor_ref ->
   index:tensor_ref ->
   Tensor_id.t t
+
+val im2col : ?name:string -> Im2col.Params.t -> tensor_ref -> Tensor_id.t t
 
 val layer_norm :
   ?name:string ->
@@ -240,6 +263,12 @@ val max_pool2d_with_indices :
   (Tensor_id.t * Tensor_id.t) t
 
 val mean : ?name:string -> Reduce.Mean.params -> tensor_ref -> Tensor_id.t t
+
+(* [meshgrid.indexing], restricted to every input rank-1 and
+   [indexing="ij"] -- see [Meshgrid.Meshgrid]. Returns one edge per input, in
+   the SAME order, the same "output count is part of the input signature"
+   convention [unbind] follows. *)
+val meshgrid : ?name:string -> tensor_ref list -> Tensor_id.t list t
 val mul : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 val mul_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
 
@@ -268,6 +297,9 @@ val rms_norm :
   ?weight:tensor_ref ->
   unit ->
   Tensor_id.t t
+
+val rpow_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
+(** [scalar ** self] -- the reverse of [pow]'s [self ** scalar]. *)
 
 val rsub_scalar :
   ?name:string -> Pointwise.Rsub_scalar.params -> tensor_ref -> Tensor_id.t t
@@ -301,6 +333,7 @@ val select_scatter :
 
 val sigmoid : ?name:string -> tensor_ref -> Tensor_id.t t
 val silu : ?name:string -> tensor_ref -> Tensor_id.t t
+val sin : ?name:string -> tensor_ref -> Tensor_id.t t
 
 val softmax :
   ?name:string -> Reduce.Softmax.params -> tensor_ref -> Tensor_id.t t
@@ -352,6 +385,10 @@ val unbind :
 val unfold : ?name:string -> Unfold.Unfold.params -> tensor_ref -> Tensor_id.t t
 (** A sliding-window view along one named axis; see [Unfold.Unfold]'s own header
     for how the rank-increasing ATen op fits Native's fixed six-axis frame. *)
+
+val upsample_bicubic2d :
+  ?name:string -> Resize.Bicubic2d.params -> tensor_ref -> Tensor_id.t t
+(** Bicubic resize to an explicit output size, either [align_corners] value. *)
 
 val upsample_bilinear2d :
   ?name:string -> Resize.Bilinear2d.params -> tensor_ref -> Tensor_id.t t

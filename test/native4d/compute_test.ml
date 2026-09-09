@@ -767,7 +767,7 @@ let%expect_test "direct4 = symbolic4: every op has a fixture" =
   Format.printf "fixtures: %d, registry: %d@."
     (List.length (Fixtures4.per_op ()))
     (List.length Op.op_registry);
-  [%expect {| fixtures: 60, registry: 60 |}]
+  [%expect {| fixtures: 70, registry: 70 |}]
 
 let%expect_test "direct4 = symbolic4, bitwise, per op" =
   List.iter
@@ -781,12 +781,19 @@ let%expect_test "direct4 = symbolic4, bitwise, per op" =
     div                    direct = symbolic
     add_scalar             direct = symbolic
     div_scalar             direct = symbolic
+    floor_div_scalar       direct = symbolic
+    bitwise_not            direct = symbolic
     expand4                direct = symbolic
     mul_scalar             direct = symbolic
     pow                    direct = symbolic
+    rpow_scalar            direct = symbolic
+    cos                    direct = symbolic
+    sin                    direct = symbolic
     rsub_scalar            direct = symbolic
     clamp                  direct = symbolic
+    col2im                 direct = symbolic
     hardtanh               direct = symbolic
+    im2col                 direct = symbolic
     leaky_relu             direct = symbolic
     zeros4                 direct = symbolic
     arange4                direct = symbolic
@@ -806,8 +813,12 @@ let%expect_test "direct4 = symbolic4, bitwise, per op" =
     sqrt                   direct = symbolic
     to_copy                direct = symbolic
     max_pool2d             direct = symbolic
+    max_pool2d_with_indices out0 direct = symbolic
+    max_pool2d_with_indices out1 direct = symbolic
     adaptive_avg_pool2d    direct = symbolic
     adaptive_max_pool2d    direct = symbolic
+    adaptive_max_pool2d_with_indices out0 direct = symbolic
+    adaptive_max_pool2d_with_indices out1 direct = symbolic
     avg_pool2d             direct = symbolic
     mean_keepdims          direct = symbolic
     max_keepdims           direct = symbolic
@@ -837,6 +848,7 @@ let%expect_test "direct4 = symbolic4, bitwise, per op" =
     unbind                 out1 direct = symbolic
     split_with_sizes4      out0 direct = symbolic
     split_with_sizes4      out1 direct = symbolic
+    upsample_bicubic2d     direct = symbolic
     upsample_bilinear2d    direct = symbolic
     upsample_nearest2d     direct = symbolic
     vector_norm_keepdims   direct = symbolic

@@ -55,6 +55,18 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let+ y = add self_id scaled in
                [ y ]
            | _ -> assert false))
+  (* Restricted to the corpus's own bool operand -- see
+     [Pointwise.Bitwise_not]'s own comment for why an integer
+     bitwise-complement has no analogue in Native's float domain. *)
+  | "torch.ops.aten.bitwise_not.default" ->
+      Some
+        (let* x = native_tensor_arg aten_env node "self" in
+         build_g ~name:"bitwise_not" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = bitwise_not x_id in
+               [ y ]
+           | _ -> assert false))
   | "torch.ops.aten.clamp.default" | "torch.ops.aten.clamp_.default" ->
       Some
         (let* x = native_tensor_arg aten_env node "self" in
@@ -85,6 +97,15 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                in
                [ y ]
            | _ -> assert false))
+  | "torch.ops.aten.cos.default" ->
+      Some
+        (let* x = native_tensor_arg aten_env node "self" in
+         build_g ~name:"cos" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = cos x_id in
+               [ y ]
+           | _ -> assert false))
   | "torch.ops.aten.div.Tensor" | "torch.ops.aten.div_.Tensor" ->
       Some
         (let* a = native_tensor_arg aten_env node "self" in
@@ -104,6 +125,37 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                    let+ y = div_scalar scalar a_id in
                    [ y ]
                | _ -> assert false))
+  (* Distinct rounding-mode overload from [div.Tensor] above -- restricted to
+     the corpus's own shape (a compile-time scalar [other], floor rounding):
+     no evidence for a tensor divisor or any other [rounding_mode], so both
+     are rejected rather than guessed at. *)
+  | "torch.ops.aten.div.Tensor_mode" ->
+      Some
+        (let* a = native_tensor_arg aten_env node "self" in
+         let* other = tensor_or_scalar aten_env node "other" in
+         let* rounding_mode = string_arg ~default:"" node "rounding_mode" in
+         let* scalar =
+           match (rounding_mode, other) with
+           | "floor", `Scalar scalar -> return scalar
+           | "floor", `Tensor _ ->
+               fail
+                 (`Validation_failure
+                    "div.Tensor_mode: only a compile-time scalar `other` is \
+                     supported (no corpus evidence for a tensor divisor)")
+           | mode, _ ->
+               fail
+                 (`Validation_failure
+                    (Printf.sprintf
+                       "div.Tensor_mode: rounding_mode=%S is not supported \
+                        (only \"floor\")"
+                       mode))
+         in
+         build_g ~name:"floor_div_scalar" [ a ] (function
+           | [ a_id ] ->
+               let open Graph_builder in
+               let+ y = floor_div_scalar scalar a_id in
+               [ y ]
+           | _ -> assert false))
   | "torch.ops.aten.gelu.default" ->
       Some
         (let* x = native_tensor_arg aten_env node "self" in
@@ -206,6 +258,31 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let+ y = mul_scalar scalar a_id in
                [ y ]
            | _ -> assert false))
+  (* [-x] legalizes to [x * -1]: exact IEEE negation, so this is bit-identical
+     to a genuine negate. No dedicated node, the same reasoning
+     [sub.Tensor]'s scalar form takes for [add_scalar]. *)
+  | "torch.ops.aten.neg.default" ->
+      Some
+        (let* x = native_tensor_arg aten_env node "self" in
+         build_g ~name:"neg" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = mul_scalar (-1.) x_id in
+               [ y ]
+           | _ -> assert false))
+  (* Reverse of [pow.Tensor_Scalar] below: the compile-time constant is the
+     BASE, the tensor is the exponent -- see [Pointwise.Rpow_scalar]. *)
+  | "torch.ops.aten.pow.Scalar" ->
+      Some
+        (let* s = decode_result (D.scalar_arg_result node "self") in
+         let* base = float_of_aten_scalar "self" s in
+         let* exponent = native_tensor_arg aten_env node "exponent" in
+         build_g ~name:"rpow_scalar" [ exponent ] (function
+           | [ exponent_id ] ->
+               let open Graph_builder in
+               let+ y = rpow_scalar base exponent_id in
+               [ y ]
+           | _ -> assert false))
   | "torch.ops.aten.pow.Tensor_Scalar" ->
       Some
         (let* a = native_tensor_arg aten_env node "self" in
@@ -278,6 +355,15 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
            | [ x_id ] ->
                let open Graph_builder in
                let+ y = silu x_id in
+               [ y ]
+           | _ -> assert false))
+  | "torch.ops.aten.sin.default" ->
+      Some
+        (let* x = native_tensor_arg aten_env node "self" in
+         build_g ~name:"sin" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = sin x_id in
                [ y ]
            | _ -> assert false))
   | "torch.ops.aten.sqrt.default" | "torch.ops.aten.sqrt_.default" -> (

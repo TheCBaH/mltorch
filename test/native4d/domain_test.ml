@@ -260,9 +260,16 @@ let%expect_test "domain: repeat_interleave gates its named axis" =
 
 (* ---- ops the pipeline is supposed to have removed ------------------------- *)
 
-(* Both reject, for different reasons and with different futures: the discarded
-   case becomes an ordinary [Max_pool2d] once stage 1 runs, while a live index
-   needs an argmax-pool operation the dialect does not have. *)
+(* Both outputs of both ops now have a real Native4D counterpart, so a live
+   index converts cleanly (`indices live`/`adaptive indices live`, no
+   [Discard] anywhere in either fixture). The `discarded` rows still reject
+   here, but for a reason that has nothing to do with pooling any more: they
+   route the (now-dead) index into a literal [Discard] sink, and [Discard]
+   itself has no Native4D counterpart regardless of which op feeds it -- the
+   same reason the `lstm state outputs` section below rejects its own
+   discarded row. This is a RAW, pre-canonicalization graph; see
+   "canonicalization is what makes a graph convertible" below for the
+   discarded rows once [Pipeline.canonical] removes that sink. *)
 let%expect_test "domain: max pool with indices" =
   table
     [
@@ -273,30 +280,23 @@ let%expect_test "domain: max pool with indices" =
     ];
   [%expect
     {|
-    indices discarded            node n0: no legalization for
-                                   max_pool2d_with_indices
-                                     x=t0
-                                     params={kernel={h=2; w=2};
-                                            stride={h=2; w=2};
-                                            pad={h=0; w=0};
-                                            ceil_mode=false}
-    indices live                 node n0: max-pool index output t2 is live; the dialect has no argmax-pool operation
-    adaptive indices discarded   node n0: no legalization for
-                                   adaptive_max_pool2d_with_indices
-                                     x=t0
-                                     params={output_size={h=2; w=2}}
-    adaptive indices live        node n0: max-pool index output t2 is live; the dialect has no argmax-pool operation |}]
+    indices discarded            node n1: no legalization for discard x=t2
+    indices live                 in the dialect
+    adaptive indices discarded   node n1: no legalization for discard x=t2
+    adaptive indices live        in the dialect |}]
 
 (* ---- the same graphs, after canonicalization ------------------------------ *)
 
-(* THE FLIP. The domain is a property of the CANONICAL graph, not of whatever the
-   importer emitted, and this is where that stops being a claim in a comment.
-   Discarded max-pool indices reject above and convert here, because
-   [Pipeline.canonical] removes the [Discard] sink and then narrows the op — the
-   two-pass sequence design §7.8 describes as one.
-
-   The live-index row does NOT flip, and must not: no pass can remove an edge
-   something reads, so it is outside the dialect however canonical the graph. *)
+(* THE FLIP, now narrower than it used to be: the domain is a property of the
+   CANONICAL graph, not of whatever the importer emitted, and this is where
+   that stops being a claim in a comment. Discarded max-pool indices reject
+   above and convert here, because [Pipeline.canonical] removes the literal
+   [Discard] sink `maxpool_indices_discarded` builds -- once it is gone,
+   [Domain.check_node] sees an ordinary two-output pool node, which has a
+   real Native4D counterpart. The live-index row needs no flip at all any
+   more: `domain: max pool with indices` above already shows it converting
+   BEFORE canonicalization too, since that fixture builds no [Discard] to
+   begin with -- canonicalization simply changes nothing for it. *)
 let canonical name g =
   let outcome =
     let open Err.Syntax in
@@ -325,9 +325,9 @@ let%expect_test "domain: canonicalization is what makes a graph convertible" =
   [%expect
     {|
     indices discarded            in the dialect
-    indices live                 node n0: max-pool index output t2 is live; the dialect has no argmax-pool operation
+    indices live                 in the dialect
     adaptive indices discarded   in the dialect
-    adaptive indices live        node n0: max-pool index output t2 is live; the dialect has no argmax-pool operation |}]
+    adaptive indices live        in the dialect |}]
 
 (* ---- lstm state outputs (project step 15), the contrast case to max-pool -- *)
 

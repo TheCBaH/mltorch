@@ -10,6 +10,105 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
     (Graph_ir.graph * (Graph_ir.Tensor_id.t * Tensor.packed) list, error) Err.t
     option =
   match node.target with
+  | "torch.ops.aten.col2im.default" ->
+      Some
+        (let op = "col2im.default" in
+         let* x = native_tensor_arg aten_env node "self" in
+         let* output_size = ints_arg node "output_size" in
+         let* kernel_size = ints_arg node "kernel_size" in
+         let* dilation = ints_arg node "dilation" in
+         let* padding = ints_arg node "padding" in
+         let* stride = ints_arg node "stride" in
+         let* out_h, out_w = hw2 "output_size" output_size in
+         let* kh, kw = hw2 "kernel_size" kernel_size in
+         let* dh, dw = hw2 "dilation" dilation in
+         let* ph, pw = hw2 "padding" padding in
+         let* sh, sw = hw2 "stride" stride in
+         let* out_h = extent ~op ~param:`Output_size out_h in
+         let* out_w = extent ~op ~param:`Output_size out_w in
+         let* kh = extent ~op ~param:`Kernel_size kh in
+         let* kw = extent ~op ~param:`Kernel_size kw in
+         let* dh = pos ~op ~param:`Dilation dh in
+         let* dw = pos ~op ~param:`Dilation dw in
+         let* ph = nonneg ~op ~param:`Padding ph in
+         let* pw = nonneg ~op ~param:`Padding pw in
+         let* sh = pos ~op ~param:`Stride sh in
+         let* sw = pos ~op ~param:`Stride sw in
+         let window =
+           Im2col.Params.
+             {
+               h =
+                 {
+                   Im2col.Window.kernel = kh;
+                   dilation = dh;
+                   pad = ph;
+                   stride = sh;
+                 };
+               w =
+                 {
+                   Im2col.Window.kernel = kw;
+                   dilation = dw;
+                   pad = pw;
+                   stride = sw;
+                 };
+             }
+         in
+         let params =
+           Im2col.Col2im.{ window; output_h = out_h; output_w = out_w }
+         in
+         build_g ~name:"col2im" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let* y' = col2im params x_id in
+               let+ y = permute perm_nhwc_to_nchw y' in
+               [ y ]
+           | _ -> assert false))
+  | "torch.ops.aten.im2col.default" ->
+      Some
+        (let op = "im2col.default" in
+         let* x = native_tensor_arg aten_env node "self" in
+         let* kernel_size = ints_arg node "kernel_size" in
+         let* dilation = ints_arg node "dilation" in
+         let* padding = ints_arg node "padding" in
+         let* stride = ints_arg node "stride" in
+         let* kh, kw = hw2 "kernel_size" kernel_size in
+         let* dh, dw = hw2 "dilation" dilation in
+         let* ph, pw = hw2 "padding" padding in
+         let* sh, sw = hw2 "stride" stride in
+         let* kh = extent ~op ~param:`Kernel_size kh in
+         let* kw = extent ~op ~param:`Kernel_size kw in
+         let* dh = pos ~op ~param:`Dilation dh in
+         let* dw = pos ~op ~param:`Dilation dw in
+         let* ph = nonneg ~op ~param:`Padding ph in
+         let* pw = nonneg ~op ~param:`Padding pw in
+         let* sh = pos ~op ~param:`Stride sh in
+         let* sw = pos ~op ~param:`Stride sw in
+         let params =
+           Im2col.Params.
+             {
+               h =
+                 {
+                   Im2col.Window.kernel = kh;
+                   dilation = dh;
+                   pad = ph;
+                   stride = sh;
+                 };
+               w =
+                 {
+                   Im2col.Window.kernel = kw;
+                   dilation = dw;
+                   pad = pw;
+                   stride = sw;
+                 };
+             }
+         in
+         build_g ~name:"im2col" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let* x' = permute perm_nchw_to_nhwc x_id in
+               let+ y = im2col params x' in
+               [ y ]
+           | _ -> assert false))
   | "torch.ops.aten.clone.default" ->
       Some
         (let* x = native_tensor_arg aten_env node "self" in
@@ -102,6 +201,38 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          in
          let* () = reject_absent "memory_format" in
          build_g ~name:"to_copy" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = to_copy target x_id in
+               [ y ]
+           | _ -> assert false))
+  (* `type_as(Tensor self, Tensor other) -> Tensor` (method): `self.to(
+     other.dtype)`, so this legalizes onto the SAME [Pointwise.To_copy] node
+     [_to_copy.default] above builds -- the target comes from [other]'s own
+     RUNTIME dtype rather than an explicit scalar argument (there is none),
+     restricted to the same three-way bool/float/long domain
+     [Pointwise.To_copy] already covers. The corpus's own occurrence is
+     float-to-float (an identity, matching [To_copy.Float]'s own compute),
+     but the translation is the fully general one regardless. *)
+  | "torch.ops.aten.type_as.default" ->
+      Some
+        (let* self_t = tensor_arg aten_env node "self" in
+         let* other_t = tensor_arg aten_env node "other" in
+         let* target =
+           match Aten_tensor.scalar_type other_t with
+           | Aten_scalar_type.Bool -> return Pointwise.To_copy.Bool
+           | Aten_scalar_type.Float -> return Pointwise.To_copy.Float
+           | Aten_scalar_type.Long -> return Pointwise.To_copy.Long
+           | dtype ->
+               fail
+                 (`Validation_failure
+                    (Printf.sprintf
+                       "type_as: other's dtype %s is not supported (only \
+                        Bool/Float/Long)"
+                       (Aten_scalar_type.to_string dtype)))
+         in
+         let* x = native_of_aten "self" self_t in
+         build_g ~name:"type_as" [ x ] (function
            | [ x_id ] ->
                let open Graph_builder in
                let+ y = to_copy target x_id in
@@ -325,6 +456,30 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                  let open Graph_builder in
                  let+ y = stack { Concat.Stack.axis } ids in
                  [ y ]))
+  (* [meshgrid.indexing(Tensor[] tensors, *, str indexing) -> Tensor[]],
+     restricted to the corpus's own shape -- see [Meshgrid.Meshgrid]'s own
+     comment: every input rank-1, [indexing="ij"] only ("xy" swaps the first
+     two OUTPUT axes for every output, a different rule with no corpus
+     evidence). Rank itself is [Graph_shape]'s own check
+     ([Meshgrid.Meshgrid.output_shapes]), not restated here. *)
+  | "torch.ops.aten.meshgrid.indexing" ->
+      Some
+        (let* aten_xs = tensors_arg aten_env node "tensors" in
+         let* indexing = string_arg ~default:"ij" node "indexing" in
+         let* () =
+           if String.equal indexing "ij" then return ()
+           else
+             fail
+               (`Validation_failure
+                  (Printf.sprintf
+                     "meshgrid.indexing: indexing=%S is not supported (only \
+                      \"ij\")"
+                     indexing))
+         in
+         let* xs = Err.List.map (native_of_aten "tensors") aten_xs in
+         build_g ~name:"meshgrid" xs (fun ids ->
+             let open Graph_builder in
+             meshgrid ids))
   (* One [Select] node: picks index [idx] along [axis] and drops it. Unlike
      [slice.Tensor], ATen REJECTS an out-of-range [index] rather than clamping
      it -- [Aten_shape.resolve_index], not [resolve_slice]. *)
@@ -559,6 +714,37 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
      is resolved to an explicit size here, at import time, using ATen's own
      `floor(input_size * scale_factor)` -- the Native op only ever sees a
      concrete size, since Native shapes are static. *)
+  (* Schema: `upsample_bicubic2d.vec(Tensor input, SymInt[]? output_size, bool
+     align_corners, float[]? scale_factors)` -- same shape as
+     [upsample_bilinear2d.vec] just below, including the output_size/
+     scale_factors resolution; only the Native op differs. *)
+  | "torch.ops.aten.upsample_bicubic2d.vec" ->
+      Some
+        (let* aten_x = tensor_arg aten_env node "input" in
+         let* () = require_rank "input" ~expected:4 aten_x in
+         let* output_size = ints_arg node "output_size" in
+         let* scale_factors = floats_arg node "scale_factors" in
+         let* align_corners = bool_arg node "align_corners" in
+         let w_shape = Aten_tensor.shape aten_x in
+         let in_h = w_shape.(2) and in_w = w_shape.(3) in
+         let* out_h, out_w =
+           resolve_upsample_size ~op:"upsample_bicubic2d.vec" ~in_h ~in_w
+             output_size scale_factors
+         in
+         let* h = pos ~op:node.Node.target ~param:`Output_size out_h in
+         let* w = pos ~op:node.Node.target ~param:`Output_size out_w in
+         let params =
+           { Resize.Bicubic2d.output_size = { h; w }; align_corners }
+         in
+         let* x = native_of_aten "input" aten_x in
+         build_g ~name:"upsample_bicubic2d_relayout" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let* x' = permute perm_nchw_to_nhwc x_id in
+               let* y' = upsample_bicubic2d params x' in
+               let+ y = permute perm_nhwc_to_nchw y' in
+               [ y ]
+           | _ -> assert false))
   | "torch.ops.aten.upsample_bilinear2d.vec" ->
       Some
         (let* aten_x = tensor_arg aten_env node "input" in
@@ -726,6 +912,33 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let+ y = repeat { Repeat.Repeat.repeats = target } x_id in
                [ y ]
            | _ -> assert false))
+  (* `tile(Tensor self, SymInt[] dims) -> Tensor`: legalizes onto the SAME
+     [Repeat.Repeat] node [repeat.default] above builds, the only difference
+     being [dims]'s own left-pad rule ([Aten_shape.resolve_tile_size]) --
+     genuinely no new op, since ATen itself defines [tile] as [repeat] after
+     that padding. *)
+  | "torch.ops.aten.tile.default" ->
+      Some
+        (let* t = tensor_arg aten_env node "self" in
+         let* dims = ints_arg node "dims" in
+         let* resolved =
+           Err.map_error
+             (fun e -> `Aten_shape e)
+             (Aten_shape.resolve_tile_size ~self_dims:(Aten_tensor.shape t)
+                ~dims)
+         in
+         let* target =
+           Err.map_error
+             (fun e -> `Aten_shape e)
+             (Aten_shape.of_aten (Array.of_list resolved))
+         in
+         let* x = native_of_aten "self" t in
+         build_g ~name:"tile" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = repeat { Repeat.Repeat.repeats = target } x_id in
+               [ y ]
+           | _ -> assert false))
   (* `repeat_interleave.self_int(Tensor self, SymInt repeats, int? dim=None,
      *, SymInt? output_size=None) -> Tensor`, restricted to an explicit
      [dim] -- the [dim=None] flatten-first form is a genuinely different
@@ -790,18 +1003,20 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                []
            | _ -> assert false))
   (* `index.Tensor(Tensor self, Tensor?[] indices) -> Tensor`, restricted to
-     the one evidenced shape family (`.ai/index_tensor_design.md`): [indices]
-     has exactly one live (non-None) entry, of ATen rank 1, at every other
-     position [None]. Unlike [Native_interp] (metadata-only import, below),
-     this bridge is reached with [indices]' live entry ALREADY RESOLVED to a
-     real ATen tensor VALUE by [aten_env] -- whatever node produced it,
-     `clone.default` included, since ATen's own [clone] preserves both value
-     and dtype exactly. So there is no "trace past Clone" step to take here:
-     [Op_bridge.dispatch] sees only this one node (no surrounding graph to
-     trace through, unlike [Native_interp]'s importer, which retains the
-     whole node list), and reading the live entry's real, already-correct
-     value via [native_of_aten] is enough on its own -- the round-6 problem
-     that trace-back exists to solve is specifically about [Native_interp]'s
+     the evidenced shape family (`.ai/index_tensor_design.md`): [indices] has
+     at most [self]'s ATen rank many entries (real ATen implicitly full-slices
+     any missing trailing dims), exactly one live (non-None) entry, of ATen
+     rank at least 1, at every other listed position [None]. Unlike
+     [Native_interp] (metadata-only import, below), this bridge is reached
+     with [indices]' live entry ALREADY RESOLVED to a real ATen tensor VALUE
+     by [aten_env] -- whatever node produced it, `clone.default` included,
+     since ATen's own [clone] preserves both value and dtype exactly. So
+     there is no "trace past Clone" step to take here: [Op_bridge.dispatch]
+     sees only this one node (no surrounding graph to trace through, unlike
+     [Native_interp]'s importer, which retains the whole node list), and
+     reading the live entry's real, already-correct value via
+     [native_of_aten] is enough on its own -- the round-6 problem that
+     trace-back exists to solve is specifically about [Native_interp]'s
      metadata-only import stamping a wrong dtype on a *newly built* [Clone]
      node's OWN output signature, which never happens here. *)
   | "torch.ops.aten.index.Tensor" ->
@@ -815,7 +1030,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          let index_list_fail (fault : Op_bridge_error.Index_list.fault) =
            fail (`Index_list { Op_bridge_error.Index_list.fault })
          in
-         if got <> rank then
+         if got > rank then
            index_list_fail
              (Op_bridge_error.Index_list.Length_mismatch
                 { expected = rank; got })
@@ -840,7 +1055,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                       { position = p; dtype })
                else
                  let index_rank = aten_rank index_t in
-                 if index_rank <> 1 then
+                 if index_rank < 1 then
                    index_list_fail
                      (Op_bridge_error.Index_list.Wrong_rank
                         { position = p; rank = index_rank })
@@ -853,7 +1068,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                          let open Graph_builder in
                          let+ y =
                            index_tensor
-                             { Index_tensor.Index_tensor.axis }
+                             { Index_tensor.Index_tensor.axis; index_rank }
                              ~self:self_id ~index:index_id
                          in
                          [ y ]

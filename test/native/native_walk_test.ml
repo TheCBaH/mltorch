@@ -646,52 +646,64 @@ let%expect_test "native walk coverage" =
     step 5 [axis]: {shape=[n=1 c=4 h=4 w=4] axis=N}
     [native] unbind: direct==symbolic
     step 0: {shape=[1,4,8,8] output_size=[4,4] align_corners=true}
-    [native] upsample_bilinear2d: direct==symbolic
+    [native] upsample_bicubic2d: direct==symbolic
     step 1 [align_corners]: {shape=[1,4,8,8] output_size=[4,4] align_corners=false}
-    [native] upsample_bilinear2d: direct==symbolic
+    [native] upsample_bicubic2d: direct==symbolic
     step 2 [input_w]: {shape=[1,4,8,10] output_size=[4,4] align_corners=false}
-    [native] upsample_bilinear2d: direct==symbolic
+    [native] upsample_bicubic2d: direct==symbolic
     step 3 [out_w]: {shape=[1,4,8,10] output_size=[4,6] align_corners=false}
-    [native] upsample_bilinear2d: direct==symbolic
+    [native] upsample_bicubic2d: direct==symbolic
     step 4 [n]: {shape=[1,4,8,10] output_size=[4,6] align_corners=false}
-    [native] upsample_bilinear2d: direct==symbolic
+    [native] upsample_bicubic2d: direct==symbolic
     step 5 [input_w]: {shape=[1,4,8,3] output_size=[4,6] align_corners=false}
+    [native] upsample_bicubic2d: direct==symbolic
+    step 0: {shape=[1,4,8,8] output_size=[4,4] align_corners=true}
+    [native] upsample_bilinear2d: direct==symbolic
+    step 1 [input_w]: {shape=[1,4,8,1] output_size=[4,4] align_corners=true}
+    [native] upsample_bilinear2d: direct==symbolic
+    step 2 [c]: {shape=[1,6,8,1] output_size=[4,4] align_corners=true}
+    [native] upsample_bilinear2d: direct==symbolic
+    step 3 [n]: {shape=[1,6,8,1] output_size=[4,4] align_corners=true}
+    [native] upsample_bilinear2d: direct==symbolic
+    step 4 [input_w]: {shape=[1,6,8,6] output_size=[4,4] align_corners=true}
+    [native] upsample_bilinear2d: direct==symbolic
+    step 5 [out_h]: {shape=[1,6,8,6] output_size=[6,4] align_corners=true}
     [native] upsample_bilinear2d: direct==symbolic
     step 0: {shape=[1,4,8,8] output_size=[4,4]}
     [native] upsample_nearest2d: direct==symbolic
-    step 1 [input_w]: {shape=[1,4,8,1] output_size=[4,4]}
+    step 1 [n]: {shape=[2,4,8,8] output_size=[4,4]}
     [native] upsample_nearest2d: direct==symbolic
-    step 2 [input_w]: {shape=[1,4,8,2] output_size=[4,4]}
+    step 2 [n]: {shape=[1,4,8,8] output_size=[4,4]}
     [native] upsample_nearest2d: direct==symbolic
-    step 3 [n]: {shape=[2,4,8,2] output_size=[4,4]}
+    step 3 [input_h]: {shape=[1,4,6,8] output_size=[4,4]}
     [native] upsample_nearest2d: direct==symbolic
-    step 4 [out_w]: {shape=[2,4,8,2] output_size=[4,1]}
+    step 4 [n]: {shape=[1,4,6,8] output_size=[4,4]}
     [native] upsample_nearest2d: direct==symbolic
-    step 5 [out_w]: {shape=[2,4,8,2] output_size=[4,7]}
+    step 5 [n]: {shape=[2,4,6,8] output_size=[4,4]}
     [native] upsample_nearest2d: direct==symbolic
     step 0: {shape=[n=2 c=4 h=4 w=4] dims=[H,W] keepdim=false}
     [native] vector_norm: direct==symbolic
-    step 1 [keepdim]: {shape=[n=2 c=4 h=4 w=4] dims=[H,W] keepdim=true}
+    step 1 [input]: {shape=[n=2 c=4 h=4 w=4] dims=[H,W] keepdim=false}
     [native] vector_norm: direct==symbolic
-    step 2 [input]: {shape=[n=2 c=4 h=10 w=4] dims=[H,W] keepdim=true}
+    step 2 [keepdim]: {shape=[n=2 c=4 h=4 w=4] dims=[H,W] keepdim=false}
     [native] vector_norm: direct==symbolic
-    step 3 [keepdim]: {shape=[n=2 c=4 h=10 w=4] dims=[H,W] keepdim=true}
+    step 3 [dims]: {shape=[n=2 c=4 h=4 w=4] dims=[H,W,C] keepdim=false}
     [native] vector_norm: direct==symbolic
-    step 4 [keepdim]: {shape=[n=2 c=4 h=10 w=4] dims=[H,W] keepdim=false}
+    step 4 [input]: {shape=[n=2 c=13 h=4 w=4] dims=[H,W,C] keepdim=false}
     [native] vector_norm: direct==symbolic
-    step 5 [keepdim]: {shape=[n=2 c=4 h=10 w=4] dims=[H,W] keepdim=true}
+    step 5 [input]: {shape=[n=2 c=31 h=4 w=4] dims=[H,W,C] keepdim=false}
     [native] vector_norm: direct==symbolic
     step 0: {shape=[n=2 c=4 h=3 w=2] eps=1e-05 weight=true bias=true}
     [native] batch_norm_no_stats: direct==symbolic
-    step 1 [weight]: {shape=[n=2 c=4 h=3 w=2] eps=1e-05 weight=false bias=true}
+    step 1 [bias]: {shape=[n=2 c=4 h=3 w=2] eps=1e-05 weight=true bias=true}
     [native] batch_norm_no_stats: direct==symbolic
-    step 2 [weight]: {shape=[n=2 c=4 h=3 w=2] eps=1e-05 weight=true bias=true}
+    step 2 [input]: {shape=[n=2 c=4 h=14 w=2] eps=1e-05 weight=true bias=true}
     [native] batch_norm_no_stats: direct==symbolic
-    step 3 [bias]: {shape=[n=2 c=4 h=3 w=2] eps=1e-05 weight=true bias=false}
+    step 3 [bias]: {shape=[n=2 c=4 h=14 w=2] eps=1e-05 weight=true bias=false}
     [native] batch_norm_no_stats: direct==symbolic
-    step 4 [input]: {shape=[n=2 c=25 h=3 w=2] eps=1e-05 weight=true bias=false}
+    step 4 [bias]: {shape=[n=2 c=4 h=14 w=2] eps=1e-05 weight=true bias=true}
     [native] batch_norm_no_stats: direct==symbolic
-    step 5 [weight]: {shape=[n=2 c=25 h=3 w=2] eps=1e-05 weight=true bias=false}
+    step 5 [weight]: {shape=[n=2 c=4 h=14 w=2] eps=1e-05 weight=true bias=true}
     [native] batch_norm_no_stats: direct==symbolic |}]
 
 (* The coverage sweep above only runs lstm for 5 steps on its position's index

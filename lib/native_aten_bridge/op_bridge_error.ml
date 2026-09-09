@@ -32,6 +32,14 @@ module Dims_count = struct
   type t = { op : string; rank : int; got : int }
 end
 
+(* `einsum.default`, restricted to [Aten_shape.Einsum]'s two evidenced
+   equation strings, each paired with exactly two operands of ATen rank 5
+   and 3 respectively (`.ai/einsum_design.md`). Any other equation, operand
+   count, or rank pairing is rejected by name rather than guessed at. *)
+module Einsum_unsupported = struct
+  type t = { equation : string; ranks : int list }
+end
+
 (* [cat.default]/[stack.default]: ATen requires every tensor in the list to
    share one rank (there is no broadcasting between list entries), checked
    here rather than left to [Concat]'s own shape rule -- that rule compares
@@ -103,12 +111,16 @@ end
    [Native_interp] (op8-impl.md commit 3) for [Op_config.Bad]'s reason: the
    two importers must reject the same values. *)
 
-(* `index.Tensor`'s locked list-acceptance rule (`.ai/index_tensor_design.md`
-   round 3): [indices] is accepted iff its length equals [self]'s ATen rank,
-   exactly one entry is a Long-dtype tensor of ATen rank exactly 1, and every
-   other entry is an explicit [None]. Every fault names what was actually
-   found, not just that the rule failed -- round 9's own required proof that
-   the rank-1 restriction is a real, provable typed rejection. *)
+(* `index.Tensor`'s list-acceptance rule (`.ai/index_tensor_design.md` rounds
+   3 and, for the [index_rank] generalization, the multi-entry-gather
+   landing): [indices] is accepted iff its length is AT MOST [self]'s ATen
+   rank (real ATen implicitly treats any missing trailing entries as [None]
+   -- a list shorter than [self]'s rank is not itself a fault, just a
+   gather confined to a leading prefix of [self]'s dims), exactly one entry
+   is a Long-dtype tensor of ATen rank at least 1, and every other entry is
+   an explicit [None]. Every fault names what was actually found, not just
+   that the rule failed -- round 9's own required proof that the rank
+   restriction is a real, provable typed rejection. *)
 module Index_list = struct
   type fault =
     | Length_mismatch of { expected : int; got : int }
@@ -136,6 +148,7 @@ type error =
   | `Convolution_invalid_weight_rank of int array
   | `Decode of Interp_decode.error
   | `Dims_count of Dims_count.t
+  | `Einsum_unsupported of Einsum_unsupported.t
   | `Index_list of Index_list.t
   | `Invalid_dim of Invalid_dim.t
   | `Invalid_dhw_arg of invalid_hw_arg
@@ -197,12 +210,18 @@ let pp_error ppf : [< error ] -> unit = function
   | `Decode e -> Interp_decode.pp_error ppf e
   | `Dims_count { Dims_count.op; rank; got } ->
       Fmt.pf ppf "%s: expected %d dims, got %d" op rank got
+  | `Einsum_unsupported { Einsum_unsupported.equation; ranks } ->
+      Fmt.pf ppf
+        "einsum.default: unsupported equation %S with operand ranks %a (only \
+         \"byhwc,hkc->byhwk\"/\"byhwc,wkc->byhwk\", each with a rank-5 self \
+         and rank-3 other, are recognized)"
+        equation pp_int_list ranks
   | `Index_list { Index_list.fault } -> (
       match fault with
       | Index_list.Length_mismatch { expected; got } ->
           Fmt.pf ppf
-            "index.Tensor: indices has %d entries, expected %d (self's rank)"
-            got expected
+            "index.Tensor: indices has %d entries, more than self's rank %d" got
+            expected
       | Index_list.Multiple_live_entries positions ->
           Fmt.pf ppf
             "index.Tensor: indices has more than one live entry, at positions \
@@ -214,7 +233,8 @@ let pp_error ppf : [< error ] -> unit = function
           Fmt.pf ppf "index.Tensor: indices[%d] must be Long, got %s" position
             (Aten_scalar_type.to_string dtype)
       | Index_list.Wrong_rank { position; rank } ->
-          Fmt.pf ppf "index.Tensor: indices[%d] must be rank 1, got rank %d"
+          Fmt.pf ppf
+            "index.Tensor: indices[%d] must be at least rank 1, got rank %d"
             position rank)
   | `Invalid_dim { Invalid_dim.op; dim; rank } ->
       Fmt.pf ppf "%s: invalid dimension %d for rank %d" op dim rank

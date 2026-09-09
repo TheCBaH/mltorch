@@ -302,13 +302,13 @@ let%expect_test "bridge coverage" =
     [spec] torch.ops.aten.lstm.input: matched
     step 3 [batch]: {batch=3 seq=1 input=5 hidden=6 layers=1 bidirectional=false has_biases=true batch_first=false dropout=0}
     [spec] torch.ops.aten.lstm.input: matched
-    step 0: {self=[1,1,3,4] other=[1,1,4,5]}
+    step 0: {self=[1,1,3,4] other=[1,1,4,5] d_bc=neither h_bc=neither}
     [spec] torch.ops.aten.matmul.default: matched
-    step 1 [h]: {self=[1,2,3,4] other=[1,2,4,5]}
+    step 1 [d_bc]: {self=[1,1,3,4] other=[1,1,4,5] d_bc=self h_bc=neither}
     [spec] torch.ops.aten.matmul.default: matched
-    step 2 [d]: {self=[2,2,3,4] other=[2,2,4,5]}
+    step 2 [other_rank]: {self=[1,1,3,4] other=[4,5] d_bc=self h_bc=neither}
     [spec] torch.ops.aten.matmul.default: matched
-    step 3 [d]: {self=[2,2,3,4] other=[2,2,4,5]}
+    step 3 [h_bc]: {self=[1,1,3,4] other=[4,5] d_bc=self h_bc=self}
     [spec] torch.ops.aten.matmul.default: matched
     step 0: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8 ceil_mode=false}
     [spec] torch.ops.aten.max_pool2d.default: matched
@@ -414,13 +414,13 @@ let%expect_test "bridge coverage" =
     [spec] torch.ops.aten.rsqrt.default: matched
     step 3 [shape]: {shape=[8,3,4,4]}
     [spec] torch.ops.aten.rsqrt.default: matched
-    step 0: {batch=1 heads=2 sq=3 sk=4 e=5 mask=none scale=default}
+    step 0: {batch=1 heads=2 sq=3 sk=4 e=5 batch_bc=real heads_bc=real mask=none scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
-    step 1 [batch]: {batch=2 heads=2 sq=3 sk=4 e=5 mask=none scale=default}
+    step 1 [heads]: {batch=1 heads=3 sq=3 sk=4 e=5 batch_bc=real heads_bc=real mask=none scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
-    step 2 [sk]: {batch=2 heads=2 sq=3 sk=4 e=5 mask=none scale=default}
+    step 2 [e]: {batch=1 heads=3 sq=3 sk=4 e=3 batch_bc=real heads_bc=real mask=none scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
-    step 3 [e]: {batch=2 heads=2 sq=3 sk=4 e=3 mask=none scale=default}
+    step 3 [heads]: {batch=1 heads=3 sq=3 sk=4 e=3 batch_bc=real heads_bc=real mask=none scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
     step 0: {shape=[2,3,4,4]}
     [spec] torch.ops.aten.sigmoid.default: matched

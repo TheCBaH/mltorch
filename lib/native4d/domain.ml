@@ -176,19 +176,6 @@ let check_batch_norm view node (bn : Norm.BatchNorm.t) =
     :: List.filter_map Fun.id
          [ bn.Norm.BatchNorm.weight; bn.Norm.BatchNorm.bias ])
 
-(* "Live" is not "used": a [Discard] sink exists precisely to record that an
-   edge is dead while keeping the op's full ATen arity, so an index output
-   consumed only by [Discard] is dead. That case is still rejected here — the
-   dialect has no [Max_pool2d_with_indices] at all — but as an unsupported op,
-   because stage 1's [Drop_pool_indices] removes it, whereas a genuinely live
-   index needs an argmax-pool operation the dialect does not have and will not
-   grow in this milestone. *)
-let index_is_live view id =
-  Graph_view.is_graph_output view id
-  || List.exists
-       (fun (n : node) -> match n.Node.op with Discard _ -> false | _ -> true)
-       (Graph_view.uses view id)
-
 (* Exhaustive, with NO default arm, following [Output_transfer.classify]: a
    defaulting match would silently admit the next Native op into a dialect that
    cannot represent it. Adding a Native op means deciding its answer here. *)
@@ -197,14 +184,21 @@ let check_node view (n : node) =
   let unsupported () = Err.fail (`Unsupported_op (node, n.Node.op)) in
   match n.Node.op with
   (* Direct counterparts, or legalizations that constrain nothing here: their
-     tensors are covered by the shape rule above. *)
+     tensors are covered by the shape rule above. [Adaptive_max_pool2d_with_indices]/
+     [Max_pool2d_with_indices] join this bucket now that a real Native4D
+     counterpart exists for BOTH outputs (§ live max-pool indices) -- neither
+     needs an axis check, since their `kernel`/`stride`/`pad`/`output_size`
+     params name no axis, the same reason [Max_pool2d]/[Adaptive_max_pool2d]
+     need none. *)
   | Add _ | Add_scalar _ | Adaptive_avg_pool2d _ | Adaptive_max_pool2d _
-  | Avg_pool2d _ | Bmm _ | Clamp _ | Clone _ | Conv1d _ | Conv2d _
-  | Conv2d_padding _ | Div _ | Div_scalar _ | Expand _ | Gelu _ | Hardsigmoid _
-  | Hardswish _ | Hardtanh _ | Leaky_relu _ | Linear _ | Lstm _ | Max_pool2d _
-  | Mul _ | Mul_scalar _ | Pow _ | Relu _ | Repeat _ | Reshape _ | Rsub_scalar _
-  | Sigmoid _ | Silu _ | Sqrt _ | Sub _ | To_copy _ | Upsample_bilinear2d _
-  | Upsample_nearest2d _ ->
+  | Adaptive_max_pool2d_with_indices _ | Avg_pool2d _ | Bitwise_not _ | Bmm _
+  | Clamp _ | Clone _ | Col2im _ | Conv1d _ | Conv2d _ | Conv2d_padding _
+  | Cos _ | Div _ | Div_scalar _ | Expand _ | Floor_div_scalar _ | Gelu _
+  | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Im2col _ | Leaky_relu _
+  | Linear _ | Lstm _ | Max_pool2d _ | Max_pool2d_with_indices _ | Mul _
+  | Mul_scalar _ | Pow _ | Relu _ | Repeat _ | Reshape _ | Rpow_scalar _
+  | Rsub_scalar _ | Sigmoid _ | Silu _ | Sin _ | Sqrt _ | Sub _ | To_copy _
+  | Upsample_bicubic2d _ | Upsample_bilinear2d _ | Upsample_nearest2d _ ->
       Err.return ()
   | Arange _ | Eye _ | Zeros _ -> Err.return ()
   | Batch_norm bn -> check_batch_norm view node bn
@@ -257,19 +251,11 @@ let check_node view (n : node) =
      arm here. A Region-authored graph at D = 1 needs no per-head
      decomposition: it delegates to the same [Region_program] Native uses. *)
   | Sdpa { Attention.Sdpa.query; _ } -> check_sdpa view node ~query
-  (* Three ops the dialect does not have (the adaptive pair joining
-     [Max_pool2d_with_indices] for the same reason -- see [Adaptive_max_pool2d]
-     just above, which IS a direct counterpart precisely because
-     [Drop_pool_indices] narrows the dead-index case to it before this ever
-     runs). Both are removed by the canonical pipeline rather than legalized,
-     so reaching them means the pipeline did not run — except for a live
-     index, which nothing can remove. *)
-  | Max_pool2d_with_indices _ | Adaptive_max_pool2d_with_indices _ -> (
-      match n.Node.outputs with
-      | [ _; indices ] when index_is_live view indices ->
-          Err.fail (`Live_max_pool_indices (node, indices))
-      | _ -> unsupported ())
   | Discard _ -> unsupported ()
+  (* No corpus model reaches Native4D with a [Meshgrid] node -- its own model
+     stops earlier at Native import (neg.default/type_as.default) -- so a
+     counterpart would be speculative; rejected on purpose. *)
+  | Meshgrid _ -> unsupported ()
   (* [Concat4] now exists, so [Concat] gets the same [check_dims]-style axis
      rejection [Select]/[Slice]/[Stack]/[Unbind] get: the JOINED axis is the
      one the dialect must be able to name, and the rest of the domain -- every

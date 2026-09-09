@@ -30,18 +30,23 @@ type op =
   | Add_scalar of Pointwise.Add_scalar.t
   | Adaptive_avg_pool2d of Pool.AdaptiveAvgPool2d.t
   | Adaptive_max_pool2d of Pool.AdaptiveMaxPool2d.t
+  | Adaptive_max_pool2d_with_indices of Pool.AdaptiveMaxPool2dWithIndices.t
   | Avg_pool2d of Pool.AvgPool2d.t
   | Batch_norm_no_stats of Ops4.Batch_norm_no_stats.t
   | Batched_matmul of Matmul.Batched_matmul.t
+  | Bitwise_not of Pointwise.Bitwise_not.t
   | Clamp of Pointwise.Clamp.t
+  | Col2im of Im2col.Col2im.t
   | Concat4 of Ops4.Concat4.t
   | Conv2d of Ops4.Conv2d.t
+  | Cos of Pointwise.Cos.t
   | Cumsum4 of Ops4_cumsum.Cumsum4.t
   | Depthwise_conv2d of Ops4.Depthwise_conv2d.t
   | Div of Pointwise.Div.t
   | Div_scalar of Pointwise.Div_scalar.t
   | Expand4 of Ops4.Expand4.t
   | Eye4 of Ops4.Eye4.t
+  | Floor_div_scalar of Pointwise.Floor_div_scalar.t
   | Gelu of Pointwise.Gelu.t
   | Group_norm4 of Ops4.Group_norm4.t
   | Grouped_conv2d of Ops4.Grouped_conv2d.t
@@ -49,11 +54,13 @@ type op =
   | Hardswish of Pointwise.Hardswish.t
   | Hardtanh of Pointwise.Hardtanh.t
   | IndexTensor4 of Ops4.IndexTensor4.t
+  | Im2col of Im2col.Im2col.t
   | Layer_norm of Ops4.Layer_norm.t
   | Leaky_relu of Pointwise.Leaky_relu.t
   | Lstm of Lstm.Lstm.t
   | Max_keepdims of Ops4.Max_keepdims.t
   | Max_pool2d of Pool.MaxPool2d.t
+  | Max_pool2d_with_indices of Pool.MaxPool2dWithIndices.t
   | Mean_keepdims of Ops4.Mean_keepdims.t
   | Mul of Pointwise.Mul.t
   | Mul_scalar of Pointwise.Mul_scalar.t
@@ -65,12 +72,14 @@ type op =
   | RepeatInterleave4 of Ops4.RepeatInterleave4.t
   | Reshape4 of Ops4.Reshape4.t
   | Rms_norm of Ops4.Rms_norm.t
+  | Rpow_scalar of Pointwise.Rpow_scalar.t
   | Rsub_scalar of Pointwise.Rsub_scalar.t
   | Sdpa of Attention.Sdpa.t
   | Select4 of Ops4.Select4.t
   | Select_scatter4 of Ops4.Select_scatter4.t
   | Sigmoid of Pointwise.Sigmoid.t
   | Silu of Pointwise.Silu.t
+  | Sin of Pointwise.Sin.t
   | Slice4 of Ops4.Slice4.t
   | Softmax4 of Ops4.Softmax4.t
   | Split_with_sizes4 of Ops4.Split_with_sizes4.t
@@ -81,6 +90,7 @@ type op =
   | To_copy of Pointwise.To_copy.t
   | Transposed_conv2d of Ops4.Transposed_conv2d.t
   | Unbind of Ops4.Unbind.t
+  | Upsample_bicubic2d of Resize.Bicubic2d.t
   | Upsample_bilinear2d of Resize.Bilinear2d.t
   | Upsample_nearest2d of Resize.Nearest2d.t
   | Vector_norm_keepdims of Ops4.Vector_norm_keepdims.t
@@ -134,6 +144,15 @@ let op_registry : (module OP) list =
       let project = function Adaptive_max_pool2d t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Pool.AdaptiveMaxPool2dWithIndices
+
+      let inject t = Adaptive_max_pool2d_with_indices t
+
+      let project = function
+        | Adaptive_max_pool2d_with_indices t -> Some t
+        | _ -> None
+    end : OP);
+    (module struct
       include Pool.AvgPool2d
 
       let inject t = Avg_pool2d t
@@ -152,10 +171,22 @@ let op_registry : (module OP) list =
       let project = function Batched_matmul t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Pointwise.Bitwise_not
+
+      let inject t = Bitwise_not t
+      let project = function Bitwise_not t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Pointwise.Clamp
 
       let inject t = Clamp t
       let project = function Clamp t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Im2col.Col2im
+
+      let inject t = Col2im t
+      let project = function Col2im t -> Some t | _ -> None
     end : OP);
     (module struct
       include Ops4.Concat4
@@ -168,6 +199,12 @@ let op_registry : (module OP) list =
 
       let inject t = Conv2d t
       let project = function Conv2d t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Cos
+
+      let inject t = Cos t
+      let project = function Cos t -> Some t | _ -> None
     end : OP);
     (module struct
       include Ops4_cumsum.Cumsum4
@@ -204,6 +241,12 @@ let op_registry : (module OP) list =
 
       let inject t = Eye4 t
       let project = function Eye4 t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Floor_div_scalar
+
+      let inject t = Floor_div_scalar t
+      let project = function Floor_div_scalar t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pointwise.Gelu
@@ -248,6 +291,12 @@ let op_registry : (module OP) list =
       let project = function IndexTensor4 t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Im2col.Im2col
+
+      let inject t = Im2col t
+      let project = function Im2col t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Ops4.Layer_norm
 
       let inject t = Layer_norm t
@@ -276,6 +325,12 @@ let op_registry : (module OP) list =
 
       let inject t = Max_pool2d t
       let project = function Max_pool2d t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pool.MaxPool2dWithIndices
+
+      let inject t = Max_pool2d_with_indices t
+      let project = function Max_pool2d_with_indices t -> Some t | _ -> None
     end : OP);
     (module struct
       include Ops4.Mean_keepdims
@@ -344,6 +399,12 @@ let op_registry : (module OP) list =
       let project = function Rms_norm t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Pointwise.Rpow_scalar
+
+      let inject t = Rpow_scalar t
+      let project = function Rpow_scalar t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Pointwise.Rsub_scalar
 
       let inject t = Rsub_scalar t
@@ -378,6 +439,12 @@ let op_registry : (module OP) list =
 
       let inject t = Silu t
       let project = function Silu t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Sin
+
+      let inject t = Sin t
+      let project = function Sin t -> Some t | _ -> None
     end : OP);
     (module struct
       include Ops4.Slice4
@@ -438,6 +505,12 @@ let op_registry : (module OP) list =
 
       let inject t = Unbind t
       let project = function Unbind t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Resize.Bicubic2d
+
+      let inject t = Upsample_bicubic2d t
+      let project = function Upsample_bicubic2d t -> Some t | _ -> None
     end : OP);
     (module struct
       include Resize.Bilinear2d

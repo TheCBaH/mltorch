@@ -141,7 +141,31 @@ let%expect_test
   [%expect
     {|
     query rank 3:
-      malformed PT2 graph: x is rank 3, expected 4
+      malformed PT2 graph: sdpa: sdpa query has rank 3, expected 4 or 5
     mask rank 3 [1,Wq,Wk]:
       malformed PT2 graph: sdpa: sdpa attn_mask has rank 3, expected 2 or 4
+    |}]
+
+(* Rank 5 (Hiera-style windowed attention, [B, heads, windows, seq, E]) is
+   ACCEPTED, on this importer's own declared-metadata rank check -- the
+   serialized twin of the ATen-live-tensor acceptance
+   test/native_bridge_test.ml's own "verify: sdpa accepts rank 5" proves
+   against real ATen. No relayout: it right-aligns onto [T,D,H,W,C] the same
+   mechanical way rank 4 lands on [D,H,W,C]. *)
+let%expect_test "sdpa: rank 5 (windowed batch axis) is accepted" =
+  dump "rank 5:"
+    (prog ~q_sizes:[ 1; 1; 2; 1; 2 ] ~k_sizes:[ 1; 1; 2; 2; 2 ]
+       ~v_sizes:[ 1; 1; 2; 2; 2 ] (sdpa_node ()));
+  [%expect
+    {|
+    rank 5:
+    graph
+    inputs:
+      [t0 f32 [H=2 W=1 C=2] ->[n0], t1 f32 [H=2 W=2 C=2] ->[n0] constant,
+       t2 f32 [H=2 W=2 C=2] ->[n0] constant]
+    nodes:
+      group g1 torch.ops.aten.scaled_dot_product_attention.default:
+        n0: [t3 f32 [H=2 W=1 C=2]] =
+          sdpa query=t0 key=t1 value=t2 mask=none params={scale=default}
+    outputs: [t3 f32 [H=2 W=1 C=2] <-n0]
     |}]

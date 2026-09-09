@@ -83,19 +83,28 @@ let bmm =
    [Aten_walk_recipes.Recipe_matmul] and .ai/matmul_softmax_design.md §4-5.
    [d]=[h]=1 exercises the batch-less family (binds to [Bmm]); [d]>1 or
    [h]>1 exercises the batched/multi-head family (binds to the new
-   [Batched_matmul]) -- both operands always share [d]/[h], so there is
-   nothing to "cascade" out of the config space; every combination is
-   admissible. *)
+   [Batched_matmul]) -- both through the SAME walk. [d_bc]/[h_bc] draw a
+   genuine broadcast configuration (one operand's own axis pinned to 1);
+   [self_rank]/[other_rank] draw a genuine unequal-rank one (one operand
+   missing a leading batch axis the other has) -- every combination is
+   admissible by construction (see the recipe's own comment), so there is
+   nothing to "cascade" out of the config space. *)
 let matmul =
   {
     module_name = "Matmul_walk";
     target = "torch.ops.aten.matmul.default";
     recipe = "Recipe_matmul";
     initial =
-      "Aten_walk_recipes.Recipe_matmul.{ d = 1; h = 1; n = 3; m = 4; p = 5 }";
+      "Aten_walk_recipes.Recipe_matmul.{ d = 1; h = 1; d_bc = \
+       Aten_walk_recipes.Recipe_matmul.Neither; h_bc = \
+       Aten_walk_recipes.Recipe_matmul.Neither; self_rank = 4; other_rank = 4; \
+       n = 3; m = 4; p = 5 }";
     axes =
-      "Aten_walk_recipes.Recipe_matmul.axes ~d:[ 1; 2; 3 ] ~h:[ 1; 2; 4 ] ~n:[ \
-       2; 3; 5 ] ~m:[ 2; 4; 6 ] ~p:[ 2; 5; 7 ]";
+      "Aten_walk_recipes.Recipe_matmul.axes ~d:[ 1; 2; 3 ] ~h:[ 1; 2; 4 ] \
+       ~d_bc:Aten_walk_recipes.Recipe_matmul.[ Neither; Self_one; Other_one ] \
+       ~h_bc:Aten_walk_recipes.Recipe_matmul.[ Neither; Self_one; Other_one ] \
+       ~self_rank:[ 2; 3; 4 ] ~other_rank:[ 2; 3; 4 ] ~n:[ 2; 3; 5 ] ~m:[ 2; \
+       4; 6 ] ~p:[ 2; 5; 7 ]";
     build =
       {|let self, pcg = Walk.tensor_spec pcg (Recipe_matmul.self_shape c) in
     let other, pcg = Walk.tensor_spec pcg (Recipe_matmul.other_shape c) in

@@ -212,6 +212,59 @@ let%expect_test "dispatch: upsample_bilinear2d.vec rejects neither size arg" =
     {|
     error: upsample_bilinear2d.vec: exactly one of output_size or scale_factors must be given |}]
 
+(* [align_corners=false], not [true]: cubic interpolation of an exactly
+   LINEAR 2x2 source reproduces the same values [upsample_bilinear2d.vec]'s
+   own [align_corners=true] test above gets, which would prove the importer
+   builds the right NODE but not that it is genuinely running the bicubic
+   kernel rather than something that happens to agree on a degenerate input.
+   [align_corners=false] on a 2x2 source gives real, non-bilinear values (see
+   [Bicubic_axis]'s own module doc on Catmull-Rom overshoot). *)
+let%expect_test
+    "dispatch: upsample_bicubic2d.vec explicit output_size, align_corners=false"
+    =
+  let x = float_tensor [ 1; 1; 2; 2 ] [ 1.; 2.; 3.; 4. ] in
+  dispatch_print_with_graph ~print_graph:true
+    ~target:"torch.ops.aten.upsample_bicubic2d.vec"
+    ~bindings:[ ("input", x) ]
+    ~inputs:
+      [
+        in_tensor "input";
+        in_ints "output_size" [ 3; 3 ];
+        in_bool "align_corners" false;
+        in_none "scale_factors";
+      ]
+    ~noutputs:1;
+  [%expect
+    {|
+    graph
+    inputs: [t0 f32 [W=2 C=2] ->[n0]]
+    nodes:
+      n0: [t1 f32 [H=2 W=2 C=1] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+      n1: [t2 f32 [H=3 W=3 C=1] ->[n2]] =
+        upsample_bicubic2d
+          x=t1 <-n0
+          params={output_size={h=3; w=3};
+          align_corners=false}
+      n2: [t3 f32 [W=3 C=3]] = permute x=t2 <-n1 perm=[H<-C, W<-H, C<-W]
+    outputs: [t3 f32 [W=3 C=3] <-n2]
+    tensor f32 [W=3 C=3] {0.739583, 1.32639, 1.91319, 1.91319, 2.5, 3.08681, 3.08681, 3.67361, ...} |}]
+
+let%expect_test "dispatch: upsample_bicubic2d.vec rejects neither size arg" =
+  let x = float_tensor [ 1; 1; 2; 2 ] [ 1.; 2.; 3.; 4. ] in
+  dispatch_print ~target:"torch.ops.aten.upsample_bicubic2d.vec"
+    ~bindings:[ ("input", x) ]
+    ~inputs:
+      [
+        in_tensor "input";
+        in_none "output_size";
+        in_bool "align_corners" true;
+        in_none "scale_factors";
+      ]
+    ~noutputs:1;
+  [%expect
+    {|
+    error: upsample_bicubic2d.vec: exactly one of output_size or scale_factors must be given |}]
+
 let%expect_test "dispatch: upsample_bilinear2d.vec rejects both size args" =
   let x = float_tensor [ 1; 1; 2; 2 ] [ 1.; 2.; 3.; 4. ] in
   dispatch_print ~target:"torch.ops.aten.upsample_bilinear2d.vec"

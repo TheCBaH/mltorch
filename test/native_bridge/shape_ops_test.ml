@@ -684,6 +684,54 @@ let%expect_test "dispatch: alias.default builds a single Clone node" =
    [max_pool2d_with_indices.default]'s dead indices edge uses, and that the
    built graph has zero outputs, matching the node's own empty serialized
    [outputs] list. *)
+(* ---- aten.im2col/default and aten.col2im.default: ATen as oracle -------- *)
+
+(* Both operators cross the bridge's NCHW/NHWC boundary: [im2col] relayouts
+   its image input into the kernel's channel-last frame, while [col2im]
+   relayouts its restored image back.  Using non-square dimensions and a
+   two-channel input makes a swapped spatial/channel axis visible. *)
+let im2col_dispatch ~sizes ~kernel_size ~dilation ~padding ~stride =
+  let n = List.fold_left ( * ) 1 sizes in
+  let x = float_tensor sizes (List.init n (fun i -> float_of_int (i + 1))) in
+  dispatch_print ~target:"torch.ops.aten.im2col.default"
+    ~bindings:[ ("self", x) ]
+    ~inputs:
+      [
+        in_tensor "self";
+        in_ints "kernel_size" kernel_size;
+        in_ints "dilation" dilation;
+        in_ints "padding" padding;
+        in_ints "stride" stride;
+      ]
+    ~noutputs:1
+
+let col2im_dispatch ~sizes ~output_size ~kernel_size ~dilation ~padding ~stride
+    =
+  let n = List.fold_left ( * ) 1 sizes in
+  let x = float_tensor sizes (List.init n (fun i -> float_of_int (i + 1))) in
+  dispatch_print ~target:"torch.ops.aten.col2im.default"
+    ~bindings:[ ("self", x) ]
+    ~inputs:
+      [
+        in_tensor "self";
+        in_ints "output_size" output_size;
+        in_ints "kernel_size" kernel_size;
+        in_ints "dilation" dilation;
+        in_ints "padding" padding;
+        in_ints "stride" stride;
+      ]
+    ~noutputs:1
+
+let%expect_test "dispatch: im2col/default and col2im/default" =
+  im2col_dispatch ~sizes:[ 1; 2; 3; 4 ] ~kernel_size:[ 2; 2 ] ~dilation:[ 1; 1 ]
+    ~padding:[ 0; 0 ] ~stride:[ 1; 1 ];
+  col2im_dispatch ~sizes:[ 1; 8; 6 ] ~output_size:[ 3; 4 ] ~kernel_size:[ 2; 2 ]
+    ~dilation:[ 1; 1 ] ~padding:[ 0; 0 ] ~stride:[ 1; 1 ];
+  [%expect
+    {|
+    tensor f32 [W=8 C=6] {1, 2, 3, 5, 6, 7, 2, 3, ...}
+    tensor f32 [H=2 W=3 C=4] {1, 9, 11, 9, 17, 48, 52, 33, ...} |}]
+
 (* ---- aten.unfold.default: ATen as the oracle ----------------------------- *)
 
 (* [dimension] is read against [self]'s OWN rank, same as [select.int]'s

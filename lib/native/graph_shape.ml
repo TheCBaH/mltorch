@@ -87,6 +87,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
         widen (Matmul.Batched_matmul.output_shape ~input_shape ~mat2_shape)
       in
       [ out ]
+  | Bitwise_not { Pointwise.Bitwise_not.x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Bitwise_not.output_shape x_shape) in
+      [ out ]
   | Bmm { Matmul.Bmm.input; mat2 } ->
       let* input_shape = shape input in
       let* mat2_shape = shape mat2 in
@@ -99,6 +103,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
   | Clone { Pointwise.Clone.x } ->
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Clone.output_shape x_shape) in
+      [ out ]
+  | Col2im { Im2col.Col2im.params; x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Im2col.Col2im.output_shape ~x_shape params) in
       [ out ]
   | Concat { Concat.Concat.params; xs } ->
       let* xs_shapes = Err.List.map shape xs in
@@ -159,6 +167,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
         widen (Conv.Convolution.output_shape ~x_shape ~weight_shape params)
       in
       [ out ]
+  | Cos { Pointwise.Cos.x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Cos.output_shape x_shape) in
+      [ out ]
   | Cumsum { Reduce.Cumsum.params; x } ->
       let* x_shape = shape x in
       let+ out = widen (Reduce.Cumsum.output_shape ~x_shape params) in
@@ -170,6 +182,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       [ out ]
   | Eye { Factory.Eye.params } ->
       let+ out = widen (Factory.Eye.output_shape params) in
+      [ out ]
+  | Floor_div_scalar { Pointwise.Scalar_bin.x; _ } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Floor_div_scalar.output_shape x_shape) in
       [ out ]
   | Gelu { Pointwise.Gelu.x; _ } ->
       let* x_shape = shape x in
@@ -215,6 +231,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
           (Index_tensor.Index_tensor.output_shape ~self_shape ~index_shape
              params)
       in
+      [ out ]
+  | Im2col { Im2col.Im2col.params; x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Im2col.Im2col.output_shape ~x_shape params) in
       [ out ]
   (* Both affine operands are optional, so both go through the op's own
      [check_affine] rather than [check_bias]: they share ONE expected layout
@@ -303,6 +323,9 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* x_shape = shape x in
       let+ out = widen (Reduce.Mean.output_shape ~x_shape params) in
       [ out ]
+  | Meshgrid { Meshgrid.Meshgrid.tensors } ->
+      let* shapes = Err.List.map shape tensors in
+      widen (Meshgrid.Meshgrid.output_shapes shapes)
   | Div { Pointwise.Bin.a; b } ->
       let* a_shape = shape a in
       let* b_shape = shape b in
@@ -362,6 +385,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       in
       let+ out = widen (Norm.RmsNorm.output_shape ~x_shape params) in
       [ out ]
+  | Rpow_scalar { Pointwise.Scalar_bin.x; _ } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Rpow_scalar.output_shape x_shape) in
+      [ out ]
   | Rsub_scalar { Pointwise.Rsub_scalar.x; _ } ->
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Rsub_scalar.output_shape x_shape) in
@@ -401,6 +428,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
   | Silu { Pointwise.Silu.x } ->
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Silu.output_shape x_shape) in
+      [ out ]
+  | Sin { Pointwise.Sin.x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Sin.output_shape x_shape) in
       [ out ]
   | Softmax { Reduce.Softmax.params; x } ->
       let* x_shape = shape x in
@@ -446,6 +477,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
   | Split_with_sizes { Split.Split_with_sizes.params; x } ->
       let* x_shape = shape x in
       widen (Split.Split_with_sizes.output_shapes ~x_shape params)
+  | Upsample_bicubic2d { Resize.Bicubic2d.params; x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Resize.Bicubic2d.output_shape ~x_shape params) in
+      [ out ]
   | Upsample_bilinear2d { Resize.Bilinear2d.params; x } ->
       let* x_shape = shape x in
       let+ out = widen (Resize.Bilinear2d.output_shape ~x_shape params) in

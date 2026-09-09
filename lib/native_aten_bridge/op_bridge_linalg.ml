@@ -108,6 +108,37 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                   Matmul_unsupported_shape.self_shape = shape_a;
                   other_shape = shape_b;
                 }))
+  (* `einsum.default`, restricted to [Aten_shape.Einsum]'s two evidenced
+     equations (`mvitv2_tiny`'s decomposed relative-position attention,
+     `.ai/einsum_design.md`): exactly two operands, ATen rank 5 then 3.
+     Legalizes onto [Graph_builder.einsum] -- a [Permute]/[Batched_matmul]
+     chain, no dedicated node. No ATen C binding exists for this op
+     ([Tensor[]] plus a string argument has no [lib/aten_gen] support, the
+     same gap `addcmul.default`/`group_norm.default`/`index.Tensor` hit), so
+     coverage is hand-derived (`test/native/graph_direct_einsum_test.ml`),
+     not [Interp_verify]-compared. *)
+  | "torch.ops.aten.einsum.default" ->
+      Some
+        (let* equation = string_arg ~default:"" node "equation" in
+         let* tensors = tensors_arg aten_env node "tensors" in
+         match (Aten_shape.Einsum.of_equation equation, tensors) with
+         | Some plan, [ self_t; other_t ]
+           when aten_rank self_t = 5 && aten_rank other_t = 3 ->
+             let* self_n = native_of_aten "self" self_t in
+             let* other_n = native_of_aten "other" other_t in
+             build_g ~name:"einsum" [ self_n; other_n ] (function
+               | [ self_id; other_id ] ->
+                   let open Graph_builder in
+                   let+ y = einsum plan self_id other_id in
+                   [ y ]
+               | _ -> assert false)
+         | _ ->
+             fail
+               (`Einsum_unsupported
+                  {
+                    Einsum_unsupported.equation;
+                    ranks = List.map aten_rank tensors;
+                  }))
   | "torch.ops.aten.linear.default" ->
       Some
         (let* aten_x = tensor_arg aten_env node "input" in

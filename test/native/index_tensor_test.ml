@@ -23,7 +23,8 @@ let index_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:2
 let index_tensor =
   Tensor.materialize_i64 index_shape (fun c -> if chan c = 0 then 2L else -3L)
 
-let params : Index_tensor.Index_tensor.params = { axis = Axis.W }
+let params : Index_tensor.Index_tensor.params =
+  { axis = Axis.W; index_rank = 1 }
 
 module C = Index_tensor.Index_tensor.Compute (Direct)
 

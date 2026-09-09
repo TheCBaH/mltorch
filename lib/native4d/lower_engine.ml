@@ -306,14 +306,23 @@ let lower_node ~view acc (n : node) =
       simple (Op.Add_scalar { Pointwise.Scalar_bin.x = op_of x; scalar })
   | Div_scalar { Pointwise.Scalar_bin.x; scalar } ->
       simple (Op.Div_scalar { Pointwise.Scalar_bin.x = op_of x; scalar })
+  | Floor_div_scalar { Pointwise.Scalar_bin.x; scalar } ->
+      simple (Op.Floor_div_scalar { Pointwise.Scalar_bin.x = op_of x; scalar })
   | Mul_scalar { Pointwise.Scalar_bin.x; scalar } ->
       simple (Op.Mul_scalar { Pointwise.Scalar_bin.x = op_of x; scalar })
   | Pow { Pointwise.Scalar_bin.x; scalar } ->
       simple (Op.Pow { Pointwise.Scalar_bin.x = op_of x; scalar })
+  | Rpow_scalar { Pointwise.Scalar_bin.x; scalar } ->
+      simple (Op.Rpow_scalar { Pointwise.Scalar_bin.x = op_of x; scalar })
   | Rsub_scalar { Pointwise.Rsub_scalar.params; x } ->
       simple (Op.Rsub_scalar { Pointwise.Rsub_scalar.params; x = op_of x })
+  | Bitwise_not { Pointwise.Bitwise_not.x } ->
+      simple (Op.Bitwise_not { Pointwise.Bitwise_not.x = op_of x })
   | Clamp { Pointwise.Clamp.params; x } ->
       simple (Op.Clamp { Pointwise.Clamp.params; x = op_of x })
+  | Col2im { Im2col.Col2im.params; x } ->
+      simple (Op.Col2im { Im2col.Col2im.params; x = op_of x })
+  | Cos { Pointwise.Cos.x } -> simple (Op.Cos { Pointwise.Cos.x = op_of x })
   | Gelu { Pointwise.Gelu.x; approximate } ->
       simple (Op.Gelu { Pointwise.Gelu.x = op_of x; approximate })
   | Hardsigmoid { Pointwise.Hardsigmoid.x } ->
@@ -322,6 +331,8 @@ let lower_node ~view acc (n : node) =
       simple (Op.Hardswish { Pointwise.Hardswish.x = op_of x })
   | Hardtanh { Pointwise.Hardtanh.params; x } ->
       simple (Op.Hardtanh { Pointwise.Hardtanh.params; x = op_of x })
+  | Im2col { Im2col.Im2col.params; x } ->
+      simple (Op.Im2col { Im2col.Im2col.params; x = op_of x })
   | Leaky_relu { Pointwise.Leaky_relu.params; x } ->
       simple (Op.Leaky_relu { Pointwise.Leaky_relu.params; x = op_of x })
   | Arange { Factory.Arange.params } ->
@@ -383,6 +394,7 @@ let lower_node ~view acc (n : node) =
   | Sigmoid { Pointwise.Sigmoid.x } ->
       simple (Op.Sigmoid { Pointwise.Sigmoid.x = op_of x })
   | Silu { Pointwise.Silu.x } -> simple (Op.Silu { Pointwise.Silu.x = op_of x })
+  | Sin { Pointwise.Sin.x } -> simple (Op.Sin { Pointwise.Sin.x = op_of x })
   | Sqrt { Pointwise.Sqrt.x } -> simple (Op.Sqrt { Pointwise.Sqrt.x = op_of x })
   | To_copy { Pointwise.To_copy.target; x } ->
       simple (Op.To_copy { Pointwise.To_copy.target; x = op_of x })
@@ -394,8 +406,48 @@ let lower_node ~view acc (n : node) =
   | Adaptive_max_pool2d { Pool.AdaptiveMaxPool2d.params; x } ->
       simple
         (Op.Adaptive_max_pool2d { Pool.AdaptiveMaxPool2d.params; x = op_of x })
+  (* Two outputs (value, indices), the same fixed arity
+     [Batch_norm_no_stats] asserts above -- not [simple], which is
+     single-output only. [params] names no axis and carries no shape, so it
+     crosses unchanged like [Max_pool2d]'s own params do. *)
+  | Adaptive_max_pool2d_with_indices
+      { Pool.AdaptiveMaxPool2dWithIndices.params; x } ->
+      let outputs =
+        match n.Node.outputs with
+        | [ _; _ ] as outputs -> outputs
+        | outputs ->
+            invalid_arg
+              (Format.asprintf
+                 "Native4d.Lower: %a is a two-output op but declares %d outputs"
+                 Node_id.pp node (List.length outputs))
+      in
+      Err.return
+        (emit acc ~from:node
+           (Op.Adaptive_max_pool2d_with_indices
+              { Pool.AdaptiveMaxPool2dWithIndices.params; x = op_of x })
+           outputs)
   | Max_pool2d { Pool.MaxPool2d.params; x } ->
       simple (Op.Max_pool2d { Pool.MaxPool2d.params; x = op_of x })
+  (* Same two-output shape as [Adaptive_max_pool2d_with_indices] above. *)
+  | Max_pool2d_with_indices { Pool.MaxPool2dWithIndices.params; x } ->
+      let outputs =
+        match n.Node.outputs with
+        | [ _; _ ] as outputs -> outputs
+        | outputs ->
+            invalid_arg
+              (Format.asprintf
+                 "Native4d.Lower: %a is a two-output op but declares %d outputs"
+                 Node_id.pp node (List.length outputs))
+      in
+      Err.return
+        (emit acc ~from:node
+           (Op.Max_pool2d_with_indices
+              { Pool.MaxPool2dWithIndices.params; x = op_of x })
+           outputs)
+  (* Direct counterpart, like [Max_pool2d] above: [Resize.Bicubic2d.params]
+     names no axis and carries no shape, so it crosses unchanged. *)
+  | Upsample_bicubic2d { Resize.Bicubic2d.params; x } ->
+      simple (Op.Upsample_bicubic2d { Resize.Bicubic2d.params; x = op_of x })
   (* Direct counterpart, like [Max_pool2d] above: [Resize.Bilinear2d.params]
      names no axis and carries no shape, so it crosses unchanged. *)
   | Upsample_bilinear2d { Resize.Bilinear2d.params; x } ->
@@ -842,20 +894,20 @@ let lower_node ~view acc (n : node) =
              self = op_of self;
              src = op_of src;
            })
-  (* The axis converts here for the same reason [Select_scatter]'s does. No
-     post-hoc output re-check, unlike [Select]'s: this op's output shape is
-     [self]'s own shape with [axis]'s extent overwritten by [index]'s own
-     length -- no drop, no repack -- so if [self] is already four-axis the
-     output automatically is too, whichever axis this op names. *)
+  (* Output stays four-axis only for [index_rank = 1]; the generalization
+     is unevidenced here, so rejected rather than re-derived. *)
   | Index_tensor { Index_tensor.Index_tensor.params; self; index } ->
-      let* axis4 = dims4 ~node [ params.Index_tensor.Index_tensor.axis ] in
-      simple
-        (Op.IndexTensor4
-           {
-             Ops4.IndexTensor4.params = { axis = List.hd axis4 };
-             self = op_of self;
-             index = op_of index;
-           })
+      if params.Index_tensor.Index_tensor.index_rank <> 1 then
+        Err.fail (`Unsupported_op (node, n.Node.op))
+      else
+        let* axis4 = dims4 ~node [ params.Index_tensor.Index_tensor.axis ] in
+        simple
+          (Op.IndexTensor4
+             {
+               Ops4.IndexTensor4.params = { axis = List.hd axis4 };
+               self = op_of self;
+               index = op_of index;
+             })
   (* [Concat]'s variadic-operand handling above, plus [Select]'s post-hoc
      output check: [Stack] INSERTS an axis rather than keeping every one the
      way [Concat] does, so -- the same reason [Select]'s arm re-validates its
@@ -939,12 +991,14 @@ let lower_node ~view acc (n : node) =
         (emit acc ~from:node (Op.Lstm (Lstm.Lstm.map_operands op_of t)) outputs)
   (* Rejected by [Domain.check] before the walk starts; reaching them means the
      domain check and this match disagree, which is a bug in one of them.
-     [Adaptive_max_pool2d_with_indices]/[Max_pool2d_with_indices] have no
-     Native4D counterpart at all yet -- the live max-pool indices backlog row
-     (`.ai/todo-ops.md`); [Conv3d]/[Unfold] are intrinsic axis boundaries, not
-     missing counterparts. [Repeat]/[RepeatInterleave]/[Select_scatter]/
+     [Conv3d]/[Unfold] are intrinsic axis boundaries, not missing
+     counterparts. [Meshgrid] has no corpus model reaching Native4D with it
+     (its own model stops earlier at Native import on
+     [neg.default]/[type_as.default]), so a counterpart would be speculative
+     -- rejected on purpose per this dialect's own "does it belong" question,
+     not merely unimplemented. [Adaptive_max_pool2d_with_indices]/
+     [Max_pool2d_with_indices]/[Repeat]/[RepeatInterleave]/[Select_scatter]/
      [Softmax]/[Batched_matmul]/[Sdpa]/[Index_tensor]/[Lstm] no longer join
-     them: all eight now have real conversion arms above. *)
-  | Adaptive_max_pool2d_with_indices _ | Conv3d _ | Discard _
-  | Max_pool2d_with_indices _ | Unfold _ ->
+     them: all ten now have real conversion arms above. *)
+  | Conv3d _ | Discard _ | Meshgrid _ | Unfold _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))

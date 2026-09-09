@@ -21,9 +21,13 @@ Two forms the answer usually takes:
 
 - **legalize, don't add.** `Linear` and single-batch `Bmm` become `Conv2D`;
   `Mean keepdim=false` becomes `MeanKeepDims` plus `Reshape4`. No new op.
-- **reject.** General grouped convolution, batched `Bmm` and live max-pool
-  indices are all rejected on purpose; `native4d_design.md` §8 lists what the
-  smallest honest extension would be for each, if that ever changes.
+- **reject.** Batched `Bmm`/`Sdpa` beyond `D=1` is rejected on purpose;
+  `native4d_design.md` §8 lists what the smallest honest extension would be,
+  if that ever changes. General grouped convolution and live max-pool
+  indices used to join this list too — both have since landed as real
+  counterparts (`GroupedConv2D`; `Max_pool2d_with_indices`/
+  `Adaptive_max_pool2d_with_indices` `include`ing Native's own payload
+  directly, no new `Ops4` type needed, since neither op names an axis).
 
 ## Ordering convention
 

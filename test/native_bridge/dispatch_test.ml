@@ -20,6 +20,24 @@ let%expect_test "dispatch: mul.Tensor elementwise" =
     ~noutputs:1;
   [%expect {| tensor f32 [W=2 C=3] {0, 20, 300, 4, 10, 18} |}]
 
+(* Legalizes to [x * -1] -- prints the graph to confirm no dedicated node,
+   just [Mul_scalar]. *)
+let%expect_test "dispatch: neg.default legalizes to Mul_scalar(-1)" =
+  let x = float_tensor [ 3 ] [ 1.; -2.; 0. ] in
+  dispatch_print_with_graph ~print_graph:true
+    ~target:"torch.ops.aten.neg.default"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self" ]
+    ~noutputs:1;
+  [%expect
+    {|
+    graph
+    inputs: [t0 f32 [C=3] ->[n0]]
+    nodes:
+      n0: [t1 f32 [C=3]] = mul_scalar x=t0 scalar=-1
+    outputs: [t1 f32 [C=3] <-n0]
+    tensor f32 [C=3] {-1, 2, -0} |}]
+
 let%expect_test "dispatch: bmm 1x2x2 @ 1x2x2" =
   let a = float_tensor [ 1; 2; 2 ] [ 1.; 2.; 3.; 4. ] in
   let b = float_tensor [ 1; 2; 2 ] [ 1.; 2.; 3.; 4. ] in
@@ -605,165 +623,6 @@ let%expect_test "dispatch: linear.default accepts explicit None bias" =
     outputs: [t3 f32 [W=2 C=2] <-n1]
     tensor f32 [W=2 C=2] {1, 5, 4, 11} |}]
 
-let%expect_test "dispatch: mean.dim dim=[1] keepdim=true" =
-  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
-  dispatch_print ~target:"torch.ops.aten.mean.dim"
-    ~bindings:[ ("self", x) ]
-    ~inputs:[ in_tensor "self"; in_ints "dim" [ 1 ]; in_bool "keepdim" true ]
-    ~noutputs:1;
-  [%expect {| tensor f32 [W=2 C=1] {1, 4} |}]
-
-let%expect_test "dispatch: mean.dim dim=[1] keepdim=false" =
-  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
-  dispatch_print ~target:"torch.ops.aten.mean.dim"
-    ~bindings:[ ("self", x) ]
-    ~inputs:[ in_tensor "self"; in_ints "dim" [ 1 ]; in_bool "keepdim" false ]
-    ~noutputs:1;
-  [%expect {| tensor f32 [C=2] {1, 4} |}]
-
-let%expect_test "dispatch: mean.dim dim=[] reduces over all dims" =
-  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
-  dispatch_print ~target:"torch.ops.aten.mean.dim"
-    ~bindings:[ ("self", x) ]
-    ~inputs:[ in_tensor "self"; in_ints "dim" []; in_bool "keepdim" false ]
-    ~noutputs:1;
-  [%expect {| tensor f32 [C=1] {2.5} |}]
-
-let%expect_test "dispatch: mean.dim omitted dim reduces over all dims" =
-  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
-  dispatch_print ~target:"torch.ops.aten.mean.dim"
-    ~bindings:[ ("self", x) ]
-    ~inputs:[ in_tensor "self"; in_bool "keepdim" false ]
-    ~noutputs:1;
-  [%expect {| tensor f32 [C=1] {2.5} |}]
-
-(* [Aten_shape.axis_of_dim] asserts its range and raises; before commit 0 this
-   escaped [Op_bridge.dispatch] as an uncaught [Invalid_argument] rather than
-   the typed row every other bad-argument arm returns. *)
-let%expect_test "dispatch: mean.dim rejects an out-of-range dim" =
-  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
-  List.iter
-    (fun d ->
-      dispatch_print ~target:"torch.ops.aten.mean.dim"
-        ~bindings:[ ("self", x) ]
-        ~inputs:
-          [ in_tensor "self"; in_ints "dim" [ d ]; in_bool "keepdim" false ]
-        ~noutputs:1)
-    [ 7; -3 ];
-  [%expect
-    {|
-    error: mean.dim: invalid dimension 7 for rank 2
-    error: mean.dim: invalid dimension -3 for rank 2 |}]
-
-let%expect_test "dispatch: amax.default dim=[1] keepdim=true" =
-  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
-  dispatch_print ~target:"torch.ops.aten.amax.default"
-    ~bindings:[ ("self", x) ]
-    ~inputs:[ in_tensor "self"; in_ints "dim" [ 1 ]; in_bool "keepdim" true ]
-    ~noutputs:1;
-  [%expect {| tensor f32 [W=2 C=1] {2, 5} |}]
-
-let%expect_test "dispatch: amax.default dim=[1] keepdim=false" =
-  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
-  dispatch_print ~target:"torch.ops.aten.amax.default"
-    ~bindings:[ ("self", x) ]
-    ~inputs:[ in_tensor "self"; in_ints "dim" [ 1 ]; in_bool "keepdim" false ]
-    ~noutputs:1;
-  [%expect {| tensor f32 [C=2] {2, 5} |}]
-
-let%expect_test "dispatch: amax.default dim=[] reduces over all dims" =
-  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
-  dispatch_print ~target:"torch.ops.aten.amax.default"
-    ~bindings:[ ("self", x) ]
-    ~inputs:[ in_tensor "self"; in_ints "dim" []; in_bool "keepdim" false ]
-    ~noutputs:1;
-  [%expect {| tensor f32 [C=1] {5} |}]
-
-let%expect_test "dispatch: amax.default omitted dim reduces over all dims" =
-  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
-  dispatch_print ~target:"torch.ops.aten.amax.default"
-    ~bindings:[ ("self", x) ]
-    ~inputs:[ in_tensor "self"; in_bool "keepdim" false ]
-    ~noutputs:1;
-  [%expect {| tensor f32 [C=1] {5} |}]
-
-let%expect_test "dispatch: amax.default rejects an out-of-range dim" =
-  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
-  List.iter
-    (fun d ->
-      dispatch_print ~target:"torch.ops.aten.amax.default"
-        ~bindings:[ ("self", x) ]
-        ~inputs:
-          [ in_tensor "self"; in_ints "dim" [ d ]; in_bool "keepdim" false ]
-        ~noutputs:1)
-    [ 7; -3 ];
-  [%expect
-    {|
-    error: amax.default: invalid dimension 7 for rank 2
-    error: amax.default: invalid dimension -3 for rank 2 |}]
-
-let%expect_test "dispatch: sum.dim_IntList dim=[1] keepdim=true" =
-  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
-  dispatch_print ~target:"torch.ops.aten.sum.dim_IntList"
-    ~bindings:[ ("self", x) ]
-    ~inputs:[ in_tensor "self"; in_ints "dim" [ 1 ]; in_bool "keepdim" true ]
-    ~noutputs:1;
-  [%expect {| tensor f32 [W=2 C=1] {3, 12} |}]
-
-let%expect_test "dispatch: sum.dim_IntList dim=[1] keepdim=false" =
-  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
-  dispatch_print ~target:"torch.ops.aten.sum.dim_IntList"
-    ~bindings:[ ("self", x) ]
-    ~inputs:[ in_tensor "self"; in_ints "dim" [ 1 ]; in_bool "keepdim" false ]
-    ~noutputs:1;
-  [%expect {| tensor f32 [C=2] {3, 12} |}]
-
-let%expect_test "dispatch: sum.dim_IntList dim=[] reduces over all dims" =
-  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
-  dispatch_print ~target:"torch.ops.aten.sum.dim_IntList"
-    ~bindings:[ ("self", x) ]
-    ~inputs:[ in_tensor "self"; in_ints "dim" []; in_bool "keepdim" false ]
-    ~noutputs:1;
-  [%expect {| tensor f32 [C=1] {15} |}]
-
-let%expect_test "dispatch: sum.dim_IntList omitted dim reduces over all dims" =
-  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
-  dispatch_print ~target:"torch.ops.aten.sum.dim_IntList"
-    ~bindings:[ ("self", x) ]
-    ~inputs:[ in_tensor "self"; in_bool "keepdim" false ]
-    ~noutputs:1;
-  [%expect {| tensor f32 [C=1] {15} |}]
-
-let%expect_test "dispatch: sum.dim_IntList rejects an out-of-range dim" =
-  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
-  List.iter
-    (fun d ->
-      dispatch_print ~target:"torch.ops.aten.sum.dim_IntList"
-        ~bindings:[ ("self", x) ]
-        ~inputs:
-          [ in_tensor "self"; in_ints "dim" [ d ]; in_bool "keepdim" false ]
-        ~noutputs:1)
-    [ 7; -3 ];
-  [%expect
-    {|
-    error: sum.dim_IntList: invalid dimension 7 for rank 2
-    error: sum.dim_IntList: invalid dimension -3 for rank 2 |}]
-
-let%expect_test "dispatch: sum.dim_IntList rejects a supplied dtype" =
-  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
-  dispatch_print ~target:"torch.ops.aten.sum.dim_IntList"
-    ~bindings:[ ("self", x) ]
-    ~inputs:
-      [
-        in_tensor "self";
-        in_ints "dim" [ 1 ];
-        in_bool "keepdim" false;
-        PT.NamedArgument.make "dtype"
-          (PT.Argument.Scalar_type PT.ScalarType.DOUBLE) None;
-      ]
-    ~noutputs:1;
-  [%expect {| error: unsupported scalar_type argument "dtype" |}]
-
 let%expect_test "dispatch: pow.Tensor_Scalar exponent=0.5 computes sqrt" =
   let x = float_tensor [ 4 ] [ 0.; 1.; 4.; 9. ] in
   dispatch_print ~target:"torch.ops.aten.pow.Tensor_Scalar"
@@ -847,109 +706,88 @@ let%expect_test "dispatch: rsub.Scalar builds a single Rsub_scalar node" =
     outputs: [t1 f32 [C=3] <-n0]
     tensor f32 [C=3] {1, 0, -1} |}]
 
-let%expect_test "dispatch: linalg_vector_norm.default dim=[1] keepdim=true" =
-  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
-  dispatch_print ~target:"torch.ops.aten.linalg_vector_norm.default"
+(* Corpus operand (EdgeNeXt's Fourier positional encoding): a 0.0/1.0 bool
+   mask, inverted. *)
+let%expect_test "dispatch: bitwise_not.default on a bool mask" =
+  let x = float_tensor [ 4 ] [ 0.; 1.; 0.; 1. ] in
+  dispatch_print ~target:"torch.ops.aten.bitwise_not.default"
     ~bindings:[ ("self", x) ]
-    ~inputs:[ in_tensor "self"; in_ints "dim" [ 1 ]; in_bool "keepdim" true ]
+    ~inputs:[ in_tensor "self" ]
     ~noutputs:1;
-  [%expect {| tensor f32 [W=2 C=1] {2.23607, 7.07107} |}]
+  [%expect {| tensor f32 [C=4] {1, 0, 1, 0} |}]
 
-let%expect_test "dispatch: linalg_vector_norm.default dim=[1] keepdim=false" =
-  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
-  dispatch_print ~target:"torch.ops.aten.linalg_vector_norm.default"
-    ~bindings:[ ("self", x) ]
-    ~inputs:[ in_tensor "self"; in_ints "dim" [ 1 ]; in_bool "keepdim" false ]
-    ~noutputs:1;
-  [%expect {| tensor f32 [C=2] {2.23607, 7.07107} |}]
-
-let%expect_test
-    "dispatch: linalg_vector_norm.default omitted dim/ord reduces over all dims"
-    =
-  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
-  dispatch_print ~target:"torch.ops.aten.linalg_vector_norm.default"
-    ~bindings:[ ("self", x) ]
-    ~inputs:[ in_tensor "self"; in_bool "keepdim" false ]
-    ~noutputs:1;
-  [%expect {| tensor f32 [C=1] {7.4162} |}]
-
-let%expect_test "dispatch: linalg_vector_norm.default rejects a non-2 ord" =
-  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
-  dispatch_print ~target:"torch.ops.aten.linalg_vector_norm.default"
+(* Floor rounds toward negative infinity, unlike [trunc]: -7/2 = -3.5 floors
+   to -4, not -3. Mixed signs so a [trunc]-only implementation would be
+   visible on the negative entries. *)
+let%expect_test "dispatch: div.Tensor_mode rounding_mode=floor" =
+  let x = float_tensor [ 4 ] [ 7.; -7.; 8.; -8. ] in
+  dispatch_print ~target:"torch.ops.aten.div.Tensor_mode"
     ~bindings:[ ("self", x) ]
     ~inputs:
-      [
-        in_tensor "self";
-        in_float "ord" 1.0;
-        in_ints "dim" [ 1 ];
-        in_bool "keepdim" false;
-      ]
+      [ in_tensor "self"; in_int "other" 2; in_string "rounding_mode" "floor" ]
     ~noutputs:1;
-  [%expect
-    {| error: linalg_vector_norm.default: only ord=2 is supported, got 1 |}]
+  [%expect {| tensor f32 [C=4] {3, -4, 4, -4} |}]
 
-let%expect_test "dispatch: linalg_vector_norm.default rejects a supplied dtype"
-    =
-  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
-  dispatch_print ~target:"torch.ops.aten.linalg_vector_norm.default"
+let%expect_test "dispatch: div.Tensor_mode rejects a non-floor rounding_mode" =
+  let x = float_tensor [ 2 ] [ 7.; 8. ] in
+  dispatch_print ~target:"torch.ops.aten.div.Tensor_mode"
     ~bindings:[ ("self", x) ]
     ~inputs:
-      [
-        in_tensor "self";
-        in_ints "dim" [ 1 ];
-        in_bool "keepdim" false;
-        PT.NamedArgument.make "dtype"
-          (PT.Argument.Scalar_type PT.ScalarType.DOUBLE) None;
-      ]
-    ~noutputs:1;
-  [%expect {| error: unsupported scalar_type argument "dtype" |}]
-
-let%expect_test "dispatch: softmax.int dim=1" =
-  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
-  dispatch_print ~target:"torch.ops.aten.softmax.int"
-    ~bindings:[ ("self", x) ]
-    ~inputs:[ in_tensor "self"; in_int "dim" 1 ]
+      [ in_tensor "self"; in_int "other" 2; in_string "rounding_mode" "trunc" ]
     ~noutputs:1;
   [%expect
-    {| tensor f32 [W=2 C=3] {0.0900306, 0.244728, 0.665241, 0.0900306, 0.244728, 0.665241} |}]
+    {| error: div.Tensor_mode: rounding_mode="trunc" is not supported (only "floor") |}]
 
-(* Negative [dim] normalizes the same as every other single-[dim] arm
-   ([slice.Tensor], [unbind.int]): -1 is the last axis, here the same one
-   [dim=1] names above -- same values, proving the normalization rather than
-   just that some diagnostic fires. *)
-let%expect_test "dispatch: softmax.int dim=-1 normalizes to the last axis" =
-  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
-  dispatch_print ~target:"torch.ops.aten.softmax.int"
-    ~bindings:[ ("self", x) ]
-    ~inputs:[ in_tensor "self"; in_int "dim" (-1) ]
+(* Reverse of [pow.Tensor_Scalar]: the compile-time constant is the base
+   (10000.0, EdgeNeXt's own value), the tensor is the exponent. *)
+let%expect_test "dispatch: pow.Scalar base=10000.0" =
+  let exponent = float_tensor [ 4 ] [ 0.; 0.25; 0.5; 1. ] in
+  dispatch_print ~target:"torch.ops.aten.pow.Scalar"
+    ~bindings:[ ("exponent", exponent) ]
+    ~inputs:[ in_float "self" 10000.0; in_tensor "exponent" ]
     ~noutputs:1;
-  [%expect
-    {| tensor f32 [W=2 C=3] {0.0900306, 0.244728, 0.665241, 0.0900306, 0.244728, 0.665241} |}]
+  [%expect {| tensor f32 [C=4] {1, 10, 100, 10000} |}]
 
-let%expect_test "dispatch: softmax.int rejects an out-of-range dim" =
-  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
-  List.iter
-    (fun d ->
-      dispatch_print ~target:"torch.ops.aten.softmax.int"
-        ~bindings:[ ("self", x) ]
-        ~inputs:[ in_tensor "self"; in_int "dim" d ]
-        ~noutputs:1)
-    [ 7; -3 ];
+let%expect_test "dispatch: cos.default" =
+  let x = float_tensor [ 4 ] [ 0.; Float.pi /. 6.; Float.pi /. 2.; Float.pi ] in
+  dispatch_print ~target:"torch.ops.aten.cos.default"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self" ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [C=4] {1, 0.866025, -4.37114e-08, -1} |}]
+
+let%expect_test "dispatch: sin.default" =
+  let x = float_tensor [ 4 ] [ 0.; Float.pi /. 6.; Float.pi /. 2.; Float.pi ] in
+  dispatch_print ~target:"torch.ops.aten.sin.default"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self" ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [C=4] {0, 0.5, 1, -8.74228e-08} |}]
+
+(* [a]=[1,2,3] varies along W, broadcast along C; [b]=[10,20] varies along C,
+   broadcast along W -- exactly `torch.meshgrid([a,b], indexing="ij")`'s own
+   contract; each output reads only its own input. *)
+let%expect_test "dispatch: meshgrid.indexing of two rank-1 inputs" =
+  let a = float_tensor [ 3 ] [ 1.; 2.; 3. ] in
+  let b = float_tensor [ 2 ] [ 10.; 20. ] in
+  dispatch_print ~target:"torch.ops.aten.meshgrid.indexing"
+    ~bindings:[ ("a", a); ("b", b) ]
+    ~inputs:[ in_tensors "tensors" [ "a"; "b" ]; in_string "indexing" "ij" ]
+    ~noutputs:2;
   [%expect
     {|
-    error: softmax.int: invalid dimension 7 for rank 2
-    error: softmax.int: invalid dimension -3 for rank 2 |}]
+    tensor f32 [W=3 C=2] {1, 1, 2, 2, 3, 3}
+    tensor f32 [W=3 C=2] {10, 20, 10, 20, 10, 20} |}]
 
-let%expect_test "dispatch: softmax.int rejects a supplied dtype" =
-  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
-  dispatch_print ~target:"torch.ops.aten.softmax.int"
-    ~bindings:[ ("self", x) ]
-    ~inputs:
-      [
-        in_tensor "self";
-        in_int "dim" 1;
-        PT.NamedArgument.make "dtype"
-          (PT.Argument.Scalar_type PT.ScalarType.DOUBLE) None;
-      ]
-    ~noutputs:1;
-  [%expect {| error: unsupported scalar_type argument "dtype" |}]
+let%expect_test "dispatch: meshgrid.indexing rejects indexing=\"xy\"" =
+  let a = float_tensor [ 3 ] [ 1.; 2.; 3. ] in
+  let b = float_tensor [ 2 ] [ 10.; 20. ] in
+  dispatch_print ~target:"torch.ops.aten.meshgrid.indexing"
+    ~bindings:[ ("a", a); ("b", b) ]
+    ~inputs:[ in_tensors "tensors" [ "a"; "b" ]; in_string "indexing" "xy" ]
+    ~noutputs:2;
+  [%expect
+    {| error: meshgrid.indexing: indexing="xy" is not supported (only "ij") |}]
+
+(* Reduction-family dispatch tests (mean.dim, amax.default, sum.dim_IntList,
+   linalg_vector_norm.default, softmax.int) live in reduce_dispatch_test.ml. *)

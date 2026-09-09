@@ -37,6 +37,17 @@ let reshape_source_coord ~(input : Tensor_sig.t) ~(output : Tensor_sig.t) coord
       let extent = (Vec6.get input.Tensor_sig.shape axis :> int) in
       Dim.index (off / stride mod extent))
 
+(* [Repeat.Compute.pixel]'s own per-axis wraparound, over a concrete [coord]
+   rather than a [Semantics.SEMANTICS] index: each axis tiles modulo the
+   INPUT's own extent there, independently of every other axis -- no
+   cross-axis linearization the way [reshape_source_coord] needs, since
+   [Repeat] never flattens. *)
+let repeat_source_coord ~(input : Tensor_sig.t) (coord : Vec6.coord) =
+  Vec6.of_fn (fun axis ->
+      let ext = (Vec6.get input.Tensor_sig.shape axis :> int) in
+      let o = Dim.to_int (Vec6.get coord axis) in
+      Dim.index (o mod ext))
+
 (* Mirrors [Pointwise_binary.Pow.Compute.pixel]'s six ATen-special-cased
    exponents plus its [exp(scalar * log x)] fallback, exactly -- the
    grounding must stay the same expression PowKernel.cpp special-cases, not a
@@ -91,6 +102,10 @@ let rec ground arena store id coord =
              Ground_expr.Cell.origin = Ground_expr.Origin.Capture capture;
              coord;
            })
+  | Some (Const_ssa.Apply { op = Graph_ir.Clone { Pointwise.Clone.x }; _ }) ->
+      (* Value-preserving identity (`lib/native/ops/pointwise_unary.ml`'s own
+         comment): same coordinate, same input, nothing to transform. *)
+      ground arena store x coord
   | Some
       (Const_ssa.Apply { op = Graph_ir.Permute { Permute.Permute.perm; x }; _ })
     ->
@@ -121,6 +136,12 @@ let rec ground arena store id coord =
            (Const_ssa.Value_id.of_tensor_id x))
         (fun input ->
           ground arena store x (broadcast_coord ~input ~output coord))
+  | Some (Const_ssa.Apply { op = Graph_ir.Repeat { Repeat.Repeat.x; _ }; _ }) ->
+      Option.bind
+        (Const_ssa.sig_of
+           (Constant_store.plan store)
+           (Const_ssa.Value_id.of_tensor_id x))
+        (fun input -> ground arena store x (repeat_source_coord ~input coord))
   | Some
       (Const_ssa.Apply
          {
@@ -152,6 +173,33 @@ let rec ground arena store id coord =
               in
               Ground_expr.round arena (Ground_expr.binary arena op a b))
             (operand b))
+  | Some
+      (Const_ssa.Apply
+         { op = Graph_ir.Concat { Concat.Concat.params = { axis }; xs }; _ }) ->
+      (* The same offset-and-select walk [Concat.Compute.select_segment]
+         does symbolically, done directly: [coord] is already one concrete
+         output coordinate here, so which segment it lands in is a plain
+         comparison rather than a chain of [S.select]/[clamp_into] guards
+         built for every branch to stay well-defined under a SYMBOLIC index.
+         [output_shape] already proved every valid [target] lands in exactly
+         one operand's range, so a `None` result below means an operand's own
+         signature was missing from the plan, not that the search ran out. *)
+      let target = Dim.to_int (Vec6.get coord axis) in
+      let rec select offset = function
+        | [] -> None
+        | x :: rest ->
+            Option.bind
+              (Const_ssa.sig_of
+                 (Constant_store.plan store)
+                 (Const_ssa.Value_id.of_tensor_id x))
+              (fun (input : Tensor_sig.t) ->
+                let extent = Dim.to_int (Vec6.get input.shape axis) in
+                if target - offset < extent then
+                  ground arena store x
+                    (Vec6.set coord axis (Dim.index (target - offset)))
+                else select (offset + extent) rest)
+      in
+      select 0 xs
   | Some (Const_ssa.Apply { op = Graph_ir.Sqrt { Pointwise.Sqrt.x }; output })
     ->
       Option.bind
@@ -222,6 +270,90 @@ let rec ground arena store id coord =
           Option.map
             (fun v -> Ground_expr.round arena (sigmoid_expr arena v))
             (ground arena store x (broadcast_coord ~input ~output coord)))
+  (* [Bicubic_axis.endpoints]'s own coordinate/weight math, ground rather
+     than evaluated: its narrow [Compute] signature separates index
+     arithmetic (always concrete -- reused verbatim from [Direct]) from VALUE
+     arithmetic, so instantiating it over [Ground_expr.t] gets the identical
+     taps and weights [Eval_direct]'s materialization computes, not a
+     re-derived approximation of them -- the same "ground the SAME
+     expression" discipline [pow_expr]/[sigmoid_expr] follow above. Every one
+     of the sixteen taps is read through [ground] itself (not [Tensor.read]),
+     so a tap that is itself a further Const-SSA expression grounds
+     recursively, and a missing one fails the whole blend rather than
+     silently treating it as zero. *)
+  | Some
+      (Const_ssa.Apply
+         { op = Graph_ir.Upsample_bicubic2d { Resize.Bicubic2d.params; x }; _ })
+    ->
+      Option.bind
+        (Const_ssa.sig_of
+           (Constant_store.plan store)
+           (Const_ssa.Value_id.of_tensor_id x))
+        (fun (input : Tensor_sig.t) ->
+          let module GV = struct
+            type 'role index = 'role Dim.t
+            type t = Ground_expr.t
+
+            let index_const = Direct.index_const
+            let of_index = Direct.of_index
+            let index_add = Direct.index_add
+            let index_scale = Direct.index_scale
+            let index_floor_div_pos = Direct.index_floor_div_pos
+            let index_min = Direct.index_min
+            let index_max = Direct.index_max
+            let clamp_low = Direct.clamp_low
+
+            let value_of_index x =
+              Ground_expr.const arena (Direct.value_of_index x)
+
+            let const x = Ground_expr.const arena x
+            let add a b = Ground_expr.binary arena Expr.Value.Add a b
+            let sub a b = Ground_expr.binary arena Expr.Value.Sub a b
+            let mul a b = Ground_expr.binary arena Expr.Value.Mul a b
+            let div a b = Ground_expr.binary arena Expr.Value.Div a b
+          end in
+          let module Bi = Resize.Bicubic_axis.Compute (GV) in
+          let ( (align_corners : bool),
+                (out_h : Op_config.Pos.t),
+                (out_w : Op_config.Pos.t) ) =
+            ( params.Resize.Bicubic2d.align_corners,
+              params.Resize.Bicubic2d.output_size.Op_config.Hw.h,
+              params.Resize.Bicubic2d.output_size.Op_config.Hw.w )
+          in
+          let eh =
+            Bi.endpoints ~align_corners
+              ~in_extent:(Vec6.get input.Tensor_sig.shape Axis.H)
+              ~out_extent:out_h (Vec6.get coord Axis.H)
+          in
+          let ew =
+            Bi.endpoints ~align_corners
+              ~in_extent:(Vec6.get input.Tensor_sig.shape Axis.W)
+              ~out_extent:out_w (Vec6.get coord Axis.W)
+          in
+          let read h w =
+            ground arena store x (coord |> Vec6.set_h h |> Vec6.set_w w)
+          in
+          let row h =
+            let open Bi in
+            Option.bind (read h ew.i0) (fun v0 ->
+                Option.bind (read h ew.i1) (fun v1 ->
+                    Option.bind (read h ew.i2) (fun v2 ->
+                        Option.bind (read h ew.i3) (fun v3 ->
+                            Some
+                              (GV.add
+                                 (GV.add (GV.mul ew.w0 v0) (GV.mul ew.w1 v1))
+                                 (GV.add (GV.mul ew.w2 v2) (GV.mul ew.w3 v3)))))))
+          in
+          let open Bi in
+          Option.bind (row eh.i0) (fun r0 ->
+              Option.bind (row eh.i1) (fun r1 ->
+                  Option.bind (row eh.i2) (fun r2 ->
+                      Option.bind (row eh.i3) (fun r3 ->
+                          Some
+                            (Ground_expr.round arena
+                               (GV.add
+                                  (GV.add (GV.mul eh.w0 r0) (GV.mul eh.w1 r1))
+                                  (GV.add (GV.mul eh.w2 r2) (GV.mul eh.w3 r3)))))))))
   | Some
       (Const_ssa.Leaf
          { leaf = Literal payload | Opaque_materialized payload; output; _ }) ->

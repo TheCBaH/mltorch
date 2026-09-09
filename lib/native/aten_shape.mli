@@ -138,6 +138,16 @@ val resolve_expand_size :
 val resolve_repeat_size :
   self_dims:int array -> repeats:int list -> (int list, [> error ]) Err.t
 
+(* Resolve [aten.tile.default]'s [dims] against [self_dims]. Unlike
+   [repeat.default], [tile]'s own rank rule runs the OTHER direction: a
+   shorter [dims] is legal, left-padded with 1s up to [self]'s rank
+   (`TensorShape.cpp`'s `tile` wrapper), not rejected. A [dims] already at
+   least as long as [self]'s rank needs no padding and is
+   [resolve_repeat_size]'s existing "extra leading tile axis" case verbatim
+   -- so this pads then delegates, rather than restating that half. *)
+val resolve_tile_size :
+  self_dims:int array -> dims:int list -> (int list, [> error ]) Err.t
+
 (* Resolve [aten.slice.Tensor]'s bounds along one axis, in PyTorch's own order:
    refuse a non-positive [step]; supply the defaults for an absent [start] (0)
    and [stop] (the extent); normalize a negative bound by adding the extent;
@@ -162,3 +172,16 @@ val resolve_slice :
    own IndexError. Returns the normalized, in-range position. *)
 val resolve_index :
   extent:Dim.extent Dim.t -> index:int -> (int, [> error ]) Err.t
+
+(* `aten.einsum.default`'s [equation] argument, restricted to the two shapes
+   evidenced in the corpus (`mvitv2_tiny`'s decomposed relative-position
+   attention). [of_equation] recognizes exactly those two literal strings,
+   naming which of [self]'s two spatial indices is the one shared with
+   [other] — shared between both importers so they can't drift on which
+   strings they accept. See `Graph_builder.einsum` for how a [plan] builds
+   the actual graph. *)
+module Einsum : sig
+  type plan = Shared_h | Shared_w
+
+  val of_equation : string -> plan option
+end

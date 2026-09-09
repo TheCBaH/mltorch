@@ -36,10 +36,13 @@ let bias_shape ~weight_shape =
     (Vec6.get weight_shape Axis.N)
 
 module Make (S : Semantics.SEMANTICS) = struct
-  (* [output] is the ordinal in [Node.outputs] order. Only [Unbind] reads it —
-     every other op in the dialect has exactly one output — but the drivers have
-     always threaded a real value, so nothing outside this file changed when it
-     stopped being ignored. *)
+  (* [output] is the ordinal in [Node.outputs] order. [Unbind] and the
+     max-pool-with-indices pair read it (the latter two ops dispatching to
+     Native's own two NAMED pixel functions, [value_pixel]/[index_pixel],
+     rather than threading the ordinal into a shared one — the same split
+     Native's own [Eval_op] arms use) — every other op in the dialect has
+     exactly one output, but the drivers have always threaded a real value,
+     so nothing outside this file changed when it stopped being ignored. *)
   let pixel (op : Op.t) ~output ~(operand : Tensor_ref.t -> S.input)
       ~(shape_of : Tensor_ref.t -> Vec6.shape)
       ~(fill : float -> Vec6.shape -> S.input)
@@ -64,6 +67,11 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Adaptive_max_pool2d { Pool.AdaptiveMaxPool2d.params; x } ->
         let module C = Pool.AdaptiveMaxPool2d.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
+    | Adaptive_max_pool2d_with_indices
+        { Pool.AdaptiveMaxPool2dWithIndices.params; x } ->
+        let module C = Pool.AdaptiveMaxPool2dWithIndices.Compute (S) in
+        let pix = if output = 0 then C.value_pixel else C.index_pixel in
+        pix params ~x_shape:(shape_of x) ~x:(operand x) out
     | Avg_pool2d { Pool.AvgPool2d.params; x } ->
         let module C = Pool.AvgPool2d.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
@@ -82,9 +90,15 @@ module Make (S : Semantics.SEMANTICS) = struct
         let module C = Matmul.Batched_matmul.Compute (S) in
         C.pixel ~input_shape:(shape_of input) ~mat2_shape:(shape_of mat2)
           ~input:(operand input) ~mat2:(operand mat2) out
+    | Bitwise_not { Pointwise.Bitwise_not.x } ->
+        let module C = Pointwise.Bitwise_not.Compute (S) in
+        C.pixel (operand x) out
     | Clamp { Pointwise.Clamp.params; x } ->
         let module C = Pointwise.Clamp.Compute (S) in
         C.pixel params (operand x) out
+    | Col2im { Im2col.Col2im.params; x } ->
+        let module C = Im2col.Col2im.Compute (S) in
+        C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
     (* Through the same [concat_params] adapter [Graph_shape4] uses, so the
        axis the shape rule joins along is the axis the compute reads. Every
        operand's own shape is paired with its value, exactly the pairing
@@ -111,6 +125,9 @@ module Make (S : Semantics.SEMANTICS) = struct
           (Graph_shape4.conv2d_params params ~groups)
           ~x_shape:(shape_of x) ~weight_shape:(shape_of weight) ~x:(operand x)
           ~weight:(operand weight) ~bias:(conv_bias weight bias) out
+    | Cos { Pointwise.Cos.x } ->
+        let module C = Pointwise.Cos.Compute (S) in
+        C.pixel (operand x) out
     (* Through the same adapter [Graph_shape4] uses, so the axis the shape
        rule preserves is the axis the compute walks, by construction. *)
     | Cumsum4 { Ops4_cumsum.Cumsum4.params; x } ->
@@ -126,6 +143,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Expand4 { Ops4.Expand4.x; _ } ->
         let module C = Pointwise.Expand.Compute (S) in
         C.pixel ~x_shape:(shape_of x) (operand x) out
+    | Floor_div_scalar { Pointwise.Scalar_bin.x; scalar } ->
+        let module C = Pointwise.Floor_div_scalar.Compute (S) in
+        C.pixel ~scalar (operand x) out
     | Gelu { Pointwise.Gelu.x; approximate } ->
         let module C = Pointwise.Gelu.Compute (S) in
         C.pixel approximate (operand x) out
@@ -167,6 +187,9 @@ module Make (S : Semantics.SEMANTICS) = struct
           (Graph_shape4.index_tensor_params params)
           ~self_shape:(shape_of self) ~self:(operand self)
           ~index:(operand index) out
+    | Im2col { Im2col.Im2col.params; x } ->
+        let module C = Im2col.Im2col.Compute (S) in
+        C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
     | Layer_norm _ -> invalid_arg "Eval_op4.pixel: LayerNorm is Region-authored"
     | Leaky_relu { Pointwise.Leaky_relu.params; x } ->
         let module C = Pointwise.Leaky_relu.Compute (S) in
@@ -180,6 +203,10 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Max_pool2d { Pool.MaxPool2d.params; x } ->
         let module C = Pool.MaxPool2d.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
+    | Max_pool2d_with_indices { Pool.MaxPool2dWithIndices.params; x } ->
+        let module C = Pool.MaxPool2dWithIndices.Compute (S) in
+        let pix = if output = 0 then C.value_pixel else C.index_pixel in
+        pix params ~x_shape:(shape_of x) ~x:(operand x) out
     | Mean_keepdims { Ops4.Mean_keepdims.params; x } ->
         let module C = Reduce.Mean.Compute (S) in
         C.pixel
@@ -218,6 +245,9 @@ module Make (S : Semantics.SEMANTICS) = struct
           { Reshape.Reshape.shape = Shape4.to_vec6 params.Ops4.Reshape4.shape }
           ~x_shape:(shape_of x) ~x:(operand x) out
     | Rms_norm _ -> invalid_arg "Eval_op4.pixel: RMSNorm is Region-authored"
+    | Rpow_scalar { Pointwise.Scalar_bin.x; scalar } ->
+        let module C = Pointwise.Rpow_scalar.Compute (S) in
+        C.pixel ~scalar (operand x) out
     | Rsub_scalar { Pointwise.Rsub_scalar.params; x } ->
         let module C = Pointwise.Rsub_scalar.Compute (S) in
         C.pixel params (operand x) out
@@ -241,6 +271,9 @@ module Make (S : Semantics.SEMANTICS) = struct
         C.pixel (operand x) out
     | Silu { Pointwise.Silu.x } ->
         let module C = Pointwise.Silu.Compute (S) in
+        C.pixel (operand x) out
+    | Sin { Pointwise.Sin.x } ->
+        let module C = Pointwise.Sin.Compute (S) in
         C.pixel (operand x) out
     | Slice4 { Ops4.Slice4.params; x } ->
         let module C = Split.Slice.Compute (S) in
@@ -301,6 +334,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Unbind { Ops4.Unbind.params; x } ->
         let module C = Split.Unbind.Compute (S) in
         C.pixel (Graph_shape4.unbind_params params) ~output ~x:(operand x) out
+    | Upsample_bicubic2d { Resize.Bicubic2d.params; x } ->
+        let module C = Resize.Bicubic2d.Compute (S) in
+        C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
     | Upsample_bilinear2d { Resize.Bilinear2d.params; x } ->
         let module C = Resize.Bilinear2d.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out

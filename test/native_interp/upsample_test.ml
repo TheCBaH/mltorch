@@ -84,6 +84,53 @@ let%expect_test "upsample_bilinear2d.vec rejects neither or both size args" =
     both:
       malformed PT2 graph: torch.ops.aten.upsample_bilinear2d.vec: output_size and scale_factors are mutually exclusive |}]
 
+(* `upsample_bicubic2d.vec`: same schema and contract as
+   [upsample_bilinear2d.vec] above (sharing
+   [Native_interp_decode.resolve_upsample_size]); only the Native op differs,
+   and this importer never touches the coordinate transform itself, so it has
+   nothing further to prove here beyond "the right node, with the right
+   params, in the right place" -- the transform's own correctness is
+   test/native/resize_test.ml's job. *)
+let bicubic ~output_size ~align_corners ~scale_factors =
+  jstr
+    {|{"target":"torch.ops.aten.upsample_bicubic2d.vec","inputs":[{"name":"input","arg":%s,"kind":1},{"name":"output_size","arg":%s,"kind":1},{"name":"align_corners","arg":{"as_bool":%b},"kind":1},{"name":"scale_factors","arg":%s,"kind":1}],"outputs":[%s],"metadata":{}}|}
+    (as_tensor "x") output_size align_corners scale_factors (as_tensor "y")
+
+let%expect_test "upsample_bicubic2d.vec lowers with an explicit output_size" =
+  dump "explicit:"
+    (prog
+       (bicubic ~output_size:(ints "[3,3]") ~align_corners:true
+          ~scale_factors:none));
+  [%expect
+    {|
+    explicit:
+    graph
+    inputs: [t0 f32 [W=2 C=2] ->[n0]]
+    nodes:
+      group g1 torch.ops.aten.upsample_bicubic2d.vec:
+        n0: [t1 f32 [H=2 W=2 C=1] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=3 W=3 C=1] ->[n2]] =
+          upsample_bicubic2d
+            x=t1 <-n0
+            params={output_size={h=3; w=3};
+            align_corners=true}
+        n2: [t3 f32 [W=3 C=3]] = permute x=t2 <-n1 perm=[H<-C, W<-H, C<-W]
+    outputs: [t3 f32 [W=3 C=3] <-n2] |}]
+
+let%expect_test "upsample_bicubic2d.vec rejects neither or both size args" =
+  dump "neither:"
+    (prog (bicubic ~output_size:none ~align_corners:true ~scale_factors:none));
+  dump "both:"
+    (prog
+       (bicubic ~output_size:(ints "[3,3]") ~align_corners:true
+          ~scale_factors:(floats "[1.5,1.5]")));
+  [%expect
+    {|
+    neither:
+      malformed PT2 graph: torch.ops.aten.upsample_bicubic2d.vec: exactly one of output_size or scale_factors must be given
+    both:
+      malformed PT2 graph: torch.ops.aten.upsample_bicubic2d.vec: output_size and scale_factors are mutually exclusive |}]
+
 (* `upsample_nearest2d.vec`: no [align_corners] argument at all, unlike
    [upsample_bilinear2d.vec] above -- see [Resize.Nearest_axis]'s module
    doc. Otherwise the identical output_size/scale_factors contract, sharing

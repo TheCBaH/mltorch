@@ -156,12 +156,25 @@ let adaptive_avg_pool2d params x =
 let adaptive_max_pool2d params x =
   op1 (Op.Adaptive_max_pool2d { Pool.AdaptiveMaxPool2d.params; x })
 
+(* Two outputs, value then indices -- [opN], not [op1], with no [~fmt]
+   override: both edges default to the same f32 [new_edge] falls back to,
+   matching Native's own [Graph_builder.adaptive_max_pool2d_with_indices],
+   which allocates both outputs the same way rather than through its own
+   [opN]-equivalent. The indices output is a real f32-stored flat position,
+   not a genuine integer format -- Native has none to give it. *)
+let adaptive_max_pool2d_with_indices params x =
+  opN
+    (Op.Adaptive_max_pool2d_with_indices
+       { Pool.AdaptiveMaxPool2dWithIndices.params; x })
+
 let avg_pool2d params x = op1 (Op.Avg_pool2d { Pool.AvgPool2d.params; x })
 
 let batched_matmul input mat2 =
   op1 (Op.Batched_matmul { Matmul.Batched_matmul.input; mat2 })
 
+let bitwise_not x = op1 (Op.Bitwise_not { Pointwise.Bitwise_not.x })
 let clamp params x = op1 (Op.Clamp { Pointwise.Clamp.params; x })
+let col2im params x = op1 (Op.Col2im { Im2col.Col2im.params; x })
 
 (* Takes the dialect's own [Ops4.Concat4.params], whose axis is [Axis4.t]: a
    concat naming T or D is not constructible through this API, the same rule
@@ -174,11 +187,16 @@ let conv2d params ~x ~weight ?bias () =
 let depthwise_conv2d params ~x ~weight ?bias () =
   op1 (Op.Depthwise_conv2d { Ops4.Conv_payload.params; x; weight; bias })
 
+let cos x = op1 (Op.Cos { Pointwise.Cos.x })
+
 (* Takes the dialect's own [Ops4_cumsum.Cumsum4.params], whose axis is [Axis4.t]: a
    cumsum naming T or D is not constructible through this API. *)
 let cumsum4 params x = op1 (Op.Cumsum4 { Ops4_cumsum.Cumsum4.params; x })
 let div a b = op1 (Op.Div { Pointwise.Bin.a; b })
 let div_scalar scalar x = op1 (Op.Div_scalar { Pointwise.Scalar_bin.x; scalar })
+
+let floor_div_scalar scalar x =
+  op1 (Op.Floor_div_scalar { Pointwise.Scalar_bin.x; scalar })
 
 (* Takes a [Shape4.t] target, so an expansion naming T or D is not
    constructible through this API -- [reshape4]'s rule. *)
@@ -196,6 +214,7 @@ let grouped_conv2d params ~x ~weight ?bias () =
 let hardsigmoid x = op1 (Op.Hardsigmoid { Pointwise.Hardsigmoid.x })
 let hardswish x = op1 (Op.Hardswish { Pointwise.Hardswish.x })
 let hardtanh params x = op1 (Op.Hardtanh { Pointwise.Hardtanh.params; x })
+let im2col params x = op1 (Op.Im2col { Im2col.Im2col.params; x })
 
 (* Takes the dialect's own [Ops4.IndexTensor4.params], whose axis is
    [Axis4.t]: a gather naming T or D is not constructible through this API,
@@ -235,6 +254,11 @@ let max_keepdims dims x =
 
 let max_pool2d params x = op1 (Op.Max_pool2d { Pool.MaxPool2d.params; x })
 
+(* Same "two outputs, no [~fmt] override" shape as
+   [adaptive_max_pool2d_with_indices] above. *)
+let max_pool2d_with_indices params x =
+  opN (Op.Max_pool2d_with_indices { Pool.MaxPool2dWithIndices.params; x })
+
 let mean_keepdims dims x =
   op1 (Op.Mean_keepdims { Ops4.Mean_keepdims.params = { dims }; x })
 
@@ -268,6 +292,9 @@ let layer_norm4 params ~x ?weight ?bias () =
 let rms_norm params ~x ?weight () =
   op1 (Op.Rms_norm { Ops4.Rms_norm.params; x; weight })
 
+let rpow_scalar scalar x =
+  op1 (Op.Rpow_scalar { Pointwise.Scalar_bin.x; scalar })
+
 let rsub_scalar params x =
   op1 (Op.Rsub_scalar { Pointwise.Rsub_scalar.params; x })
 
@@ -286,6 +313,7 @@ let select_scatter4 params ~self ~src =
 
 let sigmoid x = op1 (Op.Sigmoid { Pointwise.Sigmoid.x })
 let silu x = op1 (Op.Silu { Pointwise.Silu.x })
+let sin x = op1 (Op.Sin { Pointwise.Sin.x })
 
 (* Takes the dialect's own [Ops4.Slice4.params], whose axis is [Axis4.t]: a
    slice naming T or D is not constructible through this API. The BOUNDS are
@@ -332,6 +360,9 @@ let unbind axis x =
   let sg = Tensor_id.Map.find x s.tensors in
   opN ~fmt:sg.Tensor_sig.fmt ?quant:sg.Tensor_sig.quant
     (Op.Unbind { Ops4.Unbind.params = { axis }; x })
+
+let upsample_bicubic2d params x =
+  op1 (Op.Upsample_bicubic2d { Resize.Bicubic2d.params; x })
 
 let upsample_bilinear2d params x =
   op1 (Op.Upsample_bilinear2d { Resize.Bilinear2d.params; x })

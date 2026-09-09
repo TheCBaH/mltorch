@@ -318,3 +318,33 @@ let resolve_repeat_size ~(self_dims : int array) ~(repeats : int list) =
   if List.length repeats < Array.length self_dims then
     Err.fail (`Repeat_size { Repeat_size.repeats; self_dims })
   else Err.return repeats
+
+(* [aten.tile.default]'s own rank rule, the reverse of [repeat]'s: pad
+   [dims] on the LEFT with 1s up to [self_dims]'s rank (ATen's
+   `tile(self, dims) = self.repeat(dims)` after that padding), then hand off
+   to [resolve_repeat_size] unchanged -- once padded, [dims]'s length is at
+   least [self_dims]'s rank, [resolve_repeat_size]'s own precondition. *)
+let resolve_tile_size ~(self_dims : int array) ~(dims : int list) =
+  let short = Array.length self_dims - List.length dims in
+  let padded =
+    if short > 0 then List.init short (fun _ -> 1) @ dims else dims
+  in
+  resolve_repeat_size ~self_dims ~repeats:padded
+
+(* `aten.einsum.default`'s [equation] argument, restricted to the two
+   evidenced shapes (both `mvitv2_tiny`'s decomposed relative-position
+   attention, `timm.models.mvitv2.MultiScaleAttention.add_decomposed_rel_pos`):
+   [self] rank 5 ([b,y,h,w,c]), [other] rank 3, one of [self]'s two spatial
+   indices ([h] or [w]) shared with [other] and contracted against [self]'s
+   own channel axis [c]. Named by which shared index it is -- the literal
+   equation string is the only proof, decoded once here (`.ai/einsum_design.md`)
+   rather than re-parsed per importer, so the two importers can't drift on
+   which strings they accept. *)
+module Einsum = struct
+  type plan = Shared_h | Shared_w
+
+  let of_equation = function
+    | "byhwc,hkc->byhwk" -> Some Shared_h
+    | "byhwc,wkc->byhwk" -> Some Shared_w
+    | _ -> None
+end

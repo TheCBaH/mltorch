@@ -12,6 +12,16 @@ module Broadcast = struct
       axis Dim.pp lhs Dim.pp rhs
 end
 
+(* [meshgrid.indexing]'s own rank check: every input must be rank-1
+   (extent on [C] alone), the only shape [Meshgrid.Compute]'s coordinate
+   remap is sound for. *)
+module Meshgrid = struct
+  type t = Vec6.shape
+
+  let pp ppf (shape : t) =
+    Fmt.pf ppf "meshgrid.indexing: input %a is not rank-1" Vec6.pp_shape shape
+end
+
 module Window = struct
   type t = {
     out : int64;
@@ -241,18 +251,53 @@ module Batched_matmul = struct
           lhs Dim.pp rhs
 end
 
-(* `index.Tensor`'s round-12 [Graph_ir]-level enforcement of the rank-1
-   restriction: an index frame axis other than [C] with a non-unit extent,
+(* `index.Tensor`'s [Graph_ir]-level enforcement of its shape restriction,
    reachable from a direct [Graph_builder] call or a JSON-decoded graph even
-   though neither importer can ever produce one. *)
+   though neither importer can ever produce an invalid one:
+   - [Rank_overflow]: a rank-[index_rank] index ending at [axis] needs
+     [index_rank] frame axes counting backward from [axis], more than the
+     6-axis frame has room for on that side.
+   - [Self_collision]: same shape fit, but the room the index's own extra
+     axes would need is already occupied by real (non-unit) content of
+     [self]'s own -- round 12's original rank-1-only restriction is exactly
+     this check specialized to [index_rank = 1], where the "extra axes"
+     window is empty and only [axis] itself is ever replaced.
+   - [Index_shape_mismatch]: [params.index_rank] is a compile-time claim
+     about [index]'s own ATen rank (read once at import time, before this
+     frame erases it) -- this proves the claim against [index]'s own
+     SHAPE, since a hand-built or JSON-decoded graph could otherwise pair a
+     rank claim with a tensor that doesn't match it, silently dropping (or
+     misreading) whichever of [index]'s own axes the mismatch hides. *)
 module Index_tensor = struct
-  type t = { axis : Axis.t; extent : Dim.extent Dim.t }
+  type t =
+    | Index_shape_mismatch of {
+        index_rank : int;
+        axis : Axis.t;
+        extent : Dim.extent Dim.t;
+      }
+    | Rank_overflow of { axis : Axis.t; index_rank : int }
+    | Self_collision of {
+        axis : Axis.t;
+        colliding_axis : Axis.t;
+        extent : Dim.extent Dim.t;
+      }
 
-  let pp ppf { axis; extent } =
-    Fmt.pf ppf
-      "index.Tensor: index axis %a must have extent 1 (only axis C carries \
-       real data), got %a"
-      Axis.pp axis Dim.pp extent
+  let pp ppf = function
+    | Index_shape_mismatch { index_rank; axis; extent } ->
+        Fmt.pf ppf
+          "index.Tensor: index declared rank %d, but its own axis %a has \
+           extent %a (must be 1, outside a rank-%d tensor's own real axes)"
+          index_rank Axis.pp axis Dim.pp extent index_rank
+    | Rank_overflow { axis; index_rank } ->
+        Fmt.pf ppf
+          "index.Tensor: a rank-%d index ending at axis %a needs more frame \
+           axes than the 6-axis frame has room for"
+          index_rank Axis.pp axis
+    | Self_collision { axis; colliding_axis; extent } ->
+        Fmt.pf ppf
+          "index.Tensor: a multi-axis index at axis %a would overwrite self's \
+           own axis %a, which must have extent 1 (got %a)"
+          Axis.pp axis Axis.pp colliding_axis Dim.pp extent
 end
 
 module Permute = struct
@@ -417,6 +462,32 @@ module Unfold = struct
           "unfold axis %a: input already uses all six axes (N has extent > 1), \
            no room for the new window axis"
           Axis.pp axis
+end
+
+module Im2col = struct
+  type fault =
+    [ `Col_input_rank
+    | `Column_channels
+    | `Column_locations
+    | `Image_input_rank ]
+
+  type t = { fault : fault }
+
+  let pp ppf { fault } =
+    match fault with
+    | `Image_input_rank ->
+        Fmt.string ppf
+          "im2col input must occupy only Native D/H/W/C (rank-4 image layout)"
+    | `Col_input_rank ->
+        Fmt.string ppf
+          "col2im input must occupy only Native H/W/C (rank-3 column layout)"
+    | `Column_channels ->
+        Fmt.string ppf
+          "col2im column-channel extent is not divisible by kernel height \
+           times kernel width"
+    | `Column_locations ->
+        Fmt.string ppf
+          "col2im column-location extent does not match the output window grid"
 end
 
 module Convolution = struct
@@ -683,6 +754,25 @@ module Resize_nearest = struct
       Dim.pp in_extent Op_config.Pos.pp out_extent Axis.pp axis aggregate limit
 end
 
+(* `upsample_bicubic2d.vec`'s own aggregate -- the SAME numerator magnitude as
+   [Resize]'s (see [Resize.Bilinear_axis.check]/[Resize.Bicubic_axis.check]),
+   a distinct variant only because the message must name the right op. *)
+module Resize_bicubic = struct
+  type t = {
+    axis : Axis.t;
+    in_extent : Dim.extent Dim.t;
+    out_extent : Op_config.Pos.t;
+    aggregate : int64;
+    limit : int64;
+  }
+
+  let pp ppf { axis; in_extent; out_extent; aggregate; limit } =
+    Fmt.pf ppf
+      "upsample_bicubic2d: (input extent %a - 1) times (output_size %a - 1) on \
+       axis %a is %Ld, which must be below the engine maximum of %Ld"
+      Dim.pp in_extent Op_config.Pos.pp out_extent Axis.pp axis aggregate limit
+end
+
 type t =
   [ `Adaptive_pool of Adaptive_pool.t
   | `Batched_matmul of Batched_matmul.error
@@ -693,8 +783,10 @@ type t =
   | `Convolution of Convolution.error
   | `Group_norm of Group_norm.t
   | `Index_tensor of Index_tensor.t
+  | `Im2col of Im2col.t
   | `Linear of Linear.error
   | `Lstm of Lstm.error
+  | `Meshgrid of Meshgrid.t
   | `Numel_over_limit of Vec6.Numel_bound.t
   | `Operand_shape of Operand_shape.t
   | `Output_count_over_limit of Output_count.t
@@ -703,6 +795,7 @@ type t =
   | `Reshape of Reshape.t
   | `Arange of Arange.t
   | `Resize of Resize.t
+  | `Resize_bicubic of Resize_bicubic.t
   | `Resize_nearest of Resize_nearest.t
   | `Sdpa of Sdpa.error
   | `Select_scatter of Select_scatter.t
@@ -722,8 +815,10 @@ let pp ppf = function
   | `Convolution e -> Convolution.pp_error ppf e
   | `Group_norm e -> Group_norm.pp ppf e
   | `Index_tensor e -> Index_tensor.pp ppf e
+  | `Im2col e -> Im2col.pp ppf e
   | `Linear e -> Linear.pp_error ppf e
   | `Lstm e -> Lstm.pp_error ppf e
+  | `Meshgrid e -> Meshgrid.pp ppf e
   | `Numel_over_limit e -> Vec6.Numel_bound.pp ppf e
   | `Operand_shape e -> Operand_shape.pp ppf e
   | `Output_count_over_limit e -> Output_count.pp ppf e
@@ -732,6 +827,7 @@ let pp ppf = function
   | `Reshape e -> Reshape.pp ppf e
   | `Arange e -> Arange.pp ppf e
   | `Resize e -> Resize.pp ppf e
+  | `Resize_bicubic e -> Resize_bicubic.pp ppf e
   | `Resize_nearest e -> Resize_nearest.pp ppf e
   | `Sdpa e -> Sdpa.pp_error ppf e
   | `Select_scatter e -> Select_scatter.pp ppf e

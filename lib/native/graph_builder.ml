@@ -225,6 +225,9 @@ let batched_matmul ?name input mat2 =
   op1 ?name ~kind:"batched_matmul"
     (Batched_matmul { Matmul.Batched_matmul.input; mat2 })
 
+let bitwise_not ?name x =
+  op1 ?name ~kind:"bitwise_not" (Bitwise_not { Pointwise.Bitwise_not.x })
+
 let bmm ?name input mat2 =
   op1 ?name ~kind:"bmm" (Bmm { Matmul.Bmm.input; mat2 })
 
@@ -241,6 +244,9 @@ let clamp ?name (params : Pointwise.Clamp.params) x =
        })
 
 let clone ?name x = op1 ?name ~kind:"clone" (Clone { Pointwise.Clone.x })
+
+let col2im ?name params x =
+  op1 ?name ~kind:"col2im" (Col2im { Im2col.Col2im.params; x })
 
 let concat ?name params xs =
   op1 ?name ~kind:"concat" (Concat { Concat.Concat.params; xs })
@@ -262,6 +268,8 @@ let convolution ?name params ~x ~weight ?bias () =
   op1 ?name ~kind:"convolution"
     (Convolution { Conv.Convolution.params; x; weight; bias })
 
+let cos ?name x = op1 ?name ~kind:"cos" (Cos { Pointwise.Cos.x })
+
 let cumsum ?name params x =
   op1 ?name ~kind:"cumsum" (Cumsum { Reduce.Cumsum.params; x })
 
@@ -273,6 +281,10 @@ let expand ?name params x =
 
 let eye ?name params =
   op1 ?name ~fmt:params.Factory.Eye.fmt ~kind:"eye" (Eye { Factory.Eye.params })
+
+let floor_div_scalar ?name scalar x =
+  op1 ?name ~kind:"floor_div_scalar"
+    (Floor_div_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar })
 
 let gelu ?name (approximate : Pointwise.Gelu.approximate) x =
   op1 ?name ~kind:"gelu" (Gelu { Pointwise.Gelu.x; approximate })
@@ -308,6 +320,9 @@ let hardtanh ?name (params : Pointwise.Hardtanh.params) x =
 let index_tensor ?name params ~self ~index =
   op1 ?name ~kind:"index_tensor"
     (Index_tensor { Index_tensor.Index_tensor.params; self; index })
+
+let im2col ?name params x =
+  op1 ?name ~kind:"im2col" (Im2col { Im2col.Im2col.params; x })
 
 let layer_norm ?name params ~x ?weight ?bias () =
   op1 ?name ~kind:"layer_norm"
@@ -376,6 +391,9 @@ let div_scalar ?name scalar x =
 let mean ?name params x =
   op1 ?name ~kind:"mean" (Mean { Reduce.Mean.params; x })
 
+let meshgrid ?name tensors =
+  opN ?name ~kind:"meshgrid" (Meshgrid { Meshgrid.Meshgrid.tensors })
+
 let mul ?name a b = op1 ?name ~kind:"mul" (Mul { Pointwise.Bin.a; b })
 
 let mul_scalar ?name scalar x =
@@ -397,6 +415,37 @@ let pad ?name (params : Pad.Pad.params) x =
 let permute ?name perm x =
   op1 ?name ~kind:"permute" (Permute { Permute.Permute.perm; x })
 
+(* `aten.einsum.default`, restricted to [Aten_shape.Einsum.plan]'s two
+   evidenced shapes -- no dedicated [Graph_ir] node: both plans legalize onto
+   a swap-[W]/[C] permute of [other] (turning its own [free, contract] frame
+   positions into [Batched_matmul]'s expected [contract, free]) feeding
+   [Batched_matmul] directly. [Shared_h] needs nothing else, since [self]'s
+   shared/batch index already lands on [H] (a real [Batched_matmul] batch
+   axis) by ordinary right-alignment. [Shared_w] additionally swaps [H]/[W]
+   on [self] first (its shared index lands on [W], not a batch axis, so it
+   must move there) and on the RESULT after (undoing the same swap, since
+   [self]'s own free axis rode along at [W] instead of [H] the whole time)
+   -- verified by hand against `.ai/einsum_design.md`'s own frame-position
+   derivation, not just pattern-matched from the equation strings. *)
+let einsum ?name (plan : Aten_shape.Einsum.plan) self other =
+  let swap a b =
+    Permute.Permute.of_fn (fun axis ->
+        if Axis.equal axis a then b else if Axis.equal axis b then a else axis)
+  in
+  let swap_h_w = swap Axis.H Axis.W in
+  let swap_w_c = swap Axis.W Axis.C in
+  let* self' =
+    match plan with
+    | Aten_shape.Einsum.Shared_h -> return self
+    | Aten_shape.Einsum.Shared_w -> permute swap_h_w self
+  in
+  let* other' = permute swap_w_c other in
+  match plan with
+  | Aten_shape.Einsum.Shared_h -> batched_matmul ?name self' other'
+  | Aten_shape.Einsum.Shared_w ->
+      let* raw = batched_matmul self' other' in
+      permute ?name swap_h_w raw
+
 let pow ?name scalar x =
   op1 ?name ~kind:"pow"
     (Pow { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar })
@@ -415,6 +464,10 @@ let reshape ?name params x =
 
 let rms_norm ?name params ~x ?weight () =
   op1 ?name ~kind:"rms_norm" (Rms_norm { Norm.RmsNorm.params; x; weight })
+
+let rpow_scalar ?name scalar x =
+  op1 ?name ~kind:"rpow_scalar"
+    (Rpow_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar })
 
 let rsub_scalar ?name params x =
   op1 ?name ~kind:"rsub_scalar"
@@ -435,6 +488,7 @@ let sigmoid ?name x =
   op1 ?name ~kind:"sigmoid" (Sigmoid { Pointwise.Sigmoid.x })
 
 let silu ?name x = op1 ?name ~kind:"silu" (Silu { Pointwise.Silu.x })
+let sin ?name x = op1 ?name ~kind:"sin" (Sin { Pointwise.Sin.x })
 
 let softmax ?name params x =
   op1 ?name ~kind:"softmax" (Softmax { Reduce.Softmax.params; x })
@@ -474,6 +528,10 @@ let unbind ?name params x =
 
 let unfold ?name params x =
   op1 ?name ~kind:"unfold" (Unfold { Unfold.Unfold.params; x })
+
+let upsample_bicubic2d ?name params x =
+  op1 ?name ~kind:"upsample_bicubic2d"
+    (Upsample_bicubic2d { Resize.Bicubic2d.params; x })
 
 let upsample_bilinear2d ?name params x =
   op1 ?name ~kind:"upsample_bilinear2d"

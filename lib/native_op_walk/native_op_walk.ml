@@ -117,6 +117,8 @@ let all_walks : op list =
        variable-arity builder and per-ordinal evaluator. *)
     (module Unbind_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
+    (module Upsample_bicubic2d_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
     (module Upsample_bilinear2d_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
     (module Upsample_nearest2d_nwalk.M : Walk_core.Walk.Op

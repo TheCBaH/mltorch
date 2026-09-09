@@ -14,11 +14,86 @@ The representation below is a conceptual sketch: the implementation uses
 `Const_ssa.allows` has grown past the "initial
 permitted set" below as new models exposed more constant-only ops. It landed as
 `{Add, Sub, Mul, Div, Sqrt, Permute}` and now also admits `{Reshape, Expand,
-Add_scalar, Mul_scalar, Pow}` (`8c1fbea`) and `{Rsub_scalar, Sigmoid}`
-(`cde812e`). Multi-output operations remain out of
-scope, as designed. Extending the set requires checking shape inference,
+Add_scalar, Mul_scalar, Pow}` (`8c1fbea`), `{Rsub_scalar, Sigmoid}`
+(`cde812e`), and `Concat` (2026-09-10, unblocking `vit_small_patch16_dinov3_qkvb`'s
+`` Concat is not a Const-SSA operation `` frontier). Multi-output operations remain out of
+scope, as designed — `Concat` is single-output (a variadic-ARITY, not
+multi-output, op: many operands join into one result), so it does not
+reopen that boundary. Extending the set requires checking shape inference,
 materialization, and symbolic grounding, plus regression tests; changing
-`allows` alone does not establish support in all of these paths.
+`allows` alone does not establish support in all of these paths. `Concat`'s
+own instance of that checklist: shape inference and materialization needed
+no change (`Graph_shape.output_shape`/`Eval_direct.run` are already generic
+over any `op`, per "Lowering and evaluation" below); symbolic grounding
+needed a new arm in `const_ssa_symbolic.ml`'s `ground`, since it — unlike
+every currently-allowed op — has a variadic OPERAND list, and picks one of
+several source operands depending on where the requested coordinate falls
+(a concrete offset-and-select walk over `Concat.Compute.select_segment`'s
+same segments, simplified by `ground`'s coordinate already being concrete
+rather than a symbolic index needing every branch to stay well-defined).
+Regression tests: `test/native/const_ssa_concat_test.ml` (export, grounding,
+and materialization, the same three-test shape every other allowed op has in
+`test/native/const_ssa_test.ml`).
+
+A further admission landed the same day (2026-09-10): `Repeat`, a chained
+frontier exposed by landing `upsample_bicubic2d.vec` in `sam2_hiera_tiny`
+(the model's own real, non-constant `Repeat` occurrence sits just past that
+op). Grounding is a new `repeat_source_coord` helper
+(`const_ssa_symbolic.ml`) — a per-axis modulo wraparound over a concrete
+coordinate, the same "simpler than the real kernel because the coordinate is
+already concrete" shape `Concat`'s own grounding has. Shape inference and
+materialization needed no change. Regression test:
+`test/native/const_ssa_repeat_test.ml` (split into its own file immediately
+— `const_ssa_test.ml` was already at the tracked 1000-line cap after the
+`Concat` split).
+
+Fixing `Repeat` immediately exposed one more, DIFFERENT frontier in the
+same model: `Upsample_bicubic2d` itself, over a distinct, all-constant
+occurrence of the op just landed in Native. Admitted the same day.
+Qualitatively different from every other admitted op: its ground form is a
+real weighted blend of up to sixteen captured cells, not a pure reindexing
+or a one/two-operand arithmetic expression. Rather than re-deriving
+`Resize.Bicubic_axis.endpoints`'s coordinate/weight math in `Ground_expr`
+terms, `const_ssa_symbolic.ml` instantiates that same function's `Compute`
+functor over a small local adapter module (index arithmetic reused verbatim
+from `Direct`; value arithmetic — `add`/`sub`/`mul`/`div`/`const` — via
+`Ground_expr.binary`/`const`), so grounding computes the IDENTICAL taps and
+weights materialization does, the same "ground the same expression, not a
+re-derived one" discipline `pow_expr`/`sigmoid_expr` already established for
+their own ATen-special-cased formulas. Each of the sixteen taps reads
+through `ground` itself, row-then-column blended in the same association
+order `Bicubic2d.Compute.pixel` uses, then wrapped in one `Ground_expr.round`
+for the single f32 store. Regression test:
+`test/native/const_ssa_bicubic_test.ml` (its own file from the start, given
+the size).
+
+Two more admissions landed 2026-09-10 while unblocking `index.Tensor`'s
+multi-entry-gather generalization (`.ai/index_tensor_design.md`) for
+`maxxvitv2_nano_rw_256`/`mvitv2_tiny`: `Index_tensor` itself, then (chained
+immediately behind it in `maxxvitv2_nano_rw_256`) `Clone`. Both needed only
+the `allows` change — `Graph_shape.output_shape`/`Eval_direct.run` are
+already generic over any `op` (per "Lowering and evaluation" above), so
+shape inference and materialization for `Index_tensor`'s own runtime gather
+work unmodified once `Eval_direct.run` is handed real captured payloads for
+both its operands. Deliberately NO `const_ssa_symbolic.ml` `ground` arm for
+`Index_tensor`: unlike every other admitted op, its gathered coordinate is
+itself DATA (the `index` operand's own runtime value), not a pure function
+of the requested output coordinate the way Permute/Reshape/Repeat/Concat's
+own grounding is — resolving that would mean reading a captured constant's
+concrete bytes mid-trace, before `Ground_expr`'s symbolic cells are ever
+substituted with real values, a materially different capability than
+`ground`'s existing coordinate-arithmetic recursion (`Ground_eval`'s own,
+unrelated `Expr.Index.Data`/`resolve_data_source` solves the analogous
+problem for Region-authored ops using the `Expr` intrinsic language, not
+for a `Graph_ir`-level op like this one). `Const_ssa.allows`'s own
+plan-validity check (`check_definition`'s `Apply` arm) never reads a value
+at all, so this gap does not block `native_builds`/`native4d_converts`; it
+would only matter for a symbolic-grounding consumer that needs to prove a
+per-coordinate expression through an `Index_tensor` node, and none of the
+currently-landed corpus paths need that. `Clone` is a value-preserving
+identity (`lib/native/ops/pointwise_unary.ml`'s own comment), so its
+`ground` arm is the simplest possible: recurse into its single operand at
+the SAME coordinate, no transform.
 
 ## Original problem
 

@@ -1,32 +1,11 @@
 (* The Const-SSA core is deliberately archive-free.  These tests exercise its
-   typed plan contract before rewrite state starts producing plan values. *)
+   typed plan contract before rewrite state starts producing plan values.
+   [Concat]'s own tests live in const_ssa_concat_test.ml, split out once this
+   file crossed the tracked 1000-line cap (scripts/check-file-size.sh); shared
+   fixtures for both live in const_ssa_helpers.ml. *)
 
 open Graph_ir
-
-let arena = Ground_expr.Arena.create ()
-let t_ = Tensor_id.of_int
-let value id = Const_ssa.Value_id.of_tensor_id (t_ id)
-let f32 = Payload.Fmt Payload.F32
-let sig_ id shape = Tensor_sig.create ~id:(t_ id) ~name:"" ~shape ~fmt:f32 ()
-
-let ramp shape =
-  Tensor.materialize shape (fun c ->
-      float_of_int
-        ((Dim.to_int (Vec6.get c Axis.H) * 10) + Dim.to_int (Vec6.get c Axis.W)))
-
-let swap_hw =
-  [
-    (Axis.N, Axis.N);
-    (Axis.T, Axis.T);
-    (Axis.D, Axis.D);
-    (Axis.H, Axis.W);
-    (Axis.W, Axis.H);
-    (Axis.C, Axis.C);
-  ]
-
-let pp_result pp = function
-  | Ok () -> Format.printf "ok@."
-  | Error e -> Format.printf "%a@." pp (Err.Error.kind e)
+open Const_ssa_helpers
 
 let%expect_test "Const-SSA: captured 6D input and permute export" =
   let input = sig_ 1 (Vec6.shape ~n:2 ~t:3 ~d:4 ~h:5 ~w:6 ~c:7) in

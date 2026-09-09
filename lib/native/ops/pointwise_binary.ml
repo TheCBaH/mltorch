@@ -256,6 +256,40 @@ module Div_scalar = struct
   end
 end
 
+(* [div.Tensor_mode(self, other, rounding_mode="floor")] with a compile-time
+   [other] -- the corpus's only instance (EdgeNeXt's Fourier positional
+   encoding divides a position index by 2, flooring). A genuinely different
+   overload from [Div_scalar]: real division there, floor-of-the-quotient
+   here. Not scoped for ["trunc"]/[None] rounding or a tensor [other] -- no
+   corpus evidence for either, so [Op_bridge] rejects them rather than
+   guessing. *)
+module Floor_div_scalar = struct
+  type t = Scalar_bin.t
+
+  let name = "Floor_div_scalar"
+  let jsont = Scalar_bin.jsont ~name
+  let operands = Scalar_bin.operands
+  let map_operands = Scalar_bin.map_operands
+  let pp pp_ref fmt t = Scalar_bin.pp ~op:"floor_div_scalar" pp_ref fmt t
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    module B = Scalar_binary (S)
+
+    (* [S.trunc] rounds toward zero; ATen's floor rounding mode rounds toward
+       negative infinity. The two agree whenever the true quotient [q] is
+       already an integer or nonnegative; the correction [- 1] fires exactly
+       when truncation rounded UP relative to the floor, i.e. when [q < trunc
+       q] (a negative, non-integral quotient). *)
+    let floor_div v s =
+      let q = S.div v s in
+      let t = S.trunc q in
+      S.sub t (S.select (S.lt q t) (S.const 1.) (S.const 0.))
+
+    let pixel ~scalar x out = B.pixel ~combine:floor_div ~scalar x out
+  end
+end
+
 module Mul = struct
   type t = Bin.t
 
@@ -329,6 +363,31 @@ module Pow = struct
       else if scalar = -0.5 then reciprocal (S.sqrt v)
       else if scalar = -1.0 then reciprocal v
       else S.exp (S.mul (S.const scalar) (S.log v))
+  end
+end
+
+(* [scalar ** x] -- ATen's `aten.pow.Scalar`, the reverse of [Pow]'s
+   [x ** scalar]: the tensor operand is the EXPONENT, and the compile-time
+   constant is the base (EdgeNeXt's Fourier positional encoding raises
+   [10000.0] to a per-element frequency exponent). [exp (x * log scalar)] is
+   the only general expression available, computing [log scalar] once at
+   decode time rather than per pixel; correct for a positive [scalar] (the
+   corpus's only instance is [10000.0]) -- a nonpositive base hits the same
+   undefined-[log] case [Pow]'s own fallback already flags. *)
+module Rpow_scalar = struct
+  type t = Scalar_bin.t
+
+  let name = "Rpow_scalar"
+  let jsont = Scalar_bin.jsont ~name
+  let operands = Scalar_bin.operands
+  let map_operands = Scalar_bin.map_operands
+  let pp pp_ref fmt t = Scalar_bin.pp ~op:"rpow_scalar" pp_ref fmt t
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    let pixel ~scalar x (out : Semantics.position S.index Vec6.t) =
+      let v = S.load x out in
+      S.exp (S.mul v (S.const (Float.log scalar)))
   end
 end
 

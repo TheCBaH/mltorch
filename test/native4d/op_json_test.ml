@@ -74,8 +74,23 @@ let adaptive_max_params : Pool.AdaptiveMaxPool2d.params =
 let upsample_params : Resize.Bilinear2d.params =
   { output_size = hw (Op_config.Pos.of_int 5); align_corners = false }
 
+let bicubic_params : Resize.Bicubic2d.params =
+  { output_size = hw (Op_config.Pos.of_int 5); align_corners = false }
+
 let nearest_params : Resize.Nearest2d.params =
   { output_size = hw (Op_config.Pos.of_int 5) }
+
+let im2col_params : Im2col.Params.t =
+  let window =
+    Im2col.Window.
+      {
+        kernel = Dim.extent 2;
+        dilation = Op_config.Pos.of_int 1;
+        pad = Op_config.Nonneg.of_int 0;
+        stride = Op_config.Pos.of_int 1;
+      }
+  in
+  Im2col.Params.{ h = window; w = window }
 
 (* Deliberately in the variant's own alphabetical order, so a reader can check
    the list against [Op.op] by eye. *)
@@ -86,6 +101,8 @@ let samples : Op.t list =
     Adaptive_avg_pool2d { Pool.AdaptiveAvgPool2d.params = adaptive_params; x };
     Adaptive_max_pool2d
       { Pool.AdaptiveMaxPool2d.params = adaptive_max_params; x };
+    Adaptive_max_pool2d_with_indices
+      { Pool.AdaptiveMaxPool2dWithIndices.params = adaptive_max_params; x };
     Avg_pool2d { Pool.AvgPool2d.params = avg_params; x };
     Batch_norm_no_stats
       {
@@ -95,11 +112,23 @@ let samples : Op.t list =
         bias = Some b;
       };
     Batched_matmul { Matmul.Batched_matmul.input = x; mat2 = y };
+    Bitwise_not { Pointwise.Bitwise_not.x };
     Clamp { Pointwise.Clamp.params = { min = Some 0.; max = Some 6. }; x };
+    Col2im
+      {
+        Im2col.Col2im.params =
+          {
+            window = im2col_params;
+            output_h = Dim.extent 3;
+            output_w = Dim.extent 4;
+          };
+        x;
+      };
     (* Three operands, so a codec that dropped or reordered one is visible. *)
     Concat4 { Ops4.Concat4.params = { axis = W }; xs = [ x; y; w ] };
     Conv2d
       { Ops4.Conv_payload.params = conv_params; x; weight = w; bias = None };
+    Cos { Pointwise.Cos.x };
     Cumsum4 { Ops4_cumsum.Cumsum4.params = { axis = C }; x };
     Depthwise_conv2d
       {
@@ -112,6 +141,7 @@ let samples : Op.t list =
     Div_scalar { Pointwise.Scalar_bin.x; scalar = 2. };
     Expand4
       { Ops4.Expand4.params = { size = Shape4.of_ints ~n:1 ~h:3 ~w:4 ~c:5 }; x };
+    Floor_div_scalar { Pointwise.Scalar_bin.x; scalar = 2. };
     Gelu { Pointwise.Gelu.x; approximate = Exact };
     Group_norm4
       {
@@ -136,6 +166,7 @@ let samples : Op.t list =
        confused [self]/[index] still prints differently. *)
     IndexTensor4
       { Ops4.IndexTensor4.params = { axis = N }; self = x; index = y };
+    Im2col { Im2col.Im2col.params = im2col_params; x };
     Layer_norm
       {
         Ops4.Layer_norm.params = { dims = [ C ]; eps = 1e-5 };
@@ -172,6 +203,7 @@ let samples : Op.t list =
       };
     Max_keepdims { Ops4.Max_keepdims.params = { dims = [ H; W ] }; x };
     Max_pool2d { Pool.MaxPool2d.params = max_params; x };
+    Max_pool2d_with_indices { Pool.MaxPool2dWithIndices.params = max_params; x };
     Mean_keepdims { Ops4.Mean_keepdims.params = { dims = [ H; W ] }; x };
     Mul { Pointwise.Bin.a = x; b = y };
     Mul_scalar { Pointwise.Scalar_bin.x; scalar = 2. };
@@ -226,6 +258,7 @@ let samples : Op.t list =
         x;
         weight = Some w;
       };
+    Rpow_scalar { Pointwise.Scalar_bin.x; scalar = 2. };
     (* Two distinct scalars, neither the schema default (alpha=1), so an
        encoder that dropped or swapped either field would still print
        differently. *)
@@ -255,6 +288,7 @@ let samples : Op.t list =
       };
     Sigmoid { Pointwise.Sigmoid.x };
     Silu { Pointwise.Silu.x };
+    Sin { Pointwise.Sin.x };
     (* Three distinct bounds and a step that is not 1, so an encoder that
        permuted the fields still decodes and prints differently. *)
     Slice4
@@ -292,6 +326,7 @@ let samples : Op.t list =
         bias = None;
       };
     Unbind { Ops4.Unbind.params = { axis = C }; x };
+    Upsample_bicubic2d { Resize.Bicubic2d.params = bicubic_params; x };
     Upsample_bilinear2d { Resize.Bilinear2d.params = upsample_params; x };
     Upsample_nearest2d { Resize.Nearest2d.params = nearest_params; x };
     Vector_norm_keepdims
@@ -324,7 +359,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 60, registry: 60 |}]
+  [%expect {| samples: 70, registry: 70 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -334,6 +369,7 @@ let%expect_test "op4: printed" =
     add_scalar x=t0 scalar=0.1
     adaptive_avg_pool2d x=t0 params={output_size={h=3; w=3}}
     adaptive_max_pool2d x=t0 params={output_size={h=4; w=4}}
+    adaptive_max_pool2d_with_indices x=t0 params={output_size={h=4; w=4}}
     avg_pool2d
       x=t0
       params={kernel={h=2; w=2};
@@ -343,7 +379,11 @@ let%expect_test "op4: printed" =
              count_include_pad=true}
     batch_norm_no_stats x=t0 weight=t2 bias=t3 params={channel=C; eps=1e-05}
     batched_matmul input=t0 mat2=t1
+    bitwise_not x=t0
     clamp x=t0 params={min=0; max=6}
+    col2im
+      x=t0
+      params={window={h={kernel=2; dilation=1; pad=0; stride=1}; w={kernel=2; dilation=1; pad=0; stride=1}}; output_h=3; output_w=4}
     concat4 xs=[t0, t1, t2] params={axis=W}
     conv2d
       x=t0
@@ -351,6 +391,7 @@ let%expect_test "op4: printed" =
       params={h={kernel=3; stride=1; pad_before=0; pad_after=1; dilation=1};
              w={kernel=3; stride=1; pad_before=0; pad_after=1; dilation=1};
              in_channels=4}
+    cos x=t0
     cumsum4 x=t0 params={axis=C}
     depthwise_conv2d
       x=t0
@@ -362,6 +403,7 @@ let%expect_test "op4: printed" =
     div a=t0 b=t1
     div_scalar x=t0 scalar=2
     expand4 x=t0 params={size=[N=1 H=3 W=4 C=5]}
+    floor_div_scalar x=t0 scalar=2
     gelu x=t0 approximate=none
     group_norm4 x=t0 weight=t2 bias=t3 params={channel=C; groups=2; eps=1e-05}
     grouped_conv2d
@@ -375,6 +417,9 @@ let%expect_test "op4: printed" =
     hardswish x=t0
     hardtanh x=t0 params={min_val=0; max_val=6}
     index_tensor4 self=t0 index=t1 params={axis=N}
+    im2col
+      x=t0
+      params={h={kernel=2; dilation=1; pad=0; stride=1}; w={kernel=2; dilation=1; pad=0; stride=1}}
     layer_norm x=t0 weight=t2 bias=t3 params={dims=[C]; eps=1e-05}
     leaky_relu x=t0 params={negative_slope=0.2}
     lstm
@@ -385,6 +430,12 @@ let%expect_test "op4: printed" =
       params={hidden_size=2; input_size=3; batch_first=false}
     max_keepdims x=t0 params={dims=[H, W]}
     max_pool2d
+      x=t0
+      params={kernel={h=2; w=2};
+             stride={h=2; w=2};
+             pad={h=0; w=0};
+             ceil_mode=false}
+    max_pool2d_with_indices
       x=t0
       params={kernel={h=2; w=2};
              stride={h=2; w=2};
@@ -401,12 +452,14 @@ let%expect_test "op4: printed" =
     repeat_interleave4 x=t0 params={axis=W repeats=4}
     reshape4 x=t0 params={shape=[N=1 H=1 W=1 C=12]}
     rms_norm x=t0 weight=t2 params={dims=[C]; eps=1e-05}
+    rpow_scalar x=t0 scalar=2
     rsub_scalar x=t0 params={other=1; alpha=2}
     sdpa query=t0 key=t1 value=t2 mask=t3 params={scale=default}
     select4 x=t0 params={axis=H index=2}
     select_scatter4 self=t0 src=t1 params={axis=W index=1}
     sigmoid x=t0
     silu x=t0
+    sin x=t0
     slice4 x=t0 params={axis=W start=1 stop=8 step=3}
     softmax4 x=t0 params={axis=C}
     split_with_sizes4 x=t0 params={axis=W sizes=[2, 3, 1]}
@@ -423,6 +476,7 @@ let%expect_test "op4: printed" =
              dilation={h=1; w=1};
              output_padding={h=1; w=1}}
     unbind x=t0 params={axis=C}
+    upsample_bicubic2d x=t0 params={output_size={h=5; w=5}; align_corners=false}
     upsample_bilinear2d x=t0 params={output_size={h=5; w=5}; align_corners=false}
     upsample_nearest2d x=t0 params={output_size={h=5; w=5}}
     vector_norm_keepdims x=t0 params={dims=[H, W]}
@@ -440,7 +494,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 60 ops |}]
+  [%expect {| round-tripped 70 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

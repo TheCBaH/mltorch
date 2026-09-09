@@ -24,14 +24,13 @@ let pp_verdict fmt = function
 let native4d : [< Native4d.Error.t ] -> verdict = function
   (* The one failure mode payloads remove. *)
   | `Missing_constant_payload _ -> Unavailable C.Requires_payloads
-  (* The seven domain rejections. Having payloads does not put a graph inside
+  (* The six domain rejections. Having payloads does not put a graph inside
      the dialect, which is why Native4D stays conditional for both input
      kinds. *)
   | `Axis_outside_dialect _ | `Batch_norm_extent _
   | `Batched_matmul_batch_axis _ | `Dynamic_batch_norm _
-  | `Live_max_pool_indices _ | `Non_four_dimensional_tensor _
-  | `Sdpa_batch_axis _ | `Unsupported_grouped_transposed_conv _
-  | `Unsupported_op _ ->
+  | `Non_four_dimensional_tensor _ | `Sdpa_batch_axis _
+  | `Unsupported_grouped_transposed_conv _ | `Unsupported_op _ ->
       Unavailable C.Outside_dialect_domain
   (* A payload that WAS supplied and is wrong, and a map or view invariant
      failure, are defects. Reporting either as "outside the dialect" tells the
@@ -79,15 +78,28 @@ let kernel : [< Kernel_adapt.error ] -> verdict = function
   | `Numel_too_large _ | `Scan_updates_total_over_limit _ | `Too_many_inputs _
   | `Too_many_outputs _ | `Too_many_values _ ->
       Unavailable C.Over_limit
+  (* A STORED VALUE whose own declared format isn't f32 (e.g. an
+     [arange.default(dtype=LONG)] stage) is outside the Kernel dialect by
+     construction -- materialization always produces f32, the same "no
+     counterpart in this dialect" story Native4D's D/T axis boundary tells --
+     not a defect in the graph or the adapter. A FILLED INPUT failing the same
+     check is different: its format was chosen by the adapter itself, so a
+     mismatch there is [Kernel_adapt] handing [Kernel.create] a badly-typed
+     constant, which stays a defect below. *)
+  | `Not_materializable
+      { Kernel.Format_rule.role = Kernel.Format_rule.Stored_value; _ } ->
+      Unavailable C.Outside_dialect_domain
   (* Everything else is a defect. The stage program is repository-generated, so
      a structural failure in it is ours; and the two selection rows are
      reachable only through [?select], which whole-program export never
      passes. *)
   | `Body _ | `Duplicate_id _ | `Forward_reference _ | `Missing_live_output _
-  | `Not_materializable _ | `Output_not_selected _ | `Program_invalid _
-  | `Quant_contract _ | `Signature_id_mismatch _ | `Unknown_output _
-  | `Unknown_program_output _ | `Unknown_selection _ | `Unknown_stage_source _
-  | `Unreachable_value _ | `Unresolved_source _ ->
+  | `Not_materializable
+      { Kernel.Format_rule.role = Kernel.Format_rule.Filled_input; _ }
+  | `Output_not_selected _ | `Program_invalid _ | `Quant_contract _
+  | `Signature_id_mismatch _ | `Unknown_output _ | `Unknown_program_output _
+  | `Unknown_selection _ | `Unknown_stage_source _ | `Unreachable_value _
+  | `Unresolved_source _ ->
       Fatal
 
 let requires_payloads_without_them = C.Requires_payloads

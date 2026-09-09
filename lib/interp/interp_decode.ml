@@ -436,7 +436,16 @@ let tensors_arg env node name =
 (* [index.Tensor]'s [indices : Tensor?[]] -- a list mixing live tensor entries
    with explicit [None]s, unlike [tensors_arg]'s all-live [Tensor[]]. Each
    live entry resolves through [env] exactly as an ordinary [Tensor] argument
-   does; [None] survives as [None]. *)
+   does; [None] survives as [None].
+
+   A [Tensor?[]]-typed argument with EVERY entry live is exported as a plain
+   [Argument.Tensors] rather than [Argument.Optional_tensors] -- the exporter's
+   simpler all-live encoding, evidenced by `mvitv2_tiny`/`maxxvitv2_nano_rw_256`'s
+   own `indices` (`.ai/index_tensor_design.md`). Accepted here the same as the
+   mixed form, each entry wrapped [Some]: the two encodings carry identical
+   information for a [Tensor?[]]-typed slot, and rejecting the all-live one
+   would make acceptance depend on which encoding the exporter happened to
+   choose, not on the graph's actual shape. *)
 let optional_tensors_arg env node name =
   match find_arg node name with
   | None -> Err.fail (`Missing_argument name)
@@ -448,6 +457,11 @@ let optional_tensors_arg env node name =
               Err.map (fun t -> Some t) (resolve env ta.TensorArgument.name)
           | OptionalTensorArgument.None _ -> Err.return None)
         ts
+  | Some (Argument.Tensors tas) ->
+      Err.List.map
+        (fun (ta : TensorArgument.t) ->
+          Err.map (fun t -> Some t) (resolve env ta.name))
+        tas
   | Some arg -> wrong_kind name `Optional_tensor_list arg
 
 (* A Tensor[] binding takes a (data, length) pair: build the ctypes array of

@@ -34,11 +34,14 @@ module type SEMANTICS = sig
   val sqrt : t -> t
   val erf : t -> t
   val log : t -> t
+  val cos : t -> t
+  val sin : t -> t
 
   (* transcendental: genuinely primitive, not select-expressible (sqrt is the
      rms-norm normaliser; rsqrt is just 1 / sqrt; erf is gelu's exact form;
      log is Pow's general fallback, exp(exponent * log x) -- see
-     [Pointwise.Pow]) *)
+     [Pointwise.Pow]; cos/sin are EdgeNeXt's/ViT's Fourier positional
+     encoding) *)
   val trunc : t -> t
   (* round toward zero -- genuinely primitive, not select-expressible (unlike
      [max]/[min]/[relu]): there is no finite composition of [add]/[mul]/[select]
