@@ -1,4 +1,19 @@
-.PHONY: visualizer.submodule visualizer.patch visualizer.build spike.setup spike.runtest webapp.npm-install webapp.build webapp.serve webapp.runtest webapp.bridge-runtest webapp.browser-runtest melange.build melange.build.scaffold melange.runtest build test format runtest verify.pristine clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars pt2.json-model-support inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% benchmark.region_pixel benchmark.region_compute tailcall.runtest tailcall.js-benchmark expr_order.runtest expr_probe.runtest expr_probe.deep-runtest expr_bench.runtest expr_bench.js-benchmark inline-timing-report inline-timing-report-js jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.run jsoo.pt2.download jsoo.pt2.vars js.build js.runtest check.file-size check.whitespace check precommit
+.PHONY: benchmark.region_compute benchmark.region_pixel build check \
+	check.file-size check.whitespace clean expr_bench.js-benchmark \
+	expr_bench.runtest expr_order.runtest expr_probe.deep-runtest \
+	expr_probe.runtest format inference inference-runa \
+	inline-timing-report inline-timing-report-js js.build js.runtest \
+	jsoo.build jsoo.inline-runtest jsoo.pt2.download jsoo.pt2.run \
+	jsoo.pt2.runtest jsoo.pt2.vars jsoo.runtest melange.build \
+	melange.build.scaffold melange.runtest native-infer-verify \
+	native-infer-verify.% native-transform-verify \
+	native-transform-verify.% precommit profile.landmarks \
+	profile.memtrace pt2.download pt2.download-all pt2.download-cram \
+	pt2.json-model-support pt2.runtest pt2.vars runtest spike.runtest \
+	spike.setup tailcall.js-benchmark tailcall.runtest test \
+	verify.pristine visualizer.build visualizer.patch \
+	visualizer.submodule webapp.bridge-runtest webapp.browser-runtest \
+	webapp.build webapp.npm-install webapp.runtest webapp.serve
 all: build
 
 # Functional ATen model release, pinned alongside the producer submodule.
