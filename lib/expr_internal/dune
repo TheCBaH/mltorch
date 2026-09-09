@@ -1,6 +1,16 @@
 ; Implementation library for [Expr].  It contains the raw AST and all
 ; operations; [lib/expr] is the only supported public façade.
+;
+; cppo with no [-D]: [eval.ml]'s [value] is written as identical copies on
+; both sides of an [#if defined JS_BACKEND] conditional (tail-call conversion
+; Stage 3), so this stanza must route through cppo to select the [#else]
+; branch, exactly as [expr_internal_js]/[expr_internal_mel] route through it
+; to select the [#if] branch with their own [-D]. Every other module here has
+; no cppo directives, so cppo passes them through unchanged. See .ai/.
 
 (library
  (name expr_internal)
- (libraries core err_trace fmt))
+ (libraries core err_trace fmt)
+ (preprocess
+  (action
+   (run %{bin:cppo} %{input-file}))))

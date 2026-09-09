@@ -93,6 +93,16 @@
  (modules order_probe)
  (libraries expr err_trace))
 
+; The tail-call conversion's plain-value probe (see probe_expr.ml and .ai/):
+; native/jsoo/Melange all build this same source; `make expr_probe.runtest`
+; diffs jsoo's and Melange's output against this native golden.
+
+(executable
+ (name probe_expr)
+ (modes exe byte)
+ (modules probe_expr stack_fault)
+ (libraries expr))
+
 ; The tier-1 fixture: resnet18's committed model.json, the smallest of the 17
 ; (224K). Same shell-copy idiom as data/dune and test/dune -- the submodule is
 ; excluded from dune's scan, and %{project_root} reaches it only inside

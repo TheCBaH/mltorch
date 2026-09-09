@@ -1,0 +1,24 @@
+; jsoo mirror of lib/native4d, over [native_js] rather than [native] so its
+; unqualified [Vec6]/[Axis]/[Expr]/... names resolve to the JS-flavored
+; mirror transitively. See js/jsoo/native_js/dune and .ai/ (tail-call
+; conversion, Stage 3).
+;
+; WRAPPED, matching native4d's own convention (see lib/native4d/dune's
+; comment: a second flattened dialect would shadow native's/native_js's
+; module names).
+;
+; Two copy_files stanzas (root, passes4/), same flattening rationale as
+; native_js. Wildcard globs are safe: lib/native4d runs no custom
+; preprocessing of its own.
+
+(include_subdirs unqualified)
+
+(copy_files
+ (files %{workspace_root}/lib/native4d/*.{ml,mli}))
+
+(copy_files
+ (files %{workspace_root}/lib/native4d/passes4/*.{ml,mli}))
+
+(library
+ (name native4d_js)
+ (libraries err_trace fmt jsont native_js))

@@ -1,4 +1,4 @@
-.PHONY: visualizer.submodule visualizer.patch visualizer.build spike.setup spike.runtest webapp.npm-install webapp.build webapp.serve webapp.runtest webapp.bridge-runtest webapp.browser-runtest melange.build melange.build.scaffold melange.runtest build test format runtest verify.pristine clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars pt2.json-model-support inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% benchmark.region_pixel benchmark.region_compute tailcall.runtest tailcall.js-benchmark expr_order.runtest inline-timing-report inline-timing-report-js jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.run jsoo.pt2.download jsoo.pt2.vars js.build js.runtest check.file-size check.whitespace check precommit
+.PHONY: visualizer.submodule visualizer.patch visualizer.build spike.setup spike.runtest webapp.npm-install webapp.build webapp.serve webapp.runtest webapp.bridge-runtest webapp.browser-runtest melange.build melange.build.scaffold melange.runtest build test format runtest verify.pristine clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars pt2.json-model-support inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% benchmark.region_pixel benchmark.region_compute tailcall.runtest tailcall.js-benchmark expr_order.runtest expr_probe.runtest expr_probe.deep-runtest expr_bench.runtest expr_bench.js-benchmark inline-timing-report inline-timing-report-js jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.run jsoo.pt2.download jsoo.pt2.vars js.build js.runtest check.file-size check.whitespace check precommit
 all: build
 
 # Functional ATen model release, pinned alongside the producer submodule.
@@ -386,9 +386,10 @@ tailcall.js-benchmark:
 ORDER_PROBE_BUILD := _build/default/js
 
 expr_order.runtest:
-	opam exec -- dune build \
+	opam exec -- dune build --profile melange \
 	  js/probe/order_probe.exe js/probe/order_probe.bc \
-	  js/jsoo/order_probe/order_probe.bc.js
+	  js/jsoo/order_probe/order_probe.bc.js \
+	  @expr-order-melange
 	@$(ORDER_PROBE_BUILD)/probe/order_probe.exe \
 	  > $(ORDER_PROBE_BUILD)/probe/order_probe.actual.native
 	@diff -u js/probe/order_probe.expected.native \
@@ -401,7 +402,78 @@ expr_order.runtest:
 	  > $(ORDER_PROBE_BUILD)/jsoo/order_probe/order_probe.actual.jsoo
 	@diff -u js/probe/order_probe.expected.jsoo \
 	  $(ORDER_PROBE_BUILD)/jsoo/order_probe/order_probe.actual.jsoo
-	@echo "expr_order: native, bytecode and jsoo each match their own golden"
+	@node $(ORDER_PROBE_BUILD)/melange/order_probe/output/js/melange/order_probe/order_probe.js \
+	  > $(ORDER_PROBE_BUILD)/melange/order_probe/order_probe.actual.melange
+	@diff -u js/probe/order_probe.expected.melange \
+	  $(ORDER_PROBE_BUILD)/melange/order_probe/order_probe.actual.melange
+	@echo "expr_order: native, bytecode, jsoo and melange each match their own golden"
+
+# The tail-call conversion's plain-value probe (Stage 3 onward, .ai/'s
+# implementation plan): unlike expr_order.runtest above, this one checks
+# cross-backend AGREEMENT (native is the golden, jsoo and Melange are each
+# diffed against it), because none of probe_expr.ml's cases are
+# order-sensitive -- that is exactly what order_probe.ml exists to isolate.
+EXPR_PROBE_BUILD := _build/default/js
+
+expr_probe.runtest:
+	opam exec -- dune build --profile melange \
+	  js/probe/probe_expr.exe \
+	  js/jsoo/probe_expr/probe_expr.bc.js \
+	  @expr-probe-melange
+	@$(EXPR_PROBE_BUILD)/probe/probe_expr.exe \
+	  > $(EXPR_PROBE_BUILD)/probe/probe_expr.actual.native
+	@node $(EXPR_PROBE_BUILD)/jsoo/probe_expr/probe_expr.bc.js \
+	  > $(EXPR_PROBE_BUILD)/jsoo/probe_expr/probe_expr.actual.jsoo
+	@diff -u $(EXPR_PROBE_BUILD)/probe/probe_expr.actual.native \
+	  $(EXPR_PROBE_BUILD)/jsoo/probe_expr/probe_expr.actual.jsoo
+	@node $(EXPR_PROBE_BUILD)/melange/probe_expr/output/js/melange/probe_expr/probe_expr.js \
+	  > $(EXPR_PROBE_BUILD)/melange/probe_expr/probe_expr.actual.melange
+	@diff -u $(EXPR_PROBE_BUILD)/probe/probe_expr.actual.native \
+	  $(EXPR_PROBE_BUILD)/melange/probe_expr/probe_expr.actual.melange
+	@echo "expr_probe: jsoo and melange match native"
+
+# Stage 7's own deep-isolated-Expr gate: probe_expr.ml's [--deep] mode, run
+# only against jsoo and Melange -- never native, whose [Eval.value] is still
+# ordinary recursion and would genuinely overflow on the depth-200,000
+# Value/Bool cases this checks against closed forms. Each route's own exit
+# code is the gate (probe_expr.ml exits nonzero on any mismatch), not a diff
+# against a golden: unlike expr_probe.runtest above, there is no native run
+# to diff against here.
+expr_probe.deep-runtest:
+	opam exec -- dune build --profile melange \
+	  js/jsoo/probe_expr/probe_expr.bc.js \
+	  @expr-probe-melange
+	node $(EXPR_PROBE_BUILD)/jsoo/probe_expr/probe_expr.bc.js --deep
+	node $(EXPR_PROBE_BUILD)/melange/probe_expr/output/js/melange/probe_expr/probe_expr.js --deep
+	@echo "expr_probe.deep: jsoo and melange both survive and check out at depth 200000"
+
+# The tail-call conversion's Stage 5 correctness harness (see
+# test/expr_bench/corpus.ml and .ai/): every candidate in
+# Corpus.candidate_evaluators against the reference evaluator, on every
+# applicable case, plus one deep smoke case the reference evaluator is never
+# asked to run. Each route's own exit code is the gate -- expr_bench_run.ml
+# exits nonzero on any mismatch.
+EXPR_BENCH_BUILD := _build/default/test/expr_bench
+
+expr_bench.runtest:
+	opam exec -- dune build --profile melange \
+	  test/expr_bench/jsoo/expr_bench_run.bc.js \
+	  @expr-bench-melange
+	node $(EXPR_BENCH_BUILD)/jsoo/expr_bench_run.bc.js
+	node $(EXPR_BENCH_BUILD)/melange/output/test/expr_bench/melange/expr_bench_run.js
+
+# Same two routes, [--bench] mode: Sys.time over the shallow corpus plus a
+# couple of above-frontier deep_chain depths, reference included on the
+# corpus but candidates only on the deep depths (see expr_bench_run.ml).
+# Manual, not part of runtest/js.runtest -- a timing report, not a gate.
+expr_bench.js-benchmark:
+	opam exec -- dune build --profile melange \
+	  test/expr_bench/jsoo/expr_bench_run.bc.js \
+	  @expr-bench-melange
+	@echo "js_of_ocaml"
+	node $(EXPR_BENCH_BUILD)/jsoo/expr_bench_run.bc.js --bench
+	@echo "melange"
+	node $(EXPR_BENCH_BUILD)/melange/output/test/expr_bench/melange/expr_bench_run.js --bench
 
 # JavaScript backends. Deliberately outside `runtest`, same reasoning as
 # pt2.runtest: linking js_of_ocaml on every local test run is not worth it, and

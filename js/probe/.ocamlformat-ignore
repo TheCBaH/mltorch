@@ -1,0 +1,11 @@
+# These four are cppo-preprocessed source (#if/#else/#endif around the
+# tail-call conversion's Stage 5 MELANGE_BACKEND backtrace-primitive split;
+# see .ai/), not valid standalone OCaml syntax, so ocamlformat cannot parse
+# them directly -- and js/probe/dune never itself preprocesses them (they're
+# only ever cppo'd once copied into expr_internal_js/expr_internal_mel), so
+# dune fmt has no other signal to skip them the way lib/expr_internal/eval.ml
+# is skipped. Same idiom as lib/expr_internal/.ocamlformat-ignore.
+eval_candidates.ml
+eval_hybrid.ml
+eval_machine_reuse.ml
+eval_trampoline_delayed.ml

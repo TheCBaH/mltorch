@@ -1,0 +1,51 @@
+; jsoo mirror of lib/expr_internal. Sources are copied, never forked: see
+; .ai/js_backends_design.md and expr-tailcall-implementation-plan.md under
+; .ai/ (tail-call conversion, Stage 3). A separate library, rather than
+; linking [expr_internal] directly, exists purely because cppo's [-D] set is
+; scoped to the library stanza: [eval.ml]'s [value] is one source duplicated
+; on both sides of an [#if defined JS_BACKEND], and this stanza is what
+; selects the [#if] branch via its own preprocessing, which the ordinary
+; [expr_internal] stanza cannot also do with different flags.
+;
+; EXPLICIT file list, not a `*.ml`/`*.mli` wildcard glob: `lib/expr_internal`
+; is itself a dune-owned library directory whose own stanza ALSO runs an
+; action-based cppo preprocess (native's [-D]-less pass, selecting this
+; file's `#else` branch). A wildcard `copy_files` glob sourced from that
+; directory collides with the origin library's own preprocessing rule --
+; reproducibly "Error: Multiple rules generated for <module>.pp.ml", always
+; on whichever module the mirror actually preprocesses -- where an explicit
+; enumerated file list (dune's brace-alternation, matching
+; `experiments/tailcall/jsoo/dune`'s proven shape) does not. Add a new
+; `lib/expr_internal` module's name to BOTH lists below (and to
+; `expr_internal_mel`'s) when one is added upstream; nothing else in this
+; repo's mirroring needs the same care, because no other mirrored library's
+; origin stanza has its own action-based preprocessing.
+;
+; Wrapped (dune's default), matching native's [expr_internal].
+
+(copy_files
+ (files
+  %{workspace_root}/lib/expr_internal/{axis,bool,builder,checked,check,coord,eval_common,eval,eval_js_machine,expr_repr,fold,index,intrinsic,local_var,max_op,pp,reduce_var,reduction,rewrite,role,scan_admission,scan_limits,scan_meter,scan,source,value}.ml))
+
+(copy_files
+ (files
+  %{workspace_root}/lib/expr_internal/{axis,coord,max_op,role,source}.mli))
+
+; [eval_candidates.ml]/[eval_trampoline_delayed.ml]/[eval_machine_reuse.ml]/
+; [eval_hybrid.ml] are not [lib/expr_internal] sources: they are the
+; tail-call conversion's Stage 5 canonical JS-only candidate-driver modules
+; (js/probe/ under .ai/), copied here (and into expr_internal_mel) so they
+; compile against real Expr_internal types. Never linked natively. Split
+; across four files (rather than one combined [eval_candidates.ml]) once
+; the combined file passed the repo's file-size cap.
+
+(copy_files
+ (files
+  %{workspace_root}/js/probe/{eval_candidates,eval_trampoline_delayed,eval_machine_reuse,eval_hybrid}.ml))
+
+(library
+ (name expr_internal_js)
+ (libraries core err_trace fmt)
+ (preprocess
+  (action
+   (run %{bin:cppo} -D JS_BACKEND -D JSOO_BACKEND %{input-file}))))

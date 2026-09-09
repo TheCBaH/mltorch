@@ -77,58 +77,11 @@ module Limits = struct
     | `Invalid_limit { Invalid.name; value } ->
         Fmt.pf fmt "invalid limit %s = %Ld" name value
 
-  module Hard = struct
-    (* [depth] and [eval_depth] come from test/native/depth_probe.ml, measured
-       under node: every traversal survives 1024 there and the first failures
-       are at 2048 (Pp.value, Value.compare, Value.hash) — CHECK.VALUE STILL
-       SURVIVES 2048, which is why the ceiling follows the minimum over all
-       traversals rather than the checker's own figure. [Eval.value] is the
-       outlier upward; it has to clear whole-program resnet18's ~770 combined
-       depth, since the buffer-based evaluator never recurses through it.
-
-       Re-measured after the scan primitive widened [Value.t] and [Eval.value]
-       (two more constructors, plus the inline [Scan_at] recurrence): 1536 is
-       the accepted ceiling pinned under node. The exact failure frontier is
-       deliberately not a contract: it changes with whole-program linking and
-       V8 optimization. 1536 keeps roughly 2x headroom over resnet18's
-       requirement, matching the margin the original ceiling had. *)
-    let depth = 256
-    let eval_depth = 1536
-
-    (* Measured under node with [Kernel_eval.value_at] over a real producer
-       chain (test/native/depth_probe.ml). The frontier there is both lower and
-       less stable than for a flat expression -- a 1024-transition chain
-       overflowed on three runs out of four at the previous ceiling, and a
-       384-transition chain of depth-4 bodies overflows while a 192-transition
-       chain of depth-16 bodies does not, so transition count dominates and the
-       limit does not fit a tidy cost model. Region execution classification
-       adds a small fixed frame cost, so 96 preserves headroom for the mixed
-       producer/body frontier on both native and JavaScript backends. *)
-    let eval_recursion = 96
-
-    (* Memory and time, not stack. *)
-    let size = 65536
-    let values = 65536
-    let dep_depth = 4096
-    let inputs = 4096
-    let outputs = 4096
-
-    (* The JS-reachable runtime domain: extents, coordinates and reachable
-       storage offsets stay below 2^31. *)
-    let extent = 0x8000_0000L
-    let numel = 0x8000_0000L
-
-    (* Memory- and array-length-bound, not stack-bound, per the scan design
-       record's array-capacity probe -- policy ceilings with deliberate
-       headroom, not empirically discovered frontiers like [depth]/
-       [eval_depth] above. [max_local_slots]/[max_scan_state] share one
-       ceiling with [Expr.Scan_limits.hard_max_state], since both bound a
-       count of resident [float] slots. *)
-    let max_local_slots = 1_048_576
-    let max_scan_state = 1_048_576
-    let max_scan_updates_per_key = 1_048_576L
-    let max_scan_updates_total = 100_000_000L
-  end
+  (* Split into kernel_hard_shared.ml/kernel_hard.ml (tail-call plan, Stage 7;
+     see .ai/) so a mirrored build can override [eval_depth] alone without
+     forking every other ceiling. Both are private modules -- reach them only
+     through this re-export. *)
+  module Hard = Kernel_hard
 
   let check_int name v hard =
     if v <= 0 || v >= hard then

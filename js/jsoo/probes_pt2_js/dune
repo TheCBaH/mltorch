@@ -1,0 +1,30 @@
+; jsoo mirror of js/probe's [probes_pt2] library, over [native_js]/
+; [native_graph_js]/[native_interp_js]/[model_explorer_export_js]. See .ai/
+; (tail-call conversion, Stage 3). Wildcard glob is safe: no custom
+; preprocessing on the source side.
+;
+; [probes_pure] stays shared, same reason as probes_native_js.
+
+(copy_files
+ (files
+  %{workspace_root}/js/probe/{probe_model_json,probe_pt2,probe_worker}.ml))
+
+(library
+ (name probes_pt2_js)
+ (wrapped false)
+ (modules probe_model_json probe_pt2 probe_worker)
+ (libraries
+  probes_pure
+  core
+  err_trace
+  fmt
+  pt2
+  pytorch_types
+  schema_runtime
+  jsont
+  jsont.bytesrw
+  model_explorer
+  model_explorer_export_js
+  native_js
+  native_graph_js
+  native_interp_js))

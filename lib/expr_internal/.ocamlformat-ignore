@@ -1,0 +1,8 @@
+# eval.ml is cppo-preprocessed source (#if/#else/#endif around the tail-call
+# conversion's Stage 3 JS_BACKEND split), not valid standalone OCaml syntax,
+# so ocamlformat cannot parse it directly. Same idiom as
+# experiments/tailcall/.ocamlformat-ignore. eval_js_machine.ml is the same
+# idiom (Stage 6): a single #if defined JS_BACKEND wraps its entire content,
+# empty under native.
+eval.ml
+eval_js_machine.ml

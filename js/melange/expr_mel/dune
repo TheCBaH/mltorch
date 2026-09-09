@@ -1,0 +1,23 @@
+; Melange mirror of lib/expr, over [expr_internal_mel] rather than
+; [expr_internal] so the public [Expr.Eval.value] this library exposes is the
+; one preprocessed with JS_BACKEND/MELANGE_BACKEND. See
+; js/melange/expr_internal_mel/dune and .ai/.
+;
+; No cppo here: expr.ml/expr_api.ml only compose [Eval]/[Eval_common], with no
+; JS_BACKEND-conditional code of their own.
+;
+; The checked-in expr_internal.ml shim (`include Expr_internal_mel`) is what
+; lets the copied expr_api.ml's unmodified [Expr_internal.Axis]-style
+; references resolve: [expr_internal_mel] is wrapped, so depending on it
+; exposes only its own alias module, never a global [Expr_internal].
+
+(copy_files
+ (files %{workspace_root}/lib/expr/*.{ml,mli}))
+
+(library
+ (name expr_mel)
+ (modes melange)
+ (enabled_if
+  (= %{profile} melange))
+ (private_modules expr_api)
+ (libraries expr_internal_mel))

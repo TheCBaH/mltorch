@@ -1,0 +1,10 @@
+; jsoo mirror of lib/native_op_walk, over [native_js]. See .ai/ (tail-call
+; conversion, Stage 3). Wildcard glob is safe: no custom preprocessing on the
+; source side. Wrapped, matching native_op_walk's own convention.
+
+(copy_files
+ (files %{workspace_root}/lib/native_op_walk/*.{ml,mli}))
+
+(library
+ (name native_op_walk_js)
+ (libraries err_trace native_js walk_core))

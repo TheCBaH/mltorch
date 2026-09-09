@@ -1,0 +1,17 @@
+; Melange route for Stage 0's evaluation-order oracle, over [expr_mel] (tail-call
+; conversion, Stage 3). Its own committed golden, like every other route here:
+; the whole point of order_probe.ml is to record where a backend is ALLOWED to
+; differ (unspecified evaluation order), so this is not diffed against
+; native's or jsoo's output. See .ai/.
+
+(copy_files
+ (files %{workspace_root}/js/probe/order_probe.ml))
+
+(melange.emit
+ (target output)
+ (alias expr-order-melange)
+ (module_systems commonjs)
+ (enabled_if
+  (= %{profile} melange))
+ (modules order_probe expr)
+ (libraries expr_mel))

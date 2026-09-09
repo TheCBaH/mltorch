@@ -1,0 +1,11 @@
+; jsoo mirror of lib/native_predict, over [native_js]. See .ai/ (tail-call
+; conversion, Stage 3). Wildcard glob is safe: no custom preprocessing on the
+; source side.
+
+(copy_files
+ (files %{workspace_root}/lib/native_predict/*.{ml,mli}))
+
+(library
+ (name native_predict_js)
+ (wrapped false)
+ (libraries err_trace fmt native_js))

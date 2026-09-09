@@ -1,11 +1,15 @@
 ; The js_of_ocaml build of the probe.
 ;
-; This directory mirrors nothing. A `(modes js)` executable links ordinary
-; bytecode libraries, so it reuses js/probe's [probes_pure] / [probes_native]
-; as-is -- redeclaring them here would be a duplicate-library error, and
-; renaming them to jsoo_* would duplicate source for no gain. Only the entry
-; module is copied, because a module must be owned by a stanza in the directory
-; that builds it.
+; This directory mirrors nothing OF ITS OWN: only the three entry modules are
+; copied, because a module must be owned by a stanza in the directory that
+; builds it. But since the tail-call conversion's Stage 3, the eleven
+; libraries reaching [Expr] (see .ai/ and js/jsoo/expr_internal_js/dune) are
+; the mirrors declared alongside this directory (`native_js`, `native_interp_js`,
+; etc.), not the ordinary [native]/[native_interp]/... -- so the JS evaluator
+; these executables run is the one preprocessed with JS_BACKEND. Independent
+; libraries ([probes_pure], [err_trace], [infer_report], [pt2]) stay ordinary:
+; see the "Mirroring and namespaces" section of expr-tailcall-implementation-plan.md
+; under .ai/ for which of the two lists a given dependency belongs to.
 ;
 ; Deliberately NOT `*.ml`: copying subset_probe.ml too would pull melange's
 ; entry point into this directory, where nothing builds it.
@@ -23,7 +27,7 @@
  (name native_probe)
  (modes js)
  (modules native_probe)
- (libraries probes_pure probes_native probes_pt2))
+ (libraries probes_pure probes_native_js probes_pt2_js))
 
 ; Tier 2. Same shape as above; separate stanzas with disjoint [modules] for the
 ; same reason js/probe/dune keeps them apart.
@@ -32,7 +36,7 @@
  (name pt2_probe)
  (modes js)
  (modules pt2_probe)
- (libraries probes_pt2))
+ (libraries probes_pt2_js))
 
 ; The all-sample inference runner (`make jsoo.pt2.run`), whose native half is in
 ; js/run. Same copy_files shape as the two probes above -- and note the
@@ -47,4 +51,4 @@
  (name pt2_run)
  (modes js)
  (modules pt2_run)
- (libraries err_trace infer_report native_interp native_predict pt2))
+ (libraries err_trace infer_report native_interp_js native_predict_js pt2))

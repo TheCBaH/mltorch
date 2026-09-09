@@ -1,0 +1,34 @@
+; jsoo mirror of lib/model_explorer_export, over [native_js]/[native4d_js]/
+; [native_graph_js]/[native_interp_js]/[expr_js]. See .ai/ (tail-call
+; conversion, Stage 3). Wildcard glob is safe: no custom preprocessing on the
+; source side.
+;
+; The checked-in native4d.ml shim (`include Native4d_js`) matches the plan's
+; documented pattern: [native4d_js] is wrapped, so depending on it exposes
+; only its own alias module, never a global [Native4d].
+
+(copy_files
+ (files %{workspace_root}/lib/model_explorer_export/*.{ml,mli}))
+
+(library
+ (name model_explorer_export_js)
+ (wrapped false)
+ (modules
+  (:standard \ me_bytes)
+  me_bytes)
+ (libraries
+  bytesrw
+  core
+  err_trace
+  expr_js
+  fmt
+  jsont
+  jsont.bytesrw
+  model_explorer
+  native_js
+  native4d_js
+  native_graph_js
+  native_interp_js
+  pt2
+  pytorch_types
+  schema_runtime))

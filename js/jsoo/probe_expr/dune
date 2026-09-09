@@ -1,0 +1,13 @@
+; jsoo route for the tail-call conversion's plain-value Expr probe (see
+; js/probe/probe_expr.ml and .ai/), over [expr_js] so this exercises the
+; JS-preprocessed evaluator. Same expr.ml shim pattern as every other Expr
+; consumer mirror.
+
+(copy_files
+ (files %{workspace_root}/js/probe/probe_expr.ml))
+
+(executable
+ (name probe_expr)
+ (modes js)
+ (modules probe_expr expr stack_fault)
+ (libraries expr_js))

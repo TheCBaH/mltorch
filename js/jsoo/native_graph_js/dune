@@ -1,0 +1,12 @@
+; jsoo mirror of lib/native_graph, over [native_js]. See .ai/ (tail-call
+; conversion, Stage 3). Wildcard glob is safe: no custom preprocessing on the
+; source side.
+
+(copy_files
+ (files %{workspace_root}/lib/native_graph/*.{ml,mli}))
+
+(library
+ (name native_graph_js)
+ (modules pt2_native_graph)
+ (wrapped false)
+ (libraries err_trace native_js pt2 pytorch_types schema_runtime))

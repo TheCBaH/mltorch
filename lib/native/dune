@@ -24,6 +24,7 @@
  (enabled_if
   (<> %{profile} landmarks))
  (libraries core err_trace expr fmt jsont jsont.bytesrw walk_core)
+ (private_modules kernel_hard_shared kernel_hard)
  (wrapped false))
 
 (library
@@ -33,4 +34,5 @@
  (libraries core err_trace expr fmt jsont jsont.bytesrw landmarks walk_core)
  (preprocess
   (pps landmarks-ppx --auto))
+ (private_modules kernel_hard_shared kernel_hard)
  (wrapped false))

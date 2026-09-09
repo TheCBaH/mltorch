@@ -1,0 +1,21 @@
+; jsoo mirror of js/probe's [probes_native] library, over [native_js]/
+; [native_op_walk_js]. See .ai/ (tail-call conversion, Stage 3). Wildcard
+; glob is safe: no custom preprocessing on the source side.
+;
+; [probes_pure] is deliberately NOT mirrored (see .ai/js_backends_design.md
+; and expr-tailcall-implementation-plan.md's "Mirroring and namespaces"): it
+; is Expr-free, so ordinary [probes_pure] stays shared.
+;
+; The checked-in native_op_walk.ml shim (`include Native_op_walk_js.Native_op_walk`)
+; matches the plan's documented pattern: [native_op_walk_js] is wrapped, so
+; depending on it exposes only its own alias module, never a global
+; [Native_op_walk].
+
+(copy_files
+ (files %{workspace_root}/js/probe/{probe_tensor_json,probe_native}.ml))
+
+(library
+ (name probes_native_js)
+ (wrapped false)
+ (modules probe_tensor_json probe_native native_op_walk)
+ (libraries probes_pure native_js native_op_walk_js walk_core core err_trace))

@@ -1,0 +1,15 @@
+; jsoo route for the tail-call conversion's Stage 5 correctness harness (see
+; test/expr_bench/corpus.ml and .ai/). Links [expr_internal_js] directly,
+; not [expr_js]/[expr]: [Eval_candidates] is internal, never exposed through
+; the public [Expr] API. Same [expr_internal.ml] shim pattern as every other
+; Expr_internal consumer mirror.
+
+(copy_files
+ (files
+  %{workspace_root}/test/expr_bench/{corpus,expr_bench_run,cleanup_negative,order_check}.ml))
+
+(executable
+ (name expr_bench_run)
+ (modes js)
+ (modules corpus expr_bench_run cleanup_negative order_check expr_internal)
+ (libraries expr_internal_js))

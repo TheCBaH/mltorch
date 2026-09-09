@@ -1,0 +1,17 @@
+; jsoo mirror of lib/native_interp, over [native_js]/[native_graph_js]. See
+; .ai/ (tail-call conversion, Stage 3). Wildcard glob is safe: no custom
+; preprocessing on the source side.
+
+(copy_files
+ (files %{workspace_root}/lib/native_interp/*.{ml,mli}))
+
+(library
+ (name native_interp_js)
+ (wrapped false)
+ (libraries
+  err_trace
+  native_js
+  native_graph_js
+  pt2
+  pytorch_types
+  schema_runtime))

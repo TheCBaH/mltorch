@@ -115,10 +115,24 @@ module Limits : sig
   val pp_error : Format.formatter -> [< error ] -> unit
 
   module Hard : sig
-    (* Non-negotiable cross-backend ceilings. [depth] and [eval_depth] are
-       EMPIRICAL stack limits under node, which has the tighter stack, not
-       census maxima; test/native/depth_probe.ml pins both on both backends and
-       is what keeps them honest. The rest bound memory and time. *)
+    (* Non-negotiable ceilings. [depth] and [eval_recursion] are EMPIRICAL
+       stack limits under node, which has the tighter stack, not census
+       maxima, and are SHARED across backends: test/native/depth_probe.ml
+       pins both against native's own recursive evaluator, which every
+       backend still runs unmodified for the traversals [depth] bounds, and
+       for [eval_recursion]'s [Kernel_eval.value_at] path (tail-call
+       conversion Stage 7; see .ai/).
+
+       [eval_depth] is BACKEND-SPECIFIC, not shared, since Stage 6 installed
+       a genuinely stack-safe driver for [Expr.Eval.value] on the JS side
+       only (js/jsoo/native_js/kernel_hard.ml overrides it there; native's
+       own value here, in lib/native/kernel_hard.ml, still reflects native's
+       unmodified recursive evaluator and test/native/depth_probe.ml's
+       measurement of it). A jsoo test linked against [native_js] is what
+       keeps the mirrored value honest, the same role depth_probe.ml plays
+       for native's.
+
+       The rest bound memory and time, on every backend alike. *)
     val size : int
     val depth : int
     val values : int

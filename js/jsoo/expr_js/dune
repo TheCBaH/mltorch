@@ -1,0 +1,20 @@
+; jsoo mirror of lib/expr, over [expr_internal_js] rather than [expr_internal]
+; so the public [Expr.Eval.value] this library exposes is the one preprocessed
+; with [JS_BACKEND]. See js/jsoo/expr_internal_js/dune and .ai/.
+;
+; No cppo here: expr.ml/expr_api.ml only compose [Eval]/[Eval_common], with no
+; JS_BACKEND-conditional code of their own.
+;
+; The checked-in expr_internal.ml shim (`include Expr_internal_js`) is what
+; lets the copied expr_api.ml's unmodified [Expr_internal.Axis]-style
+; references resolve: [expr_internal_js] is wrapped, so depending on it
+; exposes only its own alias module [Expr_internal_js], never a global
+; [Expr_internal]. See .ai/ (tail-call conversion, Stage 3, namespace rules).
+
+(copy_files
+ (files %{workspace_root}/lib/expr/*.{ml,mli}))
+
+(library
+ (name expr_js)
+ (private_modules expr_api)
+ (libraries expr_internal_js))

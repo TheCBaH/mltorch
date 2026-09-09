@@ -1,6 +1,7 @@
-; The jsoo route for Stage 0's evaluation-order oracle. Links ordinary [expr];
-; Stage 3 switches this to the mirrored [expr_js] once it exists, per
-; expr-tailcall-implementation-plan.md under .ai/.
+; The jsoo route for Stage 0's evaluation-order oracle, over [expr_js] (tail-call
+; conversion, Stage 3) so this exercises the JS-preprocessed evaluator. The
+; checked-in expr.ml shim (`include Expr_js.Expr`) matches every other Expr
+; consumer's pattern -- see .ai/.
 
 (copy_files
  (files %{workspace_root}/js/probe/order_probe.ml))
@@ -8,5 +9,5 @@
 (executable
  (name order_probe)
  (modes js)
- (modules order_probe)
- (libraries expr err_trace))
+ (modules order_probe expr)
+ (libraries expr_js err_trace))

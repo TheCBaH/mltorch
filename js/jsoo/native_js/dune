@@ -1,0 +1,59 @@
+; jsoo mirror of lib/native. Sources are copied, never forked: see
+; .ai/js_backends_design.md and expr-tailcall-implementation-plan.md under
+; .ai/ (tail-call conversion, Stage 3). Needed purely so this library's
+; global, unqualified [Expr] name binds to [Expr_js] (whose evaluator is
+; preprocessed with JS_BACKEND) rather than to ordinary [Expr] -- native's own
+; sources are otherwise unchanged and copied verbatim.
+;
+; Four copy_files stanzas, one per source directory (root, ops/, transform/,
+; transform/passes/): copy_files does not recurse, and native's own
+; `include_subdirs unqualified` already flattens all four into one namespace,
+; so the mirror does the same by copying every directory's files into this
+; one flat directory. Checked for basename collisions across all four source
+; directories (none) before doing this. Wildcard globs are safe for three of
+; the four (unlike expr_internal_js): lib/native's active (non-landmarks)
+; stanza runs no action-based preprocessing of its own, so there is no
+; origin-stanza rule to collide with.
+;
+; The root stanza is the one exception, and for a DIFFERENT reason than
+; expr_internal_js's M1 workaround: dune's copy_files has no glob-exclusion
+; syntax, and this mirror must NOT copy lib/native/kernel_hard.ml verbatim --
+; see kernel_hard.ml below for why. So the root stanza enumerates every other
+; root file explicitly instead of globbing (tail-call plan, Stage 7; see
+; .ai/). Add a new lib/native root module to this list, or it is simply
+; invisible to native_js.
+;
+; No landmarks-instrumented variant: js/jsoo never builds under
+; `--profile landmarks`, so unlike lib/native/dune this is a single stanza.
+;
+; The checked-in expr.ml shim (`include Expr_js.Expr`) is the plan's
+; documented pattern for every additional Expr consumer -- see .ai/.
+
+; Two brace-alternation globs (dune's `files` field takes exactly one glob
+; term, matching experiments/tailcall/jsoo/dune's proven shape): every root
+; module WITH an .mli, and every root module WITHOUT one, each minus
+; `kernel_hard`. Add a new lib/native root module's basename to whichever
+; group matches its shape.
+
+(copy_files
+ (files
+  %{workspace_root}/lib/native/{aten_shape,dim,direct,eval_direct,eval_symbolic,expr_bridge,fusion_plan,graph_builder,graph_ir,graph_json,kernel_adapt,kernel_elab,kernel_eval,kernel,op_config,quant,region_computation,region_eval,region_execution,region_group,region_kernel,region_local,region_partition,region_program,region_slots,region_trace,shape_error,stage_program,symbolic,tensor_id,vec6}.{ml,mli}))
+
+(copy_files
+ (files
+  %{workspace_root}/lib/native/{axis,eval_op,graph_common,graph_shape,half,json_util,kernel_hard_shared,payload,region_context,schedule,semantics,symint,tensor,tensor_ref,tensor_sig,walk_bridge}.ml))
+
+(copy_files
+ (files %{workspace_root}/lib/native/ops/*.{ml,mli}))
+
+(copy_files
+ (files %{workspace_root}/lib/native/transform/*.{ml,mli}))
+
+(copy_files
+ (files %{workspace_root}/lib/native/transform/passes/*.{ml,mli}))
+
+(library
+ (name native_js)
+ (libraries core err_trace expr_js fmt jsont jsont.bytesrw walk_core)
+ (private_modules kernel_hard_shared kernel_hard)
+ (wrapped false))

@@ -1,0 +1,16 @@
+; Melange route for the tail-call conversion's plain-value Expr probe (see
+; js/probe/probe_expr.ml and .ai/), over [expr_mel] so this exercises the
+; JS-preprocessed evaluator. Same expr.ml shim pattern as every other Expr
+; consumer mirror.
+
+(copy_files
+ (files %{workspace_root}/js/probe/probe_expr.ml))
+
+(melange.emit
+ (target output)
+ (alias expr-probe-melange)
+ (module_systems commonjs)
+ (enabled_if
+  (= %{profile} melange))
+ (modules probe_expr expr stack_fault)
+ (libraries expr_mel melange.js))

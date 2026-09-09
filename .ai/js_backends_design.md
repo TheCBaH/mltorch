@@ -339,8 +339,96 @@ subnormal `1.4012984643248171e-45`, and the `-0.0`/`inf`/`nan` hex fallbacks); t
 tensor payload round-trip, bit-exact; the half/bfloat16 codecs; a real conv2d+relu over
 Bigarray storage including the printed tensor and its JSON; the full op walk.
 
-A `(modes js)` executable links ordinary bytecode libraries, so `js/jsoo/` mirrors
-nothing — it copies the entry module and links `probes_pure`/`probes_native` directly.
+A `(modes js)` executable links ordinary bytecode libraries, so most of `js/jsoo/`
+mirrors nothing — it copies the entry module and links `probes_pure` directly. The
+exception, described next, is the closure that reaches `Expr`.
+
+## The Expr tail-call mirrors: eleven jsoo libraries, two Melange ones
+
+The expression evaluator's tail-call conversion (`expr_tailcall_design.md` and its
+implementation plan, both under `.ai/`) needs `Expr.Eval.value`'s JS build to run a
+different algorithm from native's — eventually a stack-safe driver, starting in Stage 3
+with a scaffolded `#if defined JS_BACKEND` / `#else` split in `eval.ml` where both
+branches are still byte-identical. Dune's `cppo`-based `(preprocess (action ...))` is
+scoped to a *library stanza*, not a module, so a library that must be preprocessed with
+different `-D` flags for native and JS needs a second, separately-preprocessed stanza —
+not just a `(modes js)` variant of the same one. That is the entire reason this closure
+is mirrored at all: an ordinary `(modes js)` executable happily links `native_interp`,
+`pt2`, etc. directly (see above), because nothing in *their* source needs to differ
+between backends. Only `expr_internal` does, and everything that depends on it
+transitively needs its own `_js`/`_mel` twin purely so its module resolution binds the
+mirrored `Expr`, never because its own source changed.
+
+**The eleven jsoo names**: `expr_internal`, `expr`, `native`, `native4d`, `native_graph`,
+`native_interp`, `native_op_walk`, `native_predict`, `model_explorer_export`,
+`probes_native` (mirroring `js/probe`'s library of that name, not a `lib/` directory),
+and `probes_pt2` (same). Their mirrors are `js/jsoo/<name>_js/`, each a `copy_files` of
+the real source (never forked — the same rule as the pre-existing `js/melange/core` and
+`js/melange/walk_core` mirrors) plus a library stanza substituting `_js` dependencies for
+the ones among these eleven, while every *independent* library (`core`, `err_trace`,
+`fmt`, `jsont`, `jsont.bytesrw`, `walk_core`, `bytesrw`, `opickle`, `zipc`,
+`pytorch_types`, `schema_runtime`, `pt2`, `model_explorer`, `infer_report`,
+`probes_pure`) stays shared and ordinary. `native_js` and `native4d_js` each need one
+`copy_files` stanza per source subdirectory (`ops/`, `transform/`, `transform/passes/`,
+`passes4/`) — `copy_files` does not recurse, and both mirrors flatten every subdirectory
+into one directory, matching `native`/`native4d`'s own `include_subdirs unqualified`.
+
+**Wrapped-library shims.** A wrapped mirror (`expr_internal_js`, `native4d_js`,
+`native_op_walk_js`) exposes only its own alias module (`Expr_internal_js`, not
+`Expr_internal`), so a consumer whose unmodified, copied source says `Expr_internal.Axis`
+needs a same-directory shim file re-exporting it: `expr_js/expr_internal.ml` is
+`include Expr_internal_js`, `model_explorer_export_js/native4d.ml` is
+`include Native4d_js`, `probes_native_js/native_op_walk.ml` is
+`include Native_op_walk_js.Native_op_walk`. **Unwrapped** mirrors need no such shim:
+their compiled module names are unaffected by the library's own `_js`-suffixed link
+name, so depending on `native_js` gives unqualified `Vec6`/`Axis`/`Expr` (the last via
+its own `native_js/expr.ml` shim, `include Expr_js.Expr`) directly, and every additional
+`Expr` consumer (`order_probe`, `probe_expr`, and each future one) needs that same
+one-line `expr.ml` beside its own entry module, per `expr-tailcall-implementation-plan.md`.
+
+**A dune quirk worth recording.** Mirroring `expr_internal` with a `*.ml`/`*.mli`
+wildcard `copy_files` glob reproducibly fails with "Multiple rules generated for
+`<module>.pp.ml`", naming two locations inside the *mirror's own* dune file. It
+reproduces only when the glob's source directory is itself a dune-owned library
+directory that ALSO runs its own `(preprocess (action (run cppo ...)))` — which
+`expr_internal` now does (`-D`-less, to select its own `#else` branch) and no other
+mirrored library's origin does. An **explicit enumerated file list**
+(`{axis,bool,...,value}.ml`), matching the pre-existing
+`experiments/tailcall/jsoo/dune` shape, does not trigger it. `expr_internal_js`'s and
+`expr_internal_mel`'s dune files carry the full explanation and the two lists that must
+stay in sync with `lib/expr_internal`'s module set; no other mirror needs this care.
+
+**Verifying the closure.** The same shape as the `aten`/`ctypes`/`unix` check below, now
+also asserting zero *ordinary* occurrences of the eleven mirrored names:
+
+```sh
+closure=$(opam exec -- dune describe workspace js/jsoo --with-deps)
+for lib in expr_internal expr native native4d native_graph native_interp \
+           native_op_walk native_predict model_explorer_export probes_native probes_pt2; do
+  grep -qE "\(name $lib\)" <<<"$closure" && echo "FAIL: ordinary '$lib' still linked"
+done
+```
+
+Updated census (Stage 3, this closure only — `js/run`'s 18 libraries are unaffected,
+since `pt2_run.ml` only needed the `native_predict` → `native_predict_js` substitution
+made directly in `js/jsoo/dune`): **28 libraries**, versus the pre-Stage-3 25 — eleven
+`_js` mirrors replacing seven ordinary names that used to appear directly
+(`native`/`native_interp`/`native_predict`/`native_graph`/`model_explorer_export`/
+`probes_native`/`probes_pt2`), plus `expr`/`expr_internal` newly present (mirrored, not
+ordinary) since nothing needed them before this closure reached `Expr`.
+
+**Melange's Expr scope is deliberately narrower than jsoo's.** Only `expr_internal_mel`
+and `expr_mel` exist — `native_mel` is still blocked on Bigarray (see **Not done**
+below), so nothing past `Expr` itself can mirror to Melange yet. `expr_mel` preserves
+`expr_api`'s private-module status and needs its own `expr_internal.ml` shim for the
+same wrapped-alias reason as the jsoo side.
+
+**One new cross-backend gap, found by this stage, not fixed by it**: `Value.apply_unary`
+`Trunc` compiles under Melange with `Warning 106 [melange-unimplemented-primitive]:
+Unimplemented primitive used:caml_trunc_float` — non-fatal at compile time, but a
+runtime gap if that operator is ever evaluated on this backend. Invisible before this
+stage, since Melange had no route to `lib/expr` at all. Left as a documented caveat;
+closing it is a primitive-coverage fix, outside the tail-call conversion's scope.
 
 ## Melange: three obstacles, all cleared
 
