@@ -159,24 +159,32 @@ let%expect_test
     family1 (16,16,384,96): keys=1 locals=6528 emitters=3456 loads=2279808 reductions=2150400 scans=2 scan_updates=6144
     family2 (32,32,192,48): keys=1 locals=6336 emitters=3264 loads=1247424 reductions=1118208 scans=2 scan_updates=6144 |}]
 
-(* Real corpus shapes, full [batch]/[input_size]. [@tags "disabled"] is
-   ppx_inline_test's own gate: dropped by default, so plain `dune runtest`
-   skips it. Re-run with `-require-tag disabled` on the built runner:
-     _build/default/test/native/.native_test.inline-tests/inline-test-runner.exe \
-       inline-test-runner native_test -require-tag disabled \
-       -partition lstm_scale_test.ml -source-tree-root ../.. -diff-cmd -
-   (from _build/default/test/native). *)
+(* [batch] > 1, the one dimension the fast fixture above always pins to 1, so
+   this is the only counters test in this file that exercises the multi-key
+   path (`Region_partition.fold_keys` iterating and accumulating over more
+   than one key) -- `lstm_group_test.ml` already covers multi-key numerical
+   correctness at `batch=2`, but not this file's own counter arithmetic.
+   Scaled down from the real `sequencer2d_s` corpus shapes this file
+   originally pinned here (`(B,L,I,K)=(16,16,384,96)`/`(32,32,192,48)`, Q=1,
+   R=2 -- see git history and the step 16 evidence note in
+   _ai_/project_todo.md for that exact real-scale reconciliation, preserved
+   there since re-deriving it needs real download data this test doesn't),
+   keeping the same family1/family2 ratios (family2 = 2x batch/seq, 0.5x
+   input_size/hidden_size) so the two families still cross-check the same
+   arithmetic invariants at a small fraction of the operation count -- this
+   was previously gated behind `[@tags "disabled"]` because the real-scale
+   shapes took ~110s. *)
 let%expect_test
-    ("lstm real-scale resource counters: both corpus shapes (full, gated)"
-     [@tags "disabled"]) =
-  measure ~label:"family1 (16,16,384,96)" ~batch:16 ~seq:16 ~input_size:384
-    ~hidden_size:96 ~bidirectional:true ~batch_first:true ();
-  measure ~label:"family2 (32,32,192,48)" ~batch:32 ~seq:32 ~input_size:192
-    ~hidden_size:48 ~bidirectional:true ~batch_first:true ();
+    "lstm real-scale resource counters: both corpus shapes (multi-key fixture)"
+    =
+  measure ~label:"family1 (2,4,16,8)" ~batch:2 ~seq:4 ~input_size:16
+    ~hidden_size:8 ~bidirectional:true ~batch_first:true ();
+  measure ~label:"family2 (4,8,8,4)" ~batch:4 ~seq:8 ~input_size:8
+    ~hidden_size:4 ~bidirectional:true ~batch_first:true ();
   [%expect
     {|
-    family1 (16,16,384,96): keys=16 locals=104448 emitters=55296 loads=297965568 reductions=165150720 scans=32 scan_updates=98304
-    family2 (32,32,192,48): keys=32 locals=202752 emitters=104448 loads=298653696 reductions=165150720 scans=64 scan_updates=196608 |}]
+    family1 (2,4,16,8): keys=2 locals=320 emitters=192 loads=37696 reductions=21504 scans=4 scan_updates=256
+    family2 (4,8,8,4): keys=4 locals=576 emitters=320 loads=39488 reductions=21504 scans=8 scan_updates=512 |}]
 
 (* "Verify default admission and rejection under tighter limits" (project
    step 16): the per-key update count this op needs at real corpus scale is
