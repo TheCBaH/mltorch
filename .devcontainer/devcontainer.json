@@ -30,8 +30,10 @@
         // Deliberately floating: ctypes, ctypes-foreign, landmarks,
         // landmarks-ppx, memtrace, utop, yaml, zipc -- none is part of the JS
         // build or that solve. See .ai/js_backends_design.md.
-        "./features/ocaml": {
-            "packages": "bytesrw#0.3.0 cmdliner#2.1.1 ctypes ctypes-foreign fmt#0.11.0 js_of_ocaml#6.4.1 js_of_ocaml-compiler#6.4.1 js_of_ocaml-ppx#6.4.1 jsont#0.2.0 landmarks landmarks-ppx melange#5.1.0-414 memtrace ppx_expect#v0.16.2 utop yaml zipc"        },
+        "ghcr.io/thecbah/ocaml-features/ocaml:1": {
+            "version": "4.14.3",
+            "packages": "bytesrw#0.3.0 cmdliner#2.1.1 ctypes ctypes-foreign fmt#0.11.0 js_of_ocaml#6.4.1 js_of_ocaml-compiler#6.4.1 js_of_ocaml-ppx#6.4.1 jsont#0.2.0 landmarks landmarks-ppx melange#5.1.0-414 memtrace ppx_expect#v0.16.2 utop yaml zipc"
+        },
         // Node/npm run the js_of_ocaml, melange and browser gates. Exact Debian
         // package pins keep a developer rebuild and CI on one runtime too.
         "./features/npm": {
