@@ -22,6 +22,7 @@ let entries =
     conv2d;
     conv1d;
     conv3d;
+    squeeze_dims;
     convolution;
     conv2d_padding;
     linear;

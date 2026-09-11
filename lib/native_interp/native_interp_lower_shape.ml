@@ -30,6 +30,7 @@ let targets =
     "torch.ops.aten.split.Tensor";
     "torch.ops.aten.split_with_sizes.default";
     "torch.ops.aten.squeeze.dim";
+    "torch.ops.aten.squeeze.dims";
     "torch.ops.aten.stack.default";
     "torch.ops.aten.tile.default";
     "torch.ops.aten.arange.default";
@@ -629,6 +630,35 @@ let dispatch ~ctx ~env (node : Node.t) =
          is where the extent comes from: the SERIALIZED shape, the same
          split [slice.Tensor]'s own comment draws between the bridge's live
          tensor and this importer's declared metadata. *)
+       | "torch.ops.aten.squeeze.dims" ->
+           let x_name = tensor_name esc node "self" in
+           let rank =
+             meta_rank (tensor_meta esc graph ~ssa:x_name ~role:`Squeeze_input)
+           in
+           let dims =
+             List.map
+               (fun dim ->
+                 let d = if dim < 0 then dim + rank else dim in
+                 if d < 0 || d >= rank then
+                   malformed esc (`Axis_out_of_range { axis = d; rank });
+                 d)
+               (ints_arg esc node "dim")
+           in
+           let shape = tensor_shape esc graph x_name in
+           let aten_list = Array.to_list (Aten_shape.to_aten ~rank shape) in
+           let out_sizes =
+             List.map
+               (fun x -> SymInt.Int x)
+               (List.filteri
+                  (fun i x -> not (List.mem i dims && x = 1))
+                  aten_list)
+           in
+           let* y =
+             reshape
+               { Reshape.Reshape.shape = shape_of_sizes esc x_name out_sizes }
+               (get "self")
+           in
+           return [ y ]
        | "torch.ops.aten.squeeze.dim" ->
            let x_name = tensor_name esc node "self" in
            let rank =

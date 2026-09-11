@@ -542,6 +542,32 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                in
                [ y ]
            | _ -> assert false))
+  | "torch.ops.aten.squeeze.dims" ->
+      Some
+        (let* aten_x = tensor_arg aten_env node "self" in
+         let* () = require_f32 "self" aten_x in
+         let rank = aten_rank aten_x in
+         let* dims = ints_arg node "dim" in
+         let* x = native_of_aten "self" aten_x in
+         let* ds = Err.List.map (norm_dim ~op:"squeeze.dims" ~rank) dims in
+         let shape = packed_shape x in
+         let aten_list = Array.to_list (Aten_shape.to_aten ~rank shape) in
+         let out_list =
+           List.filteri
+             (fun i _ -> not (List.mem i ds && List.nth aten_list i = 1))
+             aten_list
+         in
+         let* target =
+           Err.map_error
+             (fun e -> `Aten_shape e)
+             (Aten_shape.of_aten (Array.of_list out_list))
+         in
+         build_g ~name:"squeeze" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = reshape { Reshape.Reshape.shape = target } x_id in
+               [ y ]
+           | _ -> assert false))
   (* [squeeze.dim(self, dim)]: drops the axis at [dim] when its LIVE extent is
      1. Real ATen leaves [self] unchanged (same rank) rather than raising when
      the extent is not 1 -- a genuine per-shape branch, decided here against

@@ -566,77 +566,85 @@ let%expect_test "bridge coverage" =
     [spec] torch.ops.aten.split_with_sizes.default: matched
     step 3 [c]: {shape=[2,3,4,5] dim=0 split_size=2}
     [spec] torch.ops.aten.split_with_sizes.default: matched
+    step 0: {shape=[1,3,4,4] dim=0}
+    [spec] torch.ops.aten.squeeze.dims: matched
+    step 1 [c]: {shape=[1,4,4,4] dim=0}
+    [spec] torch.ops.aten.squeeze.dims: matched
+    step 2 [c]: {shape=[1,2,4,4] dim=0}
+    [spec] torch.ops.aten.squeeze.dims: matched
+    step 3 [dim]: {shape=[1,2,4,4] dim=0}
+    [spec] torch.ops.aten.squeeze.dims: matched
     step 0: {shape=[2,3,4,4] dim=0}
     [spec] torch.ops.aten.stack.default: matched
-    step 1 [n]: {shape=[1,3,4,4] dim=0}
+    step 1 [w]: {shape=[2,3,4,2] dim=0}
     [spec] torch.ops.aten.stack.default: matched
-    step 2 [h]: {shape=[1,3,2,4] dim=0}
+    step 2 [n]: {shape=[1,3,4,2] dim=0}
     [spec] torch.ops.aten.stack.default: matched
-    step 3 [dim]: {shape=[1,3,2,4] dim=-2}
+    step 3 [dim]: {shape=[1,3,4,2] dim=2}
     [spec] torch.ops.aten.stack.default: matched
     step 0: {shape=[2,4,8,8] pattern=equal}
     [spec] torch.ops.aten.sub.Tensor: matched
-    step 1 [pattern]: {shape=[2,4,8,8] pattern=lhs[3]=1}
+    step 1 [h]: {shape=[2,4,4,8] pattern=equal}
     [spec] torch.ops.aten.sub.Tensor: matched
-    step 2 [h]: {shape=[2,4,16,8] pattern=lhs[3]=1}
+    step 2 [c]: {shape=[2,16,4,8] pattern=equal}
     [spec] torch.ops.aten.sub.Tensor: matched
-    step 3 [pattern]: {shape=[2,4,16,8] pattern=rhs[1]=1}
+    step 3 [h]: {shape=[2,16,16,8] pattern=equal}
     [spec] torch.ops.aten.sub.Tensor: matched
     step 0: {shape=[2,4,8,8] dims=[2,3] keepdim=false}
     [spec] torch.ops.aten.sum.dim_IntList: matched
-    step 1 [c]: {shape=[2,4,8,8] dims=[2,3] keepdim=false}
+    step 1 [dims]: {shape=[2,4,8,8] dims=[1,2,3] keepdim=false}
     [spec] torch.ops.aten.sum.dim_IntList: matched
-    step 2 [w]: {shape=[2,4,8,8] dims=[2,3] keepdim=false}
+    step 2 [h]: {shape=[2,4,16,8] dims=[1,2,3] keepdim=false}
     [spec] torch.ops.aten.sum.dim_IntList: matched
-    step 3 [w]: {shape=[2,4,8,8] dims=[2,3] keepdim=false}
+    step 3 [keepdim]: {shape=[2,4,16,8] dims=[1,2,3] keepdim=true}
     [spec] torch.ops.aten.sum.dim_IntList: matched
     step 0: {shape=[4,5] rank=2 dims=(0,1)}
     [spec] torch.ops.aten.transpose.int: matched
-    step 1 [config]: {shape=[2,3,4,5] rank=4 dims=(2,2)}
+    step 1 [n]: {shape=[4,5] rank=2 dims=(0,1)}
     [spec] torch.ops.aten.transpose.int: matched
-    step 2 [w]: {shape=[2,3,4,4] rank=4 dims=(2,2)}
+    step 2 [n]: {shape=[4,5] rank=2 dims=(0,1)}
     [spec] torch.ops.aten.transpose.int: matched
-    step 3 [config]: {shape=[2,3,4,4] rank=4 dims=(-2,-3)}
+    step 3 [config]: {shape=[3,4,5] rank=3 dims=(0,1)}
     [spec] torch.ops.aten.transpose.int: matched
     step 0: {shape=[2,3,4,4] dim=0}
     [spec] torch.ops.aten.unbind.int: matched
     step 1 [w]: {shape=[2,3,4,4] dim=0}
     [spec] torch.ops.aten.unbind.int: matched
-    step 2 [dim]: {shape=[2,3,4,4] dim=3}
+    step 2 [dim]: {shape=[2,3,4,4] dim=-3}
     [spec] torch.ops.aten.unbind.int: matched
-    step 3 [n]: {shape=[2,3,4,4] dim=3}
+    step 3 [h]: {shape=[2,3,6,4] dim=-3}
     [spec] torch.ops.aten.unbind.int: matched
     step 0: {shape=[2,3,4,4] dim=2 size=3 step=1 overlap}
     [spec] torch.ops.aten.unfold.default: matched
-    step 1 [w]: {shape=[2,3,4,5] dim=2 size=3 step=1 overlap}
+    step 1 [n]: {shape=[2,3,4,4] dim=2 size=3 step=1 overlap}
     [spec] torch.ops.aten.unfold.default: matched
-    step 2 [config]: {shape=[2,3,4,5] dim=1 size=3 step=2 stepped}
+    step 2 [w]: {shape=[2,3,4,5] dim=2 size=3 step=1 overlap}
     [spec] torch.ops.aten.unfold.default: matched
-    step 3 [config]: {shape=[2,3,4,5] dim=-2 size=3 step=2 stepped}
+    step 3 [n]: {shape=[3,3,4,5] dim=2 size=3 step=1 overlap}
     [spec] torch.ops.aten.unfold.default: matched
     step 0: {shape=[2,3,4,4] dim=0}
     [spec] torch.ops.aten.unsqueeze.default: matched
-    step 1 [n]: {shape=[1,3,4,4] dim=0}
+    step 1 [dim]: {shape=[2,3,4,4] dim=2}
     [spec] torch.ops.aten.unsqueeze.default: matched
-    step 2 [dim]: {shape=[1,3,4,4] dim=0}
+    step 2 [c]: {shape=[2,2,4,4] dim=2}
     [spec] torch.ops.aten.unsqueeze.default: matched
-    step 3 [dim]: {shape=[1,3,4,4] dim=0}
+    step 3 [w]: {shape=[2,2,4,6] dim=2}
     [spec] torch.ops.aten.unsqueeze.default: matched
     step 0: {shape=[1,4,4,4] pattern=flatten target=[64]}
     [spec] torch.ops.aten.view.default: matched
-    step 1 [w]: {shape=[1,4,4,2] pattern=flatten target=[32]}
+    step 1 [h]: {shape=[1,4,4,4] pattern=flatten target=[64]}
     [spec] torch.ops.aten.view.default: matched
-    step 2 [n]: {shape=[1,4,4,2] pattern=flatten target=[32]}
+    step 2 [w]: {shape=[1,4,4,4] pattern=flatten target=[64]}
     [spec] torch.ops.aten.view.default: matched
-    step 3 [pattern]: {shape=[1,4,4,2] pattern=minus_one_c target=[-1,4,2]}
+    step 3 [h]: {shape=[1,4,4,4] pattern=flatten target=[64]}
     [spec] torch.ops.aten.view.default: matched
     step 0: {shape=[2,3,4,4]}
     [spec] torch.ops.aten.zeros.default: matched
-    step 1 [shape]: {shape=[2,3,4,4]}
+    step 1 [shape]: {shape=[2,3,3,4]}
     [spec] torch.ops.aten.zeros.default: matched
-    step 2 [shape]: {shape=[3,3,4,4]}
+    step 2 [shape]: {shape=[2,3,3,4]}
     [spec] torch.ops.aten.zeros.default: matched
-    step 3 [shape]: {shape=[3,3,8,4]}
+    step 3 [shape]: {shape=[2,8,3,4]}
     [spec] torch.ops.aten.zeros.default: matched
     needs_meta:
       torch.ops.aten._softmax.default
@@ -648,6 +656,5 @@ let%expect_test "bridge coverage" =
       torch.ops.aten.eq.Scalar
       torch.ops.aten.full_like.default
       torch.ops.aten.reshape.default
-      torch.ops.aten.squeeze.dims
       torch.ops.aten.topk.default
       torch.ops.aten.where.self |}]

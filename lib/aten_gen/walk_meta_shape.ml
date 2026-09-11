@@ -246,6 +246,21 @@ let cat =
     (Aten_op_spec.Op_cat.(spec { tensors = [ x; y ]; dim = Recipe_unbind.dim c }), pcg)|};
   }
 
+let squeeze_dims =
+  {
+    module_name = "Squeeze_dims_walk";
+    target = "torch.ops.aten.squeeze.dims";
+    recipe = "Recipe_unbind";
+    initial =
+      "Aten_walk_recipes.Recipe_unbind.{ n = 1; c = 3; h = 4; w = 4; dim = 0 }";
+    axes =
+      "Aten_walk_recipes.Recipe_unbind.axes ~n:[ 1; 2 ] ~c:[ 2; 3; 4 ] ~h:[ 2; \
+       4; 6 ] ~w:[ 2; 4; 6 ] ~dim:[ 0 ]";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_unbind.self_shape c) in
+    (Aten_op_spec.Op_squeeze_dims.(spec {self; dim=[0; 2]}),pcg)|};
+  }
+
 (* unbind.int already gets a generated DEFAULT walk (one tensor arg, every other
    arg fillable), so unlike the entries above this is not filling a gap — it is
    an override, for the reason the design record gives for hardtanh: the default
