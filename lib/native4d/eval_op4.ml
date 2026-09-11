@@ -58,6 +58,11 @@ module Make (S : Semantics.SEMANTICS) = struct
         let module C = Pointwise.Add.Compute (S) in
         C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)
           (operand b) out
+    | Addcmul { Pointwise.Addcmul.self; tensor1; tensor2; value } ->
+        let module C = Pointwise.Addcmul.Compute (S) in
+        C.pixel ~self_shape:(shape_of self) ~tensor1_shape:(shape_of tensor1)
+          ~tensor2_shape:(shape_of tensor2) ~value (operand self)
+          (operand tensor1) (operand tensor2) out
     | Add_scalar { Pointwise.Scalar_bin.x; scalar } ->
         let module C = Pointwise.Add_scalar.Compute (S) in
         C.pixel ~scalar (operand x) out
@@ -75,6 +80,19 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Avg_pool2d { Pool.AvgPool2d.params; x } ->
         let module C = Pool.AvgPool2d.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
+    | Batch_norm
+        { Ops4.Batch_norm.params; x; weight; bias; running_mean; running_var }
+      ->
+        let module C = Norm.BatchNorm.Compute (S) in
+        let fill_or v = function
+          | None -> fill v (shape_of x)
+          | Some r -> operand r
+        in
+        C.pixel
+          (Graph_shape4.batch_norm_params params)
+          ~x:(operand x) ~weight:(fill_or 1. weight) ~bias:(fill_or 0. bias)
+          ~running_mean:(operand running_mean)
+          ~running_var:(operand running_var) out
     | Batch_norm_no_stats { Ops4.Batch_norm_no_stats.params; x; weight; bias }
       ->
         let module C = Norm.BatchNormNoStats.Compute (S) in

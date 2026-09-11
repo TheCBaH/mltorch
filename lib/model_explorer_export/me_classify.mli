@@ -22,14 +22,13 @@ type verdict =
 val pp_verdict : Format.formatter -> verdict -> unit
 
 val native4d : [< Native4d.Error.t ] -> verdict
-(** [`Missing_constant_payload] is [Requires_payloads]; the nine domain rows are
-    [Outside_dialect_domain]; [`Bad_constant_payload], [`Constant_store], [`Map]
-    and [`View] are fatal — a payload that was supplied and is wrong, or a
-    map/view invariant failure, is a defect rather than a partiality.
+(** The seven domain rows are [Outside_dialect_domain]; [`Bad_constant_payload],
+    [`Constant_store], [`Map] and [`View] are fatal — a payload that was
+    supplied and is wrong, or a map/view invariant failure, is a defect rather
+    than a partiality.
 
-    Having payloads removes exactly ONE failure mode. It does not put a graph
-    inside the dialect, which is why Native4D is conditional for a [.pt2] and a
-    standalone [model.json] alike. *)
+    No row here is conditional on payloads, so Native4D is conditional on the
+    SAME rows for a [.pt2] and a standalone [model.json] alike. *)
 
 val lowering : [< Native_interp.error ] -> verdict
 (** The row every other capability's fate follows from, since it decides whether

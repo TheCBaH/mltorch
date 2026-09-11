@@ -22,15 +22,11 @@ let pp_verdict fmt = function
    classified here rather than defaulting to whichever answer happened to be
    written last, and the two answers differ in what they tell the user to do. *)
 let native4d : [< Native4d.Error.t ] -> verdict = function
-  (* The one failure mode payloads remove. *)
-  | `Missing_constant_payload _ -> Unavailable C.Requires_payloads
-  (* The six domain rejections. Having payloads does not put a graph inside
-     the dialect, which is why Native4D stays conditional for both input
-     kinds. *)
+  (* The seven domain rejections, none of them conditional on payloads. *)
   | `Axis_outside_dialect _ | `Batch_norm_extent _
-  | `Batched_matmul_batch_axis _ | `Dynamic_batch_norm _
-  | `Non_four_dimensional_tensor _ | `Sdpa_batch_axis _
-  | `Unsupported_grouped_transposed_conv _ | `Unsupported_op _ ->
+  | `Batched_matmul_batch_axis _ | `Non_four_dimensional_tensor _
+  | `Sdpa_batch_axis _ | `Unsupported_grouped_transposed_conv _
+  | `Unsupported_op _ ->
       Unavailable C.Outside_dialect_domain
   (* A payload that WAS supplied and is wrong, and a map or view invariant
      failure, are defects. Reporting either as "outside the dialect" tells the

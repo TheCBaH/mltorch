@@ -30,6 +30,11 @@ module Make (S : Semantics.SEMANTICS) = struct
         let module C = Pointwise.Add.Compute (S) in
         C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)
           (operand b) out
+    | Addcmul { Pointwise.Addcmul.self; tensor1; tensor2; value } ->
+        let module C = Pointwise.Addcmul.Compute (S) in
+        C.pixel ~self_shape:(shape_of self) ~tensor1_shape:(shape_of tensor1)
+          ~tensor2_shape:(shape_of tensor2) ~value (operand self)
+          (operand tensor1) (operand tensor2) out
     | Add_scalar { Pointwise.Scalar_bin.x; scalar } ->
         let module C = Pointwise.Add_scalar.Compute (S) in
         C.pixel ~scalar (operand x) out

@@ -28,16 +28,11 @@ Two things look similar to "legalization" and are not the same:
   frame this is not a decomposition, it is the same no-op-shape-change
   `Reshape` already performs for `view.default`. Both are **one node**.
 - **Not sanctioned: decompose one ATen op into several Native nodes** so an
-  existing op's code can be reused. `select.int` lowering to a `Slice` node
-  followed by a separate `Reshape` node, and `stack.default` lowering to one
-  `Reshape` per operand followed by a `Concat` node, are the two current
-  instances of this (see `ops.md`'s design-goal audit) — both leave the graph
-  with no node that names the ATen op that produced them, which is exactly
-  the failure mode this section exists to rule out. The fix is not to give up
-  the code reuse; it is to reuse the *implementation* instead of the *node*:
-  add a distinct `Select`/`Stack` `Graph_ir` constructor whose `Compute`
-  functor and `output_shape` call into `Slice`'s / `Concat`'s, the same way
-  `Conv2d_padding` below calls into `Conv2d`'s.
+  existing op's code can be reused. `select.int`, `stack.default`, and
+  `addcmul.default` are retained as distinct one-node Native operations; each
+  reuses any applicable implementation rather than reusing another operation's
+  graph node. This preserves the source operation for later matching, fusion,
+  and reporting.
 
 When in doubt: if the bridge arm needs `Graph_builder` to call more than one
 op-constructing function for a single ATen node, that is decomposition, and
@@ -120,6 +115,9 @@ alphabetical position at every site below; don't append.
      fans an extent-1 axis out without an OOB read. A unary op whose input already
      has the output shape (relu) reads at `out` directly. When the op takes operand
      shapes, thread them from `Eval_op` (`shape_of`) and the bridge runner.
+   - `Addcmul` is the ternary version of that pattern: its three operand shapes
+     are broadcast together and each load is reduced against its own shape before
+     evaluating `self + value * tensor1 * tensor2` in one `Compute.pixel` call.
 
 2. **Graph IR** — `lib/native/graph_ir.mli` and `graph_ir.ml`
    - Add the constructor `| <Op> of <Group>.<Op>.t` to `type 'g gop` (alphabetical)

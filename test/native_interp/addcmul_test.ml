@@ -40,12 +40,11 @@ let%expect_test "addcmul.default default value=1 decomposes to Mul+Add" =
     value=1 (default):
     graph
     inputs:
-      [t0 f32 [W=2 C=3] ->[n1], t1 f32 [W=2 C=3] ->[n0] constant,
+      [t0 f32 [W=2 C=3] ->[n0], t1 f32 [W=2 C=3] ->[n0] constant,
        t2 f32 [W=2 C=3] ->[n0] constant]
     nodes:
-      n0: [t3 f32 [W=2 C=3] ->[n1]] = mul a=t1 b=t2
-      n1: [t4 f32 [W=2 C=3]] = add a=t0 b=t3 <-n0
-    outputs: [t4 f32 [W=2 C=3] <-n1] |}]
+      n0: [t3 f32 [W=2 C=3]] = addcmul self=t0 tensor1=t1 tensor2=t2 value=1
+    outputs: [t3 f32 [W=2 C=3] <-n0] |}]
 
 let%expect_test "addcmul.default non-unit value adds a Mul_scalar node" =
   dump "value=2:" (prog (addcmul_node ~value:2.0 ()));
@@ -54,10 +53,8 @@ let%expect_test "addcmul.default non-unit value adds a Mul_scalar node" =
     value=2:
     graph
     inputs:
-      [t0 f32 [W=2 C=3] ->[n2], t1 f32 [W=2 C=3] ->[n0] constant,
+      [t0 f32 [W=2 C=3] ->[n0], t1 f32 [W=2 C=3] ->[n0] constant,
        t2 f32 [W=2 C=3] ->[n0] constant]
     nodes:
-      n0: [t3 f32 [W=2 C=3] ->[n1]] = mul a=t1 b=t2
-      n1: [t4 f32 [W=2 C=3] ->[n2]] = mul_scalar x=t3 <-n0 scalar=2
-      n2: [t5 f32 [W=2 C=3]] = add a=t0 b=t4 <-n1
-    outputs: [t5 f32 [W=2 C=3] <-n2] |}]
+      n0: [t3 f32 [W=2 C=3]] = addcmul self=t0 tensor1=t1 tensor2=t2 value=2
+    outputs: [t3 f32 [W=2 C=3] <-n0] |}]

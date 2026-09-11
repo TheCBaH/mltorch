@@ -88,26 +88,26 @@ let perm6 (perm : Ops4.Permute4.perm) : Permute.Permute.perm =
 let mean_params (p : Ops4.Mean_keepdims.params) : Reduce.Mean.params =
   {
     dims = List.map Axis4.to_axis p.Ops4.Mean_keepdims.dims;
-    keepdim = true (* the dialect has no other form *);
+    keepdim = p.Ops4.Mean_keepdims.keepdim;
   }
 
 let max_params (p : Ops4.Max_keepdims.params) : Reduce.Amax.params =
   {
     dims = List.map Axis4.to_axis p.Ops4.Max_keepdims.dims;
-    keepdim = true (* the dialect has no other form *);
+    keepdim = p.Ops4.Max_keepdims.keepdim;
   }
 
 let sum_params (p : Ops4.Sum_keepdims.params) : Reduce.Sum.params =
   {
     dims = List.map Axis4.to_axis p.Ops4.Sum_keepdims.dims;
-    keepdim = true (* the dialect has no other form *);
+    keepdim = p.Ops4.Sum_keepdims.keepdim;
   }
 
 let vector_norm_params (p : Ops4.Vector_norm_keepdims.params) :
     Reduce.Vector_norm.params =
   {
     dims = List.map Axis4.to_axis p.Ops4.Vector_norm_keepdims.dims;
-    keepdim = true (* the dialect has no other form *);
+    keepdim = p.Ops4.Vector_norm_keepdims.keepdim;
   }
 
 (* Shared with [Eval_op4], which needs the same translation for the same op:
@@ -219,6 +219,9 @@ let batch_norm_no_stats_params (p : Ops4.Batch_norm_no_stats.params) :
     Norm.BatchNormNoStats.params =
   { channel = Axis4.to_axis p.Ops4.Batch_norm_no_stats.channel; eps = p.eps }
 
+let batch_norm_params (p : Ops4.Batch_norm.params) : Norm.BatchNorm.params =
+  { channel = Axis4.to_axis p.Ops4.Batch_norm.channel; eps = p.eps }
+
 let group_norm_params (p : Ops4.Group_norm4.params) : Norm.GroupNorm.params =
   {
     channel = Axis4.to_axis p.Ops4.Group_norm4.channel;
@@ -238,6 +241,14 @@ let output_shape (op : Op.t)
       let* a_shape = shape a in
       let* b_shape = shape b in
       one (four (Pointwise.Add.output_shape a_shape b_shape))
+  | Addcmul { Pointwise.Addcmul.self; tensor1; tensor2; _ } ->
+      let* self_shape = shape self in
+      let* tensor1_shape = shape tensor1 in
+      let* tensor2_shape = shape tensor2 in
+      one
+        (four
+           (Pointwise.Addcmul.output_shape self_shape tensor1_shape
+              tensor2_shape))
   | Add_scalar { Pointwise.Scalar_bin.x; _ } ->
       let* x_shape = shape x in
       one (four (Pointwise.Add_scalar.output_shape x_shape))
@@ -259,6 +270,9 @@ let output_shape (op : Op.t)
   | Avg_pool2d { Pool.AvgPool2d.params; x } ->
       let* x_shape = shape x in
       one (four (Pool.AvgPool2d.output_shape ~x_shape params))
+  | Batch_norm { Ops4.Batch_norm.x; _ } ->
+      let* x_shape = shape x in
+      one (four (Norm.BatchNorm.output_shape ~x_shape))
   | Batch_norm_no_stats { Ops4.Batch_norm_no_stats.params; x; weight; bias } ->
       let* x_shape = shape x in
       let p = batch_norm_no_stats_params params in

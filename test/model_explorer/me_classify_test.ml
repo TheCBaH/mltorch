@@ -24,11 +24,9 @@ let%expect_test "every Native4D row, classified" =
   let shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1 in
   let rows : (string * Native4d.Error.t) list =
     [
-      ("Missing_constant_payload", `Missing_constant_payload (nid 0, tid 0));
       ("Axis_outside_dialect", `Axis_outside_dialect (nid 0, Axis.N));
       ( "Batch_norm_extent",
         `Batch_norm_extent (nid 0, tid 0, Dim.extent 1, Dim.extent 2) );
-      ("Dynamic_batch_norm", `Dynamic_batch_norm (nid 0));
       ( "Non_four_dimensional_tensor",
         `Non_four_dimensional_tensor (tid 0, shape) );
       ( "Unsupported_grouped_transposed_conv",
@@ -41,10 +39,8 @@ let%expect_test "every Native4D row, classified" =
   List.iter (fun (n, e) -> show n (MC.native4d e)) rows;
   [%expect
     {|
-    Missing_constant_payload               unavailable requires_payloads
     Axis_outside_dialect                   unavailable outside_dialect_domain
     Batch_norm_extent                      unavailable outside_dialect_domain
-    Dynamic_batch_norm                     unavailable outside_dialect_domain
     Non_four_dimensional_tensor            unavailable outside_dialect_domain
     Unsupported_grouped_transposed_conv    unavailable outside_dialect_domain
     Unsupported_op                         unavailable outside_dialect_domain

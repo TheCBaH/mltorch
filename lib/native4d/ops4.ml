@@ -41,17 +41,19 @@ module Transposed_conv2d = Ops4_conv.Transposed_conv2d
    Native [Mean keepdim=false] legalizes to this plus a [Reshape4], and only
    when the packed shape stays four-axis (correction C1). *)
 module Mean_keepdims = struct
-  type params = { dims : Axis4.t list }
+  type params = { dims : Axis4.t list; keepdim : bool }
 
   let params_jsont : params Jsont.t =
-    Jsont.Object.map ~kind:"mean_keepdims_params" (fun dims -> { dims })
+    Jsont.Object.map ~kind:"mean_keepdims_params" (fun dims keepdim ->
+        { dims; keepdim })
     |> Jsont.Object.mem "dims" (Jsont.list Axis4.jsont) ~enc:(fun p -> p.dims)
+    |> Jsont.Object.mem "keepdim" Jsont.bool ~enc:(fun p -> p.keepdim)
     |> Jsont.Object.finish
 
   let pp_params fmt (p : params) =
-    Fmt.pf fmt "@[<hv>{dims=%a}@]"
+    Fmt.pf fmt "@[<hv>{dims=%a;@ keepdim=%b}@]"
       (Fmt.brackets (Fmt.list ~sep:Fmt.comma Axis4.pp))
-      p.dims
+      p.dims p.keepdim
 
   type t = { params : params; x : Tensor_ref.t }
 
@@ -85,17 +87,19 @@ end
    this plus a [Reshape4], exactly as [Mean keepdim=false] does (correction
    C1). *)
 module Max_keepdims = struct
-  type params = { dims : Axis4.t list }
+  type params = { dims : Axis4.t list; keepdim : bool }
 
   let params_jsont : params Jsont.t =
-    Jsont.Object.map ~kind:"max_keepdims_params" (fun dims -> { dims })
+    Jsont.Object.map ~kind:"max_keepdims_params" (fun dims keepdim ->
+        { dims; keepdim })
     |> Jsont.Object.mem "dims" (Jsont.list Axis4.jsont) ~enc:(fun p -> p.dims)
+    |> Jsont.Object.mem "keepdim" Jsont.bool ~enc:(fun p -> p.keepdim)
     |> Jsont.Object.finish
 
   let pp_params fmt (p : params) =
-    Fmt.pf fmt "@[<hv>{dims=%a}@]"
+    Fmt.pf fmt "@[<hv>{dims=%a;@ keepdim=%b}@]"
       (Fmt.brackets (Fmt.list ~sep:Fmt.comma Axis4.pp))
-      p.dims
+      p.dims p.keepdim
 
   type t = { params : params; x : Tensor_ref.t }
 
@@ -129,17 +133,19 @@ end
    this plus a [Reshape4], exactly as [Mean keepdim=false] does (correction
    C1). *)
 module Sum_keepdims = struct
-  type params = { dims : Axis4.t list }
+  type params = { dims : Axis4.t list; keepdim : bool }
 
   let params_jsont : params Jsont.t =
-    Jsont.Object.map ~kind:"sum_keepdims_params" (fun dims -> { dims })
+    Jsont.Object.map ~kind:"sum_keepdims_params" (fun dims keepdim ->
+        { dims; keepdim })
     |> Jsont.Object.mem "dims" (Jsont.list Axis4.jsont) ~enc:(fun p -> p.dims)
+    |> Jsont.Object.mem "keepdim" Jsont.bool ~enc:(fun p -> p.keepdim)
     |> Jsont.Object.finish
 
   let pp_params fmt (p : params) =
-    Fmt.pf fmt "@[<hv>{dims=%a}@]"
+    Fmt.pf fmt "@[<hv>{dims=%a;@ keepdim=%b}@]"
       (Fmt.brackets (Fmt.list ~sep:Fmt.comma Axis4.pp))
-      p.dims
+      p.dims p.keepdim
 
   type t = { params : params; x : Tensor_ref.t }
 
@@ -172,17 +178,19 @@ end
    [Vector_norm keepdim=false] legalizes to this plus a [Reshape4], exactly
    as [Mean]/[Amax] do (correction C1). *)
 module Vector_norm_keepdims = struct
-  type params = { dims : Axis4.t list }
+  type params = { dims : Axis4.t list; keepdim : bool }
 
   let params_jsont : params Jsont.t =
-    Jsont.Object.map ~kind:"vector_norm_keepdims_params" (fun dims -> { dims })
+    Jsont.Object.map ~kind:"vector_norm_keepdims_params" (fun dims keepdim ->
+        { dims; keepdim })
     |> Jsont.Object.mem "dims" (Jsont.list Axis4.jsont) ~enc:(fun p -> p.dims)
+    |> Jsont.Object.mem "keepdim" Jsont.bool ~enc:(fun p -> p.keepdim)
     |> Jsont.Object.finish
 
   let pp_params fmt (p : params) =
-    Fmt.pf fmt "@[<hv>{dims=%a}@]"
+    Fmt.pf fmt "@[<hv>{dims=%a;@ keepdim=%b}@]"
       (Fmt.brackets (Fmt.list ~sep:Fmt.comma Axis4.pp))
-      p.dims
+      p.dims p.keepdim
 
   type t = { params : params; x : Tensor_ref.t }
 
@@ -256,6 +264,82 @@ module Softmax4 = struct
 end
 
 (* ---- normalisation -------------------------------------------------------- *)
+
+module Batch_norm = struct
+  type params = { channel : Axis4.t; eps : float }
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"batch_norm4_params" (fun channel eps ->
+        { channel; eps })
+    |> Jsont.Object.mem "channel" Axis4.jsont ~enc:(fun p -> p.channel)
+    |> Jsont.Object.mem "eps" Json_util.f32_jsont ~enc:(fun p -> p.eps)
+    |> Jsont.Object.finish
+
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "@[<hv>{channel=%a;@ eps=%a}@]" Axis4.pp p.channel Fmt.float
+      p.eps
+
+  type t = {
+    params : params;
+    x : Tensor_ref.t;
+    weight : Tensor_ref.t option;
+    bias : Tensor_ref.t option;
+    running_mean : Tensor_ref.t;
+    running_var : Tensor_ref.t;
+  }
+
+  let name = "BatchNorm"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        {
+          params = get "params" params_jsont;
+          x = get "x" Tensor_ref.jsont;
+          weight = Json_util.opt_field ms "weight" Tensor_ref.jsont;
+          bias = Json_util.opt_field ms "bias" Tensor_ref.jsont;
+          running_mean = get "running_mean" Tensor_ref.jsont;
+          running_var = get "running_var" Tensor_ref.jsont;
+        })
+      ~enc:(fun t ->
+        let ref_ = Json_util.enc Tensor_ref.jsont in
+        let opt k = function None -> [] | Some r -> [ (k, ref_ r) ] in
+        Json_util.jobj
+          ([ ("params", Json_util.enc params_jsont t.params); ("x", ref_ t.x) ]
+          @ opt "weight" t.weight @ opt "bias" t.bias
+          @ [
+              ("running_mean", ref_ t.running_mean);
+              ("running_var", ref_ t.running_var);
+            ]))
+      Jsont.json
+
+  let operands (t : t) =
+    (t.x :: Option.to_list t.weight)
+    @ Option.to_list t.bias
+    @ [ t.running_mean; t.running_var ]
+
+  let map_operands f (t : t) =
+    {
+      t with
+      x = f t.x;
+      weight = Option.map f t.weight;
+      bias = Option.map f t.bias;
+      running_mean = f t.running_mean;
+      running_var = f t.running_var;
+    }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt
+      "@[<hv 2>batch_norm@ x=%a@ weight=%a@ bias=%a@ running_mean=%a@ \
+       running_var=%a@ params=%a@]"
+      pp_ref t.x
+      (Fmt.option ~none:(Fmt.any "none") pp_ref)
+      t.weight
+      (Fmt.option ~none:(Fmt.any "none") pp_ref)
+      t.bias pp_ref t.running_mean pp_ref t.running_var pp_params t.params
+end
 
 (* Training batch norm cannot use inference [Batch_norm]'s depthwise-conv
    legalization: its mean and inverse standard deviation are reductions of the

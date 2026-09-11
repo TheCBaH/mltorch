@@ -996,13 +996,15 @@ spelling — which is exactly why it is written out rather than assumed. They ar
 types on purpose, and a code added for the worker protocol must not silently become a
 capability reason.
 
-**Native4D.** `Missing_constant_payload` → `Requires_payloads`. The nine domain rejections →
-`Outside_dialect_domain`. `Bad_constant_payload`, `Map` and `View` → **fatal**: a payload
-that *was* supplied and is wrong, or a map/view invariant failure, is ours.
+**Native4D.** Its seven domain rejections → `Outside_dialect_domain`.
+`Bad_constant_payload`, `Map` and `View` → **fatal**: a payload that *was*
+supplied and is wrong, or a map/view invariant failure, is ours. Standalone
+BatchNorm reads its running statistics as ordinary graph operands, so it no
+longer has a payload-required rejection.
 
-Having payloads removes **exactly one** failure mode. It does not put a graph inside the
-dialect — which is why Native4D is conditional for a `.pt2` and a bare `model.json` alike,
-and why the suite covers both a payload case and a domain case.
+The dialect check still does not put a graph inside the dialect — which is why
+Native4D is conditional for a `.pt2` and a bare `model.json` alike, and why
+the suite covers domain cases.
 
 **Kernel.** `Passthrough_output` → `Unsupported_graph_shape`, **recoverable**: a graph input
 used directly as a graph output has no stage to name, and the kernel suite builds one its

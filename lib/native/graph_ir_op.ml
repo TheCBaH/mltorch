@@ -14,6 +14,7 @@ type op =
      defined in that op's module; the shared serialise / dataflow / pp logic is
      driven from [op_registry] below, not a per-constructor match. *)
   | Add of Pointwise.Add.t
+  | Addcmul of Pointwise.Addcmul.t
   | Add_scalar of Pointwise.Add_scalar.t
   | Adaptive_avg_pool2d of Pool.AdaptiveAvgPool2d.t
   | Adaptive_max_pool2d of Pool.AdaptiveMaxPool2d.t

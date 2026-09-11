@@ -30,14 +30,8 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                    let+ y = add_scalar scalar a_id in
                    [ y ]
                | _ -> assert false))
-  (* addcmul(self, tensor1, tensor2, value=1) = self + value * tensor1 *
-     tensor2 -- decomposed to existing [Mul]/[Add]/[Mul_scalar] nodes rather
-     than a new [Graph_ir] op: the ATen semantics literally IS that
-     composition, with no shape/axis logic of its own to lose (unlike
-     select/stack, which had their own shape rule a decomposition would have
-     hidden). [Mul_scalar] is skipped entirely for
-     the verified default [value=1], the only value this corpus serialises,
-     rather than always emitting a `*1.` node. *)
+  (* Keep addcmul as one Native node so its three loads and multiply-add remain
+     available to one fused Pixel kernel. *)
   | "torch.ops.aten.addcmul.default" ->
       Some
         (let* self = native_tensor_arg aten_env node "self" in
@@ -47,12 +41,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          build_g ~name:"addcmul" [ self; t1; t2 ] (function
            | [ self_id; t1_id; t2_id ] ->
                let open Graph_builder in
-               let* prod = mul t1_id t2_id in
-               let* scaled =
-                 if Float.equal value 1. then return prod
-                 else mul_scalar value prod
-               in
-               let+ y = add self_id scaled in
+               let+ y = addcmul value self_id t1_id t2_id in
                [ y ]
            | _ -> assert false))
   (* Restricted to the corpus's own bool operand -- see

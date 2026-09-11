@@ -145,9 +145,25 @@ let batch_norm_no_stats ?fmt params ~x ?weight ?bias () =
   opN ?fmt
     (Op.Batch_norm_no_stats { Ops4.Batch_norm_no_stats.params; x; weight; bias })
 
+let batch_norm ?fmt params ~x ?weight ?bias ~running_mean ~running_var () =
+  op1 ?fmt
+    (Op.Batch_norm
+       { Ops4.Batch_norm.params; x; weight; bias; running_mean; running_var })
+
 (* Op constructors in global alphabetical order, as in [Graph_builder]. *)
 
 let add a b = op1 (Op.Add { Pointwise.Bin.a; b })
+
+let addcmul value self tensor1 tensor2 =
+  op1
+    (Op.Addcmul
+       {
+         Pointwise.Addcmul.self;
+         tensor1;
+         tensor2;
+         value = Json_util.f32_to_f32 value;
+       })
+
 let add_scalar scalar x = op1 (Op.Add_scalar { Pointwise.Scalar_bin.x; scalar })
 
 let adaptive_avg_pool2d params x =
@@ -249,8 +265,8 @@ let lstm params ~input ~layers ~h0 ~c0 () =
         ( Err.fail (`Expected_single_output_shape { count = List.length shapes }),
           s )
 
-let max_keepdims dims x =
-  op1 (Op.Max_keepdims { Ops4.Max_keepdims.params = { dims }; x })
+let max_keepdims ?(keepdim = true) dims x =
+  op1 (Op.Max_keepdims { Ops4.Max_keepdims.params = { dims; keepdim }; x })
 
 let max_pool2d params x = op1 (Op.Max_pool2d { Pool.MaxPool2d.params; x })
 
@@ -259,8 +275,8 @@ let max_pool2d params x = op1 (Op.Max_pool2d { Pool.MaxPool2d.params; x })
 let max_pool2d_with_indices params x =
   opN (Op.Max_pool2d_with_indices { Pool.MaxPool2dWithIndices.params; x })
 
-let mean_keepdims dims x =
-  op1 (Op.Mean_keepdims { Ops4.Mean_keepdims.params = { dims }; x })
+let mean_keepdims ?(keepdim = true) dims x =
+  op1 (Op.Mean_keepdims { Ops4.Mean_keepdims.params = { dims; keepdim }; x })
 
 let mul a b = op1 (Op.Mul { Pointwise.Bin.a; b })
 let mul_scalar scalar x = op1 (Op.Mul_scalar { Pointwise.Scalar_bin.x; scalar })
@@ -344,8 +360,8 @@ let sqrt x = op1 (Op.Sqrt { Pointwise.Sqrt.x })
 let stack4 params xs = op1 (Op.Stack4 { Ops4.Stack4.params; xs })
 let sub a b = op1 (Op.Sub { Pointwise.Bin.a; b })
 
-let sum_keepdims dims x =
-  op1 (Op.Sum_keepdims { Ops4.Sum_keepdims.params = { dims }; x })
+let sum_keepdims ?(keepdim = true) dims x =
+  op1 (Op.Sum_keepdims { Ops4.Sum_keepdims.params = { dims; keepdim }; x })
 
 let to_copy target x = op1 (Op.To_copy { Pointwise.To_copy.target; x })
 
@@ -370,9 +386,10 @@ let upsample_bilinear2d params x =
 let upsample_nearest2d params x =
   op1 (Op.Upsample_nearest2d { Resize.Nearest2d.params; x })
 
-let vector_norm_keepdims dims x =
+let vector_norm_keepdims ?(keepdim = true) dims x =
   op1
-    (Op.Vector_norm_keepdims { Ops4.Vector_norm_keepdims.params = { dims }; x })
+    (Op.Vector_norm_keepdims
+       { Ops4.Vector_norm_keepdims.params = { dims; keepdim }; x })
 
 let arange4 params =
   op1 ~fmt:params.Ops4.Arange4.fmt (Op.Arange4 { Ops4.Arange4.params })

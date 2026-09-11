@@ -27,8 +27,8 @@ let classify (op : Op.t) ~output =
      per-element and copying preserves it — the rule is not "the value multiset
      is unchanged", which holds only of the total case. See
      .ai/native_transform_design.md §8. *)
-  | Add _ | Add_scalar _ | Adaptive_avg_pool2d _ | Adaptive_max_pool2d _
-  | Avg_pool2d _ | Clamp _ ->
+  | Add _ | Addcmul _ | Add_scalar _ | Adaptive_avg_pool2d _
+  | Adaptive_max_pool2d _ | Avg_pool2d _ | Clamp _ ->
       Output_transfer.Continuous
   (* out0 (the pooled value) is Continuous; out1 (the argmax indices) is
      Discontinuous -- the same [output]-keyed split Native's own
@@ -43,10 +43,10 @@ let classify (op : Op.t) ~output =
      no arithmetic on any of them. *)
   | Expand4 _ -> Output_transfer.Reindexing
   | Conv2d _ | Depthwise_conv2d _ | Cos _ | Div _ | Div_scalar _ | Gelu _
-  | Batch_norm_no_stats _ | Batched_matmul _ | Group_norm4 _ | Grouped_conv2d _
-  | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Layer_norm _ | Leaky_relu _
-  | Lstm _ | Max_keepdims _ | Max_pool2d _ | Mean_keepdims _ | Mul _
-  | Mul_scalar _ | Pad4 _ ->
+  | Batch_norm _ | Batch_norm_no_stats _ | Batched_matmul _ | Group_norm4 _
+  | Grouped_conv2d _ | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Layer_norm _
+  | Leaky_relu _ | Lstm _ | Max_keepdims _ | Max_pool2d _ | Mean_keepdims _
+  | Mul _ | Mul_scalar _ | Pad4 _ ->
       Output_transfer.Continuous
   | Permute4 _ -> Output_transfer.Reindexing
   | Pow _ | Relu _ | Rpow_scalar _ -> Output_transfer.Continuous

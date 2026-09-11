@@ -84,10 +84,9 @@ let%expect_test "domain: which axes an op may name" =
     batch_norm on C              in the dialect
     batch_norm on H              node n0: axis H is outside the N/H/W/C dialect |}]
 
-(* Constant kind is what makes the per-channel scale precomputable; a parameter
-   that is still a node output — an unfolded relayout permute, say — is dynamic,
-   which is why constant folding runs before conversion. *)
-let%expect_test "domain: batch norm needs constant parameters" =
+(* Dynamic statistics are ordinary operands of the retained BatchNorm node; a
+   node output needs no conversion-time payload. *)
+let%expect_test "domain: batch norm accepts dynamic parameters" =
   table
     [
       ("constant params", Fixtures.batch_norm_on Axis.C);
@@ -96,7 +95,7 @@ let%expect_test "domain: batch norm needs constant parameters" =
   [%expect
     {|
     constant params              in the dialect
-    dynamic params               node n2: batch norm parameters are not all constant, so no per-channel scale can be precomputed |}]
+    dynamic params               in the dialect |}]
 
 (* ---- keepdim=false, the case design §7.5 gets wrong ----------------------- *)
 

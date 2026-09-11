@@ -36,6 +36,21 @@ let%expect_test "Direct: add" =
        (A.pixel ~a_shape:x_shape ~b_shape:y_shape x y));
   [%expect {| tensor f32 [C=3] {10, 11, 12} |}]
 
+let%expect_test "Direct: addcmul, including a non-default value" =
+  let module A = Pointwise.Addcmul.Compute (Direct) in
+  let shape = s1c 3 in
+  let self = Tensor.materialize shape (fun c -> float_of_int (chan c)) in
+  let tensor1 = Tensor.materialize shape (fun _ -> 2.) in
+  let tensor2 =
+    Tensor.materialize shape (fun c -> float_of_int (chan c) +. 1.)
+  in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Pointwise.Addcmul.output_shape shape shape shape)
+       (A.pixel ~self_shape:shape ~tensor1_shape:shape ~tensor2_shape:shape
+          ~value:0.5 self tensor1 tensor2));
+  [%expect {| tensor f32 [C=3] {1, 3, 5} |}]
+
 let%expect_test "Direct: div" =
   let module D = Pointwise.Div.Compute (Direct) in
   let x_shape = s1c 3 and y_shape = s1c 3 in

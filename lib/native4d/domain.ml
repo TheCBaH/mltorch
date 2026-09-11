@@ -66,8 +66,7 @@ let check_shapes view =
    every axis of [Axis.all] exactly once on each side — so it ALWAYS names T and
    D, and "names no axis outside N/H/W/C" would reject every permutation in
    existence; the implementable condition is that it FIXES T and D. [Batch_norm]
-   names one axis, which must be C, because the §7.6 lowering to a depthwise 1x1
-   convolution scales per channel and cannot normalize over N, H or W. *)
+   names one axis, which must be C, matching the other normalization ops. *)
 
 let check_dims node dims =
   Err.List.iter
@@ -127,12 +126,6 @@ let check_sdpa view node ~query =
       if Dim.to_int batch = 1 then Err.return ()
       else Err.fail (`Sdpa_batch_axis node)
 
-(* The two running statistics are required operands; [weight] and [bias] are
-   optional, and absent means the identity, which is not a dynamic parameter.
-   So the rule is: the statistics, plus every optional that is PRESENT, must be
-   an effective [Input.Constant]. A parameter that is still a node output — an
-   unfolded relayout permute, say — is dynamic as far as this check goes, which
-   is why constant folding runs before conversion. *)
 let check_batch_norm view node (bn : Norm.BatchNorm.t) =
   let* () =
     let channel = bn.Norm.BatchNorm.params.Norm.BatchNorm.channel in
@@ -168,13 +161,7 @@ let check_batch_norm view node (bn : Norm.BatchNorm.t) =
           :: List.filter_map Fun.id
                [ bn.Norm.BatchNorm.weight; bn.Norm.BatchNorm.bias ])
   in
-  Err.List.iter
-    (fun id ->
-      if Graph_view.is_constant view id then Err.return ()
-      else Err.fail (`Dynamic_batch_norm node))
-    (bn.Norm.BatchNorm.running_mean :: bn.Norm.BatchNorm.running_var
-    :: List.filter_map Fun.id
-         [ bn.Norm.BatchNorm.weight; bn.Norm.BatchNorm.bias ])
+  Err.return ()
 
 (* Exhaustive, with NO default arm, following [Output_transfer.classify]: a
    defaulting match would silently admit the next Native op into a dialect that
@@ -190,15 +177,16 @@ let check_node view (n : node) =
      needs an axis check, since their `kernel`/`stride`/`pad`/`output_size`
      params name no axis, the same reason [Max_pool2d]/[Adaptive_max_pool2d]
      need none. *)
-  | Add _ | Add_scalar _ | Adaptive_avg_pool2d _ | Adaptive_max_pool2d _
-  | Adaptive_max_pool2d_with_indices _ | Avg_pool2d _ | Bitwise_not _ | Bmm _
-  | Clamp _ | Clone _ | Col2im _ | Conv1d _ | Conv2d _ | Conv2d_padding _
-  | Cos _ | Div _ | Div_scalar _ | Expand _ | Floor_div_scalar _ | Gelu _
-  | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Im2col _ | Leaky_relu _
-  | Linear _ | Lstm _ | Max_pool2d _ | Max_pool2d_with_indices _ | Mul _
-  | Mul_scalar _ | Pow _ | Relu _ | Repeat _ | Reshape _ | Rpow_scalar _
-  | Rsub_scalar _ | Sigmoid _ | Silu _ | Sin _ | Sqrt _ | Sub _ | To_copy _
-  | Upsample_bicubic2d _ | Upsample_bilinear2d _ | Upsample_nearest2d _ ->
+  | Add _ | Addcmul _ | Add_scalar _ | Adaptive_avg_pool2d _
+  | Adaptive_max_pool2d _ | Adaptive_max_pool2d_with_indices _ | Avg_pool2d _
+  | Bitwise_not _ | Bmm _ | Clamp _ | Clone _ | Col2im _ | Conv1d _ | Conv2d _
+  | Conv2d_padding _ | Cos _ | Div _ | Div_scalar _ | Expand _
+  | Floor_div_scalar _ | Gelu _ | Hardsigmoid _ | Hardswish _ | Hardtanh _
+  | Im2col _ | Leaky_relu _ | Linear _ | Lstm _ | Max_pool2d _
+  | Max_pool2d_with_indices _ | Mul _ | Mul_scalar _ | Pow _ | Relu _ | Repeat _
+  | Reshape _ | Rpow_scalar _ | Rsub_scalar _ | Sigmoid _ | Silu _ | Sin _
+  | Sqrt _ | Sub _ | To_copy _ | Upsample_bicubic2d _ | Upsample_bilinear2d _
+  | Upsample_nearest2d _ ->
       Err.return ()
   | Arange _ | Eye _ | Zeros _ -> Err.return ()
   | Batch_norm bn -> check_batch_norm view node bn

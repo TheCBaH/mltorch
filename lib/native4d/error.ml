@@ -9,9 +9,7 @@ type t =
     Node_id.t * Tensor_id.t * Dim.extent Dim.t * Dim.extent Dim.t
   | `Batched_matmul_batch_axis of Node_id.t
   | `Constant_store of Constant_store.error
-  | `Dynamic_batch_norm of Node_id.t
   | `Map of Graph_map.error
-  | `Missing_constant_payload of Node_id.t * Tensor_id.t
   | `Non_four_dimensional_tensor of Tensor_id.t * Vec6.shape
   | `Sdpa_batch_axis of Node_id.t
   | `Unsupported_grouped_transposed_conv of Node_id.t * int
@@ -38,17 +36,7 @@ let pp fmt : [< t ] -> unit = function
          axes@]"
         Node_id.pp node
   | `Constant_store e -> Constant_store.pp_error fmt e
-  | `Dynamic_batch_norm node ->
-      Fmt.pf fmt
-        "@[node %a: batch norm parameters are not all constant, so no \
-         per-channel scale can be precomputed@]"
-        Node_id.pp node
   | `Map e -> Fmt.pf fmt "@[map: %a@]" Graph_map.pp_error e
-  | `Missing_constant_payload (node, id) ->
-      Fmt.pf fmt
-        "@[node %a needs constant %a's payload at conversion time, and none \
-         was supplied@]"
-        Node_id.pp node Tensor_id.pp id
   | `Non_four_dimensional_tensor (id, shape) ->
       Fmt.pf fmt "@[tensor %a has extent on T or D: %a@]" Tensor_id.pp id
         Vec6.pp_shape shape

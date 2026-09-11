@@ -385,6 +385,9 @@ let sink_permute_allowlist () =
       let* r_pow = single (pow 2.) in
       let* r_hardsigmoid = single hardsigmoid in
       let* r_hardswish = single hardswish in
+      let* a0, b0 = pair () in
+      let* c0 = permute rotate_hwc x in
+      let* r_addcmul = addcmul 0.5 a0 b0 c0 in
       let* a1, b1 = pair () in
       let* r_add = add a1 b1 in
       let* a2, b2 = pair () in
@@ -409,7 +412,8 @@ let sink_permute_allowlist () =
       let* s14 = add s13 r_mul_scalar in
       let* s15 = add s12 s11 in
       let* s16 = add s15 s14 in
-      add s16 r_pow)
+      let* s17 = add s16 r_addcmul in
+      add s17 r_pow)
 
 (* ---- transporting a permute through a keepdim=true Mean ------------------ *)
 

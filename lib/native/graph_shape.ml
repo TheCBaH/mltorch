@@ -38,6 +38,15 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* b_shape = shape b in
       let+ out = widen (Pointwise.Add.output_shape a_shape b_shape) in
       [ out ]
+  | Addcmul { Pointwise.Addcmul.self; tensor1; tensor2; _ } ->
+      let* self_shape = shape self in
+      let* tensor1_shape = shape tensor1 in
+      let* tensor2_shape = shape tensor2 in
+      let+ out =
+        widen
+          (Pointwise.Addcmul.output_shape self_shape tensor1_shape tensor2_shape)
+      in
+      [ out ]
   | Add_scalar { Pointwise.Scalar_bin.x; _ } ->
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Add_scalar.output_shape x_shape) in

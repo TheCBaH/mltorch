@@ -30,6 +30,7 @@ type op =
      [Eval_op]/[Graph_shape] still match per op, since they need shape/semantics
      context the payload can't carry. *)
   | Add of Pointwise.Add.t
+  | Addcmul of Pointwise.Addcmul.t
   | Add_scalar of Pointwise.Add_scalar.t
   | Adaptive_avg_pool2d of Pool.AdaptiveAvgPool2d.t
   | Adaptive_max_pool2d of Pool.AdaptiveMaxPool2d.t

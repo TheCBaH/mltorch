@@ -23,9 +23,7 @@ type t =
     Node_id.t * Tensor_id.t * Dim.extent Dim.t * Dim.extent Dim.t
   | `Batched_matmul_batch_axis of Node_id.t
   | `Constant_store of Constant_store.error
-  | `Dynamic_batch_norm of Node_id.t
   | `Map of Graph_map.error
-  | `Missing_constant_payload of Node_id.t * Tensor_id.t
   | `Non_four_dimensional_tensor of Tensor_id.t * Vec6.shape
   | `Sdpa_batch_axis of Node_id.t
   | `Unsupported_grouped_transposed_conv of Node_id.t * int

@@ -55,11 +55,15 @@ let evaluate resolver r ~inputs =
   in
   (env, report)
 
-(* The walk accumulator, parameter-translation helpers and [lower_node]
-   (the per-source-node dispatch) live in lower_engine.ml, split out under
-   the tracked file-size ceiling; opened here so [convert] below can use
-   [lower_node], [resolve] and the [acc] record fields unqualified, exactly
-   as when they lived in this file. *)
+(* The parameter-translation helpers and [lower_node] (the per-source-node
+   dispatch) live in lower_engine.ml; the walk accumulator [acc] and its
+   low-level operations ([resolve], [fresh_tensor], [fresh_constant], [emit])
+   live in lower_engine_acc.ml, split out separately so lower_engine.ml and
+   lower_engine_batch_norm.ml (the [Batch_norm] arm) can each depend on them
+   without depending on each other. Both opened here so [convert] below can
+   use [lower_node], [resolve] and the [acc] record fields unqualified,
+   exactly as when they all lived in this file. *)
+open Lower_engine_acc
 open Lower_engine
 (* ---- constants ------------------------------------------------------------ *)
 

@@ -113,6 +113,7 @@ let%expect_test "verify: the direct and reinterpreting legalizations" =
   check "layer_norm over W,C" (Fixtures.layer_norm_over [ Axis.W; Axis.C ] ());
   check "linear -> 1x1 conv" (Fixtures.linear_layer ());
   check "bmm -> batched_matmul" (Fixtures.bmm_batch 1 ());
+  check "batch_norm" (Fixtures.batch_norm_on Axis.C ());
   check "mean keepdim=false" (Fixtures.mean_over_hw ~keepdim:false ~n:1 ());
   check "permute alone"
     (build "permute"
@@ -142,7 +143,8 @@ let%expect_test "verify: the direct and reinterpreting legalizations" =
     layer_norm over W,C      4 clusters: 2 proved (structural) [sampled 32], 2 unproved (unbound constant)
     linear -> 1x1 conv       3 clusters: 1 proved (structural), 2 unproved (unbound constant)
     bmm -> batched_matmul    3 clusters: 3 proved (structural)
-    mean keepdim=false       3 clusters: 1 proved (structural), 1 proved (structural) [sampled 32], 1 vacuous
+    batch_norm               4 clusters: 2 proved (structural) [sampled 32], 2 unproved (unbound constant)
+    mean keepdim=false       2 clusters: 1 proved (structural), 1 proved (structural) [sampled 32]
     permute alone            3 clusters: 3 proved (structural) |}]
 
 (* ---- bmm, now a direct counterpart -----------------------------------------

@@ -49,6 +49,12 @@ let op_registry : (module OP) list =
       let project = function Add t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Pointwise.Addcmul
+
+      let inject t = Addcmul t
+      let project = function Addcmul t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Pointwise.Add_scalar
 
       let inject t = Add_scalar t

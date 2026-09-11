@@ -628,39 +628,24 @@ the measurement question this section previously left open.
 
 `Mean { keepdim=true }` becomes `MeanKeepDims`.
 
-`Mean { keepdim=false }` becomes:
-
-```text
-MeanKeepDims dims
-  ->
-Reshape4 original_native_output_shape
-```
-
-The keep-dimensions result and packed result have the same surviving values in
-the same row-major order; unit axes do not contribute to the offset. The
-reshape is a reindexing/materialization of an already stored value.
+`Mean { keepdim=false }` is retained as one `MeanKeepDims` node carrying its
+`keepdim` parameter. The shared Native reduction kernel already handles both
+forms, and its output shape is checked back into the four-axis dialect.
 
 The converter must still reject a reduction naming `T` or `D` after
 normalization.
 
 ### 7.6 Batch normalization
 
-Preferred path:
+Standalone inference `Batch_norm` is retained as one Native4D operation,
+delegating to `Norm.BatchNorm.Compute` unchanged. Its claim is `Identical`:
+the shared computation reads `running_mean`/`running_var`/`weight`/`bias`
+directly at the channel coordinate, with no reassociation or intermediate
+rounding boundary. Optional affine operands retain Native's identity fills.
 
-1. run constant folding so relaid convolution weights are constants;
-2. run the existing batch-normalization fold;
-3. fold the resulting parameter arithmetic;
-4. convert the resulting convolution.
-
-This covers the usual inference graph where batch normalization immediately
-follows convolution.
-
-A standalone inference `Batch_norm` with constant scale, bias, running mean, and
-running variance can be turned into a depthwise 1x1 convolution by precomputing
-one scale and offset per channel. That changes the arithmetic association and
-rounding points, so the relation is generally `Equivalent`, not `Identical`.
-
-If the parameters are dynamic and Native4D has no BatchNorm operation, reject.
+Dynamic parameters are representable as ordinary operands, so conversion does
+not require constant folding. Existing convolution/batch-normalization folding
+remains an independent optimization for the paired-convolution case.
 
 ### 7.7 RMS normalization
 
@@ -853,7 +838,6 @@ The initial dialect does not need:
 - general BMM/MatMul, if only the single-batch legal form is accepted;
 - argmax-pool indices (**landed**: `Max_pool2d_with_indices`/
   `Adaptive_max_pool2d_with_indices`, §8 table);
-- BatchNorm, if conversion requires it to be folded;
 - RMSNorm, if `Equivalent` decomposition is acceptable.
 
 If conversion later needs to become more complete, the smallest additions are:
@@ -863,7 +847,7 @@ If conversion later needs to become more complete, the smallest additions are:
 | General grouped convolution | **Landed**: retained as `GroupedConv2D`, a fourth convolution constructor whose `groups` is a real field (§7.2) |
 | Batched BMM | Retain BMM/MatMul |
 | Live max-pool indices | **Landed** (2026-09-10): no new `Ops4` type at all -- `Max_pool2d_with_indices`/`Adaptive_max_pool2d_with_indices` `include` Native's own payload directly, since neither names an axis, with the multi-output plumbing `Unbind` established (§8 above) layered on top |
-| Dynamic standalone BatchNorm | BatchNorm or per-channel affine op |
+| Dynamic standalone BatchNorm | **Landed**: retained as `BatchNorm`, delegating to Native's fused compute |
 | Bit-identical RMSNorm | Fused RMSNorm |
 
 Expanding constant grouped-convolution weights into a dense zero-filled Conv2D
@@ -902,8 +886,7 @@ Use the existing relation meanings:
 Direct wrappers, convolution normalization, clone removal, linear legalization,
 and the supported BMM legalization should claim `Identical`.
 
-Batch-normalization folding and decomposed RMS normalization should claim
-`Equivalent`.
+Decomposed RMS normalization should claim `Equivalent`.
 
 Created/deleted intermediates form vacuous clusters but still carry provenance.
 
@@ -952,7 +935,6 @@ type error =
   | `Unsupported_op of Node_id.t * Native.op
   | `Unsupported_grouped_conv of Node_id.t * int
   | `Unsupported_grouped_transposed_conv of Node_id.t * int
-  | `Dynamic_batch_norm of Node_id.t
   | `Shape of Native4d_shape.error
   | `Build of Native4d_builder.error
   | `Map of Graph_map.error ]
@@ -1005,7 +987,7 @@ conversion outcomes:
 - reject an intermediate group count;
 - accept single-batch BMM;
 - reject multi-batch BMM;
-- lower `Mean keepdim=false` through `MeanKeepDims` plus reshape;
+- lower `Mean keepdim=false` as one reduction node;
 - drop dead max-pool indices and reject live indices.
 
 These tests define the partial conversion contract independently of functor

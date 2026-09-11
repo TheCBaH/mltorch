@@ -12,10 +12,6 @@
    present in both graphs is implicitly [Identical]. Two cases need more, and
    both need it because the real lowerer would produce more:
 
-   - batch-norm precomputation is the dialect's only [Equivalent] legalization,
-     so it passes [~claims] naming the two parameter edges [Unverifiable] and
-     the output [Equivalent]. An empty map there would assert [Identical] of a
-     re-association the lowering does not promise.
    - the bmm weight permutation builds its map outright — [Correspondence.create]
      for the fresh permuted operand and a non-empty [~nodes] — because that
      legalization emits two destination nodes from one source node. The empty
@@ -414,19 +410,7 @@ let%expect_test "mutation: slice4 wrong axis, and a slid window" =
     axis H -> W                map: value map: t1 and t1 correspond but differ in shape
     window [0,1) -> [1,2)      2 clusters: 1 proved (structural), 1 refuted (counterexample) |}]
 
-(* ---- the Equivalent family ------------------------------------------------
-
-   Batch-norm precomputation is the only legalization that is [Equivalent]
-   rather than [Identical], and the plan's mutation for it was a scale computed
-   without eps, asserted as an Agrees -> Disagrees transition. That assertion
-   is only meaningful if the CORRECT conversion reaches [Agrees]: a probe
-   formally refutes only [Identical], so for an [Equivalent] claim a
-   disagreement is evidence rather than a counterexample, and "Disagrees or
-   Unproved" would be a mutation test that cannot go red.
-
-   So the correct conversion's tier is recorded first. If it is not [Agrees],
-   the transition is not assertable on a fixture this size and the plan says to
-   say so rather than keep an assertion that cannot fail. *)
+(* ---- retained batch normalization ---------------------------------------- *)
 let%expect_test "mutation: what tier the honest batch-norm conversion reaches" =
   let chan c = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c in
   let g =
@@ -465,88 +449,40 @@ let%expect_test "mutation: what tier the honest batch-norm conversion reaches" =
               Format.printf "%a@." Map_verify.Report.pp_verdicts report)));
   [%expect
     {|
-    {t3} -> {t3} equivalent: tested: agrees (1e-05) [exhaustive]
-    {} -> {t4} identical: vacuous
-    {} -> {t5} identical: vacuous
     {t0} -> {t0} identical: proved (structural) [exhaustive]
     {t1} -> {t1} identical: proved (structural, for these constants) [exhaustive]
-    {t2} -> {t2} identical: proved (structural, for these constants) [exhaustive] |}]
+    {t2} -> {t2} identical: proved (structural, for these constants) [exhaustive]
+    {t3} -> {t3} identical: proved (structural) [exhaustive] |}]
 
-(* THE EQUIVALENT MUTATION. A scale precomputed WITHOUT eps, against the same
-   depthwise convolution the lowerer builds. The claim is [Equivalent], so a
-   probe cannot refute it — that is reserved for [Identical] — and the evidence
-   available is the coefficient tier. What the test pins is therefore the
-   TRANSITION: agrees for the honest scale, disagrees for the mutated one.
-
-   eps is 0.5, not the 1e-5 a real graph would carry, and deliberately: with a
-   realistic eps the two scales differ by about 5e-6 relative, which is INSIDE
-   the coefficient tolerance, so the mutation would report agrees and the test
-   would assert nothing. A mutation has to be larger than the bar it is measured
-   against. *)
-let%expect_test "mutation: batch-norm scale computed without eps" =
-  let chan c = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c in
-  let chan4 c = Shape4.of_ints ~n:1 ~h:1 ~w:1 ~c in
-  let eps = 0.5 and mean = 1.0 and var = 4.0 in
-  let src_g =
-    nat "bn"
+(* The retained operation must not accidentally wire the two running-statistic
+   operands in the wrong order.  Both graphs are shape-identical and use the
+   same ids, so this reaches Map_verify rather than being rejected structurally. *)
+let%expect_test "mutation: batch-norm running statistics swapped" =
+  let chan = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:2 in
+  let chan4 = Shape4.of_ints ~n:1 ~h:1 ~w:1 ~c:2 in
+  let src =
+    nat "batch_norm"
       Graph_builder.(
-        let* x = input ~shape:(chan 1) () in
-        let* running_mean = constant ~shape:(chan 1) () in
-        let* running_var = constant ~shape:(chan 1) () in
+        let* x = input ~shape:chan () in
+        let* mean = input ~shape:chan () in
+        let* var = input ~shape:chan () in
         batch_norm
-          { Norm.BatchNorm.channel = Axis.C; eps }
-          ~x ~running_mean ~running_var ())
+          { Norm.BatchNorm.channel = Axis.C; eps = 0. }
+          ~x ~running_mean:mean ~running_var:var ())
   in
-  (* Depthwise 1x1 over the precomputed scale and offset: the shape the
-     legalization produces, with ids landing on the source's. *)
-  let dst_g =
+  let dst =
     four
       Builder.(
-        let* x = input ~shape:(chan4 1) () in
-        let* scale = constant ~shape:(Shape4.of_ints ~n:1 ~h:1 ~w:1 ~c:1) () in
-        let* offset = constant ~shape:(chan4 1) () in
-        depthwise_conv2d
-          {
-            Ops4.Conv_params.h = Fixtures4.axis_window ~kernel:1;
-            w = Fixtures4.axis_window ~kernel:1;
-            in_channels = Dim.extent 1;
-          }
-          ~x ~weight:scale ~bias:offset ())
+        let* x = input ~shape:chan4 () in
+        let* mean = input ~shape:chan4 () in
+        let* var = input ~shape:chan4 () in
+        batch_norm
+          { Ops4.Batch_norm.channel = Axis4.C; eps = 0. }
+          ~x ~running_mean:var ~running_var:mean ())
   in
-  let t_ n = Tensor_id.of_int n in
-  let fill shape v = Tensor.materialize shape (fun _ -> v) in
-  let src_constants =
-    Tensor_id.Map.of_seq
-      (List.to_seq [ (t_ 1, fill (chan 1) mean); (t_ 2, fill (chan 1) var) ])
-  in
-  let dst_constants ~with_eps =
-    let s = 1. /. Float.sqrt (var +. if with_eps then eps else 0.) in
-    Tensor_id.Map.of_seq
-      (List.to_seq
-         [ (t_ 1, fill (chan 1) s); (t_ 2, fill (chan 1) (-.(mean *. s))) ])
-  in
-  (* The output claimed [Equivalent], as the lowerer claims it. The two constant
-     slots are claimed [Unverifiable] because they genuinely do not correspond:
-     the source holds mean and variance where the destination holds the
-     precomputed scale and offset. The real lowerer gives those fresh ids and a
-     creation cluster; here they collide, and saying they are identical would be
-     a second, unintended mutation drowning the one under test. *)
-  let claims =
-    [
-      (t_ 1, Correspondence.Unverifiable);
-      (t_ 2, Correspondence.Unverifiable);
-      (t_ 3, Correspondence.Equivalent);
-    ]
-  in
-  List.iter
-    (fun (name, with_eps) ->
-      mutated ~constants:src_constants ~dst_constants:(dst_constants ~with_eps)
-        ~claims name src_g dst_g)
-    [ ("scale with eps", true); ("scale without eps", false) ];
+  mutated "mean <-> var" src dst;
   [%expect
-    {|
-    scale with eps             4 clusters: 1 proved (structural), 1 tested (coefficients agree), 2 unproved (unsupported relation)
-    scale without eps          4 clusters: 1 proved (structural), 1 tested (disagrees), 2 unproved (unsupported relation) |}]
+    {| mean <-> var               4 clusters: 3 proved (structural), 1 refuted (counterexample) |}]
 
 (* ---- the bmm weight permutation ------------------------------------------
 

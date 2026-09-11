@@ -554,18 +554,12 @@ let dispatch ~ctx ~env (node : Node.t) =
            | `Scalar s ->
                let* y = add_scalar s (get "self") in
                return [ y ])
-       (* Serialized twin of [Op_bridge_pointwise]'s [addcmul.default] arm:
-          self + value * tensor1 * tensor2, decomposed to [Mul]/[Add]/
-          [Mul_scalar] rather than a new [Graph_ir] op -- see the bridge arm's
-          comment. [Mul_scalar] is skipped for the
-          verified default [value=1]. *)
+       (* Serialized twin of [Op_bridge_pointwise]'s one-node addcmul arm. *)
        | "torch.ops.aten.addcmul.default" ->
            let value = scalar_arg esc ~default:1. node "value" in
-           let* prod = mul (get "tensor1") (get "tensor2") in
-           let* scaled =
-             if Float.equal value 1. then return prod else mul_scalar value prod
+           let* y =
+             addcmul value (get "self") (get "tensor1") (get "tensor2")
            in
-           let* y = add (get "self") scaled in
            return [ y ]
        (* [x - s] legalizes to [x + (-s)]: IEEE negation is exact and the
          builder narrows to f32 on both spellings either way, so the two are

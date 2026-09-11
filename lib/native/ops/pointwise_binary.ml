@@ -256,6 +256,67 @@ module Div_scalar = struct
   end
 end
 
+(* [addcmul(self, tensor1, tensor2, value)] is a ternary broadcasted pointwise
+   op, not a graph-level [Mul] followed by [Add].  Keeping all three loads in
+   one pixel expression preserves the fused-kernel boundary. *)
+module Addcmul = struct
+  type t = {
+    self : Tensor_ref.t;
+    tensor1 : Tensor_ref.t;
+    tensor2 : Tensor_ref.t;
+    value : float;
+  }
+
+  let name = "Addcmul"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k = Json_util.req_field ms k Tensor_ref.jsont name in
+        {
+          self = get "self";
+          tensor1 = get "tensor1";
+          tensor2 = get "tensor2";
+          value = Json_util.req_field ms "value" Json_util.f32_jsont name;
+        })
+      ~enc:(fun t ->
+        let ref_ = Json_util.enc Tensor_ref.jsont in
+        Json_util.jobj
+          [
+            ("self", ref_ t.self);
+            ("tensor1", ref_ t.tensor1);
+            ("tensor2", ref_ t.tensor2);
+            ("value", Json_util.enc Json_util.f32_jsont t.value);
+          ])
+      Jsont.json
+
+  let operands t = [ t.self; t.tensor1; t.tensor2 ]
+
+  let map_operands f t =
+    { t with self = f t.self; tensor1 = f t.tensor1; tensor2 = f t.tensor2 }
+
+  let pp pp_ref fmt t =
+    Fmt.pf fmt "@[<hv 2>addcmul@ self=%a@ tensor1=%a@ tensor2=%a@ value=%a@]"
+      pp_ref t.self pp_ref t.tensor1 pp_ref t.tensor2 Fmt.float t.value
+
+  let output_shape self_shape tensor1_shape tensor2_shape =
+    let open Err.Syntax in
+    let* partial = broadcast_output_shape self_shape tensor1_shape in
+    broadcast_output_shape partial tensor2_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    let pixel ~self_shape ~tensor1_shape ~tensor2_shape ~value self tensor1
+        tensor2 (out : Semantics.position S.index Vec6.t) =
+      let read shape t =
+        S.load t (broadcast_coord ~index_zero:S.index_zero shape out)
+      in
+      S.add (read self_shape self)
+        (S.mul (S.const value)
+           (S.mul (read tensor1_shape tensor1) (read tensor2_shape tensor2)))
+  end
+end
+
 (* [div.Tensor_mode(self, other, rounding_mode="floor")] with a compile-time
    [other] -- the corpus's only instance (EdgeNeXt's Fourier positional
    encoding divides a position index by 2, flooring). A genuinely different

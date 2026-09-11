@@ -17,6 +17,7 @@ let w = t_ 2
 (* A fourth distinct id, so a codec that confused [Layer_norm]'s two affine
    operands prints a different reference rather than the same one twice. *)
 let b = t_ 3
+let z = t_ 4
 
 let axis_window ~kernel : Conv.Conv2d.axis_window =
   {
@@ -97,6 +98,8 @@ let im2col_params : Im2col.Params.t =
 let samples : Op.t list =
   [
     Add { Pointwise.Bin.a = x; b = y };
+    Addcmul
+      { Pointwise.Addcmul.self = x; tensor1 = y; tensor2 = w; value = 0.1 };
     Add_scalar { Pointwise.Scalar_bin.x; scalar = 0.1 };
     Adaptive_avg_pool2d { Pool.AdaptiveAvgPool2d.params = adaptive_params; x };
     Adaptive_max_pool2d
@@ -104,6 +107,15 @@ let samples : Op.t list =
     Adaptive_max_pool2d_with_indices
       { Pool.AdaptiveMaxPool2dWithIndices.params = adaptive_max_params; x };
     Avg_pool2d { Pool.AvgPool2d.params = avg_params; x };
+    Batch_norm
+      {
+        Ops4.Batch_norm.params = { channel = C; eps = 1e-5 };
+        x;
+        weight = Some w;
+        bias = Some b;
+        running_mean = y;
+        running_var = z;
+      };
     Batch_norm_no_stats
       {
         Ops4.Batch_norm_no_stats.params = { channel = C; eps = 1e-5 };
@@ -201,10 +213,12 @@ let samples : Op.t list =
         h0 = t_ 5;
         c0 = t_ 6;
       };
-    Max_keepdims { Ops4.Max_keepdims.params = { dims = [ H; W ] }; x };
+    Max_keepdims
+      { Ops4.Max_keepdims.params = { dims = [ H; W ]; keepdim = false }; x };
     Max_pool2d { Pool.MaxPool2d.params = max_params; x };
     Max_pool2d_with_indices { Pool.MaxPool2dWithIndices.params = max_params; x };
-    Mean_keepdims { Ops4.Mean_keepdims.params = { dims = [ H; W ] }; x };
+    Mean_keepdims
+      { Ops4.Mean_keepdims.params = { dims = [ H; W ]; keepdim = true }; x };
     Mul { Pointwise.Bin.a = x; b = y };
     Mul_scalar { Pointwise.Scalar_bin.x; scalar = 2. };
     (* Two axes, an asymmetric pad and a mixed pad/crop, so the codec is proved
@@ -310,7 +324,8 @@ let samples : Op.t list =
        differently. *)
     Stack4 { Ops4.Stack4.params = { axis = N }; xs = [ y; b ] };
     Sub { Pointwise.Bin.a = x; b = y };
-    Sum_keepdims { Ops4.Sum_keepdims.params = { dims = [ H; W ] }; x };
+    Sum_keepdims
+      { Ops4.Sum_keepdims.params = { dims = [ H; W ]; keepdim = false }; x };
     To_copy { Pointwise.To_copy.target = Long; x };
     Transposed_conv2d
       {
@@ -330,7 +345,10 @@ let samples : Op.t list =
     Upsample_bilinear2d { Resize.Bilinear2d.params = upsample_params; x };
     Upsample_nearest2d { Resize.Nearest2d.params = nearest_params; x };
     Vector_norm_keepdims
-      { Ops4.Vector_norm_keepdims.params = { dims = [ H; W ] }; x };
+      {
+        Ops4.Vector_norm_keepdims.params = { dims = [ H; W ]; keepdim = true };
+        x;
+      };
     Arange4
       {
         Ops4.Arange4.params =
@@ -359,13 +377,14 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 70, registry: 70 |}]
+  [%expect {| samples: 72, registry: 72 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
   [%expect
     {|
     add a=t0 b=t1
+    addcmul self=t0 tensor1=t1 tensor2=t2 value=0.1
     add_scalar x=t0 scalar=0.1
     adaptive_avg_pool2d x=t0 params={output_size={h=3; w=3}}
     adaptive_max_pool2d x=t0 params={output_size={h=4; w=4}}
@@ -377,6 +396,13 @@ let%expect_test "op4: printed" =
              pad={h=0; w=0};
              ceil_mode=false;
              count_include_pad=true}
+    batch_norm
+      x=t0
+      weight=t2
+      bias=t3
+      running_mean=t1
+      running_var=t4
+      params={channel=C; eps=1e-05}
     batch_norm_no_stats x=t0 weight=t2 bias=t3 params={channel=C; eps=1e-05}
     batched_matmul input=t0 mat2=t1
     bitwise_not x=t0
@@ -428,7 +454,7 @@ let%expect_test "op4: printed" =
       h0=t5
       c0=t6
       params={hidden_size=2; input_size=3; batch_first=false}
-    max_keepdims x=t0 params={dims=[H, W]}
+    max_keepdims x=t0 params={dims=[H, W]; keepdim=false}
     max_pool2d
       x=t0
       params={kernel={h=2; w=2};
@@ -441,7 +467,7 @@ let%expect_test "op4: printed" =
              stride={h=2; w=2};
              pad={h=0; w=0};
              ceil_mode=false}
-    mean_keepdims x=t0 params={dims=[H, W]}
+    mean_keepdims x=t0 params={dims=[H, W]; keepdim=true}
     mul a=t0 b=t1
     mul_scalar x=t0 scalar=2
     pad4 x=t0 params={pads=[H:1,2, W:-1,3] mode=constant(0.1)}
@@ -466,7 +492,7 @@ let%expect_test "op4: printed" =
     sqrt x=t0
     stack4 xs=[t1, t3] params={axis=N}
     sub a=t0 b=t1
-    sum_keepdims x=t0 params={dims=[H, W]}
+    sum_keepdims x=t0 params={dims=[H, W]; keepdim=false}
     to_copy x=t0 target=long
     transposed_conv2d
       x=t0
@@ -479,7 +505,7 @@ let%expect_test "op4: printed" =
     upsample_bicubic2d x=t0 params={output_size={h=5; w=5}; align_corners=false}
     upsample_bilinear2d x=t0 params={output_size={h=5; w=5}; align_corners=false}
     upsample_nearest2d x=t0 params={output_size={h=5; w=5}}
-    vector_norm_keepdims x=t0 params={dims=[H, W]}
+    vector_norm_keepdims x=t0 params={dims=[H, W]; keepdim=true}
     arange4 start=0.5 stop=4 step=1 fmt=f32
     zeros4 shape=[N=1 H=2 W=3 C=4] fmt=f64
     eye4 shape=[N=1 H=1 W=2 C=3] fmt=f32 |}]
@@ -494,7 +520,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 70 ops |}]
+  [%expect {| round-tripped 72 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

@@ -267,6 +267,18 @@ let per_op () =
                  fmt = Payload.Fmt Payload.F32;
                }),
           [] ) );
+      ( "batch_norm",
+        ( build
+            ~outputs:(fun o -> [ o ])
+            (let open Builder in
+             let* x = input ~shape:nhwc () in
+             let c_shape = s4 ~n:1 ~h:1 ~w:1 ~c:2 in
+             let* running_mean = input ~shape:c_shape () in
+             let* running_var = input ~shape:c_shape () in
+             batch_norm
+               { Ops4.Batch_norm.channel = Axis4.C; eps = 1e-5 }
+               ~x ~running_mean ~running_var ()),
+          [ nhwc; s4 ~n:1 ~h:1 ~w:1 ~c:2; s4 ~n:1 ~h:1 ~w:1 ~c:2 ] ) );
       ( "batch_norm_no_stats",
         ( build ~outputs:Fun.id
             (let open Builder in
@@ -294,6 +306,17 @@ let per_op () =
              batched_matmul a b)
         in
         (g, [ a_shape; b_shape ]) );
+      ( "addcmul",
+        let g =
+          build
+            ~outputs:(fun o -> [ o ])
+            (let open Builder in
+             let* self = input ~shape:nhwc () in
+             let* tensor1 = input ~shape:nhwc () in
+             let* tensor2 = input ~shape:nhwc () in
+             addcmul 0.5 self tensor1 tensor2)
+        in
+        (g, [ nhwc; nhwc; nhwc ]) );
       ("relu", unary ~shape:nhwc Builder.relu);
       ("repeat4", unary ~shape:nhwc (Builder.repeat4 (s4 ~n:1 ~h:2 ~w:1 ~c:3)));
       ( "repeat_interleave4",
@@ -333,11 +356,14 @@ let per_op () =
         (g, [ nhwc ]) );
       ("avg_pool2d", unary ~shape:nhwc (Builder.avg_pool2d avg_params));
       ( "mean_keepdims",
-        unary ~shape:nhwc (Builder.mean_keepdims [ Axis4.H; Axis4.W ]) );
+        unary ~shape:nhwc
+          (Builder.mean_keepdims ~keepdim:false [ Axis4.H; Axis4.W ]) );
       ( "max_keepdims",
-        unary ~shape:nhwc (Builder.max_keepdims [ Axis4.H; Axis4.W ]) );
+        unary ~shape:nhwc
+          (Builder.max_keepdims ~keepdim:false [ Axis4.H; Axis4.W ]) );
       ( "sum_keepdims",
-        unary ~shape:nhwc (Builder.sum_keepdims [ Axis4.H; Axis4.W ]) );
+        unary ~shape:nhwc
+          (Builder.sum_keepdims ~keepdim:false [ Axis4.H; Axis4.W ]) );
       (* Both signs on two different axes, so the fixture covers padding and
          cropping in one graph. Constant rather than reflect because that is the
          mode whose pixel map goes through [select] — the arm the [Symbolic]
@@ -648,7 +674,8 @@ let per_op () =
       ( "upsample_nearest2d",
         unary ~shape:nhwc (Builder.upsample_nearest2d nearest_params) );
       ( "vector_norm_keepdims",
-        unary ~shape:nhwc (Builder.vector_norm_keepdims [ Axis4.H; Axis4.W ]) );
+        unary ~shape:nhwc
+          (Builder.vector_norm_keepdims ~keepdim:false [ Axis4.H; Axis4.W ]) );
     ]
   in
   List.map

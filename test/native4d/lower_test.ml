@@ -520,9 +520,7 @@ let%expect_test
       n0: [t2] = batched_matmul input=t0 mat2=t1
     outputs: [t2 [H=2 W=2 C=4]] |}]
 
-(* §7.5 as corrected by C1: keepdim=false is MeanKeepDims + Reshape4, and only
-   when the packed shape re-enters the dialect. *)
-let%expect_test "lower: mean keepdim=false gains a reshape" =
+let%expect_test "lower: mean keepdim=false remains one node" =
   show "mean" (Fixtures.mean_over_hw ~keepdim:false ~n:1 ());
   [%expect
     {|
@@ -530,8 +528,7 @@ let%expect_test "lower: mean keepdim=false gains a reshape" =
       graph4
     inputs: [t0 [H=4 W=4 C=3]]
     nodes:
-      n0: [t2] = mean_keepdims x=t0 params={dims=[H, W]}
-      n1: [t1] = reshape4 x=t2 params={shape=[N=1 H=1 W=1 C=3]}
+      n0: [t1] = mean_keepdims x=t0 params={dims=[H, W]; keepdim=false}
     outputs: [t1 [C=3]] |}]
 
 (* Two outputs (value, indices), converted end to end -- [values] and the
@@ -613,7 +610,7 @@ let%expect_test "lower: an unread non-4D constant is omitted" =
       n0: [t2] = relu x=t0
     outputs: [t2 [H=4 W=4 C=3]] |}]
 
-(* ---- batch norm: the one Equivalent legalization -------------------------- *)
+(* ---- batch norm: retained direct legalization ----------------------------- *)
 
 let chan c = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c
 let fill shape v = Tensor.materialize shape (fun _ -> v)
@@ -635,9 +632,6 @@ let bn_constants g =
         (List.to_seq [ (mean, fill (chan 2) 1.); (var, fill (chan 2) 4.) ])
   | _ -> invalid_arg "unexpected fixture shape"
 
-(* §7.6: precomputing one scale and offset per channel re-associates the
-   arithmetic, so f32 rounding points move and the claim is Equivalent, not
-   Identical. With mean=1, var=4, eps=0 the scale is 1/2 and the offset -1/2. *)
 let described_map ?constants g =
   match Snapshot.create g with
   | Error e ->
@@ -647,12 +641,9 @@ let described_map ?constants g =
       | Error e -> Format.asprintf "%a" Error.pp (Err.Error.kind e)
       | Ok (Lower.Pack r) -> Format.asprintf "%a" Graph_map.pp r.Lower.map)
 
-let%expect_test "lower: standalone batch norm becomes a depthwise 1x1" =
+let%expect_test "lower: standalone batch norm is retained" =
   let g = standalone_bn () in
   show "batch_norm" ~constants:(bn_constants g) g;
-  (* THE CLAIM. Equivalent, not Identical — and the map has to say so, because
-     an edge left implicit reads as Identical and claim closure would then have
-     the verifier assert bit-equality on everything downstream. *)
   Format.printf "@[<v 2>map:@,%s@]@."
     (described_map ~constants:(bn_constants g) g);
   [%expect
@@ -661,37 +652,50 @@ let%expect_test "lower: standalone batch norm becomes a depthwise 1x1" =
       graph4
     inputs: [t0 [H=2 W=2 C=2],
     t1 [C=2],
-    t2 [C=2],
-    t4 [N=2 T=1 D=1 H=1 W=1 C=1],
-    t5 [C=2]]
+    t2 [C=2]]
     nodes:
       n0: [t3] =
-        depthwise_conv2d
+        batch_norm
           x=t0
-          weight=t4
-          bias=t5
-          params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
-                 w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
-                 in_channels=2}
+          weight=none
+          bias=none
+          running_mean=t1
+          running_var=t2
+          params={channel=C; eps=0}
     outputs: [t3 [H=2 W=2 C=2]]
     map:
       values:
-      {t3} -> {t3} equivalent
-      {} -> {t4} identical
-      {} -> {t5} identical
+      identity
     nodes:
       identity
     provenance:
-      {t2} -> t4
-      {t1, t2} -> t5 |}]
+      none |}]
 
-(* Absence is an error only for a legalization that needs the payload AT
-   CONVERSION TIME — batch norm alone. Every other constant is copied through
-   unread, so demanding one would refuse graphs that convert fine. *)
-let%expect_test "lower: batch norm without payloads cannot be precomputed" =
+let%expect_test "lower: batch norm without payloads still legalizes" =
   outcome "no payloads" (standalone_bn ());
+  [%expect {| no payloads                converted, 1 nodes |}]
+
+let%expect_test "lower: batch norm with dynamic statistics remains one node" =
+  show "batch norm dynamic" (Fixtures.batch_norm_on ~dynamic:true Axis.C ());
   [%expect
-    {| no payloads                node n0 needs constant t1's payload at conversion time, and none was supplied |}]
+    {|
+    batch norm dynamic:
+      graph4
+    inputs: [t0 [H=4 W=4 C=3],
+    t1 [C=3],
+    t3 [C=3]]
+    nodes:
+      n0: [t2] = relu x=t1
+      n1: [t4] = relu x=t3
+      n2: [t5] =
+        batch_norm
+          x=t0
+          weight=none
+          bias=none
+          running_mean=t2
+          running_var=t4
+          params={channel=C; eps=1e-05}
+    outputs: [t5 [H=4 W=4 C=3]] |}]
 
 (* Validity is different: checked over the WHOLE supplied map before any
    legalization, because every payload is copied into the result and read much

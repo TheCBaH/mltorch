@@ -47,6 +47,14 @@ val constant :
 (* Op constructors in global alphabetical order (see graph_ir.mli). *)
 val add : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 
+val addcmul :
+  ?name:string ->
+  float ->
+  tensor_ref ->
+  tensor_ref ->
+  tensor_ref ->
+  Tensor_id.t t
+
 (* The scalar-parameter twins of [add]/[div], for a compile-time scalar the
    exporter serialised into a Tensor slot. [scalar] is narrowed to its
    f32-canonical value here, so callers need not. *)

@@ -222,11 +222,10 @@ let%expect_test
     {|
     graph
     inputs:
-      [t0 f32 [W=2 C=3] ->[n1], t1 f32 [W=2 C=3] ->[n0], t2 f32 [W=2 C=3] ->[n0]]
+      [t0 f32 [W=2 C=3] ->[n0], t1 f32 [W=2 C=3] ->[n0], t2 f32 [W=2 C=3] ->[n0]]
     nodes:
-      n0: [t3 f32 [W=2 C=3] ->[n1]] = mul a=t1 b=t2
-      n1: [t4 f32 [W=2 C=3]] = add a=t0 b=t3 <-n0
-    outputs: [t4 f32 [W=2 C=3] <-n1]
+      n0: [t3 f32 [W=2 C=3]] = addcmul self=t0 tensor1=t1 tensor2=t2 value=1
+    outputs: [t3 f32 [W=2 C=3] <-n0]
     tensor f32 [W=2 C=3] {3, 5, 7, 9, 11, 13} |}]
 
 (* Non-unit value: an extra [Mul_scalar] node scales the product. *)

@@ -18,7 +18,7 @@
 open Graph_ir
 
 let binary_elementwise = function
-  | (Add _ | Div _ | Mul _ | Sub _) as op -> Some op
+  | (Add _ | Addcmul _ | Div _ | Mul _ | Sub _) as op -> Some op
   | _ -> None
 
 let as_permute = function

@@ -33,6 +33,7 @@ module Bin = Pointwise_binary.Bin
 module Scalar_bin = Pointwise_binary.Scalar_bin
 module Scalar_binary = Pointwise_binary.Scalar_binary
 module Add = Pointwise_binary.Add
+module Addcmul = Pointwise_binary.Addcmul
 module Add_scalar = Pointwise_binary.Add_scalar
 module Div = Pointwise_binary.Div
 module Div_scalar = Pointwise_binary.Div_scalar

@@ -167,6 +167,11 @@ let add ?name a b = op1 ?name ~kind:"add" (Add { Pointwise.Bin.a; b })
    [Json_util.f32_jsont], whose [f32_to_f32] this mirrors). *)
 let f32_scalar = Json_util.f32_to_f32
 
+let addcmul ?name value self tensor1 tensor2 =
+  op1 ?name ~kind:"addcmul"
+    (Addcmul
+       { Pointwise.Addcmul.self; tensor1; tensor2; value = f32_scalar value })
+
 let add_scalar ?name scalar x =
   op1 ?name ~kind:"add_scalar"
     (Add_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar })

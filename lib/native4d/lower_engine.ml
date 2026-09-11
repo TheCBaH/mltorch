@@ -1,95 +1,15 @@
-(* The Native4D legalization engine: the walk accumulator ([acc]), the
-   Native->Native4D parameter-translation helpers, and [lower_node], the
-   per-source-node dispatch. Split out of lower.ml under the tracked
-   file-size ceiling; lower.ml keeps the public surface ([t], [convert],
-   [evaluate], ...) and calls into [lower_node] here for the per-node work.
-   See lower.mli for the module this feeds. *)
+(* The Native4D legalization engine: the Native->Native4D parameter-translation
+   helpers and [lower_node], the per-source-node dispatch. Split out of
+   lower.ml under the tracked file-size ceiling; lower.ml keeps the public
+   surface ([t], [convert], [evaluate], ...) and calls into [lower_node] here
+   for the per-node work. See lower.mli for the module this feeds.
 
-(* Bound BEFORE [open Graph_ir], which shadows [Graph] with the Native one. *)
-module G4 = Graph
+   The walk accumulator ([acc]) and its low-level operations ([resolve],
+   [fresh_tensor], [fresh_constant], [emit]) live in lower_engine_acc.ml. *)
+
+open Lower_engine_acc
 open Graph_ir
 open Err.Syntax
-
-(* ---- what the walk accumulates -------------------------------------------- *)
-
-type acc = {
-  nodes : G4.node list; (* reversed *)
-  tensors : Tensor_sig.t Tensor_id.Map.t;
-  subst : Tensor_id.t Tensor_id.Map.t; (* clone removal, source-side rewiring *)
-  next_tid : int;
-  next_nid : int;
-  created : Tensor_id.t list; (* fresh destination edges *)
-  deleted : Tensor_id.t list; (* source edges with no destination *)
-  claims : (Tensor_id.t * Correspondence.relation) list;
-      (* weaker than Identical *)
-  node_pairs : (Node_id.t * Node_id.t list) list;
-  provenance : (Tensor_id.t list * Tensor_id.t) list;
-  constants : Tensor.packed Tensor_id.Map.t;
-  fresh_constants : Tensor_id.t list; (* new captured state, in creation order *)
-}
-
-let resolve acc id =
-  Option.value (Tensor_id.Map.find_opt id acc.subst) ~default:id
-
-let fresh_tensor acc shape =
-  let id = Tensor_id.of_int acc.next_tid in
-  let sg =
-    Tensor_sig.create ~id ~name:"" ~shape:(Shape4.to_vec6 shape)
-      ~fmt:(Payload.Fmt Payload.F32) ()
-  in
-  ( id,
-    {
-      acc with
-      next_tid = acc.next_tid + 1;
-      tensors = Tensor_id.Map.add id sg acc.tensors;
-      created = id :: acc.created;
-    } )
-
-(* A fresh CONSTANT is not just a signature: it is captured model state, so it
-   has to join [Graph.inputs] with kind [Constant] as well. Omitting that leaves
-   it defined by no node and declared no input, which validation rejects — the
-   symptom being an operand with no definition. *)
-let fresh_constant acc shape payload =
-  let id, acc = fresh_tensor acc shape in
-  ( id,
-    {
-      acc with
-      fresh_constants = id :: acc.fresh_constants;
-      constants = Tensor_id.Map.add id payload acc.constants;
-    } )
-
-(* A destination node taking over [outputs]; [from] is the source node it came
-   from, which is what the node map records.
-
-   NODE ids follow the same policy as tensor ids, and for the same reason. The
-   first destination node of a source node KEEPS that node's id; a second one
-   (Mean keepdim=false) takes a fresh id above the source watermark.
-   Allocating densely from zero instead would make destination node 0 a
-   different node from source node 0 whenever anything was removed — the raw-id
-   collision the design forbids for edges, reappearing for nodes. *)
-let emit acc ~from op outputs =
-  let already =
-    List.exists (fun (s, _) -> Node_id.equal s from) acc.node_pairs
-  in
-  let nid = if already then Node_id.of_int acc.next_nid else from in
-  let acc =
-    {
-      acc with
-      next_nid = (if already then acc.next_nid + 1 else acc.next_nid);
-      nodes = { G4.Node.id = nid; op; outputs } :: acc.nodes;
-    }
-  in
-  let node_pairs =
-    List.map
-      (fun (s, ds) -> if Node_id.equal s from then (s, nid :: ds) else (s, ds))
-      acc.node_pairs
-  in
-  let node_pairs =
-    if List.exists (fun (s, _) -> Node_id.equal s from) node_pairs then
-      node_pairs
-    else (from, [ nid ]) :: node_pairs
-  in
-  { acc with node_pairs }
 
 (* ---- parameter translation ------------------------------------------------ *)
 
@@ -141,72 +61,6 @@ let shape4 ~id shape =
   | Ok s -> Err.return s
   | Error _ -> Err.fail (`Non_four_dimensional_tensor (id, shape))
 
-(* ---- batch norm ----------------------------------------------------------- *)
-
-(* §7.6, and the one legalization that is EQUIVALENT rather than identical.
-
-   A standalone inference batch norm with constant parameters is per-channel
-   affine: out = (x - mean) * weight / sqrt(var + eps) + bias. Precomputing one
-   scale and one offset per channel turns it into a 1x1 depthwise convolution —
-   but it re-associates the arithmetic, so the f32 rounding points move, and the
-   claim is [Equivalent]. Reporting it [Identical] would have the verifier
-   assert bit-equality the computation does not deliver.
-
-   Needs the payloads AT CONVERSION TIME, which is why absence is an error here
-   and nowhere else. *)
-let bn_channel_values ~node ~channels ~constants ids =
-  Err.List.map
-    (fun id ->
-      match Tensor_id.Map.find_opt id constants with
-      | None -> Err.fail (`Missing_constant_payload (node, id))
-      | Some t ->
-          Err.return (fun c ->
-              (* Parameters are laid out on C; every other axis is unit, so the
-                 read is at (0,…,0,c). *)
-              Tensor.read_at t (fun axis ->
-                  if Axis.equal axis Axis.C then Dim.index c else Dim.index 0)))
-    ids
-  |> fun r ->
-  let+ fs = r in
-  ignore channels;
-  fs
-
-let batch_norm_weights acc ~node ~channels ~eps (bn : Norm.BatchNorm.t) =
-  let required = [ bn.running_mean; bn.running_var ] in
-  let optional = List.filter_map Fun.id [ bn.weight; bn.bias ] in
-  let* readers =
-    bn_channel_values ~node ~channels ~constants:acc.constants
-      (required @ optional)
-  in
-  let mean, var, rest =
-    match readers with
-    | m :: v :: rest -> (m, v, rest)
-    | _ -> assert false (* two required operands, always present *)
-  in
-  let gamma, beta =
-    match (bn.weight, bn.bias, rest) with
-    | Some _, Some _, [ g; b ] -> (g, b)
-    | Some _, None, [ g ] -> (g, fun _ -> 0.)
-    | None, Some _, [ b ] -> ((fun _ -> 1.), b)
-    | _ -> ((fun _ -> 1.), fun _ -> 0.)
-  in
-  let scale c = gamma c /. Float.sqrt (var c +. eps) in
-  let offset c = beta c -. (mean c *. scale c) in
-  (* Depthwise 1x1 weight is [Cout,1,1,1,1,1]; bias is [1,1,1,1,1,Cout]. *)
-  let w_shape = Shape4.of_ints ~n:channels ~h:1 ~w:1 ~c:1 in
-  let b_shape = Shape4.of_ints ~n:1 ~h:1 ~w:1 ~c:channels in
-  let w =
-    Tensor.materialize (Shape4.to_vec6 w_shape) (fun coord ->
-        scale (Dim.to_int (Vec6.get coord Axis.N)))
-  in
-  let b =
-    Tensor.materialize (Shape4.to_vec6 b_shape) (fun coord ->
-        offset (Dim.to_int (Vec6.get coord Axis.C)))
-  in
-  let wid, acc = fresh_constant acc w_shape w in
-  let bid, acc = fresh_constant acc b_shape b in
-  Err.return (wid, bid, acc)
-
 let unit_conv_params ~in_channels : Ops4.Conv_params.t =
   {
     h = Conv.Conv2d.unit_window;
@@ -253,49 +107,20 @@ let lower_node ~view acc (n : node) =
              Node_id.pp node (List.length outputs))
   in
   let simple op = Err.return (emit acc ~from:node op [ single () ]) in
-  (* Shared by [Mean]/[Amax]/[Sum]/[Vector_norm]'s arms below: all four are
-     the SAME shape (`.ai/native4d_design.md` §1's reduction rule is not
-     specific to any one of them, and all four reuse [Reduce.Dims_keepdim]'s
-     own [output_shape] directly, not a per-op copy). [keepdim=true] is the
-     dialect's own [X_keepdims] node unchanged; [keepdim=false] is corrected
-     by C1 into that same node plus a [Reshape4], and the reshape target
-     re-enters the dialect only when the packed Native output shape stays
-     four-axis. Only [keepdims_op] (which [Ops4] constructor to build) varies
-     per op. *)
-  let lower_keepdim_reduction ~(orig_dims : Axis.t list) ~keepdim
-      ~(keepdims_op : Axis4.t list -> Tensor_id.t -> Op.t) ~x =
-    let* dims = dims4 ~node orig_dims in
-    if keepdim then
-      Err.return
-        (emit acc ~from:node (keepdims_op dims (op_of x)) [ single () ])
-    else
-      let* x_shape = sig_of x in
-      let* kept =
-        match
-          Reduce.Dims_keepdim.output_shape ~x_shape
-            { Reduce.Dims_keepdim.dims = orig_dims; keepdim = true }
-        with
-        | Ok s -> Err.return s
-        | Error _ -> Err.fail (`Unsupported_op (node, n.Node.op))
-      in
-      let* packed = sig_of (single ()) in
-      let* kept4 = shape4 ~id:(single ()) kept in
-      let* packed4 = shape4 ~id:(single ()) packed in
-      let mid, acc = fresh_tensor acc kept4 in
-      let acc = emit acc ~from:node (keepdims_op dims (op_of x)) [ mid ] in
-      let acc =
-        { acc with provenance = ([ op_of x ], mid) :: acc.provenance }
-      in
-      Err.return
-        (emit acc ~from:node
-           (Op.Reshape4 { Ops4.Reshape4.params = { shape = packed4 }; x = mid })
-           [ single () ])
-  in
   match n.Node.op with
   (* §7.1 direct counterparts. The payload records are Native's own, reused
      unchanged — they name no axis and carry no shape. *)
   | Add { Pointwise.Bin.a; b } ->
       simple (Op.Add { Pointwise.Bin.a = op_of a; b = op_of b })
+  | Addcmul { Pointwise.Addcmul.self; tensor1; tensor2; value } ->
+      simple
+        (Op.Addcmul
+           {
+             Pointwise.Addcmul.self = op_of self;
+             tensor1 = op_of tensor1;
+             tensor2 = op_of tensor2;
+             value;
+           })
   | Sub { Pointwise.Bin.a; b } ->
       simple (Op.Sub { Pointwise.Bin.a = op_of a; b = op_of b })
   | Mul { Pointwise.Bin.a; b } ->
@@ -706,36 +531,45 @@ let lower_node ~view acc (n : node) =
             ~bias:(Option.map op_of bias) ~weight_shape
         in
         simple op
-  (* §7.5, and the [Amax]/[Sum]/[Vector_norm] arms below it, all corrected by
-     C1 through [lower_keepdim_reduction] -- see its own comment above. The
-     keepdim=false reshape target is the PACKED Native output shape, which
-     for a reduction over H,W puts the batch extent on D, so it re-enters the
-     dialect only when that extent is 1; [shape4] is where that is caught. *)
+  (* The four retained reductions carry [keepdim] directly.  Their Native
+     output shape still re-enters through [Graph_shape4.four], so a dropped
+     axis that would put real extent on T/D is refused without a Reshape4. *)
   | Mean { Reduce.Mean.params; x } ->
-      lower_keepdim_reduction ~orig_dims:params.Reduce.Mean.dims
-        ~keepdim:params.Reduce.Mean.keepdim
-        ~keepdims_op:(fun dims x ->
-          Op.Mean_keepdims { Ops4.Mean_keepdims.params = { dims }; x })
-        ~x
+      let* dims = dims4 ~node params.Reduce.Mean.dims in
+      simple
+        (Op.Mean_keepdims
+           {
+             Ops4.Mean_keepdims.params =
+               { dims; keepdim = params.Reduce.Mean.keepdim };
+             x = op_of x;
+           })
   | Amax { Reduce.Amax.params; x } ->
-      lower_keepdim_reduction ~orig_dims:params.Reduce.Amax.dims
-        ~keepdim:params.Reduce.Amax.keepdim
-        ~keepdims_op:(fun dims x ->
-          Op.Max_keepdims { Ops4.Max_keepdims.params = { dims }; x })
-        ~x
+      let* dims = dims4 ~node params.Reduce.Amax.dims in
+      simple
+        (Op.Max_keepdims
+           {
+             Ops4.Max_keepdims.params =
+               { dims; keepdim = params.Reduce.Amax.keepdim };
+             x = op_of x;
+           })
   | Sum { Reduce.Sum.params; x } ->
-      lower_keepdim_reduction ~orig_dims:params.Reduce.Sum.dims
-        ~keepdim:params.Reduce.Sum.keepdim
-        ~keepdims_op:(fun dims x ->
-          Op.Sum_keepdims { Ops4.Sum_keepdims.params = { dims }; x })
-        ~x
+      let* dims = dims4 ~node params.Reduce.Sum.dims in
+      simple
+        (Op.Sum_keepdims
+           {
+             Ops4.Sum_keepdims.params =
+               { dims; keepdim = params.Reduce.Sum.keepdim };
+             x = op_of x;
+           })
   | Vector_norm { Reduce.Vector_norm.params; x } ->
-      lower_keepdim_reduction ~orig_dims:params.Reduce.Vector_norm.dims
-        ~keepdim:params.Reduce.Vector_norm.keepdim
-        ~keepdims_op:(fun dims x ->
-          Op.Vector_norm_keepdims
-            { Ops4.Vector_norm_keepdims.params = { dims }; x })
-        ~x
+      let* dims = dims4 ~node params.Reduce.Vector_norm.dims in
+      simple
+        (Op.Vector_norm_keepdims
+           {
+             Ops4.Vector_norm_keepdims.params =
+               { dims; keepdim = params.Reduce.Vector_norm.keepdim };
+             x = op_of x;
+           })
   (* §7.4. [Bmm]'s shape is exactly [Batched_matmul]'s at N=T=D=1: both
      read [input]/[mat2] at the same coordinates once [mat2]'s N/T/D/H are
      read off the OUTPUT (as [Batched_matmul.Compute] does) rather than
@@ -754,44 +588,24 @@ let lower_node ~view acc (n : node) =
       simple
         (Op.Batched_matmul
            { Matmul.Batched_matmul.input = op_of input; mat2 = op_of mat2 })
-  (* §7.6, the only Equivalent legalization. *)
-  | Batch_norm bn ->
-      let* x_shape = sig_of bn.Norm.BatchNorm.x in
-      let channels = Dim.to_int (Vec6.get x_shape Axis.C) in
-      let eps = bn.Norm.BatchNorm.params.Norm.BatchNorm.eps in
-      let* wid, bid, acc = batch_norm_weights acc ~node ~channels ~eps bn in
-      let acc =
-        {
-          acc with
-          claims = (single (), Correspondence.Equivalent) :: acc.claims;
-          (* Provenance is a factual claim about what was computed from what,
-             so it follows the arithmetic: scale = gamma / sqrt(var + eps)
-             reads the variance and the optional weight but NOT the mean;
-             offset = beta - mean * scale reads all of them. *)
-          provenance =
-            ( bn.Norm.BatchNorm.running_var
-              :: Option.to_list bn.Norm.BatchNorm.weight,
-              wid )
-            :: ( [
-                   bn.Norm.BatchNorm.running_mean; bn.Norm.BatchNorm.running_var;
-                 ]
-                 @ List.filter_map Fun.id
-                     [ bn.Norm.BatchNorm.weight; bn.Norm.BatchNorm.bias ],
-                 bid )
-            :: acc.provenance;
-        }
+  | Batch_norm
+      { Norm.BatchNorm.params; x; weight; bias; running_mean; running_var } ->
+      let* channel =
+        Axis4.of_axis params.Norm.BatchNorm.channel
+        |> Err.of_option
+             (`Axis_outside_dialect (node, params.Norm.BatchNorm.channel))
       in
-      Err.return
-        (emit acc ~from:node
-           (Op.Depthwise_conv2d
-              {
-                Ops4.Conv_payload.params =
-                  unit_conv_params ~in_channels:channels;
-                x = op_of bn.Norm.BatchNorm.x;
-                weight = wid;
-                bias = Some bid;
-              })
-           [ single () ])
+      simple
+        (Op.Batch_norm
+           {
+             Ops4.Batch_norm.params =
+               { channel; eps = params.Norm.BatchNorm.eps };
+             x = op_of x;
+             weight = Option.map op_of weight;
+             bias = Option.map op_of bias;
+             running_mean = op_of running_mean;
+             running_var = op_of running_var;
+           })
   (* The dialect's only multi-output node. The COMPLETE ordered output list is
      carried over unchanged, which is the whole of the correspondence work:
      under the id policy an edge whose value is preserved keeps its source id
