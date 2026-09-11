@@ -3,6 +3,249 @@
 
 open Walk_meta_entry
 
+(* `_to_copy.default`'s default dtype is the Native float identity and its
+   non-blocking flag has no value effect.  Vary the tensor shape while holding
+   unsupported layout/device/memory-format options absent. *)
+let to_copy =
+  {
+    module_name = "To_copy_walk";
+    target = "torch.ops.aten._to_copy.default";
+    recipe = "Recipe_default";
+    initial = "Aten_walk_recipes.Recipe_default.{ shape = [ 2; 3; 4; 4 ] }";
+    axes = "Aten_walk_recipes.Recipe_default.axes";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_default.shape c) in
+    ( Aten_op_spec.Op__to_copy.(
+        spec { self; pin_memory = None; non_blocking = false }),
+      pcg )|};
+  }
+
+(* select.int has two correlated integral arguments: a rank-valid dimension and
+   an in-range index for that dimension.  [Recipe_select] carries the scenario
+   together and derives last indices from the current shape. *)
+let select_int =
+  {
+    module_name = "Select_int_walk";
+    target = "torch.ops.aten.select.int";
+    recipe = "Recipe_select";
+    initial =
+      "Aten_walk_recipes.Recipe_select.{ n = 2; c = 3; h = 4; w = 4; config = \
+       { rank = 4; dim = 2; index = First } }";
+    axes =
+      "Aten_walk_recipes.Recipe_select.axes ~n:[ 2; 3; 4 ] ~c:[ 2; 3; 5 ] ~h:[ \
+       2; 4; 6 ] ~w:[ 2; 5; 7 ] \
+       ~config:Aten_walk_recipes.Recipe_select.all_configs";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_select.self_shape c) in
+    ( Aten_op_spec.Op_select_int.(
+        spec { self; dim = Recipe_select.dim c; index = Recipe_select.index c }),
+      pcg )|};
+  }
+
+(* unsqueeze.default uses the same rank-4 shape/dimension space as unbind;
+   each listed dimension is valid for insertion and includes both spellings.
+   A dedicated recipe is unnecessary because no bound depends on the extent. *)
+let unsqueeze =
+  {
+    module_name = "Unsqueeze_walk";
+    target = "torch.ops.aten.unsqueeze.default";
+    recipe = "Recipe_unbind";
+    initial =
+      "Aten_walk_recipes.Recipe_unbind.{ n = 2; c = 3; h = 4; w = 4; dim = 0 }";
+    axes =
+      "Aten_walk_recipes.Recipe_unbind.axes ~n:[ 1; 2; 3 ] ~c:[ 2; 3; 4 ] ~h:[ \
+       2; 4; 6 ] ~w:[ 2; 4; 6 ] ~dim:Aten_walk_recipes.Recipe_unbind.all_dims";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_unbind.self_shape c) in
+    ( Aten_op_spec.Op_unsqueeze.(spec { self; dim = Recipe_unbind.dim c }),
+      pcg )|};
+  }
+
+(* unfold.default needs a positive window and stride valid for the chosen
+   dimension. [Recipe_unfold] derives both from that axis's current extent. *)
+let unfold =
+  {
+    module_name = "Unfold_walk";
+    target = "torch.ops.aten.unfold.default";
+    recipe = "Recipe_unfold";
+    initial =
+      "Aten_walk_recipes.Recipe_unfold.{ n = 2; c = 3; h = 4; w = 4; config = \
+       { dimension = 2; mode = Overlap } }";
+    axes =
+      "Aten_walk_recipes.Recipe_unfold.axes ~n:[ 2; 3; 4 ] ~c:[ 2; 3; 5 ] ~h:[ \
+       2; 4; 6 ] ~w:[ 2; 5; 7 ] \
+       ~config:Aten_walk_recipes.Recipe_unfold.all_configs";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_unfold.self_shape c) in
+    ( Aten_op_spec.Op_unfold.(
+        spec { self; dimension = Recipe_unfold.dimension c;
+               size = Recipe_unfold.size c; step = Recipe_unfold.step c }),
+      pcg )|};
+  }
+
+(* zeros.default is a shape-only factory.  Its output shape is its required
+   [size] argument, so Recipe_default's shape mutations are directly meaningful. *)
+let zeros =
+  {
+    module_name = "Zeros_walk";
+    target = "torch.ops.aten.zeros.default";
+    recipe = "Recipe_default";
+    initial = "Aten_walk_recipes.Recipe_default.{ shape = [ 2; 3; 4; 4 ] }";
+    axes = "Aten_walk_recipes.Recipe_default.axes";
+    build =
+      {|let pcg = pcg in
+    ( Aten_op_spec.Op_zeros.(
+        spec { size = Recipe_default.shape c; pin_memory = None }),
+      pcg )|};
+  }
+
+(* eye.m has no tensor operand: independently vary its positive row and column
+   counts, which are precisely its materialized output dimensions. *)
+let eye_m =
+  {
+    module_name = "Eye_m_walk";
+    target = "torch.ops.aten.eye.m";
+    recipe = "Recipe_eye";
+    initial = "Aten_walk_recipes.Recipe_eye.{ n = 3; m = 4 }";
+    axes =
+      "Aten_walk_recipes.Recipe_eye.axes ~n:[ 1; 2; 3; 5 ] ~m:[ 1; 2; 4; 6 ]";
+    build =
+      {|let pcg = pcg in
+    ( Aten_op_spec.Op_eye_m.(
+        spec { n = Recipe_eye.n c; m = Recipe_eye.m c; pin_memory = None }),
+      pcg )|};
+  }
+
+(* The arange overloads share monotonic, like-typed scalar endpoints.  The
+   recipe's whole-range candidates prevent ATen-invalid descending ranges. *)
+let arange_default =
+  {
+    module_name = "Arange_default_walk";
+    target = "torch.ops.aten.arange.default";
+    recipe = "Recipe_arange";
+    initial =
+      "Aten_walk_recipes.Recipe_arange.{ start = Aten_spec.Scalar_value.Int 0; \
+       end_ = Aten_spec.Scalar_value.Int 5 }";
+    axes =
+      "Aten_walk_recipes.Recipe_arange.axes \
+       ~range:Aten_walk_recipes.Recipe_arange.candidates";
+    build =
+      {|let pcg = pcg in
+    ( Aten_op_spec.Op_arange.(
+        spec { end_ = Recipe_arange.end_ c; pin_memory = None }), pcg )|};
+  }
+
+let arange_start =
+  {
+    module_name = "Arange_start_walk";
+    target = "torch.ops.aten.arange.start";
+    recipe = "Recipe_arange";
+    initial =
+      "Aten_walk_recipes.Recipe_arange.{ start = Aten_spec.Scalar_value.Int 0; \
+       end_ = Aten_spec.Scalar_value.Int 5 }";
+    axes =
+      "Aten_walk_recipes.Recipe_arange.axes \
+       ~range:Aten_walk_recipes.Recipe_arange.candidates";
+    build =
+      {|let pcg = pcg in
+    ( Aten_op_spec.Op_arange_start.(
+        spec { start = Recipe_arange.start c; end_ = Recipe_arange.end_ c;
+               pin_memory = None }), pcg )|};
+  }
+
+(* select_scatter is select's write-back form.  Its source shape is the self
+   shape with the selected dimension removed; derive it from Recipe_select so
+   dimensions, signed indices and source rank cannot drift apart. *)
+let select_scatter =
+  {
+    module_name = "Select_scatter_walk";
+    target = "torch.ops.aten.select_scatter.default";
+    recipe = "Recipe_select";
+    initial =
+      "Aten_walk_recipes.Recipe_select.{ n = 2; c = 3; h = 4; w = 4; config = \
+       { rank = 4; dim = 2; index = First } }";
+    axes =
+      "Aten_walk_recipes.Recipe_select.axes ~n:[ 2; 3; 4 ] ~c:[ 2; 3; 5 ] ~h:[ \
+       2; 4; 6 ] ~w:[ 2; 5; 7 ] \
+       ~config:Aten_walk_recipes.Recipe_select.all_configs";
+    build =
+      {|let self_shape = Recipe_select.self_shape c in
+    let self, pcg = Walk.tensor_spec pcg self_shape in
+    let dim = Recipe_select.dim c in
+    let normalized_dim = if dim < 0 then dim + List.length self_shape else dim in
+    let src_shape = List.filteri (fun i _ -> i <> normalized_dim) self_shape in
+    let src, pcg = Walk.tensor_spec pcg src_shape in
+    ( Aten_op_spec.Op_select_scatter.(
+        spec { self; src; dim; index = Recipe_select.index c }), pcg )|};
+  }
+
+let split_tensor =
+  {
+    module_name = "Split_tensor_walk";
+    target = "torch.ops.aten.split.Tensor";
+    recipe = "Recipe_split";
+    initial =
+      "Aten_walk_recipes.Recipe_split.{ n = 2; c = 3; h = 4; w = 4; dim = 0 }";
+    axes =
+      "Aten_walk_recipes.Recipe_split.axes ~n:[ 2; 3; 4 ] ~c:[ 2; 3; 5 ] ~h:[ \
+       2; 4; 6 ] ~w:[ 2; 5; 7 ] ~dim:[ 0; 1; 2; 3; -1; -2; -3; -4 ]";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_split.self_shape c) in
+    (Aten_op_spec.Op_split_Tensor.(spec { self; split_size = Recipe_split.split_size c; dim = Recipe_split.dim c }), pcg)|};
+  }
+
+let split_with_sizes =
+  {
+    module_name = "Split_with_sizes_walk";
+    target = "torch.ops.aten.split_with_sizes.default";
+    recipe = "Recipe_split";
+    initial =
+      "Aten_walk_recipes.Recipe_split.{ n = 2; c = 3; h = 4; w = 4; dim = 0 }";
+    axes =
+      "Aten_walk_recipes.Recipe_split.axes ~n:[ 2; 3; 4 ] ~c:[ 2; 3; 5 ] ~h:[ \
+       2; 4; 6 ] ~w:[ 2; 5; 7 ] ~dim:[ 0; 1; 2; 3; -1; -2; -3; -4 ]";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_split.self_shape c) in
+    (Aten_op_spec.Op_split_with_sizes.(spec { self; split_sizes = Recipe_split.split_sizes c; dim = Recipe_split.dim c }), pcg)|};
+  }
+
+(* stack needs a same-shaped Tensor[] input. Recipe_unbind provides a rank-4
+   shape plus valid axis spellings; construct two independently valued tensors
+   of that shared shape. *)
+let stack =
+  {
+    module_name = "Stack_walk";
+    target = "torch.ops.aten.stack.default";
+    recipe = "Recipe_unbind";
+    initial =
+      "Aten_walk_recipes.Recipe_unbind.{ n = 2; c = 3; h = 4; w = 4; dim = 0 }";
+    axes =
+      "Aten_walk_recipes.Recipe_unbind.axes ~n:[ 1; 2; 3 ] ~c:[ 2; 3; 4 ] ~h:[ \
+       2; 4; 6 ] ~w:[ 2; 4; 6 ] ~dim:Aten_walk_recipes.Recipe_unbind.all_dims";
+    build =
+      {|let shape = Recipe_unbind.self_shape c in
+    let x, pcg = Walk.tensor_spec pcg shape in
+    let y, pcg = Walk.tensor_spec pcg shape in
+    (Aten_op_spec.Op_stack.(spec { tensors = [ x; y ]; dim = Recipe_unbind.dim c }), pcg)|};
+  }
+
+let cat =
+  {
+    module_name = "Cat_walk";
+    target = "torch.ops.aten.cat.default";
+    recipe = "Recipe_unbind";
+    initial =
+      "Aten_walk_recipes.Recipe_unbind.{ n = 2; c = 3; h = 4; w = 4; dim = 0 }";
+    axes =
+      "Aten_walk_recipes.Recipe_unbind.axes ~n:[ 1; 2; 3 ] ~c:[ 2; 3; 4 ] ~h:[ \
+       2; 4; 6 ] ~w:[ 2; 4; 6 ] ~dim:Aten_walk_recipes.Recipe_unbind.all_dims";
+    build =
+      {|let shape = Recipe_unbind.self_shape c in
+    let x, pcg = Walk.tensor_spec pcg shape in
+    let y, pcg = Walk.tensor_spec pcg shape in
+    (Aten_op_spec.Op_cat.(spec { tensors = [ x; y ]; dim = Recipe_unbind.dim c }), pcg)|};
+  }
+
 (* unbind.int already gets a generated DEFAULT walk (one tensor arg, every other
    arg fillable), so unlike the entries above this is not filling a gap — it is
    an override, for the reason the design record gives for hardtanh: the default

@@ -20,6 +20,8 @@ open Walk_meta_recurrent
 let entries =
   [
     conv2d;
+    conv1d;
+    conv3d;
     convolution;
     conv2d_padding;
     linear;
@@ -36,7 +38,22 @@ let entries =
     sum_dim_int_list;
     softmax_int;
     pow_tensor_scalar;
+    rsub_scalar;
+    to_copy;
+    select_int;
+    unsqueeze;
+    unfold;
+    zeros;
+    eye_m;
+    arange_default;
+    arange_start;
+    select_scatter;
+    split_tensor;
+    split_with_sizes;
+    stack;
+    cat;
     linalg_vector_norm;
+    cumsum_default;
     clamp;
     clamp_min;
     hardtanh;

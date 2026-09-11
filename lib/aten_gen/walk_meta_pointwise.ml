@@ -31,6 +31,29 @@ let pow_tensor_scalar =
     ( Aten_op_spec.Op_pow_Tensor_Scalar.(spec { self; exponent = Recipe_scalar_value.value c }), pcg )|};
   }
 
+(* [rsub.Scalar] needs its required [other] scalar supplied explicitly.  This
+   recipe varies it while pinning [alpha] to the schema default, which is the
+   configuration carried by the generated default contract. *)
+let rsub_scalar =
+  {
+    module_name = "Rsub_scalar_walk";
+    target = "torch.ops.aten.rsub.Scalar";
+    recipe = "Recipe_scalar_value";
+    initial =
+      "Aten_walk_recipes.Recipe_scalar_value.{ n = 1; c = 4; h = 8; w = 8; \
+       value = Aten_spec.Scalar_value.Float 0.1 }";
+    axes =
+      "Aten_walk_recipes.Recipe_scalar_value.axes ~n:[ 1; 2 ] ~c:[ 3; 4; 8 ] \
+       ~h:[ 4; 8 ] ~w:[ 4; 8 ] \
+       ~value:Aten_walk_recipes.Recipe_scalar_value.candidates";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_scalar_value.self_shape c) in
+    ( Aten_op_spec.Op_rsub_Scalar.(
+        spec { self; other = Recipe_scalar_value.value c;
+               alpha = Aten_spec.Scalar_value.Int 1 }),
+      pcg )|};
+  }
+
 (* clamp.default has no generated default walk: both its bounds default to None,
    and that is precisely the pair ATen rejects, so the generator has nothing
    valid to synthesise and leaves it in [needs_meta]. This entry supplies whole

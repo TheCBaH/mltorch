@@ -187,6 +187,41 @@ let unbind_output_count ~env ~inputs =
           if dim < 0 || dim >= rank then 0 else shape.(dim))
   | _ -> 0
 
+(* Tensor[] output counts for the split family.  They use the already lowered
+   tensor shape and exact scalar/list arguments, mirroring bridge validation;
+   invalid generated specs keep zero outputs so ATen remains responsible for
+   reporting the actual argument error. *)
+let split_output_count ~env ~inputs =
+  let arg name =
+    List.find_map
+      (fun (na : NamedArgument.t) ->
+        if String.equal na.name name then Some na.arg else None)
+      inputs
+  in
+  match (arg "self", arg "split_size", arg "dim") with
+  | Some (Argument.Tensor ta), Some (Argument.Int size), dim -> (
+      match String_map.find_opt ta.TensorArgument.name env with
+      | None -> 0
+      | Some t ->
+          let shape = Aten_tensor.shape t in
+          let rank = Array.length shape in
+          let dim = match dim with Some (Argument.Int d) -> d | _ -> 0 in
+          let dim = if dim < 0 then dim + rank else dim in
+          if size <= 0 || dim < 0 || dim >= rank then 0
+          else (shape.(dim) + size - 1) / size)
+  | _ -> 0
+
+let split_with_sizes_output_count ~inputs =
+  List.find_map
+    (fun (na : NamedArgument.t) ->
+      if String.equal na.name "split_sizes" then
+        match na.arg with
+        | Argument.Ints xs -> Some (List.length xs)
+        | _ -> Some 0
+      else None)
+    inputs
+  |> Option.value ~default:0
+
 (* The outputs a synthesized node must carry, in the shape the PyTorch
    serializer would have written.
 
@@ -199,13 +234,19 @@ let unbind_output_count ~env ~inputs =
 let outputs_for target ~env ~inputs =
   match Aten_op_config.find target with
   | Some { returns = Aten_op_config.Tensor_list_return; _ } ->
-      if not (String.equal target "torch.ops.aten.unbind.int") then
-        invalid_arg
-          (Printf.sprintf
-             "Aten_spec_run.outputs_for: no output-count rule for the \
-              Tensor[]-returning target %S"
-             target);
-      let n = unbind_output_count ~env ~inputs in
+      let n =
+        match target with
+        | "torch.ops.aten.unbind.int" -> unbind_output_count ~env ~inputs
+        | "torch.ops.aten.split.Tensor" -> split_output_count ~env ~inputs
+        | "torch.ops.aten.split_with_sizes.default" ->
+            split_with_sizes_output_count ~inputs
+        | _ ->
+            invalid_arg
+              (Printf.sprintf
+                 "Aten_spec_run.outputs_for: no output-count rule for the \
+                  Tensor[]-returning target %S"
+                 target)
+      in
       [ Argument.Tensors (List.init n out_name) ]
   | c ->
       let arity =
