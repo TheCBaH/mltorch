@@ -46,7 +46,8 @@ let relayout =
    predicate is global, so one sweep removes everything unreachable, and
    [Drop_pool_indices] cannot create new work for itself. *)
 let prune =
-  Pass.sequence ~name:"prune" [ Dce.pass; Drop_pool_indices.pass; Dce.pass ]
+  Pass.sequence ~name:"prune"
+    [ Dce.pass; Drop_pool_indices.pass; Dce.pass; Fold_arange_cast.pass ]
 
 (* Order is load-bearing. The importer emits every conv weight behind a relayout
    permute, so the weight is a NODE OUTPUT until the first Const-SSA fold makes
