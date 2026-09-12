@@ -154,7 +154,15 @@ let dispatch ~ctx ~env (node : Node.t) =
            let* y = permute perm_nhwc_to_nchw y in
            return [ y ]
        | "torch.ops.aten._native_batch_norm_legit_no_training.default" ->
-           let* x = permute perm_nchw_to_nhwc (get "input") in
+           let x_name = tensor_name esc node "input" in
+           let rank =
+             meta_rank
+               (tensor_meta esc graph ~ssa:x_name ~role:`Batch_norm_input)
+           in
+           let to_channel_last, from_channel_last =
+             batch_norm_channel_perms ~rank
+           in
+           let* x = permute to_channel_last (get "input") in
            let params =
              { Norm.BatchNorm.channel = Axis.C; eps = float_arg esc node "eps" }
            in
@@ -169,7 +177,7 @@ let dispatch ~ctx ~env (node : Node.t) =
                ~running_mean:(get "running_mean")
                ~running_var:(get "running_var") ()
            in
-           let* y = permute perm_nhwc_to_nchw y in
+           let* y = permute from_channel_last y in
            return [ y ]
        | "torch.ops.aten._native_batch_norm_legit.no_stats" -> (
            (* Training batch norm without running statistics is not the

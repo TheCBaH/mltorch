@@ -66,6 +66,7 @@ type metadata_role =
   | `Adaptive_avg_pool2d_input
   | `Adaptive_max_pool2d_input
   | `Amax_input
+  | `Batch_norm_input
   | `Batch_norm_no_stats_input
   | `Concat_input
   | `Conv1d_bias
@@ -423,6 +424,7 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Adaptive_avg_pool2d_input -> Fmt.string ppf "adaptive_avg_pool2d input"
   | `Adaptive_max_pool2d_input -> Fmt.string ppf "adaptive_max_pool2d input"
   | `Amax_input -> Fmt.string ppf "amax input"
+  | `Batch_norm_input -> Fmt.string ppf "batch_norm input"
   | `Batch_norm_no_stats_input -> Fmt.string ppf "batch_norm_no_stats input"
   | `Concat_input -> Fmt.string ppf "concat input"
   | `Conv1d_bias -> Fmt.string ppf "conv1d bias"
