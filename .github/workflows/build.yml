@@ -42,8 +42,10 @@ jobs:
     - name: file size check
       run: make check.file-size
     - name: devcontainer
-      uses: ./.github/workflows/actions/devcontainer
+      uses: TheCBaH/devcontainer-action/devcontainer@v1
       id: devcontainer
+      with:
+        cli-version: '0.88.0'
     - name: setup
       run: |
         echo 'EXEC=${{ steps.devcontainer.outputs.exec }}' >> $GITHUB_ENV

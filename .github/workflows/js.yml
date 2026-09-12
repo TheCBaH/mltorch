@@ -45,8 +45,10 @@ jobs:
         # nothing here builds.
         submodules: true
     - name: devcontainer
-      uses: ./.github/workflows/actions/devcontainer
+      uses: TheCBaH/devcontainer-action/devcontainer@v1
       id: devcontainer
+      with:
+        cli-version: '0.88.0'
     - name: setup
       run: |
         echo 'EXEC=${{ steps.devcontainer.outputs.exec }}' >> $GITHUB_ENV
@@ -113,8 +115,10 @@ jobs:
       with:
         submodules: true
     - name: devcontainer
-      uses: ./.github/workflows/actions/devcontainer
+      uses: TheCBaH/devcontainer-action/devcontainer@v1
       id: devcontainer
+      with:
+        cli-version: '0.88.0'
     - name: setup
       run: |
         echo 'EXEC=${{ steps.devcontainer.outputs.exec }}' >> $GITHUB_ENV
@@ -168,10 +172,11 @@ jobs:
     - name: checkout
       uses: actions/checkout@v7
     - name: devcontainer
-      uses: ./.github/workflows/actions/devcontainer
+      uses: TheCBaH/devcontainer-action/devcontainer@v1
       id: devcontainer
       with:
         post-create: 'false'
+        cli-version: '0.88.0'
     - name: setup
       run: |
         echo 'EXEC=${{ steps.devcontainer.outputs.exec }}' >> $GITHUB_ENV
