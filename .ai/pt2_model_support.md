@@ -447,7 +447,18 @@ for the whole two-shape `Eval_direct` run was single-digit minutes on this
 machine; not a benchmark claim (this file's own house rule), only evidence
 that real corpus scale is reachable in the Native Direct path at all.
 
-## Keeping this current
+**Updated 2026-09-12**, after landing a `Meshgrid` counterpart in Native4D
+(`.ai/native4d_design.md` §7.10). The op's own rejection had gone stale: it
+cited "no corpus model reaches Native4D with a `Meshgrid` node", which
+stopped being true once `neg.default`/`type_as.default` landed and let
+`vit_small_patch16_dinov3_qkvb` reach this far. Its row moves from
+`native4d_blocker: "node n14: no legalization for meshgrid tensors=[t210,
+t211]"` to `"node n39: axis T is outside the N/H/W/C dialect"` -- the
+`Meshgrid` node itself (a two-input, rank-1 rotary/relative-position grid)
+now converts, and the model reaches one node further before hitting the
+already-tracked axis-T limit this doc's other entries call working as
+designed. `native4d_converts` for this model stays `false` and
+`kernel_converts` is unaffected; no other model's row changed.
 
 - `PT2_MODELS_NATIVE_VERIFY` (Makefile) wires `mobilenetv2_050`,
   `regnetx_002`, `efficientnet_b0` and `test_convnext2` into

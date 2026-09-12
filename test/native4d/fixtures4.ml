@@ -448,6 +448,24 @@ let per_op () =
              concat4 { Ops4.Concat4.axis = Axis4.W } [ a; b; c ])
         in
         (g, [ a_shape; b_shape; c_shape ]) );
+      (* Variadic in both directions, unlike [concat4]'s variadic operands or
+         [unbind]'s variadic outputs alone: two rank-1 inputs of DIFFERENT
+         extent (3, 2), each landing on a different output axis
+         ([Aten_shape.used_axes ~rank:2] = [W; C]), so a fixture confusing
+         which operand feeds which output axis would still differ, and both
+         outputs share the resulting [W=3; C=2] shape the way [Meshgrid]'s
+         own [output_shapes] says they must. *)
+      ( "meshgrid",
+        let a_shape = s4 ~n:1 ~h:1 ~w:1 ~c:3 in
+        let b_shape = s4 ~n:1 ~h:1 ~w:1 ~c:2 in
+        let g =
+          build ~outputs:Fun.id
+            (let open Builder in
+             let* a = input ~shape:a_shape () in
+             let* b = input ~shape:b_shape () in
+             meshgrid [ a; b ])
+        in
+        (g, [ a_shape; b_shape ]) );
       (* Two operands of the SAME shape (unlike [concat4] above, [Stack]
          cannot differ along the joined axis -- it names a brand-new one), so
          a fixture reading the wrong operand by index would still differ.

@@ -278,6 +278,9 @@ let max_pool2d_with_indices params x =
 let mean_keepdims ?(keepdim = true) dims x =
   op1 (Op.Mean_keepdims { Ops4.Mean_keepdims.params = { dims; keepdim }; x })
 
+(* Variadic in both directions, like [concat4]'s operands and [unbind]'s
+   outputs at once -- [opN], not [op1]. *)
+let meshgrid tensors = opN (Op.Meshgrid { Meshgrid.Meshgrid.tensors })
 let mul a b = op1 (Op.Mul { Pointwise.Bin.a; b })
 let mul_scalar scalar x = op1 (Op.Mul_scalar { Pointwise.Scalar_bin.x; scalar })
 let pow scalar x = op1 (Op.Pow { Pointwise.Scalar_bin.x; scalar })

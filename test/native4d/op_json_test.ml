@@ -219,6 +219,9 @@ let samples : Op.t list =
     Max_pool2d_with_indices { Pool.MaxPool2dWithIndices.params = max_params; x };
     Mean_keepdims
       { Ops4.Mean_keepdims.params = { dims = [ H; W ]; keepdim = true }; x };
+    (* Two operands, distinct from [Concat4]'s three above, so a codec that
+       dropped or reordered one is still visible. *)
+    Meshgrid { Meshgrid.Meshgrid.tensors = [ x; y ] };
     Mul { Pointwise.Bin.a = x; b = y };
     Mul_scalar { Pointwise.Scalar_bin.x; scalar = 2. };
     (* Two axes, an asymmetric pad and a mixed pad/crop, so the codec is proved
@@ -377,7 +380,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 72, registry: 72 |}]
+  [%expect {| samples: 73, registry: 73 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -468,6 +471,7 @@ let%expect_test "op4: printed" =
              pad={h=0; w=0};
              ceil_mode=false}
     mean_keepdims x=t0 params={dims=[H, W]; keepdim=true}
+    meshgrid tensors=[t0, t1]
     mul a=t0 b=t1
     mul_scalar x=t0 scalar=2
     pad4 x=t0 params={pads=[H:1,2, W:-1,3] mode=constant(0.1)}
@@ -520,7 +524,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 72 ops |}]
+  [%expect {| round-tripped 73 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

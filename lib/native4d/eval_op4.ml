@@ -230,6 +230,12 @@ module Make (S : Semantics.SEMANTICS) = struct
         C.pixel
           (Graph_shape4.mean_params params)
           ~x_shape:(shape_of x) ~x:(operand x) out
+    | Meshgrid { Meshgrid.Meshgrid.tensors } ->
+        let module C = Meshgrid.Meshgrid.Compute (S) in
+        let axis =
+          List.nth (Aten_shape.used_axes ~rank:(List.length tensors)) output
+        in
+        C.pixel ~axis (operand (List.nth tensors output)) out
     | Mul { Pointwise.Bin.a; b } ->
         let module C = Pointwise.Mul.Compute (S) in
         C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)

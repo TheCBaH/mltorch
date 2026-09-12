@@ -408,6 +408,7 @@ This section covers every operation currently in `Graph_ir.op`.
 | `Pad` | `Pad4` with `Axis4.t` keys, when every **padded** axis is nameable | `Identical` |
 | `Slice` | `Slice4` with an `Axis4.t`, when the sliced axis is nameable | `Identical` |
 | `Unbind` | `Unbind` with an `Axis4.t`, when the axis is nameable AND every inferred slice re-enters `Shape4` | `Identical` |
+| `Meshgrid` | Direct counterpart, reusing Native's payload, when `Aten_shape.used_axes ~rank` (one entry per input) names no `T`/`D` | `Identical` |
 | `Discard` | Removed by DCE | Vacuous deletion |
 
 `Graph_shape4`'s `Reshape4` arm delegates to `Reshape.Reshape.output_shape
@@ -784,6 +785,41 @@ on the pre-existing, unrelated evaluation-depth ceiling
 counterpart, superseding the "no model coverage" claim below, which held
 only until the H-broadcasting fix.
 
+### 7.10 Meshgrid
+
+`Meshgrid`'s domain and lowering arms used to reject unconditionally, citing
+"no corpus model reaches Native4D with a `Meshgrid` node" — true when written,
+but the premise was corpus evidence, not an intrinsic limit, and it stopped
+holding once `neg.default`/`type_as.default` (the two ops whose absence kept
+the motivating model's own graph from reaching this far) landed.
+`vit_small_patch16_dinov3_qkvb` now reaches Native4D and stops at its
+`Meshgrid` node (a two-input rotary/relative-position grid, both inputs
+rank-1 with extent 16), which is what prompted re-checking the premise.
+
+Unlike `Sdpa`/`Batched_matmul` (§7.4, §7.9), `Meshgrid` names no axis
+parameter at all — the axes its output actually uses are
+`Aten_shape.used_axes ~rank:(List.length tensors)`, the same right-aligned
+rule every rank-derived Native op resolves its axes by. That makes the
+admission condition a `check_dims`-style call over that computed axis list,
+not a new conditional shape like `check_sdpa`/`check_batched_matmul`: an
+entry naming `T` or `D` is rejected the same way `Pad`'s padded-axis list or
+`Rms_norm`'s `dims` are, at every rank, unconditionally. A 2-input meshgrid
+(the corpus's only shape so far) resolves to `[W; C]`, both dialect axes; a
+5- or 6-input one would name `T`/`D` and stay rejected, by the same check,
+with no special case.
+
+The payload is Native's own, reused unchanged (`.ai/native4d_add_op.md` site
+1's "no axis, no shape, no mode" rule) — `Compute.pixel`'s per-output axis
+lookup already resolves the axis from the operand's ordinal, exactly as
+`Eval_op.pixel` (Native) does, so `Eval_op4.pixel` mirrors it verbatim. Like
+`Unbind`, output count tracks the operand count rather than a fixed arity,
+so it uses `Builder.opN`, `Graph_shape4.four_all`, and the same "every output
+re-validated against `Shape4`, since a dead output is invisible to
+`Domain.check_shapes`" guard `Unbind`'s own lowering arm documents (§7.1).
+Landed 2026-09-12: this is the first corpus evidence for this counterpart,
+though the model does not yet reach the Kernel stage past it — see
+`.ai/pt2_model_support.md`.
+
 ## 8. Operations actually required by the reduced dialect
 
 The three convolution forms are not sufficient to represent the current Native
@@ -805,7 +841,8 @@ graphs. A practical initial Native4D dialect also needs:
   synthesis** op — its output has cells that are a copy of no input element;
 - `Slice4` (row 6.2): a strided selection that KEEPS its axis, so unlike
   `Unbind` it is single-output and rank-preserving;
-- `Unbind`, the one multi-output op (see §7.1);
+- `Unbind` and `Meshgrid`, whose output count tracks their operand/rank
+  rather than a fixed arity (see §7.1, §7.10);
 - graph constants, inputs, and the structural notion of discarded/dead output.
 
 **The single-output assumption is gone.** `Unbind` produces one output per

@@ -48,6 +48,11 @@ let classify (op : Op.t) ~output =
   | Leaky_relu _ | Lstm _ | Max_keepdims _ | Max_pool2d _ | Mean_keepdims _
   | Mul _ | Mul_scalar _ | Pad4 _ ->
       Output_transfer.Continuous
+  (* The pure-broadcast case, the same argument Native's own [Output_transfer]
+     makes for [Expand]/[Meshgrid]: output k reads only input k, broadcast
+     along every other axis, no arithmetic -- the coordinate remap just moves
+     which axis is real. *)
+  | Meshgrid _ -> Output_transfer.Reindexing
   | Permute4 _ -> Output_transfer.Reindexing
   | Pow _ | Relu _ | Rpow_scalar _ -> Output_transfer.Continuous
   (* Data movement, the same argument [Expand4] above makes: every output

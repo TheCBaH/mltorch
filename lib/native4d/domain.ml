@@ -240,10 +240,12 @@ let check_node view (n : node) =
      decomposition: it delegates to the same [Region_program] Native uses. *)
   | Sdpa { Attention.Sdpa.query; _ } -> check_sdpa view node ~query
   | Discard _ -> unsupported ()
-  (* No corpus model reaches Native4D with a [Meshgrid] node -- its own model
-     stops earlier at Native import (neg.default/type_as.default) -- so a
-     counterpart would be speculative; rejected on purpose. *)
-  | Meshgrid _ -> unsupported ()
+  (* [used_axes ~rank] is the same right-aligned axis set
+     [Meshgrid.output_shapes] assigns per input -- an entry naming T or D is
+     what this dialect cannot say, [check_dims]-style, unconditionally at
+     every rank the same way [Pad]/[Slice]/[Rms_norm] use it. *)
+  | Meshgrid { Meshgrid.Meshgrid.tensors } ->
+      check_dims node (Aten_shape.used_axes ~rank:(List.length tensors))
   (* [Concat4] now exists, so [Concat] gets the same [check_dims]-style axis
      rejection [Select]/[Slice]/[Stack]/[Unbind] get: the JOINED axis is the
      one the dialect must be able to name, and the rest of the domain -- every

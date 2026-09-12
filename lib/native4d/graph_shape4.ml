@@ -487,6 +487,13 @@ let output_shape (op : Op.t)
   | Mean_keepdims { Ops4.Mean_keepdims.params; x } ->
       let* x_shape = shape x in
       one (four (Reduce.Mean.output_shape ~x_shape (mean_params params)))
+  (* Variadic in both directions, like [Concat4]'s operands and [Unbind]'s
+     outputs at once: [Meshgrid.Meshgrid.output_shapes] already re-checks
+     every input's rank-1 shape and returns one shape per output, so
+     [four_all] is what re-enters every one of them into the dialect. *)
+  | Meshgrid { Meshgrid.Meshgrid.tensors } ->
+      let* shapes = Err.List.map shape tensors in
+      four_all (Meshgrid.Meshgrid.output_shapes shapes)
   | Mul { Pointwise.Bin.a; b } ->
       let* a_shape = shape a in
       let* b_shape = shape b in

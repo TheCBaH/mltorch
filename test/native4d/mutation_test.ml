@@ -686,6 +686,62 @@ let%expect_test "mutation: swapping two unbind slices is refuted" =
     slices in order            3 clusters: 3 proved (structural)
     slices swapped             3 clusters: 1 proved (structural), 2 refuted (counterexample) |}]
 
+(* [Meshgrid]'s own version of the same swap mutation as [Unbind]'s above --
+   [Meshgrid.output_shapes] returns [out_shape] once per input, always the
+   SAME [out_shape], so swapping the node's first two output ids is exactly
+   as structurally invisible: the graph's signature is unchanged, and every
+   output validates against the one shape either way. What differs is only
+   which input's extent (3 vs 2) ends up on which output's real axis --
+   the per-ordinal ground terms [Eval_symbolic4] emits are what disagree. *)
+let meshgrid_a_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:3
+let meshgrid_b_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:2
+let meshgrid_a_shape4 = Shape4.of_ints ~n:1 ~h:1 ~w:1 ~c:3
+let meshgrid_b_shape4 = Shape4.of_ints ~n:1 ~h:1 ~w:1 ~c:2
+
+let meshgrid_pair ~swap =
+  let src =
+    Graph_builder.build ~name:"meshgrid" ~outputs:Fun.id
+      Graph_builder.(
+        let* a = input ~shape:meshgrid_a_shape () in
+        let* b = input ~shape:meshgrid_b_shape () in
+        meshgrid [ a; b ])
+    |> Err.or_raise ~pp_error:Graph_builder.pp_error
+  in
+  let dst =
+    Builder.build ~outputs:Fun.id
+      Builder.(
+        let* a = input ~shape:meshgrid_a_shape4 () in
+        let* b = input ~shape:meshgrid_b_shape4 () in
+        meshgrid [ a; b ])
+    |> Err.or_raise ~pp_error:Builder.pp_error
+  in
+  let dst =
+    if not swap then dst
+    else
+      {
+        dst with
+        Graph_common.Graph.nodes =
+          List.map
+            (fun (n : Graph.node) ->
+              match n.Graph_common.Node.outputs with
+              | a :: b :: rest ->
+                  { n with Graph_common.Node.outputs = b :: a :: rest }
+              | outs -> { n with Graph_common.Node.outputs = outs })
+            dst.Graph_common.Graph.nodes;
+      }
+  in
+  (src, dst)
+
+let%expect_test "mutation: swapping two meshgrid outputs is refuted" =
+  let src, dst = meshgrid_pair ~swap:false in
+  mutated "outputs in order" src dst;
+  let src, dst = meshgrid_pair ~swap:true in
+  mutated "outputs swapped" src dst;
+  [%expect
+    {|
+    outputs in order           4 clusters: 4 proved (structural)
+    outputs swapped            4 clusters: 2 proved (structural), 2 refuted (counterexample) |}]
+
 (* [Max_pool2d_with_indices]'s own version of the same swap mutation --
    unlike [Unbind]'s two slices of one axis, here the two outputs are
    different KINDS (a pooled value, an argmax index), so swapping them is a

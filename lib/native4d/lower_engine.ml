@@ -269,6 +269,28 @@ let lower_node ~view acc (n : node) =
            (Op.Max_pool2d_with_indices
               { Pool.MaxPool2dWithIndices.params; x = op_of x })
            outputs)
+  (* Output count tracks the operand count, not a fixed arity like
+     [Max_pool2d_with_indices] above -- [Unbind]'s shape, not that one's.
+     [used_axes ~rank] is exactly what [Domain.check_node]'s [check_dims]
+     call already refused any T/D entry from, so [dims4] here cannot fail,
+     for the same reason [Unbind]'s doesn't. Every output is checked against
+     [Shape4] here too, for [Unbind]'s own reason: a dead output slice is
+     invisible to [Domain.check_shapes], which only inspects live tensors. *)
+  | Meshgrid { Meshgrid.Meshgrid.tensors } ->
+      let* (_ : Axis4.t list) =
+        dims4 ~node (Aten_shape.used_axes ~rank:(List.length tensors))
+      in
+      let+ () =
+        Err.List.iter
+          (fun o ->
+            let* shape = sig_of o in
+            let+ (_ : Shape4.t) = shape4 ~id:o shape in
+            ())
+          n.Node.outputs
+      in
+      emit acc ~from:node
+        (Op.Meshgrid { Meshgrid.Meshgrid.tensors = List.map op_of tensors })
+        n.Node.outputs
   (* Direct counterpart, like [Max_pool2d] above: [Resize.Bicubic2d.params]
      names no axis and carries no shape, so it crosses unchanged. *)
   | Upsample_bicubic2d { Resize.Bicubic2d.params; x } ->
@@ -606,8 +628,10 @@ let lower_node ~view acc (n : node) =
              running_mean = op_of running_mean;
              running_var = op_of running_var;
            })
-  (* The dialect's only multi-output node. The COMPLETE ordered output list is
-     carried over unchanged, which is the whole of the correspondence work:
+  (* Like [Meshgrid] above, a multi-output node whose count tracks the
+     operand/rank rather than a fixed arity. The COMPLETE ordered output list
+     is carried over unchanged, which is the whole of the correspondence
+     work:
      under the id policy an edge whose value is preserved keeps its source id
      and so appears in no cluster, making every slice implicitly [Identical].
      Reordering or dropping one would be silent here — [Graph_map]'s output
@@ -806,13 +830,9 @@ let lower_node ~view acc (n : node) =
   (* Rejected by [Domain.check] before the walk starts; reaching them means the
      domain check and this match disagree, which is a bug in one of them.
      [Conv3d]/[Unfold] are intrinsic axis boundaries, not missing
-     counterparts. [Meshgrid] has no corpus model reaching Native4D with it
-     (its own model stops earlier at Native import on
-     [neg.default]/[type_as.default]), so a counterpart would be speculative
-     -- rejected on purpose per this dialect's own "does it belong" question,
-     not merely unimplemented. [Adaptive_max_pool2d_with_indices]/
+     counterparts. [Adaptive_max_pool2d_with_indices]/
      [Max_pool2d_with_indices]/[Repeat]/[RepeatInterleave]/[Select_scatter]/
-     [Softmax]/[Batched_matmul]/[Sdpa]/[Index_tensor]/[Lstm] no longer join
-     them: all ten now have real conversion arms above. *)
-  | Conv3d _ | Discard _ | Meshgrid _ | Unfold _ ->
+     [Softmax]/[Batched_matmul]/[Sdpa]/[Index_tensor]/[Lstm]/[Meshgrid] no
+     longer join them: all eleven now have real conversion arms above. *)
+  | Conv3d _ | Discard _ | Unfold _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))

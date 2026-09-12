@@ -64,6 +64,7 @@ type op =
   | Max_pool2d of Pool.MaxPool2d.t
   | Max_pool2d_with_indices of Pool.MaxPool2dWithIndices.t
   | Mean_keepdims of Ops4.Mean_keepdims.t
+  | Meshgrid of Meshgrid.Meshgrid.t
   | Mul of Pointwise.Mul.t
   | Mul_scalar of Pointwise.Mul_scalar.t
   | Pad4 of Ops4.Pad4.t
@@ -351,6 +352,12 @@ let op_registry : (module OP) list =
 
       let inject t = Mean_keepdims t
       let project = function Mean_keepdims t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Meshgrid.Meshgrid
+
+      let inject t = Meshgrid t
+      let project = function Meshgrid t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pointwise.Mul
