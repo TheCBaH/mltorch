@@ -9,9 +9,13 @@ type unary_op = Expr_repr.unary_op =
   | Sqrt
   | Trunc
 
+type i64_binary_op = Expr_repr.i64_binary_op = I64_add | I64_mul | I64_sub
+
 type 'a t = 'a Expr_repr.value =
   | Binary : binary_op * float t * float t -> float t
   | Const : float -> float t
+  | I64_binary : i64_binary_op * int64 t * int64 t -> int64 t
+  | I64_const : int64 -> int64 t
   | Intrinsic : Intrinsic.t -> float t
   | Local : Local_var.t -> float t
   | Local_at : Local_var.t * Role.Position.t Index.t -> float t
@@ -50,6 +54,26 @@ let local_at v i = Local_at (v, i)
 let local_scan_at v ~row ~lane = Local_scan_at (v, row, lane)
 let scan_at s ~row ~lane = Scan_at (s, row, lane)
 let reduce r = Reduce r
+let i64_const x = I64_const x
+let i64_add a b = I64_binary (I64_add, a, b)
+let i64_sub a b = I64_binary (I64_sub, a, b)
+let i64_mul a b = I64_binary (I64_mul, a, b)
+
+let apply_i64_binary = function
+  | I64_add -> Int64.add
+  | I64_mul -> Int64.mul
+  | I64_sub -> Int64.sub
+
+(* Total: an [int64 t] has no [Local]/[Load]/[Reduce]/[Scan_at] inhabitant
+   (see the [_ value] doc comment in expr_repr.ml), so this pattern match is
+   exhaustive without an [Env], scan state, or the depth-cutoff/JS-machine
+   handoff [eval.ml]'s [go] needs for the (environment-carrying, unboundedly
+   deep) float language. Not yet stack-safety-audited for very deep trees on
+   the JS backends -- unlike [go], there is no cutoff here yet; deferred until
+   a real producer of deep [int64 t] trees exists. *)
+let rec eval_i64 : int64 t -> int64 = function
+  | I64_const x -> x
+  | I64_binary (op, a, b) -> apply_i64_binary op (eval_i64 a) (eval_i64 b)
 
 let apply_binary = function
   | Add -> ( +. )

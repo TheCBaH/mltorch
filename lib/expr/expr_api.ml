@@ -280,11 +280,17 @@ module type S = sig
   and Value : sig
     type binary_op = Add | Div | Mul | Sub
     type unary_op = Cos | Erf | Exp | Log | Sin | Sqrt | Trunc
+    type i64_binary_op = I64_add | I64_mul | I64_sub
 
-    (* Carrier-indexed; every constructor here returns [float t] for now. *)
+    (* Carrier-indexed. [I64_binary]/[I64_const] are the first [int64 t]
+       inhabitants -- a closed, environment-free arithmetic subgrammar (no
+       [Load]/[Local]/[Reduce] at this carrier yet); every other constructor
+       still returns [float t]. *)
     type _ t = private
       | Binary : binary_op * float t * float t -> float t
       | Const : float -> float t
+      | I64_binary : i64_binary_op * int64 t * int64 t -> int64 t
+      | I64_const : int64 -> int64 t
       | Intrinsic : Intrinsic.t -> float t
       | Local : Local_var.t -> float t
       | Local_at : Local_var.t * Role.Position.t Index.t -> float t
@@ -300,6 +306,18 @@ module type S = sig
       | Select : Bool.t * float t * float t -> float t
       | Unary : unary_op * float t -> float t
       | Value_of_index : Role.Delta.t Index.t -> float t
+
+    val i64_const : int64 -> int64 t
+    val i64_add : int64 t -> int64 t -> int64 t
+    val i64_sub : int64 t -> int64 t -> int64 t
+    val i64_mul : int64 t -> int64 t -> int64 t
+    val apply_i64_binary : i64_binary_op -> int64 -> int64 -> int64
+
+    val eval_i64 : int64 t -> int64
+    (** Total: an [int64 t] tree is closed over [I64_const]/[I64_binary] only,
+        so this needs no [Env], scan state, or [Eval]'s depth-cutoff/JS-machine
+        handoff. Not yet audited for stack safety on very deep trees on the JS
+        backends. *)
 
     val const : float -> float t
     val add : float t -> float t -> float t

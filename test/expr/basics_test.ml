@@ -86,6 +86,21 @@ let%expect_test "Scalar: packed existential round trip" =
     (Scalar.unpack Scalar.I64 pbool = None);
   [%expect {| true true true true |}]
 
+let%expect_test "Value: exact I64 arithmetic, no float intermediary" =
+  let open Value in
+  (* The design's canonical example: exact above float's 2^53 mantissa. A
+     float round trip would have silently changed this value. *)
+  let big = i64_const 9_007_199_254_740_993L in
+  Fmt.pr "%Ld@." (eval_i64 (i64_add big (i64_const 1L)));
+  [%expect {| 9007199254740994 |}];
+  (* Same-width modular wraparound is the documented policy, not an error. *)
+  Fmt.pr "%Ld %Ld@."
+    (eval_i64 (i64_add (i64_const Int64.max_int) (i64_const 1L)))
+    (eval_i64 (i64_sub (i64_const Int64.min_int) (i64_const 1L)));
+  [%expect {| -9223372036854775808 9223372036854775807 |}];
+  Fmt.pr "%Ld@." (eval_i64 (i64_mul (i64_const 6L) (i64_const 7L)));
+  [%expect {| 42 |}]
+
 let%expect_test "Source: stateless bijection and rendering" =
   let s = Source.create 7 in
   (* [pp] must match lib/native's [Tensor_id.pp] so a printed Load stays

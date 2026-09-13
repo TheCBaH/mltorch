@@ -4,6 +4,14 @@
 type binary_op = Add | Div | Mul | Sub
 type unary_op = Cos | Erf | Exp | Log | Sin | Sqrt | Trunc
 
+(* Same-width modular two's-complement results (design's initial I64 policy,
+   see .ai/) -- [Int64.add]/[sub]/[mul] already wrap this way, so [i64_binary]
+   needs no overflow check of its own. Division is deliberately absent: it
+   names a rounding mode (truncating vs flooring) and has two exceptional
+   cases (zero divisor, [min_int / -1]) neither arithmetic op has, so it is
+   its own constructor when it lands, not a fourth case here. *)
+type i64_binary_op = I64_add | I64_mul | I64_sub
+
 (* [Argmax_index]/[Argmax_value] share [Max]/[Sum]'s [var]/[lo]/[hi]/[body]
    shape exactly -- [body] is still the per-position comparison key -- so they
    need no new field on [reduction]. What differs is the FOLD: [Max]/[Sum]
@@ -20,14 +28,19 @@ type unary_op = Cos | Erf | Exp | Log | Sin | Sqrt | Trunc
    must run the identical [pool_better] fold. *)
 type reduction_kind = Argmax_index | Argmax_value | Max | Sum
 
-(* Carrier-indexed: every constructor below returns [float value], the only
-   inhabited index today -- this is a behavior-preserving reshape into GADT
-   form (see .ai/), not yet an admission of a second carrier. A future I64/Bool
-   constructor is a new case returning [int64 value]/[bool value], added
-   alongside these without disturbing them. *)
+(* Carrier-indexed. [I64_binary]/[I64_const] are the first inhabitants of a
+   second index ([int64 value]) -- see .ai/. They deliberately reach no
+   [Source]/[Local_var]/[Reduce_var]: a typed [Load]/[Local]/[Reduce] at
+   [int64 value] is later work (P2 storage access, P3 typed locals), so for
+   now an [int64 value] tree is a closed, environment-free constant/arithmetic
+   expression, safely total to evaluate with no [Env]/scan/depth-cutoff
+   machinery (see [Value.eval_i64]). Every other constructor below still
+   returns [float value], the original inhabited index. *)
 type _ value =
   | Binary : binary_op * float value * float value -> float value
   | Const : float -> float value
+  | I64_binary : i64_binary_op * int64 value * int64 value -> int64 value
+  | I64_const : int64 -> int64 value
   | Intrinsic : Intrinsic.t -> float value
   | Local : Local_var.t -> float value
   | Local_at : Local_var.t * Role.Position.t Index.t -> float value
