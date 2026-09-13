@@ -101,6 +101,37 @@ let%expect_test "Value: exact I64 arithmetic, no float intermediary" =
   Fmt.pr "%Ld@." (eval_i64 (i64_mul (i64_const 6L) (i64_const 7L)));
   [%expect {| 42 |}]
 
+let%expect_test
+    "Value: I64_to_float through the real (environment-carrying) evaluator" =
+  let open Value in
+  let e =
+    i64_to_float (i64_add (i64_const 9_007_199_254_740_993L) (i64_const 1L))
+  in
+  Fmt.pr "%a@." Pp.value e;
+  [%expect {| i64_to_float((9007199254740993 + 1)) |}];
+  Fmt.pr "size=%d depth=%d@." (Fold.size e) (Fold.depth e);
+  [%expect {| size=4 depth=3 |}];
+  let env =
+    {
+      Eval.Env.load = (fun _ _ -> assert false);
+      load_index = (fun _ _ -> assert false);
+    }
+  in
+  let output = Coord.of_fn (fun _ -> 0) in
+  (* [Fmt.float]'s default %g-style printer rounds to a handful of significant
+     digits, which would hide the very exactness this test exists to check
+     (9007199254740994. is representable exactly as a double: it is 2^53 + 2,
+     even and so on the post-2^53 grid of representable integers) -- an exact
+     equality against the expected [float] is the real assertion, not the
+     printed form. *)
+  (match Eval.value env ~output e with
+  | Ok v -> Fmt.pr "eval ok, exact: %b@." (Float.equal v 9_007_199_254_740_994.)
+  | Error _ as r ->
+      Fmt.pr "%a@."
+        (Core.Pretty.err_result ~ok:Fmt.float ~error:Eval.pp_error)
+        r);
+  [%expect {| eval ok, exact: true |}]
+
 let%expect_test "Source: stateless bijection and rendering" =
   let s = Source.create 7 in
   (* [pp] must match lib/native's [Tensor_id.pp] so a printed Load stays

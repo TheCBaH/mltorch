@@ -211,7 +211,8 @@ type error =
   | `Pair_nodes_over_limit of int
   | `Partition of Region_partition.error
   | `Region of Region_program.error
-  | `Unknown_edge of Tensor_id.t ]
+  | `Unknown_edge of Tensor_id.t
+  | `Unsupported_i64_to_float_ground ]
 
 let pp_error fmt : [< error ] -> unit = function
   | #Expr.Eval.error as e -> Expr.Eval.pp_error fmt e
@@ -227,6 +228,10 @@ let pp_error fmt : [< error ] -> unit = function
   | `Partition e -> Region_partition.pp_error fmt e
   | `Region e -> Region_program.pp_error fmt e
   | `Unknown_edge id -> Fmt.pf fmt "unknown edge %a" Tensor_id.pp id
+  | `Unsupported_i64_to_float_ground ->
+      Fmt.string fmt
+        "I64_to_float has no grounded/fused representation yet (P1 typed Expr \
+         foundation only supports the plain evaluator, see .ai/)"
 
 (* Saturating: matches this repository's 32-bit-safe-aggregate rule
    (js_of_ocaml reaches this library) for every checked size addition below.
@@ -399,6 +404,8 @@ let rec ground esc ~env ~meter ~arena ~frame ~coord ~rvars
   in
   match e with
   | Expr.Value.Const x -> node esc meter (Ground_expr.const arena x)
+  | Expr.Value.I64_to_float _ ->
+      Err.Escape.throw esc `Unsupported_i64_to_float_ground
   | Expr.Value.Local v -> (
       match Expr.Local_var.Map.find_opt v frame.Frame.scalars with
       | Some g -> g

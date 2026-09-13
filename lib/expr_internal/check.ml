@@ -38,7 +38,8 @@ let duplicate_binder e =
   let rec go bound lbound (e : float Value.t) =
     match e with
     | Value.Const _ | Value.Value_of_index _ | Value.Load _ | Value.Intrinsic _
-    | Value.Local _ | Value.Local_at _ | Value.Local_scan_at _ ->
+    | Value.Local _ | Value.Local_at _ | Value.Local_scan_at _
+    | Value.I64_to_float _ ->
         None
     | Value.Binary (_, a, b) -> (
         match go bound lbound a with None -> go bound lbound b | some -> some)

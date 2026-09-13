@@ -88,6 +88,14 @@ let idx env fmt i = index ~names:(names_in env) fmt i
    [prev] naming -- without [at]'s [Value.Scan_at] case's trailing
    [row,lane] projection, which is fabricated for any caller that has no
    real read site (see the scan design record). *)
+(* [int64 Value.t] is closed over [I64_const]/[I64_binary] -- no binder, no
+   reducer numbering, so this needs none of [at]'s [names]/[env]/[lenv]/[n]. *)
+let rec at_i64 fmt (e : int64 Value.t) =
+  match e with
+  | Value.I64_const x -> Fmt.pf fmt "%Ld" x
+  | Value.I64_binary (op, a, b) ->
+      Fmt.pf fmt "(%a %s %a)" at_i64 a (Value.i64_binary_sym op) at_i64 b
+
 let rec at ~names env lenv n fmt (e : float Value.t) =
   (* Eta-expanded so it stays polymorphic in the role: a reduction's [lo] is
        a position and its [hi] a delta. *)
@@ -102,6 +110,9 @@ let rec at ~names env lenv n fmt (e : float Value.t) =
       n
   | Value.Const x ->
       Fmt.float fmt x;
+      n
+  | Value.I64_to_float a ->
+      Fmt.pf fmt "i64_to_float(%a)" at_i64 a;
       n
   | Value.Intrinsic (Intrinsic.Max_pool d) ->
       Fmt.pf fmt "max_pool2d_%s(%a; k=%dx%d s=%dx%d p=%dx%d; out=[%a])"

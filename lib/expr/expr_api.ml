@@ -291,6 +291,7 @@ module type S = sig
       | Const : float -> float t
       | I64_binary : i64_binary_op * int64 t * int64 t -> int64 t
       | I64_const : int64 -> int64 t
+      | I64_to_float : int64 t -> float t
       | Intrinsic : Intrinsic.t -> float t
       | Local : Local_var.t -> float t
       | Local_at : Local_var.t * Role.Position.t Index.t -> float t
@@ -312,6 +313,11 @@ module type S = sig
     val i64_sub : int64 t -> int64 t -> int64 t
     val i64_mul : int64 t -> int64 t -> int64 t
     val apply_i64_binary : i64_binary_op -> int64 -> int64 -> int64
+
+    val i64_to_float : int64 t -> float t
+    (** Exact-to-working-float; potentially lossy above 2^53 but never an error,
+        unlike the not-yet-added reverse direction (design's "I64 to
+        Float"/"Float to I64" policies are asymmetric). *)
 
     val eval_i64 : int64 t -> int64
     (** Total: an [int64 t] tree is closed over [I64_const]/[I64_binary] only,
@@ -374,6 +380,7 @@ module type S = sig
     val apply_binary : binary_op -> float -> float -> float
     val apply_unary : unary_op -> float -> float
     val binary_sym : binary_op -> string
+    val i64_binary_sym : i64_binary_op -> string
     val unary_name : unary_op -> string
 
     val compare : float t -> float t -> int

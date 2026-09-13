@@ -144,6 +144,7 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
       | Value.Binary (op, a, b) ->
           Value.apply_binary op (go depth reducers a) (go depth reducers b)
       | Value.Const x -> x
+      | Value.I64_to_float a -> Int64.to_float (Value.eval_i64 a)
       | Value.Intrinsic i -> (intrinsic [@tailcall]) reducers i
       | Value.Local v -> (
           match local v with
@@ -408,6 +409,7 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
     | Value.Binary (op, a, b) ->
         Value.apply_binary op (go reducers a) (go reducers b)
     | Value.Const x -> x
+    | Value.I64_to_float a -> Int64.to_float (Value.eval_i64 a)
     | Value.Intrinsic i -> (intrinsic [@tailcall]) reducers i
     | Value.Local v -> (
         match local v with

@@ -84,6 +84,7 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
     | Expr.Value.Binary (_, a, b) ->
         charge () && measure_value a && measure_value b
     | Expr.Value.Const _ | Expr.Value.Local _ -> charge ()
+    | Expr.Value.I64_to_float a -> charge () && measure_value_i64 a
     | Expr.Value.Intrinsic (Expr.Intrinsic.Max_pool p) ->
         charge ()
         && List.for_all
@@ -109,6 +110,10 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
     | Expr.Value.Select (b, t, f) ->
         charge () && measure_bool b && measure_value t && measure_value f
     | Expr.Value.Value_of_index i -> charge () && measure_index i
+  and measure_value_i64 = function
+    | Expr.Value.I64_const _ -> charge ()
+    | Expr.Value.I64_binary (_, a, b) ->
+        charge () && measure_value_i64 a && measure_value_i64 b
   in
   let measure_region ~locals ~output =
     charge ()
@@ -323,6 +328,12 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
         ignore
           (add ~parent ~role ~language:"value" ~constructor:"const"
              ~label:(Fmt.str "const %g" c) ())
+    | Expr.Value.I64_to_float a ->
+        let id =
+          add ~parent ~role ~language:"value" ~constructor:"i64_to_float"
+            ~label:"i64_to_float" ()
+        in
+        walk_value_i64 ~parent:id ~role:"operand" a
     | Expr.Value.Intrinsic (Expr.Intrinsic.Max_pool p) ->
         let id =
           add ~parent ~role ~language:"value" ~constructor:"max_pool"
@@ -454,6 +465,20 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
             ~label:"index" ()
         in
         walk_index scope ~parent:id ~role:"operand" index
+  and walk_value_i64 ~parent ~role = function
+    | Expr.Value.I64_const x ->
+        ignore
+          (add ~parent ~role ~language:"value" ~constructor:"i64_const"
+             ~label:(Fmt.str "i64_const %Ld" x)
+             ())
+    | Expr.Value.I64_binary (op, a, b) ->
+        let id =
+          add ~parent ~role ~language:"value" ~constructor:"i64_binary"
+            ~label:(Expr.Value.i64_binary_sym op)
+            ()
+        in
+        walk_value_i64 ~parent:id ~role:"lhs" a;
+        walk_value_i64 ~parent:id ~role:"rhs" b
   in
   let root =
     add ~language:"presentation" ~constructor:"result"

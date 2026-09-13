@@ -112,6 +112,11 @@ let rec rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
   in
   match e with
   | Value.Const _ -> (e, st)
+  | Value.I64_to_float _ ->
+      (* [int64 Value.t] has no [Local]/[Load]/[Reduce] to substitute or
+         specialize yet, so there is nothing for any rewrite below to do
+         inside it -- unchanged, like [Const]. *)
+      (e, st)
   | Value.Local v -> on_local lenv v st
   | Value.Local_at (v, i) -> on_local_at lenv v (idxe i) st
   | Value.Local_scan_at (v, row, lane) ->

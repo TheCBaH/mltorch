@@ -139,6 +139,7 @@ let eval_trampoline_delayed ~threshold ?(local = fun _ -> None)
       let depth = depth + 1 in
       match e with
       | Value.Const x -> resume depth k x
+      | Value.I64_to_float a -> resume depth k (Int64.to_float (Value.eval_i64 a))
       | Value.Local v -> (
           match local v with
           | Some x -> resume depth k x

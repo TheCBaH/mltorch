@@ -97,6 +97,11 @@ let rec walk ~value ~index ~intrinsic acc (e : float Value.t) =
   match e with
   | Value.Binary (_, a, b) -> recur (recur acc a) b
   | Value.Const _ -> acc
+  | Value.I64_to_float _ ->
+      (* [int64 Value.t] is closed over [I64_const]/[I64_binary] -- no
+         source/local/intrinsic for this or any other [walk]-based query to
+         find inside it. *)
+      acc
   | Value.Intrinsic i ->
       let acc = intrinsic acc i in
       let (Intrinsic.Max_pool d) = i in
@@ -221,6 +226,19 @@ let measure_with_locals ~local ~max_size ~max_depth e =
      bound-tracking convention as [scoped_locals]/[keep]: the callback isn't
      told to skip anything, the traversal simply never calls it for a bound
      id. *)
+  (* [int64 Value.t] has no locals to charge specially, so this shares
+     [node]/[budget]/[left] with [value] but not its [bound]/[local]
+     machinery -- a plain size/depth meter over [I64_const]/[I64_binary]. *)
+  let rec value_i64 budget left (e : int64 Value.t) =
+    let left = node budget left ~cost:1 ~depth:1 in
+    let sub = budget - 1 in
+    match e with
+    | Value.I64_const _ -> (1, left)
+    | Value.I64_binary (_, a, b) ->
+        let da, left = value_i64 sub left a in
+        let db, left = value_i64 sub left b in
+        (1 + Stdlib.max da db, left)
+  in
   let rec value bound budget left (e : float Value.t) =
     let local_size, local_depth =
       match e with
@@ -237,6 +255,9 @@ let measure_with_locals ~local ~max_size ~max_depth e =
         let db, left = value bound sub left b in
         (1 + Stdlib.max da db, left)
     | Value.Const _ -> (1, left)
+    | Value.I64_to_float a ->
+        let d, left = value_i64 sub left a in
+        (1 + d, left)
     | Value.Intrinsic (Intrinsic.Max_pool d) ->
         let dc, left = coord sub left d.Intrinsic.Max_pool.out in
         (1 + dc, left)
@@ -361,7 +382,8 @@ type local_ref =
 let rec scoped_locals ~f bound acc (e : float Value.t) =
   let go = scoped_locals ~f bound in
   match e with
-  | Value.Const _ | Value.Value_of_index _ | Value.Load _ | Value.Intrinsic _ ->
+  | Value.Const _ | Value.Value_of_index _ | Value.Load _ | Value.Intrinsic _
+  | Value.I64_to_float _ ->
       acc
   | Value.Local v -> f bound acc (Scalar_ref v)
   | Value.Local_at (v, _) -> f bound acc (Vector_ref v)
@@ -446,7 +468,8 @@ let sat_mul_i64 a b =
 let rec scan_cost (e : float Value.t) : int64 * int =
   match e with
   | Value.Const _ | Value.Intrinsic _ | Value.Load _ | Value.Local _
-  | Value.Local_at _ | Value.Local_scan_at _ | Value.Value_of_index _ ->
+  | Value.Local_at _ | Value.Local_scan_at _ | Value.Value_of_index _
+  | Value.I64_to_float _ ->
       (0L, 0)
   | Value.Unary (_, a) | Value.Round_f32 a -> scan_cost a
   | Value.Reduce r -> scan_cost r.Reduction.body
@@ -499,6 +522,7 @@ let free_reducers e =
     | Value.Intrinsic (Intrinsic.Max_pool d) ->
         Coord.fold idx acc d.Intrinsic.Max_pool.out
     | Value.Local _ -> acc
+    | Value.I64_to_float _ -> acc
     | Value.Local_at (_, i) -> idx acc i
     | Value.Local_scan_at (_, row, lane) -> idx (idx acc row) lane
     | Value.Load (_, c) -> Coord.fold idx acc c
@@ -546,6 +570,7 @@ let binders e =
     | Value.Local_at _ -> acc
     | Value.Local_scan_at _ -> acc
     | Value.Load _ -> acc
+    | Value.I64_to_float _ -> acc
     | Value.Reduce r -> go (r.Reduction.var :: acc) r.Reduction.body
     | Value.Round_f32 a -> go acc a
     (* [lane] once for [init]'s scope, then [lane] again and [step] for
@@ -578,6 +603,7 @@ let local_binders e =
     | Value.Local_at _ -> acc
     | Value.Local_scan_at _ -> acc
     | Value.Load _ -> acc
+    | Value.I64_to_float _ -> acc
     | Value.Reduce r -> go acc r.Reduction.body
     | Value.Round_f32 a -> go acc a
     | Value.Scan_at (s, _, _) ->

@@ -41,6 +41,14 @@ type _ value =
   | Const : float -> float value
   | I64_binary : i64_binary_op * int64 value * int64 value -> int64 value
   | I64_const : int64 -> int64 value
+  | I64_to_float : int64 value -> float value
+      (** Exact-to-working-float, potentially lossy above 2^53 (design's "I64 to
+          Float" policy) -- no exceptional case, unlike the reverse direction.
+          The child stays a closed [int64 value] tree: [Fold]/
+          [Check]/[Scan_admission] must still charge its own size/depth and
+          confirm it holds no [Scan_at]/binder (trivially true today, since
+          [int64 value] has neither), rather than treating this constructor as a
+          leaf. *)
   | Intrinsic : Intrinsic.t -> float value
   | Local : Local_var.t -> float value
   | Local_at : Local_var.t * Role.Position.t Index.t -> float value

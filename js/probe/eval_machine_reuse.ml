@@ -254,6 +254,8 @@ let run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
   let rec loop state =
     match state with
     | Eval_state (Value.Const x, _) -> (loop [@tailcall]) (Float_result x)
+    | Eval_state (Value.I64_to_float a, _) ->
+        (loop [@tailcall]) (Float_result (Int64.to_float (Value.eval_i64 a)))
     | Eval_state (Value.Local v, _) -> (
         match local v with
         | Some x -> (loop [@tailcall]) (Float_result x)

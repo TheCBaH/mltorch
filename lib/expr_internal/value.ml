@@ -16,6 +16,7 @@ type 'a t = 'a Expr_repr.value =
   | Const : float -> float t
   | I64_binary : i64_binary_op * int64 t * int64 t -> int64 t
   | I64_const : int64 -> int64 t
+  | I64_to_float : int64 t -> float t
   | Intrinsic : Intrinsic.t -> float t
   | Local : Local_var.t -> float t
   | Local_at : Local_var.t * Role.Position.t Index.t -> float t
@@ -58,6 +59,7 @@ let i64_const x = I64_const x
 let i64_add a b = I64_binary (I64_add, a, b)
 let i64_sub a b = I64_binary (I64_sub, a, b)
 let i64_mul a b = I64_binary (I64_mul, a, b)
+let i64_to_float a = I64_to_float a
 
 let apply_i64_binary = function
   | I64_add -> Int64.add
@@ -106,6 +108,7 @@ let apply_unary = function
   | Trunc -> Float.trunc
 
 let binary_sym = function Add -> "+" | Div -> "/" | Mul -> "*" | Sub -> "-"
+let i64_binary_sym = function I64_add -> "+" | I64_mul -> "*" | I64_sub -> "-"
 
 let unary_name = function
   | Cos -> "cos"
@@ -193,6 +196,7 @@ let tag = function
   | Local_at _ -> 10
   | Local_scan_at _ -> 11
   | Scan_at _ -> 12
+  | I64_to_float _ -> 13
 
 let cmp_intrinsic ea eb (Intrinsic.Max_pool x) (Intrinsic.Max_pool y) =
   let open Intrinsic.Max_pool in
@@ -210,6 +214,22 @@ let cmp_intrinsic ea eb (Intrinsic.Max_pool x) (Intrinsic.Max_pool y) =
   List.fold_left2
     (fun acc a b -> acc <?> fun () -> cmp_index ea eb a b)
     0 (Coord.to_list x.out) (Coord.to_list y.out)
+
+(* [int64 t] is closed over [I64_const]/[I64_binary] (no reducer/local binder
+   to track), so this needs none of [go]'s alpha-equivalence environment. *)
+let tag_i64 = function I64_const _ -> 0 | I64_binary _ -> 1
+
+let cmp_i64 a b =
+  let rec go a b =
+    Int.compare (tag_i64 a) (tag_i64 b) <?> fun () ->
+    match (a, b) with
+    | I64_const x, I64_const y -> Int64.compare x y
+    | I64_binary (o, x1, x2), I64_binary (p, y1, y2) ->
+        Stdlib.compare o p <?> fun () ->
+        go x1 y1 <?> fun () -> go x2 y2
+    | _ -> 0
+  in
+  go a b
 
 let compare a b =
   let rec go ea eb la lb n a b =
@@ -281,12 +301,28 @@ let compare a b =
           (Local_var.Map.add q.Expr_repr.prev (n + 2) lb)
           (n + 3) p.Expr_repr.update q.Expr_repr.update
     | Intrinsic x, Intrinsic y -> cmp_intrinsic ea eb x y
+    | I64_to_float x, I64_to_float y -> cmp_i64 x y
     | _ -> 0
   in
   go Reduce_var.Map.empty Reduce_var.Map.empty Local_var.Map.empty
     Local_var.Map.empty 0 a b
 
 let equal a b = compare a b = 0
+
+(* Portable across the 63-bit native and 32-bit js_of_ocaml/Melange [int]:
+   masks each 64-bit payload to its low/high 32 bits before [Int64.to_int],
+   the same idiom [Const]'s own hash below uses for its float bits. *)
+let hash_i64 e =
+  let mix h x = (h * 31) + x in
+  let rec go h (e : int64 t) =
+    match e with
+    | I64_const x ->
+        mix
+          (mix h (Int64.to_int (Int64.logand x 0xFFFFFFFFL)))
+          (Int64.to_int (Int64.shift_right_logical x 32))
+    | I64_binary (o, a, b) -> go (go (mix h (Hashtbl.hash o)) a) b
+  in
+  go 0 e
 
 let hash e =
   let mix h x = (h * 31) + x in
@@ -381,5 +417,6 @@ let hash e =
             ]
         in
         Coord.fold (fun h i -> idx env h i) h d.out
+    | I64_to_float a -> mix h (hash_i64 a)
   in
   go Reduce_var.Map.empty Local_var.Map.empty 0 17 e

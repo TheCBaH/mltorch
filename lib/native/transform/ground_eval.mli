@@ -133,7 +133,11 @@ end
    verdicts rather than the generic [Eval] one.
    [`Partition] is [Region_partition.key_of_output]'s own failure (an
    out-of-bounds requested coordinate) -- distinct from [`Region], which is
-   [Region_program.check]/[preflight]'s row. *)
+   [Region_program.check]/[preflight]'s row.
+   [`Unsupported_i64_to_float_ground] rejects an [I64_to_float] cast outright:
+   the typed Expr foundation's plain evaluator (Eval.value) supports it, but
+   grounding/fusion does not yet -- feeds the same generic [Unproved]
+   conversion as [`Data_index_unresolved], never a false success. *)
 type error =
   [ Expr.Eval.error
   | `Data_index_unresolved
@@ -142,7 +146,8 @@ type error =
   | `Pair_nodes_over_limit of int
   | `Partition of Region_partition.error
   | `Region of Region_program.error
-  | `Unknown_edge of Tensor_id.t ]
+  | `Unknown_edge of Tensor_id.t
+  | `Unsupported_i64_to_float_ground ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
 

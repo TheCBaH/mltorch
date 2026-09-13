@@ -53,7 +53,8 @@ let check ~limits value =
   let rec go multiplier (e : float Value.t) =
     match e with
     | Value.Const _ | Value.Local _ | Value.Local_at _ | Value.Local_scan_at _
-    | Value.Load _ | Value.Value_of_index _ | Value.Intrinsic _ ->
+    | Value.Load _ | Value.Value_of_index _ | Value.Intrinsic _
+    | Value.I64_to_float _ ->
         Err.return ()
     | Value.Binary (_, a, b) ->
         let* () = go multiplier a in
