@@ -172,3 +172,71 @@ module type SEMANTICS = sig
   val max_dim_index :
     lo:position index -> hi:delta index -> (position index -> t) -> t
 end
+
+(* Carrier-indexed sibling of [SEMANTICS], added alongside it rather than
+   replacing it (see .ai/'s evaluator dtype design, "Semantics functors and
+   construction effects") -- migrating [SEMANTICS] itself to a functor
+   parameter would still leave every call site needing ONE float-shaped [t],
+   which cannot express a cast, an I64 comparison, or a mixed-carrier [select]
+   without a second domain in the same computation. [Direct] instantiates
+   [type 'a repr = 'a] (its values are already the OCaml values they denote);
+   [Symbolic] instantiates [type 'a repr = 'a Expr.Value.t Expr.Builder.t]
+   (mirroring [SEMANTICS.t]'s own builder-computation shape, for the same
+   reason: a symbolic value is a construction, and using one twice would
+   construct it twice -- see symbolic.mli).
+
+   Deliberately narrower than the design's illustrative sketch in two ways,
+   both because the machinery they'd need does not exist yet and building it
+   ahead of a real caller would be exactly the premature abstraction
+   CLAUDE.md warns against:
+   - [input] stays a single, non-carrier-indexed type (matching [SEMANTICS]'s
+     own [input]), not a checked ['a input]/[Output_spec]-shaped tensor view.
+     [I64_load]'s format check already happens inside the read itself
+     ([Tensor.read_i64_at6]'s [`Wrong_format] / [Expr.Index.data]'s deferred
+     grounding-time check) -- see P2.1/P2.2's tracker notes, which found no
+     real caller yet needing one checked entry point across formats and left
+     that open against Region's own typed output-group work.
+   - Arithmetic/comparison/cast are named per concrete carrier
+     ([i64_binary], [i64_eq], [i64_lt], [float_to_i64], [i64_to_float]) rather
+     than through one witness-indexed [binary]/[cast]/[equal] family: the
+     underlying [Expr.Value.t]/[Expr.Bool.t] representation keeps a separate
+     [i64_binary_op] from the float [binary_op] and keeps [bool_expr] a
+     non-GADT type outside [_ value] (both deliberate choices recorded at
+     [[P1.1]]/[[P1.2]] in the implementation tracker) -- unifying the op
+     witnesses here would require re-deriving that representation split
+     first, which is no part of this gate's scope.
+   [b] mirrors [SEMANTICS.b]: the boolean PREDICATE domain, not a [bool repr]
+   -- [bool_expr]'s own non-GADT status above is exactly why [select]'s
+   condition is typed [b], not [bool repr]. [const] still takes a full
+   [Scalar.t] witness (matching the design literally, unlike the narrowings
+   above): its [Bool] arm is unreachable on both instances (there is no
+   [bool Expr.Value.t] constructor to build and [Direct] never calls it,
+   since nothing here produces a [bool Scalar.t] witness) and says so with
+   [assert false], the same idiom [Eval.value]'s own [Scalar.t]-witnessed
+   dispatch already uses for the identical gap. *)
+module type TYPED_SEMANTICS = sig
+  type 'a repr
+  type 'role index
+  type input
+  type b
+
+  (* [typed_]-prefixed, not [const]/[select]: [SEMANTICS] above already
+     declares those names at a different (monomorphic [t]) type, and one
+     signature cannot declare the same value name twice even when a single
+     polymorphic implementation could satisfy both -- see direct.ml/
+     symbolic.ml, where [const]/[select] stay the legacy entry points and
+     [typed_const]/[typed_select] are genuinely separate bindings (Direct) or
+     the same generic definition exposed a second time at a wider type
+     (Symbolic, where the legacy [select] already generalizes). *)
+  val typed_const : 'a Expr.Scalar.t -> 'a -> 'a repr
+  val typed_select : b -> 'a repr -> 'a repr -> 'a repr
+
+  val i64_binary :
+    Expr.Value.i64_binary_op -> int64 repr -> int64 repr -> int64 repr
+
+  val i64_eq : int64 repr -> int64 repr -> b
+  val i64_lt : int64 repr -> int64 repr -> b
+  val i64_load : input -> position index Vec6.t -> int64 repr
+  val float_to_i64 : float repr -> int64 repr
+  val i64_to_float : int64 repr -> float repr
+end

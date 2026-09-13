@@ -39,6 +39,13 @@ include
      and type input = Tensor_sig.t
      and type b = Expr.Bool.t Expr.Builder.t
 
+include
+  Semantics.TYPED_SEMANTICS
+    with type 'a repr = 'a Expr.Value.t Expr.Builder.t
+     and type 'role index := 'role Expr.Index.t
+     and type input := Tensor_sig.t
+     and type b := Expr.Bool.t Expr.Builder.t
+
 val out_vec : Semantics.position Expr.Index.t Vec6.t
 (** The output coordinate to pass as an op's [out], every axis an
     [Expr.Index.output] placeholder. A single constant, not built per call. *)

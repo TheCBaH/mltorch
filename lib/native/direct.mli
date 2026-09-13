@@ -6,3 +6,10 @@ include
     with type t = float
      and type 'role index = 'role Dim.t
      and type input = Tensor.packed
+
+include
+  Semantics.TYPED_SEMANTICS
+    with type 'a repr = 'a
+     and type 'role index := 'role Dim.t
+     and type input := Tensor.packed
+     and type b := bool
