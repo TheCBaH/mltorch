@@ -99,18 +99,23 @@ let i64_of_float f : (int64, [> i64_from_float_error ]) Err.t =
   then Err.fail (`I64_from_float_out_of_range f)
   else Err.return (Int64.of_float f)
 
-(* [int64 t] is closed over [I64_const]/[I64_binary]/[Float_to_i64] (see the
-   [_ value] doc comment in expr_repr.ml): the first two have no [Local]/
+(* [int64 t] is closed over [I64_const]/[I64_binary]/[Float_to_i64]/[Select]
+   (see the [_ value] doc comment in expr_repr.ml): the first has no [Local]/
    [Load]/[Reduce]/[Scan_at] inhabitant, so this needs no [Env] or scan state
-   of its own for them. [Float_to_i64]'s operand is the UNBOUNDED float
+   of its own for it. [Float_to_i64]'s operand is the UNBOUNDED float
    language, though, so this cannot stay a closed standalone function once it
-   exists -- [eval_float] is supplied by the caller ([eval.ml]'s own [go],
-   partially applied) rather than named here, which is what keeps this
-   module's dependency arrow pointing the same direction it always has (no
-   reference to [eval.ml], which is compiled after it). Not yet stack-safety-
-   audited for very deep [I64_binary] nesting on the JS backends -- unlike
-   [go], there is no cutoff on THAT recursion; [Float_to_i64]'s own operand IS
-   cutoff-safe, since it evaluates through the supplied [eval_float]. *)
+   exists -- [eval_float]/[eval_bool] are supplied by the caller ([eval.ml]'s
+   own [go]/[guard], partially applied) rather than named here, which is what
+   keeps this module's dependency arrow pointing the same direction it always
+   has (no reference to [eval.ml], which is compiled after it). This
+   recursion itself has no [depth]/cutoff of its own: every JS-backend caller
+   that needs one ([eval.ml]'s JS branch, js/probe's [eval_hybrid]) inlines
+   its own cutoff-checking traversal of [I64_binary]/[Select] instead of
+   calling this function for THAT purpose, mirroring [go]/[guard]'s own
+   cutoff exactly (see [Eval_js_machine.Eval_i64_state]'s doc comment for the
+   JS machine's own frame-stack handling of the same nesting) -- this
+   function stays the single closed-form denotation both native and every
+   below-cutoff JS call site still delegate to. *)
 let rec eval_i64 ~eval_float ~eval_bool :
     int64 t -> (int64, [> i64_from_float_error ]) Err.t =
  fun v ->

@@ -144,7 +144,7 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
       | Value.Binary (op, a, b) ->
           Value.apply_binary op (go depth reducers a) (go depth reducers b)
       | Value.Const x -> x
-      | Value.I64_to_float a -> Int64.to_float (vchk (eval_i64 depth reducers a))
+      | Value.I64_to_float a -> Int64.to_float (eval_i64 depth reducers a)
       | Value.Intrinsic i -> (intrinsic [@tailcall]) reducers i
       | Value.Local v -> (
           match local v with
@@ -238,17 +238,33 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
       | Bool.Index_eq (a, b) -> Int.equal (idx reducers a) (idx reducers b)
       | Bool.Value_lt (a, b) -> go depth reducers a < go depth reducers b
       | Bool.I64_eq (a, b) ->
-          Int64.equal
-            (vchk (eval_i64 depth reducers a))
-            (vchk (eval_i64 depth reducers b))
+          Int64.equal (eval_i64 depth reducers a) (eval_i64 depth reducers b)
       | Bool.I64_lt (a, b) ->
-          Int64.compare
-            (vchk (eval_i64 depth reducers a))
-            (vchk (eval_i64 depth reducers b))
+          Int64.compare (eval_i64 depth reducers a) (eval_i64 depth reducers b)
           < 0
-  and eval_i64 depth reducers a =
-    Value.eval_i64 ~eval_float:(go depth reducers)
-      ~eval_bool:(guard depth reducers) a
+  (* Not delegated to [Value.eval_i64]'s callback-based definition here, unlike
+     every other caller of it: that definition has no [depth] of its own (see
+     its doc comment), so [I64_binary]/[Select]'s own nesting on the int64
+     side needs the SAME cutoff/machine-handoff treatment [go]/[guard] give
+     the float/bool grammar, inlined rather than threaded through a shared
+     helper. [Float_to_i64]'s float operand still flows through [go], which
+     is already cutoff-aware. *)
+  and eval_i64 depth reducers (a : int64 Value.t) : int64 =
+    if depth >= cutoff then
+      match machine_run (Eval_js_machine.Eval_i64_state (a, reducers)) with
+      | Eval_js_machine.I64_result v -> v
+      | _ -> assert false
+    else
+      let depth = depth + 1 in
+      match a with
+      | Value.I64_const x -> x
+      | Value.I64_binary (op, x, y) ->
+          Value.apply_i64_binary op (eval_i64 depth reducers x)
+            (eval_i64 depth reducers y)
+      | Value.Float_to_i64 x -> vchk (Value.i64_of_float (go depth reducers x))
+      | Value.Select (c, x, y) ->
+          if guard depth reducers c then (eval_i64 [@tailcall]) depth reducers x
+          else (eval_i64 [@tailcall]) depth reducers y
   and intrinsic reducers (Intrinsic.Max_pool d as i) =
     let open Intrinsic.Max_pool in
     let at a = idx reducers (Coord.get d.out a) in

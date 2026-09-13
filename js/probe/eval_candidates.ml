@@ -112,12 +112,23 @@ type frame =
   | Value_lt_right of float
   | Reduce_step of reduce_progress
   | Scan_fill of scan_progress
+  | I64_binary_left of Value.i64_binary_op * int64 Value.t * reducers
+  | I64_binary_right of Value.i64_binary_op * int64
+  | Float_to_i64_result
+  | I64_to_float_result
+  | Select_i64_result of int64 Value.t * int64 Value.t * reducers
+  | I64_eq_left of int64 Value.t * reducers
+  | I64_eq_right of int64
+  | I64_lt_left of int64 Value.t * reducers
+  | I64_lt_right of int64
 
 type value_state =
   | Eval_state of float Value.t * reducers
+  | Eval_i64_state of int64 Value.t * reducers
   | Guard_state of Bool.t * reducers
   | Float_result of float
   | Bool_result of bool
+  | I64_result of int64
 
 (* Row/column sweep for [Max_pool], unchanged from [eval.ml]'s [JS_BACKEND]
    conversion (Stage 4; see .ai/): already one self-recursive [loop] over a
@@ -228,8 +239,22 @@ let eval_machine ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
         (loop [@tailcall]) (Float_result x) frames
     | Eval_state (Value.I64_to_float a, reducers), _ ->
         (loop [@tailcall])
-          (Float_result (Int64.to_float (vchk (eval_i64_via reducers a))))
-          frames
+          (Eval_i64_state (a, reducers))
+          (I64_to_float_result :: frames)
+    | Eval_i64_state (Value.I64_const x, _), _ ->
+        (loop [@tailcall]) (I64_result x) frames
+    | Eval_i64_state (Value.I64_binary (op, a, b), reducers), _ ->
+        (loop [@tailcall])
+          (Eval_i64_state (a, reducers))
+          (I64_binary_left (op, b, reducers) :: frames)
+    | Eval_i64_state (Value.Float_to_i64 a, reducers), _ ->
+        (loop [@tailcall])
+          (Eval_state (a, reducers))
+          (Float_to_i64_result :: frames)
+    | Eval_i64_state (Value.Select (c, a, b), reducers), _ ->
+        (loop [@tailcall])
+          (Guard_state (c, reducers))
+          (Select_i64_result (a, b, reducers) :: frames)
     | Eval_state (Value.Local v, _), _ -> (
         match local v with
         | Some x -> (loop [@tailcall]) (Float_result x) frames
@@ -368,19 +393,12 @@ let eval_machine ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
           frames
     | Guard_state (Bool.I64_eq (a, b), reducers), _ ->
         (loop [@tailcall])
-          (Bool_result
-             (Int64.equal
-                (vchk (eval_i64_via reducers a))
-                (vchk (eval_i64_via reducers b))))
-          frames
+          (Eval_i64_state (a, reducers))
+          (I64_eq_left (b, reducers) :: frames)
     | Guard_state (Bool.I64_lt (a, b), reducers), _ ->
         (loop [@tailcall])
-          (Bool_result
-             (Int64.compare
-                (vchk (eval_i64_via reducers a))
-                (vchk (eval_i64_via reducers b))
-             < 0))
-          frames
+          (Eval_i64_state (a, reducers))
+          (I64_lt_left (b, reducers) :: frames)
     (* Same backend-measured order as [Binary] above. *)
     | Guard_state (Bool.Value_lt (a, b), reducers), _ ->
 #if defined MELANGE_BACKEND
@@ -478,29 +496,41 @@ let eval_machine ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
           let next_state, frame = fill_next_lane p in
           (loop [@tailcall]) next_state (frame :: rest)
         end
-    | Float_result _, [] | Bool_result _, [] -> state
-    | (Bool_result _ | Float_result _), _ -> assert false
-  (* Shared by [I64_to_float]/[Float_to_i64]'s [eval] and [I64_eq]/[I64_lt]'s
-     own operand evaluation below -- see [Value.eval_i64]'s own doc comment
-     for why [int64 Value.t] cannot stay a closed standalone function once
-     [Float_to_i64]/[Select] exist at that carrier. *)
-  and eval_i64_via reducers a =
-    let eval_float e =
-      match loop (Eval_state (e, reducers)) [] with
-      | Float_result v -> v
-      | Bool_result _ | Eval_state _ | Guard_state _ -> assert false
-    in
-    let eval_bool c =
-      match loop (Guard_state (c, reducers)) [] with
-      | Bool_result v -> v
-      | Float_result _ | Eval_state _ | Guard_state _ -> assert false
-    in
-    Value.eval_i64 ~eval_float ~eval_bool a
+    | I64_result first, I64_binary_left (op, second_expr, reducers) :: rest ->
+        (loop [@tailcall])
+          (Eval_i64_state (second_expr, reducers))
+          (I64_binary_right (op, first) :: rest)
+    | I64_result second, I64_binary_right (op, first) :: rest ->
+        (loop [@tailcall])
+          (I64_result (Value.apply_i64_binary op first second))
+          rest
+    | Float_result v, Float_to_i64_result :: rest ->
+        (loop [@tailcall]) (I64_result (vchk (Value.i64_of_float v))) rest
+    | I64_result v, I64_to_float_result :: rest ->
+        (loop [@tailcall]) (Float_result (Int64.to_float v)) rest
+    | Bool_result cond, Select_i64_result (a, b, reducers) :: rest ->
+        (loop [@tailcall]) (Eval_i64_state ((if cond then a else b), reducers)) rest
+    | I64_result first, I64_eq_left (second_expr, reducers) :: rest ->
+        (loop [@tailcall])
+          (Eval_i64_state (second_expr, reducers))
+          (I64_eq_right first :: rest)
+    | I64_result second, I64_eq_right first :: rest ->
+        (loop [@tailcall]) (Bool_result (Int64.equal first second)) rest
+    | I64_result first, I64_lt_left (second_expr, reducers) :: rest ->
+        (loop [@tailcall])
+          (Eval_i64_state (second_expr, reducers))
+          (I64_lt_right first :: rest)
+    | I64_result second, I64_lt_right first :: rest ->
+        (loop [@tailcall]) (Bool_result (Int64.compare first second < 0)) rest
+    | (Float_result _ | Bool_result _ | I64_result _), [] -> state
+    | (Bool_result _ | Float_result _ | I64_result _), _ -> assert false
   in
   try
     match loop (Eval_state (e, init_reducers)) [] with
     | Float_result v -> v
-    | Bool_result _ | Eval_state _ | Guard_state _ -> assert false
+    | Bool_result _ | I64_result _ | Eval_state _ | Eval_i64_state _
+    | Guard_state _ ->
+        assert false
   with exn ->
     let bt = capture_backtrace () in
     (match skip_cleanup with

@@ -140,7 +140,8 @@ let eval_trampoline_delayed ~threshold ?(local = fun _ -> None)
       match e with
       | Value.Const x -> resume depth k x
       | Value.I64_to_float a ->
-          resume depth k (Int64.to_float (vchk (eval_i64_via reducers depth a)))
+          eval_i64 reducers depth a (fun depth v ->
+              resume depth k (Int64.to_float v))
       | Value.Local v -> (
           match local v with
           | Some x -> resume depth k x
@@ -364,44 +365,40 @@ let eval_trampoline_delayed ~threshold ?(local = fun _ -> None)
               go reducers depth a (fun depth av -> resume depth k (av < bv)))
 #endif
       | Bool.I64_eq (a, b) ->
-          resume depth k
-            (Int64.equal
-               (vchk (eval_i64_via reducers depth a))
-               (vchk (eval_i64_via reducers depth b)))
+          eval_i64 reducers depth a (fun depth av ->
+              eval_i64 reducers depth b (fun depth bv ->
+                  resume depth k (Int64.equal av bv)))
       | Bool.I64_lt (a, b) ->
-          resume depth k
-            (Int64.compare
-               (vchk (eval_i64_via reducers depth a))
-               (vchk (eval_i64_via reducers depth b))
-            < 0)
-  (* [int64 Value.t]/[bool_expr] are not routed through this trampoline's own
-     depth/[Bounce] cycling -- see [Value.eval_i64]'s doc comment -- but their
-     [Float_to_i64]/[Value_lt] operands are the unbounded float language, so
-     each re-enters [go]/[run_trampoline] synchronously at the CURRENT
-     [depth], the same escape hatch [Eval_candidates.eval_machine] uses for
-     its own [I64_to_float]. Neither [bool_expr] nor [I64_binary] nests a
-     [bool_expr], so [eval_bool_via] itself needs no [Bounce] of its own. *)
-  and eval_i64_via reducers depth a =
-    let eval_float e =
-      run_trampoline (go reducers depth e (fun _ result -> Done result))
-    in
-    Value.eval_i64 ~eval_float ~eval_bool:(eval_bool_via reducers depth) a
-  and eval_bool_via reducers depth = function
-    | Bool.Index_eq (a, b) -> Int.equal (idx reducers a) (idx reducers b)
-    | Bool.Value_lt (a, b) ->
-        let eval_float e =
-          run_trampoline (go reducers depth e (fun _ result -> Done result))
-        in
-        eval_float a < eval_float b
-    | Bool.I64_eq (a, b) ->
-        Int64.equal
-          (vchk (eval_i64_via reducers depth a))
-          (vchk (eval_i64_via reducers depth b))
-    | Bool.I64_lt (a, b) ->
-        Int64.compare
-          (vchk (eval_i64_via reducers depth a))
-          (vchk (eval_i64_via reducers depth b))
-        < 0
+          eval_i64 reducers depth a (fun depth av ->
+              eval_i64 reducers depth b (fun depth bv ->
+                  resume depth k (Int64.compare av bv < 0)))
+  (* [I64_binary]/[Select] nest on the int64 side exactly like [Binary]/
+     [Select] do on the float side, so [eval_i64] is a THIRD member of this
+     [and] group, checking its own [depth] against the SAME [threshold] and
+     bouncing the same way -- unlike [bool_expr], whose four constructors
+     never nest another [bool_expr], so [guard] alone (no separate
+     [eval_bool]) is enough for it. [resume] already generalizes over the
+     resumed payload type, so [eval_i64]'s [int64] results flow through the
+     identical gate [go]'s [float]/[guard]'s [bool] results do. *)
+  and eval_i64 reducers depth (a : int64 Value.t)
+      (k : int -> int64 -> float bounce) : float bounce =
+    if depth >= threshold then
+      Bounce (fun () -> (eval_i64 [@tailcall]) reducers 0 a k)
+    else
+      let depth = depth + 1 in
+      match a with
+      | Value.I64_const x -> resume depth k x
+      | Value.I64_binary (op, a, b) ->
+          eval_i64 reducers depth a (fun depth av ->
+              eval_i64 reducers depth b (fun depth bv ->
+                  resume depth k (Value.apply_i64_binary op av bv)))
+      | Value.Float_to_i64 a ->
+          go reducers depth a (fun depth av ->
+              resume depth k (vchk (Value.i64_of_float av)))
+      | Value.Select (c, a, b) ->
+          guard reducers depth c (fun depth cond ->
+              if cond then eval_i64 reducers depth a k
+              else eval_i64 reducers depth b k)
   in
   try run_trampoline (go init_reducers 0 e (fun _ x -> Done x))
   with exn ->
