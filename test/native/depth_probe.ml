@@ -205,12 +205,18 @@ let%expect_test "the accepted frontier survives in combination" =
     (fun (n, d) -> Printf.printf "n=%3d d=%3d: %s\n" n d (run_chain ~d n))
     [
       (Kernel.Limits.Hard.eval_recursion + 1, 1);
-      (* Re-measured after the evaluator's [go]/[eval_i64] split was unified
-         into one polymorphic [eval] (see [Hard.eval_depth]'s own comment),
-         lowering [Hard.eval_depth] to 1280: (97, 11), the last value that
-         still clears the STATIC depth gate (12 is rejected outright, not a
-         stack overflow), replaces the former (97, 13). *)
-      (Kernel.Limits.Hard.eval_recursion + 1, 11);
+      (* Re-measured after adding [I64_local]/[I64_local_at] (typed Region
+         locals at [int64 Value.t]): the wider [Eval.value]/[Eval_js_machine]
+         closures (two new resolver parameters, [local_i64]/[local_at_i64],
+         captured on every frame) cost slightly more stack per level under
+         node, moving this many/shallow point from (97, 11) -- now unstable,
+         confirmed overflowing on 3 repeated runs -- to (97, 10). [Hard.eval_depth]
+         itself is untouched: this sample sits at eval_depth ~970-1067, well
+         under its 1280 ceiling either way, and the dedicated
+         "Hard.eval_depth: the evaluator survives the combined ceiling" test
+         above still passes unchanged. 12 is still rejected outright by the
+         static depth gate, not a stack overflow. *)
+      (Kernel.Limits.Hard.eval_recursion + 1, 10);
       (* Re-measured for the same reason: the medium/medium point moved from
          (48, 30), which now overflows, to (48, 24) -- confirmed stable over
          repeated runs, with (48, 25) rejected by the static depth gate. *)
@@ -239,7 +245,7 @@ let%expect_test "the accepted frontier survives in combination" =
   [%expect
     {|
     n= 97 d=  1: ok
-    n= 97 d= 11: ok
+    n= 97 d= 10: ok
     n= 48 d= 24: ok
     n= 16 d= 78: ok
     n=  8 d=125: ok

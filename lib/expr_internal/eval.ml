@@ -62,9 +62,11 @@ let reraise exn (bt : captured_backtrace) = Printexc.raise_with_backtrace exn bt
 let cutoff = 50
 
 let value ?(local : Local_var.t -> float option = fun _ -> None)
-    ?(local_at : Local_var.t -> int -> float option = fun _ _ -> None) ?scan
-    ?scan_meter ?(reducer = []) ?(on_reduction = fun () -> ()) (env : Env.t)
-    ~output e =
+    ?(local_at : Local_var.t -> int -> float option = fun _ _ -> None)
+    ?(local_i64 : Local_var.t -> int64 option = fun _ -> None)
+    ?(local_at_i64 : Local_var.t -> int -> int64 option = fun _ _ -> None)
+    ?scan ?scan_meter ?(reducer = []) ?(on_reduction = fun () -> ())
+    (env : Env.t) ~output e =
   Err.Escape.with_escape @@ fun esc ->
   let vchk r = vchk esc r in
   (* A LIST, not a single pair: a scan row's [update] has TWO simultaneously
@@ -120,7 +122,8 @@ let value ?(local : Local_var.t -> float option = fun _ -> None)
   in
   let machine_run seed =
     Eval_js_machine.run ~esc ~env ~output ~scan ~scan_meter ~local
-      ~local_at_ref ~cleanups ~run_top_cleanup ~on_reduction seed
+      ~local_at_ref ~local_i64 ~local_at_i64 ~cleanups ~run_top_cleanup
+      ~on_reduction seed
   in
   (* [@tailcall] below marks the genuine tail edges converted for JS stack
      safety; see .ai/. A missing tail call there is a build error (warning
@@ -202,6 +205,14 @@ let value ?(local : Local_var.t -> float option = fun _ -> None)
       | Value.Load (s, c) -> vchk (env.Env.load s (Coord.map (idx reducers) c))
       | Value.I64_load (s, c) ->
           vchk (env.Env.load_index s (Coord.map (idx reducers) c))
+      | Value.I64_local v -> (
+          match local_i64 v with
+          | Some x -> x
+          | None -> Err.Escape.throw esc (`Unbound_local v))
+      | Value.I64_local_at (v, i) -> (
+          match local_at_i64 v (idx reducers i) with
+          | Some x -> x
+          | None -> Err.Escape.throw esc (`Unbound_local v))
       | Value.Reduce r ->
           let lo = idx reducers r.Reduction.lo
           and hi = idx reducers r.Reduction.hi in
@@ -407,9 +418,11 @@ let value ?(local : Local_var.t -> float option = fun _ -> None)
 #else
 
 let value ?(local : Local_var.t -> float option = fun _ -> None)
-    ?(local_at : Local_var.t -> int -> float option = fun _ _ -> None) ?scan
-    ?scan_meter ?(reducer = []) ?(on_reduction = fun () -> ()) (env : Env.t)
-    ~output e =
+    ?(local_at : Local_var.t -> int -> float option = fun _ _ -> None)
+    ?(local_i64 : Local_var.t -> int64 option = fun _ -> None)
+    ?(local_at_i64 : Local_var.t -> int -> int64 option = fun _ _ -> None)
+    ?scan ?scan_meter ?(reducer = []) ?(on_reduction = fun () -> ())
+    (env : Env.t) ~output e =
   Err.Escape.with_escape @@ fun esc ->
   let vchk r = vchk esc r in
   (* A LIST, not a single pair: a scan row's [update] has TWO simultaneously
@@ -497,6 +510,14 @@ let value ?(local : Local_var.t -> float option = fun _ -> None)
     | Value.Load (s, c) -> vchk (env.Env.load s (Coord.map (idx reducers) c))
     | Value.I64_load (s, c) ->
         vchk (env.Env.load_index s (Coord.map (idx reducers) c))
+    | Value.I64_local v -> (
+        match local_i64 v with
+        | Some x -> x
+        | None -> Err.Escape.throw esc (`Unbound_local v))
+    | Value.I64_local_at (v, i) -> (
+        match local_at_i64 v (idx reducers i) with
+        | Some x -> x
+        | None -> Err.Escape.throw esc (`Unbound_local v))
     | Value.Reduce r ->
         let lo = idx reducers r.Reduction.lo
         and hi = idx reducers r.Reduction.hi in

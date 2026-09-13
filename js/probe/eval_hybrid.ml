@@ -42,7 +42,8 @@ open Eval_candidates
    never re-enters [Eval_machine_reuse.run]'s handler, per this file's own
    top comment. *)
 let eval_hybrid ~cutoff ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
-    ?scan ?scan_meter ?(reducer = []) ?(on_reduction = fun () -> ())
+    ?(local_i64 = fun _ -> None) ?(local_at_i64 = fun _ _ -> None) ?scan
+    ?scan_meter ?(reducer = []) ?(on_reduction = fun () -> ())
     ?skip_cleanup (env : Env.t) ~output e =
   if cutoff < 0 then invalid_arg "eval_hybrid: cutoff must be >= 0";
   Err.Escape.with_escape @@ fun esc ->
@@ -110,7 +111,8 @@ let eval_hybrid ~cutoff ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
   in
   let machine_run seed =
     Eval_machine_reuse.run ~esc ~env ~output ~scan ~scan_meter ~local
-      ~local_at_ref ~cleanups ~run_top_cleanup ~on_reduction seed
+      ~local_at_ref ~local_i64 ~local_at_i64 ~cleanups ~run_top_cleanup
+      ~on_reduction seed
   in
   let rec go depth reducers (e : float Value.t) : float =
     if depth >= cutoff then
@@ -229,6 +231,14 @@ let eval_hybrid ~cutoff ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
       | Value.I64_const x -> x
       | Value.I64_load (s, c) ->
           vchk (env.Env.load_index s (Coord.map (idx reducers) c))
+      | Value.I64_local v -> (
+          match local_i64 v with
+          | Some x -> x
+          | None -> Err.Escape.throw esc (`Unbound_local v))
+      | Value.I64_local_at (v, i) -> (
+          match local_at_i64 v (idx reducers i) with
+          | Some x -> x
+          | None -> Err.Escape.throw esc (`Unbound_local v))
       | Value.I64_binary (op, x, y) ->
           Value.apply_i64_binary op (eval_i64 depth reducers x)
             (eval_i64 depth reducers y)

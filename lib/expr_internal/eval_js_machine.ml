@@ -125,8 +125,8 @@ let reuse_stack_pop st =
   end
 
 let run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
-    ~(cleanups : (unit -> unit) list ref) ~run_top_cleanup ~on_reduction
-    (seed : value_state) : value_state =
+    ~local_i64 ~local_at_i64 ~(cleanups : (unit -> unit) list ref)
+    ~run_top_cleanup ~on_reduction (seed : value_state) : value_state =
   let vchk r = vchk esc r in
   let idx reducers i =
     eval_index esc
@@ -326,6 +326,14 @@ let run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
         (loop [@tailcall])
           (I64_result
              (vchk (env.Env.load_index s (Coord.map (idx reducers) c))))
+    | Eval_i64_state (Value.I64_local v, _) -> (
+        match local_i64 v with
+        | Some x -> (loop [@tailcall]) (I64_result x)
+        | None -> Err.Escape.throw esc (`Unbound_local v))
+    | Eval_i64_state (Value.I64_local_at (v, i), reducers) -> (
+        match local_at_i64 v (idx reducers i) with
+        | Some x -> (loop [@tailcall]) (I64_result x)
+        | None -> Err.Escape.throw esc (`Unbound_local v))
     | Eval_state (Value.Value_of_index i, reducers) ->
         (loop [@tailcall])
           (Float_result (vchk (float_of_index (idx reducers i))))

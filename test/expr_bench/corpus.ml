@@ -20,6 +20,8 @@ open Expr_internal
 type evaluator =
   ?local:(Local_var.t -> float option) ->
   ?local_at:(Local_var.t -> int -> float option) ->
+  ?local_i64:(Local_var.t -> int64 option) ->
+  ?local_at_i64:(Local_var.t -> int -> int64 option) ->
   ?scan:Eval_common.scan_reader ->
   ?scan_meter:Scan_meter.t ->
   ?reducer:(Reduce_var.t * int) list ->
@@ -37,24 +39,29 @@ type evaluator =
    hide it, so [candidate_evaluators] below can stay a uniform
    [(string * evaluator) list]. *)
 let eval_machine : evaluator =
- fun ?local ?local_at ?scan ?scan_meter ?reducer ?on_reduction env ~output e ->
-  Eval_candidates.eval_machine ?local ?local_at ?scan ?scan_meter ?reducer
-    ?on_reduction env ~output e
+ fun ?local ?local_at ?local_i64 ?local_at_i64 ?scan ?scan_meter ?reducer
+     ?on_reduction env ~output e ->
+  Eval_candidates.eval_machine ?local ?local_at ?local_i64 ?local_at_i64 ?scan
+    ?scan_meter ?reducer ?on_reduction env ~output e
 
 let eval_machine_reuse : evaluator =
- fun ?local ?local_at ?scan ?scan_meter ?reducer ?on_reduction env ~output e ->
-  Eval_machine_reuse.eval_machine_reuse ?local ?local_at ?scan ?scan_meter
-    ?reducer ?on_reduction env ~output e
+ fun ?local ?local_at ?local_i64 ?local_at_i64 ?scan ?scan_meter ?reducer
+     ?on_reduction env ~output e ->
+  Eval_machine_reuse.eval_machine_reuse ?local ?local_at ?local_i64
+    ?local_at_i64 ?scan ?scan_meter ?reducer ?on_reduction env ~output e
 
 let eval_hybrid ~cutoff : evaluator =
- fun ?local ?local_at ?scan ?scan_meter ?reducer ?on_reduction env ~output e ->
-  Eval_hybrid.eval_hybrid ~cutoff ?local ?local_at ?scan ?scan_meter ?reducer
-    ?on_reduction env ~output e
+ fun ?local ?local_at ?local_i64 ?local_at_i64 ?scan ?scan_meter ?reducer
+     ?on_reduction env ~output e ->
+  Eval_hybrid.eval_hybrid ~cutoff ?local ?local_at ?local_i64 ?local_at_i64
+    ?scan ?scan_meter ?reducer ?on_reduction env ~output e
 
 let eval_trampoline_delayed ~threshold : evaluator =
- fun ?local ?local_at ?scan ?scan_meter ?reducer ?on_reduction env ~output e ->
+ fun ?local ?local_at ?local_i64 ?local_at_i64 ?scan ?scan_meter ?reducer
+     ?on_reduction env ~output e ->
   Eval_trampoline_delayed.eval_trampoline_delayed ~threshold ?local ?local_at
-    ?scan ?scan_meter ?reducer ?on_reduction env ~output e
+    ?local_i64 ?local_at_i64 ?scan ?scan_meter ?reducer ?on_reduction env
+    ~output e
 
 let candidate_evaluators : (string * evaluator) list =
   [

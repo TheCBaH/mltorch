@@ -54,7 +54,8 @@ let rec run_trampoline : 'a. 'a bounce -> 'a = function
    hook, same contract as [Eval_candidates.eval_machine]'s own (see its doc
    comment); normal callers never pass it. *)
 let eval_trampoline_delayed ~threshold ?(local = fun _ -> None)
-    ?(local_at = fun _ _ -> None) ?scan ?scan_meter ?(reducer = [])
+    ?(local_at = fun _ _ -> None) ?(local_i64 = fun _ -> None)
+    ?(local_at_i64 = fun _ _ -> None) ?scan ?scan_meter ?(reducer = [])
     ?(on_reduction = fun () -> ()) ?skip_cleanup (env : Env.t) ~output e =
   if threshold < 1 then
     invalid_arg "eval_trampoline_delayed: threshold must be >= 1";
@@ -391,6 +392,14 @@ let eval_trampoline_delayed ~threshold ?(local = fun _ -> None)
       | Value.I64_load (s, c) ->
           resume depth k
             (vchk (env.Env.load_index s (Coord.map (idx reducers) c)))
+      | Value.I64_local v -> (
+          match local_i64 v with
+          | Some x -> resume depth k x
+          | None -> Err.Escape.throw esc (`Unbound_local v))
+      | Value.I64_local_at (v, i) -> (
+          match local_at_i64 v (idx reducers i) with
+          | Some x -> resume depth k x
+          | None -> Err.Escape.throw esc (`Unbound_local v))
       | Value.I64_binary (op, a, b) ->
           eval_i64 reducers depth a (fun depth av ->
               eval_i64 reducers depth b (fun depth bv ->

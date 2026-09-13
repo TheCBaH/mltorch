@@ -111,6 +111,8 @@ let exception_env = env (fun () -> raise expected_exn)
 type skip_evaluator =
   ?local:(Local_var.t -> float option) ->
   ?local_at:(Local_var.t -> int -> float option) ->
+  ?local_i64:(Local_var.t -> int64 option) ->
+  ?local_at_i64:(Local_var.t -> int -> int64 option) ->
   ?scan:Eval_common.scan_reader ->
   ?scan_meter:Scan_meter.t ->
   ?reducer:(Reduce_var.t * int) list ->
