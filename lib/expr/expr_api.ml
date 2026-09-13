@@ -1054,6 +1054,27 @@ module type S = sig
         here, rather than allocating an [Ok] per node per output pixel: this
         runs inside the grounding loop the transform verifier drives for every
         walk config. *)
+
+    val value_i64 :
+      ?local:(Local_var.t -> float option) ->
+      ?local_at:(Local_var.t -> int -> float option) ->
+      ?local_i64:(Local_var.t -> int64 option) ->
+      ?local_at_i64:(Local_var.t -> int -> int64 option) ->
+      ?scan:scan_reader ->
+      ?scan_meter:Scan_meter.t ->
+      ?reducer:(Reduce_var.t * int) list ->
+      ?on_reduction:(unit -> unit) ->
+      Env.t ->
+      output:int Coord.t ->
+      int64 Value.t ->
+      (int64, error) Err.t
+    (** [value]'s [int64 Value.t] counterpart, identical in every other respect
+        (same resolvers, same scan/reducer contract) -- the entry point an
+        [int64 Value.t] top-level caller needs to get an EXACT result: routing
+        an [int64 Value.t] through [value] itself would mean wrapping it in
+        [Value.i64_to_float] first, silently losing precision above 2^53,
+        exactly the failure mode this whole carrier exists to rule out. See
+        [Region_slots_i64.fill] for a real caller. *)
   end
 
   module Pp : sig

@@ -61,12 +61,26 @@ let reraise exn (bt : captured_backtrace) = Printexc.raise_with_backtrace exn bt
    relative to the pure-machine candidate. *)
 let cutoff = 50
 
-let value ?(local : Local_var.t -> float option = fun _ -> None)
+(* [scalar] is the CALLER's own witness for [e]'s carrier -- [value]/
+   [value_i64] below are thin wrappers fixing it at [Scalar.Float]/
+   [Scalar.I64], the same "one polymorphic entry, thin carrier-fixed
+   wrappers" shape [Direct]/[Symbolic]'s [typed_const] use. Needed only on
+   this JS branch: the top-level [eval] call at the very end must pick a
+   concrete carrier to dispatch the cutoff/machine-handoff decision on (see
+   [eval]'s own doc comment on why), so it can no longer be hardcoded to
+   [Scalar.Float] once a genuine [int64 Value.t] top-level caller
+   ([value_i64], e.g. [Region_slots_i64.fill]) exists. Every INTERNAL
+   recursive call below that is already known statically to be float (e.g.
+   [Value.Reduce]'s body, [Value.Scan_at]'s init/update) still passes
+   [Scalar.Float] directly, unaffected -- only the outermost entry needed
+   parameterizing. *)
+let value_at (type a) (scalar : a Scalar.t)
+    ?(local : Local_var.t -> float option = fun _ -> None)
     ?(local_at : Local_var.t -> int -> float option = fun _ _ -> None)
     ?(local_i64 : Local_var.t -> int64 option = fun _ -> None)
     ?(local_at_i64 : Local_var.t -> int -> int64 option = fun _ _ -> None)
     ?scan ?scan_meter ?(reducer = []) ?(on_reduction = fun () -> ())
-    (env : Env.t) ~output e =
+    (env : Env.t) ~output (e : a Value.t) : (a, error) Err.t =
   Err.Escape.with_escape @@ fun esc ->
   let vchk r = vchk esc r in
   (* A LIST, not a single pair: a scan row's [update] has TWO simultaneously
@@ -408,12 +422,22 @@ let value ?(local : Local_var.t -> float option = fun _ -> None)
       run_top_cleanup ();
       result
   in
-  try eval Scalar.Float 0 init_reducers e
+  try eval scalar 0 init_reducers e
   with exn ->
     let bt = capture_backtrace () in
     List.iter (fun f -> f ()) !cleanups;
     cleanups := [];
     reraise exn bt
+
+let value ?local ?local_at ?local_i64 ?local_at_i64 ?scan ?scan_meter ?reducer
+    ?on_reduction env ~output e =
+  value_at Scalar.Float ?local ?local_at ?local_i64 ?local_at_i64 ?scan
+    ?scan_meter ?reducer ?on_reduction env ~output e
+
+let value_i64 ?local ?local_at ?local_i64 ?local_at_i64 ?scan ?scan_meter
+    ?reducer ?on_reduction env ~output e =
+  value_at Scalar.I64 ?local ?local_at ?local_i64 ?local_at_i64 ?scan
+    ?scan_meter ?reducer ?on_reduction env ~output e
 
 #else
 
@@ -687,5 +711,19 @@ let value ?(local : Local_var.t -> float option = fun _ -> None)
           run 0 (init_row ()))
   in
   eval init_reducers e
+
+(* [value] above is already fully carrier-polymorphic on this branch -- native
+   has no cutoff/machine-handoff decision, so [eval]'s own GADT refinement per
+   match arm is enough, with no [Scalar.t] witness needed (contrast the JS
+   branch's [value_at]/[value]/[value_i64] split, which genuinely needs one).
+   [value_i64] is a thin, explicitly-typed instantiation of the SAME
+   implementation at [int64 Value.t], mirroring [Direct]/[Symbolic]'s own
+   "one polymorphic entry, thin carrier-fixed wrappers" shape rather than a
+   second, duplicated body. *)
+let value_i64 ?local ?local_at ?local_i64 ?local_at_i64 ?scan ?scan_meter
+    ?reducer ?on_reduction env ~output (e : int64 Value.t) :
+    (int64, error) Err.t =
+  value ?local ?local_at ?local_i64 ?local_at_i64 ?scan ?scan_meter ?reducer
+    ?on_reduction env ~output e
 
 #endif
