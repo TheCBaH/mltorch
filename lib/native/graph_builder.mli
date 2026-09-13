@@ -260,6 +260,13 @@ val lstm :
   unit ->
   (Tensor_id.t * Tensor_id.t * Tensor_id.t) t
 
+(* max_dim returns two edges: (values, indices). *)
+val max_dim :
+  ?name:string ->
+  Reduce.MaxDim.params ->
+  tensor_ref ->
+  (Tensor_id.t * Tensor_id.t) t
+
 val max_pool2d :
   ?name:string -> Pool.MaxPool2d.params -> tensor_ref -> Tensor_id.t t
 

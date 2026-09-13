@@ -12,10 +12,17 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
     (Graph_ir.graph * (Graph_ir.Tensor_id.t * Tensor.packed) list, error) Err.t
     option =
   match node.target with
-  (* [max.dim] is a fixed (values, indices) tuple.  The Native bridge's graph
-     result models the live values output; the PT2 importer below separately
-     applies its dead-index SSA policy.  The value is exactly a singleton-axis
-     [Amax], including [keepdim]'s packing rule. *)
+  (* [max.dim] is a fixed (values, indices) tuple, a genuine paired
+     value/index reduction rather than [Amax] plus a dropped output: [Amax]
+     folds with [Float_max], while both of this op's outputs must fold with
+     the same [Max_op.pool_better] predicate to stay in step -- see
+     [Semantics.SEMANTICS.max_dim]. [Op_bridge] builds one ISOLATED node's
+     graph, with no broader-graph liveness context (unlike [Native_interp],
+     .ai/native_multi_output_design.md), and ATen's own index result is
+     int64 where Native is f32 regardless -- not something an ATen-oracle
+     consumer of this graph (verify_node) could compare either way -- so
+     this always discards the index and exposes only the values, exactly
+     [max_pool2d_with_indices.default]'s own arm below. *)
   | "torch.ops.aten.max.dim" ->
       Some
         (let* t = tensor_arg aten_env node "self" in
@@ -24,12 +31,13 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          let* axis = dim_axis ~op:"max.dim" ~rank dim in
          let* keepdim = bool_arg node "keepdim" in
          let* x = native_of_aten "self" t in
-         let params = { Reduce.Amax.dims = [ axis ]; keepdim } in
-         build_g ~name:"max_dim_values" [ x ] (function
+         let params = { Reduce.MaxDim.axis; keepdim } in
+         build_g ~name:"max_dim" [ x ] (function
            | [ x_id ] ->
                let open Graph_builder in
-               let+ y = amax params x_id in
-               [ y ]
+               let* values, indices = max_dim params x_id in
+               let+ () = discard indices in
+               [ values ]
            | _ -> assert false))
   | "torch.ops.aten.amax.default" ->
       Some

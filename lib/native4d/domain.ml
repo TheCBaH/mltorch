@@ -302,6 +302,18 @@ let check_node view (n : node) =
      dialect must be able to name. Cumsum never changes shape either, so the
      same "one counterpart, one axis check" reasoning applies. *)
   | Cumsum { Reduce.Cumsum.params; _ } -> check_dims node [ params.axis ]
+  (* Not a missing counterpart in the sense [Unfold]/[Conv3d] below are: the
+     dialect already represents a paired value/index output
+     ([Max_pool2d_with_indices]/[Adaptive_max_pool2d_with_indices]), so a
+     two-output Native4D reduction is not intrinsically out of domain the way
+     those two axis-shifting ops are. [MaxDim]'s [axis] is genuinely nameable
+     too. What is missing is only the routine [Ops4] payload/shape/lowering
+     work ([Max_keepdims] and friends' own axis-renaming boilerplate,
+     specialised to one axis plus a second output) -- undone because nothing
+     in the corpus exercises it yet (the one occurrence reduces axis D, which
+     [check_dims] would refuse regardless). Deferred, not rejected in
+     principle -- revisit if a model needs it. *)
+  | Max_dim _ -> unsupported ()
   (* [IndexTensor4] now exists, so [Index_tensor] gets the same [check_dims]-
      style axis rejection [Select]/[Select_scatter]/[Stack]/[RepeatInterleave]
      get: the GATHERED axis is the one the dialect must be able to name. Not

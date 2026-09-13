@@ -2,8 +2,8 @@
    agreement (against real ATen) is checked in
    test/native_bridge/cumsum_test.ml; this file asserts what
    [Native_interp.lower] builds, mirroring copy_test.ml's [dump] pattern.
-   The only arm in native_interp_lower_reduce.ml, so it is also this file's
-   whole subject. *)
+   native_interp_lower_reduce.ml's other arm, [torch.ops.aten.max.dim], has
+   its own file, max_dim_test.ml. *)
 
 open Programs
 

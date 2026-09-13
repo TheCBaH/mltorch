@@ -217,12 +217,15 @@ module type S = sig
   end
 
   and Reduction : sig
-    type kind = Max | Sum
+    type kind = Argmax_index | Argmax_value | Max | Sum
 
     val kind_name : kind -> string
     (** [max_reduce], not [max]: this is the generic ordered reduction, distinct
         from the max-pool intrinsic, and printed output must keep the two
-        distinguishable. Carries the name the old representation used. *)
+        distinguishable. Carries the name the old representation used.
+        [Argmax_value]/[Argmax_index] share [Max]'s shape, fold [body] with
+        [Max_op.pool_better] (as [Intrinsic.Max_pool]'s pair does), and differ
+        only in reporting the winning value vs. the winning position. *)
 
     type t = private {
       kind : kind;

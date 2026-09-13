@@ -208,6 +208,10 @@ module Make (S : Semantics.SEMANTICS) = struct
         in
         C.pixel params ~x:(operand x) ~weight:(operand weight) ~bias out
     | Lstm _ -> invalid_arg "Eval_op.pixel: Lstm is Region-authored"
+    | Max_dim { Reduce.MaxDim.params; x } ->
+        let module C = Reduce.MaxDim.Compute (S) in
+        let pix = if output = 0 then C.value_pixel else C.index_pixel in
+        pix params ~x_shape:(shape_of x) ~x:(operand x) out
     | Max_pool2d { Pool.MaxPool2d.params; x } ->
         let module C = Pool.MaxPool2d.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out

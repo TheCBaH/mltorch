@@ -830,9 +830,11 @@ let lower_node ~view acc (n : node) =
   (* Rejected by [Domain.check] before the walk starts; reaching them means the
      domain check and this match disagree, which is a bug in one of them.
      [Conv3d]/[Unfold] are intrinsic axis boundaries, not missing
-     counterparts. [Adaptive_max_pool2d_with_indices]/
+     counterparts. [Max_dim] is a missing counterpart (see [Domain]'s own
+     comment) deferred for lack of a corpus need, not an intrinsic one.
+     [Adaptive_max_pool2d_with_indices]/
      [Max_pool2d_with_indices]/[Repeat]/[RepeatInterleave]/[Select_scatter]/
      [Softmax]/[Batched_matmul]/[Sdpa]/[Index_tensor]/[Lstm]/[Meshgrid] no
      longer join them: all eleven now have real conversion arms above. *)
-  | Conv3d _ | Discard _ | Unfold _ ->
+  | Conv3d _ | Discard _ | Max_dim _ | Unfold _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))

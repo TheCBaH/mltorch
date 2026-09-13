@@ -7,9 +7,14 @@
 
 open Helpers
 
-(* The bridge exposes the live values result of [max.dim]; the serialized
-   importer owns the fixed-tuple dead-index policy.  Two modes pin the shared
-   singleton-axis [Amax] lowering and its packing rule. *)
+(* The bridge exposes the live values result of [max.dim] (its own [MaxDim]
+   op, NOT [Amax]: both of [MaxDim]'s outputs fold with [Max_op.pool_better]
+   rather than [Amax]'s [Float_max], so the two agree on ordinary numbers but
+   would not on a NaN -- see op_bridge_reduce.ml's own comment); the
+   serialized importer owns the fixed-tuple dead-index policy. Two modes pin
+   [MaxDim]'s shared singleton-axis lowering and its packing rule -- like
+   every other case here, against hand-derived values (Direct evaluation of
+   the dispatched graph, not an ATen oracle: see helpers.ml's own comment). *)
 let%expect_test "dispatch: max.dim values, keepdim true and false" =
   let x = float_tensor [ 2; 3 ] [ 0.; 2.; 1.; 5.; 3.; 4. ] in
   List.iter
@@ -22,6 +27,19 @@ let%expect_test "dispatch: max.dim values, keepdim true and false" =
   [%expect {|
     tensor f32 [W=2 C=1] {2, 5}
     tensor f32 [C=2] {2, 5} |}]
+
+let%expect_test "dispatch: max.dim with a tie along the reduced axis" =
+  (* Row 0 ties at 5 (positions 0 and 2); row 1 has no tie -- pins that the
+     tie does not perturb the reported VALUE. The dead index this bridge arm
+     discards is never exposed here to compare; [Max_op.pool_better]'s
+     "first index wins" tie contract is pinned directly by the Direct
+     fixtures in reduce_test.ml instead. *)
+  let x = float_tensor [ 2; 3 ] [ 5.; 3.; 5.; 1.; 4.; 2. ] in
+  dispatch_print ~target:"torch.ops.aten.max.dim"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_int "dim" 1; in_bool "keepdim" false ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [C=2] {5, 4} |}]
 
 let%expect_test "dispatch: mean.dim dim=[1] keepdim=true" =
   let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
