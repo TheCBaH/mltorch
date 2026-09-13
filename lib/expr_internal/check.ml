@@ -85,7 +85,7 @@ let duplicate_binder e =
         match go_i64 bound lbound a with
         | None -> go_i64 bound lbound b
         | some -> some)
-    | Value.I64_const _ -> None
+    | Value.I64_const _ | Value.I64_load _ -> None
     | Value.Select (c, a, b) -> (
         match go_bool bound lbound c with
         | Some _ as d -> d

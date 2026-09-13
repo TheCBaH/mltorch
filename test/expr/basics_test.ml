@@ -88,14 +88,15 @@ let%expect_test "Scalar: packed existential round trip" =
 
 let%expect_test "Value: exact I64 arithmetic, no float intermediary" =
   let open Value in
-  (* No [Float_to_i64]/[Select] node in any tree here, so [eval_float]/
-     [eval_bool] are provably never called -- these trees are closed over
-     [I64_const]/[I64_binary]. *)
+  (* No [Float_to_i64]/[Select]/[I64_load] node in any tree here, so
+     [eval_float]/[eval_bool]/[load_i64] are provably never called -- these
+     trees are closed over [I64_const]/[I64_binary]. *)
   let eval_i64 e =
     match
       eval_i64
         ~eval_float:(fun _ -> assert false)
         ~eval_bool:(fun _ -> assert false)
+        ~load_i64:(fun _ _ -> assert false)
         e
     with
     | Ok v -> v

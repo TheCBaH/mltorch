@@ -23,6 +23,15 @@ expected, and vice versa for [i64_add].
   $ check "i64_add of two int64s" "ignore (Expr.Value.i64_add (Expr.Value.i64_const 1L) (Expr.Value.i64_const 2L))"
   i64_add of two int64s: COMPILES
 
+[Value.i64_load], the exact-tensor-read counterpart of [Value.load], is
+pinned to [int64 t] like every other [int64 t] constructor: its result must
+not typecheck where a [float t] is expected.
+
+  $ check "i64_load rejects use as a float operand" "ignore (Expr.Value.add (Expr.Value.const 1.) (Expr.Value.i64_load (Expr.Source.create 0) (Expr.Coord.of_fn (fun _ -> Expr.Index.zero))))"
+  i64_load rejects use as a float operand: rejected
+  $ check "i64_load combines with other int64 t values" "ignore (Expr.Value.i64_add (Expr.Value.i64_const 1L) (Expr.Value.i64_load (Expr.Source.create 0) (Expr.Coord.of_fn (fun _ -> Expr.Index.zero))))"
+  i64_load combines with other int64 t values: COMPILES
+
 [Select]'s two branches share one carrier ([Select : bool_expr * 'a t * 'a t
 -> 'a t]): mismatched branches must not typecheck, but the SAME carrier must
 work generically at both float and int64, since [Select] is the one

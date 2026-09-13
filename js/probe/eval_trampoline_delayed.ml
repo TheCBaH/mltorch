@@ -388,6 +388,9 @@ let eval_trampoline_delayed ~threshold ?(local = fun _ -> None)
       let depth = depth + 1 in
       match a with
       | Value.I64_const x -> resume depth k x
+      | Value.I64_load (s, c) ->
+          resume depth k
+            (vchk (env.Env.load_index s (Coord.map (idx reducers) c)))
       | Value.I64_binary (op, a, b) ->
           eval_i64 reducers depth a (fun depth av ->
               eval_i64 reducers depth b (fun depth bv ->

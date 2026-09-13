@@ -178,6 +178,7 @@ let rec at ~names env lenv n fmt (e : float Value.t) =
    [I64_const]/[I64_binary] need no environment themselves and simply thread
    [n] through unchanged. *)
 and at_i64 ~names env lenv n fmt (e : int64 Value.t) =
+  let idxe fmt i = idx env fmt i in
   match e with
   | Value.Float_to_i64 a ->
       Fmt.pf fmt "float_to_i64(";
@@ -193,6 +194,9 @@ and at_i64 ~names env lenv n fmt (e : int64 Value.t) =
       n
   | Value.I64_const x ->
       Fmt.pf fmt "%Ld" x;
+      n
+  | Value.I64_load (s, c) ->
+      Fmt.pf fmt "%a[%a]" Source.pp s (Coord.pp idxe) c;
       n
   | Value.Select (c, a, b) ->
       Fmt.pf fmt "select(";

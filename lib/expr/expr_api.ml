@@ -286,18 +286,21 @@ module type S = sig
     type unary_op = Cos | Erf | Exp | Log | Sin | Sqrt | Trunc
     type i64_binary_op = I64_add | I64_mul | I64_sub
 
-    (* Carrier-indexed. [I64_binary]/[I64_const] are the first [int64 t]
-       inhabitants -- a closed, environment-free arithmetic subgrammar (no
-       [Load]/[Local]/[Reduce] at this carrier yet); every other constructor
-       still returns [float t]. [Float_to_i64]'s operand is the unbounded
-       [float t] language (it CAN embed a [Load]/[Reduce]/[Scan_at]), so
-       evaluating it needs the full environment-carrying [Eval.value]. *)
+    (* Carrier-indexed. [I64_binary]/[I64_const]/[I64_load] are the [int64 t]
+       inhabitants; every other constructor still returns [float t].
+       [Float_to_i64]'s operand is the unbounded [float t] language (it CAN
+       embed a [Load]/[Reduce]/[Scan_at]), and [I64_load]'s coordinate can
+       itself embed index arithmetic over reducers, so an [int64 t] tree is no
+       longer unconditionally closed/environment-free -- evaluating either
+       needs the full environment-carrying [Eval.value]. Typed [Local]/
+       [Reduce] at [int64 t] remain later work. *)
     type _ t = private
       | Binary : binary_op * float t * float t -> float t
       | Const : float -> float t
       | Float_to_i64 : float t -> int64 t
       | I64_binary : i64_binary_op * int64 t * int64 t -> int64 t
       | I64_const : int64 -> int64 t
+      | I64_load : Source.t * Role.Position.t Index.t Coord.t -> int64 t
       | I64_to_float : int64 t -> float t
       | Intrinsic : Intrinsic.t -> float t
       | Local : Local_var.t -> float t
@@ -316,6 +319,7 @@ module type S = sig
       | Value_of_index : Role.Delta.t Index.t -> float t
 
     val i64_const : int64 -> int64 t
+    val i64_load : Source.t -> Role.Position.t Index.t Coord.t -> int64 t
     val i64_add : int64 t -> int64 t -> int64 t
     val i64_sub : int64 t -> int64 t -> int64 t
     val i64_mul : int64 t -> int64 t -> int64 t
@@ -348,13 +352,17 @@ module type S = sig
     val eval_i64 :
       eval_float:(float t -> float) ->
       eval_bool:(Bool.t -> bool) ->
+      load_i64:(Source.t -> Role.Position.t Index.t Coord.t -> int64) ->
       int64 t ->
       (int64, [> i64_from_float_error ]) Err.t
     (** [I64_const]/[I64_binary] need no environment and cannot fail;
         [Float_to_i64] evaluates its operand via the supplied [eval_float] (in
         practice, [Eval.value]'s own recursive evaluator, partially applied) and
-        then [i64_of_float]s the result. [Select]'s predicate goes through the
-        supplied [eval_bool] (in practice, [Eval.value]'s own [guard], partially
+        then [i64_of_float]s the result. [I64_load] resolves via the supplied
+        [load_i64], TOTAL exactly like [eval_float]/[eval_bool] -- the caller
+        already has a real environment and resolves a load's coordinate/binding
+        errors on its own terms. [Select]'s predicate goes through the supplied
+        [eval_bool] (in practice, [Eval.value]'s own [guard], partially
         applied); only the selected branch is evaluated, matching every other
         carrier's [Select]. Not yet audited for stack safety on very deep
         [I64_binary] nesting on the JS backends -- unlike [Eval.value], there is

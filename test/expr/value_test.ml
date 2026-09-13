@@ -480,3 +480,43 @@ let%expect_test "Round_f32 reference: the f32 storage round trip" =
   [%expect {| 0.1 actually changes: true |}];
   Fmt.pr "idempotent: %b@." (round (round 0.1) = round 0.1);
   [%expect {| idempotent: true |}]
+
+let%expect_test
+    "I64_load: exact tensor read through the real environment, no float \
+     intermediary" =
+  (* A tiny in-memory "tensor": maps a source to one raw int64, the same
+     shape [data_test.ml]'s [resolve_data] uses for [Env.load_index]'s other
+     caller ([eval_index]'s [Data] arm). Beyond float's 2^53 exact-mantissa
+     range, so a stray [Payload.get_float]-style round trip anywhere in the
+     path would silently change it. [Eval.value]'s public entry point is
+     pinned to [float Value.t] (the language's working compute domain stays
+     float-rooted), so [I64_load] is exercised the way it actually reaches
+     production: embedded under [I64_to_float], never as the top-level
+     requested carrier itself. *)
+  let table = [ (0, 9_007_199_254_740_993L) ] in
+  let load_index s _ =
+    match List.assoc_opt (Source.to_int s) table with
+    | Some v -> Err.return v
+    | None -> Err.fail (`Unknown_source s)
+  in
+  let env = { Eval.Env.load = (fun _ _ -> assert false); load_index } in
+  let output = Coord.of_fn (fun _ -> 0) in
+  (* [Fmt.float] rounds to a handful of significant digits ([9.0072e+15]),
+     which would hide the very silent-rounding defect this test exists to
+     catch -- [%.1f] prints the double's full integral value instead. *)
+  let pp_exact fmt x = Fmt.pf fmt "%.1f" x in
+  let pp_res = Core.Pretty.err_result ~ok:pp_exact ~error:Eval.pp_error in
+  let e =
+    Value.i64_to_float
+      (Value.i64_add (Value.i64_load (src 0) out) (Value.i64_const 1L))
+  in
+  Fmt.pr "%a@." pp_v e;
+  [%expect {| i64_to_float((t0[N,T,D,H,W,C] + 1)) |}];
+  Fmt.pr "%a@." pp_res (Eval.value env ~output e);
+  [%expect {| 9007199254740994.0 |}];
+  (* An unbound source fails through the same [error] channel every other
+     [Eval.value] failure does, not a bare exception -- [I64_load] is a
+     second call site for [Env.load_index], not a new failure mode. *)
+  Fmt.pr "%a@." pp_res
+    (Eval.value env ~output (Value.i64_to_float (Value.i64_load (src 1) out)));
+  [%expect {| unknown source t1 |}]

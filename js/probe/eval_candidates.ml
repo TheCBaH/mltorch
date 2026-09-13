@@ -272,6 +272,11 @@ let eval_machine ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
         (loop [@tailcall])
           (Float_result (vchk (env.Env.load s (Coord.map (idx reducers) c))))
           frames
+    | Eval_i64_state (Value.I64_load (s, c), reducers), _ ->
+        (loop [@tailcall])
+          (I64_result
+             (vchk (env.Env.load_index s (Coord.map (idx reducers) c))))
+          frames
     | Eval_state (Value.Value_of_index i, reducers), _ ->
         (loop [@tailcall])
           (Float_result (vchk (float_of_index (idx reducers i))))

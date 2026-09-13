@@ -311,6 +311,10 @@ let run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
     | Eval_state (Value.Load (s, c), reducers) ->
         (loop [@tailcall])
           (Float_result (vchk (env.Env.load s (Coord.map (idx reducers) c))))
+    | Eval_i64_state (Value.I64_load (s, c), reducers) ->
+        (loop [@tailcall])
+          (I64_result
+             (vchk (env.Env.load_index s (Coord.map (idx reducers) c))))
     | Eval_state (Value.Value_of_index i, reducers) ->
         (loop [@tailcall])
           (Float_result (vchk (float_of_index (idx reducers i))))

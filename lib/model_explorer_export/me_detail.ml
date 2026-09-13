@@ -115,6 +115,11 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
   and measure_value_i64 = function
     | Expr.Value.Float_to_i64 a -> charge () && measure_value a
     | Expr.Value.I64_const _ -> charge ()
+    | Expr.Value.I64_load (_, coord) ->
+        charge ()
+        && List.for_all
+             (fun axis -> measure_index (Expr.Coord.get coord axis))
+             Expr.Axis.all
     | Expr.Value.I64_binary (_, a, b) ->
         charge () && measure_value_i64 a && measure_value_i64 b
     | Expr.Value.Select (b, t, f) ->
@@ -497,6 +502,13 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
           (add ~parent ~role ~language:"value" ~constructor:"i64_const"
              ~label:(Fmt.str "i64_const %Ld" x)
              ())
+    | Expr.Value.I64_load (src, coord) ->
+        let id =
+          add ~parent ~role ~language:"value" ~constructor:"i64_load"
+            ~label:(Fmt.str "i64_load %a" Expr.Source.pp src)
+            ()
+        in
+        walk_coord scope ~parent:id coord
     | Expr.Value.I64_binary (op, a, b) ->
         let id =
           add ~parent ~role ~language:"value" ~constructor:"i64_binary"

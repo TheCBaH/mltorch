@@ -200,6 +200,8 @@ let value ?(local : Local_var.t -> float option = fun _ -> None)
           let row = idx reducers row_i and lane = idx reducers lane_i in
           vchk (Err.map_error scan_error (scan v ~row ~lane))
       | Value.Load (s, c) -> vchk (env.Env.load s (Coord.map (idx reducers) c))
+      | Value.I64_load (s, c) ->
+          vchk (env.Env.load_index s (Coord.map (idx reducers) c))
       | Value.Reduce r ->
           let lo = idx reducers r.Reduction.lo
           and hi = idx reducers r.Reduction.hi in
@@ -493,6 +495,8 @@ let value ?(local : Local_var.t -> float option = fun _ -> None)
         let row = idx reducers row_i and lane = idx reducers lane_i in
         vchk (Err.map_error scan_error (scan v ~row ~lane))
     | Value.Load (s, c) -> vchk (env.Env.load s (Coord.map (idx reducers) c))
+    | Value.I64_load (s, c) ->
+        vchk (env.Env.load_index s (Coord.map (idx reducers) c))
     | Value.Reduce r ->
         let lo = idx reducers r.Reduction.lo
         and hi = idx reducers r.Reduction.hi in

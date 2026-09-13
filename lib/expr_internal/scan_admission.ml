@@ -96,7 +96,7 @@ let check ~limits value =
     | Value.I64_binary (_, a, b) ->
         let* () = go_i64 multiplier a in
         go_i64 multiplier b
-    | Value.I64_const _ -> Err.return ()
+    | Value.I64_const _ | Value.I64_load _ -> Err.return ()
     | Value.Select (c, a, b) ->
         let* () = go_bool multiplier c in
         let* () = go_i64 multiplier a in

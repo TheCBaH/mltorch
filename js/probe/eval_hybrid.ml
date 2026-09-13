@@ -227,6 +227,8 @@ let eval_hybrid ~cutoff ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
       let depth = depth + 1 in
       match a with
       | Value.I64_const x -> x
+      | Value.I64_load (s, c) ->
+          vchk (env.Env.load_index s (Coord.map (idx reducers) c))
       | Value.I64_binary (op, x, y) ->
           Value.apply_i64_binary op (eval_i64 depth reducers x)
             (eval_i64 depth reducers y)
