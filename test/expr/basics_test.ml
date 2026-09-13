@@ -47,6 +47,45 @@ let%expect_test "Coord: separator does not break under a narrow margin" =
   Fmt.pr "%S@." (Buffer.contents buf);
   [%expect {| "123456,123456,123456,123456,123456,123456" |}]
 
+let%expect_test "Scalar: carrier names and Leibniz equality" =
+  Fmt.pr "%a %a %a@." Scalar.pp Scalar.Bool Scalar.pp Scalar.Float Scalar.pp
+    Scalar.I64;
+  [%expect {| bool float i64 |}];
+  (* Every same-constructor pair proves equal; every distinct pair does not --
+     the exhaustive [None] arm in [Scalar.equal] is what a wildcard branch
+     there would silently stop covering if a carrier were ever added. *)
+  let same : type a. a Scalar.t -> bool =
+   fun s -> Option.is_some (Scalar.equal s s)
+  in
+  Fmt.pr "%b %b %b@." (same Scalar.Bool) (same Scalar.Float) (same Scalar.I64);
+  [%expect {| true true true |}];
+  Fmt.pr "%b %b %b@."
+    (Option.is_some (Scalar.equal Scalar.Bool Scalar.Float))
+    (Option.is_some (Scalar.equal Scalar.Float Scalar.I64))
+    (Option.is_some (Scalar.equal Scalar.I64 Scalar.Bool));
+  [%expect {| false false false |}];
+  (* [Refl] genuinely refines the type, not just witnesses a bool: this cast
+     only type-checks because matching [Some Refl] unifies ['a] and ['b]. *)
+  let cast : type a b. a Scalar.t -> b Scalar.t -> a -> b option =
+   fun expected actual x ->
+    match Scalar.equal expected actual with Some Refl -> Some x | None -> None
+  in
+  Fmt.pr "%b %b@."
+    (cast Scalar.I64 Scalar.I64 9_007_199_254_740_993L
+    = Some 9_007_199_254_740_993L)
+    (cast Scalar.I64 Scalar.Float 1L = None);
+  [%expect {| true true |}]
+
+let%expect_test "Scalar: packed existential round trip" =
+  let pi64 = Scalar.Pack (Scalar.I64, 9_007_199_254_740_993L) in
+  let pbool = Scalar.Pack (Scalar.Bool, true) in
+  Fmt.pr "%b %b %b %b@."
+    (Scalar.unpack Scalar.I64 pi64 = Some 9_007_199_254_740_993L)
+    (Scalar.unpack Scalar.Float pi64 = None)
+    (Scalar.unpack Scalar.Bool pbool = Some true)
+    (Scalar.unpack Scalar.I64 pbool = None);
+  [%expect {| true true true true |}]
+
 let%expect_test "Source: stateless bijection and rendering" =
   let s = Source.create 7 in
   (* [pp] must match lib/native's [Tensor_id.pp] so a printed Load stays

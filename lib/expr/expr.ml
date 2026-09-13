@@ -7,6 +7,7 @@ module Role = Expr_internal.Role
 module Coord = Expr_internal.Coord
 module Source = Expr_internal.Source
 module Max_op = Expr_internal.Max_op
+module Scalar = Expr_internal.Scalar
 
 type index_op = Expr_internal.Checked.index_op
 

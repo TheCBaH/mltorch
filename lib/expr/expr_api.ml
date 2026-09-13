@@ -10,6 +10,7 @@ module type S = sig
   module Role = Expr_internal.Role
   module Coord = Expr_internal.Coord
   module Source = Expr_internal.Source
+  module Scalar = Expr_internal.Scalar
 
   module Max_op = Expr_internal.Max_op
   (** Lives here, not in [lib/native]: [Eval] cannot depend on [native], so
