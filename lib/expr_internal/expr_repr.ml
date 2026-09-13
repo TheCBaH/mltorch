@@ -39,6 +39,15 @@ type reduction_kind = Argmax_index | Argmax_value | Max | Sum
 type _ value =
   | Binary : binary_op * float value * float value -> float value
   | Const : float -> float value
+  | Float_to_i64 : float value -> int64 value
+      (** Truncating, per the design's "Float to I64" policy: finite values in
+          [-2^63, 2^63) truncate toward zero; NaN, infinities and
+          out-of-range values are structured errors ([Value.i64_of_float]),
+          never a wrapped/clamped result. Unlike [I64_to_float], the operand
+          is the UNBOUNDED [float value] language (it can embed a [Load],
+          [Reduce], [Scan_at] -- anything), so evaluating this needs the full
+          environment-carrying evaluator for its child, not a closed
+          standalone function. *)
   | I64_binary : i64_binary_op * int64 value * int64 value -> int64 value
   | I64_const : int64 -> int64 value
   | I64_to_float : int64 value -> float value

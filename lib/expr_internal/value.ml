@@ -14,6 +14,7 @@ type i64_binary_op = Expr_repr.i64_binary_op = I64_add | I64_mul | I64_sub
 type 'a t = 'a Expr_repr.value =
   | Binary : binary_op * float t * float t -> float t
   | Const : float -> float t
+  | Float_to_i64 : float t -> int64 t
   | I64_binary : i64_binary_op * int64 t * int64 t -> int64 t
   | I64_const : int64 -> int64 t
   | I64_to_float : int64 t -> float t
@@ -60,22 +61,67 @@ let i64_add a b = I64_binary (I64_add, a, b)
 let i64_sub a b = I64_binary (I64_sub, a, b)
 let i64_mul a b = I64_binary (I64_mul, a, b)
 let i64_to_float a = I64_to_float a
+let float_to_i64 a = Float_to_i64 a
 
 let apply_i64_binary = function
   | I64_add -> Int64.add
   | I64_mul -> Int64.mul
   | I64_sub -> Int64.sub
 
-(* Total: an [int64 t] has no [Local]/[Load]/[Reduce]/[Scan_at] inhabitant
-   (see the [_ value] doc comment in expr_repr.ml), so this pattern match is
-   exhaustive without an [Env], scan state, or the depth-cutoff/JS-machine
-   handoff [eval.ml]'s [go] needs for the (environment-carrying, unboundedly
-   deep) float language. Not yet stack-safety-audited for very deep trees on
-   the JS backends -- unlike [go], there is no cutoff here yet; deferred until
-   a real producer of deep [int64 t] trees exists. *)
-let rec eval_i64 : int64 t -> int64 = function
-  | I64_const x -> x
-  | I64_binary (op, a, b) -> apply_i64_binary op (eval_i64 a) (eval_i64 b)
+(* The design's "Float to I64" policy: truncate finite values in
+   [-2^63, 2^63) toward zero (what [Int64.of_float] does once the input is
+   known to be in range); reject NaN, infinities and out-of-range values as
+   structured errors rather than a host-dependent [Int64.of_float] result
+   (unspecified outside the exact representable range) or a silently clamped
+   one. [2 ** 63] two ways: the lower bound [-9223372036854775808.] is exactly
+   representable (a power of two); the upper bound is deliberately the exact
+   power of two, not [Int64.max_int]'s float approximation, which would round
+   UP to this same value and admit it -- see .ai/'s "exclusive upper bound,
+   not a rounded float max_int" rule. *)
+type i64_from_float_error =
+  [ `I64_from_float_infinite
+  | `I64_from_float_nan
+  | `I64_from_float_out_of_range of float ]
+
+let pp_i64_from_float_error fmt : [< i64_from_float_error ] -> unit = function
+  | `I64_from_float_nan -> Fmt.string fmt "Float-to-I64 cast of NaN"
+  | `I64_from_float_infinite ->
+      Fmt.string fmt "Float-to-I64 cast of an infinite value"
+  | `I64_from_float_out_of_range f ->
+      Fmt.pf fmt "Float-to-I64 cast of %h, outside [-2^63, 2^63)" f
+
+let i64_of_float f : (int64, [> i64_from_float_error ]) Err.t =
+  if Float.is_nan f then Err.fail `I64_from_float_nan
+  else if not (Float.is_finite f) then Err.fail `I64_from_float_infinite
+  else if
+    Float.compare f (-9223372036854775808.) < 0
+    || Float.compare f 9223372036854775808. >= 0
+  then Err.fail (`I64_from_float_out_of_range f)
+  else Err.return (Int64.of_float f)
+
+(* [int64 t] is closed over [I64_const]/[I64_binary]/[Float_to_i64] (see the
+   [_ value] doc comment in expr_repr.ml): the first two have no [Local]/
+   [Load]/[Reduce]/[Scan_at] inhabitant, so this needs no [Env] or scan state
+   of its own for them. [Float_to_i64]'s operand is the UNBOUNDED float
+   language, though, so this cannot stay a closed standalone function once it
+   exists -- [eval_float] is supplied by the caller ([eval.ml]'s own [go],
+   partially applied) rather than named here, which is what keeps this
+   module's dependency arrow pointing the same direction it always has (no
+   reference to [eval.ml], which is compiled after it). Not yet stack-safety-
+   audited for very deep [I64_binary] nesting on the JS backends -- unlike
+   [go], there is no cutoff on THAT recursion; [Float_to_i64]'s own operand IS
+   cutoff-safe, since it evaluates through the supplied [eval_float]. *)
+let rec eval_i64 ~eval_float :
+    int64 t -> (int64, [> i64_from_float_error ]) Err.t =
+ fun v ->
+  let open Err.Syntax in
+  match v with
+  | I64_const x -> Err.return x
+  | I64_binary (op, a, b) ->
+      let* x = eval_i64 ~eval_float a in
+      let+ y = eval_i64 ~eval_float b in
+      apply_i64_binary op x y
+  | Float_to_i64 a -> i64_of_float (eval_float a)
 
 let apply_binary = function
   | Add -> ( +. )
@@ -215,21 +261,18 @@ let cmp_intrinsic ea eb (Intrinsic.Max_pool x) (Intrinsic.Max_pool y) =
     (fun acc a b -> acc <?> fun () -> cmp_index ea eb a b)
     0 (Coord.to_list x.out) (Coord.to_list y.out)
 
-(* [int64 t] is closed over [I64_const]/[I64_binary] (no reducer/local binder
-   to track), so this needs none of [go]'s alpha-equivalence environment. *)
-let tag_i64 = function I64_const _ -> 0 | I64_binary _ -> 1
-
-let cmp_i64 a b =
-  let rec go a b =
-    Int.compare (tag_i64 a) (tag_i64 b) <?> fun () ->
-    match (a, b) with
-    | I64_const x, I64_const y -> Int64.compare x y
-    | I64_binary (o, x1, x2), I64_binary (p, y1, y2) ->
-        Stdlib.compare o p <?> fun () ->
-        go x1 y1 <?> fun () -> go x2 y2
-    | _ -> 0
-  in
-  go a b
+(* [Float_to_i64]'s operand is an ordinary [float t] child, so its comparator
+   is [and]-linked with [go] below (mutually recursive, both threading the
+   SAME alpha-equivalence environment): a [Float_to_i64] can sit under an
+   enclosing [Reduce]/[Scan_at] binder just like [I64_to_float] can, and
+   comparing its child against a stale (fresh) environment would silently
+   ignore that context, the same defect [I64_to_float]'s own [go] case would
+   have if it re-entered [compare] instead of [go]. [I64_const]/[I64_binary]
+   need no environment themselves -- reused as-is once threaded through. *)
+let tag_i64 = function
+  | Float_to_i64 _ -> 0
+  | I64_binary _ -> 1
+  | I64_const _ -> 2
 
 let compare a b =
   let rec go ea eb la lb n a b =
@@ -301,28 +344,22 @@ let compare a b =
           (Local_var.Map.add q.Expr_repr.prev (n + 2) lb)
           (n + 3) p.Expr_repr.update q.Expr_repr.update
     | Intrinsic x, Intrinsic y -> cmp_intrinsic ea eb x y
-    | I64_to_float x, I64_to_float y -> cmp_i64 x y
+    | I64_to_float x, I64_to_float y -> cmp_i64 ea eb la lb n x y
+    | _ -> 0
+  and cmp_i64 ea eb la lb n a b =
+    Int.compare (tag_i64 a) (tag_i64 b) <?> fun () ->
+    match (a, b) with
+    | Float_to_i64 x, Float_to_i64 y -> go ea eb la lb n x y
+    | I64_binary (o, x1, x2), I64_binary (p, y1, y2) ->
+        Stdlib.compare o p <?> fun () ->
+        cmp_i64 ea eb la lb n x1 y1 <?> fun () -> cmp_i64 ea eb la lb n x2 y2
+    | I64_const x, I64_const y -> Int64.compare x y
     | _ -> 0
   in
   go Reduce_var.Map.empty Reduce_var.Map.empty Local_var.Map.empty
     Local_var.Map.empty 0 a b
 
 let equal a b = compare a b = 0
-
-(* Portable across the 63-bit native and 32-bit js_of_ocaml/Melange [int]:
-   masks each 64-bit payload to its low/high 32 bits before [Int64.to_int],
-   the same idiom [Const]'s own hash below uses for its float bits. *)
-let hash_i64 e =
-  let mix h x = (h * 31) + x in
-  let rec go h (e : int64 t) =
-    match e with
-    | I64_const x ->
-        mix
-          (mix h (Int64.to_int (Int64.logand x 0xFFFFFFFFL)))
-          (Int64.to_int (Int64.shift_right_logical x 32))
-    | I64_binary (o, a, b) -> go (go (mix h (Hashtbl.hash o)) a) b
-  in
-  go 0 e
 
 let hash e =
   let mix h x = (h * 31) + x in
@@ -417,6 +454,23 @@ let hash e =
             ]
         in
         Coord.fold (fun h i -> idx env h i) h d.out
-    | I64_to_float a -> mix h (hash_i64 a)
+    | I64_to_float a -> hash_i64 env lenv n h a
+  (* [Float_to_i64]'s operand can embed a reference to an enclosing binder,
+     just like [I64_to_float]'s did -- [and]-linked with [go] so both thread
+     the SAME [env]/[lenv]/[n], the hash-side twin of [compare]'s [cmp_i64].
+     [I64_const]/[I64_binary] ignore all three, matching their own [compare]
+     side needing no environment either. Portable across the 63-bit native
+     and 32-bit js_of_ocaml/Melange [int]: masks each 64-bit payload to its
+     low/high 32 bits before [Int64.to_int], the same idiom [Const]'s own
+     float-bits hash above uses. *)
+  and hash_i64 env lenv n h (e : int64 t) =
+    match e with
+    | Float_to_i64 a -> go env lenv n h a
+    | I64_binary (o, a, b) ->
+        hash_i64 env lenv n (hash_i64 env lenv n (mix h (Hashtbl.hash o)) a) b
+    | I64_const x ->
+        mix
+          (mix h (Int64.to_int (Int64.logand x 0xFFFFFFFFL)))
+          (Int64.to_int (Int64.shift_right_logical x 32))
   in
   go Reduce_var.Map.empty Local_var.Map.empty 0 17 e

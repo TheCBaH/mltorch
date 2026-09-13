@@ -226,8 +226,10 @@ let eval_machine ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
     match (state, frames) with
     | Eval_state (Value.Const x, _), _ ->
         (loop [@tailcall]) (Float_result x) frames
-    | Eval_state (Value.I64_to_float a, _), _ ->
-        (loop [@tailcall]) (Float_result (Int64.to_float (Value.eval_i64 a)))
+    | Eval_state (Value.I64_to_float a, reducers), _ ->
+        let eval_float e = loop (Eval_state (e, reducers)) [] in
+        (loop [@tailcall])
+          (Float_result (Int64.to_float (vchk (Value.eval_i64 ~eval_float a))))
           frames
     | Eval_state (Value.Local v, _), _ -> (
         match local v with

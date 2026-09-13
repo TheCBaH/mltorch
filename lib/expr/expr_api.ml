@@ -285,10 +285,13 @@ module type S = sig
     (* Carrier-indexed. [I64_binary]/[I64_const] are the first [int64 t]
        inhabitants -- a closed, environment-free arithmetic subgrammar (no
        [Load]/[Local]/[Reduce] at this carrier yet); every other constructor
-       still returns [float t]. *)
+       still returns [float t]. [Float_to_i64]'s operand is the unbounded
+       [float t] language (it CAN embed a [Load]/[Reduce]/[Scan_at]), so
+       evaluating it needs the full environment-carrying [Eval.value]. *)
     type _ t = private
       | Binary : binary_op * float t * float t -> float t
       | Const : float -> float t
+      | Float_to_i64 : float t -> int64 t
       | I64_binary : i64_binary_op * int64 t * int64 t -> int64 t
       | I64_const : int64 -> int64 t
       | I64_to_float : int64 t -> float t
@@ -315,15 +318,41 @@ module type S = sig
     val apply_i64_binary : i64_binary_op -> int64 -> int64 -> int64
 
     val i64_to_float : int64 t -> float t
-    (** Exact-to-working-float; potentially lossy above 2^53 but never an error,
-        unlike the not-yet-added reverse direction (design's "I64 to
-        Float"/"Float to I64" policies are asymmetric). *)
+    (** Exact-to-working-float; potentially lossy above 2^53 but never an error
+        -- the design's "I64 to Float"/"Float to I64" policies are asymmetric:
+        the reverse direction below is the one that can fail. *)
 
-    val eval_i64 : int64 t -> int64
-    (** Total: an [int64 t] tree is closed over [I64_const]/[I64_binary] only,
-        so this needs no [Env], scan state, or [Eval]'s depth-cutoff/JS-machine
-        handoff. Not yet audited for stack safety on very deep trees on the JS
-        backends. *)
+    val float_to_i64 : float t -> int64 t
+    (** Truncating (toward zero) within [-2^63, 2^63); NaN, infinities and
+        out-of-range values are the structured errors below, never a
+        host-dependent or silently clamped result. *)
+
+    type i64_from_float_error =
+      [ `I64_from_float_infinite
+      | `I64_from_float_nan
+      | `I64_from_float_out_of_range of float ]
+
+    val pp_i64_from_float_error :
+      Format.formatter -> [< i64_from_float_error ] -> unit
+
+    val i64_of_float : float -> (int64, [> i64_from_float_error ]) Err.t
+    (** The checked conversion [float_to_i64] denotes; exposed standalone so a
+        caller with an already-evaluated float in hand (as [Eval]'s own
+        [Float_to_i64] arm does) does not need to round-trip it through a
+        [Const] node first. *)
+
+    val eval_i64 :
+      eval_float:(float t -> float) ->
+      int64 t ->
+      (int64, [> i64_from_float_error ]) Err.t
+    (** [I64_const]/[I64_binary] need no environment and cannot fail;
+        [Float_to_i64] evaluates its operand via the supplied [eval_float] (in
+        practice, [Eval.value]'s own recursive evaluator, partially applied) and
+        then [i64_of_float]s the result. Not yet audited for stack safety on
+        very deep [I64_binary] nesting on the JS backends -- unlike
+        [Eval.value], there is no depth cutoff on that particular recursion;
+        [Float_to_i64]'s own operand IS cutoff-safe, since it evaluates through
+        the supplied [eval_float]. *)
 
     val const : float -> float t
     val add : float t -> float t -> float t
@@ -915,6 +944,7 @@ module type S = sig
       | `Data_source_wrong_format of string
       | index_error
       | Intrinsic.error
+      | Value.i64_from_float_error
       | `Scan_meter of Scan_meter.error
       | `Scan_meter_required
       | `Scan_projection of scan_error

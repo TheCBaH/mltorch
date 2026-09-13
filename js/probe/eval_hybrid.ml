@@ -123,7 +123,9 @@ let eval_hybrid ~cutoff ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
       | Value.Binary (op, a, b) ->
           Value.apply_binary op (go depth reducers a) (go depth reducers b)
       | Value.Const x -> x
-      | Value.I64_to_float a -> Int64.to_float (Value.eval_i64 a)
+      | Value.I64_to_float a ->
+          Int64.to_float
+            (vchk (Value.eval_i64 ~eval_float:(go depth reducers) a))
       | Value.Intrinsic i -> intrinsic reducers i
       | Value.Local v -> (
           match local v with

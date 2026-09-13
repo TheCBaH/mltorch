@@ -113,7 +113,7 @@ let reuse_stack_pop st =
     Some f
   end
 
-let run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
+let rec run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
     ~(cleanups : (unit -> unit) list ref) ~run_top_cleanup ~on_reduction
     (seed : value_state) : value_state =
   let vchk r = vchk esc r in
@@ -263,8 +263,18 @@ let run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
   let rec loop state =
     match state with
     | Eval_state (Value.Const x, _) -> (loop [@tailcall]) (Float_result x)
-    | Eval_state (Value.I64_to_float a, _) ->
-        (loop [@tailcall]) (Float_result (Int64.to_float (Value.eval_i64 a)))
+    | Eval_state (Value.I64_to_float a, reducers) ->
+        let eval_float e =
+          match
+            run ~esc ~env ~output ~scan ~scan_meter ~local ~local_at_ref
+              ~cleanups ~run_top_cleanup ~on_reduction
+              (Eval_state (e, reducers))
+          with
+          | Float_result v -> v
+          | _ -> assert false
+        in
+        (loop [@tailcall])
+          (Float_result (Int64.to_float (vchk (Value.eval_i64 ~eval_float a))))
     | Eval_state (Value.Local v, _) -> (
         match local v with
         | Some x -> (loop [@tailcall]) (Float_result x)

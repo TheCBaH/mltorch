@@ -88,14 +88,6 @@ let idx env fmt i = index ~names:(names_in env) fmt i
    [prev] naming -- without [at]'s [Value.Scan_at] case's trailing
    [row,lane] projection, which is fabricated for any caller that has no
    real read site (see the scan design record). *)
-(* [int64 Value.t] is closed over [I64_const]/[I64_binary] -- no binder, no
-   reducer numbering, so this needs none of [at]'s [names]/[env]/[lenv]/[n]. *)
-let rec at_i64 fmt (e : int64 Value.t) =
-  match e with
-  | Value.I64_const x -> Fmt.pf fmt "%Ld" x
-  | Value.I64_binary (op, a, b) ->
-      Fmt.pf fmt "(%a %s %a)" at_i64 a (Value.i64_binary_sym op) at_i64 b
-
 let rec at ~names env lenv n fmt (e : float Value.t) =
   (* Eta-expanded so it stays polymorphic in the role: a reduction's [lo] is
        a position and its [hi] a delta. *)
@@ -112,7 +104,9 @@ let rec at ~names env lenv n fmt (e : float Value.t) =
       Fmt.float fmt x;
       n
   | Value.I64_to_float a ->
-      Fmt.pf fmt "i64_to_float(%a)" at_i64 a;
+      Fmt.pf fmt "i64_to_float(";
+      let n = at_i64 ~names env lenv n fmt a in
+      Fmt.pf fmt ")";
       n
   | Value.Intrinsic (Intrinsic.Max_pool d) ->
       Fmt.pf fmt "max_pool2d_%s(%a; k=%dx%d s=%dx%d p=%dx%d; out=[%a])"
@@ -174,6 +168,31 @@ let rec at ~names env lenv n fmt (e : float Value.t) =
       n
   | Value.Value_of_index i ->
       Fmt.pf fmt "value_of_index(%a)" idxe i;
+      n
+
+(* [Float_to_i64]'s operand is an ordinary [float Value.t] child, printed
+   through [at] under the SAME [names]/[env]/[lenv]/[n] -- [and]-linked with
+   [at] for exactly the reason [compare]/[hash]'s int64 twins are: it can
+   embed a reference to an enclosing [Reduce]/[Scan_at] binder, and printing
+   it with a stale environment would garble that binder's display name.
+   [I64_const]/[I64_binary] need no environment themselves and simply thread
+   [n] through unchanged. *)
+and at_i64 ~names env lenv n fmt (e : int64 Value.t) =
+  match e with
+  | Value.Float_to_i64 a ->
+      Fmt.pf fmt "float_to_i64(";
+      let n = at ~names env lenv n fmt a in
+      Fmt.pf fmt ")";
+      n
+  | Value.I64_binary (op, a, b) ->
+      Fmt.pf fmt "(";
+      let n = at_i64 ~names env lenv n fmt a in
+      Fmt.pf fmt " %s " (Value.i64_binary_sym op);
+      let n = at_i64 ~names env lenv n fmt b in
+      Fmt.pf fmt ")";
+      n
+  | Value.I64_const x ->
+      Fmt.pf fmt "%Ld" x;
       n
 
 (* The shared body of an unspecialized scan: [init]/[update], scoped and

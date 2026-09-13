@@ -226,19 +226,6 @@ let measure_with_locals ~local ~max_size ~max_depth e =
      bound-tracking convention as [scoped_locals]/[keep]: the callback isn't
      told to skip anything, the traversal simply never calls it for a bound
      id. *)
-  (* [int64 Value.t] has no locals to charge specially, so this shares
-     [node]/[budget]/[left] with [value] but not its [bound]/[local]
-     machinery -- a plain size/depth meter over [I64_const]/[I64_binary]. *)
-  let rec value_i64 budget left (e : int64 Value.t) =
-    let left = node budget left ~cost:1 ~depth:1 in
-    let sub = budget - 1 in
-    match e with
-    | Value.I64_const _ -> (1, left)
-    | Value.I64_binary (_, a, b) ->
-        let da, left = value_i64 sub left a in
-        let db, left = value_i64 sub left b in
-        (1 + Stdlib.max da db, left)
-  in
   let rec value bound budget left (e : float Value.t) =
     let local_size, local_depth =
       match e with
@@ -256,7 +243,7 @@ let measure_with_locals ~local ~max_size ~max_depth e =
         (1 + Stdlib.max da db, left)
     | Value.Const _ -> (1, left)
     | Value.I64_to_float a ->
-        let d, left = value_i64 sub left a in
+        let d, left = value_i64 bound sub left a in
         (1 + d, left)
     | Value.Intrinsic (Intrinsic.Max_pool d) ->
         let dc, left = coord sub left d.Intrinsic.Max_pool.out in
@@ -315,6 +302,25 @@ let measure_with_locals ~local ~max_size ~max_depth e =
     | Value.Value_of_index i ->
         let d, left = index sub left i in
         (1 + d, left)
+  (* [Float_to_i64]'s operand is an ordinary [float Value.t] child, metered
+     through [value] under the SAME [bound] -- [and]-linked for the reason
+     [compare]/[hash]/[Pp]'s int64 twins all are: it can embed a reference to
+     a Region local bound by an enclosing scan, and metering it against a
+     fresh empty [bound] would misclassify that reference's cost/depth.
+     [I64_const]/[I64_binary] have no locals to charge specially, so they
+     share [node]/[budget]/[left] but not [bound]/[local] itself. *)
+  and value_i64 bound budget left (e : int64 Value.t) =
+    let left = node budget left ~cost:1 ~depth:1 in
+    let sub = budget - 1 in
+    match e with
+    | Value.Float_to_i64 a ->
+        let d, left = value bound sub left a in
+        (1 + d, left)
+    | Value.I64_binary (_, a, b) ->
+        let da, left = value_i64 bound sub left a in
+        let db, left = value_i64 bound sub left b in
+        (1 + Stdlib.max da db, left)
+    | Value.I64_const _ -> (1, left)
   in
   let d, left = value Local_var.Set.empty max_depth max_size e in
   (max_size - left, d)
