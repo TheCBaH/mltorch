@@ -61,7 +61,8 @@ let reraise exn (bt : captured_backtrace) = Printexc.raise_with_backtrace exn bt
    relative to the pure-machine candidate. *)
 let cutoff = 50
 
-let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
+let value ?(local : Local_var.t -> float option = fun _ -> None)
+    ?(local_at : Local_var.t -> int -> float option = fun _ _ -> None) ?scan
     ?scan_meter ?(reducer = []) ?(on_reduction = fun () -> ()) (env : Env.t)
     ~output e =
   Err.Escape.with_escape @@ fun esc ->
@@ -123,7 +124,7 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
   in
   (* [@tailcall] below marks the genuine tail edges converted for JS stack
      safety; see .ai/. A missing tail call there is a build error (warning
-     51), not a silent regression. Below [cutoff], [go]/[guard] recurse
+     51), not a silent regression. Below [cutoff], [eval]/[guard] recurse
      exactly like native's own below -- real, unbounded-looking OCaml
      recursion, deliberately, since every real backend trampolines a bounded
      amount of it safely regardless of provable tail position (see .ai/'s
@@ -132,19 +133,60 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
      starting fresh ones. Once handed off, a subtree stays in the machine for
      the rest of its own evaluation -- [Eval_js_machine.run] is a complete
      evaluator of the full grammar, so there is never a reason to hand a
-     partially-machine-evaluated subtree back to direct recursion. *)
-  let rec go depth reducers (e : float Value.t) : float =
+     partially-machine-evaluated subtree back to direct recursion.
+
+     [eval] is ONE polymorphic-recursive function over the whole carrier-
+     indexed [_ Value.t] (the design's own `eval : type a. ...` shape; see
+     .ai/), not a [go]/[eval_i64] pair with duplicated [Select] handling --
+     [I64_const]/[I64_binary]/[Float_to_i64] sit as ordinary arms alongside
+     [Const]/[Binary]/[I64_to_float], and [Select] recurses at whatever
+     carrier it was already called at. The one place this needs help
+     ordinary polymorphic recursion doesn't give for free: at [cutoff], the
+     handoff must build the RIGHT [Eval_js_machine.value_state] constructor
+     for the concrete carrier, but a [Select] node's own pattern carries no
+     evidence of which carrier `'a` is. [scalar] is the fix -- an explicit
+     [Scalar.t] witness, supplied by the CALLER (who always knows the
+     concrete carrier statically, e.g. [I64_to_float]'s recursive call passes
+     [Scalar.I64] because its operand's type says so), checked BEFORE the
+     structural match rather than derived from it. This is exactly the
+     [Scalar.t] witness the design record introduces for existential/packed
+     boundaries, reused here for a different boundary (the machine handoff)
+     with the same shape: match the witness, let GADT refinement narrow
+     [e]'s type, then build the matching machine state. *)
+  let rec eval :
+      type a. a Scalar.t -> int -> (Reduce_var.t -> int option) -> a Value.t -> a
+      =
+   fun scalar depth reducers e ->
     if depth >= cutoff then
-      match machine_run (Eval_js_machine.Eval_state (e, reducers)) with
-      | Eval_js_machine.Float_result v -> v
-      | _ -> assert false
+      match scalar with
+      | Scalar.Float -> (
+          match machine_run (Eval_js_machine.Eval_state (e, reducers)) with
+          | Eval_js_machine.Float_result v -> v
+          | _ -> assert false)
+      | Scalar.I64 -> (
+          match machine_run (Eval_js_machine.Eval_i64_state (e, reducers)) with
+          | Eval_js_machine.I64_result v -> v
+          | _ -> assert false)
+      | Scalar.Bool -> assert false
+      (* No [_ Value.t] constructor has carrier [bool] -- [bool_expr] stays a
+         separate, non-generic type (see [Bool.t]'s own doc comment) and is
+         evaluated by [guard], never by [eval]. *)
     else
       let depth = depth + 1 in
       match e with
       | Value.Binary (op, a, b) ->
-          Value.apply_binary op (go depth reducers a) (go depth reducers b)
+          Value.apply_binary op
+            (eval Scalar.Float depth reducers a)
+            (eval Scalar.Float depth reducers b)
       | Value.Const x -> x
-      | Value.I64_to_float a -> Int64.to_float (eval_i64 depth reducers a)
+      | Value.I64_const x -> x
+      | Value.I64_binary (op, a, b) ->
+          Value.apply_i64_binary op
+            (eval Scalar.I64 depth reducers a)
+            (eval Scalar.I64 depth reducers b)
+      | Value.I64_to_float a -> Int64.to_float (eval Scalar.I64 depth reducers a)
+      | Value.Float_to_i64 a ->
+          vchk (Value.i64_of_float (eval Scalar.Float depth reducers a))
       | Value.Intrinsic i -> (intrinsic [@tailcall]) reducers i
       | Value.Local v -> (
           match local v with
@@ -184,7 +226,7 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
                   in
                   on_reduction ();
                   (fold [@tailcall]) (i + 1)
-                    (combine acc (go depth bound r.Reduction.body))
+                    (combine acc (eval Scalar.Float depth bound r.Reduction.body))
               in
               fold lo init
           | Reduction.Argmax_index | Reduction.Argmax_value ->
@@ -200,7 +242,7 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
                     if Reduce_var.equal v r.Reduction.var then Some i
                     else reducers v
                   in
-                  let value = go depth bound r.Reduction.body in
+                  let value = eval Scalar.Float depth bound r.Reduction.body in
                   on_reduction ();
                   let best, best_i =
                     if Max_op.pool_better ~best ~value then (value, i)
@@ -216,16 +258,18 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
       | Value.Round_f32 a ->
           (* Convert to binary32 and widen back. The one value expression
                that changes a value without being arithmetic. *)
-          Int32.float_of_bits (Int32.bits_of_float (go depth reducers a))
+          Int32.float_of_bits (Int32.bits_of_float (eval Scalar.Float depth reducers a))
       | Value.Scan_at (s, row_i, lane_i) ->
           (eval_scan_at [@tailcall]) depth reducers s row_i lane_i
       (* Only the SELECTED branch is evaluated -- the other may divide by
            zero or read out of bounds, and guarding is what the caller built
-           it for. *)
+           it for. Recurses at the SAME [scalar] it was called at: a
+           [Select] never changes carrier, so no new witness is needed here,
+           only threaded through. *)
       | Value.Select (c, a, b) ->
-          if guard depth reducers c then (go [@tailcall]) depth reducers a
-          else (go [@tailcall]) depth reducers b
-      | Value.Unary (op, a) -> Value.apply_unary op (go depth reducers a)
+          if guard depth reducers c then (eval [@tailcall]) scalar depth reducers a
+          else (eval [@tailcall]) scalar depth reducers b
+      | Value.Unary (op, a) -> Value.apply_unary op (eval Scalar.Float depth reducers a)
       | Value.Value_of_index i -> vchk (float_of_index (idx reducers i))
   and guard depth reducers (b : Bool.t) : bool =
     if depth >= cutoff then
@@ -236,36 +280,18 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
       let depth = depth + 1 in
       match b with
       | Bool.Index_eq (a, b) -> Int.equal (idx reducers a) (idx reducers b)
-      | Bool.Value_lt (a, b) -> go depth reducers a < go depth reducers b
+      | Bool.Value_lt (a, b) ->
+          eval Scalar.Float depth reducers a < eval Scalar.Float depth reducers b
       | Bool.I64_eq (a, b) ->
-          Int64.equal (eval_i64 depth reducers a) (eval_i64 depth reducers b)
+          Int64.equal
+            (eval Scalar.I64 depth reducers a)
+            (eval Scalar.I64 depth reducers b)
       | Bool.I64_lt (a, b) ->
-          Int64.compare (eval_i64 depth reducers a) (eval_i64 depth reducers b)
+          Int64.compare
+            (eval Scalar.I64 depth reducers a)
+            (eval Scalar.I64 depth reducers b)
           < 0
-  (* Not delegated to [Value.eval_i64]'s callback-based definition here, unlike
-     every other caller of it: that definition has no [depth] of its own (see
-     its doc comment), so [I64_binary]/[Select]'s own nesting on the int64
-     side needs the SAME cutoff/machine-handoff treatment [go]/[guard] give
-     the float/bool grammar, inlined rather than threaded through a shared
-     helper. [Float_to_i64]'s float operand still flows through [go], which
-     is already cutoff-aware. *)
-  and eval_i64 depth reducers (a : int64 Value.t) : int64 =
-    if depth >= cutoff then
-      match machine_run (Eval_js_machine.Eval_i64_state (a, reducers)) with
-      | Eval_js_machine.I64_result v -> v
-      | _ -> assert false
-    else
-      let depth = depth + 1 in
-      match a with
-      | Value.I64_const x -> x
-      | Value.I64_binary (op, x, y) ->
-          Value.apply_i64_binary op (eval_i64 depth reducers x)
-            (eval_i64 depth reducers y)
-      | Value.Float_to_i64 x -> vchk (Value.i64_of_float (go depth reducers x))
-      | Value.Select (c, x, y) ->
-          if guard depth reducers c then (eval_i64 [@tailcall]) depth reducers x
-          else (eval_i64 [@tailcall]) depth reducers y
-  and intrinsic reducers (Intrinsic.Max_pool d as i) =
+  and intrinsic reducers (Intrinsic.Max_pool d as i) : float =
     let open Intrinsic.Max_pool in
     let at a = idx reducers (Coord.get d.out a) in
     let w = vchk (Intrinsic.window i ~out_h:(at Axis.H) ~out_w:(at Axis.W)) in
@@ -312,7 +338,7 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
      answers from [prev_row]; every other local reference in [update] still
      resolves through the caller's own [local]/[local_at], since a Region
      scan's update legitimately reads earlier Region locals. *)
-  and eval_scan_at depth reducers s row_i lane_i =
+  and eval_scan_at depth reducers s row_i lane_i : float =
     let row = idx reducers row_i and lane = idx reducers lane_i in
     let projection = { Scan_projection.local = None; row; lane } in
     if row < 0 || row > s.Scan.steps then
@@ -344,7 +370,7 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
             let bound v =
               if Reduce_var.equal v s.Scan.lane then Some l else reducers v
             in
-            go depth bound s.Scan.init)
+            eval Scalar.Float depth bound s.Scan.init)
       in
       let next_row ~step prev_row =
         (local_at_ref :=
@@ -359,7 +385,7 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
               else if Reduce_var.equal v s.Scan.step then Some step
               else reducers v
             in
-            go depth bound s.Scan.update)
+            eval Scalar.Float depth bound s.Scan.update)
       in
       let rec run r prev_row =
         if r = row then prev_row.(lane)
@@ -369,7 +395,7 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
       run_top_cleanup ();
       result
   in
-  try go 0 init_reducers e
+  try eval Scalar.Float 0 init_reducers e
   with exn ->
     let bt = capture_backtrace () in
     List.iter (fun f -> f ()) !cleanups;
@@ -378,7 +404,8 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
 
 #else
 
-let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
+let value ?(local : Local_var.t -> float option = fun _ -> None)
+    ?(local_at : Local_var.t -> int -> float option = fun _ _ -> None) ?scan
     ?scan_meter ?(reducer = []) ?(on_reduction = fun () -> ()) (env : Env.t)
     ~output e =
   Err.Escape.with_escape @@ fun esc ->
@@ -432,12 +459,27 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
   (* [@tailcall] below marks the genuine tail edges converted for JS stack
      safety; see .ai/. A missing tail call there is a build error (warning
      51), not a silent regression. *)
-  let rec go reducers (e : float Value.t) : float =
+  (* [eval] is ONE polymorphic-recursive function over the whole carrier-
+     indexed [_ Value.t] (the design's own `eval : type a. ...` shape; see
+     .ai/), not a [go]/[eval_i64] pair with duplicated [Select] handling --
+     [I64_const]/[I64_binary]/[Float_to_i64] sit as ordinary arms alongside
+     [Const]/[Binary]/[I64_to_float], and [Select] recurses at whatever
+     carrier it was already called at. Unlike the JS branch's own [eval],
+     this needs no [Scalar.t] witness: with no cutoff/machine handoff to
+     decide, every call site already knows its own concrete carrier
+     statically (from the GADT constructor it is pattern-matching), which is
+     all ordinary polymorphic recursion needs. *)
+  let rec eval : type a. (Reduce_var.t -> int option) -> a Value.t -> a =
+   fun reducers e ->
     match e with
     | Value.Binary (op, a, b) ->
-        Value.apply_binary op (go reducers a) (go reducers b)
+        Value.apply_binary op (eval reducers a) (eval reducers b)
     | Value.Const x -> x
-    | Value.I64_to_float a -> Int64.to_float (vchk (eval_i64 reducers a))
+    | Value.I64_const x -> x
+    | Value.I64_binary (op, a, b) ->
+        Value.apply_i64_binary op (eval reducers a) (eval reducers b)
+    | Value.I64_to_float a -> Int64.to_float (eval reducers a)
+    | Value.Float_to_i64 a -> vchk (Value.i64_of_float (eval reducers a))
     | Value.Intrinsic i -> (intrinsic [@tailcall]) reducers i
     | Value.Local v -> (
         match local v with
@@ -476,7 +518,7 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
                 in
                 on_reduction ();
                 (fold [@tailcall]) (i + 1)
-                  (combine acc (go bound r.Reduction.body))
+                  (combine acc (eval bound r.Reduction.body))
             in
             fold lo init
         | Reduction.Argmax_index | Reduction.Argmax_value ->
@@ -492,7 +534,7 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
                   if Reduce_var.equal v r.Reduction.var then Some i
                   else reducers v
                 in
-                let value = go bound r.Reduction.body in
+                let value = eval bound r.Reduction.body in
                 on_reduction ();
                 let best, best_i =
                   if Max_op.pool_better ~best ~value then (value, i)
@@ -508,27 +550,22 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
     | Value.Round_f32 a ->
         (* Convert to binary32 and widen back. The one value expression that
              changes a value without being arithmetic. *)
-        Int32.float_of_bits (Int32.bits_of_float (go reducers a))
+        Int32.float_of_bits (Int32.bits_of_float (eval reducers a))
     | Value.Scan_at (s, row_i, lane_i) ->
         (eval_scan_at [@tailcall]) reducers s row_i lane_i
     (* Only the SELECTED branch is evaluated -- the other may divide by zero
          or read out of bounds, and guarding is what the caller built it for. *)
     | Value.Select (c, a, b) ->
-        if guard reducers c then (go [@tailcall]) reducers a
-        else (go [@tailcall]) reducers b
-    | Value.Unary (op, a) -> Value.apply_unary op (go reducers a)
+        if guard reducers c then (eval [@tailcall]) reducers a
+        else (eval [@tailcall]) reducers b
+    | Value.Unary (op, a) -> Value.apply_unary op (eval reducers a)
     | Value.Value_of_index i -> vchk (float_of_index (idx reducers i))
   and guard reducers = function
     | Bool.Index_eq (a, b) -> Int.equal (idx reducers a) (idx reducers b)
-    | Bool.Value_lt (a, b) -> go reducers a < go reducers b
-    | Bool.I64_eq (a, b) ->
-        Int64.equal (vchk (eval_i64 reducers a)) (vchk (eval_i64 reducers b))
-    | Bool.I64_lt (a, b) ->
-        Int64.compare (vchk (eval_i64 reducers a)) (vchk (eval_i64 reducers b))
-        < 0
-  and eval_i64 reducers a =
-    Value.eval_i64 ~eval_float:(go reducers) ~eval_bool:(guard reducers) a
-  and intrinsic reducers (Intrinsic.Max_pool d as i) =
+    | Bool.Value_lt (a, b) -> eval reducers a < eval reducers b
+    | Bool.I64_eq (a, b) -> Int64.equal (eval reducers a) (eval reducers b)
+    | Bool.I64_lt (a, b) -> Int64.compare (eval reducers a) (eval reducers b) < 0
+  and intrinsic reducers (Intrinsic.Max_pool d as i) : float =
     let open Intrinsic.Max_pool in
     let at a = idx reducers (Coord.get d.out a) in
     let w = vchk (Intrinsic.window i ~out_h:(at Axis.H) ~out_w:(at Axis.W)) in
@@ -568,7 +605,7 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
      [prev_row]; every other local reference in [update] still resolves
      through the caller's own [local]/[local_at], since a Region scan's
      update legitimately reads earlier Region locals. *)
-  and eval_scan_at reducers s row_i lane_i =
+  and eval_scan_at reducers s row_i lane_i : float =
     let row = idx reducers row_i and lane = idx reducers lane_i in
     let projection = { Scan_projection.local = None; row; lane } in
     if row < 0 || row > s.Scan.steps then
@@ -600,7 +637,7 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
                 let bound v =
                   if Reduce_var.equal v s.Scan.lane then Some l else reducers v
                 in
-                go bound s.Scan.init)
+                eval bound s.Scan.init)
           in
           let next_row ~step prev_row =
             (local_at_ref :=
@@ -616,7 +653,7 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
                   else if Reduce_var.equal v s.Scan.step then Some step
                   else reducers v
                 in
-                go bound s.Scan.update)
+                eval bound s.Scan.update)
           in
           let rec run r prev_row =
             if r = row then prev_row.(lane)
@@ -624,6 +661,6 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
           in
           run 0 (init_row ()))
   in
-  go init_reducers e
+  eval init_reducers e
 
 #endif

@@ -104,18 +104,24 @@ let i64_of_float f : (int64, [> i64_from_float_error ]) Err.t =
    [Load]/[Reduce]/[Scan_at] inhabitant, so this needs no [Env] or scan state
    of its own for it. [Float_to_i64]'s operand is the UNBOUNDED float
    language, though, so this cannot stay a closed standalone function once it
-   exists -- [eval_float]/[eval_bool] are supplied by the caller ([eval.ml]'s
-   own [go]/[guard], partially applied) rather than named here, which is what
-   keeps this module's dependency arrow pointing the same direction it always
-   has (no reference to [eval.ml], which is compiled after it). This
-   recursion itself has no [depth]/cutoff of its own: every JS-backend caller
-   that needs one ([eval.ml]'s JS branch, js/probe's [eval_hybrid]) inlines
-   its own cutoff-checking traversal of [I64_binary]/[Select] instead of
-   calling this function for THAT purpose, mirroring [go]/[guard]'s own
-   cutoff exactly (see [Eval_js_machine.Eval_i64_state]'s doc comment for the
-   JS machine's own frame-stack handling of the same nesting) -- this
-   function stays the single closed-form denotation both native and every
-   below-cutoff JS call site still delegate to. *)
+   exists -- [eval_float]/[eval_bool] are supplied by the caller rather than
+   named here, which is what keeps this module's dependency arrow pointing
+   the same direction it always has (no reference to [eval.ml], which is
+   compiled after it).
+
+   No longer [eval.ml]'s own internal denotation for [int64 t]: since the
+   evaluator's [go]/[guard]/[eval_i64] split was unified into one
+   polymorphic-recursive [eval] over the whole carrier-indexed grammar (the
+   design's own `eval : type a. ...` shape; see .ai/), [I64_const]/
+   [I64_binary]/[Float_to_i64] are ordinary arms of THAT match, inlined
+   directly rather than routed through this callback-based definition, on
+   every backend -- native's [eval] needs no cutoff and JS's needs a
+   [Scalar.t] witness for its cutoff/machine-handoff decision (see
+   [Eval.value]'s own doc comment), neither of which this function's
+   `~eval_float`/`~eval_bool` shape can express. This function remains the
+   public standalone entry point (`Expr.Value.eval_i64`) for a caller who
+   already has float/bool evaluation in hand and wants to evaluate a bare
+   [int64 t] against it without going through the full [Eval.value]. *)
 let rec eval_i64 ~eval_float ~eval_bool :
     int64 t -> (int64, [> i64_from_float_error ]) Err.t =
  fun v ->

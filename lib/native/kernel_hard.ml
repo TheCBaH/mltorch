@@ -9,11 +9,16 @@
 
 include Kernel_hard_shared
 
-(* From test/native/depth_probe.ml, re-measured after the scan primitive
-   widened [Value.t] and [Eval.value] (two more constructors, plus the
-   inline [Scan_at] recurrence): 1536 is the accepted ceiling pinned under
-   node. The exact failure frontier is deliberately not a contract: it
-   changes with whole-program linking and V8 optimization. 1536 keeps
-   roughly 2x headroom over resnet18's ~770 combined depth requirement,
-   matching the margin the original ceiling had. *)
-let eval_depth = 1536
+(* From test/native/depth_probe.ml, re-measured after the evaluator's
+   [go]/[guard]/[eval_i64] split was unified into one polymorphic-recursive
+   [eval] over the whole carrier-indexed grammar (see .ai/): the bigger match
+   (now also covering [I64_const]/[I64_binary]/[Float_to_i64]) costs more
+   stack per level under node, moving the measured frontier from ~1536 down
+   to ~1472-1504 (unstable in that band across repeated runs; 1408 was the
+   last value that survived every run). 1280 is the accepted ceiling pinned
+   below that with real margin, keeping roughly 1.66x headroom over
+   resnet18's ~770 combined depth requirement -- less than the previous
+   ceiling's 2x, since the new frontier itself is lower, but still
+   comfortably clear of it. The exact failure frontier is deliberately not a
+   contract: it changes with whole-program linking and V8 optimization. *)
+let eval_depth = 1280
