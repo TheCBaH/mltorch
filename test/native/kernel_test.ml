@@ -247,8 +247,9 @@ let small ~max_values ~max_inputs ~max_outputs =
   Err.or_raise ~pp_error:Kernel.Limits.pp_error
     (Kernel.Limits.create ~max_size:4096 ~max_depth:128 ~max_values
        ~max_dep_depth:1024 ~max_inputs ~max_outputs ~max_extent:0x7FFF_FFFFL
-       ~max_numel:0x7FFF_FFFFL ~max_local_slots:8192 ~max_scan_state:8192
-       ~max_scan_updates_per_key:8192L ~max_scan_updates_total:16_000_000L)
+       ~max_numel:0x7FFF_FFFFL ~max_bytes:0x1_FFFF_FFFFL ~max_local_slots:8192
+       ~max_scan_state:8192 ~max_scan_updates_per_key:8192L
+       ~max_scan_updates_total:16_000_000L)
 
 let%expect_test "Kernel.Limits: custom limits may tighten, never widen" =
   let case name r =
@@ -261,8 +262,9 @@ let%expect_test "Kernel.Limits: custom limits may tighten, never widen" =
   let mk ?(max_depth = 128) ?(max_numel = 0x7FFF_FFFFL) () =
     Kernel.Limits.create ~max_size:4096 ~max_depth ~max_values:16
       ~max_dep_depth:16 ~max_inputs:16 ~max_outputs:16 ~max_extent:0x7FFF_FFFFL
-      ~max_numel ~max_local_slots:8192 ~max_scan_state:8192
-      ~max_scan_updates_per_key:8192L ~max_scan_updates_total:16_000_000L
+      ~max_numel ~max_bytes:0x1_FFFF_FFFFL ~max_local_slots:8192
+      ~max_scan_state:8192 ~max_scan_updates_per_key:8192L
+      ~max_scan_updates_total:16_000_000L
   in
   case "in range" (mk ());
   (* [Expr.Check] is itself recursive and bounded by the CONFIGURED depth, so an
@@ -294,8 +296,8 @@ let%expect_test "Kernel.Limits: the four scan fields are checked and derived" =
       ?(max_scan_updates_total = 16_000_000L) () =
     Kernel.Limits.create ~max_size:4096 ~max_depth:128 ~max_values:16
       ~max_dep_depth:16 ~max_inputs:16 ~max_outputs:16 ~max_extent:0x7FFF_FFFFL
-      ~max_numel:0x7FFF_FFFFL ~max_local_slots ~max_scan_state
-      ~max_scan_updates_per_key ~max_scan_updates_total
+      ~max_numel:0x7FFF_FFFFL ~max_bytes:0x1_FFFF_FFFFL ~max_local_slots
+      ~max_scan_state ~max_scan_updates_per_key ~max_scan_updates_total
   in
   case "in range" (mk ());
   case "max_local_slots at Hard" (mk ~max_local_slots:1_048_576 ());
@@ -383,8 +385,9 @@ let%expect_test "Kernel: the numel guard runs before the product is formed" =
     Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:4096 ~max_depth:128 ~max_values:16
          ~max_dep_depth:16 ~max_inputs:16 ~max_outputs:16 ~max_extent:1000L
-         ~max_numel:0x7FFF_FFFFL ~max_local_slots:8192 ~max_scan_state:8192
-         ~max_scan_updates_per_key:8192L ~max_scan_updates_total:16_000_000L)
+         ~max_numel:0x7FFF_FFFFL ~max_bytes:0x1_FFFF_FFFFL ~max_local_slots:8192
+         ~max_scan_state:8192 ~max_scan_updates_per_key:8192L
+         ~max_scan_updates_total:16_000_000L)
   in
   case ~limits:tight "extent over a tightened limit" (s1c 2000);
   [%expect
@@ -392,6 +395,40 @@ let%expect_test "Kernel: the numel guard runs before the product is formed" =
     product exceeds Int64.max_int: t0 element count exceeds the limit
     product just past 2^31: t0 element count exceeds the limit
     extent over a tightened limit: t0 extent C=2000 exceeds the limit |}]
+
+let%expect_test
+    "Kernel: byte size is checked per format, not just element count" =
+  (* [max_numel] alone cannot catch this: 1000 elements clears any reasonable
+     element-count limit regardless of format, but I64's 8-byte cell uses
+     twice the bytes F32's 4-byte one does at the SAME count. A tightened
+     [max_bytes] between the two (5000, admitting F32's 4000 and rejecting
+     I64's 8000) is what actually distinguishes them -- a caller-bound input
+     is used (not [Filled]/a stored value) so [materializable]'s separate,
+     still-closed non-F32 gate cannot be what rejects the I64 case instead. *)
+  let tight_bytes =
+    Err.or_raise ~pp_error:Kernel.Limits.pp_error
+      (Kernel.Limits.create ~max_size:4096 ~max_depth:128 ~max_values:16
+         ~max_dep_depth:16 ~max_inputs:16 ~max_outputs:16
+         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL ~max_bytes:5000L
+         ~max_local_slots:8192 ~max_scan_state:8192
+         ~max_scan_updates_per_key:8192L ~max_scan_updates_total:16_000_000L)
+  in
+  let case name fmt =
+    Format.printf "%s: %a@." name pp_kernel
+      (Kernel.create ~limits:tight_bytes
+         ~inputs:[ input ~fmt 0 (s1c 1000) ]
+         ~values:[ value 2 (s1c 1) (load 0) ]
+         ~outputs:[ tid 2 ]
+         ())
+  in
+  case "f32 at 4000 bytes" (Payload.Fmt Payload.F32);
+  case "i64 at 8000 bytes" (Payload.Fmt Payload.I64);
+  [%expect
+    {|
+    f32 at 4000 bytes: input t0 : caller
+                       t2 = round_f32(t0[N,T,D,H,W,C])
+                       outputs: t2
+    i64 at 8000 bytes: t0 storage byte size exceeds the limit |}]
 
 let%expect_test "Kernel: budgets are checked before any unmetered traversal" =
   (* Deep enough to blow the stack in [Fold.sources], which [create] would run
@@ -817,8 +854,9 @@ let%expect_test "Kernel_adapt: raw lists are bounded before they are traversed"
     Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:4096 ~max_depth:128 ~max_values:16
          ~max_dep_depth:16 ~max_inputs:2 ~max_outputs:1 ~max_extent:0x7FFF_FFFFL
-         ~max_numel:0x7FFF_FFFFL ~max_local_slots:8192 ~max_scan_state:8192
-         ~max_scan_updates_per_key:8192L ~max_scan_updates_total:16_000_000L)
+         ~max_numel:0x7FFF_FFFFL ~max_bytes:0x1_FFFF_FFFFL ~max_local_slots:8192
+         ~max_scan_state:8192 ~max_scan_updates_per_key:8192L
+         ~max_scan_updates_total:16_000_000L)
   in
   let many_inputs =
     stage_program
@@ -862,8 +900,9 @@ let%expect_test "Kernel_adapt: the derived interface is bounded too" =
     Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:4096 ~max_depth:128 ~max_values:16
          ~max_dep_depth:16 ~max_inputs ~max_outputs ~max_extent:0x7FFF_FFFFL
-         ~max_numel:0x7FFF_FFFFL ~max_local_slots:8192 ~max_scan_state:8192
-         ~max_scan_updates_per_key:8192L ~max_scan_updates_total:16_000_000L)
+         ~max_numel:0x7FFF_FFFFL ~max_bytes:0x1_FFFF_FFFFL ~max_local_slots:8192
+         ~max_scan_state:8192 ~max_scan_updates_per_key:8192L
+         ~max_scan_updates_total:16_000_000L)
   in
   (* One raw input, but three stages; selecting only the last turns the two
      unselected producers into synthetic Caller inputs. *)

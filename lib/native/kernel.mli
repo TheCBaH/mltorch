@@ -90,6 +90,11 @@ module Limits : sig
     max_outputs : int;
     max_extent : int64;
     max_numel : int64;
+    max_bytes : int64;
+        (** Allocation byte budget ([numel * cell_bytes], checked overflow-safe
+            before allocation) -- independent of [max_numel], which bounds
+            JS-reachable coordinate addressability, not memory, and is the same
+            for every format regardless of cell width. *)
     max_local_slots : int;
         (** Region trace/scalar/vector storage: total slot count across a
             computation's locals, [(steps+1)*width] per trace local. *)
@@ -152,6 +157,7 @@ module Limits : sig
     val eval_recursion : int
     val extent : int64
     val numel : int64
+    val max_bytes : int64
 
     (* Memory- and array-length-bound, not stack-bound -- policy ceilings with
        deliberate headroom over the scan design record's censuses, not
@@ -175,6 +181,7 @@ module Limits : sig
     max_outputs:int ->
     max_extent:int64 ->
     max_numel:int64 ->
+    max_bytes:int64 ->
     max_local_slots:int ->
     max_scan_state:int ->
     max_scan_updates_per_key:int64 ->
@@ -238,6 +245,7 @@ end
 
 type error =
   [ `Body of Body_error.t
+  | `Bytes_too_large of Tensor_id.t
   | `Dependency_too_deep of int
   | `Duplicate_id of Tensor_id.t
   | `Eval_too_deep of int

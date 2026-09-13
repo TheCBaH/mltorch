@@ -482,9 +482,9 @@ let%expect_test "Native Direct materializes authored Regions once per key" =
     Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:1 ~max_depth:128 ~max_values:16
          ~max_dep_depth:16 ~max_inputs:16 ~max_outputs:16
-         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL ~max_local_slots:8192
-         ~max_scan_state:8192 ~max_scan_updates_per_key:8192L
-         ~max_scan_updates_total:16_000_000L)
+         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL
+         ~max_bytes:0x1_FFFF_FFFFL ~max_local_slots:8192 ~max_scan_state:8192
+         ~max_scan_updates_per_key:8192L ~max_scan_updates_total:16_000_000L)
   in
   let tight_result =
     Eval_direct.run ~limits:tight
@@ -687,17 +687,17 @@ let%expect_test "Region construction honors the graph-boundary contract" =
     Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:1 ~max_depth:128 ~max_values:16
          ~max_dep_depth:16 ~max_inputs:16 ~max_outputs:16
-         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL ~max_local_slots:8192
-         ~max_scan_state:8192 ~max_scan_updates_per_key:8192L
-         ~max_scan_updates_total:16_000_000L)
+         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL
+         ~max_bytes:0x1_FFFF_FFFFL ~max_local_slots:8192 ~max_scan_state:8192
+         ~max_scan_updates_per_key:8192L ~max_scan_updates_total:16_000_000L)
   in
   let expanded =
     Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:256 ~max_depth:128 ~max_values:256
          ~max_dep_depth:256 ~max_inputs:256 ~max_outputs:256
-         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL ~max_local_slots:8192
-         ~max_scan_state:8192 ~max_scan_updates_per_key:8192L
-         ~max_scan_updates_total:16_000_000L)
+         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL
+         ~max_bytes:0x1_FFFF_FFFFL ~max_local_slots:8192 ~max_scan_state:8192
+         ~max_scan_updates_per_key:8192L ~max_scan_updates_total:16_000_000L)
   in
   let present id =
     if Tensor_id.equal id x.Tensor_sig.id then Some x else None
@@ -759,9 +759,9 @@ let%expect_test "Region construction preflights local/trace storage too" =
     Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:256 ~max_depth:128 ~max_values:16
          ~max_dep_depth:16 ~max_inputs:16 ~max_outputs:16
-         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL ~max_local_slots:1
-         ~max_scan_state:8192 ~max_scan_updates_per_key:8192L
-         ~max_scan_updates_total:16_000_000L)
+         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL
+         ~max_bytes:0x1_FFFF_FFFFL ~max_local_slots:1 ~max_scan_state:8192
+         ~max_scan_updates_per_key:8192L ~max_scan_updates_total:16_000_000L)
   in
   Fmt.pr "default=%s one_slot=%s@."
     (show (build ~limits:Kernel.Limits.default))

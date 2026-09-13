@@ -61,6 +61,7 @@ module Limits = struct
     max_outputs : int;
     max_extent : int64;
     max_numel : int64;
+    max_bytes : int64;
     max_local_slots : int;
     max_scan_state : int;
     max_scan_updates_per_key : int64;
@@ -94,8 +95,8 @@ module Limits = struct
     else Err.return ()
 
   let create ~max_size ~max_depth ~max_values ~max_dep_depth ~max_inputs
-      ~max_outputs ~max_extent ~max_numel ~max_local_slots ~max_scan_state
-      ~max_scan_updates_per_key ~max_scan_updates_total =
+      ~max_outputs ~max_extent ~max_numel ~max_bytes ~max_local_slots
+      ~max_scan_state ~max_scan_updates_per_key ~max_scan_updates_total =
     let open Err.Syntax in
     let* () = check_int "max_size" max_size Hard.size in
     let* () = check_int "max_depth" max_depth Hard.depth in
@@ -105,6 +106,7 @@ module Limits = struct
     let* () = check_int "max_outputs" max_outputs Hard.outputs in
     let* () = check_int64 "max_extent" max_extent Hard.extent in
     let* () = check_int64 "max_numel" max_numel Hard.numel in
+    let* () = check_int64 "max_bytes" max_bytes Hard.max_bytes in
     let* () =
       check_int "max_local_slots" max_local_slots Hard.max_local_slots
     in
@@ -126,6 +128,7 @@ module Limits = struct
       max_outputs;
       max_extent;
       max_numel;
+      max_bytes;
       max_local_slots;
       max_scan_state;
       max_scan_updates_per_key;
@@ -148,13 +151,17 @@ module Limits = struct
      [Expr.Scan_limits.default] so the two constants cannot drift apart;
      [max_local_slots]/[max_scan_updates_total] have no [Expr]-side
      counterpart and are chosen directly from the scan design record's
-     headroom table. *)
+     headroom table. [max_extent]/[max_numel]/[max_bytes] instead sit as
+     permissive as [Hard] allows (one below its ceiling): unlike the
+     census-bounded fields above, these three describe the JS-reachable
+     runtime domain and an allocation byte budget, not a typical kernel's
+     shape, so there is no census figure to leave headroom below. *)
   let default =
     let scan_default = Expr.Scan_limits.default in
     Err.or_raise ~pp_error
       (create ~max_size:4096 ~max_depth:128 ~max_values:4096 ~max_dep_depth:1024
          ~max_inputs:1024 ~max_outputs:1024 ~max_extent:0x7FFF_FFFFL
-         ~max_numel:0x7FFF_FFFFL ~max_local_slots:8192
+         ~max_numel:0x7FFF_FFFFL ~max_bytes:0x1_FFFF_FFFFL ~max_local_slots:8192
          ~max_scan_state:(Expr.Scan_limits.max_state scan_default)
          ~max_scan_updates_per_key:(Expr.Scan_limits.max_updates scan_default)
          ~max_scan_updates_total:16_000_000L)
@@ -199,6 +206,7 @@ end
 
 type error =
   [ `Body of Body_error.t
+  | `Bytes_too_large of Tensor_id.t
   | `Dependency_too_deep of int
   | `Duplicate_id of Tensor_id.t
   | `Eval_too_deep of int
@@ -240,6 +248,8 @@ let pp_error fmt : [< error ] -> unit = function
         Expr.Axis.pp axis extent
   | `Numel_too_large id ->
       Fmt.pf fmt "%a element count exceeds the limit" Tensor_id.pp id
+  | `Bytes_too_large id ->
+      Fmt.pf fmt "%a storage byte size exceeds the limit" Tensor_id.pp id
   | `Not_materializable { Format_rule.id; role; fmt = f } ->
       Fmt.pf fmt "%a: a %s must be f32 and unquantized, got %s" Tensor_id.pp id
         (Format_rule.role_name role)
@@ -285,14 +295,24 @@ module Bounds = struct
        other [Hard.*] comparison in the engine. The [succ] converts the
        convention once, here, rather than tightening the configured limit by
        one element; it cannot overflow because [max_numel < Hard.numel]. *)
-    let+ _ =
+    let* numel =
       Err.map_error
         (fun (`Numel_over_limit _) -> `Numel_too_large id)
         (Vec6.numel_bounded
            ~limit:(Int64.succ limits.Limits.max_numel)
            sg.Tensor_sig.shape)
     in
-    ()
+    (* [numel] is already bounded well under [Hard.numel] (2^31) by the check
+       above, and a cell is at most 8 bytes, so this product cannot itself
+       overflow -- no divide-before-multiply needed here, unlike [numel]'s
+       own six-factor fold. *)
+    let bytes =
+      Int64.mul numel
+        (Int64.of_int (Payload.packed_cell_bytes sg.Tensor_sig.fmt))
+    in
+    if Int64.compare bytes limits.Limits.max_bytes > 0 then
+      Err.fail (`Bytes_too_large id)
+    else Err.return ()
 end
 
 (* ---- signature contracts -------------------------------------------------- *)

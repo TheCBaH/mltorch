@@ -101,9 +101,9 @@ let%expect_test
     Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:4096 ~max_depth:128 ~max_values:4095
          ~max_dep_depth:4095 ~max_inputs:1024 ~max_outputs:1024
-         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL ~max_local_slots:8192
-         ~max_scan_state:8192 ~max_scan_updates_per_key:8192L
-         ~max_scan_updates_total:16_000_000L)
+         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL
+         ~max_bytes:0x1_FFFF_FFFFL ~max_local_slots:8192 ~max_scan_state:8192
+         ~max_scan_updates_per_key:8192L ~max_scan_updates_total:16_000_000L)
   in
   Printf.printf "at the ceiling, create: %s\n" (create_report ~limits ~d:2 3072);
   Printf.printf "at the ceiling, run:    %s\n" (run_report ~limits ~d:2 3072);
@@ -124,9 +124,9 @@ let%expect_test
     Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:4096 ~max_depth:255 ~max_values:4095
          ~max_dep_depth:1024 ~max_inputs:1024 ~max_outputs:1024
-         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL ~max_local_slots:8192
-         ~max_scan_state:8192 ~max_scan_updates_per_key:8192L
-         ~max_scan_updates_total:16_000_000L)
+         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL
+         ~max_bytes:0x1_FFFF_FFFFL ~max_local_slots:8192 ~max_scan_state:8192
+         ~max_scan_updates_per_key:8192L ~max_scan_updates_total:16_000_000L)
   in
   (* Unlike the combined-depth check above, this one -- [Kernel.create]'s
      per-value [Region_group.Ref.project ~max_depth], the "one float Expr.Value.t"

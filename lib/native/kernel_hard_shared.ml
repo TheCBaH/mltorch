@@ -37,6 +37,17 @@ let outputs = 4096
 let extent = 0x8000_0000L
 let numel = 0x8000_0000L
 
+(* A policy ceiling, not an empirically discovered frontier (same category as
+   [max_local_slots]/[max_scan_state] below): nothing bounded actual
+   allocation BYTE size before this existed -- [numel] above bounds
+   JS-reachable coordinate addressability, not memory, and is deliberately
+   the same for every format. Sized to the worst case [numel] already
+   implicitly allowed at F32's 4-byte cell (2^31 * 4 = 8 GiB), so admitting
+   this ceiling does not retroactively shrink what an existing F32 kernel
+   could already request -- it only stops a WIDER-celled format (I64's 8
+   bytes) from using more total bytes than that at the same cell count. *)
+let max_bytes = 0x2_0000_0000L
+
 (* Memory- and array-length-bound, not stack-bound, per the scan design
    record's array-capacity probe -- policy ceilings with deliberate
    headroom, not empirically discovered frontiers like [depth]/[eval_depth].
