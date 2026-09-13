@@ -123,9 +123,7 @@ let eval_hybrid ~cutoff ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
       | Value.Binary (op, a, b) ->
           Value.apply_binary op (go depth reducers a) (go depth reducers b)
       | Value.Const x -> x
-      | Value.I64_to_float a ->
-          Int64.to_float
-            (vchk (Value.eval_i64 ~eval_float:(go depth reducers) a))
+      | Value.I64_to_float a -> Int64.to_float (vchk (eval_i64 depth reducers a))
       | Value.Intrinsic i -> intrinsic reducers i
       | Value.Local v -> (
           match local v with
@@ -208,6 +206,18 @@ let eval_hybrid ~cutoff ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
       match b with
       | Bool.Index_eq (a, b) -> Int.equal (idx reducers a) (idx reducers b)
       | Bool.Value_lt (a, b) -> go depth reducers a < go depth reducers b
+      | Bool.I64_eq (a, b) ->
+          Int64.equal
+            (vchk (eval_i64 depth reducers a))
+            (vchk (eval_i64 depth reducers b))
+      | Bool.I64_lt (a, b) ->
+          Int64.compare
+            (vchk (eval_i64 depth reducers a))
+            (vchk (eval_i64 depth reducers b))
+          < 0
+  and eval_i64 depth reducers a =
+    Value.eval_i64 ~eval_float:(go depth reducers)
+      ~eval_bool:(guard depth reducers) a
   and eval_scan_at depth reducers s row_i lane_i =
     let row = idx reducers row_i and lane = idx reducers lane_i in
     let projection = { Scan_projection.local = None; row; lane } in

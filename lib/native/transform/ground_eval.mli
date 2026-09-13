@@ -137,7 +137,9 @@ end
    [`Unsupported_i64_to_float_ground] rejects an [I64_to_float] cast outright:
    the typed Expr foundation's plain evaluator (Eval.value) supports it, but
    grounding/fusion does not yet -- feeds the same generic [Unproved]
-   conversion as [`Data_index_unresolved], never a false success. *)
+   conversion as [`Data_index_unresolved], never a false success.
+   [`Unsupported_i64_comparison_ground] is the same rejection for a [Select]
+   guarded by an [I64_eq]/[I64_lt] predicate. *)
 type error =
   [ Expr.Eval.error
   | `Data_index_unresolved
@@ -147,6 +149,7 @@ type error =
   | `Partition of Region_partition.error
   | `Region of Region_program.error
   | `Unknown_edge of Tensor_id.t
+  | `Unsupported_i64_comparison_ground
   | `Unsupported_i64_to_float_ground ]
 
 val pp_error : Format.formatter -> [< error ] -> unit

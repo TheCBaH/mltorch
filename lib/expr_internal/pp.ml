@@ -194,6 +194,15 @@ and at_i64 ~names env lenv n fmt (e : int64 Value.t) =
   | Value.I64_const x ->
       Fmt.pf fmt "%Ld" x;
       n
+  | Value.Select (c, a, b) ->
+      Fmt.pf fmt "select(";
+      let n = guard_at ~names env lenv n fmt c in
+      Fmt.pf fmt ", ";
+      let n = at_i64 ~names env lenv n fmt a in
+      Fmt.pf fmt ", ";
+      let n = at_i64 ~names env lenv n fmt b in
+      Fmt.pf fmt ")";
+      n
 
 (* The shared body of an unspecialized scan: [init]/[update], scoped and
    named exactly as a real [Value.Scan_at] read renders them, but with no
@@ -233,6 +242,20 @@ and guard_at ~names env lenv n fmt = function
       let n = at ~names env lenv n fmt a in
       Fmt.pf fmt " < ";
       let n = at ~names env lenv n fmt b in
+      Fmt.pf fmt ")";
+      n
+  | Bool.I64_eq (a, b) ->
+      Fmt.pf fmt "(";
+      let n = at_i64 ~names env lenv n fmt a in
+      Fmt.pf fmt " = ";
+      let n = at_i64 ~names env lenv n fmt b in
+      Fmt.pf fmt ")";
+      n
+  | Bool.I64_lt (a, b) ->
+      Fmt.pf fmt "(";
+      let n = at_i64 ~names env lenv n fmt a in
+      Fmt.pf fmt " < ";
+      let n = at_i64 ~names env lenv n fmt b in
       Fmt.pf fmt ")";
       n
 

@@ -155,12 +155,8 @@ let rec rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
         st )
   | Value.Select (c, a, b) ->
       let c, st =
-        match c with
-        | Bool.Value_lt (x, y) ->
-            let x, st = go x st in
-            let y, st = go y st in
-            (Bool.Value_lt (x, y), st)
-        | Bool.Index_eq (x, y) -> (Bool.Index_eq (idxe x, idxe y), st)
+        rebuild_bool ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
+          ~on_reduce ~on_local_bind env lenv c st
       in
       let a, st = go a st in
       let b, st = go b st in
@@ -220,6 +216,53 @@ and rebuild_i64 ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
       let b, st = go_i64 b st in
       (Value.I64_binary (op, a, b), st)
   | Value.I64_const _ -> (e, st)
+  | Value.Select (c, a, b) ->
+      let c, st =
+        rebuild_bool ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
+          ~on_reduce ~on_local_bind env lenv c st
+      in
+      let a, st = go_i64 a st in
+      let b, st = go_i64 b st in
+      (Value.Select (c, a, b), st)
+
+(* [bool_expr]'s own rebuild: [I64_eq]/[I64_lt]'s operands go through
+   [rebuild_i64], [Value_lt]'s through [rebuild], [Index_eq]'s carry only
+   indices. *)
+and rebuild_bool ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
+    ~on_reduce ~on_local_bind env lenv c st =
+  match c with
+  | Bool.Value_lt (x, y) ->
+      let x, st =
+        rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
+          ~on_reduce ~on_local_bind env lenv x st
+      in
+      let y, st =
+        rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
+          ~on_reduce ~on_local_bind env lenv y st
+      in
+      (Bool.Value_lt (x, y), st)
+  | Bool.Index_eq (x, y) ->
+      (Bool.Index_eq (idx.on_index env x, idx.on_index env y), st)
+  | Bool.I64_eq (x, y) ->
+      let x, st =
+        rebuild_i64 ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
+          ~on_reduce ~on_local_bind env lenv x st
+      in
+      let y, st =
+        rebuild_i64 ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
+          ~on_reduce ~on_local_bind env lenv y st
+      in
+      (Bool.I64_eq (x, y), st)
+  | Bool.I64_lt (x, y) ->
+      let x, st =
+        rebuild_i64 ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
+          ~on_reduce ~on_local_bind env lenv x st
+      in
+      let y, st =
+        rebuild_i64 ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
+          ~on_reduce ~on_local_bind env lenv y st
+      in
+      (Bool.I64_lt (x, y), st)
 
 let subst_env env v =
   match Reduce_var.Map.find_opt v env with Some w -> w | None -> v

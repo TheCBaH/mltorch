@@ -122,6 +122,31 @@ let rec run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
       ~widen:(fun (e : index_error) -> (e :> error))
       ~output ~reducers ~resolve_data:env.Env.load_index i
   in
+  (* Shared by [I64_to_float]/[Float_to_i64]'s [eval] and [I64_eq]/[I64_lt]'s
+     own operand evaluation below: [int64 Value.t] is not itself routed
+     through this machine's cutoff/frame-stack (see [Value.eval_i64]'s own
+     doc comment), but its [Float_to_i64]/[Select] children can embed the
+     full float/bool grammar, so those re-enter [run] synchronously rather
+     than assuming a closed leaf. *)
+  let eval_i64_via reducers a =
+    let eval_float e =
+      match
+        run ~esc ~env ~output ~scan ~scan_meter ~local ~local_at_ref ~cleanups
+          ~run_top_cleanup ~on_reduction (Eval_state (e, reducers))
+      with
+      | Float_result v -> v
+      | _ -> assert false
+    in
+    let eval_bool c =
+      match
+        run ~esc ~env ~output ~scan ~scan_meter ~local ~local_at_ref ~cleanups
+          ~run_top_cleanup ~on_reduction (Guard_state (c, reducers))
+      with
+      | Bool_result v -> v
+      | _ -> assert false
+    in
+    Value.eval_i64 ~eval_float ~eval_bool a
+  in
   let st = reuse_stack_create () in
   let intrinsic reducers (Intrinsic.Max_pool d as i) =
     let open Intrinsic.Max_pool in
@@ -264,17 +289,8 @@ let rec run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
     match state with
     | Eval_state (Value.Const x, _) -> (loop [@tailcall]) (Float_result x)
     | Eval_state (Value.I64_to_float a, reducers) ->
-        let eval_float e =
-          match
-            run ~esc ~env ~output ~scan ~scan_meter ~local ~local_at_ref
-              ~cleanups ~run_top_cleanup ~on_reduction
-              (Eval_state (e, reducers))
-          with
-          | Float_result v -> v
-          | _ -> assert false
-        in
         (loop [@tailcall])
-          (Float_result (Int64.to_float (vchk (Value.eval_i64 ~eval_float a))))
+          (Float_result (Int64.to_float (vchk (eval_i64_via reducers a))))
     | Eval_state (Value.Local v, _) -> (
         match local v with
         | Some x -> (loop [@tailcall]) (Float_result x)
@@ -396,6 +412,19 @@ let rec run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
     | Guard_state (Bool.Index_eq (a, b), reducers) ->
         (loop [@tailcall])
           (Bool_result (Int.equal (idx reducers a) (idx reducers b)))
+    | Guard_state (Bool.I64_eq (a, b), reducers) ->
+        (loop [@tailcall])
+          (Bool_result
+             (Int64.equal
+                (vchk (eval_i64_via reducers a))
+                (vchk (eval_i64_via reducers b))))
+    | Guard_state (Bool.I64_lt (a, b), reducers) ->
+        (loop [@tailcall])
+          (Bool_result
+             (Int64.compare
+                (vchk (eval_i64_via reducers a))
+                (vchk (eval_i64_via reducers b))
+             < 0))
     | Guard_state (Bool.Value_lt (a, b), reducers) ->
 #if defined MELANGE_BACKEND
         reuse_stack_push st (Value_lt_left (b, reducers));

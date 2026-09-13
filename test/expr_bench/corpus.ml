@@ -137,6 +137,30 @@ let index_eq_true =
        (Bool.index_eq (Index.const 3) (Index.const 3))
        (Value.const 1.) (Value.const 0.))
 
+(* [Select] generalized to [int64 t], guarded by [Bool.i64_lt] -- exercises
+   the new [eval_i64]/[guard] mutual dependency ([Select]'s [int64 t]
+   branches, [I64_lt]'s [int64 t] operands) through every candidate, not
+   just the reference evaluator. *)
+let i64_select_true =
+  make_case ~name:"i64_select_true" ~expected:10. ~env:dead_env ~output:origin
+    (Value.i64_to_float
+       (Value.select
+          (Bool.i64_lt (Value.i64_const 1L) (Value.i64_const 2L))
+          (Value.i64_const 10L) (Value.i64_const 20L)))
+
+(* [Bool.i64_eq], and an [I64_lt] operand that is itself a [Float_to_i64] --
+   the carrier-crossing case [Value.eval_i64]'s own doc comment calls out,
+   here reached through [guard] rather than a standalone [eval_i64] call. *)
+let i64_eq_through_cast =
+  make_case ~name:"i64_eq_through_cast" ~expected:1. ~env:dead_env
+    ~output:origin
+    (Value.i64_to_float
+       (Value.select
+          (Bool.i64_eq
+             (Value.float_to_i64 (Value.const 5.))
+             (Value.i64_const 5L))
+          (Value.i64_const 1L) (Value.i64_const 0L)))
+
 let round_f32_case =
   make_case ~name:"round_f32" ~expected:1. ~env:dead_env ~output:origin
     (Value.round_f32 (Value.exp (Value.const 0.)))
@@ -309,6 +333,8 @@ let cases =
     select_true;
     select_false;
     index_eq_true;
+    i64_select_true;
+    i64_eq_through_cast;
     round_f32_case;
     local_case;
     local_at_case;

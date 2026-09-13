@@ -80,6 +80,8 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
         charge () && measure_index a && measure_index b
     | Expr.Bool.Value_lt (a, b) ->
         charge () && measure_value a && measure_value b
+    | Expr.Bool.I64_eq (a, b) | Expr.Bool.I64_lt (a, b) ->
+        charge () && measure_value_i64 a && measure_value_i64 b
   and measure_value = function
     | Expr.Value.Binary (_, a, b) ->
         charge () && measure_value a && measure_value b
@@ -115,6 +117,9 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
     | Expr.Value.I64_const _ -> charge ()
     | Expr.Value.I64_binary (_, a, b) ->
         charge () && measure_value_i64 a && measure_value_i64 b
+    | Expr.Value.Select (b, t, f) ->
+        charge () && measure_bool b && measure_value_i64 t
+        && measure_value_i64 f
   in
   let measure_region ~locals ~output =
     charge ()
@@ -317,6 +322,20 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
         in
         walk_value scope ~parent:id ~role:"lhs" a;
         walk_value scope ~parent:id ~role:"rhs" b
+    | Expr.Bool.I64_eq (a, b) ->
+        let id =
+          add ~parent ~role ~language:"bool" ~constructor:"i64_eq"
+            ~label:"i64_eq" ()
+        in
+        walk_value_i64 scope ~parent:id ~role:"lhs" a;
+        walk_value_i64 scope ~parent:id ~role:"rhs" b
+    | Expr.Bool.I64_lt (a, b) ->
+        let id =
+          add ~parent ~role ~language:"bool" ~constructor:"i64_lt"
+            ~label:"i64_lt" ()
+        in
+        walk_value_i64 scope ~parent:id ~role:"lhs" a;
+        walk_value_i64 scope ~parent:id ~role:"rhs" b
   and walk_value scope ~parent ~role = function
     | Expr.Value.Binary (op, a, b) ->
         let id =
@@ -486,6 +505,14 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
         in
         walk_value_i64 scope ~parent:id ~role:"lhs" a;
         walk_value_i64 scope ~parent:id ~role:"rhs" b
+    | Expr.Value.Select (condition, t, f) ->
+        let id =
+          add ~parent ~role ~language:"value" ~constructor:"select"
+            ~label:"select" ()
+        in
+        walk_bool scope ~parent:id ~role:"condition" condition;
+        walk_value_i64 scope ~parent:id ~role:"true_branch" t;
+        walk_value_i64 scope ~parent:id ~role:"false_branch" f
   in
   let root =
     add ~language:"presentation" ~constructor:"result"

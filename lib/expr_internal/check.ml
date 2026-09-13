@@ -45,14 +45,7 @@ let duplicate_binder e =
         match go bound lbound a with None -> go bound lbound b | some -> some)
     | Value.Unary (_, a) | Value.Round_f32 a -> go bound lbound a
     | Value.Select (c, a, b) -> (
-        let guard =
-          match c with
-          | Bool.Value_lt (x, y) -> (
-              match go bound lbound x with
-              | None -> go bound lbound y
-              | some -> some)
-          | Bool.Index_eq _ -> None
-        in
+        let guard = go_bool bound lbound c in
         match guard with
         | Some _ -> guard
         | None -> (
@@ -93,6 +86,21 @@ let duplicate_binder e =
         | None -> go_i64 bound lbound b
         | some -> some)
     | Value.I64_const _ -> None
+    | Value.Select (c, a, b) -> (
+        match go_bool bound lbound c with
+        | Some _ as d -> d
+        | None -> (
+            match go_i64 bound lbound a with
+            | None -> go_i64 bound lbound b
+            | some -> some))
+  and go_bool bound lbound = function
+    | Expr_repr.Value_lt (x, y) -> (
+        match go bound lbound x with None -> go bound lbound y | some -> some)
+    | Expr_repr.Index_eq _ -> None
+    | Expr_repr.I64_eq (x, y) | Expr_repr.I64_lt (x, y) -> (
+        match go_i64 bound lbound x with
+        | None -> go_i64 bound lbound y
+        | some -> some)
   in
   go Reduce_var.Set.empty Local_var.Set.empty e
 

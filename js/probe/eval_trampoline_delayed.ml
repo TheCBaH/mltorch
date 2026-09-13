@@ -140,10 +140,7 @@ let eval_trampoline_delayed ~threshold ?(local = fun _ -> None)
       match e with
       | Value.Const x -> resume depth k x
       | Value.I64_to_float a ->
-          let eval_float e =
-            run_trampoline (go reducers depth e (fun _ result -> Done result))
-          in
-          resume depth k (Int64.to_float (vchk (Value.eval_i64 ~eval_float a)))
+          resume depth k (Int64.to_float (vchk (eval_i64_via reducers depth a)))
       | Value.Local v -> (
           match local v with
           | Some x -> resume depth k x
@@ -366,6 +363,45 @@ let eval_trampoline_delayed ~threshold ?(local = fun _ -> None)
           go reducers depth b (fun depth bv ->
               go reducers depth a (fun depth av -> resume depth k (av < bv)))
 #endif
+      | Bool.I64_eq (a, b) ->
+          resume depth k
+            (Int64.equal
+               (vchk (eval_i64_via reducers depth a))
+               (vchk (eval_i64_via reducers depth b)))
+      | Bool.I64_lt (a, b) ->
+          resume depth k
+            (Int64.compare
+               (vchk (eval_i64_via reducers depth a))
+               (vchk (eval_i64_via reducers depth b))
+            < 0)
+  (* [int64 Value.t]/[bool_expr] are not routed through this trampoline's own
+     depth/[Bounce] cycling -- see [Value.eval_i64]'s doc comment -- but their
+     [Float_to_i64]/[Value_lt] operands are the unbounded float language, so
+     each re-enters [go]/[run_trampoline] synchronously at the CURRENT
+     [depth], the same escape hatch [Eval_candidates.eval_machine] uses for
+     its own [I64_to_float]. Neither [bool_expr] nor [I64_binary] nests a
+     [bool_expr], so [eval_bool_via] itself needs no [Bounce] of its own. *)
+  and eval_i64_via reducers depth a =
+    let eval_float e =
+      run_trampoline (go reducers depth e (fun _ result -> Done result))
+    in
+    Value.eval_i64 ~eval_float ~eval_bool:(eval_bool_via reducers depth) a
+  and eval_bool_via reducers depth = function
+    | Bool.Index_eq (a, b) -> Int.equal (idx reducers a) (idx reducers b)
+    | Bool.Value_lt (a, b) ->
+        let eval_float e =
+          run_trampoline (go reducers depth e (fun _ result -> Done result))
+        in
+        eval_float a < eval_float b
+    | Bool.I64_eq (a, b) ->
+        Int64.equal
+          (vchk (eval_i64_via reducers depth a))
+          (vchk (eval_i64_via reducers depth b))
+    | Bool.I64_lt (a, b) ->
+        Int64.compare
+          (vchk (eval_i64_via reducers depth a))
+          (vchk (eval_i64_via reducers depth b))
+        < 0
   in
   try run_trampoline (go init_reducers 0 e (fun _ x -> Done x))
   with exn ->

@@ -144,9 +144,7 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
       | Value.Binary (op, a, b) ->
           Value.apply_binary op (go depth reducers a) (go depth reducers b)
       | Value.Const x -> x
-      | Value.I64_to_float a ->
-          Int64.to_float
-            (vchk (Value.eval_i64 ~eval_float:(go depth reducers) a))
+      | Value.I64_to_float a -> Int64.to_float (vchk (eval_i64 depth reducers a))
       | Value.Intrinsic i -> (intrinsic [@tailcall]) reducers i
       | Value.Local v -> (
           match local v with
@@ -239,6 +237,18 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
       match b with
       | Bool.Index_eq (a, b) -> Int.equal (idx reducers a) (idx reducers b)
       | Bool.Value_lt (a, b) -> go depth reducers a < go depth reducers b
+      | Bool.I64_eq (a, b) ->
+          Int64.equal
+            (vchk (eval_i64 depth reducers a))
+            (vchk (eval_i64 depth reducers b))
+      | Bool.I64_lt (a, b) ->
+          Int64.compare
+            (vchk (eval_i64 depth reducers a))
+            (vchk (eval_i64 depth reducers b))
+          < 0
+  and eval_i64 depth reducers a =
+    Value.eval_i64 ~eval_float:(go depth reducers)
+      ~eval_bool:(guard depth reducers) a
   and intrinsic reducers (Intrinsic.Max_pool d as i) =
     let open Intrinsic.Max_pool in
     let at a = idx reducers (Coord.get d.out a) in
@@ -411,8 +421,7 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
     | Value.Binary (op, a, b) ->
         Value.apply_binary op (go reducers a) (go reducers b)
     | Value.Const x -> x
-    | Value.I64_to_float a ->
-        Int64.to_float (vchk (Value.eval_i64 ~eval_float:(go reducers) a))
+    | Value.I64_to_float a -> Int64.to_float (vchk (eval_i64 reducers a))
     | Value.Intrinsic i -> (intrinsic [@tailcall]) reducers i
     | Value.Local v -> (
         match local v with
@@ -496,6 +505,13 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
   and guard reducers = function
     | Bool.Index_eq (a, b) -> Int.equal (idx reducers a) (idx reducers b)
     | Bool.Value_lt (a, b) -> go reducers a < go reducers b
+    | Bool.I64_eq (a, b) ->
+        Int64.equal (vchk (eval_i64 reducers a)) (vchk (eval_i64 reducers b))
+    | Bool.I64_lt (a, b) ->
+        Int64.compare (vchk (eval_i64 reducers a)) (vchk (eval_i64 reducers b))
+        < 0
+  and eval_i64 reducers a =
+    Value.eval_i64 ~eval_float:(go reducers) ~eval_bool:(guard reducers) a
   and intrinsic reducers (Intrinsic.Max_pool d as i) =
     let open Intrinsic.Max_pool in
     let at a = idx reducers (Coord.get d.out a) in

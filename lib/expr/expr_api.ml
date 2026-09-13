@@ -210,11 +210,15 @@ module type S = sig
 
   module rec Bool : sig
     type t = private
+      | I64_eq of int64 Value.t * int64 Value.t
+      | I64_lt of int64 Value.t * int64 Value.t
       | Index_eq of Role.Delta.t Index.t * Role.Delta.t Index.t
       | Value_lt of float Value.t * float Value.t
 
     val value_lt : float Value.t -> float Value.t -> t
     val index_eq : Role.Delta.t Index.t -> Role.Delta.t Index.t -> t
+    val i64_eq : int64 Value.t -> int64 Value.t -> t
+    val i64_lt : int64 Value.t -> int64 Value.t -> t
   end
 
   and Reduction : sig
@@ -307,7 +311,7 @@ module type S = sig
       | Scan_at :
           Scan.t * Role.Position.t Index.t * Role.Position.t Index.t
           -> float t
-      | Select : Bool.t * float t * float t -> float t
+      | Select : Bool.t * 'a t * 'a t -> 'a t
       | Unary : unary_op * float t -> float t
       | Value_of_index : Role.Delta.t Index.t -> float t
 
@@ -343,16 +347,20 @@ module type S = sig
 
     val eval_i64 :
       eval_float:(float t -> float) ->
+      eval_bool:(Bool.t -> bool) ->
       int64 t ->
       (int64, [> i64_from_float_error ]) Err.t
     (** [I64_const]/[I64_binary] need no environment and cannot fail;
         [Float_to_i64] evaluates its operand via the supplied [eval_float] (in
         practice, [Eval.value]'s own recursive evaluator, partially applied) and
-        then [i64_of_float]s the result. Not yet audited for stack safety on
-        very deep [I64_binary] nesting on the JS backends -- unlike
-        [Eval.value], there is no depth cutoff on that particular recursion;
-        [Float_to_i64]'s own operand IS cutoff-safe, since it evaluates through
-        the supplied [eval_float]. *)
+        then [i64_of_float]s the result. [Select]'s predicate goes through the
+        supplied [eval_bool] (in practice, [Eval.value]'s own [guard], partially
+        applied); only the selected branch is evaluated, matching every other
+        carrier's [Select]. Not yet audited for stack safety on very deep
+        [I64_binary] nesting on the JS backends -- unlike [Eval.value], there is
+        no depth cutoff on that particular recursion; [Float_to_i64]'s own
+        operand IS cutoff-safe, since it evaluates through the supplied
+        [eval_float]. *)
 
     val const : float -> float t
     val add : float t -> float t -> float t
@@ -371,7 +379,7 @@ module type S = sig
         [_to_copy.default]/[to.dtype] cast. Distinct from [round_f32], which
         rounds to f32 storage precision, not to an integer. *)
 
-    val select : Bool.t -> float t -> float t -> float t
+    val select : Bool.t -> 'a t -> 'a t -> 'a t
     val value_of_index : Role.Delta.t Index.t -> float t
     val load : Source.t -> Role.Position.t Index.t Coord.t -> float t
     val round_f32 : float t -> float t

@@ -61,13 +61,7 @@ let check ~limits value =
         go multiplier b
     | Value.Unary (_, a) | Value.Round_f32 a -> go multiplier a
     | Value.Select (c, a, b) ->
-        let* () =
-          match c with
-          | Bool.Value_lt (x, y) ->
-              let* () = go multiplier x in
-              go multiplier y
-          | Bool.Index_eq _ -> Err.return ()
-        in
+        let* () = go_bool multiplier c in
         let* () = go multiplier a in
         go multiplier b
     | Value.Reduce r ->
@@ -103,5 +97,17 @@ let check ~limits value =
         let* () = go_i64 multiplier a in
         go_i64 multiplier b
     | Value.I64_const _ -> Err.return ()
+    | Value.Select (c, a, b) ->
+        let* () = go_bool multiplier c in
+        let* () = go_i64 multiplier a in
+        go_i64 multiplier b
+  and go_bool multiplier = function
+    | Expr_repr.Value_lt (x, y) ->
+        let* () = go multiplier x in
+        go multiplier y
+    | Expr_repr.Index_eq _ -> Err.return ()
+    | Expr_repr.I64_eq (x, y) | Expr_repr.I64_lt (x, y) ->
+        let* () = go_i64 multiplier x in
+        go_i64 multiplier y
   in
   go (Some 1) value

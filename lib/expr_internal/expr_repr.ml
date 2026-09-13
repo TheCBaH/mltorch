@@ -70,11 +70,22 @@ type _ value =
   | Scan_at :
       scan * Role.Position.t Index.t * Role.Position.t Index.t
       -> float value
-  | Select : bool_expr * float value * float value -> float value
+  | Select : bool_expr * 'a value * 'a value -> 'a value
   | Unary : unary_op * float value -> float value
   | Value_of_index : Role.Delta.t Index.t -> float value
 
+(* Not part of the [_ value] GADT: a predicate always denotes [bool], so
+   giving it its own index would only ever be instantiated at [bool], and
+   [Select]'s carrier-crossing generality (see [Select]'s own doc comment
+   above) already covers a predicate built from one. [I64_eq]/[I64_lt] are
+   the first inhabitants at [int64 value] operands -- like [Value_lt]'s
+   [float value] operands, they are the UNBOUNDED language (either can embed
+   a [Float_to_i64]), so evaluating one needs the same environment-carrying
+   machinery [Select]'s own [int64 value] branches now do, not a closed
+   standalone function. *)
 and bool_expr =
+  | I64_eq of int64 value * int64 value
+  | I64_lt of int64 value * int64 value
   | Index_eq of Role.Delta.t Index.t * Role.Delta.t Index.t
   | Value_lt of float value * float value
 

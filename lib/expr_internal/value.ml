@@ -30,7 +30,7 @@ type 'a t = 'a Expr_repr.value =
   | Scan_at :
       Expr_repr.scan * Role.Position.t Index.t * Role.Position.t Index.t
       -> float t
-  | Select : Expr_repr.bool_expr * float t * float t -> float t
+  | Select : Expr_repr.bool_expr * 'a t * 'a t -> 'a t
   | Unary : unary_op * float t -> float t
   | Value_of_index : Role.Delta.t Index.t -> float t
 
@@ -111,17 +111,23 @@ let i64_of_float f : (int64, [> i64_from_float_error ]) Err.t =
    audited for very deep [I64_binary] nesting on the JS backends -- unlike
    [go], there is no cutoff on THAT recursion; [Float_to_i64]'s own operand IS
    cutoff-safe, since it evaluates through the supplied [eval_float]. *)
-let rec eval_i64 ~eval_float :
+let rec eval_i64 ~eval_float ~eval_bool :
     int64 t -> (int64, [> i64_from_float_error ]) Err.t =
  fun v ->
   let open Err.Syntax in
   match v with
   | I64_const x -> Err.return x
   | I64_binary (op, a, b) ->
-      let* x = eval_i64 ~eval_float a in
-      let+ y = eval_i64 ~eval_float b in
+      let* x = eval_i64 ~eval_float ~eval_bool a in
+      let+ y = eval_i64 ~eval_float ~eval_bool b in
       apply_i64_binary op x y
   | Float_to_i64 a -> i64_of_float (eval_float a)
+  (* Eager in neither more nor less than [go]'s own [Select] is: only the
+     SELECTED branch is evaluated, matching the float-carrier case exactly
+     (see [Eval.value]'s own doc comment on why). *)
+  | Select (c, a, b) ->
+      if eval_bool c then eval_i64 ~eval_float ~eval_bool a
+      else eval_i64 ~eval_float ~eval_bool b
 
 let apply_binary = function
   | Add -> ( +. )
@@ -273,6 +279,18 @@ let tag_i64 = function
   | Float_to_i64 _ -> 0
   | I64_binary _ -> 1
   | I64_const _ -> 2
+  | Select _ -> 3
+
+(* [bool_expr] is not part of the [_ value] GADT (see its own doc comment in
+   expr_repr.ml), so its comparator is a third [and]-linked sibling of [go]/
+   [cmp_i64] rather than a case within either: [I64_eq]/[I64_lt]'s operands
+   need [cmp_i64], [Value_lt]'s need [go], and both can reference an
+   enclosing binder exactly as [Select]'s own branches can. *)
+let tag_bool = function
+  | Expr_repr.I64_eq _ -> 0
+  | Expr_repr.I64_lt _ -> 1
+  | Expr_repr.Index_eq _ -> 2
+  | Expr_repr.Value_lt _ -> 3
 
 let compare a b =
   let rec go ea eb la lb n a b =
@@ -286,14 +304,7 @@ let compare a b =
         Stdlib.compare o p <?> fun () -> go ea eb la lb n x y
     | Round_f32 x, Round_f32 y -> go ea eb la lb n x y
     | Select (c, x1, x2), Select (d, y1, y2) ->
-        (match (c, d) with
-          | Expr_repr.Value_lt (p, q), Expr_repr.Value_lt (r, s) ->
-              go ea eb la lb n p r <?> fun () -> go ea eb la lb n q s
-          | Expr_repr.Index_eq (p, q), Expr_repr.Index_eq (r, s) ->
-              cmp_index ea eb p r <?> fun () -> cmp_index ea eb q s
-          | Expr_repr.Value_lt _, Expr_repr.Index_eq _ -> -1
-          | Expr_repr.Index_eq _, Expr_repr.Value_lt _ -> 1)
-        <?> fun () ->
+        cmp_bool ea eb la lb n c d <?> fun () ->
         go ea eb la lb n x1 y1 <?> fun () -> go ea eb la lb n x2 y2
     | Value_of_index x, Value_of_index y -> cmp_index ea eb x y
     | Load (s, x), Load (t, y) ->
@@ -354,6 +365,20 @@ let compare a b =
         Stdlib.compare o p <?> fun () ->
         cmp_i64 ea eb la lb n x1 y1 <?> fun () -> cmp_i64 ea eb la lb n x2 y2
     | I64_const x, I64_const y -> Int64.compare x y
+    | Select (c, x1, x2), Select (d, y1, y2) ->
+        cmp_bool ea eb la lb n c d <?> fun () ->
+        cmp_i64 ea eb la lb n x1 y1 <?> fun () -> cmp_i64 ea eb la lb n x2 y2
+    | _ -> 0
+  and cmp_bool ea eb la lb n c d =
+    Int.compare (tag_bool c) (tag_bool d) <?> fun () ->
+    match (c, d) with
+    | Expr_repr.I64_eq (x1, x2), Expr_repr.I64_eq (y1, y2)
+    | Expr_repr.I64_lt (x1, x2), Expr_repr.I64_lt (y1, y2) ->
+        cmp_i64 ea eb la lb n x1 y1 <?> fun () -> cmp_i64 ea eb la lb n x2 y2
+    | Expr_repr.Index_eq (p, q), Expr_repr.Index_eq (r, s) ->
+        cmp_index ea eb p r <?> fun () -> cmp_index ea eb q s
+    | Expr_repr.Value_lt (p, q), Expr_repr.Value_lt (r, s) ->
+        go ea eb la lb n p r <?> fun () -> go ea eb la lb n q s
     | _ -> 0
   in
   go Reduce_var.Map.empty Reduce_var.Map.empty Local_var.Map.empty
@@ -406,11 +431,7 @@ let hash e =
     | Unary (o, a) -> go env lenv n (mix h (Hashtbl.hash o)) a
     | Round_f32 a -> go env lenv n h a
     | Select (c, a, b) ->
-        let h =
-          match c with
-          | Expr_repr.Value_lt (x, y) -> go env lenv n (go env lenv n h x) y
-          | Expr_repr.Index_eq (x, y) -> idx env (idx env h x) y
-        in
+        let h = hash_bool env lenv n h c in
         go env lenv n (go env lenv n h a) b
     | Value_of_index i -> idx env h i
     | Load (s, c) ->
@@ -464,6 +485,7 @@ let hash e =
      low/high 32 bits before [Int64.to_int], the same idiom [Const]'s own
      float-bits hash above uses. *)
   and hash_i64 env lenv n h (e : int64 t) =
+    let h = mix h (tag_i64 e) in
     match e with
     | Float_to_i64 a -> go env lenv n h a
     | I64_binary (o, a, b) ->
@@ -472,5 +494,18 @@ let hash e =
         mix
           (mix h (Int64.to_int (Int64.logand x 0xFFFFFFFFL)))
           (Int64.to_int (Int64.shift_right_logical x 32))
+    | Select (c, a, b) ->
+        let h = hash_bool env lenv n h c in
+        hash_i64 env lenv n (hash_i64 env lenv n h a) b
+  (* [bool_expr]'s hash-side twin of [compare]'s [cmp_bool]: [I64_eq]/
+     [I64_lt]'s operands need [hash_i64], [Value_lt]'s need [go], and
+     [Index_eq]'s carry no environment-sensitive content of their own. *)
+  and hash_bool env lenv n h c =
+    let h = mix h (tag_bool c) in
+    match c with
+    | Expr_repr.I64_eq (x, y) | Expr_repr.I64_lt (x, y) ->
+        hash_i64 env lenv n (hash_i64 env lenv n h x) y
+    | Expr_repr.Value_lt (x, y) -> go env lenv n (go env lenv n h x) y
+    | Expr_repr.Index_eq (x, y) -> idx env (idx env h x) y
   in
   go Reduce_var.Map.empty Local_var.Map.empty 0 17 e

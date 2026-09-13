@@ -227,9 +227,8 @@ let eval_machine ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
     | Eval_state (Value.Const x, _), _ ->
         (loop [@tailcall]) (Float_result x) frames
     | Eval_state (Value.I64_to_float a, reducers), _ ->
-        let eval_float e = loop (Eval_state (e, reducers)) [] in
         (loop [@tailcall])
-          (Float_result (Int64.to_float (vchk (Value.eval_i64 ~eval_float a))))
+          (Float_result (Int64.to_float (vchk (eval_i64_via reducers a))))
           frames
     | Eval_state (Value.Local v, _), _ -> (
         match local v with
@@ -367,6 +366,21 @@ let eval_machine ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
         (loop [@tailcall])
           (Bool_result (Int.equal (idx reducers a) (idx reducers b)))
           frames
+    | Guard_state (Bool.I64_eq (a, b), reducers), _ ->
+        (loop [@tailcall])
+          (Bool_result
+             (Int64.equal
+                (vchk (eval_i64_via reducers a))
+                (vchk (eval_i64_via reducers b))))
+          frames
+    | Guard_state (Bool.I64_lt (a, b), reducers), _ ->
+        (loop [@tailcall])
+          (Bool_result
+             (Int64.compare
+                (vchk (eval_i64_via reducers a))
+                (vchk (eval_i64_via reducers b))
+             < 0))
+          frames
     (* Same backend-measured order as [Binary] above. *)
     | Guard_state (Bool.Value_lt (a, b), reducers), _ ->
 #if defined MELANGE_BACKEND
@@ -464,10 +478,29 @@ let eval_machine ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
           let next_state, frame = fill_next_lane p in
           (loop [@tailcall]) next_state (frame :: rest)
         end
-    | Float_result v, [] -> v
+    | Float_result _, [] | Bool_result _, [] -> state
     | (Bool_result _ | Float_result _), _ -> assert false
+  (* Shared by [I64_to_float]/[Float_to_i64]'s [eval] and [I64_eq]/[I64_lt]'s
+     own operand evaluation below -- see [Value.eval_i64]'s own doc comment
+     for why [int64 Value.t] cannot stay a closed standalone function once
+     [Float_to_i64]/[Select] exist at that carrier. *)
+  and eval_i64_via reducers a =
+    let eval_float e =
+      match loop (Eval_state (e, reducers)) [] with
+      | Float_result v -> v
+      | Bool_result _ | Eval_state _ | Guard_state _ -> assert false
+    in
+    let eval_bool c =
+      match loop (Guard_state (c, reducers)) [] with
+      | Bool_result v -> v
+      | Float_result _ | Eval_state _ | Guard_state _ -> assert false
+    in
+    Value.eval_i64 ~eval_float ~eval_bool a
   in
-  try loop (Eval_state (e, init_reducers)) []
+  try
+    match loop (Eval_state (e, init_reducers)) [] with
+    | Float_result v -> v
+    | Bool_result _ | Eval_state _ | Guard_state _ -> assert false
   with exn ->
     let bt = capture_backtrace () in
     (match skip_cleanup with

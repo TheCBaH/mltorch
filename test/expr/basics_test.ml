@@ -88,10 +88,16 @@ let%expect_test "Scalar: packed existential round trip" =
 
 let%expect_test "Value: exact I64 arithmetic, no float intermediary" =
   let open Value in
-  (* No [Float_to_i64] node in any tree here, so [eval_float] is provably
-     never called -- these trees are closed over [I64_const]/[I64_binary]. *)
+  (* No [Float_to_i64]/[Select] node in any tree here, so [eval_float]/
+     [eval_bool] are provably never called -- these trees are closed over
+     [I64_const]/[I64_binary]. *)
   let eval_i64 e =
-    match eval_i64 ~eval_float:(fun _ -> assert false) e with
+    match
+      eval_i64
+        ~eval_float:(fun _ -> assert false)
+        ~eval_bool:(fun _ -> assert false)
+        e
+    with
     | Ok v -> v
     | Error _ -> assert false
   in
@@ -195,6 +201,62 @@ let%expect_test
   Fmt.pr "%a@." pp
     (Eval.value env ~output (round_trip 9_223_372_036_854_775_808.));
   [%expect {| Float-to-I64 cast of 0x1p+63, outside [-2^63, 2^63) |}]
+
+let%expect_test "Value: Select generalized to int64, and I64 comparisons" =
+  let open Value in
+  let env =
+    {
+      Eval.Env.load = (fun _ _ -> assert false);
+      load_index = (fun _ _ -> assert false);
+    }
+  in
+  let output = Coord.of_fn (fun _ -> 0) in
+  let pp = Core.Pretty.err_result ~ok:Fmt.float ~error:Eval.pp_error in
+  (* [Select]'s branches are now [int64 t], not just [float t] -- observed
+     through [i64_to_float] since [Eval.value] only ever produces a
+     [float]. Only the SELECTED branch is evaluated, matching every other
+     carrier's [Select]: this predicate is true, so the [20L] branch is
+     never touched. *)
+  let lt =
+    i64_to_float
+      (select
+         (Bool.i64_lt (i64_const 1L) (i64_const 2L))
+         (i64_const 10L) (i64_const 20L))
+  in
+  Fmt.pr "%a@." Pp.value lt;
+  [%expect {| i64_to_float(select((1 < 2), 10, 20)) |}];
+  Fmt.pr "%a@." pp (Eval.value env ~output lt);
+  [%expect {| 10 |}];
+  let eq_true =
+    i64_to_float
+      (select
+         (Bool.i64_eq (i64_const 5L) (i64_const 5L))
+         (i64_const 1L) (i64_const 0L))
+  in
+  Fmt.pr "%a@." Pp.value eq_true;
+  [%expect {| i64_to_float(select((5 = 5), 1, 0)) |}];
+  Fmt.pr "%a@." pp (Eval.value env ~output eq_true);
+  [%expect {| 1 |}];
+  let eq_false =
+    i64_to_float
+      (select
+         (Bool.i64_eq (i64_const 5L) (i64_const 6L))
+         (i64_const 1L) (i64_const 0L))
+  in
+  Fmt.pr "%a@." pp (Eval.value env ~output eq_false);
+  [%expect {| 0 |}];
+  (* An [I64_eq]/[I64_lt] operand can itself embed a [Float_to_i64] -- the
+     same carrier-crossing generality [Select]'s own branches have -- so this
+     exercises [guard]'s new cases calling back into [eval_i64]/[go], not
+     just a closed [I64_const] comparison. *)
+  let cmp_through_cast =
+    i64_to_float
+      (select
+         (Bool.i64_lt (float_to_i64 (const 1.)) (i64_const 2L))
+         (i64_const 100L) (i64_const 200L))
+  in
+  Fmt.pr "%a@." pp (Eval.value env ~output cmp_through_cast);
+  [%expect {| 100 |}]
 
 let%expect_test "Fold: Float_to_i64's operand is not a closed leaf" =
   (* [int64 Value.t] stopped being closed the moment [Float_to_i64] existed:

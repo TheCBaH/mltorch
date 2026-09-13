@@ -212,6 +212,7 @@ type error =
   | `Partition of Region_partition.error
   | `Region of Region_program.error
   | `Unknown_edge of Tensor_id.t
+  | `Unsupported_i64_comparison_ground
   | `Unsupported_i64_to_float_ground ]
 
 let pp_error fmt : [< error ] -> unit = function
@@ -228,6 +229,10 @@ let pp_error fmt : [< error ] -> unit = function
   | `Partition e -> Region_partition.pp_error fmt e
   | `Region e -> Region_program.pp_error fmt e
   | `Unknown_edge id -> Fmt.pf fmt "unknown edge %a" Tensor_id.pp id
+  | `Unsupported_i64_comparison_ground ->
+      Fmt.string fmt
+        "An I64 comparison has no grounded/fused representation yet (P1 typed \
+         Expr foundation only supports the plain evaluator, see .ai/)"
   | `Unsupported_i64_to_float_ground ->
       Fmt.string fmt
         "I64_to_float has no grounded/fused representation yet (P1 typed Expr \
@@ -459,7 +464,9 @@ let rec ground esc ~env ~meter ~arena ~frame ~coord ~rvars
           node esc meter
             (Ground_expr.select arena
                (Ground_expr.lt arena (recur x) (recur y))
-               (recur a) (recur b)))
+               (recur a) (recur b))
+      | Expr.Bool.I64_eq _ | Expr.Bool.I64_lt _ ->
+          Err.Escape.throw esc `Unsupported_i64_comparison_ground)
   | Expr.Value.Load (src, idx) ->
       leaf esc ~env ~meter ~arena (Expr_bridge.id_of_source src) (fun a ->
           index (Expr.Coord.get idx a))
