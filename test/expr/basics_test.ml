@@ -196,6 +196,34 @@ let%expect_test
     (Eval.value env ~output (round_trip 9_223_372_036_854_775_808.));
   [%expect {| Float-to-I64 cast of 0x1p+63, outside [-2^63, 2^63) |}]
 
+let%expect_test "Fold: Float_to_i64's operand is not a closed leaf" =
+  (* [int64 Value.t] stopped being closed the moment [Float_to_i64] existed:
+     its operand is the unbounded float language, so every scope-aware [Fold]
+     query must still see inside it through an enclosing [I64_to_float]. This
+     reduction's [var] is bound only inside the [Reduce] node the builder
+     produces; taking [body] out on its own (as this test does deliberately,
+     never through the public API otherwise) is exactly what makes the
+     reference free -- checking that against the WRAPPED tree is what proves
+     [Fold]/[Check]/[Rewrite]'s int64-side companions actually recurse into
+     [Float_to_i64] rather than stopping at [I64_to_float]. *)
+  let open Builder.Syntax in
+  let e =
+    Builder.run
+      (Builder.reduction ~kind:Reduction.Sum ~lo:Index.zero ~hi:(Index.const 2)
+         (fun r ->
+           let+ () = Builder.return () in
+           Value.value_of_index (Index.of_position r)))
+  in
+  match e with
+  | Value.Reduce red ->
+      let escaped =
+        Value.i64_to_float (Value.float_to_i64 red.Reduction.body)
+      in
+      Fmt.pr "free reducers reached through the cast: %d@."
+        (Reduce_var.Set.cardinal (Fold.free_reducers escaped));
+      [%expect {| free reducers reached through the cast: 1 |}]
+  | _ -> assert false
+
 let%expect_test "Source: stateless bijection and rendering" =
   let s = Source.create 7 in
   (* [pp] must match lib/native's [Tensor_id.pp] so a printed Load stays

@@ -38,9 +38,9 @@ let duplicate_binder e =
   let rec go bound lbound (e : float Value.t) =
     match e with
     | Value.Const _ | Value.Value_of_index _ | Value.Load _ | Value.Intrinsic _
-    | Value.Local _ | Value.Local_at _ | Value.Local_scan_at _
-    | Value.I64_to_float _ ->
+    | Value.Local _ | Value.Local_at _ | Value.Local_scan_at _ ->
         None
+    | Value.I64_to_float a -> go_i64 bound lbound a
     | Value.Binary (_, a, b) -> (
         match go bound lbound a with None -> go bound lbound b | some -> some)
     | Value.Unary (_, a) | Value.Round_f32 a -> go bound lbound a
@@ -82,6 +82,17 @@ let duplicate_binder e =
                      (Reduce_var.Set.add s.Scan.step bound))
                   (Local_var.Set.add s.Scan.prev lbound)
                   s.Scan.update)
+  (* [Float_to_i64]'s operand can rebind a reducer/local just as easily as any
+     other float subtree, so it must go through [go] rather than be treated
+     as closed. *)
+  and go_i64 bound lbound (e : int64 Value.t) =
+    match e with
+    | Value.Float_to_i64 a -> go bound lbound a
+    | Value.I64_binary (_, a, b) -> (
+        match go_i64 bound lbound a with
+        | None -> go_i64 bound lbound b
+        | some -> some)
+    | Value.I64_const _ -> None
   in
   go Reduce_var.Set.empty Local_var.Set.empty e
 

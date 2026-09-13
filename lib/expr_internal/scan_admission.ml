@@ -53,9 +53,9 @@ let check ~limits value =
   let rec go multiplier (e : float Value.t) =
     match e with
     | Value.Const _ | Value.Local _ | Value.Local_at _ | Value.Local_scan_at _
-    | Value.Load _ | Value.Value_of_index _ | Value.Intrinsic _
-    | Value.I64_to_float _ ->
+    | Value.Load _ | Value.Value_of_index _ | Value.Intrinsic _ ->
         Err.return ()
+    | Value.I64_to_float a -> go_i64 multiplier a
     | Value.Binary (_, a, b) ->
         let* () = go multiplier a in
         go multiplier b
@@ -92,5 +92,16 @@ let check ~limits value =
         in
         let* () = go multiplier s.Scan.init in
         go multiplier s.Scan.update
+  (* [Float_to_i64]'s operand can hide a [Scan_at] just as easily as any other
+     float subtree -- missing it here would let a scan composed under an
+     unbounded reduction (or one whose worst-case update count exceeds
+     [limits]) evade this check entirely. *)
+  and go_i64 multiplier (e : int64 Value.t) =
+    match e with
+    | Value.Float_to_i64 a -> go multiplier a
+    | Value.I64_binary (_, a, b) ->
+        let* () = go_i64 multiplier a in
+        go_i64 multiplier b
+    | Value.I64_const _ -> Err.return ()
   in
   go (Some 1) value

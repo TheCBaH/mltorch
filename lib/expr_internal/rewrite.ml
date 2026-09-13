@@ -112,11 +112,12 @@ let rec rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
   in
   match e with
   | Value.Const _ -> (e, st)
-  | Value.I64_to_float _ ->
-      (* [int64 Value.t] has no [Local]/[Load]/[Reduce] to substitute or
-         specialize yet, so there is nothing for any rewrite below to do
-         inside it -- unchanged, like [Const]. *)
-      (e, st)
+  | Value.I64_to_float a ->
+      let a, st =
+        rebuild_i64 ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
+          ~on_reduce ~on_local_bind env lenv a st
+      in
+      (Value.I64_to_float a, st)
   | Value.Local v -> on_local lenv v st
   | Value.Local_at (v, i) -> on_local_at lenv v (idxe i) st
   | Value.Local_scan_at (v, row, lane) ->
@@ -192,6 +193,33 @@ let rec rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
                out = Coord.map idxe d.Intrinsic.Max_pool.out;
              }),
         st )
+
+(* [Float_to_i64]'s operand is an ordinary [float Value.t] child, rebuilt
+   through [rebuild] under the SAME [env]/[lenv] -- [and]-linked for the same
+   reason [compare]/[hash]/[Pp]'s int64 twins are: a rewrite that skipped it
+   (treating [int64 Value.t] as closed, which stopped being true once
+   [Float_to_i64] existed) would leave a reducer/local reference there
+   unrenamed by [freshen], reintroducing exactly the capture collision this
+   module exists to prevent. [I64_binary]/[I64_const] have no [Local]/[Load]/
+   [Reduce] of their own, so they only thread [st]. *)
+and rebuild_i64 ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
+    ~on_reduce ~on_local_bind env lenv (e : int64 Value.t) st =
+  let go_i64 =
+    rebuild_i64 ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
+      ~on_reduce ~on_local_bind env lenv
+  in
+  match e with
+  | Value.Float_to_i64 a ->
+      let a, st =
+        rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
+          ~on_reduce ~on_local_bind env lenv a st
+      in
+      (Value.Float_to_i64 a, st)
+  | Value.I64_binary (op, a, b) ->
+      let a, st = go_i64 a st in
+      let b, st = go_i64 b st in
+      (Value.I64_binary (op, a, b), st)
+  | Value.I64_const _ -> (e, st)
 
 let subst_env env v =
   match Reduce_var.Map.find_opt v env with Some w -> w | None -> v
