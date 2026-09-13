@@ -43,7 +43,7 @@ let out_sig =
 (* Reads [self] at [C = index[0]] -- the same coordinate shape
    [Index_tensor.Compute.pixel] will build in Gate 3, without needing that
    op's Graph_ir node to exist yet: a stage's body is an ordinary
-   [Expr.Value.t], independent of what op produced it. *)
+   [float Expr.Value.t], independent of what op produced it. *)
 let body =
   Expr.Value.load
     (Expr_bridge.source_of_id self_id)

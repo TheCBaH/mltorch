@@ -112,7 +112,7 @@ let eval_hybrid ~cutoff ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
     Eval_machine_reuse.run ~esc ~env ~output ~scan ~scan_meter ~local
       ~local_at_ref ~cleanups ~run_top_cleanup ~on_reduction seed
   in
-  let rec go depth reducers (e : Value.t) : float =
+  let rec go depth reducers (e : float Value.t) : float =
     if depth >= cutoff then
       match machine_run (Eval_state (e, reducers)) with
       | Float_result v -> v

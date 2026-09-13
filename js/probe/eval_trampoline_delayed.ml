@@ -1,6 +1,6 @@
 (* The tail-call conversion's Stage 5 [eval_trampoline_delayed] candidate
    (see .ai/): CPS with periodic bounces, one of the four candidate
-   evaluators for [Expr_internal]'s full [Value.t]/[Bool.t] grammar. Split
+   evaluators for [Expr_internal]'s full [float Value.t]/[Bool.t] grammar. Split
    out of [eval_candidates.ml] (which keeps the shared [pending work] types
    and [eval_machine]) once the combined file passed the file-size cap --
    copied into [expr_internal_js]/[expr_internal_mel] the same way, from the
@@ -131,7 +131,7 @@ let eval_trampoline_delayed ~threshold ?(local = fun _ -> None)
    fun depth k v ->
     if depth >= threshold then Bounce (fun () -> k 0 v) else k (depth + 1) v
   in
-  let rec go reducers depth (e : Value.t) (k : int -> float -> float bounce) :
+  let rec go reducers depth (e : float Value.t) (k : int -> float -> float bounce) :
       float bounce =
     if depth >= threshold then
       Bounce (fun () -> (go [@tailcall]) reducers 0 e k)

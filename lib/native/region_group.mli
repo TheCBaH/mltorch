@@ -16,7 +16,7 @@ module Emitter : sig
         (** [(canonical_axis, physical_axis)] pairs: which of this emitter's own
             [Region_partition.Axis_mode.Singleton] axes carries the canonical
             group's key coordinate declared at that [canonical_axis]. *)
-    output : Expr.Value.t;
+    output : float Expr.Value.t;
         (** In this emitter's OWN physical output coordinates -- never
             rewritten; only the shared locals it reads are projected per emitter
             (see [project]). *)
@@ -159,7 +159,7 @@ module Ref : sig
   (** [project], discarding the resulting program -- for a caller that only
       wants validation. *)
 
-  val pixel_expression : t -> Expr.Value.t option
+  val pixel_expression : t -> float Expr.Value.t option
   (** [Solo p -> Region_program.pixel_expression p]; [Grouped _ -> None] -- a
       grouped emitter is never a bare pixel expression; the shared executor is
       its only execution path (design record §5.4). *)

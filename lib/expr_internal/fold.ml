@@ -91,7 +91,7 @@ type 'acc idx_fn = { idx : 'r. 'acc -> 'r Index.t -> 'acc }
      handled in exactly one place. Reduction bounds are visited as indices and
      the body as a value; the BINDER is not interpreted here -- callers that care
      about scope (free variables, [Check]) handle it themselves. *)
-let rec walk ~value ~index ~intrinsic acc (e : Value.t) =
+let rec walk ~value ~index ~intrinsic acc (e : float Value.t) =
   let acc = value acc e in
   let recur = walk ~value ~index ~intrinsic in
   match e with
@@ -221,7 +221,7 @@ let measure_with_locals ~local ~max_size ~max_depth e =
      bound-tracking convention as [scoped_locals]/[keep]: the callback isn't
      told to skip anything, the traversal simply never calls it for a bound
      id. *)
-  let rec value bound budget left (e : Value.t) =
+  let rec value bound budget left (e : float Value.t) =
     let local_size, local_depth =
       match e with
       | (Value.Local v | Value.Local_at (v, _) | Value.Local_scan_at (v, _, _))
@@ -358,7 +358,7 @@ type local_ref =
    [scalar_locals], [vector_locals] and [scan_locals] below -- they differ
    only in which node kind [f] keeps, matching the pre-scan code's shape of
    one [walk] callback per query. *)
-let rec scoped_locals ~f bound acc (e : Value.t) =
+let rec scoped_locals ~f bound acc (e : float Value.t) =
   let go = scoped_locals ~f bound in
   match e with
   | Value.Const _ | Value.Value_of_index _ | Value.Load _ | Value.Intrinsic _ ->
@@ -443,7 +443,7 @@ let sat_mul_i64 a b =
    mutually recursive), a [Scan_at]/[Local_scan_at] read's row/lane/step
    arguments and a [Reduce]'s bounds can never hide a scan, so every other
    node contributes only its children's cost. *)
-let rec scan_cost (e : Value.t) : int64 * int =
+let rec scan_cost (e : float Value.t) : int64 * int =
   match e with
   | Value.Const _ | Value.Intrinsic _ | Value.Load _ | Value.Local _
   | Value.Local_at _ | Value.Local_scan_at _ | Value.Value_of_index _ ->
@@ -488,7 +488,7 @@ let intrinsics e =
 (* Scope-aware, unlike the queries above: a reducer mentioned under its own
      binder is bound, not free. A well-formed top-level expression has none. *)
 let free_reducers e =
-  let rec go bound acc (e : Value.t) =
+  let rec go bound acc (e : float Value.t) =
     let idx acc i =
       Reduce_var.Set.diff (index_reducers Reduce_var.Set.empty i) bound
       |> Reduce_var.Set.union acc
@@ -537,7 +537,7 @@ let free_reducers e =
      the structural comparison each carry their own SCOPED environment, because
      a list keyed by identity cannot distinguish those siblings. *)
 let binders e =
-  let rec go acc (e : Value.t) =
+  let rec go acc (e : float Value.t) =
     match e with
     | Value.Binary (_, a, b) -> go (go acc a) b
     | Value.Const _ -> acc
@@ -569,7 +569,7 @@ let binders e =
 (* [Fold.binders]'s local-namespace sibling: only [prev] is ever a local
    binder, introduced once per [Scan_at], for [update]'s scope. *)
 let local_binders e =
-  let rec go acc (e : Value.t) =
+  let rec go acc (e : float Value.t) =
     match e with
     | Value.Binary (_, a, b) -> go (go acc a) b
     | Value.Const _ -> acc

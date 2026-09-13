@@ -20,32 +20,40 @@ type unary_op = Cos | Erf | Exp | Log | Sin | Sqrt | Trunc
    must run the identical [pool_better] fold. *)
 type reduction_kind = Argmax_index | Argmax_value | Max | Sum
 
-type value =
-  | Binary of binary_op * value * value
-  | Const of float
-  | Intrinsic of Intrinsic.t
-  | Local of Local_var.t
-  | Local_at of Local_var.t * Role.Position.t Index.t
-  | Local_scan_at of
+(* Carrier-indexed: every constructor below returns [float value], the only
+   inhabited index today -- this is a behavior-preserving reshape into GADT
+   form (see .ai/), not yet an admission of a second carrier. A future I64/Bool
+   constructor is a new case returning [int64 value]/[bool value], added
+   alongside these without disturbing them. *)
+type _ value =
+  | Binary : binary_op * float value * float value -> float value
+  | Const : float -> float value
+  | Intrinsic : Intrinsic.t -> float value
+  | Local : Local_var.t -> float value
+  | Local_at : Local_var.t * Role.Position.t Index.t -> float value
+  | Local_scan_at :
       Local_var.t * Role.Position.t Index.t * Role.Position.t Index.t
-  | Load of Source.t * Role.Position.t Index.t Coord.t
-  | Reduce of reduction
-  | Round_f32 of value
-  | Scan_at of scan * Role.Position.t Index.t * Role.Position.t Index.t
-  | Select of bool_expr * value * value
-  | Unary of unary_op * value
-  | Value_of_index of Role.Delta.t Index.t
+      -> float value
+  | Load : Source.t * Role.Position.t Index.t Coord.t -> float value
+  | Reduce : reduction -> float value
+  | Round_f32 : float value -> float value
+  | Scan_at :
+      scan * Role.Position.t Index.t * Role.Position.t Index.t
+      -> float value
+  | Select : bool_expr * float value * float value -> float value
+  | Unary : unary_op * float value -> float value
+  | Value_of_index : Role.Delta.t Index.t -> float value
 
 and bool_expr =
   | Index_eq of Role.Delta.t Index.t * Role.Delta.t Index.t
-  | Value_lt of value * value
+  | Value_lt of float value * float value
 
 and reduction = {
   kind : reduction_kind;
   var : Reduce_var.t;
   lo : Role.Position.t Index.t;
   hi : Role.Delta.t Index.t;
-  body : value;
+  body : float value;
 }
 
 (* [trace.(0, l) = init[lane := l]]; [trace.(s+1, l) = update[step := s, lane
@@ -61,6 +69,6 @@ and scan = {
   lane : Reduce_var.t;
   step : Reduce_var.t;
   prev : Local_var.t;
-  init : value;
-  update : value;
+  init : float value;
+  update : float value;
 }

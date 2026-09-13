@@ -23,7 +23,7 @@ let evaluate (shape : Vec6.shape) (pixel : Vec6.coord -> float) =
   Tensor.materialize shape pixel
 
 (* The Symbolic counterpart: an op's [pixel] built once at [Symbolic] is an
-   [Expr.Value.t] with no data of its own — [ground] is what turns that
+   [float Expr.Value.t] with no data of its own — [ground] is what turns that
    expression back into a concrete tensor, by evaluating it at every output
    coord against a [binding] that supplies real data for each edge it was built
    over. The same expression can be grounded against different bindings without
@@ -37,7 +37,7 @@ let evaluate (shape : Vec6.shape) (pixel : Vec6.coord -> float) =
    total signature-keyed function: [None] becomes a named failure rather than a
    [Not_found] escaping from inside a map lookup. *)
 let ground (shape : Vec6.shape) ~(binding : Tensor_id.t -> Tensor.packed option)
-    ~(scan_limits : Expr.Scan_limits.t) (e : Expr.Value.t) =
+    ~(scan_limits : Expr.Scan_limits.t) (e : float Expr.Value.t) =
   let env = Expr_bridge.env ~binding in
   (* [Err.Escape] once per PIXEL, not per node, and only here.
      [Tensor.materialize] takes [Vec6.coord -> float] and is the engine's

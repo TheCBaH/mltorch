@@ -66,10 +66,10 @@ let keep_indices = { on_index = (fun _ i -> i) }
      under, which is what keeps scope handling in ONE place instead of repeated
      per rewrite. *)
 (* STATE-PASSING, with [Builder.state] last: [rebuild ~idx ~src ~on_reduce env
-     e] then has exactly the representation of a [Value.t Builder.t], since the
+     e] then has exactly the representation of a [float Value.t Builder.t], since the
      monad is [state -> 'a * state] and this is a section of the same unit. With
      the state in the middle, partial application would leave
-     [state -> Value.t -> _], which is not a computation at all.
+     [state -> float Value.t -> _], which is not a computation at all.
 
      Written directly rather than with [let*]. A monadic tower would allocate a
      closure per AST node and then walk that tree to produce the result -- two
@@ -85,7 +85,7 @@ let keep_indices = { on_index = (fun _ i -> i) }
 (* [on_load] sees the already-rewritten source and coordinate and returns the
      node that replaces the load. It exists so a load can become a SUBTREE
      rather than only a renamed symbol, without a second scope-aware traversal
-     of [Value.t] living outside this module. Its result is returned as-is and
+     of [float Value.t] living outside this module. Its result is returned as-is and
      never fed back through [go]: an inserted fragment is not re-traversed, and
      the composition rules that depend on that say so. *)
 let keep_load s c st = (Value.Load (s, c), st)
@@ -100,7 +100,7 @@ let keep_load s c st = (Value.Load (s, c), st)
      [on_local_bind] mints/keeps [prev]'s replacement and extends [lenv],
      mirroring [on_reduce] for [lane]/[step]. *)
 let rec rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
-    ~on_reduce ~on_local_bind env lenv (e : Value.t) st =
+    ~on_reduce ~on_local_bind env lenv (e : float Value.t) st =
   let go =
     rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
       ~on_reduce ~on_local_bind env lenv
@@ -317,7 +317,7 @@ let rec subst_reducer : type r.
 
 (* [rebuild] specialised to a pure, non-minting substitution of [var] for
      [repl] everywhere in [e] -- the same shape as [substitute_output], reused
-     here instead of a hand-written recursion over [Value.t] so [Select]'s
+     here instead of a hand-written recursion over [float Value.t] so [Select]'s
      [Bool.Index_eq] guard and the [Max_pool] descriptor get the substitution
      too, for free, rather than by a second, separately-reviewed traversal. *)
 let substitute_reducer var repl e =
@@ -389,7 +389,7 @@ let substitute_loads f e st =
     ~on_local_bind:keep_local_bind () () e st
 
 (* What a local resolves to during [substitute_locals]. A closed variant, not
-     two callbacks or a wider [Value.t] convention, per CLAUDE.md's payload
+     two callbacks or a wider [float Value.t] convention, per CLAUDE.md's payload
      rule: a scalar local substitutes its whole value at a [Local] occurrence,
      a vector local instead carries the binder [var] its stored [body] is
      parameterised over, substituted at a [Local_at] occurrence's read index
@@ -400,9 +400,9 @@ let substitute_loads f e st =
      is reported the same way an already-invalid tree elsewhere would be --
      structurally, via [invalid_arg], never silently. *)
 type local_binding =
-  | Scalar of Value.t
+  | Scalar of float Value.t
   | Scan of Scan.t
-  | Vector of { var : Reduce_var.t; body : Value.t }
+  | Vector of { var : Reduce_var.t; body : float Value.t }
 
 let substitute_locals f e st =
   rebuild ~idx:keep_indices ~src:Fun.id ~on_load:keep_load

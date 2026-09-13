@@ -71,7 +71,7 @@ let coord st ~in_scope ~depth =
      draws stay reproducible from the seed. *)
   Expr.Coord.of_fn (fun _ -> position st ~in_scope ~depth)
 
-let rec value st ~in_scope ~depth : Expr.Value.t Expr.Builder.t =
+let rec value st ~in_scope ~depth : float Expr.Value.t Expr.Builder.t =
   let const () =
     Expr.Builder.return
       (Expr.Value.const (float_of_int (int_in st ~lo:(-3) ~hi:3)))

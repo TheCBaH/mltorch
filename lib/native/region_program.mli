@@ -32,24 +32,24 @@ type error =
 type t = private {
   partition : Region_partition.t;
   locals : Region_local.t list;
-  output : Expr.Value.t;
+  output : float Expr.Value.t;
 }
 
 type program = t
 
-val pixel : Expr.Value.t -> t
+val pixel : float Expr.Value.t -> t
 val partition : t -> Region_partition.t
 val locals : t -> Region_local.t list
-val output : t -> Expr.Value.t
-val with_output : t -> Expr.Value.t -> t
-val pixel_expression : t -> Expr.Value.t option
+val output : t -> float Expr.Value.t
+val with_output : t -> float Expr.Value.t -> t
+val pixel_expression : t -> float Expr.Value.t option
 
 val specialize_pixel :
   max_size:int ->
   max_depth:int ->
   scan_limits:Expr.Scan_limits.t ->
   t ->
-  (Expr.Value.t, error) Err.t
+  (float Expr.Value.t, error) Err.t
 (** Symbolic expansion of a Region program into one Pixel expression. This is
     distinct from concrete scalar projection. Inlining a [Local_scan_at] read
     turns it into the referenced scan's own [Scan_at] node (a real re-execution,
@@ -62,7 +62,7 @@ val reconstructs :
   max_size:int ->
   max_depth:int ->
   scan_limits:Expr.Scan_limits.t ->
-  pixel:Expr.Value.t ->
+  pixel:float Expr.Value.t ->
   t ->
   (bool, error) Err.t
 
@@ -71,7 +71,7 @@ val create :
   max_depth:int ->
   partition:Region_partition.t ->
   locals:Region_local.t list ->
-  output:Expr.Value.t ->
+  output:float Expr.Value.t ->
   (t, error) Err.t
 
 val check : max_size:int -> max_depth:int -> t -> (unit, error) Err.t
@@ -119,12 +119,12 @@ module Builder : sig
   type 'a t
 
   val run : 'a t -> 'a
-  val scalar : Expr.Value.t -> (Expr.Value.t -> 'a t) -> 'a t
+  val scalar : float Expr.Value.t -> (float Expr.Value.t -> 'a t) -> 'a t
 
   val vector :
     extent:int ->
-    (Expr.Role.Position.t Expr.Index.t -> Expr.Value.t Expr.Builder.t) ->
-    ((Expr.Role.Position.t Expr.Index.t -> Expr.Value.t) -> 'a t) ->
+    (Expr.Role.Position.t Expr.Index.t -> float Expr.Value.t Expr.Builder.t) ->
+    ((Expr.Role.Position.t Expr.Index.t -> float Expr.Value.t) -> 'a t) ->
     'a t
   (** [value] builds the local's body from its own symbolic per-element index,
       the same shape [Expr.Builder.reduction]'s body callback has. [continue]
@@ -136,15 +136,17 @@ module Builder : sig
     limits:Expr.Scan_limits.t ->
     width:int ->
     steps:int ->
-    init:(lane:Expr.Role.Position.t Expr.Index.t -> Expr.Value.t Expr.Builder.t) ->
+    init:
+      (lane:Expr.Role.Position.t Expr.Index.t ->
+      float Expr.Value.t Expr.Builder.t) ->
     update:
       (step:Expr.Role.Position.t Expr.Index.t ->
       lane:Expr.Role.Position.t Expr.Index.t ->
-      previous_at:(Expr.Role.Position.t Expr.Index.t -> Expr.Value.t) ->
-      Expr.Value.t Expr.Builder.t) ->
+      previous_at:(Expr.Role.Position.t Expr.Index.t -> float Expr.Value.t) ->
+      float Expr.Value.t Expr.Builder.t) ->
     ((row:Expr.Role.Position.t Expr.Index.t ->
      lane:Expr.Role.Position.t Expr.Index.t ->
-     Expr.Value.t) ->
+     float Expr.Value.t) ->
     ('v, ([> `Scan of Expr.Scan.error ] as 'e)) Err.t t) ->
     ('v, 'e) Err.t t
   (** Declares a trace local via [Expr.Builder.scan] and hands [continue] a
@@ -167,7 +169,7 @@ module Builder : sig
     max_size:int ->
     max_depth:int ->
     partition:Region_partition.t ->
-    output:Expr.Value.t ->
+    output:float Expr.Value.t ->
     (program, error) Err.t t
 
   val of_fn :

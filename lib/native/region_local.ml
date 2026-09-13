@@ -1,7 +1,11 @@
 module Rhs = struct
   type t =
-    | Scalar of Expr.Value.t
-    | Vector of { extent : int; var : Expr.Reduce_var.t; body : Expr.Value.t }
+    | Scalar of float Expr.Value.t
+    | Vector of {
+        extent : int;
+        var : Expr.Reduce_var.t;
+        body : float Expr.Value.t;
+      }
     | Scan of Expr.Scan.t
 
   let scalar value = Scalar value
@@ -19,7 +23,7 @@ module Rhs = struct
     | Vector { extent; _ } -> extent
     | Scan s -> (s.Expr.Scan.steps + 1) * s.Expr.Scan.width
 
-  (* The one [Expr.Value.t] a scalar/vector RHS carries; for a scan, a
+  (* The one [float Expr.Value.t] a scalar/vector RHS carries; for a scan, a
      FOLDABLE stand-in built the same way a real trace read is -- wrapped as
      [Expr.Value.scan_at] so [Expr.Fold]/[Expr.Check] apply their existing
      per-child masking of [lane]/[step]/[prev] unchanged. [row]/[lane] here

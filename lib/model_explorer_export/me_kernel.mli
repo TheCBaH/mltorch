@@ -3,7 +3,7 @@
    NOT [Me_build.Make]. That functor projects an op graph — nodes carrying an
    operator, edges carrying tensor ids — and neither of these is one. A
    [Stage_program.t] and a [Kernel.t] are lists of VALUES, each an
-   [Expr.Value.t] whose dependencies are recovered by folding the expression
+   [float Expr.Value.t] whose dependencies are recovered by folding the expression
    rather than read off a field. The shared body would have to be parameterised
    over "how do I get a node's operands" in a way that made both call sites
    harder to read than two projections that each say what they do.

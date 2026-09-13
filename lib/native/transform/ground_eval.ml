@@ -374,8 +374,8 @@ let scan_bounds ~local ~row ~lane ~extent kind =
    the enclosing Region program's already-grounded locals; a legacy Pixel
    stage (no locals at all) grounds with [Frame.empty], so this is the SAME
    traversal for both, never a special-cased Pixel path. *)
-let rec ground esc ~env ~meter ~arena ~frame ~coord ~rvars (e : Expr.Value.t) :
-    Ground_expr.t =
+let rec ground esc ~env ~meter ~arena ~frame ~coord ~rvars
+    (e : float Expr.Value.t) : Ground_expr.t =
   let recur = ground esc ~env ~meter ~arena ~frame ~coord ~rvars in
   (* Calls [eval_index] directly (not the public [Expr.Eval.index]), passing
      THIS module's own escape token: both use the identical escape-based

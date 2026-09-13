@@ -211,9 +211,9 @@ module type S = sig
   module rec Bool : sig
     type t = private
       | Index_eq of Role.Delta.t Index.t * Role.Delta.t Index.t
-      | Value_lt of Value.t * Value.t
+      | Value_lt of float Value.t * float Value.t
 
-    val value_lt : Value.t -> Value.t -> t
+    val value_lt : float Value.t -> float Value.t -> t
     val index_eq : Role.Delta.t Index.t -> Role.Delta.t Index.t -> t
   end
 
@@ -233,7 +233,7 @@ module type S = sig
       var : Reduce_var.t;
       lo : Role.Position.t Index.t;
       hi : Role.Delta.t Index.t;
-      body : Value.t;
+      body : float Value.t;
     }
   end
 
@@ -254,8 +254,8 @@ module type S = sig
       lane : Reduce_var.t;
       step : Reduce_var.t;
       prev : Local_var.t;
-      init : Value.t;
-      update : Value.t;
+      init : float Value.t;
+      update : float Value.t;
     }
 
     type error =
@@ -281,47 +281,51 @@ module type S = sig
     type binary_op = Add | Div | Mul | Sub
     type unary_op = Cos | Erf | Exp | Log | Sin | Sqrt | Trunc
 
-    type t = private
-      | Binary of binary_op * t * t
-      | Const of float
-      | Intrinsic of Intrinsic.t
-      | Local of Local_var.t
-      | Local_at of Local_var.t * Role.Position.t Index.t
-      | Local_scan_at of
+    (* Carrier-indexed; every constructor here returns [float t] for now. *)
+    type _ t = private
+      | Binary : binary_op * float t * float t -> float t
+      | Const : float -> float t
+      | Intrinsic : Intrinsic.t -> float t
+      | Local : Local_var.t -> float t
+      | Local_at : Local_var.t * Role.Position.t Index.t -> float t
+      | Local_scan_at :
           Local_var.t * Role.Position.t Index.t * Role.Position.t Index.t
-      | Load of Source.t * Role.Position.t Index.t Coord.t
-      | Reduce of Reduction.t
-      | Round_f32 of t
-      | Scan_at of Scan.t * Role.Position.t Index.t * Role.Position.t Index.t
-      | Select of Bool.t * t * t
-      | Unary of unary_op * t
-      | Value_of_index of Role.Delta.t Index.t
+          -> float t
+      | Load : Source.t * Role.Position.t Index.t Coord.t -> float t
+      | Reduce : Reduction.t -> float t
+      | Round_f32 : float t -> float t
+      | Scan_at :
+          Scan.t * Role.Position.t Index.t * Role.Position.t Index.t
+          -> float t
+      | Select : Bool.t * float t * float t -> float t
+      | Unary : unary_op * float t -> float t
+      | Value_of_index : Role.Delta.t Index.t -> float t
 
-    val const : float -> t
-    val add : t -> t -> t
-    val sub : t -> t -> t
-    val mul : t -> t -> t
-    val div : t -> t -> t
-    val exp : t -> t
-    val sqrt : t -> t
-    val erf : t -> t
-    val log : t -> t
-    val cos : t -> t
-    val sin : t -> t
+    val const : float -> float t
+    val add : float t -> float t -> float t
+    val sub : float t -> float t -> float t
+    val mul : float t -> float t -> float t
+    val div : float t -> float t -> float t
+    val exp : float t -> float t
+    val sqrt : float t -> float t
+    val erf : float t -> float t
+    val log : float t -> float t
+    val cos : float t -> float t
+    val sin : float t -> float t
 
-    val trunc : t -> t
+    val trunc : float t -> float t
     (** Round toward zero -- ATen's `static_cast<IntT>` for a float-to-int
         [_to_copy.default]/[to.dtype] cast. Distinct from [round_f32], which
         rounds to f32 storage precision, not to an integer. *)
 
-    val select : Bool.t -> t -> t -> t
-    val value_of_index : Role.Delta.t Index.t -> t
-    val load : Source.t -> Role.Position.t Index.t Coord.t -> t
-    val round_f32 : t -> t
-    val intrinsic : Intrinsic.t -> t
-    val local : Local_var.t -> t
+    val select : Bool.t -> float t -> float t -> float t
+    val value_of_index : Role.Delta.t Index.t -> float t
+    val load : Source.t -> Role.Position.t Index.t Coord.t -> float t
+    val round_f32 : float t -> float t
+    val intrinsic : Intrinsic.t -> float t
+    val local : Local_var.t -> float t
 
-    val local_at : Local_var.t -> Role.Position.t Index.t -> t
+    val local_at : Local_var.t -> Role.Position.t Index.t -> float t
     (** Reads a vector local's element at a computed index -- a [Region_local]
         vector's "body may mention the binder" applied at a call site. The
         counterpart to [Region_local.vector]'s own binder-parameterised body:
@@ -332,13 +336,16 @@ module type S = sig
       Local_var.t ->
       row:Role.Position.t Index.t ->
       lane:Role.Position.t Index.t ->
-      t
+      float t
     (** Names a materialized trace local -- [Region_program]'s cached-read
         counterpart to [scan_at] below, exactly as [local_at] is to an inline
         vector body. *)
 
     val scan_at :
-      Scan.t -> row:Role.Position.t Index.t -> lane:Role.Position.t Index.t -> t
+      Scan.t ->
+      row:Role.Position.t Index.t ->
+      lane:Role.Position.t Index.t ->
+      float t
     (** The inline, re-executing projection: runs the descriptor's recurrence up
         to [row] and reads [lane]. [specialize_pixel] rewrites a cached
         [local_scan_at] read into this when inlining a Region program. *)
@@ -351,7 +358,7 @@ module type S = sig
     val binary_sym : binary_op -> string
     val unary_name : unary_op -> string
 
-    val compare : t -> t -> int
+    val compare : float t -> float t -> int
     (** Structural, up to ALPHA-EQUIVALENCE: two expressions differing only in
         which ordinals their supplies handed out compare equal, because reducers
         are compared by binder level rather than identity. A free reducer keeps
@@ -365,9 +372,9 @@ module type S = sig
         payload, so canonicalisation keeps comparison reflexive across backends.
         Signed zero and all distinct non-NaN representations remain distinct. *)
 
-    val equal : t -> t -> bool
+    val equal : float t -> float t -> bool
 
-    val hash : t -> int
+    val hash : float t -> int
     (** Agrees with [compare] by construction — same information, same order,
         reducers by level. An optimisation only; structural equality remains the
         authority. *)
@@ -376,7 +383,7 @@ module type S = sig
   module Scan_limits : sig
     (* Runtime metering is required even after [Builder.scan]'s own
        construction-time check: a checked scan can be composed under another
-       reduction, inserted by a raw rewrite, or passed as a raw [Value.t]
+       reduction, inserted by a raw rewrite, or passed as a raw [float Value.t]
        straight to the evaluator, none of which construction can see. *)
     type t
 
@@ -427,10 +434,11 @@ module type S = sig
   end
 
   module Scan_admission : sig
-    (* Over a whole raw [Value.t] -- what Region preflight requires, since a
+    (* Over a whole raw [float Value.t] -- what Region preflight requires, since a
        checked scan can still end up composed under another reduction, or
        nested by a rewrite, after its own construction-time check ran. *)
-    val check : limits:Scan_limits.t -> Value.t -> (unit, Scan.error) Err.t
+    val check :
+      limits:Scan_limits.t -> float Value.t -> (unit, Scan.error) Err.t
     (** A scan beneath a statically unbounded reduction is rejected as
         [Unbounded_reduction_context]; one beneath a chain of constant-extent
         reductions has its worst-case update count multiplied by their combined
@@ -472,8 +480,8 @@ module type S = sig
       kind:Reduction.kind ->
       lo:Role.Position.t Index.t ->
       hi:Role.Delta.t Index.t ->
-      (Role.Position.t Index.t -> Value.t t) ->
-      Value.t t
+      (Role.Position.t Index.t -> float Value.t t) ->
+      float Value.t t
     (** Allocates the variable, hands its index expression to the body, and
         threads the supply through. Going through here rather than assembling a
         [Reduction.t] is what makes scope correct by construction: the body
@@ -484,12 +492,12 @@ module type S = sig
       limits:Scan_limits.t ->
       width:int ->
       steps:int ->
-      init:(lane:Role.Position.t Index.t -> Value.t t) ->
+      init:(lane:Role.Position.t Index.t -> float Value.t t) ->
       update:
         (step:Role.Position.t Index.t ->
         lane:Role.Position.t Index.t ->
-        previous_at:(Role.Position.t Index.t -> Value.t) ->
-        Value.t t) ->
+        previous_at:(Role.Position.t Index.t -> float Value.t) ->
+        float Value.t t) ->
       (Scan.t, Scan.error) Err.t t
     (** Mints [lane]/[step] (reducers) and [prev] (the first local BINDER this
         language has) and hands them to [init]/[update] exactly as [reduction]
@@ -514,13 +522,13 @@ module type S = sig
        behaviour stays visible in each signature and a new constructor breaks the
        traversals that must handle it instead of falling through a default. *)
 
-    val size : Value.t -> int
+    val size : float Value.t -> int
     (** Node count, index trees included — a load's addressing is where the bulk
         of a large expression lives, so treating it as a leaf would measure
         almost nothing. Unmetered: it walks the whole tree, which is why
         [Check.value] does not use it to enforce a limit. *)
 
-    val depth : Value.t -> int
+    val depth : float Value.t -> int
     (** Nesting depth, index trees included, for the same reason as [size]. Also
         unmetered, and computed by the same traversal, so the two cannot
         disagree about what counts as a node or a level. *)
@@ -529,7 +537,7 @@ module type S = sig
       local:(Local_var.t -> int * int) ->
       max_size:int ->
       max_depth:int ->
-      Value.t ->
+      float Value.t ->
       int * int
     (** Measures a prospective substitution without constructing it. Each local
         leaf contributes the supplied expanded [(size, depth)] pair. Callers
@@ -540,45 +548,46 @@ module type S = sig
       local:(Local_var.t -> int * int) ->
       max_size:int ->
       max_depth:int ->
-      Value.t ->
+      float Value.t ->
       [ `Depth | `Size ] option
     (** Saturating prospective-substitution preflight. It stops at the first
         configured bound rather than allocating or measuring the expansion. *)
 
-    val sources : Value.t -> Source.Set.t
+    val sources : float Value.t -> Source.Set.t
     (** Every source the expression depends on, ordinary loads and intrinsic
         descriptors alike. What must be RESOLVED and ordered. *)
 
-    val loads : Value.t -> (Source.t * Role.Position.t Index.t Coord.t) list
+    val loads :
+      float Value.t -> (Source.t * Role.Position.t Index.t Coord.t) list
     (** Ordinary [Load] sites with their coordinates, in lexical order, WITH
         repeats. What may be SUBSTITUTED. Deliberately not derivable from
         [sources], which is a set — it loses multiplicity and addressing, and
         folds in intrinsic sources that no rewrite can replace. *)
 
-    val intrinsic_sources : Value.t -> Source.t list
+    val intrinsic_sources : float Value.t -> Source.t list
     (** Sources reached through an intrinsic descriptor, in lexical order. Real
         dependencies, but not loads: there is no node inside the descriptor a
         subtree could stand in for. Kept separate from [loads] because the two
         are treated differently, not because one is a subset of the other. *)
 
-    val locals : Value.t -> Local_var.Set.t
+    val locals : float Value.t -> Local_var.Set.t
 
-    val scalar_locals : Value.t -> Local_var.Set.t
+    val scalar_locals : float Value.t -> Local_var.Set.t
     (** The subset of [locals] read as a plain [Value.Local] -- what a
         scalar-shaped local may legally be. *)
 
-    val vector_locals : Value.t -> Local_var.Set.t
+    val vector_locals : float Value.t -> Local_var.Set.t
     (** The subset of [locals] read as [Value.Local_at] -- what a vector-shaped
         local may legally be. Disjoint from [scalar_locals] in a well-formed
         program; the host's shape-agreement check is exactly what rules out the
         id appearing in both. *)
 
-    val scan_locals : Value.t -> Local_var.Set.t
+    val scan_locals : float Value.t -> Local_var.Set.t
     (** The subset of [locals] read as [Value.Local_scan_at] -- what a trace
         local may legally be. Disjoint from [scalar_locals]/[vector_locals] in a
         well-formed program, for the same shape-agreement reason. *)
 
-    val scan_cost : Value.t -> int64 * int
+    val scan_cost : float Value.t -> int64 * int
     (** [(updates, state)]: the lane-update count and peak live scan state a
         single evaluation of this expression costs through the standalone inline
         evaluator. A [Scan_at] node costs
@@ -592,21 +601,21 @@ module type S = sig
         scan actually composed under one; this measure targets flat Region-local
         scans. *)
 
-    val output_axes : Value.t -> Axis.t list
-    val intrinsics : Value.t -> int
+    val output_axes : float Value.t -> Axis.t list
+    val intrinsics : float Value.t -> int
 
-    val assume_sites : Value.t -> int
+    val assume_sites : float Value.t -> int
     (** How many [Index.assume_position] claims the expression contains.
         [assume_position] proves nothing — it records an author's claim — so
         being able to locate every one is the point of keeping it a distinct
         node. *)
 
-    val free_reducers : Value.t -> Reduce_var.Set.t
+    val free_reducers : float Value.t -> Reduce_var.Set.t
     (** Scope-aware: a reducer under its own binder is bound, not free, and a
         reduction's BOUNDS sit outside its binder. A well-formed top-level
         expression has none. *)
 
-    val binders : Value.t -> Reduce_var.t list
+    val binders : float Value.t -> Reduce_var.t list
     (** Binders in lexical order, with repeats — one identity bound in two
         sibling scopes appears twice, which is what separates counting binders
         from counting identities. Inspection only: [Pp] and the structural
@@ -615,7 +624,7 @@ module type S = sig
         reported twice (once per sibling scope, [init] and [update]) and [step]
         once. *)
 
-    val local_binders : Value.t -> Local_var.t list
+    val local_binders : float Value.t -> Local_var.t list
     (** [binders]'s local-namespace sibling: only [prev] is ever a local binder,
         once per scan, for [update]'s scope. *)
   end
@@ -623,10 +632,10 @@ module type S = sig
   module Rewrite : sig
     (* Every rewrite here rebuilds with the RAW constructors, not the smart ones:
        those fold, and a structure-preserving rewrite must not silently change
-       syntax. No consumer may recursively rewrite a [Value.t] while ignoring
+       syntax. No consumer may recursively rewrite a [float Value.t] while ignoring
        reducer scope — that is what this module exists to own. *)
 
-    val freshen : Value.t -> Value.t Builder.t
+    val freshen : float Value.t -> float Value.t Builder.t
     (** Replaces every BOUND reducer identity consistently; free ones are left
         alone.
 
@@ -638,12 +647,12 @@ module type S = sig
         which binder it meant. *)
 
     val substitute_output :
-      Role.Position.t Index.t Coord.t -> Value.t -> Value.t
+      Role.Position.t Index.t Coord.t -> float Value.t -> float Value.t
     (** Replaces only output-axis variables, never reducers. If the result is
         placed beneath another reduction, the caller freshens it first; this
         function cannot know that context. *)
 
-    val alpha_normalize : Value.t -> Value.t
+    val alpha_normalize : float Value.t -> float Value.t
     (** Deterministic renaming by lexical traversal — binders take the lowest
         ordinals NOT occurring free in the expression, in the order they are
         met: 0, 1, ... for a closed expression, skipping the free ones
@@ -652,14 +661,16 @@ module type S = sig
         the same ordinals. Does not reorder operations or reductions.
         Idempotent. *)
 
-    val map_sources : (Source.t -> Source.t) -> Value.t -> Value.t
+    val map_sources : (Source.t -> Source.t) -> float Value.t -> float Value.t
     (** Changes source symbols and nothing else, including inside an intrinsic
         descriptor. *)
 
     val substitute_loads :
-      (Source.t -> Role.Position.t Index.t Coord.t -> Value.t Builder.t option) ->
-      Value.t ->
-      Value.t Builder.t
+      (Source.t ->
+      Role.Position.t Index.t Coord.t ->
+      float Value.t Builder.t option) ->
+      float Value.t ->
+      float Value.t Builder.t
     (** Replaces ordinary [Load] nodes with whole subtrees; [None] keeps the
         load.
 
@@ -682,9 +693,9 @@ module type S = sig
         dependency must reject it. *)
 
     type local_binding =
-      | Scalar of Value.t
+      | Scalar of float Value.t
       | Scan of Scan.t
-      | Vector of { var : Reduce_var.t; body : Value.t }
+      | Vector of { var : Reduce_var.t; body : float Value.t }
           (** What a local resolves to at a use site. [Scalar] substitutes at a
               [Value.Local] occurrence; [Vector] substitutes [var] (the binder
               its [body] is parameterised over) with the occurrence's own read
@@ -699,7 +710,9 @@ module type S = sig
               assumes its caller has already ruled out. *)
 
     val substitute_locals :
-      (Local_var.t -> local_binding option) -> Value.t -> Value.t Builder.t
+      (Local_var.t -> local_binding option) ->
+      float Value.t ->
+      float Value.t Builder.t
   end
 
   module Check : sig
@@ -719,14 +732,14 @@ module type S = sig
     val pp_error : Format.formatter -> [< error ] -> unit
 
     val value :
-      ?max_size:int -> ?max_depth:int -> Value.t -> (unit, error) Err.t
+      ?max_size:int -> ?max_depth:int -> float Value.t -> (unit, error) Err.t
 
     val fragment :
       ?max_size:int ->
       ?max_depth:int ->
       ?allowed_free:Reduce_var.Set.t ->
       locals:Local_var.Set.t ->
-      Value.t ->
+      float Value.t ->
       (unit, error) Err.t
     (** Deliberately narrow. Division parameters, load roles and intrinsic
         dimensions are NOT rechecked: the smart constructors and the [Index]
@@ -922,7 +935,7 @@ module type S = sig
       ?on_reduction:(unit -> unit) ->
       Env.t ->
       output:int Coord.t ->
-      Value.t ->
+      float Value.t ->
       (float, error) Err.t
     (** The reference interpreter.
 
@@ -968,12 +981,12 @@ module type S = sig
     (** [names] is supplied rather than derived from the opaque identity, so
         output cannot depend on allocation history. *)
 
-    val value : Format.formatter -> Value.t -> unit
+    val value : Format.formatter -> float Value.t -> unit
 
     val value_open :
       names:(Local_var.t -> string option) ->
       Format.formatter ->
-      Value.t ->
+      float Value.t ->
       unit
     (** Assigns reducer display names r1, r2, ... in LEXICAL order, so two
         structurally identical formulas built by independent supplies print

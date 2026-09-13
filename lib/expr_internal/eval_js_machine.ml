@@ -48,7 +48,7 @@ type scan_progress = {
 }
 
 type value_state =
-  | Eval_state of Value.t * reducers
+  | Eval_state of float Value.t * reducers
   | Guard_state of Bool.t * reducers
   | Float_result of float
   | Bool_result of bool
@@ -76,12 +76,12 @@ type reuse_reduce_progress = {
 }
 
 type reuse_frame =
-  | Binary_left of Value.binary_op * Value.t * reducers
+  | Binary_left of Value.binary_op * float Value.t * reducers
   | Binary_right of Value.binary_op * float
   | Unary_result of Value.unary_op
   | Round_f32_result
-  | Select_result of Value.t * Value.t * reducers
-  | Value_lt_left of Value.t * reducers
+  | Select_result of float Value.t * float Value.t * reducers
+  | Value_lt_left of float Value.t * reducers
   | Value_lt_right of float
   | Reduce_step of reuse_reduce_progress
   | Scan_fill of scan_progress

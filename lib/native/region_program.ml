@@ -32,7 +32,7 @@ type error =
 type t = {
   partition : Region_partition.t;
   locals : Region_local.t list;
-  output : Expr.Value.t;
+  output : float Expr.Value.t;
 }
 
 type program = t

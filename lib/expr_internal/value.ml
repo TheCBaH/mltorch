@@ -9,22 +9,24 @@ type unary_op = Expr_repr.unary_op =
   | Sqrt
   | Trunc
 
-type t = Expr_repr.value =
-  | Binary of binary_op * t * t
-  | Const of float
-  | Intrinsic of Intrinsic.t
-  | Local of Local_var.t
-  | Local_at of Local_var.t * Role.Position.t Index.t
-  | Local_scan_at of
+type 'a t = 'a Expr_repr.value =
+  | Binary : binary_op * float t * float t -> float t
+  | Const : float -> float t
+  | Intrinsic : Intrinsic.t -> float t
+  | Local : Local_var.t -> float t
+  | Local_at : Local_var.t * Role.Position.t Index.t -> float t
+  | Local_scan_at :
       Local_var.t * Role.Position.t Index.t * Role.Position.t Index.t
-  | Load of Source.t * Role.Position.t Index.t Coord.t
-  | Reduce of Expr_repr.reduction
-  | Round_f32 of t
-  | Scan_at of
+      -> float t
+  | Load : Source.t * Role.Position.t Index.t Coord.t -> float t
+  | Reduce : Expr_repr.reduction -> float t
+  | Round_f32 : float t -> float t
+  | Scan_at :
       Expr_repr.scan * Role.Position.t Index.t * Role.Position.t Index.t
-  | Select of Expr_repr.bool_expr * t * t
-  | Unary of unary_op * t
-  | Value_of_index of Role.Delta.t Index.t
+      -> float t
+  | Select : Expr_repr.bool_expr * float t * float t -> float t
+  | Unary : unary_op * float t -> float t
+  | Value_of_index : Role.Delta.t Index.t -> float t
 
 let const x = Const x
 let add a b = Binary (Add, a, b)
@@ -294,7 +296,7 @@ let hash e =
     | Some l -> l
     | None -> Local_var.hash v
   in
-  let rec go env lenv n h (e : t) =
+  let rec go env lenv n h (e : float t) =
     let h = mix h (tag e) in
     match e with
     | Const x ->

@@ -1,5 +1,5 @@
 (* Symbolic interpretation over the [Expr] library: a value is a CONSTRUCTION
-   COMPUTATION producing an [Expr.Value.t], an index is an ['role Expr.Index.t],
+   COMPUTATION producing an [float Expr.Value.t], an index is an ['role Expr.Index.t],
    and an input is a [Tensor_sig.t]. Running an op functor with the output coord
    bound to [out_vec], then [Expr.Builder.run]ning the result, yields the op's
    per-pixel expression — used for codegen/fusion and the footprint analysis.
@@ -34,7 +34,7 @@
 
 include
   Semantics.SEMANTICS
-    with type t = Expr.Value.t Expr.Builder.t
+    with type t = float Expr.Value.t Expr.Builder.t
      and type 'role index = 'role Expr.Index.t
      and type input = Tensor_sig.t
      and type b = Expr.Bool.t Expr.Builder.t

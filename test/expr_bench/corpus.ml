@@ -1,5 +1,5 @@
 (* Stage 5 correctness corpus for [Eval_candidates] (tail-call conversion;
-   see .ai/): a first, hand-written set of cases covering every [Value.t]/
+   see .ai/): a first, hand-written set of cases covering every [float Value.t]/
    [Bool.t] constructor that recurses through [go]/[guard], including nested
    and multi-row [Reduce]/[Scan_at] -- not yet the generated deep/order
    corpus the design record calls for (that needs the per-backend goldens
@@ -26,7 +26,7 @@ type evaluator =
   ?on_reduction:(unit -> unit) ->
   Eval_common.Env.t ->
   output:int Coord.t ->
-  Value.t ->
+  float Value.t ->
   (float, Eval_common.error) Err.t
 
 (* Alphabetical by name (CLAUDE.md); a [threshold] group sorts by its own

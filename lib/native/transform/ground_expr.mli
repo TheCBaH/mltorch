@@ -1,4 +1,4 @@
-(* The per-coordinate ground form of a stage body: an [Expr.Value.t] with every index
+(* The per-coordinate ground form of a stage body: an [float Expr.Value.t] with every index
    expression evaluated at one concrete output coordinate, every [Reduce]
    unrolled at its now-concrete bounds, and every [Max_pool] window expanded.
    No binders survive, so two ground expressions denote the same value exactly

@@ -2,7 +2,7 @@
    the tail-call conversion's JS backends (Stage 5; see .ai/). Copied
    verbatim into [expr_internal_js] and [expr_internal_mel] -- never linked
    natively, and never exposed through the public [Expr]/[Expr_api] surface:
-   [Value.t]/[Bool.t] here are [Expr_internal]'s own non-private
+   [float Value.t]/[Bool.t] here are [Expr_internal]'s own non-private
    representations, the same ones [eval.ml] itself matches on. [open
    Eval_common] for [error]/[Env.t]/[vchk]/[eval_index]/[index_error]/
    [scan_error]/[scan_reader]/[scan_meter_error].
@@ -103,18 +103,18 @@ type scan_progress = {
 }
 
 type frame =
-  | Binary_left of Value.binary_op * Value.t * reducers
+  | Binary_left of Value.binary_op * float Value.t * reducers
   | Binary_right of Value.binary_op * float
   | Unary_result of Value.unary_op
   | Round_f32_result
-  | Select_result of Value.t * Value.t * reducers
-  | Value_lt_left of Value.t * reducers
+  | Select_result of float Value.t * float Value.t * reducers
+  | Value_lt_left of float Value.t * reducers
   | Value_lt_right of float
   | Reduce_step of reduce_progress
   | Scan_fill of scan_progress
 
 type value_state =
-  | Eval_state of Value.t * reducers
+  | Eval_state of float Value.t * reducers
   | Guard_state of Bool.t * reducers
   | Float_result of float
   | Bool_result of bool

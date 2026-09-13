@@ -118,7 +118,7 @@ type skip_evaluator =
   ?skip_cleanup:(int -> bool) ->
   Eval_common.Env.t ->
   output:int Coord.t ->
-  Value.t ->
+  float Value.t ->
   (float, Eval_common.error) Err.t
 
 let skip_evaluators : (string * skip_evaluator) list =

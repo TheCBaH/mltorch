@@ -40,7 +40,7 @@ let static_extent lo hi =
 let combine multiplier extent =
   match (multiplier, extent) with Some m, Some e -> Some (m * e) | _ -> None
 
-(* Over a whole raw [Value.t] -- a checked scan can still be composed under
+(* Over a whole raw [float Value.t] -- a checked scan can still be composed under
    another reduction, inserted by a raw rewrite, or passed to the evaluator
    directly, none of which [Builder.scan]'s own construction-time check can
    see. A scan beneath a statically unbounded reduction is rejected outright;
@@ -50,7 +50,7 @@ let combine multiplier extent =
    costs that target nothing. *)
 let check ~limits value =
   let open Err.Syntax in
-  let rec go multiplier (e : Value.t) =
+  let rec go multiplier (e : float Value.t) =
     match e with
     | Value.Const _ | Value.Local _ | Value.Local_at _ | Value.Local_scan_at _
     | Value.Load _ | Value.Value_of_index _ | Value.Intrinsic _ ->

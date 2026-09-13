@@ -35,7 +35,7 @@ type duplicate = Local of Local_var.t | Reducer of Reduce_var.t
      namespaces ([bound]/[lbound]) mirroring [Fold.free_reducers]/
      [Fold.locals]'s own scope masking. *)
 let duplicate_binder e =
-  let rec go bound lbound (e : Value.t) =
+  let rec go bound lbound (e : float Value.t) =
     match e with
     | Value.Const _ | Value.Value_of_index _ | Value.Load _ | Value.Intrinsic _
     | Value.Local _ | Value.Local_at _ | Value.Local_scan_at _ ->

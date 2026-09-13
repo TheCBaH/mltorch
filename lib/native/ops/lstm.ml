@@ -670,7 +670,7 @@ module Lstm = struct
     type read_fn =
       row:Expr.Role.Position.t Expr.Index.t ->
       lane:Expr.Role.Position.t Expr.Index.t ->
-      Expr.Value.t
+      float Expr.Value.t
 
     (* [t]: this scan's own original-time index at recurrence step [step]
        (lstm-plan.md §5) -- [step] itself for forward, [(seq-1)-step] for

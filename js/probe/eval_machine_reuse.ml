@@ -59,12 +59,12 @@ type reuse_reduce_progress = {
 }
 
 type reuse_frame =
-  | Binary_left of Value.binary_op * Value.t * reducers
+  | Binary_left of Value.binary_op * float Value.t * reducers
   | Binary_right of Value.binary_op * float
   | Unary_result of Value.unary_op
   | Round_f32_result
-  | Select_result of Value.t * Value.t * reducers
-  | Value_lt_left of Value.t * reducers
+  | Select_result of float Value.t * float Value.t * reducers
+  | Value_lt_left of float Value.t * reducers
   | Value_lt_right of float
   | Reduce_step of reuse_reduce_progress
   | Scan_fill of scan_progress
@@ -74,7 +74,7 @@ type reuse_frame =
    constructor, is an inert filler for slots beyond [top] -- never read,
    since every push writes its own slot before [top] passes it. Popping
    clears the vacated slot so a large frame (e.g. one carrying a whole
-   [Value.t] subtree) doesn't outlive its logical pop just because the
+   [float Value.t] subtree) doesn't outlive its logical pop just because the
    backing array hasn't shrunk. *)
 type reuse_stack = { mutable slots : reuse_frame array; mutable top : int }
 

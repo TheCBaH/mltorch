@@ -88,7 +88,7 @@ let idx env fmt i = index ~names:(names_in env) fmt i
    [prev] naming -- without [at]'s [Value.Scan_at] case's trailing
    [row,lane] projection, which is fabricated for any caller that has no
    real read site (see the scan design record). *)
-let rec at ~names env lenv n fmt (e : Value.t) =
+let rec at ~names env lenv n fmt (e : float Value.t) =
   (* Eta-expanded so it stays polymorphic in the role: a reduction's [lo] is
        a position and its [hi] a delta. *)
   let idxe fmt i = idx env fmt i in

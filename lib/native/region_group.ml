@@ -3,7 +3,7 @@ module Emitter = struct
     output_shape : Vec6.shape;
     partition : Region_partition.t;
     key_axes : (Expr.Axis.t * Expr.Axis.t) list;
-    output : Expr.Value.t;
+    output : float Expr.Value.t;
   }
 end
 

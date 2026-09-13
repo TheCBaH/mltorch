@@ -133,7 +133,7 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
      the rest of its own evaluation -- [Eval_js_machine.run] is a complete
      evaluator of the full grammar, so there is never a reason to hand a
      partially-machine-evaluated subtree back to direct recursion. *)
-  let rec go depth reducers (e : Value.t) : float =
+  let rec go depth reducers (e : float Value.t) : float =
     if depth >= cutoff then
       match machine_run (Eval_js_machine.Eval_state (e, reducers)) with
       | Eval_js_machine.Float_result v -> v
@@ -403,7 +403,7 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
   (* [@tailcall] below marks the genuine tail edges converted for JS stack
      safety; see .ai/. A missing tail call there is a build error (warning
      51), not a silent regression. *)
-  let rec go reducers (e : Value.t) : float =
+  let rec go reducers (e : float Value.t) : float =
     match e with
     | Value.Binary (op, a, b) ->
         Value.apply_binary op (go reducers a) (go reducers b)
