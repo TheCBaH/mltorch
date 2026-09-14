@@ -105,9 +105,9 @@ module Arange = struct
      float one (see [op_bridge_factory.ml]'s arange arm), so a caller that
      has this can generate exact int64 values with no float round trip at
      all. [stop] is carried for symmetry with [params]' own three fields,
-     though [value_i64] below only needs [start]/[step]; a future exact
-     [length] (the plan's own overflow-checked-count item, not attempted
-     here) would need it. See the implementation tracker's D02. *)
+     and used by [length_exact] below (the plan's own overflow-checked-count
+     item) even though [value_i64_exact] itself only needs [start]/[step].
+     See the implementation tracker's D02. *)
   module Exact = struct
     type t = { start : int64; stop : int64; step : int64 }
 
@@ -167,25 +167,76 @@ module Arange = struct
   let pp _ fmt (t : t) =
     Fmt.pf fmt "@[<hv 2>arange@ params=%a@]" pp_params t.params
 
-  let length (p : params) =
+  (* [checked_sub] mirrors [checked_add]'s overflow check (different sign of
+     the two operands, and the result's sign differs from the minuend's) --
+     the classic subtraction-overflow condition, needed by [length_exact]'s
+     [stop - start] below. *)
+  let checked_sub a b =
+    let c = Int64.sub a b in
+    let same_sign x y =
+      Bool.equal (Int64.compare x 0L >= 0) (Int64.compare y 0L >= 0)
+    in
+    if (not (same_sign a b)) && not (same_sign a c) then None else Some c
+
+  (* [length]'s exact int64 twin: the element count computed entirely in
+     [int64] ceiling division, with no float round trip -- fixes the D02
+     count gap the implementation tracker documents (real ATen and a
+     float-ceiling count can disagree once [start]/[stop] exceed 2^53, since
+     an odd exact bound can round to the same float as a neighbor). Ceiling
+     division is [q + (if r <> 0 then 1 else 0)] ([q]/[r] = [diff]/[step]'s
+     floor quotient/remainder) rather than the textbook [(diff + step - 1) /
+     step], which would need its own overflow check on [diff + step]: the
+     [q + 1] here cannot overflow, since [step >= 2] bounds [q] well below
+     [max_int], and the one [step = 1] case where [q] could reach [max_int]
+     forces [r = 0] (no [+ 1] taken), as [diff <= max_int] itself. *)
+  let length_exact ({ Exact.start; stop; step } as e) =
     let fault fault =
       Err.fail
         (`Arange
            Shape_error.Arange.
-             { start = p.start; stop = p.stop; step = p.step; fault })
+             {
+               start = Int64.to_float e.start;
+               stop = Int64.to_float e.stop;
+               step = Int64.to_float e.step;
+               fault;
+             })
     in
-    if
-      not
-        (Float.is_finite p.start && Float.is_finite p.stop
-       && Float.is_finite p.step)
-    then fault `Non_finite
-    else if p.step <= 0. then fault `Non_positive_step
+    if Int64.compare step 0L <= 0 then fault `Non_positive_step
     else
-      let count = Float.ceil ((p.stop -. p.start) /. p.step) in
-      if count <= 0. then fault `Empty
-      else if count >= Int64.to_float Kernel.Limits.Hard.extent then
-        fault `Over_limit
-      else Err.return (int_of_float count)
+      match checked_sub stop start with
+      | None -> fault `Count_overflow
+      | Some diff ->
+          if Int64.compare diff 0L <= 0 then fault `Empty
+          else
+            let q = Int64.div diff step in
+            let r = Int64.rem diff step in
+            let count = if Int64.equal r 0L then q else Int64.add q 1L in
+            if Int64.compare count Kernel.Limits.Hard.extent >= 0 then
+              fault `Over_limit
+            else Err.return (Int64.to_int count)
+
+  let length (p : params) =
+    match p.exact with
+    | Some e -> length_exact e
+    | None ->
+        let fault fault =
+          Err.fail
+            (`Arange
+               Shape_error.Arange.
+                 { start = p.start; stop = p.stop; step = p.step; fault })
+        in
+        if
+          not
+            (Float.is_finite p.start && Float.is_finite p.stop
+           && Float.is_finite p.step)
+        then fault `Non_finite
+        else if p.step <= 0. then fault `Non_positive_step
+        else
+          let count = Float.ceil ((p.stop -. p.start) /. p.step) in
+          if count <= 0. then fault `Empty
+          else if count >= Int64.to_float Kernel.Limits.Hard.extent then
+            fault `Over_limit
+          else Err.return (int_of_float count)
 
   let output_shape p =
     let open Err.Syntax in

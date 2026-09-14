@@ -322,12 +322,15 @@ end
    and keeps every concrete extent below the same JS-safe limit as a graph
    input. *)
 module Arange = struct
-  type fault = [ `Empty | `Non_finite | `Non_positive_step | `Over_limit ]
+  type fault =
+    [ `Count_overflow | `Empty | `Non_finite | `Non_positive_step | `Over_limit ]
+
   type t = { start : float; stop : float; step : float; fault : fault }
 
   let pp ppf { start; stop; step; fault } =
     Fmt.pf ppf "arange(%g, %g, %g): %s" start stop step
       (match fault with
+      | `Count_overflow -> "exact element-count computation overflows int64"
       | `Empty -> "selects no elements; Native has no empty tensor"
       | `Non_finite -> "bounds and step must be finite"
       | `Non_positive_step -> "only a positive step is supported"

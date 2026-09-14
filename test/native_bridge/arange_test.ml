@@ -27,23 +27,19 @@ let%expect_test "verify: arange.start with an int64 start past int32 range" =
     ~inputs:[ in_int "start" 5_000_000_000; in_int "end" 5_000_000_003 ];
   [%expect {| aten and native agree |}]
 
-(* [dispatch_print], not [verify_print]: past 2^53, [Factory.Arange.length]'s
-   own element COUNT still comes from the float [start]/[stop]/[step] (a
-   separate, still-open D02 gap -- confirmed empirically, see below), which
-   makes real ATen and native disagree on SHAPE if compared directly. Going
-   through the native-only path instead isolates exactly what changed here:
-   the VALUES [Op_bridge]'s real decode produces, past the point a legacy
-   float round trip would have silently corrupted them (compare this
-   dispatch's own count and values to factory_test.ml's identical hand-built
-   case, which documents the same count coming from the same float
-   computation). *)
-let%expect_test "dispatch: arange.start with a real exact int64 start past 2^53"
-    =
-  dispatch_print ~target:"torch.ops.aten.arange.start" ~bindings:[]
+(* Past 2^53, an odd exact bound and its even neighbor can round to the same
+   float, so a float-based element COUNT disagreed with real ATen's integer
+   count here (native computed [C=4], ATen [C=3]) even though the VALUES
+   [Op_bridge]'s real decode produced were already exact -- the D02 count
+   gap the implementation tracker documented. [Factory.Arange.length_exact]
+   (D02's count fix) computes the count in checked [int64] arithmetic
+   instead, so this is now a real [verify_print] end-to-end agreement check
+   rather than the native-only [dispatch_print] isolation the gap used to
+   require. *)
+let%expect_test "verify: arange.start with a real exact int64 start past 2^53" =
+  verify_print ~target:"torch.ops.aten.arange.start" ~bindings:[]
     ~inputs:
       [
         in_int "start" 9_007_199_254_740_993; in_int "end" 9_007_199_254_740_996;
-      ]
-    ~noutputs:1;
-  [%expect
-    {| tensor i64 [C=4] {9007199254740993, 9007199254740994, 9007199254740995, 9007199254740996} |}]
+      ];
+  [%expect {| aten and native agree |}]
