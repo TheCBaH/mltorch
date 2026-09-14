@@ -89,13 +89,20 @@ let kernel : [< Kernel_adapt.error ] -> verdict = function
      a structural failure in it is ours; and the two selection rows are
      reachable only through [?select], which whole-program export never
      passes. *)
-  | `Body _ | `Duplicate_id _ | `Forward_reference _ | `Missing_live_output _
+  | `Body _ | `Duplicate_id _ | `Forward_reference _ | `I64_body _
+  | `Missing_live_output _ | `Not_i64_materializable _
   | `Not_materializable
       { Kernel.Format_rule.role = Kernel.Format_rule.Filled_input; _ }
   | `Output_not_selected _ | `Program_invalid _ | `Quant_contract _
   | `Signature_id_mismatch _ | `Unknown_output _ | `Unknown_program_output _
   | `Unknown_selection _ | `Unknown_stage_source _ | `Unreachable_value _
-  | `Unresolved_source _ ->
+  | `Unresolved_source _ | `Unsupported_i64_dependency _ ->
+      (* [`I64_body]/[`Not_i64_materializable]/[`Unsupported_i64_dependency]:
+         structurally reachable through [Kernel.error] but not through this
+         caller -- [Kernel_adapt.of_stage_program] never passes [~values_i64],
+         so [Kernel.create] never runs [check_value_i64] here. Classified as a
+         defect for the same reason the other never-yet-reachable rows above
+         are: matched exhaustively rather than assumed away. *)
       Fatal
 
 let requires_payloads_without_them = C.Requires_payloads

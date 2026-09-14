@@ -29,6 +29,10 @@ module Value = struct
   }
 end
 
+module Value_i64 = struct
+  type t = { id : Tensor_id.t; sg : Tensor_sig.t; pixel : int64 Expr.Value.t }
+end
+
 module Output = struct
   type t = { value : Tensor_id.t; sg : Tensor_sig.t }
 end
@@ -170,9 +174,11 @@ end
 type t = {
   inputs : Input.t list;
   values : Value.t list;
+  values_i64 : Value_i64.t list;
   outputs : Output.t list;
   limits : Limits.t;
   by_id : Value.t Tensor_id.Map.t;
+  by_id_i64 : Value_i64.t Tensor_id.Map.t;
 }
 
 module Sig_mismatch = struct
@@ -200,8 +206,16 @@ module Format_rule = struct
     | Stored_value -> "stored value"
 end
 
+module I64_format_rule = struct
+  type t = { id : Tensor_id.t; fmt : Payload.packed_fmt }
+end
+
 module Body_error = struct
   type t = { at : Tensor_id.t; error : Region_group.error }
+end
+
+module I64_body_error = struct
+  type t = { at : Tensor_id.t; error : Expr.Check.error }
 end
 
 type error =
@@ -212,6 +226,8 @@ type error =
   | `Eval_too_deep of int
   | `Extent_too_large of Extent_bound.t
   | `Forward_reference of Forward_ref.t
+  | `I64_body of I64_body_error.t
+  | `Not_i64_materializable of I64_format_rule.t
   | `Not_materializable of Format_rule.t
   | `Numel_too_large of Tensor_id.t
   | `Quant_contract of Tensor_id.t
@@ -222,7 +238,8 @@ type error =
   | `Too_many_values of int
   | `Unknown_output of Tensor_id.t
   | `Unreachable_value of Tensor_id.t
-  | `Unresolved_source of Unresolved.t ]
+  | `Unresolved_source of Unresolved.t
+  | `Unsupported_i64_dependency of Tensor_id.t ]
 
 let pp_error fmt : [< error ] -> unit = function
   | `Duplicate_id id -> Fmt.pf fmt "duplicate id %a" Tensor_id.pp id
@@ -261,6 +278,17 @@ let pp_error fmt : [< error ] -> unit = function
       Fmt.pf fmt "summed scan updates across all values exceed limit %Ld" limit
   | `Body { Body_error.at; error } ->
       Fmt.pf fmt "%a: %a" Tensor_id.pp at Region_group.pp_error error
+  | `Not_i64_materializable { I64_format_rule.id; fmt = f } ->
+      Fmt.pf fmt "%a: an int64 value must be i64 and unquantized, got %s"
+        Tensor_id.pp id
+        (match f with Payload.Fmt g -> Payload.fmt_name g)
+  | `I64_body { I64_body_error.at; error } ->
+      Fmt.pf fmt "%a: %a" Tensor_id.pp at Expr.Check.pp_error error
+  | `Unsupported_i64_dependency id ->
+      Fmt.pf fmt
+        "%a: an int64 value may not read another value yet, only a closed \
+         expression"
+        Tensor_id.pp id
 
 (* ---- bounds ---------------------------------------------------------------
 
@@ -348,6 +376,19 @@ let materializable id role (sg : Tensor_sig.t) =
     Err.fail
       (`Not_materializable { Format_rule.id; role; fmt = sg.Tensor_sig.fmt })
 
+(* [materializable]'s int64 twin: [Region_eval.materialize_i64] is exact I64
+   only, never quantized (I64 has no quantized variant to begin with, but the
+   check is explicit rather than assumed, matching [materializable]'s own
+   style). *)
+let materializable_i64 id (sg : Tensor_sig.t) =
+  let i64 =
+    match sg.Tensor_sig.fmt with Payload.Fmt Payload.I64 -> true | _ -> false
+  in
+  if i64 && Option.is_none sg.Tensor_sig.quant then Err.return ()
+  else
+    Err.fail
+      (`Not_i64_materializable { I64_format_rule.id; fmt = sg.Tensor_sig.fmt })
+
 (* ---- construction --------------------------------------------------------- *)
 
 (* Does [l] hold more than [limit] cells? Stops one past the limit instead of
@@ -382,7 +423,33 @@ let over_limit_2 limit a b =
     | _, true -> true
     | n, false -> ( match go n b with _, over -> over)
 
-let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
+(* [values_i64]'s own admission: each entry stands alone (no [Region_group.Ref],
+   no dependency-depth/reachability participation -- see [Value_i64.t]'s doc).
+   Format/quantization and byte/extent bounds reuse [materializable_i64]/
+   [quant_contract]/[Bounds.signature] exactly as [values] does; the pixel
+   itself is checked closed via [Expr.Check.value_i64] and required to have
+   NO sources via [Expr.Fold.sources_i64], since cross-referencing another
+   Kernel value has no real caller yet (see the implementation tracker's
+   D09). Signature identity ([sg.id = id]) is checked with every OTHER value/
+   input, not here, so [`Duplicate_id]/[`Signature_id_mismatch] cannot drift
+   between value kinds. *)
+let check_value_i64 ~limits (v : Value_i64.t) =
+  let open Err.Syntax in
+  let* () = quant_contract v.Value_i64.id v.Value_i64.sg in
+  let* () = materializable_i64 v.Value_i64.id v.Value_i64.sg in
+  let* () = Bounds.signature limits v.Value_i64.id v.Value_i64.sg in
+  let* () =
+    Err.map_error
+      (fun e -> `I64_body { I64_body_error.at = v.Value_i64.id; error = e })
+      (Expr.Check.value_i64 ~max_size:limits.Limits.max_size
+         ~max_depth:limits.Limits.max_depth v.Value_i64.pixel)
+  in
+  if Expr.Source.Set.is_empty (Expr.Fold.sources_i64 v.Value_i64.pixel) then
+    Err.return ()
+  else Err.fail (`Unsupported_i64_dependency v.Value_i64.id)
+
+let create ?(limits = Limits.default) ?(values_i64 = []) ~inputs ~values
+    ~outputs () =
   let open Err.Syntax in
   (* Arity first: the cheapest guards, and they bound the list and map work
      every later check performs. Neither list contributes to [max_values], so a
@@ -404,6 +471,16 @@ let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
       Err.fail (`Too_many_values limits.Limits.max_values)
     else Err.return ()
   in
+  (* [values_i64] shares [values]' own budget dimension -- a kernel's total
+     "how many logical values" resource, not a new one -- continued from
+     [values]' own remainder via [over_limit_2] rather than adding two counts
+     (an unchecked [int] aggregate, per this repo's 32-bit rule). *)
+  let* () =
+    if over_limit_2 limits.Limits.max_values values values_i64 then
+      Err.fail (`Too_many_values limits.Limits.max_values)
+    else Err.return ()
+  in
+  let* () = Err.List.iter (fun v -> check_value_i64 ~limits v) values_i64 in
   (* Budgets before any unmetered traversal. [Expr.Fold]'s queries walk the whole
      tree; running one first would exhaust the stack on precisely the oversized
      body the limit exists to reject. *)
@@ -486,11 +563,18 @@ let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
           check i.id i.sg)
         (Err.return ()) inputs
     in
+    let* () =
+      List.fold_left
+        (fun acc (v : Value.t) ->
+          let* () = acc in
+          check v.id v.sg)
+        (Err.return ()) values
+    in
     List.fold_left
-      (fun acc (v : Value.t) ->
+      (fun acc (v : Value_i64.t) ->
         let* () = acc in
-        check v.id v.sg)
-      (Err.return ()) values
+        check v.Value_i64.id v.Value_i64.sg)
+      (Err.return ()) values_i64
   in
   let* _seen =
     List.fold_left
@@ -500,7 +584,8 @@ let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
         else Err.return (Tensor_id.Set.add id seen))
       (Err.return Tensor_id.Set.empty)
       (List.map (fun (i : Input.t) -> i.Input.id) inputs
-      @ List.map (fun (v : Value.t) -> v.Value.id) values)
+      @ List.map (fun (v : Value.t) -> v.Value.id) values
+      @ List.map (fun (v : Value_i64.t) -> v.Value_i64.id) values_i64)
   in
   let input_ids =
     List.fold_left
@@ -647,12 +732,17 @@ let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
     {
       inputs;
       values;
+      values_i64;
       outputs = out;
       limits;
       by_id =
         List.fold_left
           (fun m (v : Value.t) -> Tensor_id.Map.add v.Value.id v m)
           Tensor_id.Map.empty values;
+      by_id_i64 =
+        List.fold_left
+          (fun m (v : Value_i64.t) -> Tensor_id.Map.add v.Value_i64.id v m)
+          Tensor_id.Map.empty values_i64;
     }
 
 let pp fmt (k : t) =
@@ -688,6 +778,7 @@ let pp fmt (k : t) =
    term. A hash table would be constant expected time but would trade away the
    immutability the rest of the representation relies on. *)
 let value (k : t) id = Tensor_id.Map.find_opt id k.by_id
+let value_i64 (k : t) id = Tensor_id.Map.find_opt id k.by_id_i64
 
 (* Both edge sets restrict to sources resolving to a VALUE: a load of a boundary
    input is a dependency of the body but not an edge anything may virtualize.

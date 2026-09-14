@@ -397,6 +397,28 @@ let machine esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses =
   in
   (materialize, materialize_group, fun id coord -> eval_value ~depth:0 id coord)
 
+(* [Kernel.Value_i64.t]'s own materialization: always run, never gated by
+   [stores]/[virtual_uses] -- an int64 value can never be virtual (it
+   participates in no [Kernel.Use.t]/fusion plan at all, per
+   [Kernel.Value_i64.t]'s own admission contract, checked closed and
+   source-free at [Kernel.create]), so there is no placement decision to
+   respect here, unlike a [Kernel.Value.t]. A dummy environment is exact,
+   not a shortcut: [Kernel.create] already proved [pixel] has no sources, so
+   [~env] is provably never consulted. *)
+let materialize_values_i64 esc (k : Kernel.t) =
+  let env = Expr_bridge.env ~binding:(fun _ -> None) in
+  List.fold_left
+    (fun results (v : Kernel.Value_i64.t) ->
+      let tensor =
+        Err.Escape.or_throw esc
+          (widen_region
+             (Region_eval.materialize_i64
+                ~output_shape:v.Kernel.Value_i64.sg.Tensor_sig.shape ~env
+                v.Kernel.Value_i64.pixel))
+      in
+      Tensor_id.Map.add v.Kernel.Value_i64.id tensor results)
+    Tensor_id.Map.empty k.Kernel.values_i64
+
 let execute esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses
     ~stores =
   let materialize, materialize_group, _ =
@@ -407,23 +429,29 @@ let execute esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses
       ~computation:(fun (v : Kernel.Value.t) -> v.Kernel.Value.computation)
       k.Kernel.values
   in
-  List.fold_left
-    (fun results run ->
-      match run with
-      | Region_group.Run.Solo v ->
-          if not (Tensor_id.Set.mem v.Kernel.Value.id stores) then results
-          else Tensor_id.Map.add v.Kernel.Value.id (materialize v) results
-      | Region_group.Run.Group (g, members) ->
-          let selected =
-            List.filter
-              (fun (_, v) -> Tensor_id.Set.mem v.Kernel.Value.id stores)
-              members
-          in
-          List.fold_left
-            (fun results (id, tensor) -> Tensor_id.Map.add id tensor results)
-            results
-            (materialize_group g selected))
-    Tensor_id.Map.empty runs
+  let results =
+    List.fold_left
+      (fun results run ->
+        match run with
+        | Region_group.Run.Solo v ->
+            if not (Tensor_id.Set.mem v.Kernel.Value.id stores) then results
+            else Tensor_id.Map.add v.Kernel.Value.id (materialize v) results
+        | Region_group.Run.Group (g, members) ->
+            let selected =
+              List.filter
+                (fun (_, v) -> Tensor_id.Set.mem v.Kernel.Value.id stores)
+                members
+            in
+            List.fold_left
+              (fun results (id, tensor) -> Tensor_id.Map.add id tensor results)
+              results
+              (materialize_group g selected))
+      Tensor_id.Map.empty runs
+  in
+  Tensor_id.Map.union
+    (fun _ _ i64 -> Some i64)
+    results
+    (materialize_values_i64 esc k)
 
 let run ?on_load ?region_counters k ~bind =
   Err.Escape.with_escape @@ fun esc ->
