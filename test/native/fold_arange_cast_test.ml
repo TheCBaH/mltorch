@@ -12,7 +12,13 @@ let build name m =
       Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
 
 let arange_params : Factory.Arange.params =
-  { start = 0.; stop = 4.; step = 1.; fmt = Payload.Fmt Payload.I64 }
+  {
+    start = 0.;
+    stop = 4.;
+    step = 1.;
+    fmt = Payload.Fmt Payload.I64;
+    exact = None;
+  }
 
 (* The pass's target shape: [Arange]'s sole consumer is a float [To_copy]. *)
 let int_arange_then_cast () =
@@ -61,7 +67,13 @@ let%expect_test "fold_arange_cast: the fold, and its map" =
         none |}]
 
 let fractional_arange_params : Factory.Arange.params =
-  { start = 0.25; stop = 3.; step = 0.5; fmt = Payload.Fmt Payload.I64 }
+  {
+    start = 0.25;
+    stop = 3.;
+    step = 0.5;
+    fmt = Payload.Fmt Payload.I64;
+    exact = None;
+  }
 
 let%expect_test "fold_arange_cast: a fractional step is left unfolded" =
   let g =

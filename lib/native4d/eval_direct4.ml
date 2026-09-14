@@ -265,6 +265,7 @@ let eval_node ?region_counters ~limits ~synthetic_ids (g : Graph.graph) env
                       stop = params.stop;
                       step = params.step;
                       fmt = params.fmt;
+                      exact = None;
                     }
                 in
                 match params.fmt with

@@ -187,28 +187,46 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                  (`Validation_failure
                     "arange: pin_memory must be omitted/None or false")
          in
-         let* start, stop =
+         (* [scalar_arg_exact], not [scalar_arg]: arange's own bounds are
+            exactly the case D02 exists for -- a real [Aten_scalar.Int]
+            argument keeps its int64 alongside the float every other caller
+            still reads, so [Eval_direct]'s Arange arm can generate exact
+            values above 2^53 instead of truncating an already-lossy float
+            (see [Factory.Arange.value_i64_exact]'s own doc). The literal
+            [0.]/[1.] defaults for an omitted [start]/[step] are exact by
+            construction, so their [Some] companions are written directly
+            rather than run back through [Aten_scalar]. *)
+         let* (start, start_exact), (stop, stop_exact) =
            match target with
            | "torch.ops.aten.arange.default" ->
                let* stop =
-                 scalar_arg ~default:(Aten_scalar.Int 0L) node "end"
+                 scalar_arg_exact ~default:(Aten_scalar.Int 0L) node "end"
                in
-               return (0., stop)
+               return ((0., Some 0L), stop)
            | "torch.ops.aten.arange.start" ->
                let* start =
-                 scalar_arg ~default:(Aten_scalar.Int 0L) node "start"
+                 scalar_arg_exact ~default:(Aten_scalar.Int 0L) node "start"
                in
                let* stop =
-                 scalar_arg ~default:(Aten_scalar.Int 0L) node "end"
+                 scalar_arg_exact ~default:(Aten_scalar.Int 0L) node "end"
                in
                return (start, stop)
            | _ -> assert false
          in
-         let* step = scalar_arg ~default:(Aten_scalar.Int 1L) node "step" in
+         let* step, step_exact =
+           scalar_arg_exact ~default:(Aten_scalar.Int 1L) node "step"
+         in
+         let exact =
+           match (fmt, start_exact, stop_exact, step_exact) with
+           | Payload.Fmt Payload.I64, Some start, Some stop, Some step ->
+               Some { Factory.Arange.Exact.start; stop; step }
+           | _ -> None
+         in
          let* g =
            Graph_builder.build ~name:"arange"
              ~outputs:(fun y -> [ y ])
-             (Graph_builder.arange { Factory.Arange.start; stop; step; fmt })
+             (Graph_builder.arange
+                { Factory.Arange.start; stop; step; fmt; exact })
            |> Err.map_error (fun e -> `Build e)
          in
          return (g, []))

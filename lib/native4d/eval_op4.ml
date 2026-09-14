@@ -381,6 +381,7 @@ module Make (S : Semantics.SEMANTICS) = struct
               stop = params.stop;
               step = params.step;
               fmt = params.fmt;
+              exact = None;
             }
           out
     | Zeros4 { Ops4.Zeros4.params } ->

@@ -117,7 +117,18 @@ let dispatch ~ctx ~env (node : Node.t) =
              | _ -> assert false
            in
            let step = scalar_arg esc ~default:1. node "step" in
-           let* y = arange { Factory.Arange.start; stop; step; fmt } in
+           (* [exact] stays [None]: this decoder's own [Argument.Int] is a
+              plain [int] (32-bit under js_of_ocaml, see CLAUDE.md's
+              JS-reachable-library rule), so there is no genuine int64 to
+              recover here even for an ATen scalar that was originally exact
+              -- unlike [op_bridge_factory.ml]'s [Aten_scalar.Int], which
+              carries a real [int64]. Widening [Argument.Int] itself is a
+              separate, larger change (the generated pytorch_types schema
+              decoder), not attempted here; see the implementation
+              tracker's D02. *)
+           let* y =
+             arange { Factory.Arange.start; stop; step; fmt; exact = None }
+           in
            return [ y ]
        | "torch.ops.aten.zeros.default" ->
            let optional name =

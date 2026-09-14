@@ -40,6 +40,7 @@ let%expect_test "lower: Arange becomes the direct Arange4 counterpart" =
            stop = 4.;
            step = 1.;
            fmt = Payload.Fmt Payload.F32;
+           exact = None;
          })
   in
   show "arange" source;
