@@ -286,8 +286,8 @@ let pp_error fmt : [< error ] -> unit = function
       Fmt.pf fmt "%a: %a" Tensor_id.pp at Expr.Check.pp_error error
   | `Unsupported_i64_dependency id ->
       Fmt.pf fmt
-        "%a: an int64 value may not read another value yet, only a closed \
-         expression"
+        "%a: an int64 value may only read an earlier int64 value, not a \
+         forward reference or a float value/input"
         Tensor_id.pp id
 
 (* ---- bounds ---------------------------------------------------------------
@@ -423,30 +423,61 @@ let over_limit_2 limit a b =
     | _, true -> true
     | n, false -> ( match go n b with _, over -> over)
 
-(* [values_i64]'s own admission: each entry stands alone (no [Region_group.Ref],
-   no dependency-depth/reachability participation -- see [Value_i64.t]'s doc).
-   Format/quantization and byte/extent bounds reuse [materializable_i64]/
-   [quant_contract]/[Bounds.signature] exactly as [values] does; the pixel
-   itself is checked closed via [Expr.Check.value_i64] and required to have
-   NO sources via [Expr.Fold.sources_i64], since cross-referencing another
-   Kernel value has no real caller yet (see the implementation tracker's
-   D09). Signature identity ([sg.id = id]) is checked with every OTHER value/
-   input, not here, so [`Duplicate_id]/[`Signature_id_mismatch] cannot drift
-   between value kinds. *)
+(* [values_i64]'s own admission: no [Region_group.Ref], no dependency-depth/
+   reachability participation (see [Value_i64.t]'s doc). Format/quantization
+   and byte/extent bounds reuse [materializable_i64]/[quant_contract]/
+   [Bounds.signature] exactly as [values] does; the pixel itself is checked
+   closed over locals/reducers via [Expr.Check.value_i64]. Whether its
+   [Expr.Fold.sources_i64] are admissible (an earlier [values_i64] entry) or
+   not (a forward reference, or the float [values]/[inputs] side -- no real
+   caller yet, see the implementation tracker's D10) is a property of the
+   WHOLE list's order, so it is checked separately, by [create]'s own forward
+   sweep below, not here. Signature identity ([sg.id = id]) is checked with
+   every OTHER value/input, not here, so [`Duplicate_id]/[`Signature_id_mismatch]
+   cannot drift between value kinds. *)
 let check_value_i64 ~limits (v : Value_i64.t) =
   let open Err.Syntax in
   let* () = quant_contract v.Value_i64.id v.Value_i64.sg in
   let* () = materializable_i64 v.Value_i64.id v.Value_i64.sg in
   let* () = Bounds.signature limits v.Value_i64.id v.Value_i64.sg in
-  let* () =
-    Err.map_error
-      (fun e -> `I64_body { I64_body_error.at = v.Value_i64.id; error = e })
-      (Expr.Check.value_i64 ~max_size:limits.Limits.max_size
-         ~max_depth:limits.Limits.max_depth v.Value_i64.pixel)
+  Err.map_error
+    (fun e -> `I64_body { I64_body_error.at = v.Value_i64.id; error = e })
+    (Expr.Check.value_i64 ~max_size:limits.Limits.max_size
+       ~max_depth:limits.Limits.max_depth v.Value_i64.pixel)
+
+(* [values_i64]'s own forward sweep, the int64 twin of [values]' "source
+   resolution, dependency depth" pass below -- but flat, not recursive: a
+   [Value_i64.t] is always materialized eagerly, in list order
+   ([Kernel_eval.materialize_values_i64]), never re-entered through a
+   consumer's own evaluation the way [Value.t]'s [value_at] recursion is, so
+   there is no analogous eval-depth/stack risk to bound here. [seen] is
+   exactly the ids validated so far -- a source in it is a legal backward
+   reference; a source naming a LATER [values_i64] id is a forward reference;
+   anything else (the float [values]/[inputs] side, or genuinely unknown) is
+   the still-unsupported cross-carrier case. All three collapse to one tag,
+   [`Unsupported_i64_dependency], since nothing downstream needs to tell them
+   apart yet. *)
+let check_values_i64_order (values_i64 : Value_i64.t list) =
+  let open Err.Syntax in
+  let+ _seen =
+    List.fold_left
+      (fun acc (v : Value_i64.t) ->
+        let* seen = acc in
+        let* () =
+          Expr.Source.Set.fold
+            (fun src acc ->
+              let* () = acc in
+              if Tensor_id.Set.mem (Expr_bridge.id_of_source src) seen then
+                Err.return ()
+              else Err.fail (`Unsupported_i64_dependency v.Value_i64.id))
+            (Expr.Fold.sources_i64 v.Value_i64.pixel)
+            (Err.return ())
+        in
+        Err.return (Tensor_id.Set.add v.Value_i64.id seen))
+      (Err.return Tensor_id.Set.empty)
+      values_i64
   in
-  if Expr.Source.Set.is_empty (Expr.Fold.sources_i64 v.Value_i64.pixel) then
-    Err.return ()
-  else Err.fail (`Unsupported_i64_dependency v.Value_i64.id)
+  ()
 
 let create ?(limits = Limits.default) ?(values_i64 = []) ~inputs ~values
     ~outputs () =
@@ -481,6 +512,7 @@ let create ?(limits = Limits.default) ?(values_i64 = []) ~inputs ~values
     else Err.return ()
   in
   let* () = Err.List.iter (fun v -> check_value_i64 ~limits v) values_i64 in
+  let* () = check_values_i64_order values_i64 in
   (* Budgets before any unmetered traversal. [Expr.Fold]'s queries walk the whole
      tree; running one first would exhaust the stack on precisely the oversized
      body the limit exists to reject. *)

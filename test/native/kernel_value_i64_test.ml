@@ -1,9 +1,10 @@
-(* [Kernel.Value_i64.t]: a standalone exact int64 Kernel value (no
-   [Region_group.Ref], no cross-value dependency yet -- see the doc on
-   [Kernel.Value_i64.t] and the implementation tracker's D09/P4.1 notes).
-   Every admission rule gets a test that PRODUCES it, matching
-   [kernel_test.ml]'s own discipline: a rule whose test cannot go red is not
-   evidence. *)
+(* [Kernel.Value_i64.t]: an exact int64 Kernel value (no [Region_group.Ref]).
+   May read an EARLIER [values_i64] entry (a backward-only int64-to-int64
+   dependency chain); reading a float value/input, or a forward reference,
+   stays unsupported -- see the doc on [Kernel.Value_i64.t] and the
+   implementation tracker's D09/D10/P4.1 notes. Every admission rule gets a
+   test that PRODUCES it, matching [kernel_test.ml]'s own discipline: a rule
+   whose test cannot go red is not evidence. *)
 
 let s n t d h w c = Vec6.shape ~n ~t ~d ~h ~w ~c
 let s1c n = s 1 1 1 1 1 n
@@ -45,7 +46,7 @@ let%expect_test "Kernel: an int64 value must actually be I64-formatted" =
        ~inputs:[] ~values:[] ~outputs:[] ());
   [%expect {| t0: an int64 value must be i64 and unquantized, got f32 |}]
 
-let%expect_test "Kernel: an int64 value may not read another value" =
+let%expect_test "Kernel: an int64 value may not read a float value" =
   let source = Expr_bridge.source_of_id (tid 1) in
   let coord =
     Expr_bridge.coord_of_vec6 (Vec6.of_fn (fun _ -> Expr.Index.zero))
@@ -55,7 +56,38 @@ let%expect_test "Kernel: an int64 value may not read another value" =
        ~values_i64:[ value_i64 0 (s1c 1) (Expr.Value.i64_load source coord) ]
        ~inputs:[] ~values:[] ~outputs:[] ());
   [%expect
-    {| t0: an int64 value may not read another value yet, only a closed expression |}]
+    {| t0: an int64 value may only read an earlier int64 value, not a forward reference or a float value/input |}]
+
+let%expect_test "Kernel: an int64 value may not read a LATER int64 value" =
+  let source = Expr_bridge.source_of_id (tid 1) in
+  let coord =
+    Expr_bridge.coord_of_vec6 (Vec6.of_fn (fun _ -> Expr.Index.zero))
+  in
+  Format.printf "%a@." pp_kernel
+    (Kernel.create
+       ~values_i64:
+         [
+           value_i64 0 (s1c 1) (Expr.Value.i64_load source coord);
+           value_i64 1 (s1c 1) (arange_shaped ~start:0L ~step:1L);
+         ]
+       ~inputs:[] ~values:[] ~outputs:[] ());
+  [%expect
+    {| t0: an int64 value may only read an earlier int64 value, not a forward reference or a float value/input |}]
+
+let%expect_test "Kernel: an int64 value may read an EARLIER int64 value" =
+  let source = Expr_bridge.source_of_id (tid 0) in
+  let coord =
+    Expr_bridge.coord_of_vec6 (Vec6.of_fn (fun _ -> Expr.Index.zero))
+  in
+  Format.printf "%a@." pp_kernel
+    (Kernel.create
+       ~values_i64:
+         [
+           value_i64 0 (s1c 1) (arange_shaped ~start:5L ~step:1L);
+           value_i64 1 (s1c 1) (Expr.Value.i64_load source coord);
+         ]
+       ~inputs:[] ~values:[] ~outputs:[] ());
+  [%expect {| ok |}]
 
 let%expect_test "Kernel: an int64 value's own body must be closed" =
   let stray, _ =
@@ -122,3 +154,55 @@ let%expect_test "Kernel_eval.run materializes a standalone int64 value exactly"
   in
   Fmt.pr "%Ld,%Ld,%Ld@." (read 0) (read 1) (read 2);
   [%expect {| 9007199254740993,9007199254740994,9007199254740995 |}]
+
+(* Two chained int64 values: t1 = t0 + 1000, t0 an exact Arange past 2^53.
+   Proves the dependency is a REAL read, not merely admitted -- t1's values
+   would differ from t0's own if [materialize_values_i64] read stale or
+   default-zero data instead of t0's actual materialized result. *)
+let%expect_test "Kernel_eval.run threads one int64 value's result into the next"
+    =
+  let shape = s 1 1 1 1 1 3 in
+  let t0_source = Expr_bridge.source_of_id (tid 0) in
+  let load_t0 c =
+    Expr.Value.i64_load t0_source
+      (Expr_bridge.coord_of_vec6
+         (Vec6.of_fn (function Axis.C -> c | _ -> Expr.Index.zero)))
+  in
+  let k =
+    Err.or_raise ~pp_error:Kernel.pp_error
+      (Kernel.create
+         ~values_i64:
+           [
+             value_i64 0 shape
+               (Expr.Value.i64_add
+                  (Expr.Value.i64_const 9_007_199_254_740_993L)
+                  (Expr.Value.float_to_i64
+                     (Expr.Value.value_of_index
+                        (Expr.Index.of_position (Expr.Index.output Expr.Axis.C)))));
+             value_i64 1 shape
+               (Expr.Value.i64_add
+                  (load_t0 (Expr.Index.output Expr.Axis.C))
+                  (Expr.Value.i64_const 1000L));
+           ]
+         ~inputs:[] ~values:[] ~outputs:[] ())
+  in
+  let result =
+    Err.or_raise ~pp_error:Kernel_eval.pp_error
+      (Kernel_eval.run k ~bind:(fun _ -> None))
+  in
+  let read id c =
+    Err.or_raise
+      ~pp_error:(fun fmt (`Wrong_format (Payload.Fmt f)) ->
+        Fmt.pf fmt "wrong format %a" Payload.pp_fmt f)
+      (Tensor.read_i64_at6
+         (Tensor_id.Map.find (tid id) result)
+         (function
+           | Axis.C -> c | Axis.N | Axis.T | Axis.D | Axis.H | Axis.W -> 0))
+  in
+  Fmt.pr "t0: %Ld,%Ld,%Ld@." (read 0 0) (read 0 1) (read 0 2);
+  Fmt.pr "t1: %Ld,%Ld,%Ld@." (read 1 0) (read 1 1) (read 1 2);
+  [%expect
+    {|
+    t0: 9007199254740993,9007199254740994,9007199254740995
+    t1: 9007199254741993,9007199254741994,9007199254741995
+    |}]

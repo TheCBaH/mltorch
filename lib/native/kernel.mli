@@ -50,15 +50,16 @@ module Value : sig
 end
 
 module Value_i64 : sig
-  (* A STANDALONE exact int64 value: no [Region_group.Ref.t], no
-     [Result_conversion] (an int64 pixel is always exact, nothing to round),
-     and -- deliberately, for now -- no cross-value dependency. [pixel] must
-     be CLOSED (no sources, no locals, no free reducers), which is what
-     [create] checks: an exact Arange is the shape this exists for, and it
-     has no operand to depend on. A value that needs to read another Kernel
-     value (e.g. a promoted float consumer of an int64 producer) is real,
-     named future work (see the implementation tracker's D09), not covered
-     here. *)
+  (* An exact int64 value: no [Region_group.Ref.t], no [Result_conversion]
+     (an int64 pixel is always exact, nothing to round). [pixel] must be
+     closed over LOCALS and REDUCERS (no free ones -- [Expr.Check.value_i64]
+     checks this), but MAY [I64_load] an earlier [values_i64] entry: [create]
+     admits a backward-only int64-to-int64 dependency chain, ids resolved by
+     position in the list, the same "already topologically ordered" contract
+     [Value.t]'s own [computation] sources rely on. Reading a float [Value.t]
+     or [Input.t] instead -- the harder cross-carrier case (e.g. a promoted
+     float consumer of an int64 producer) -- is real, named future work (see
+     the implementation tracker's D10), not covered here. *)
   type t = {
     id : Tensor_id.t;
     sg : Tensor_sig.t;  (** [sg.id] must equal [id]; [sg.fmt] must be I64 *)
@@ -321,13 +322,15 @@ val create :
     the stack on exactly the oversized input the limit exists to reject.
 
     [values_i64] defaults to [[]], so every existing caller is unaffected. Each
-    entry is checked standalone: closed (via [Expr.Check.value_i64]), exact I64
-    format/unquantized, byte/extent-bounded, and with NO sources
-    ([Expr.Fold.sources_i64] must be empty, reported as
-    [`Unsupported_i64_dependency] otherwise) -- cross-referencing another Kernel
-    value is not admitted yet. [values_i64] ids share the same namespace as
-    [inputs]/[values] (checked for [`Duplicate_id]) but do not yet participate
-    in [outputs]/[Use.t]/dependency-depth/reachability accounting. *)
+    entry is checked closed over locals/reducers (via [Expr.Check.value_i64]),
+    exact I64 format/unquantized, and byte/extent-bounded. Its
+    [Expr.Fold.sources_i64] may name only EARLIER entries in [values_i64] itself
+    -- a forward reference or a source naming a float [values]/[inputs] id is
+    [`Unsupported_i64_dependency] -- so [values_i64] is its own backward-only
+    int64 dependency chain, checked in list order the same way [values]' forward
+    sweep is. [values_i64] ids share the same namespace as [inputs]/[values]
+    (checked for [`Duplicate_id]) but do not yet participate in
+    [outputs]/[Use.t]/dependency-depth/reachability accounting. *)
 
 val pp : Format.formatter -> t -> unit
 val value : t -> Tensor_id.t -> Value.t option

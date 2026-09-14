@@ -405,10 +405,18 @@ let machine esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses =
    respect here, unlike a [Kernel.Value.t]. A dummy environment is exact,
    not a shortcut: [Kernel.create] already proved [pixel] has no sources, so
    [~env] is provably never consulted. *)
+(* Eager, in [values_i64] list order -- never recursive the way [eval_value]
+   is for [Value.t]. [Kernel.check_values_i64_order] already proved every
+   entry's sources name an EARLIER id in this same list, so a plain left fold
+   threading [results] as the binding resolves an [I64_load] of a prior entry
+   correctly on the first pass; there is no producer to recurse into on
+   demand, since an int64 value is always stored, never virtual. *)
 let materialize_values_i64 esc (k : Kernel.t) =
-  let env = Expr_bridge.env ~binding:(fun _ -> None) in
   List.fold_left
     (fun results (v : Kernel.Value_i64.t) ->
+      let env =
+        Expr_bridge.env ~binding:(fun id -> Tensor_id.Map.find_opt id results)
+      in
       let tensor =
         Err.Escape.or_throw esc
           (widen_region
