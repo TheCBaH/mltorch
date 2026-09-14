@@ -227,6 +227,7 @@ let value_at (type a) (scalar : a Scalar.t)
           match local_at_i64 v (idx reducers i) with
           | Some x -> x
           | None -> Err.Escape.throw esc (`Unbound_local v))
+      | Value.I64_of_index i -> Int64.of_int (idx reducers i)
       | Value.Reduce r ->
           let lo = idx reducers r.Reduction.lo
           and hi = idx reducers r.Reduction.hi in
@@ -542,6 +543,7 @@ let value ?(local : Local_var.t -> float option = fun _ -> None)
         match local_at_i64 v (idx reducers i) with
         | Some x -> x
         | None -> Err.Escape.throw esc (`Unbound_local v))
+    | Value.I64_of_index i -> Int64.of_int (idx reducers i)
     | Value.Reduce r ->
         let lo = idx reducers r.Reduction.lo
         and hi = idx reducers r.Reduction.hi in

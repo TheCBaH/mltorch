@@ -20,6 +20,7 @@ type 'a t = 'a Expr_repr.value =
   | I64_load : Source.t * Role.Position.t Index.t Coord.t -> int64 t
   | I64_local : Local_var.t -> int64 t
   | I64_local_at : Local_var.t * Role.Position.t Index.t -> int64 t
+  | I64_of_index : Role.Delta.t Index.t -> int64 t
   | I64_to_float : int64 t -> float t
   | Intrinsic : Intrinsic.t -> float t
   | Local : Local_var.t -> float t
@@ -63,6 +64,7 @@ let i64_const x = I64_const x
 let i64_load s c = I64_load (s, c)
 let i64_local v = I64_local v
 let i64_local_at v i = I64_local_at (v, i)
+let i64_of_index i = I64_of_index i
 let i64_add a b = I64_binary (I64_add, a, b)
 let i64_sub a b = I64_binary (I64_sub, a, b)
 let i64_mul a b = I64_binary (I64_mul, a, b)
@@ -106,62 +108,69 @@ let i64_of_float f : (int64, [> i64_from_float_error ]) Err.t =
   else Err.return (Int64.of_float f)
 
 (* [int64 t] is closed over [I64_const]/[I64_binary]/[I64_load]/[I64_local]/
-   [I64_local_at]/[Float_to_i64]/[Select] (see the [_ value] doc comment in
-   expr_repr.ml): none has a [Reduce]/[Scan_at] inhabitant, so this needs no
-   scan state of its own. [Float_to_i64]'s operand is the UNBOUNDED float
-   language, and [I64_load]'s coordinate can itself embed index arithmetic
-   over reducers, so this cannot stay a closed standalone function once
-   either exists -- [eval_float]/[eval_bool]/[load_i64]/[local_i64]/
-   [local_at_i64] are supplied by the caller rather than named here, which is
-   what keeps this module's dependency arrow pointing the same direction it
-   always has (no reference to [eval.ml], which is compiled after it).
-   [load_i64]/[local_i64]/[local_at_i64] are TOTAL, exactly like [eval_float]/
-   [eval_bool]: the caller already has a real environment and resolves a
-   [Load]'s/local's coordinate/binding errors on its own terms (typically by
-   running the full [Eval.value] and unwrapping), so this function's own
-   error row stays scoped to the one check it performs itself
+   [I64_local_at]/[I64_of_index]/[Float_to_i64]/[Select] (see the [_ value]
+   doc comment in expr_repr.ml): none has a [Reduce]/[Scan_at] inhabitant, so
+   this needs no scan state of its own. [Float_to_i64]'s operand is the
+   UNBOUNDED float language, and [I64_load]'s/[I64_of_index]'s index can
+   itself embed index arithmetic over reducers, so this cannot stay a closed
+   standalone function once either exists -- [eval_float]/[eval_bool]/
+   [load_i64]/[local_i64]/[local_at_i64]/[idx_i64] are supplied by the caller
+   rather than named here, which is what keeps this module's dependency arrow
+   pointing the same direction it always has (no reference to [eval.ml],
+   which is compiled after it).
+   [load_i64]/[local_i64]/[local_at_i64]/[idx_i64] are TOTAL, exactly like
+   [eval_float]/[eval_bool]: the caller already has a real environment and
+   resolves a [Load]'s/local's/index's coordinate/binding errors on its own
+   terms (typically by running the full [Eval.value] and unwrapping), so this
+   function's own error row stays scoped to the one check it performs itself
    ([Float_to_i64]'s range check).
 
    No longer [eval.ml]'s own internal denotation for [int64 t]: since the
    evaluator's [go]/[guard]/[eval_i64] split was unified into one
    polymorphic-recursive [eval] over the whole carrier-indexed grammar (the
    design's own `eval : type a. ...` shape; see .ai/), [I64_const]/
-   [I64_binary]/[I64_load]/[I64_local]/[I64_local_at]/[Float_to_i64] are
-   ordinary arms of THAT match, inlined directly rather than routed through
-   this callback-based definition, on every backend -- native's [eval] needs
-   no cutoff and JS's needs a [Scalar.t] witness for its cutoff/
-   machine-handoff decision (see [Eval.value]'s own doc comment), neither of
-   which this function's `~eval_float`/`~eval_bool`/`~load_i64`/
-   `~local_i64`/`~local_at_i64` shape can express. This function remains the
-   public standalone entry point (`Expr.Value.eval_i64`) for a caller who
-   already has float/bool/load/local evaluation in hand and wants to
-   evaluate a bare [int64 t] against it without going through the full
-   [Eval.value]. *)
-let rec eval_i64 ~eval_float ~eval_bool ~load_i64 ~local_i64 ~local_at_i64 :
-    int64 t -> (int64, [> i64_from_float_error ]) Err.t =
+   [I64_binary]/[I64_load]/[I64_local]/[I64_local_at]/[I64_of_index]/
+   [Float_to_i64] are ordinary arms of THAT match, inlined directly rather
+   than routed through this callback-based definition, on every backend --
+   native's [eval] needs no cutoff and JS's needs a [Scalar.t] witness for its
+   cutoff/machine-handoff decision (see [Eval.value]'s own doc comment),
+   neither of which this function's `~eval_float`/`~eval_bool`/`~load_i64`/
+   `~local_i64`/`~local_at_i64`/`~idx_i64` shape can express. This function
+   remains the public standalone entry point (`Expr.Value.eval_i64`) for a
+   caller who already has float/bool/load/local/index evaluation in hand and
+   wants to evaluate a bare [int64 t] against it without going through the
+   full [Eval.value]. *)
+let rec eval_i64 ~eval_float ~eval_bool ~load_i64 ~local_i64 ~local_at_i64
+    ~idx_i64 : int64 t -> (int64, [> i64_from_float_error ]) Err.t =
  fun v ->
   let open Err.Syntax in
   match v with
   | I64_const x -> Err.return x
   | I64_binary (op, a, b) ->
       let* x =
-        eval_i64 ~eval_float ~eval_bool ~load_i64 ~local_i64 ~local_at_i64 a
+        eval_i64 ~eval_float ~eval_bool ~load_i64 ~local_i64 ~local_at_i64
+          ~idx_i64 a
       in
       let+ y =
-        eval_i64 ~eval_float ~eval_bool ~load_i64 ~local_i64 ~local_at_i64 b
+        eval_i64 ~eval_float ~eval_bool ~load_i64 ~local_i64 ~local_at_i64
+          ~idx_i64 b
       in
       apply_i64_binary op x y
   | I64_load (s, c) -> Err.return (load_i64 s c)
   | I64_local v -> Err.return (local_i64 v)
   | I64_local_at (v, i) -> Err.return (local_at_i64 v i)
+  | I64_of_index i -> Err.return (idx_i64 i)
   | Float_to_i64 a -> i64_of_float (eval_float a)
   (* Eager in neither more nor less than [go]'s own [Select] is: only the
      SELECTED branch is evaluated, matching the float-carrier case exactly
      (see [Eval.value]'s own doc comment on why). *)
   | Select (c, a, b) ->
       if eval_bool c then
-        eval_i64 ~eval_float ~eval_bool ~load_i64 ~local_i64 ~local_at_i64 a
-      else eval_i64 ~eval_float ~eval_bool ~load_i64 ~local_i64 ~local_at_i64 b
+        eval_i64 ~eval_float ~eval_bool ~load_i64 ~local_i64 ~local_at_i64
+          ~idx_i64 a
+      else
+        eval_i64 ~eval_float ~eval_bool ~load_i64 ~local_i64 ~local_at_i64
+          ~idx_i64 b
 
 let apply_binary = function
   | Add -> ( +. )
@@ -316,7 +325,8 @@ let tag_i64 = function
   | I64_load _ -> 3
   | I64_local _ -> 4
   | I64_local_at _ -> 5
-  | Select _ -> 6
+  | I64_of_index _ -> 6
+  | Select _ -> 7
 
 (* [bool_expr] is not part of the [_ value] GADT (see its own doc comment in
    expr_repr.ml), so its comparator is a third [and]-linked sibling of [go]/
@@ -420,6 +430,7 @@ let compare a b =
           | None, Some _ -> 1
           | Some lx, Some ly -> Int.compare lx ly)
         <?> fun () -> cmp_index ea eb i j
+    | I64_of_index x, I64_of_index y -> cmp_index ea eb x y
     | Select (c, x1, x2), Select (d, y1, y2) ->
         cmp_bool ea eb la lb n c d <?> fun () ->
         cmp_i64 ea eb la lb n x1 y1 <?> fun () -> cmp_i64 ea eb la lb n x2 y2
@@ -553,6 +564,7 @@ let hash e =
         Coord.fold (fun h i -> idx env h i) (mix h (Source.hash s)) c
     | I64_local v -> mix h (Local_var.hash v)
     | I64_local_at (v, i) -> idx env (mix h (local_hash lenv v)) i
+    | I64_of_index i -> idx env h i
     | Select (c, a, b) ->
         let h = hash_bool env lenv n h c in
         hash_i64 env lenv n (hash_i64 env lenv n h a) b

@@ -400,6 +400,7 @@ let eval_trampoline_delayed ~threshold ?(local = fun _ -> None)
           match local_at_i64 v (idx reducers i) with
           | Some x -> resume depth k x
           | None -> Err.Escape.throw esc (`Unbound_local v))
+      | Value.I64_of_index i -> resume depth k (Int64.of_int (idx reducers i))
       | Value.I64_binary (op, a, b) ->
           eval_i64 reducers depth a (fun depth av ->
               eval_i64 reducers depth b (fun depth bv ->

@@ -638,3 +638,32 @@ let%expect_test
   Fmt.pr "%a@." pp_res
     (Eval.value env ~output (Value.i64_to_float (Value.i64_load (src 1) out)));
   [%expect {| unknown source t1 |}]
+
+let%expect_test
+    "I64_of_index: exact index-to-int64 conversion through the real evaluator, \
+     no float intermediary" =
+  (* Same past-2^53 exactness concern as [I64_load]'s own test, but for the
+     value/index bridge rather than a tensor read: [Value_of_index] would
+     silently lose precision converting a coordinate-derived offset this
+     large to binary64, while [I64_of_index] must not. The coordinate is
+     genuinely READ, not hardcoded: axis [W] is set to 3 below, so a stray
+     zero-coordinate implementation would print the wrong sum. *)
+  let env =
+    {
+      Eval.Env.load = (fun _ _ -> assert false);
+      load_index = (fun _ _ -> assert false);
+    }
+  in
+  let output = Coord.of_fn (fun a -> if a = Axis.W then 3 else 0) in
+  let pp_exact fmt x = Fmt.pf fmt "%.1f" x in
+  let pp_res = Core.Pretty.err_result ~ok:pp_exact ~error:Eval.pp_error in
+  let e =
+    Value.i64_to_float
+      (Value.i64_add
+         (Value.i64_of_index (Index.of_position (Index.output Axis.W)))
+         (Value.i64_const 9_007_199_254_740_993L))
+  in
+  Fmt.pr "%a@." pp_v e;
+  [%expect {| i64_to_float((i64_of_index(W) + 9007199254740993)) |}];
+  Fmt.pr "%a@." pp_res (Eval.value env ~output e);
+  [%expect {| 9007199254740996.0 |}]

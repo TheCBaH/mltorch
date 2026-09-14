@@ -207,6 +207,9 @@ and at_i64 ~names env lenv n fmt (e : int64 Value.t) =
   | Value.I64_local_at (v, i) ->
       Fmt.pf fmt "%s[%a]" (local_name lenv names v) idxe i;
       n
+  | Value.I64_of_index i ->
+      Fmt.pf fmt "i64_of_index(%a)" idxe i;
+      n
   | Value.Select (c, a, b) ->
       Fmt.pf fmt "select(";
       let n = guard_at ~names env lenv n fmt c in

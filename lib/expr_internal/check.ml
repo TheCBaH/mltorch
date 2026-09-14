@@ -97,6 +97,7 @@ and duplicate_binder_go_i64 bound lbound (e : int64 Value.t) =
       | some -> some)
   | Value.I64_const _ | Value.I64_load _ -> None
   | Value.I64_local _ | Value.I64_local_at _ -> None
+  | Value.I64_of_index _ -> None
   | Value.Select (c, a, b) -> (
       match duplicate_binder_go_bool bound lbound c with
       | Some _ as d -> d

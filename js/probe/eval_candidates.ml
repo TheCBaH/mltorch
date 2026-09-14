@@ -286,6 +286,8 @@ let eval_machine ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
         match local_at_i64 v (idx reducers i) with
         | Some x -> (loop [@tailcall]) (I64_result x) frames
         | None -> Err.Escape.throw esc (`Unbound_local v))
+    | Eval_i64_state (Value.I64_of_index i, reducers), _ ->
+        (loop [@tailcall]) (I64_result (Int64.of_int (idx reducers i))) frames
     | Eval_state (Value.Value_of_index i, reducers), _ ->
         (loop [@tailcall])
           (Float_result (vchk (float_of_index (idx reducers i))))

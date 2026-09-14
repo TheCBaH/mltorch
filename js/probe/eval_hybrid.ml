@@ -239,6 +239,7 @@ let eval_hybrid ~cutoff ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
           match local_at_i64 v (idx reducers i) with
           | Some x -> x
           | None -> Err.Escape.throw esc (`Unbound_local v))
+      | Value.I64_of_index i -> Int64.of_int (idx reducers i)
       | Value.I64_binary (op, x, y) ->
           Value.apply_i64_binary op (eval_i64 depth reducers x)
             (eval_i64 depth reducers y)

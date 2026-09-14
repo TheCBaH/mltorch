@@ -242,6 +242,7 @@ and rebuild_i64 ~idx ~src ~on_load ~on_i64_load ~on_i64_local ~on_i64_local_at
   | Value.I64_load (s, c) -> on_i64_load (src s) (Coord.map idxe c) st
   | Value.I64_local v -> on_i64_local lenv v st
   | Value.I64_local_at (v, i) -> on_i64_local_at lenv v (idxe i) st
+  | Value.I64_of_index i -> (Value.I64_of_index (idxe i), st)
   | Value.Select (c, a, b) ->
       let c, st =
         rebuild_bool ~idx ~src ~on_load ~on_i64_load ~on_i64_local

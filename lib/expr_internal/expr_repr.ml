@@ -29,7 +29,8 @@ type i64_binary_op = I64_add | I64_mul | I64_sub
 type reduction_kind = Argmax_index | Argmax_value | Max | Sum
 
 (* Carrier-indexed. [I64_binary]/[I64_const]/[I64_load]/[I64_local]/
-   [I64_local_at] are the inhabitants of a second index ([int64 value]) -- see
+   [I64_local_at]/[I64_of_index] are the inhabitants of a second index
+   ([int64 value]) -- see
    .ai/. [I64_load] is the first of them to reach [Source.t]: it resolves
    through [Env.load_index] (already exact I64, previously reached only via
    [Data] index components) exactly as [Load] resolves through [Env.load], so
@@ -70,6 +71,12 @@ type _ value =
   | I64_local_at : Local_var.t * Role.Position.t Index.t -> int64 value
       (** The [int64 value] counterpart of [Local_at]: an I64-typed vector
           Region local read at a position. *)
+  | I64_of_index : Role.Delta.t Index.t -> int64 value
+      (** The [int64 value] counterpart of [Value_of_index]: an index carried
+          into the value domain EXACTLY, not through a float ordinal. Unlike
+          [Value_of_index] (which can lose precision converting a large index to
+          binary64), this conversion is total and lossless -- every
+          [int]-represented index, on any backend width, fits in [int64]. *)
   | I64_to_float : int64 value -> float value
       (** Exact-to-working-float, potentially lossy above 2^53 (design's "I64 to
           Float" policy) -- no exceptional case, unlike the reverse direction.

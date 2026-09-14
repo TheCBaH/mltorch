@@ -88,10 +88,10 @@ let%expect_test "Scalar: packed existential round trip" =
 
 let%expect_test "Value: exact I64 arithmetic, no float intermediary" =
   let open Value in
-  (* No [Float_to_i64]/[Select]/[I64_load]/[I64_local]/[I64_local_at] node in
-     any tree here, so [eval_float]/[eval_bool]/[load_i64]/[local_i64]/
-     [local_at_i64] are provably never called -- these trees are closed over
-     [I64_const]/[I64_binary]. *)
+  (* No [Float_to_i64]/[Select]/[I64_load]/[I64_local]/[I64_local_at]/
+     [I64_of_index] node in any tree here, so [eval_float]/[eval_bool]/
+     [load_i64]/[local_i64]/[local_at_i64]/[idx_i64] are provably never
+     called -- these trees are closed over [I64_const]/[I64_binary]. *)
   let eval_i64 e =
     match
       eval_i64
@@ -100,6 +100,7 @@ let%expect_test "Value: exact I64 arithmetic, no float intermediary" =
         ~load_i64:(fun _ _ -> assert false)
         ~local_i64:(fun _ -> assert false)
         ~local_at_i64:(fun _ _ -> assert false)
+        ~idx_i64:(fun _ -> assert false)
         e
     with
     | Ok v -> v
@@ -117,6 +118,29 @@ let%expect_test "Value: exact I64 arithmetic, no float intermediary" =
   [%expect {| -9223372036854775808 9223372036854775807 |}];
   Fmt.pr "%Ld@." (eval_i64 (i64_mul (i64_const 6L) (i64_const 7L)));
   [%expect {| 42 |}]
+
+let%expect_test
+    "Value: I64_of_index resolves via the supplied idx_i64, exact past 2^53" =
+  let open Value in
+  (* [idx_i64] is the only callback this tree can reach -- proves the plumbing
+     is wired to THIS callback, not e.g. silently routed through [load_i64]. *)
+  let eval_i64 e =
+    match
+      eval_i64
+        ~eval_float:(fun _ -> assert false)
+        ~eval_bool:(fun _ -> assert false)
+        ~load_i64:(fun _ _ -> assert false)
+        ~local_i64:(fun _ -> assert false)
+        ~local_at_i64:(fun _ _ -> assert false)
+        ~idx_i64:(fun _ -> 9_007_199_254_740_993L)
+        e
+    with
+    | Ok v -> v
+    | Error _ -> assert false
+  in
+  Fmt.pr "%Ld@."
+    (eval_i64 (i64_add (i64_of_index (Index.const 0)) (i64_const 1L)));
+  [%expect {| 9007199254740994 |}]
 
 let%expect_test
     "Value: I64_to_float through the real (environment-carrying) evaluator" =
