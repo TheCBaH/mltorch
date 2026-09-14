@@ -355,7 +355,13 @@ let samples : Op.t list =
     Arange4
       {
         Ops4.Arange4.params =
-          { start = 0.5; stop = 4.; step = 1.; fmt = Payload.Fmt Payload.F32 };
+          {
+            start = 0.5;
+            stop = 4.;
+            step = 1.;
+            fmt = Payload.Fmt Payload.F32;
+            exact = None;
+          };
       };
     Zeros4
       {

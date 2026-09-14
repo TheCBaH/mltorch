@@ -256,6 +256,7 @@ let per_op () =
                  stop = 4.;
                  step = 1.;
                  fmt = Payload.Fmt Payload.F32;
+                 exact = None;
                }),
           [] ) );
       ( "eye4",

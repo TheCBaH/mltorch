@@ -53,6 +53,44 @@ let%expect_test "lower: Arange becomes the direct Arange4 counterpart" =
       n0: [t0] = arange4 start=0.5 stop=4 step=1 fmt=f32
     outputs: [t0 [C=4]] |}]
 
+(* [exact] must survive the Native -> Native4D conversion, not just the plain
+   float fields: an I64 Arange whose [exact] got dropped in lowering would
+   silently fall back to [Eval_direct4]'s float-truncating path, past 2^53,
+   reintroducing the same class of bug D02 fixed on the Native side. *)
+let%expect_test "lower: Arange's exact int64 bounds survive into Arange4" =
+  let source =
+    build "arange_exact"
+      (Graph_builder.arange
+         {
+           Factory.Arange.start = 9_007_199_254_740_993.;
+           stop = 9_007_199_254_740_996.;
+           step = 1.;
+           fmt = Payload.Fmt Payload.I64;
+           exact =
+             Some
+               {
+                 Factory.Arange.Exact.start = 9_007_199_254_740_993L;
+                 stop = 9_007_199_254_740_996L;
+                 step = 1L;
+               };
+         })
+  in
+  show "arange_exact" source;
+  [%expect
+    {|
+    arange_exact:
+      graph4
+    inputs: []
+    nodes:
+      n0: [t0] =
+        arange4
+          start=9.0072e+15
+          stop=9.0072e+15
+          step=1
+          fmt=i64;
+          exact={9007199254740993,9007199254740996,1}
+    outputs: [t0 [C=3]] |}]
+
 let%expect_test "lower: batch_norm_no_stats retains all three reductions" =
   let source =
     Graph_builder.build ~name:"batch_norm_no_stats" ~outputs:Fun.id

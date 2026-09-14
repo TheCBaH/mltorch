@@ -373,6 +373,14 @@ module Make (S : Semantics.SEMANTICS) = struct
           (Graph_shape4.vector_norm_params params)
           ~x_shape:(shape_of x) ~x:(operand x) out
     | Arange4 { Ops4.Arange4.params } ->
+        (* [Compute(S).pixel] reads only [start]/[step] (float-domain, per
+           either semantics), so [exact] is inert here regardless of its
+           value -- passed through rather than hardcoded [None] so this
+           record does not silently disagree with the same node's real
+           [params.exact] elsewhere (e.g. [Graph_shape4]/[Eval_direct4]'s
+           own Arange4 arms). Wiring a genuine typed-Symbolic int64 Arange
+           pixel is Native's own still-open P4.1 gap (blocked on D10),
+           mirrored here, not attempted by this parity fix. *)
         let module C = Factory.Arange.Compute (S) in
         C.pixel
           Factory.Arange.
@@ -381,7 +389,7 @@ module Make (S : Semantics.SEMANTICS) = struct
               stop = params.stop;
               step = params.step;
               fmt = params.fmt;
-              exact = None;
+              exact = params.exact;
             }
           out
     | Zeros4 { Ops4.Zeros4.params } ->

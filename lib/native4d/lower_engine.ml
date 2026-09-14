@@ -172,6 +172,7 @@ let lower_node ~view acc (n : node) =
                  stop = params.stop;
                  step = params.step;
                  fmt = params.fmt;
+                 exact = params.exact;
                };
            })
         [ single () ]
