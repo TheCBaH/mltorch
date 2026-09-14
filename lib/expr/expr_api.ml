@@ -611,6 +611,12 @@ module type S = sig
         unmetered, and computed by the same traversal, so the two cannot
         disagree about what counts as a node or a level. *)
 
+    val size_i64 : int64 Value.t -> int
+    (** [size]'s int64-rooted twin, for a bare [int64 Value.t]. *)
+
+    val depth_i64 : int64 Value.t -> int
+    (** [depth]'s int64-rooted twin, for a bare [int64 Value.t]. *)
+
     val measure_with_locals :
       local:(Local_var.t -> int * int) ->
       max_size:int ->
@@ -634,6 +640,9 @@ module type S = sig
     val sources : float Value.t -> Source.Set.t
     (** Every source the expression depends on, ordinary loads and intrinsic
         descriptors alike. What must be RESOLVED and ordered. *)
+
+    val sources_i64 : int64 Value.t -> Source.Set.t
+    (** [sources]' int64-rooted twin, for a bare [int64 Value.t]. *)
 
     val loads :
       float Value.t -> (Source.t * Role.Position.t Index.t Coord.t) list
@@ -844,6 +853,14 @@ module type S = sig
         both budgets, so the recursion is bounded by the tighter of the two. A
         walk per limit does not achieve that: whichever ran first would still
         descend the full input whenever its own bound was loose. *)
+
+    val value_i64 :
+      ?max_size:int -> ?max_depth:int -> int64 Value.t -> (unit, error) Err.t
+    (** [value]'s int64-rooted twin, for a bare [int64 Value.t] (not one reached
+        only through a [Float_to_i64] wrapper) -- the shape a standalone typed
+        pixel value has. Narrower than [fragment]: no [~allowed_free]/[~locals]
+        parameters, since no int64 FRAGMENT (as opposed to a whole closed value)
+        has a real caller yet. *)
   end
 
   module Eval : sig

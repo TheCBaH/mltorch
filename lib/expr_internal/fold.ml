@@ -194,7 +194,12 @@ exception Over of [ `Depth | `Size ]
      count still available and returns what it left, so a sibling is measured
      against what its predecessor consumed rather than against a shared cell.
      Each function returns [(depth, left)]. *)
-let measure_with_locals ~local ~max_size ~max_depth e =
+(* The shared body of [measure_with_locals]/[measure_with_locals_i64]: builds
+   the whole [node]/[index]/[coord]/[value]/[value_i64]/[value_bool]
+   mutually-recursive group once and hands back BOTH entry points, so the
+   int64-rooted measure is not a second copy of this traversal -- just a
+   different root call into the same one. *)
+let measure_with_locals_gen ~local =
   (* Charged once per node, before descending: that is what keeps the
        recursion inside the budget rather than merely reporting on it. *)
   let node budget left ~cost ~depth =
@@ -387,7 +392,17 @@ let measure_with_locals ~local ~max_size ~max_depth e =
         let dy, left = value_i64 bound budget left y in
         (Stdlib.max dx dy, left)
   in
+  (value, value_i64)
+
+let measure_with_locals ~local ~max_size ~max_depth e =
+  let value, _ = measure_with_locals_gen ~local in
   let d, left = value Local_var.Set.empty max_depth max_size e in
+  (max_size - left, d)
+
+(* [measure_with_locals]' int64-rooted twin, for a bare [int64 Value.t]. *)
+let measure_with_locals_i64 ~local ~max_size ~max_depth e =
+  let _, value_i64 = measure_with_locals_gen ~local in
+  let d, left = value_i64 Local_var.Set.empty max_depth max_size e in
   (max_size - left, d)
 
 let measure ~max_size ~max_depth e =
@@ -396,6 +411,16 @@ let measure ~max_size ~max_depth e =
 let unmetered e = measure ~max_size:Stdlib.max_int ~max_depth:Stdlib.max_int e
 let size e = fst (unmetered e)
 let depth e = snd (unmetered e)
+
+(* [measure]/[unmetered]/[size]/[depth]'s int64-rooted twins. *)
+let measure_i64 ~max_size ~max_depth e =
+  measure_with_locals_i64 ~local:(fun _ -> (1, 1)) ~max_size ~max_depth e
+
+let unmetered_i64 e =
+  measure_i64 ~max_size:Stdlib.max_int ~max_depth:Stdlib.max_int e
+
+let size_i64 e = fst (unmetered_i64 e)
+let depth_i64 e = snd (unmetered_i64 e)
 
 (* Which limit was passed, without measuring the rest. Both are enforced
      together for the reason above, so an absent limit is [max_int] rather than
@@ -407,6 +432,15 @@ let exceeds_with_locals ~local ~max_size ~max_depth e =
 
 let exceeds ~max_size ~max_depth e =
   exceeds_with_locals ~local:(fun _ -> (1, 1)) ~max_size ~max_depth e
+
+(* [exceeds_with_locals]/[exceeds]' int64-rooted twins. *)
+let exceeds_with_locals_i64 ~local ~max_size ~max_depth e =
+  match measure_with_locals_i64 ~local ~max_size ~max_depth e with
+  | _ -> None
+  | exception Over w -> Some w
+
+let exceeds_i64 ~max_size ~max_depth e =
+  exceeds_with_locals_i64 ~local:(fun _ -> (1, 1)) ~max_size ~max_depth e
 
 let sources e =
   walk
@@ -434,6 +468,23 @@ let loads e =
        ~value_i64:(fun acc -> function
          | Value.I64_load (s, c) -> (s, c) :: acc | _ -> acc)
        ~index:no_index ~intrinsic:nothing [] e)
+
+(* [sources]' int64-rooted twin, for a bare [int64 Value.t] (not one reached
+   only through a [Float_to_i64]/[I64_to_float] wrapper) -- the shape a
+   standalone typed pixel value (no enclosing float context) has. Same
+   callbacks, entered through [walk_i64] instead of [walk]; [walk_i64] itself
+   already recurses back into [walk] on [Float_to_i64], so this sees the same
+   full set [sources] would if the same tree were wrapped in [I64_to_float]. *)
+let sources_i64 e =
+  walk_i64
+    ~value:(fun acc -> function
+      | Value.Load (s, _) -> Source.Set.add s acc
+      | Value.Intrinsic (Intrinsic.Max_pool d) ->
+          Source.Set.add d.Intrinsic.Max_pool.source acc
+      | _ -> acc)
+    ~value_i64:(fun acc -> function
+      | Value.I64_load (s, _) -> Source.Set.add s acc | _ -> acc)
+    ~index:{ idx = index_sources } ~intrinsic:nothing Source.Set.empty e
 
 let intrinsic_sources e =
   List.rev
@@ -508,6 +559,14 @@ let keep bound acc v =
 
 let locals e =
   scoped_locals
+    ~f:(fun bound acc -> function
+      | Scalar_ref v | Vector_ref v | Scan_ref v -> keep bound acc v)
+    Local_var.Set.empty Local_var.Set.empty e
+
+(* [locals]' int64-rooted twin, for a bare [int64 Value.t] -- same shape as
+   [sources_i64] above. *)
+let locals_i64 e =
+  scoped_locals_i64
     ~f:(fun bound acc -> function
       | Scalar_ref v | Vector_ref v | Scan_ref v -> keep bound acc v)
     Local_var.Set.empty Local_var.Set.empty e
@@ -634,71 +693,88 @@ let intrinsics e =
     0 e
 
 (* Scope-aware, unlike the queries above: a reducer mentioned under its own
-     binder is bound, not free. A well-formed top-level expression has none. *)
+     binder is bound, not free. A well-formed top-level expression has none.
+     [go]/[go_i64]/[go_bool] are top-level (not nested inside [free_reducers]
+     itself) purely so [free_reducers_i64] below can enter the same mutually
+     recursive group at [go_i64] instead of duplicating it -- the two ARE
+     [free_reducers]'s original body, unchanged. *)
+let free_reducers_idx bound acc i =
+  Reduce_var.Set.diff (index_reducers Reduce_var.Set.empty i) bound
+  |> Reduce_var.Set.union acc
+
+let rec free_reducers_go bound acc (e : float Value.t) =
+  let idx acc i = free_reducers_idx bound acc i in
+  match e with
+  | Value.Binary (_, a, b) ->
+      free_reducers_go bound (free_reducers_go bound acc a) b
+  | Value.Const _ -> acc
+  | Value.Intrinsic (Intrinsic.Max_pool d) ->
+      Coord.fold idx acc d.Intrinsic.Max_pool.out
+  | Value.Local _ -> acc
+  | Value.I64_to_float a -> free_reducers_go_i64 bound acc a
+  | Value.Local_at (_, i) -> idx acc i
+  | Value.Local_scan_at (_, row, lane) -> idx (idx acc row) lane
+  | Value.Load (_, c) -> Coord.fold idx acc c
+  | Value.Reduce r ->
+      (* The bounds are OUTSIDE the binder: they may mention enclosing
+           reducers but not this one. *)
+      let acc = idx (idx acc r.Reduction.lo) r.Reduction.hi in
+      free_reducers_go
+        (Reduce_var.Set.add r.Reduction.var bound)
+        acc r.Reduction.body
+  | Value.Round_f32 a -> free_reducers_go bound acc a
+  (* [row]/[lane] (the READ site) sit OUTSIDE both scopes, like a
+     reduction's bounds. [lane] is bound in [init]; [lane] and [step] are
+     both bound in [update] -- two SIBLING scopes, so [lane] is added to
+     [bound] independently for each. *)
+  | Value.Scan_at (s, row, lane) ->
+      let acc = idx (idx acc row) lane in
+      let acc =
+        free_reducers_go (Reduce_var.Set.add s.Scan.lane bound) acc s.Scan.init
+      in
+      free_reducers_go
+        (Reduce_var.Set.add s.Scan.lane (Reduce_var.Set.add s.Scan.step bound))
+        acc s.Scan.update
+  | Value.Select (c, a, b) ->
+      let acc = free_reducers_go_bool bound acc c in
+      free_reducers_go bound (free_reducers_go bound acc a) b
+  | Value.Unary (_, a) -> free_reducers_go bound acc a
+  | Value.Value_of_index i -> idx acc i
+
+(* [Float_to_i64]'s operand can mention an enclosing reducer just as easily
+   as any other float subtree -- missing it here would under-report the
+   free set, letting [Check.fragment]'s scope check pass an ill-scoped
+   expression as closed. [I64_binary]/[I64_const] have no indices of their
+   own to fold. *)
+and free_reducers_go_i64 bound acc (e : int64 Value.t) =
+  match e with
+  | Value.Float_to_i64 a -> free_reducers_go bound acc a
+  | Value.I64_binary (_, a, b) ->
+      free_reducers_go_i64 bound (free_reducers_go_i64 bound acc a) b
+  | Value.I64_const _ -> acc
+  | Value.I64_load (_, c) -> Coord.fold (free_reducers_idx bound) acc c
+  | Value.I64_local _ -> acc
+  | Value.I64_local_at (_, i) -> free_reducers_idx bound acc i
+  | Value.Select (c, a, b) ->
+      let acc = free_reducers_go_bool bound acc c in
+      free_reducers_go_i64 bound (free_reducers_go_i64 bound acc a) b
+
+(* [bool_expr]'s own free-reducer walk: [I64_eq]/[I64_lt]'s operands go
+   through [go_i64], [Value_lt]'s through [go]. *)
+and free_reducers_go_bool bound acc = function
+  | Expr_repr.Index_eq (x, y) ->
+      free_reducers_idx bound (free_reducers_idx bound acc x) y
+  | Expr_repr.Value_lt (x, y) ->
+      free_reducers_go bound (free_reducers_go bound acc x) y
+  | Expr_repr.I64_eq (x, y) | Expr_repr.I64_lt (x, y) ->
+      free_reducers_go_i64 bound (free_reducers_go_i64 bound acc x) y
+
 let free_reducers e =
-  let idx bound acc i =
-    Reduce_var.Set.diff (index_reducers Reduce_var.Set.empty i) bound
-    |> Reduce_var.Set.union acc
-  in
-  let rec go bound acc (e : float Value.t) =
-    let idx acc i = idx bound acc i in
-    match e with
-    | Value.Binary (_, a, b) -> go bound (go bound acc a) b
-    | Value.Const _ -> acc
-    | Value.Intrinsic (Intrinsic.Max_pool d) ->
-        Coord.fold idx acc d.Intrinsic.Max_pool.out
-    | Value.Local _ -> acc
-    | Value.I64_to_float a -> go_i64 bound acc a
-    | Value.Local_at (_, i) -> idx acc i
-    | Value.Local_scan_at (_, row, lane) -> idx (idx acc row) lane
-    | Value.Load (_, c) -> Coord.fold idx acc c
-    | Value.Reduce r ->
-        (* The bounds are OUTSIDE the binder: they may mention enclosing
-             reducers but not this one. *)
-        let acc = idx (idx acc r.Reduction.lo) r.Reduction.hi in
-        go (Reduce_var.Set.add r.Reduction.var bound) acc r.Reduction.body
-    | Value.Round_f32 a -> go bound acc a
-    (* [row]/[lane] (the READ site) sit OUTSIDE both scopes, like a
-       reduction's bounds. [lane] is bound in [init]; [lane] and [step] are
-       both bound in [update] -- two SIBLING scopes, so [lane] is added to
-       [bound] independently for each. *)
-    | Value.Scan_at (s, row, lane) ->
-        let acc = idx (idx acc row) lane in
-        let acc = go (Reduce_var.Set.add s.Scan.lane bound) acc s.Scan.init in
-        go
-          (Reduce_var.Set.add s.Scan.lane
-             (Reduce_var.Set.add s.Scan.step bound))
-          acc s.Scan.update
-    | Value.Select (c, a, b) ->
-        let acc = go_bool bound acc c in
-        go bound (go bound acc a) b
-    | Value.Unary (_, a) -> go bound acc a
-    | Value.Value_of_index i -> idx acc i
-  (* [Float_to_i64]'s operand can mention an enclosing reducer just as easily
-     as any other float subtree -- missing it here would under-report the
-     free set, letting [Check.fragment]'s scope check pass an ill-scoped
-     expression as closed. [I64_binary]/[I64_const] have no indices of their
-     own to fold. *)
-  and go_i64 bound acc (e : int64 Value.t) =
-    match e with
-    | Value.Float_to_i64 a -> go bound acc a
-    | Value.I64_binary (_, a, b) -> go_i64 bound (go_i64 bound acc a) b
-    | Value.I64_const _ -> acc
-    | Value.I64_load (_, c) -> Coord.fold (idx bound) acc c
-    | Value.I64_local _ -> acc
-    | Value.I64_local_at (_, i) -> idx bound acc i
-    | Value.Select (c, a, b) ->
-        let acc = go_bool bound acc c in
-        go_i64 bound (go_i64 bound acc a) b
-  (* [bool_expr]'s own free-reducer walk: [I64_eq]/[I64_lt]'s operands go
-     through [go_i64], [Value_lt]'s through [go]. *)
-  and go_bool bound acc = function
-    | Expr_repr.Index_eq (x, y) -> idx bound (idx bound acc x) y
-    | Expr_repr.Value_lt (x, y) -> go bound (go bound acc x) y
-    | Expr_repr.I64_eq (x, y) | Expr_repr.I64_lt (x, y) ->
-        go_i64 bound (go_i64 bound acc x) y
-  in
-  go Reduce_var.Set.empty Reduce_var.Set.empty e
+  free_reducers_go Reduce_var.Set.empty Reduce_var.Set.empty e
+
+(* [free_reducers]' int64-rooted twin, for a bare [int64 Value.t]. *)
+let free_reducers_i64 e =
+  free_reducers_go_i64 Reduce_var.Set.empty Reduce_var.Set.empty e
 
 (* Binders in lexical (pre-)order, with repeats: an identity bound in two
      sibling scopes appears twice, which is what makes this usable for counting

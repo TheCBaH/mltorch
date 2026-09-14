@@ -34,76 +34,94 @@ type duplicate = Local of Local_var.t | Reducer of Reduce_var.t
      [prev] makes [Local_var.t] a binder for the first time, hence the two
      namespaces ([bound]/[lbound]) mirroring [Fold.free_reducers]/
      [Fold.locals]'s own scope masking. *)
-let duplicate_binder e =
-  let rec go bound lbound (e : float Value.t) =
-    match e with
-    | Value.Const _ | Value.Value_of_index _ | Value.Load _ | Value.Intrinsic _
-    | Value.Local _ | Value.Local_at _ | Value.Local_scan_at _ ->
-        None
-    | Value.I64_to_float a -> go_i64 bound lbound a
-    | Value.Binary (_, a, b) -> (
-        match go bound lbound a with None -> go bound lbound b | some -> some)
-    | Value.Unary (_, a) | Value.Round_f32 a -> go bound lbound a
-    | Value.Select (c, a, b) -> (
-        let guard = go_bool bound lbound c in
-        match guard with
-        | Some _ -> guard
-        | None -> (
-            match go bound lbound a with
-            | None -> go bound lbound b
-            | some -> some))
-    | Value.Reduce r ->
-        if Reduce_var.Set.mem r.Reduction.var bound then
-          Some (Reducer r.Reduction.var)
-        else
-          go (Reduce_var.Set.add r.Reduction.var bound) lbound r.Reduction.body
-    | Value.Scan_at (s, _, _) -> (
-        if Reduce_var.Set.mem s.Scan.lane bound then Some (Reducer s.Scan.lane)
-        else
-          match
-            go (Reduce_var.Set.add s.Scan.lane bound) lbound s.Scan.init
-          with
-          | Some _ as d -> d
-          | None ->
-              if Reduce_var.Set.mem s.Scan.step bound then
-                Some (Reducer s.Scan.step)
-              else if Local_var.Set.mem s.Scan.prev lbound then
-                Some (Local s.Scan.prev)
-              else
-                go
-                  (Reduce_var.Set.add s.Scan.lane
-                     (Reduce_var.Set.add s.Scan.step bound))
-                  (Local_var.Set.add s.Scan.prev lbound)
-                  s.Scan.update)
-  (* [Float_to_i64]'s operand can rebind a reducer/local just as easily as any
-     other float subtree, so it must go through [go] rather than be treated
-     as closed. *)
-  and go_i64 bound lbound (e : int64 Value.t) =
-    match e with
-    | Value.Float_to_i64 a -> go bound lbound a
-    | Value.I64_binary (_, a, b) -> (
-        match go_i64 bound lbound a with
-        | None -> go_i64 bound lbound b
-        | some -> some)
-    | Value.I64_const _ | Value.I64_load _ -> None
-    | Value.I64_local _ | Value.I64_local_at _ -> None
-    | Value.Select (c, a, b) -> (
-        match go_bool bound lbound c with
+(* [go]/[go_i64]/[go_bool] are top-level (not nested inside [duplicate_binder]
+   itself) so [duplicate_binder_i64] below can enter the same mutually
+   recursive group at [go_i64] instead of duplicating it -- the two ARE
+   [duplicate_binder]'s original body, unchanged. *)
+let rec duplicate_binder_go bound lbound (e : float Value.t) =
+  match e with
+  | Value.Const _ | Value.Value_of_index _ | Value.Load _ | Value.Intrinsic _
+  | Value.Local _ | Value.Local_at _ | Value.Local_scan_at _ ->
+      None
+  | Value.I64_to_float a -> duplicate_binder_go_i64 bound lbound a
+  | Value.Binary (_, a, b) -> (
+      match duplicate_binder_go bound lbound a with
+      | None -> duplicate_binder_go bound lbound b
+      | some -> some)
+  | Value.Unary (_, a) | Value.Round_f32 a -> duplicate_binder_go bound lbound a
+  | Value.Select (c, a, b) -> (
+      let guard = duplicate_binder_go_bool bound lbound c in
+      match guard with
+      | Some _ -> guard
+      | None -> (
+          match duplicate_binder_go bound lbound a with
+          | None -> duplicate_binder_go bound lbound b
+          | some -> some))
+  | Value.Reduce r ->
+      if Reduce_var.Set.mem r.Reduction.var bound then
+        Some (Reducer r.Reduction.var)
+      else
+        duplicate_binder_go
+          (Reduce_var.Set.add r.Reduction.var bound)
+          lbound r.Reduction.body
+  | Value.Scan_at (s, _, _) -> (
+      if Reduce_var.Set.mem s.Scan.lane bound then Some (Reducer s.Scan.lane)
+      else
+        match
+          duplicate_binder_go
+            (Reduce_var.Set.add s.Scan.lane bound)
+            lbound s.Scan.init
+        with
         | Some _ as d -> d
-        | None -> (
-            match go_i64 bound lbound a with
-            | None -> go_i64 bound lbound b
-            | some -> some))
-  and go_bool bound lbound = function
-    | Expr_repr.Value_lt (x, y) -> (
-        match go bound lbound x with None -> go bound lbound y | some -> some)
-    | Expr_repr.Index_eq _ -> None
-    | Expr_repr.I64_eq (x, y) | Expr_repr.I64_lt (x, y) -> (
-        match go_i64 bound lbound x with
-        | None -> go_i64 bound lbound y
-        | some -> some)
-  in
-  go Reduce_var.Set.empty Local_var.Set.empty e
+        | None ->
+            if Reduce_var.Set.mem s.Scan.step bound then
+              Some (Reducer s.Scan.step)
+            else if Local_var.Set.mem s.Scan.prev lbound then
+              Some (Local s.Scan.prev)
+            else
+              duplicate_binder_go
+                (Reduce_var.Set.add s.Scan.lane
+                   (Reduce_var.Set.add s.Scan.step bound))
+                (Local_var.Set.add s.Scan.prev lbound)
+                s.Scan.update)
+
+(* [Float_to_i64]'s operand can rebind a reducer/local just as easily as any
+   other float subtree, so it must go through [go] rather than be treated
+   as closed. *)
+and duplicate_binder_go_i64 bound lbound (e : int64 Value.t) =
+  match e with
+  | Value.Float_to_i64 a -> duplicate_binder_go bound lbound a
+  | Value.I64_binary (_, a, b) -> (
+      match duplicate_binder_go_i64 bound lbound a with
+      | None -> duplicate_binder_go_i64 bound lbound b
+      | some -> some)
+  | Value.I64_const _ | Value.I64_load _ -> None
+  | Value.I64_local _ | Value.I64_local_at _ -> None
+  | Value.Select (c, a, b) -> (
+      match duplicate_binder_go_bool bound lbound c with
+      | Some _ as d -> d
+      | None -> (
+          match duplicate_binder_go_i64 bound lbound a with
+          | None -> duplicate_binder_go_i64 bound lbound b
+          | some -> some))
+
+and duplicate_binder_go_bool bound lbound = function
+  | Expr_repr.Value_lt (x, y) -> (
+      match duplicate_binder_go bound lbound x with
+      | None -> duplicate_binder_go bound lbound y
+      | some -> some)
+  | Expr_repr.Index_eq _ -> None
+  | Expr_repr.I64_eq (x, y) | Expr_repr.I64_lt (x, y) -> (
+      match duplicate_binder_go_i64 bound lbound x with
+      | None -> duplicate_binder_go_i64 bound lbound y
+      | some -> some)
+
+let duplicate_binder e =
+  duplicate_binder_go Reduce_var.Set.empty Local_var.Set.empty e
+
+(* [duplicate_binder]' int64-rooted twin, for a bare [int64 Value.t]. *)
+let duplicate_binder_i64 e =
+  duplicate_binder_go_i64 Reduce_var.Set.empty Local_var.Set.empty e
 
 (* The limits come FIRST, and are metered by one traversal carrying both. Both
      scope traversals recurse over the whole tree, so running them ahead of the
@@ -159,3 +177,40 @@ let fragment ?max_size ?max_depth ?(allowed_free = Reduce_var.Set.empty) ~locals
 
 let value ?max_size ?max_depth e =
   fragment ?max_size ?max_depth ~locals:Local_var.Set.empty e
+
+(* [value]'s int64-rooted twin, for a bare [int64 Value.t] (not one reached
+   only through a [Float_to_i64] wrapper). Narrower than [fragment]: no
+   [~allowed_free]/[~locals] parameters, since nothing needs an int64
+   FRAGMENT check yet (that is Region-local generalization territory, not
+   this slice's) -- only a top-level, closed expression's size/depth/scope,
+   the shape a standalone typed pixel value has. Add the general form only
+   when a real caller needs it, per this plan's own "don't build ahead of a
+   real caller" discipline. *)
+let value_i64 ?max_size ?max_depth e =
+  let open Err.Syntax in
+  let or_unbounded = function Some l -> l | None -> Stdlib.max_int in
+  let* () =
+    match (max_size, max_depth) with
+    | None, None -> Err.return ()
+    | _ -> (
+        let max_size = or_unbounded max_size
+        and max_depth = or_unbounded max_depth in
+        match Fold.exceeds_i64 ~max_size ~max_depth e with
+        | Some `Size -> Err.fail (`Too_large max_size)
+        | Some `Depth -> Err.fail (`Too_deep max_depth)
+        | None -> Err.return ())
+  in
+  let* () =
+    match Local_var.Set.min_elt_opt (Fold.locals_i64 e) with
+    | Some v -> Err.fail (`Unbound_local v)
+    | None -> Err.return ()
+  in
+  let* () =
+    match Reduce_var.Set.min_elt_opt (Fold.free_reducers_i64 e) with
+    | Some v -> Err.fail (`Free_reducer v)
+    | None -> Err.return ()
+  in
+  match duplicate_binder_i64 e with
+  | Some (Local v) -> Err.fail (`Duplicate_local_binder v)
+  | Some (Reducer v) -> Err.fail (`Duplicate_reducer_binder v)
+  | None -> Err.return ()
