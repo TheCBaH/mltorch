@@ -31,6 +31,14 @@ let arange_shaped ~start ~step =
 let value_i64 ?(fmt = i64) id shape pixel =
   { Kernel.Value_i64.id = tid id; sg = sg ~fmt id shape; pixel }
 
+let float_value ?(result = Kernel.Result_conversion.Round_f32) id shape body =
+  {
+    Kernel.Value.id = tid id;
+    sg = sg ~fmt:f32 id shape;
+    computation = Region_group.Ref.Solo (Region_program.pixel body);
+    result;
+  }
+
 let%expect_test "Kernel: a standalone int64 value is admitted" =
   Format.printf "%a@." pp_kernel
     (Kernel.create
@@ -206,3 +214,57 @@ let%expect_test "Kernel_eval.run threads one int64 value's result into the next"
     t0: 9007199254740993,9007199254740994,9007199254740995
     t1: 9007199254741993,9007199254741994,9007199254741995
     |}]
+
+(* The other cross-carrier direction: an ordinary FLOAT [Kernel.Value.t]
+   reading an int64 [values_i64] entry via [I64_to_float (I64_load ...)] --
+   the shape a promoted consumer of an int64 producer needs (D10's second
+   half). Admitted at zero added dependency depth, like an input. *)
+let%expect_test "Kernel: a float value may read an int64 value" =
+  let t0_source = Expr_bridge.source_of_id (tid 0) in
+  let load_t0 =
+    Expr.Value.i64_to_float
+      (Expr.Value.i64_load t0_source
+         (Expr_bridge.coord_of_vec6 Symbolic.out_vec))
+  in
+  Format.printf "%a@." pp_kernel
+    (Kernel.create
+       ~values_i64:[ value_i64 0 (s1c 3) (arange_shaped ~start:5L ~step:1L) ]
+       ~values:[ float_value 1 (s1c 3) load_t0 ]
+       ~inputs:[]
+       ~outputs:[ tid 1 ]
+       ());
+  [%expect {| ok |}]
+
+(* End to end: the float consumer's materialized values are the exact int64
+   producer's values, cast -- not stale/default data, and not the OTHER
+   direction (an int64 value cannot read this float value: that stays
+   [`Unsupported_i64_dependency], covered above). *)
+let%expect_test "Kernel_eval.run threads an int64 value into a float consumer" =
+  let shape = s1c 3 in
+  let t0_source = Expr_bridge.source_of_id (tid 0) in
+  let load_t0 =
+    Expr.Value.i64_to_float
+      (Expr.Value.i64_load t0_source
+         (Expr_bridge.coord_of_vec6 Symbolic.out_vec))
+  in
+  let k =
+    Err.or_raise ~pp_error:Kernel.pp_error
+      (Kernel.create
+         ~values_i64:[ value_i64 0 shape (arange_shaped ~start:5L ~step:1L) ]
+         ~values:[ float_value 1 shape load_t0 ]
+         ~inputs:[]
+         ~outputs:[ tid 1 ]
+         ())
+  in
+  let result =
+    Err.or_raise ~pp_error:Kernel_eval.pp_error
+      (Kernel_eval.run k ~bind:(fun _ -> None))
+  in
+  let tensor = Tensor_id.Map.find (tid 1) result in
+  let read c =
+    Tensor.read_at_raw tensor (function
+      | Axis.C -> c
+      | Axis.N | Axis.T | Axis.D | Axis.H | Axis.W -> 0)
+  in
+  Fmt.pr "%g,%g,%g@." (read 0) (read 1) (read 2);
+  [%expect {| 5,6,7 |}]

@@ -624,10 +624,26 @@ let create ?(limits = Limits.default) ?(values_i64 = []) ~inputs ~values
       (fun s (i : Input.t) -> Tensor_id.Set.add i.Input.id s)
       Tensor_id.Set.empty inputs
   in
+  (* A float value's source resolving to a [values_i64] entry costs no
+     dependency/eval depth, the same as an input: [values_i64] is always
+     materialized eagerly, in full, before any [Value.t] evaluates
+     ([Kernel_eval.machine] seeds its [bound] map with it up front), so it is
+     as available to every float value as a caller-supplied input is -- never
+     a forward reference, regardless of either list's own order. This is the
+     "float value reads an int64 value" half of cross-carrier dependency
+     support (see the implementation tracker's D10); the reverse direction
+     (an int64 value reading a float one) stays unsupported, enforced by
+     [check_values_i64_order] above. *)
+  let i64_ids =
+    List.fold_left
+      (fun s (v : Value_i64.t) -> Tensor_id.Set.add v.Value_i64.id s)
+      Tensor_id.Set.empty values_i64
+  in
   (* Source resolution, dependency depth and evaluation depth in one forward
      sweep over the already topologically ordered list — iterative, so
      validation cannot itself overflow on the input it exists to reject. Both
-     depths are keyed by id; a source resolving to an input contributes zero. *)
+     depths are keyed by id; a source resolving to an input or an int64 value
+     contributes zero. *)
   let* _depths =
     List.fold_left
       (fun acc (v : Value.t) ->
@@ -637,7 +653,8 @@ let create ?(limits = Limits.default) ?(values_i64 = []) ~inputs ~values
             (fun src acc ->
               let* d, e = acc in
               let id = Expr_bridge.id_of_source src in
-              if Tensor_id.Set.mem id input_ids then Err.return (d, e)
+              if Tensor_id.Set.mem id input_ids || Tensor_id.Set.mem id i64_ids
+              then Err.return (d, e)
               else
                 match
                   (Tensor_id.Map.find_opt id dep, Tensor_id.Map.find_opt id ev)
