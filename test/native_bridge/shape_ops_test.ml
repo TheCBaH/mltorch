@@ -632,6 +632,31 @@ let%expect_test "dispatch: unsqueeze.default rejects pushing rank past six" =
     ~noutputs:1;
   [%expect {| error: rank 7 out of [0, 6] |}]
 
+(* An I64 operand, real ATen as the oracle: [op_bridge_shape.ml] dropped its
+   [require_f32] gate on this arm once [Eval_direct]'s [Reshape] arm gained an
+   exact [Compute_i64] path (this session's earlier P5.2 commit) -- this is
+   the differential fixture that gate's own removal was waiting on, proving
+   real ATen and native agree on an I64 unsqueeze, not merely that native's
+   own standalone graph (reshape_i64_test.ml) reads back what it wrote.
+   Values sit past 2^53 so a float round trip anywhere in the bridge or
+   [Eval_direct] would visibly collapse distinct cells. *)
+let%expect_test "verify: unsqueeze.default on an I64 operand past 2^53" =
+  let x =
+    i64_tensor [ 2; 3 ]
+      [
+        9_007_199_254_740_993L;
+        9_007_199_254_740_994L;
+        9_007_199_254_740_995L;
+        9_007_199_254_740_996L;
+        9_007_199_254_740_997L;
+        9_007_199_254_740_998L;
+      ]
+  in
+  verify_print ~target:"torch.ops.aten.unsqueeze.default"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_int "dim" 1 ];
+  [%expect {| aten and native agree |}]
+
 (* ---- aten.alias.default: ATen as the oracle ------------------------------ *)
 
 (* [alias(self) -> Tensor]: a pure identity view, ATen's own schema takes no
