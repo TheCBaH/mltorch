@@ -478,6 +478,35 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                             ~operand:(fun r -> Tensor_id.Map.find r operand_env)
                             ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
                             ~fill)))
+            (* Explicit int64-input promotion for [To_copy]'s [Float] target
+               only -- the EdgeNeXt/mvitv2 "I64 Arange -> Float cast"
+               acceptance pattern's own promoted-consumer step. Same rationale
+               as [Mul_scalar] above: [Compute(S).pixel]'s [S.load] already
+               computes the identical value for this specific case
+               ([Payload.get_float]'s I64 case is [Int64.to_float]), so this
+               is architecture-only, not a value-level fix. [Long]/[Bool]
+               targets are untouched -- an I64 input reaching [Long] needs no
+               cast at all (I64->I64 copy), and [Bool] needs storage this plan
+               has not opened yet, so both keep the existing float pixel path. *)
+            | To_copy { Pointwise.To_copy.target = Pointwise.To_copy.Float; x }
+              -> (
+                let x_sig = Tensor_id.Map.find x g.Graph.tensors in
+                match x_sig.Tensor_sig.fmt with
+                | Payload.Fmt Payload.I64 ->
+                    let module C =
+                      Pointwise.To_copy.Compute_i64 (Direct) (Direct)
+                    in
+                    let x_t = Tensor_id.Map.find x operand_env in
+                    Err.return
+                      (Schedule.evaluate out_shape (fun coord ->
+                           C.pixel x_t coord))
+                | _ ->
+                    Err.return
+                      (Schedule.evaluate out_shape
+                         (E.pixel op ~output
+                            ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                            ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                            ~fill)))
             | _ when Region_computation.is_region_authored op ->
                 region_result ~limits
                   ~region_counters:

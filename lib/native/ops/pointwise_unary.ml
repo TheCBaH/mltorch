@@ -363,6 +363,34 @@ module To_copy = struct
             (S.const 1.)
             (S.select (S.lt v (S.const 0.)) (S.const 1.) (S.const 0.))
   end
+
+  (* Explicit int64-input counterpart of [Compute]'s [Float] arm only -- the
+     EdgeNeXt/mvitv2 "I64 Arange -> Float cast" acceptance pattern's own
+     promoted-consumer step (Gate 5 item 6), the same shape as
+     [Mul_scalar.Compute_i64]: the operand is read through [T.i64_load]/
+     [T.i64_to_float], an explicit checked promotion, rather than
+     [Compute]'s [S.load], which round-trips every format through
+     [Payload.get_float] and performs the identical promotion only
+     incidentally ([Payload.get_float]'s I64 case is exactly
+     [Int64.to_float] -- confirmed in an earlier session, `payload.ml`).
+     [target] is NOT dispatched here: [Long]/[Bool] on an I64 operand are
+     out of this increment's scope (an I64->I64 [Long] copy needs no cast at
+     all, and [Bool] needs the Gate-6 storage this plan has not opened yet),
+     so the caller must only route the [Float] case here. *)
+  module Compute_i64
+      (S : Semantics.SEMANTICS)
+      (T : sig
+        type 'a repr
+
+        val i64_load :
+          S.input -> Semantics.position S.index Vec6.t -> int64 repr
+
+        val i64_to_float : int64 repr -> S.t
+      end) =
+  struct
+    let pixel x (out : Semantics.position S.index Vec6.t) =
+      T.i64_to_float (T.i64_load x out)
+  end
 end
 
 (* [bitwise_not.default] on the corpus's only observed operand: a bool tensor
