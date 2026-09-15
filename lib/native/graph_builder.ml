@@ -486,19 +486,35 @@ let repeat_interleave ?name params x =
   op1 ?name ~kind:"repeat_interleave"
     (RepeatInterleave { Repeat.RepeatInterleave.params; x })
 
-(* Dtype-preserving, matching [unbind]/[split_with_sizes] below: [Reshape] is
-   a pure coordinate relabeling with no arithmetic of its own (see
-   [Eval_direct]'s own I64-dispatching arm, keyed on exactly this signature),
-   so its output must carry the SAME format/quantization as its input, not
-   [op1]'s F32 default for arithmetic outputs -- a defaulted F32 sig here
-   previously disagreed with the I64 tensor [Eval_direct] actually produces
-   for an I64 operand, which a second dtype-branching consumer reading this
-   edge's declared sig (not the runtime payload) would silently trust. *)
+(* Dtype-preserving for I64 ONLY, not every format, unlike [unbind]/
+   [split_with_sizes] below: those route through [Tensor.copy_cells], which
+   is exact for every format, so unconditional threading is safe. [Reshape]'s
+   [Eval_direct] dispatch is exact for I64 ([Compute_i64]) but for every
+   OTHER non-F32 format still falls back to the generic
+   [Schedule.evaluate]/[Tensor.materialize] pixel path, which allocates its
+   result as F32 unconditionally (`Tensor.create`) regardless of what the
+   output edge declares. Declaring this edge's format as, say, I32 to match
+   an I32 operand -- while [Eval_direct] still hands back an F32 tensor --
+   would swap the ORIGINAL defect (a defaulted F32 sig disagreeing with a
+   genuinely-I64 runtime tensor) for the mirror-image one (a declared I32
+   sig disagreeing with a genuinely-F32 runtime tensor). Confirmed live via
+   the identical hazard on [Permute]'s own analogous fmt-threading attempt:
+   `test/native/verify_rounding_test.ml`'s I32-permute trim fixture depends
+   on [Trim_permute] correctly seeing a declared/runtime format MISMATCH for
+   an I32 permute (its own [same_precision] guard), which a blanket
+   fmt-thread there broke by declaring I32 for a still-F32-computed result.
+   So: I64 threads through exactly like [unbind]; every other format keeps
+   [op1]'s F32 default, matching what [Eval_direct] actually delivers for
+   it. *)
 let reshape ?name params x =
   let* s = get in
   let sg = Tensor_id.Map.find x s.tensors in
-  op1 ?name ~fmt:sg.Tensor_sig.fmt ?quant:sg.Tensor_sig.quant ~kind:"reshape"
-    (Reshape { Reshape.Reshape.params; x })
+  match sg.Tensor_sig.fmt with
+  | Payload.Fmt Payload.I64 ->
+      op1 ?name ~fmt:sg.Tensor_sig.fmt ?quant:sg.Tensor_sig.quant
+        ~kind:"reshape"
+        (Reshape { Reshape.Reshape.params; x })
+  | _ -> op1 ?name ~kind:"reshape" (Reshape { Reshape.Reshape.params; x })
 
 let rms_norm ?name params ~x ?weight () =
   op1 ?name ~kind:"rms_norm" (Rms_norm { Norm.RmsNorm.params; x; weight })
