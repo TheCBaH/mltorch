@@ -101,7 +101,11 @@ module Reshape = struct
     let assoc = go [] 1 (List.rev Axis.all) in
     Vec6.mapi (fun a _ -> List.assoc a assoc) shape
 
-  module Compute (S : Semantics.SEMANTICS) = struct
+  (* Coordinate math alone, shared by [Compute]'s float pixel and
+     [Compute_i64]'s exact int64 one below: built entirely from [SEMANTICS]'s
+     carrier-independent [index_*] operations, with no [load]/[const] of its
+     own, so it carries no float-specific behavior to duplicate. *)
+  module Coord (S : Semantics.SEMANTICS) = struct
     (* row-major flat offset of [coord] under [shape]:
        off = ((((n*Tn+t)*Dn+d)*Hn+h)*Wn+w)*Cn+c *)
     let flat_offset (shape : Vec6.shape) coord =
@@ -127,12 +131,52 @@ module Reshape = struct
           in
           S.assume_index c)
         shape
+  end
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    module C = Coord (S)
 
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x
         (out : Semantics.position S.index Vec6.t) =
       (* [out]'s row-major offset in the target shape is the same element's
          offset in the input shape; delinearize it there and load. *)
-      let off = flat_offset p.shape out in
-      S.load x (delinearize x_shape off)
+      let off = C.flat_offset p.shape out in
+      S.load x (C.delinearize x_shape off)
+  end
+
+  (* Exact int64 counterpart of [Compute]: the SAME coordinate math (see
+     [Coord]'s own note), reading the resolved source coordinate through
+     [i64_load] instead of [SEMANTICS.load] -- so a Reshape over an I64
+     tensor never round-trips through the engine's f32 compute domain,
+     unlike [Compute]'s own [S.load] (which reads every format via
+     [Payload.get_float] and is therefore lossy above 2^53). [T] is a
+     deliberately narrow inline signature (just [i64_load], not a full
+     [Semantics.TYPED_SEMANTICS] functor parameter): [Direct]/[Symbolic]'s
+     [b] type is exposed inconsistently between their [SEMANTICS] and
+     [TYPED_SEMANTICS] includes (abstract in one, destructively substituted
+     to a concrete type in the other -- direct.mli/symbolic.mli), which
+     blocks matching either module wholesale against
+     [Semantics.TYPED_SEMANTICS] as a functor argument; this pixel never
+     touches [b]/[typed_select]/[i64_eq]/[i64_lt], so it asks for nothing
+     more than the one function it calls. [S]/[T] are constrained to share
+     one underlying [index]/[input] representation (e.g. both instantiated
+     at [Direct], or both at [Symbolic]) since a mismatched pair could never
+     resolve the same coordinate against the same tensor. See the
+     implementation tracker's P5.2 note. *)
+  module Compute_i64
+      (S : Semantics.SEMANTICS)
+      (T : sig
+        type 'a repr
+
+        val i64_load :
+          S.input -> Semantics.position S.index Vec6.t -> int64 repr
+      end) =
+  struct
+    module C = Coord (S)
+
+    let pixel (p : params) ~(x_shape : Vec6.shape) ~x
+        (out : Semantics.position S.index Vec6.t) =
+      let off = C.flat_offset p.shape out in
+      T.i64_load x (C.delinearize x_shape off)
   end
 end

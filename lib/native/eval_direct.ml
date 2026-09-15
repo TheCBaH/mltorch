@@ -327,6 +327,34 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                       (Tensor.materialize_fmt params.fmt out_shape (fun coord ->
                            Factory.Arange.value params (Dim.to_int coord.Vec6.c)))
                 )
+            (* Dtype-preserving Reshape: the default arm below reaches
+               [Reshape.Reshape.Compute(Direct).pixel], whose final [S.load]
+               reads through [Payload.get_float] regardless of the source
+               format -- exact for F32 but silently lossy above 2^53 for an
+               I64 source. Branching on the OPERAND's declared signature
+               format (not the runtime payload, though they agree by
+               construction) routes an I64 reshape through
+               [Compute_i64]/[Tensor.i64_load] instead, matching this node's
+               Arange arm just above. Every other format keeps the existing
+               float pixel path, unchanged. *)
+            | Reshape { Reshape.Reshape.params; x } -> (
+                let x_sig = Tensor_id.Map.find x g.Graph.tensors in
+                match x_sig.Tensor_sig.fmt with
+                | Payload.Fmt Payload.I64 ->
+                    let module C = Reshape.Reshape.Compute_i64 (Direct) (Direct)
+                    in
+                    let x_t = Tensor_id.Map.find x operand_env in
+                    let x_shape = Tensor_id.Map.find x shape_env in
+                    Err.return
+                      (Tensor.materialize_i64 out_shape (fun coord ->
+                           C.pixel params ~x_shape ~x:x_t coord))
+                | _ ->
+                    Err.return
+                      (Schedule.evaluate out_shape
+                         (E.pixel op ~output
+                            ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                            ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                            ~fill)))
             | _ when Region_computation.is_region_authored op ->
                 region_result ~limits
                   ~region_counters:
