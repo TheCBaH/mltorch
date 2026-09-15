@@ -47,6 +47,71 @@ let%expect_test
     out = tensor i64 [C=6] {9007199254740993, 9007199254740994, 9007199254740995, 9007199254740996, 9007199254740997, 9007199254740998}
     |}]
 
+(* [Graph_builder.reshape] itself had a companion defect this same session:
+   [op1]'s default output edge format is F32 (the "arithmetic outputs are
+   F32" convention documented at the top of graph_builder.ml), and unlike
+   [unbind]/[split_with_sizes] (which explicitly retain their operand's
+   format/quant), [reshape] never opted in -- so a Reshape node's OWN
+   declared [Tensor_sig.fmt] was always F32, even when its operand (and
+   therefore, via [Eval_direct]'s I64 dispatch above, its actual computed
+   tensor) is I64. That mismatch is latent for a single reshape (nothing
+   reads the mismatched sig), but a SECOND reshape consuming the first one's
+   output looks up exactly that declared sig, not the runtime payload, to
+   pick its own dispatch branch -- so it would wrongly take the float
+   [Schedule.evaluate]/[Tensor.materialize] path (always F32), silently
+   truncating past 2^53 for the second time, defeating the whole point of
+   [Compute_i64] one hop later. Fixed by threading [~fmt]/[~quant] from the
+   operand's own signature in [reshape], mirroring [unbind]. *)
+let%expect_test
+    "Direct graph: chained I64 reshapes -- the intermediate edge's own \
+     declared signature stays I64, not the op1 default" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"reshape_i64_chain" ~outputs:(fun (mid, out) ->
+              [ mid; out ])
+          @@
+          let* x =
+            input ~shape:(s 1 1 1 2 3 1) ~name:"x" ~fmt:Payload.(Fmt I64) ()
+          in
+          let* mid = reshape { Reshape.Reshape.shape = s 1 1 1 1 1 6 } x in
+          let* out = reshape { Reshape.Reshape.shape = s 1 1 1 1 2 3 } mid in
+          return (mid, out))
+    in
+    let mid_id, out_id =
+      match g.Graph.outputs with [ a; b ] -> (a, b) | _ -> assert false
+    in
+    let x =
+      Tensor.materialize_i64 (s 1 1 1 2 3 1) (fun c ->
+          Int64.add 9_007_199_254_740_993L
+            (Int64.of_int
+               ((Dim.to_int (Vec6.get c Axis.H) * 3)
+               + Dim.to_int (Vec6.get c Axis.W))))
+    in
+    let* env =
+      lift_eval (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ x ]))
+    in
+    let (Payload.Fmt mid_fmt) =
+      (Tensor_id.Map.find mid_id g.Graph.tensors).Tensor_sig.fmt
+    in
+    let mid_tensor = Tensor_id.Map.find mid_id env in
+    let out_tensor = Tensor_id.Map.find out_id env in
+    Err.return (Payload.fmt_name mid_fmt, mid_tensor, out_tensor)
+  in
+  let pp_ok ppf (mid_fmt_name, mid_tensor, out_tensor) =
+    Format.fprintf ppf "mid declared fmt = %s@.mid = %a@.out = %a" mid_fmt_name
+      Tensor.pp mid_tensor Tensor.pp out_tensor
+  in
+  Format.printf "%a@." (pp_result pp_ok) result;
+  [%expect
+    {|
+    mid declared fmt = i64
+    mid = tensor i64 [C=6] {9007199254740993, 9007199254740994, 9007199254740995, 9007199254740996, 9007199254740997, 9007199254740998}
+    out = tensor i64 [W=2 C=3] {9007199254740993, 9007199254740994, 9007199254740995, 9007199254740996, 9007199254740997, 9007199254740998}
+    |}]
+
 let%expect_test
     "Direct graph: I64 reshape preserves format through a non-flattening target"
     =

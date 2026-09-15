@@ -98,7 +98,7 @@ let push_node op outputs s =
 
 (* A single-output op: compute its output shape from the current edge metadata,
   allocate the output edge, append the node. *)
-let op1 ?name ?fmt ~kind op : Tensor_id.t t =
+let op1 ?name ?fmt ?quant ~kind op : Tensor_id.t t =
   let* s = get in
   let* shapes =
     lift_result
@@ -115,7 +115,7 @@ let op1 ?name ?fmt ~kind op : Tensor_id.t t =
               (`Expected_single_output_shape { count = List.length shapes }),
             s )
   in
-  let* tid = new_edge ?name ?fmt ~kind shape in
+  let* tid = new_edge ?name ?fmt ?quant ~kind shape in
   let* () = push_node op [ tid ] in
   return tid
 
@@ -486,8 +486,19 @@ let repeat_interleave ?name params x =
   op1 ?name ~kind:"repeat_interleave"
     (RepeatInterleave { Repeat.RepeatInterleave.params; x })
 
+(* Dtype-preserving, matching [unbind]/[split_with_sizes] below: [Reshape] is
+   a pure coordinate relabeling with no arithmetic of its own (see
+   [Eval_direct]'s own I64-dispatching arm, keyed on exactly this signature),
+   so its output must carry the SAME format/quantization as its input, not
+   [op1]'s F32 default for arithmetic outputs -- a defaulted F32 sig here
+   previously disagreed with the I64 tensor [Eval_direct] actually produces
+   for an I64 operand, which a second dtype-branching consumer reading this
+   edge's declared sig (not the runtime payload) would silently trust. *)
 let reshape ?name params x =
-  op1 ?name ~kind:"reshape" (Reshape { Reshape.Reshape.params; x })
+  let* s = get in
+  let sg = Tensor_id.Map.find x s.tensors in
+  op1 ?name ~fmt:sg.Tensor_sig.fmt ?quant:sg.Tensor_sig.quant ~kind:"reshape"
+    (Reshape { Reshape.Reshape.params; x })
 
 let rms_norm ?name params ~x ?weight () =
   op1 ?name ~kind:"rms_norm" (Rms_norm { Norm.RmsNorm.params; x; weight })

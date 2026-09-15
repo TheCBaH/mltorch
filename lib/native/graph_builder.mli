@@ -304,6 +304,8 @@ val repeat_interleave :
 
 val reshape :
   ?name:string -> Reshape.Reshape.params -> tensor_ref -> Tensor_id.t t
+(** Dtype-preserving: the output's format/quantization match [x]'s own, like
+    [unbind]/[split_with_sizes]. *)
 
 val rms_norm :
   ?name:string ->
