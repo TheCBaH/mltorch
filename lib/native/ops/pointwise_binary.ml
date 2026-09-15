@@ -52,6 +52,34 @@ module Binary (S : Semantics.SEMANTICS) = struct
     combine (read a_shape a) (read b_shape b)
 end
 
+(* Exact int64 counterpart of [Binary]: reads each operand through
+   [T.i64_load] instead of [S.load], so a broadcasted binary op over two I64
+   tensors never round-trips through the engine's f32 compute domain (unlike
+   [S.load], which reads every format via [Payload.get_float] and is
+   therefore lossy above 2^53 -- the same defect class [Reshape.Compute_i64]/
+   [Permute.Compute_i64] fixed for their own ops). [broadcast_coord] itself is
+   carrier-independent (built from [S.index_zero]/[Vec6.mapi] alone, no
+   [load]/[const] of its own), so it is reused directly rather than re-derived
+   under [T]. [T] is a deliberately narrow inline signature, matching
+   [Reshape.Compute_i64]'s own precedent -- see the implementation tracker's
+   P5.2 note for why a full [Semantics.TYPED_SEMANTICS] functor parameter
+   cannot match [Direct]/[Symbolic] here. *)
+module Binary_i64
+    (S : Semantics.SEMANTICS)
+    (T : sig
+      type 'a repr
+
+      val i64_load : S.input -> Semantics.position S.index Vec6.t -> int64 repr
+    end) =
+struct
+  let pixel ~combine ~a_shape ~b_shape a b
+      (out : Semantics.position S.index Vec6.t) =
+    let read shape t =
+      T.i64_load t (broadcast_coord ~index_zero:S.index_zero shape out)
+    in
+    combine (read a_shape a) (read b_shape b)
+end
+
 (* Payload shared by the binary pointwise ops [Add]/[Mul]: two operand refs. Each
    op aliases its [t] to this so the [a]/[b] labels are defined once (avoiding
    cross-op label ambiguity) and the serialise/dataflow/pp boilerplate is written
@@ -194,6 +222,32 @@ module Add = struct
 
     let pixel ~a_shape ~b_shape a b out =
       B.pixel ~combine:S.add ~a_shape ~b_shape a b out
+  end
+
+  (* Exact int64 counterpart of [Compute]: both operands are read through
+     [T.i64_load]/[T.i64_binary] instead of [S.load]/[S.add], so a broadcasted
+     I64 add never round-trips through the engine's f32 domain. Output stays
+     [int64 repr], unlike [Mul_scalar.Compute_i64] (which promotes to float by
+     design) -- so, unlike that op, this DOES need its output edge's declared
+     format threaded to I64 by the builder; see [Graph_builder.add]. *)
+  module Compute_i64
+      (S : Semantics.SEMANTICS)
+      (T : sig
+        type 'a repr
+
+        val i64_load :
+          S.input -> Semantics.position S.index Vec6.t -> int64 repr
+
+        val i64_binary :
+          Expr.Value.i64_binary_op -> int64 repr -> int64 repr -> int64 repr
+      end) =
+  struct
+    module B = Binary_i64 (S) (T)
+
+    let pixel ~a_shape ~b_shape a b out =
+      B.pixel
+        ~combine:(T.i64_binary Expr.Value.I64_add)
+        ~a_shape ~b_shape a b out
   end
 end
 
@@ -366,6 +420,31 @@ module Mul = struct
 
     let pixel ~a_shape ~b_shape a b out =
       B.pixel ~combine:S.mul ~a_shape ~b_shape a b out
+  end
+
+  (* Exact int64 counterpart of [Compute]; see [Add.Compute_i64] for the
+     rationale, identical here down to the output-edge threading requirement.
+     This is [Mul]'s tensor-tensor form -- not to be confused with
+     [Mul_scalar.Compute_i64] below, whose output promotes to float by
+     design. *)
+  module Compute_i64
+      (S : Semantics.SEMANTICS)
+      (T : sig
+        type 'a repr
+
+        val i64_load :
+          S.input -> Semantics.position S.index Vec6.t -> int64 repr
+
+        val i64_binary :
+          Expr.Value.i64_binary_op -> int64 repr -> int64 repr -> int64 repr
+      end) =
+  struct
+    module B = Binary_i64 (S) (T)
+
+    let pixel ~a_shape ~b_shape a b out =
+      B.pixel
+        ~combine:(T.i64_binary Expr.Value.I64_mul)
+        ~a_shape ~b_shape a b out
   end
 end
 
@@ -555,5 +634,27 @@ module Sub = struct
 
     let pixel ~a_shape ~b_shape a b out =
       B.pixel ~combine:S.sub ~a_shape ~b_shape a b out
+  end
+
+  (* Exact int64 counterpart of [Compute]; see [Add.Compute_i64] for the
+     rationale, identical here down to the output-edge threading requirement. *)
+  module Compute_i64
+      (S : Semantics.SEMANTICS)
+      (T : sig
+        type 'a repr
+
+        val i64_load :
+          S.input -> Semantics.position S.index Vec6.t -> int64 repr
+
+        val i64_binary :
+          Expr.Value.i64_binary_op -> int64 repr -> int64 repr -> int64 repr
+      end) =
+  struct
+    module B = Binary_i64 (S) (T)
+
+    let pixel ~a_shape ~b_shape a b out =
+      B.pixel
+        ~combine:(T.i64_binary Expr.Value.I64_sub)
+        ~a_shape ~b_shape a b out
   end
 end

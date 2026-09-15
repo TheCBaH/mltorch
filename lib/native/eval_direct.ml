@@ -405,6 +405,79 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                             ~operand:(fun r -> Tensor_id.Map.find r operand_env)
                             ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
                             ~fill)))
+            (* Dtype-preserving tensor-tensor Add/Sub/Mul: the default arm's
+               [Pointwise.{Add,Sub,Mul}.Compute(S).pixel] reads both operands
+               through [S.load], exact for F32 but silently lossy above 2^53
+               for I64 operands, same defect class as Reshape/Permute before
+               their own fixes. Dispatch only when BOTH operands declare I64
+               (the only case [Graph_builder.{add,sub,mul}] threads an I64
+               output edge for, and the only case a real broadcasted binary op
+               is safe to promote wholesale to -- a mismatched pair is
+               unsupported mixed promotion, left to the ordinary float path
+               unchanged, per the plan's P5.4). *)
+            | Add { Pointwise.Bin.a; b } -> (
+                let a_sig = Tensor_id.Map.find a g.Graph.tensors in
+                let b_sig = Tensor_id.Map.find b g.Graph.tensors in
+                match (a_sig.Tensor_sig.fmt, b_sig.Tensor_sig.fmt) with
+                | Payload.(Fmt I64, Fmt I64) ->
+                    let module C = Pointwise.Add.Compute_i64 (Direct) (Direct)
+                    in
+                    let a_t = Tensor_id.Map.find a operand_env in
+                    let b_t = Tensor_id.Map.find b operand_env in
+                    let a_shape = Tensor_id.Map.find a shape_env in
+                    let b_shape = Tensor_id.Map.find b shape_env in
+                    Err.return
+                      (Tensor.materialize_i64 out_shape (fun coord ->
+                           C.pixel ~a_shape ~b_shape a_t b_t coord))
+                | _ ->
+                    Err.return
+                      (Schedule.evaluate out_shape
+                         (E.pixel op ~output
+                            ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                            ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                            ~fill)))
+            | Sub { Pointwise.Bin.a; b } -> (
+                let a_sig = Tensor_id.Map.find a g.Graph.tensors in
+                let b_sig = Tensor_id.Map.find b g.Graph.tensors in
+                match (a_sig.Tensor_sig.fmt, b_sig.Tensor_sig.fmt) with
+                | Payload.(Fmt I64, Fmt I64) ->
+                    let module C = Pointwise.Sub.Compute_i64 (Direct) (Direct)
+                    in
+                    let a_t = Tensor_id.Map.find a operand_env in
+                    let b_t = Tensor_id.Map.find b operand_env in
+                    let a_shape = Tensor_id.Map.find a shape_env in
+                    let b_shape = Tensor_id.Map.find b shape_env in
+                    Err.return
+                      (Tensor.materialize_i64 out_shape (fun coord ->
+                           C.pixel ~a_shape ~b_shape a_t b_t coord))
+                | _ ->
+                    Err.return
+                      (Schedule.evaluate out_shape
+                         (E.pixel op ~output
+                            ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                            ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                            ~fill)))
+            | Mul { Pointwise.Bin.a; b } -> (
+                let a_sig = Tensor_id.Map.find a g.Graph.tensors in
+                let b_sig = Tensor_id.Map.find b g.Graph.tensors in
+                match (a_sig.Tensor_sig.fmt, b_sig.Tensor_sig.fmt) with
+                | Payload.(Fmt I64, Fmt I64) ->
+                    let module C = Pointwise.Mul.Compute_i64 (Direct) (Direct)
+                    in
+                    let a_t = Tensor_id.Map.find a operand_env in
+                    let b_t = Tensor_id.Map.find b operand_env in
+                    let a_shape = Tensor_id.Map.find a shape_env in
+                    let b_shape = Tensor_id.Map.find b shape_env in
+                    Err.return
+                      (Tensor.materialize_i64 out_shape (fun coord ->
+                           C.pixel ~a_shape ~b_shape a_t b_t coord))
+                | _ ->
+                    Err.return
+                      (Schedule.evaluate out_shape
+                         (E.pixel op ~output
+                            ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                            ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                            ~fill)))
             | _ when Region_computation.is_region_authored op ->
                 region_result ~limits
                   ~region_counters:

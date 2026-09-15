@@ -157,7 +157,22 @@ let opN ?name ?fmt ?quant ~kind op : Tensor_id.t list t =
 (* Op constructors in global alphabetical order (see graph_ir.mli). The record
    payloads are built with their first label qualified, which disambiguates the
    op module each belongs to (the [node.Node.outputs] convention). *)
-let add ?name a b = op1 ?name ~kind:"add" (Add { Pointwise.Bin.a; b })
+(* Thread the operand's own I64 format/quant into the output edge, matching
+   [reshape]/[permute]'s own precedent -- ONLY when both operands are I64,
+   since [Eval_direct]'s [Compute_i64] dispatch can only deliver an exact
+   result when they agree; a mismatched pair falls through to [op1]'s F32
+   default, unchanged from before this op had any I64 dispatch at all (mixed
+   promotion is out of this slice's scope, per the plan's P5.4). *)
+let add ?name a b =
+  let* s = get in
+  let a_sig = Tensor_id.Map.find a s.tensors in
+  let b_sig = Tensor_id.Map.find b s.tensors in
+  match (a_sig.Tensor_sig.fmt, b_sig.Tensor_sig.fmt) with
+  | Payload.Fmt Payload.I64, Payload.Fmt Payload.I64 ->
+      op1 ?name ~fmt:a_sig.Tensor_sig.fmt ?quant:a_sig.Tensor_sig.quant
+        ~kind:"add"
+        (Add { Pointwise.Bin.a; b })
+  | _ -> op1 ?name ~kind:"add" (Add { Pointwise.Bin.a; b })
 
 (* Narrow every scalar op parameter to its f32-canonical value here, at the one
    entry point both the PT2 importer and hand-built graphs go through, rather
@@ -421,7 +436,17 @@ let mean ?name params x =
 let meshgrid ?name tensors =
   opN ?name ~kind:"meshgrid" (Meshgrid { Meshgrid.Meshgrid.tensors })
 
-let mul ?name a b = op1 ?name ~kind:"mul" (Mul { Pointwise.Bin.a; b })
+(* Same I64-only threading as [add]; see its comment. *)
+let mul ?name a b =
+  let* s = get in
+  let a_sig = Tensor_id.Map.find a s.tensors in
+  let b_sig = Tensor_id.Map.find b s.tensors in
+  match (a_sig.Tensor_sig.fmt, b_sig.Tensor_sig.fmt) with
+  | Payload.Fmt Payload.I64, Payload.Fmt Payload.I64 ->
+      op1 ?name ~fmt:a_sig.Tensor_sig.fmt ?quant:a_sig.Tensor_sig.quant
+        ~kind:"mul"
+        (Mul { Pointwise.Bin.a; b })
+  | _ -> op1 ?name ~kind:"mul" (Mul { Pointwise.Bin.a; b })
 
 let mul_scalar ?name scalar x =
   op1 ?name ~kind:"mul_scalar"
@@ -575,7 +600,18 @@ let split_with_sizes ?name params x =
 let stack ?name params xs =
   op1 ?name ~kind:"stack" (Stack { Concat.Stack.params; xs })
 
-let sub ?name a b = op1 ?name ~kind:"sub" (Sub { Pointwise.Bin.a; b })
+(* Same I64-only threading as [add]; see its comment. *)
+let sub ?name a b =
+  let* s = get in
+  let a_sig = Tensor_id.Map.find a s.tensors in
+  let b_sig = Tensor_id.Map.find b s.tensors in
+  match (a_sig.Tensor_sig.fmt, b_sig.Tensor_sig.fmt) with
+  | Payload.Fmt Payload.I64, Payload.Fmt Payload.I64 ->
+      op1 ?name ~fmt:a_sig.Tensor_sig.fmt ?quant:a_sig.Tensor_sig.quant
+        ~kind:"sub"
+        (Sub { Pointwise.Bin.a; b })
+  | _ -> op1 ?name ~kind:"sub" (Sub { Pointwise.Bin.a; b })
+
 let sum ?name params x = op1 ?name ~kind:"sum" (Sum { Reduce.Sum.params; x })
 
 let to_copy ?name target x =
