@@ -384,6 +384,35 @@ module Mul_scalar = struct
 
     let pixel ~scalar x out = B.pixel ~combine:S.mul ~scalar x out
   end
+
+  (* Exact int64-input counterpart of [Compute]: the operand is read through
+     [i64_load]/[i64_to_float] -- an explicit, checked promotion -- rather
+     than [Compute]'s [S.load], which round-trips every format through
+     [Payload.get_float] and would perform the identical promotion only
+     incidentally. [Payload.get_float]'s I64 case is exactly [Int64.to_float]
+     (payload.ml), so this changes no value this op ever returns; it only
+     makes the cast an explicit step, per the plan's "integer-to-float is an
+     explicit expression cast" invariant. No coordinate math, unlike
+     [Reshape.Compute_i64]/[Permute.Compute_i64]: the operand already has the
+     output shape, so it is read at [out] directly, matching [Scalar_binary]
+     above. The output stays [S.t] (float), not [int64 repr]: unlike
+     Reshape/Permute, [Mul_scalar]'s output format is F32 by design (ATen
+     promotes an integer tensor times a float scalar to a float result), so
+     there is no output-format branch to preserve here -- only the read. *)
+  module Compute_i64
+      (S : Semantics.SEMANTICS)
+      (T : sig
+        type 'a repr
+
+        val i64_load :
+          S.input -> Semantics.position S.index Vec6.t -> int64 repr
+
+        val i64_to_float : int64 repr -> S.t
+      end) =
+  struct
+    let pixel ~scalar x (out : Semantics.position S.index Vec6.t) =
+      S.mul (T.i64_to_float (T.i64_load x out)) (S.const scalar)
+  end
 end
 
 module Pow = struct

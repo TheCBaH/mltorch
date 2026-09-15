@@ -256,3 +256,20 @@ let%expect_test "verify: rsqrt.default against real ATen" =
     ~bindings:[ ("self", a) ]
     ~inputs:[ in_tensor "self" ];
   [%expect {| aten and native agree |}]
+
+(* NOT a viable differential fixture for [Pointwise.Mul_scalar]'s new I64
+   pixel, despite first appearances: this file's own scalar path
+   materializes a serialized [other] via [full_like(self, ...)] (see the
+   header comment), which takes SELF's dtype -- for an I64 self, the literal
+   [1.0] becomes an int64-cast scalar on the ATen side, so real ATen computes
+   an int64 x int64 product, not the float promotion the actual traced PT2
+   node performs for a bare-float [other] (confirmed against mvitv2_tiny's
+   real model.json: output dtype 7 = FLOAT, per the implementation tracker's
+   D10 notes). Tried it: [verify_print] reported "type mismatch: aten int64
+   native f32" -- a harness artifact of the serialized-scalar path's own
+   dtype choice, not a native defect (native's F32 output is what the real
+   graph traces). Tensor-vs-tensor [mul.Tensor] with two matching-dtype
+   tensors already differentially verifies elsewhere
+   (dispatch_test.ml); the mixed-dtype scalar promotion is exercised instead
+   by test/native/mul_scalar_i64_test.ml, at the [Eval_direct] level where
+   the promotion actually happens. *)

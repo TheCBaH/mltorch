@@ -377,6 +377,34 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                             ~operand:(fun r -> Tensor_id.Map.find r operand_env)
                             ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
                             ~fill)))
+            (* Explicit int64-input promotion for [Mul_scalar]: the default
+               arm's [Pointwise.Mul_scalar.Compute(S).pixel] reads through
+               [S.load], which is numerically exact for this promotion
+               ([Payload.get_float]'s I64 case is [Int64.to_float]) but
+               incidental -- branch on the operand's declared format so the
+               cast is the explicit [i64_to_float] step the plan requires,
+               matching Reshape/Permute's own precedent. Unlike those two,
+               the output stays the ordinary float pixel path: [Mul_scalar]'s
+               output format is F32 regardless of operand format, so only the
+               read changes, not the write-back. *)
+            | Mul_scalar { Pointwise.Scalar_bin.x; scalar } -> (
+                let x_sig = Tensor_id.Map.find x g.Graph.tensors in
+                match x_sig.Tensor_sig.fmt with
+                | Payload.Fmt Payload.I64 ->
+                    let module C =
+                      Pointwise.Mul_scalar.Compute_i64 (Direct) (Direct)
+                    in
+                    let x_t = Tensor_id.Map.find x operand_env in
+                    Err.return
+                      (Schedule.evaluate out_shape (fun coord ->
+                           C.pixel ~scalar x_t coord))
+                | _ ->
+                    Err.return
+                      (Schedule.evaluate out_shape
+                         (E.pixel op ~output
+                            ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                            ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                            ~fill)))
             | _ when Region_computation.is_region_authored op ->
                 region_result ~limits
                   ~region_counters:
