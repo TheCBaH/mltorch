@@ -439,8 +439,19 @@ let pad ?name (params : Pad.Pad.params) x =
   in
   op1 ?name ~kind:"pad" (Pad { Pad.Pad.params; x })
 
+(* Dtype-preserving for I64 ONLY, matching [reshape]'s own restriction below
+   and for the identical reason: [Permute]'s [Eval_direct] dispatch is exact
+   for I64 ([Compute_i64]) but falls back to the generic F32-allocating pixel
+   path for every other format. *)
 let permute ?name perm x =
-  op1 ?name ~kind:"permute" (Permute { Permute.Permute.perm; x })
+  let* s = get in
+  let sg = Tensor_id.Map.find x s.tensors in
+  match sg.Tensor_sig.fmt with
+  | Payload.Fmt Payload.I64 ->
+      op1 ?name ~fmt:sg.Tensor_sig.fmt ?quant:sg.Tensor_sig.quant
+        ~kind:"permute"
+        (Permute { Permute.Permute.perm; x })
+  | _ -> op1 ?name ~kind:"permute" (Permute { Permute.Permute.perm; x })
 
 (* `aten.einsum.default`, restricted to [Aten_shape.Einsum.plan]'s two
    evidenced shapes -- no dedicated [Graph_ir] node: both plans legalize onto

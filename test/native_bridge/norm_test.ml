@@ -493,3 +493,30 @@ let%expect_test "dispatch: transpose.int rank-6 (0,1)" =
     ~inputs:[ in_tensor "self"; in_int "dim0" 0; in_int "dim1" 1 ]
     ~noutputs:1;
   [%expect {| tensor f32 [N=3 T=2 D=1 H=1 W=1 C=1] {0, 3, 1, 4, 2, 5} |}]
+
+(* An I64 operand, real ATen as the oracle: [Eval_direct]'s [Permute] arm
+   gained an exact [Compute_i64] path in the same session [Reshape]'s own
+   builder-side signature gap was found and fixed, and [Graph_builder.permute]
+   threads the operand's format into its own output edge for I64 specifically
+   (not every format -- see that function's own comment for why a blanket
+   thread would trade one sig/runtime mismatch for another). [op_bridge_shape.ml]
+   never had a [require_f32] gate on [permute.default]/[transpose.int], so this
+   fixture was already reachable; it was simply wrong before this session's
+   fix. [Verify.verify_node] compares I64 by exact [Int64.equal], so this is a
+   genuine past-2^53 proof against real ATen, not merely a shape/dtype check. *)
+let%expect_test "verify: transpose.int on an I64 operand past 2^53" =
+  let x =
+    i64_tensor [ 2; 3 ]
+      [
+        9_007_199_254_740_993L;
+        9_007_199_254_740_994L;
+        9_007_199_254_740_995L;
+        9_007_199_254_740_996L;
+        9_007_199_254_740_997L;
+        9_007_199_254_740_998L;
+      ]
+  in
+  verify_print ~target:"torch.ops.aten.transpose.int"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_int "dim0" 0; in_int "dim1" 1 ];
+  [%expect {| aten and native agree |}]

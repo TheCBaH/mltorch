@@ -355,6 +355,28 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                             ~operand:(fun r -> Tensor_id.Map.find r operand_env)
                             ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
                             ~fill)))
+            (* Dtype-preserving Permute, the same shape as Reshape just above:
+               the default arm's [Permute.Compute(S).pixel] reads through
+               [S.load], exact for F32 but silently lossy above 2^53 for an
+               I64 source. Branch on the OPERAND's declared format, matching
+               Reshape/Arange's own precedent. *)
+            | Permute { Permute.Permute.perm; x } -> (
+                let x_sig = Tensor_id.Map.find x g.Graph.tensors in
+                match x_sig.Tensor_sig.fmt with
+                | Payload.Fmt Payload.I64 ->
+                    let module C = Permute.Permute.Compute_i64 (Direct) (Direct)
+                    in
+                    let x_t = Tensor_id.Map.find x operand_env in
+                    Err.return
+                      (Tensor.materialize_i64 out_shape (fun coord ->
+                           C.pixel perm ~x:x_t coord))
+                | _ ->
+                    Err.return
+                      (Schedule.evaluate out_shape
+                         (E.pixel op ~output
+                            ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                            ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                            ~fill)))
             | _ when Region_computation.is_region_authored op ->
                 region_result ~limits
                   ~region_counters:
