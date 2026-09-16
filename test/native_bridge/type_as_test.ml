@@ -25,4 +25,11 @@ let%expect_test "dispatch: type_as float-to-long truncates toward zero" =
   let self = float_tensor [ 3 ] [ 1.5; -2.25; 0. ] in
   let other = i64_tensor [ 1 ] [ 0L ] in
   dispatch_type_as ~self ~other ();
-  [%expect {| tensor f32 [C=3] {1, -2, 0} |}]
+  [%expect {| tensor i64 [C=3] {1, -2, 0} |}]
+
+(* No [verify_print] differential fixture for this node: confirmed
+   [Interp_verify.dispatch] has no generated arm at all for
+   [torch.ops.aten.type_as.default] ("unhandled op"), unrelated to the
+   [ScalarType]-decoding restriction [to_copy_test.ml]'s own comment
+   documents for [_to_copy.default]'s Long/Bool cases -- adding one is
+   outside this cast-direction fix's scope. *)

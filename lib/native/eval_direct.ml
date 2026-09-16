@@ -507,6 +507,38 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                             ~operand:(fun r -> Tensor_id.Map.find r operand_env)
                             ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
                             ~fill)))
+            (* The reverse direction: [To_copy]'s [Long] target on an F32
+               operand -- the real "Float to I64" cast, not merely an
+               explicit-cast architecture fix like the [Float] arm above.
+               [Compute(S).pixel]'s [Long] arm is a bare [S.trunc], whose
+               result [Tensor.materialize_fmt] would then read back as an
+               ordinary float -- it never produces a genuine int64 payload
+               cell, and never rejects NaN/infinity/out-of-range the way the
+               design's policy requires. Routes through
+               [Pointwise.To_copy.Compute_to_long], which raises
+               [Err.Exn.E] via [Direct.float_to_i64] on a bad cast input,
+               the same value-dependent-runtime-error convention
+               [Direct.load_index]/[i64_load] already establish for a bad
+               gather index or a non-I64 read -- not a new failure channel. *)
+            | To_copy { Pointwise.To_copy.target = Pointwise.To_copy.Long; x }
+              -> (
+                let x_sig = Tensor_id.Map.find x g.Graph.tensors in
+                match x_sig.Tensor_sig.fmt with
+                | Payload.Fmt Payload.F32 ->
+                    let module C =
+                      Pointwise.To_copy.Compute_to_long (Direct) (Direct)
+                    in
+                    let x_t = Tensor_id.Map.find x operand_env in
+                    Err.return
+                      (Tensor.materialize_i64 out_shape (fun coord ->
+                           C.pixel x_t coord))
+                | _ ->
+                    Err.return
+                      (Schedule.evaluate out_shape
+                         (E.pixel op ~output
+                            ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                            ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                            ~fill)))
             | _ when Region_computation.is_region_authored op ->
                 region_result ~limits
                   ~region_counters:

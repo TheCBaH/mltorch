@@ -94,6 +94,9 @@ let%expect_test "Direct graph: sqrt of an input" =
   Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
   [%expect {| out = tensor f32 [C=4] {0, 1, 2, 1.5} |}]
 
+(* Output is now a genuine int64 payload, not an F32 [S.trunc] result -- see
+   [to_copy_long_i64_test.ml] for [Eval_direct]'s explicit checked
+   Float-to-I64 cast (P5.3 continuation). *)
 let%expect_test "Direct graph: to_copy (long) truncates an input" =
   let result =
     let open Err.Syntax in
@@ -114,7 +117,7 @@ let%expect_test "Direct graph: to_copy (long) truncates an input" =
     tensor_of_name g env "out"
   in
   Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
-  [%expect {| out = tensor f32 [C=4] {-1, -0, 2, 3} |}]
+  [%expect {| out = tensor i64 [C=4] {-1, 0, 2, 3} |}]
 
 let%expect_test "Direct graph: expand broadcasts a size-1 axis" =
   let result =

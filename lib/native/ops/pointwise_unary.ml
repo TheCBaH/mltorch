@@ -391,6 +391,32 @@ module To_copy = struct
     let pixel x (out : Semantics.position S.index Vec6.t) =
       T.i64_to_float (T.i64_load x out)
   end
+
+  (* The reverse direction of [Compute_i64] above: [Long]'s explicit
+     Float-to-I64 cast on an F32 operand -- the real "Float to I64" policy
+     from the design ([Value.i64_of_float]: truncate finite values in
+     [-2^63, 2^63), reject NaN/infinities/out-of-range magnitudes), as
+     opposed to [Compute]'s bare [S.trunc], whose result is read back as an
+     ordinary (possibly wrapped-nonsense) float rather than a genuine int64
+     payload cell. [T.float_to_i64] is [Semantics.TYPED_SEMANTICS]'s already
+     -delivered checked primitive ([Direct.float_to_i64]/
+     [Symbolic.float_to_i64]) -- both existed with no caller before this,
+     since nothing had yet wired a [Graph_ir] op to them. [target] is not
+     dispatched here, matching [Compute_i64]'s own convention: the caller
+     must only route the [Long] case here, on an operand the caller has
+     already confirmed is F32 (an I64 source reaching [Long] needs no cast
+     at all). *)
+  module Compute_to_long
+      (S : Semantics.SEMANTICS)
+      (T : sig
+        type 'a repr
+
+        val float_to_i64 : S.t -> int64 repr
+      end) =
+  struct
+    let pixel x (out : Semantics.position S.index Vec6.t) =
+      T.float_to_i64 (S.load x out)
+  end
 end
 
 (* [bitwise_not.default] on the corpus's only observed operand: a bool tensor
