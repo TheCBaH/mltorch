@@ -152,7 +152,20 @@ let batch_norm ?fmt params ~x ?weight ?bias ~running_mean ~running_var () =
 
 (* Op constructors in global alphabetical order, as in [Graph_builder]. *)
 
-let add a b = op1 (Op.Add { Pointwise.Bin.a; b })
+(* Thread the operand's own I64 format/quant into the output edge, matching
+   Native's own [Graph_builder.add]/[reshape4]/[permute4]'s precedent above
+   -- ONLY when both operands are I64, since [Eval_direct4]'s [Compute_i64]
+   dispatch can only deliver an exact result when they agree; a mismatched
+   pair falls through to [op1]'s F32 default (mixed promotion is out of this
+   slice's scope, per the plan's P5.4, matching Native's own [add]). *)
+let add a b =
+  let* s = get in
+  let a_sig = Tensor_id.Map.find a s.tensors in
+  let b_sig = Tensor_id.Map.find b s.tensors in
+  match (a_sig.Tensor_sig.fmt, b_sig.Tensor_sig.fmt) with
+  | Payload.Fmt Payload.I64, Payload.Fmt Payload.I64 ->
+      op1 ~fmt:a_sig.Tensor_sig.fmt (Op.Add { Pointwise.Bin.a; b })
+  | _ -> op1 (Op.Add { Pointwise.Bin.a; b })
 
 let addcmul value self tensor1 tensor2 =
   op1
@@ -281,7 +294,17 @@ let mean_keepdims ?(keepdim = true) dims x =
 (* Variadic in both directions, like [concat4]'s operands and [unbind]'s
    outputs at once -- [opN], not [op1]. *)
 let meshgrid tensors = opN (Op.Meshgrid { Meshgrid.Meshgrid.tensors })
-let mul a b = op1 (Op.Mul { Pointwise.Bin.a; b })
+
+(* Same I64-only threading as [add]; see its comment. *)
+let mul a b =
+  let* s = get in
+  let a_sig = Tensor_id.Map.find a s.tensors in
+  let b_sig = Tensor_id.Map.find b s.tensors in
+  match (a_sig.Tensor_sig.fmt, b_sig.Tensor_sig.fmt) with
+  | Payload.Fmt Payload.I64, Payload.Fmt Payload.I64 ->
+      op1 ~fmt:a_sig.Tensor_sig.fmt (Op.Mul { Pointwise.Bin.a; b })
+  | _ -> op1 (Op.Mul { Pointwise.Bin.a; b })
+
 let mul_scalar scalar x = op1 (Op.Mul_scalar { Pointwise.Scalar_bin.x; scalar })
 let pow scalar x = op1 (Op.Pow { Pointwise.Scalar_bin.x; scalar })
 
@@ -384,7 +407,16 @@ let sqrt x = op1 (Op.Sqrt { Pointwise.Sqrt.x })
    stack naming T or D is not constructible through this API, the same rule
    [concat4] above follows. *)
 let stack4 params xs = op1 (Op.Stack4 { Ops4.Stack4.params; xs })
-let sub a b = op1 (Op.Sub { Pointwise.Bin.a; b })
+
+(* Same I64-only threading as [add]; see its comment. *)
+let sub a b =
+  let* s = get in
+  let a_sig = Tensor_id.Map.find a s.tensors in
+  let b_sig = Tensor_id.Map.find b s.tensors in
+  match (a_sig.Tensor_sig.fmt, b_sig.Tensor_sig.fmt) with
+  | Payload.Fmt Payload.I64, Payload.Fmt Payload.I64 ->
+      op1 ~fmt:a_sig.Tensor_sig.fmt (Op.Sub { Pointwise.Bin.a; b })
+  | _ -> op1 (Op.Sub { Pointwise.Bin.a; b })
 
 let sum_keepdims ?(keepdim = true) dims x =
   op1 (Op.Sum_keepdims { Ops4.Sum_keepdims.params = { dims; keepdim }; x })
