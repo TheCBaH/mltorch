@@ -756,13 +756,14 @@ let%expect_test "Kernel_adapt: an oversized body is caught in both entries" =
    covers; before they were checked, a selection could still launder a malformed
    boundary. *)
 
-let stage_program ?(inputs = []) ?(consts = []) ?(stages = []) ?(outputs = [])
-    () =
+let stage_program ?(inputs = []) ?(consts = []) ?(stages = [])
+    ?(stages_i64 = []) ?(outputs = []) () =
   {
     Stage_program.inputs;
     input_kinds = Tensor_id.Map.empty;
     consts;
     stages;
+    stages_i64;
     outputs;
   }
 

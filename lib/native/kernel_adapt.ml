@@ -420,6 +420,29 @@ let of_stage_program ?(limits = Kernel.Limits.default) ?select ?outputs p =
         else None)
       p.Stage_program.stages
   in
+  (* [values_i64] is NOT filtered by [a.select]: unlike an ordinary [Value.t],
+     it has "no dependency-depth/reachability participation" and is "always
+     materialized eagerly, in list order" (see [Kernel.Value_i64.t]'s own doc
+     and [check_values_i64_order]) -- the same unconditional-availability
+     treatment [inputs]/[consts] would get if they had no boundary-selection
+     concept at all. A selective kernel built over a sub-graph that happens to
+     share a [Stage_program.t] with an unrelated int64 Arange therefore still
+     pays that Arange's own (small, `max_values`-bounded) admission cost; left
+     as a known, named imprecision rather than a silent one -- see the
+     implementation tracker's own D09/D10 slice for the follow-up. This
+     conversion is a near-identity map: [Stage_program.Stage_i64.t] and
+     [Kernel.Value_i64.t] share the same [id]/[sg]/pixel-body shape by
+     construction (see [Stage_i64]'s own doc comment). *)
+  let values_i64 =
+    List.map
+      (fun (st : Stage_program.Stage_i64.t) ->
+        {
+          Kernel.Value_i64.id = st.Stage_program.Stage_i64.id;
+          sg = st.Stage_program.Stage_i64.sg;
+          pixel = st.Stage_program.Stage_i64.pixel;
+        })
+      p.Stage_program.stages_i64
+  in
   Err.map_error
     (fun (e : Kernel.error) -> (e :> error))
-    (Kernel.create ~limits ~inputs ~values ~outputs ())
+    (Kernel.create ~limits ~inputs ~values ~values_i64 ~outputs ())

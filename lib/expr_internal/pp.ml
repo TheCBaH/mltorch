@@ -278,9 +278,16 @@ and guard_at ~names env lenv n fmt = function
 let value_open ~names fmt e =
   ignore (at ~names Reduce_var.Map.empty Local_var.Map.empty 1 fmt e : int)
 
+(* [value]'s int64 twin, sharing [at_i64] with [at]'s own [I64_to_float] case
+   above rather than a second traversal -- same unnamed-reducer default as
+   [value], no scoped-naming variant exposed yet since nothing calls one. *)
+let value_i64_open ~names fmt e =
+  ignore (at_i64 ~names Reduce_var.Map.empty Local_var.Map.empty 1 fmt e : int)
+
 let scan_open ~names fmt (s : Scan.t) =
   ignore
     (scan_body ~names Reduce_var.Map.empty Local_var.Map.empty 1 fmt s : int)
 
 let value = value_open ~names:(fun _ -> None)
+let value_i64 = value_i64_open ~names:(fun _ -> None)
 let scan = scan_open ~names:(fun _ -> None)

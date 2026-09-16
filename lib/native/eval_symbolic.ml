@@ -47,6 +47,29 @@ let check_mixed_dtype (gr : graph) op =
   | Mul { Pointwise.Bin.a; b } -> check_pair "mul" a b
   | _ -> ()
 
+(* An exact int64 pixel for an I64-formatted [Factory.Arange] node:
+   [start + i*step], mirroring [Factory.Arange.Compute(S).pixel]'s own float
+   formula shape but built directly from [Expr.Value]'s typed int64
+   constructors ([i64_const]/[i64_add]/[i64_mul]/[i64_of_index]) rather than
+   through [Eval_op.Make (Symbolic)]/[Semantics.SEMANTICS] -- [Eval_op.Make]
+   is parametrized over [SEMANTICS] alone, not [TYPED_SEMANTICS], so it
+   cannot reach these (see the implementation tracker's D09/D10 notes). No
+   [Expr.Builder] needed either: per [Expr.Value]'s own doc, "I64_const/
+   I64_binary need no environment and cannot fail." Safe against overflow
+   with NO checked-arithmetic node of its own: [Factory.Arange.length_exact]
+   already proves [start + i*step < stop <= max_int] for every [i] below the
+   count it admits (see the D02 evidence log entry), so a plain modular
+   [i64_add]/[i64_mul] here computes the identical value
+   [Factory.Arange.value_i64_exact]'s CHECKED version would, for every index
+   this pixel is ever evaluated at. *)
+let i64_arange_pixel
+    ({ Factory.Arange.Exact.start; step; _ } : Factory.Arange.Exact.t) =
+  Expr.Value.i64_add
+    (Expr.Value.i64_const start)
+    (Expr.Value.i64_mul
+       (Expr.Value.i64_const step)
+       (Expr.Value.i64_of_index (Symbolic.of_index Symbolic.out_vec.Vec6.c)))
+
 let first_free_tid (g : graph) =
   Tensor_id.Map.fold
     (fun k _ acc -> max acc (Tensor_id.to_int k + 1))
@@ -74,12 +97,31 @@ let run ?(limits = Kernel.Limits.default) (g : graph) : Stage_program.t =
     consts := (sg, v) :: !consts;
     sg
   in
-  let process_node (gr : graph) env stages (node : node) =
+  let process_node (gr : graph) (env, stages, stages_i64) (node : node) =
     let op = node.Node.op in
     check_mixed_dtype gr op;
     let operand r = Tensor_id.Map.find r env in
     let shape_of r = (Tensor_id.Map.find r env).Tensor_sig.shape in
     let outs = List.mapi (fun i oid -> (i, oid)) node.Node.outputs in
+    match (op, outs) with
+    (* An exact-Arange node with a real ATen-sourced int64 bound produces a
+       [Stage_i64.t] instead of an ordinary float [Stage.t] -- the Symbolic
+       twin of [eval_direct.ml]'s own [Some e -> value_i64_exact ...] branch.
+       [exact = None] (a legacy float-scalar Arange, even when [fmt = I64])
+       falls through to the unchanged generic float pixel below, exactly as
+       before this session: there is no exact int64 view to build one from. *)
+    | ( Arange { Factory.Arange.params = { fmt; exact = Some e; _ } },
+        [ (_, oid) ] )
+      when is_i64 fmt ->
+        let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+        let st =
+          {
+            Stage_program.Stage_i64.id = oid;
+            sg = out_sig;
+            pixel = i64_arange_pixel e;
+          }
+        in
+        (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
     (* A multi-output Region-authored node (project step 19: today only
        Lstm) builds ONE shared group and hands every sibling stage a
        [Grouped] reference into it, rather than each independently building
@@ -87,63 +129,70 @@ let run ?(limits = Kernel.Limits.default) (g : graph) : Stage_program.t =
        other case (single-output, or not Region-authored at all) keeps the
        existing one-stage-per-output-edge path unchanged, just wrapping its
        [Region_program.t] as [Solo]. *)
-    if List.length outs > 1 && Region_computation.is_region_authored op then
-      let group =
-        match
-          Region_computation.group ~limits ~op ~operand:(fun id ->
-              Tensor_id.Map.find_opt id env)
-        with
-        | Ok group -> group
-        | Error error ->
-            Err.raise_error ~pp_error:Region_computation.pp_error error
-      in
-      List.fold_left
-        (fun (env, stages) (output, oid) ->
-          let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
-          let st =
-            {
-              Stage_program.Stage.id = oid;
-              sg = out_sig;
-              computation = Region_group.Ref.Grouped (group, output);
-            }
-          in
-          (Tensor_id.Map.add oid out_sig env, st :: stages))
-        (env, stages) outs
-    else
-      List.fold_left
-        (fun (env, stages) (output, oid) ->
-          let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
-          let regional =
-            if Region_computation.is_region_authored op then
-              Some
-                (Region_computation.program ~limits ~op ~output
-                   ~output_shape:out_sig.shape
-                   ~operand:(fun id -> Tensor_id.Map.find_opt id env)
-                   ~fill:(fun _role value shape -> fill value shape))
-            else None
-          in
-          let computation =
-            match regional with
-            | Some (Ok program) -> Region_group.Ref.Solo program
-            | Some (Error error) ->
-                Err.raise_error ~pp_error:Region_computation.pp_error error
-            | None ->
-                Region_group.Ref.Solo
-                  (Region_program.pixel
-                     (Expr.Builder.run
-                        (E.pixel op ~output ~operand ~shape_of ~fill
-                           Symbolic.out_vec)))
-          in
-          let st =
-            { Stage_program.Stage.id = oid; sg = out_sig; computation }
-          in
-          (Tensor_id.Map.add oid out_sig env, st :: stages))
-        (env, stages) outs
+    | _, _ when List.length outs > 1 && Region_computation.is_region_authored op
+      ->
+        let group =
+          match
+            Region_computation.group ~limits ~op ~operand:(fun id ->
+                Tensor_id.Map.find_opt id env)
+          with
+          | Ok group -> group
+          | Error error ->
+              Err.raise_error ~pp_error:Region_computation.pp_error error
+        in
+        let env, stages =
+          List.fold_left
+            (fun (env, stages) (output, oid) ->
+              let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+              let st =
+                {
+                  Stage_program.Stage.id = oid;
+                  sg = out_sig;
+                  computation = Region_group.Ref.Grouped (group, output);
+                }
+              in
+              (Tensor_id.Map.add oid out_sig env, st :: stages))
+            (env, stages) outs
+        in
+        (env, stages, stages_i64)
+    | _, _ ->
+        let env, stages =
+          List.fold_left
+            (fun (env, stages) (output, oid) ->
+              let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+              let regional =
+                if Region_computation.is_region_authored op then
+                  Some
+                    (Region_computation.program ~limits ~op ~output
+                       ~output_shape:out_sig.shape
+                       ~operand:(fun id -> Tensor_id.Map.find_opt id env)
+                       ~fill:(fun _role value shape -> fill value shape))
+                else None
+              in
+              let computation =
+                match regional with
+                | Some (Ok program) -> Region_group.Ref.Solo program
+                | Some (Error error) ->
+                    Err.raise_error ~pp_error:Region_computation.pp_error error
+                | None ->
+                    Region_group.Ref.Solo
+                      (Region_program.pixel
+                         (Expr.Builder.run
+                            (E.pixel op ~output ~operand ~shape_of ~fill
+                               Symbolic.out_vec)))
+              in
+              let st =
+                { Stage_program.Stage.id = oid; sg = out_sig; computation }
+              in
+              (Tensor_id.Map.add oid out_sig env, st :: stages))
+            (env, stages) outs
+        in
+        (env, stages, stages_i64)
   in
-  let _env, rev_stages =
+  let _env, rev_stages, rev_stages_i64 =
     List.fold_left
-      (fun (env, stages) node -> process_node g env stages node)
-      (g.Graph.tensors, []) g.Graph.nodes
+      (fun acc node -> process_node g acc node)
+      (g.Graph.tensors, [], []) g.Graph.nodes
   in
   let inputs, input_kinds = stage_sources g in
   {
@@ -151,5 +200,6 @@ let run ?(limits = Kernel.Limits.default) (g : graph) : Stage_program.t =
     input_kinds;
     consts = List.rev !consts;
     stages = List.rev rev_stages;
+    stages_i64 = List.rev rev_stages_i64;
     outputs = g.Graph.outputs;
   }

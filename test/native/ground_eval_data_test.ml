@@ -69,6 +69,7 @@ let program ~index_kind ~extra_inputs ~extra_stages =
         :: List.map (fun (id, _) -> (id, Input.Constant)) extra_inputs);
     consts = [];
     stages = out_stage :: extra_stages;
+    stages_i64 = [];
     outputs = [ out_id ];
   }
 

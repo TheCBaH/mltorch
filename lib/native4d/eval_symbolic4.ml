@@ -48,6 +48,20 @@ let first_free_tid (g : Graph.graph) =
     (fun k _ acc -> max acc (Tensor_id.to_int k + 1))
     g.Graph.Graph.tensors 0
 
+(* The Native4D twin of [Eval_symbolic.i64_arange_pixel] -- see its own
+   comment for the full rationale (same [Expr.Value] typed constructors, same
+   [length_exact]-backed overflow-safety argument, same "no [Eval_op.Make]"
+   reason). [Symbolic] here is [Native.Symbolic], reused unqualified per this
+   library's own `wrapped`/[include_subdirs] convention (see this file's dune
+   comment), not a Native4D-specific redefinition. *)
+let i64_arange_pixel
+    ({ Factory.Arange.Exact.start; step; _ } : Factory.Arange.Exact.t) =
+  Expr.Value.i64_add
+    (Expr.Value.i64_const start)
+    (Expr.Value.i64_mul
+       (Expr.Value.i64_const step)
+       (Expr.Value.i64_of_index (Symbolic.of_index Symbolic.out_vec.Vec6.c)))
+
 let run (g : Graph.graph) : Stage_program.t =
   (* [Symbolic] is stateless, so there is no instance to create. Each stage body
      is a construction computation, run below from [Expr.Builder.initial]: stage
@@ -63,70 +77,90 @@ let run (g : Graph.graph) : Stage_program.t =
     consts := (sg, v) :: !consts;
     sg
   in
-  let process_node env stages (node : Graph.node) =
+  let process_node (env, stages, stages_i64) (node : Graph.node) =
     let op = node.Graph.Node.op in
     check_mixed_dtype g op;
     let operand r = Tensor_id.Map.find r env in
     let shape_of r = (Tensor_id.Map.find r env).Tensor_sig.shape in
     let outs = List.mapi (fun i oid -> (i, oid)) node.Graph.Node.outputs in
+    match (op, outs) with
+    (* Mirrors [Eval_symbolic]'s own exact-Arange special case. *)
+    | ( Op.Arange4 { Ops4.Arange4.params = { fmt; exact = Some e; _ } },
+        [ (_, oid) ] )
+      when is_i64 fmt ->
+        let out_sig = Tensor_id.Map.find oid g.Graph.Graph.tensors in
+        let st =
+          {
+            Stage_program.Stage_i64.id = oid;
+            sg = out_sig;
+            pixel = i64_arange_pixel e;
+          }
+        in
+        (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
     (* Mirrors [Eval_symbolic]'s own multi-output group construction. *)
-    if List.length outs > 1 && Region_computation4.is_region_authored op then
-      let group =
-        match
-          Region_computation4.group ~limits:Kernel.Limits.default ~op
-            ~operand:(fun id -> Tensor_id.Map.find_opt id env)
-        with
-        | Ok group -> group
-        | Error error ->
-            Err.raise_error ~pp_error:Region_computation.pp_error error
-      in
-      List.fold_left
-        (fun (env, stages) (output, oid) ->
-          let out_sig = Tensor_id.Map.find oid g.Graph.Graph.tensors in
-          let st =
-            {
-              Stage_program.Stage.id = oid;
-              sg = out_sig;
-              computation = Region_group.Ref.Grouped (group, output);
-            }
-          in
-          (Tensor_id.Map.add oid out_sig env, st :: stages))
-        (env, stages) outs
-    else
-      List.fold_left
-        (fun (env, stages) (output, oid) ->
-          let out_sig = Tensor_id.Map.find oid g.Graph.Graph.tensors in
-          let regional =
-            if Region_computation4.is_region_authored op then
-              Some
-                (Region_computation4.program ~limits:Kernel.Limits.default ~op
-                   ~output ~output_shape:out_sig.shape
-                   ~operand:(fun id -> Tensor_id.Map.find_opt id env)
-                   ~fill:(fun _role value shape -> fill value shape))
-            else None
-          in
-          let computation =
-            match regional with
-            | Some (Ok program) -> Region_group.Ref.Solo program
-            | Some (Error error) ->
-                Err.raise_error ~pp_error:Region_computation.pp_error error
-            | None ->
-                Region_group.Ref.Solo
-                  (Region_program.pixel
-                     (Expr.Builder.run
-                        (E.pixel op ~output ~operand ~shape_of ~fill
-                           Symbolic.out_vec)))
-          in
-          let st =
-            { Stage_program.Stage.id = oid; sg = out_sig; computation }
-          in
-          (Tensor_id.Map.add oid out_sig env, st :: stages))
-        (env, stages) outs
+    | _, _
+      when List.length outs > 1 && Region_computation4.is_region_authored op ->
+        let group =
+          match
+            Region_computation4.group ~limits:Kernel.Limits.default ~op
+              ~operand:(fun id -> Tensor_id.Map.find_opt id env)
+          with
+          | Ok group -> group
+          | Error error ->
+              Err.raise_error ~pp_error:Region_computation.pp_error error
+        in
+        let env, stages =
+          List.fold_left
+            (fun (env, stages) (output, oid) ->
+              let out_sig = Tensor_id.Map.find oid g.Graph.Graph.tensors in
+              let st =
+                {
+                  Stage_program.Stage.id = oid;
+                  sg = out_sig;
+                  computation = Region_group.Ref.Grouped (group, output);
+                }
+              in
+              (Tensor_id.Map.add oid out_sig env, st :: stages))
+            (env, stages) outs
+        in
+        (env, stages, stages_i64)
+    | _, _ ->
+        let env, stages =
+          List.fold_left
+            (fun (env, stages) (output, oid) ->
+              let out_sig = Tensor_id.Map.find oid g.Graph.Graph.tensors in
+              let regional =
+                if Region_computation4.is_region_authored op then
+                  Some
+                    (Region_computation4.program ~limits:Kernel.Limits.default
+                       ~op ~output ~output_shape:out_sig.shape
+                       ~operand:(fun id -> Tensor_id.Map.find_opt id env)
+                       ~fill:(fun _role value shape -> fill value shape))
+                else None
+              in
+              let computation =
+                match regional with
+                | Some (Ok program) -> Region_group.Ref.Solo program
+                | Some (Error error) ->
+                    Err.raise_error ~pp_error:Region_computation.pp_error error
+                | None ->
+                    Region_group.Ref.Solo
+                      (Region_program.pixel
+                         (Expr.Builder.run
+                            (E.pixel op ~output ~operand ~shape_of ~fill
+                               Symbolic.out_vec)))
+              in
+              let st =
+                { Stage_program.Stage.id = oid; sg = out_sig; computation }
+              in
+              (Tensor_id.Map.add oid out_sig env, st :: stages))
+            (env, stages) outs
+        in
+        (env, stages, stages_i64)
   in
-  let _env, rev_stages =
-    List.fold_left
-      (fun (env, stages) node -> process_node env stages node)
-      (g.Graph.Graph.tensors, [])
+  let _env, rev_stages, rev_stages_i64 =
+    List.fold_left process_node
+      (g.Graph.Graph.tensors, [], [])
       g.Graph.Graph.nodes
   in
   {
@@ -137,5 +171,6 @@ let run (g : Graph.graph) : Stage_program.t =
     input_kinds = g.Graph.Graph.input_kinds;
     consts = List.rev !consts;
     stages = List.rev rev_stages;
+    stages_i64 = List.rev rev_stages_i64;
     outputs = g.Graph.Graph.outputs;
   }

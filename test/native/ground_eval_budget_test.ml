@@ -26,6 +26,7 @@ let program stages : Stage_program.t =
     input_kinds = Tensor_id.Map.empty;
     consts = [];
     stages;
+    stages_i64 = [];
     outputs =
       List.map
         (fun (s : Stage_program.Stage.t) -> s.Stage_program.Stage.id)
