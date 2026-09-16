@@ -8,11 +8,11 @@
    (see reshape_i64_test.ml's second test) was found exactly this way, by a
    second node reading the first one's declared signature rather than a fresh
    materialized tensor. These fixtures build the actual corpus-shaped node
-   sequences (mvitv2_tiny's real `model.json`, traced in the implementation
-   tracker's P5.2 continuation) through [Graph_builder] and run them through
-   one [Eval_direct.run] call, so a wiring mistake between two independently-
-   correct [Compute_i64] arms would show up here even if each arm's own
-   isolated test still passes. *)
+   sequences (mvitv2_tiny's and edgenext_xx_small's real `model.json`s, traced
+   in the implementation tracker's P5.2/P5.7 notes) through [Graph_builder]
+   and run them through one [Eval_direct.run] call, so a wiring mistake
+   between two independently-correct [Compute_i64] arms would show up here
+   even if each arm's own isolated test still passes. *)
 
 open Graph_ir
 open Graph_direct_fixtures
@@ -91,3 +91,53 @@ let%expect_test
   (* self + 52.0 = {-1.5, 51.5, 52.3, 54.7}; truncated toward zero, per the
      plan's own "explicit truncation toward zero" policy, not rounded. *)
   [%expect {| out = tensor i64 [C=4] {-1, 51, 52, 54} |}]
+
+(* EdgeNeXt's own named pattern (Gate 5 item 6): an I64 `arange.default`
+   feeding a `_to_copy.default(dtype=FLOAT)`. [Fold_arange_cast]
+   (`fold_arange_cast_test.ml`) fuses this exact two-node shape into one F32
+   [Arange] whenever start/step are integer-valued -- the common real case --
+   so [Eval_direct] only ever sees the UNFUSED chain when the pass declines
+   to run at all (as here: [Eval_direct.run] takes a raw, unpassed graph) or
+   when a second live consumer blocks the fold. Both `to_copy_i64_test.ml`
+   (this exact op) and this file's own [Arange] fixture above test each half
+   separately, fed by a materialized input / no consumer; this is the first
+   fixture chaining [Arange]'s own computed I64 edge directly into
+   [To_copy(Float)], the two-hop wiring the fold pass's OWN fixtures never
+   exercise (they inspect the graph transform, not [Eval_direct]'s runtime
+   dispatch on the pre-fold graph).
+
+   Unlike the two fixtures above, disabling [To_copy(Float)]'s [Compute_i64]
+   dispatch arm does NOT turn this fixture red (checked, not assumed): its
+   own header already documents why -- [Payload.get_float]'s I64 case is
+   [Int64.to_float], bit-identical to the explicit cast for every value small
+   enough for F32 to represent exactly, which these values are. This fixture
+   instead guards the ARANGE->TO_COPY wiring itself (the right edge feeds the
+   right op with the right values through a real two-node graph), not the
+   dispatch-arm choice; a value-level defect in either op would still show up
+   as a wrong printed result. *)
+let%expect_test
+    "edgenext acceptance pattern: Arange -> To_copy(Float) end-to-end" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"edgenext_pattern" ~outputs:(fun r -> [ r ])
+          @@
+          let* a =
+            arange
+              {
+                Factory.Arange.start = 0.;
+                stop = 5.;
+                step = 1.;
+                fmt = Payload.(Fmt I64);
+                exact = None;
+              }
+          in
+          to_copy ~name:"out" Pointwise.To_copy.Float a)
+    in
+    let* env = lift_eval (Eval_direct.run g ~inputs:[]) in
+    tensor_of_name g env "out"
+  in
+  Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
+  [%expect {| out = tensor f32 [C=5] {0, 1, 2, 3, 4} |}]
