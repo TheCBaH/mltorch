@@ -7,6 +7,12 @@ type context = Operand | Sig_shape
 type missing_tensor = { context : context; id : Tensor_id.t }
 type arity_mismatch = { expected : int; actual : int }
 
+type mixed_dtype = {
+  mixed_op : string;
+  a_fmt : Payload.packed_fmt;
+  b_fmt : Payload.packed_fmt;
+}
+
 type error =
   [ Graph_shape.error
   | `Arange_i64_overflow of Factory.Arange.Overflow.t
@@ -16,6 +22,7 @@ type error =
   | `Output_arity_mismatch of arity_mismatch
   | `Region_construction of Region_computation.error
   | `Region_execution of Region_eval.error
+  | `Unsupported_mixed_dtype of mixed_dtype
   | `Unsupported_to_copy_long_source of Payload.packed_fmt ]
 
 type hooks =
@@ -44,6 +51,10 @@ let pp_error ppf : [< error ] -> unit = function
         expected actual
   | `Region_construction error -> Region_computation.pp_error ppf error
   | `Region_execution error -> Region_eval.pp_error ppf error
+  | `Unsupported_mixed_dtype
+      { mixed_op; a_fmt = Payload.Fmt a_fmt; b_fmt = Payload.Fmt b_fmt } ->
+      Format.fprintf ppf "%s: unsupported mixed dtype, a=%s b=%s" mixed_op
+        (Payload.fmt_name a_fmt) (Payload.fmt_name b_fmt)
   | `Unsupported_to_copy_long_source (Payload.Fmt f) ->
       Format.fprintf ppf
         "to_copy: Long target has no exact I64 output for a %s source"
@@ -417,9 +428,10 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                their own fixes. Dispatch only when BOTH operands declare I64
                (the only case [Graph_builder.{add,sub,mul}] threads an I64
                output edge for, and the only case a real broadcasted binary op
-               is safe to promote wholesale to -- a mismatched pair is
-               unsupported mixed promotion, left to the ordinary float path
-               unchanged, per the plan's P5.4). *)
+               is safe to promote wholesale to). A mismatched pair (exactly
+               one operand I64) fails at checked admission -- see the P5.4
+               note on the [Add] arm's own mixed-dtype case below -- rather
+               than silently falling through to the ordinary float path. *)
             | Add { Pointwise.Bin.a; b } -> (
                 let a_sig = Tensor_id.Map.find a g.Graph.tensors in
                 let b_sig = Tensor_id.Map.find b g.Graph.tensors in
@@ -434,6 +446,30 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                     Err.return
                       (Tensor.materialize_i64 out_shape (fun coord ->
                            C.pixel ~a_shape ~b_shape a_t b_t coord))
+                (* Mixed I64/non-I64 operands: the plan's own P5.4 scope
+                   ("reject unsupported mixed promotion") and "do not infer
+                   promotion from output storage alone" invariant -- the
+                   default float path below would silently compute
+                   [Int64.to_float a + b] in DOUBLE precision then round once
+                   to F32 at the very end, which is not provably the same
+                   result as real ATen's own int64->float32 promote-then-add
+                   (computed entirely at F32 precision, so subject to a
+                   DIFFERENT rounding sequence -- double rounding is not
+                   generally equivalent to single rounding). No validated
+                   policy for this combination exists yet, so it fails at
+                   checked admission rather than silently producing a value
+                   that might not match ATen. *)
+                | a_fmt, b_fmt
+                  when (match a_fmt with
+                         | Payload.Fmt Payload.I64 -> true
+                         | _ -> false)
+                       ||
+                       match b_fmt with
+                       | Payload.Fmt Payload.I64 -> true
+                       | _ -> false ->
+                    Err.fail
+                      (`Unsupported_mixed_dtype
+                         { mixed_op = "add"; a_fmt; b_fmt })
                 | _ ->
                     Err.return
                       (Schedule.evaluate out_shape
@@ -455,6 +491,17 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                     Err.return
                       (Tensor.materialize_i64 out_shape (fun coord ->
                            C.pixel ~a_shape ~b_shape a_t b_t coord))
+                | a_fmt, b_fmt
+                  when (match a_fmt with
+                         | Payload.Fmt Payload.I64 -> true
+                         | _ -> false)
+                       ||
+                       match b_fmt with
+                       | Payload.Fmt Payload.I64 -> true
+                       | _ -> false ->
+                    Err.fail
+                      (`Unsupported_mixed_dtype
+                         { mixed_op = "sub"; a_fmt; b_fmt })
                 | _ ->
                     Err.return
                       (Schedule.evaluate out_shape
@@ -476,6 +523,17 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                     Err.return
                       (Tensor.materialize_i64 out_shape (fun coord ->
                            C.pixel ~a_shape ~b_shape a_t b_t coord))
+                | a_fmt, b_fmt
+                  when (match a_fmt with
+                         | Payload.Fmt Payload.I64 -> true
+                         | _ -> false)
+                       ||
+                       match b_fmt with
+                       | Payload.Fmt Payload.I64 -> true
+                       | _ -> false ->
+                    Err.fail
+                      (`Unsupported_mixed_dtype
+                         { mixed_op = "mul"; a_fmt; b_fmt })
                 | _ ->
                     Err.return
                       (Schedule.evaluate out_shape

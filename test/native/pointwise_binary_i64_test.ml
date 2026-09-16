@@ -136,3 +136,41 @@ let%expect_test
     mid = tensor i64 [C=6] {9007199254740994, 9007199254740995, 9007199254740996, 9007199254740997, 9007199254740998, 9007199254740999}
     out = tensor i64 [C=6] {9007199254740995, 9007199254740996, 9007199254740997, 9007199254740998, 9007199254740999, 9007199254741000}
     |}]
+
+(* P5.4: a mismatched I64/F32 pair fails at checked admission rather than
+   silently computing through the default float path -- which would add in
+   DOUBLE precision (Int64.to_float's own promotion) and round once to F32 at
+   the very end, not provably the same result as real ATen's int64->float32
+   promote-then-add (computed entirely at F32 precision, so a DIFFERENT
+   rounding sequence -- double rounding is not generally equivalent to single
+   rounding). No validated policy for this combination exists yet, so all
+   three ops reject it explicitly instead of guessing. *)
+let%expect_test "Direct graph: mixed I64/F32 add/sub/mul are rejected" =
+  let open Err.Syntax in
+  let run op_of =
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"mixed_dtype" ~outputs:(fun r -> [ r ])
+          @@
+          let* x = input ~shape:(s1c 3) ~name:"x" ~fmt:Payload.(Fmt I64) () in
+          let* y = input ~shape:(s1c 3) ~name:"y" () in
+          op_of x y)
+    in
+    let x = small6 [ 1L; 2L; 3L; 0L; 0L; 0L ] in
+    let y = Tensor.materialize (s1c 3) (fun _ -> 1.0) in
+    lift_eval (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ x; y ]))
+  in
+  let pp_ok ppf (_ : Tensor.packed Tensor_id.Map.t) = Fmt.string ppf "ok" in
+  Format.printf "%a@." (pp_result pp_ok)
+    (run (fun x y -> Graph_builder.add ~name:"out" x y));
+  Format.printf "%a@." (pp_result pp_ok)
+    (run (fun x y -> Graph_builder.sub ~name:"out" x y));
+  Format.printf "%a@." (pp_result pp_ok)
+    (run (fun x y -> Graph_builder.mul ~name:"out" x y));
+  [%expect
+    {|
+    add: unsupported mixed dtype, a=i64 b=f32
+    sub: unsupported mixed dtype, a=i64 b=f32
+    mul: unsupported mixed dtype, a=i64 b=f32
+    |}]
