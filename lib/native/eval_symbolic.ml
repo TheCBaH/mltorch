@@ -208,6 +208,33 @@ let run ?(limits = Kernel.Limits.default) (g : graph) : Stage_program.t =
         in
         let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
         (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+    (* The Symbolic twin of [Eval_direct]'s own explicit int64-input
+       promotion for [Mul_scalar]: unlike Reshape/Permute/Add/Sub/Mul, the
+       OUTPUT here stays the ordinary float carrier (ATen promotes an
+       integer tensor times a float scalar to a float result) -- so this
+       produces an ordinary [Stage.t], pushed onto [stages], not a
+       [Stage_i64.t]. Only the READ changes: [Pointwise.Mul_scalar.
+       Compute_i64 (Symbolic) (Symbolic)] uses [Symbolic.i64_load]/
+       [Symbolic.i64_to_float] (an explicit checked cast) rather than the
+       default arm's [Symbolic.load], which round-trips through
+       [Payload.get_float] and would perform the identical promotion only
+       incidentally. [Symbolic.i64_to_float : int64 repr -> Symbolic.t]
+       already matches [Compute_i64]'s own [T.i64_to_float] requirement, so
+       no change to [pointwise_binary.ml] was needed here either. *)
+    | Mul_scalar { Pointwise.Scalar_bin.x; scalar }, [ (_, oid) ]
+      when is_i64 (operand x).Tensor_sig.fmt ->
+        let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+        let x_sig = operand x in
+        let module C = Pointwise.Mul_scalar.Compute_i64 (Symbolic) (Symbolic) in
+        let pixel = Expr.Builder.run (C.pixel ~scalar x_sig Symbolic.out_vec) in
+        let st =
+          {
+            Stage_program.Stage.id = oid;
+            sg = out_sig;
+            computation = Region_group.Ref.Solo (Region_program.pixel pixel);
+          }
+        in
+        (Tensor_id.Map.add oid out_sig env, st :: stages, stages_i64)
     (* A multi-output Region-authored node (project step 19: today only
        Lstm) builds ONE shared group and hands every sibling stage a
        [Grouped] reference into it, rather than each independently building

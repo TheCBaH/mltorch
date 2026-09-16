@@ -144,6 +144,24 @@ let analyse ~limits ~select (p : Stage_program.t) =
       (fun m (st : Stage_program.Stage.t) -> Tensor_id.Map.add st.id st.sg m)
       Tensor_id.Map.empty p.Stage_program.stages
   in
+  (* An ordinary float stage's own sources MAY name a [stages_i64] entry (an
+     [I64_to_float (I64_load ...)] pixel, e.g. [Mul_scalar]'s own exact
+     int64-input dispatch) -- [Kernel.mli]'s own doc already establishes that
+     every [values_i64] entry is materialized eagerly, unconditionally,
+     before any [Value.t] evaluates, so unlike a [stages]-to-[stages] source
+     (checked for forward references just below) an i64 source needs no
+     ordering check here: it is always already resolved by the time ANY
+     float stage runs, regardless of list position. This does not extend
+     [analyse]'s own untrusted-input validation TO [stages_i64] itself (no
+     duplicate-id/signature check for the int64 list here) -- that remains
+     separately scoped (see the implementation tracker's P4.1/P5.1 note);
+     this only stops a legitimate float-consumes-i64 reference from being
+     misreported as [`Unknown_stage_source]. *)
+  let stage_i64_ids =
+    List.fold_left
+      (fun s (st : Stage_program.Stage_i64.t) -> Tensor_id.Set.add st.id s)
+      Tensor_id.Set.empty p.Stage_program.stages_i64
+  in
   (* Validate the whole definition table before projecting any selection.
      Otherwise a selection launders a structural defect: with stage [a] reading
      a later stage [b], selecting only [a] turns [b] into a synthetic boundary
@@ -170,7 +188,10 @@ let analyse ~limits ~select (p : Stage_program.t) =
             (fun src acc ->
               let* () = acc in
               let id = Expr_bridge.id_of_source src in
-              if Tensor_id.Map.mem id boundary || Tensor_id.Set.mem id defined
+              if
+                Tensor_id.Map.mem id boundary
+                || Tensor_id.Set.mem id defined
+                || Tensor_id.Set.mem id stage_i64_ids
               then Err.return ()
               else if Tensor_id.Map.mem id stage_sig then
                 invalid Program_error.Forward_source
