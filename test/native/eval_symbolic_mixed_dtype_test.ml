@@ -67,3 +67,28 @@ let%expect_test
     no exception
     no exception
     |}]
+
+(* The Stage/Kernel-level twin of the first fixture above: proves the
+   rejection is visible to a caller that goes through the full
+   [Eval_symbolic.run] -> [Kernel_adapt.of_stage_program] pipeline a real
+   Symbolic/Kernel consumer uses, not merely to [Eval_symbolic.run] in
+   isolation. [Eval_symbolic.run] already raises before a [Stage_program.t]
+   exists, so [Kernel_adapt.of_stage_program] can never actually see a mixed
+   pair -- this fixture is the evidence for that, not a second, independent
+   check. *)
+let%expect_test
+    "Stage/Kernel: mixed I64/F32 add/sub/mul are rejected before a kernel is \
+     built" =
+  let run op_of () =
+    Kernel_adapt.of_stage_program
+      (Eval_symbolic.run (build ~x_fmt:i64 ~y_fmt:f32 op_of))
+  in
+  Fmt.pr "%s@." (catch (run Graph_builder.add));
+  Fmt.pr "%s@." (catch (run Graph_builder.sub));
+  Fmt.pr "%s@." (catch (run Graph_builder.mul));
+  [%expect
+    {|
+    raised: add: unsupported mixed dtype, a=i64 b=f32
+    raised: sub: unsupported mixed dtype, a=i64 b=f32
+    raised: mul: unsupported mixed dtype, a=i64 b=f32
+    |}]

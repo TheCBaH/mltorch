@@ -62,3 +62,26 @@ let%expect_test
     no exception
     no exception
     |}]
+
+(* The Stage/Kernel-level twin of the first fixture above, mirroring
+   `test/native/eval_symbolic_mixed_dtype_test.ml`'s own addition:
+   [Eval_symbolic4.run] produces the same (Native, not Native4D-specific)
+   [Stage_program.t] `Kernel_adapt.of_stage_program` consumes (confirmed by
+   `compute_test.ml`'s own existing usage), so this proves the rejection
+   survives that composition too, not merely [Eval_symbolic4.run] alone. *)
+let%expect_test
+    "Stage/Kernel: Native4D mixed I64/F32 add/sub/mul are rejected before a \
+     kernel is built" =
+  let run op_of () =
+    Kernel_adapt.of_stage_program
+      (Eval_symbolic4.run (build ~x_fmt:i64 ~y_fmt:f32 op_of))
+  in
+  Fmt.pr "%s@." (catch (run Builder.add));
+  Fmt.pr "%s@." (catch (run Builder.sub));
+  Fmt.pr "%s@." (catch (run Builder.mul));
+  [%expect
+    {|
+    raised: add: unsupported mixed dtype, a=i64 b=f32
+    raised: sub: unsupported mixed dtype, a=i64 b=f32
+    raised: mul: unsupported mixed dtype, a=i64 b=f32
+    |}]
