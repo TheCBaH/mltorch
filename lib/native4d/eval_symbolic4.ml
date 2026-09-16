@@ -97,6 +97,25 @@ let run (g : Graph.graph) : Stage_program.t =
           }
         in
         (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+    (* Mirrors [Eval_symbolic]'s own dtype-preserving [Reshape] arm -- same
+       rationale, same [Compute_i64 (Symbolic) (Symbolic)] instantiation
+       ([Symbolic] here is [Native.Symbolic], reused unqualified per this
+       library's own convention, not a Native4D-specific redefinition); only
+       the [Shape4.to_vec6] conversion for [params.shape] differs, matching
+       [Eval_direct4]'s own [Reshape4] arm. *)
+    | Op.Reshape4 { Ops4.Reshape4.params; x }, [ (_, oid) ]
+      when is_i64 (operand x).Tensor_sig.fmt ->
+        let out_sig = Tensor_id.Map.find oid g.Graph.Graph.tensors in
+        let x_sig = operand x in
+        let module C = Reshape.Reshape.Compute_i64 (Symbolic) (Symbolic) in
+        let pixel =
+          Expr.Builder.run
+            (C.pixel
+               { Reshape.Reshape.shape = Shape4.to_vec6 params.shape }
+               ~x_shape:x_sig.Tensor_sig.shape ~x:x_sig Symbolic.out_vec)
+        in
+        let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
+        (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
     (* Mirrors [Eval_symbolic]'s own multi-output group construction. *)
     | _, _
       when List.length outs > 1 && Region_computation4.is_region_authored op ->

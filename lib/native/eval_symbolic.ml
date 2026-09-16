@@ -122,6 +122,35 @@ let run ?(limits = Kernel.Limits.default) (g : graph) : Stage_program.t =
           }
         in
         (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+    (* The Symbolic twin of [Eval_direct]'s own dtype-preserving [Reshape]
+       arm: the default arm below reaches [Reshape.Reshape.Compute(Symbolic)
+       .pixel], whose final [Symbolic.load] builds an ordinary float [Load]
+       expression, round-tripping every format through [Payload.get_float] at
+       grounding time -- lossy above 2^53 for an I64 source. Branch on the
+       OPERAND's declared signature format (paired with [Graph_builder.
+       reshape]'s own I64-only fmt threading), routing an I64 source through
+       [Compute_i64 (Symbolic) (Symbolic)] instead, which builds an
+       [I64_load] expression via [Symbolic.i64_load] -- no [x_t]/materialized
+       tensor needed at construction time, unlike Direct, since a symbolic
+       pixel is a deferred expression, not an immediate value. This closes
+       the "int64-to-int64 CONSUMER" half of the P4.1/P5.1 entry's own
+       "still open" list: [Kernel.Value_i64.t]'s existing forward-reference
+       machinery ([check_values_i64_order]/[materialize_values_i64], already
+       built for exactly this) resolves the resulting [I64_load] of an
+       earlier [values_i64] entry (e.g. an upstream exact Arange) without any
+       further change. See the implementation tracker's P5.2/P4.1 note. *)
+    | Reshape { Reshape.Reshape.params; x }, [ (_, oid) ]
+      when is_i64 (operand x).Tensor_sig.fmt ->
+        let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+        let x_sig = operand x in
+        let module C = Reshape.Reshape.Compute_i64 (Symbolic) (Symbolic) in
+        let pixel =
+          Expr.Builder.run
+            (C.pixel params ~x_shape:x_sig.Tensor_sig.shape ~x:x_sig
+               Symbolic.out_vec)
+        in
+        let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
+        (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
     (* A multi-output Region-authored node (project step 19: today only
        Lstm) builds ONE shared group and hands every sibling stage a
        [Grouped] reference into it, rather than each independently building
