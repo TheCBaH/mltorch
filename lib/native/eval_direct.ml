@@ -15,7 +15,8 @@ type error =
   | `Missing_tensor of missing_tensor
   | `Output_arity_mismatch of arity_mismatch
   | `Region_construction of Region_computation.error
-  | `Region_execution of Region_eval.error ]
+  | `Region_execution of Region_eval.error
+  | `Unsupported_to_copy_long_source of Payload.packed_fmt ]
 
 type hooks =
   | Hooks : { on_start : node -> 'a; on_end : node -> 'a -> unit } -> hooks
@@ -43,6 +44,10 @@ let pp_error ppf : [< error ] -> unit = function
         expected actual
   | `Region_construction error -> Region_computation.pp_error ppf error
   | `Region_execution error -> Region_eval.pp_error ppf error
+  | `Unsupported_to_copy_long_source (Payload.Fmt f) ->
+      Format.fprintf ppf
+        "to_copy: Long target has no exact I64 output for a %s source"
+        (Payload.fmt_name f)
 
 let find_tensor map id ~context =
   Tensor_id.Map.find_opt id map
@@ -532,13 +537,34 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                     Err.return
                       (Tensor.materialize_i64 out_shape (fun coord ->
                            C.pixel x_t coord))
-                | _ ->
+                (* An already-I64 operand needs no cast at all -- a plain
+                   identity copy, the same [Long]-on-I64 gap the prior
+                   session's own P5.3 entry left "unsurveyed". Reachable in
+                   principle (an int64 tensor re-asserting its own dtype),
+                   and closing it here also removes a real hazard: since
+                   [Graph_builder.to_copy] now declares this node's output
+                   I64 unconditionally, leaving this case to the generic `_`
+                   fallback below (which always writes via [Schedule.evaluate]
+                   at F32) would silently produce an F32 payload under a
+                   declared I64 [Tensor_sig] -- exactly the declared/actual
+                   format mismatch this plan's own history (Trim_permute,
+                   Reshape's builder gap) has repeatedly had to hunt down. *)
+                | Payload.Fmt Payload.I64 ->
+                    let x_t = Tensor_id.Map.find x operand_env in
                     Err.return
-                      (Schedule.evaluate out_shape
-                         (E.pixel op ~output
-                            ~operand:(fun r -> Tensor_id.Map.find r operand_env)
-                            ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
-                            ~fill)))
+                      (Tensor.materialize_i64 out_shape (fun coord ->
+                           Direct.i64_load x_t coord))
+                (* Every other format is outside this plan's scope (no real
+                   importer produces I32/F16/BF16/etc. today), and
+                   [Graph_builder.to_copy] still declares I64 here regardless
+                   -- so this fails at checked admission, per the plan's own
+                   "unsupported dtype/operator combinations fail... before
+                   output/scratch allocation" invariant, rather than silently
+                   writing an F32 payload under a declared I64 signature via
+                   the generic float pixel path below. *)
+                | Payload.Fmt other ->
+                    Err.fail
+                      (`Unsupported_to_copy_long_source (Payload.Fmt other)))
             | _ when Region_computation.is_region_authored op ->
                 region_result ~limits
                   ~region_counters:

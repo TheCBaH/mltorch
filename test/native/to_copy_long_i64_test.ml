@@ -62,6 +62,42 @@ let%expect_test
     out = tensor i64 [C=2] {-9223372036854775808, 4611686018427387904}
     |}]
 
+(* An already-I64 operand needs no cast at all -- a plain identity copy.
+   Also closes a real hazard, not just an "unsurveyed" gap: since
+   [Graph_builder.to_copy] declares this node's output I64 unconditionally
+   for the [Long] target, leaving an I64 operand to [Eval_direct]'s generic
+   fallback (which always writes via [Schedule.evaluate] at F32) would
+   silently produce an F32 payload under a declared I64 [Tensor_sig]. Past
+   2^53 to prove this is a genuine typed read, not [Payload.get_float]'s own
+   incidental [Int64.to_float] promotion round-tripped back losslessly by
+   coincidence. *)
+let%expect_test "Direct graph: To_copy(Long) on an I64 operand is an identity" =
+  let open Err.Syntax in
+  let result =
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"to_copy_long_i64" ~outputs:(fun r -> [ r ])
+          @@
+          let* x = input ~shape:(s1c 3) ~name:"x" ~fmt:Payload.(Fmt I64) () in
+          to_copy ~name:"out" Pointwise.To_copy.Long x)
+    in
+    let x =
+      Tensor.materialize_i64 (s1c 3) (fun c ->
+          Int64.add 9007199254740993L
+            (Int64.of_int (Dim.to_int (Vec6.get c Axis.C))))
+    in
+    let* env =
+      lift_eval (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ x ]))
+    in
+    tensor_of_name g env "out"
+  in
+  Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
+  [%expect
+    {|
+    out = tensor i64 [C=3] {9007199254740993, 9007199254740994, 9007199254740995}
+    |}]
+
 (* [Err.Exn.E], the same convention [Direct.load_index]/[i64_load] already
    establish for a value-dependent runtime error -- not a returned [Error]
    and not a silently wrapped/truncated result. *)
