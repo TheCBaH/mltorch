@@ -163,6 +163,51 @@ let run ?(limits = Kernel.Limits.default) (g : graph) : Stage_program.t =
         let pixel = Expr.Builder.run (C.pixel perm ~x:x_sig Symbolic.out_vec) in
         let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
         (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+    (* The Symbolic twin of [Eval_direct]'s own dtype-preserving tensor-tensor
+       [Add]/[Sub]/[Mul] arms: [check_mixed_dtype] above already raises on a
+       mismatched I64/F32 pair for these three ops, so by the time a node
+       reaches this match, [is_i64] on ONE operand already implies the other
+       agrees -- checking just [a]'s format (not both, unlike Direct's own
+       arm, which has no preceding [check_mixed_dtype] of its own) is
+       therefore sufficient, not merely convenient. Same [Compute_i64
+       (Symbolic) (Symbolic)] shape as Reshape/Permute above: already
+       carrier-generic, no change to [pointwise_binary.ml]. *)
+    | Add { Pointwise.Bin.a; b }, [ (_, oid) ]
+      when is_i64 (operand a).Tensor_sig.fmt ->
+        let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+        let a_sig = operand a and b_sig = operand b in
+        let module C = Pointwise.Add.Compute_i64 (Symbolic) (Symbolic) in
+        let pixel =
+          Expr.Builder.run
+            (C.pixel ~a_shape:a_sig.Tensor_sig.shape
+               ~b_shape:b_sig.Tensor_sig.shape a_sig b_sig Symbolic.out_vec)
+        in
+        let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
+        (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+    | Sub { Pointwise.Bin.a; b }, [ (_, oid) ]
+      when is_i64 (operand a).Tensor_sig.fmt ->
+        let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+        let a_sig = operand a and b_sig = operand b in
+        let module C = Pointwise.Sub.Compute_i64 (Symbolic) (Symbolic) in
+        let pixel =
+          Expr.Builder.run
+            (C.pixel ~a_shape:a_sig.Tensor_sig.shape
+               ~b_shape:b_sig.Tensor_sig.shape a_sig b_sig Symbolic.out_vec)
+        in
+        let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
+        (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+    | Mul { Pointwise.Bin.a; b }, [ (_, oid) ]
+      when is_i64 (operand a).Tensor_sig.fmt ->
+        let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+        let a_sig = operand a and b_sig = operand b in
+        let module C = Pointwise.Mul.Compute_i64 (Symbolic) (Symbolic) in
+        let pixel =
+          Expr.Builder.run
+            (C.pixel ~a_shape:a_sig.Tensor_sig.shape
+               ~b_shape:b_sig.Tensor_sig.shape a_sig b_sig Symbolic.out_vec)
+        in
+        let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
+        (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
     (* A multi-output Region-authored node (project step 19: today only
        Lstm) builds ONE shared group and hands every sibling stage a
        [Grouped] reference into it, rather than each independently building

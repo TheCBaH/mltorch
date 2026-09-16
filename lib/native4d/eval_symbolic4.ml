@@ -131,6 +131,46 @@ let run (g : Graph.graph) : Stage_program.t =
         in
         let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
         (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+    (* Mirrors [Eval_symbolic]'s own dtype-preserving tensor-tensor
+       [Add]/[Sub]/[Mul] arms -- same rationale (checking just [a]'s format
+       suffices since [check_mixed_dtype] above already rejects a mismatched
+       pair), same [Compute_i64 (Symbolic) (Symbolic)] instantiation. *)
+    | Op.Add { Pointwise.Bin.a; b }, [ (_, oid) ]
+      when is_i64 (operand a).Tensor_sig.fmt ->
+        let out_sig = Tensor_id.Map.find oid g.Graph.Graph.tensors in
+        let a_sig = operand a and b_sig = operand b in
+        let module C = Pointwise.Add.Compute_i64 (Symbolic) (Symbolic) in
+        let pixel =
+          Expr.Builder.run
+            (C.pixel ~a_shape:a_sig.Tensor_sig.shape
+               ~b_shape:b_sig.Tensor_sig.shape a_sig b_sig Symbolic.out_vec)
+        in
+        let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
+        (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+    | Op.Sub { Pointwise.Bin.a; b }, [ (_, oid) ]
+      when is_i64 (operand a).Tensor_sig.fmt ->
+        let out_sig = Tensor_id.Map.find oid g.Graph.Graph.tensors in
+        let a_sig = operand a and b_sig = operand b in
+        let module C = Pointwise.Sub.Compute_i64 (Symbolic) (Symbolic) in
+        let pixel =
+          Expr.Builder.run
+            (C.pixel ~a_shape:a_sig.Tensor_sig.shape
+               ~b_shape:b_sig.Tensor_sig.shape a_sig b_sig Symbolic.out_vec)
+        in
+        let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
+        (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+    | Op.Mul { Pointwise.Bin.a; b }, [ (_, oid) ]
+      when is_i64 (operand a).Tensor_sig.fmt ->
+        let out_sig = Tensor_id.Map.find oid g.Graph.Graph.tensors in
+        let a_sig = operand a and b_sig = operand b in
+        let module C = Pointwise.Mul.Compute_i64 (Symbolic) (Symbolic) in
+        let pixel =
+          Expr.Builder.run
+            (C.pixel ~a_shape:a_sig.Tensor_sig.shape
+               ~b_shape:b_sig.Tensor_sig.shape a_sig b_sig Symbolic.out_vec)
+        in
+        let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
+        (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
     (* Mirrors [Eval_symbolic]'s own multi-output group construction. *)
     | _, _
       when List.length outs > 1 && Region_computation4.is_region_authored op ->
