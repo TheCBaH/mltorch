@@ -8,6 +8,45 @@ open Graph_ir
 
 let f32 = Payload.Fmt Payload.F32
 
+type mixed_dtype = {
+  mixed_op : string;
+  a_fmt : Payload.packed_fmt;
+  b_fmt : Payload.packed_fmt;
+}
+
+let pp_mixed_dtype fmt
+    { mixed_op; a_fmt = Payload.Fmt a_fmt; b_fmt = Payload.Fmt b_fmt } =
+  Format.fprintf fmt "%s: unsupported mixed dtype, a=%s b=%s" mixed_op
+    (Payload.fmt_name a_fmt) (Payload.fmt_name b_fmt)
+
+let is_i64 = function Payload.Fmt Payload.I64 -> true | _ -> false
+
+(* [Eval_direct]'s own P5.4 fix (a mismatched I64/F32 pair fails at checked
+   admission rather than silently computing through the default float
+   path -- see its own comment) only reaches Direct-mode graphs: Symbolic's
+   [process_node] dispatches every op through [E.pixel] uniformly, with no
+   format check at all, so the identical mixed pair here still silently
+   builds an [S.load]-based pixel that promotes the I64 operand via
+   [Payload.get_float] in DOUBLE precision before a single F32 rounding --
+   the exact defect class Direct's own fix closed. This closes the same gap
+   for Symbolic; it does not add I64,I64 dispatch here (Symbolic still has no
+   [Compute_i64] wiring for these ops — see the implementation tracker's
+   P5.6 note), so a matching I64,I64 pair is unaffected and unchanged. *)
+let check_mixed_dtype (gr : graph) op =
+  let fmt_of r = (Tensor_id.Map.find r gr.Graph.tensors).Tensor_sig.fmt in
+  let check_pair mixed_op a b =
+    let a_fmt = fmt_of a and b_fmt = fmt_of b in
+    if Bool.equal (is_i64 a_fmt) (is_i64 b_fmt) then ()
+    else
+      Err.or_raise ~pp_error:pp_mixed_dtype
+        (Err.fail ~pos:__POS__ { mixed_op; a_fmt; b_fmt })
+  in
+  match op with
+  | Add { Pointwise.Bin.a; b } -> check_pair "add" a b
+  | Sub { Pointwise.Bin.a; b } -> check_pair "sub" a b
+  | Mul { Pointwise.Bin.a; b } -> check_pair "mul" a b
+  | _ -> ()
+
 let first_free_tid (g : graph) =
   Tensor_id.Map.fold
     (fun k _ acc -> max acc (Tensor_id.to_int k + 1))
@@ -37,6 +76,7 @@ let run ?(limits = Kernel.Limits.default) (g : graph) : Stage_program.t =
   in
   let process_node (gr : graph) env stages (node : node) =
     let op = node.Node.op in
+    check_mixed_dtype gr op;
     let operand r = Tensor_id.Map.find r env in
     let shape_of r = (Tensor_id.Map.find r env).Tensor_sig.shape in
     let outs = List.mapi (fun i oid -> (i, oid)) node.Node.outputs in

@@ -10,6 +10,39 @@
 
 let f32 = Payload.Fmt Payload.F32
 
+type mixed_dtype = {
+  mixed_op : string;
+  a_fmt : Payload.packed_fmt;
+  b_fmt : Payload.packed_fmt;
+}
+
+let pp_mixed_dtype fmt
+    { mixed_op; a_fmt = Payload.Fmt a_fmt; b_fmt = Payload.Fmt b_fmt } =
+  Format.fprintf fmt "%s: unsupported mixed dtype, a=%s b=%s" mixed_op
+    (Payload.fmt_name a_fmt) (Payload.fmt_name b_fmt)
+
+let is_i64 = function Payload.Fmt Payload.I64 -> true | _ -> false
+
+(* The Native4D twin of [Eval_symbolic]'s own fix, same rationale: closes the
+   mixed I64/F32 checked-admission gap for Native4D's Symbolic route (Direct
+   already rejects this pair, commit [b96e3bf4]); Symbolic still has no
+   I64,I64 [Compute_i64] dispatch of its own, so a matching pair is
+   unaffected. *)
+let check_mixed_dtype (g : Graph.graph) op =
+  let fmt_of r = (Tensor_id.Map.find r g.Graph.Graph.tensors).Tensor_sig.fmt in
+  let check_pair mixed_op a b =
+    let a_fmt = fmt_of a and b_fmt = fmt_of b in
+    if Bool.equal (is_i64 a_fmt) (is_i64 b_fmt) then ()
+    else
+      Err.or_raise ~pp_error:pp_mixed_dtype
+        (Err.fail ~pos:__POS__ { mixed_op; a_fmt; b_fmt })
+  in
+  match op with
+  | Op.Add { Pointwise.Bin.a; b } -> check_pair "add" a b
+  | Op.Sub { Pointwise.Bin.a; b } -> check_pair "sub" a b
+  | Op.Mul { Pointwise.Bin.a; b } -> check_pair "mul" a b
+  | _ -> ()
+
 let first_free_tid (g : Graph.graph) =
   Tensor_id.Map.fold
     (fun k _ acc -> max acc (Tensor_id.to_int k + 1))
@@ -32,6 +65,7 @@ let run (g : Graph.graph) : Stage_program.t =
   in
   let process_node env stages (node : Graph.node) =
     let op = node.Graph.Node.op in
+    check_mixed_dtype g op;
     let operand r = Tensor_id.Map.find r env in
     let shape_of r = (Tensor_id.Map.find r env).Tensor_sig.shape in
     let outs = List.mapi (fun i oid -> (i, oid)) node.Graph.Node.outputs in
