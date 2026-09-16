@@ -116,6 +116,21 @@ let run (g : Graph.graph) : Stage_program.t =
         in
         let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
         (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+    (* Mirrors [Eval_symbolic]'s own dtype-preserving [Permute] arm -- same
+       rationale/instantiation as this file's own [Reshape4] arm just above;
+       only the [Graph_shape4.perm6] conversion differs, matching
+       [Eval_direct4]'s own [Permute4] arm. *)
+    | Op.Permute4 { Ops4.Permute4.perm; x }, [ (_, oid) ]
+      when is_i64 (operand x).Tensor_sig.fmt ->
+        let out_sig = Tensor_id.Map.find oid g.Graph.Graph.tensors in
+        let x_sig = operand x in
+        let module C = Permute.Permute.Compute_i64 (Symbolic) (Symbolic) in
+        let pixel =
+          Expr.Builder.run
+            (C.pixel (Graph_shape4.perm6 perm) ~x:x_sig Symbolic.out_vec)
+        in
+        let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
+        (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
     (* Mirrors [Eval_symbolic]'s own multi-output group construction. *)
     | _, _
       when List.length outs > 1 && Region_computation4.is_region_authored op ->

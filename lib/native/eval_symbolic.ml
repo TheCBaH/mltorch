@@ -151,6 +151,18 @@ let run ?(limits = Kernel.Limits.default) (g : graph) : Stage_program.t =
         in
         let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
         (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+    (* The Symbolic twin of [Eval_direct]'s own dtype-preserving [Permute]
+       arm, the same shape as the [Reshape] arm just above (same rationale,
+       same [Compute_i64 (Symbolic) (Symbolic)] instantiation, same "no [x_t]
+       needed" reason -- see that arm's own comment). *)
+    | Permute { Permute.Permute.perm; x }, [ (_, oid) ]
+      when is_i64 (operand x).Tensor_sig.fmt ->
+        let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+        let x_sig = operand x in
+        let module C = Permute.Permute.Compute_i64 (Symbolic) (Symbolic) in
+        let pixel = Expr.Builder.run (C.pixel perm ~x:x_sig Symbolic.out_vec) in
+        let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
+        (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
     (* A multi-output Region-authored node (project step 19: today only
        Lstm) builds ONE shared group and hands every sibling stage a
        [Grouped] reference into it, rather than each independently building
