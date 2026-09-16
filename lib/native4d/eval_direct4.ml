@@ -262,6 +262,58 @@ let eval_node ?region_counters ~limits ~synthetic_ids (g : Graph.graph) env
                 Err.return
                   (Tensor.materialize_fmt params.fmt (Shape4.to_vec6 out_shape)
                      (fun _ -> 0.))
+            (* Dtype-preserving Reshape4/Permute4, the Native4D twin of
+               [Eval_direct]'s own P5.2 arms: the default arm's
+               [Eval_op4.pixel]'s delegation to Native's
+               [Reshape.Reshape.Compute(S).pixel]/[Permute.Permute.Compute(S)
+               .pixel] reads through [S.load], which round-trips every format
+               through [Payload.get_float] and is silently lossy for an I64
+               source above 2^53. Branch on the OPERAND's declared format
+               (paired with [Builder.reshape4]/[permute4]'s own I64-only fmt
+               threading), routing an I64 source through Native's own
+               [Compute_i64] functors instead. *)
+            | Op.Reshape4 { Ops4.Reshape4.params; x } -> (
+                let x_sig = Tensor_id.Map.find x g.Graph.Graph.tensors in
+                match x_sig.Tensor_sig.fmt with
+                | Payload.Fmt Payload.I64 ->
+                    let module C = Reshape.Reshape.Compute_i64 (Direct) (Direct)
+                    in
+                    let x_t = Tensor_id.Map.find x operand_env in
+                    let x_shape = Tensor_id.Map.find x shape_env in
+                    Err.return
+                      (Tensor.materialize_i64 (Shape4.to_vec6 out_shape)
+                         (fun coord ->
+                           C.pixel
+                             {
+                               Reshape.Reshape.shape =
+                                 Shape4.to_vec6 params.shape;
+                             }
+                             ~x_shape ~x:x_t coord))
+                | _ ->
+                    Err.return
+                      (Schedule.evaluate (Shape4.to_vec6 out_shape)
+                         (E.pixel op ~output
+                            ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                            ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                            ~fill)))
+            | Op.Permute4 { Ops4.Permute4.perm; x } -> (
+                let x_sig = Tensor_id.Map.find x g.Graph.Graph.tensors in
+                match x_sig.Tensor_sig.fmt with
+                | Payload.Fmt Payload.I64 ->
+                    let module C = Permute.Permute.Compute_i64 (Direct) (Direct)
+                    in
+                    let x_t = Tensor_id.Map.find x operand_env in
+                    Err.return
+                      (Tensor.materialize_i64 (Shape4.to_vec6 out_shape)
+                         (fun coord ->
+                           C.pixel (Graph_shape4.perm6 perm) ~x:x_t coord))
+                | _ ->
+                    Err.return
+                      (Schedule.evaluate (Shape4.to_vec6 out_shape)
+                         (E.pixel op ~output
+                            ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                            ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                            ~fill)))
             | Op.Arange4 { Ops4.Arange4.params } -> (
                 let params =
                   Factory.Arange.

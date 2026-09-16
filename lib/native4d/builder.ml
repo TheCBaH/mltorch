@@ -289,7 +289,23 @@ let pow scalar x = op1 (Op.Pow { Pointwise.Scalar_bin.x; scalar })
    [Axis4.t]: a pad naming T or D is not constructible through this API, the
    same rule [unbind] below follows. *)
 let pad4 params x = op1 (Op.Pad4 { Ops4.Pad4.params; x })
-let permute4 perm x = op1 (Op.Permute4 { Ops4.Permute4.perm; x })
+
+(* I64-only fmt threading, the Native4D twin of [Graph_builder.reshape]/
+   [permute]'s own fix (P5.2): [Eval_direct4]'s generic pixel fallback
+   ([Schedule.evaluate]/[Tensor.materialize]) allocates its result as F32
+   unconditionally, so declaring a non-I64, non-F32 format here would make
+   the declared [Tensor_sig] lie about what the fallback actually writes --
+   see Native's own `Trim_permute`-adjacent regression this file's Native
+   twin already learned from. Every other format keeps [op1]'s F32 default,
+   matching what the fallback delivers. *)
+let permute4 perm x =
+  let* s = get in
+  let sg = Tensor_id.Map.find x s.tensors in
+  match sg.Tensor_sig.fmt with
+  | Payload.Fmt Payload.I64 ->
+      op1 ~fmt:sg.Tensor_sig.fmt (Op.Permute4 { Ops4.Permute4.perm; x })
+  | _ -> op1 (Op.Permute4 { Ops4.Permute4.perm; x })
+
 let relu x = op1 (Op.Relu { Pointwise.Relu.x })
 
 let repeat4 repeats x =
@@ -300,7 +316,14 @@ let repeat_interleave4 axis repeats x =
     (Op.RepeatInterleave4
        { Ops4.RepeatInterleave4.params = { axis; repeats }; x })
 
-let reshape4 shape x = op1 (Op.Reshape4 { Ops4.Reshape4.params = { shape }; x })
+let reshape4 shape x =
+  let* s = get in
+  let sg = Tensor_id.Map.find x s.tensors in
+  match sg.Tensor_sig.fmt with
+  | Payload.Fmt Payload.I64 ->
+      op1 ~fmt:sg.Tensor_sig.fmt
+        (Op.Reshape4 { Ops4.Reshape4.params = { shape }; x })
+  | _ -> op1 (Op.Reshape4 { Ops4.Reshape4.params = { shape }; x })
 
 (* Takes the dialect's own [Ops4.Layer_norm.params], whose [dims] are
    [Axis4.t]: a normalization naming T or D is not constructible through this
