@@ -421,7 +421,18 @@ let sub a b =
 let sum_keepdims ?(keepdim = true) dims x =
   op1 (Op.Sum_keepdims { Ops4.Sum_keepdims.params = { dims; keepdim }; x })
 
-let to_copy target x = op1 (Op.To_copy { Pointwise.To_copy.target; x })
+(* [Long]'s output dtype is I64 regardless of the operand's own format (ATen's
+   `.long()` always produces int64), so this threads unconditionally -- unlike
+   [add]/[sub]/[mul]/[reshape4]/[permute4]'s operand-conditional threading,
+   matching Native's own [Graph_builder.to_copy]. [Float]/[Bool] keep [op1]'s
+   F32 default: [Float]'s output genuinely is F32, and [Bool] has no distinct
+   storage format yet (Gate 6). *)
+let to_copy target x =
+  match target with
+  | Pointwise.To_copy.Long ->
+      op1 ~fmt:Payload.(Fmt I64) (Op.To_copy { Pointwise.To_copy.target; x })
+  | Pointwise.To_copy.Float | Pointwise.To_copy.Bool ->
+      op1 (Op.To_copy { Pointwise.To_copy.target; x })
 
 let transposed_conv2d params ~x ~weight ?bias () =
   op1 (Op.Transposed_conv2d { Ops4.Transposed_conv2d.params; x; weight; bias })

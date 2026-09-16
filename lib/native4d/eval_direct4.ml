@@ -29,7 +29,8 @@ type error =
   | `Output_arity_mismatch of arity_mismatch
   | `Region_construction of Region_computation4.error
   | `Region_execution of Region_eval.error
-  | `Unsupported_mixed_dtype of mixed_dtype ]
+  | `Unsupported_mixed_dtype of mixed_dtype
+  | `Unsupported_to_copy_long_source of Payload.packed_fmt ]
 
 let pp_context ppf = function
   | Operand -> Fmt.string ppf "operand"
@@ -56,6 +57,9 @@ let pp_error ppf : [< error ] -> unit = function
       { mixed_op; a_fmt = Payload.Fmt a_fmt; b_fmt = Payload.Fmt b_fmt } ->
       Fmt.pf ppf "%s: unsupported mixed dtype, a=%s b=%s" mixed_op
         (Payload.fmt_name a_fmt) (Payload.fmt_name b_fmt)
+  | `Unsupported_to_copy_long_source (Payload.Fmt f) ->
+      Fmt.pf ppf "to_copy: Long target has no exact I64 output for a %s source"
+        (Payload.fmt_name f)
 
 let find_tensor map id ~context =
   Tensor_id.Map.find_opt id map
@@ -446,6 +450,53 @@ let eval_node ?region_counters ~limits ~synthetic_ids (g : Graph.graph) env
                             ~operand:(fun r -> Tensor_id.Map.find r operand_env)
                             ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
                             ~fill)))
+            (* Explicit int64-input promotion for [To_copy]'s [Float] target,
+               and the reverse "Float to I64" cast for its [Long] target --
+               the Native4D twins of [Eval_direct]'s own P5.3 arms. [Long]/
+               [Float] are each their own arm rather than one match on
+               [target] because the two directions need entirely different
+               dispatch shapes (a read-side cast vs. a genuine checked
+               write). [Bool] is untouched -- no distinct storage format
+               exists yet (Gate 6). *)
+            | Op.To_copy
+                { Pointwise.To_copy.target = Pointwise.To_copy.Float; x } -> (
+                let x_sig = Tensor_id.Map.find x g.Graph.Graph.tensors in
+                match x_sig.Tensor_sig.fmt with
+                | Payload.Fmt Payload.I64 ->
+                    let module C =
+                      Pointwise.To_copy.Compute_i64 (Direct) (Direct)
+                    in
+                    let x_t = Tensor_id.Map.find x operand_env in
+                    Err.return
+                      (Schedule.evaluate (Shape4.to_vec6 out_shape)
+                         (fun coord -> C.pixel x_t coord))
+                | _ ->
+                    Err.return
+                      (Schedule.evaluate (Shape4.to_vec6 out_shape)
+                         (E.pixel op ~output
+                            ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                            ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                            ~fill)))
+            | Op.To_copy
+                { Pointwise.To_copy.target = Pointwise.To_copy.Long; x } -> (
+                let x_sig = Tensor_id.Map.find x g.Graph.Graph.tensors in
+                match x_sig.Tensor_sig.fmt with
+                | Payload.Fmt Payload.F32 ->
+                    let module C =
+                      Pointwise.To_copy.Compute_to_long (Direct) (Direct)
+                    in
+                    let x_t = Tensor_id.Map.find x operand_env in
+                    Err.return
+                      (Tensor.materialize_i64 (Shape4.to_vec6 out_shape)
+                         (fun coord -> C.pixel x_t coord))
+                | Payload.Fmt Payload.I64 ->
+                    let x_t = Tensor_id.Map.find x operand_env in
+                    Err.return
+                      (Tensor.materialize_i64 (Shape4.to_vec6 out_shape)
+                         (fun coord -> Direct.i64_load x_t coord))
+                | Payload.Fmt other ->
+                    Err.fail
+                      (`Unsupported_to_copy_long_source (Payload.Fmt other)))
             | Op.Arange4 { Ops4.Arange4.params } -> (
                 let params =
                   Factory.Arange.
