@@ -232,6 +232,12 @@ let op_registry : (module OP) list =
       let project = function Group_norm t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Pointwise.Gt_scalar
+
+      let inject t = Gt_scalar t
+      let project = function Gt_scalar t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Pointwise.Hardsigmoid
 
       let inject t = Hardsigmoid t

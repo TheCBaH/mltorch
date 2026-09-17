@@ -837,5 +837,8 @@ let lower_node ~view acc (n : node) =
      [Max_pool2d_with_indices]/[Repeat]/[RepeatInterleave]/[Select_scatter]/
      [Softmax]/[Batched_matmul]/[Sdpa]/[Index_tensor]/[Lstm]/[Meshgrid] no
      longer join them: all eleven now have real conversion arms above. *)
-  | Conv3d _ | Discard _ | Max_dim _ | Unfold _ ->
+  (* [Gt_scalar] joins this bucket for the reason [Max_dim] already does:
+     a missing counterpart, not an intrinsic one -- see [Domain]'s own
+     comment. *)
+  | Conv3d _ | Discard _ | Gt_scalar _ | Max_dim _ | Unfold _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))

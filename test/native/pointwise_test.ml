@@ -296,6 +296,28 @@ let%expect_test "Direct: mul_scalar" =
        (M.pixel ~scalar:3. x));
   [%expect {| tensor f32 [C=3] {3, 6, 9} |}]
 
+(* [gt.Scalar(self, other) -> self > other]: strict ordering, so an exact
+   equality is false (not merely the closest boundary case: 2. > 2. is
+   false), and a NaN operand is false on either side of the comparison
+   ([S.lt] is IEEE [<], which is never true against NaN) -- matching real
+   ATen's own [gt] behavior on NaN, with no special-cased NaN branch needed
+   here. This level exercises [Compute]'s own [SEMANTICS]-generic float
+   0./1. formula directly; [Eval_direct]'s own dispatch arm (exercised by
+   [dispatch_test.ml]) is what lands genuine [Payload.Bool] storage from the
+   same formula. *)
+let%expect_test "Direct: gt_scalar" =
+  let module G = Pointwise.Gt_scalar.Compute (Direct) in
+  let x_shape = s1c 5 in
+  let x =
+    Tensor.materialize x_shape (fun c ->
+        [| 1.; 2.; 3.; Float.nan; Float.neg_infinity |].(chan c))
+  in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Pointwise.Gt_scalar.output_shape x_shape)
+       (G.pixel ~scalar:2. x));
+  [%expect {| tensor f32 [C=5] {0, 0, 1, 0, 0} |}]
+
 (* Broadcast: [b] has an extent-1 axis (W) where [a] does not;
    [Pointwise.broadcast_coord] reads b at index 0 there, so its per-channel value
    fans out across W — and [load] is only ever handed in-bounds indices. *)

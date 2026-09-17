@@ -405,6 +405,34 @@ module Floor_div_scalar = struct
   end
 end
 
+(* [gt.Scalar(self, other) -> self > other]. Needs no new [SEMANTICS]
+   primitive: built from the same [S.lt]/[S.select] pair [Bitwise_not.
+   Compute]'s own nonzero-test formula already uses (see pointwise_unary.ml),
+   just one ordered comparison instead of two. IEEE ordering falls out of
+   [S.lt] for free -- NaN is never [<] anything, so a NaN operand on either
+   side makes this false, matching real ATen's [gt] on NaN. The output
+   VALUE here is still float 0./1. ([Compute] is [SEMANTICS]-generic, shared
+   with [Symbolic]); [Graph_builder.gt_scalar] declares the edge [Bool] and
+   [Eval_direct] writes genuine [Payload.Bool] storage from this same
+   formula, mirroring [Bitwise_not]'s own two-layer split. *)
+module Gt_scalar = struct
+  type t = Scalar_bin.t
+
+  let name = "Gt_scalar"
+  let jsont = Scalar_bin.jsont ~name
+  let operands = Scalar_bin.operands
+  let map_operands = Scalar_bin.map_operands
+  let pp pp_ref fmt t = Scalar_bin.pp ~op:"gt_scalar" pp_ref fmt t
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    module B = Scalar_binary (S)
+
+    let gt v s = S.select (S.lt s v) (S.const 1.) (S.const 0.)
+    let pixel ~scalar x out = B.pixel ~combine:gt ~scalar x out
+  end
+end
+
 module Mul = struct
   type t = Bin.t
 

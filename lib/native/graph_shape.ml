@@ -220,6 +220,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       in
       let+ out = widen (Norm.GroupNorm.output_shape ~x_shape params) in
       [ out ]
+  | Gt_scalar { Pointwise.Scalar_bin.x; _ } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Gt_scalar.output_shape x_shape) in
+      [ out ]
   | Hardsigmoid { Pointwise.Hardsigmoid.x } ->
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Hardsigmoid.output_shape x_shape) in

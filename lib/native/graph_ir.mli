@@ -77,6 +77,12 @@ type op =
      windowed [channel] sum, not a full-extent one), so it is not a
      legalization onto either of them. *)
   | Group_norm of Norm.GroupNorm.t
+  (* `gt.Scalar(self, other) -> self > other`, real ATen output dtype Bool.
+     No corpus caller today (see the implementation tracker's P6.3 census);
+     landed on Direct only, matching every other comparison-adjacent op's own
+     Direct-first precedent -- Symbolic/Native4D/importer legalization remain
+     open, same as [To_copy(Long)]'s still-open Symbolic gap. *)
+  | Gt_scalar of Pointwise.Gt_scalar.t
   | Hardsigmoid of Pointwise.Hardsigmoid.t
   | Hardswish of Pointwise.Hardswish.t
   | Hardtanh of Pointwise.Hardtanh.t

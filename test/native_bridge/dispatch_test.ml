@@ -828,6 +828,19 @@ let%expect_test "dispatch: bitwise_not.default on a bool mask" =
     ~noutputs:1;
   [%expect {| tensor bool [C=4] {1, 0, 1, 0} |}]
 
+(* No corpus caller (see the implementation tracker's P6.3 census) --
+   exercised here as the same "landed but not yet corpus-evidenced" shape
+   [rsub.Scalar]'s own fixtures above are, minus [verify_print]: the bridge
+   has no Bool round trip to real ATen yet, so this stays [dispatch_print]
+   only, matching [bitwise_not.default]'s own fixture just above. *)
+let%expect_test "dispatch: gt.Scalar on ordinary/equal/NaN operands" =
+  let x = float_tensor [ 4 ] [ 1.; 2.; 3.; Float.nan ] in
+  dispatch_print ~target:"torch.ops.aten.gt.Scalar"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_float "other" 2.0 ]
+    ~noutputs:1;
+  [%expect {| tensor bool [C=4] {0, 0, 1, 0} |}]
+
 (* Floor rounds toward negative infinity, unlike [trunc]: -7/2 = -3.5 floors
    to -4, not -3. Mixed signs so a [trunc]-only implementation would be
    visible on the negative entries. *)

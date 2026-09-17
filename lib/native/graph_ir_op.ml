@@ -45,6 +45,7 @@ type op =
   | Floor_div_scalar of Pointwise.Floor_div_scalar.t
   | Gelu of Pointwise.Gelu.t
   | Group_norm of Norm.GroupNorm.t
+  | Gt_scalar of Pointwise.Gt_scalar.t
   | Hardsigmoid of Pointwise.Hardsigmoid.t
   | Hardswish of Pointwise.Hardswish.t
   | Hardtanh of Pointwise.Hardtanh.t

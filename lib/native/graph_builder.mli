@@ -208,6 +208,9 @@ val group_norm :
   unit ->
   Tensor_id.t t
 
+(* [gt.Scalar(self, other) -> self > other] -- real ATen output dtype Bool,
+   unconditionally declared here (see .ml). *)
+val gt_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
 val hardsigmoid : ?name:string -> tensor_ref -> Tensor_id.t t
 val hardswish : ?name:string -> tensor_ref -> Tensor_id.t t
 

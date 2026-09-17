@@ -351,6 +351,11 @@ let check_node view (n : node) =
      same intrinsic-axis boundary [Batched_matmul]'s multi-batch form,
      [Sdpa]'s own D axis, and [Unfold] above are. *)
   | Conv3d _ -> unsupported ()
+  (* A missing counterpart, not an intrinsic boundary -- no Native4D
+     conversion arm exists yet (deferred, matching [Max_dim]'s own
+     precedent above: no corpus caller for any comparison op today, see the
+     implementation tracker's P6.3 census). *)
+  | Gt_scalar _ -> unsupported ()
 
 (* Node predicates FIRST, then the shape rule. The two overlap — a permutation
    that moves C onto D necessarily produces a tensor with extent on D, so either
