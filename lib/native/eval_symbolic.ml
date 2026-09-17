@@ -235,6 +235,30 @@ let run ?(limits = Kernel.Limits.default) (g : graph) : Stage_program.t =
           }
         in
         (Tensor_id.Map.add oid out_sig env, st :: stages, stages_i64)
+    (* The Symbolic twin of [Eval_direct]'s own dtype-preserving [To_copy]
+       [Float] arm: [Compute(Symbolic).pixel]'s [Float] arm already returns
+       [S.load x out] unchanged, so this is architecture-only, same rationale
+       as [Mul_scalar] above -- an explicit [Symbolic.i64_load]/
+       [Symbolic.i64_to_float] promotion instead of the default arm's
+       generic float [S.load]. Output stays the ordinary float carrier (a
+       [Stage.t], not [Stage_i64.t]), matching [Mul_scalar]'s own shape.
+       [Long]/[Bool] targets are untouched, matching [Eval_direct]'s own
+       scope for this arm ([Compute_i64] only has a [Float] case). *)
+    | ( To_copy { Pointwise.To_copy.target = Pointwise.To_copy.Float; x },
+        [ (_, oid) ] )
+      when is_i64 (operand x).Tensor_sig.fmt ->
+        let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+        let x_sig = operand x in
+        let module C = Pointwise.To_copy.Compute_i64 (Symbolic) (Symbolic) in
+        let pixel = Expr.Builder.run (C.pixel x_sig Symbolic.out_vec) in
+        let st =
+          {
+            Stage_program.Stage.id = oid;
+            sg = out_sig;
+            computation = Region_group.Ref.Solo (Region_program.pixel pixel);
+          }
+        in
+        (Tensor_id.Map.add oid out_sig env, st :: stages, stages_i64)
     (* A multi-output Region-authored node (project step 19: today only
        Lstm) builds ONE shared group and hands every sibling stage a
        [Grouped] reference into it, rather than each independently building

@@ -188,6 +188,25 @@ let run (g : Graph.graph) : Stage_program.t =
           }
         in
         (Tensor_id.Map.add oid out_sig env, st :: stages, stages_i64)
+    (* Mirrors [Eval_symbolic]'s own [To_copy] [Float] arm -- output stays
+       the ordinary float carrier, so this produces a [Stage.t] pushed onto
+       [stages], not a [Stage_i64.t]; see that arm's own comment. [Long]/
+       [Bool] targets are untouched, matching [Eval_direct4]'s own scope. *)
+    | ( Op.To_copy { Pointwise.To_copy.target = Pointwise.To_copy.Float; x },
+        [ (_, oid) ] )
+      when is_i64 (operand x).Tensor_sig.fmt ->
+        let out_sig = Tensor_id.Map.find oid g.Graph.Graph.tensors in
+        let x_sig = operand x in
+        let module C = Pointwise.To_copy.Compute_i64 (Symbolic) (Symbolic) in
+        let pixel = Expr.Builder.run (C.pixel x_sig Symbolic.out_vec) in
+        let st =
+          {
+            Stage_program.Stage.id = oid;
+            sg = out_sig;
+            computation = Region_group.Ref.Solo (Region_program.pixel pixel);
+          }
+        in
+        (Tensor_id.Map.add oid out_sig env, st :: stages, stages_i64)
     (* Mirrors [Eval_symbolic]'s own multi-output group construction. *)
     | _, _
       when List.length outs > 1 && Region_computation4.is_region_authored op ->
