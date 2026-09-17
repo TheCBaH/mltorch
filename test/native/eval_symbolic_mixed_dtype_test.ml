@@ -34,6 +34,7 @@ let build ~x_fmt ~y_fmt op_of =
 
 let f32 = Payload.Fmt Payload.F32
 let i64 = Payload.Fmt Payload.I64
+let bool_ = Payload.Fmt Payload.Bool
 
 let%expect_test "Symbolic graph: mixed I64/F32 add/sub/mul are rejected" =
   let run op_of () = Eval_symbolic.run (build ~x_fmt:i64 ~y_fmt:f32 op_of) in
@@ -66,6 +67,29 @@ let%expect_test
     no exception
     no exception
     no exception
+    |}]
+
+(* The Symbolic twin of [pointwise_binary_i64_test.ml]'s own Bool-arithmetic
+   fixture: arithmetic on Bool stays rejected here too, checked BEFORE the
+   I64 mixed-dtype guard above so a Bool/I64 pair reports the Bool reason. *)
+let%expect_test "Symbolic graph: arithmetic on a Bool operand is rejected" =
+  let run ~y_fmt op_of () =
+    Eval_symbolic.run (build ~x_fmt:bool_ ~y_fmt op_of)
+  in
+  Fmt.pr "%s@." (catch (run ~y_fmt:f32 Graph_builder.add));
+  Fmt.pr "%s@." (catch (run ~y_fmt:f32 Graph_builder.sub));
+  Fmt.pr "%s@." (catch (run ~y_fmt:f32 Graph_builder.mul));
+  Fmt.pr "%s@." (catch (run ~y_fmt:i64 Graph_builder.add));
+  Fmt.pr "%s@." (catch (run ~y_fmt:i64 Graph_builder.sub));
+  Fmt.pr "%s@." (catch (run ~y_fmt:i64 Graph_builder.mul));
+  [%expect
+    {|
+    raised: add: arithmetic on a Bool operand is not supported, a=bool b=f32
+    raised: sub: arithmetic on a Bool operand is not supported, a=bool b=f32
+    raised: mul: arithmetic on a Bool operand is not supported, a=bool b=f32
+    raised: add: arithmetic on a Bool operand is not supported, a=bool b=i64
+    raised: sub: arithmetic on a Bool operand is not supported, a=bool b=i64
+    raised: mul: arithmetic on a Bool operand is not supported, a=bool b=i64
     |}]
 
 (* The Stage/Kernel-level twin of the first fixture above: proves the

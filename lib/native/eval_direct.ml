@@ -22,6 +22,7 @@ type error =
   | `Output_arity_mismatch of arity_mismatch
   | `Region_construction of Region_computation.error
   | `Region_execution of Region_eval.error
+  | `Unsupported_bool_arithmetic of mixed_dtype
   | `Unsupported_mixed_dtype of mixed_dtype
   | `Unsupported_to_copy_bool_source of Payload.packed_fmt
   | `Unsupported_to_copy_long_source of Payload.packed_fmt ]
@@ -52,6 +53,11 @@ let pp_error ppf : [< error ] -> unit = function
         expected actual
   | `Region_construction error -> Region_computation.pp_error ppf error
   | `Region_execution error -> Region_eval.pp_error ppf error
+  | `Unsupported_bool_arithmetic
+      { mixed_op; a_fmt = Payload.Fmt a_fmt; b_fmt = Payload.Fmt b_fmt } ->
+      Format.fprintf ppf
+        "%s: arithmetic on a Bool operand is not supported, a=%s b=%s" mixed_op
+        (Payload.fmt_name a_fmt) (Payload.fmt_name b_fmt)
   | `Unsupported_mixed_dtype
       { mixed_op; a_fmt = Payload.Fmt a_fmt; b_fmt = Payload.Fmt b_fmt } ->
       Format.fprintf ppf "%s: unsupported mixed dtype, a=%s b=%s" mixed_op
@@ -64,6 +70,8 @@ let pp_error ppf : [< error ] -> unit = function
       Format.fprintf ppf
         "to_copy: Long target has no exact I64 output for a %s source"
         (Payload.fmt_name f)
+
+let is_bool = function Payload.Fmt Payload.Bool -> true | _ -> false
 
 let find_tensor map id ~context =
   Tensor_id.Map.find_opt id map
@@ -451,6 +459,18 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                     Err.return
                       (Tensor.materialize_i64 out_shape (fun coord ->
                            C.pixel ~a_shape ~b_shape a_t b_t coord))
+                (* Arithmetic on Bool stays rejected (design contract, Gate 6
+                   item 3): the default float path below would otherwise
+                   silently read a genuine [Payload.Bool] operand as 0./1.
+                   through [Payload.get_float] and add it as an ordinary
+                   float, which is not a value this plan has validated
+                   against any promotion policy -- checked BEFORE the I64
+                   guard below, since a Bool paired with I64 must report the
+                   Bool reason, not the unrelated I64-mixing one. *)
+                | a_fmt, b_fmt when is_bool a_fmt || is_bool b_fmt ->
+                    Err.fail
+                      (`Unsupported_bool_arithmetic
+                         { mixed_op = "add"; a_fmt; b_fmt })
                 (* Mixed I64/non-I64 operands: the plan's own P5.4 scope
                    ("reject unsupported mixed promotion") and "do not infer
                    promotion from output storage alone" invariant -- the
@@ -496,6 +516,11 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                     Err.return
                       (Tensor.materialize_i64 out_shape (fun coord ->
                            C.pixel ~a_shape ~b_shape a_t b_t coord))
+                (* See the matching [Add] arm's own comment. *)
+                | a_fmt, b_fmt when is_bool a_fmt || is_bool b_fmt ->
+                    Err.fail
+                      (`Unsupported_bool_arithmetic
+                         { mixed_op = "sub"; a_fmt; b_fmt })
                 | a_fmt, b_fmt
                   when (match a_fmt with
                          | Payload.Fmt Payload.I64 -> true
@@ -528,6 +553,11 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                     Err.return
                       (Tensor.materialize_i64 out_shape (fun coord ->
                            C.pixel ~a_shape ~b_shape a_t b_t coord))
+                (* See the matching [Add] arm's own comment. *)
+                | a_fmt, b_fmt when is_bool a_fmt || is_bool b_fmt ->
+                    Err.fail
+                      (`Unsupported_bool_arithmetic
+                         { mixed_op = "mul"; a_fmt; b_fmt })
                 | a_fmt, b_fmt
                   when (match a_fmt with
                          | Payload.Fmt Payload.I64 -> true

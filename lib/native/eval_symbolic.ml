@@ -19,7 +19,14 @@ let pp_mixed_dtype fmt
   Format.fprintf fmt "%s: unsupported mixed dtype, a=%s b=%s" mixed_op
     (Payload.fmt_name a_fmt) (Payload.fmt_name b_fmt)
 
+let pp_bool_arithmetic fmt
+    { mixed_op; a_fmt = Payload.Fmt a_fmt; b_fmt = Payload.Fmt b_fmt } =
+  Format.fprintf fmt
+    "%s: arithmetic on a Bool operand is not supported, a=%s b=%s" mixed_op
+    (Payload.fmt_name a_fmt) (Payload.fmt_name b_fmt)
+
 let is_i64 = function Payload.Fmt Payload.I64 -> true | _ -> false
+let is_bool = function Payload.Fmt Payload.Bool -> true | _ -> false
 
 (* [Eval_direct]'s own P5.4 fix (a mismatched I64/F32 pair fails at checked
    admission rather than silently computing through the default float
@@ -36,7 +43,14 @@ let check_mixed_dtype (gr : graph) op =
   let fmt_of r = (Tensor_id.Map.find r gr.Graph.tensors).Tensor_sig.fmt in
   let check_pair mixed_op a b =
     let a_fmt = fmt_of a and b_fmt = fmt_of b in
-    if Bool.equal (is_i64 a_fmt) (is_i64 b_fmt) then ()
+    (* Arithmetic on Bool stays rejected (design contract, Gate 6 item 3),
+       checked FIRST so a Bool paired with I64 reports the Bool reason, not
+       the unrelated I64-mixing one below -- matching [Eval_direct]'s own
+       precedence for the identical check on the Direct route. *)
+    if is_bool a_fmt || is_bool b_fmt then
+      Err.or_raise ~pp_error:pp_bool_arithmetic
+        (Err.fail ~pos:__POS__ { mixed_op; a_fmt; b_fmt })
+    else if Bool.equal (is_i64 a_fmt) (is_i64 b_fmt) then ()
     else
       Err.or_raise ~pp_error:pp_mixed_dtype
         (Err.fail ~pos:__POS__ { mixed_op; a_fmt; b_fmt })
