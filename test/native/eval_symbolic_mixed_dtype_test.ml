@@ -92,6 +92,22 @@ let%expect_test "Symbolic graph: arithmetic on a Bool operand is rejected" =
     raised: mul: arithmetic on a Bool operand is not supported, a=bool b=i64
     |}]
 
+(* The Symbolic twin of `mul_scalar_i64_test.ml`'s own Bool-arithmetic
+   fixture: [Mul_scalar] has only one tensor operand, so this uses its own
+   small builder rather than the two-operand [build] helper above. *)
+let%expect_test "Symbolic graph: Mul_scalar rejects a Bool operand" =
+  let g =
+    Err.or_raise ~pp_error:Graph_builder.pp_error
+      Graph_builder.(
+        build ~name:"mul_scalar_bool" ~outputs:(fun r -> [ r ])
+        @@
+        let* x = input ~shape:(s1c 3) ~name:"x" ~fmt:bool_ () in
+        mul_scalar ~name:"out" 2.5 x)
+  in
+  Fmt.pr "%s@." (catch (fun () -> Eval_symbolic.run g));
+  [%expect
+    {| raised: mul_scalar: arithmetic on a Bool operand is not supported, x=bool |}]
+
 (* The Stage/Kernel-level twin of the first fixture above: proves the
    rejection is visible to a caller that goes through the full
    [Eval_symbolic.run] -> [Kernel_adapt.of_stage_program] pipeline a real
