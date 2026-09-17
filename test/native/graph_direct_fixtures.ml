@@ -51,7 +51,7 @@ let id_of_name (g : graph) name =
   in
   let id =
     match name with
-    | "sum" | "x_nhwc" -> node_output 0
+    | "mask" | "sum" | "x_nhwc" -> node_output 0
     | "dead" | "y_nhwc" -> node_output 1
     | _ -> ( match g.Graph.outputs with id :: _ -> Some id | [] -> None)
   in

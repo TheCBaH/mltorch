@@ -68,8 +68,8 @@ let%expect_test "_to_copy dtype=FLOAT/LONG/BOOL lowers to the matching target" =
     graph
     inputs: [t0 f32 [C=3] ->[n0]]
     nodes:
-      n0: [t1 f32 [C=3]] = to_copy x=t0 target=bool
-    outputs: [t1 f32 [C=3] <-n0] |}]
+      n0: [t1 bool [C=3]] = to_copy x=t0 target=bool
+    outputs: [t1 bool [C=3] <-n0] |}]
 
 (* Outside the three-way corpus-evidenced domain: rejected with a typed
    diagnostic, the same [Unsupported_option]/[`Dtype] mechanism

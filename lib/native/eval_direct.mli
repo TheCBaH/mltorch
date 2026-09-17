@@ -26,6 +26,7 @@ type error =
   | `Region_construction of Region_computation.error
   | `Region_execution of Region_eval.error
   | `Unsupported_mixed_dtype of mixed_dtype
+  | `Unsupported_to_copy_bool_source of Payload.packed_fmt
   | `Unsupported_to_copy_long_source of Payload.packed_fmt ]
 
 type hooks =

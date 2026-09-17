@@ -617,18 +617,24 @@ let sum ?name params x = op1 ?name ~kind:"sum" (Sum { Reduce.Sum.params; x })
 (* [target] determines the output's dtype directly (unlike reshape/permute's
    own I64-only fmt thread, which mirrors the OPERAND's format): [Long]
    always produces an I64 output edge, regardless of the operand's own
-   format, matching [eval_direct.ml]'s new [Compute_to_long] arm, which
-   writes via [Tensor.materialize_i64]. [Float]/[Bool] keep [op1]'s F32
-   default -- [Float]'s output genuinely is F32, and [Bool] has no distinct
-   storage format yet (Gate 6). *)
+   format, matching [eval_direct.ml]'s [Compute_to_long] arm, which writes
+   via [Tensor.materialize_i64]. [Bool] likewise always produces a genuine
+   [Payload.Bool] output edge (P6.3), matching [eval_direct.ml]'s own new
+   [Bool] arm, which writes via [Tensor.materialize_bool]. [Float] keeps
+   [op1]'s F32 default -- its output genuinely is F32. *)
 let to_copy ?name target x =
   match target with
+  | Pointwise.To_copy.Bool ->
+      op1 ?name
+        ~fmt:Payload.(Fmt Bool)
+        ~kind:"to_copy"
+        (To_copy { Pointwise.To_copy.target; x })
   | Pointwise.To_copy.Long ->
       op1 ?name
         ~fmt:Payload.(Fmt I64)
         ~kind:"to_copy"
         (To_copy { Pointwise.To_copy.target; x })
-  | Pointwise.To_copy.Float | Pointwise.To_copy.Bool ->
+  | Pointwise.To_copy.Float ->
       op1 ?name ~kind:"to_copy" (To_copy { Pointwise.To_copy.target; x })
 
 (* Returns every slice, in ordinal order. The count comes from the input

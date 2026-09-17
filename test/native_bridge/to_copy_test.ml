@@ -39,11 +39,14 @@ let%expect_test "dispatch: _to_copy dtype=LONG truncates toward zero" =
   [%expect {| tensor i64 [C=5] {-1, 0, 0, 2, 3} |}]
 
 (* A genuine nonzero test, not an overfit to the corpus's own all-zero
-   operand. *)
+   operand. Writes real [Payload.Bool] storage (P6.3) -- printed as
+   "bool", not "f32" -- though the decoded values are bit-identical to the
+   float-encoded arm this replaced ([Payload.get_float]'s Bool policy
+   agrees with the prior float encoding exactly). *)
 let%expect_test "dispatch: _to_copy dtype=BOOL is a nonzero test" =
   let self = float_tensor [ 5 ] [ -1.9; -0.5; 0.; 2.4; 3.9 ] in
   dispatch_to_copy ~dtype:PT.ScalarType.BOOL self;
-  [%expect {| tensor f32 [C=5] {1, 1, 0, 1, 1} |}]
+  [%expect {| tensor bool [C=5] {1, 1, 0, 1, 1} |}]
 
 (* [non_blocking] carries no computational effect -- both spellings must
    build the identical result, the same [implicit] proof [expand_test.ml]
