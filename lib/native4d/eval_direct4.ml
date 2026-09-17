@@ -20,6 +20,8 @@ type mixed_dtype = {
   b_fmt : Payload.packed_fmt;
 }
 
+type scalar_op = { scalar_op : string; fmt : Payload.packed_fmt }
+
 type error =
   [ Graph_shape4.error
   | `Arange_i64_overflow of Factory.Arange.Overflow.t
@@ -30,6 +32,7 @@ type error =
   | `Region_construction of Region_computation4.error
   | `Region_execution of Region_eval.error
   | `Unsupported_bool_arithmetic of mixed_dtype
+  | `Unsupported_bool_scalar_arithmetic of scalar_op
   | `Unsupported_mixed_dtype of mixed_dtype
   | `Unsupported_to_copy_long_source of Payload.packed_fmt ]
 
@@ -58,6 +61,9 @@ let pp_error ppf : [< error ] -> unit = function
       { mixed_op; a_fmt = Payload.Fmt a_fmt; b_fmt = Payload.Fmt b_fmt } ->
       Fmt.pf ppf "%s: arithmetic on a Bool operand is not supported, a=%s b=%s"
         mixed_op (Payload.fmt_name a_fmt) (Payload.fmt_name b_fmt)
+  | `Unsupported_bool_scalar_arithmetic { scalar_op; fmt = Payload.Fmt fmt } ->
+      Fmt.pf ppf "%s: arithmetic on a Bool operand is not supported, x=%s"
+        scalar_op (Payload.fmt_name fmt)
   | `Unsupported_mixed_dtype
       { mixed_op; a_fmt = Payload.Fmt a_fmt; b_fmt = Payload.Fmt b_fmt } ->
       Fmt.pf ppf "%s: unsupported mixed dtype, a=%s b=%s" mixed_op
@@ -467,6 +473,12 @@ let eval_node ?region_counters ~limits ~synthetic_ids (g : Graph.graph) env
                     Err.return
                       (Schedule.evaluate (Shape4.to_vec6 out_shape)
                          (fun coord -> C.pixel ~scalar x_t coord))
+                (* Arithmetic on Bool stays rejected here too -- the
+                   Native4D twin of [Eval_direct]'s own [Mul_scalar] fix. *)
+                | fmt when is_bool fmt ->
+                    Err.fail
+                      (`Unsupported_bool_scalar_arithmetic
+                         { scalar_op = "mul_scalar"; fmt })
                 | _ ->
                     Err.return
                       (Schedule.evaluate (Shape4.to_vec6 out_shape)

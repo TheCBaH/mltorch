@@ -27,6 +27,12 @@ let pp_bool_arithmetic fmt
     "%s: arithmetic on a Bool operand is not supported, a=%s b=%s" mixed_op
     (Payload.fmt_name a_fmt) (Payload.fmt_name b_fmt)
 
+type scalar_op = { scalar_op : string; fmt : Payload.packed_fmt }
+
+let pp_bool_scalar_arithmetic fmt { scalar_op; fmt = Payload.Fmt f } =
+  Format.fprintf fmt "%s: arithmetic on a Bool operand is not supported, x=%s"
+    scalar_op (Payload.fmt_name f)
+
 let is_i64 = function Payload.Fmt Payload.I64 -> true | _ -> false
 let is_bool = function Payload.Fmt Payload.Bool -> true | _ -> false
 
@@ -50,10 +56,18 @@ let check_mixed_dtype (g : Graph.graph) op =
       Err.or_raise ~pp_error:pp_mixed_dtype
         (Err.fail ~pos:__POS__ { mixed_op; a_fmt; b_fmt })
   in
+  let check_scalar_op scalar_op x =
+    let fmt = fmt_of x in
+    if is_bool fmt then
+      Err.or_raise ~pp_error:pp_bool_scalar_arithmetic
+        (Err.fail ~pos:__POS__ { scalar_op; fmt })
+  in
   match op with
   | Op.Add { Pointwise.Bin.a; b } -> check_pair "add" a b
   | Op.Sub { Pointwise.Bin.a; b } -> check_pair "sub" a b
   | Op.Mul { Pointwise.Bin.a; b } -> check_pair "mul" a b
+  | Op.Mul_scalar { Pointwise.Scalar_bin.x; _ } ->
+      check_scalar_op "mul_scalar" x
   | _ -> ()
 
 let first_free_tid (g : Graph.graph) =

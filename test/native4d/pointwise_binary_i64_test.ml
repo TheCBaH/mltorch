@@ -185,3 +185,26 @@ let%expect_test "direct4: Mul_scalar reads an I64 operand via an explicit cast"
   let out = Tensor_id.Map.find (List.hd g.Graph.Graph.outputs) env in
   Fmt.pr "%a@." Tensor.pp out;
   [%expect {| tensor f32 [C=3] {2.5, 5, 7.5} |}]
+
+(* The Native4D twin of `test/native/mul_scalar_i64_test.ml`'s own
+   Bool-rejection fixture: [Mul_scalar]'s existing per-format admission
+   point (extended above for I64) also needs a Bool arm, mirroring the
+   two-operand Add/Sub/Mul fixture above. *)
+let%expect_test "direct4: Mul_scalar rejects a Bool operand" =
+  let g =
+    Builder.build
+      ~outputs:(fun o -> [ o ])
+      (let open Builder in
+       let* x = input ~shape:shape6 ~fmt:Payload.(Fmt Bool) () in
+       mul_scalar 2.5 x)
+    |> Err.or_raise ~pp_error:Builder.pp_error
+  in
+  let x = Tensor.materialize_bool (Shape4.to_vec6 shape6) (fun _ -> true) in
+  let pp fmt = function
+    | Ok (_ : Tensor.packed Tensor_id.Map.t) -> Fmt.string fmt "ok"
+    | Error e -> Fmt.pf fmt "%a" Eval_direct4.pp_error (Err.Error.kind e)
+  in
+  Fmt.pr "%a@." pp
+    (Eval_direct4.run g ~inputs:(List.combine g.Graph.Graph.inputs [ x ]));
+  [%expect
+    {| mul_scalar: arithmetic on a Bool operand is not supported, x=bool |}]

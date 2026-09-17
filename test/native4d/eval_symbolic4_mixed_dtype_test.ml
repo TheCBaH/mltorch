@@ -89,6 +89,23 @@ let%expect_test "Symbolic4 graph: arithmetic on a Bool operand is rejected" =
     raised: mul: arithmetic on a Bool operand is not supported, a=bool b=i64
     |}]
 
+(* The Native4D twin of `test/native/eval_symbolic_mixed_dtype_test.ml`'s
+   own [Mul_scalar] Bool-rejection fixture: [Mul_scalar] has only one
+   tensor operand, so this uses its own small builder rather than the
+   two-operand [build] helper above. *)
+let%expect_test "Symbolic4 graph: Mul_scalar rejects a Bool operand" =
+  let g =
+    Builder.build
+      ~outputs:(fun o -> [ o ])
+      (let open Builder in
+       let* x = input ~shape:shape3 ~fmt:bool_ () in
+       mul_scalar 2.5 x)
+    |> Err.or_raise ~pp_error:Builder.pp_error
+  in
+  Fmt.pr "%s@." (catch (fun () -> Eval_symbolic4.run g));
+  [%expect
+    {| raised: mul_scalar: arithmetic on a Bool operand is not supported, x=bool |}]
+
 (* The Stage/Kernel-level twin of the first fixture above, mirroring
    `test/native/eval_symbolic_mixed_dtype_test.ml`'s own addition:
    [Eval_symbolic4.run] produces the same (Native, not Native4D-specific)
