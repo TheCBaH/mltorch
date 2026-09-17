@@ -245,6 +245,7 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
     (Tensor.packed Tensor_id.Map.t, error) Err.t =
   let open Err.Syntax in
   let op = node.Node.op in
+  let fmt_of r = (Tensor_id.Map.find r g.Graph.tensors).Tensor_sig.fmt in
   let operand r = find_tensor env r ~context:Operand in
   let shape_of r = sig_shape g r in
   let fill v shape = Tensor.materialize shape (fun _ -> v) in
@@ -733,6 +734,64 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                 Err.return
                   (Tensor.materialize_bool out_shape (fun coord ->
                        C.pixel ~scalar x_t coord <> 0.0))
+            (* Arithmetic on Bool stays rejected for the rest of the
+               `*_scalar` family too (design contract, Gate 6 item 3): none
+               of these six ops has a per-format admission point of its own
+               (confirmed by `grep -n` -- every one falls straight to the
+               generic default arm below for every format, always), so a
+               genuine [Payload.Bool] operand would otherwise silently read
+               as 0./1. and combine with the compile-time scalar, the same
+               defect class [Mul_scalar]'s own fix closed. Each [when] guard
+               intercepts ONLY the Bool case; every other format (including
+               I64, which still flows through the same silently-lossy float
+               path it always has -- out of this fix's scope, see the
+               tracker) falls through unchanged to the generic default arm. *)
+            | Add_scalar { Pointwise.Scalar_bin.x; _ } when is_bool (fmt_of x)
+              ->
+                Err.fail
+                  (`Unsupported_bool_scalar_arithmetic
+                     { scalar_op = "add_scalar"; fmt = fmt_of x })
+            | Div_scalar { Pointwise.Scalar_bin.x; _ } when is_bool (fmt_of x)
+              ->
+                Err.fail
+                  (`Unsupported_bool_scalar_arithmetic
+                     { scalar_op = "div_scalar"; fmt = fmt_of x })
+            | Floor_div_scalar { Pointwise.Scalar_bin.x; _ }
+              when is_bool (fmt_of x) ->
+                Err.fail
+                  (`Unsupported_bool_scalar_arithmetic
+                     { scalar_op = "floor_div_scalar"; fmt = fmt_of x })
+            | Pow { Pointwise.Scalar_bin.x; _ } when is_bool (fmt_of x) ->
+                Err.fail
+                  (`Unsupported_bool_scalar_arithmetic
+                     { scalar_op = "pow"; fmt = fmt_of x })
+            | Rpow_scalar { Pointwise.Scalar_bin.x; _ } when is_bool (fmt_of x)
+              ->
+                Err.fail
+                  (`Unsupported_bool_scalar_arithmetic
+                     { scalar_op = "rpow_scalar"; fmt = fmt_of x })
+            | Rsub_scalar { Pointwise.Rsub_scalar.x; _ } when is_bool (fmt_of x)
+              ->
+                Err.fail
+                  (`Unsupported_bool_scalar_arithmetic
+                     { scalar_op = "rsub_scalar"; fmt = fmt_of x })
+            (* [Addcmul] has three tensor operands ([self]/[tensor1]/
+               [tensor2]); reports whichever is Bool first, in that order. *)
+            | Addcmul { Pointwise.Addcmul.self; _ } when is_bool (fmt_of self)
+              ->
+                Err.fail
+                  (`Unsupported_bool_scalar_arithmetic
+                     { scalar_op = "addcmul"; fmt = fmt_of self })
+            | Addcmul { Pointwise.Addcmul.tensor1; _ }
+              when is_bool (fmt_of tensor1) ->
+                Err.fail
+                  (`Unsupported_bool_scalar_arithmetic
+                     { scalar_op = "addcmul"; fmt = fmt_of tensor1 })
+            | Addcmul { Pointwise.Addcmul.tensor2; _ }
+              when is_bool (fmt_of tensor2) ->
+                Err.fail
+                  (`Unsupported_bool_scalar_arithmetic
+                     { scalar_op = "addcmul"; fmt = fmt_of tensor2 })
             | _ when Region_computation.is_region_authored op ->
                 region_result ~limits
                   ~region_counters:

@@ -72,6 +72,22 @@ let check_mixed_dtype (gr : graph) op =
   | Sub { Pointwise.Bin.a; b } -> check_pair "sub" a b
   | Mul { Pointwise.Bin.a; b } -> check_pair "mul" a b
   | Mul_scalar { Pointwise.Scalar_bin.x; _ } -> check_scalar_op "mul_scalar" x
+  (* The Symbolic twin of [Eval_direct]'s own extension of this same check
+     to the rest of the `*_scalar` family (see that file's own comment) --
+     Symbolic's [process_node] dispatches every one of these six through
+     [E.pixel] uniformly, with no format check of its own before this. *)
+  | Add_scalar { Pointwise.Scalar_bin.x; _ } -> check_scalar_op "add_scalar" x
+  | Div_scalar { Pointwise.Scalar_bin.x; _ } -> check_scalar_op "div_scalar" x
+  | Floor_div_scalar { Pointwise.Scalar_bin.x; _ } ->
+      check_scalar_op "floor_div_scalar" x
+  | Pow { Pointwise.Scalar_bin.x; _ } -> check_scalar_op "pow" x
+  | Rpow_scalar { Pointwise.Scalar_bin.x; _ } -> check_scalar_op "rpow_scalar" x
+  | Rsub_scalar { Pointwise.Rsub_scalar.x; _ } ->
+      check_scalar_op "rsub_scalar" x
+  | Addcmul { Pointwise.Addcmul.self; tensor1; tensor2; _ } ->
+      check_scalar_op "addcmul" self;
+      check_scalar_op "addcmul" tensor1;
+      check_scalar_op "addcmul" tensor2
   | _ -> ()
 
 (* An exact int64 pixel for an I64-formatted [Factory.Arange] node:
