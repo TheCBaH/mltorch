@@ -221,6 +221,12 @@ let copy_cells (type e b q) (src : (e, b, q) Payload.payload)
       in
       copy_data data;
       Tensor { shape; payload = { src with data } }
+  | Payload.Bool ->
+      let data =
+        Bigarray.Array1.create Bigarray.int8_unsigned Bigarray.c_layout n
+      in
+      copy_data data;
+      Tensor { shape; payload = { src with data } }
 
 (* [Unbind] is a storage-preserving selection, unlike the arithmetic ops whose
    results enter the engine's f32 compute domain. See [copy_cells]. *)

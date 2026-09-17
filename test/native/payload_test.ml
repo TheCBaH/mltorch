@@ -1,9 +1,9 @@
 open Payload
 
 let%expect_test "format names" =
-  Format.printf "%a %a %a %a %a %a %a@." pp_fmt BF16 pp_fmt F16 pp_fmt F32
-    pp_fmt I16 pp_fmt I32 pp_fmt I64 pp_fmt I8;
-  [%expect {| bf16 f16 f32 i16 i32 i64 i8 |}]
+  Format.printf "%a %a %a %a %a %a %a %a@." pp_fmt BF16 pp_fmt Bool pp_fmt F16
+    pp_fmt F32 pp_fmt I16 pp_fmt I32 pp_fmt I64 pp_fmt I8;
+  [%expect {| bf16 bool f16 f32 i16 i32 i64 i8 |}]
 
 let%expect_test "decode f32 and bf16 (real, no metadata)" =
   let f32 =
@@ -44,6 +44,26 @@ let%expect_test
   (* 3.0 / 0.5 = 6 stored, decodes back to 3.0 *)
   Format.printf "stored=%d deq=%g@." p.data.{0} (get_float p ~c:0 ~i:0);
   [%expect {| stored=6 deq=3 |}]
+
+let%expect_test "bool: nonzero byte reads true, canonical 0/1 writes" =
+  let p =
+    {
+      fmt = Bool;
+      quant = No_quant;
+      data =
+        Bigarray.(Array1.of_array int8_unsigned c_layout [| 0; 1; 2; 255 |]);
+    }
+  in
+  Format.printf "%a: %g %g %g %g@." pp p (get_float p ~c:0 ~i:0)
+    (get_float p ~c:0 ~i:1) (get_float p ~c:0 ~i:2) (get_float p ~c:0 ~i:3);
+  [%expect {| bool: 0 1 1 1 |}];
+  (* Float->Bool: [x <> 0.]; both zeros false, NaN/infinities true. *)
+  set_float p ~c:0 ~i:0 0.0;
+  set_float p ~c:0 ~i:1 (-0.0);
+  set_float p ~c:0 ~i:2 Float.nan;
+  set_float p ~c:0 ~i:3 Float.infinity;
+  Format.printf "%d %d %d %d@." p.data.{0} p.data.{1} p.data.{2} p.data.{3};
+  [%expect {| 0 0 1 1 |}]
 
 (* The quant discipline is a compile-time guarantee; this must NOT compile:
    let _bad = { fmt = I8; quant = No_quant;

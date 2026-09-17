@@ -8,6 +8,8 @@
 type ('elt, 'ba, 'q) fmt =
   | BF16 :
       (int, Bigarray.int16_unsigned_elt, [ `Real ]) fmt (* bfloat16, raw bits *)
+  | Bool : (int, Bigarray.int8_unsigned_elt, [ `Real ]) fmt
+    (* unquantized; canonical storage is 0 or 1, nonzero reads true *)
   | F16 :
       ( int,
         Bigarray.int16_unsigned_elt,
@@ -35,6 +37,7 @@ type packed_fmt = Fmt : ('elt, 'ba, 'q) fmt -> packed_fmt
 
 let fmt_name : type e b q. (e, b, q) fmt -> string = function
   | BF16 -> "bf16"
+  | Bool -> "bool"
   | F16 -> "f16"
   | F32 -> "f32"
   | F64 -> "f64"
@@ -52,6 +55,7 @@ let pp_fmt fmt f = Fmt.string fmt (fmt_name f)
    hand-maintained table that could drift from it. *)
 let cell_bytes : type e b q. (e, b, q) fmt -> int = function
   | BF16 -> Bigarray.kind_size_in_bytes Bigarray.int16_unsigned
+  | Bool -> Bigarray.kind_size_in_bytes Bigarray.int8_unsigned
   | F16 -> Bigarray.kind_size_in_bytes Bigarray.int16_unsigned
   | F32 -> Bigarray.kind_size_in_bytes Bigarray.float32
   | F64 -> Bigarray.kind_size_in_bytes Bigarray.float64
@@ -74,6 +78,7 @@ let get_float : type e b q. (e, b, q) payload -> c:int -> i:int -> float =
  fun p ~c ~i ->
   match p.fmt with
   | BF16 -> Half.Bf16.to_float p.data.{i}
+  | Bool -> if p.data.{i} <> 0 then 1.0 else 0.0
   | F16 -> Half.Half.to_float p.data.{i}
   | F32 -> p.data.{i}
   | F64 -> p.data.{i}
@@ -90,6 +95,7 @@ let set_float : type e b q. (e, b, q) payload -> c:int -> i:int -> float -> unit
  fun p ~c ~i x ->
   match p.fmt with
   | BF16 -> p.data.{i} <- Half.Bf16.of_float x
+  | Bool -> p.data.{i} <- (if x <> 0.0 then 1 else 0)
   | F16 -> p.data.{i} <- Half.Half.of_float x
   | F32 -> p.data.{i} <- x
   | F64 -> p.data.{i} <- x
@@ -117,13 +123,16 @@ let pp : type e b q. Format.formatter -> (e, b, q) payload -> unit =
    of a packed format — [Tensor_sig.t], whose [quant] field is a plain option
    the record cannot constrain — has no other way to ask. *)
 let is_quantized (Fmt f) =
-  match f with I16 | I8 -> true | BF16 | F16 | F32 | F64 | I32 | I64 -> false
+  match f with
+  | I16 | I8 -> true
+  | BF16 | Bool | F16 | F32 | F64 | I32 | I64 -> false
 
 let packed_fmt_jsont : packed_fmt Jsont.t =
   Jsont.map ~kind:"fmt"
     ~dec:(fun s ->
       match s with
       | "bf16" -> Fmt BF16
+      | "bool" -> Fmt Bool
       | "f16" -> Fmt F16
       | "f32" -> Fmt F32
       | "f64" -> Fmt F64

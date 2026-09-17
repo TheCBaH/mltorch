@@ -113,7 +113,7 @@ module Env = struct
      f32-representable either. See [Payload.get_float]. *)
   let fmt_is_f32_exact (Payload.Fmt fmt) =
     match fmt with
-    | Payload.F32 | Payload.F16 | Payload.BF16 -> true
+    | Payload.Bool | Payload.F32 | Payload.F16 | Payload.BF16 -> true
     | Payload.F64 | Payload.I8 | Payload.I16 | Payload.I32 | Payload.I64 ->
         false
 
