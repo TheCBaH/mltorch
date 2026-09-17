@@ -68,6 +68,23 @@ let check_mixed_dtype (g : Graph.graph) op =
   | Op.Mul { Pointwise.Bin.a; b } -> check_pair "mul" a b
   | Op.Mul_scalar { Pointwise.Scalar_bin.x; _ } ->
       check_scalar_op "mul_scalar" x
+  (* The Native4D twin of [Eval_symbolic]'s own extension of this same check
+     to the rest of the `*_scalar` family -- see that file's own comment. *)
+  | Op.Add_scalar { Pointwise.Scalar_bin.x; _ } ->
+      check_scalar_op "add_scalar" x
+  | Op.Div_scalar { Pointwise.Scalar_bin.x; _ } ->
+      check_scalar_op "div_scalar" x
+  | Op.Floor_div_scalar { Pointwise.Scalar_bin.x; _ } ->
+      check_scalar_op "floor_div_scalar" x
+  | Op.Pow { Pointwise.Scalar_bin.x; _ } -> check_scalar_op "pow" x
+  | Op.Rpow_scalar { Pointwise.Scalar_bin.x; _ } ->
+      check_scalar_op "rpow_scalar" x
+  | Op.Rsub_scalar { Pointwise.Rsub_scalar.x; _ } ->
+      check_scalar_op "rsub_scalar" x
+  | Op.Addcmul { Pointwise.Addcmul.self; tensor1; tensor2; _ } ->
+      check_scalar_op "addcmul" self;
+      check_scalar_op "addcmul" tensor1;
+      check_scalar_op "addcmul" tensor2
   | _ -> ()
 
 let first_free_tid (g : Graph.graph) =

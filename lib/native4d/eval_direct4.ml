@@ -225,6 +225,7 @@ let eval_node ?region_counters ~limits ~synthetic_ids (g : Graph.graph) env
     (node : Graph.node) =
   let open Err.Syntax in
   let op = node.Graph.Node.op in
+  let fmt_of r = (Tensor_id.Map.find r g.Graph.Graph.tensors).Tensor_sig.fmt in
   let fill v shape = Tensor.materialize shape (fun _ -> v) in
   let* shapes =
     widen
@@ -576,6 +577,58 @@ let eval_node ?region_counters ~limits ~synthetic_ids (g : Graph.graph) env
                        if Dim.to_int coord.Vec6.w = Dim.to_int coord.Vec6.c then
                          1.
                        else 0.))
+            (* The Native4D twin of [Eval_direct]'s own extension of the
+               `*_scalar` family's Bool-rejection to the ops with no
+               per-format admission point at all -- see that file's own
+               comment. None of these seven has ANY Native4D dispatch today
+               (confirmed by `grep -n`), so every operand format reaches the
+               generic default arm below unchecked; each guard intercepts
+               ONLY the Bool case, letting every other format (including
+               I64) fall through unchanged. *)
+            | Op.Add_scalar { Pointwise.Scalar_bin.x; _ }
+              when is_bool (fmt_of x) ->
+                Err.fail
+                  (`Unsupported_bool_scalar_arithmetic
+                     { scalar_op = "add_scalar"; fmt = fmt_of x })
+            | Op.Div_scalar { Pointwise.Scalar_bin.x; _ }
+              when is_bool (fmt_of x) ->
+                Err.fail
+                  (`Unsupported_bool_scalar_arithmetic
+                     { scalar_op = "div_scalar"; fmt = fmt_of x })
+            | Op.Floor_div_scalar { Pointwise.Scalar_bin.x; _ }
+              when is_bool (fmt_of x) ->
+                Err.fail
+                  (`Unsupported_bool_scalar_arithmetic
+                     { scalar_op = "floor_div_scalar"; fmt = fmt_of x })
+            | Op.Pow { Pointwise.Scalar_bin.x; _ } when is_bool (fmt_of x) ->
+                Err.fail
+                  (`Unsupported_bool_scalar_arithmetic
+                     { scalar_op = "pow"; fmt = fmt_of x })
+            | Op.Rpow_scalar { Pointwise.Scalar_bin.x; _ }
+              when is_bool (fmt_of x) ->
+                Err.fail
+                  (`Unsupported_bool_scalar_arithmetic
+                     { scalar_op = "rpow_scalar"; fmt = fmt_of x })
+            | Op.Rsub_scalar { Pointwise.Rsub_scalar.x; _ }
+              when is_bool (fmt_of x) ->
+                Err.fail
+                  (`Unsupported_bool_scalar_arithmetic
+                     { scalar_op = "rsub_scalar"; fmt = fmt_of x })
+            | Op.Addcmul { Pointwise.Addcmul.self; _ }
+              when is_bool (fmt_of self) ->
+                Err.fail
+                  (`Unsupported_bool_scalar_arithmetic
+                     { scalar_op = "addcmul"; fmt = fmt_of self })
+            | Op.Addcmul { Pointwise.Addcmul.tensor1; _ }
+              when is_bool (fmt_of tensor1) ->
+                Err.fail
+                  (`Unsupported_bool_scalar_arithmetic
+                     { scalar_op = "addcmul"; fmt = fmt_of tensor1 })
+            | Op.Addcmul { Pointwise.Addcmul.tensor2; _ }
+              when is_bool (fmt_of tensor2) ->
+                Err.fail
+                  (`Unsupported_bool_scalar_arithmetic
+                     { scalar_op = "addcmul"; fmt = fmt_of tensor2 })
             | _ when Region_computation4.is_region_authored op ->
                 region_result ~limits
                   ~region_counters:
