@@ -87,6 +87,41 @@ let%expect_test "tensor: read_i64_at6 typed-rejects a non-I64 format" =
           Fmt.pr "wrong format: %a@." Payload.pp_fmt fmt));
   [%expect {| wrong format: f32 |}]
 
+(* [read_bool_at6]: the exact single-cell [Bool] accessor, mirroring
+   [read_i64_at6]'s own contract for the logical-truth carrier -- a raw
+   nonzero byte reads true, matching [Payload.get_float]'s policy. *)
+let%expect_test "tensor: read_bool_at6 reads Bool exactly" =
+  let t =
+    Tensor.materialize_bool (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:3) (fun c ->
+        Dim.to_int (Vec6.get c Axis.C) <> 0)
+  in
+  let idx c (a : Axis.t) = match a with Axis.C -> c | _ -> 0 in
+  let show c =
+    match Tensor.read_bool_at6 t (idx c) with
+    | Ok v -> Fmt.pr "%d -> %b@." c v
+    | Error _ -> Fmt.pr "%d -> error@." c
+  in
+  show 0;
+  show 1;
+  show 2;
+  [%expect {|
+    0 -> false
+    1 -> true
+    2 -> true
+    |}]
+
+let%expect_test "tensor: read_bool_at6 typed-rejects a non-Bool format" =
+  let t =
+    Tensor.materialize (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1) (fun _ -> 1.0)
+  in
+  (match Tensor.read_bool_at6 t (fun _ -> 0) with
+  | Ok _ -> print_string "ok"
+  | Error e -> (
+      match Err.Error.kind e with
+      | `Wrong_format (Payload.Fmt fmt) ->
+          Fmt.pr "wrong format: %a@." Payload.pp_fmt fmt));
+  [%expect {| wrong format: f32 |}]
+
 let%expect_test "tensor: shift_in_bounds guards the pad region" =
   (* a 1x1x1x3x1x1 column over H; tap relative to base h=0 *)
   let t =

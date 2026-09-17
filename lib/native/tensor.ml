@@ -97,6 +97,28 @@ let read_i64_at6 (Tensor t) (idx : Axis.t -> int) :
         Err.return t.payload.data.{i}
   | fmt -> Err.fail (`Wrong_format (Payload.Fmt fmt))
 
+(* [read_i64_at6]'s [Bool] counterpart: exact single-cell read of a
+   [Bool]-format tensor's logical truth value (nonzero byte reads true, per
+   [Payload.get_float]'s policy), typed-rejecting every other format via a
+   real [Err.t] rather than silently coercing through the float domain. *)
+let read_bool_at6 (Tensor t) (idx : Axis.t -> int) :
+    (bool, [> `Wrong_format of Payload.packed_fmt ]) Err.t =
+  match t.payload.Payload.fmt with
+  | Payload.Bool ->
+      let coord =
+        Vec6.coord ~n:(idx N) ~t:(idx T) ~d:(idx D) ~h:(idx H) ~w:(idx W)
+          ~c:(idx C)
+      in
+      if not (Vec6.in_bounds t.shape coord) then
+        invalid_arg
+          (Format.asprintf
+             "Tensor.read_bool_at6: coord %a out of bounds for shape %a"
+             Vec6.pp_coord coord Vec6.pp_shape t.shape)
+      else
+        let i = (Vec6.offset t.shape coord :> int) in
+        Err.return (t.payload.data.{i} <> 0)
+  | fmt -> Err.fail (`Wrong_format (Payload.Fmt fmt))
+
 (* tap helper: the source coord = [base] + per-axis signed [deltas], guarded into
    the source extents. [None] is the pad region. *)
 let shift_in_bounds (Tensor t) (base : Vec6.coord) (deltas : Vec6.deltas) =
@@ -162,6 +184,22 @@ let materialize_i64 (shape : Vec6.shape) (f : Vec6.coord -> int64) =
     {
       shape;
       payload = { Payload.fmt = Payload.I64; quant = Payload.No_quant; data };
+    }
+
+(* [materialize_i64]'s [Bool] counterpart: writes cells directly as canonical
+   0/1 bytes (never through [Payload.set_float]'s own float-domain path,
+   though that path implements the same 0/1 canonicalization) -- the leaf
+   constructor for a genuine logical Bool tensor. *)
+let materialize_bool (shape : Vec6.shape) (f : Vec6.coord -> bool) =
+  let n = (Vec6.numel shape :> int) in
+  let data = Bigarray.(Array1.create int8_unsigned c_layout n) in
+  Vec6.iter shape (fun c ->
+      let i = (Vec6.offset shape c :> int) in
+      data.{i} <- (if f c then 1 else 0));
+  Tensor
+    {
+      shape;
+      payload = { Payload.fmt = Payload.Bool; quant = Payload.No_quant; data };
     }
 
 (* Shared by [unbind] and [split_with_sizes] below: allocate a same-format
