@@ -94,6 +94,49 @@ let%expect_test "tensor: int64 JSON round-trip preserves all bits" =
     }
     tensor i64 [C=3] {-9223372036854775808, 9007199254740993, 9223372036854775807} |}]
 
+let%expect_test
+    "tensor: bool JSON round-trip uses JSON booleans, canonical bytes" =
+  let data = Bigarray.(Array1.of_array int8_unsigned c_layout [| 0; 1; 2 |]) in
+  let original =
+    Tensor.Tensor
+      {
+        Tensor.shape = s1c 3;
+        payload = { Payload.fmt = Payload.Bool; quant = Payload.No_quant; data };
+      }
+  in
+  let result =
+    let open Err.Syntax in
+    let* json = encode_tensor original in
+    let* decoded = decode_tensor json in
+    Err.return (json, decoded)
+  in
+  Format.printf "%a@."
+    (pp_result (fun ppf (json, decoded) ->
+         Format.fprintf ppf "%s@.%a" json Tensor.pp decoded))
+    result;
+  [%expect
+    {|
+    {
+      "data": {
+        "Array": [
+          false,
+          true,
+          true
+        ]
+      },
+      "fmt": "bool",
+      "quant": null,
+      "shape": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        3
+      ]
+    }
+    tensor bool [C=3] {0, 1, 1} |}]
+
 let%expect_test "tensor: payload elided when numel exceeds max_elts" =
   let t = Tensor.materialize (s1c 8) (fun c -> float_of_int (chan c)) in
   let result =

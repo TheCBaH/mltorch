@@ -317,7 +317,9 @@ let equal_bits (Tensor a as ta) (Tensor b as tb) =
    [max_elts]: if Some n and the tensor has more than n elements, the data is
    encoded as {"None":null} instead of {"Array":[...]}.  Decoders always accept
    both forms; {"None":null} decodes to [None].  I64 cells use JSON strings so
-   their complete signed 64-bit value survives JavaScript and round-trips. *)
+   their complete signed 64-bit value survives JavaScript and round-trips.
+   Bool cells use JSON booleans; a decoded [true]/[false] always writes the
+   canonical 1/0 byte. *)
 let jsont ?(max_elts : int option) () : packed Jsont.t =
   let enc_packed (Tensor t) =
     let numel = (Vec6.numel t.shape :> int) in
@@ -331,6 +333,14 @@ let jsont ?(max_elts : int option) () : packed Jsont.t =
               (Json_util.jarr
                  (List.init numel (fun i ->
                       Json_util.enc Jsont.int64_as_string t.payload.data.{i})))
+      | Payload.Bool ->
+          if Option.fold ~none:false ~some:(fun m -> numel > m) max_elts then
+            Json_util.single ~case:"None" Json_util.jnull
+          else
+            Json_util.single ~case:"Array"
+              (Json_util.jarr
+                 (List.init numel (fun i ->
+                      Json_util.enc Jsont.bool (t.payload.data.{i} <> 0))))
       | _ ->
           Payload.enc_data_union ~max_elts ~numel ~iter_floats:(fun yield ->
               Vec6.iter t.shape (fun c ->
@@ -405,6 +415,20 @@ let jsont ?(max_elts : int option) () : packed Jsont.t =
                 shape;
                 payload =
                   { Payload.fmt = Payload.I64; quant = Payload.No_quant; data };
+              }
+        | Payload.Fmt Payload.Bool ->
+            let data =
+              Bigarray.(Array1.create int8_unsigned c_layout expected)
+            in
+            List.iteri
+              (fun i v ->
+                data.{i} <- (if Json_util.dec Jsont.bool v then 1 else 0))
+              vs;
+            Tensor
+              {
+                shape;
+                payload =
+                  { Payload.fmt = Payload.Bool; quant = Payload.No_quant; data };
               }
         | Payload.Fmt fmt ->
             Jsont.Error.msgf Jsont.Meta.none
