@@ -63,6 +63,32 @@ let%expect_test
     no exception
     |}]
 
+let bool_ = Payload.Fmt Payload.Bool
+
+(* The Native4D twin of `test/native/eval_symbolic_mixed_dtype_test.ml`'s own
+   Bool-arithmetic fixture: arithmetic on Bool stays rejected here too,
+   checked BEFORE the I64 mixed-dtype guard so a Bool/I64 pair reports the
+   Bool reason. *)
+let%expect_test "Symbolic4 graph: arithmetic on a Bool operand is rejected" =
+  let run ~y_fmt op_of () =
+    Eval_symbolic4.run (build ~x_fmt:bool_ ~y_fmt op_of)
+  in
+  Fmt.pr "%s@." (catch (run ~y_fmt:f32 Builder.add));
+  Fmt.pr "%s@." (catch (run ~y_fmt:f32 Builder.sub));
+  Fmt.pr "%s@." (catch (run ~y_fmt:f32 Builder.mul));
+  Fmt.pr "%s@." (catch (run ~y_fmt:i64 Builder.add));
+  Fmt.pr "%s@." (catch (run ~y_fmt:i64 Builder.sub));
+  Fmt.pr "%s@." (catch (run ~y_fmt:i64 Builder.mul));
+  [%expect
+    {|
+    raised: add: arithmetic on a Bool operand is not supported, a=bool b=f32
+    raised: sub: arithmetic on a Bool operand is not supported, a=bool b=f32
+    raised: mul: arithmetic on a Bool operand is not supported, a=bool b=f32
+    raised: add: arithmetic on a Bool operand is not supported, a=bool b=i64
+    raised: sub: arithmetic on a Bool operand is not supported, a=bool b=i64
+    raised: mul: arithmetic on a Bool operand is not supported, a=bool b=i64
+    |}]
+
 (* The Stage/Kernel-level twin of the first fixture above, mirroring
    `test/native/eval_symbolic_mixed_dtype_test.ml`'s own addition:
    [Eval_symbolic4.run] produces the same (Native, not Native4D-specific)
