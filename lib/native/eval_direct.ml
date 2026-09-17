@@ -657,6 +657,22 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                 | Payload.Fmt other ->
                     Err.fail
                       (`Unsupported_to_copy_bool_source (Payload.Fmt other)))
+            (* [Bitwise_not] now writes real [Payload.Bool] storage too
+               (P6.3), matching [Graph_builder.bitwise_not]'s own
+               unconditional [Bool] output declaration -- real ATen's
+               [bitwise_not] on a bool operand produces a bool result, and
+               nothing routes an integer operand here today (see [Pointwise.
+               Bitwise_not]'s own comment). No operand-format branch is
+               needed, unlike [To_copy]'s casts: [Compute(Direct).pixel]'s
+               existing formula already reads ANY operand format through
+               [S.load]/[Payload.get_float] (format-agnostic), so this arm
+               only changes where the result lands. *)
+            | Bitwise_not { Pointwise.Bitwise_not.x } ->
+                let module C = Pointwise.Bitwise_not.Compute (Direct) in
+                let x_t = Tensor_id.Map.find x operand_env in
+                Err.return
+                  (Tensor.materialize_bool out_shape (fun coord ->
+                       C.pixel x_t coord <> 0.0))
             | _ when Region_computation.is_region_authored op ->
                 region_result ~limits
                   ~region_counters:

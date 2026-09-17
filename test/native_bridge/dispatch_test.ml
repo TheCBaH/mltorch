@@ -815,15 +815,18 @@ let%expect_test "dispatch: rsub.Scalar builds a single Rsub_scalar node" =
     outputs: [t1 f32 [C=3] <-n0]
     tensor f32 [C=3] {1, 0, -1} |}]
 
-(* Corpus operand (EdgeNeXt's Fourier positional encoding): a 0.0/1.0 bool
-   mask, inverted. *)
+(* Corpus operand (EdgeNeXt's Fourier positional encoding): a 0.0/1.0 float
+   mask, inverted -- the operand here is a raw F32 input (not a real
+   [Payload.Bool] tensor), but the output is genuine [Payload.Bool] storage
+   (P6.3): [bitwise_not] always writes Bool now, regardless of operand
+   format, matching real ATen's bitwise_not-on-bool contract. *)
 let%expect_test "dispatch: bitwise_not.default on a bool mask" =
   let x = float_tensor [ 4 ] [ 0.; 1.; 0.; 1. ] in
   dispatch_print ~target:"torch.ops.aten.bitwise_not.default"
     ~bindings:[ ("self", x) ]
     ~inputs:[ in_tensor "self" ]
     ~noutputs:1;
-  [%expect {| tensor f32 [C=4] {1, 0, 1, 0} |}]
+  [%expect {| tensor bool [C=4] {1, 0, 1, 0} |}]
 
 (* Floor rounds toward negative infinity, unlike [trunc]: -7/2 = -3.5 floors
    to -4, not -3. Mixed signs so a [trunc]-only implementation would be

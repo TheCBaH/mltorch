@@ -245,8 +245,16 @@ let batched_matmul ?name input mat2 =
   op1 ?name ~kind:"batched_matmul"
     (Batched_matmul { Matmul.Batched_matmul.input; mat2 })
 
+(* Real ATen's [bitwise_not] on a bool operand produces a bool result; this
+   op only ever means that case here (see [Pointwise.Bitwise_not]'s own
+   comment: nothing routes an integer operand here today), so the output is
+   unconditionally [Bool] (P6.3), matching [eval_direct.ml]'s own matching
+   [Bitwise_not] arm, which writes via [Tensor.materialize_bool]. *)
 let bitwise_not ?name x =
-  op1 ?name ~kind:"bitwise_not" (Bitwise_not { Pointwise.Bitwise_not.x })
+  op1 ?name
+    ~fmt:Payload.(Fmt Bool)
+    ~kind:"bitwise_not"
+    (Bitwise_not { Pointwise.Bitwise_not.x })
 
 let bmm ?name input mat2 =
   op1 ?name ~kind:"bmm" (Bmm { Matmul.Bmm.input; mat2 })
