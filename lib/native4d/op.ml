@@ -46,6 +46,7 @@ type op =
   | Depthwise_conv2d of Ops4.Depthwise_conv2d.t
   | Div of Pointwise.Div.t
   | Div_scalar of Pointwise.Div_scalar.t
+  | Eq_scalar of Pointwise.Eq_scalar.t
   | Expand4 of Ops4.Expand4.t
   | Eye4 of Ops4.Eye4.t
   | Floor_div_scalar of Pointwise.Floor_div_scalar.t
@@ -245,6 +246,12 @@ let op_registry : (module OP) list =
 
       let inject t = Div_scalar t
       let project = function Div_scalar t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Eq_scalar
+
+      let inject t = Eq_scalar t
+      let project = function Eq_scalar t -> Some t | _ -> None
     end : OP);
     (module struct
       include Ops4.Expand4

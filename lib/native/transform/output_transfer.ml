@@ -131,8 +131,10 @@ let classify (op : op) ~output =
   | Floor_div_scalar _ -> Discontinuous
   (* Real comparison: an arbitrarily small change to [x] across the scalar
      boundary flips 0. to 1. (or back), the same argmax-shaped reasoning
-     [Bitwise_not]/[Floor_div_scalar] get just above. *)
-  | Gt_scalar _ -> Discontinuous
+     [Bitwise_not]/[Floor_div_scalar] get just above. [Eq_scalar] gets the
+     identical reasoning from the other side: an arbitrarily small change
+     to [x] AWAY from the scalar also flips 1. to 0. *)
+  | Eq_scalar _ | Gt_scalar _ -> Discontinuous
   | Add _ | Addcmul _ | Add_scalar _ | Adaptive_avg_pool2d _
   | Adaptive_max_pool2d _ | Amax _ | Avg_pool2d _ | Batch_norm _
   | Batch_norm_no_stats _ | Batched_matmul _ | Bmm _ | Clamp _ | Conv1d _

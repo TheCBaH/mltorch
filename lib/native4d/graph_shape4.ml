@@ -336,6 +336,9 @@ let output_shape (op : Op.t)
   | Div_scalar { Pointwise.Scalar_bin.x; _ } ->
       let* x_shape = shape x in
       one (four (Pointwise.Div_scalar.output_shape x_shape))
+  | Eq_scalar { Pointwise.Scalar_bin.x; _ } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.Eq_scalar.output_shape x_shape))
   (* The target is already a [Shape4.t] -- an expansion cannot leave the
      dialect, the same reason [Reshape4]'s target is typed rather than
      validated for axes. Delegates to Native's own rule like every other arm,

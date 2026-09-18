@@ -304,6 +304,15 @@ let cumsum ?name params x =
 (* A sink for a dead edge: appends a [Discard] node with no output. *)
 let discard x = push_node (Discard { x }) []
 
+(* Real ATen's [eq.Scalar] always produces a bool result, so the output is
+   unconditionally [Bool] (matching [gt_scalar]'s own convention below) --
+   not conditioned on the operand's format. *)
+let eq_scalar ?name scalar x =
+  op1 ?name
+    ~fmt:Payload.(Fmt Bool)
+    ~kind:"eq_scalar"
+    (Eq_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar })
+
 let expand ?name params x =
   op1 ?name ~kind:"expand" (Expand { Pointwise.Expand.params; x })
 

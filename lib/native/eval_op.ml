@@ -179,6 +179,9 @@ module Make (S : Semantics.SEMANTICS) = struct
           match bias with None -> fill 0. (shape_of x) | Some b -> operand b
         in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) ~weight ~bias out
+    | Eq_scalar { Pointwise.Scalar_bin.x; scalar } ->
+        let module C = Pointwise.Eq_scalar.Compute (S) in
+        C.pixel ~scalar (operand x) out
     | Gt_scalar { Pointwise.Scalar_bin.x; scalar } ->
         let module C = Pointwise.Gt_scalar.Compute (S) in
         C.pixel ~scalar (operand x) out

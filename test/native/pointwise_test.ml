@@ -296,6 +296,30 @@ let%expect_test "Direct: mul_scalar" =
        (M.pixel ~scalar:3. x));
   [%expect {| tensor f32 [C=3] {3, 6, 9} |}]
 
+(* [eq.Scalar(self, other) -> self == other]: uses [SEMANTICS.eq] (P6.4),
+   IEEE numerical equality, so a NaN operand is false against ANY scalar
+   (including another NaN, though this fixture only compares against a
+   finite scalar) -- matching real ATen's own [eq] behavior on NaN, with no
+   special-cased NaN branch needed here (unlike a hypothetical [S.lt]-based
+   formula, which could not distinguish "equal" from "both fail every
+   ordering test" -- see [Semantics.eq]'s own doc comment). Same two-level
+   split as [Gt_scalar] below: this level exercises [Compute]'s own
+   [SEMANTICS]-generic float 0./1. formula directly; [Eval_direct]'s own
+   dispatch arm lands genuine [Payload.Bool] storage from the same
+   formula. *)
+let%expect_test "Direct: eq_scalar" =
+  let module E = Pointwise.Eq_scalar.Compute (Direct) in
+  let x_shape = s1c 5 in
+  let x =
+    Tensor.materialize x_shape (fun c ->
+        [| 1.; 2.; 3.; Float.nan; Float.neg_infinity |].(chan c))
+  in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Pointwise.Eq_scalar.output_shape x_shape)
+       (E.pixel ~scalar:2. x));
+  [%expect {| tensor f32 [C=5] {0, 1, 0, 0, 0} |}]
+
 (* [gt.Scalar(self, other) -> self > other]: strict ordering, so an exact
    equality is false (not merely the closest boundary case: 2. > 2. is
    false), and a NaN operand is false on either side of the comparison

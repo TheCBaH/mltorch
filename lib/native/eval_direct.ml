@@ -746,6 +746,19 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                 Err.return
                   (Tensor.materialize_bool out_shape (fun coord ->
                        C.pixel x_t coord <> 0.0))
+            (* [Eq_scalar] mirrors [Gt_scalar]'s own split exactly (P6.4,
+               using [SEMANTICS.eq] instead of [S.lt]/[S.select]): [Compute]'s
+               formula is [SEMANTICS]-generic (shared with [Symbolic] via
+               [Eval_op.Make], which still writes a plain float 0./1.), and
+               only [Eval_direct] intercepts it to land genuine [Payload.
+               Bool] storage, matching [Graph_builder.eq_scalar]'s own
+               unconditional [Bool] output declaration. *)
+            | Eq_scalar { Pointwise.Scalar_bin.x; scalar } ->
+                let module C = Pointwise.Eq_scalar.Compute (Direct) in
+                let x_t = Tensor_id.Map.find x operand_env in
+                Err.return
+                  (Tensor.materialize_bool out_shape (fun coord ->
+                       C.pixel ~scalar x_t coord <> 0.0))
             (* [Gt_scalar] mirrors [Bitwise_not]'s own split: [Compute]'s
                formula is [SEMANTICS]-generic (shared with [Symbolic] via
                [Eval_op.Make], which still writes a plain float 0./1.), and

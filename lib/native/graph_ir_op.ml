@@ -40,6 +40,7 @@ type op =
   | Div of Pointwise.Div.t
   | Div_scalar of Pointwise.Div_scalar.t
   | Discard of { x : tensor_ref }
+  | Eq_scalar of Pointwise.Eq_scalar.t
   | Expand of Pointwise.Expand.t
   | Eye of Factory.Eye.t
   | Floor_div_scalar of Pointwise.Floor_div_scalar.t

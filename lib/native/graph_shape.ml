@@ -185,6 +185,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let+ out = widen (Reduce.Cumsum.output_shape ~x_shape params) in
       [ out ]
   | Discard _ -> Err.return []
+  | Eq_scalar { Pointwise.Scalar_bin.x; _ } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Eq_scalar.output_shape x_shape) in
+      [ out ]
   | Expand { Pointwise.Expand.params; x } ->
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Expand.output_shape ~x_shape params) in

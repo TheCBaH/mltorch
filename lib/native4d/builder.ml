@@ -246,6 +246,12 @@ let grouped_conv2d params ~x ~weight ?bias () =
   op1 (Op.Grouped_conv2d { Ops4.Grouped_conv_payload.params; x; weight; bias })
 
 (* Unconditionally [Bool], matching [to_copy]/[bitwise_not]'s own convention
+   above and Native's own [Graph_builder.eq_scalar] -- real ATen's [eq.
+   Scalar] always produces a bool result. *)
+let eq_scalar scalar x =
+  op1 ~fmt:Payload.(Fmt Bool) (Op.Eq_scalar { Pointwise.Scalar_bin.x; scalar })
+
+(* Unconditionally [Bool], matching [to_copy]/[bitwise_not]'s own convention
    above and Native's own [Graph_builder.gt_scalar] -- real ATen's [gt.
    Scalar] always produces a bool result. *)
 let gt_scalar scalar x =

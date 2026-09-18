@@ -405,6 +405,34 @@ module Floor_div_scalar = struct
   end
 end
 
+(* [eq.Scalar(self, other) -> self == other]. Uses [SEMANTICS.eq] (P6.4),
+   NOT [S.lt]-composed: [S.eq] is IEEE numerical equality -- NaN unequal to
+   everything including itself, signed zeros equal -- which is exactly real
+   ATen's [eq] on a float operand, and which no [S.lt]/[S.select] composition
+   can express (see [Semantics.eq]'s own doc comment and the P6.3/P6.4 NaN
+   finding this op deliberately avoids repeating). Same two-layer split as
+   [Gt_scalar] below: the output VALUE here is still float 0./1.
+   ([Compute] is [SEMANTICS]-generic, shared with [Symbolic]);
+   [Graph_builder.eq_scalar] declares the edge [Bool] and [Eval_direct]
+   writes genuine [Payload.Bool] storage from this same formula. *)
+module Eq_scalar = struct
+  type t = Scalar_bin.t
+
+  let name = "Eq_scalar"
+  let jsont = Scalar_bin.jsont ~name
+  let operands = Scalar_bin.operands
+  let map_operands = Scalar_bin.map_operands
+  let pp pp_ref fmt t = Scalar_bin.pp ~op:"eq_scalar" pp_ref fmt t
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    module B = Scalar_binary (S)
+
+    let eq v s = S.select (S.eq v s) (S.const 1.) (S.const 0.)
+    let pixel ~scalar x out = B.pixel ~combine:eq ~scalar x out
+  end
+end
+
 (* [gt.Scalar(self, other) -> self > other]. Needs no new [SEMANTICS]
    primitive: built from the same [S.lt]/[S.select] pair [Bitwise_not.
    Compute]'s own nonzero-test formula already uses (see pointwise_unary.ml),

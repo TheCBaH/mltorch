@@ -60,11 +60,18 @@ type op =
   | Div of Pointwise.Div.t
   | Div_scalar of Pointwise.Div_scalar.t
   | Discard of { x : tensor_ref }
-    (* A sink: consumes one edge and produces NO output (its [Node.outputs] is
+  (* A sink: consumes one edge and produces NO output (its [Node.outputs] is
        empty). Used to route a dead op output — e.g. the argmax indices of
        [Max_pool2d_with_indices] — so the op keeps its full ATen arity while the
        edge is explicitly marked unused for a future pruning pass. Like
        [Discard], it is handled inline wherever the [op_registry] is folded. *)
+  (* `eq.Scalar(self, other) -> self == other`, real ATen output dtype Bool
+     (design section 3's "Equality" policy: float numerical equality, NaN
+     unequal, signed zeros equal). No corpus caller today (see the
+     implementation tracker's P6.4 entry); landed on Direct only, matching
+     [Gt_scalar]'s own Direct-first precedent below -- Symbolic/Native4D/
+     importer legalization remain open. *)
+  | Eq_scalar of Pointwise.Eq_scalar.t
   | Expand of Pointwise.Expand.t
   | Eye of Factory.Eye.t
   | Floor_div_scalar of Pointwise.Floor_div_scalar.t
