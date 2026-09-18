@@ -560,6 +560,19 @@ let eval_node ?region_counters ~limits ~synthetic_ids (g : Graph.graph) env
                 | Payload.Fmt other ->
                     Err.fail
                       (`Unsupported_to_copy_bool_source (Payload.Fmt other)))
+            (* [Bitwise_not] now writes real [Payload.Bool] storage too
+               (P6.3), the Native4D twin of [Eval_direct]'s own arm --
+               [Builder.bitwise_not] now declares the output edge [Bool]
+               unconditionally (this session), matching [To_copy(Bool)]'s
+               own reasoning above. No operand-format branch is needed,
+               unlike [To_copy]'s casts: [Compute(Direct).pixel]'s existing
+               formula already reads ANY operand format. *)
+            | Op.Bitwise_not { Pointwise.Bitwise_not.x } ->
+                let module C = Pointwise.Bitwise_not.Compute (Direct) in
+                let x_t = Tensor_id.Map.find x operand_env in
+                Err.return
+                  (Tensor.materialize_bool (Shape4.to_vec6 out_shape)
+                     (fun coord -> C.pixel x_t coord <> 0.0))
             | Op.Arange4 { Ops4.Arange4.params } -> (
                 let params =
                   Factory.Arange.

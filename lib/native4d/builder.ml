@@ -201,7 +201,12 @@ let avg_pool2d params x = op1 (Op.Avg_pool2d { Pool.AvgPool2d.params; x })
 let batched_matmul input mat2 =
   op1 (Op.Batched_matmul { Matmul.Batched_matmul.input; mat2 })
 
-let bitwise_not x = op1 (Op.Bitwise_not { Pointwise.Bitwise_not.x })
+(* Unconditionally [Bool], matching [to_copy]'s own [Bool] case above and
+   Native's own [Graph_builder.bitwise_not] -- real ATen's bitwise-complement
+   on Native's only routed operand (a bool mask) produces a bool result. *)
+let bitwise_not x =
+  op1 ~fmt:Payload.(Fmt Bool) (Op.Bitwise_not { Pointwise.Bitwise_not.x })
+
 let clamp params x = op1 (Op.Clamp { Pointwise.Clamp.params; x })
 let col2im params x = op1 (Op.Col2im { Im2col.Col2im.params; x })
 
