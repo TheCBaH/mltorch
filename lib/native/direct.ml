@@ -250,3 +250,15 @@ let i64_load (inp : input) (v : Semantics.position index Vec6.t) : int64 =
       | `Wrong_format (Payload.Fmt f) ->
           Fmt.pf fmt "Data source must be I64, got %s" (Payload.fmt_name f))
     (Tensor.read_i64_at6 inp (fun a -> (Vec6.get v a :> int)))
+
+(* [i64_load]'s [Bool] counterpart: reads via [Tensor.read_bool_at6] (nonzero
+   byte reads true, matching [Payload.get_float]'s own policy) rather than a
+   generic float read, for the same reason [i64_load] avoids
+   [Payload.get_float] -- the destination carrier's cast policy must not
+   depend on an intermediate float representation. *)
+let bool_load (inp : input) (v : Semantics.position index Vec6.t) : bool =
+  Err.or_raise
+    ~pp_error:(fun fmt -> function
+      | `Wrong_format (Payload.Fmt f) ->
+          Fmt.pf fmt "Data source must be Bool, got %s" (Payload.fmt_name f))
+    (Tensor.read_bool_at6 inp (fun a -> (Vec6.get v a :> int)))

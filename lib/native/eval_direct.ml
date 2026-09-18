@@ -665,6 +665,16 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                     Err.return
                       (Tensor.materialize_i64 out_shape (fun coord ->
                            Direct.i64_load x_t coord))
+                (* Design section 3's "Bool to I64 / Float: Exact 0/1 in the
+                   destination carrier" -- reads via [Direct.bool_load]
+                   (canonical true/false), not through [Payload.get_float]'s
+                   incidental float encoding, matching the [I64] arm's own
+                   exact-read convention immediately above. *)
+                | Payload.Fmt Payload.Bool ->
+                    let x_t = Tensor_id.Map.find x operand_env in
+                    Err.return
+                      (Tensor.materialize_i64 out_shape (fun coord ->
+                           if Direct.bool_load x_t coord then 1L else 0L))
                 (* Every other format is outside this plan's scope (no real
                    importer produces I32/F16/BF16/etc. today), and
                    [Graph_builder.to_copy] still declares I64 here regardless

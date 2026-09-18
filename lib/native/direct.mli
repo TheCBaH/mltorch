@@ -13,3 +13,8 @@ include
      and type 'role index := 'role Dim.t
      and type input := Tensor.packed
      and type b := bool
+
+(* [i64_load]'s [Bool] counterpart -- not part of [Semantics.TYPED_SEMANTICS]
+   since only [Eval_direct]'s [To_copy(Long)] dispatch reads a Bool operand
+   today; no [Symbolic] twin exists yet. *)
+val bool_load : Tensor.packed -> Semantics.position Dim.t Vec6.t -> bool
