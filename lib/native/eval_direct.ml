@@ -703,6 +703,20 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                     Err.return
                       (Tensor.materialize_bool out_shape (fun coord ->
                            C.pixel Pointwise.To_copy.Bool x_t coord <> 0.0))
+                (* Design section 3's "I64 to Bool: Exact comparison with
+                   0L" -- an exact int64 zero test, not a route through
+                   [Payload.get_float]/[Compute.pixel]'s own float nonzero
+                   test (which would still happen to agree for every
+                   representable int64, since [Int64.to_float 0L = 0.0] and
+                   every nonzero int64 has a nonzero float image, but reading
+                   through float is the exact "integer-to-float, not an
+                   explicit expression cast" hazard this plan's own
+                   invariants forbid regardless of numerical agreement). *)
+                | Payload.Fmt Payload.I64 ->
+                    let x_t = Tensor_id.Map.find x operand_env in
+                    Err.return
+                      (Tensor.materialize_bool out_shape (fun coord ->
+                           not (Int64.equal (Direct.i64_load x_t coord) 0L)))
                 | Payload.Fmt other ->
                     Err.fail
                       (`Unsupported_to_copy_bool_source (Payload.Fmt other)))
