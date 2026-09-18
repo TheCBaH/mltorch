@@ -304,7 +304,9 @@ let%expect_test "Direct: mul_scalar" =
    here. This level exercises [Compute]'s own [SEMANTICS]-generic float
    0./1. formula directly; [Eval_direct]'s own dispatch arm (exercised by
    [dispatch_test.ml]) is what lands genuine [Payload.Bool] storage from the
-   same formula. *)
+   same formula, and [eval_symbolic_gt_scalar_test.ml] proves the
+   Symbolic/Kernel route rejects this op's Bool-declared output rather than
+   silently materializing it as float. *)
 let%expect_test "Direct: gt_scalar" =
   let module G = Pointwise.Gt_scalar.Compute (Direct) in
   let x_shape = s1c 5 in
