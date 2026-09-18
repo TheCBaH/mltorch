@@ -213,8 +213,10 @@ module type S = sig
       | I64_eq of int64 Value.t * int64 Value.t
       | I64_lt of int64 Value.t * int64 Value.t
       | Index_eq of Role.Delta.t Index.t * Role.Delta.t Index.t
+      | Value_eq of float Value.t * float Value.t
       | Value_lt of float Value.t * float Value.t
 
+    val value_eq : float Value.t -> float Value.t -> t
     val value_lt : float Value.t -> float Value.t -> t
     val index_eq : Role.Delta.t Index.t -> Role.Delta.t Index.t -> t
     val i64_eq : int64 Value.t -> int64 Value.t -> t

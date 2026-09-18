@@ -184,6 +184,11 @@ let run_order_sensitive_sites () =
   case "Binary/ok" (Value.add (load_v "a" 1.0) (load_v "b" 2.0));
   case "Binary/fail" (Value.add (load_v_err "a") (load_v_err "b"));
 
+  case "Value_eq/ok"
+    (select_probe (Bool.value_eq (load_v "a" 1.0) (load_v "b" 2.0)));
+  case "Value_eq/fail"
+    (select_probe (Bool.value_eq (load_v_err "a") (load_v_err "b")));
+
   case "Value_lt/ok"
     (select_probe (Bool.value_lt (load_v "a" 1.0) (load_v "b" 2.0)));
   case "Value_lt/fail"

@@ -104,7 +104,7 @@ let check ~limits value =
         let* () = go_i64 multiplier a in
         go_i64 multiplier b
   and go_bool multiplier = function
-    | Expr_repr.Value_lt (x, y) ->
+    | Expr_repr.Value_eq (x, y) | Expr_repr.Value_lt (x, y) ->
         let* () = go multiplier x in
         go multiplier y
     | Expr_repr.Index_eq _ -> Err.return ()

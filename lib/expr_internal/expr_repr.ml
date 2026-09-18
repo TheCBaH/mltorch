@@ -114,6 +114,15 @@ and bool_expr =
   | I64_eq of int64 value * int64 value
   | I64_lt of int64 value * int64 value
   | Index_eq of Role.Delta.t Index.t * Role.Delta.t Index.t
+  | Value_eq of float value * float value
+      (** IEEE numerical equality, matching OCaml's [( = )] on [float]: NaN
+          compares unequal to everything including itself, signed zeros compare
+          equal. This is the primitive [Value_lt]'s own doc comment (see
+          [semantics.ml]) says is deliberately absent -- it is now needed by the
+          Bool-cast "nonzero test", which [Value_lt]-only formulas cannot
+          express (both [lt 0 x] and [lt x 0] are false for NaN, so a
+          double-[Value_lt] "nonzero" test wrongly reports NaN as zero; see the
+          design's "Float to Bool" policy). *)
   | Value_lt of float value * float value
 
 and reduction = {

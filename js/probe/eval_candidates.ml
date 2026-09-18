@@ -108,6 +108,8 @@ type frame =
   | Unary_result of Value.unary_op
   | Round_f32_result
   | Select_result of float Value.t * float Value.t * reducers
+  | Value_eq_left of float Value.t * reducers
+  | Value_eq_right of float
   | Value_lt_left of float Value.t * reducers
   | Value_lt_right of float
   | Reduce_step of reduce_progress
@@ -416,6 +418,16 @@ let eval_machine ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
           (Eval_i64_state (a, reducers))
           (I64_lt_left (b, reducers) :: frames)
     (* Same backend-measured order as [Binary] above. *)
+    | Guard_state (Bool.Value_eq (a, b), reducers), _ ->
+#if defined MELANGE_BACKEND
+        (loop [@tailcall])
+          (Eval_state (a, reducers))
+          (Value_eq_left (b, reducers) :: frames)
+#else
+        (loop [@tailcall])
+          (Eval_state (b, reducers))
+          (Value_eq_left (a, reducers) :: frames)
+#endif
     | Guard_state (Bool.Value_lt (a, b), reducers), _ ->
 #if defined MELANGE_BACKEND
         (loop [@tailcall])
@@ -448,6 +460,16 @@ let eval_machine ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
         (loop [@tailcall])
           (Float_result (Int32.float_of_bits (Int32.bits_of_float a)))
           rest
+    | Float_result first, Value_eq_left (second_expr, reducers) :: rest ->
+        (loop [@tailcall])
+          (Eval_state (second_expr, reducers))
+          (Value_eq_right first :: rest)
+    | Float_result second, Value_eq_right first :: rest ->
+#if defined MELANGE_BACKEND
+        (loop [@tailcall]) (Bool_result (first = second)) rest
+#else
+        (loop [@tailcall]) (Bool_result (second = first)) rest
+#endif
     | Float_result first, Value_lt_left (second_expr, reducers) :: rest ->
         (loop [@tailcall])
           (Eval_state (second_expr, reducers))

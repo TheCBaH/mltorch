@@ -331,13 +331,14 @@ let tag_i64 = function
 (* [bool_expr] is not part of the [_ value] GADT (see its own doc comment in
    expr_repr.ml), so its comparator is a third [and]-linked sibling of [go]/
    [cmp_i64] rather than a case within either: [I64_eq]/[I64_lt]'s operands
-   need [cmp_i64], [Value_lt]'s need [go], and both can reference an
-   enclosing binder exactly as [Select]'s own branches can. *)
+   need [cmp_i64], [Value_eq]/[Value_lt]'s need [go], and both can reference
+   an enclosing binder exactly as [Select]'s own branches can. *)
 let tag_bool = function
   | Expr_repr.I64_eq _ -> 0
   | Expr_repr.I64_lt _ -> 1
   | Expr_repr.Index_eq _ -> 2
-  | Expr_repr.Value_lt _ -> 3
+  | Expr_repr.Value_eq _ -> 3
+  | Expr_repr.Value_lt _ -> 4
 
 let compare a b =
   let rec go ea eb la lb n a b =
@@ -443,6 +444,7 @@ let compare a b =
         cmp_i64 ea eb la lb n x1 y1 <?> fun () -> cmp_i64 ea eb la lb n x2 y2
     | Expr_repr.Index_eq (p, q), Expr_repr.Index_eq (r, s) ->
         cmp_index ea eb p r <?> fun () -> cmp_index ea eb q s
+    | Expr_repr.Value_eq (p, q), Expr_repr.Value_eq (r, s)
     | Expr_repr.Value_lt (p, q), Expr_repr.Value_lt (r, s) ->
         go ea eb la lb n p r <?> fun () -> go ea eb la lb n q s
     | _ -> 0
@@ -569,14 +571,15 @@ let hash e =
         let h = hash_bool env lenv n h c in
         hash_i64 env lenv n (hash_i64 env lenv n h a) b
   (* [bool_expr]'s hash-side twin of [compare]'s [cmp_bool]: [I64_eq]/
-     [I64_lt]'s operands need [hash_i64], [Value_lt]'s need [go], and
-     [Index_eq]'s carry no environment-sensitive content of their own. *)
+     [I64_lt]'s operands need [hash_i64], [Value_eq]/[Value_lt]'s need [go],
+     and [Index_eq]'s carry no environment-sensitive content of their own. *)
   and hash_bool env lenv n h c =
     let h = mix h (tag_bool c) in
     match c with
     | Expr_repr.I64_eq (x, y) | Expr_repr.I64_lt (x, y) ->
         hash_i64 env lenv n (hash_i64 env lenv n h x) y
-    | Expr_repr.Value_lt (x, y) -> go env lenv n (go env lenv n h x) y
+    | Expr_repr.Value_eq (x, y) | Expr_repr.Value_lt (x, y) ->
+        go env lenv n (go env lenv n h x) y
     | Expr_repr.Index_eq (x, y) -> idx env (idx env h x) y
   in
   go Reduce_var.Map.empty Local_var.Map.empty 0 17 e

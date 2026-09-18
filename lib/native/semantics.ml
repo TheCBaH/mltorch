@@ -54,6 +54,17 @@ module type SEMANTICS = sig
   type b
 
   val lt : t -> t -> b
+
+  (* IEEE numerical equality ([Expr.Bool.Value_eq]'s semantics target): NaN
+     compares unequal to everything including itself, signed zeros compare
+     equal. Deliberately NOT expressible from [lt] alone -- [lt 0 x || lt x
+     0] ("nonzero test") is false for both an exact zero AND NaN, since
+     neither IEEE-orders against 0, so any Bool-cast/equality formula built
+     solely from [lt] cannot distinguish the two. This was a live defect in
+     [Pointwise.To_copy]/[Bitwise_not]'s Bool-cast formula (see the
+     implementation tracker's P6.3 "NaN finding" and the P6.4 entry that
+     names this primitive as the fix). *)
+  val eq : t -> t -> b
   val select : b -> t -> t -> t
 
   (* index domain — affine expressions in [delta]; [load] needs [position].

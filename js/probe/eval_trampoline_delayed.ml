@@ -357,6 +357,14 @@ let eval_trampoline_delayed ~threshold ?(local = fun _ -> None)
       | Bool.Index_eq (a, b) ->
           resume depth k (Int.equal (idx reducers a) (idx reducers b))
       (* Same backend-measured order as [Binary] above. *)
+      | Bool.Value_eq (a, b) ->
+#if defined MELANGE_BACKEND
+          go reducers depth a (fun depth av ->
+              go reducers depth b (fun depth bv -> resume depth k (av = bv)))
+#else
+          go reducers depth b (fun depth bv ->
+              go reducers depth a (fun depth av -> resume depth k (av = bv)))
+#endif
       | Bool.Value_lt (a, b) ->
 #if defined MELANGE_BACKEND
           go reducers depth a (fun depth av ->

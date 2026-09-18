@@ -107,7 +107,7 @@ and duplicate_binder_go_i64 bound lbound (e : int64 Value.t) =
           | some -> some))
 
 and duplicate_binder_go_bool bound lbound = function
-  | Expr_repr.Value_lt (x, y) -> (
+  | Expr_repr.Value_eq (x, y) | Expr_repr.Value_lt (x, y) -> (
       match duplicate_binder_go bound lbound x with
       | None -> duplicate_binder_go bound lbound y
       | some -> some)

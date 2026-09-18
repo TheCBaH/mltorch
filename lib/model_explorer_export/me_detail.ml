@@ -78,7 +78,7 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
   and measure_bool = function
     | Expr.Bool.Index_eq (a, b) ->
         charge () && measure_index a && measure_index b
-    | Expr.Bool.Value_lt (a, b) ->
+    | Expr.Bool.Value_eq (a, b) | Expr.Bool.Value_lt (a, b) ->
         charge () && measure_value a && measure_value b
     | Expr.Bool.I64_eq (a, b) | Expr.Bool.I64_lt (a, b) ->
         charge () && measure_value_i64 a && measure_value_i64 b
@@ -323,6 +323,13 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
         in
         walk_index scope ~parent:id ~role:"lhs" a;
         walk_index scope ~parent:id ~role:"rhs" b
+    | Expr.Bool.Value_eq (a, b) ->
+        let id =
+          add ~parent ~role ~language:"bool" ~constructor:"value_eq"
+            ~label:"value_eq" ()
+        in
+        walk_value scope ~parent:id ~role:"lhs" a;
+        walk_value scope ~parent:id ~role:"rhs" b
     | Expr.Bool.Value_lt (a, b) ->
         let id =
           add ~parent ~role ~language:"bool" ~constructor:"value_lt"

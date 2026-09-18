@@ -213,7 +213,8 @@ type error =
   | `Region of Region_program.error
   | `Unknown_edge of Tensor_id.t
   | `Unsupported_i64_comparison_ground
-  | `Unsupported_i64_to_float_ground ]
+  | `Unsupported_i64_to_float_ground
+  | `Unsupported_value_eq_ground ]
 
 let pp_error fmt : [< error ] -> unit = function
   | #Expr.Eval.error as e -> Expr.Eval.pp_error fmt e
@@ -237,6 +238,10 @@ let pp_error fmt : [< error ] -> unit = function
       Fmt.string fmt
         "I64_to_float has no grounded/fused representation yet (P1 typed Expr \
          foundation only supports the plain evaluator, see .ai/)"
+  | `Unsupported_value_eq_ground ->
+      Fmt.string fmt
+        "A float equality comparison has no grounded/fused representation yet \
+         (Ground_expr has no eq guard constructor, see .ai/)"
 
 (* Saturating: matches this repository's 32-bit-safe-aggregate rule
    (js_of_ocaml reaches this library) for every checked size addition below.
@@ -465,6 +470,8 @@ let rec ground esc ~env ~meter ~arena ~frame ~coord ~rvars
             (Ground_expr.select arena
                (Ground_expr.lt arena (recur x) (recur y))
                (recur a) (recur b))
+      | Expr.Bool.Value_eq _ ->
+          Err.Escape.throw esc `Unsupported_value_eq_ground
       | Expr.Bool.I64_eq _ | Expr.Bool.I64_lt _ ->
           Err.Escape.throw esc `Unsupported_i64_comparison_ground)
   | Expr.Value.Load (src, idx) ->
