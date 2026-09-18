@@ -63,6 +63,7 @@ type op =
   | Meshgrid of Meshgrid.Meshgrid.t
   | Mul of Pointwise.Mul.t
   | Mul_scalar of Pointwise.Mul_scalar.t
+  | Ne_scalar of Pointwise.Ne_scalar.t
   | Pad of Pad.Pad.t
   | Permute of Permute.Permute.t
   | Pow of Pointwise.Pow.t

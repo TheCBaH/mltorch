@@ -226,6 +226,7 @@ let samples : Op.t list =
     Meshgrid { Meshgrid.Meshgrid.tensors = [ x; y ] };
     Mul { Pointwise.Bin.a = x; b = y };
     Mul_scalar { Pointwise.Scalar_bin.x; scalar = 2. };
+    Ne_scalar { Pointwise.Scalar_bin.x; scalar = 2. };
     (* Two axes, an asymmetric pad and a mixed pad/crop, so the codec is proved
        on a SIGNED amount rather than only on the padding half of the range. The
        fill is not f32-exact, so a narrowing round trip would be visible. *)
@@ -388,7 +389,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 75, registry: 75 |}]
+  [%expect {| samples: 76, registry: 76 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -484,6 +485,7 @@ let%expect_test "op4: printed" =
     meshgrid tensors=[t0, t1]
     mul a=t0 b=t1
     mul_scalar x=t0 scalar=2
+    ne_scalar x=t0 scalar=2
     pad4 x=t0 params={pads=[H:1,2, W:-1,3] mode=constant(0.1)}
     permute4 x=t0 perm=[H<-W, W<-H]
     pow x=t0 scalar=2
@@ -534,7 +536,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 75 ops |}]
+  [%expect {| round-tripped 76 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

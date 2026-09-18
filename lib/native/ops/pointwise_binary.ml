@@ -433,6 +433,34 @@ module Eq_scalar = struct
   end
 end
 
+(* [ne.Scalar(self, other) -> self != other]. Real ATen's [ne] is [eq]'s
+   logical negation -- reuses the same [SEMANTICS.eq] primitive [Eq_scalar]
+   above uses, just a negated [S.select] arm order, rather than an
+   [S.lt]-composed formula which cannot express IEEE equality's
+   NaN-unequal-to-everything case (a NaN operand must read [ne] TRUE, the
+   same as every other comparison against it). Same two-layer split as
+   [Eq_scalar]/[Gt_scalar]: the output VALUE here is still float 0./1.
+   ([Compute] is [SEMANTICS]-generic, shared with [Symbolic]);
+   [Graph_builder.ne_scalar] declares the edge [Bool] and [Eval_direct]
+   writes genuine [Payload.Bool] storage from this same formula. *)
+module Ne_scalar = struct
+  type t = Scalar_bin.t
+
+  let name = "Ne_scalar"
+  let jsont = Scalar_bin.jsont ~name
+  let operands = Scalar_bin.operands
+  let map_operands = Scalar_bin.map_operands
+  let pp pp_ref fmt t = Scalar_bin.pp ~op:"ne_scalar" pp_ref fmt t
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    module B = Scalar_binary (S)
+
+    let ne v s = S.select (S.eq v s) (S.const 0.) (S.const 1.)
+    let pixel ~scalar x out = B.pixel ~combine:ne ~scalar x out
+  end
+end
+
 (* [gt.Scalar(self, other) -> self > other]. Needs no new [SEMANTICS]
    primitive: built from the same [S.lt]/[S.select] pair [Bitwise_not.
    Compute]'s own nonzero-test formula already uses (see pointwise_unary.ml),

@@ -323,6 +323,13 @@ let mul a b =
   | _ -> op1 (Op.Mul { Pointwise.Bin.a; b })
 
 let mul_scalar scalar x = op1 (Op.Mul_scalar { Pointwise.Scalar_bin.x; scalar })
+
+(* Unconditionally [Bool], matching [to_copy]/[bitwise_not]'s own convention
+   above and Native's own [Graph_builder.ne_scalar] -- real ATen's [ne.
+   Scalar] always produces a bool result. *)
+let ne_scalar scalar x =
+  op1 ~fmt:Payload.(Fmt Bool) (Op.Ne_scalar { Pointwise.Scalar_bin.x; scalar })
+
 let pow scalar x = op1 (Op.Pow { Pointwise.Scalar_bin.x; scalar })
 
 (* Takes the dialect's own [Ops4.Pad4.params], whose entries are keyed by

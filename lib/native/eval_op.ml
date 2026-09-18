@@ -248,6 +248,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Mul_scalar { Pointwise.Scalar_bin.x; scalar } ->
         let module C = Pointwise.Mul_scalar.Compute (S) in
         C.pixel ~scalar (operand x) out
+    | Ne_scalar { Pointwise.Scalar_bin.x; scalar } ->
+        let module C = Pointwise.Ne_scalar.Compute (S) in
+        C.pixel ~scalar (operand x) out
     | Pad { Pad.Pad.params; x } ->
         let module C = Pad.Pad.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out

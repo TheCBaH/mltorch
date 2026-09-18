@@ -507,6 +507,9 @@ let output_shape (op : Op.t)
   | Mul_scalar { Pointwise.Scalar_bin.x; _ } ->
       let* x_shape = shape x in
       one (four (Pointwise.Mul_scalar.output_shape x_shape))
+  | Ne_scalar { Pointwise.Scalar_bin.x; _ } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.Ne_scalar.output_shape x_shape))
   | Pad4 { Ops4.Pad4.params; x } ->
       let* x_shape = shape x in
       one (four (Pad.Pad.output_shape ~x_shape (pad_params params)))

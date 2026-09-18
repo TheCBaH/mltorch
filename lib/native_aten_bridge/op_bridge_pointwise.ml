@@ -202,6 +202,22 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let+ y = gt_scalar scalar x_id in
                [ y ]
            | _ -> assert false))
+  (* [ne.Scalar(self, other) -> self != other], real ATen output dtype Bool.
+     Same discipline as [eq.Scalar]/[gt.Scalar] above (P6.4): [other] is a
+     compile-time constant, no corpus caller today, exercised only by a
+     native-only fixture rather than a real-ATen [verify_print] differential
+     -- the bridge has no Bool round trip to real ATen yet. *)
+  | "torch.ops.aten.ne.Scalar" ->
+      Some
+        (let* x = native_tensor_arg aten_env node "self" in
+         let* s = decode_result (D.scalar_arg_result node "other") in
+         let* scalar = float_of_aten_scalar "other" s in
+         build_g ~name:"ne_scalar" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = ne_scalar scalar x_id in
+               [ y ]
+           | _ -> assert false))
   | "torch.ops.aten.hardsigmoid.default" | "torch.ops.aten.hardsigmoid_.default"
     ->
       Some

@@ -771,6 +771,19 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                 Err.return
                   (Tensor.materialize_bool out_shape (fun coord ->
                        C.pixel ~scalar x_t coord <> 0.0))
+            (* [Ne_scalar] mirrors [Eq_scalar]'s own split exactly (P6.4,
+               negated): [Compute]'s formula is [SEMANTICS]-generic (shared
+               with [Symbolic] via [Eval_op.Make], which still writes a plain
+               float 0./1.), and only [Eval_direct] intercepts it to land
+               genuine [Payload.Bool] storage, matching
+               [Graph_builder.ne_scalar]'s own unconditional [Bool] output
+               declaration. *)
+            | Ne_scalar { Pointwise.Scalar_bin.x; scalar } ->
+                let module C = Pointwise.Ne_scalar.Compute (Direct) in
+                let x_t = Tensor_id.Map.find x operand_env in
+                Err.return
+                  (Tensor.materialize_bool out_shape (fun coord ->
+                       C.pixel ~scalar x_t coord <> 0.0))
             (* Arithmetic on Bool stays rejected for the rest of the
                `*_scalar` family too (design contract, Gate 6 item 3): none
                of these six ops has a per-format admission point of its own

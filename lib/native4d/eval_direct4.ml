@@ -599,6 +599,19 @@ let eval_node ?region_counters ~limits ~synthetic_ids (g : Graph.graph) env
                 Err.return
                   (Tensor.materialize_bool (Shape4.to_vec6 out_shape)
                      (fun coord -> C.pixel ~scalar x_t coord <> 0.0))
+            (* [Ne_scalar] mirrors [Eq_scalar]'s own split exactly (P6.4,
+               negated), the Native4D twin of [Eval_direct]'s own arm --
+               [Eval_op4.Make(S).pixel]'s [Ne_scalar] case is
+               [SEMANTICS]-generic and still writes a plain float 0./1., so
+               only this early-intercept arm lands genuine [Payload.Bool]
+               storage, matching [Builder.ne_scalar]'s own unconditional
+               [Bool] declaration. *)
+            | Op.Ne_scalar { Pointwise.Scalar_bin.x; scalar } ->
+                let module C = Pointwise.Ne_scalar.Compute (Direct) in
+                let x_t = Tensor_id.Map.find x operand_env in
+                Err.return
+                  (Tensor.materialize_bool (Shape4.to_vec6 out_shape)
+                     (fun coord -> C.pixel ~scalar x_t coord <> 0.0))
             | Op.Arange4 { Ops4.Arange4.params } -> (
                 let params =
                   Factory.Arange.

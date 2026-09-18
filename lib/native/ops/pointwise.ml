@@ -42,6 +42,7 @@ module Floor_div_scalar = Pointwise_binary.Floor_div_scalar
 module Gt_scalar = Pointwise_binary.Gt_scalar
 module Mul = Pointwise_binary.Mul
 module Mul_scalar = Pointwise_binary.Mul_scalar
+module Ne_scalar = Pointwise_binary.Ne_scalar
 module Pow = Pointwise_binary.Pow
 module Rpow_scalar = Pointwise_binary.Rpow_scalar
 module Rsub_scalar = Pointwise_binary.Rsub_scalar

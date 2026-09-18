@@ -340,6 +340,12 @@ let op_registry : (module OP) list =
       let project = function Mul_scalar t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Pointwise.Ne_scalar
+
+      let inject t = Ne_scalar t
+      let project = function Ne_scalar t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Pad.Pad
 
       let inject t = Pad t

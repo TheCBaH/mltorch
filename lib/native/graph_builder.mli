@@ -294,6 +294,10 @@ val meshgrid : ?name:string -> tensor_ref list -> Tensor_id.t list t
 val mul : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 val mul_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
 
+(* [ne.Scalar(self, other) -> self != other] -- real ATen output dtype Bool,
+   unconditionally declared here (see .ml). *)
+val ne_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
+
 val pad : ?name:string -> Pad.Pad.params -> tensor_ref -> Tensor_id.t t
 (** Narrows a [Constant] fill to its f32-canonical value, as [add_scalar] does
     for its scalar. Negative pad entries are accepted (they crop); the shape

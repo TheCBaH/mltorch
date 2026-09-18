@@ -249,6 +249,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Mul_scalar { Pointwise.Scalar_bin.x; scalar } ->
         let module C = Pointwise.Mul_scalar.Compute (S) in
         C.pixel ~scalar (operand x) out
+    | Ne_scalar { Pointwise.Scalar_bin.x; scalar } ->
+        let module C = Pointwise.Ne_scalar.Compute (S) in
+        C.pixel ~scalar (operand x) out
     | Pad4 { Ops4.Pad4.params; x } ->
         let module C = Pad.Pad.Compute (S) in
         C.pixel

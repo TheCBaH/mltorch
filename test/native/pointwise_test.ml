@@ -320,6 +320,27 @@ let%expect_test "Direct: eq_scalar" =
        (E.pixel ~scalar:2. x));
   [%expect {| tensor f32 [C=5] {0, 1, 0, 0, 0} |}]
 
+(* [ne.Scalar(self, other) -> self != other]: real ATen's [ne] is [eq]'s
+   logical negation, so a NaN operand is TRUE against ANY scalar (NaN is
+   unequal to everything, including itself) -- the exact pointwise negation
+   of "Direct: eq_scalar" above's own {0, 1, 0, 0, 0}. Same two-level split
+   as [Eq_scalar]/[Gt_scalar]: this level exercises [Compute]'s own
+   [SEMANTICS]-generic float 0./1. formula directly; [Eval_direct]'s own
+   dispatch arm lands genuine [Payload.Bool] storage from the same
+   formula. *)
+let%expect_test "Direct: ne_scalar" =
+  let module N = Pointwise.Ne_scalar.Compute (Direct) in
+  let x_shape = s1c 5 in
+  let x =
+    Tensor.materialize x_shape (fun c ->
+        [| 1.; 2.; 3.; Float.nan; Float.neg_infinity |].(chan c))
+  in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Pointwise.Ne_scalar.output_shape x_shape)
+       (N.pixel ~scalar:2. x));
+  [%expect {| tensor f32 [C=5] {1, 0, 1, 1, 1} |}]
+
 (* [gt.Scalar(self, other) -> self > other]: strict ordering, so an exact
    equality is false (not merely the closest boundary case: 2. > 2. is
    false), and a NaN operand is false on either side of the comparison

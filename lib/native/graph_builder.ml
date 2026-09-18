@@ -479,6 +479,15 @@ let mul_scalar ?name scalar x =
   op1 ?name ~kind:"mul_scalar"
     (Mul_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar })
 
+(* Real ATen's [ne.Scalar] always produces a bool result, so the output is
+   unconditionally [Bool] (matching [eq_scalar]/[gt_scalar]'s own convention
+   above) -- not conditioned on the operand's format. *)
+let ne_scalar ?name scalar x =
+  op1 ?name
+    ~fmt:Payload.(Fmt Bool)
+    ~kind:"ne_scalar"
+    (Ne_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar })
+
 (* The fill is narrowed to f32 HERE, at the one point every construction path
    goes through, exactly as [add_scalar]'s scalar is: an unnarrowed float64
    literal would compute in a precision the payload cannot store. *)

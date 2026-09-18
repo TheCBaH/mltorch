@@ -114,6 +114,14 @@ type op =
   | Meshgrid of Meshgrid.Meshgrid.t
   | Mul of Pointwise.Mul.t
   | Mul_scalar of Pointwise.Mul_scalar.t
+  (* `ne.Scalar(self, other) -> self != other`, real ATen output dtype Bool
+     (design section 3's "Equality" policy negated: [Eq_scalar]'s own IEEE
+     numerical equality, NaN unequal, signed zeros equal -- so [ne] on a NaN
+     operand is TRUE). No corpus caller today (see the implementation
+     tracker's P6.4 entry); landed on Direct only, matching [Eq_scalar]'s
+     own Direct-first precedent above -- Symbolic/Native4D/importer
+     legalization remain open. *)
+  | Ne_scalar of Pointwise.Ne_scalar.t
   | Pad of Pad.Pad.t
   | Permute of Permute.Permute.t
   | Pow of Pointwise.Pow.t

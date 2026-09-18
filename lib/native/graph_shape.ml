@@ -366,6 +366,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Mul_scalar.output_shape x_shape) in
       [ out ]
+  | Ne_scalar { Pointwise.Scalar_bin.x; _ } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Ne_scalar.output_shape x_shape) in
+      [ out ]
   | Pad { Pad.Pad.params; x } ->
       let* x_shape = shape x in
       let+ out = widen (Pad.Pad.output_shape ~x_shape params) in

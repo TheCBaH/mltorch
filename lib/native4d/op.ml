@@ -69,6 +69,7 @@ type op =
   | Meshgrid of Meshgrid.Meshgrid.t
   | Mul of Pointwise.Mul.t
   | Mul_scalar of Pointwise.Mul_scalar.t
+  | Ne_scalar of Pointwise.Ne_scalar.t
   | Pad4 of Ops4.Pad4.t
   | Permute4 of Ops4.Permute4.t
   | Pow of Pointwise.Pow.t
@@ -384,6 +385,12 @@ let op_registry : (module OP) list =
 
       let inject t = Mul_scalar t
       let project = function Mul_scalar t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Ne_scalar
+
+      let inject t = Ne_scalar t
+      let project = function Ne_scalar t -> Some t | _ -> None
     end : OP);
     (module struct
       include Ops4.Pad4
