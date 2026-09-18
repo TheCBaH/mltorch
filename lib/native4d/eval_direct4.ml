@@ -34,6 +34,7 @@ type error =
   | `Unsupported_bool_arithmetic of mixed_dtype
   | `Unsupported_bool_scalar_arithmetic of scalar_op
   | `Unsupported_mixed_dtype of mixed_dtype
+  | `Unsupported_to_copy_bool_source of Payload.packed_fmt
   | `Unsupported_to_copy_long_source of Payload.packed_fmt ]
 
 let pp_context ppf = function
@@ -68,6 +69,9 @@ let pp_error ppf : [< error ] -> unit = function
       { mixed_op; a_fmt = Payload.Fmt a_fmt; b_fmt = Payload.Fmt b_fmt } ->
       Fmt.pf ppf "%s: unsupported mixed dtype, a=%s b=%s" mixed_op
         (Payload.fmt_name a_fmt) (Payload.fmt_name b_fmt)
+  | `Unsupported_to_copy_bool_source (Payload.Fmt f) ->
+      Fmt.pf ppf "to_copy: Bool target has no exact Bool output for a %s source"
+        (Payload.fmt_name f)
   | `Unsupported_to_copy_long_source (Payload.Fmt f) ->
       Fmt.pf ppf "to_copy: Long target has no exact I64 output for a %s source"
         (Payload.fmt_name f)
@@ -490,11 +494,10 @@ let eval_node ?region_counters ~limits ~synthetic_ids (g : Graph.graph) env
             (* Explicit int64-input promotion for [To_copy]'s [Float] target,
                and the reverse "Float to I64" cast for its [Long] target --
                the Native4D twins of [Eval_direct]'s own P5.3 arms. [Long]/
-               [Float] are each their own arm rather than one match on
-               [target] because the two directions need entirely different
+               [Float]/[Bool] are each their own arm rather than one match on
+               [target] because the three directions need entirely different
                dispatch shapes (a read-side cast vs. a genuine checked
-               write). [Bool] is untouched -- no distinct storage format
-               exists yet (Gate 6). *)
+               write). *)
             | Op.To_copy
                 { Pointwise.To_copy.target = Pointwise.To_copy.Float; x } -> (
                 let x_sig = Tensor_id.Map.find x g.Graph.Graph.tensors in
@@ -534,6 +537,29 @@ let eval_node ?region_counters ~limits ~synthetic_ids (g : Graph.graph) env
                 | Payload.Fmt other ->
                     Err.fail
                       (`Unsupported_to_copy_long_source (Payload.Fmt other)))
+            (* [To_copy]'s [Bool] target now writes real [Payload.Bool]
+               storage too (P6.3), the Native4D twin of [Eval_direct]'s own
+               arm -- [Builder.to_copy]'s [Bool] case now declares the
+               output edge [Bool] unconditionally (this session), so
+               leaving this to the generic default arm below (F32-only)
+               would reproduce the exact declared/actual mismatch hazard
+               the [Long] arm above already guards against. Reuses
+               [Compute(Direct).pixel]'s own formula UNCHANGED, same as
+               Native's own arm. *)
+            | Op.To_copy
+                { Pointwise.To_copy.target = Pointwise.To_copy.Bool; x } -> (
+                let x_sig = Tensor_id.Map.find x g.Graph.Graph.tensors in
+                match x_sig.Tensor_sig.fmt with
+                | Payload.Fmt Payload.F32 ->
+                    let module C = Pointwise.To_copy.Compute (Direct) in
+                    let x_t = Tensor_id.Map.find x operand_env in
+                    Err.return
+                      (Tensor.materialize_bool (Shape4.to_vec6 out_shape)
+                         (fun coord ->
+                           C.pixel Pointwise.To_copy.Bool x_t coord <> 0.0))
+                | Payload.Fmt other ->
+                    Err.fail
+                      (`Unsupported_to_copy_bool_source (Payload.Fmt other)))
             | Op.Arange4 { Ops4.Arange4.params } -> (
                 let params =
                   Factory.Arange.
