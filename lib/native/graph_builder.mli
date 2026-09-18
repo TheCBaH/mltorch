@@ -185,6 +185,10 @@ val einsum :
    unconditionally declared here (see .ml). *)
 val eq_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
 
+(* [eq.Tensor(self, other) -> self == other] -- real ATen output dtype Bool,
+   unconditionally declared here (see .ml). *)
+val eq_tensor : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
+
 (* Broadcasts [x] to [params.size]. [Graph_shape] rejects a target that is not
    broadcast-compatible with [x]'s own shape (see [Pointwise.Expand.output_shape]). *)
 val expand :
@@ -297,6 +301,10 @@ val mul_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
 (* [ne.Scalar(self, other) -> self != other] -- real ATen output dtype Bool,
    unconditionally declared here (see .ml). *)
 val ne_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
+
+(* [ne.Tensor(self, other) -> self != other] -- real ATen output dtype Bool,
+   unconditionally declared here (see .ml). *)
+val ne_tensor : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 
 val pad : ?name:string -> Pad.Pad.params -> tensor_ref -> Tensor_id.t t
 (** Narrows a [Constant] fill to its f32-canonical value, as [add_scalar] does

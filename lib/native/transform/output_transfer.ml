@@ -136,8 +136,12 @@ let classify (op : op) ~output =
      to [x] AWAY from the scalar also flips 1. to 0. Real ATen's [ne] is
      [eq]'s logical negation, so [Ne_scalar] gets the identical boundary
      reasoning as [Eq_scalar] itself: an arbitrarily small change to [x]
-     across the scalar flips [ne]'s result too. *)
-  | Eq_scalar _ | Gt_scalar _ | Ne_scalar _ -> Discontinuous
+     across the scalar flips [ne]'s result too. [Eq_tensor]/[Ne_tensor] get
+     the identical reasoning against a second TENSOR operand instead of a
+     compile-time scalar: an arbitrarily small change to either operand
+     flips the result the same way. *)
+  | Eq_scalar _ | Eq_tensor _ | Gt_scalar _ | Ne_scalar _ | Ne_tensor _ ->
+      Discontinuous
   | Add _ | Addcmul _ | Add_scalar _ | Adaptive_avg_pool2d _
   | Adaptive_max_pool2d _ | Amax _ | Avg_pool2d _ | Batch_norm _
   | Batch_norm_no_stats _ | Batched_matmul _ | Bmm _ | Clamp _ | Conv1d _

@@ -190,6 +190,10 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Eq_scalar { Pointwise.Scalar_bin.x; scalar } ->
         let module C = Pointwise.Eq_scalar.Compute (S) in
         C.pixel ~scalar (operand x) out
+    | Eq_tensor { Pointwise.Bin.a; b } ->
+        let module C = Pointwise.Eq_tensor.Compute (S) in
+        C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)
+          (operand b) out
     | Gt_scalar { Pointwise.Scalar_bin.x; scalar } ->
         let module C = Pointwise.Gt_scalar.Compute (S) in
         C.pixel ~scalar (operand x) out
@@ -252,6 +256,10 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Ne_scalar { Pointwise.Scalar_bin.x; scalar } ->
         let module C = Pointwise.Ne_scalar.Compute (S) in
         C.pixel ~scalar (operand x) out
+    | Ne_tensor { Pointwise.Bin.a; b } ->
+        let module C = Pointwise.Ne_tensor.Compute (S) in
+        C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)
+          (operand b) out
     | Pad4 { Ops4.Pad4.params; x } ->
         let module C = Pad.Pad.Compute (S) in
         C.pixel

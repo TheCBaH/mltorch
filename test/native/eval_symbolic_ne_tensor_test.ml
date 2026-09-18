@@ -1,0 +1,33 @@
+(* [Ne_tensor]'s Symbolic/Kernel route (P6.4): unlike the Direct-route
+   dispatch arm ([Eval_direct]'s own [Ne_tensor] case, exercised end to end
+   by [ne_tensor_bool_test.ml]), Symbolic has no
+   [Compute_i64]-style Bool-aware arm and [Eval_symbolic.check_mixed_dtype]
+   does not list [Ne_tensor] at all, so [Eval_symbolic.run] builds an
+   ordinary float [Stage.t] for it -- the same [SEMANTICS]-generic 0./1.
+   formula [pointwise_test.ml]'s own "Direct: ne_tensor" fixture exercises
+   directly. [Graph_builder.ne_tensor] still declares the output edge [Bool]
+   unconditionally, so this is a real declared/actual format mismatch, not
+   merely an unexercised path -- this fixture proves the same
+   [Kernel.materializable] F32-only gate [Eq_tensor]'s own analogous fixture
+   proves catches it at [Kernel_adapt.of_stage_program]. *)
+
+let shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:3
+
+let build =
+  Graph_builder.(
+    build ~name:"ne_tensor_symbolic" ~outputs:(fun r -> [ r ])
+    @@
+    let* a = input ~shape ~name:"a" () in
+    let* b = input ~shape ~name:"b" () in
+    ne_tensor ~name:"out" a b)
+  |> Err.or_raise ~pp_error:Graph_builder.pp_error
+
+let%expect_test
+    "Symbolic -> Kernel: Ne_tensor's Bool-declared output is rejected at \
+     kernel construction, not silently computed as float" =
+  let stage_program = Eval_symbolic.run build in
+  let pp_ok fmt _ = Format.pp_print_string fmt "ok" in
+  Format.printf "%a@."
+    (Core.Pretty.err_result ~ok:pp_ok ~error:Kernel_adapt.pp_error)
+    (Kernel_adapt.of_stage_program stage_program);
+  [%expect {| t2: a stored value must be f32 and unquantized, got bool |}]

@@ -152,6 +152,7 @@ let samples : Op.t list =
     Div { Pointwise.Bin.a = x; b = y };
     Div_scalar { Pointwise.Scalar_bin.x; scalar = 2. };
     Eq_scalar { Pointwise.Scalar_bin.x; scalar = 2. };
+    Eq_tensor { Pointwise.Bin.a = x; b = y };
     Expand4
       { Ops4.Expand4.params = { size = Shape4.of_ints ~n:1 ~h:3 ~w:4 ~c:5 }; x };
     Floor_div_scalar { Pointwise.Scalar_bin.x; scalar = 2. };
@@ -227,6 +228,7 @@ let samples : Op.t list =
     Mul { Pointwise.Bin.a = x; b = y };
     Mul_scalar { Pointwise.Scalar_bin.x; scalar = 2. };
     Ne_scalar { Pointwise.Scalar_bin.x; scalar = 2. };
+    Ne_tensor { Pointwise.Bin.a = x; b = y };
     (* Two axes, an asymmetric pad and a mixed pad/crop, so the codec is proved
        on a SIGNED amount rather than only on the padding half of the range. The
        fill is not f32-exact, so a narrowing round trip would be visible. *)
@@ -389,7 +391,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 76, registry: 76 |}]
+  [%expect {| samples: 78, registry: 78 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -441,6 +443,7 @@ let%expect_test "op4: printed" =
     div a=t0 b=t1
     div_scalar x=t0 scalar=2
     eq_scalar x=t0 scalar=2
+    eq_tensor a=t0 b=t1
     expand4 x=t0 params={size=[N=1 H=3 W=4 C=5]}
     floor_div_scalar x=t0 scalar=2
     gelu x=t0 approximate=none
@@ -486,6 +489,7 @@ let%expect_test "op4: printed" =
     mul a=t0 b=t1
     mul_scalar x=t0 scalar=2
     ne_scalar x=t0 scalar=2
+    ne_tensor a=t0 b=t1
     pad4 x=t0 params={pads=[H:1,2, W:-1,3] mode=constant(0.1)}
     permute4 x=t0 perm=[H<-W, W<-H]
     pow x=t0 scalar=2
@@ -536,7 +540,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 76 ops |}]
+  [%expect {| round-tripped 78 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

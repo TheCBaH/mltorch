@@ -117,10 +117,10 @@ let classify (op : Op.t) ~output =
   | To_copy _ -> Output_transfer.Discontinuous
   (* Same zero-test/floor-boundary/comparison reasoning as Native's own
      [Output_transfer] gives [Bitwise_not]/[Floor_div_scalar]/[Eq_scalar]/
-     [Gt_scalar]/[Ne_scalar]: an arbitrarily small change across the boundary
-     flips the result. *)
-  | Bitwise_not _ | Eq_scalar _ | Floor_div_scalar _ | Gt_scalar _ | Ne_scalar _
-    ->
+     [Gt_scalar]/[Ne_scalar]/[Eq_tensor]/[Ne_tensor]: an arbitrarily small
+     change across the boundary flips the result. *)
+  | Bitwise_not _ | Eq_scalar _ | Eq_tensor _ | Floor_div_scalar _ | Gt_scalar _
+  | Ne_scalar _ | Ne_tensor _ ->
       Output_transfer.Discontinuous
   | Unbind _ -> Output_transfer.Reindexing
   (* A weighted blend of up to sixteen input elements, the same argument

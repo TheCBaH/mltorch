@@ -365,6 +365,51 @@ let%expect_test "Direct: gt_scalar" =
        (G.pixel ~scalar:2. x));
   [%expect {| tensor f32 [C=5] {0, 0, 1, 0, 0} |}]
 
+(* [eq.Tensor(self, other) -> self == other]: tensor-tensor form of
+   [Eq_scalar], broadcast via [Binary] instead of [Scalar_binary] since BOTH
+   operands are runtime tensors. Same shape, no broadcast here, so the test
+   isolates the comparison itself: index 3 pairs NaN against NaN, which is
+   still unequal per IEEE (NaN is unequal to itself), matching real ATen's
+   own [eq.Tensor] behavior. *)
+let%expect_test "Direct: eq_tensor" =
+  let module E = Pointwise.Eq_tensor.Compute (Direct) in
+  let a_shape = s1c 5 in
+  let b_shape = s1c 5 in
+  let a =
+    Tensor.materialize a_shape (fun c ->
+        [| 1.; 2.; 3.; Float.nan; Float.neg_infinity |].(chan c))
+  in
+  let b =
+    Tensor.materialize b_shape (fun c ->
+        [| 1.; 5.; 3.; Float.nan; Float.neg_infinity |].(chan c))
+  in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Pointwise.Eq_tensor.output_shape a_shape b_shape)
+       (E.pixel ~a_shape ~b_shape a b));
+  [%expect {| tensor f32 [C=5] {1, 0, 1, 0, 1} |}]
+
+(* [ne.Tensor(self, other) -> self != other]: the exact pointwise negation of
+   "Direct: eq_tensor" above's own {1, 0, 1, 0, 1} -- NaN paired against NaN
+   reads TRUE (unequal to everything, including itself). *)
+let%expect_test "Direct: ne_tensor" =
+  let module N = Pointwise.Ne_tensor.Compute (Direct) in
+  let a_shape = s1c 5 in
+  let b_shape = s1c 5 in
+  let a =
+    Tensor.materialize a_shape (fun c ->
+        [| 1.; 2.; 3.; Float.nan; Float.neg_infinity |].(chan c))
+  in
+  let b =
+    Tensor.materialize b_shape (fun c ->
+        [| 1.; 5.; 3.; Float.nan; Float.neg_infinity |].(chan c))
+  in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Pointwise.Ne_tensor.output_shape a_shape b_shape)
+       (N.pixel ~a_shape ~b_shape a b));
+  [%expect {| tensor f32 [C=5] {0, 1, 0, 1, 0} |}]
+
 (* Broadcast: [b] has an extent-1 axis (W) where [a] does not;
    [Pointwise.broadcast_coord] reads b at index 0 there, so its per-channel value
    fans out across W — and [load] is only ever handed in-bounds indices. *)

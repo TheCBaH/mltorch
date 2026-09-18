@@ -586,6 +586,20 @@ let eval_node ?region_counters ~limits ~synthetic_ids (g : Graph.graph) env
                 Err.return
                   (Tensor.materialize_bool (Shape4.to_vec6 out_shape)
                      (fun coord -> C.pixel ~scalar x_t coord <> 0.0))
+            (* [Eq_tensor] mirrors [Eq_scalar]'s own split, broadcast via
+               [Binary] instead of [Scalar_binary] since both operands are
+               runtime tensors, matching [Builder.eq_tensor]'s own
+               unconditional [Bool] declaration. *)
+            | Op.Eq_tensor { Pointwise.Bin.a; b } ->
+                let module C = Pointwise.Eq_tensor.Compute (Direct) in
+                let a_t = Tensor_id.Map.find a operand_env in
+                let b_t = Tensor_id.Map.find b operand_env in
+                let a_shape = Tensor_id.Map.find a shape_env in
+                let b_shape = Tensor_id.Map.find b shape_env in
+                Err.return
+                  (Tensor.materialize_bool (Shape4.to_vec6 out_shape)
+                     (fun coord ->
+                       C.pixel ~a_shape ~b_shape a_t b_t coord <> 0.0))
             (* [Gt_scalar] mirrors [Bitwise_not]'s own split, the Native4D
                twin of [Eval_direct]'s own arm -- [Eval_op4.Make(S).pixel]'s
                [Gt_scalar] case (added this session) is [SEMANTICS]-generic
@@ -612,6 +626,19 @@ let eval_node ?region_counters ~limits ~synthetic_ids (g : Graph.graph) env
                 Err.return
                   (Tensor.materialize_bool (Shape4.to_vec6 out_shape)
                      (fun coord -> C.pixel ~scalar x_t coord <> 0.0))
+            (* [Ne_tensor] mirrors [Eq_tensor]'s own split exactly (negated),
+               matching [Builder.ne_tensor]'s own unconditional [Bool]
+               declaration. *)
+            | Op.Ne_tensor { Pointwise.Bin.a; b } ->
+                let module C = Pointwise.Ne_tensor.Compute (Direct) in
+                let a_t = Tensor_id.Map.find a operand_env in
+                let b_t = Tensor_id.Map.find b operand_env in
+                let a_shape = Tensor_id.Map.find a shape_env in
+                let b_shape = Tensor_id.Map.find b shape_env in
+                Err.return
+                  (Tensor.materialize_bool (Shape4.to_vec6 out_shape)
+                     (fun coord ->
+                       C.pixel ~a_shape ~b_shape a_t b_t coord <> 0.0))
             | Op.Arange4 { Ops4.Arange4.params } -> (
                 let params =
                   Factory.Arange.

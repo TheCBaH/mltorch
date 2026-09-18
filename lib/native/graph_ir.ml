@@ -208,6 +208,12 @@ let op_registry : (module OP) list =
       let project = function Eq_scalar t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Pointwise.Eq_tensor
+
+      let inject t = Eq_tensor t
+      let project = function Eq_tensor t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Pointwise.Expand
 
       let inject t = Expand t
@@ -344,6 +350,12 @@ let op_registry : (module OP) list =
 
       let inject t = Ne_scalar t
       let project = function Ne_scalar t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Ne_tensor
+
+      let inject t = Ne_tensor t
+      let project = function Ne_tensor t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pad.Pad

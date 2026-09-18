@@ -143,10 +143,14 @@ let lower_node ~view acc (n : node) =
       simple (Op.Rsub_scalar { Pointwise.Rsub_scalar.params; x = op_of x })
   | Eq_scalar { Pointwise.Scalar_bin.x; scalar } ->
       simple (Op.Eq_scalar { Pointwise.Scalar_bin.x = op_of x; scalar })
+  | Eq_tensor { Pointwise.Bin.a; b } ->
+      simple (Op.Eq_tensor { Pointwise.Bin.a = op_of a; b = op_of b })
   | Gt_scalar { Pointwise.Scalar_bin.x; scalar } ->
       simple (Op.Gt_scalar { Pointwise.Scalar_bin.x = op_of x; scalar })
   | Ne_scalar { Pointwise.Scalar_bin.x; scalar } ->
       simple (Op.Ne_scalar { Pointwise.Scalar_bin.x = op_of x; scalar })
+  | Ne_tensor { Pointwise.Bin.a; b } ->
+      simple (Op.Ne_tensor { Pointwise.Bin.a = op_of a; b = op_of b })
   | Bitwise_not { Pointwise.Bitwise_not.x } ->
       simple (Op.Bitwise_not { Pointwise.Bitwise_not.x = op_of x })
   | Clamp { Pointwise.Clamp.params; x } ->

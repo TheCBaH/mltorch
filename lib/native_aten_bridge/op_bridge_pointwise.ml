@@ -202,6 +202,35 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let+ y = gt_scalar scalar x_id in
                [ y ]
            | _ -> assert false))
+  (* [eq.Tensor(self, other) -> self == other], real ATen output dtype Bool.
+     Tensor-tensor form of [eq.Scalar] above (P6.4): both operands are
+     runtime tensors, no compile-time scalar constant, so no corpus-caller
+     caveat applies to the ARGUMENT shape here (broadcast via [Graph_builder.
+     eq_tensor]'s own [Binary] dispatch) -- but real ATen coverage is still
+     native-only, the bridge has no Bool round trip to real ATen yet. *)
+  | "torch.ops.aten.eq.Tensor" ->
+      Some
+        (let* a = native_tensor_arg aten_env node "self" in
+         let* b = native_tensor_arg aten_env node "other" in
+         build_g ~name:"eq_tensor" [ a; b ] (function
+           | [ a_id; b_id ] ->
+               let open Graph_builder in
+               let+ y = eq_tensor a_id b_id in
+               [ y ]
+           | _ -> assert false))
+  (* [ne.Tensor(self, other) -> self != other], real ATen output dtype Bool,
+     tensor-tensor form of [ne.Scalar] below (P6.4), same discipline as
+     [eq.Tensor] just above. *)
+  | "torch.ops.aten.ne.Tensor" ->
+      Some
+        (let* a = native_tensor_arg aten_env node "self" in
+         let* b = native_tensor_arg aten_env node "other" in
+         build_g ~name:"ne_tensor" [ a; b ] (function
+           | [ a_id; b_id ] ->
+               let open Graph_builder in
+               let+ y = ne_tensor a_id b_id in
+               [ y ]
+           | _ -> assert false))
   (* [ne.Scalar(self, other) -> self != other], real ATen output dtype Bool.
      Same discipline as [eq.Scalar]/[gt.Scalar] above (P6.4): [other] is a
      compile-time constant, no corpus caller today, exercised only by a

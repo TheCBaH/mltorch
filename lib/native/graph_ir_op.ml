@@ -41,6 +41,7 @@ type op =
   | Div_scalar of Pointwise.Div_scalar.t
   | Discard of { x : tensor_ref }
   | Eq_scalar of Pointwise.Eq_scalar.t
+  | Eq_tensor of Pointwise.Eq_tensor.t
   | Expand of Pointwise.Expand.t
   | Eye of Factory.Eye.t
   | Floor_div_scalar of Pointwise.Floor_div_scalar.t
@@ -64,6 +65,7 @@ type op =
   | Mul of Pointwise.Mul.t
   | Mul_scalar of Pointwise.Mul_scalar.t
   | Ne_scalar of Pointwise.Ne_scalar.t
+  | Ne_tensor of Pointwise.Ne_tensor.t
   | Pad of Pad.Pad.t
   | Permute of Permute.Permute.t
   | Pow of Pointwise.Pow.t

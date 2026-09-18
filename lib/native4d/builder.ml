@@ -251,6 +251,11 @@ let grouped_conv2d params ~x ~weight ?bias () =
 let eq_scalar scalar x =
   op1 ~fmt:Payload.(Fmt Bool) (Op.Eq_scalar { Pointwise.Scalar_bin.x; scalar })
 
+(* Unconditionally [Bool], the tensor-tensor twin of [eq_scalar] above and
+   Native's own [Graph_builder.eq_tensor]. *)
+let eq_tensor a b =
+  op1 ~fmt:Payload.(Fmt Bool) (Op.Eq_tensor { Pointwise.Bin.a; b })
+
 (* Unconditionally [Bool], matching [to_copy]/[bitwise_not]'s own convention
    above and Native's own [Graph_builder.gt_scalar] -- real ATen's [gt.
    Scalar] always produces a bool result. *)
@@ -329,6 +334,11 @@ let mul_scalar scalar x = op1 (Op.Mul_scalar { Pointwise.Scalar_bin.x; scalar })
    Scalar] always produces a bool result. *)
 let ne_scalar scalar x =
   op1 ~fmt:Payload.(Fmt Bool) (Op.Ne_scalar { Pointwise.Scalar_bin.x; scalar })
+
+(* Unconditionally [Bool], the tensor-tensor twin of [ne_scalar] above and
+   Native's own [Graph_builder.ne_tensor]. *)
+let ne_tensor a b =
+  op1 ~fmt:Payload.(Fmt Bool) (Op.Ne_tensor { Pointwise.Bin.a; b })
 
 let pow scalar x = op1 (Op.Pow { Pointwise.Scalar_bin.x; scalar })
 

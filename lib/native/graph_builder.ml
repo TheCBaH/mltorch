@@ -313,6 +313,14 @@ let eq_scalar ?name scalar x =
     ~kind:"eq_scalar"
     (Eq_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar })
 
+(* Real ATen's [eq.Tensor] always produces a bool result, so the output is
+   unconditionally [Bool], the tensor-tensor twin of [eq_scalar] above. *)
+let eq_tensor ?name a b =
+  op1 ?name
+    ~fmt:Payload.(Fmt Bool)
+    ~kind:"eq_tensor"
+    (Eq_tensor { Pointwise.Bin.a; b })
+
 let expand ?name params x =
   op1 ?name ~kind:"expand" (Expand { Pointwise.Expand.params; x })
 
@@ -487,6 +495,14 @@ let ne_scalar ?name scalar x =
     ~fmt:Payload.(Fmt Bool)
     ~kind:"ne_scalar"
     (Ne_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar })
+
+(* Real ATen's [ne.Tensor] always produces a bool result, so the output is
+   unconditionally [Bool], the tensor-tensor twin of [ne_scalar] above. *)
+let ne_tensor ?name a b =
+  op1 ?name
+    ~fmt:Payload.(Fmt Bool)
+    ~kind:"ne_tensor"
+    (Ne_tensor { Pointwise.Bin.a; b })
 
 (* The fill is narrowed to f32 HERE, at the one point every construction path
    goes through, exactly as [add_scalar]'s scalar is: an unnarrowed float64
