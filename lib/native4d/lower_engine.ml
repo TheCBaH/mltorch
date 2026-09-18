@@ -141,6 +141,8 @@ let lower_node ~view acc (n : node) =
       simple (Op.Rpow_scalar { Pointwise.Scalar_bin.x = op_of x; scalar })
   | Rsub_scalar { Pointwise.Rsub_scalar.params; x } ->
       simple (Op.Rsub_scalar { Pointwise.Rsub_scalar.params; x = op_of x })
+  | Gt_scalar { Pointwise.Scalar_bin.x; scalar } ->
+      simple (Op.Gt_scalar { Pointwise.Scalar_bin.x = op_of x; scalar })
   | Bitwise_not { Pointwise.Bitwise_not.x } ->
       simple (Op.Bitwise_not { Pointwise.Bitwise_not.x = op_of x })
   | Clamp { Pointwise.Clamp.params; x } ->
@@ -837,8 +839,5 @@ let lower_node ~view acc (n : node) =
      [Max_pool2d_with_indices]/[Repeat]/[RepeatInterleave]/[Select_scatter]/
      [Softmax]/[Batched_matmul]/[Sdpa]/[Index_tensor]/[Lstm]/[Meshgrid] no
      longer join them: all eleven now have real conversion arms above. *)
-  (* [Gt_scalar] joins this bucket for the reason [Max_dim] already does:
-     a missing counterpart, not an intrinsic one -- see [Domain]'s own
-     comment. *)
-  | Conv3d _ | Discard _ | Gt_scalar _ | Max_dim _ | Unfold _ ->
+  | Conv3d _ | Discard _ | Max_dim _ | Unfold _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))

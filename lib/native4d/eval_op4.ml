@@ -187,6 +187,9 @@ module Make (S : Semantics.SEMANTICS) = struct
           (Graph_shape4.grouped_conv2d_params params)
           ~x_shape:(shape_of x) ~weight_shape:(shape_of weight) ~x:(operand x)
           ~weight:(operand weight) ~bias:(conv_bias weight bias) out
+    | Gt_scalar { Pointwise.Scalar_bin.x; scalar } ->
+        let module C = Pointwise.Gt_scalar.Compute (S) in
+        C.pixel ~scalar (operand x) out
     | Hardsigmoid { Pointwise.Hardsigmoid.x } ->
         let module C = Pointwise.Hardsigmoid.Compute (S) in
         C.pixel (operand x) out

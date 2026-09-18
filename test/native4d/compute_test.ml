@@ -795,7 +795,7 @@ let%expect_test "direct4 = symbolic4: every op has a fixture" =
   Format.printf "fixtures: %d, registry: %d@."
     (List.length (Fixtures4.per_op ()))
     (List.length Op.op_registry);
-  [%expect {| fixtures: 73, registry: 73 |}]
+  [%expect {| fixtures: 74, registry: 74 |}]
 
 let%expect_test "direct4 = symbolic4, bitwise, per op" =
   List.iter
@@ -810,6 +810,7 @@ let%expect_test "direct4 = symbolic4, bitwise, per op" =
     add_scalar             direct = symbolic
     div_scalar             direct = symbolic
     floor_div_scalar       direct = symbolic
+    gt_scalar              direct = symbolic
     bitwise_not            direct = symbolic
     expand4                direct = symbolic
     mul_scalar             direct = symbolic

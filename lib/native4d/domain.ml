@@ -181,8 +181,8 @@ let check_node view (n : node) =
   | Adaptive_max_pool2d _ | Adaptive_max_pool2d_with_indices _ | Avg_pool2d _
   | Bitwise_not _ | Bmm _ | Clamp _ | Clone _ | Col2im _ | Conv1d _ | Conv2d _
   | Conv2d_padding _ | Cos _ | Div _ | Div_scalar _ | Expand _
-  | Floor_div_scalar _ | Gelu _ | Hardsigmoid _ | Hardswish _ | Hardtanh _
-  | Im2col _ | Leaky_relu _ | Linear _ | Lstm _ | Max_pool2d _
+  | Floor_div_scalar _ | Gelu _ | Gt_scalar _ | Hardsigmoid _ | Hardswish _
+  | Hardtanh _ | Im2col _ | Leaky_relu _ | Linear _ | Lstm _ | Max_pool2d _
   | Max_pool2d_with_indices _ | Mul _ | Mul_scalar _ | Pow _ | Relu _ | Repeat _
   | Reshape _ | Rpow_scalar _ | Rsub_scalar _ | Sigmoid _ | Silu _ | Sin _
   | Sqrt _ | Sub _ | To_copy _ | Upsample_bicubic2d _ | Upsample_bilinear2d _
@@ -351,11 +351,6 @@ let check_node view (n : node) =
      same intrinsic-axis boundary [Batched_matmul]'s multi-batch form,
      [Sdpa]'s own D axis, and [Unfold] above are. *)
   | Conv3d _ -> unsupported ()
-  (* A missing counterpart, not an intrinsic boundary -- no Native4D
-     conversion arm exists yet (deferred, matching [Max_dim]'s own
-     precedent above: no corpus caller for any comparison op today, see the
-     implementation tracker's P6.3 census). *)
-  | Gt_scalar _ -> unsupported ()
 
 (* Node predicates FIRST, then the shape rule. The two overlap — a permutation
    that moves C onto D necessarily produces a tensor with extent on D, so either

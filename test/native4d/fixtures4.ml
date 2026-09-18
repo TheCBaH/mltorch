@@ -193,6 +193,7 @@ let per_op () =
       ("add_scalar", unary ~shape:nhwc (Builder.add_scalar 0.5));
       ("div_scalar", unary ~shape:nhwc (Builder.div_scalar 2.));
       ("floor_div_scalar", unary ~shape:nhwc (Builder.floor_div_scalar 2.));
+      ("gt_scalar", unary ~shape:nhwc (Builder.gt_scalar 2.));
       ("bitwise_not", unary ~shape:nhwc Builder.bitwise_not);
       (* Two DIFFERENT fanned axes (H and C), so a fixture that only ever
          broadcast one axis could not catch a wrong per-axis broadcast

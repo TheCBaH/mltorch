@@ -245,6 +245,12 @@ let group_norm4 params ~x ?weight ?bias () =
 let grouped_conv2d params ~x ~weight ?bias () =
   op1 (Op.Grouped_conv2d { Ops4.Grouped_conv_payload.params; x; weight; bias })
 
+(* Unconditionally [Bool], matching [to_copy]/[bitwise_not]'s own convention
+   above and Native's own [Graph_builder.gt_scalar] -- real ATen's [gt.
+   Scalar] always produces a bool result. *)
+let gt_scalar scalar x =
+  op1 ~fmt:Payload.(Fmt Bool) (Op.Gt_scalar { Pointwise.Scalar_bin.x; scalar })
+
 let hardsigmoid x = op1 (Op.Hardsigmoid { Pointwise.Hardsigmoid.x })
 let hardswish x = op1 (Op.Hardswish { Pointwise.Hardswish.x })
 let hardtanh params x = op1 (Op.Hardtanh { Pointwise.Hardtanh.params; x })
