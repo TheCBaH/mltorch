@@ -397,12 +397,7 @@ let quant_contract id (sg : Tensor_sig.t) =
    Caller and captured inputs are unaffected — they carry real data and stay
    free to be f16/bf16/quantized. *)
 let materializable id role (sg : Tensor_sig.t) =
-  let storable =
-    match sg.Tensor_sig.fmt with
-    | Payload.Fmt (Payload.F32 | Payload.Bool) -> true
-    | _ -> false
-  in
-  if storable && Option.is_none sg.Tensor_sig.quant then Err.return ()
+  if Output_spec.storable sg then Err.return ()
   else
     Err.fail
       (`Not_materializable { Format_rule.id; role; fmt = sg.Tensor_sig.fmt })

@@ -139,10 +139,7 @@ let preflight_run ~limits esc (run : Stage.t Region_group.Run.t) =
 (* A Bool-declared stage is computed on the float path and stored as canonical
    Bool bytes; every other declared format keeps the tensor the float path
    produced. [Kernel_eval.stored] is the Kernel-side twin. *)
-let stored (sg : Tensor_sig.t) tensor =
-  match sg.Tensor_sig.fmt with
-  | Payload.Fmt Payload.Bool -> Tensor.bool_of_float_cells tensor
-  | _ -> tensor
+let stored = Output_spec.store
 
 let execute_run ~limits ~region_counters ~lookup esc (binds, result) = function
   | Region_group.Run.Solo st ->

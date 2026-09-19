@@ -233,9 +233,7 @@ let converted esc ?region_counters ~(limits : Kernel.Limits.t)
    stored, so a consumer reads the Bool payload whether the producer ran solo
    or in a group. *)
 let stored (v : Kernel.Value.t) tensor =
-  match v.Kernel.Value.sg.Tensor_sig.fmt with
-  | Payload.Fmt Payload.Bool -> Tensor.bool_of_float_cells tensor
-  | _ -> tensor
+  Output_spec.store v.Kernel.Value.sg tensor
 
 let in_shape (sg : Tensor_sig.t) (c : int Expr.Coord.t) =
   List.find_opt
