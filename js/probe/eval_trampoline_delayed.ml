@@ -374,13 +374,25 @@ let eval_trampoline_delayed ~threshold ?(local = fun _ -> None)
               go reducers depth a (fun depth av -> resume depth k (av < bv)))
 #endif
       | Bool.I64_eq (a, b) ->
+#if defined MELANGE_BACKEND
           eval_i64 reducers depth a (fun depth av ->
               eval_i64 reducers depth b (fun depth bv ->
                   resume depth k (Int64.equal av bv)))
+#else
+          eval_i64 reducers depth b (fun depth bv ->
+              eval_i64 reducers depth a (fun depth av ->
+                  resume depth k (Int64.equal av bv)))
+#endif
       | Bool.I64_lt (a, b) ->
+#if defined MELANGE_BACKEND
           eval_i64 reducers depth a (fun depth av ->
               eval_i64 reducers depth b (fun depth bv ->
                   resume depth k (Int64.compare av bv < 0)))
+#else
+          eval_i64 reducers depth b (fun depth bv ->
+              eval_i64 reducers depth a (fun depth av ->
+                  resume depth k (Int64.compare av bv < 0)))
+#endif
   (* [I64_binary]/[Select] nest on the int64 side exactly like [Binary]/
      [Select] do on the float side, so [eval_i64] is a THIRD member of this
      [and] group, checking its own [depth] against the SAME [threshold] and

@@ -453,13 +453,25 @@ let eval_machine ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
           (Bool_result (Int.equal (idx reducers a) (idx reducers b)))
           frames
     | Guard_state (Bool.I64_eq (a, b), reducers), _ ->
+#if defined MELANGE_BACKEND
         (loop [@tailcall])
           (Eval_i64_state (a, reducers))
           (I64_eq_left (b, reducers) :: frames)
+#else
+        (loop [@tailcall])
+          (Eval_i64_state (b, reducers))
+          (I64_eq_left (a, reducers) :: frames)
+#endif
     | Guard_state (Bool.I64_lt (a, b), reducers), _ ->
+#if defined MELANGE_BACKEND
         (loop [@tailcall])
           (Eval_i64_state (a, reducers))
           (I64_lt_left (b, reducers) :: frames)
+#else
+        (loop [@tailcall])
+          (Eval_i64_state (b, reducers))
+          (I64_lt_left (a, reducers) :: frames)
+#endif
     (* Same backend-measured order as [Binary] above. *)
     | Guard_state (Bool.Value_eq (a, b), reducers), _ ->
 #if defined MELANGE_BACKEND
@@ -627,7 +639,11 @@ let eval_machine ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
           (Eval_i64_state (second_expr, reducers))
           (I64_lt_right first :: rest)
     | I64_result second, I64_lt_right first :: rest ->
+#if defined MELANGE_BACKEND
         (loop [@tailcall]) (Bool_result (Int64.compare first second < 0)) rest
+#else
+        (loop [@tailcall]) (Bool_result (Int64.compare second first < 0)) rest
+#endif
     | (Float_result _ | Bool_result _ | I64_result _), [] -> state
     | (Bool_result _ | Float_result _ | I64_result _), _ -> assert false
   in
