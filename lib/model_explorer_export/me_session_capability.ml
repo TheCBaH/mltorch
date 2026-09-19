@@ -116,6 +116,7 @@ module Capability = struct
     | Over_limit
     | Prerequisite_unavailable
     | Requires_payloads
+    | Unsupported_dtype
     | Unsupported_graph_shape
     | Unsupported_input
     | Unsupported_operator
@@ -166,6 +167,7 @@ module Capability = struct
         ("over_limit", Over_limit);
         ("prerequisite_unavailable", Prerequisite_unavailable);
         ("requires_payloads", Requires_payloads);
+        ("unsupported_dtype", Unsupported_dtype);
         ("unsupported_graph_shape", Unsupported_graph_shape);
         ("unsupported_input", Unsupported_input);
         ("unsupported_operator", Unsupported_operator);

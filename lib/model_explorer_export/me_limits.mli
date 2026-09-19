@@ -612,6 +612,7 @@ module Diagnostic : sig
               only about how it ended. *)
       | Stale_epoch
       | Unsupported_detail_key
+      | Unsupported_dtype
       | Unsupported_graph_shape
       | Unsupported_input
       | Unsupported_operator

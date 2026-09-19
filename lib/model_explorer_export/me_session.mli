@@ -187,6 +187,7 @@ module Capability : sig
     | Over_limit
     | Prerequisite_unavailable
     | Requires_payloads
+    | Unsupported_dtype
     | Unsupported_graph_shape
     | Unsupported_input
     | Unsupported_operator

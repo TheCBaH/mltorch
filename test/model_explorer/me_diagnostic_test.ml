@@ -40,8 +40,8 @@ let%expect_test "the vocabulary is closed and round-trips" =
   Printf.printf "\n%d codes\n" (List.length D.Code.all);
   [%expect
     {|
-    over_limit malformed_request invalid_limits invalid_source malformed_response request_in_flight inconsistent_mount settlement_mismatch buffer_mismatch not_an_array_buffer stale_epoch unsupported_detail_key key_disagrees_with_ids unsupported_operator unsupported_input unsupported_graph_shape outside_dialect_domain requires_payloads prerequisite_unavailable not_implemented internal
-    21 codes
+    over_limit malformed_request invalid_limits invalid_source malformed_response request_in_flight inconsistent_mount settlement_mismatch buffer_mismatch not_an_array_buffer stale_epoch unsupported_detail_key key_disagrees_with_ids unsupported_operator unsupported_input unsupported_dtype unsupported_graph_shape outside_dialect_domain requires_payloads prerequisite_unavailable not_implemented internal
+    22 codes
     |}]
 
 let%expect_test "an unknown tag is a named failure, not a silent drop" =
@@ -239,8 +239,9 @@ let%expect_test "an unknown code on the wire is refused" =
     malformed_response, request_in_flight, inconsistent_mount,
     settlement_mismatch, buffer_mismatch, not_an_array_buffer, stale_epoch,
     unsupported_detail_key, key_disagrees_with_ids, unsupported_operator,
-    unsupported_input, unsupported_graph_shape, outside_dialect_domain,
-    requires_payloads, prerequisite_unavailable, not_implemented or internal.
+    unsupported_input, unsupported_dtype, unsupported_graph_shape,
+    outside_dialect_domain, requires_payloads, prerequisite_unavailable,
+    not_implemented or internal.
     File "-":
     File "-": in member code of
     File "-", line 1, characters 0-27: diagnostic object

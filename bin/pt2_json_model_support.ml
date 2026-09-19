@@ -55,6 +55,7 @@ module C = Me_session.Capability
 
 let reason_name : C.reason -> string = function
   | C.Unsupported_operator -> "unsupported_operator"
+  | C.Unsupported_dtype -> "unsupported_dtype"
   | C.Unsupported_input -> "unsupported_input"
   | C.Unsupported_graph_shape -> "unsupported_graph_shape"
   | C.Outside_dialect_domain -> "outside_dialect_domain"
