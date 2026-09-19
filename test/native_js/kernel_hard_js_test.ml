@@ -93,7 +93,7 @@ let%expect_test
   (* [d = 2], so each value contributes [d + 2 = 4] to the combined depth:
      [3072 * 4 = 12288], exactly native_js's own [Hard.eval_depth] (12288 --
      see js/jsoo/native_js/kernel_hard.ml; native's own mirror-independent
-     value is 1536, and this test would need different constants there).
+     value is 1280, and this test would need different constants there).
      One more value of the same shape reaches 12292, past the ceiling.
      Needs [max_dep_depth]/[max_values] above the chain length -- both
      still well under their own unchanged Hard ceilings (4096, 65536). *)

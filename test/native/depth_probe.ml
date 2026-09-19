@@ -20,7 +20,7 @@
 
    Before [Scan_at] widened [Value.t] and [Eval.value], the evaluator was the
    outlier in the other direction: it survived 4096 under node and failed at
-   8192. The current accepted ceiling is 1536 and is asserted below. Exact
+   8192. The current accepted ceiling is 1280 and is asserted below. Exact
    failure frontiers are diagnostic rather than contractual because they move
    with whole-program linking and V8 optimization. The combined ceiling remains
    higher than the per-body one because a whole-program resnet18 kernel reaches
@@ -225,9 +225,12 @@ let%expect_test "the accepted frontier survives in combination" =
          frame in every [eval], not only the int64 ones): (48, 24) now
          overflows under node and (48, 23) is the last that survives. *)
       (48, 23);
-      (* Re-measured for the same reason: (16, 78), product 1248, replaces
-         the former (16, 90); (16, 79) is rejected by the static depth gate. *)
-      (16, 78);
+      (* Re-measured for the same reason: (16, 72), product 1152, replaces
+         the former (16, 90); (16, 79) is rejected by the static depth gate.
+         (16, 78) survived only some runs under node (8 of 12, then 0 of 12
+         once other points ran beside it) and 72-76 survived every run, so 72
+         leaves a margin below that band. *)
+      (16, 72);
       (8, 125);
     ];
   (* Everything above sits under the DEFAULT max_depth of 128. The public
@@ -251,7 +254,7 @@ let%expect_test "the accepted frontier survives in combination" =
     n= 97 d=  1: ok
     n= 97 d= 10: ok
     n= 48 d= 23: ok
-    n= 16 d= 78: ok
+    n= 16 d= 72: ok
     n=  8 d=125: ok
     n=  5 d=254 at Hard.depth: ok |}]
 

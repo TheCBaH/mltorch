@@ -13,7 +13,8 @@
    computes) is 6238, reached by csatv2 (mobilenetv5_base is next at 5313;
    every other model in the corpus is under 4800). 12288 is ~2x that
    measured maximum -- the same headroom multiple lib/native/kernel_hard.ml's
-   own comment used over resnet18's ~770 to reach native's 1536 -- and it
+   own comment used over resnet18's ~770 to reach native's original 1536,
+   since re-measured down to 1280 -- and it
    is a small, deliberate fraction of the 20,000-deep smoke case Stage 6
    already proved the installed [eval_hybrid ~cutoff:50] driver survives on
    both JS backends, so this is not the adversarial ceiling, just a
