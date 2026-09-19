@@ -252,7 +252,13 @@ and rebuild_i64 ~idx ~src ~on_load ~on_i64_load ~on_i64_local ~on_i64_local_at
       in
       ( Value.I64_sum
           (* Bounds sit OUTSIDE the binder, as for a float [Reduce]. *)
-          { i64_var; i64_lo = idxe r.i64_lo; i64_hi = idxe r.i64_hi; i64_body },
+          {
+            i64_kind = r.i64_kind;
+            i64_var;
+            i64_lo = idxe r.i64_lo;
+            i64_hi = idxe r.i64_hi;
+            i64_body;
+          },
         st )
   | Value.Select (c, a, b) ->
       let c, st =

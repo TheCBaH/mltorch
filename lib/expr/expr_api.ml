@@ -243,14 +243,16 @@ module type S = sig
     }
 
     type i64 = private {
+      i64_kind : kind;
       i64_var : Reduce_var.t;
       i64_lo : Role.Position.t Index.t;
       i64_hi : Role.Delta.t Index.t;
       i64_body : int64 Value.t;
     }
-    (** The int64 carrier's reduction: a sum over [i64_lo..i64_hi) of an int64
-        body, accumulated exactly (modular two's-complement, empty range
-        [0L]). *)
+    (** The int64 carrier's reduction over [i64_lo..i64_hi) of an int64 body:
+        [Sum] is exact modular two's-complement (empty range [0L]);
+        [Max]/[Argmax_value] the signed maximum (empty range [Int64.min_int]);
+        [Argmax_index] the first maximum's position as an exact int64. *)
   end
 
   and Scan : sig
@@ -572,13 +574,21 @@ module type S = sig
       val ( let+ ) : 'a t -> ('a -> 'b) -> 'b t
     end
 
-    val i64_sum :
+    val i64_reduction :
+      kind:Reduction.kind ->
       lo:Role.Position.t Index.t ->
       hi:Role.Delta.t Index.t ->
       (Role.Position.t Index.t -> int64 Value.t t) ->
       int64 Value.t t
     (** The int64 twin of [reduction]: allocates the variable and scopes it by
-        construction, and the sum accumulates exactly in int64. *)
+        construction; the accumulator is exact int64, never a float. *)
+
+    val i64_sum :
+      lo:Role.Position.t Index.t ->
+      hi:Role.Delta.t Index.t ->
+      (Role.Position.t Index.t -> int64 Value.t t) ->
+      int64 Value.t t
+    (** [i64_reduction ~kind:Sum]. *)
 
     val reduction :
       kind:Reduction.kind ->

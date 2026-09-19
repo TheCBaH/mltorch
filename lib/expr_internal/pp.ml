@@ -214,7 +214,9 @@ and at_i64 ~names env lenv n fmt (e : int64 Value.t) =
       (* Named before descending, like a float [Reduce]. *)
       let name = Fmt.str "r%d" n in
       let inner = Reduce_var.Map.add r.i64_var name env in
-      Fmt.pf fmt "i64_sum(%s=%a..%a: " name idxe r.i64_lo idxe r.i64_hi;
+      Fmt.pf fmt "i64_%s(%s=%a..%a: "
+        (Reduction.kind_name r.i64_kind)
+        name idxe r.i64_lo idxe r.i64_hi;
       let n = at_i64 ~names inner lenv (n + 1) fmt r.i64_body in
       Fmt.pf fmt ")";
       n

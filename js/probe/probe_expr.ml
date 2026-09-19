@@ -131,6 +131,27 @@ let deep_i64_sum_case =
   done;
   Value.i64_to_float !e
 
+(* An int64 argmax (of -(i-2)^2 over i < 4, so index 2) at the bottom of the same
+   chain: the machine's argmax frame carries best value and position. *)
+let deep_i64_argmax_case =
+  let core =
+    Builder.run
+      (Builder.i64_reduction ~kind:Reduction.Argmax_index ~lo:Index.zero
+         ~hi:(Index.const 4) (fun r ->
+           let d =
+             Value.i64_sub
+               (Value.i64_of_index (Index.of_position r))
+               (Value.i64_const 2L)
+           in
+           Builder.return
+             (Value.i64_sub (Value.i64_const 0L) (Value.i64_mul d d))))
+  in
+  let e = ref core in
+  for _ = 1 to deep_n do
+    e := Value.i64_add !e (Value.i64_const 1L)
+  done;
+  Value.i64_to_float !e
+
 let deep_i64_select_case =
   Value.i64_to_float
     (Value.select
@@ -187,7 +208,12 @@ let run_deep () =
       ~expected:(float_of_int (deep_n + 6))
       (eval deep_i64_sum_case)
   in
-  exit (if ok1 && ok2 && ok3 && ok4 && ok5 && ok6 then 0 else 1)
+  let ok7 =
+    check_closed_form "deep_i64_argmax"
+      ~expected:(float_of_int (deep_n + 2))
+      (eval deep_i64_argmax_case)
+  in
+  exit (if ok1 && ok2 && ok3 && ok4 && ok5 && ok6 && ok7 then 0 else 1)
 
 let run_shallow () =
   case "arithmetic" arithmetic_case;

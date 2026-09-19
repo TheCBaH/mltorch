@@ -369,23 +369,35 @@ let value_at (type a) (scalar : a Scalar.t)
      answers from [prev_row]; every other local reference in [update] still
      resolves through the caller's own [local]/[local_at], since a Region
      scan's update legitimately reads earlier Region locals. *)
-  (* The exact int64 twin of [Sum]'s ordered left fold: modular two's-complement
-     addition from [0L], no float accumulator. A sibling rather than an inline
-     arm of [eval] so its locals do not enlarge [eval]'s own stack frame, which
-     the depth ceilings are measured against. *)
+  (* The exact int64 twin of the float reductions' ordered left fold (see
+     [Value.i64_reduce_combine] for each kind's policy): no float accumulator.
+     A sibling rather than an inline arm of [eval] so its locals do not enlarge
+     [eval]'s own stack frame, which the depth ceilings are measured against. *)
   and eval_i64_sum depth reducers (r : Expr_repr.i64_reduction) : int64 =
     let lo = idx reducers r.i64_lo and hi = idx reducers r.i64_hi in
-    let rec fold i acc =
-      if i >= hi then acc
-      else
-        let bound v =
-          if Reduce_var.equal v r.i64_var then Some i else reducers v
+    let bind i v = if Reduce_var.equal v r.i64_var then Some i else reducers v in
+    match r.i64_kind with
+    | Reduction.Argmax_index ->
+        let rec fold i best best_i =
+          if i >= hi then Int64.of_int best_i
+          else
+            let value = eval Scalar.I64 depth (bind i) r.i64_body in
+            on_reduction ();
+            if Value.i64_argmax_displaces ~best ~value then
+              (fold [@tailcall]) (i + 1) value i
+            else (fold [@tailcall]) (i + 1) best best_i
         in
-        on_reduction ();
-        (fold [@tailcall]) (i + 1)
-          (Int64.add acc (eval Scalar.I64 depth bound r.i64_body))
-    in
-    fold lo 0L
+        fold lo Int64.min_int lo
+    | (Reduction.Sum | Reduction.Max | Reduction.Argmax_value) as kind ->
+        let combine = Value.i64_reduce_combine kind in
+        let rec fold i acc =
+          if i >= hi then acc
+          else (
+            on_reduction ();
+            (fold [@tailcall]) (i + 1)
+              (combine acc (eval Scalar.I64 depth (bind i) r.i64_body)))
+        in
+        fold lo (Value.i64_reduce_init kind)
 
   and eval_scan_at depth reducers s row_i lane_i : float =
     let row = idx reducers row_i and lane = idx reducers lane_i in
@@ -682,16 +694,28 @@ let value ?(local : Local_var.t -> float option = fun _ -> None)
   (* See the cutoff branch's [eval_i64_sum]. *)
   and eval_i64_sum reducers (r : Expr_repr.i64_reduction) : int64 =
     let lo = idx reducers r.i64_lo and hi = idx reducers r.i64_hi in
-    let rec fold i acc =
-      if i >= hi then acc
-      else
-        let bound v =
-          if Reduce_var.equal v r.i64_var then Some i else reducers v
+    let bind i v = if Reduce_var.equal v r.i64_var then Some i else reducers v in
+    match r.i64_kind with
+    | Reduction.Argmax_index ->
+        let rec fold i best best_i =
+          if i >= hi then Int64.of_int best_i
+          else
+            let value = eval (bind i) r.i64_body in
+            on_reduction ();
+            if Value.i64_argmax_displaces ~best ~value then
+              (fold [@tailcall]) (i + 1) value i
+            else (fold [@tailcall]) (i + 1) best best_i
         in
-        on_reduction ();
-        (fold [@tailcall]) (i + 1) (Int64.add acc (eval bound r.i64_body))
-    in
-    fold lo 0L
+        fold lo Int64.min_int lo
+    | (Reduction.Sum | Reduction.Max | Reduction.Argmax_value) as kind ->
+        let combine = Value.i64_reduce_combine kind in
+        let rec fold i acc =
+          if i >= hi then acc
+          else (
+            on_reduction ();
+            (fold [@tailcall]) (i + 1) (combine acc (eval (bind i) r.i64_body)))
+        in
+        fold lo (Value.i64_reduce_init kind)
 
   and eval_scan_at reducers s row_i lane_i : float =
     let row = idx reducers row_i and lane = idx reducers lane_i in

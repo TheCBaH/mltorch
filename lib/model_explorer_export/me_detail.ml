@@ -550,7 +550,8 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
     | Expr.Value.I64_sum reduction ->
         let id =
           add ~parent ~role ~language:"value" ~constructor:"i64_sum"
-            ~label:"i64_sum" ()
+            ~label:("i64_" ^ Expr.Reduction.kind_name reduction.i64_kind)
+            ()
         in
         walk_index scope ~parent:id ~role:"lower" reduction.i64_lo;
         walk_index scope ~parent:id ~role:"upper" reduction.i64_hi;

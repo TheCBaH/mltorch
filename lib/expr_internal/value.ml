@@ -78,6 +78,25 @@ let apply_i64_binary = function
   | I64_mul -> Int64.mul
   | I64_sub -> Int64.sub
 
+(* The int64 reduction's ordered left fold, shared by every evaluator so the
+   backends cannot drift. [Sum] is modular two's-complement addition from [0L].
+   [Max]/[Argmax_value] keep the signed maximum from [Int64.min_int] (an empty
+   range is [Int64.min_int]). [Argmax_index] folds the same maximum but reports
+   the position of the FIRST maximum: a later value must be strictly greater to
+   displace the incumbent, and an empty range is [lo] -- exactly the float
+   [Argmax_index]'s tie and empty-range behaviour, with no NaN to consider. *)
+let i64_reduce_init = function
+  | Reduction.Sum -> 0L
+  | Reduction.Max | Reduction.Argmax_value | Reduction.Argmax_index ->
+      Int64.min_int
+
+let i64_reduce_combine = function
+  | Reduction.Sum -> Int64.add
+  | Reduction.Max | Reduction.Argmax_value | Reduction.Argmax_index ->
+      fun acc v -> if Int64.compare v acc > 0 then v else acc
+
+let i64_argmax_displaces ~best ~value = Int64.compare value best > 0
+
 (* The design's "Float to I64" policy: truncate finite values in
    [-2^63, 2^63) toward zero (what [Int64.of_float] does once the input is
    known to be in range); reject NaN, infinities and out-of-range values as
@@ -440,6 +459,7 @@ let compare a b =
         <?> fun () -> cmp_index ea eb i j
     | I64_of_index x, I64_of_index y -> cmp_index ea eb x y
     | I64_sum r, I64_sum s ->
+        Stdlib.compare r.i64_kind s.i64_kind <?> fun () ->
         cmp_index ea eb r.i64_lo s.i64_lo <?> fun () ->
         cmp_index ea eb r.i64_hi s.i64_hi <?> fun () ->
         cmp_i64
@@ -582,6 +602,7 @@ let hash e =
     | I64_local_at (v, i) -> idx env (mix h (local_hash lenv v)) i
     | I64_of_index i -> idx env h i
     | I64_sum r ->
+        let h = mix h (Hashtbl.hash r.i64_kind) in
         let h = idx env (idx env h r.i64_lo) r.i64_hi in
         hash_i64 (Reduce_var.Map.add r.i64_var n env) lenv (n + 1) h r.i64_body
     | Select (c, a, b) ->
