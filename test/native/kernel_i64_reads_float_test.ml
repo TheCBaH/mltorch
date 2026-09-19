@@ -128,3 +128,36 @@ let%expect_test "an int64 value reading an unknown id is still rejected" =
        ~values:[] ~outputs:[] ());
   [%expect
     {| t1: an int64 value may only read an input, a float value or an earlier int64 value |}]
+
+(* t1 = t0 + 0.5 is read by the float t3 (which fusion may inline) AND by the
+   int64 t2. The int64 read must still find a real t1 even when the plan
+   virtualizes t1 for t3. *)
+let shared =
+  Kernel.create
+    ~inputs:[ input 0 ]
+    ~values_i64:[ value_i64 2 (Expr.Value.float_to_i64 (load 1)) ]
+    ~values:
+      [
+        float_value 1 (Expr.Value.add (load 0) (Expr.Value.const 0.5));
+        float_value 3 (Expr.Value.mul (load 1) (Expr.Value.const 2.));
+      ]
+    ~outputs:[ tid 3 ]
+    ()
+  |> Err.or_raise ~pp_error:Kernel.pp_error
+
+let%expect_test "a float virtualized for one reader is still real for the int64"
+    =
+  let plan, _ = Fusion_plan.plan shared in
+  Fmt.pr "virtual uses: %d@."
+    (Kernel.Use.Set.cardinal plan.Fusion_plan.virtual_uses);
+  let r =
+    Err.or_raise ~pp_error:Kernel_eval.pp_error
+      (Kernel_eval.run_plan plan ~bind)
+  in
+  Fmt.pr "t2 = %s@.t3 = %s@."
+    (ints (Tensor_id.Map.find (tid 2) r))
+    (floats (Tensor_id.Map.find (tid 3) r));
+  [%expect {|
+    virtual uses: 1
+    t2 = 2,-2,3
+    t3 = 4.8,-4.4,7 |}]
