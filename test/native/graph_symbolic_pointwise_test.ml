@@ -155,11 +155,10 @@ let%expect_test "Symbolic graph: rsub_scalar stage DAG + ground matches Direct"
 (* [Long] exercises [trunc], the new primitive -- [Float]/[Bool] reuse
    [select]/[lt], already covered by every other staged-select test here.
 
-   An F32 operand now lowers [Long] to an exact int64 stage
-   ([float_to_i64], a [Stage_i64.t]), which [Stage_program.ground] cannot see:
-   the ground result is "missing output tensor". The int64 answer is checked
-   through [Kernel_adapt]/[Kernel_eval] instead, against [Eval_direct], in
-   [eval_symbolic_i64_to_copy_long_test.ml]. *)
+   An F32 operand lowers [Long] to an exact int64 stage ([float_to_i64], a
+   [Stage_i64.t]); [Stage_program.ground] evaluates int64 stages too, so the
+   grounded result is a genuine I64 tensor, compared with [Eval_direct] below.
+   The Kernel route is covered by [eval_symbolic_i64_to_copy_long_test.ml]. *)
 let%expect_test
     "Symbolic graph: to_copy (long) stage DAG + ground matches Direct" =
   let result =
@@ -192,8 +191,10 @@ let%expect_test
     t1 = float_to_i64(t0[N,T,D,H,W,C])
     outputs: t1 |}];
   Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
-  [%expect {|
-    missing output tensor t1 |}]
+  [%expect
+    {|
+    ground = tensor i64 [C=4] {-1, 0, 2, 3}
+    ground matches direct: true |}]
 
 (* [a]'s H axis is 1; [size]'s is 2 -- so the staged read must show [H] pinned
    to the constant 0 ([broadcast_coord]'s substitution) even though the OTHER
