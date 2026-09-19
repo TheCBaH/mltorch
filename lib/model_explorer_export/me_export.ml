@@ -244,40 +244,39 @@ let detail ~limits ~(options : Options.t) ~key ~bytes =
                   Graph_ir.Tensor_id.equal stage.id id)
                 stage_program.Stage_program.stages
             in
-            let* stages =
-              Err.List.map
-                (fun output ->
-                  Err.of_option `Unsupported_detail_key (stage output))
-                node.Graph_ir.Node.outputs
+            let i64_stage id =
+              List.find_opt
+                (fun (st : Stage_program.Stage_i64.t) ->
+                  Graph_ir.Tensor_id.equal st.Stage_program.Stage_i64.id id)
+                stage_program.Stage_program.stages_i64
             in
             let kernel = Kernel_adapt.of_stage_program stage_program in
-            let values, kernel_available =
-              match kernel with
-              | Ok kernel ->
-                  ( List.map
-                      (fun (stage : Stage_program.Stage.t) ->
-                        Option.value
-                          ~default:
-                            {
-                              Kernel.Value.id = stage.id;
-                              sg = stage.sg;
-                              computation = stage.computation;
-                              result = Kernel.Result_conversion.Round_f32;
-                            }
-                          (Kernel.value kernel stage.id))
-                      stages,
-                    true )
-              | Error _ ->
-                  ( List.map
-                      (fun (stage : Stage_program.Stage.t) ->
-                        {
-                          Kernel.Value.id = stage.id;
-                          sg = stage.sg;
-                          computation = stage.computation;
-                          result = Kernel.Result_conversion.Round_f32;
-                        })
-                      stages,
-                    false )
+            let kernel_available = Result.is_ok kernel in
+            let fallback (stage : Stage_program.Stage.t) =
+              {
+                Kernel.Value.id = stage.id;
+                sg = stage.sg;
+                computation = stage.computation;
+                result = Kernel.Result_conversion.Round_f32;
+              }
+            in
+            let* values =
+              Err.List.map
+                (fun output ->
+                  match stage output with
+                  | Some stage ->
+                      Err.return
+                        (match kernel with
+                        | Ok kernel ->
+                            Option.value ~default:(fallback stage)
+                              (Kernel.value kernel stage.id)
+                        | Error _ -> fallback stage)
+                  | None -> (
+                      match i64_stage output with
+                      | Some st ->
+                          Err.return (Me_detail.display_of_i64_stage st)
+                      | None -> Err.fail `Unsupported_detail_key))
+                node.Graph_ir.Node.outputs
             in
             let* graph =
               wrap

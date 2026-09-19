@@ -604,6 +604,21 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
        ~id:(Me_request.Detail_key.id key)
        ~nodes:(List.rev !nodes) ())
 
+(* An int64 stage has no [Kernel.Value.t] to render. This is a DISPLAY-ONLY
+   value: the pixel under [i64_to_float], so the float-typed renderer walks the
+   exact int64 expression, plus one root node it did not have. The signature
+   keeps the stage's real I64 format. *)
+let display_of_i64_stage (st : Stage_program.Stage_i64.t) : Kernel.Value.t =
+  {
+    Kernel.Value.id = st.Stage_program.Stage_i64.id;
+    sg = st.Stage_program.Stage_i64.sg;
+    computation =
+      Region_group.Ref.Solo
+        (Region_program.pixel
+           (Expr.Value.i64_to_float st.Stage_program.Stage_i64.pixel));
+    result = Kernel.Result_conversion.Round_f32;
+  }
+
 let of_operator ~limits ~key ~outputs =
   let open Err.Syntax in
   let* graphs = Err.List.map (of_value ~limits ~key) outputs in
