@@ -124,6 +124,11 @@ let tensor_of_pt2 (tensor : Pt2_tensor.t) =
         ~read_cell:(fun data offset ->
           Int64.float_of_bits (Bytes.get_int64_le data offset))
         ~materialize:(Tensor.materialize_fmt (Payload.Fmt Payload.F64))
+  | Pt2_dtype.Bool ->
+      (* A nonzero byte reads as true; the stored payload is canonical 0/1. *)
+      load_dense tensor ~element_size:1
+        ~read_cell:(fun data offset -> Bytes.get_uint8 data offset <> 0)
+        ~materialize:Tensor.materialize_bool
   | Pt2_dtype.Int64 ->
       load_dense tensor ~element_size:8
         ~read_cell:(fun data offset -> Bytes.get_int64_le data offset)
