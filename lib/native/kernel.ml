@@ -311,8 +311,8 @@ let pp_error fmt : [< error ] -> unit = function
       Fmt.pf fmt "%a: %a" Tensor_id.pp at Expr.Check.pp_error error
   | `Unsupported_i64_dependency id ->
       Fmt.pf fmt
-        "%a: an int64 value may only read an earlier int64 value, not a \
-         forward reference or a float value/input"
+        "%a: an int64 value may only read an input, a float value or an \
+         earlier int64 value"
         Tensor_id.pp id
 
 (* ---- bounds ---------------------------------------------------------------
@@ -437,6 +437,8 @@ let materializable_i64 id (sg : Tensor_sig.t) =
    budgets-before-work rule applied to the guard. Never forms a sum, either — a
    count added to another count is an unchecked [int] aggregate, and under
    js_of_ocaml a wrapped negative would sail past a [> limit] test. *)
+module Int_map = Map.Make (Int)
+
 let over_limit limit l =
   (* A negative limit is exceeded by ANY list, the empty one included: zero
      cells is more than a negative count. Every production caller passes a
@@ -485,39 +487,47 @@ let check_value_i64 ~limits (v : Value_i64.t) =
     (Expr.Check.value_i64 ~max_size:limits.Limits.max_size
        ~max_depth:limits.Limits.max_depth v.Value_i64.pixel)
 
-(* [values_i64]'s own forward sweep, the int64 twin of [values]' "source
-   resolution, dependency depth" pass below -- but flat, not recursive: a
-   [Value_i64.t] is always materialized eagerly, in list order
-   ([Kernel_eval.materialize_values_i64]), never re-entered through a
-   consumer's own evaluation the way [Value.t]'s [value_at] recursion is, so
-   there is no analogous eval-depth/stack risk to bound here. [seen] is
-   exactly the ids validated so far -- a source in it is a legal backward
-   reference; a source naming a LATER [values_i64] id is a forward reference;
-   anything else (the float [values]/[inputs] side, or genuinely unknown) is
-   the still-unsupported cross-carrier case. All three collapse to one tag,
-   [`Unsupported_i64_dependency], since nothing downstream needs to tell them
-   apart yet. *)
-let check_values_i64_order (values_i64 : Value_i64.t list) =
+(* [values_i64]'s own forward sweep. A source is admissible when it names an
+   EARLIER [values_i64] entry, a caller input, or a float [values] entry;
+   anything else (a later int64 entry, or an unknown id) is
+   [`Unsupported_i64_dependency]. Returns each entry's HIGH-WATER float index:
+   the largest position in [values] of any float value it reads, directly or
+   through earlier int64 entries, or [-1] when it reads none. That single number
+   is what keeps the combined graph acyclic without a general cycle search --
+   [create]'s sweep only lets float value [i] read an int64 entry whose
+   high-water is below [i], so every edge, in either direction, points at
+   something earlier in the order "floats by position, each int64 entry right
+   after its high-water float". Flat, not recursive, so validation cannot itself
+   overflow on the input it exists to reject. *)
+let check_values_i64_order ~input_ids ~float_index
+    (values_i64 : Value_i64.t list) =
   let open Err.Syntax in
-  let+ _seen =
+  let+ high_water =
     List.fold_left
       (fun acc (v : Value_i64.t) ->
         let* seen = acc in
-        let* () =
+        let+ hi =
           Expr.Source.Set.fold
             (fun src acc ->
-              let* () = acc in
-              if Tensor_id.Set.mem (Expr_bridge.id_of_source src) seen then
-                Err.return ()
-              else Err.fail (`Unsupported_i64_dependency v.Value_i64.id))
+              let* hi = acc in
+              let id = Expr_bridge.id_of_source src in
+              match Tensor_id.Map.find_opt id seen with
+              | Some h -> Err.return (max hi h)
+              | None -> (
+                  if Tensor_id.Set.mem id input_ids then Err.return hi
+                  else
+                    match Tensor_id.Map.find_opt id float_index with
+                    | Some i -> Err.return (max hi i)
+                    | None ->
+                        Err.fail (`Unsupported_i64_dependency v.Value_i64.id)))
             (Expr.Fold.sources_i64 v.Value_i64.pixel)
-            (Err.return ())
+            (Err.return (-1))
         in
-        Err.return (Tensor_id.Set.add v.Value_i64.id seen))
-      (Err.return Tensor_id.Set.empty)
+        Tensor_id.Map.add v.Value_i64.id hi seen)
+      (Err.return Tensor_id.Map.empty)
       values_i64
   in
-  ()
+  high_water
 
 let create ?(limits = Limits.default) ?(values_i64 = []) ~inputs ~values
     ~outputs () =
@@ -552,7 +562,18 @@ let create ?(limits = Limits.default) ?(values_i64 = []) ~inputs ~values
     else Err.return ()
   in
   let* () = Err.List.iter (fun v -> check_value_i64 ~limits v) values_i64 in
-  let* () = check_values_i64_order values_i64 in
+  let input_ids =
+    List.fold_left
+      (fun s (i : Input.t) -> Tensor_id.Set.add i.Input.id s)
+      Tensor_id.Set.empty inputs
+  in
+  let float_index =
+    List.fold_left
+      (fun (m, i) (v : Value.t) -> (Tensor_id.Map.add v.Value.id i m, i + 1))
+      (Tensor_id.Map.empty, 0) values
+    |> fst
+  in
+  let* high_water = check_values_i64_order ~input_ids ~float_index values_i64 in
   (* Budgets before any unmetered traversal. [Expr.Fold]'s queries walk the whole
      tree; running one first would exhaust the stack on precisely the oversized
      body the limit exists to reject. *)
@@ -659,42 +680,96 @@ let create ?(limits = Limits.default) ?(values_i64 = []) ~inputs ~values
       @ List.map (fun (v : Value.t) -> v.Value.id) values
       @ List.map (fun (v : Value_i64.t) -> v.Value_i64.id) values_i64)
   in
-  let input_ids =
-    List.fold_left
-      (fun s (i : Input.t) -> Tensor_id.Set.add i.Input.id s)
-      Tensor_id.Set.empty inputs
-  in
-  (* A float value's source resolving to a [values_i64] entry costs no
-     dependency/eval depth, the same as an input: [values_i64] is always
-     materialized eagerly, in full, before any [Value.t] evaluates
-     ([Kernel_eval.machine] seeds its [bound] map with it up front), so it is
-     as available to every float value as a caller-supplied input is -- never
-     a forward reference, regardless of either list's own order. This is the
-     "float value reads an int64 value" half of cross-carrier dependency
-     support (see the implementation tracker's D10); the reverse direction
-     (an int64 value reading a float one) stays unsupported, enforced by
-     [check_values_i64_order] above. *)
+  (* Either direction of int64/float dependency is admitted (the tracker's D10):
+     a float value may read an int64 entry and an int64 entry may read an input
+     or a float value. [check_values_i64_order] returned each int64 entry's
+     high-water float index, so the entry is validated in the same sweep, right
+     after that float and before any float that reads it; a float reading an
+     entry whose high-water is not below its own position is a forward
+     reference, which also rules out cycles through the int64 side. *)
   let i64_ids =
     List.fold_left
       (fun s (v : Value_i64.t) -> Tensor_id.Set.add v.Value_i64.id s)
       Tensor_id.Set.empty values_i64
   in
+  let pending =
+    List.fold_left
+      (fun m (v : Value_i64.t) ->
+        let hi = Tensor_id.Map.find v.Value_i64.id high_water in
+        Int_map.update hi (fun l -> Some (v :: Option.value l ~default:[])) m)
+      Int_map.empty values_i64
+  in
+  let check_depths d e =
+    let* () =
+      if d > limits.Limits.max_dep_depth then
+        Err.fail (`Dependency_too_deep limits.Limits.max_dep_depth)
+      else Err.return ()
+    in
+    if e > Limits.Hard.eval_depth then
+      Err.fail (`Eval_too_deep Limits.Hard.eval_depth)
+    else Err.return ()
+  in
+  let process_i64 (dep, ev, i64d) (v : Value_i64.t) =
+    let* d, e =
+      Expr.Source.Set.fold
+        (fun src acc ->
+          let* d, e = acc in
+          let id = Expr_bridge.id_of_source src in
+          if Tensor_id.Set.mem id input_ids then Err.return (d, e)
+          else
+            match Tensor_id.Map.find_opt id i64d with
+            | Some (pd, pe) -> Err.return (max d pd, max e pe)
+            | None -> (
+                match
+                  (Tensor_id.Map.find_opt id dep, Tensor_id.Map.find_opt id ev)
+                with
+                | Some pd, Some pe -> Err.return (max d pd, max e pe)
+                | _ -> Err.fail (`Unsupported_i64_dependency v.Value_i64.id)))
+        (Expr.Fold.sources_i64 v.Value_i64.pixel)
+        (Err.return (0, 0))
+    in
+    let d = d + 1 and e = e + 1 + Expr.Fold.depth_i64 v.Value_i64.pixel in
+    let+ () = check_depths d e in
+    (dep, ev, Tensor_id.Map.add v.Value_i64.id (d, e) i64d)
+  in
+  let flush hi state =
+    match Int_map.find_opt hi pending with
+    | None -> Err.return state
+    | Some rev ->
+        List.fold_left
+          (fun acc v ->
+            let* state = acc in
+            process_i64 state v)
+          (Err.return state) (List.rev rev)
+  in
+  let defined =
+    List.fold_left
+      (fun s (v : Value.t) -> Tensor_id.Set.add v.Value.id s)
+      Tensor_id.Set.empty values
+  in
   (* Source resolution, dependency depth and evaluation depth in one forward
      sweep over the already topologically ordered list — iterative, so
      validation cannot itself overflow on the input it exists to reject. Both
-     depths are keyed by id; a source resolving to an input or an int64 value
-     contributes zero. *)
-  let* _depths =
+     depths are keyed by id; a source resolving to an input contributes zero, an
+     int64 entry its own measured depth. *)
+  let* _, state =
     List.fold_left
       (fun acc (v : Value.t) ->
-        let* dep, ev, defined = acc in
+        let* i, state = acc in
+        let* dep, ev, i64d = flush (i - 1) state in
         let* d, e =
           Expr.Source.Set.fold
             (fun src acc ->
               let* d, e = acc in
               let id = Expr_bridge.id_of_source src in
-              if Tensor_id.Set.mem id input_ids || Tensor_id.Set.mem id i64_ids
-              then Err.return (d, e)
+              if Tensor_id.Set.mem id input_ids then Err.return (d, e)
+              else if Tensor_id.Set.mem id i64_ids then
+                match Tensor_id.Map.find_opt id i64d with
+                | Some (pd, pe) -> Err.return (max d pd, max e pe)
+                | None ->
+                    Err.fail
+                      (`Forward_reference
+                         { Forward_ref.at = v.Value.id; depends_on = id })
               else
                 match
                   (Tensor_id.Map.find_opt id dep, Tensor_id.Map.find_opt id ev)
@@ -727,28 +802,16 @@ let create ?(limits = Limits.default) ?(values_i64 = []) ~inputs ~values
            of being folded into a static weight here. *)
         let d = d + 1
         and e = e + 1 + Region_group.Ref.max_depth v.Value.computation in
-        let* () =
-          if d > limits.Limits.max_dep_depth then
-            Err.fail (`Dependency_too_deep limits.Limits.max_dep_depth)
-          else Err.return ()
-        in
-        let* () =
-          if e > Limits.Hard.eval_depth then
-            Err.fail (`Eval_too_deep Limits.Hard.eval_depth)
-          else Err.return ()
-        in
-        Err.return
+        let+ () = check_depths d e in
+        ( i + 1,
           ( Tensor_id.Map.add v.Value.id d dep,
             Tensor_id.Map.add v.Value.id e ev,
-            defined ))
+            i64d ) ))
       (Err.return
-         ( Tensor_id.Map.empty,
-           Tensor_id.Map.empty,
-           List.fold_left
-             (fun s (v : Value.t) -> Tensor_id.Set.add v.Value.id s)
-             Tensor_id.Set.empty values ))
+         (0, (Tensor_id.Map.empty, Tensor_id.Map.empty, Tensor_id.Map.empty)))
       values
   in
+  let* _depths = flush (List.length values - 1) state in
   (* Outputs name values; their signatures are derived, never supplied. *)
   let value_sig =
     List.fold_left
@@ -772,6 +835,17 @@ let create ?(limits = Limits.default) ?(values_i64 = []) ~inputs ~values
       List.fold_left
         (fun s (o : Output.t) -> Tensor_id.Set.add o.Output.value s)
         Tensor_id.Set.empty out
+    in
+    (* Every int64 entry is materialized unconditionally, so it is a root: a
+       float value only it reads is live. *)
+    let live =
+      List.fold_left
+        (fun live (v : Value_i64.t) ->
+          Expr.Source.Set.fold
+            (fun src s -> Tensor_id.Set.add (Expr_bridge.id_of_source src) s)
+            (Expr.Fold.sources_i64 v.Value_i64.pixel)
+            live)
+        live values_i64
     in
     let live =
       List.fold_left
