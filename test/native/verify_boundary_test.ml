@@ -320,7 +320,7 @@ let%expect_test "local: output slots are not interchangeable" =
     {|
     {t0} -> {t0} identical: proved (structural) [exhaustive]
     {t1} -> {t1} identical: refuted: value at (0): src.t1 vs dst.t1 under {v0(0)=0x1p+0, v0(1,0)=0x1p+1, v0(1,0,0)=0x1.8p+1, v0(1,1,0)=0x1p+2} [exhaustive]
-    {t2} -> {t2} identical: unproved: eval: unknown edge t2 [exhaustive]
+    {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {v0(0)=0x1p+0, v0(1,0)=0x1p+1, v0(1,0,0)=0x1.8p+1, v0(1,1,0)=0x1p+2} [exhaustive]
     {t3} -> {t3} identical: proved (structural) [exhaustive] |}]
 
 (* Why the local contract needs no induction, which is what let the
