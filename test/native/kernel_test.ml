@@ -207,8 +207,8 @@ let%expect_test "Kernel: a stored value must be f32 and unquantized" =
     stored_f16 pp_kernel filled_f16 pp_kernel caller_f16;
   [%expect
     {|
-    stored f16: t2: a stored value must be f32 and unquantized, got f16
-    filled f16: t0: a filled input must be f32 and unquantized, got f16
+    stored f16: t2: a stored value must be f32 or bool and unquantized, got f16
+    filled f16: t0: a filled input must be f32 or bool and unquantized, got f16
     caller f16: input t0 : caller
                 t2 = round_f32(t0[N,T,D,H,W,C])
                 outputs: t2 |}]
@@ -491,8 +491,8 @@ let%expect_test "Kernel_adapt: every fixture adapts to a validated kernel" =
     {|
     fixtures: 45
     rejected: 2
-    bypass_permute_mixed_compatibility: t3: a stored value must be f32 and unquantized, got f16
-    reuse_permute_backtrack_candidate: t2: a stored value must be f32 and unquantized, got f16 |}]
+    bypass_permute_mixed_compatibility: t3: a stored value must be f32 or bool and unquantized, got f16
+    reuse_permute_backtrack_candidate: t2: a stored value must be f32 or bool and unquantized, got f16 |}]
 
 let%expect_test "Kernel_adapt: multi_output promotes its discarded terminal" =
   let p = Eval_symbolic.run (Graph_fixtures.multi_output ()) in

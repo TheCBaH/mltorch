@@ -1,17 +1,21 @@
-(* [Ne_tensor]'s Symbolic/Kernel route (P6.4): unlike the Direct-route
-   dispatch arm ([Eval_direct]'s own [Ne_tensor] case, exercised end to end
-   by [ne_tensor_bool_test.ml]), Symbolic has no
-   [Compute_i64]-style Bool-aware arm and [Eval_symbolic.check_mixed_dtype]
-   does not list [Ne_tensor] at all, so [Eval_symbolic.run] builds an
-   ordinary float [Stage.t] for it -- the same [SEMANTICS]-generic 0./1.
-   formula [pointwise_test.ml]'s own "Direct: ne_tensor" fixture exercises
-   directly. [Graph_builder.ne_tensor] still declares the output edge [Bool]
-   unconditionally, so this is a real declared/actual format mismatch, not
-   merely an unexercised path -- this fixture proves the same
-   [Kernel.materializable] F32-only gate [Eq_tensor]'s own analogous fixture
-   proves catches it at [Kernel_adapt.of_stage_program]. *)
+(* [Ne_tensor]'s Symbolic/Kernel route (P6.4/P6.5): [Eval_symbolic.run] builds an
+   ordinary float [Stage.t] from the [SEMANTICS]-generic 0./1. formula, and
+   [Graph_builder.ne_tensor] declares the output edge [Bool]. Bool storage is
+   admitted at the Kernel boundary (a [Nonzero_bool] result conversion), so
+   the kernel builds and its stored output is a genuine Bool payload. inputs a=[NaN, 0, 1] against b=[NaN, -0, 2]
+   pins NaN (unequal to everything) and the signed-zero case on this route. *)
+
+open Graph_ir
 
 let shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:3
+
+let a =
+  Tensor.materialize shape (fun c ->
+      [| Float.nan; 0.; 1. |].(Dim.to_int (Vec6.get c Axis.C)))
+
+let b =
+  Tensor.materialize shape (fun c ->
+      [| Float.nan; -0.; 2. |].(Dim.to_int (Vec6.get c Axis.C)))
 
 let build =
   Graph_builder.(
@@ -23,11 +27,19 @@ let build =
   |> Err.or_raise ~pp_error:Graph_builder.pp_error
 
 let%expect_test
-    "Symbolic -> Kernel: Ne_tensor's Bool-declared output is rejected at \
-     kernel construction, not silently computed as float" =
-  let stage_program = Eval_symbolic.run build in
-  let pp_ok fmt _ = Format.pp_print_string fmt "ok" in
-  Format.printf "%a@."
-    (Core.Pretty.err_result ~ok:pp_ok ~error:Kernel_adapt.pp_error)
-    (Kernel_adapt.of_stage_program stage_program);
-  [%expect {| t2: a stored value must be f32 and unquantized, got bool |}]
+    "Symbolic -> Kernel: Ne_tensor's Bool-declared output is stored as a Bool \
+     payload" =
+  let kernel =
+    Kernel_adapt.of_stage_program (Eval_symbolic.run build)
+    |> Err.or_raise ~pp_error:Kernel_adapt.pp_error
+  in
+  let result =
+    Kernel_eval.run kernel ~bind:(fun id ->
+        match List.combine build.Graph.inputs [ a; b ] with
+        | pairs -> List.assoc_opt id pairs)
+    |> Err.or_raise ~pp_error:Kernel_eval.pp_error
+  in
+  (match Tensor_id.Map.find_opt (List.hd build.Graph.outputs) result with
+  | Some t -> Format.printf "%a@." Tensor.pp t
+  | None -> print_endline "MISSING");
+  [%expect {| tensor bool [C=3] {1, 0, 1} |}]

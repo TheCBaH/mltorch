@@ -176,7 +176,7 @@ module Kernel : sig
   end
 
   module Result_conversion : sig
-    type t = Round_f32
+    type t = Nonzero_bool | Round_f32
   end
 
   module Value : sig
@@ -208,7 +208,15 @@ stage boundary independently of whether a schedule stores the value. For the
 current engine it is `Round_f32`: evaluate the body in working precision, round
 to f32, then make that rounded value available to consumers. A fusion plan may
 change a value's placement from materialized to virtual, but it does not change
-this result conversion.  For a Pixel-form computation the emitter is the
+this result conversion.  `Nonzero_bool` is the Bool boundary: a value declared
+`Bool` computes on the same float path, its body is mapped to exactly 0. or 1.
+(NaN and infinities true, both zeros false, a subnormal true) wherever a
+consumer sees it, and it is stored as canonical Bool bytes. `Kernel.create`
+requires the conversion to match the declared format (`Round_f32` with f32,
+`Nonzero_bool` with Bool), because the two disagree on inputs like a subnormal.
+A filled Bool input and `Stage_program.ground` follow the same storage rule.
+Bool values are exact in the float domain, so nothing is lost; exact I64 is
+different and has its own `values_i64` track.  For a Pixel-form computation the emitter is the
 original expression; a non-degenerate Region computation applies the same
 conversion once to its emitter, never to scalar locals.
 

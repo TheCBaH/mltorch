@@ -202,6 +202,13 @@ let materialize_bool (shape : Vec6.shape) (f : Vec6.coord -> bool) =
       payload = { Payload.fmt = Payload.Bool; quant = Payload.No_quant; data };
     }
 
+(* The storage boundary of a Bool-declared value computed on the float region
+   path: every cell is true iff its float is nonzero (NaN and infinities true,
+   both zeros false), the same Float-to-Bool policy [Payload.set_float]
+   applies. The result is always canonical 0/1 bytes. *)
+let bool_of_float_cells (Tensor t as src) =
+  materialize_bool t.shape (fun c -> read src c <> 0.)
+
 (* Shared by [unbind] and [split_with_sizes] below: allocate a same-format
    destination buffer and fill it from [source_coord], one call per op rather
    than one per storage format. Copying cells directly (never through

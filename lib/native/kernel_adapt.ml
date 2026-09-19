@@ -436,7 +436,11 @@ let of_stage_program ?(limits = Kernel.Limits.default) ?select ?outputs p =
               Kernel.Value.id = st.id;
               sg = st.sg;
               computation = Stage_program.Stage.computation st;
-              result = Kernel.Result_conversion.Round_f32;
+              result =
+                (match st.sg.Tensor_sig.fmt with
+                | Payload.Fmt Payload.Bool ->
+                    Kernel.Result_conversion.Nonzero_bool
+                | _ -> Kernel.Result_conversion.Round_f32);
             }
         else None)
       p.Stage_program.stages

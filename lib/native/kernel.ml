@@ -14,10 +14,20 @@ module Input = struct
 end
 
 module Result_conversion = struct
-  type t = Round_f32
+  type t = Nonzero_bool | Round_f32
 
-  let apply Round_f32 e = Expr.Value.round_f32 e
-  let name Round_f32 = "round_f32"
+  (* [Value_eq] rather than [<>]: NaN is unequal to zero, so it is true. *)
+  let apply t e =
+    match t with
+    | Nonzero_bool ->
+        Expr.Value.select
+          (Expr.Bool.value_eq e (Expr.Value.const 0.))
+          (Expr.Value.const 0.) (Expr.Value.const 1.)
+    | Round_f32 -> Expr.Value.round_f32 e
+
+  let name = function
+    | Nonzero_bool -> "nonzero_bool"
+    | Round_f32 -> "round_f32"
 end
 
 module Value = struct
@@ -206,6 +216,14 @@ module Format_rule = struct
     | Stored_value -> "stored value"
 end
 
+module Conversion_rule = struct
+  type t = {
+    id : Tensor_id.t;
+    fmt : Payload.packed_fmt;
+    result : Result_conversion.t;
+  }
+end
+
 module I64_format_rule = struct
   type t = { id : Tensor_id.t; fmt : Payload.packed_fmt }
 end
@@ -221,6 +239,7 @@ end
 type error =
   [ `Body of Body_error.t
   | `Bytes_too_large of Tensor_id.t
+  | `Conversion_mismatch of Conversion_rule.t
   | `Dependency_too_deep of int
   | `Duplicate_id of Tensor_id.t
   | `Eval_too_deep of int
@@ -268,8 +287,14 @@ let pp_error fmt : [< error ] -> unit = function
   | `Bytes_too_large id ->
       Fmt.pf fmt "%a storage byte size exceeds the limit" Tensor_id.pp id
   | `Not_materializable { Format_rule.id; role; fmt = f } ->
-      Fmt.pf fmt "%a: a %s must be f32 and unquantized, got %s" Tensor_id.pp id
+      Fmt.pf fmt "%a: a %s must be f32 or bool and unquantized, got %s"
+        Tensor_id.pp id
         (Format_rule.role_name role)
+        (match f with Payload.Fmt g -> Payload.fmt_name g)
+  | `Conversion_mismatch { Conversion_rule.id; fmt = f; result } ->
+      Fmt.pf fmt "%a: result conversion %s does not produce %s storage"
+        Tensor_id.pp id
+        (Result_conversion.name result)
         (match f with Payload.Fmt g -> Payload.fmt_name g)
   | `Quant_contract id ->
       Fmt.pf fmt "%a: quantization disagrees with its format or channel extent"
@@ -360,21 +385,36 @@ let quant_contract id (sg : Tensor_sig.t) =
           else Err.fail (`Quant_contract id))
   | true, None | false, Some _ -> Err.fail (`Quant_contract id)
 
-(* [Tensor.materialize] always produces an f32, unquantized payload, and it is
-   the only materialiser the evaluator has. So a locally created tensor must
-   declare what it will actually be handed; otherwise a kernel can advertise f16
+(* The evaluator materialises every locally created tensor on the float path,
+   then stores it as unquantized f32 or, for a value whose [result] is
+   [Nonzero_bool], as canonical Bool bytes. So a locally created tensor must
+   declare what it will actually be handed, and its conversion must agree with
+   that format (round_f32 rounds a subnormal to zero, nonzero_bool keeps it
+   true); otherwise a kernel can advertise f16
    or quantized storage, pass every other check, and have [Expr_bridge.env]
    decode a real f32 payload while all analysis describes the declared format.
    Caller and captured inputs are unaffected — they carry real data and stay
    free to be f16/bf16/quantized. *)
 let materializable id role (sg : Tensor_sig.t) =
-  let f32 =
-    match sg.Tensor_sig.fmt with Payload.Fmt Payload.F32 -> true | _ -> false
+  let storable =
+    match sg.Tensor_sig.fmt with
+    | Payload.Fmt (Payload.F32 | Payload.Bool) -> true
+    | _ -> false
   in
-  if f32 && Option.is_none sg.Tensor_sig.quant then Err.return ()
+  if storable && Option.is_none sg.Tensor_sig.quant then Err.return ()
   else
     Err.fail
       (`Not_materializable { Format_rule.id; role; fmt = sg.Tensor_sig.fmt })
+
+(* A value's conversion must be the one that produces its declared storage. *)
+let conversion_agrees (v : Value.t) =
+  match (v.Value.sg.Tensor_sig.fmt, v.Value.result) with
+  | Payload.Fmt Payload.F32, Result_conversion.Round_f32
+  | Payload.Fmt Payload.Bool, Result_conversion.Nonzero_bool ->
+      Err.return ()
+  | fmt, result ->
+      Err.fail
+        (`Conversion_mismatch { Conversion_rule.id = v.Value.id; fmt; result })
 
 (* [materializable]'s int64 twin: [Region_eval.materialize_i64] is exact I64
    only, never quantized (I64 has no quantized variant to begin with, but the
@@ -774,6 +814,7 @@ let create ?(limits = Limits.default) ?(values_i64 = []) ~inputs ~values
         let* () =
           materializable v.Value.id Format_rule.Stored_value v.Value.sg
         in
+        let* () = conversion_agrees v in
         Bounds.signature limits v.Value.id v.Value.sg)
       (Err.return ()) values
   in

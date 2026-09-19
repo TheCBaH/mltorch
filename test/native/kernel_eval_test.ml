@@ -158,8 +158,8 @@ let%expect_test "Kernel_eval: every fixture agrees with all three oracles" =
     {|
     fixtures: 45
     disagreeing or rejected: 2
-    bypass_permute_mixed_compatibility: t3: a stored value must be f32 and unquantized, got f16
-    reuse_permute_backtrack_candidate: t2: a stored value must be f32 and unquantized, got f16 |}]
+    bypass_permute_mixed_compatibility: t3: a stored value must be f32 or bool and unquantized, got f16
+    reuse_permute_backtrack_candidate: t2: a stored value must be f32 or bool and unquantized, got f16 |}]
 
 let%expect_test "Kernel_eval: Region values execute through run and value_at" =
   let partition =

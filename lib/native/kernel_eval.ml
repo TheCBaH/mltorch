@@ -120,11 +120,14 @@ let input_env (k : Kernel.t) ~bind =
              handed through as an OCaml float: the store is f32, so a fill that
              is not representable there must be rounded before any consumer
              reads it. *)
-          Err.return
-            (Tensor_id.Map.add i.Kernel.Input.id
-               (Tensor.materialize i.Kernel.Input.sg.Tensor_sig.shape (fun _ ->
-                    v))
-               m)
+          let shape = i.Kernel.Input.sg.Tensor_sig.shape in
+          let filled =
+            match i.Kernel.Input.sg.Tensor_sig.fmt with
+            | Payload.Fmt Payload.Bool ->
+                Tensor.materialize_bool shape (fun _ -> v <> 0.)
+            | _ -> Tensor.materialize shape (fun _ -> v)
+          in
+          Err.return (Tensor_id.Map.add i.Kernel.Input.id filled m)
       | Kernel.Binding.Caller | Kernel.Binding.Captured_constant -> (
           match bind i.Kernel.Input.id with
           | None -> Err.fail (`Unbound_input i.Kernel.Input.id)
@@ -216,6 +219,16 @@ let converted esc ?region_counters ~(limits : Kernel.Limits.t)
         ( lowered,
           Option.bind region_counters (fun counters ->
               Tensor_id.Map.find_opt v.Kernel.Value.id counters) )
+
+(* A value computed on the float path becomes its declared storage: a
+   Bool-declared one is written as canonical Bool bytes, everything else stays
+   the F32 tensor the float path produced. Applied at the one place a value is
+   stored, so a consumer reads the Bool payload whether the producer ran solo
+   or in a group. *)
+let stored (v : Kernel.Value.t) tensor =
+  match v.Kernel.Value.sg.Tensor_sig.fmt with
+  | Payload.Fmt Payload.Bool -> Tensor.bool_of_float_cells tensor
+  | _ -> tensor
 
 let in_shape (sg : Tensor_sig.t) (c : int Expr.Coord.t) =
   List.find_opt
@@ -387,6 +400,7 @@ let machine esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses =
           Err.Escape.or_throw esc
             (widen_region (Region_execution.materialize ?counters lowered ~env))
     in
+    let t = stored v t in
     bound := Tensor_id.Map.add v.Kernel.Value.id t !bound;
     t
   in
@@ -436,6 +450,7 @@ let machine esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses =
         List.map
           (fun (ordinal, tensor) ->
             let st = List.assoc ordinal members in
+            let tensor = stored st tensor in
             bound := Tensor_id.Map.add st.Kernel.Value.id tensor !bound;
             (st.Kernel.Value.id, tensor))
           results

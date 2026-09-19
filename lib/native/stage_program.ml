@@ -136,6 +136,14 @@ let preflight_run ~limits esc (run : Stage.t Region_group.Run.t) =
                  ~scan_limits:(Kernel.Limits.scan_limits limits)
                  g)))
 
+(* A Bool-declared stage is computed on the float path and stored as canonical
+   Bool bytes; every other declared format keeps the tensor the float path
+   produced. [Kernel_eval.stored] is the Kernel-side twin. *)
+let stored (sg : Tensor_sig.t) tensor =
+  match sg.Tensor_sig.fmt with
+  | Payload.Fmt Payload.Bool -> Tensor.bool_of_float_cells tensor
+  | _ -> tensor
+
 let execute_run ~limits ~region_counters esc (binds, result) = function
   | Region_group.Run.Solo st ->
       (* [find_opt], not [find]: a missing binding must reach the evaluator as
@@ -162,6 +170,7 @@ let execute_run ~limits ~region_counters esc (binds, result) = function
                  (Region_execution.materialize ?counters lowered
                     ~env:(Expr_bridge.env ~binding)))
       in
+      let t = stored st.Stage.sg t in
       ( Tensor_id.Map.add st.Stage.sg.id t binds,
         Tensor_id.Map.add st.Stage.id t result )
   | Region_group.Run.Group (g, members) ->
@@ -198,6 +207,7 @@ let execute_run ~limits ~region_counters esc (binds, result) = function
       List.fold_left
         (fun (binds, result) (ordinal, tensor) ->
           let st = List.assoc ordinal members in
+          let tensor = stored st.Stage.sg tensor in
           ( Tensor_id.Map.add st.Stage.sg.id tensor binds,
             Tensor_id.Map.add st.Stage.id tensor result ))
         (binds, result) tensors
@@ -221,7 +231,13 @@ let ground ?(limits = Kernel.Limits.default) ?region_counters (p : t)
   let seed =
     List.fold_left
       (fun m ((s : Tensor_sig.t), v) ->
-        Tensor_id.Map.add s.id (Tensor.materialize s.shape (fun _ -> v)) m)
+        let filled =
+          match s.fmt with
+          | Payload.Fmt Payload.Bool ->
+              Tensor.materialize_bool s.shape (fun _ -> v <> 0.)
+          | _ -> Tensor.materialize s.shape (fun _ -> v)
+        in
+        Tensor_id.Map.add s.id filled m)
       seed p.consts
   in
   (* Thread the sig->tensor binding through the runs in topo order, collecting

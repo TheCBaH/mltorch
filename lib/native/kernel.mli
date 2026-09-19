@@ -27,7 +27,13 @@ module Result_conversion : sig
   (* The conversion at a logical value's boundary, independent of whether a
      schedule stores it. Removing it where a buffer used to be is a semantic
      change, not an optimisation. *)
-  type t = Round_f32
+  type t =
+    | Nonzero_bool
+    | Round_f32
+        (** [Nonzero_bool] is the boundary of a Bool-declared value: the float
+            body is mapped to exactly 0. or 1. (NaN and infinities true, both
+            zeros false) and stored as canonical Bool bytes. [Round_f32] is the
+            F32 boundary. *)
 
   val apply : t -> float Expr.Value.t -> float Expr.Value.t
   (** The ONE place the round is expressed. Every consumer — interpreter and
@@ -269,6 +275,16 @@ module Format_rule : sig
   type t = { id : Tensor_id.t; role : role; fmt : Payload.packed_fmt }
 end
 
+module Conversion_rule : sig
+  (* A stored value whose [Result_conversion.t] does not produce its declared
+     storage: [Round_f32] is the f32 boundary, [Nonzero_bool] the Bool one. *)
+  type t = {
+    id : Tensor_id.t;
+    fmt : Payload.packed_fmt;
+    result : Result_conversion.t;
+  }
+end
+
 module I64_format_rule : sig
   (* [Format_rule.t]'s int64 twin: a distinct type, not a third [role], since
      the two check different things (F32-unquantized versus I64-unquantized)
@@ -287,6 +303,7 @@ end
 type error =
   [ `Body of Body_error.t
   | `Bytes_too_large of Tensor_id.t
+  | `Conversion_mismatch of Conversion_rule.t
   | `Dependency_too_deep of int
   | `Duplicate_id of Tensor_id.t
   | `Eval_too_deep of int
