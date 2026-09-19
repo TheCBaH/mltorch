@@ -37,9 +37,9 @@ type reduction_kind = Argmax_index | Argmax_value | Max | Sum
    an [int64 value] tree is no longer unconditionally closed/environment-free
    -- only a tree built without [I64_load]/[I64_local]/[I64_local_at] is (see
    [Value.eval_i64]'s own doc comment on what that means for its standalone
-   callback shape). Typed [Reduce]/[Scan_at] at [int64 value] (reduction
-   accumulators, scan previous-row references) remain later work (P3's
-   remainder); [I64_local]/[I64_local_at] give scalar/vector locals the same
+   callback shape). A typed reduction exists as [I64_sum] (an exact modular
+   accumulator, sum only); a typed [Scan_at] (previous-row references) does
+   not, and waits for an op that needs an int64 scan. [I64_local]/[I64_local_at] give scalar/vector locals the same
    typed treatment [Local]/[Local_at] already have at [float value]. Every
    other constructor below still returns [float value], the original
    inhabited index. *)

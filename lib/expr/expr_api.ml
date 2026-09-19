@@ -305,9 +305,9 @@ module type S = sig
        [Scan_at]), and [I64_load]'s/[I64_of_index]'s index can itself embed
        index arithmetic over reducers, so an [int64 t] tree is no longer
        unconditionally closed/environment-free -- evaluating either needs the
-       full environment-carrying [Eval.value]. Typed [Reduce]/[Scan_at] at
-       [int64 t] (reduction accumulators, scan previous-row references)
-       remain later work. *)
+       full environment-carrying [Eval.value]. A typed sum reduction exists
+       as [I64_sum]; a typed [Scan_at] (previous-row references) remains later
+       work. *)
     type _ t = private
       | Binary : binary_op * float t * float t -> float t
       | Const : float -> float t
