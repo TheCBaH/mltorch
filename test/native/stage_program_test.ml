@@ -179,9 +179,7 @@ let%expect_test
   [%expect
     {|
     t1 <- inputs t0 | consts - | stages - | UNRESOLVED -
-    t2 <- inputs t0 | consts - | stages - | UNRESOLVED -
-    t1 = max_pool2d_value(t0; k=2x2 s=2x2 p=0x0; out=[N,T,D,H,W,C])
-    t2 = max_pool2d_index(t0; k=2x2 s=2x2 p=0x0; out=[N,T,D,H,W,C]) |}]
+    t1 = max_pool2d_value(t0; k=2x2 s=2x2 p=0x0; out=[N,T,D,H,W,C]) |}]
 
 (* ---- synthetic constants --------------------------------------------------
 

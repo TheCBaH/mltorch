@@ -138,6 +138,11 @@ let fresh_synthetic_ids g =
     ]
   |> fun (ids, _, _) -> ids
 
+(* An index-style output landed as exact int64 storage. *)
+let index_i64 out_shape ~x_shape ~x pixel =
+  Tensor.materialize_i64 out_shape (fun coord ->
+      Int64.of_float (pixel ~x_shape ~x coord))
+
 let region_result ~limits ~region_counters g ~op ~output ~out_shape ~operand_env
     ~synthetic_ids =
   let open Err.Syntax in
@@ -870,6 +875,38 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                 Err.fail
                   (`Unsupported_bool_scalar_arithmetic
                      { scalar_op = "addcmul"; fmt = fmt_of tensor2 })
+            (* The index output of [Max_pool2d_with_indices], its adaptive
+               twin and [Max_dim] is declared I64 by [Graph_builder] (ATen
+               returns int64 indices). [index_pixel] carries the flat index in
+               a double -- a small non-negative integer, so the conversion to
+               int64 is exact -- and only the landing storage changes, not the
+               tie or NaN policy. The value output falls through to the
+               generic F32 path. *)
+            | Max_pool2d_with_indices { Pool.MaxPool2dWithIndices.params; x }
+              when output = 1 ->
+                let module C = Pool.MaxPool2dWithIndices.Compute (Direct) in
+                Err.return
+                  (index_i64 out_shape
+                     ~x_shape:(Tensor_id.Map.find x shape_env)
+                     ~x:(Tensor_id.Map.find x operand_env)
+                     (C.index_pixel params))
+            | Adaptive_max_pool2d_with_indices
+                { Pool.AdaptiveMaxPool2dWithIndices.params; x }
+              when output = 1 ->
+                let module C = Pool.AdaptiveMaxPool2dWithIndices.Compute (Direct)
+                in
+                Err.return
+                  (index_i64 out_shape
+                     ~x_shape:(Tensor_id.Map.find x shape_env)
+                     ~x:(Tensor_id.Map.find x operand_env)
+                     (C.index_pixel params))
+            | Max_dim { Reduce.MaxDim.params; x } when output = 1 ->
+                let module C = Reduce.MaxDim.Compute (Direct) in
+                Err.return
+                  (index_i64 out_shape
+                     ~x_shape:(Tensor_id.Map.find x shape_env)
+                     ~x:(Tensor_id.Map.find x operand_env)
+                     (C.index_pixel params))
             | _ when Region_computation.is_region_authored op ->
                 region_result ~limits
                   ~region_counters:

@@ -734,6 +734,30 @@ let eval_node ?region_counters ~limits ~synthetic_ids (g : Graph.graph) env
                 Err.fail
                   (`Unsupported_bool_scalar_arithmetic
                      { scalar_op = "addcmul"; fmt = fmt_of tensor2 })
+            (* The index output of [Max_pool2d_with_indices] and its adaptive
+               twin is declared I64 by [Builder]; see [Eval_direct]'s own arm
+               for why the conversion from the double-carried flat index is
+               exact. *)
+            | Op.Max_pool2d_with_indices { Pool.MaxPool2dWithIndices.params; x }
+              when output = 1 ->
+                let module C = Pool.MaxPool2dWithIndices.Compute (Direct) in
+                let x_shape = Tensor_id.Map.find x shape_env
+                and x = Tensor_id.Map.find x operand_env in
+                Err.return
+                  (Tensor.materialize_i64 (Shape4.to_vec6 out_shape)
+                     (fun coord ->
+                       Int64.of_float (C.index_pixel params ~x_shape ~x coord)))
+            | Op.Adaptive_max_pool2d_with_indices
+                { Pool.AdaptiveMaxPool2dWithIndices.params; x }
+              when output = 1 ->
+                let module C = Pool.AdaptiveMaxPool2dWithIndices.Compute (Direct)
+                in
+                let x_shape = Tensor_id.Map.find x shape_env
+                and x = Tensor_id.Map.find x operand_env in
+                Err.return
+                  (Tensor.materialize_i64 (Shape4.to_vec6 out_shape)
+                     (fun coord ->
+                       Int64.of_float (C.index_pixel params ~x_shape ~x coord)))
             | _ when Region_computation4.is_region_authored op ->
                 region_result ~limits
                   ~region_counters:

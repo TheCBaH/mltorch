@@ -45,7 +45,7 @@ let%expect_test "Direct graph: max_pool2d_with_indices (two outputs)" =
   [%expect
     {|
     values = tensor f32 [H=2 W=2 C=1] {5, 7, 13, 15}
-    indices = tensor f32 [H=2 W=2 C=1] {5, 7, 13, 15} |}]
+    indices = tensor i64 [H=2 W=2 C=1] {5, 7, 13, 15} |}]
 
 let amp_params =
   {
@@ -88,6 +88,6 @@ let%expect_test "Direct graph: adaptive_max_pool2d_with_indices (two outputs)" =
   [%expect
     {|
     values = tensor f32 [H=2 W=2 C=1] {5, 7, 13, 15}
-    indices = tensor f32 [H=2 W=2 C=1] {5, 7, 13, 15} |}]
+    indices = tensor i64 [H=2 W=2 C=1] {5, 7, 13, 15} |}]
 
 (* Reshape reinterprets the same flat buffer under a new shape (contiguous). *)

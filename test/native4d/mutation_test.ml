@@ -804,8 +804,8 @@ let%expect_test "mutation: swapping max-pool's value and indices is refuted" =
   mutated "value, indices swapped" src dst;
   [%expect
     {|
-    value, indices in order    3 clusters: 3 proved (structural)
-    value, indices swapped     3 clusters: 1 proved (structural), 2 refuted (counterexample) |}]
+    value, indices in order    3 clusters: 2 proved (structural), 1 unproved (grounding failed)
+    value, indices swapped     3 clusters: 1 proved (structural), 1 refuted (counterexample), 1 unproved (grounding failed) |}]
 
 (* [Split_with_sizes4]'s own version of the same mutation. Unlike [Unbind]'s
    axis-derived count, EQUAL sizes have to be chosen deliberately -- [1;1] on

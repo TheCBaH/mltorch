@@ -60,10 +60,10 @@ let%expect_test "Symbolic graph: max_pool2d_with_indices ground matches Direct"
     {|
     inputs: t0
     t1 = max_pool2d_value(t0; k=2x2 s=2x2 p=0x0; out=[N,T,D,H,W,C])
-    t2 = max_pool2d_index(t0; k=2x2 s=2x2 p=0x0; out=[N,T,D,H,W,C])
+    t2 = float_to_i64(max_pool2d_index(t0; k=2x2 s=2x2 p=0x0; out=[N,T,D,H,W,C]))
     outputs: t1, t2
     tensor f32 [H=2 W=2 C=1] {5, 7, 13, 15}  ground matches direct: true
-    tensor f32 [H=2 W=2 C=1] {5, 7, 13, 15}  ground matches direct: true |}]
+    tensor i64 [H=2 W=2 C=1] {5, 7, 13, 15}  ground matches direct: true |}]
 
 let amp_params =
   {
@@ -123,10 +123,10 @@ let%expect_test
     {|
     inputs: t0
     t1 = max_reduce(r1=floor_div(4*H,2)..ceil_div(4*H+1,2): max_reduce(r2=floor_div(4*W,2)..ceil_div(4*W+1,2): t0[N,T,D,r1,r2,C]))
-    t2 = (0 - max_reduce(r1=floor_div(4*H,2)..ceil_div(4*H+1,2): max_reduce(r2=floor_div(4*W,2)..ceil_div(4*W+1,2): (0 - select((t0[N,T,D,r1,r2,C] < max_reduce(r3=floor_div(4*H,2)..ceil_div(4*H+1,2): max_reduce(r4=floor_div(4*W,2)..ceil_div(4*W+1,2): t0[N,T,D,r3,r4,C]))), 16, value_of_index(4*r1+r2))))))
+    t2 = float_to_i64((0 - max_reduce(r1=floor_div(4*H,2)..ceil_div(4*H+1,2): max_reduce(r2=floor_div(4*W,2)..ceil_div(4*W+1,2): (0 - select((t0[N,T,D,r1,r2,C] < max_reduce(r3=floor_div(4*H,2)..ceil_div(4*H+1,2): max_reduce(r4=floor_div(4*W,2)..ceil_div(4*W+1,2): t0[N,T,D,r3,r4,C]))), 16, value_of_index(4*r1+r2)))))))
     outputs: t1, t2
     tensor f32 [H=2 W=2 C=1] {5, 7, 13, 15}  ground matches direct: true
-    tensor f32 [H=2 W=2 C=1] {5, 7, 13, 15}  ground matches direct: true |}]
+    tensor i64 [H=2 W=2 C=1] {5, 7, 13, 15}  ground matches direct: true |}]
 
 (* Reshape symbolically: the index expression carries div/mod over the flat
    offset (the value_of_index-free delinearize path); ground must match Direct. *)

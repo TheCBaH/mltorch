@@ -346,7 +346,7 @@ let%expect_test "adaptive_max_pool2d relayouts and discards the index output" =
     nodes:
       group g1 torch.ops.aten.adaptive_max_pool2d.default:
         n0: [t1 f32 [H=5 W=4 C=2] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
-        n1: [t2 f32 [H=3 W=2 C=2] ->[n3], t3 f32 [H=3 W=2 C=2] ->[n2]] =
+        n1: [t2 f32 [H=3 W=2 C=2] ->[n3], t3 i64 [H=3 W=2 C=2] ->[n2]] =
           adaptive_max_pool2d_with_indices
             x=t1 <-n0
             params={output_size={h=3; w=2}}

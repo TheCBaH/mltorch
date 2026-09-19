@@ -120,7 +120,7 @@ let op1 ?fmt op : Tensor_id.t t =
    part of its input signature there is none. The same shape as Native's
    [Graph_builder.opN], including the shared id-space guard, so the two dialects'
    overflow behaviour cannot drift. *)
-let opN ?fmt ?quant op : Tensor_id.t list t =
+let opN ?fmt ?quant ?(index_i64 = false) op : Tensor_id.t list t =
   let* s = get in
   let* shapes =
     lift_result
@@ -131,13 +131,18 @@ let opN ?fmt ?quant op : Tensor_id.t list t =
   Tensor_id.check_room ~next:s.next_tid ~count:(List.length shapes);
   (* Tail-recursive for the reason [Graph_builder.opN] documents: a monadic
      frame per output overflows node's stack at a few thousand outputs. *)
-  let rec alloc acc = function
+  let rec alloc acc i = function
     | [] -> return (List.rev acc)
     | shape :: rest ->
-        let* tid = new_edge ?fmt ?quant shape in
-        alloc (tid :: acc) rest
+        (* [~index_i64]: the second output is an argmax-style index, an exact
+           int64 like ATen's. *)
+        let* tid =
+          if index_i64 && i = 1 then new_edge ~fmt:Payload.(Fmt I64) shape
+          else new_edge ?fmt ?quant shape
+        in
+        alloc (tid :: acc) (i + 1) rest
   in
-  let* ids = alloc [] shapes in
+  let* ids = alloc [] 0 shapes in
   let* () = push_node op ids in
   return ids
 
@@ -185,14 +190,11 @@ let adaptive_avg_pool2d params x =
 let adaptive_max_pool2d params x =
   op1 (Op.Adaptive_max_pool2d { Pool.AdaptiveMaxPool2d.params; x })
 
-(* Two outputs, value then indices -- [opN], not [op1], with no [~fmt]
-   override: both edges default to the same f32 [new_edge] falls back to,
-   matching Native's own [Graph_builder.adaptive_max_pool2d_with_indices],
-   which allocates both outputs the same way rather than through its own
-   [opN]-equivalent. The indices output is a real f32-stored flat position,
-   not a genuine integer format -- Native has none to give it. *)
+(* Two outputs, value then indices -- [opN], not [op1]. The value edge is the
+   default f32; the indices edge is a genuine int64, matching Native's own
+   [Graph_builder.adaptive_max_pool2d_with_indices]. *)
 let adaptive_max_pool2d_with_indices params x =
-  opN
+  opN ~index_i64:true
     (Op.Adaptive_max_pool2d_with_indices
        { Pool.AdaptiveMaxPool2dWithIndices.params; x })
 
@@ -305,10 +307,11 @@ let max_keepdims ?(keepdim = true) dims x =
 
 let max_pool2d params x = op1 (Op.Max_pool2d { Pool.MaxPool2d.params; x })
 
-(* Same "two outputs, no [~fmt] override" shape as
-   [adaptive_max_pool2d_with_indices] above. *)
+(* Same value-f32, index-int64 shape as [adaptive_max_pool2d_with_indices]
+   above. *)
 let max_pool2d_with_indices params x =
-  opN (Op.Max_pool2d_with_indices { Pool.MaxPool2dWithIndices.params; x })
+  opN ~index_i64:true
+    (Op.Max_pool2d_with_indices { Pool.MaxPool2dWithIndices.params; x })
 
 let mean_keepdims ?(keepdim = true) dims x =
   op1 (Op.Mean_keepdims { Ops4.Mean_keepdims.params = { dims; keepdim }; x })

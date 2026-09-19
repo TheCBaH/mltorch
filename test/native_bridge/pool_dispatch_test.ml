@@ -372,7 +372,7 @@ let%expect_test
     inputs: [t0 f32 [W=5 C=5] ->[n0]]
     nodes:
       n0: [t1 f32 [H=5 W=5 C=1] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
-      n1: [t2 f32 [H=3 W=3 C=1] ->[n3], t3 f32 [H=3 W=3 C=1] ->[n2]] =
+      n1: [t2 f32 [H=3 W=3 C=1] ->[n3], t3 i64 [H=3 W=3 C=1] ->[n2]] =
         adaptive_max_pool2d_with_indices
           x=t1 <-n0
           params={output_size={h=3; w=3}}
@@ -403,7 +403,7 @@ let%expect_test "dispatch: max_pool2d_with_indices.default discards indices" =
     inputs: [t0 f32 [W=4 C=4] ->[n0]]
     nodes:
       n0: [t1 f32 [H=4 W=4 C=1] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
-      n1: [t2 f32 [H=2 W=2 C=1] ->[n3], t3 f32 [H=2 W=2 C=1] ->[n2]] =
+      n1: [t2 f32 [H=2 W=2 C=1] ->[n3], t3 i64 [H=2 W=2 C=1] ->[n2]] =
         max_pool2d_with_indices
           x=t1 <-n0
           params={kernel={h=2; w=2};

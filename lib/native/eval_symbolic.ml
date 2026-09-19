@@ -32,6 +32,17 @@ let pp_bool_scalar_arithmetic fmt { scalar_op; fmt = Payload.Fmt f } =
     scalar_op (Payload.fmt_name f)
 
 let is_i64 = function Payload.Fmt Payload.I64 -> true | _ -> false
+
+(* The ops whose second output is an argmax-style index. *)
+let is_index_output (op : Graph_ir.op) output =
+  output = 1
+  &&
+  match op with
+  | Adaptive_max_pool2d_with_indices _ | Max_dim _ | Max_pool2d_with_indices _
+    ->
+      true
+  | _ -> false
+
 let is_bool = function Payload.Fmt Payload.Bool -> true | _ -> false
 
 (* [Eval_direct]'s own P5.4 fix (a mismatched I64/F32 pair fails at checked
@@ -356,36 +367,50 @@ let run ?(limits = Kernel.Limits.default) (g : graph) : Stage_program.t =
         in
         (env, stages, stages_i64)
     | _, _ ->
-        let env, stages =
+        let env, stages, stages_i64 =
           List.fold_left
-            (fun (env, stages) (output, oid) ->
+            (fun (env, stages, stages_i64) (output, oid) ->
               let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
-              let regional =
-                if Region_computation.is_region_authored op then
-                  Some
-                    (Region_computation.program ~limits ~op ~output
-                       ~output_shape:out_sig.shape
-                       ~operand:(fun id -> Tensor_id.Map.find_opt id env)
-                       ~fill:(fun _role value shape -> fill value shape))
-                else None
+              let float_pixel () =
+                Expr.Builder.run
+                  (E.pixel op ~output ~operand ~shape_of ~fill Symbolic.out_vec)
               in
-              let computation =
-                match regional with
-                | Some (Ok program) -> Region_group.Ref.Solo program
-                | Some (Error error) ->
-                    Err.raise_error ~pp_error:Region_computation.pp_error error
-                | None ->
-                    Region_group.Ref.Solo
-                      (Region_program.pixel
-                         (Expr.Builder.run
-                            (E.pixel op ~output ~operand ~shape_of ~fill
-                               Symbolic.out_vec)))
-              in
-              let st =
-                { Stage_program.Stage.id = oid; sg = out_sig; computation }
-              in
-              (Tensor_id.Map.add oid out_sig env, st :: stages))
-            (env, stages) outs
+              if is_index_output op output && is_i64 out_sig.Tensor_sig.fmt then
+                (* A pooled/reduced INDEX output is declared I64 (ATen returns
+                   int64 indices). The float pixel is the flat index, a small
+                   non-negative integer carried exactly in the working float,
+                   so the checked cast is exact; the stage reads the same
+                   float operand the value output does. *)
+                let pixel = Expr.Value.float_to_i64 (float_pixel ()) in
+                let st =
+                  { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel }
+                in
+                (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+              else
+                let regional =
+                  if Region_computation.is_region_authored op then
+                    Some
+                      (Region_computation.program ~limits ~op ~output
+                         ~output_shape:out_sig.shape
+                         ~operand:(fun id -> Tensor_id.Map.find_opt id env)
+                         ~fill:(fun _role value shape -> fill value shape))
+                  else None
+                in
+                let computation =
+                  match regional with
+                  | Some (Ok program) -> Region_group.Ref.Solo program
+                  | Some (Error error) ->
+                      Err.raise_error ~pp_error:Region_computation.pp_error
+                        error
+                  | None ->
+                      Region_group.Ref.Solo
+                        (Region_program.pixel (float_pixel ()))
+                in
+                let st =
+                  { Stage_program.Stage.id = oid; sg = out_sig; computation }
+                in
+                (Tensor_id.Map.add oid out_sig env, st :: stages, stages_i64))
+            (env, stages, stages_i64) outs
         in
         (env, stages, stages_i64)
   in
