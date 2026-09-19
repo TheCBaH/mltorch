@@ -1,12 +1,13 @@
 (* See kernel.mli. *)
 
 module Binding = struct
-  type t = Caller | Captured_constant | Filled of float
+  type t = Caller | Captured_constant | Filled of float | Filled_i64 of int64
 
   let pp fmt = function
     | Caller -> Fmt.string fmt "caller"
     | Captured_constant -> Fmt.string fmt "constant"
     | Filled v -> Fmt.pf fmt "filled %g" v
+    | Filled_i64 v -> Fmt.pf fmt "filled i64 %Ld" v
 end
 
 module Input = struct
@@ -875,6 +876,7 @@ let create ?(limits = Limits.default) ?(values_i64 = []) ~inputs ~values
           match i.Input.binding with
           | Binding.Filled _ ->
               materializable i.Input.id Format_rule.Filled_input i.Input.sg
+          | Binding.Filled_i64 _ -> materializable_i64 i.Input.id i.Input.sg
           | Binding.Caller | Binding.Captured_constant -> Err.return ()
         in
         Bounds.signature limits i.Input.id i.Input.sg)

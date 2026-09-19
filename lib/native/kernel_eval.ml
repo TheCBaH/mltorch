@@ -128,6 +128,13 @@ let input_env (k : Kernel.t) ~bind =
             | _ -> Tensor.materialize shape (fun _ -> v)
           in
           Err.return (Tensor_id.Map.add i.Kernel.Input.id filled m)
+      | Kernel.Binding.Filled_i64 v ->
+          (* Exact, never through a float: an int64 fill past 2^53 survives. *)
+          let filled =
+            Tensor.materialize_i64 i.Kernel.Input.sg.Tensor_sig.shape (fun _ ->
+                v)
+          in
+          Err.return (Tensor_id.Map.add i.Kernel.Input.id filled m)
       | Kernel.Binding.Caller | Kernel.Binding.Captured_constant -> (
           match bind i.Kernel.Input.id with
           | None -> Err.fail (`Unbound_input i.Kernel.Input.id)

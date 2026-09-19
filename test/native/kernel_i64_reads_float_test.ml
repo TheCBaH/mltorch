@@ -196,3 +196,40 @@ let%expect_test "an int64 value sums truncated floats with an exact accumulator"
   let t = Tensor_id.Map.find (tid 1) r in
   Fmt.pr "t1 = %a@." Tensor.pp t;
   [%expect {| t1 = tensor i64 [C=1] {2} |}]
+
+(* Typed filled inputs (P2.3): an I64 input filled with an int64 stays exact past
+   2^53, and the fill is checked against its signature. t0 is filled with
+   2^53 + 1 (a float would round it), t1 = t0 + 1 reads it exactly. *)
+let%expect_test "an int64 filled input is exact and its format is checked" =
+  let big = 9_007_199_254_740_993L in
+  let filled binding fmt =
+    { Kernel.Input.id = tid 0; sg = sg fmt 0; binding }
+  in
+  let make binding fmt =
+    Kernel.create
+      ~inputs:[ filled binding fmt ]
+      ~values_i64:
+        [
+          value_i64 1
+            (Expr.Value.i64_add (load_i64 0) (Expr.Value.i64_const 1L));
+        ]
+      ~values:[] ~outputs:[] ()
+  in
+  let k =
+    make (Kernel.Binding.Filled_i64 big) i64
+    |> Err.or_raise ~pp_error:Kernel.pp_error
+  in
+  let r =
+    Err.or_raise ~pp_error:Kernel_eval.pp_error
+      (Kernel_eval.run k ~bind:(fun _ -> None))
+  in
+  Fmt.pr "t1 = %s@." (ints (Tensor_id.Map.find (tid 1) r));
+  Fmt.pr "filled i64 on an f32 input: %a@." pp_kernel
+    (make (Kernel.Binding.Filled_i64 big) f32);
+  Fmt.pr "float fill on an i64 input: %a@." pp_kernel
+    (make (Kernel.Binding.Filled 1.) i64);
+  [%expect
+    {|
+    t1 = 9007199254740994,9007199254740994,9007199254740994
+    filled i64 on an f32 input: t0: an int64 value must be i64 and unquantized, got f32
+    float fill on an i64 input: t0: a filled input must be f32 or bool and unquantized, got i64 |}]
