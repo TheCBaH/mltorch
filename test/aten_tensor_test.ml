@@ -442,3 +442,24 @@ let%expect_test "tensor list: extracted tensors are freed by the GC" =
   [%expect {|
     while referenced: +5
     after gc: +1 |}]
+
+(* [Dtype.bool]: a one-byte cell exposed as an OCaml int. ATen writes 0 or 1,
+   and a Bool view of a float tensor is refused like any other dtype mismatch. *)
+let%expect_test "data: bool tensor, written by ATen and by us" =
+  let a = float_tensor [ 4 ] [ 0.; 2.; Float.nan; -0. ] in
+  let b = T.manage (O.to_dtype a Stype.Bool false false None) in
+  let v = T.data Dtype.bool b |> Option.get in
+  Printf.printf "dtype=%d vals=%d,%d,%d,%d\n"
+    (Stype.to_int (T.scalar_type b))
+    v.{0} v.{1} v.{2} v.{3};
+  Printf.printf "bool view of a float tensor: %b\n"
+    (Option.is_none (T.data Dtype.bool a));
+  let src = Bigarray.(Array1.of_array int8_unsigned c_layout [| 1; 0; 1 |]) in
+  let t = T.of_bigarray Dtype.bool src [ 3 ] in
+  let w = T.data Dtype.bool t |> Option.get in
+  Printf.printf "round trip: %d,%d,%d\n" w.{0} w.{1} w.{2};
+  [%expect
+    {|
+    dtype=11 vals=0,1,1,0
+    bool view of a float tensor: true
+    round trip: 1,0,1 |}]
