@@ -128,6 +128,16 @@ reference evaluator's own traced run at test time (rather than hardcoding
 `order_probe`'s golden strings a second time) and checks every candidate's traced
 order against it.
 
+The int64 comparisons `Bool.I64_eq`/`Bool.I64_lt` diverge the same way and are not
+among `order_probe`'s seven sites. They were left-first in every machine, so on jsoo
+the shipped evaluator changed operand order (and which of two failing loads wins) at
+the depth cutoff. They now carry the same backend gating as `Value_eq`/`Value_lt`.
+`I64_binary` (including `I64_div`, whose division errors fire in the combine step,
+after both operands) shares one generic frame, and both backends already agree on its
+order. `order_check.ml` covers all four int64 sites, the division-error priority, and
+also runs each site 200 levels down through the shipped evaluator, so the machine
+handoff is checked against the direct order rather than only the candidates.
+
 ### Benchmark evidence
 
 `expr_bench_run.ml --bench` (`make expr_bench.js-benchmark`) times every candidate
@@ -314,7 +324,8 @@ every other shared non-evaluator traversal guard stay unchanged.
 
 - **Deep isolated Expr tests**: `js/probe/probe_expr.ml` gained a `--deep`
   flag (default mode, the existing shallow three-way diff, is unchanged).
-  `--deep` runs three depth-200,000 cases in-process and exits nonzero on
+  `--deep` runs depth-200,000 cases in-process (one per nesting constructor
+  family; see below) and exits nonzero on
   any mismatch, never against native (confirmed directly — running the
   unmodified native route with `--deep` genuinely raises `Stack_overflow`,
   since `Eval.value` there is still ordinary recursion): `deep_value` (a
@@ -335,6 +346,14 @@ every other shared non-evaluator traversal guard stay unchanged.
   `deep_index` negative control is non-vacuous: temporarily shrunk the chain
   to 10 adds, watched it correctly report `UNEXPECTED COMPLETION` instead of
   silently passing, reverted before committing.
+
+**The invariant is enforced, not just sampled.** `Eval_js_machine.loop` has no
+wildcard over the evaluation states, so a `Value`/`Bool` constructor without a
+machine transition fails the jsoo build (warning 8; under the Melange profile it is
+only a warning). `probe_expr.ml` classifies every constructor with an exhaustive
+match to the `--deep` case that exercises it, and checks that set against the cases
+it runs. The one unchecked link is a new case left out of `all_deep_cases` while
+still being classified; the coupling check reports it.
 
 **Not yet done:** wiring `dune build --profile landmarks` into a Makefile
 target — this environment's own `dlllandmark_stubs.so` is independently
