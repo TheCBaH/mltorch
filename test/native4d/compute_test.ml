@@ -797,6 +797,10 @@ let%expect_test "direct4 = symbolic4: every op has a fixture" =
     (List.length Op.op_registry);
   [%expect {| fixtures: 78, registry: 78 |}]
 
+(* [to_copy]'s fixture targets [Long], which Symbolic lowers to an exact int64
+   stage that [Stage_program.ground] cannot see, so its row reads "symbolic
+   produced no stage". Its int64 answer is checked through the Kernel route in
+   the native suite's [eval_symbolic_i64_to_copy_long_test.ml]. *)
 let%expect_test "direct4 = symbolic4, bitwise, per op" =
   List.iter
     (fun (name, g, inputs, constants) -> agree name g ~inputs ~constants)
@@ -846,7 +850,7 @@ let%expect_test "direct4 = symbolic4, bitwise, per op" =
     hardsigmoid            direct = symbolic
     hardswish              direct = symbolic
     sqrt                   direct = symbolic
-    to_copy                direct = symbolic
+    to_copy                symbolic produced no stage
     max_pool2d             direct = symbolic
     max_pool2d_with_indices out0 direct = symbolic
     max_pool2d_with_indices out1 direct = symbolic
