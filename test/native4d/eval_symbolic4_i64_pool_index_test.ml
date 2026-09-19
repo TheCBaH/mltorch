@@ -70,3 +70,35 @@ let%expect_test
     kernel value = tensor f32 [H=2 W=2 C=1] {9, 10, 10, 9}
     kernel index = tensor i64 [H=2 W=2 C=1] {4, 2, 13, 15}
     kernel = direct: true |}]
+
+(* A dead index is neither computed nor allocated on Direct: absent from the
+   result map, while the live one (control) is present. *)
+let%expect_test "Native4D Direct does not allocate a dead index" =
+  let run ~live_index =
+    let g =
+      Builder.build
+        ~outputs:(fun ids ->
+          match ids with
+          | [ v; i ] -> if live_index then [ v; i ] else [ v ]
+          | l -> l)
+        Builder.(
+          let* x = input ~shape () in
+          max_pool2d_with_indices params x)
+      |> Err.or_raise ~pp_error:Builder.pp_error
+    in
+    let env =
+      Eval_direct4.run g ~constants:[]
+        ~inputs:(List.combine g.Graph.Graph.inputs [ x ])
+      |> Err.or_raise ~pp_error:Eval_direct4.pp_error
+    in
+    (* t1 is the value edge and t2 the index edge, in allocation order. *)
+    Fmt.pr "live index=%b: value present %b, index present %b@." live_index
+      (Tensor_id.Map.mem (Tensor_id.of_int 1) env)
+      (Tensor_id.Map.mem (Tensor_id.of_int 2) env)
+  in
+  run ~live_index:true;
+  run ~live_index:false;
+  [%expect
+    {|
+    live index=true: value present true, index present true
+    live index=false: value present true, index present false |}]

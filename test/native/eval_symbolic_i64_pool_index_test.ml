@@ -127,3 +127,33 @@ let%expect_test "max_dim's index output is I64 on Direct and the Kernel route" =
     direct value = tensor f32 [C=1] {5}
     direct index = tensor i64 [C=1] {0}
     kernel index = tensor i64 [C=1] {0} |}]
+
+(* A discarded index is neither computed nor allocated on Direct: it is absent
+   from the result map, while the live one (control) is present. *)
+let%expect_test "Direct does not allocate a discarded index" =
+  let run ~discard_index =
+    let g =
+      Graph_builder.build ~name:"dead_index"
+        ~outputs:(fun (v, i) -> if discard_index then [ v ] else [ v; i ])
+        Graph_builder.(
+          let* x = input ~shape ~name:"x" () in
+          let* v, i = max_pool2d_with_indices params x in
+          let* () = if discard_index then discard i else return () in
+          return (v, i))
+      |> Err.or_raise ~pp_error:Graph_builder.pp_error
+    in
+    let env =
+      Eval_direct.run g ~inputs:(List.combine g.Graph_ir.Graph.inputs [ x ])
+      |> Err.or_raise ~pp_error:Eval_direct.pp_error
+    in
+    (* t1 is the value edge and t2 the index edge, in allocation order. *)
+    Fmt.pr "discard=%b: value present %b, index present %b@." discard_index
+      (Tensor_id.Map.mem (Tensor_id.of_int 1) env)
+      (Tensor_id.Map.mem (Tensor_id.of_int 2) env)
+  in
+  run ~discard_index:false;
+  run ~discard_index:true;
+  [%expect
+    {|
+    discard=false: value present true, index present true
+    discard=true: value present true, index present false |}]

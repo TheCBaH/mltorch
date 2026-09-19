@@ -226,26 +226,54 @@ let region_group_result ~limits ~region_counters g ~op ~outs ~operand_env =
     ~selected:(List.map (fun (output, _, _) -> output) outs)
   |> Err.map_error (fun error -> `Region_execution error)
 
+(* Edges something reads: a graph output, or an operand of a node that is not a
+   [Discard] sink. An index output nothing reads is not worth allocating. *)
+let live_edges (g : graph) =
+  let add = List.fold_left (fun s id -> Tensor_id.Set.add id s) in
+  List.fold_left
+    (fun live (node : node) ->
+      match node.Node.op with
+      | Discard _ -> live
+      | op -> add live (Graph_ir.operands op))
+    (add Tensor_id.Set.empty g.Graph.outputs)
+    g.Graph.nodes
+
+(* The second output of the argmax-style ops. *)
+let is_index_output (op : op) output =
+  output = 1
+  &&
+  match op with
+  | Adaptive_max_pool2d_with_indices _ | Max_dim _ | Max_pool2d_with_indices _
+    ->
+      true
+  | _ -> false
+
 let rec run_graph ?hooks ?region_counters ?(limits = Kernel.Limits.default)
     ~constants (g : graph) (env : Tensor.packed Tensor_id.Map.t) :
     (Tensor.packed Tensor_id.Map.t, error) Err.t =
   let open Err.Syntax in
   let* env = bind_constants g constants env in
   let synthetic_ids = fresh_synthetic_ids g in
+  let live = live_edges g in
   Err.List.fold_left
     (fun env node ->
       match hooks with
-      | None -> eval_node ?region_counters ~limits ~synthetic_ids g env node
+      (* A [Discard] produces nothing, and the edge it sinks may be an
+         unallocated dead index output: there is nothing to look up. *)
+      | _ when match node.Node.op with Discard _ -> true | _ -> false ->
+          Err.return env
+      | None ->
+          eval_node ?region_counters ~limits ~synthetic_ids ~live g env node
       | Some (Hooks h) ->
           let state = h.on_start node in
           let* env =
-            eval_node ?region_counters ~limits ~synthetic_ids g env node
+            eval_node ?region_counters ~limits ~synthetic_ids ~live g env node
           in
           h.on_end node state;
           Err.return env)
     env g.Graph.nodes
 
-and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
+and eval_node ?region_counters ~limits ~synthetic_ids ~live (g : graph)
     (env : Tensor.packed Tensor_id.Map.t) (node : node) :
     (Tensor.packed Tensor_id.Map.t, error) Err.t =
   let open Err.Syntax in
@@ -284,8 +312,12 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
       (fun oid out_shape -> Err.return (oid, out_shape))
       node.Node.outputs shapes
   in
+  (* A dead index output is neither computed nor allocated: nothing reads it,
+     so [env] never needs it. *)
   let outs =
     List.mapi (fun output (oid, out_shape) -> (output, oid, out_shape)) pairs
+    |> List.filter (fun (output, oid, _) ->
+        not (is_index_output op output && not (Tensor_id.Set.mem oid live)))
   in
   (* A multi-output region-authored node (today, only [Lstm]) shares one
      recurrence across all its outputs (project step 19) instead of folding
