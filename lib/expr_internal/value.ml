@@ -21,6 +21,7 @@ type 'a t = 'a Expr_repr.value =
   | I64_local : Local_var.t -> int64 t
   | I64_local_at : Local_var.t * Role.Position.t Index.t -> int64 t
   | I64_of_index : Role.Delta.t Index.t -> int64 t
+  | I64_sum : Expr_repr.i64_reduction -> int64 t
   | I64_to_float : int64 t -> float t
   | Intrinsic : Intrinsic.t -> float t
   | Local : Local_var.t -> float t
@@ -65,6 +66,7 @@ let i64_load s c = I64_load (s, c)
 let i64_local v = I64_local v
 let i64_local_at v i = I64_local_at (v, i)
 let i64_of_index i = I64_of_index i
+let i64_sum r = I64_sum r
 let i64_add a b = I64_binary (I64_add, a, b)
 let i64_sub a b = I64_binary (I64_sub, a, b)
 let i64_mul a b = I64_binary (I64_mul, a, b)
@@ -160,6 +162,10 @@ let rec eval_i64 ~eval_float ~eval_bool ~load_i64 ~local_i64 ~local_at_i64
   | I64_local v -> Err.return (local_i64 v)
   | I64_local_at (v, i) -> Err.return (local_at_i64 v i)
   | I64_of_index i -> Err.return (idx_i64 i)
+  | I64_sum _ ->
+      (* A reduction binds a reducer, which this callback-based entry point has
+         no environment for; [Eval.value] evaluates it. *)
+      invalid_arg "Value.eval_i64: I64_sum needs Eval.value"
   | Float_to_i64 a -> i64_of_float (eval_float a)
   (* Eager in neither more nor less than [go]'s own [Select] is: only the
      SELECTED branch is evaluated, matching the float-carrier case exactly
@@ -327,6 +333,7 @@ let tag_i64 = function
   | I64_local_at _ -> 5
   | I64_of_index _ -> 6
   | Select _ -> 7
+  | I64_sum _ -> 8
 
 (* [bool_expr] is not part of the [_ value] GADT (see its own doc comment in
    expr_repr.ml), so its comparator is a third [and]-linked sibling of [go]/
@@ -432,6 +439,13 @@ let compare a b =
           | Some lx, Some ly -> Int.compare lx ly)
         <?> fun () -> cmp_index ea eb i j
     | I64_of_index x, I64_of_index y -> cmp_index ea eb x y
+    | I64_sum r, I64_sum s ->
+        cmp_index ea eb r.i64_lo s.i64_lo <?> fun () ->
+        cmp_index ea eb r.i64_hi s.i64_hi <?> fun () ->
+        cmp_i64
+          (Reduce_var.Map.add r.i64_var n ea)
+          (Reduce_var.Map.add s.i64_var n eb)
+          la lb (n + 1) r.i64_body s.i64_body
     | Select (c, x1, x2), Select (d, y1, y2) ->
         cmp_bool ea eb la lb n c d <?> fun () ->
         cmp_i64 ea eb la lb n x1 y1 <?> fun () -> cmp_i64 ea eb la lb n x2 y2
@@ -567,6 +581,9 @@ let hash e =
     | I64_local v -> mix h (Local_var.hash v)
     | I64_local_at (v, i) -> idx env (mix h (local_hash lenv v)) i
     | I64_of_index i -> idx env h i
+    | I64_sum r ->
+        let h = idx env (idx env h r.i64_lo) r.i64_hi in
+        hash_i64 (Reduce_var.Map.add r.i64_var n env) lenv (n + 1) h r.i64_body
     | Select (c, a, b) ->
         let h = hash_bool env lenv n h c in
         hash_i64 env lenv n (hash_i64 env lenv n h a) b

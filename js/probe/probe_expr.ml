@@ -114,6 +114,23 @@ let deep_i64_chain () =
 
 let deep_i64_value_case = Value.i64_to_float (deep_i64_chain ())
 
+(* An int64 sum (0 + 1 + 2 + 3) at the bottom of a [deep_n]-deep chain: the
+   handoff to the JS machine happens above it, so the machine's own int64 sum
+   frame produces the answer. *)
+let i64_sum_core ~step =
+  Builder.run
+    (Builder.i64_sum ~lo:Index.zero ~hi:(Index.const 4) (fun r ->
+         Builder.return
+           (Value.i64_add (Value.i64_const step)
+              (Value.i64_of_index (Index.of_position r)))))
+
+let deep_i64_sum_case =
+  let e = ref (i64_sum_core ~step:0L) in
+  for _ = 1 to deep_n do
+    e := Value.i64_add !e (Value.i64_const 1L)
+  done;
+  Value.i64_to_float !e
+
 let deep_i64_select_case =
   Value.i64_to_float
     (Value.select
@@ -165,7 +182,12 @@ let run_deep () =
     check_closed_form "deep_i64_select" ~expected:1. (eval deep_i64_select_case)
   in
   let ok5 = check_exhausted "deep_index" deep_index_case in
-  exit (if ok1 && ok2 && ok3 && ok4 && ok5 then 0 else 1)
+  let ok6 =
+    check_closed_form "deep_i64_sum"
+      ~expected:(float_of_int (deep_n + 6))
+      (eval deep_i64_sum_case)
+  in
+  exit (if ok1 && ok2 && ok3 && ok4 && ok5 && ok6 then 0 else 1)
 
 let run_shallow () =
   case "arithmetic" arithmetic_case;
@@ -174,7 +196,18 @@ let run_shallow () =
   Printf.printf "freshen preserves structural equality: %b\n"
     (Value.equal reduction_case freshened_reduction_case);
   case "max_pool_value" max_pool_value_case;
-  case "max_pool_index" max_pool_index_case
+  case "max_pool_index" max_pool_index_case;
+  (* 3 * 2^53 + 3 less 3 * 2^53: a float accumulator cannot leave 3. *)
+  case "i64_sum_exact"
+    (Value.i64_to_float
+       (Value.i64_sub
+          (Builder.run
+             (Builder.i64_sum ~lo:Index.zero ~hi:(Index.const 3) (fun r ->
+                  Builder.return
+                    (Value.i64_add
+                       (Value.i64_const 9_007_199_254_740_992L)
+                       (Value.i64_of_index (Index.of_position r))))))
+          (Value.i64_const 27_021_597_764_222_976L)))
 
 let () =
   if Array.exists (String.equal "--deep") Sys.argv then run_deep ()

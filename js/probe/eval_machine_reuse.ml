@@ -334,6 +334,10 @@ let run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
         match local_at_i64 v (idx reducers i) with
         | Some x -> (loop [@tailcall]) (I64_result x)
         | None -> Err.Escape.throw esc (`Unbound_local v))
+    | Eval_i64_state (Value.I64_sum _, _) ->
+        (* A benchmark candidate, not the production evaluator: it does not
+           model the int64 sum, and says so instead of answering. *)
+        invalid_arg "eval_machine_reuse: I64_sum is not modelled"
     | Eval_i64_state (Value.I64_of_index i, reducers) ->
         (loop [@tailcall]) (I64_result (Int64.of_int (idx reducers i)))
     | Eval_state (Value.Value_of_index i, reducers) ->

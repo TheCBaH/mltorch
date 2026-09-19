@@ -241,6 +241,9 @@ let eval_hybrid ~cutoff ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
           | Some x -> x
           | None -> Err.Escape.throw esc (`Unbound_local v))
       | Value.I64_of_index i -> Int64.of_int (idx reducers i)
+      | Value.I64_sum _ ->
+          (* A benchmark candidate, not the production evaluator. *)
+          invalid_arg "eval_hybrid: I64_sum is not modelled"
       | Value.I64_binary (op, x, y) ->
           Value.apply_i64_binary op (eval_i64 depth reducers x)
             (eval_i64 depth reducers y)

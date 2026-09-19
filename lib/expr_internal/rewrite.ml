@@ -243,6 +243,17 @@ and rebuild_i64 ~idx ~src ~on_load ~on_i64_load ~on_i64_local ~on_i64_local_at
   | Value.I64_local v -> on_i64_local lenv v st
   | Value.I64_local_at (v, i) -> on_i64_local_at lenv v (idxe i) st
   | Value.I64_of_index i -> (Value.I64_of_index (idxe i), st)
+  | Value.I64_sum r ->
+      let i64_var, env', st = on_reduce env r.i64_var st in
+      let i64_body, st =
+        rebuild_i64 ~idx ~src ~on_load ~on_i64_load ~on_i64_local
+          ~on_i64_local_at ~on_local ~on_local_at ~on_local_scan_at ~on_reduce
+          ~on_local_bind env' lenv r.i64_body st
+      in
+      ( Value.I64_sum
+          (* Bounds sit OUTSIDE the binder, as for a float [Reduce]. *)
+          { i64_var; i64_lo = idxe r.i64_lo; i64_hi = idxe r.i64_hi; i64_body },
+        st )
   | Value.Select (c, a, b) ->
       let c, st =
         rebuild_bool ~idx ~src ~on_load ~on_i64_load ~on_i64_local

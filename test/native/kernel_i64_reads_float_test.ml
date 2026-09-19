@@ -161,3 +161,38 @@ let%expect_test "a float virtualized for one reader is still real for the int64"
     virtual uses: 1
     t2 = 2,-2,3
     t3 = 4.8,-4.4,7 |}]
+
+(* A typed int64 reduction through the Kernel: t1 = sum over c < 3 of
+   trunc(t0[C=c]) as an exact int64 accumulator, reading the float input. With
+   t0 = [1.9, -2.7, 3.0] the truncations are 1, -2, 3 and the sum is 2. *)
+let%expect_test "an int64 value sums truncated floats with an exact accumulator"
+    =
+  let one = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1 in
+  let sum =
+    Expr.Builder.run
+      (Expr.Builder.i64_sum ~lo:Expr.Index.zero ~hi:(Expr.Index.const 3)
+         (fun r ->
+           Expr.Builder.return
+             (Expr.Value.float_to_i64
+                (Expr.Value.load
+                   (Expr_bridge.source_of_id (tid 0))
+                   (Expr.Coord.set here Expr.Axis.C r)))))
+  in
+  let k =
+    Kernel.create
+      ~inputs:[ input 0 ]
+      ~values_i64:
+        [
+          {
+            Kernel.Value_i64.id = tid 1;
+            sg = Tensor_sig.create ~id:(tid 1) ~name:"" ~shape:one ~fmt:i64 ();
+            pixel = sum;
+          };
+        ]
+      ~values:[] ~outputs:[] ()
+    |> Err.or_raise ~pp_error:Kernel.pp_error
+  in
+  let r = run k in
+  let t = Tensor_id.Map.find (tid 1) r in
+  Fmt.pr "t1 = %a@." Tensor.pp t;
+  [%expect {| t1 = tensor i64 [C=1] {2} |}]

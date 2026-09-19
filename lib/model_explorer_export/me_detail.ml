@@ -125,6 +125,10 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
     | Expr.Value.I64_local _ -> charge ()
     | Expr.Value.I64_local_at (_, i) -> charge () && measure_index i
     | Expr.Value.I64_of_index i -> charge () && measure_index i
+    | Expr.Value.I64_sum r ->
+        charge () && measure_index r.i64_lo && measure_index r.i64_hi
+        && charge ()
+        && measure_value_i64 r.i64_body
     | Expr.Value.Select (b, t, f) ->
         charge () && measure_bool b && measure_value_i64 t
         && measure_value_i64 f
@@ -543,6 +547,24 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
             ~label:"i64_of_index" ()
         in
         walk_index scope ~parent:id ~role:"operand" index
+    | Expr.Value.I64_sum reduction ->
+        let id =
+          add ~parent ~role ~language:"value" ~constructor:"i64_sum"
+            ~label:"i64_sum" ()
+        in
+        walk_index scope ~parent:id ~role:"lower" reduction.i64_lo;
+        walk_index scope ~parent:id ~role:"upper" reduction.i64_hi;
+        let b =
+          binder ~parent:id ~role:"binder" ~kind:"reducer" ~name:"reducer" ()
+        in
+        let scope =
+          {
+            scope with
+            reducers =
+              Expr.Reduce_var.Map.add reduction.i64_var b scope.reducers;
+          }
+        in
+        walk_value_i64 scope ~parent:id ~role:"body" reduction.i64_body
     | Expr.Value.Select (condition, t, f) ->
         let id =
           add ~parent ~role ~language:"value" ~constructor:"select"

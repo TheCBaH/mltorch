@@ -241,6 +241,16 @@ module type S = sig
       hi : Role.Delta.t Index.t;
       body : float Value.t;
     }
+
+    type i64 = private {
+      i64_var : Reduce_var.t;
+      i64_lo : Role.Position.t Index.t;
+      i64_hi : Role.Delta.t Index.t;
+      i64_body : int64 Value.t;
+    }
+    (** The int64 carrier's reduction: a sum over [i64_lo..i64_hi) of an int64
+        body, accumulated exactly (modular two's-complement, empty range
+        [0L]). *)
   end
 
   and Scan : sig
@@ -308,6 +318,7 @@ module type S = sig
       | I64_local : Local_var.t -> int64 t
       | I64_local_at : Local_var.t * Role.Position.t Index.t -> int64 t
       | I64_of_index : Role.Delta.t Index.t -> int64 t
+      | I64_sum : Reduction.i64 -> int64 t
       | I64_to_float : int64 t -> float t
       | Intrinsic : Intrinsic.t -> float t
       | Local : Local_var.t -> float t
@@ -330,6 +341,7 @@ module type S = sig
     val i64_local : Local_var.t -> int64 t
     val i64_local_at : Local_var.t -> Role.Position.t Index.t -> int64 t
     val i64_of_index : Role.Delta.t Index.t -> int64 t
+    val i64_sum : Reduction.i64 -> int64 t
     val i64_add : int64 t -> int64 t -> int64 t
     val i64_sub : int64 t -> int64 t -> int64 t
     val i64_mul : int64 t -> int64 t -> int64 t
@@ -559,6 +571,14 @@ module type S = sig
       val ( let* ) : 'a t -> ('a -> 'b t) -> 'b t
       val ( let+ ) : 'a t -> ('a -> 'b) -> 'b t
     end
+
+    val i64_sum :
+      lo:Role.Position.t Index.t ->
+      hi:Role.Delta.t Index.t ->
+      (Role.Position.t Index.t -> int64 Value.t t) ->
+      int64 Value.t t
+    (** The int64 twin of [reduction]: allocates the variable and scopes it by
+        construction, and the sum accumulates exactly in int64. *)
 
     val reduction :
       kind:Reduction.kind ->

@@ -46,6 +46,16 @@ let reduction ~kind ~lo ~hi body s =
   let b, s = body (Index.reduce v) s in
   (Value.reduce { Reduction.kind; var = v; lo; hi; body = b }, s)
 
+(* The int64 twin of [reduction]: mints the reducer, hands its index to the
+   body and threads the supply, so the binder is scoped by construction. The
+   sum accumulates exactly in int64 (modular two's-complement). *)
+let i64_sum ~lo ~hi body s =
+  let v, s = fresh_reduce s in
+  let b, s = body (Index.reduce v) s in
+  ( Value.i64_sum
+      { Reduction.i64_var = v; i64_lo = lo; i64_hi = hi; i64_body = b },
+    s )
+
 (* Above the [2 * width] arithmetic below (metering and state reservation)
    can ever be trusted not to overflow: a generous sanity ceiling, comfortably
    inside every backend's 32-bit-safe half-range, far above any real scan

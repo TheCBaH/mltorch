@@ -77,6 +77,16 @@ type reuse_reduce_progress = {
   mutable best_i : int;
 }
 
+(* The int64 twin of [reuse_reduce_progress], for [I64_sum]: an exact int64
+   accumulator (never a float) and no argmax half. *)
+type reuse_i64_sum_progress = {
+  sum : Expr_repr.i64_reduction;
+  sum_outer_reducers : reducers;
+  sum_hi : int;
+  mutable sum_i : int;
+  mutable sum_acc : int64;
+}
+
 type reuse_frame =
   | Binary_left of Value.binary_op * float Value.t * reducers
   | Binary_right of Value.binary_op * float
@@ -88,6 +98,7 @@ type reuse_frame =
   | Value_lt_left of float Value.t * reducers
   | Value_lt_right of float
   | Reduce_step of reuse_reduce_progress
+  | I64_sum_step of reuse_i64_sum_progress
   | Scan_fill of scan_progress
   | I64_binary_left of Value.i64_binary_op * int64 Value.t * reducers
   | I64_binary_right of Value.i64_binary_op * int64
@@ -253,6 +264,21 @@ let run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
           in
           Eval_state (rs.reduction.Reduction.body, bound)
         end
+    | I64_result v, I64_sum_step rs ->
+        let acc = Int64.add rs.sum_acc v in
+        if rs.sum_i + 1 >= rs.sum_hi then I64_result acc
+        else begin
+          on_reduction ();
+          let i = rs.sum_i + 1 in
+          rs.sum_i <- i;
+          rs.sum_acc <- acc;
+          reuse_stack_push st (I64_sum_step rs);
+          let bound w =
+            if Reduce_var.equal w rs.sum.Expr_repr.i64_var then Some i
+            else rs.sum_outer_reducers w
+          in
+          Eval_i64_state (rs.sum.Expr_repr.i64_body, bound)
+        end
     | Float_result v, Scan_fill p ->
         p.cur_row.(p.lane_cursor) <- v;
         if p.lane_cursor + 1 < p.descriptor.Scan.width then begin
@@ -347,6 +373,27 @@ let run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
         | None -> Err.Escape.throw esc (`Unbound_local v))
     | Eval_i64_state (Value.I64_of_index i, reducers) ->
         (loop [@tailcall]) (I64_result (Int64.of_int (idx reducers i)))
+    | Eval_i64_state (Value.I64_sum r, reducers) ->
+        let lo = idx reducers r.Expr_repr.i64_lo
+        and hi = idx reducers r.Expr_repr.i64_hi in
+        if lo >= hi then (loop [@tailcall]) (I64_result 0L)
+        else begin
+          on_reduction ();
+          let bound v =
+            if Reduce_var.equal v r.Expr_repr.i64_var then Some lo
+            else reducers v
+          in
+          reuse_stack_push st
+            (I64_sum_step
+               {
+                 sum = r;
+                 sum_outer_reducers = reducers;
+                 sum_hi = hi;
+                 sum_i = lo;
+                 sum_acc = 0L;
+               });
+          (loop [@tailcall]) (Eval_i64_state (r.Expr_repr.i64_body, bound))
+        end
     | Eval_state (Value.Value_of_index i, reducers) ->
         (loop [@tailcall])
           (Float_result (vchk (float_of_index (idx reducers i))))
