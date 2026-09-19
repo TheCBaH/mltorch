@@ -204,8 +204,8 @@ let compare_tensors ~atol ~output aten_t native_t =
 
 (* A FIXED tuple's arity is the op's, so the bridge may legitimately expose
    fewer outputs than it: a dead output (max_pool2d_with_indices' int64 argmax
-   indices, which the native F32 engine cannot compare anyway) is dropped or
-   routed to a Discard sink, and is simply not verified.
+   indices) is dropped or routed to a Discard sink, and is simply not verified.
+   A live index is an exact I64 output and compares against ATen's int64.
 
    A DYNAMIC `Tensor[]` return is different. Its arity is not the op's, it is
    the input's, so there is no dead-output story and no reason to expose fewer:
