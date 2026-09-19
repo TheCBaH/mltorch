@@ -416,7 +416,7 @@ let eval_trampoline_delayed ~threshold ?(local = fun _ -> None)
       | Value.I64_binary (op, a, b) ->
           eval_i64 reducers depth a (fun depth av ->
               eval_i64 reducers depth b (fun depth bv ->
-                  resume depth k (Value.apply_i64_binary op av bv)))
+                  resume depth k (vchk (Value.apply_i64_binary op av bv))))
       | Value.Float_to_i64 a ->
           go reducers depth a (fun depth av ->
               resume depth k (vchk (Value.i64_of_float av)))

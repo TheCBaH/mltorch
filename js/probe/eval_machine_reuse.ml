@@ -273,7 +273,7 @@ let run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
         reuse_stack_push st (I64_binary_right (op, first));
         Eval_i64_state (second_expr, reducers)
     | I64_result second, I64_binary_right (op, first) ->
-        I64_result (Value.apply_i64_binary op first second)
+        I64_result (vchk (Value.apply_i64_binary op first second))
     | Float_result v, Float_to_i64_result ->
         I64_result (vchk (Value.i64_of_float v))
     | I64_result v, I64_to_float_result -> Float_result (Int64.to_float v)

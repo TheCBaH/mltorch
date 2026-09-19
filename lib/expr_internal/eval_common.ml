@@ -218,6 +218,7 @@ type error =
   | `Data_source_wrong_format of string
   | index_error
   | Intrinsic.error
+  | Value.i64_division_error
   | Value.i64_from_float_error
   | `Scan_meter of Scan_meter.error
   | `Scan_meter_required
@@ -236,6 +237,7 @@ let pp_error fmt : [< error ] -> unit = function
       Fmt.pf fmt "Data source is not an I64 tensor (format %s)" name
   | #index_error as e -> pp_index_error fmt e
   | #Intrinsic.error as e -> Intrinsic.pp_error fmt e
+  | #Value.i64_division_error as e -> Value.pp_i64_division_error fmt e
   | #Value.i64_from_float_error as e -> Value.pp_i64_from_float_error fmt e
   | `Scan_meter e -> Scan_meter.pp_error fmt e
   | `Scan_meter_required -> Fmt.string fmt "an inline scan requires a meter"
@@ -265,3 +267,9 @@ end
 let vchk esc : ('a, [< error ]) Err.t -> 'a = function
   | Ok v -> v
   | Error e -> Err.Escape.throw_error esc (e :> error Err.Error.t)
+
+(* [I64_binary]'s combine step, kept out of the recursive evaluators' bodies:
+   those bodies' frame size is an empirical stack contract under js_of_ocaml
+   (see test/native/depth_probe.ml), and an inline [vchk (apply ...)] there
+   costs enough of it to break the accepted frontier. *)
+let i64_binary esc op x y = vchk esc (Value.apply_i64_binary op x y)

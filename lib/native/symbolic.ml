@@ -164,6 +164,7 @@ let typed_select = select
 let apply_i64_binary op =
   match (op : Expr.Value.i64_binary_op) with
   | I64_add -> Expr.Value.i64_add
+  | I64_div -> Expr.Value.i64_div
   | I64_mul -> Expr.Value.i64_mul
   | I64_sub -> Expr.Value.i64_sub
 

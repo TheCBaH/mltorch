@@ -608,7 +608,7 @@ let eval_machine ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
           (I64_binary_right (op, first) :: rest)
     | I64_result second, I64_binary_right (op, first) :: rest ->
         (loop [@tailcall])
-          (I64_result (Value.apply_i64_binary op first second))
+          (I64_result (vchk (Value.apply_i64_binary op first second)))
           rest
     | Float_result v, Float_to_i64_result :: rest ->
         (loop [@tailcall]) (I64_result (vchk (Value.i64_of_float v))) rest

@@ -219,8 +219,12 @@ let%expect_test "the accepted frontier survives in combination" =
       (Kernel.Limits.Hard.eval_recursion + 1, 10);
       (* Re-measured for the same reason: the medium/medium point moved from
          (48, 30), which now overflows, to (48, 24) -- confirmed stable over
-         repeated runs, with (48, 25) rejected by the static depth gate. *)
-      (48, 24);
+         repeated runs, with (48, 25) rejected by the static depth gate.
+         Re-measured again after [I64_div] made the int64 combine fallible
+         (a [Result] through [Eval]'s [I64_binary] arm, which costs a little
+         frame in every [eval], not only the int64 ones): (48, 24) now
+         overflows under node and (48, 23) is the last that survives. *)
+      (48, 23);
       (* Re-measured for the same reason: (16, 78), product 1248, replaces
          the former (16, 90); (16, 79) is rejected by the static depth gate. *)
       (16, 78);
@@ -246,7 +250,7 @@ let%expect_test "the accepted frontier survives in combination" =
     {|
     n= 97 d=  1: ok
     n= 97 d= 10: ok
-    n= 48 d= 24: ok
+    n= 48 d= 23: ok
     n= 16 d= 78: ok
     n=  8 d=125: ok
     n=  5 d=254 at Hard.depth: ok |}]

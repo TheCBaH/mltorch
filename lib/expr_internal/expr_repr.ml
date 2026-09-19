@@ -10,7 +10,7 @@ type unary_op = Cos | Erf | Exp | Log | Sin | Sqrt | Trunc
    names a rounding mode (truncating vs flooring) and has two exceptional
    cases (zero divisor, [min_int / -1]) neither arithmetic op has, so it is
    its own constructor when it lands, not a fourth case here. *)
-type i64_binary_op = I64_add | I64_mul | I64_sub
+type i64_binary_op = I64_add | I64_div | I64_mul | I64_sub
 
 (* [Argmax_index]/[Argmax_value] share [Max]/[Sum]'s [var]/[lo]/[hi]/[body]
    shape exactly -- [body] is still the per-position comparison key -- so they
