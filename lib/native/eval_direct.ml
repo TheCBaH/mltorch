@@ -13,6 +13,8 @@ type mixed_dtype = {
   b_fmt : Payload.packed_fmt;
 }
 
+type scalar_op = { scalar_op : string; fmt : Payload.packed_fmt }
+
 type error =
   [ Graph_shape.error
   | `Arange_i64_overflow of Factory.Arange.Overflow.t
@@ -22,6 +24,8 @@ type error =
   | `Output_arity_mismatch of arity_mismatch
   | `Region_construction of Region_computation.error
   | `Region_execution of Region_eval.error
+  | `Unsupported_bool_arithmetic of mixed_dtype
+  | `Unsupported_bool_scalar_arithmetic of scalar_op
   | `Unsupported_mixed_dtype of mixed_dtype
   | `Unsupported_to_copy_bool_source of Payload.packed_fmt
   | `Unsupported_to_copy_long_source of Payload.packed_fmt ]
@@ -52,6 +56,15 @@ let pp_error ppf : [< error ] -> unit = function
         expected actual
   | `Region_construction error -> Region_computation.pp_error ppf error
   | `Region_execution error -> Region_eval.pp_error ppf error
+  | `Unsupported_bool_arithmetic
+      { mixed_op; a_fmt = Payload.Fmt a_fmt; b_fmt = Payload.Fmt b_fmt } ->
+      Format.fprintf ppf
+        "%s: arithmetic on a Bool operand is not supported, a=%s b=%s" mixed_op
+        (Payload.fmt_name a_fmt) (Payload.fmt_name b_fmt)
+  | `Unsupported_bool_scalar_arithmetic { scalar_op; fmt = Payload.Fmt fmt } ->
+      Format.fprintf ppf
+        "%s: arithmetic on a Bool operand is not supported, x=%s" scalar_op
+        (Payload.fmt_name fmt)
   | `Unsupported_mixed_dtype
       { mixed_op; a_fmt = Payload.Fmt a_fmt; b_fmt = Payload.Fmt b_fmt } ->
       Format.fprintf ppf "%s: unsupported mixed dtype, a=%s b=%s" mixed_op
@@ -64,6 +77,8 @@ let pp_error ppf : [< error ] -> unit = function
       Format.fprintf ppf
         "to_copy: Long target has no exact I64 output for a %s source"
         (Payload.fmt_name f)
+
+let is_bool = function Payload.Fmt Payload.Bool -> true | _ -> false
 
 let find_tensor map id ~context =
   Tensor_id.Map.find_opt id map
@@ -230,6 +245,7 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
     (Tensor.packed Tensor_id.Map.t, error) Err.t =
   let open Err.Syntax in
   let op = node.Node.op in
+  let fmt_of r = (Tensor_id.Map.find r g.Graph.tensors).Tensor_sig.fmt in
   let operand r = find_tensor env r ~context:Operand in
   let shape_of r = sig_shape g r in
   let fill v shape = Tensor.materialize shape (fun _ -> v) in
@@ -418,6 +434,17 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                     Err.return
                       (Schedule.evaluate out_shape (fun coord ->
                            C.pixel ~scalar x_t coord))
+                (* Arithmetic on Bool stays rejected here too -- same reasoning
+                   as the
+                   tensor-tensor [Add]/[Sub]/[Mul] fix, just for the single
+                   tensor operand a scalar op has: the default arm below
+                   would otherwise silently read a genuine [Payload.Bool]
+                   operand as 0./1. and multiply it by the compile-time
+                   scalar. *)
+                | fmt when is_bool fmt ->
+                    Err.fail
+                      (`Unsupported_bool_scalar_arithmetic
+                         { scalar_op = "mul_scalar"; fmt })
                 | _ ->
                     Err.return
                       (Schedule.evaluate out_shape
@@ -450,6 +477,18 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                     Err.return
                       (Tensor.materialize_i64 out_shape (fun coord ->
                            C.pixel ~a_shape ~b_shape a_t b_t coord))
+                (* Arithmetic on Bool stays rejected: the default float path
+                   below would otherwise
+                   silently read a genuine [Payload.Bool] operand as 0./1.
+                   through [Payload.get_float] and add it as an ordinary
+                   float, which no validated promotion policy covers -- checked
+                   BEFORE the I64
+                   guard below, since a Bool paired with I64 must report the
+                   Bool reason, not the unrelated I64-mixing one. *)
+                | a_fmt, b_fmt when is_bool a_fmt || is_bool b_fmt ->
+                    Err.fail
+                      (`Unsupported_bool_arithmetic
+                         { mixed_op = "add"; a_fmt; b_fmt })
                 (* Mixed I64/non-I64 operands: unsupported mixed promotion is
                    rejected, and promotion is never inferred from output storage
                    alone -- the
@@ -495,6 +534,11 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                     Err.return
                       (Tensor.materialize_i64 out_shape (fun coord ->
                            C.pixel ~a_shape ~b_shape a_t b_t coord))
+                (* See the matching [Add] arm's own comment. *)
+                | a_fmt, b_fmt when is_bool a_fmt || is_bool b_fmt ->
+                    Err.fail
+                      (`Unsupported_bool_arithmetic
+                         { mixed_op = "sub"; a_fmt; b_fmt })
                 | a_fmt, b_fmt
                   when (match a_fmt with
                          | Payload.Fmt Payload.I64 -> true
@@ -527,6 +571,11 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                     Err.return
                       (Tensor.materialize_i64 out_shape (fun coord ->
                            C.pixel ~a_shape ~b_shape a_t b_t coord))
+                (* See the matching [Add] arm's own comment. *)
+                | a_fmt, b_fmt when is_bool a_fmt || is_bool b_fmt ->
+                    Err.fail
+                      (`Unsupported_bool_arithmetic
+                         { mixed_op = "mul"; a_fmt; b_fmt })
                 | a_fmt, b_fmt
                   when (match a_fmt with
                          | Payload.Fmt Payload.I64 -> true
@@ -614,6 +663,16 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                     Err.return
                       (Tensor.materialize_i64 out_shape (fun coord ->
                            Direct.i64_load x_t coord))
+                (* Design section 3's "Bool to I64 / Float: Exact 0/1 in the
+                   destination carrier" -- reads via [Direct.bool_load]
+                   (canonical true/false), not through [Payload.get_float]'s
+                   incidental float encoding, matching the [I64] arm's own
+                   exact-read convention immediately above. *)
+                | Payload.Fmt Payload.Bool ->
+                    let x_t = Tensor_id.Map.find x operand_env in
+                    Err.return
+                      (Tensor.materialize_i64 out_shape (fun coord ->
+                           if Direct.bool_load x_t coord then 1L else 0L))
                 (* Every other format is unsupported (no real
                    importer produces I32/F16/BF16/etc. today), and
                    [Graph_builder.to_copy] still declares I64 here regardless
@@ -651,6 +710,20 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                     Err.return
                       (Tensor.materialize_bool out_shape (fun coord ->
                            C.pixel Pointwise.To_copy.Bool x_t coord <> 0.0))
+                (* I64 to Bool is an exact comparison with 0L -- an exact int64
+                   zero test, not a route through
+                   [Payload.get_float]/[Compute.pixel]'s own float nonzero
+                   test (which would still happen to agree for every
+                   representable int64, since [Int64.to_float 0L = 0.0] and
+                   every nonzero int64 has a nonzero float image, but reading
+                   through float is the exact "integer-to-float, not an
+                   explicit expression cast" hazard, regardless of numerical
+                   agreement). *)
+                | Payload.Fmt Payload.I64 ->
+                    let x_t = Tensor_id.Map.find x operand_env in
+                    Err.return
+                      (Tensor.materialize_bool out_shape (fun coord ->
+                           not (Int64.equal (Direct.i64_load x_t coord) 0L)))
                 | Payload.Fmt other ->
                     Err.fail
                       (`Unsupported_to_copy_bool_source (Payload.Fmt other)))
@@ -670,6 +743,76 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                 Err.return
                   (Tensor.materialize_bool out_shape (fun coord ->
                        C.pixel x_t coord <> 0.0))
+            (* [Gt_scalar] mirrors [Bitwise_not]'s own split: [Compute]'s
+               formula is [SEMANTICS]-generic (shared with [Symbolic] via
+               [Eval_op.Make], which still writes a plain float 0./1.), and
+               only [Eval_direct] intercepts it to land genuine [Payload.
+               Bool] storage, matching [Graph_builder.gt_scalar]'s own
+               unconditional [Bool] output declaration. *)
+            | Gt_scalar { Pointwise.Scalar_bin.x; scalar } ->
+                let module C = Pointwise.Gt_scalar.Compute (Direct) in
+                let x_t = Tensor_id.Map.find x operand_env in
+                Err.return
+                  (Tensor.materialize_bool out_shape (fun coord ->
+                       C.pixel ~scalar x_t coord <> 0.0))
+            (* Arithmetic on Bool stays rejected for the rest of the
+               `*_scalar` family too: none
+               of these six ops has a per-format admission point of its own
+               (confirmed by `grep -n` -- every one falls straight to the
+               generic default arm below for every format, always), so a
+               genuine [Payload.Bool] operand would otherwise silently read
+               as 0./1. and combine with the compile-time scalar, the same
+               defect class [Mul_scalar]'s own fix closed. Each [when] guard
+               intercepts ONLY the Bool case; every other format (including
+               I64, which still flows through the same silently-lossy float
+               path it always has -- out of this fix's scope) falls through
+               unchanged to the generic default arm. *)
+            | Add_scalar { Pointwise.Scalar_bin.x; _ } when is_bool (fmt_of x)
+              ->
+                Err.fail
+                  (`Unsupported_bool_scalar_arithmetic
+                     { scalar_op = "add_scalar"; fmt = fmt_of x })
+            | Div_scalar { Pointwise.Scalar_bin.x; _ } when is_bool (fmt_of x)
+              ->
+                Err.fail
+                  (`Unsupported_bool_scalar_arithmetic
+                     { scalar_op = "div_scalar"; fmt = fmt_of x })
+            | Floor_div_scalar { Pointwise.Scalar_bin.x; _ }
+              when is_bool (fmt_of x) ->
+                Err.fail
+                  (`Unsupported_bool_scalar_arithmetic
+                     { scalar_op = "floor_div_scalar"; fmt = fmt_of x })
+            | Pow { Pointwise.Scalar_bin.x; _ } when is_bool (fmt_of x) ->
+                Err.fail
+                  (`Unsupported_bool_scalar_arithmetic
+                     { scalar_op = "pow"; fmt = fmt_of x })
+            | Rpow_scalar { Pointwise.Scalar_bin.x; _ } when is_bool (fmt_of x)
+              ->
+                Err.fail
+                  (`Unsupported_bool_scalar_arithmetic
+                     { scalar_op = "rpow_scalar"; fmt = fmt_of x })
+            | Rsub_scalar { Pointwise.Rsub_scalar.x; _ } when is_bool (fmt_of x)
+              ->
+                Err.fail
+                  (`Unsupported_bool_scalar_arithmetic
+                     { scalar_op = "rsub_scalar"; fmt = fmt_of x })
+            (* [Addcmul] has three tensor operands ([self]/[tensor1]/
+               [tensor2]); reports whichever is Bool first, in that order. *)
+            | Addcmul { Pointwise.Addcmul.self; _ } when is_bool (fmt_of self)
+              ->
+                Err.fail
+                  (`Unsupported_bool_scalar_arithmetic
+                     { scalar_op = "addcmul"; fmt = fmt_of self })
+            | Addcmul { Pointwise.Addcmul.tensor1; _ }
+              when is_bool (fmt_of tensor1) ->
+                Err.fail
+                  (`Unsupported_bool_scalar_arithmetic
+                     { scalar_op = "addcmul"; fmt = fmt_of tensor1 })
+            | Addcmul { Pointwise.Addcmul.tensor2; _ }
+              when is_bool (fmt_of tensor2) ->
+                Err.fail
+                  (`Unsupported_bool_scalar_arithmetic
+                     { scalar_op = "addcmul"; fmt = fmt_of tensor2 })
             | _ when Region_computation.is_region_authored op ->
                 region_result ~limits
                   ~region_counters:

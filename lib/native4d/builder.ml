@@ -201,7 +201,12 @@ let avg_pool2d params x = op1 (Op.Avg_pool2d { Pool.AvgPool2d.params; x })
 let batched_matmul input mat2 =
   op1 (Op.Batched_matmul { Matmul.Batched_matmul.input; mat2 })
 
-let bitwise_not x = op1 (Op.Bitwise_not { Pointwise.Bitwise_not.x })
+(* Unconditionally [Bool], matching [to_copy]'s own [Bool] case above and
+   Native's own [Graph_builder.bitwise_not] -- real ATen's bitwise-complement
+   on Native's only routed operand (a bool mask) produces a bool result. *)
+let bitwise_not x =
+  op1 ~fmt:Payload.(Fmt Bool) (Op.Bitwise_not { Pointwise.Bitwise_not.x })
+
 let clamp params x = op1 (Op.Clamp { Pointwise.Clamp.params; x })
 let col2im params x = op1 (Op.Col2im { Im2col.Col2im.params; x })
 
@@ -239,6 +244,12 @@ let group_norm4 params ~x ?weight ?bias () =
 
 let grouped_conv2d params ~x ~weight ?bias () =
   op1 (Op.Grouped_conv2d { Ops4.Grouped_conv_payload.params; x; weight; bias })
+
+(* Unconditionally [Bool], matching [to_copy]/[bitwise_not]'s own convention
+   above and Native's own [Graph_builder.gt_scalar] -- real ATen's [gt.
+   Scalar] always produces a bool result. *)
+let gt_scalar scalar x =
+  op1 ~fmt:Payload.(Fmt Bool) (Op.Gt_scalar { Pointwise.Scalar_bin.x; scalar })
 
 let hardsigmoid x = op1 (Op.Hardsigmoid { Pointwise.Hardsigmoid.x })
 let hardswish x = op1 (Op.Hardswish { Pointwise.Hardswish.x })
@@ -424,15 +435,18 @@ let sum_keepdims ?(keepdim = true) dims x =
 (* [Long]'s output dtype is I64 regardless of the operand's own format (ATen's
    `.long()` always produces int64), so this threads unconditionally -- unlike
    [add]/[sub]/[mul]/[reshape4]/[permute4]'s operand-conditional threading,
-   matching Native's own [Graph_builder.to_copy]. [Float]/[Bool] keep [op1]'s
-   F32 default: [Float]'s output genuinely is F32, and [Bool] has no distinct
-   storage format yet. *)
+   matching Native's own [Graph_builder.to_copy]. [Bool]'s output is genuine
+   [Payload.Bool] storage too, unconditionally, now that
+   [Eval_direct4]'s own [To_copy(Bool)] arm writes it -- matching
+   Native's own [Graph_builder.to_copy] convention exactly. [Float] keeps
+   [op1]'s F32 default: its output genuinely is F32. *)
 let to_copy target x =
   match target with
   | Pointwise.To_copy.Long ->
       op1 ~fmt:Payload.(Fmt I64) (Op.To_copy { Pointwise.To_copy.target; x })
-  | Pointwise.To_copy.Float | Pointwise.To_copy.Bool ->
-      op1 (Op.To_copy { Pointwise.To_copy.target; x })
+  | Pointwise.To_copy.Bool ->
+      op1 ~fmt:Payload.(Fmt Bool) (Op.To_copy { Pointwise.To_copy.target; x })
+  | Pointwise.To_copy.Float -> op1 (Op.To_copy { Pointwise.To_copy.target; x })
 
 let transposed_conv2d params ~x ~weight ?bias () =
   op1 (Op.Transposed_conv2d { Ops4.Transposed_conv2d.params; x; weight; bias })

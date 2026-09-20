@@ -119,6 +119,50 @@ let%expect_test "direct4: mixed I64/F32 add/sub/mul are rejected" =
 (* Explicit int64-input promotion for [Mul_scalar]: the output stays F32 by
    design, so only the read changes, not the write-back -- same architecture-
    only shape as Native's own `mul_scalar_i64_test.ml`. *)
+(* The Native4D twin of `test/native/pointwise_binary_i64_test.ml`'s own
+   Bool-arithmetic fixture: arithmetic on Bool stays rejected here too,
+   checked BEFORE the I64 mixed-dtype guard so a Bool/I64 pair reports the
+   Bool reason specifically. *)
+let%expect_test "direct4: arithmetic on a Bool operand is rejected" =
+  let run ~y_fmt op_of =
+    let g =
+      Builder.build
+        ~outputs:(fun o -> [ o ])
+        (let open Builder in
+         let* x = input ~shape:shape6 ~fmt:Payload.(Fmt Bool) () in
+         let* y = input ~shape:shape6 ~fmt:y_fmt () in
+         op_of x y)
+      |> Err.or_raise ~pp_error:Builder.pp_error
+    in
+    let x = Tensor.materialize_bool (Shape4.to_vec6 shape6) (fun _ -> true) in
+    let y =
+      match y_fmt with
+      | Payload.Fmt Payload.I64 -> small6 [ 1L; 1L; 1L; 1L; 1L; 1L ]
+      | _ -> Tensor.materialize (Shape4.to_vec6 shape6) (fun _ -> 1.0)
+    in
+    Eval_direct4.run g ~inputs:(List.combine g.Graph.Graph.inputs [ x; y ])
+  in
+  let pp fmt = function
+    | Ok (_ : Tensor.packed Tensor_id.Map.t) -> Fmt.string fmt "ok"
+    | Error e -> Fmt.pf fmt "%a" Eval_direct4.pp_error (Err.Error.kind e)
+  in
+  let run_all ~y_fmt =
+    Fmt.pr "%a@." pp (run ~y_fmt Builder.add);
+    Fmt.pr "%a@." pp (run ~y_fmt Builder.sub);
+    Fmt.pr "%a@." pp (run ~y_fmt Builder.mul)
+  in
+  run_all ~y_fmt:Payload.(Fmt F32);
+  run_all ~y_fmt:Payload.(Fmt I64);
+  [%expect
+    {|
+    add: arithmetic on a Bool operand is not supported, a=bool b=f32
+    sub: arithmetic on a Bool operand is not supported, a=bool b=f32
+    mul: arithmetic on a Bool operand is not supported, a=bool b=f32
+    add: arithmetic on a Bool operand is not supported, a=bool b=i64
+    sub: arithmetic on a Bool operand is not supported, a=bool b=i64
+    mul: arithmetic on a Bool operand is not supported, a=bool b=i64
+    |}]
+
 let%expect_test "direct4: Mul_scalar reads an I64 operand via an explicit cast"
     =
   let shape3 = Shape4.of_ints ~n:1 ~h:1 ~w:1 ~c:3 in
@@ -141,3 +185,26 @@ let%expect_test "direct4: Mul_scalar reads an I64 operand via an explicit cast"
   let out = Tensor_id.Map.find (List.hd g.Graph.Graph.outputs) env in
   Fmt.pr "%a@." Tensor.pp out;
   [%expect {| tensor f32 [C=3] {2.5, 5, 7.5} |}]
+
+(* The Native4D twin of `test/native/mul_scalar_i64_test.ml`'s own
+   Bool-rejection fixture: [Mul_scalar]'s existing per-format admission
+   point (extended above for I64) also needs a Bool arm, mirroring the
+   two-operand Add/Sub/Mul fixture above. *)
+let%expect_test "direct4: Mul_scalar rejects a Bool operand" =
+  let g =
+    Builder.build
+      ~outputs:(fun o -> [ o ])
+      (let open Builder in
+       let* x = input ~shape:shape6 ~fmt:Payload.(Fmt Bool) () in
+       mul_scalar 2.5 x)
+    |> Err.or_raise ~pp_error:Builder.pp_error
+  in
+  let x = Tensor.materialize_bool (Shape4.to_vec6 shape6) (fun _ -> true) in
+  let pp fmt = function
+    | Ok (_ : Tensor.packed Tensor_id.Map.t) -> Fmt.string fmt "ok"
+    | Error e -> Fmt.pf fmt "%a" Eval_direct4.pp_error (Err.Error.kind e)
+  in
+  Fmt.pr "%a@." pp
+    (Eval_direct4.run g ~inputs:(List.combine g.Graph.Graph.inputs [ x ]));
+  [%expect
+    {| mul_scalar: arithmetic on a Bool operand is not supported, x=bool |}]

@@ -129,6 +129,10 @@ let classify (op : op) ~output =
      across an integer crosses to the next (or previous) floor value, the
      same argmax-shaped reasoning [Index_tensor]/[To_copy] get. *)
   | Floor_div_scalar _ -> Discontinuous
+  (* Real comparison: an arbitrarily small change to [x] across the scalar
+     boundary flips 0. to 1. (or back), the same argmax-shaped reasoning
+     [Bitwise_not]/[Floor_div_scalar] get just above. *)
+  | Gt_scalar _ -> Discontinuous
   | Add _ | Addcmul _ | Add_scalar _ | Adaptive_avg_pool2d _
   | Adaptive_max_pool2d _ | Amax _ | Avg_pool2d _ | Batch_norm _
   | Batch_norm_no_stats _ | Batched_matmul _ | Bmm _ | Clamp _ | Conv1d _

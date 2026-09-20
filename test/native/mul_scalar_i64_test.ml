@@ -50,3 +50,28 @@ let%expect_test
   [%expect {|
     out = tensor f32 [C=3] {2.5, 5, 7.5}
     |}]
+
+(* Arithmetic on Bool stays rejected here too, the same reasoning as
+   `pointwise_binary_i64_test.ml`'s own
+   tensor-tensor fixture -- before this check, a genuine [Payload.Bool]
+   operand would fall through to the default float path above, silently
+   reading its cells as 0./1. via [Payload.get_float] and multiplying them
+   by the compile-time scalar. *)
+let%expect_test "Direct graph: Mul_scalar rejects a Bool operand" =
+  let open Err.Syntax in
+  let run =
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"mul_scalar_bool" ~outputs:(fun r -> [ r ])
+          @@
+          let* x = input ~shape:(s1c 3) ~name:"x" ~fmt:Payload.(Fmt Bool) () in
+          mul_scalar ~name:"out" 2.5 x)
+    in
+    let x = Tensor.materialize_bool (s1c 3) (fun _ -> true) in
+    lift_eval (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ x ]))
+  in
+  let pp_ok ppf (_ : Tensor.packed Tensor_id.Map.t) = Fmt.string ppf "ok" in
+  Format.printf "%a@." (pp_result pp_ok) run;
+  [%expect
+    {| mul_scalar: arithmetic on a Bool operand is not supported, x=bool |}]

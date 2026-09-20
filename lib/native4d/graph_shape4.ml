@@ -382,6 +382,9 @@ let output_shape (op : Op.t)
         (four
            (Conv.Conv2d.output_shape ~x_shape ~weight_shape
               (grouped_conv2d_params params)))
+  | Gt_scalar { Pointwise.Scalar_bin.x; _ } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.Gt_scalar.output_shape x_shape))
   | Hardsigmoid { Pointwise.Hardsigmoid.x } ->
       let* x_shape = shape x in
       one (four (Pointwise.Hardsigmoid.output_shape x_shape))

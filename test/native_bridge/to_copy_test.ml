@@ -48,6 +48,18 @@ let%expect_test "dispatch: _to_copy dtype=BOOL is a nonzero test" =
   dispatch_to_copy ~dtype:PT.ScalarType.BOOL self;
   [%expect {| tensor bool [C=5] {1, 1, 0, 1, 1} |}]
 
+(* The I64 twin of the fixture above: an exact int64 zero test (design
+   section 3's "I64 to Bool: Exact comparison with 0L"), not a route through
+   [Payload.get_float]'s incidental float nonzero test. Includes a value
+   past 2^53 to confirm no float intermediary is involved. *)
+let%expect_test
+    "dispatch: _to_copy dtype=BOOL on an I64 self is an exact zero test" =
+  let self =
+    i64_tensor [ 5 ] [ 0L; 1L; -1L; 9_007_199_254_740_993L; Int64.min_int ]
+  in
+  dispatch_to_copy ~dtype:PT.ScalarType.BOOL self;
+  [%expect {| tensor bool [C=5] {0, 1, 1, 1, 1} |}]
+
 (* [non_blocking] carries no computational effect -- both spellings must
    build the identical result, the same [implicit] proof [expand_test.ml]
    makes for [expand.default]. *)

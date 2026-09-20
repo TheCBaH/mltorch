@@ -170,6 +170,7 @@ let samples : Op.t list =
         weight = w;
         bias = None;
       };
+    Gt_scalar { Pointwise.Scalar_bin.x; scalar = 2. };
     Hardsigmoid { Pointwise.Hardsigmoid.x };
     Hardswish { Pointwise.Hardswish.x };
     Hardtanh { Pointwise.Hardtanh.params = { min_val = 0.; max_val = 6. }; x };
@@ -386,7 +387,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 73, registry: 73 |}]
+  [%expect {| samples: 74, registry: 74 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -448,6 +449,7 @@ let%expect_test "op4: printed" =
              w={kernel=3; stride=1; pad_before=0; pad_after=1; dilation=1};
              in_channels=8;
              groups=2}
+    gt_scalar x=t0 scalar=2
     hardsigmoid x=t0
     hardswish x=t0
     hardtanh x=t0 params={min_val=0; max_val=6}
@@ -530,7 +532,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 73 ops |}]
+  [%expect {| round-tripped 74 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

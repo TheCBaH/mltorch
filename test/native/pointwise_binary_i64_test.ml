@@ -174,3 +174,53 @@ let%expect_test "Direct graph: mixed I64/F32 add/sub/mul are rejected" =
     sub: unsupported mixed dtype, a=i64 b=f32
     mul: unsupported mixed dtype, a=i64 b=f32
     |}]
+
+(* Arithmetic on Bool stays rejected: before this check, a genuine
+   [Payload.Bool] operand paired with an F32 one
+   would fall through to the default float path, silently reading the Bool
+   cells as 0./1. via [Payload.get_float] and adding them as ordinary floats
+   -- no validated promotion policy exists for that either, the same reasoning
+   the I64 case above already applies, just for a different
+   unsupported pair. Checked BEFORE the I64 guard, so a Bool paired with I64
+   (third case below) reports the Bool reason specifically, not the
+   unrelated I64-mixing one. *)
+let%expect_test "Direct graph: arithmetic on a Bool operand is rejected" =
+  let open Err.Syntax in
+  let run ~y_fmt op_of =
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"bool_arithmetic" ~outputs:(fun r -> [ r ])
+          @@
+          let* x = input ~shape:(s1c 3) ~name:"x" ~fmt:Payload.(Fmt Bool) () in
+          let* y = input ~shape:(s1c 3) ~name:"y" ~fmt:y_fmt () in
+          op_of x y)
+    in
+    let x = Tensor.materialize_bool (s1c 3) (fun _ -> true) in
+    let y =
+      match y_fmt with
+      | Payload.Fmt Payload.I64 -> Tensor.materialize_i64 (s1c 3) (fun _ -> 1L)
+      | _ -> Tensor.materialize (s1c 3) (fun _ -> 1.0)
+    in
+    lift_eval (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ x; y ]))
+  in
+  let pp_ok ppf (_ : Tensor.packed Tensor_id.Map.t) = Fmt.string ppf "ok" in
+  let run_all ~y_fmt =
+    Format.printf "%a@." (pp_result pp_ok)
+      (run ~y_fmt (fun x y -> Graph_builder.add ~name:"out" x y));
+    Format.printf "%a@." (pp_result pp_ok)
+      (run ~y_fmt (fun x y -> Graph_builder.sub ~name:"out" x y));
+    Format.printf "%a@." (pp_result pp_ok)
+      (run ~y_fmt (fun x y -> Graph_builder.mul ~name:"out" x y))
+  in
+  run_all ~y_fmt:Payload.(Fmt F32);
+  run_all ~y_fmt:Payload.(Fmt I64);
+  [%expect
+    {|
+    add: arithmetic on a Bool operand is not supported, a=bool b=f32
+    sub: arithmetic on a Bool operand is not supported, a=bool b=f32
+    mul: arithmetic on a Bool operand is not supported, a=bool b=f32
+    add: arithmetic on a Bool operand is not supported, a=bool b=i64
+    sub: arithmetic on a Bool operand is not supported, a=bool b=i64
+    mul: arithmetic on a Bool operand is not supported, a=bool b=i64
+    |}]

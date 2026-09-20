@@ -321,6 +321,16 @@ let group_norm ?name params ~x ?weight ?bias () =
   op1 ?name ~kind:"group_norm"
     (Group_norm { Norm.GroupNorm.params; x; weight; bias })
 
+(* Real ATen's [gt.Scalar] always produces a bool result, so the output is
+   unconditionally [Bool] (matching [bitwise_not]'s own convention above) --
+   not conditioned on the operand's format, since ordering compares any
+   numeric operand against a compile-time scalar. *)
+let gt_scalar ?name scalar x =
+  op1 ?name
+    ~fmt:Payload.(Fmt Bool)
+    ~kind:"gt_scalar"
+    (Gt_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar })
+
 let hardsigmoid ?name x =
   op1 ?name ~kind:"hardsigmoid" (Hardsigmoid { Pointwise.Hardsigmoid.x })
 

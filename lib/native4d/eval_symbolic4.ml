@@ -21,7 +21,20 @@ let pp_mixed_dtype fmt
   Format.fprintf fmt "%s: unsupported mixed dtype, a=%s b=%s" mixed_op
     (Payload.fmt_name a_fmt) (Payload.fmt_name b_fmt)
 
+let pp_bool_arithmetic fmt
+    { mixed_op; a_fmt = Payload.Fmt a_fmt; b_fmt = Payload.Fmt b_fmt } =
+  Format.fprintf fmt
+    "%s: arithmetic on a Bool operand is not supported, a=%s b=%s" mixed_op
+    (Payload.fmt_name a_fmt) (Payload.fmt_name b_fmt)
+
+type scalar_op = { scalar_op : string; fmt : Payload.packed_fmt }
+
+let pp_bool_scalar_arithmetic fmt { scalar_op; fmt = Payload.Fmt f } =
+  Format.fprintf fmt "%s: arithmetic on a Bool operand is not supported, x=%s"
+    scalar_op (Payload.fmt_name f)
+
 let is_i64 = function Payload.Fmt Payload.I64 -> true | _ -> false
+let is_bool = function Payload.Fmt Payload.Bool -> true | _ -> false
 
 (* The Native4D twin of [Eval_symbolic]'s own fix, same rationale: closes the
    mixed I64/F32 checked-admission gap for Native4D's Symbolic route (Direct
@@ -32,15 +45,46 @@ let check_mixed_dtype (g : Graph.graph) op =
   let fmt_of r = (Tensor_id.Map.find r g.Graph.Graph.tensors).Tensor_sig.fmt in
   let check_pair mixed_op a b =
     let a_fmt = fmt_of a and b_fmt = fmt_of b in
-    if Bool.equal (is_i64 a_fmt) (is_i64 b_fmt) then ()
+    (* Arithmetic on Bool stays rejected, checked FIRST so a Bool paired with
+       I64 reports the Bool reason, not the unrelated I64-mixing one below --
+       the Native4D twin of [Eval_symbolic]'s own fix/precedence. *)
+    if is_bool a_fmt || is_bool b_fmt then
+      Err.or_raise ~pp_error:pp_bool_arithmetic
+        (Err.fail ~pos:__POS__ { mixed_op; a_fmt; b_fmt })
+    else if Bool.equal (is_i64 a_fmt) (is_i64 b_fmt) then ()
     else
       Err.or_raise ~pp_error:pp_mixed_dtype
         (Err.fail ~pos:__POS__ { mixed_op; a_fmt; b_fmt })
+  in
+  let check_scalar_op scalar_op x =
+    let fmt = fmt_of x in
+    if is_bool fmt then
+      Err.or_raise ~pp_error:pp_bool_scalar_arithmetic
+        (Err.fail ~pos:__POS__ { scalar_op; fmt })
   in
   match op with
   | Op.Add { Pointwise.Bin.a; b } -> check_pair "add" a b
   | Op.Sub { Pointwise.Bin.a; b } -> check_pair "sub" a b
   | Op.Mul { Pointwise.Bin.a; b } -> check_pair "mul" a b
+  | Op.Mul_scalar { Pointwise.Scalar_bin.x; _ } ->
+      check_scalar_op "mul_scalar" x
+  (* The Native4D twin of [Eval_symbolic]'s own extension of this same check
+     to the rest of the `*_scalar` family -- see that file's own comment. *)
+  | Op.Add_scalar { Pointwise.Scalar_bin.x; _ } ->
+      check_scalar_op "add_scalar" x
+  | Op.Div_scalar { Pointwise.Scalar_bin.x; _ } ->
+      check_scalar_op "div_scalar" x
+  | Op.Floor_div_scalar { Pointwise.Scalar_bin.x; _ } ->
+      check_scalar_op "floor_div_scalar" x
+  | Op.Pow { Pointwise.Scalar_bin.x; _ } -> check_scalar_op "pow" x
+  | Op.Rpow_scalar { Pointwise.Scalar_bin.x; _ } ->
+      check_scalar_op "rpow_scalar" x
+  | Op.Rsub_scalar { Pointwise.Rsub_scalar.x; _ } ->
+      check_scalar_op "rsub_scalar" x
+  | Op.Addcmul { Pointwise.Addcmul.self; tensor1; tensor2; _ } ->
+      check_scalar_op "addcmul" self;
+      check_scalar_op "addcmul" tensor1;
+      check_scalar_op "addcmul" tensor2
   | _ -> ()
 
 let first_free_tid (g : Graph.graph) =

@@ -16,6 +16,8 @@ type mixed_dtype = {
   b_fmt : Payload.packed_fmt;
 }
 
+type scalar_op = { scalar_op : string; fmt : Payload.packed_fmt }
+
 type error =
   [ Graph_shape.error
   | `Arange_i64_overflow of Factory.Arange.Overflow.t
@@ -25,6 +27,8 @@ type error =
   | `Output_arity_mismatch of arity_mismatch
   | `Region_construction of Region_computation.error
   | `Region_execution of Region_eval.error
+  | `Unsupported_bool_arithmetic of mixed_dtype
+  | `Unsupported_bool_scalar_arithmetic of scalar_op
   | `Unsupported_mixed_dtype of mixed_dtype
   | `Unsupported_to_copy_bool_source of Payload.packed_fmt
   | `Unsupported_to_copy_long_source of Payload.packed_fmt ]
