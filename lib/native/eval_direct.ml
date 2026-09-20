@@ -23,6 +23,7 @@ type error =
   | `Region_construction of Region_computation.error
   | `Region_execution of Region_eval.error
   | `Unsupported_mixed_dtype of mixed_dtype
+  | `Unsupported_to_copy_bool_source of Payload.packed_fmt
   | `Unsupported_to_copy_long_source of Payload.packed_fmt ]
 
 type hooks =
@@ -55,6 +56,10 @@ let pp_error ppf : [< error ] -> unit = function
       { mixed_op; a_fmt = Payload.Fmt a_fmt; b_fmt = Payload.Fmt b_fmt } ->
       Format.fprintf ppf "%s: unsupported mixed dtype, a=%s b=%s" mixed_op
         (Payload.fmt_name a_fmt) (Payload.fmt_name b_fmt)
+  | `Unsupported_to_copy_bool_source (Payload.Fmt f) ->
+      Format.fprintf ppf
+        "to_copy: Bool target has no exact Bool output for a %s source"
+        (Payload.fmt_name f)
   | `Unsupported_to_copy_long_source (Payload.Fmt f) ->
       Format.fprintf ppf
         "to_copy: Long target has no exact I64 output for a %s source"
@@ -546,10 +551,9 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                as [Mul_scalar] above: [Compute(S).pixel]'s [S.load] already
                computes the identical value for this specific case
                ([Payload.get_float]'s I64 case is [Int64.to_float]), so this
-               is architecture-only, not a value-level fix. [Long]/[Bool]
-               targets are untouched -- an I64 input reaching [Long] needs no
-               cast at all (I64->I64 copy), and [Bool] needs storage this plan
-               has not opened yet, so both keep the existing float pixel path. *)
+               is architecture-only, not a value-level fix. [Long] is
+               untouched -- an I64 input reaching [Long] needs no cast at all
+               (I64->I64 copy), so it keeps the existing float pixel path. *)
             | To_copy { Pointwise.To_copy.target = Pointwise.To_copy.Float; x }
               -> (
                 let x_sig = Tensor_id.Map.find x g.Graph.tensors in
@@ -620,6 +624,52 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                 | Payload.Fmt other ->
                     Err.fail
                       (`Unsupported_to_copy_long_source (Payload.Fmt other)))
+            (* [To_copy]'s [Bool] target now writes real [Payload.Bool]
+               storage rather than the F32 0.0/1.0 encoding
+               [Compute.pixel]'s own [Bool] arm produces on its own --
+               [Graph_builder.to_copy] declares this node's output [Bool]
+               unconditionally, so leaving this to the generic `_` fallback
+               below (F32-only) would reproduce the exact declared/actual
+               mismatch hazard the [Long] arm above already guards against.
+               Reuses [Compute(Direct).pixel]'s own formula UNCHANGED (same
+               nonzero test, same NaN/infinity behavior) and only changes
+               where the result lands -- a canonical byte via [Tensor.
+               materialize_bool] instead of an F32 cell -- so this is a
+               storage-format change, not a semantics change; EdgeNeXt's own
+               mask pattern is pinned bit-for-bit by [bool_acceptance_test.
+               ml] against exactly this formula. Every other operand format
+               is rejected at checked admission, matching the [Long] arm's
+               own convention -- no real corpus caller casts a non-F32
+               operand to [Bool] today. *)
+            | To_copy { Pointwise.To_copy.target = Pointwise.To_copy.Bool; x }
+              -> (
+                let x_sig = Tensor_id.Map.find x g.Graph.tensors in
+                match x_sig.Tensor_sig.fmt with
+                | Payload.Fmt Payload.F32 ->
+                    let module C = Pointwise.To_copy.Compute (Direct) in
+                    let x_t = Tensor_id.Map.find x operand_env in
+                    Err.return
+                      (Tensor.materialize_bool out_shape (fun coord ->
+                           C.pixel Pointwise.To_copy.Bool x_t coord <> 0.0))
+                | Payload.Fmt other ->
+                    Err.fail
+                      (`Unsupported_to_copy_bool_source (Payload.Fmt other)))
+            (* [Bitwise_not] now writes real [Payload.Bool] storage too,
+               matching [Graph_builder.bitwise_not]'s own
+               unconditional [Bool] output declaration -- real ATen's
+               [bitwise_not] on a bool operand produces a bool result, and
+               nothing routes an integer operand here today (see [Pointwise.
+               Bitwise_not]'s own comment). No operand-format branch is
+               needed, unlike [To_copy]'s casts: [Compute(Direct).pixel]'s
+               existing formula already reads ANY operand format through
+               [S.load]/[Payload.get_float] (format-agnostic), so this arm
+               only changes where the result lands. *)
+            | Bitwise_not { Pointwise.Bitwise_not.x } ->
+                let module C = Pointwise.Bitwise_not.Compute (Direct) in
+                let x_t = Tensor_id.Map.find x operand_env in
+                Err.return
+                  (Tensor.materialize_bool out_shape (fun coord ->
+                       C.pixel x_t coord <> 0.0))
             | _ when Region_computation.is_region_authored op ->
                 region_result ~limits
                   ~region_counters:
