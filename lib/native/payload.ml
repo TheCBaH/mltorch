@@ -45,6 +45,23 @@ let fmt_name : type e b q. (e, b, q) fmt -> string = function
 
 let pp_fmt fmt f = Fmt.string fmt (fmt_name f)
 
+(* Bytes per stored cell -- what a preflight byte-size check (numel *
+   cell_bytes, overflow-checked before allocation) needs and [numel] alone
+   cannot give it: I64's 8-byte cell is twice F32's 4-byte one at the same
+   cell count. [Bigarray.kind_size_in_bytes] on the format's own kind, not a
+   hand-maintained table that could drift from it. *)
+let cell_bytes : type e b q. (e, b, q) fmt -> int = function
+  | BF16 -> Bigarray.kind_size_in_bytes Bigarray.int16_unsigned
+  | F16 -> Bigarray.kind_size_in_bytes Bigarray.int16_unsigned
+  | F32 -> Bigarray.kind_size_in_bytes Bigarray.float32
+  | F64 -> Bigarray.kind_size_in_bytes Bigarray.float64
+  | I16 -> Bigarray.kind_size_in_bytes Bigarray.int16_signed
+  | I32 -> Bigarray.kind_size_in_bytes Bigarray.int32
+  | I64 -> Bigarray.kind_size_in_bytes Bigarray.int64
+  | I8 -> Bigarray.kind_size_in_bytes Bigarray.int8_signed
+
+let packed_cell_bytes (Fmt f) = cell_bytes f
+
 (* Integer storage range of a quantized format (for re-quantising on store). *)
 let qrange : type e b q. (e, b, q) fmt -> int * int = function
   | I16 -> (-32768, 32767)

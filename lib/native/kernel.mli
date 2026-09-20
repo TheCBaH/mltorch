@@ -49,6 +49,27 @@ module Value : sig
   }
 end
 
+module Value_i64 : sig
+  (* An exact int64 value: no [Region_group.Ref.t], no [Result_conversion]
+     (an int64 pixel is always exact, nothing to round). [pixel] must be
+     closed over LOCALS and REDUCERS (no free ones -- [Expr.Check.value_i64]
+     checks this), but MAY [I64_load] an earlier [values_i64] entry: [create]
+     admits a backward-only int64-to-int64 dependency chain, ids resolved by
+     position in the list, the same "already topologically ordered" contract
+     [Value.t]'s own [computation] sources rely on. A [Value.t] may in turn
+     read one of THESE -- [I64_to_float (I64_load ...)] in an ordinary float
+     pixel, e.g. a promoted consumer of an int64 producer -- since every
+     [values_i64] entry is materialized before any [Value.t] evaluates
+     ([Kernel_eval.machine]); see [create]'s own doc. The remaining
+     cross-carrier direction, an int64 value reading a FLOAT one, is real,
+     named future work, not covered here. *)
+  type t = {
+    id : Tensor_id.t;
+    sg : Tensor_sig.t;  (** [sg.id] must equal [id]; [sg.fmt] must be I64 *)
+    pixel : int64 Expr.Value.t;
+  }
+end
+
 module Output : sig
   type t = private { value : Tensor_id.t; sg : Tensor_sig.t }
   (** [sg] is DERIVED by [create] from the named value, so there is no signature
@@ -90,6 +111,11 @@ module Limits : sig
     max_outputs : int;
     max_extent : int64;
     max_numel : int64;
+    max_bytes : int64;
+        (** Allocation byte budget ([numel * cell_bytes], checked overflow-safe
+            before allocation) -- independent of [max_numel], which bounds
+            JS-reachable coordinate addressability, not memory, and is the same
+            for every format regardless of cell width. *)
     max_local_slots : int;
         (** Region trace/scalar/vector storage: total slot count across a
             computation's locals, [(steps+1)*width] per trace local. *)
@@ -152,6 +178,7 @@ module Limits : sig
     val eval_recursion : int
     val extent : int64
     val numel : int64
+    val max_bytes : int64
 
     (* Memory- and array-length-bound, not stack-bound -- policy ceilings with
        deliberate headroom over the scan design record's censuses, not
@@ -175,6 +202,7 @@ module Limits : sig
     max_outputs:int ->
     max_extent:int64 ->
     max_numel:int64 ->
+    max_bytes:int64 ->
     max_local_slots:int ->
     max_scan_state:int ->
     max_scan_updates_per_key:int64 ->
@@ -196,6 +224,12 @@ end
 type t = private {
   inputs : Input.t list;
   values : Value.t list;  (** topologically ordered *)
+  values_i64 : Value_i64.t list;
+      (** Standalone exact int64 values -- order does not matter among
+          themselves (each is closed, so none can depend on another or on any
+          [values] entry), unlike [values]' topological order. Not yet reachable
+          from [outputs]/[Use.t]/dependency-depth accounting; see
+          [Value_i64.t]'s own doc. *)
   outputs : Output.t list;
   limits : Limits.t;
   by_id : Value.t Tensor_id.Map.t;
@@ -204,6 +238,8 @@ type t = private {
           a hash table, so not constant time. The point is that the whole-list
           scan is gone: it was multiplied by every caller resolving endpoints
           per candidate. *)
+  by_id_i64 : Value_i64.t Tensor_id.Map.t;
+      (** The same index, over [values_i64]. Read it through [value_i64]. *)
 }
 
 (* Each error payload gets its own module: three of them would otherwise share
@@ -232,17 +268,31 @@ module Format_rule : sig
   type t = { id : Tensor_id.t; role : role; fmt : Payload.packed_fmt }
 end
 
+module I64_format_rule : sig
+  (* [Format_rule.t]'s int64 twin: a distinct type, not a third [role], since
+     the two check different things (F32-unquantized versus I64-unquantized)
+     for a different value kind. *)
+  type t = { id : Tensor_id.t; fmt : Payload.packed_fmt }
+end
+
 module Body_error : sig
   type t = { at : Tensor_id.t; error : Region_group.error }
 end
 
+module I64_body_error : sig
+  type t = { at : Tensor_id.t; error : Expr.Check.error }
+end
+
 type error =
   [ `Body of Body_error.t
+  | `Bytes_too_large of Tensor_id.t
   | `Dependency_too_deep of int
   | `Duplicate_id of Tensor_id.t
   | `Eval_too_deep of int
   | `Extent_too_large of Extent_bound.t
   | `Forward_reference of Forward_ref.t
+  | `I64_body of I64_body_error.t
+  | `Not_i64_materializable of I64_format_rule.t
   | `Not_materializable of Format_rule.t
   | `Numel_too_large of Tensor_id.t
   | `Quant_contract of Tensor_id.t
@@ -253,7 +303,8 @@ type error =
   | `Too_many_values of int
   | `Unknown_output of Tensor_id.t
   | `Unreachable_value of Tensor_id.t
-  | `Unresolved_source of Unresolved.t ]
+  | `Unresolved_source of Unresolved.t
+  | `Unsupported_i64_dependency of Tensor_id.t ]
 (** [`Too_*] and [`*_too_deep] carry the LIMIT, not the measure, for the reason
     [Expr.Check] does: reporting the actual figure would mean measuring the
     whole input the limit exists to avoid walking. *)
@@ -262,6 +313,7 @@ val pp_error : Format.formatter -> [< error ] -> unit
 
 val create :
   ?limits:Limits.t ->
+  ?values_i64:Value_i64.t list ->
   inputs:Input.t list ->
   values:Value.t list ->
   outputs:Tensor_id.t list ->
@@ -270,10 +322,29 @@ val create :
 (** Validates, in an order that matters: cheap arity guards, then the metered
     per-body budgets, then everything unmetered. [Expr.Fold]'s queries recurse
     over a whole tree, so running one before [Expr.Check.value] would exhaust
-    the stack on exactly the oversized input the limit exists to reject. *)
+    the stack on exactly the oversized input the limit exists to reject.
+
+    [values_i64] defaults to [[]], so every existing caller is unaffected. Each
+    entry is checked closed over locals/reducers (via [Expr.Check.value_i64]),
+    exact I64 format/unquantized, and byte/extent-bounded. Its
+    [Expr.Fold.sources_i64] may name only EARLIER entries in [values_i64] itself
+    -- a forward reference is [`Unsupported_i64_dependency] -- so [values_i64]
+    is its own backward-only int64 dependency chain, checked in list order the
+    same way [values]' forward sweep is. [values_i64] ids share the same
+    namespace as [inputs]/[values] (checked for [`Duplicate_id]) but do not yet
+    participate in [outputs]/[Use.t]/dependency-depth/reachability accounting.
+
+    A [values] entry's OWN sources, by contrast, MAY name a [values_i64] id: an
+    ordinary float pixel containing [I64_to_float (I64_load ...)] resolves it at
+    zero added dependency/eval depth, exactly like a caller-supplied input --
+    never a forward reference, since [Kernel_eval.machine] materializes every
+    [values_i64] entry before any [Value.t] evaluates, unconditionally,
+    regardless of either list's own order. The reverse -- an int64 value reading
+    a float [values]/[inputs] id -- stays [`Unsupported_i64_dependency]. *)
 
 val pp : Format.formatter -> t -> unit
 val value : t -> Tensor_id.t -> Value.t option
+val value_i64 : t -> Tensor_id.t -> Value_i64.t option
 val pixel_expression : Value.t -> float Expr.Value.t option
 
 val over_limit : int -> 'a list -> bool

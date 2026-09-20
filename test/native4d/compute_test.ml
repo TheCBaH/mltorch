@@ -199,10 +199,38 @@ let%expect_test "direct4: arange4 preserves Float start and endpoint" =
            stop = 4.;
            step = 1.;
            fmt = Payload.Fmt Payload.F32;
+           exact = None;
          })
   in
   Format.printf "%a@." Tensor.pp (single g ~inputs:[] ());
   [%expect {| tensor f32 [C=4] {0.5, 1.5, 2.5, 3.5} |}]
+
+(* Native4D twin of [factory_test.ml]'s "arange with exact params stays
+   exact past 2^53": [Eval_direct4]'s own exact arm ([value_i64_exact]) and
+   [Graph_shape4]'s exact count both exercised through the real
+   [Builder.arange4]/[Eval_direct4.run] path, not a hand-built tensor. *)
+let%expect_test "direct4: arange4 with exact params stays exact past 2^53" =
+  let g =
+    build
+      ~outputs:(fun y -> [ y ])
+      (Builder.arange4
+         {
+           Ops4.Arange4.start = 9_007_199_254_740_993.;
+           stop = 9_007_199_254_740_996.;
+           step = 1.;
+           fmt = Payload.Fmt Payload.I64;
+           exact =
+             Some
+               {
+                 Factory.Arange.Exact.start = 9_007_199_254_740_993L;
+                 stop = 9_007_199_254_740_996L;
+                 step = 1L;
+               };
+         })
+  in
+  Format.printf "%a@." Tensor.pp (single g ~inputs:[] ());
+  [%expect
+    {| tensor i64 [C=3] {9007199254740993, 9007199254740994, 9007199254740995} |}]
 
 let%expect_test "direct4: batch_norm_no_stats keeps activation and statistics" =
   let x_shape = s4 ~n:1 ~h:2 ~w:1 ~c:2 in

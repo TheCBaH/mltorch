@@ -148,7 +148,8 @@ type pool_tag = Cols_tag | Rows_tag
    resulting [Scan_meter.reserve] failure on reuse, proving the ordinary
    full-cleanup path's success is a real signal, not a vacuous one. Never
    exposed through the public [Expr] API. *)
-let eval_machine ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
+let eval_machine ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
+    ?(local_i64 = fun _ -> None) ?(local_at_i64 = fun _ _ -> None) ?scan
     ?scan_meter ?(reducer = []) ?(on_reduction = fun () -> ())
     ?skip_cleanup (env : Env.t) ~output e =
   Err.Escape.with_escape @@ fun esc ->
@@ -277,6 +278,16 @@ let eval_machine ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
           (I64_result
              (vchk (env.Env.load_index s (Coord.map (idx reducers) c))))
           frames
+    | Eval_i64_state (Value.I64_local v, _), _ -> (
+        match local_i64 v with
+        | Some x -> (loop [@tailcall]) (I64_result x) frames
+        | None -> Err.Escape.throw esc (`Unbound_local v))
+    | Eval_i64_state (Value.I64_local_at (v, i), reducers), _ -> (
+        match local_at_i64 v (idx reducers i) with
+        | Some x -> (loop [@tailcall]) (I64_result x) frames
+        | None -> Err.Escape.throw esc (`Unbound_local v))
+    | Eval_i64_state (Value.I64_of_index i, reducers), _ ->
+        (loop [@tailcall]) (I64_result (Int64.of_int (idx reducers i))) frames
     | Eval_state (Value.Value_of_index i, reducers), _ ->
         (loop [@tailcall])
           (Float_result (vchk (float_of_index (idx reducers i))))

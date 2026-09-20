@@ -28,16 +28,21 @@ type i64_binary_op = I64_add | I64_mul | I64_sub
    must run the identical [pool_better] fold. *)
 type reduction_kind = Argmax_index | Argmax_value | Max | Sum
 
-(* Carrier-indexed. [I64_binary]/[I64_const]/[I64_load] are the inhabitants of
-   a second index ([int64 value]) -- see .ai/. [I64_load] is the first of them
-   to reach [Source.t]: it resolves through [Env.load_index] (already exact
-   I64, previously reached only via [Data] index components) exactly as
-   [Load] resolves through [Env.load], so an [int64 value] tree is no longer
-   unconditionally closed/environment-free -- only a tree built without
-   [I64_load] is (see [Value.eval_i64]'s own doc comment on what that means
-   for its standalone callback shape). Typed [Local]/[Reduce] at [int64 value]
-   remain later work (typed locals/scans). Every other constructor below
-   still returns [float value], the original inhabited index. *)
+(* Carrier-indexed. [I64_binary]/[I64_const]/[I64_load]/[I64_local]/
+   [I64_local_at]/[I64_of_index] are the inhabitants of a second index
+   ([int64 value]) -- see
+   .ai/. [I64_load] is the first of them to reach [Source.t]: it resolves
+   through [Env.load_index] (already exact I64, previously reached only via
+   [Data] index components) exactly as [Load] resolves through [Env.load], so
+   an [int64 value] tree is no longer unconditionally closed/environment-free
+   -- only a tree built without [I64_load]/[I64_local]/[I64_local_at] is (see
+   [Value.eval_i64]'s own doc comment on what that means for its standalone
+   callback shape). Typed [Reduce]/[Scan_at] at [int64 value] (reduction
+   accumulators, scan previous-row references) remain later work;
+   [I64_local]/[I64_local_at] give scalar/vector locals the same
+   typed treatment [Local]/[Local_at] already have at [float value]. Every
+   other constructor below still returns [float value], the original
+   inhabited index. *)
 type _ value =
   | Binary : binary_op * float value * float value -> float value
   | Const : float -> float value
@@ -59,6 +64,19 @@ type _ value =
           Wrong-format/out-of-range binding errors are the same [Env.load_index]
           already reports for a [Data] index component -- this constructor is a
           second caller of that one resolver, not a new one. *)
+  | I64_local : Local_var.t -> int64 value
+      (** The [int64 value] counterpart of [Local]: an I64-typed scalar Region
+          local, resolved by a caller-supplied typed reader exactly as [Local]
+          is (see [Eval.value]'s [local_i64] parameter). *)
+  | I64_local_at : Local_var.t * Role.Position.t Index.t -> int64 value
+      (** The [int64 value] counterpart of [Local_at]: an I64-typed vector
+          Region local read at a position. *)
+  | I64_of_index : Role.Delta.t Index.t -> int64 value
+      (** The [int64 value] counterpart of [Value_of_index]: an index carried
+          into the value domain EXACTLY, not through a float ordinal. Unlike
+          [Value_of_index] (which can lose precision converting a large index to
+          binary64), this conversion is total and lossless -- every
+          [int]-represented index, on any backend width, fits in [int64]. *)
   | I64_to_float : int64 value -> float value
       (** Exact-to-working-float, potentially lossy above 2^53 (design's "I64 to
           Float" policy) -- no exceptional case, unlike the reverse direction.

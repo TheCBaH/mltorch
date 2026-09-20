@@ -16,6 +16,7 @@ type arity_mismatch = { expected : int; actual : int }
 
 type error =
   [ Graph_shape4.error
+  | `Arange_i64_overflow of Factory.Arange.Overflow.t
   | `Missing_constant of Tensor_id.t
   | `Missing_input of Tensor_id.t
   | `Missing_tensor of missing_tensor
@@ -29,6 +30,10 @@ let pp_context ppf = function
 
 let pp_error ppf : [< error ] -> unit = function
   | #Graph_shape4.error as e -> Graph_shape4.pp_error ppf e
+  | `Arange_i64_overflow { Factory.Arange.Overflow.start; step; i } ->
+      Fmt.pf ppf
+        "arange4: exact int64 generation overflows at start=%Ld step=%Ld i=%d"
+        start step i
   | `Missing_constant id ->
       Fmt.pf ppf "missing constant tensor %a" Tensor_id.pp id
   | `Missing_input id -> Fmt.pf ppf "missing input tensor %a" Tensor_id.pp id
@@ -265,16 +270,28 @@ let eval_node ?region_counters ~limits ~synthetic_ids (g : Graph.graph) env
                       stop = params.stop;
                       step = params.step;
                       fmt = params.fmt;
+                      exact = params.exact;
                     }
                 in
                 match params.fmt with
-                | Payload.Fmt Payload.I64 ->
-                    Err.return
-                      (Tensor.materialize_i64 (Shape4.to_vec6 out_shape)
-                         (fun coord ->
-                           Int64.of_float
-                             (Factory.Arange.value params
-                                (Dim.to_int coord.Vec6.c))))
+                | Payload.Fmt Payload.I64 -> (
+                    match params.exact with
+                    | Some e ->
+                        (* Exact int64 arithmetic, no float round trip -- the
+                           Native4D twin of [Eval_direct]'s own fix. *)
+                        Err.Escape.with_escape (fun esc ->
+                            Tensor.materialize_i64 (Shape4.to_vec6 out_shape)
+                              (fun coord ->
+                                Err.Escape.or_throw esc
+                                  (Factory.Arange.value_i64_exact e
+                                     (Dim.to_int coord.Vec6.c))))
+                    | None ->
+                        Err.return
+                          (Tensor.materialize_i64 (Shape4.to_vec6 out_shape)
+                             (fun coord ->
+                               Int64.of_float
+                                 (Factory.Arange.value params
+                                    (Dim.to_int coord.Vec6.c)))))
                 | _ ->
                     Err.return
                       (Tensor.materialize_fmt params.fmt

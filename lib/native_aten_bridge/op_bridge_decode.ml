@@ -101,6 +101,23 @@ let scalar_arg ~default node name =
   let* s = decode_result (D.scalar_arg_result ~default node name) in
   float_of_aten_scalar name s
 
+(* [Aten_scalar.t]'s exact int64 view, alongside [float_of_aten_scalar]'s
+   lossy one: [Some] only for [Int], never for [Float] -- a scalar the
+   producer already serialized as a float has no exact integer to recover. *)
+let exact_int_of_aten_scalar = function
+  | Aten_scalar.Int i -> Some i
+  | Aten_scalar.Float _ | Aten_scalar.Bool _ -> None
+
+(* [scalar_arg]'s pair-returning twin, for a caller that needs BOTH views of
+   the same scalar (e.g. arange's params, which keep the float for every
+   existing consumer and add the exact int64 alongside it) -- decoding once
+   rather than twice keeps the two views from ever disagreeing about which
+   argument they read. *)
+let scalar_arg_exact ~default node name =
+  let* s = decode_result (D.scalar_arg_result ~default node name) in
+  let* f = float_of_aten_scalar name s in
+  return (f, exact_int_of_aten_scalar s)
+
 let scalar_opt_arg node name =
   let* s = decode_result (D.scalar_opt_arg_result node name) in
   match s with

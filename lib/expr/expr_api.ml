@@ -286,14 +286,16 @@ module type S = sig
     type unary_op = Cos | Erf | Exp | Log | Sin | Sqrt | Trunc
     type i64_binary_op = I64_add | I64_mul | I64_sub
 
-    (* Carrier-indexed. [I64_binary]/[I64_const]/[I64_load] are the [int64 t]
-       inhabitants; every other constructor still returns [float t].
-       [Float_to_i64]'s operand is the unbounded [float t] language (it CAN
-       embed a [Load]/[Reduce]/[Scan_at]), and [I64_load]'s coordinate can
-       itself embed index arithmetic over reducers, so an [int64 t] tree is no
-       longer unconditionally closed/environment-free -- evaluating either
-       needs the full environment-carrying [Eval.value]. Typed [Local]/
-       [Reduce] at [int64 t] remain later work. *)
+    (* Carrier-indexed. [I64_binary]/[I64_const]/[I64_load]/[I64_local]/
+       [I64_local_at]/[I64_of_index] are the [int64 t] inhabitants; every
+       other constructor still returns [float t]. [Float_to_i64]'s operand is
+       the unbounded [float t] language (it CAN embed a [Load]/[Reduce]/
+       [Scan_at]), and [I64_load]'s/[I64_of_index]'s index can itself embed
+       index arithmetic over reducers, so an [int64 t] tree is no longer
+       unconditionally closed/environment-free -- evaluating either needs the
+       full environment-carrying [Eval.value]. Typed [Reduce]/[Scan_at] at
+       [int64 t] (reduction accumulators, scan previous-row references)
+       remain later work. *)
     type _ t = private
       | Binary : binary_op * float t * float t -> float t
       | Const : float -> float t
@@ -301,6 +303,9 @@ module type S = sig
       | I64_binary : i64_binary_op * int64 t * int64 t -> int64 t
       | I64_const : int64 -> int64 t
       | I64_load : Source.t * Role.Position.t Index.t Coord.t -> int64 t
+      | I64_local : Local_var.t -> int64 t
+      | I64_local_at : Local_var.t * Role.Position.t Index.t -> int64 t
+      | I64_of_index : Role.Delta.t Index.t -> int64 t
       | I64_to_float : int64 t -> float t
       | Intrinsic : Intrinsic.t -> float t
       | Local : Local_var.t -> float t
@@ -320,6 +325,9 @@ module type S = sig
 
     val i64_const : int64 -> int64 t
     val i64_load : Source.t -> Role.Position.t Index.t Coord.t -> int64 t
+    val i64_local : Local_var.t -> int64 t
+    val i64_local_at : Local_var.t -> Role.Position.t Index.t -> int64 t
+    val i64_of_index : Role.Delta.t Index.t -> int64 t
     val i64_add : int64 t -> int64 t -> int64 t
     val i64_sub : int64 t -> int64 t -> int64 t
     val i64_mul : int64 t -> int64 t -> int64 t
@@ -353,22 +361,26 @@ module type S = sig
       eval_float:(float t -> float) ->
       eval_bool:(Bool.t -> bool) ->
       load_i64:(Source.t -> Role.Position.t Index.t Coord.t -> int64) ->
+      local_i64:(Local_var.t -> int64) ->
+      local_at_i64:(Local_var.t -> Role.Position.t Index.t -> int64) ->
+      idx_i64:(Role.Delta.t Index.t -> int64) ->
       int64 t ->
       (int64, [> i64_from_float_error ]) Err.t
     (** [I64_const]/[I64_binary] need no environment and cannot fail;
         [Float_to_i64] evaluates its operand via the supplied [eval_float] (in
         practice, [Eval.value]'s own recursive evaluator, partially applied) and
-        then [i64_of_float]s the result. [I64_load] resolves via the supplied
-        [load_i64], TOTAL exactly like [eval_float]/[eval_bool] -- the caller
-        already has a real environment and resolves a load's coordinate/binding
-        errors on its own terms. [Select]'s predicate goes through the supplied
-        [eval_bool] (in practice, [Eval.value]'s own [guard], partially
-        applied); only the selected branch is evaluated, matching every other
-        carrier's [Select]. Not yet audited for stack safety on very deep
-        [I64_binary] nesting on the JS backends -- unlike [Eval.value], there is
-        no depth cutoff on that particular recursion; [Float_to_i64]'s own
-        operand IS cutoff-safe, since it evaluates through the supplied
-        [eval_float]. *)
+        then [i64_of_float]s the result. [I64_load]/[I64_local]/[I64_local_at]/
+        [I64_of_index] resolve via the supplied
+        [load_i64]/[local_i64]/[local_at_i64]/[idx_i64], TOTAL exactly like
+        [eval_float]/[eval_bool] -- the caller already has a real environment
+        and resolves a load's/index's coordinate/binding errors on its own
+        terms. [Select]'s predicate goes through the supplied [eval_bool] (in
+        practice, [Eval.value]'s own [guard], partially applied); only the
+        selected branch is evaluated, matching every other carrier's [Select].
+        Not yet audited for stack safety on very deep [I64_binary] nesting on
+        the JS backends -- unlike [Eval.value], there is no depth cutoff on that
+        particular recursion; [Float_to_i64]'s own operand IS cutoff-safe, since
+        it evaluates through the supplied [eval_float]. *)
 
     val const : float -> float t
     val add : float t -> float t -> float t
@@ -603,6 +615,12 @@ module type S = sig
         unmetered, and computed by the same traversal, so the two cannot
         disagree about what counts as a node or a level. *)
 
+    val size_i64 : int64 Value.t -> int
+    (** [size]'s int64-rooted twin, for a bare [int64 Value.t]. *)
+
+    val depth_i64 : int64 Value.t -> int
+    (** [depth]'s int64-rooted twin, for a bare [int64 Value.t]. *)
+
     val measure_with_locals :
       local:(Local_var.t -> int * int) ->
       max_size:int ->
@@ -626,6 +644,9 @@ module type S = sig
     val sources : float Value.t -> Source.Set.t
     (** Every source the expression depends on, ordinary loads and intrinsic
         descriptors alike. What must be RESOLVED and ordered. *)
+
+    val sources_i64 : int64 Value.t -> Source.Set.t
+    (** [sources]' int64-rooted twin, for a bare [int64 Value.t]. *)
 
     val loads :
       float Value.t -> (Source.t * Role.Position.t Index.t Coord.t) list
@@ -836,6 +857,14 @@ module type S = sig
         both budgets, so the recursion is bounded by the tighter of the two. A
         walk per limit does not achieve that: whichever ran first would still
         descend the full input whenever its own bound was loose. *)
+
+    val value_i64 :
+      ?max_size:int -> ?max_depth:int -> int64 Value.t -> (unit, error) Err.t
+    (** [value]'s int64-rooted twin, for a bare [int64 Value.t] (not one reached
+        only through a [Float_to_i64] wrapper) -- the shape a standalone typed
+        pixel value has. Narrower than [fragment]: no [~allowed_free]/[~locals]
+        parameters, since no int64 FRAGMENT (as opposed to a whole closed value)
+        has a real caller yet. *)
   end
 
   module Eval : sig
@@ -1000,6 +1029,8 @@ module type S = sig
     val value :
       ?local:(Local_var.t -> float option) ->
       ?local_at:(Local_var.t -> int -> float option) ->
+      ?local_i64:(Local_var.t -> int64 option) ->
+      ?local_at_i64:(Local_var.t -> int -> int64 option) ->
       ?scan:scan_reader ->
       ?scan_meter:Scan_meter.t ->
       ?reducer:(Reduce_var.t * int) list ->
@@ -1014,12 +1045,15 @@ module type S = sig
         evaluated a vector local's whole body once per position (the same loop
         shape [Reduce]'s own fold uses, one iteration per key), and supplies the
         stored result at the requested position; [None] behaves as an unbound
-        local, same as [local]. [reducer] seeds evaluation with each listed
-        reducer identity pre-bound to a concrete position -- a vector local's
-        own body (which mentions its binder free, not under a [Reduce]) needs
-        exactly one, mirroring how [Reduce]'s internal fold already binds its
-        own [var] per iteration; a scan row's [update] needs two at once ([lane]
-        and [step]), which is why this takes a list rather than one pair.
+        local, same as [local]. [local_i64]/[local_at_i64] are the
+        [int64 Value.t] counterparts, resolving
+        [Value.I64_local]/[Value.I64_local_at] the same way. [reducer] seeds
+        evaluation with each listed reducer identity pre-bound to a concrete
+        position -- a vector local's own body (which mentions its binder free,
+        not under a [Reduce]) needs exactly one, mirroring how [Reduce]'s
+        internal fold already binds its own [var] per iteration; a scan row's
+        [update] needs two at once ([lane] and [step]), which is why this takes
+        a list rather than one pair.
 
         [scan] resolves a cached [Value.Local_scan_at] read; missing entirely,
         it fails with the same [Unknown_local] a real reader would report for an
@@ -1041,6 +1075,27 @@ module type S = sig
         here, rather than allocating an [Ok] per node per output pixel: this
         runs inside the grounding loop the transform verifier drives for every
         walk config. *)
+
+    val value_i64 :
+      ?local:(Local_var.t -> float option) ->
+      ?local_at:(Local_var.t -> int -> float option) ->
+      ?local_i64:(Local_var.t -> int64 option) ->
+      ?local_at_i64:(Local_var.t -> int -> int64 option) ->
+      ?scan:scan_reader ->
+      ?scan_meter:Scan_meter.t ->
+      ?reducer:(Reduce_var.t * int) list ->
+      ?on_reduction:(unit -> unit) ->
+      Env.t ->
+      output:int Coord.t ->
+      int64 Value.t ->
+      (int64, error) Err.t
+    (** [value]'s [int64 Value.t] counterpart, identical in every other respect
+        (same resolvers, same scan/reducer contract) -- the entry point an
+        [int64 Value.t] top-level caller needs to get an EXACT result: routing
+        an [int64 Value.t] through [value] itself would mean wrapping it in
+        [Value.i64_to_float] first, silently losing precision above 2^53,
+        exactly the failure mode this whole carrier exists to rule out. See
+        [Region_slots_i64.fill] for a real caller. *)
   end
 
   module Pp : sig

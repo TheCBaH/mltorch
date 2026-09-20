@@ -131,6 +131,30 @@ let emit program ~env ~slots ~values ~output ~scan_meter =
        ~output:(expr_coord output)
        (Region_program.output program))
 
+(* Exact int64 counterpart of [materialize]'s pixel-degenerate case: no
+   locals, no per-key shared computation, one evaluation of [output] per
+   output coordinate through the real environment via [Expr.Eval.value_i64]
+   -- never [Expr.Eval.value], which would force an [i64_to_float] wrap and
+   silently lose precision above 2^53. [Tensor.materialize_i64] is already
+   the exact, non-lossy int64 tensor constructor this reuses; no new [Tensor]
+   primitive is needed for this shape.
+
+   A genuine [Region_program.t]-shaped int64 program (partition, typed
+   locals, checked admission, sharing with a mixed float/int64 group) is
+   deliberately NOT built here: no real caller needs that combined shape yet
+   (Native's Region lowering never builds a bare int64 program today), and
+   [Region_local_i64]/[Region_slots_i64] already cover the
+   locals-filling piece in isolation. Building the combined
+   partition-carrying wrapper ahead of a real caller (Arange needs exactly this
+   no-locals shape; mixed value/index groups would need the harder combined one)
+   would be a premature abstraction. *)
+let materialize_i64 ~output_shape ~env (output : int64 Expr.Value.t) :
+    (Tensor.packed, error) Err.t =
+  Err.Escape.with_escape @@ fun esc ->
+  Tensor.materialize_i64 output_shape (fun coord ->
+      Err.Escape.or_throw esc
+        (widen_expr (Expr.Eval.value_i64 env ~output:(expr_coord coord) output)))
+
 let value_at ?(scan_limits = Expr.Scan_limits.default) program ~output_shape
     ~env ~output =
   let open Err.Syntax in

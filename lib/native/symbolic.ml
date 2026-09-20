@@ -132,6 +132,53 @@ let max_reduce ~lo ~hi f = reduce ~kind:Expr.Reduction.Max ~lo ~hi f
 let max_dim ~lo ~hi f = reduce ~kind:Expr.Reduction.Argmax_value ~lo ~hi f
 let max_dim_index ~lo ~hi f = reduce ~kind:Expr.Reduction.Argmax_index ~lo ~hi f
 
+(* [Semantics.TYPED_SEMANTICS], [type 'a repr = 'a Expr.Value.t
+   Expr.Builder.t]: mirrors [SEMANTICS.t]'s own shape one carrier wider, so
+   the same "a value is a construction computation" contract from this file's
+   own doc comment applies identically -- using a typed value twice still
+   builds it twice. *)
+type 'a repr = 'a Expr.Value.t Expr.Builder.t
+
+let typed_const : type a. a Expr.Scalar.t -> a -> a Expr.Value.t Expr.Builder.t
+    =
+ fun witness x ->
+  match witness with
+  | Expr.Scalar.Float -> Expr.Builder.return (Expr.Value.const x)
+  | Expr.Scalar.I64 -> Expr.Builder.return (Expr.Value.i64_const x)
+  (* Unreachable: no [bool Expr.Value.t] constructor exists to build (Bool
+     stays the separate, non-GADT [bool_expr] predicate type -- see
+     [Semantics.TYPED_SEMANTICS]'s own doc comment), so nothing here ever
+     calls [typed_const] with [Bool]. Same idiom as [Eval.value]'s own
+     [Scalar.t]-witnessed dispatch. *)
+  | Expr.Scalar.Bool -> assert false
+
+(* Already polymorphic in its payload carrier ([Expr.Value.select] is a GADT
+   constructor generic in ['a], and [map3] adds no carrier-specific typing),
+   so this single definition satisfies both [SEMANTICS.select]'s legacy
+   [t -> t -> t] and [TYPED_SEMANTICS.typed_select]'s wider ['a repr -> 'a
+   repr -> 'a repr] -- exposed under both names since a signature cannot
+   declare the same value name twice (see semantics.ml). *)
+let typed_select = select
+
+let apply_i64_binary op =
+  match (op : Expr.Value.i64_binary_op) with
+  | I64_add -> Expr.Value.i64_add
+  | I64_mul -> Expr.Value.i64_mul
+  | I64_sub -> Expr.Value.i64_sub
+
+let i64_binary op a b = map2 (apply_i64_binary op) a b
+let i64_eq a b = map2 Expr.Bool.i64_eq a b
+let i64_lt a b = map2 Expr.Bool.i64_lt a b
+let float_to_i64 a = Expr.Builder.map Expr.Value.float_to_i64 a
+let i64_to_float a = Expr.Builder.map Expr.Value.i64_to_float a
+
+let i64_load (s : input) (v : Semantics.position index Vec6.t) :
+    int64 Expr.Value.t Expr.Builder.t =
+  Expr.Builder.return
+    (Expr.Value.i64_load
+       (Expr_bridge.source_of_id s.Tensor_sig.id)
+       (Expr_bridge.coord_of_vec6 v))
+
 let out_vec : Semantics.position Expr.Index.t Vec6.t =
   Vec6.make ~n:(Expr.Index.output Axis.N) ~t:(Expr.Index.output Axis.T)
     ~d:(Expr.Index.output Axis.D) ~h:(Expr.Index.output Axis.H)

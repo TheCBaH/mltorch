@@ -122,6 +122,9 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
              Expr.Axis.all
     | Expr.Value.I64_binary (_, a, b) ->
         charge () && measure_value_i64 a && measure_value_i64 b
+    | Expr.Value.I64_local _ -> charge ()
+    | Expr.Value.I64_local_at (_, i) -> charge () && measure_index i
+    | Expr.Value.I64_of_index i -> charge () && measure_index i
     | Expr.Value.Select (b, t, f) ->
         charge () && measure_bool b && measure_value_i64 t
         && measure_value_i64 f
@@ -517,6 +520,22 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
         in
         walk_value_i64 scope ~parent:id ~role:"lhs" a;
         walk_value_i64 scope ~parent:id ~role:"rhs" b
+    | Expr.Value.I64_local local ->
+        ignore
+          (add ~parent ~role ~language:"value" ~constructor:"i64_local"
+             ~label:"i64_local" ~attrs:(local_attrs scope local) ())
+    | Expr.Value.I64_local_at (local, index) ->
+        let id =
+          add ~parent ~role ~language:"value" ~constructor:"i64_local_at"
+            ~label:"i64_local_at" ~attrs:(local_attrs scope local) ()
+        in
+        walk_index scope ~parent:id ~role:"lane" index
+    | Expr.Value.I64_of_index index ->
+        let id =
+          add ~parent ~role ~language:"value" ~constructor:"i64_of_index"
+            ~label:"i64_of_index" ()
+        in
+        walk_index scope ~parent:id ~role:"operand" index
     | Expr.Value.Select (condition, t, f) ->
         let id =
           add ~parent ~role ~language:"value" ~constructor:"select"

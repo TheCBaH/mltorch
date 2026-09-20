@@ -48,9 +48,9 @@ let%expect_test
     Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:4096 ~max_depth:128 ~max_values:16
          ~max_dep_depth:16 ~max_inputs:16 ~max_outputs:16
-         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL ~max_local_slots:8192
-         ~max_scan_state:8192 ~max_scan_updates_per_key:8192L
-         ~max_scan_updates_total)
+         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL
+         ~max_bytes:0x1_FFFF_FFFFL ~max_local_slots:8192 ~max_scan_state:8192
+         ~max_scan_updates_per_key:8192L ~max_scan_updates_total)
   in
   let show ~max_scan_updates_total =
     match

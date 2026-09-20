@@ -507,7 +507,9 @@ module Resize_bicubic : sig
 end
 
 module Arange : sig
-  type fault = [ `Empty | `Non_finite | `Non_positive_step | `Over_limit ]
+  type fault =
+    [ `Count_overflow | `Empty | `Non_finite | `Non_positive_step | `Over_limit ]
+
   type t = { start : float; stop : float; step : float; fault : fault }
 
   val pp : Format.formatter -> t -> unit

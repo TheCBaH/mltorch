@@ -215,3 +215,38 @@ let max_dim_index ~(lo : Semantics.position index) ~(hi : Semantics.delta index)
       else loop (Dim.succ i) best best_i
   in
   float_of_int (loop lo neg_infinity (lo :> int))
+
+(* [Semantics.TYPED_SEMANTICS], [type 'a repr = 'a]: a typed Direct value
+   already IS the OCaml value it denotes, so [const]/[select] need no case
+   analysis on the witness at all -- unlike [Symbolic] below, which must
+   build the matching [Expr.Value.t]/[Expr.Bool.t] constructor per carrier. *)
+type 'a repr = 'a
+
+let typed_const (type a) (_ : a Expr.Scalar.t) (x : a) : a = x
+let typed_select (c : bool) (a : 'a) (b : 'a) : 'a = if c then a else b
+let i64_binary = Expr.Value.apply_i64_binary
+let i64_eq (a : int64) (b : int64) : bool = Int64.equal a b
+let i64_lt (a : int64) (b : int64) : bool = Int64.compare a b < 0
+
+(* Total, like [I64_to_float]'s own denotation ([eval.ml]'s
+   [Value.I64_to_float a -> Int64.to_float (eval ... a)]) -- Direct mirrors
+   the evaluator's arm exactly rather than re-deriving the conversion. *)
+let i64_to_float (i : int64) : float = Int64.to_float i
+
+(* Raises through the same [Err.or_raise] exception boundary [load_index]
+   above already uses, per [SEMANTICS]'s doc comment: Direct's "total-looking"
+   methods convert a structured [Err.t] failure into an exception at this
+   seam rather than inventing a second "Direct can fail" channel. *)
+let float_to_i64 (f : float) : int64 =
+  Err.or_raise ~pp_error:Expr.Value.pp_i64_from_float_error
+    (Expr.Value.i64_of_float f)
+
+(* Same [`Wrong_format] boundary as [load_index], minus [resolve_gather_index]
+   -- an [I64_load] reads a tensor's stored value, not a gather coordinate, so
+   there is no extent to bounds-check against. *)
+let i64_load (inp : input) (v : Semantics.position index Vec6.t) : int64 =
+  Err.or_raise
+    ~pp_error:(fun fmt -> function
+      | `Wrong_format (Payload.Fmt f) ->
+          Fmt.pf fmt "Data source must be I64, got %s" (Payload.fmt_name f))
+    (Tensor.read_i64_at6 inp (fun a -> (Vec6.get v a :> int)))

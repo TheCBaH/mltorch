@@ -254,6 +254,124 @@ let%expect_test "vector locals are open only at an explicit boundary" =
     (Check.value substituted);
   [%expect {| substituted: ((value_of_index(1) * 10) + 1); closed: ok |}]
 
+let%expect_test "I64 scalar locals are open only at an explicit boundary" =
+  (* [Value.i64_to_float]-wrapped, mirroring "scalar locals are open only at
+     an explicit boundary" above at [int64] instead of [float] -- exercises
+     [Fold]/[Check]/[Rewrite]/[Pp]'s new [I64_local] arms (they run through
+     [scoped_locals_i64]/[duplicate_binder]'s [go_i64]/[rebuild_i64]/[at_i64],
+     reached here only via the [I64_to_float] wrapper, same as every other
+     [int64 Value.t] query in this file's own [Fold]/[Check] tests). *)
+  let local, e =
+    Builder.run
+      (let open Builder.Syntax in
+       let* local = Builder.fresh_local in
+       Builder.return
+         ( local,
+           Value.i64_to_float
+             (Value.i64_add (Value.i64_local local) (Value.i64_const 1L)) ))
+  in
+  let result =
+    Core.Pretty.err_result ~ok:(Fmt.any "ok") ~error:Check.pp_error
+  in
+  Fmt.pr "closed: %a@." result (Check.value e);
+  [%expect {| closed: unbound local #0 |}];
+  Fmt.pr "fragment: %a@." result
+    (Check.fragment ~locals:(Local_var.Set.singleton local) e);
+  [%expect {| fragment: ok |}];
+  Fmt.pr "locals: %d size: %d depth: %d@."
+    (Local_var.Set.cardinal (Fold.locals e))
+    (Fold.size e) (Fold.depth e);
+  [%expect {| locals: 1 size: 4 depth: 3 |}];
+  let env =
+    {
+      Eval.Env.load = (fun _ _ -> assert false);
+      load_index = (fun _ _ -> assert false);
+    }
+  in
+  let output = Coord.of_fn (fun _ -> 0) in
+  Fmt.pr "eval: %a@."
+    (Core.Pretty.err_result ~ok:Fmt.float ~error:Eval.pp_error)
+    (Eval.value
+       ~local_i64:(fun v -> if Local_var.equal v local then Some 2L else None)
+       env ~output e);
+  [%expect {| eval: 3 |}];
+  Fmt.pr "open: %a@."
+    (Pp.value_open ~names:(fun v ->
+         if Local_var.equal v local then Some "l0" else None))
+    e;
+  [%expect {| open: i64_to_float((l0 + 1)) |}];
+  let substituted =
+    Builder.run
+      (Rewrite.substitute_locals
+         (fun v ->
+           if Local_var.equal v local then
+             Some (Rewrite.Scalar (Value.const 3.))
+             (* Never actually consulted: [substitute_locals]'s
+                [on_i64_local] always passes an [I64_local] through unchanged
+                (typed substitution is not supported yet), so this
+                deliberately-wrong-shaped binding proves that,
+                rather than merely asserting it. *)
+           else None)
+         e)
+  in
+  Fmt.pr "substituted: %a; closed: %a@." Pp.value substituted result
+    (Check.value substituted);
+  [%expect {| substituted: i64_to_float((?#0 + 1)); closed: unbound local #0 |}]
+
+let%expect_test "I64 vector locals are open only at an explicit boundary" =
+  let var, id, e =
+    Builder.run
+      (let open Builder.Syntax in
+       let* var = Builder.fresh_reduce in
+       let* id = Builder.fresh_local in
+       let read =
+         Value.i64_local_at id (Index.assume_position (Index.const 1))
+       in
+       Builder.return
+         (var, id, Value.i64_to_float (Value.i64_add read (Value.i64_const 1L))))
+  in
+  let body =
+    Value.mul
+      (Value.value_of_index (Index.of_position (Index.reduce var)))
+      (Value.const 10.)
+  in
+  let result =
+    Core.Pretty.err_result ~ok:(Fmt.any "ok") ~error:Check.pp_error
+  in
+  Fmt.pr "closed: %a@." result (Check.value e);
+  [%expect {| closed: unbound local #1 |}];
+  Fmt.pr "fragment: %a@." result
+    (Check.fragment ~locals:(Local_var.Set.singleton id) e);
+  [%expect {| fragment: ok |}];
+  Fmt.pr "vector_locals: %d scalar_locals: %d@."
+    (Local_var.Set.cardinal (Fold.vector_locals e))
+    (Local_var.Set.cardinal (Fold.scalar_locals e));
+  [%expect {| vector_locals: 1 scalar_locals: 0 |}];
+  let env =
+    {
+      Eval.Env.load = (fun _ _ -> assert false);
+      load_index = (fun _ _ -> assert false);
+    }
+  in
+  let output = Coord.of_fn (fun _ -> 0) in
+  let elt p =
+    match Eval.value ~reducer:[ (var, p) ] env ~output body with
+    | Ok v -> v
+    | Error _ -> assert false
+  in
+  let elements = List.init 3 elt in
+  Fmt.pr "eval body: %a@." Fmt.(list ~sep:(any ",") float) elements;
+  [%expect {| eval body: 0,10,20 |}];
+  Fmt.pr "eval: %a@."
+    (Core.Pretty.err_result ~ok:Fmt.float ~error:Eval.pp_error)
+    (Eval.value
+       ~local_at_i64:(fun v pos ->
+         if Local_var.equal v id then
+           Option.map Int64.of_float (List.nth_opt elements pos)
+         else None)
+       env ~output e);
+  [%expect {| eval: 11 |}]
+
 let%expect_test "Fold: scope-aware queries" =
   let e = Builder.run (nested ~kind:Reduction.Sum) in
   Fmt.pr "size %d  depth %d  intrinsics %d  assume_sites %d@." (Fold.size e)
@@ -520,3 +638,32 @@ let%expect_test
   Fmt.pr "%a@." pp_res
     (Eval.value env ~output (Value.i64_to_float (Value.i64_load (src 1) out)));
   [%expect {| unknown source t1 |}]
+
+let%expect_test
+    "I64_of_index: exact index-to-int64 conversion through the real evaluator, \
+     no float intermediary" =
+  (* Same past-2^53 exactness concern as [I64_load]'s own test, but for the
+     value/index bridge rather than a tensor read: [Value_of_index] would
+     silently lose precision converting a coordinate-derived offset this
+     large to binary64, while [I64_of_index] must not. The coordinate is
+     genuinely READ, not hardcoded: axis [W] is set to 3 below, so a stray
+     zero-coordinate implementation would print the wrong sum. *)
+  let env =
+    {
+      Eval.Env.load = (fun _ _ -> assert false);
+      load_index = (fun _ _ -> assert false);
+    }
+  in
+  let output = Coord.of_fn (fun a -> if a = Axis.W then 3 else 0) in
+  let pp_exact fmt x = Fmt.pf fmt "%.1f" x in
+  let pp_res = Core.Pretty.err_result ~ok:pp_exact ~error:Eval.pp_error in
+  let e =
+    Value.i64_to_float
+      (Value.i64_add
+         (Value.i64_of_index (Index.of_position (Index.output Axis.W)))
+         (Value.i64_const 9_007_199_254_740_993L))
+  in
+  Fmt.pr "%a@." pp_v e;
+  [%expect {| i64_to_float((i64_of_index(W) + 9007199254740993)) |}];
+  Fmt.pr "%a@." pp_res (Eval.value env ~output e);
+  [%expect {| 9007199254740996.0 |}]

@@ -224,11 +224,50 @@ let in_shape (sg : Tensor_sig.t) (c : int Expr.Coord.t) =
       i < 0 || i >= Dim.to_int (Vec6.get sg.Tensor_sig.shape a))
     Expr.Axis.all
 
+(* [Kernel.Value_i64.t]'s own materialization: always run, never gated by
+   [stores]/[virtual_uses] -- an int64 value can never be virtual (it
+   participates in no [Kernel.Use.t]/fusion plan at all, per
+   [Kernel.Value_i64.t]'s own admission contract), so there is no placement
+   decision to respect here, unlike a [Kernel.Value.t]. Run entirely BEFORE
+   [machine] evaluates any [Kernel.Value.t] ([machine] seeds its own [bound]
+   map with this function's result), which is what makes it safe for a float
+   value's pixel to [I64_to_float (I64_load ...)] one of these: by the time
+   any float value runs, every [values_i64] entry already has a real tensor.
+
+   Eager, in [values_i64] list order -- never recursive the way [eval_value]
+   is for [Value.t]. [Kernel.check_values_i64_order] already proved every
+   entry's sources name an EARLIER id in this same list, so a plain left fold
+   threading [results] as the binding resolves an [I64_load] of a prior entry
+   correctly on the first pass; there is no producer to recurse into on
+   demand, since an int64 value is always stored, never virtual. *)
+let materialize_values_i64 esc (k : Kernel.t) =
+  List.fold_left
+    (fun results (v : Kernel.Value_i64.t) ->
+      let env =
+        Expr_bridge.env ~binding:(fun id -> Tensor_id.Map.find_opt id results)
+      in
+      let tensor =
+        Err.Escape.or_throw esc
+          (widen_region
+             (Region_eval.materialize_i64
+                ~output_shape:v.Kernel.Value_i64.sg.Tensor_sig.shape ~env
+                v.Kernel.Value_i64.pixel))
+      in
+      Tensor_id.Map.add v.Kernel.Value_i64.id tensor results)
+    Tensor_id.Map.empty k.Kernel.values_i64
+
 (* One engine for both placements. A value in [stores] is materialised; a load
    on an edge in [virtual_uses] recurses into its producer instead of reading a
-   buffer. [run] is this with nothing virtual and everything stored. *)
+   buffer. [run] is this with nothing virtual and everything stored.
+
+   Returns the [values_i64] results too, alongside the three float-side
+   closures: [execute] needs them for its own final union, and computing them
+   here (rather than a second time in [execute]) is what makes seeding
+   [bound] below and returning the same map to the caller one materialization,
+   not two. *)
 let machine esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses =
   let inputs = Err.Escape.or_throw esc (input_env k ~bind) in
+  let i64_results = materialize_values_i64 esc k in
   let values = values_by_id k in
   let scan_limits = Kernel.Limits.scan_limits k.Kernel.limits in
   let bodies =
@@ -236,7 +275,13 @@ let machine esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses =
       (converted esc ?region_counters ~limits:k.Kernel.limits)
       values
   in
-  let bound = ref inputs in
+  (* Seeded with the int64 results alongside the caller's own inputs: a float
+     value's [I64_to_float (I64_load ...)] resolves through [env_for]'s
+     [bridge], which reads [bound] -- exactly like an input, an int64 value's
+     tensor must already be here before any float value can load it. *)
+  let bound =
+    ref (Tensor_id.Map.union (fun _ _ i64 -> Some i64) inputs i64_results)
+  in
   (* An edge is virtual only for its NOMINATED consumer, so the question is
      always "does this consumer recurse into that producer", never "is that
      producer virtual". A producer both virtual and stored is materialised as
@@ -395,11 +440,14 @@ let machine esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses =
             (st.Kernel.Value.id, tensor))
           results
   in
-  (materialize, materialize_group, fun id coord -> eval_value ~depth:0 id coord)
+  ( materialize,
+    materialize_group,
+    (fun id coord -> eval_value ~depth:0 id coord),
+    i64_results )
 
 let execute esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses
     ~stores =
-  let materialize, materialize_group, _ =
+  let materialize, materialize_group, _, i64_results =
     machine esc ?on_load ?region_counters k ~bind ~virtual_uses
   in
   let runs =
@@ -407,23 +455,26 @@ let execute esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses
       ~computation:(fun (v : Kernel.Value.t) -> v.Kernel.Value.computation)
       k.Kernel.values
   in
-  List.fold_left
-    (fun results run ->
-      match run with
-      | Region_group.Run.Solo v ->
-          if not (Tensor_id.Set.mem v.Kernel.Value.id stores) then results
-          else Tensor_id.Map.add v.Kernel.Value.id (materialize v) results
-      | Region_group.Run.Group (g, members) ->
-          let selected =
-            List.filter
-              (fun (_, v) -> Tensor_id.Set.mem v.Kernel.Value.id stores)
-              members
-          in
-          List.fold_left
-            (fun results (id, tensor) -> Tensor_id.Map.add id tensor results)
-            results
-            (materialize_group g selected))
-    Tensor_id.Map.empty runs
+  let results =
+    List.fold_left
+      (fun results run ->
+        match run with
+        | Region_group.Run.Solo v ->
+            if not (Tensor_id.Set.mem v.Kernel.Value.id stores) then results
+            else Tensor_id.Map.add v.Kernel.Value.id (materialize v) results
+        | Region_group.Run.Group (g, members) ->
+            let selected =
+              List.filter
+                (fun (_, v) -> Tensor_id.Set.mem v.Kernel.Value.id stores)
+                members
+            in
+            List.fold_left
+              (fun results (id, tensor) -> Tensor_id.Map.add id tensor results)
+              results
+              (materialize_group g selected))
+      Tensor_id.Map.empty runs
+  in
+  Tensor_id.Map.union (fun _ _ i64 -> Some i64) results i64_results
 
 let run ?on_load ?region_counters k ~bind =
   Err.Escape.with_escape @@ fun esc ->
@@ -460,5 +511,7 @@ let value_at k ~bind id coord =
              source made setup O(values x source occurrences) before evaluation
              or memoisation had begun — the same linear-lookup-per-source shape
              already removed from [edges_of]. *)
-          let _, _, eval = machine esc k ~bind ~virtual_uses:(Kernel.uses k) in
+          let _, _, eval, _ =
+            machine esc k ~bind ~virtual_uses:(Kernel.uses k)
+          in
           eval id coord)

@@ -676,6 +676,7 @@ let output_shape (op : Op.t)
             stop = params.stop;
             step = params.step;
             fmt = params.fmt;
+            exact = params.exact;
           }
       in
       one (four (Factory.Arange.output_shape native))

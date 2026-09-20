@@ -1008,6 +1008,7 @@ module Arange4 = struct
     stop : float;
     step : float;
     fmt : Payload.packed_fmt;
+    exact : Factory.Arange.Exact.t option;
   }
 
   type t = { params : params }
@@ -1015,12 +1016,14 @@ module Arange4 = struct
   let name = "Arange4"
 
   let params_jsont : params Jsont.t =
-    Jsont.Object.map ~kind:"arange4_params" (fun start stop step fmt ->
-        { start; stop; step; fmt })
+    Jsont.Object.map ~kind:"arange4_params" (fun start stop step fmt exact ->
+        { start; stop; step; fmt; exact })
     |> Jsont.Object.mem "start" Json_util.f32_jsont ~enc:(fun p -> p.start)
     |> Jsont.Object.mem "stop" Json_util.f32_jsont ~enc:(fun p -> p.stop)
     |> Jsont.Object.mem "step" Json_util.f32_jsont ~enc:(fun p -> p.step)
     |> Jsont.Object.mem "fmt" Payload.packed_fmt_jsont ~enc:(fun p -> p.fmt)
+    |> Jsont.Object.opt_mem "exact" Factory.Arange.Exact.jsont ~enc:(fun p ->
+        p.exact)
     |> Jsont.Object.finish
 
   let jsont : t Jsont.t =
@@ -1037,8 +1040,14 @@ module Arange4 = struct
 
   let pp _ fmt (t : t) =
     let (Payload.Fmt elt) = t.params.fmt in
-    Fmt.pf fmt "@[<hv 2>arange4@ start=%g@ stop=%g@ step=%g@ fmt=%s@]"
-      t.params.start t.params.stop t.params.step (Payload.fmt_name elt)
+    let pp_exact fmt = function
+      | None -> ()
+      | Some { Factory.Arange.Exact.start; stop; step } ->
+          Fmt.pf fmt ";@ exact={%Ld,%Ld,%Ld}" start stop step
+    in
+    Fmt.pf fmt "@[<hv 2>arange4@ start=%g@ stop=%g@ step=%g@ fmt=%s%a@]"
+      t.params.start t.params.stop t.params.step (Payload.fmt_name elt) pp_exact
+      t.params.exact
 end
 
 (* The four-axis counterpart of [Factory.Eye], the same [Shape4.t]-typed

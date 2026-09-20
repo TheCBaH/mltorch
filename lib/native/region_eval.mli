@@ -27,3 +27,16 @@ val materialize :
     [Expr.Scan_meter.t] is created per Region key, shared by every local
     (scalar, vector, and a scan's own trace fill) and the emitter for that key.
 *)
+
+val materialize_i64 :
+  output_shape:Vec6.shape ->
+  env:Expr.Eval.Env.t ->
+  int64 Expr.Value.t ->
+  (Tensor.packed, error) Err.t
+(** Exact int64 counterpart of [materialize]'s pixel-degenerate case: no locals,
+    one evaluation of [output] per output coordinate via [Expr.Eval.value_i64]
+    (never [Expr.Eval.value], which would force a precision-losing
+    [i64_to_float] wrap), reusing [Tensor.materialize_i64] rather than a per-key
+    loop since there is no shared local state to amortize. A
+    [Region_program.t]-shaped int64 program (partition, typed locals, admission
+    checks) is deliberately not built here. *)

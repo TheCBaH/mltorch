@@ -12,6 +12,7 @@ type arity_mismatch = { expected : int; actual : int }
 
 type error =
   [ Graph_shape.error
+  | `Arange_i64_overflow of Factory.Arange.Overflow.t
   | `Missing_constant of Tensor_id.t
   | `Missing_input of Tensor_id.t
   | `Missing_tensor of missing_tensor

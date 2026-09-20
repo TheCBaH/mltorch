@@ -93,3 +93,19 @@ let f32_jsont : float Jsont.t =
           | Some b -> Int32.float_of_bits b)
       | _ -> Jsont.Error.msgf meta "f32: expected number or hex string")
     ~enc:enc_f32 Jsont.json
+
+(* ---- Exact int64 codec ----------------------------------------------------
+
+   A decimal string, not a [Jsont.Number]: JSON numbers are IEEE754 doubles
+   (53-bit mantissa), so a plain number would silently round any value at or
+   above 2^53 -- exactly the precision an exact-I64 field exists to keep. *)
+let i64_jsont : int64 Jsont.t =
+  Jsont.map ~kind:"i64"
+    ~dec:(function
+      | Jsont.String (s, _) -> (
+          match Int64.of_string_opt s with
+          | None -> Jsont.Error.msgf meta "i64: invalid decimal %S" s
+          | Some v -> v)
+      | _ -> Jsont.Error.msgf meta "i64: expected a decimal string")
+    ~enc:(fun v -> jstr (Int64.to_string v))
+    Jsont.json
