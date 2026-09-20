@@ -5,7 +5,7 @@ type t = Expr_repr.reduction = {
   var : Reduce_var.t;
   lo : Role.Position.t Index.t;
   hi : Role.Delta.t Index.t;
-  body : Expr_repr.value;
+  body : float Expr_repr.value;
 }
 
 let kind_name = function

@@ -99,6 +99,27 @@ let deep_bool_case =
     (Bool.value_lt (deep_value_chain ()) (Value.const 1e9))
     (Value.const 1.) (Value.const 0.)
 
+(* [I64_binary]/[Select] nest on the int64 side exactly like [Binary]/[Select]
+   do on the float side, but only gained cutoff/machine-handoff treatment on
+   the JS backends after the float/bool grammar did (see
+   [Eval_js_machine.Eval_i64_state]) -- this case is what actually proves
+   that treatment, rather than relying on [deep_value_case]/[deep_bool_case]
+   to stand in for a spine they never exercise. *)
+let deep_i64_chain () =
+  let e = ref (Value.i64_const 0L) in
+  for _ = 1 to deep_n do
+    e := Value.i64_add !e (Value.i64_const 1L)
+  done;
+  !e
+
+let deep_i64_value_case = Value.i64_to_float (deep_i64_chain ())
+
+let deep_i64_select_case =
+  Value.i64_to_float
+    (Value.select
+       (Bool.i64_lt (deep_i64_chain ()) (Value.i64_const 1_000_000_000L))
+       (Value.i64_const 1L) (Value.i64_const 0L))
+
 let deep_index_case =
   let idx = ref (Index.of_position Index.zero) in
   for _ = 1 to deep_n do
@@ -136,8 +157,15 @@ let run_deep () =
       (eval deep_value_case)
   in
   let ok2 = check_closed_form "deep_bool" ~expected:1. (eval deep_bool_case) in
-  let ok3 = check_exhausted "deep_index" deep_index_case in
-  exit (if ok1 && ok2 && ok3 then 0 else 1)
+  let ok3 =
+    check_closed_form "deep_i64_value" ~expected:(float_of_int deep_n)
+      (eval deep_i64_value_case)
+  in
+  let ok4 =
+    check_closed_form "deep_i64_select" ~expected:1. (eval deep_i64_select_case)
+  in
+  let ok5 = check_exhausted "deep_index" deep_index_case in
+  exit (if ok1 && ok2 && ok3 && ok4 && ok5 then 0 else 1)
 
 let run_shallow () =
   case "arithmetic" arithmetic_case;

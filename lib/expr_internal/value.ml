@@ -9,22 +9,31 @@ type unary_op = Expr_repr.unary_op =
   | Sqrt
   | Trunc
 
-type t = Expr_repr.value =
-  | Binary of binary_op * t * t
-  | Const of float
-  | Intrinsic of Intrinsic.t
-  | Local of Local_var.t
-  | Local_at of Local_var.t * Role.Position.t Index.t
-  | Local_scan_at of
+type i64_binary_op = Expr_repr.i64_binary_op = I64_add | I64_mul | I64_sub
+
+type 'a t = 'a Expr_repr.value =
+  | Binary : binary_op * float t * float t -> float t
+  | Const : float -> float t
+  | Float_to_i64 : float t -> int64 t
+  | I64_binary : i64_binary_op * int64 t * int64 t -> int64 t
+  | I64_const : int64 -> int64 t
+  | I64_load : Source.t * Role.Position.t Index.t Coord.t -> int64 t
+  | I64_to_float : int64 t -> float t
+  | Intrinsic : Intrinsic.t -> float t
+  | Local : Local_var.t -> float t
+  | Local_at : Local_var.t * Role.Position.t Index.t -> float t
+  | Local_scan_at :
       Local_var.t * Role.Position.t Index.t * Role.Position.t Index.t
-  | Load of Source.t * Role.Position.t Index.t Coord.t
-  | Reduce of Expr_repr.reduction
-  | Round_f32 of t
-  | Scan_at of
+      -> float t
+  | Load : Source.t * Role.Position.t Index.t Coord.t -> float t
+  | Reduce : Expr_repr.reduction -> float t
+  | Round_f32 : float t -> float t
+  | Scan_at :
       Expr_repr.scan * Role.Position.t Index.t * Role.Position.t Index.t
-  | Select of Expr_repr.bool_expr * t * t
-  | Unary of unary_op * t
-  | Value_of_index of Role.Delta.t Index.t
+      -> float t
+  | Select : Expr_repr.bool_expr * 'a t * 'a t -> 'a t
+  | Unary : unary_op * float t -> float t
+  | Value_of_index : Role.Delta.t Index.t -> float t
 
 let const x = Const x
 let add a b = Binary (Add, a, b)
@@ -48,6 +57,98 @@ let local_at v i = Local_at (v, i)
 let local_scan_at v ~row ~lane = Local_scan_at (v, row, lane)
 let scan_at s ~row ~lane = Scan_at (s, row, lane)
 let reduce r = Reduce r
+let i64_const x = I64_const x
+let i64_load s c = I64_load (s, c)
+let i64_add a b = I64_binary (I64_add, a, b)
+let i64_sub a b = I64_binary (I64_sub, a, b)
+let i64_mul a b = I64_binary (I64_mul, a, b)
+let i64_to_float a = I64_to_float a
+let float_to_i64 a = Float_to_i64 a
+
+let apply_i64_binary = function
+  | I64_add -> Int64.add
+  | I64_mul -> Int64.mul
+  | I64_sub -> Int64.sub
+
+(* The design's "Float to I64" policy: truncate finite values in
+   [-2^63, 2^63) toward zero (what [Int64.of_float] does once the input is
+   known to be in range); reject NaN, infinities and out-of-range values as
+   structured errors rather than a host-dependent [Int64.of_float] result
+   (unspecified outside the exact representable range) or a silently clamped
+   one. [2 ** 63] two ways: the lower bound [-9223372036854775808.] is exactly
+   representable (a power of two); the upper bound is deliberately the exact
+   power of two, not [Int64.max_int]'s float approximation, which would round
+   UP to this same value and admit it -- see .ai/'s "exclusive upper bound,
+   not a rounded float max_int" rule. *)
+type i64_from_float_error =
+  [ `I64_from_float_infinite
+  | `I64_from_float_nan
+  | `I64_from_float_out_of_range of float ]
+
+let pp_i64_from_float_error fmt : [< i64_from_float_error ] -> unit = function
+  | `I64_from_float_nan -> Fmt.string fmt "Float-to-I64 cast of NaN"
+  | `I64_from_float_infinite ->
+      Fmt.string fmt "Float-to-I64 cast of an infinite value"
+  | `I64_from_float_out_of_range f ->
+      Fmt.pf fmt "Float-to-I64 cast of %h, outside [-2^63, 2^63)" f
+
+let i64_of_float f : (int64, [> i64_from_float_error ]) Err.t =
+  if Float.is_nan f then Err.fail `I64_from_float_nan
+  else if not (Float.is_finite f) then Err.fail `I64_from_float_infinite
+  else if
+    Float.compare f (-9223372036854775808.) < 0
+    || Float.compare f 9223372036854775808. >= 0
+  then Err.fail (`I64_from_float_out_of_range f)
+  else Err.return (Int64.of_float f)
+
+(* [int64 t] is closed over [I64_const]/[I64_binary]/[I64_load]/[Float_to_i64]/
+   [Select] (see the [_ value] doc comment in expr_repr.ml): none has a
+   [Local]/[Reduce]/[Scan_at] inhabitant, so this needs no scan state of its
+   own. [Float_to_i64]'s operand is the UNBOUNDED float language, and
+   [I64_load]'s coordinate can itself embed index arithmetic over reducers, so
+   this cannot stay a closed standalone function once either exists --
+   [eval_float]/[eval_bool]/[load_i64] are supplied by the caller rather than
+   named here, which is what keeps this module's dependency arrow pointing
+   the same direction it always has (no reference to [eval.ml], which is
+   compiled after it). [load_i64] is TOTAL, exactly like [eval_float]/
+   [eval_bool]: the caller already has a real environment and resolves a
+   [Load]'s coordinate/binding errors on its own terms (typically by running
+   the full [Eval.value] and unwrapping), so this function's own error row
+   stays scoped to the one check it performs itself ([Float_to_i64]'s range
+   check).
+
+   No longer [eval.ml]'s own internal denotation for [int64 t]: since the
+   evaluator's [go]/[guard]/[eval_i64] split was unified into one
+   polymorphic-recursive [eval] over the whole carrier-indexed grammar (the
+   design's own `eval : type a. ...` shape; see .ai/), [I64_const]/
+   [I64_binary]/[I64_load]/[Float_to_i64] are ordinary arms of THAT match,
+   inlined directly rather than routed through this callback-based
+   definition, on every backend -- native's [eval] needs no cutoff and JS's
+   needs a [Scalar.t] witness for its cutoff/machine-handoff decision (see
+   [Eval.value]'s own doc comment), neither of which this function's
+   `~eval_float`/`~eval_bool`/`~load_i64` shape can express. This function
+   remains the public standalone entry point (`Expr.Value.eval_i64`) for a
+   caller who already has float/bool/load evaluation in hand and wants to
+   evaluate a bare [int64 t] against it without going through the full
+   [Eval.value]. *)
+let rec eval_i64 ~eval_float ~eval_bool ~load_i64 :
+    int64 t -> (int64, [> i64_from_float_error ]) Err.t =
+ fun v ->
+  let open Err.Syntax in
+  match v with
+  | I64_const x -> Err.return x
+  | I64_binary (op, a, b) ->
+      let* x = eval_i64 ~eval_float ~eval_bool ~load_i64 a in
+      let+ y = eval_i64 ~eval_float ~eval_bool ~load_i64 b in
+      apply_i64_binary op x y
+  | I64_load (s, c) -> Err.return (load_i64 s c)
+  | Float_to_i64 a -> i64_of_float (eval_float a)
+  (* Eager in neither more nor less than [go]'s own [Select] is: only the
+     SELECTED branch is evaluated, matching the float-carrier case exactly
+     (see [Eval.value]'s own doc comment on why). *)
+  | Select (c, a, b) ->
+      if eval_bool c then eval_i64 ~eval_float ~eval_bool ~load_i64 a
+      else eval_i64 ~eval_float ~eval_bool ~load_i64 b
 
 let apply_binary = function
   | Add -> ( +. )
@@ -80,6 +181,7 @@ let apply_unary = function
   | Trunc -> Float.trunc
 
 let binary_sym = function Add -> "+" | Div -> "/" | Mul -> "*" | Sub -> "-"
+let i64_binary_sym = function I64_add -> "+" | I64_mul -> "*" | I64_sub -> "-"
 
 let unary_name = function
   | Cos -> "cos"
@@ -167,6 +269,7 @@ let tag = function
   | Local_at _ -> 10
   | Local_scan_at _ -> 11
   | Scan_at _ -> 12
+  | I64_to_float _ -> 13
 
 let cmp_intrinsic ea eb (Intrinsic.Max_pool x) (Intrinsic.Max_pool y) =
   let open Intrinsic.Max_pool in
@@ -185,6 +288,32 @@ let cmp_intrinsic ea eb (Intrinsic.Max_pool x) (Intrinsic.Max_pool y) =
     (fun acc a b -> acc <?> fun () -> cmp_index ea eb a b)
     0 (Coord.to_list x.out) (Coord.to_list y.out)
 
+(* [Float_to_i64]'s operand is an ordinary [float t] child, so its comparator
+   is [and]-linked with [go] below (mutually recursive, both threading the
+   SAME alpha-equivalence environment): a [Float_to_i64] can sit under an
+   enclosing [Reduce]/[Scan_at] binder just like [I64_to_float] can, and
+   comparing its child against a stale (fresh) environment would silently
+   ignore that context, the same defect [I64_to_float]'s own [go] case would
+   have if it re-entered [compare] instead of [go]. [I64_const]/[I64_binary]
+   need no environment themselves -- reused as-is once threaded through. *)
+let tag_i64 = function
+  | Float_to_i64 _ -> 0
+  | I64_binary _ -> 1
+  | I64_const _ -> 2
+  | I64_load _ -> 3
+  | Select _ -> 4
+
+(* [bool_expr] is not part of the [_ value] GADT (see its own doc comment in
+   expr_repr.ml), so its comparator is a third [and]-linked sibling of [go]/
+   [cmp_i64] rather than a case within either: [I64_eq]/[I64_lt]'s operands
+   need [cmp_i64], [Value_lt]'s need [go], and both can reference an
+   enclosing binder exactly as [Select]'s own branches can. *)
+let tag_bool = function
+  | Expr_repr.I64_eq _ -> 0
+  | Expr_repr.I64_lt _ -> 1
+  | Expr_repr.Index_eq _ -> 2
+  | Expr_repr.Value_lt _ -> 3
+
 let compare a b =
   let rec go ea eb la lb n a b =
     Int.compare (tag a) (tag b) <?> fun () ->
@@ -197,14 +326,7 @@ let compare a b =
         Stdlib.compare o p <?> fun () -> go ea eb la lb n x y
     | Round_f32 x, Round_f32 y -> go ea eb la lb n x y
     | Select (c, x1, x2), Select (d, y1, y2) ->
-        (match (c, d) with
-          | Expr_repr.Value_lt (p, q), Expr_repr.Value_lt (r, s) ->
-              go ea eb la lb n p r <?> fun () -> go ea eb la lb n q s
-          | Expr_repr.Index_eq (p, q), Expr_repr.Index_eq (r, s) ->
-              cmp_index ea eb p r <?> fun () -> cmp_index ea eb q s
-          | Expr_repr.Value_lt _, Expr_repr.Index_eq _ -> -1
-          | Expr_repr.Index_eq _, Expr_repr.Value_lt _ -> 1)
-        <?> fun () ->
+        cmp_bool ea eb la lb n c d <?> fun () ->
         go ea eb la lb n x1 y1 <?> fun () -> go ea eb la lb n x2 y2
     | Value_of_index x, Value_of_index y -> cmp_index ea eb x y
     | Load (s, x), Load (t, y) ->
@@ -255,6 +377,35 @@ let compare a b =
           (Local_var.Map.add q.Expr_repr.prev (n + 2) lb)
           (n + 3) p.Expr_repr.update q.Expr_repr.update
     | Intrinsic x, Intrinsic y -> cmp_intrinsic ea eb x y
+    | I64_to_float x, I64_to_float y -> cmp_i64 ea eb la lb n x y
+    | _ -> 0
+  and cmp_i64 ea eb la lb n a b =
+    Int.compare (tag_i64 a) (tag_i64 b) <?> fun () ->
+    match (a, b) with
+    | Float_to_i64 x, Float_to_i64 y -> go ea eb la lb n x y
+    | I64_binary (o, x1, x2), I64_binary (p, y1, y2) ->
+        Stdlib.compare o p <?> fun () ->
+        cmp_i64 ea eb la lb n x1 y1 <?> fun () -> cmp_i64 ea eb la lb n x2 y2
+    | I64_const x, I64_const y -> Int64.compare x y
+    | I64_load (s, x), I64_load (t, y) ->
+        Source.compare s t <?> fun () ->
+        List.fold_left2
+          (fun acc a b -> acc <?> fun () -> cmp_index ea eb a b)
+          0 (Coord.to_list x) (Coord.to_list y)
+    | Select (c, x1, x2), Select (d, y1, y2) ->
+        cmp_bool ea eb la lb n c d <?> fun () ->
+        cmp_i64 ea eb la lb n x1 y1 <?> fun () -> cmp_i64 ea eb la lb n x2 y2
+    | _ -> 0
+  and cmp_bool ea eb la lb n c d =
+    Int.compare (tag_bool c) (tag_bool d) <?> fun () ->
+    match (c, d) with
+    | Expr_repr.I64_eq (x1, x2), Expr_repr.I64_eq (y1, y2)
+    | Expr_repr.I64_lt (x1, x2), Expr_repr.I64_lt (y1, y2) ->
+        cmp_i64 ea eb la lb n x1 y1 <?> fun () -> cmp_i64 ea eb la lb n x2 y2
+    | Expr_repr.Index_eq (p, q), Expr_repr.Index_eq (r, s) ->
+        cmp_index ea eb p r <?> fun () -> cmp_index ea eb q s
+    | Expr_repr.Value_lt (p, q), Expr_repr.Value_lt (r, s) ->
+        go ea eb la lb n p r <?> fun () -> go ea eb la lb n q s
     | _ -> 0
   in
   go Reduce_var.Map.empty Reduce_var.Map.empty Local_var.Map.empty
@@ -294,7 +445,7 @@ let hash e =
     | Some l -> l
     | None -> Local_var.hash v
   in
-  let rec go env lenv n h (e : t) =
+  let rec go env lenv n h (e : float t) =
     let h = mix h (tag e) in
     match e with
     | Const x ->
@@ -307,11 +458,7 @@ let hash e =
     | Unary (o, a) -> go env lenv n (mix h (Hashtbl.hash o)) a
     | Round_f32 a -> go env lenv n h a
     | Select (c, a, b) ->
-        let h =
-          match c with
-          | Expr_repr.Value_lt (x, y) -> go env lenv n (go env lenv n h x) y
-          | Expr_repr.Index_eq (x, y) -> idx env (idx env h x) y
-        in
+        let h = hash_bool env lenv n h c in
         go env lenv n (go env lenv n h a) b
     | Value_of_index i -> idx env h i
     | Load (s, c) ->
@@ -355,5 +502,39 @@ let hash e =
             ]
         in
         Coord.fold (fun h i -> idx env h i) h d.out
+    | I64_to_float a -> hash_i64 env lenv n h a
+  (* [Float_to_i64]'s operand can embed a reference to an enclosing binder,
+     just like [I64_to_float]'s did -- [and]-linked with [go] so both thread
+     the SAME [env]/[lenv]/[n], the hash-side twin of [compare]'s [cmp_i64].
+     [I64_const]/[I64_binary] ignore all three, matching their own [compare]
+     side needing no environment either. Portable across the 63-bit native
+     and 32-bit js_of_ocaml/Melange [int]: masks each 64-bit payload to its
+     low/high 32 bits before [Int64.to_int], the same idiom [Const]'s own
+     float-bits hash above uses. *)
+  and hash_i64 env lenv n h (e : int64 t) =
+    let h = mix h (tag_i64 e) in
+    match e with
+    | Float_to_i64 a -> go env lenv n h a
+    | I64_binary (o, a, b) ->
+        hash_i64 env lenv n (hash_i64 env lenv n (mix h (Hashtbl.hash o)) a) b
+    | I64_const x ->
+        mix
+          (mix h (Int64.to_int (Int64.logand x 0xFFFFFFFFL)))
+          (Int64.to_int (Int64.shift_right_logical x 32))
+    | I64_load (s, c) ->
+        Coord.fold (fun h i -> idx env h i) (mix h (Source.hash s)) c
+    | Select (c, a, b) ->
+        let h = hash_bool env lenv n h c in
+        hash_i64 env lenv n (hash_i64 env lenv n h a) b
+  (* [bool_expr]'s hash-side twin of [compare]'s [cmp_bool]: [I64_eq]/
+     [I64_lt]'s operands need [hash_i64], [Value_lt]'s need [go], and
+     [Index_eq]'s carry no environment-sensitive content of their own. *)
+  and hash_bool env lenv n h c =
+    let h = mix h (tag_bool c) in
+    match c with
+    | Expr_repr.I64_eq (x, y) | Expr_repr.I64_lt (x, y) ->
+        hash_i64 env lenv n (hash_i64 env lenv n h x) y
+    | Expr_repr.Value_lt (x, y) -> go env lenv n (go env lenv n h x) y
+    | Expr_repr.Index_eq (x, y) -> idx env (idx env h x) y
   in
   go Reduce_var.Map.empty Local_var.Map.empty 0 17 e

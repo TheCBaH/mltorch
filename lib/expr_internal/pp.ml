@@ -88,7 +88,7 @@ let idx env fmt i = index ~names:(names_in env) fmt i
    [prev] naming -- without [at]'s [Value.Scan_at] case's trailing
    [row,lane] projection, which is fabricated for any caller that has no
    real read site (see the scan design record). *)
-let rec at ~names env lenv n fmt (e : Value.t) =
+let rec at ~names env lenv n fmt (e : float Value.t) =
   (* Eta-expanded so it stays polymorphic in the role: a reduction's [lo] is
        a position and its [hi] a delta. *)
   let idxe fmt i = idx env fmt i in
@@ -102,6 +102,11 @@ let rec at ~names env lenv n fmt (e : Value.t) =
       n
   | Value.Const x ->
       Fmt.float fmt x;
+      n
+  | Value.I64_to_float a ->
+      Fmt.pf fmt "i64_to_float(";
+      let n = at_i64 ~names env lenv n fmt a in
+      Fmt.pf fmt ")";
       n
   | Value.Intrinsic (Intrinsic.Max_pool d) ->
       Fmt.pf fmt "max_pool2d_%s(%a; k=%dx%d s=%dx%d p=%dx%d; out=[%a])"
@@ -165,6 +170,44 @@ let rec at ~names env lenv n fmt (e : Value.t) =
       Fmt.pf fmt "value_of_index(%a)" idxe i;
       n
 
+(* [Float_to_i64]'s operand is an ordinary [float Value.t] child, printed
+   through [at] under the SAME [names]/[env]/[lenv]/[n] -- [and]-linked with
+   [at] for exactly the reason [compare]/[hash]'s int64 twins are: it can
+   embed a reference to an enclosing [Reduce]/[Scan_at] binder, and printing
+   it with a stale environment would garble that binder's display name.
+   [I64_const]/[I64_binary] need no environment themselves and simply thread
+   [n] through unchanged. *)
+and at_i64 ~names env lenv n fmt (e : int64 Value.t) =
+  let idxe fmt i = idx env fmt i in
+  match e with
+  | Value.Float_to_i64 a ->
+      Fmt.pf fmt "float_to_i64(";
+      let n = at ~names env lenv n fmt a in
+      Fmt.pf fmt ")";
+      n
+  | Value.I64_binary (op, a, b) ->
+      Fmt.pf fmt "(";
+      let n = at_i64 ~names env lenv n fmt a in
+      Fmt.pf fmt " %s " (Value.i64_binary_sym op);
+      let n = at_i64 ~names env lenv n fmt b in
+      Fmt.pf fmt ")";
+      n
+  | Value.I64_const x ->
+      Fmt.pf fmt "%Ld" x;
+      n
+  | Value.I64_load (s, c) ->
+      Fmt.pf fmt "%a[%a]" Source.pp s (Coord.pp idxe) c;
+      n
+  | Value.Select (c, a, b) ->
+      Fmt.pf fmt "select(";
+      let n = guard_at ~names env lenv n fmt c in
+      Fmt.pf fmt ", ";
+      let n = at_i64 ~names env lenv n fmt a in
+      Fmt.pf fmt ", ";
+      let n = at_i64 ~names env lenv n fmt b in
+      Fmt.pf fmt ")";
+      n
+
 (* The shared body of an unspecialized scan: [init]/[update], scoped and
    named exactly as a real [Value.Scan_at] read renders them, but with no
    trailing projection -- there is no row/lane to show for a plain
@@ -203,6 +246,20 @@ and guard_at ~names env lenv n fmt = function
       let n = at ~names env lenv n fmt a in
       Fmt.pf fmt " < ";
       let n = at ~names env lenv n fmt b in
+      Fmt.pf fmt ")";
+      n
+  | Bool.I64_eq (a, b) ->
+      Fmt.pf fmt "(";
+      let n = at_i64 ~names env lenv n fmt a in
+      Fmt.pf fmt " = ";
+      let n = at_i64 ~names env lenv n fmt b in
+      Fmt.pf fmt ")";
+      n
+  | Bool.I64_lt (a, b) ->
+      Fmt.pf fmt "(";
+      let n = at_i64 ~names env lenv n fmt a in
+      Fmt.pf fmt " < ";
+      let n = at_i64 ~names env lenv n fmt b in
       Fmt.pf fmt ")";
       n
 

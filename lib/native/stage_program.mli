@@ -36,7 +36,7 @@ module Stage : sig
     max_depth:int ->
     scan_limits:Expr.Scan_limits.t ->
     t ->
-    (Expr.Value.t, pixel_body_error) Err.t
+    (float Expr.Value.t, pixel_body_error) Err.t
   (** The symbolic Pixel view used only by consumers that cannot yet traverse
       Region locals. A group emitter is never a bare pixel expression -- the
       shared executor is its only execution path (design record §5.4) -- so this

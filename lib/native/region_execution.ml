@@ -31,7 +31,7 @@ type lowered = {
   scan_limits : Expr.Scan_limits.t;
 }
 
-type t = Pixel_loop of Expr.Value.t | Region_loop of lowered
+type t = Pixel_loop of float Expr.Value.t | Region_loop of lowered
 
 let counters () =
   {

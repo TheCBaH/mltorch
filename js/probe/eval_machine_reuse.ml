@@ -59,22 +59,31 @@ type reuse_reduce_progress = {
 }
 
 type reuse_frame =
-  | Binary_left of Value.binary_op * Value.t * reducers
+  | Binary_left of Value.binary_op * float Value.t * reducers
   | Binary_right of Value.binary_op * float
   | Unary_result of Value.unary_op
   | Round_f32_result
-  | Select_result of Value.t * Value.t * reducers
-  | Value_lt_left of Value.t * reducers
+  | Select_result of float Value.t * float Value.t * reducers
+  | Value_lt_left of float Value.t * reducers
   | Value_lt_right of float
   | Reduce_step of reuse_reduce_progress
   | Scan_fill of scan_progress
+  | I64_binary_left of Value.i64_binary_op * int64 Value.t * reducers
+  | I64_binary_right of Value.i64_binary_op * int64
+  | Float_to_i64_result
+  | I64_to_float_result
+  | Select_i64_result of int64 Value.t * int64 Value.t * reducers
+  | I64_eq_left of int64 Value.t * reducers
+  | I64_eq_right of int64
+  | I64_lt_left of int64 Value.t * reducers
+  | I64_lt_right of int64
 
 (* A growable array-backed stack, doubled on overflow and never shrunk
    within one call. [Round_f32_result], [reuse_frame]'s one nullary
    constructor, is an inert filler for slots beyond [top] -- never read,
    since every push writes its own slot before [top] passes it. Popping
    clears the vacated slot so a large frame (e.g. one carrying a whole
-   [Value.t] subtree) doesn't outlive its logical pop just because the
+   [float Value.t] subtree) doesn't outlive its logical pop just because the
    backing array hasn't shrunk. *)
 type reuse_stack = { mutable slots : reuse_frame array; mutable top : int }
 
@@ -249,11 +258,44 @@ let run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
           reuse_stack_push st (Scan_fill p);
           fill_next_lane p
         end
+    | I64_result first, I64_binary_left (op, second_expr, reducers) ->
+        reuse_stack_push st (I64_binary_right (op, first));
+        Eval_i64_state (second_expr, reducers)
+    | I64_result second, I64_binary_right (op, first) ->
+        I64_result (Value.apply_i64_binary op first second)
+    | Float_result v, Float_to_i64_result ->
+        I64_result (vchk (Value.i64_of_float v))
+    | I64_result v, I64_to_float_result -> Float_result (Int64.to_float v)
+    | Bool_result cond, Select_i64_result (a, b, reducers) ->
+        Eval_i64_state ((if cond then a else b), reducers)
+    | I64_result first, I64_eq_left (second_expr, reducers) ->
+        reuse_stack_push st (I64_eq_right first);
+        Eval_i64_state (second_expr, reducers)
+    | I64_result second, I64_eq_right first ->
+        Bool_result (Int64.equal first second)
+    | I64_result first, I64_lt_left (second_expr, reducers) ->
+        reuse_stack_push st (I64_lt_right first);
+        Eval_i64_state (second_expr, reducers)
+    | I64_result second, I64_lt_right first ->
+        Bool_result (Int64.compare first second < 0)
     | _ -> assert false
   in
   let rec loop state =
     match state with
     | Eval_state (Value.Const x, _) -> (loop [@tailcall]) (Float_result x)
+    | Eval_state (Value.I64_to_float a, reducers) ->
+        reuse_stack_push st I64_to_float_result;
+        (loop [@tailcall]) (Eval_i64_state (a, reducers))
+    | Eval_i64_state (Value.I64_const x, _) -> (loop [@tailcall]) (I64_result x)
+    | Eval_i64_state (Value.I64_binary (op, a, b), reducers) ->
+        reuse_stack_push st (I64_binary_left (op, b, reducers));
+        (loop [@tailcall]) (Eval_i64_state (a, reducers))
+    | Eval_i64_state (Value.Float_to_i64 a, reducers) ->
+        reuse_stack_push st Float_to_i64_result;
+        (loop [@tailcall]) (Eval_state (a, reducers))
+    | Eval_i64_state (Value.Select (c, a, b), reducers) ->
+        reuse_stack_push st (Select_i64_result (a, b, reducers));
+        (loop [@tailcall]) (Guard_state (c, reducers))
     | Eval_state (Value.Local v, _) -> (
         match local v with
         | Some x -> (loop [@tailcall]) (Float_result x)
@@ -269,6 +311,10 @@ let run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
     | Eval_state (Value.Load (s, c), reducers) ->
         (loop [@tailcall])
           (Float_result (vchk (env.Env.load s (Coord.map (idx reducers) c))))
+    | Eval_i64_state (Value.I64_load (s, c), reducers) ->
+        (loop [@tailcall])
+          (I64_result
+             (vchk (env.Env.load_index s (Coord.map (idx reducers) c))))
     | Eval_state (Value.Value_of_index i, reducers) ->
         (loop [@tailcall])
           (Float_result (vchk (float_of_index (idx reducers i))))
@@ -381,6 +427,12 @@ let run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
     | Guard_state (Bool.Index_eq (a, b), reducers) ->
         (loop [@tailcall])
           (Bool_result (Int.equal (idx reducers a) (idx reducers b)))
+    | Guard_state (Bool.I64_eq (a, b), reducers) ->
+        reuse_stack_push st (I64_eq_left (b, reducers));
+        (loop [@tailcall]) (Eval_i64_state (a, reducers))
+    | Guard_state (Bool.I64_lt (a, b), reducers) ->
+        reuse_stack_push st (I64_lt_left (b, reducers));
+        (loop [@tailcall]) (Eval_i64_state (a, reducers))
     (* Same backend-measured order as [Binary] above. *)
     | Guard_state (Bool.Value_lt (a, b), reducers) ->
 #if defined MELANGE_BACKEND
@@ -400,6 +452,11 @@ let run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
         | None -> Bool_result cond
         | Some frame ->
             (loop [@tailcall]) (dispatch_frame (Bool_result cond) frame))
+    | I64_result v -> (
+        match reuse_stack_pop st with
+        | None -> I64_result v
+        | Some frame -> (loop [@tailcall]) (dispatch_frame (I64_result v) frame)
+        )
   in
   loop seed
 

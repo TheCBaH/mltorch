@@ -1,6 +1,6 @@
 (* The tail-call conversion's Stage 5 [eval_trampoline_delayed] candidate
    (see .ai/): CPS with periodic bounces, one of the four candidate
-   evaluators for [Expr_internal]'s full [Value.t]/[Bool.t] grammar. Split
+   evaluators for [Expr_internal]'s full [float Value.t]/[Bool.t] grammar. Split
    out of [eval_candidates.ml] (which keeps the shared [pending work] types
    and [eval_machine]) once the combined file passed the file-size cap --
    copied into [expr_internal_js]/[expr_internal_mel] the same way, from the
@@ -131,7 +131,7 @@ let eval_trampoline_delayed ~threshold ?(local = fun _ -> None)
    fun depth k v ->
     if depth >= threshold then Bounce (fun () -> k 0 v) else k (depth + 1) v
   in
-  let rec go reducers depth (e : Value.t) (k : int -> float -> float bounce) :
+  let rec go reducers depth (e : float Value.t) (k : int -> float -> float bounce) :
       float bounce =
     if depth >= threshold then
       Bounce (fun () -> (go [@tailcall]) reducers 0 e k)
@@ -139,6 +139,9 @@ let eval_trampoline_delayed ~threshold ?(local = fun _ -> None)
       let depth = depth + 1 in
       match e with
       | Value.Const x -> resume depth k x
+      | Value.I64_to_float a ->
+          eval_i64 reducers depth a (fun depth v ->
+              resume depth k (Int64.to_float v))
       | Value.Local v -> (
           match local v with
           | Some x -> resume depth k x
@@ -361,6 +364,44 @@ let eval_trampoline_delayed ~threshold ?(local = fun _ -> None)
           go reducers depth b (fun depth bv ->
               go reducers depth a (fun depth av -> resume depth k (av < bv)))
 #endif
+      | Bool.I64_eq (a, b) ->
+          eval_i64 reducers depth a (fun depth av ->
+              eval_i64 reducers depth b (fun depth bv ->
+                  resume depth k (Int64.equal av bv)))
+      | Bool.I64_lt (a, b) ->
+          eval_i64 reducers depth a (fun depth av ->
+              eval_i64 reducers depth b (fun depth bv ->
+                  resume depth k (Int64.compare av bv < 0)))
+  (* [I64_binary]/[Select] nest on the int64 side exactly like [Binary]/
+     [Select] do on the float side, so [eval_i64] is a THIRD member of this
+     [and] group, checking its own [depth] against the SAME [threshold] and
+     bouncing the same way -- unlike [bool_expr], whose four constructors
+     never nest another [bool_expr], so [guard] alone (no separate
+     [eval_bool]) is enough for it. [resume] already generalizes over the
+     resumed payload type, so [eval_i64]'s [int64] results flow through the
+     identical gate [go]'s [float]/[guard]'s [bool] results do. *)
+  and eval_i64 reducers depth (a : int64 Value.t)
+      (k : int -> int64 -> float bounce) : float bounce =
+    if depth >= threshold then
+      Bounce (fun () -> (eval_i64 [@tailcall]) reducers 0 a k)
+    else
+      let depth = depth + 1 in
+      match a with
+      | Value.I64_const x -> resume depth k x
+      | Value.I64_load (s, c) ->
+          resume depth k
+            (vchk (env.Env.load_index s (Coord.map (idx reducers) c)))
+      | Value.I64_binary (op, a, b) ->
+          eval_i64 reducers depth a (fun depth av ->
+              eval_i64 reducers depth b (fun depth bv ->
+                  resume depth k (Value.apply_i64_binary op av bv)))
+      | Value.Float_to_i64 a ->
+          go reducers depth a (fun depth av ->
+              resume depth k (vchk (Value.i64_of_float av)))
+      | Value.Select (c, a, b) ->
+          guard reducers depth c (fun depth cond ->
+              if cond then eval_i64 reducers depth a k
+              else eval_i64 reducers depth b k)
   in
   try run_trampoline (go init_reducers 0 e (fun _ x -> Done x))
   with exn ->

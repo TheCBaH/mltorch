@@ -35,23 +35,17 @@ type duplicate = Local of Local_var.t | Reducer of Reduce_var.t
      namespaces ([bound]/[lbound]) mirroring [Fold.free_reducers]/
      [Fold.locals]'s own scope masking. *)
 let duplicate_binder e =
-  let rec go bound lbound (e : Value.t) =
+  let rec go bound lbound (e : float Value.t) =
     match e with
     | Value.Const _ | Value.Value_of_index _ | Value.Load _ | Value.Intrinsic _
     | Value.Local _ | Value.Local_at _ | Value.Local_scan_at _ ->
         None
+    | Value.I64_to_float a -> go_i64 bound lbound a
     | Value.Binary (_, a, b) -> (
         match go bound lbound a with None -> go bound lbound b | some -> some)
     | Value.Unary (_, a) | Value.Round_f32 a -> go bound lbound a
     | Value.Select (c, a, b) -> (
-        let guard =
-          match c with
-          | Bool.Value_lt (x, y) -> (
-              match go bound lbound x with
-              | None -> go bound lbound y
-              | some -> some)
-          | Bool.Index_eq _ -> None
-        in
+        let guard = go_bool bound lbound c in
         match guard with
         | Some _ -> guard
         | None -> (
@@ -81,6 +75,32 @@ let duplicate_binder e =
                      (Reduce_var.Set.add s.Scan.step bound))
                   (Local_var.Set.add s.Scan.prev lbound)
                   s.Scan.update)
+  (* [Float_to_i64]'s operand can rebind a reducer/local just as easily as any
+     other float subtree, so it must go through [go] rather than be treated
+     as closed. *)
+  and go_i64 bound lbound (e : int64 Value.t) =
+    match e with
+    | Value.Float_to_i64 a -> go bound lbound a
+    | Value.I64_binary (_, a, b) -> (
+        match go_i64 bound lbound a with
+        | None -> go_i64 bound lbound b
+        | some -> some)
+    | Value.I64_const _ | Value.I64_load _ -> None
+    | Value.Select (c, a, b) -> (
+        match go_bool bound lbound c with
+        | Some _ as d -> d
+        | None -> (
+            match go_i64 bound lbound a with
+            | None -> go_i64 bound lbound b
+            | some -> some))
+  and go_bool bound lbound = function
+    | Expr_repr.Value_lt (x, y) -> (
+        match go bound lbound x with None -> go bound lbound y | some -> some)
+    | Expr_repr.Index_eq _ -> None
+    | Expr_repr.I64_eq (x, y) | Expr_repr.I64_lt (x, y) -> (
+        match go_i64 bound lbound x with
+        | None -> go_i64 bound lbound y
+        | some -> some)
   in
   go Reduce_var.Set.empty Local_var.Set.empty e
 

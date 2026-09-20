@@ -129,7 +129,7 @@ let%expect_test
          ~max_scan_updates_total:16_000_000L)
   in
   (* Unlike the combined-depth check above, this one -- [Kernel.create]'s
-     per-value [Region_group.Ref.project ~max_depth], the "one Expr.Value.t"
+     per-value [Region_group.Ref.project ~max_depth], the "one float Expr.Value.t"
      dimension kernel.mli's own module doc distinguishes from the combined
      one -- compares [Expr.Fold.depth] directly, with no +1 for the result
      conversion: [d = 254] builds a body of raw depth 255 (the leaf itself

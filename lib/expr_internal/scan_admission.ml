@@ -40,7 +40,7 @@ let static_extent lo hi =
 let combine multiplier extent =
   match (multiplier, extent) with Some m, Some e -> Some (m * e) | _ -> None
 
-(* Over a whole raw [Value.t] -- a checked scan can still be composed under
+(* Over a whole raw [float Value.t] -- a checked scan can still be composed under
    another reduction, inserted by a raw rewrite, or passed to the evaluator
    directly, none of which [Builder.scan]'s own construction-time check can
    see. A scan beneath a statically unbounded reduction is rejected outright;
@@ -50,23 +50,18 @@ let combine multiplier extent =
    costs that target nothing. *)
 let check ~limits value =
   let open Err.Syntax in
-  let rec go multiplier (e : Value.t) =
+  let rec go multiplier (e : float Value.t) =
     match e with
     | Value.Const _ | Value.Local _ | Value.Local_at _ | Value.Local_scan_at _
     | Value.Load _ | Value.Value_of_index _ | Value.Intrinsic _ ->
         Err.return ()
+    | Value.I64_to_float a -> go_i64 multiplier a
     | Value.Binary (_, a, b) ->
         let* () = go multiplier a in
         go multiplier b
     | Value.Unary (_, a) | Value.Round_f32 a -> go multiplier a
     | Value.Select (c, a, b) ->
-        let* () =
-          match c with
-          | Bool.Value_lt (x, y) ->
-              let* () = go multiplier x in
-              go multiplier y
-          | Bool.Index_eq _ -> Err.return ()
-        in
+        let* () = go_bool multiplier c in
         let* () = go multiplier a in
         go multiplier b
     | Value.Reduce r ->
@@ -91,5 +86,28 @@ let check ~limits value =
         in
         let* () = go multiplier s.Scan.init in
         go multiplier s.Scan.update
+  (* [Float_to_i64]'s operand can hide a [Scan_at] just as easily as any other
+     float subtree -- missing it here would let a scan composed under an
+     unbounded reduction (or one whose worst-case update count exceeds
+     [limits]) evade this check entirely. *)
+  and go_i64 multiplier (e : int64 Value.t) =
+    match e with
+    | Value.Float_to_i64 a -> go multiplier a
+    | Value.I64_binary (_, a, b) ->
+        let* () = go_i64 multiplier a in
+        go_i64 multiplier b
+    | Value.I64_const _ | Value.I64_load _ -> Err.return ()
+    | Value.Select (c, a, b) ->
+        let* () = go_bool multiplier c in
+        let* () = go_i64 multiplier a in
+        go_i64 multiplier b
+  and go_bool multiplier = function
+    | Expr_repr.Value_lt (x, y) ->
+        let* () = go multiplier x in
+        go multiplier y
+    | Expr_repr.Index_eq _ -> Err.return ()
+    | Expr_repr.I64_eq (x, y) | Expr_repr.I64_lt (x, y) ->
+        let* () = go_i64 multiplier x in
+        go_i64 multiplier y
   in
   go (Some 1) value

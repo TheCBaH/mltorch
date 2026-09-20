@@ -80,10 +80,13 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
         charge () && measure_index a && measure_index b
     | Expr.Bool.Value_lt (a, b) ->
         charge () && measure_value a && measure_value b
+    | Expr.Bool.I64_eq (a, b) | Expr.Bool.I64_lt (a, b) ->
+        charge () && measure_value_i64 a && measure_value_i64 b
   and measure_value = function
     | Expr.Value.Binary (_, a, b) ->
         charge () && measure_value a && measure_value b
     | Expr.Value.Const _ | Expr.Value.Local _ -> charge ()
+    | Expr.Value.I64_to_float a -> charge () && measure_value_i64 a
     | Expr.Value.Intrinsic (Expr.Intrinsic.Max_pool p) ->
         charge ()
         && List.for_all
@@ -109,6 +112,19 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
     | Expr.Value.Select (b, t, f) ->
         charge () && measure_bool b && measure_value t && measure_value f
     | Expr.Value.Value_of_index i -> charge () && measure_index i
+  and measure_value_i64 = function
+    | Expr.Value.Float_to_i64 a -> charge () && measure_value a
+    | Expr.Value.I64_const _ -> charge ()
+    | Expr.Value.I64_load (_, coord) ->
+        charge ()
+        && List.for_all
+             (fun axis -> measure_index (Expr.Coord.get coord axis))
+             Expr.Axis.all
+    | Expr.Value.I64_binary (_, a, b) ->
+        charge () && measure_value_i64 a && measure_value_i64 b
+    | Expr.Value.Select (b, t, f) ->
+        charge () && measure_bool b && measure_value_i64 t
+        && measure_value_i64 f
   in
   let measure_region ~locals ~output =
     charge ()
@@ -311,6 +327,20 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
         in
         walk_value scope ~parent:id ~role:"lhs" a;
         walk_value scope ~parent:id ~role:"rhs" b
+    | Expr.Bool.I64_eq (a, b) ->
+        let id =
+          add ~parent ~role ~language:"bool" ~constructor:"i64_eq"
+            ~label:"i64_eq" ()
+        in
+        walk_value_i64 scope ~parent:id ~role:"lhs" a;
+        walk_value_i64 scope ~parent:id ~role:"rhs" b
+    | Expr.Bool.I64_lt (a, b) ->
+        let id =
+          add ~parent ~role ~language:"bool" ~constructor:"i64_lt"
+            ~label:"i64_lt" ()
+        in
+        walk_value_i64 scope ~parent:id ~role:"lhs" a;
+        walk_value_i64 scope ~parent:id ~role:"rhs" b
   and walk_value scope ~parent ~role = function
     | Expr.Value.Binary (op, a, b) ->
         let id =
@@ -323,6 +353,12 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
         ignore
           (add ~parent ~role ~language:"value" ~constructor:"const"
              ~label:(Fmt.str "const %g" c) ())
+    | Expr.Value.I64_to_float a ->
+        let id =
+          add ~parent ~role ~language:"value" ~constructor:"i64_to_float"
+            ~label:"i64_to_float" ()
+        in
+        walk_value_i64 scope ~parent:id ~role:"operand" a
     | Expr.Value.Intrinsic (Expr.Intrinsic.Max_pool p) ->
         let id =
           add ~parent ~role ~language:"value" ~constructor:"max_pool"
@@ -454,6 +490,41 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
             ~label:"index" ()
         in
         walk_index scope ~parent:id ~role:"operand" index
+  and walk_value_i64 scope ~parent ~role = function
+    | Expr.Value.Float_to_i64 a ->
+        let id =
+          add ~parent ~role ~language:"value" ~constructor:"float_to_i64"
+            ~label:"float_to_i64" ()
+        in
+        walk_value scope ~parent:id ~role:"operand" a
+    | Expr.Value.I64_const x ->
+        ignore
+          (add ~parent ~role ~language:"value" ~constructor:"i64_const"
+             ~label:(Fmt.str "i64_const %Ld" x)
+             ())
+    | Expr.Value.I64_load (src, coord) ->
+        let id =
+          add ~parent ~role ~language:"value" ~constructor:"i64_load"
+            ~label:(Fmt.str "i64_load %a" Expr.Source.pp src)
+            ()
+        in
+        walk_coord scope ~parent:id coord
+    | Expr.Value.I64_binary (op, a, b) ->
+        let id =
+          add ~parent ~role ~language:"value" ~constructor:"i64_binary"
+            ~label:(Expr.Value.i64_binary_sym op)
+            ()
+        in
+        walk_value_i64 scope ~parent:id ~role:"lhs" a;
+        walk_value_i64 scope ~parent:id ~role:"rhs" b
+    | Expr.Value.Select (condition, t, f) ->
+        let id =
+          add ~parent ~role ~language:"value" ~constructor:"select"
+            ~label:"select" ()
+        in
+        walk_bool scope ~parent:id ~role:"condition" condition;
+        walk_value_i64 scope ~parent:id ~role:"true_branch" t;
+        walk_value_i64 scope ~parent:id ~role:"false_branch" f
   in
   let root =
     add ~language:"presentation" ~constructor:"result"

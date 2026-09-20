@@ -4,8 +4,8 @@ type t = Expr_repr.scan = {
   lane : Reduce_var.t;
   step : Reduce_var.t;
   prev : Local_var.t;
-  init : Expr_repr.value;
-  update : Expr_repr.value;
+  init : float Expr_repr.value;
+  update : float Expr_repr.value;
 }
 
 (* [Bad_steps]/[Bad_width] carry the offending value (structural defects, not

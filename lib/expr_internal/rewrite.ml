@@ -66,10 +66,10 @@ let keep_indices = { on_index = (fun _ i -> i) }
      under, which is what keeps scope handling in ONE place instead of repeated
      per rewrite. *)
 (* STATE-PASSING, with [Builder.state] last: [rebuild ~idx ~src ~on_reduce env
-     e] then has exactly the representation of a [Value.t Builder.t], since the
+     e] then has exactly the representation of a [float Value.t Builder.t], since the
      monad is [state -> 'a * state] and this is a section of the same unit. With
      the state in the middle, partial application would leave
-     [state -> Value.t -> _], which is not a computation at all.
+     [state -> float Value.t -> _], which is not a computation at all.
 
      Written directly rather than with [let*]. A monadic tower would allocate a
      closure per AST node and then walk that tree to produce the result -- two
@@ -85,10 +85,19 @@ let keep_indices = { on_index = (fun _ i -> i) }
 (* [on_load] sees the already-rewritten source and coordinate and returns the
      node that replaces the load. It exists so a load can become a SUBTREE
      rather than only a renamed symbol, without a second scope-aware traversal
-     of [Value.t] living outside this module. Its result is returned as-is and
+     of [float Value.t] living outside this module. Its result is returned as-is and
      never fed back through [go]: an inserted fragment is not re-traversed, and
      the composition rules that depend on that say so. *)
 let keep_load s c st = (Value.Load (s, c), st)
+
+(* [I64_load]'s own [on_load] twin: same "already-rewritten source and
+   coordinate, returns the replacement node" contract, at [int64 Value.t]
+   instead of [float Value.t] -- a distinct callback rather than a shared
+   polymorphic one because nothing yet substitutes an [int64 Value.t] load
+   with a subtree ([Region_local]'s stored-value substitution is float-only,
+   per [Value.eval_i64]'s own doc comment on typed int64 locals being later
+   work), so every current caller passes [keep_i64_load]. *)
+let keep_i64_load s c st = (Value.I64_load (s, c), st)
 
 (* [on_local_at]/[on_local_scan_at] mirror [on_load]: they see the
      already-rewritten local id and index/indices and return the node that
@@ -99,11 +108,12 @@ let keep_load s c st = (Value.Load (s, c), st)
      today) can tell a bound [prev] apart from an ordinary Region local.
      [on_local_bind] mints/keeps [prev]'s replacement and extends [lenv],
      mirroring [on_reduce] for [lane]/[step]. *)
-let rec rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
-    ~on_reduce ~on_local_bind env lenv (e : Value.t) st =
+let rec rebuild ~idx ~src ~on_load ~on_i64_load ~on_local ~on_local_at
+    ~on_local_scan_at ~on_reduce ~on_local_bind env lenv (e : float Value.t) st
+    =
   let go =
-    rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
-      ~on_reduce ~on_local_bind env lenv
+    rebuild ~idx ~src ~on_load ~on_i64_load ~on_local ~on_local_at
+      ~on_local_scan_at ~on_reduce ~on_local_bind env lenv
   in
   let idxe i = idx.on_index env i in
   let unary wrap a st =
@@ -112,6 +122,12 @@ let rec rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
   in
   match e with
   | Value.Const _ -> (e, st)
+  | Value.I64_to_float a ->
+      let a, st =
+        rebuild_i64 ~idx ~src ~on_load ~on_i64_load ~on_local ~on_local_at
+          ~on_local_scan_at ~on_reduce ~on_local_bind env lenv a st
+      in
+      (Value.I64_to_float a, st)
   | Value.Local v -> on_local lenv v st
   | Value.Local_at (v, i) -> on_local_at lenv v (idxe i) st
   | Value.Local_scan_at (v, row, lane) ->
@@ -125,15 +141,16 @@ let rec rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
   | Value.Scan_at (s, row, lane) ->
       let _lane1, env1, st = on_reduce env s.Scan.lane st in
       let init, st =
-        rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
-          ~on_reduce ~on_local_bind env1 lenv s.Scan.init st
+        rebuild ~idx ~src ~on_load ~on_i64_load ~on_local ~on_local_at
+          ~on_local_scan_at ~on_reduce ~on_local_bind env1 lenv s.Scan.init st
       in
       let lane2, env2, st = on_reduce env s.Scan.lane st in
       let step, env3, st = on_reduce env2 s.Scan.step st in
       let prev, lenv1, st = on_local_bind lenv s.Scan.prev st in
       let update, st =
-        rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
-          ~on_reduce ~on_local_bind env3 lenv1 s.Scan.update st
+        rebuild ~idx ~src ~on_load ~on_i64_load ~on_local ~on_local_at
+          ~on_local_scan_at ~on_reduce ~on_local_bind env3 lenv1 s.Scan.update
+          st
       in
       ( Value.scan_at
           {
@@ -149,12 +166,8 @@ let rec rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
         st )
   | Value.Select (c, a, b) ->
       let c, st =
-        match c with
-        | Bool.Value_lt (x, y) ->
-            let x, st = go x st in
-            let y, st = go y st in
-            (Bool.Value_lt (x, y), st)
-        | Bool.Index_eq (x, y) -> (Bool.Index_eq (idxe x, idxe y), st)
+        rebuild_bool ~idx ~src ~on_load ~on_i64_load ~on_local ~on_local_at
+          ~on_local_scan_at ~on_reduce ~on_local_bind env lenv c st
       in
       let a, st = go a st in
       let b, st = go b st in
@@ -164,8 +177,9 @@ let rec rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
   | Value.Reduce r ->
       let var, env', st = on_reduce env r.Reduction.var st in
       let body, st =
-        rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
-          ~on_reduce ~on_local_bind env' lenv r.Reduction.body st
+        rebuild ~idx ~src ~on_load ~on_i64_load ~on_local ~on_local_at
+          ~on_local_scan_at ~on_reduce ~on_local_bind env' lenv r.Reduction.body
+          st
       in
       ( Value.Reduce
           {
@@ -187,6 +201,84 @@ let rec rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
                out = Coord.map idxe d.Intrinsic.Max_pool.out;
              }),
         st )
+
+(* [Float_to_i64]'s operand is an ordinary [float Value.t] child, rebuilt
+   through [rebuild] under the SAME [env]/[lenv] -- [and]-linked for the same
+   reason [compare]/[hash]/[Pp]'s int64 twins are: a rewrite that skipped it
+   (treating [int64 Value.t] as closed, which stopped being true once
+   [Float_to_i64] existed) would leave a reducer/local reference there
+   unrenamed by [freshen], reintroducing exactly the capture collision this
+   module exists to prevent. [I64_binary]/[I64_const] have no [Local]/[Load]/
+   [Reduce] of their own, so they only thread [st]. [I64_load] goes through
+   [on_i64_load], the [int64 Value.t] twin of [on_load]. *)
+and rebuild_i64 ~idx ~src ~on_load ~on_i64_load ~on_local ~on_local_at
+    ~on_local_scan_at ~on_reduce ~on_local_bind env lenv (e : int64 Value.t) st
+    =
+  let go_i64 =
+    rebuild_i64 ~idx ~src ~on_load ~on_i64_load ~on_local ~on_local_at
+      ~on_local_scan_at ~on_reduce ~on_local_bind env lenv
+  in
+  let idxe i = idx.on_index env i in
+  match e with
+  | Value.Float_to_i64 a ->
+      let a, st =
+        rebuild ~idx ~src ~on_load ~on_i64_load ~on_local ~on_local_at
+          ~on_local_scan_at ~on_reduce ~on_local_bind env lenv a st
+      in
+      (Value.Float_to_i64 a, st)
+  | Value.I64_binary (op, a, b) ->
+      let a, st = go_i64 a st in
+      let b, st = go_i64 b st in
+      (Value.I64_binary (op, a, b), st)
+  | Value.I64_const _ -> (e, st)
+  | Value.I64_load (s, c) -> on_i64_load (src s) (Coord.map idxe c) st
+  | Value.Select (c, a, b) ->
+      let c, st =
+        rebuild_bool ~idx ~src ~on_load ~on_i64_load ~on_local ~on_local_at
+          ~on_local_scan_at ~on_reduce ~on_local_bind env lenv c st
+      in
+      let a, st = go_i64 a st in
+      let b, st = go_i64 b st in
+      (Value.Select (c, a, b), st)
+
+(* [bool_expr]'s own rebuild: [I64_eq]/[I64_lt]'s operands go through
+   [rebuild_i64], [Value_lt]'s through [rebuild], [Index_eq]'s carry only
+   indices. *)
+and rebuild_bool ~idx ~src ~on_load ~on_i64_load ~on_local ~on_local_at
+    ~on_local_scan_at ~on_reduce ~on_local_bind env lenv c st =
+  match c with
+  | Bool.Value_lt (x, y) ->
+      let x, st =
+        rebuild ~idx ~src ~on_load ~on_i64_load ~on_local ~on_local_at
+          ~on_local_scan_at ~on_reduce ~on_local_bind env lenv x st
+      in
+      let y, st =
+        rebuild ~idx ~src ~on_load ~on_i64_load ~on_local ~on_local_at
+          ~on_local_scan_at ~on_reduce ~on_local_bind env lenv y st
+      in
+      (Bool.Value_lt (x, y), st)
+  | Bool.Index_eq (x, y) ->
+      (Bool.Index_eq (idx.on_index env x, idx.on_index env y), st)
+  | Bool.I64_eq (x, y) ->
+      let x, st =
+        rebuild_i64 ~idx ~src ~on_load ~on_i64_load ~on_local ~on_local_at
+          ~on_local_scan_at ~on_reduce ~on_local_bind env lenv x st
+      in
+      let y, st =
+        rebuild_i64 ~idx ~src ~on_load ~on_i64_load ~on_local ~on_local_at
+          ~on_local_scan_at ~on_reduce ~on_local_bind env lenv y st
+      in
+      (Bool.I64_eq (x, y), st)
+  | Bool.I64_lt (x, y) ->
+      let x, st =
+        rebuild_i64 ~idx ~src ~on_load ~on_i64_load ~on_local ~on_local_at
+          ~on_local_scan_at ~on_reduce ~on_local_bind env lenv x st
+      in
+      let y, st =
+        rebuild_i64 ~idx ~src ~on_load ~on_i64_load ~on_local ~on_local_at
+          ~on_local_scan_at ~on_reduce ~on_local_bind env lenv y st
+      in
+      (Bool.I64_lt (x, y), st)
 
 let subst_env env v =
   match Reduce_var.Map.find_opt v env with Some w -> w | None -> v
@@ -237,7 +329,7 @@ let freshen e s =
   in
   rebuild
     ~idx:{ on_index = (fun env i -> map_index_reducers (subst_env env) i) }
-    ~src:Fun.id ~on_load:keep_load
+    ~src:Fun.id ~on_load:keep_load ~on_i64_load:keep_i64_load
     ~on_local:(fun _lenv v st -> (Value.Local v, st))
       (* [prev] is the only local this can ever rename -- [lenv] holds it only
        within its own scan's [update]; every other read is an ordinary
@@ -277,7 +369,7 @@ let substitute_output c e =
   fst
     (rebuild
        ~idx:{ on_index = (fun _ i -> subst_index c i) }
-       ~src:Fun.id ~on_load:keep_load
+       ~src:Fun.id ~on_load:keep_load ~on_i64_load:keep_i64_load
        ~on_local:(fun _lenv v st -> (Value.Local v, st))
        ~on_local_at:(fun _lenv v i st -> (Value.Local_at (v, i), st))
        ~on_local_scan_at:keep_local_scan_at ~on_reduce:keep_reducer
@@ -317,14 +409,14 @@ let rec subst_reducer : type r.
 
 (* [rebuild] specialised to a pure, non-minting substitution of [var] for
      [repl] everywhere in [e] -- the same shape as [substitute_output], reused
-     here instead of a hand-written recursion over [Value.t] so [Select]'s
+     here instead of a hand-written recursion over [float Value.t] so [Select]'s
      [Bool.Index_eq] guard and the [Max_pool] descriptor get the substitution
      too, for free, rather than by a second, separately-reviewed traversal. *)
 let substitute_reducer var repl e =
   fst
     (rebuild
        ~idx:{ on_index = (fun () i -> subst_reducer var repl i) }
-       ~src:Fun.id ~on_load:keep_load
+       ~src:Fun.id ~on_load:keep_load ~on_i64_load:keep_i64_load
        ~on_local:(fun _lenv v st -> (Value.Local v, st))
        ~on_local_at:(fun _lenv v i st -> (Value.Local_at (v, i), st))
        ~on_local_scan_at:keep_local_scan_at ~on_reduce:keep_reducer
@@ -359,7 +451,7 @@ let map_sources f e =
   fst
     (rebuild
        ~idx:{ on_index = (fun _ i -> map_index_sources f i) }
-       ~src:f ~on_load:keep_load
+       ~src:f ~on_load:keep_load ~on_i64_load:keep_i64_load
        ~on_local:(fun _lenv v st -> (Value.Local v, st))
        ~on_local_at:(fun _lenv v i st -> (Value.Local_at (v, i), st))
        ~on_local_scan_at:keep_local_scan_at ~on_reduce:keep_reducer
@@ -383,13 +475,14 @@ let substitute_loads f e st =
       match f s c with
       | None -> (Value.Load (s, c), st)
       | Some replacement -> Builder.run_from st replacement)
+    ~on_i64_load:keep_i64_load
     ~on_local:(fun _lenv v st -> (Value.Local v, st))
     ~on_local_at:(fun _lenv v i st -> (Value.Local_at (v, i), st))
     ~on_local_scan_at:keep_local_scan_at ~on_reduce:keep_reducer
     ~on_local_bind:keep_local_bind () () e st
 
 (* What a local resolves to during [substitute_locals]. A closed variant, not
-     two callbacks or a wider [Value.t] convention, per CLAUDE.md's payload
+     two callbacks or a wider [float Value.t] convention, per CLAUDE.md's payload
      rule: a scalar local substitutes its whole value at a [Local] occurrence,
      a vector local instead carries the binder [var] its stored [body] is
      parameterised over, substituted at a [Local_at] occurrence's read index
@@ -400,12 +493,13 @@ let substitute_loads f e st =
      is reported the same way an already-invalid tree elsewhere would be --
      structurally, via [invalid_arg], never silently. *)
 type local_binding =
-  | Scalar of Value.t
+  | Scalar of float Value.t
   | Scan of Scan.t
-  | Vector of { var : Reduce_var.t; body : Value.t }
+  | Vector of { var : Reduce_var.t; body : float Value.t }
 
 let substitute_locals f e st =
   rebuild ~idx:keep_indices ~src:Fun.id ~on_load:keep_load
+    ~on_i64_load:keep_i64_load
     ~on_local:(fun _lenv v st ->
       match f v with
       | None -> (Value.Local v, st)

@@ -25,7 +25,7 @@
 
 (copy_files
  (files
-  %{workspace_root}/lib/expr_internal/{axis,bool,builder,checked,check,coord,eval_common,eval,eval_js_machine,expr_repr,fold,index,intrinsic,local_var,max_op,pp,reduce_var,reduction,rewrite,role,scan_admission,scan_limits,scan_meter,scan,source,value}.ml))
+  %{workspace_root}/lib/expr_internal/{axis,bool,builder,checked,check,coord,eval_common,eval,eval_js_machine,expr_repr,fold,index,intrinsic,local_var,max_op,pp,reduce_var,reduction,rewrite,role,scalar,scan_admission,scan_limits,scan_meter,scan,source,value}.ml))
 
 (copy_files
  (files

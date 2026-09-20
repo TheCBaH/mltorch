@@ -117,10 +117,10 @@ val site_in : Analysis.t -> Kernel.Use.t -> (Site.t, error) Err.t
     checking many edges builds one [Analysis.t] instead of paying a pass per
     call. *)
 
-val elaborate_site : Site.t -> (Expr.Value.t, error) Err.t
+val elaborate_site : Site.t -> (float Expr.Value.t, error) Err.t
 (** Rewrite an already-validated site. Performs no lookup and no fold. *)
 
-val elaborate : Kernel.t -> Kernel.Use.t -> (Expr.Value.t, error) Err.t
+val elaborate : Kernel.t -> Kernel.Use.t -> (float Expr.Value.t, error) Err.t
 (** The consumer's body with that one producer edge inlined, WITHOUT the
     consumer's own [Result_conversion] — the same contract as a Pixel-form
     [Kernel.Value.computation], so a caller materializing the result applies it

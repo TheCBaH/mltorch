@@ -112,7 +112,7 @@ let eval_hybrid ~cutoff ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
     Eval_machine_reuse.run ~esc ~env ~output ~scan ~scan_meter ~local
       ~local_at_ref ~cleanups ~run_top_cleanup ~on_reduction seed
   in
-  let rec go depth reducers (e : Value.t) : float =
+  let rec go depth reducers (e : float Value.t) : float =
     if depth >= cutoff then
       match machine_run (Eval_state (e, reducers)) with
       | Float_result v -> v
@@ -123,6 +123,7 @@ let eval_hybrid ~cutoff ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
       | Value.Binary (op, a, b) ->
           Value.apply_binary op (go depth reducers a) (go depth reducers b)
       | Value.Const x -> x
+      | Value.I64_to_float a -> Int64.to_float (eval_i64 depth reducers a)
       | Value.Intrinsic i -> intrinsic reducers i
       | Value.Local v -> (
           match local v with
@@ -205,6 +206,36 @@ let eval_hybrid ~cutoff ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
       match b with
       | Bool.Index_eq (a, b) -> Int.equal (idx reducers a) (idx reducers b)
       | Bool.Value_lt (a, b) -> go depth reducers a < go depth reducers b
+      | Bool.I64_eq (a, b) ->
+          Int64.equal (eval_i64 depth reducers a) (eval_i64 depth reducers b)
+      | Bool.I64_lt (a, b) ->
+          Int64.compare (eval_i64 depth reducers a) (eval_i64 depth reducers b)
+          < 0
+  (* Not delegated to [Value.eval_i64]'s callback-based definition, unlike
+     every other caller of it: that definition has no [depth] of its own (see
+     its doc comment), so [I64_binary]/[Select]'s own nesting on the int64
+     side needs the SAME cutoff/machine-handoff [go]/[guard] give the
+     float/bool grammar, inlined here rather than threaded through a shared
+     helper. [Float_to_i64]'s float operand still flows through [go], which
+     is already cutoff-aware. *)
+  and eval_i64 depth reducers (a : int64 Value.t) : int64 =
+    if depth >= cutoff then
+      match machine_run (Eval_i64_state (a, reducers)) with
+      | I64_result v -> v
+      | _ -> assert false
+    else
+      let depth = depth + 1 in
+      match a with
+      | Value.I64_const x -> x
+      | Value.I64_load (s, c) ->
+          vchk (env.Env.load_index s (Coord.map (idx reducers) c))
+      | Value.I64_binary (op, x, y) ->
+          Value.apply_i64_binary op (eval_i64 depth reducers x)
+            (eval_i64 depth reducers y)
+      | Value.Float_to_i64 x -> vchk (Value.i64_of_float (go depth reducers x))
+      | Value.Select (c, x, y) ->
+          if guard depth reducers c then (eval_i64 [@tailcall]) depth reducers x
+          else (eval_i64 [@tailcall]) depth reducers y
   and eval_scan_at depth reducers s row_i lane_i =
     let row = idx reducers row_i and lane = idx reducers lane_i in
     let projection = { Scan_projection.local = None; row; lane } in

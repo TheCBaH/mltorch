@@ -24,3 +24,13 @@
 (cram
  (applies_to namespace_safety)
  (deps namespace_safety.sh expr_probe.exe))
+
+; Carrier-witness safety: the dtype GADT (evaluator_dtype design; see .ai/)
+; must reject mixing float/int64 operands, not just at runtime -- reuses
+; namespace_safety.sh's generic `let check () = $expr;;` scaffold, since the
+; property under test here (carrier separation) is orthogonal to that file's
+; own (namespace leakage, AST privacy).
+
+(cram
+ (applies_to carrier_safety)
+ (deps namespace_safety.sh expr_probe.exe))

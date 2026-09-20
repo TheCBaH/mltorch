@@ -5,9 +5,9 @@
 (* [Data]'s coordinate field is [Role.Position.t t Coord.t] -- a [Coord.t]
    whose six per-axis components are themselves [Role.Position.t t]
    expressions in THIS SAME GADT. That makes [Data] self-recursive within
-   [Index.t], not mutually recursive with [Value.t]: a [Load]'s own
+   [Index.t], not mutually recursive with [float Value.t]: a [Load]'s own
    coordinate is still [Role.Position.t Index.t Coord.t] one level up, in
-   [Value.t], unaffected. [Data]'s third field is the gathered axis's extent;
+   [float Value.t], unaffected. [Data]'s third field is the gathered axis's extent;
    it is a plain [int] here (checked positive only where it originates,
    [Dim.extent] on the [native] side that builds this node) rather than
    [Dim.extent Dim.t], since [expr_internal] must not depend on [native] --

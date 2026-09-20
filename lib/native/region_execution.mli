@@ -9,7 +9,7 @@ type counters = {
 }
 
 type lowered
-type t = Pixel_loop of Expr.Value.t | Region_loop of lowered
+type t = Pixel_loop of float Expr.Value.t | Region_loop of lowered
 
 val counters : unit -> counters
 

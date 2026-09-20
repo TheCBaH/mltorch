@@ -218,6 +218,7 @@ type error =
   | `Data_source_wrong_format of string
   | index_error
   | Intrinsic.error
+  | Value.i64_from_float_error
   | `Scan_meter of Scan_meter.error
   | `Scan_meter_required
   | `Scan_projection of scan_error
@@ -235,6 +236,7 @@ let pp_error fmt : [< error ] -> unit = function
       Fmt.pf fmt "Data source is not an I64 tensor (format %s)" name
   | #index_error as e -> pp_index_error fmt e
   | #Intrinsic.error as e -> Intrinsic.pp_error fmt e
+  | #Value.i64_from_float_error as e -> Value.pp_i64_from_float_error fmt e
   | `Scan_meter e -> Scan_meter.pp_error fmt e
   | `Scan_meter_required -> Fmt.string fmt "an inline scan requires a meter"
   | `Scan_projection e -> pp_scan_error fmt e

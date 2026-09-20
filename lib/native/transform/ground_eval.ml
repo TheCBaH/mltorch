@@ -211,7 +211,9 @@ type error =
   | `Pair_nodes_over_limit of int
   | `Partition of Region_partition.error
   | `Region of Region_program.error
-  | `Unknown_edge of Tensor_id.t ]
+  | `Unknown_edge of Tensor_id.t
+  | `Unsupported_i64_comparison_ground
+  | `Unsupported_i64_to_float_ground ]
 
 let pp_error fmt : [< error ] -> unit = function
   | #Expr.Eval.error as e -> Expr.Eval.pp_error fmt e
@@ -227,6 +229,14 @@ let pp_error fmt : [< error ] -> unit = function
   | `Partition e -> Region_partition.pp_error fmt e
   | `Region e -> Region_program.pp_error fmt e
   | `Unknown_edge id -> Fmt.pf fmt "unknown edge %a" Tensor_id.pp id
+  | `Unsupported_i64_comparison_ground ->
+      Fmt.string fmt
+        "An I64 comparison has no grounded/fused representation yet (only the \
+         plain evaluator supports it)"
+  | `Unsupported_i64_to_float_ground ->
+      Fmt.string fmt
+        "I64_to_float has no grounded/fused representation yet (only the plain \
+         evaluator supports it)"
 
 (* Saturating: matches this repository's 32-bit-safe-aggregate rule
    (js_of_ocaml reaches this library) for every checked size addition below.
@@ -374,8 +384,8 @@ let scan_bounds ~local ~row ~lane ~extent kind =
    the enclosing Region program's already-grounded locals; a legacy Pixel
    stage (no locals at all) grounds with [Frame.empty], so this is the SAME
    traversal for both, never a special-cased Pixel path. *)
-let rec ground esc ~env ~meter ~arena ~frame ~coord ~rvars (e : Expr.Value.t) :
-    Ground_expr.t =
+let rec ground esc ~env ~meter ~arena ~frame ~coord ~rvars
+    (e : float Expr.Value.t) : Ground_expr.t =
   let recur = ground esc ~env ~meter ~arena ~frame ~coord ~rvars in
   (* Calls [eval_index] directly (not the public [Expr.Eval.index]), passing
      THIS module's own escape token: both use the identical escape-based
@@ -399,6 +409,8 @@ let rec ground esc ~env ~meter ~arena ~frame ~coord ~rvars (e : Expr.Value.t) :
   in
   match e with
   | Expr.Value.Const x -> node esc meter (Ground_expr.const arena x)
+  | Expr.Value.I64_to_float _ ->
+      Err.Escape.throw esc `Unsupported_i64_to_float_ground
   | Expr.Value.Local v -> (
       match Expr.Local_var.Map.find_opt v frame.Frame.scalars with
       | Some g -> g
@@ -452,7 +464,9 @@ let rec ground esc ~env ~meter ~arena ~frame ~coord ~rvars (e : Expr.Value.t) :
           node esc meter
             (Ground_expr.select arena
                (Ground_expr.lt arena (recur x) (recur y))
-               (recur a) (recur b)))
+               (recur a) (recur b))
+      | Expr.Bool.I64_eq _ | Expr.Bool.I64_lt _ ->
+          Err.Escape.throw esc `Unsupported_i64_comparison_ground)
   | Expr.Value.Load (src, idx) ->
       leaf esc ~env ~meter ~arena (Expr_bridge.id_of_source src) (fun a ->
           index (Expr.Coord.get idx a))

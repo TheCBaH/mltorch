@@ -1,6 +1,6 @@
 (* See symbolic.mli. *)
 
-type t = Expr.Value.t Expr.Builder.t
+type t = float Expr.Value.t Expr.Builder.t
 type 'role index = 'role Expr.Index.t
 type input = Tensor_sig.t
 type b = Expr.Bool.t Expr.Builder.t

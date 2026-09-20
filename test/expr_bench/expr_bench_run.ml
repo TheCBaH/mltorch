@@ -45,27 +45,51 @@ let deep_chain n =
   done;
   !e
 
+(* [I64_binary]/[Select] nest on the int64 side exactly like [Binary]/[Select]
+   do on the float side (see [Eval_js_machine.Eval_i64_state]'s doc comment),
+   so this checks the SAME stack-safety property for the int64 spine that
+   [deep_chain] above checks for the float one -- against every registered
+   candidate, not just the two [expr_probe.deep-runtest] compares to each
+   other, since a delayed trampoline's safety is a property of its own
+   [threshold] (this module's own top comment). [i64_to_float] at the root
+   keeps the result comparable through the same [float]-returning
+   [Corpus.evaluator] signature every other case here uses. *)
+let deep_chain_i64 n =
+  let e = ref (Value.i64_const 0L) in
+  for _ = 1 to n do
+    e := Value.i64_add !e (Value.i64_const 1L)
+  done;
+  Value.i64_to_float !e
+
+let run_deep_smoke name (ev : Corpus.evaluator) e ~expected failures =
+  match
+    Err.or_raise ~pp_error:Eval_common.pp_error
+      (ev Corpus.dead_env ~output:Corpus.origin e)
+  with
+  | v when v = expected ->
+      Printf.printf "deep_smoke: %s survives depth %d, value %g\n" name
+        deep_smoke_depth v
+  | v ->
+      incr failures;
+      Printf.printf "FAIL deep_smoke (%s): expected %g, got %g\n" name expected
+        v
+  | exception exn ->
+      incr failures;
+      Printf.printf "FAIL deep_smoke (%s): raised %s\n" name
+        (Printexc.to_string exn)
+
 let run_correctness () =
   let failures = ref 0 in
   (let expected = float_of_int deep_smoke_depth in
    let e = deep_chain deep_smoke_depth in
    List.iter
-     (fun (name, (ev : Corpus.evaluator)) ->
-       match
-         Err.or_raise ~pp_error:Eval_common.pp_error
-           (ev Corpus.dead_env ~output:Corpus.origin e)
-       with
-       | v when v = expected ->
-           Printf.printf "deep_smoke: %s survives depth %d, value %g\n" name
-             deep_smoke_depth v
-       | v ->
-           incr failures;
-           Printf.printf "FAIL deep_smoke (%s): expected %g, got %g\n" name
-             expected v
-       | exception exn ->
-           incr failures;
-           Printf.printf "FAIL deep_smoke (%s): raised %s\n" name
-             (Printexc.to_string exn))
+     (fun (name, ev) -> run_deep_smoke name ev e ~expected failures)
+     (("reference", Eval.value) :: Corpus.candidate_evaluators));
+  (let expected = float_of_int deep_smoke_depth in
+   let e = deep_chain_i64 deep_smoke_depth in
+   List.iter
+     (fun (name, ev) ->
+       run_deep_smoke (name ^ " (i64)") ev e ~expected failures)
      (("reference", Eval.value) :: Corpus.candidate_evaluators));
   List.iter
     (fun (c : Corpus.case) ->

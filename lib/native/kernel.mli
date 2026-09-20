@@ -1,5 +1,5 @@
 (* The semantic Kernel IR: a closed, validated computation over unchanged
-   [Expr.Value.t] stage bodies. See .ai/ for the design.
+   [float Expr.Value.t] stage bodies. See .ai/ for the design.
 
    A kernel owns ordered boundary inputs, topologically ordered logical values,
    and ordered outputs. It does NOT own placement: whether a value is stored or
@@ -29,7 +29,7 @@ module Result_conversion : sig
      change, not an optimisation. *)
   type t = Round_f32
 
-  val apply : t -> Expr.Value.t -> Expr.Value.t
+  val apply : t -> float Expr.Value.t -> float Expr.Value.t
   (** The ONE place the round is expressed. Every consumer — interpreter and
       elaborator — goes through here, so [Expr.Eval]'s existing [Round_f32] case
       stays the only rounding code and the two cannot disagree. *)
@@ -74,7 +74,7 @@ module Limits : sig
   (* Four independent budget dimensions. Bounding one leaves the others open,
      and the fourth exists only because the first two compose:
 
-       per-expression  max_size, max_depth        one [Expr.Value.t]
+       per-expression  max_size, max_depth        one [float Expr.Value.t]
        value DAG       max_values, max_dep_depth  the logical-value graph
        interface       max_inputs, max_outputs    the public arity
        combined        derived eval_depth         the recursive value_at stack
@@ -274,7 +274,7 @@ val create :
 
 val pp : Format.formatter -> t -> unit
 val value : t -> Tensor_id.t -> Value.t option
-val pixel_expression : Value.t -> Expr.Value.t option
+val pixel_expression : Value.t -> float Expr.Value.t option
 
 val over_limit : int -> 'a list -> bool
 (** Does the list hold more than [limit] cells? Stops one cell past the limit

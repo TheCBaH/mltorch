@@ -5,19 +5,26 @@ module Rhs : sig
      type existed, [t] carried [shape] and [value] as two independent
      fields that a smart constructor happened to keep in agreement, which
      cannot honestly extend to a third right-hand side whose value is not one
-     [Expr.Value.t] (see the scan design record). *)
+     [float Expr.Value.t] (see the scan design record). *)
   type t = private
-    | Scalar of Expr.Value.t
-    | Vector of { extent : int; var : Expr.Reduce_var.t; body : Expr.Value.t }
+    | Scalar of float Expr.Value.t
+    | Vector of {
+        extent : int;
+        var : Expr.Reduce_var.t;
+        body : float Expr.Value.t;
+      }
     | Scan of Expr.Scan.t
 
-  val scalar : Expr.Value.t -> t
-  val vector : extent:int -> var:Expr.Reduce_var.t -> body:Expr.Value.t -> t
+  val scalar : float Expr.Value.t -> t
+
+  val vector :
+    extent:int -> var:Expr.Reduce_var.t -> body:float Expr.Value.t -> t
+
   val scan : Expr.Scan.t -> t
   val slot_count : t -> int
 
-  val value : t -> Expr.Value.t
-  (** The one [Expr.Value.t] a scalar/vector right-hand side carries -- a
+  val value : t -> float Expr.Value.t
+  (** The one [float Expr.Value.t] a scalar/vector right-hand side carries -- a
       scalar's own expression, or a vector's per-element body. For a scan, a
       foldable stand-in wrapped as [Expr.Value.scan_at] at closed placeholder
       indices: convenience for callers (folds, scope/shape checks) that only
@@ -41,14 +48,14 @@ end
 
 type t = private { id : Expr.Local_var.t; rhs : Rhs.t }
 
-val scalar : id:Expr.Local_var.t -> value:Expr.Value.t -> t
+val scalar : id:Expr.Local_var.t -> value:float Expr.Value.t -> t
 val scan : id:Expr.Local_var.t -> scan:Expr.Scan.t -> t
 
 val vector :
   id:Expr.Local_var.t ->
   var:Expr.Reduce_var.t ->
   extent:int ->
-  value:Expr.Value.t ->
+  value:float Expr.Value.t ->
   t
 (** [value]'s body may mention [var] (via [Expr.Index.reduce var]) as its own
     per-element index -- free within [value], never bound by a nested reduction.
