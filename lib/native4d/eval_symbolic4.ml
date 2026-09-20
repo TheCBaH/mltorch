@@ -34,6 +34,15 @@ let pp_bool_scalar_arithmetic fmt { scalar_op; fmt = Payload.Fmt f } =
     scalar_op (Payload.fmt_name f)
 
 let is_i64 = function Payload.Fmt Payload.I64 -> true | _ -> false
+
+(* The ops whose second output is an argmax-style index. *)
+let is_index_output (op : Op.t) output =
+  output = 1
+  &&
+  match op with
+  | Op.Adaptive_max_pool2d_with_indices _ | Op.Max_pool2d_with_indices _ -> true
+  | _ -> false
+
 let is_bool = function Payload.Fmt Payload.Bool -> true | _ -> false
 
 (* The Native4D twin of [Eval_symbolic]'s own fix, same rationale: closes the
@@ -299,36 +308,47 @@ let run (g : Graph.graph) : Stage_program.t =
         in
         (env, stages, stages_i64)
     | _, _ ->
-        let env, stages =
+        let env, stages, stages_i64 =
           List.fold_left
-            (fun (env, stages) (output, oid) ->
+            (fun (env, stages, stages_i64) (output, oid) ->
               let out_sig = Tensor_id.Map.find oid g.Graph.Graph.tensors in
-              let regional =
-                if Region_computation4.is_region_authored op then
-                  Some
-                    (Region_computation4.program ~limits:Kernel.Limits.default
-                       ~op ~output ~output_shape:out_sig.shape
-                       ~operand:(fun id -> Tensor_id.Map.find_opt id env)
-                       ~fill:(fun _role value shape -> fill value shape))
-                else None
+              let float_pixel () =
+                Expr.Builder.run
+                  (E.pixel op ~output ~operand ~shape_of ~fill Symbolic.out_vec)
               in
-              let computation =
-                match regional with
-                | Some (Ok program) -> Region_group.Ref.Solo program
-                | Some (Error error) ->
-                    Err.raise_error ~pp_error:Region_computation.pp_error error
-                | None ->
-                    Region_group.Ref.Solo
-                      (Region_program.pixel
-                         (Expr.Builder.run
-                            (E.pixel op ~output ~operand ~shape_of ~fill
-                               Symbolic.out_vec)))
-              in
-              let st =
-                { Stage_program.Stage.id = oid; sg = out_sig; computation }
-              in
-              (Tensor_id.Map.add oid out_sig env, st :: stages))
-            (env, stages) outs
+              if is_index_output op output && is_i64 out_sig.Tensor_sig.fmt then
+                (* The index output is declared I64; see [Eval_symbolic]'s
+                   own arm for why the checked cast is exact. *)
+                let pixel = Expr.Value.float_to_i64 (float_pixel ()) in
+                let st =
+                  { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel }
+                in
+                (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+              else
+                let regional =
+                  if Region_computation4.is_region_authored op then
+                    Some
+                      (Region_computation4.program ~limits:Kernel.Limits.default
+                         ~op ~output ~output_shape:out_sig.shape
+                         ~operand:(fun id -> Tensor_id.Map.find_opt id env)
+                         ~fill:(fun _role value shape -> fill value shape))
+                  else None
+                in
+                let computation =
+                  match regional with
+                  | Some (Ok program) -> Region_group.Ref.Solo program
+                  | Some (Error error) ->
+                      Err.raise_error ~pp_error:Region_computation.pp_error
+                        error
+                  | None ->
+                      Region_group.Ref.Solo
+                        (Region_program.pixel (float_pixel ()))
+                in
+                let st =
+                  { Stage_program.Stage.id = oid; sg = out_sig; computation }
+                in
+                (Tensor_id.Map.add oid out_sig env, st :: stages, stages_i64))
+            (env, stages, stages_i64) outs
         in
         (env, stages, stages_i64)
   in

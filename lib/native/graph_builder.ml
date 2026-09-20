@@ -218,7 +218,11 @@ let adaptive_max_pool2d_with_indices ?name params x =
       let* vid =
         new_edge ?name ~kind:"adaptive_max_pool2d_with_indices" vshape
       in
-      let* iid = new_edge ~kind:"adaptive_max_pool2d_with_indices_idx" ishape in
+      let* iid =
+        new_edge
+          ~fmt:Payload.(Fmt I64)
+          ~kind:"adaptive_max_pool2d_with_indices_idx" ishape
+      in
       let* () = push_node op [ vid; iid ] in
       return (vid, iid)
   | _ ->
@@ -426,7 +430,7 @@ let max_dim ?name params x =
   match shapes with
   | [ vshape; ishape ] ->
       let* vid = new_edge ?name ~kind:"max_dim" vshape in
-      let* iid = new_edge ~kind:"max_dim_idx" ishape in
+      let* iid = new_edge ~fmt:Payload.(Fmt I64) ~kind:"max_dim_idx" ishape in
       let* () = push_node op [ vid; iid ] in
       return (vid, iid)
   | _ ->
@@ -451,7 +455,11 @@ let max_pool2d_with_indices ?name params x =
   match shapes with
   | [ vshape; ishape ] ->
       let* vid = new_edge ?name ~kind:"max_pool2d_with_indices" vshape in
-      let* iid = new_edge ~kind:"max_pool2d_with_indices_idx" ishape in
+      let* iid =
+        new_edge
+          ~fmt:Payload.(Fmt I64)
+          ~kind:"max_pool2d_with_indices_idx" ishape
+      in
       let* () = push_node op [ vid; iid ] in
       return (vid, iid)
   | _ ->

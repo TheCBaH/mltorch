@@ -103,10 +103,14 @@ let compare_all ?inputs g =
       (Err.return Tensor_id.Map.empty)
       k.Kernel.values
   in
-  let agree name other =
+  (* An int64 value is always stored, never virtual, so [value_at] has no
+     on-demand path for it: only float values are compared there. *)
+  let agree ?(skip = fun _ -> false) name other =
     ( name,
       Tensor_id.Map.for_all
         (fun id t ->
+          skip id
+          ||
           match Tensor_id.Map.find_opt id other with
           | None -> false
           | Some u -> Tensor.equal_bits t u)
@@ -114,7 +118,9 @@ let compare_all ?inputs g =
   in
   Err.return
     [
-      agree "value_at" recursive;
+      agree
+        ~skip:(fun id -> Option.is_some (Kernel.value_i64 k id))
+        "value_at" recursive;
       agree "ground" grounded;
       ( "direct",
         Tensor_id.Map.for_all

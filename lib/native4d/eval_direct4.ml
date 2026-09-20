@@ -225,8 +225,25 @@ let region_group_result ~limits ~region_counters (g : Graph.graph) ~op ~outs
     ~selected:(List.map (fun (output, _, _) -> output) outs)
   |> Err.map_error (fun error -> `Region_execution error)
 
-let eval_node ?region_counters ~limits ~synthetic_ids (g : Graph.graph) env
-    (node : Graph.node) =
+(* Edges something reads: a graph output or any node's operand. An index output
+   nothing reads is not worth allocating. *)
+let live_edges (g : Graph.graph) =
+  let add = List.fold_left (fun s id -> Tensor_id.Set.add id s) in
+  List.fold_left
+    (fun live (node : Graph.node) -> add live (Op.operands node.Graph.Node.op))
+    (add Tensor_id.Set.empty g.Graph.Graph.outputs)
+    g.Graph.Graph.nodes
+
+(* The second output of the argmax-style ops. *)
+let is_index_output (op : Op.t) output =
+  output = 1
+  &&
+  match op with
+  | Op.Adaptive_max_pool2d_with_indices _ | Op.Max_pool2d_with_indices _ -> true
+  | _ -> false
+
+let eval_node ?region_counters ~limits ~synthetic_ids ~live (g : Graph.graph)
+    env (node : Graph.node) =
   let open Err.Syntax in
   let op = node.Graph.Node.op in
   let fmt_of r = (Tensor_id.Map.find r g.Graph.Graph.tensors).Tensor_sig.fmt in
@@ -258,8 +275,12 @@ let eval_node ?region_counters ~limits ~synthetic_ids (g : Graph.graph) env
       (fun oid out_shape -> Err.return (oid, out_shape))
       node.Graph.Node.outputs shapes
   in
+  (* A dead index output is neither computed nor allocated: nothing reads it,
+     so [env] never needs it. *)
   let outs =
     List.mapi (fun output (oid, out_shape) -> (output, oid, out_shape)) pairs
+    |> List.filter (fun (output, oid, _) ->
+        not (is_index_output op output && not (Tensor_id.Set.mem oid live)))
   in
   (* See Eval_direct.eval_node's identical branch for the full rationale:
      a multi-output region-authored node (today, only [Lstm]) shares one
@@ -734,6 +755,30 @@ let eval_node ?region_counters ~limits ~synthetic_ids (g : Graph.graph) env
                 Err.fail
                   (`Unsupported_bool_scalar_arithmetic
                      { scalar_op = "addcmul"; fmt = fmt_of tensor2 })
+            (* The index output of [Max_pool2d_with_indices] and its adaptive
+               twin is declared I64 by [Builder]; see [Eval_direct]'s own arm
+               for why the conversion from the double-carried flat index is
+               exact. *)
+            | Op.Max_pool2d_with_indices { Pool.MaxPool2dWithIndices.params; x }
+              when output = 1 ->
+                let module C = Pool.MaxPool2dWithIndices.Compute (Direct) in
+                let x_shape = Tensor_id.Map.find x shape_env
+                and x = Tensor_id.Map.find x operand_env in
+                Err.return
+                  (Tensor.materialize_i64 (Shape4.to_vec6 out_shape)
+                     (fun coord ->
+                       Int64.of_float (C.index_pixel params ~x_shape ~x coord)))
+            | Op.Adaptive_max_pool2d_with_indices
+                { Pool.AdaptiveMaxPool2dWithIndices.params; x }
+              when output = 1 ->
+                let module C = Pool.AdaptiveMaxPool2dWithIndices.Compute (Direct)
+                in
+                let x_shape = Tensor_id.Map.find x shape_env
+                and x = Tensor_id.Map.find x operand_env in
+                Err.return
+                  (Tensor.materialize_i64 (Shape4.to_vec6 out_shape)
+                     (fun coord ->
+                       Int64.of_float (C.index_pixel params ~x_shape ~x coord)))
             | _ when Region_computation4.is_region_authored op ->
                 region_result ~limits
                   ~region_counters:
@@ -769,6 +814,7 @@ let run ?region_counters ?(limits = Kernel.Limits.default) ?(constants = [])
   in
   let* env = bind_constants g constants env0 in
   let synthetic_ids = fresh_synthetic_ids g in
+  let live = live_edges g in
   Err.List.fold_left
-    (eval_node ?region_counters ~limits ~synthetic_ids g)
+    (eval_node ?region_counters ~limits ~synthetic_ids ~live g)
     env g.Graph.Graph.nodes

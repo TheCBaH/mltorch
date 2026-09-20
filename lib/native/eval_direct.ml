@@ -138,6 +138,11 @@ let fresh_synthetic_ids g =
     ]
   |> fun (ids, _, _) -> ids
 
+(* An index-style output landed as exact int64 storage. *)
+let index_i64 out_shape ~x_shape ~x pixel =
+  Tensor.materialize_i64 out_shape (fun coord ->
+      Int64.of_float (pixel ~x_shape ~x coord))
+
 let region_result ~limits ~region_counters g ~op ~output ~out_shape ~operand_env
     ~synthetic_ids =
   let open Err.Syntax in
@@ -221,26 +226,54 @@ let region_group_result ~limits ~region_counters g ~op ~outs ~operand_env =
     ~selected:(List.map (fun (output, _, _) -> output) outs)
   |> Err.map_error (fun error -> `Region_execution error)
 
+(* Edges something reads: a graph output, or an operand of a node that is not a
+   [Discard] sink. An index output nothing reads is not worth allocating. *)
+let live_edges (g : graph) =
+  let add = List.fold_left (fun s id -> Tensor_id.Set.add id s) in
+  List.fold_left
+    (fun live (node : node) ->
+      match node.Node.op with
+      | Discard _ -> live
+      | op -> add live (Graph_ir.operands op))
+    (add Tensor_id.Set.empty g.Graph.outputs)
+    g.Graph.nodes
+
+(* The second output of the argmax-style ops. *)
+let is_index_output (op : op) output =
+  output = 1
+  &&
+  match op with
+  | Adaptive_max_pool2d_with_indices _ | Max_dim _ | Max_pool2d_with_indices _
+    ->
+      true
+  | _ -> false
+
 let rec run_graph ?hooks ?region_counters ?(limits = Kernel.Limits.default)
     ~constants (g : graph) (env : Tensor.packed Tensor_id.Map.t) :
     (Tensor.packed Tensor_id.Map.t, error) Err.t =
   let open Err.Syntax in
   let* env = bind_constants g constants env in
   let synthetic_ids = fresh_synthetic_ids g in
+  let live = live_edges g in
   Err.List.fold_left
     (fun env node ->
       match hooks with
-      | None -> eval_node ?region_counters ~limits ~synthetic_ids g env node
+      (* A [Discard] produces nothing, and the edge it sinks may be an
+         unallocated dead index output: there is nothing to look up. *)
+      | _ when match node.Node.op with Discard _ -> true | _ -> false ->
+          Err.return env
+      | None ->
+          eval_node ?region_counters ~limits ~synthetic_ids ~live g env node
       | Some (Hooks h) ->
           let state = h.on_start node in
           let* env =
-            eval_node ?region_counters ~limits ~synthetic_ids g env node
+            eval_node ?region_counters ~limits ~synthetic_ids ~live g env node
           in
           h.on_end node state;
           Err.return env)
     env g.Graph.nodes
 
-and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
+and eval_node ?region_counters ~limits ~synthetic_ids ~live (g : graph)
     (env : Tensor.packed Tensor_id.Map.t) (node : node) :
     (Tensor.packed Tensor_id.Map.t, error) Err.t =
   let open Err.Syntax in
@@ -279,8 +312,12 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
       (fun oid out_shape -> Err.return (oid, out_shape))
       node.Node.outputs shapes
   in
+  (* A dead index output is neither computed nor allocated: nothing reads it,
+     so [env] never needs it. *)
   let outs =
     List.mapi (fun output (oid, out_shape) -> (output, oid, out_shape)) pairs
+    |> List.filter (fun (output, oid, _) ->
+        not (is_index_output op output && not (Tensor_id.Set.mem oid live)))
   in
   (* A multi-output region-authored node (today, only [Lstm]) shares one
      recurrence across all its outputs (project step 19) instead of folding
@@ -867,6 +904,38 @@ and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
                 Err.fail
                   (`Unsupported_bool_scalar_arithmetic
                      { scalar_op = "addcmul"; fmt = fmt_of tensor2 })
+            (* The index output of [Max_pool2d_with_indices], its adaptive
+               twin and [Max_dim] is declared I64 by [Graph_builder] (ATen
+               returns int64 indices). [index_pixel] carries the flat index in
+               a double -- a small non-negative integer, so the conversion to
+               int64 is exact -- and only the landing storage changes, not the
+               tie or NaN policy. The value output falls through to the
+               generic F32 path. *)
+            | Max_pool2d_with_indices { Pool.MaxPool2dWithIndices.params; x }
+              when output = 1 ->
+                let module C = Pool.MaxPool2dWithIndices.Compute (Direct) in
+                Err.return
+                  (index_i64 out_shape
+                     ~x_shape:(Tensor_id.Map.find x shape_env)
+                     ~x:(Tensor_id.Map.find x operand_env)
+                     (C.index_pixel params))
+            | Adaptive_max_pool2d_with_indices
+                { Pool.AdaptiveMaxPool2dWithIndices.params; x }
+              when output = 1 ->
+                let module C = Pool.AdaptiveMaxPool2dWithIndices.Compute (Direct)
+                in
+                Err.return
+                  (index_i64 out_shape
+                     ~x_shape:(Tensor_id.Map.find x shape_env)
+                     ~x:(Tensor_id.Map.find x operand_env)
+                     (C.index_pixel params))
+            | Max_dim { Reduce.MaxDim.params; x } when output = 1 ->
+                let module C = Reduce.MaxDim.Compute (Direct) in
+                Err.return
+                  (index_i64 out_shape
+                     ~x_shape:(Tensor_id.Map.find x shape_env)
+                     ~x:(Tensor_id.Map.find x operand_env)
+                     (C.index_pixel params))
             | _ when Region_computation.is_region_authored op ->
                 region_result ~limits
                   ~region_counters:

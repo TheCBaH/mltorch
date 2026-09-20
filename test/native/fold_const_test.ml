@@ -362,7 +362,7 @@ let%expect_test "fold_const: a multi-output node is out of scope" =
       graph
       inputs: [t0 f32 [H=4 W=4 C=2] ->[n0] constant]
       nodes:
-        n0: [t1 f32 [H=2 W=2 C=2] ->[n2], t2 f32 [H=2 W=2 C=2] ->[n1]] =
+        n0: [t1 f32 [H=2 W=2 C=2] ->[n2], t2 i64 [H=2 W=2 C=2] ->[n1]] =
           max_pool2d_with_indices
             x=t0
             params={kernel={h=2; w=2};

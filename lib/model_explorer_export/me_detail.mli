@@ -50,6 +50,10 @@ val of_value :
     Boolean terms, index terms, coordinates, and Region locals, is measured
     before allocating graph nodes and checked against [max_detail_nodes]. *)
 
+val display_of_i64_stage : Stage_program.Stage_i64.t -> Kernel.Value.t
+(** A display-only [Kernel.Value.t] for an int64 stage (its pixel under
+    [i64_to_float]), so an operator with an int64 output can be rendered. *)
+
 val of_operator :
   limits:Me_limits.Limits.t ->
   key:Me_request.Detail_key.t ->

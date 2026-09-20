@@ -12,6 +12,26 @@ let pp_error fmt : [< error ] -> unit = function
 
 let over_limit = Me_limits.check ~scope:Me_limits.Scope.Value_graph
 
+(* What a value node renders: a float value's whole program, or an int64
+   stage's pixel (an int64 value has no [Region_program.t]). *)
+type body = Float_body of Region_program.t | I64_body of int64 Expr.Value.t
+
+let body_sources = function
+  | Float_body p -> Region_program.Fold.sources p
+  | I64_body e -> Expr.Fold.sources_i64 e
+
+let body_size = function
+  | Float_body p -> Region_program.Fold.size p
+  | I64_body e -> Expr.Fold.size_i64 e
+
+let body_depth = function
+  | Float_body p -> Region_program.Fold.max_depth p
+  | I64_body e -> Expr.Fold.depth_i64 e
+
+let pp_body fmt = function
+  | Float_body p -> Region_program.pp fmt p
+  | I64_body e -> Expr.Pp.value_i64 fmt e
+
 let attr key value =
   ME.NodeAttribute.create ~key ~value:(ME.NodeAttributeValue.Str value)
 
@@ -85,7 +105,7 @@ let build ~limits ~id ~inputs ~outputs ~values =
               ME.IncomingEdge.create ~sourceNodeId:from ~sourceNodeOutputId:"0"
                 ~targetNodeInputId:(Core.Pretty.to_string Expr.Source.pp src)
                 ())
-            (Expr.Source.Set.elements (Region_program.Fold.sources program))
+            (Expr.Source.Set.elements (body_sources program))
         in
         (* The WHOLE program, stopped at the cap rather than built whole and
            cut: an expression tree is exactly the value where those two
@@ -93,8 +113,8 @@ let build ~limits ~id ~inputs ~outputs ~values =
            dangling [?#N] the way [Expr.Pp.value] on the emitter alone would
            for a program the emitter references locals into. *)
         let text, capped =
-          Me_build.bounded ~max:limits.Me_limits.Limits.max_attr_chars
-            Region_program.pp program
+          Me_build.bounded ~max:limits.Me_limits.Limits.max_attr_chars pp_body
+            program
         in
         ME.GraphNode.create ~id:(Me_ids.value_node vid) ~label ~namespace
           ~incomingEdges:incoming
@@ -105,9 +125,8 @@ let build ~limits ~id ~inputs ~outputs ~values =
             ]
           ~attrs:
             ([
-               attr "size" (string_of_int (Region_program.Fold.size program));
-               attr "depth"
-                 (string_of_int (Region_program.Fold.max_depth program));
+               attr "size" (string_of_int (body_size program));
+               attr "depth" (string_of_int (body_depth program));
                attr "body" text;
              ]
             @ (if capped then [ attr "body_truncated" "true" ] else [])
@@ -209,12 +228,31 @@ let stage_program ~limits ~id ~origin (p : Stage_program.t) =
            ( s.Stage_program.Stage.id,
              "stage",
              s.Stage_program.Stage.sg,
-             project_exn s.Stage_program.Stage.computation,
+             Float_body (project_exn s.Stage_program.Stage.computation),
              (match origin s.Stage_program.Stage.id with
              | None -> ""
              | Some (origin : Origin.t) -> origin.namespace),
              origin_attrs ))
-         p.Stage_program.stages)
+         p.Stage_program.stages
+      @ List.map
+          (fun (s : Stage_program.Stage_i64.t) ->
+            ( s.Stage_program.Stage_i64.id,
+              "stage_i64",
+              s.Stage_program.Stage_i64.sg,
+              I64_body s.Stage_program.Stage_i64.pixel,
+              (match origin s.Stage_program.Stage_i64.id with
+              | None -> ""
+              | Some (origin : Origin.t) -> origin.namespace),
+              match origin s.Stage_program.Stage_i64.id with
+              | None -> []
+              | Some (origin : Origin.t) ->
+                  [
+                    attr "canonical_native_node"
+                      (Core.Pretty.to_string Graph_ir.Node_id.pp origin.node);
+                    attr "canonical_output_slot"
+                      (string_of_int origin.output_slot);
+                  ] ))
+          p.Stage_program.stages_i64)
     ~outputs:
       (List.filter_map
          (fun vid ->
@@ -261,10 +299,32 @@ let kernel ~limits ~id ?origin (k : Kernel.t) =
            ( v.Kernel.Value.id,
              Kernel.Result_conversion.name v.Kernel.Value.result,
              v.Kernel.Value.sg,
-             project_exn v.Kernel.Value.computation,
+             Float_body (project_exn v.Kernel.Value.computation),
              namespace,
              origin_attrs ))
-         k.Kernel.values)
+         k.Kernel.values
+      @ List.map
+          (fun (v : Kernel.Value_i64.t) ->
+            let origin =
+              Option.bind origin (fun origin -> origin v.Kernel.Value_i64.id)
+            in
+            ( v.Kernel.Value_i64.id,
+              "i64",
+              v.Kernel.Value_i64.sg,
+              I64_body v.Kernel.Value_i64.pixel,
+              (match origin with
+              | None -> ""
+              | Some (origin : Origin.t) -> origin.namespace),
+              match origin with
+              | None -> []
+              | Some (origin : Origin.t) ->
+                  [
+                    attr "canonical_native_node"
+                      (Core.Pretty.to_string Graph_ir.Node_id.pp origin.node);
+                    attr "canonical_output_slot"
+                      (string_of_int origin.output_slot);
+                  ] ))
+          k.Kernel.values_i64)
     ~outputs:
       (List.map
          (fun (o : Kernel.Output.t) ->

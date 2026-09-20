@@ -32,7 +32,7 @@ let%expect_test "max.dim discards a dead index" =
     inputs: [t0 f32 [W=2 C=3] ->[n0]]
     nodes:
       group g1 torch.ops.aten.max.dim:
-        n0: [t1 f32 [C=2], t2 f32 [C=2] ->[n1]] =
+        n0: [t1 f32 [C=2], t2 i64 [C=2] ->[n1]] =
           max_dim x=t0 params={axis=C; keepdim=false}
         n1: [] = discard x=t2 <-n0
     outputs: [t1 f32 [C=2] <-n0] |}]
@@ -52,9 +52,9 @@ let%expect_test "max.dim retains a live index" =
     inputs: [t0 f32 [W=2 C=3] ->[n0]]
     nodes:
       group g1 torch.ops.aten.max.dim:
-        n0: [t1 f32 [C=2], t2 f32 [C=2]] =
+        n0: [t1 f32 [C=2], t2 i64 [C=2]] =
           max_dim x=t0 params={axis=C; keepdim=false}
-    outputs: [t1 f32 [C=2] <-n0, t2 f32 [C=2] <-n0] |}]
+    outputs: [t1 f32 [C=2] <-n0, t2 i64 [C=2] <-n0] |}]
 
 let%expect_test "max.dim keepdim=true collapses the axis in place" =
   dump "keepdim:"
@@ -69,6 +69,6 @@ let%expect_test "max.dim keepdim=true collapses the axis in place" =
     inputs: [t0 f32 [W=2 C=3] ->[n0]]
     nodes:
       group g1 torch.ops.aten.max.dim:
-        n0: [t1 f32 [W=2 C=1], t2 f32 [W=2 C=1]] =
+        n0: [t1 f32 [W=2 C=1], t2 i64 [W=2 C=1]] =
           max_dim x=t0 params={axis=C; keepdim=true}
-    outputs: [t1 f32 [W=2 C=1] <-n0, t2 f32 [W=2 C=1] <-n0] |}]
+    outputs: [t1 f32 [W=2 C=1] <-n0, t2 i64 [W=2 C=1] <-n0] |}]

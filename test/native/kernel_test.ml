@@ -504,12 +504,11 @@ let%expect_test "Kernel_adapt: multi_output promotes its discarded terminal" =
   [%expect
     {|
     program outputs: t3
-    required:        t3,t2
+    required:        t3
     input t0 : caller
     t1 = round_f32(max_pool2d_value(t0; k=2x2 s=2x2 p=0x0; out=[N,T,D,H,W,C]))
-    t2 = round_f32(max_pool2d_index(t0; k=2x2 s=2x2 p=0x0; out=[N,T,D,H,W,C]))
     t3 = round_f32(select((t1[N,T,D,H,W,C] < 0), 0, t1[N,T,D,H,W,C]))
-    outputs: t3, t2 |}]
+    outputs: t3 |}]
 
 let%expect_test "Kernel_adapt: a pass-through graph output is rejected" =
   (* An input used directly as a graph output is legal today
@@ -624,13 +623,12 @@ let%expect_test
     (adapt ~select:sel ~outputs:[] p);
   [%expect
     {|
-    stages: t1,t2,t3
+    stages: t1,t2
 
     intrinsic consumers selected:
     input t1 : caller
     t2 = round_f32(max_pool2d_value(t1; k=2x2 s=2x2 p=0x0; out=[N,T,D,H,W,C]))
-    t3 = round_f32(max_pool2d_index(t1; k=2x2 s=2x2 p=0x0; out=[N,T,D,H,W,C]))
-    outputs: t2, t3
+    outputs: t2
     producer selected, required: t1
     with no outputs: outputs must begin with the required list; expected t1 next |}]
 

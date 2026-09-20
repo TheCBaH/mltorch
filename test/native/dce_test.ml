@@ -84,7 +84,7 @@ let%expect_test "dce: a Discard sink is removed, its op left live" =
       graph
       inputs: [t0 f32 [H=4 W=4 C=3] ->[n0]]
       nodes:
-        n0: [t1 f32 [H=2 W=2 C=3], t2 f32 [H=2 W=2 C=3]] =
+        n0: [t1 f32 [H=2 W=2 C=3], t2 i64 [H=2 W=2 C=3]] =
           max_pool2d_with_indices
             x=t0
             params={kernel={h=2; w=2};

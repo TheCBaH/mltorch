@@ -110,3 +110,56 @@ let%expect_test "the matching kernel value preserves its canonical origin" =
     (Option.get (attr "canonical_native_node"))
     (Option.get (attr "canonical_output_slot"));
   [%expect {| n0 output 0 |}]
+
+(* An int64 stage (here [To_copy(Long)]) is a value node too. Without one, the
+   float stage that reads it names a source with no producer and the whole
+   export fails -- a regression the ~100-model support sweep caught in
+   mvitv2_tiny and volo_d1_224. *)
+let long_chain =
+  Err.or_raise ~pp_error:Graph_builder.pp_error
+    Graph_builder.(
+      build ~name:"long_chain" ~outputs:(fun output -> [ output ])
+      @@
+      let* x = input ~shape ~name:"x" () in
+      let* l = to_copy Pointwise.To_copy.Long x in
+      to_copy Pointwise.To_copy.Float l)
+
+let body_of (n : ME.GraphNode.t) =
+  List.find_map
+    (fun (a : ME.NodeAttribute.t) ->
+      match (a.ME.NodeAttribute.key, a.ME.NodeAttribute.value) with
+      | "body", ME.NodeAttributeValue.Str s -> Some s
+      | _ -> None)
+    (Option.value ~default:[] n.ME.GraphNode.attrs)
+
+let%expect_test "an int64 stage is exported as a value node, on both graphs" =
+  let program = Eval_symbolic.run long_chain in
+  Fmt.pr "stages: %d, stages_i64: %d@."
+    (List.length program.Stage_program.stages)
+    (List.length program.Stage_program.stages_i64);
+  let stage_graph =
+    Err.or_raise ~pp_error:Me_kernel.pp_error
+      (Me_kernel.stage_program ~limits ~id:"s" ~origin:(fun _ -> None) program)
+  in
+  let kernel =
+    Err.or_raise ~pp_error:Kernel_adapt.pp_error
+      (Kernel_adapt.of_stage_program program)
+  in
+  let kernel_graph =
+    Err.or_raise ~pp_error:Me_kernel.pp_error
+      (Me_kernel.kernel ~limits ~id:"k" kernel)
+  in
+  let bodies g = List.filter_map body_of g.ME.Graph.nodes in
+  Fmt.pr "stage bodies: %a@."
+    Fmt.(list ~sep:(any " | ") string)
+    (bodies stage_graph);
+  Fmt.pr "kernel bodies: %a@."
+    Fmt.(list ~sep:(any " | ") string)
+    (bodies kernel_graph);
+  [%expect
+    {|
+    stages: 1, stages_i64: 1
+    stage bodies: region [N=singleton T=singleton D=singleton H=singleton W=singleton C=singleton]
+      emit i64_to_float(t1[N,T,D,H,W,C]) | float_to_i64(t0[N,T,D,H,W,C])
+    kernel bodies: region [N=singleton T=singleton D=singleton H=singleton W=singleton C=singleton]
+      emit i64_to_float(t1[N,T,D,H,W,C]) | float_to_i64(t0[N,T,D,H,W,C]) |}]
