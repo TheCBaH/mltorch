@@ -166,7 +166,9 @@ let index_tensor4_case () =
        let* index =
          input ~shape:index_shape ~fmt:(Payload.Fmt Payload.I64) ()
        in
-       index_tensor4 { Ops4.IndexTensor4.axis = Axis4.W } ~self ~index)
+       index_tensor4
+         { Ops4.IndexTensor4.axis = Axis4.W; index_rank = 1 }
+         ~self ~index)
   in
   let self_id, index_id =
     match g.Graph.Graph.inputs with

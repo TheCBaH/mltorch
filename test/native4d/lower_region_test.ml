@@ -126,12 +126,14 @@ let%expect_test "reshape then permute, in-domain result" =
     ~tail:No_tail;
   [%expect {| relayout: 1 outputs, 2 nodes, identical=true |}]
 
-(* Refusals: nothing is silently rewritten into a wrong graph. *)
-let%expect_test "refused: the split does not align with any source axis" =
+(* No region: the split does not align with any source axis, so the fused-axes
+   relabel lowers it instead. *)
+let%expect_test "misaligned split, lowered by the relabel" =
   compare "misaligned" ~x_shape:(s 1 1 1 1 15 8) ~tgt:(s 1 1 5 3 2 4) ~perm:qkv
     ~tail:(Unbind T);
-  [%expect {| misaligned: node n1: axis T is outside the N/H/W/C dialect |}]
+  [%expect {| misaligned: 3 outputs, 5 nodes, identical=true |}]
 
+(* Refusals: nothing is silently rewritten into a wrong graph. *)
 let%expect_test "refused: a real batch on T as well as tokens on D" =
   compare "batch and tokens" ~x_shape:(s 1 1 1 2 5 24) ~tgt:(s 1 2 5 3 2 4)
     ~perm:[ (T, H); (D, T); (H, W); (W, D) ]

@@ -336,9 +336,17 @@ let check_node view (n : node) =
      get: the GATHERED axis is the one the dialect must be able to name. Not
      load-bearing the same way [Select_scatter]'s is not: the output is
      [self_shape] with that one axis's extent changed (no drop, no repack),
-     so there is no separate shape-consequence rejection to demonstrate. *)
+     so there is no separate shape-consequence rejection to demonstrate.
+     A rank-M index also writes its own axes over the window of [index_rank]
+     axes ending at the gathered one, so every axis of that window must be
+     nameable too; a window that does not fit is left to the shape rule. *)
   | Index_tensor { Index_tensor.Index_tensor.params; _ } ->
-      check_dims node [ params.Index_tensor.Index_tensor.axis ]
+      let { Index_tensor.Index_tensor.axis; index_rank } = params in
+      let window =
+        Option.value ~default:[]
+          (Index_tensor.Index_tensor.window ~axis ~index_rank)
+      in
+      check_dims node (axis :: window)
   (* The axis is checked HERE, on the Native [Axis.t], and converted to
      [Axis4.t] only in the lowerer. That ordering is what lets the diagnostic
      name the rejected axis: converting first would leave nothing to report but

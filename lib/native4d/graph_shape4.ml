@@ -172,13 +172,13 @@ let repeat_interleave_params (p : Ops4.RepeatInterleave4.params) :
 
 (* Shared with [Eval_op4], which needs the same translation for the same op:
    one adapter, so the shape rule and the compute cannot disagree about which
-   axis is gathered. [index_rank] is always 1 here -- [Lower_engine] only
-   ever builds an [IndexTensor4] node from a rank-1 Native [Index_tensor]
-   (see its own comment), so [IndexTensor4.params] carries no [index_rank]
-   field of its own to translate. *)
+   axis is gathered. *)
 let index_tensor_params (p : Ops4.IndexTensor4.params) :
     Index_tensor.Index_tensor.params =
-  { axis = Axis4.to_axis p.Ops4.IndexTensor4.axis; index_rank = 1 }
+  {
+    axis = Axis4.to_axis p.Ops4.IndexTensor4.axis;
+    index_rank = p.Ops4.IndexTensor4.index_rank;
+  }
 
 (* Shared with [Eval_op4], which needs the same translation for the same op:
    one adapter, so the shape rule and the compute cannot disagree about which

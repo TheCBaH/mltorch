@@ -180,7 +180,11 @@ let samples : Op.t list =
        two distinct operands, so an encoder that dropped the axis or
        confused [self]/[index] still prints differently. *)
     IndexTensor4
-      { Ops4.IndexTensor4.params = { axis = N }; self = x; index = y };
+      {
+        Ops4.IndexTensor4.params = { axis = N; index_rank = 1 };
+        self = x;
+        index = y;
+      };
     Im2col { Im2col.Im2col.params = im2col_params; x };
     Layer_norm
       {
@@ -460,7 +464,7 @@ let%expect_test "op4: printed" =
     hardsigmoid x=t0
     hardswish x=t0
     hardtanh x=t0 params={min_val=0; max_val=6}
-    index_tensor4 self=t0 index=t1 params={axis=N}
+    index_tensor4 self=t0 index=t1 params={axis=N index_rank=1}
     im2col
       x=t0
       params={h={kernel=2; dilation=1; pad=0; stride=1}; w={kernel=2; dilation=1; pad=0; stride=1}}

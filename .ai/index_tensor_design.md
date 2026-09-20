@@ -289,12 +289,14 @@ JSON-decoded graph pairing a rank claim with a mismatched tensor, since
 `index_rank` is no longer inferable from extents alone the way the
 rank-1-only version could approximate it.
 
-`Native4D`'s own `IndexTensor4` keeps its ORIGINAL single-axis shape
-invariant unconditionally: `Lower_engine`'s conversion arm rejects
-(`` `Unsupported_op ``) whenever `index_rank <> 1`, since a rank-M index
-can need `T`/`D` even when `self` doesn't — unevidenced in any corpus
-model that also needs Native4D conversion, so left unhandled rather than
-re-derived. `Ops4.IndexTensor4.params` is untouched (still just `axis`).
+`Native4D`'s `IndexTensor4` (2026-09-20) carries `index_rank` too and delegates
+shape and compute to the Native rule. A rank-M index writes its axes on the
+window of `index_rank` axes ending at `axis`, which can reach `T`/`D` even when
+`self` does not, so `Domain` checks every axis of that window, not just `axis`
+(`Index_tensor.window`); a window that does not fit is left to the shape rule's
+`Rank_overflow`. This is what lets `mvitv2_tiny`'s rank-2 relative-position
+gather (`self` `[W=111 C=96]`, index `[W=56 C=14]`, output `[H=56 W=14 C=96]`)
+convert, with no flatten/gather/reshape legalization.
 
 ### Const-SSA (chained frontier)
 

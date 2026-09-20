@@ -552,21 +552,33 @@ introduces a size-2 axis on `D`, a softmax and weighted sum consume it) convert
 by reading `D` as `N` inside the closed group of ops that touches the axis
 (`Lower_relabel`, same design record); Native4D is then at 89 of 100.
 
-What remains outside Native4D (11 of 100) and why, so it is not rediscovered:
+Four more rows move (`native4d_converts:true`, 92 of 100): `volo_d1_224` (outlook
+attention: heads on `D` read as `N`, plus a `Max_dim4` op for its `max_dim`),
+`mobilevitv2_175` (a reshape, clone, permute, reshape run over five non-unit axes,
+planned by `Wide_permute`) and `edgenext_xx_small` (the sin/cos `stack` on `C` read
+back by a `reshape`, lowered as reshapes and a `Concat4`). `Lower_relabel` now
+fuses `N*T*D` into `N` for any group carrying `T` or `D` (`Conv2d` joins its op
+set, and a permute that moves `T` or `D` becomes a chain of Native reshape and
+permute nodes), which clears the relative-position bias of `mvitv2_tiny`; that
+model does not flip because it then meets a rank-2 `index_tensor`.
+
+Four more rows move (96 of 100): `hiera_tiny_224`, `sam2_hiera_tiny` and
+`maxxvitv2_nano_rw_256` (windowed attention: the window batch on `T` and `D`, the
+heads on `H`, all four read as `Sdpa` batch axes once `N*T*D` is fused; `Sdpa`,
+`Linear`, the pools, `Split_with_sizes` and `Unbind` join the relabel's op set, and
+a reduction that re-packs its survivors becomes a keep-dims reduction and a
+reshape) and `csatv2`, which the same ops clear.
+
+`IndexTensor4` now carries `index_rank`, so `mvitv2_tiny`'s rank-2 relative-position
+gather (20 nodes) lowers directly; `mvitv2_tiny` flips (`native4d_converts:true`,
+97 of 100). `Domain` requires every axis of the `index_rank` window ending at the
+gathered axis to be N/H/W/C, and the compute and shape rule are Native's own.
+
+What remains outside Native4D (3 of 100) and why, so it is not rediscovered:
 - `eca_halonext26ts`: `unfold` adds a window axis, so it is inherently outside a
   four-axis frame. Documented, not a gap to close.
-- Window partition and merge (`hiera_tiny_224`, `sam2_hiera_tiny`,
-  `maxxvitv2_nano_rw_256`, `mobilevitv2_175`): a 5-D `reshape`, `clone`,
-  `permute`, `reshape` chain. Its boundary tensors are four-axis, but the
-  permutation spans five non-unit axes, and (except `mobilevitv2_175`) the window
-  batch lands on `D` and feeds `Sdpa`, which admits only `D = 1`.
-- Heads or batch on `D` (`bat_resnext26ts`, `lambda_resnet26t`, `volo_d1_224`,
-  `csatv2`, `mvitv2_tiny`): a `permute` puts a real extent on `D`, and later ops
-  (`batched_matmul`, `expand`, `add`) read it. Groups closed around such a value
-  can be relabelled onto `N`; these need a wider op set in `Lower_relabel`, and
-  some also a fused `T`/`D` batch or ops that do not exist in Native4D
-  (`max_dim`, `conv3d`).
-- A non-unit-`D` `Sdpa` (rank-5 windowed attention) stays out: its batch axis is `D` only.
+- `lambda_resnet26t`: `conv3d` with a real `D = 8`.
+- `bat_resnext26ts`: 5-axis `T=16 D=8` unbind and concat chains.
 
 - `PT2_MODELS_NATIVE_VERIFY` (Makefile) wires `mobilenetv2_050`,
   `regnetx_002`, `efficientnet_b0` and `test_convnext2` into

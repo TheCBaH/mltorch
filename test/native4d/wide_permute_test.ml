@@ -87,30 +87,70 @@ let%expect_test "six non-unit axes" =
   [%expect {| reversal: 1 outputs, 5 nodes, identical=true |}]
 
 (* Two reshapes cut different axes, so the source splits into eight atoms
-   that stay apart: more blocks than the planner takes. *)
-let%expect_test "refused: more blocks than the planner takes" =
-  let reverse = [ (N, C); (T, W); (D, H); (H, D); (W, T); (C, N) ] in
-  check "eight atoms"
-    ~x_shape:(s 1 1 1 10 14 15 |> fun _ -> s 6 1 1 10 14 15)
-    [
-      Reshape (s 2 3 10 2 7 15);
-      Permute reverse;
-      Reshape (s 3 5 14 2 5 6);
-      Permute reverse;
-      Reshape (s 6 1 1 10 14 15);
-    ];
-  [%expect {| eight atoms: node n1: axis T is outside the N/H/W/C dialect |}]
+   that stay apart: more blocks than the planner takes. The run as a whole is
+   refused; the fused-axes relabelling then plans each permute on its own and
+   still lowers it. *)
+let reverse6 = [ (N, C); (T, W); (D, H); (H, D); (W, T); (C, N) ]
 
-(* A cut that falls inside an atom: [H=6 W=4] cannot be read as (4, 6) without
-   splitting the 6, which no reshape in the run did. *)
-let%expect_test "refused: a cut inside an atom" =
-  check "misaligned" ~x_shape:(s 1 1 1 1 6 4)
+let eight_atoms =
+  [
+    Reshape (s 2 3 10 2 7 15);
+    Permute reverse6;
+    Reshape (s 3 5 14 2 5 6);
+    Permute reverse6;
+    Reshape (s 6 1 1 10 14 15);
+  ]
+
+let%expect_test "more blocks than the planner takes" =
+  let plan_of = function
+    | Reshape shape -> Wide_permute.Reshape shape
+    | Clone -> Wide_permute.Clone
+    | Permute perm -> Wide_permute.Permute (perm_of perm)
+  in
+  Fmt.pr "planner: %s@."
+    (match
+       Wide_permute.plan
+         ~x:(Shape4.of_ints ~n:6 ~h:10 ~w:14 ~c:15)
+         ~y:(Shape4.of_ints ~n:6 ~h:10 ~w:14 ~c:15)
+         (List.map plan_of eight_atoms)
+     with
+    | None -> "refused"
+    | Some steps -> Fmt.str "%d steps" (List.length steps));
+  check "eight atoms" ~x_shape:(s 6 1 1 10 14 15) eight_atoms;
+  [%expect
+    {|
+    planner: refused
+    eight atoms: 1 outputs, 13 nodes, identical=true |}]
+
+(* A cut that falls inside an atom: [W=6 C=4] cannot be read as (T=4, W=6)
+   without splitting the 6, which no reshape in the run did. *)
+let%expect_test "a cut inside an atom" =
+  let ops =
     [
       Reshape (s 1 4 1 1 6 1);
       Permute [ (T, W); (W, T) ];
       Reshape (s 1 1 1 1 6 4);
-    ];
-  [%expect {| misaligned: node n1: axis T is outside the N/H/W/C dialect |}]
+    ]
+  in
+  Fmt.pr "planner: %s@."
+    (match
+       Wide_permute.plan
+         ~x:(Shape4.of_ints ~n:1 ~h:1 ~w:6 ~c:4)
+         ~y:(Shape4.of_ints ~n:1 ~h:1 ~w:6 ~c:4)
+         (List.map
+            (function
+              | Reshape shape -> Wide_permute.Reshape shape
+              | Clone -> Wide_permute.Clone
+              | Permute perm -> Wide_permute.Permute (perm_of perm))
+            ops)
+     with
+    | None -> "refused"
+    | Some steps -> Fmt.str "%d steps" (List.length steps));
+  check "misaligned" ~x_shape:(s 1 1 1 1 6 4) ops;
+  [%expect
+    {|
+    planner: refused
+    misaligned: 1 outputs, 5 nodes, identical=true |}]
 
 (* Nothing outside the domain: the ordinary path lowers each node itself. *)
 let%expect_test "an all-in-domain run is left alone" =

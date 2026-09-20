@@ -501,6 +501,17 @@ let%expect_test "domain: index_tensor gates its named axis" =
     index_tensor W               in the dialect
     index_tensor D               node n0: axis D is outside the N/H/W/C dialect |}]
 
+let%expect_test "domain: index_tensor gates its whole window" =
+  table
+    [
+      ("index_tensor rank-2 W", Fixtures.index_tensor_rank2_w);
+      ("index_tensor rank-2 H", Fixtures.index_tensor_rank2_h);
+    ];
+  [%expect
+    {|
+    index_tensor rank-2 W        in the dialect
+    index_tensor rank-2 H        node n0: axis D is outside the N/H/W/C dialect |}]
+
 let%expect_test "domain: split_with_sizes's axis rule" =
   table
     [

@@ -411,8 +411,12 @@ let find_wide view ~taken =
         if (not (is_f32 x_sig)) || List.for_all in_domain interior then None
         else
           let* steps =
-            Wide_permute.plan ~x:x4 ~y:y4
-              (List.filter_map (fun n -> Option.map fst (chain_op n)) chain)
+            match
+              Wide_permute.plan ~x:x4 ~y:y4
+                (List.filter_map (fun n -> Option.map fst (chain_op n)) chain)
+            with
+            | Some (_ :: _ as steps) -> Some steps
+            | Some [] | None -> None
           in
           List.iter
             (fun (n : node) -> claimed := Node_id.Set.add n.Node.id !claimed)

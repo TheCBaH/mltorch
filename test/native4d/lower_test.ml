@@ -846,7 +846,7 @@ let%expect_test "lower: index_tensor4 gathers self's named axis by index" =
     inputs: [t0 [W=3 C=2],
     t1 [C=2]]
     nodes:
-      n0: [t2] = index_tensor4 self=t0 index=t1 params={axis=W}
+      n0: [t2] = index_tensor4 self=t0 index=t1 params={axis=W index_rank=1}
     outputs: [t2 [W=2 C=2]] |}]
 
 (* [Unbind]'s rank-preserving sibling: every window KEEPS the axis, in order,

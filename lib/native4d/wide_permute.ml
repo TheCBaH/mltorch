@@ -237,9 +237,9 @@ let steps_of ~sizes ~x ~y path =
   reshape_to y;
   List.rev !out
 
-let plan ~x ~y ops =
+let plan ?source ~x ~y ops =
   try
-    let x6 = Shape4.to_vec6 x in
+    let x6 = Option.value source ~default:(Shape4.to_vec6 x) in
     let st = { next = 0; extents = []; base = []; groups = [] } in
     List.iter
       (fun axis ->
@@ -263,6 +263,5 @@ let plan ~x ~y ops =
     let start = List.init (List.length sizes) Fun.id in
     match search ~start ~goal:order with
     | None -> None
-    | Some path -> (
-        match steps_of ~sizes ~x ~y path with [] -> None | steps -> Some steps)
+    | Some path -> Some (steps_of ~sizes ~x ~y path)
   with Abort -> None

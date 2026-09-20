@@ -474,38 +474,60 @@ reported only where its result fits the frame, so the ordinary path still names
 the blocker for anything else. A real batch on `T` next to tokens on `D`, or a
 split that aligns with no source axis, stays out of domain.
 
-A second kind, `Lower_relabel`, handles values whose extent sits on `D` (with `N` and
-`T` unit) when the group they form is closed: every producer and reader of such a
-value is in the group, none is a graph input or output, and each member is one of
-the ops below. `D` and `N` are separated only by the unit `T`, so reading `D` as
-`N` keeps every tensor's flat layout, and these ops mean the same on either name:
+A second kind, `Lower_relabel`, handles values that carry an extent on `T` or `D`
+when the group they form is closed: every producer and reader of such a value is
+in the group, none is a graph input or output, none is owned by a region, and
+each member is one of the ops below. `N`, `T` and `D` are adjacent in the frame's
+order, so fusing them into `N` (`N*T*D`) keeps every tensor's flat layout; for a
+tensor whose only such axis is `D` that is reading `D` as `N`. The ops mean the
+same on the fused axis:
 
-- passed through unchanged: `Add`, `Add_scalar`, `Batched_matmul`, `Clone`, `Div`,
-  `Div_scalar`, `Gelu`, `Mul`, `Mul_scalar`, `Relu`, `Sigmoid`, `Silu`, `Sub`
-  (`Batched_matmul` batches on N/T/D/H alike, and a group whose operands would
-  carry N and D at once fails the frame check first);
-- `Reshape` and `Expand`: the target is relabelled when it is a group tensor;
-- `Softmax`, and `Amax`/`Mean`/`Sum` with `D` read as `N` in the axis list.
-  A reduction is refused when it names `N` or `T`, or when `keepdim` is false and
-  `D` is not among the reduced axes: the survivors re-pack inward, which moves
-  the extent on `D` to an axis the relabelled tensor's does not follow;
-- `Permute`, conjugated by the transposition (N D) on the sides that were
-  relabelled (`perm' = s_in . perm . s_out`, each `s` the transposition or the
-  identity by whether that operand or result is a group tensor), so a permute
-  that introduces or removes the extent is handled too;
-- `Stack(D)`, which becomes `Concat(N)`.
+- passed through unchanged: `Add`, `Add_scalar`, `Avg_pool2d`, `Batched_matmul`,
+  `Clone`, `Conv2d` and `Linear` (Native treats `N`, `T` and `D` alike as batch),
+  `Div`, `Div_scalar`, `Gelu`, `Max_pool2d`, `Mul`, `Mul_scalar`, `Relu`, `Sdpa`
+  (its batch axes are `N`, `T`, `D` and `H`, and a mask is per head, so the window
+  batch on `T` and `D` of a windowed attention fuses into `N`), `Sigmoid`, `Silu`,
+  `Sub`. Broadcasting acts
+  on `N`, `T` and `D` one by one but on the fusion only on all three at once; an
+  operand whose triple differs from the result's without being unit throughout
+  fails the shape validation below, which is what refuses it;
+- `Reshape` and `Expand`: the target is fused;
+- `Softmax`, and `Amax`/`Mean`/`Sum`, over `H`/`W`/`C`; a reduction or softmax that
+  names `D` needs a `D`-only tensor (where it is read as `N`). A reduction over
+  `H`/`W`/`C` with `keepdim` false re-packs the survivors inward, which moves the
+  fused extent to an axis the fused tensor's does not follow, so it becomes the
+  reduction with `keepdim` true followed by a reshape to the packed result;
+- `Split_with_sizes` along `H`/`W`/`C` (or `D` of a `D`-only tensor, read as `N`);
+- `Unbind`, which drops its axis: along `N` (or `T` under a unit `N`, or `D` under
+  unit `N` and `T`) the outputs are contiguous runs of the fused axis, so it is a
+  `Split_with_sizes` on `N`; along `H`/`W`/`C` the survivors shift inward, so each
+  output is a unit slice of the fused tensor reshaped to the packed result;
+- `Permute`: on `D`-only or in-frame tensors it is conjugated by the transposition
+  (`N D`) on the sides that were relabelled (`perm' = s_in . perm . s_out`, each `s`
+  the transposition or the identity by whether that operand or result is a group
+  tensor). Any other permute is a data movement of the flat layout, planned by
+  `Wide_permute` from the source's own six-axis shape to the fused shapes and
+  emitted as a chain of Native reshape and permute nodes, the last keeping the
+  node's id (a chain that moves nothing is a `Clone`);
+- `Stack(D)`, which becomes `Concat(N)`, when its result is `D`-only.
 
 The rewrite is Native to Native: the group's internal tensors get fresh ids and
 `N`-based shapes, and the ordinary lowering runs on the result. The internal source
-tensors are deleted, the fresh ones created, every boundary tensor keeps its id
-(claim `Identical`), and the group is one node cluster. The summation order is
-unchanged because `Sum4` runs the same compute over the same axis, which the tests
-check on inexact values. This is what the split-attention blocks of ResNeSt and
-SK-Net need (`resnest14d`, `skresnet18`) and the outlook attention of VOLO. It is a
-local relabelling, not a widening of the dialect: a group that leaves the graph
-with an extent on `D`, or meets any other op (`Sdpa`, a convolution), is refused as
-before, and a relabelled graph that fails validation is dropped so the ordinary
-path names the blocker.
+tensors are deleted, the fresh ones (and any created between a permute's steps)
+created, every boundary tensor keeps its id (claim `Identical`), and the group is
+one node cluster whose destination includes the created nodes. The summation order
+is unchanged because `Sum4` runs the same compute over the same axis, which the
+tests check on inexact values. A relabelled graph that fails validation is
+dropped, so the ordinary path names the blocker; a tensor a region owns keeps a
+group out, so regions are lowered as before. This is what the split-attention
+blocks of ResNeSt and SK-Net need (`resnest14d`, `skresnet18`), the outlook
+attention of VOLO, and the relative-position bias of MViTv2 (heads on `D`, a
+five-axis sum on `T*D`). It is a local relabelling, not a widening of the dialect:
+a group that leaves the graph with such an extent, or meets any other op, is
+refused as before. This is also what lowers the windowed attention of Hiera,
+SAM2 and MaxViT: the window partition puts the window batch on `T` and `D`, the
+heads on `H`, and the attention reads all four as batch, so `check_sdpa`'s
+`D = 1` is not consulted for a group the relabel takes.
 
 `Graph_shape4`'s `Reshape4` arm delegates to `Reshape.Reshape.output_shape
 ~x_shape`, like every other arm in this file — it used to return the typed

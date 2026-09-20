@@ -119,7 +119,17 @@ let convert ?(constants = Tensor_id.Map.empty)
         (fun id _ acc -> max acc (Tensor_id.to_int id + 1))
         g0.Graph.tensors 0
     in
-    match Lower_relabel.find view0 ~watermark with
+    (* A region owns its internal tensors; a group of fused axes keeps out of
+       them, so the region is lowered as before. *)
+    let avoid =
+      List.fold_left
+        (fun set (r : Lower_region.t) ->
+          List.fold_left
+            (fun set id -> Tensor_id.Set.add id set)
+            set r.Lower_region.internal)
+        Tensor_id.Set.empty (Lower_region.find view0)
+    in
+    match Lower_relabel.find view0 ~watermark ~avoid with
     | [] -> ([], g0, view0)
     | groups -> (
         let g' = Lower_relabel.apply g0 groups in
@@ -130,7 +140,8 @@ let convert ?(constants = Tensor_id.Map.empty)
   let relabel_of id =
     List.find_opt
       (fun (r : Lower_relabel.t) ->
-        List.exists (Node_id.equal id) r.Lower_relabel.members)
+        List.exists (Node_id.equal id)
+          (r.Lower_relabel.members @ r.Lower_relabel.extra_nodes))
       relabels
   in
   let regions = Lower_region.find view in
@@ -193,7 +204,8 @@ let convert ?(constants = Tensor_id.Map.empty)
           0 g.Graph.nodes;
       created =
         List.concat_map
-          (fun (r : Lower_relabel.t) -> r.Lower_relabel.fresh)
+          (fun (r : Lower_relabel.t) ->
+            r.Lower_relabel.fresh @ r.Lower_relabel.extra)
           relabels;
       deleted =
         dropped_inputs @ internal

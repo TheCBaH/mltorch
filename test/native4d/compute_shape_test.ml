@@ -175,7 +175,9 @@ let%expect_test "direct4: index_tensor4 gathers along a non-C axis" =
        let* index =
          input ~shape:index_shape ~fmt:(Payload.Fmt Payload.I64) ()
        in
-       index_tensor4 { Ops4.IndexTensor4.axis = Axis4.W } ~self ~index)
+       index_tensor4
+         { Ops4.IndexTensor4.axis = Axis4.W; index_rank = 1 }
+         ~self ~index)
   in
   let self_t =
     Tensor.materialize (Shape4.to_vec6 self_shape) (fun c ->
@@ -197,3 +199,50 @@ let%expect_test "direct4: index_tensor4 gathers along a non-C axis" =
   Format.printf "%a@." Tensor.pp
     (Tensor_id.Map.find (List.hd g.Graph.Graph.outputs) env);
   [%expect {| tensor f32 [H=2 W=2 C=2] {20, 21, 10, 11, 120, 121, 110, 111} |}]
+
+(* A rank-2 index writes its own two axes on H and W; [self] is unit on H. Hand
+   values: [self] holds [10 * w + c], and index [[3, 0, 1], [2, 1, 0]] on
+   (W, C), so out[h, w', c'] = 10 * index[h, w'] + c'. Both index axes are
+   nonzero and unequal, so swapping the two would show as a wrong value. *)
+let%expect_test "direct4: index_tensor4 with a rank-2 index" =
+  let self_shape = s4 ~n:1 ~h:1 ~w:4 ~c:2 in
+  let index_shape = s4 ~n:1 ~h:1 ~w:2 ~c:3 in
+  let g =
+    build
+      ~outputs:(fun o -> [ o ])
+      (let open Builder in
+       let* self = input ~shape:self_shape () in
+       let* index =
+         input ~shape:index_shape ~fmt:(Payload.Fmt Payload.I64) ()
+       in
+       index_tensor4
+         { Ops4.IndexTensor4.axis = Axis4.W; index_rank = 2 }
+         ~self ~index)
+  in
+  let self_t =
+    Tensor.materialize (Shape4.to_vec6 self_shape) (fun c ->
+        float_of_int
+          ((Dim.to_int (Vec6.get c Axis.W) * 10)
+          + Dim.to_int (Vec6.get c Axis.C)))
+  in
+  let index_t =
+    Tensor.materialize_i64 (Shape4.to_vec6 index_shape) (fun c ->
+        Int64.of_int
+          [| [| 3; 0; 1 |]; [| 2; 1; 0 |] |].(Dim.to_int (Vec6.get c Axis.W)).(Dim
+                                                                               .to_int
+                                                                                (
+                                                                                Vec6
+                                                                                .get
+                                                                                c
+                                                                                Axis
+                                                                                .C)))
+  in
+  let self_id, index_id =
+    match g.Graph.Graph.inputs with
+    | [ a; b ] -> (a, b)
+    | _ -> invalid_arg "expected two inputs"
+  in
+  let env = run_direct g ~inputs:[ (self_id, self_t); (index_id, index_t) ] in
+  Format.printf "%a@." Tensor.pp
+    (Tensor_id.Map.find (List.hd g.Graph.Graph.outputs) env);
+  [%expect {| tensor f32 [H=2 W=3 C=2] {30, 31, 0, 1, 10, 11, 20, 21, ...} |}]

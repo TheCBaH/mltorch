@@ -29,7 +29,9 @@ type step =
 val max_blocks : int
 val max_permutes : int
 
-val plan : x:Shape4.t -> y:Shape4.t -> op list -> step list option
+val plan :
+  ?source:Vec6.shape -> x:Shape4.t -> y:Shape4.t -> op list -> step list option
 (** Steps taking a tensor of shape [x] to one of shape [y] through the given
-    ops, in order. Never empty: a run that leaves the data and shape untouched
-    is [None]. *)
+    ops, in order; [[]] when neither the data nor the shape changes. The atoms
+    are those of [source] when given (the tensor's own six-axis shape, of which
+    [x] is a four-axis reading), else of [x]. *)

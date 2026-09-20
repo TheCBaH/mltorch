@@ -847,15 +847,17 @@ end
    whichever axis this op names. The shape rule and pixel map delegate whole
    to [Index_tensor.Index_tensor] rather than restating them. *)
 module IndexTensor4 = struct
-  type params = { axis : Axis4.t }
+  type params = { axis : Axis4.t; index_rank : int }
 
   let params_jsont : params Jsont.t =
-    Jsont.Object.map ~kind:"index_tensor4_params" (fun axis -> { axis })
+    Jsont.Object.map ~kind:"index_tensor4_params" (fun axis index_rank ->
+        { axis; index_rank })
     |> Jsont.Object.mem "axis" Axis4.jsont ~enc:(fun p -> p.axis)
+    |> Jsont.Object.mem "index_rank" Jsont.int ~enc:(fun p -> p.index_rank)
     |> Jsont.Object.finish
 
   let pp_params fmt (p : params) =
-    Fmt.pf fmt "@[<hv>{axis=%a}@]" Axis4.pp p.axis
+    Fmt.pf fmt "@[<hv>{axis=%a index_rank=%d}@]" Axis4.pp p.axis p.index_rank
 
   type t = { params : params; self : Tensor_ref.t; index : Tensor_ref.t }
 

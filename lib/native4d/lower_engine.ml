@@ -783,20 +783,22 @@ let lower_node ~view acc (n : node) =
              self = op_of self;
              src = op_of src;
            })
-  (* Output stays four-axis only for [index_rank = 1]; the generalization
-     is unevidenced here, so rejected rather than re-derived. *)
+  (* A rank-M index inserts its axes on the [window] ending at [axis]; the
+     operation is four-axis only when that whole window is named by the
+     dialect ([Domain] has already rejected one that is not). *)
   | Index_tensor { Index_tensor.Index_tensor.params; self; index } ->
-      if params.Index_tensor.Index_tensor.index_rank <> 1 then
-        Err.fail (`Unsupported_op (node, n.Node.op))
-      else
-        let* axis4 = dims4 ~node [ params.Index_tensor.Index_tensor.axis ] in
-        simple
-          (Op.IndexTensor4
-             {
-               Ops4.IndexTensor4.params = { axis = List.hd axis4 };
-               self = op_of self;
-               index = op_of index;
-             })
+      let* axis4 = dims4 ~node [ params.Index_tensor.Index_tensor.axis ] in
+      simple
+        (Op.IndexTensor4
+           {
+             Ops4.IndexTensor4.params =
+               {
+                 axis = List.hd axis4;
+                 index_rank = params.Index_tensor.Index_tensor.index_rank;
+               };
+             self = op_of self;
+             index = op_of index;
+           })
   (* [Concat]'s variadic-operand handling above, plus [Select]'s post-hoc
      output check: [Stack] INSERTS an axis rather than keeping every one the
      way [Concat] does, so -- the same reason [Select]'s arm re-validates its
