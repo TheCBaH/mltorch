@@ -317,6 +317,11 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
              ~c0_shape)
       in
       [ out; h_n; c_n ]
+  | Max_dim { Reduce.MaxDim.params; x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Reduce.MaxDim.output_shape ~x_shape params) in
+      (* out0 = values, out1 = indices; both share the reduced shape. *)
+      [ out; out ]
   | Max_pool2d { Pool.MaxPool2d.params; x } ->
       let* x_shape = shape x in
       let+ out = widen (Pool.MaxPool2d.output_shape ~x_shape params) in

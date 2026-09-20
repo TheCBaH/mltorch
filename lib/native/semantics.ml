@@ -156,4 +156,19 @@ module type SEMANTICS = sig
 
   val max_reduce :
     lo:position index -> hi:delta index -> (position index -> t) -> t
+
+  (* [max.dim]'s paired value/index reduction: same [lo]/[hi]/[f] shape as
+     [max_reduce], but folding with [Max_op.pool_better] rather than
+     [Float.max], and [max_dim_index] reports the winning position (carried
+     into the value domain the way [value_of_index] does) rather than the
+     winning value. The two MUST be called with the same [lo]/[hi]/[f] at a
+     given call site -- that pairing, not a single call returning both
+     halves, is what keeps them from falling out of step, exactly as
+     [max_pool2d]/[max_pool2d_index] already rely on for the fixed-window
+     case. See [Expr.Reduction.Argmax_value]/[Argmax_index]. *)
+  val max_dim :
+    lo:position index -> hi:delta index -> (position index -> t) -> t
+
+  val max_dim_index :
+    lo:position index -> hi:delta index -> (position index -> t) -> t
 end

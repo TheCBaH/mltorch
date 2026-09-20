@@ -67,13 +67,18 @@ type reducers = Reduce_var.t -> int option
    iteration -- the frame list only grows for a NESTED [Reduce], never for
    this one's own iteration count, which is exactly the O(depth) frame bound
    the design record requires. *)
+(* [combine]/[acc] serve [Max]/[Sum]; [argmax]/[best_i] serve
+   [Argmax_value]/[Argmax_index] instead (see the [Reduce_step] frame arm),
+   which fold with [Max_op.pool_better] rather than [combine]. *)
 type reduce_progress = {
   reduction : Reduction.t;
   outer_reducers : reducers;
   combine : float -> float -> float;
+  argmax : bool;
   hi : int;
   i : int;
   acc : float;
+  best_i : int;
 }
 
 (* Carried across one [Scan_at]'s row/lane fill. Fields are mutated in place
@@ -273,12 +278,22 @@ let eval_machine ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
     | Eval_state (Value.Reduce r, reducers), _ ->
         let lo = idx reducers r.Reduction.lo
         and hi = idx reducers r.Reduction.hi in
-        let combine, init =
+        let argmax, combine, init =
           match r.Reduction.kind with
-          | Reduction.Max -> (Max_op.apply Max_op.Float_max, Float.neg_infinity)
-          | Reduction.Sum -> (( +. ), 0.)
+          | Reduction.Max ->
+              (false, Max_op.apply Max_op.Float_max, Float.neg_infinity)
+          | Reduction.Sum -> (false, ( +. ), 0.)
+          | Reduction.Argmax_index | Reduction.Argmax_value ->
+              (true, (fun _ _ -> assert false), Float.neg_infinity)
         in
-        if lo >= hi then (loop [@tailcall]) (Float_result init) frames
+        if lo >= hi then
+          (loop [@tailcall])
+            (Float_result
+               (match r.Reduction.kind with
+               | Reduction.Argmax_index -> vchk (float_of_index lo)
+               | Reduction.Argmax_value | Reduction.Max | Reduction.Sum -> init
+               ))
+            frames
         else begin
           on_reduction ();
           let bound v =
@@ -291,9 +306,11 @@ let eval_machine ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
                  reduction = r;
                  outer_reducers = reducers;
                  combine;
+                 argmax;
                  hi;
                  i = lo;
                  acc = init;
+                 best_i = lo;
                }
             :: frames)
         end
@@ -391,8 +408,19 @@ let eval_machine ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
     | Bool_result cond, Select_result (a, b, reducers) :: rest ->
         (loop [@tailcall]) (Eval_state ((if cond then a else b), reducers)) rest
     | Float_result v, Reduce_step rs :: rest ->
-        let acc = rs.combine rs.acc v in
-        if rs.i + 1 >= rs.hi then (loop [@tailcall]) (Float_result acc) rest
+        let acc, best_i =
+          if rs.argmax then
+            if Max_op.pool_better ~best:rs.acc ~value:v then (v, rs.i)
+            else (rs.acc, rs.best_i)
+          else (rs.combine rs.acc v, rs.best_i)
+        in
+        if rs.i + 1 >= rs.hi then
+          (loop [@tailcall])
+            (Float_result
+               (match rs.reduction.Reduction.kind with
+               | Reduction.Argmax_index -> vchk (float_of_index best_i)
+               | Reduction.Argmax_value | Reduction.Max | Reduction.Sum -> acc))
+            rest
         else begin
           on_reduction ();
           let i = rs.i + 1 in
@@ -402,7 +430,7 @@ let eval_machine ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
           in
           (loop [@tailcall])
             (Eval_state (rs.reduction.Reduction.body, bound))
-            (Reduce_step { rs with i; acc } :: rest)
+            (Reduce_step { rs with i; acc; best_i } :: rest)
         end
     | Float_result v, Scan_fill p :: rest ->
         p.cur_row.(p.lane_cursor) <- v;

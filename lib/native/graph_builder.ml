@@ -362,6 +362,28 @@ let lstm ?name params ~input ~layers ~h0 ~c0 () =
         ( Err.fail (`Expected_single_output_shape { count = List.length shapes }),
           s )
 
+(* Two outputs (values, indices), the same shape [max_pool2d_with_indices] is
+   in for not going through [opN]: see that function's own doc comment. *)
+let max_dim ?name params x =
+  let op = Max_dim { Reduce.MaxDim.params; x } in
+  let* s = get in
+  let* shapes =
+    lift_result
+      (Graph_shape.output_shape op ~sig_of:(fun r ->
+           Tensor_id.Map.find_opt r s.tensors
+           |> Err.of_option (`Missing_tensor_sig r)))
+  in
+  match shapes with
+  | [ vshape; ishape ] ->
+      let* vid = new_edge ?name ~kind:"max_dim" vshape in
+      let* iid = new_edge ~kind:"max_dim_idx" ishape in
+      let* () = push_node op [ vid; iid ] in
+      return (vid, iid)
+  | _ ->
+      fun s ->
+        ( Err.fail (`Expected_single_output_shape { count = List.length shapes }),
+          s )
+
 let max_pool2d ?name params x =
   op1 ?name ~kind:"max_pool2d" (Max_pool2d { Pool.MaxPool2d.params; x })
 

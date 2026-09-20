@@ -1,5 +1,5 @@
 (* The semantic Kernel IR: a closed, validated computation over unchanged
-   [Expr.Value.t] stage bodies. See .ai/native_kernel_dsl_design.md.
+   [Expr.Value.t] stage bodies. See .ai/ for the design.
 
    A kernel owns ordered boundary inputs, topologically ordered logical values,
    and ordered outputs. It does NOT own placement: whether a value is stored or

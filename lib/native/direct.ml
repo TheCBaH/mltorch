@@ -187,3 +187,31 @@ let max_reduce ~(lo : Semantics.position index) ~(hi : Semantics.delta index)
     else loop (Dim.succ i) (Expr.Max_op.apply Float_max acc (f i))
   in
   loop lo neg_infinity
+
+let max_dim ~(lo : Semantics.position index) ~(hi : Semantics.delta index)
+    (f : Semantics.position index -> t) =
+  let rec loop (i : Semantics.position index) best =
+    if (i :> int) >= (hi :> int) then best
+    else
+      let value = f i in
+      loop (Dim.succ i)
+        (if Expr.Max_op.pool_better ~best ~value then value else best)
+  in
+  loop lo neg_infinity
+
+(* One predicate advances value and index together ([Expr.Max_op.pool_better],
+   the same convention [max_pool2d_index] above already relies on), so
+   [max_dim]/[max_dim_index] cannot fall out of step as long as both are
+   called with the same [lo]/[hi]/[f] -- see [Semantics.SEMANTICS.max_dim]'s
+   own doc comment. *)
+let max_dim_index ~(lo : Semantics.position index) ~(hi : Semantics.delta index)
+    (f : Semantics.position index -> t) =
+  let rec loop (i : Semantics.position index) best best_i =
+    if (i :> int) >= (hi :> int) then best_i
+    else
+      let value = f i in
+      if Expr.Max_op.pool_better ~best ~value then
+        loop (Dim.succ i) value (i :> int)
+      else loop (Dim.succ i) best best_i
+  in
+  float_of_int (loop lo neg_infinity (lo :> int))

@@ -457,32 +457,71 @@ let rec ground esc ~env ~meter ~arena ~frame ~coord ~rvars (e : Expr.Value.t) :
       leaf esc ~env ~meter ~arena (Expr_bridge.id_of_source src) (fun a ->
           index (Expr.Coord.get idx a))
   | Expr.Value.Intrinsic i -> max_pool esc ~env ~meter ~arena ~coord ~rvars i
-  | Expr.Value.Reduce r ->
+  | Expr.Value.Reduce r -> (
       let lo = index r.Expr.Reduction.lo and hi = index r.Expr.Reduction.hi in
-      let combine, seed =
-        match r.Expr.Reduction.kind with
-        | Expr.Reduction.Sum ->
-            ( (fun a b ->
-                node esc meter (Ground_expr.binary arena Expr.Value.Add a b)),
-              node esc meter (Ground_expr.const arena 0.) )
-        | Expr.Reduction.Max ->
-            ( (fun a b ->
-                node esc meter (Ground_expr.max arena Expr.Max_op.Float_max a b)),
-              node esc meter (Ground_expr.const arena neg_infinity) )
-      in
-      (* Same left fold, same seed and same order as [Expr.Eval]'s arm — the
-         ground form has to reproduce the engine's association, not merely its
-         value. *)
-      let rec fold i acc =
-        if i >= hi then acc
-        else
-          fold (i + 1)
-            (combine acc
-               (ground esc ~env ~meter ~arena ~frame ~coord
+      match r.Expr.Reduction.kind with
+      | Expr.Reduction.Sum | Expr.Reduction.Max ->
+          let combine, seed =
+            match r.Expr.Reduction.kind with
+            | Expr.Reduction.Sum ->
+                ( (fun a b ->
+                    node esc meter (Ground_expr.binary arena Expr.Value.Add a b)),
+                  node esc meter (Ground_expr.const arena 0.) )
+            | Expr.Reduction.Max ->
+                ( (fun a b ->
+                    node esc meter
+                      (Ground_expr.max arena Expr.Max_op.Float_max a b)),
+                  node esc meter (Ground_expr.const arena neg_infinity) )
+            | Expr.Reduction.Argmax_index | Expr.Reduction.Argmax_value ->
+                assert false
+          in
+          (* Same left fold, same seed and same order as [Expr.Eval]'s arm —
+             the ground form has to reproduce the engine's association, not
+             merely its value. *)
+          let rec fold i acc =
+            if i >= hi then acc
+            else
+              fold (i + 1)
+                (combine acc
+                   (ground esc ~env ~meter ~arena ~frame ~coord
+                      ~rvars:((r.Expr.Reduction.var, i) :: rvars)
+                      r.Expr.Reduction.body))
+          in
+          fold lo seed
+      | Expr.Reduction.Argmax_index | Expr.Reduction.Argmax_value -> (
+          (* Same paired [Max_op.pool_better] fold [Expr.Eval]'s arm runs,
+             built out of [Ground_expr]'s own generic [max]/[select]/
+             [pool_better] nodes -- the same primitives [max_pool]'s own
+             index accumulator (below) already uses, generalised from a 2D
+             window to this reduction's single axis. *)
+          let rec fold i (best, best_index) =
+            if i >= hi then (best, best_index)
+            else
+              let v =
+                ground esc ~env ~meter ~arena ~frame ~coord
                   ~rvars:((r.Expr.Reduction.var, i) :: rvars)
-                  r.Expr.Reduction.body))
-      in
-      fold lo seed
+                  r.Expr.Reduction.body
+              in
+              fold (i + 1)
+                ( node esc meter
+                    (Ground_expr.max arena Expr.Max_op.Pool_max best v),
+                  node esc meter
+                    (Ground_expr.select arena
+                       (Ground_expr.pool_better arena ~best ~value:v)
+                       (node esc meter
+                          (Ground_expr.const arena
+                             (or_throw esc (Expr.Eval.float_of_index i))))
+                       best_index) )
+          in
+          let best, best_index =
+            fold lo
+              ( node esc meter (Ground_expr.const arena neg_infinity),
+                node esc meter (Ground_expr.const arena 0.) )
+          in
+          match r.Expr.Reduction.kind with
+          | Expr.Reduction.Argmax_value -> best
+          | Expr.Reduction.Argmax_index -> best_index
+          | Expr.Reduction.Sum | Expr.Reduction.Max -> assert false))
 
 (* Inline [Scan_at]: [row]/[lane] are already evaluated (the caller needs them
    to key a bounds error against the RIGHT descriptor, [None] rather than

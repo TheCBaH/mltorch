@@ -460,6 +460,51 @@ already-tracked axis-T limit this doc's other entries call working as
 designed. `native4d_converts` for this model stays `false` and
 `kernel_converts` is unaffected; no other model's row changed.
 
+**Updated 2026-09-12**, after fixing a real relayout defect behind
+`repvit_m1_0`'s BatchNorm extent mismatch (`native4d_blocker: "node n965:
+batch norm parameter t707 has extent 448 on C, but the normalized axis has
+1"`). The node is `head.head.bn`, a `BatchNorm1d` over the classifier's
+globally-pooled `(N, C)` feature vector (`x.mean(dim=[2,3])` then two
+eval-mode `dropout` clones) -- a genuinely rank-2 ATen input, not the
+rank-4 NCHW activation every other BatchNorm in the corpus normalizes.
+Both bridges for `_native_batch_norm_legit_no_training.default`
+(`lib/native_aten_bridge/op_bridge_norm.ml`, the real-ATen path, and
+`lib/native_interp/native_interp_lower_compute.ml`, the payload-free path
+this sweep runs) relaid the input with the fixed rank-4
+`perm_nchw_to_nhwc`/`perm_nhwc_to_nchw` rotation unconditionally, instead
+of rank-adapting via `batch_norm_channel_perms ~rank` the way their own
+`_native_batch_norm_legit.no_stats` sibling arm already did. For a rank-4
+input the two agree; for this model's rank-2 input, `Aten_shape.used_axes`
+already lands the channel axis on native `C` (a `[W;C]` positional split,
+`W=N=1, C=448`), so the fixed rotation moved the correct 448-wide channel
+data onto `W` instead, leaving `C=1` for the batch-norm call to fail on.
+Fixed by rank-adapting both arms; regression tests pin the rank-2 case's
+now-identity permute (`test/native_bridge/dispatch_test.ml`,
+`test/native_interp/norm_test.ml`). `repvit_m1_0`'s row moves to
+`native4d_converts:true`; `kernel_converts` stays `false` (the same
+tracked evaluation-depth ceiling). No other model's row changed.
+
+**Updated 2026-09-12**, after fixing `edgenext_xx_small`'s Kernel-stage i64
+rejection (`kernel_reason: "outside_dialect_domain"`, `"t245: a stored value
+must be f32 and unquantized, got i64"` -- the only Kernel-stage failure in
+the whole file that wasn't the shared evaluation-depth ceiling). `t245` is
+an `Arange(fmt=i64)` factory node (EdgeNeXt's Fourier positional encoding),
+whose sole consumer is a `To_copy(target=float)` cast that already exists in
+Native -- the cast was never missing. The real gap: `Stage_program` builds
+one Kernel stage per native node, and `Kernel.materializable` requires every
+stage's own format to be f32 unconditionally (the pixel evaluator has no
+other output type), so the raw i64 `Arange` stage was rejected before its
+own cast ever ran, regardless of what consumed it. Fixed with a new
+canonicalization pass, `lib/native/transform/passes/fold_arange_cast.ml`
+(`.ai/native_transform_design.md` §12h), that fuses an int `Arange` with an
+immediately-following, sole-consumer float cast into one `Arange(fmt=f32)`
+node -- a provably `Identical` value claim, since neither op's own pixel
+formula reads `fmt` at all; only `Eval_direct`'s materialization branch
+does. `edgenext_xx_small`'s row moves to `kernel_converts:true`;
+`native4d_converts` is unaffected (still `false`, axis T, a separate,
+untouched branch -- see this doc's "the two branches diverge" framing). No
+other model's row changed.
+
 - `PT2_MODELS_NATIVE_VERIFY` (Makefile) wires `mobilenetv2_050`,
   `regnetx_002`, `efficientnet_b0` and `test_convnext2` into
   `make native-infer-verify`/`native-transform-verify`, which

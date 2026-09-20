@@ -160,28 +160,58 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
       | Value.Reduce r ->
           let lo = idx reducers r.Reduction.lo
           and hi = idx reducers r.Reduction.hi in
-          let combine, init =
-            match r.Reduction.kind with
-            | Reduction.Max ->
-                (Max_op.apply Max_op.Float_max, Float.neg_infinity)
-            | Reduction.Sum -> (( +. ), 0.)
-          in
-          (* The ordered half-open left fold the denotation specifies. Same
-               seed and same association as the engine's own reduction -- a
-               rewrite that reassociated this would change the answer, not
-               just its shape. *)
-          let rec fold i acc =
-            if i >= hi then acc
-            else
-              let bound v =
-                if Reduce_var.equal v r.Reduction.var then Some i
-                else reducers v
+          (match r.Reduction.kind with
+          | Reduction.Max | Reduction.Sum ->
+              let combine, init =
+                match r.Reduction.kind with
+                | Reduction.Max ->
+                    (Max_op.apply Max_op.Float_max, Float.neg_infinity)
+                | Reduction.Sum -> (( +. ), 0.)
+                | Reduction.Argmax_index | Reduction.Argmax_value ->
+                    assert false
               in
-              on_reduction ();
-              (fold [@tailcall]) (i + 1)
-                (combine acc (go depth bound r.Reduction.body))
-          in
-          fold lo init
+              (* The ordered half-open left fold the denotation specifies. Same
+                   seed and same association as the engine's own reduction --
+                   a rewrite that reassociated this would change the answer,
+                   not just its shape. *)
+              let rec fold i acc =
+                if i >= hi then acc
+                else
+                  let bound v =
+                    if Reduce_var.equal v r.Reduction.var then Some i
+                    else reducers v
+                  in
+                  on_reduction ();
+                  (fold [@tailcall]) (i + 1)
+                    (combine acc (go depth bound r.Reduction.body))
+              in
+              fold lo init
+          | Reduction.Argmax_index | Reduction.Argmax_value ->
+              (* One predicate advances value and index together
+                 ([Max_op.pool_better], the same convention
+                 [Intrinsic.Max_pool]'s own paired value/index output uses),
+                 so the two outputs cannot fall out of step: an ordinary tie
+                 keeps the incumbent (first index wins) and a NaN retriggers. *)
+              let rec fold i best best_i =
+                if i >= hi then (best, best_i)
+                else
+                  let bound v =
+                    if Reduce_var.equal v r.Reduction.var then Some i
+                    else reducers v
+                  in
+                  let value = go depth bound r.Reduction.body in
+                  on_reduction ();
+                  let best, best_i =
+                    if Max_op.pool_better ~best ~value then (value, i)
+                    else (best, best_i)
+                  in
+                  (fold [@tailcall]) (i + 1) best best_i
+              in
+              let best, best_i = fold lo Float.neg_infinity lo in
+              (match r.Reduction.kind with
+              | Reduction.Argmax_value -> best
+              | Reduction.Argmax_index -> vchk (float_of_index best_i)
+              | Reduction.Max | Reduction.Sum -> assert false))
       | Value.Round_f32 a ->
           (* Convert to binary32 and widen back. The one value expression
                that changes a value without being arithmetic. *)
@@ -394,24 +424,57 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
     | Value.Reduce r ->
         let lo = idx reducers r.Reduction.lo
         and hi = idx reducers r.Reduction.hi in
-        let combine, init =
-          match r.Reduction.kind with
-          | Reduction.Max -> (Max_op.apply Max_op.Float_max, Float.neg_infinity)
-          | Reduction.Sum -> (( +. ), 0.)
-        in
-        (* The ordered half-open left fold the denotation specifies. Same seed
-             and same association as the engine's own reduction -- a rewrite that
-             reassociated this would change the answer, not just its shape. *)
-        let rec fold i acc =
-          if i >= hi then acc
-          else
-            let bound v =
-              if Reduce_var.equal v r.Reduction.var then Some i else reducers v
+        (match r.Reduction.kind with
+        | Reduction.Max | Reduction.Sum ->
+            let combine, init =
+              match r.Reduction.kind with
+              | Reduction.Max ->
+                  (Max_op.apply Max_op.Float_max, Float.neg_infinity)
+              | Reduction.Sum -> (( +. ), 0.)
+              | Reduction.Argmax_index | Reduction.Argmax_value -> assert false
             in
-            on_reduction ();
-            (fold [@tailcall]) (i + 1) (combine acc (go bound r.Reduction.body))
-        in
-        fold lo init
+            (* The ordered half-open left fold the denotation specifies. Same
+                 seed and same association as the engine's own reduction -- a
+                 rewrite that reassociated this would change the answer, not
+                 just its shape. *)
+            let rec fold i acc =
+              if i >= hi then acc
+              else
+                let bound v =
+                  if Reduce_var.equal v r.Reduction.var then Some i
+                  else reducers v
+                in
+                on_reduction ();
+                (fold [@tailcall]) (i + 1)
+                  (combine acc (go bound r.Reduction.body))
+            in
+            fold lo init
+        | Reduction.Argmax_index | Reduction.Argmax_value ->
+            (* One predicate advances value and index together
+               ([Max_op.pool_better], the same convention [Intrinsic.Max_pool]'s
+               own paired value/index output uses), so the two outputs cannot
+               fall out of step: an ordinary tie keeps the incumbent (first
+               index wins) and a NaN retriggers. *)
+            let rec fold i best best_i =
+              if i >= hi then (best, best_i)
+              else
+                let bound v =
+                  if Reduce_var.equal v r.Reduction.var then Some i
+                  else reducers v
+                in
+                let value = go bound r.Reduction.body in
+                on_reduction ();
+                let best, best_i =
+                  if Max_op.pool_better ~best ~value then (value, i)
+                  else (best, best_i)
+                in
+                (fold [@tailcall]) (i + 1) best best_i
+            in
+            let best, best_i = fold lo Float.neg_infinity lo in
+            (match r.Reduction.kind with
+            | Reduction.Argmax_value -> best
+            | Reduction.Argmax_index -> vchk (float_of_index best_i)
+            | Reduction.Max | Reduction.Sum -> assert false))
     | Value.Round_f32 a ->
         (* Convert to binary32 and widen back. The one value expression that
              changes a value without being arithmetic. *)

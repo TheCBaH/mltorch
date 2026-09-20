@@ -286,6 +286,12 @@ let op_registry : (module OP) list =
       let project = function Lstm t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Reduce.MaxDim
+
+      let inject t = Max_dim t
+      let project = function Max_dim t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Pool.MaxPool2d
 
       let inject t = Max_pool2d t

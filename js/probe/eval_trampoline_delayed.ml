@@ -179,38 +179,82 @@ let eval_trampoline_delayed ~threshold ?(local = fun _ -> None)
       | Value.Select (c, a, b) ->
           guard reducers depth c (fun depth cond ->
               if cond then go reducers depth a k else go reducers depth b k)
-      | Value.Reduce r ->
+      | Value.Reduce r -> (
           let lo = idx reducers r.Reduction.lo
           and hi = idx reducers r.Reduction.hi in
-          let combine, init =
-            match r.Reduction.kind with
-            | Reduction.Max ->
-                (Max_op.apply Max_op.Float_max, Float.neg_infinity)
-            | Reduction.Sum -> (( +. ), 0.)
-          in
-          if lo >= hi then resume depth k init
-          else
-            (* Replaces its own [i]/[acc] on every iteration -- an [and]-bound
-               sibling would make this a two-function mutual pair (the exact
-               shape Stage 4 removed from [intrinsic]); a LOCAL [let rec],
-               entered only through [go]'s continuation for the reduction's
-               body, keeps it self-recursive instead. *)
-            let rec reduce_iterate depth i acc =
-              if depth >= threshold then
-                Bounce (fun () -> (reduce_iterate [@tailcall]) 0 i acc)
+          match r.Reduction.kind with
+          | Reduction.Max | Reduction.Sum ->
+              let combine, init =
+                match r.Reduction.kind with
+                | Reduction.Max ->
+                    (Max_op.apply Max_op.Float_max, Float.neg_infinity)
+                | Reduction.Sum -> (( +. ), 0.)
+                | Reduction.Argmax_index | Reduction.Argmax_value ->
+                    assert false
+              in
+              if lo >= hi then resume depth k init
               else
-                let depth = depth + 1 in
-                on_reduction ();
-                let bound v =
-                  if Reduce_var.equal v r.Reduction.var then Some i
-                  else reducers v
+                (* Replaces its own [i]/[acc] on every iteration -- an
+                   [and]-bound sibling would make this a two-function mutual
+                   pair (the mutual shape [intrinsic] no longer has); a
+                   LOCAL [let rec], entered only through [go]'s continuation
+                   for the reduction's body, keeps it self-recursive instead. *)
+                let rec reduce_iterate depth i acc =
+                  if depth >= threshold then
+                    Bounce (fun () -> (reduce_iterate [@tailcall]) 0 i acc)
+                  else
+                    let depth = depth + 1 in
+                    on_reduction ();
+                    let bound v =
+                      if Reduce_var.equal v r.Reduction.var then Some i
+                      else reducers v
+                    in
+                    go bound depth r.Reduction.body (fun depth v ->
+                        let acc = combine acc v in
+                        if i + 1 >= hi then resume depth k acc
+                        else (reduce_iterate [@tailcall]) depth (i + 1) acc)
                 in
-                go bound depth r.Reduction.body (fun depth v ->
-                    let acc = combine acc v in
-                    if i + 1 >= hi then resume depth k acc
-                    else (reduce_iterate [@tailcall]) depth (i + 1) acc)
-            in
-            reduce_iterate depth lo init
+                reduce_iterate depth lo init
+          | Reduction.Argmax_index | Reduction.Argmax_value ->
+              (* One predicate advances value and index together
+                 ([Max_op.pool_better], the same convention
+                 [Intrinsic.Max_pool]'s own paired value/index output uses),
+                 so the two outputs cannot fall out of step. *)
+              if lo >= hi then
+                resume depth k
+                  (match r.Reduction.kind with
+                  | Reduction.Argmax_index -> vchk (float_of_index lo)
+                  | Reduction.Argmax_value | Reduction.Max | Reduction.Sum ->
+                      Float.neg_infinity)
+              else
+                let rec reduce_iterate depth i best best_i =
+                  if depth >= threshold then
+                    Bounce
+                      (fun () -> (reduce_iterate [@tailcall]) 0 i best best_i)
+                  else
+                    let depth = depth + 1 in
+                    on_reduction ();
+                    let bound v =
+                      if Reduce_var.equal v r.Reduction.var then Some i
+                      else reducers v
+                    in
+                    go bound depth r.Reduction.body (fun depth v ->
+                        let best, best_i =
+                          if Max_op.pool_better ~best ~value:v then (v, i)
+                          else (best, best_i)
+                        in
+                        if i + 1 >= hi then
+                          resume depth k
+                            (match r.Reduction.kind with
+                            | Reduction.Argmax_value -> best
+                            | Reduction.Argmax_index ->
+                                vchk (float_of_index best_i)
+                            | Reduction.Max | Reduction.Sum -> assert false)
+                        else
+                          (reduce_iterate [@tailcall]) depth (i + 1) best
+                            best_i)
+                in
+                reduce_iterate depth lo Float.neg_infinity lo)
       | Value.Scan_at (s, row_i, lane_i) ->
           let row = idx reducers row_i and lane = idx reducers lane_i in
           let projection = { Scan_projection.local = None; row; lane } in

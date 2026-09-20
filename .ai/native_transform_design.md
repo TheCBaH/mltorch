@@ -1530,7 +1530,39 @@ tensor is 56×56×64, so the cram golden records `unproved (too large)` — so t
 claim is proved on a 4×4×2 fixture instead, under `Require_proved`. A claim only
 ever declined is a claim nobody has checked.
 
-### 12h. The canonical pipeline
+### 12h. Folding an int factory into its own float cast
+
+Status: **implemented** — `lib/native/transform/passes/fold_arange_cast.ml`,
+tests in `test/native/fold_arange_cast_test.ml`. Runs in `prune`, after `Dce`.
+
+`Arange`'s own pixel (`factory.ml`) never reads its declared `fmt` — the
+formula is `start + i*step` in plain float arithmetic regardless — and
+`To_copy`'s `Float` pixel (`pointwise_unary.ml`) is `S.load x out` unchanged.
+`fmt` therefore only ever selects `Eval_direct`'s *materialization* branch
+(an `int64` array via `Int64.of_float`, or a real-valued array otherwise),
+never the computed value. An int-formatted `Arange` fed straight into a
+`To_copy(target=float)` and nothing else is consequently the same value as
+one `Arange` built with `fmt=F32` from the start, by the same "two paths
+already reduce to the same call" argument §12g makes for
+`Drop_pool_indices`'s narrowing — proved under `Require_proved` on a 4-element
+fixture, not merely declined.
+
+This exists because Kernel's `materializable` check (`kernel.ml`) requires
+every stage's own format to be f32, unconditionally: the pixel evaluator has
+no other output type, so a `Stored_value` in any other format cannot be
+computed at all, cast or no cast downstream. `Stage_program` builds one stage
+per native node, so an int `Arange` reaches Kernel as its own stage before
+its consuming cast ever runs — EdgeNeXt's Fourier positional encoding is the
+corpus's only occurrence (`.ai/pt2_model_support.md`). Folding the cast into
+the factory node itself is what keeps the ill-typed intermediate from ever
+existing, rather than teaching Kernel to tolerate it.
+
+The match requires the `Arange`'s output to be *interior* (this `To_copy` is
+its only consumer, and it is not itself a graph output) — a second consumer
+that still wants the raw int values would be broken by the same rewrite, so
+the pass declines rather than guessing which reader wins.
+
+### 12i. The canonical pipeline
 
 Status: **implemented** — `lib/native/transform/pipeline.ml`, tests in
 `test/native/pipeline_test.ml`.

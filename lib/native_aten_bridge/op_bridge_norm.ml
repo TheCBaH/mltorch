@@ -17,6 +17,9 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
             (the engine has no empty tensors). See
             .ai/native_multi_output_design.md. *)
          let* aten_x = tensor_arg aten_env node "input" in
+         let to_channel_last, from_channel_last =
+           batch_norm_channel_perms ~rank:(aten_rank aten_x)
+         in
          let* x = native_of_aten "input" aten_x in
          let* aten_rm = tensor_arg aten_env node "running_mean" in
          let* rm = native_of_aten "running_mean" aten_rm in
@@ -43,12 +46,12 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
            (function
            | [ x_id; w_id; b_id; rm_id; rv_id ] ->
                let open Graph_builder in
-               let* x' = permute perm_nchw_to_nhwc x_id in
+               let* x' = permute to_channel_last x_id in
                let* y' =
                  batch_norm params ~x:x' ~weight:w_id ~bias:b_id
                    ~running_mean:rm_id ~running_var:rv_id ()
                in
-               let+ y = permute perm_nhwc_to_nchw y' in
+               let+ y = permute from_channel_last y' in
                [ y ]
            | _ -> assert false))
   | "torch.ops.aten._native_batch_norm_legit.no_stats" ->

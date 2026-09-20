@@ -59,13 +59,20 @@ type value_state =
    [reuse_frame] of its own. *)
 type pool_tag = Cols_tag | Rows_tag
 
+(* [combine]/[acc] serve [Max]/[Sum]; [argmax]/[best_i] serve
+   [Argmax_value]/[Argmax_index] instead, which fold with [Max_op.pool_better]
+   rather than [combine] (see [dispatch_frame]'s [Reduce_step] arm) -- kept as
+   separate fields rather than folding [acc] into a pair so [Max]/[Sum]'s hot
+   per-step update stays a plain unboxed float write, not a tuple allocation. *)
 type reuse_reduce_progress = {
   reduction : Reduction.t;
   outer_reducers : reducers;
   combine : float -> float -> float;
+  argmax : bool;
   hi : int;
   mutable i : int;
   mutable acc : float;
+  mutable best_i : int;
 }
 
 type reuse_frame =
@@ -200,13 +207,23 @@ let run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
     | Bool_result cond, Select_result (a, b, reducers) ->
         Eval_state ((if cond then a else b), reducers)
     | Float_result v, Reduce_step rs ->
-        let acc = rs.combine rs.acc v in
-        if rs.i + 1 >= rs.hi then Float_result acc
+        let acc, best_i =
+          if rs.argmax then
+            if Max_op.pool_better ~best:rs.acc ~value:v then (v, rs.i)
+            else (rs.acc, rs.best_i)
+          else (rs.combine rs.acc v, rs.best_i)
+        in
+        if rs.i + 1 >= rs.hi then
+          Float_result
+            (match rs.reduction.Reduction.kind with
+            | Reduction.Argmax_index -> vchk (float_of_index best_i)
+            | Reduction.Argmax_value | Reduction.Max | Reduction.Sum -> acc)
         else begin
           on_reduction ();
           let i = rs.i + 1 in
           rs.i <- i;
           rs.acc <- acc;
+          rs.best_i <- best_i;
           reuse_stack_push st (Reduce_step rs);
           let bound w =
             if Reduce_var.equal w rs.reduction.Reduction.var then Some i
@@ -286,12 +303,21 @@ let run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
     | Eval_state (Value.Reduce r, reducers) ->
         let lo = idx reducers r.Reduction.lo
         and hi = idx reducers r.Reduction.hi in
-        let combine, init =
+        let argmax, combine, init =
           match r.Reduction.kind with
-          | Reduction.Max -> (Max_op.apply Max_op.Float_max, Float.neg_infinity)
-          | Reduction.Sum -> (( +. ), 0.)
+          | Reduction.Max ->
+              (false, Max_op.apply Max_op.Float_max, Float.neg_infinity)
+          | Reduction.Sum -> (false, ( +. ), 0.)
+          | Reduction.Argmax_index | Reduction.Argmax_value ->
+              (true, (fun _ _ -> assert false), Float.neg_infinity)
         in
-        if lo >= hi then (loop [@tailcall]) (Float_result init)
+        if lo >= hi then
+          (loop [@tailcall])
+            (Float_result
+               (match r.Reduction.kind with
+               | Reduction.Argmax_index -> vchk (float_of_index lo)
+               | Reduction.Argmax_value | Reduction.Max | Reduction.Sum -> init
+               ))
         else begin
           on_reduction ();
           let bound v =
@@ -303,9 +329,11 @@ let run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
                  reduction = r;
                  outer_reducers = reducers;
                  combine;
+                 argmax;
                  hi;
                  i = lo;
                  acc = init;
+                 best_i = lo;
                });
           (loop [@tailcall]) (Eval_state (r.Reduction.body, bound))
         end

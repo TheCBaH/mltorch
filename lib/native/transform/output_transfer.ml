@@ -99,7 +99,8 @@ let classify (op : op) ~output =
      of both: a small input change moves the copied cells slightly and leaves
      any constants exactly where they were. *)
   | Pad _ -> Continuous
-  | Max_pool2d_with_indices _ | Adaptive_max_pool2d_with_indices _ ->
+  | Max_pool2d_with_indices _ | Adaptive_max_pool2d_with_indices _ | Max_dim _
+    ->
       if output = 0 then Continuous else Discontinuous
   (* Which input element is read is DATA-DEPENDENT -- the gathered position
      comes from the value stored in [index], not from the output coordinate

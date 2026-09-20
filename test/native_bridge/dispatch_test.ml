@@ -317,6 +317,60 @@ let%expect_test "dispatch: _native_batch_norm_legit_no_training per-channel" =
     outputs: [t7 f32 [H=2 W=1 C=2] <-n2]
     tensor f32 [H=2 W=1 C=2] {1, 3, -1, 9} |}]
 
+(* Rank 2 (N,C), e.g. BatchNorm1d over a globally-pooled classifier head
+   (repvit_m1_0's real shape) -- distinct from the rank-4 test above because
+   [batch_norm_channel_perms]'s rank-2 permutation is the IDENTITY (channel
+   already lands on native C via [Aten_shape.used_axes]), unlike the fixed
+   NCHW->NHWC rotation a rank-4 input needs. Using that fixed rotation here
+   was the bug: it moved the real 448-wide channel axis onto W. mean=[1,5],
+   var=[4,4] (inv=0.5), weight=[2,10], bias=[1,-1], eps=0 -> c0=1, c1=9. *)
+let%expect_test "dispatch: _native_batch_norm_legit_no_training rank-2 (N,C)" =
+  let x = float_tensor [ 1; 2 ] [ 1.; 7. ] in
+  let w = float_tensor [ 2 ] [ 2.; 10. ] in
+  let b = float_tensor [ 2 ] [ 1.; -1. ] in
+  let rm = float_tensor [ 2 ] [ 1.; 5. ] in
+  let rv = float_tensor [ 2 ] [ 4.; 4. ] in
+  dispatch_print_with_graph ~print_graph:true
+    ~target:"torch.ops.aten._native_batch_norm_legit_no_training.default"
+    ~bindings:
+      [
+        ("input", x);
+        ("weight", w);
+        ("bias", b);
+        ("running_mean", rm);
+        ("running_var", rv);
+      ]
+    ~inputs:
+      [
+        in_tensor "input";
+        in_tensor "weight";
+        in_tensor "bias";
+        in_tensor "running_mean";
+        in_tensor "running_var";
+        in_float "momentum" 0.1;
+        in_float "eps" 0.;
+      ]
+    ~noutputs:1;
+  [%expect
+    {|
+    graph
+    inputs:
+      [t0 f32 [C=2] ->[n0], t1 f32 [C=2] ->[n1], t2 f32 [C=2] ->[n1],
+       t3 f32 [C=2] ->[n1], t4 f32 [C=2] ->[n1]]
+    nodes:
+      n0: [t5 f32 [C=2] ->[n1]] = permute x=t0 perm=[]
+      n1: [t6 f32 [C=2] ->[n2]] =
+        batch_norm
+          x=t5 <-n0
+          weight=t1
+          bias=t2
+          running_mean=t3
+          running_var=t4
+          params={channel=C; eps=0}
+      n2: [t7 f32 [C=2]] = permute x=t6 <-n1 perm=[]
+    outputs: [t7 f32 [C=2] <-n2]
+    tensor f32 [C=2] {1, 9} |}]
+
 let%expect_test "dispatch: _native_batch_norm_legit.no_stats preserves outputs"
     =
   (* NCHW [1,2,1,2] has per-channel batch means [2,6] and biased variance 1.

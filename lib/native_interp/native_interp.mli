@@ -50,6 +50,7 @@ type metadata_role =
   | `Adaptive_avg_pool2d_input
   | `Adaptive_max_pool2d_input
   | `Amax_input
+  | `Batch_norm_input
   | `Batch_norm_no_stats_input
     (** Its own role, not shared with [`Mean_input]: [amax.default] and
         [mean.dim] have separate arms, and a shared label would leave the row

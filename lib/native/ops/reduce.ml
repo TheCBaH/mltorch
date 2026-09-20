@@ -1,9 +1,11 @@
 (* Reductions over a set of axes (NHWC): [Mean] (ATen's `aten.mean.dim`),
-   [Amax] (`aten.amax.default`), [Vector_norm]
-   (`aten.linalg_vector_norm.default`) and [Softmax] (`aten.softmax.int`,
-   which unlike the other three keeps the input's shape rather than dropping
-   the reduced axis -- see its own comment); a category file so a future
-   `aten.sum`/… lands beside them, the way [Pool] holds Max/AvgPool2d. *)
+   [Amax] (`aten.amax.default`), [MaxDim] (`aten.max.dim`, a single-axis
+   sibling of [Amax] that additionally reports the winning position),
+   [Vector_norm] (`aten.linalg_vector_norm.default`) and [Softmax]
+   (`aten.softmax.int`, which unlike the other four keeps the input's shape
+   rather than dropping the reduced axis -- see its own comment); a category
+   file so a future `aten.sum`/… lands beside them, the way [Pool] holds
+   Max/AvgPool2d. *)
 
 (* Params shared by every reduction that folds a set of named axes down with a
    [keepdim] flag: the axis list, its output-shape rule, and the (input axis,
@@ -427,6 +429,137 @@ module Amax = struct
               (fun i -> reduce rest ((d, i) :: override))
       in
       reduce p.dims []
+  end
+end
+
+module MaxDim = struct
+  (* ATen's `aten.max.dim(self, dim, keepdim)` -- a fixed (values, indices)
+     tuple. Unlike [Amax] (`dims : Axis.t list`), ATen's schema names exactly
+     ONE dim, and the index is meaningful only for a single reduced axis (the
+     ordinal is measured along that one axis, never a flattened multi-axis
+     position), so the payload is [axis : Axis.t], not a singleton list --
+     [Dims_keepdim]'s shape/axis-repacking math still applies (wrapped as a
+     one-element [dims]), only the payload's own shape narrows.
+
+     The values output is NOT [Amax] with [dims = [axis]]: [Amax] folds with
+     [S.max_reduce] ([Max_op.Float_max]), while both of this op's outputs must
+     fold with the SAME [Max_op.pool_better] predicate the index output uses,
+     or the two could disagree on which element is the max when the reduced
+     axis contains a NaN -- see [Semantics.SEMANTICS.max_dim]'s own comment.
+     So this is its own op, not a decomposition of [Amax] plus an index. *)
+  type params = { axis : Axis.t; keepdim : bool }
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"max_dim_params" (fun axis keepdim ->
+        { axis; keepdim })
+    |> Jsont.Object.mem "axis" Axis.jsont ~enc:(fun p -> p.axis)
+    |> Jsont.Object.mem "keepdim" Jsont.bool ~enc:(fun p -> p.keepdim)
+    |> Jsont.Object.finish
+
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "@[<hv>{axis=%a;@ keepdim=%a}@]" Axis.pp p.axis Fmt.bool
+      p.keepdim
+
+  (* [Dims_keepdim]'s shape/repacking math, specialised to this op's
+     one-element [dims] -- reused rather than restated so [MaxDim] cannot
+     drift from [Amax]/[Mean] on how [keepdim] behaves. *)
+  let dims_keepdim (p : params) : Dims_keepdim.t =
+    { dims = [ p.axis ]; keepdim = p.keepdim }
+
+  let kept_map p = Dims_keepdim.kept_map (dims_keepdim p)
+
+  (* Both outputs (values, indices) share this shape -- the same convention
+     [Max_pool2dWithIndices]/[AdaptiveMaxPool2dWithIndices] use. *)
+  let output_shape ~(x_shape : Vec6.shape) (p : params) =
+    Dims_keepdim.output_shape ~x_shape (dims_keepdim p)
+
+  type t = { params : params; x : Tensor_ref.t }
+
+  let name = "MaxDim"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        { params = get "params" params_jsont; x = get "x" Tensor_ref.jsont })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("x", Json_util.enc Tensor_ref.jsont t.x);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { t with x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>max_dim@ x=%a@ params=%a@]" pp_ref t.x pp_params
+      t.params
+
+  (* Same config space as [Softmax]'s walk (any axis, any extent), plus
+     [Amax]'s [keepdim] toggle. *)
+  module Walk (L : Walk_core.Limits.S) = struct
+    type cfg = { shape : Walk_core.Shape.t; axis : Axis.t; keepdim : bool }
+
+    let initial =
+      {
+        shape = { Walk_core.Shape.n = 2; t = 1; d = 1; h = 4; w = 4; c = 4 };
+        axis = Axis.C;
+        keepdim = false;
+      }
+
+    let cascade c = c
+    let shape (c : cfg) = Walk_bridge.vec6 c.shape
+    let params (c : cfg) : params = { axis = c.axis; keepdim = c.keepdim }
+
+    let axes =
+      Walk_core.Walk.
+        [
+          shape_axis "input" L.limits
+            ~get:(fun c -> c.shape)
+            ~set:(fun c s -> { c with shape = s });
+          field_axis "axis" Axis.all (fun c v -> { c with axis = v });
+          field_axis "keepdim" [ true; false ] (fun c v ->
+              { c with keepdim = v });
+        ]
+
+    let pp fmt (c : cfg) =
+      Format.fprintf fmt "{shape=%a axis=%a keepdim=%b}" Walk_core.Shape.pp
+        c.shape Axis.pp c.axis c.keepdim
+  end
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    (* The output coordinate with [p.axis] zeroed and every surviving axis
+       moved back to its input position -- [Amax.Compute.pixel]'s own [base],
+       specialised to one reduced axis so there is no [override] association
+       list to fold at the leaf. *)
+    let base p (out : Semantics.position S.index Vec6.t) =
+      let zero =
+        Vec6.make ~n:S.index_zero ~t:S.index_zero ~d:S.index_zero
+          ~h:S.index_zero ~w:S.index_zero ~c:S.index_zero
+      in
+      List.fold_left
+        (fun v (kin, oax) -> Vec6.copy out ~src:oax ~dst:kin v)
+        zero (kept_map p)
+
+    let value_pixel (p : params) ~(x_shape : Vec6.shape) ~x
+        (out : Semantics.position S.index Vec6.t) =
+      let base = base p out in
+      S.max_dim ~lo:S.index_zero
+        ~hi:(S.index_extent (Vec6.get x_shape p.axis))
+        (fun i -> S.load x (Vec6.set base p.axis i))
+
+    (* Ties resolve to the smallest matching axis position -- the same
+       convention [max_pool2d_index] documents, inherited from
+       [Max_op.pool_better]. *)
+    let index_pixel (p : params) ~(x_shape : Vec6.shape) ~x
+        (out : Semantics.position S.index Vec6.t) =
+      let base = base p out in
+      S.max_dim_index ~lo:S.index_zero
+        ~hi:(S.index_extent (Vec6.get x_shape p.axis))
+        (fun i -> S.load x (Vec6.set base p.axis i))
   end
 end
 

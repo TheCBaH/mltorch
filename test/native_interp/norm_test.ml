@@ -13,6 +13,11 @@
 
 open Programs
 
+let batch_norm_no_training_node () =
+  jstr
+    {|{"target":"torch.ops.aten._native_batch_norm_legit_no_training.default","inputs":[{"name":"input","arg":%s,"kind":1},{"name":"weight","arg":{"as_none":true},"kind":1},{"name":"bias","arg":{"as_none":true},"kind":1},{"name":"running_mean","arg":%s,"kind":1},{"name":"running_var","arg":%s,"kind":1},{"name":"momentum","arg":{"as_float":0.1},"kind":1},{"name":"eps","arg":{"as_float":0.0},"kind":1}],"outputs":[%s],"metadata":{}}|}
+    (as_tensor "x") (as_tensor "m") (as_tensor "v") (as_tensor "y")
+
 let batch_norm_no_stats_node ?(training = true) ?(momentum = 0.) () =
   jstr
     {|{"target":"torch.ops.aten._native_batch_norm_legit.no_stats","inputs":[{"name":"input","arg":%s,"kind":1},{"name":"weight","arg":%s,"kind":1},{"name":"bias","arg":%s,"kind":1},{"name":"training","arg":{"as_bool":%b},"kind":1},{"name":"momentum","arg":{"as_float":%g},"kind":1},{"name":"eps","arg":{"as_float":0.0},"kind":1}],"outputs":[%s],"metadata":{}}|}
@@ -51,6 +56,78 @@ let dump label json =
   match lower json with
   | Error e -> Format.printf "  %a@." Native_interp.pp_error (Err.Error.kind e)
   | Ok l -> Format.printf "%a@." Graph_ir.pp l.Pt2_native_graph.graph
+
+(* [batch_norm_channel_perms] must rank-adapt, not assume rank-4 NCHW: a
+   rank-2 (N,C) input -- e.g. BatchNorm1d over a globally-pooled classifier
+   head, repvit_m1_0's real shape -- already lands its channel axis on
+   native C via [Aten_shape.used_axes], so the relayout permute must be the
+   IDENTITY. The fixed NCHW->NHWC rotation this arm used to apply
+   unconditionally instead moved the channel data onto W. *)
+let%expect_test
+    "_native_batch_norm_legit_no_training rank-4 needs the NCHW relayout" =
+  let json =
+    program ~x_sizes:[ 1; 2; 1; 2 ]
+      ~extra_tensor_values:
+        [ ("m", tensor_meta [ 2 ]); ("v", tensor_meta [ 2 ]) ]
+      ~params:[ "m"; "v" ]
+      ~nodes:[ batch_norm_no_training_node () ]
+      ~graph_outputs:[ as_tensor "y" ]
+      ()
+  in
+  dump "rank 4:" json;
+  [%expect
+    {|
+    rank 4:
+    graph
+    inputs:
+      [t0 f32 [H=2 W=1 C=2] ->[n0], t1 f32 [C=2] ->[n1] constant,
+       t2 f32 [C=2] ->[n1] constant]
+    nodes:
+      group g1 torch.ops.aten._native_batch_norm_legit_no_training.default:
+        n0: [t3 f32 [W=2 C=2] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t4 f32 [W=2 C=2] ->[n2]] =
+          batch_norm
+            x=t3 <-n0
+            weight=none
+            bias=none
+            running_mean=t1
+            running_var=t2
+            params={channel=C; eps=0}
+        n2: [t5 f32 [H=2 W=1 C=2]] = permute x=t4 <-n1 perm=[H<-C, W<-H, C<-W]
+    outputs: [t5 f32 [H=2 W=1 C=2] <-n2] |}]
+
+let%expect_test
+    "_native_batch_norm_legit_no_training rank-2 (N,C) needs no relayout" =
+  let json =
+    program ~x_sizes:[ 1; 2 ]
+      ~extra_tensor_values:
+        [ ("m", tensor_meta [ 2 ]); ("v", tensor_meta [ 2 ]) ]
+      ~params:[ "m"; "v" ]
+      ~nodes:[ batch_norm_no_training_node () ]
+      ~graph_outputs:[ as_tensor "y" ]
+      ()
+  in
+  dump "rank 2:" json;
+  [%expect
+    {|
+    rank 2:
+    graph
+    inputs:
+      [t0 f32 [C=2] ->[n0], t1 f32 [C=2] ->[n1] constant,
+       t2 f32 [C=2] ->[n1] constant]
+    nodes:
+      group g1 torch.ops.aten._native_batch_norm_legit_no_training.default:
+        n0: [t3 f32 [C=2] ->[n1]] = permute x=t0 perm=[]
+        n1: [t4 f32 [C=2] ->[n2]] =
+          batch_norm
+            x=t3 <-n0
+            weight=none
+            bias=none
+            running_mean=t1
+            running_var=t2
+            params={channel=C; eps=0}
+        n2: [t5 f32 [C=2]] = permute x=t4 <-n1 perm=[]
+    outputs: [t5 f32 [C=2] <-n2] |}]
 
 let%expect_test "_native_batch_norm_legit.no_stats retains its output tuple" =
   let json =

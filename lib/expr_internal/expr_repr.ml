@@ -3,7 +3,22 @@
 
 type binary_op = Add | Div | Mul | Sub
 type unary_op = Cos | Erf | Exp | Log | Sin | Sqrt | Trunc
-type reduction_kind = Max | Sum
+
+(* [Argmax_index]/[Argmax_value] share [Max]/[Sum]'s [var]/[lo]/[hi]/[body]
+   shape exactly -- [body] is still the per-position comparison key -- so they
+   need no new field on [reduction]. What differs is the FOLD: [Max]/[Sum]
+   combine consecutive [body] values with a commutative operator that never
+   needs to know which position produced the winner, while the two [Argmax_*]
+   kinds share ONE underlying paired (value, position) fold using
+   [Max_op.pool_better] (ties keep the incumbent, a NaN retriggers) and differ
+   only in which half of that pair they report -- [Argmax_value] the winning
+   [body] value, [Argmax_index] the winning position, carried out as a value
+   via the same conversion [Value_of_index] uses. Reusing [Max]'s [Float_max]
+   comparator for the value half and inspecting [body]'s value again for the
+   index half (two separate folds) is exactly the "fall out of step on NaN"
+   defect [Intrinsic.Max_pool]'s own doc comment warns about, so both halves
+   must run the identical [pool_better] fold. *)
+type reduction_kind = Argmax_index | Argmax_value | Max | Sum
 
 type value =
   | Binary of binary_op * value * value

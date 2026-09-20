@@ -94,6 +94,104 @@ let%expect_test "Direct: amax over W, keepdim=false shifts H's data onto W" =
     tensor f32 [H=2 W=1 C=1] {3, 7}
     tensor f32 [W=2 C=1] {3, 7} |}]
 
+let%expect_test "Direct: max_dim values+index over W, per (H,C)" =
+  let module M = Reduce.MaxDim.Compute (Direct) in
+  (* [H2 W2 C1]; row H0 = [1,3] (max 3 at w=1), row H1 = [5,7] (max 7 at w=1). *)
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:2 ~c:1 in
+  let x =
+    Tensor.materialize x_shape (fun c ->
+        [| [| 1.; 3. |]; [| 5.; 7. |] |].(row c).(col c))
+  in
+  let p = { Reduce.MaxDim.axis = Axis.W; keepdim = true } in
+  let shape = Reduce.MaxDim.output_shape ~x_shape p in
+  Format.printf "values: %a@." (pp_result Tensor.pp)
+    (eval_tensor shape (M.value_pixel p ~x_shape ~x));
+  Format.printf "index:  %a@." (pp_result Tensor.pp)
+    (eval_tensor shape (M.index_pixel p ~x_shape ~x));
+  [%expect
+    {|
+    values: tensor f32 [H=2 W=1 C=1] {3, 7}
+    index:  tensor f32 [H=2 W=1 C=1] {1, 1} |}]
+
+let%expect_test
+    "MaxDim output_shape: keepdim true collapses in place, false shifts" =
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:2 ~c:1 in
+  let x =
+    Tensor.materialize x_shape (fun c ->
+        [| [| 1.; 3. |]; [| 5.; 7. |] |].(row c).(col c))
+  in
+  let module M = Reduce.MaxDim.Compute (Direct) in
+  let run ~keepdim =
+    let p = { Reduce.MaxDim.axis = Axis.W; keepdim } in
+    let shape = Reduce.MaxDim.output_shape ~x_shape p in
+    Format.printf "values: %a@." (pp_result Tensor.pp)
+      (eval_tensor shape (M.value_pixel p ~x_shape ~x));
+    Format.printf "index:  %a@." (pp_result Tensor.pp)
+      (eval_tensor shape (M.index_pixel p ~x_shape ~x))
+  in
+  run ~keepdim:true;
+  run ~keepdim:false;
+  (* Same values {3,7} and indices {1,1}; keepdim=true keeps them on H,
+     keepdim=false moves them to W -- exactly [Amax]'s own repacking rule. *)
+  [%expect
+    {|
+    values: tensor f32 [H=2 W=1 C=1] {3, 7}
+    index:  tensor f32 [H=2 W=1 C=1] {1, 1}
+    values: tensor f32 [W=2 C=1] {3, 7}
+    index:  tensor f32 [W=2 C=1] {1, 1} |}]
+
+(* ---- max_dim ties / NaN, against ATen's `max.dim` convention --------------
+
+   [Reduce.MaxDim] folds with [Max_op.pool_better] (the same predicate
+   [Max_pool2dWithIndices] uses), NOT ATen's own `max.dim` kernel (which stops
+   scanning at the first NaN): see [Semantics.SEMANTICS.max_dim]'s own doc
+   comment for why matching the engine's existing paired-fold convention was
+   chosen over replicating that kernel's early-exit exactly. Two NaNs with
+   distinct payloads make "the last NaN wins" observable, the same idiom
+   [pool_test.ml]'s own NaN fixture uses. *)
+
+let bits_of tensor =
+  let (Tensor.Tensor t) = tensor in
+  Vec6.fold_coords t.Tensor.shape ~init:[] ~f:(fun acc c ->
+      Printf.sprintf "%08lx" (Int32.bits_of_float (Tensor.read tensor c)) :: acc)
+  |> List.rev |> String.concat " "
+
+let pp_bits ppf tensor = Format.pp_print_string ppf (bits_of tensor)
+let nan1 = Int32.float_of_bits 0x7FC00001l
+let nan2 = Int32.float_of_bits 0x7FC00002l
+
+let row_input values =
+  let n = Array.length values in
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:n ~c:1 in
+  (x_shape, Tensor.materialize x_shape (fun c -> values.(col c)))
+
+let%expect_test "Direct: max_dim keeps the incumbent (first index) on a tie" =
+  let module M = Reduce.MaxDim.Compute (Direct) in
+  let x_shape, x = row_input [| 5.; 3.; 5.; 1. |] in
+  let p = { Reduce.MaxDim.axis = Axis.W; keepdim = false } in
+  let shape = Reduce.MaxDim.output_shape ~x_shape p in
+  Format.printf "value: %a@." (pp_result Tensor.pp)
+    (eval_tensor shape (M.value_pixel p ~x_shape ~x));
+  Format.printf "index: %a@." (pp_result Tensor.pp)
+    (eval_tensor shape (M.index_pixel p ~x_shape ~x));
+  [%expect
+    {|
+    value: tensor f32 [C=1] {5}
+    index: tensor f32 [C=1] {0} |}]
+
+let%expect_test "Direct: max_dim — the last NaN wins, with its index" =
+  let module M = Reduce.MaxDim.Compute (Direct) in
+  let x_shape, x = row_input [| nan1; 5.; nan2; 7. |] in
+  let p = { Reduce.MaxDim.axis = Axis.W; keepdim = false } in
+  let shape = Reduce.MaxDim.output_shape ~x_shape p in
+  Format.printf "value: %a@." (pp_result pp_bits)
+    (eval_tensor shape (M.value_pixel p ~x_shape ~x));
+  Format.printf "index: %a@." (pp_result Tensor.pp)
+    (eval_tensor shape (M.index_pixel p ~x_shape ~x));
+  [%expect {|
+    value: 7fc00002
+    index: tensor f32 [C=1] {2} |}]
+
 let%expect_test "Direct: vector_norm over spatial (H,W), per channel" =
   let module M = Reduce.Vector_norm.Compute (Direct) in
   (* Same input as the mean/amax fixtures above: channel 0's L2 norm over

@@ -617,16 +617,23 @@ let is_nontrivial_node (node : Pytorch_types.Node.t) =
 let materialized_output_names esc (node : Pytorch_types.Node.t) =
   match node.target with
   | "torch.ops.aten._native_batch_norm_legit_no_training.default"
-  | "torch.ops.aten.adaptive_max_pool2d.default" | "torch.ops.aten.max.dim"
+  | "torch.ops.aten.adaptive_max_pool2d.default"
   | "torch.ops.aten.max_pool2d_with_indices.default"
-  (* Fourth entry, and the first three whose dropped outputs are NOT empty:
-     they are real f32 tensors that happen to be dead in every occurrence the
+  (* Third entry, and the first two whose dropped outputs are NOT empty: they
+     are real f32 tensors that happen to be dead in every occurrence the
      corpus contains. Dropping them here is what makes the
      [`Live_layer_norm_stats] check below load-bearing rather than
      decorative for [native_layer_norm.default]; [adaptive_max_pool2d.default]
      and [max_pool2d_with_indices.default] have no analogous liveness check of
      their own (unlike layer_norm's stats, their indices output is routed to
-     a [Discard] sink by the arm above rather than silently assumed dead). *)
+     a [Discard] sink by the arm above rather than silently assumed dead).
+
+     [torch.ops.aten.max.dim] does NOT join this bucket: its index is a
+     plausible live output elsewhere (`values, indices = x.max(dim)`), so
+     both its serialized names stay tracked here and its own lowering arm
+     (native_interp_lower_reduce.ml) decides retain-vs-discard per output
+     from [ctx.reads], the way [torch.ops.aten.lstm.input]'s three outputs
+     already do. *)
   | "torch.ops.aten.native_layer_norm.default" ->
       [ List.hd (output_names esc node) ]
   | _ -> output_names esc node
