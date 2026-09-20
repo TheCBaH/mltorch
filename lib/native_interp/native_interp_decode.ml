@@ -70,9 +70,12 @@ let tensor_shape esc (graph : Pytorch_types.Graph.t) name =
    Every other dtype (including one an op-specific check downstream, e.g.
    [Index_list.Wrong_dtype], rejects with a more specific message) keeps the
    engine's F32 default -- this is a signature fix for the one dtype the
-   engine actually models, not a general dtype validator. *)
+   engine actually models, not a general dtype validator. BOOL is now modelled
+   too: a captured Bool constant keeps its Bool format (its bytes are read as
+   logical values and stored canonical, see [tensor_of_pt2]). *)
 let tensor_fmt (graph : Pytorch_types.Graph.t) name =
   match String_map.find_opt name graph.tensor_values with
+  | Some { TensorMeta.dtype = ScalarType.BOOL; _ } -> Payload.Fmt Payload.Bool
   | Some { TensorMeta.dtype = ScalarType.LONG; _ } -> Payload.Fmt Payload.I64
   | Some _ | None -> Payload.Fmt Payload.F32
 

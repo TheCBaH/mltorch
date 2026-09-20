@@ -52,7 +52,7 @@ let%expect_test "an exact I64 fold is not proved by float equality" =
   [%expect
     {|
     {t0} -> {} identical: vacuous
-    {t1} -> {t1} identical: unproved: eval: unknown edge t1 [exhaustive] |}]
+    {t1} -> {t1} identical: unproved: eval: An int64 stage other than a bare Float_to_i64 cast has no grounded representation [exhaustive] |}]
 
 (* The folded (permuted) payload with [big] replaced by 2^53: equal as floats,
    different as int64. *)
@@ -73,4 +73,4 @@ let%expect_test "a destination differing only past 2^53 is not proved identical"
   [%expect
     {|
     {t0} -> {} identical: vacuous
-    {t1} -> {t1} identical: unproved: eval: unknown edge t1 [exhaustive] |}]
+    {t1} -> {t1} identical: unproved: eval: An int64 stage other than a bare Float_to_i64 cast has no grounded representation [exhaustive] |}]

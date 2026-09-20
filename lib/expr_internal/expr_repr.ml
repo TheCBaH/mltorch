@@ -37,9 +37,9 @@ type reduction_kind = Argmax_index | Argmax_value | Max | Sum
    an [int64 value] tree is no longer unconditionally closed/environment-free
    -- only a tree built without [I64_load]/[I64_local]/[I64_local_at] is (see
    [Value.eval_i64]'s own doc comment on what that means for its standalone
-   callback shape). Typed [Reduce]/[Scan_at] at [int64 value] (reduction
-   accumulators, scan previous-row references) remain later work;
-   [I64_local]/[I64_local_at] give scalar/vector locals the same
+   callback shape). A typed reduction exists as [I64_sum] (an exact modular
+   accumulator, sum only); a typed [Scan_at] (previous-row references) does
+   not, and waits for an op that needs an int64 scan. [I64_local]/[I64_local_at] give scalar/vector locals the same
    typed treatment [Local]/[Local_at] already have at [float value]. Every
    other constructor below still returns [float value], the original
    inhabited index. *)
@@ -77,6 +77,13 @@ type _ value =
           [Value_of_index] (which can lose precision converting a large index to
           binary64), this conversion is total and lossless -- every
           [int]-represented index, on any backend width, fits in [int64]. *)
+  | I64_sum : i64_reduction -> int64 value
+      (** Typed reduction: the sum of [i64_body] over [i64_lo..i64_hi),
+          accumulated in int64 with the same modular two's-complement policy as
+          [I64_binary]. The accumulator is exact, never a float, so a sum past
+          2^53 is not rounded; an empty range is [0L]. Only a sum exists at
+          this carrier: a max or argmax needs its own tested tie/ordering
+          policy and is added with the operator that needs it. *)
   | I64_to_float : int64 value -> float value
       (** Exact-to-working-float, potentially lossy above 2^53 (design's "I64 to
           Float" policy) -- no exceptional case, unlike the reverse direction.
@@ -124,6 +131,13 @@ and bool_expr =
           double-[Value_lt] "nonzero" test wrongly reports NaN as zero; see the
           design's "Float to Bool" policy). *)
   | Value_lt of float value * float value
+
+and i64_reduction = {
+  i64_var : Reduce_var.t;
+  i64_lo : Role.Position.t Index.t;
+  i64_hi : Role.Delta.t Index.t;
+  i64_body : int64 value;
+}
 
 and reduction = {
   kind : reduction_kind;

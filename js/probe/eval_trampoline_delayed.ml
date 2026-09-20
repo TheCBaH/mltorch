@@ -409,6 +409,10 @@ let eval_trampoline_delayed ~threshold ?(local = fun _ -> None)
           | Some x -> resume depth k x
           | None -> Err.Escape.throw esc (`Unbound_local v))
       | Value.I64_of_index i -> resume depth k (Int64.of_int (idx reducers i))
+      | Value.I64_sum _ ->
+      (* A benchmark candidate, not the production evaluator: it does not model
+         the int64 sum, and says so instead of answering. *)
+          invalid_arg "eval_trampoline_delayed: I64_sum is not modelled"
       | Value.I64_binary (op, a, b) ->
           eval_i64 reducers depth a (fun depth av ->
               eval_i64 reducers depth b (fun depth bv ->

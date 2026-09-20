@@ -150,6 +150,9 @@ and walk_i64 ~value ~value_i64 ~index ~intrinsic acc (e : int64 Value.t) =
   | Value.I64_local _ -> acc
   | Value.I64_local_at (_, i) -> index.idx acc i
   | Value.I64_of_index i -> index.idx acc i
+  | Value.I64_sum r ->
+      let acc = index.idx (index.idx acc r.i64_lo) r.i64_hi in
+      walk_i64 ~value ~value_i64 ~index ~intrinsic acc r.i64_body
   | Value.Select (c, a, b) ->
       let acc = walk_bool ~value ~value_i64 ~index ~intrinsic acc c in
       walk_i64 ~value ~value_i64 ~index ~intrinsic
@@ -372,6 +375,11 @@ let measure_with_locals_gen ~local =
     | Value.I64_of_index i ->
         let d, left = index sub left i in
         (1 + d, left)
+    | Value.I64_sum r ->
+        let dlo, left = index sub left r.i64_lo in
+        let dhi, left = index sub left r.i64_hi in
+        let dbody, left = value_i64 bound sub left r.i64_body in
+        (1 + Stdlib.max (Stdlib.max dlo dhi) dbody, left)
     | Value.Select (c, a, b) ->
         let g, left = value_bool bound sub left c in
         let da, left = value_i64 bound sub left a in
@@ -541,6 +549,7 @@ and scoped_locals_i64 ~f bound acc (e : int64 Value.t) =
   | Value.I64_local v -> f bound acc (Scalar_ref v)
   | Value.I64_local_at (v, _) -> f bound acc (Vector_ref v)
   | Value.I64_of_index _ -> acc
+  | Value.I64_sum r -> scoped_locals_i64 ~f bound acc r.i64_body
   | Value.Select (c, a, b) ->
       let acc = scoped_locals_bool ~f bound acc c in
       scoped_locals_i64 ~f bound (scoped_locals_i64 ~f bound acc a) b
@@ -665,6 +674,7 @@ and scan_cost_i64 (e : int64 Value.t) : int64 * int =
   | Value.I64_const _ | Value.I64_load _ -> (0L, 0)
   | Value.I64_local _ | Value.I64_local_at _ -> (0L, 0)
   | Value.I64_of_index _ -> (0L, 0)
+  | Value.I64_sum r -> scan_cost_i64 r.i64_body
   | Value.Select (c, a, b) ->
       let uc, sc = scan_cost_bool c in
       let ua, sa = scan_cost_i64 a and ub, sb = scan_cost_i64 b in
@@ -762,6 +772,12 @@ and free_reducers_go_i64 bound acc (e : int64 Value.t) =
   | Value.I64_local _ -> acc
   | Value.I64_local_at (_, i) -> free_reducers_idx bound acc i
   | Value.I64_of_index i -> free_reducers_idx bound acc i
+  | Value.I64_sum r ->
+      (* Bounds sit OUTSIDE the binder, exactly as a float [Reduce]'s do. *)
+      let acc =
+        free_reducers_idx bound (free_reducers_idx bound acc r.i64_lo) r.i64_hi
+      in
+      free_reducers_go_i64 (Reduce_var.Set.add r.i64_var bound) acc r.i64_body
   | Value.Select (c, a, b) ->
       let acc = free_reducers_go_bool bound acc c in
       free_reducers_go_i64 bound (free_reducers_go_i64 bound acc a) b
@@ -821,6 +837,7 @@ let binders e =
     | Value.I64_const _ | Value.I64_load _ -> acc
     | Value.I64_local _ | Value.I64_local_at _ -> acc
     | Value.I64_of_index _ -> acc
+    | Value.I64_sum r -> go_i64 (r.i64_var :: acc) r.i64_body
     | Value.Select (c, a, b) ->
         let acc = go_bool acc c in
         go_i64 (go_i64 acc a) b
@@ -864,6 +881,7 @@ let local_binders e =
     | Value.I64_const _ | Value.I64_load _ -> acc
     | Value.I64_local _ | Value.I64_local_at _ -> acc
     | Value.I64_of_index _ -> acc
+    | Value.I64_sum r -> go_i64 acc r.i64_body
     | Value.Select (c, a, b) ->
         let acc = go_bool acc c in
         go_i64 (go_i64 acc a) b

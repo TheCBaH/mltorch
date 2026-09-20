@@ -140,6 +140,13 @@ end
    conversion as [`Data_index_unresolved], never a false success.
    [`Unsupported_i64_comparison_ground] is the same rejection for a [Select]
    guarded by an [I64_eq]/[I64_lt] predicate.
+   [`Unsupported_i64_stage_ground] rejects an int64 stage whose pixel is not a
+   bare [Float_to_i64] cast (int64 arithmetic has no grounded form). A stage
+   that IS one grounds as [trunc] of its float operand: truncation is injective
+   onto the int64 it names, so two such terms are bit-identical exactly when
+   the int64 results are, on every input where both casts succeed (a NaN,
+   infinity or out-of-range operand is a runtime error on that side, which no
+   grounded term models, as for any other partial float operation).
    [`Unsupported_value_eq_ground] is the same rejection for a [Select] guarded
    by a [Value_eq] predicate: [Ground_expr] has a [lt] guard constructor
    ([Value_lt]'s own target) but no [eq] one yet, so a [Value_eq] guard cannot
@@ -155,6 +162,7 @@ type error =
   | `Region of Region_program.error
   | `Unknown_edge of Tensor_id.t
   | `Unsupported_i64_comparison_ground
+  | `Unsupported_i64_stage_ground
   | `Unsupported_i64_to_float_ground
   | `Unsupported_value_eq_ground ]
 

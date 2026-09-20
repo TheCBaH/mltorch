@@ -81,6 +81,16 @@ type reduce_progress = {
   best_i : int;
 }
 
+(* The int64 twin of [reduce_progress], for [I64_sum]: an exact int64
+   accumulator and no argmax half. *)
+type i64_sum_progress = {
+  sum : Expr_repr.i64_reduction;
+  sum_outer_reducers : reducers;
+  sum_hi : int;
+  sum_i : int;
+  sum_acc : int64;
+}
+
 (* Carried across one [Scan_at]'s row/lane fill. Fields are mutated in place
    (this is [eval_machine], not the reuse-optimized candidate, but a scan's
    own progress record is single-threaded through the loop regardless of
@@ -113,6 +123,7 @@ type frame =
   | Value_lt_left of float Value.t * reducers
   | Value_lt_right of float
   | Reduce_step of reduce_progress
+  | I64_sum_step of i64_sum_progress
   | Scan_fill of scan_progress
   | I64_binary_left of Value.i64_binary_op * int64 Value.t * reducers
   | I64_binary_right of Value.i64_binary_op * int64
@@ -290,6 +301,28 @@ let eval_machine ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
         | None -> Err.Escape.throw esc (`Unbound_local v))
     | Eval_i64_state (Value.I64_of_index i, reducers), _ ->
         (loop [@tailcall]) (I64_result (Int64.of_int (idx reducers i))) frames
+    | Eval_i64_state (Value.I64_sum r, reducers), _ ->
+        let lo = idx reducers r.Expr_repr.i64_lo
+        and hi = idx reducers r.Expr_repr.i64_hi in
+        if lo >= hi then (loop [@tailcall]) (I64_result 0L) frames
+        else begin
+          on_reduction ();
+          let bound v =
+            if Reduce_var.equal v r.Expr_repr.i64_var then Some lo
+            else reducers v
+          in
+          (loop [@tailcall])
+            (Eval_i64_state (r.Expr_repr.i64_body, bound))
+            (I64_sum_step
+               {
+                 sum = r;
+                 sum_outer_reducers = reducers;
+                 sum_hi = hi;
+                 sum_i = lo;
+                 sum_acc = 0L;
+               }
+            :: frames)
+        end
     | Eval_state (Value.Value_of_index i, reducers), _ ->
         (loop [@tailcall])
           (Float_result (vchk (float_of_index (idx reducers i))))
@@ -506,6 +539,20 @@ let eval_machine ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
           (loop [@tailcall])
             (Eval_state (rs.reduction.Reduction.body, bound))
             (Reduce_step { rs with i; acc; best_i } :: rest)
+        end
+    | I64_result v, I64_sum_step rs :: rest ->
+        let acc = Int64.add rs.sum_acc v in
+        if rs.sum_i + 1 >= rs.sum_hi then (loop [@tailcall]) (I64_result acc) rest
+        else begin
+          on_reduction ();
+          let i = rs.sum_i + 1 in
+          let bound w =
+            if Reduce_var.equal w rs.sum.Expr_repr.i64_var then Some i
+            else rs.sum_outer_reducers w
+          in
+          (loop [@tailcall])
+            (Eval_i64_state (rs.sum.Expr_repr.i64_body, bound))
+            (I64_sum_step { rs with sum_i = i; sum_acc = acc } :: rest)
         end
     | Float_result v, Scan_fill p :: rest ->
         p.cur_row.(p.lane_cursor) <- v;

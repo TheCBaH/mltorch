@@ -121,6 +121,23 @@ let of_aten t : (Tensor.packed, [> error ]) Err.t =
                              data;
                            };
                        }))
+          | Aten_scalar_type.Bool -> (
+              match Aten_tensor.data Aten_dtype.bool t with
+              | None -> Err.fail (`Null_data_ptr Aten_scalar_type.Bool)
+              | Some src ->
+                  let data = Array1.create int8_unsigned c_layout n in
+                  Array1.blit src data;
+                  Err.return
+                    (Tensor.Tensor
+                       {
+                         Tensor.shape;
+                         payload =
+                           {
+                             Payload.fmt = Payload.Bool;
+                             quant = Payload.No_quant;
+                             data;
+                           };
+                       }))
           | other -> Err.fail (`Unsupported_dtype other)))
 
 (* Convert a Native packed float32, float64 or int64 tensor to a 1-D ATen tensor.
@@ -146,4 +163,7 @@ let to_aten_flat (native : Tensor.packed) =
   | Payload.I64 ->
       let n = (Vec6.numel r.shape :> int) in
       Err.return (Aten_tensor.of_bigarray Aten_dtype.int64 r.payload.data [ n ])
+  | Payload.Bool ->
+      let n = (Vec6.numel r.shape :> int) in
+      Err.return (Aten_tensor.of_bigarray Aten_dtype.bool r.payload.data [ n ])
   | fmt -> Err.fail (`Unsupported_native_fmt (Payload.Fmt fmt))

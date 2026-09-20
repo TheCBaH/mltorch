@@ -210,6 +210,14 @@ and at_i64 ~names env lenv n fmt (e : int64 Value.t) =
   | Value.I64_of_index i ->
       Fmt.pf fmt "i64_of_index(%a)" idxe i;
       n
+  | Value.I64_sum r ->
+      (* Named before descending, like a float [Reduce]. *)
+      let name = Fmt.str "r%d" n in
+      let inner = Reduce_var.Map.add r.i64_var name env in
+      Fmt.pf fmt "i64_sum(%s=%a..%a: " name idxe r.i64_lo idxe r.i64_hi;
+      let n = at_i64 ~names inner lenv (n + 1) fmt r.i64_body in
+      Fmt.pf fmt ")";
+      n
   | Value.Select (c, a, b) ->
       Fmt.pf fmt "select(";
       let n = guard_at ~names env lenv n fmt c in

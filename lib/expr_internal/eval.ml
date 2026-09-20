@@ -228,6 +228,7 @@ let value_at (type a) (scalar : a Scalar.t)
           | Some x -> x
           | None -> Err.Escape.throw esc (`Unbound_local v))
       | Value.I64_of_index i -> Int64.of_int (idx reducers i)
+      | Value.I64_sum r -> (eval_i64_sum [@tailcall]) depth reducers r
       | Value.Reduce r ->
           let lo = idx reducers r.Reduction.lo
           and hi = idx reducers r.Reduction.hi in
@@ -368,6 +369,24 @@ let value_at (type a) (scalar : a Scalar.t)
      answers from [prev_row]; every other local reference in [update] still
      resolves through the caller's own [local]/[local_at], since a Region
      scan's update legitimately reads earlier Region locals. *)
+  (* The exact int64 twin of [Sum]'s ordered left fold: modular two's-complement
+     addition from [0L], no float accumulator. A sibling rather than an inline
+     arm of [eval] so its locals do not enlarge [eval]'s own stack frame, which
+     the depth ceilings are measured against. *)
+  and eval_i64_sum depth reducers (r : Expr_repr.i64_reduction) : int64 =
+    let lo = idx reducers r.i64_lo and hi = idx reducers r.i64_hi in
+    let rec fold i acc =
+      if i >= hi then acc
+      else
+        let bound v =
+          if Reduce_var.equal v r.i64_var then Some i else reducers v
+        in
+        on_reduction ();
+        (fold [@tailcall]) (i + 1)
+          (Int64.add acc (eval Scalar.I64 depth bound r.i64_body))
+    in
+    fold lo 0L
+
   and eval_scan_at depth reducers s row_i lane_i : float =
     let row = idx reducers row_i and lane = idx reducers lane_i in
     let projection = { Scan_projection.local = None; row; lane } in
@@ -546,6 +565,7 @@ let value ?(local : Local_var.t -> float option = fun _ -> None)
         | Some x -> x
         | None -> Err.Escape.throw esc (`Unbound_local v))
     | Value.I64_of_index i -> Int64.of_int (idx reducers i)
+    | Value.I64_sum r -> (eval_i64_sum [@tailcall]) reducers r
     | Value.Reduce r ->
         let lo = idx reducers r.Reduction.lo
         and hi = idx reducers r.Reduction.hi in
@@ -659,6 +679,20 @@ let value ?(local : Local_var.t -> float option = fun _ -> None)
      [prev_row]; every other local reference in [update] still resolves
      through the caller's own [local]/[local_at], since a Region scan's
      update legitimately reads earlier Region locals. *)
+  (* See the cutoff branch's [eval_i64_sum]. *)
+  and eval_i64_sum reducers (r : Expr_repr.i64_reduction) : int64 =
+    let lo = idx reducers r.i64_lo and hi = idx reducers r.i64_hi in
+    let rec fold i acc =
+      if i >= hi then acc
+      else
+        let bound v =
+          if Reduce_var.equal v r.i64_var then Some i else reducers v
+        in
+        on_reduction ();
+        (fold [@tailcall]) (i + 1) (Int64.add acc (eval bound r.i64_body))
+    in
+    fold lo 0L
+
   and eval_scan_at reducers s row_i lane_i : float =
     let row = idx reducers row_i and lane = idx reducers lane_i in
     let projection = { Scan_projection.local = None; row; lane } in

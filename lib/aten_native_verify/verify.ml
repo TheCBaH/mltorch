@@ -176,6 +176,24 @@ let compare_tensors ~atol ~output aten_t native_t =
       in
       if total = 0 then Err.return ()
       else Err.fail (Payload_mismatch { output; total; points })
+  | Aten_scalar_type.Bool, Payload.Bool ->
+      (* Compared as logical values: a nonzero byte is true on either side. *)
+      let aten_ba = Option.get (Aten_tensor.data Aten_dtype.bool aten_t) in
+      let native_ba = native_r.payload.data in
+      let points, total =
+        scan native_r.shape (fun coord i ->
+            let av = aten_ba.{i} <> 0 and nv = native_ba.{i} <> 0 in
+            if av <> nv then
+              Some
+                {
+                  coord;
+                  aten_val = (if av then 1. else 0.);
+                  native_val = (if nv then 1. else 0.);
+                }
+            else None)
+      in
+      if total = 0 then Err.return ()
+      else Err.fail (Payload_mismatch { output; total; points })
   | Aten_scalar_type.Int, Payload.I32 ->
       let aten_ba = Option.get (Aten_tensor.data Aten_dtype.int32 aten_t) in
       let native_ba = native_r.payload.data in

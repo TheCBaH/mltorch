@@ -24,6 +24,7 @@ module Env = struct
     shapes : Vec6.shape Tensor_id.Map.t;
     side : [ `Dst | `Src ];
     stages : Stage_program.Stage.t Tensor_id.Map.t;
+    i64_stages : Stage_program.Stage_i64.t Tensor_id.Map.t;
   }
 
   let of_program ?(constants = Tensor_id.Map.empty) ?constant_store
@@ -48,6 +49,14 @@ module Env = struct
       List.fold_left
         (fun acc (st : Stage_program.Stage.t) -> add_sig st.sg acc)
         (fmts, shapes) p.Stage_program.stages
+    in
+    let (fmts, shapes), i64_stages =
+      List.fold_left
+        (fun (acc, m) (st : Stage_program.Stage_i64.t) ->
+          ( add_sig st.sg acc,
+            Tensor_id.Map.add st.Stage_program.Stage_i64.id st m ))
+        ((fmts, shapes), Tensor_id.Map.empty)
+        p.Stage_program.stages_i64
     in
     let consts =
       List.fold_left
@@ -89,6 +98,7 @@ module Env = struct
       shapes;
       side;
       stages;
+      i64_stages;
     }
 
   (* The cell this graph's [id] reads as. Side-qualified, always: turning it
@@ -213,6 +223,7 @@ type error =
   | `Region of Region_program.error
   | `Unknown_edge of Tensor_id.t
   | `Unsupported_i64_comparison_ground
+  | `Unsupported_i64_stage_ground
   | `Unsupported_i64_to_float_ground
   | `Unsupported_value_eq_ground ]
 
@@ -234,6 +245,10 @@ let pp_error fmt : [< error ] -> unit = function
       Fmt.string fmt
         "An I64 comparison has no grounded/fused representation yet (only the \
          plain evaluator supports it)"
+  | `Unsupported_i64_stage_ground ->
+      Fmt.string fmt
+        "An int64 stage other than a bare Float_to_i64 cast has no grounded \
+         representation"
   | `Unsupported_i64_to_float_ground ->
       Fmt.string fmt
         "I64_to_float has no grounded/fused representation yet (only the plain \
@@ -807,6 +822,19 @@ let body_at esc env ~meter ~arena (st : Stage_program.Stage.t) coord =
     ~rvars:[]
     (Region_program.output program)
 
+(* A bare [Float_to_i64] cast grounds as [trunc] of its operand (exactness note
+   at [`Unsupported_i64_stage_ground] in the .mli); no [Round]: int64 is stored
+   as is. *)
+let i64_stage_at esc env ~meter ~arena (st : Stage_program.Stage_i64.t) coord =
+  match st.Stage_program.Stage_i64.pixel with
+  | Expr.Value.Float_to_i64 operand ->
+      node esc meter
+        (Ground_expr.unary arena Expr.Value.Trunc
+           (ground esc ~env ~meter ~arena ~frame:Frame.empty
+              ~coord:(Expr_bridge.coord_of_vec6 (Vec6.map Dim.to_int coord))
+              ~rvars:[] operand))
+  | _ -> Err.Escape.throw esc `Unsupported_i64_stage_ground
+
 (* Registers a NEW root, in a freshly allocated arena that belongs to it for
    the rest of its lifetime -- including every later [expand] on the [Term.t]
    this returns. A separate arena per registered root (rather than one shared
@@ -833,6 +861,9 @@ let at ~meter env id coord =
       register_new
         (node esc meter
            (Ground_expr.round arena (body_at esc env ~meter ~arena st coord)))
+  | None when Option.is_some (Tensor_id.Map.find_opt id env.Env.i64_stages) ->
+      let st = Tensor_id.Map.find id env.Env.i64_stages in
+      register_new (i64_stage_at esc env ~meter ~arena st coord)
   | None -> (
       (* An input edge can itself be a bound constant — [fold_const]'s whole
          output is one — so the same binding [leaf] applies inside a body has to

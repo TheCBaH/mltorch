@@ -98,6 +98,12 @@ and duplicate_binder_go_i64 bound lbound (e : int64 Value.t) =
   | Value.I64_const _ | Value.I64_load _ -> None
   | Value.I64_local _ | Value.I64_local_at _ -> None
   | Value.I64_of_index _ -> None
+  | Value.I64_sum r ->
+      if Reduce_var.Set.mem r.i64_var bound then Some (Reducer r.i64_var)
+      else
+        duplicate_binder_go_i64
+          (Reduce_var.Set.add r.i64_var bound)
+          lbound r.i64_body
   | Value.Select (c, a, b) -> (
       match duplicate_binder_go_bool bound lbound c with
       | Some _ as d -> d
