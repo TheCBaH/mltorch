@@ -253,6 +253,13 @@ and guard_at ~names env lenv n fmt = function
   | Bool.Index_eq (a, b) ->
       Fmt.pf fmt "(%a = %a)" (idx env) a (idx env) b;
       n
+  | Bool.Value_eq (a, b) ->
+      Fmt.pf fmt "(";
+      let n = at ~names env lenv n fmt a in
+      Fmt.pf fmt " = ";
+      let n = at ~names env lenv n fmt b in
+      Fmt.pf fmt ")";
+      n
   | Bool.Value_lt (a, b) ->
       Fmt.pf fmt "(";
       let n = at ~names env lenv n fmt a in

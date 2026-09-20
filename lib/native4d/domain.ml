@@ -180,12 +180,13 @@ let check_node view (n : node) =
   | Add _ | Addcmul _ | Add_scalar _ | Adaptive_avg_pool2d _
   | Adaptive_max_pool2d _ | Adaptive_max_pool2d_with_indices _ | Avg_pool2d _
   | Bitwise_not _ | Bmm _ | Clamp _ | Clone _ | Col2im _ | Conv1d _ | Conv2d _
-  | Conv2d_padding _ | Cos _ | Div _ | Div_scalar _ | Expand _
-  | Floor_div_scalar _ | Gelu _ | Gt_scalar _ | Hardsigmoid _ | Hardswish _
-  | Hardtanh _ | Im2col _ | Leaky_relu _ | Linear _ | Lstm _ | Max_pool2d _
-  | Max_pool2d_with_indices _ | Mul _ | Mul_scalar _ | Pow _ | Relu _ | Repeat _
-  | Reshape _ | Rpow_scalar _ | Rsub_scalar _ | Sigmoid _ | Silu _ | Sin _
-  | Sqrt _ | Sub _ | To_copy _ | Upsample_bicubic2d _ | Upsample_bilinear2d _
+  | Conv2d_padding _ | Cos _ | Div _ | Div_scalar _ | Eq_scalar _ | Eq_tensor _
+  | Expand _ | Floor_div_scalar _ | Gelu _ | Gt_scalar _ | Hardsigmoid _
+  | Hardswish _ | Hardtanh _ | Im2col _ | Leaky_relu _ | Linear _ | Lstm _
+  | Max_pool2d _ | Max_pool2d_with_indices _ | Mul _ | Mul_scalar _
+  | Ne_scalar _ | Ne_tensor _ | Pow _ | Relu _ | Repeat _ | Reshape _
+  | Rpow_scalar _ | Rsub_scalar _ | Sigmoid _ | Silu _ | Sin _ | Sqrt _ | Sub _
+  | To_copy _ | Upsample_bicubic2d _ | Upsample_bilinear2d _
   | Upsample_nearest2d _ ->
       Err.return ()
   | Arange _ | Eye _ | Zeros _ -> Err.return ()

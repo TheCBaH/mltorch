@@ -40,6 +40,7 @@ let trunc a = Expr.Builder.map Expr.Value.trunc a
 let cos a = Expr.Builder.map Expr.Value.cos a
 let sin a = Expr.Builder.map Expr.Value.sin a
 let lt a b = map2 Expr.Bool.value_lt a b
+let eq a b = map2 Expr.Bool.value_eq a b
 let select c a b = map3 Expr.Value.select c a b
 let index_zero = Expr.Index.zero
 let index_extent (e : Dim.extent Dim.t) = Expr.Index.const (e :> int)

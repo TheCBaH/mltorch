@@ -25,6 +25,7 @@ let sin = Stdlib.sin
 type b = bool
 
 let lt a b = a < b
+let eq a b = a = b
 let select c a b = if c then a else b
 let index_zero : Semantics.position index = Dim.index 0
 

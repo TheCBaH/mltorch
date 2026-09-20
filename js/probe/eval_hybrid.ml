@@ -207,6 +207,7 @@ let eval_hybrid ~cutoff ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
       let depth = depth + 1 in
       match b with
       | Bool.Index_eq (a, b) -> Int.equal (idx reducers a) (idx reducers b)
+      | Bool.Value_eq (a, b) -> go depth reducers a = go depth reducers b
       | Bool.Value_lt (a, b) -> go depth reducers a < go depth reducers b
       | Bool.I64_eq (a, b) ->
           Int64.equal (eval_i64 depth reducers a) (eval_i64 depth reducers b)

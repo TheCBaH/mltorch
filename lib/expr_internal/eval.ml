@@ -308,6 +308,8 @@ let value_at (type a) (scalar : a Scalar.t)
       let depth = depth + 1 in
       match b with
       | Bool.Index_eq (a, b) -> Int.equal (idx reducers a) (idx reducers b)
+      | Bool.Value_eq (a, b) ->
+          eval Scalar.Float depth reducers a = eval Scalar.Float depth reducers b
       | Bool.Value_lt (a, b) ->
           eval Scalar.Float depth reducers a < eval Scalar.Float depth reducers b
       | Bool.I64_eq (a, b) ->
@@ -613,6 +615,7 @@ let value ?(local : Local_var.t -> float option = fun _ -> None)
     | Value.Value_of_index i -> vchk (float_of_index (idx reducers i))
   and guard reducers = function
     | Bool.Index_eq (a, b) -> Int.equal (idx reducers a) (idx reducers b)
+    | Bool.Value_eq (a, b) -> eval reducers a = eval reducers b
     | Bool.Value_lt (a, b) -> eval reducers a < eval reducers b
     | Bool.I64_eq (a, b) -> Int64.equal (eval reducers a) (eval reducers b)
     | Bool.I64_lt (a, b) -> Int64.compare (eval reducers a) (eval reducers b) < 0

@@ -61,6 +61,9 @@ let load_a = Value.load src_a zero_coord
 let load_b = Value.load src_b zero_coord
 let binary_expr = Value.add load_a load_b
 
+let value_eq_expr =
+  Value.select (Bool.value_eq load_a load_b) (Value.const 1.) (Value.const 0.)
+
 let value_lt_expr =
   Value.select (Bool.value_lt load_a load_b) (Value.const 1.) (Value.const 0.)
 
@@ -110,5 +113,6 @@ let check () =
       Corpus.candidate_evaluators
   in
   check_site ~site:"Binary" ~expr:binary_expr;
+  check_site ~site:"Value_eq" ~expr:value_eq_expr;
   check_site ~site:"Value_lt" ~expr:value_lt_expr;
   !failures

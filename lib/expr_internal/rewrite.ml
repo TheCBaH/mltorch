@@ -254,12 +254,24 @@ and rebuild_i64 ~idx ~src ~on_load ~on_i64_load ~on_i64_local ~on_i64_local_at
       (Value.Select (c, a, b), st)
 
 (* [bool_expr]'s own rebuild: [I64_eq]/[I64_lt]'s operands go through
-   [rebuild_i64], [Value_lt]'s through [rebuild], [Index_eq]'s carry only
-   indices. *)
+   [rebuild_i64], [Value_eq]/[Value_lt]'s through [rebuild], [Index_eq]'s
+   carry only indices. *)
 and rebuild_bool ~idx ~src ~on_load ~on_i64_load ~on_i64_local ~on_i64_local_at
     ~on_local ~on_local_at ~on_local_scan_at ~on_reduce ~on_local_bind env lenv
     c st =
   match c with
+  | Bool.Value_eq (x, y) ->
+      let x, st =
+        rebuild ~idx ~src ~on_load ~on_i64_load ~on_i64_local ~on_i64_local_at
+          ~on_local ~on_local_at ~on_local_scan_at ~on_reduce ~on_local_bind env
+          lenv x st
+      in
+      let y, st =
+        rebuild ~idx ~src ~on_load ~on_i64_load ~on_i64_local ~on_i64_local_at
+          ~on_local ~on_local_at ~on_local_scan_at ~on_reduce ~on_local_bind env
+          lenv y st
+      in
+      (Bool.Value_eq (x, y), st)
   | Bool.Value_lt (x, y) ->
       let x, st =
         rebuild ~idx ~src ~on_load ~on_i64_load ~on_i64_local ~on_i64_local_at

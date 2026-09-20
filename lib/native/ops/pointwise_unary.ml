@@ -358,10 +358,12 @@ module To_copy = struct
       | Float -> v
       | Long -> S.trunc v
       | Bool ->
-          S.select
-            (S.lt (S.const 0.) v)
-            (S.const 1.)
-            (S.select (S.lt v (S.const 0.)) (S.const 1.) (S.const 0.))
+          (* [S.eq], not the double-[lt] "nonzero test" this replaced: that
+             formula returned false for NaN (neither [lt 0 x] nor [lt x 0]
+             holds), contradicting the design's "Float to Bool" policy
+             (NaN is truthy) and real ATen's own [.bool()] cast -- see
+             [Semantics.eq]'s own doc comment. *)
+          S.select (S.eq v (S.const 0.)) (S.const 0.) (S.const 1.)
   end
 
   (* Explicit int64-input counterpart of [Compute]'s [Float] arm only -- the
@@ -453,10 +455,11 @@ module Bitwise_not = struct
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel x (out : Semantics.position S.index Vec6.t) =
       let v = S.load x out in
-      S.select
-        (S.lt (S.const 0.) v)
-        (S.const 0.)
-        (S.select (S.lt v (S.const 0.)) (S.const 0.) (S.const 1.))
+      (* [S.eq], matching [To_copy]'s own Bool-cast fix: negating a
+         double-[lt] "nonzero test" is false for NaN too, the same defect --
+         see [To_copy.Compute]'s [Bool] arm and [Semantics.eq]'s doc
+         comment. *)
+      S.select (S.eq v (S.const 0.)) (S.const 1.) (S.const 0.)
   end
 end
 

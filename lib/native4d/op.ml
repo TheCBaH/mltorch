@@ -46,6 +46,8 @@ type op =
   | Depthwise_conv2d of Ops4.Depthwise_conv2d.t
   | Div of Pointwise.Div.t
   | Div_scalar of Pointwise.Div_scalar.t
+  | Eq_scalar of Pointwise.Eq_scalar.t
+  | Eq_tensor of Pointwise.Eq_tensor.t
   | Expand4 of Ops4.Expand4.t
   | Eye4 of Ops4.Eye4.t
   | Floor_div_scalar of Pointwise.Floor_div_scalar.t
@@ -68,6 +70,8 @@ type op =
   | Meshgrid of Meshgrid.Meshgrid.t
   | Mul of Pointwise.Mul.t
   | Mul_scalar of Pointwise.Mul_scalar.t
+  | Ne_scalar of Pointwise.Ne_scalar.t
+  | Ne_tensor of Pointwise.Ne_tensor.t
   | Pad4 of Ops4.Pad4.t
   | Permute4 of Ops4.Permute4.t
   | Pow of Pointwise.Pow.t
@@ -247,6 +251,18 @@ let op_registry : (module OP) list =
       let project = function Div_scalar t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Pointwise.Eq_scalar
+
+      let inject t = Eq_scalar t
+      let project = function Eq_scalar t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Eq_tensor
+
+      let inject t = Eq_tensor t
+      let project = function Eq_tensor t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Ops4.Expand4
 
       let inject t = Expand4 t
@@ -377,6 +393,18 @@ let op_registry : (module OP) list =
 
       let inject t = Mul_scalar t
       let project = function Mul_scalar t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Ne_scalar
+
+      let inject t = Ne_scalar t
+      let project = function Ne_scalar t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Ne_tensor
+
+      let inject t = Ne_tensor t
+      let project = function Ne_tensor t -> Some t | _ -> None
     end : OP);
     (module struct
       include Ops4.Pad4

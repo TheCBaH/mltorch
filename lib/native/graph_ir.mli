@@ -60,11 +60,21 @@ type op =
   | Div of Pointwise.Div.t
   | Div_scalar of Pointwise.Div_scalar.t
   | Discard of { x : tensor_ref }
-    (* A sink: consumes one edge and produces NO output (its [Node.outputs] is
+  (* A sink: consumes one edge and produces NO output (its [Node.outputs] is
        empty). Used to route a dead op output — e.g. the argmax indices of
        [Max_pool2d_with_indices] — so the op keeps its full ATen arity while the
        edge is explicitly marked unused for a future pruning pass. Like
        [Discard], it is handled inline wherever the [op_registry] is folded. *)
+  (* `eq.Scalar(self, other) -> self == other`, real ATen output dtype Bool
+     (float numerical equality, NaN unequal, signed zeros equal). No corpus
+     caller today; landed on Direct only, matching
+     [Gt_scalar]'s own Direct-first precedent below -- Symbolic/Native4D/
+     importer legalization remain open. *)
+  | Eq_scalar of Pointwise.Eq_scalar.t
+  (* `eq.Tensor(self, other) -> self == other`, tensor-tensor form of
+     [Eq_scalar] (same IEEE equality policy, broadcast operands). No corpus
+     caller today; landed on Direct only. *)
+  | Eq_tensor of Pointwise.Eq_tensor.t
   | Expand of Pointwise.Expand.t
   | Eye of Factory.Eye.t
   | Floor_div_scalar of Pointwise.Floor_div_scalar.t
@@ -107,6 +117,17 @@ type op =
   | Meshgrid of Meshgrid.Meshgrid.t
   | Mul of Pointwise.Mul.t
   | Mul_scalar of Pointwise.Mul_scalar.t
+  (* `ne.Scalar(self, other) -> self != other`, real ATen output dtype Bool
+     (the negation of [Eq_scalar]'s IEEE numerical equality, NaN unequal, signed
+     zeros equal -- so [ne] on a NaN operand is TRUE). No corpus caller today;
+     landed on Direct only, matching [Eq_scalar]'s
+     own Direct-first precedent above -- Symbolic/Native4D/importer
+     legalization remain open. *)
+  | Ne_scalar of Pointwise.Ne_scalar.t
+  (* `ne.Tensor(self, other) -> self != other`, tensor-tensor form of
+     [Ne_scalar] (negated [Eq_tensor]). No corpus caller today; landed on
+     Direct only. *)
+  | Ne_tensor of Pointwise.Ne_tensor.t
   | Pad of Pad.Pad.t
   | Permute of Permute.Permute.t
   | Pow of Pointwise.Pow.t

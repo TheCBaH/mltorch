@@ -139,7 +139,12 @@ end
    grounding/fusion does not yet -- feeds the same generic [Unproved]
    conversion as [`Data_index_unresolved], never a false success.
    [`Unsupported_i64_comparison_ground] is the same rejection for a [Select]
-   guarded by an [I64_eq]/[I64_lt] predicate. *)
+   guarded by an [I64_eq]/[I64_lt] predicate.
+   [`Unsupported_value_eq_ground] is the same rejection for a [Select] guarded
+   by a [Value_eq] predicate: [Ground_expr] has a [lt] guard constructor
+   ([Value_lt]'s own target) but no [eq] one yet, so a [Value_eq] guard cannot
+   be lowered to it -- the missing grounded [eq] guard. Feeds the same generic
+   [Unproved] conversion as the I64 cases, never a false success. *)
 type error =
   [ Expr.Eval.error
   | `Data_index_unresolved
@@ -150,7 +155,8 @@ type error =
   | `Region of Region_program.error
   | `Unknown_edge of Tensor_id.t
   | `Unsupported_i64_comparison_ground
-  | `Unsupported_i64_to_float_ground ]
+  | `Unsupported_i64_to_float_ground
+  | `Unsupported_value_eq_ground ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
 

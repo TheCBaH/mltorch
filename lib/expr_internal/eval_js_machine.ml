@@ -83,6 +83,8 @@ type reuse_frame =
   | Unary_result of Value.unary_op
   | Round_f32_result
   | Select_result of float Value.t * float Value.t * reducers
+  | Value_eq_left of float Value.t * reducers
+  | Value_eq_right of float
   | Value_lt_left of float Value.t * reducers
   | Value_lt_right of float
   | Reduce_step of reuse_reduce_progress
@@ -206,6 +208,15 @@ let run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
     | Float_result a, Unary_result op -> Float_result (Value.apply_unary op a)
     | Float_result a, Round_f32_result ->
         Float_result (Int32.float_of_bits (Int32.bits_of_float a))
+    | Float_result first, Value_eq_left (second_expr, reducers) ->
+        reuse_stack_push st (Value_eq_right first);
+        Eval_state (second_expr, reducers)
+    | Float_result second, Value_eq_right first ->
+#if defined MELANGE_BACKEND
+        Bool_result (first = second)
+#else
+        Bool_result (second = first)
+#endif
     | Float_result first, Value_lt_left (second_expr, reducers) ->
         reuse_stack_push st (Value_lt_right first);
         Eval_state (second_expr, reducers)
@@ -448,6 +459,14 @@ let run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
     | Guard_state (Bool.I64_lt (a, b), reducers) ->
         reuse_stack_push st (I64_lt_left (b, reducers));
         (loop [@tailcall]) (Eval_i64_state (a, reducers))
+    | Guard_state (Bool.Value_eq (a, b), reducers) ->
+#if defined MELANGE_BACKEND
+        reuse_stack_push st (Value_eq_left (b, reducers));
+        (loop [@tailcall]) (Eval_state (a, reducers))
+#else
+        reuse_stack_push st (Value_eq_left (a, reducers));
+        (loop [@tailcall]) (Eval_state (b, reducers))
+#endif
     | Guard_state (Bool.Value_lt (a, b), reducers) ->
 #if defined MELANGE_BACKEND
         reuse_stack_push st (Value_lt_left (b, reducers));

@@ -26,17 +26,18 @@ let%expect_test
         Graph_builder.(
           build ~name:"edgenext_mask_pattern" ~outputs:(fun r -> [ r ])
           @@
-          let* x = input ~shape:(s1c 4) ~name:"x" () in
+          let* x = input ~shape:(s1c 5) ~name:"x" () in
           let* b = to_copy ~name:"mask" Pointwise.To_copy.Bool x in
           bitwise_not ~name:"out" b)
     in
     let x =
-      Tensor.materialize (s1c 4) (fun c ->
+      Tensor.materialize (s1c 5) (fun c ->
           match Dim.to_int (Vec6.get c Axis.C) with
           | 0 -> 0.0
           | 1 -> 3.0
           | 2 -> -2.0
-          | _ -> 0.0)
+          | 3 -> 0.0
+          | _ -> Float.nan)
     in
     let* env =
       lift_eval (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ x ]))
@@ -46,10 +47,15 @@ let%expect_test
     Err.return (mask, out)
   in
   Format.printf "%a@." (pp_result (pp_named_tensor_pair "mask" "out")) result;
-  (* x = {0, 3, -2, 0} -> genuine Bool storage {false, true, true, false} ->
-     not {true, false, false, true}, [Bitwise_not]'s own output now also
-     genuine Bool storage. *)
+  (* x = {0, 3, -2, 0, nan} -> genuine Bool storage {false, true, true,
+     false, true} -- the trailing NaN is TRUTHY per the design's "Float to
+     Bool" policy and real ATen's own [.bool()] cast, which [S.eq]'s fix to
+     [To_copy]/[Bitwise_not]'s formula now gets right (the prior double-[lt]
+     "nonzero test" read NaN as false, since neither [lt 0 x] nor [lt x 0]
+     holds for it) ->
+     not {true, false, false, true, false}, [Bitwise_not]'s own output now
+     also genuine Bool storage. *)
   [%expect
     {|
-    mask = tensor bool [C=4] {0, 1, 1, 0}
-    out = tensor bool [C=4] {1, 0, 0, 1} |}]
+    mask = tensor bool [C=5] {0, 1, 1, 0, 1}
+    out = tensor bool [C=5] {1, 0, 0, 1, 0} |}]

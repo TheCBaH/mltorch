@@ -157,11 +157,11 @@ and walk_i64 ~value ~value_i64 ~index ~intrinsic acc (e : int64 Value.t) =
         b
 
 (* [bool_expr]'s own walk: [I64_eq]/[I64_lt]'s operands go through
-   [walk_i64], [Value_lt]'s through [walk], [Index_eq]'s carry no value of
-   their own. *)
+   [walk_i64], [Value_eq]/[Value_lt]'s through [walk], [Index_eq]'s carry no
+   value of their own. *)
 and walk_bool ~value ~value_i64 ~index ~intrinsic acc = function
   | Bool.Index_eq (x, y) -> index.idx (index.idx acc x) y
-  | Bool.Value_lt (x, y) ->
+  | Bool.Value_eq (x, y) | Bool.Value_lt (x, y) ->
       walk ~value ~value_i64 ~index ~intrinsic
         (walk ~value ~value_i64 ~index ~intrinsic acc x)
         y
@@ -378,16 +378,16 @@ let measure_with_locals_gen ~local =
         let db, left = value_i64 bound sub left b in
         (1 + Stdlib.max g (Stdlib.max da db), left)
   (* [bool_expr]'s own metering: [I64_eq]/[I64_lt]'s operands go through
-     [value_i64], [Value_lt]'s through [value], [Index_eq]'s through [index].
-     Not itself charged as a node -- [Select]'s predicate was never a
-     separate node in this measure, only whichever leaves it bottoms out at
-     are. *)
+     [value_i64], [Value_eq]/[Value_lt]'s through [value], [Index_eq]'s
+     through [index]. Not itself charged as a node -- [Select]'s predicate
+     was never a separate node in this measure, only whichever leaves it
+     bottoms out at are. *)
   and value_bool bound budget left = function
     | Expr_repr.Index_eq (x, y) ->
         let dx, left = index budget left x in
         let dy, left = index budget left y in
         (Stdlib.max dx dy, left)
-    | Expr_repr.Value_lt (x, y) ->
+    | Expr_repr.Value_eq (x, y) | Expr_repr.Value_lt (x, y) ->
         let dx, left = value bound budget left x in
         let dy, left = value bound budget left y in
         (Stdlib.max dx dy, left)
@@ -546,11 +546,11 @@ and scoped_locals_i64 ~f bound acc (e : int64 Value.t) =
       scoped_locals_i64 ~f bound (scoped_locals_i64 ~f bound acc a) b
 
 (* [bool_expr]'s own scope-aware walk: [I64_eq]/[I64_lt]'s operands go
-   through [scoped_locals_i64], [Value_lt]'s through [scoped_locals],
-   [Index_eq]'s hold no local reference. *)
+   through [scoped_locals_i64], [Value_eq]/[Value_lt]'s through
+   [scoped_locals], [Index_eq]'s hold no local reference. *)
 and scoped_locals_bool ~f bound acc = function
   | Bool.Index_eq _ -> acc
-  | Bool.Value_lt (x, y) ->
+  | Bool.Value_eq (x, y) | Bool.Value_lt (x, y) ->
       scoped_locals ~f bound (scoped_locals ~f bound acc x) y
   | Bool.I64_eq (x, y) | Bool.I64_lt (x, y) ->
       scoped_locals_i64 ~f bound (scoped_locals_i64 ~f bound acc x) y
@@ -671,12 +671,12 @@ and scan_cost_i64 (e : int64 Value.t) : int64 * int =
       (sat_add_i64 uc (sat_add_i64 ua ub), Stdlib.max sc (Stdlib.max sa sb))
 
 (* [bool_expr]'s own cost: [I64_eq]/[I64_lt]'s operands go through
-   [scan_cost_i64], [Value_lt]'s through [scan_cost], [Index_eq]'s hide no
-   scan. *)
+   [scan_cost_i64], [Value_eq]/[Value_lt]'s through [scan_cost], [Index_eq]'s
+   hide no scan. *)
 and scan_cost_bool (c : Expr_repr.bool_expr) : int64 * int =
   match c with
   | Expr_repr.Index_eq _ -> (0L, 0)
-  | Expr_repr.Value_lt (x, y) ->
+  | Expr_repr.Value_eq (x, y) | Expr_repr.Value_lt (x, y) ->
       let ux, sx = scan_cost x and uy, sy = scan_cost y in
       (sat_add_i64 ux uy, Stdlib.max sx sy)
   | Expr_repr.I64_eq (x, y) | Expr_repr.I64_lt (x, y) ->
@@ -767,11 +767,11 @@ and free_reducers_go_i64 bound acc (e : int64 Value.t) =
       free_reducers_go_i64 bound (free_reducers_go_i64 bound acc a) b
 
 (* [bool_expr]'s own free-reducer walk: [I64_eq]/[I64_lt]'s operands go
-   through [go_i64], [Value_lt]'s through [go]. *)
+   through [go_i64], [Value_eq]/[Value_lt]'s through [go]. *)
 and free_reducers_go_bool bound acc = function
   | Expr_repr.Index_eq (x, y) ->
       free_reducers_idx bound (free_reducers_idx bound acc x) y
-  | Expr_repr.Value_lt (x, y) ->
+  | Expr_repr.Value_eq (x, y) | Expr_repr.Value_lt (x, y) ->
       free_reducers_go bound (free_reducers_go bound acc x) y
   | Expr_repr.I64_eq (x, y) | Expr_repr.I64_lt (x, y) ->
       free_reducers_go_i64 bound (free_reducers_go_i64 bound acc x) y
@@ -826,7 +826,7 @@ let binders e =
         go_i64 (go_i64 acc a) b
   and go_bool acc = function
     | Expr_repr.Index_eq _ -> acc
-    | Expr_repr.Value_lt (x, y) -> go (go acc x) y
+    | Expr_repr.Value_eq (x, y) | Expr_repr.Value_lt (x, y) -> go (go acc x) y
     | Expr_repr.I64_eq (x, y) | Expr_repr.I64_lt (x, y) ->
         go_i64 (go_i64 acc x) y
   in
@@ -869,7 +869,7 @@ let local_binders e =
         go_i64 (go_i64 acc a) b
   and go_bool acc = function
     | Expr_repr.Index_eq _ -> acc
-    | Expr_repr.Value_lt (x, y) -> go (go acc x) y
+    | Expr_repr.Value_eq (x, y) | Expr_repr.Value_lt (x, y) -> go (go acc x) y
     | Expr_repr.I64_eq (x, y) | Expr_repr.I64_lt (x, y) ->
         go_i64 (go_i64 acc x) y
   in

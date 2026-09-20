@@ -304,6 +304,23 @@ let cumsum ?name params x =
 (* A sink for a dead edge: appends a [Discard] node with no output. *)
 let discard x = push_node (Discard { x }) []
 
+(* Real ATen's [eq.Scalar] always produces a bool result, so the output is
+   unconditionally [Bool] (matching [gt_scalar]'s own convention below) --
+   not conditioned on the operand's format. *)
+let eq_scalar ?name scalar x =
+  op1 ?name
+    ~fmt:Payload.(Fmt Bool)
+    ~kind:"eq_scalar"
+    (Eq_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar })
+
+(* Real ATen's [eq.Tensor] always produces a bool result, so the output is
+   unconditionally [Bool], the tensor-tensor twin of [eq_scalar] above. *)
+let eq_tensor ?name a b =
+  op1 ?name
+    ~fmt:Payload.(Fmt Bool)
+    ~kind:"eq_tensor"
+    (Eq_tensor { Pointwise.Bin.a; b })
+
 let expand ?name params x =
   op1 ?name ~kind:"expand" (Expand { Pointwise.Expand.params; x })
 
@@ -469,6 +486,23 @@ let mul ?name a b =
 let mul_scalar ?name scalar x =
   op1 ?name ~kind:"mul_scalar"
     (Mul_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar })
+
+(* Real ATen's [ne.Scalar] always produces a bool result, so the output is
+   unconditionally [Bool] (matching [eq_scalar]/[gt_scalar]'s own convention
+   above) -- not conditioned on the operand's format. *)
+let ne_scalar ?name scalar x =
+  op1 ?name
+    ~fmt:Payload.(Fmt Bool)
+    ~kind:"ne_scalar"
+    (Ne_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar })
+
+(* Real ATen's [ne.Tensor] always produces a bool result, so the output is
+   unconditionally [Bool], the tensor-tensor twin of [ne_scalar] above. *)
+let ne_tensor ?name a b =
+  op1 ?name
+    ~fmt:Payload.(Fmt Bool)
+    ~kind:"ne_tensor"
+    (Ne_tensor { Pointwise.Bin.a; b })
 
 (* The fill is narrowed to f32 HERE, at the one point every construction path
    goes through, exactly as [add_scalar]'s scalar is: an unnarrowed float64

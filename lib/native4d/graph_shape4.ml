@@ -336,6 +336,13 @@ let output_shape (op : Op.t)
   | Div_scalar { Pointwise.Scalar_bin.x; _ } ->
       let* x_shape = shape x in
       one (four (Pointwise.Div_scalar.output_shape x_shape))
+  | Eq_scalar { Pointwise.Scalar_bin.x; _ } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.Eq_scalar.output_shape x_shape))
+  | Eq_tensor { Pointwise.Bin.a; b } ->
+      let* a_shape = shape a in
+      let* b_shape = shape b in
+      one (four (Pointwise.Eq_tensor.output_shape a_shape b_shape))
   (* The target is already a [Shape4.t] -- an expansion cannot leave the
      dialect, the same reason [Reshape4]'s target is typed rather than
      validated for axes. Delegates to Native's own rule like every other arm,
@@ -504,6 +511,13 @@ let output_shape (op : Op.t)
   | Mul_scalar { Pointwise.Scalar_bin.x; _ } ->
       let* x_shape = shape x in
       one (four (Pointwise.Mul_scalar.output_shape x_shape))
+  | Ne_scalar { Pointwise.Scalar_bin.x; _ } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.Ne_scalar.output_shape x_shape))
+  | Ne_tensor { Pointwise.Bin.a; b } ->
+      let* a_shape = shape a in
+      let* b_shape = shape b in
+      one (four (Pointwise.Ne_tensor.output_shape a_shape b_shape))
   | Pad4 { Ops4.Pad4.params; x } ->
       let* x_shape = shape x in
       one (four (Pad.Pad.output_shape ~x_shape (pad_params params)))

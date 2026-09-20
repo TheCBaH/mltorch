@@ -405,6 +405,62 @@ module Floor_div_scalar = struct
   end
 end
 
+(* [eq.Scalar(self, other) -> self == other]. Uses [SEMANTICS.eq], NOT
+   [S.lt]-composed: [S.eq] is IEEE numerical equality -- NaN unequal to
+   everything including itself, signed zeros equal -- which is exactly real
+   ATen's [eq] on a float operand, and which no [S.lt]/[S.select] composition
+   can express (see [Semantics.eq]'s own doc comment for the NaN defect this op
+   deliberately avoids repeating). Same two-layer split as
+   [Gt_scalar] below: the output VALUE here is still float 0./1.
+   ([Compute] is [SEMANTICS]-generic, shared with [Symbolic]);
+   [Graph_builder.eq_scalar] declares the edge [Bool] and [Eval_direct]
+   writes genuine [Payload.Bool] storage from this same formula. *)
+module Eq_scalar = struct
+  type t = Scalar_bin.t
+
+  let name = "Eq_scalar"
+  let jsont = Scalar_bin.jsont ~name
+  let operands = Scalar_bin.operands
+  let map_operands = Scalar_bin.map_operands
+  let pp pp_ref fmt t = Scalar_bin.pp ~op:"eq_scalar" pp_ref fmt t
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    module B = Scalar_binary (S)
+
+    let eq v s = S.select (S.eq v s) (S.const 1.) (S.const 0.)
+    let pixel ~scalar x out = B.pixel ~combine:eq ~scalar x out
+  end
+end
+
+(* [ne.Scalar(self, other) -> self != other]. Real ATen's [ne] is [eq]'s
+   logical negation -- reuses the same [SEMANTICS.eq] primitive [Eq_scalar]
+   above uses, just a negated [S.select] arm order, rather than an
+   [S.lt]-composed formula which cannot express IEEE equality's
+   NaN-unequal-to-everything case (a NaN operand must read [ne] TRUE, the
+   same as every other comparison against it). Same two-layer split as
+   [Eq_scalar]/[Gt_scalar]: the output VALUE here is still float 0./1.
+   ([Compute] is [SEMANTICS]-generic, shared with [Symbolic]);
+   [Graph_builder.ne_scalar] declares the edge [Bool] and [Eval_direct]
+   writes genuine [Payload.Bool] storage from this same formula. *)
+module Ne_scalar = struct
+  type t = Scalar_bin.t
+
+  let name = "Ne_scalar"
+  let jsont = Scalar_bin.jsont ~name
+  let operands = Scalar_bin.operands
+  let map_operands = Scalar_bin.map_operands
+  let pp pp_ref fmt t = Scalar_bin.pp ~op:"ne_scalar" pp_ref fmt t
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    module B = Scalar_binary (S)
+
+    let ne v s = S.select (S.eq v s) (S.const 0.) (S.const 1.)
+    let pixel ~scalar x out = B.pixel ~combine:ne ~scalar x out
+  end
+end
+
 (* [gt.Scalar(self, other) -> self > other]. Needs no new [SEMANTICS]
    primitive: built from the same [S.lt]/[S.select] pair [Bitwise_not.
    Compute]'s own nonzero-test formula already uses (see pointwise_unary.ml),
@@ -430,6 +486,58 @@ module Gt_scalar = struct
 
     let gt v s = S.select (S.lt s v) (S.const 1.) (S.const 0.)
     let pixel ~scalar x out = B.pixel ~combine:gt ~scalar x out
+  end
+end
+
+(* [eq.Tensor(self, other) -> self == other]. Tensor-tensor form of
+   [Eq_scalar]: same [SEMANTICS.eq] primitive (IEEE numerical equality -- NaN
+   unequal to everything, signed zeros equal), broadcast via
+   [Binary] instead of [Scalar_binary] since BOTH operands are runtime
+   tensors rather than one tensor and one compile-time scalar. The output
+   VALUE here is still float 0./1. ([Compute] is [SEMANTICS]-generic, shared
+   with [Symbolic]); [Graph_builder.eq_tensor] declares the edge [Bool] and
+   [Eval_direct] writes genuine [Payload.Bool] storage from this same
+   formula. *)
+module Eq_tensor = struct
+  type t = Bin.t
+
+  let name = "Eq_tensor"
+  let jsont = Bin.jsont ~name
+  let operands = Bin.operands
+  let map_operands = Bin.map_operands
+  let pp pp_ref fmt t = Bin.pp ~op:"eq_tensor" pp_ref fmt t
+  let output_shape = broadcast_output_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    module B = Binary (S)
+
+    let eq a b = S.select (S.eq a b) (S.const 1.) (S.const 0.)
+
+    let pixel ~a_shape ~b_shape a b out =
+      B.pixel ~combine:eq ~a_shape ~b_shape a b out
+  end
+end
+
+(* [ne.Tensor(self, other) -> self != other]. Tensor-tensor form of
+   [Ne_scalar]: [Eq_tensor]'s own formula with the [S.select] arms swapped,
+   the same negation relationship [Ne_scalar] has to [Eq_scalar]. *)
+module Ne_tensor = struct
+  type t = Bin.t
+
+  let name = "Ne_tensor"
+  let jsont = Bin.jsont ~name
+  let operands = Bin.operands
+  let map_operands = Bin.map_operands
+  let pp pp_ref fmt t = Bin.pp ~op:"ne_tensor" pp_ref fmt t
+  let output_shape = broadcast_output_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    module B = Binary (S)
+
+    let ne a b = S.select (S.eq a b) (S.const 0.) (S.const 1.)
+
+    let pixel ~a_shape ~b_shape a b out =
+      B.pixel ~combine:ne ~a_shape ~b_shape a b out
   end
 end
 

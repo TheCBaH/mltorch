@@ -296,6 +296,51 @@ let%expect_test "Direct: mul_scalar" =
        (M.pixel ~scalar:3. x));
   [%expect {| tensor f32 [C=3] {3, 6, 9} |}]
 
+(* [eq.Scalar(self, other) -> self == other]: uses [SEMANTICS.eq], IEEE
+   numerical equality, so a NaN operand is false against ANY scalar
+   (including another NaN, though this fixture only compares against a
+   finite scalar) -- matching real ATen's own [eq] behavior on NaN, with no
+   special-cased NaN branch needed here (unlike a hypothetical [S.lt]-based
+   formula, which could not distinguish "equal" from "both fail every
+   ordering test" -- see [Semantics.eq]'s own doc comment). Same two-level
+   split as [Gt_scalar] below: this level exercises [Compute]'s own
+   [SEMANTICS]-generic float 0./1. formula directly; [Eval_direct]'s own
+   dispatch arm lands genuine [Payload.Bool] storage from the same
+   formula. *)
+let%expect_test "Direct: eq_scalar" =
+  let module E = Pointwise.Eq_scalar.Compute (Direct) in
+  let x_shape = s1c 5 in
+  let x =
+    Tensor.materialize x_shape (fun c ->
+        [| 1.; 2.; 3.; Float.nan; Float.neg_infinity |].(chan c))
+  in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Pointwise.Eq_scalar.output_shape x_shape)
+       (E.pixel ~scalar:2. x));
+  [%expect {| tensor f32 [C=5] {0, 1, 0, 0, 0} |}]
+
+(* [ne.Scalar(self, other) -> self != other]: real ATen's [ne] is [eq]'s
+   logical negation, so a NaN operand is TRUE against ANY scalar (NaN is
+   unequal to everything, including itself) -- the exact pointwise negation
+   of "Direct: eq_scalar" above's own {0, 1, 0, 0, 0}. Same two-level split
+   as [Eq_scalar]/[Gt_scalar]: this level exercises [Compute]'s own
+   [SEMANTICS]-generic float 0./1. formula directly; [Eval_direct]'s own
+   dispatch arm lands genuine [Payload.Bool] storage from the same
+   formula. *)
+let%expect_test "Direct: ne_scalar" =
+  let module N = Pointwise.Ne_scalar.Compute (Direct) in
+  let x_shape = s1c 5 in
+  let x =
+    Tensor.materialize x_shape (fun c ->
+        [| 1.; 2.; 3.; Float.nan; Float.neg_infinity |].(chan c))
+  in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Pointwise.Ne_scalar.output_shape x_shape)
+       (N.pixel ~scalar:2. x));
+  [%expect {| tensor f32 [C=5] {1, 0, 1, 1, 1} |}]
+
 (* [gt.Scalar(self, other) -> self > other]: strict ordering, so an exact
    equality is false (not merely the closest boundary case: 2. > 2. is
    false), and a NaN operand is false on either side of the comparison
@@ -319,6 +364,51 @@ let%expect_test "Direct: gt_scalar" =
        (Pointwise.Gt_scalar.output_shape x_shape)
        (G.pixel ~scalar:2. x));
   [%expect {| tensor f32 [C=5] {0, 0, 1, 0, 0} |}]
+
+(* [eq.Tensor(self, other) -> self == other]: tensor-tensor form of
+   [Eq_scalar], broadcast via [Binary] instead of [Scalar_binary] since BOTH
+   operands are runtime tensors. Same shape, no broadcast here, so the test
+   isolates the comparison itself: index 3 pairs NaN against NaN, which is
+   still unequal per IEEE (NaN is unequal to itself), matching real ATen's
+   own [eq.Tensor] behavior. *)
+let%expect_test "Direct: eq_tensor" =
+  let module E = Pointwise.Eq_tensor.Compute (Direct) in
+  let a_shape = s1c 5 in
+  let b_shape = s1c 5 in
+  let a =
+    Tensor.materialize a_shape (fun c ->
+        [| 1.; 2.; 3.; Float.nan; Float.neg_infinity |].(chan c))
+  in
+  let b =
+    Tensor.materialize b_shape (fun c ->
+        [| 1.; 5.; 3.; Float.nan; Float.neg_infinity |].(chan c))
+  in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Pointwise.Eq_tensor.output_shape a_shape b_shape)
+       (E.pixel ~a_shape ~b_shape a b));
+  [%expect {| tensor f32 [C=5] {1, 0, 1, 0, 1} |}]
+
+(* [ne.Tensor(self, other) -> self != other]: the exact pointwise negation of
+   "Direct: eq_tensor" above's own {1, 0, 1, 0, 1} -- NaN paired against NaN
+   reads TRUE (unequal to everything, including itself). *)
+let%expect_test "Direct: ne_tensor" =
+  let module N = Pointwise.Ne_tensor.Compute (Direct) in
+  let a_shape = s1c 5 in
+  let b_shape = s1c 5 in
+  let a =
+    Tensor.materialize a_shape (fun c ->
+        [| 1.; 2.; 3.; Float.nan; Float.neg_infinity |].(chan c))
+  in
+  let b =
+    Tensor.materialize b_shape (fun c ->
+        [| 1.; 5.; 3.; Float.nan; Float.neg_infinity |].(chan c))
+  in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Pointwise.Ne_tensor.output_shape a_shape b_shape)
+       (N.pixel ~a_shape ~b_shape a b));
+  [%expect {| tensor f32 [C=5] {0, 1, 0, 1, 0} |}]
 
 (* Broadcast: [b] has an extent-1 axis (W) where [a] does not;
    [Pointwise.broadcast_coord] reads b at index 0 there, so its per-channel value

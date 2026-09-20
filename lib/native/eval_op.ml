@@ -179,6 +179,13 @@ module Make (S : Semantics.SEMANTICS) = struct
           match bias with None -> fill 0. (shape_of x) | Some b -> operand b
         in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) ~weight ~bias out
+    | Eq_scalar { Pointwise.Scalar_bin.x; scalar } ->
+        let module C = Pointwise.Eq_scalar.Compute (S) in
+        C.pixel ~scalar (operand x) out
+    | Eq_tensor { Pointwise.Bin.a; b } ->
+        let module C = Pointwise.Eq_tensor.Compute (S) in
+        C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)
+          (operand b) out
     | Gt_scalar { Pointwise.Scalar_bin.x; scalar } ->
         let module C = Pointwise.Gt_scalar.Compute (S) in
         C.pixel ~scalar (operand x) out
@@ -245,6 +252,13 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Mul_scalar { Pointwise.Scalar_bin.x; scalar } ->
         let module C = Pointwise.Mul_scalar.Compute (S) in
         C.pixel ~scalar (operand x) out
+    | Ne_scalar { Pointwise.Scalar_bin.x; scalar } ->
+        let module C = Pointwise.Ne_scalar.Compute (S) in
+        C.pixel ~scalar (operand x) out
+    | Ne_tensor { Pointwise.Bin.a; b } ->
+        let module C = Pointwise.Ne_tensor.Compute (S) in
+        C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)
+          (operand b) out
     | Pad { Pad.Pad.params; x } ->
         let module C = Pad.Pad.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out

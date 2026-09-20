@@ -167,6 +167,22 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let+ y = gelu approximate x_id in
                [ y ]
            | _ -> assert false))
+  (* [eq.Scalar(self, other) -> self == other], real ATen output dtype Bool.
+     Same discipline as [gt.Scalar] below: [other] is a
+     compile-time constant, no corpus caller today, exercised only by a
+     native-only fixture rather than a real-ATen [verify_print] differential
+     -- the bridge has no Bool round trip to real ATen yet. *)
+  | "torch.ops.aten.eq.Scalar" ->
+      Some
+        (let* x = native_tensor_arg aten_env node "self" in
+         let* s = decode_result (D.scalar_arg_result node "other") in
+         let* scalar = float_of_aten_scalar "other" s in
+         build_g ~name:"eq_scalar" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = eq_scalar scalar x_id in
+               [ y ]
+           | _ -> assert false))
   (* [gt.Scalar(self, other) -> self > other], real ATen output dtype Bool.
      [other] is a compile-time constant, the same discipline [pow.
      Tensor_Scalar]'s [exponent] follows above -- no corpus caller today, so
@@ -184,6 +200,51 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
            | [ x_id ] ->
                let open Graph_builder in
                let+ y = gt_scalar scalar x_id in
+               [ y ]
+           | _ -> assert false))
+  (* [eq.Tensor(self, other) -> self == other], real ATen output dtype Bool.
+     Tensor-tensor form of [eq.Scalar] above: both operands are
+     runtime tensors, no compile-time scalar constant, so no corpus-caller
+     caveat applies to the ARGUMENT shape here (broadcast via [Graph_builder.
+     eq_tensor]'s own [Binary] dispatch) -- but real ATen coverage is still
+     native-only, the bridge has no Bool round trip to real ATen yet. *)
+  | "torch.ops.aten.eq.Tensor" ->
+      Some
+        (let* a = native_tensor_arg aten_env node "self" in
+         let* b = native_tensor_arg aten_env node "other" in
+         build_g ~name:"eq_tensor" [ a; b ] (function
+           | [ a_id; b_id ] ->
+               let open Graph_builder in
+               let+ y = eq_tensor a_id b_id in
+               [ y ]
+           | _ -> assert false))
+  (* [ne.Tensor(self, other) -> self != other], real ATen output dtype Bool,
+     tensor-tensor form of [ne.Scalar] below, same discipline as
+     [eq.Tensor] just above. *)
+  | "torch.ops.aten.ne.Tensor" ->
+      Some
+        (let* a = native_tensor_arg aten_env node "self" in
+         let* b = native_tensor_arg aten_env node "other" in
+         build_g ~name:"ne_tensor" [ a; b ] (function
+           | [ a_id; b_id ] ->
+               let open Graph_builder in
+               let+ y = ne_tensor a_id b_id in
+               [ y ]
+           | _ -> assert false))
+  (* [ne.Scalar(self, other) -> self != other], real ATen output dtype Bool.
+     Same discipline as [eq.Scalar]/[gt.Scalar] above: [other] is a
+     compile-time constant, no corpus caller today, exercised only by a
+     native-only fixture rather than a real-ATen [verify_print] differential
+     -- the bridge has no Bool round trip to real ATen yet. *)
+  | "torch.ops.aten.ne.Scalar" ->
+      Some
+        (let* x = native_tensor_arg aten_env node "self" in
+         let* s = decode_result (D.scalar_arg_result node "other") in
+         let* scalar = float_of_aten_scalar "other" s in
+         build_g ~name:"ne_scalar" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = ne_scalar scalar x_id in
                [ y ]
            | _ -> assert false))
   | "torch.ops.aten.hardsigmoid.default" | "torch.ops.aten.hardsigmoid_.default"
