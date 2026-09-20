@@ -117,17 +117,42 @@ let dispatch ~ctx ~env (node : Node.t) =
              | _ -> assert false
            in
            let step = scalar_arg esc ~default:1. node "step" in
-           (* [exact] stays [None]: this decoder's own [Argument.Int] is a
-              plain [int] (32-bit under js_of_ocaml, see CLAUDE.md's
-              JS-reachable-library rule), so there is no genuine int64 to
-              recover here even for an ATen scalar that was originally exact
-              -- unlike [op_bridge_factory.ml]'s [Aten_scalar.Int], which
-              carries a real [int64]. Widening [Argument.Int] itself is a
-              separate, larger change (the generated pytorch_types schema
-              decoder), not attempted here. *)
-           let* y =
-             arange { Factory.Arange.start; stop; step; fmt; exact = None }
+           (* An exact int64 view exists only when every bound the graph
+              spelled is an [Argument.Int] that is not one of the decoder's
+              saturation values: [Schema_runtime.python_int_jsont] clamps
+              anything past the host [int] to [min_int]/[max_int] (2^31 under
+              js_of_ocaml, see CLAUDE.md's JS-reachable-library rule), so
+              those two values may stand for a larger integer and are not
+              recoverable. Every other [Argument.Int] is the literal itself,
+              so [Int64.of_int] is lossless. A float bound, or a saturated
+              one, keeps the legacy float path ([exact = None]). *)
+           let exact_int ~default name =
+             match optional name with
+             | None | Some (Argument.None _) -> Some default
+             | Some (Argument.Int i) when i > min_int && i < max_int ->
+                 Some (Int64.of_int i)
+             | Some _ -> None
            in
+           let exact =
+             match fmt with
+             | Payload.Fmt Payload.I64 -> (
+                 let start_exact, stop_exact =
+                   match target with
+                   | "torch.ops.aten.arange.default" ->
+                       (Some 0L, exact_int ~default:0L "end")
+                   | _ ->
+                       ( exact_int ~default:0L "start",
+                         exact_int ~default:0L "end" )
+                 in
+                 match
+                   (start_exact, stop_exact, exact_int ~default:1L "step")
+                 with
+                 | Some start, Some stop, Some step ->
+                     Some { Factory.Arange.Exact.start; stop; step }
+                 | _ -> None)
+             | _ -> None
+           in
+           let* y = arange { Factory.Arange.start; stop; step; fmt; exact } in
            return [ y ]
        | "torch.ops.aten.zeros.default" ->
            let optional name =

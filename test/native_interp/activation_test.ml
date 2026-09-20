@@ -196,7 +196,8 @@ let%expect_test "arange default Long and start Float lower" =
     graph
     inputs: [t0 f32 [W=2 C=3]]
     nodes:
-      n0: [t1 i64 [C=5]] = arange params={start=0; stop=5; step=1; fmt=i64}
+      n0: [t1 i64 [C=5]] =
+        arange params={start=0; stop=5; step=1; fmt=i64; exact={0,5,1}}
     outputs: [t1 i64 [C=5] <-n0]
     start:
     graph
@@ -204,6 +205,55 @@ let%expect_test "arange default Long and start Float lower" =
     nodes:
       n0: [t1 f32 [C=4]] = arange params={start=0.5; stop=4; step=1; fmt=f32}
     outputs: [t1 f32 [C=4] <-n0] |}]
+
+(* Only the exact-int64 view matters here, and a saturated bound prints a
+   different float on each backend (the decoder clamps to the host [int]), so
+   report whether [exact] is present rather than the params. *)
+let arange_long_exact target inputs =
+  let json =
+    jstr
+      {|{"target":"%s","inputs":[%s,{"name":"dtype","arg":{"as_scalar_type":5},"kind":1}],"outputs":[%s],"metadata":{}}|}
+      target inputs (as_tensor "y")
+  in
+  match lower (prog json) with
+  | Error e -> Format.printf "  %a@." Native_interp.pp_error (Err.Error.kind e)
+  | Ok l ->
+      let printed = Format.asprintf "%a" Graph_ir.pp l.Pt2_native_graph.graph in
+      let has_exact =
+        let rec go i =
+          i + 6 <= String.length printed
+          && (String.sub printed i 6 = "exact=" || go (i + 1))
+        in
+        go 0
+      in
+      Format.printf "exact: %b@." has_exact
+
+let%expect_test "arange gets an exact int64 view only from unsaturated ints" =
+  let int_arg name v =
+    jstr {|{"name":"%s","arg":{"as_int":%s},"kind":1}|} name v
+  in
+  let float_arg name v =
+    jstr {|{"name":"%s","arg":{"as_float":%s},"kind":1}|} name v
+  in
+  let start = "torch.ops.aten.arange.start" in
+  let join = String.concat "," in
+  arange_long_exact start (join [ int_arg "start" "2"; int_arg "end" "9" ]);
+  arange_long_exact start
+    (join [ int_arg "start" "2"; int_arg "end" "9"; int_arg "step" "3" ]);
+  arange_long_exact start (join [ float_arg "start" "2.0"; int_arg "end" "9" ]);
+  arange_long_exact start
+    (join
+       [
+         int_arg "start" "0";
+         int_arg "end" "5";
+         int_arg "step" "9223372036854775807";
+       ]);
+  [%expect
+    {|
+    exact: true
+    exact: true
+    exact: false
+    exact: false |}]
 
 let eye_node ?dtype () =
   let dtype =

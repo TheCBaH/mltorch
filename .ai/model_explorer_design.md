@@ -1324,7 +1324,11 @@ real model can be too big and that is a bound doing its job — and an invariant
 operator, shared by that operator and its projected Stage/Kernel values. The initial
 document therefore contains every `subGraphIds` target before Model Explorer processes it;
 native navigation never needs a late document replacement. The normal session graph, view,
-node, and byte limits bound this cost.
+node, and byte limits bound this cost. When the operators outnumber the room the graph and
+detail-graph ceilings leave, `Me_export.session` installs the first that fit and records the
+rest in one `Over_limit` diagnostic rather than failing the session (a model with more than
+about a thousand canonical operators otherwise had no session at all). The omitted operators'
+nodes carry no `subGraphIds`; the on-demand `detail` path still builds them.
 
 **The delta carries no epoch and no key.** Three identities take part in a detail response —
 the pending request's, the metadata's, and the payload's — and comparing only the first two

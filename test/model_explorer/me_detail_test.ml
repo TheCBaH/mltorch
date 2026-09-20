@@ -284,27 +284,68 @@ let%expect_test "a key naming no value in that graph" =
     absent value the key names no value in that graph
     absent graph the key names no value in that graph |}]
 
-let%expect_test "the initial details obey the aggregate ceiling" =
-  (* Static links move the aggregate check to session construction: a document
-     cannot offer native links for more details than its profile admits. *)
-  let tight =
-    Err.or_raise ~pp_error:Me_limits.pp_error
-      (L.create ~max_detail_graphs:1 limits)
+(* The eager expression graphs degrade at the aggregate ceilings instead of
+   failing the session on the graph that crosses them: what fits is installed
+   and one diagnostic records the rest. *)
+let session_with tight =
+  Me_export.session ~limits:tight
+    ~options:
+      {
+        Me_export.Options.stages = Me_session.Capability.all_stages;
+        fold = false;
+        verify_symbolic = None;
+        name = "tiny";
+        source_bytes = Int64.of_int (String.length model);
+        source_sha256 = None;
+      }
+    ~bytes:model
+
+let%expect_test "the initial details degrade at the aggregate ceilings" =
+  let all_graphs s =
+    List.concat_map
+      (fun (c : ME.GraphCollection.t) -> c.ME.GraphCollection.graphs)
+      s.Me_session.Session.graph_collections
   in
-  Format.printf "%a@."
-    (Core.Pretty.err_result ~ok:(Fmt.any "built") ~error:Me_export.pp_error)
-    (Me_export.session ~limits:tight
-       ~options:
-         {
-           Me_export.Options.stages = Me_session.Capability.all_stages;
-           fold = false;
-           verify_symbolic = None;
-           name = "tiny";
-           source_bytes = Int64.of_int (String.length model);
-           source_sha256 = None;
-         }
-       ~bytes:model);
-  [%expect {| detail detailGraphs = 2 is over the ceiling |}]
+  let detail_count s =
+    List.length
+      (List.filter
+         (fun (g : ME.Graph.t) ->
+           String.starts_with ~prefix:"expr/" g.ME.Graph.id)
+         (all_graphs s))
+  in
+  let baseline = session in
+  let total = List.length (all_graphs baseline) in
+  let details = detail_count baseline in
+  Format.printf "graphs=%d details=%d@." total details;
+  let show label tight =
+    let tight = Err.or_raise ~pp_error:Me_limits.pp_error tight in
+    match session_with tight with
+    | Error e ->
+        Format.printf "%s: %a@." label Me_export.pp_error (Err.Error.kind e)
+    | Ok s ->
+        let omitted =
+          List.filter
+            (fun (d : Me_limits.Diagnostic.t) ->
+              d.Me_limits.Diagnostic.code = Me_limits.Diagnostic.Code.Over_limit)
+            s.Me_session.Session.diagnostics
+        in
+        Format.printf "%s: graphs=%d details=%d omitted-diagnostics=%d@." label
+          (List.length (all_graphs s))
+          (detail_count s) (List.length omitted)
+  in
+  show "detail ceiling = details" (L.create ~max_detail_graphs:details limits);
+  show "detail ceiling = 1" (L.create ~max_detail_graphs:1 limits);
+  show "graph ceiling = total" (L.create ~max_graphs:total limits);
+  show "graph ceiling = total - 1" (L.create ~max_graphs:(total - 1) limits);
+  show "graph ceiling = no room" (L.create ~max_graphs:(total - details) limits);
+  [%expect
+    {|
+    graphs=9 details=2
+    detail ceiling = details: graphs=9 details=2 omitted-diagnostics=0
+    detail ceiling = 1: graphs=8 details=1 omitted-diagnostics=1
+    graph ceiling = total: graphs=9 details=2 omitted-diagnostics=0
+    graph ceiling = total - 1: graphs=8 details=1 omitted-diagnostics=1
+    graph ceiling = no room: graphs=7 details=0 omitted-diagnostics=1 |}]
 
 (* --- the expression graph --- *)
 

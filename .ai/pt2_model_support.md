@@ -507,6 +507,29 @@ does. `edgenext_xx_small`'s row moves to `kernel_converts:true`;
 untouched branch -- see this doc's "the two branches diverge" framing). No
 other model's row changed.
 
+**Updated 2026-09-20**, after `mvitv2_tiny`'s Kernel-stage i64 rejection
+(`"t290: a stored value must be f32 or bool and unquantized, got i64"`), the
+same `Arange(fmt=i64)` shape but with no float-cast consumer for
+`fold_arange_cast` to fuse. `Native_interp` lowered every `Arange` with
+`exact = None`, so `Eval_symbolic` fell to a float pixel whose signature was
+still `I64`. It now sets `exact` whenever every spelled bound is an
+`Argument.Int`, giving the exact int64 stage. Two bounds stay on the float
+path: a float bound, and an `Argument.Int` equal to the host `min_int` /
+`max_int`, because `Schema_runtime.python_int_jsont` saturates anything past
+the host `int` to those values (2^31 under js_of_ocaml), so they may not be
+the literal. `mvitv2_tiny`'s row moves to `kernel_converts:true`
+(`native4d_converts` stays `false`, axis T). No other model's row changed.
+
+**Updated 2026-09-20**, after `mobilenetv5_base` (a session-level
+`process_error`, `"detail graphs = 1025 is over the ceiling"`, with no branch
+run). The failing count was `max_graphs` (1024 in the profile), not
+`max_detail_graphs`: the session builds one eager expression graph per
+canonical operator and the 1305-node model has more operators than the graph
+ceiling leaves room for. `Me_export.session` now installs the details that fit
+and records the remainder in one `Over_limit` diagnostic. `mobilenetv5_base`
+converts on both branches. See the Model Explorer design record, "Expression
+detail".
+
 - `PT2_MODELS_NATIVE_VERIFY` (Makefile) wires `mobilenetv2_050`,
   `regnetx_002`, `efficientnet_b0` and `test_convnext2` into
   `make native-infer-verify`/`native-transform-verify`, which

@@ -80,6 +80,13 @@ let load ~limits ~bytes =
 
 (* --- the session --------------------------------------------------------- *)
 
+let split_at n xs =
+  let rec go n acc = function
+    | x :: rest when n > 0 -> go (n - 1) (x :: acc) rest
+    | rest -> (List.rev acc, rest)
+  in
+  go n [] xs
+
 let session ~limits ~(options : Options.t) ~bytes =
   let* () =
     let n = Int64.of_int (String.length bytes) in
@@ -123,6 +130,18 @@ let session ~limits ~(options : Options.t) ~bytes =
   let collection =
     Model_explorer.GraphCollection.create ~label ~graphs:shape.graphs ()
   in
+  (* One expression graph per canonical operator is eager, but a model with
+     more operators than the graph ceiling leaves room for would otherwise
+     fail the whole session on the graph that crosses it. Install what fits
+     and say how many were left out; [detail] serves each omitted one on
+     demand. *)
+  let details, omitted_details =
+    let room =
+      min limits.Me_limits.Limits.max_detail_graphs
+        (limits.Me_limits.Limits.max_graphs - List.length shape.graphs)
+    in
+    split_at (max 0 room) shape.details
+  in
   (* A diagnostic per unavailable-with-a-reason capability. The vector already
      says WHICH rows are missing; a diagnostic is what carries the free-text
      detail, bounded, in the one type that crosses every boundary here. *)
@@ -138,6 +157,16 @@ let session ~limits ~(options : Options.t) ~bytes =
         | _ -> None)
       shape.capabilities
     @ shape.diagnostics
+    @
+    match List.length omitted_details with
+    | 0 -> []
+    | n ->
+        [
+          Me_limits.Diagnostic.create ~limits ~graph:source_id
+            Me_limits.Diagnostic.Code.Over_limit
+            (Fmt.str "%d of %d operator expression graphs were not installed" n
+               (List.length shape.details));
+        ]
   in
   let session =
     {
@@ -170,7 +199,7 @@ let session ~limits ~(options : Options.t) ~bytes =
   Err.List.fold_left
     (fun session (key, detail) ->
       wrap (fun e -> `Detail e) (Me_detail.apply ~key ~limits session detail))
-    session shape.details
+    session details
 
 (* --- one value's expression ---------------------------------------------- *)
 
