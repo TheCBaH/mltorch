@@ -112,3 +112,39 @@ let%expect_test "a Kernel load of a noncanonical Bool input reads true" =
   Format.printf "%a@." Tensor.pp
     (Tensor_id.Map.find (List.hd g.Graph.outputs) result);
   [%expect {| tensor f32 [C=4] {0, 1, 1, 1} |}]
+
+(* A shape-only copy reads each cell LOGICALLY and, because Bool is not among
+   the dtypes [clone]/[reshape] preserve (only I64 is), lands as declared F32
+   0/1. So a noncanonical byte never survives a copy, and the copy is not
+   dtype-preserving for Bool: an F32 signature and F32 values, consistent, not
+   a Bool tensor holding raw bytes. *)
+let%expect_test "a copy of a noncanonical Bool reads logically and lands as F32"
+    =
+  let run name mk =
+    let result =
+      let open Err.Syntax in
+      let* g =
+        lift_build
+          Graph_builder.(
+            build ~name ~outputs:(fun r -> [ r ])
+            @@
+            let* x =
+              input ~fmt:Payload.(Fmt Bool) ~shape:(s1c 4) ~name:"x" ()
+            in
+            mk x)
+      in
+      let* env =
+        lift_eval
+          (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ raw ]))
+      in
+      Err.return (Tensor_id.Map.find (List.hd g.Graph.outputs) env)
+    in
+    Format.printf "%s: %a@." name (pp_result Tensor.pp) result
+  in
+  run "clone" (fun x -> Graph_builder.clone x);
+  run "reshape" (fun x ->
+      Graph_builder.reshape { Reshape.Reshape.shape = s 1 1 1 1 2 2 } x);
+  [%expect
+    {|
+    clone: tensor f32 [C=4] {0, 1, 1, 1}
+    reshape: tensor f32 [W=2 C=2] {0, 1, 1, 1} |}]

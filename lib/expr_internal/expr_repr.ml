@@ -78,12 +78,14 @@ type _ value =
           binary64), this conversion is total and lossless -- every
           [int]-represented index, on any backend width, fits in [int64]. *)
   | I64_sum : i64_reduction -> int64 value
-      (** Typed reduction: the sum of [i64_body] over [i64_lo..i64_hi),
-          accumulated in int64 with the same modular two's-complement policy as
-          [I64_binary]. The accumulator is exact, never a float, so a sum past
-          2^53 is not rounded; an empty range is [0L]. Only a sum exists at
-          this carrier: a max or argmax needs its own tested tie/ordering
-          policy and is added with the operator that needs it. *)
+      (** Typed reduction over [i64_lo..i64_hi) of [i64_body], per [i64_kind]:
+          [Sum] accumulates in int64 with the same modular two's-complement
+          policy as [I64_binary] (exact, never a float; empty range [0L]);
+          [Max]/[Argmax_value] is the signed maximum (empty range
+          [Int64.min_int], the analogue of the float fold's -infinity);
+          [Argmax_index] is the position of the first maximum (ties keep the
+          incumbent; there is no NaN in int64), carried as an exact int64, and
+          [lo] on an empty range, as the float [Argmax_index] does. *)
   | I64_to_float : int64 value -> float value
       (** Exact-to-working-float, potentially lossy above 2^53 (design's "I64 to
           Float" policy) -- no exceptional case, unlike the reverse direction.
@@ -133,6 +135,7 @@ and bool_expr =
   | Value_lt of float value * float value
 
 and i64_reduction = {
+  i64_kind : reduction_kind;
   i64_var : Reduce_var.t;
   i64_lo : Role.Position.t Index.t;
   i64_hi : Role.Delta.t Index.t;

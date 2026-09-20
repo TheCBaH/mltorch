@@ -86,9 +86,11 @@ type reduce_progress = {
 type i64_sum_progress = {
   sum : Expr_repr.i64_reduction;
   sum_outer_reducers : reducers;
+  sum_combine : int64 -> int64 -> int64;
   sum_hi : int;
   sum_i : int;
   sum_acc : int64;
+  sum_best_i : int;
 }
 
 (* Carried across one [Scan_at]'s row/lane fill. Fields are mutated in place
@@ -304,7 +306,13 @@ let eval_machine ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
     | Eval_i64_state (Value.I64_sum r, reducers), _ ->
         let lo = idx reducers r.Expr_repr.i64_lo
         and hi = idx reducers r.Expr_repr.i64_hi in
-        if lo >= hi then (loop [@tailcall]) (I64_result 0L) frames
+        let kind = r.Expr_repr.i64_kind in
+        if lo >= hi then
+          (loop [@tailcall])
+            (I64_result
+               (if kind = Reduction.Argmax_index then Int64.of_int lo
+                else Value.i64_reduce_init kind))
+            frames
         else begin
           on_reduction ();
           let bound v =
@@ -317,9 +325,11 @@ let eval_machine ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
                {
                  sum = r;
                  sum_outer_reducers = reducers;
+                 sum_combine = Value.i64_reduce_combine kind;
                  sum_hi = hi;
                  sum_i = lo;
-                 sum_acc = 0L;
+                 sum_acc = Value.i64_reduce_init kind;
+                 sum_best_i = lo;
                }
             :: frames)
         end
@@ -541,8 +551,18 @@ let eval_machine ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
             (Reduce_step { rs with i; acc; best_i } :: rest)
         end
     | I64_result v, I64_sum_step rs :: rest ->
-        let acc = Int64.add rs.sum_acc v in
-        if rs.sum_i + 1 >= rs.sum_hi then (loop [@tailcall]) (I64_result acc) rest
+        let argmax = rs.sum.Expr_repr.i64_kind = Reduction.Argmax_index in
+        let acc, best_i =
+          if argmax then
+            if Value.i64_argmax_displaces ~best:rs.sum_acc ~value:v then
+              (v, rs.sum_i)
+            else (rs.sum_acc, rs.sum_best_i)
+          else (rs.sum_combine rs.sum_acc v, rs.sum_best_i)
+        in
+        if rs.sum_i + 1 >= rs.sum_hi then
+          (loop [@tailcall])
+            (I64_result (if argmax then Int64.of_int best_i else acc))
+            rest
         else begin
           on_reduction ();
           let i = rs.sum_i + 1 in
@@ -552,7 +572,8 @@ let eval_machine ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
           in
           (loop [@tailcall])
             (Eval_i64_state (rs.sum.Expr_repr.i64_body, bound))
-            (I64_sum_step { rs with sum_i = i; sum_acc = acc } :: rest)
+            (I64_sum_step { rs with sum_i = i; sum_acc = acc; sum_best_i = best_i }
+            :: rest)
         end
     | Float_result v, Scan_fill p :: rest ->
         p.cur_row.(p.lane_cursor) <- v;

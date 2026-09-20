@@ -78,13 +78,17 @@ type reuse_reduce_progress = {
 }
 
 (* The int64 twin of [reuse_reduce_progress], for [I64_sum]: an exact int64
-   accumulator (never a float) and no argmax half. *)
+   accumulator (never a float). [Argmax_index] carries the best value in
+   [sum_acc] and its position in [sum_best_i]; the other kinds fold with
+   [sum_combine] (see [Value.i64_reduce_combine]). *)
 type reuse_i64_sum_progress = {
   sum : Expr_repr.i64_reduction;
   sum_outer_reducers : reducers;
+  sum_combine : int64 -> int64 -> int64;
   sum_hi : int;
   mutable sum_i : int;
   mutable sum_acc : int64;
+  mutable sum_best_i : int;
 }
 
 type reuse_frame =
@@ -265,13 +269,22 @@ let run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
           Eval_state (rs.reduction.Reduction.body, bound)
         end
     | I64_result v, I64_sum_step rs ->
-        let acc = Int64.add rs.sum_acc v in
-        if rs.sum_i + 1 >= rs.sum_hi then I64_result acc
+        let argmax = rs.sum.Expr_repr.i64_kind = Reduction.Argmax_index in
+        let acc, best_i =
+          if argmax then
+            if Value.i64_argmax_displaces ~best:rs.sum_acc ~value:v then
+              (v, rs.sum_i)
+            else (rs.sum_acc, rs.sum_best_i)
+          else (rs.sum_combine rs.sum_acc v, rs.sum_best_i)
+        in
+        if rs.sum_i + 1 >= rs.sum_hi then
+          I64_result (if argmax then Int64.of_int best_i else acc)
         else begin
           on_reduction ();
           let i = rs.sum_i + 1 in
           rs.sum_i <- i;
           rs.sum_acc <- acc;
+          rs.sum_best_i <- best_i;
           reuse_stack_push st (I64_sum_step rs);
           let bound w =
             if Reduce_var.equal w rs.sum.Expr_repr.i64_var then Some i
@@ -376,7 +389,12 @@ let run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
     | Eval_i64_state (Value.I64_sum r, reducers) ->
         let lo = idx reducers r.Expr_repr.i64_lo
         and hi = idx reducers r.Expr_repr.i64_hi in
-        if lo >= hi then (loop [@tailcall]) (I64_result 0L)
+        let kind = r.Expr_repr.i64_kind in
+        if lo >= hi then
+          (loop [@tailcall])
+            (I64_result
+               (if kind = Reduction.Argmax_index then Int64.of_int lo
+                else Value.i64_reduce_init kind))
         else begin
           on_reduction ();
           let bound v =
@@ -388,9 +406,11 @@ let run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
                {
                  sum = r;
                  sum_outer_reducers = reducers;
+                 sum_combine = Value.i64_reduce_combine kind;
                  sum_hi = hi;
                  sum_i = lo;
-                 sum_acc = 0L;
+                 sum_acc = Value.i64_reduce_init kind;
+                 sum_best_i = lo;
                });
           (loop [@tailcall]) (Eval_i64_state (r.Expr_repr.i64_body, bound))
         end

@@ -27,6 +27,7 @@ module Diagnostic = struct
       | Settlement_mismatch
       | Stale_epoch
       | Unsupported_detail_key
+      | Unsupported_dtype
       | Unsupported_graph_shape
       | Unsupported_input
       | Unsupported_operator
@@ -50,6 +51,7 @@ module Diagnostic = struct
       | Settlement_mismatch -> "settlement_mismatch"
       | Stale_epoch -> "stale_epoch"
       | Unsupported_detail_key -> "unsupported_detail_key"
+      | Unsupported_dtype -> "unsupported_dtype"
       | Unsupported_graph_shape -> "unsupported_graph_shape"
       | Unsupported_input -> "unsupported_input"
       | Unsupported_operator -> "unsupported_operator"
@@ -71,7 +73,8 @@ module Diagnostic = struct
       | Unsupported_detail_key -> Some Key_disagrees_with_ids
       | Key_disagrees_with_ids -> Some Unsupported_operator
       | Unsupported_operator -> Some Unsupported_input
-      | Unsupported_input -> Some Unsupported_graph_shape
+      | Unsupported_input -> Some Unsupported_dtype
+      | Unsupported_dtype -> Some Unsupported_graph_shape
       | Unsupported_graph_shape -> Some Outside_dialect_domain
       | Outside_dialect_domain -> Some Requires_payloads
       | Requires_payloads -> Some Prerequisite_unavailable

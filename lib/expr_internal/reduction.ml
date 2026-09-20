@@ -8,8 +8,9 @@ type t = Expr_repr.reduction = {
   body : float Expr_repr.value;
 }
 
-(* The int64 carrier's reduction: a sum only, over an int64 body. *)
+(* The int64 carrier's reduction: sum, max or argmax over an int64 body. *)
 type i64 = Expr_repr.i64_reduction = {
+  i64_kind : kind;
   i64_var : Reduce_var.t;
   i64_lo : Role.Position.t Index.t;
   i64_hi : Role.Delta.t Index.t;

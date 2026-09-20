@@ -1010,10 +1010,11 @@ the suite covers domain cases.
 used directly as a graph output has no stage to name, and the kernel suite builds one its
 own comment calls legal. `Kernel`'s limit rows → `Over_limit`, since a real model can be too
 big and that is a bound doing its job. `Not_materializable` **splits on its `role`**: a
-`Stored_value` failing the check → `Outside_dialect_domain`, recoverable — Kernel
-materialization produces f32 or Bool (`Kernel.materializable`'s own contract), so a stage
-whose legitimate output format is neither (e.g. `arange.default(dtype=LONG)`) has no
-counterpart in this dialect, the same story Native4D's domain rejections tell; a
+`Stored_value` failing the check → `Unsupported_dtype` (wire `unsupported_dtype`),
+recoverable — Kernel materialization produces f32 or Bool (`Kernel.materializable`'s own
+contract; int64 is a separate carrier), so a stage whose output format is none of those
+(e.g. f16) is a dtype limitation, named as such so it is not read as a shape or dialect
+one (it used to be filed under `Outside_dialect_domain`, which is now shape/axis only); a
 `Filled_input` failing the same check stays fatal — its format was `Kernel_adapt`'s own
 choice, so a mismatch there is the adapter handing `Kernel.create` a badly-typed constant.
 `Conversion_mismatch` (a value's result conversion disagrees with its declared format) is

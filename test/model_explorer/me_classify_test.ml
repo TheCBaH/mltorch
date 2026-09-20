@@ -186,7 +186,7 @@ let%expect_test "every Kernel_adapt row, classified" =
   [%expect
     {|
     Passthrough_output                     unavailable unsupported_graph_shape
-    Not_materializable Stored_value        unavailable outside_dialect_domain
+    Not_materializable Stored_value        unavailable unsupported_dtype
     Not_materializable Filled_input        fatal
     Too_many_values                        unavailable over_limit
     Too_many_inputs                        unavailable over_limit

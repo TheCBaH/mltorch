@@ -14,6 +14,7 @@ let pp_verdict fmt = function
         | C.Over_limit -> "over_limit"
         | C.Prerequisite_unavailable -> "prerequisite_unavailable"
         | C.Requires_payloads -> "requires_payloads"
+        | C.Unsupported_dtype -> "unsupported_dtype"
         | C.Unsupported_graph_shape -> "unsupported_graph_shape"
         | C.Unsupported_input -> "unsupported_input"
         | C.Unsupported_operator -> "unsupported_operator")
@@ -74,17 +75,16 @@ let kernel : [< Kernel_adapt.error ] -> verdict = function
   | `Extent_too_large _ | `Numel_too_large _ | `Scan_updates_total_over_limit _
   | `Too_many_inputs _ | `Too_many_outputs _ | `Too_many_values _ ->
       Unavailable C.Over_limit
-  (* A STORED VALUE whose own declared format isn't f32 (e.g. an
-     [arange.default(dtype=LONG)] stage) is outside the Kernel dialect by
-     construction -- materialization always produces f32, the same "no
-     counterpart in this dialect" story Native4D's D/T axis boundary tells --
-     not a defect in the graph or the adapter. A FILLED INPUT failing the same
-     check is different: its format was chosen by the adapter itself, so a
-     mismatch there is [Kernel_adapt] handing [Kernel.create] a badly-typed
-     constant, which stays a defect below. *)
+  (* A STORED VALUE whose own declared format the Kernel cannot store (it stores
+     unquantized f32 and bool; int64 is a separate carrier) is a DTYPE
+     limitation, reported as its own reason so it is not mistaken for a shape or
+     dialect one -- not a defect in the graph or the adapter. A FILLED INPUT
+     failing the same check is different: its format was chosen by the adapter
+     itself, so a mismatch there is [Kernel_adapt] handing [Kernel.create] a
+     badly-typed constant, which stays a defect below. *)
   | `Not_materializable
       { Kernel.Format_rule.role = Kernel.Format_rule.Stored_value; _ } ->
-      Unavailable C.Outside_dialect_domain
+      Unavailable C.Unsupported_dtype
   (* Everything else is a defect. The stage program is repository-generated, so
      a structural failure in it is ours; and the two selection rows are
      reachable only through [?select], which whole-program export never
@@ -120,6 +120,7 @@ let diagnostic_code (r : C.reason) : Me_limits.Diagnostic.Code.t =
   | C.Prerequisite_unavailable ->
       Me_limits.Diagnostic.Code.Prerequisite_unavailable
   | C.Requires_payloads -> Me_limits.Diagnostic.Code.Requires_payloads
+  | C.Unsupported_dtype -> Me_limits.Diagnostic.Code.Unsupported_dtype
   | C.Unsupported_graph_shape ->
       Me_limits.Diagnostic.Code.Unsupported_graph_shape
   | C.Unsupported_input -> Me_limits.Diagnostic.Code.Unsupported_input

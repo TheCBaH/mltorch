@@ -13,8 +13,11 @@
 module Binding : sig
   (* Where a boundary input's data comes from. [Filled] is a synthetic operand
      the adapter invented for an omitted optional argument; it is an ordinary
-     input with a locally owned value, never an evaluator special case. *)
-  type t = Caller | Captured_constant | Filled of float
+     input with a locally owned value, never an evaluator special case.
+     [Filled_i64] is its exact counterpart for an I64 input: the value is an
+     int64, never a float, and [create] requires the input's signature to be
+     I64 (a float [Filled] on an I64 signature is still rejected). *)
+  type t = Caller | Captured_constant | Filled of float | Filled_i64 of int64
 
   val pp : Format.formatter -> t -> unit
 end

@@ -128,6 +128,13 @@ let input_env (k : Kernel.t) ~bind =
             | _ -> Tensor.materialize shape (fun _ -> v)
           in
           Err.return (Tensor_id.Map.add i.Kernel.Input.id filled m)
+      | Kernel.Binding.Filled_i64 v ->
+          (* Exact, never through a float: an int64 fill past 2^53 survives. *)
+          let filled =
+            Tensor.materialize_i64 i.Kernel.Input.sg.Tensor_sig.shape (fun _ ->
+                v)
+          in
+          Err.return (Tensor_id.Map.add i.Kernel.Input.id filled m)
       | Kernel.Binding.Caller | Kernel.Binding.Captured_constant -> (
           match bind i.Kernel.Input.id with
           | None -> Err.fail (`Unbound_input i.Kernel.Input.id)
@@ -226,9 +233,7 @@ let converted esc ?region_counters ~(limits : Kernel.Limits.t)
    stored, so a consumer reads the Bool payload whether the producer ran solo
    or in a group. *)
 let stored (v : Kernel.Value.t) tensor =
-  match v.Kernel.Value.sg.Tensor_sig.fmt with
-  | Payload.Fmt Payload.Bool -> Tensor.bool_of_float_cells tensor
-  | _ -> tensor
+  Output_spec.store v.Kernel.Value.sg tensor
 
 let in_shape (sg : Tensor_sig.t) (c : int Expr.Coord.t) =
   List.find_opt
