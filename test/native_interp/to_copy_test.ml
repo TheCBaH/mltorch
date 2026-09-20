@@ -62,8 +62,8 @@ let%expect_test "_to_copy dtype=FLOAT/LONG/BOOL lowers to the matching target" =
     graph
     inputs: [t0 f32 [C=3] ->[n0]]
     nodes:
-      n0: [t1 f32 [C=3]] = to_copy x=t0 target=long
-    outputs: [t1 f32 [C=3] <-n0]
+      n0: [t1 i64 [C=3]] = to_copy x=t0 target=long
+    outputs: [t1 i64 [C=3] <-n0]
     BOOL
     graph
     inputs: [t0 f32 [C=3] ->[n0]]
@@ -92,11 +92,11 @@ let%expect_test "_to_copy: non_blocking carries no computational effect" =
     graph
     inputs: [t0 f32 [C=3] ->[n0]]
     nodes:
-      n0: [t1 f32 [C=3]] = to_copy x=t0 target=long
-    outputs: [t1 f32 [C=3] <-n0]
+      n0: [t1 i64 [C=3]] = to_copy x=t0 target=long
+    outputs: [t1 i64 [C=3] <-n0]
     non_blocking=true
     graph
     inputs: [t0 f32 [C=3] ->[n0]]
     nodes:
-      n0: [t1 f32 [C=3]] = to_copy x=t0 target=long
-    outputs: [t1 f32 [C=3] <-n0] |}]
+      n0: [t1 i64 [C=3]] = to_copy x=t0 target=long
+    outputs: [t1 i64 [C=3] <-n0] |}]

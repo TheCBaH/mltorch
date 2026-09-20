@@ -36,7 +36,7 @@ let%expect_test "dispatch: _to_copy dtype=FLOAT is the identity" =
 let%expect_test "dispatch: _to_copy dtype=LONG truncates toward zero" =
   let self = float_tensor [ 5 ] [ -1.9; -0.5; 0.; 2.4; 3.9 ] in
   dispatch_to_copy ~dtype:PT.ScalarType.LONG self;
-  [%expect {| tensor f32 [C=5] {-1, -0, 0, 2, 3} |}]
+  [%expect {| tensor i64 [C=5] {-1, 0, 0, 2, 3} |}]
 
 (* A genuine nonzero test, not an overfit to the corpus's own all-zero
    operand. *)
@@ -54,8 +54,8 @@ let%expect_test "dispatch: _to_copy ignores non_blocking" =
   dispatch_to_copy ~dtype:PT.ScalarType.LONG ~non_blocking:true self;
   [%expect
     {|
-    tensor f32 [C=3] {1, -2, 0}
-    tensor f32 [C=3] {1, -2, 0} |}]
+    tensor i64 [C=3] {1, -2, 0}
+    tensor i64 [C=3] {1, -2, 0} |}]
 
 (* Outside the three-way corpus-evidenced domain: no Native value
    representation this op would target (see op_bridge_shape.ml's comment). *)

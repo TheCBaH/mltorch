@@ -98,7 +98,7 @@ let push_node op outputs s =
 
 (* A single-output op: compute its output shape from the current edge metadata,
   allocate the output edge, append the node. *)
-let op1 ?name ?fmt ~kind op : Tensor_id.t t =
+let op1 ?name ?fmt ?quant ~kind op : Tensor_id.t t =
   let* s = get in
   let* shapes =
     lift_result
@@ -115,7 +115,7 @@ let op1 ?name ?fmt ~kind op : Tensor_id.t t =
               (`Expected_single_output_shape { count = List.length shapes }),
             s )
   in
-  let* tid = new_edge ?name ?fmt ~kind shape in
+  let* tid = new_edge ?name ?fmt ?quant ~kind shape in
   let* () = push_node op [ tid ] in
   return tid
 
@@ -157,7 +157,22 @@ let opN ?name ?fmt ?quant ~kind op : Tensor_id.t list t =
 (* Op constructors in global alphabetical order (see graph_ir.mli). The record
    payloads are built with their first label qualified, which disambiguates the
    op module each belongs to (the [node.Node.outputs] convention). *)
-let add ?name a b = op1 ?name ~kind:"add" (Add { Pointwise.Bin.a; b })
+(* Thread the operand's own I64 format/quant into the output edge, matching
+   [reshape]/[permute]'s own precedent -- ONLY when both operands are I64,
+   since [Eval_direct]'s [Compute_i64] dispatch can only deliver an exact
+   result when they agree; a mismatched pair falls through to [op1]'s F32
+   default, unchanged from before this op had any I64 dispatch at all (mixed
+   promotion is out of this slice's scope). *)
+let add ?name a b =
+  let* s = get in
+  let a_sig = Tensor_id.Map.find a s.tensors in
+  let b_sig = Tensor_id.Map.find b s.tensors in
+  match (a_sig.Tensor_sig.fmt, b_sig.Tensor_sig.fmt) with
+  | Payload.Fmt Payload.I64, Payload.Fmt Payload.I64 ->
+      op1 ?name ~fmt:a_sig.Tensor_sig.fmt ?quant:a_sig.Tensor_sig.quant
+        ~kind:"add"
+        (Add { Pointwise.Bin.a; b })
+  | _ -> op1 ?name ~kind:"add" (Add { Pointwise.Bin.a; b })
 
 (* Narrow every scalar op parameter to its f32-canonical value here, at the one
    entry point both the PT2 importer and hand-built graphs go through, rather
@@ -421,7 +436,17 @@ let mean ?name params x =
 let meshgrid ?name tensors =
   opN ?name ~kind:"meshgrid" (Meshgrid { Meshgrid.Meshgrid.tensors })
 
-let mul ?name a b = op1 ?name ~kind:"mul" (Mul { Pointwise.Bin.a; b })
+(* Same I64-only threading as [add]; see its comment. *)
+let mul ?name a b =
+  let* s = get in
+  let a_sig = Tensor_id.Map.find a s.tensors in
+  let b_sig = Tensor_id.Map.find b s.tensors in
+  match (a_sig.Tensor_sig.fmt, b_sig.Tensor_sig.fmt) with
+  | Payload.Fmt Payload.I64, Payload.Fmt Payload.I64 ->
+      op1 ?name ~fmt:a_sig.Tensor_sig.fmt ?quant:a_sig.Tensor_sig.quant
+        ~kind:"mul"
+        (Mul { Pointwise.Bin.a; b })
+  | _ -> op1 ?name ~kind:"mul" (Mul { Pointwise.Bin.a; b })
 
 let mul_scalar ?name scalar x =
   op1 ?name ~kind:"mul_scalar"
@@ -439,8 +464,19 @@ let pad ?name (params : Pad.Pad.params) x =
   in
   op1 ?name ~kind:"pad" (Pad { Pad.Pad.params; x })
 
+(* Dtype-preserving for I64 ONLY, matching [reshape]'s own restriction below
+   and for the identical reason: [Permute]'s [Eval_direct] dispatch is exact
+   for I64 ([Compute_i64]) but falls back to the generic F32-allocating pixel
+   path for every other format. *)
 let permute ?name perm x =
-  op1 ?name ~kind:"permute" (Permute { Permute.Permute.perm; x })
+  let* s = get in
+  let sg = Tensor_id.Map.find x s.tensors in
+  match sg.Tensor_sig.fmt with
+  | Payload.Fmt Payload.I64 ->
+      op1 ?name ~fmt:sg.Tensor_sig.fmt ?quant:sg.Tensor_sig.quant
+        ~kind:"permute"
+        (Permute { Permute.Permute.perm; x })
+  | _ -> op1 ?name ~kind:"permute" (Permute { Permute.Permute.perm; x })
 
 (* `aten.einsum.default`, restricted to [Aten_shape.Einsum.plan]'s two
    evidenced shapes -- no dedicated [Graph_ir] node: both plans legalize onto
@@ -486,8 +522,35 @@ let repeat_interleave ?name params x =
   op1 ?name ~kind:"repeat_interleave"
     (RepeatInterleave { Repeat.RepeatInterleave.params; x })
 
+(* Dtype-preserving for I64 ONLY, not every format, unlike [unbind]/
+   [split_with_sizes] below: those route through [Tensor.copy_cells], which
+   is exact for every format, so unconditional threading is safe. [Reshape]'s
+   [Eval_direct] dispatch is exact for I64 ([Compute_i64]) but for every
+   OTHER non-F32 format still falls back to the generic
+   [Schedule.evaluate]/[Tensor.materialize] pixel path, which allocates its
+   result as F32 unconditionally (`Tensor.create`) regardless of what the
+   output edge declares. Declaring this edge's format as, say, I32 to match
+   an I32 operand -- while [Eval_direct] still hands back an F32 tensor --
+   would swap the ORIGINAL defect (a defaulted F32 sig disagreeing with a
+   genuinely-I64 runtime tensor) for the mirror-image one (a declared I32
+   sig disagreeing with a genuinely-F32 runtime tensor). Confirmed live via
+   the identical hazard on [Permute]'s own analogous fmt-threading attempt:
+   `test/native/verify_rounding_test.ml`'s I32-permute trim fixture depends
+   on [Trim_permute] correctly seeing a declared/runtime format MISMATCH for
+   an I32 permute (its own [same_precision] guard), which a blanket
+   fmt-thread there broke by declaring I32 for a still-F32-computed result.
+   So: I64 threads through exactly like [unbind]; every other format keeps
+   [op1]'s F32 default, matching what [Eval_direct] actually delivers for
+   it. *)
 let reshape ?name params x =
-  op1 ?name ~kind:"reshape" (Reshape { Reshape.Reshape.params; x })
+  let* s = get in
+  let sg = Tensor_id.Map.find x s.tensors in
+  match sg.Tensor_sig.fmt with
+  | Payload.Fmt Payload.I64 ->
+      op1 ?name ~fmt:sg.Tensor_sig.fmt ?quant:sg.Tensor_sig.quant
+        ~kind:"reshape"
+        (Reshape { Reshape.Reshape.params; x })
+  | _ -> op1 ?name ~kind:"reshape" (Reshape { Reshape.Reshape.params; x })
 
 let rms_norm ?name params ~x ?weight () =
   op1 ?name ~kind:"rms_norm" (Rms_norm { Norm.RmsNorm.params; x; weight })
@@ -537,11 +600,36 @@ let split_with_sizes ?name params x =
 let stack ?name params xs =
   op1 ?name ~kind:"stack" (Stack { Concat.Stack.params; xs })
 
-let sub ?name a b = op1 ?name ~kind:"sub" (Sub { Pointwise.Bin.a; b })
+(* Same I64-only threading as [add]; see its comment. *)
+let sub ?name a b =
+  let* s = get in
+  let a_sig = Tensor_id.Map.find a s.tensors in
+  let b_sig = Tensor_id.Map.find b s.tensors in
+  match (a_sig.Tensor_sig.fmt, b_sig.Tensor_sig.fmt) with
+  | Payload.Fmt Payload.I64, Payload.Fmt Payload.I64 ->
+      op1 ?name ~fmt:a_sig.Tensor_sig.fmt ?quant:a_sig.Tensor_sig.quant
+        ~kind:"sub"
+        (Sub { Pointwise.Bin.a; b })
+  | _ -> op1 ?name ~kind:"sub" (Sub { Pointwise.Bin.a; b })
+
 let sum ?name params x = op1 ?name ~kind:"sum" (Sum { Reduce.Sum.params; x })
 
+(* [target] determines the output's dtype directly (unlike reshape/permute's
+   own I64-only fmt thread, which mirrors the OPERAND's format): [Long]
+   always produces an I64 output edge, regardless of the operand's own
+   format, matching [eval_direct.ml]'s new [Compute_to_long] arm, which
+   writes via [Tensor.materialize_i64]. [Float]/[Bool] keep [op1]'s F32
+   default -- [Float]'s output genuinely is F32, and [Bool] has no distinct
+   storage format yet. *)
 let to_copy ?name target x =
-  op1 ?name ~kind:"to_copy" (To_copy { Pointwise.To_copy.target; x })
+  match target with
+  | Pointwise.To_copy.Long ->
+      op1 ?name
+        ~fmt:Payload.(Fmt I64)
+        ~kind:"to_copy"
+        (To_copy { Pointwise.To_copy.target; x })
+  | Pointwise.To_copy.Float | Pointwise.To_copy.Bool ->
+      op1 ?name ~kind:"to_copy" (To_copy { Pointwise.To_copy.target; x })
 
 (* Returns every slice, in ordinal order. The count comes from the input
    signature via [Graph_shape], never from the caller — which is what lets a

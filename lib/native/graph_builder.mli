@@ -294,6 +294,7 @@ val pad : ?name:string -> Pad.Pad.params -> tensor_ref -> Tensor_id.t t
 
 val permute :
   ?name:string -> Permute.Permute.perm -> tensor_ref -> Tensor_id.t t
+(** Dtype-preserving: the output's format/quantization match [x]'s own. *)
 
 val pow : ?name:string -> float -> tensor_ref -> Tensor_id.t t
 val relu : ?name:string -> tensor_ref -> Tensor_id.t t
@@ -304,6 +305,8 @@ val repeat_interleave :
 
 val reshape :
   ?name:string -> Reshape.Reshape.params -> tensor_ref -> Tensor_id.t t
+(** Dtype-preserving: the output's format/quantization match [x]'s own, like
+    [unbind]/[split_with_sizes]. *)
 
 val rms_norm :
   ?name:string ->

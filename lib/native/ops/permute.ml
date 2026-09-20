@@ -160,13 +160,40 @@ module Permute = struct
         c.perm
   end
 
+  (* Inverse-permutation coordinate math alone, shared by [Compute]'s float
+     pixel and [Compute_i64]'s exact int64 one below: pure coordinate lookup,
+     no [load]/[const] of its own (mirrors [Reshape.Coord]'s own split). *)
+  let source_coord perm (out : 'a Vec6.t) : 'a Vec6.t =
+    let inv = List.map (fun (oax, iax) -> (iax, oax)) perm in
+    Vec6.of_fn (fun in_ax -> Vec6.get out (List.assoc in_ax inv))
+
   module Compute (S : Semantics.SEMANTICS) = struct
     (* At each output coord [out], read the input at the coordinate produced by
        the inverse permutation: for each input axis [in_ax], use the output
        coordinate of the output axis that maps to it.
        Raises [Not_found] if [perm] is not a bijection over all 6 axes. *)
     let pixel perm ~x (out : Semantics.position S.index Vec6.t) =
-      let inv = List.map (fun (oax, iax) -> (iax, oax)) perm in
-      S.load x (Vec6.of_fn (fun in_ax -> Vec6.get out (List.assoc in_ax inv)))
+      S.load x (source_coord perm out)
+  end
+
+  (* Exact int64 counterpart of [Compute], the same shape as
+     [Reshape.Compute_i64]: reads the resolved source coordinate through
+     [i64_load] instead of [SEMANTICS.load], which round-trips every format
+     through [Payload.get_float] and is therefore lossy for an I64 source
+     above 2^53. [T] is the same deliberately narrow inline signature
+     [Reshape.Compute_i64] uses -- see its own comment for why a full
+     [Semantics.TYPED_SEMANTICS] functor parameter does not typecheck against
+     [Direct]/[Symbolic] here either. *)
+  module Compute_i64
+      (S : Semantics.SEMANTICS)
+      (T : sig
+        type 'a repr
+
+        val i64_load :
+          S.input -> Semantics.position S.index Vec6.t -> int64 repr
+      end) =
+  struct
+    let pixel perm ~x (out : Semantics.position S.index Vec6.t) =
+      T.i64_load x (source_coord perm out)
   end
 end

@@ -542,10 +542,19 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                in
                [ y ]
            | _ -> assert false))
+  (* No [require_f32]: legalizes to [Reshape] alone (see [squeeze.dim]'s own
+     comment below), and [Reshape]'s [Eval_direct] arm now dispatches an I64
+     operand through its own exact [Compute_i64] path -- and, since this
+     session, [Graph_builder.reshape] itself declares the OUTPUT edge's
+     format/quant from the operand's, not [op1]'s F32 default, so a
+     downstream dtype-branching consumer sees the correct signature too. Any
+     dtype [native_of_aten] cannot represent (i.e. not F32/F64/I64) is
+     already rejected by its own [Unsupported_dtype], with no separate gate
+     needed here -- matching [view.default]/[_unsafe_view.default], which
+     never had one. *)
   | "torch.ops.aten.squeeze.dims" ->
       Some
         (let* aten_x = tensor_arg aten_env node "self" in
-         let* () = require_f32 "self" aten_x in
          let rank = aten_rank aten_x in
          let* dims = ints_arg node "dim" in
          let* x = native_of_aten "self" aten_x in
@@ -578,7 +587,6 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
   | "torch.ops.aten.squeeze.dim" ->
       Some
         (let* aten_x = tensor_arg aten_env node "self" in
-         let* () = require_f32 "self" aten_x in
          let rank = aten_rank aten_x in
          let* dim = int_arg node "dim" in
          let* x = native_of_aten "self" aten_x in
@@ -612,7 +620,6 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
   | "torch.ops.aten.unsqueeze.default" ->
       Some
         (let* aten_x = tensor_arg aten_env node "self" in
-         let* () = require_f32 "self" aten_x in
          let rank = aten_rank aten_x in
          let* dim = int_arg node "dim" in
          let* x = native_of_aten "self" aten_x in

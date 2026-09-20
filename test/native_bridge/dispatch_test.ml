@@ -20,6 +20,62 @@ let%expect_test "dispatch: mul.Tensor elementwise" =
     ~noutputs:1;
   [%expect {| tensor f32 [W=2 C=3] {0, 20, 300, 4, 10, 18} |}]
 
+(* I64 operands, real ATen as the oracle: [op_bridge_pointwise.ml] never
+   gated [add.Tensor]/[sub.Tensor]/[mul.Tensor] on format at all (confirmed
+   by grep, no [require_f32] on any of the three -- unlike [unsqueeze.default]
+   /[squeeze.dims], whose own gate had to be dropped explicitly), so this was
+   ALREADY reachable before [Eval_direct]'s new dispatch arms; it was
+   silently wrong, not merely blocked, the same defect class Reshape/Permute
+   had before their own fixes (see [Add.Compute_i64] in
+   lib/native/ops/pointwise_binary.ml). Values sit past 2^53 so a float round
+   trip anywhere in the bridge or [Eval_direct] would visibly disagree with
+   real ATen's own exact int64 arithmetic. [Verify.verify_node] compares I64
+   by exact [Int64.equal], so this is a genuine past-2^53 proof, not merely a
+   shape/dtype check. *)
+let%expect_test "verify: add.Tensor on I64 operands past 2^53" =
+  let a =
+    i64_tensor [ 2; 3 ]
+      [
+        9_007_199_254_740_993L;
+        9_007_199_254_740_994L;
+        9_007_199_254_740_995L;
+        9_007_199_254_740_996L;
+        9_007_199_254_740_997L;
+        9_007_199_254_740_998L;
+      ]
+  in
+  let b = i64_tensor [ 2; 3 ] [ 1L; 2L; 3L; 4L; 5L; 6L ] in
+  verify_print ~target:"torch.ops.aten.add.Tensor"
+    ~bindings:[ ("self", a); ("other", b) ]
+    ~inputs:[ in_tensor "self"; in_tensor "other" ];
+  [%expect {| aten and native agree |}]
+
+let%expect_test "verify: sub.Tensor on I64 operands past 2^53" =
+  let a =
+    i64_tensor [ 2; 3 ]
+      [
+        9_007_199_254_740_993L;
+        9_007_199_254_740_994L;
+        9_007_199_254_740_995L;
+        9_007_199_254_740_996L;
+        9_007_199_254_740_997L;
+        9_007_199_254_740_998L;
+      ]
+  in
+  let b = i64_tensor [ 2; 3 ] [ 1L; 2L; 3L; 4L; 5L; 6L ] in
+  verify_print ~target:"torch.ops.aten.sub.Tensor"
+    ~bindings:[ ("self", a); ("other", b) ]
+    ~inputs:[ in_tensor "self"; in_tensor "other" ];
+  [%expect {| aten and native agree |}]
+
+let%expect_test "verify: mul.Tensor on I64 operands past 2^53" =
+  let a = i64_tensor [ 1 ] [ 100_000_003L ] in
+  let b = i64_tensor [ 1 ] [ 100_000_003L ] in
+  verify_print ~target:"torch.ops.aten.mul.Tensor"
+    ~bindings:[ ("self", a); ("other", b) ]
+    ~inputs:[ in_tensor "self"; in_tensor "other" ];
+  [%expect {| aten and native agree |}]
+
 (* Legalizes to [x * -1] -- prints the graph to confirm no dedicated node,
    just [Mul_scalar]. *)
 let%expect_test "dispatch: neg.default legalizes to Mul_scalar(-1)" =

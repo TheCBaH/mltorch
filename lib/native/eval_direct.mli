@@ -10,6 +10,12 @@ type context = Operand | Sig_shape
 type missing_tensor = { context : context; id : Tensor_id.t }
 type arity_mismatch = { expected : int; actual : int }
 
+type mixed_dtype = {
+  mixed_op : string;
+  a_fmt : Payload.packed_fmt;
+  b_fmt : Payload.packed_fmt;
+}
+
 type error =
   [ Graph_shape.error
   | `Arange_i64_overflow of Factory.Arange.Overflow.t
@@ -18,7 +24,9 @@ type error =
   | `Missing_tensor of missing_tensor
   | `Output_arity_mismatch of arity_mismatch
   | `Region_construction of Region_computation.error
-  | `Region_execution of Region_eval.error ]
+  | `Region_execution of Region_eval.error
+  | `Unsupported_mixed_dtype of mixed_dtype
+  | `Unsupported_to_copy_long_source of Payload.packed_fmt ]
 
 type hooks =
   | Hooks : { on_start : node -> 'a; on_end : node -> 'a -> unit } -> hooks

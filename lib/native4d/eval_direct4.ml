@@ -14,6 +14,12 @@ type context = Operand | Sig_shape
 type missing_tensor = { context : context; id : Tensor_id.t }
 type arity_mismatch = { expected : int; actual : int }
 
+type mixed_dtype = {
+  mixed_op : string;
+  a_fmt : Payload.packed_fmt;
+  b_fmt : Payload.packed_fmt;
+}
+
 type error =
   [ Graph_shape4.error
   | `Arange_i64_overflow of Factory.Arange.Overflow.t
@@ -22,7 +28,9 @@ type error =
   | `Missing_tensor of missing_tensor
   | `Output_arity_mismatch of arity_mismatch
   | `Region_construction of Region_computation4.error
-  | `Region_execution of Region_eval.error ]
+  | `Region_execution of Region_eval.error
+  | `Unsupported_mixed_dtype of mixed_dtype
+  | `Unsupported_to_copy_long_source of Payload.packed_fmt ]
 
 let pp_context ppf = function
   | Operand -> Fmt.string ppf "operand"
@@ -45,6 +53,13 @@ let pp_error ppf : [< error ] -> unit = function
         expected actual
   | `Region_construction error -> Region_computation.pp_error ppf error
   | `Region_execution error -> Region_eval.pp_error ppf error
+  | `Unsupported_mixed_dtype
+      { mixed_op; a_fmt = Payload.Fmt a_fmt; b_fmt = Payload.Fmt b_fmt } ->
+      Fmt.pf ppf "%s: unsupported mixed dtype, a=%s b=%s" mixed_op
+        (Payload.fmt_name a_fmt) (Payload.fmt_name b_fmt)
+  | `Unsupported_to_copy_long_source (Payload.Fmt f) ->
+      Fmt.pf ppf "to_copy: Long target has no exact I64 output for a %s source"
+        (Payload.fmt_name f)
 
 let find_tensor map id ~context =
   Tensor_id.Map.find_opt id map
@@ -262,6 +277,226 @@ let eval_node ?region_counters ~limits ~synthetic_ids (g : Graph.graph) env
                 Err.return
                   (Tensor.materialize_fmt params.fmt (Shape4.to_vec6 out_shape)
                      (fun _ -> 0.))
+            (* Dtype-preserving Reshape4/Permute4, the Native4D twin of
+               [Eval_direct]'s own arms: the default arm's
+               [Eval_op4.pixel]'s delegation to Native's
+               [Reshape.Reshape.Compute(S).pixel]/[Permute.Permute.Compute(S)
+               .pixel] reads through [S.load], which round-trips every format
+               through [Payload.get_float] and is silently lossy for an I64
+               source above 2^53. Branch on the OPERAND's declared format
+               (paired with [Builder.reshape4]/[permute4]'s own I64-only fmt
+               threading), routing an I64 source through Native's own
+               [Compute_i64] functors instead. *)
+            | Op.Reshape4 { Ops4.Reshape4.params; x } -> (
+                let x_sig = Tensor_id.Map.find x g.Graph.Graph.tensors in
+                match x_sig.Tensor_sig.fmt with
+                | Payload.Fmt Payload.I64 ->
+                    let module C = Reshape.Reshape.Compute_i64 (Direct) (Direct)
+                    in
+                    let x_t = Tensor_id.Map.find x operand_env in
+                    let x_shape = Tensor_id.Map.find x shape_env in
+                    Err.return
+                      (Tensor.materialize_i64 (Shape4.to_vec6 out_shape)
+                         (fun coord ->
+                           C.pixel
+                             {
+                               Reshape.Reshape.shape =
+                                 Shape4.to_vec6 params.shape;
+                             }
+                             ~x_shape ~x:x_t coord))
+                | _ ->
+                    Err.return
+                      (Schedule.evaluate (Shape4.to_vec6 out_shape)
+                         (E.pixel op ~output
+                            ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                            ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                            ~fill)))
+            | Op.Permute4 { Ops4.Permute4.perm; x } -> (
+                let x_sig = Tensor_id.Map.find x g.Graph.Graph.tensors in
+                match x_sig.Tensor_sig.fmt with
+                | Payload.Fmt Payload.I64 ->
+                    let module C = Permute.Permute.Compute_i64 (Direct) (Direct)
+                    in
+                    let x_t = Tensor_id.Map.find x operand_env in
+                    Err.return
+                      (Tensor.materialize_i64 (Shape4.to_vec6 out_shape)
+                         (fun coord ->
+                           C.pixel (Graph_shape4.perm6 perm) ~x:x_t coord))
+                | _ ->
+                    Err.return
+                      (Schedule.evaluate (Shape4.to_vec6 out_shape)
+                         (E.pixel op ~output
+                            ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                            ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                            ~fill)))
+            (* Dtype-preserving tensor-tensor Add/Sub/Mul and the explicit
+               int64-input promotion for Mul_scalar -- the Native4D twins of
+               [Eval_direct]'s own arms, same rationale: dispatch
+               only when BOTH operands declare I64 (the only case
+               [Builder.{add,sub,mul}] threads an I64 output edge for); an
+               exactly-one-I64 pair fails at checked admission rather than
+               silently computing through a double-rounded float path. *)
+            | Op.Add { Pointwise.Bin.a; b } -> (
+                let a_sig = Tensor_id.Map.find a g.Graph.Graph.tensors in
+                let b_sig = Tensor_id.Map.find b g.Graph.Graph.tensors in
+                match (a_sig.Tensor_sig.fmt, b_sig.Tensor_sig.fmt) with
+                | Payload.(Fmt I64, Fmt I64) ->
+                    let module C = Pointwise.Add.Compute_i64 (Direct) (Direct)
+                    in
+                    let a_t = Tensor_id.Map.find a operand_env in
+                    let b_t = Tensor_id.Map.find b operand_env in
+                    let a_shape = Tensor_id.Map.find a shape_env in
+                    let b_shape = Tensor_id.Map.find b shape_env in
+                    Err.return
+                      (Tensor.materialize_i64 (Shape4.to_vec6 out_shape)
+                         (fun coord -> C.pixel ~a_shape ~b_shape a_t b_t coord))
+                | a_fmt, b_fmt
+                  when (match a_fmt with
+                         | Payload.Fmt Payload.I64 -> true
+                         | _ -> false)
+                       ||
+                       match b_fmt with
+                       | Payload.Fmt Payload.I64 -> true
+                       | _ -> false ->
+                    Err.fail
+                      (`Unsupported_mixed_dtype
+                         { mixed_op = "add"; a_fmt; b_fmt })
+                | _ ->
+                    Err.return
+                      (Schedule.evaluate (Shape4.to_vec6 out_shape)
+                         (E.pixel op ~output
+                            ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                            ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                            ~fill)))
+            | Op.Sub { Pointwise.Bin.a; b } -> (
+                let a_sig = Tensor_id.Map.find a g.Graph.Graph.tensors in
+                let b_sig = Tensor_id.Map.find b g.Graph.Graph.tensors in
+                match (a_sig.Tensor_sig.fmt, b_sig.Tensor_sig.fmt) with
+                | Payload.(Fmt I64, Fmt I64) ->
+                    let module C = Pointwise.Sub.Compute_i64 (Direct) (Direct)
+                    in
+                    let a_t = Tensor_id.Map.find a operand_env in
+                    let b_t = Tensor_id.Map.find b operand_env in
+                    let a_shape = Tensor_id.Map.find a shape_env in
+                    let b_shape = Tensor_id.Map.find b shape_env in
+                    Err.return
+                      (Tensor.materialize_i64 (Shape4.to_vec6 out_shape)
+                         (fun coord -> C.pixel ~a_shape ~b_shape a_t b_t coord))
+                | a_fmt, b_fmt
+                  when (match a_fmt with
+                         | Payload.Fmt Payload.I64 -> true
+                         | _ -> false)
+                       ||
+                       match b_fmt with
+                       | Payload.Fmt Payload.I64 -> true
+                       | _ -> false ->
+                    Err.fail
+                      (`Unsupported_mixed_dtype
+                         { mixed_op = "sub"; a_fmt; b_fmt })
+                | _ ->
+                    Err.return
+                      (Schedule.evaluate (Shape4.to_vec6 out_shape)
+                         (E.pixel op ~output
+                            ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                            ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                            ~fill)))
+            | Op.Mul { Pointwise.Bin.a; b } -> (
+                let a_sig = Tensor_id.Map.find a g.Graph.Graph.tensors in
+                let b_sig = Tensor_id.Map.find b g.Graph.Graph.tensors in
+                match (a_sig.Tensor_sig.fmt, b_sig.Tensor_sig.fmt) with
+                | Payload.(Fmt I64, Fmt I64) ->
+                    let module C = Pointwise.Mul.Compute_i64 (Direct) (Direct)
+                    in
+                    let a_t = Tensor_id.Map.find a operand_env in
+                    let b_t = Tensor_id.Map.find b operand_env in
+                    let a_shape = Tensor_id.Map.find a shape_env in
+                    let b_shape = Tensor_id.Map.find b shape_env in
+                    Err.return
+                      (Tensor.materialize_i64 (Shape4.to_vec6 out_shape)
+                         (fun coord -> C.pixel ~a_shape ~b_shape a_t b_t coord))
+                | a_fmt, b_fmt
+                  when (match a_fmt with
+                         | Payload.Fmt Payload.I64 -> true
+                         | _ -> false)
+                       ||
+                       match b_fmt with
+                       | Payload.Fmt Payload.I64 -> true
+                       | _ -> false ->
+                    Err.fail
+                      (`Unsupported_mixed_dtype
+                         { mixed_op = "mul"; a_fmt; b_fmt })
+                | _ ->
+                    Err.return
+                      (Schedule.evaluate (Shape4.to_vec6 out_shape)
+                         (E.pixel op ~output
+                            ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                            ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                            ~fill)))
+            | Op.Mul_scalar { Pointwise.Scalar_bin.x; scalar } -> (
+                let x_sig = Tensor_id.Map.find x g.Graph.Graph.tensors in
+                match x_sig.Tensor_sig.fmt with
+                | Payload.Fmt Payload.I64 ->
+                    let module C =
+                      Pointwise.Mul_scalar.Compute_i64 (Direct) (Direct)
+                    in
+                    let x_t = Tensor_id.Map.find x operand_env in
+                    Err.return
+                      (Schedule.evaluate (Shape4.to_vec6 out_shape)
+                         (fun coord -> C.pixel ~scalar x_t coord))
+                | _ ->
+                    Err.return
+                      (Schedule.evaluate (Shape4.to_vec6 out_shape)
+                         (E.pixel op ~output
+                            ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                            ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                            ~fill)))
+            (* Explicit int64-input promotion for [To_copy]'s [Float] target,
+               and the reverse "Float to I64" cast for its [Long] target --
+               the Native4D twins of [Eval_direct]'s own arms. [Long]/
+               [Float] are each their own arm rather than one match on
+               [target] because the two directions need entirely different
+               dispatch shapes (a read-side cast vs. a genuine checked
+               write). [Bool] is untouched -- no distinct storage format
+               exists yet. *)
+            | Op.To_copy
+                { Pointwise.To_copy.target = Pointwise.To_copy.Float; x } -> (
+                let x_sig = Tensor_id.Map.find x g.Graph.Graph.tensors in
+                match x_sig.Tensor_sig.fmt with
+                | Payload.Fmt Payload.I64 ->
+                    let module C =
+                      Pointwise.To_copy.Compute_i64 (Direct) (Direct)
+                    in
+                    let x_t = Tensor_id.Map.find x operand_env in
+                    Err.return
+                      (Schedule.evaluate (Shape4.to_vec6 out_shape)
+                         (fun coord -> C.pixel x_t coord))
+                | _ ->
+                    Err.return
+                      (Schedule.evaluate (Shape4.to_vec6 out_shape)
+                         (E.pixel op ~output
+                            ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                            ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                            ~fill)))
+            | Op.To_copy
+                { Pointwise.To_copy.target = Pointwise.To_copy.Long; x } -> (
+                let x_sig = Tensor_id.Map.find x g.Graph.Graph.tensors in
+                match x_sig.Tensor_sig.fmt with
+                | Payload.Fmt Payload.F32 ->
+                    let module C =
+                      Pointwise.To_copy.Compute_to_long (Direct) (Direct)
+                    in
+                    let x_t = Tensor_id.Map.find x operand_env in
+                    Err.return
+                      (Tensor.materialize_i64 (Shape4.to_vec6 out_shape)
+                         (fun coord -> C.pixel x_t coord))
+                | Payload.Fmt Payload.I64 ->
+                    let x_t = Tensor_id.Map.find x operand_env in
+                    Err.return
+                      (Tensor.materialize_i64 (Shape4.to_vec6 out_shape)
+                         (fun coord -> Direct.i64_load x_t coord))
+                | Payload.Fmt other ->
+                    Err.fail
+                      (`Unsupported_to_copy_long_source (Payload.Fmt other)))
             | Op.Arange4 { Ops4.Arange4.params } -> (
                 let params =
                   Factory.Arange.

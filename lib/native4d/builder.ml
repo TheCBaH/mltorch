@@ -152,7 +152,20 @@ let batch_norm ?fmt params ~x ?weight ?bias ~running_mean ~running_var () =
 
 (* Op constructors in global alphabetical order, as in [Graph_builder]. *)
 
-let add a b = op1 (Op.Add { Pointwise.Bin.a; b })
+(* Thread the operand's own I64 format/quant into the output edge, matching
+   Native's own [Graph_builder.add]/[reshape4]/[permute4]'s precedent above
+   -- ONLY when both operands are I64, since [Eval_direct4]'s [Compute_i64]
+   dispatch can only deliver an exact result when they agree; a mismatched
+   pair falls through to [op1]'s F32 default (mixed promotion is out of this
+   slice's scope, matching Native's own [add]). *)
+let add a b =
+  let* s = get in
+  let a_sig = Tensor_id.Map.find a s.tensors in
+  let b_sig = Tensor_id.Map.find b s.tensors in
+  match (a_sig.Tensor_sig.fmt, b_sig.Tensor_sig.fmt) with
+  | Payload.Fmt Payload.I64, Payload.Fmt Payload.I64 ->
+      op1 ~fmt:a_sig.Tensor_sig.fmt (Op.Add { Pointwise.Bin.a; b })
+  | _ -> op1 (Op.Add { Pointwise.Bin.a; b })
 
 let addcmul value self tensor1 tensor2 =
   op1
@@ -281,7 +294,17 @@ let mean_keepdims ?(keepdim = true) dims x =
 (* Variadic in both directions, like [concat4]'s operands and [unbind]'s
    outputs at once -- [opN], not [op1]. *)
 let meshgrid tensors = opN (Op.Meshgrid { Meshgrid.Meshgrid.tensors })
-let mul a b = op1 (Op.Mul { Pointwise.Bin.a; b })
+
+(* Same I64-only threading as [add]; see its comment. *)
+let mul a b =
+  let* s = get in
+  let a_sig = Tensor_id.Map.find a s.tensors in
+  let b_sig = Tensor_id.Map.find b s.tensors in
+  match (a_sig.Tensor_sig.fmt, b_sig.Tensor_sig.fmt) with
+  | Payload.Fmt Payload.I64, Payload.Fmt Payload.I64 ->
+      op1 ~fmt:a_sig.Tensor_sig.fmt (Op.Mul { Pointwise.Bin.a; b })
+  | _ -> op1 (Op.Mul { Pointwise.Bin.a; b })
+
 let mul_scalar scalar x = op1 (Op.Mul_scalar { Pointwise.Scalar_bin.x; scalar })
 let pow scalar x = op1 (Op.Pow { Pointwise.Scalar_bin.x; scalar })
 
@@ -289,7 +312,23 @@ let pow scalar x = op1 (Op.Pow { Pointwise.Scalar_bin.x; scalar })
    [Axis4.t]: a pad naming T or D is not constructible through this API, the
    same rule [unbind] below follows. *)
 let pad4 params x = op1 (Op.Pad4 { Ops4.Pad4.params; x })
-let permute4 perm x = op1 (Op.Permute4 { Ops4.Permute4.perm; x })
+
+(* I64-only fmt threading, the Native4D twin of [Graph_builder.reshape]/
+   [permute]'s own fix: [Eval_direct4]'s generic pixel fallback
+   ([Schedule.evaluate]/[Tensor.materialize]) allocates its result as F32
+   unconditionally, so declaring a non-I64, non-F32 format here would make
+   the declared [Tensor_sig] lie about what the fallback actually writes --
+   see Native's own `Trim_permute`-adjacent regression this file's Native
+   twin already learned from. Every other format keeps [op1]'s F32 default,
+   matching what the fallback delivers. *)
+let permute4 perm x =
+  let* s = get in
+  let sg = Tensor_id.Map.find x s.tensors in
+  match sg.Tensor_sig.fmt with
+  | Payload.Fmt Payload.I64 ->
+      op1 ~fmt:sg.Tensor_sig.fmt (Op.Permute4 { Ops4.Permute4.perm; x })
+  | _ -> op1 (Op.Permute4 { Ops4.Permute4.perm; x })
+
 let relu x = op1 (Op.Relu { Pointwise.Relu.x })
 
 let repeat4 repeats x =
@@ -300,7 +339,14 @@ let repeat_interleave4 axis repeats x =
     (Op.RepeatInterleave4
        { Ops4.RepeatInterleave4.params = { axis; repeats }; x })
 
-let reshape4 shape x = op1 (Op.Reshape4 { Ops4.Reshape4.params = { shape }; x })
+let reshape4 shape x =
+  let* s = get in
+  let sg = Tensor_id.Map.find x s.tensors in
+  match sg.Tensor_sig.fmt with
+  | Payload.Fmt Payload.I64 ->
+      op1 ~fmt:sg.Tensor_sig.fmt
+        (Op.Reshape4 { Ops4.Reshape4.params = { shape }; x })
+  | _ -> op1 (Op.Reshape4 { Ops4.Reshape4.params = { shape }; x })
 
 (* Takes the dialect's own [Ops4.Layer_norm.params], whose [dims] are
    [Axis4.t]: a normalization naming T or D is not constructible through this
@@ -361,12 +407,32 @@ let sqrt x = op1 (Op.Sqrt { Pointwise.Sqrt.x })
    stack naming T or D is not constructible through this API, the same rule
    [concat4] above follows. *)
 let stack4 params xs = op1 (Op.Stack4 { Ops4.Stack4.params; xs })
-let sub a b = op1 (Op.Sub { Pointwise.Bin.a; b })
+
+(* Same I64-only threading as [add]; see its comment. *)
+let sub a b =
+  let* s = get in
+  let a_sig = Tensor_id.Map.find a s.tensors in
+  let b_sig = Tensor_id.Map.find b s.tensors in
+  match (a_sig.Tensor_sig.fmt, b_sig.Tensor_sig.fmt) with
+  | Payload.Fmt Payload.I64, Payload.Fmt Payload.I64 ->
+      op1 ~fmt:a_sig.Tensor_sig.fmt (Op.Sub { Pointwise.Bin.a; b })
+  | _ -> op1 (Op.Sub { Pointwise.Bin.a; b })
 
 let sum_keepdims ?(keepdim = true) dims x =
   op1 (Op.Sum_keepdims { Ops4.Sum_keepdims.params = { dims; keepdim }; x })
 
-let to_copy target x = op1 (Op.To_copy { Pointwise.To_copy.target; x })
+(* [Long]'s output dtype is I64 regardless of the operand's own format (ATen's
+   `.long()` always produces int64), so this threads unconditionally -- unlike
+   [add]/[sub]/[mul]/[reshape4]/[permute4]'s operand-conditional threading,
+   matching Native's own [Graph_builder.to_copy]. [Float]/[Bool] keep [op1]'s
+   F32 default: [Float]'s output genuinely is F32, and [Bool] has no distinct
+   storage format yet. *)
+let to_copy target x =
+  match target with
+  | Pointwise.To_copy.Long ->
+      op1 ~fmt:Payload.(Fmt I64) (Op.To_copy { Pointwise.To_copy.target; x })
+  | Pointwise.To_copy.Float | Pointwise.To_copy.Bool ->
+      op1 (Op.To_copy { Pointwise.To_copy.target; x })
 
 let transposed_conv2d params ~x ~weight ?bias () =
   op1 (Op.Transposed_conv2d { Ops4.Transposed_conv2d.params; x; weight; bias })
