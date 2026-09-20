@@ -33,11 +33,16 @@ module Stage = struct
     Region_group.Ref.check ~max_size ~max_depth (computation t)
 end
 
+module Stage_i64 = struct
+  type t = { id : Tensor_id.t; sg : Tensor_sig.t; pixel : int64 Expr.Value.t }
+end
+
 type t = {
   inputs : (Tensor_id.t * Tensor_sig.t) list;
   input_kinds : Input.kind Tensor_id.Map.t;
   consts : (Tensor_sig.t * float) list;
   stages : Stage.t list;
+  stages_i64 : Stage_i64.t list;
   outputs : Tensor_id.t list;
 }
 
@@ -55,6 +60,11 @@ let pp fmt (p : t) =
           Format.fprintf fmt "%a = %a@," Tensor_id.pp st.id Region_group.Ref.pp
             st.computation)
     p.stages;
+  List.iter
+    (fun (st : Stage_i64.t) ->
+      Format.fprintf fmt "%a = %a@," Tensor_id.pp st.Stage_i64.id
+        Expr.Pp.value_i64 st.Stage_i64.pixel)
+    p.stages_i64;
   Format.fprintf fmt "outputs: %s@]" (comma (List.map name_of p.outputs))
 
 type error =

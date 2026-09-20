@@ -42,6 +42,7 @@ let ground_value pixel_expr =
             computation = Region_group.Ref.Solo program;
           };
         ];
+      stages_i64 = [];
       outputs = [ Tensor_id.of_int 0 ];
     }
   in

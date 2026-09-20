@@ -1126,6 +1126,11 @@ module type S = sig
 
         For diagnostics and expect tests. Parsing it back is not supported. *)
 
+    val value_i64 : Format.formatter -> int64 Value.t -> unit
+    (** [value]'s int64 twin: same unnamed-reducer default, same "diagnostics
+        and expect tests only" contract. No [value_i64_open] yet -- add one
+        alongside [value_open] if a scoped-naming caller needs it. *)
+
     val scan : Format.formatter -> Scan.t -> unit
     (** An unspecialized scan's [init]/[update], scoped and named exactly as a
         real [Value.Scan_at] read renders them but with no trailing projection

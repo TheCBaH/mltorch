@@ -40,6 +40,7 @@ let program =
     input_kinds = Tensor_id.Map.empty;
     consts = [];
     stages = [ out_stage ];
+    stages_i64 = [];
     outputs = [ out_id ];
   }
 

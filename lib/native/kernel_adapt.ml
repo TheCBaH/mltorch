@@ -144,6 +144,24 @@ let analyse ~limits ~select (p : Stage_program.t) =
       (fun m (st : Stage_program.Stage.t) -> Tensor_id.Map.add st.id st.sg m)
       Tensor_id.Map.empty p.Stage_program.stages
   in
+  (* An ordinary float stage's own sources MAY name a [stages_i64] entry (an
+     [I64_to_float (I64_load ...)] pixel, e.g. [Mul_scalar]'s own exact
+     int64-input dispatch) -- [Kernel.mli]'s own doc already establishes that
+     every [values_i64] entry is materialized eagerly, unconditionally,
+     before any [Value.t] evaluates, so unlike a [stages]-to-[stages] source
+     (checked for forward references just below) an i64 source needs no
+     ordering check here: it is always already resolved by the time ANY
+     float stage runs, regardless of list position. This does not extend
+     [analyse]'s own untrusted-input validation TO [stages_i64] itself (no
+     duplicate-id/signature check for the int64 list here) -- that remains
+     separately scoped; this only stops a legitimate float-consumes-i64
+     reference from being
+     misreported as [`Unknown_stage_source]. *)
+  let stage_i64_ids =
+    List.fold_left
+      (fun s (st : Stage_program.Stage_i64.t) -> Tensor_id.Set.add st.id s)
+      Tensor_id.Set.empty p.Stage_program.stages_i64
+  in
   (* Validate the whole definition table before projecting any selection.
      Otherwise a selection launders a structural defect: with stage [a] reading
      a later stage [b], selecting only [a] turns [b] into a synthetic boundary
@@ -170,7 +188,10 @@ let analyse ~limits ~select (p : Stage_program.t) =
             (fun src acc ->
               let* () = acc in
               let id = Expr_bridge.id_of_source src in
-              if Tensor_id.Map.mem id boundary || Tensor_id.Set.mem id defined
+              if
+                Tensor_id.Map.mem id boundary
+                || Tensor_id.Set.mem id defined
+                || Tensor_id.Set.mem id stage_i64_ids
               then Err.return ()
               else if Tensor_id.Map.mem id stage_sig then
                 invalid Program_error.Forward_source
@@ -420,6 +441,28 @@ let of_stage_program ?(limits = Kernel.Limits.default) ?select ?outputs p =
         else None)
       p.Stage_program.stages
   in
+  (* [values_i64] is NOT filtered by [a.select]: unlike an ordinary [Value.t],
+     it has "no dependency-depth/reachability participation" and is "always
+     materialized eagerly, in list order" (see [Kernel.Value_i64.t]'s own doc
+     and [check_values_i64_order]) -- the same unconditional-availability
+     treatment [inputs]/[consts] would get if they had no boundary-selection
+     concept at all. A selective kernel built over a sub-graph that happens to
+     share a [Stage_program.t] with an unrelated int64 Arange therefore still
+     pays that Arange's own (small, `max_values`-bounded) admission cost; left
+     as a known, named imprecision rather than a silent one. This conversion is
+     a near-identity map: [Stage_program.Stage_i64.t] and
+     [Kernel.Value_i64.t] share the same [id]/[sg]/pixel-body shape by
+     construction (see [Stage_i64]'s own doc comment). *)
+  let values_i64 =
+    List.map
+      (fun (st : Stage_program.Stage_i64.t) ->
+        {
+          Kernel.Value_i64.id = st.Stage_program.Stage_i64.id;
+          sg = st.Stage_program.Stage_i64.sg;
+          pixel = st.Stage_program.Stage_i64.pixel;
+        })
+      p.Stage_program.stages_i64
+  in
   Err.map_error
     (fun (e : Kernel.error) -> (e :> error))
-    (Kernel.create ~limits ~inputs ~values ~outputs ())
+    (Kernel.create ~limits ~inputs ~values ~values_i64 ~outputs ())

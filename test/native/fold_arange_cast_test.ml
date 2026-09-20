@@ -149,9 +149,30 @@ let%expect_test "fold_arange_cast: a live int consumer is left alone" =
                && Node_map.is_empty (Graph_map.nodes map)))));
   [%expect {| changed: false |}]
 
-(* THE CLAIM. [To_copy]'s [Float] pixel is [S.load x out] unchanged and
-   [Arange]'s own pixel never reads [fmt], so the verifier compares two
-   structurally equal terms. *)
+(* THE CLAIM, historically: [To_copy]'s [Float] pixel used to be [S.load x
+   out] unchanged and [Arange]'s own pixel never reads [fmt], so the verifier
+   compared two structurally equal terms.
+
+   That textual equality is now broken by a value-PRESERVING change: since
+   `eval_symbolic.ml`'s own explicit-cast arm for [To_copy(Float)],
+   [To_copy(Float)]
+   on an I64-declared operand -- exactly this fixture's own [Arange], whose
+   [fmt] the pattern above requires to be I64 -- builds [I64_to_float
+   (I64_load ...)] instead of a plain [S.load], the same explicit-promotion
+   architecture [Mul_scalar]/[Reshape]/[Permute] already use. No VALUE this
+   pass computes changes ([Eval_direct] governs real execution and is
+   untouched; `native_interp` never calls this Symbolic evaluator at all), but
+   [Ground_eval] -- the separate evaluator
+   this file's own verifier uses to PROVE the claim, distinct from
+   [Kernel_eval] -- has no grounded representation for [I64_to_float] yet (a
+   known gap, not a fresh defect: see [Ground_eval]'s own
+   `Unsupported_i64_to_float_ground`). The cluster
+   this pass can no longer prove structurally is demoted to "unproved", not
+   "refuted" -- confirmed by deliberately breaking the new arm's actual value
+   and observing this same cluster flip to "refuted" instead, proving the
+   verifier genuinely evaluates it rather than rubber-stamping "unproved".
+   Extending [Ground_eval] to evaluate [I64_to_float]/[I64_load] is not
+   attempted here. *)
 let%expect_test "fold_arange_cast: the Identical claim is proved, not declined"
     =
   let g = int_arange_then_cast () in
@@ -170,4 +191,9 @@ let%expect_test "fold_arange_cast: the Identical claim is proved, not declined"
                 (Map_verify.Report.summary report))
             audits.reports);
       [%expect
-        {| fold_arange_cast#0: 3 clusters: 2 proved (structural), 1 vacuous |}]
+        {|
+        pass fold_arange_cast rejected: 3 clusters: 1 proved (structural), 1 unproved (grounding failed), 1 vacuous
+          {t0} -> {} identical: vacuous
+          {t1} -> {t1} identical: unproved: eval: I64_to_float has no grounded/fused representation yet (only the plain evaluator supports it) [exhaustive]
+          {t2} -> {t2} identical: proved (structural) [exhaustive]
+        |}]

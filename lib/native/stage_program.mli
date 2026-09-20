@@ -47,6 +47,19 @@ module Stage : sig
     max_size:int -> max_depth:int -> t -> (unit, Region_group.error) Err.t
 end
 
+(* The int64 twin of [Stage.t], restricted to a bare pixel body -- no
+   [Region_group.Ref]/locals -- mirroring [Kernel.Value_i64.t]'s own
+   deliberately narrow "Pixel-only" shape. Added ALONGSIDE [Stage.t], never
+   folded into it: a stage's
+   [computation] field cannot represent an [int64 Expr.Value.t] body without
+   widening [Region_group.Ref.t]/[Region_program.t] themselves, which is out
+   of this slice's scope. [Stage_program.ground] and every OTHER existing
+   consumer of [t.stages] (grounding/verification/export) does not read
+   [stages_i64]; only [Kernel_adapt] does. *)
+module Stage_i64 : sig
+  type t = { id : Tensor_id.t; sg : Tensor_sig.t; pixel : int64 Expr.Value.t }
+end
+
 type t = {
   inputs : (Tensor_id.t * Tensor_sig.t) list;
       (* graph inputs (Load "sources") *)
@@ -54,6 +67,9 @@ type t = {
       (* same source classification as the originating graph *)
   consts : (Tensor_sig.t * float) list; (* synthetic constant-filled operands *)
   stages : Stage.t list; (* topo-ordered *)
+  stages_i64 : Stage_i64.t list;
+      (* int64-carrier pixel-only stages, alongside [stages]; see
+         [Stage_i64]'s own doc comment *)
   outputs : Tensor_id.t list;
 }
 

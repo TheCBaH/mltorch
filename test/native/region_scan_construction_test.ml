@@ -154,6 +154,7 @@ let%expect_test
             computation = Region_group.Ref.Solo program;
           };
         ];
+      stages_i64 = [];
       outputs = [ Tensor_id.of_int 0 ];
     }
   in
@@ -265,6 +266,7 @@ let%expect_test "grounding executes a scan-backed stage" =
             computation = Region_group.Ref.Solo program;
           };
         ];
+      stages_i64 = [];
       outputs = [ Tensor_id.of_int 0 ];
     }
   in
@@ -290,6 +292,7 @@ let stage_of program =
           computation = Region_group.Ref.Solo program;
         };
       ];
+    stages_i64 = [];
     outputs = [ Tensor_id.of_int 0 ];
   }
 
