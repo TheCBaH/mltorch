@@ -89,8 +89,8 @@ let kernel : [< Kernel_adapt.error ] -> verdict = function
      a structural failure in it is ours; and the two selection rows are
      reachable only through [?select], which whole-program export never
      passes. *)
-  | `Body _ | `Duplicate_id _ | `Forward_reference _ | `I64_body _
-  | `Missing_live_output _ | `Not_i64_materializable _
+  | `Body _ | `Conversion_mismatch _ | `Duplicate_id _ | `Forward_reference _
+  | `I64_body _ | `Missing_live_output _ | `Not_i64_materializable _
   | `Not_materializable
       { Kernel.Format_rule.role = Kernel.Format_rule.Filled_input; _ }
   | `Output_not_selected _ | `Program_invalid _ | `Quant_contract _

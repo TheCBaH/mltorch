@@ -60,6 +60,9 @@ type analysis = {
   sources : Expr.Source.Set.t Tensor_id.Map.t;  (** per stage, memoised *)
   stage_sig : Tensor_sig.t Tensor_id.Map.t;
   order : Tensor_id.t list;  (** stage ids, topological *)
+  i64_sources : Expr.Source.Set.t;
+      (** what the int64 stages read, together. Every int64 stage is always in
+          the kernel, so these behave like reads from inside the selection. *)
 }
 
 let analyse ~limits ~select (p : Stage_program.t) =
@@ -97,6 +100,30 @@ let analyse ~limits ~select (p : Stage_program.t) =
       Kernel.over_limit limits.Kernel.Limits.max_outputs p.Stage_program.outputs
     then Err.fail (`Too_many_outputs limits.Kernel.Limits.max_outputs)
     else Err.return ()
+  in
+  let* () =
+    if
+      Kernel.over_limit limits.Kernel.Limits.max_values
+        p.Stage_program.stages_i64
+    then Err.fail (`Too_many_values limits.Kernel.Limits.max_values)
+    else Err.return ()
+  in
+  (* An int64 body that fails its budget contributes nothing here:
+     [Kernel.create] rejects the same body with its own error, and a fold over
+     an unchecked tree is exactly what the budget exists to prevent. *)
+  let i64_sources =
+    List.fold_left
+      (fun acc (st : Stage_program.Stage_i64.t) ->
+        match
+          Expr.Check.value_i64 ~max_size:limits.Kernel.Limits.max_size
+            ~max_depth:limits.Kernel.Limits.max_depth
+            st.Stage_program.Stage_i64.pixel
+        with
+        | Ok () ->
+            Expr.Source.Set.union acc
+              (Expr.Fold.sources_i64 st.Stage_program.Stage_i64.pixel)
+        | Error _ -> acc)
+      Expr.Source.Set.empty p.Stage_program.stages_i64
   in
   (* Then every body's budget — selected or not. An oversized UNSELECTED body is
      just as dangerous: liveness scans it. *)
@@ -245,7 +272,14 @@ let analyse ~limits ~select (p : Stage_program.t) =
       select (Err.return ())
   in
   Err.return
-    { select; kinds = p.Stage_program.input_kinds; sources; stage_sig; order }
+    {
+      select;
+      kinds = p.Stage_program.input_kinds;
+      sources;
+      stage_sig;
+      order;
+      i64_sources;
+    }
 
 let sources_of a id =
   Option.value
@@ -274,7 +308,10 @@ let dead_terminals a =
         Expr.Source.Set.fold
           (fun src s -> Tensor_id.Set.add (Expr_bridge.id_of_source src) s)
           (sources_of a id) s)
-      Tensor_id.Set.empty a.order
+      (Expr.Source.Set.fold
+         (fun src s -> Tensor_id.Set.add (Expr_bridge.id_of_source src) s)
+         a.i64_sources Tensor_id.Set.empty)
+      a.order
   in
   List.filter
     (fun id ->
@@ -372,7 +409,10 @@ let of_stage_program ?(limits = Kernel.Limits.default) ?select ?outputs p =
             (fun src s -> Tensor_id.Set.add (Expr_bridge.id_of_source src) s)
             (sources_of a id) s
         else s)
-      Tensor_id.Set.empty a.order
+      (Expr.Source.Set.fold
+         (fun src s -> Tensor_id.Set.add (Expr_bridge.id_of_source src) s)
+         a.i64_sources Tensor_id.Set.empty)
+      a.order
   in
   let kind_of id =
     (* The sparse-map default, the rule [Graph_common.input_kind] exists to
@@ -436,7 +476,11 @@ let of_stage_program ?(limits = Kernel.Limits.default) ?select ?outputs p =
               Kernel.Value.id = st.id;
               sg = st.sg;
               computation = Stage_program.Stage.computation st;
-              result = Kernel.Result_conversion.Round_f32;
+              result =
+                (match st.sg.Tensor_sig.fmt with
+                | Payload.Fmt Payload.Bool ->
+                    Kernel.Result_conversion.Nonzero_bool
+                | _ -> Kernel.Result_conversion.Round_f32);
             }
         else None)
       p.Stage_program.stages

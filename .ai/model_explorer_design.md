@@ -1011,11 +1011,13 @@ used directly as a graph output has no stage to name, and the kernel suite build
 own comment calls legal. `Kernel`'s limit rows → `Over_limit`, since a real model can be too
 big and that is a bound doing its job. `Not_materializable` **splits on its `role`**: a
 `Stored_value` failing the check → `Outside_dialect_domain`, recoverable — Kernel
-materialization always produces f32 (`Kernel.materializable`'s own contract), so a stage
-whose legitimate output format isn't f32 (e.g. `arange.default(dtype=LONG)`) has no
+materialization produces f32 or Bool (`Kernel.materializable`'s own contract), so a stage
+whose legitimate output format is neither (e.g. `arange.default(dtype=LONG)`) has no
 counterpart in this dialect, the same story Native4D's domain rejections tell; a
 `Filled_input` failing the same check stays fatal — its format was `Kernel_adapt`'s own
 choice, so a mismatch there is the adapter handing `Kernel.create` a badly-typed constant.
+`Conversion_mismatch` (a value's result conversion disagrees with its declared format) is
+fatal for the same reason: `Kernel_adapt` picks the conversion from the format.
 Everything else is fatal: the stage program is repository-generated, so a structural
 failure in it is ours, and the two selection rows are reachable only through `?select`,
 which whole-program export never passes.

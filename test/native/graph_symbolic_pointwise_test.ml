@@ -155,14 +155,10 @@ let%expect_test "Symbolic graph: rsub_scalar stage DAG + ground matches Direct"
 (* [Long] exercises [trunc], the new primitive -- [Float]/[Bool] reuse
    [select]/[lt], already covered by every other staged-select test here.
 
-   Direct and ground now genuinely DIVERGE on this node: [Eval_direct]'s new
-   [To_copy(Long)] arm routes an F32 operand through
-   [Direct.float_to_i64], producing a true int64 payload, while Symbolic's
-   own [Compute(S).pixel] still lowers [Long] to the old float [S.trunc] and
-   [Graph_shape]/[Ground_eval] still ground it at F32 -- Native Symbolic is
-   explicitly not attempted in this increment (Add/Sub/Mul/Reshape/Permute's
-   own established precedent of shipping one route at a time), so this
-   mismatch is an expected gap, not a regression. *)
+   An F32 operand lowers [Long] to an exact int64 stage ([float_to_i64], a
+   [Stage_i64.t]); [Stage_program.ground] evaluates int64 stages too, so the
+   grounded result is a genuine I64 tensor, compared with [Eval_direct] below.
+   The Kernel route is covered by [eval_symbolic_i64_to_copy_long_test.ml]. *)
 let%expect_test
     "Symbolic graph: to_copy (long) stage DAG + ground matches Direct" =
   let result =
@@ -189,15 +185,16 @@ let%expect_test
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     compare_output g grounded direct
   in
-  [%expect {|
+  [%expect
+    {|
     inputs: t0
-    t1 = trunc(t0[N,T,D,H,W,C])
+    t1 = float_to_i64(t0[N,T,D,H,W,C])
     outputs: t1 |}];
   Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
   [%expect
     {|
-    ground = tensor f32 [C=4] {-1, -0, 2, 3}
-    ground matches direct: false |}]
+    ground = tensor i64 [C=4] {-1, 0, 2, 3}
+    ground matches direct: true |}]
 
 (* [a]'s H axis is 1; [size]'s is 2 -- so the staged read must show [H] pinned
    to the constant 0 ([broadcast_coord]'s substitution) even though the OTHER

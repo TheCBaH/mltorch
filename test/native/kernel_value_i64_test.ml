@@ -1,8 +1,8 @@
 (* [Kernel.Value_i64.t]: an exact int64 Kernel value (no [Region_group.Ref]).
    May read an EARLIER [values_i64] entry (a backward-only int64-to-int64
-   dependency chain); reading a float value/input, or a forward reference,
-   stays unsupported -- see the doc on [Kernel.Value_i64.t]. Every admission
-   rule gets a
+   dependency chain); a forward reference or an unknown id stays unsupported.
+   Reading a float value or input is covered by
+   [kernel_i64_reads_float_test.ml] -- see the doc on [Kernel.Value_i64.t]. Every admission rule gets a
    test that PRODUCES it, matching [kernel_test.ml]'s own discipline: a rule
    whose test cannot go red is not evidence. *)
 
@@ -54,7 +54,7 @@ let%expect_test "Kernel: an int64 value must actually be I64-formatted" =
        ~inputs:[] ~values:[] ~outputs:[] ());
   [%expect {| t0: an int64 value must be i64 and unquantized, got f32 |}]
 
-let%expect_test "Kernel: an int64 value may not read a float value" =
+let%expect_test "Kernel: an int64 value may not read an unknown id" =
   let source = Expr_bridge.source_of_id (tid 1) in
   let coord =
     Expr_bridge.coord_of_vec6 (Vec6.of_fn (fun _ -> Expr.Index.zero))
@@ -64,7 +64,7 @@ let%expect_test "Kernel: an int64 value may not read a float value" =
        ~values_i64:[ value_i64 0 (s1c 1) (Expr.Value.i64_load source coord) ]
        ~inputs:[] ~values:[] ~outputs:[] ());
   [%expect
-    {| t0: an int64 value may only read an earlier int64 value, not a forward reference or a float value/input |}]
+    {| t0: an int64 value may only read an input, a float value or an earlier int64 value |}]
 
 let%expect_test "Kernel: an int64 value may not read a LATER int64 value" =
   let source = Expr_bridge.source_of_id (tid 1) in
@@ -80,7 +80,7 @@ let%expect_test "Kernel: an int64 value may not read a LATER int64 value" =
          ]
        ~inputs:[] ~values:[] ~outputs:[] ());
   [%expect
-    {| t0: an int64 value may only read an earlier int64 value, not a forward reference or a float value/input |}]
+    {| t0: an int64 value may only read an input, a float value or an earlier int64 value |}]
 
 let%expect_test "Kernel: an int64 value may read an EARLIER int64 value" =
   let source = Expr_bridge.source_of_id (tid 0) in

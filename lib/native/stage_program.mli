@@ -85,7 +85,10 @@ val pp_error : Format.formatter -> [< error ] -> unit
 
 (* Chain-ground the stages: [bind] supplies a tensor for each graph input id; the
    result maps every stage's edge id to its grounded tensor (the intermediates),
-   so the graph outputs are looked up by id. Stages are grouped into maximal
+   so the graph outputs are looked up by id. Int64 stages ([stages_i64]) are
+   grounded too, on demand and memoised, so an int64 stage may read a float
+   stage and a float stage may read an int64 one; their tensors appear in the
+   result alongside the float ones. Stages are grouped into maximal
    runs of consecutive [Region_group.Ref.Grouped] members sharing one
    physically-identical [Region_group.t] (project step 19's Section C
    milestone 2); each such run shares ONE evaluation of its group's locals per

@@ -3,14 +3,13 @@
    Symbolic/Kernel instead. [inv] (the [Bitwise_not] output) is shared by
    BOTH cumsum consumers, so [Eval_symbolic] cannot fuse it into either
    consumer's own expression -- it must become a genuine stored
-   [Kernel.Value.t], declared [Bool] by [Graph_builder.bitwise_not]. Every
-   stored value goes through [Kernel.materializable] (see [kernel.ml]'s own
-   [of_stage_program], which checks EVERY [Value.t], not just the graph's
-   requested outputs) at [Kernel_adapt.of_stage_program] construction time --
-   the same F32-only gate [eval_symbolic_gt_scalar_test.ml] already proved
-   for a Bool-declared OUTPUT. This fixture proves the identical gate fires
-   for a Bool-declared shared INTERMEDIATE feeding two all-Float32-output
-   consumers. *)
+   [Kernel.Value.t], declared [Bool] by [Graph_builder.bitwise_not]. Bool
+   storage is admitted at the Kernel boundary (a [Nonzero_bool] result
+   conversion, canonical Bool bytes), so the kernel builds, runs, stores real
+   Bool [mask]/[inv], and both Float32 cumsums must equal the Direct route's
+   independently hand-computed prefix sums. *)
+
+open Graph_ir
 
 let shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:4 ~c:1
 
@@ -26,13 +25,41 @@ let build =
     return (cum_h, cum_w))
   |> Err.or_raise ~pp_error:Graph_builder.pp_error
 
+let row = [| [| 0.; 1.; 0.; 2. |]; [| 3.; 0.; 0.; 5. |] |]
+
+let x =
+  Tensor.materialize shape (fun c ->
+      row.(Dim.to_int (Vec6.get c Axis.H)).(Dim.to_int (Vec6.get c Axis.W)))
+
+let node_output i =
+  match List.nth build.Graph.nodes i with
+  | { Node.outputs = id :: _; _ } -> id
+  | _ -> assert false
+
 let%expect_test
-    "Symbolic -> Kernel: EdgeNeXt's shared Bool [inv] intermediate is rejected \
-     at kernel construction, even though both consumers and both graph outputs \
-     are Float32" =
+    "Symbolic -> Kernel: EdgeNeXt's shared Bool [inv] intermediate is stored \
+     as Bool and both Float32 cumsums match the Direct route" =
   let stage_program = Eval_symbolic.run build in
-  let pp_ok fmt _ = Format.pp_print_string fmt "ok" in
-  Format.printf "%a@."
-    (Core.Pretty.err_result ~ok:pp_ok ~error:Kernel_adapt.pp_error)
-    (Kernel_adapt.of_stage_program stage_program);
-  [%expect {| t1: a stored value must be f32 and unquantized, got bool |}]
+  let kernel =
+    Kernel_adapt.of_stage_program stage_program
+    |> Err.or_raise ~pp_error:Kernel_adapt.pp_error
+  in
+  let result =
+    Kernel_eval.run kernel ~bind:(fun id ->
+        if Tensor_id.equal id (List.hd build.Graph.inputs) then Some x else None)
+    |> Err.or_raise ~pp_error:Kernel_eval.pp_error
+  in
+  let show name id =
+    match Tensor_id.Map.find_opt id result with
+    | Some t -> Format.printf "%s = %a@." name Tensor.pp t
+    | None -> Format.printf "%s MISSING@." name
+  in
+  show "mask" (node_output 0);
+  show "inv " (node_output 1);
+  List.iter (show "out ") build.Graph.outputs;
+  [%expect
+    {|
+    mask = tensor bool [H=2 W=4 C=1] {0, 1, 0, 1, 1, 0, 0, 1}
+    inv  = tensor bool [H=2 W=4 C=1] {1, 0, 1, 0, 0, 1, 1, 0}
+    out  = tensor f32 [H=2 W=4 C=1] {1, 0, 1, 0, 1, 1, 2, 0}
+    out  = tensor f32 [H=2 W=4 C=1] {1, 1, 2, 2, 0, 1, 2, 2} |}]

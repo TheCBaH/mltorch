@@ -27,7 +27,13 @@ module Result_conversion : sig
   (* The conversion at a logical value's boundary, independent of whether a
      schedule stores it. Removing it where a buffer used to be is a semantic
      change, not an optimisation. *)
-  type t = Round_f32
+  type t =
+    | Nonzero_bool
+    | Round_f32
+        (** [Nonzero_bool] is the boundary of a Bool-declared value: the float
+            body is mapped to exactly 0. or 1. (NaN and infinities true, both
+            zeros false) and stored as canonical Bool bytes. [Round_f32] is the
+            F32 boundary. *)
 
   val apply : t -> float Expr.Value.t -> float Expr.Value.t
   (** The ONE place the round is expressed. Every consumer — interpreter and
@@ -60,9 +66,10 @@ module Value_i64 : sig
      read one of THESE -- [I64_to_float (I64_load ...)] in an ordinary float
      pixel, e.g. a promoted consumer of an int64 producer -- since every
      [values_i64] entry is materialized before any [Value.t] evaluates
-     ([Kernel_eval.machine]); see [create]'s own doc. The remaining
-     cross-carrier direction, an int64 value reading a FLOAT one, is real,
-     named future work, not covered here. *)
+     ([Kernel_eval.machine]); see [create]'s own doc. An int64 value may also
+     read an input or a float value: [create] orders the two
+     lists as one dependency graph and [Kernel_eval] materializes either kind on
+     demand. *)
   type t = {
     id : Tensor_id.t;
     sg : Tensor_sig.t;  (** [sg.id] must equal [id]; [sg.fmt] must be I64 *)
@@ -268,6 +275,16 @@ module Format_rule : sig
   type t = { id : Tensor_id.t; role : role; fmt : Payload.packed_fmt }
 end
 
+module Conversion_rule : sig
+  (* A stored value whose [Result_conversion.t] does not produce its declared
+     storage: [Round_f32] is the f32 boundary, [Nonzero_bool] the Bool one. *)
+  type t = {
+    id : Tensor_id.t;
+    fmt : Payload.packed_fmt;
+    result : Result_conversion.t;
+  }
+end
+
 module I64_format_rule : sig
   (* [Format_rule.t]'s int64 twin: a distinct type, not a third [role], since
      the two check different things (F32-unquantized versus I64-unquantized)
@@ -286,6 +303,7 @@ end
 type error =
   [ `Body of Body_error.t
   | `Bytes_too_large of Tensor_id.t
+  | `Conversion_mismatch of Conversion_rule.t
   | `Dependency_too_deep of int
   | `Duplicate_id of Tensor_id.t
   | `Eval_too_deep of int
@@ -327,20 +345,21 @@ val create :
     [values_i64] defaults to [[]], so every existing caller is unaffected. Each
     entry is checked closed over locals/reducers (via [Expr.Check.value_i64]),
     exact I64 format/unquantized, and byte/extent-bounded. Its
-    [Expr.Fold.sources_i64] may name only EARLIER entries in [values_i64] itself
-    -- a forward reference is [`Unsupported_i64_dependency] -- so [values_i64]
-    is its own backward-only int64 dependency chain, checked in list order the
-    same way [values]' forward sweep is. [values_i64] ids share the same
-    namespace as [inputs]/[values] (checked for [`Duplicate_id]) but do not yet
-    participate in [outputs]/[Use.t]/dependency-depth/reachability accounting.
+    [Expr.Fold.sources_i64] may name an input, a float [values] entry, or an
+    EARLIER entry in [values_i64] itself; a later int64 entry or an unknown id
+    is [`Unsupported_i64_dependency]. [values_i64] ids share the same namespace
+    as [inputs]/[values] (checked for [`Duplicate_id]).
 
-    A [values] entry's OWN sources, by contrast, MAY name a [values_i64] id: an
-    ordinary float pixel containing [I64_to_float (I64_load ...)] resolves it at
-    zero added dependency/eval depth, exactly like a caller-supplied input --
-    never a forward reference, since [Kernel_eval.machine] materializes every
-    [values_i64] entry before any [Value.t] evaluates, unconditionally,
-    regardless of either list's own order. The reverse -- an int64 value reading
-    a float [values]/[inputs] id -- stays [`Unsupported_i64_dependency]. *)
+    A [values] entry's own sources may likewise name a [values_i64] id
+    ([I64_to_float (I64_load ...)] in a float pixel). The two lists are one
+    dependency graph, checked in one sweep: an int64 entry is validated
+    immediately after the last float value it reads, and a float value may read
+    an int64 entry only if every float that entry reads is EARLIER in [values]
+    -- otherwise [`Forward_reference], which also rules out a cycle through the
+    int64 side. An int64 entry contributes its own dependency/eval depth and is
+    a reachability root (it is always materialized), so a float value only an
+    int64 entry reads is live. [Kernel_eval] materializes either kind on demand,
+    once. *)
 
 val pp : Format.formatter -> t -> unit
 val value : t -> Tensor_id.t -> Value.t option

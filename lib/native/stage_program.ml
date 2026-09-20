@@ -136,12 +136,20 @@ let preflight_run ~limits esc (run : Stage.t Region_group.Run.t) =
                  ~scan_limits:(Kernel.Limits.scan_limits limits)
                  g)))
 
-let execute_run ~limits ~region_counters esc (binds, result) = function
+(* A Bool-declared stage is computed on the float path and stored as canonical
+   Bool bytes; every other declared format keeps the tensor the float path
+   produced. [Kernel_eval.stored] is the Kernel-side twin. *)
+let stored (sg : Tensor_sig.t) tensor =
+  match sg.Tensor_sig.fmt with
+  | Payload.Fmt Payload.Bool -> Tensor.bool_of_float_cells tensor
+  | _ -> tensor
+
+let execute_run ~limits ~region_counters ~lookup esc (binds, result) = function
   | Region_group.Run.Solo st ->
       (* [find_opt], not [find]: a missing binding must reach the evaluator as
          a value it can report, not a [Not_found] raised out of a map lookup
          before any error path exists. *)
-      let binding id = Tensor_id.Map.find_opt id binds in
+      let binding id = lookup binds id in
       let t =
         match Err.Escape.or_throw esc (lower ~limits st) with
         | Region_execution.Pixel_loop body ->
@@ -162,10 +170,11 @@ let execute_run ~limits ~region_counters esc (binds, result) = function
                  (Region_execution.materialize ?counters lowered
                     ~env:(Expr_bridge.env ~binding)))
       in
+      let t = stored st.Stage.sg t in
       ( Tensor_id.Map.add st.Stage.sg.id t binds,
         Tensor_id.Map.add st.Stage.id t result )
   | Region_group.Run.Group (g, members) ->
-      let binding id = Tensor_id.Map.find_opt id binds in
+      let binding id = lookup binds id in
       let lowered_group =
         Err.Escape.or_throw esc
           (widen_group
@@ -198,6 +207,7 @@ let execute_run ~limits ~region_counters esc (binds, result) = function
       List.fold_left
         (fun (binds, result) (ordinal, tensor) ->
           let st = List.assoc ordinal members in
+          let tensor = stored st.Stage.sg tensor in
           ( Tensor_id.Map.add st.Stage.sg.id tensor binds,
             Tensor_id.Map.add st.Stage.id tensor result ))
         (binds, result) tensors
@@ -221,7 +231,13 @@ let ground ?(limits = Kernel.Limits.default) ?region_counters (p : t)
   let seed =
     List.fold_left
       (fun m ((s : Tensor_sig.t), v) ->
-        Tensor_id.Map.add s.id (Tensor.materialize s.shape (fun _ -> v)) m)
+        let filled =
+          match s.fmt with
+          | Payload.Fmt Payload.Bool ->
+              Tensor.materialize_bool s.shape (fun _ -> v <> 0.)
+          | _ -> Tensor.materialize s.shape (fun _ -> v)
+        in
+        Tensor_id.Map.add s.id filled m)
       seed p.consts
   in
   (* Thread the sig->tensor binding through the runs in topo order, collecting
@@ -230,10 +246,51 @@ let ground ?(limits = Kernel.Limits.default) ?region_counters (p : t)
      a consumer -- [Region_execution.materialize_group] either returns every
      selected tensor or fails via [Err.Escape], so no partial group result is
      ever published (design record §5.2). *)
-  let _, result =
+  (* An int64 stage is computed the first time anything reads it, memoised, from
+     whatever is bound by then: an int64 stage may read a float stage (which is
+     bound before any consumer of the int64 stage runs) and a float stage may
+     read an int64 one. [in_progress] turns a malformed cycle into a missing
+     binding instead of a loop. *)
+  let i64_stages =
     List.fold_left
-      (execute_run ~limits ~region_counters esc)
+      (fun m (st : Stage_i64.t) -> Tensor_id.Map.add st.Stage_i64.id st m)
+      Tensor_id.Map.empty p.stages_i64
+  in
+  let cache = ref Tensor_id.Map.empty in
+  let in_progress = ref Tensor_id.Set.empty in
+  let rec lookup binds id =
+    match Tensor_id.Map.find_opt id binds with
+    | Some _ as found -> found
+    | None -> (
+        match Tensor_id.Map.find_opt id !cache with
+        | Some _ as found -> found
+        | None -> (
+            match Tensor_id.Map.find_opt id i64_stages with
+            | Some st when not (Tensor_id.Set.mem id !in_progress) ->
+                in_progress := Tensor_id.Set.add id !in_progress;
+                let tensor =
+                  Err.Escape.or_throw esc
+                    (Err.map_error
+                       (fun (e : Region_eval.error) -> (e :> error))
+                       (Region_eval.materialize_i64
+                          ~output_shape:st.Stage_i64.sg.Tensor_sig.shape
+                          ~env:(Expr_bridge.env ~binding:(lookup binds))
+                          st.Stage_i64.pixel))
+                in
+                in_progress := Tensor_id.Set.remove id !in_progress;
+                cache := Tensor_id.Map.add id tensor !cache;
+                Some tensor
+            | _ -> None))
+  in
+  let binds, result =
+    List.fold_left
+      (execute_run ~limits ~region_counters ~lookup esc)
       (seed, Tensor_id.Map.empty)
       runs
   in
-  result
+  List.fold_left
+    (fun result (st : Stage_i64.t) ->
+      match lookup binds st.Stage_i64.id with
+      | Some tensor -> Tensor_id.Map.add st.Stage_i64.id tensor result
+      | None -> result)
+    result p.stages_i64
