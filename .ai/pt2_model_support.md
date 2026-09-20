@@ -530,6 +530,44 @@ and records the remainder in one `Over_limit` diagnostic. `mobilenetv5_base`
 converts on both branches. See the Model Explorer design record, "Expression
 detail".
 
+**Updated 2026-09-20**, after Native4D absorbed two `Reshape -> Permute` shapes
+whose intermediates carry `T` or `D` (`.ai/native4d_design.md`, "Regions") and
+accepted permutations that only route unit `T`/`D` axes. Six rows move to
+`native4d_converts:true`: `convit_tiny`, `fastvit_sa12`, `nf_regnet_b0`,
+`test_vit4`, `vit_small_patch16_dinov3_qkvb` and `vit_tiny_r_s16_p8_224`
+(the qkv split of an attention block, and a convolution weight relayout that
+payload-free mode cannot constant-fold). `edgenext_xx_small` and `mvitv2_tiny`
+now clear the qkv split but stop later: `mvitv2_tiny` on the relative-position
+bias (`add` over `[D=56 H=56 W=14 C=14]`, then a two-batch-axis `T`/`D` form) and
+`edgenext_xx_small` on the sin/cos positional encoding (`stack` on `C` then a
+`reshape`, `[D=28 H=28 W=16 C=2]`, an interleave with no window involved). The
+remaining models feed a live non-unit `D` or `T` value into later ops, and no
+in-domain boundary exists to cut a single-node region at. A group that is closed
+around such a value can still be lowered by relabelling, as the split-attention
+blocks below are.
+Native4D stays at 87 of 100.
+
+The split-attention blocks of `resnest14d` and `skresnet18` (a reshape or stack
+introduces a size-2 axis on `D`, a softmax and weighted sum consume it) convert
+by reading `D` as `N` inside the closed group of ops that touches the axis
+(`Lower_relabel`, same design record); Native4D is then at 89 of 100.
+
+What remains outside Native4D (11 of 100) and why, so it is not rediscovered:
+- `eca_halonext26ts`: `unfold` adds a window axis, so it is inherently outside a
+  four-axis frame. Documented, not a gap to close.
+- Window partition and merge (`hiera_tiny_224`, `sam2_hiera_tiny`,
+  `maxxvitv2_nano_rw_256`, `mobilevitv2_175`): a 5-D `reshape`, `clone`,
+  `permute`, `reshape` chain. Its boundary tensors are four-axis, but the
+  permutation spans five non-unit axes, and (except `mobilevitv2_175`) the window
+  batch lands on `D` and feeds `Sdpa`, which admits only `D = 1`.
+- Heads or batch on `D` (`bat_resnext26ts`, `lambda_resnet26t`, `volo_d1_224`,
+  `csatv2`, `mvitv2_tiny`): a `permute` puts a real extent on `D`, and later ops
+  (`batched_matmul`, `expand`, `add`) read it. Groups closed around such a value
+  can be relabelled onto `N`; these need a wider op set in `Lower_relabel`, and
+  some also a fused `T`/`D` batch or ops that do not exist in Native4D
+  (`max_dim`, `conv3d`).
+- A non-unit-`D` `Sdpa` (rank-5 windowed attention) stays out: its batch axis is `D` only.
+
 - `PT2_MODELS_NATIVE_VERIFY` (Makefile) wires `mobilenetv2_050`,
   `regnetx_002`, `efficientnet_b0` and `test_convnext2` into
   `make native-infer-verify`/`native-transform-verify`, which

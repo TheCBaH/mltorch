@@ -223,6 +223,12 @@ module Make (S : Semantics.SEMANTICS) = struct
         let module C = Pointwise.Leaky_relu.Compute (S) in
         C.pixel params (operand x) out
     | Lstm _ -> invalid_arg "Eval_op4.pixel: Lstm is Region-authored"
+    | Max_dim4 { Ops4_max_dim.Max_dim4.params; x } ->
+        let module C = Reduce.MaxDim.Compute (S) in
+        let pix = if output = 0 then C.value_pixel else C.index_pixel in
+        pix
+          (Graph_shape4.max_dim_params params)
+          ~x_shape:(shape_of x) ~x:(operand x) out
     | Max_keepdims { Ops4.Max_keepdims.params; x } ->
         let module C = Reduce.Amax.Compute (S) in
         C.pixel

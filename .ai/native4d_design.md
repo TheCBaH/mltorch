@@ -229,6 +229,13 @@ identity today, but retaining such an operation would make Native4D depend on a
 non-Native4D axis. The converter should normalize harmless uses away where the
 equivalence is obvious and otherwise reject them.
 
+One such use is implemented: a `Permute` whose operand and result are both unit
+on `T` and `D` is accepted even when its six-axis permutation routes those axes,
+and lowers to a `Permute4` in which each output axis fed by `T` or `D` takes one
+of the N/H/W/C axes no other output claims (those are unit too, so nothing
+moves). A permutation that puts a non-unit extent on `T` or `D` is still
+rejected with `Axis_outside_dialect`.
+
 ## 5. Dialect architecture
 
 ### 5.1 Common graph structure
@@ -405,11 +412,100 @@ This section covers every operation currently in `Graph_ir.op`.
 | `Max_pool2d`, `Avg_pool2d`, `Adaptive_avg_pool2d` | Direct counterpart | `Identical` when shared compute is used |
 | `Permute` | `Permute4`, after proving it acts only on the four-axis domain | `Identical` |
 | `Reshape` | `Reshape4`, when source and target both satisfy the invariant | `Identical` |
+| `Reshape` -> `Permute` (-> `Select`/`Unbind`) whose reshape target, and possibly the permute result, carry `T`/`D` | A region, see "Regions" below | `Identical` |
+| A closed group of `Reshape`/`Stack`/`Sum`/`Softmax`/elementwise ops over a value with its extent on `D` | The same ops with `D` read as `N` (`Stack` becomes `Concat`), see "Regions" below | `Identical` |
 | `Pad` | `Pad4` with `Axis4.t` keys, when every **padded** axis is nameable | `Identical` |
 | `Slice` | `Slice4` with an `Axis4.t`, when the sliced axis is nameable | `Identical` |
 | `Unbind` | `Unbind` with an `Axis4.t`, when the axis is nameable AND every inferred slice re-enters `Shape4` | `Identical` |
 | `Meshgrid` | Direct counterpart, reusing Native's payload, when `Aten_shape.used_axes ~rank` (one entry per input) names no `T`/`D` | `Identical` |
 | `Discard` | Removed by DCE | Vacuous deletion |
+
+#### Regions
+
+A run of Native nodes can be outside the domain internally and inside it at its
+boundary. `Lower_region` recognizes two shapes, both `Reshape -> Permute` over an
+in-domain operand, and replaces the run wholesale:
+
+- the reshape target is out of domain but the permute result is in it (a
+  convolution weight relayout, `[W=64 C=147] -> [D=64 H=3 W=7 C=7] ->
+  [N=64 H=7 W=7 C=3]`): a `Reshape4` onto the target's non-unit axes relabelled
+  onto the last N/H/W/C slots, then a `Permute4`;
+- the permute result is out of domain too and is only selected or unbound along
+  one axis (the qkv split of an attention block): per selected index, a `Slice4`
+  of the reshape's source, then the same `Reshape4`/`Permute4`. Native tensors are
+  flat row-major, so the selected index of the target axis is a strided slice of
+  whichever source axis splits it off: the product of the source axes before it
+  must equal the target's product before the selected axis, and it must hold `K`
+  times the target's product after it. No such axis means no region.
+
+A `Clone` between the reshape and the permute is absorbed too. A third shape covers
+the runs neither reaches: reshape, clone and permute nodes between two in-domain
+tensors, each interior tensor read only by the next node, at least one of them
+outside the domain (the window partition of `mobilevitv2_175`: `[H=224 W=28 C=28]`
+-> `[T=224 D=14 H=2 W=14 C=2]` -> clone -> permute -> `[H=224 W=4 C=196]`). Such a
+run is one index permutation of the flat data, and `Wide_permute` plans it: the
+source is cut into atoms (the pieces of each axis that no reshape in the run cuts
+across; a cut inside an atom refuses), atoms that stay adjacent in both source and
+result fuse into blocks, and a breadth-first search finds the shortest sequence of
+moves, each cutting the current order into at most four contiguous runs and
+reordering them, which is what one `Permute4` does. Each move is a `Reshape4` onto
+the runs (skipped when the shape already is that) and a `Permute4`; a final
+`Reshape4` lands on the result. A run that fuses to one permute emits one node.
+Bounds: at most six blocks and three permutes, else the run is left to the
+ordinary path. The walk from the run's last node stops at the first in-domain
+tensor, so runs are disjoint, and existing regions win any overlap.
+
+A fourth shape is the interleave: a `Stack` on an in-frame axis whose only reader is
+a `Reshape` back into the frame (the sin/cos pair of `edgenext_xx_small`,
+`[H=28 W=28 C=16]` stacked on `C`, read as `[H=28 W=28 C=32]`). Stacking pushes the
+operands' outer axes outward, so the stacked value carries `D`, but its flat layout
+is (prefix, operand, suffix) around the stacked position. Each operand is
+reshaped onto the stacked value's non-unit axes with the stacked one unit, a
+`Concat4` joins them on it, and a final `Reshape4` lands on the result. It needs
+at most four non-unit axes in all; a stacked value with a second reader is left to
+the ordinary path.
+
+Every step is data movement, each output keeps its source id, and the claim is
+`Identical`. The region is ONE cluster in the node map (`src` = every absorbed
+node, `dst` = the emitted chain); the two internal source tensors have no
+destination and are recorded as deleted. `Domain.check` skips absorbed nodes and
+internal tensors but still checks every boundary tensor, and the region is
+reported only where its result fits the frame, so the ordinary path still names
+the blocker for anything else. A real batch on `T` next to tokens on `D`, or a
+split that aligns with no source axis, stays out of domain.
+
+A second kind, `Lower_relabel`, handles values whose extent sits on `D` (with `N` and
+`T` unit) when the group they form is closed: every producer and reader of such a
+value is in the group, none is a graph input or output, and each member is one of
+the ops below. `D` and `N` are separated only by the unit `T`, so reading `D` as
+`N` keeps every tensor's flat layout, and these ops mean the same on either name:
+
+- passed through unchanged: `Add`, `Add_scalar`, `Batched_matmul`, `Clone`, `Div`,
+  `Div_scalar`, `Gelu`, `Mul`, `Mul_scalar`, `Relu`, `Sigmoid`, `Silu`, `Sub`
+  (`Batched_matmul` batches on N/T/D/H alike, and a group whose operands would
+  carry N and D at once fails the frame check first);
+- `Reshape` and `Expand`: the target is relabelled when it is a group tensor;
+- `Softmax`, and `Amax`/`Mean`/`Sum` with `D` read as `N` in the axis list.
+  A reduction is refused when it names `N` or `T`, or when `keepdim` is false and
+  `D` is not among the reduced axes: the survivors re-pack inward, which moves
+  the extent on `D` to an axis the relabelled tensor's does not follow;
+- `Permute`, conjugated by the transposition (N D) on the sides that were
+  relabelled (`perm' = s_in . perm . s_out`, each `s` the transposition or the
+  identity by whether that operand or result is a group tensor), so a permute
+  that introduces or removes the extent is handled too;
+- `Stack(D)`, which becomes `Concat(N)`.
+
+The rewrite is Native to Native: the group's internal tensors get fresh ids and
+`N`-based shapes, and the ordinary lowering runs on the result. The internal source
+tensors are deleted, the fresh ones created, every boundary tensor keeps its id
+(claim `Identical`), and the group is one node cluster. The summation order is
+unchanged because `Sum4` runs the same compute over the same axis, which the tests
+check on inexact values. This is what the split-attention blocks of ResNeSt and
+SK-Net need (`resnest14d`, `skresnet18`) and the outlook attention of VOLO. It is a
+local relabelling, not a widening of the dialect: a group that leaves the graph
+with an extent on `D`, or meets any other op (`Sdpa`, a convolution), is refused as
+before, and a relabelled graph that fails validation is dropped so the ordinary
+path names the blocker.
 
 `Graph_shape4`'s `Reshape4` arm delegates to `Reshape.Reshape.output_shape
 ~x_shape`, like every other arm in this file — it used to return the typed
@@ -884,6 +980,7 @@ If conversion later needs to become more complete, the smallest additions are:
 | General grouped convolution | **Landed**: retained as `GroupedConv2D`, a fourth convolution constructor whose `groups` is a real field (§7.2) |
 | Batched BMM | Retain BMM/MatMul |
 | Live max-pool indices | **Landed** (2026-09-10): no new `Ops4` type at all -- `Max_pool2d_with_indices`/`Adaptive_max_pool2d_with_indices` `include` Native's own payload directly, since neither names an axis, with the multi-output plumbing `Unbind` established (§8 above) layered on top |
+| `Max_dim` (values and indices along one axis) | **Landed**: `Max_dim4`, a paired value/int64-index op whose axis is an `Axis4.t` (so `D`/`T` are refused by `Domain`); keeps `keepdim` like the other reductions, and delegates shape and both pixel maps to Native's `MaxDim` (values fold with the index's predicate, so it is not a `Max_keepdims` plus an index). Ties go to the first position |
 | Dynamic standalone BatchNorm | **Landed**: retained as `BatchNorm`, delegating to Native's fused compute |
 | Bit-identical RMSNorm | Fused RMSNorm |
 

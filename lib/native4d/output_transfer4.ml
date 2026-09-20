@@ -33,7 +33,8 @@ let classify (op : Op.t) ~output =
   (* out0 (the pooled value) is Continuous; out1 (the argmax indices) is
      Discontinuous -- the same [output]-keyed split Native's own
      [Output_transfer] gives these two ops. *)
-  | Adaptive_max_pool2d_with_indices _ | Max_pool2d_with_indices _ ->
+  | Adaptive_max_pool2d_with_indices _ | Max_dim4 _ | Max_pool2d_with_indices _
+    ->
       if output = 0 then Output_transfer.Continuous
       else Output_transfer.Discontinuous
   | Concat4 _ -> Output_transfer.Reindexing

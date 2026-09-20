@@ -216,6 +216,7 @@ let samples : Op.t list =
         h0 = t_ 5;
         c0 = t_ 6;
       };
+    Max_dim4 { Ops4_max_dim.Max_dim4.params = { axis = W; keepdim = false }; x };
     Max_keepdims
       { Ops4.Max_keepdims.params = { dims = [ H; W ]; keepdim = false }; x };
     Max_pool2d { Pool.MaxPool2d.params = max_params; x };
@@ -391,7 +392,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 78, registry: 78 |}]
+  [%expect {| samples: 79, registry: 79 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -471,6 +472,7 @@ let%expect_test "op4: printed" =
       h0=t5
       c0=t6
       params={hidden_size=2; input_size=3; batch_first=false}
+    max_dim4 x=t0 params={axis=W; keepdim=false}
     max_keepdims x=t0 params={dims=[H, W]; keepdim=false}
     max_pool2d
       x=t0
@@ -540,7 +542,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 78 ops |}]
+  [%expect {| round-tripped 79 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

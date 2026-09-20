@@ -107,9 +107,53 @@ let check_constants ~view constants =
 
 let convert ?(constants = Tensor_id.Map.empty)
     ?(constant_store = Constant_store.empty) (src : 'src Snapshot.t) =
-  let view = Snapshot.view src in
-  let g = Snapshot.graph src in
-  let* () = (Domain.check view :> (unit, Error.t) Err.t) in
+  let view0 = Snapshot.view src in
+  let g0 = Snapshot.graph src in
+  (* Groups whose extent sits on D are lowered as if it sat on N: the graph the
+     ordinary lowering sees is [g], and [src] stays the source of every claim.
+     A relabelled graph that fails validation is dropped, leaving the ordinary
+     path to report the original blocker. *)
+  let relabels, g, view =
+    let watermark =
+      Tensor_id.Map.fold
+        (fun id _ acc -> max acc (Tensor_id.to_int id + 1))
+        g0.Graph.tensors 0
+    in
+    match Lower_relabel.find view0 ~watermark with
+    | [] -> ([], g0, view0)
+    | groups -> (
+        let g' = Lower_relabel.apply g0 groups in
+        match Graph_view.of_graph g' with
+        | Ok v -> (groups, g', v)
+        | Error _ -> ([], g0, view0))
+  in
+  let relabel_of id =
+    List.find_opt
+      (fun (r : Lower_relabel.t) ->
+        List.exists (Node_id.equal id) r.Lower_relabel.members)
+      relabels
+  in
+  let regions = Lower_region.find view in
+  let region_of id =
+    List.find_opt
+      (fun (r : Lower_region.t) ->
+        List.exists (Node_id.equal id) r.Lower_region.members)
+      regions
+  in
+  let internal =
+    List.concat_map
+      (fun (r : Lower_region.t) -> r.Lower_region.internal)
+      regions
+  in
+  let* () =
+    (Domain.check
+       ~absorbed:
+         (List.concat_map
+            (fun (r : Lower_region.t) -> r.Lower_region.members)
+            regions)
+       ~internal view
+      :> (unit, Error.t) Err.t)
+  in
   let* () = check_constants ~view constants in
   (* Fresh ids start above the source watermark, so a created edge can never
      collide with a preserved one. *)
@@ -139,7 +183,7 @@ let convert ?(constants = Tensor_id.Map.empty)
       nodes = [];
       tensors =
         Tensor_id.Map.filter
-          (fun id _ -> not (List.mem id dropped_inputs))
+          (fun id _ -> not (List.mem id dropped_inputs || List.mem id internal))
           g.Graph.tensors;
       subst = Tensor_id.Map.empty;
       next_tid = watermark;
@@ -147,8 +191,15 @@ let convert ?(constants = Tensor_id.Map.empty)
         List.fold_left
           (fun acc (n : node) -> max acc (Node_id.to_int n.Node.id + 1))
           0 g.Graph.nodes;
-      created = [];
-      deleted = dropped_inputs;
+      created =
+        List.concat_map
+          (fun (r : Lower_relabel.t) -> r.Lower_relabel.fresh)
+          relabels;
+      deleted =
+        dropped_inputs @ internal
+        @ List.concat_map
+            (fun (r : Lower_relabel.t) -> r.Lower_relabel.internal)
+            relabels;
       claims = [];
       node_pairs = [];
       provenance = [];
@@ -156,7 +207,19 @@ let convert ?(constants = Tensor_id.Map.empty)
       fresh_constants = [];
     }
   in
-  let* acc = Err.List.fold_left (lower_node ~view) acc0 g.Graph.nodes in
+  let* acc =
+    Err.List.fold_left
+      (fun acc (n : node) ->
+        match region_of n.Node.id with
+        | None -> lower_node ~view acc n
+        | Some r ->
+            (* Only the trigger emits; every other member is absorbed. *)
+            Err.return
+              (if Node_id.equal n.Node.id r.Lower_region.trigger then
+                 Lower_region.emit_region acc r
+               else acc))
+      acc0 g.Graph.nodes
+  in
   let dst_graph =
     {
       G4.Graph.nodes = List.rev acc.nodes;
@@ -252,28 +315,56 @@ let convert ?(constants = Tensor_id.Map.empty)
      [Node_map.fused] is the other direction (many sources, one destination).
      So the cluster is built directly: taking only the first destination would
      leave the second [Uncovered_dst]. *)
+  (* A relabelled group emits under each of its members; they are one source
+     cluster, so their destination nodes are pooled under the first. *)
+  let node_pairs =
+    let key s =
+      match relabel_of s with
+      | Some r -> List.hd r.Lower_relabel.members
+      | None -> s
+    in
+    List.fold_left
+      (fun pooled (s, ds) ->
+        let k = key s in
+        match List.find_opt (fun (k', _) -> Node_id.equal k k') pooled with
+        | Some (_, ds0) ->
+            (k, ds0 @ ds)
+            :: List.filter (fun (k', _) -> not (Node_id.equal k k')) pooled
+        | None -> (k, ds) :: pooled)
+      [] acc.node_pairs
+  in
   let node_clusters =
     List.filter_map
       (fun (s, ds) ->
         let dst_ids =
           List.filter_map (fun d -> Framework.Snapshot4.node dst d) ds
         in
-        match (Snapshot.node src s, dst_ids) with
-        | Some s, (_ :: _ as ds) ->
+        (* A region's members are ONE source cluster; its trigger is the node
+           the destination chain was emitted under. *)
+        let members =
+          match (region_of s, relabel_of s) with
+          | Some r, _ -> r.Lower_region.members
+          | None, Some r -> r.Lower_relabel.members
+          | None, None -> [ s ]
+        in
+        match (List.filter_map (Snapshot.node src) members, dst_ids) with
+        | (_ :: _ as srcs), (_ :: _ as ds) ->
             Some
               {
-                Node_map.Cluster.src = Node_map.Set.singleton s;
+                Node_map.Cluster.src = Node_map.Set.of_list srcs;
                 dst = Node_map.Set.of_list ds;
                 label = ();
               }
         | _ -> None)
-      acc.node_pairs
+      node_pairs
     (* A source node with no destination — [Clone], which contributes none — is
        a deletion, and saying nothing about it would leave it [Uncovered_src]. *)
     @ List.filter_map
         (fun (n : node) ->
           if
             List.exists (fun (s, _) -> Node_id.equal s n.Node.id) acc.node_pairs
+            || Option.is_some (region_of n.Node.id)
+            || Option.is_some (relabel_of n.Node.id)
           then None
           else Option.map Node_map.delete (Snapshot.node src n.Node.id))
         g.Graph.nodes

@@ -302,6 +302,10 @@ let lstm params ~input ~layers ~h0 ~c0 () =
         ( Err.fail (`Expected_single_output_shape { count = List.length shapes }),
           s )
 
+(* Values f32, indices int64, like [max_pool2d_with_indices] below. *)
+let max_dim4 params x =
+  opN ~index_i64:true (Op.Max_dim4 { Ops4_max_dim.Max_dim4.params; x })
+
 let max_keepdims ?(keepdim = true) dims x =
   op1 (Op.Max_keepdims { Ops4.Max_keepdims.params = { dims; keepdim }; x })
 

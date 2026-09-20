@@ -36,17 +36,19 @@ let reachable view =
   in
   go Tensor_id.Set.empty g.Graph.outputs
 
-let live_tensors view =
+let live_tensors ~internal view =
   let g = Graph_view.graph view in
-  List.fold_left
-    (fun acc id ->
-      if Graph_ir.input_kind g id = Input.Input then Tensor_id.Set.add id acc
-      else acc)
-    (reachable view) g.Graph.inputs
+  Tensor_id.Set.diff
+    (List.fold_left
+       (fun acc id ->
+         if Graph_ir.input_kind g id = Input.Input then Tensor_id.Set.add id acc
+         else acc)
+       (reachable view) g.Graph.inputs)
+    (Tensor_id.Set.of_list internal)
 
 (* An absent signature is not this module's business: [Graph_view] owns that
    check, and a tensor it never recorded cannot be shape-tested here. *)
-let check_shapes view =
+let check_shapes ~internal view =
   Err.List.iter
     (fun id ->
       match Graph_view.sig_of view id with
@@ -56,7 +58,7 @@ let check_shapes view =
           let unit_axis axis = Dim.to_int (Vec6.get shape axis) = 1 in
           if unit_axis Axis.T && unit_axis Axis.D then Err.return ()
           else Err.fail (`Non_four_dimensional_tensor (id, shape)))
-    (Tensor_id.Set.elements (live_tensors view))
+    (Tensor_id.Set.elements (live_tensors ~internal view))
 
 (* --- per-node predicates ----------------------------------------------------
 
@@ -76,12 +78,34 @@ let check_dims node dims =
       | Axis.N | Axis.H | Axis.W | Axis.C -> Err.return ())
     dims
 
-let check_perm node perm =
-  Err.List.iter
-    (fun axis ->
-      if Axis.equal (Permute.Permute.lookup perm axis) axis then Err.return ()
-      else Err.fail (`Axis_outside_dialect (node, axis)))
+let fixes_t_and_d perm =
+  List.for_all
+    (fun axis -> Axis.equal (Permute.Permute.lookup perm axis) axis)
     [ Axis.T; Axis.D ]
+
+(* A permutation that routes T or D is harmless when both its operand and its
+   result are unit on T and D: data movement of an extent-1 axis moves nothing,
+   so the lowerer reassigns those axes among N/H/W/C (design §4.3, "normalize
+   harmless uses away where the equivalence is obvious"). Anything else keeps the
+   original rule -- the perm must FIX T and D -- and the first offending axis is
+   the one named. *)
+let check_perm view (n : node) node perm ~x =
+  let unit_t_d id =
+    match Graph_view.sig_of view id with
+    | None -> false
+    | Some sg ->
+        List.for_all
+          (fun axis -> Dim.to_int (Vec6.get sg.Tensor_sig.shape axis) = 1)
+          [ Axis.T; Axis.D ]
+  in
+  if fixes_t_and_d perm || (unit_t_d x && List.for_all unit_t_d n.Node.outputs)
+  then Err.return ()
+  else
+    Err.List.iter
+      (fun axis ->
+        if Axis.equal (Permute.Permute.lookup perm axis) axis then Err.return ()
+        else Err.fail (`Axis_outside_dialect (node, axis)))
+      [ Axis.T; Axis.D ]
 
 (* Forward grouped convolution always legalizes now: [Conv2d] (groups=1),
    [Depthwise_conv2d] (one input channel per group), or [Grouped_conv2d] (the
@@ -230,7 +254,7 @@ let check_node view (n : node) =
      [check_shapes] plus the lowerer's [Shape4.of_vec6] already cover it. *)
   | Pad { Pad.Pad.params; _ } ->
       check_dims node (List.map fst params.Pad.Pad.pads)
-  | Permute { Permute.Permute.perm; _ } -> check_perm node perm
+  | Permute { Permute.Permute.perm; x } -> check_perm view n node perm ~x
   | Slice { Split.Slice.params; _ } -> check_dims node [ params.axis ]
   | Rms_norm { Norm.RmsNorm.params; _ } ->
       check_dims node params.Norm.RmsNorm.dims
@@ -303,18 +327,10 @@ let check_node view (n : node) =
      dialect must be able to name. Cumsum never changes shape either, so the
      same "one counterpart, one axis check" reasoning applies. *)
   | Cumsum { Reduce.Cumsum.params; _ } -> check_dims node [ params.axis ]
-  (* Not a missing counterpart in the sense [Unfold]/[Conv3d] below are: the
-     dialect already represents a paired value/index output
-     ([Max_pool2d_with_indices]/[Adaptive_max_pool2d_with_indices]), so a
-     two-output Native4D reduction is not intrinsically out of domain the way
-     those two axis-shifting ops are. [MaxDim]'s [axis] is genuinely nameable
-     too. What is missing is only the routine [Ops4] payload/shape/lowering
-     work ([Max_keepdims] and friends' own axis-renaming boilerplate,
-     specialised to one axis plus a second output) -- undone because nothing
-     in the corpus exercises it yet (the one occurrence reduces axis D, which
-     [check_dims] would refuse regardless). Deferred, not rejected in
-     principle -- revisit if a model needs it. *)
-  | Max_dim _ -> unsupported ()
+  (* [Max_dim4] is the paired value/index reduction ([Max_pool2d_with_indices]
+     shows the dialect already carries two outputs); the REDUCED axis is the
+     one the dialect must be able to name, as for [Softmax]. *)
+  | Max_dim { Reduce.MaxDim.params; _ } -> check_dims node [ params.axis ]
   (* [IndexTensor4] now exists, so [Index_tensor] gets the same [check_dims]-
      style axis rejection [Select]/[Select_scatter]/[Stack]/[RepeatInterleave]
      get: the GATHERED axis is the one the dialect must be able to name. Not
@@ -363,8 +379,12 @@ let check_node view (n : node) =
    Order within the node pass is [Graph.nodes] order, which [Graph_view] has
    already checked is topological, so the first rejection is the earliest node
    that cannot be legalized. *)
-let check view =
+let check ?(absorbed = []) ?(internal = []) view =
   let* () =
-    Err.List.iter (check_node view) (Graph_ir.nodes (Graph_view.graph view))
+    Err.List.iter
+      (fun (n : node) ->
+        if List.exists (Node_id.equal n.Node.id) absorbed then Err.return ()
+        else check_node view n)
+      (Graph_ir.nodes (Graph_view.graph view))
   in
-  check_shapes view
+  check_shapes ~internal view

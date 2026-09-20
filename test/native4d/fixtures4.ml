@@ -364,6 +364,16 @@ let per_op () =
       ( "mean_keepdims",
         unary ~shape:nhwc
           (Builder.mean_keepdims ~keepdim:false [ Axis4.H; Axis4.W ]) );
+      ( "max_dim4",
+        let g =
+          build ~outputs:Fun.id
+            (let open Builder in
+             let* x = input ~shape:nhwc () in
+             max_dim4
+               { Ops4_max_dim.Max_dim4.axis = Axis4.W; keepdim = false }
+               x)
+        in
+        (g, [ nhwc ]) );
       ( "max_keepdims",
         unary ~shape:nhwc
           (Builder.max_keepdims ~keepdim:false [ Axis4.H; Axis4.W ]) );

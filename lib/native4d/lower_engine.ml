@@ -41,14 +41,31 @@ let forward_conv ~node:_ ~params ~x ~weight ~bias ~weight_shape =
       (Op.Grouped_conv2d
          { Ops4.Grouped_conv_payload.params = grouped_params; x; weight; bias })
 
+(* An output axis whose source is T or D reads a unit axis ([Domain] admits
+   that only when the operand and result are unit on both), so it may take any
+   N/H/W/C axis no other output claims: the ones left over are exactly those
+   the Native permutation routed to the output's own T and D, also unit. *)
 let perm4_of_native ~node (perm : Permute.Permute.perm) =
-  Err.List.map
-    (fun out ->
-      let in_axis = Permute.Permute.lookup perm (Axis4.to_axis out) in
-      match Axis4.of_axis in_axis with
-      | Some a -> Err.return (out, a)
-      | None -> Err.fail (`Axis_outside_dialect (node, in_axis)))
-    Axis4.all
+  let source out =
+    Axis4.of_axis (Permute.Permute.lookup perm (Axis4.to_axis out))
+  in
+  let claimed = List.filter_map source Axis4.all in
+  let unclaimed = List.filter (fun a -> not (List.mem a claimed)) Axis4.all in
+  let* _, rev =
+    Err.List.fold_left
+      (fun (spare, acc) out ->
+        match source out with
+        | Some a -> Err.return (spare, (out, a) :: acc)
+        | None -> (
+            match spare with
+            | a :: rest -> Err.return (rest, (out, a) :: acc)
+            | [] ->
+                Err.fail
+                  (`Axis_outside_dialect
+                     (node, Permute.Permute.lookup perm (Axis4.to_axis out)))))
+      (unclaimed, []) Axis4.all
+  in
+  Err.return (List.rev rev)
 
 let dims4 ~node dims =
   Err.List.map
@@ -264,6 +281,29 @@ let lower_node ~view acc (n : node) =
            outputs)
   | Max_pool2d { Pool.MaxPool2d.params; x } ->
       simple (Op.Max_pool2d { Pool.MaxPool2d.params; x = op_of x })
+  | Max_dim { Reduce.MaxDim.params; x } ->
+      let* axis = dims4 ~node [ params.Reduce.MaxDim.axis ] in
+      let outputs =
+        match n.Node.outputs with
+        | [ _; _ ] as outputs -> outputs
+        | outputs ->
+            invalid_arg
+              (Format.asprintf
+                 "Native4d.Lower: %a is a two-output op but declares %d outputs"
+                 Node_id.pp node (List.length outputs))
+      in
+      Err.return
+        (emit acc ~from:node
+           (Op.Max_dim4
+              {
+                Ops4_max_dim.Max_dim4.params =
+                  {
+                    axis = List.hd axis;
+                    keepdim = params.Reduce.MaxDim.keepdim;
+                  };
+                x = op_of x;
+              })
+           outputs)
   (* Same two-output shape as [Adaptive_max_pool2d_with_indices] above. *)
   | Max_pool2d_with_indices { Pool.MaxPool2dWithIndices.params; x } ->
       let outputs =
@@ -841,11 +881,9 @@ let lower_node ~view acc (n : node) =
   (* Rejected by [Domain.check] before the walk starts; reaching them means the
      domain check and this match disagree, which is a bug in one of them.
      [Conv3d]/[Unfold] are intrinsic axis boundaries, not missing
-     counterparts. [Max_dim] is a missing counterpart (see [Domain]'s own
-     comment) deferred for lack of a corpus need, not an intrinsic one.
-     [Adaptive_max_pool2d_with_indices]/
+     counterparts. [Adaptive_max_pool2d_with_indices]/[Max_dim]/
      [Max_pool2d_with_indices]/[Repeat]/[RepeatInterleave]/[Select_scatter]/
      [Softmax]/[Batched_matmul]/[Sdpa]/[Index_tensor]/[Lstm]/[Meshgrid] no
-     longer join them: all eleven now have real conversion arms above. *)
-  | Conv3d _ | Discard _ | Max_dim _ | Unfold _ ->
+     longer join them: all twelve now have real conversion arms above. *)
+  | Conv3d _ | Discard _ | Unfold _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))

@@ -22,4 +22,11 @@
    reject the model outright. It is the relayout passes plus constant folding
    that produce [N=out, H=kh, W=kw, C=in]. Run [Pipeline.canonical] first. *)
 
-val check : Graph_view.t -> (unit, Error.t) Err.t
+val check :
+  ?absorbed:Graph_ir.Node_id.t list ->
+  ?internal:Graph_ir.Tensor_id.t list ->
+  Graph_view.t ->
+  (unit, Error.t) Err.t
+(** [absorbed] nodes and [internal] tensors belong to a {!Lower_region} the
+    lowerer replaces wholesale, so neither the node predicates nor the shape
+    rule apply to them; the region's own boundary tensors are still checked. *)

@@ -91,6 +91,12 @@ let mean_params (p : Ops4.Mean_keepdims.params) : Reduce.Mean.params =
     keepdim = p.Ops4.Mean_keepdims.keepdim;
   }
 
+let max_dim_params (p : Ops4_max_dim.Max_dim4.params) : Reduce.MaxDim.params =
+  {
+    axis = Axis4.to_axis p.Ops4_max_dim.Max_dim4.axis;
+    keepdim = p.Ops4_max_dim.Max_dim4.keepdim;
+  }
+
 let max_params (p : Ops4.Max_keepdims.params) : Reduce.Amax.params =
   {
     dims = List.map Axis4.to_axis p.Ops4.Max_keepdims.dims;
@@ -483,6 +489,11 @@ let output_shape (op : Op.t)
              ~c0_shape)
       in
       four_all (Err.return [ out; h_n; c_n ])
+  | Max_dim4 { Ops4_max_dim.Max_dim4.params; x } ->
+      let* x_shape = shape x in
+      four_all
+        ( Reduce.MaxDim.output_shape ~x_shape (max_dim_params params)
+        >>| fun out -> [ out; out ] )
   | Max_keepdims { Ops4.Max_keepdims.params; x } ->
       let* x_shape = shape x in
       one (four (Reduce.Amax.output_shape ~x_shape (max_params params)))

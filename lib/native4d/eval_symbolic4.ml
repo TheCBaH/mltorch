@@ -40,7 +40,9 @@ let is_index_output (op : Op.t) output =
   output = 1
   &&
   match op with
-  | Op.Adaptive_max_pool2d_with_indices _ | Op.Max_pool2d_with_indices _ -> true
+  | Op.Adaptive_max_pool2d_with_indices _ | Op.Max_dim4 _
+  | Op.Max_pool2d_with_indices _ ->
+      true
   | _ -> false
 
 let is_bool = function Payload.Fmt Payload.Bool -> true | _ -> false
