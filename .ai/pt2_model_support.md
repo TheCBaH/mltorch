@@ -400,7 +400,9 @@ succeed too). It stops at `kernel_converts:false` (`over_limit`,
 "evaluation depth exceeds 1536") -- the same widespread, already-tracked
 Kernel/Fusion evaluation-depth ceiling roughly half this corpus hits
 regardless of architecture (compare `efficientnet_b0`, `ghostnetv2_100`,
-`convit_tiny` in this same run), not a gap `lstm.input` introduces.
+`convit_tiny` in this same run), not a gap `lstm.input` introduces. (Historical:
+that ceiling is no longer checked by `Kernel.create`; see the Kernel DSL design
+record.)
 
 **`csatv2` is a red herring for this op**, worth correcting explicitly since
 an earlier working note in this project conflated the two: `csatv2` (this

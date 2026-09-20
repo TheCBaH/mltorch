@@ -37,25 +37,35 @@ let tag_of s =
   else if Source.equal s src_b then "b"
   else assert false
 
+(* [load_index] feeds the int64 sites. [ok_env] gives a = 7 and b = 2, so
+   [I64_div] succeeds with 3; [div_zero_env] gives a = 1 and b = 0. *)
+let env_with ~load ~load_index = { Eval_common.Env.load; load_index }
+
 let ok_env =
-  {
-    Eval_common.Env.load =
-      (fun s _ ->
-        let tag = tag_of s in
-        record tag;
-        Err.return (if tag = "a" then 1. else 2.));
-    load_index = (fun _ _ -> assert false);
-  }
+  env_with
+    ~load:(fun s _ ->
+      let tag = tag_of s in
+      record tag;
+      Err.return (if tag = "a" then 1. else 2.))
+    ~load_index:(fun s _ ->
+      let tag = tag_of s in
+      record tag;
+      Err.return (if tag = "a" then 7L else 2L))
+
+let div_zero_env =
+  env_with ~load:ok_env.Eval_common.Env.load ~load_index:(fun s _ ->
+      let tag = tag_of s in
+      record tag;
+      Err.return (if tag = "a" then 1L else 0L))
 
 let fail_env =
-  {
-    Eval_common.Env.load =
-      (fun s _ ->
-        let tag = tag_of s in
-        record tag;
-        Err.fail (`Unknown_source s));
-    load_index = (fun _ _ -> assert false);
-  }
+  env_with
+    ~load:(fun s _ ->
+      record (tag_of s);
+      Err.fail (`Unknown_source s))
+    ~load_index:(fun s _ ->
+      record (tag_of s);
+      Err.fail (`Unknown_source s))
 
 let load_a = Value.load src_a zero_coord
 let load_b = Value.load src_b zero_coord
@@ -66,6 +76,17 @@ let value_eq_expr =
 
 let value_lt_expr =
   Value.select (Bool.value_lt load_a load_b) (Value.const 1.) (Value.const 0.)
+
+let i64_a = Value.i64_load src_a zero_coord
+let i64_b = Value.i64_load src_b zero_coord
+let i64_binary_expr = Value.i64_to_float (Value.i64_add i64_a i64_b)
+let i64_div_expr = Value.i64_to_float (Value.i64_div i64_a i64_b)
+
+let i64_eq_expr =
+  Value.select (Bool.i64_eq i64_a i64_b) (Value.const 1.) (Value.const 0.)
+
+let i64_lt_expr =
+  Value.select (Bool.i64_lt i64_a i64_b) (Value.const 1.) (Value.const 0.)
 
 let traced_run ~env ~expr =
   reset_trace ();
@@ -104,6 +125,21 @@ let check () =
     if not (String.length expected_fail = 1) then
       fail "%s: reference fail-trace %s did not short-circuit" site
         expected_fail;
+    (* The shipped evaluator hands off to its machine below its depth cutoff,
+       so the same site nested [deep] levels down must keep the order it has
+       when evaluated directly. Right operand of each [add] is the constant,
+       so the wrapper adds no load. *)
+    let deep =
+      let e = ref expr in
+      for _ = 1 to 200 do
+        e := Value.add !e (Value.const 0.)
+      done;
+      !e
+    in
+    if not (String.equal (traced_run ~env:ok_env ~expr:deep) expected_ok) then
+      fail "%s: shipped evaluator's ok-trace changes below the cutoff" site;
+    if not (String.equal (traced_run ~env:fail_env ~expr:deep) expected_fail)
+    then fail "%s: shipped evaluator's fail-trace changes below the cutoff" site;
     List.iter
       (fun (cname, ev) ->
         run_case ~site:(site ^ "/ok") ~expr ~env:ok_env ~expected:expected_ok
@@ -112,7 +148,43 @@ let check () =
           ~expected:expected_fail (cname, ev))
       Corpus.candidate_evaluators
   in
+  (* [I64_div]'s error fires in the combine step, after both operands: the
+     trace must still be the reference's a/b order, and the error itself the
+     reference's, not an operand's. *)
+  let show r =
+    match r with
+    | Ok v -> Printf.sprintf "ok %g" v
+    | Error e ->
+        Format.asprintf "error %a" Eval_common.pp_error (Err.Error.kind e)
+  in
+  let check_div_zero () =
+    let site = "I64_div/zero" in
+    reset_trace ();
+    let reference = Eval.value div_zero_env ~output:origin i64_div_expr in
+    let expected_trace = trace_str () and expected = show reference in
+    if not (String.equal expected "error I64 division by zero") then
+      fail "%s: reference gave %s, not the division error" site expected;
+    List.iter
+      (fun (cname, (ev : Corpus.evaluator)) ->
+        reset_trace ();
+        match show (ev div_zero_env ~output:origin i64_div_expr) with
+        | exception exn ->
+            fail "%s/%s: raised %s" site cname (Printexc.to_string exn)
+        | got ->
+            let got_trace = trace_str () in
+            if not (String.equal got expected) then
+              fail "%s/%s: expected %s, got %s" site cname expected got;
+            if not (String.equal got_trace expected_trace) then
+              fail "%s/%s: expected trace %s, got %s" site cname expected_trace
+                got_trace)
+      Corpus.candidate_evaluators
+  in
   check_site ~site:"Binary" ~expr:binary_expr;
+  check_site ~site:"I64_binary" ~expr:i64_binary_expr;
+  check_site ~site:"I64_div" ~expr:i64_div_expr;
+  check_site ~site:"I64_eq" ~expr:i64_eq_expr;
+  check_site ~site:"I64_lt" ~expr:i64_lt_expr;
+  check_div_zero ();
   check_site ~site:"Value_eq" ~expr:value_eq_expr;
   check_site ~site:"Value_lt" ~expr:value_lt_expr;
   !failures

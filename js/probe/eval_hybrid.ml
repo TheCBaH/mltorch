@@ -245,8 +245,9 @@ let eval_hybrid ~cutoff ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
           (* A benchmark candidate, not the production evaluator. *)
           invalid_arg "eval_hybrid: I64_sum is not modelled"
       | Value.I64_binary (op, x, y) ->
-          Value.apply_i64_binary op (eval_i64 depth reducers x)
-            (eval_i64 depth reducers y)
+          let a = eval_i64 depth reducers x in
+          let b = eval_i64 depth reducers y in
+          vchk (Value.apply_i64_binary op a b)
       | Value.Float_to_i64 x -> vchk (Value.i64_of_float (go depth reducers x))
       | Value.Select (c, x, y) ->
           if guard depth reducers c then (eval_i64 [@tailcall]) depth reducers x

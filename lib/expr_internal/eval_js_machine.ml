@@ -323,7 +323,7 @@ let run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
         reuse_stack_push st (I64_binary_right (op, first));
         Eval_i64_state (second_expr, reducers)
     | I64_result second, I64_binary_right (op, first) ->
-        I64_result (Value.apply_i64_binary op first second)
+        I64_result (vchk (Value.apply_i64_binary op first second))
     | Float_result v, Float_to_i64_result ->
         I64_result (vchk (Value.i64_of_float v))
     | I64_result v, I64_to_float_result -> Float_result (Int64.to_float v)
@@ -338,7 +338,11 @@ let run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
         reuse_stack_push st (I64_lt_right first);
         Eval_i64_state (second_expr, reducers)
     | I64_result second, I64_lt_right first ->
+#if defined MELANGE_BACKEND
         Bool_result (Int64.compare first second < 0)
+#else
+        Bool_result (Int64.compare second first < 0)
+#endif
     | _ -> assert false
   in
   let rec loop state =
@@ -521,11 +525,21 @@ let run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
         (loop [@tailcall])
           (Bool_result (Int.equal (idx reducers a) (idx reducers b)))
     | Guard_state (Bool.I64_eq (a, b), reducers) ->
+#if defined MELANGE_BACKEND
         reuse_stack_push st (I64_eq_left (b, reducers));
         (loop [@tailcall]) (Eval_i64_state (a, reducers))
+#else
+        reuse_stack_push st (I64_eq_left (a, reducers));
+        (loop [@tailcall]) (Eval_i64_state (b, reducers))
+#endif
     | Guard_state (Bool.I64_lt (a, b), reducers) ->
+#if defined MELANGE_BACKEND
         reuse_stack_push st (I64_lt_left (b, reducers));
         (loop [@tailcall]) (Eval_i64_state (a, reducers))
+#else
+        reuse_stack_push st (I64_lt_left (a, reducers));
+        (loop [@tailcall]) (Eval_i64_state (b, reducers))
+#endif
     | Guard_state (Bool.Value_eq (a, b), reducers) ->
 #if defined MELANGE_BACKEND
         reuse_stack_push st (Value_eq_left (b, reducers));

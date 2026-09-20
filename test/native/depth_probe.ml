@@ -20,7 +20,7 @@
 
    Before [Scan_at] widened [Value.t] and [Eval.value], the evaluator was the
    outlier in the other direction: it survived 4096 under node and failed at
-   8192. The current accepted ceiling is 1536 and is asserted below. Exact
+   8192. The current accepted ceiling is 1280 and is asserted below. Exact
    failure frontiers are diagnostic rather than contractual because they move
    with whole-program linking and V8 optimization. The combined ceiling remains
    higher than the per-body one because a whole-program resnet18 kernel reaches
@@ -219,11 +219,18 @@ let%expect_test "the accepted frontier survives in combination" =
       (Kernel.Limits.Hard.eval_recursion + 1, 10);
       (* Re-measured for the same reason: the medium/medium point moved from
          (48, 30), which now overflows, to (48, 24) -- confirmed stable over
-         repeated runs, with (48, 25) rejected by the static depth gate. *)
-      (48, 24);
-      (* Re-measured for the same reason: (16, 78), product 1248, replaces
-         the former (16, 90); (16, 79) is rejected by the static depth gate. *)
-      (16, 78);
+         repeated runs, with (48, 25) rejected by the static depth gate.
+         Re-measured again after [I64_div] made the int64 combine fallible
+         (a [Result] through [Eval]'s [I64_binary] arm, which costs a little
+         frame in every [eval], not only the int64 ones): (48, 24) now
+         overflows under node and (48, 23) is the last that survives. *)
+      (48, 23);
+      (* Re-measured for the same reason: (16, 72), product 1152, replaces
+         the former (16, 90); (16, 79) is rejected by the static depth gate.
+         (16, 78) survived only some runs under node (8 of 12, then 0 of 12
+         once other points ran beside it) and 72-76 survived every run, so 72
+         leaves a margin below that band. *)
+      (16, 72);
       (8, 125);
     ];
   (* Everything above sits under the DEFAULT max_depth of 128. The public
@@ -246,8 +253,8 @@ let%expect_test "the accepted frontier survives in combination" =
     {|
     n= 97 d=  1: ok
     n= 97 d= 10: ok
-    n= 48 d= 24: ok
-    n= 16 d= 78: ok
+    n= 48 d= 23: ok
+    n= 16 d= 72: ok
     n=  8 d=125: ok
     n=  5 d=254 at Hard.depth: ok |}]
 
@@ -268,13 +275,16 @@ let%expect_test "Hard.eval_recursion: the ceiling runs, one past it reports" =
   [%expect
     {|
     at the ceiling:   ok
-    one past it:      recursive evaluation nested more than 96 producers deep
-    far past it:      recursive evaluation nested more than 96 producers deep |}]
+    one past it:      recursive evaluation exceeded its stack budget of 96
+    far past it:      recursive evaluation exceeded its stack budget of 96 |}]
 
-let%expect_test "the static DAG limits reject before execution" =
-  (* [Dependency_too_deep] and [Eval_too_deep] are cheap early guards on the
-     stored DAG, distinct from the runtime recursion bound above. They are what
-     stop a kernel being built at all. *)
+let%expect_test
+    "dependency depth rejects at construction, eval depth at value_at" =
+  (* [Dependency_too_deep] is a cheap early guard on the stored DAG that stops a
+     kernel being built at all. [Eval_too_deep] is not: the stored DAG's depth
+     does not bound a stack, since [run] reads every producer from a buffer, so
+     [Kernel.create] accepts the kernel and only the recursive [value_at] path
+     refuses it, before evaluating anything. *)
   let tight ~max_dep_depth =
     Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:4096 ~max_depth:128 ~max_values:4096
@@ -303,16 +313,21 @@ let%expect_test "the static DAG limits reject before execution" =
   in
   report "dep_depth 4, chain of 4" (chain_with (tight ~max_dep_depth:4) 4);
   report "dep_depth 4, chain of 5" (chain_with (tight ~max_dep_depth:4) 5);
-  (* Deep BODIES rather than a long chain, so eval_depth is what runs out first
-     — with depth-1 bodies the dependency limit always fires before it, and this
-     arm would never be exercised. Re-measured at 12/13 (was 15/16) after
+  (* Deep BODIES rather than a long chain, so the combined levels run out before
+     the dependency limit does — with depth-1 bodies the dependency limit always
+     fires first, and this arm would never be exercised. Re-measured at 12/13
+     (was 15/16) after
      Hard.eval_depth dropped to 1280 (the evaluator's unified [eval]; see its
      own comment): 12*100 = 1200 clears it, 13*100 = 1300 does not. *)
   report "12 values of depth 100" (chain ~d:100 12);
   report "13 values of depth 100" (chain ~d:100 13);
+  Printf.printf "value_at, 12 values of depth 100: %s\n" (run_chain ~d:100 12);
+  Printf.printf "value_at, 13 values of depth 100: %s\n" (run_chain ~d:100 13);
   [%expect
     {|
     dep_depth 4, chain of 4: accepted
     dep_depth 4, chain of 5: dependency depth exceeds 4
     12 values of depth 100: accepted
-    13 values of depth 100: evaluation depth exceeds 1280 |}]
+    13 values of depth 100: accepted
+    value_at, 12 values of depth 100: ok
+    value_at, 13 values of depth 100: evaluation depth exceeds 1280 |}]

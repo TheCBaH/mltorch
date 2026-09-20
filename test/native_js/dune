@@ -3,7 +3,7 @@
 ; under jsoo too (`modes best js`), but that recompiles ORDINARY [native]
 ; to JS, never switching to this mirror, so nothing today exercises
 ; native_js's overridden `Kernel.Limits.Hard.eval_depth` (12288, vs.
-; native's own 1536; see js/jsoo/native_js/kernel_hard.ml). `best` here is
+; native's own 1280; see js/jsoo/native_js/kernel_hard.ml). `best` here is
 ; a bonus native/bytecode sanity run of the same boundaries against the
 ; mirror's copy of the SHARED constants (`depth`, `eval_recursion`),
 ; unaffected by the override; `js` is the one that actually proves it.

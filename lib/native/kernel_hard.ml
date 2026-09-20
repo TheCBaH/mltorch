@@ -22,3 +22,11 @@ include Kernel_hard_shared
    comfortably clear of it. The exact failure frontier is deliberately not a
    contract: it changes with whole-program linking and V8 optimization. *)
 let eval_depth = 1280
+
+(* The runtime recursion budget [Kernel_eval] spends one [transition_cost] of
+   per producer transition. Native keeps the measured transition count
+   ([eval_recursion]) unchanged: every transition costs 1, whatever its body's
+   depth. A backend whose transition cost depends on the body overrides this
+   file (see js/jsoo/native_js/kernel_hard.ml). *)
+let eval_stack_budget = eval_recursion
+let transition_cost ~body_depth:_ = 1

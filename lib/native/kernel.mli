@@ -176,6 +176,12 @@ module Limits : sig
     val inputs : int
     val outputs : int
     val eval_depth : int
+    (* The levels a recursion through virtual edges may nest, checked by
+       [Kernel_eval] when [value_at]/[run_plan] start one, not by
+       [Kernel.create]: the stored DAG's depth bounds no stack, since
+       [Kernel_eval.run] never recurses through producers. On JS it is not a
+       stack bound at all; the recursion is bounded by [eval_stack_budget]
+       below. *)
 
     (* Producer transitions [Kernel_eval.value_at] may nest before it reports
         rather than overflows. Measured under node against a REAL recursive
@@ -186,6 +192,16 @@ module Limits : sig
         recurses at all, so a long chain is perfectly executable and only the
        on-demand path is limited. *)
     val eval_recursion : int
+
+    (* What [Kernel_eval] actually spends: each producer transition into a body
+       of depth [body_depth] costs [transition_cost ~body_depth] of
+       [eval_stack_budget]. Backend-specific, like [eval_depth]. On native every
+       transition costs 1 against [eval_recursion], so it is a transition
+       count; on JS a transition also pays for the body's directly-recursive
+       segment, since a synchronous load holds that stack across the callback
+       (js/jsoo/native_js/kernel_hard.ml has the measurement). *)
+    val eval_stack_budget : int
+    val transition_cost : body_depth:int -> int
     val extent : int64
     val numel : int64
     val max_bytes : int64
@@ -309,7 +325,6 @@ type error =
   | `Conversion_mismatch of Conversion_rule.t
   | `Dependency_too_deep of int
   | `Duplicate_id of Tensor_id.t
-  | `Eval_too_deep of int
   | `Extent_too_large of Extent_bound.t
   | `Forward_reference of Forward_ref.t
   | `I64_body of I64_body_error.t

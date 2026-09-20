@@ -128,6 +128,16 @@ reference evaluator's own traced run at test time (rather than hardcoding
 `order_probe`'s golden strings a second time) and checks every candidate's traced
 order against it.
 
+The int64 comparisons `Bool.I64_eq`/`Bool.I64_lt` diverge the same way and are not
+among `order_probe`'s seven sites. They were left-first in every machine, so on jsoo
+the shipped evaluator changed operand order (and which of two failing loads wins) at
+the depth cutoff. They now carry the same backend gating as `Value_eq`/`Value_lt`.
+`I64_binary` (including `I64_div`, whose division errors fire in the combine step,
+after both operands) shares one generic frame, and both backends already agree on its
+order. `order_check.ml` covers all four int64 sites, the division-error priority, and
+also runs each site 200 levels down through the shipped evaluator, so the machine
+handoff is checked against the direct order rather than only the candidates.
+
 ### Benchmark evidence
 
 `expr_bench_run.ml --bench` (`make expr_bench.js-benchmark`) times every candidate
@@ -233,6 +243,18 @@ production compositions with headroom, not the adversarial 20,000-deep smoke fig
 directly. Native's own `Hard.depth`, `Hard.eval_depth`, `Hard.eval_recursion`, and
 every other shared non-evaluator traversal guard stay unchanged.
 
+The raised `eval_depth` is not a stack bound and `Kernel.create` no longer checks
+it; `Kernel_eval` refuses a recursion (`value_at`, `run_plan` with virtual edges)
+whose virtual chain exceeds it, before evaluating. The hybrid
+evaluator makes ONE `Expr.Eval.value` call stack-safe, but `Kernel_eval.value_at`
+nests a real JS frame set per producer transition across the synchronous
+`Env.load` callback, which the heap machine cannot absorb. A chain of 50 producers
+over depth-50 bodies (combined depth 2600, well under 12288) overflowed. The
+runtime guard now spends a per-backend stack-cost budget per transition
+(`Hard.eval_stack_budget`/`transition_cost`); the Kernel DSL design record has the
+model and the measured frontier. Re-running the 100-model corpus measurement
+after this change moved no model's frontier.
+
 **Done so far:**
 
 - **Deep-index exhaustion signal, measured** (the plan's first Stage 7 checklist
@@ -299,8 +321,9 @@ every other shared non-evaluator traversal guard stay unchanged.
   `Kernel.create`'s admission check). Three independent boundaries, matching
   `kernel.mli`'s own "four independent budget dimensions" table: a
   3072-value chain lands exactly on the mirror's own `12288` combined
-  ceiling (`Eval_too_deep`, admits and `Kernel_eval.run`s; 3073 values
-  rejects); single-value bodies of raw `Expr.Fold.depth` 255/256 accept/
+  ceiling (`Kernel.create` and `Kernel_eval.run` accept both 3072 and 3073
+  values; `Kernel_eval.value_at` refuses 3073 with `Eval_too_deep`, and 3072
+  stops at the runtime budget); single-value bodies of raw `Expr.Fold.depth` 255/256 accept/
   reject under the largest admissible `max_depth:255` (`Too_deep`, the
   unchanged per-body dimension — a genuinely separate check from the
   combined one, comparing raw depth with no result-conversion +1);
@@ -314,7 +337,8 @@ every other shared non-evaluator traversal guard stay unchanged.
 
 - **Deep isolated Expr tests**: `js/probe/probe_expr.ml` gained a `--deep`
   flag (default mode, the existing shallow three-way diff, is unchanged).
-  `--deep` runs three depth-200,000 cases in-process and exits nonzero on
+  `--deep` runs depth-200,000 cases in-process (one per nesting constructor
+  family; see below) and exits nonzero on
   any mismatch, never against native (confirmed directly — running the
   unmodified native route with `--deep` genuinely raises `Stack_overflow`,
   since `Eval.value` there is still ordinary recursion): `deep_value` (a
@@ -335,6 +359,14 @@ every other shared non-evaluator traversal guard stay unchanged.
   `deep_index` negative control is non-vacuous: temporarily shrunk the chain
   to 10 adds, watched it correctly report `UNEXPECTED COMPLETION` instead of
   silently passing, reverted before committing.
+
+**The invariant is enforced, not just sampled.** `Eval_js_machine.loop` has no
+wildcard over the evaluation states, so a `Value`/`Bool` constructor without a
+machine transition fails the jsoo build (warning 8; under the Melange profile it is
+only a warning). `probe_expr.ml` classifies every constructor with an exhaustive
+match to the `--deep` case that exercises it, and checks that set against the cases
+it runs. The one unchecked link is a new case left out of `all_deep_cases` while
+still being classified; the coupling check reports it.
 
 **Not yet done:** wiring `dune build --profile landmarks` into a Makefile
 target — this environment's own `dlllandmark_stubs.so` is independently

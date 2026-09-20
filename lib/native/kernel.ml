@@ -243,7 +243,6 @@ type error =
   | `Conversion_mismatch of Conversion_rule.t
   | `Dependency_too_deep of int
   | `Duplicate_id of Tensor_id.t
-  | `Eval_too_deep of int
   | `Extent_too_large of Extent_bound.t
   | `Forward_reference of Forward_ref.t
   | `I64_body of I64_body_error.t
@@ -279,7 +278,6 @@ let pp_error fmt : [< error ] -> unit = function
   | `Too_many_inputs n -> Fmt.pf fmt "more than %d inputs" n
   | `Too_many_outputs n -> Fmt.pf fmt "more than %d outputs" n
   | `Dependency_too_deep n -> Fmt.pf fmt "dependency depth exceeds %d" n
-  | `Eval_too_deep n -> Fmt.pf fmt "evaluation depth exceeds %d" n
   | `Extent_too_large { Extent_bound.id; axis; extent } ->
       Fmt.pf fmt "%a extent %a=%Ld exceeds the limit" Tensor_id.pp id
         Expr.Axis.pp axis extent
@@ -695,38 +693,31 @@ let create ?(limits = Limits.default) ?(values_i64 = []) ~inputs ~values
         Int_map.update hi (fun l -> Some (v :: Option.value l ~default:[])) m)
       Int_map.empty values_i64
   in
-  let check_depths d e =
-    let* () =
-      if d > limits.Limits.max_dep_depth then
-        Err.fail (`Dependency_too_deep limits.Limits.max_dep_depth)
-      else Err.return ()
-    in
-    if e > Limits.Hard.eval_depth then
-      Err.fail (`Eval_too_deep Limits.Hard.eval_depth)
+  let check_depth d =
+    if d > limits.Limits.max_dep_depth then
+      Err.fail (`Dependency_too_deep limits.Limits.max_dep_depth)
     else Err.return ()
   in
-  let process_i64 (dep, ev, i64d) (v : Value_i64.t) =
-    let* d, e =
+  let process_i64 (dep, i64d) (v : Value_i64.t) =
+    let* d =
       Expr.Source.Set.fold
         (fun src acc ->
-          let* d, e = acc in
+          let* d = acc in
           let id = Expr_bridge.id_of_source src in
-          if Tensor_id.Set.mem id input_ids then Err.return (d, e)
+          if Tensor_id.Set.mem id input_ids then Err.return d
           else
             match Tensor_id.Map.find_opt id i64d with
-            | Some (pd, pe) -> Err.return (max d pd, max e pe)
+            | Some pd -> Err.return (max d pd)
             | None -> (
-                match
-                  (Tensor_id.Map.find_opt id dep, Tensor_id.Map.find_opt id ev)
-                with
-                | Some pd, Some pe -> Err.return (max d pd, max e pe)
-                | _ -> Err.fail (`Unsupported_i64_dependency v.Value_i64.id)))
+                match Tensor_id.Map.find_opt id dep with
+                | Some pd -> Err.return (max d pd)
+                | None -> Err.fail (`Unsupported_i64_dependency v.Value_i64.id)))
         (Expr.Fold.sources_i64 v.Value_i64.pixel)
-        (Err.return (0, 0))
+        (Err.return 0)
     in
-    let d = d + 1 and e = e + 1 + Expr.Fold.depth_i64 v.Value_i64.pixel in
-    let+ () = check_depths d e in
-    (dep, ev, Tensor_id.Map.add v.Value_i64.id (d, e) i64d)
+    let d = d + 1 in
+    let+ () = check_depth d in
+    (dep, Tensor_id.Map.add v.Value_i64.id d i64d)
   in
   let flush hi state =
     match Int_map.find_opt hi pending with
@@ -743,35 +734,35 @@ let create ?(limits = Limits.default) ?(values_i64 = []) ~inputs ~values
       (fun s (v : Value.t) -> Tensor_id.Set.add v.Value.id s)
       Tensor_id.Set.empty values
   in
-  (* Source resolution, dependency depth and evaluation depth in one forward
-     sweep over the already topologically ordered list — iterative, so
-     validation cannot itself overflow on the input it exists to reject. Both
-     depths are keyed by id; a source resolving to an input contributes zero, an
-     int64 entry its own measured depth. *)
+  (* Source resolution and dependency depth in one forward sweep over the
+     already topologically ordered list — iterative, so validation cannot itself
+     overflow on the input it exists to reject. Depth is keyed by id; a source
+     resolving to an input contributes zero, an int64 entry its own measured
+     depth. The stack depth of a recursive evaluation is not a property of the
+     stored DAG, so it is checked where that recursion starts
+     ([Kernel_eval.value_at]/[run_plan]), not here. *)
   let* _, state =
     List.fold_left
       (fun acc (v : Value.t) ->
         let* i, state = acc in
-        let* dep, ev, i64d = flush (i - 1) state in
-        let* d, e =
+        let* dep, i64d = flush (i - 1) state in
+        let* d =
           Expr.Source.Set.fold
             (fun src acc ->
-              let* d, e = acc in
+              let* d = acc in
               let id = Expr_bridge.id_of_source src in
-              if Tensor_id.Set.mem id input_ids then Err.return (d, e)
+              if Tensor_id.Set.mem id input_ids then Err.return d
               else if Tensor_id.Set.mem id i64_ids then
                 match Tensor_id.Map.find_opt id i64d with
-                | Some (pd, pe) -> Err.return (max d pd, max e pe)
+                | Some pd -> Err.return (max d pd)
                 | None ->
                     Err.fail
                       (`Forward_reference
                          { Forward_ref.at = v.Value.id; depends_on = id })
               else
-                match
-                  (Tensor_id.Map.find_opt id dep, Tensor_id.Map.find_opt id ev)
-                with
-                | Some pd, Some pe -> Err.return (max d pd, max e pe)
-                | _ ->
+                match Tensor_id.Map.find_opt id dep with
+                | Some pd -> Err.return (max d pd)
+                | None ->
                     (* Defined later, or not at all: the ordered list makes
                        these the same walk. A source naming a value that exists
                        further down is a forward reference; anything else is
@@ -785,26 +776,12 @@ let create ?(limits = Limits.default) ?(values_i64 = []) ~inputs ~values
                         (`Unresolved_source
                            { Unresolved.at = v.Value.id; source = src }))
             (Region_group.Ref.sources v.Value.computation)
-            (Err.return (0, 0))
+            (Err.return 0)
         in
-        (* The CONVERTED body, not the raw one: every consumer — a store, a
-           load, [value_at] — evaluates [Result_conversion.apply], so the
-           conversion node is a level the evaluator really walks and measuring
-           [v.body] undercounts each value by it.
-
-           This bound covers expression levels only. The per-producer-transition
-           cost, which dominates and which measurement showed does not fit a
-           weighted sum, is bounded at runtime by [Hard.eval_recursion] instead
-           of being folded into a static weight here. *)
-        let d = d + 1
-        and e = e + 1 + Region_group.Ref.max_depth v.Value.computation in
-        let+ () = check_depths d e in
-        ( i + 1,
-          ( Tensor_id.Map.add v.Value.id d dep,
-            Tensor_id.Map.add v.Value.id e ev,
-            i64d ) ))
-      (Err.return
-         (0, (Tensor_id.Map.empty, Tensor_id.Map.empty, Tensor_id.Map.empty)))
+        let d = d + 1 in
+        let+ () = check_depth d in
+        (i + 1, (Tensor_id.Map.add v.Value.id d dep, i64d)))
+      (Err.return (0, (Tensor_id.Map.empty, Tensor_id.Map.empty)))
       values
   in
   let* _depths = flush (List.length values - 1) state in

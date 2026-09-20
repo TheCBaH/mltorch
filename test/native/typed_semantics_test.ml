@@ -104,3 +104,46 @@ let%expect_test
     direct=95 symbolic=95 agree=true
     direct=100 symbolic=100 agree=true
     |}]
+
+let%expect_test
+    "Typed_semantics: I64 division truncates and fails alike on Direct and \
+     Symbolic" =
+  let module S = Symbolic in
+  let cases = [ (7L, 2L); (-7L, 2L); (5L, 0L); (Int64.min_int, -1L) ] in
+  List.iter
+    (fun (x, y) ->
+      let direct =
+        match
+          Direct.i64_binary Expr.Value.I64_div
+            (Direct.typed_const Expr.Scalar.I64 x)
+            (Direct.typed_const Expr.Scalar.I64 y)
+        with
+        | q -> Int64.to_string q
+        | exception Err.Exn.E _ -> "error"
+      in
+      let symbolic =
+        let e =
+          build
+            (S.i64_to_float
+               (S.i64_binary Expr.Value.I64_div
+                  (S.typed_const Expr.Scalar.I64 x)
+                  (S.typed_const Expr.Scalar.I64 y)))
+        in
+        match
+          Expr.Eval.value
+            (Expr_bridge.env ~binding:(fun _ -> None))
+            ~output:
+              (Expr_bridge.coord_of_vec6 (Vec6.map Dim.to_int Vec6.origin))
+            e
+        with
+        | Ok v -> Printf.sprintf "%.0f" v
+        | Error _ -> "error"
+      in
+      Format.printf "%Ld / %Ld: direct=%s symbolic=%s@." x y direct symbolic)
+    cases;
+  [%expect
+    {|
+    7 / 2: direct=3 symbolic=3
+    -7 / 2: direct=-3 symbolic=-3
+    5 / 0: direct=error symbolic=error
+    -9223372036854775808 / -1: direct=error symbolic=error |}]

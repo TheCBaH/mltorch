@@ -27,6 +27,7 @@ type error =
   [ Expr.Eval.error
   | `Binding_mismatch of Binding_mismatch.t
   | `Duplicate_group_ordinal of int
+  | `Eval_too_deep of int
   | `Recursion_too_deep of int
   | Region_group.error
   | Region_partition.error
@@ -35,12 +36,18 @@ type error =
   | `Unknown_value of Tensor_id.t ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
-(** [`Recursion_too_deep] carries [Kernel.Limits.Hard.eval_recursion]. It is a
-    RUNTIME guard because that is where the recursion is: a producer transition
-    costs far more stack than an expression level, so no static count of levels
-    bounds it, and the buffer-based [run] never recurses at all — rejecting a
-    deep DAG at construction would refuse kernels that execute perfectly well.
-*)
+(** [`Eval_too_deep] carries [Kernel.Limits.Hard.eval_depth]: a recursion
+    through virtual edges ([value_at], [run_plan]) whose longest chain nests
+    more levels than that is refused before anything is evaluated. It is not a
+    property of the stored DAG, so [Kernel.create] does not check it and [run]
+    is never subject to it.
+
+    [`Recursion_too_deep] carries [Kernel.Limits.Hard.eval_stack_budget], the
+    budget each producer transition spends [transition_cost] of. It is a RUNTIME
+    guard because that is where the recursion is: a producer transition costs
+    far more stack than an expression level, so no static count of levels bounds
+    it, and the buffer-based [run] never recurses at all — rejecting a deep DAG
+    at construction would refuse kernels that execute perfectly well. *)
 
 val value_at :
   Kernel.t ->

@@ -298,7 +298,7 @@ module type S = sig
   and Value : sig
     type binary_op = Add | Div | Mul | Sub
     type unary_op = Cos | Erf | Exp | Log | Sin | Sqrt | Trunc
-    type i64_binary_op = I64_add | I64_mul | I64_sub
+    type i64_binary_op = I64_add | I64_div | I64_mul | I64_sub
 
     (* Carrier-indexed. [I64_binary]/[I64_const]/[I64_load]/[I64_local]/
        [I64_local_at]/[I64_of_index] are the [int64 t] inhabitants; every
@@ -345,9 +345,20 @@ module type S = sig
     val i64_of_index : Role.Delta.t Index.t -> int64 t
     val i64_sum : Reduction.i64 -> int64 t
     val i64_add : int64 t -> int64 t -> int64 t
+    val i64_div : int64 t -> int64 t -> int64 t
     val i64_sub : int64 t -> int64 t -> int64 t
     val i64_mul : int64 t -> int64 t -> int64 t
-    val apply_i64_binary : i64_binary_op -> int64 -> int64 -> int64
+
+    type i64_division_error = [ `I64_division_by_zero | `I64_division_overflow ]
+
+    val pp_i64_division_error :
+      Format.formatter -> [< i64_division_error ] -> unit
+
+    val apply_i64_binary :
+      i64_binary_op -> int64 -> int64 -> (int64, [> i64_division_error ]) Err.t
+    (** [I64_add]/[I64_mul]/[I64_sub] are modular and cannot fail. [I64_div] is
+        the explicit truncating division (toward zero); a zero divisor and
+        [min_int / -1] are the structured errors above. *)
 
     val i64_to_float : int64 t -> float t
     (** Exact-to-working-float; potentially lossy above 2^53 but never an error
@@ -381,7 +392,7 @@ module type S = sig
       local_at_i64:(Local_var.t -> Role.Position.t Index.t -> int64) ->
       idx_i64:(Role.Delta.t Index.t -> int64) ->
       int64 t ->
-      (int64, [> i64_from_float_error ]) Err.t
+      (int64, [> i64_division_error | i64_from_float_error ]) Err.t
     (** [I64_const]/[I64_binary] need no environment and cannot fail;
         [Float_to_i64] evaluates its operand via the supplied [eval_float] (in
         practice, [Eval.value]'s own recursive evaluator, partially applied) and
@@ -1021,6 +1032,7 @@ module type S = sig
       | `Data_source_wrong_format of string
       | index_error
       | Intrinsic.error
+      | Value.i64_division_error
       | Value.i64_from_float_error
       | `Scan_meter of Scan_meter.error
       | `Scan_meter_required

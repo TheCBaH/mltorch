@@ -25,6 +25,7 @@ type error =
   [ Expr.Eval.error
   | `Binding_mismatch of Binding_mismatch.t
   | `Duplicate_group_ordinal of int
+  | `Eval_too_deep of int
   | `Recursion_too_deep of int
   | Region_group.error
   | Region_partition.error
@@ -37,8 +38,9 @@ let pp_error fmt : [< error ] -> unit = function
   | `Binding_mismatch m -> Binding_mismatch.pp fmt m
   | `Duplicate_group_ordinal ordinal ->
       Fmt.pf fmt "group run repeats emitter ordinal %d" ordinal
+  | `Eval_too_deep n -> Fmt.pf fmt "evaluation depth exceeds %d" n
   | `Recursion_too_deep n ->
-      Fmt.pf fmt "recursive evaluation nested more than %d producers deep" n
+      Fmt.pf fmt "recursive evaluation exceeded its stack budget of %d" n
   | #Region_group.error as e -> Region_group.pp_error fmt e
   | #Region_partition.error as e -> Region_partition.pp_error fmt e
   | #Region_program.error as e -> Region_program.pp_error fmt e
@@ -242,6 +244,41 @@ let in_shape (sg : Tensor_sig.t) (c : int Expr.Coord.t) =
       i < 0 || i >= Dim.to_int (Vec6.get sg.Tensor_sig.shape a))
     Expr.Axis.all
 
+(* The levels a recursion through [virtual_uses] can nest: the longest chain of
+   virtual edges, each value contributing its converted body's levels plus one
+   for the conversion. The stored DAG's depth is not this -- a materialised
+   producer is read from its buffer -- so the bound is checked here, where the
+   recursion starts, and [run] (nothing virtual) is never subject to it. *)
+let check_eval_depth esc (k : Kernel.t) ~virtual_uses =
+  if not (Kernel.Use.Set.is_empty virtual_uses) then
+    let producers =
+      Kernel.Use.Set.fold
+        (fun { Kernel.Use.producer; consumer } m ->
+          Tensor_id.Map.update consumer
+            (fun l -> Some (producer :: Option.value l ~default:[]))
+            m)
+        virtual_uses Tensor_id.Map.empty
+    in
+    let level m id = Option.value ~default:0 (Tensor_id.Map.find_opt id m) in
+    let _, deepest =
+      List.fold_left
+        (fun (m, deepest) (v : Kernel.Value.t) ->
+          let below =
+            List.fold_left
+              (fun acc p -> max acc (level m p))
+              0
+              (Option.value ~default:[]
+                 (Tensor_id.Map.find_opt v.Kernel.Value.id producers))
+          in
+          let e =
+            below + 1 + Region_group.Ref.max_depth v.Kernel.Value.computation
+          in
+          (Tensor_id.Map.add v.Kernel.Value.id e m, max deepest e))
+        (Tensor_id.Map.empty, 0) k.Kernel.values
+    in
+    if deepest > Kernel.Limits.Hard.eval_depth then
+      Err.Escape.throw esc (`Eval_too_deep Kernel.Limits.Hard.eval_depth)
+
 (* One engine for both placements. A value in [stores] is materialised; a load
    on an edge in [virtual_uses] recurses into its producer instead of reading a
    buffer. [run] is this with nothing virtual and everything stored.
@@ -252,6 +289,7 @@ let in_shape (sg : Tensor_sig.t) (c : int Expr.Coord.t) =
    [bound] below and returning the same map to the caller one materialization,
    not two. *)
 let machine esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses =
+  check_eval_depth esc k ~virtual_uses;
   let inputs = Err.Escape.or_throw esc (input_env k ~bind) in
   let values = values_by_id k in
   let scan_limits = Kernel.Limits.scan_limits k.Kernel.limits in
@@ -282,12 +320,29 @@ let machine esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses =
     Kernel.Use.Set.mem { Kernel.Use.producer; consumer } virtual_uses
   in
   let memo = Hashtbl.create 64 in
-  (* Depth is carried, not measured: the guard has to fire BEFORE the frame it
+  (* What entering a producer costs. A region's depth is not tracked per value
+     here, so it is charged the per-body ceiling. *)
+  let entry_costs =
+    Tensor_id.Map.map
+      (function
+        | `Pixel body ->
+            Kernel.Limits.Hard.transition_cost
+              ~body_depth:(Expr.Fold.depth body)
+        | `Region _ ->
+            Kernel.Limits.Hard.transition_cost
+              ~body_depth:Kernel.Limits.Hard.depth)
+      bodies
+  in
+  (* An id naming no value costs nothing: [eval_value] reports it as unknown. *)
+  let entry_cost id =
+    Option.value ~default:0 (Tensor_id.Map.find_opt id entry_costs)
+  in
+  (* Cost is carried, not measured: the guard has to fire BEFORE the frame it
      would have pushed, which a post-hoc count cannot do. *)
-  let rec eval_value ~depth id coord =
-    if depth > Kernel.Limits.Hard.eval_recursion then
+  let rec eval_value ~cost id coord =
+    if cost > Kernel.Limits.Hard.eval_stack_budget then
       Err.Escape.throw esc
-        (`Recursion_too_deep Kernel.Limits.Hard.eval_recursion);
+        (`Recursion_too_deep Kernel.Limits.Hard.eval_stack_budget);
     match Tensor_id.Map.find_opt id values with
     | None -> Err.Escape.throw esc (`Unknown_value id)
     | Some (v : Kernel.Value.t) -> (
@@ -309,19 +364,19 @@ let machine esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses =
                            (Expr.Eval.value
                               ~scan_meter:
                                 (Expr.Scan_meter.create ~limits:scan_limits)
-                              (env_for ~depth id) ~output:coord body))
+                              (env_for ~cost id) ~output:coord body))
                   | `Region (lowered, _) ->
                       Err.Escape.or_throw esc
                         (widen_region
                            (Region_execution.value_at lowered
-                              ~env:(env_for ~depth id)
+                              ~env:(env_for ~cost id)
                               ~output:
                                 (Vec6.map Dim.index
                                    (Expr_bridge.vec6_of_coord coord))))
                 in
                 Hashtbl.add memo key x;
                 x))
-  and env_for ~depth consumer =
+  and env_for ~cost consumer =
     let bridge = Expr_bridge.env ~binding in
     let load_bound =
       match on_load with
@@ -336,7 +391,8 @@ let machine esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses =
         (fun src c ->
           let producer = Expr_bridge.id_of_source src in
           if is_virtual ~consumer ~producer then
-            Err.return (eval_value ~depth:(depth + 1) producer c)
+            Err.return
+              (eval_value ~cost:(cost + entry_cost producer) producer c)
           else load_bound src c);
       Expr.Eval.Env.load_index =
         (fun src c ->
@@ -360,7 +416,7 @@ let machine esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses =
   (* Materialising one value, and evaluating one cell on demand: the same
      recursion, so the depth guard cannot cover one path and miss the other. *)
   let materialize_fresh (v : Kernel.Value.t) =
-    let env = env_for ~depth:0 v.Kernel.Value.id in
+    let env = env_for ~cost:0 v.Kernel.Value.id in
     let t =
       match Tensor_id.Map.find v.Kernel.Value.id bodies with
       | `Pixel body ->
@@ -420,7 +476,7 @@ let machine esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses =
                   ~max_local_slots:k.Kernel.limits.Kernel.Limits.max_local_slots
                   ~scan_limits g))
         in
-        let env = env_for ~depth:0 first.Kernel.Value.id in
+        let env = env_for ~cost:0 first.Kernel.Value.id in
         let counters =
           Option.bind region_counters (fun m ->
               Tensor_id.Map.find_opt first.Kernel.Value.id m)
@@ -506,7 +562,7 @@ let machine esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses =
   in
   ( materialize,
     materialize_group,
-    (fun id coord -> eval_value ~depth:0 id coord),
+    (fun id coord -> eval_value ~cost:0 id coord),
     finish )
 
 let execute esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses

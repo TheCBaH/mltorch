@@ -197,10 +197,7 @@ let value_at (type a) (scalar : a Scalar.t)
             (eval Scalar.Float depth reducers b)
       | Value.Const x -> x
       | Value.I64_const x -> x
-      | Value.I64_binary (op, a, b) ->
-          Value.apply_i64_binary op
-            (eval Scalar.I64 depth reducers a)
-            (eval Scalar.I64 depth reducers b)
+      | Value.I64_binary (op, a, b) -> eval_i64_binary depth reducers op a b
       | Value.I64_to_float a -> Int64.to_float (eval Scalar.I64 depth reducers a)
       | Value.Float_to_i64 a ->
           vchk (Value.i64_of_float (eval Scalar.Float depth reducers a))
@@ -373,6 +370,15 @@ let value_at (type a) (scalar : a Scalar.t)
      [Value.i64_reduce_combine] for each kind's policy): no float accumulator.
      A sibling rather than an inline arm of [eval] so its locals do not enlarge
      [eval]'s own stack frame, which the depth ceilings are measured against. *)
+  (* Its own function rather than an arm body: [eval]'s frame size is an
+     empirical stack contract under js_of_ocaml (test/native/depth_probe.ml),
+     and the locals a left-to-right, checked combine needs would otherwise
+     land in every [eval] frame, not only the int64 ones. *)
+  and eval_i64_binary depth reducers op a b : int64 =
+    let x = eval Scalar.I64 depth reducers a in
+    let y = eval Scalar.I64 depth reducers b in
+    i64_binary esc op x y
+
   and eval_i64_sum depth reducers (r : Expr_repr.i64_reduction) : int64 =
     let lo = idx reducers r.i64_lo and hi = idx reducers r.i64_hi in
     let bind i v = if Reduce_var.equal v r.i64_var then Some i else reducers v in
@@ -549,8 +555,7 @@ let value ?(local : Local_var.t -> float option = fun _ -> None)
         Value.apply_binary op (eval reducers a) (eval reducers b)
     | Value.Const x -> x
     | Value.I64_const x -> x
-    | Value.I64_binary (op, a, b) ->
-        Value.apply_i64_binary op (eval reducers a) (eval reducers b)
+    | Value.I64_binary (op, a, b) -> eval_i64_binary reducers op a b
     | Value.I64_to_float a -> Int64.to_float (eval reducers a)
     | Value.Float_to_i64 a -> vchk (Value.i64_of_float (eval reducers a))
     | Value.Intrinsic i -> (intrinsic [@tailcall]) reducers i
@@ -692,6 +697,11 @@ let value ?(local : Local_var.t -> float option = fun _ -> None)
      through the caller's own [local]/[local_at], since a Region scan's
      update legitimately reads earlier Region locals. *)
   (* See the cutoff branch's [eval_i64_sum]. *)
+  and eval_i64_binary reducers op a b : int64 =
+    let x = eval reducers a in
+    let y = eval reducers b in
+    i64_binary esc op x y
+
   and eval_i64_sum reducers (r : Expr_repr.i64_reduction) : int64 =
     let lo = idx reducers r.i64_lo and hi = idx reducers r.i64_hi in
     let bind i v = if Reduce_var.equal v r.i64_var then Some i else reducers v in

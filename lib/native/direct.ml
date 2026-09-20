@@ -225,7 +225,13 @@ type 'a repr = 'a
 
 let typed_const (type a) (_ : a Expr.Scalar.t) (x : a) : a = x
 let typed_select (c : bool) (a : 'a) (b : 'a) : 'a = if c then a else b
-let i64_binary = Expr.Value.apply_i64_binary
+
+(* Raises through the same [Err.or_raise] boundary as [float_to_i64] below: only
+   [I64_div] can fail (zero divisor, [min_int / -1]). *)
+let i64_binary op a b : int64 =
+  Err.or_raise ~pp_error:Expr.Value.pp_i64_division_error
+    (Expr.Value.apply_i64_binary op a b)
+
 let i64_eq (a : int64) (b : int64) : bool = Int64.equal a b
 let i64_lt (a : int64) (b : int64) : bool = Int64.compare a b < 0
 

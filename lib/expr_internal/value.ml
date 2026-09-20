@@ -9,7 +9,11 @@ type unary_op = Expr_repr.unary_op =
   | Sqrt
   | Trunc
 
-type i64_binary_op = Expr_repr.i64_binary_op = I64_add | I64_mul | I64_sub
+type i64_binary_op = Expr_repr.i64_binary_op =
+  | I64_add
+  | I64_div
+  | I64_mul
+  | I64_sub
 
 type 'a t = 'a Expr_repr.value =
   | Binary : binary_op * float t * float t -> float t
@@ -68,15 +72,33 @@ let i64_local_at v i = I64_local_at (v, i)
 let i64_of_index i = I64_of_index i
 let i64_sum r = I64_sum r
 let i64_add a b = I64_binary (I64_add, a, b)
+let i64_div a b = I64_binary (I64_div, a, b)
 let i64_sub a b = I64_binary (I64_sub, a, b)
 let i64_mul a b = I64_binary (I64_mul, a, b)
 let i64_to_float a = I64_to_float a
 let float_to_i64 a = Float_to_i64 a
 
-let apply_i64_binary = function
-  | I64_add -> Int64.add
-  | I64_mul -> Int64.mul
-  | I64_sub -> Int64.sub
+(* [I64_div] is the design's explicit truncating division (toward zero, what
+   [Int64.div] does): a zero divisor and [min_int / -1] (the one quotient that
+   does not fit) are structured errors, never a host trap or a wrapped value.
+   The other three are modular and cannot fail. *)
+type i64_division_error = [ `I64_division_by_zero | `I64_division_overflow ]
+
+let pp_i64_division_error fmt : [< i64_division_error ] -> unit = function
+  | `I64_division_by_zero -> Fmt.string fmt "I64 division by zero"
+  | `I64_division_overflow ->
+      Fmt.string fmt "I64 division overflow: -2^63 / -1 does not fit"
+
+let apply_i64_binary op a b : (int64, [> i64_division_error ]) Err.t =
+  match op with
+  | I64_add -> Err.return (Int64.add a b)
+  | I64_div ->
+      if Int64.equal b 0L then Err.fail `I64_division_by_zero
+      else if Int64.equal a Int64.min_int && Int64.equal b (-1L) then
+        Err.fail `I64_division_overflow
+      else Err.return (Int64.div a b)
+  | I64_mul -> Err.return (Int64.mul a b)
+  | I64_sub -> Err.return (Int64.sub a b)
 
 (* The int64 reduction's ordered left fold, shared by every evaluator so the
    backends cannot drift. [Sum] is modular two's-complement addition from [0L].
@@ -162,7 +184,8 @@ let i64_of_float f : (int64, [> i64_from_float_error ]) Err.t =
    wants to evaluate a bare [int64 t] against it without going through the
    full [Eval.value]. *)
 let rec eval_i64 ~eval_float ~eval_bool ~load_i64 ~local_i64 ~local_at_i64
-    ~idx_i64 : int64 t -> (int64, [> i64_from_float_error ]) Err.t =
+    ~idx_i64 :
+    int64 t -> (int64, [> i64_from_float_error | i64_division_error ]) Err.t =
  fun v ->
   let open Err.Syntax in
   match v with
@@ -172,7 +195,7 @@ let rec eval_i64 ~eval_float ~eval_bool ~load_i64 ~local_i64 ~local_at_i64
         eval_i64 ~eval_float ~eval_bool ~load_i64 ~local_i64 ~local_at_i64
           ~idx_i64 a
       in
-      let+ y =
+      let* y =
         eval_i64 ~eval_float ~eval_bool ~load_i64 ~local_i64 ~local_at_i64
           ~idx_i64 b
       in
@@ -228,7 +251,12 @@ let apply_unary = function
   | Trunc -> Float.trunc
 
 let binary_sym = function Add -> "+" | Div -> "/" | Mul -> "*" | Sub -> "-"
-let i64_binary_sym = function I64_add -> "+" | I64_mul -> "*" | I64_sub -> "-"
+
+let i64_binary_sym = function
+  | I64_add -> "+"
+  | I64_div -> "/"
+  | I64_mul -> "*"
+  | I64_sub -> "-"
 
 let unary_name = function
   | Cos -> "cos"

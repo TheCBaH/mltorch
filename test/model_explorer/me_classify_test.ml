@@ -170,7 +170,6 @@ let%expect_test "every Kernel_adapt row, classified" =
       ("Too_many_inputs", `Too_many_inputs 1024);
       ("Too_many_outputs", `Too_many_outputs 1024);
       ("Dependency_too_deep", `Dependency_too_deep 1024);
-      ("Eval_too_deep", `Eval_too_deep 2048);
       ("Numel_too_large", `Numel_too_large (tid 0));
       ("Missing_live_output", `Missing_live_output (tid 0));
       ("Unknown_program_output", `Unknown_program_output (tid 0));
@@ -192,7 +191,6 @@ let%expect_test "every Kernel_adapt row, classified" =
     Too_many_inputs                        unavailable over_limit
     Too_many_outputs                       unavailable over_limit
     Dependency_too_deep                    unavailable over_limit
-    Eval_too_deep                          unavailable over_limit
     Numel_too_large                        unavailable over_limit
     Missing_live_output                    fatal
     Unknown_program_output                 fatal
