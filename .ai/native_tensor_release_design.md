@@ -100,6 +100,14 @@ Measured on the cram models (MiB, inputs and constants included), `All` →
 `Only empty`: mobilenetv2_050 lowered 112.7 → 13.0, canonical 35.7 → 12.6;
 fastvit_sa12 lowered 380.7 → 54.1, canonical 200.6 → 53.9.
 
+Observed peak RSS for the lowered graph (`native_graph eval`, native, MiB),
+`All` → `Only empty`: mobilenetv2_050 129.0 → 55.9, regnetx_002 98.3 → 57.5,
+fastvit_sa12 398.3 → 145.8, with outputs byte-identical and wall time
+unchanged. Under `Only`, RSS sits 15–27 MiB above the process floor plus
+`peak_bytes`: the GC reclaims released Bigarrays without explicit `Gc` calls,
+with a modest lag. That lag is the input to any arena/buffer-reuse decision;
+it has not been measured under node.
+
 ## 6. Verification
 
 - `test/native/release_schedule_test.ml`: the schedule and `peak_bytes` on
