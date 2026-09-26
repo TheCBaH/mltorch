@@ -1,7 +1,7 @@
 (* Builds a real [Node_executor.t] from [Loop_node_program] + [Loop_js_exec]
    (design §4.4, plan S4): a compile table keyed by output [Tensor_id.t],
    lazily filled on first evaluation (or eagerly by [precompile]), routing
-   only the nodes the milestone predicate [m1_scope] currently covers.
+   only the nodes the milestone predicate [scope] currently covers.
    [Refused], a [Loop_js_exec.run] error, or an output count other than 1 all
    fall back to [direct ()] -- this executor's job is "run through generated
    JS when possible", the same convention [Loop_region_executor] already
@@ -85,30 +85,53 @@ module Coverage = struct
              (List.sort compare offenders))
 end
 
-let is_i64_fmt = function Payload.Fmt Payload.I64 -> true | _ -> false
-
 let operand_fmt (g : graph) id =
   (Tensor_id.Map.find id g.Graph.tensors).Tensor_sig.fmt
 
-(* M1 (design §3): the default float-pixel arm. Classified from the op and
-   the requested output's own declared format, which already separates every
-   M2 case from M1 EXCEPT two: [Mul_scalar]/[To_copy Float] keep an F32
-   output even when reading an I64 operand (the promotion design §3 calls
-   out by name), and the factories/[Unbind]/[Split_with_sizes] are excluded
-   regardless of the format they happen to declare. Every other M2 arm
-   (I64 Reshape/Permute/Add/Sub/Mul, To_copy Long, the Bool-storage arms, an
-   index output) is already non-F32-declared, so the format check alone
-   correctly excludes it -- including correctly ROUTING the *value* output
-   of Max_dim/Max_pool2d_with_indices, which design §3 lists under M1, since
-   only that node's INDEX output (ordinal one) is I64-declared. *)
-let m1_scope (g : graph) (op : op) ~(out_fmt : Payload.packed_fmt) =
+(* M1 + T6.2 + T6.4 + T6.6's F32 slice (design §3): the default float-pixel
+   arm, the two promotion arms T6.2 adds ([Mul_scalar]/[To_copy Float] on an
+   I64 operand -- an explicit [i64_to_float]/[i64_load] read into an
+   ordinary F32 write, "first contact" for the emitter but not a new OUTPUT
+   format), T6.4's Bool-storage arms ([To_copy Bool], [Bitwise_not],
+   [Eq_*]/[Ne_*]/[Gt_scalar] -- an ordinary float-pixel body whose boundary
+   result is [Kernel.Result_conversion.Nonzero_bool], already derived by
+   [Kernel_adapt] from the stage's own Bool signature with no change needed
+   here), [Zeros]/[Eye] at their WALKED format only (F32 -- a zero-input
+   kernel, [Kernel.create] admits one with no change needed either), and
+   T6.0's I64-output arm: since [Kernel.create] can now resolve an output
+   signature from [values_i64] (not just [values]), every I64-declared
+   output -- I64 Reshape/Permute/Add/Sub/Mul/Mul_scalar, and the INDEX
+   output of Max_dim/Max_pool2d_with_indices -- lowers through the same
+   [Loop_node_program.lower] path with no change needed here either; the
+   native-side sweep (loop_sweep_test.ml/loop_node_check_test.ml) went from
+   `not-a-kernel` to full agreement across every one of them the moment
+   [Kernel.create]'s fix landed. [To_copy(Long)] (T6.3) and both of
+   [Arange]'s forms (T6.6, default float and exact-I64) are now walked too
+   (`to_copy_long`/`arange`/`arange_i64`), so neither needs a per-op
+   override any more -- [To_copy]'s three targets and [Arange]'s two both
+   fall out of the generic format arm below, the same as any other
+   F32/Bool/I64-declared output. [Unbind]/[Split_with_sizes] (M3, T7.1) are
+   walked now too, in both formats: [Loop_node_program]'s single-[oid]
+   contract already handles a variable, config-dependent output count fine
+   (it is called once per ordinal, same as any other multi-output node --
+   [Max_dim] is no different), so the ONLY real gap was [Eval_symbolic]
+   itself, which had no dedicated I64 arm for either op and so silently
+   round-tripped a sliced I64 tensor's values through the engine's f32
+   domain via the default arm's [S.load] -- fixed by [process_node]'s new
+   [Split.Unbind.Compute_i64]/[Split.Split_with_sizes.Compute_i64] arms,
+   the same shape as every other "_i64" dispatch above. Both ops now fall
+   out of the generic format arm below too. *)
+let scope (op : op) ~(out_fmt : Payload.packed_fmt) =
   match op with
-  | Unbind _ | Split_with_sizes _ | Arange _ | Zeros _ | Eye _ -> false
-  | Mul_scalar { Pointwise.Scalar_bin.x; _ } ->
-      not (is_i64_fmt (operand_fmt g x))
-  | To_copy { Pointwise.To_copy.target = Pointwise.To_copy.Float; x } ->
-      not (is_i64_fmt (operand_fmt g x))
-  | _ -> ( match out_fmt with Payload.Fmt Payload.F32 -> true | _ -> false)
+  | Zeros _ | Eye _ -> (
+      match out_fmt with Payload.Fmt Payload.F32 -> true | _ -> false)
+  | _ -> (
+      match out_fmt with
+      | Payload.Fmt Payload.F32
+      | Payload.Fmt Payload.Bool
+      | Payload.Fmt Payload.I64 ->
+          true
+      | _ -> false)
 
 type t = {
   limits : Kernel.Limits.t;
@@ -162,7 +185,7 @@ let precompile t (g : graph) =
       List.iter
         (fun (output, oid) ->
           let out_fmt = operand_fmt g oid in
-          if m1_scope g node.Node.op ~out_fmt then
+          if scope node.Node.op ~out_fmt then
             ignore (entry_of t g node ~output ~oid))
         (Output_ordinal.indexed node.Node.outputs))
     g.Graph.nodes
@@ -189,7 +212,7 @@ let node_executor t : Node_executor.t =
           Coverage.bump t.coverage.fallback op_name;
           direct ()
         in
-        if not (m1_scope g node.Node.op ~out_fmt) then (
+        if not (scope node.Node.op ~out_fmt) then (
           Coverage.bump t.coverage.pending op_name;
           direct ())
         else

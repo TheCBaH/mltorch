@@ -350,6 +350,8 @@ type lowered_group = {
   scan_limits : Expr.Scan_limits.t;
 }
 
+let group lowered_group = lowered_group.group
+
 (* Deliberately conservative, sound-but-not-tight: preflights each emitter's
    full PROJECTED program independently (reusing [Region_group.project], the
    same operation [Region_group.create] already used once to prove every

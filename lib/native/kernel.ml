@@ -785,19 +785,31 @@ let create ?(limits = Limits.default) ?(values_i64 = []) ~inputs ~values
       values
   in
   let* _depths = flush (List.length values - 1) state in
-  (* Outputs name values; their signatures are derived, never supplied. *)
+  (* Outputs name values; their signatures are derived, never supplied. A
+     [values_i64] entry is just as valid a name as a [values] one -- it is
+     always materialized (see the reachability sweep above), so nothing
+     about resolving its signature here is conditional on that. *)
   let value_sig =
     List.fold_left
       (fun m (v : Value.t) -> Tensor_id.Map.add v.Value.id v.Value.sg m)
       Tensor_id.Map.empty values
+  in
+  let i64_value_sig =
+    List.fold_left
+      (fun m (v : Value_i64.t) ->
+        Tensor_id.Map.add v.Value_i64.id v.Value_i64.sg m)
+      Tensor_id.Map.empty values_i64
   in
   let* out =
     List.fold_left
       (fun acc id ->
         let* out = acc in
         match Tensor_id.Map.find_opt id value_sig with
-        | None -> Err.fail (`Unknown_output id)
-        | Some sg -> Err.return ({ Output.value = id; sg } :: out))
+        | Some sg -> Err.return ({ Output.value = id; sg } :: out)
+        | None -> (
+            match Tensor_id.Map.find_opt id i64_value_sig with
+            | Some sg -> Err.return ({ Output.value = id; sg } :: out)
+            | None -> Err.fail (`Unknown_output id)))
       (Err.return []) outputs
   in
   let out = List.rev out in

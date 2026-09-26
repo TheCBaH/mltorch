@@ -255,8 +255,10 @@ type t = private {
           read an input, a [values] entry, or an EARLIER entry here, and a
           [values] entry may read one of these ([create] checks the two lists as
           one dependency graph, and each entry counts toward dependency depth).
-          Still unreachable from [outputs] and [Use.t]; see [Value_i64.t]'s own
-          doc. *)
+          An entry MAY be named by [outputs] (its signature is resolved from
+          here when it is not found in [values]); still unreachable from
+          [Use.t], which pairs two logical [Value.t]s, never an int64 one -- see
+          [Value_i64.t]'s own doc. *)
   outputs : Output.t list;
   limits : Limits.t;
   by_id : Value.t Tensor_id.Map.t;

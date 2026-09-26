@@ -73,3 +73,35 @@ let synth_nonneg pcg shape = synth_with pcg shape draw_nonneg
    against. Mirrors [Aten_walk_recipes.Walk.gen_values_positive]. *)
 let draw_positive pcg = Pcg.uniform ~low:0.25 ~high:1.25 pcg
 let synth_positive pcg shape = synth_with pcg shape draw_positive
+
+(* [synth_with]'s I64 twin: draws through [draw_elt] the same way, but lands
+   in [Tensor.materialize_i64] rather than the float [materialize] -- for an
+   I64-declared operand (an exact-carrier arm's own walk, plan S6/W). *)
+let synth_i64_with pcg (shape : Vec6.shape) draw_elt : Tensor.packed * Pcg.t =
+  let numel = (Vec6.numel shape :> int) in
+  let rec draw k pcg acc =
+    if k = 0 then (acc, pcg)
+    else
+      let v, pcg = draw_elt pcg in
+      draw (k - 1) pcg (v :: acc)
+  in
+  let vals, pcg = draw numel pcg [] in
+  let arr = Array.of_list vals in
+  let i = ref 0 in
+  let t =
+    Tensor.materialize_i64 shape (fun _ ->
+        let v = arr.(!i) in
+        incr i;
+        v)
+  in
+  (t, pcg)
+
+(* Small integers in [-8, 8], drawn as a float and rounded -- bounded well
+   away from int64 overflow under a handful of Add/Sub/Mul steps, the same
+   headroom rationale [draw_nonzero]/[draw_positive] apply to their own
+   domains. *)
+let draw_i64 pcg =
+  let v, pcg = Pcg.uniform ~low:(-8.) ~high:8. pcg in
+  (Int64.of_float (Float.round v), pcg)
+
+let synth_i64 pcg shape = synth_i64_with pcg shape draw_i64

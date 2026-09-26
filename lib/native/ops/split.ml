@@ -167,6 +167,39 @@ module Unbind = struct
         (Vec6.set base p.axis
            (S.clamp_low (S.index_const (output : Output_ordinal.t :> int))))
   end
+
+  (* Exact int64 counterpart of [Compute]: the same coordinate math, reading
+     the resolved source coordinate through [i64_load] instead of
+     [SEMANTICS.load] -- so an [Unbind] over an I64 tensor never round-trips
+     through the engine's f32 compute domain the way [Compute]'s own
+     [S.load] does (lossy above 2^53). Same [T]/[S] shape as
+     [Reshape.Reshape.Compute_i64]; see its own comment for why [T] is this
+     narrow inline signature rather than a full [TYPED_SEMANTICS] functor
+     argument. *)
+  module Compute_i64
+      (S : Semantics.SEMANTICS)
+      (T : sig
+        type 'a repr
+
+        val i64_load :
+          S.input -> Semantics.position S.index Vec6.t -> int64 repr
+      end) =
+  struct
+    let pixel (p : params) ~output ~x (out : Semantics.position S.index Vec6.t)
+        =
+      let zero =
+        Vec6.make ~n:S.index_zero ~t:S.index_zero ~d:S.index_zero
+          ~h:S.index_zero ~w:S.index_zero ~c:S.index_zero
+      in
+      let base =
+        List.fold_left
+          (fun v (kin, oax) -> Vec6.copy out ~src:oax ~dst:kin v)
+          zero (kept_map p)
+      in
+      T.i64_load x
+        (Vec6.set base p.axis
+           (S.clamp_low (S.index_const (output : Output_ordinal.t :> int))))
+  end
 end
 
 (* `split_with_sizes`: divides [axis] into contiguous windows of the given SIZES,
@@ -371,6 +404,29 @@ module Split_with_sizes = struct
              (S.of_index (Vec6.get out p.axis)))
       in
       S.load x (Vec6.set out p.axis src)
+  end
+
+  (* Exact int64 counterpart of [Compute], same shape as [Unbind.Compute_i64]
+     above: the same offset math, reading through [i64_load] instead of
+     [SEMANTICS.load]. *)
+  module Compute_i64
+      (S : Semantics.SEMANTICS)
+      (T : sig
+        type 'a repr
+
+        val i64_load :
+          S.input -> Semantics.position S.index Vec6.t -> int64 repr
+      end) =
+  struct
+    let pixel ~offset (p : params) ~x (out : Semantics.position S.index Vec6.t)
+        =
+      let src =
+        S.clamp_low
+          (S.index_add
+             (S.index_const (offset : Dim.fence Dim.t :> int))
+             (S.of_index (Vec6.get out p.axis)))
+      in
+      T.i64_load x (Vec6.set out p.axis src)
   end
 end
 

@@ -323,6 +323,60 @@ let process_node ~limits ~fill ~pixel (gr : graph) (env, stages, stages_i64)
       let pixel = Expr.Builder.run (C.pixel x_sig Symbolic.out_vec) in
       let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
       (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+  (* The Symbolic twin of [Eval_direct]'s own dtype-preserving [Unbind]
+       bypass (T7.1): the default arm below reaches [Split.Unbind.Compute
+       (Symbolic).pixel], whose [S.load] round-trips every format through
+       [Payload.get_float], lossy above 2^53 for an I64 source. Branch on
+       [x]'s declared format, routing every output through [Compute_i64
+       (Symbolic) (Symbolic)] instead -- a plain fold over [outs] (this op
+       is multi-output, unlike Reshape/Permute/Add/Sub/Mul above), building
+       a [Stage_i64.t] per output rather than a [Stage.t]. *)
+  | Unbind { Split.Unbind.params; x }, _ when is_i64 (operand x).Tensor_sig.fmt
+    ->
+      let x_sig = operand x in
+      let module C = Split.Unbind.Compute_i64 (Symbolic) (Symbolic) in
+      let env, stages_i64 =
+        List.fold_left
+          (fun (env, stages_i64) (output, oid) ->
+            let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+            let pixel =
+              Expr.Builder.run
+                (C.pixel params ~output ~x:x_sig Symbolic.out_vec)
+            in
+            let st =
+              { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel }
+            in
+            (Tensor_id.Map.add oid out_sig env, st :: stages_i64))
+          (env, stages_i64) outs
+      in
+      (env, stages, stages_i64)
+  (* The Symbolic twin of [Eval_direct]'s own dtype-preserving
+       [Split_with_sizes] bypass (T7.1), same shape as [Unbind] just above
+       (same rationale, same per-output fold, same [Compute_i64 (Symbolic)
+       (Symbolic)] instantiation). *)
+  | Split_with_sizes { Split.Split_with_sizes.params; x }, _
+    when is_i64 (operand x).Tensor_sig.fmt ->
+      let x_sig = operand x in
+      let module C = Split.Split_with_sizes.Compute_i64 (Symbolic) (Symbolic) in
+      let env, stages_i64 =
+        List.fold_left
+          (fun (env, stages_i64) (output, oid) ->
+            let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+            let offset =
+              Split.Split_with_sizes.offset_of ~output
+                params.Split.Split_with_sizes.sizes
+            in
+            let pixel =
+              Expr.Builder.run
+                (C.pixel ~offset params ~x:x_sig Symbolic.out_vec)
+            in
+            let st =
+              { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel }
+            in
+            (Tensor_id.Map.add oid out_sig env, st :: stages_i64))
+          (env, stages_i64) outs
+      in
+      (env, stages, stages_i64)
   (* A multi-output Region-authored node (project step 19: today only
        Lstm) builds ONE shared group and hands every sibling stage a
        [Grouped] reference into it, rather than each independently building

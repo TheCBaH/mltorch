@@ -226,7 +226,16 @@ make melange.build.scaffold  # shim + fmt + jsont_base only — the diagnostic f
 # which fetches this one model under its own cache key (never build.yml's).
 make jsoo.pt2.download       # = pt2.download for the tier-2/3 model
 make jsoo.pt2.runtest        # open a real .pt2, lower it, run inference, diff
+make loop_js.node.pt2.runtest # every node of mobilenetv2_050 through generated JS, shadowed, --strict
 ```
+
+`make loop_js.node.pt2.runtest` is **tier 2** — every node of `mobilenetv2_050`
+(`JS_PT2_MODEL`, the same cached archive `jsoo.pt2.runtest` already downloads) through
+`Loop_js_exec`-compiled JavaScript (`--nodes`), bitwise-shadowed against the reference
+per node (`--shadow`), with `--strict` so a ranking mismatch or a coverage/shadow failure
+exits 1. ~100s under node, the same order as `jsoo.pt2.runtest`'s own step in the same
+CI job (D6). Reuses `js/jsoo/loop_js_pt2`'s `--nodes`/`--shadow` flags — see that
+executable's own doc comment for what they install.
 
 `make jsoo.pt2.run` is **tier 3 and manual** — every sample of one model through
 `Native_interp` under node, checked against the release zip's `results.json`, with

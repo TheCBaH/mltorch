@@ -419,6 +419,32 @@ module To_copy = struct
     let pixel x (out : Semantics.position S.index Vec6.t) =
       T.float_to_i64 (S.load x out)
   end
+
+  (* Shape-only, matching [Clone.Walk]'s own shape: [target] and the operand's
+     format are NOT config-space axes here, since each walk file fixes both
+     (a distinct (target, source format) pair is a distinct walk target, e.g.
+     [to_copy_float_i64]) rather than drawing them randomly -- the corpus
+     acceptance pattern each one exercises is a specific pairing, not an
+     arbitrary combination. *)
+  module Walk (L : Walk_core.Limits.S) = struct
+    type cfg = { shape : Walk_core.Shape.t }
+
+    let initial =
+      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
+
+    let cascade c = c
+    let shape (c : cfg) = Walk_bridge.vec6 c.shape
+
+    let axes =
+      Walk_core.Walk.
+        [
+          shape_axis "input" L.limits
+            ~get:(fun c -> c.shape)
+            ~set:(fun _ s -> { shape = s });
+        ]
+
+    let pp fmt (c : cfg) = Walk_core.Shape.pp fmt c.shape
+  end
 end
 
 (* [bitwise_not.default] on the corpus's only observed operand: a bool tensor

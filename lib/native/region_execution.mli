@@ -79,6 +79,12 @@ val value_at :
 
 type lowered_group
 
+val group : lowered_group -> Region_group.t
+(** The already-[lower_group]-validated group -- the [lowered_group] twin of
+    [program]/[output_shape] above, for an alternate executor (a Loop-JS group
+    one) that needs the group itself, not just what [materialize_group] can do
+    with it. See [Region_executor.group] and T7.2. *)
+
 val lower_group :
   max_size:int ->
   max_depth:int ->

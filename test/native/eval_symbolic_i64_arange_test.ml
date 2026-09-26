@@ -49,29 +49,18 @@ let%expect_test
     outputs: t0
     |}]
 
-(* [of_stage_program]'s own [analyse] validates [Stage_program.outputs]
-   unconditionally against [stages] (float) and the boundary table alone,
-   BEFORE the [~outputs] argument is even consulted -- so an int64-only
-   output raises [`Unknown_program_output] no matter what [~outputs] is
-   passed (confirmed by trying [~outputs:[]] first and getting exactly that).
-   Recognising an int64-only graph output is real, separately-scoped work
-   this fixture does NOT attempt -- sidestepped here by overriding the record's
-   own [outputs] field to [],
-   which [Eval_symbolic.run] cannot do itself (it always mirrors the source
-   graph's real output list). [Kernel_eval.run]'s own returned map still
-   contains every [values_i64] entry unconditionally regardless of whether it
-   is a declared [Kernel.Output.t] -- confirmed by reading [Kernel_eval.run]'s
-   own [Tensor_id.Map.union] with [materialize_values_i64]'s result. *)
+(* [Kernel.create]'s output-signature resolution (T6.0) now falls back to
+   [values_i64] when an id names no [values] entry, so an int64-only graph
+   output can be declared through the ordinary [~outputs] argument -- no
+   override of [Stage_program.outputs] needed, unlike before T6.0. *)
 let%expect_test
     "Symbolic -> Kernel: exact I64 Arange survives Kernel_adapt/Kernel_eval \
      past 2^53" =
   let g = build params in
-  let stage_program =
-    { (Eval_symbolic.run g) with Stage_program.outputs = [] }
-  in
+  let stage_program = Eval_symbolic.run g in
   let arange_id = List.hd g.Graph.outputs in
   let kernel =
-    Kernel_adapt.of_stage_program stage_program
+    Kernel_adapt.of_stage_program ~outputs:[ arange_id ] stage_program
     |> Err.or_raise ~pp_error:Kernel_adapt.pp_error
   in
   let result =

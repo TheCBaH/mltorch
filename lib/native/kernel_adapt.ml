@@ -240,11 +240,19 @@ let analyse ~limits ~select (p : Stage_program.t) =
      DIFFERENT public result — the very hazard the pass-through rule exists to
      prevent. Neither classification depends on the selection, so neither
      belongs after it. *)
+  (* A declared output whose sole producing stage lives in [stages_i64] (an
+     I64- or Bool-carrier arm's whole output, not merely its index side
+     output -- T6.1's own I64 Add/Sub/Mul/Reshape/Permute walks all hit this)
+     is fine too, not just a float [stage_sig] entry: [stage_i64_ids] is
+     already computed above for the source-validation fold just above this
+     one, and a graph output is exactly as legitimate a way to reference an
+     int64 stage as another stage's source is. *)
   let* () =
     List.fold_left
       (fun acc id ->
         let* () = acc in
         if Tensor_id.Map.mem id stage_sig then Err.return ()
+        else if Tensor_id.Set.mem id stage_i64_ids then Err.return ()
         else if Tensor_id.Map.mem id boundary then
           Err.fail (`Passthrough_output id)
         else Err.fail (`Unknown_program_output id))
@@ -256,11 +264,15 @@ let analyse ~limits ~select (p : Stage_program.t) =
       p.Stage_program.stages
   in
   (* An id in [select] naming no stage is an error, so the optional set has
-     exact rather than best-effort semantics. *)
+     exact rather than best-effort semantics. Seeded with [stage_i64_ids],
+     not just [order]'s float ids, so a caller may [~select] (and so name in
+     [~outputs]) an int64-carrier output -- [order] itself stays float-only:
+     [externally_used]/[dead_terminals]/[outside] all fold over it for
+     FLOAT-stage bookkeeping that an int64 stage does not participate in
+     (its own boundary inputs come from [i64_sources] instead, already
+     unconditional of [select]). *)
   let all_stages =
-    List.fold_left
-      (fun s id -> Tensor_id.Set.add id s)
-      Tensor_id.Set.empty order
+    List.fold_left (fun s id -> Tensor_id.Set.add id s) stage_i64_ids order
   in
   let select = Option.value select ~default:all_stages in
   let* () =

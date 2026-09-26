@@ -73,6 +73,21 @@ make native-infer-verify.<model>
   op set (`select`/`unsqueeze`, `cat`/`stack`, `amax`, `pow`/`vector_norm`,
   `upsample_bilinear2d`) it doesn't have. Do not try to make it a native
   verification target piecemeal.
+- **`mobilenetv2_050`/`fastvit_sa12` also run through generated JavaScript,
+  not only the interpreter (2026-09-22).** Separate from every column
+  above (which are about the NATIVE import/conversion pipeline): both
+  models run through `Loop_js_exec`-compiled JavaScript under node with
+  `--nodes --shadow --strict`, bitwise-shadowed against the interpreter,
+  confirmed at full parity. `mobilenetv2_050` (`make
+  loop_js.node.pt2.runtest`, tier-2 CI): 415/415 nodes `generated_js`,
+  zero fallback/pending, ranking match, exit 0, ~90s. `fastvit_sa12`
+  (MANUAL, too slow for CI): every node kind `fallback=0 pending=0`,
+  including `Unbind=6` (the one gap this session's own work closed) and
+  the 2 SDPA nodes via the Region executor, ranking match, exit 0,
+  ~510-530s. Full design and the walk-scale parity record (every computing
+  op kind, not only these two models) are in the Loop IR JavaScript
+  backend design doc's "Every node through its own generated-JS kernel"
+  section, not duplicated here.
 
 ## The broader, payload-free sweep
 

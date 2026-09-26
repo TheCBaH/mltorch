@@ -449,7 +449,24 @@ module Lstm = struct
         batch_first = false;
       }
 
-    let cascade c = c
+    (* [num_layers] and [bidirectional] both multiply the number of
+       independent scan copies the Region program builds (one per
+       layer/direction PER output ordinal, an accepted
+       explicit constant-factor cost) -- a combination the per-axis [~hi]
+       bounds below cannot see, since neither axis knows about the other. A
+       walk step drawing [num_layers=3] together with [bidirectional=true]
+       (6 layer-directions x 3 output ordinals) exceeds the Region body-size
+       budget even at the smallest [hidden_size]/[seq] -- found via the
+       S6/T6.4 op-sweep reseed (inserting new walks ahead of [lstm]
+       alphabetically shifted its seed into this combination, which the old
+       seed had never reached). Capped here rather than by tightening
+       [num_layers]'s own [~hi]: a bidirectional LSTM with more than one
+       layer is still a real, useful walk target, just not at
+       [num_layers=3]. *)
+    let cascade c =
+      if c.bidirectional && c.num_layers > 1 then { c with num_layers = 1 }
+      else c
+
     let directions (c : cfg) = if c.bidirectional then 2 else 1
 
     let params (c : cfg) : params =

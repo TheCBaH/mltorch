@@ -102,12 +102,16 @@ let%expect_test "what lowers and what is refused, by op" =
     {|
     adaptive_avg_pool2d          agree=12 failed-alike=0
     add                          agree=12 failed-alike=0
+    add_i64                      agree=12 failed-alike=0
     add_scalar                   agree=12 failed-alike=0
     amax                         agree=12 failed-alike=0
+    arange                       agree=12 failed-alike=0
+    arange_i64                   agree=12 failed-alike=0
     avg_pool2d                   agree=12 failed-alike=0
     batch_norm                   agree=12 failed-alike=0
     batch_norm_no_stats          agree=12 failed-alike=0
     batched_matmul               agree=12 failed-alike=0
+    bitwise_not                  agree=12 failed-alike=0
     bmm                          agree=12 failed-alike=0
     clamp                        agree=12 failed-alike=0
     clone                        agree=12 failed-alike=0
@@ -117,8 +121,12 @@ let%expect_test "what lowers and what is refused, by op" =
     cumsum                       agree=12 failed-alike=0
     div                          agree=12 failed-alike=0
     div_scalar                   agree=12 failed-alike=0
+    eq_scalar                    agree=12 failed-alike=0
+    eq_tensor                    agree=12 failed-alike=0
     expand                       agree=12 failed-alike=0
+    eye                          agree=12 failed-alike=0
     gelu                         agree=12 failed-alike=0
+    gt_scalar                    agree=12 failed-alike=0
     hardsigmoid                  agree=12 failed-alike=0
     hardswish                    agree=12 failed-alike=0
     hardtanh                     agree=12 failed-alike=0
@@ -126,31 +134,45 @@ let%expect_test "what lowers and what is refused, by op" =
     layer_norm                   agree=12 failed-alike=0
     linear                       agree=12 failed-alike=0
     lstm                         agree=12 failed-alike=0
-    max_dim                      agree=0 failed-alike=0 not-a-kernel=6
+    max_dim                      agree=12 failed-alike=0
     max_pool2d                   agree=12 failed-alike=0
-    max_pool2d_with_indices      agree=0 failed-alike=0 not-a-kernel=6
+    max_pool2d_with_indices      agree=12 failed-alike=0
     mean                         agree=12 failed-alike=0
     mul                          agree=12 failed-alike=0
+    mul_i64                      agree=12 failed-alike=0
     mul_scalar                   agree=12 failed-alike=0
+    mul_scalar_i64               agree=12 failed-alike=0
+    ne_scalar                    agree=12 failed-alike=0
+    ne_tensor                    agree=12 failed-alike=0
     pad                          agree=12 failed-alike=0
     permute                      agree=12 failed-alike=0
+    permute_i64                  agree=12 failed-alike=0
     pow                          agree=12 failed-alike=0
     relu                         agree=12 failed-alike=0
     reshape                      agree=12 failed-alike=0
+    reshape_i64                  agree=12 failed-alike=0
     rms_norm                     agree=12 failed-alike=0
     sdpa                         agree=12 failed-alike=0
     sigmoid                      agree=12 failed-alike=0
     silu                         agree=12 failed-alike=0
     slice                        agree=12 failed-alike=0
     softmax                      agree=12 failed-alike=0
+    split_with_sizes             agree=12 failed-alike=0
+    split_with_sizes_i64         agree=12 failed-alike=0
     sqrt                         agree=12 failed-alike=0
     sub                          agree=12 failed-alike=0
+    sub_i64                      agree=12 failed-alike=0
     sum                          agree=12 failed-alike=0
+    to_copy_bool                 agree=12 failed-alike=0
+    to_copy_float_i64            agree=12 failed-alike=0
+    to_copy_long                 agree=12 failed-alike=0
     unbind                       agree=12 failed-alike=0
+    unbind_i64                   agree=12 failed-alike=0
     upsample_bicubic2d           agree=12 failed-alike=0
     upsample_bilinear2d          agree=12 failed-alike=0
     upsample_nearest2d           agree=12 failed-alike=0
-    vector_norm                  agree=12 failed-alike=0 |}]
+    vector_norm                  agree=12 failed-alike=0
+    zeros                        agree=12 failed-alike=0 |}]
 
 (* conv_add: the conv's buffer is eliminated. The exit criterion for the slice is
    that this agrees bitwise with the reference under BOTH placements while the
@@ -267,4 +289,4 @@ let%expect_test
      %d@."
     !total !skipped !agree !counted;
   [%expect
-    {| configurations 41 (3 too large for a kernel), agree 41, counters match 41 |}]
+    {| configurations 44 (0 too large for a kernel), agree 44, counters match 44 |}]

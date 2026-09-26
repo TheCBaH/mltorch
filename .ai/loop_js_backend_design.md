@@ -514,6 +514,129 @@ ranking match confirmed, coverage confirmed no fallback taken.
 Pointer: kernel-DSL design doc's Phase 2 section — this is downstream of
 that work, not a revision to it.
 
+### Every node through its own generated-JS kernel (2026-09-22)
+
+The whole-model verification above covers only the Region-authored arm
+(RmsNorm/LayerNorm/Softmax/Sdpa/Lstm). Every other computing op kind still
+ran through `Eval_direct`'s own OCaml formula even under jsoo — 0 of
+`mobilenetv2_050`'s nodes and 2 of `fastvit_sa12`'s 712 took the
+generated-JS path. This closes that gap: **parity with the interpreter**
+— every node `Eval_direct` evaluates also runs through its own
+`Loop_js_exec`-compiled JavaScript kernel, bitwise equal to the direct
+result, with `pending`/`fallback` asserted zero at closure. It is **not
+fusion** — each kernel covers exactly one node's output, no cross-node
+scheduling or whole-graph `Kernel.t`.
+
+**The seam.** `Node_executor.t` (`lib/native/node_executor.mli`) mirrors
+`Region_executor.t`'s own convention exactly: a pluggable record field
+`Eval_direct`'s non-Region compute arms call instead of computing
+directly, universally quantified over the error row (`Eval_direct` sits
+above this seam and cannot name its own error type here), defaulting to
+`direct ()` so an absent `?node_executor` reproduces the exact prior
+behavior. `lib/native/eval_direct.ml` was split (`admit`, the Bool/mixed-
+dtype checks, staying; `compute`, every op's formula, moving to new
+`eval_direct_compute.ml`) to make room for the seam without the file
+crossing its line cap.
+
+**Per-node compilation.** `lib/loop_ir/loop_node_program.ml` adapts ONE
+output ordinal of ONE node to a `Loop_program.t`: `Eval_symbolic
+.node_program` for that node, `Kernel_adapt.of_stage_program
+~select:{oid} ~outputs:[oid]` (both narrowed to `oid` alone — a multi-
+output node's OTHER outputs are not this lowering's concern, and
+`~select` absent would pull every sibling into the "required" list,
+failing the single-element `~outputs` check), `Fusion_plan.default`
+(nothing to fuse for one value), `Loop_lower.lower`. `js/jsoo
+/loop_js_exec_js/loop_node_executor.ml` builds the JS-only `Node_executor
+.t`: a compile table keyed by output `Tensor_id.t` (unique only within
+one executor instance — sharing a table across graphs answered for an
+unrelated node whose id collided, a real bug T4.5's own sweep found and
+fixed), a milestone predicate `scope` deciding which nodes route today,
+`precompile` (shape-only, before any weight loads), `Coverage.t`
+(`generated_js`/`fallback`/`pending`, per op kind) and `check_parity
+~allow`, and shadow mode (run both paths, compare bitwise, report and
+keep the trusted result on disagreement).
+
+**`scope` widens in place, never gains a case per milestone.** It started
+as "the default float-pixel arm only" and grew, by format and by op, as
+each family landed: the two I64→F32 promotion arms (`Mul_scalar`/
+`To_copy Float` reading an I64 operand through an explicit checked cast),
+the Bool-storage arms (`Nonzero_bool`, already a Pixel-stage boundary
+conversion), `Zeros`/`Eye` at their walked format, and — the one
+structural extension — genuine I64-declared outputs (I64 `Reshape`/
+`Permute`/`Add`/`Sub`/`Mul`, the index output of `Max_dim`/
+`Max_pool2d_with_indices`, `To_copy Long`, `Arange`'s exact form,
+`Unbind`/`Split_with_sizes`'s own I64 arm). By closure `scope` excludes
+nothing by op kind at all — only `Unbind`/`Split_with_sizes` (a config-
+dependent output count) and `Zeros`/`Eye` outside their walked format stay
+format-gated, and even those route once walked.
+
+**A `Kernel.t` could not originally name an int64 output at all**
+(`Kernel.create`'s `Output.t`-resolving fold only searched `values`,
+never `values_i64`) — a real, load-bearing gap discovered mid-session, not
+a documented restriction: `Kernel_eval`/`Loop_lower` already treated
+every `values_i64` entry as an unconditional materialization root/output
+buffer, so only the PUBLIC naming path was blind to it. The fix is one
+fallback branch in that fold. It immediately unblocked every I64-output
+op kind's actual ROUTING (walk coverage for these had already landed
+separately) and surfaced a second, narrower bug: `Kernel_adapt` copies
+`values_i64` unconditionally of `~select` (by design — an int64 value is
+always materialized), so a value-ordinal-only lowering of a two-output
+node dragged an unrelated sibling's own i64 stage along as a second
+output buffer. Fixed by pruning `Stage_program.stages_i64`/`outputs` to
+what the target `oid` transitively needs before adapting
+(`Loop_node_program.reachable_i64`).
+
+**`Unbind`/`Split_with_sizes` needed their own I64 arm in `Eval_symbolic`**,
+not a `Loop_node_program` change: neither op had one, so an I64 source
+silently round-tripped through the default arm's `S.load` — lossy above
+2^53, a real violation of `Graph_builder`'s own "slices retain the input
+format" contract. `Split.Unbind.Compute_i64`/`Split.Split_with_sizes
+.Compute_i64` (same shape as `Reshape.Compute_i64`: identical coordinate
+math, `T.i64_load` instead of `S.load`) plus matching `process_node`
+dispatch arms — folds over every output, since both ops are multi-output
+— closed it. `check_parity ~allow:[]` then passed for every walked
+subject: Definition of Done #3.
+
+**The Lstm group executor** was the one remaining Region-authored gap:
+`Region_executor.t`/`.group`'s TYPES and native `default`/`default_group`
+already existed and `Eval_direct` already threaded `?region_group_executor`
+end to end, but no JS-backed `group` implementation did. Added
+`Region_execution.group` (a `lowered_group -> Region_group.t` accessor,
+the group twin of `program`/`output_shape`), `Loop_region_program
+.lower_group` (one multi-value `Kernel.t` from several sibling `Grouped`
+refs, each ordinal's shape read off its own `Region_group.Emitter.t`
+rather than a caller-supplied `~out_shape` — a group projects several
+differently-shaped outputs off one shared recurrence), and
+`Loop_region_executor.make_group` (the group twin of `make`).
+
+**D7** (put the region executor on the node executor's own compile table
+and report) was decided as a **scoped yes**: unify the report, not the
+compile table. A literal merge would need `Region_executor.t`/`.group`'s
+own type to carry the originating op for per-op-kind labeling (it never
+receives one today, unlike `Node_executor.t`), which is real surface-area
+change to a landed, public signature for a cosmetic benefit — the actual
+risk the "changes a landed component" caution was about. `js/jsoo
+/loop_js_pt2/loop_js_pt2.ml` instead prints and gates on all three
+coverage sources (node, solo-region, region-group) together, with neither
+executor's own signature touched.
+
+**Numbers.** `--nodes` alone (no shadow, whose own cost the first timing
+pass mistakenly attributed to the generated path) is ~50x faster than the
+reference path on `mobilenetv2_050` (2.2s vs 109.8s, one sample, cold,
+under node) and ~39x on `fastvit_sa12` (12.2s vs ~480s) — the design's own
+hypothesis (§6, ~25x at kernel scale) holds strongly at whole-model scale
+too. `mobilenetv2_050 --nodes` is a tier-2 CI step
+(`loop_js.node.pt2.runtest`); `fastvit_sa12` stays MANUAL (too slow for
+CI at either tier). Both are confirmed at full parity with `--shadow
+--strict`: `mobilenetv2_050` exit 0, 415/415 nodes, zero fallback/pending,
+ranking match. `fastvit_sa12` exit 0, every node kind (including
+`Unbind=6`, the one gap this work closed) plus its 2 SDPA nodes via the
+Region executor all `fallback=0`, ranking match.
+
+See `ai/whole-graph-js-compile-design.md`, its own implementation plan and
+tracker for the staged record — this section is the closure fold into the
+tracked design record TZ.1 calls for.
+
 ## Melange
 
 Where Melange stands today (`js_backends_design.md`, "Melange" and "Not done"):
@@ -620,3 +743,16 @@ JS-backends doc keeps out of Melange's pure closure today.
   one crossing function, not a change to every call site.
 - Whether the webapp should run kernels through `loop_js_exec`. That needs the
   `loop_ir_js` mirror, and it needs the CSP decision above made per deployment.
+- Decoding a `Loop_node_executor`/`Loop_region_executor` JS failure row
+  directly (`Loop_js_failure`'s own decoded shape) instead of always
+  re-running `direct ()` on any refusal to get an error value the caller's
+  row can carry. Fine at today's cost (a refusal is rare enough that
+  re-running once is cheap), but a per-node executor with heavier fallback
+  traffic would pay for it twice.
+- Fusing multiple nodes into one generated kernel. Every node through its
+  own generated-JS kernel deliberately stopped short of this (design
+  intro) — each kernel covers exactly one node's output, no cross-node
+  `Fusion_plan.plan`. The speedup already measured (~40-50x over the
+  reference path, whole-model) came from generated JS alone; fusion is a
+  separate optimisation this parity work does not need and did not
+  attempt.

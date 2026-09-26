@@ -21,22 +21,6 @@ let relu_graph () =
   in
   (g, List.combine g.Graph.inputs [ x ])
 
-let unbind_graph () =
-  let shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:2 ~c:3 in
-  let x =
-    Tensor.materialize shape (fun coord ->
-        float_of_int (Dim.to_int (Vec6.get coord Axis.C)))
-  in
-  let g =
-    Err.or_raise ~pp_error:Graph_builder.pp_error
-      Graph_builder.(
-        build ~name:"node_executor_js_unbind" ~outputs:Fun.id
-        @@
-        let* xi = input ~shape ~name:"x" () in
-        unbind { Split.Unbind.axis = Axis.W } xi)
-  in
-  (g, List.combine g.Graph.inputs [ x ])
-
 let run ?node_executor (g, inputs) =
   Err.or_raise ~pp_error:Eval_direct.pp_error
     (Eval_direct.run ?node_executor ~inputs g)
@@ -133,30 +117,32 @@ let%expect_test
     above reach: coverage: generated_js=1 fallback=0 pending=0, expected generated_js >= 999
     |}]
 
-(* [check_parity]: [unbind] is M3, so every one of its outputs is [pending]
-   under the M1-only predicate. The allow-list must name it, or parity
-   fails -- this IS the mechanism the plan's milestones use to shrink the
-   allow-list to empty at closure. *)
+(* [check_parity]'s allow-list mechanism itself, exercised directly on a
+   [Coverage.t] rather than through a real excluded graph: every op kind
+   [scope] once excluded (M1-era Bool/I64/index outputs, T6.*'s unwalked
+   factories, T7.1's Unbind/Split_with_sizes) has since routed, so there is
+   no longer a real subject that lands in [pending] to build a graph
+   around -- exactly the state design §4.4 calls "closure". A synthetic
+   bump proves the mechanism the same way a real one would, and stays
+   meaningful regardless of which op kinds are still open at any given
+   milestone. *)
 let%expect_test
     "check_parity: an unnamed pending op kind fails, naming it passes" =
-  let executor = Loop_node_executor.create () in
-  ignore
-    (run
-       ~node_executor:(Loop_node_executor.node_executor executor)
-       (unbind_graph ()));
-  let coverage = executor.Loop_node_executor.coverage in
+  let coverage = Loop_node_executor.Coverage.create () in
+  Loop_node_executor.Coverage.bump coverage.Loop_node_executor.Coverage.pending
+    "SomeFutureOp";
   (match Loop_node_executor.Coverage.check_parity ~allow:[] coverage with
   | Ok () -> Fmt.pr "allow=[]: unexpectedly ok@."
   | Error msg -> Fmt.pr "allow=[]: %s@." msg);
   (match
-     Loop_node_executor.Coverage.check_parity ~allow:[ "Unbind" ] coverage
+     Loop_node_executor.Coverage.check_parity ~allow:[ "SomeFutureOp" ] coverage
    with
-  | Ok () -> Fmt.pr "allow=[Unbind]: ok@."
-  | Error msg -> Fmt.pr "allow=[Unbind]: unexpectedly failed: %s@." msg);
+  | Ok () -> Fmt.pr "allow=[SomeFutureOp]: ok@."
+  | Error msg -> Fmt.pr "allow=[SomeFutureOp]: unexpectedly failed: %s@." msg);
   [%expect
     {|
-    allow=[]: check_parity: outside the allow-list: Unbind=2
-    allow=[Unbind]: ok
+    allow=[]: check_parity: outside the allow-list: SomeFutureOp=1
+    allow=[SomeFutureOp]: ok
     |}]
 
 (* Mutation 5 (T4.4): a sabotaged kernel (the real emitted source for
@@ -240,11 +226,14 @@ let%expect_test "precompile fills the table; running afterward does not grow it"
    the walked ops exercise -- named by [Graph_ir.op_name], which is each op
    module's own [.name] field and does not always match its OCaml
    constructor (["MaxDim"], not ["Max_dim"]): [Unbind] (M3, excluded by
-   [m1_scope] unconditionally) and [MaxDim]/[Max_pool2d_with_indices] (M2 --
-   T6.5's root cause makes BOTH of their outputs not-a-kernel today, not
-   only the I64 index one, so both land in [pending]/[fallback] here).
-   [Lstm] needs no entry: it is Region-authored, so [Eval_direct] never
-   calls [Node_executor] for it at all -- it is not merely allowed, it is
+   [scope] unconditionally). T6.0 (an I64-declared [Kernel.Output.t] can now
+   resolve its signature from [values_i64]) plus [Loop_node_program]'s own
+   sibling-i64-stage pruning closed every other former gap in one step:
+   [MaxDim]/[Max_pool2d_with_indices]'s index ordinal (T6.5) and
+   [Add]/[Mul]/[Permute]/[Reshape]/[Sub]'s I64-operand arm (T6.1) all now
+   agree, so [op_name] no longer needs a carve-out for any of them. [Lstm]
+   needs no entry: it is Region-authored, so [Eval_direct] never calls
+   [Node_executor] for it at all -- it is not merely allowed, it is
    invisible to this coverage table by construction. *)
 let%expect_test "every walked subject: node_executor + shadow, M1 allow-list" =
   (* A FRESH executor (and so a fresh compile table) per subject: the table is
@@ -278,9 +267,7 @@ let%expect_test "every walked subject: node_executor + shadow, M1 allow-list" =
            ~steps:5))
     Native_op_walk_js.Native_op_walk.all_walks;
   (match
-     Loop_node_executor.Coverage.check_parity
-       ~allow:[ "MaxDim"; "Max_pool2d_with_indices"; "Unbind" ]
-       coverage
+     Loop_node_executor.Coverage.check_parity ~allow:[ "Unbind" ] coverage
    with
   | Ok () -> Fmt.pr "check_parity (M1 allow-list): ok@."
   | Error msg -> Fmt.pr "check_parity (M1 allow-list): %s@." msg);
@@ -290,9 +277,7 @@ let%expect_test "every walked subject: node_executor + shadow, M1 allow-list" =
   [%expect
     {|
     check_parity (M1 allow-list): ok
-    check_parity (empty allow-list): check_parity: outside the allow-list: MaxDim=6, MaxDim=6,
-    Max_pool2d_with_indices=6, Max_pool2d_with_indices=6,
-    Unbind=18 |}]
+    check_parity (empty allow-list): unexpectedly ok |}]
 
 (* T4.5's remaining piece: one test per [admit] rejection, with the executor
    installed, proving the error is IDENTICAL to the no-executor case --

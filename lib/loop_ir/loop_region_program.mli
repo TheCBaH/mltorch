@@ -27,3 +27,25 @@ val lower :
     don't exist today ([Kernel.Result_conversion.t]'s other case,
     [Nonzero_bool], is a Pixel-stage boundary conversion, never a Region one).
 *)
+
+val lower_group :
+  limits:Kernel.Limits.t ->
+  bindings:Tensor.packed Tensor_id.Map.t ->
+  selected:Region_group.Ordinal.t list ->
+  Region_group.t ->
+  (Loop_program.t * (Region_group.Ordinal.t * Tensor_id.t) list, error) Err.t
+(** The group sibling of [lower] (T7.2): several sibling values sharing one
+    [Region_group.t] (today only Lstm) rather than one standalone
+    [Region_program.t]. No [~out_shape]: each [selected] ordinal's own
+    [Region_group.Emitter.t] already carries its own [output_shape] -- a group
+    projects several differently-shaped outputs off one shared recurrence
+    (Lstm's output/h_n/c_n), so the shape lives per-ordinal in the group itself.
+    An ordinal outside [group]'s own range is a caller defect, matching
+    [Region_execution.materialize_group]'s own convention.
+
+    Unlike [lower]'s single, discardable [value_id] (a solo caller destructures
+    [Loop_js_exec]'s one-entry result map without caring what its key is), a
+    group caller needs to know which output buffer answers for which [Ordinal.t]
+    -- the second component is that mapping, in [selected]'s order, over the ids
+    [lower_group] itself minted (fresh, disjoint from every source id, and from
+    each other by construction). *)

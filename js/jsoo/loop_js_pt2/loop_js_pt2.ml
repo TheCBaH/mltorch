@@ -36,10 +36,24 @@ let pp_eval ppf : eval -> unit = function
 let region_coverage = Loop_region_executor.Coverage.create ()
 let region_executor = Loop_region_executor.make region_coverage
 
+(* A separate coverage counter from [region_coverage]: [Lstm] is the only
+   Region-authored multi-output op, and neither target model this runner
+   downloads has one (T7.2's own finding), so this stays at 0/0 on every
+   real run here -- the walk-scale executor test
+   (region_group_executor_test.ml) is where the group path actually gets
+   exercised. Wired anyway, matching [node_executor]/[region_executor]'s
+   own unconditional presence, so a future model with an Lstm needs no
+   change here. *)
+let region_group_coverage = Loop_region_executor.Coverage.create ()
+
+let region_group_executor =
+  Loop_region_executor.make_group region_group_coverage
+
 let infer ~node_executor archive image =
   let open Err.Syntax in
   let* outputs =
-    Native_interp.run ~region_executor ?node_executor archive ~input:image
+    Native_interp.run ~region_executor ~region_group_executor ?node_executor
+      archive ~input:image
     |> Err.map_error ~pos:__POS__ (fun e -> (e :> eval))
   in
   let* top =
@@ -99,6 +113,13 @@ let () =
       (match node_state with
       | Some { Loop_node_executor.coverage; _ } -> print_node_coverage coverage
       | None -> ());
+      Format.printf "loop_js_pt2: region coverage generated_js=%d fallback=%d@."
+        region_coverage.Loop_region_executor.Coverage.generated_js
+        region_coverage.Loop_region_executor.Coverage.fallback;
+      Format.printf
+        "loop_js_pt2: region group coverage generated_js=%d fallback=%d@."
+        region_group_coverage.Loop_region_executor.Coverage.generated_js
+        region_group_coverage.Loop_region_executor.Coverage.fallback;
       let node_check =
         match node_state with
         | None -> Ok ()
@@ -110,17 +131,28 @@ let () =
          meaningful for the first time, and requiring it to also clear the
          Region floor would fail every such model regardless of how well
          [--nodes] itself did. Unconditional (no [--nodes]) behavior is
-         unchanged: fastvit_sa12's own SDPA nodes still must clear it. *)
+         unchanged: fastvit_sa12's own SDPA nodes still must clear it.
+
+         [region_group_coverage]'s own floor is unconditionally 0 (T7.2):
+         neither downloaded model has an Lstm, so requiring it to clear the
+         same floor as the solo Region path would fail every run here
+         regardless of how well everything else did -- the group path's
+         own real exercise is region_group_executor_test.ml's walk-scale
+         subject, not this runner. Checked anyway (D7's "one report"), so a
+         future model with an Lstm needs no change here to start gating on
+         it too. *)
       let region_min_generated_js = if nodes then 0 else min_generated_js in
       match
         ( Loop_region_executor.Coverage.check
             ~min_generated_js:region_min_generated_js region_coverage,
+          Loop_region_executor.Coverage.check ~min_generated_js:0
+            region_group_coverage,
           node_check )
       with
-      | Error msg, _ | _, Error msg ->
+      | Error msg, _, _ | _, Error msg, _ | _, _, Error msg ->
           Format.eprintf "loop_js_pt2: %s@." msg;
           exit 1
-      | Ok (), Ok () -> (
+      | Ok (), Ok (), Ok () -> (
           match report_result with
           | Ok () -> ()
           | Error e ->
