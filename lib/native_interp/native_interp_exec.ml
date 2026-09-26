@@ -13,7 +13,7 @@ type hooks =
     }
       -> hooks
 
-let run ?hooks archive ~input =
+let run ?hooks ?region_executor ?region_group_executor archive ~input =
   let open Err.Syntax in
   let* lowered = lower_archive archive in
   let graph = lowered.Pt2_native_graph.graph in
@@ -59,7 +59,8 @@ let run ?hooks archive ~input =
          (Tensor_id.Map.bindings lowered.captured_targets))
   in
   let* env =
-    Eval_direct.run ?hooks:eval_hooks ~constants graph ~inputs
+    Eval_direct.run ?hooks:eval_hooks ?region_executor ?region_group_executor
+      ~constants graph ~inputs
     |> Err.map_error ~pos:__POS__ (fun e -> `Eval e)
   in
   Err.List.map
@@ -308,7 +309,8 @@ let constants_for archive ~lens ~graph ~computed =
     { from_state = count `State; from_archive = count `Archive; from_plan = 0 }
   )
 
-let evaluate archive (Transformed t) ~input =
+let evaluate ?region_executor ?region_group_executor archive (Transformed t)
+    ~input =
   let open Err.Syntax in
   let* input = tensor_of_pt2 input in
   let* store, materialized =
@@ -333,7 +335,8 @@ let evaluate archive (Transformed t) ~input =
           (`Unsupported_input (`Not_exactly_one_user_input (List.length ids)))
   in
   let* env =
-    Eval_direct.run ~constants t.graph ~inputs
+    Eval_direct.run ?region_executor ?region_group_executor ~constants t.graph
+      ~inputs
     |> Err.map_error ~pos:__POS__ (fun e -> `Eval e)
   in
   let+ outputs =

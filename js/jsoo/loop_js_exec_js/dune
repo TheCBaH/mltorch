@@ -1,0 +1,18 @@
+; jsoo mirror of js/loop_js_exec, over loop_ir_js/native_js instead of plain
+; loop_ir/native -- see js/jsoo/loop_ir_js/dune's comment for why this pair
+; exists. Sources
+; are copied, never forked. js/loop_js_exec itself is unchanged and keeps
+; serving test/loop_ir's inline suite (over plain loop_ir/native) exactly as
+; before -- this is a NEW sibling, not a replacement.
+;
+; js/loop_js_exec/loop_js_exec.ml's own [open Js_of_ocaml] / [open Loop_ir]
+; resolve here exactly as they do in the original: [js_of_ocaml] is linked
+; directly, and [Loop_ir] is [loop_ir_js]'s own namespace-recreation shim.
+
+(copy_files
+ (files %{workspace_root}/js/loop_js_exec/loop_js_exec.{ml,mli}))
+
+(library
+ (name loop_js_exec_js)
+ (libraries err_trace expr_js js_ast js_of_ocaml loop_ir_js native_js)
+ (wrapped false))

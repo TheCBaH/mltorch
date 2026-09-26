@@ -4,7 +4,8 @@
 	expr_probe.deep-runtest expr_probe.runtest format inference inference-runa \
 	inline-timing-report inline-timing-report-js js.build js.runtest \
 	jsoo.build jsoo.inline-runtest jsoo.pt2.download jsoo.pt2.run \
-	jsoo.pt2.runtest jsoo.pt2.vars jsoo.runtest loop.js.runtest melange.build \
+	jsoo.pt2.runtest jsoo.pt2.vars jsoo.runtest loop.js.runtest \
+	loop_js.bench loop_js.pt2.run melange.build \
 	melange.build.scaffold melange.runtest native-infer-verify \
 	native-infer-verify.% native-transform-verify \
 	native-transform-verify.% precommit profile.landmarks \
@@ -601,6 +602,35 @@ JS_PT2_RUN_ARGS = $(JS_PT2_ARCHIVE) $(JS_PT2_DIR)/inputs.pt \
 jsoo.pt2.run: jsoo.pt2.download jsoo.build
 	node $(JS_BUILD)/jsoo/pt2_run.bc.js $(JS_PT2_RUN_ARGS) --strict
 
+# The whole-model verification through GENERATED JAVASCRIPT (not just the
+# reference path jsoo.pt2.run/jsoo.pt2.runtest exercise): a real model's
+# Region-authored nodes (RmsNorm/LayerNorm/Softmax/Sdpa/Lstm) run through
+# Loop_js_exec-compiled JavaScript, in-process, checked against the
+# release's own results.json.
+#
+# fastvit_sa12, not JS_PT2_MODEL: it is the smallest model in PT2_MODELS_CRAM
+# with an SDPA node (a pure-CNN model like mobilenetv2_050 has ZERO
+# Region-authored nodes and would exercise nothing new). Already downloaded
+# by pt2.download-cram, so this needs no separate download plumbing of its
+# own -- if it is missing, `make pt2.download-cram` fetches it same as every
+# other PT2_MODELS_CRAM entry.
+#
+# ONE sample only ([Infer_report]'s own [~max_samples]), and MANUAL --
+# further from CI than jsoo.pt2.run itself: one fastvit_sa12 sample measured
+# at ~103s through the native evaluator, so even a single sample under node
+# is minutes, and results.json holds ten.
+LOOP_JS_PT2_MODEL := fastvit_sa12
+LOOP_JS_PT2_DIR := $(PT2_DIR)/$(LOOP_JS_PT2_MODEL)
+LOOP_JS_PT2_RUN_ARGS = $(LOOP_JS_PT2_DIR)/$(LOOP_JS_PT2_MODEL).pt2 \
+	$(LOOP_JS_PT2_DIR)/inputs.pt $(LOOP_JS_PT2_DIR)/expected.json \
+	$(LOOP_JS_PT2_DIR)/outputs.pt
+
+loop_js.pt2.run: jsoo.build
+	@test -f $(LOOP_JS_PT2_DIR)/$(LOOP_JS_PT2_MODEL).pt2 || \
+	  $(MAKE) pt2.download PT2_MODEL=$(LOOP_JS_PT2_MODEL)
+	node $(JS_BUILD)/jsoo/loop_js_pt2/loop_js_pt2.bc.js \
+	  $(LOOP_JS_PT2_RUN_ARGS) --strict
+
 # Melange lives behind `--profile melange` so that `dune build` and `make build`
 # never compile it -- a melange.emit stanza is otherwise attached to @all and
 # would drag the whole JS toolchain into every ordinary build.
@@ -642,6 +672,18 @@ loop.js.runtest:
 	NO_COLOR=1 opam exec -- dune build @test/loop_ir/loop-js-gate
 
 js.runtest: jsoo.runtest jsoo.inline-runtest melange.runtest loop.js.runtest
+
+# Compares Loop_interp.run's wall-clock cost natively (ocamlopt) against
+# itself and the generated-code executor under node (jsoo), on the same
+# elementwise kernel (test/loop_ir/loop_bench_program.ml) -- the tradeoff
+# the Loop IR JavaScript backend design doc's Outcome leaves unmeasured
+# (only emitted code size was). Manual, not part of runtest/js.runtest -- a
+# timing report, not a gate.
+loop_js.bench:
+	opam exec -- dune build test/loop_ir/loop_bench_native.exe \
+	  js/loop_js_exec/bench/loop_bench_jsoo.bc.js
+	_build/default/test/loop_ir/loop_bench_native.exe
+	node _build/default/js/loop_js_exec/bench/loop_bench_jsoo.bc.js
 
 clean:
 	opam exec -- dune clean

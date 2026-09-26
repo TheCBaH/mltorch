@@ -237,6 +237,17 @@ if both were wrong. ~7.5 min (ten inferences at ~45s), so it is in no CI job and
 which must never gain `interp`/`aten`/`ctypes`/`unix` — the clock is passed in as `~now`
 for exactly that reason.
 
+`make loop_js.pt2.run` is the same tier as `jsoo.pt2.run` — **manual, no CI job** —
+but answers a different question: not "does the reference path agree with itself
+across backends" but "is generated JavaScript, not just the interpreter, actually
+right against a real model's own release outputs." Runs `fastvit_sa12` (the only
+`PT2_MODELS_CRAM` model with a Region-authored op — RmsNorm/LayerNorm/Softmax/Sdpa/
+Lstm — a pure-CNN model exercises none of this) through `Loop_js_exec`-compiled
+JavaScript with a fallback to the reference materializer on any refusal, asserting
+the fallback was never taken. One sample only, not the ten `results.json` holds:
+one sample alone measures ~103s through the native evaluator, so ten under node
+would be well over an hour.
+
 Neither is part of `make runtest` (both need node); CI runs jsoo and melange as two
 parallel jobs. Melange is behind `--profile melange`, so plain `dune build` never
 compiles it. Needs a devcontainer rebuild for `js_of_ocaml`/`melange`/`node`.

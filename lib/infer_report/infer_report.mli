@@ -91,6 +91,7 @@ val strict_verdict : Mismatch.t list -> (unit, Mismatch.t) result
     sample rather than whichever one happened to be last. *)
 
 val report :
+  ?max_samples:int ->
   label:(int -> string) ->
   reference:(string -> Prediction.t list option) ->
   samples:string list ->
@@ -103,6 +104,13 @@ val report :
     invisible to a test of {!strict_verdict} alone, and equally invisible to a
     fixture run whose references all match.
 
+    [max_samples] truncates [samples] to its first N entries before running any
+    of them -- [None] (every existing caller) runs the whole list, unchanged.
+    Added for a caller whose per-sample cost makes the full list impractical (a
+    whole real model through generated JavaScript, not just ATen or the pure
+    interpreter) without adding a second, duplicated sample-loading path just to
+    call a shorter list.
+
     [infer] returns an ALREADY-CLASSIFIED error, and [report] propagates it
     untouched. It must not re-wrap: its caller's closure performs the per-sample
     [Pt2_archive.load_pt] too, and a blanket [`Eval] here would report a corrupt
@@ -112,6 +120,7 @@ val report :
     [reference] returning [None] is [`No_reference]. *)
 
 val run :
+  ?max_samples:int ->
   now:(unit -> float) ->
   infer:(Pt2_archive.t -> Pt2_tensor.t -> ((int * float) list, 'eval) Err.t) ->
   Paths.t ->
@@ -119,7 +128,8 @@ val run :
   (unit, 'eval error) Err.t
 (** The host shell over {!report}: opens the archive and the producer's tensor
     maps, checks their lexical key agreement, and classifies evaluator failures
-    under [`Eval].
+    under [`Eval]. [max_samples] is {!report}'s own, forwarded unchanged to
+    whichever of the two branches this ends up taking.
 
     [~now] is the clock. It is a parameter rather than [Unix.gettimeofday]
     because [unix] must not enter the js_of_ocaml closure; the ATen runner

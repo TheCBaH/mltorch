@@ -449,6 +449,70 @@ Mechanics:
   mirror (the tail-call evaluator) needs a `loop_ir_js` mirror by the
   existing `copy_files` + `expr.ml` shim pattern. That mirror is added only
   when such an executable exists, not speculatively.
+  **Landed**: the whole-model verification work below is that executable.
+  `js/jsoo/loop_ir_js` follows the pattern exactly, with one addition the
+  original note didn't anticipate: `lib/loop_ir` is a WRAPPED library, but
+  `js/loop_js_exec/loop_js_exec.ml` (mirrored alongside it as
+  `js/jsoo/loop_js_exec_js`) has a literal `open Loop_ir` that must keep
+  resolving unmodified, and a dune wrapped library's alias module name has
+  no override independent of its own `name` — so the mirror is UNWRAPPED
+  and a checked-in `loop_ir.ml` recreates the `Loop_ir.*` namespace by hand
+  as plain module aliases (mechanical, same spirit as `expr.ml`'s one-line
+  alias, not a fork of any real logic).
+
+### Whole-model verification (2026-09-22)
+
+A real downloaded model's Region-authored nodes now run through
+Loop_js_exec-compiled JavaScript, in-process, under node, checked against
+the release's own top-5 rankings — not just the op sweep's synthetic
+kernels this backend's own gate already covered. `fastvit_sa12` (SDPA,
+1218 raw / 332 native-graph nodes) is the target: the only model in
+`PT2_MODELS_CRAM` with a Region-authored op at all — a pure-CNN model
+(`mobilenetv2_050`, this backend's own `JS_PT2_MODEL`) has zero
+Region-authored nodes and would exercise nothing new. Its two SDPA nodes
+(`[H=16 W=49 C=32]`, a real transformer head count/sequence length/head
+dim, not a toy extent) both take the generated-JS path.
+
+Design: `lib/native/eval_direct.ml`'s `region_result`/`region_group_result`
+gained a pluggable `Region_executor.t` seam (`lib/native/region_executor.mli`),
+defaulted to `Region_execution.materialize`/`materialize_group` themselves
+(behaviorally, not syntactically, identical — see below).
+`lib/loop_ir/loop_region_program.ml` wraps the SAME `Region_program.t` the
+reference path already built in a minimal sibling `Kernel.t` (no
+re-derivation from the originating op) and runs it through the unmodified
+`Loop_lower`. `js/jsoo/loop_js_exec_js/loop_region_executor.ml` compiles
+and runs that through `Loop_js_exec`, falling back to
+`Region_executor.default` (logged, not silently swallowed) on any refusal,
+with a `Coverage.t` counter distinguishing generated-JS calls from
+fallback ones and a `Coverage.check` assertion that fails loudly — with a
+coverage message, not a ranking mismatch — if a run silently took only the
+fallback path.
+
+One correction made along the way, worth recording since it revises the
+seam's own first-committed shape: `Region_execution.lowered` (opaque) and
+`Expr.Eval.Env.t` (a deliberately narrow per-coordinate scalar loader,
+`lib/expr` has no `Tensor`/`Tensor_sig` dependency at all) together carry
+no per-source `Tensor_sig.t`, which `Loop_region_program.lower` needs to
+build a `Kernel.Input.t`. `Region_executor.t` gained `~bindings:
+Tensor.packed Tensor_id.Map.t` (the reference path's own merged operand +
+synthetic-default map, real tensors) to supply it — `Region_executor.default`
+is therefore a thin ignore-`~bindings` wrapper around `materialize`
+rather than being it directly, though still behaviorally identical
+(reconfirmed by a mutation test both before and after the widening).
+
+Cost, measured directly rather than estimated: one `fastvit_sa12` sample
+through the pure evaluator is ~103s native, and `jsoo.pt2.run`'s own
+~4.9x node multiplier puts one sample at roughly 8 minutes under node —
+`results.json` holds ten samples, so even the single-sample verification
+this landed with is already past what `jsoo.pt2.run` itself (ten samples
+of the much smaller `mobilenetv2_050`, ~7.5 min total) treats as too
+expensive for anything but a MANUAL target. `make loop_js.pt2.run`
+(Makefile) occupies that same tier — not a step in the `jsoo` GitHub job.
+Full run against the real archive: PASSED, exit 0, ~7m46s, `--strict`
+ranking match confirmed, coverage confirmed no fallback taken.
+
+Pointer: kernel-DSL design doc's Phase 2 section — this is downstream of
+that work, not a revision to it.
 
 ## Melange
 

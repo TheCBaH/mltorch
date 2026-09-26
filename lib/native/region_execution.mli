@@ -13,6 +13,16 @@ type t = Pixel_loop of float Expr.Value.t | Region_loop of lowered
 
 val counters : unit -> counters
 
+val program : lowered -> Region_program.t
+(** The already-[check]/[preflight]ed program [lower_region] validated -- a
+    narrow accessor for an alternate executor (e.g. a Loop-JS one) that needs
+    the program itself, not just what [materialize] can do with it. See
+    [Region_executor.t]. *)
+
+val output_shape : lowered -> Vec6.shape
+(** The shape [lower_region] validated [program] against -- the same value a
+    caller already holding it passed as [~output_shape]. *)
+
 val lower :
   max_size:int ->
   max_depth:int ->

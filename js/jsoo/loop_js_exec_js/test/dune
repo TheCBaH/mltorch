@@ -1,0 +1,17 @@
+; Tests for js/jsoo/loop_js_exec_js's own Region_executor.t (T2.2): js_of_ocaml
+; only, run under node by `make jsoo.inline-runtest`.
+
+(library
+ (name loop_js_exec_js_test)
+ (libraries
+  core
+  err_trace
+  fmt
+  js_of_ocaml
+  loop_ir_js
+  loop_js_exec_js
+  native_js)
+ (inline_tests
+  (modes js))
+ (preprocess
+  (pps ppx_expect)))

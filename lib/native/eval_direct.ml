@@ -143,8 +143,9 @@ let index_i64 out_shape ~x_shape ~x pixel =
   Tensor.materialize_i64 out_shape (fun coord ->
       Int64.of_float (pixel ~x_shape ~x coord))
 
-let region_result ~limits ~region_counters g ~op ~output ~out_shape ~operand_env
-    ~synthetic_ids =
+let region_result ~limits ~region_counters
+    ?(region_executor = Region_executor.default) g ~op ~output ~out_shape
+    ~operand_env ~synthetic_ids =
   let open Err.Syntax in
   let id_for role = List.assoc role synthetic_ids in
   (* [fill] is the only place a synthetic operand's default value and shape
@@ -179,6 +180,11 @@ let region_result ~limits ~region_counters g ~op ~output ~out_shape ~operand_env
         | Some tensor -> Some tensor
         | None -> Tensor_id.Map.find_opt id synthetic_bindings)
   in
+  let bindings =
+    Tensor_id.Map.union
+      (fun _ tensor _ -> Some tensor)
+      operand_env synthetic_bindings
+  in
   let* lowered =
     Region_execution.lower ~max_size:limits.Kernel.Limits.max_size
       ~max_depth:limits.Kernel.Limits.max_depth
@@ -191,7 +197,7 @@ let region_result ~limits ~region_counters g ~op ~output ~out_shape ~operand_env
   match lowered with
   | Region_execution.Pixel_loop _ -> assert false
   | Region_execution.Region_loop lowered ->
-      Region_execution.materialize ?counters:region_counters lowered ~env
+      region_executor ?counters:region_counters lowered ~env ~bindings
       |> Err.map_error (fun error -> `Region_execution error)
 
 (* The multi-output counterpart of [region_result] (project step 19): builds
@@ -202,7 +208,9 @@ let region_result ~limits ~region_counters g ~op ~output ~out_shape ~operand_env
    [Region_computation.group] only ever builds [Lstm], which (unlike
    [Rms_norm]/[Layer_norm]/[Sdpa]) has no optional operand with a synthetic
    default. *)
-let region_group_result ~limits ~region_counters g ~op ~outs ~operand_env =
+let region_group_result ~limits ~region_counters
+    ?(region_group_executor = Region_executor.default_group) g ~op ~outs
+    ~operand_env =
   let open Err.Syntax in
   let* group =
     Region_computation.group ~limits ~op ~operand:(fun id ->
@@ -221,8 +229,8 @@ let region_group_result ~limits ~region_counters g ~op ~outs ~operand_env =
     |> Err.map_error (fun error ->
         `Region_construction (Region_computation.Invalid_group error))
   in
-  Region_execution.materialize_group ?counters:region_counters lowered_group
-    ~env
+  region_group_executor ?counters:region_counters lowered_group ~env
+    ~bindings:operand_env
     ~selected:
       (List.map
          (fun (output, _, _) -> Region_computation.emitter_of_output output)
@@ -251,8 +259,9 @@ let is_index_output (op : op) output =
       true
   | _ -> false
 
-let rec run_graph ?hooks ?region_counters ?(limits = Kernel.Limits.default)
-    ~constants (g : graph) (env : Tensor.packed Tensor_id.Map.t) :
+let rec run_graph ?hooks ?region_counters ?region_executor
+    ?region_group_executor ?(limits = Kernel.Limits.default) ~constants
+    (g : graph) (env : Tensor.packed Tensor_id.Map.t) :
     (Tensor.packed Tensor_id.Map.t, error) Err.t =
   let open Err.Syntax in
   let* env = bind_constants g constants env in
@@ -266,19 +275,21 @@ let rec run_graph ?hooks ?region_counters ?(limits = Kernel.Limits.default)
       | _ when match node.Node.op with Discard _ -> true | _ -> false ->
           Err.return env
       | None ->
-          eval_node ?region_counters ~limits ~synthetic_ids ~live g env node
+          eval_node ?region_counters ?region_executor ?region_group_executor
+            ~limits ~synthetic_ids ~live g env node
       | Some (Hooks h) ->
           let state = h.on_start node in
           let* env =
-            eval_node ?region_counters ~limits ~synthetic_ids ~live g env node
+            eval_node ?region_counters ?region_executor ?region_group_executor
+              ~limits ~synthetic_ids ~live g env node
           in
           h.on_end node state;
           Err.return env)
     env g.Graph.nodes
 
-and eval_node ?region_counters ~limits ~synthetic_ids ~live (g : graph)
-    (env : Tensor.packed Tensor_id.Map.t) (node : node) :
-    (Tensor.packed Tensor_id.Map.t, error) Err.t =
+and eval_node ?region_counters ?region_executor ?region_group_executor ~limits
+    ~synthetic_ids ~live (g : graph) (env : Tensor.packed Tensor_id.Map.t)
+    (node : node) : (Tensor.packed Tensor_id.Map.t, error) Err.t =
   let open Err.Syntax in
   let op = node.Node.op in
   let fmt_of r = (Tensor_id.Map.find r g.Graph.tensors).Tensor_sig.fmt in
@@ -342,7 +353,7 @@ and eval_node ?region_counters ~limits ~synthetic_ids ~live (g : graph)
             (let _, first_oid, _ = List.hd outs in
              Option.bind region_counters (fun counters ->
                  Tensor_id.Map.find_opt first_oid counters))
-          g ~op ~outs ~operand_env
+          ?region_group_executor g ~op ~outs ~operand_env
       in
       Err.return
         (List.fold_left
@@ -952,7 +963,8 @@ and eval_node ?region_counters ~limits ~synthetic_ids ~live (g : graph)
                   ~region_counters:
                     (Option.bind region_counters (fun counters ->
                          Tensor_id.Map.find_opt oid counters))
-                  g ~op ~output ~out_shape ~operand_env ~synthetic_ids
+                  ?region_executor g ~op ~output ~out_shape ~operand_env
+                  ~synthetic_ids
             | _ ->
                 Err.return
                   (Schedule.evaluate out_shape
@@ -964,9 +976,9 @@ and eval_node ?region_counters ~limits ~synthetic_ids ~live (g : graph)
           Err.return (Tensor_id.Map.add oid result env))
         env outs
 
-let run ?hooks ?region_counters ?(limits = Kernel.Limits.default)
-    ?(constants = []) (g : graph) ~(inputs : (Tensor_id.t * Tensor.packed) list)
-    =
+let run ?hooks ?region_counters ?region_executor ?region_group_executor
+    ?(limits = Kernel.Limits.default) ?(constants = []) (g : graph)
+    ~(inputs : (Tensor_id.t * Tensor.packed) list) =
   let provided =
     List.fold_left
       (fun e (id, t) -> Tensor_id.Map.add id t e)
@@ -981,4 +993,5 @@ let run ?hooks ?region_counters ?(limits = Kernel.Limits.default)
         | Some tensor -> Err.return (Tensor_id.Map.add id tensor env))
       Tensor_id.Map.empty (input_ids g)
   in
-  run_graph ?hooks ?region_counters ~limits ~constants g env0
+  run_graph ?hooks ?region_counters ?region_executor ?region_group_executor
+    ~limits ~constants g env0

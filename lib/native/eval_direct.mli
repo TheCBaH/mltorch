@@ -41,6 +41,8 @@ val pp_error : Format.formatter -> [< error ] -> unit
 val run :
   ?hooks:hooks ->
   ?region_counters:Region_execution.counters Tensor_id.Map.t ->
+  ?region_executor:Region_executor.t ->
+  ?region_group_executor:Region_executor.group ->
   ?limits:Kernel.Limits.t ->
   ?constants:(Tensor_id.t * Tensor.packed) list ->
   graph ->

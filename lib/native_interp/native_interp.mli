@@ -546,6 +546,8 @@ val lower_archive : Pt2_archive.t -> (Pt2_native_graph.t, error) Err.t
    through the sidecar's [Tensor_id -> target] map, never through native IR. *)
 val run :
   ?hooks:hooks ->
+  ?region_executor:Region_executor.t ->
+  ?region_group_executor:Region_executor.group ->
   Pt2_archive.t ->
   input:Pt2_tensor.t ->
   (Tensor.packed list, error) Err.t
@@ -674,6 +676,8 @@ type loaded = {
    corruption, so the lens follows only an [Identical] correspondence and such an
    edge simply has no archive path. *)
 val evaluate :
+  ?region_executor:Region_executor.t ->
+  ?region_group_executor:Region_executor.group ->
   Pt2_archive.t ->
   transformed ->
   input:Pt2_tensor.t ->

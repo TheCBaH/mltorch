@@ -315,6 +315,77 @@ let%expect_test "Native Direct materializes an authored Sdpa Region" =
     counters.reductions;
   [%expect {| sdpa: keys=2 locals=18 emitters=6 loads=60 reductions=48 |}]
 
+(* T1.2's mutation, kept as a permanent regression test: [?region_executor]
+   omitted must still reach [Region_execution.materialize] (proving the
+   default is inert), and an EXPLICIT override must actually be the executor
+   that runs (proving the parameter is really wired through
+   [region_result] to [Region_execution.materialize]'s call site, not
+   dropped somewhere in the chain). *)
+let%expect_test
+    "region_executor: default is inert, an explicit override is honored" =
+  let query_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:2 ~c:3 in
+  let key_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:3 ~c:3 in
+  let mask_shape = Attention.Sdpa.score_shape ~query_shape ~key_shape in
+  let materialize shape scale =
+    Tensor.materialize shape (fun coord ->
+        (scale *. float_of_int (Dim.to_int (Vec6.get coord Axis.W)))
+        +. float_of_int (Dim.to_int (Vec6.get coord Axis.C))
+        +. 1.)
+  in
+  let query = materialize query_shape 10. in
+  let key = materialize key_shape 10. in
+  let value = materialize key_shape 100. in
+  let mask = Tensor.materialize mask_shape (fun _ -> 0.) in
+  let g =
+    Err.or_raise ~pp_error:Graph_builder.pp_error
+      Graph_builder.(
+        build ~name:"sdpa_region_executor" ~outputs:(fun output -> [ output ])
+        @@
+        let* qi = input ~shape:query_shape ~name:"query" () in
+        let* ki = input ~shape:key_shape ~name:"key" () in
+        let* vi = input ~shape:key_shape ~name:"value" () in
+        let* mi = input ~shape:mask_shape ~name:"mask" () in
+        sdpa
+          { Attention.Sdpa.scale = Attention.Sdpa.Scale.Default }
+          ~query:qi ~key:ki ~value:vi ~mask:mi ())
+  in
+  let inputs =
+    match g.Graph.inputs with
+    | [ qid; kid; vid; mid ] ->
+        [ (qid, query); (kid, key); (vid, value); (mid, mask) ]
+    | _ -> assert false
+  in
+  let output = List.hd g.Graph.outputs in
+  let output_shape =
+    (Tensor_id.Map.find output g.Graph.tensors).Tensor_sig.shape
+  in
+  let wrong_value = 12345. in
+  let wrong_region_executor : Region_executor.t =
+   fun ?counters:_ _lowered ~env:_ ~bindings:_ ->
+    Err.return (Tensor.materialize output_shape (fun _ -> wrong_value))
+  in
+  let run ?region_executor () =
+    let env =
+      Err.or_raise ~pp_error:Eval_direct.pp_error
+        (Eval_direct.run ?region_executor ~inputs g)
+    in
+    Tensor_id.Map.find output env
+  in
+  let omitted = run () in
+  let explicit_default = run ~region_executor:Region_executor.default () in
+  let overridden = run ~region_executor:wrong_region_executor () in
+  let default_inert = Tensor.equal_bits omitted explicit_default in
+  let override_differs = not (Tensor.equal_bits omitted overridden) in
+  let override_took_effect = ref true in
+  Vec6.iter output_shape (fun coord ->
+      if Tensor.read overridden coord <> wrong_value then
+        override_took_effect := false);
+  let override_took_effect = !override_took_effect in
+  Fmt.pr "default_inert=%b override_differs=%b override_took_effect=%b@."
+    default_inert override_differs override_took_effect;
+  [%expect
+    {| default_inert=true override_differs=true override_took_effect=true |}]
+
 (* Regression: both Region evaluators must dispatch on a local's DECLARED
    [Region_local.Rhs.t] case, never its numeric slot count. A [Vector] local whose
    extent happens to be 1 (Sdpa's [s]/[p] at [Wk = 1], a single key/value pair)

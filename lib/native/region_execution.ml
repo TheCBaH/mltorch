@@ -33,6 +33,9 @@ type lowered = {
 
 type t = Pixel_loop of float Expr.Value.t | Region_loop of lowered
 
+let program lowered = lowered.program
+let output_shape lowered = lowered.output_shape
+
 let counters () =
   {
     keys = 0;

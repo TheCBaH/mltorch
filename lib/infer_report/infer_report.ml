@@ -234,8 +234,14 @@ let print_sample ~label ~mode ~sample ~local ~expected ~matched =
       expected
   end
 
-let report ~label ~reference ~samples ~infer (options : Options.t) =
+let report ?max_samples ~label ~reference ~samples ~infer (options : Options.t)
+    =
   let open Err.Syntax in
+  let samples =
+    match max_samples with
+    | None -> samples
+    | Some n -> List.filteri (fun i _ -> i < n) samples
+  in
   let* mismatches =
     Err.List.fold_left
       (fun mismatches sample ->
@@ -272,7 +278,7 @@ let timed now label f =
   Printf.eprintf "%s: %.1f ms\n%!" label ((now () -. t0) *. 1000.);
   result
 
-let run ~now ~infer (paths : Paths.t) options =
+let run ?max_samples ~now ~infer (paths : Paths.t) options =
   let open Err.Syntax in
   let* archive =
     timed now "pt2 open" (fun () -> Pt2_archive.open_pt2 paths.pt2)
@@ -320,7 +326,7 @@ let run ~now ~infer (paths : Paths.t) options =
                 infer archive (with_batch input))
             |> Err.map_error ~pos:__POS__ (fun e -> `Eval e)
       in
-      report
+      report ?max_samples
         ~label:(fun i -> string_of_int i)
         ~reference ~samples:(List.map fst inputs) ~infer:load_and_infer options
   | _ ->
@@ -352,6 +358,6 @@ let run ~now ~infer (paths : Paths.t) options =
         timed now (sample ^ " infer") (fun () -> infer archive image)
         |> Err.map_error ~pos:__POS__ (fun e -> `Eval e)
       in
-      report ~label
+      report ?max_samples ~label
         ~reference:(fun sample -> SMap.find_opt sample results)
         ~samples ~infer:load_and_infer options

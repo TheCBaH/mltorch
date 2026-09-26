@@ -1,0 +1,14 @@
+; The whole-model generated-JS verification entry point. No native
+; counterpart -- js_of_ocaml-only, since loop_js_exec_js is.
+
+(executable
+ (name loop_js_pt2)
+ (modes js)
+ (modules loop_js_pt2)
+ (libraries
+  err_trace
+  infer_report
+  loop_js_exec_js
+  native_interp_js
+  native_predict_js
+  pt2))

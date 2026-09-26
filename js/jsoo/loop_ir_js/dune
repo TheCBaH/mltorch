@@ -1,0 +1,37 @@
+; jsoo mirror of lib/loop_ir, over native_js instead of plain native --
+; deferred since the Loop IR JavaScript backend design doc's own D5 ("added
+; only when such an executable exists"); the whole-model generated-JS
+; runner is that executable. Same copy_files + expr.ml shim
+; pattern as js/jsoo/native_js/dune (see that file's own comment for the
+; rationale); sources are copied, never forked.
+;
+; Two copy_files stanzas, split by whether the source module has an .mli
+; (dune's copy_files needs the glob to match real files, and a bare {ml,mli}
+; brace on an .ml-only module fails).
+;
+; UNWRAPPED, unlike lib/loop_ir itself (wrapped, so consumers write
+; [Loop_ir.Loop_lower]): js/loop_js_exec/loop_js_exec.ml -- the one other
+; source this plan mirrors -- has a literal [open Loop_ir] that must keep
+; resolving unmodified when copied into its own mirror. A wrapped library's
+; alias module name is always derived from its dune [name] field with no
+; independent override, so a same-named [Loop_ir] wrap is unavailable once
+; this library is (necessarily) named [loop_ir_js]. [loop_ir.ml] below is a
+; hand-written shim recreating that namespace as plain module aliases over
+; this library's own (flat, unwrapped) modules -- mechanical, not a fork of
+; any real logic, the same spirit as [expr.ml]'s one-line alias.
+;
+; Checked for basename collisions against native_js: every module here is
+; Loop_*-prefixed, native_js has none, so none exist.
+
+(copy_files
+ (files
+  %{workspace_root}/lib/loop_ir/{loop_check,loop_interp,loop_js,loop_js_failure,loop_js_runtime,loop_lower,loop_pp,loop_range,loop_region_program}.{ml,mli}))
+
+(copy_files
+ (files
+  %{workspace_root}/lib/loop_ir/{loop_array,loop_bool,loop_buffer,loop_carrier,loop_expr,loop_failure,loop_index,loop_lower_ctx,loop_lower_index,loop_lower_region,loop_lower_value,loop_mark,loop_program,loop_stmt,loop_stored,loop_temp,loop_unsupported,loop_var}.ml))
+
+(library
+ (name loop_ir_js)
+ (libraries core err_trace expr_js fmt js_ast native_js)
+ (wrapped false))
