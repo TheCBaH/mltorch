@@ -22,6 +22,7 @@ module Loop_lower_index = Loop_lower_index
 module Loop_lower_region = Loop_lower_region
 module Loop_lower_value = Loop_lower_value
 module Loop_mark = Loop_mark
+module Loop_node_program = Loop_node_program
 module Loop_pp = Loop_pp
 module Loop_program = Loop_program
 module Loop_range = Loop_range

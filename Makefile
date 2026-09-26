@@ -5,7 +5,7 @@
 	inline-timing-report inline-timing-report-js js.build js.runtest \
 	jsoo.build jsoo.inline-runtest jsoo.pt2.download jsoo.pt2.run \
 	jsoo.pt2.runtest jsoo.pt2.vars jsoo.runtest loop.js.runtest \
-	loop_js.bench loop_js.pt2.run melange.build \
+	loop_js.bench loop_js.node.pt2.runtest loop_js.pt2.run melange.build \
 	melange.build.scaffold melange.runtest native-infer-verify \
 	native-infer-verify.% native-transform-verify \
 	native-transform-verify.% precommit profile.landmarks \
@@ -601,6 +601,18 @@ JS_PT2_RUN_ARGS = $(JS_PT2_ARCHIVE) $(JS_PT2_DIR)/inputs.pt \
 
 jsoo.pt2.run: jsoo.pt2.download jsoo.build
 	node $(JS_BUILD)/jsoo/pt2_run.bc.js $(JS_PT2_RUN_ARGS) --strict
+
+# Every node of JS_PT2_MODEL (mobilenetv2_050 -- no Region-authored node, so
+# only --nodes exercises anything new on it, design §4.5) through its own
+# generated-JS kernel, checked bitwise against the direct path (--shadow) and
+# against the release's own ranking (--strict). Whole-graph-js-compile plan
+# T5.2/T5.5. Reuses JS_PT2_MODEL's own already-downloaded/cached archive
+# (jsoo.pt2.download, the SAME cache key jsoo.pt2.runtest uses) -- no new
+# download plumbing. Tier 2: ~100s under node, the same order as
+# jsoo.pt2.runtest's own step in the same CI job.
+loop_js.node.pt2.runtest: jsoo.pt2.download jsoo.build
+	node $(JS_BUILD)/jsoo/loop_js_pt2/loop_js_pt2.bc.js $(JS_PT2_RUN_ARGS) \
+	  --nodes --shadow --strict
 
 # The whole-model verification through GENERATED JAVASCRIPT (not just the
 # reference path jsoo.pt2.run/jsoo.pt2.runtest exercise): a real model's

@@ -19,8 +19,8 @@ type mixed_dtype = {
 type scalar_op = { scalar_op : string; fmt : Payload.packed_fmt }
 
 type error =
-  [ Graph_shape.error
-  | `Arange_i64_overflow of Factory.Arange.Overflow.t
+  [ Eval_direct_compute.error
+  | Graph_shape.error
   | `Missing_constant of Tensor_id.t
   | `Missing_input of Tensor_id.t
   | `Missing_tensor of missing_tensor
@@ -29,9 +29,7 @@ type error =
   | `Region_execution of Region_eval.error
   | `Unsupported_bool_arithmetic of mixed_dtype
   | `Unsupported_bool_scalar_arithmetic of scalar_op
-  | `Unsupported_mixed_dtype of mixed_dtype
-  | `Unsupported_to_copy_bool_source of Payload.packed_fmt
-  | `Unsupported_to_copy_long_source of Payload.packed_fmt ]
+  | `Unsupported_mixed_dtype of mixed_dtype ]
 
 type hooks =
   | Hooks : { on_start : node -> 'a; on_end : node -> 'a -> unit } -> hooks
@@ -43,6 +41,7 @@ val run :
   ?region_counters:Region_execution.counters Tensor_id.Map.t ->
   ?region_executor:Region_executor.t ->
   ?region_group_executor:Region_executor.group ->
+  ?node_executor:Node_executor.t ->
   ?limits:Kernel.Limits.t ->
   ?constants:(Tensor_id.t * Tensor.packed) list ->
   graph ->

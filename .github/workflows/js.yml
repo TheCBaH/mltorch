@@ -103,6 +103,13 @@ jobs:
     - name: jsoo pt2 inference test
       run: |
         ${{ env.EXEC }} make jsoo.pt2.runtest
+    # Every node of the same already-cached model through its own generated-JS
+    # kernel ~100s, the same order as
+    # the step above, and no new download since it reuses JS_PT2_MODEL's own
+    # cache entry.
+    - name: jsoo pt2 node coverage
+      run: |
+        ${{ env.EXEC }} make loop_js.node.pt2.runtest
 
   # The BROWSER gate. A third job for the same reason there are two: it fails
   # for its own reasons -- an Angular renderer build, an npm lockfile, a

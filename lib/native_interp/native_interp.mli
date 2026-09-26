@@ -548,6 +548,7 @@ val run :
   ?hooks:hooks ->
   ?region_executor:Region_executor.t ->
   ?region_group_executor:Region_executor.group ->
+  ?node_executor:Node_executor.t ->
   Pt2_archive.t ->
   input:Pt2_tensor.t ->
   (Tensor.packed list, error) Err.t
@@ -678,6 +679,7 @@ type loaded = {
 val evaluate :
   ?region_executor:Region_executor.t ->
   ?region_group_executor:Region_executor.group ->
+  ?node_executor:Node_executor.t ->
   Pt2_archive.t ->
   transformed ->
   input:Pt2_tensor.t ->

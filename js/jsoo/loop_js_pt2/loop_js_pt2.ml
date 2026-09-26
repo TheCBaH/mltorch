@@ -9,11 +9,23 @@
    CI step.
 
    argv: <model.pt2> <inputs.pt> <expected.json> <outputs.pt> [--cram]
-         [--strict]
+         [--strict] [--nodes] [--shadow]
    Same four positional paths as js/run/pt2_run.ml -- deliberately runs only
    the FIRST of the (many) samples they hold ([~max_samples:(Some 1)]),
    never the whole map: see [Infer_report.report]'s own doc for why that
-   parameter exists. *)
+   parameter exists.
+
+   [--nodes]/[--shadow] are this runner's own, stripped from
+   [Sys.argv] before [Infer_report.parse_argv] ever sees it: that parser's
+   [take_flags] rejects any flag it does not recognize, and it is shared with
+   every other [Infer_report] caller, none of which knows [Node_executor]
+   exists. [--nodes] installs [Loop_node_executor] alongside the
+   Region-authored one, unconditionally still present; [--shadow] turns on
+   its bitwise shadow check. One executor for the whole process, matching
+   [region_executor]'s own top-level scope: safe because every sample here
+   shares the SAME graph (compile-table ids are unique only within one
+   graph, design §4.2: sharing one table across graphs
+   can collide). *)
 
 type eval = [ Native_interp.error | Native_predict.error ]
 
@@ -21,13 +33,13 @@ let pp_eval ppf : eval -> unit = function
   | #Native_predict.error as e -> Native_predict.pp_error ppf e
   | #Native_interp.error as e -> Native_interp.pp_error ppf e
 
-let coverage = Loop_region_executor.Coverage.create ()
-let region_executor = Loop_region_executor.make coverage
+let region_coverage = Loop_region_executor.Coverage.create ()
+let region_executor = Loop_region_executor.make region_coverage
 
-let infer archive image =
+let infer ~node_executor archive image =
   let open Err.Syntax in
   let* outputs =
-    Native_interp.run ~region_executor archive ~input:image
+    Native_interp.run ~region_executor ?node_executor archive ~input:image
     |> Err.map_error ~pos:__POS__ (fun e -> (e :> eval))
   in
   let* top =
@@ -36,27 +48,79 @@ let infer archive image =
   in
   Err.return (List.map (fun ((c : Dim.index Dim.t), p) -> ((c :> int), p)) top)
 
-(* T3.3: a run that silently skipped the generated-JS path is a worse
+(* T3.3/T5.1: a run that silently skipped the generated-JS path is a worse
    defect than one that fails loudly, since nothing else about a passing
    ranking check would tell them apart. Checked BEFORE the ranking result
    is even inspected, so a coverage failure is never masked by (or
    mistaken for) a ranking one. *)
 let min_generated_js = 1
 
+let strip_flag flag argv =
+  ( Array.exists (String.equal flag) argv,
+    Array.of_list
+      (List.filter (fun a -> not (String.equal a flag)) (Array.to_list argv)) )
+
+(* One row per op kind seen in any of the three buckets, sorted, so the
+   table's order does not depend on hashtable iteration. *)
+let print_node_coverage (coverage : Loop_node_executor.Coverage.t) =
+  let keys tbl = Hashtbl.fold (fun k _ acc -> k :: acc) tbl [] in
+  let op_kinds =
+    keys coverage.generated_js @ keys coverage.fallback @ keys coverage.pending
+    |> List.sort_uniq String.compare
+  in
+  let count tbl k = Option.value ~default:0 (Hashtbl.find_opt tbl k) in
+  Format.printf "loop_js_pt2: node coverage@.";
+  List.iter
+    (fun k ->
+      Format.printf "  %-28s generated_js=%d fallback=%d pending=%d@." k
+        (count coverage.generated_js k)
+        (count coverage.fallback k)
+        (count coverage.pending k))
+    op_kinds
+
 let () =
-  match Infer_report.parse_argv Sys.argv with
+  let nodes, argv = strip_flag "--nodes" Sys.argv in
+  let shadow, argv = strip_flag "--shadow" argv in
+  match Infer_report.parse_argv argv with
   | Error usage ->
       prerr_endline usage;
       exit 2
   | Ok (paths, options) -> (
-      let report_result =
-        Infer_report.run ~max_samples:1 ~now:Sys.time ~infer paths options
+      let node_state =
+        if nodes then Some (Loop_node_executor.create ~shadow ()) else None
       in
-      match Loop_region_executor.Coverage.check ~min_generated_js coverage with
-      | Error msg ->
+      let node_executor =
+        Option.map Loop_node_executor.node_executor node_state
+      in
+      let report_result =
+        Infer_report.run ~max_samples:1 ~now:Sys.time
+          ~infer:(infer ~node_executor) paths options
+      in
+      (match node_state with
+      | Some { Loop_node_executor.coverage; _ } -> print_node_coverage coverage
+      | None -> ());
+      let node_check =
+        match node_state with
+        | None -> Ok ()
+        | Some { Loop_node_executor.coverage; _ } ->
+            Loop_node_executor.Coverage.check ~min_generated_js coverage
+      in
+      (* The Region floor is 0 under [--nodes]: that flag's whole point is
+         making a model with no Region-authored op (mobilenetv2_050, T0.5)
+         meaningful for the first time, and requiring it to also clear the
+         Region floor would fail every such model regardless of how well
+         [--nodes] itself did. Unconditional (no [--nodes]) behavior is
+         unchanged: fastvit_sa12's own SDPA nodes still must clear it. *)
+      let region_min_generated_js = if nodes then 0 else min_generated_js in
+      match
+        ( Loop_region_executor.Coverage.check
+            ~min_generated_js:region_min_generated_js region_coverage,
+          node_check )
+      with
+      | Error msg, _ | _, Error msg ->
           Format.eprintf "loop_js_pt2: %s@." msg;
           exit 1
-      | Ok () -> (
+      | Ok (), Ok () -> (
           match report_result with
           | Ok () -> ()
           | Error e ->

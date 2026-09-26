@@ -10,7 +10,9 @@
   js_of_ocaml
   loop_ir_js
   loop_js_exec_js
-  native_js)
+  native_js
+  native_op_walk_js
+  walk_core)
  (inline_tests
   (modes js))
  (preprocess

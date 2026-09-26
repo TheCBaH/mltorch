@@ -25,7 +25,7 @@
 
 (copy_files
  (files
-  %{workspace_root}/lib/loop_ir/{loop_check,loop_interp,loop_js,loop_js_failure,loop_js_runtime,loop_lower,loop_pp,loop_range,loop_region_program}.{ml,mli}))
+  %{workspace_root}/lib/loop_ir/{loop_check,loop_interp,loop_js,loop_js_failure,loop_js_runtime,loop_lower,loop_node_program,loop_pp,loop_range,loop_region_program}.{ml,mli}))
 
 (copy_files
  (files

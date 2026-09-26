@@ -135,48 +135,39 @@ let stage_sources (g : graph) =
       g.Graph.inputs,
     g.Graph.input_kinds )
 
-let run ?(limits = Kernel.Limits.default) (g : graph) : Stage_program.t =
-  (* [Symbolic] is stateless, so there is no instance to create. Each stage body
-     is a construction computation, run below from [Expr.Builder.initial]: stage
-     expressions therefore REUSE reducer ordinals, which is correct because a
-     reducer identity means nothing outside the expression that binds it. A
-     consumer that composes two stages must freshen the inserted one. *)
-  let module E = Eval_op.Make (Symbolic) in
-  let consts = ref [] in
-  let next_const = ref (first_free_tid g) in
-  let fill v shape =
-    let id = Tensor_id.of_int !next_const in
-    incr next_const;
-    let sg = Tensor_sig.create ~id ~name:"" ~shape ~fmt:f32 () in
-    consts := (sg, v) :: !consts;
-    sg
-  in
-  let process_node (gr : graph) (env, stages, stages_i64) (node : node) =
-    let op = node.Node.op in
-    check_mixed_dtype gr op;
-    let operand r = Tensor_id.Map.find r env in
-    let shape_of r = (Tensor_id.Map.find r env).Tensor_sig.shape in
-    let outs = Output_ordinal.indexed node.Node.outputs in
-    match (op, outs) with
-    (* An exact-Arange node with a real ATen-sourced int64 bound produces a
+(* Shared by [run] (folded over the whole graph) and [node_program] (applied to
+   one node): [limits], [fill] and [pixel] are threaded in rather than closed
+   over, so a single-node caller can supply its own per-node [fill]/id
+   counter without dragging in a whole-graph [consts] ref. [pixel] is
+   [Eval_op.Make (Symbolic).pixel]; passed as a plain function since
+   [Eval_op.Make]'s instantiation is otherwise fixed by the [SEMANTICS]
+   argument alone and this is its only use here. *)
+let process_node ~limits ~fill ~pixel (gr : graph) (env, stages, stages_i64)
+    (node : node) =
+  let op = node.Node.op in
+  check_mixed_dtype gr op;
+  let operand r = Tensor_id.Map.find r env in
+  let shape_of r = (Tensor_id.Map.find r env).Tensor_sig.shape in
+  let outs = Output_ordinal.indexed node.Node.outputs in
+  match (op, outs) with
+  (* An exact-Arange node with a real ATen-sourced int64 bound produces a
        [Stage_i64.t] instead of an ordinary float [Stage.t] -- the Symbolic
        twin of [eval_direct.ml]'s own [Some e -> value_i64_exact ...] branch.
        [exact = None] (a legacy float-scalar Arange, even when [fmt = I64])
        falls through to the unchanged generic float pixel below, exactly as
        before: there is no exact int64 view to build one from. *)
-    | ( Arange { Factory.Arange.params = { fmt; exact = Some e; _ } },
-        [ (_, oid) ] )
-      when is_i64 fmt ->
-        let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
-        let st =
-          {
-            Stage_program.Stage_i64.id = oid;
-            sg = out_sig;
-            pixel = i64_arange_pixel e;
-          }
-        in
-        (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
-    (* The Symbolic twin of [Eval_direct]'s own dtype-preserving [Reshape]
+  | Arange { Factory.Arange.params = { fmt; exact = Some e; _ } }, [ (_, oid) ]
+    when is_i64 fmt ->
+      let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+      let st =
+        {
+          Stage_program.Stage_i64.id = oid;
+          sg = out_sig;
+          pixel = i64_arange_pixel e;
+        }
+      in
+      (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+  (* The Symbolic twin of [Eval_direct]'s own dtype-preserving [Reshape]
        arm: the default arm below reaches [Reshape.Reshape.Compute(Symbolic)
        .pixel], whose final [Symbolic.load] builds an ordinary float [Load]
        expression, round-tripping every format through [Payload.get_float] at
@@ -193,31 +184,31 @@ let run ?(limits = Kernel.Limits.default) (g : graph) : Stage_program.t =
        built for exactly this) resolves the resulting [I64_load] of an
        earlier [values_i64] entry (e.g. an upstream exact Arange) without any
        further change. *)
-    | Reshape { Reshape.Reshape.params; x }, [ (_, oid) ]
-      when is_i64 (operand x).Tensor_sig.fmt ->
-        let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
-        let x_sig = operand x in
-        let module C = Reshape.Reshape.Compute_i64 (Symbolic) (Symbolic) in
-        let pixel =
-          Expr.Builder.run
-            (C.pixel params ~x_shape:x_sig.Tensor_sig.shape ~x:x_sig
-               Symbolic.out_vec)
-        in
-        let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
-        (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
-    (* The Symbolic twin of [Eval_direct]'s own dtype-preserving [Permute]
+  | Reshape { Reshape.Reshape.params; x }, [ (_, oid) ]
+    when is_i64 (operand x).Tensor_sig.fmt ->
+      let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+      let x_sig = operand x in
+      let module C = Reshape.Reshape.Compute_i64 (Symbolic) (Symbolic) in
+      let pixel =
+        Expr.Builder.run
+          (C.pixel params ~x_shape:x_sig.Tensor_sig.shape ~x:x_sig
+             Symbolic.out_vec)
+      in
+      let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
+      (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+  (* The Symbolic twin of [Eval_direct]'s own dtype-preserving [Permute]
        arm, the same shape as the [Reshape] arm just above (same rationale,
        same [Compute_i64 (Symbolic) (Symbolic)] instantiation, same "no [x_t]
        needed" reason -- see that arm's own comment). *)
-    | Permute { Permute.Permute.perm; x }, [ (_, oid) ]
-      when is_i64 (operand x).Tensor_sig.fmt ->
-        let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
-        let x_sig = operand x in
-        let module C = Permute.Permute.Compute_i64 (Symbolic) (Symbolic) in
-        let pixel = Expr.Builder.run (C.pixel perm ~x:x_sig Symbolic.out_vec) in
-        let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
-        (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
-    (* The Symbolic twin of [Eval_direct]'s own dtype-preserving tensor-tensor
+  | Permute { Permute.Permute.perm; x }, [ (_, oid) ]
+    when is_i64 (operand x).Tensor_sig.fmt ->
+      let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+      let x_sig = operand x in
+      let module C = Permute.Permute.Compute_i64 (Symbolic) (Symbolic) in
+      let pixel = Expr.Builder.run (C.pixel perm ~x:x_sig Symbolic.out_vec) in
+      let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
+      (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+  (* The Symbolic twin of [Eval_direct]'s own dtype-preserving tensor-tensor
        [Add]/[Sub]/[Mul] arms: [check_mixed_dtype] above already raises on a
        mismatched I64/F32 pair for these three ops, so by the time a node
        reaches this match, [is_i64] on ONE operand already implies the other
@@ -226,43 +217,43 @@ let run ?(limits = Kernel.Limits.default) (g : graph) : Stage_program.t =
        therefore sufficient, not merely convenient. Same [Compute_i64
        (Symbolic) (Symbolic)] shape as Reshape/Permute above: already
        carrier-generic, no change to [pointwise_binary.ml]. *)
-    | Add { Pointwise.Bin.a; b }, [ (_, oid) ]
-      when is_i64 (operand a).Tensor_sig.fmt ->
-        let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
-        let a_sig = operand a and b_sig = operand b in
-        let module C = Pointwise.Add.Compute_i64 (Symbolic) (Symbolic) in
-        let pixel =
-          Expr.Builder.run
-            (C.pixel ~a_shape:a_sig.Tensor_sig.shape
-               ~b_shape:b_sig.Tensor_sig.shape a_sig b_sig Symbolic.out_vec)
-        in
-        let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
-        (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
-    | Sub { Pointwise.Bin.a; b }, [ (_, oid) ]
-      when is_i64 (operand a).Tensor_sig.fmt ->
-        let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
-        let a_sig = operand a and b_sig = operand b in
-        let module C = Pointwise.Sub.Compute_i64 (Symbolic) (Symbolic) in
-        let pixel =
-          Expr.Builder.run
-            (C.pixel ~a_shape:a_sig.Tensor_sig.shape
-               ~b_shape:b_sig.Tensor_sig.shape a_sig b_sig Symbolic.out_vec)
-        in
-        let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
-        (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
-    | Mul { Pointwise.Bin.a; b }, [ (_, oid) ]
-      when is_i64 (operand a).Tensor_sig.fmt ->
-        let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
-        let a_sig = operand a and b_sig = operand b in
-        let module C = Pointwise.Mul.Compute_i64 (Symbolic) (Symbolic) in
-        let pixel =
-          Expr.Builder.run
-            (C.pixel ~a_shape:a_sig.Tensor_sig.shape
-               ~b_shape:b_sig.Tensor_sig.shape a_sig b_sig Symbolic.out_vec)
-        in
-        let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
-        (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
-    (* The Symbolic twin of [Eval_direct]'s own explicit int64-input
+  | Add { Pointwise.Bin.a; b }, [ (_, oid) ]
+    when is_i64 (operand a).Tensor_sig.fmt ->
+      let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+      let a_sig = operand a and b_sig = operand b in
+      let module C = Pointwise.Add.Compute_i64 (Symbolic) (Symbolic) in
+      let pixel =
+        Expr.Builder.run
+          (C.pixel ~a_shape:a_sig.Tensor_sig.shape
+             ~b_shape:b_sig.Tensor_sig.shape a_sig b_sig Symbolic.out_vec)
+      in
+      let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
+      (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+  | Sub { Pointwise.Bin.a; b }, [ (_, oid) ]
+    when is_i64 (operand a).Tensor_sig.fmt ->
+      let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+      let a_sig = operand a and b_sig = operand b in
+      let module C = Pointwise.Sub.Compute_i64 (Symbolic) (Symbolic) in
+      let pixel =
+        Expr.Builder.run
+          (C.pixel ~a_shape:a_sig.Tensor_sig.shape
+             ~b_shape:b_sig.Tensor_sig.shape a_sig b_sig Symbolic.out_vec)
+      in
+      let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
+      (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+  | Mul { Pointwise.Bin.a; b }, [ (_, oid) ]
+    when is_i64 (operand a).Tensor_sig.fmt ->
+      let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+      let a_sig = operand a and b_sig = operand b in
+      let module C = Pointwise.Mul.Compute_i64 (Symbolic) (Symbolic) in
+      let pixel =
+        Expr.Builder.run
+          (C.pixel ~a_shape:a_sig.Tensor_sig.shape
+             ~b_shape:b_sig.Tensor_sig.shape a_sig b_sig Symbolic.out_vec)
+      in
+      let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
+      (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+  (* The Symbolic twin of [Eval_direct]'s own explicit int64-input
        promotion for [Mul_scalar]: unlike Reshape/Permute/Add/Sub/Mul, the
        OUTPUT here stays the ordinary float carrier (ATen promotes an
        integer tensor times a float scalar to a float result) -- so this
@@ -275,21 +266,21 @@ let run ?(limits = Kernel.Limits.default) (g : graph) : Stage_program.t =
        incidentally. [Symbolic.i64_to_float : int64 repr -> Symbolic.t]
        already matches [Compute_i64]'s own [T.i64_to_float] requirement, so
        no change to [pointwise_binary.ml] was needed here either. *)
-    | Mul_scalar { Pointwise.Scalar_bin.x; scalar }, [ (_, oid) ]
-      when is_i64 (operand x).Tensor_sig.fmt ->
-        let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
-        let x_sig = operand x in
-        let module C = Pointwise.Mul_scalar.Compute_i64 (Symbolic) (Symbolic) in
-        let pixel = Expr.Builder.run (C.pixel ~scalar x_sig Symbolic.out_vec) in
-        let st =
-          {
-            Stage_program.Stage.id = oid;
-            sg = out_sig;
-            computation = Region_group.Ref.Solo (Region_program.pixel pixel);
-          }
-        in
-        (Tensor_id.Map.add oid out_sig env, st :: stages, stages_i64)
-    (* The Symbolic twin of [Eval_direct]'s own dtype-preserving [To_copy]
+  | Mul_scalar { Pointwise.Scalar_bin.x; scalar }, [ (_, oid) ]
+    when is_i64 (operand x).Tensor_sig.fmt ->
+      let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+      let x_sig = operand x in
+      let module C = Pointwise.Mul_scalar.Compute_i64 (Symbolic) (Symbolic) in
+      let pixel = Expr.Builder.run (C.pixel ~scalar x_sig Symbolic.out_vec) in
+      let st =
+        {
+          Stage_program.Stage.id = oid;
+          sg = out_sig;
+          computation = Region_group.Ref.Solo (Region_program.pixel pixel);
+        }
+      in
+      (Tensor_id.Map.add oid out_sig env, st :: stages, stages_i64)
+  (* The Symbolic twin of [Eval_direct]'s own dtype-preserving [To_copy]
        [Float] arm: [Compute(Symbolic).pixel]'s [Float] arm already returns
        [S.load x out] unchanged, so this is architecture-only, same rationale
        as [Mul_scalar] above -- an explicit [Symbolic.i64_load]/
@@ -298,22 +289,22 @@ let run ?(limits = Kernel.Limits.default) (g : graph) : Stage_program.t =
        [Stage.t], not [Stage_i64.t]), matching [Mul_scalar]'s own shape.
        [Long]/[Bool] targets are untouched, matching [Eval_direct]'s own
        scope for this arm ([Compute_i64] only has a [Float] case). *)
-    | ( To_copy { Pointwise.To_copy.target = Pointwise.To_copy.Float; x },
-        [ (_, oid) ] )
-      when is_i64 (operand x).Tensor_sig.fmt ->
-        let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
-        let x_sig = operand x in
-        let module C = Pointwise.To_copy.Compute_i64 (Symbolic) (Symbolic) in
-        let pixel = Expr.Builder.run (C.pixel x_sig Symbolic.out_vec) in
-        let st =
-          {
-            Stage_program.Stage.id = oid;
-            sg = out_sig;
-            computation = Region_group.Ref.Solo (Region_program.pixel pixel);
-          }
-        in
-        (Tensor_id.Map.add oid out_sig env, st :: stages, stages_i64)
-    (* [To_copy]'s [Long] target on an F32 or Bool operand: the checked
+  | ( To_copy { Pointwise.To_copy.target = Pointwise.To_copy.Float; x },
+      [ (_, oid) ] )
+    when is_i64 (operand x).Tensor_sig.fmt ->
+      let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+      let x_sig = operand x in
+      let module C = Pointwise.To_copy.Compute_i64 (Symbolic) (Symbolic) in
+      let pixel = Expr.Builder.run (C.pixel x_sig Symbolic.out_vec) in
+      let st =
+        {
+          Stage_program.Stage.id = oid;
+          sg = out_sig;
+          computation = Region_group.Ref.Solo (Region_program.pixel pixel);
+        }
+      in
+      (Tensor_id.Map.add oid out_sig env, st :: stages, stages_i64)
+  (* [To_copy]'s [Long] target on an F32 or Bool operand: the checked
        Float-to-I64 cast ([Symbolic.float_to_i64], whose bounds check runs at
        evaluation time) as an exact int64 stage, mirroring [Eval_direct]'s
        [Compute_to_long] arm. A Bool operand reads as exact 0./1., so the same
@@ -321,104 +312,127 @@ let run ?(limits = Kernel.Limits.default) (g : graph) : Stage_program.t =
        [Kernel.create] now admits, so the stage may read a computed float
        stage (mvitv2's [add.Tensor -> _to_copy(Long)]). Other operand formats
        keep the default arm, unchanged. *)
-    | ( To_copy { Pointwise.To_copy.target = Pointwise.To_copy.Long; x },
-        [ (_, oid) ] )
-      when match (operand x).Tensor_sig.fmt with
-           | Payload.Fmt Payload.F32 | Payload.Fmt Payload.Bool -> true
-           | _ -> false ->
-        let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
-        let x_sig = operand x in
-        let module C = Pointwise.To_copy.Compute_to_long (Symbolic) (Symbolic)
-        in
-        let pixel = Expr.Builder.run (C.pixel x_sig Symbolic.out_vec) in
-        let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
-        (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
-    (* A multi-output Region-authored node (project step 19: today only
+  | ( To_copy { Pointwise.To_copy.target = Pointwise.To_copy.Long; x },
+      [ (_, oid) ] )
+    when match (operand x).Tensor_sig.fmt with
+         | Payload.Fmt Payload.F32 | Payload.Fmt Payload.Bool -> true
+         | _ -> false ->
+      let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+      let x_sig = operand x in
+      let module C = Pointwise.To_copy.Compute_to_long (Symbolic) (Symbolic) in
+      let pixel = Expr.Builder.run (C.pixel x_sig Symbolic.out_vec) in
+      let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
+      (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+  (* A multi-output Region-authored node (project step 19: today only
        Lstm) builds ONE shared group and hands every sibling stage a
        [Grouped] reference into it, rather than each independently building
        its own projected program -- see [Region_computation.group]. Every
        other case (single-output, or not Region-authored at all) keeps the
        existing one-stage-per-output-edge path unchanged, just wrapping its
        [Region_program.t] as [Solo]. *)
-    | _, _ when List.length outs > 1 && Region_computation.is_region_authored op
-      ->
-        let group =
-          match
-            Region_computation.group ~limits ~op ~operand:(fun id ->
-                Tensor_id.Map.find_opt id env)
-          with
-          | Ok group -> group
-          | Error error ->
-              Err.raise_error ~pp_error:Region_computation.pp_error error
-        in
-        let env, stages =
-          List.fold_left
-            (fun (env, stages) (output, oid) ->
-              let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
-              let st =
-                {
-                  Stage_program.Stage.id = oid;
-                  sg = out_sig;
-                  computation =
-                    Region_group.Ref.Grouped
-                      (group, Region_computation.emitter_of_output output);
-                }
-              in
-              (Tensor_id.Map.add oid out_sig env, st :: stages))
-            (env, stages) outs
-        in
-        (env, stages, stages_i64)
-    | _, _ ->
-        let env, stages, stages_i64 =
-          List.fold_left
-            (fun (env, stages, stages_i64) (output, oid) ->
-              let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
-              let float_pixel () =
-                Expr.Builder.run
-                  (E.pixel op ~output ~operand ~shape_of ~fill Symbolic.out_vec)
-              in
-              if is_index_output op output && is_i64 out_sig.Tensor_sig.fmt then
-                (* A pooled/reduced INDEX output is declared I64 (ATen returns
+  | _, _ when List.length outs > 1 && Region_computation.is_region_authored op
+    ->
+      let group =
+        match
+          Region_computation.group ~limits ~op ~operand:(fun id ->
+              Tensor_id.Map.find_opt id env)
+        with
+        | Ok group -> group
+        | Error error ->
+            Err.raise_error ~pp_error:Region_computation.pp_error error
+      in
+      let env, stages =
+        List.fold_left
+          (fun (env, stages) (output, oid) ->
+            let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+            let st =
+              {
+                Stage_program.Stage.id = oid;
+                sg = out_sig;
+                computation =
+                  Region_group.Ref.Grouped
+                    (group, Region_computation.emitter_of_output output);
+              }
+            in
+            (Tensor_id.Map.add oid out_sig env, st :: stages))
+          (env, stages) outs
+      in
+      (env, stages, stages_i64)
+  | _, _ ->
+      let env, stages, stages_i64 =
+        List.fold_left
+          (fun (env, stages, stages_i64) (output, oid) ->
+            let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+            let float_pixel () =
+              Expr.Builder.run
+                (pixel op ~output ~operand ~shape_of ~fill Symbolic.out_vec)
+            in
+            if is_index_output op output && is_i64 out_sig.Tensor_sig.fmt then
+              (* A pooled/reduced INDEX output is declared I64 (ATen returns
                    int64 indices). The float pixel is the flat index, a small
                    non-negative integer carried exactly in the working float,
                    so the checked cast is exact; the stage reads the same
                    float operand the value output does. *)
-                let pixel = Expr.Value.float_to_i64 (float_pixel ()) in
-                let st =
-                  { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel }
-                in
-                (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
-              else
-                let regional =
-                  if Region_computation.is_region_authored op then
-                    Some
-                      (Region_computation.program ~limits ~op ~output
-                         ~output_shape:out_sig.shape
-                         ~operand:(fun id -> Tensor_id.Map.find_opt id env)
-                         ~fill:(fun _role value shape -> fill value shape))
-                  else None
-                in
-                let computation =
-                  match regional with
-                  | Some (Ok program) -> Region_group.Ref.Solo program
-                  | Some (Error error) ->
-                      Err.raise_error ~pp_error:Region_computation.pp_error
-                        error
-                  | None ->
-                      Region_group.Ref.Solo
-                        (Region_program.pixel (float_pixel ()))
-                in
-                let st =
-                  { Stage_program.Stage.id = oid; sg = out_sig; computation }
-                in
-                (Tensor_id.Map.add oid out_sig env, st :: stages, stages_i64))
-            (env, stages, stages_i64) outs
-        in
-        (env, stages, stages_i64)
+              let pixel = Expr.Value.float_to_i64 (float_pixel ()) in
+              let st =
+                { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel }
+              in
+              (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+            else
+              let regional =
+                if Region_computation.is_region_authored op then
+                  Some
+                    (Region_computation.program ~limits ~op ~output
+                       ~output_shape:out_sig.shape
+                       ~operand:(fun id -> Tensor_id.Map.find_opt id env)
+                       ~fill:(fun _role value shape -> fill value shape))
+                else None
+              in
+              let computation =
+                match regional with
+                | Some (Ok program) -> Region_group.Ref.Solo program
+                | Some (Error error) ->
+                    Err.raise_error ~pp_error:Region_computation.pp_error error
+                | None ->
+                    Region_group.Ref.Solo
+                      (Region_program.pixel (float_pixel ()))
+              in
+              let st =
+                { Stage_program.Stage.id = oid; sg = out_sig; computation }
+              in
+              (Tensor_id.Map.add oid out_sig env, st :: stages, stages_i64))
+          (env, stages, stages_i64) outs
+      in
+      (env, stages, stages_i64)
+
+(* The [fill]/[consts] pair [run] and [node_program] each build: ids are
+   minted from [first_free_tid g] in both, since ids only need to be disjoint
+   WITHIN one [Stage_program.t], not across the whole graph -- a per-node
+   counter starting at the same base as the whole-graph one is therefore
+   fine, never colliding with that program's own stage/input ids. *)
+let fresh_fill (g : graph) =
+  let consts = ref [] in
+  let next_const = ref (first_free_tid g) in
+  let fill v shape =
+    let id = Tensor_id.of_int !next_const in
+    incr next_const;
+    let sg = Tensor_sig.create ~id ~name:"" ~shape ~fmt:f32 () in
+    consts := (sg, v) :: !consts;
+    sg
   in
+  (fill, consts)
+
+let run ?(limits = Kernel.Limits.default) (g : graph) : Stage_program.t =
+  (* [Symbolic] is stateless, so there is no instance to create. Each stage body
+     is a construction computation, run below from [Expr.Builder.initial]: stage
+     expressions therefore REUSE reducer ordinals, which is correct because a
+     reducer identity means nothing outside the expression that binds it. A
+     consumer that composes two stages must freshen the inserted one. *)
+  let module E = Eval_op.Make (Symbolic) in
+  let fill, consts = fresh_fill g in
   let _env, rev_stages, rev_stages_i64 =
     List.fold_left
-      (fun acc node -> process_node g acc node)
+      (fun acc node -> process_node ~limits ~fill ~pixel:E.pixel g acc node)
       (g.Graph.tensors, [], []) g.Graph.nodes
   in
   let inputs, input_kinds = stage_sources g in
@@ -429,4 +443,44 @@ let run ?(limits = Kernel.Limits.default) (g : graph) : Stage_program.t =
     stages = List.rev rev_stages;
     stages_i64 = List.rev rev_stages_i64;
     outputs = g.Graph.outputs;
+  }
+
+(* The per-node twin of [run] (design §4.1): the same [process_node], applied
+   to one node instead of folded over the graph. [inputs] is the node's own
+   operand signatures ([Graph_ir.operands], not [g.Graph.inputs] -- an
+   upstream node's output is a boundary "Load" here even though [run]'s own
+   whole-graph program would resolve it from an earlier stage, because a
+   one-node [Kernel_adapt.of_stage_program] has no earlier stage to resolve
+   it from; the caller (the [Node_executor] seam) binds every operand
+   directly). [input_kinds] narrows the graph's own sparse classification to
+   just those operand ids, so a node reading a weight/activation input still
+   carries that classification into the one-node program. [outputs] is the
+   node's full output list -- [Loop_node_program.lower] (design §4.3) is what
+   later narrows to one [Output_ordinal.t] via [~outputs:[oid]]. *)
+let node_program ?(limits = Kernel.Limits.default) (g : graph) (node : node) :
+    Stage_program.t =
+  let module E = Eval_op.Make (Symbolic) in
+  let fill, consts = fresh_fill g in
+  let _env, rev_stages, rev_stages_i64 =
+    process_node ~limits ~fill ~pixel:E.pixel g (g.Graph.tensors, [], []) node
+  in
+  let operand_ids = operands node.Node.op in
+  let inputs =
+    List.map (fun id -> (id, Tensor_id.Map.find id g.Graph.tensors)) operand_ids
+  in
+  let input_kinds =
+    List.fold_left
+      (fun acc id ->
+        match Tensor_id.Map.find_opt id g.Graph.input_kinds with
+        | Some k -> Tensor_id.Map.add id k acc
+        | None -> acc)
+      Tensor_id.Map.empty operand_ids
+  in
+  {
+    Stage_program.inputs;
+    input_kinds;
+    consts = List.rev !consts;
+    stages = List.rev rev_stages;
+    stages_i64 = List.rev rev_stages_i64;
+    outputs = node.Node.outputs;
   }
