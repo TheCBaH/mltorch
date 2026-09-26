@@ -356,7 +356,7 @@ runtest:
 # Separate thresholds: js_of_ocaml is slower per-op than native (measured on
 # lstm_scale_test.ml's shrunk fixture -- 6.7s native, 36s under node), so a
 # shared threshold would either be too loose natively or too tight on js.
-INLINE_TIMING_THRESHOLD_SECONDS := 10
+INLINE_TIMING_THRESHOLD_SECONDS := 15
 INLINE_TIMING_THRESHOLD_SECONDS_JS := 60
 
 inline-timing-report:

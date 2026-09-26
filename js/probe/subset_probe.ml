@@ -5,4 +5,5 @@
 
 let () =
   Probe_walk_core.run ();
-  Probe_core.run ()
+  Probe_core.run ();
+  Probe_js_ast.run ()

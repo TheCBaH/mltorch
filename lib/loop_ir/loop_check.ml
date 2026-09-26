@@ -2,16 +2,20 @@ module Disagreement = struct
   type t =
     | Error_kind of { reference : string; loop : string }
     | Error_payload of string
+    | Executor of t
+    | Host_failure of string
     | Loop_only_failed of string
     | Missing_output of Tensor_id.t
     | Reference_only_failed of string
     | Unexpected_output of Tensor_id.t
     | Value_mismatch of Tensor_id.t
 
-  let pp fmt = function
+  let rec pp fmt = function
     | Error_kind { reference; loop } ->
         Fmt.pf fmt "failure kinds differ: reference %s, loop %s" reference loop
     | Error_payload kind -> Fmt.pf fmt "%s payloads differ" kind
+    | Executor d -> Fmt.pf fmt "the in-process executor: %a" pp d
+    | Host_failure m -> Fmt.pf fmt "the executor's host failed: %s" m
     | Loop_only_failed kind -> Fmt.pf fmt "only the loop failed: %s" kind
     | Missing_output id ->
         Fmt.pf fmt "loop produced no output for %a" Tensor_id.pp id
@@ -129,9 +133,8 @@ let compare_outputs reference loop =
           | Some id -> Disagree (Disagreement.Value_mismatch id)
           | None -> Agree))
 
-let compare ~(reference : (_, Kernel_eval.error) Err.t)
-    ~(loop : (_, Loop_interp.error) Err.t) =
-  match (Err.payload reference, Err.payload loop) with
+let compare_results reference loop =
+  match (reference, loop) with
   | Ok reference, Ok loop -> compare_outputs reference loop
   | Error r, Error l ->
       let l : Kernel_eval.error = (l :> Kernel_eval.error) in
@@ -146,10 +149,43 @@ let compare ~(reference : (_, Kernel_eval.error) Err.t)
       Disagree (Disagreement.Loop_only_failed (kind (l :> Kernel_eval.error)))
   | Error r, Ok _ -> Disagree (Disagreement.Reference_only_failed (kind r))
 
-let run (plan : Fusion_plan.t) ~bind =
+let compare ~(reference : (_, Kernel_eval.error) Err.t)
+    ~(loop : (_, Loop_interp.error) Err.t) =
+  compare_results (Err.payload reference) (Err.payload loop)
+
+module Executor = struct
+  type error =
+    [ Loop_interp.error | `Js_compile of string | `Js_exception of string ]
+
+  type t =
+    Loop_program.t ->
+    bind:(Tensor_id.t -> Tensor.packed option) ->
+    (Tensor.packed Tensor_id.Map.t, error) Err.t
+end
+
+let installed : Executor.t option ref = ref None
+let install e = installed := e
+
+(* A host that refused or threw is a defect verdict of its own: it can never
+   match a failure the reference reported. *)
+let compare_executor ~reference (result : (_, Executor.error) Err.t) =
+  match Err.payload result with
+  | Error (`Js_compile m | `Js_exception m) ->
+      Disagree (Disagreement.Host_failure m)
+  | Error (#Loop_interp.error as e) ->
+      compare_results (Err.payload reference) (Error e)
+  | Ok outputs -> compare_results (Err.payload reference) (Ok outputs)
+
+let run ?exec (plan : Fusion_plan.t) ~bind =
+  let exec = match exec with Some _ -> exec | None -> !installed in
   match Err.payload (Loop_lower.lower plan) with
   | Error (`Unsupported u) -> Refused u
-  | Ok program ->
-      compare
-        ~reference:(Kernel_eval.run_plan plan ~bind)
-        ~loop:(Loop_interp.run program ~bind)
+  | Ok program -> (
+      let reference = Kernel_eval.run_plan plan ~bind in
+      let verdict = compare ~reference ~loop:(Loop_interp.run program ~bind) in
+      match (verdict, exec) with
+      | Disagree _, _ | _, None -> verdict
+      | (Agree | Agree_on_failure _ | Refused _), Some exec -> (
+          match compare_executor ~reference (exec program ~bind) with
+          | Disagree d -> Disagree (Disagreement.Executor d)
+          | Agree | Agree_on_failure _ | Refused _ -> verdict))

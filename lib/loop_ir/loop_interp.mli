@@ -38,3 +38,9 @@ val run :
     recursion is bounded by the program's [max_depth]. An unchecked access out
     of range is a defect in the program and raises [Invalid_argument], never a
     typed failure: only an explicit [Fail_if] is one. *)
+
+val allocate : Loop_buffer.t -> Tensor.packed
+(** A zeroed tensor for an Output or Scratch buffer, of its declared shape and
+    format. Shared with the in-process JavaScript executor so both allocate a
+    result the same way. [Invalid_argument] for a format no lowered program
+    stores. *)

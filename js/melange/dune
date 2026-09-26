@@ -13,12 +13,12 @@
 
 (copy_files
  (files
-  %{workspace_root}/js/probe/{probe_walk_core,probe_core,subset_probe}.ml))
+  %{workspace_root}/js/probe/{probe_walk_core,probe_core,probe_js_ast,subset_probe}.ml))
 
 (melange.emit
  (target output)
  (module_systems commonjs)
  (enabled_if
   (= %{profile} melange))
- (modules probe_walk_core probe_core subset_probe)
- (libraries walk_core_mel core_mel jsont_mel fmt_mel))
+ (modules probe_walk_core probe_core probe_js_ast subset_probe)
+ (libraries walk_core_mel core_mel js_ast_mel jsont_mel fmt_mel))

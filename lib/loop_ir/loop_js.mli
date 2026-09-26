@@ -16,4 +16,11 @@ val typed_array : Loop_buffer.t -> string
 val function_name : string
 (** The name of the emitted function. *)
 
+val to_ast : Loop_program.t -> Js_ast.Program.t
+(** The program as [Js_ast], with the runtime helpers it needs as the prelude.
+    Every identifier is bound ([Js_check.closed] runs before it returns, and a
+    failure is [Invalid_argument]: a defect in the lowering, not an error
+    value). *)
+
 val emit : Loop_program.t -> string
+(** [Js_print.script (to_ast p)]. *)

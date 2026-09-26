@@ -59,6 +59,33 @@ let constant =
         };
     ]
 
+(* A JavaScript index [Number] can be -0 where an OCaml [int] cannot:
+   [Math.ceil] of a value in (-1, 0), and a negative scale of 0. [Value_of_index]
+   turns an index into a float value, so the gate compares the bits of that value
+   against the interpreter's, which cannot hold -0. *)
+let index_value_case name f =
+  let out = buffer 1 (shape_w 4) f32 Loop_buffer.Output in
+  let w = Loop_index.Var (v 0) in
+  program ~buffers:[ out ]
+    [
+      Loop_stmt.For
+        {
+          var = v 0;
+          lo = Loop_index.Const 0;
+          hi = Loop_index.Const 4;
+          body =
+            [
+              Loop_stmt.Store
+                {
+                  buffer = out;
+                  coord = at_w w;
+                  value = Loop_stored.F32 (Loop_expr.Value_of_index (f w));
+                };
+            ];
+        };
+    ]
+  |> fun program -> { name; program; inputs = [] }
+
 let lowered name plan inputs =
   match Err.payload (Loop_lower.lower plan) with
   | Ok program -> { name; program; inputs }
@@ -354,6 +381,9 @@ let pools =
 let cases =
   [
     { name = "constant"; program = constant; inputs = [] };
+    index_value_case "index_value_ceil_div_neg" (fun w ->
+        Loop_index.Ceil_div_pos (Loop_index.Add (w, Loop_index.Const (-3)), 4));
+    index_value_case "index_value_scale_neg" (fun w -> Loop_index.Scale (-1, w));
     {
       name = "doubling";
       program = Loop_programs.doubling;
@@ -777,8 +807,7 @@ let helper_expected =
 let helper_script () =
   (* The helper sources by name, so the script calls the very code the emitter
      prepends. *)
-  String.concat "\n" (List.map snd Loop_js_runtime.helpers)
-  ^ "\n" ^ helper_prelude ^ decode_prelude
+  Loop_js_runtime.source ^ "\n" ^ helper_prelude ^ decode_prelude
   ^ String.concat "" (List.map helper_js helpers)
   ^ pool_better_js ^ decode_script
 

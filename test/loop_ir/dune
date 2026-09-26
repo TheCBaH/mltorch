@@ -11,6 +11,7 @@
   err_trace
   expr
   fmt
+  js_ast
   loop_ir
   native
   native_op_walk

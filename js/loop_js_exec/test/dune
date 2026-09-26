@@ -1,0 +1,56 @@
+; The in-process executor's tests: js_of_ocaml only, run under node by
+; `make jsoo.inline-runtest` (the runtest-js alias in the root dune).
+;
+; Beside the executor rather than in test/loop_ir, because loop_js_exec cannot
+; link into a native runner. The Loop_check fixtures and the op sweep are the
+; SAME source files test/loop_ir runs natively, copied rather than forked: the
+; only difference is that [Js_exec_install] hands the JavaScript executor to
+; [Loop_check], so every [Loop_check.run] in them is also checked against
+; generated code. Their committed expect output must hold with it.
+
+(copy_files
+ (files %{workspace_root}/test/loop_ir/{loop_fixtures,loop_programs}.ml))
+
+; The copied suites each start by naming [Js_exec_install]. Inline tests run as
+; their module initialises, in link order, so without that dependency a suite
+; could run before the executor is installed and pass without ever having been
+; checked against generated code.
+
+(rule
+ (targets
+  loop_check_test.ml
+  loop_formats_test.ml
+  loop_fusion_test.ml
+  loop_region_test.ml
+  loop_scan_test.ml
+  loop_sweep_test.ml)
+ (deps
+  %{workspace_root}/test/loop_ir/loop_check_test.ml
+  %{workspace_root}/test/loop_ir/loop_formats_test.ml
+  %{workspace_root}/test/loop_ir/loop_fusion_test.ml
+  %{workspace_root}/test/loop_ir/loop_region_test.ml
+  %{workspace_root}/test/loop_ir/loop_scan_test.ml
+  %{workspace_root}/test/loop_ir/loop_sweep_test.ml)
+ (action
+  (bash
+   "for f in loop_check_test loop_formats_test loop_fusion_test loop_region_test loop_scan_test loop_sweep_test; do { echo 'let () = assert Js_exec_install.installed'; cat %{workspace_root}/test/loop_ir/$f.ml; } > $f.ml; done")))
+
+(library
+ (name loop_js_exec_test)
+ (libraries
+  core
+  err_trace
+  expr
+  fmt
+  js_ast
+  js_of_ocaml
+  loop_ir
+  loop_js_exec
+  native
+  native_op_walk
+  native_test
+  walk_core)
+ (inline_tests
+  (modes js))
+ (preprocess
+  (pps ppx_expect)))

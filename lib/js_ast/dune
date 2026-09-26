@@ -1,0 +1,16 @@
+; A closed subset of ECMAScript as data: identifiers, the AST, a printer and a
+; scope checker. Nothing here knows the Loop IR, so a second producer needs no
+; tensor or graph library to print JavaScript. See the Loop IR JavaScript
+; backend design doc in .ai/.
+;
+; Wrapped false, with a [js_] prefix on every module: the mirrors (js/melange)
+; copy the sources and refer to [Js_ast] unqualified, as the rest of the repo's
+; mirrored libraries do. Depends on [fmt] only, and is JS-reachable from its
+; first commit (js/melange/js_ast), so the integer rule applies: no printer
+; arithmetic assumes a 63-bit [int], and no OCaml [int] is ever formatted into
+; the output.
+
+(library
+ (name js_ast)
+ (wrapped false)
+ (libraries fmt))

@@ -14,8 +14,8 @@
 (library
  (name probes_pure)
  (wrapped false)
- (modules probe_walk_core probe_core)
- (libraries walk_core core err_trace fmt jsont))
+ (modules probe_walk_core probe_core probe_js_ast)
+ (libraries walk_core core err_trace fmt js_ast jsont))
 
 (library
  (name probes_native)

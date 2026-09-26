@@ -9,4 +9,4 @@
 
 (library
  (name loop_ir)
- (libraries core err_trace expr fmt native))
+ (libraries core err_trace expr fmt js_ast native))

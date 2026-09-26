@@ -18,7 +18,8 @@ engine under node was never the goal on its own — a viewer needs to *read a mo
 (`pytorch_types` is generated from `schema.yaml` inside `modules/pytorch`). It still
 needs no ccache and no C++: `lib/native_interp` depends on neither `aten` nor `interp`.
 
-Melange stays at `walk_core` + `core`. That is not unfinished work — it is
+Melange stays at `walk_core` + `core` + `js_ast` (the JavaScript printer, which needs
+`fmt` alone). That is not unfinished work — it is
 [#1807][mel1807], below. Its CI job checks out only `vendored/err_trace` (`core` prints
 `Err.Error.t`, so it needs that one submodule) and asserts no other gitlink was
 initialized, which doubles as a check that no probe section has drifted across the
@@ -29,28 +30,31 @@ boundary.
 ## Layout
 
 ```
-js/probe/      six probe modules + three entry points; built natively = the golden
+js/probe/      seven probe modules + three entry points; built natively = the golden
 js/run/        the tier-3 inference runner; built natively alongside its (modes js) twin
 js/jsoo/       (modes js) build of the same source
-js/melange/    melange.emit of the pure half, plus the shims it needs
+js/melange/    melange.emit of the pure half, plus the shims it needs (`js_ast_mel` among them)
+js/loop_js_exec/  the Loop IR's in-process JavaScript executor: js_of_ocaml only, beside
+               js/jsoo rather than under it (its closure holds the ordinary `native`)
 ```
 
 | Path | Role |
 |---|---|
 | `js/probe/probe_walk_core.ml` | seeded PCG draws, `Float32` hex + `enc_json` on awkward values |
 | `js/probe/probe_core.ml` | `Err` error rendering and the stack-availability verdict |
+| `js/probe/probe_js_ast.ml` | the JavaScript printer over a fixed corpus (literal edges, every binary-operator pair, the unary spacing rule, one runtime helper rebuilt from constructors); reachable from melange |
 | `js/probe/probe_tensor_json.ml` | `Tensor` → `Graph_json.encode_tensor` → decode, bit-exactness reported separately from the JSON text |
 | `js/probe/probe_native.ml` | half/bfloat16 codecs, a conv2d+relu through `Eval_direct`, the op walk |
 | `js/probe/probe_model_json.ml` | a real `model.json` through `ExportedProgram.jsont`; structural summary |
 | `js/probe/probe_pt2.ml` | a real `.pt2` opened in memory, lowered, and run; full output payload |
-| `js/probe/native_probe.ml` | ungated entry point (sections 1–5) |
+| `js/probe/native_probe.ml` | ungated entry point (every ungated section; `js_ast` runs right after `core`) |
 | `js/probe/pt2_probe.ml` | gated entry point (section 6) |
-| `js/probe/subset_probe.ml` | subset entry point (the two melange can reach) |
+| `js/probe/subset_probe.ml` | subset entry point (the three melange can reach) |
 | `js/run/pt2_run.ml` | tier 3: every sample through `Native_interp`, checked against the release rankings. Not a probe — see tier 3 below for why it is a separate directory |
 
 Three libraries, because each split *is* a real boundary rather than a grouping:
 `probes_pure` is what melange reaches (`walk_core` needs `jsont` alone, `core` needs
-`fmt` and `err_trace`); `probes_native` adds Bigarray and `Jsont_bytesrw`; `probes_pt2`
+`fmt` and `err_trace`, `js_ast` needs `fmt`); `probes_native` adds Bigarray and `Jsont_bytesrw`; `probes_pt2`
 adds everything that reaches PyTorch, and so needs a submodule checkout — now not the
 only one of the three, since melange checks out `err_trace` (see below).
 Recording those lines in the build graph is what stops a section drifting across one
@@ -58,8 +62,8 @@ unnoticed.
 
 Three entry points for the same reason, and they are not interchangeable:
 
-- **Melange** reaches two sections; a two-section run can never diff clean against a
-  five-section golden.
+- **Melange** reaches three sections; a three-section run can never diff clean against the
+  full golden.
 - **Tier 2** needs a ~12MB downloaded model; a gated run can never diff clean against an
   ungated golden. Tier 1's fixture is committed (resnet18's `model.json`, 224K), so it
   runs on every push.

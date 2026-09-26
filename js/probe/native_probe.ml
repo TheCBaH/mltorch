@@ -19,6 +19,7 @@ let () =
   in
   Probe_walk_core.run ();
   Probe_core.run ();
+  Probe_js_ast.run ();
   Probe_tensor_json.run ();
   Probe_native.run ();
   Probe_model_json.run model_json;

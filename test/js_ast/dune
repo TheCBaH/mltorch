@@ -1,0 +1,25 @@
+; Tests for lib/js_ast: identifiers, the printer, the scope checker. Pure OCaml,
+; and [js] alongside [best] because the printer is JS-reachable (its literals go
+; through [Printf] and [Int64.to_string], whose js_of_ocaml and Melange
+; implementations are not glibc's). See test/native4d/dune for why there is no
+; [enabled_if].
+
+(library
+ (name js_ast_test)
+ (libraries fmt js_ast)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))
+
+; Type-level claims of [Js_build], proved by the type checker rather than by
+; review: each ill-typed snippet is rejected, each paired with a control that
+; must still compile. Same harness shape as test/native/error_opacity.sh.
+
+(toplevel
+ (name build_probe)
+ (libraries js_ast))
+
+(cram
+ (applies_to build_types)
+ (deps build_types.sh build_probe.exe))

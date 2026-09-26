@@ -1,0 +1,23 @@
+; lib/js_ast, rebuilt for Melange. Same copy-never-fork rule as the core and
+; walk_core mirrors: anything that changes in lib/js_ast changes here on the next
+; build, so the Melange run cannot silently test older code than the native
+; golden.
+;
+; The printer is the reason to mirror it. Its [Number] literals go through
+; [Printf "%.17g"] and its [Bigint] literals through [Int64.to_string], which
+; Melange implements itself (its own float formatter, and Int64 as a pair of
+; 32-bit words) rather than sharing jsoo's or glibc's. The probe's js_ast section
+; diffs the printed text of a fixed corpus across all three backends.
+;
+; jsoo needs no mirror: js_ast reaches no Expr.
+
+(copy_files
+ (files %{workspace_root}/lib/js_ast/*.{ml,mli}))
+
+(library
+ (name js_ast_mel)
+ (wrapped false)
+ (modes melange)
+ (enabled_if
+  (= %{profile} melange))
+ (libraries fmt_mel))

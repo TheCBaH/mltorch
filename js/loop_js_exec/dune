@@ -1,0 +1,17 @@
+; Runs the JavaScript [Loop_js] emits, in-process, under js_of_ocaml only.
+;
+; JS-only by construction: it calls [caml_js_*] primitives that a native
+; executable does not have, so it links into a (modes js) executable or an
+; (inline_tests (modes js)) suite and nowhere else. It still BUILDS natively (a
+; library is only compiled, not linked), which is why nothing native has to
+; special-case it. The pure emitter, [Loop_js], and the AST it prints are
+; backend-neutral; this is the only library that may name js_of_ocaml. See the
+; Loop IR JavaScript backend design doc in .ai/.
+;
+; [loop_ir] depends on the ordinary [native]; a jsoo executable that also links
+; the [native_js] mirror would need a [loop_ir_js] mirror, added when such an
+; executable exists.
+
+(library
+ (name loop_js_exec)
+ (libraries err_trace expr js_ast js_of_ocaml loop_ir native))
