@@ -87,8 +87,8 @@ val materialize_group :
   ?counters:counters ->
   lowered_group ->
   env:Expr.Eval.Env.t ->
-  selected:int list ->
-  ((int * Tensor.packed) list, Region_eval.error) Err.t
+  selected:Region_group.Ordinal.t list ->
+  ((Region_group.Ordinal.t * Tensor.packed) list, Region_eval.error) Err.t
 (** One shared recurrence per canonical Region key: the group's shared locals
     are evaluated ONCE per key (one meter, shared by every selected emitter
     visiting that key), then each ordinal in [selected] is read off that same

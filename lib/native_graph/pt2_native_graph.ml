@@ -1,7 +1,14 @@
 open Graph_ir
 
 module Graph_path = struct
-  type t = int list
+  module Child =
+    Core.Tagged_int.Make
+      (struct
+        let prefix = ""
+      end)
+      ()
+
+  type t = Child.t list
 
   let root = []
   let child path node_index = path @ [ node_index ]
@@ -9,10 +16,7 @@ module Graph_path = struct
   let pp fmt path =
     match path with
     | [] -> Format.pp_print_string fmt "root"
-    | _ ->
-        Fmt.pf fmt "root/%a"
-          (Fmt.list ~sep:(Fmt.any "/") Format.pp_print_int)
-          path
+    | _ -> Fmt.pf fmt "root/%a" (Fmt.list ~sep:(Fmt.any "/") Child.pp) path
 end
 
 module Tensor_origin = struct
@@ -24,9 +28,16 @@ module Tensor_origin = struct
 end
 
 module Node_origin = struct
+  module Index =
+    Core.Tagged_int.Make
+      (struct
+        let prefix = ""
+      end)
+      ()
+
   type t = {
     graph_path : Graph_path.t;
-    index : int;
+    index : Index.t;
     target : string;
     name : string option;
     metadata : string Schema_runtime.String_map.t;

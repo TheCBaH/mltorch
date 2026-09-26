@@ -327,7 +327,7 @@ module BatchNormNoStats = struct
     let pixel ~output (p : params) ~(x_shape : Vec6.shape) ~x ~weight ~bias out
         =
       let mean, invstd = statistics p ~x_shape ~x out in
-      match output with
+      match (output : Output_ordinal.t :> int) with
       | 0 ->
           let zero = Vec6.map (fun _ -> S.index_zero) out in
           let at_channel v = S.load v (Vec6.copy_axis out p.channel zero) in

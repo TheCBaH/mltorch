@@ -112,8 +112,7 @@ let check_perm view (n : node) node perm ~x =
    general form, `.ai/native4d_design.md` §8) between them cover every count.
    Only the TRANSPOSED direction still lacks a general counterpart. *)
 let check_transposed node ~groups =
-  let groups = (groups : Op_config.Pos.t :> int) in
-  if groups = 1 then Err.return ()
+  if (groups : Op_config.Pos.t :> int) = 1 then Err.return ()
   else Err.fail (`Unsupported_grouped_transposed_conv (node, groups))
 
 (* [Batched_matmul]'s batch axes are N/T/D/H, all four of which
@@ -270,7 +269,7 @@ let check_node view (n : node) =
      what this dialect cannot say, [check_dims]-style, unconditionally at
      every rank the same way [Pad]/[Slice]/[Rms_norm] use it. *)
   | Meshgrid { Meshgrid.Meshgrid.tensors } ->
-      check_dims node (Aten_shape.used_axes ~rank:(List.length tensors))
+      check_dims node (Aten_shape.used_axes ~rank:(Rank.of_list tensors))
   (* [Concat4] now exists, so [Concat] gets the same [check_dims]-style axis
      rejection [Select]/[Slice]/[Stack]/[Unbind] get: the JOINED axis is the
      one the dialect must be able to name, and the rest of the domain -- every

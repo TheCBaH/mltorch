@@ -47,7 +47,7 @@ hash-consing already deduplicates the resulting nodes), and the atomic
 per-root expansion round `native_transform_verify.md`'s own budget section
 describes as a possible refinement over today's greedy per-cell walk.
 Read this record together with `native_compute_design.md` (Region
-computation), `native_kernel_dsl_design.md` (Kernel IR and `Hard` ceilings),
+computation), the Kernel DSL design doc (Kernel IR and `Hard` ceilings),
 and `native_transform_verify.md` (grounding and the map verifier), which it
 extends rather than restates.
 

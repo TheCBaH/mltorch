@@ -97,7 +97,9 @@ let pt2_graph path =
 
 let pt2_node path index =
   Core.Pretty.to_string
-    (fun fmt (p, i) -> Fmt.pf fmt "%a#%d" Pt2_native_graph.Graph_path.pp p i)
+    (fun fmt (p, i) ->
+      Fmt.pf fmt "%a#%a" Pt2_native_graph.Graph_path.pp p
+        Pt2_native_graph.Node_origin.Index.pp i)
     (path, index)
 
 let pt2_boundary ~limits kind name =

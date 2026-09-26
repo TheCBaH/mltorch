@@ -16,10 +16,11 @@
    [max_int] differs between the native and js_of_ocaml backends and this file
    runs under both against this one golden. Only the verdict is backend-
    independent, so only the verdict is asserted. *)
-let%expect_test "Tensor_id.check_room: bounded before the addition, not after" =
+let%expect_test
+    "Tensor_id.Next.check_room: bounded before the addition, not after" =
   let show label ~next ~count =
     Printf.printf "%-22s -> %s\n" label
-      (match Tensor_id.check_room ~next ~count with
+      (match Tensor_id.Next.check_room (Tensor_id.Next.of_int next) ~count with
       | () -> "ok"
       | exception Invalid_argument _ -> "refused")
   in

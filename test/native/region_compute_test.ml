@@ -704,21 +704,24 @@ let%expect_test "Region construction honors the graph-boundary contract" =
   in
   Fmt.pr "default=%s expanded=%s tight=%s ordinal=%s shape=%s missing=%s@."
     (show
-       (build ~limits:Kernel.Limits.default ~output:0 ~output_shape:shape
+       (build ~limits:Kernel.Limits.default ~output:Output_ordinal.zero
+          ~output_shape:shape ~operand:present))
+    (show
+       (build ~limits:expanded ~output:Output_ordinal.zero ~output_shape:shape
           ~operand:present))
     (show
-       (build ~limits:expanded ~output:0 ~output_shape:shape ~operand:present))
-    (show (build ~limits:tight ~output:0 ~output_shape:shape ~operand:present))
-    (show
-       (build ~limits:Kernel.Limits.default ~output:1 ~output_shape:shape
+       (build ~limits:tight ~output:Output_ordinal.zero ~output_shape:shape
           ~operand:present))
     (show
-       (build ~limits:Kernel.Limits.default ~output:0
+       (build ~limits:Kernel.Limits.default ~output:Output_ordinal.one
+          ~output_shape:shape ~operand:present))
+    (show
+       (build ~limits:Kernel.Limits.default ~output:Output_ordinal.zero
           ~output_shape:(Vec6.set shape Axis.C (Dim.extent 4))
           ~operand:present))
     (show
-       (build ~limits:Kernel.Limits.default ~output:0 ~output_shape:shape
-          ~operand:(fun _ -> None)));
+       (build ~limits:Kernel.Limits.default ~output:Output_ordinal.zero
+          ~output_shape:shape ~operand:(fun _ -> None)));
   [%expect
     {|
     default=ok expanded=ok tight=local list exceeds limit 1 ordinal=unsupported output ordinal 1 shape=output shape does not match the input missing=missing operand t10 |}]
@@ -745,7 +748,8 @@ let%expect_test "Region construction preflights local/trace storage too" =
       }
   in
   let build ~limits =
-    Region_computation.program ~limits ~op ~output:0 ~output_shape:shape
+    Region_computation.program ~limits ~op ~output:Output_ordinal.zero
+      ~output_shape:shape
       ~operand:(fun id ->
         if Tensor_id.equal id x.Tensor_sig.id then Some x else None)
       ~fill:(fun _role _value shape -> signature 11 shape)

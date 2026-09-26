@@ -1,7 +1,7 @@
 .PHONY: benchmark.region_compute benchmark.region_pixel build check \
-	check.file-size check.whitespace clean expr_bench.js-benchmark \
-	expr_bench.runtest expr_order.runtest expr_probe.deep-runtest \
-	expr_probe.runtest format inference inference-runa \
+	check.file-size check.int-signatures check.whitespace clean \
+	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
+	expr_probe.deep-runtest expr_probe.runtest format inference inference-runa \
 	inline-timing-report inline-timing-report-js js.build js.runtest \
 	jsoo.build jsoo.inline-runtest jsoo.pt2.download jsoo.pt2.run \
 	jsoo.pt2.runtest jsoo.pt2.vars jsoo.runtest melange.build \
@@ -311,6 +311,12 @@ format:
 # listed in scripts/file-size-exceptions.txt.
 check.file-size:
 	bash scripts/check-file-size.sh
+
+# Signature ratchet for domain-typed integers: every declaration in an in-scope
+# .mli that mentions int must be allowlisted with a category, and the list only
+# shrinks (tools/int_signatures). Also part of runtest.
+check.int-signatures:
+	opam exec -- dune build @tools/int_signatures/runtest
 
 # Whitespace/conflict-marker regression check: git's own diff-hygiene check
 # against HEAD (trailing whitespace, a mixed tab/space indent the change
@@ -784,4 +790,5 @@ check: build format runtest melange.build melange.runtest
 # first since, like in CI, it needs no build. Deliberately excludes
 # verify.pristine: that target asserts NO uncommitted changes, which is
 # never true of the changes precommit is meant to check.
-precommit: build runtest format check.whitespace check.file-size
+precommit: build runtest format check.whitespace check.file-size \
+	check.int-signatures

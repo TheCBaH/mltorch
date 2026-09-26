@@ -59,7 +59,7 @@ module Sdpa = struct
      than one admissible rank (the mask, {2,4}) -- a single [expected] cannot
      say that. *)
   module Reject = struct
-    type rank = { arg_name : string; expected : int list; got : int }
+    type rank = { arg_name : string; expected : Rank.t list; got : Rank.t }
 
     type t =
       | Boolean_mask (* attn_mask is bool: additive f32 only *)
@@ -86,8 +86,8 @@ module Sdpa = struct
       | Non_finite_scale s ->
           Fmt.pf fmt "sdpa: explicit scale=%g is not finite" s
       | Rank { arg_name; expected; got } ->
-          Fmt.pf fmt "sdpa: %s has rank %d, expected %a" arg_name got
-            Fmt.(list ~sep:(any " or ") int)
+          Fmt.pf fmt "sdpa: %s has rank %a, expected %a" arg_name Rank.pp got
+            Fmt.(list ~sep:(any " or ") Rank.pp)
             expected
   end
 
@@ -594,8 +594,8 @@ module Sdpa = struct
           program
             (Region_program.Builder.run
                (Region_program.Builder.scalar sf (fun sf ->
-                    Region_program.Builder.vector ~extent:wk_extent
-                      (score_at ~sf) (fun s ->
+                    Region_program.Builder.vector
+                      ~extent:(Slot.extent wk_extent) (score_at ~sf) (fun s ->
                         let m =
                           Expr.Builder.run
                             (Expr.Builder.reduction ~kind:Expr.Reduction.Max
@@ -613,7 +613,8 @@ module Sdpa = struct
                                        (Expr.Value.exp (Expr.Value.sub (s k) m))))
                             in
                             Region_program.Builder.scalar z (fun z ->
-                                Region_program.Builder.vector ~extent:wk_extent
+                                Region_program.Builder.vector
+                                  ~extent:(Slot.extent wk_extent)
                                   (fun i ->
                                     Expr.Builder.return
                                       (Expr.Value.div

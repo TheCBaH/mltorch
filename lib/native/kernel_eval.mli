@@ -1,4 +1,4 @@
-(* The Kernel reference interpreter. See .ai/native_kernel_dsl_design.md.
+(* The Kernel reference interpreter.
 
    One rule governs where the result conversion is applied, and it is why the
    two entry points below are named apart internally:
@@ -26,7 +26,7 @@ end
 type error =
   [ Expr.Eval.error
   | `Binding_mismatch of Binding_mismatch.t
-  | `Duplicate_group_ordinal of int
+  | `Duplicate_group_ordinal of Region_group.Ordinal.t
   | `Eval_too_deep of int
   | `Recursion_too_deep of int
   | Region_group.error

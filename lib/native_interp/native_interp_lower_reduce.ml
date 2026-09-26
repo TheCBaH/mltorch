@@ -41,7 +41,7 @@ let dispatch ~ctx ~env (node : Node.t) =
            in
            let axis =
              match
-               axes_for_rank esc ~tensor:x_name rank [ int_arg esc node "dim" ]
+               axes_for_rank esc ~tensor:x_name rank [ dim_arg esc node "dim" ]
              with
              | [ axis ] -> axis
              | _ -> invalid_arg "Native_interp: max.dim lost its singleton axis"
@@ -98,7 +98,7 @@ let dispatch ~ctx ~env (node : Node.t) =
            in
            let axis =
              match
-               axes_for_rank esc ~tensor:x_name rank [ int_arg esc node "dim" ]
+               axes_for_rank esc ~tensor:x_name rank [ dim_arg esc node "dim" ]
              with
              | [ a ] -> a
              | _ ->

@@ -136,8 +136,12 @@ let compare_tensors ~atol ~output aten_t native_t =
   let aten_t = logical_tensor aten_t in
   (* 1. Shape *)
   let aten_arr = Aten_tensor.shape aten_t in
-  let rank = Array.length aten_arr in
-  let native_arr = Aten_shape.to_aten ~rank native_r.shape in
+  let rank = Rank.of_array aten_arr in
+  let native_arr =
+    Array.map
+      (fun (s : Aten_int.Size.t) -> (s :> int))
+      (Aten_shape.to_aten ~rank native_r.shape)
+  in
   let* () =
     if not (aten_arr = native_arr) then
       Err.fail

@@ -20,7 +20,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
      dtype are retained in the Native payload. *)
   | "torch.ops.aten.zeros.default" ->
       Some
-        (let* size = ints_arg node "size" in
+        (let* size = sizes_arg node "size" in
          let* shape =
            Aten_shape.of_aten (Array.of_list size)
            |> Err.map_error (fun e -> `Aten_shape e)
@@ -82,7 +82,8 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
         (let* n = int_arg node "n" in
          let* m = int_arg node "m" in
          let* shape =
-           Aten_shape.of_aten [| n; m |]
+           Aten_shape.of_aten
+             [| Aten_int.Size.of_int n; Aten_int.Size.of_int m |]
            |> Err.map_error (fun e -> `Aten_shape e)
          in
          let* fmt =

@@ -14,6 +14,10 @@
 
 module Float_bits : module type of Float_bits
 
+(* Generative [private int] domains for ids, ordinals and other numbers that are
+   only compared, keyed and printed. See .ai/ (domain-typed integers). *)
+module Tagged_int : module type of Tagged_int
+
 (* Handwritten printers should use Fmt directly for their structure; this
    module only factors out repo-wide conventions that would otherwise repeat
    verbatim (stringifying printers, [none], and unwrapping [Err.Error.kind] in

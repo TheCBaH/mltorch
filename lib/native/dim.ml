@@ -17,6 +17,7 @@ type index = Expr.Role.Position.t
 type delta = Expr.Role.Delta.t
 type count
 type offset
+type fence
 
 let extent n : extent t =
   if n < 1 then invalid_arg "Dim.extent: must be >= 1" else n
@@ -66,3 +67,70 @@ let extent_jsont : extent t Jsont.t =
       else extent n)
     ~enc:(fun x -> (x :> int))
     Jsont.int
+
+let fence n : fence t = if n < 0 then invalid_arg "Dim.fence: negative" else n
+let fence_of_index (i : index t) : fence t = i
+let fence_of_extent (e : extent t) : fence t = e
+
+let span (start : fence t) (stop : fence t) : extent t option =
+  if start < stop then Some (stop - start) else None
+
+module Product_witness = struct
+  type nonrec t = { prefix : int64; factor : extent t; limit : int64 }
+
+  let pp ppf { prefix; factor; limit } =
+    Format.fprintf ppf "%Ld * %d does not fit below %Ld" prefix factor limit
+end
+
+let product_bounded ~limit (extents : extent t list) =
+  let ceiling = Int64.pred limit in
+  if Int64.compare ceiling (Int64.of_int max_int) > 0 then
+    invalid_arg "Dim.product_bounded: limit exceeds max_int + 1";
+  if Int64.compare ceiling 1L < 0 then
+    invalid_arg "Dim.product_bounded: limit must exceed 1";
+  let rec go prefix = function
+    | [] -> Err.return (Int64.to_int prefix)
+    | factor :: rest ->
+        let f = Int64.of_int factor in
+        if Int64.compare prefix (Int64.div ceiling f) > 0 then
+          Err.fail
+            (`Product_over_limit Product_witness.{ prefix; factor; limit })
+        else go (Int64.mul prefix f) rest
+  in
+  go 1L extents
+
+let advance ~(start : fence t) (i : index t) : index t = start + i
+let fence_after (start : fence t) (e : extent t) : fence t = start + e
+
+let local_in ~(start : fence t) ~(extent : extent t) (i : index t) :
+    index t option =
+  if i >= start && i - start < extent then Some (i - start) else None
+
+let wrap (i : index t) (e : extent t) : index t = i mod e
+
+let div_exact (a : extent t) ~(by : extent t) : extent t option =
+  if a mod by = 0 then Some (a / by) else None
+
+let divides ~(by : extent t) (a : extent t) = a mod by = 0
+let unlin (o : offset t) (e : extent t) : offset t * index t = (o / e, o mod e)
+let to_int64 (x : 'role t) : int64 = Int64.of_int x
+
+module Delta = struct
+  let add (a : delta t) (b : delta t) : delta t = a + b
+  let neg (a : delta t) : delta t = -a
+  let min (a : delta t) (b : delta t) : delta t = Stdlib.min a b
+  let max (a : delta t) (b : delta t) : delta t = Stdlib.max a b
+  let scale k (d : delta t) : delta t = k * d
+
+  (* Floor toward negative infinity for a negative numerator, where [/]
+     truncates toward zero. *)
+  let floor_div_pos (n : delta t) ~(by : extent t) : delta t =
+    if n >= 0 then n / by else -((-n + by - 1) / by)
+
+  let ceil_div_pos (n : delta t) ~(by : extent t) : delta t =
+    neg (floor_div_pos (neg n) ~by)
+
+  let of_extent (e : extent t) : delta t = e
+  let clamp_low (x : delta t) : index t = if x < 0 then 0 else x
+  let assume_index (x : delta t) : index t = index x
+end

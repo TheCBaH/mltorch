@@ -339,20 +339,12 @@ let dispatch ~ctx ~env (node : Node.t) =
              static_sizes esc ~tensor:x_name
                (tensor_meta esc graph ~ssa:x_name ~role:`Layer_norm_input)
            in
-           let rank = List.length sizes in
-           let normalized = ints_arg esc node "normalized_shape" in
+           let normalized = sizes_arg esc node "normalized_shape" in
            let k = List.length normalized in
-           if k < 1 || k > rank then
-             malformed esc (`Normalized_rank { op; rank; got = k });
-           let trailing l = List.filteri (fun i _ -> i >= rank - k) l in
-           let expected = trailing sizes in
-           if expected <> normalized then
-             malformed esc
-               (`Normalized_shape { op; expected; got = normalized });
            let params =
              {
                Norm.LayerNorm.dims =
-                 trailing (used_axes_for esc ~tensor:x_name rank);
+                 normalized_axes esc ~tensor:x_name ~op sizes normalized;
                eps;
              }
            in
@@ -384,22 +376,13 @@ let dispatch ~ctx ~env (node : Node.t) =
              static_sizes esc ~tensor:x_name
                (tensor_meta esc graph ~ssa:x_name ~role:`Rms_norm_input)
            in
-           let rank = List.length sizes in
-           let normalized = ints_arg esc node "normalized_shape" in
+           let normalized = sizes_arg esc node "normalized_shape" in
            let k = List.length normalized in
-           if k < 1 || k > rank then
-             malformed esc
-               (`Normalized_rank { op = Norm.Target.Rms_norm; rank; got = k });
-           let trailing l = List.filteri (fun i _ -> i >= rank - k) l in
-           let expected = trailing sizes in
-           if expected <> normalized then
-             malformed esc
-               (`Normalized_shape
-                  { op = Norm.Target.Rms_norm; expected; got = normalized });
            let params =
              {
                Norm.RmsNorm.dims =
-                 trailing (used_axes_for esc ~tensor:x_name rank);
+                 normalized_axes esc ~tensor:x_name ~op:Norm.Target.Rms_norm
+                   sizes normalized;
                eps =
                  float_opt_arg esc ~default:Norm.RmsNorm.default_eps node "eps";
              }
@@ -455,12 +438,16 @@ let dispatch ~ctx ~env (node : Node.t) =
              around-the-op legalization. *)
            let require_qkv_rank ~ssa ~role ~arg_name =
              let got = meta_rank (tensor_meta esc graph ~ssa ~role) in
-             if got = 4 || got = 5 then ()
+             if (got :> int) = 4 || (got :> int) = 5 then ()
              else
                malformed esc
                  (`Sdpa_reject
                     (Attention.Sdpa.Reject.Rank
-                       { arg_name; expected = [ 4; 5 ]; got }))
+                       {
+                         arg_name;
+                         expected = [ Rank.of_int 4; Rank.of_int 5 ];
+                         got;
+                       }))
            in
            require_qkv_rank ~ssa:query_name ~role:`Sdpa_query
              ~arg_name:"sdpa query";
@@ -505,13 +492,13 @@ let dispatch ~ctx ~env (node : Node.t) =
                      (`Sdpa_reject Attention.Sdpa.Reject.Boolean_mask)
                | _ -> ());
                let got = meta_rank meta in
-               if got <> 2 && got <> 4 then
+               if (got :> int) <> 2 && (got :> int) <> 4 then
                  malformed esc
                    (`Sdpa_reject
                       (Attention.Sdpa.Reject.Rank
                          {
                            arg_name = "sdpa attn_mask";
-                           expected = [ 2; 4 ];
+                           expected = [ Rank.of_int 2; Rank.of_int 4 ];
                            got;
                          })))
              mask_name;
@@ -593,7 +580,7 @@ let dispatch ~ctx ~env (node : Node.t) =
            let params =
              {
                Reduce.Sum.dims =
-                 axes_for_rank esc ~tensor:x_name rank (ints_arg esc node "dim");
+                 axes_for_rank esc ~tensor:x_name rank (dims_arg esc node "dim");
                keepdim = bool_arg esc node "keepdim";
              }
            in
@@ -671,7 +658,7 @@ let dispatch ~ctx ~env (node : Node.t) =
            in
            match (names, Aten_shape.Einsum.of_equation equation) with
            | [ self_name; other_name ], Some plan
-             when rank self_name = 5 && rank other_name = 3 ->
+             when (rank self_name :> int) = 5 && (rank other_name :> int) = 3 ->
                let* y =
                  einsum plan
                    (env_find esc env self_name)
@@ -759,7 +746,7 @@ let dispatch ~ctx ~env (node : Node.t) =
            let params =
              {
                Reduce.Mean.dims =
-                 axes_for_rank esc ~tensor:x_name rank (ints_arg esc node "dim");
+                 axes_for_rank esc ~tensor:x_name rank (dims_arg esc node "dim");
                keepdim = bool_arg esc node "keepdim";
              }
            in
@@ -773,7 +760,7 @@ let dispatch ~ctx ~env (node : Node.t) =
            let params =
              {
                Reduce.Amax.dims =
-                 axes_for_rank esc ~tensor:x_name rank (ints_arg esc node "dim");
+                 axes_for_rank esc ~tensor:x_name rank (dims_arg esc node "dim");
                keepdim = bool_arg esc node "keepdim";
              }
            in
@@ -794,7 +781,7 @@ let dispatch ~ctx ~env (node : Node.t) =
            let params =
              {
                Reduce.Vector_norm.dims =
-                 axes_for_rank esc ~tensor:x_name rank (ints_arg esc node "dim");
+                 axes_for_rank esc ~tensor:x_name rank (dims_arg esc node "dim");
                keepdim = bool_arg esc node "keepdim";
              }
            in
@@ -814,7 +801,7 @@ let dispatch ~ctx ~env (node : Node.t) =
            in
            let axis =
              match
-               axes_for_rank esc ~tensor:x_name rank [ int_arg esc node "dim" ]
+               axes_for_rank esc ~tensor:x_name rank [ dim_arg esc node "dim" ]
              with
              | [ a ] -> a
              | _ ->
@@ -859,7 +846,11 @@ let dispatch ~ctx ~env (node : Node.t) =
            else
              malformed esc
                (`Matmul_unsupported_shape
-                  { Matmul_unsupported_shape.self = a_sizes; other = b_sizes })
+                  {
+                    Matmul_unsupported_shape.self =
+                      List.map Aten_int.Size.of_int a_sizes;
+                    other = List.map Aten_int.Size.of_int b_sizes;
+                  })
        | "torch.ops.aten.linear.default" ->
            let w_name = tensor_name esc node "weight" in
            let _out_features, in_features =
@@ -909,7 +900,9 @@ let dispatch ~ctx ~env (node : Node.t) =
                    (`Bad_dimension
                       {
                         tensor = w_name;
-                        fault = `Expected_rank { expected = 2; got = 0 };
+                        fault =
+                          `Expected_rank
+                            { expected = Rank.of_int 2; got = Rank.of_int 0 };
                       })
            in
            let* w = permute perm_addmm_weight (get "mat2") in
@@ -944,7 +937,7 @@ let dispatch ~ctx ~env (node : Node.t) =
            let index_list_fail (fault : Index_list.fault) =
              malformed esc (`Index_list { Index_list.fault })
            in
-           if got > self_rank then
+           if got > (self_rank :> int) then
              index_list_fail
                (Index_list.Length_mismatch { expected = self_rank; got })
            else
@@ -971,12 +964,15 @@ let dispatch ~ctx ~env (node : Node.t) =
                    (Index_list.Wrong_dtype
                       { position = p; dtype = Pt2_dtype.scalar_type_name dtype }));
              let index_rank = meta_rank meta in
-             if index_rank < 1 then
+             if (index_rank :> int) < 1 then
                index_list_fail
                  (Index_list.Wrong_rank { position = p; rank = index_rank })
              else
                let axis =
-                 match axes_for_rank esc ~tensor:self_name self_rank [ p ] with
+                 match
+                   axes_for_rank esc ~tensor:self_name self_rank
+                     [ Aten_int.Dim.of_int p ]
+                 with
                  | [ a ] -> a
                  | _ ->
                      invalid_arg

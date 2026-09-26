@@ -39,7 +39,8 @@ let shape_of_sizes esc name sizes =
             malformed esc (`Bad_dimension { tensor = name; fault = `Zero })
         | SymInt.Int i ->
             malformed esc
-              (`Bad_dimension { tensor = name; fault = `Negative i })
+              (`Bad_dimension
+                 { tensor = name; fault = `Negative (Aten_int.Size.of_int i) })
         | SymInt.Expr _ ->
             malformed esc (`Bad_dimension { tensor = name; fault = `Symbolic }))
       sizes
@@ -270,6 +271,18 @@ let int_arg esc ?(default = 0) (node : Pytorch_types.Node.t) name =
   | Some _ ->
       malformed esc
         (`Wrong_arg_kind { op = node.target; arg = name; expected = `Int })
+
+(* The same read, typed as what the model wrote it as: a dim number, or a list
+   of them. Nothing is checked here -- [Aten_shape] and [axes_for_rank] judge it
+   against a rank. *)
+let dim_arg esc ?(default = 0) node name =
+  Aten_int.Dim.of_int (int_arg esc ~default node name)
+
+let dims_arg esc ?default node name =
+  List.map Aten_int.Dim.of_int (ints_arg esc ?default node name)
+
+let sizes_arg esc ?default node name =
+  List.map Aten_int.Size.of_int (ints_arg esc ?default node name)
 
 (* A REQUIRED [int]: no default, so omission is [`Missing_arg] -- the same
    fix [float_arg]'s own comment gives for smuggling a default into a field
@@ -695,7 +708,11 @@ let dim_extent esc ~tensor n =
   | Error _ ->
       malformed esc
         (`Bad_dimension
-           { tensor; fault = (if n = 0 then `Zero else `Negative n) })
+           {
+             tensor;
+             fault =
+               (if n = 0 then `Zero else `Negative (Aten_int.Size.of_int n));
+           })
   | Ok e -> e
 
 let pos_hw esc ~op ~param (h, w) =

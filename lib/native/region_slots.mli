@@ -14,8 +14,8 @@ val of_locals : Region_local.t list -> t
     [Region_program.t] can exist, so by the time a program reaches here the
     total is already proven to fit. *)
 
-val total : t -> int
-val offset : t -> Expr.Local_var.t -> (int * int) option
+val total : t -> Slot.count Slot.t
+val offset : t -> Expr.Local_var.t -> Slot.Range.t option
 
 val reader :
   t ->

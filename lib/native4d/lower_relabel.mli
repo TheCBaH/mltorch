@@ -41,7 +41,8 @@ type t = {
   sigs : Tensor_sig.t list;  (** Signatures of [fresh] and [extra]. *)
 }
 
-val find : Graph_view.t -> watermark:int -> avoid:Tensor_id.Set.t -> t list
+val find :
+  Graph_view.t -> watermark:Tensor_id.Next.t -> avoid:Tensor_id.Set.t -> t list
 (** Fresh tensor ids are allocated from [watermark] upward. A group that meets a
     tensor of [avoid] is left alone (the tensors a region already owns). *)
 

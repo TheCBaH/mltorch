@@ -66,7 +66,8 @@ let%expect_test
     Err.or_raise ~pp_error:Region_group.pp_error
       (Region_group.project ~max_size ~max_depth group ordinal)
   in
-  let program_a = project 0 and program_b = project 1 in
+  let program_a = project (Region_group.Ordinal.of_int 0)
+  and program_b = project (Region_group.Ordinal.of_int 1) in
   let tensor_a =
     Err.or_raise ~pp_error:Region_eval.pp_error
       (Region_eval.materialize program_a
@@ -144,7 +145,10 @@ let%expect_test
 
 let%expect_test "region group: unknown emitter ordinal is rejected" =
   let group = Err.or_raise ~pp_error:Region_group.pp_error (build_group ()) in
-  (match Region_group.project ~max_size ~max_depth group 5 with
+  (match
+     Region_group.project ~max_size ~max_depth group
+       (Region_group.Ordinal.of_int 5)
+   with
   | Error e -> Fmt.pr "%a@." Region_group.pp_error (Err.Error.kind e)
   | Ok _ -> Fmt.pr "unexpectedly accepted@.");
   [%expect {| unknown emitter ordinal 5 |}]
@@ -252,7 +256,9 @@ let%expect_test
   in
   let materialize ordinal shape =
     Err.or_raise ~pp_error:Region_eval.pp_error
-      (Region_eval.materialize (project ordinal) ~output_shape:shape ~env)
+      (Region_eval.materialize
+         (project (Region_group.Ordinal.of_int ordinal))
+         ~output_shape:shape ~env)
   in
   let tensor_a = materialize 0 emitter_a.Region_group.Emitter.output_shape in
   let tensor_b = materialize 1 emitter_b.Region_group.Emitter.output_shape in
@@ -284,10 +290,13 @@ let%expect_test
   let group = Err.or_raise ~pp_error:Region_group.pp_error (build_group ()) in
   let solo_program =
     Err.or_raise ~pp_error:Region_group.pp_error
-      (Region_group.project ~max_size ~max_depth group 0)
+      (Region_group.project ~max_size ~max_depth group
+         (Region_group.Ordinal.of_int 0))
   in
   let solo = Region_group.Ref.Solo solo_program in
-  let grouped = Region_group.Ref.Grouped (group, 0) in
+  let grouped =
+    Region_group.Ref.Grouped (group, Region_group.Ordinal.of_int 0)
+  in
   let project r =
     Err.or_raise ~pp_error:Region_group.pp_error
       (Region_group.Ref.project ~max_size ~max_depth r)

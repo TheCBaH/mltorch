@@ -23,14 +23,14 @@ type t = {
   outputs : output list;
 }
 
-let ext shape axis = Dim.to_int (Vec6.get shape axis)
-let nonunit shape = List.filter (fun a -> ext shape a > 1) Axis.all
-let dialect_valid shape = ext shape Axis.T = 1 && ext shape Axis.D = 1
+let extent shape axis = Vec6.get shape axis
+let is_one e = Dim.equal e Dim.one
 
-(* Every product below is a sub-product of one tensor's extents, so it is at most
-   that tensor's element count, which graph construction already bounds well
-   inside a 32-bit [int] (this library is reachable from js_of_ocaml). *)
-let product = List.fold_left ( * ) 1
+let nonunit shape =
+  List.filter (fun a -> not (is_one (extent shape a))) Axis.all
+
+let dialect_valid shape =
+  is_one (extent shape Axis.T) && is_one (extent shape Axis.D)
 
 let is_f32 (sg : Tensor_sig.t) =
   match sg.Tensor_sig.fmt with Payload.Fmt Payload.F32 -> true | _ -> false
@@ -70,6 +70,8 @@ let chain ~x_shape ~tgt ~perm ~po ~y_shape ~sel =
   | Ok x4 -> (
       let exception Abort in
       let get = function Some v -> v | None -> raise Abort in
+      (* A product that does not fit declines the recognizer. *)
+      let product es = get (Extent_product.bounded es) in
       try
         (* 1. the slice of [x], when a select follows. *)
         let selected_in =
@@ -77,7 +79,7 @@ let chain ~x_shape ~tgt ~perm ~po ~y_shape ~sel =
         in
         let slice, x_after =
           match (sel, selected_in) with
-          | Some (_, k_extent, k), Some a ->
+          | Some (_, k_extent, (k : Dim.index Dim.t)), Some a ->
               let before_a, after_a =
                 let rec split acc = function
                   | [] -> (List.rev acc, [])
@@ -87,12 +89,13 @@ let chain ~x_shape ~tgt ~perm ~po ~y_shape ~sel =
                 in
                 split [] Axis.all
               in
-              let pre = product (List.map (ext tgt) before_a) in
-              let post = product (List.map (ext tgt) after_a) in
-              if k_extent < 2 || ext tgt a <> k_extent then raise Abort;
+              let pre = product (List.map (extent tgt) before_a) in
+              let post = product (List.map (extent tgt) after_a) in
+              if is_one k_extent || not (Dim.equal (extent tgt a) k_extent) then
+                raise Abort;
               let dims = Axis4.all in
               let candidate i =
-                let ex a4 = Dim.to_int (Shape4.get x4 a4) in
+                let ex a4 = Shape4.get x4 a4 in
                 let before, rest =
                   let rec split acc = function
                     | [] -> (List.rev acc, [])
@@ -102,15 +105,16 @@ let chain ~x_shape ~tgt ~perm ~po ~y_shape ~sel =
                   split [] dims
                 in
                 let e = ex i in
-                product (List.map ex before) = pre
-                && e > 1
-                && e mod k_extent = 0
-                && e * product (List.map ex rest) = k_extent * post
+                Dim.equal (product (List.map ex before)) pre
+                && (not (is_one e))
+                && Dim.divides ~by:k_extent e
+                && Dim.equal
+                     (product [ e; product (List.map ex rest) ])
+                     (product [ k_extent; post ])
               in
               let xi = get (List.find_opt candidate dims) in
-              let e = Dim.to_int (Shape4.get x4 xi) in
-              let s = e / k_extent in
-              let shape = Shape4.set x4 xi (Dim.extent s) in
+              let s = get (Dim.div_exact (Shape4.get x4 xi) ~by:k_extent) in
+              let shape = Shape4.set x4 xi s in
               ( Some
                   {
                     op =
@@ -120,8 +124,8 @@ let chain ~x_shape ~tgt ~perm ~po ~y_shape ~sel =
                             Ops4.Slice4.params =
                               {
                                 axis = xi;
-                                start = k * s;
-                                stop = (k + 1) * s;
+                                start = (k :> int) * (s :> int);
+                                stop = ((k :> int) + 1) * (s :> int);
                                 step = Op_config.Pos.of_int 1;
                               };
                             x;
@@ -141,8 +145,7 @@ let chain ~x_shape ~tgt ~perm ~po ~y_shape ~sel =
         let rho = List.combine tgt_axes labels in
         let reshaped =
           List.fold_left
-            (fun shape (ax, label) ->
-              Shape4.set shape label (Dim.extent (ext tgt ax)))
+            (fun shape (ax, label) -> Shape4.set shape label (extent tgt ax))
             (Shape4.of_ints ~n:1 ~h:1 ~w:1 ~c:1)
             rho
         in
@@ -168,7 +171,8 @@ let chain ~x_shape ~tgt ~perm ~po ~y_shape ~sel =
             (fun o y ->
               let y4 = get (Axis4.of_axis y) in
               let src = Permute.Permute.lookup perm o in
-              if ext tgt src <> ext y_shape y then raise Abort;
+              if not (Dim.equal (extent tgt src) (extent y_shape y)) then
+                raise Abort;
               let idx = get (index_of src tgt_axes) in
               (y4, List.nth labels idx))
             lo ys
@@ -286,7 +290,7 @@ let find_at view (p : node) =
                 Some a
             | _ -> None
           in
-          let k_extent = ext po sa in
+          let k_extent = extent po sa in
           let outputs =
             List.map
               (fun (c : node) ->
@@ -304,6 +308,7 @@ let find_at view (p : node) =
             List.fold_left
               (fun acc (o, k) ->
                 let* acc = acc in
+                let* k = Dim.index_of ~extent:k_extent (Dim.delta k) in
                 let* y_shape = sig_of o in
                 let* y_sig = Graph_view.sig_of view o in
                 if (not (is_f32 y_sig)) || not (dialect_valid y_shape) then None
@@ -322,8 +327,10 @@ let find_at view (p : node) =
                 | None -> Some c
                 | Some b ->
                     if
-                      Graph_view.topo_index view c.Node.id
-                      < Graph_view.topo_index view b.Node.id
+                      Option.compare Graph_view.Position.compare
+                        (Graph_view.topo_index view c.Node.id)
+                        (Graph_view.topo_index view b.Node.id)
+                      < 0
                     then Some c
                     else best)
               None consumers
@@ -455,7 +462,7 @@ let find_interleave view =
           let* stacked = Graph_view.sig_of view so in
           let* first_sig = Graph_view.sig_of view first in
           let* y_sig = Graph_view.sig_of view ro in
-          let k = List.length xs in
+          let k = Dim.extent (List.length xs) in
           if
             dialect_valid stacked.Tensor_sig.shape
             || (not (List.for_all in_domain_f32 xs))
@@ -477,7 +484,8 @@ let find_interleave view =
               split [] Axis.all
             in
             let extents axes =
-              List.map (ext u) (List.filter (fun a -> ext u a > 1) axes)
+              List.map (extent u)
+                (List.filter (fun a -> not (is_one (extent u a))) axes)
             in
             let pre = extents before and suf = extents after in
             let m = List.length pre + 1 + List.length suf in
@@ -487,12 +495,13 @@ let find_interleave view =
               let concat_axis = List.nth labels (List.length pre) in
               let shape_with kk =
                 List.fold_left2
-                  (fun sh label e -> Shape4.set sh label (Dim.extent e))
+                  (fun sh label e -> Shape4.set sh label e)
                   (Shape4.of_ints ~n:1 ~h:1 ~w:1 ~c:1)
                   labels
                   (pre @ [ kk ] @ suf)
               in
-              let unit_shape = shape_with 1 and concat_shape = shape_with k in
+              let unit_shape = shape_with Dim.one
+              and concat_shape = shape_with k in
               let* y4 =
                 Result.to_option (Shape4.of_vec6 y_sig.Tensor_sig.shape)
               in

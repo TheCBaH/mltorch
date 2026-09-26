@@ -49,6 +49,6 @@ module type S = sig
      produced by no op, so a graph whose input is directly its output would
      validate with a signature the dialect forbids. *)
   val validate_sig : Tensor_sig.t -> (unit, shape_error) Err.t
-  val classify : op -> output:int -> Output_transfer.t
+  val classify : op -> output:Output_ordinal.t -> Output_transfer.t
   val pp_op : Tensor_id.t Fmt.t -> Format.formatter -> op -> unit
 end

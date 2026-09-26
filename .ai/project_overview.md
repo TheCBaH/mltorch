@@ -78,7 +78,8 @@ not require running inference first.
 
 See `.ai`'s other docs for each area in depth — `native_graph_design.md`,
 `native_transform_design.md`, `native4d_design.md`, `native_compute_design.md`,
-`interpreter_design.md`, `model_explorer_design.md`, `js_backends_design.md` —
+`interpreter_design.md`, `model_explorer_design.md`, `js_backends_design.md`,
+`domain_int_design.md` (one `int`, one meaning) —
 and grep `.ai/` by topic for anything not listed here.
 
 ## ATen C++ build

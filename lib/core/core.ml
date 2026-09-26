@@ -1,6 +1,7 @@
 (* See core.mli. *)
 
 module Float_bits = Float_bits
+module Tagged_int = Tagged_int
 
 module Pretty = struct
   let to_string pp v = Fmt.str "%a" pp v

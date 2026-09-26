@@ -22,14 +22,14 @@ type tensor_bridge_error = { arg_name : string; cause : Tensor_bridge.error }
    [dim] is the ORIGINAL value as decoded (not normalized), and [rank] is the
    operand's rank. *)
 module Invalid_dim = struct
-  type t = { op : string; dim : int; rank : int }
+  type t = { op : string; dim : Aten_int.Dim.t; rank : Rank.t }
 end
 
 (* [permute.default]/[transpose.int] build a full permutation from a decoded
    dims list; a list whose length disagrees with the operand's rank is a
    distinct fault from any single dim being out of range. *)
 module Dims_count = struct
-  type t = { op : string; rank : int; got : int }
+  type t = { op : string; rank : Rank.t; got : int }
 end
 
 (* `einsum.default`, restricted to [Aten_shape.Einsum]'s two evidenced
@@ -37,7 +37,7 @@ end
    and 3 respectively (`.ai/einsum_design.md`). Any other equation, operand
    count, or rank pairing is rejected by name rather than guessed at. *)
 module Einsum_unsupported = struct
-  type t = { equation : string; ranks : int list }
+  type t = { equation : string; ranks : Rank.t list }
 end
 
 (* [cat.default]/[stack.default]: ATen requires every tensor in the list to
@@ -48,7 +48,7 @@ end
    would surface there as a confusing off-axis extent mismatch instead of
    the rank fault it actually is. *)
 module Concat_rank_mismatch = struct
-  type t = { op : string; first : int; other : int }
+  type t = { op : string; first : Rank.t; other : Rank.t }
 end
 
 (* Carries ATen's OWN dtype, read off the source tensor before conversion,
@@ -73,17 +73,21 @@ end
    [op] names which normalisation, because three targets now share these rows
    and the message used to say "rms_norm" for all of them. *)
 module Normalized_rank = struct
-  type t = { op : Norm.Target.t; rank : int; got : int }
+  type t = { op : Norm.Target.t; rank : Rank.t; got : int }
 end
 
 module Normalized_shape = struct
-  type t = { op : Norm.Target.t; expected : int list; got : int list }
+  type t = {
+    op : Norm.Target.t;
+    expected : Aten_int.Size.t list;
+    got : Aten_int.Size.t list;
+  }
 end
 
 (* An optional operand's declared RANK, which right-alignment into the six-axis
    frame erases before any shared shape rule can see it. *)
 module Operand_rank = struct
-  type t = { arg_name : string; expected : int; got : int }
+  type t = { arg_name : string; expected : Rank.t; got : Rank.t }
 end
 
 (* [matmul.default]'s remaining unsupported shape family, now that the
@@ -95,7 +99,10 @@ end
    way. Carries both raw ATen shapes -- not just "which check failed" -- so a
    reader can see the actual shapes, not merely that the rule failed. *)
 module Matmul_unsupported_shape = struct
-  type t = { self_shape : int array; other_shape : int array }
+  type t = {
+    self_shape : Aten_int.Size.t array;
+    other_shape : Aten_int.Size.t array;
+  }
 end
 
 module Pool_unsupported = struct
@@ -104,7 +111,7 @@ module Pool_unsupported = struct
 end
 
 module Adaptive_pool_rank = struct
-  type t = { got : int }
+  type t = { got : Rank.t }
 end
 
 (* sdpa's typed rejection boundary is [Attention.Sdpa.Reject], shared with
@@ -123,29 +130,29 @@ end
    restriction is a real, provable typed rejection. *)
 module Index_list = struct
   type fault =
-    | Length_mismatch of { expected : int; got : int }
+    | Length_mismatch of { expected : Rank.t; got : int }
     | Multiple_live_entries of int list (* positions, in order found *)
     | No_live_entry
     | Wrong_dtype of { position : int; dtype : Aten_scalar_type.t }
-    | Wrong_rank of { position : int; rank : int }
+    | Wrong_rank of { position : int; rank : Rank.t }
 
   type t = { fault : fault }
 end
 
 type error =
   [ `Adaptive_pool_rank of Adaptive_pool_rank.t
-  | `Addmm_invalid_weight_rank of int array
+  | `Addmm_invalid_weight_rank of Aten_int.Size.t array
   | `Aten_shape of Aten_shape.error
   | `Bad_config of Op_config.Bad.t
   | `Bad_pad_list of Pad.Pad.Bad_pad_list.t
   | `Build of Graph_builder.error
   | `Concat_no_tensors of string
   | `Concat_rank_mismatch of Concat_rank_mismatch.t
-  | `Conv1d_invalid_weight_rank of int array
-  | `Conv2d_invalid_weight_rank of int array
-  | `Conv2d_padding_invalid_weight_rank of int array
-  | `Conv3d_invalid_weight_rank of int array
-  | `Convolution_invalid_weight_rank of int array
+  | `Conv1d_invalid_weight_rank of Aten_int.Size.t array
+  | `Conv2d_invalid_weight_rank of Aten_int.Size.t array
+  | `Conv2d_padding_invalid_weight_rank of Aten_int.Size.t array
+  | `Conv3d_invalid_weight_rank of Aten_int.Size.t array
+  | `Convolution_invalid_weight_rank of Aten_int.Size.t array
   | `Decode of Interp_decode.error
   | `Dims_count of Dims_count.t
   | `Einsum_unsupported of Einsum_unsupported.t
@@ -154,7 +161,7 @@ type error =
   | `Invalid_dhw_arg of invalid_hw_arg
   | `Invalid_hw_arg of invalid_hw_arg
   | `Invalid_w_arg of invalid_hw_arg
-  | `Linear_invalid_weight_rank of int array
+  | `Linear_invalid_weight_rank of Aten_int.Size.t array
   | `Lstm_reject of Lstm.Lstm.Reject.t
   | `Matmul_unsupported_shape of Matmul_unsupported_shape.t
   | `Normalized_rank of Normalized_rank.t
@@ -174,54 +181,60 @@ type error =
 let pp_int_list ppf xs =
   Fmt.pf ppf "[%a]" (Fmt.list ~sep:(Fmt.any ", ") Fmt.int) xs
 
-let pp_int_array ppf xs = pp_int_list ppf (Array.to_list xs)
+let pp_sizes ppf xs =
+  Fmt.pf ppf "[%a]" (Fmt.list ~sep:(Fmt.any ", ") Aten_int.Size.pp) xs
+
+let pp_size_array ppf xs = pp_sizes ppf (Array.to_list xs)
+
+let pp_ranks ppf xs =
+  Fmt.pf ppf "[%a]" (Fmt.list ~sep:(Fmt.any ", ") Rank.pp) xs
 
 let pp_error ppf : [< error ] -> unit = function
   | `Adaptive_pool_rank { Adaptive_pool_rank.got } ->
       Fmt.pf ppf
         "adaptive pool2d input must be rank-3 (CHW) or rank-4 (NCHW), got \
-         rank-%d"
-        got
+         rank-%a"
+        Rank.pp got
   | `Addmm_invalid_weight_rank shape ->
-      Fmt.pf ppf "addmm: mat2 must be rank-2, got shape %a" pp_int_array shape
+      Fmt.pf ppf "addmm: mat2 must be rank-2, got shape %a" pp_size_array shape
   | `Aten_shape e -> Aten_shape.pp_error ppf e
   | `Bad_config e -> Op_config.Bad.pp ppf e
   | `Bad_pad_list e -> Pad.Pad.Bad_pad_list.pp ppf e
   | `Build e -> Graph_builder.pp_error ppf e
   | `Concat_no_tensors op -> Fmt.pf ppf "%s: at least one tensor is required" op
   | `Concat_rank_mismatch { Concat_rank_mismatch.op; first; other } ->
-      Fmt.pf ppf "%s: every tensor must have the same rank: %d vs %d" op first
-        other
+      Fmt.pf ppf "%s: every tensor must have the same rank: %a vs %a" op Rank.pp
+        first Rank.pp other
   | `Conv1d_invalid_weight_rank shape ->
-      Fmt.pf ppf "conv1d: weight must be rank-3, got shape %a" pp_int_array
+      Fmt.pf ppf "conv1d: weight must be rank-3, got shape %a" pp_size_array
         shape
   | `Conv2d_invalid_weight_rank shape ->
-      Fmt.pf ppf "conv2d: weight must be rank-4, got shape %a" pp_int_array
+      Fmt.pf ppf "conv2d: weight must be rank-4, got shape %a" pp_size_array
         shape
   | `Conv2d_padding_invalid_weight_rank shape ->
       Fmt.pf ppf "conv2d.padding: weight must be rank-4, got shape %a"
-        pp_int_array shape
+        pp_size_array shape
   | `Conv3d_invalid_weight_rank shape ->
-      Fmt.pf ppf "conv3d: weight must be rank-5, got shape %a" pp_int_array
+      Fmt.pf ppf "conv3d: weight must be rank-5, got shape %a" pp_size_array
         shape
   | `Convolution_invalid_weight_rank shape ->
-      Fmt.pf ppf "convolution: weight must be rank-4, got shape %a" pp_int_array
-        shape
+      Fmt.pf ppf "convolution: weight must be rank-4, got shape %a"
+        pp_size_array shape
   | `Decode e -> Interp_decode.pp_error ppf e
   | `Dims_count { Dims_count.op; rank; got } ->
-      Fmt.pf ppf "%s: expected %d dims, got %d" op rank got
+      Fmt.pf ppf "%s: expected %a dims, got %d" op Rank.pp rank got
   | `Einsum_unsupported { Einsum_unsupported.equation; ranks } ->
       Fmt.pf ppf
         "einsum.default: unsupported equation %S with operand ranks %a (only \
          \"byhwc,hkc->byhwk\"/\"byhwc,wkc->byhwk\", each with a rank-5 self \
          and rank-3 other, are recognized)"
-        equation pp_int_list ranks
+        equation pp_ranks ranks
   | `Index_list { Index_list.fault } -> (
       match fault with
       | Index_list.Length_mismatch { expected; got } ->
           Fmt.pf ppf
-            "index.Tensor: indices has %d entries, more than self's rank %d" got
-            expected
+            "index.Tensor: indices has %d entries, more than self's rank %a" got
+            Rank.pp expected
       | Index_list.Multiple_live_entries positions ->
           Fmt.pf ppf
             "index.Tensor: indices has more than one live entry, at positions \
@@ -234,10 +247,11 @@ let pp_error ppf : [< error ] -> unit = function
             (Aten_scalar_type.to_string dtype)
       | Index_list.Wrong_rank { position; rank } ->
           Fmt.pf ppf
-            "index.Tensor: indices[%d] must be at least rank 1, got rank %d"
-            position rank)
+            "index.Tensor: indices[%d] must be at least rank 1, got rank %a"
+            position Rank.pp rank)
   | `Invalid_dim { Invalid_dim.op; dim; rank } ->
-      Fmt.pf ppf "%s: invalid dimension %d for rank %d" op dim rank
+      Fmt.pf ppf "%s: invalid dimension %a for rank %a" op Aten_int.Dim.pp dim
+        Rank.pp rank
   | `Invalid_dhw_arg { name; values } ->
       Fmt.pf ppf "%s: expected [d; h; w] or [v], got %a" name pp_int_list values
   | `Invalid_hw_arg { name; values } ->
@@ -245,24 +259,25 @@ let pp_error ppf : [< error ] -> unit = function
   | `Invalid_w_arg { name; values } ->
       Fmt.pf ppf "%s: expected a single int, got %a" name pp_int_list values
   | `Linear_invalid_weight_rank shape ->
-      Fmt.pf ppf "linear: weight must be rank-2, got shape %a" pp_int_array
+      Fmt.pf ppf "linear: weight must be rank-2, got shape %a" pp_size_array
         shape
   | `Lstm_reject e -> Lstm.Lstm.Reject.pp ppf e
   | `Matmul_unsupported_shape
       { Matmul_unsupported_shape.self_shape; other_shape } ->
       Fmt.pf ppf
         "matmul.default: both operands must be rank>=2, got self=%a other=%a"
-        pp_int_array self_shape pp_int_array other_shape
+        pp_size_array self_shape pp_size_array other_shape
   | `Normalized_rank { Normalized_rank.op; rank; got } ->
       Fmt.pf ppf
-        "%a: normalized_shape has %d entries, outside [1, %d] for this rank"
-        Norm.Target.pp op got rank
+        "%a: normalized_shape has %d entries, outside [1, %a] for this rank"
+        Norm.Target.pp op got Rank.pp rank
   | `Normalized_shape { Normalized_shape.op; expected; got } ->
       Fmt.pf ppf
         "%a: normalized_shape %a does not match the input's trailing extents %a"
-        Norm.Target.pp op pp_int_list got pp_int_list expected
+        Norm.Target.pp op pp_sizes got pp_sizes expected
   | `Operand_rank { Operand_rank.arg_name; expected; got } ->
-      Fmt.pf ppf "%s must be rank-%d, got rank-%d" arg_name expected got
+      Fmt.pf ppf "%s must be rank-%a, got rank-%a" arg_name Rank.pp expected
+        Rank.pp got
   | `Pool_unsupported { Pool_unsupported.op; option } -> (
       match option with
       | Pool_unsupported.Dilation d ->

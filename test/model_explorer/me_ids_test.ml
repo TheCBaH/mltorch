@@ -137,12 +137,14 @@ let%expect_test "the structural forms" =
   let path = Pt2_native_graph.Graph_path.root in
   let nested =
     Pt2_native_graph.Graph_path.child
-      (Pt2_native_graph.Graph_path.child path 3)
-      7
+      (Pt2_native_graph.Graph_path.child path
+         (Pt2_native_graph.Graph_path.Child.of_int 3))
+      (Pt2_native_graph.Graph_path.Child.of_int 7)
   in
   Format.printf "pt2_graph root   %S@." (Me_ids.pt2_graph path);
   Format.printf "pt2_graph nested %S@." (Me_ids.pt2_graph nested);
-  Format.printf "pt2_node         %S@." (Me_ids.pt2_node nested 12);
+  Format.printf "pt2_node         %S@."
+    (Me_ids.pt2_node nested (Pt2_native_graph.Node_origin.Index.of_int 12));
   Format.printf "graph            %S@." (Me_ids.graph Me_ids.Layer.Native 7);
   Format.printf "graph wide       %S@." (Me_ids.graph Me_ids.Layer.Native 1234);
   Format.printf "flow_state       %S@."

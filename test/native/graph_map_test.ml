@@ -87,7 +87,7 @@ let%expect_test "join: F32 -> BF16 -> F32 stays approximate at BF16" =
    really does still guarantee. *)
 let%expect_test "output_transfer: clone is reindexing and keeps Approximate" =
   let show op =
-    let cls = Output_transfer.classify op ~output:0 in
+    let cls = Output_transfer.classify op ~output:Output_ordinal.zero in
     Fmt.pf Fmt.stdout "%a: %a -> %a@." Output_transfer.pp cls C.pp_relation
       (approx [ bf16 ]) C.pp_relation
       (Output_transfer.transfer (approx [ bf16 ]) cls)
@@ -123,10 +123,11 @@ let%expect_test "output_transfer: every unbind slice keeps Approximate" =
   List.iter
     (fun output ->
       let cls = Output_transfer.classify op ~output in
-      Fmt.pf Fmt.stdout "out%d %a: %a -> %a@." output Output_transfer.pp cls
-        C.pp_relation (approx [ bf16 ]) C.pp_relation
+      Fmt.pf Fmt.stdout "out%d %a: %a -> %a@."
+        (output :> int)
+        Output_transfer.pp cls C.pp_relation (approx [ bf16 ]) C.pp_relation
         (Output_transfer.transfer (approx [ bf16 ]) cls))
-    [ 0; 1; 2 ];
+    (List.map Output_ordinal.of_int [ 0; 1; 2 ]);
   [%expect
     {|
     out0 reindexing: approximate(bf16) -> approximate(bf16)

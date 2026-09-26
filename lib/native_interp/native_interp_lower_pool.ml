@@ -48,7 +48,7 @@ let dispatch ~ctx ~env (node : Node.t) =
                (tensor_meta esc graph ~ssa:x_name
                   ~role:`Adaptive_avg_pool2d_input)
            in
-           if got <> 3 && got <> 4 then
+           if (got :> int) <> 3 && (got :> int) <> 4 then
              malformed esc (`Adaptive_pool_rank { tensor = x_name; got });
            let out_h, out_w =
              match ints_arg esc node "output_size" with
@@ -84,7 +84,7 @@ let dispatch ~ctx ~env (node : Node.t) =
                (tensor_meta esc graph ~ssa:x_name
                   ~role:`Adaptive_max_pool2d_input)
            in
-           if got <> 3 && got <> 4 then
+           if (got :> int) <> 3 && (got :> int) <> 4 then
              malformed esc (`Adaptive_pool_rank { tensor = x_name; got });
            let out_h, out_w =
              match ints_arg esc node "output_size" with

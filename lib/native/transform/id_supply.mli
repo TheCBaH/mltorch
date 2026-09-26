@@ -7,6 +7,15 @@
 
 open Graph_ir
 
+(* The first free id in each space: three independent counters. *)
+module Marks : sig
+  type t = {
+    tensor : Tensor_id.Next.t;
+    node : Node_id.Next.t;
+    group : Group_id.Next.t;
+  }
+end
+
 type t
 
 (* Watermarks: the first free id in each space. [of_graph] takes them one past
@@ -19,6 +28,11 @@ val of_graph : 'op Graph_common.Graph.t -> t
    every advance. Packing compacts post-origin ids upward from here, which is what
    keeps them disjoint from every origin id. *)
 val origin : t -> t
+
+(* The first free id of one space, for a caller that allocates outside the
+   supply but must stay above every id the graph used (Native4D's lowering). *)
+val next_tensor : t -> Tensor_id.Next.t
+val next_node : t -> Node_id.Next.t
 val tensor : t -> Tensor_id.t * t
 val node : t -> Node_id.t * t
 val group : t -> Group_id.t * t
@@ -38,8 +52,8 @@ val is_post_group : t -> Group_id.t -> bool
    count. [repack] is the ONE operation that lowers [next]; it is sound only
    because the ids between the new [next] and the old one have just been
    renumbered out of existence. *)
-val origin_marks : t -> int * int * int
-val repack : t -> tensor:int -> node:int -> group:int -> t
+val origin_marks : t -> Marks.t
+val repack : t -> Marks.t -> t
 
 (* Structural equality of the watermarks, for the [Rewrite] staleness and
    contiguity checks (a recipe's end watermark must equal the next one's start). *)

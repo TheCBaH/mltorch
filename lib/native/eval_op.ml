@@ -47,7 +47,10 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Adaptive_max_pool2d_with_indices
         { Pool.AdaptiveMaxPool2dWithIndices.params; x } ->
         let module C = Pool.AdaptiveMaxPool2dWithIndices.Compute (S) in
-        let pix = if output = 0 then C.value_pixel else C.index_pixel in
+        let pix =
+          if Output_ordinal.equal output Output_ordinal.zero then C.value_pixel
+          else C.index_pixel
+        in
         pix params ~x_shape:(shape_of x) ~x:(operand x) out
     | Amax { Reduce.Amax.params; x } ->
         let module C = Reduce.Amax.Compute (S) in
@@ -220,14 +223,20 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Lstm _ -> invalid_arg "Eval_op.pixel: Lstm is Region-authored"
     | Max_dim { Reduce.MaxDim.params; x } ->
         let module C = Reduce.MaxDim.Compute (S) in
-        let pix = if output = 0 then C.value_pixel else C.index_pixel in
+        let pix =
+          if Output_ordinal.equal output Output_ordinal.zero then C.value_pixel
+          else C.index_pixel
+        in
         pix params ~x_shape:(shape_of x) ~x:(operand x) out
     | Max_pool2d { Pool.MaxPool2d.params; x } ->
         let module C = Pool.MaxPool2d.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
     | Max_pool2d_with_indices { Pool.MaxPool2dWithIndices.params; x } ->
         let module C = Pool.MaxPool2dWithIndices.Compute (S) in
-        let pix = if output = 0 then C.value_pixel else C.index_pixel in
+        let pix =
+          if Output_ordinal.equal output Output_ordinal.zero then C.value_pixel
+          else C.index_pixel
+        in
         pix params ~x_shape:(shape_of x) ~x:(operand x) out
     | Mean { Reduce.Mean.params; x } ->
         let module C = Reduce.Mean.Compute (S) in
@@ -235,9 +244,11 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Meshgrid { Meshgrid.Meshgrid.tensors } ->
         let module C = Meshgrid.Meshgrid.Compute (S) in
         let axis =
-          List.nth (Aten_shape.used_axes ~rank:(List.length tensors)) output
+          List.nth
+            (Aten_shape.used_axes ~rank:(Rank.of_list tensors))
+            (output :> int)
         in
-        C.pixel ~axis (operand (List.nth tensors output)) out
+        C.pixel ~axis (operand (List.nth tensors (output :> int))) out
     | Div { Pointwise.Bin.a; b } ->
         let module C = Pointwise.Div.Compute (S) in
         C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)

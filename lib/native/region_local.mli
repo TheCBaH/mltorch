@@ -9,7 +9,7 @@ module Rhs : sig
   type t = private
     | Scalar of float Expr.Value.t
     | Vector of {
-        extent : int;
+        extent : Slot.extent Slot.t;
         var : Expr.Reduce_var.t;
         body : float Expr.Value.t;
       }
@@ -18,10 +18,13 @@ module Rhs : sig
   val scalar : float Expr.Value.t -> t
 
   val vector :
-    extent:int -> var:Expr.Reduce_var.t -> body:float Expr.Value.t -> t
+    extent:Slot.extent Slot.t ->
+    var:Expr.Reduce_var.t ->
+    body:float Expr.Value.t ->
+    t
 
   val scan : Expr.Scan.t -> t
-  val slot_count : t -> int
+  val slot_count : t -> Slot.count Slot.t
 
   val value : t -> float Expr.Value.t
   (** The one [float Expr.Value.t] a scalar/vector right-hand side carries -- a
@@ -39,8 +42,8 @@ module Shape : sig
      check needs. Derived from [Rhs.t], never stored independently. *)
   type t =
     | Scalar
-    | Vector of { extent : int }
-    | Scan of { width : int; steps : int }
+    | Vector of { extent : Slot.extent Slot.t }
+    | Scan of { width : Slot.extent Slot.t; steps : Slot.extent Slot.t }
 
   val of_rhs : Rhs.t -> t
   val pp : Format.formatter -> t -> unit
@@ -54,7 +57,7 @@ val scan : id:Expr.Local_var.t -> scan:Expr.Scan.t -> t
 val vector :
   id:Expr.Local_var.t ->
   var:Expr.Reduce_var.t ->
-  extent:int ->
+  extent:Slot.extent Slot.t ->
   value:float Expr.Value.t ->
   t
 (** [value]'s body may mention [var] (via [Expr.Index.reduce var]) as its own

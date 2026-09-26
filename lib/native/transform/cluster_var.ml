@@ -1,11 +1,8 @@
 (* See cluster_var.mli. *)
 
-type t = int
-
-let compare = Int.compare
-let equal = Int.equal
-let of_int i = i
-let pp fmt v = Fmt.pf fmt "v%d" v
-let to_int v = v
-
-module Map = Map.Make (Int)
+include
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "v"
+    end)
+    ()

@@ -640,8 +640,8 @@ let select_scatter_d =
    [Domain.check] -- its real content lives on C ([chan]'s own shape,
    [Index_tensor]'s own rank-1 restriction), so this fixture never exercises
    the axis rule on [index], only on [self]'s [axis]. *)
-let index_tensor_graph ?(index_rank = 1) name ~self_shape ~index_shape ~axis ()
-    =
+let index_tensor_graph ?(index_rank = Rank.of_int 1) name ~self_shape
+    ~index_shape ~axis () =
   Graph_builder.build ~name
     ~outputs:(fun o -> [ o ])
     (let open Graph_builder in
@@ -670,7 +670,7 @@ let index_tensor_d =
 (* A rank-2 index gathering along W writes its own axes on H and W, both in
    the dialect. [index_shape] is right-aligned on W and C, index's own frame. *)
 let index_tensor_rank2_w =
-  index_tensor_graph ~index_rank:2 "index_tensor_rank2_w"
+  index_tensor_graph ~index_rank:(Rank.of_int 2) "index_tensor_rank2_w"
     ~self_shape:(nhwc ~n:1 ~h:1 ~w:4 ~c:2)
     ~index_shape:(nhwc ~n:1 ~h:1 ~w:2 ~c:3) ~axis:Axis.W
 
@@ -678,7 +678,7 @@ let index_tensor_rank2_w =
    window is the axis, not the extent, so it is refused even though every
    operand and result extent on D is 1 here. *)
 let index_tensor_rank2_h =
-  index_tensor_graph ~index_rank:2 "index_tensor_rank2_h"
+  index_tensor_graph ~index_rank:(Rank.of_int 2) "index_tensor_rank2_h"
     ~self_shape:(nhwc ~n:1 ~h:4 ~w:1 ~c:2)
     ~index_shape:(nhwc ~n:1 ~h:1 ~w:2 ~c:3) ~axis:Axis.H
 

@@ -373,7 +373,7 @@ let dispatch ~ctx ~env (node : Node.t) =
            in
            let* y =
              permute
-               (native_perm esc ~tensor:x_name ~rank (ints_arg esc node "dims"))
+               (native_perm esc ~tensor:x_name ~rank (dims_arg esc node "dims"))
                (get "self")
            in
            return [ y ]
@@ -388,17 +388,14 @@ let dispatch ~ctx ~env (node : Node.t) =
              meta_rank
                (tensor_meta esc graph ~ssa:x_name ~role:`Transpose_input)
            in
-           let norm_dim d =
-             let d = if d < 0 then d + rank else d in
-             if d < 0 || d >= rank then
-               malformed esc (`Axis_out_of_range { axis = d; rank });
-             d
-           in
-           let d0 = norm_dim (int_arg esc node "dim0") in
-           let d1 = norm_dim (int_arg esc node "dim1") in
+           let rank_n = (rank :> int) in
+           let norm_dim = normalize_dim esc ~rank in
+           let d0 = norm_dim (dim_arg esc node "dim0") in
+           let d1 = norm_dim (dim_arg esc node "dim1") in
            let dims =
-             List.init rank (fun i ->
-                 if i = d0 then d1 else if i = d1 then d0 else i)
+             List.init rank_n (fun i ->
+                 Aten_int.Dim.of_int
+                   (if i = d0 then d1 else if i = d1 then d0 else i))
            in
            let* y =
              permute (native_perm esc ~tensor:x_name ~rank dims) (get "self")
@@ -449,7 +446,7 @@ let dispatch ~ctx ~env (node : Node.t) =
                      meta_rank
                        (tensor_meta esc graph ~ssa:name ~role:`Concat_input)
                    in
-                   if got <> rank then
+                   if not (Rank.equal got rank) then
                      malformed esc
                        (`Concat_rank_mismatch
                           {
@@ -459,11 +456,7 @@ let dispatch ~ctx ~env (node : Node.t) =
                           }))
                  names;
                let d =
-                 let dim = int_arg esc ~default:0 node "dim" in
-                 let dim = if dim < 0 then dim + rank else dim in
-                 if dim < 0 || dim >= rank then
-                   malformed esc (`Axis_out_of_range { axis = dim; rank });
-                 dim
+                 normalize_dim esc ~rank (dim_arg esc ~default:0 node "dim")
                in
                let axis = List.nth (used_axes_for esc ~tensor:name0 rank) d in
                let* y =
@@ -582,7 +575,7 @@ let dispatch ~ctx ~env (node : Node.t) =
                      meta_rank
                        (tensor_meta esc graph ~ssa:name ~role:`Stack_input)
                    in
-                   if got <> rank then
+                   if not (Rank.equal got rank) then
                      malformed esc
                        (`Concat_rank_mismatch
                           {
@@ -592,14 +585,14 @@ let dispatch ~ctx ~env (node : Node.t) =
                           }))
                  names;
                let d =
-                 let dim = int_arg esc ~default:0 node "dim" in
-                 let dim = if dim < 0 then dim + rank + 1 else dim in
-                 if dim < 0 || dim > rank then
-                   malformed esc (`Axis_out_of_range { axis = dim; rank });
-                 dim
+                 normalize_insert_dim esc ~rank
+                   (dim_arg esc ~default:0 node "dim")
                in
                let axis =
-                 List.nth (used_axes_for esc ~tensor:name0 (rank + 1)) d
+                 List.nth
+                   (used_axes_for esc ~tensor:name0
+                      (Rank.of_int ((rank :> int) + 1)))
+                   d
                in
                let* y =
                  stack { Concat.Stack.axis } (List.map (env_find esc env) names)
@@ -614,20 +607,17 @@ let dispatch ~ctx ~env (node : Node.t) =
            let rank =
              meta_rank (tensor_meta esc graph ~ssa:x_name ~role:`Select_input)
            in
-           let d =
-             let dim = int_arg esc node "dim" in
-             let dim = if dim < 0 then dim + rank else dim in
-             if dim < 0 || dim >= rank then
-               malformed esc (`Axis_out_of_range { axis = dim; rank });
-             dim
-           in
+           let d = normalize_dim esc ~rank (dim_arg esc node "dim") in
            let axis = List.nth (used_axes_for esc ~tensor:x_name rank) d in
            let shape = tensor_shape esc graph x_name in
            let extent = Vec6.get shape axis in
            let idx =
-             resolve_select_index esc ~extent ~index:(int_arg esc node "index")
+             resolve_select_index esc ~extent
+               ~index:(Aten_int.Index.of_int (int_arg esc node "index"))
            in
-           let* y = select { Split.Select.axis; index = idx } (get "self") in
+           let* y =
+             select { Split.Select.axis; index = (idx :> int) } (get "self")
+           in
            return [ y ]
        (* One [Select_scatter] node: [self] with [src] written at [idx] along
          the normalized axis, every other position carried through from
@@ -640,22 +630,17 @@ let dispatch ~ctx ~env (node : Node.t) =
              meta_rank
                (tensor_meta esc graph ~ssa:self_name ~role:`Select_scatter_input)
            in
-           let d =
-             let dim = int_arg esc node "dim" in
-             let dim = if dim < 0 then dim + rank else dim in
-             if dim < 0 || dim >= rank then
-               malformed esc (`Axis_out_of_range { axis = dim; rank });
-             dim
-           in
+           let d = normalize_dim esc ~rank (dim_arg esc node "dim") in
            let axis = List.nth (used_axes_for esc ~tensor:self_name rank) d in
            let shape = tensor_shape esc graph self_name in
            let extent = Vec6.get shape axis in
            let idx =
-             resolve_select_index esc ~extent ~index:(int_arg esc node "index")
+             resolve_select_index esc ~extent
+               ~index:(Aten_int.Index.of_int (int_arg esc node "index"))
            in
            let* y =
              select_scatter
-               { Split.Select_scatter.axis; index = idx }
+               { Split.Select_scatter.axis; index = (idx :> int) }
                ~self:(get "self") ~src:(get "src")
            in
            return [ y ]
@@ -671,16 +656,10 @@ let dispatch ~ctx ~env (node : Node.t) =
              meta_rank (tensor_meta esc graph ~ssa:x_name ~role:`Squeeze_input)
            in
            let dims =
-             List.map
-               (fun dim ->
-                 let d = if dim < 0 then dim + rank else dim in
-                 if d < 0 || d >= rank then
-                   malformed esc (`Axis_out_of_range { axis = d; rank });
-                 d)
-               (ints_arg esc node "dim")
+             List.map (normalize_dim esc ~rank) (dims_arg esc node "dim")
            in
            let shape = tensor_shape esc graph x_name in
-           let aten_list = Array.to_list (Aten_shape.to_aten ~rank shape) in
+           let aten_list = aten_sizes ~rank shape in
            let out_sizes =
              List.map
                (fun x -> SymInt.Int x)
@@ -699,17 +678,11 @@ let dispatch ~ctx ~env (node : Node.t) =
            let rank =
              meta_rank (tensor_meta esc graph ~ssa:x_name ~role:`Squeeze_input)
            in
-           let d =
-             let dim = int_arg esc node "dim" in
-             let dim = if dim < 0 then dim + rank else dim in
-             if dim < 0 || dim >= rank then
-               malformed esc (`Axis_out_of_range { axis = dim; rank });
-             dim
-           in
+           let d = normalize_dim esc ~rank (dim_arg esc node "dim") in
            let axis = List.nth (used_axes_for esc ~tensor:x_name rank) d in
            let shape = tensor_shape esc graph x_name in
            let extent = Vec6.get shape axis in
-           let aten_list = Array.to_list (Aten_shape.to_aten ~rank shape) in
+           let aten_list = aten_sizes ~rank shape in
            let out_sizes =
              List.map
                (fun x -> SymInt.Int x)
@@ -735,15 +708,9 @@ let dispatch ~ctx ~env (node : Node.t) =
              meta_rank
                (tensor_meta esc graph ~ssa:x_name ~role:`Unsqueeze_input)
            in
-           let d =
-             let dim = int_arg esc node "dim" in
-             let dim = if dim < 0 then dim + rank + 1 else dim in
-             if dim < 0 || dim > rank then
-               malformed esc (`Axis_out_of_range { axis = dim; rank });
-             dim
-           in
+           let d = normalize_insert_dim esc ~rank (dim_arg esc node "dim") in
            let shape = tensor_shape esc graph x_name in
-           let aten_list = Array.to_list (Aten_shape.to_aten ~rank shape) in
+           let aten_list = aten_sizes ~rank shape in
            let front = List.filteri (fun i _ -> i < d) aten_list in
            let back = List.filteri (fun i _ -> i >= d) aten_list in
            let out_sizes =
@@ -768,23 +735,29 @@ let dispatch ~ctx ~env (node : Node.t) =
            let axis =
              match
                axes_for_rank esc ~tensor:x_name rank
-                 [ int_arg esc ~default:0 node "dim" ]
+                 [ dim_arg esc ~default:0 node "dim" ]
              with
              | [ a ] -> a
              | _ ->
                  invalid_arg "Native_interp: axes_for_rank lost its singleton"
            in
            let extent = Vec6.get (tensor_shape esc graph x_name) axis in
-           let start = int_opt_arg_opt esc node "start" in
-           let stop = int_opt_arg_opt esc node "end" in
-           let step = int_arg esc ~default:1 node "step" in
+           let start =
+             Option.map Aten_int.Index.of_int (int_opt_arg_opt esc node "start")
+           in
+           let stop =
+             Option.map Aten_int.Index.of_int (int_opt_arg_opt esc node "end")
+           in
+           let step =
+             Aten_int.Step.of_int (int_arg esc ~default:1 node "step")
+           in
            let bounds = resolve_slice_arg esc ~extent ~start ~stop ~step in
            let* y =
              slice
                {
                  Split.Slice.axis;
-                 start = bounds.Aten_shape.Slice_bounds.start;
-                 stop = bounds.Aten_shape.Slice_bounds.stop;
+                 start = (bounds.Aten_shape.Slice_bounds.start :> int);
+                 stop = (bounds.Aten_shape.Slice_bounds.stop :> int);
                  step = bounds.Aten_shape.Slice_bounds.step;
                }
                (get "self")
@@ -798,7 +771,7 @@ let dispatch ~ctx ~env (node : Node.t) =
            let axis =
              match
                axes_for_rank esc ~tensor:x_name rank
-                 [ int_arg esc ~default:0 node "dim" ]
+                 [ dim_arg esc ~default:0 node "dim" ]
              with
              | [ a ] -> a
              | _ ->
@@ -826,7 +799,7 @@ let dispatch ~ctx ~env (node : Node.t) =
            let source =
              match
                axes_for_rank esc ~tensor:x_name rank
-                 [ int_arg esc node "dimension" ]
+                 [ dim_arg esc node "dimension" ]
              with
              | [ a ] -> a
              | _ ->
@@ -862,7 +835,7 @@ let dispatch ~ctx ~env (node : Node.t) =
            let axis =
              match
                axes_for_rank esc ~tensor:x_name rank
-                 [ int_arg esc ~default:0 node "dim" ]
+                 [ dim_arg esc ~default:0 node "dim" ]
              with
              | [ a ] -> a
              | _ ->
@@ -884,7 +857,7 @@ let dispatch ~ctx ~env (node : Node.t) =
            let axis =
              match
                axes_for_rank esc ~tensor:x_name rank
-                 [ int_arg esc ~default:0 node "dim" ]
+                 [ dim_arg esc ~default:0 node "dim" ]
              with
              | [ a ] -> a
              | _ ->
@@ -1015,7 +988,7 @@ let dispatch ~ctx ~env (node : Node.t) =
              reshape
                {
                  Reshape.Reshape.shape =
-                   resolve_view esc ~tensor shape (ints_arg esc node "size");
+                   resolve_view esc ~tensor shape (sizes_arg esc node "size");
                }
                (get "self")
            in
@@ -1051,7 +1024,7 @@ let dispatch ~ctx ~env (node : Node.t) =
                {
                  Pointwise.Expand.size =
                    resolve_expand esc ~tensor:x_name ~self_dims
-                     (ints_arg esc node "size");
+                     (sizes_arg esc node "size");
                }
                (get "self")
            in
@@ -1073,7 +1046,7 @@ let dispatch ~ctx ~env (node : Node.t) =
                {
                  Repeat.Repeat.repeats =
                    resolve_repeat esc ~tensor:x_name ~self_dims
-                     (ints_arg esc node "repeats");
+                     (sizes_arg esc node "repeats");
                }
                (get "self")
            in
@@ -1095,7 +1068,7 @@ let dispatch ~ctx ~env (node : Node.t) =
                {
                  Repeat.Repeat.repeats =
                    resolve_tile esc ~tensor:x_name ~self_dims
-                     (ints_arg esc node "dims");
+                     (sizes_arg esc node "dims");
                }
                (get "self")
            in
@@ -1120,7 +1093,10 @@ let dispatch ~ctx ~env (node : Node.t) =
                    (`Unsupported_option
                       { op = node.target; option = `Repeat_interleave_dim })
              | Some dim -> (
-                 match axes_for_rank esc ~tensor:x_name rank [ dim ] with
+                 match
+                   axes_for_rank esc ~tensor:x_name rank
+                     [ Aten_int.Dim.of_int dim ]
+                 with
                  | [ a ] -> a
                  | _ ->
                      invalid_arg

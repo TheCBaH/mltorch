@@ -30,8 +30,8 @@ let operands =
 let same op =
   let operand id = Tensor_id.Map.find_opt id operands in
   let build f =
-    f ~limits:Kernel.Limits.default ~output:0 ~output_shape:shape ~operand
-      ~fill:(fun _ _ _ -> assert false)
+    f ~limits:Kernel.Limits.default ~output:Output_ordinal.zero
+      ~output_shape:shape ~operand ~fill:(fun _ _ _ -> assert false)
     |> Err.or_raise ~pp_error:Region_computation.pp_error
   in
   let mapped = build (Region_computation4.program ~op) in

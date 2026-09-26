@@ -14,7 +14,7 @@ let limits = Me_limits.Limits.untrusted
 let origin ?(path = NG.Graph_path.root) index =
   {
     NG.Node_origin.graph_path = path;
-    index;
+    index = NG.Node_origin.Index.of_int index;
     target = "aten.op";
     name = None;
     metadata = Schema_runtime.String_map.empty;
@@ -119,7 +119,9 @@ let%expect_test "nested-graph origins do not become navigation" =
   (* The lowerer is root-only, so a non-root [graph_path] names a node in a
      nested graph with no native counterpart. Pairing one would send the right
      pane somewhere unrelated, so such a native node is [created] instead. *)
-  let nested = NG.Graph_path.child NG.Graph_path.root 3 in
+  let nested =
+    NG.Graph_path.child NG.Graph_path.root (NG.Graph_path.Child.of_int 3)
+  in
   show "nested only" [ (0, [ origin ~path:nested 0 ]) ];
   show "root and nested" [ (0, [ origin 0; origin ~path:nested 1 ]) ];
   [%expect

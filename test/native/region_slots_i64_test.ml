@@ -47,7 +47,7 @@ let%expect_test
       (* [id_c]: a 3-wide vector, each element [id_b] plus its own position
          (cast from the float [value_of_index] the reducer binder denotes) --
          proves per-position fill under [~reducer:[(var, p)]]. *)
-      Region_local_i64.vector ~id:id_c ~var ~extent:3
+      Region_local_i64.vector ~id:id_c ~var ~extent:(Slot.extent 3)
         ~value:
           (Expr.Value.i64_add
              (Expr.Value.i64_local id_b)
@@ -57,7 +57,7 @@ let%expect_test
     ]
   in
   let slots = Region_slots_i64.of_locals locals in
-  Fmt.pr "total slots: %d@." (Region_slots_i64.total slots);
+  Fmt.pr "total slots: %a@." Slot.pp (Region_slots_i64.total slots);
   [%expect {| total slots: 5 |}];
   let env =
     Expr_bridge.env ~binding:(fun id ->

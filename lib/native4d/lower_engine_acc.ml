@@ -15,8 +15,8 @@ type acc = {
   nodes : G4.node list; (* reversed *)
   tensors : Tensor_sig.t Tensor_id.Map.t;
   subst : Tensor_id.t Tensor_id.Map.t; (* clone removal, source-side rewiring *)
-  next_tid : int;
-  next_nid : int;
+  next_tid : Tensor_id.Next.t;
+  next_nid : Node_id.Next.t;
   created : Tensor_id.t list; (* fresh destination edges *)
   deleted : Tensor_id.t list; (* source edges with no destination *)
   claims : (Tensor_id.t * Correspondence.relation) list;
@@ -31,7 +31,7 @@ let resolve acc id =
   Option.value (Tensor_id.Map.find_opt id acc.subst) ~default:id
 
 let fresh_tensor acc shape =
-  let id = Tensor_id.of_int acc.next_tid in
+  let id, next_tid = Tensor_id.Next.alloc acc.next_tid in
   let sg =
     Tensor_sig.create ~id ~name:"" ~shape:(Shape4.to_vec6 shape)
       ~fmt:(Payload.Fmt Payload.F32) ()
@@ -39,7 +39,7 @@ let fresh_tensor acc shape =
   ( id,
     {
       acc with
-      next_tid = acc.next_tid + 1;
+      next_tid;
       tensors = Tensor_id.Map.add id sg acc.tensors;
       created = id :: acc.created;
     } )
@@ -70,11 +70,13 @@ let emit acc ~from op outputs =
   let already =
     List.exists (fun (s, _) -> Node_id.equal s from) acc.node_pairs
   in
-  let nid = if already then Node_id.of_int acc.next_nid else from in
+  let nid, next_nid =
+    if already then Node_id.Next.alloc acc.next_nid else (from, acc.next_nid)
+  in
   let acc =
     {
       acc with
-      next_nid = (if already then acc.next_nid + 1 else acc.next_nid);
+      next_nid;
       nodes = { G4.Node.id = nid; op; outputs } :: acc.nodes;
     }
   in

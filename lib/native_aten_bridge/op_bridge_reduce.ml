@@ -27,7 +27,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
       Some
         (let* t = tensor_arg aten_env node "self" in
          let rank = aten_rank t in
-         let* dim = int_arg node "dim" in
+         let* dim = dim_arg node "dim" in
          let* axis = dim_axis ~op:"max.dim" ~rank dim in
          let* keepdim = bool_arg node "keepdim" in
          let* x = native_of_aten "self" t in
@@ -130,7 +130,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
       Some
         (let* t = tensor_arg aten_env node "self" in
          let rank = aten_rank t in
-         let* dim = int_arg node "dim" in
+         let* dim = dim_arg node "dim" in
          let* axis = dim_axis ~op:"softmax.int" ~rank dim in
          let* (_ : _ option) =
            decode_result (D.scalar_type_opt_arg_result node "dtype")
@@ -154,7 +154,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
       Some
         (let* t = tensor_arg aten_env node "self" in
          let rank = aten_rank t in
-         let* dim = int_arg node "dim" in
+         let* dim = dim_arg node "dim" in
          let* axis = dim_axis ~op:"cumsum.default" ~rank dim in
          let* () =
            match D.find_arg node "dtype" with

@@ -133,8 +133,9 @@ let pp_lens_printer ?(verdicts = Graph_ir.Tensor_id.Map.empty)
             List.iteri
               (fun i (o : Pt2_native_graph.Node_origin.t) ->
                 if i > 0 then Fmt.string ppf "; ";
-                Fmt.pf ppf "pt2=%a[%d] %s" Pt2_native_graph.Graph_path.pp
-                  o.graph_path o.index o.target)
+                Fmt.pf ppf "pt2=%a[%a] %s" Pt2_native_graph.Graph_path.pp
+                  o.graph_path Pt2_native_graph.Node_origin.Index.pp o.index
+                  o.target)
               origins);
         Option.iter
           (fun o -> Fmt.pf ppf " %a" pp_outcome o)

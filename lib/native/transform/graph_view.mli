@@ -22,6 +22,9 @@
 
 open Graph_ir
 
+(* A node's place in execution order: its position in [Graph.nodes]. *)
+module Position : Core.Tagged_int.S
+
 type arity = { node : Node_id.t; expected : int; actual : int }
 type sig_key = { key : Tensor_id.t; recorded : Tensor_id.t }
 
@@ -87,7 +90,7 @@ module Make (D : Dialect.S) : sig
 
   (* Position in [Graph.nodes], i.e. execution order. Used to decide "strictly
      earlier" for [Pattern.chain]'s progress rule and to order group items. *)
-  val topo_index : t -> Node_id.t -> int option
+  val topo_index : t -> Node_id.t -> Position.t option
 
   (* Structure. [common_group] is the nearest group whose subtree contains every
      given node — the root for an empty list or for nodes in unrelated groups — and

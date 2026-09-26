@@ -12,43 +12,19 @@
    [Graph_ir] re-exports everything here, monomorphically for the records, so no
    caller changes. See .ai/native4d_plan.md stage 4. *)
 
-module Node_id = struct
-  type t = int
+module Node_id =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "n"
+    end)
+    ()
 
-  let of_int x = x
-  let to_int x = x
-  let equal = Int.equal
-  let compare = Int.compare
-  let pp fmt x = Format.fprintf fmt "n%d" x
-
-  module Ord = struct
-    type nonrec t = t
-
-    let compare = compare
-  end
-
-  module Map = Map.Make (Ord)
-  module Set = Set.Make (Ord)
-end
-
-module Group_id = struct
-  type t = int
-
-  let of_int x = x
-  let to_int x = x
-  let equal = Int.equal
-  let compare = Int.compare
-  let pp fmt x = Format.fprintf fmt "g%d" x
-
-  module Ord = struct
-    type nonrec t = t
-
-    let compare = compare
-  end
-
-  module Map = Map.Make (Ord)
-  module Set = Set.Make (Ord)
-end
+module Group_id =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "g"
+    end)
+    ()
 
 (* Inference source classification. [Input] is supplied by the caller per run;
    [Constant] is model-bound state. *)

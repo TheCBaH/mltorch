@@ -18,7 +18,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          let* aten_w = tensor_arg aten_env node "weight" in
          let w_shape = Aten_tensor.shape aten_w in
          if Array.length w_shape <> 3 then
-           fail (`Conv1d_invalid_weight_rank w_shape)
+           fail (`Conv1d_invalid_weight_rank (aten_dims aten_w))
          else
            let* stride = ints_arg ~default:[ 1 ] node "stride" in
            let* padding = ints_arg ~default:[ 0 ] node "padding" in
@@ -65,7 +65,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          let* aten_w = tensor_arg aten_env node "weight" in
          let w_shape = Aten_tensor.shape aten_w in
          if Array.length w_shape <> 4 then
-           fail (`Conv2d_invalid_weight_rank w_shape)
+           fail (`Conv2d_invalid_weight_rank (aten_dims aten_w))
          else
            let* stride = ints_arg ~default:[ 1; 1 ] node "stride" in
            let* padding = ints_arg ~default:[ 0; 0 ] node "padding" in
@@ -123,7 +123,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          let* aten_w = tensor_arg aten_env node "weight" in
          let w_shape = Aten_tensor.shape aten_w in
          if Array.length w_shape <> 5 then
-           fail (`Conv3d_invalid_weight_rank w_shape)
+           fail (`Conv3d_invalid_weight_rank (aten_dims aten_w))
          else
            let* stride = ints_arg ~default:[ 1; 1; 1 ] node "stride" in
            let* padding = ints_arg ~default:[ 0; 0; 0 ] node "padding" in
@@ -171,7 +171,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          let* aten_w = tensor_arg aten_env node "weight" in
          let w_shape = Aten_tensor.shape aten_w in
          if Array.length w_shape <> 4 then
-           fail (`Conv2d_padding_invalid_weight_rank w_shape)
+           fail (`Conv2d_padding_invalid_weight_rank (aten_dims aten_w))
          else
            let* stride = ints_arg ~default:[ 1; 1 ] node "stride" in
            let* padding = string_arg ~default:"valid" node "padding" in
@@ -221,7 +221,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          let* aten_w = tensor_arg aten_env node "weight" in
          let w_shape = Aten_tensor.shape aten_w in
          if Array.length w_shape <> 4 then
-           fail (`Convolution_invalid_weight_rank w_shape)
+           fail (`Convolution_invalid_weight_rank (aten_dims aten_w))
          else
            let* stride = ints_arg ~default:[ 1; 1 ] node "stride" in
            let* padding = ints_arg ~default:[ 0; 0 ] node "padding" in

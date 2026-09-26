@@ -163,7 +163,9 @@ module Unbind = struct
           (fun v (kin, oax) -> Vec6.copy out ~src:oax ~dst:kin v)
           zero (kept_map p)
       in
-      S.load x (Vec6.set base p.axis (S.clamp_low (S.index_const output)))
+      S.load x
+        (Vec6.set base p.axis
+           (S.clamp_low (S.index_const (output : Output_ordinal.t :> int))))
   end
 end
 
@@ -236,7 +238,8 @@ module Split_with_sizes = struct
      [Compute.pixel]'s generic path and [Eval_direct]'s dtype-preserving
      bypass, so the two cannot compute [output]'s offset differently. *)
   let offset_of ~output sizes =
-    List.filteri (fun i _ -> i < output) sizes |> List.fold_left ( + ) 0
+    List.filteri (fun i _ -> i < (output : Output_ordinal.t :> int)) sizes
+    |> List.fold_left ( + ) 0
 
   let output_shapes ~(x_shape : Vec6.shape) (p : params) =
     let open Err.Syntax in

@@ -24,18 +24,15 @@ let leaf_coord output coord =
    coordinate back to its source and never loads a value. *)
 let reshape_source_coord ~(input : Tensor_sig.t) ~(output : Tensor_sig.t) coord
     =
-  let off = (Vec6.offset output.Tensor_sig.shape coord :> int) in
-  let strides, _ =
+  let off = Vec6.offset output.Tensor_sig.shape coord in
+  let source, _ =
     List.fold_left
-      (fun (acc, prod) axis ->
-        let extent = (Vec6.get input.Tensor_sig.shape axis :> int) in
-        ((axis, prod) :: acc, prod * extent))
-      ([], 1) (List.rev Axis.all)
+      (fun (source, off) axis ->
+        let off, i = Dim.unlin off (Vec6.get input.Tensor_sig.shape axis) in
+        ((axis, i) :: source, off))
+      ([], off) (List.rev Axis.all)
   in
-  Vec6.of_fn (fun axis ->
-      let stride = List.assoc axis strides in
-      let extent = (Vec6.get input.Tensor_sig.shape axis :> int) in
-      Dim.index (off / stride mod extent))
+  Vec6.of_fn (fun axis -> List.assoc axis source)
 
 (* [Repeat.Compute.pixel]'s own per-axis wraparound, over a concrete [coord]
    rather than a [Semantics.SEMANTICS] index: each axis tiles modulo the
@@ -44,9 +41,7 @@ let reshape_source_coord ~(input : Tensor_sig.t) ~(output : Tensor_sig.t) coord
    [Repeat] never flattens. *)
 let repeat_source_coord ~(input : Tensor_sig.t) (coord : Vec6.coord) =
   Vec6.of_fn (fun axis ->
-      let ext = (Vec6.get input.Tensor_sig.shape axis :> int) in
-      let o = Dim.to_int (Vec6.get coord axis) in
-      Dim.index (o mod ext))
+      Dim.wrap (Vec6.get coord axis) (Vec6.get input.Tensor_sig.shape axis))
 
 (* Mirrors [Pointwise_binary.Pow.Compute.pixel]'s six ATen-special-cased
    exponents plus its [exp(scalar * log x)] fallback, exactly -- the
@@ -184,8 +179,8 @@ let rec ground arena store id coord =
          [output_shape] already proved every valid [target] lands in exactly
          one operand's range, so a `None` result below means an operand's own
          signature was missing from the plan, not that the search ran out. *)
-      let target = Dim.to_int (Vec6.get coord axis) in
-      let rec select offset = function
+      let target = Vec6.get coord axis in
+      let rec select start = function
         | [] -> None
         | x :: rest ->
             Option.bind
@@ -193,13 +188,12 @@ let rec ground arena store id coord =
                  (Constant_store.plan store)
                  (Const_ssa.Value_id.of_tensor_id x))
               (fun (input : Tensor_sig.t) ->
-                let extent = Dim.to_int (Vec6.get input.shape axis) in
-                if target - offset < extent then
-                  ground arena store x
-                    (Vec6.set coord axis (Dim.index (target - offset)))
-                else select (offset + extent) rest)
+                let extent = Vec6.get input.shape axis in
+                match Dim.local_in ~start ~extent target with
+                | Some local -> ground arena store x (Vec6.set coord axis local)
+                | None -> select (Dim.fence_after start extent) rest)
       in
-      select 0 xs
+      select (Dim.fence 0) xs
   | Some (Const_ssa.Apply { op = Graph_ir.Sqrt { Pointwise.Sqrt.x }; output })
     ->
       Option.bind

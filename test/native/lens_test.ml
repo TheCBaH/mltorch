@@ -60,7 +60,7 @@ let map_of l =
 let node_origin index target : P.Node_origin.t =
   {
     graph_path = P.Graph_path.root;
-    index;
+    index = P.Node_origin.Index.of_int index;
     target;
     name = None;
     metadata = Schema_runtime.String_map.empty;

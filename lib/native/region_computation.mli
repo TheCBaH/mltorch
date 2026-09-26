@@ -4,7 +4,7 @@ type error =
   | Invalid_program of Region_program.error
   | Invalid_shape of Shape_error.t
   | Missing_operand of Tensor_id.t
-  | Output_ordinal of int
+  | Output_ordinal of Output_ordinal.t
   | Output_shape
 
 type synthetic_role = Layer_bias | Layer_weight | Rms_weight | Sdpa_mask
@@ -14,7 +14,7 @@ val is_region_authored : Graph_ir.op -> bool
 val program :
   limits:Kernel.Limits.t ->
   op:Graph_ir.op ->
-  output:int ->
+  output:Output_ordinal.t ->
   output_shape:Vec6.shape ->
   operand:(Tensor_id.t -> Tensor_sig.t option) ->
   fill:(synthetic_role -> float -> Vec6.shape -> Tensor_sig.t) ->
@@ -32,4 +32,7 @@ val group :
     already happened while resolving the group's own [Region_group.Emitter.t]
     list. *)
 
+(* A group holds one emitter per node output, in order, so an output's ordinal
+   names its emitter. The one place the two numberings meet. *)
+val emitter_of_output : Output_ordinal.t -> Region_group.Ordinal.t
 val pp_error : Format.formatter -> error -> unit

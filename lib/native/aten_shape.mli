@@ -4,7 +4,7 @@
    .ai/native_tensor_design.md §1d. *)
 
 (* The innermost [rank] frame axes, in canonical order. [rank] must be in [0,6]. *)
-val used_axes : rank:int -> Axis.t list
+val used_axes : rank:Rank.t -> Axis.t list
 
 (* Dropping axes re-packs the survivors right-aligned — the same rule
    [used_axes] states, so it lives here rather than being restated by each op
@@ -20,7 +20,7 @@ val repack_dropped : dropped:Axis.t list -> (Axis.t * Axis.t) list
    caller ([Vec6.numel_bounded]) rather than trusted. *)
 module View_size : sig
   type t = {
-    size : int list;
+    size : Aten_int.Size.t list;
     numel : int64;
     fault : [ `Count_mismatch | `Multiple_inferred | `Not_divisible ];
   }
@@ -37,8 +37,8 @@ end
    [resolve_expand_size]'s own comment. *)
 module Expand_size : sig
   type t = {
-    size : int list;
-    self_dims : int array;
+    size : Aten_int.Size.t list;
+    self_dims : Aten_int.Size.t array;
     fault : [ `Leading_inferred of int | `Rank_too_small ];
   }
 
@@ -51,7 +51,7 @@ end
    [Expand_size] there is no [-1] convention to resolve, so this has exactly
    one fault. *)
 module Repeat_size : sig
-  type t = { repeats : int list; self_dims : int array }
+  type t = { repeats : Aten_int.Size.t list; self_dims : Aten_int.Size.t array }
 
   val pp : Format.formatter -> t -> unit
 end
@@ -64,7 +64,11 @@ end
    rule (see [Shape_error.Slice]), not here, so that a graph built through
    [Graph_builder] or decoded from JSON meets it too. *)
 module Slice_bounds : sig
-  type t = { start : int; stop : int; step : Op_config.Pos.t }
+  type t = {
+    start : Dim.fence Dim.t;
+    stop : Dim.fence Dim.t;
+    step : Op_config.Pos.t;
+  }
 
   val pp : Format.formatter -> t -> unit
 end
@@ -73,7 +77,7 @@ end
    a caller who wrote -9 is better served by seeing -9 — alongside the axis
    extent it was judged against. *)
 module Index_bound : sig
-  type t = { index : int; extent : int }
+  type t = { index : Aten_int.Index.t; extent : Dim.extent Dim.t }
 
   val pp : Format.formatter -> t -> unit
 end
@@ -82,7 +86,7 @@ end
    faults, the one thing slice-bound resolution can refuse, and [Dim.error]
    (from validating each dim/size entry). [pp_error] delegates to [Dim.pp_error]
    and [View_size.pp]. *)
-type rank_bound = { rank : int; lo : int; hi : int }
+type rank_bound = { rank : Rank.t; lo : Rank.t; hi : Rank.t }
 
 type error =
   [ Dim.error
@@ -90,7 +94,7 @@ type error =
   | `Index_out_of_range of Index_bound.t
   | `Rank_out_of_range of rank_bound
   | `Repeat_size of Repeat_size.t
-  | `Slice_step of int
+  | `Slice_step of Aten_int.Step.t
     (* A bare int, not a record: PyTorch's rule is "slice step must be
        positive" and the offending value is the whole fact. Which axis and
        which node it was belongs to the importer's own row. *)
@@ -100,23 +104,26 @@ val pp_error : Format.formatter -> error -> unit
 
 (* Right-align an ATen shape into the frame; the outer [6 - rank] axes are
    extent 1. [Error] if the rank exceeds 6 or any dim is negative. *)
-val of_aten : int array -> (Vec6.shape, error) Err.t
+val of_aten : Aten_int.Size.t array -> (Vec6.shape, error) Err.t
 
 (* The ATen shape of the innermost [rank] axes — the inverse of [of_aten] given
    the original rank ([to_aten ~rank:(length a) (of_aten a) = a]). The rank is
    required: the frame alone cannot recover it. *)
-val to_aten : rank:int -> Vec6.shape -> int array
+val to_aten : rank:Rank.t -> Vec6.shape -> Aten_int.Size.t array
 
 (* The frame axis an ATen [dim] index addresses for a tensor of [rank] dims;
    negative [dim] counts from the end (PyTorch convention). *)
-val axis_of_dim : rank:int -> int -> Axis.t
+val axis_of_dim : rank:Rank.t -> Aten_int.Dim.t -> Axis.t
 
 (* Resolve a [view.default]/[_unsafe_view.default] target [size] (which may
    carry one [-1], PyTorch's "infer this dimension" convention) against the
    source's element count [numel]. [numel] is the caller's responsibility to
    bound (below [Kernel.Limits.Hard.numel], via [Vec6.numel_bounded]) before
    calling: this function trusts it and therefore never multiplies past it. *)
-val resolve_view_size : numel:int64 -> int list -> (int list, [> error ]) Err.t
+val resolve_view_size :
+  numel:int64 ->
+  Aten_int.Size.t list ->
+  (Aten_int.Size.t list, [> error ]) Err.t
 
 (* Resolve [aten.expand.default]'s [size] against [self_dims] (its OWN
    declared ATen shape, not the frame's already-erased Vec6 one — see
@@ -127,7 +134,9 @@ val resolve_view_size : numel:int64 -> int list -> (int list, [> error ]) Err.t
    [shape_of_sizes], the same split [resolve_view_size] leaves to its own
    callers. *)
 val resolve_expand_size :
-  self_dims:int array -> size:int list -> (int list, [> error ]) Err.t
+  self_dims:Aten_int.Size.t array ->
+  size:Aten_int.Size.t list ->
+  (Aten_int.Size.t list, [> error ]) Err.t
 
 (* Resolve [aten.repeat.default]'s [repeats] against [self_dims] (its OWN
    declared ATen rank, not the frame's already-erased [Vec6.shape]). Unlike
@@ -136,7 +145,9 @@ val resolve_expand_size :
    only fault). Positivity of each entry is left to the caller's own
    [of_aten], the same split [resolve_expand_size] leaves it. *)
 val resolve_repeat_size :
-  self_dims:int array -> repeats:int list -> (int list, [> error ]) Err.t
+  self_dims:Aten_int.Size.t array ->
+  repeats:Aten_int.Size.t list ->
+  (Aten_int.Size.t list, [> error ]) Err.t
 
 (* Resolve [aten.tile.default]'s [dims] against [self_dims]. Unlike
    [repeat.default], [tile]'s own rank rule runs the OTHER direction: a
@@ -146,7 +157,9 @@ val resolve_repeat_size :
    [resolve_repeat_size]'s existing "extra leading tile axis" case verbatim
    -- so this pads then delegates, rather than restating that half. *)
 val resolve_tile_size :
-  self_dims:int array -> dims:int list -> (int list, [> error ]) Err.t
+  self_dims:Aten_int.Size.t array ->
+  dims:Aten_int.Size.t list ->
+  (Aten_int.Size.t list, [> error ]) Err.t
 
 (* Resolve [aten.slice.Tensor]'s bounds along one axis, in PyTorch's own order:
    refuse a non-positive [step]; supply the defaults for an absent [start] (0)
@@ -161,9 +174,9 @@ val resolve_tile_size :
    see [Slice_bounds]. *)
 val resolve_slice :
   extent:Dim.extent Dim.t ->
-  start:int option ->
-  stop:int option ->
-  step:int ->
+  start:Aten_int.Index.t option ->
+  stop:Aten_int.Index.t option ->
+  step:Aten_int.Step.t ->
   (Slice_bounds.t, [> error ]) Err.t
 
 (* Resolve [aten.select.int]'s index along one axis: normalize a negative
@@ -171,7 +184,9 @@ val resolve_slice :
    [resolve_slice]) if it still falls outside [0, extent), matching ATen's
    own IndexError. Returns the normalized, in-range position. *)
 val resolve_index :
-  extent:Dim.extent Dim.t -> index:int -> (int, [> error ]) Err.t
+  extent:Dim.extent Dim.t ->
+  index:Aten_int.Index.t ->
+  (Dim.index Dim.t, [> error ]) Err.t
 
 (* `aten.einsum.default`'s [equation] argument, restricted to the two shapes
    evidenced in the corpus (`mvitv2_tiny`'s decomposed relative-position

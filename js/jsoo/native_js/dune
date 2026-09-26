@@ -37,7 +37,7 @@
 
 (copy_files
  (files
-  %{workspace_root}/lib/native/{aten_shape,dim,direct,eval_direct,eval_symbolic,expr_bridge,fusion_plan,graph_builder,graph_ir,graph_ir_op,graph_json,kernel_adapt,kernel_elab,kernel_eval,kernel,op_config,output_spec,quant,region_computation,region_eval,region_execution,region_group,region_kernel,region_local,region_partition,region_program,region_slots,region_trace,shape_error,stage_program,symbolic,tensor_id,vec6}.{ml,mli}))
+  %{workspace_root}/lib/native/{aten_int,aten_shape,dim,dim_arith,direct,eval_direct,eval_symbolic,expr_bridge,fusion_plan,graph_builder,graph_ir,graph_ir_op,graph_json,kernel_adapt,kernel_elab,kernel_eval,kernel,op_config,output_ordinal,output_spec,quant,rank,region_computation,region_eval,region_execution,region_group,region_kernel,region_local,region_partition,region_program,region_slots,region_trace,shape_error,slot,stage_program,symbolic,tensor_id,vec6}.{ml,mli}))
 
 (copy_files
  (files

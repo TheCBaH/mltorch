@@ -8,10 +8,13 @@ type error =
   | Invalid_program of Region_program.error
   | Invalid_shape of Shape_error.t
   | Missing_operand of Tensor_id.t
-  | Output_ordinal of int
+  | Output_ordinal of Output_ordinal.t
   | Output_shape
 
 type synthetic_role = Layer_bias | Layer_weight | Rms_weight | Sdpa_mask
+
+let emitter_of_output (o : Output_ordinal.t) =
+  Region_group.Ordinal.of_int (o :> int)
 
 let pp_error fmt = function
   | Invalid_group error -> Region_group.pp_error fmt error
@@ -20,13 +23,15 @@ let pp_error fmt = function
       Region_context.pp_error fmt (Region_context.Invalid_program error)
   | Invalid_shape error -> Shape_error.pp fmt error
   | Missing_operand id -> Fmt.pf fmt "missing operand %a" Tensor_id.pp id
-  | Output_ordinal output -> Fmt.pf fmt "unsupported output ordinal %d" output
+  | Output_ordinal output ->
+      Fmt.pf fmt "unsupported output ordinal %a" Output_ordinal.pp output
   | Output_shape -> Fmt.string fmt "output shape does not match the input"
 
 let required ~operand id = operand id |> Err.of_option (Missing_operand id)
 
 let check_output ~output ~output_shape ~(expected : Vec6.shape) =
-  if output <> 0 then Err.fail (Output_ordinal output)
+  if (output : Output_ordinal.t :> int) <> 0 then
+    Err.fail (Output_ordinal output)
   else if not (Region_context.same_shape output_shape expected) then
     Err.fail Output_shape
   else Err.return ()
@@ -154,11 +159,11 @@ let built ~limits ~op ~output ~output_shape ~operand ~fill =
         resolve_lstm ~operand lstm
       in
       let* expected =
-        match output with
+        match (output :> int) with
         | 0 -> Err.return out_shape
         | 1 -> Err.return hn_shape
         | 2 -> Err.return cn_shape
-        | n -> Err.fail (Output_ordinal n)
+        | _ -> Err.fail (Output_ordinal output)
       in
       let* () =
         if Region_context.same_shape output_shape expected then Err.return ()
@@ -166,8 +171,9 @@ let built ~limits ~op ~output ~output_shape ~operand ~fill =
       in
       Err.map_error
         (fun e -> Invalid_group e)
-        (Lstm.Lstm.Computation.program ~limits params ~output
-           ~layers:resolved_layers ~input ~h0 ~c0 ~out_shape ~hn_shape ~cn_shape)
+        (Lstm.Lstm.Computation.program ~limits params
+           ~output:(emitter_of_output output) ~layers:resolved_layers ~input ~h0
+           ~c0 ~out_shape ~hn_shape ~cn_shape)
   | Sdpa
       {
         Attention.Sdpa.params;

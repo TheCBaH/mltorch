@@ -63,7 +63,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
         (let* aten_x = tensor_arg aten_env node "self" in
          let got = aten_rank aten_x in
          let* () =
-           if got = 3 || got = 4 then return ()
+           if (got :> int) = 3 || (got :> int) = 4 then return ()
            else fail (`Adaptive_pool_rank { Adaptive_pool_rank.got })
          in
          let* output_size = ints_arg node "output_size" in
@@ -96,7 +96,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          let* aten_x = tensor_arg aten_env node "self" in
          let got = aten_rank aten_x in
          let* () =
-           if got = 3 || got = 4 then return ()
+           if (got :> int) = 3 || (got :> int) = 4 then return ()
            else fail (`Adaptive_pool_rank { Adaptive_pool_rank.got })
          in
          let* output_size = ints_arg node "output_size" in

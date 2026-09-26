@@ -271,11 +271,11 @@ end
 module Index_tensor = struct
   type t =
     | Index_shape_mismatch of {
-        index_rank : int;
+        index_rank : Rank.t;
         axis : Axis.t;
         extent : Dim.extent Dim.t;
       }
-    | Rank_overflow of { axis : Axis.t; index_rank : int }
+    | Rank_overflow of { axis : Axis.t; index_rank : Rank.t }
     | Self_collision of {
         axis : Axis.t;
         colliding_axis : Axis.t;
@@ -285,14 +285,14 @@ module Index_tensor = struct
   let pp ppf = function
     | Index_shape_mismatch { index_rank; axis; extent } ->
         Fmt.pf ppf
-          "index.Tensor: index declared rank %d, but its own axis %a has \
-           extent %a (must be 1, outside a rank-%d tensor's own real axes)"
-          index_rank Axis.pp axis Dim.pp extent index_rank
+          "index.Tensor: index declared rank %a, but its own axis %a has \
+           extent %a (must be 1, outside a rank-%a tensor's own real axes)"
+          Rank.pp index_rank Axis.pp axis Dim.pp extent Rank.pp index_rank
     | Rank_overflow { axis; index_rank } ->
         Fmt.pf ppf
-          "index.Tensor: a rank-%d index ending at axis %a needs more frame \
+          "index.Tensor: a rank-%a index ending at axis %a needs more frame \
            axes than the 6-axis frame has room for"
-          index_rank Axis.pp axis
+          Rank.pp index_rank Axis.pp axis
     | Self_collision { axis; colliding_axis; extent } ->
         Fmt.pf ppf
           "index.Tensor: a multi-axis index at axis %a would overwrite self's \

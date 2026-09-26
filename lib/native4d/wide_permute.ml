@@ -11,29 +11,59 @@ let max_permutes = 3
 
 exception Abort
 
-(* Every product is a sub-product of one tensor's extents, hence at most its
-   element count, which graph construction bounds inside a 32-bit [int]. *)
-let product = List.fold_left ( * ) 1
-let ext shape axis = Dim.to_int (Vec6.get shape axis)
+(* The three numberings this planner keeps apart. An ATOM is a piece of an axis
+   no reshape cuts across; a BLOCK is a maximal run of atoms that stay adjacent
+   from source to result; a RUN is one contiguous slice of a block order, which
+   a move reorders. All three were [int]s, so [split st a first] and
+   [List.nth runs j] typechecked with either swapped. *)
+module Atom =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "a"
+    end)
+    ()
+
+module Block =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "b"
+    end)
+    ()
+
+module Run =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "r"
+    end)
+    ()
+
+(* A product that does not fit is a run this planner declines. *)
+let product extents =
+  match Extent_product.bounded extents with Some p -> p | None -> raise Abort
 
 type state = {
-  mutable next : int;
-  mutable extents : (int * int) list;  (** atom id -> extent *)
-  mutable base : int list;  (** the source's atoms, in flat order *)
-  mutable groups : (Axis.t * int list) list;
+  mutable next : Atom.t;
+  mutable extents : (Atom.t * Dim.extent Dim.t) list;
+  mutable base : Atom.t list;  (** the source's atoms, in flat order *)
+  mutable groups : (Axis.t * Atom.t list) list;
       (** the current tensor's non-unit axes, each with its atoms *)
 }
 
 let extent st a = List.assoc a st.extents
+let is_one e = Dim.equal e Dim.one
 
 (* Cut atom [a] into a major part of extent [first] and the rest, everywhere it
    is held. A cut is the same in every tensor of the run because an atom's
    pieces keep their order wherever it sits. *)
-let split st a first =
+let split st a ~(first : Dim.extent Dim.t) =
   let e = extent st a in
-  let a1 = st.next and a2 = st.next + 1 in
-  st.next <- st.next + 2;
-  st.extents <- (a1, first) :: (a2, e / first) :: st.extents;
+  let rest =
+    match Dim.div_exact e ~by:first with Some r -> r | None -> raise Abort
+  in
+  let a1 = st.next in
+  let a2 = Atom.succ a1 in
+  st.next <- Atom.succ a2;
+  st.extents <- (a1, first) :: (a2, rest) :: st.extents;
   let sub l =
     List.concat_map (fun b -> if b = a then [ a1; a2 ] else [ b ]) l
   in
@@ -45,23 +75,25 @@ let flat st = List.concat_map snd st.groups
 
 let reshape st target =
   let rec take need atoms acc =
-    if need = 1 then (List.rev acc, atoms)
+    if is_one need then (List.rev acc, atoms)
     else
       match atoms with
       | [] -> raise Abort
-      | a :: rest ->
+      | a :: rest -> (
           let e = extent st a in
-          if need mod e = 0 then take (need / e) rest (a :: acc)
-          else if e mod need = 0 then
-            let a1, a2 = split st a need in
-            take 1 (a2 :: rest) (a1 :: acc)
-          else raise Abort
+          match Dim.div_exact need ~by:e with
+          | Some quotient -> take quotient rest (a :: acc)
+          | None ->
+              if Dim.divides ~by:need e then
+                let a1, a2 = split st a ~first:need in
+                take Dim.one (a2 :: rest) (a1 :: acc)
+              else raise Abort)
   in
   let groups, rest =
     List.fold_left
       (fun (groups, atoms) axis ->
-        let need = ext target axis in
-        if need = 1 then (groups, atoms)
+        let need = Vec6.get target axis in
+        if is_one need then (groups, atoms)
         else
           let taken, atoms = take need atoms [] in
           ((axis, taken) :: groups, atoms))
@@ -83,8 +115,8 @@ let permute st perm =
 (* ---- blocks --------------------------------------------------------------- *)
 
 (* Maximal runs of source-adjacent atoms that are also adjacent, in the same
-   order, in the result. Returns each block's extent (source order) and the
-   result as a sequence of block indices. *)
+   order, in the result. Returns each block's extent and the result as a
+   sequence of blocks. *)
 let blocks st =
   let cur = flat st in
   let rec follows a = function
@@ -101,22 +133,28 @@ let blocks st =
   in
   let block_of, _ =
     List.fold_left2
-      (fun (acc, k) a cut -> ((a, k) :: acc, if cut then k + 1 else k))
-      ([], 0) st.base cuts
+      (fun (acc, k) a cut -> ((a, k) :: acc, if cut then Block.succ k else k))
+      ([], Block.of_int 0)
+      st.base cuts
   in
-  let n = List.fold_left (fun m (_, k) -> max m (k + 1)) 0 block_of in
+  let blocks = List.sort_uniq Block.compare (List.map snd block_of) in
   let sizes =
-    List.init n (fun k ->
-        product
-          (List.filter_map
-             (fun (a, j) -> if j = k then Some (extent st a) else None)
-             block_of))
+    List.fold_left
+      (fun sizes k ->
+        Block.Map.add k
+          (product
+             (List.filter_map
+                (fun (a, j) ->
+                  if Block.equal j k then Some (extent st a) else None)
+                block_of))
+          sizes)
+      Block.Map.empty blocks
   in
   let order =
     List.fold_left
       (fun acc a ->
         let k = List.assoc a block_of in
-        match acc with j :: _ when j = k -> acc | _ -> k :: acc)
+        match acc with j :: _ when Block.equal j k -> acc | _ -> k :: acc)
       [] cur
     |> List.rev
   in
@@ -147,21 +185,23 @@ let rec permutations = function
             (permutations (List.filter (fun y -> y <> x) l)))
         l
 
-type move = { runs : int list list; order : int list }
+type move = { runs : Block.t list list; order : Run.t list }
 
 let moves arrangement =
   List.concat_map
     (fun k ->
+      let identity = List.init k Run.of_int in
       List.concat_map
         (fun runs ->
           List.filter_map
             (fun order ->
-              if order = List.init k Fun.id then None else Some { runs; order })
-            (permutations (List.init k Fun.id)))
+              if order = identity then None else Some { runs; order })
+            (permutations identity))
         (cuts_into k arrangement))
     [ 2; 3; 4 ]
 
-let apply { runs; order } = List.concat_map (fun j -> List.nth runs j) order
+let apply { runs; order } =
+  List.concat_map (fun (j : Run.t) -> List.nth runs (j :> int)) order
 
 (* Shortest sequence of moves from [start] to [goal], at most [max_permutes]. *)
 let search ~start ~goal =
@@ -196,12 +236,12 @@ let search ~start ~goal =
 let shape_of_extents es =
   let labels = List.filteri (fun i _ -> i >= 4 - List.length es) Axis4.all in
   List.fold_left2
-    (fun s label e -> Shape4.set s label (Dim.extent e))
+    (fun s label e -> Shape4.set s label e)
     (Shape4.of_ints ~n:1 ~h:1 ~w:1 ~c:1)
     labels es
 
 let steps_of ~sizes ~x ~y path =
-  let size b = List.nth sizes b in
+  let size b = Block.Map.find b sizes in
   let cur = ref x in
   let out = ref [] in
   let reshape_to shape =
@@ -224,12 +264,15 @@ let steps_of ~sizes ~x ~y path =
                 (fun (_, l) -> Axis4.equal a l)
                 (List.mapi (fun j l -> (j, l)) labels)
             with
-            | Some (j, _) -> (a, List.nth labels (List.nth order j))
+            | Some (j, _) -> (a, List.nth labels (List.nth order j :> int))
             | None -> (a, a))
           Axis4.all
       in
       let shape =
-        shape_of_extents (List.map (fun j -> run_size (List.nth runs j)) order)
+        shape_of_extents
+          (List.map
+             (fun (j : Run.t) -> run_size (List.nth runs (j :> int)))
+             order)
       in
       out := Permute4 (perm, shape) :: !out;
       cur := shape)
@@ -240,13 +283,13 @@ let steps_of ~sizes ~x ~y path =
 let plan ?source ~x ~y ops =
   try
     let x6 = Option.value source ~default:(Shape4.to_vec6 x) in
-    let st = { next = 0; extents = []; base = []; groups = [] } in
+    let st = { next = Atom.of_int 0; extents = []; base = []; groups = [] } in
     List.iter
       (fun axis ->
-        let e = ext x6 axis in
-        if e > 1 then begin
+        let e = Vec6.get x6 axis in
+        if not (is_one e) then begin
           let a = st.next in
-          st.next <- a + 1;
+          st.next <- Atom.succ a;
           st.extents <- (a, e) :: st.extents;
           st.base <- st.base @ [ a ];
           st.groups <- st.groups @ [ (axis, [ a ]) ]
@@ -259,8 +302,9 @@ let plan ?source ~x ~y ops =
         | Reshape target -> reshape st target)
       ops;
     let sizes, order = blocks st in
-    if List.length sizes > max_blocks then raise Abort;
-    let start = List.init (List.length sizes) Fun.id in
+    let block_count = Block.Map.cardinal sizes in
+    if block_count > max_blocks then raise Abort;
+    let start = List.init block_count Block.of_int in
     match search ~start ~goal:order with
     | None -> None
     | Some path -> Some (steps_of ~sizes ~x ~y path)

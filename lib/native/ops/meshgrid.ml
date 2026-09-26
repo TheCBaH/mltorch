@@ -57,7 +57,7 @@ module Meshgrid = struct
   let output_shapes (shapes : Vec6.shape list) =
     let open Err.Syntax in
     let* () = Err.List.iter check_rank1 shapes in
-    let axes = Aten_shape.used_axes ~rank:(List.length shapes) in
+    let axes = Aten_shape.used_axes ~rank:(Rank.of_list shapes) in
     let ones = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1 in
     let out_shape =
       List.fold_left2
@@ -72,7 +72,7 @@ module Meshgrid = struct
         ~w:S.index_zero ~c:S.index_zero
 
     (* [axis] is the axis this output's ordinal owns, resolved by the
-       caller (its position among [used_axes ~rank:(List.length xs)]).
+       caller (its position among [used_axes ~rank:(Rank.of_list xs)]).
        Reads [x] (rank-1, real data on [C]) at the coordinate [out] carries
        on [axis], moved onto [C] -- the inverse of the shape rule's own
        [Vec6.copy ~src:C ~dst:axis]. *)

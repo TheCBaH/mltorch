@@ -101,7 +101,8 @@ let classify (op : op) ~output =
   | Pad _ -> Continuous
   | Max_pool2d_with_indices _ | Adaptive_max_pool2d_with_indices _ | Max_dim _
     ->
-      if output = 0 then Continuous else Discontinuous
+      if Output_ordinal.equal output Output_ordinal.zero then Continuous
+      else Discontinuous
   (* Which input element is read is DATA-DEPENDENT -- the gathered position
      comes from the value stored in [index], not from the output coordinate
      alone -- so an arbitrarily small change to [index]'s content can switch
@@ -200,7 +201,7 @@ module type OPS = sig
   type op
 
   val operands : op -> Tensor_id.t list
-  val classify : op -> output:int -> t
+  val classify : op -> output:Output_ordinal.t -> t
 end
 
 module Make (D : OPS) = struct
@@ -218,7 +219,7 @@ module Make (D : OPS) = struct
             Correspondence.Identical (D.operands n.Node.op)
         in
         List.fold_left
-          (fun (acc, i) out ->
+          (fun acc (i, out) ->
             let acc =
               if Tensor_id.Map.mem out acc then acc
               else if not (preserved out) then acc
@@ -229,9 +230,9 @@ module Make (D : OPS) = struct
                 if claim = Correspondence.Identical then acc
                 else Tensor_id.Map.add out claim acc
             in
-            (acc, i + 1))
-          (acc, 0) n.Node.outputs
-        |> fst)
+            acc)
+          acc
+          (Output_ordinal.indexed n.Node.outputs))
       explicit g.Graph_common.Graph.nodes
 end
 

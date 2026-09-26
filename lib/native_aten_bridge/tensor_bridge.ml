@@ -48,7 +48,7 @@ let of_aten t : (Tensor.packed, [> error ]) Err.t =
      materializing never changes the shape (it clones OR returns the same
      tensor -- either way the shape array is unaffected). *)
   let shape_arr = Aten_tensor.shape t in
-  match Aten_shape.of_aten shape_arr with
+  match Aten_shape.of_aten (Array.map Aten_int.Size.of_int shape_arr) with
   | Error _ as e ->
       (* [Err.map_error] rather than a rebuild: the row only WIDENS here, and
          map_error is what preserves Aten_shape's own detection origin. *)

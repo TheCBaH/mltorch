@@ -6,10 +6,13 @@
 open Graph_ir
 
 module Graph_path : sig
-  type t = int list
+  module Child : Core.Tagged_int.S
+  (** Which child of its parent a nested graph is. *)
+
+  type t = Child.t list
 
   val root : t
-  val child : t -> int -> t
+  val child : t -> Child.t -> t
   val pp : Format.formatter -> t -> unit
 end
 
@@ -22,9 +25,12 @@ module Tensor_origin : sig
 end
 
 module Node_origin : sig
+  module Index : Core.Tagged_int.S
+  (** A node's position in its exporter graph. *)
+
   type t = {
     graph_path : Graph_path.t;
-    index : int;
+    index : Index.t;
     target : string;
     name : string option;
     metadata : string Schema_runtime.String_map.t;

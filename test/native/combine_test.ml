@@ -32,7 +32,8 @@ let%expect_test "Direct: unbind along an outer, a middle and an inner axis" =
     List.iteri
       (fun i sh ->
         Format.printf "  out%d %a %a@." i Vec6.pp_shape sh Tensor.pp
-          (Schedule.evaluate sh (U.pixel p ~output:i ~x)))
+          (Schedule.evaluate sh
+             (U.pixel p ~output:(Output_ordinal.of_int i) ~x)))
       shapes
   in
   run Axis.H;

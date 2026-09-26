@@ -14,8 +14,8 @@ type error =
 and output_count = { count : int }
 
 type state = {
-  next_tid : int;
-  next_nid : int;
+  next_tid : Tensor_id.Next.t;
+  next_nid : Graph_ir.Node_id.Next.t;
   dtype : Payload.packed_fmt;
   rev_nodes : Graph.node list;
   rev_items : Graph_ir.Group.item list;
@@ -46,7 +46,7 @@ let f32 = Payload.Fmt Payload.F32
 (* [shape] is a [Shape4.t]; the stored signature is the [Vec6.shape] it unwraps
    to, per correction C3 — the guard is on the way in, not in storage. *)
 let source ~kind ~(shape : Shape4.t) ?fmt ?quant () s =
-  let tid = Tensor_id.of_int s.next_tid in
+  let tid, next_tid = Tensor_id.Next.alloc s.next_tid in
   let sg =
     Tensor_sig.create ~id:tid ~name:"" ~shape:(Shape4.to_vec6 shape)
       ~fmt:(Option.value fmt ~default:s.dtype)
@@ -55,7 +55,7 @@ let source ~kind ~(shape : Shape4.t) ?fmt ?quant () s =
   ( Ok tid,
     {
       s with
-      next_tid = s.next_tid + 1;
+      next_tid;
       tensors = Tensor_id.Map.add tid sg s.tensors;
       rev_inputs = tid :: s.rev_inputs;
       input_kinds = Tensor_id.Map.add tid kind s.input_kinds;
@@ -68,25 +68,20 @@ let constant ~shape ?fmt ?quant () =
   source ~kind:Graph_ir.Input.Constant ~shape ?fmt ?quant ()
 
 let new_edge ?fmt ?quant (shape : Shape4.t) s =
-  let tid = Tensor_id.of_int s.next_tid in
+  let tid, next_tid = Tensor_id.Next.alloc s.next_tid in
   let sg =
     Tensor_sig.create ~id:tid ~name:"" ~shape:(Shape4.to_vec6 shape)
       ~fmt:(Option.value fmt ~default:f32)
       ?quant ()
   in
-  ( Ok tid,
-    {
-      s with
-      next_tid = s.next_tid + 1;
-      tensors = Tensor_id.Map.add tid sg s.tensors;
-    } )
+  (Ok tid, { s with next_tid; tensors = Tensor_id.Map.add tid sg s.tensors })
 
 let push_node op outputs s =
-  let nid = Graph_ir.Node_id.of_int s.next_nid in
+  let nid, next_nid = Graph_ir.Node_id.Next.alloc s.next_nid in
   ( Ok (),
     {
       s with
-      next_nid = s.next_nid + 1;
+      next_nid;
       rev_nodes = { Graph.Node.id = nid; op; outputs } :: s.rev_nodes;
       rev_items = Graph_ir.Group.Node nid :: s.rev_items;
     } )
@@ -128,7 +123,7 @@ let opN ?fmt ?quant ?(index_i64 = false) op : Tensor_id.t list t =
            Tensor_id.Map.find_opt r s.tensors
            |> Err.of_option (`Missing_tensor_sig r)))
   in
-  Tensor_id.check_room ~next:s.next_tid ~count:(List.length shapes);
+  Tensor_id.Next.check_room s.next_tid ~count:(List.length shapes);
   (* Tail-recursive for the reason [Graph_builder.opN] documents: a monadic
      frame per output overflows node's stack at a few thousand outputs. *)
   let rec alloc acc i = function
@@ -515,8 +510,8 @@ let eye4 params = op1 ~fmt:params.Ops4.Eye4.fmt (Op.Eye4 { Ops4.Eye4.params })
 let build ?(dtype = f32) ~outputs (m : 'a t) =
   let s0 =
     {
-      next_tid = 0;
-      next_nid = 0;
+      next_tid = Tensor_id.Next.first;
+      next_nid = Graph_ir.Node_id.Next.first;
       dtype;
       rev_nodes = [];
       rev_items = [];

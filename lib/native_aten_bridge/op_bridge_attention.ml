@@ -18,11 +18,12 @@ open Op_bridge_decode
    not a new primitive or a reshape-around-the-op legalization. *)
 let require_qkv_rank arg_name t =
   let got = aten_rank t in
-  if got = 4 || got = 5 then return ()
+  if (got :> int) = 4 || (got :> int) = 5 then return ()
   else
     fail
       (`Sdpa_reject
-         (Attention.Sdpa.Reject.Rank { arg_name; expected = [ 4; 5 ]; got }))
+         (Attention.Sdpa.Reject.Rank
+            { arg_name; expected = [ Rank.of_int 4; Rank.of_int 5 ]; got }))
 
 let dispatch ~(aten_env : aten_env) (node : Node.t) :
     (Graph_ir.graph * (Graph_ir.Tensor_id.t * Tensor.packed) list, error) Err.t
@@ -97,14 +98,14 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
              let* () = require_f32 "sdpa attn_mask" m in
              let got = aten_rank m in
              let* () =
-               if got = 2 || got = 4 then return ()
+               if (got :> int) = 2 || (got :> int) = 4 then return ()
                else
                  fail
                    (`Sdpa_reject
                       (Attention.Sdpa.Reject.Rank
                          {
                            arg_name = "sdpa attn_mask";
-                           expected = [ 2; 4 ];
+                           expected = [ Rank.of_int 2; Rank.of_int 4 ];
                            got;
                          }))
              in

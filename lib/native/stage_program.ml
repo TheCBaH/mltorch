@@ -71,14 +71,15 @@ type error =
   [ Region_group.error
   | Region_program.error
   | Region_eval.error
-  | `Duplicate_group_ordinal of int ]
+  | `Duplicate_group_ordinal of Region_group.Ordinal.t ]
 
 let pp_error fmt : [< error ] -> unit = function
   | #Region_group.error as e -> Region_group.pp_error fmt e
   | #Region_program.error as e -> Region_program.pp_error fmt e
   | #Region_eval.error as e -> Region_eval.pp_error fmt e
   | `Duplicate_group_ordinal ordinal ->
-      Fmt.pf fmt "group run repeats emitter ordinal %d" ordinal
+      Fmt.pf fmt "group run repeats emitter ordinal %a" Region_group.Ordinal.pp
+        ordinal
 
 let widen_group r =
   Err.map_error (fun (e : Region_group.error) -> (e :> error)) r

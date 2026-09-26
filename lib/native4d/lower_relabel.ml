@@ -12,37 +12,46 @@ type t = {
   sigs : Tensor_sig.t list;
 }
 
-let ext shape axis = Dim.to_int (Vec6.get shape axis)
+exception Abort
+
+let extent shape axis = Vec6.get shape axis
+let is_one e = Dim.equal e Dim.one
 
 (* A tensor is relabelled when it carries an extent on T or D: N, T and D are
    adjacent in the frame's order, so fusing them into N keeps its flat layout. *)
-let candidate shape = ext shape Axis.T > 1 || ext shape Axis.D > 1
+let candidate shape =
+  (not (is_one (extent shape Axis.T))) || not (is_one (extent shape Axis.D))
 
 (* The one shape that reading D as N (rather than fusing) is exact for: its
    only non-unit axis among N/T/D is D. Ops that name D are defined for it. *)
 let d_only shape =
-  ext shape Axis.D > 1 && ext shape Axis.T = 1 && ext shape Axis.N = 1
+  (not (is_one (extent shape Axis.D)))
+  && is_one (extent shape Axis.T)
+  && is_one (extent shape Axis.N)
 
-let dialect shape = ext shape Axis.T = 1 && ext shape Axis.D = 1
+let dialect shape = is_one (extent shape Axis.T) && is_one (extent shape Axis.D)
 let simple shape = d_only shape || dialect shape
 
-(* N*T*D is at most the tensor's element count, which graph construction bounds
-   inside a 32-bit [int] (this library is reachable from js_of_ocaml). *)
+(* N*T*D fused into N. A shape whose fused extent does not fit is refused
+   ([Abort]), like any op whose meaning does not survive the fusion. *)
+let fuse_ntd shape =
+  match
+    Extent_product.bounded
+      [ extent shape Axis.N; extent shape Axis.T; extent shape Axis.D ]
+  with
+  | Some n -> n
+  | None -> raise Abort
+
 let relabel_shape shape =
   Vec6.set
-    (Vec6.set
-       (Vec6.set shape Axis.N
-          (Dim.extent (ext shape Axis.N * ext shape Axis.T * ext shape Axis.D)))
-       Axis.T (Dim.extent 1))
-    Axis.D (Dim.extent 1)
+    (Vec6.set (Vec6.set shape Axis.N (fuse_ntd shape)) Axis.T Dim.one)
+    Axis.D Dim.one
 
 let relabel_axis = function Axis.D -> Axis.N | a -> a
 
 (* The transposition (N D): a permutation must stay a bijection, so it swaps
    where [relabel_axis], which names a reduced or normalized axis, only moves. *)
 let swap_axis = function Axis.D -> Axis.N | Axis.N -> Axis.D | a -> a
-
-exception Abort
 
 (* A reduction over [dims] with D read as N. The reduced tensor must itself be
    in the frame, and [dims] must not name the unit N or T. With [keepdim] false
@@ -132,19 +141,27 @@ let relabel_op ~shape_of ~rename ~out_shape (op : op) =
       (* The outputs are the fused axis cut into equal runs, which is
          contiguous only when nothing outside [axis] is larger than one. *)
       let s = x_shape () in
-      let e a = ext s a in
+      let e = extent s in
       let count, run =
         match axis with
-        | Axis.N -> (e Axis.N, e Axis.T * e Axis.D)
-        | Axis.T when e Axis.N = 1 -> (e Axis.T, e Axis.D)
-        | Axis.D when e Axis.N = 1 && e Axis.T = 1 -> (e Axis.D, 1)
+        | Axis.N ->
+            ( e Axis.N,
+              match Extent_product.bounded [ e Axis.T; e Axis.D ] with
+              | Some run -> run
+              | None -> raise Abort )
+        | Axis.T when is_one (e Axis.N) -> (e Axis.T, e Axis.D)
+        | Axis.D when is_one (e Axis.N) && is_one (e Axis.T) ->
+            (e Axis.D, Dim.one)
         | _ -> raise Abort
       in
       if not (candidate s) then raise Abort;
       Split_with_sizes
         {
           Split.Split_with_sizes.params =
-            { axis = Axis.N; sizes = List.init count (fun _ -> run) };
+            {
+              axis = Axis.N;
+              sizes = List.init (count :> int) (fun _ -> (run :> int));
+            };
           x;
         }
   | _ -> raise Abort
@@ -367,13 +384,7 @@ let component view ~avoid seed =
 let find view ~watermark ~avoid =
   let g = Graph_view.graph view in
   let next = ref watermark in
-  let next_node =
-    ref
-      (1
-      + List.fold_left
-          (fun m (n : Graph_ir.node) -> max m (Node_id.to_int n.Node.id))
-          0 g.Graph.nodes)
-  in
+  let next_node = ref (Id_supply.next_node (Id_supply.of_graph g)) in
   let claimed = ref Tensor_id.Set.empty in
   List.filter_map
     (fun (n : Graph_ir.node) ->
@@ -393,13 +404,13 @@ let find view ~watermark ~avoid =
                     g.Graph.nodes
                 in
                 let fresh_tensor () =
-                  let f = Tensor_id.of_int !next in
-                  incr next;
+                  let f, n = Tensor_id.Next.alloc !next in
+                  next := n;
                   f
                 in
                 let fresh_node () =
-                  let f = Node_id.of_int !next_node in
-                  incr next_node;
+                  let f, n = Node_id.Next.alloc !next_node in
+                  next_node := n;
                   f
                 in
                 let fresh_of =

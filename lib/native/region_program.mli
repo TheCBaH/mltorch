@@ -122,7 +122,7 @@ module Builder : sig
   val scalar : float Expr.Value.t -> (float Expr.Value.t -> 'a t) -> 'a t
 
   val vector :
-    extent:int ->
+    extent:Slot.extent Slot.t ->
     (Expr.Role.Position.t Expr.Index.t -> float Expr.Value.t Expr.Builder.t) ->
     ((Expr.Role.Position.t Expr.Index.t -> float Expr.Value.t) -> 'a t) ->
     'a t

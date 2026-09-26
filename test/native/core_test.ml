@@ -64,7 +64,12 @@ let pp_dim_result pp_ok = Core.Pretty.err_result ~ok:pp_ok ~error:Dim.pp_error
 let%expect_test "component pp_error messages" =
   Format.printf "%a@." Dim.pp_error (`Non_positive_extent (-3));
   Format.printf "%a@." Aten_shape.pp_error
-    (`Rank_out_of_range { Aten_shape.rank = 7; lo = 0; hi = 6 });
+    (`Rank_out_of_range
+       {
+         Aten_shape.rank = Rank.of_int 7;
+         lo = Rank.of_int 0;
+         hi = Rank.of_int 6;
+       });
   Format.printf "%a@." Symint.pp_error
     (`Out_of_range { Symint.name = "s0"; value = 17; lo = 1; hi = 1024 });
   Format.printf "%a@." Symint.pp_error
@@ -95,7 +100,12 @@ let%expect_test "extent floor is 1 (zero rejected)" =
    [#Dim.error] tag back to Dim.pp_error. Both values are typed [Aten_shape.error]. *)
 let%expect_test "Aten_shape.pp_error delegates Dim tags to Dim.pp_error" =
   let own : Aten_shape.error =
-    `Rank_out_of_range { Aten_shape.rank = 9; lo = 0; hi = 6 }
+    `Rank_out_of_range
+      {
+        Aten_shape.rank = Rank.of_int 9;
+        lo = Rank.of_int 0;
+        hi = Rank.of_int 6;
+      }
   in
   let from_dim : Aten_shape.error = `Non_positive_extent (-2) in
   Format.printf "%a@." Aten_shape.pp_error own;
@@ -159,7 +169,13 @@ let%expect_test "let* short-circuits and unifies the error row" =
   let chain ~rank_bad : (int, Aten_shape.error) Err.t =
     let* () =
       if rank_bad then
-        Err.fail (`Rank_out_of_range { Aten_shape.rank = 7; lo = 0; hi = 6 })
+        Err.fail
+          (`Rank_out_of_range
+             {
+               Aten_shape.rank = Rank.of_int 7;
+               lo = Rank.of_int 0;
+               hi = Rank.of_int 6;
+             })
       else Err.return ()
     in
     let* () = Err.fail (`Non_positive_extent (-1)) in

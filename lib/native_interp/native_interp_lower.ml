@@ -219,7 +219,8 @@ let lower program =
                     [
                       {
                         Pt2_native_graph.Node_origin.graph_path = [];
-                        index = source_index;
+                        index =
+                          Pt2_native_graph.Node_origin.Index.of_int source_index;
                         target = origin_node.target;
                         name = origin_node.name;
                         metadata = origin_node.metadata;

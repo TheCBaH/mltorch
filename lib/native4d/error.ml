@@ -12,7 +12,7 @@ type t =
   | `Map of Graph_map.error
   | `Non_four_dimensional_tensor of Tensor_id.t * Vec6.shape
   | `Sdpa_batch_axis of Node_id.t
-  | `Unsupported_grouped_transposed_conv of Node_id.t * int
+  | `Unsupported_grouped_transposed_conv of Node_id.t * Op_config.Pos.t
   | `Unsupported_op of Node_id.t * op
   | `View of Framework.View4.error ]
 
@@ -48,7 +48,8 @@ let pp fmt : [< t ] -> unit = function
   | `Unsupported_grouped_transposed_conv (node, groups) ->
       Fmt.pf fmt
         "@[node %a: transposed convolution has %d groups; only 1 legalizes@]"
-        Node_id.pp node groups
+        Node_id.pp node
+        (groups : Op_config.Pos.t :> int)
   | `Unsupported_op (node, op) ->
       Fmt.pf fmt "@[<hv 2>node %a: no legalization for@ %a@]" Node_id.pp node
         (Graph_ir.pp_op_with ~pp_ref:Tensor_id.pp)

@@ -181,15 +181,19 @@ module Make (D : Dialect.S) = struct
     let* v = view in
     let position id =
       View.def v id
-      |> Option.fold ~none:(-1) ~some:(fun (n : node) ->
-          Option.value (View.topo_index v n.Node.id) ~default:(-1))
+      |> Option.fold ~none:(Graph_view.Position.of_int (-1))
+           ~some:(fun (n : node) ->
+             Option.value
+               (View.topo_index v n.Node.id)
+               ~default:(Graph_view.Position.of_int (-1)))
     in
     let rec go edge acc =
       let* result = optional (step edge) in
       match result with
       | None -> return (List.rev acc)
       | Some (value, next) ->
-          if position next < position edge then go next (value :: acc)
+          if Graph_view.Position.compare (position next) (position edge) < 0
+          then go next (value :: acc)
           else fail (No_progress edge)
     in
     go start []

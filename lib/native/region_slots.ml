@@ -1,10 +1,10 @@
 type t = {
-  slots : (int * int) Expr.Local_var.Map.t;
-  total : int;
+  slots : Slot.Range.t Expr.Local_var.Map.t;
+  total : Slot.count Slot.t;
   (* [width, steps] for every SCAN-shaped local only -- built once here so
      [scan_reader] below is O(1) setup (a closure over this map), exactly like
      [reader], rather than re-scanning [locals] on every key/output. *)
-  scans : (int * int) Expr.Local_var.Map.t;
+  scans : (Slot.extent Slot.t * int) Expr.Local_var.Map.t;
 }
 
 let of_locals locals =
@@ -16,17 +16,19 @@ let of_locals locals =
           match local.Region_local.rhs with
           | Region_local.Rhs.Scan s ->
               Expr.Local_var.Map.add local.Region_local.id
-                (s.Expr.Scan.width, s.Expr.Scan.steps)
+                (Slot.extent s.Expr.Scan.width, s.Expr.Scan.steps)
                 scans
           | Region_local.Rhs.Scalar _ | Region_local.Rhs.Vector _ -> scans
         in
-        ( Expr.Local_var.Map.add local.Region_local.id (offset, count) slots,
-          offset + count,
+        ( Expr.Local_var.Map.add local.Region_local.id
+            { Slot.Range.offset; count }
+            slots,
+          Slot.advance offset count,
           scans ))
-      (Expr.Local_var.Map.empty, 0, Expr.Local_var.Map.empty)
+      (Expr.Local_var.Map.empty, Slot.zero, Expr.Local_var.Map.empty)
       locals
   in
-  { slots; total; scans }
+  { slots; total = Slot.total total; scans }
 
 let total t = t.total
 let offset t id = Expr.Local_var.Map.find_opt id t.slots
@@ -34,15 +36,18 @@ let offset t id = Expr.Local_var.Map.find_opt id t.slots
 let reader t values =
   let local id =
     match offset t id with
-    | Some (offset, _) when offset < Array.length values -> Some values.(offset)
+    | Some { Slot.Range.offset; _ } when (offset :> int) < Array.length values
+      ->
+        Some values.((offset :> int))
     | _ -> None
   in
   let local_at id pos =
     match offset t id with
-    | Some (offset, count) when pos >= 0 && pos < count ->
-        let i = offset + pos in
-        if i < Array.length values then Some values.(i) else None
-    | _ -> None
+    | Some range -> (
+        match Slot.at range pos with
+        | Some i when i < Array.length values -> Some values.(i)
+        | _ -> None)
+    | None -> None
   in
   (local, local_at)
 
@@ -55,7 +60,7 @@ let scan_reader t values : Expr.Eval.scan_reader =
   match Expr.Local_var.Map.find_opt id t.scans with
   | None -> Err.fail (Expr.Eval.Unknown_local id)
   | Some (width, steps) ->
-      let offset, _ = Option.get (offset t id) in
+      let { Slot.Range.offset; _ } = Option.get (offset t id) in
       let projection =
         { Expr.Eval.Scan_projection.local = Some id; row; lane }
       in
@@ -63,8 +68,8 @@ let scan_reader t values : Expr.Eval.scan_reader =
         Err.fail
           (Expr.Eval.Row_out_of_range
              { Expr.Eval.Scan_bounds.projection; extent = steps + 1 })
-      else if lane < 0 || lane >= width then
+      else if lane < 0 || lane >= (width :> int) then
         Err.fail
           (Expr.Eval.Lane_out_of_range
-             { Expr.Eval.Scan_bounds.projection; extent = width })
-      else Err.return values.(offset + (row * width) + lane)
+             { Expr.Eval.Scan_bounds.projection; extent = (width :> int) })
+      else Err.return values.(Slot.trace_at offset ~width ~row ~lane)

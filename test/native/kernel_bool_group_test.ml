@@ -47,7 +47,8 @@ let value id ordinal fmt result =
   {
     Kernel.Value.id = tid;
     sg = Tensor_sig.create ~id:tid ~name:"" ~shape:out_shape ~fmt ();
-    computation = Region_group.Ref.Grouped (group, ordinal);
+    computation =
+      Region_group.Ref.Grouped (group, Region_group.Ordinal.of_int ordinal);
     result;
   }
 

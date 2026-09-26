@@ -24,7 +24,7 @@ end
 type error =
   [ Expr.Eval.error
   | `Binding_mismatch of Binding_mismatch.t
-  | `Duplicate_group_ordinal of int
+  | `Duplicate_group_ordinal of Region_group.Ordinal.t
   | `Eval_too_deep of int
   | `Recursion_too_deep of int
   | Region_group.error
@@ -37,7 +37,8 @@ let pp_error fmt : [< error ] -> unit = function
   | #Expr.Eval.error as e -> Expr.Eval.pp_error fmt e
   | `Binding_mismatch m -> Binding_mismatch.pp fmt m
   | `Duplicate_group_ordinal ordinal ->
-      Fmt.pf fmt "group run repeats emitter ordinal %d" ordinal
+      Fmt.pf fmt "group run repeats emitter ordinal %a" Region_group.Ordinal.pp
+        ordinal
   | `Eval_too_deep n -> Fmt.pf fmt "evaluation depth exceeds %d" n
   | `Recursion_too_deep n ->
       Fmt.pf fmt "recursive evaluation exceeded its stack budget of %d" n
@@ -458,7 +459,7 @@ let machine esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses =
      path does, so a later solo value that loads a grouped sibling as an
      ordinary source resolves it correctly. *)
   let materialize_group_fresh (g : Region_group.t)
-      (members : (int * Kernel.Value.t) list) =
+      (members : (Region_group.Ordinal.t * Kernel.Value.t) list) =
     (match
        Region_group.Run.duplicate_ordinal (Region_group.Run.Group (g, members))
      with

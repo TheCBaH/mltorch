@@ -178,8 +178,9 @@ let pp_inline_printer (lowered : Pt2_native_graph.t) : Graph_ir.Printer.t =
           List.iteri
             (fun i (origin : Pt2_native_graph.Node_origin.t) ->
               if i > 0 then Fmt.string ppf "; ";
-              Fmt.pf ppf "pt2=%a[%d] %s%s" Pt2_native_graph.Graph_path.pp
-                origin.graph_path origin.index origin.target
+              Fmt.pf ppf "pt2=%a[%a] %s%s" Pt2_native_graph.Graph_path.pp
+                origin.graph_path Pt2_native_graph.Node_origin.Index.pp
+                origin.index origin.target
                 (Option.fold ~none:""
                    ~some:(fun name -> " (" ^ name ^ ")")
                    origin.name))

@@ -28,9 +28,12 @@ module Make (D : Dialect.S) = struct
     Node_id.Set.elements nodes
     |> List.filter_map (fun id -> View.node view id)
     |> List.sort (fun (a : node) (b : node) ->
-        Int.compare
-          (Option.value (View.topo_index view a.Node.id) ~default:0)
-          (Option.value (View.topo_index view b.Node.id) ~default:0))
+        let index (n : node) =
+          Option.value
+            (View.topo_index view n.Node.id)
+            ~default:(Graph_view.Position.of_int 0)
+        in
+        Graph_view.Position.compare (index a) (index b))
 
   let dedup l =
     List.fold_left

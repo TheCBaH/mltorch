@@ -29,23 +29,27 @@ type arg_kind =
    negative size never does. Without its own arm it reached [Dim.extent] and
    escaped as an uncaught [Invalid_argument]. *)
 module Expected_rank = struct
-  type t = { expected : int; got : int }
+  type t = { expected : Rank.t; got : Rank.t }
 end
 
 type dim_fault =
   [ `Expected_rank of Expected_rank.t
-  | `Negative of int
+  | `Negative of Aten_int.Size.t
   | `Over_max_extent of int64
   | `Rank_over_six
   | `Symbolic
   | `Zero ]
 
 module Normalized_rank = struct
-  type t = { op : Norm.Target.t; rank : int; got : int }
+  type t = { op : Norm.Target.t; rank : Rank.t; got : int }
 end
 
 module Normalized_shape = struct
-  type t = { op : Norm.Target.t; expected : int list; got : int list }
+  type t = {
+    op : Norm.Target.t;
+    expected : Aten_int.Size.t list;
+    got : Aten_int.Size.t list;
+  }
 end
 
 (* [native_layer_norm] returns [(out, mean, rstd)]. Native's [Layer_norm] has
@@ -193,7 +197,7 @@ module Missing_metadata = struct
 end
 
 module Axis_out_of_range = struct
-  type t = { axis : int; rank : int }
+  type t = { axis : Aten_int.Dim.t; rank : Rank.t }
 end
 
 module Bad_arity = struct
@@ -201,7 +205,7 @@ module Bad_arity = struct
 end
 
 module Adaptive_pool_rank = struct
-  type t = { tensor : string; got : int }
+  type t = { tensor : string; got : Rank.t }
 end
 
 module Bad_config = Op_config.Bad
@@ -221,7 +225,7 @@ end
 
 module Bad_view = struct
   type t = {
-    size : int list;
+    size : Aten_int.Size.t list;
     fault :
       [ `Aten_shape of Aten_shape.error
       | `Numel_over_limit of Vec6.Numel_bound.t ];
@@ -232,14 +236,20 @@ end
    [Aten_shape.resolve_expand_size]'s errors the same way [Bad_view] wraps
    [resolve_view_size]'s -- see that module's comment. *)
 module Bad_expand = struct
-  type t = { size : int list; fault : [ `Aten_shape of Aten_shape.error ] }
+  type t = {
+    size : Aten_int.Size.t list;
+    fault : [ `Aten_shape of Aten_shape.error ];
+  }
 end
 
 (* [aten.repeat.default]'s own resolution failure, wrapping
    [Aten_shape.resolve_repeat_size]'s error the same way [Bad_expand] wraps
    [resolve_expand_size]'s -- see that module's comment. *)
 module Bad_repeat = struct
-  type t = { repeats : int list; fault : [ `Aten_shape of Aten_shape.error ] }
+  type t = {
+    repeats : Aten_int.Size.t list;
+    fault : [ `Aten_shape of Aten_shape.error ];
+  }
 end
 
 (* [aten.tile.default]'s own row, not [Bad_repeat]'s: the fault (unreachable
@@ -248,20 +258,26 @@ end
    own [`Repeat_size] can never actually fire) still deserves its own name
    rather than printing "repeat repeats [...]" for a [tile] failure. *)
 module Bad_tile = struct
-  type t = { dims : int list; fault : [ `Aten_shape of Aten_shape.error ] }
+  type t = {
+    dims : Aten_int.Size.t list;
+    fault : [ `Aten_shape of Aten_shape.error ];
+  }
 end
 
 module Bad_slice = struct
   type t = {
-    start : int option;
-    stop : int option;
-    step : int;
+    start : Aten_int.Index.t option;
+    stop : Aten_int.Index.t option;
+    step : Aten_int.Step.t;
     fault : [ `Aten_shape of Aten_shape.error ];
   }
 end
 
 module Bad_select = struct
-  type t = { index : int; fault : [ `Aten_shape of Aten_shape.error ] }
+  type t = {
+    index : Aten_int.Index.t;
+    fault : [ `Aten_shape of Aten_shape.error ];
+  }
 end
 
 (* [cat.default]/[stack.default]: every tensor in the list must share one
@@ -271,7 +287,7 @@ end
    off-axis extent mismatch from [Concat]'s own shape rule rather than the
    rank fault it actually is. *)
 module Concat_rank_mismatch = struct
-  type t = { op : string; first : int; other : int }
+  type t = { op : string; first : Rank.t; other : Rank.t }
 end
 
 (* [matmul.default]'s remaining unsupported shape family, now that both the
@@ -282,7 +298,7 @@ end
    [Op_bridge_error.Matmul_unsupported_shape] gives on the ATen-linked side:
    a reader needs the actual shapes, not just which check failed. *)
 module Matmul_unsupported_shape = struct
-  type t = { self : int list; other : int list }
+  type t = { self : Aten_int.Size.t list; other : Aten_int.Size.t list }
 end
 
 (* `upsample_bilinear2d.vec`'s own contract, mirroring ATen's own
@@ -298,7 +314,7 @@ end
    and 3 respectively (`.ai/einsum_design.md`). Mirrors
    [Op_bridge_error.Einsum_unsupported] exactly. *)
 module Einsum_unsupported = struct
-  type t = { equation : string; ranks : int list }
+  type t = { equation : string; ranks : Rank.t list }
 end
 
 (* `index.Tensor`'s list-acceptance rule (`.ai/index_tensor_design.md` round 3,
@@ -309,14 +325,14 @@ end
    importers must reject the same graphs the same way. *)
 module Index_list = struct
   type fault =
-    | Length_mismatch of { expected : int; got : int }
+    | Length_mismatch of { expected : Rank.t; got : int }
     | Multiple_live_entries of int list
     | No_live_entry
     | Wrong_dtype of { position : int; dtype : string }
       (* Already stringified ([Pt2_dtype.scalar_type_name]) by the caller:
            this file has no dependency on [Pytorch_types], the same reason
            [Op_bridge_error.Wrong_argument_kind.actual] stays a string. *)
-    | Wrong_rank of { position : int; rank : int }
+    | Wrong_rank of { position : int; rank : Rank.t }
 
   type t = { fault : fault }
 end
@@ -498,10 +514,11 @@ let pp_hw_param ppf : hw_param -> unit = function
 
 let pp_malformed ppf : [< malformed ] -> unit = function
   | `Adaptive_pool_rank { Adaptive_pool_rank.tensor; got } ->
-      Fmt.pf ppf "%s must be rank-3 (CHW) or rank-4 (NCHW), got rank-%d" tensor
-        got
+      Fmt.pf ppf "%s must be rank-3 (CHW) or rank-4 (NCHW), got rank-%a" tensor
+        Rank.pp got
   | `Axis_out_of_range { Axis_out_of_range.axis; rank } ->
-      Fmt.pf ppf "invalid dimension %d for rank %d" axis rank
+      Fmt.pf ppf "invalid dimension %a for rank %a" Aten_int.Dim.pp axis Rank.pp
+        rank
   | `Bad_arity { Bad_arity.param; got } ->
       Fmt.pf ppf "%a must have %s, got %d" pp_hw_param param
         (match param with
@@ -522,8 +539,10 @@ let pp_malformed ppf : [< malformed ] -> unit = function
   | `Bad_dimension { Bad_dimension.tensor; fault } -> (
       match fault with
       | `Expected_rank { Expected_rank.expected; got } ->
-          Fmt.pf ppf "%s is rank %d, expected %d" tensor got expected
-      | `Negative i -> Fmt.pf ppf "%s has negative dimension %d" tensor i
+          Fmt.pf ppf "%s is rank %a, expected %a" tensor Rank.pp got Rank.pp
+            expected
+      | `Negative i ->
+          Fmt.pf ppf "%s has negative dimension %a" tensor Aten_int.Size.pp i
       | `Over_max_extent n ->
           Fmt.pf ppf "%s has extent %Ld, over the engine maximum of %Ld" tensor
             n Kernel.Limits.Hard.extent
@@ -531,12 +550,12 @@ let pp_malformed ppf : [< malformed ] -> unit = function
       | `Symbolic -> Fmt.pf ppf "%s has a symbolic dimension" tensor
       | `Zero -> Fmt.pf ppf "%s has a zero-length dimension" tensor)
   | `Bad_expand { Bad_expand.size; fault } -> (
-      let ints = Fmt.(list ~sep:(any ", ") int) in
+      let ints = Fmt.(list ~sep:(any ", ") Aten_int.Size.pp) in
       match fault with
       | `Aten_shape e ->
           Fmt.pf ppf "expand size [%a]: %a" ints size Aten_shape.pp_error e)
   | `Bad_repeat { Bad_repeat.repeats; fault } -> (
-      let ints = Fmt.(list ~sep:(any ", ") int) in
+      let ints = Fmt.(list ~sep:(any ", ") Aten_int.Size.pp) in
       match fault with
       | `Aten_shape e ->
           Fmt.pf ppf "repeat repeats [%a]: %a" ints repeats Aten_shape.pp_error
@@ -544,15 +563,16 @@ let pp_malformed ppf : [< malformed ] -> unit = function
   | `Bad_select { Bad_select.index; fault } -> (
       match fault with
       | `Aten_shape e ->
-          Fmt.pf ppf "select index %d: %a" index Aten_shape.pp_error e)
+          Fmt.pf ppf "select index %a: %a" Aten_int.Index.pp index
+            Aten_shape.pp_error e)
   | `Bad_slice { Bad_slice.start; stop; step; fault } -> (
-      let bound = Fmt.(option ~none:(any "none") int) in
+      let bound = Fmt.(option ~none:(any "none") Aten_int.Index.pp) in
       match fault with
       | `Aten_shape e ->
-          Fmt.pf ppf "slice [%a, %a) step %d: %a" bound start bound stop step
-            Aten_shape.pp_error e)
+          Fmt.pf ppf "slice [%a, %a) step %a: %a" bound start bound stop
+            Aten_int.Step.pp step Aten_shape.pp_error e)
   | `Bad_tile { Bad_tile.dims; fault } -> (
-      let ints = Fmt.(list ~sep:(any ", ") int) in
+      let ints = Fmt.(list ~sep:(any ", ") Aten_int.Size.pp) in
       match fault with
       | `Aten_shape e ->
           Fmt.pf ppf "tile dims [%a]: %a" ints dims Aten_shape.pp_error e)
@@ -568,7 +588,7 @@ let pp_malformed ppf : [< malformed ] -> unit = function
           Fmt.pf ppf
             "%s: exactly one of output_size or scale_factors must be given" op)
   | `Bad_view { Bad_view.size; fault } -> (
-      let ints = Fmt.(list ~sep:(any ", ") int) in
+      let ints = Fmt.(list ~sep:(any ", ") Aten_int.Size.pp) in
       match fault with
       | `Aten_shape e ->
           Fmt.pf ppf "view size [%a]: %a" ints size Aten_shape.pp_error e
@@ -576,22 +596,22 @@ let pp_malformed ppf : [< malformed ] -> unit = function
           Fmt.pf ppf "view size [%a]: %a" ints size Vec6.Numel_bound.pp e)
   | `Concat_no_tensors op -> Fmt.pf ppf "%s: at least one tensor is required" op
   | `Concat_rank_mismatch { Concat_rank_mismatch.op; first; other } ->
-      Fmt.pf ppf "%s: every tensor must have the same rank: %d vs %d" op first
-        other
+      Fmt.pf ppf "%s: every tensor must have the same rank: %a vs %a" op Rank.pp
+        first Rank.pp other
   | `Einsum_unsupported { Einsum_unsupported.equation; ranks } ->
       Fmt.pf ppf
         "einsum.default: unsupported equation %S with operand ranks %a (only \
          \"byhwc,hkc->byhwk\"/\"byhwc,wkc->byhwk\", each with a rank-5 self \
          and rank-3 other, are recognized)"
         equation
-        Fmt.(list ~sep:(any ", ") int)
+        Fmt.(list ~sep:(any ", ") Rank.pp)
         ranks
   | `Index_list { Index_list.fault } -> (
       match fault with
       | Index_list.Length_mismatch { expected; got } ->
           Fmt.pf ppf
-            "index.Tensor: indices has %d entries, more than self's rank %d" got
-            expected
+            "index.Tensor: indices has %d entries, more than self's rank %a" got
+            Rank.pp expected
       | Index_list.Multiple_live_entries positions ->
           Fmt.pf ppf
             "index.Tensor: indices has more than one live entry, at positions \
@@ -605,15 +625,15 @@ let pp_malformed ppf : [< malformed ] -> unit = function
             dtype
       | Index_list.Wrong_rank { position; rank } ->
           Fmt.pf ppf
-            "index.Tensor: indices[%d] must be at least rank 1, got rank %d"
-            position rank)
+            "index.Tensor: indices[%d] must be at least rank 1, got rank %a"
+            position Rank.pp rank)
   | `Live_layer_norm_stats { Live_layer_norm_stats.op; stat; ssa } ->
       Fmt.pf ppf "%s: %s output %S is read, and this graph does not have it" op
         (match stat with `Mean -> "mean" | `Rstd -> "rstd")
         ssa
   | `Lstm_reject e -> Lstm.Lstm.Reject.pp ppf e
   | `Matmul_unsupported_shape { Matmul_unsupported_shape.self; other } ->
-      let ints = Fmt.(list ~sep:(any ", ") int) in
+      let ints = Fmt.(list ~sep:(any ", ") Aten_int.Size.pp) in
       Fmt.pf ppf
         "matmul.default: both operands must be rank>=2, got self=[%a] \
          other=[%a]"
@@ -626,10 +646,10 @@ let pp_malformed ppf : [< malformed ] -> unit = function
   | `Non_tensor_node_output op -> Fmt.pf ppf "%s has a non-tensor output" op
   | `Normalized_rank { Normalized_rank.op; rank; got } ->
       Fmt.pf ppf
-        "%a: normalized_shape has %d entries, outside [1, %d] for this rank"
-        Norm.Target.pp op got rank
+        "%a: normalized_shape has %d entries, outside [1, %a] for this rank"
+        Norm.Target.pp op got Rank.pp rank
   | `Normalized_shape { Normalized_shape.op; expected; got } ->
-      let ints = Fmt.(list ~sep:(any ",") int) in
+      let ints = Fmt.(list ~sep:(any ",") Aten_int.Size.pp) in
       Fmt.pf ppf
         "%a: normalized_shape [%a] does not match the input's trailing extents \
          [%a]"

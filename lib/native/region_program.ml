@@ -302,7 +302,8 @@ let checked_slot_total ~limit locals =
     | [] -> Err.return ()
     | local :: rest ->
         let count =
-          Int64.of_int (Region_local.Rhs.slot_count local.Region_local.rhs)
+          Int64.of_int
+            (Region_local.Rhs.slot_count local.Region_local.rhs :> int)
         in
         if Int64.compare total (Int64.sub limit64 count) > 0 then
           Err.fail (`Local_words_over_limit limit)
@@ -465,7 +466,8 @@ let trace_slot_total locals =
       match local.Region_local.rhs with
       | Region_local.Rhs.Scan _ ->
           sat_add_i64 acc
-            (Int64.of_int (Region_local.Rhs.slot_count local.Region_local.rhs))
+            (Int64.of_int
+               (Region_local.Rhs.slot_count local.Region_local.rhs :> int))
       | Region_local.Rhs.Scalar _ | Region_local.Rhs.Vector _ -> acc)
     0L locals
 
@@ -506,7 +508,7 @@ let per_key ~output_shape t =
   let multiplicity local =
     match local.Region_local.rhs with
     | Region_local.Rhs.Scalar _ | Region_local.Rhs.Scan _ -> 1L
-    | Region_local.Rhs.Vector { extent; _ } -> Int64.of_int extent
+    | Region_local.Rhs.Vector { extent; _ } -> Int64.of_int (extent :> int)
   in
   let locals_total =
     List.fold_left
@@ -634,7 +636,7 @@ module Builder = struct
      own binder ([Expr.Builder.fresh_reduce], already public); it occurs FREE
      in [value]'s result, which is what lets [specialize_pixel] beta-reduce it
      back at each read site. *)
-  let vector ~extent value continue state locals =
+  let vector ~(extent : Slot.extent Slot.t) value continue state locals =
     let id, state = Expr.Builder.run_from state Expr.Builder.fresh_local in
     let var, state = Expr.Builder.run_from state Expr.Builder.fresh_reduce in
     let body, state =

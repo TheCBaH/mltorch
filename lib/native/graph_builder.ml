@@ -13,9 +13,9 @@ type error =
 and output_count = { count : int }
 
 type state = {
-  next_tid : int;
-  next_nid : int;
-  next_gid : int;
+  next_tid : Tensor_id.Next.t;
+  next_nid : Node_id.Next.t;
+  next_gid : Group_id.Next.t;
   dtype : Payload.packed_fmt;
   rev_nodes : node list;
   rev_items : Group.item list;
@@ -44,8 +44,7 @@ let get s = (Ok s, s)
 let f32 = Payload.Fmt Payload.F32
 
 let source ~kind ~shape ?name ?fmt ?quant () s =
-  let tid_int = s.next_tid in
-  let tid = Tensor_id.of_int tid_int in
+  let tid, next_tid = Tensor_id.Next.alloc s.next_tid in
   let fmt = Option.value fmt ~default:s.dtype in
   let sg =
     Tensor_sig.create ~id:tid
@@ -55,7 +54,7 @@ let source ~kind ~shape ?name ?fmt ?quant () s =
   ( Ok tid,
     {
       s with
-      next_tid = tid_int + 1;
+      next_tid;
       tensors = Tensor_id.Map.add tid sg s.tensors;
       rev_inputs = tid :: s.rev_inputs;
       input_kinds = Tensor_id.Map.add tid kind s.input_kinds;
@@ -70,8 +69,7 @@ let constant ~shape ?name ?fmt ?quant () =
 (* Allocate a fresh output edge. Arithmetic outputs use the default F32; view
    ops such as [unbind] explicitly retain their source storage format. *)
 let new_edge ?name ?fmt ?quant ~kind:_ shape s =
-  let tid_int = s.next_tid in
-  let tid = Tensor_id.of_int tid_int in
+  let tid, next_tid = Tensor_id.Next.alloc s.next_tid in
   let sg =
     Tensor_sig.create ~id:tid
       ~name:(Option.value name ~default:"")
@@ -79,19 +77,14 @@ let new_edge ?name ?fmt ?quant ~kind:_ shape s =
       ~fmt:(Option.value fmt ~default:f32)
       ?quant ()
   in
-  ( Ok tid,
-    {
-      s with
-      next_tid = tid_int + 1;
-      tensors = Tensor_id.Map.add tid sg s.tensors;
-    } )
+  (Ok tid, { s with next_tid; tensors = Tensor_id.Map.add tid sg s.tensors })
 
 let push_node op outputs s =
-  let nid = Node_id.of_int s.next_nid in
+  let nid, next_nid = Node_id.Next.alloc s.next_nid in
   ( Ok (),
     {
       s with
-      next_nid = s.next_nid + 1;
+      next_nid;
       rev_nodes = { Node.id = nid; op; outputs } :: s.rev_nodes;
       rev_items = Group.Node nid :: s.rev_items;
     } )
@@ -138,7 +131,7 @@ let opN ?name ?fmt ?quant ~kind op : Tensor_id.t list t =
            Tensor_id.Map.find_opt r s.tensors
            |> Err.of_option (`Missing_tensor_sig r)))
   in
-  Tensor_id.check_room ~next:s.next_tid ~count:(List.length shapes);
+  Tensor_id.Next.check_room s.next_tid ~count:(List.length shapes);
   (* TAIL-RECURSIVE, with an accumulator, and that is not a style choice: the
      obvious [let* tid = … in let* ids = alloc rest in return (tid :: ids)]
      holds a monadic frame per output, and at a few thousand outputs it
@@ -737,26 +730,23 @@ let group ?label (body : 'a t) : 'a t =
  fun s ->
   (* A group changes only structural ownership.  Its child shares every global
      SSA accumulator and counter with the parent. *)
-  let child_start = { s with next_gid = s.next_gid + 1; rev_items = [] } in
+  let gid, next_gid = Group_id.Next.alloc s.next_gid in
+  let child_start = { s with next_gid; rev_items = [] } in
   match body child_start with
   | Error e, _ -> (Error e, s)
   | Ok value, child_end ->
       let group =
-        Group.
-          {
-            id = Group_id.of_int s.next_gid;
-            label;
-            items = List.rev child_end.rev_items;
-          }
+        Group.{ id = gid; label; items = List.rev child_end.rev_items }
       in
       (Ok value, { child_end with rev_items = Group.Group group :: s.rev_items })
 
 let build ?(dtype = f32) ~name:_ ~outputs (m : 'a t) =
   let s0 =
     {
-      next_tid = 0;
-      next_nid = 0;
-      next_gid = 1;
+      next_tid = Tensor_id.Next.first;
+      next_nid = Node_id.Next.first;
+      (* Group 0 is the root, built by [build] below. *)
+      next_gid = Group_id.Next.of_int 1;
       dtype;
       rev_nodes = [];
       rev_items = [];

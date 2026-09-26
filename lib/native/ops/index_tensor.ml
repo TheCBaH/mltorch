@@ -20,17 +20,18 @@
    landing applied to index's own rank. *)
 
 module Index_tensor = struct
-  type params = { axis : Axis.t; index_rank : int }
+  type params = { axis : Axis.t; index_rank : Rank.t }
 
   let params_jsont : params Jsont.t =
     Jsont.Object.map ~kind:"index_tensor_params" (fun axis index_rank ->
         { axis; index_rank })
     |> Jsont.Object.mem "axis" Axis.jsont ~enc:(fun p -> p.axis)
-    |> Jsont.Object.mem "index_rank" Jsont.int ~enc:(fun p -> p.index_rank)
+    |> Jsont.Object.mem "index_rank" Rank.jsont ~enc:(fun p -> p.index_rank)
     |> Jsont.Object.finish
 
   let pp_params fmt (p : params) =
-    Fmt.pf fmt "@[<hv>{axis=%a index_rank=%d}@]" Axis.pp p.axis p.index_rank
+    Fmt.pf fmt "@[<hv>{axis=%a index_rank=%a}@]" Axis.pp p.axis Rank.pp
+      p.index_rank
 
   type t = { params : params; self : Tensor_ref.t; index : Tensor_ref.t }
 
@@ -71,6 +72,7 @@ module Index_tensor = struct
      on its left, i.e. would need to reach past frame axis [N]). *)
   let window ~axis ~index_rank =
     let ai = Axis.to_int axis in
+    let index_rank = (index_rank : Rank.t :> int) in
     if index_rank > ai + 1 then None
     else
       Some (List.filteri (fun i _ -> i > ai - index_rank && i <= ai) Axis.all)

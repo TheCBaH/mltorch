@@ -60,7 +60,8 @@ let show_partition ~label ~batch_first ~output =
          ~h0_shape:state_shape ~c0_shape:state_shape)
   in
   match
-    Lstm.Lstm.Computation.program ~limits:Kernel.Limits.default params ~output
+    Lstm.Lstm.Computation.program ~limits:Kernel.Limits.default params
+      ~output:(Region_group.Ordinal.of_int output)
       ~layers:[ layer ] ~input ~h0 ~c0 ~out_shape ~hn_shape ~cn_shape
   with
   | Error e ->

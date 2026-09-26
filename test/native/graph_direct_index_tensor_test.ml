@@ -21,7 +21,7 @@ let build_graph ~index_values =
         ~fmt:(Payload.Fmt Payload.I64) ~name:"index" ()
     in
     index_tensor ~name:"out"
-      { Index_tensor.Index_tensor.axis = Axis.W; index_rank = 1 }
+      { Index_tensor.Index_tensor.axis = Axis.W; index_rank = Rank.of_int 1 }
       ~self ~index)
 
 let self_tensor =
@@ -127,7 +127,7 @@ let%expect_test
   let result =
     Index_tensor.Index_tensor.output_shape ~self_shape:(s 1 1 1 2 3 2)
       ~index_shape:bad_index_shape
-      { Index_tensor.Index_tensor.axis = Axis.W; index_rank = 1 }
+      { Index_tensor.Index_tensor.axis = Axis.W; index_rank = Rank.of_int 1 }
   in
   Format.printf "%a@."
     (Core.Pretty.err_result ~ok:Vec6.pp_shape ~error:Shape_error.pp)
@@ -146,7 +146,7 @@ let%expect_test "Direct graph: a rank-2 index has nowhere to fit at axis N" =
   let result =
     Index_tensor.Index_tensor.output_shape ~self_shape:(s 1 1 1 1 1 1)
       ~index_shape:(s 1 1 1 1 5 6)
-      { Index_tensor.Index_tensor.axis = Axis.N; index_rank = 2 }
+      { Index_tensor.Index_tensor.axis = Axis.N; index_rank = Rank.of_int 2 }
   in
   Format.printf "%a@."
     (Core.Pretty.err_result ~ok:Vec6.pp_shape ~error:Shape_error.pp)
@@ -161,7 +161,7 @@ let%expect_test
   let result =
     Index_tensor.Index_tensor.output_shape ~self_shape:(s 1 1 1 2 3 4)
       ~index_shape:(s 1 1 1 1 5 6)
-      { Index_tensor.Index_tensor.axis = Axis.W; index_rank = 2 }
+      { Index_tensor.Index_tensor.axis = Axis.W; index_rank = Rank.of_int 2 }
   in
   Format.printf "%a@."
     (Core.Pretty.err_result ~ok:Vec6.pp_shape ~error:Shape_error.pp)

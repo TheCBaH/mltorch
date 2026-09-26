@@ -21,8 +21,18 @@ let tensors_arg env node name =
 let int_arg ?default node name =
   decode_result (D.int_arg_result ?default node name)
 
+(* The same read, typed as the model wrote it: a dim number. Nothing is judged
+   here; [norm_dim] and [dim_axis] judge it against a rank. *)
+let dim_arg ?default node name =
+  let* d = int_arg ?default node name in
+  return (Aten_int.Dim.of_int d)
+
 let ints_arg ?(default = []) node name =
   decode_result (D.ints_arg_result ~default node name)
+
+let sizes_arg ?default node name =
+  let* xs = ints_arg ?default node name in
+  return (List.map Aten_int.Size.of_int xs)
 
 let floats_arg ?(default = []) node name =
   decode_result (D.floats_arg_result ~default node name)
@@ -86,7 +96,20 @@ let optional_tensor_present node name =
       true
   | _ -> false
 
-let aten_rank t = Array.length (Aten_tensor.shape t)
+let aten_rank t = Rank.of_array (Aten_tensor.shape t)
+
+(* The tensor's own dims, as ATen reports them: signed and not yet judged. *)
+let aten_dims t = Array.map Aten_int.Size.of_int (Aten_tensor.shape t)
+
+(* The declared sizes of [shape]'s innermost [rank] axes as plain ints, for the
+   arms that rebuild a size list and hand it back to [of_sizes]. *)
+let aten_sizes ~rank shape =
+  List.map
+    (fun (s : Aten_int.Size.t) -> (s :> int))
+    (Array.to_list (Aten_shape.to_aten ~rank shape))
+
+let of_sizes sizes =
+  Aten_shape.of_aten (Array.of_list (List.map Aten_int.Size.of_int sizes))
 
 (* [D.scalar_arg_result]/[scalar_opt_arg_result] hand back an [Aten_scalar.t],
    which also admits a Bool the native scalar domain has no meaning for — so the
@@ -286,15 +309,17 @@ let perm_lstm_bias : Permute.Permute.perm =
 (* The checked, normalized INT underneath [dim_axis] -- exposed on its own
    because [transpose.int] needs the normalized position itself (to build a
    swap permutation), not the frame axis [dim_axis] converts it to. *)
-let norm_dim ~op ~rank dim =
-  let d = if dim < 0 then dim + rank else dim in
-  if rank < 1 || d < 0 || d >= rank then
+let norm_dim ~op ~(rank : Rank.t) (dim : Aten_int.Dim.t) =
+  let rank_n = (rank :> int) in
+  let d = (dim :> int) in
+  let d = if d < 0 then d + rank_n else d in
+  if rank_n < 1 || d < 0 || d >= rank_n then
     fail (`Invalid_dim { Invalid_dim.op; dim; rank })
   else return d
 
 let dim_axis ~op ~rank dim =
   let* d = norm_dim ~op ~rank dim in
-  return (Aten_shape.axis_of_dim ~rank d)
+  return (Aten_shape.axis_of_dim ~rank (Aten_int.Dim.of_int d))
 
 (* [split.Tensor(self, split_size, dim)]'s chunk-size list: ATen divides
    [extent] into as many [split_size]-sized pieces as fit, plus one final
@@ -319,16 +344,19 @@ let chunk_sizes ~extent ~split_size =
    [norm_dim]. [Invalid_dim.rank] still reports the operand's real rank (its
    documented meaning, see the comment above); only the upper bound of the
    range check is relaxed by one to admit inserting past the last axis. *)
-let norm_unsqueeze_dim ~op ~rank dim =
-  let d = if dim < 0 then dim + rank + 1 else dim in
-  if d < 0 || d > rank then fail (`Invalid_dim { Invalid_dim.op; dim; rank })
+let norm_unsqueeze_dim ~op ~(rank : Rank.t) (dim : Aten_int.Dim.t) =
+  let rank_n = (rank :> int) in
+  let d = (dim :> int) in
+  let d = if d < 0 then d + rank_n + 1 else d in
+  if d < 0 || d > rank_n then fail (`Invalid_dim { Invalid_dim.op; dim; rank })
   else return d
 
 let dims_arg node ~op ~rank name =
   match D.find_arg node name with
   | Some (Argument.Ints []) | Some (Argument.None _) | None ->
       return (Aten_shape.used_axes ~rank)
-  | Some (Argument.Ints xs) -> Err.List.map (dim_axis ~op ~rank) xs
+  | Some (Argument.Ints xs) ->
+      Err.List.map (dim_axis ~op ~rank) (List.map Aten_int.Dim.of_int xs)
   | _ -> return (Aten_shape.used_axes ~rank)
 
 (* Arithmetic arms materialize f32 outputs, so an i64 operand would silently
@@ -340,8 +368,9 @@ let dims_arg node ~op ~rank name =
    [Graph_shape] check passes it -- while ATen refuses a bias that is not 1-D.
    The rank survives only on the ATen tensor, so it is read there. *)
 let require_rank arg_name ~expected t =
-  let got = Array.length (Aten_tensor.shape t) in
-  if got = expected then return ()
+  let got = aten_rank t in
+  let expected = Rank.of_int expected in
+  if Rank.equal got expected then return ()
   else fail (`Operand_rank { Operand_rank.arg_name; expected; got })
 
 let require_f32 arg_name t =
@@ -351,24 +380,25 @@ let require_f32 arg_name t =
       fail
         (`Unsupported_input_dtype { Unsupported_input_dtype.arg_name; dtype })
 
-let trailing_axes ~rank ~k =
+let trailing_axes ~(rank : Rank.t) ~k =
   let all = Aten_shape.used_axes ~rank in
-  List.filteri (fun i _ -> i >= rank - k) all
+  List.filteri (fun i _ -> i >= (rank :> int) - k) all
 
 (* [k <= rank] is checked BEFORE [trailing_axes], which has no guard of its own:
    [List.filteri] with a negative lower bound keeps every element, so an
    over-long normalized_shape silently normalized over the whole tensor. And the
    EXTENTS are compared, not just the count -- that is the check whose absence
    made a wrong shape a wrong answer rather than an error. *)
-let normalized_dims ~op ~(x_shape : int array) ~normalized_shape =
-  let rank = Array.length x_shape in
+let normalized_dims ~op ~(x_shape : Aten_int.Size.t array) ~normalized_shape =
+  let rank = Rank.of_array x_shape in
+  let rank_n = (rank :> int) in
   let k = List.length normalized_shape in
   let* () =
-    if k < 1 || k > rank then
+    if k < 1 || k > rank_n then
       fail (`Normalized_rank { Normalized_rank.op; rank; got = k })
     else return ()
   in
-  let expected = Array.to_list (Array.sub x_shape (rank - k) k) in
+  let expected = Array.to_list (Array.sub x_shape (rank_n - k) k) in
   let* () =
     if expected <> normalized_shape then
       fail
@@ -426,10 +456,10 @@ let eps_arg node name =
    downstream today ([Permute.output_shape] refuses the resulting
    non-bijection), so this check is a diagnostic improvement, not a hole it
    closes. *)
-let native_perm_of_aten ~op ~rank dims =
+let native_perm_of_aten ~op ~(rank : Rank.t) (dims : Aten_int.Dim.t list) =
   let* () =
     let got = List.length dims in
-    if got <> rank then fail (`Dims_count { Dims_count.op; rank; got })
+    if got <> (rank :> int) then fail (`Dims_count { Dims_count.op; rank; got })
     else return ()
   in
   let used = Aten_shape.used_axes ~rank in
@@ -439,7 +469,7 @@ let native_perm_of_aten ~op ~rank dims =
     Err.List.map
       (fun (i, d) ->
         let* in_axis = dim_axis ~op ~rank d in
-        return (Aten_shape.axis_of_dim ~rank i, in_axis))
+        return (Aten_shape.axis_of_dim ~rank (Aten_int.Dim.of_int i), in_axis))
       (List.mapi (fun i d -> (i, d)) dims)
   in
   return (outer_perm @ inner_perm)

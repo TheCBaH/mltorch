@@ -219,7 +219,10 @@ let namespace ~limits (n : PT.Node.t) =
 let path = Pt2_native_graph.Graph_path.root
 
 let node_ids (g : PT.Graph.t) =
-  List.mapi (fun i _ -> Me_ids.pt2_node path i) g.PT.Graph.nodes
+  List.mapi
+    (fun i _ ->
+      Me_ids.pt2_node path (Pt2_native_graph.Node_origin.Index.of_int i))
+    g.PT.Graph.nodes
 
 (* Which boundary an input SSA name belongs to, from the SIGNATURE. Guessing it
    from the exporter's [p_]/[b_]/[c_] name prefixes would be inventing a rule
@@ -314,7 +317,9 @@ let graph ~limits (gm : PT.GraphModule.t) =
   in
   List.iteri
     (fun index (n : PT.Node.t) ->
-      let id = Me_ids.pt2_node path index in
+      let id =
+        Me_ids.pt2_node path (Pt2_native_graph.Node_origin.Index.of_int index)
+      in
       List.iteri
         (fun slot name -> Hashtbl.replace producer name (id, slot))
         (List.concat_map tensor_names n.PT.Node.outputs))
@@ -370,7 +375,9 @@ let graph ~limits (gm : PT.GraphModule.t) =
             n.PT.Node.inputs
         in
         ME.GraphNode.create
-          ~id:(Me_ids.pt2_node path index)
+          ~id:
+            (Me_ids.pt2_node path
+               (Pt2_native_graph.Node_origin.Index.of_int index))
           ~label:n.PT.Node.target ~namespace:ns ~incomingEdges:incoming
           ~outputsMetadata:
             (List.mapi (output_metadata g)

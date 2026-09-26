@@ -1,3 +1,10 @@
+module Ordinal =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = ""
+    end)
+    ()
+
 module Emitter = struct
   type t = {
     output_shape : Vec6.shape;
@@ -21,10 +28,10 @@ type mapping_error =
 
 type error =
   [ `Empty_emitters
-  | `Mapping of int * mapping_error
+  | `Mapping of Ordinal.t * mapping_error
   | `Program of Region_program.error
   | `Scan of Expr.Scan.error
-  | `Unknown_emitter of int ]
+  | `Unknown_emitter of Ordinal.t ]
 
 type t = {
   canonical_shape : Vec6.shape;
@@ -37,7 +44,8 @@ let canonical_shape t = t.canonical_shape
 let canonical_partition t = t.canonical_partition
 let locals t = t.locals
 let emitters t = t.emitters
-let emitter t i = List.nth_opt t.emitters i
+let emitter t (i : Ordinal.t) = List.nth_opt t.emitters (i :> int)
+let indexed_emitters t = List.mapi (fun i e -> (Ordinal.of_int i, e)) t.emitters
 
 (* The raw (unprojected) expressions ordinal [i]'s shared locals and own
    emitter together consist of -- every [Expr.Fold] query used below (and by
@@ -105,10 +113,11 @@ let pp_mapping_error fmt = function
 let pp_error fmt : [< error ] -> unit = function
   | `Empty_emitters ->
       Fmt.string fmt "a region group needs at least one emitter"
-  | `Mapping (i, e) -> Fmt.pf fmt "emitter %d: %a" i pp_mapping_error e
+  | `Mapping (i, e) ->
+      Fmt.pf fmt "emitter %a: %a" Ordinal.pp i pp_mapping_error e
   | `Program error -> Region_program.pp_error fmt error
   | `Scan error -> Expr.Scan.pp_error fmt error
-  | `Unknown_emitter i -> Fmt.pf fmt "unknown emitter ordinal %d" i
+  | `Unknown_emitter i -> Fmt.pf fmt "unknown emitter ordinal %a" Ordinal.pp i
 
 (* The canonical key axes are whichever axes some emitter actually DECLARES
    as the canonical side of its [key_axes] mapping -- never derived from
@@ -252,8 +261,8 @@ let project_raw ~max_size ~max_depth ~locals (e : Emitter.t) :
     (Region_program.create ~max_size ~max_depth ~partition:e.Emitter.partition
        ~locals:projected_locals ~output:e.Emitter.output)
 
-let project ~max_size ~max_depth t ordinal =
-  match List.nth_opt t.emitters ordinal with
+let project ~max_size ~max_depth t (ordinal : Ordinal.t) =
+  match List.nth_opt t.emitters (ordinal :> int) with
   | None -> Err.fail (`Unknown_emitter ordinal)
   | Some e -> project_raw ~max_size ~max_depth ~locals:t.locals e
 
@@ -271,7 +280,7 @@ let create ~max_size ~max_depth ~canonical_shape ~locals ~emitters =
             Err.map_error
               (fun err -> `Mapping (i, err))
               (validate_mapping ~canonical_shape e))
-          (List.mapi (fun i e -> (i, e)) emitters)
+          (List.mapi (fun i e -> (Ordinal.of_int i, e)) emitters)
       in
       let* () =
         check_shared_locals ~max_size ~max_depth ~canonical_partition locals
@@ -326,7 +335,7 @@ let pp fmt t =
 type region_group = t
 
 module Ref = struct
-  type t = Grouped of region_group * int | Solo of Region_program.t
+  type t = Grouped of region_group * Ordinal.t | Solo of Region_program.t
 
   (* Safe by construction: every [Grouped] value in this codebase is built
      with an ordinal drawn from the SAME group's own emitter list (see the
@@ -381,7 +390,7 @@ module Ref = struct
 
   let pp fmt = function
     | Solo p -> Region_program.pp fmt p
-    | Grouped (g, i) -> Fmt.pf fmt "group emitter %d of@ %a" i pp g
+    | Grouped (g, i) -> Fmt.pf fmt "group emitter %a of@ %a" Ordinal.pp i pp g
 end
 
 (* A maximal run of consecutive items sharing one physically-identical
@@ -393,7 +402,7 @@ end
    -- generic over the item type via [~computation], so neither caller
    restates the run-detection fold. *)
 module Run = struct
-  type 'a t = Solo of 'a | Group of region_group * (int * 'a) list
+  type 'a t = Solo of 'a | Group of region_group * (Ordinal.t * 'a) list
 
   let duplicate_ordinal = function
     | Solo _ -> None

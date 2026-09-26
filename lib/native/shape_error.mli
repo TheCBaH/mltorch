@@ -443,11 +443,11 @@ end
 module Index_tensor : sig
   type t =
     | Index_shape_mismatch of {
-        index_rank : int;
+        index_rank : Rank.t;
         axis : Axis.t;
         extent : Dim.extent Dim.t;
       }
-    | Rank_overflow of { axis : Axis.t; index_rank : int }
+    | Rank_overflow of { axis : Axis.t; index_rank : Rank.t }
     | Self_collision of {
         axis : Axis.t;
         colliding_axis : Axis.t;

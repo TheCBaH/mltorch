@@ -46,7 +46,12 @@ let conv_in_channels esc ~tensor ~cin ~groups =
   else if product < 1L then
     malformed esc
       (`Bad_dimension
-         { tensor; fault = (if product = 0L then `Zero else `Negative cin) })
+         {
+           tensor;
+           fault =
+             (if product = 0L then `Zero
+              else `Negative (Aten_int.Size.of_int cin));
+         })
   else Dim.extent (Int64.to_int product)
 
 (* The exact `conv1d.default` overload -- [conv2d_params]'s single-spatial-axis

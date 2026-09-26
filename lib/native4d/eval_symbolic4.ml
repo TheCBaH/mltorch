@@ -37,7 +37,7 @@ let is_i64 = function Payload.Fmt Payload.I64 -> true | _ -> false
 
 (* The ops whose second output is an argmax-style index. *)
 let is_index_output (op : Op.t) output =
-  output = 1
+  Output_ordinal.equal output Output_ordinal.one
   &&
   match op with
   | Op.Adaptive_max_pool2d_with_indices _ | Op.Max_dim4 _
@@ -137,7 +137,7 @@ let run (g : Graph.graph) : Stage_program.t =
     check_mixed_dtype g op;
     let operand r = Tensor_id.Map.find r env in
     let shape_of r = (Tensor_id.Map.find r env).Tensor_sig.shape in
-    let outs = List.mapi (fun i oid -> (i, oid)) node.Graph.Node.outputs in
+    let outs = Output_ordinal.indexed node.Graph.Node.outputs in
     match (op, outs) with
     (* Mirrors [Eval_symbolic]'s own exact-Arange special case. *)
     | ( Op.Arange4 { Ops4.Arange4.params = { fmt; exact = Some e; _ } },
@@ -302,7 +302,9 @@ let run (g : Graph.graph) : Stage_program.t =
                 {
                   Stage_program.Stage.id = oid;
                   sg = out_sig;
-                  computation = Region_group.Ref.Grouped (group, output);
+                  computation =
+                    Region_group.Ref.Grouped
+                      (group, Region_computation.emitter_of_output output);
                 }
               in
               (Tensor_id.Map.add oid out_sig env, st :: stages))

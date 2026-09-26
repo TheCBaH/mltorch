@@ -103,6 +103,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   goldens, so it sees a wrong answer that both backends agree on. See `.ai/` for the
   JS-backends design doc.
 
+- **A bare `int` must be dimensionless or external — ask "what does this `int` name, and
+  what could it be confused with?"** An extent, position, offset, rank, ATen dim, id,
+  ordinal, next-free counter or algorithm-local number gets a type no other domain's `int`
+  can be passed for: a phantom-role family (`Dim`) where the domains share arithmetic,
+  `Core.Tagged_int.Make ()` where they are only compared, keyed and printed. Budgets,
+  tallies, bit patterns, storage cells, compare/hash results, wire values and `Expr`
+  literals stay `int`. Don't unwrap to do arithmetic and re-wrap — add the operation to
+  the domain's module. `make check.int-signatures` (part of `make runtest`) fails on an
+  `int` in an in-scope `.mli` that isn't allowlisted with a category, and on stale
+  entries; the `todo-domain` ceiling only goes down. See `.ai/` for the design.
+
 ## Exploration & Planning — start in `.ai/`
 
 `.ai/` is the canonical design record for this repo. **Before exploring unfamiliar code

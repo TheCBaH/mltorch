@@ -35,7 +35,8 @@ let classify (op : Op.t) ~output =
      [Output_transfer] gives these two ops. *)
   | Adaptive_max_pool2d_with_indices _ | Max_dim4 _ | Max_pool2d_with_indices _
     ->
-      if output = 0 then Output_transfer.Continuous
+      if Output_ordinal.equal output Output_ordinal.zero then
+        Output_transfer.Continuous
       else Output_transfer.Discontinuous
   | Concat4 _ -> Output_transfer.Reindexing
   (* The pure-broadcast case, the same argument Native's own [Output_transfer]

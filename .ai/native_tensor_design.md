@@ -81,6 +81,23 @@ quant `zero_point`, and the stored quantised values themselves — stay signed
 (`zero_point` and quanta are plain `int`, not `Dim` types; they are domain data,
 not sizes/positions).
 
+**The purpose is domain separation, not validation.** A size and a coordinate are
+both non-negative ints and would pass any range check; the roles exist so the two
+cannot be swapped. Two consequences the original five roles did not cover:
+
+- **Arithmetic must not leave the domain.** `Dim` offers `*@` and `lin` and little
+  else, so code that needs a product, an exact division, a delta sum or a
+  delinearisation unwraps to `int`, computes, and re-brands
+  (`Dim.extent (a * b * c)`) — erasing the role at exactly the point where the
+  operation matters. The missing operations belong in `Dim`.
+- **Two positions do not fit the roles.** A resolved slice bound may equal the extent
+  (one past the last index), so it is neither an `index` nor an `extent`; that is a
+  `fence`. And a per-tensor `offset`/`count` is not a region's flat-scratch offset.
+
+Both, and the identity/ordinal/as-written/rank families that sit beside `Dim`, are
+specified in the domain-typed-integers design (`domain_int_design.md`). §1a here stays
+the record of the five original roles.
+
 ### 1b. `shape` and `coord` are distinct types over a shared representation
 
 Both a shape and a coord are "six ints over `N T D H W C`," but they must **not be

@@ -30,7 +30,7 @@ let%expect_test "every Native4D row, classified" =
       ( "Non_four_dimensional_tensor",
         `Non_four_dimensional_tensor (tid 0, shape) );
       ( "Unsupported_grouped_transposed_conv",
-        `Unsupported_grouped_transposed_conv (nid 0, 2) );
+        `Unsupported_grouped_transposed_conv (nid 0, Op_config.Pos.of_int 2) );
       ( "Unsupported_op",
         `Unsupported_op (nid 0, Graph_ir.Relu { Pointwise.Relu.x = tid 0 }) );
       ("Bad_constant_payload", `Bad_constant_payload (tid 0));
@@ -52,7 +52,8 @@ let%expect_test "payloads remove exactly one failure mode" =
      payloads, so having them does not put a graph inside the dialect. *)
   let outside =
     [
-      MC.native4d (`Unsupported_grouped_transposed_conv (nid 0, 2));
+      MC.native4d
+        (`Unsupported_grouped_transposed_conv (nid 0, Op_config.Pos.of_int 2));
       MC.native4d
         (`Non_four_dimensional_tensor
            (tid 0, Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1));

@@ -9,6 +9,13 @@ open Graph_common
 (* Outside the functor: neither mentions the dialect, and a per-instantiation
    copy would make [Make (A).arity] and [Make (B).arity] incompatible for no
    reason. *)
+module Position =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = ""
+    end)
+    ()
+
 type arity = { node : Node_id.t; expected : int; actual : int }
 type sig_key = { key : Tensor_id.t; recorded : Tensor_id.t }
 
@@ -84,7 +91,7 @@ module Make (D : Dialect.S) = struct
         (* absent = graph input, validation guarantees *)
     uses : node list Tensor_id.Map.t; (* in [Graph.nodes] order *)
     outputs : Tensor_id.Set.t;
-    order : int Node_id.Map.t;
+    order : Position.t Node_id.Map.t;
     groups : Group_id.t Node_id.Map.t;
     parents : Group_id.t Group_id.Map.t;
   }
@@ -257,12 +264,15 @@ module Make (D : Dialect.S) = struct
     (* topological order: an operand must be defined by an earlier node *)
     let order =
       List.fold_left
-        (fun (i, acc) (n : node) -> (i + 1, Node_id.Map.add n.Node.id i acc))
+        (fun (i, acc) (n : node) ->
+          (i + 1, Node_id.Map.add n.Node.id (Position.of_int i) acc))
         (0, Node_id.Map.empty) g.Graph.nodes
       |> snd
     in
     let position id =
-      Option.value (Node_id.Map.find_opt id order) ~default:(-1)
+      Option.value
+        (Node_id.Map.find_opt id order)
+        ~default:(Position.of_int (-1))
     in
     let* () =
       fold_result
@@ -271,7 +281,10 @@ module Make (D : Dialect.S) = struct
             (fun () operand ->
               match Tensor_id.Map.find_opt operand defs with
               | Some producer
-                when position producer.Node.id >= position n.Node.id ->
+                when Position.compare
+                       (position producer.Node.id)
+                       (position n.Node.id)
+                     >= 0 ->
                   Err.fail (`Not_topological n.Node.id)
               | _ -> Err.return ())
             () (D.operands n.Node.op))

@@ -1,0 +1,192 @@
+# Signature allowlist for tools/int_signatures. One entry per declaration in an .mli of an
+# in-scope library that mentions [int]: file, category, normalised declaration (tab separated).
+# Categories: arity bits budget cell defn expr-literal gate hash quantum tally todo-domain wire.
+# [todo-domain] is a debt marker (an int that names an entity); the ceiling only goes down.
+@todo-domain-ceiling 19
+lib/core/float_bits.mli	hash	val compare_exact : float -> float -> int
+lib/core/float_bits.mli	hash	val compare_portable : float -> float -> int
+lib/core/tagged_int.mli	defn	type t = private int
+lib/core/tagged_int.mli	defn	val of_int : int -> t
+lib/core/tagged_int.mli	defn	val to_int : t -> int
+lib/core/tagged_int.mli	hash	val compare : t -> t -> int
+lib/core/tagged_int.mli	defn	type t = private int
+lib/core/tagged_int.mli	defn	val of_int : int -> t
+lib/core/tagged_int.mli	tally	val check_room : t -> count:int -> unit
+lib/core/tagged_int.mli	tally	val alloc_n : t -> int -> id list * t
+lib/core/tagged_int.mli	hash	val compare : t -> t -> int
+lib/expr_internal/axis.mli	expr-literal	val to_int : t -> int
+lib/expr_internal/axis.mli	expr-literal	val compare : t -> t -> int
+lib/expr_internal/source.mli	expr-literal	val create : int -> t
+lib/expr_internal/source.mli	expr-literal	val to_int : t -> int
+lib/expr_internal/source.mli	expr-literal	val compare : t -> t -> int
+lib/expr_internal/source.mli	expr-literal	val hash : t -> int
+lib/native/aten_shape.mli	arity	type t = { size : Aten_int.Size.t list; self_dims : Aten_int.Size.t array; fault : [ `Leading_inferred of int | `Rank_too_small ]; }
+lib/native/dim.mli	defn	type +'role t = private int
+lib/native/dim.mli	defn	val extent : int -> extent t
+lib/native/dim.mli	defn	val index : int -> index t
+lib/native/dim.mli	defn	type error = [ `Non_positive_extent of int ]
+lib/native/dim.mli	defn	val extent_checked : int -> (extent t, [> `Non_positive_extent of int ]) Err.t
+lib/native/dim.mli	defn	val delta : int -> delta t
+lib/native/dim.mli	defn	val to_int : 'role t -> int
+lib/native/dim.mli	defn	val fence : int -> fence t
+lib/native/dim.mli	expr-literal	val scale : int -> delta t -> delta t
+lib/native/eval_direct.mli	arity	type arity_mismatch = { expected : int; actual : int }
+lib/native/fusion_plan.mli	tally	type t = | Budget_exceeded of { use : Kernel.Use.t; error : Kernel_elab.error Err.Error.t; } | Intrinsic_use of Kernel.Use.t | Multiple_uses of { producer : Tensor_id.t; at_least : int } | Non_pointwise_use of { use : Kernel.Use.t; reason : Kernel_elab.error Err.Error.t; } | Regional_computation of Kernel.Use.t | Overlaps_selected of { rejected : Kernel.Use.t; selected : Kernel.Use.t } | Reducing_consumer of Kernel.Use.t
+lib/native/graph_builder.mli	arity	and output_count = { count : int }
+lib/native/graph_json.mli	budget	val encode_tensor : ?format:Jsont.format -> ?max_elts:int -> Tensor.packed -> (string, [> error ]) Err.t
+lib/native/kernel.mli	budget	val compare : t -> t -> int
+lib/native/kernel.mli	budget	type t = private { max_size : int; max_depth : int; max_values : int; max_dep_depth : int; max_inputs : int; max_outputs : int; max_extent : int64; max_numel : int64; max_bytes : int64; max_local_slots : int; max_scan_state : int; max_scan_updates_per_key : int64; max_scan_updates_total : int64; }
+lib/native/kernel.mli	budget	val size : int
+lib/native/kernel.mli	budget	val depth : int
+lib/native/kernel.mli	budget	val values : int
+lib/native/kernel.mli	budget	val dep_depth : int
+lib/native/kernel.mli	budget	val inputs : int
+lib/native/kernel.mli	budget	val outputs : int
+lib/native/kernel.mli	budget	val eval_depth : int
+lib/native/kernel.mli	budget	val eval_recursion : int
+lib/native/kernel.mli	budget	val eval_stack_budget : int
+lib/native/kernel.mli	budget	val transition_cost : body_depth:int -> int
+lib/native/kernel.mli	budget	val max_local_slots : int
+lib/native/kernel.mli	budget	val max_scan_state : int
+lib/native/kernel.mli	budget	val create : max_size:int -> max_depth:int -> max_values:int -> max_dep_depth:int -> max_inputs:int -> max_outputs:int -> max_extent:int64 -> max_numel:int64 -> max_bytes:int64 -> max_local_slots:int -> max_scan_state:int -> max_scan_updates_per_key:int64 -> max_scan_updates_total:int64 -> (t, error) Err.t
+lib/native/kernel.mli	budget	type error = [ `Body of Body_error.t | `Bytes_too_large of Tensor_id.t | `Conversion_mismatch of Conversion_rule.t | `Dependency_too_deep of int | `Duplicate_id of Tensor_id.t | `Extent_too_large of Extent_bound.t | `Forward_reference of Forward_ref.t | `I64_body of I64_body_error.t | `Not_i64_materializable of I64_format_rule.t | `Not_materializable of Format_rule.t | `Numel_too_large of Tensor_id.t | `Quant_contract of Tensor_id.t | `Scan_updates_total_over_limit of int64 | `Signature_id_mismatch of Sig_mismatch.t | `Too_many_inputs of int | `Too_many_outputs of int | `Too_many_values of int | `Unknown_output of Tensor_id.t | `Unreachable_value of Tensor_id.t | `Unresolved_source of Unresolved.t | `Unsupported_i64_dependency of Tensor_id.t ]
+lib/native/kernel.mli	budget	val over_limit : int -> 'a list -> bool
+lib/native/kernel.mli	budget	val over_limit_2 : int -> 'a list -> 'b list -> bool
+lib/native/kernel_elab.mli	tally	val load_count : t -> Tensor_id.t -> int end
+lib/native/kernel_eval.mli	arity	type kind = | Format | Quant | Shape | Storage_length of { expected : int; actual : int }
+lib/native/kernel_eval.mli	budget	type error = [ Expr.Eval.error | `Binding_mismatch of Binding_mismatch.t | `Duplicate_group_ordinal of Region_group.Ordinal.t | `Eval_too_deep of int | `Recursion_too_deep of int | Region_group.error | Region_partition.error | Region_program.error | `Unbound_input of Tensor_id.t | `Unknown_value of Tensor_id.t ]
+lib/native/kernel_eval.mli	expr-literal	val value_at : Kernel.t -> bind:(Tensor_id.t -> Tensor.packed option) -> Tensor_id.t -> int Expr.Coord.t -> (float, error) Err.t
+lib/native/kernel_eval.mli	expr-literal	val run : ?on_load:(Tensor_id.t -> int Expr.Coord.t -> unit) -> ?region_counters:Region_execution.counters Tensor_id.Map.t -> Kernel.t -> bind:(Tensor_id.t -> Tensor.packed option) -> (Tensor.packed Tensor_id.Map.t, error) Err.t
+lib/native/op_config.mli	defn	type t = private int
+lib/native/op_config.mli	defn	val of_int : int -> t
+lib/native/op_config.mli	defn	val to_int : t -> int
+lib/native/op_config.mli	defn	type t = private int
+lib/native/op_config.mli	defn	val of_int : int -> t
+lib/native/op_config.mli	defn	val to_int : t -> int
+lib/native/op_config.mli	defn	type fault = [ `Negative of int | `Not_positive of int ]
+lib/native/op_config.mli	defn	val pos : op:string -> param:param -> int -> (Pos.t, t) result
+lib/native/op_config.mli	defn	val nonneg : op:string -> param:param -> int -> (Nonneg.t, t) result end
+lib/native/quant.mli	todo-domain	type error = [ `Quant_array_lengths of int * int ]
+lib/native/quant.mli	todo-domain	val per_tensor : scale:float -> zero_point:int -> t
+lib/native/quant.mli	todo-domain	val per_channel : scale:float array -> zero_point:int array -> (t, error) Err.t
+lib/native/quant.mli	todo-domain	val channel_count : t -> int option
+lib/native/quant.mli	todo-domain	val params : t -> c:int -> float * int
+lib/native/quant.mli	todo-domain	val dequantize : t -> c:int -> q:int -> float
+lib/native/quant.mli	todo-domain	val quantize : t -> c:int -> qmin:int -> qmax:int -> float -> int
+lib/native/rank.mli	defn	type t = private int
+lib/native/rank.mli	defn	val of_int : int -> t
+lib/native/rank.mli	defn	val to_int : t -> int
+lib/native/rank.mli	hash	val compare : t -> t -> int
+lib/native/region_execution.mli	tally	type counters = { mutable keys : int; mutable locals : int; mutable emitters : int; mutable loads : int; mutable reductions : int; mutable scans : int; mutable scan_updates : int; }
+lib/native/region_execution.mli	tally	val lower : max_size:int -> max_depth:int -> max_local_slots:int -> scan_limits:Expr.Scan_limits.t -> output_shape:Vec6.shape -> Region_program.t -> (t, Region_program.error) Err.t
+lib/native/region_execution.mli	tally	val lower_region : max_size:int -> max_depth:int -> max_local_slots:int -> scan_limits:Expr.Scan_limits.t -> output_shape:Vec6.shape -> Region_program.t -> (lowered, Region_program.error) Err.t
+lib/native/region_execution.mli	tally	val lower_group : max_size:int -> max_depth:int -> max_local_slots:int -> scan_limits:Expr.Scan_limits.t -> Region_group.t -> (lowered_group, Region_group.error) Err.t
+lib/native/region_group.mli	budget	val create : max_size:int -> max_depth:int -> canonical_shape:Vec6.shape -> locals:Region_local.t list -> emitters:Emitter.t list -> (t, error) Err.t
+lib/native/region_group.mli	budget	val max_depth : t -> Ordinal.t -> int option
+lib/native/region_group.mli	tally	val intrinsics : t -> Ordinal.t -> int option
+lib/native/region_group.mli	budget	val project : max_size:int -> max_depth:int -> t -> Ordinal.t -> (Region_program.t, error) Err.t
+lib/native/region_group.mli	budget	val finish : max_size:int -> max_depth:int -> canonical_shape:Vec6.shape -> emitters:Emitter.t list -> (t, error) Err.t Region_program.Builder.t
+lib/native/region_group.mli	budget	val max_depth : t -> int
+lib/native/region_group.mli	tally	val intrinsics : t -> int
+lib/native/region_group.mli	budget	val project : max_size:int -> max_depth:int -> t -> (Region_program.t, error) Err.t
+lib/native/region_group.mli	budget	val check : max_size:int -> max_depth:int -> t -> (unit, error) Err.t
+lib/native/region_program.mli	budget	type error = [ `Duplicate_local of Expr.Local_var.t | `Expr of Expr.Check.error | `Forward_local of Local_scope.t | `Local_list_too_large of int | `Local_words_over_limit of int | `Non_invariant_local of Non_invariant.t | `Scan of Expr.Scan.error | `Scan_updates_over_limit of int64 | `Shape_mismatch of Shape_mismatch.t | `Unknown_emitter_local of Expr.Local_var.t | `Unknown_local of Local_scope.t ]
+lib/native/region_program.mli	budget	val specialize_pixel : max_size:int -> max_depth:int -> scan_limits:Expr.Scan_limits.t -> t -> (float Expr.Value.t, error) Err.t
+lib/native/region_program.mli	budget	val reconstructs : max_size:int -> max_depth:int -> scan_limits:Expr.Scan_limits.t -> pixel:float Expr.Value.t -> t -> (bool, error) Err.t
+lib/native/region_program.mli	budget	val create : max_size:int -> max_depth:int -> partition:Region_partition.t -> locals:Region_local.t list -> output:float Expr.Value.t -> (t, error) Err.t
+lib/native/region_program.mli	budget	val check : max_size:int -> max_depth:int -> t -> (unit, error) Err.t
+lib/native/region_program.mli	budget	val preflight : max_local_slots:int -> max_scan_state:int -> max_scan_updates:int64 -> output_shape:Vec6.shape -> t -> (unit, error) Err.t
+lib/native/region_program.mli	budget	val intrinsics : t -> int
+lib/native/region_program.mli	budget	val max_depth : t -> int
+lib/native/region_program.mli	budget	val size : t -> int end
+lib/native/region_program.mli	budget	val scan : limits:Expr.Scan_limits.t -> width:int -> steps:int -> init: (lane:Expr.Role.Position.t Expr.Index.t -> float Expr.Value.t Expr.Builder.t) -> update: (step:Expr.Role.Position.t Expr.Index.t -> lane:Expr.Role.Position.t Expr.Index.t -> previous_at:(Expr.Role.Position.t Expr.Index.t -> float Expr.Value.t) -> float Expr.Value.t Expr.Builder.t) -> ((row:Expr.Role.Position.t Expr.Index.t -> lane:Expr.Role.Position.t Expr.Index.t -> float Expr.Value.t) -> ('v, ([> `Scan of Expr.Scan.error ] as 'e)) Err.t t) -> ('v, 'e) Err.t t
+lib/native/region_program.mli	budget	val finish : max_size:int -> max_depth:int -> partition:Region_partition.t -> output:float Expr.Value.t -> (program, error) Err.t t
+lib/native/region_slots.mli	expr-literal	val reader : t -> float array -> (Expr.Local_var.t -> float option) * (Expr.Local_var.t -> int -> float option)
+lib/native/region_trace.mli	tally	type coverage = { total : int; keys : int; visited : int; duplicates : int; missing : int; }
+lib/native/shape_error.mli	todo-domain	type error = | Empty_layers | Non_positive_dim of { dim : dim; value : int } | Nonuniform_direction
+lib/native/shape_error.mli	arity	type t = { side : perm_side; axis : Axis.t; count : int }
+lib/native/shape_error.mli	todo-domain	type fault = | Non_positive_size of { index : int; size : int } | Size_mismatch of { total : int64 }
+lib/native/shape_error.mli	todo-domain	type t = { axis : Axis.t; index : int; expected : Vec6.shape; actual : Vec6.shape; }
+lib/native/shape_error.mli	todo-domain	type t = { axis : Axis.t; in_extent : Dim.extent Dim.t; start : int; stop : int; step : Op_config.Pos.t; out : int64; fault : fault; }
+lib/native/shape_error.mli	todo-domain	type channels_divisibility = { channels : int; groups : int }
+lib/native/shape_error.mli	todo-domain	type weight_channels_mismatch = { weight_in_per_group : int; expected_in_per_group : int; }
+lib/native/shape_error.mli	todo-domain	type transposed_window_output = { out : int; in_extent : Dim.extent Dim.t; kernel : Dim.extent Dim.t; stride : Op_config.Pos.t; pad : Op_config.Nonneg.t; dilation : Op_config.Pos.t; output_padding : Op_config.Nonneg.t; }
+lib/native/shape_error.mli	todo-domain	type observed = At_least of int | Exact of int
+lib/native/shape_error.mli	budget	type t = { limit : int; observed : observed }
+lib/native/slot.mli	defn	type +'role t = private int
+lib/native/slot.mli	defn	val extent : int -> extent t
+lib/native/slot.mli	cell	val at : Range.t -> int -> int option
+lib/native/slot.mli	cell	val trace_at : offset t -> width:extent t -> row:int -> lane:int -> int
+lib/native/stage_program.mli	budget	val pixel_body : max_size:int -> max_depth:int -> scan_limits:Expr.Scan_limits.t -> t -> (float Expr.Value.t, pixel_body_error) Err.t
+lib/native/stage_program.mli	budget	val check : max_size:int -> max_depth:int -> t -> (unit, Region_group.error) Err.t end
+lib/native/transform/cluster_relation.mli	hash	val compare : t -> t -> int
+lib/native/transform/cluster_relation.mli	tally	val cardinal : 'v set -> int
+lib/native/transform/cluster_var.mli	defn	val compare : t -> t -> int
+lib/native/transform/cluster_var.mli	defn	val of_int : int -> t
+lib/native/transform/cluster_var.mli	defn	val to_int : t -> int
+lib/native/transform/coeff_form.mli	hash	val compare : t -> t -> int
+lib/native/transform/const_ssa.mli	hash	val compare : t -> t -> int
+lib/native/transform/const_ssa.mli	hash	val compare : t -> t -> int
+lib/native/transform/const_ssa_materialize.mli	tally	type report = { captures : int; applies : int; cache_hits : int }
+lib/native/transform/correspondence.mli	hash	val compare : t -> t -> int
+lib/native/transform/graph_map.mli	arity	type error = [ `Cluster_format of Graph_ir.Tensor_id.t * Graph_ir.Tensor_id.t | `Cluster_shape of Graph_ir.Tensor_id.t * Graph_ir.Tensor_id.t | `Graph_output_arity of int * int | `Graph_output_mismatch of Graph_ir.Tensor_id.t * Graph_ir.Tensor_id.t | `Node_endpoint of Graph_ir.Node_id.t Cluster_relation.issue | `Provenance_endpoint of Graph_ir.Tensor_id.t Cluster_relation.issue | `Unclosed_claim of Graph_ir.Tensor_id.t | `Value_endpoint of Graph_ir.Tensor_id.t Cluster_relation.issue ]
+lib/native/transform/graph_view.mli	arity	type arity = { node : Node_id.t; expected : int; actual : int }
+lib/native/transform/ground_eval.mli	budget	type t = { max_ground_nodes : int64; max_nodes : int } end
+lib/native/transform/ground_eval.mli	budget	type error = [ Expr.Eval.error | `Data_index_unresolved | `Ground_nodes_over_limit of int64 | `Group of Region_group.error | `Pair_nodes_over_limit of int | `Partition of Region_partition.error | `Region of Region_program.error | `Unknown_edge of Tensor_id.t | `Unsupported_i64_comparison_ground | `Unsupported_i64_stage_ground | `Unsupported_i64_to_float_ground | `Unsupported_value_eq_ground ]
+lib/native/transform/ground_expr.mli	hash	val compare : t -> t -> int
+lib/native/transform/ground_expr.mli	hash	val compare : t -> t -> int
+lib/native/transform/ground_expr.mli	arity	val draw : int -> Cell.Set.t -> t end
+lib/native/transform/ground_expr.mli	hash	val compare : t -> t -> int
+lib/native/transform/ground_expr.mli	hash	val hash : t -> int
+lib/native/transform/ground_expr.mli	hash	val compare_guard : guard -> guard -> int
+lib/native/transform/ground_expr.mli	hash	val hash_guard : guard -> int
+lib/native/transform/ground_expr.mli	tally	val size : t -> int
+lib/native/transform/id_supply.mli	tally	val tensors : t -> int -> Tensor_id.t list * t
+lib/native/transform/map_verify.mli	budget	val compare : t -> t -> int
+lib/native/transform/map_verify.mli	budget	type t = { max_coords : int; max_ground_nodes : int64; max_nodes : int; max_rounds : int; sample : int option; }
+lib/native/transform/map_verify.mli	budget	val max_verified_steps : t -> int
+lib/native/transform/map_verify.mli	budget	val max_clusters : t -> int
+lib/native/transform/map_verify.mli	budget	val probe : t -> int
+lib/native/transform/map_verify.mli	budget	type t = private | Exhaustive | Not_applicable | Sampled of int
+lib/native/transform/map_verify.mli	budget	val sampled : int -> (t, [> `Invalid_coverage of int ]) Err.t
+lib/native/transform/map_verify.mli	budget	type t = | Eval of Ground_eval.error | Exhausted of { coord : Vec6.coord; lhs : Member.Erased.t; rhs : Member.Erased.t; } | Max_ground_nodes of int64 | Max_nodes of int | Max_rounds | Max_clusters of int | Out_of_bounds of Ground_expr.Cell.t | Too_large of int | Unbound_constant of Ground_expr.Cell.t | Unsupported_format of { blocked : Ground_expr.Cell.t; member : Member.Erased.t; } | Unsupported_relation of Correspondence.relation
+lib/native/transform/map_verify.mli	budget	val rank : t -> int
+lib/native/transform/map_verify.mli	budget	val compare : t -> t -> int
+lib/native/transform/map_verify.mli	budget	val bindings : t -> (string * int) list
+lib/native/transform/map_verify.mli	budget	val total : t -> int
+lib/native/transform/map_verify.mli	budget	val run : ?budget:Budget.t -> ?max_clusters:int -> ?coefficient_tolerance:float -> ?probe:int -> ?src_constants:Tensor.packed Tensor_id.Map.t -> ?dst_constants:Tensor.packed Tensor_id.Map.t -> ?src_constant_store:Constant_store.t -> ?dst_constant_store:Constant_store.t -> ('src, 'dst) Graph_map.t -> src:'src Src.Snapshot.t -> dst:'dst Dst.Snapshot.t -> (Report.t, error) Err.t end
+lib/native/transform/map_verify.mli	budget	val run : ?budget:Budget.t -> ?max_clusters:int -> ?coefficient_tolerance:float -> ?probe:int -> ?src_constants:Tensor.packed Tensor_id.Map.t -> ?dst_constants:Tensor.packed Tensor_id.Map.t -> ?src_constant_store:Constant_store.t -> ?dst_constant_store:Constant_store.t -> ('src, 'dst) Graph_map.t -> src:'src Snapshot.t -> dst:'dst Snapshot.t -> (Report.t, error) Err.t
+lib/native/transform/map_verify.mli	budget	val step : ?budget:Budget.t -> ?coefficient_tolerance:float -> ?probe:int -> 'v Rewrite.t -> 'v Rewrite.step -> (Report.t, error) Err.t
+lib/native/transform/pass.mli	tally	type t = { name : string; iteration : int option }
+lib/native/transform/pass.mli	tally	val retained : t -> int
+lib/native/transform/pass.mli	tally	val push : max_reports:int -> t -> Audit.t -> (t, [> count_error ]) Err.t
+lib/native/transform/pass.mli	tally	val concat : max_reports:int -> t -> t -> (t, [> count_error ]) Err.t end
+lib/native/transform/pass.mli	tally	val length : t -> int end
+lib/native/transform/pass.mli	tally	type ctx = { budget : Map_verify.Budget.t option; policy : Map_verify.Policy.t option; probe : int option; max_verified_steps : int option; trace : bool; max_trace_entries : int; max_audit_reports : int; frames : Frame.t list; index : int64; }
+lib/native/transform/pass.mli	tally	val fixpoint : ?max_iters:int -> t -> t
+lib/native/transform/pass.mli	tally	val run_all : ?verify:Map_verify.Policy.t -> ?verify_budget:Map_verify.Budget.t -> ?verify_probe:int -> ?max_verified_steps:int -> 'v Rewrite.Make(S).t -> t list -> ('v Rewrite.Make(S).step, error) Err.t
+lib/native/transform/pass.mli	tally	val run_reporting : ?verify:Map_verify.Policy.t -> ?verify_budget:Map_verify.Budget.t -> ?verify_probe:int -> ?max_verified_steps:int -> ?trace:bool -> ?max_trace_entries:int -> ?max_audit_reports:int -> 'v Rewrite.Make(S).t -> t list -> ('v outcome, error) Err.t end
+lib/native/vec6.mli	gate	val shape : n:int -> t:int -> d:int -> h:int -> w:int -> c:int -> shape
+lib/native/vec6.mli	gate	val coord : n:int -> t:int -> d:int -> h:int -> w:int -> c:int -> coord
+lib/native/vec6.mli	gate	val deltas : n:int -> t:int -> d:int -> h:int -> w:int -> c:int -> deltas
+lib/native/vec6.mli	cell	val offset_of : shape -> n:Dim.index Dim.t -> t:Dim.index Dim.t -> d:Dim.index Dim.t -> h:Dim.index Dim.t -> w:Dim.index Dim.t -> c:Dim.index Dim.t -> int
+lib/native4d/shape4.mli	gate	val of_ints : n:int -> h:int -> w:int -> c:int -> t
+lib/native4d/wide_permute.mli	budget	val max_blocks : int
+lib/native4d/wide_permute.mli	budget	val max_permutes : int
+lib/native_interp/native_interp.mli	todo-domain	type unsupported_option = [ `Alpha of float | `Approximate of string | `Dilation of int list | `Divisor_override of int | `Dtype | `Indexing of string | `Memory_format of [ `Channels_last | `Channels_last_3d | `Unknown ] | `Momentum of float | `Repeat_interleave_dim | `Rounding_mode of string | `Training of bool | `Vector_norm_ord of float ]
+lib/native_interp/native_interp.mli	arity	type unsupported_input = [ `Non_tensor | `Not_exactly_one_user_input of int ]
+lib/native_interp/native_interp.mli	arity	type t = { param : hw_param; got : int } end
+lib/native_interp/native_interp.mli	arity	type t = { op : Norm.Target.t; rank : Rank.t; got : int } end
+lib/native_interp/native_interp.mli	arity	type t = { op : string; serialized : int; derived : int } end
+lib/native_interp/native_interp.mli	arity	type fault = Bad_scale_arity of int | Both | Neither
+lib/native_interp/native_interp.mli	arity	type fault = | Length_mismatch of { expected : Rank.t; got : int } | Multiple_live_entries of int list | No_live_entry | Wrong_dtype of { position : int; dtype : string } | Wrong_rank of { position : int; rank : Rank.t }
+lib/native_interp/native_interp.mli	tally	type t = { sizes : int; strides : int } end
+lib/native_interp/native_interp.mli	budget	type t = { lo : int64; hi : int64; data_bytes : int } end
+lib/native_interp/native_interp.mli	budget	type transformed = | Transformed : { constants : Tensor.packed Graph_ir.Tensor_id.Map.t; constant_store : Constant_store.t; derived : (Graph_ir.Tensor_id.t * string list) list; graph : Graph_ir.graph; lens : 'b Pt2_native_graph.lens; nodes_before : int; audits : Pass.Audit_log.t; composed : Map_verify.Report.t option; } -> transformed
+lib/native_interp/native_interp.mli	budget	val transform : ?preload:bool -> ?verify:Map_verify.Policy.t -> ?verify_budget:Map_verify.Budget.t -> ?verify_probe:int -> Pt2_archive.t -> passes:Pass.t list -> (transformed, error) Err.t
+lib/native_interp/native_interp.mli	budget	val transform_lowered : ?constants:Tensor.packed Graph_ir.Tensor_id.Map.t -> ?verify:Map_verify.Policy.t -> ?verify_budget:Map_verify.Budget.t -> ?verify_probe:int -> ?max_verified_steps:int -> ?max_verify_clusters:int -> ?trace:bool -> ?max_trace_entries:int -> ?max_audit_reports:int -> Pt2_native_graph.t -> passes:Pass.t list -> (transformed, error) Err.t
+lib/native_interp/native_interp.mli	tally	type loaded = { from_state : int; from_archive : int; from_plan : int; }
+lib/native_predict/native_predict.mli	tally	type t = { classes : int; wanted : int } end
+lib/native_predict/native_predict.mli	todo-domain	type t = { index : int; value : float } end
+lib/native_predict/native_predict.mli	todo-domain	type error = [ `Invalid_k of int | `Non_finite_logit of Non_finite.t | `Not_class_logits of Vec6.shape | `Output_count of int | `Too_few_classes of Too_few_classes.t ]
+lib/native_predict/native_predict.mli	todo-domain	val top_predictions : Tensor.packed list -> int -> ((int * float) list, error) Err.t

@@ -78,7 +78,10 @@ val collection :
 val pt2_graph : Pt2_native_graph.Graph_path.t -> string
 (** [pt2/<path>], where the root path renders as [pt2/root]. *)
 
-val pt2_node : Pt2_native_graph.Graph_path.t -> int -> string
+val pt2_node :
+  Pt2_native_graph.Graph_path.t ->
+  Pt2_native_graph.Node_origin.Index.t ->
+  string
 (** [<path>#<index>]. *)
 
 val pt2_boundary :

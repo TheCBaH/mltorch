@@ -1,9 +1,7 @@
 (* Characterization of the [Stage_program] boundary the Kernel IR is built on.
    These tests pin CURRENT behaviour — they pass against the engine as it stands
    and describe exactly what [Kernel]/[Kernel_adapt]/[Kernel_eval] must
-   reproduce. Nothing here depends on the kernel modules. See
-   .ai/native_kernel_dsl_design.md and the Milestone 0 section of the
-   implementation plan. *)
+   reproduce. Nothing here depends on the kernel modules. *)
 
 open Graph_ir
 

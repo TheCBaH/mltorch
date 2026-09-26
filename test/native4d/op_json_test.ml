@@ -181,7 +181,7 @@ let samples : Op.t list =
        confused [self]/[index] still prints differently. *)
     IndexTensor4
       {
-        Ops4.IndexTensor4.params = { axis = N; index_rank = 1 };
+        Ops4.IndexTensor4.params = { axis = N; index_rank = Rank.of_int 1 };
         self = x;
         index = y;
       };

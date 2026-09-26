@@ -223,7 +223,10 @@ let region_group_result ~limits ~region_counters g ~op ~outs ~operand_env =
   in
   Region_execution.materialize_group ?counters:region_counters lowered_group
     ~env
-    ~selected:(List.map (fun (output, _, _) -> output) outs)
+    ~selected:
+      (List.map
+         (fun (output, _, _) -> Region_computation.emitter_of_output output)
+         outs)
   |> Err.map_error (fun error -> `Region_execution error)
 
 (* Edges something reads: a graph output, or an operand of a node that is not a
@@ -240,7 +243,7 @@ let live_edges (g : graph) =
 
 (* The second output of the argmax-style ops. *)
 let is_index_output (op : op) output =
-  output = 1
+  Output_ordinal.equal output Output_ordinal.one
   &&
   match op with
   | Adaptive_max_pool2d_with_indices _ | Max_dim _ | Max_pool2d_with_indices _
@@ -315,7 +318,10 @@ and eval_node ?region_counters ~limits ~synthetic_ids ~live (g : graph)
   (* A dead index output is neither computed nor allocated: nothing reads it,
      so [env] never needs it. *)
   let outs =
-    List.mapi (fun output (oid, out_shape) -> (output, oid, out_shape)) pairs
+    List.mapi
+      (fun output (oid, out_shape) ->
+        (Output_ordinal.of_int output, oid, out_shape))
+      pairs
     |> List.filter (fun (output, oid, _) ->
         not (is_index_output op output && not (Tensor_id.Set.mem oid live)))
   in
@@ -341,7 +347,11 @@ and eval_node ?region_counters ~limits ~synthetic_ids ~live (g : graph)
       Err.return
         (List.fold_left
            (fun env (output, oid, _) ->
-             Tensor_id.Map.add oid (List.assoc output results) env)
+             Tensor_id.Map.add oid
+               (List.assoc
+                  (Region_computation.emitter_of_output output)
+                  results)
+               env)
            env outs)
   | _ ->
       Err.List.fold_left
@@ -358,8 +368,9 @@ and eval_node ?region_counters ~limits ~synthetic_ids ~live (g : graph)
            same way [Eval_op]'s arm computes it for the generic path. *)
             | Split_with_sizes { Split.Split_with_sizes.params; x } ->
                 let offset =
-                  Split.Split_with_sizes.offset_of ~output
-                    params.Split.Split_with_sizes.sizes
+                  Dim.fence
+                    (Split.Split_with_sizes.offset_of ~output
+                       params.Split.Split_with_sizes.sizes)
                 in
                 Err.return
                   (Tensor.split_with_sizes
@@ -912,7 +923,7 @@ and eval_node ?region_counters ~limits ~synthetic_ids ~live (g : graph)
                tie or NaN policy. The value output falls through to the
                generic F32 path. *)
             | Max_pool2d_with_indices { Pool.MaxPool2dWithIndices.params; x }
-              when output = 1 ->
+              when Output_ordinal.equal output Output_ordinal.one ->
                 let module C = Pool.MaxPool2dWithIndices.Compute (Direct) in
                 Err.return
                   (index_i64 out_shape
@@ -921,7 +932,7 @@ and eval_node ?region_counters ~limits ~synthetic_ids ~live (g : graph)
                      (C.index_pixel params))
             | Adaptive_max_pool2d_with_indices
                 { Pool.AdaptiveMaxPool2dWithIndices.params; x }
-              when output = 1 ->
+              when Output_ordinal.equal output Output_ordinal.one ->
                 let module C = Pool.AdaptiveMaxPool2dWithIndices.Compute (Direct)
                 in
                 Err.return
@@ -929,7 +940,8 @@ and eval_node ?region_counters ~limits ~synthetic_ids ~live (g : graph)
                      ~x_shape:(Tensor_id.Map.find x shape_env)
                      ~x:(Tensor_id.Map.find x operand_env)
                      (C.index_pixel params))
-            | Max_dim { Reduce.MaxDim.params; x } when output = 1 ->
+            | Max_dim { Reduce.MaxDim.params; x }
+              when Output_ordinal.equal output Output_ordinal.one ->
                 let module C = Reduce.MaxDim.Compute (Direct) in
                 Err.return
                   (index_i64 out_shape

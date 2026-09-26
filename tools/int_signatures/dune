@@ -1,0 +1,22 @@
+; The signature ratchet for domain-typed integers (see .ai/, domain-typed
+; integers, section on enforcement). Attached to runtest, so `make runtest`,
+; `make precommit` and CI all run it; `make check.int-signatures` runs it alone.
+;
+; The source tree is a dependency, so editing any .mli in scope reruns it.
+
+(executable
+ (name int_signatures)
+ (modules int_signatures))
+
+(rule
+ (alias runtest)
+ (deps
+  signature-allowlist.txt
+  (source_tree ../../lib))
+ (action
+  (run
+   %{exe:int_signatures.exe}
+   check
+   signature-allowlist.txt
+   ../..
+   %{read-lines:scope.txt})))

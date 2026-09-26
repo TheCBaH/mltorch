@@ -152,7 +152,7 @@ let rec each_lane f l width =
    as usable against a [Region_group]'s shared locals (see [materialize_group])
    as against a single [Region_program.t]'s own. *)
 let evaluate_locals ?counters locals slots ~env ~key ~scan_meter =
-  let values = Array.make (Region_slots.total slots) 0. in
+  let values = Array.make (Region_slots.total slots :> int) 0. in
   let local, local_at = Region_slots.reader slots values in
   let scan = Region_slots.scan_reader slots values in
   let env = instrument ?counters env in
@@ -186,9 +186,10 @@ let evaluate_locals ?counters locals slots ~env ~key ~scan_meter =
            evaluates the body with no [~reducer] bound: any free occurrence of
            the vector's own per-element binder (present by construction -- see
            [Region_program.Builder.vector]) then raised [Unbound_reducer]. *)
-        let offset, count =
+        let { Slot.Range.offset; count } =
           Option.get (Region_slots.offset slots binding.Region_local.id)
         in
+        let offset = (offset :> int) and count = (count :> int) in
         match binding.Region_local.rhs with
         | Region_local.Rhs.Scalar value ->
             let* value =
@@ -359,7 +360,6 @@ type lowered_group = {
    per-emitter checks assumes. *)
 let lower_group ~max_size ~max_depth ~max_local_slots ~scan_limits group =
   let open Err.Syntax in
-  let emitters = Region_group.emitters group in
   let* () =
     Err.List.iter
       (fun (i, (e : Region_group.Emitter.t)) ->
@@ -370,7 +370,7 @@ let lower_group ~max_size ~max_depth ~max_local_slots ~scan_limits group =
              ~max_scan_state:(Expr.Scan_limits.max_state scan_limits)
              ~max_scan_updates:(Expr.Scan_limits.max_updates scan_limits)
              ~output_shape:e.Region_group.Emitter.output_shape projected))
-      (List.mapi (fun i e -> (i, e)) emitters)
+      (Region_group.indexed_emitters group)
   in
   Err.return
     {

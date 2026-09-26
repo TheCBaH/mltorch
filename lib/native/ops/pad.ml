@@ -123,7 +123,7 @@ module Pad = struct
       | `Value_with_non_constant_mode
       | `Unsupported_rank ]
 
-    type t = { pad : int list; rank : int; mode : string; fault : fault }
+    type t = { pad : int list; rank : Rank.t; mode : string; fault : fault }
 
     let pp ppf { pad; rank; mode; fault } =
       let pairs = List.length pad / 2 in
@@ -133,8 +133,8 @@ module Pad = struct
             "pad list has %d entries; a pair per padded dimension is required"
             (List.length pad)
       | `Too_many_pairs ->
-          Fmt.pf ppf "pad list covers %d dimensions of a rank-%d input" pairs
-            rank
+          Fmt.pf ppf "pad list covers %d dimensions of a rank-%a input" pairs
+            Rank.pp rank
       | `Unsupported_mode ->
           Fmt.pf ppf
             "pad mode %S is outside the Native domain (constant and reflect \
@@ -144,10 +144,10 @@ module Pad = struct
           Fmt.pf ppf "pad mode %S takes no non-zero value argument" mode
       | `Unsupported_rank ->
           Fmt.pf ppf
-            "pad mode %S over %d dimension%s is not defined for a rank-%d input"
+            "pad mode %S over %d dimension%s is not defined for a rank-%a input"
             mode pairs
             (if pairs = 1 then "" else "s")
-            rank
+            Rank.pp rank
   end
 
   (* ATen's own rules, in ATen's own order (native/PadNd.cpp's
@@ -163,22 +163,24 @@ module Pad = struct
         combination ATen rejects would turn a refusal into a walk MISMATCH,
         which reads as a wrong answer rather than as a boundary.
      5. replicate and circular are outside the Native domain entirely. *)
-  let params_of_aten ~rank ~(pad : int list) ~(mode : string)
+  let params_of_aten ~(rank : Rank.t) ~(pad : int list) ~(mode : string)
       ~(value : float option) =
     let n = List.length pad in
+    let rank_n = (rank :> int) in
     let fail fault =
       Err.fail (`Bad_pad_list { Bad_pad_list.pad; rank; mode; fault })
     in
     if n mod 2 <> 0 then fail `Odd_length
-    else if n > 2 * rank then fail `Too_many_pairs
+    else if n > 2 * rank_n then fail `Too_many_pairs
     else
       let pairs = n / 2 in
       let entries =
         List.init pairs (fun k ->
-            let dim = rank - 1 - k in
+            let dim = rank_n - 1 - k in
             let before = List.nth pad (2 * k)
             and after = List.nth pad ((2 * k) + 1) in
-            (Aten_shape.axis_of_dim ~rank dim, { before; after }))
+            ( Aten_shape.axis_of_dim ~rank (Aten_int.Dim.of_int dim),
+              { before; after } ))
       in
       (* [Axis.all] order, so a printed payload reads outermost-first however the
          serialized list was ordered. *)
@@ -196,9 +198,9 @@ module Pad = struct
             fail `Value_with_non_constant_mode
           else if
             not
-              ((pairs = 1 && (rank = 2 || rank = 3))
-              || (pairs = 2 && (rank = 3 || rank = 4))
-              || (pairs = 3 && (rank = 4 || rank = 5)))
+              ((pairs = 1 && (rank_n = 2 || rank_n = 3))
+              || (pairs = 2 && (rank_n = 3 || rank_n = 4))
+              || (pairs = 3 && (rank_n = 4 || rank_n = 5)))
           then fail `Unsupported_rank
           else Err.return { pads; mode = Reflect }
       | _ -> fail `Unsupported_mode

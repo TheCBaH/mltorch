@@ -79,7 +79,7 @@ type error =
   [ Region_group.error
   | Region_program.error
   | Region_eval.error
-  | `Duplicate_group_ordinal of int ]
+  | `Duplicate_group_ordinal of Region_group.Ordinal.t ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
 

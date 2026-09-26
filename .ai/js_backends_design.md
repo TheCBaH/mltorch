@@ -303,6 +303,14 @@ full range including `0x80000000` and `0xffffffff`; before the fix those two cou
 asserted at all, because the backends' *correct* answers differed **because of the bug**
 and one `[%expect]` cannot hold two spellings.
 
+A recurring shape of the aggregate defect is a product of extents formed in plain
+`int` and re-branded (`Dim.extent (a * b * c)`), justified by a comment that the
+result is "at most the element count, which graph construction bounds". That bound is
+applied by the importers and by `Kernel.Bounds.signature`, not by the validated graph
+view, so it is a convention rather than something a type enforces. The
+domain-typed-integers design (`domain_int_design.md`) replaces those sites with
+`Dim.product_bounded`, which bounds each factor before multiplying.
+
 When adding to any of these libraries: any value that can reach 2^31 must be
 `int32`/`int64`, not `int`, and aggregates need their own bound. `make jsoo.runtest`
 catches a *divergence*; `make jsoo.inline-runtest` catches a wrong answer both backends

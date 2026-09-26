@@ -32,7 +32,7 @@ let native_f32 shape vals =
   let data = Array1.create float32 c_layout n in
   List.iteri (fun i x -> data.{i} <- x) vals;
   let shape6 =
-    Aten_shape.of_aten (Array.of_list shape)
+    Aten_shape.of_aten (Array.of_list (List.map Aten_int.Size.of_int shape))
     |> Err.or_raise ~pp_error:Aten_shape.pp_error
   in
   Tensor.Tensor
@@ -46,7 +46,7 @@ let native_i64 shape vals =
   let data = Array1.create int64 c_layout n in
   List.iteri (fun i x -> data.{i} <- x) vals;
   let shape6 =
-    Aten_shape.of_aten (Array.of_list shape)
+    Aten_shape.of_aten (Array.of_list (List.map Aten_int.Size.of_int shape))
     |> Err.or_raise ~pp_error:Aten_shape.pp_error
   in
   Tensor.Tensor

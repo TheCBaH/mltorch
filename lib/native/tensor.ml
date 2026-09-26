@@ -122,12 +122,12 @@ let read_bool_at6 (Tensor t) (idx : Axis.t -> int) :
 (* tap helper: the source coord = [base] + per-axis signed [deltas], guarded into
    the source extents. [None] is the pad region. *)
 let shift_in_bounds (Tensor t) (base : Vec6.coord) (deltas : Vec6.deltas) =
-  let idx a = Dim.to_int (Vec6.get base a) + Dim.to_int (Vec6.get deltas a) in
-  let in_range a = idx a >= 0 && idx a < Dim.to_int (Vec6.get t.shape a) in
-  if List.for_all in_range Axis.all then
-    Some
-      (Vec6.coord ~n:(idx N) ~t:(idx T) ~d:(idx D) ~h:(idx H) ~w:(idx W)
-         ~c:(idx C))
+  let idx a =
+    Dim.index_of ~extent:(Vec6.get t.shape a)
+      (Dim.Delta.add (Dim.to_delta (Vec6.get base a)) (Vec6.get deltas a))
+  in
+  if List.for_all (fun a -> Option.is_some (idx a)) Axis.all then
+    Some (Vec6.of_fn (fun a -> Option.get (idx a)))
   else None
 
 let create (shape : Vec6.shape) =
@@ -275,7 +275,7 @@ let copy_cells (type e b q) (src : (e, b, q) Payload.payload)
 
 (* [Unbind] is a storage-preserving selection, unlike the arithmetic ops whose
    results enter the engine's f32 compute domain. See [copy_cells]. *)
-let unbind (Tensor src) ~axis ~output ~shape =
+let unbind (Tensor src) ~axis ~(output : Output_ordinal.t) ~shape =
   let source_coord out =
     let zero = Vec6.coord ~n:0 ~t:0 ~d:0 ~h:0 ~w:0 ~c:0 in
     let base =
@@ -285,7 +285,7 @@ let unbind (Tensor src) ~axis ~output ~shape =
         zero
         (Aten_shape.repack_dropped ~dropped:[ axis ])
     in
-    Vec6.set base axis (Dim.index output)
+    Vec6.set base axis (Dim.index (output :> int))
   in
   copy_cells src.payload ~shape ~src_shape:src.shape ~source_coord
 
@@ -293,9 +293,9 @@ let unbind (Tensor src) ~axis ~output ~shape =
    Unlike [unbind]'s [source_coord], there is no repack here --
    [Split_with_sizes] KEEPS the axis, so every axis but the split one carries
    over unchanged and only [axis] itself is shifted by [offset]. *)
-let split_with_sizes (Tensor src) ~axis ~offset ~shape =
+let split_with_sizes (Tensor src) ~axis ~(offset : Dim.fence Dim.t) ~shape =
   let source_coord out =
-    Vec6.set out axis (Dim.index (offset + Dim.to_int (Vec6.get out axis)))
+    Vec6.set out axis (Dim.advance ~start:offset (Vec6.get out axis))
   in
   copy_cells src.payload ~shape ~src_shape:src.shape ~source_coord
 

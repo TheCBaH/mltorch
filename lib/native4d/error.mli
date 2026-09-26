@@ -26,7 +26,7 @@ type t =
   | `Map of Graph_map.error
   | `Non_four_dimensional_tensor of Tensor_id.t * Vec6.shape
   | `Sdpa_batch_axis of Node_id.t
-  | `Unsupported_grouped_transposed_conv of Node_id.t * int
+  | `Unsupported_grouped_transposed_conv of Node_id.t * Op_config.Pos.t
   | `Unsupported_op of Node_id.t * op
   | `View of Framework.View4.error ]
 (* Carries the op, per design §10, not just its name: an op is rejected for

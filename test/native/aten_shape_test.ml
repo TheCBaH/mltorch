@@ -1,12 +1,18 @@
 (* Right-aligned, positional ATen<->6D bridge. See .ai/native_tensor_design.md §1d. *)
 
-let pp_ints fmt a =
+let pp_ints fmt (a : Aten_int.Size.t array) =
   Format.fprintf fmt "[%s]"
-    (String.concat ";" (Array.to_list (Array.map string_of_int a)))
+    (String.concat ";"
+       (Array.to_list
+          (Array.map (fun (s : Aten_int.Size.t) -> string_of_int (s :> int)) a)))
+
+let sizes a = Array.map Aten_int.Size.of_int a
 
 (* [of_aten] now returns a result; these cases use only valid shapes. *)
 let of_aten a =
-  Aten_shape.of_aten a |> Err.or_raise ~pp_error:Aten_shape.pp_error
+  Aten_shape.of_aten (sizes a) |> Err.or_raise ~pp_error:Aten_shape.pp_error
+
+let rank = Rank.of_int
 
 let%expect_test "of_aten: right-aligned into innermost axes" =
   Format.printf "%a@." Vec6.pp_shape (of_aten [| 6; 7; 8 |]);
@@ -19,19 +25,20 @@ let%expect_test "of_aten: right-aligned into innermost axes" =
 
 let%expect_test "to_aten: reverse needs the rank, round-trips of_aten" =
   let s = of_aten [| 6; 7; 8 |] in
-  Format.printf "%a@." pp_ints (Aten_shape.to_aten ~rank:3 s);
+  Format.printf "%a@." pp_ints (Aten_shape.to_aten ~rank:(rank 3) s);
   [%expect {| [6;7;8] |}];
   (* same frame shape read at a different rank yields a different ATen shape. *)
-  Format.printf "%a@." pp_ints (Aten_shape.to_aten ~rank:2 s);
+  Format.printf "%a@." pp_ints (Aten_shape.to_aten ~rank:(rank 2) s);
   [%expect {| [7;8] |}];
   List.iter
     (fun a ->
-      assert (Aten_shape.to_aten ~rank:(Array.length a) (of_aten a) = a))
+      assert (Aten_shape.to_aten ~rank:(Rank.of_array a) (of_aten a) = sizes a))
     [ [||]; [| 5 |]; [| 6; 7; 8 |]; [| 2; 3; 4; 5; 6; 7 |] ]
 
 let%expect_test "axis_of_dim: positional, negative dims count from the end" =
-  let show ~rank dim =
-    Format.printf "%a " Axis.pp (Aten_shape.axis_of_dim ~rank dim)
+  let show ~rank:r dim =
+    Format.printf "%a " Axis.pp
+      (Aten_shape.axis_of_dim ~rank:(rank r) (Aten_int.Dim.of_int dim))
   in
   show ~rank:3 0;
   show ~rank:3 1;
@@ -42,9 +49,10 @@ let%expect_test "axis_of_dim: positional, negative dims count from the end" =
   [%expect {| H W C C D |}]
 
 let%expect_test "used_axes: innermost rank axes" =
-  let show rank =
-    Format.printf "%d:%s@." rank
-      (String.concat "" (List.map Axis.to_string (Aten_shape.used_axes ~rank)))
+  let show r =
+    Format.printf "%d:%s@." r
+      (String.concat ""
+         (List.map Axis.to_string (Aten_shape.used_axes ~rank:(rank r))))
   in
   List.iter show [ 0; 1; 2; 4; 6 ];
   [%expect {|
@@ -67,13 +75,16 @@ let%expect_test "used_axes: innermost rank axes" =
    here to show which rows produce nothing. *)
 let slice ~extent ?start ?stop ?(step = 1) () =
   match
-    Aten_shape.resolve_slice ~extent:(Dim.extent extent) ~start ~stop ~step
+    Aten_shape.resolve_slice ~extent:(Dim.extent extent)
+      ~start:(Option.map Aten_int.Index.of_int start)
+      ~stop:(Option.map Aten_int.Index.of_int stop)
+      ~step:(Aten_int.Step.of_int step)
   with
   | Error e ->
       Format.printf "error: %a@." Aten_shape.pp_error (Err.Error.kind e)
   | Ok ({ start; stop; step } as b) ->
       let step = (step :> int) in
-      let out = (stop - start + step - 1) / step in
+      let out = ((stop :> int) - (start :> int) + step - 1) / step in
       Format.printf "%a -> out %d@." Aten_shape.Slice_bounds.pp b out
 
 let%expect_test "resolve_slice: absent bounds select the whole axis" =

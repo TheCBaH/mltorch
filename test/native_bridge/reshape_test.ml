@@ -174,7 +174,8 @@ let%expect_test "PT2 provenance: native ids map to qualified source origins" =
     Graph_ir.Tensor_id.Map.singleton weight
       (Pt2_native_graph.Source
          {
-           Pt2_native_graph.Tensor_origin.graph_path = [ 4; 2 ];
+           Pt2_native_graph.Tensor_origin.graph_path =
+             List.map Pt2_native_graph.Graph_path.Child.of_int [ 4; 2 ];
            ssa_name = "p_layer_weight";
            meta = None;
          })
@@ -185,7 +186,7 @@ let%expect_test "PT2 provenance: native ids map to qualified source origins" =
         {
           Pt2_native_graph.Node_origin.graph_path =
             Pt2_native_graph.Graph_path.root;
-          index = 7;
+          index = Pt2_native_graph.Node_origin.Index.of_int 7;
           target = "torch.ops.aten.add.Tensor";
           name = Some "add";
           metadata = Schema_runtime.String_map.empty;

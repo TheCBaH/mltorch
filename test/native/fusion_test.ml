@@ -711,7 +711,8 @@ let%expect_test
              {
                Kernel.Value.id = Tensor_id.of_int 0;
                sg = vsg 0 (s1c 1);
-               computation = Region_group.Ref.Grouped (group, 0);
+               computation =
+                 Region_group.Ref.Grouped (group, Region_group.Ordinal.of_int 0);
                result = Kernel.Result_conversion.Round_f32;
              };
              {

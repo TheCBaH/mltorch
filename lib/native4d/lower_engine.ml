@@ -329,7 +329,7 @@ let lower_node ~view acc (n : node) =
      invisible to [Domain.check_shapes], which only inspects live tensors. *)
   | Meshgrid { Meshgrid.Meshgrid.tensors } ->
       let* (_ : Axis4.t list) =
-        dims4 ~node (Aten_shape.used_axes ~rank:(List.length tensors))
+        dims4 ~node (Aten_shape.used_axes ~rank:(Rank.of_list tensors))
       in
       let+ () =
         Err.List.iter
@@ -575,8 +575,8 @@ let lower_node ~view acc (n : node) =
   | Convolution { Conv.Convolution.params; x; weight; bias } ->
       let* weight_shape = sig_of weight in
       if params.Conv.Convolution.transposed then
-        let groups = (params.Conv.Convolution.groups :> int) in
-        if groups <> 1 then
+        let groups = params.Conv.Convolution.groups in
+        if (groups :> int) <> 1 then
           Err.fail (`Unsupported_grouped_transposed_conv (node, groups))
         else
           simple

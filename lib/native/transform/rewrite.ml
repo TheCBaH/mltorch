@@ -832,31 +832,34 @@ module Make (S : Side.S) = struct
 
   (* ---- terminal packing ----------------------------------------------------- *)
 
-  module Int_map = Map.Make (Int)
-
   (* Post-origin ids in canonical order, deduplicated, handed dense values from the
      origin watermark. Origin ids are absent from the table and so map to
      themselves — which is what keeps the two blocks disjoint, everything below the
      watermark staying put and everything at or above it landing inside
      [watermark, watermark + count). Returns the renaming and the new watermark. *)
-  let renaming ~is_post ~to_int ~of_int ~mark ids =
-    let ordered =
-      List.fold_left
-        (fun (seen, acc) id ->
-          let i = to_int id in
-          if (not (is_post id)) || Int_map.mem i seen then (seen, acc)
-          else (Int_map.add i () seen, i :: acc))
-        (Int_map.empty, []) ids
-      |> snd |> List.rev
-    in
-    let table, next =
-      List.fold_left
-        (fun (table, next) i -> (Int_map.add i next table, next + 1))
-        (Int_map.empty, mark) ordered
-    in
-    ( (fun id ->
-        Int_map.find_opt (to_int id) table |> Option.fold ~none:id ~some:of_int),
-      next )
+  module Renaming (Id : Core.Tagged_int.S) = struct
+    let make ~is_post ~(mark : Id.Next.t) ids =
+      let ordered =
+        List.fold_left
+          (fun (seen, acc) id ->
+            if (not (is_post id)) || Id.Set.mem id seen then (seen, acc)
+            else (Id.Set.add id seen, id :: acc))
+          (Id.Set.empty, []) ids
+        |> snd |> List.rev
+      in
+      let table, next =
+        List.fold_left
+          (fun (table, next) id ->
+            let fresh, next = Id.Next.alloc next in
+            (Id.Map.add id fresh table, next))
+          (Id.Map.empty, mark) ordered
+      in
+      ((fun id -> Option.value (Id.Map.find_opt id table) ~default:id), next)
+  end
+
+  module Tensor_renaming = Renaming (Tensor_id)
+  module Node_renaming = Renaming (Node_id)
+  module Group_renaming = Renaming (Group_id)
 
   (* Canonical tensor order: graph inputs, then each node's outputs in topological
      order. The trailing sweep over [tensors] keeps the renaming total even for a
@@ -887,24 +890,22 @@ module Make (S : Side.S) = struct
   let pack state =
     let old_snap = state.snapshot in
     let g = Snap.graph old_snap in
-    let t_mark, n_mark, g_mark = Id_supply.origin_marks state.ids in
+    let marks = Id_supply.origin_marks state.ids in
     let tensor_id, tensor_next =
-      renaming
+      Tensor_renaming.make
         ~is_post:(Id_supply.is_post state.ids)
-        ~to_int:Tensor_id.to_int ~of_int:Tensor_id.of_int ~mark:t_mark
-        (tensor_order g)
+        ~mark:marks.Id_supply.Marks.tensor (tensor_order g)
     in
     let node_id, node_next =
-      renaming
+      Node_renaming.make
         ~is_post:(Id_supply.is_post_node state.ids)
-        ~to_int:Node_id.to_int ~of_int:Node_id.of_int ~mark:n_mark
+        ~mark:marks.Id_supply.Marks.node
         (List.map (fun (n : node) -> n.Node.id) g.Graph.nodes)
     in
     let group_id, group_next =
-      renaming
+      Group_renaming.make
         ~is_post:(Id_supply.is_post_group state.ids)
-        ~to_int:Group_id.to_int ~of_int:Group_id.of_int ~mark:g_mark
-        (group_order g.Graph.root)
+        ~mark:marks.Id_supply.Marks.group (group_order g.Graph.root)
     in
     let new_g =
       {
@@ -984,8 +985,12 @@ module Make (S : Side.S) = struct
       |> Err.map_error (fun e -> (e :> error))
     in
     let ids =
-      Id_supply.repack state.ids ~tensor:tensor_next ~node:node_next
-        ~group:group_next
+      Id_supply.repack state.ids
+        {
+          Id_supply.Marks.tensor = tensor_next;
+          node = node_next;
+          group = group_next;
+        }
     in
     Err.return (Step ({ constant_store; ids; snapshot = new_snap }, map))
 end

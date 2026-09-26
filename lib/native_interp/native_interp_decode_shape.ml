@@ -103,7 +103,7 @@ let tensor_meta esc (graph : Pytorch_types.Graph.t) ~ssa ~role =
   | Some x -> x
   | None -> malformed esc (`Missing_metadata { ssa; role })
 
-let meta_rank (meta : TensorMeta.t) = List.length meta.TensorMeta.sizes
+let meta_rank (meta : TensorMeta.t) = Rank.of_list meta.TensorMeta.sizes
 
 (* [shape_of_sizes] RIGHT-ALIGNS a declared size list into the six-axis frame,
    so [C] and [1,C] land on exactly the same extents. [Graph_shape]'s operand
@@ -113,7 +113,8 @@ let meta_rank (meta : TensorMeta.t) = List.length meta.TensorMeta.sizes
    each importer has to check its own. *)
 let require_rank esc (graph : Pytorch_types.Graph.t) ~ssa ~role ~expected =
   let got = meta_rank (tensor_meta esc graph ~ssa ~role) in
-  if got <> expected then
+  let expected = Rank.of_int expected in
+  if not (Rank.equal got expected) then
     malformed esc
       (`Bad_dimension { tensor = ssa; fault = `Expected_rank { expected; got } })
 
@@ -132,7 +133,9 @@ let sizes_rank_5 esc ~tensor = function
         (`Bad_dimension
            {
              tensor;
-             fault = `Expected_rank { expected = 5; got = List.length sizes };
+             fault =
+               `Expected_rank
+                 { expected = Rank.of_int 5; got = Rank.of_list sizes };
            })
 
 let sizes_rank_4 esc ~tensor = function
@@ -142,7 +145,9 @@ let sizes_rank_4 esc ~tensor = function
         (`Bad_dimension
            {
              tensor;
-             fault = `Expected_rank { expected = 4; got = List.length sizes };
+             fault =
+               `Expected_rank
+                 { expected = Rank.of_int 4; got = Rank.of_list sizes };
            })
 
 let sizes_rank_3 esc ~tensor = function
@@ -152,7 +157,9 @@ let sizes_rank_3 esc ~tensor = function
         (`Bad_dimension
            {
              tensor;
-             fault = `Expected_rank { expected = 3; got = List.length sizes };
+             fault =
+               `Expected_rank
+                 { expected = Rank.of_int 3; got = Rank.of_list sizes };
            })
 
 let sizes_rank_2 esc ~tensor = function
@@ -162,7 +169,9 @@ let sizes_rank_2 esc ~tensor = function
         (`Bad_dimension
            {
              tensor;
-             fault = `Expected_rank { expected = 2; got = List.length sizes };
+             fault =
+               `Expected_rank
+                 { expected = Rank.of_int 2; got = Rank.of_list sizes };
            })
 
 (* [used] is the innermost [rank] frame axes, so it has SIX entries once rank
@@ -173,31 +182,78 @@ let sizes_rank_2 esc ~tensor = function
    edge some node produced. Guarding here covers every caller
    (mean.dim, permute.default, unbind.int) rather than each arm separately, and
    reports the same row [shape_of_sizes] would for the same condition. *)
-let used_axes_for esc ~tensor rank =
-  if rank > 6 then
+let used_axes_for esc ~tensor (rank : Rank.t) =
+  if (rank :> int) > 6 then
     malformed esc (`Bad_dimension { tensor; fault = `Rank_over_six })
-  else List.filteri (fun i _ -> i >= 6 - rank) Axis.all
+  else Aten_shape.used_axes ~rank
 
-let axes_for_rank esc ~tensor rank dims =
-  let used = used_axes_for esc ~tensor rank in
+(* A dim number judged against a rank: negative counts from the end, and
+   anything still outside [0, rank) is [`Axis_out_of_range], reported as
+   written. The position it names. *)
+let normalize_dim esc ~(rank : Rank.t) (dim : Aten_int.Dim.t) =
+  let rank_n = (rank :> int) in
+  let n = (dim :> int) in
+  let n = if n < 0 then n + rank_n else n in
+  if n < 0 || n >= rank_n then
+    malformed esc (`Axis_out_of_range { axis = dim; rank })
+  else n
+
+(* Like [normalize_dim], for an op that INSERTS an axis (stack, unsqueeze): the
+   valid positions are [0, rank], one more than an existing tensor has. The
+   error still reports the operand's own rank. *)
+let normalize_insert_dim esc ~(rank : Rank.t) (dim : Aten_int.Dim.t) =
+  let rank_n = (rank :> int) in
+  let n = (dim :> int) in
+  let n = if n < 0 then n + rank_n + 1 else n in
+  if n < 0 || n > rank_n then
+    malformed esc (`Axis_out_of_range { axis = dim; rank })
+  else n
+
+(* The declared sizes of [shape]'s innermost [rank] axes as plain ints, for the
+   arms that rebuild a size list to hand back to [shape_of_sizes]. *)
+let aten_sizes ~rank shape =
   List.map
-    (fun d ->
-      let d = if d < 0 then d + rank else d in
-      if d < 0 || d >= rank then
+    (fun (s : Aten_int.Size.t) -> (s :> int))
+    (Array.to_list (Aten_shape.to_aten ~rank shape))
+
+(* The [normalized_shape] of layer_norm/rms_norm against the input's declared
+   [sizes]: its length must lie in [1, rank] and it must equal the trailing
+   sizes. Returns the trailing axes it normalizes over. *)
+let normalized_axes esc ~tensor ~op sizes (normalized : Aten_int.Size.t list) =
+  let rank = List.length sizes in
+  let k = List.length normalized in
+  if k < 1 || k > rank then
+    malformed esc (`Normalized_rank { op; rank = Rank.of_int rank; got = k });
+  let trailing l = List.filteri (fun i _ -> i >= rank - k) l in
+  let expected = List.map Aten_int.Size.of_int (trailing sizes) in
+  if expected <> normalized then
+    malformed esc (`Normalized_shape { op; expected; got = normalized });
+  trailing (used_axes_for esc ~tensor (Rank.of_int rank))
+
+let axes_for_rank esc ~tensor (rank : Rank.t) (dims : Aten_int.Dim.t list) =
+  let used = used_axes_for esc ~tensor rank in
+  let rank_n = (rank :> int) in
+  List.map
+    (fun (d : Aten_int.Dim.t) ->
+      let n = (d :> int) in
+      let n = if n < 0 then n + rank_n else n in
+      if n < 0 || n >= rank_n then
         malformed esc (`Axis_out_of_range { axis = d; rank })
-      else List.nth used d)
+      else List.nth used n)
     dims
 
-let native_perm esc ~tensor ~rank dims =
+let native_perm esc ~tensor ~(rank : Rank.t) (dims : Aten_int.Dim.t list) =
   let used = used_axes_for esc ~tensor rank in
+  let rank_n = (rank :> int) in
   let outer = List.filter (fun a -> not (List.mem a used)) Axis.all in
   List.map (fun a -> (a, a)) outer
   @ List.mapi
-      (fun i d ->
-        let d = if d < 0 then d + rank else d in
-        if d < 0 || d >= rank then
+      (fun i (d : Aten_int.Dim.t) ->
+        let n = (d :> int) in
+        let n = if n < 0 then n + rank_n else n in
+        if n < 0 || n >= rank_n then
           malformed esc (`Axis_out_of_range { axis = d; rank });
-        (List.nth used i, List.nth used d))
+        (List.nth used i, List.nth used n))
       dims
 
 (* Shares [Aten_shape.resolve_view_size] with [Op_bridge] rather than
@@ -222,7 +278,8 @@ let resolve_view esc ~tensor shape size =
          (fun e -> bad_view (`Aten_shape e))
          (Aten_shape.resolve_view_size ~numel size))
   in
-  shape_of_sizes esc tensor (List.map (fun x -> SymInt.Int x) resolved)
+  shape_of_sizes esc tensor
+    (List.map (fun (x : Aten_int.Size.t) -> SymInt.Int (x :> int)) resolved)
 
 (* [expand.default]'s [size], resolved against [self_dims] ([self]'s own
    ATen rank -- see [Aten_shape.resolve_expand_size]'s comment for why this,
@@ -239,7 +296,8 @@ let resolve_expand esc ~tensor ~self_dims size =
          (fun e -> bad_expand (`Aten_shape e))
          (Aten_shape.resolve_expand_size ~self_dims ~size))
   in
-  shape_of_sizes esc tensor (List.map (fun x -> SymInt.Int x) resolved)
+  shape_of_sizes esc tensor
+    (List.map (fun (x : Aten_int.Size.t) -> SymInt.Int (x :> int)) resolved)
 
 (* [repeat.default]'s [repeats], checked against [self_dims] ([self]'s own
    ATen rank -- see [Aten_shape.resolve_repeat_size]'s comment for why this,
@@ -256,7 +314,8 @@ let resolve_repeat esc ~tensor ~self_dims repeats =
          (fun e -> bad_repeat (`Aten_shape e))
          (Aten_shape.resolve_repeat_size ~self_dims ~repeats))
   in
-  shape_of_sizes esc tensor (List.map (fun x -> SymInt.Int x) resolved)
+  shape_of_sizes esc tensor
+    (List.map (fun (x : Aten_int.Size.t) -> SymInt.Int (x :> int)) resolved)
 
 (* [tile.default]'s own resolution: [Aten_shape.resolve_tile_size]'s left-pad
    rule, the reverse of [resolve_repeat]'s -- otherwise identical, down to
@@ -272,7 +331,8 @@ let resolve_tile esc ~tensor ~self_dims dims =
          (fun e -> bad_tile (`Aten_shape e))
          (Aten_shape.resolve_tile_size ~self_dims ~dims))
   in
-  shape_of_sizes esc tensor (List.map (fun x -> SymInt.Int x) resolved)
+  shape_of_sizes esc tensor
+    (List.map (fun (x : Aten_int.Size.t) -> SymInt.Int (x :> int)) resolved)
 
 (* Shared by [upsample_bilinear2d.vec]/[upsample_nearest2d.vec]'s arms: both
    schemas are `(Tensor input, SymInt[]? output_size, ..., float[]?

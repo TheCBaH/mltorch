@@ -14,19 +14,23 @@ module Rhs = struct
   type t =
     | Scalar of int64 Expr.Value.t
     | Vector of {
-        extent : int;
+        extent : Slot.extent Slot.t;
         var : Expr.Reduce_var.t;
         body : int64 Expr.Value.t;
       }
 
   let scalar value = Scalar value
   let vector ~extent ~var ~body = Vector { extent; var; body }
-  let slot_count = function Scalar _ -> 1 | Vector { extent; _ } -> extent
+
+  let slot_count = function
+    | Scalar _ -> Slot.one
+    | Vector { extent; _ } -> Slot.count_of_extent extent
+
   let value = function Scalar value -> value | Vector { body; _ } -> body
 end
 
 module Shape = struct
-  type t = Scalar | Vector of { extent : int }
+  type t = Scalar | Vector of { extent : Slot.extent Slot.t }
 
   let of_rhs = function
     | Rhs.Scalar _ -> Scalar
@@ -34,7 +38,7 @@ module Shape = struct
 
   let pp fmt = function
     | Scalar -> Fmt.string fmt "scalar"
-    | Vector { extent } -> Fmt.pf fmt "vector[%d]" extent
+    | Vector { extent } -> Fmt.pf fmt "vector[%a]" Slot.pp extent
 end
 
 type t = { id : Expr.Local_var.t; rhs : Rhs.t }

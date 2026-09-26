@@ -35,7 +35,7 @@ let is_i64 = function Payload.Fmt Payload.I64 -> true | _ -> false
 
 (* The ops whose second output is an argmax-style index. *)
 let is_index_output (op : Graph_ir.op) output =
-  output = 1
+  Output_ordinal.equal output Output_ordinal.one
   &&
   match op with
   | Adaptive_max_pool2d_with_indices _ | Max_dim _ | Max_pool2d_with_indices _
@@ -156,7 +156,7 @@ let run ?(limits = Kernel.Limits.default) (g : graph) : Stage_program.t =
     check_mixed_dtype gr op;
     let operand r = Tensor_id.Map.find r env in
     let shape_of r = (Tensor_id.Map.find r env).Tensor_sig.shape in
-    let outs = List.mapi (fun i oid -> (i, oid)) node.Node.outputs in
+    let outs = Output_ordinal.indexed node.Node.outputs in
     match (op, outs) with
     (* An exact-Arange node with a real ATen-sourced int64 bound produces a
        [Stage_i64.t] instead of an ordinary float [Stage.t] -- the Symbolic
@@ -359,7 +359,9 @@ let run ?(limits = Kernel.Limits.default) (g : graph) : Stage_program.t =
                 {
                   Stage_program.Stage.id = oid;
                   sg = out_sig;
-                  computation = Region_group.Ref.Grouped (group, output);
+                  computation =
+                    Region_group.Ref.Grouped
+                      (group, Region_computation.emitter_of_output output);
                 }
               in
               (Tensor_id.Map.add oid out_sig env, st :: stages))

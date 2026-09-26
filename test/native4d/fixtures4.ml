@@ -167,7 +167,7 @@ let index_tensor4_case () =
          input ~shape:index_shape ~fmt:(Payload.Fmt Payload.I64) ()
        in
        index_tensor4
-         { Ops4.IndexTensor4.axis = Axis4.W; index_rank = 1 }
+         { Ops4.IndexTensor4.axis = Axis4.W; index_rank = Rank.of_int 1 }
          ~self ~index)
   in
   let self_id, index_id =

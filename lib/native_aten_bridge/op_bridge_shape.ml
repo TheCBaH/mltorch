@@ -264,7 +264,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          let* target =
            Err.map_error
              (fun e -> `Aten_shape e)
-             (Aten_shape.of_aten (Aten_tensor.shape self_t))
+             (Aten_shape.of_aten (aten_dims self_t))
          in
          let* src = native_tensor_arg aten_env node "src" in
          build_g ~name:"copy" [ src ] (function
@@ -278,7 +278,10 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
         (let* t = tensor_arg aten_env node "self" in
          let rank = aten_rank t in
          let* dims = ints_arg node "dims" in
-         let* perm = native_perm_of_aten ~op:"permute.default" ~rank dims in
+         let* perm =
+           native_perm_of_aten ~op:"permute.default" ~rank
+             (List.map Aten_int.Dim.of_int dims)
+         in
          let* x = native_of_aten "self" t in
          build_g ~name:"permute" [ x ] (function
            | [ x_id ] ->
@@ -295,13 +298,16 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
       Some
         (let* t = tensor_arg aten_env node "self" in
          let rank = aten_rank t in
-         let* dim0 = int_arg node "dim0" in
-         let* dim1 = int_arg node "dim1" in
+         let* dim0 = dim_arg node "dim0" in
+         let* dim1 = dim_arg node "dim1" in
          let* d0 = norm_dim ~op:"transpose.int" ~rank dim0 in
          let* d1 = norm_dim ~op:"transpose.int" ~rank dim1 in
          let dims =
-           List.init rank (fun i ->
-               if i = d0 then d1 else if i = d1 then d0 else i)
+           List.init
+             (rank :> int)
+             (fun i ->
+               Aten_int.Dim.of_int
+                 (if i = d0 then d1 else if i = d1 then d0 else i))
          in
          let* perm = native_perm_of_aten ~op:"transpose.int" ~rank dims in
          let* x = native_of_aten "self" t in
@@ -354,10 +360,13 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
         (let* aten_x = tensor_arg aten_env node "self" in
          let* () = require_f32 "self" aten_x in
          let rank = aten_rank aten_x in
-         let* dim = int_arg ~default:0 node "dim" in
+         let* dim = dim_arg ~default:0 node "dim" in
          let* start = int_opt_arg node "start" in
          let* stop = int_opt_arg node "end" in
          let* step = int_arg ~default:1 node "step" in
+         let start = Option.map Aten_int.Index.of_int start in
+         let stop = Option.map Aten_int.Index.of_int stop in
+         let step = Aten_int.Step.of_int step in
          let* x = native_of_aten "self" aten_x in
          let* axis = dim_axis ~op:"slice.Tensor" ~rank dim in
          let extent = Vec6.get (packed_shape x) axis in
@@ -373,8 +382,8 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                  slice
                    {
                      Split.Slice.axis;
-                     start = bounds.Aten_shape.Slice_bounds.start;
-                     stop = bounds.Aten_shape.Slice_bounds.stop;
+                     start = (bounds.Aten_shape.Slice_bounds.start :> int);
+                     stop = (bounds.Aten_shape.Slice_bounds.stop :> int);
                      step = bounds.Aten_shape.Slice_bounds.step;
                    }
                    x_id
@@ -391,7 +400,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
       Some
         (let* aten_xs = tensors_arg aten_env node "tensors" in
          let* () = Err.List.iter (require_f32 "tensors") aten_xs in
-         let* dim = int_arg ~default:0 node "dim" in
+         let* dim = dim_arg ~default:0 node "dim" in
          match aten_xs with
          | [] -> fail (`Concat_no_tensors "cat.default")
          | aten_x0 :: _ ->
@@ -400,7 +409,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                Err.List.iter
                  (fun t ->
                    let got = aten_rank t in
-                   if got = rank then return ()
+                   if Rank.equal got rank then return ()
                    else
                      fail
                        (`Concat_rank_mismatch
@@ -412,7 +421,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                  aten_xs
              in
              let* d = norm_dim ~op:"cat.default" ~rank dim in
-             let axis = Aten_shape.axis_of_dim ~rank d in
+             let axis = Aten_shape.axis_of_dim ~rank (Aten_int.Dim.of_int d) in
              let* xs = Err.List.map (native_of_aten "tensors") aten_xs in
              build_g ~name:"cat" xs (fun ids ->
                  let open Graph_builder in
@@ -429,7 +438,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
       Some
         (let* aten_xs = tensors_arg aten_env node "tensors" in
          let* () = Err.List.iter (require_f32 "tensors") aten_xs in
-         let* dim = int_arg ~default:0 node "dim" in
+         let* dim = dim_arg ~default:0 node "dim" in
          match aten_xs with
          | [] -> fail (`Concat_no_tensors "stack.default")
          | aten_x0 :: _ ->
@@ -438,7 +447,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                Err.List.iter
                  (fun t ->
                    let got = aten_rank t in
-                   if got = rank then return ()
+                   if Rank.equal got rank then return ()
                    else
                      fail
                        (`Concat_rank_mismatch
@@ -451,7 +460,11 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
              in
              let* d = norm_unsqueeze_dim ~op:"stack.default" ~rank dim in
              let* xs = Err.List.map (native_of_aten "tensors") aten_xs in
-             let axis = Aten_shape.axis_of_dim ~rank:(rank + 1) d in
+             let axis =
+               Aten_shape.axis_of_dim
+                 ~rank:(Rank.of_int ((rank :> int) + 1))
+                 (Aten_int.Dim.of_int d)
+             in
              build_g ~name:"stack" xs (fun ids ->
                  let open Graph_builder in
                  let+ y = stack { Concat.Stack.axis } ids in
@@ -488,11 +501,12 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
         (let* aten_x = tensor_arg aten_env node "self" in
          let* () = require_f32 "self" aten_x in
          let rank = aten_rank aten_x in
-         let* dim = int_arg node "dim" in
+         let* dim = dim_arg node "dim" in
          let* index = int_arg node "index" in
+         let index = Aten_int.Index.of_int index in
          let* x = native_of_aten "self" aten_x in
          let* d = norm_dim ~op:"select.int" ~rank dim in
-         let axis = Aten_shape.axis_of_dim ~rank d in
+         let axis = Aten_shape.axis_of_dim ~rank (Aten_int.Dim.of_int d) in
          let extent = Vec6.get (packed_shape x) axis in
          let* idx =
            Err.map_error
@@ -502,7 +516,9 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          build_g ~name:"select" [ x ] (function
            | [ x_id ] ->
                let open Graph_builder in
-               let+ y = select { Split.Select.axis; index = idx } x_id in
+               let+ y =
+                 select { Split.Select.axis; index = (idx :> int) } x_id
+               in
                [ y ]
            | _ -> assert false))
   (* One [Select_scatter] node: [self] with [src] written at [idx] along
@@ -520,12 +536,13 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          let* aten_src = tensor_arg aten_env node "src" in
          let* () = require_f32 "src" aten_src in
          let rank = aten_rank aten_self in
-         let* dim = int_arg node "dim" in
+         let* dim = dim_arg node "dim" in
          let* index = int_arg node "index" in
+         let index = Aten_int.Index.of_int index in
          let* self = native_of_aten "self" aten_self in
          let* src = native_of_aten "src" aten_src in
          let* d = norm_dim ~op:"select_scatter.default" ~rank dim in
-         let axis = Aten_shape.axis_of_dim ~rank d in
+         let axis = Aten_shape.axis_of_dim ~rank (Aten_int.Dim.of_int d) in
          let extent = Vec6.get (packed_shape self) axis in
          let* idx =
            Err.map_error
@@ -537,7 +554,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y =
                  select_scatter
-                   { Split.Select_scatter.axis; index = idx }
+                   { Split.Select_scatter.axis; index = (idx :> int) }
                    ~self:self_id ~src:src_id
                in
                [ y ]
@@ -558,18 +575,21 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          let rank = aten_rank aten_x in
          let* dims = ints_arg node "dim" in
          let* x = native_of_aten "self" aten_x in
-         let* ds = Err.List.map (norm_dim ~op:"squeeze.dims" ~rank) dims in
+         let* ds =
+           Err.List.map
+             (fun d ->
+               norm_dim ~op:"squeeze.dims" ~rank (Aten_int.Dim.of_int d))
+             dims
+         in
          let shape = packed_shape x in
-         let aten_list = Array.to_list (Aten_shape.to_aten ~rank shape) in
+         let aten_list = aten_sizes ~rank shape in
          let out_list =
            List.filteri
              (fun i _ -> not (List.mem i ds && List.nth aten_list i = 1))
              aten_list
          in
          let* target =
-           Err.map_error
-             (fun e -> `Aten_shape e)
-             (Aten_shape.of_aten (Array.of_list out_list))
+           Err.map_error (fun e -> `Aten_shape e) (of_sizes out_list)
          in
          build_g ~name:"squeeze" [ x ] (function
            | [ x_id ] ->
@@ -588,23 +608,19 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
       Some
         (let* aten_x = tensor_arg aten_env node "self" in
          let rank = aten_rank aten_x in
-         let* dim = int_arg node "dim" in
+         let* dim = dim_arg node "dim" in
          let* x = native_of_aten "self" aten_x in
          let* d = norm_dim ~op:"squeeze.dim" ~rank dim in
-         let axis = Aten_shape.axis_of_dim ~rank d in
+         let axis = Aten_shape.axis_of_dim ~rank (Aten_int.Dim.of_int d) in
          let extent = Vec6.get (packed_shape x) axis in
-         let aten_list =
-           Array.to_list (Aten_shape.to_aten ~rank (packed_shape x))
-         in
+         let aten_list = aten_sizes ~rank (packed_shape x) in
          let out_list =
            if Dim.to_int extent = 1 then
              List.filteri (fun i _ -> i <> d) aten_list
            else aten_list
          in
          let* target =
-           Err.map_error
-             (fun e -> `Aten_shape e)
-             (Aten_shape.of_aten (Array.of_list out_list))
+           Err.map_error (fun e -> `Aten_shape e) (of_sizes out_list)
          in
          build_g ~name:"squeeze" [ x ] (function
            | [ x_id ] ->
@@ -621,17 +637,16 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
       Some
         (let* aten_x = tensor_arg aten_env node "self" in
          let rank = aten_rank aten_x in
-         let* dim = int_arg node "dim" in
+         let* dim = dim_arg node "dim" in
          let* x = native_of_aten "self" aten_x in
          let* d = norm_unsqueeze_dim ~op:"unsqueeze.default" ~rank dim in
-         let aten_list =
-           Array.to_list (Aten_shape.to_aten ~rank (packed_shape x))
-         in
+         let aten_list = aten_sizes ~rank (packed_shape x) in
          let front = List.filteri (fun i _ -> i < d) aten_list in
          let back = List.filteri (fun i _ -> i >= d) aten_list in
-         let out_shape = Array.of_list (front @ [ 1 ] @ back) in
          let* target =
-           Err.map_error (fun e -> `Aten_shape e) (Aten_shape.of_aten out_shape)
+           Err.map_error
+             (fun e -> `Aten_shape e)
+             (of_sizes (front @ [ 1 ] @ back))
          in
          build_g ~name:"unsqueeze" [ x ] (function
            | [ x_id ] ->
@@ -645,7 +660,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          (* Rank comes from the ORIGINAL ATen tensor: [of_aten] right-aligns
             into the six-axis frame, after which the rank is not recoverable. *)
          let rank = aten_rank aten_x in
-         let* dim = int_arg ~default:0 node "dim" in
+         let* dim = dim_arg ~default:0 node "dim" in
          (* Convert BEFORE judging the dim, so a rank Native cannot represent is
             reported as the rank fault it is rather than as a bad dimension. *)
          let* x = native_of_aten "self" aten_x in
@@ -670,7 +685,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
         (let op = "unfold.default" in
          let* aten_x = tensor_arg aten_env node "self" in
          let rank = aten_rank aten_x in
-         let* dimension = int_arg node "dimension" in
+         let* dimension = dim_arg node "dimension" in
          let* source = dim_axis ~op ~rank dimension in
          let* size_int = int_arg node "size" in
          let* step_int = int_arg node "step" in
@@ -699,7 +714,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
       Some
         (let* aten_x = tensor_arg aten_env node "self" in
          let rank = aten_rank aten_x in
-         let* dim = int_arg ~default:0 node "dim" in
+         let* dim = dim_arg ~default:0 node "dim" in
          let* sizes = ints_arg node "split_sizes" in
          let* x = native_of_aten "self" aten_x in
          let* axis = dim_axis ~op:"split_with_sizes.default" ~rank dim in
@@ -717,7 +732,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
       Some
         (let* aten_x = tensor_arg aten_env node "self" in
          let rank = aten_rank aten_x in
-         let* dim = int_arg ~default:0 node "dim" in
+         let* dim = dim_arg ~default:0 node "dim" in
          let* split_size = int_arg node "split_size" in
          let* x = native_of_aten "self" aten_x in
          let* axis = dim_axis ~op:"split.Tensor" ~rank dim in
@@ -840,7 +855,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
             the native reshape needs no surrounding permutes; the target native
             shape is [size] right-aligned (a single -1 resolved against numel). *)
          let* aten_x = tensor_arg aten_env node "self" in
-         let* size = ints_arg node "size" in
+         let* size = sizes_arg node "size" in
          let* x = native_of_aten "self" aten_x in
          let (Tensor.Tensor r) = x in
          (* [x]'s shape already cleared [Tensor_bridge.of_aten]'s numel
@@ -894,13 +909,12 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
   | "torch.ops.aten.expand.default" ->
       Some
         (let* t = tensor_arg aten_env node "self" in
-         let* size = ints_arg node "size" in
+         let* size = sizes_arg node "size" in
          let* (_ : bool) = bool_arg node "implicit" in
          let* resolved =
            Err.map_error
              (fun e -> `Aten_shape e)
-             (Aten_shape.resolve_expand_size ~self_dims:(Aten_tensor.shape t)
-                ~size)
+             (Aten_shape.resolve_expand_size ~self_dims:(aten_dims t) ~size)
          in
          let* target =
            Err.map_error
@@ -926,12 +940,11 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
   | "torch.ops.aten.repeat.default" ->
       Some
         (let* t = tensor_arg aten_env node "self" in
-         let* repeats = ints_arg node "repeats" in
+         let* repeats = sizes_arg node "repeats" in
          let* resolved =
            Err.map_error
              (fun e -> `Aten_shape e)
-             (Aten_shape.resolve_repeat_size ~self_dims:(Aten_tensor.shape t)
-                ~repeats)
+             (Aten_shape.resolve_repeat_size ~self_dims:(aten_dims t) ~repeats)
          in
          let* target =
            Err.map_error
@@ -953,12 +966,11 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
   | "torch.ops.aten.tile.default" ->
       Some
         (let* t = tensor_arg aten_env node "self" in
-         let* dims = ints_arg node "dims" in
+         let* dims = sizes_arg node "dims" in
          let* resolved =
            Err.map_error
              (fun e -> `Aten_shape e)
-             (Aten_shape.resolve_tile_size ~self_dims:(Aten_tensor.shape t)
-                ~dims)
+             (Aten_shape.resolve_tile_size ~self_dims:(aten_dims t) ~dims)
          in
          let* target =
            Err.map_error
@@ -994,7 +1006,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                  (`Validation_failure
                     (op ^ ": dim=None (flatten-first) is not yet supported"))
          in
-         let* axis = dim_axis ~op ~rank dim in
+         let* axis = dim_axis ~op ~rank (Aten_int.Dim.of_int dim) in
          let* repeats_int = int_arg node "repeats" in
          let* repeats = pos ~op ~param:`Repeats repeats_int in
          let* x = native_of_aten "self" t in
@@ -1063,7 +1075,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          let index_list_fail (fault : Op_bridge_error.Index_list.fault) =
            fail (`Index_list { Op_bridge_error.Index_list.fault })
          in
-         if got > rank then
+         if got > (rank :> int) then
            index_list_fail
              (Op_bridge_error.Index_list.Length_mismatch
                 { expected = rank; got })
@@ -1088,12 +1100,14 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                       { position = p; dtype })
                else
                  let index_rank = aten_rank index_t in
-                 if index_rank < 1 then
+                 if (index_rank :> int) < 1 then
                    index_list_fail
                      (Op_bridge_error.Index_list.Wrong_rank
                         { position = p; rank = index_rank })
                  else
-                   let* axis = dim_axis ~op:"index.Tensor" ~rank p in
+                   let* axis =
+                     dim_axis ~op:"index.Tensor" ~rank (Aten_int.Dim.of_int p)
+                   in
                    let* self_n = native_of_aten "self" self_t in
                    let* index_n = native_of_aten "index" index_t in
                    build_g ~name:"index_tensor" [ self_n; index_n ] (function

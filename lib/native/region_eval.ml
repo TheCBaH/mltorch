@@ -33,16 +33,17 @@ let rec each_lane f l width =
     each_lane f (l + 1) width
 
 let evaluate_locals program ~env ~slots ~key ~scan_meter =
-  let values = Array.make (Region_slots.total slots) 0. in
+  let values = Array.make (Region_slots.total slots :> int) 0. in
   let local, local_at = Region_slots.reader slots values in
   let scan = Region_slots.scan_reader slots values in
   let rec fill = function
     | [] -> Err.return values
     | binding :: rest -> (
         let open Err.Syntax in
-        let offset, count =
+        let { Slot.Range.offset; count } =
           Option.get (Region_slots.offset slots binding.Region_local.id)
         in
+        let offset = (offset :> int) and count = (count :> int) in
         match binding.Region_local.rhs with
         | Region_local.Rhs.Scalar value ->
             let* value =

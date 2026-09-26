@@ -209,9 +209,9 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
            else Norm.Target.Native_layer_norm
          in
          let* t = tensor_arg aten_env node "input" in
-         let* normalized_shape = ints_arg node "normalized_shape" in
+         let* normalized_shape = sizes_arg node "normalized_shape" in
          let* dims =
-           normalized_dims ~op ~x_shape:(Aten_tensor.shape t) ~normalized_shape
+           normalized_dims ~op ~x_shape:(aten_dims t) ~normalized_shape
          in
          (* [layer_norm]'s eps is a REQUIRED float with a schema default of
             1e-5, so [float_arg ~default], not [eps_arg]: rms_norm's eps is a
@@ -289,10 +289,10 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
   | "torch.ops.aten.rms_norm.default" ->
       Some
         (let* t = tensor_arg aten_env node "input" in
-         let* normalized_shape = ints_arg node "normalized_shape" in
+         let* normalized_shape = sizes_arg node "normalized_shape" in
          let* dims =
-           normalized_dims ~op:Norm.Target.Rms_norm
-             ~x_shape:(Aten_tensor.shape t) ~normalized_shape
+           normalized_dims ~op:Norm.Target.Rms_norm ~x_shape:(aten_dims t)
+             ~normalized_shape
          in
          let* eps = eps_arg node "eps" in
          let params = { Norm.RmsNorm.dims; eps } in

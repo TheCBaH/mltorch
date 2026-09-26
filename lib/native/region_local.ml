@@ -2,7 +2,7 @@ module Rhs = struct
   type t =
     | Scalar of float Expr.Value.t
     | Vector of {
-        extent : int;
+        extent : Slot.extent Slot.t;
         var : Expr.Reduce_var.t;
         body : float Expr.Value.t;
       }
@@ -19,9 +19,12 @@ module Rhs = struct
      (2^20 each) before this ever runs -- so this product needs no separate
      checked arithmetic here. *)
   let slot_count = function
-    | Scalar _ -> 1
-    | Vector { extent; _ } -> extent
-    | Scan s -> (s.Expr.Scan.steps + 1) * s.Expr.Scan.width
+    | Scalar _ -> Slot.one
+    | Vector { extent; _ } -> Slot.count_of_extent extent
+    | Scan s ->
+        Slot.trace_count
+          ~steps:(Slot.extent s.Expr.Scan.steps)
+          ~width:(Slot.extent s.Expr.Scan.width)
 
   (* The one [float Expr.Value.t] a scalar/vector RHS carries; for a scan, a
      FOLDABLE stand-in built the same way a real trace read is -- wrapped as
@@ -42,19 +45,24 @@ end
 module Shape = struct
   type t =
     | Scalar
-    | Vector of { extent : int }
-    | Scan of { width : int; steps : int }
+    | Vector of { extent : Slot.extent Slot.t }
+    | Scan of { width : Slot.extent Slot.t; steps : Slot.extent Slot.t }
 
   let of_rhs = function
     | Rhs.Scalar _ -> Scalar
     | Rhs.Vector { extent; _ } -> Vector { extent }
     | Rhs.Scan s ->
-        Scan { width = s.Expr.Scan.width; steps = s.Expr.Scan.steps }
+        Scan
+          {
+            width = Slot.extent s.Expr.Scan.width;
+            steps = Slot.extent s.Expr.Scan.steps;
+          }
 
   let pp fmt = function
     | Scalar -> Fmt.string fmt "scalar"
-    | Vector { extent } -> Fmt.pf fmt "vector[%d]" extent
-    | Scan { width; steps } -> Fmt.pf fmt "scan[width=%d,steps=%d]" width steps
+    | Vector { extent } -> Fmt.pf fmt "vector[%a]" Slot.pp extent
+    | Scan { width; steps } ->
+        Fmt.pf fmt "scan[width=%a,steps=%a]" Slot.pp width Slot.pp steps
 end
 
 type t = { id : Expr.Local_var.t; rhs : Rhs.t }

@@ -1,27 +1,34 @@
 (* See id_supply.mli. Three independent counters plus the frozen origin
-   watermarks; everything is a plain int triple, so advancing is allocation-free
-   and comparing watermarks is cheap. *)
+   watermarks, so advancing is allocation-light and comparing watermarks is
+   cheap. *)
 
 open Graph_ir
 
-type marks = { tensor : int; node : int; group : int }
-type t = { next : marks; origin : marks }
+module Marks = struct
+  type t = {
+    tensor : Tensor_id.Next.t;
+    node : Node_id.Next.t;
+    group : Group_id.Next.t;
+  }
+end
+
+type t = { next : Marks.t; origin : Marks.t }
 
 (* One past the highest id in each space. Every group in the tree is visited, so
    a fresh group id cannot collide with a nested one. *)
 (* Op-polymorphic: watermarks are about ids, and ids are dialect-free. *)
-let marks_of_graph : 'op. 'op Graph_common.Graph.t -> marks =
+let marks_of_graph : 'op. 'op Graph_common.Graph.t -> Marks.t =
  fun g ->
   let tensor =
     Tensor_id.Map.fold
-      (fun id _ acc -> max acc (Tensor_id.to_int id + 1))
-      g.Graph.tensors 0
+      (fun id _ acc -> Tensor_id.Next.after id acc)
+      g.Graph.tensors Tensor_id.Next.first
   in
   (* Inputs are always in [tensors], but scan them anyway: a graph that failed
      validation should still yield a supply that cannot collide. *)
   let tensor =
     List.fold_left
-      (fun acc id -> max acc (Tensor_id.to_int id + 1))
+      (fun acc id -> Tensor_id.Next.after id acc)
       tensor
       (g.Graph.inputs @ g.Graph.outputs)
   in
@@ -29,24 +36,23 @@ let marks_of_graph : 'op. 'op Graph_common.Graph.t -> marks =
     List.fold_left
       (fun acc (n : _ Graph_common.Node.t) ->
         List.fold_left
-          (fun acc id -> max acc (Tensor_id.to_int id + 1))
+          (fun acc id -> Tensor_id.Next.after id acc)
           acc n.Node.outputs)
       tensor g.Graph.nodes
   in
   let node =
     List.fold_left
-      (fun acc (n : _ Graph_common.Node.t) ->
-        max acc (Node_id.to_int n.Node.id + 1))
-      0 g.Graph.nodes
+      (fun acc (n : _ Graph_common.Node.t) -> Node_id.Next.after n.Node.id acc)
+      Node_id.Next.first g.Graph.nodes
   in
   let rec group_marks acc (grp : Group.t) =
-    let acc = max acc (Group_id.to_int grp.Group.id + 1) in
+    let acc = Group_id.Next.after grp.Group.id acc in
     List.fold_left
       (fun acc -> function
         | Group.Group child -> group_marks acc child | Group.Node _ -> acc)
       acc grp.Group.items
   in
-  { tensor; node; group = group_marks 0 g.Graph.root }
+  { Marks.tensor; node; group = group_marks Group_id.Next.first g.Graph.root }
 
 let of_graph : 'op. 'op Graph_common.Graph.t -> t =
  fun g ->
@@ -54,35 +60,36 @@ let of_graph : 'op. 'op Graph_common.Graph.t -> t =
   { next = marks; origin = marks }
 
 let origin t = { next = t.origin; origin = t.origin }
+let next_tensor t = t.next.Marks.tensor
+let next_node t = t.next.Marks.node
 
 let tensor t =
-  ( Tensor_id.of_int t.next.tensor,
-    { t with next = { t.next with tensor = t.next.tensor + 1 } } )
+  let id, tensor = Tensor_id.Next.alloc t.next.Marks.tensor in
+  (id, { t with next = { t.next with Marks.tensor } })
 
 let node t =
-  ( Node_id.of_int t.next.node,
-    { t with next = { t.next with node = t.next.node + 1 } } )
+  let id, node = Node_id.Next.alloc t.next.Marks.node in
+  (id, { t with next = { t.next with Marks.node } })
 
 let group t =
-  ( Group_id.of_int t.next.group,
-    { t with next = { t.next with group = t.next.group + 1 } } )
+  let id, group = Group_id.Next.alloc t.next.Marks.group in
+  (id, { t with next = { t.next with Marks.group } })
 
 let tensors t n =
-  let rec take t acc = function
-    | 0 -> (List.rev acc, t)
-    | n ->
-        let id, t = tensor t in
-        take t (id :: acc) (n - 1)
-  in
-  if n <= 0 then ([], t) else take t [] n
+  if n <= 0 then ([], t)
+  else
+    let ids, tensor = Tensor_id.Next.alloc_n t.next.Marks.tensor n in
+    (ids, { t with next = { t.next with Marks.tensor } })
 
-let origin_marks t = (t.origin.tensor, t.origin.node, t.origin.group)
-let repack t ~tensor ~node ~group = { t with next = { tensor; node; group } }
-let is_post t id = Tensor_id.to_int id >= t.origin.tensor
-let is_post_node t id = Node_id.to_int id >= t.origin.node
-let is_post_group t id = Group_id.to_int id >= t.origin.group
+let origin_marks t = t.origin
+let repack t next = { t with next }
+let is_post t id = Tensor_id.Next.reaches t.origin.Marks.tensor id
+let is_post_node t id = Node_id.Next.reaches t.origin.Marks.node id
+let is_post_group t id = Group_id.Next.reaches t.origin.Marks.group id
 let equal a b = a.next = b.next && a.origin = b.origin
 
 let pp fmt t =
-  Fmt.pf fmt "@[<h>ids next=(t%d n%d g%d) origin=(t%d n%d g%d)@]" t.next.tensor
-    t.next.node t.next.group t.origin.tensor t.origin.node t.origin.group
+  Fmt.pf fmt "@[<h>ids next=(%a %a %a) origin=(%a %a %a)@]" Tensor_id.Next.pp
+    t.next.Marks.tensor Node_id.Next.pp t.next.Marks.node Group_id.Next.pp
+    t.next.Marks.group Tensor_id.Next.pp t.origin.Marks.tensor Node_id.Next.pp
+    t.origin.Marks.node Group_id.Next.pp t.origin.Marks.group

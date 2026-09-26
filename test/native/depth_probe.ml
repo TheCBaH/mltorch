@@ -9,7 +9,7 @@
 
    Measured on this tree, and under the ORIGINAL raw-body eval_depth formula —
    validation now measures the converted body, so some of the shapes named below
-   are rejected outright today (see .ai/native_kernel_dsl_design.md):
+   are rejected outright today:
    natively every traversal survives depth 16384; under node the FIRST failures
    are at 2048 — [Pp.value], [Value.compare], [Value.hash] — while
    [Check.value] still survives there and only fails at 4096. That asymmetry is

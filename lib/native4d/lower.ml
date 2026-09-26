@@ -114,11 +114,7 @@ let convert ?(constants = Tensor_id.Map.empty)
      A relabelled graph that fails validation is dropped, leaving the ordinary
      path to report the original blocker. *)
   let relabels, g, view =
-    let watermark =
-      Tensor_id.Map.fold
-        (fun id _ acc -> max acc (Tensor_id.to_int id + 1))
-        g0.Graph.tensors 0
-    in
+    let watermark = Id_supply.next_tensor (Id_supply.of_graph g0) in
     (* A region owns its internal tensors; a group of fused axes keeps out of
        them, so the region is lowered as before. *)
     let avoid =
@@ -168,11 +164,7 @@ let convert ?(constants = Tensor_id.Map.empty)
   let* () = check_constants ~view constants in
   (* Fresh ids start above the source watermark, so a created edge can never
      collide with a preserved one. *)
-  let watermark =
-    Tensor_id.Map.fold
-      (fun id _ acc -> max acc (Tensor_id.to_int id + 1))
-      g.Graph.tensors 0
-  in
+  let supply = Id_supply.of_graph g in
   (* An unread constant is model-bound state, not interface, so it is OMITTED
      and recorded as a deletion — the same seam [Rewrite.apply] cuts along ("a
      constant nobody reads is gone"). An unused user INPUT is not omitted; it is
@@ -197,11 +189,8 @@ let convert ?(constants = Tensor_id.Map.empty)
           (fun id _ -> not (List.mem id dropped_inputs || List.mem id internal))
           g.Graph.tensors;
       subst = Tensor_id.Map.empty;
-      next_tid = watermark;
-      next_nid =
-        List.fold_left
-          (fun acc (n : node) -> max acc (Node_id.to_int n.Node.id + 1))
-          0 g.Graph.nodes;
+      next_tid = Id_supply.next_tensor supply;
+      next_nid = Id_supply.next_node supply;
       created =
         List.concat_map
           (fun (r : Lower_relabel.t) ->

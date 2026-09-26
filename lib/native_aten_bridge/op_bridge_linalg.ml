@@ -17,7 +17,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          let* aten_w = tensor_arg aten_env node "mat2" in
          let w_shape = Aten_tensor.shape aten_w in
          if Array.length w_shape <> 2 then
-           fail (`Addmm_invalid_weight_rank w_shape)
+           fail (`Addmm_invalid_weight_rank (aten_dims aten_w))
          else
            let* bias = native_of_aten "self" aten_bias in
            let* x = native_of_aten "mat1" aten_x in
@@ -105,8 +105,8 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
            fail
              (`Matmul_unsupported_shape
                 {
-                  Matmul_unsupported_shape.self_shape = shape_a;
-                  other_shape = shape_b;
+                  Matmul_unsupported_shape.self_shape = aten_dims aten_a;
+                  other_shape = aten_dims aten_b;
                 }))
   (* `einsum.default`, restricted to [Aten_shape.Einsum]'s two evidenced
      equations (`mvitv2_tiny`'s decomposed relative-position attention,
@@ -123,7 +123,8 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          let* tensors = tensors_arg aten_env node "tensors" in
          match (Aten_shape.Einsum.of_equation equation, tensors) with
          | Some plan, [ self_t; other_t ]
-           when aten_rank self_t = 5 && aten_rank other_t = 3 ->
+           when (aten_rank self_t :> int) = 5 && (aten_rank other_t :> int) = 3
+           ->
              let* self_n = native_of_aten "self" self_t in
              let* other_n = native_of_aten "other" other_t in
              build_g ~name:"einsum" [ self_n; other_n ] (function
@@ -145,7 +146,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          let* aten_w = tensor_arg aten_env node "weight" in
          let w_shape = Aten_tensor.shape aten_w in
          if Array.length w_shape <> 2 then
-           fail (`Linear_invalid_weight_rank w_shape)
+           fail (`Linear_invalid_weight_rank (aten_dims aten_w))
          else
            let* bias_opt =
              if optional_tensor_present node "bias" then

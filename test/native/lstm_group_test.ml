@@ -179,10 +179,13 @@ let%expect_test
       let grouped =
         Err.or_raise ~pp_error:Region_eval.pp_error
           (Region_execution.materialize_group ~counters lowered_group ~env
-             ~selected:[ 0; 1; 2 ])
+             ~selected:(List.map Region_group.Ordinal.of_int [ 0; 1; 2 ]))
       in
       let shape_of output =
-        match output with 0 -> out_shape | 1 -> hn_shape | _ -> cn_shape
+        match (output : Region_group.Ordinal.t :> int) with
+        | 0 -> out_shape
+        | 1 -> hn_shape
+        | _ -> cn_shape
       in
       (* Each output's OWN counters, exactly the unshared pre-Section-C path
          (independent [lower_region]/[materialize] per ordinal): summing
@@ -277,7 +280,8 @@ let%expect_test
   let env =
     Expr_bridge.env ~binding:(fun id -> Tensor_id.Map.find_opt id tensor_map)
   in
-  let run selected =
+  let run ordinals =
+    let selected = List.map Region_group.Ordinal.of_int ordinals in
     let counters = Region_execution.counters () in
     let results =
       Err.or_raise ~pp_error:Region_eval.pp_error
@@ -287,11 +291,11 @@ let%expect_test
     Fmt.pr
       "selected=%a: ordinals=%a keys=%d scans=%d scan_updates=%d emitters=%d@."
       Fmt.(brackets (list ~sep:comma int))
-      selected
+      ordinals
       Fmt.(brackets (list ~sep:comma int))
-      (List.map fst results) counters.Region_execution.keys
-      counters.Region_execution.scans counters.Region_execution.scan_updates
-      counters.Region_execution.emitters
+      (List.map (fun ((o : Region_group.Ordinal.t), _) -> (o :> int)) results)
+      counters.Region_execution.keys counters.Region_execution.scans
+      counters.Region_execution.scan_updates counters.Region_execution.emitters
   in
   run [ 0 ];
   run [ 1 ];
@@ -343,11 +347,12 @@ let%expect_test
                  ~cn_shape)
           in
           let alpha e = Expr.Rewrite.alpha_normalize e in
-          Fmt.pr "batch_first=%b output=%d: alpha-equal=%b@." batch_first output
+          Fmt.pr "batch_first=%b output=%d: alpha-equal=%b@." batch_first
+            (output :> int)
             (Expr.Value.equal
                (alpha (Region_program.output projected))
                (alpha (Region_program.output via_program))))
-        [ 0; 1; 2 ])
+        (List.map Region_group.Ordinal.of_int [ 0; 1; 2 ]))
     [ false; true ];
   [%expect
     {|

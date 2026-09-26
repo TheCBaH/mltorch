@@ -830,7 +830,7 @@ module Lstm = struct
        from the SAME shared traces instead of rebuilding them. Formerly
        inline in [program]; unchanged logic, only parameterized. *)
     let output_expr ~output ~by_a ~num_layers ~directions ~k ~seq ~time_axis =
-      if output = 0 then
+      if (output : Region_group.Ordinal.t :> int) = 0 then
         let last_layer_first_dir = (num_layers - 1) * directions in
         let last =
           ( by_a.(last_layer_first_dir),
@@ -875,7 +875,8 @@ module Lstm = struct
       else
         let row = Expr.Index.clamp_low (Expr.Index.const seq) in
         let lane =
-          if output = 1 then Expr.Index.output Axis.C
+          if (output : Region_group.Ordinal.t :> int) = 1 then
+            Expr.Index.output Axis.C
           else
             Expr.Index.clamp_low
               (Expr.Index.add (Expr.Index.const k)
@@ -957,19 +958,19 @@ module Lstm = struct
                    Region_group.Emitter.output_shape = out_shape;
                    partition = partition_seq;
                    key_axes = [ (Axis.W, batch_axis) ];
-                   output = expr 0;
+                   output = expr (Region_group.Ordinal.of_int 0);
                  };
                  {
                    Region_group.Emitter.output_shape = hn_shape;
                    partition = partition_state;
                    key_axes = [ (Axis.W, Axis.W) ];
-                   output = expr 1;
+                   output = expr (Region_group.Ordinal.of_int 1);
                  };
                  {
                    Region_group.Emitter.output_shape = cn_shape;
                    partition = partition_state;
                    key_axes = [ (Axis.W, Axis.W) ];
-                   output = expr 2;
+                   output = expr (Region_group.Ordinal.of_int 2);
                  };
                ]
              in

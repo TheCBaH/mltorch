@@ -47,3 +47,10 @@
 (cram
  (applies_to error_opacity)
  (deps error_opacity.sh core_probe.exe))
+
+; [Core.Tagged_int]: two applications of the functor must not unify. Reuses
+; core_probe, which already links [core].
+
+(cram
+ (applies_to tagged_int_opacity)
+ (deps tagged_int_opacity.sh core_probe.exe))

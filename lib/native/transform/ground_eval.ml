@@ -803,7 +803,9 @@ let body_at esc env ~meter ~arena (st : Stage_program.Stage.t) coord =
             Frame.with_scalar frame local.Region_local.id g
         | Region_local.Rhs.Vector { extent; var; body } ->
             let arr =
-              Array.init extent (fun p ->
+              Array.init
+                (extent :> int)
+                (fun p ->
                   ground esc ~env ~meter ~arena ~frame ~coord:key_coord
                     ~rvars:[ (var, p) ]
                     body)

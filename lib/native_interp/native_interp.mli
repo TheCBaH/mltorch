@@ -29,12 +29,12 @@ type arg_kind =
     per number would be the same fault spelled twice. Own module for the
     record-namespace convention. *)
 module Expected_rank : sig
-  type t = { expected : int; got : int }
+  type t = { expected : Rank.t; got : Rank.t }
 end
 
 type dim_fault =
   [ `Expected_rank of Expected_rank.t
-  | `Negative of int
+  | `Negative of Aten_int.Size.t
   | `Over_max_extent of int64
   | `Rank_over_six
   | `Symbolic
@@ -234,7 +234,7 @@ module Missing_metadata : sig
 end
 
 module Axis_out_of_range : sig
-  type t = { axis : int; rank : int }
+  type t = { axis : Aten_int.Dim.t; rank : Rank.t }
 end
 
 module Bad_arity : sig
@@ -242,7 +242,7 @@ module Bad_arity : sig
 end
 
 module Adaptive_pool_rank : sig
-  type t = { tensor : string; got : int }
+  type t = { tensor : string; got : Rank.t }
 end
 
 module Bad_config = Op_config.Bad
@@ -252,14 +252,18 @@ module Bad_config = Op_config.Bad
     one fault, because both are the same question answered with the same two
     numbers. *)
 module Normalized_rank : sig
-  type t = { op : Norm.Target.t; rank : int; got : int }
+  type t = { op : Norm.Target.t; rank : Rank.t; got : int }
 end
 
 (** The input's trailing extents against the ones [normalized_shape] declared.
     Both lists, not a first differing index: a reader needs to see which axes
     were meant. *)
 module Normalized_shape : sig
-  type t = { op : Norm.Target.t; expected : int list; got : int list }
+  type t = {
+    op : Norm.Target.t;
+    expected : Aten_int.Size.t list;
+    got : Aten_int.Size.t list;
+  }
 end
 
 (** Which of [native_layer_norm]'s two dropped outputs a graph reads, and under
@@ -291,7 +295,7 @@ end
     quantities. *)
 module Bad_view : sig
   type t = {
-    size : int list;
+    size : Aten_int.Size.t list;
     fault :
       [ `Aten_shape of Aten_shape.error
       | `Numel_over_limit of Vec6.Numel_bound.t ];
@@ -303,7 +307,10 @@ end
     it. Carries the SERIALIZED [size], the same reason {!Bad_view} carries its
     raw spelling. *)
 module Bad_expand : sig
-  type t = { size : int list; fault : [ `Aten_shape of Aten_shape.error ] }
+  type t = {
+    size : Aten_int.Size.t list;
+    fault : [ `Aten_shape of Aten_shape.error ];
+  }
 end
 
 (** A [repeat.default] [repeats] {!Aten_shape.resolve_repeat_size} refuses:
@@ -312,7 +319,10 @@ end
     the SERIALIZED [repeats], the same reason {!Bad_expand} carries its raw
     [size]. *)
 module Bad_repeat : sig
-  type t = { repeats : int list; fault : [ `Aten_shape of Aten_shape.error ] }
+  type t = {
+    repeats : Aten_int.Size.t list;
+    fault : [ `Aten_shape of Aten_shape.error ];
+  }
 end
 
 (** A [slice.Tensor] request {!Aten_shape.resolve_slice} refuses — today only a
@@ -323,9 +333,9 @@ end
     the extent is known. *)
 module Bad_slice : sig
   type t = {
-    start : int option;
-    stop : int option;
-    step : int;
+    start : Aten_int.Index.t option;
+    stop : Aten_int.Index.t option;
+    step : Aten_int.Step.t;
     fault : [ `Aten_shape of Aten_shape.error ];
   }
 end
@@ -335,7 +345,10 @@ end
     this cannot share that module's bound. Carries the SERIALIZED index for the
     same reason {!Bad_slice} carries its raw spelling. *)
 module Bad_select : sig
-  type t = { index : int; fault : [ `Aten_shape of Aten_shape.error ] }
+  type t = {
+    index : Aten_int.Index.t;
+    fault : [ `Aten_shape of Aten_shape.error ];
+  }
 end
 
 (** [tile.default]'s own row, not {!Bad_repeat}'s: the fault is unreachable in
@@ -343,14 +356,17 @@ end
     [self]'s rank before calling {!Aten_shape.resolve_tile_size}), but a [tile]
     failure printing "repeat repeats [...]" would misname its own op. *)
 module Bad_tile : sig
-  type t = { dims : int list; fault : [ `Aten_shape of Aten_shape.error ] }
+  type t = {
+    dims : Aten_int.Size.t list;
+    fault : [ `Aten_shape of Aten_shape.error ];
+  }
 end
 
 (** [cat.default]/[stack.default]: every tensor in the list must share one rank,
     the same check {!Op_bridge}'s [Concat_rank_mismatch] makes and for the same
     reason. *)
 module Concat_rank_mismatch : sig
-  type t = { op : string; first : int; other : int }
+  type t = { op : string; first : Rank.t; other : Rank.t }
 end
 
 (** `upsample_bilinear2d.vec`'s own contract, mirroring ATen's own
@@ -367,7 +383,7 @@ end
     unchanged. Carries both declared size lists, the same reasoning
     {!Op_bridge}'s [Matmul_unsupported_shape] gives on the ATen-linked side. *)
 module Matmul_unsupported_shape : sig
-  type t = { self : int list; other : int list }
+  type t = { self : Aten_int.Size.t list; other : Aten_int.Size.t list }
 end
 
 (** `einsum.default`, restricted to [Aten_shape.Einsum]'s two evidenced equation
@@ -375,7 +391,7 @@ end
     respectively (`.ai/einsum_design.md`). Mirrors {!Op_bridge}'s
     [Einsum_unsupported] exactly. *)
 module Einsum_unsupported : sig
-  type t = { equation : string; ranks : int list }
+  type t = { equation : string; ranks : Rank.t list }
 end
 
 (** `index.Tensor`'s list-acceptance rule (`.ai/index_tensor_design.md` round 3,
@@ -386,11 +402,11 @@ end
     the same graphs the same way. *)
 module Index_list : sig
   type fault =
-    | Length_mismatch of { expected : int; got : int }
+    | Length_mismatch of { expected : Rank.t; got : int }
     | Multiple_live_entries of int list
     | No_live_entry
     | Wrong_dtype of { position : int; dtype : string }
-    | Wrong_rank of { position : int; rank : int }
+    | Wrong_rank of { position : int; rank : Rank.t }
 
   type t = { fault : fault }
 end

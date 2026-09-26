@@ -8,6 +8,10 @@
    representation and the checked construction/projection; it knows nothing
    about LSTM or any other specific operation. *)
 
+(* Which emitter of a group: the position in its ordered emitter list. Not a
+   node's output ordinal, though the two coincide for the callers today. *)
+module Ordinal : Core.Tagged_int.S
+
 module Emitter : sig
   type t = {
     output_shape : Vec6.shape;
@@ -37,10 +41,10 @@ type mapping_error =
 
 type error =
   [ `Empty_emitters
-  | `Mapping of int * mapping_error
+  | `Mapping of Ordinal.t * mapping_error
   | `Program of Region_program.error
   | `Scan of Expr.Scan.error
-  | `Unknown_emitter of int ]
+  | `Unknown_emitter of Ordinal.t ]
 
 type t
 (** Private: canonical shape/partition, the shared locals, and the ordered
@@ -63,13 +67,13 @@ val create :
     projected program (reuses [project]). Nothing is retained unless all three
     pass for every emitter. *)
 
-val sources : t -> int -> Expr.Source.Set.t option
+val sources : t -> Ordinal.t -> Expr.Source.Set.t option
 (** [None] only for an out-of-range ordinal; otherwise the union of
     [Expr.Fold.sources] over every shared local's raw (unprojected) RHS plus
     that one emitter's own raw output expression. Sources don't depend on axis
     substitution, so this needs no [project]. *)
 
-val max_depth : t -> int -> int option
+val max_depth : t -> Ordinal.t -> int option
 (** [None] only for an out-of-range ordinal; otherwise the max [Expr.Fold.depth]
     over every shared local's raw RHS and that one emitter's own raw output.
     [project]'s substitution replaces one [Output] leaf with another, never
@@ -77,10 +81,10 @@ val max_depth : t -> int -> int option
     the projected program -- computed directly on the raw group, no [project]
     needed. *)
 
-val intrinsic_sources : t -> int -> Expr.Source.t list option
-val binders : t -> int -> Expr.Reduce_var.t list option
+val intrinsic_sources : t -> Ordinal.t -> Expr.Source.t list option
+val binders : t -> Ordinal.t -> Expr.Reduce_var.t list option
 
-val intrinsics : t -> int -> int option
+val intrinsics : t -> Ordinal.t -> int option
 (** Same "no [project] needed" reasoning as [sources]/[max_depth]: none of these
     depend on which axis a leaf's [Output] variable names. *)
 
@@ -94,10 +98,17 @@ val canonical_partition : t -> Region_partition.t
 
 val locals : t -> Region_local.t list
 val emitters : t -> Emitter.t list
-val emitter : t -> int -> Emitter.t option
+val emitter : t -> Ordinal.t -> Emitter.t option
+
+val indexed_emitters : t -> (Ordinal.t * Emitter.t) list
+(** Every emitter with its own ordinal, in order. *)
 
 val project :
-  max_size:int -> max_depth:int -> t -> int -> (Region_program.t, error) Err.t
+  max_size:int ->
+  max_depth:int ->
+  t ->
+  Ordinal.t ->
+  (Region_program.t, error) Err.t
 (** The one substitute-then-check operation: rewrites the shared locals'
     output-axis references from canonical to emitter [ordinal]'s own physical
     axes (via [Expr.Rewrite.substitute_output], never touching reducer/local
@@ -138,7 +149,7 @@ type region_group = t
    -- see _ai_/shared_multi_output_impl.md §3.1: "do not keep an
    independently editable per-output program plus an optional sharing tag." *)
 module Ref : sig
-  type t = Grouped of region_group * int | Solo of Region_program.t
+  type t = Grouped of region_group * Ordinal.t | Solo of Region_program.t
 
   val sources : t -> Expr.Source.Set.t
   val max_depth : t -> int
@@ -172,9 +183,9 @@ module Ref : sig
 end
 
 module Run : sig
-  type 'a t = Solo of 'a | Group of region_group * (int * 'a) list
+  type 'a t = Solo of 'a | Group of region_group * (Ordinal.t * 'a) list
 
-  val duplicate_ordinal : 'a t -> int option
+  val duplicate_ordinal : 'a t -> Ordinal.t option
   (** [Some ordinal] iff [ordinal] appears more than once in a [Group] run's
       members -- never true for a run [runs] produces from either symbolic
       builder's own output (which always assigns one stage per ordinal), but

@@ -81,7 +81,10 @@ let%expect_test
   in
   Fmt.pr "same group instance across all three stages: %b@." same_instance;
   Fmt.pr "ordinals in emitter order: %s@."
-    (String.concat "," (List.map string_of_int ordinals));
+    (String.concat ","
+       (List.map
+          (fun (o : Region_group.Ordinal.t) -> string_of_int (o :> int))
+          ordinals));
   [%expect
     {|
     same group instance across all three stages: true

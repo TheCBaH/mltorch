@@ -222,7 +222,10 @@ let region_group_result ~limits ~region_counters (g : Graph.graph) ~op ~outs
   in
   Region_execution.materialize_group ?counters:region_counters lowered_group
     ~env
-    ~selected:(List.map (fun (output, _, _) -> output) outs)
+    ~selected:
+      (List.map
+         (fun (output, _, _) -> Region_computation.emitter_of_output output)
+         outs)
   |> Err.map_error (fun error -> `Region_execution error)
 
 (* Edges something reads: a graph output or any node's operand. An index output
@@ -236,7 +239,7 @@ let live_edges (g : Graph.graph) =
 
 (* The second output of the argmax-style ops. *)
 let is_index_output (op : Op.t) output =
-  output = 1
+  Output_ordinal.equal output Output_ordinal.one
   &&
   match op with
   | Op.Adaptive_max_pool2d_with_indices _ | Op.Max_dim4 _
@@ -280,7 +283,10 @@ let eval_node ?region_counters ~limits ~synthetic_ids ~live (g : Graph.graph)
   (* A dead index output is neither computed nor allocated: nothing reads it,
      so [env] never needs it. *)
   let outs =
-    List.mapi (fun output (oid, out_shape) -> (output, oid, out_shape)) pairs
+    List.mapi
+      (fun output (oid, out_shape) ->
+        (Output_ordinal.of_int output, oid, out_shape))
+      pairs
     |> List.filter (fun (output, oid, _) ->
         not (is_index_output op output && not (Tensor_id.Set.mem oid live)))
   in
@@ -301,7 +307,11 @@ let eval_node ?region_counters ~limits ~synthetic_ids ~live (g : Graph.graph)
       Err.return
         (List.fold_left
            (fun env (output, oid, _) ->
-             Tensor_id.Map.add oid (List.assoc output results) env)
+             Tensor_id.Map.add oid
+               (List.assoc
+                  (Region_computation.emitter_of_output output)
+                  results)
+               env)
            env outs)
   | _ ->
       Err.List.fold_left
@@ -762,7 +772,7 @@ let eval_node ?region_counters ~limits ~synthetic_ids ~live (g : Graph.graph)
                for why the conversion from the double-carried flat index is
                exact. *)
             | Op.Max_pool2d_with_indices { Pool.MaxPool2dWithIndices.params; x }
-              when output = 1 ->
+              when Output_ordinal.equal output Output_ordinal.one ->
                 let module C = Pool.MaxPool2dWithIndices.Compute (Direct) in
                 let x_shape = Tensor_id.Map.find x shape_env
                 and x = Tensor_id.Map.find x operand_env in
@@ -770,7 +780,8 @@ let eval_node ?region_counters ~limits ~synthetic_ids ~live (g : Graph.graph)
                   (Tensor.materialize_i64 (Shape4.to_vec6 out_shape)
                      (fun coord ->
                        Int64.of_float (C.index_pixel params ~x_shape ~x coord)))
-            | Op.Max_dim4 { Ops4_max_dim.Max_dim4.params; x } when output = 1 ->
+            | Op.Max_dim4 { Ops4_max_dim.Max_dim4.params; x }
+              when Output_ordinal.equal output Output_ordinal.one ->
                 let module C = Reduce.MaxDim.Compute (Direct) in
                 let params = Graph_shape4.max_dim_params params in
                 let x_shape = Tensor_id.Map.find x shape_env
@@ -781,7 +792,7 @@ let eval_node ?region_counters ~limits ~synthetic_ids ~live (g : Graph.graph)
                        Int64.of_float (C.index_pixel params ~x_shape ~x coord)))
             | Op.Adaptive_max_pool2d_with_indices
                 { Pool.AdaptiveMaxPool2dWithIndices.params; x }
-              when output = 1 ->
+              when Output_ordinal.equal output Output_ordinal.one ->
                 let module C = Pool.AdaptiveMaxPool2dWithIndices.Compute (Direct)
                 in
                 let x_shape = Tensor_id.Map.find x shape_env

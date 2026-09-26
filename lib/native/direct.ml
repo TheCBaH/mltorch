@@ -30,49 +30,22 @@ let select c a b = if c then a else b
 let index_zero : Semantics.position index = Dim.index 0
 
 let index_extent (e : Dim.extent Dim.t) : Semantics.delta index =
-  Dim.delta (e :> int)
+  Dim.Delta.of_extent e
 
 let index_const (n : int) : Semantics.delta index = Dim.delta n
 
 let of_index (i : Semantics.position index) : Semantics.delta index =
   Dim.to_delta i
 
-let index_add (a : Semantics.delta index) (b : Semantics.delta index) :
-    Semantics.delta index =
-  Dim.delta ((a :> int) + (b :> int))
-
-let index_scale (k : int) (i : Semantics.delta index) : Semantics.delta index =
-  Dim.delta (k * (i :> int))
-
-let floor_div_pos n d =
-  let d = (d : Op_config.Pos.t :> int) in
-  if n >= 0 then n / d else -((-n + d - 1) / d)
-
-let index_floor_div_pos (n : Semantics.delta index) (d : Op_config.Pos.t) :
-    Semantics.delta index =
-  Dim.delta (floor_div_pos (n :> int) d)
-
-let index_ceil_div_pos (n : Semantics.delta index) (d : Op_config.Pos.t) :
-    Semantics.delta index =
-  Dim.delta (-(floor_div_pos (-(n :> int)) d))
-
-let index_min (a : Semantics.delta index) (b : Semantics.delta index) :
-    Semantics.delta index =
-  Dim.delta (Stdlib.min (a :> int) (b :> int))
-
-let index_max (a : Semantics.delta index) (b : Semantics.delta index) :
-    Semantics.delta index =
-  Dim.delta (Stdlib.max (a :> int) (b :> int))
-
-let index_eq (x : Semantics.delta index) (y : Semantics.delta index) : bool =
-  Int.equal (x :> int) (y :> int)
-
-let clamp_low (x : Semantics.delta index) : Semantics.position index =
-  Dim.index (Stdlib.max 0 (x :> int))
-
-let assume_index (x : Semantics.delta index) : Semantics.position index =
-  Dim.index (x :> int)
-
+let index_add = Dim.Delta.add
+let index_scale = Dim.Delta.scale
+let index_floor_div_pos n d = Dim_arith.Delta.floor_div_pos n ~by:d
+let index_ceil_div_pos n d = Dim_arith.Delta.ceil_div_pos n ~by:d
+let index_min = Dim.Delta.min
+let index_max = Dim.Delta.max
+let index_eq = Dim.equal
+let clamp_low = Dim.Delta.clamp_low
+let assume_index = Dim.Delta.assume_index
 let value_of_index (x : Semantics.delta index) : t = float_of_int (x :> int)
 
 let load inp (v : Semantics.position index Vec6.t) =
@@ -174,6 +147,10 @@ let max_pool2d_index inp ~(x_shape : Vec6.shape)
   in
   float_of_int (loop_h hlo neg_infinity 0)
 
+(* The reduction loops below test [(i :> int) >= (hi :> int)] as a coercion, not
+   through a [Dim] comparison: this is the per-element inner loop of every
+   convolution, and without cross-module inlining a call per iteration measured
+   as a slowdown. *)
 let sum ~(lo : Semantics.position index) ~(hi : Semantics.delta index)
     (f : Semantics.position index -> t) =
   let rec loop (i : Semantics.position index) acc =

@@ -11,8 +11,8 @@
 
 (* The innermost [rank] axes, in canonical [N T D H W C] order. *)
 let used_axes ~rank =
-  if rank < 0 || rank > 6 then
-    invalid_arg "Aten_shape.used_axes: rank out of [0,6]";
+  let rank = (rank : Rank.t :> int) in
+  if rank > 6 then invalid_arg "Aten_shape.used_axes: rank out of [0,6]";
   let drop = List.length Axis.all - rank in
   List.filteri (fun i _ -> i >= drop) Axis.all
 
@@ -26,27 +26,31 @@ let used_axes ~rank =
    would be a second definition free to drift from the compute that reads it. *)
 let repack_dropped ~dropped =
   let survivors = List.filter (fun a -> not (List.mem a dropped)) Axis.all in
-  List.combine survivors (used_axes ~rank:(List.length survivors))
+  List.combine survivors (used_axes ~rank:(Rank.of_list survivors))
+
+let pp_sizes ppf l =
+  Fmt.pf ppf "[%a]" (Fmt.list ~sep:(Fmt.any ", ") Aten_int.Size.pp) l
+
+let pp_dims ppf a =
+  Fmt.pf ppf "[%a]" (Fmt.array ~sep:(Fmt.any ", ") Aten_int.Size.pp) a
 
 module View_size = struct
   type t = {
-    size : int list;
+    size : Aten_int.Size.t list;
     numel : int64;
     fault : [ `Count_mismatch | `Multiple_inferred | `Not_divisible ];
   }
 
-  let pp_size ppf size =
-    Fmt.pf ppf "[%a]" (Fmt.list ~sep:(Fmt.any ", ") Fmt.int) size
-
   let pp ppf { size; numel; fault } =
     match fault with
     | `Count_mismatch ->
-        Fmt.pf ppf "view size %a does not match %Ld elements" pp_size size numel
+        Fmt.pf ppf "view size %a does not match %Ld elements" pp_sizes size
+          numel
     | `Multiple_inferred ->
         Fmt.pf ppf "view size %a has more than one inferred (-1) dimension"
-          pp_size size
+          pp_sizes size
     | `Not_divisible ->
-        Fmt.pf ppf "view size %a does not divide %Ld elements" pp_size size
+        Fmt.pf ppf "view size %a does not divide %Ld elements" pp_sizes size
           numel
 end
 
@@ -70,13 +74,10 @@ end
    [Graph_builder] call or a JSON-decoded graph too, not just this resolver
    (the same split [resolve_slice]'s clamp vs. [Slice.output_shape]'s empty
    check makes). *)
-let pp_ints ppf l = Fmt.pf ppf "[%a]" (Fmt.list ~sep:(Fmt.any ", ") Fmt.int) l
-let pp_dims ppf a = Fmt.pf ppf "[%a]" (Fmt.array ~sep:(Fmt.any ", ") Fmt.int) a
-
 module Expand_size = struct
   type t = {
-    size : int list;
-    self_dims : int array;
+    size : Aten_int.Size.t list;
+    self_dims : Aten_int.Size.t array;
     fault : [ `Leading_inferred of int | `Rank_too_small ];
   }
 
@@ -86,12 +87,12 @@ module Expand_size = struct
         Fmt.pf ppf
           "expand size %a must have at least as many entries as self's shape \
            %a (rank %d)"
-          pp_ints size pp_dims self_dims (Array.length self_dims)
+          pp_sizes size pp_dims self_dims (Array.length self_dims)
     | `Leading_inferred i ->
         Fmt.pf ppf
           "expand size %a: -1 at position %d is not allowed for a leading \
            dimension self (shape %a) does not have"
-          pp_ints size i pp_dims self_dims
+          pp_sizes size i pp_dims self_dims
 end
 
 (* [aten.repeat.default]'s only fault: unlike [Expand_size], [repeats] has no
@@ -99,38 +100,42 @@ end
    reduces rank via repeat (TensorShape.cpp: `repeats.size() < self.dim()`
    raises). *)
 module Repeat_size = struct
-  type t = { repeats : int list; self_dims : int array }
+  type t = { repeats : Aten_int.Size.t list; self_dims : Aten_int.Size.t array }
 
   let pp ppf { repeats; self_dims } =
     Fmt.pf ppf
       "repeat repeats %a must have at least as many entries as self's shape %a \
        (rank %d)"
-      pp_ints repeats pp_dims self_dims (Array.length self_dims)
+      pp_sizes repeats pp_dims self_dims (Array.length self_dims)
 end
 
 module Slice_bounds = struct
-  type t = { start : int; stop : int; step : Op_config.Pos.t }
+  type t = {
+    start : Dim.fence Dim.t;
+    stop : Dim.fence Dim.t;
+    step : Op_config.Pos.t;
+  }
 
   let pp ppf { start; stop; step } =
-    Fmt.pf ppf "[%d, %d) step %d" start stop (step :> int)
+    Fmt.pf ppf "[%a, %a) step %d" Dim.pp start Dim.pp stop (step :> int)
 end
 
 (* [aten.select.int]'s index, after normalization -- reported as its INPUT
    ([index]) and the axis extent it was judged against, not the normalized
    position: a caller who wrote -9 is better served by seeing -9. *)
 module Index_bound = struct
-  type t = { index : int; extent : int }
+  type t = { index : Aten_int.Index.t; extent : Dim.extent Dim.t }
 
   let pp ppf { index; extent } =
-    Fmt.pf ppf "index %d is out of bounds for dimension with size %d" index
-      extent
+    Fmt.pf ppf "index %a is out of bounds for dimension with size %a"
+      Aten_int.Index.pp index Dim.pp extent
 end
 
 (* Error set owned by this module: its own rank check, the [-1] convention's
    faults, the one refusal in slice-bound resolution, unioned with [Dim.error]
    (from validating each untrusted dim/size entry). The printer delegates to
    [Dim]/[View_size]. *)
-type rank_bound = { rank : int; lo : int; hi : int }
+type rank_bound = { rank : Rank.t; lo : Rank.t; hi : Rank.t }
 
 type error =
   [ Dim.error
@@ -138,7 +143,7 @@ type error =
   | `Index_out_of_range of Index_bound.t
   | `Rank_out_of_range of rank_bound
   | `Repeat_size of Repeat_size.t
-  | `Slice_step of int
+  | `Slice_step of Aten_int.Step.t
   | `View_size of View_size.t ]
 
 let pp_error ppf : error -> unit = function
@@ -146,40 +151,49 @@ let pp_error ppf : error -> unit = function
   | `Expand_size e -> Expand_size.pp ppf e
   | `Index_out_of_range e -> Index_bound.pp ppf e
   | `Rank_out_of_range { rank; lo; hi } ->
-      Format.fprintf ppf "rank %d out of [%d, %d]" rank lo hi
+      Format.fprintf ppf "rank %a out of [%a, %a]" Rank.pp rank Rank.pp lo
+        Rank.pp hi
   | `Repeat_size e -> Repeat_size.pp ppf e
   | `Slice_step step ->
-      Format.fprintf ppf "slice step must be >= 1, got %d" step
+      Format.fprintf ppf "slice step must be >= 1, got %a" Aten_int.Step.pp step
   | `View_size e -> View_size.pp ppf e
 
 (* Right-align an ATen shape into the frame; outer axes default to extent 1.
    Validates the untrusted rank and each dim, so it returns a [result]. *)
-let of_aten (dims : int array) =
+let of_aten (dims : Aten_int.Size.t array) =
   let open Err.Syntax in
   let r = Array.length dims in
   let* () =
-    if r > 6 then Err.fail (`Rank_out_of_range { rank = r; lo = 0; hi = 6 })
+    if r > 6 then
+      Err.fail
+        (`Rank_out_of_range
+           { rank = Rank.of_int r; lo = Rank.of_int 0; hi = Rank.of_int 6 })
     else Err.return ()
   in
   Err.List.fold_left
     (fun s (ax, v) ->
-      let+ e = Dim.extent_checked v in
+      let+ e = Dim.extent_checked (v : Aten_int.Size.t :> int) in
       Vec6.set s ax e)
     (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1)
-    (List.combine (used_axes ~rank:r) (Array.to_list dims))
+    (List.combine (used_axes ~rank:(Rank.of_int r)) (Array.to_list dims))
 
 (* Read back the innermost [rank] axes as an ATen shape. Inverse of [of_aten]
    given the original rank: [to_aten ~rank:(length a) (of_aten a) = a]. *)
 let to_aten ~rank (s : Vec6.shape) =
-  Array.of_list (List.map (fun ax -> (Vec6.get s ax :> int)) (used_axes ~rank))
+  Array.of_list
+    (List.map
+       (fun ax -> Aten_int.Size.of_int (Vec6.get s ax :> int))
+       (used_axes ~rank))
 
 (* The frame axis an ATen dim index refers to, for a tensor of the given rank.
    Negative [dim] counts from the end, as in PyTorch. *)
-let axis_of_dim ~rank dim =
-  if rank < 1 || rank > 6 then
+let axis_of_dim ~rank (dim : Aten_int.Dim.t) =
+  let dim = (dim :> int) in
+  let rank_n = (rank : Rank.t :> int) in
+  if rank_n < 1 || rank_n > 6 then
     invalid_arg "Aten_shape.axis_of_dim: rank out of [1,6]";
-  let d = if dim < 0 then dim + rank else dim in
-  if d < 0 || d >= rank then
+  let d = if dim < 0 then dim + rank_n else dim in
+  if d < 0 || d >= rank_n then
     invalid_arg "Aten_shape.axis_of_dim: dim out of range";
   List.nth (used_axes ~rank) d
 
@@ -206,10 +220,11 @@ let axis_of_dim ~rank dim =
       require [known = numel] ([`Count_mismatch] otherwise).
    4. NARROW last. The resolved entry is bounded by [numel < Hard.numel], so
       narrowing it to [int] happens after the bound, not before it. *)
-let resolve_view_size ~numel size =
+let resolve_view_size ~numel (size : Aten_int.Size.t list) =
   let open Err.Syntax in
   let fail fault = Err.fail (`View_size { View_size.size; numel; fault }) in
-  let n_inferred = List.length (List.filter (Int.equal (-1)) size) in
+  let ints = List.map (fun (d : Aten_int.Size.t) -> (d :> int)) size in
+  let n_inferred = List.length (List.filter (Int.equal (-1)) ints) in
   let* () = if n_inferred > 1 then fail `Multiple_inferred else Err.return () in
   let* known =
     Err.List.fold_left
@@ -221,7 +236,7 @@ let resolve_view_size ~numel size =
           if Int64.compare known (Int64.div numel e64) > 0 then
             fail `Count_mismatch
           else Err.return (Int64.mul known e64))
-      1L size
+      1L ints
   in
   let* inferred =
     if n_inferred = 0 then
@@ -232,8 +247,10 @@ let resolve_view_size ~numel size =
   in
   Err.List.map
     (fun d ->
-      Err.return (if d = -1 then Int64.to_int (Option.get inferred) else d))
-    size
+      Err.return
+        (Aten_int.Size.of_int
+           (if d = -1 then Int64.to_int (Option.get inferred) else d)))
+    ints
 
 (* [aten.slice.Tensor]'s bound resolution, in PyTorch's own order (ATen's
    TensorShape.cpp): refuse a non-positive step FIRST, then defaults, then
@@ -255,16 +272,25 @@ let resolve_view_size ~numel size =
    zero, so it cannot overflow, and both results are then clamped into
    [0, extent]. The difference the shape rule takes is therefore at most the
    extent. *)
-let resolve_slice ~extent ~start ~stop ~step =
-  if step < 1 then Err.fail (`Slice_step step)
+let resolve_slice ~extent ~start ~stop ~(step : Aten_int.Step.t) =
+  if (step :> int) < 1 then Err.fail (`Slice_step step)
   else
     let n = Dim.to_int extent in
+    let bound = function
+      | None -> None
+      | Some (d : Aten_int.Index.t) -> Some (d :> int)
+    in
     let norm d = if d < 0 then d + n else d in
     let clamp d = if d < 0 then 0 else if d > n then n else d in
-    let start = clamp (norm (Option.value start ~default:0)) in
-    let stop = clamp (norm (Option.value stop ~default:n)) in
+    let start = clamp (norm (Option.value (bound start) ~default:0)) in
+    let stop = clamp (norm (Option.value (bound stop) ~default:n)) in
     let stop = if stop < start then start else stop in
-    Err.return { Slice_bounds.start; stop; step = Op_config.Pos.of_int step }
+    Err.return
+      {
+        Slice_bounds.start = Dim.fence start;
+        stop = Dim.fence stop;
+        step = Op_config.Pos.of_int (step :> int);
+      }
 
 (* [aten.select.int]'s index resolution. Unlike [resolve_slice], ATen REJECTS
    an out-of-range index rather than clamping it (TensorShape.cpp raises
@@ -272,12 +298,13 @@ let resolve_slice ~extent ~start ~stop ~step =
    this cannot share [resolve_slice]'s clamp-and-accept policy. Negative
    indices count from the end, the same convention [norm_dim] uses on the
    bridge and [axes_for_rank] uses in [Native_interp]. *)
-let resolve_index ~extent ~index =
+let resolve_index ~extent ~(index : Aten_int.Index.t) =
   let n = Dim.to_int extent in
-  let d = if index < 0 then index + n else index in
+  let i = (index :> int) in
+  let d = if i < 0 then i + n else i in
   if d < 0 || d >= n then
-    Err.fail (`Index_out_of_range { Index_bound.index; extent = n })
-  else Err.return d
+    Err.fail (`Index_out_of_range { Index_bound.index; extent })
+  else Err.return (Dim.index d)
 
 (* [aten.expand.default]'s [size], resolved against [self_dims] (see
    [Expand_size]'s own comment for the two faults and what is deliberately
@@ -288,7 +315,8 @@ let resolve_index ~extent ~index =
    dimension beyond [self]'s rank. A non-[-1] entry passes through
    unvalidated (positivity is [of_aten]'s job downstream, the same split
    [resolve_view_size] leaves to its own caller's [Aten_shape.of_aten]). *)
-let resolve_expand_size ~(self_dims : int array) ~(size : int list) =
+let resolve_expand_size ~(self_dims : Aten_int.Size.t array)
+    ~(size : Aten_int.Size.t list) =
   let fail fault =
     Err.fail (`Expand_size { Expand_size.size; self_dims; fault })
   in
@@ -296,8 +324,8 @@ let resolve_expand_size ~(self_dims : int array) ~(size : int list) =
   if k < r then fail `Rank_too_small
   else
     Err.List.map
-      (fun (i, v) ->
-        if v <> -1 then Err.return v
+      (fun (i, (v : Aten_int.Size.t)) ->
+        if (v :> int) <> -1 then Err.return v
         else
           let dim = r - k + i in
           if dim < 0 then fail (`Leading_inferred i)
@@ -314,7 +342,8 @@ let resolve_expand_size ~(self_dims : int array) ~(size : int list) =
    only [of_aten]'s ordinary right-alignment downstream, not a value
    substitution. Positivity of each entry is [of_aten]'s job, the same split
    [resolve_expand_size] leaves it. *)
-let resolve_repeat_size ~(self_dims : int array) ~(repeats : int list) =
+let resolve_repeat_size ~(self_dims : Aten_int.Size.t array)
+    ~(repeats : Aten_int.Size.t list) =
   if List.length repeats < Array.length self_dims then
     Err.fail (`Repeat_size { Repeat_size.repeats; self_dims })
   else Err.return repeats
@@ -324,10 +353,12 @@ let resolve_repeat_size ~(self_dims : int array) ~(repeats : int list) =
    `tile(self, dims) = self.repeat(dims)` after that padding), then hand off
    to [resolve_repeat_size] unchanged -- once padded, [dims]'s length is at
    least [self_dims]'s rank, [resolve_repeat_size]'s own precondition. *)
-let resolve_tile_size ~(self_dims : int array) ~(dims : int list) =
+let resolve_tile_size ~(self_dims : Aten_int.Size.t array)
+    ~(dims : Aten_int.Size.t list) =
   let short = Array.length self_dims - List.length dims in
   let padded =
-    if short > 0 then List.init short (fun _ -> 1) @ dims else dims
+    if short > 0 then List.init short (fun _ -> Aten_int.Size.of_int 1) @ dims
+    else dims
   in
   resolve_repeat_size ~self_dims ~repeats:padded
 
