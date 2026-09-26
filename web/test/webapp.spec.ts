@@ -658,7 +658,8 @@ test('a paired transition offers only its declared comparison, an unpaired one n
  * and then left the source stage on screen with a flow URL. */
 test('a direct flow URL ends with the flow on screen, not the source stage', async ({ page }) => {
   await page.goto('/index.html?model=mobilenetv2_050&flow=v%2Fflow');
-  await loaded(page);
+  // Not `loaded`: opening the flow from the load's own `onSession` follows
+  // "Model loaded" with "View changed" fast enough for polling to miss the former.
   await expect(page.locator('#flow-open')).toHaveAttribute('aria-pressed', 'true', { timeout: 90_000 });
   await expect(page.locator('#flow-note')).toContainText('Coarse export flow');
   expect(new URL(page.url()).searchParams.get('flow')).toBe('v/flow');
