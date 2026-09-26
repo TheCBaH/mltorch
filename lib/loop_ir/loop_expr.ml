@@ -12,7 +12,11 @@ type _ t =
   | I64_of_index : Loop_index.t -> int64 t
   | I64_to_float : int64 t -> float t
   | Load : Loop_buffer.t * Loop_index.coord -> float t
+  | Load_flat : Loop_buffer.t * Loop_index.t -> float t
+      (** A load at an already-linearized dense row-major offset (see
+          [Loop_stmt.Store_flat]). *)
   | Load_i64 : Loop_buffer.t * Loop_index.coord -> int64 t
+  | Load_i64_flat : Loop_buffer.t * Loop_index.t -> int64 t
   | Round_f32 : float t -> float t
   | Select : (float t, int64 t) Loop_bool.t * 'a t * 'a t -> 'a t
   | Temp : 'a Loop_carrier.t * Loop_temp.t -> 'a t

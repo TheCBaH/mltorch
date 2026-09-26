@@ -165,6 +165,26 @@ let checked_coord st (b : Loop_buffer.t) c =
   | None -> ());
   c
 
+(* A flat offset back to the coordinate [Vec6.offset] linearised, peeling the
+   axes innermost first, so a flat access reads and writes through the same
+   per-axis path as any other. An offset outside the buffer (negative, or
+   something left over past the outermost axis) is the same defect as an
+   unchecked coordinate. Only divisions by an extent: no product of extents
+   is formed, so none can wrap. *)
+let flat_coord st (b : Loop_buffer.t) i =
+  let off = idx st i in
+  if off < 0 then invalid_arg "Loop_interp: unchecked access out of range";
+  let shape = b.Loop_buffer.sg.Tensor_sig.shape in
+  let rest, comps =
+    List.fold_left
+      (fun (rest, comps) a ->
+        let e = Dim.to_int (Vec6.get shape a) in
+        (rest / e, (a, rest mod e) :: comps))
+      (off, []) (List.rev Expr.Axis.all)
+  in
+  if rest <> 0 then invalid_arg "Loop_interp: unchecked access out of range";
+  Expr.Coord.of_fn (fun a -> List.assoc a comps)
+
 let round_f32 x = Int32.float_of_bits (Int32.bits_of_float x)
 
 let rec eval : type a. state -> a Loop_expr.t -> a =
@@ -199,18 +219,10 @@ let rec eval : type a. state -> a Loop_expr.t -> a =
   | Loop_expr.I64_const n -> n
   | Loop_expr.I64_of_index i -> index st i
   | Loop_expr.I64_to_float a -> Int64.to_float (eval st a)
-  | Loop_expr.Load (b, c) ->
-      let c = checked_coord st b c in
-      st.counters.loads <- st.counters.loads + 1;
-      Tensor.read_at_raw (buffer_tensor st b) (fun a -> Expr.Coord.get c a)
-  | Loop_expr.Load_i64 (b, c) -> (
-      let c = checked_coord st b c in
-      st.counters.loads <- st.counters.loads + 1;
-      match
-        Tensor.read_i64_at6 (buffer_tensor st b) (fun a -> Expr.Coord.get c a)
-      with
-      | Ok v -> v
-      | Error _ -> invalid_arg "Loop_interp: load_i64 of a non-I64 buffer")
+  | Loop_expr.Load (b, c) -> read st b (checked_coord st b c)
+  | Loop_expr.Load_flat (b, i) -> read st b (flat_coord st b i)
+  | Loop_expr.Load_i64 (b, c) -> read_i64 st b (checked_coord st b c)
+  | Loop_expr.Load_i64_flat (b, i) -> read_i64 st b (flat_coord st b i)
   | Loop_expr.Round_f32 a -> round_f32 (eval st a)
   | Loop_expr.Select (p, a, b) -> if pred st p then eval st a else eval st b
   | Loop_expr.Temp (Loop_carrier.Float, t) ->
@@ -224,6 +236,18 @@ let rec eval : type a. state -> a Loop_expr.t -> a =
         (Err.map_error
            (fun (e : Expr.Eval.index_error) -> (e :> error))
            (Expr.Eval.float_of_index i))
+
+and read st b c : float =
+  st.counters.loads <- st.counters.loads + 1;
+  Tensor.read_at_raw (buffer_tensor st b) (fun a -> Expr.Coord.get c a)
+
+and read_i64 st b c : int64 =
+  st.counters.loads <- st.counters.loads + 1;
+  match
+    Tensor.read_i64_at6 (buffer_tensor st b) (fun a -> Expr.Coord.get c a)
+  with
+  | Ok v -> v
+  | Error _ -> invalid_arg "Loop_interp: load_i64 of a non-I64 buffer"
 
 and pred st : Loop_expr.pred -> bool = function
   | Loop_bool.I64_eq (a, b) ->
@@ -335,19 +359,21 @@ let raise_failure st : Loop_failure.t -> 'a = function
   | Loop_failure.Local_out_of_range { local; _ } ->
       Err.Escape.throw st.esc (`Unbound_local local : error)
 
-let store st (b : Loop_buffer.t) c (v : Loop_stored.t) =
+(* [coord] runs after the value is evaluated, as the per-axis path always
+   has. *)
+let store st (b : Loop_buffer.t) coord (v : Loop_stored.t) =
   let (Tensor.Tensor t as packed) = buffer_tensor st b in
   match (v, t.Tensor.payload.Payload.fmt) with
   | Loop_stored.F32 e, Payload.F32 | Loop_stored.Bool e, Payload.Bool ->
       let x = eval st e in
-      let c = checked_coord st b c in
+      let c = coord () in
       Tensor.set_float packed
         (Vec6.coord ~n:c.Expr.Coord.n ~t:c.Expr.Coord.t ~d:c.Expr.Coord.d
            ~h:c.Expr.Coord.h ~w:c.Expr.Coord.w ~c:c.Expr.Coord.c)
         x
   | Loop_stored.I64 e, Payload.I64 ->
       let x = eval st e in
-      let c = checked_coord st b c in
+      let c = coord () in
       let i =
         (Vec6.offset t.Tensor.shape
            (Vec6.coord ~n:c.Expr.Coord.n ~t:c.Expr.Coord.t ~d:c.Expr.Coord.d
@@ -417,7 +443,10 @@ let rec exec st : Loop_stmt.t -> unit = function
       | Loop_mark.Reduction -> c.reductions <- c.reductions + 1
       | Loop_mark.Scan -> c.scans <- c.scans + 1
       | Loop_mark.Scan_update -> c.scan_updates <- c.scan_updates + 1)
-  | Loop_stmt.Store { buffer; coord; value } -> store st buffer coord value
+  | Loop_stmt.Store { buffer; coord; value } ->
+      store st buffer (fun () -> checked_coord st buffer coord) value
+  | Loop_stmt.Store_flat { buffer; offset; value } ->
+      store st buffer (fun () -> flat_coord st buffer offset) value
 
 (* An Output buffer starts zeroed. Only the two float-path formats and the
    int64 track can be produced ([Kernel.create]'s [Format_rule]), so any other

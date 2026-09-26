@@ -117,14 +117,14 @@ let%expect_test "index builders fold only what is exact" =
     i
     i
     i + j
-    i + -3
+    i - 3
     i
     4 * i
-    -1 * i
+    -i
     0 * i
     0
     Math.floor(i / 4)
-    Math.ceil((i + -3) / 4)
+    Math.ceil((i - 3) / 4)
     Math.max(0, i)
     Math.max(i, j)
     Math.min(i, j)

@@ -10,7 +10,7 @@ let%expect_test "emitted JavaScript is a named function over typed arrays" =
     "use strict";
     function loop_kernel(b0, b1) {
       for (let i0 = 0; i0 < 4; i0++) {
-        b1[i0] = Math.fround(b0[i0] * 2);
+        b1[i0] = b0[i0] * 2;
       }
       return null;
     } |}]

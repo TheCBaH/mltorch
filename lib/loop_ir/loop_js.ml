@@ -10,6 +10,7 @@ let function_name = "loop_kernel"
 type names = {
   vars : (int, int) Hashtbl.t;
   temps : (int, int) Hashtbl.t;
+  index_temps : (int, int) Hashtbl.t;
   arrays : (int, int) Hashtbl.t;
   buffers : (int, int) Hashtbl.t;
   sites : Loop_failure.t array;
@@ -26,7 +27,15 @@ let ordinal table key =
 
 let name prefix n = Js_ident.v (prefix ^ string_of_int n)
 let var nm v = name "i" (ordinal nm.vars (Loop_var.to_int v))
+
+(* A loop's upper bound, bound once before it as [nK] beside its [iK]. *)
+let bound nm v = name "n" (ordinal nm.vars (Loop_var.to_int v))
 let temp nm t = name "x" (ordinal nm.temps (Loop_temp.to_int t))
+
+(* An index temporary -- in practice an offset (a strength-reduced access, a
+   max-pool's flat argmax) -- gets its own letter, apart from a value's [x]
+   and a loop index's [i]. *)
+let index_temp nm t = name "o" (ordinal nm.index_temps (Loop_temp.to_int t))
 let array nm a = name "a" (ordinal nm.arrays (Loop_array.to_int a))
 
 let buffer_prefix nm (b : Loop_buffer.t) =
@@ -57,7 +66,7 @@ let rec index nm : Loop_index.t -> B.idx B.t = function
       let b = index nm b in
       B.Idx.min a b
   | Loop_index.Scale (k, a) -> B.Idx.scale k (index nm a)
-  | Loop_index.Temp t -> B.Idx.var (temp nm t)
+  | Loop_index.Temp t -> B.Idx.var (index_temp nm t)
   | Loop_index.Var v -> B.Idx.var (var nm v)
 
 (* The dense row-major offset of a coordinate in a buffer's shape, the same
@@ -159,18 +168,24 @@ let quant_of (b : Loop_buffer.t) =
 let bool_cell cell =
   B.select (B.Num.ne cell (B.Num.const 0.)) (B.Num.const 1.) (B.Num.const 0.)
 
-let load_cell nm (b : Loop_buffer.t) c =
-  let cells () = B.load (B.Arr.num (buffer nm b)) (offset nm b c) in
+(* A load at a coordinate, or at a flat offset ([Loop_expr.Load_flat]). A
+   per-channel quantized buffer needs the C component, which a flat access no
+   longer has: collapsing never flattens one, so meeting it here is a defect. *)
+type addr = At of Loop_index.coord | Flat of Loop_index.t
+
+let addr_offset nm b = function At c -> offset nm b c | Flat i -> index nm i
+
+let load_cell nm (b : Loop_buffer.t) addr =
+  let off = addr_offset nm b addr in
+  let cells () = B.load (B.Arr.num (buffer nm b)) off in
   match fmt_of b with
   | "bf16" ->
-      Loop_js_runtime.bf16_to_float
-        (B.load (B.Arr.bits (buffer nm b)) (offset nm b c))
+      Loop_js_runtime.bf16_to_float (B.load (B.Arr.bits (buffer nm b)) off)
   | "bool" -> bool_cell (cells ())
   | "f16" ->
-      Loop_js_runtime.f16_to_float
-        (B.load (B.Arr.bits (buffer nm b)) (offset nm b c))
+      Loop_js_runtime.f16_to_float (B.load (B.Arr.bits (buffer nm b)) off)
   | "f32" | "f64" | "i32" -> cells ()
-  | "i64" -> B.Num.of_big (B.load (B.Arr.big (buffer nm b)) (offset nm b c))
+  | "i64" -> B.Num.of_big (B.load (B.Arr.big (buffer nm b)) off)
   | "i16" | "i8" -> (
       let q = quant_of b in
       match Quant.channel_count q with
@@ -179,6 +194,12 @@ let load_cell nm (b : Loop_buffer.t) c =
           B.Num.mul (B.Num.const scale)
             (B.Num.sub (cells ()) (B.Num.const (float_of_int zero)))
       | Some _ ->
+          let c =
+            match addr with
+            | At c -> c
+            | Flat _ ->
+                invalid_arg "Loop_js: a flat load of a per-channel buffer"
+          in
           let ch = index nm (Expr.Coord.get c Expr.Axis.C) in
           let cell = cells () in
           B.Num.mul
@@ -194,11 +215,16 @@ let rec num nm : float Loop_expr.t -> B.num B.t = function
       binary_js op a b
   | Loop_expr.Const x -> B.Num.const x
   | Loop_expr.Float_max (a, b) ->
-      let a = num nm a in
-      let b = num nm b in
-      Loop_js_runtime.float_max a b
+      (* [Loop_js_runtime.float_max_body] is exactly [return Math.max(a, b)]:
+         emitting the call inline skips a function-call indirection with no
+         semantic difference. The helper definition itself still stays in
+         the runtime prelude (a fixed, unconditionally-emitted block, see
+         [Loop_js_runtime.source]) for [pool_better] and any other
+         non-trivial comparison to keep using it. *)
+      B.Num.max (num nm a) (num nm b)
   | Loop_expr.I64_to_float a -> B.Num.of_big (big nm a)
-  | Loop_expr.Load (b, c) -> load_cell nm b c
+  | Loop_expr.Load (b, c) -> load_cell nm b (At c)
+  | Loop_expr.Load_flat (b, i) -> load_cell nm b (Flat i)
   | Loop_expr.Round_f32 a -> B.Num.fround (num nm a)
   | Loop_expr.Select (p, a, b) ->
       let p = pred nm p in
@@ -223,6 +249,8 @@ and big nm : int64 Loop_expr.t -> B.big B.t = function
   | Loop_expr.I64_of_index i -> B.Big.of_idx (index nm i)
   | Loop_expr.Load_i64 (b, c) ->
       B.load (B.Arr.big (buffer nm b)) (offset nm b c)
+  | Loop_expr.Load_i64_flat (b, i) ->
+      B.load (B.Arr.big (buffer nm b)) (index nm i)
   | Loop_expr.Select (p, a, b) ->
       let p = pred nm p in
       let a = big nm a in
@@ -371,9 +399,9 @@ let rec stmt nm ~limits (s : Loop_stmt.t) : Js_ast.stmt list =
   | Loop_stmt.Assign (Loop_carrier.Int64, t, e) ->
       [ B.Stmt.assign_big (temp nm t) (big nm e) ]
   | Loop_stmt.Assign_index_of_i64 (t, e) ->
-      [ B.Stmt.assign_idx (temp nm t) (B.Idx.of_big_bounded (big nm e)) ]
+      [ B.Stmt.assign_idx (index_temp nm t) (B.Idx.of_big_bounded (big nm e)) ]
   | Loop_stmt.Assign_index (t, i) ->
-      [ B.Stmt.assign_idx (temp nm t) (index nm i) ]
+      [ B.Stmt.assign_idx (index_temp nm t) (index nm i) ]
   | Loop_stmt.Fail_if (p, f) -> (
       let site = next_site nm f in
       match (p, f) with
@@ -403,11 +431,25 @@ let rec stmt nm ~limits (s : Loop_stmt.t) : Js_ast.stmt list =
       | _ ->
           let p = pred nm p in
           [ B.Stmt.if_ p [ B.Stmt.return_ (failure nm ~site f) ] [] ])
-  | Loop_stmt.For { var = v; lo; hi; body } ->
+  | Loop_stmt.For { var = v; lo; hi = hi_ix; body } -> (
       let name = var nm v in
       let lo = index nm lo in
-      let hi = index nm hi in
-      [ B.Stmt.for_ name ~lo ~hi (block nm ~limits body) ]
+      let hi = index nm hi_ix in
+      (* The interpreter evaluates [hi] once, on entry; a JavaScript [for] test
+         is evaluated per iteration. A literal or a loop variable cannot change
+         meanwhile, so it stays in the test. Anything else (a [Math.min]
+         window bound, an index temporary the body could reassign) is bound
+         once before the loop, which is both the interpreter's semantics and
+         one evaluation instead of one per iteration. *)
+      match hi_ix with
+      | Loop_index.Const _ | Loop_index.Var _ ->
+          [ B.Stmt.for_ name ~lo ~hi (block nm ~limits body) ]
+      | _ ->
+          let n = bound nm v in
+          [
+            B.Stmt.const_idx n hi;
+            B.Stmt.for_ name ~lo ~hi:(B.Idx.var n) (block nm ~limits body);
+          ])
   | Loop_stmt.If (p, yes, no) ->
       let p = pred nm p in
       let yes = block nm ~limits yes in
@@ -448,15 +490,27 @@ let rec stmt nm ~limits (s : Loop_stmt.t) : Js_ast.stmt list =
           (exact_number (Expr.Scan_limits.max_updates limits));
         B.Stmt.assign_num scan_live (B.Num.const 0.);
       ]
-  | Loop_stmt.Store { buffer = b; coord = c; value } -> (
-      let off = offset nm b c in
-      match value with
-      | Loop_stored.Bool e ->
-          [ B.store (B.Arr.num (buffer nm b)) off (bool_cell (num nm e)) ]
-      | Loop_stored.F32 e ->
-          [ B.store (B.Arr.num (buffer nm b)) off (num nm e) ]
-      | Loop_stored.I64 e ->
-          [ B.store (B.Arr.big (buffer nm b)) off (big nm e) ])
+  | Loop_stmt.Store { buffer = b; coord = c; value } ->
+      store nm ~limits b (At c) value
+  | Loop_stmt.Store_flat { buffer = b; offset = i; value } ->
+      store nm ~limits b (Flat i) value
+
+and store nm ~limits:_ b addr value =
+  let off = addr_offset nm b addr in
+  match value with
+  | Loop_stored.Bool e ->
+      [ B.store (B.Arr.num (buffer nm b)) off (bool_cell (num nm e)) ]
+  | Loop_stored.F32 (Loop_expr.Round_f32 e) ->
+      (* Assigning into a [Float32Array] already rounds to binary32,
+             round-to-nearest-even, on write -- the same rounding
+             [Round_f32] itself performs, so wrapping the store in another
+             [Math.fround] is a redundant call, not a second, different
+             rounding. Only strips the OUTERMOST [Round_f32]: one already
+             nested under another float op stays, since that inner one is
+             not directly under this store. *)
+      [ B.store (B.Arr.num (buffer nm b)) off (num nm e) ]
+  | Loop_stored.F32 e -> [ B.store (B.Arr.num (buffer nm b)) off (num nm e) ]
+  | Loop_stored.I64 e -> [ B.store (B.Arr.big (buffer nm b)) off (big nm e) ]
 
 and block nm ~limits body = List.concat_map (stmt nm ~limits) body
 
@@ -487,7 +541,7 @@ let declarations (p : Loop_program.t) =
     | Loop_stmt.Reserve_scan_state _ | Loop_stmt.Reset_meter ->
         meter := true
     | Loop_stmt.Alloc _ | Loop_stmt.Array_set _ | Loop_stmt.Fail_if _
-    | Loop_stmt.Mark _ | Loop_stmt.Store _ ->
+    | Loop_stmt.Mark _ | Loop_stmt.Store _ | Loop_stmt.Store_flat _ ->
         ()
   in
   List.iter go p.Loop_program.body;
@@ -529,6 +583,7 @@ let to_ast (p : Loop_program.t) =
     {
       vars = Hashtbl.create 8;
       temps = Hashtbl.create 8;
+      index_temps = Hashtbl.create 8;
       arrays = Hashtbl.create 8;
       buffers = Hashtbl.create 8;
       sites = Loop_js_failure.sites p;
@@ -548,7 +603,9 @@ let to_ast (p : Loop_program.t) =
      the temporary may be assigned. *)
   let temps =
     List.map (fun t -> B.Stmt.let_num (temp nm t) (B.Num.const 0.)) floats
-    @ List.map (fun t -> B.Stmt.let_idx (temp nm t) (B.Idx.const 0)) indices
+    @ List.map
+        (fun t -> B.Stmt.let_idx (index_temp nm t) (B.Idx.const 0))
+        indices
     @ List.map (fun t -> B.Stmt.let_big (temp nm t) (B.Big.const 0L)) int64s
   in
   (* A per-channel quantized buffer's parameters, once, as constant arrays. *)

@@ -66,7 +66,7 @@ let%expect_test "the printer covers every form" =
       fail_if out_of_range(i0, 4) -> load_out_of_range(t0[0,0,0,0,i0,0])
       x0 = (x0 + load t0[0,0,0,0,i0,0])
       if pool_better(x0, load t0[0,0,0,0,i0,0]):
-        x1 = i0
+        o0 = i0
       else:
         a0[(2 * i0)] = float_max(x0, load t0[0,0,0,0,i0,0])
       store t1[0,0,0,0,i0,0] = f32((load t0[0,0,0,0,i0,0] < nan ? round_f32(x0) : exp(load t0[0,0,0,0,i0,0]))) |}]

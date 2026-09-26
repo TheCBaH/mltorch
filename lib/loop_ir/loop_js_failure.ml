@@ -154,7 +154,7 @@ let sites (p : Loop_program.t) =
     | Loop_stmt.Assign_index _ | Loop_stmt.Assign_index_of_i64 _
     | Loop_stmt.Charge_scan_update | Loop_stmt.Mark _
     | Loop_stmt.Release_scan_state _ | Loop_stmt.Reserve_scan_state _
-    | Loop_stmt.Reset_meter | Loop_stmt.Store _ ->
+    | Loop_stmt.Reset_meter | Loop_stmt.Store _ | Loop_stmt.Store_flat _ ->
         ()
   in
   List.iter go p.Loop_program.body;

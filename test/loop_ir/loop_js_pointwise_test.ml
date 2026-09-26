@@ -13,24 +13,20 @@ let%expect_test "adaptive_avg_pool2d" =
     function loop_kernel(b0, b1) {
       let x0 = 0;
       let x1 = 0;
-      for (let i0 = 0; i0 < 1; i0++) {
-        for (let i1 = 0; i1 < 1; i1++) {
-          for (let i2 = 0; i2 < 1; i2++) {
-            for (let i3 = 0; i3 < 4; i3++) {
-              for (let i4 = 0; i4 < 4; i4++) {
-                for (let i5 = 0; i5 < 4; i5++) {
-                  x0 = 0;
-                  for (let i6 = Math.floor(8 * i3 / 4); i6 < Math.ceil(8 * (i3 + 1) / 4); i6++) {
-                    x1 = 0;
-                    for (let i7 = Math.floor(8 * i4 / 4); i7 < Math.ceil(8 * (i4 + 1) / 4); i7++) {
-                      x1 = x1 + b0[4 * (8 * (8 * (i0 + i1 + i2) + i6) + i7) + i5];
-                    }
-                    x0 = x0 + x1;
-                  }
-                  b1[4 * (4 * (4 * (i0 + i1 + i2) + i3) + i4) + i5] = Math.fround(x0 / ((Math.ceil(8 * (i3 + 1) / 4) + -1 * Math.floor(8 * i3 / 4) + 0) * (Math.ceil(8 * (i4 + 1) / 4) + -1 * Math.floor(8 * i4 / 4) + 0)));
-                }
+      for (let i0 = 0; i0 < 4; i0++) {
+        for (let i1 = 0; i1 < 4; i1++) {
+          for (let i2 = 0; i2 < 4; i2++) {
+            x0 = 0;
+            const n3 = 2 * i0 + 2;
+            for (let i3 = 2 * i0; i3 < n3; i3++) {
+              x1 = 0;
+              const n4 = 2 * i1 + 2;
+              for (let i4 = 2 * i1; i4 < n4; i4++) {
+                x1 = x1 + b0[4 * (8 * i3 + i4) + i2];
               }
+              x0 = x0 + x1;
             }
+            b1[4 * (4 * i0 + i1) + i2] = x0 / (2 * 2);
           }
         }
       }
@@ -44,18 +40,8 @@ let%expect_test "add" =
     // add [n=1 c=3 h=4 w=4]
     "use strict";
     function loop_kernel(b0, b1, b2) {
-      for (let i0 = 0; i0 < 1; i0++) {
-        for (let i1 = 0; i1 < 1; i1++) {
-          for (let i2 = 0; i2 < 1; i2++) {
-            for (let i3 = 0; i3 < 4; i3++) {
-              for (let i4 = 0; i4 < 4; i4++) {
-                for (let i5 = 0; i5 < 3; i5++) {
-                  b2[3 * (4 * (4 * (i0 + i1 + i2) + i3) + i4) + i5] = Math.fround(b0[3 * (4 * i3 + i4) + i5] + b1[3 * (4 * i3 + i4) + i5]);
-                }
-              }
-            }
-          }
-        }
+      for (let i0 = 0; i0 < 48; i0++) {
+        b2[i0] = b0[i0] + b1[i0];
       }
       return null;
     } |}]
@@ -69,24 +55,18 @@ let%expect_test "avg_pool2d" =
     function loop_kernel(b0, b1) {
       let x0 = 0;
       let x1 = 0;
-      for (let i0 = 0; i0 < 1; i0++) {
-        for (let i1 = 0; i1 < 1; i1++) {
-          for (let i2 = 0; i2 < 1; i2++) {
-            for (let i3 = 0; i3 < 4; i3++) {
-              for (let i4 = 0; i4 < 4; i4++) {
-                for (let i5 = 0; i5 < 4; i5++) {
-                  x0 = 0;
-                  for (let i6 = Math.max(0, -1 * (2 * i3)); i6 < Math.min(2, 8 + -1 + -1 * (2 * i3) + 1); i6++) {
-                    x1 = 0;
-                    for (let i7 = Math.max(0, -1 * (2 * i4)); i7 < Math.min(2, 8 + -1 + -1 * (2 * i4) + 1); i7++) {
-                      x1 = x1 + b0[4 * (8 * (8 * (i0 + i1 + i2) + (2 * i3 + i6)) + (2 * i4 + i7)) + i5];
-                    }
-                    x0 = x0 + x1;
-                  }
-                  b1[4 * (4 * (4 * (i0 + i1 + i2) + i3) + i4) + i5] = Math.fround(x0 / 4);
-                }
+      for (let i0 = 0; i0 < 4; i0++) {
+        for (let i1 = 0; i1 < 4; i1++) {
+          for (let i2 = 0; i2 < 4; i2++) {
+            x0 = 0;
+            for (let i3 = 0; i3 < 2; i3++) {
+              x1 = 0;
+              for (let i4 = 0; i4 < 2; i4++) {
+                x1 = x1 + b0[4 * (8 * (2 * i0 + i3) + (2 * i1 + i4)) + i2];
               }
+              x0 = x0 + x1;
             }
+            b1[4 * (4 * i0 + i1) + i2] = x0 / 4;
           }
         }
       }
@@ -113,18 +93,10 @@ let%expect_test "gelu" =
       return sign * (1 - poly * Math.exp(-ax * ax));
     }
     function loop_kernel(b0, b1) {
-      for (let i0 = 0; i0 < 1; i0++) {
-        for (let i1 = 0; i1 < 1; i1++) {
-          for (let i2 = 0; i2 < 1; i2++) {
-            for (let i3 = 0; i3 < 4; i3++) {
-              for (let i4 = 0; i4 < 4; i4++) {
-                for (let i5 = 0; i5 < 3; i5++) {
-                  b1[3 * (4 * (4 * (i0 + i1 + i2) + i3) + i4) + i5] = Math.fround(0.5 * b0[3 * (4 * (4 * (i0 + i1 + i2) + i3) + i4) + i5] * (1 + erf(b0[3 * (4 * (4 * (i0 + i1 + i2) + i3) + i4) + i5] / Math.sqrt(2))));
-                }
-              }
-            }
-          }
-        }
+      let x0 = 0;
+      for (let i0 = 0; i0 < 48; i0++) {
+        x0 = b0[i0];
+        b1[i0] = 0.5 * x0 * (1 + erf(x0 / Math.sqrt(2)));
       }
       return null;
     } |}]
@@ -140,29 +112,25 @@ let%expect_test "max_pool2d" =
     }
     function loop_kernel(b0, b1) {
       let x0 = 0;
-      let x2 = 0;
       let x1 = 0;
-      for (let i0 = 0; i0 < 1; i0++) {
-        for (let i1 = 0; i1 < 1; i1++) {
-          for (let i2 = 0; i2 < 1; i2++) {
-            for (let i3 = 0; i3 < 4; i3++) {
-              for (let i4 = 0; i4 < 4; i4++) {
-                for (let i5 = 0; i5 < 4; i5++) {
-                  x0 = -Infinity;
-                  x1 = 0;
-                  for (let i6 = Math.max(0, 2 * i3); i6 < Math.min(8, 2 * i3 + 2); i6++) {
-                    for (let i7 = Math.max(0, 2 * i4); i7 < Math.min(8, 2 * i4 + 2); i7++) {
-                      x2 = b0[4 * (8 * (8 * (i0 + i1 + i2) + i6) + i7) + i5];
-                      if (pool_better(x0, x2)) {
-                        x0 = x2;
-                        x1 = 8 * i6 + i7;
-                      }
-                    }
-                  }
-                  b1[4 * (4 * (4 * (i0 + i1 + i2) + i3) + i4) + i5] = Math.fround(x0);
+      let o0 = 0;
+      for (let i0 = 0; i0 < 4; i0++) {
+        for (let i1 = 0; i1 < 4; i1++) {
+          for (let i2 = 0; i2 < 4; i2++) {
+            x0 = -Infinity;
+            o0 = 0;
+            const n3 = 2 * i0 + 2;
+            for (let i3 = 2 * i0; i3 < n3; i3++) {
+              const n4 = 2 * i1 + 2;
+              for (let i4 = 2 * i1; i4 < n4; i4++) {
+                x1 = b0[4 * (8 * i3 + i4) + i2];
+                if (pool_better(x0, x1)) {
+                  x0 = x1;
+                  o0 = 8 * i3 + i4;
                 }
               }
             }
+            b1[4 * (4 * i0 + i1) + i2] = x0;
           }
         }
       }
@@ -178,25 +146,17 @@ let%expect_test "mean" =
     function loop_kernel(b0, b1) {
       let x0 = 0;
       let x1 = 0;
-      for (let i0 = 0; i0 < 1; i0++) {
-        for (let i1 = 0; i1 < 1; i1++) {
-          for (let i2 = 0; i2 < 2; i2++) {
-            for (let i3 = 0; i3 < 1; i3++) {
-              for (let i4 = 0; i4 < 1; i4++) {
-                for (let i5 = 0; i5 < 4; i5++) {
-                  x0 = 0;
-                  for (let i6 = 0; i6 < 4; i6++) {
-                    x1 = 0;
-                    for (let i7 = 0; i7 < 4; i7++) {
-                      x1 = x1 + b0[4 * (4 * (4 * (i2 + i3 + i4) + i6) + i7) + i5];
-                    }
-                    x0 = x0 + x1;
-                  }
-                  b1[4 * (2 * (i0 + i1) + i2 + i3 + i4) + i5] = Math.fround(x0 / 16);
-                }
-              }
+      for (let i0 = 0; i0 < 2; i0++) {
+        for (let i1 = 0; i1 < 4; i1++) {
+          x0 = 0;
+          for (let i2 = 0; i2 < 4; i2++) {
+            x1 = 0;
+            for (let i3 = 0; i3 < 4; i3++) {
+              x1 = x1 + b0[4 * (4 * (4 * i0 + i2) + i3) + i1];
             }
+            x0 = x0 + x1;
           }
+          b1[4 * i0 + i1] = x0 / 16;
         }
       }
       return null;
@@ -209,18 +169,8 @@ let%expect_test "mul" =
     // mul [n=1 c=3 h=4 w=4]
     "use strict";
     function loop_kernel(b0, b1, b2) {
-      for (let i0 = 0; i0 < 1; i0++) {
-        for (let i1 = 0; i1 < 1; i1++) {
-          for (let i2 = 0; i2 < 1; i2++) {
-            for (let i3 = 0; i3 < 4; i3++) {
-              for (let i4 = 0; i4 < 4; i4++) {
-                for (let i5 = 0; i5 < 3; i5++) {
-                  b2[3 * (4 * (4 * (i0 + i1 + i2) + i3) + i4) + i5] = Math.fround(b0[3 * (4 * i3 + i4) + i5] * b1[3 * (4 * i3 + i4) + i5]);
-                }
-              }
-            }
-          }
-        }
+      for (let i0 = 0; i0 < 48; i0++) {
+        b2[i0] = b0[i0] * b1[i0];
       }
       return null;
     } |}]
@@ -232,16 +182,10 @@ let%expect_test "permute" =
     // permute {shape=[n=1 c=4 h=4 w=4] perm=[H<-W, W<-H]}
     "use strict";
     function loop_kernel(b0, b1) {
-      for (let i0 = 0; i0 < 1; i0++) {
-        for (let i1 = 0; i1 < 1; i1++) {
-          for (let i2 = 0; i2 < 1; i2++) {
-            for (let i3 = 0; i3 < 4; i3++) {
-              for (let i4 = 0; i4 < 4; i4++) {
-                for (let i5 = 0; i5 < 4; i5++) {
-                  b1[4 * (4 * (4 * (i0 + i1 + i2) + i3) + i4) + i5] = Math.fround(b0[4 * (4 * (4 * (i0 + i1 + i2) + i4) + i3) + i5]);
-                }
-              }
-            }
+      for (let i0 = 0; i0 < 4; i0++) {
+        for (let i1 = 0; i1 < 4; i1++) {
+          for (let i2 = 0; i2 < 4; i2++) {
+            b1[4 * (4 * i0 + i1) + i2] = b0[4 * (4 * i1 + i0) + i2];
           }
         }
       }
@@ -255,18 +199,10 @@ let%expect_test "relu" =
     // relu [n=1 c=3 h=4 w=4]
     "use strict";
     function loop_kernel(b0, b1) {
-      for (let i0 = 0; i0 < 1; i0++) {
-        for (let i1 = 0; i1 < 1; i1++) {
-          for (let i2 = 0; i2 < 1; i2++) {
-            for (let i3 = 0; i3 < 4; i3++) {
-              for (let i4 = 0; i4 < 4; i4++) {
-                for (let i5 = 0; i5 < 3; i5++) {
-                  b1[3 * (4 * (4 * (i0 + i1 + i2) + i3) + i4) + i5] = Math.fround(b0[3 * (4 * (4 * (i0 + i1 + i2) + i3) + i4) + i5] < 0 ? 0 : b0[3 * (4 * (4 * (i0 + i1 + i2) + i3) + i4) + i5]);
-                }
-              }
-            }
-          }
-        }
+      let x0 = 0;
+      for (let i0 = 0; i0 < 48; i0++) {
+        x0 = b0[i0];
+        b1[i0] = x0 < 0 ? 0 : x0;
       }
       return null;
     } |}]
@@ -277,30 +213,9 @@ let%expect_test "reshape" =
     {|
     // reshape {shape=[n=1 c=4 h=4 w=4] -> flat}
     "use strict";
-    function coord_failure(buffer, extents, coord) {
-      for (let axis = 0; axis < 6; axis++) {
-        if (coord[axis] < 0 || coord[axis] >= extents[axis]) {
-          return { kind: "coord_out_of_range", buffer: buffer, axis: axis, index: coord[axis], coord: coord };
-        }
-      }
-      return { kind: "defect" };
-    }
     function loop_kernel(b0, b1) {
-      for (let i0 = 0; i0 < 1; i0++) {
-        for (let i1 = 0; i1 < 1; i1++) {
-          for (let i2 = 0; i2 < 1; i2++) {
-            for (let i3 = 0; i3 < 1; i3++) {
-              for (let i4 = 0; i4 < 1; i4++) {
-                for (let i5 = 0; i5 < 64; i5++) {
-                  if (Math.floor((64 * (i0 + i1 + i2 + i3 + i4) + i5) / 4) + -4 * Math.floor(Math.floor((64 * (i0 + i1 + i2 + i3 + i4) + i5) / 4) / 4) < 0 || Math.floor((64 * (i0 + i1 + i2 + i3 + i4) + i5) / 4) + -4 * Math.floor(Math.floor((64 * (i0 + i1 + i2 + i3 + i4) + i5) / 4) / 4) >= 4 || (64 * (i0 + i1 + i2 + i3 + i4) + i5 + -4 * Math.floor((64 * (i0 + i1 + i2 + i3 + i4) + i5) / 4) < 0 || 64 * (i0 + i1 + i2 + i3 + i4) + i5 + -4 * Math.floor((64 * (i0 + i1 + i2 + i3 + i4) + i5) / 4) >= 4)) {
-                    return coord_failure(0, [1, 1, 1, 4, 4, 4], [Math.floor((64 * (i0 + i1 + i2 + i3 + i4) + i5) / 64) + -1 * Math.floor((64 * (i0 + i1 + i2 + i3 + i4) + i5) / 64), Math.floor((64 * (i0 + i1 + i2 + i3 + i4) + i5) / 64) + -1 * Math.floor((64 * (i0 + i1 + i2 + i3 + i4) + i5) / 64), Math.floor((64 * (i0 + i1 + i2 + i3 + i4) + i5) / 64) + -1 * Math.floor((64 * (i0 + i1 + i2 + i3 + i4) + i5) / 64), Math.floor((64 * (i0 + i1 + i2 + i3 + i4) + i5) / 16) + -4 * Math.floor(Math.floor((64 * (i0 + i1 + i2 + i3 + i4) + i5) / 16) / 4), Math.floor((64 * (i0 + i1 + i2 + i3 + i4) + i5) / 4) + -4 * Math.floor(Math.floor((64 * (i0 + i1 + i2 + i3 + i4) + i5) / 4) / 4), 64 * (i0 + i1 + i2 + i3 + i4) + i5 + -4 * Math.floor((64 * (i0 + i1 + i2 + i3 + i4) + i5) / 4)]);
-                  }
-                  b1[64 * (i0 + i1 + i2 + i3 + i4) + i5] = Math.fround(b0[4 * (4 * (4 * (Math.floor((64 * (i0 + i1 + i2 + i3 + i4) + i5) / 64) + -1 * Math.floor((64 * (i0 + i1 + i2 + i3 + i4) + i5) / 64) + (Math.floor((64 * (i0 + i1 + i2 + i3 + i4) + i5) / 64) + -1 * Math.floor((64 * (i0 + i1 + i2 + i3 + i4) + i5) / 64)) + (Math.floor((64 * (i0 + i1 + i2 + i3 + i4) + i5) / 64) + -1 * Math.floor((64 * (i0 + i1 + i2 + i3 + i4) + i5) / 64))) + (Math.floor((64 * (i0 + i1 + i2 + i3 + i4) + i5) / 16) + -4 * Math.floor(Math.floor((64 * (i0 + i1 + i2 + i3 + i4) + i5) / 16) / 4))) + (Math.floor((64 * (i0 + i1 + i2 + i3 + i4) + i5) / 4) + -4 * Math.floor(Math.floor((64 * (i0 + i1 + i2 + i3 + i4) + i5) / 4) / 4))) + (64 * (i0 + i1 + i2 + i3 + i4) + i5 + -4 * Math.floor((64 * (i0 + i1 + i2 + i3 + i4) + i5) / 4))]);
-                }
-              }
-            }
-          }
-        }
+      for (let i0 = 0; i0 < 64; i0++) {
+        b1[i0] = b0[4 * (4 * Math.floor(i0 / 16) + (Math.floor(i0 / 4) - 4 * Math.floor(Math.floor(i0 / 4) / 4))) + (i0 - 4 * Math.floor(i0 / 4))];
       }
       return null;
     } |}]
@@ -312,18 +227,8 @@ let%expect_test "sigmoid" =
     // sigmoid [n=1 c=3 h=4 w=4]
     "use strict";
     function loop_kernel(b0, b1) {
-      for (let i0 = 0; i0 < 1; i0++) {
-        for (let i1 = 0; i1 < 1; i1++) {
-          for (let i2 = 0; i2 < 1; i2++) {
-            for (let i3 = 0; i3 < 4; i3++) {
-              for (let i4 = 0; i4 < 4; i4++) {
-                for (let i5 = 0; i5 < 3; i5++) {
-                  b1[3 * (4 * (4 * (i0 + i1 + i2) + i3) + i4) + i5] = Math.fround(1 / (1 + Math.exp(0 - b0[3 * (4 * (4 * (i0 + i1 + i2) + i3) + i4) + i5])));
-                }
-              }
-            }
-          }
-        }
+      for (let i0 = 0; i0 < 48; i0++) {
+        b1[i0] = 1 / (1 + Math.exp(0 - b0[i0]));
       }
       return null;
     } |}]
@@ -335,18 +240,10 @@ let%expect_test "silu" =
     // silu [n=1 c=3 h=4 w=4]
     "use strict";
     function loop_kernel(b0, b1) {
-      for (let i0 = 0; i0 < 1; i0++) {
-        for (let i1 = 0; i1 < 1; i1++) {
-          for (let i2 = 0; i2 < 1; i2++) {
-            for (let i3 = 0; i3 < 4; i3++) {
-              for (let i4 = 0; i4 < 4; i4++) {
-                for (let i5 = 0; i5 < 3; i5++) {
-                  b1[3 * (4 * (4 * (i0 + i1 + i2) + i3) + i4) + i5] = Math.fround(b0[3 * (4 * (4 * (i0 + i1 + i2) + i3) + i4) + i5] / (1 + Math.exp(0 - b0[3 * (4 * (4 * (i0 + i1 + i2) + i3) + i4) + i5])));
-                }
-              }
-            }
-          }
-        }
+      let x0 = 0;
+      for (let i0 = 0; i0 < 48; i0++) {
+        x0 = b0[i0];
+        b1[i0] = x0 / (1 + Math.exp(0 - x0));
       }
       return null;
     } |}]

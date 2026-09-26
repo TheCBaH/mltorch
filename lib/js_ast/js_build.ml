@@ -43,7 +43,10 @@ module Num = struct
   (* An index [Number] can be -0 where an OCaml [int] cannot, and the
      interpreter's value is +0. [+ 0] maps -0 to +0 and leaves every other
      integer alone; this is the one place an index becomes a float. *)
-  let of_idx i = add i (Number 0.)
+  let of_idx = function
+    | Number x as i when not (Float.sign_bit x) -> i
+    | i -> add i (Number 0.)
+
   let pow a b = math "pow" [ a; b ]
   let sin a = math "sin" [ a ]
   let sqrt a = math "sqrt" [ a ]
@@ -55,8 +58,18 @@ end
 module Idx = struct
   let is_zero = function Number x -> x = 0. | _ -> false
 
+  (* [a + -k * b] prints as [a - k * b] and [a + -k] as [a - k]: every index is an integer within
+     2^31, so both are exact in a [Number] and equal, [-0] included. *)
   let add a b =
-    if is_zero a then b else if is_zero b then a else Binary (Add, a, b)
+    if is_zero a then b
+    else if is_zero b then a
+    else
+      match b with
+      | Number k when k < 0. -> Binary (Sub, a, Number (-.k))
+      | Unary (Neg, c) -> Binary (Sub, a, c)
+      | Binary (Mul, Number k, c) when k < 0. ->
+          Binary (Sub, a, if k = -1. then c else Binary (Mul, Number (-.k), c))
+      | _ -> Binary (Add, a, b)
 
   let ceil_div_pos a d = math "ceil" [ Binary (Div, a, lit d) ]
   let clamp_low a = math "max" [ lit 0; a ]
@@ -81,7 +94,10 @@ module Idx = struct
         Binary (Ge, i, Number 2147483648.) )
 
   let scale k a =
-    if k = 1 then a else if is_zero a then a else Binary (Mul, lit k, a)
+    if k = 1 then a
+    else if is_zero a then a
+    else if k = -1 then Unary (Neg, a)
+    else Binary (Mul, lit k, a)
 
   let var v = Var v
 end
@@ -140,6 +156,7 @@ module Stmt = struct
   let assign_num = assign
   let const_arr v e = Stmt.Const (v, e)
   let const_bits v e = Stmt.Const (v, e)
+  let const_idx v e = Stmt.Const (v, e)
   let const_num v e = Stmt.Const (v, e)
   let decr_num v e = Stmt.Assign (Lvar v, Minus_eq, e)
 

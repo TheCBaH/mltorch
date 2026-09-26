@@ -770,10 +770,16 @@ JS-backends doc keeps out of Melange's pure closure today.
 
 ## Open questions
 
-- Whether `Num` should get a real simplifier (common subexpressions, hoisting
-  loop-invariant offsets). It belongs to Phase 3's CSE/LICM on the Loop IR,
-  not to the JS backend. A JS-only optimisation would make the two text
-  backends disagree about what they run.
+- ~~Whether `Num` should get a real simplifier (common subexpressions,
+  hoisting loop-invariant offsets).~~ **Resolved: no** — it belongs to
+  Phase 3's CSE/LICM on the Loop IR, not to the JS backend (a JS-only
+  optimisation would make the two text backends disagree about what they
+  run), and that's where it went: see the Loop IR optimization design doc
+  (load CSE within one statement and loop-invariant hoisting of closed
+  statements are implemented). `Loop_js` itself only gained emission-only
+  peepholes with no interpreter counterpart (omitting a redundant
+  `Math.fround`, inlining `float_max` to `Math.max`, binding a non-trivial
+  loop bound once before its loop), and `Js_build` index subtraction.
 - A `Number` fast path for int64 values proven within `±2^53` (already open in
   the kernel-DSL design). With `Js_build` it becomes a new builder module and
   one crossing function, not a change to every call site.

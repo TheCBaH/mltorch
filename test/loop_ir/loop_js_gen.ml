@@ -390,6 +390,11 @@ let cases =
       inputs = [ (0, F32 Loop_programs.data) ];
     };
     {
+      name = "reversed_flat";
+      program = Loop_programs.reversed_flat;
+      inputs = [ (0, F32 [| 1.; 2.; 3.; 4.; 5.; 6. |]) ];
+    };
+    {
       name = "failure";
       program = Loop_programs.shifted_loop ~extent:4;
       inputs = [ (0, F32 Loop_programs.data) ];

@@ -32,3 +32,11 @@ type t =
       coord : Loop_index.coord;
       value : Loop_stored.t;
     }
+  | Store_flat of {
+      buffer : Loop_buffer.t;
+      offset : Loop_index.t;
+      value : Loop_stored.t;
+    }
+      (** A store at a dense row-major offset ([Vec6.offset]'s), in place of a
+          per-axis coordinate: what loop collapsing leaves. Never on a
+          per-channel quantized buffer, whose decode needs the C component. *)

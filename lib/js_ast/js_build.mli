@@ -64,7 +64,8 @@ module Num : sig
   val of_bits : bits16 t -> num t
 
   val of_idx : idx t -> num t
-  (** [i + 0]: an index [Number] can be [-0], a float value must be [+0]. *)
+  (** [i + 0]: an index [Number] can be [-0], a float value must be [+0]. A
+      literal other than [-0] is already its own value and is left bare. *)
 
   val pow : num t -> num t -> num t
   val sin : num t -> num t
@@ -76,10 +77,11 @@ end
 
 (** {1 Indices}
 
-    Folding is exactness-preserving only: [add] drops a constant [0],
-    [scale 1 a] is [a], and [scale k] of a constant [0] is [0]. [scale 0 a] is
-    {i not} folded to [0]: [a] may carry an overflow guard's subexpression the
-    program still checks. *)
+    Folding is exactness-preserving only: [add] drops a constant [0] and prints
+    [a + -k * b] as [a - k * b] (and [a + -k] as [a - k]), [scale 1 a] is [a],
+    and [scale k] of a constant [0] is [0]. [scale 0 a] is {i not} folded to
+    [0]: [a] may carry an overflow guard's subexpression the program still
+    checks. *)
 
 module Idx : sig
   val add : idx t -> idx t -> idx t
@@ -188,6 +190,7 @@ module Stmt : sig
   val assign_num : Js_ident.t -> num t -> Js_ast.stmt
   val const_arr : Js_ident.t -> 'k arr t -> Js_ast.stmt
   val const_bits : Js_ident.t -> bits16 t -> Js_ast.stmt
+  val const_idx : Js_ident.t -> idx t -> Js_ast.stmt
   val const_num : Js_ident.t -> num t -> Js_ast.stmt
 
   val decr_num : Js_ident.t -> num t -> Js_ast.stmt

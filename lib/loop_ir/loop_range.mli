@@ -26,6 +26,9 @@ val domain : t
 val within : inner:t -> outer:t -> bool
 val saturating_add : int64 -> int64 -> int64
 
+val scale : int -> t -> t
+(** [k * r], saturating. *)
+
 val saturating_mul : int -> int64 -> int64
 (** Exact where the true result is within [-2^62, 2^62], and clamped to those
     ends beyond, so an out-of-domain value is never mistaken for an in-domain

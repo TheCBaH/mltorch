@@ -34,6 +34,44 @@ let doubling =
         };
     ]
 
+(* out[@f] = round_f32(in[@5 - f] * 2.) over a [H=2 W=3] pair: flat addressing
+   ([Loop_expr.Load_flat], [Loop_stmt.Store_flat]), reversed so every offset
+   peels into a different coordinate than it was written at. *)
+let shape_hw = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:3 ~c:1
+let flat_input = buffer 0 shape_hw f32 Loop_buffer.Input
+let flat_output = buffer 1 shape_hw f32 Loop_buffer.Output
+
+let reversed_flat =
+  program
+    ~buffers:[ flat_input; flat_output ]
+    [
+      Loop_stmt.For
+        {
+          var = v 0;
+          lo = Loop_index.Const 0;
+          hi = Loop_index.Const 6;
+          body =
+            [
+              Loop_stmt.Store_flat
+                {
+                  buffer = flat_output;
+                  offset = w;
+                  value =
+                    Loop_stored.F32
+                      (Loop_expr.Round_f32
+                         (Loop_expr.Binary
+                            ( Expr.Value.Mul,
+                              Loop_expr.Load_flat
+                                ( flat_input,
+                                  Loop_index.Add
+                                    ( Loop_index.Const 5,
+                                      Loop_index.Scale (-1, w) ) ),
+                              Loop_expr.Const 2. )));
+                };
+            ];
+        };
+    ]
+
 let kernel = pixel_kernel (Expr.Value.mul load_t0 (Expr.Value.const 2.))
 let plan = Fusion_plan.default kernel
 let data = [| -0.; 1.5; nan; 3. |]

@@ -308,3 +308,62 @@ let%expect_test "an unchecked access out of range is a defect, not a failure" =
   | _ -> Fmt.pr "returned@."
   | exception Invalid_argument m -> Fmt.pr "Invalid_argument: %s@." m);
   [%expect {| Invalid_argument: Loop_interp: unchecked access out of range |}]
+
+(* ---- flat addressing ------------------------------------------------------ *)
+
+let%expect_test "a flat access peels its offset into the coordinate it names" =
+  let data = [| 1.; 2.; 3.; 4.; 5.; 6. |] in
+  let shape = Loop_programs.shape_hw in
+  let input =
+    f32_tensor shape (fun c ->
+        data.((3 * Dim.to_int (Vec6.get c Axis.H))
+              + Dim.to_int (Vec6.get c Axis.W)))
+  in
+  let out =
+    run_ok Loop_programs.reversed_flat ~bind:(fun id ->
+        if Tensor_id.equal id (tid 0) then Some input else None)
+  in
+  let t = Tensor_id.Map.find (tid 1) out in
+  List.iter
+    (fun h ->
+      List.iter
+        (fun w ->
+          Fmt.pr "%g " (Tensor.read t (Vec6.coord ~n:0 ~t:0 ~d:0 ~h ~w ~c:0)))
+        [ 0; 1; 2 ])
+    [ 0; 1 ];
+  Fmt.pr "@.%s" (Loop_js.emit Loop_programs.reversed_flat);
+  [%expect
+    {|
+    12 10 8 6 4 2
+    "use strict";
+    function loop_kernel(b0, b1) {
+      for (let i0 = 0; i0 < 6; i0++) {
+        b1[i0] = b0[5 - i0] * 2;
+      }
+      return null;
+    } |}]
+
+let%expect_test "a flat offset outside the buffer is a defect" =
+  let input = buffer 0 (shape_w 2) f32 Loop_buffer.Input in
+  List.iter
+    (fun off ->
+      let p =
+        program ~buffers:[ input ]
+          [
+            Loop_stmt.Assign
+              (Loop_carrier.Float, temp 1, Loop_expr.Load_flat (input, c off));
+          ]
+      in
+      match
+        Loop_interp.run p ~bind:(fun _ ->
+            Some (f32_tensor (shape_w 2) (fun _ -> 0.)))
+      with
+      | _ -> Fmt.pr "%d: returned@." off
+      | exception Invalid_argument m ->
+          Fmt.pr "%d: Invalid_argument: %s@." off m)
+    [ -1; 1; 2 ];
+  [%expect
+    {|
+    -1: Invalid_argument: Loop_interp: unchecked access out of range
+    1: returned
+    2: Invalid_argument: Loop_interp: unchecked access out of range |}]

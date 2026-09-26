@@ -3,6 +3,7 @@
 type names = {
   vars : (int, int) Hashtbl.t;
   temps : (int, int) Hashtbl.t;
+  index_temps : (int, int) Hashtbl.t;
   arrays : (int, int) Hashtbl.t;
 }
 
@@ -10,6 +11,7 @@ let fresh_names () =
   {
     vars = Hashtbl.create 8;
     temps = Hashtbl.create 8;
+    index_temps = Hashtbl.create 8;
     arrays = Hashtbl.create 8;
   }
 
@@ -23,6 +25,10 @@ let ordinal table key =
 
 let pp_var nm fmt v = Fmt.pf fmt "i%d" (ordinal nm.vars (Loop_var.to_int v))
 let pp_temp nm fmt t = Fmt.pf fmt "x%d" (ordinal nm.temps (Loop_temp.to_int t))
+
+(* An index temporary, [o] as in [Loop_js]. *)
+let pp_index_temp nm fmt t =
+  Fmt.pf fmt "o%d" (ordinal nm.index_temps (Loop_temp.to_int t))
 
 let pp_array nm fmt a =
   Fmt.pf fmt "a%d" (ordinal nm.arrays (Loop_array.to_int a))
@@ -51,7 +57,7 @@ let rec pp_index nm fmt : Loop_index.t -> unit = function
   | Loop_index.Min (a, b) ->
       Fmt.pf fmt "min(%a, %a)" (pp_index nm) a (pp_index nm) b
   | Loop_index.Scale (k, a) -> Fmt.pf fmt "(%d * %a)" k (pp_index nm) a
-  | Loop_index.Temp t -> pp_temp nm fmt t
+  | Loop_index.Temp t -> pp_index_temp nm fmt t
   | Loop_index.Var v -> pp_var nm fmt v
 
 let pp_coord nm fmt (c : Loop_index.coord) = Expr.Coord.pp (pp_index nm) fmt c
@@ -76,8 +82,13 @@ let rec pp_expr : type a. names -> Format.formatter -> a Loop_expr.t -> unit =
   | Loop_expr.I64_to_float a -> Fmt.pf fmt "i64_to_float(%a)" (pp_expr nm) a
   | Loop_expr.Load (b, c) ->
       Fmt.pf fmt "load %a[%a]" Tensor_id.pp b.Loop_buffer.id (pp_coord nm) c
+  | Loop_expr.Load_flat (b, i) ->
+      Fmt.pf fmt "load %a[@%a]" Tensor_id.pp b.Loop_buffer.id (pp_index nm) i
   | Loop_expr.Load_i64 (b, c) ->
       Fmt.pf fmt "load_i64 %a[%a]" Tensor_id.pp b.Loop_buffer.id (pp_coord nm) c
+  | Loop_expr.Load_i64_flat (b, i) ->
+      Fmt.pf fmt "load_i64 %a[@%a]" Tensor_id.pp b.Loop_buffer.id (pp_index nm)
+        i
   | Loop_expr.Round_f32 a -> Fmt.pf fmt "round_f32(%a)" (pp_expr nm) a
   | Loop_expr.Select (p, a, b) ->
       Fmt.pf fmt "(%a ? %a : %a)" (pp_pred nm) p (pp_expr nm) a (pp_expr nm) b
@@ -146,9 +157,9 @@ let rec pp_stmt nm fmt : Loop_stmt.t -> unit = function
   | Loop_stmt.Assign (_, t, e) ->
       Fmt.pf fmt "%a = %a" (pp_temp nm) t (pp_expr nm) e
   | Loop_stmt.Assign_index (t, i) ->
-      Fmt.pf fmt "%a = %a" (pp_temp nm) t (pp_index nm) i
+      Fmt.pf fmt "%a = %a" (pp_index_temp nm) t (pp_index nm) i
   | Loop_stmt.Assign_index_of_i64 (t, e) ->
-      Fmt.pf fmt "%a = index_of_i64(%a)" (pp_temp nm) t (pp_expr nm) e
+      Fmt.pf fmt "%a = index_of_i64(%a)" (pp_index_temp nm) t (pp_expr nm) e
   | Loop_stmt.Charge_scan_update -> Fmt.string fmt "charge_scan_update"
   | Loop_stmt.Release_scan_state w -> Fmt.pf fmt "release_scan_state %d" w
   | Loop_stmt.Reserve_scan_state w -> Fmt.pf fmt "reserve_scan_state %d" w
@@ -165,6 +176,9 @@ let rec pp_stmt nm fmt : Loop_stmt.t -> unit = function
   | Loop_stmt.Store { buffer; coord; value } ->
       Fmt.pf fmt "store %a[%a] = %a" Tensor_id.pp buffer.Loop_buffer.id
         (pp_coord nm) coord (pp_stored nm) value
+  | Loop_stmt.Store_flat { buffer; offset; value } ->
+      Fmt.pf fmt "store %a[@%a] = %a" Tensor_id.pp buffer.Loop_buffer.id
+        (pp_index nm) offset (pp_stored nm) value
 
 and pp_block nm fmt body =
   List.iter (fun s -> Fmt.pf fmt "@,%a" (pp_stmt nm) s) body
