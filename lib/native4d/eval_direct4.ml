@@ -228,14 +228,9 @@ let region_group_result ~limits ~region_counters (g : Graph.graph) ~op ~outs
          outs)
   |> Err.map_error (fun error -> `Region_execution error)
 
-(* Edges something reads: a graph output or any node's operand. An index output
-   nothing reads is not worth allocating. *)
-let live_edges (g : Graph.graph) =
-  let add = List.fold_left (fun s id -> Tensor_id.Set.add id s) in
-  List.fold_left
-    (fun live (node : Graph.node) -> add live (Op.operands node.Graph.Node.op))
-    (add Tensor_id.Set.empty g.Graph.Graph.outputs)
-    g.Graph.Graph.nodes
+(* The dialect has no [Discard]: every node is a reader. An index output nothing
+   reads is not worth allocating. *)
+let is_sink (_ : Op.t) = false
 
 (* The second output of the argmax-style ops. *)
 let is_index_output (op : Op.t) output =
@@ -247,7 +242,7 @@ let is_index_output (op : Op.t) output =
       true
   | _ -> false
 
-let eval_node ?region_counters ~limits ~synthetic_ids ~live (g : Graph.graph)
+let eval_node ?region_counters ~limits ~synthetic_ids ~sched (g : Graph.graph)
     env (node : Graph.node) =
   let open Err.Syntax in
   let op = node.Graph.Node.op in
@@ -288,7 +283,9 @@ let eval_node ?region_counters ~limits ~synthetic_ids ~live (g : Graph.graph)
         (Output_ordinal.of_int output, oid, out_shape))
       pairs
     |> List.filter (fun (output, oid, _) ->
-        not (is_index_output op output && not (Tensor_id.Set.mem oid live)))
+        not
+          (is_index_output op output
+          && not (Release_schedule.has_reader sched oid)))
   in
   (* See Eval_direct.eval_node's identical branch for the full rationale:
      a multi-output region-authored node (today, only [Lstm]) shares one
@@ -818,8 +815,12 @@ let eval_node ?region_counters ~limits ~synthetic_ids ~live (g : Graph.graph)
           Err.return (Tensor_id.Map.add oid result env))
         env outs
 
-let run ?region_counters ?(limits = Kernel.Limits.default) ?(constants = [])
-    (g : Graph.graph) ~(inputs : (Tensor_id.t * Tensor.packed) list) =
+let release env ids =
+  List.fold_left (fun env id -> Tensor_id.Map.remove id env) env ids
+
+let run ?region_counters ?(limits = Kernel.Limits.default)
+    ?(retain = Release_schedule.Retain.All) ?(constants = []) (g : Graph.graph)
+    ~(inputs : (Tensor_id.t * Tensor.packed) list) =
   let provided =
     List.fold_left
       (fun e (id, t) -> Tensor_id.Map.add id t e)
@@ -836,7 +837,15 @@ let run ?region_counters ?(limits = Kernel.Limits.default) ?(constants = [])
   in
   let* env = bind_constants g constants env0 in
   let synthetic_ids = fresh_synthetic_ids g in
-  let live = live_edges g in
+  let sched =
+    Release_schedule.schedule ~operands:Op.operands ~is_sink ~retain g
+  in
+  (* Eval_direct's contract: see its [?retain]. *)
   Err.List.fold_left
-    (eval_node ?region_counters ~limits ~synthetic_ids ~live g)
-    env g.Graph.Graph.nodes
+    (fun env (node : Graph.node) ->
+      let+ env =
+        eval_node ?region_counters ~limits ~synthetic_ids ~sched g env node
+      in
+      release env (Release_schedule.after sched node.Graph.Node.id))
+    (release env (Release_schedule.initial sched))
+    g.Graph.Graph.nodes
