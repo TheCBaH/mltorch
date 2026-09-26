@@ -9,7 +9,7 @@
    CI step.
 
    argv: <model.pt2> <inputs.pt> <expected.json> <outputs.pt> [--cram]
-         [--strict] [--nodes] [--shadow]
+         [--strict] [--nodes] [--shadow] [--direct]
    Same four positional paths as js/run/pt2_run.ml -- deliberately runs only
    the FIRST of the (many) samples they hold ([~max_samples:(Some 1)]),
    never the whole map: see [Infer_report.report]'s own doc for why that
@@ -49,18 +49,72 @@ let region_group_coverage = Loop_region_executor.Coverage.create ()
 let region_group_executor =
   Loop_region_executor.make_group region_group_coverage
 
-let infer ~node_executor archive image =
+(* Canonical is the DEFAULT (2026-09-23, follow-up to the 2026-09-22
+   [--canonical] flag this replaces): runs the same generated-JS path over
+   [Pipeline.canonical]'s output instead of the raw imported graph -- DCE
+   plus permute-cancellation/layout-normalization plus constant/batch-norm
+   folding (see [Pipeline.canonical_with_trace]'s own doc), the same pass
+   list [to4d]/[transform] use, not fusion. Neither
+   [Node_executor]/[Loop_node_executor] nor [Loop_node_program] needed any
+   change for this: both take a bare [Graph_ir.graph], indifferent to how
+   it was produced, so [Native_interp.evaluate] on a [transformed] graph
+   reuses this file's SAME [node_executor]/[region_executor]/
+   [region_group_executor] values unmodified. Two timings, printed to
+   stderr (never stdout, which the cram tests compare exactly): the
+   transform pass alone, and evaluation alone on its result -- so
+   "canonicalize once, run many times" and "one-shot, transform included"
+   are both readable from one run rather than conflated into a single
+   number.
+
+   [--direct] opts back into the raw, untransformed graph -- kept for the
+   smaller subset of models/targets that still exercise the direct
+   PT2-to-Native conversion path itself, not only its canonicalized
+   result (see the Makefile's own loop_js.pt2.run). *)
+let infer_canonical ~node_executor archive image =
   let open Err.Syntax in
-  let* outputs =
-    Native_interp.run ~region_executor ~region_group_executor ?node_executor
-      archive ~input:image
+  let t0 = Sys.time () in
+  let* (Native_interp.Transformed t as transformed) =
+    Native_interp.transform archive ~preload:true
+      ~passes:[ Pipeline.canonical ~fold:true ]
     |> Err.map_error ~pos:__POS__ (fun e -> (e :> eval))
   in
+  let t1 = Sys.time () in
+  let* outputs, _loaded =
+    Native_interp.evaluate ~region_executor ~region_group_executor
+      ?node_executor archive transformed ~input:image
+    |> Err.map_error ~pos:__POS__ (fun e -> (e :> eval))
+  in
+  let t2 = Sys.time () in
+  Printf.eprintf
+    "loop_js_pt2 canonical: nodes %d -> %d, canonicalize %.1f ms, evaluate \
+     (inference only) %.1f ms, total %.1f ms\n\
+     %!"
+    t.nodes_before
+    (List.length t.graph.Graph_ir.Graph.nodes)
+    ((t1 -. t0) *. 1000.)
+    ((t2 -. t1) *. 1000.)
+    ((t2 -. t0) *. 1000.);
   let* top =
     Native_predict.top_predictions outputs 5
     |> Err.map_error ~pos:__POS__ (fun e -> (e :> eval))
   in
   Err.return (List.map (fun ((c : Dim.index Dim.t), p) -> ((c :> int), p)) top)
+
+let infer ~direct ~node_executor archive image =
+  if not direct then infer_canonical ~node_executor archive image
+  else
+    let open Err.Syntax in
+    let* outputs =
+      Native_interp.run ~region_executor ~region_group_executor ?node_executor
+        archive ~input:image
+      |> Err.map_error ~pos:__POS__ (fun e -> (e :> eval))
+    in
+    let* top =
+      Native_predict.top_predictions outputs 5
+      |> Err.map_error ~pos:__POS__ (fun e -> (e :> eval))
+    in
+    Err.return
+      (List.map (fun ((c : Dim.index Dim.t), p) -> ((c :> int), p)) top)
 
 (* T3.3/T5.1: a run that silently skipped the generated-JS path is a worse
    defect than one that fails loudly, since nothing else about a passing
@@ -95,6 +149,7 @@ let print_node_coverage (coverage : Loop_node_executor.Coverage.t) =
 let () =
   let nodes, argv = strip_flag "--nodes" Sys.argv in
   let shadow, argv = strip_flag "--shadow" argv in
+  let direct, argv = strip_flag "--direct" argv in
   match Infer_report.parse_argv argv with
   | Error usage ->
       prerr_endline usage;
@@ -108,7 +163,8 @@ let () =
       in
       let report_result =
         Infer_report.run ~max_samples:1 ~now:Sys.time
-          ~infer:(infer ~node_executor) paths options
+          ~infer:(infer ~direct ~node_executor)
+          paths options
       in
       (match node_state with
       | Some { Loop_node_executor.coverage; _ } -> print_node_coverage coverage

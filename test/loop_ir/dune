@@ -5,7 +5,7 @@
 
 (library
  (name loop_ir_test)
- (modules :standard \ loop_js_gen)
+ (modules :standard \ loop_js_gen loop_bench_native)
  (libraries
   core
   err_trace
@@ -33,6 +33,15 @@
  (name loop_js_gen)
  (modules loop_js_gen)
  (libraries err_trace expr fmt loop_ir loop_ir_test native))
+
+; The native route of the loop_js bench (see loop_bench_run.ml). Depends on
+; loop_ir_test the same way loop_js_gen does, to reuse loop_bench_program.ml
+; and loop_bench_run.ml without pulling them into the inline-tests build.
+
+(executable
+ (name loop_bench_native)
+ (modules loop_bench_native)
+ (libraries err_trace fmt loop_ir loop_ir_test native))
 
 (rule
  (alias loop-js-gate)

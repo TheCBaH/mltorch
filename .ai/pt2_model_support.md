@@ -73,21 +73,39 @@ make native-infer-verify.<model>
   op set (`select`/`unsqueeze`, `cat`/`stack`, `amax`, `pow`/`vector_norm`,
   `upsample_bilinear2d`) it doesn't have. Do not try to make it a native
   verification target piecemeal.
-- **`mobilenetv2_050`/`fastvit_sa12` also run through generated JavaScript,
-  not only the interpreter (2026-09-22).** Separate from every column
-  above (which are about the NATIVE import/conversion pipeline): both
-  models run through `Loop_js_exec`-compiled JavaScript under node with
-  `--nodes --shadow --strict`, bitwise-shadowed against the interpreter,
-  confirmed at full parity. `mobilenetv2_050` (`make
-  loop_js.node.pt2.runtest`, tier-2 CI): 415/415 nodes `generated_js`,
-  zero fallback/pending, ranking match, exit 0, ~90s. `fastvit_sa12`
-  (MANUAL, too slow for CI): every node kind `fallback=0 pending=0`,
-  including `Unbind=6` (the one gap this session's own work closed) and
-  the 2 SDPA nodes via the Region executor, ranking match, exit 0,
-  ~510-530s. Full design and the walk-scale parity record (every computing
-  op kind, not only these two models) are in the Loop IR JavaScript
-  backend design doc's "Every node through its own generated-JS kernel"
-  section, not duplicated here.
+- **Every model in this table also runs through generated JavaScript, not
+  only the interpreter (2026-09-22).** Separate from every column above
+  (which are about the NATIVE import/conversion pipeline): all six models
+  (`test_convnext2`, `mobilenetv2_050`, `regnetx_002`, `efficientnet_b0`,
+  `fastvit_sa12`, `mobilenetv3_small_050`) run through `Loop_js_exec`-
+  compiled JavaScript under node with `--nodes --shadow --strict`,
+  bitwise-shadowed against the interpreter, confirmed at full parity:
+  every op kind `fallback=0 pending=0`, ranking match, exit 0.
+  `mobilenetv2_050` (`make loop_js.node.pt2.runtest`, tier-2 CI): 415
+  nodes, ~90s. `fastvit_sa12` (MANUAL, too slow for CI): 714 node-executor
+  nodes including `Unbind=6` (the one gap this session's own work closed)
+  plus 2 SDPA nodes via the Region executor, ~510-530s. `test_convnext2`
+  also has Region-authored nodes (`region coverage generated_js=9`, almost
+  certainly LayerNorm) — corrects an earlier design-doc claim that
+  `fastvit_sa12` was the only such model in this set.
+
+  **Generated JS also runs over `Pipeline.canonical`'s output, which is
+  now the DEFAULT** (`--direct` opts back into the raw imported graph),
+  with the same executors unmodified — still full parity on every model,
+  with the canonicalized node counts matching this table's own "Native4D converts"
+  column where both exist (`mobilenetv2_050`: 100; `efficientnet_b0`:
+  254). The speedup canonicalization buys on top of generated JS is real
+  but model-dependent: permute/batchnorm-heavy CNNs see a large
+  additional win (`efficientnet_b0` 327s → 133s, `mobilenetv2_050` 89s →
+  40s), a model dominated by genuinely compute-heavy nodes sees little
+  (`fastvit_sa12`: ~510s either way, despite its own node count halving
+  712 → 366) — node count is not a proxy for wall-clock cost when the
+  removed nodes were never the bottleneck.
+
+  Full design, the walk-scale parity record (every computing op kind, not
+  only these six models), and the per-model canonicalization table are in
+  the Loop IR JavaScript backend design doc's "Every node through its own
+  generated-JS kernel" section, not duplicated here.
 
 ## The broader, payload-free sweep
 

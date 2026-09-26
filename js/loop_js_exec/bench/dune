@@ -1,0 +1,17 @@
+; jsoo route of the loop_js bench: Loop_interp.run and the generated-code
+; executor, both under node, over the same kernel the native route
+; (test/loop_ir/loop_bench_native.ml) times. loop_bench_program.ml and
+; loop_bench_run.ml are copied, not forked, exactly like
+; js/loop_js_exec/test/dune copies the Loop_check fixtures -- same source,
+; run under a third backend. Manual, run by `make loop_js.bench`; not part
+; of jsoo.runtest/jsoo.inline-runtest -- a timing report, not a gate.
+
+(copy_files
+ (files
+  %{workspace_root}/test/loop_ir/{loop_bench_program,loop_bench_run}.ml))
+
+(executable
+ (name loop_bench_jsoo)
+ (modes js)
+ (modules loop_bench_program loop_bench_run loop_bench_jsoo)
+ (libraries err_trace expr fmt loop_ir loop_js_exec native))

@@ -7,7 +7,8 @@
 	jsoo.pt2.runtest jsoo.pt2.vars jsoo.runtest loop.js.runtest \
 	loop_js.bench loop_js.node.pt2.runtest loop_js.pt2.run melange.build \
 	melange.build.scaffold melange.runtest native-infer-verify \
-	native-infer-verify.% native-transform-verify \
+	native-infer-verify.% native-infer-verify-direct \
+	native-infer-verify-direct.% native-transform-verify \
 	native-transform-verify.% precommit profile.landmarks \
 	profile.memtrace pt2.download pt2.download-all pt2.download-cram \
 	pt2.json-model-support pt2.runtest pt2.vars runtest spike.runtest \
@@ -194,14 +195,43 @@ NATIVE_GRAPH := _build/default/bin/native_graph.exe
 $(ATEN_GRAPH_REF) $(NATIVE_GRAPH):
 	opam exec -- dune build bin/aten_graph_ref.exe bin/native_graph.exe
 
+# CANONICAL is the default form this checks (2026-09-23, matching the JS
+# side's own default -- js/jsoo/loop_js_pt2/loop_js_pt2.ml): evaluates the
+# FOLDED (Pipeline.canonical ~fold:true, via `transform --fold`) graph and
+# compares its output to the real ATen reference. native-transform-verify
+# already checks canonical against the untransformed graph, numerically
+# and structurally, for the same PT2_NATIVE_VERIFY_MODELS -- this instead
+# anchors canonical's own output to ground truth, not just to the
+# untransformed graph. native-infer-verify-direct below keeps the raw,
+# untransformed graph checked against ATen too, but only for the smaller
+# PT2_MODELS_NATIVE_VERIFY_DIRECT subset: paying the ATen-reference cost
+# on both forms for every model would be redundant with the
+# canonical-vs-untransformed check native-transform-verify already does.
 native-infer-verify.%: PT2_MODEL = $*
 native-infer-verify.%: $(ATEN_GRAPH_REF) $(NATIVE_GRAPH)
 	test -f $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 || $(MAKE) pt2.download PT2_MODEL=$*
 	set -eux; ref=$$(mktemp); trap 'rm -f "$$ref"' EXIT; \
 	$(ATEN_GRAPH_REF) $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 $(PT2_MODEL_DIR)/inputs.pt "$$ref"; \
-	$(NATIVE_GRAPH) eval --pt2 $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 --input $(PT2_MODEL_DIR)/inputs.pt --expect "$$ref" --verbose
+	$(NATIVE_GRAPH) transform --fold --pt2 $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 \
+	  --input $(PT2_MODEL_DIR)/inputs.pt --expect "$$ref"
 
 native-infer-verify: $(addprefix native-infer-verify., $(PT2_NATIVE_VERIFY_MODELS))
+
+# The smaller subset that still verifies the DIRECTLY converted (raw,
+# untransformed) native graph against the ATen reference, not only its
+# canonicalized form -- see native-infer-verify's own doc above.
+# mobilenetv2_050 alone carries this job, matching the JS side's own
+# smaller-subset choice (loop_js.pt2.run --direct on fastvit_sa12).
+PT2_MODELS_NATIVE_VERIFY_DIRECT := mobilenetv2_050
+
+native-infer-verify-direct.%: PT2_MODEL = $*
+native-infer-verify-direct.%: $(ATEN_GRAPH_REF) $(NATIVE_GRAPH)
+	test -f $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 || $(MAKE) pt2.download PT2_MODEL=$*
+	set -eux; ref=$$(mktemp); trap 'rm -f "$$ref"' EXIT; \
+	$(ATEN_GRAPH_REF) $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 $(PT2_MODEL_DIR)/inputs.pt "$$ref"; \
+	$(NATIVE_GRAPH) eval --pt2 $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 --input $(PT2_MODEL_DIR)/inputs.pt --expect "$$ref" --verbose
+
+native-infer-verify-direct: $(addprefix native-infer-verify-direct., $(PT2_MODELS_NATIVE_VERIFY_DIRECT))
 
 # Execute a TRANSFORMED graph and check it against the untransformed one. This
 # is a make rule and not a cram golden for two reasons: a full inference is far
@@ -604,12 +634,16 @@ jsoo.pt2.run: jsoo.pt2.download jsoo.build
 
 # Every node of JS_PT2_MODEL (mobilenetv2_050 -- no Region-authored node, so
 # only --nodes exercises anything new on it, design §4.5) through its own
-# generated-JS kernel, checked bitwise against the direct path (--shadow) and
+# generated-JS kernel, checked bitwise against the interpreter (--shadow) and
 # against the release's own ranking (--strict). Whole-graph-js-compile plan
 # T5.2/T5.5. Reuses JS_PT2_MODEL's own already-downloaded/cached archive
 # (jsoo.pt2.download, the SAME cache key jsoo.pt2.runtest uses) -- no new
 # download plumbing. Tier 2: ~100s under node, the same order as
 # jsoo.pt2.runtest's own step in the same CI job.
+#
+# Runs canonical (loop_js_pt2's default, see its own doc comment) -- the
+# raw, directly-converted graph is exercised by loop_js.pt2.run's --direct
+# instead, so this doesn't pay for both on every push.
 loop_js.node.pt2.runtest: jsoo.pt2.download jsoo.build
 	node $(JS_BUILD)/jsoo/loop_js_pt2/loop_js_pt2.bc.js $(JS_PT2_RUN_ARGS) \
 	  --nodes --shadow --strict
@@ -631,6 +665,13 @@ loop_js.node.pt2.runtest: jsoo.pt2.download jsoo.build
 # further from CI than jsoo.pt2.run itself: one fastvit_sa12 sample measured
 # at ~103s through the native evaluator, so even a single sample under node
 # is minutes, and results.json holds ten.
+#
+# --direct: canonical (Pipeline.canonical's output) is loop_js_pt2's DEFAULT
+# as of 2026-09-23 -- this target opts back into the raw, untransformed
+# graph so the direct PT2-to-Native conversion path stays exercised
+# end-to-end on at least one model, not only its canonicalized result.
+# fastvit_sa12 alone carries that job; loop_js.node.pt2.runtest below (and
+# every other PT2_MODELS_CRAM model, verified manually) runs canonical.
 LOOP_JS_PT2_MODEL := fastvit_sa12
 LOOP_JS_PT2_DIR := $(PT2_DIR)/$(LOOP_JS_PT2_MODEL)
 LOOP_JS_PT2_RUN_ARGS = $(LOOP_JS_PT2_DIR)/$(LOOP_JS_PT2_MODEL).pt2 \
@@ -641,7 +682,7 @@ loop_js.pt2.run: jsoo.build
 	@test -f $(LOOP_JS_PT2_DIR)/$(LOOP_JS_PT2_MODEL).pt2 || \
 	  $(MAKE) pt2.download PT2_MODEL=$(LOOP_JS_PT2_MODEL)
 	node $(JS_BUILD)/jsoo/loop_js_pt2/loop_js_pt2.bc.js \
-	  $(LOOP_JS_PT2_RUN_ARGS) --strict
+	  $(LOOP_JS_PT2_RUN_ARGS) --strict --direct
 
 # Melange lives behind `--profile melange` so that `dune build` and `make build`
 # never compile it -- a melange.emit stanza is otherwise attached to @all and

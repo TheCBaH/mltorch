@@ -466,8 +466,10 @@ A real downloaded model's Region-authored nodes now run through
 Loop_js_exec-compiled JavaScript, in-process, under node, checked against
 the release's own top-5 rankings — not just the op sweep's synthetic
 kernels this backend's own gate already covered. `fastvit_sa12` (SDPA,
-1218 raw / 332 native-graph nodes) is the target: the only model in
-`PT2_MODELS_CRAM` with a Region-authored op at all — a pure-CNN model
+1218 raw / 332 native-graph nodes) is the target: at the time this was
+written, believed to be the only model in `PT2_MODELS_CRAM` with a
+Region-authored op at all (**corrected below, "Every node..." section**:
+`test_convnext2` has 9, almost certainly LayerNorm) — a pure-CNN model
 (`mobilenetv2_050`, this backend's own `JS_PT2_MODEL`) has zero
 Region-authored nodes and would exercise nothing new. Its two SDPA nodes
 (`[H=16 W=49 C=32]`, a real transformer head count/sequence length/head
@@ -633,9 +635,43 @@ ranking match. `fastvit_sa12` exit 0, every node kind (including
 `Unbind=6`, the one gap this work closed) plus its 2 SDPA nodes via the
 Region executor all `fallback=0`, ranking match.
 
-See `ai/whole-graph-js-compile-design.md`, its own implementation plan and
-tracker for the staged record — this section is the closure fold into the
-tracked design record TZ.1 calls for.
+**Every model in `PT2_MODELS_CRAM` confirmed, not only the two named
+above (follow-up, 2026-09-22).** `test_convnext2`, `mobilenetv3_small_050`,
+`regnetx_002` and `efficientnet_b0` also pass `--nodes --shadow --strict`
+at full parity — every op kind `fallback=0 pending=0`, ranking match. All
+six were already downloaded locally when this was checked; none needed
+new work, since the seam is genuinely per-node and does not special-case
+which model it runs on. Node counts differ per model.
+
+**Canonical: generated JS over `Pipeline.canonical`'s output, not the raw
+graph, is now the DEFAULT (2026-09-22, made default 2026-09-23).**
+`js/jsoo/loop_js_pt2/loop_js_pt2.ml` runs the same `node_executor`/
+`region_executor`/`region_group_executor` values, unmodified, through
+`Native_interp.transform`/`evaluate` instead of `Native_interp.run` —
+`Node_executor`/`Loop_node_program` are indifferent to how a
+`Graph_ir.graph` was produced, so this needed no change to either. Every
+model still passes at full parity on the canonicalized graph (including
+its new node shapes — `Batch_norm` folds into `Conv2d`'s weights and
+disappears; `Permute` drops from the hundreds to single digits). A
+`--direct` flag opts back into the raw, untransformed graph; the Makefile
+keeps that path exercised on the smaller `fastvit_sa12` subset
+(`loop_js.pt2.run`) rather than paying for both forms on every model —
+`loop_js.node.pt2.runtest` (tier-2 CI, `mobilenetv2_050`) runs canonical.
+The native OCaml side made the matching choice the same day: `make
+native-infer-verify` now checks the canonical (`transform --fold`) graph
+against ATen for every `PT2_NATIVE_VERIFY_MODELS` entry, and
+`native-infer-verify-direct` keeps the raw-graph-vs-ATen check for the
+smaller `mobilenetv2_050` subset (see the Makefile's own comments there).
+
+The speedup canonicalization itself buys is real but not uniform:
+permute/batchnorm-heavy CNNs see a large additional win on top of the
+generated-JS one (`efficientnet_b0` 327s → 133s, `mobilenetv2_050` 89s →
+40s, both roughly 2.2-2.5x, for 3-5s of canonicalization cost), while a
+model whose wall time is dominated by genuinely compute-heavy nodes sees
+little (`fastvit_sa12`'s SDPA/Conv2d/Gelu-heavy graph: ~510s either way).
+Node count dropping by half (`fastvit_sa12`: 712 → 366) does not imply
+wall-clock time dropping by half when the removed nodes (redundant
+permutes) were never the bottleneck.
 
 ## Melange
 

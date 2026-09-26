@@ -211,6 +211,23 @@ the same gates CI runs, minus the JS backends and the pt2/inference suites, whic
 extra toolchain or downloaded model data (see `make js.runtest` / `make pt2.runtest`).
 Formatting is enforced; unformatted diffs are noise.
 
+### Experimenting in the toplevel
+
+For a quick look at what a library computes, use the toplevel rather than a scratch
+executable. `dune top <dir>` builds the libraries defined in `<dir>` and their dependencies,
+then prints the `#directory`/`#load` directives for the stock `ocaml` toplevel. Prefer it
+to `dune utop`, which links a custom utop binary and needs utop installed:
+
+```sh
+ocaml
+# #use_output "dune top test/loop_ir";;
+# Loop_ir_test.Loop_js_walk.print "conv2d";;   (* modules are wrapped in the library name *)
+```
+
+The same two lines, piped in with `ocaml -noprompt < script.ml`, work non-interactively.
+Choose the directory whose library already depends on what you need — a test library often
+pulls in the walks and fixtures a `lib/` one lacks.
+
 ### JavaScript backends (gated on node + the JS toolchain)
 
 ```sh

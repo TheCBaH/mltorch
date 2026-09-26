@@ -33,6 +33,7 @@ module Backend = struct
     | NestedTensorCUDA
     | NestedTensorHPU
     | NestedTensorMeta
+    | NestedTensorXPU
     | QuantizedCPU
     | QuantizedCUDA
     | QuantizedMeta
@@ -66,6 +67,7 @@ module Backend = struct
     | "NestedTensorCUDA" -> Some NestedTensorCUDA
     | "NestedTensorHPU" -> Some NestedTensorHPU
     | "NestedTensorMeta" -> Some NestedTensorMeta
+    | "NestedTensorXPU" -> Some NestedTensorXPU
     | "QuantizedCPU" -> Some QuantizedCPU
     | "QuantizedCUDA" -> Some QuantizedCUDA
     | "QuantizedMeta" -> Some QuantizedMeta
@@ -100,6 +102,7 @@ module Backend = struct
     | NestedTensorCUDA -> "NestedTensorCUDA"
     | NestedTensorHPU -> "NestedTensorHPU"
     | NestedTensorMeta -> "NestedTensorMeta"
+    | NestedTensorXPU -> "NestedTensorXPU"
     | QuantizedCPU -> "QuantizedCPU"
     | QuantizedCUDA -> "QuantizedCUDA"
     | QuantizedMeta -> "QuantizedMeta"

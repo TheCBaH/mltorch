@@ -14,5 +14,5 @@
 
 (library
  (name loop_js_exec_js)
- (libraries err_trace expr_js js_ast js_of_ocaml loop_ir_js native_js)
+ (libraries err_trace expr_js fmt js_ast js_of_ocaml loop_ir_js native_js)
  (wrapped false))
