@@ -36,11 +36,14 @@ end
     value the engine has no representation for at all. *)
 module Window_over_limit : sig
   type quantity =
-    [ `Dilation
+    [ `Column_channels
+    | `Column_locations
+    | `Dilation
     | `Effective_kernel
     | `In_channels
     | `Input_extent
     | `Kernel
+    | `Out_channels
     | `Output_extent
     | `Padding
     | `Stride ]
@@ -185,7 +188,7 @@ end
    [Unbind]'s derived count uses, rather than a third fault here. *)
 module Split_with_sizes : sig
   type fault =
-    | Non_positive_size of { index : int; size : int }
+    | Non_positive_size of { index : Output_ordinal.t; size : Aten_int.Size.t }
     | Size_mismatch of { total : int64 }
 
   type t = { axis : Axis.t; in_extent : Dim.extent Dim.t; fault : fault }
@@ -206,7 +209,7 @@ end
 module Select_scatter : sig
   type t = {
     axis : Axis.t;
-    index : int;
+    index : Dim.index Dim.t;
     expected : Vec6.shape;
     actual : Vec6.shape;
   }
@@ -243,8 +246,8 @@ module Slice : sig
   type t = {
     axis : Axis.t;
     in_extent : Dim.extent Dim.t;
-    start : int;
-    stop : int;
+    start : Dim.fence Dim.t;
+    stop : Dim.fence Dim.t;
     step : Op_config.Pos.t;
     out : int64;
     fault : fault;
@@ -315,11 +318,14 @@ module Im2col : sig
 end
 
 module Convolution : sig
-  type channels_divisibility = { channels : int; groups : int }
+  type channels_divisibility = {
+    channels : Dim.extent Dim.t;
+    groups : Op_config.Pos.t;
+  }
 
   type weight_channels_mismatch = {
-    weight_in_per_group : int;
-    expected_in_per_group : int;
+    weight_in_per_group : Dim.extent Dim.t;
+    expected_in_per_group : Dim.extent Dim.t;
   }
 
   type weight_kernel_mismatch = {
@@ -341,7 +347,7 @@ module Convolution : sig
   }
 
   type transposed_window_output = {
-    out : int;
+    out : int64;
     in_extent : Dim.extent Dim.t;
     kernel : Dim.extent Dim.t;
     stride : Op_config.Pos.t;

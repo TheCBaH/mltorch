@@ -1,10 +1,5 @@
-(* See role.mli. A bare [type t] in a structure declares an abstract,
-   uninhabited type -- the same idiom [Dim]'s phantom tags use. *)
+(* See role.mli. The markers are defined in [Core.Role] so that [Core.Dim] can
+   alias them; this module only re-exports them. *)
 
-module Position = struct
-  type t
-end
-
-module Delta = struct
-  type t
-end
+module Position = Core.Role.Position
+module Delta = Core.Role.Delta

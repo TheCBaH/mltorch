@@ -113,13 +113,14 @@ let%expect_test "Kernel: a source resolving to a later value is forward" =
    would then request a source construction never validated. *)
 let pool_body src =
   Expr.Value.intrinsic
-    (Err.or_raise ~pp_error:Expr.Intrinsic.pp_error
-       (Expr.Intrinsic.max_pool
-          ~source:(Expr_bridge.source_of_id (tid src))
-          ~in_h:4 ~in_w:4 ~kernel_h:2 ~kernel_w:2 ~stride_h:2 ~stride_w:2
-          ~pad_h:0 ~pad_w:0
-          ~out:(Expr_bridge.coord_of_vec6 Symbolic.out_vec)
-          ~result:Expr.Intrinsic.Max_pool.Value))
+    (let sq f v = Op_config.Hw.{ h = f v; w = f v } in
+     Expr.Intrinsic.max_pool
+       ~source:(Expr_bridge.source_of_id (tid src))
+       ~input:(sq Dim.extent 4) ~kernel:(sq Dim.extent 2)
+       ~stride:(sq Op_config.Pos.of_int 2)
+       ~pad:(sq Op_config.Nonneg.of_int 0)
+       ~out:(Expr_bridge.coord_of_vec6 Symbolic.out_vec)
+       ~result:Expr.Intrinsic.Max_pool.Value)
 
 let%expect_test "Kernel: an intrinsic-only source is validated like any other" =
   let unknown =

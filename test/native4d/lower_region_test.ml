@@ -38,7 +38,7 @@ let region_graph name ~x_shape ~tgt ~perm ~tail =
          let rec go = function
            | [] -> Graph_builder.return []
            | k :: rest ->
-               let* y = select { Split.Select.axis; index = k } p in
+               let* y = select { Split.Select.axis; index = Dim.index k } p in
                let* ys = go rest in
                Graph_builder.return (y :: ys)
          in

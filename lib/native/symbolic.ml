@@ -91,31 +91,23 @@ let load_index (s : input) (v : Semantics.position index Vec6.t)
     (Expr_bridge.coord_of_vec6 v)
     (extent :> int)
 
-(* The descriptor carries [in_h]/[in_w] explicitly, because an opaque source
-   cannot be asked for its shape the way the embedded [Tensor_sig.t] could.
-   They come from [~x_shape], which the older instance ignores precisely
-   because it stashed the signature instead. *)
+(* The descriptor carries the input extents explicitly, because an opaque
+   source cannot be asked for its shape the way the embedded [Tensor_sig.t]
+   could. They come from [~x_shape], which the older instance ignores precisely
+   because it stashed the signature instead. The kernel, stride and padding
+   are the op configuration's own types, passed through unchanged. *)
 let max_pool (input : input) ~(x_shape : Vec6.shape) ~kernel ~stride ~pad out
     result =
-  (* Extracted per field rather than through a shared helper: the three [Hw.t]s
-     carry different element types ([Dim.extent Dim.t], [Pos.t], [Nonneg.t]),
-     so one helper would be monomorphised at whichever came first. *)
-  let kernel_h = (kernel.Op_config.Hw.h : Dim.extent Dim.t :> int)
-  and kernel_w = (kernel.Op_config.Hw.w : Dim.extent Dim.t :> int)
-  and stride_h = (stride.Op_config.Hw.h : Op_config.Pos.t :> int)
-  and stride_w = (stride.Op_config.Hw.w : Op_config.Pos.t :> int)
-  and pad_h = (pad.Op_config.Hw.h : Op_config.Nonneg.t :> int)
-  and pad_w = (pad.Op_config.Hw.w : Op_config.Nonneg.t :> int) in
   Expr.Builder.return
     (Expr.Value.intrinsic
-       (Err.or_raise ~pp_error:Expr.Intrinsic.pp_error
-          (Expr.Intrinsic.max_pool
-             ~source:(Expr_bridge.source_of_id input.Tensor_sig.id)
-             ~in_h:(Dim.to_int (Vec6.get x_shape Axis.H))
-             ~in_w:(Dim.to_int (Vec6.get x_shape Axis.W))
-             ~kernel_h ~kernel_w ~stride_h ~stride_w ~pad_h ~pad_w
-             ~out:(Expr_bridge.coord_of_vec6 out)
-             ~result)))
+       (Expr.Intrinsic.max_pool
+          ~source:(Expr_bridge.source_of_id input.Tensor_sig.id)
+          ~input:
+            Op_config.Hw.
+              { h = Vec6.get x_shape Axis.H; w = Vec6.get x_shape Axis.W }
+          ~kernel ~stride ~pad
+          ~out:(Expr_bridge.coord_of_vec6 out)
+          ~result))
 
 let max_pool2d input ~x_shape ~kernel ~stride ~pad out =
   max_pool input ~x_shape ~kernel ~stride ~pad out Expr.Intrinsic.Max_pool.Value

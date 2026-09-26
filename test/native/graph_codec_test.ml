@@ -71,11 +71,14 @@ let%expect_test "op_name agrees with the JSON case tag, Discard included" =
           let* _slices = unbind { Split.Unbind.axis = Axis.C } act in
           let* _pieces =
             split_with_sizes
-              { Split.Split_with_sizes.axis = Axis.C; sizes = [ 1; 2 ] }
+              {
+                Split.Split_with_sizes.axis = Axis.C;
+                sizes = List.map Dim.extent [ 1; 2 ];
+              }
               act
           in
           let* selected =
-            select { Split.Select.axis = Axis.C; index = 0 } act
+            select { Split.Select.axis = Axis.C; index = Dim.index 0 } act
           in
           let* stacked =
             stack { Concat.Stack.axis = Axis.C } [ selected; selected ]
@@ -91,7 +94,12 @@ let%expect_test "op_name agrees with the JSON case tag, Discard included" =
           in
           let* narrowed =
             slice
-              { Split.Slice.axis = Axis.C; start = 1; stop = 3; step = pos 1 }
+              {
+                Split.Slice.axis = Axis.C;
+                start = Dim.fence 1;
+                stop = Dim.fence 3;
+                step = pos 1;
+              }
               padded
           in
           let* normed =

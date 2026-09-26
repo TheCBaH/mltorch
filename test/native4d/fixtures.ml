@@ -542,7 +542,14 @@ let slice_graph name ~shape ~axis ~start ~stop ~step () =
     ~outputs:(fun o -> [ o ])
     (let open Graph_builder in
      let* x = input ~shape () in
-     slice { Split.Slice.axis; start; stop; step = Op_config.Pos.of_int step } x)
+     slice
+       {
+         Split.Slice.axis;
+         start = Dim.fence start;
+         stop = Dim.fence stop;
+         step = Op_config.Pos.of_int step;
+       }
+       x)
   |> Err.or_raise ~pp_error:(fun ppf e ->
       Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
 
@@ -607,7 +614,7 @@ let select_graph name ~shape ~axis ~index () =
     ~outputs:(fun o -> [ o ])
     (let open Graph_builder in
      let* x = input ~shape () in
-     select { Split.Select.axis; index } x)
+     select { Split.Select.axis; index = Dim.index index } x)
   |> Err.or_raise ~pp_error:(fun ppf e ->
       Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
 
@@ -617,7 +624,9 @@ let select_scatter_graph name ~self_shape ~src_shape ~axis ~index () =
     (let open Graph_builder in
      let* self = input ~shape:self_shape () in
      let* src = input ~shape:src_shape () in
-     select_scatter { Split.Select_scatter.axis; index } ~self ~src)
+     select_scatter
+       { Split.Select_scatter.axis; index = Dim.index index }
+       ~self ~src)
   |> Err.or_raise ~pp_error:(fun ppf e ->
       Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
 
@@ -805,11 +814,13 @@ let select_rank5_t () =
    never shifts, so batch 2 converts here where it does not there. *)
 let split_with_sizes_w_batch2 () =
   split_with_sizes_all "split_with_sizes_w_batch2"
-    ~shape:(nhwc ~n:2 ~h:2 ~w:4 ~c:3) Axis.W [ 1; 3 ]
+    ~shape:(nhwc ~n:2 ~h:2 ~w:4 ~c:3) Axis.W
+    (List.map Dim.extent [ 1; 3 ])
 
 (* The same rank-five/dim-0 shape [unbind_rank5_t] uses, so the two ops'
    axis rejections are directly comparable: rank five, split at dim 0, which
    right-aligns onto T -- refused by the AXIS rule, same as [Unbind]'s. *)
 let split_with_sizes_rank5_t () =
   split_with_sizes_all "split_with_sizes_rank5_t" ~shape:(s 1 3 1 3 101 32)
-    Axis.T [ 1; 2 ]
+    Axis.T
+    (List.map Dim.extent [ 1; 2 ])

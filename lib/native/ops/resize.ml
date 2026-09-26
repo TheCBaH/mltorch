@@ -32,8 +32,8 @@ module Bilinear_axis = struct
      are >= 1). *)
   let check ~axis ~(in_extent : Dim.extent Dim.t)
       ~(out_extent : Op_config.Pos.t) : (unit, Shape_error.t) Err.t =
-    let i = Int64.of_int (in_extent :> int) in
-    let o = Int64.of_int (out_extent :> int) in
+    let i = Dim.to_int64 in_extent in
+    let o = Op_config.Pos.to_int64 out_extent in
     let two_o = Int64.mul 2L o in
     if i >= limit || two_o >= limit || i > Int64.div (Int64.sub limit 1L) two_o
     then
@@ -166,8 +166,8 @@ module Nearest_axis = struct
      the full product covers every reachable [out_idx]. *)
   let check ~axis ~(in_extent : Dim.extent Dim.t)
       ~(out_extent : Op_config.Pos.t) : (unit, Shape_error.t) Err.t =
-    let i = Int64.of_int (in_extent :> int) in
-    let o = Int64.of_int (out_extent :> int) in
+    let i = Dim.to_int64 in_extent in
+    let o = Op_config.Pos.to_int64 out_extent in
     if i >= limit || o >= limit || i > Int64.div (Int64.sub limit 1L) o then
       let aggregate =
         if i >= limit || o >= limit then limit else Int64.mul i o
@@ -261,9 +261,9 @@ module Nearest2d = struct
     in
     Err.return
       (Vec6.set
-         (Vec6.set x_shape Axis.H (Dim.extent (p.output_size.h :> int)))
+         (Vec6.set x_shape Axis.H (Dim_arith.Extent.of_pos p.output_size.h))
          Axis.W
-         (Dim.extent (p.output_size.w :> int)))
+         (Dim_arith.Extent.of_pos p.output_size.w))
 
   module Compute (S : Semantics.SEMANTICS) = struct
     module Ne = Nearest_axis.Compute (S)
@@ -343,9 +343,9 @@ module Bilinear2d = struct
     in
     Err.return
       (Vec6.set
-         (Vec6.set x_shape Axis.H (Dim.extent (p.output_size.h :> int)))
+         (Vec6.set x_shape Axis.H (Dim_arith.Extent.of_pos p.output_size.h))
          Axis.W
-         (Dim.extent (p.output_size.w :> int)))
+         (Dim_arith.Extent.of_pos p.output_size.w))
 
   module Compute (S : Semantics.SEMANTICS) = struct
     module Bi = Bilinear_axis.Compute (S)
@@ -416,8 +416,8 @@ module Bicubic_axis = struct
      op, not [Bilinear2d]. *)
   let check ~axis ~(in_extent : Dim.extent Dim.t)
       ~(out_extent : Op_config.Pos.t) : (unit, Shape_error.t) Err.t =
-    let i = Int64.of_int (in_extent :> int) in
-    let o = Int64.of_int (out_extent :> int) in
+    let i = Dim.to_int64 in_extent in
+    let o = Op_config.Pos.to_int64 out_extent in
     let two_o = Int64.mul 2L o in
     if i >= limit || two_o >= limit || i > Int64.div (Int64.sub limit 1L) two_o
     then
@@ -502,11 +502,11 @@ module Bicubic_axis = struct
        [Bilinear_axis.endpoints]'s [i1], no tap here is provably in range by
        construction, since the floor itself may already be negative or past
        the last element (see the module doc). *)
-    let clamp_tap ~(in_extent : int) (idx : Semantics.delta S.index) :
-        Semantics.position S.index =
+    let clamp_tap ~(in_extent : Dim.extent Dim.t)
+        (idx : Semantics.delta S.index) : Semantics.position S.index =
       S.clamp_low
         (S.index_min
-           (S.index_const (in_extent - 1))
+           (S.index_const ((in_extent :> int) - 1))
            (S.index_max idx (S.index_const 0)))
 
     (* [align_corners=true] with [out_extent = 1] is the one genuinely
@@ -518,7 +518,7 @@ module Bicubic_axis = struct
         : endpoints =
       let in_e = (in_extent :> int) and out_e = (out_extent :> int) in
       if align_corners && out_e = 1 then
-        let i = clamp_tap ~in_extent:in_e (S.index_const 0) in
+        let i = clamp_tap ~in_extent (S.index_const 0) in
         {
           i0 = i;
           i1 = i;
@@ -564,11 +564,10 @@ module Bicubic_axis = struct
         in
         let w0, w1, w2, w3 = coefficients t in
         {
-          i0 =
-            clamp_tap ~in_extent:in_e (S.index_add input_x (S.index_const (-1)));
-          i1 = clamp_tap ~in_extent:in_e input_x;
-          i2 = clamp_tap ~in_extent:in_e (S.index_add input_x (S.index_const 1));
-          i3 = clamp_tap ~in_extent:in_e (S.index_add input_x (S.index_const 2));
+          i0 = clamp_tap ~in_extent (S.index_add input_x (S.index_const (-1)));
+          i1 = clamp_tap ~in_extent input_x;
+          i2 = clamp_tap ~in_extent (S.index_add input_x (S.index_const 1));
+          i3 = clamp_tap ~in_extent (S.index_add input_x (S.index_const 2));
           w0;
           w1;
           w2;
@@ -637,9 +636,9 @@ module Bicubic2d = struct
     in
     Err.return
       (Vec6.set
-         (Vec6.set x_shape Axis.H (Dim.extent (p.output_size.h :> int)))
+         (Vec6.set x_shape Axis.H (Dim_arith.Extent.of_pos p.output_size.h))
          Axis.W
-         (Dim.extent (p.output_size.w :> int)))
+         (Dim_arith.Extent.of_pos p.output_size.w))
 
   module Compute (S : Semantics.SEMANTICS) = struct
     module Bi = Bicubic_axis.Compute (S)

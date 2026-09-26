@@ -30,8 +30,12 @@ let infer archive image =
     Native_interp.run archive ~input:image
     |> Err.map_error ~pos:__POS__ (fun e -> (e :> eval))
   in
-  Native_predict.top_predictions outputs 5
-  |> Err.map_error ~pos:__POS__ (fun e -> (e :> eval))
+  let* top =
+    Native_predict.top_predictions outputs 5
+    |> Err.map_error ~pos:__POS__ (fun e -> (e :> eval))
+  in
+  (* [Infer_report] is shared with the ATen runner, which reports bare classes. *)
+  Err.return (List.map (fun ((c : Dim.index Dim.t), p) -> ((c :> int), p)) top)
 
 let () =
   match Infer_report.parse_argv Sys.argv with

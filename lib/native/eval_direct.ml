@@ -368,9 +368,8 @@ and eval_node ?region_counters ~limits ~synthetic_ids ~live (g : graph)
            same way [Eval_op]'s arm computes it for the generic path. *)
             | Split_with_sizes { Split.Split_with_sizes.params; x } ->
                 let offset =
-                  Dim.fence
-                    (Split.Split_with_sizes.offset_of ~output
-                       params.Split.Split_with_sizes.sizes)
+                  Split.Split_with_sizes.offset_of ~output
+                    params.Split.Split_with_sizes.sizes
                 in
                 Err.return
                   (Tensor.split_with_sizes

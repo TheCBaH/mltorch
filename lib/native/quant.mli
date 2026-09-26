@@ -34,9 +34,9 @@ val channel_count : t -> int option
     per-tensor value accepts every channel while a short per-channel array
     raises at exactly the boundary a caller is trying to make safe. *)
 
-val params : t -> c:int -> float * int
-val dequantize : t -> c:int -> q:int -> float
-val quantize : t -> c:int -> qmin:int -> qmax:int -> float -> int
+val params : t -> c:Dim.index Dim.t -> float * int
+val dequantize : t -> c:Dim.index Dim.t -> q:int -> float
+val quantize : t -> c:Dim.index Dim.t -> qmin:int -> qmax:int -> float -> int
 
 val equal : t -> t -> bool
 (** Granularity, array lengths, every zero point, and every scale by

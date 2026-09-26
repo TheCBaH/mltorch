@@ -158,7 +158,10 @@ let%expect_test "Symbolic graph: split_with_sizes emits one stage per piece" =
           @@
           let* x = input ~shape:(s 1 1 1 2 5 1) ~name:"x" () in
           split_with_sizes
-            { Split.Split_with_sizes.axis = Axis.W; sizes = [ 2; 3 ] }
+            {
+              Split.Split_with_sizes.axis = Axis.W;
+              sizes = List.map Dim.extent [ 2; 3 ];
+            }
             x)
     in
     let prog = Eval_symbolic.run g in

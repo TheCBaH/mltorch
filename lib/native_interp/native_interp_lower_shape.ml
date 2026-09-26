@@ -615,9 +615,7 @@ let dispatch ~ctx ~env (node : Node.t) =
              resolve_select_index esc ~extent
                ~index:(Aten_int.Index.of_int (int_arg esc node "index"))
            in
-           let* y =
-             select { Split.Select.axis; index = (idx :> int) } (get "self")
-           in
+           let* y = select { Split.Select.axis; index = idx } (get "self") in
            return [ y ]
        (* One [Select_scatter] node: [self] with [src] written at [idx] along
          the normalized axis, every other position carried through from
@@ -640,7 +638,7 @@ let dispatch ~ctx ~env (node : Node.t) =
            in
            let* y =
              select_scatter
-               { Split.Select_scatter.axis; index = (idx :> int) }
+               { Split.Select_scatter.axis; index = idx }
                ~self:(get "self") ~src:(get "src")
            in
            return [ y ]
@@ -756,8 +754,8 @@ let dispatch ~ctx ~env (node : Node.t) =
              slice
                {
                  Split.Slice.axis;
-                 start = (bounds.Aten_shape.Slice_bounds.start :> int);
-                 stop = (bounds.Aten_shape.Slice_bounds.stop :> int);
+                 start = bounds.Aten_shape.Slice_bounds.start;
+                 stop = bounds.Aten_shape.Slice_bounds.stop;
                  step = bounds.Aten_shape.Slice_bounds.step;
                }
                (get "self")
@@ -841,8 +839,14 @@ let dispatch ~ctx ~env (node : Node.t) =
              | _ ->
                  invalid_arg "Native_interp: axes_for_rank lost its singleton"
            in
-           let sizes = ints_arg esc node "split_sizes" in
-           split_with_sizes { Split.Split_with_sizes.axis; sizes } (get "self")
+           let params =
+             Err.Escape.or_throw esc
+               (Split.Split_with_sizes.of_aten ~axis
+                  ~in_extent:(Vec6.get (tensor_shape esc graph x_name) axis)
+                  (sizes_arg esc node "split_sizes")
+               |> Err.map_error (fun e -> `Build e))
+           in
+           split_with_sizes params (get "self")
        (* `split.Tensor(self, split_size, dim)` -- the equal-chunk-size
          sibling of [split_with_sizes.default] just above, binding to the
          *same* [Split_with_sizes] node via [split_tensor_sizes] (which also
@@ -873,7 +877,9 @@ let dispatch ~ctx ~env (node : Node.t) =
            let sizes =
              split_tensor_sizes esc ~extent ~split_size:(split_size :> int)
            in
-           split_with_sizes { Split.Split_with_sizes.axis; sizes } (get "self")
+           split_with_sizes
+             { Split.Split_with_sizes.axis; sizes = List.map Dim.extent sizes }
+             (get "self")
        (* Schema: `upsample_bilinear2d.vec(Tensor input, SymInt[]? output_size,
          bool align_corners, float[]? scale_factors)`. Exactly one of
          [output_size]/[scale_factors] is ever given (ATen's own

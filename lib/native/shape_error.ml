@@ -60,11 +60,14 @@ module Window_over_limit = struct
      extent times its group count -- named for what it IS, not for the extent it
      is on its way to becoming. *)
   type quantity =
-    [ `Dilation
+    [ `Column_channels
+    | `Column_locations
+    | `Dilation
     | `Effective_kernel
     | `In_channels
     | `Input_extent
     | `Kernel
+    | `Out_channels
     | `Output_extent
     | `Padding
     | `Stride ]
@@ -74,11 +77,15 @@ module Window_over_limit = struct
   let pp ppf { what; value; limit } =
     Fmt.pf ppf "%s is %Ld, over the engine maximum of %Ld"
       (match what with
+      | `Column_channels ->
+          "the im2col column channel count (input channels * kh * kw)"
+      | `Column_locations -> "the im2col location count oh * ow"
       | `Dilation -> "the dilation"
       | `Effective_kernel -> "the effective kernel dilation * (kernel - 1) + 1"
       | `In_channels -> "the input channel count weight.C * groups"
       | `Input_extent -> "the input extent"
       | `Kernel -> "the kernel extent"
+      | `Out_channels -> "the output channel count weight.C * groups"
       | `Output_extent -> "the output extent"
       | `Padding -> "the padding"
       | `Stride -> "the stride")
@@ -343,14 +350,14 @@ end
 module Select_scatter = struct
   type t = {
     axis : Axis.t;
-    index : int;
+    index : Dim.index Dim.t;
     expected : Vec6.shape;
     actual : Vec6.shape;
   }
 
   let pp ppf { axis; index; expected; actual } =
-    Fmt.pf ppf "select_scatter src shape must be %a (axis=%a index=%d), got %a"
-      Vec6.pp_shape expected Axis.pp axis index Vec6.pp_shape actual
+    Fmt.pf ppf "select_scatter src shape must be %a (axis=%a index=%a), got %a"
+      Vec6.pp_shape expected Axis.pp axis Dim.pp index Vec6.pp_shape actual
 end
 
 module Slice = struct
@@ -359,16 +366,16 @@ module Slice = struct
   type t = {
     axis : Axis.t;
     in_extent : Dim.extent Dim.t;
-    start : int;
-    stop : int;
+    start : Dim.fence Dim.t;
+    stop : Dim.fence Dim.t;
     step : Op_config.Pos.t;
     out : int64;
     fault : fault;
   }
 
   let pp ppf { axis; in_extent; start; stop; step; out; fault } =
-    Fmt.pf ppf "slice of axis %a [%d, %d) step %d over extent %a %s" Axis.pp
-      axis start stop
+    Fmt.pf ppf "slice of axis %a [%a, %a) step %d over extent %a %s" Axis.pp
+      axis Dim.pp start Dim.pp stop
       (step :> int)
       Dim.pp in_extent
       (match fault with
@@ -430,7 +437,7 @@ end
 
 module Split_with_sizes = struct
   type fault =
-    | Non_positive_size of { index : int; size : int }
+    | Non_positive_size of { index : Output_ordinal.t; size : Aten_int.Size.t }
     | Size_mismatch of { total : int64 }
 
   type t = { axis : Axis.t; in_extent : Dim.extent Dim.t; fault : fault }
@@ -439,9 +446,10 @@ module Split_with_sizes = struct
     match fault with
     | Non_positive_size { index; size } ->
         Fmt.pf ppf
-          "split_with_sizes of axis %a over extent %a: size %d at index %d is \
+          "split_with_sizes of axis %a over extent %a: size %a at index %a is \
            not positive; the engine has no empty extent"
-          Axis.pp axis Dim.pp in_extent size index
+          Axis.pp axis Dim.pp in_extent Aten_int.Size.pp size Output_ordinal.pp
+          index
     | Size_mismatch { total } ->
         Fmt.pf ppf
           "split_with_sizes of axis %a: sizes sum to %Ld, not the axis's \
@@ -494,11 +502,14 @@ module Im2col = struct
 end
 
 module Convolution = struct
-  type channels_divisibility = { channels : int; groups : int }
+  type channels_divisibility = {
+    channels : Dim.extent Dim.t;
+    groups : Op_config.Pos.t;
+  }
 
   type weight_channels_mismatch = {
-    weight_in_per_group : int;
-    expected_in_per_group : int;
+    weight_in_per_group : Dim.extent Dim.t;
+    expected_in_per_group : Dim.extent Dim.t;
   }
 
   type weight_kernel_mismatch = {
@@ -520,7 +531,7 @@ module Convolution = struct
   }
 
   type transposed_window_output = {
-    out : int;
+    out : int64;
     in_extent : Dim.extent Dim.t;
     kernel : Dim.extent Dim.t;
     stride : Op_config.Pos.t;
@@ -545,7 +556,7 @@ module Convolution = struct
   let pp_transposed_window_output ppf
       { out; in_extent; kernel; stride; pad; dilation; output_padding } =
     Fmt.pf ppf
-      "transposed output extent must be >= 1, got %d (in=%a kernel=%a \
+      "transposed output extent must be >= 1, got %Ld (in=%a kernel=%a \
        stride=%a pad=%a dilation=%a output_padding=%a)"
       out Dim.pp in_extent Dim.pp kernel Op_config.Pos.pp stride
       Op_config.Nonneg.pp pad Op_config.Pos.pp dilation Op_config.Nonneg.pp
@@ -554,14 +565,14 @@ module Convolution = struct
   let pp_error ppf (e : error) =
     match e with
     | In_channels_not_divisible_by_groups { channels; groups } ->
-        Fmt.pf ppf "in_channels %d must be divisible by groups %d" channels
-          groups
+        Fmt.pf ppf "in_channels %a must be divisible by groups %a" Dim.pp
+          channels Op_config.Pos.pp groups
     | Input_channels_mismatch { input_channels; expected_in_channels } ->
         Fmt.pf ppf "input C extent must equal in_channels: %a vs %a" Dim.pp
           input_channels Dim.pp expected_in_channels
     | Out_channels_not_divisible_by_groups { channels; groups } ->
-        Fmt.pf ppf "out_channels %d must be divisible by groups %d" channels
-          groups
+        Fmt.pf ppf "out_channels %a must be divisible by groups %a" Dim.pp
+          channels Op_config.Pos.pp groups
     | Output_padding_nonzero { h; w } ->
         Fmt.pf ppf
           "output_padding must be zero for non-transposed convolution, got \
@@ -573,8 +584,8 @@ module Convolution = struct
            (stride=%a)"
           Op_config.Pos.pp stride
     | Transposed_input_channels_not_divisible_by_groups { channels; groups } ->
-        Fmt.pf ppf "input C extent %d must be divisible by groups %d" channels
-          groups
+        Fmt.pf ppf "input C extent %a must be divisible by groups %a" Dim.pp
+          channels Op_config.Pos.pp groups
     | Transposed_not_supported ->
         Fmt.string ppf
           "transposed convolutions are not supported in forward Conv2d lowering"
@@ -585,8 +596,8 @@ module Convolution = struct
           "transposed weight N extent must equal input C extent: %a vs %a"
           Dim.pp weight_input_channels Dim.pp input_channels
     | Weight_channels_mismatch { weight_in_per_group; expected_in_per_group } ->
-        Fmt.pf ppf "weight C extent %d must equal in_channels/groups %d"
-          weight_in_per_group expected_in_per_group
+        Fmt.pf ppf "weight C extent %a must equal in_channels/groups %a" Dim.pp
+          weight_in_per_group Dim.pp expected_in_per_group
     | Weight_kernel_mismatch { axis; weight_extent; kernel_extent } ->
         Fmt.pf ppf "weight %a extent must equal kernel extent: %a vs %a" Axis.pp
           axis Dim.pp weight_extent Dim.pp kernel_extent

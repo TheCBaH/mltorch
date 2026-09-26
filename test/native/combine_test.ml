@@ -65,15 +65,21 @@ let%expect_test "Direct: split_with_sizes divides W into windows of 2 and 3" =
   let x =
     Tensor.materialize x_shape (fun c -> float_of_int ((row c * 10) + col c))
   in
-  let params = { Split.Split_with_sizes.axis = Axis.W; sizes = [ 2; 3 ] } in
+  let params =
+    {
+      Split.Split_with_sizes.axis = Axis.W;
+      sizes = List.map Dim.extent [ 2; 3 ];
+    }
+  in
   let shapes =
     Split.Split_with_sizes.output_shapes ~x_shape params
     |> Err.or_raise ~pp_error:Shape_error.pp
   in
   let _, offsets =
     List.fold_left
-      (fun (acc, os) size -> (acc + size, os @ [ acc ]))
-      (0, []) params.Split.Split_with_sizes.sizes
+      (fun (acc, os) size -> (Dim.fence_after acc size, os @ [ acc ]))
+      (Dim.fence 0, [])
+      params.Split.Split_with_sizes.sizes
   in
   List.iteri
     (fun i (sh, offset) ->
@@ -96,8 +102,13 @@ let%expect_test
     Format.printf "%a@."
       (pp_result (fun ppf shapes ->
            Format.fprintf ppf "%d outputs" (List.length shapes)))
-      (Split.Split_with_sizes.output_shapes ~x_shape
-         { Split.Split_with_sizes.axis = Axis.W; sizes })
+      (let open Err.Syntax in
+       let* params =
+         Split.Split_with_sizes.of_aten ~axis:Axis.W
+           ~in_extent:(Vec6.get x_shape Axis.W)
+           (List.map Aten_int.Size.of_int sizes)
+       in
+       Split.Split_with_sizes.output_shapes ~x_shape params)
   in
   at [ 2; 0; 3 ];
   at [ 2; -1; 4 ];
@@ -127,7 +138,7 @@ let%expect_test
       (Split.Split_with_sizes.output_shapes ~x_shape
          {
            Split.Split_with_sizes.axis = Axis.H;
-           sizes = List.init n (fun _ -> 1);
+           sizes = List.init n (fun _ -> Dim.one);
          })
   in
   List.iter at [ limit - 1; limit; limit + 1 ];

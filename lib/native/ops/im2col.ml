@@ -46,8 +46,16 @@ end
 let one shape axes =
   List.for_all (fun axis -> Dim.equal (Vec6.get shape axis) Dim.one) axes
 
+let kernels params = [ params.Params.h.Window.kernel; params.w.Window.kernel ]
+
+(* Kernel positions per input channel, bounded: two extents each under the
+   ceiling can still multiply past it. *)
 let column_channels params =
-  (params.Params.h.Window.kernel :> int) * (params.w.Window.kernel :> int)
+  Window_axis.product ~what:`Column_channels (kernels params)
+
+(* For [pixel], which only runs on a shape [output_shape] accepted. *)
+let column_channels_checked params =
+  match column_channels params with Ok x -> x | Error _ -> assert false
 
 module Im2col = struct
   type t = { params : Params.t; x : Tensor_ref.t }
@@ -86,12 +94,16 @@ module Im2col = struct
     let* ow =
       Window.output_extent ~in_extent:(Vec6.get x_shape Axis.W) params.w
     in
-    let channels = (Vec6.get x_shape Axis.C :> int) * column_channels params in
-    let locations = (oh :> int) * (ow :> int) in
+    let* channels =
+      Window_axis.product ~what:`Column_channels
+        (Vec6.get x_shape Axis.C :: kernels params)
+    in
+    let* locations = Window_axis.product ~what:`Column_locations [ oh; ow ] in
     Err.return
       (Vec6.shape ~n:1 ~t:1 ~d:1
          ~h:(Vec6.get x_shape Axis.D :> int)
-         ~w:channels ~c:locations)
+         ~w:(channels :> int)
+         ~c:(locations :> int))
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let bounded raw (extent : Dim.extent Dim.t) =
@@ -99,12 +111,11 @@ module Im2col = struct
       S.index_min (S.index_max raw (S.of_index S.index_zero)) hi
 
     let pixel params ~x_shape ~x out =
-      let kh = (params.Params.h.Window.kernel :> int)
-      and kw = (params.w.Window.kernel :> int) in
-      let per = kh * kw in
+      let kw = (params.Params.w.Window.kernel :> int) in
+      let per = Dim_arith.Extent.to_pos (column_channels_checked params) in
       let q = S.of_index (Vec6.get out Axis.W) in
-      let channel = S.index_floor_div_pos q (Op_config.Pos.of_int per) in
-      let q_rem = S.index_add q (S.index_scale (-per) channel) in
+      let channel = S.index_floor_div_pos q per in
+      let q_rem = S.index_add q (S.index_scale (-(per :> int)) channel) in
       let kernel_h = S.index_floor_div_pos q_rem (Op_config.Pos.of_int kw) in
       let kernel_w = S.index_add q_rem (S.index_scale (-kw) kernel_h) in
       let ow_extent =
@@ -190,21 +201,18 @@ module Col2im = struct
       if one x_shape [ Axis.N; Axis.T; Axis.D ] then Err.return ()
       else Err.fail (`Im2col Shape_error.Im2col.{ fault = `Col_input_rank })
     in
-    let per_channel = column_channels params.window in
-    let encoded_channels =
-      ((Vec6.get x_shape Axis.W : Dim.extent Dim.t) :> int)
-    in
-    let* () =
-      if encoded_channels mod per_channel = 0 then Err.return ()
-      else Err.fail (`Im2col Shape_error.Im2col.{ fault = `Column_channels })
+    let* per_channel = column_channels params.window in
+    let* channels =
+      match Dim.div_exact (Vec6.get x_shape Axis.W) ~by:per_channel with
+      | Some channels -> Err.return channels
+      | None ->
+          Err.fail (`Im2col Shape_error.Im2col.{ fault = `Column_channels })
     in
     let* oh = Window.output_extent ~in_extent:params.output_h params.window.h in
     let* ow = Window.output_extent ~in_extent:params.output_w params.window.w in
+    let* locations = Window_axis.product ~what:`Column_locations [ oh; ow ] in
     let* () =
-      if
-        Dim.equal (Vec6.get x_shape Axis.C)
-          (Dim.extent ((oh :> int) * (ow :> int)))
-      then Err.return ()
+      if Dim.equal (Vec6.get x_shape Axis.C) locations then Err.return ()
       else Err.fail (`Im2col Shape_error.Im2col.{ fault = `Column_locations })
     in
     Err.return
@@ -212,7 +220,7 @@ module Col2im = struct
          ~d:(Vec6.get x_shape Axis.H :> int)
          ~h:(params.output_h :> int)
          ~w:(params.output_w :> int)
-         ~c:(encoded_channels / per_channel))
+         ~c:(channels :> int))
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let bounded raw (extent : Dim.extent Dim.t) =
@@ -236,7 +244,7 @@ module Col2im = struct
       in
       let kh_extent = params.window.h.Window.kernel
       and kw_extent = params.window.w.Window.kernel in
-      let per = (kh_extent :> int) * (kw_extent :> int) in
+      let per = (column_channels_checked params.window :> int) in
       let output_coord axis = S.of_index (Vec6.get out axis) in
       let candidate window coordinate kernel =
         let raw =

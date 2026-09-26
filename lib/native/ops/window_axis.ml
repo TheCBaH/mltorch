@@ -22,14 +22,56 @@
    axis in the engine. See .ai/js_backends_design.md. *)
 let limit = Kernel.Limits.Hard.extent
 
-let factor ~(what : Shape_error.Window_over_limit.quantity) (n : int) :
+let bound ~(what : Shape_error.Window_over_limit.quantity) (n : int64) :
     (int64, Shape_error.t) Err.t =
-  let n = Int64.of_int n in
   if n >= limit then
     Err.fail
       (`Window_over_limit
          Shape_error.Window_over_limit.{ what; value = n; limit })
   else Err.return n
+
+let factor ~what (n : int) = bound ~what (Int64.of_int n)
+
+(* A weight's per-group input extent times its group count: the input channel
+   count a grouped convolution expects. A product of two model-supplied
+   factors, so it can pass the per-axis ceiling factor by factor and still
+   cross it, and on a 32-bit-[int] backend an unchecked [*] would wrap. Bounded
+   by [Dim_arith.Extent.scale], which divides each factor into the ceiling
+   before multiplying, and reported as the same [`In_channels] row every
+   caller of this rule reports. *)
+let channels ~what ~(per_group : Dim.extent Dim.t) ~(groups : Op_config.Pos.t) :
+    (Dim.extent Dim.t, Shape_error.t) Err.t =
+  Err.map_error
+    (fun (`Product_over_limit (w : Dim.Product_witness.t)) ->
+      `Window_over_limit
+        Shape_error.Window_over_limit.
+          {
+            what;
+            value =
+              Int64.mul w.Dim.Product_witness.prefix (Dim.to_int64 w.factor);
+            limit;
+          })
+    (Dim_arith.Extent.scale ~limit ~by:groups per_group)
+
+(* The product of several model-supplied extents (an im2col column's channel
+   count, its location count), bounded like [channels] and reported as the
+   same [Window_over_limit] row. *)
+let product ~what (factors : Dim.extent Dim.t list) :
+    (Dim.extent Dim.t, Shape_error.t) Err.t =
+  Err.map_error
+    (fun (`Product_over_limit (w : Dim.Product_witness.t)) ->
+      `Window_over_limit
+        Shape_error.Window_over_limit.
+          {
+            what;
+            value =
+              Int64.mul w.Dim.Product_witness.prefix (Dim.to_int64 w.factor);
+            limit;
+          })
+    (Dim.product_bounded ~limit factors)
+
+let in_channels = channels ~what:`In_channels
+let out_channels = channels ~what:`Out_channels
 
 (* Floor division, which is what the window formula means. [Int64.div]
    truncates TOWARD ZERO, so a negative numerator -- a window wider than the
@@ -55,12 +97,12 @@ let output_extent ~(ceil_mode : bool) ~(kernel : Dim.extent Dim.t)
     ~(pad_after : Op_config.Nonneg.t) ~(dilation : Op_config.Pos.t)
     ~(in_extent : Dim.extent Dim.t) : (Dim.extent Dim.t, Shape_error.t) Err.t =
   let open Err.Syntax in
-  let* k = factor ~what:`Kernel (kernel :> int) in
-  let* d = factor ~what:`Dilation (dilation :> int) in
-  let* s = factor ~what:`Stride (stride :> int) in
-  let* i = factor ~what:`Input_extent (in_extent :> int) in
-  let* pb = factor ~what:`Padding (pad_before :> int) in
-  let* pa = factor ~what:`Padding (pad_after :> int) in
+  let* k = bound ~what:`Kernel (Dim.to_int64 kernel) in
+  let* d = bound ~what:`Dilation (Op_config.Pos.to_int64 dilation) in
+  let* s = bound ~what:`Stride (Op_config.Pos.to_int64 stride) in
+  let* i = bound ~what:`Input_extent (Dim.to_int64 in_extent) in
+  let* pb = bound ~what:`Padding (Op_config.Nonneg.to_int64 pad_before) in
+  let* pa = bound ~what:`Padding (Op_config.Nonneg.to_int64 pad_after) in
   let effective_kernel = Int64.add (Int64.mul (Int64.sub k 1L) d) 1L in
   if effective_kernel >= limit then
     Err.fail

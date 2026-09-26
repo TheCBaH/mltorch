@@ -118,17 +118,16 @@ module GroupNorm = struct
   let output_shape ~(x_shape : Vec6.shape) (p : params) =
     let open Err.Syntax in
     let channels = Vec6.get x_shape p.channel in
-    let groups = (p.groups :> int) in
-    if (channels :> int) mod groups <> 0 then
-      Err.fail
-        (`Group_norm Shape_error.Group_norm.{ channels; groups = p.groups })
-    else
-      let cpg = Dim.extent ((channels :> int) / groups) in
-      let+ (_ : int64) =
-        Vec6.numel_bounded ~limit:Kernel.Limits.Hard.numel
-          (reduce_shape ~x_shape ~channel:p.channel ~channels_per_group:cpg)
-      in
-      x_shape
+    match Dim_arith.Extent.div_exact ~by:p.groups channels with
+    | None ->
+        Err.fail
+          (`Group_norm Shape_error.Group_norm.{ channels; groups = p.groups })
+    | Some cpg ->
+        let+ (_ : int64) =
+          Vec6.numel_bounded ~limit:Kernel.Limits.Hard.numel
+            (reduce_shape ~x_shape ~channel:p.channel ~channels_per_group:cpg)
+        in
+        x_shape
 
   (* The same product as an [int], for [Compute], which has no error channel.
      Sound as a plain fold ONLY because [output_shape] has already run

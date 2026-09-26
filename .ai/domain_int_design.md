@@ -1,8 +1,16 @@
 # Domain-typed integers — one `int`, one meaning
 
-Status: **in progress** — the mechanism has landed (`Core.Tagged_int`, the signature
-ratchet in `tools/int_signatures`, the convention in `CLAUDE.md`); the migration of
-individual domains has not. Arithmetic (`Dim.product_bounded`, `div_exact`, `unlin`,
+Status: **implemented** — the mechanism (`Core.Tagged_int`, the signature ratchet in
+`tools/int_signatures` with a `todo-domain` ceiling of 0, the convention in `CLAUDE.md`)
+and the domain migrations below have landed. What stays a bare `int` is classified in §1;
+The `Semantics` scale/constant arguments are deliberately left as dimensionless
+scalars. `Dim` and the guarded op scalars (`Geometry`: `Pos`, `Nonneg`, `Hw`) live in
+`core`, below `Expr`, so `Expr.Intrinsic.max_pool` takes a kernel, stride and padding as
+the very types `native` holds; `native` re-exports them and adds the wire codecs.
+`Slice`, `Select`, `Select_scatter` and `Split_with_sizes` (and their native4d twins) hold
+fences, a `Dim.index` and `Dim.extent`s; the ATen importers resolve into them
+(`Split_with_sizes.of_aten` refuses a non-positive size with the value as written), and
+JSON decode refuses a negative one. A rejected value is still reported as written. Arithmetic (`Dim.product_bounded`, `div_exact`, `unlin`,
 `fence`/`span`, `Delta.*`, `Dim_arith`) has landed and is used by `Direct`, `Tensor`,
 `Const_ssa_symbolic` and the Native4D lowerers (`Wide_permute` keeps its atoms, blocks
 and runs apart with `Tagged_int`). Identity and ordinals have landed: `Tensor_id`,
@@ -13,7 +21,7 @@ are their own singletons. Region scratch slots have their own phantom family, `S
 slot offset cannot be mistaken for a tensor's `Dim.offset`. The ATen boundary is typed: `Rank.t`, and `Aten_int` (`Dim`, `Index`,
 `Size`, `Step` — signed, as written) enter `Aten_shape`, which is the only place they are
 resolved (slice bounds into fences, a select index into a `Dim.index`); the importers'
-error payloads report them as written. Extends
+error payloads report them as written. Window and im2col products are bounded once (`Window_axis.product`, `Dim_arith.Extent.scale`); a ranked class is a `Dim.index`. Extends
 `native_tensor_design.md` §1a, which introduced `Dim` for tensor sizes and positions,
 to every integer that names an entity. Reads with `js_backends_design.md` (the 32-bit
 `int` rule) and `error_handling_design.md` (payloads carry data, not prose).
@@ -53,6 +61,7 @@ from taking that seriously:
 | Quantum | quantised values, `zero_point`, `qmin`, `qmax` | One domain by construction (`native_tensor_design.md` §3) |
 | External format | `pt2`, ATen/C bindings, `Jsont.int` on the wire | The external representation *is* the int |
 | Tally | statistics counters, report fields | Dimensionless |
+| As written | `Non_positive_dim { value }`, a slice's decoded `start`/`stop`, `` `Invalid_k `` | A value reported exactly as supplied, because it failed the check that would have typed it; the domain type would have to admit the very values it exists to exclude |
 
 Everything else — extents, positions, offsets, counts, ranks, ATen dim numbers, ids,
 ordinals, next-free counters, slot offsets, arena indices, algorithm-local atom/block

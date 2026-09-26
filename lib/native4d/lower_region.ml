@@ -124,8 +124,8 @@ let chain ~x_shape ~tgt ~perm ~po ~y_shape ~sel =
                             Ops4.Slice4.params =
                               {
                                 axis = xi;
-                                start = (k :> int) * (s :> int);
-                                stop = ((k :> int) + 1) * (s :> int);
+                                start = Dim.block_start k s;
+                                stop = Dim.fence_after (Dim.block_start k s) s;
                                 step = Op_config.Pos.of_int 1;
                               };
                             x;
@@ -295,10 +295,11 @@ let find_at view (p : node) =
             List.map
               (fun (c : node) ->
                 match c.Node.op with
-                | Unbind _ -> List.mapi (fun k o -> (o, k)) c.Node.outputs
+                | Unbind _ ->
+                    List.mapi (fun k o -> (o, Dim.delta k)) c.Node.outputs
                 | Select { Split.Select.params; _ } ->
                     List.map
-                      (fun o -> (o, params.Split.Select.index))
+                      (fun o -> (o, Dim.to_delta params.Split.Select.index))
                       c.Node.outputs
                 | _ -> [])
               consumers
@@ -308,7 +309,7 @@ let find_at view (p : node) =
             List.fold_left
               (fun acc (o, k) ->
                 let* acc = acc in
-                let* k = Dim.index_of ~extent:k_extent (Dim.delta k) in
+                let* k = Dim.index_of ~extent:k_extent k in
                 let* y_shape = sig_of o in
                 let* y_sig = Graph_view.sig_of view o in
                 if (not (is_f32 y_sig)) || not (dialect_valid y_shape) then None

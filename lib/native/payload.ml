@@ -74,7 +74,8 @@ let qrange : type e b q. (e, b, q) fmt -> int * int = function
 
 (* Decode storage cell [i] to the compute domain (float); [c] is the channel
    coordinate, used by per-channel dequant. *)
-let get_float : type e b q. (e, b, q) payload -> c:int -> i:int -> float =
+let get_float : type e b q.
+    (e, b, q) payload -> c:Dim.index Dim.t -> i:int -> float =
  fun p ~c ~i ->
   match p.fmt with
   | BF16 -> Half.Bf16.to_float p.data.{i}
@@ -90,8 +91,8 @@ let get_float : type e b q. (e, b, q) payload -> c:int -> i:int -> float =
       match p.quant with Quant qz -> Quant.dequantize qz ~c ~q:p.data.{i})
 
 (* Encode a float into storage cell [i] (round/quantise per format). *)
-let set_float : type e b q. (e, b, q) payload -> c:int -> i:int -> float -> unit
-    =
+let set_float : type e b q.
+    (e, b, q) payload -> c:Dim.index Dim.t -> i:int -> float -> unit =
  fun p ~c ~i x ->
   match p.fmt with
   | BF16 -> p.data.{i} <- Half.Bf16.of_float x

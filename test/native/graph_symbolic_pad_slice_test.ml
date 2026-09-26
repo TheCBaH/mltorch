@@ -113,8 +113,8 @@ let%expect_test "Symbolic graph: slice ground matches Direct" =
           slice ~name:"out"
             {
               Split.Slice.axis = Axis.W;
-              start = 1;
-              stop = 5;
+              start = Dim.fence 1;
+              stop = Dim.fence 5;
               step = Op_config.Pos.of_int 2;
             }
             x)
@@ -161,7 +161,9 @@ let%expect_test "Symbolic graph: select ground matches Direct" =
           build ~name:"select" ~outputs:(fun r -> [ r ])
           @@
           let* x = input ~shape:(s 1 1 1 2 5 1) ~name:"x" () in
-          select ~name:"out" { Split.Select.axis = Axis.W; index = 3 } x)
+          select ~name:"out"
+            { Split.Select.axis = Axis.W; index = Dim.index 3 }
+            x)
     in
     let prog = Eval_symbolic.run g in
     Format.printf "%a@." Stage_program.pp prog;
@@ -206,7 +208,7 @@ let%expect_test "Symbolic graph: select_scatter ground matches Direct" =
           let* self = input ~shape:(s 1 1 1 2 5 1) ~name:"self" () in
           let* src = input ~shape:(s 1 1 1 1 5 1) ~name:"src" () in
           select_scatter ~name:"out"
-            { Split.Select_scatter.axis = Axis.H; index = 1 }
+            { Split.Select_scatter.axis = Axis.H; index = Dim.index 1 }
             ~self ~src)
     in
     let prog = Eval_symbolic.run g in

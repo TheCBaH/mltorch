@@ -7,11 +7,11 @@
     Each is data the caller can branch on, per the payloads-carry-data rule. *)
 
 module Too_few_classes : sig
-  type t = { classes : int; wanted : int }
+  type t = { classes : Dim.extent Dim.t; wanted : int }
 end
 
 module Non_finite : sig
-  type t = { index : int; value : float }
+  type t = { index : Dim.index Dim.t; value : float }
   (** The FIRST offending class in index order, so the report is stable. *)
 end
 
@@ -28,7 +28,7 @@ type error =
 val pp_error : Format.formatter -> [< error ] -> unit
 
 val top_predictions :
-  Tensor.packed list -> int -> ((int * float) list, error) Err.t
+  Tensor.packed list -> int -> ((Dim.index Dim.t * float) list, error) Err.t
 (** [top_predictions outputs k] is the [k] highest-scoring
     [(class index, probability)] pairs of the single output tensor in [outputs],
     descending. Requires [k >= 1].

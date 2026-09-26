@@ -335,11 +335,13 @@ let%expect_test "substitute_loads leaves an intrinsic descriptor intact" =
   let src = Source.create 5 in
   let e =
     Value.intrinsic
-      (Err.or_raise ~pp_error:Intrinsic.pp_error
-         (Intrinsic.max_pool ~source:src ~in_h:4 ~in_w:4 ~kernel_h:2 ~kernel_w:2
-            ~stride_h:2 ~stride_w:2 ~pad_h:0 ~pad_w:0
-            ~out:(Coord.of_fn (fun a -> Index.output a))
-            ~result:Intrinsic.Max_pool.Value))
+      (let open Core.Geometry in
+       let sq f v = Hw.{ h = f v; w = f v } in
+       Intrinsic.max_pool ~source:src ~input:(sq Core.Dim.extent 4)
+         ~kernel:(sq Core.Dim.extent 2) ~stride:(sq Pos.of_int 2)
+         ~pad:(sq Nonneg.of_int 0)
+         ~out:(Coord.of_fn (fun a -> Index.output a))
+         ~result:Intrinsic.Max_pool.Value)
   in
   let seen = ref [] in
   let out =

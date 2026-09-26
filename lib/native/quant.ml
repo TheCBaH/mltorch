@@ -47,9 +47,10 @@ let of_err_for_jsont r =
   | Ok v -> v
   | Error k -> Jsont.Error.msgf Jsont.Meta.none "%a" pp_error k
 
-let params t ~c =
+let params t ~(c : Dim.index Dim.t) =
   match t with
-  | Per_channel { scale; zero_point } -> (scale.(c), zero_point.(c))
+  | Per_channel { scale; zero_point } ->
+      (scale.((c :> int)), zero_point.((c :> int)))
   | Per_tensor { scale; zero_point } -> (scale, zero_point)
 
 let dequantize t ~c ~q =

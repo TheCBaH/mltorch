@@ -133,63 +133,39 @@ module type S = sig
 
       type t = private {
         source : Source.t;
-        in_h : int;
-        in_w : int;
-        kernel_h : int;
-        kernel_w : int;
-        stride_h : int;
-        stride_w : int;
-        pad_h : int;
-        pad_w : int;
+        input : Core.Dim.extent Core.Dim.t Core.Geometry.Hw.t;
+        kernel : Core.Dim.extent Core.Dim.t Core.Geometry.Hw.t;
+        stride : Core.Geometry.Pos.t Core.Geometry.Hw.t;
+        pad : Core.Geometry.Nonneg.t Core.Geometry.Hw.t;
         out : Role.Position.t Index.t Coord.t;
         result : result;
       }
+
+      val geometry : t -> int list
+      (** The eight geometry fields as plain ints, [input], [kernel], [stride],
+          [pad] in that order, h before w: the exit for ordering, hashing and
+          printing. *)
     end
 
     type t = private Max_pool of Max_pool.t
 
-    type geometry_field =
-      [ `In_h
-      | `In_w
-      | `Kernel_h
-      | `Kernel_w
-      | `Pad_h
-      | `Pad_w
-      | `Stride_h
-      | `Stride_w ]
-    (** The eight parameters {!max_pool} validates, closed. *)
-
-    type geometry_bound = [ `Non_negative | `Positive ]
-    (** Which bound the value failed. Recorded nowhere before: the message said
-        only "must be valid", so the row could not say what would have been. *)
-
-    module Bad_geometry : sig
-      type t = { field : geometry_field; value : int; bound : geometry_bound }
-    end
-
     type error =
-      [ `Bad_geometry of Bad_geometry.t
-      | `Index_overflow of Index_overflow.t
-      | `Non_positive_divisor of int ]
+      [ `Index_overflow of Index_overflow.t | `Non_positive_divisor of int ]
 
     val pp_error : Format.formatter -> [< error ] -> unit
 
     val max_pool :
       source:Source.t ->
-      in_h:int ->
-      in_w:int ->
-      kernel_h:int ->
-      kernel_w:int ->
-      stride_h:int ->
-      stride_w:int ->
-      pad_h:int ->
-      pad_w:int ->
+      input:Core.Dim.extent Core.Dim.t Core.Geometry.Hw.t ->
+      kernel:Core.Dim.extent Core.Dim.t Core.Geometry.Hw.t ->
+      stride:Core.Geometry.Pos.t Core.Geometry.Hw.t ->
+      pad:Core.Geometry.Nonneg.t Core.Geometry.Hw.t ->
       out:Role.Position.t Index.t Coord.t ->
       result:Max_pool.result ->
-      (t, error) Err.t
-    (** The only way to build a descriptor. [Check] does NOT revalidate this: a
-        smart constructor makes the invalid state unconstructable through the
-        public API, and a rule no test can turn red is not worth carrying. *)
+      t
+    (** The only way to build a descriptor. Total: an extent is at least 1, a
+        stride at least 1 and a padding at least 0 by their types, so there is
+        no geometry left to reject. [Check] does not revalidate it. *)
 
     val window : t -> out_h:int -> out_w:int -> (Window.t, error) Err.t
     (** The half-open input window an output position reads, clipped to the

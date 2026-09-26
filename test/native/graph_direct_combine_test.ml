@@ -106,7 +106,10 @@ let%expect_test "Direct graph: split_with_sizes divides one axis into windows" =
           @@
           let* x = input ~shape:(s 1 1 1 2 5 1) ~name:"x" () in
           split_with_sizes ~name:"pieces"
-            { Split.Split_with_sizes.axis = Axis.W; sizes = [ 2; 3 ] }
+            {
+              Split.Split_with_sizes.axis = Axis.W;
+              sizes = List.map Dim.extent [ 2; 3 ];
+            }
             x)
     in
     let x =

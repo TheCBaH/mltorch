@@ -10,7 +10,7 @@ type ('elt, 'ba, 'q) t = {
 (* The concrete format is hidden; tensors flow through the graph as [packed]. *)
 type packed = Tensor : ('elt, 'ba, 'q) t -> packed
 
-let channel c = Dim.to_int (Vec6.get c Axis.C)
+let channel c = Vec6.get c Axis.C
 
 (* Strict read of one element as a float: every axis index must lie within the
    source extent, else [Invalid_argument]. This is the one read primitive — it
@@ -43,7 +43,7 @@ let read_at6 (Tensor tr as packed) ~(n : Dim.index Dim.t) ~(t : Dim.index Dim.t)
     ~(d : Dim.index Dim.t) ~(h : Dim.index Dim.t) ~(w : Dim.index Dim.t)
     ~(c : Dim.index Dim.t) =
   let i = Vec6.offset_of tr.shape ~n ~t ~d ~h ~w ~c in
-  if i >= 0 then Payload.get_float tr.payload ~c:(c :> int) ~i
+  if i >= 0 then Payload.get_float tr.payload ~c ~i
   else
     read packed
       (Vec6.coord

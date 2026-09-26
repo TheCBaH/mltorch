@@ -406,8 +406,8 @@ let per_op () =
           (Builder.slice4
              {
                Ops4.Slice4.axis = Axis4.W;
-               start = 1;
-               stop = 4;
+               start = Dim.fence 1;
+               stop = Dim.fence 4;
                step = Op_config.Pos.of_int 2;
              }) );
       (* Softmax reduces over W without changing shape -- unlike [slice4]
@@ -428,7 +428,8 @@ let per_op () =
          so a fixture reading the wrong element would still differ. *)
       ( "select4",
         unary ~shape:nhwc
-          (Builder.select4 { Ops4.Select4.axis = Axis4.W; index = 2 }) );
+          (Builder.select4 { Ops4.Select4.axis = Axis4.W; index = Dim.index 2 })
+      );
       (* [self] and [src] are DIFFERENT shapes (unlike [binary]'s pairs):
          [src] is the shape [Select4] itself would produce at this
          axis/index -- dropping W repacks the surviving N/H onto T/H,
@@ -445,7 +446,7 @@ let per_op () =
              let* self = input ~shape:self_shape () in
              let* src = input ~shape:src_shape () in
              select_scatter4
-               { Ops4.Select_scatter4.axis = Axis4.W; index = 1 }
+               { Ops4.Select_scatter4.axis = Axis4.W; index = Dim.index 1 }
                ~self ~src)
         in
         (g, [ self_shape; src_shape ]) );
@@ -700,7 +701,7 @@ let per_op () =
           build ~outputs:Fun.id
             (let open Builder in
              let* x = input ~shape:nhwc () in
-             split_with_sizes4 Axis4.W [ 1; 3 ] x)
+             split_with_sizes4 Axis4.W (List.map Dim.extent [ 1; 3 ]) x)
         in
         (g, [ nhwc ]) );
       ( "upsample_bicubic2d",

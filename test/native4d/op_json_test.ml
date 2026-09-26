@@ -303,13 +303,13 @@ let samples : Op.t list =
     (* Axis distinct from every other sample's and an index that is neither
        0 nor the axis's last valid one, so an encoder that dropped or
        defaulted either field would still print differently. *)
-    Select4 { Ops4.Select4.params = { axis = H; index = 2 }; x };
+    Select4 { Ops4.Select4.params = { axis = H; index = Dim.index 2 }; x };
     (* Axis and index distinct from [Select4]'s own sample, and two distinct
        operands, so an encoder that dropped or swapped [self]/[src] or
        confused the two ops still prints differently. *)
     Select_scatter4
       {
-        Ops4.Select_scatter4.params = { axis = W; index = 1 };
+        Ops4.Select_scatter4.params = { axis = W; index = Dim.index 1 };
         self = x;
         src = y;
       };
@@ -321,7 +321,12 @@ let samples : Op.t list =
     Slice4
       {
         Ops4.Slice4.params =
-          { axis = W; start = 1; stop = 8; step = Op_config.Pos.of_int 3 };
+          {
+            axis = W;
+            start = Dim.fence 1;
+            stop = Dim.fence 8;
+            step = Op_config.Pos.of_int 3;
+          };
         x;
       };
     (* Axis distinct from [Slice4]'s own sample, so an encoder that confused
@@ -330,7 +335,11 @@ let samples : Op.t list =
     (* Three unequal sizes, so an encoder that dropped or reordered one
        differs in printed output as well as in count. *)
     Split_with_sizes4
-      { Ops4.Split_with_sizes4.params = { axis = W; sizes = [ 2; 3; 1 ] }; x };
+      {
+        Ops4.Split_with_sizes4.params =
+          { axis = W; sizes = List.map Dim.extent [ 2; 3; 1 ] };
+        x;
+      };
     Sqrt { Pointwise.Sqrt.x };
     (* Two operands and an axis distinct from [Concat4]'s own sample above, so
        an encoder that confused the two variadic-operand ops still prints

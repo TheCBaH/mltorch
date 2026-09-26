@@ -1,6 +1,9 @@
 (* See core.mli. *)
 
+module Dim = Dim
 module Float_bits = Float_bits
+module Geometry = Geometry
+module Role = Role
 module Tagged_int = Tagged_int
 
 module Pretty = struct

@@ -65,11 +65,18 @@ let max_pool_kernel_h = 120
 let max_pool_kernel_w = 150
 
 let max_pool ~result =
-  Err.or_raise ~pp_error:Intrinsic.pp_error
-    (Intrinsic.max_pool ~source:max_pool_source ~in_h:max_pool_kernel_h
-       ~in_w:max_pool_kernel_w ~kernel_h:max_pool_kernel_h
-       ~kernel_w:max_pool_kernel_w ~stride_h:1 ~stride_w:1 ~pad_h:0 ~pad_w:0
-       ~out:(Coord.of_fn Index.output) ~result)
+  let open Core.Geometry in
+  let kernel =
+    Hw.
+      {
+        h = Core.Dim.extent max_pool_kernel_h;
+        w = Core.Dim.extent max_pool_kernel_w;
+      }
+  in
+  Intrinsic.max_pool ~source:max_pool_source ~input:kernel ~kernel
+    ~stride:Hw.{ h = Pos.of_int 1; w = Pos.of_int 1 }
+    ~pad:Hw.{ h = Nonneg.of_int 0; w = Nonneg.of_int 0 }
+    ~out:(Coord.of_fn Index.output) ~result
 
 let max_pool_value_case = Value.intrinsic (max_pool ~result:Value)
 let max_pool_index_case = Value.intrinsic (max_pool ~result:Index)

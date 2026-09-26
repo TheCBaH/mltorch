@@ -380,7 +380,12 @@ let%expect_test "split_with_sizes of a D batch" =
            let* x = input ~shape:(s 1 1 1 1 (numel shape) 1) () in
            let* r = reshape { Reshape.Reshape.shape } x in
            let* parts =
-             split_with_sizes { Split.Split_with_sizes.axis; sizes } r
+             split_with_sizes
+               {
+                 Split.Split_with_sizes.axis;
+                 sizes = List.map Dim.extent sizes;
+               }
+               r
            in
            let* parts =
              List.fold_right

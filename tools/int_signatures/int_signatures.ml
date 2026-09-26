@@ -29,6 +29,7 @@
 let categories =
   [
     "arity";
+    "as-written";
     "bits";
     "budget";
     "cell";

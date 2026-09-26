@@ -14,6 +14,18 @@ module Delta : sig
 end
 
 module Extent : sig
+  (* [e / by] when the group count [by] divides [e] exactly: the channels one
+     group holds. *)
+  val to_pos : Dim.extent Dim.t -> Op_config.Pos.t
+  (** An extent used as a divisor or a stride: both are at least 1. *)
+
+  val of_pos : Op_config.Pos.t -> Dim.extent Dim.t
+  (** A count that is at least 1, taken as an extent: a requested output size.
+  *)
+
+  val div_exact :
+    by:Op_config.Pos.t -> Dim.extent Dim.t -> Dim.extent Dim.t option
+
   (* [by * e], exclusive of [limit] — [Dim.product_bounded]'s contract, so a
      channel count times a group count cannot wrap a 32-bit [int]. *)
   val scale :

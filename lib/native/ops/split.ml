@@ -189,18 +189,19 @@ end
    here rather than assumed, since [sizes] arrives as ordinary ints from a
    PT2 graph, not as a value ATen has already validated. *)
 module Split_with_sizes = struct
-  type params = { axis : Axis.t; sizes : int list }
+  type params = { axis : Axis.t; sizes : Dim.extent Dim.t list }
 
   let params_jsont : params Jsont.t =
     Jsont.Object.map ~kind:"split_with_sizes_params" (fun axis sizes ->
         { axis; sizes })
     |> Jsont.Object.mem "axis" Axis.jsont ~enc:(fun p -> p.axis)
-    |> Jsont.Object.mem "sizes" (Jsont.list Jsont.int) ~enc:(fun p -> p.sizes)
+    |> Jsont.Object.mem "sizes" (Jsont.list Dim.extent_jsont) ~enc:(fun p ->
+        p.sizes)
     |> Jsont.Object.finish
 
   let pp_params fmt (p : params) =
     Fmt.pf fmt "@[<hv>{axis=%a sizes=%a}@]" Axis.pp p.axis
-      (Fmt.brackets (Fmt.list ~sep:Fmt.comma Fmt.int))
+      (Fmt.brackets (Fmt.list ~sep:Fmt.comma Dim.pp))
       p.sizes
 
   type t = { params : params; x : Tensor_ref.t }
@@ -239,51 +240,65 @@ module Split_with_sizes = struct
      bypass, so the two cannot compute [output]'s offset differently. *)
   let offset_of ~output sizes =
     List.filteri (fun i _ -> i < (output : Output_ordinal.t :> int)) sizes
-    |> List.fold_left ( + ) 0
+    |> List.fold_left Dim.fence_after (Dim.fence 0)
+
+  let output_count_over_limit count =
+    `Output_count_over_limit
+      {
+        Shape_error.Output_count.limit = output_limit;
+        observed = Shape_error.Output_count.Exact count;
+      }
+
+  (* The one place an ATen split list becomes [params]: a size must be at least
+     1 here (the engine has no empty extent), so a non-positive one is refused
+     with the value as written and its position. The count is bounded first, as
+     [output_shapes] does, so an over-long list is refused before it is walked.
+     Both importers go through this; a JSON-decoded graph is checked by
+     [Dim.extent_jsont] instead. *)
+  let of_aten ~axis ~(in_extent : Dim.extent Dim.t)
+      (sizes : Aten_int.Size.t list) =
+    let count = List.length sizes in
+    if count >= output_limit then Err.fail (output_count_over_limit count)
+    else
+      let rec go acc = function
+        | [] -> Err.return { axis; sizes = List.rev acc }
+        | (index, (size : Aten_int.Size.t)) :: rest -> (
+            match Dim.extent_checked (size :> int) with
+            | Ok e -> go (e :: acc) rest
+            | Error _ ->
+                Err.fail
+                  (`Split_with_sizes
+                     Shape_error.Split_with_sizes.
+                       {
+                         axis;
+                         in_extent;
+                         fault = Non_positive_size { index; size };
+                       }))
+      in
+      go [] (Output_ordinal.indexed sizes)
 
   let output_shapes ~(x_shape : Vec6.shape) (p : params) =
-    let open Err.Syntax in
     let count = List.length p.sizes in
-    if count >= output_limit then
-      Err.fail
-        (`Output_count_over_limit
-           {
-             Shape_error.Output_count.limit = output_limit;
-             observed = Shape_error.Output_count.Exact count;
-           })
+    if count >= output_limit then Err.fail (output_count_over_limit count)
     else
       let in_extent = Vec6.get x_shape p.axis in
-      let fail fault =
-        Err.fail
-          (`Split_with_sizes
-             Shape_error.Split_with_sizes.{ axis = p.axis; in_extent; fault })
-      in
-      let* () =
-        Err.List.iter
-          (fun (index, size) ->
-            if size > 0 then Err.return ()
-            else
-              fail
-                (Shape_error.Split_with_sizes.Non_positive_size { index; size }))
-          (List.mapi (fun i size -> (i, size)) p.sizes)
-      in
-      (* Every size just proved positive, so [total] is a sum of positive
-         factors each individually well below [Kernel.Limits.Hard.extent]
-         (each is at most [in_extent], already bounded) -- summed in [int64]
-         per CLAUDE.md's aggregate rule, the same shape [Concat.output_shape]'s
-         own summation uses. *)
+      (* Every size is an extent, so [total] is a sum of positive factors each
+         individually well below [Kernel.Limits.Hard.extent] (each is at most
+         [in_extent], already bounded) -- summed in [int64] per CLAUDE.md's
+         aggregate rule, the same shape [Concat.output_shape]'s own summation
+         uses. *)
       let total =
         List.fold_left
-          (fun acc size -> Int64.add acc (Int64.of_int size))
+          (fun acc size -> Int64.add acc (Dim.to_int64 size))
           0L p.sizes
       in
-      if Int64.compare total (Int64.of_int (in_extent :> int)) <> 0 then
-        fail (Shape_error.Split_with_sizes.Size_mismatch { total })
+      if Int64.compare total (Dim.to_int64 in_extent) <> 0 then
+        Err.fail
+          (`Split_with_sizes
+             Shape_error.Split_with_sizes.
+               { axis = p.axis; in_extent; fault = Size_mismatch { total } })
       else
-        Err.return
-          (List.map
-             (fun size -> Vec6.set x_shape p.axis (Dim.extent size))
-             p.sizes)
+        Err.return (List.map (fun size -> Vec6.set x_shape p.axis size) p.sizes)
 
   (* This op's random-walk config space: a 4D tensor split along one of the
      four mutable axes into a small number of windows. [pattern] resolves
@@ -321,7 +336,7 @@ module Split_with_sizes = struct
 
     let params (c : cfg) : params =
       let n = (Vec6.get (shape c) c.axis :> int) in
-      { axis = c.axis; sizes = sizes_for ~n c.pattern }
+      { axis = c.axis; sizes = List.map Dim.extent (sizes_for ~n c.pattern) }
 
     let axes =
       Walk_core.Walk.
@@ -338,7 +353,7 @@ module Split_with_sizes = struct
       let p = params c in
       Format.fprintf fmt "{shape=%a axis=%a sizes=%a}" Walk_core.Shape.pp
         c.shape Axis.pp p.axis
-        (Fmt.brackets (Fmt.list ~sep:Fmt.comma Fmt.int))
+        (Fmt.brackets (Fmt.list ~sep:Fmt.comma Dim.pp))
         p.sizes
   end
 
@@ -351,7 +366,8 @@ module Split_with_sizes = struct
         : S.t =
       let src =
         S.clamp_low
-          (S.index_add (S.index_const offset)
+          (S.index_add
+             (S.index_const (offset : Dim.fence Dim.t :> int))
              (S.of_index (Vec6.get out p.axis)))
       in
       S.load x (Vec6.set out p.axis src)
@@ -378,8 +394,8 @@ end
 module Slice = struct
   type params = {
     axis : Axis.t;
-    start : int;
-    stop : int;
+    start : Dim.fence Dim.t;
+    stop : Dim.fence Dim.t;
     step : Op_config.Pos.t;
   }
 
@@ -387,14 +403,14 @@ module Slice = struct
     Jsont.Object.map ~kind:"slice_params" (fun axis start stop step ->
         { axis; start; stop; step = Op_config.Pos.of_int step })
     |> Jsont.Object.mem "axis" Axis.jsont ~enc:(fun p -> p.axis)
-    |> Jsont.Object.mem "start" Jsont.int ~enc:(fun p -> p.start)
-    |> Jsont.Object.mem "stop" Jsont.int ~enc:(fun p -> p.stop)
+    |> Jsont.Object.mem "start" Dim.fence_jsont ~enc:(fun p -> p.start)
+    |> Jsont.Object.mem "stop" Dim.fence_jsont ~enc:(fun p -> p.stop)
     |> Jsont.Object.mem "step" Jsont.int ~enc:(fun p -> (p.step :> int))
     |> Jsont.Object.finish
 
   let pp_params fmt (p : params) =
-    Fmt.pf fmt "@[<hv>{axis=%a start=%d stop=%d step=%d}@]" Axis.pp p.axis
-      p.start p.stop
+    Fmt.pf fmt "@[<hv>{axis=%a start=%a stop=%a step=%d}@]" Axis.pp p.axis
+      Dim.pp p.start Dim.pp p.stop
       (p.step :> int)
 
   type t = { params : params; x : Tensor_ref.t }
@@ -438,8 +454,6 @@ module Slice = struct
      are what has to be bounded, and here the range check is that bound. *)
   let output_shape ~(x_shape : Vec6.shape) (p : params) =
     let in_extent = Vec6.get x_shape p.axis in
-    let n = (in_extent :> int) in
-    let step = (p.step :> int) in
     let fail fault out =
       Err.fail
         (`Slice
@@ -454,11 +468,14 @@ module Slice = struct
                fault;
              })
     in
-    if not (0 <= p.start && p.start <= p.stop && p.stop <= n) then
-      fail `Out_of_range 0L
+    if
+      not
+        (Dim.fence_le p.start p.stop
+        && Dim.fence_le p.stop (Dim.fence_of_extent in_extent))
+    then fail `Out_of_range 0L
     else
-      let span = Int64.of_int (p.stop - p.start) in
-      let step64 = Int64.of_int step in
+      let span = Int64.sub (Dim.to_int64 p.stop) (Dim.to_int64 p.start) in
+      let step64 = Op_config.Pos.to_int64 p.step in
       (* Ceiling division on non-negative operands, so the plain form is exact
          and [Window_axis.floor_div]'s negative-numerator correction is not
          needed — the range check above is what rules that case out. *)
@@ -505,7 +522,12 @@ module Slice = struct
     let params (c : cfg) : params =
       let n = (Vec6.get (shape c) c.axis :> int) in
       let start, stop, step = bounds ~n c.pattern in
-      { axis = c.axis; start; stop; step = Op_config.Pos.of_int step }
+      {
+        axis = c.axis;
+        start = Dim.fence start;
+        stop = Dim.fence stop;
+        step = Op_config.Pos.of_int step;
+      }
 
     let axes =
       Walk_core.Walk.
@@ -521,8 +543,8 @@ module Slice = struct
 
     let pp fmt (c : cfg) =
       let p = params c in
-      Format.fprintf fmt "{shape=%a axis=%a start=%d stop=%d step=%d}"
-        Walk_core.Shape.pp c.shape Axis.pp p.axis p.start p.stop
+      Format.fprintf fmt "{shape=%a axis=%a start=%a stop=%a step=%d}"
+        Walk_core.Shape.pp c.shape Axis.pp p.axis Dim.pp p.start Dim.pp p.stop
         (p.step :> int)
   end
 
@@ -536,7 +558,8 @@ module Slice = struct
     let pixel (p : params) ~x (out : Semantics.position S.index Vec6.t) =
       let src =
         S.clamp_low
-          (S.index_add (S.index_const p.start)
+          (S.index_add
+             (S.index_const (p.start :> int))
              (S.index_scale (p.step :> int) (S.of_index (Vec6.get out p.axis))))
       in
       S.load x (Vec6.set out p.axis src)
@@ -562,16 +585,16 @@ end
    (`0 <= start <= stop <= extent`), so no separate check is needed here — the
    op-owned check lives in [Slice], not duplicated. *)
 module Select = struct
-  type params = { axis : Axis.t; index : int }
+  type params = { axis : Axis.t; index : Dim.index Dim.t }
 
   let params_jsont : params Jsont.t =
     Jsont.Object.map ~kind:"select_params" (fun axis index -> { axis; index })
     |> Jsont.Object.mem "axis" Axis.jsont ~enc:(fun p -> p.axis)
-    |> Jsont.Object.mem "index" Jsont.int ~enc:(fun p -> p.index)
+    |> Jsont.Object.mem "index" Dim.index_jsont ~enc:(fun p -> p.index)
     |> Jsont.Object.finish
 
   let pp_params fmt (p : params) =
-    Fmt.pf fmt "@[<hv>{axis=%a index=%d}@]" Axis.pp p.axis p.index
+    Fmt.pf fmt "@[<hv>{axis=%a index=%a}@]" Axis.pp p.axis Dim.pp p.index
 
   type t = { params : params; x : Tensor_ref.t }
 
@@ -603,8 +626,8 @@ module Select = struct
   let slice_params (p : params) : Slice.params =
     {
       axis = p.axis;
-      start = p.index;
-      stop = p.index + 1;
+      start = Dim.fence_of_index p.index;
+      stop = Dim.fence_after (Dim.fence_of_index p.index) Dim.one;
       step = Op_config.Pos.of_int 1;
     }
 
@@ -657,17 +680,17 @@ end
    documents: resolved by [Aten_shape.resolve_index] before it reaches
    here. *)
 module Select_scatter = struct
-  type params = { axis : Axis.t; index : int }
+  type params = { axis : Axis.t; index : Dim.index Dim.t }
 
   let params_jsont : params Jsont.t =
     Jsont.Object.map ~kind:"select_scatter_params" (fun axis index ->
         { axis; index })
     |> Jsont.Object.mem "axis" Axis.jsont ~enc:(fun p -> p.axis)
-    |> Jsont.Object.mem "index" Jsont.int ~enc:(fun p -> p.index)
+    |> Jsont.Object.mem "index" Dim.index_jsont ~enc:(fun p -> p.index)
     |> Jsont.Object.finish
 
   let pp_params fmt (p : params) =
-    Fmt.pf fmt "@[<hv>{axis=%a index=%d}@]" Axis.pp p.axis p.index
+    Fmt.pf fmt "@[<hv>{axis=%a index=%a}@]" Axis.pp p.axis Dim.pp p.index
 
   (* [Select]'s own params, for reusing its [output_shape]/[Compute] rather
      than restating the drop-and-repack rule. *)
@@ -749,7 +772,9 @@ module Select_scatter = struct
           (Aten_shape.repack_dropped ~dropped:[ p.axis ])
       in
       let cond =
-        S.index_eq (S.of_index (Vec6.get out p.axis)) (S.index_const p.index)
+        S.index_eq
+          (S.of_index (Vec6.get out p.axis))
+          (S.index_const (p.index :> int))
       in
       S.select cond (S.load src src_coord) (S.load self out)
   end

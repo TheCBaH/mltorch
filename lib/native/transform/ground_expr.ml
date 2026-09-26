@@ -134,27 +134,43 @@ end
    explicit heap-allocated stack, never OCaml call-stack recursion) rather than
    a recursive descent that a deep or wide DAG could blow. *)
 
+(* The two index spaces of an arena: value nodes and guard nodes. Both were
+   [int], so an [NSelect]'s guard id and its two value ids could be swapped. *)
+module Node =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = ""
+    end)
+    ()
+
+module Gnode =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = ""
+    end)
+    ()
+
 type node =
-  | NBinary of Expr.Value.binary_op * int * int
+  | NBinary of Expr.Value.binary_op * Node.t * Node.t
   | NCell of Cell.t
   | NConst of float
-  | NMax of Expr.Max_op.t * int * int
-  | NRound of int
-  | NSelect of int (* guard id *) * int * int
-  | NUnary of Expr.Value.unary_op * int
+  | NMax of Expr.Max_op.t * Node.t * Node.t
+  | NRound of Node.t
+  | NSelect of Gnode.t * Node.t * Node.t
+  | NUnary of Expr.Value.unary_op * Node.t
 
-type gnode = GLt of int * int | GPoolBetter of int * int
+type gnode = GLt of Node.t * Node.t | GPoolBetter of Node.t * Node.t
 
 type key =
-  | KBinary of Expr.Value.binary_op * int * int
+  | KBinary of Expr.Value.binary_op * Node.t * Node.t
   | KCell of Cell.t
   | KConst of int64 (* exact bits, never the float itself *)
-  | KMax of Expr.Max_op.t * int * int
-  | KRound of int
-  | KSelect of int * int * int
-  | KUnary of Expr.Value.unary_op * int
+  | KMax of Expr.Max_op.t * Node.t * Node.t
+  | KRound of Node.t
+  | KSelect of Gnode.t * Node.t * Node.t
+  | KUnary of Expr.Value.unary_op * Node.t
 
-type gkey = KLt of int * int | KPoolBetter of int * int
+type gkey = KLt of Node.t * Node.t | KPoolBetter of Node.t * Node.t
 
 let tag_of = function
   | NBinary _ -> 0
@@ -171,11 +187,11 @@ module Arena = struct
     mutable nodes : node array;
     mutable digests : int array;
     mutable n_count : int;
-    intern : (key, int) Hashtbl.t;
+    intern : (key, Node.t) Hashtbl.t;
     mutable gnodes : gnode array;
     mutable gdigests : int array;
     mutable g_count : int;
-    gintern : (gkey, int) Hashtbl.t;
+    gintern : (gkey, Gnode.t) Hashtbl.t;
   }
 
   let next_token = ref 0
@@ -188,15 +204,15 @@ module Arena = struct
       digests = Array.make 16 0;
       n_count = 0;
       intern = Hashtbl.create 64;
-      gnodes = Array.make 4 (GLt (0, 0));
+      gnodes = Array.make 4 (GLt (Node.of_int 0, Node.of_int 0));
       gdigests = Array.make 4 0;
       g_count = 0;
       gintern = Hashtbl.create 16;
     }
 end
 
-type t = { arena : Arena.t; id : int }
-type guard = { garena : Arena.t; gid : int }
+type t = { arena : Arena.t; id : Node.t }
+type guard = { garena : Arena.t; gid : Gnode.t }
 
 (* [Sys.max_array_length] under js_of_ocaml/node (see project_todo.md step 4's
    own probe): every arena array is bounded by it regardless of host, and no
@@ -206,18 +222,18 @@ type guard = { garena : Arena.t; gid : int }
 let hard_cap = 536_870_911
 
 let digest_key (arena : Arena.t) (k : key) =
-  let d id = arena.digests.(id) in
+  let d (id : Node.t) = arena.digests.((id :> int)) in
   match k with
   | KBinary (op, a, b) -> Hashtbl.hash (0, op, d a, d b)
   | KCell c -> Hashtbl.hash (1, c)
   | KConst bits -> Hashtbl.hash (2, bits)
   | KMax (op, a, b) -> Hashtbl.hash (3, op, d a, d b)
   | KRound a -> Hashtbl.hash (4, d a)
-  | KSelect (g, a, b) -> Hashtbl.hash (5, arena.gdigests.(g), d a, d b)
+  | KSelect (g, a, b) -> Hashtbl.hash (5, arena.gdigests.((g :> int)), d a, d b)
   | KUnary (op, a) -> Hashtbl.hash (6, op, d a)
 
 let gdigest_key (arena : Arena.t) (k : gkey) =
-  let d id = arena.digests.(id) in
+  let d (id : Node.t) = arena.digests.((id :> int)) in
   match k with
   | KLt (a, b) -> Hashtbl.hash (10, d a, d b)
   | KPoolBetter (a, b) -> Hashtbl.hash (11, d a, d b)
@@ -242,7 +258,7 @@ let ensure_g_capacity (arena : Arena.t) needed =
     let new_cap =
       Stdlib.min hard_cap (Stdlib.max needed (Stdlib.max 16 (cap * 2)))
     in
-    let gnodes' = Array.make new_cap (GLt (0, 0)) in
+    let gnodes' = Array.make new_cap (GLt (Node.of_int 0, Node.of_int 0)) in
     Array.blit arena.Arena.gnodes 0 gnodes' 0 arena.Arena.g_count;
     arena.Arena.gnodes <- gnodes';
     let gdigests' = Array.make new_cap 0 in
@@ -250,7 +266,7 @@ let ensure_g_capacity (arena : Arena.t) needed =
     arena.Arena.gdigests <- gdigests'
   end
 
-let intern (arena : Arena.t) (k : key) (mk : unit -> node) : int =
+let intern (arena : Arena.t) (k : key) (mk : unit -> node) : Node.t =
   match Hashtbl.find_opt arena.Arena.intern k with
   | Some id -> id
   | None ->
@@ -258,14 +274,15 @@ let intern (arena : Arena.t) (k : key) (mk : unit -> node) : int =
         invalid_arg "Ground_expr.Arena: too many nodes";
       let dig = digest_key arena k in
       ensure_v_capacity arena (arena.Arena.n_count + 1);
-      let id = arena.Arena.n_count in
-      arena.Arena.nodes.(id) <- mk ();
-      arena.Arena.digests.(id) <- dig;
-      arena.Arena.n_count <- id + 1;
+      let n = arena.Arena.n_count in
+      let id = Node.of_int n in
+      arena.Arena.nodes.(n) <- mk ();
+      arena.Arena.digests.(n) <- dig;
+      arena.Arena.n_count <- n + 1;
       Hashtbl.add arena.Arena.intern k id;
       id
 
-let intern_g (arena : Arena.t) (k : gkey) (mk : unit -> gnode) : int =
+let intern_g (arena : Arena.t) (k : gkey) (mk : unit -> gnode) : Gnode.t =
   match Hashtbl.find_opt arena.Arena.gintern k with
   | Some id -> id
   | None ->
@@ -273,10 +290,11 @@ let intern_g (arena : Arena.t) (k : gkey) (mk : unit -> gnode) : int =
         invalid_arg "Ground_expr.Arena: too many guard nodes";
       let dig = gdigest_key arena k in
       ensure_g_capacity arena (arena.Arena.g_count + 1);
-      let id = arena.Arena.g_count in
-      arena.Arena.gnodes.(id) <- mk ();
-      arena.Arena.gdigests.(id) <- dig;
-      arena.Arena.g_count <- id + 1;
+      let n = arena.Arena.g_count in
+      let id = Gnode.of_int n in
+      arena.Arena.gnodes.(n) <- mk ();
+      arena.Arena.gdigests.(n) <- dig;
+      arena.Arena.g_count <- n + 1;
       Hashtbl.add arena.Arena.gintern k id;
       id
 
@@ -370,7 +388,7 @@ type guard_view = Lt of t * t | Pool_better of { best : t; value : t }
 
 let out (x : t) : view =
   let v arena id = { arena; id } in
-  match x.arena.Arena.nodes.(x.id) with
+  match x.arena.Arena.nodes.((x.id :> int)) with
   | NBinary (op, a, b) -> Binary (op, v x.arena a, v x.arena b)
   | NCell c -> Cell c
   | NConst c -> Const c
@@ -382,7 +400,7 @@ let out (x : t) : view =
 
 let guard_out (g : guard) : guard_view =
   let v arena id = { arena; id } in
-  match g.garena.Arena.gnodes.(g.gid) with
+  match g.garena.Arena.gnodes.((g.gid :> int)) with
   | GLt (a, b) -> Lt (v g.garena a, v g.garena b)
   | GPoolBetter (best, value) ->
       Pool_better { best = v g.garena best; value = v g.garena value }
@@ -397,8 +415,8 @@ let arena (x : t) = x.arena
    shared node compared against the same counterpart more than once (a diamond,
    a repeated accumulator) is decided once. *)
 
-let hash (x : t) = x.arena.Arena.digests.(x.id)
-let hash_guard (g : guard) = g.garena.Arena.gdigests.(g.gid)
+let hash (x : t) = x.arena.Arena.digests.((x.id :> int))
+let hash_guard (g : guard) = g.garena.Arena.gdigests.((g.gid :> int))
 
 let lex3 first second third =
   if first <> 0 then first
@@ -411,10 +429,12 @@ let lex3 first second third =
 let compare_const = Core.Float_bits.compare_exact
 
 let make_comparators () =
-  let memo : (int * int * int * int, int) Hashtbl.t = Hashtbl.create 64 in
-  let gmemo : (int * int * int * int, int) Hashtbl.t = Hashtbl.create 16 in
+  let memo : (int * Node.t * int * Node.t, int) Hashtbl.t = Hashtbl.create 64 in
+  let gmemo : (int * Gnode.t * int * Gnode.t, int) Hashtbl.t =
+    Hashtbl.create 16
+  in
   let rec cmp (x : t) (y : t) : int =
-    if x.arena == y.arena && x.id = y.id then 0
+    if x.arena == y.arena && Node.equal x.id y.id then 0
     else
       let k = (x.arena.Arena.token, x.id, y.arena.Arena.token, y.id) in
       match Hashtbl.find_opt memo k with
@@ -425,7 +445,8 @@ let make_comparators () =
           r
   and cmp_nodes (x : t) (y : t) : int =
     let mkx id = { arena = x.arena; id } and mky id = { arena = y.arena; id } in
-    let nx = x.arena.Arena.nodes.(x.id) and ny = y.arena.Arena.nodes.(y.id) in
+    let nx = x.arena.Arena.nodes.((x.id :> int))
+    and ny = y.arena.Arena.nodes.((y.id :> int)) in
     match (nx, ny) with
     | NBinary (o1, a1, b1), NBinary (o2, a2, b2) ->
         lex3 (Stdlib.compare o1 o2)
@@ -451,7 +472,7 @@ let make_comparators () =
           (fun () -> 0)
     | _ -> Stdlib.compare (tag_of nx) (tag_of ny)
   and cmp_guard (gx : guard) (gy : guard) : int =
-    if gx.garena == gy.garena && gx.gid = gy.gid then 0
+    if gx.garena == gy.garena && Gnode.equal gx.gid gy.gid then 0
     else
       let k = (gx.garena.Arena.token, gx.gid, gy.garena.Arena.token, gy.gid) in
       match Hashtbl.find_opt gmemo k with
@@ -464,7 +485,8 @@ let make_comparators () =
     let mkx id = { arena = gx.garena; id }
     and mky id = { arena = gy.garena; id } in
     match
-      (gx.garena.Arena.gnodes.(gx.gid), gy.garena.Arena.gnodes.(gy.gid))
+      ( gx.garena.Arena.gnodes.((gx.gid :> int)),
+        gy.garena.Arena.gnodes.((gy.gid :> int)) )
     with
     | GLt (a1, b1), GLt (a2, b2) ->
         lex3
@@ -499,17 +521,17 @@ let equal_guard a b = compare_guard a b = 0
    strictly smaller id, so nothing here can be led into unbounded depth by a
    wide or deep DAG. *)
 
-type item = V of int | G of int
+type item = V of Node.t | G of Gnode.t
 
 let children_of (arena : Arena.t) = function
   | V id -> (
-      match arena.Arena.nodes.(id) with
+      match arena.Arena.nodes.((id :> int)) with
       | NBinary (_, a, b) | NMax (_, a, b) -> [ V a; V b ]
       | NCell _ | NConst _ -> []
       | NRound a | NUnary (_, a) -> [ V a ]
       | NSelect (g, a, b) -> [ G g; V a; V b ])
   | G g -> (
-      match arena.Arena.gnodes.(g) with
+      match arena.Arena.gnodes.((g :> int)) with
       | GLt (a, b) -> [ V a; V b ]
       | GPoolBetter (a, b) -> [ V a; V b ])
 
@@ -522,13 +544,13 @@ let reachable (root : t) : bool array * bool array =
   while not (Stack.is_empty stack) do
     match Stack.pop stack with
     | V id ->
-        if not vis.(id) then begin
-          vis.(id) <- true;
+        if not vis.((id :> int)) then begin
+          vis.((id :> int)) <- true;
           List.iter (fun c -> Stack.push c stack) (children_of arena (V id))
         end
     | G g ->
-        if not gvis.(g) then begin
-          gvis.(g) <- true;
+        if not gvis.((g :> int)) then begin
+          gvis.((g :> int)) <- true;
           List.iter (fun c -> Stack.push c stack) (children_of arena (G g))
         end
   done;
@@ -544,7 +566,7 @@ let cells (root : t) : Cell.Set.t =
   Array.iteri
     (fun id ok ->
       if ok then
-        match root.arena.Arena.nodes.(id) with
+        match root.arena.Arena.nodes.((id :> int)) with
         | NCell c -> acc := Cell.Set.add c !acc
         | _ -> ())
     vis;
@@ -559,10 +581,13 @@ let postorder (root : t) : item list =
   let arena = root.arena in
   let done_v = Array.make (Stdlib.max 1 arena.Arena.n_count) false in
   let done_g = Array.make (Stdlib.max 1 arena.Arena.g_count) false in
-  let is_done = function V id -> done_v.(id) | G g -> done_g.(g) in
+  let is_done = function
+    | V id -> done_v.((id :> int))
+    | G g -> done_g.((g :> int))
+  in
   let mark_done = function
-    | V id -> done_v.(id) <- true
-    | G g -> done_g.(g) <- true
+    | V id -> done_v.((id :> int)) <- true
+    | G g -> done_g.((g :> int)) <- true
   in
   let order = ref [] in
   let stack : (item * bool) Stack.t = Stack.create () in
@@ -600,12 +625,12 @@ let eval (root : t) (v : Valuation.t) : float =
   let gmemo : bool option array =
     Array.make (Stdlib.max 1 arena.Arena.g_count) None
   in
-  let rec go id =
-    match memo.(id) with
+  let rec go (id : Node.t) =
+    match memo.((id :> int)) with
     | Some r -> r
     | None ->
         let r =
-          match arena.Arena.nodes.(id) with
+          match arena.Arena.nodes.((id :> int)) with
           | NBinary (op, a, b) -> Expr.Value.apply_binary op (go a) (go b)
           | NCell c -> Valuation.find v c
           | NConst x -> x
@@ -614,19 +639,19 @@ let eval (root : t) (v : Valuation.t) : float =
           | NSelect (g, a, b) -> if go_guard g then go a else go b
           | NUnary (op, a) -> Expr.Value.apply_unary op (go a)
         in
-        memo.(id) <- Some r;
+        memo.((id :> int)) <- Some r;
         r
-  and go_guard g =
-    match gmemo.(g) with
+  and go_guard (g : Gnode.t) =
+    match gmemo.((g :> int)) with
     | Some r -> r
     | None ->
         let r =
-          match arena.Arena.gnodes.(g) with
+          match arena.Arena.gnodes.((g :> int)) with
           | GLt (a, b) -> go a < go b
           | GPoolBetter (best, value) ->
               Expr.Max_op.pool_better ~best:(go best) ~value:(go value)
         in
-        gmemo.(g) <- Some r;
+        gmemo.((g :> int)) <- Some r;
         r
   in
   go root.id
@@ -647,8 +672,8 @@ let pp fmt (root : t) =
       List.iter
         (fun c ->
           match c with
-          | V id -> refs_v.(id) <- refs_v.(id) + 1
-          | G g -> refs_g.(g) <- refs_g.(g) + 1)
+          | V id -> refs_v.((id :> int)) <- refs_v.((id :> int)) + 1
+          | G g -> refs_g.((g :> int)) <- refs_g.((g :> int)) + 1)
         (children_of arena item))
     order;
   let label = Array.make (Stdlib.max 1 arena.Arena.n_count) None in
@@ -659,12 +684,12 @@ let pp fmt (root : t) =
     incr next;
     Printf.sprintf "l%d" n
   in
-  let rec render_v id fmt =
-    match label.(id) with
+  let rec render_v (id : Node.t) fmt =
+    match label.((id :> int)) with
     | Some name -> Fmt.string fmt name
     | None -> render_v_body id fmt
-  and render_v_body id fmt =
-    match arena.Arena.nodes.(id) with
+  and render_v_body (id : Node.t) fmt =
+    match arena.Arena.nodes.((id :> int)) with
     | NBinary (op, a, b) ->
         Fmt.pf fmt "(%t %s %t)" (render_v a) (Expr.Value.binary_sym op)
           (render_v b)
@@ -677,12 +702,12 @@ let pp fmt (root : t) =
         Fmt.pf fmt "select(%t, %t, %t)" (render_g g) (render_v a) (render_v b)
     | NUnary (op, a) ->
         Fmt.pf fmt "%s(%t)" (Expr.Value.unary_name op) (render_v a)
-  and render_g g fmt =
-    match glabel.(g) with
+  and render_g (g : Gnode.t) fmt =
+    match glabel.((g :> int)) with
     | Some name -> Fmt.string fmt name
     | None -> render_g_body g fmt
-  and render_g_body g fmt =
-    match arena.Arena.gnodes.(g) with
+  and render_g_body (g : Gnode.t) fmt =
+    match arena.Arena.gnodes.((g :> int)) with
     | GLt (a, b) -> Fmt.pf fmt "(%t < %t)" (render_v a) (render_v b)
     | GPoolBetter (a, b) ->
         Fmt.pf fmt "better(%t, %t)" (render_v a) (render_v b)
@@ -692,17 +717,17 @@ let pp fmt (root : t) =
     (fun item ->
       match item with
       | V id -> (
-          if refs_v.(id) >= 2 then
-            match arena.Arena.nodes.(id) with
+          if refs_v.((id :> int)) >= 2 then
+            match arena.Arena.nodes.((id :> int)) with
             | NCell _ | NConst _ -> ()
             | _ ->
                 let name = fresh () in
-                label.(id) <- Some name;
+                label.((id :> int)) <- Some name;
                 defs := (name, render_v_body id) :: !defs)
       | G g ->
-          if refs_g.(g) >= 2 then begin
+          if refs_g.((g :> int)) >= 2 then begin
             let name = fresh () in
-            glabel.(g) <- Some name;
+            glabel.((g :> int)) <- Some name;
             defs := (name, render_g_body g) :: !defs
           end)
     order;
@@ -731,14 +756,14 @@ let project ~into ~boundary (root : t) : t =
   let out_g : guard option array =
     Array.make (Stdlib.max 1 arena.Arena.g_count) None
   in
-  let gv id = Option.get out_v.(id) in
-  let gg g = Option.get out_g.(g) in
+  let gv (id : Node.t) = Option.get out_v.((id :> int)) in
+  let gg (g : Gnode.t) = Option.get out_g.((g :> int)) in
   List.iter
     (fun item ->
       match item with
       | V id ->
           let v =
-            match arena.Arena.nodes.(id) with
+            match arena.Arena.nodes.((id :> int)) with
             | NBinary (op, a, b) -> binary into op (gv a) (gv b)
             | NCell c -> (
                 match boundary c.Cell.origin with
@@ -751,14 +776,14 @@ let project ~into ~boundary (root : t) : t =
             | NSelect (g, a, b) -> select into (gg g) (gv a) (gv b)
             | NUnary (op, a) -> unary into op (gv a)
           in
-          out_v.(id) <- Some v
+          out_v.((id :> int)) <- Some v
       | G g ->
           let v =
-            match arena.Arena.gnodes.(g) with
+            match arena.Arena.gnodes.((g :> int)) with
             | GLt (a, b) -> lt into (gv a) (gv b)
             | GPoolBetter (a, b) -> pool_better into ~best:(gv a) ~value:(gv b)
           in
-          out_g.(g) <- Some v)
+          out_g.((g :> int)) <- Some v)
     order;
   gv root.id
 
@@ -771,14 +796,14 @@ let erase_rounds ~into (root : t) : t =
   let out_g : guard option array =
     Array.make (Stdlib.max 1 arena.Arena.g_count) None
   in
-  let gv id = Option.get out_v.(id) in
-  let gg g = Option.get out_g.(g) in
+  let gv (id : Node.t) = Option.get out_v.((id :> int)) in
+  let gg (g : Gnode.t) = Option.get out_g.((g :> int)) in
   List.iter
     (fun item ->
       match item with
       | V id ->
           let v =
-            match arena.Arena.nodes.(id) with
+            match arena.Arena.nodes.((id :> int)) with
             | NBinary (op, a, b) -> binary into op (gv a) (gv b)
             | NCell c -> cell into c
             | NConst x -> const into x
@@ -787,14 +812,14 @@ let erase_rounds ~into (root : t) : t =
             | NSelect (g, a, b) -> select into (gg g) (gv a) (gv b)
             | NUnary (op, a) -> unary into op (gv a)
           in
-          out_v.(id) <- Some v
+          out_v.((id :> int)) <- Some v
       | G g ->
           let v =
-            match arena.Arena.gnodes.(g) with
+            match arena.Arena.gnodes.((g :> int)) with
             | GLt (a, b) -> lt into (gv a) (gv b)
             | GPoolBetter (a, b) -> pool_better into ~best:(gv a) ~value:(gv b)
           in
-          out_g.(g) <- Some v)
+          out_g.((g :> int)) <- Some v)
     order;
   gv root.id
 
@@ -825,12 +850,12 @@ let normalise ~into ~stored_f32 (root : t) : normalised =
     | Some x, Some y -> const into (op x y)
     | _ -> build a b
   in
-  let rec go id : t =
-    match memo.(id) with
+  let rec go (id : Node.t) : t =
+    match memo.((id :> int)) with
     | Some r -> r
     | None ->
         let r =
-          match arena.Arena.nodes.(id) with
+          match arena.Arena.nodes.((id :> int)) with
           | NBinary (op, a, b) ->
               let a = go a and b = go b in
               fold2
@@ -866,18 +891,18 @@ let normalise ~into ~stored_f32 (root : t) : normalised =
               | Some v -> const into (Expr.Value.apply_unary op v)
               | None -> unary into op a)
         in
-        memo.(id) <- Some r;
+        memo.((id :> int)) <- Some r;
         r
-  and go_guard g : guard =
-    match gmemo.(g) with
+  and go_guard (g : Gnode.t) : guard =
+    match gmemo.((g :> int)) with
     | Some r -> r
     | None ->
         let r =
-          match arena.Arena.gnodes.(g) with
+          match arena.Arena.gnodes.((g :> int)) with
           | GLt (a, b) -> lt into (go a) (go b)
           | GPoolBetter (a, b) -> pool_better into ~best:(go a) ~value:(go b)
         in
-        gmemo.(g) <- Some r;
+        gmemo.((g :> int)) <- Some r;
         r
   and guard_value (g : guard) : bool option =
     match guard_out g with

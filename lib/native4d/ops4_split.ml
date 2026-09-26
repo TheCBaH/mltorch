@@ -17,8 +17,8 @@
 module Slice4 = struct
   type params = {
     axis : Axis4.t;
-    start : int;
-    stop : int;
+    start : Dim.fence Dim.t;
+    stop : Dim.fence Dim.t;
     step : Op_config.Pos.t;
   }
 
@@ -26,14 +26,14 @@ module Slice4 = struct
     Jsont.Object.map ~kind:"slice4_params" (fun axis start stop step ->
         { axis; start; stop; step = Op_config.Pos.of_int step })
     |> Jsont.Object.mem "axis" Axis4.jsont ~enc:(fun p -> p.axis)
-    |> Jsont.Object.mem "start" Jsont.int ~enc:(fun p -> p.start)
-    |> Jsont.Object.mem "stop" Jsont.int ~enc:(fun p -> p.stop)
+    |> Jsont.Object.mem "start" Dim.fence_jsont ~enc:(fun p -> p.start)
+    |> Jsont.Object.mem "stop" Dim.fence_jsont ~enc:(fun p -> p.stop)
     |> Jsont.Object.mem "step" Jsont.int ~enc:(fun p -> (p.step :> int))
     |> Jsont.Object.finish
 
   let pp_params fmt (p : params) =
-    Fmt.pf fmt "@[<hv>{axis=%a start=%d stop=%d step=%d}@]" Axis4.pp p.axis
-      p.start p.stop
+    Fmt.pf fmt "@[<hv>{axis=%a start=%a stop=%a step=%d}@]" Axis4.pp p.axis
+      Dim.pp p.start Dim.pp p.stop
       (p.step :> int)
 
   type t = { params : params; x : Tensor_ref.t }
@@ -79,16 +79,16 @@ end
    [Split.Select] -- which itself delegates to [Split.Slice] -- rather than
    restating that composition here. *)
 module Select4 = struct
-  type params = { axis : Axis4.t; index : int }
+  type params = { axis : Axis4.t; index : Dim.index Dim.t }
 
   let params_jsont : params Jsont.t =
     Jsont.Object.map ~kind:"select4_params" (fun axis index -> { axis; index })
     |> Jsont.Object.mem "axis" Axis4.jsont ~enc:(fun p -> p.axis)
-    |> Jsont.Object.mem "index" Jsont.int ~enc:(fun p -> p.index)
+    |> Jsont.Object.mem "index" Dim.index_jsont ~enc:(fun p -> p.index)
     |> Jsont.Object.finish
 
   let pp_params fmt (p : params) =
-    Fmt.pf fmt "@[<hv>{axis=%a index=%d}@]" Axis4.pp p.axis p.index
+    Fmt.pf fmt "@[<hv>{axis=%a index=%a}@]" Axis4.pp p.axis Dim.pp p.index
 
   type t = { params : params; x : Tensor_ref.t }
 
@@ -123,17 +123,17 @@ end
    -- and reuses [Split.Select_scatter]'s shape rule/pixel map rather than
    restating them, the same delegation [Select4] makes to [Split.Select]. *)
 module Select_scatter4 = struct
-  type params = { axis : Axis4.t; index : int }
+  type params = { axis : Axis4.t; index : Dim.index Dim.t }
 
   let params_jsont : params Jsont.t =
     Jsont.Object.map ~kind:"select_scatter4_params" (fun axis index ->
         { axis; index })
     |> Jsont.Object.mem "axis" Axis4.jsont ~enc:(fun p -> p.axis)
-    |> Jsont.Object.mem "index" Jsont.int ~enc:(fun p -> p.index)
+    |> Jsont.Object.mem "index" Dim.index_jsont ~enc:(fun p -> p.index)
     |> Jsont.Object.finish
 
   let pp_params fmt (p : params) =
-    Fmt.pf fmt "@[<hv>{axis=%a index=%d}@]" Axis4.pp p.axis p.index
+    Fmt.pf fmt "@[<hv>{axis=%a index=%a}@]" Axis4.pp p.axis Dim.pp p.index
 
   type t = { params : params; self : Tensor_ref.t; src : Tensor_ref.t }
 
@@ -349,18 +349,19 @@ end
    is not exempt from proving what it emits), but there is no N=1-shaped
    precondition here the way there is for [Unbind]. *)
 module Split_with_sizes4 = struct
-  type params = { axis : Axis4.t; sizes : int list }
+  type params = { axis : Axis4.t; sizes : Dim.extent Dim.t list }
 
   let params_jsont : params Jsont.t =
     Jsont.Object.map ~kind:"split_with_sizes4_params" (fun axis sizes ->
         { axis; sizes })
     |> Jsont.Object.mem "axis" Axis4.jsont ~enc:(fun p -> p.axis)
-    |> Jsont.Object.mem "sizes" (Jsont.list Jsont.int) ~enc:(fun p -> p.sizes)
+    |> Jsont.Object.mem "sizes" (Jsont.list Dim.extent_jsont) ~enc:(fun p ->
+        p.sizes)
     |> Jsont.Object.finish
 
   let pp_params fmt (p : params) =
     Fmt.pf fmt "@[<hv>{axis=%a sizes=%a}@]" Axis4.pp p.axis
-      (Fmt.brackets (Fmt.list ~sep:Fmt.comma Fmt.int))
+      (Fmt.brackets (Fmt.list ~sep:Fmt.comma Dim.pp))
       p.sizes
 
   type t = { params : params; x : Tensor_ref.t }

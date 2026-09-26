@@ -109,12 +109,20 @@ let rec at ~names env lenv n fmt (e : float Value.t) =
       Fmt.pf fmt ")";
       n
   | Value.Intrinsic (Intrinsic.Max_pool d) ->
+      let open Core.Geometry.Hw in
+      let m = d.Intrinsic.Max_pool.kernel
+      and s = d.Intrinsic.Max_pool.stride
+      and p = d.Intrinsic.Max_pool.pad in
       Fmt.pf fmt "max_pool2d_%s(%a; k=%dx%d s=%dx%d p=%dx%d; out=[%a])"
         (Intrinsic.Max_pool.result_name d.Intrinsic.Max_pool.result)
-        Source.pp d.Intrinsic.Max_pool.source d.Intrinsic.Max_pool.kernel_h
-        d.Intrinsic.Max_pool.kernel_w d.Intrinsic.Max_pool.stride_h
-        d.Intrinsic.Max_pool.stride_w d.Intrinsic.Max_pool.pad_h
-        d.Intrinsic.Max_pool.pad_w (Coord.pp idxe) d.Intrinsic.Max_pool.out;
+        Source.pp d.Intrinsic.Max_pool.source
+        (m.h :> int)
+        (m.w :> int)
+        (s.h :> int)
+        (s.w :> int)
+        (p.h :> int)
+        (p.w :> int)
+        (Coord.pp idxe) d.Intrinsic.Max_pool.out;
       n
   | Value.Local v ->
       Fmt.string fmt

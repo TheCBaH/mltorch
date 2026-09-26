@@ -348,16 +348,8 @@ let tag = function
 
 let cmp_intrinsic ea eb (Intrinsic.Max_pool x) (Intrinsic.Max_pool y) =
   let open Intrinsic.Max_pool in
-  let fld f = Int.compare (f x) (f y) in
   Source.compare x.source y.source <?> fun () ->
-  fld (fun d -> d.in_h) <?> fun () ->
-  fld (fun d -> d.in_w) <?> fun () ->
-  fld (fun d -> d.kernel_h) <?> fun () ->
-  fld (fun d -> d.kernel_w) <?> fun () ->
-  fld (fun d -> d.stride_h) <?> fun () ->
-  fld (fun d -> d.stride_w) <?> fun () ->
-  fld (fun d -> d.pad_h) <?> fun () ->
-  fld (fun d -> d.pad_w) <?> fun () ->
+  List.compare Int.compare (geometry x) (geometry y) <?> fun () ->
   Stdlib.compare x.result y.result <?> fun () ->
   List.fold_left2
     (fun acc a b -> acc <?> fun () -> cmp_index ea eb a b)
@@ -592,17 +584,7 @@ let hash e =
         let h = mix h (Source.hash d.source) in
         let h =
           List.fold_left mix h
-            [
-              d.in_h;
-              d.in_w;
-              d.kernel_h;
-              d.kernel_w;
-              d.stride_h;
-              d.stride_w;
-              d.pad_h;
-              d.pad_w;
-              Hashtbl.hash d.result;
-            ]
+            (Intrinsic.Max_pool.geometry d @ [ Hashtbl.hash d.result ])
         in
         Coord.fold (fun h i -> idx env h i) h d.out
     | I64_to_float a -> hash_i64 env lenv n h a

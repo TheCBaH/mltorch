@@ -111,7 +111,7 @@ let lstm_node_outputs (g : Graph_ir.graph) =
 let max_abs_diff (Tensor.Tensor a) (Tensor.Tensor b) =
   Vec6.fold_coords a.Tensor.shape ~init:0. ~f:(fun acc coord ->
       let i = (Vec6.offset a.Tensor.shape coord :> int) in
-      let c = Dim.to_int (Vec6.get coord Axis.C) in
+      let c = Vec6.get coord Axis.C in
       Float.max acc
         (Float.abs
            (Payload.get_float a.Tensor.payload ~c ~i

@@ -148,8 +148,11 @@ module Convolution = struct
       (Conv2d.params, Shape_error.t) Err.t =
     let open Err.Syntax in
     let* () = require_forward_2d p in
-    let groups = (p.groups :> int) in
-    let in_channels = (Vec6.get weight_shape Axis.C :> int) * groups in
+    let* in_channels =
+      Window_axis.in_channels
+        ~per_group:(Vec6.get weight_shape Axis.C)
+        ~groups:p.groups
+    in
     Err.return
       {
         Conv2d.h =
@@ -160,22 +163,40 @@ module Convolution = struct
           axis_window
             ~kernel:(Vec6.get weight_shape Axis.W)
             ~stride:p.stride.w ~pad:p.padding.w ~dilation:p.dilation.w;
-        in_channels = Dim.extent in_channels;
+        in_channels;
         groups = p.groups;
       }
 
+  (* Each factor is bounded before any arithmetic, then combined in [int64], the
+     rule [Window_axis.output_extent] states: an unchecked [(in - 1) * stride]
+     wraps a 32-bit [int]. The output extent is refused above the per-axis
+     ceiling like a forward window's. *)
   let transposed_output_axis ~(in_extent : Dim.extent Dim.t)
       ~(kernel : Dim.extent Dim.t) ~(stride : Op_config.Pos.t)
       ~(pad : Op_config.Nonneg.t) ~(dilation : Op_config.Pos.t)
       ~(output_padding : Op_config.Nonneg.t) =
-    let out =
-      (((in_extent :> int) - 1) * (stride :> int))
-      - (2 * (pad :> int))
-      + ((dilation :> int) * ((kernel :> int) - 1))
-      + (output_padding :> int)
-      + 1
+    let open Err.Syntax in
+    let* i = Window_axis.bound ~what:`Input_extent (Dim.to_int64 in_extent) in
+    let* k = Window_axis.bound ~what:`Kernel (Dim.to_int64 kernel) in
+    let* s = Window_axis.bound ~what:`Stride (Op_config.Pos.to_int64 stride) in
+    let* pd =
+      Window_axis.bound ~what:`Padding (Op_config.Nonneg.to_int64 pad)
     in
-    if out < 1 then
+    let* d =
+      Window_axis.bound ~what:`Dilation (Op_config.Pos.to_int64 dilation)
+    in
+    let* op =
+      Window_axis.bound ~what:`Padding
+        (Op_config.Nonneg.to_int64 output_padding)
+    in
+    let out =
+      Int64.add
+        (Int64.add
+           (Int64.sub (Int64.mul (Int64.sub i 1L) s) (Int64.mul 2L pd))
+           (Int64.mul d (Int64.sub k 1L)))
+        (Int64.add op 1L)
+    in
+    if out < 1L then
       Err.fail
         (`Convolution
            (Shape_error.Convolution.Transposed_output_non_positive
@@ -189,43 +210,52 @@ module Convolution = struct
                   dilation;
                   output_padding;
                 }))
-    else Err.return (Dim.extent out)
+    else if out >= Window_axis.limit then
+      Err.fail
+        (`Window_over_limit
+           Shape_error.Window_over_limit.
+             { what = `Output_extent; value = out; limit = Window_axis.limit })
+    else Err.return (Dim.extent (Int64.to_int out))
 
   let validate_transposed_channels ~(x_shape : Vec6.shape)
       ~(weight_shape : Vec6.shape) (p : params) =
     let open Err.Syntax in
-    let groups = (p.groups :> int) in
-    let in_channels = (Vec6.get x_shape Axis.C :> int) in
-    let weight_in_channels = (Vec6.get weight_shape Axis.N :> int) in
-    let out_per_group = (Vec6.get weight_shape Axis.C :> int) in
+    let in_channels = Vec6.get x_shape Axis.C in
+    let weight_in_channels = Vec6.get weight_shape Axis.N in
+    let out_per_group = Vec6.get weight_shape Axis.C in
     let* () =
-      if weight_in_channels <> in_channels then
+      if not (Dim.equal weight_in_channels in_channels) then
         Err.fail
           (`Convolution
              (Shape_error.Convolution.Transposed_weight_input_mismatch
                 Shape_error.Convolution.
                   {
-                    weight_input_channels = Vec6.get weight_shape Axis.N;
-                    input_channels = Vec6.get x_shape Axis.C;
+                    weight_input_channels = weight_in_channels;
+                    input_channels = in_channels;
                   }))
       else Err.return ()
     in
-    let* () =
-      if in_channels mod groups <> 0 then
-        Err.fail
-          (`Convolution
-             (Shape_error.Convolution
-              .Transposed_input_channels_not_divisible_by_groups
-                Shape_error.Convolution.{ channels = in_channels; groups }))
-      else Err.return ()
+    let* in_per_group =
+      match Dim_arith.Extent.div_exact ~by:p.groups in_channels with
+      | Some e -> Err.return e
+      | None ->
+          Err.fail
+            (`Convolution
+               (Shape_error.Convolution
+                .Transposed_input_channels_not_divisible_by_groups
+                  Shape_error.Convolution.
+                    { channels = in_channels; groups = p.groups }))
     in
-    Err.return (in_channels / groups, out_per_group)
+    Err.return (in_per_group, out_per_group)
 
   let transposed_output_shape ~(x_shape : Vec6.shape)
       ~(weight_shape : Vec6.shape) (p : params) =
     let open Err.Syntax in
     let* _in_per_group, out_per_group =
       validate_transposed_channels ~x_shape ~weight_shape p
+    in
+    let* out_channels =
+      Window_axis.out_channels ~per_group:out_per_group ~groups:p.groups
     in
     let* h =
       transposed_output_axis ~in_extent:(Vec6.get x_shape Axis.H)
@@ -239,10 +269,7 @@ module Convolution = struct
         ~stride:p.stride.w ~pad:p.padding.w ~dilation:p.dilation.w
         ~output_padding:p.output_padding.w
     in
-    Vec6.set
-      (Vec6.set (Vec6.set x_shape Axis.H h) Axis.W w)
-      Axis.C
-      (Dim.extent (out_per_group * (p.groups :> int)))
+    Vec6.set (Vec6.set (Vec6.set x_shape Axis.H h) Axis.W w) Axis.C out_channels
 
   let output_shape ~(x_shape : Vec6.shape) ~(weight_shape : Vec6.shape)
       (p : params) =
@@ -255,7 +282,11 @@ module Convolution = struct
   let bias_shape ~(weight_shape : Vec6.shape) (p : params) =
     let channels =
       if p.transposed then
-        Dim.extent ((Vec6.get weight_shape Axis.C :> int) * (p.groups :> int))
+        (* Reached only after [output_shape] has bounded the same product. *)
+        or_invalid_arg
+          (Window_axis.out_channels
+             ~per_group:(Vec6.get weight_shape Axis.C)
+             ~groups:p.groups)
       else Vec6.get weight_shape Axis.N
     in
     Vec6.set (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1) Axis.C channels
@@ -281,15 +312,15 @@ module Convolution = struct
         if (p.groups :> int) = 1 then S.index_const 0
         else
           S.index_floor_div_pos (S.of_index oc)
-            (Op_config.Pos.of_int out_per_group)
+            (Dim_arith.Extent.to_pos out_per_group)
       in
       let local_oc =
         S.assume_index
-          (S.index_add (S.of_index oc) (S.index_scale (-out_per_group) group))
+          (S.index_add (S.of_index oc)
+             (S.index_scale (-(out_per_group :> int)) group))
       in
       let acc =
-        S.sum ~lo:S.index_zero
-          ~hi:(S.index_extent (Dim.extent in_per_group))
+        S.sum ~lo:S.index_zero ~hi:(S.index_extent in_per_group)
           (fun local_ic ->
             S.sum ~lo:S.index_zero
               ~hi:(S.index_extent (Vec6.get x_shape Axis.H))
@@ -306,7 +337,7 @@ module Convolution = struct
                             let ic =
                               S.assume_index
                                 (S.index_add
-                                   (S.index_scale in_per_group group)
+                                   (S.index_scale (in_per_group :> int) group)
                                    (S.of_index local_ic))
                             in
                             let h_matches =

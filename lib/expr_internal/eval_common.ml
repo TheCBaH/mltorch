@@ -236,7 +236,6 @@ let pp_error fmt : [< error ] -> unit = function
   | `Data_source_wrong_format name ->
       Fmt.pf fmt "Data source is not an I64 tensor (format %s)" name
   | #index_error as e -> pp_index_error fmt e
-  | #Intrinsic.error as e -> Intrinsic.pp_error fmt e
   | #Value.i64_division_error as e -> Value.pp_i64_division_error fmt e
   | #Value.i64_from_float_error as e -> Value.pp_i64_from_float_error fmt e
   | `Scan_meter e -> Scan_meter.pp_error fmt e

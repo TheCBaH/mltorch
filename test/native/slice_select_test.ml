@@ -41,7 +41,12 @@ let%expect_test "Direct: slice keeps the axis and narrows it" =
   (* Columns 1 and 2 of every row. The values are 10*row + col, so a wrong start
      shows as a column shift and a wrong axis as a row selection. *)
   slice_eval ~x_shape ~x
-    { Split.Slice.axis = Axis.W; start = 1; stop = 3; step = pos 1 };
+    {
+      Split.Slice.axis = Axis.W;
+      start = Dim.fence 1;
+      stop = Dim.fence 3;
+      step = pos 1;
+    };
   [%expect {|
     [H=3 W=2 C=1]
     1 2
@@ -53,7 +58,12 @@ let%expect_test "Direct: slice on the other axis selects rows" =
   (* The same bounds on H. Distinguishable from the W case only because the
      fixture is 3x4 and the values encode both coordinates. *)
   slice_eval ~x_shape ~x
-    { Split.Slice.axis = Axis.H; start = 1; stop = 3; step = pos 1 };
+    {
+      Split.Slice.axis = Axis.H;
+      start = Dim.fence 1;
+      stop = Dim.fence 3;
+      step = pos 1;
+    };
   [%expect {|
     [H=2 W=4 C=1]
     10 11 12 13
@@ -64,15 +74,30 @@ let%expect_test "Direct: slice step selects every k-th element" =
   (* [0,6) step 2 -> columns 0,2,4. An implementation that forgot the step
      multiplication would print 0 1 2. *)
   slice_eval ~x_shape ~x
-    { Split.Slice.axis = Axis.W; start = 0; stop = 6; step = pos 2 };
+    {
+      Split.Slice.axis = Axis.W;
+      start = Dim.fence 0;
+      stop = Dim.fence 6;
+      step = pos 2;
+    };
   (* [1,6) step 2 -> columns 1,3,5: the span is 5, so the CEILING is what makes
      the count 3 rather than 2. *)
   slice_eval ~x_shape ~x
-    { Split.Slice.axis = Axis.W; start = 1; stop = 6; step = pos 2 };
+    {
+      Split.Slice.axis = Axis.W;
+      start = Dim.fence 1;
+      stop = Dim.fence 6;
+      step = pos 2;
+    };
   (* [0,5) step 3 -> columns 0,3. Span 5 over step 3 is 1.67, and both a floor
      and a truncation would print one column. *)
   slice_eval ~x_shape ~x
-    { Split.Slice.axis = Axis.W; start = 0; stop = 5; step = pos 3 };
+    {
+      Split.Slice.axis = Axis.W;
+      start = Dim.fence 0;
+      stop = Dim.fence 5;
+      step = pos 3;
+    };
   [%expect
     {|
     [W=3 C=1]
@@ -90,7 +115,12 @@ let%expect_test "Direct: slice of the whole axis is the identity" =
      slice.Tensor needs a walk_meta entry rather than the generated default:
      every implementation that returns its input passes this one. *)
   slice_eval ~x_shape ~x
-    { Split.Slice.axis = Axis.W; start = 0; stop = 2; step = pos 1 };
+    {
+      Split.Slice.axis = Axis.W;
+      start = Dim.fence 0;
+      stop = Dim.fence 2;
+      step = pos 1;
+    };
   [%expect {|
     [H=2 W=2 C=1]
     0 1
@@ -107,21 +137,43 @@ let%expect_test "Slice: the configurations with no Native result" =
      everything are the same fault -- the second cannot happen, since a
      non-empty span always yields at least one element under the ceiling, and
      the case is written out to record that rather than leave it implied. *)
-  refuse { Split.Slice.axis = Axis.W; start = 2; stop = 2; step = pos 1 };
-  refuse { Split.Slice.axis = Axis.W; start = 3; stop = 4; step = pos 9 };
+  refuse
+    {
+      Split.Slice.axis = Axis.W;
+      start = Dim.fence 2;
+      stop = Dim.fence 2;
+      step = pos 1;
+    };
+  refuse
+    {
+      Split.Slice.axis = Axis.W;
+      start = Dim.fence 3;
+      stop = Dim.fence 4;
+      step = pos 9;
+    };
   (* Out of range. Unreachable from either importer -- both build their bounds
      with [Aten_shape.resolve_slice], which clamps -- so these guard the builder
      and JSON decoding, and they are what keeps [Compute]'s read in bounds. *)
-  refuse { Split.Slice.axis = Axis.W; start = 0; stop = 5; step = pos 1 };
-  refuse { Split.Slice.axis = Axis.W; start = 3; stop = 1; step = pos 1 };
-  refuse { Split.Slice.axis = Axis.W; start = -1; stop = 2; step = pos 1 };
+  refuse
+    {
+      Split.Slice.axis = Axis.W;
+      start = Dim.fence 0;
+      stop = Dim.fence 5;
+      step = pos 1;
+    };
+  refuse
+    {
+      Split.Slice.axis = Axis.W;
+      start = Dim.fence 3;
+      stop = Dim.fence 1;
+      step = pos 1;
+    };
   [%expect
     {|
     slice of axis W [2, 2) step 1 over extent 4 selects 0 elements; the engine has no empty extent
     [H=3 W=1 C=1]
     slice of axis W [0, 5) step 1 over extent 4 is not within 0 <= start <= stop <= extent
-    slice of axis W [3, 1) step 1 over extent 4 is not within 0 <= start <= stop <= extent
-    slice of axis W [-1, 2) step 1 over extent 4 is not within 0 <= start <= stop <= extent |}]
+    slice of axis W [3, 1) step 1 over extent 4 is not within 0 <= start <= stop <= extent |}]
 
 (* ---- Select ----------------------------------------------------------------
 
@@ -142,7 +194,7 @@ let%expect_test "Direct: select along an outer, a middle and an inner axis" =
         float_of_int ((row c * 100) + (col c * 10) + chan c))
   in
   let run axis index =
-    let p = { Split.Select.axis; index } in
+    let p = { Split.Select.axis; index = Dim.index index } in
     Format.printf "select %a=%d -> %a@." Axis.pp axis index
       (pp_result Tensor.pp)
       (select_eval ~x_shape ~x p)
@@ -162,12 +214,10 @@ let%expect_test "Select: an out-of-range index has no Native result" =
     Format.printf "%a@." (pp_result Vec6.pp_shape)
       (Split.Select.output_shape ~x_shape { Split.Select.axis = Axis.C; index })
   in
-  refuse 4;
-  refuse (-1);
+  refuse (Dim.index 4);
   [%expect
     {|
-    slice of axis C [4, 5) step 1 over extent 4 is not within 0 <= start <= stop <= extent
-    slice of axis C [-1, 0) step 1 over extent 4 is not within 0 <= start <= stop <= extent |}]
+    slice of axis C [4, 5) step 1 over extent 4 is not within 0 <= start <= stop <= extent |}]
 
 (* ---- Select_scatter --------------------------------------------------------
 
@@ -222,7 +272,7 @@ let%expect_test
         float_of_int (9000 + (col c * 10) + chan c))
   in
   select_scatter_eval ~self_shape ~self ~src_shape ~src
-    { Split.Select_scatter.axis = Axis.H; index = 1 };
+    { Split.Select_scatter.axis = Axis.H; index = Dim.index 1 };
   [%expect
     {|
     [H=2 W=3 C=2]
@@ -236,7 +286,28 @@ let%expect_test
   let src_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:3 ~c:3 in
   Format.printf "%a@." (pp_result Vec6.pp_shape)
     (Split.Select_scatter.output_shape ~self_shape ~src_shape
-       { Split.Select_scatter.axis = Axis.H; index = 1 });
+       { Split.Select_scatter.axis = Axis.H; index = Dim.index 1 });
   [%expect
     {|
     select_scatter src shape must be [W=3 C=2] (axis=H index=1), got [W=3 C=3] |}]
+
+(* The bounds are typed as fences, positions and extents, so a negative one is
+   refused when a graph is decoded rather than being a value the shape rule has
+   to reject. Only the message is printed: Jsont's location trail is not this
+   test's subject. *)
+let%expect_test "decoding refuses a negative bound, index or size" =
+  let show codec s =
+    match Jsont_bytesrw.decode_string codec s with
+    | Ok _ -> print_endline "ok"
+    | Error e -> print_endline (List.hd (String.split_on_char '\n' e))
+  in
+  show Split.Slice.params_jsont {|{"axis":"W","start":-1,"stop":2,"step":1}|};
+  show Split.Select.params_jsont {|{"axis":"C","index":-1}|};
+  show Split.Split_with_sizes.params_jsont {|{"axis":"W","sizes":[2,0]}|};
+  show Split.Slice.params_jsont {|{"axis":"W","start":1,"stop":2,"step":1}|};
+  [%expect
+    {|
+    fence: must be >= 0, got -1
+    index: must be >= 0, got -1
+    extent: must be >= 1, got 0
+    ok |}]

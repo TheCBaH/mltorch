@@ -515,8 +515,8 @@ module Adaptive_axis = struct
   let check ~axis ~(input_extent : Dim.extent Dim.t)
       ~(output_size : Op_config.Pos.t) : (unit, Shape_error.t) Err.t =
     let limit = Kernel.Limits.Hard.extent in
-    let input = Int64.of_int (input_extent :> int) in
-    let output = Int64.of_int (output_size :> int) in
+    let input = Dim.to_int64 input_extent in
+    let output = Op_config.Pos.to_int64 output_size in
     (* The factors are positive.  Divide before multiply so even a malicious
        host-[int] extent cannot wrap [int64] before the rejection. *)
     if input >= limit || output > Int64.div (Int64.sub limit 1L) input then
@@ -618,9 +618,9 @@ module AdaptiveMaxPool2d = struct
     in
     Err.return
       (Vec6.set
-         (Vec6.set x_shape Axis.H (Dim.extent (p.output_size.h :> int)))
+         (Vec6.set x_shape Axis.H (Dim_arith.Extent.of_pos p.output_size.h))
          Axis.W
-         (Dim.extent (p.output_size.w :> int)))
+         (Dim_arith.Extent.of_pos p.output_size.w))
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x
@@ -795,9 +795,9 @@ module AdaptiveAvgPool2d = struct
     in
     Err.return
       (Vec6.set
-         (Vec6.set x_shape Axis.H (Dim.extent (p.output_size.h :> int)))
+         (Vec6.set x_shape Axis.H (Dim_arith.Extent.of_pos p.output_size.h))
          Axis.W
-         (Dim.extent (p.output_size.w :> int)))
+         (Dim_arith.Extent.of_pos p.output_size.w))
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x

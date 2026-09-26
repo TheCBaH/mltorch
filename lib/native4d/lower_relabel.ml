@@ -158,10 +158,7 @@ let relabel_op ~shape_of ~rename ~out_shape (op : op) =
       Split_with_sizes
         {
           Split.Split_with_sizes.params =
-            {
-              axis = Axis.N;
-              sizes = List.init (count :> int) (fun _ -> (run :> int));
-            };
+            { axis = Axis.N; sizes = List.init (count :> int) (fun _ -> run) };
           x;
         }
   | _ -> raise Abort
@@ -301,7 +298,7 @@ let relabel_node ~shape_of ~sig_of ~rename ~fresh_tensor ~fresh_node
             Split_with_sizes
               {
                 Split.Split_with_sizes.params =
-                  { axis; sizes = List.map (fun _ -> 1) slices };
+                  { axis; sizes = List.map (fun _ -> Dim.one) slices };
                 x = rename x;
               };
           outputs = slices;

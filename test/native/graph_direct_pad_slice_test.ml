@@ -79,8 +79,8 @@ let%expect_test "Direct graph: slice narrows one axis and keeps the rank" =
           slice ~name:"out"
             {
               Split.Slice.axis = Axis.W;
-              start = 1;
-              stop = 5;
+              start = Dim.fence 1;
+              stop = Dim.fence 5;
               step = Op_config.Pos.of_int 2;
             }
             x)
@@ -121,7 +121,9 @@ let%expect_test "Direct graph: select drops one axis" =
           build ~name:"select" ~outputs:(fun r -> [ r ])
           @@
           let* x = input ~shape:(s 1 1 1 2 5 1) ~name:"x" () in
-          select ~name:"out" { Split.Select.axis = Axis.W; index = 3 } x)
+          select ~name:"out"
+            { Split.Select.axis = Axis.W; index = Dim.index 3 }
+            x)
     in
     Format.printf "%a@." Graph_ir.pp g;
     let x =
@@ -161,7 +163,7 @@ let%expect_test
           let* self = input ~shape:(s 1 1 1 2 5 1) ~name:"self" () in
           let* src = input ~shape:(s 1 1 1 1 5 1) ~name:"src" () in
           select_scatter ~name:"out"
-            { Split.Select_scatter.axis = Axis.H; index = 1 }
+            { Split.Select_scatter.axis = Axis.H; index = Dim.index 1 }
             ~self ~src)
     in
     Format.printf "%a@." Graph_ir.pp g;
@@ -204,7 +206,7 @@ let%expect_test "Direct graph: select_scatter refuses a src of the wrong shape"
           let* self = input ~shape:(s 1 1 1 2 5 1) ~name:"self" () in
           let* src = input ~shape:(s 1 1 1 1 4 1) ~name:"src" () in
           select_scatter ~name:"out"
-            { Split.Select_scatter.axis = Axis.H; index = 1 }
+            { Split.Select_scatter.axis = Axis.H; index = Dim.index 1 }
             ~self ~src)
     in
     Format.asprintf "%a" Graph_ir.pp g
@@ -225,8 +227,8 @@ let%expect_test "Direct graph: an empty slice is not buildable" =
           slice ~name:"out"
             {
               Split.Slice.axis = Axis.W;
-              start = 2;
-              stop = 2;
+              start = Dim.fence 2;
+              stop = Dim.fence 2;
               step = Op_config.Pos.of_int 1;
             }
             x)

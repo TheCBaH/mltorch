@@ -94,29 +94,30 @@ module Conv3d = struct
 
   let validate_channels ~(weight_shape : Vec6.shape) (p : params) =
     let open Err.Syntax in
-    let in_channels = (p.in_channels :> int) in
-    let groups = (p.groups :> int) in
-    let out_channels = (Vec6.get weight_shape Axis.N :> int) in
-    let weight_in_per_group = (Vec6.get weight_shape Axis.C :> int) in
-    let* () =
-      if in_channels mod groups <> 0 then
-        Err.fail
-          (`Convolution
-             (Shape_error.Convolution.In_channels_not_divisible_by_groups
-                Shape_error.Convolution.{ channels = in_channels; groups }))
-      else Err.return ()
+    let in_channels = p.in_channels in
+    let groups = p.groups in
+    let out_channels = Vec6.get weight_shape Axis.N in
+    let weight_in_per_group = Vec6.get weight_shape Axis.C in
+    let* in_per_group =
+      match Dim_arith.Extent.div_exact ~by:groups in_channels with
+      | Some e -> Err.return e
+      | None ->
+          Err.fail
+            (`Convolution
+               (Shape_error.Convolution.In_channels_not_divisible_by_groups
+                  Shape_error.Convolution.{ channels = in_channels; groups }))
+    in
+    let* out_per_group =
+      match Dim_arith.Extent.div_exact ~by:groups out_channels with
+      | Some e -> Err.return e
+      | None ->
+          Err.fail
+            (`Convolution
+               (Shape_error.Convolution.Out_channels_not_divisible_by_groups
+                  Shape_error.Convolution.{ channels = out_channels; groups }))
     in
     let* () =
-      if out_channels mod groups <> 0 then
-        Err.fail
-          (`Convolution
-             (Shape_error.Convolution.Out_channels_not_divisible_by_groups
-                Shape_error.Convolution.{ channels = out_channels; groups }))
-      else Err.return ()
-    in
-    let in_per_group = in_channels / groups in
-    let* () =
-      if weight_in_per_group <> in_per_group then
+      if not (Dim.equal weight_in_per_group in_per_group) then
         Err.fail
           (`Convolution
              (Shape_error.Convolution.Weight_channels_mismatch
@@ -140,7 +141,7 @@ module Conv3d = struct
     let* () = check_kernel Axis.D p.d in
     let* () = check_kernel Axis.H p.h in
     let* () = check_kernel Axis.W p.w in
-    Err.return (in_per_group, out_channels / groups)
+    Err.return (in_per_group, out_per_group)
 
   (* N/T pass through; D/H/W shrink via [Window_axis.output_extent]; C = Cout
      from weight_shape. *)
@@ -186,7 +187,7 @@ module Conv3d = struct
         if (p.groups :> int) = 1 then S.index_const 0
         else
           S.index_floor_div_pos (S.of_index oc)
-            (Op_config.Pos.of_int out_per_group)
+            (Dim_arith.Extent.to_pos out_per_group)
       in
       let wd =
         Wa.window ~kernel:p.d.kernel ~stride:p.d.stride
@@ -205,8 +206,7 @@ module Conv3d = struct
       in
       let on = Vec6.get out Axis.N and ot = Vec6.get out Axis.T in
       let acc =
-        S.sum ~lo:S.index_zero
-          ~hi:(S.index_extent (Dim.extent in_per_group))
+        S.sum ~lo:S.index_zero ~hi:(S.index_extent in_per_group)
           (fun local_ic ->
             S.sum ~lo:wd.lo ~hi:wd.hi (fun kd ->
                 S.sum ~lo:wh.lo ~hi:wh.hi (fun kh ->
@@ -214,7 +214,7 @@ module Conv3d = struct
                         let ic =
                           S.assume_index
                             (S.index_add
-                               (S.index_scale in_per_group group)
+                               (S.index_scale (in_per_group :> int) group)
                                (S.of_index local_ic))
                         in
                         S.mul

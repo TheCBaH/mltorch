@@ -279,28 +279,14 @@ module Conv2d_padding = struct
   let to_conv2d_params ~(weight_shape : Vec6.shape) (p : params) :
       (Conv2d.params, Shape_error.t) Err.t =
     let open Err.Syntax in
-    let groups = (p.groups :> int) in
     (* Same aggregate rule as [Native_interp.conv_in_channels], which computes
        this from serialized metadata: the per-group input extent times the group
        count is a product of two model-supplied factors and can exceed the
        engine's per-axis ceiling even when both factors are inside it. *)
     let* in_channels =
-      let* c =
-        Window_axis.factor ~what:`In_channels
-          (Vec6.get weight_shape Axis.C :> int)
-      in
-      let* g = Window_axis.factor ~what:`In_channels groups in
-      let product = Int64.mul c g in
-      if product >= Window_axis.limit then
-        Err.fail
-          (`Window_over_limit
-             Shape_error.Window_over_limit.
-               {
-                 what = `In_channels;
-                 value = product;
-                 limit = Window_axis.limit;
-               })
-      else Err.return (Int64.to_int product)
+      Window_axis.in_channels
+        ~per_group:(Vec6.get weight_shape Axis.C)
+        ~groups:p.groups
     in
     let* h =
       axis_window ~padding:p.padding
@@ -312,7 +298,7 @@ module Conv2d_padding = struct
         ~kernel:(Vec6.get weight_shape Axis.W)
         ~stride:p.stride.w ~dilation:p.dilation.w
     in
-    { Conv2d.h; w; in_channels = Dim.extent in_channels; groups = p.groups }
+    { Conv2d.h; w; in_channels; groups = p.groups }
 
   let output_shape ~(x_shape : Vec6.shape) ~(weight_shape : Vec6.shape)
       (p : params) =

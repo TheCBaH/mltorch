@@ -508,35 +508,36 @@ let%expect_test "the limits are metered, so they survive the tree they reject" =
   [%expect {| ok |}]
 
 let%expect_test "max-pool intrinsic: descriptor, geometry, printing" =
-  let mk ?(in_h = 4) ?(in_w = 4) ?(kernel = 2) ?(stride = 1) ?(pad = 1) result =
-    Intrinsic.max_pool ~source:(src 0) ~in_h ~in_w ~kernel_h:kernel
-      ~kernel_w:kernel ~stride_h:stride ~stride_w:stride ~pad_h:pad ~pad_w:pad
-      ~out ~result
+  let module G = Core.Geometry in
+  let sq f v = G.Hw.{ h = f v; w = f v } in
+  let mk ?(input = 4) ?(kernel = 2) ?(stride = 1) ?(pad = 1) result =
+    Intrinsic.max_pool ~source:(src 0) ~input:(sq Core.Dim.extent input)
+      ~kernel:(sq Core.Dim.extent kernel)
+      ~stride:(sq G.Pos.of_int stride) ~pad:(sq G.Nonneg.of_int pad) ~out
+      ~result
   in
-  let pp_i =
-    Core.Pretty.err_result
-      ~ok:(fun fmt d -> pp_v fmt (Value.intrinsic d))
-      ~error:Intrinsic.pp_error
-  in
-  Fmt.pr "%a@." pp_i (mk Intrinsic.Max_pool.Value);
+  let pp d = pp_v Fmt.stdout (Value.intrinsic d) in
+  pp (mk Intrinsic.Max_pool.Value);
   [%expect {| max_pool2d_value(t0; k=2x2 s=1x1 p=1x1; out=[N,T,D,H,W,C]) |}];
-  Fmt.pr "%a@." pp_i (mk Intrinsic.Max_pool.Index);
+  pp (mk Intrinsic.Max_pool.Index);
   [%expect {| max_pool2d_index(t0; k=2x2 s=1x1 p=1x1; out=[N,T,D,H,W,C]) |}];
-  (* Invalid geometry never becomes a descriptor. *)
-  Fmt.pr "%a@." pp_i (mk ~stride:0 Intrinsic.Max_pool.Value);
-  [%expect {| stride_h must be > 0, got 0 |}];
-  Fmt.pr "%a@." pp_i (mk ~pad:(-1) Intrinsic.Max_pool.Value);
-  [%expect {| pad_h must be >= 0, got -1 |}]
+  (* Invalid geometry is not representable: the typed constructors refuse it
+     before a descriptor exists. *)
+  let refused f =
+    try ignore (f ()) with Invalid_argument m -> print_endline m
+  in
+  refused (fun () -> mk ~stride:0 Intrinsic.Max_pool.Value);
+  [%expect {| Op_config.Pos.of_int: not positive |}];
+  refused (fun () -> mk ~pad:(-1) Intrinsic.Max_pool.Value);
+  [%expect {| Op_config.Nonneg.of_int: negative |}]
 
 let%expect_test "max-pool geometry: the window both interpreters share" =
   let d =
-    match
-      Intrinsic.max_pool ~source:(src 0) ~in_h:4 ~in_w:4 ~kernel_h:2 ~kernel_w:2
-        ~stride_h:1 ~stride_w:1 ~pad_h:1 ~pad_w:1 ~out
-        ~result:Intrinsic.Max_pool.Value
-    with
-    | Error _ -> assert false
-    | Ok d -> d
+    let module G = Core.Geometry in
+    let sq f v = G.Hw.{ h = f v; w = f v } in
+    Intrinsic.max_pool ~source:(src 0) ~input:(sq Core.Dim.extent 4)
+      ~kernel:(sq Core.Dim.extent 2) ~stride:(sq G.Pos.of_int 1)
+      ~pad:(sq G.Nonneg.of_int 1) ~out ~result:Intrinsic.Max_pool.Value
   in
   let show out_h out_w =
     match Intrinsic.window d ~out_h ~out_w with

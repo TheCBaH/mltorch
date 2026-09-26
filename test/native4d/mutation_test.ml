@@ -373,6 +373,7 @@ let%expect_test "mutation: pad amounts swapped between the two sides" =
 let slice_pair ~src_axis ~dst_axis ~dst_start ~dst_stop =
   let bounds start stop = (start, stop, Op_config.Pos.of_int 1) in
   let s_start, s_stop, s_step = bounds 0 1 in
+  let s_start = Dim.fence s_start and s_stop = Dim.fence s_stop in
   ( nat "slice"
       Graph_builder.(
         let* x = input ~shape:sq () in
@@ -390,8 +391,8 @@ let slice_pair ~src_axis ~dst_axis ~dst_start ~dst_stop =
         slice4
           {
             Ops4.Slice4.axis = dst_axis;
-            start = dst_start;
-            stop = dst_stop;
+            start = Dim.fence dst_start;
+            stop = Dim.fence dst_stop;
             step = Op_config.Pos.of_int 1;
           }
           x) )
@@ -818,7 +819,10 @@ let split_with_sizes_pair ~swap =
       Graph_builder.(
         let* x = input ~shape:sq () in
         split_with_sizes
-          { Split.Split_with_sizes.axis = Axis.W; sizes = [ 1; 1 ] }
+          {
+            Split.Split_with_sizes.axis = Axis.W;
+            sizes = List.map Dim.extent [ 1; 1 ];
+          }
           x)
     |> Err.or_raise ~pp_error:Graph_builder.pp_error
   in
@@ -826,7 +830,7 @@ let split_with_sizes_pair ~swap =
     Builder.build ~outputs:Fun.id
       Builder.(
         let* x = input ~shape:sq4 () in
-        split_with_sizes4 Axis4.W [ 1; 1 ] x)
+        split_with_sizes4 Axis4.W (List.map Dim.extent [ 1; 1 ]) x)
     |> Err.or_raise ~pp_error:Builder.pp_error
   in
   let dst =

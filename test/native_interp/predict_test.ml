@@ -20,7 +20,8 @@ let pp_failure ppf e = Fmt.pf ppf "@[<h>error: %a@]" Native_predict.pp_error e
 
 let pp_top ppf top =
   Fmt.pf ppf "@[<h>%a@]"
-    (Fmt.list ~sep:(Fmt.any "  ") (fun ppf (i, p) -> Fmt.pf ppf "%d:%.6f" i p))
+    (Fmt.list ~sep:(Fmt.any "  ") (fun ppf (i, p) ->
+         Fmt.pf ppf "%a:%.6f" Dim.pp i p))
     top
 
 let show outputs k =

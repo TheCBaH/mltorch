@@ -232,10 +232,12 @@ let max_pool_source = Source.create 1
 let max_pool_case =
   make_case ~name:"max_pool" ~expected:4004. ~env:load_env ~output:origin
     (Value.intrinsic
-       (Err.or_raise ~pp_error:Intrinsic.pp_error
-          (Intrinsic.max_pool ~source:max_pool_source ~in_h:5 ~in_w:5
-             ~kernel_h:5 ~kernel_w:5 ~stride_h:1 ~stride_w:1 ~pad_h:0 ~pad_w:0
-             ~out:(Coord.of_fn Index.output) ~result:Intrinsic.Max_pool.Value)))
+       (let open Core.Geometry in
+        let kernel = Hw.{ h = Core.Dim.extent 5; w = Core.Dim.extent 5 } in
+        Intrinsic.max_pool ~source:max_pool_source ~input:kernel ~kernel
+          ~stride:Hw.{ h = Pos.of_int 1; w = Pos.of_int 1 }
+          ~pad:Hw.{ h = Nonneg.of_int 0; w = Nonneg.of_int 0 }
+          ~out:(Coord.of_fn Index.output) ~result:Intrinsic.Max_pool.Value))
 
 (* ---- Reduce ------------------------------------------------------------- *)
 

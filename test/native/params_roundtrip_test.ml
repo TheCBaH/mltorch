@@ -511,7 +511,12 @@ let%expect_test "Slice: encode -> decode, bounds and a narrowed step" =
       @@
       let* x = input ~shape:(s 1 1 1 4 9 2) ~name:"x" () in
       slice ~name:"y"
-        { Split.Slice.axis = Axis.W; start = 1; stop = 8; step = pos 3 }
+        {
+          Split.Slice.axis = Axis.W;
+          start = Dim.fence 1;
+          stop = Dim.fence 8;
+          step = pos 3;
+        }
         x);
   [%expect
     {|
@@ -532,7 +537,7 @@ let%expect_test "Select: encode -> decode, axis and index" =
       build ~name:"g" ~outputs:(fun r -> [ r ])
       @@
       let* x = input ~shape:(s 1 1 1 4 9 2) ~name:"x" () in
-      select ~name:"y" { Split.Select.axis = Axis.W; index = 5 } x);
+      select ~name:"y" { Split.Select.axis = Axis.W; index = Dim.index 5 } x);
   [%expect
     {|
     select: graph

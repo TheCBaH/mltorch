@@ -117,7 +117,7 @@ let%expect_test "direct4: select4 reads one slice at the chosen index" =
       ~outputs:(fun o -> [ o ])
       (let open Builder in
        let* x = input ~shape () in
-       select4 { Ops4.Select4.axis = Axis4.C; index = 1 } x)
+       select4 { Ops4.Select4.axis = Axis4.C; index = Dim.index 1 } x)
   in
   let x =
     Tensor.materialize (Shape4.to_vec6 shape) (fun c ->
@@ -139,7 +139,7 @@ let%expect_test "direct4: split_with_sizes keeps the axis, sliced by window" =
     build ~outputs:Fun.id
       (let open Builder in
        let* x = input ~shape () in
-       split_with_sizes4 Axis4.W [ 1; 3 ] x)
+       split_with_sizes4 Axis4.W (List.map Dim.extent [ 1; 3 ]) x)
   in
   let x =
     Tensor.materialize (Shape4.to_vec6 shape) (fun c ->

@@ -6,13 +6,24 @@
    conventions built on Fmt, which [Err] does not and must not depend on.
 
    The library keeps the name [core] because renaming it would touch every
-   consumer to no effect. Read it as "the repo's shared printer glue".
+   consumer to no effect. Read it as "the repo's shared foundations": printer
+   glue, and the small scalar types ([Dim], [Geometry], [Tagged_int]) that sit
+   below the expression language so it and [native] can share them.
 
    [Float_bits] is the other shared primitive in this library. Its explicit
    exact and portable policies keep structural float identities from silently
    choosing incompatible NaN semantics. *)
 
 module Float_bits : module type of Float_bits
+
+(* The scalar roles of the engine's sizes and positions ([extent], [index],
+   [delta], …), the guarded op hyper-parameters ([Geometry]) and the role
+   markers they share with [Expr]. They sit here, below the expression
+   language, so that [Expr] and [native] speak the same types. See .ai/
+   (domain-typed integers). *)
+module Dim = Dim
+module Geometry = Geometry
+module Role = Role
 
 (* Generative [private int] domains for ids, ordinals and other numbers that are
    only compared, keyed and printed. See .ai/ (domain-typed integers). *)

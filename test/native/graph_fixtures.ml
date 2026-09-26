@@ -298,8 +298,8 @@ let sink_permute_slice () =
       slice
         {
           Split.Slice.axis = Axis.W;
-          start = 0;
-          stop = 2;
+          start = Dim.fence 0;
+          stop = Dim.fence 2;
           step = Op_config.Pos.of_int 1;
         }
         a)

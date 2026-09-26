@@ -1,13 +1,10 @@
 (* See op_config.mli. *)
 
+(* The guarded scalars and the H/W pair are defined in [Core.Geometry], below
+   the expression language; this module adds their wire codecs. *)
+
 module Nonneg = struct
-  type t = int
-
-  let of_int n =
-    if n < 0 then invalid_arg "Op_config.Nonneg.of_int: negative" else n
-
-  let to_int (x : t) = x
-  let pp fmt (x : t) = Fmt.int fmt x
+  include Core.Geometry.Nonneg
 
   let jsont : t Jsont.t =
     Jsont.map ~kind:"nonneg"
@@ -19,13 +16,7 @@ module Nonneg = struct
 end
 
 module Pos = struct
-  type t = int
-
-  let of_int n =
-    if n < 1 then invalid_arg "Op_config.Pos.of_int: not positive" else n
-
-  let to_int (x : t) = x
-  let pp fmt (x : t) = Fmt.int fmt x
+  include Core.Geometry.Pos
 
   let jsont : t Jsont.t =
     Jsont.map ~kind:"pos"
@@ -82,14 +73,11 @@ module Bad = struct
 end
 
 module Hw = struct
-  type 'a t = { h : 'a; w : 'a }
+  include Core.Geometry.Hw
 
   let jsont elt =
     Jsont.Object.map ~kind:"hw" (fun h w -> { h; w })
     |> Jsont.Object.mem "h" elt ~enc:(fun hw -> hw.h)
     |> Jsont.Object.mem "w" elt ~enc:(fun hw -> hw.w)
     |> Jsont.Object.finish
-
-  let pp pp_elt fmt { h; w } =
-    Fmt.pf fmt "@[<hv>{h=%a;@ w=%a}@]" pp_elt h pp_elt w
 end

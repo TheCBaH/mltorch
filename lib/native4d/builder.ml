@@ -428,9 +428,9 @@ let softmax4 params x = op1 (Op.Softmax4 { Ops4.Softmax4.params; x })
 
 (* Takes [Axis4.t] and [sizes] together, so a split naming T or D is not
    constructible through this API -- [unbind]'s rule, extended to a caller-
-   chosen arity. [sizes] itself stays validated rather than typed, the same
-   choice [slice4]'s bounds make: "sums to the axis extent" is a relation
-   between a list and an extent, which no type here carries. *)
+   chosen arity. Each size is an extent; "the sizes sum to the axis extent" is
+   a relation between a list and an extent, which no type here carries, so the
+   shape rule checks it. *)
 let split_with_sizes4 axis sizes x =
   let* s = get in
   let sg = Tensor_id.Map.find x s.tensors in

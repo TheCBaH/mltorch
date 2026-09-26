@@ -13,11 +13,11 @@
       axis before [topk]. *)
 
 module Too_few_classes = struct
-  type t = { classes : int; wanted : int }
+  type t = { classes : Dim.extent Dim.t; wanted : int }
 end
 
 module Non_finite = struct
-  type t = { index : int; value : float }
+  type t = { index : Dim.index Dim.t; value : float }
 end
 
 type error =
@@ -30,13 +30,13 @@ type error =
 let pp_error ppf : [< error ] -> unit = function
   | `Invalid_k k -> Fmt.pf ppf "top-k needs k >= 1, got %d" k
   | `Non_finite_logit { Non_finite.index; value } ->
-      Fmt.pf ppf "non-finite logit at class %d: %h" index value
+      Fmt.pf ppf "non-finite logit at class %a: %h" Dim.pp index value
   | `Not_class_logits shape ->
       Fmt.pf ppf "not one batch of class logits: %a" Vec6.pp_shape shape
   | `Output_count n -> Fmt.pf ppf "expected exactly one output tensor, got %d" n
   | `Too_few_classes { Too_few_classes.classes; wanted } ->
-      Fmt.pf ppf "top-%d requested, only %d class%s" wanted classes
-        (if classes = 1 then "" else "es")
+      Fmt.pf ppf "top-%d requested, only %a class%s" wanted Dim.pp classes
+        (if Dim.equal classes Dim.one then "" else "es")
 
 (* Every axis but [C] must be a single element: one batch of class logits.
    This list is in the tensor frame's canonical order (not alphabetical), so
@@ -59,7 +59,7 @@ let first_non_finite logits =
   let rec go i =
     if i >= Array.length logits then None
     else if Float.is_finite logits.(i) then go (i + 1)
-    else Some { Non_finite.index = i; value = logits.(i) }
+    else Some { Non_finite.index = Dim.index i; value = logits.(i) }
   in
   go 0
 
@@ -80,9 +80,9 @@ let top_predictions outputs k =
         | Error e -> Err.fail e)
     | outputs -> Err.fail (`Output_count (List.length outputs))
   in
-  let classes = Array.length logits in
+  let classes = Dim.extent (Array.length logits) in
   let* () =
-    if classes >= k then Err.return ()
+    if (classes :> int) >= k then Err.return ()
     else Err.fail (`Too_few_classes { Too_few_classes.classes; wanted = k })
   in
   let* () =
@@ -100,4 +100,5 @@ let top_predictions outputs k =
   in
   Err.return
     (List.filteri (fun i _ -> i < k) ranked
-    |> List.map (fun (i, l) -> (i, Float.exp (l -. max_logit) /. denominator)))
+    |> List.map (fun (i, l) ->
+        (Dim.index i, Float.exp (l -. max_logit) /. denominator)))

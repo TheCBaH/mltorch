@@ -26,8 +26,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **Result/Option handling**: the error framework is `Err`, from vendored `err_trace`
   (`vendored/err_trace` — name and public_name are the same, unlike most libs here).
-  `lib/core` keeps only `Core.Pretty` (Fmt glue) — the dependency runs one way, `Err` must
-  never depend on Fmt.
+  `lib/core` keeps `Core.Pretty` (Fmt glue) beside the scalar types `Core.Dim`,
+  `Core.Geometry` and `Core.Tagged_int` — the dependency runs one way, `Err` must never
+  depend on Fmt.
   Compose printing through `Fmt.result`/`Fmt.option`/`Core.Pretty` rather than hand-rolling
   `match Ok/Error`. Don't cross an `Err.t` into an exception boundary by hand
   (`Error e -> failwith (...)`) — use `Err.or_raise ~pp_error`, which raises `Err.Exn.E`
@@ -108,8 +109,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   ordinal, next-free counter or algorithm-local number gets a type no other domain's `int`
   can be passed for: a phantom-role family (`Dim`) where the domains share arithmetic,
   `Core.Tagged_int.Make ()` where they are only compared, keyed and printed. Budgets,
-  tallies, bit patterns, storage cells, compare/hash results, wire values and `Expr`
-  literals stay `int`. Don't unwrap to do arithmetic and re-wrap — add the operation to
+  tallies, bit patterns, storage cells, compare/hash results, wire values, `Expr`
+  literals and values an error reports as written (they failed the check that would have
+  typed them) stay `int`. Don't unwrap to do arithmetic and re-wrap — add the operation to
   the domain's module. `make check.int-signatures` (part of `make runtest`) fails on an
   `int` in an in-scope `.mli` that isn't allowlisted with a category, and on stale
   entries; the `todo-domain` ceiling only goes down. See `.ai/` for the design.

@@ -382,8 +382,8 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                  slice
                    {
                      Split.Slice.axis;
-                     start = (bounds.Aten_shape.Slice_bounds.start :> int);
-                     stop = (bounds.Aten_shape.Slice_bounds.stop :> int);
+                     start = bounds.Aten_shape.Slice_bounds.start;
+                     stop = bounds.Aten_shape.Slice_bounds.stop;
                      step = bounds.Aten_shape.Slice_bounds.step;
                    }
                    x_id
@@ -516,9 +516,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          build_g ~name:"select" [ x ] (function
            | [ x_id ] ->
                let open Graph_builder in
-               let+ y =
-                 select { Split.Select.axis; index = (idx :> int) } x_id
-               in
+               let+ y = select { Split.Select.axis; index = idx } x_id in
                [ y ]
            | _ -> assert false))
   (* One [Select_scatter] node: [self] with [src] written at [idx] along
@@ -554,7 +552,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y =
                  select_scatter
-                   { Split.Select_scatter.axis; index = (idx :> int) }
+                   { Split.Select_scatter.axis; index = idx }
                    ~self:self_id ~src:src_id
                in
                [ y ]
@@ -715,13 +713,19 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
         (let* aten_x = tensor_arg aten_env node "self" in
          let rank = aten_rank aten_x in
          let* dim = dim_arg ~default:0 node "dim" in
-         let* sizes = ints_arg node "split_sizes" in
+         let* sizes = sizes_arg node "split_sizes" in
          let* x = native_of_aten "self" aten_x in
          let* axis = dim_axis ~op:"split_with_sizes.default" ~rank dim in
+         let* params =
+           Split.Split_with_sizes.of_aten ~axis
+             ~in_extent:(Vec6.get (packed_shape x) axis)
+             sizes
+           |> Err.map_error (fun e -> `Build e)
+         in
          build_g ~name:"split_with_sizes" [ x ] (function
            | [ x_id ] ->
                let open Graph_builder in
-               split_with_sizes { Split.Split_with_sizes.axis; sizes } x_id
+               split_with_sizes params x_id
            | _ -> assert false))
   (* `split.Tensor(self, split_size, dim)` -- the equal-chunk-size sibling of
      [split_with_sizes.default] just above. Binds to the *existing*
@@ -740,7 +744,10 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
            pos ~op:"split.Tensor" ~param:`Split_size split_size
          in
          let extent = (Vec6.get (packed_shape x) axis :> int) in
-         let sizes = chunk_sizes ~extent ~split_size:(split_size :> int) in
+         let sizes =
+           List.map Dim.extent
+             (chunk_sizes ~extent ~split_size:(split_size :> int))
+         in
          build_g ~name:"split" [ x ] (function
            | [ x_id ] ->
                let open Graph_builder in

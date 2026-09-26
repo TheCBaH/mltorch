@@ -173,12 +173,19 @@ let always_ok_scan_reader : Eval.scan_reader =
 
 let make_out ~h ~w = Coord.set (Coord.set zero_coord Axis.H h) Axis.W w
 
+(* A 1x1 window of stride 1 and no padding, in the types [max_pool] takes. *)
+let unit_window =
+  Core.Geometry.Hw.
+    ( { h = Core.Dim.extent 1; w = Core.Dim.extent 1 },
+      { h = Core.Geometry.Pos.of_int 1; w = Core.Geometry.Pos.of_int 1 },
+      { h = Core.Geometry.Nonneg.of_int 0; w = Core.Geometry.Nonneg.of_int 0 }
+    )
+
 let max_pool_descriptor ~h ~w ~result =
-  Err.or_raise ~pp_error:Intrinsic.pp_error
-    (Intrinsic.max_pool
-       ~source:(load_ok_const "pixel" 7.0)
-       ~in_h:1 ~in_w:1 ~kernel_h:1 ~kernel_w:1 ~stride_h:1 ~stride_w:1 ~pad_h:0
-       ~pad_w:0 ~out:(make_out ~h ~w) ~result)
+  let extent, stride, pad = unit_window in
+  Intrinsic.max_pool
+    ~source:(load_ok_const "pixel" 7.0)
+    ~input:extent ~kernel:extent ~stride ~pad ~out:(make_out ~h ~w) ~result
 
 let run_order_sensitive_sites () =
   case "Binary/ok" (Value.add (load_v "a" 1.0) (load_v "b" 2.0));
@@ -273,11 +280,11 @@ let run_helper_cases () =
        ~c:(data_ok "C" ~extent:100 0L)
    in
    let d =
-     Err.or_raise ~pp_error:Intrinsic.pp_error
-       (Intrinsic.max_pool
-          ~source:(load_ok_const "pixel" 7.0)
-          ~in_h:1 ~in_w:1 ~kernel_h:1 ~kernel_w:1 ~stride_h:1 ~stride_w:1
-          ~pad_h:0 ~pad_w:0 ~out ~result:Intrinsic.Max_pool.Value)
+     let extent, stride, pad = unit_window in
+     Intrinsic.max_pool
+       ~source:(load_ok_const "pixel" 7.0)
+       ~input:extent ~kernel:extent ~stride ~pad ~out
+       ~result:Intrinsic.Max_pool.Value
    in
    case "Max_pool/ok" (Value.intrinsic d));
   (let out =
@@ -285,11 +292,11 @@ let run_helper_cases () =
        ~h:Index.zero ~w:Index.zero ~c:(data_err "C")
    in
    let d =
-     Err.or_raise ~pp_error:Intrinsic.pp_error
-       (Intrinsic.max_pool
-          ~source:(load_ok_const "pixel" 7.0)
-          ~in_h:1 ~in_w:1 ~kernel_h:1 ~kernel_w:1 ~stride_h:1 ~stride_w:1
-          ~pad_h:0 ~pad_w:0 ~out ~result:Intrinsic.Max_pool.Value)
+     let extent, stride, pad = unit_window in
+     Intrinsic.max_pool
+       ~source:(load_ok_const "pixel" 7.0)
+       ~input:extent ~kernel:extent ~stride ~pad ~out
+       ~result:Intrinsic.Max_pool.Value
    in
    case "Max_pool/fail" (Value.intrinsic d));
 

@@ -16,19 +16,9 @@
    extent on the tiled axis. Shared by [Repeat] (every axis) and
    [RepeatInterleave] (one named axis) so the bound cannot drift between the
    two. *)
-let bounded_axis_extent ~(x_extent : Dim.extent Dim.t) ~(repeats : int) =
-  let limit = Kernel.Limits.Hard.extent in
-  let x = Int64.of_int (x_extent :> int) in
-  let r = Int64.of_int repeats in
-  if
-    x >= limit || r >= limit
-    || Int64.compare x (Int64.div (Int64.sub limit 1L) r) > 0
-  then
-    let value = if x >= limit || r >= limit then limit else Int64.mul x r in
-    Err.fail
-      (`Window_over_limit
-         Shape_error.Window_over_limit.{ what = `Output_extent; value; limit })
-  else Err.return (Dim.extent (Int64.to_int (Int64.mul x r)))
+let bounded_axis_extent ~(x_extent : Dim.extent Dim.t)
+    ~(repeats : Op_config.Pos.t) =
+  Window_axis.channels ~what:`Output_extent ~per_group:x_extent ~groups:repeats
 
 module Repeat = struct
   type params = { repeats : Vec6.shape }
@@ -71,7 +61,7 @@ module Repeat = struct
       (fun s axis ->
         let+ e =
           bounded_axis_extent ~x_extent:(Vec6.get x_shape axis)
-            ~repeats:(Vec6.get p.repeats axis :> int)
+            ~repeats:(Dim_arith.Extent.to_pos (Vec6.get p.repeats axis))
         in
         Vec6.set s axis e)
       x_shape Axis.all
@@ -86,10 +76,10 @@ module Repeat = struct
       let coord =
         Vec6.mapi
           (fun a o ->
-            let ext = (Vec6.get x_shape a :> int) in
+            let ext = Dim_arith.Extent.to_pos (Vec6.get x_shape a) in
             let o = S.of_index o in
-            let q = S.index_floor_div_pos o (Op_config.Pos.of_int ext) in
-            S.assume_index (S.index_add o (S.index_scale (-ext) q)))
+            let q = S.index_floor_div_pos o ext in
+            S.assume_index (S.index_add o (S.index_scale (-(ext :> int)) q)))
           out
       in
       S.load x coord
@@ -152,8 +142,7 @@ module RepeatInterleave = struct
   let output_shape ~(x_shape : Vec6.shape) (p : params) =
     let open Err.Syntax in
     let+ e =
-      bounded_axis_extent ~x_extent:(Vec6.get x_shape p.axis)
-        ~repeats:(p.repeats :> int)
+      bounded_axis_extent ~x_extent:(Vec6.get x_shape p.axis) ~repeats:p.repeats
     in
     Vec6.set x_shape p.axis e
 
