@@ -47,6 +47,8 @@ let evaluate resolver r ~inputs =
       r.constants
       (Constant_store.materialized store)
   in
+  (* Keeps every edge (the default [Retain.All]): the whole env is returned, and
+     which intermediates matter is the caller's to decide, not this one's. *)
   let+ env =
     Eval_direct4.run (graph r)
       ~constants:(Tensor_id.Map.bindings constants)

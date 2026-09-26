@@ -61,7 +61,8 @@ let run ?hooks ?region_executor ?region_group_executor ?node_executor archive
   in
   let* env =
     Eval_direct.run ?hooks:eval_hooks ?region_executor ?region_group_executor
-      ?node_executor ~constants graph ~inputs
+      ?node_executor ~retain:(Release_schedule.Retain.Only Tensor_id.Set.empty)
+      ~constants graph ~inputs
     |> Err.map_error ~pos:__POS__ (fun e -> `Eval e)
   in
   Err.List.map
@@ -337,7 +338,8 @@ let evaluate ?region_executor ?region_group_executor ?node_executor archive
   in
   let* env =
     Eval_direct.run ?region_executor ?region_group_executor ?node_executor
-      ~constants t.graph ~inputs
+      ~retain:(Release_schedule.Retain.Only Tensor_id.Set.empty) ~constants
+      t.graph ~inputs
     |> Err.map_error ~pos:__POS__ (fun e -> `Eval e)
   in
   let+ outputs =

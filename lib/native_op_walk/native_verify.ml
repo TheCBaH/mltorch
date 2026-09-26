@@ -16,7 +16,11 @@ let run ppf (s : Native_subject.t) : bool =
   let shape_of oid =
     (Tensor_id.Map.find oid g.Graph_ir.Graph.tensors).Tensor_sig.shape
   in
-  match Eval_direct.run g ~inputs:s.Native_subject.inputs with
+  match
+    Eval_direct.run g
+      ~retain:(Release_schedule.Retain.Only Graph_ir.Tensor_id.Set.empty)
+      ~inputs:s.Native_subject.inputs
+  with
   | Error e ->
       Fmt.pf ppf "[native] %s: eval error: %a@." s.Native_subject.target
         Eval_direct.pp_error (Err.Error.kind e);

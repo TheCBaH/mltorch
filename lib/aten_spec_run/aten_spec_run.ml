@@ -304,7 +304,11 @@ let native_result env node =
   | None -> Skipped
   | Some (Error e) -> Bridge_error (Err.Error.kind e)
   | Some (Ok (graph, bindings)) -> (
-      match Eval_direct.run graph ~inputs:bindings with
+      match
+        Eval_direct.run graph
+          ~retain:(Release_schedule.Retain.Only Graph_ir.Tensor_id.Set.empty)
+          ~inputs:bindings
+      with
       | Error e -> Eval_error (Err.Error.kind e)
       | Ok result_env ->
           Computed
@@ -392,7 +396,12 @@ let eval_print ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) : unit
         | None -> `None
         | Some (Error e) -> `Bridge_error e
         | Some (Ok (graph, bindings)) -> (
-            match Eval_direct.run graph ~inputs:bindings with
+            match
+              Eval_direct.run graph
+                ~retain:
+                  (Release_schedule.Retain.Only Graph_ir.Tensor_id.Set.empty)
+                ~inputs:bindings
+            with
             | Error e -> `Eval_error e
             | Ok result_env ->
                 `Ok
@@ -665,7 +674,12 @@ let compare_report ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) :
             (Err.Error.kind e);
           false
       | Some (Ok (graph, bindings)) -> (
-          match Eval_direct.run graph ~inputs:bindings with
+          match
+            Eval_direct.run graph
+              ~retain:
+                (Release_schedule.Retain.Only Graph_ir.Tensor_id.Set.empty)
+              ~inputs:bindings
+          with
           | Error e ->
               Format.fprintf ppf "  status: eval error: %a@."
                 Eval_direct.pp_error (Err.Error.kind e);

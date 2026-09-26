@@ -120,10 +120,14 @@ let evaluate ~constant_store ~constants ~view (n : node) out =
             Option.map (fun p -> (id, p)) (Tensor_id.Map.find_opt id constants))
           g.Graph.inputs
       in
-      match Eval_direct.run g ~constants:payloads ~inputs:[] with
+      match
+        Eval_direct.run g
+          ~retain:(Release_schedule.Retain.Only (Tensor_id.Set.singleton out))
+          ~constants:payloads ~inputs:[]
+      with
       | Error _ -> None
-      (* [Eval_direct] returns every edge, so the value is there whether or not
-         the folded node's output escaped the region. *)
+      (* [out] is retained by name, so the value is there whether or not the
+         folded node's output escaped the region. *)
       | Ok env -> Tensor_id.Map.find_opt out env)
 
 let on_node : type v.

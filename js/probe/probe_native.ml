@@ -97,6 +97,7 @@ let run_conv () =
   in
   let env =
     Eval_direct.run graph
+      ~retain:(Release_schedule.Retain.Only Graph_ir.Tensor_id.Set.empty)
       ~constants:[ (w_id, ramp w_shape ~period:13 ~centre:6 ~denom:32.0) ]
       ~inputs:[ (x_id, ramp x_shape ~period:23 ~centre:11 ~denom:8.0) ]
     |> Err.or_raise ~pp_error:Eval_direct.pp_error
