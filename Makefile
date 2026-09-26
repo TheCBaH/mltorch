@@ -375,8 +375,13 @@ test:
 # interactive shell" note; NO_COLOR forces the plain (uncolored) renderer so a
 # promotion made from an interactive shell can't disagree with one made on a
 # runner.
+#
+# TERM=dumb for the same reason: with a color-capable TERM cmdliner styles
+# option names in bold (dune's cram strips the escapes, leaving them bare); with
+# none it quotes them. Dune doesn't track the variable, so a cached run under
+# another TERM hides the difference until CI.
 runtest:
-	NO_COLOR=1 opam exec -- dune runtest --auto-promote
+	TERM=dumb NO_COLOR=1 opam exec -- dune runtest --auto-promote
 
 # Per-partition inline-test timing report + regression gate, over every
 # (inline_tests) library in the project -- see

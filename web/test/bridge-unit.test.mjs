@@ -61,7 +61,12 @@ test('an absent options object reproduces the pre-options request exactly', () =
     assert.deepEqual(decoded(result).stages, ALL);
     assert.equal(decoded(result).fold, false);
     assert.equal(decoded(result).verifySymbolic, undefined);
-    assert.deepEqual(result.options, { stages: ALL, fold: false, verifySymbolic: null });
+    assert.deepEqual(result.options, {
+      stages: ALL,
+      fold: false,
+      verifySymbolic: null,
+      generatedJs: null,
+    });
   }
 });
 

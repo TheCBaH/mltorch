@@ -80,6 +80,7 @@ module Options : sig
             projected. Symbolic evaluation and kernel adaptation still run to
             construct the initial expression-detail subgraphs. *)
     fold : bool;
+    generated_js : Loop_ir.Loop_opt.Pass.t list option;
     verify_symbolic : Map_verify.Effort.t option;
     name : string;  (** the model's own name, which becomes the collection *)
     source_bytes : int64;

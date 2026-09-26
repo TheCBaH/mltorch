@@ -20,6 +20,7 @@
   fmt
   jsont
   jsont.bytesrw
+  loop_ir
   model_explorer
   native
   native4d

@@ -189,12 +189,27 @@ test('cancelling mid-load leaves the previous model usable and says nothing stal
     // Reload cancels whatever is in flight before starting, so the second click
     // supersedes the first candidate while it is still processing.
     await page.locator('#reload').click();
-    await expect(page.locator('#visualizer .visualizer-slot')).toHaveCount(2, { timeout: 90_000 });
-    await page.locator('#reload').click();
+    // The second click and the count that follows it run in the same
+    // synchronous step as the observation of the second slot. Driving them
+    // from Playwright leaves round-trips in between, in which the first
+    // candidate can finish and be removed legitimately -- a race that a slower
+    // runner loses more often, and that no throttle rate closes.
+    const afterSecondClick = await page.evaluate(() => new Promise<number>((resolve) => {
+      const mount = document.getElementById('visualizer')!;
+      const slotCount = () => mount.querySelectorAll('.visualizer-slot').length;
+      const observer = new MutationObserver(() => check());
+      const check = () => {
+        if (slotCount() < 2) return;
+        observer.disconnect();
+        document.getElementById('reload')!.click();
+        resolve(slotCount());
+      };
+      observer.observe(mount, { childList: true, subtree: true });
+      check();
+    }));
     // Cancellation removes authority, not the DOM connection: tearing a still
     // processing element out is precisely what throws NG0953.
-    expect(await page.locator('#visualizer .visualizer-slot').count(),
-      'the cancelled candidate was torn out').toBe(2);
+    expect(afterSecondClick, 'the cancelled candidate was torn out').toBe(2);
   } finally {
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
   }
@@ -807,4 +822,98 @@ test('the backbone stages are labelled, not offered as checkboxes', async ({ pag
   const boxes = await page.locator('#stage-controls input[type=checkbox]')
     .evaluateAll((es) => es.map((e) => (e as HTMLInputElement).id));
   expect(boxes.sort()).toEqual(['stage-fusion', 'stage-kernel', 'stage-native4d', 'stage-stage_program']);
+});
+
+/* --------------------------------------------------------- generated JS */
+
+/* `expr/g/native/001/n0`'s `out0` is mobilenetv2_050's first canonical
+ * operator's detail, established the same way test/me_generated_js_cram.t
+ * (the OCaml side of this same feature) does. Entered directly through the
+ * element's own `selectNode`, exactly as `selectFlowNode` above does for the
+ * flow graph -- the graph is already an eager part of the initial session,
+ * so this is not a second request, only a navigation. */
+async function selectDetailNode(page: Page, nodeId: string, graphId: string) {
+  await page.evaluate(
+    ({ nodeId, graphId }) => new Promise<void>((resolve) => {
+      const slot = document.querySelector('#visualizer .visualizer-slot--current');
+      const element = slot?.querySelector('model-explorer-visualizer') as any;
+      const onEvent = (e: any) => {
+        if (e.detail?.modelGraph?.id !== graphId) return;
+        element.removeEventListener('modelGraphProcessed', onEvent);
+        resolve();
+      };
+      element.addEventListener('modelGraphProcessed', onEvent);
+      element.selectNode(nodeId, graphId);
+    }),
+    { nodeId, graphId },
+  );
+}
+
+/* Read straight off the rendered side panel's attribute table -- the DOM the
+ * element itself built from its own `graphCollections`, not our OCaml
+ * validator and not a re-parse of the session text. The value survives in
+ * `textContent` even while the row is visually clipped (Stage 0's finding),
+ * so no expand click is needed to read it back. */
+async function nodeAttrValue(page: Page, key: string): Promise<string | null> {
+  return page.evaluate((key) => {
+    function walk(root: ParentNode): Element[] {
+      const found: Element[] = [];
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) found.push(...walk(el.shadowRoot));
+        found.push(el);
+      }
+      return found;
+    }
+    for (const row of walk(document).filter((e) => e.tagName === 'TR')) {
+      const cells = row.querySelectorAll('td');
+      if (cells.length >= 2 && cells[0].textContent?.trim() === key) {
+        return (row.querySelector('.text-content') ?? cells[1]).textContent?.trim() ?? null;
+      }
+    }
+    return null;
+  }, key);
+}
+
+test('generated JS is off by default, then reflects Optimized/raw/a custom pass', async ({ page }) => {
+  test.setTimeout(180_000);
+  await page.goto('/index.html?model=mobilenetv2_050');
+  await loaded(page);
+
+  await selectDetailNode(page, 'out0', 'expr/g/native/001/n0');
+  expect(await nodeAttrValue(page, 'js')).toBeNull();
+
+  // Turning the feature on reveals "Optimized", checked by default.
+  await page.locator('#generated-js').check();
+  await expect.poll(() => new URL(page.url()).searchParams.get('generatedjs'),
+    { timeout: 90_000, message: 'turning on generated JS did not start an export' }).toBe('optimized');
+  await expect(page.locator('#generated-js-optimized')).toBeVisible();
+  await expect(page.locator('#generated-js-optimized')).toBeChecked();
+  await selectDetailNode(page, 'out0', 'expr/g/native/001/n0');
+  const optimized = await nodeAttrValue(page, 'js');
+  expect(optimized).not.toBeNull();
+
+  // Unchecking "Optimized" with nothing else touched is raw: every pass
+  // checkbox appears, all unchecked, and the text changes.
+  await page.locator('#generated-js-optimized').uncheck();
+  await expect.poll(() => new URL(page.url()).searchParams.get('generatedjs'), { timeout: 90_000 }).toBe('raw');
+  const passBoxes = page.locator('[id^="generated-js-pass-"]');
+  await expect(passBoxes).toHaveCount(7);
+  for (const box of await passBoxes.all()) await expect(box).not.toBeChecked();
+  await selectDetailNode(page, 'out0', 'expr/g/native/001/n0');
+  const raw = await nodeAttrValue(page, 'js');
+  expect(raw).not.toBeNull();
+  expect(raw).not.toBe(optimized);
+
+  // Checking exactly one pass back in (unit_loops -- the CLI cram found this
+  // node's operator, a Permute, simple enough that fold/simplify/guards/cse/
+  // hoist are each individually no-ops on it) is a third, distinct text.
+  await page.locator('#generated-js-pass-unit_loops').check();
+  await expect.poll(() => new URL(page.url()).searchParams.get('generatedjs'), { timeout: 90_000 }).toBe('unit_loops');
+  await selectDetailNode(page, 'out0', 'expr/g/native/001/n0');
+  const custom = await nodeAttrValue(page, 'js');
+  expect(custom).not.toBeNull();
+  expect(custom).not.toBe(optimized);
+  expect(custom).not.toBe(raw);
+
+  await expect(page.locator('#effective-options')).toContainText('generated JS custom');
 });

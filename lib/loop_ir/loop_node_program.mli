@@ -30,7 +30,15 @@ val kernel :
 
 val lower :
   ?limits:Kernel.Limits.t ->
+  ?passes:Loop_opt.pass list ->
   Graph_ir.graph ->
   Graph_ir.node ->
   output:Output_ordinal.t ->
   (Loop_program.t, error) Err.t
+(** [passes] defaults to {!Loop_opt.passes} (the full pipeline, matching
+    {!Loop_lower.lower}'s own choke point exactly). [~passes:[]] is the raw,
+    unoptimized program ({!Loop_lower.lower_unoptimized}); {!Loop_opt.select}
+    names an arbitrary subset. Selecting a subset here changes only what a
+    READER sees -- every executed path ([Kernel_eval], the jsoo executor, the
+    Loop interpreter) still goes through {!Loop_lower.lower}'s fixed pipeline,
+    never this one. *)

@@ -52,6 +52,7 @@ let session_of ~limits =
          {
            Me_export.Options.stages = Me_session.Capability.all_stages;
            fold = false;
+           generated_js = None;
            verify_symbolic = None;
            name = "tiny";
            source_bytes = Int64.of_int (String.length model);
@@ -293,6 +294,7 @@ let session_with tight =
       {
         Me_export.Options.stages = Me_session.Capability.all_stages;
         fold = false;
+        generated_js = None;
         verify_symbolic = None;
         name = "tiny";
         source_bytes = Int64.of_int (String.length model);
@@ -464,3 +466,271 @@ let%expect_test "a Region detail includes its locals and emitter" =
     e6 +
     e7 local
     e8 const 1 |}]
+
+(* --- generated JavaScript --- *)
+
+let multi_output_node () =
+  let g = Native_test.Graph_fixtures.multi_output () in
+  let node =
+    List.find
+      (fun (n : Graph_ir.node) -> List.length n.Graph_ir.Node.outputs > 1)
+      g.Graph_ir.Graph.nodes
+  in
+  (g, node)
+
+let pp_js_attr ppf : Me_detail.Js_attr.t -> unit = function
+  | Emitted text -> Fmt.pf ppf "Emitted (%d bytes)" (String.length text)
+  | Unavailable e ->
+      Fmt.pf ppf "Unavailable %a" Loop_ir.Loop_node_program.pp_error e
+
+let direct ~passes g node ~output : Me_detail.Js_attr.t =
+  match Loop_ir.Loop_node_program.lower ~passes g node ~output with
+  | Ok program -> Emitted (Loop_ir.Loop_js.emit program)
+  | Error e -> Unavailable (Err.Error.kind e)
+
+let equal_attr (a : Me_detail.Js_attr.t) (b : Me_detail.Js_attr.t) =
+  match (a, b) with
+  | Emitted a, Emitted b -> String.equal a b
+  | Unavailable _, Unavailable _ -> true
+  | (Emitted _ | Unavailable _), _ -> false
+
+let%expect_test
+    "generated_js (optimized and raw) is exactly Loop_js.emit of \
+     Loop_node_program.lower, per output" =
+  let g, node = multi_output_node () in
+  List.iter
+    (fun (ordinal, _) ->
+      List.iter
+        (fun (label, passes) ->
+          let via_detail =
+            Me_detail.generated_js ~passes g node ~output:ordinal
+          in
+          let expected = direct ~passes g node ~output:ordinal in
+          Fmt.pr "output %a %-9s agree=%b %a@." Output_ordinal.pp ordinal label
+            (equal_attr via_detail expected)
+            pp_js_attr via_detail)
+        [ ("optimized", Loop_ir.Loop_opt.passes); ("raw", []) ])
+    (Output_ordinal.indexed node.Graph_ir.Node.outputs);
+  [%expect
+    {|
+    output 0 optimized agree=true Emitted (729 bytes)
+    output 0 raw       agree=true Emitted (1076 bytes)
+    output 1 optimized agree=true Emitted (1187 bytes)
+    output 1 raw       agree=true Emitted (1558 bytes) |}]
+
+(* Mutation proof: if [of_operator] ever attached output 0's JS to every
+   [out<i>] node, these two outputs' [js] texts would stop differing, and this
+   test would go red. Output 0 (the pooled value) and output 1 (its index,
+   converted to int64) are genuinely different kernels, so a same-JS bug
+   cannot produce this pattern by accident. Run for both the default
+   (optimized) and the raw toggle, since the two are exclusive: at most one
+   [js] family is ever attached to a built graph, never both at once. *)
+let%expect_test
+    "of_operator decorates each out<i> with its own js, not output 0's for \
+     every output -- true for both the raw/optimized toggle" =
+  let g, node = multi_output_node () in
+  let outputs =
+    List.map
+      (fun id ->
+        {
+          Kernel.Value.id;
+          sg =
+            Tensor_sig.create ~id ~name:""
+              ~shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1)
+              ~fmt:(Payload.Fmt Payload.F32) ();
+          computation =
+            Region_group.Ref.Solo (Region_program.pixel (Expr.Value.const 0.));
+          result = Kernel.Result_conversion.Round_f32;
+        })
+      node.Graph_ir.Node.outputs
+  in
+  let attr_value (n : ME.GraphNode.t) key =
+    List.find_map
+      (fun (a : ME.NodeAttribute.t) ->
+        if String.equal a.ME.NodeAttribute.key key then
+          match a.ME.NodeAttribute.value with
+          | ME.NodeAttributeValue.Str v -> Some v
+          | ME.NodeAttributeValue.NodeIds _
+          | ME.NodeAttributeValue.NodeWithAttrs _ ->
+              None
+        else None)
+      (Option.value n.ME.GraphNode.attrs ~default:[])
+  in
+  List.iter
+    (fun (label, passes) ->
+      let generated =
+        List.map
+          (fun (ordinal, _) ->
+            Me_detail.generated_js ~passes g node ~output:ordinal)
+          (Output_ordinal.indexed node.Graph_ir.Node.outputs)
+      in
+      let graph =
+        Err.or_raise ~pp_error:Me_detail.pp_error
+          (Me_detail.of_operator ~limits ~key:(operator_key 0) ~outputs
+             ~generated_js:generated ())
+      in
+      let out_nodes =
+        List.filter
+          (fun (n : ME.GraphNode.t) ->
+            String.length n.ME.GraphNode.id > 3
+            && String.sub n.ME.GraphNode.id 0 3 = "out")
+          graph.ME.Graph.nodes
+      in
+      let js = List.map (fun n -> Option.get (attr_value n "js")) out_nodes in
+      Fmt.pr "%-9s out0 js <> out1 js: %b@." label
+        (not (String.equal (List.nth js 0) (List.nth js 1))))
+    [ ("optimized", Loop_ir.Loop_opt.passes); ("raw", []) ];
+  [%expect
+    {|
+    optimized out0 js <> out1 js: true
+    raw       out0 js <> out1 js: true |}]
+
+(* A tight [Kernel.Limits.t] (not [Me_limits.Limits.t], which only bounds the
+   rendered attribute -- this is the same budget [Loop_node_program.kernel]'s
+   own [Kernel_adapt.of_stage_program] admits against) forces a genuine
+   [`Adapt] failure: [max_size:1] is under the max-pool node's own per-
+   expression size, not merely under some proxy. *)
+let tight_kernel_limits =
+  let d = Kernel.Limits.default in
+  Err.or_raise ~pp_error:Kernel.Limits.pp_error
+    (Kernel.Limits.create ~max_size:1 ~max_depth:d.max_depth ~max_values:1
+       ~max_dep_depth:d.max_dep_depth ~max_inputs:d.max_inputs
+       ~max_outputs:d.max_outputs ~max_extent:d.max_extent
+       ~max_numel:d.max_numel ~max_bytes:d.max_bytes
+       ~max_local_slots:d.max_local_slots ~max_scan_state:d.max_scan_state
+       ~max_scan_updates_per_key:d.max_scan_updates_per_key
+       ~max_scan_updates_total:d.max_scan_updates_total)
+
+let%expect_test "an output that does not lower is Unavailable, never silent" =
+  let g, node = multi_output_node () in
+  List.iter
+    (fun (ordinal, _) ->
+      Fmt.pr "output %a %a@." Output_ordinal.pp ordinal pp_js_attr
+        (Me_detail.generated_js ~limits:tight_kernel_limits g node
+           ~output:ordinal))
+    (Output_ordinal.indexed node.Graph_ir.Node.outputs);
+  [%expect
+    {|
+    output 0 Unavailable t1: size exceeds limit 1
+    output 1 Unavailable t1: size exceeds limit 1 |}]
+
+(* [of_operator] renders [Unavailable] as [js_unavailable], with the lowering
+   error's own text -- never [js] on a silently-degraded value, and never a
+   bare empty attribute. *)
+let%expect_test "of_operator renders Unavailable as js_unavailable" =
+  let g, node = multi_output_node () in
+  let outputs =
+    List.map
+      (fun id ->
+        {
+          Kernel.Value.id;
+          sg =
+            Tensor_sig.create ~id ~name:""
+              ~shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1)
+              ~fmt:(Payload.Fmt Payload.F32) ();
+          computation =
+            Region_group.Ref.Solo (Region_program.pixel (Expr.Value.const 0.));
+          result = Kernel.Result_conversion.Round_f32;
+        })
+      node.Graph_ir.Node.outputs
+  in
+  let generated =
+    List.map
+      (fun (ordinal, _) ->
+        Me_detail.generated_js ~limits:tight_kernel_limits g node
+          ~output:ordinal)
+      (Output_ordinal.indexed node.Graph_ir.Node.outputs)
+  in
+  let graph =
+    Err.or_raise ~pp_error:Me_detail.pp_error
+      (Me_detail.of_operator ~limits ~key:(operator_key 0) ~outputs
+         ~generated_js:generated ())
+  in
+  let attr_value (n : ME.GraphNode.t) key =
+    List.find_map
+      (fun (a : ME.NodeAttribute.t) ->
+        if String.equal a.ME.NodeAttribute.key key then
+          match a.ME.NodeAttribute.value with
+          | ME.NodeAttributeValue.Str v -> Some v
+          | ME.NodeAttributeValue.NodeIds _
+          | ME.NodeAttributeValue.NodeWithAttrs _ ->
+              None
+        else None)
+      (Option.value n.ME.GraphNode.attrs ~default:[])
+  in
+  List.iter
+    (fun (n : ME.GraphNode.t) ->
+      if
+        String.length n.ME.GraphNode.id > 2
+        && String.sub n.ME.GraphNode.id 0 3 = "out"
+      then
+        Fmt.pr "%s js=%b js_unavailable=%a@." n.ME.GraphNode.id
+          (Option.is_some (attr_value n "js"))
+          (Core.Pretty.option_or ~none:"absent" Fmt.string)
+          (attr_value n "js_unavailable"))
+    graph.ME.Graph.nodes;
+  [%expect
+    {|
+    out0 js=false js_unavailable=t1: size exceeds limit 1
+    out1 js=false js_unavailable=t1: size exceeds limit 1 |}]
+
+(* The rendered attribute ceiling ([Me_limits.Limits.max_attr_chars]), distinct
+   from the Kernel budget above: a program that lowers and emits FINE still
+   gets cut for display, with [js_truncated] recording that it was. *)
+let%expect_test "js_truncated at a small max_attr_chars profile" =
+  let g, node = multi_output_node () in
+  let tight =
+    Err.or_raise ~pp_error:Me_limits.pp_error
+      (L.create ~max_attr_chars:16 limits)
+  in
+  let outputs =
+    List.map
+      (fun id ->
+        {
+          Kernel.Value.id;
+          sg =
+            Tensor_sig.create ~id ~name:""
+              ~shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1)
+              ~fmt:(Payload.Fmt Payload.F32) ();
+          computation =
+            Region_group.Ref.Solo (Region_program.pixel (Expr.Value.const 0.));
+          result = Kernel.Result_conversion.Round_f32;
+        })
+      node.Graph_ir.Node.outputs
+  in
+  let generated =
+    List.map
+      (fun (ordinal, _) -> Me_detail.generated_js g node ~output:ordinal)
+      (Output_ordinal.indexed node.Graph_ir.Node.outputs)
+  in
+  let graph =
+    Err.or_raise ~pp_error:Me_detail.pp_error
+      (Me_detail.of_operator ~limits:tight ~key:(operator_key 0) ~outputs
+         ~generated_js:generated ())
+  in
+  let attr_value (n : ME.GraphNode.t) key =
+    List.find_map
+      (fun (a : ME.NodeAttribute.t) ->
+        if String.equal a.ME.NodeAttribute.key key then
+          match a.ME.NodeAttribute.value with
+          | ME.NodeAttributeValue.Str v -> Some v
+          | ME.NodeAttributeValue.NodeIds _
+          | ME.NodeAttributeValue.NodeWithAttrs _ ->
+              None
+        else None)
+      (Option.value n.ME.GraphNode.attrs ~default:[])
+  in
+  List.iter
+    (fun (n : ME.GraphNode.t) ->
+      if
+        String.length n.ME.GraphNode.id > 2
+        && String.sub n.ME.GraphNode.id 0 3 = "out"
+      then
+        Fmt.pr "%s js_len=%d js_truncated=%b@." n.ME.GraphNode.id
+          (String.length (Option.get (attr_value n "js")))
+          (Option.is_some (attr_value n "js_truncated")))
+    graph.ME.Graph.nodes;
+  [%expect
+    {|
+    out0 js_len=16 js_truncated=true
+    out1 js_len=16 js_truncated=true |}]

@@ -21,6 +21,19 @@ export const OPTIONAL_STAGES = Object.freeze(['native4d', 'stage_program', 'kern
 export const ALL_STAGES = Object.freeze([...BACKBONE_STAGES, ...OPTIONAL_STAGES]);
 export const EFFORTS = Object.freeze(['quick', 'standard', 'thorough']);
 
+/* `Loop_opt.Pass.all`, in the SAME pipeline order -- not alphabetical, for the
+ * same reason the OCaml side gives: each pass exposes facts the next one uses,
+ * and this list is that order restated as data. A custom selection is
+ * canonicalised against it exactly as `stages` is against `ALL_STAGES`. */
+export const GENERATED_JS_PASSES = Object.freeze(
+  ['unit_loops', 'fold', 'simplify', 'guards', 'cse', 'hoist', 'collapse'],
+);
+
+const canonicalPasses = (passes) => {
+  const wanted = new Set(Array.isArray(passes) ? passes : []);
+  return GENERATED_JS_PASSES.filter((pass) => wanted.has(pass));
+};
+
 /* Whether a constant boundary node renders at namespace "" (`explicit`, the
  * exporter's own output) or inside the longest common namespace of its
  * consumers (`grouped`, via the bridge's `groupConstants`). `grouped` is the
@@ -79,6 +92,7 @@ const KEY_NAMES = Object.freeze({
   'feature:pass_audits': 'Per-pass audits',
   'feature:fold': 'Constant/payload folding',
   'feature:expression_detail': 'Expression detail',
+  'feature:generated_js': 'Generated JavaScript',
   'feature:loop_ir': 'Loop IR',
   'feature:codegen': 'Code generation',
 });
@@ -408,12 +422,13 @@ export function staleNotice(urlView, viewId) {
  * so the control is inert and sending anything else would request a
  * configuration the page cannot display or reproduce.
  */
-export function optionsFromControls({ optional = [], effort = null } = {}) {
+export function optionsFromControls({ optional = [], effort = null, generatedJsPasses = null } = {}) {
   const wanted = new Set(optional);
   return {
     stages: [...BACKBONE_STAGES, ...OPTIONAL_STAGES.filter((s) => wanted.has(s))],
     fold: false,
     verifySymbolic: EFFORTS.includes(effort) ? effort : null,
+    generatedJs: generatedJsPasses === null ? null : canonicalPasses(generatedJsPasses),
   };
 }
 
@@ -428,6 +443,7 @@ export function requestKey(model, options) {
     canonicalStages(options?.stages),
     options?.fold === true,
     EFFORTS.includes(options?.verifySymbolic) ? options.verifySymbolic : null,
+    Array.isArray(options?.generatedJs) ? canonicalPasses(options.generatedJs) : null,
   ]);
 }
 
@@ -443,12 +459,25 @@ export function requestKey(model, options) {
  * stage name is dropped, and a `stages` that names nothing known falls back to
  * the default rather than to a request for nothing.
  */
+/* [null] means "not specified" (which is also the off default, so the two
+ * never need to be told apart); ['optimized'/'raw' spelled out, or an
+ * unrecognised value, all collapse to that same null -- silently treated as
+ * the default, exactly as an unusable `stages`/`verify`/`constants` value is. */
+const parseGeneratedJs = (raw) => {
+  if (raw === null) return null;
+  if (raw === 'raw') return [];
+  if (raw === 'optimized') return [...GENERATED_JS_PASSES];
+  const passes = canonicalPasses(raw.split(','));
+  return passes.length > 0 ? passes : null;
+};
+
 export function decodeUrl(search) {
   const query = new URLSearchParams(search);
   const rawStages = query.get('stages');
   const stages = rawStages === null ? null : canonicalStages(rawStages.split(','));
   const verify = query.get('verify');
   const constants = query.get('constants');
+  const generatedJs = parseGeneratedJs(query.get('generatedjs'));
   /* One closed choice, so a URL carrying ANY TWO of these names NEITHER: no
    * rule for picking a winner is non-arbitrary, and guessing would open a
    * presentation the link did not unambiguously ask for. */
@@ -465,6 +494,7 @@ export function decodeUrl(search) {
     stages: stages && stages.length > 0 ? stages : null,
     verify: EFFORTS.includes(verify) ? verify : null,
     constants: CONSTANTS_MODES.includes(constants) ? constants : null,
+    generatedJs,
   };
 }
 
@@ -486,6 +516,13 @@ export function encodeUrl({ model, options, presentation, constants } = {}) {
   const stages = canonicalStages(options?.stages);
   if (stages.length > 0) query.set('stages', stages.join(','));
   if (EFFORTS.includes(options?.verifySymbolic)) query.set('verify', options.verifySymbolic);
+  // Written only away from the default (off, `null`), same as `verify`.
+  if (Array.isArray(options?.generatedJs)) {
+    const passes = canonicalPasses(options.generatedJs);
+    query.set('generatedjs', passes.length === 0
+      ? 'raw'
+      : passes.length === GENERATED_JS_PASSES.length ? 'optimized' : passes.join(','));
+  }
   // Written only away from the default, so a plain shared link stays the
   // short, common case rather than always naming both toggle values.
   if (CONSTANTS_MODES.includes(constants) && constants !== DEFAULT_CONSTANTS) {
@@ -508,6 +545,7 @@ export function optionsFromUrl(decoded) {
     stages: decoded?.stages ?? [...ALL_STAGES],
     fold: false,
     verifySymbolic: decoded?.verify ?? null,
+    generatedJs: decoded?.generatedJs ?? null,
   };
 }
 
@@ -521,6 +559,7 @@ export function controlsFromOptions(options) {
   return {
     optional: OPTIONAL_STAGES.filter((stage) => stages.includes(stage)),
     effort: EFFORTS.includes(options?.verifySymbolic) ? options.verifySymbolic : null,
+    generatedJsPasses: Array.isArray(options?.generatedJs) ? canonicalPasses(options.generatedJs) : null,
   };
 }
 

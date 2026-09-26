@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  ALL_STAGES, BACKBONE_STAGES, CONSTANTS_MODES, DEFAULT_CONSTANTS, OPTIONAL_STAGES, RANK_BUCKETS,
+  ALL_STAGES, BACKBONE_STAGES, CONSTANTS_MODES, DEFAULT_CONSTANTS, GENERATED_JS_PASSES,
+  OPTIONAL_STAGES, RANK_BUCKETS,
   bucketOfRank, buildIndex, capabilityWording, comparisonPresentation,
   constantsFromUrl, controlsFromOptions, decodeUrl, defaultPresentation, encodeUrl,
   modelMatchesStages, optionsFromControls, optionsFromUrl, preferredViews,
@@ -187,6 +188,23 @@ test('folding is never requested, because no accepted source can provide it', ()
   assert.equal(optionsFromControls({ optional: [...OPTIONAL_STAGES], effort: 'quick' }).fold, false);
 });
 
+test('generated JS defaults to off, and null means off explicitly', () => {
+  assert.equal(optionsFromControls({}).generatedJs, null);
+  assert.equal(optionsFromControls({ generatedJsPasses: null }).generatedJs, null);
+});
+
+test('generated JS on is normalised to pipeline order, deduped', () => {
+  assert.deepEqual(
+    optionsFromControls({ generatedJsPasses: ['cse', 'fold', 'cse'] }).generatedJs,
+    ['fold', 'cse'],
+  );
+  assert.deepEqual(optionsFromControls({ generatedJsPasses: [] }).generatedJs, []);
+  assert.deepEqual(
+    optionsFromControls({ generatedJsPasses: [...GENERATED_JS_PASSES] }).generatedJs,
+    [...GENERATED_JS_PASSES],
+  );
+});
+
 /* ------------------------------------------------------------- request key */
 
 test('a differently spelled but equal selection compares equal', () => {
@@ -200,6 +218,19 @@ test('the key separates model, stages and effort', () => {
   assert.notEqual(requestKey('a', base), requestKey('b', base));
   assert.notEqual(requestKey('a', base), requestKey('a', { ...base, stages: BACKBONE_STAGES }));
   assert.notEqual(requestKey('a', base), requestKey('a', { ...base, verifySymbolic: 'quick' }));
+});
+
+test('the key separates off, raw, optimized and a custom subset', () => {
+  const base = { stages: [...ALL_STAGES], fold: false, verifySymbolic: null };
+  const off = requestKey('a', { ...base, generatedJs: null });
+  const raw = requestKey('a', { ...base, generatedJs: [] });
+  const optimized = requestKey('a', { ...base, generatedJs: [...GENERATED_JS_PASSES] });
+  const custom = requestKey('a', { ...base, generatedJs: ['fold', 'cse'] });
+  assert.notEqual(off, raw);
+  assert.notEqual(raw, optimized);
+  assert.notEqual(optimized, custom);
+  // Differently ordered, still the same request.
+  assert.equal(custom, requestKey('a', { ...base, generatedJs: ['cse', 'fold'] }));
 });
 
 /* -------------------------------------------------------------- selection */
@@ -261,6 +292,41 @@ test('a fold parameter is ignored, and never written back', () => {
   );
 });
 
+test('generated JS round-trips through the URL: off, raw, optimized, custom', () => {
+  const at = (generatedJsPasses) => {
+    const options = optionsFromControls({ generatedJsPasses });
+    const search = encodeUrl({ model: 'm', options, presentation: singlePresentation('v/source') });
+    return { search, decoded: decodeUrl(search) };
+  };
+  const off = at(null);
+  assert.equal(off.search.includes('generatedjs'), false);
+  assert.equal(off.decoded.generatedJs, null);
+
+  const raw = at([]);
+  assert.match(raw.search, /generatedjs=raw/);
+  assert.deepEqual(raw.decoded.generatedJs, []);
+
+  const optimized = at([...GENERATED_JS_PASSES]);
+  assert.match(optimized.search, /generatedjs=optimized/);
+  assert.deepEqual(optimized.decoded.generatedJs, [...GENERATED_JS_PASSES]);
+
+  const custom = at(['cse', 'fold']);
+  assert.match(custom.search, /generatedjs=fold%2Ccse|generatedjs=fold,cse/);
+  assert.deepEqual(custom.decoded.generatedJs, ['fold', 'cse']);
+
+  for (const { decoded } of [off, raw, optimized, custom]) {
+    assert.equal(
+      requestKey('m', optionsFromUrl(decoded)),
+      requestKey('m', optionsFromControls(controlsFromOptions(optionsFromUrl(decoded)))),
+    );
+  }
+});
+
+test('an unrecognised generatedjs value is treated as off, never as a request for nothing', () => {
+  assert.equal(decodeUrl('?generatedjs=not_a_pass').generatedJs, null);
+  assert.equal(optionsFromUrl(decodeUrl('?generatedjs=not_a_pass')).generatedJs, null);
+});
+
 test('constants defaults to grouped and round-trips only away from it', () => {
   assert.equal(DEFAULT_CONSTANTS, 'grouped');
   assert.equal(constantsFromUrl(decodeUrl('?model=m')), 'grouped');
@@ -296,9 +362,16 @@ test('the controls follow the normalised options', () => {
   const controls = controlsFromOptions({ stages: ['source', 'canonical', 'kernel'], fold: false, verifySymbolic: 'thorough' });
   assert.deepEqual(controls.optional, ['kernel']);
   assert.equal(controls.effort, 'thorough');
+  assert.equal(controls.generatedJsPasses, null);
   /* Round trip: what the controls produce, restored, produces the same request. */
   const again = optionsFromControls(controls);
   assert.deepEqual(again.stages, ['source', 'initial_native', 'canonical', 'kernel']);
+});
+
+test('the controls follow a custom generated-JS subset too', () => {
+  const controls = controlsFromOptions({ stages: [...ALL_STAGES], fold: false, generatedJs: ['cse', 'fold'] });
+  assert.deepEqual(controls.generatedJsPasses, ['fold', 'cse']);
+  assert.deepEqual(optionsFromControls(controls).generatedJs, ['fold', 'cse']);
 });
 
 /* ------------------------------------------------------- comparisons */

@@ -90,6 +90,7 @@ and is inside the dialect. The refusal at the end of this file is the contrast.
   feature:pass_audits          not_requested
   feature:fold                 unavailable requires_payloads
   feature:expression_detail    available present
+  feature:generated_js         not_requested
   feature:loop_ir              unavailable not_implemented
   feature:codegen              unavailable not_implemented
 

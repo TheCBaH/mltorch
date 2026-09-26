@@ -54,14 +54,53 @@ val display_of_i64_stage : Stage_program.Stage_i64.t -> Kernel.Value.t
 (** A display-only [Kernel.Value.t] for an int64 stage (its pixel under
     [i64_to_float]), so an operator with an int64 output can be rendered. *)
 
+(** {1 Generated JavaScript} *)
+
+module Js_attr : sig
+  type t =
+    | Emitted of string  (** [Loop_js.emit] of [Loop_node_program.lower] *)
+    | Unavailable of Loop_ir.Loop_node_program.error
+        (** the output does not lower to a Loop program *)
+end
+
+val generated_js :
+  ?limits:Kernel.Limits.t ->
+  ?passes:Loop_ir.Loop_opt.pass list ->
+  Graph_ir.graph ->
+  Graph_ir.node ->
+  output:Output_ordinal.t ->
+  Js_attr.t
+(** The Loop IR JavaScript for one output of a canonical Native operator: the
+    same kernel {!Loop_node_program.kernel}'s consumers run. Never raises -- an
+    output that does not lower is reported, not silenced. [limits] is the KERNEL
+    budget {!Loop_node_program.lower} adapts against, defaulting to
+    {!Kernel.Limits.default} like it does -- distinct from [Me_limits.Limits.t],
+    which only bounds the rendered attribute's length. [passes] defaults to the
+    full optimization pipeline ({!Loop_node_program.lower}'s own default);
+    [~passes:[]] is the raw, unoptimized program. Raw and optimized are a
+    TOGGLE, never both attached to the same node at once -- the caller picks
+    [passes] before calling this, and {!of_operator} below knows only the one
+    resulting [Js_attr.t] per output, not which variant it came from. *)
+
 val of_operator :
   limits:Me_limits.Limits.t ->
   key:Me_request.Detail_key.t ->
   outputs:Kernel.Value.t list ->
+  ?generated_js:Js_attr.t list ->
+  unit ->
   (Model_explorer.Graph.t, [> Me_limits.over_limit_error ]) Err.t
 (** One graph for every ordered output of a canonical Native operator. The
     caller derives [outputs] from the rebuilt node; this function only projects
-    the already-authoritative Region computations. *)
+    the already-authoritative Region computations.
+
+    [generated_js], when supplied, must have one entry per [outputs] element, in
+    the same order: each [out<i>] node is decorated with [js] (the emitted
+    program, bounded by [max_attr_chars] like every other attribute here, with
+    [js_truncated] set when it was cut) or [js_unavailable] (the lowering error,
+    rendered through {!Loop_node_program.pp_error}) accordingly. Absent, no
+    output node carries any of the three attributes -- the option was not
+    requested, and the session must be byte-identical to one that never mentions
+    it. *)
 
 (** {1 The delta} *)
 

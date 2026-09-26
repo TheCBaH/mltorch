@@ -265,6 +265,7 @@ let%expect_test "the COMPLETE vector when lowering is unavailable" =
     feature:pass_audits          unavailable prerequisite_unavailable
     feature:fold                 unavailable prerequisite_unavailable
     feature:expression_detail    available
+    feature:generated_js         unavailable prerequisite_unavailable
     feature:loop_ir              unavailable not_implemented
     feature:codegen              unavailable not_implemented |}]
 
@@ -286,6 +287,7 @@ let%expect_test "not_requested takes precedence over blocked" =
     feature:pass_audits          not_requested
     feature:fold                 not_requested
     feature:expression_detail    not_requested
+    feature:generated_js         not_requested
     feature:loop_ir              unavailable not_implemented
     feature:codegen              unavailable not_implemented |}]
 
@@ -314,5 +316,6 @@ let%expect_test "which keys depend on lowering" =
     feature:pass_audits          true
     feature:fold                 true
     feature:expression_detail    false
+    feature:generated_js         true
     feature:loop_ir              false
     feature:codegen              false |}]

@@ -207,9 +207,11 @@
   fmt
   jsont
   jsont.bytesrw
+  loop_ir
   model_explorer
   model_explorer_export
-  native)
+  native
+  native_test)
  (inline_tests
   (modes best js))
  (preprocess

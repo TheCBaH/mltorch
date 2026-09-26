@@ -24,6 +24,7 @@
   fmt
   jsont
   jsont.bytesrw
+  loop_ir_js
   model_explorer
   native_js
   native4d_js

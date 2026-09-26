@@ -64,6 +64,7 @@ prerequisite is what happens to the rows the failure did not touch.
   feature:pass_audits          unavailable prerequisite_unavailable
   feature:fold                 unavailable prerequisite_unavailable
   feature:expression_detail    available present
+  feature:generated_js         unavailable prerequisite_unavailable
   feature:loop_ir              unavailable not_implemented
   feature:codegen              unavailable not_implemented
 

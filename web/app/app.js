@@ -39,7 +39,7 @@ async function main() {
    * session and never from anything else; `controls` is what the user has
    * chosen, which is only the same as the effective options between requests. */
   let index = null;
-  let controls = { optional: [...P.OPTIONAL_STAGES], effort: null };
+  let controls = { optional: [...P.OPTIONAL_STAGES], effort: null, generatedJsPasses: null };
   let loadedModel = null;   // catalogue id behind the retained session; null for a local file
   let pending = null;       // { model, presentation, push } of the load in flight
   /* The single view to return to when a comparison is closed. A comparison is
@@ -81,6 +81,10 @@ async function main() {
       reexport();
     });
     panels.renderFoldControl($('fold'), $('fold-note'), index);
+    panels.renderGeneratedJsControls($('generated-js-controls'), controls, (generatedJsPasses) => {
+      controls = { ...controls, generatedJsPasses };
+      reexport();
+    });
     panels.renderEffectiveOptions($('effective-options'), coordinator.effectiveOptions);
     panels.renderCatalogueOptions(select, catalog, controls.optional, selectedId);
     renderConstantsControl();

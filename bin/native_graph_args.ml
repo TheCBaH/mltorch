@@ -92,6 +92,56 @@ let verify_symbolic_arg =
     & opt (some effort_conv) None
     & info [ "verify-symbolic" ] ~docv:"EFFORT" ~doc)
 
+(* [None] is the flag absent -- no Loop IR JavaScript attached. Given, its
+   value is [Loop_opt.Pass.t list]: [[]] (raw, unoptimized), [Pass.all] (the
+   default pipeline, also what a BARE flag means via [~vopt]), or a named
+   subset -- the same three cases {!Me_request.Options.generated_js} models,
+   spelled as a wire-free CLI value directly. *)
+let generated_js_conv =
+  let pass_names =
+    String.concat ", "
+      (List.map Loop_ir.Loop_opt.Pass.name Loop_ir.Loop_opt.Pass.all)
+  in
+  let parse s =
+    match s with
+    | "optimized" -> Ok Loop_ir.Loop_opt.Pass.all
+    | "raw" -> Ok []
+    | _ ->
+        let rec go acc = function
+          | [] -> Ok (List.rev acc)
+          | name :: rest -> (
+              match Loop_ir.Loop_opt.Pass.of_name name with
+              | Some p -> go (p :: acc) rest
+              | None ->
+                  Error
+                    (`Msg
+                       (Printf.sprintf
+                          "unknown optimization pass %S (known: %s)" name
+                          pass_names)))
+        in
+        go [] (String.split_on_char ',' s)
+  in
+  let print fmt passes =
+    Format.pp_print_string fmt
+      (String.concat "," (List.map Loop_ir.Loop_opt.Pass.name passes))
+  in
+  Arg.conv (parse, print)
+
+let generated_js_arg =
+  let doc =
+    Printf.sprintf
+      "Attach the Loop IR JavaScript for each operator detail's out<i> node, \
+       as js/js_truncated/js_unavailable attributes. Bare, or =optimized, is \
+       the full optimization pipeline; =raw is unoptimized; a comma-separated \
+       list of pass names (%s) is a custom subset."
+      (String.concat ", "
+         (List.map Loop_ir.Loop_opt.Pass.name Loop_ir.Loop_opt.Pass.all))
+  in
+  Arg.(
+    value
+    & opt ~vopt:(Some Loop_ir.Loop_opt.Pass.all) (some generated_js_conv) None
+    & info [ "generated-js" ] ~docv:"optimized|raw|PASS,..." ~doc)
+
 (* Per group, then the roll-up. Groups are what a reader recognises in a real
    model — "layer1.0", "features.3" — so a report over 170 clusters is only
    legible attributed to them. The roll-up counts by outcome AND reason, since

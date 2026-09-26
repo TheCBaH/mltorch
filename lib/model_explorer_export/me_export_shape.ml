@@ -57,7 +57,7 @@ let unlowered_shape ~stages ~source ~source_id ~source_view ~reason ~detail =
   }
 
 let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
-    ~source_kind ~fold ~verify_symbolic ~archive ~stages lowered =
+    ~source_kind ~fold ~verify_symbolic ~archive ~stages ~generated_js lowered =
   let module C = Me_session.Capability in
   (* Which of the four stages past Canonical the CALLER asked for, directly or
      transitively: Fusion needs Kernel, Kernel needs the stage program. Source,
@@ -550,10 +550,21 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
                   | None -> Err.fail `Unsupported_detail_key))
             node.Graph_ir.Node.outputs
         in
+        let js_for_node =
+          Option.map
+            (fun passes ->
+              let passes = Loop_ir.Loop_opt.select passes in
+              List.map
+                (fun (ordinal, _) ->
+                  Me_detail.generated_js ~passes t.graph node ~output:ordinal)
+                (Output_ordinal.indexed node.Graph_ir.Node.outputs))
+            generated_js
+        in
         let* graph =
           wrap
             (fun e -> `Value_graph e)
-            (Me_detail.of_operator ~limits ~key ~outputs)
+            (Me_detail.of_operator ~limits ~key ~outputs
+               ?generated_js:js_for_node ())
         in
         Err.return
           ( key,
@@ -678,6 +689,8 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
                       detail = None;
                     }
               | C.Feature C.Fold when fold -> C.Available C.Present
+              | C.Feature C.Generated_js when generated_js <> None ->
+                  C.Available C.Present
               | C.Graph_stage C.Native4d ->
                   staged_status ~wanted:(wanted C.Native4d) native4d (fun _ ->
                       C.Graph native4d_id)

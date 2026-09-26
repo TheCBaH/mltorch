@@ -98,12 +98,13 @@ let kernel ?(limits = Kernel.Limits.default) (g : Graph_ir.graph)
     ~select:(Tensor_id.Set.singleton oid)
     ~outputs:[ oid ] program
 
-let lower ?(limits = Kernel.Limits.default) (g : Graph_ir.graph)
-    (node : Graph_ir.node) ~(output : Output_ordinal.t) :
+let lower ?(limits = Kernel.Limits.default) ?(passes = Loop_opt.passes)
+    (g : Graph_ir.graph) (node : Graph_ir.node) ~(output : Output_ordinal.t) :
     (Loop_program.t, error) Err.t =
   let open Err.Syntax in
   let* kernel =
     kernel ~limits g node ~output |> Err.map_error (fun e -> `Adapt e)
   in
-  Loop_lower.lower (Fusion_plan.default kernel)
+  Loop_lower.lower_unoptimized (Fusion_plan.default kernel)
+  |> Err.map (Loop_opt.run ~passes)
   |> Err.map_error (fun e -> `Lower e)

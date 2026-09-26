@@ -255,6 +255,17 @@
  (applies_to me_detail_cram)
  (deps %{exe:../bin/native_graph.exe} model.json))
 
+; --generated-js's three shapes (optimized/raw/custom subset), over the same
+; committed model.json. The per-output text itself is proven exactly equal to
+; a direct Loop_node_program.lower + Loop_js.emit in
+; test/model_explorer/me_detail_test.ml; this cram is the CLI/session
+; integration -- parsing, wiring, and the capability row -- not a second
+; proof of the JS's own correctness.
+
+(cram
+ (applies_to me_generated_js_cram)
+ (deps %{exe:../bin/native_graph.exe} model.json))
+
 ; The five Group-2 functional overloads, over a graph built in the cram itself.
 ; UNGATED and hand-built for a reason specific to this group: no downloadable
 ; model serialises any of these targets, so this is the only place they reach

@@ -642,20 +642,57 @@ let display_of_i64_stage (st : Stage_program.Stage_i64.t) : Kernel.Value.t =
     result = Kernel.Result_conversion.Round_f32;
   }
 
-let of_operator ~limits ~key ~outputs =
+module Js_attr = struct
+  type t = Emitted of string | Unavailable of Loop_ir.Loop_node_program.error
+end
+
+let generated_js ?limits ?(passes = Loop_ir.Loop_opt.passes) graph node ~output
+    : Js_attr.t =
+  match Loop_ir.Loop_node_program.lower ?limits ~passes graph node ~output with
+  | Ok program -> Js_attr.Emitted (Loop_ir.Loop_js.emit program)
+  | Error e -> Js_attr.Unavailable (Err.Error.kind e)
+
+(* [js]/[js_truncated]/[js_unavailable], one [Js_attr.t] rendered at
+   [limits.max_attr_chars] like every other bounded attribute here. Raw and
+   optimized are a toggle at the caller ({!generated_js}'s [~passes]): this
+   always writes the one "js" family, never a second one beside it. *)
+let js_attrs ~limits (v : Js_attr.t) =
+  match v with
+  | Emitted text ->
+      let text, capped =
+        Me_build.bounded ~max:limits.Me_limits.Limits.max_attr_chars Fmt.string
+          text
+      in
+      attr "js" text :: (if capped then [ attr "js_truncated" "true" ] else [])
+  | Unavailable e ->
+      [
+        attr "js_unavailable"
+          (Core.Pretty.to_string Loop_ir.Loop_node_program.pp_error e);
+      ]
+
+let of_operator ~limits ~key ~outputs ?generated_js () =
   let open Err.Syntax in
   let* graphs = Err.List.map (of_value ~limits ~key) outputs in
   let output_node i (value : Kernel.Value.t) =
+    let generated_attrs =
+      match generated_js with
+      | None -> []
+      | Some list -> (
+          match List.nth_opt list i with
+          | None -> []
+          | Some v -> js_attrs ~limits v)
+    in
     ME.GraphNode.create ~id:(Fmt.str "out%d" i)
       ~label:(Fmt.str "output %d: t%d" i (Graph_ir.Tensor_id.to_int value.id))
       ~namespace:"" ~incomingEdges:[]
       ~outputsMetadata:[ ME.MetadataItem.create ~id:"0" ~attrs:[] ]
       ~attrs:
-        [
-          attr "language" "presentation";
-          attr "constructor" "output";
-          attr "tensor" (Fmt.str "t%d" (Graph_ir.Tensor_id.to_int value.id));
-        ]
+        ([
+           attr "language" "presentation";
+           attr "constructor" "output";
+           attr "tensor" (Fmt.str "t%d" (Graph_ir.Tensor_id.to_int value.id));
+         ]
+        @ generated_attrs)
       ()
   in
   let operator =

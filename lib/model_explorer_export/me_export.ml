@@ -27,6 +27,7 @@ module Options = struct
         (** {!session} only -- {!detail} reaches the kernel through its own
             smaller pipeline and does not read this field. *)
     fold : bool;
+    generated_js : Loop_ir.Loop_opt.Pass.t list option;
     verify_symbolic : Map_verify.Effort.t option;
     name : string;
     source_bytes : int64;
@@ -125,7 +126,8 @@ let session ~limits ~(options : Options.t) ~bytes =
         lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
           ~source_kind ~fold:options.Options.fold
           ~verify_symbolic:options.Options.verify_symbolic ~archive
-          ~stages:options.Options.stages lowered
+          ~stages:options.Options.stages
+          ~generated_js:options.Options.generated_js lowered
   in
   let collection =
     Model_explorer.GraphCollection.create ~label ~graphs:shape.graphs ()
@@ -307,10 +309,22 @@ let detail ~limits ~(options : Options.t) ~key ~bytes =
                       | None -> Err.fail `Unsupported_detail_key))
                 node.Graph_ir.Node.outputs
             in
+            let js_for_node =
+              Option.map
+                (fun passes ->
+                  let passes = Loop_ir.Loop_opt.select passes in
+                  List.map
+                    (fun (ordinal, _) ->
+                      Me_detail.generated_js ~passes t.graph node
+                        ~output:ordinal)
+                    (Output_ordinal.indexed node.Graph_ir.Node.outputs))
+                options.Options.generated_js
+            in
             let* graph =
               wrap
                 (fun e -> `Value_graph e)
-                (Me_detail.of_operator ~limits ~key ~outputs:values)
+                (Me_detail.of_operator ~limits ~key ~outputs:values
+                   ?generated_js:js_for_node ())
             in
             let graph =
               if kernel_available then graph
@@ -400,6 +414,7 @@ let handle ~emit request ~bytes =
     {
       Options.stages = request_options.Me_request.Options.stages;
       fold = request_options.Me_request.Options.fold;
+      generated_js = request_options.Me_request.Options.generated_js;
       verify_symbolic = request_options.Me_request.Options.verify_symbolic;
       name = source.Me_request.Source.name;
       source_bytes = source.Me_request.Source.bytes;

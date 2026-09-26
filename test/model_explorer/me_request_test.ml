@@ -85,7 +85,7 @@ module C = Me_session.Capability
 
 let opts ?(stages = [ C.Canonical ]) ?(fold = false) () =
   MR.Options.create ~stages ~fold ~verify_symbolic:None
-    ~namespace:MR.Options.Structural
+    ~namespace:MR.Options.Structural ()
 
 let pp_opts ppf r =
   Core.Pretty.err_result
@@ -282,7 +282,7 @@ let%expect_test "what a session request looks like on the wire" =
   in
   Format.printf "%a@." pp_wire (encode req);
   [%expect
-    {| {"id":"0f8fad5b-d9cb-469f-a165-70867728950e-7","limits":{},"options":{"stages":["canonical"],"fold":false,"namespace":"structural"},"source":{"name":"resnet18","bytes":"1024","format":"model_json"}} |}]
+    {| {"id":"0f8fad5b-d9cb-469f-a165-70867728950e-7","limits":{},"options":{"fold":false,"namespace":"structural","stages":["canonical"]},"source":{"name":"resnet18","bytes":"1024","format":"model_json"}} |}]
 
 (* Encode, decode, encode: equal bytes says the decoder lands in the encoder's
    own domain, which is what finishing through [build_session] buys. *)
@@ -331,7 +331,7 @@ let%expect_test "every verification effort survives the wire" =
       let options =
         Err.or_raise ~pp_error:MR.Request.pp_error
           (MR.Options.create ~stages:[ C.Canonical ] ~fold:false
-             ~verify_symbolic:effort ~namespace:MR.Options.Structural)
+             ~verify_symbolic:effort ~namespace:MR.Options.Structural ())
       in
       let req =
         Err.or_raise ~pp_error:MR.Request.pp_error
@@ -354,6 +354,57 @@ let%expect_test "every verification effort survives the wire" =
     quick     true true
     standard  true true
     thorough  true true |}]
+
+(* Same shape as the effort sweep above, for the other optional member: a
+   request without [generatedJs] decodes with [None] (off) -- the whole point
+   of [opt_mem] over a plain [bool] default, so "off" and "off by omission"
+   round-trip as the SAME options value rather than merely the same wire
+   bytes. *)
+let%expect_test "off, raw, optimized and a custom subset all survive the wire" =
+  let source = Err.or_raise ~pp_error:MR.Request.pp_error (src ()) in
+  List.iter
+    (fun (label, generated_js) ->
+      let options =
+        Err.or_raise ~pp_error:MR.Request.pp_error
+          (MR.Options.create ~stages:[ C.Canonical ] ~fold:false
+             ~verify_symbolic:None ~namespace:MR.Options.Structural
+             ?generated_js ())
+      in
+      let req =
+        Err.or_raise ~pp_error:MR.Request.pp_error
+          (MR.Request.build_session ~id ~source ~options ~limits:wire)
+      in
+      let decoded_generated_js =
+        Result.bind (encode req) (fun text ->
+            Result.map
+              (fun t -> (MR.Request.options t).MR.Options.generated_js)
+              (decode text))
+      in
+      Format.printf "%-9s %a %a@." label
+        (Core.Pretty.result ~ok:Fmt.bool ~error:Fmt.string)
+        (round_trip req)
+        (Core.Pretty.result
+           ~ok:(fun ppf o ->
+             Fmt.pf ppf "%s"
+               (match o with
+               | None -> "none"
+               | Some passes ->
+                   String.concat ","
+                     (List.map Loop_ir.Loop_opt.Pass.name passes)))
+           ~error:Fmt.string)
+        decoded_generated_js)
+    [
+      ("off", None);
+      ("raw", Some []);
+      ("optimized", Some Loop_ir.Loop_opt.Pass.all);
+      ("custom", Some [ Loop_ir.Loop_opt.Pass.Cse; Loop_ir.Loop_opt.Pass.Fold ]);
+    ];
+  [%expect
+    {|
+    off       true none
+    raw       true
+    optimized true unit_loops,fold,simplify,guards,cse,hoist,collapse
+    custom    true fold,cse |}]
 
 let%expect_test "the staged decoder rejects in its own order" =
   (* [Source.create ~limits] needs the DECODED limits, so the members cannot be

@@ -10,9 +10,19 @@
  */
 
 import {
-  BACKBONE_STAGES, OPTIONAL_STAGES, EFFORTS, RANK_BUCKETS,
+  BACKBONE_STAGES, OPTIONAL_STAGES, EFFORTS, GENERATED_JS_PASSES, RANK_BUCKETS,
   capabilityWording, modelMatchesStages, stageSupport,
 } from './presentation.js';
+
+const PASS_NAMES = {
+  unit_loops: 'Unit loops',
+  fold: 'Fold',
+  simplify: 'Simplify',
+  guards: 'Guards',
+  cse: 'CSE',
+  hoist: 'Hoist',
+  collapse: 'Collapse',
+};
 
 const STAGE_NAMES = {
   source: 'Exported Program',
@@ -123,6 +133,37 @@ export function renderFoldControl(input, note, index) {
     : 'A PT2 archive can supply constant payloads; a bare model.json cannot.';
 }
 
+/* Not payload-gated like `fold` -- Generated JavaScript is symbolic, so it is
+ * available for every source this UI accepts, and the control is genuinely
+ * live rather than always-disabled like `renderFoldControl`'s.
+ *
+ * Two layers, revealed one at a time: the top checkbox turns the feature on
+ * (default: the full optimization pipeline); "Optimized" unchecked reveals
+ * one checkbox per `Loop_opt.Pass.t`, all UNCHECKED by default -- so
+ * unchecking "Optimized" with nothing else touched IS raw ([]), and checking
+ * some back in builds a custom subset. This mirrors `renderStageControls`'s
+ * "read back from the boxes, not from a snapshot" rule for the same reason:
+ * a second click before the re-render that follows the first must not
+ * compute its change against a stale set. */
+export function renderGeneratedJsControls(container, controls, onChange) {
+  clear(container);
+  const passes = controls.generatedJsPasses;
+  const on = passes !== null;
+  const optimized = on && passes.length === GENERATED_JS_PASSES.length;
+  container.append(checkbox('generated-js', 'Generated JavaScript', on, false,
+    (checked) => onChange(checked ? [...GENERATED_JS_PASSES] : null)));
+  if (!on) return;
+  container.append(checkbox('generated-js-optimized', 'Optimized', optimized, false,
+    (checked) => onChange(checked ? [...GENERATED_JS_PASSES] : [])));
+  if (optimized) return;
+  const current = () => GENERATED_JS_PASSES.filter(
+    (p) => container.querySelector(`#generated-js-pass-${p}`)?.checked);
+  for (const pass of GENERATED_JS_PASSES) {
+    container.append(checkbox(`generated-js-pass-${pass}`, PASS_NAMES[pass],
+      passes.includes(pass), false, () => onChange(current())));
+  }
+}
+
 /* The NORMALISED options, echoed by the bridge. Shown because request-stage
  * ordering and duplicates are not user choices: what was asked for is what
  * OCaml made of the request, not how a control spelled it. */
@@ -132,7 +173,16 @@ export function renderEffectiveOptions(node, options) {
   const verification = options.verifySymbolic
     ? `symbolic verification ${options.verifySymbolic}`
     : 'symbolic verification off';
-  node.textContent = `Requested: ${stages} · folding ${options.fold ? 'on' : 'off'} · ${verification}`;
+  const passes = options.generatedJs;
+  const generatedJs = !Array.isArray(passes)
+    ? 'generated JS off'
+    : passes.length === 0
+      ? 'generated JS raw'
+      : passes.length === GENERATED_JS_PASSES.length
+        ? 'generated JS optimized'
+        : `generated JS custom (${passes.map((p) => PASS_NAMES[p] ?? p).join(', ')})`;
+  node.textContent =
+    `Requested: ${stages} · folding ${options.fold ? 'on' : 'off'} · ${verification} · ${generatedJs}`;
 }
 
 /* ---------------------------------------------------------- presentation */

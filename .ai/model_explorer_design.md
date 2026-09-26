@@ -1320,6 +1320,10 @@ real model can be too big and that is a bound doing its job — and an invariant
 
 ## 15. Expression detail — `Me_detail`
 
+When the `generated_js` option is set, each operator detail's `out<i>` node also carries the
+Loop IR JavaScript for that output — see the `.ai/` doc on generated JavaScript for the
+option's shape, the raw/optimized toggle, and the pass-selection mechanism.
+
 **Initial and referentially complete.** A session carries one detail graph per canonical
 operator, shared by that operator and its projected Stage/Kernel values. The initial
 document therefore contains every `subGraphIds` target before Model Explorer processes it;
