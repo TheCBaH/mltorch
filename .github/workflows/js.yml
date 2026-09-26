@@ -69,6 +69,12 @@ jobs:
     - name: jsoo inline tests
       run: |
         ${{ env.EXEC }} make jsoo.inline-runtest
+    # The Loop IR's generated JavaScript, run under node, against what the Loop
+    # interpreter says the same programs do: "is the emitted code right", which
+    # neither the differential probe nor the inline tests ask.
+    - name: loop ir generated code
+      run: |
+        ${{ env.EXEC }} make loop.js.runtest
     # Tier 2, the only step here that needs downloaded weights. It lives in this
     # workflow rather than in build.yml -- which already has the models -- for
     # two reasons. Attribution: left there it was the one JS verdict that could

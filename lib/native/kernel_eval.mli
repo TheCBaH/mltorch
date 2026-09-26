@@ -23,6 +23,16 @@ module Binding_mismatch : sig
   val pp : Format.formatter -> t -> unit
 end
 
+val check_binding :
+  Tensor_id.t ->
+  Tensor_sig.t ->
+  Tensor.packed ->
+  (unit, [> `Binding_mismatch of Binding_mismatch.t ]) Err.t
+(** A bound tensor must match the signature the program declares: shape, format,
+    quantization and dense storage length. Exposed so a second executor of the
+    same kernel contract (the Loop IR interpreter) validates a binding by the
+    identical rule rather than a transcription of it. *)
+
 type error =
   [ Expr.Eval.error
   | `Binding_mismatch of Binding_mismatch.t

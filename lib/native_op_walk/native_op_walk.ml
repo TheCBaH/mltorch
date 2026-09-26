@@ -4,6 +4,11 @@
    native [verify] (Direct vs Symbolic). Hand-written per op — no code generation.
 *)
 
+(* Re-exported: this file is the library's interface, so a consumer that runs a
+   walk with a verifier of its own can otherwise never name the subject it is
+   handed. *)
+module Subject = Native_subject
+
 type op = (module Walk_core.Walk.Op with type subject = Native_subject.t)
 
 (* Alphabetical by walker target. [find] resolves by target rather than index,

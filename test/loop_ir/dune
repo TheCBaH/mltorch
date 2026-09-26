@@ -1,0 +1,45 @@
+; Tests for lib/loop_ir: the Loop IR, its interpreter, the differential harness
+; and the JavaScript emitter. Pure OCaml, so `dune runtest test/loop_ir` runs in
+; isolation. The generated-code gate under node is separate: alias runtest-js
+; below, run by `make loop.js.runtest`, never part of `runtest` (it needs node).
+
+(library
+ (name loop_ir_test)
+ (modules :standard \ loop_js_gen)
+ (libraries
+  core
+  err_trace
+  expr
+  fmt
+  loop_ir
+  native
+  native_op_walk
+  native_test
+  walk_core)
+ ; [js] alongside [best], as test/native does: the lowering pass and the
+ ; interpreter are JS-reachable and js_of_ocaml's [int] is 32 bits, so the same
+ ; expect blocks must hold under node. See test/native4d/dune for why there is no
+ ; [enabled_if].
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))
+
+; Writes run.js (the emitted function plus a driver holding the inputs) and
+; expected.txt (the Loop interpreter's rendering of the same run).
+
+(executable
+ (name loop_js_gen)
+ (modules loop_js_gen)
+ (libraries err_trace expr fmt loop_ir loop_ir_test native))
+
+(rule
+ (alias loop-js-gate)
+ (deps loop_js_gen.exe)
+ (action
+  (progn
+   (run ./loop_js_gen.exe)
+   (with-stdout-to
+    actual.txt
+    (run node run.js))
+   (diff expected.txt actual.txt))))

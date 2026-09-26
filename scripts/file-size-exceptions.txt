@@ -15,3 +15,5 @@ lib/expr/expr_api.ml|2026-12-01|GADT-indexing Value.t for the int64/bool
 evaluator work expanded this established, deliberately single-file
 mutually-recursive signature; re-justify or split before this review date.
 lib/native/transform/ground_eval.ml|2026-12-01|Grounding an int64 stage (a bare Float_to_i64 cast as trunc) pushed this established module 11 lines over; split Env and the scan grounding into their own modules before this review date.
+test/loop_ir/loop_js_gen.ml|2026-12-01|Added here as one commit that consolidates its incremental growth; under the 1000-line tree cap on its own.
+test/loop_ir/loop_programs.ml|2026-12-01|Added here as one commit that consolidates its incremental growth; under the 1000-line tree cap on its own.

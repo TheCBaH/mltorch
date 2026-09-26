@@ -1,0 +1,12 @@
+; The Loop IR: a naive, structured loop program lowered from a validated
+; [Fusion_plan.t], its reference interpreter, and the JavaScript emitter. See
+; the Loop IR sections of the kernel-DSL design doc in .ai/.
+;
+; Depends on [native] (Kernel, Fusion_plan, Tensor), never the reverse: [native]
+; stays unaware that a second executor exists, and its jsoo mirror list is
+; unchanged. Wrapped (default), so consumers see [Loop_ir.Loop_expr] and no
+; global name collides with [native]'s flat (wrapped false) namespace.
+
+(library
+ (name loop_ir)
+ (libraries core err_trace expr fmt native))

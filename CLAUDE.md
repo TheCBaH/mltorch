@@ -81,7 +81,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Never assume a 63-bit `int` in the JS-reachable libraries** — `lib/native`,
   `lib/walk_core`, `lib/core`, `lib/native4d`, `lib/expr`, `lib/pt2`, `lib/native_graph`,
   `lib/native_interp` (js_of_ocaml reaches these last three since the probe began reading
-  real `.pt2` models). js_of_ocaml's `int` is **32 bits** (`Sys.int_size = 32`), so a value
+  real `.pt2` models), `lib/loop_ir` (its lowering and interpreter run under node in the
+  inline suite, so its index arithmetic is `int64` until bounded, and its emitted
+  JavaScript uses no bitwise operator on an index). js_of_ocaml's `int` is **32 bits** (`Sys.int_size = 32`), so a value
   that can reach 2^31 must be `int32`/`int64` **or be bounds-checked at every operation**,
   and a literal like `0xFFFFFFFF` silently truncates to `-1` there — turning a mask into a
   no-op. **Narrow to `int` only after bounding the value**, and bound *aggregates*
@@ -212,9 +214,10 @@ Formatting is enforced; unformatted diffs are noise.
 ```sh
 make js.build                # build everything: jsoo + melange
 make jsoo.runtest            # build the probe natively + via js_of_ocaml, run both, diff
+make loop.js.runtest         # Loop IR: emitted JavaScript under node vs the Loop interpreter
 make jsoo.inline-runtest     # the expect suites under node (@runtest-js)
 make melange.runtest         # same for the pure half (walk_core + core)
-make js.runtest              # the three above
+make js.runtest              # the four above
 make melange.build.scaffold  # shim + fmt + jsont_base only — the diagnostic floor
 
 # Gated on downloaded weights, so outside js.runtest — CI runs it in the jsoo job,
@@ -289,6 +292,7 @@ test/*_cram.t                                      ← cram tests decode real mo
 | `lib/expr/` | `expr` | The symbolic expression language: typed indices, values, reductions, intrinsics. Depends only on `core`+`fmt`, so it owns no tensor, storage or graph type — `native` consumes it, never the reverse |
 | `lib/pt2/` | `pt2` | Libtorch-free `.pt2` reader: ZIP (via `zipc`), pickle (via vendored `opickle`), model.json/weights-config decoding |
 | `lib/pt2_aten/` | `pt2_aten` | Bridges `pt2`'s raw strided tensors to runnable `Aten_tensor.t` (via `of_storage`), kept separate so `pt2`'s own tests need no C++ build |
+| `lib/loop_ir/` | `loop_ir` | The Loop IR: a structured loop program lowered from a `Fusion_plan.t`, its reference interpreter, the differential harness against `Kernel_eval`, and the JavaScript emitter. Depends on `native`, never the reverse |
 | `lib/interp/` | `interp` | Walks an `ExportedProgram` graph and dispatches each node to the bound ATen ops |
 
 Key modules in `pytorch_schema`: `Pytorch_schema` (YAML→type map), `Schema_codegen` (type map→OCaml source), `Type_expr`/`Type_expr_lexer`/`Type_expr_parser` (type-string parser), `Scc` (Tarjan SCC for recursive type detection).

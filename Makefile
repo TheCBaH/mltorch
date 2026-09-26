@@ -4,7 +4,7 @@
 	expr_probe.deep-runtest expr_probe.runtest format inference inference-runa \
 	inline-timing-report inline-timing-report-js js.build js.runtest \
 	jsoo.build jsoo.inline-runtest jsoo.pt2.download jsoo.pt2.run \
-	jsoo.pt2.runtest jsoo.pt2.vars jsoo.runtest melange.build \
+	jsoo.pt2.runtest jsoo.pt2.vars jsoo.runtest loop.js.runtest melange.build \
 	melange.build.scaffold melange.runtest native-infer-verify \
 	native-infer-verify.% native-transform-verify \
 	native-transform-verify.% precommit profile.landmarks \
@@ -634,7 +634,14 @@ melange.runtest: melange.build
 # profile gate that keeps melange.emit off @all.
 js.build: jsoo.build melange.build
 
-js.runtest: jsoo.runtest jsoo.inline-runtest melange.runtest
+# The Loop IR's generated-code gate: the emitted JavaScript, run under node,
+# must print what the Loop interpreter says the same program does. Needs node,
+# so it is not part of `runtest`; a dune alias of its own (not `runtest-js`,
+# which is the inline-test alias) keeps the two selectable separately.
+loop.js.runtest:
+	NO_COLOR=1 opam exec -- dune build @test/loop_ir/loop-js-gate
+
+js.runtest: jsoo.runtest jsoo.inline-runtest melange.runtest loop.js.runtest
 
 clean:
 	opam exec -- dune clean
