@@ -251,11 +251,12 @@ type t = private {
   inputs : Input.t list;
   values : Value.t list;  (** topologically ordered *)
   values_i64 : Value_i64.t list;
-      (** Standalone exact int64 values -- order does not matter among
-          themselves (each is closed, so none can depend on another or on any
-          [values] entry), unlike [values]' topological order. Not yet reachable
-          from [outputs]/[Use.t]/dependency-depth accounting; see
-          [Value_i64.t]'s own doc. *)
+      (** Exact int64 values, backward-ordered among themselves: an entry may
+          read an input, a [values] entry, or an EARLIER entry here, and a
+          [values] entry may read one of these ([create] checks the two lists as
+          one dependency graph, and each entry counts toward dependency depth).
+          Still unreachable from [outputs] and [Use.t]; see [Value_i64.t]'s own
+          doc. *)
   outputs : Output.t list;
   limits : Limits.t;
   by_id : Value.t Tensor_id.Map.t;

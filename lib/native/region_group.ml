@@ -47,6 +47,16 @@ let emitters t = t.emitters
 let emitter t (i : Ordinal.t) = List.nth_opt t.emitters (i :> int)
 let indexed_emitters t = List.mapi (fun i e -> (Ordinal.of_int i, e)) t.emitters
 
+let map_outputs t f =
+  {
+    t with
+    emitters =
+      List.mapi
+        (fun i (e : Emitter.t) ->
+          { e with output = f (Ordinal.of_int i) e.output })
+        t.emitters;
+  }
+
 (* The raw (unprojected) expressions ordinal [i]'s shared locals and own
    emitter together consist of -- every [Expr.Fold] query used below (and by
    [Ref]'s callers) is invariant under [project]'s substitution:

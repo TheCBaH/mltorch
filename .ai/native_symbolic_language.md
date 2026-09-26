@@ -106,8 +106,11 @@ already carries the producer's `Tensor_sig.t`, so a stage references an upstream
 stage purely through the signature it loads; Input-vs-Stage is recovered by
 membership in `graph.inputs`. The per-axis `domain`/`axis_set` and the
 reduction-collapses-an-axis bookkeeping below remain future work (footprint
-analysis); the current `stage` carries `{ id; sg; body }` and `output_shape` is
-supplied per-op via `Graph_shape` rather than inferred.
+analysis); the current `Stage.t` carries `{ id; sg; computation }`, where
+`computation : Region_group.Ref.t` is either a standalone `Region_program.t`
+(a Pixel body is embedded with `Region_program.pixel`) or one ordinal of a
+group shared by sibling stages. `output_shape` is supplied per-op via
+`Graph_shape` rather than inferred.
 
 A **reduction collapses an axis**: a `Reduce` over `rdom` produces a stage whose
 `domain` excludes the reduced axis. So `m` and `s` have domain `{N,T,D,H,W}` (no
@@ -119,7 +122,9 @@ For a windowed stage (conv/pool) the domain isn't just "minus the reduced
 axis" — `H`/`W` shrink by the kernel/stride/pad relationship, not just drop.
 `native_compute_design.md` §2b names the missing piece: each op needs its own
 `output_shape`, computed from its params and its inputs' shapes, and *that* is
-what a stage's `domain`'s extents actually are. Not yet implemented.
+what a stage's `domain`'s extents actually are. `Graph_shape.output_shape` now
+computes it per op (one shape per output); a stage `domain` field is still not
+modelled.
 
 ### 2.3 The value IR (extended)
 
@@ -198,18 +203,10 @@ in the constant binding (foldable); a `User_input` becomes a signature whose sha
 may be `Sym`, left unbound. No weights are read to build the symbolic program — the
 specification is purely the interfaces.
 
-**Implementation gap (found 2026-06-24):** the `Tensor_sig.t` sketched above is
-the agreed design, but `lib/native/tensor_sig.ml` as built only has
-`{ id; name; shape }` — `fmt` and `quant` were dropped somewhere between this
-note and the code, and `Tensor_sig.create` has no way to supply either. So
-today a symbolic input can't actually carry its dtype or quant params — the
-two reasons this doc gives for needing them (deciding what `Load` emits;
-per-channel scale entering the expression via the `C` index) aren't available
-to build with yet. The concrete types already exist (`Payload.packed_fmt`,
-`Quant.t`) and just need wiring in: `fmt : Payload.packed_fmt` and
-`quant : Quant.t option`, threaded through `Tensor_sig.create`. Not yet
-implemented; the two current call sites are `test/native/symbolic_test.ml`
-(`Tensor_sig.create ~name ~shape`, no fmt/quant today).
+**Implementation gap (found 2026-06-24, since closed):** `Tensor_sig.t` now
+carries `{ id; shape; fmt : Payload.packed_fmt; quant : Quant.t option }`, and
+`Tensor_sig.create ~id ~name ~shape ~fmt ?quant ()` supplies both, so a symbolic
+input carries its dtype and quant params.
 
 ## 3. Three interpretations of one program
 

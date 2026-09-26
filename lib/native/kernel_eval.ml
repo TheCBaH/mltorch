@@ -468,6 +468,18 @@ let machine esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses =
     match members with
     | [] -> []
     | (_, first) :: _ ->
+        (* Each member's own result conversion, spliced into its emitter as
+           [converted] does for a solo value -- never left to the f32 store,
+           which rounds BEFORE a Bool member's nonzero test and so reads a
+           working value below binary32's range as false. [lower_group]
+           re-validates every rewritten emitter. *)
+        let g =
+          Region_group.map_outputs g (fun ordinal output ->
+              match List.assoc_opt ordinal members with
+              | Some (v : Kernel.Value.t) ->
+                  Kernel.Result_conversion.apply v.Kernel.Value.result output
+              | None -> output)
+        in
         let lowered_group =
           Err.Escape.or_throw esc
             (widen_group

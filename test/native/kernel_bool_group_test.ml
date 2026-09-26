@@ -101,3 +101,57 @@ let%expect_test "a second run leaves the first run's results intact" =
   in
   Format.printf "unchanged: %b@." (String.equal before after);
   [%expect {| unchanged: true |}]
+
+(* A body below binary32's smallest subnormal: [Nonzero_bool] on the working
+   value says true, while storing to f32 first and then testing nonzero says
+   false. Only a value in that range tells the two apart, so this is what pins
+   that a grouped member's own conversion is applied, not left to its store. *)
+let tiny_kernel =
+  let local = shared_local () in
+  let read = Expr.Value.local local.Region_local.id in
+  let emitter output : Region_group.Emitter.t =
+    {
+      output_shape = out_shape;
+      partition = whole [ Expr.Axis.H ];
+      key_axes = [ (Expr.Axis.W, Expr.Axis.W) ];
+      output;
+    }
+  in
+  let group =
+    Region_group.create ~max_size ~max_depth ~canonical_shape ~locals:[ local ]
+      ~emitters:
+        [ emitter read; emitter (Expr.Value.mul read (Expr.Value.const 1e-50)) ]
+    |> Err.or_raise ~pp_error:Region_group.pp_error
+  in
+  let value id ordinal fmt result =
+    let tid = Tensor_id.of_int id in
+    {
+      Kernel.Value.id = tid;
+      sg = Tensor_sig.create ~id:tid ~name:"" ~shape:out_shape ~fmt ();
+      computation =
+        Region_group.Ref.Grouped (group, Region_group.Ordinal.of_int ordinal);
+      result;
+    }
+  in
+  Kernel.create ~inputs:[]
+    ~values:
+      [
+        value 1 0 (Payload.Fmt Payload.F32) Kernel.Result_conversion.Round_f32;
+        value 2 1 (Payload.Fmt Payload.Bool)
+          Kernel.Result_conversion.Nonzero_bool;
+      ]
+    ~outputs:[ Tensor_id.of_int 1; Tensor_id.of_int 2 ]
+    ()
+  |> Err.or_raise ~pp_error:Kernel.pp_error
+
+let%expect_test "a grouped Bool member converts before it is stored" =
+  let results =
+    Err.or_raise ~pp_error:Kernel_eval.pp_error
+      (Kernel_eval.run tiny_kernel ~bind:(fun _ -> None))
+  in
+  let t = Tensor_id.Map.find (Tensor_id.of_int 2) results in
+  Format.printf "w=0..3 at h=2: %a@."
+    (Fmt.list ~sep:(Fmt.any ",") Fmt.float)
+    (List.init 4 (fun w ->
+         Tensor.read t (Vec6.coord ~n:0 ~t:0 ~d:0 ~h:2 ~w ~c:0)));
+  [%expect {| w=0..3 at h=2: 1,1,1,1 |}]

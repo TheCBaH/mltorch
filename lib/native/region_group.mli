@@ -103,6 +103,15 @@ val emitter : t -> Ordinal.t -> Emitter.t option
 val indexed_emitters : t -> (Ordinal.t * Emitter.t) list
 (** Every emitter with its own ordinal, in order. *)
 
+val map_outputs :
+  t -> (Ordinal.t -> float Expr.Value.t -> float Expr.Value.t) -> t
+(** Rewrites each emitter's output expression, leaving the shared locals and
+    every axis mapping alone. A raw update with no check of its own, like
+    [Region_program.with_output]: the result is a NEW group (never [==] the
+    input, so it must not be fed back to [runs]), and a caller executes it
+    through [Region_execution.lower_group], whose per-emitter projection
+    re-validates every rewritten output. *)
+
 val project :
   max_size:int ->
   max_depth:int ->

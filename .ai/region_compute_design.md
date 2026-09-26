@@ -19,7 +19,13 @@ SDPA's program caches both scalars (row max/sum/scale, Stage A) and, since
 softmax weight row (Stage B) -- see "Design headroom" below for what that
 adds and what it still does not.
 
-Out of scope: loop IR, tiling, multi-output programs, automatic Pixel-to-Region
+`Lstm` is also Region-authored: a bounded ordered scan whose recurrence is
+shared by three outputs through `Region_group` (see "Multi-output computation"
+below).
+
+Out of scope: loop IR and any code emitter (JavaScript or C; the kernel DSL
+design owns them and neither exists yet), tiling, multi-output *within one*
+`Region_program.t` (the group is a separate type), automatic Pixel-to-Region
 discovery, graph fusion, GroupNorm and batch normalization Region forms,
 safe/log softmax, blocked online-softmax state, relaxed rounding, tree/parallel
 reductions, and multi-node Region fusion.
