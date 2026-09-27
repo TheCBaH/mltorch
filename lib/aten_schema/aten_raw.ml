@@ -46,6 +46,7 @@ module Backend = struct
     | SparseCUDA
     | SparseMPS
     | SparseMeta
+    | SparseXPU
     | XPU
     | ZeroTensor
 
@@ -80,6 +81,7 @@ module Backend = struct
     | "SparseCUDA" -> Some SparseCUDA
     | "SparseMPS" -> Some SparseMPS
     | "SparseMeta" -> Some SparseMeta
+    | "SparseXPU" -> Some SparseXPU
     | "XPU" -> Some XPU
     | "ZeroTensor" -> Some ZeroTensor
     | _ -> None
@@ -115,6 +117,7 @@ module Backend = struct
     | SparseCUDA -> "SparseCUDA"
     | SparseMPS -> "SparseMPS"
     | SparseMeta -> "SparseMeta"
+    | SparseXPU -> "SparseXPU"
     | XPU -> "XPU"
     | ZeroTensor -> "ZeroTensor"
 
