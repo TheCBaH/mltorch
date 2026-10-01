@@ -1,0 +1,19 @@
+; The prepared bundle runtime's tests: js_of_ocaml only, run under node by
+; `make jsoo.inline-runtest`. Each compares the bundle's outputs against the
+; per-node evaluator on the same graph.
+
+(library
+ (name loop_bundle_exec_test)
+ (libraries
+  core
+  err_trace
+  fmt
+  js_of_ocaml
+  loop_bundle_exec
+  loop_ir
+  native
+  native_test)
+ (inline_tests
+  (modes js))
+ (preprocess
+  (pps ppx_expect)))

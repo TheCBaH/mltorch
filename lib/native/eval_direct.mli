@@ -86,6 +86,11 @@ val dry_run :
     edge is released are decided in one place. Graph inputs and constants are
     bound by the caller and never appear in it. *)
 
+val fresh_synthetic_ids :
+  graph -> (Region_computation.synthetic_role * Tensor_id.t) list
+(** One id per synthetic-default role, disjoint from every graph tensor: the ids
+    a Region-authored node's optional-operand defaults are bound under. *)
+
 val storage_script :
   ?alignment:Alignment_policy.t ->
   ?retain:Release_schedule.Retain.t ->

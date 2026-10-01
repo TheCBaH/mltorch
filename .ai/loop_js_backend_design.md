@@ -673,6 +673,82 @@ Node count dropping by half (`fastvit_sa12`: 712 → 366) does not imply
 wall-clock time dropping by half when the removed nodes (redundant
 permutes) were never the bottleneck.
 
+## Whole-model bundle (2026-09-29)
+
+An optional prepared mode that runs a fixed graph as **one** JavaScript entry
+call over arena pools, instead of one `Loop_js_exec` call per node. Default
+execution is unchanged; the bundle is opt-in (`loop_js_pt2 --bundle`).
+
+**Pieces.** `Loop_bundle` (`lib/loop_ir`) is the static descriptor: one
+invocation per scheduled output, read off `Eval_direct.storage_script`'s own
+event stream (so schedule, admission, dead-index suppression and each edge's role
+and arena are the evaluator's decisions, not a second implementation), plus the
+witnessed `Storage_plan`. It needs no tensor payload. `Loop_bundle_js` emits the
+wrapper: each distinct kernel (interned by printed source, so kernels differing
+only in storage offsets share a function) declared once, the union of their
+runtime helpers deduped by text, and a `run_bundle` entry that binds pool
+`subarray` views, zero-fills each producer's destination, calls each kernel and
+returns `null` or `[position, record]` for the first failure. `Loop_bundle_exec`
+(`js/loop_bundle_exec`, jsoo only) owns the pools and runs it.
+
+**Bindings are positional and explicit.** A kernel's buffers bind graph edges
+through the invocation's `edges`, never by the buffer's own id: a Region program
+mints its output id past its sources', which can collide with an unrelated graph
+id. Optional Region operands the graph omits (an Sdpa mask, LayerNorm's weight and
+bias) are `synthetics`, emitted as per-invocation constant-filled locals; kernel
+scratch is a per-invocation local array. Region-authored nodes lower from
+signatures alone (`Loop_region_program.lower_sigs`). A grouped node (Lstm) is one
+invocation carrying every scheduled output (`invocation.outputs`), so its
+recurrence runs once and writes each output's own buffer; every other node stays
+one invocation per output. Stacked bidirectional Lstm is checked bitwise.
+
+**Storage contract.** Every `Alloc_script.Kind.t` is a pool (int64 as a
+`BigInt64Array`, zero-filled with `0n`). `Separate` and `Shared_execution` layouts
+both run. `Copied` constants load once per `prepare`; copied inputs load per run.
+`Borrowed` inputs and constants are entry parameters, the caller's own typed
+arrays used in place and never written (their lifetime is the caller's).
+Results are leased: `prepare ?max_outstanding` builds that many execution
+arena sets (the constants pool is shared), a run pins one until `release`,
+`` `No_free_arena `` when none is free, and `output` copies out. A graph output
+that is an input or constant, and a repeated output, are copied out intact.
+Quantized storage is not in an arena and is refused.
+
+**Failure.** The first failing invocation's record is decoded against that
+invocation's own program (`Loop_js_exec.failure`) and reported with its node, even
+when the kernel function is shared; a failed run frees its set and returns no
+result.
+
+**Verified.** Native descriptor tests and node tests compare every output
+bitwise with `Eval_direct.run` for layouts, ownership, forwarded and repeated
+outputs, repeated and leased runs, I64 pools, shared-kernel failures and
+Region-authored nodes (LayerNorm, Sdpa, Lstm). Whole models, direct graph, 0
+outputs differing bitwise from the per-node result: `mobilenetv2_050` (415
+invocations, 123 distinct kernels, ~124 KB of source) and `fastvit_sa12` (716
+invocations, Region-authored ops). `make loop_js.bundle.pt2.runtest` runs the
+first with `--shadow --strict`.
+
+**Measured (one sample each, Node v20.19.2, CPU `Sys.time`, matched baseline:
+same graph, constants and input, every node its own generated-JS kernel, constants
+passed in, one cold and five warm runs; the bundle's input copy-in and output
+copy-out are inside its figure).** `mobilenetv2_050`: bundle warm 196-212 ms
+(prepare ~144 ms) against 2257-2370 ms per-node, ~11x. `fastvit_sa12`: bundle warm
+2.45-2.50 s (prepare ~300 ms) against 9.28-9.42 s, ~3.8x. Storage: `Separate`
+layout, `Copied` constants and inputs, one execution set. `mobilenetv2_050`:
+source 124 KB, 123 distinct kernels, constants 7.9 MB resident once, execution
+pools 5.7 MB per set. `make loop_js.bundle.pt2.bench` reproduces it. Not
+recorded: memory peak, and the constant-load / input-copy / copy-out traffic
+beyond the pool sizes.
+
+**Remaining refusals and gaps.** Quantized edges; retained intermediates (only the
+`Only empty` retention is scheduled); a JS exception path is written but has no
+test; constants cannot change version under a prepared bundle; the PT2 runner uses
+one execution set; a grouped node's recurrence is not shared across outputs.
+
+**Worth recommending?** As an opt-in mode for a fixed model run repeatedly, yes:
+correctness is established bitwise on two real models and the run is 4-11x below
+the matched per-node path. Speedups are single-sample, single-process
+figures from one machine, so treat them as indicative; it is not the default.
+
 ## Melange
 
 Where Melange stands today (`js_backends_design.md`, "Melange" and "Not done"):

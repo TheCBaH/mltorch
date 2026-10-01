@@ -134,6 +134,10 @@ jobs:
     - name: jsoo pt2 node coverage (direct graph)
       run: |
         ${{ env.EXEC }} make loop_js.node.pt2.direct.runtest
+    # The whole-model bundle (one JS entry call), bitwise against per-node.
+    - name: jsoo pt2 whole-model bundle
+      run: |
+        ${{ env.EXEC }} make loop_js.bundle.pt2.runtest
     # fastvit_sa12, WITHOUT --shadow: Loop_node_executor's own default
     # (shadow:false) trusts each compiled kernel directly instead of also
     # running the reference interpreter, verified only by --strict's ranking

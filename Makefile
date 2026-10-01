@@ -6,7 +6,7 @@
 	inline-timing-report inline-timing-report-js js.build js.runtest \
 	jsoo.build jsoo.inline-runtest jsoo.pt2.download jsoo.pt2.run \
 	jsoo.pt2.runtest jsoo.pt2.vars jsoo.runtest loop.js.runtest \
-	loop_js.bench loop_js.node.pt2.direct.runtest \
+	loop_js.bench loop_js.bundle.pt2.bench loop_js.bundle.pt2.runtest loop_js.node.pt2.direct.runtest \
 	loop_js.node.pt2.fast.direct.runtest loop_js.node.pt2.fast.runtest \
 	loop_js.node.pt2.runtest loop_js.pt2.download loop_js.pt2.run \
 	loop_js.pt2.vars melange.build \
@@ -755,6 +755,23 @@ loop_js.node.pt2.runtest: jsoo.pt2.download jsoo.build
 loop_js.node.pt2.direct.runtest: jsoo.pt2.download jsoo.build
 	node $(JS_BUILD)/jsoo/loop_js_pt2/loop_js_pt2.bc.js $(JS_PT2_RUN_ARGS) \
 	  --direct --nodes --shadow --strict --arena
+
+# The whole model as ONE generated-JavaScript entry call over prepared arena
+# pools (Loop_bundle_exec) on the raw graph, --shadow requiring every output to
+# be bitwise equal to Eval_direct.run's per-node result. Dominated by that
+# reference run (~90s); the bundle's own prepare/run times go to stderr.
+loop_js.bundle.pt2.runtest: jsoo.pt2.download jsoo.build
+	node $(JS_BUILD)/jsoo/loop_js_pt2/loop_js_pt2.bc.js $(JS_PT2_RUN_ARGS) \
+	  --bundle --shadow --strict
+
+# The bundle against the matched per-node baseline (same graph, constants and
+# input, every node its own generated-JS kernel): prepare, cold and warm run
+# times, source size and pool sizes to stderr. Depends on the verification
+# target, so nothing is timed that has not first matched bitwise. MANUAL: no
+# speed assertion, so no CI job -- CI's noise would not be a correctness signal.
+loop_js.bundle.pt2.bench: loop_js.bundle.pt2.runtest
+	node $(JS_BUILD)/jsoo/loop_js_pt2/loop_js_pt2.bc.js $(JS_PT2_RUN_ARGS) \
+	  --bundle --baseline --strict
 
 # The whole-model verification through GENERATED JAVASCRIPT (not just the
 # reference path jsoo.pt2.run/jsoo.pt2.runtest exercise): a real model's

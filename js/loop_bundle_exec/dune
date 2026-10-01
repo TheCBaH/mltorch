@@ -1,0 +1,8 @@
+; Runs a prepared [Loop_bundle.t] in-process under js_of_ocaml only, on top of
+; [loop_js_exec]'s compile and failure-decoding; its own library because
+; [Loop_js_exec] is that library's main module and cannot be depended on from
+; inside it.
+
+(library
+ (name loop_bundle_exec)
+ (libraries err_trace fmt js_ast js_of_ocaml loop_ir loop_js_exec native))

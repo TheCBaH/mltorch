@@ -9,7 +9,7 @@
    CI step.
 
    argv: <model.pt2> <inputs.pt> <expected.json> <outputs.pt> [--cram]
-         [--strict] [--nodes] [--shadow] [--direct] [--arena]
+         [--strict] [--nodes] [--shadow] [--direct] [--arena] [--bundle] [--baseline] [--warm]
    Same four positional paths as js/run/pt2_run.ml -- deliberately runs only
    the FIRST of the (many) samples they hold ([~max_samples:(Some 1)]),
    never the whole map: see [Infer_report.report]'s own doc for why that
@@ -34,9 +34,18 @@
    line, "arena: used ..." or "arena: declined: ...") and fails the run, same
    as a coverage or ranking failure. *)
 
-type eval = [ Native_interp.error | Native_predict.error ]
+type eval =
+  [ Native_interp.error
+  | Native_predict.error
+  | Loop_bundle.error
+  | Loop_bundle_exec.error
+  | `Bundle_mismatch of int ]
 
 let pp_eval ppf : eval -> unit = function
+  | `Bundle_mismatch n ->
+      Format.fprintf ppf "bundle: %d output(s) differ bitwise from per-node" n
+  | #Loop_bundle_exec.error as e -> Loop_bundle_exec.pp_error ppf e
+  | #Loop_bundle.error as e -> Loop_bundle.pp_error ppf e
   | #Native_predict.error as e -> Native_predict.pp_error ppf e
   | #Native_interp.error as e -> Native_interp.pp_error ppf e
 
@@ -126,11 +135,11 @@ let infer_canonical ~arena ~node_executor archive image =
   in
   Err.return (List.map (fun ((c : Dim.index Dim.t), p) -> ((c :> int), p)) top)
 
-let infer ~direct ~arena ~node_executor archive image =
+let infer ~direct ~arena ~warm ~node_executor archive image =
   if not direct then infer_canonical ~arena ~node_executor archive image
   else
     let open Err.Syntax in
-    let* outputs =
+    let run_once () =
       Native_interp.run
         ?arena:(if arena then Some Arena.Admission.Best_effort else None)
         ?on_arena:(if arena then Some on_arena else None)
@@ -138,12 +147,177 @@ let infer ~direct ~arena ~node_executor archive image =
         ~input:image
       |> Err.map_error ~pos:__POS__ (fun e -> (e :> eval))
     in
+    let* outputs = run_once () in
+    (* [--warm]: five further runs on the same process (kernels already
+       compiled), the per-node counterpart of [--bundle]'s warm repeats. *)
+    let* () =
+      if not warm then Err.return ()
+      else
+        let+ times =
+          Err.List.map
+            (fun _ ->
+              let w0 = Sys.time () in
+              let+ _ = run_once () in
+              (Sys.time () -. w0) *. 1000.)
+            [ 1; 2; 3; 4; 5 ]
+        in
+        Printf.eprintf "loop_js_pt2 per-node: warm runs ms [%s]\n%!"
+          (String.concat "; "
+             (List.map (Printf.sprintf "%.1f") (List.sort compare times)))
+    in
     let* top =
       Native_predict.top_predictions outputs 5
       |> Err.map_error ~pos:__POS__ (fun e -> (e :> eval))
     in
     Err.return
       (List.map (fun ((c : Dim.index Dim.t), p) -> ((c :> int), p)) top)
+
+(* [--bundle]: the whole model as ONE generated-JS entry call over prepared
+   arena pools ([Loop_bundle_exec]), on the direct graph. [--shadow] also runs
+   [Eval_direct.run] on the same graph and inputs and requires every output to
+   be bitwise equal. Preparation and the run are timed separately, to stderr. *)
+let output_values t =
+  let (Tensor.Tensor tt) = t in
+  let acc = ref [] in
+  Vec6.iter tt.Tensor.shape (fun c ->
+      acc := Int32.bits_of_float (Tensor.read_at t (Vec6.get c)) :: !acc);
+  !acc
+
+(* Lowered, preloaded and prepared once: every sample shares the one graph, as
+   the per-node executors' tables do. [first] marks the call that paid for it. *)
+let bundle_cache = ref None
+
+let prepared_bundle archive =
+  let open Err.Syntax in
+  let map e = (e :> eval) in
+  match !bundle_cache with
+  | Some cached -> Err.return (false, cached)
+  | None ->
+      let* lowered = Native_interp.lower_archive archive |> Err.map_error map in
+      let g = lowered.Pt2_native_graph.graph in
+      let* constants =
+        Native_interp.preload archive lowered |> Err.map_error map
+      in
+      let* b = Loop_bundle.build g |> Err.map_error map in
+      let t0 = Sys.time () in
+      let* p =
+        Loop_bundle_exec.prepare b ~constants:(fun id ->
+            Graph_ir.Tensor_id.Map.find_opt id constants)
+        |> Err.map_error map
+      in
+      let cached = (g, constants, b, p, (Sys.time () -. t0) *. 1000.) in
+      bundle_cache := Some cached;
+      Err.return (true, cached)
+
+let infer_bundle ~shadow ~baseline archive image =
+  let open Err.Syntax in
+  let map e = (e :> eval) in
+  let* first, (g, constants, b, p, prepare_ms) = prepared_bundle archive in
+  let* input = Native_interp.tensor_of_pt2 image |> Err.map_error map in
+  let t1 = Sys.time () in
+  let input_id = List.hd b.Loop_bundle.inputs in
+  let* out =
+    Loop_bundle_exec.run p ~bind:(fun id ->
+        if Graph_ir.Tensor_id.equal id input_id then Some input else None)
+    |> Err.map_error map
+  in
+  let t2 = Sys.time () in
+  (* Warm repeats on the same prepared bundle, the run above being the first
+     (cold) one; reported as the sorted list so the spread is visible. *)
+  let st = Loop_bundle_exec.stats p in
+  if first then
+    Printf.eprintf
+      "loop_js_pt2 bundle: source %d bytes, %d distinct kernels, %d execution \
+       set(s), pools: %s\n\
+       %!"
+      st.Loop_bundle_exec.source_bytes st.Loop_bundle_exec.distinct_kernels
+      st.Loop_bundle_exec.execution_sets
+      (String.concat ", "
+         (List.map
+            (fun (a, k, n) ->
+              Format.asprintf "%a/%a=%d" Storage_script.Arena_id.pp a
+                Alloc_script.Kind.pp k n)
+            st.Loop_bundle_exec.pools));
+  let* warm =
+    Err.List.map
+      (fun _ ->
+        let w0 = Sys.time () in
+        let+ _ =
+          Loop_bundle_exec.run p ~bind:(fun id ->
+              if Graph_ir.Tensor_id.equal id input_id then Some input else None)
+          |> Err.map_error map
+        in
+        (Sys.time () -. w0) *. 1000.)
+      (if first then [ 1; 2; 3; 4; 5 ] else [])
+  in
+  Printf.eprintf
+    "loop_js_pt2 bundle: %d invocations, prepare %.1f ms, first run %.1f ms, \
+     warm runs ms [%s]\n\
+     %!"
+    (List.length b.Loop_bundle.invocations)
+    prepare_ms
+    ((t2 -. t1) *. 1000.)
+    (String.concat "; "
+       (List.map (Printf.sprintf "%.1f") (List.sort compare warm)));
+  (* [--baseline]: the matched per-node comparison -- the same graph, constants
+     and input through [Eval_direct.run] with every node in its own generated-JS
+     kernel, constants passed in (no re-binding from the archive) -- one cold run
+     then five warm ones, so the two figures differ only in per-node dispatch
+     against one entry call. *)
+  let* () =
+    if not (baseline && first) then Err.return ()
+    else
+      let node_state = Loop_node_executor.create () in
+      let node_executor = Loop_node_executor.node_executor node_state in
+      let run_once () =
+        let t = Sys.time () in
+        let+ _ =
+          Eval_direct.run ~region_executor ~region_group_executor ~node_executor
+            g
+            ~constants:(Graph_ir.Tensor_id.Map.bindings constants)
+            ~inputs:[ (input_id, input) ]
+          |> Err.map_error map
+        in
+        (Sys.time () -. t) *. 1000.
+      in
+      let* cold = run_once () in
+      let+ warm = Err.List.map (fun _ -> run_once ()) [ 1; 2; 3; 4; 5 ] in
+      Printf.eprintf
+        "loop_js_pt2 per-node baseline (constants passed in): first run %.1f \
+         ms, warm runs ms [%s]\n\
+         %!"
+        cold
+        (String.concat "; "
+           (List.map (Printf.sprintf "%.1f") (List.sort compare warm)))
+  in
+  let outputs =
+    List.map
+      (fun id -> Graph_ir.Tensor_id.Map.find id out)
+      g.Graph_ir.Graph.outputs
+  in
+  let* () =
+    if not shadow then Err.return ()
+    else
+      let* reference =
+        Eval_direct.run g
+          ~constants:(Graph_ir.Tensor_id.Map.bindings constants)
+          ~inputs:[ (input_id, input) ]
+        |> Err.map_error map
+      in
+      let bad =
+        List.length
+          (List.filter
+             (fun id ->
+               output_values (Graph_ir.Tensor_id.Map.find id out)
+               <> output_values (Graph_ir.Tensor_id.Map.find id reference))
+             g.Graph_ir.Graph.outputs)
+      in
+      Printf.eprintf "loop_js_pt2 bundle: shadow %d/%d outputs differ\n%!" bad
+        (List.length g.Graph_ir.Graph.outputs);
+      if bad = 0 then Err.return () else Err.fail (`Bundle_mismatch bad)
+  in
+  let* top = Native_predict.top_predictions outputs 5 |> Err.map_error map in
+  Err.return (List.map (fun ((c : Dim.index Dim.t), p) -> ((c :> int), p)) top)
 
 (* T3.3/T5.1: a run that silently skipped the generated-JS path is a worse
    defect than one that fails loudly, since nothing else about a passing
@@ -180,6 +354,25 @@ let () =
   let shadow, argv = strip_flag "--shadow" argv in
   let direct, argv = strip_flag "--direct" argv in
   let arena, argv = strip_flag "--arena" argv in
+  let bundle, argv = strip_flag "--bundle" argv in
+  let baseline, argv = strip_flag "--baseline" argv in
+  let warm, argv = strip_flag "--warm" argv in
+  (* [--samples=N]: [--bundle]'s one prepared graph serves N samples (default
+     1, as every other mode here). *)
+  let samples, argv =
+    let is_flag a = String.length a > 10 && String.sub a 0 10 = "--samples=" in
+    let n =
+      Array.fold_left
+        (fun acc a ->
+          if is_flag a then
+            int_of_string (String.sub a 10 (String.length a - 10))
+          else acc)
+        1 argv
+    in
+    ( n,
+      Array.of_list
+        (List.filter (fun a -> not (is_flag a)) (Array.to_list argv)) )
+  in
   match Infer_report.parse_argv argv with
   | Error usage ->
       prerr_endline usage;
@@ -192,8 +385,10 @@ let () =
         Option.map Loop_node_executor.node_executor node_state
       in
       let report_result =
-        Infer_report.run ~max_samples:1 ~now:Sys.time
-          ~infer:(infer ~direct ~arena ~node_executor)
+        Infer_report.run ~max_samples:samples ~now:Sys.time
+          ~infer:
+            (if bundle then infer_bundle ~shadow ~baseline
+             else infer ~direct ~arena ~warm ~node_executor)
           paths options
       in
       (match node_state with
@@ -227,7 +422,12 @@ let () =
          subject, not this runner. Checked anyway (D7's "one report"), so a
          future model with an Lstm needs no change here to start gating on
          it too. *)
-      let region_min_generated_js = if nodes then 0 else min_generated_js in
+      (* [--bundle] compiles every scheduled invocation before running, or refuses at
+         preparation, so completeness is checked by construction and the Region
+         floor has nothing to count. *)
+      let region_min_generated_js =
+        if nodes || bundle then 0 else min_generated_js
+      in
       let arena_check =
         if arena && !arena_declined then
           Error "--arena asked for a Best_effort arena and it was declined"

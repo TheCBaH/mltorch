@@ -66,3 +66,20 @@ val int64_view :
 val little_endian : bool
 (** The alias of an int64 buffer relies on the host byte order; a big-endian
     host is refused ([`Js_exception]), not byte-swapped. *)
+
+val failure : Loop_program.t -> Js_of_ocaml.Js.Unsafe.any -> error
+(** Decodes a failure record against [program]'s own failure sites, as [run]
+    does for a single kernel: for a caller that composes several programs. *)
+
+val storage : Tensor.packed -> Js_of_ocaml.Js.Unsafe.any
+(** The typed array holding a tensor's own storage (an int64 tensor's is the
+    [Int32Array] of [lo, hi] pairs; see [int64_view]). *)
+
+val argument :
+  Loop_buffer.t ->
+  Tensor.packed ->
+  ( Js_of_ocaml.Js.Unsafe.any,
+    [> `Binding_mismatch of Kernel_eval.Binding_mismatch.t ] )
+  result
+(** The typed array [buffer]'s kernel takes for [tensor]'s storage: the
+    [BigInt64Array] alias for int64, the storage itself otherwise. *)

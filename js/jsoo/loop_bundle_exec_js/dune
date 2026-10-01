@@ -1,0 +1,19 @@
+; jsoo mirror of js/loop_bundle_exec, over loop_ir_js/native_js/loop_js_exec_js
+; -- see js/jsoo/loop_js_exec_js/dune for why the mirror exists. Sources are
+; copied, never forked.
+
+(copy_files
+ (files %{workspace_root}/js/loop_bundle_exec/loop_bundle_exec.{ml,mli}))
+
+(library
+ (name loop_bundle_exec_js)
+ (libraries
+  err_trace
+  expr_js
+  fmt
+  js_ast
+  js_of_ocaml
+  loop_ir_js
+  loop_js_exec_js
+  native_js)
+ (wrapped false))

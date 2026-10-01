@@ -37,7 +37,7 @@ let tensor_sig_of_binding ~id (Tensor.Tensor t) =
   Tensor_sig.create ~id ~name:"loop_js region source" ~shape:t.Tensor.shape
     ~fmt:(Payload.Fmt t.Tensor.payload.Payload.fmt) ?quant ()
 
-let lower ~limits ~out_shape ~bindings program =
+let lower_sigs ~limits ~out_shape ~sigs program =
   let open Err.Syntax in
   let sources = Region_program.Fold.sources program in
   let source_ids =
@@ -48,14 +48,9 @@ let lower ~limits ~out_shape ~bindings program =
   let* inputs =
     Err.List.map
       (fun id ->
-        match Tensor_id.Map.find_opt id bindings with
-        | Some tensor ->
-            Err.return
-              {
-                Kernel.Input.id;
-                sg = tensor_sig_of_binding ~id tensor;
-                binding = Kernel.Binding.Caller;
-              }
+        match Tensor_id.Map.find_opt id sigs with
+        | Some sg ->
+            Err.return { Kernel.Input.id; sg; binding = Kernel.Binding.Caller }
         | None -> Err.fail (`Unresolved_source id))
       (Tensor_id.Set.elements source_ids)
   in
@@ -95,7 +90,7 @@ let lower ~limits ~out_shape ~bindings program =
    [Region_execution.materialize_group]'s own convention: every caller here
    derives [selected] from [group] itself, same as that function's callers
    do. *)
-let lower_group ~limits ~bindings ~(selected : Region_group.Ordinal.t list)
+let lower_group_sigs ~limits ~sigs ~(selected : Region_group.Ordinal.t list)
     (group : Region_group.t) =
   let open Err.Syntax in
   let sources =
@@ -113,14 +108,9 @@ let lower_group ~limits ~bindings ~(selected : Region_group.Ordinal.t list)
   let* inputs =
     Err.List.map
       (fun id ->
-        match Tensor_id.Map.find_opt id bindings with
-        | Some tensor ->
-            Err.return
-              {
-                Kernel.Input.id;
-                sg = tensor_sig_of_binding ~id tensor;
-                binding = Kernel.Binding.Caller;
-              }
+        match Tensor_id.Map.find_opt id sigs with
+        | Some sg ->
+            Err.return { Kernel.Input.id; sg; binding = Kernel.Binding.Caller }
         | None -> Err.fail (`Unresolved_source id))
       (Tensor_id.Set.elements source_ids)
   in
@@ -157,3 +147,14 @@ let lower_group ~limits ~bindings ~(selected : Region_group.Ordinal.t list)
     List.map2
       (fun ordinal (v : Kernel.Value.t) -> (ordinal, v.Kernel.Value.id))
       selected values )
+
+let sigs_of_bindings bindings =
+  Tensor_id.Map.mapi
+    (fun id tensor -> tensor_sig_of_binding ~id tensor)
+    bindings
+
+let lower ~limits ~out_shape ~bindings program =
+  lower_sigs ~limits ~out_shape ~sigs:(sigs_of_bindings bindings) program
+
+let lower_group ~limits ~bindings ~selected group =
+  lower_group_sigs ~limits ~sigs:(sigs_of_bindings bindings) ~selected group

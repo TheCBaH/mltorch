@@ -49,3 +49,22 @@ val lower_group :
     -- the second component is that mapping, in [selected]'s order, over the ids
     [lower_group] itself minted (fresh, disjoint from every source id, and from
     each other by construction). *)
+
+val lower_sigs :
+  limits:Kernel.Limits.t ->
+  out_shape:Vec6.shape ->
+  sigs:Tensor_sig.t Tensor_id.Map.t ->
+  Region_program.t ->
+  (Loop_program.t, error) Err.t
+(** [lower] from declared signatures alone -- the tensor-free entry a bundle
+    needs to lower before any payload exists. [lower] is this over each bound
+    tensor's own signature; a source [sigs] does not cover is
+    [`Unresolved_source]. *)
+
+val lower_group_sigs :
+  limits:Kernel.Limits.t ->
+  sigs:Tensor_sig.t Tensor_id.Map.t ->
+  selected:Region_group.Ordinal.t list ->
+  Region_group.t ->
+  (Loop_program.t * (Region_group.Ordinal.t * Tensor_id.t) list, error) Err.t
+(** [lower_group] from declared signatures alone. *)

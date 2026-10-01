@@ -296,3 +296,15 @@ let exec ?outputs program ~bind =
   match Err.payload (compile program) with
   | Error e -> Err.fail (e :> error)
   | Ok compiled -> run ?outputs compiled ~bind
+
+let failure program record =
+  match
+    decode
+      { program; sites = Loop_js_failure.sites program; kernel = record }
+      record
+  with
+  | Ok row -> (row :> error)
+  | Error m -> `Js_exception m
+
+let storage (Tensor.Tensor t) = data_of t.Tensor.payload.Payload.data
+let argument = argument
