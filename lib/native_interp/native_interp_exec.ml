@@ -13,13 +13,45 @@ type hooks =
     }
       -> hooks
 
-(* Evaluates [graph] (under [Only empty]), in an arena when one was asked for. *)
-let eval_in_arena ?arena ?on_arena ~retain graph ~eval =
+(* Opt-in memory-aware reordering of the graph a run executes. *)
+type schedule = {
+  limits : Arena_schedule.Limits.t;
+  report : (Arena_schedule_plan.Summary.t -> unit) option;
+}
+
+let schedule_config ~mode ~retain (s : schedule) =
+  {
+    Arena_schedule.Config.mode;
+    retain;
+    alignment = Alignment_policy.standard;
+    limits = s.limits;
+  }
+
+(* A refusal keeps the row an unscheduled run would have reported; anything
+   else is a defect of the scheduler. *)
+let schedule_error (row : Arena_schedule_plan.error) =
+  match row with
+  | #Arena_run.error as arena when Arena_schedule_plan.is_refusal row ->
+      `Arena arena
+  | row -> `Schedule row
+
+let narrow_declined (e : Arena_schedule_plan.error) : Arena_run.error =
+  match e with
+  | #Arena_run.error as row -> row
+  | _ -> invalid_arg "a declined arena is always a planning refusal"
+
+(* Evaluates [graph] (under [Only empty]), in an arena when one was asked for.
+   [eval] runs the graph it is given: with a [schedule] that is the reordered
+   graph, and the arena is built for exactly that one. *)
+let eval_in_arena ?arena ?on_arena ?schedule ~retain graph ~eval =
   let open Err.Syntax in
   let notify outcome = Option.iter (fun f -> f outcome) on_arena in
-  match arena with
-  | None -> eval None
-  | Some admission -> (
+  let report summary =
+    Option.iter (fun s -> Option.iter (fun f -> f summary) s.report) schedule
+  in
+  match (schedule, arena) with
+  | None, None -> eval graph None
+  | None, Some admission -> (
       let* outcome =
         Arena_run.acquire ~retain ~admission graph
         |> Err.map_error ~pos:__POS__ (fun e -> `Arena e)
@@ -27,18 +59,60 @@ let eval_in_arena ?arena ?on_arena ~retain graph ~eval =
       match outcome with
       | Arena_run.Release_only reason ->
           notify (Arena_run.Outcome.Declined reason);
-          eval None
+          eval graph None
       | Arena_run.Arena a ->
-          let* env = eval (Some a) in
+          let* env = eval graph (Some a) in
           let+ used =
             Arena_run.report a |> Err.map_error ~pos:__POS__ (fun e -> `Arena e)
           in
           notify (Arena_run.Outcome.Used used);
           env)
+  | Some s, None ->
+      let config = schedule_config ~mode:Intermediate ~retain s in
+      let* graph, summary =
+        Arena_schedule_plan.release_only config graph
+        |> Err.map_error ~pos:__POS__ schedule_error
+      in
+      report summary;
+      eval graph None
+  | Some s, Some admission -> (
+      let config = schedule_config ~mode:Intermediate ~retain s in
+      let* selection =
+        Arena_schedule_plan.choose ~admission config graph
+        |> Err.map_error ~pos:__POS__ schedule_error
+      in
+      report (Arena_schedule_plan.summary selection);
+      let graph = selection.graph in
+      match selection.plan with
+      | Some (Arena_schedule_plan.Plan.Intermediate plan) -> (
+          let* outcome =
+            Arena_run.acquire_plan ~admission plan
+            |> Err.map_error ~pos:__POS__ (fun e -> `Arena e)
+          in
+          match outcome with
+          | Arena_run.Release_only reason ->
+              notify (Arena_run.Outcome.Declined reason);
+              eval graph None
+          | Arena_run.Arena a ->
+              let* env = eval graph (Some a) in
+              let+ used =
+                Arena_run.report a
+                |> Err.map_error ~pos:__POS__ (fun e -> `Arena e)
+              in
+              notify (Arena_run.Outcome.Used used);
+              env)
+      | Some (Roles _) -> invalid_arg "an intermediate request planned roles"
+      | None ->
+          Option.iter
+            (fun reason ->
+              notify (Arena_run.Outcome.Declined (narrow_declined reason)))
+            selection.declined;
+          eval graph None)
 
 (* Runs [graph] in role arenas under [layout], constants and inputs copied, and
-   returns the results copied out of their lease. *)
-let eval_in_storage ~layout ?on_storage ?hooks ?region_executor
+   returns the results copied out of their lease. [hooks] is given the graph
+   the run follows, which a [schedule] may have reordered. *)
+let eval_in_storage ~layout ?on_storage ?schedule ~hooks ?region_executor
     ?region_group_executor ?node_executor ~retain graph ~constants ~inputs =
   let open Err.Syntax in
   let arena r =
@@ -51,14 +125,34 @@ let eval_in_storage ~layout ?on_storage ?hooks ?region_executor
       inputs = Storage_script.Ownership.Copied;
     }
   in
-  let* script = arena (Eval_direct.storage_script ~retain config graph) in
-  let* plan = arena (Storage_plan.create script) in
+  let* graph, plan =
+    match schedule with
+    | None ->
+        let* script = arena (Eval_direct.storage_script ~retain config graph) in
+        let+ plan = arena (Storage_plan.create script) in
+        (graph, plan)
+    | Some s -> (
+        let* selection =
+          Arena_schedule_plan.choose
+            (schedule_config ~mode:(Roles config) ~retain s)
+            graph
+          |> Err.map_error ~pos:__POS__ schedule_error
+        in
+        Option.iter
+          (fun f -> f (Arena_schedule_plan.summary selection))
+          s.report;
+        match selection.plan with
+        | Some (Arena_schedule_plan.Plan.Roles plan) ->
+            Err.return (selection.graph, plan)
+        | Some (Intermediate _) | None ->
+            invalid_arg "a role request always plans roles")
+  in
   let* prepared = arena (Constant_arena.create plan ~constants) in
   let* runner = arena (Storage_run.create plan prepared) in
   let* lease =
     arena
-      (Storage_run.run runner ?hooks ?region_executor ?region_group_executor
-         ?node_executor ~retain graph ~inputs)
+      (Storage_run.run runner ?hooks:(hooks graph) ?region_executor
+         ?region_group_executor ?node_executor ~retain graph ~inputs)
   in
   let* env, _ =
     Result_lease.copy_out lease
@@ -70,14 +164,17 @@ let eval_in_storage ~layout ?on_storage ?hooks ?region_executor
   Option.iter (fun f -> f report) on_storage;
   env
 
-let run ?arena ?layout ?on_arena ?on_storage ?hooks ?region_executor
+let run ?arena ?layout ?schedule ?on_arena ?on_storage ?hooks ?region_executor
     ?region_group_executor ?node_executor archive ~input =
   let open Err.Syntax in
   let* lowered = lower_archive archive in
   let graph = lowered.Pt2_native_graph.graph in
-  let eval_hooks =
+  (* Hooks see the graph the run follows: the lowered one with the nodes in
+     the order they execute, ids and provenance unchanged. *)
+  let eval_hooks run_graph =
     Option.map
       (fun (Hooks h) ->
+        let lowered = { lowered with Pt2_native_graph.graph = run_graph } in
         Eval_direct.Hooks
           {
             on_start = (fun node -> h.on_start lowered node);
@@ -120,13 +217,15 @@ let run ?arena ?layout ?on_arena ?on_storage ?hooks ?region_executor
   let* env =
     match layout with
     | Some layout ->
-        eval_in_storage ~layout ?on_storage ?hooks:eval_hooks ?region_executor
-          ?region_group_executor ?node_executor ~retain graph ~constants ~inputs
+        eval_in_storage ~layout ?on_storage ?schedule ~hooks:eval_hooks
+          ?region_executor ?region_group_executor ?node_executor ~retain graph
+          ~constants ~inputs
     | None ->
-        eval_in_arena ?arena ?on_arena ~retain graph ~eval:(fun arena ->
-            Eval_direct.run ?arena ?hooks:eval_hooks ?region_executor
-              ?region_group_executor ?node_executor ~retain ~constants graph
-              ~inputs
+        eval_in_arena ?arena ?on_arena ?schedule ~retain graph
+          ~eval:(fun run_graph arena ->
+            Eval_direct.run ?arena ?hooks:(eval_hooks run_graph)
+              ?region_executor ?region_group_executor ?node_executor ~retain
+              ~constants run_graph ~inputs
             |> Err.map_error ~pos:__POS__ (fun e -> `Eval e))
   in
   Err.List.map
@@ -375,7 +474,7 @@ let constants_for archive ~lens ~graph ~computed =
     { from_state = count `State; from_archive = count `Archive; from_plan = 0 }
   )
 
-let evaluate ?arena ?on_arena ?region_executor ?region_group_executor
+let evaluate ?arena ?schedule ?on_arena ?region_executor ?region_group_executor
     ?node_executor archive (Transformed t) ~input =
   let open Err.Syntax in
   let* input = tensor_of_pt2 input in
@@ -402,9 +501,10 @@ let evaluate ?arena ?on_arena ?region_executor ?region_group_executor
   in
   let retain = Release_schedule.Retain.Only Tensor_id.Set.empty in
   let* env =
-    eval_in_arena ?arena ?on_arena ~retain t.graph ~eval:(fun arena ->
+    eval_in_arena ?arena ?on_arena ?schedule ~retain t.graph
+      ~eval:(fun graph arena ->
         Eval_direct.run ?arena ?region_executor ?region_group_executor
-          ?node_executor ~retain ~constants t.graph ~inputs
+          ?node_executor ~retain ~constants graph ~inputs
         |> Err.map_error ~pos:__POS__ (fun e -> `Eval e))
   in
   let+ outputs =

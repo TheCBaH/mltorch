@@ -413,6 +413,7 @@ type error =
   | malformed
   | `Output_count_over_limit of Shape_error.Output_count.t
   | `Provenance of Pt2_native_graph.error
+  | `Schedule of Arena_schedule_plan.error
   | `Tensor_bridge of tensor_bridge
   | `Transform of Pass.error
   | `Unsupported_input of unsupported_input
@@ -727,6 +728,8 @@ let pp_error ppf : [< error ] -> unit = function
   | `Output_count_over_limit e ->
       Fmt.pf ppf "PT2 graph over limit: %a" Shape_error.Output_count.pp e
   | `Provenance e -> Pt2_native_graph.pp_error ppf e
+  | `Schedule e ->
+      Fmt.pf ppf "memory scheduling: %a" Arena_schedule_plan.pp_error e
   | `Tensor_bridge e -> Fmt.pf ppf "PT2 tensor bridge: %a" pp_tensor_bridge e
   | `Transform e -> Pass.pp_error ppf e
   | `Unsupported_input `Non_tensor ->

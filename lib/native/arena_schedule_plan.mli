@@ -71,6 +71,33 @@ module Selection : sig
   }
 end
 
+(** What a scheduled run reports: the figures of the original and the chosen
+    order. Pool bytes are [None] when no arena was planned. *)
+module Summary : sig
+  type t = {
+    strategy : Arena_schedule.Strategy.t;
+    stop : Arena_schedule.Stop.t;
+    stats : Arena_schedule.Stats.t;
+    baseline : Arena_schedule.Metrics.t;
+    chosen : Arena_schedule.Metrics.t;
+    baseline_pool_bytes : Byte_size.t option;
+    pool_bytes : Byte_size.t option;
+  }
+
+  val pp : Format.formatter -> t -> unit
+  (** One line of [key=value] fields, for a CLI's [schedule:] report. *)
+end
+
+val summary : Selection.t -> Summary.t
+
+val release_only :
+  Arena_schedule.Config.t ->
+  Graph_ir.graph ->
+  (Graph_ir.graph * Summary.t, error) Err.t
+(** The payload-best order for a run without an arena: no placement, so the
+    summary has no pool bytes. Under [Retain.All] in intermediate mode nothing
+    is released and the graph is returned unchanged. *)
+
 val choose :
   ?limits:Kernel.Limits.t ->
   ?budget:Interval_alloc.Budget.t ->

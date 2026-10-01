@@ -69,6 +69,12 @@ let pp_malformed = Native_interp_error.pp_malformed
 let pp_tensor_bridge = Native_interp_error.pp_tensor_bridge
 let lower = Native_interp_lower.lower
 let lower_archive = Native_interp_lower.lower_archive
+
+type schedule = Native_interp_exec.schedule = {
+  limits : Arena_schedule.Limits.t;
+  report : (Arena_schedule_plan.Summary.t -> unit) option;
+}
+
 let run = Native_interp_exec.run
 
 type transformed = Native_interp_exec.transformed =

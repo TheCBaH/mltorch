@@ -14,8 +14,36 @@ let pp_arena_outcome fmt (outcome : Arena_run.Outcome.t) =
       Format.fprintf fmt "arena: used %a" Arena_run.Report.pp report
   | Declined e -> Format.fprintf fmt "arena: declined: %a" Arena_run.pp_error e
 
-let eval model input expect verbose arena layout : (unit, string) result =
+let schedule_of ~enabled ~width ~expansions =
+  if not enabled then Ok None
+  else
+    match
+      Arena_schedule.Limits.make ~width ~expansions
+        ~state_bytes:Arena_schedule.Limits.default_beam.state_bytes
+    with
+    | Ok limits ->
+        Ok
+          (Some
+             {
+               Native_interp.limits;
+               report =
+                 Some
+                   (fun summary ->
+                     Format.printf "schedule: %a@."
+                       Arena_schedule_plan.Summary.pp summary);
+             })
+    | Error e ->
+        Error
+          (Fmt.str "invalid schedule limits: %a" Arena_schedule.pp_error
+             (Err.Error.kind e))
+
+let eval model input expect verbose arena layout schedule_memory beam_width
+    beam_expansions : (unit, string) result =
   with_archive model (fun archive ->
+      let* schedule =
+        schedule_of ~enabled:schedule_memory ~width:beam_width
+          ~expansions:beam_expansions
+      in
       let* input =
         to_cli Pt2_archive.pp_error (Pt2_archive.load_first_pt_tensor input)
       in
@@ -51,7 +79,7 @@ let eval model input expect verbose arena layout : (unit, string) result =
       in
       let* outputs =
         to_cli Native_interp.pp_error
-          (Native_interp.run ?hooks
+          (Native_interp.run ?hooks ?schedule
              ?arena:(if arena then Some Arena.Admission.Best_effort else None)
              ?layout
              ?on_storage:
@@ -104,7 +132,8 @@ let eval_cmd =
   Cmd.v (Cmd.info "eval" ~doc)
     Term.(
       const eval $ pt2_arg $ input_arg $ expect_arg $ verbose_arg $ arena_arg
-      $ arena_layout_arg)
+      $ arena_layout_arg $ schedule_memory_arg $ schedule_beam_width_arg
+      $ schedule_beam_expansions_arg)
 
 (* The canonical pipeline now lives in [Pipeline], because Native4D needs the
    same definition of "canonical" and two callers agreeing by coincidence is not

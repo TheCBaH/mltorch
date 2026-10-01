@@ -127,25 +127,92 @@ let try_place ?limits ?budget ?physical ~admission c graph =
   | Error e when is_refusal (Err.Error.kind e) -> Err.return (Refused_at_plan e)
   | Error _ as e -> e
 
+module Summary = struct
+  type t = {
+    strategy : Strategy.t;
+    stop : Arena_schedule.Stop.t;
+    stats : Arena_schedule.Stats.t;
+    baseline : Metrics.t;
+    chosen : Metrics.t;
+    baseline_pool_bytes : Byte_size.t option;
+    pool_bytes : Byte_size.t option;
+  }
+
+  let pp_stop ppf (s : Arena_schedule.Stop.t) =
+    Fmt.string ppf
+      (match s with
+      | Budget_exhausted -> "budget"
+      | Completed -> "completed"
+      | Lower_bound_reached -> "bound"
+      | State_limit -> "state-limit")
+
+  let pp ppf t =
+    let opt = Fmt.option ~none:(Fmt.any "none") Byte_size.pp in
+    Fmt.pf ppf
+      "strategy=%a stop=%a target_before=%a target_after=%a pool_before=%a \
+       pool_after=%a expansions=%d"
+      Strategy.pp t.strategy pp_stop t.stop Byte_size.pp t.baseline.target_peak
+      Byte_size.pp t.chosen.target_peak opt t.baseline_pool_bytes opt
+      t.pool_bytes t.stats.expansions
+end
+
+let summary (s : Selection.t) =
+  {
+    Summary.strategy = s.strategy;
+    stop = s.stop;
+    stats = s.stats;
+    baseline = s.baseline;
+    chosen = s.metrics;
+    baseline_pool_bytes = s.baseline_pool_bytes;
+    pool_bytes = s.pool_bytes;
+  }
+
+(* The candidate orders and why the search stopped; the original comes first.
+   Under [Retain.All] in intermediate mode only the original exists. *)
+let portfolio (c : Arena_schedule.Config.t) problem =
+  let open Err.Syntax in
+  match (c.mode, c.retain) with
+  | Intermediate, All ->
+      let order =
+        Array.init (Problem.node_count problem) Problem.Position.of_int
+      in
+      let* metrics = Problem.metrics problem order in
+      Err.return
+        ( [ { G.Candidate.strategy = Strategy.Identity; order; metrics } ],
+          Arena_schedule.Stats.zero,
+          Arena_schedule.Stop.Completed )
+  | _ -> Search.portfolio c problem
+
+let release_only (c : Arena_schedule.Config.t) g =
+  let open Err.Syntax in
+  let* problem = Problem.of_graph c g in
+  let* cands, stats, beam_stop = portfolio c problem in
+  let* r = G.select problem cands stats in
+  let chosen =
+    List.find
+      (fun (k : G.Candidate.t) -> k.strategy = r.Arena_schedule.Result.strategy)
+      cands
+  in
+  let baseline = List.hd cands in
+  Err.return
+    ( r.graph,
+      {
+        Summary.strategy = r.strategy;
+        stop = Search.stop_of ~selected:r.stop ~beam_stop;
+        stats = r.stats;
+        baseline = baseline.metrics;
+        chosen = chosen.metrics;
+        baseline_pool_bytes = None;
+        pool_bytes = None;
+      } )
+
 let ( <?> ) a b = match a with 0 -> b () | c -> c
 
 let choose ?limits ?budget ?(admission = Arena.Admission.Best_effort) ?physical
     (c : Arena_schedule.Config.t) g =
   let open Err.Syntax in
   let* problem = Problem.of_graph c g in
-  let* cands, stats, beam_stop =
-    match (c.mode, c.retain) with
-    | Intermediate, All ->
-        let order =
-          Array.init (Problem.node_count problem) Problem.Position.of_int
-        in
-        let* metrics = Problem.metrics problem order in
-        Err.return
-          ( [ { G.Candidate.strategy = Strategy.Identity; order; metrics } ],
-            Arena_schedule.Stats.zero,
-            Arena_schedule.Stop.Completed )
-    | _ -> Search.portfolio c problem
-  in
+  let* cands, stats, beam_stop = portfolio c problem in
   let* baseline =
     match cands with
     | first :: _ -> Err.return first
