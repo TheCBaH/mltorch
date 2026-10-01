@@ -13,8 +13,31 @@ type hooks =
     }
       -> hooks
 
-let run ?hooks ?region_executor ?region_group_executor ?node_executor archive
-    ~input =
+(* Evaluates [graph] (under [Only empty]), in an arena when one was asked for. *)
+let eval_in_arena ?arena ?on_arena ~retain graph ~eval =
+  let open Err.Syntax in
+  let notify outcome = Option.iter (fun f -> f outcome) on_arena in
+  match arena with
+  | None -> eval None
+  | Some admission -> (
+      let* outcome =
+        Arena_run.acquire ~retain ~admission graph
+        |> Err.map_error ~pos:__POS__ (fun e -> `Arena e)
+      in
+      match outcome with
+      | Arena_run.Release_only reason ->
+          notify (Arena_run.Outcome.Declined reason);
+          eval None
+      | Arena_run.Arena a ->
+          let* env = eval (Some a) in
+          let+ used =
+            Arena_run.report a |> Err.map_error ~pos:__POS__ (fun e -> `Arena e)
+          in
+          notify (Arena_run.Outcome.Used used);
+          env)
+
+let run ?arena ?on_arena ?hooks ?region_executor ?region_group_executor
+    ?node_executor archive ~input =
   let open Err.Syntax in
   let* lowered = lower_archive archive in
   let graph = lowered.Pt2_native_graph.graph in
@@ -59,11 +82,12 @@ let run ?hooks ?region_executor ?region_group_executor ?node_executor archive
          (fun (id, _) -> List.mem id used_constants)
          (Tensor_id.Map.bindings lowered.captured_targets))
   in
+  let retain = Release_schedule.Retain.Only Tensor_id.Set.empty in
   let* env =
-    Eval_direct.run ?hooks:eval_hooks ?region_executor ?region_group_executor
-      ?node_executor ~retain:(Release_schedule.Retain.Only Tensor_id.Set.empty)
-      ~constants graph ~inputs
-    |> Err.map_error ~pos:__POS__ (fun e -> `Eval e)
+    eval_in_arena ?arena ?on_arena ~retain graph ~eval:(fun arena ->
+        Eval_direct.run ?arena ?hooks:eval_hooks ?region_executor
+          ?region_group_executor ?node_executor ~retain ~constants graph ~inputs
+        |> Err.map_error ~pos:__POS__ (fun e -> `Eval e))
   in
   Err.List.map
     (fun id ->
@@ -311,8 +335,8 @@ let constants_for archive ~lens ~graph ~computed =
     { from_state = count `State; from_archive = count `Archive; from_plan = 0 }
   )
 
-let evaluate ?region_executor ?region_group_executor ?node_executor archive
-    (Transformed t) ~input =
+let evaluate ?arena ?on_arena ?region_executor ?region_group_executor
+    ?node_executor archive (Transformed t) ~input =
   let open Err.Syntax in
   let* input = tensor_of_pt2 input in
   let* store, materialized =
@@ -336,11 +360,12 @@ let evaluate ?region_executor ?region_group_executor ?node_executor archive
         Err.fail
           (`Unsupported_input (`Not_exactly_one_user_input (List.length ids)))
   in
+  let retain = Release_schedule.Retain.Only Tensor_id.Set.empty in
   let* env =
-    Eval_direct.run ?region_executor ?region_group_executor ?node_executor
-      ~retain:(Release_schedule.Retain.Only Tensor_id.Set.empty) ~constants
-      t.graph ~inputs
-    |> Err.map_error ~pos:__POS__ (fun e -> `Eval e)
+    eval_in_arena ?arena ?on_arena ~retain t.graph ~eval:(fun arena ->
+        Eval_direct.run ?arena ?region_executor ?region_group_executor
+          ?node_executor ~retain ~constants t.graph ~inputs
+        |> Err.map_error ~pos:__POS__ (fun e -> `Eval e))
   in
   let+ outputs =
     Err.List.map

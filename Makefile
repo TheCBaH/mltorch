@@ -5,9 +5,13 @@
 	inline-timing-report inline-timing-report-js js.build js.runtest \
 	jsoo.build jsoo.inline-runtest jsoo.pt2.download jsoo.pt2.run \
 	jsoo.pt2.runtest jsoo.pt2.vars jsoo.runtest loop.js.runtest \
-	loop_js.bench loop_js.node.pt2.runtest loop_js.pt2.run melange.build \
+	loop_js.bench loop_js.node.pt2.direct.runtest \
+	loop_js.node.pt2.fast.direct.runtest loop_js.node.pt2.fast.runtest \
+	loop_js.node.pt2.runtest loop_js.pt2.download loop_js.pt2.run \
+	loop_js.pt2.vars melange.build \
 	melange.build.scaffold melange.runtest native-infer-verify \
-	native-infer-verify.% native-infer-verify-direct \
+	native-infer-verify.% native-infer-verify-arena \
+	native-infer-verify-arena.% native-infer-verify-direct \
 	native-infer-verify-direct.% native-transform-verify \
 	native-transform-verify.% precommit profile.landmarks \
 	profile.memtrace pt2.download pt2.download-all pt2.download-cram \
@@ -232,6 +236,31 @@ native-infer-verify-direct.%: $(ATEN_GRAPH_REF) $(NATIVE_GRAPH)
 	$(NATIVE_GRAPH) eval --pt2 $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 --input $(PT2_MODEL_DIR)/inputs.pt --expect "$$ref" --verbose
 
 native-infer-verify-direct: $(addprefix native-infer-verify-direct., $(PT2_MODELS_NATIVE_VERIFY_DIRECT))
+
+# Same direct-graph-vs-ATen check as native-infer-verify-direct above, but with
+# `native_graph eval --arena`: intermediates come from a planned tensor arena
+# (`?arena:Best_effort`) instead of release-only allocation. Everything else
+# lives in in-process unit tests (test/native/eval_direct_arena_test.ml) against
+# synthetic Graph_fixtures graphs; this is the one CI-wired check that runs the
+# arena path over a real model against the real ATen reference, so a regression
+# in the allocator, the witness or the mixed-mode copy shows up here even if a
+# fixture-shaped case happens to miss it. `--arena` reports whether the arena
+# was actually used or a Best_effort plan was declined (falling back to
+# release-only, silently as far as `--expect` is concerned, since outputs are
+# equal either way) -- the grep below fails the target on a decline, so a
+# regression that makes the plan inadmissible for this model is caught here
+# too, not just a wrong answer.
+native-infer-verify-arena.%: PT2_MODEL = $*
+native-infer-verify-arena.%: $(ATEN_GRAPH_REF) $(NATIVE_GRAPH)
+	test -f $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 || $(MAKE) pt2.download PT2_MODEL=$*
+	set -eux; ref=$$(mktemp); out=$$(mktemp); trap 'rm -f "$$ref" "$$out"' EXIT; \
+	$(ATEN_GRAPH_REF) $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 $(PT2_MODEL_DIR)/inputs.pt "$$ref"; \
+	$(NATIVE_GRAPH) eval --arena --pt2 $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 \
+	  --input $(PT2_MODEL_DIR)/inputs.pt --expect "$$ref" >"$$out"; \
+	cat "$$out"; \
+	grep -q '^arena: used ' "$$out"
+
+native-infer-verify-arena: $(addprefix native-infer-verify-arena., $(PT2_MODELS_NATIVE_VERIFY_DIRECT))
 
 # Execute a TRANSFORMED graph and check it against the untransformed one. This
 # is a make rule and not a cram golden for two reasons: a full inference is far
@@ -646,12 +675,37 @@ jsoo.pt2.run: jsoo.pt2.download jsoo.build
 # download plumbing. Tier 2: ~100s under node, the same order as
 # jsoo.pt2.runtest's own step in the same CI job.
 #
-# Runs canonical (loop_js_pt2's default, see its own doc comment) -- the
-# raw, directly-converted graph is exercised by loop_js.pt2.run's --direct
-# instead, so this doesn't pay for both on every push.
+# Runs canonical (loop_js_pt2's default, see its own doc comment). The raw,
+# directly-converted graph is exercised below (loop_js.node.pt2.direct.runtest,
+# same model) rather than only manually on fastvit_sa12
+# (loop_js.pt2.run's --direct), since JS_PT2_MODEL is cheap enough to pay for
+# both forms on every push.
+#
+# --arena switches this one run's allocation to a planned tensor arena
+# (?arena:Best_effort) instead of release-only, rather than adding a second
+# ~100s pass with it off: outputs are bit-identical either way, so nothing
+# else in this target's own checks (--shadow, --strict, node coverage) loses
+# coverage by not also running release-only here -- that's what
+# jsoo.pt2.runtest and loop_js.pt2.run already do. This is the jsoo/node
+# counterpart of native-infer-verify-arena -- see
+# the tensor arena design in .ai/.
 loop_js.node.pt2.runtest: jsoo.pt2.download jsoo.build
 	node $(JS_BUILD)/jsoo/loop_js_pt2/loop_js_pt2.bc.js $(JS_PT2_RUN_ARGS) \
-	  --nodes --shadow --strict
+	  --nodes --shadow --strict --arena
+
+# Same model, same compiled-kernel/arena checks as above, but --direct: the
+# raw, untransformed graph (415 nodes here, against canonical's 100 after
+# DCE/fold) through Native_interp.run instead of .evaluate on
+# Pipeline.canonical's output -- the jsoo/node counterpart of
+# native-infer-verify-direct. loop_js.pt2.run's own --direct already covers
+# this combination on fastvit_sa12, for its Region-authored ops, but stays
+# MANUAL there because fastvit alone is minutes under node (see its own doc
+# comment); JS_PT2_MODEL has none of those ops, and direct measured ~100s
+# here, the same order as the canonical target above, so it is cheap enough
+# for every push.
+loop_js.node.pt2.direct.runtest: jsoo.pt2.download jsoo.build
+	node $(JS_BUILD)/jsoo/loop_js_pt2/loop_js_pt2.bc.js $(JS_PT2_RUN_ARGS) \
+	  --direct --nodes --shadow --strict --arena
 
 # The whole-model verification through GENERATED JAVASCRIPT (not just the
 # reference path jsoo.pt2.run/jsoo.pt2.runtest exercise): a real model's
@@ -688,6 +742,43 @@ loop_js.pt2.run: jsoo.build
 	  $(MAKE) pt2.download PT2_MODEL=$(LOOP_JS_PT2_MODEL)
 	node $(JS_BUILD)/jsoo/loop_js_pt2/loop_js_pt2.bc.js \
 	  $(LOOP_JS_PT2_RUN_ARGS) --strict --direct
+
+# Cache vars for LOOP_JS_PT2_MODEL, same shape as jsoo.pt2.vars and for the
+# same reason (a dedicated key, not pt2.vars' all-models one) -- needed
+# because, unlike loop_js.pt2.run above, the two fast targets below ARE
+# wired into CI (js.yml), so a cold run must not re-download this model's
+# 96MB zip on every push.
+loop_js.pt2.vars:
+	@echo "loop_js_pt2_zip_glob=$(PT2_DIR)/$(LOOP_JS_PT2_MODEL)/*.zip"
+	@echo "loop_js_pt2_cache_key=pt2-loop-js-functional-$(PT2_RELEASE)-v$(PT2_MANIFEST_VERSION)-$(LOOP_JS_PT2_MODEL)"
+	@echo "loop_js_pt2_cache_restore_key=pt2-loop-js-functional-$(PT2_RELEASE)-v$(PT2_MANIFEST_VERSION)-"
+
+loop_js.pt2.download:
+	$(MAKE) pt2.download PT2_MODEL=$(LOOP_JS_PT2_MODEL)
+
+# The FAST counterpart of loop_js.pt2.run: no --shadow, so
+# Loop_node_executor's default (shadow:false,
+# js/jsoo/loop_js_exec_js/loop_node_executor.ml) trusts each compiled kernel
+# directly instead of also running the reference interpreter and comparing
+# bitwise. Verified only by --strict's ranking check against the release,
+# not per-node -- loop_js.pt2.run (WITH --shadow) stays the bitwise-verified,
+# MANUAL counterpart.
+#
+# This is what makes fastvit_sa12 affordable here at all: measured at ~25s
+# (canonical) / ~15s (direct) once the shadow double-run is removed, against
+# "did not finish in 300s" with it on -- see
+# the whole-model JS design in .ai/. Region-authored ops
+# (RmsNorm/LayerNorm/Softmax/Sdpa) get no other CI coverage under generated
+# JS: mobilenetv2_050 (loop_js.node.pt2.runtest) has none.
+loop_js.node.pt2.fast.runtest: loop_js.pt2.download jsoo.build
+	node $(JS_BUILD)/jsoo/loop_js_pt2/loop_js_pt2.bc.js \
+	  $(LOOP_JS_PT2_RUN_ARGS) --nodes --strict --arena
+
+# Same, --direct (the raw, untransformed graph) -- the fastvit_sa12 sibling
+# of loop_js.node.pt2.direct.runtest above.
+loop_js.node.pt2.fast.direct.runtest: loop_js.pt2.download jsoo.build
+	node $(JS_BUILD)/jsoo/loop_js_pt2/loop_js_pt2.bc.js \
+	  $(LOOP_JS_PT2_RUN_ARGS) --direct --nodes --strict --arena
 
 # Melange lives behind `--profile melange` so that `dune build` and `make build`
 # never compile it -- a melange.emit stanza is otherwise attached to @all and

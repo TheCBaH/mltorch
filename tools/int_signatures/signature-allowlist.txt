@@ -20,6 +20,7 @@ lib/expr_internal/source.mli	expr-literal	val create : int -> t
 lib/expr_internal/source.mli	expr-literal	val to_int : t -> int
 lib/expr_internal/source.mli	expr-literal	val compare : t -> t -> int
 lib/expr_internal/source.mli	expr-literal	val hash : t -> int
+lib/native/alloc_script.mli	hash	val compare : t -> t -> int
 lib/native/aten_shape.mli	arity	type t = { size : Aten_int.Size.t list; self_dims : Aten_int.Size.t array; fault : [ `Leading_inferred of int | `Rank_too_small ]; }
 lib/core/dim.mli	defn	type +'role t = private int
 lib/core/dim.mli	defn	val extent : int -> extent t

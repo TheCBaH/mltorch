@@ -23,7 +23,15 @@
  (name native)
  (enabled_if
   (<> %{profile} landmarks))
- (libraries core err_trace expr fmt jsont jsont.bytesrw walk_core)
+ (libraries
+  core
+  err_trace
+  expr
+  fmt
+  interval_alloc
+  jsont
+  jsont.bytesrw
+  walk_core)
  (private_modules kernel_hard_shared kernel_hard)
  (wrapped false))
 
@@ -31,7 +39,16 @@
  (name native)
  (enabled_if
   (= %{profile} landmarks))
- (libraries core err_trace expr fmt jsont jsont.bytesrw landmarks walk_core)
+ (libraries
+  core
+  err_trace
+  expr
+  fmt
+  interval_alloc
+  jsont
+  jsont.bytesrw
+  landmarks
+  walk_core)
  (preprocess
   (pps landmarks-ppx --auto))
  (private_modules kernel_hard_shared kernel_hard)

@@ -205,7 +205,15 @@ let decode compiled o : (error, string) result =
 
 (* ---- running ---------------------------------------------------------------- *)
 
-let bind_buffers (p : Loop_program.t) ~bind =
+let check_and_add acc (b : Loop_buffer.t) tensor =
+  match
+    Err.payload
+      (Kernel_eval.check_binding b.Loop_buffer.id b.Loop_buffer.sg tensor)
+  with
+  | Error (`Binding_mismatch m) -> Error (`Binding_mismatch m)
+  | Ok () -> Ok (Tensor_id.Map.add b.Loop_buffer.id tensor acc)
+
+let bind_buffers ?(outputs = fun _ -> None) (p : Loop_program.t) ~bind =
   List.fold_left
     (fun acc (b : Loop_buffer.t) ->
       let* acc = acc in
@@ -213,15 +221,17 @@ let bind_buffers (p : Loop_program.t) ~bind =
       | Loop_buffer.Input -> (
           match bind b.Loop_buffer.id with
           | None -> Error (`Unbound_input b.Loop_buffer.id)
-          | Some tensor -> (
-              match
-                Err.payload
-                  (Kernel_eval.check_binding b.Loop_buffer.id b.Loop_buffer.sg
-                     tensor)
-              with
-              | Error (`Binding_mismatch m) -> Error (`Binding_mismatch m)
-              | Ok () -> Ok (Tensor_id.Map.add b.Loop_buffer.id tensor acc)))
-      | Loop_buffer.Output | Loop_buffer.Scratch ->
+          | Some tensor -> check_and_add acc b tensor)
+      | Loop_buffer.Output -> (
+          match outputs b.Loop_buffer.id with
+          | None ->
+              Ok
+                (Tensor_id.Map.add b.Loop_buffer.id (Loop_interp.allocate b) acc)
+          | Some tensor ->
+              let* acc = check_and_add acc b tensor in
+              Tensor.zero_fill tensor;
+              Ok acc)
+      | Loop_buffer.Scratch ->
           Ok (Tensor_id.Map.add b.Loop_buffer.id (Loop_interp.allocate b) acc))
     (Ok Tensor_id.Map.empty) p.Loop_program.buffers
 
@@ -244,13 +254,13 @@ let argument (b : Loop_buffer.t) (Tensor.Tensor t) =
            kind = Kernel_eval.Binding_mismatch.Format;
          })
 
-let run compiled ~bind =
+let run ?outputs compiled ~bind =
   let p = compiled.program in
   let result =
     if not little_endian then
       Error (`Js_exception "a big-endian host is not supported")
     else
-      let* tensors = bind_buffers p ~bind in
+      let* tensors = bind_buffers ?outputs p ~bind in
       let* args =
         List.fold_left
           (fun acc (b : Loop_buffer.t) ->
@@ -282,7 +292,7 @@ let run compiled ~bind =
   in
   match result with Ok m -> Err.return m | Error e -> Err.fail (e :> error)
 
-let exec program ~bind =
+let exec ?outputs program ~bind =
   match Err.payload (compile program) with
   | Error e -> Err.fail (e :> error)
-  | Ok compiled -> run compiled ~bind
+  | Ok compiled -> run ?outputs compiled ~bind

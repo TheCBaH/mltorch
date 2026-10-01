@@ -505,7 +505,9 @@ type tensor_bridge =
 (** Loading a captured tensor — a different job from reading graph metadata. *)
 
 type error =
-  [ `Build of Graph_builder.error
+  [ `Arena of Arena_run.error
+    (** An arena that was required could not be had: nothing was evaluated. *)
+  | `Build of Graph_builder.error
   | `Eval of Eval_direct.error
   | `Lens of Pt2_native_graph.lens_error
   | `Materialize of Const_ssa_materialize.error
@@ -543,8 +545,18 @@ val lower : Pytorch_types.ExportedProgram.t -> (Pt2_native_graph.t, error) Err.t
 val lower_archive : Pt2_archive.t -> (Pt2_native_graph.t, error) Err.t
 
 (* Execute a one-user-input static graph.  Captured tensor payloads are loaded
-   through the sidecar's [Tensor_id -> target] map, never through native IR. *)
+   through the sidecar's [Tensor_id -> target] map, never through native IR.
+
+   [?arena] runs the graph with its eligible intermediates in a planned arena,
+   planned and created for this run. Under [Best_effort] a plan the arena cannot
+   take falls back to a release-only run and [?on_arena] is told why; under
+   [Required budget] it is an [`Arena] error before anything is evaluated.
+   [?on_arena] also reports, after a run that used one, its pool bytes, the
+   out-of-arena payload bytes and the mixed-mode copies. Results are equal bit
+   for bit either way. Off by default. *)
 val run :
+  ?arena:Arena.Admission.t ->
+  ?on_arena:(Arena_run.Outcome.t -> unit) ->
   ?hooks:hooks ->
   ?region_executor:Region_executor.t ->
   ?region_group_executor:Region_executor.group ->
@@ -677,6 +689,8 @@ type loaded = {
    corruption, so the lens follows only an [Identical] correspondence and such an
    edge simply has no archive path. *)
 val evaluate :
+  ?arena:Arena.Admission.t ->
+  ?on_arena:(Arena_run.Outcome.t -> unit) ->
   ?region_executor:Region_executor.t ->
   ?region_group_executor:Region_executor.group ->
   ?node_executor:Node_executor.t ->

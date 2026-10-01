@@ -9,13 +9,13 @@
    CI step.
 
    argv: <model.pt2> <inputs.pt> <expected.json> <outputs.pt> [--cram]
-         [--strict] [--nodes] [--shadow] [--direct]
+         [--strict] [--nodes] [--shadow] [--direct] [--arena]
    Same four positional paths as js/run/pt2_run.ml -- deliberately runs only
    the FIRST of the (many) samples they hold ([~max_samples:(Some 1)]),
    never the whole map: see [Infer_report.report]'s own doc for why that
    parameter exists.
 
-   [--nodes]/[--shadow] are this runner's own, stripped from
+   [--nodes]/[--shadow]/[--arena] are this runner's own, stripped from
    [Sys.argv] before [Infer_report.parse_argv] ever sees it: that parser's
    [take_flags] rejects any flag it does not recognize, and it is shared with
    every other [Infer_report] caller, none of which knows [Node_executor]
@@ -25,7 +25,14 @@
    [region_executor]'s own top-level scope: safe because every sample here
    shares the SAME graph (compile-table ids are unique only within one
    graph, design §4.2: sharing one table across graphs
-   can collide). *)
+   can collide).
+
+   [--arena] forces [Native_interp]'s own [?arena:Admission.Best_effort] for
+   this run, the jsoo/node counterpart of native_graph eval's own [--arena]
+   (see the tensor arena design in .ai/). Outputs are bit-identical either
+   way, so a decline would otherwise be invisible here: it is reported (one
+   line, "arena: used ..." or "arena: declined: ...") and fails the run, same
+   as a coverage or ranking failure. *)
 
 type eval = [ Native_interp.error | Native_predict.error ]
 
@@ -70,7 +77,26 @@ let region_group_executor =
    smaller subset of models/targets that still exercise the direct
    PT2-to-Native conversion path itself, not only its canonicalized
    result (see the Makefile's own loop_js.pt2.run). *)
-let infer_canonical ~node_executor archive image =
+(* Set by [on_arena] when [--arena] asked for one and it was declined, so
+   [main] can fail the run for that reason too, not only a wrong ranking --
+   see native_graph_eval.ml's own [--arena] for the same reasoning on the
+   native side. *)
+let arena_declined = ref false
+
+let pp_arena_outcome ppf (outcome : Arena_run.Outcome.t) =
+  match outcome with
+  | Used { pool_bytes; out_of_arena_bytes; copies } ->
+      Format.fprintf ppf
+        "arena: used pool_bytes=%Ld out_of_arena_bytes=%Ld \
+         mixed_mode_copies=%Ld (%Ld bytes)"
+        pool_bytes out_of_arena_bytes copies.count copies.bytes
+  | Declined e ->
+      arena_declined := true;
+      Format.fprintf ppf "arena: declined: %a" Arena_run.pp_error e
+
+let on_arena outcome = Format.printf "%a@." pp_arena_outcome outcome
+
+let infer_canonical ~arena ~node_executor archive image =
   let open Err.Syntax in
   let t0 = Sys.time () in
   let* (Native_interp.Transformed t as transformed) =
@@ -80,8 +106,11 @@ let infer_canonical ~node_executor archive image =
   in
   let t1 = Sys.time () in
   let* outputs, _loaded =
-    Native_interp.evaluate ~region_executor ~region_group_executor
-      ?node_executor archive transformed ~input:image
+    Native_interp.evaluate
+      ?arena:(if arena then Some Arena.Admission.Best_effort else None)
+      ?on_arena:(if arena then Some on_arena else None)
+      ~region_executor ~region_group_executor ?node_executor archive transformed
+      ~input:image
     |> Err.map_error ~pos:__POS__ (fun e -> (e :> eval))
   in
   let t2 = Sys.time () in
@@ -100,13 +129,16 @@ let infer_canonical ~node_executor archive image =
   in
   Err.return (List.map (fun ((c : Dim.index Dim.t), p) -> ((c :> int), p)) top)
 
-let infer ~direct ~node_executor archive image =
-  if not direct then infer_canonical ~node_executor archive image
+let infer ~direct ~arena ~node_executor archive image =
+  if not direct then infer_canonical ~arena ~node_executor archive image
   else
     let open Err.Syntax in
     let* outputs =
-      Native_interp.run ~region_executor ~region_group_executor ?node_executor
-        archive ~input:image
+      Native_interp.run
+        ?arena:(if arena then Some Arena.Admission.Best_effort else None)
+        ?on_arena:(if arena then Some on_arena else None)
+        ~region_executor ~region_group_executor ?node_executor archive
+        ~input:image
       |> Err.map_error ~pos:__POS__ (fun e -> (e :> eval))
     in
     let* top =
@@ -150,6 +182,7 @@ let () =
   let nodes, argv = strip_flag "--nodes" Sys.argv in
   let shadow, argv = strip_flag "--shadow" argv in
   let direct, argv = strip_flag "--direct" argv in
+  let arena, argv = strip_flag "--arena" argv in
   match Infer_report.parse_argv argv with
   | Error usage ->
       prerr_endline usage;
@@ -163,7 +196,7 @@ let () =
       in
       let report_result =
         Infer_report.run ~max_samples:1 ~now:Sys.time
-          ~infer:(infer ~direct ~node_executor)
+          ~infer:(infer ~direct ~arena ~node_executor)
           paths options
       in
       (match node_state with
@@ -198,17 +231,26 @@ let () =
          future model with an Lstm needs no change here to start gating on
          it too. *)
       let region_min_generated_js = if nodes then 0 else min_generated_js in
+      let arena_check =
+        if arena && !arena_declined then
+          Error "--arena asked for a Best_effort arena and it was declined"
+        else Ok ()
+      in
       match
         ( Loop_region_executor.Coverage.check
             ~min_generated_js:region_min_generated_js region_coverage,
           Loop_region_executor.Coverage.check ~min_generated_js:0
             region_group_coverage,
-          node_check )
+          node_check,
+          arena_check )
       with
-      | Error msg, _, _ | _, Error msg, _ | _, _, Error msg ->
+      | Error msg, _, _, _
+      | _, Error msg, _, _
+      | _, _, Error msg, _
+      | _, _, _, Error msg ->
           Format.eprintf "loop_js_pt2: %s@." msg;
           exit 1
-      | Ok (), Ok (), Ok () -> (
+      | Ok (), Ok (), Ok (), Ok () -> (
           match report_result with
           | Ok () -> ()
           | Error e ->

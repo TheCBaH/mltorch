@@ -55,6 +55,16 @@ val lower_region :
     a plain pixel expression, so it need not re-derive that by matching on [t].
 *)
 
+val materialize_into :
+  ?counters:counters ->
+  dst:Tensor.packed ->
+  lowered ->
+  env:Expr.Eval.Env.t ->
+  (unit, Region_eval.error) Err.t
+(** [materialize] into a destination the caller allocated, of the program's
+    output shape. Cells go through [Tensor.set_float], so any float-path
+    destination format takes the values. *)
+
 val materialize :
   ?counters:counters ->
   lowered ->
@@ -98,6 +108,16 @@ val lower_group :
     see the design record's §4.2 exact aggregate formula for the tighter,
     not-yet-implemented alternative) before retaining the shared locals' slot
     layout. *)
+
+val materialize_group_into :
+  ?counters:counters ->
+  dsts:(Region_group.Ordinal.t * Tensor.packed) list ->
+  lowered_group ->
+  env:Expr.Eval.Env.t ->
+  (unit, Region_eval.error) Err.t
+(** [materialize_group] into destinations the caller allocated, one per selected
+    emitter, each of that emitter's output shape. The selection is [dsts]'s own
+    ordinals, in its order. An empty [dsts] does no recurrence work. *)
 
 val materialize_group :
   ?counters:counters ->

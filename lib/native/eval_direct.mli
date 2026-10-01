@@ -10,6 +10,22 @@
      edge leaves the env right after its last reader runs, so its payload is
      garbage from then on rather than at the end of the run. Outputs and errors
      are identical to an [All] run.
+   [?arena] backs each eligible intermediate with its planned slot instead of a
+   fresh allocation. Outputs and retained edges are never eligible, so the
+   result holds no arena memory. A plan runs only on the run it was built from:
+   at entry this dry-runs the graph under the effective [retain] and requires the
+   plan's script to equal it ([`Arena_script_mismatch] otherwise), before any node
+   runs. An arena is used by one run at a time ([`Arena_busy]). Results are equal
+   bit for bit to a run without one.
+
+   [?trace] is a test hook: it receives the script the run actually follows, read
+   from what the run holds rather than from the schedule, so a test can compare it
+   with [dry_run]'s.
+
+   [?on_format_mismatch] is a test hook too: it is called for each result whose
+   shape, format or quantization differs from its edge's declared signature. The
+   run itself is unchanged.
+
    Neither setting ever holds an index output nothing reads: it is not
    allocated. See .ai/ (tensor release). *)
 
@@ -28,25 +44,49 @@ type mixed_dtype = {
 type scalar_op = { scalar_op : string; fmt : Payload.packed_fmt }
 
 type error =
-  [ Eval_direct_compute.error
+  [ Arena.error
+  | Eval_direct_compute.error
   | Graph_shape.error
   | `Missing_constant of Tensor_id.t
   | `Missing_input of Tensor_id.t
   | `Missing_tensor of missing_tensor
   | `Output_arity_mismatch of arity_mismatch
+  | `Quant_missing of Tensor_id.t
   | `Region_construction of Region_computation.error
   | `Region_execution of Region_eval.error
   | `Unsupported_bool_arithmetic of mixed_dtype
   | `Unsupported_bool_scalar_arithmetic of scalar_op
   | `Unsupported_mixed_dtype of mixed_dtype ]
 
+(** A result whose shape, format or quantization is not its edge's declared
+    signature. *)
+module Format_mismatch : sig
+  type t = {
+    node : Node_id.t;
+    op : string;
+    output : Tensor_id.t;
+    declared : Tensor_sig.t;
+    actual : Tensor.packed;
+  }
+end
+
 type hooks =
   | Hooks : { on_start : node -> 'a; on_end : node -> 'a -> unit } -> hooks
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
+val dry_run :
+  ?retain:Release_schedule.Retain.t -> graph -> (Alloc_script.t, error) Err.t
+(** The allocation script [run ?retain] would follow, without computing
+    anything: shares [run]'s fold, so which outputs are allocated and when each
+    edge is released are decided in one place. Graph inputs and constants are
+    bound by the caller and never appear in it. *)
+
 val run :
+  ?arena:Arena.t ->
   ?hooks:hooks ->
+  ?trace:(Alloc_script.Event.t -> unit) ->
+  ?on_format_mismatch:(Format_mismatch.t -> unit) ->
   ?region_counters:Region_execution.counters Tensor_id.Map.t ->
   ?region_executor:Region_executor.t ->
   ?region_group_executor:Region_executor.group ->

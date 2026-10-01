@@ -13,16 +13,21 @@ open Graph_ir
 
 type error =
   [ `Arange_i64_overflow of Factory.Arange.Overflow.t
+  | Tensor.dst_error
   | `Unsupported_to_copy_bool_source of Payload.packed_fmt
   | `Unsupported_to_copy_long_source of Payload.packed_fmt ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
+(* [dst] is the tensor the result is written into, of [out_shape] and the
+   format the edge declares: the arm fills it and returns it. A destination of
+   another format is a [Dst_format_mismatch] row, never a conversion. *)
 val compute :
   graph ->
   op ->
   output:Output_ordinal.t ->
   out_shape:Vec6.shape ->
+  dst:Tensor.packed ->
   operand_env:Tensor.packed Tensor_id.Map.t ->
   shape_env:Vec6.shape Tensor_id.Map.t ->
   fill:(float -> Vec6.shape -> Tensor.packed) ->

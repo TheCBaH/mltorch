@@ -176,6 +176,15 @@ jobs:
     - name: native whole-graph inference verification (direct graph)
       run: |
         ${{ env.EXEC }} make native-infer-verify-direct
+    # Same model, same ATen reference, but with `native_graph eval --arena`:
+    # intermediates come from a planned tensor arena instead of release-only
+    # allocation. See the tensor arena design in .ai/ -- everything else that
+    # exercises the arena is an in-process unit test against synthetic graphs,
+    # so this is the one CI step that runs it over a real model, and fails both
+    # on a wrong answer and on a Best_effort plan being silently declined.
+    - name: native whole-graph inference verification (arena)
+      run: |
+        ${{ env.EXEC }} make native-infer-verify-arena
     # This runs both the structural and --fold pipelines and numerically
     # compares each against the untransformed graph, so a transformation
     # that silently changes output values (rather than node structure) is

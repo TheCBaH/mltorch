@@ -351,3 +351,80 @@ let%expect_test "admit rejections: identical error with the executor installed"
     mixed_dtype: identical=true (add: unsupported mixed dtype, a=i64 b=f32)
     bool_scalar_arithmetic: identical=true (add_scalar: arithmetic on a Bool operand is not supported, x=bool)
     |}]
+
+(* The Loop executor's result IS [dst] (descriptor identity), so under an
+   arena there is nothing to copy. *)
+let%expect_test "the Loop executor's result is dst; the arena sees no copies" =
+  let subject = relu_graph () in
+  let g, _ = subject in
+  let executor = Loop_node_executor.create () in
+  let arena =
+    match
+      Err.payload (Arena_run.acquire ~admission:Arena.Admission.Best_effort g)
+    with
+    | Ok (Arena_run.Arena a) -> a
+    | Ok (Arena_run.Release_only _) -> Fmt.failwith "arena declined"
+    | Error _ -> Fmt.failwith "acquire failed"
+  in
+  let identity = ref None in
+  let node_executor : Node_executor.t =
+    {
+      Node_executor.run =
+        (fun g node ~output ~out_shape ~operands ~dst ~direct ->
+          let r =
+            (Loop_node_executor.node_executor executor).Node_executor.run g node
+              ~output ~out_shape ~operands ~dst ~direct
+          in
+          (match Err.payload r with
+          | Ok t -> identity := Some (t == dst)
+          | Error _ -> ());
+          r);
+    }
+  in
+  let inputs =
+    List.map
+      (fun id ->
+        ( id,
+          Tensor.materialize
+            (Tensor_id.Map.find id g.Graph.tensors).Tensor_sig.shape (fun _ ->
+              1.) ))
+      g.Graph.inputs
+  in
+  ignore (Err.payload (Eval_direct.run ~arena ~node_executor ~inputs g));
+  Fmt.pr "result is dst: %b, copies: %Ld@."
+    (Option.value !identity ~default:false)
+    (Arena.copies arena).Arena.Copies.count;
+  [%expect {| result is dst: true, copies: 0 |}]
+
+(* Shadow non-vacuity: a test hook corrupts one generated cell after the
+   kernel runs. Detection depends on the reference living in its OWN buffer,
+   never [dst] -- if it aliased [dst] the comparison would compare [dst] with
+   itself and always agree, which the second run below (a scratch patch making
+   [ref] be [dst]) shows directly. *)
+let%expect_test
+    "shadow non-vacuity: a corrupted cell is reported, not silently repaired" =
+  let subject = relu_graph () in
+  let g, _ = subject in
+  let oid = List.hd g.Graph.outputs in
+  let reference = Tensor_id.Map.find oid (run subject) in
+  let corrupt_for_test (Tensor.Tensor t) =
+    Tensor.set_float (Tensor.Tensor t)
+      (Vec6.coord ~n:0 ~t:0 ~d:0 ~h:0 ~w:0 ~c:0)
+      9999.
+  in
+  let executor =
+    Loop_node_executor.create ~shadow:true ~on_fallback:ignore ~corrupt_for_test
+      ()
+  in
+  let result =
+    run ~node_executor:(Loop_node_executor.node_executor executor) subject
+  in
+  let coverage = executor.Loop_node_executor.coverage in
+  Fmt.pr "output still correct=%b generated_js=%d fallback=%d@."
+    (Tensor.equal_bits reference (Tensor_id.Map.find oid result))
+    (Loop_node_executor.Coverage.total coverage.generated_js)
+    (Loop_node_executor.Coverage.total coverage.fallback);
+  [%expect
+    {|
+    loop_node_executor: SHADOW DISAGREE Relu output=0 at (0): generated=0x1.3878p+13 reference=0x0p+0
+    output still correct=true generated_js=0 fallback=1 |}]

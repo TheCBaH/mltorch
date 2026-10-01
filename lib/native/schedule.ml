@@ -22,6 +22,10 @@ let coord_index_dim (c : Vec6.coord) (a : Axis.t) : Dim.index Dim.t =
 let evaluate (shape : Vec6.shape) (pixel : Vec6.coord -> float) =
   Tensor.materialize shape pixel
 
+(* [evaluate] into a destination the caller allocated. *)
+let evaluate_into dst (pixel : Vec6.coord -> float) =
+  Tensor.write_float dst pixel
+
 (* The Symbolic counterpart: an op's [pixel] built once at [Symbolic] is an
    [float Expr.Value.t] with no data of its own — [ground] is what turns that
    expression back into a concrete tensor, by evaluating it at every output

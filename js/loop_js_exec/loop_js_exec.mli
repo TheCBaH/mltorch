@@ -37,16 +37,20 @@ val compile : Loop_program.t -> (compiled, [> `Js_compile of string ]) Err.t
     deterministic, so identical programs share one function. *)
 
 val run :
+  ?outputs:(Tensor_id.t -> Tensor.packed option) ->
   compiled ->
   bind:(Tensor_id.t -> Tensor.packed option) ->
   (Tensor.packed Tensor_id.Map.t, error) Err.t
 (** Input buffers are validated by [Kernel_eval.check_binding] and against the
-    typed array the emitter declares ([`Binding_mismatch] otherwise); Output
-    buffers are allocated fresh; the result holds exactly the Output buffers. A
+    typed array the emitter declares ([`Binding_mismatch] otherwise). An Output
+    buffer is allocated fresh, unless [outputs] binds it, in which case it is
+    validated the same way and zero-filled first (matching [Loop_interp.run]'s
+    own [?outputs] contract). The result holds exactly the Output buffers. A
     non-[null] return is decoded with [Loop_js_failure] into the row
     [Loop_interp] would report. *)
 
 val exec :
+  ?outputs:(Tensor_id.t -> Tensor.packed option) ->
   Loop_program.t ->
   bind:(Tensor_id.t -> Tensor.packed option) ->
   (Tensor.packed Tensor_id.Map.t, error) Err.t

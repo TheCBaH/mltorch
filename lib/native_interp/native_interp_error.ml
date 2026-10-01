@@ -405,7 +405,8 @@ type tensor_bridge =
    can meet -- this one and [`Build (`Output_count_over_limit _)] -- carry the
    same payload. *)
 type error =
-  [ `Build of Graph_builder.error
+  [ `Arena of Arena_run.error
+  | `Build of Graph_builder.error
   | `Eval of Eval_direct.error
   | `Lens of Pt2_native_graph.lens_error
   | `Materialize of Const_ssa_materialize.error
@@ -717,6 +718,7 @@ let pp_tensor_bridge ppf : [< tensor_bridge ] -> unit = function
   | #malformed as e -> pp_malformed ppf e
 
 let pp_error ppf : [< error ] -> unit = function
+  | `Arena e -> Arena_run.pp_error ppf e
   | `Build e -> Graph_builder.pp_error ppf e
   | `Eval e -> Eval_direct.pp_error ppf e
   | `Lens e -> Pt2_native_graph.pp_lens_error ppf e

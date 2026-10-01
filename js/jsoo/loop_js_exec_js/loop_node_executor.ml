@@ -88,6 +88,13 @@ end
 let operand_fmt (g : graph) id =
   (Tensor_id.Map.find id g.Graph.tensors).Tensor_sig.fmt
 
+let sig_of (g : graph) id =
+  Tensor_id.Map.find_opt id g.Graph.tensors
+  |> Err.of_option (`Missing_tensor_sig id)
+
+let pp_sig_error ppf (`Missing_tensor_sig id) =
+  Fmt.pf ppf "missing tensor signature t%d" (Tensor_id.to_int id)
+
 (* M1 + T6.2 + T6.4 + T6.6's F32 slice (design §3): the default float-pixel
    arm, the two promotion arms T6.2 adds ([Mul_scalar]/[To_copy Float] on an
    I64 operand -- an explicit [i64_to_float]/[i64_load] read into an
@@ -139,19 +146,24 @@ type t = {
   coverage : Coverage.t;
   shadow : bool;
   on_fallback : string -> unit;
+  corrupt_for_test : Tensor.packed -> unit;
+      (** Test-only: called on the generated result, in shadow mode, right after
+          the kernel runs and before it is compared with the reference -- proves
+          the comparison is not vacuous. The default does nothing. *)
 }
 
 let create ?(limits = Kernel.Limits.default) ?(shadow = false)
     ?(on_fallback =
       fun reason ->
         Printf.eprintf "loop_node_executor: falling back to direct: %s\n%!"
-          reason) () =
+          reason) ?(corrupt_for_test = fun _ -> ()) () =
   {
     limits;
     table = Hashtbl.create 256;
     coverage = Coverage.create ();
     shadow;
     on_fallback;
+    corrupt_for_test;
   }
 
 let oid_of (node : node) ~(output : Output_ordinal.t) =
@@ -200,56 +212,85 @@ let first_mismatch shape a b =
     None
   with Mismatch (c, av, bv) -> Some (c, av, bv)
 
+(* [Node_executor.t]'s own contract (lib/native/node_executor.mli) already
+   states that [dst] is valid only for the call; this executor also passes a
+   fresh [ref] to the shadow's [direct], likewise valid only for the call, and
+   never returns it past disagreement without handing ownership to the
+   caller. *)
 let node_executor t : Node_executor.t =
   {
     run =
-      (fun g node ~output ~out_shape ~operands ~direct ->
+      (fun g node ~output ~out_shape ~operands ~dst ~direct ->
         let oid = oid_of node ~output in
         let op_name = Graph_ir.op_name node.Node.op in
         let out_fmt = operand_fmt g oid in
         let fallback reason =
           t.on_fallback (Fmt.str "%s: %s" op_name reason);
           Coverage.bump t.coverage.fallback op_name;
-          direct ()
+          direct ~dst
         in
         if not (scope node.Node.op ~out_fmt) then (
           Coverage.bump t.coverage.pending op_name;
-          direct ())
+          direct ~dst)
         else
           match entry_of t g node ~output ~oid with
           | Refused reason -> fallback reason
           | Compiled compiled -> (
+              (* The generated program writes into [dst] itself, via
+                 [~outputs]: on agreement there is nothing to copy. *)
               let bind id = Tensor_id.Map.find_opt id operands in
-              match Loop_js_exec.run compiled ~bind with
+              let outputs id =
+                if Tensor_id.equal id oid then Some dst else None
+              in
+              match Loop_js_exec.run ~outputs compiled ~bind with
               | Error e ->
                   fallback
                     (Fmt.str "%a" Loop_js_exec.pp_error (Err.Error.kind e))
               | Ok result -> (
                   match Tensor_id.Map.bindings result with
-                  | [ (_, generated) ] -> (
+                  | [ (_, generated) ] ->
                       if not t.shadow then (
                         Coverage.bump t.coverage.generated_js op_name;
                         Ok generated)
-                      else
-                        match direct () with
-                        | Error _ as e -> e
-                        | Ok direct_tensor as ok -> (
-                            match
-                              first_mismatch out_shape generated direct_tensor
-                            with
-                            | None ->
-                                Coverage.bump t.coverage.generated_js op_name;
-                                ok
-                            | Some (c, gv, dv) ->
-                                Printf.eprintf
-                                  "loop_node_executor: SHADOW DISAGREE %s \
-                                   output=%d at %s: generated=%h direct=%h\n\
-                                   %!"
-                                  op_name
-                                  (Output_ordinal.to_int output)
-                                  (Fmt.str "%a" Vec6.pp_coord c)
-                                  gv dv;
-                                Coverage.bump t.coverage.fallback op_name;
-                                ok))
+                      else (
+                        t.corrupt_for_test generated;
+                        (* The reference runs into a FRESH buffer, never
+                           [dst]: if it aliased [dst] the comparison below
+                           would compare [dst] with itself, agreeing no
+                           matter what the generated code wrote. *)
+                        match sig_of g oid with
+                        | Error e ->
+                            fallback
+                              (Fmt.str "%a" pp_sig_error (Err.Error.kind e))
+                        | Ok sg -> (
+                            match Tensor.create_of_sig sg with
+                            | Error _ ->
+                                fallback
+                                  "loop output declared a quantized format"
+                            | Ok ref_dst -> (
+                                match direct ~dst:ref_dst with
+                                | Error _ as e -> e
+                                | Ok reference -> (
+                                    match
+                                      first_mismatch out_shape generated
+                                        reference
+                                    with
+                                    | None ->
+                                        Coverage.bump t.coverage.generated_js
+                                          op_name;
+                                        Ok generated
+                                    | Some (c, gv, rv) ->
+                                        Printf.eprintf
+                                          "loop_node_executor: SHADOW DISAGREE \
+                                           %s output=%d at %s: generated=%h \
+                                           reference=%h\n\
+                                           %!"
+                                          op_name
+                                          (Output_ordinal.to_int output)
+                                          (Fmt.str "%a" Vec6.pp_coord c)
+                                          gv rv;
+                                        Coverage.bump t.coverage.fallback
+                                          op_name;
+                                        Ok reference))))
                   | _ -> fallback "expected exactly one output buffer")));
   }

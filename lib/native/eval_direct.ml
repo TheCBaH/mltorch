@@ -15,12 +15,14 @@ type mixed_dtype = {
 type scalar_op = { scalar_op : string; fmt : Payload.packed_fmt }
 
 type error =
-  [ Eval_direct_compute.error
+  [ Arena.error
+  | Eval_direct_compute.error
   | Graph_shape.error
   | `Missing_constant of Tensor_id.t
   | `Missing_input of Tensor_id.t
   | `Missing_tensor of missing_tensor
   | `Output_arity_mismatch of arity_mismatch
+  | `Quant_missing of Tensor_id.t
   | `Region_construction of Region_computation.error
   | `Region_execution of Region_eval.error
   | `Unsupported_bool_arithmetic of mixed_dtype
@@ -35,6 +37,7 @@ let pp_context ppf = function
   | Sig_shape -> Format.pp_print_string ppf "shape lookup"
 
 let pp_error ppf : [< error ] -> unit = function
+  | #Arena.error as e -> Arena.pp_error ppf e
   | #Eval_direct_compute.error as e -> Eval_direct_compute.pp_error ppf e
   | #Graph_shape.error as e -> Graph_shape.pp_error ppf e
   | `Missing_constant id ->
@@ -48,6 +51,9 @@ let pp_error ppf : [< error ] -> unit = function
       Format.fprintf ppf
         "node output arity mismatch: %d output shapes for %d output ids"
         expected actual
+  | `Quant_missing id ->
+      Format.fprintf ppf "quantized tensor t%d has no quantization parameters"
+        (Tensor_id.to_int id)
   | `Region_construction error -> Region_computation.pp_error ppf error
   | `Region_execution error -> Region_eval.pp_error ppf error
   | `Unsupported_bool_arithmetic
@@ -125,7 +131,7 @@ let fresh_synthetic_ids g =
   |> fun (ids, _, _) -> ids
 
 let region_result ~limits ~region_counters
-    ?(region_executor = Region_executor.default) g ~op ~output ~out_shape
+    ?(region_executor = Region_executor.default) g ~op ~output ~out_shape ~dst
     ~operand_env ~synthetic_ids =
   let open Err.Syntax in
   let id_for role = List.assoc role synthetic_ids in
@@ -178,7 +184,7 @@ let region_result ~limits ~region_counters
   match lowered with
   | Region_execution.Pixel_loop _ -> assert false
   | Region_execution.Region_loop lowered ->
-      region_executor ?counters:region_counters lowered ~env ~bindings
+      region_executor ?counters:region_counters ~dst lowered ~env ~bindings
       |> Err.map_error (fun error -> `Region_execution error)
 
 (* The multi-output counterpart of [region_result] (project step 19): builds
@@ -190,7 +196,7 @@ let region_result ~limits ~region_counters
    [Rms_norm]/[Layer_norm]/[Sdpa]) has no optional operand with a synthetic
    default. *)
 let region_group_result ~limits ~region_counters
-    ?(region_group_executor = Region_executor.default_group) g ~op ~outs
+    ?(region_group_executor = Region_executor.default_group) g ~op ~dsts
     ~operand_env =
   let open Err.Syntax in
   let* group =
@@ -210,12 +216,8 @@ let region_group_result ~limits ~region_counters
     |> Err.map_error (fun error ->
         `Region_construction (Region_computation.Invalid_group error))
   in
-  region_group_executor ?counters:region_counters lowered_group ~env
+  region_group_executor ?counters:region_counters ~dsts lowered_group ~env
     ~bindings:operand_env
-    ~selected:
-      (List.map
-         (fun (output, _, _) -> Region_computation.emitter_of_output output)
-         outs)
   |> Err.map_error (fun error -> `Region_execution error)
 
 (* A [Discard] sink reads nothing: an index output only it names is not worth
@@ -292,13 +294,157 @@ let admit (g : graph) (op : op) : (unit, [> error ]) Err.t =
       check_scalar_op "addcmul" tensor2
   | _ -> Err.return ()
 
+(* What a node produces, decided once for real and dry runs alike: admission,
+   the output shapes, and which outputs are allocated at all. *)
+let node_shapes (g : graph) (op : op) =
+  let open Err.Syntax in
+  let* () = admit g op in
+  widen
+    (Graph_shape.output_shape op ~sig_of:(fun r ->
+         Tensor_id.Map.find_opt r g.Graph.tensors
+         |> Err.of_option (`Missing_tensor_sig r)))
+
+(* One entry per output edge: [Graph_shape] and [Node.outputs] agree in length
+   by construction (single-output ops give one of each; a [Discard]-style
+   zero-output op gives none, so the fold is empty). A dead index output is
+   neither computed nor allocated: nothing reads it, so [env] never needs it. *)
+let node_outs ~sched (node : node) shapes =
+  let open Err.Syntax in
+  let op = node.Node.op in
+  let+ pairs =
+    Err.List.map2
+      ~unequal_lengths:(fun actual expected ->
+        `Output_arity_mismatch { expected; actual })
+      (fun oid out_shape -> Err.return (oid, out_shape))
+      node.Node.outputs shapes
+  in
+  List.mapi
+    (fun output (oid, out_shape) ->
+      (Output_ordinal.of_int output, oid, out_shape))
+    pairs
+  |> List.filter (fun (output, oid, _) ->
+      not
+        (is_index_output op output
+        && not (Release_schedule.has_reader sched oid)))
+
+(* The fold every run shares, real or dry: the initial releases, then each
+   non-sink node's [step] followed by its releases. A [Discard] produces
+   nothing, and the edge it sinks may be an unallocated dead index output. *)
+let walk ~sched (g : graph) ~step ~release state =
+  let open Err.Syntax in
+  Err.List.fold_left
+    (fun state node ->
+      if is_sink node.Node.op then Err.return state
+      else
+        let+ state = step node state in
+        release (Release_schedule.after sched node.Node.id) state)
+    (release (Release_schedule.initial sched) state)
+    g.Graph.nodes
+
+module Format_mismatch = struct
+  type t = {
+    node : Node_id.t;
+    op : string;
+    output : Tensor_id.t;
+    declared : Tensor_sig.t;
+    actual : Tensor.packed;
+  }
+end
+
+(* Does the tensor an arm produced match the edge's declared signature: shape,
+   format and quantization. Reports rather than converts, so a census can find
+   every arm that returns something else before a destination is passed. *)
+let check_format ?on_format_mismatch (g : graph) (node : node) oid
+    (Tensor.Tensor t as result) =
+  match on_format_mismatch with
+  | None -> ()
+  | Some report -> (
+      match Tensor_id.Map.find_opt oid g.Graph.tensors with
+      | None -> ()
+      | Some (sg : Tensor_sig.t) ->
+          let quant =
+            match t.Tensor.payload.Payload.quant with
+            | Payload.Quant q -> Some q
+            | Payload.No_quant -> None
+          in
+          let (Payload.Fmt declared) = sg.Tensor_sig.fmt in
+          if
+            not
+              (t.Tensor.shape = sg.Tensor_sig.shape
+              && String.equal
+                   (Payload.fmt_name declared)
+                   (Payload.fmt_name t.Tensor.payload.Payload.fmt)
+              && Option.equal Quant.equal quant sg.Tensor_sig.quant)
+          then
+            report
+              {
+                Format_mismatch.node = node.Node.id;
+                op = Graph_ir.op_name node.Node.op;
+                output = oid;
+                declared = sg;
+                actual = result;
+              })
+
 let release env ids =
   List.fold_left (fun env id -> Tensor_id.Map.remove id env) env ids
 
-let rec run_graph ?hooks ?region_counters ?region_executor
-    ?region_group_executor ?node_executor ?(limits = Kernel.Limits.default)
-    ?(retain = Release_schedule.Retain.All) ~constants (g : graph)
-    (env : Tensor.packed Tensor_id.Map.t) :
+(* Every edge some node releases: what makes an allocated edge eligible. *)
+let released_ids g sched =
+  List.fold_left
+    (fun set (node : node) ->
+      List.fold_left
+        (fun set id -> Tensor_id.Set.add id set)
+        set
+        (Release_schedule.after sched node.Node.id))
+    Tensor_id.Set.empty g.Graph.nodes
+
+let alloc_of g ~released id =
+  let open Err.Syntax in
+  let* sg =
+    Tensor_id.Map.find_opt id g.Graph.tensors
+    |> Err.of_option (`Missing_tensor_sig id)
+  in
+  widen (Alloc_script.alloc ~released sg)
+
+(* The tensor an output is computed into: what its edge declares, format and
+   quantization included. *)
+let fresh_dst g id =
+  let open Err.Syntax in
+  let* sg =
+    Tensor_id.Map.find_opt id g.Graph.tensors
+    |> Err.of_option (`Missing_tensor_sig id)
+  in
+  widen (Tensor.create_of_sig sg)
+
+(* An eligible edge under an arena computes into its slot; everything else into
+   a fresh tensor. The flag says which, since only a slot needs the result
+   settled into it. *)
+let dst_for ?arena g id =
+  let open Err.Syntax in
+  match arena with
+  | None ->
+      let+ dst = fresh_dst g id in
+      (dst, false)
+  | Some a -> (
+      let* slot = widen (Arena.view a id) in
+      match slot with
+      | Some dst -> Err.return (dst, true)
+      | None ->
+          let+ dst = fresh_dst g id in
+          (dst, false))
+
+(* What to bind for an output: a slot's own tensor even when an executor
+   answered in storage of its own (its cells are copied in), so the run's
+   values live where the plan says they do. *)
+let settle ?arena ~backed ~dst id result =
+  match arena with
+  | Some a when backed -> widen (Arena.settle a id ~dst ~result)
+  | _ -> Err.return result
+
+let rec run_graph ?arena ?hooks ?trace ?on_format_mismatch ?region_counters
+    ?region_executor ?region_group_executor ?node_executor
+    ?(limits = Kernel.Limits.default) ?(retain = Release_schedule.Retain.All)
+    ~constants (g : graph) (env : Tensor.packed Tensor_id.Map.t) :
     (Tensor.packed Tensor_id.Map.t, error) Err.t =
   let open Err.Syntax in
   let* env = bind_constants g constants env in
@@ -308,32 +454,60 @@ let rec run_graph ?hooks ?region_counters ?region_executor
   in
   (* A node's releases come after [on_end], so a hook runs while the node's
      operands are still bound. *)
-  Err.List.fold_left
-    (fun env node ->
-      match hooks with
-      (* A [Discard] produces nothing, and the edge it sinks may be an
-         unallocated dead index output: there is nothing to look up. *)
-      | _ when is_sink node.Node.op -> Err.return env
-      | None ->
-          let+ env =
-            eval_node ?region_counters ?region_executor ?region_group_executor
-              ?node_executor ~limits ~synthetic_ids ~sched g env node
-          in
-          release env (Release_schedule.after sched node.Node.id)
-      | Some (Hooks h) ->
-          let state = h.on_start node in
-          let* env =
-            eval_node ?region_counters ?region_executor ?region_group_executor
-              ?node_executor ~limits ~synthetic_ids ~sched g env node
-          in
-          h.on_end node state;
-          Err.return (release env (Release_schedule.after sched node.Node.id)))
-    (release env (Release_schedule.initial sched))
-    g.Graph.nodes
+  let eval node env =
+    match hooks with
+    | None ->
+        eval_node ?arena ?on_format_mismatch ?region_counters ?region_executor
+          ?region_group_executor ?node_executor ~limits ~synthetic_ids ~sched g
+          env node
+    | Some (Hooks h) ->
+        let state = h.on_start node in
+        let+ env =
+          eval_node ?arena ?on_format_mismatch ?region_counters ?region_executor
+            ?region_group_executor ?node_executor ~limits ~synthetic_ids ~sched
+            g env node
+        in
+        h.on_end node state;
+        env
+  in
+  match trace with
+  | None ->
+      walk ~sched g ~step:eval ~release:(fun ids env -> release env ids) env
+  | Some emit ->
+      (* From what the run actually holds, not from the schedule, so the
+         script it reports can be compared with a dry run's. *)
+      let released = released_ids g sched
+      and produced = ref Tensor_id.Set.empty in
+      let step node env =
+        emit (Alloc_script.Event.Node node.Node.id);
+        let* env' = eval node env in
+        let+ () =
+          Err.List.iter
+            (fun oid ->
+              if Tensor_id.Map.mem oid env' && not (Tensor_id.Map.mem oid env)
+              then begin
+                let+ a = alloc_of g ~released oid in
+                produced := Tensor_id.Set.add oid !produced;
+                emit (Alloc_script.Event.Alloc a)
+              end
+              else Err.return ())
+            node.Node.outputs
+        in
+        env'
+      in
+      let free ids env =
+        List.iter
+          (fun id ->
+            if Tensor_id.Set.mem id !produced && Tensor_id.Map.mem id env then
+              emit (Alloc_script.Event.Free id))
+          ids;
+        release env ids
+      in
+      walk ~sched g ~step ~release:free env
 
-and eval_node ?region_counters ?region_executor ?region_group_executor
-    ?node_executor ~limits ~synthetic_ids ~sched (g : graph)
-    (env : Tensor.packed Tensor_id.Map.t) (node : node) :
+and eval_node ?arena ?on_format_mismatch ?region_counters ?region_executor
+    ?region_group_executor ?node_executor ~limits ~synthetic_ids ~sched
+    (g : graph) (env : Tensor.packed Tensor_id.Map.t) (node : node) :
     (Tensor.packed Tensor_id.Map.t, error) Err.t =
   let open Err.Syntax in
   let op = node.Node.op in
@@ -343,13 +517,7 @@ and eval_node ?region_counters ?region_executor ?region_group_executor
   let operand r = find_tensor env r ~context:Operand in
   let shape_of r = sig_shape g r in
   let fill v shape = Tensor.materialize shape (fun _ -> v) in
-  let* () = admit g op in
-  let* shapes =
-    widen
-      (Graph_shape.output_shape op ~sig_of:(fun r ->
-           Tensor_id.Map.find_opt r g.Graph.tensors
-           |> Err.of_option (`Missing_tensor_sig r)))
-  in
+  let* shapes = node_shapes g op in
   let* operand_env =
     Err.List.fold_left
       (fun acc r ->
@@ -364,28 +532,7 @@ and eval_node ?region_counters ?region_executor ?region_group_executor
         Tensor_id.Map.add r sh acc)
       Tensor_id.Map.empty (Graph_ir.operands op)
   in
-  (* One materialisation per output edge: [Graph_shape] and [Node.outputs]
-         agree in length by construction (single-output ops give one of each; a
-         [Discard]-style zero-output op gives none, so the fold is empty). *)
-  let* pairs =
-    Err.List.map2
-      ~unequal_lengths:(fun actual expected ->
-        `Output_arity_mismatch { expected; actual })
-      (fun oid out_shape -> Err.return (oid, out_shape))
-      node.Node.outputs shapes
-  in
-  (* A dead index output is neither computed nor allocated: nothing reads it,
-     so [env] never needs it. *)
-  let outs =
-    List.mapi
-      (fun output (oid, out_shape) ->
-        (Output_ordinal.of_int output, oid, out_shape))
-      pairs
-    |> List.filter (fun (output, oid, _) ->
-        not
-          (is_index_output op output
-          && not (Release_schedule.has_reader sched oid)))
-  in
+  let* outs = node_outs ~sched node shapes in
   (* A multi-output region-authored node (today, only [Lstm]) shares one
      recurrence across all its outputs (project step 19) instead of folding
      [region_result] -- which would rebuild the shared computation once per
@@ -397,47 +544,94 @@ and eval_node ?region_counters ?region_executor ?region_group_executor
      unchanged. *)
   match outs with
   | _ :: _ :: _ when Region_computation.is_region_authored op ->
+      let* backed_dsts =
+        Err.List.map
+          (fun (output, oid, _) ->
+            let+ dst, backed = dst_for ?arena g oid in
+            (oid, Region_computation.emitter_of_output output, dst, backed))
+          outs
+      in
+      let dsts = List.map (fun (_, o, dst, _) -> (o, dst)) backed_dsts in
       let* results =
         region_group_result ~limits
           ~region_counters:
             (let _, first_oid, _ = List.hd outs in
              Option.bind region_counters (fun counters ->
                  Tensor_id.Map.find_opt first_oid counters))
-          ?region_group_executor g ~op ~outs ~operand_env
+          ?region_group_executor g ~op ~dsts ~operand_env
       in
-      Err.return
-        (List.fold_left
-           (fun env (output, oid, _) ->
-             Tensor_id.Map.add oid
-               (List.assoc
-                  (Region_computation.emitter_of_output output)
-                  results)
-               env)
-           env outs)
+      Err.List.fold_left
+        (fun env (oid, emitter, dst, backed) ->
+          let* result =
+            settle ?arena ~backed ~dst oid (List.assoc emitter results)
+          in
+          check_format ?on_format_mismatch g node oid result;
+          Err.return (Tensor_id.Map.add oid result env))
+        env backed_dsts
   | _ ->
       Err.List.fold_left
         (fun env (output, oid, out_shape) ->
+          let* dst, backed = dst_for ?arena g oid in
           let* result =
             if Region_computation.is_region_authored op then
               region_result ~limits
                 ~region_counters:
                   (Option.bind region_counters (fun counters ->
                        Tensor_id.Map.find_opt oid counters))
-                ?region_executor g ~op ~output ~out_shape ~operand_env
+                ?region_executor g ~op ~output ~out_shape ~dst ~operand_env
                 ~synthetic_ids
             else
               widen
                 (node_executor.Node_executor.run g node ~output ~out_shape
-                   ~operands:operand_env ~direct:(fun () ->
-                     Eval_direct_compute.compute g op ~output ~out_shape
+                   ~operands:operand_env ~dst ~direct:(fun ~dst ->
+                     Eval_direct_compute.compute g op ~output ~out_shape ~dst
                        ~operand_env ~shape_env ~fill))
           in
+          let* result = settle ?arena ~backed ~dst oid result in
+          check_format ?on_format_mismatch g node oid result;
           Err.return (Tensor_id.Map.add oid result env))
         env outs
 
-let run ?hooks ?region_counters ?region_executor ?region_group_executor
-    ?node_executor ?(limits = Kernel.Limits.default) ?retain ?(constants = [])
-    (g : graph) ~(inputs : (Tensor_id.t * Tensor.packed) list) =
+let dry_run ?(retain = Release_schedule.Retain.All) (g : graph) =
+  let open Err.Syntax in
+  let sched =
+    Release_schedule.schedule ~operands:Graph_ir.operands ~is_sink ~retain g
+  in
+  let released = released_ids g sched in
+  let step (node : node) (allocated, events) =
+    let* shapes = node_shapes g node.Node.op in
+    let* outs = node_outs ~sched node shapes in
+    let+ allocs =
+      Err.List.map (fun (_, oid, _) -> alloc_of g ~released oid) outs
+    in
+    ( List.fold_left
+        (fun set (a : Alloc_script.Alloc.t) ->
+          Tensor_id.Set.add a.Alloc_script.Alloc.id set)
+        allocated allocs,
+      List.rev_append
+        (List.map (fun a -> Alloc_script.Event.Alloc a) allocs)
+        (Alloc_script.Event.Node node.Node.id :: events) )
+  in
+  (* A release of an edge that was never allocated (an input, a constant, a dead
+     index output) is not an event. *)
+  let free ids (allocated, events) =
+    List.fold_left
+      (fun (allocated, events) id ->
+        if Tensor_id.Set.mem id allocated then
+          ( Tensor_id.Set.remove id allocated,
+            Alloc_script.Event.Free id :: events )
+        else (allocated, events))
+      (allocated, events) ids
+  in
+  let+ _, events =
+    walk ~sched g ~step ~release:free (Tensor_id.Set.empty, [])
+  in
+  List.rev events
+
+let run ?arena ?hooks ?trace ?on_format_mismatch ?region_counters
+    ?region_executor ?region_group_executor ?node_executor
+    ?(limits = Kernel.Limits.default) ?retain ?(constants = []) (g : graph)
+    ~(inputs : (Tensor_id.t * Tensor.packed) list) =
   let provided =
     List.fold_left
       (fun e (id, t) -> Tensor_id.Map.add id t e)
@@ -452,5 +646,24 @@ let run ?hooks ?region_counters ?region_executor ?region_group_executor
         | Some tensor -> Err.return (Tensor_id.Map.add id tensor env))
       Tensor_id.Map.empty (input_ids g)
   in
-  run_graph ?hooks ?region_counters ?region_executor ?region_group_executor
-    ?node_executor ~limits ?retain ~constants g env0
+  let go () =
+    run_graph ?arena ?hooks ?trace ?on_format_mismatch ?region_counters
+      ?region_executor ?region_group_executor ?node_executor ~limits ?retain
+      ~constants g env0
+  in
+  match arena with
+  | None -> go ()
+  | Some a ->
+      (* Held for the whole run, and checked before any node runs: a plan is
+         valid only for the run whose script it was built from, and that run
+         is the graph under its effective [retain]. *)
+      Arena.with_run a (fun () ->
+          let* script = dry_run ?retain g in
+          match
+            Alloc_script.first_difference
+              (Arena_plan.script (Arena.plan a))
+              script
+          with
+          | Some difference ->
+              Err.fail ~pos:__POS__ (`Arena_script_mismatch difference)
+          | None -> go ())

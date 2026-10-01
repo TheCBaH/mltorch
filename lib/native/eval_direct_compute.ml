@@ -5,6 +5,7 @@ module E = Eval_op.Make (Direct)
 
 type error =
   [ `Arange_i64_overflow of Factory.Arange.Overflow.t
+  | Tensor.dst_error
   | `Unsupported_to_copy_bool_source of Payload.packed_fmt
   | `Unsupported_to_copy_long_source of Payload.packed_fmt ]
 
@@ -13,6 +14,7 @@ let pp_error ppf : [< error ] -> unit = function
       Format.fprintf ppf
         "arange: exact int64 generation overflows at start=%Ld step=%Ld i=%d"
         start step i
+  | #Tensor.dst_error as e -> Tensor.pp_dst_error ppf e
   | `Unsupported_to_copy_bool_source (Payload.Fmt f) ->
       Format.fprintf ppf
         "to_copy: Bool target has no exact Bool output for a %s source"
@@ -23,18 +25,20 @@ let pp_error ppf : [< error ] -> unit = function
         (Payload.fmt_name f)
 
 (* An index-style output landed as exact int64 storage. *)
-let index_i64 out_shape ~x_shape ~x pixel =
-  Tensor.materialize_i64 out_shape (fun coord ->
-      Int64.of_float (pixel ~x_shape ~x coord))
+let index_i64 dst ~x_shape ~x pixel =
+  Tensor.write_i64 dst (fun coord -> Int64.of_float (pixel ~x_shape ~x coord))
 
-let compute (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
-    ~operand_env ~shape_env ~fill : (Tensor.packed, [> error ]) Err.t =
+(* The destination is the result: an arm writes into it and hands it back. *)
+let finish dst r = Err.map (fun () -> dst) r
+
+let compute_arms (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
+    ~dst ~operand_env ~shape_env ~fill : (Tensor.packed, [> error ]) Err.t =
   match op with
   | Unbind { Split.Unbind.params; x } ->
-      Err.return
-        (Tensor.unbind
+      finish dst
+        (Tensor.unbind_into
            (Tensor_id.Map.find x operand_env)
-           ~axis:params.axis ~output ~shape:out_shape)
+           dst ~axis:params.axis ~output ~shape:out_shape)
   (* Same dtype-preserving bypass as [Unbind], and for the same reason:
      [offset] is the sum of every earlier piece's size, computed the same way
      [Eval_op]'s arm computes it for the generic path. *)
@@ -43,15 +47,15 @@ let compute (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
         Split.Split_with_sizes.offset_of ~output
           params.Split.Split_with_sizes.sizes
       in
-      Err.return
-        (Tensor.split_with_sizes
+      finish dst
+        (Tensor.split_with_sizes_into
            (Tensor_id.Map.find x operand_env)
-           ~axis:params.Split.Split_with_sizes.axis ~offset ~shape:out_shape)
-  | Zeros { Factory.Zeros.params } ->
-      Err.return (Tensor.materialize_fmt params.fmt out_shape (fun _ -> 0.))
-  | Eye { Factory.Eye.params } ->
-      Err.return
-        (Tensor.materialize_fmt params.fmt out_shape (fun coord ->
+           dst ~axis:params.Split.Split_with_sizes.axis ~offset ~shape:out_shape)
+  | Zeros { Factory.Zeros.params = _ } ->
+      finish dst (Tensor.write_float dst (fun _ -> 0.))
+  | Eye { Factory.Eye.params = _ } ->
+      finish dst
+        (Tensor.write_float dst (fun coord ->
              if Dim.to_int coord.Vec6.w = Dim.to_int coord.Vec6.c then 1.
              else 0.))
   | Arange { Factory.Arange.params } -> (
@@ -62,20 +66,23 @@ let compute (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
              truncation [Int64.of_float (Arange.value ...)] below performs
              whenever an ATen call actually supplied exact integer bounds. *)
           | Some e ->
-              Err.Escape.with_escape (fun esc ->
-                  Tensor.materialize_i64 out_shape (fun coord ->
-                      Err.Escape.or_throw esc
-                        (Factory.Arange.value_i64_exact e
-                           (Dim.to_int coord.Vec6.c))))
+              finish dst
+                (Err.bind
+                   (Err.Escape.with_escape (fun esc ->
+                        Tensor.write_i64 dst (fun coord ->
+                            Err.Escape.or_throw esc
+                              (Factory.Arange.value_i64_exact e
+                                 (Dim.to_int coord.Vec6.c)))))
+                   Fun.id)
           | None ->
-              Err.return
-                (Tensor.materialize_i64 out_shape (fun coord ->
+              finish dst
+                (Tensor.write_i64 dst (fun coord ->
                      Int64.of_float
                        (Factory.Arange.value params (Dim.to_int coord.Vec6.c))))
           )
       | _ ->
-          Err.return
-            (Tensor.materialize_fmt params.fmt out_shape (fun coord ->
+          finish dst
+            (Tensor.write_float dst (fun coord ->
                  Factory.Arange.value params (Dim.to_int coord.Vec6.c))))
   (* Dtype-preserving Reshape: the default arm below reaches
      [Reshape.Reshape.Compute(Direct).pixel], whose final [S.load] reads
@@ -93,12 +100,12 @@ let compute (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
           let module C = Reshape.Reshape.Compute_i64 (Direct) (Direct) in
           let x_t = Tensor_id.Map.find x operand_env in
           let x_shape = Tensor_id.Map.find x shape_env in
-          Err.return
-            (Tensor.materialize_i64 out_shape (fun coord ->
+          finish dst
+            (Tensor.write_i64 dst (fun coord ->
                  C.pixel params ~x_shape ~x:x_t coord))
       | _ ->
-          Err.return
-            (Schedule.evaluate out_shape
+          finish dst
+            (Schedule.evaluate_into dst
                (E.pixel op ~output
                   ~operand:(fun r -> Tensor_id.Map.find r operand_env)
                   ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
@@ -113,12 +120,11 @@ let compute (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
       | Payload.Fmt Payload.I64 ->
           let module C = Permute.Permute.Compute_i64 (Direct) (Direct) in
           let x_t = Tensor_id.Map.find x operand_env in
-          Err.return
-            (Tensor.materialize_i64 out_shape (fun coord ->
-                 C.pixel perm ~x:x_t coord))
+          finish dst
+            (Tensor.write_i64 dst (fun coord -> C.pixel perm ~x:x_t coord))
       | _ ->
-          Err.return
-            (Schedule.evaluate out_shape
+          finish dst
+            (Schedule.evaluate_into dst
                (E.pixel op ~output
                   ~operand:(fun r -> Tensor_id.Map.find r operand_env)
                   ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
@@ -139,12 +145,11 @@ let compute (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
       | Payload.Fmt Payload.I64 ->
           let module C = Pointwise.Mul_scalar.Compute_i64 (Direct) (Direct) in
           let x_t = Tensor_id.Map.find x operand_env in
-          Err.return
-            (Schedule.evaluate out_shape (fun coord ->
-                 C.pixel ~scalar x_t coord))
+          finish dst
+            (Schedule.evaluate_into dst (fun coord -> C.pixel ~scalar x_t coord))
       | _ ->
-          Err.return
-            (Schedule.evaluate out_shape
+          finish dst
+            (Schedule.evaluate_into dst
                (E.pixel op ~output
                   ~operand:(fun r -> Tensor_id.Map.find r operand_env)
                   ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
@@ -170,12 +175,12 @@ let compute (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
           let b_t = Tensor_id.Map.find b operand_env in
           let a_shape = Tensor_id.Map.find a shape_env in
           let b_shape = Tensor_id.Map.find b shape_env in
-          Err.return
-            (Tensor.materialize_i64 out_shape (fun coord ->
+          finish dst
+            (Tensor.write_i64 dst (fun coord ->
                  C.pixel ~a_shape ~b_shape a_t b_t coord))
       | _ ->
-          Err.return
-            (Schedule.evaluate out_shape
+          finish dst
+            (Schedule.evaluate_into dst
                (E.pixel op ~output
                   ~operand:(fun r -> Tensor_id.Map.find r operand_env)
                   ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
@@ -190,12 +195,12 @@ let compute (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
           let b_t = Tensor_id.Map.find b operand_env in
           let a_shape = Tensor_id.Map.find a shape_env in
           let b_shape = Tensor_id.Map.find b shape_env in
-          Err.return
-            (Tensor.materialize_i64 out_shape (fun coord ->
+          finish dst
+            (Tensor.write_i64 dst (fun coord ->
                  C.pixel ~a_shape ~b_shape a_t b_t coord))
       | _ ->
-          Err.return
-            (Schedule.evaluate out_shape
+          finish dst
+            (Schedule.evaluate_into dst
                (E.pixel op ~output
                   ~operand:(fun r -> Tensor_id.Map.find r operand_env)
                   ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
@@ -210,12 +215,12 @@ let compute (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
           let b_t = Tensor_id.Map.find b operand_env in
           let a_shape = Tensor_id.Map.find a shape_env in
           let b_shape = Tensor_id.Map.find b shape_env in
-          Err.return
-            (Tensor.materialize_i64 out_shape (fun coord ->
+          finish dst
+            (Tensor.write_i64 dst (fun coord ->
                  C.pixel ~a_shape ~b_shape a_t b_t coord))
       | _ ->
-          Err.return
-            (Schedule.evaluate out_shape
+          finish dst
+            (Schedule.evaluate_into dst
                (E.pixel op ~output
                   ~operand:(fun r -> Tensor_id.Map.find r operand_env)
                   ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
@@ -234,11 +239,11 @@ let compute (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
       | Payload.Fmt Payload.I64 ->
           let module C = Pointwise.To_copy.Compute_i64 (Direct) (Direct) in
           let x_t = Tensor_id.Map.find x operand_env in
-          Err.return
-            (Schedule.evaluate out_shape (fun coord -> C.pixel x_t coord))
+          finish dst
+            (Schedule.evaluate_into dst (fun coord -> C.pixel x_t coord))
       | _ ->
-          Err.return
-            (Schedule.evaluate out_shape
+          finish dst
+            (Schedule.evaluate_into dst
                (E.pixel op ~output
                   ~operand:(fun r -> Tensor_id.Map.find r operand_env)
                   ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
@@ -260,8 +265,7 @@ let compute (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
       | Payload.Fmt Payload.F32 ->
           let module C = Pointwise.To_copy.Compute_to_long (Direct) (Direct) in
           let x_t = Tensor_id.Map.find x operand_env in
-          Err.return
-            (Tensor.materialize_i64 out_shape (fun coord -> C.pixel x_t coord))
+          finish dst (Tensor.write_i64 dst (fun coord -> C.pixel x_t coord))
       (* An already-I64 operand needs no cast at all -- a plain identity
          copy, the same [Long]-on-I64 gap. Reachable in principle (an int64
          tensor re-asserting its own dtype), and closing it here also
@@ -274,9 +278,8 @@ let compute (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
          fix. *)
       | Payload.Fmt Payload.I64 ->
           let x_t = Tensor_id.Map.find x operand_env in
-          Err.return
-            (Tensor.materialize_i64 out_shape (fun coord ->
-                 Direct.i64_load x_t coord))
+          finish dst
+            (Tensor.write_i64 dst (fun coord -> Direct.i64_load x_t coord))
       (* Design section 3's "Bool to I64 / Float: Exact 0/1 in the
          destination carrier" -- reads via [Direct.bool_load] (canonical
          true/false), not through [Payload.get_float]'s incidental float
@@ -284,8 +287,8 @@ let compute (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
          immediately above. *)
       | Payload.Fmt Payload.Bool ->
           let x_t = Tensor_id.Map.find x operand_env in
-          Err.return
-            (Tensor.materialize_i64 out_shape (fun coord ->
+          finish dst
+            (Tensor.write_i64 dst (fun coord ->
                  if Direct.bool_load x_t coord then 1L else 0L))
       (* Every other format is unsupported (no real importer produces
          I32/F16/BF16/etc today), and [Graph_builder.to_copy] still declares
@@ -316,8 +319,8 @@ let compute (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
       | Payload.Fmt Payload.F32 ->
           let module C = Pointwise.To_copy.Compute (Direct) in
           let x_t = Tensor_id.Map.find x operand_env in
-          Err.return
-            (Tensor.materialize_bool out_shape (fun coord ->
+          finish dst
+            (Tensor.write_bool dst (fun coord ->
                  C.pixel Pointwise.To_copy.Bool x_t coord <> 0.0))
       (* I64 to Bool is an exact comparison with 0L -- an exact int64 zero
          test, not a route through [Payload.get_float]/[Compute.pixel]'s own
@@ -328,8 +331,8 @@ let compute (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
          hazard, regardless of numerical agreement). *)
       | Payload.Fmt Payload.I64 ->
           let x_t = Tensor_id.Map.find x operand_env in
-          Err.return
-            (Tensor.materialize_bool out_shape (fun coord ->
+          finish dst
+            (Tensor.write_bool dst (fun coord ->
                  not (Int64.equal (Direct.i64_load x_t coord) 0L)))
       | Payload.Fmt other ->
           Err.fail (`Unsupported_to_copy_bool_source (Payload.Fmt other)))
@@ -345,9 +348,7 @@ let compute (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
   | Bitwise_not { Pointwise.Bitwise_not.x } ->
       let module C = Pointwise.Bitwise_not.Compute (Direct) in
       let x_t = Tensor_id.Map.find x operand_env in
-      Err.return
-        (Tensor.materialize_bool out_shape (fun coord ->
-             C.pixel x_t coord <> 0.0))
+      finish dst (Tensor.write_bool dst (fun coord -> C.pixel x_t coord <> 0.0))
   (* [Eq_scalar] mirrors [Gt_scalar]'s own split exactly (using
      [SEMANTICS.eq] instead of [S.lt]/[S.select]): [Compute]'s formula is
      [SEMANTICS]-generic (shared with [Symbolic] via [Eval_op.Make], which
@@ -358,9 +359,8 @@ let compute (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
   | Eq_scalar { Pointwise.Scalar_bin.x; scalar } ->
       let module C = Pointwise.Eq_scalar.Compute (Direct) in
       let x_t = Tensor_id.Map.find x operand_env in
-      Err.return
-        (Tensor.materialize_bool out_shape (fun coord ->
-             C.pixel ~scalar x_t coord <> 0.0))
+      finish dst
+        (Tensor.write_bool dst (fun coord -> C.pixel ~scalar x_t coord <> 0.0))
   (* [Eq_tensor] mirrors [Eq_scalar]'s own split, broadcast via [Binary]
      instead of [Scalar_binary] since both operands are runtime tensors:
      [Compute]'s formula is [SEMANTICS]-generic (shared with [Symbolic]),
@@ -373,8 +373,8 @@ let compute (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
       let b_t = Tensor_id.Map.find b operand_env in
       let a_shape = Tensor_id.Map.find a shape_env in
       let b_shape = Tensor_id.Map.find b shape_env in
-      Err.return
-        (Tensor.materialize_bool out_shape (fun coord ->
+      finish dst
+        (Tensor.write_bool dst (fun coord ->
              C.pixel ~a_shape ~b_shape a_t b_t coord <> 0.0))
   (* [Gt_scalar] mirrors [Bitwise_not]'s own split: [Compute]'s formula is
      [SEMANTICS]-generic (shared with [Symbolic] via [Eval_op.Make], which
@@ -385,9 +385,8 @@ let compute (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
   | Gt_scalar { Pointwise.Scalar_bin.x; scalar } ->
       let module C = Pointwise.Gt_scalar.Compute (Direct) in
       let x_t = Tensor_id.Map.find x operand_env in
-      Err.return
-        (Tensor.materialize_bool out_shape (fun coord ->
-             C.pixel ~scalar x_t coord <> 0.0))
+      finish dst
+        (Tensor.write_bool dst (fun coord -> C.pixel ~scalar x_t coord <> 0.0))
   (* [Ne_scalar] mirrors [Eq_scalar]'s own split exactly (negated):
      [Compute]'s formula is [SEMANTICS]-generic (shared with [Symbolic] via
      [Eval_op.Make], which still writes a plain float 0./1.), and only
@@ -397,9 +396,8 @@ let compute (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
   | Ne_scalar { Pointwise.Scalar_bin.x; scalar } ->
       let module C = Pointwise.Ne_scalar.Compute (Direct) in
       let x_t = Tensor_id.Map.find x operand_env in
-      Err.return
-        (Tensor.materialize_bool out_shape (fun coord ->
-             C.pixel ~scalar x_t coord <> 0.0))
+      finish dst
+        (Tensor.write_bool dst (fun coord -> C.pixel ~scalar x_t coord <> 0.0))
   (* [Ne_tensor] mirrors [Eq_tensor]'s own split exactly (negated), matching
      [Graph_builder.ne_tensor]'s own unconditional [Bool] output
      declaration. *)
@@ -409,8 +407,8 @@ let compute (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
       let b_t = Tensor_id.Map.find b operand_env in
       let a_shape = Tensor_id.Map.find a shape_env in
       let b_shape = Tensor_id.Map.find b shape_env in
-      Err.return
-        (Tensor.materialize_bool out_shape (fun coord ->
+      finish dst
+        (Tensor.write_bool dst (fun coord ->
              C.pixel ~a_shape ~b_shape a_t b_t coord <> 0.0))
   (* The index output of [Max_pool2d_with_indices], its adaptive twin and
      [Max_dim] is declared I64 by [Graph_builder] (ATen returns int64
@@ -421,8 +419,8 @@ let compute (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
   | Max_pool2d_with_indices { Pool.MaxPool2dWithIndices.params; x }
     when Output_ordinal.equal output Output_ordinal.one ->
       let module C = Pool.MaxPool2dWithIndices.Compute (Direct) in
-      Err.return
-        (index_i64 out_shape
+      finish dst
+        (index_i64 dst
            ~x_shape:(Tensor_id.Map.find x shape_env)
            ~x:(Tensor_id.Map.find x operand_env)
            (C.index_pixel params))
@@ -430,23 +428,28 @@ let compute (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
       { Pool.AdaptiveMaxPool2dWithIndices.params; x }
     when Output_ordinal.equal output Output_ordinal.one ->
       let module C = Pool.AdaptiveMaxPool2dWithIndices.Compute (Direct) in
-      Err.return
-        (index_i64 out_shape
+      finish dst
+        (index_i64 dst
            ~x_shape:(Tensor_id.Map.find x shape_env)
            ~x:(Tensor_id.Map.find x operand_env)
            (C.index_pixel params))
   | Max_dim { Reduce.MaxDim.params; x }
     when Output_ordinal.equal output Output_ordinal.one ->
       let module C = Reduce.MaxDim.Compute (Direct) in
-      Err.return
-        (index_i64 out_shape
+      finish dst
+        (index_i64 dst
            ~x_shape:(Tensor_id.Map.find x shape_env)
            ~x:(Tensor_id.Map.find x operand_env)
            (C.index_pixel params))
   | _ ->
-      Err.return
-        (Schedule.evaluate out_shape
+      finish dst
+        (Schedule.evaluate_into dst
            (E.pixel op ~output
               ~operand:(fun r -> Tensor_id.Map.find r operand_env)
               ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
               ~fill))
+
+let compute g op ~output ~out_shape ~dst ~operand_env ~shape_env ~fill =
+  let open Err.Syntax in
+  let* () = Tensor.check_shape dst out_shape in
+  compute_arms g op ~output ~out_shape ~dst ~operand_env ~shape_env ~fill

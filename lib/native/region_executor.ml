@@ -1,5 +1,8 @@
+(* See region_executor.mli. *)
+
 type t =
   ?counters:Region_execution.counters ->
+  dst:Tensor.packed ->
   Region_execution.lowered ->
   env:Expr.Eval.Env.t ->
   bindings:Tensor.packed Tensor_id.Map.t ->
@@ -7,16 +10,20 @@ type t =
 
 type group =
   ?counters:Region_execution.counters ->
+  dsts:(Region_group.Ordinal.t * Tensor.packed) list ->
   Region_execution.lowered_group ->
   env:Expr.Eval.Env.t ->
   bindings:Tensor.packed Tensor_id.Map.t ->
-  selected:Region_group.Ordinal.t list ->
   ((Region_group.Ordinal.t * Tensor.packed) list, Region_eval.error) Err.t
 
 let default : t =
- fun ?counters lowered ~env ~bindings:_ ->
-  Region_execution.materialize ?counters lowered ~env
+ fun ?counters ~dst lowered ~env ~bindings:_ ->
+  Result.map
+    (fun () -> dst)
+    (Region_execution.materialize_into ?counters ~dst lowered ~env)
 
 let default_group : group =
- fun ?counters lowered_group ~env ~bindings:_ ~selected ->
-  Region_execution.materialize_group ?counters lowered_group ~env ~selected
+ fun ?counters ~dsts lowered_group ~env ~bindings:_ ->
+  Result.map
+    (fun () -> dsts)
+    (Region_execution.materialize_group_into ?counters ~dsts lowered_group ~env)

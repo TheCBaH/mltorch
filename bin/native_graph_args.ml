@@ -35,6 +35,14 @@ let verbose_arg =
   in
   Arg.(value & flag & info [ "verbose" ] ~doc)
 
+let arena_arg =
+  let doc =
+    "Run intermediates through a Best_effort tensor arena instead of \
+     release-only allocation, and report whether it was used. Outputs are \
+     bit-identical either way; see lib/native/arena.mli."
+  in
+  Arg.(value & flag & info [ "arena" ] ~doc)
+
 let fold_arg =
   let doc =
     "Load every captured weight up front so constant folding can hoist \

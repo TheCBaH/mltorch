@@ -18,6 +18,7 @@
 
 type t =
   ?counters:Region_execution.counters ->
+  dst:Tensor.packed ->
   Region_execution.lowered ->
   env:Expr.Eval.Env.t ->
   bindings:Tensor.packed Tensor_id.Map.t ->
@@ -25,11 +26,19 @@ type t =
 
 type group =
   ?counters:Region_execution.counters ->
+  dsts:(Region_group.Ordinal.t * Tensor.packed) list ->
   Region_execution.lowered_group ->
   env:Expr.Eval.Env.t ->
   bindings:Tensor.packed Tensor_id.Map.t ->
-  selected:Region_group.Ordinal.t list ->
   ((Region_group.Ordinal.t * Tensor.packed) list, Region_eval.error) Err.t
 
 val default : t
 val default_group : group
+
+(* [~dst] / [~dsts] are tensors the evaluator allocated for the outputs, of the
+   shape and format each edge declares. An executor writes its result into them
+   and returns them; one that returns a different tensor is still correct (the
+   evaluator copies it in when the destination is arena-backed), but it forfeits
+   the reuse. Operands, [dst] and [dsts] are valid for the call only: an
+   executor must not keep a reference past its return. [~dsts] also carries the
+   selection: the ordinals to compute, in the order to return them. *)

@@ -208,12 +208,14 @@ let%expect_test "the result holds exactly the outputs and the retained edges" =
     [t7 t9]
     [t0 t9] |}]
 
-(* residual with its second relu's output declared I64: the add rejects the
-   mixed pair after [a] has already been released. *)
+(* residual with its input declared I64: the add rejects the mixed pair after
+   [a] has already been released. (The mismatch used to be planted on the second
+   relu's output, a signature that lied about what that relu produces; a
+   destination made from the declaration now rejects that at the relu.) *)
 let%expect_test "Only empty: an error mid-graph is the All run's error" =
   let g = Graph_fixtures.residual () in
-  let b = List.hd (List.nth g.Graph.nodes 1).Node.outputs in
+  let x = List.hd g.Graph.inputs in
   equivalent "residual_mixed"
-    (Graph_fixtures.with_fmt b (Payload.Fmt Payload.I64) g);
+    (Graph_fixtures.with_fmt x (Payload.Fmt Payload.I64) g);
   [%expect
-    {| residual_mixed: same error: add: unsupported mixed dtype, a=f32 b=i64 |}]
+    {| residual_mixed: same error: add: unsupported mixed dtype, a=i64 b=f32 |}]

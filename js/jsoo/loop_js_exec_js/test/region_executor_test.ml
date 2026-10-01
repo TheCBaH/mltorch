@@ -128,3 +128,30 @@ let%expect_test
     ok
     error: coverage: generated_js=2 fallback=0, expected generated_js >= 3
     |}]
+
+(* The Region executor's result IS the destination it was given
+   (descriptor identity), so under an arena there is nothing to copy. *)
+let%expect_test "the Region executor's result is dst; the arena sees no copies"
+    =
+  let query_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:2 ~c:3
+  and key_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:3 ~c:3 in
+  let g, inputs = sdpa_graph ~query_shape ~key_shape in
+  let coverage = Loop_region_executor.Coverage.create () in
+  let region_executor =
+    Loop_region_executor.make ~on_fallback:ignore coverage
+  in
+  let arena =
+    match
+      Err.payload (Arena_run.acquire ~admission:Arena.Admission.Best_effort g)
+    with
+    | Ok (Arena_run.Arena a) -> a
+    | Ok (Arena_run.Release_only _) -> Fmt.failwith "arena declined"
+    | Error _ -> Fmt.failwith "acquire failed"
+  in
+  ignore
+    (Err.or_raise ~pp_error:Eval_direct.pp_error
+       (Eval_direct.run ~arena ~region_executor ~inputs g));
+  Fmt.pr "generated_js=%d, copies=%Ld@."
+    coverage.Loop_region_executor.Coverage.generated_js
+    (Arena.copies arena).Arena.Copies.count;
+  [%expect {| generated_js=1, copies=0 |}]

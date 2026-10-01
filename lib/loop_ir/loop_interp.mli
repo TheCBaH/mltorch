@@ -29,15 +29,20 @@ val counters : unit -> counters
 
 val run :
   ?counters:counters ->
+  ?outputs:(Tensor_id.t -> Tensor.packed option) ->
   Loop_program.t ->
   bind:(Tensor_id.t -> Tensor.packed option) ->
   (Tensor.packed Tensor_id.Map.t, error) Err.t
 (** Executes the program. Input buffers are validated against their signature
-    ([Kernel_eval.check_binding]), Output buffers are allocated fresh, and the
-    result holds exactly the Output buffers. Loops are iterative; expression
-    recursion is bounded by the program's [max_depth]. An unchecked access out
-    of range is a defect in the program and raises [Invalid_argument], never a
-    typed failure: only an explicit [Fail_if] is one. *)
+    ([Kernel_eval.check_binding]); an Output buffer is allocated fresh, unless
+    [outputs] binds it, in which case it is validated the same way and
+    zero-filled (a caller's slot may hold poison or a stale value, and Loop's
+    accumulation semantics assume a fresh zero). Scratch is always fresh. The
+    result holds exactly the Output buffers -- [outputs]' own tensor, when it
+    bound one. Loops are iterative; expression recursion is bounded by the
+    program's [max_depth]. An unchecked access out of range is a defect in the
+    program and raises [Invalid_argument], never a typed failure: only an
+    explicit [Fail_if] is one. *)
 
 val allocate : Loop_buffer.t -> Tensor.packed
 (** A zeroed tensor for an Output or Scratch buffer, of its declared shape and

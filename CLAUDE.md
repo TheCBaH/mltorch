@@ -79,7 +79,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   stacks. See `.ai/` for the error-handling design and printer-convention docs.
 
 - **Never assume a 63-bit `int` in the JS-reachable libraries** — `lib/native`,
-  `lib/walk_core`, `lib/core`, `lib/native4d`, `lib/expr`, `lib/pt2`, `lib/native_graph`,
+  `lib/walk_core`, `lib/core`, `lib/native4d`, `lib/expr`, `lib/interval_alloc` (sizes and
+  offsets are `int64` throughout), `lib/pt2`, `lib/native_graph`,
   `lib/native_interp` (js_of_ocaml reaches these last three since the probe began reading
   real `.pt2` models), `lib/loop_ir` (its lowering and interpreter run under node in the
   inline suite, so its index arithmetic is `int64` until bounded, and its emitted
@@ -334,6 +335,7 @@ test/*_cram.t                                      ← cram tests decode real mo
 | `lib/loop_ir/` | `loop_ir` | The Loop IR: a structured loop program lowered from a `Fusion_plan.t`, its reference interpreter, the differential harness against `Kernel_eval`, and the JavaScript emitter. Depends on `native`, never the reverse |
 | `lib/js_ast/` | `js_ast` | A closed subset of ECMAScript as data: identifiers, the AST, typed builders (`Js_build`: `Number`, index and `BigInt` kinds that cannot be mixed), the printer, and a scope checker. Depends on `fmt` only; mirrored into Melange (`js/melange/js_ast`) so its output is diffed across native, jsoo and Melange |
 | `js/loop_js_exec/` | `loop_js_exec` | Runs the JavaScript `Loop_js` emits in-process over the bound tensors' storage, decoding a failure record to the interpreter's row. **js_of_ocaml only**: it links into a `(modes js)` executable or inline-test suite, never a native one; its tests install it as a further `Loop_check` executor. The only library that may name `js_of_ocaml` for this backend |
+| `lib/interval_alloc/` | `interval_alloc` | A standalone interval allocator: an alloc/free script in, per-block offsets in one pool out, with its own witness check (`Witness` only comes from `check`) and lower bound. Knows nothing of tensors or Bigarrays; depends on `err_trace` + `fmt` only. `int64` sizes and offsets, so it is js_of_ocaml-safe |
 | `lib/interp/` | `interp` | Walks an `ExportedProgram` graph and dispatches each node to the bound ATen ops |
 
 Key modules in `pytorch_schema`: `Pytorch_schema` (YAML→type map), `Schema_codegen` (type map→OCaml source), `Type_expr`/`Type_expr_lexer`/`Type_expr_parser` (type-string parser), `Scc` (Tarjan SCC for recursive type detection).

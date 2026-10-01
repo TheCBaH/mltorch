@@ -5,7 +5,19 @@ open Cmdliner
 open Native_graph_common
 open Native_graph_args
 
-let eval model input expect verbose : (unit, string) result =
+(* [--arena]'s own report, distinct from [--verbose]'s per-node trace: this is
+   one line, always printed under the flag, so a caller (a script, or the
+   arena-forced CI step) can grep it without needing --verbose's noise. *)
+let pp_arena_outcome fmt (outcome : Arena_run.Outcome.t) =
+  match outcome with
+  | Used { pool_bytes; out_of_arena_bytes; copies } ->
+      Format.fprintf fmt
+        "arena: used pool_bytes=%Ld out_of_arena_bytes=%Ld \
+         mixed_mode_copies=%Ld (%Ld bytes)"
+        pool_bytes out_of_arena_bytes copies.count copies.bytes
+  | Declined e -> Format.fprintf fmt "arena: declined: %a" Arena_run.pp_error e
+
+let eval model input expect verbose arena : (unit, string) result =
   with_archive model (fun archive ->
       let* input =
         to_cli Pt2_archive.pp_error (Pt2_archive.load_first_pt_tensor input)
@@ -41,7 +53,16 @@ let eval model input expect verbose : (unit, string) result =
         else None
       in
       let* outputs =
-        to_cli Native_interp.pp_error (Native_interp.run ?hooks archive ~input)
+        to_cli Native_interp.pp_error
+          (Native_interp.run ?hooks
+             ?arena:(if arena then Some Arena.Admission.Best_effort else None)
+             ?on_arena:
+               (if arena then
+                  Some
+                    (fun outcome ->
+                      Format.printf "%a@." pp_arena_outcome outcome)
+                else None)
+             archive ~input)
       in
       match expect with
       | None ->
@@ -77,7 +98,8 @@ let eval_cmd =
      interpreter."
   in
   Cmd.v (Cmd.info "eval" ~doc)
-    Term.(const eval $ pt2_arg $ input_arg $ expect_arg $ verbose_arg)
+    Term.(
+      const eval $ pt2_arg $ input_arg $ expect_arg $ verbose_arg $ arena_arg)
 
 (* The canonical pipeline now lives in [Pipeline], because Native4D needs the
    same definition of "canonical" and two callers agreeing by coincidence is not

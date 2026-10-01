@@ -361,7 +361,7 @@ let%expect_test
   in
   let wrong_value = 12345. in
   let wrong_region_executor : Region_executor.t =
-   fun ?counters:_ _lowered ~env:_ ~bindings:_ ->
+   fun ?counters:_ ~dst:_ _lowered ~env:_ ~bindings:_ ->
     Err.return (Tensor.materialize output_shape (fun _ -> wrong_value))
   in
   let run ?region_executor () =

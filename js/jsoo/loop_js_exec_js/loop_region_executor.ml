@@ -31,17 +31,20 @@ end
    "identical programs share one function"), so no memoisation is added
    here -- a second cache keyed the same way would just be a slower path to
    the same hit. *)
+(* [Region_executor.t]/[.group]'s own contract (lib/native/region_executor.mli)
+   states that [dst]/[dsts] are valid only for the call; this executor
+   introduces no buffer of its own. *)
 let make ?(limits = Kernel.Limits.default)
     ?(on_fallback =
       fun reason ->
         Printf.eprintf
           "loop_region_executor: falling back to materialize: %s\n%!" reason)
     (coverage : Coverage.t) : Region_executor.t =
- fun ?counters lowered ~env ~bindings ->
+ fun ?counters ~dst lowered ~env ~bindings ->
   let fallback reason =
     on_fallback reason;
     coverage.Coverage.fallback <- coverage.Coverage.fallback + 1;
-    Region_executor.default ?counters lowered ~env ~bindings
+    Region_executor.default ?counters ~dst lowered ~env ~bindings
   in
   let program = Region_execution.program lowered in
   let out_shape = Region_execution.output_shape lowered in
@@ -50,7 +53,11 @@ let make ?(limits = Kernel.Limits.default)
       fallback (Fmt.str "%a" Loop_region_program.pp_error (Err.Error.kind e))
   | Ok loop_program -> (
       let bind id = Tensor_id.Map.find_opt id bindings in
-      match Loop_js_exec.exec loop_program ~bind with
+      (* The program's sole Output buffer, whatever id [lower] gave it: this
+         callback is only ever consulted for an Output-role buffer, and there
+         is exactly one. *)
+      let outputs _ = Some dst in
+      match Loop_js_exec.exec ~outputs loop_program ~bind with
       | Error e ->
           fallback (Fmt.str "%a" Loop_js_exec.pp_error (Err.Error.kind e))
       | Ok result -> (
@@ -81,12 +88,12 @@ let make_group ?(limits = Kernel.Limits.default)
         Printf.eprintf
           "loop_region_executor: falling back to materialize_group: %s\n%!"
           reason) (coverage : Coverage.t) : Region_executor.group =
- fun ?counters lowered_group ~env ~bindings ~selected ->
+ fun ?counters ~dsts lowered_group ~env ~bindings ->
+  let selected = List.map fst dsts in
   let fallback reason =
     on_fallback reason;
     coverage.Coverage.fallback <- coverage.Coverage.fallback + 1;
-    Region_executor.default_group ?counters lowered_group ~env ~bindings
-      ~selected
+    Region_executor.default_group ?counters ~dsts lowered_group ~env ~bindings
   in
   match
     Loop_region_program.lower_group ~limits ~bindings ~selected
@@ -96,7 +103,15 @@ let make_group ?(limits = Kernel.Limits.default)
       fallback (Fmt.str "%a" Loop_region_program.pp_error (Err.Error.kind e))
   | Ok (loop_program, id_of_ordinal) -> (
       let bind id = Tensor_id.Map.find_opt id bindings in
-      match Loop_js_exec.exec loop_program ~bind with
+      (* Each selected ordinal's own buffer id, from [id_of_ordinal], is bound
+         to its caller-allocated destination. *)
+      let outputs id =
+        List.find_map
+          (fun (ordinal, oid) ->
+            if Tensor_id.equal oid id then List.assoc_opt ordinal dsts else None)
+          id_of_ordinal
+      in
+      match Loop_js_exec.exec ~outputs loop_program ~bind with
       | Error e ->
           fallback (Fmt.str "%a" Loop_js_exec.pp_error (Err.Error.kind e))
       | Ok result -> (

@@ -79,3 +79,30 @@ let%expect_test
             ~max_scan_updates_total:Kernel.Limits.default.max_scan_updates_total))
     ();
   [%expect {| outputs=3 agree=true generated_js=0 fallback=1 |}]
+
+(* Every selected Lstm output IS the destination it was given, so under an
+   arena there is nothing to copy. *)
+let%expect_test
+    "the Lstm group executor's results are dsts; the arena sees no copies" =
+  let subject = lstm_subject () in
+  let g = subject.Native_op_walk_js.Native_subject.graph in
+  let inputs = subject.Native_op_walk_js.Native_subject.inputs in
+  let coverage = Loop_region_executor.Coverage.create () in
+  let region_group_executor =
+    Loop_region_executor.make_group ~on_fallback:ignore coverage
+  in
+  let arena =
+    match
+      Err.payload (Arena_run.acquire ~admission:Arena.Admission.Best_effort g)
+    with
+    | Ok (Arena_run.Arena a) -> a
+    | Ok (Arena_run.Release_only _) -> Fmt.failwith "arena declined"
+    | Error _ -> Fmt.failwith "acquire failed"
+  in
+  ignore
+    (Err.or_raise ~pp_error:Eval_direct.pp_error
+       (Eval_direct.run ~arena ~region_group_executor ~inputs g));
+  Fmt.pr "generated_js=%d, copies=%Ld@."
+    coverage.Loop_region_executor.Coverage.generated_js
+    (Arena.copies arena).Arena.Copies.count;
+  [%expect {| generated_js=3, copies=0 |}]

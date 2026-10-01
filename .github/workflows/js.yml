@@ -90,6 +90,7 @@ jobs:
       id: cache_keys
       run: |
         make -s jsoo.pt2.vars >> $GITHUB_OUTPUT
+        make -s loop_js.pt2.vars >> $GITHUB_OUTPUT
     - name: pt2 model cache
       uses: actions/cache@v6
       with:
@@ -100,16 +101,53 @@ jobs:
     - name: pt2 model download
       run: |
         make jsoo.pt2.download
+    # A second model (fastvit_sa12, ~96MB), its own key for the same reason
+    # jsoo_pt2 has one -- see loop_js.pt2.vars' own comment in the Makefile.
+    # Needed by the two fast-path steps below.
+    - name: loop_js pt2 model cache
+      uses: actions/cache@v6
+      with:
+        path: ${{ steps.cache_keys.outputs.loop_js_pt2_zip_glob }}
+        key: ${{ steps.cache_keys.outputs.loop_js_pt2_cache_key }}
+        restore-keys: |
+          ${{ steps.cache_keys.outputs.loop_js_pt2_cache_restore_key }}
+    - name: loop_js pt2 model download
+      run: |
+        make loop_js.pt2.download
     - name: jsoo pt2 inference test
       run: |
         ${{ env.EXEC }} make jsoo.pt2.runtest
     # Every node of the same already-cached model through its own generated-JS
     # kernel ~100s, the same order as
     # the step above, and no new download since it reuses JS_PT2_MODEL's own
-    # cache entry.
+    # cache entry. Also the jsoo/node side of the tensor arena check (--arena,
+    # see the Makefile target's own comment and
+    # the tensor arena design in .ai/) -- native_graph's own build.yml
+    # step is native-only.
     - name: jsoo pt2 node coverage
       run: |
         ${{ env.EXEC }} make loop_js.node.pt2.runtest
+    # Same model, --direct: the raw, untransformed graph through the compiled
+    # kernels instead of canonical's folded one. Also ~100s (measured), so
+    # cheap enough for every push; the jsoo/node counterpart of build.yml's
+    # "native whole-graph inference verification (direct graph)".
+    - name: jsoo pt2 node coverage (direct graph)
+      run: |
+        ${{ env.EXEC }} make loop_js.node.pt2.direct.runtest
+    # fastvit_sa12, WITHOUT --shadow: Loop_node_executor's own default
+    # (shadow:false) trusts each compiled kernel directly instead of also
+    # running the reference interpreter, verified only by --strict's ranking
+    # check. ~26s -- removing the shadow double-run is what makes this model
+    # affordable in CI at all (WITH it, canonical alone exceeded 300s; see
+    # the whole-model JS design in .ai/) -- and the only CI coverage of
+    # Region-authored ops (RmsNorm/LayerNorm/Softmax/Sdpa) under generated JS:
+    # mobilenetv2_050 above has none.
+    - name: jsoo pt2 node coverage (fastvit, fast path)
+      run: |
+        ${{ env.EXEC }} make loop_js.node.pt2.fast.runtest
+    - name: jsoo pt2 node coverage (fastvit, fast path, direct graph)
+      run: |
+        ${{ env.EXEC }} make loop_js.node.pt2.fast.direct.runtest
 
   # The BROWSER gate. A third job for the same reason there are two: it fails
   # for its own reasons -- an Angular renderer build, an npm lockfile, a

@@ -1,6 +1,7 @@
 lib/core
 lib/expr
 lib/expr_internal
+lib/interval_alloc
 lib/native
 lib/native4d
 lib/native_aten_bridge

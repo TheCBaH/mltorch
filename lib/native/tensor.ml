@@ -273,21 +273,44 @@ let copy_cells (type e b q) (src : (e, b, q) Payload.payload)
       copy_data data;
       Tensor { shape; payload = { src with data } }
 
+(* The source coordinate an [Unbind] output cell reads. *)
+(* Zero-fills an existing destination of any of the three formats a Loop
+   Output buffer can declare (Kernel.create's Format_rule): F32, Bool, I64. Used
+   to reset a destination bound from outside (an arena slot, poisoned on
+   acquire) before a Loop program accumulates into it -- Loop's own semantics
+   assume a fresh zero, and re-deriving that per caller would drift from
+   [Loop_interp.allocate]'s own zeroing. *)
+let zero_fill (Tensor t as packed) =
+  match t.payload.Payload.fmt with
+  | Payload.F32 | Payload.F64 | Payload.F16 | Payload.BF16 ->
+      Vec6.iter t.shape (fun c -> set_float packed c 0.)
+  | Payload.I64 ->
+      Vec6.iter t.shape (fun c ->
+          let i = (Vec6.offset t.shape c :> int) in
+          t.payload.Payload.data.{i} <- 0L)
+  | Payload.Bool ->
+      Vec6.iter t.shape (fun c ->
+          let i = (Vec6.offset t.shape c :> int) in
+          t.payload.Payload.data.{i} <- 0)
+  | Payload.I32 | Payload.I16 | Payload.I8 ->
+      invalid_arg "Tensor.zero_fill: not a Loop output format"
+
+let unbind_source_coord ~axis ~(output : Output_ordinal.t) out =
+  let zero = Vec6.coord ~n:0 ~t:0 ~d:0 ~h:0 ~w:0 ~c:0 in
+  let base =
+    List.fold_left
+      (fun v (input_axis, output_axis) ->
+        Vec6.copy out ~src:output_axis ~dst:input_axis v)
+      zero
+      (Aten_shape.repack_dropped ~dropped:[ axis ])
+  in
+  Vec6.set base axis (Dim.index (output :> int))
+
 (* [Unbind] is a storage-preserving selection, unlike the arithmetic ops whose
    results enter the engine's f32 compute domain. See [copy_cells]. *)
 let unbind (Tensor src) ~axis ~(output : Output_ordinal.t) ~shape =
-  let source_coord out =
-    let zero = Vec6.coord ~n:0 ~t:0 ~d:0 ~h:0 ~w:0 ~c:0 in
-    let base =
-      List.fold_left
-        (fun v (input_axis, output_axis) ->
-          Vec6.copy out ~src:output_axis ~dst:input_axis v)
-        zero
-        (Aten_shape.repack_dropped ~dropped:[ axis ])
-    in
-    Vec6.set base axis (Dim.index (output :> int))
-  in
-  copy_cells src.payload ~shape ~src_shape:src.shape ~source_coord
+  copy_cells src.payload ~shape ~src_shape:src.shape
+    ~source_coord:(unbind_source_coord ~axis ~output)
 
 (* [Split_with_sizes] is a storage-preserving window, same reason as [unbind].
    Unlike [unbind]'s [source_coord], there is no repack here --
@@ -298,6 +321,204 @@ let split_with_sizes (Tensor src) ~axis ~(offset : Dim.fence Dim.t) ~shape =
     Vec6.set out axis (Dim.advance ~start:offset (Vec6.get out axis))
   in
   copy_cells src.payload ~shape ~src_shape:src.shape ~source_coord
+
+(* ---- destination passing --------------------------------------------------
+
+   The [write_*] family fills a destination the CALLER allocated, of the shape
+   and format the edge declares, instead of allocating a fresh tensor. A writer
+   never converts: a destination whose format is not the one the writer stores
+   is an error row, not a silent round trip through another format. *)
+
+module Writer = struct
+  type t = Bool | Copy | Float | I64
+end
+
+module Dst_mismatch = struct
+  type t = { writer : Writer.t; dst : Payload.packed_fmt }
+end
+
+module Dst_shape = struct
+  type t = { wanted : Vec6.shape; dst : Vec6.shape }
+end
+
+module Dst_quant = struct
+  type t = { src : Quant.t option; dst : Quant.t option }
+end
+
+type dst_error =
+  [ `Dst_format_mismatch of Dst_mismatch.t
+  | `Dst_shape_mismatch of Dst_shape.t
+  | `Dst_quant_mismatch of Dst_quant.t ]
+
+let pp_dst_error ppf : [< dst_error ] -> unit = function
+  | `Dst_format_mismatch { Dst_mismatch.writer; dst = Payload.Fmt dst } ->
+      Format.fprintf ppf "destination format %s cannot take %s writes"
+        (Payload.fmt_name dst)
+        (match writer with
+        | Writer.Bool -> "bool"
+        | Writer.Copy -> "same-format copy"
+        | Writer.Float -> "float"
+        | Writer.I64 -> "i64")
+  | `Dst_quant_mismatch _ ->
+      Format.fprintf ppf
+        "destination quantization differs from the source's: a storage copy \
+         never re-quantizes"
+  | `Dst_shape_mismatch { Dst_shape.wanted; dst } ->
+      Format.fprintf ppf "destination shape %a, wanted %a" Vec6.pp_shape dst
+        Vec6.pp_shape wanted
+
+let packed_shape (Tensor t) = t.shape
+
+let check_shape dst shape =
+  if Stdlib.( = ) (packed_shape dst) shape then Err.return ()
+  else
+    Err.fail
+      (`Dst_shape_mismatch { Dst_shape.wanted = shape; dst = packed_shape dst })
+
+(* The float path: every format [Payload.set_float] stores without a
+   quantization channel, i.e. a real (non-quantized) float format. *)
+let write_float (Tensor d as dst) (f : Vec6.coord -> float) :
+    (unit, [> dst_error ]) Err.t =
+  match d.payload.Payload.fmt with
+  | Payload.F32 | Payload.F64 | Payload.F16 | Payload.BF16 ->
+      Vec6.iter d.shape (fun c -> set_float dst c (f c));
+      Err.return ()
+  | fmt ->
+      Err.fail
+        (`Dst_format_mismatch
+           { Dst_mismatch.writer = Writer.Float; dst = Payload.Fmt fmt })
+
+(* [write_float]'s [I64] counterpart: cells written directly, never through the
+   float domain. *)
+let write_i64 (Tensor d) (f : Vec6.coord -> int64) :
+    (unit, [> dst_error ]) Err.t =
+  match d.payload.Payload.fmt with
+  | Payload.I64 ->
+      Vec6.iter d.shape (fun c ->
+          let i = (Vec6.offset d.shape c :> int) in
+          d.payload.data.{i} <- f c);
+      Err.return ()
+  | fmt ->
+      Err.fail
+        (`Dst_format_mismatch
+           { Dst_mismatch.writer = Writer.I64; dst = Payload.Fmt fmt })
+
+let write_bool (Tensor d) (f : Vec6.coord -> bool) :
+    (unit, [> dst_error ]) Err.t =
+  match d.payload.Payload.fmt with
+  | Payload.Bool ->
+      Vec6.iter d.shape (fun c ->
+          let i = (Vec6.offset d.shape c :> int) in
+          d.payload.data.{i} <- (if f c then 1 else 0));
+      Err.return ()
+  | fmt ->
+      Err.fail
+        (`Dst_format_mismatch
+           { Dst_mismatch.writer = Writer.Bool; dst = Payload.Fmt fmt })
+
+(* A fresh, uninitialised tensor of exactly what a signature declares: its
+   format AND its quantization. [packed_fmt] alone has no [Quant.t], so a
+   quantized format needs the signature's [Some q]; a real format ignores
+   [quant], which the signature keeps [None] for it. *)
+let create_of_sig (sg : Tensor_sig.t) :
+    (packed, [> `Quant_missing of Tensor_id.t ]) Err.t =
+  let shape = sg.Tensor_sig.shape in
+  let n = (Vec6.numel shape :> int) in
+  let real fmt data =
+    Err.return
+      (Tensor
+         { shape; payload = { Payload.fmt; quant = Payload.No_quant; data } })
+  in
+  let quantized fmt data =
+    match sg.Tensor_sig.quant with
+    | None -> Err.fail (`Quant_missing sg.Tensor_sig.id)
+    | Some q ->
+        Err.return
+          (Tensor
+             { shape; payload = { Payload.fmt; quant = Payload.Quant q; data } })
+  in
+  let open Bigarray in
+  let (Payload.Fmt fmt) = sg.Tensor_sig.fmt in
+  match fmt with
+  | Payload.BF16 -> real Payload.BF16 (Array1.create int16_unsigned c_layout n)
+  | Payload.Bool -> real Payload.Bool (Array1.create int8_unsigned c_layout n)
+  | Payload.F16 -> real Payload.F16 (Array1.create int16_unsigned c_layout n)
+  | Payload.F32 -> real Payload.F32 (Array1.create float32 c_layout n)
+  | Payload.F64 -> real Payload.F64 (Array1.create float64 c_layout n)
+  | Payload.I16 -> quantized Payload.I16 (Array1.create int16_signed c_layout n)
+  | Payload.I32 -> real Payload.I32 (Array1.create int32 c_layout n)
+  | Payload.I64 -> real Payload.I64 (Array1.create int64 c_layout n)
+  | Payload.I8 -> quantized Payload.I8 (Array1.create int8_signed c_layout n)
+
+(* Format equality with a type witness, so two payloads that agree can share a
+   cell type. *)
+type ('e1, 'b1, 'q1, 'e2, 'b2, 'q2) same =
+  | Same : ('e, 'b, 'q, 'e, 'b, 'q) same
+
+let same_fmt : type e1 b1 q1 e2 b2 q2.
+    (e1, b1, q1) Payload.fmt ->
+    (e2, b2, q2) Payload.fmt ->
+    (e1, b1, q1, e2, b2, q2) same option =
+ fun a b ->
+  match (a, b) with
+  | Payload.BF16, Payload.BF16 -> Some Same
+  | Payload.Bool, Payload.Bool -> Some Same
+  | Payload.F16, Payload.F16 -> Some Same
+  | Payload.F32, Payload.F32 -> Some Same
+  | Payload.F64, Payload.F64 -> Some Same
+  | Payload.I16, Payload.I16 -> Some Same
+  | Payload.I32, Payload.I32 -> Some Same
+  | Payload.I64, Payload.I64 -> Some Same
+  | Payload.I8, Payload.I8 -> Some Same
+  | _ -> None
+
+(* [copy_cells]'s destination-passing form: raw cells from [src] into [dst],
+   which must hold the same format AND quantization. Storage-preserving means
+   exactly that, so a different quantization is an error, never a
+   re-quantization. *)
+let copy_cells_into (type e b q) (src : (e, b, q) Payload.payload) (Tensor d)
+    ~(shape : Vec6.shape) ~src_shape ~source_coord :
+    (unit, [> dst_error ]) Err.t =
+  let open Err.Syntax in
+  let* () = check_shape (Tensor d) shape in
+  match same_fmt src.fmt d.payload.Payload.fmt with
+  | None ->
+      Err.fail
+        (`Dst_format_mismatch
+           {
+             Dst_mismatch.writer = Writer.Copy;
+             dst = Payload.Fmt d.payload.Payload.fmt;
+           })
+  | Some Same ->
+      let quant_of : type q. q Payload.quantization -> Quant.t option = function
+        | Payload.No_quant -> None
+        | Payload.Quant q -> Some q
+      in
+      let sq = quant_of src.quant and dq = quant_of d.payload.Payload.quant in
+      if not (Option.equal Quant.equal sq dq) then
+        Err.fail (`Dst_quant_mismatch { Dst_quant.src = sq; dst = dq })
+      else begin
+        Vec6.iter shape (fun out ->
+            let o = (Vec6.offset shape out :> int) in
+            let s = (Vec6.offset src_shape (source_coord out) :> int) in
+            d.payload.data.{o} <- src.data.{s});
+        Err.return ()
+      end
+
+(* [src]'s cells into [dst], which must hold the same format and quantization. *)
+let blit_into (Tensor src) dst : (unit, [> dst_error ]) Err.t =
+  copy_cells_into src.payload dst ~shape:src.shape ~src_shape:src.shape
+    ~source_coord:Fun.id
+
+let unbind_into (Tensor src) dst ~axis ~(output : Output_ordinal.t) ~shape =
+  copy_cells_into src.payload dst ~shape ~src_shape:src.shape
+    ~source_coord:(unbind_source_coord ~axis ~output)
+
+let split_with_sizes_into (Tensor src) dst ~axis ~(offset : Dim.fence Dim.t)
+    ~shape =
+  copy_cells_into src.payload dst ~shape ~src_shape:src.shape
+    ~source_coord:(fun out ->
+      Vec6.set out axis (Dim.advance ~start:offset (Vec6.get out axis)))
 
 (* Bit-for-bit equality — the only correct notion when the engine claims two
    computations are *identical* rather than merely close.

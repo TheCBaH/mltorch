@@ -32,7 +32,7 @@ let%expect_test
   let wrong_node_executor : Node_executor.t =
     {
       run =
-        (fun _ _ ~output:_ ~out_shape ~operands:_ ~direct:_ ->
+        (fun _ _ ~output:_ ~out_shape ~operands:_ ~dst:_ ~direct:_ ->
           Err.return (Tensor.materialize out_shape (fun _ -> wrong_value)));
     }
   in

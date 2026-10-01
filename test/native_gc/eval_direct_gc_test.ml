@@ -32,11 +32,11 @@ let alive_mid_and_after retain =
   let node_executor =
     {
       Node_executor.run =
-        (fun _ node ~output:_ ~out_shape:_ ~operands:_ ~direct ->
+        (fun _ node ~output:_ ~out_shape:_ ~operands:_ ~dst ~direct ->
           if Node_id.equal node.Node.id last.Node.id then (
             collect ();
             mid := Some (Weak.check slot 0));
-          let result = direct () in
+          let result = direct ~dst in
           (if Node_id.equal node.Node.id first.Node.id then
              match Err.payload result with
              | Ok t -> Weak.set slot 0 (Some t)

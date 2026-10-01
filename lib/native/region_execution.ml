@@ -301,10 +301,9 @@ let emit ?counters slots output_expr ~env ~values ~output ~scan_meter =
     (Expr.Eval.value ~local ~local_at ~scan ~scan_meter ~on_reduction env
        ~output:(expr_coord output) output_expr)
 
-let materialize ?counters lowered ~env =
+let materialize_into ?counters ~dst:tensor lowered ~env =
   Err.Escape.with_escape @@ fun esc ->
   let output_shape = lowered.output_shape in
-  let tensor = Tensor.create output_shape in
   let partition = Region_program.partition lowered.program in
   Region_partition.fold_keys ~output_shape ~init:()
     ~f:(fun () key ->
@@ -332,8 +331,14 @@ let materialize ?counters lowered ~env =
           partition
       in
       ())
-    partition;
-  tensor
+    partition
+
+(* The allocating form: a fresh float32 tensor of the program's output shape. *)
+let materialize ?counters lowered ~env =
+  let tensor = Tensor.create lowered.output_shape in
+  Result.map
+    (fun () -> tensor)
+    (materialize_into ?counters ~dst:tensor lowered ~env)
 
 let value_at lowered ~env ~output =
   Region_eval.value_at ~scan_limits:lowered.scan_limits lowered.program
@@ -402,21 +407,15 @@ let physical_key_of ~canonical_key (e : Region_group.Emitter.t) =
    [fold_keys]/[evaluate_locals] call, rather than relying on the inner
    per-emitter [List.iter selected] being a no-op: that would still pay for
    the shared locals' full scan work on every key for nothing. *)
-let materialize_group ?counters lowered_group ~env ~selected =
+let materialize_group_into ?counters ~dsts:tensors lowered_group ~env =
   Err.Escape.with_escape @@ fun esc ->
+  let selected = List.map fst tensors in
   match selected with
-  | [] -> []
+  | [] -> ()
   | _ :: _ ->
       let group = lowered_group.group in
       let canonical_shape = Region_group.canonical_shape group in
       let canonical_partition = Region_group.canonical_partition group in
-      let tensors =
-        List.map
-          (fun ordinal ->
-            let e = Option.get (Region_group.emitter group ordinal) in
-            (ordinal, Tensor.create e.Region_group.Emitter.output_shape))
-          selected
-      in
       Region_partition.fold_keys ~output_shape:canonical_shape ~init:()
         ~f:(fun () key ->
           Option.iter
@@ -452,5 +451,19 @@ let materialize_group ?counters lowered_group ~env ~selected =
                   Tensor.set_float tensor output value)
                 e.Region_group.Emitter.partition)
             selected)
-        canonical_partition;
-      tensors
+        canonical_partition
+
+(* The allocating form: a fresh float32 tensor per selected emitter, in
+   [selected]'s order. *)
+let materialize_group ?counters lowered_group ~env ~selected =
+  let group = lowered_group.group in
+  let tensors =
+    List.map
+      (fun ordinal ->
+        let e = Option.get (Region_group.emitter group ordinal) in
+        (ordinal, Tensor.create e.Region_group.Emitter.output_shape))
+      selected
+  in
+  Result.map
+    (fun () -> tensors)
+    (materialize_group_into ?counters ~dsts:tensors lowered_group ~env)

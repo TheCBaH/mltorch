@@ -459,7 +459,11 @@ let allocate (b : Loop_buffer.t) =
   | Payload.Fmt Payload.I64 -> Tensor.materialize_i64 shape (fun _ -> 0L)
   | Payload.Fmt _ -> invalid_arg "Loop_interp: output buffer format"
 
-let bind_buffers esc (p : Loop_program.t) ~bind =
+(* An externally bound Output buffer (an arena slot, poisoned on acquire) is
+   checked against its signature and zero-filled: Loop's own accumulation
+   semantics assume a fresh zero, the same as [allocate]'s own. Scratch is
+   never bound from outside. *)
+let bind_buffers ?(outputs = fun _ -> None) esc (p : Loop_program.t) ~bind =
   List.fold_left
     (fun acc (b : Loop_buffer.t) ->
       match b.Loop_buffer.role with
@@ -473,11 +477,22 @@ let bind_buffers esc (p : Loop_program.t) ~bind =
                    (Kernel_eval.check_binding b.Loop_buffer.id b.Loop_buffer.sg
                       tensor));
               Tensor_id.Map.add b.Loop_buffer.id tensor acc)
-      | Loop_buffer.Output | Loop_buffer.Scratch ->
+      | Loop_buffer.Output -> (
+          match outputs b.Loop_buffer.id with
+          | None -> Tensor_id.Map.add b.Loop_buffer.id (allocate b) acc
+          | Some tensor ->
+              Err.Escape.or_throw esc
+                (Err.map_error
+                   (fun (`Binding_mismatch m) -> `Binding_mismatch m)
+                   (Kernel_eval.check_binding b.Loop_buffer.id b.Loop_buffer.sg
+                      tensor));
+              Tensor.zero_fill tensor;
+              Tensor_id.Map.add b.Loop_buffer.id tensor acc)
+      | Loop_buffer.Scratch ->
           Tensor_id.Map.add b.Loop_buffer.id (allocate b) acc)
     Tensor_id.Map.empty p.Loop_program.buffers
 
-let run ?(counters = counters ()) (p : Loop_program.t) ~bind =
+let run ?(counters = counters ()) ?outputs (p : Loop_program.t) ~bind =
   Err.Escape.with_escape @@ fun esc ->
   let st =
     {
@@ -485,7 +500,7 @@ let run ?(counters = counters ()) (p : Loop_program.t) ~bind =
       limits = p.Loop_program.scan_limits;
       meter = fresh_meter p.Loop_program.scan_limits;
       counters;
-      buffers = bind_buffers esc p ~bind;
+      buffers = bind_buffers ?outputs esc p ~bind;
       vars = Hashtbl.create 16;
       floats = Hashtbl.create 16;
       int64s = Hashtbl.create 16;

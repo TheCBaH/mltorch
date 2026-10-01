@@ -25,10 +25,16 @@ type t = {
     output:Output_ordinal.t ->
     out_shape:Vec6.shape ->
     operands:Tensor.packed Tensor_id.Map.t ->
-    direct:(unit -> (Tensor.packed, 'e) Err.t) ->
+    dst:Tensor.packed ->
+    direct:(dst:Tensor.packed -> (Tensor.packed, 'e) Err.t) ->
     (Tensor.packed, 'e) Err.t;
 }
 
 val default : t
-(** [{ run = fun _ _ ~output:_ ~out_shape:_ ~operands:_ ~direct -> direct () }]:
-    every node is [pending] and falls straight back to the direct path. *)
+(** Every node is [pending] and falls straight back to the direct path, into
+    [dst].
+
+    [~dst] is the tensor the evaluator allocated for the output, of the shape
+    and format the edge declares. [direct ~dst:d] computes into [d], so a
+    shadowing executor can compute its reference into a buffer of its own.
+    Operands and [dst] are valid for the call only. *)
