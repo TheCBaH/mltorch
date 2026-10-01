@@ -90,3 +90,40 @@ into scalar lanes when it cannot). Cost: relative per-operation and per-memory-
 access costs, so a profitable plan is chosen without making an unprofitable
 legal one illegal. Portable `wasm128` is described first; an installed native
 target (the host's 128-bit AArch64 NEON) second.
+
+## Measured baselines (S1)
+
+Linux AArch64 (8 cores, NEON/`asimd`, no SVE), Node 20.19.2, gcc 14.2.0, Clang
+19.1.7, one sample per model, warm = median of ten repeats on one instance with
+a dirty workspace. Every Wasm run below was bitwise equal to the per-node
+reference (`--shadow`) where `--shadow` is noted, and the compile was
+`-ffp-contract=off -fno-strict-aliasing`.
+
+| build | mobilenetv2_050 warm ms | fastvit_sa12 warm ms | vector instructions (mobilenetv2_050) | module bytes (mobilenetv2_050) |
+|---|---:|---:|---:|---:|
+| Clang -O2 scalar Wasm (`-fno-vectorize -fno-slp-vectorize -mno-simd128`) | 81.4 | 1089.5 | 0 | 95,476 |
+| Clang -O2 `-msimd128`, vectorizers on (shadow-checked) | 72.0 | 1083.8 | 7,074 | 159,828 |
+| Clang -O3 `-msimd128` | 81.0 | 1081.5 | 11,534 | 204,301 |
+| gcc -O2 native, vectorizers off | 62.7 | 937.9 | | |
+| gcc -O2 native (its default) | 62.4 | 937.1 | | |
+| gcc -O3 native (NEON) | 55.0 | 904.3 | | |
+| gcc -O3 -march=native | 55.1 | 907.8 | | |
+
+Reading it:
+
+- Compiler auto-vectorization is worth 12% (mobilenetv2_050) and under 1%
+  (fastvit_sa12) in Wasm, and 12% / 3.6% natively. Clang's own remarks on the
+  mobilenetv2_050 unit: 305 loops vectorized (almost all at width 4), 240 not.
+  Of the refusals with a stated reason, 76 are unsafe dependent memory
+  operations (it cannot prove two buffers distinct, which this repository can:
+  distinct buffers of one invocation are disjoint by construction) and 42 are
+  floating-point reductions it will not reorder (which strict mode never
+  reorders either, so those stay scalar by design).
+- `-O3` bought nothing over `-O2` in Wasm and doubled the module size.
+- gcc's default `-O2` already equals its explicitly scalar build: the native
+  C baseline in the earlier table is effectively scalar.
+- Whatever strict vectorization can add on top of this must come from the
+  dense kernels (convolution and matrix multiply), which the compiler's
+  loop vectorizer leaves alone, not from the pointwise loops it already
+  handles. That is S6's question; S3-S4 build the shared machinery on the
+  simple loops first.
