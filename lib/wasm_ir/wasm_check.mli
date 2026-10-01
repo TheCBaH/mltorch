@@ -20,6 +20,7 @@ module Reason : sig
         expected : Wasm_type.t;
         actual : Wasm_type.t option;  (** [None]: unreachable code, any type *)
       }
+    | Lane_out_of_range of { lane : int; lanes : int }
     | Select_operands_differ of Wasm_type.t * Wasm_type.t
     | Stack_height_mismatch of { expected : int; actual : int }
     | Stack_underflow

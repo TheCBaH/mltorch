@@ -13,6 +13,7 @@ module Reason = struct
         expected : Wasm_type.t;
         actual : Wasm_type.t option;
       }
+    | Lane_out_of_range of { lane : int; lanes : int }
     | Select_operands_differ of Wasm_type.t * Wasm_type.t
     | Stack_height_mismatch of { expected : int; actual : int }
     | Stack_underflow
@@ -41,6 +42,7 @@ module Reason = struct
         Fmt.pf ppf "expected %a, found %a" Wasm_type.pp expected
           Fmt.(option ~none:(any "unreachable") Wasm_type.pp)
           actual
+    | Lane_out_of_range { lane; lanes } -> Fmt.pf ppf "lane %d of %d" lane lanes
     | Select_operands_differ (a, b) ->
         Fmt.pf ppf "select operands %a and %a differ" Wasm_type.pp a
           Wasm_type.pp b
@@ -246,6 +248,34 @@ let rec instr ctx st (i : Wasm.Instr.t) =
           throw ctx (Reason.Select_operands_differ (y, x))
       | Some x, _ | _, Some x -> push st (Some x)
       | None, None -> push st None)
+  | Wasm.Instr.Simd_lane (op, lane) ->
+      let lanes = Wasm.Simd_lane.lanes op in
+      if lane < 0 || lane >= lanes then
+        throw ctx (Reason.Lane_out_of_range { lane; lanes });
+      let scalar = Wasm.Simd_lane.scalar op in
+      if Wasm.Simd_lane.is_extract op then (
+        pop_expect ctx st Wasm_type.V128;
+        push st (Some scalar))
+      else (
+        pop_expect ctx st scalar;
+        pop_expect ctx st Wasm_type.V128;
+        push st (Some Wasm_type.V128))
+  | Wasm.Instr.Simd_load (l, m) ->
+      check_memarg ctx ~natural:(Wasm.Simd_load.natural_align l) m;
+      pop_expect ctx st Wasm_type.I32;
+      push st (Some Wasm_type.V128)
+  | Wasm.Instr.Simd_store (s, m, lane) ->
+      check_memarg ctx ~natural:(Wasm.Simd_store.natural_align s) m;
+      let lanes = Wasm.Simd_store.lanes s in
+      if lanes > 0 && (lane < 0 || lane >= lanes) then
+        throw ctx (Reason.Lane_out_of_range { lane; lanes });
+      pop_expect ctx st Wasm_type.V128;
+      pop_expect ctx st Wasm_type.I32
+  | Wasm.Instr.V128_const bytes ->
+      if String.length bytes <> 16 then
+        throw ctx
+          (Reason.Lane_out_of_range { lane = String.length bytes; lanes = 16 });
+      push st (Some Wasm_type.V128)
   | Wasm.Instr.Store (s, m) ->
       check_memarg ctx ~natural:(Wasm.Store.natural_align s) m;
       pop_expect ctx st (Wasm.Store.value_type s);

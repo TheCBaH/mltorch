@@ -56,6 +56,18 @@ let rec pp_instr ~depth ppf (i : Wasm.Instr.t) =
   | Wasm.Instr.Numeric op -> line "%s" (Wasm_op.name op)
   | Wasm.Instr.Return -> line "return"
   | Wasm.Instr.Select -> line "select"
+  | Wasm.Instr.Simd_lane (op, lane) ->
+      line "%s %d" (Wasm.Simd_lane.name op) lane
+  | Wasm.Instr.Simd_load (l, m) -> line "%s%a" (Wasm.Simd_load.name l) pp_arg m
+  | Wasm.Instr.Simd_store (s, m, lane) ->
+      if Wasm.Simd_store.lanes s > 0 then
+        line "%s%a %d" (Wasm.Simd_store.name s) pp_arg m lane
+      else line "%s%a" (Wasm.Simd_store.name s) pp_arg m
+  | Wasm.Instr.V128_const bytes ->
+      line "v128.const i8x16 %s"
+        (String.concat " "
+           (List.init (String.length bytes) (fun i ->
+                string_of_int (Char.code bytes.[i]))))
   | Wasm.Instr.Store (s, m) -> line "%s%a" (Wasm.Store.name s) pp_arg m
   | Wasm.Instr.Unreachable -> line "unreachable"
 

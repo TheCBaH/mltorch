@@ -140,9 +140,10 @@ const ref = {
 };
 
 let cases = 0, bad = 0;
-const names = Object.keys(ex).sort();
+const names = Object.keys(ex).filter((n) => typeof ex[n] === "function").sort();
+const SIMD = /^(f64x2|f32x4|i32x4|i64x2|v128)\./;
 const missing = Object.keys(ref).filter((n) => !(n in ex));
-const unknown = names.filter((n) => !(n in ref));
+const unknown = names.filter((n) => !(n in ref) && !SIMD.test(n));
 for (const n of [...missing.map((m) => "missing " + m), ...unknown.map((m) => "unreferenced " + m)]) { console.log(n); bad++; }
 for (const [name, [kinds, f, skip]] of Object.entries(ref)) {
   if (!(name in ex)) continue;
@@ -155,6 +156,105 @@ for (const [name, [kinds, f, skip]] of Object.entries(ref)) {
       if (bad++ < 20) console.log(`MISMATCH ${name}(${args.map(String)}) = ${String(got)}, want ${String(want)}`);
     }
   }
+}
+
+// ---- 128-bit operations: operands and results live in memory --------------
+{
+  const buf = ex.memory.buffer, dv = new DataView(buf);
+  const A = 0, B = 16, C = 32, D = 48;
+  const MASK = 0xFFFFFFFFFFFFFFFFn;
+  const setF64 = (at, l) => { dv.setFloat64(at, l[0], true); dv.setFloat64(at + 8, l[1], true); };
+  const getF64 = (at) => [dv.getFloat64(at, true), dv.getFloat64(at + 8, true)];
+  const setU64 = (at, l) => { dv.setBigUint64(at, BigInt.asUintN(64, l[0]), true); dv.setBigUint64(at + 8, BigInt.asUintN(64, l[1]), true); };
+  const getU64 = (at) => [dv.getBigUint64(at, true), dv.getBigUint64(at + 8, true)];
+  const setI32 = (at, l) => l.forEach((x, k) => dv.setInt32(at + 4 * k, x, true));
+  const getI32 = (at) => [0, 1, 2, 3].map((k) => dv.getInt32(at + 4 * k, true));
+  const setF32 = (at, l) => l.forEach((x, k) => dv.setFloat32(at + 4 * k, x, true));
+  const getF32 = (at) => [0, 1, 2, 3].map((k) => dv.getFloat32(at + 4 * k, true));
+  const same = (x, y) => x.length === y.length && x.every((v, k) => Object.is(v, y[k]));
+  const sat = (x, lo, hi) => (Number.isNaN(x) ? 0 : Math.min(Math.max(Math.trunc(x), lo), hi) + 0);
+  const pairs = f64s.flatMap((a) => f64s.map((c) => [a, c]));
+  const check = (name, args, got, want) => {
+    cases++;
+    const ok = got.length === want.length && got.every((v, k) => Object.is(v, want[k]));
+    if (!ok && bad++ < 20) console.log(`MISMATCH ${name}(${args.map(String)}) = ${got.map(String)}, want ${want.map(String)}`);
+  };
+  const lane2 = (f) => (x) => [f(x[0]), f(x[1])];
+  const fbin = { add: (a, c) => a + c, sub: (a, c) => a - c, mul: (a, c) => a * c, div: (a, c) => a / c, min: Math.min, max: Math.max };
+  for (const [op, f] of Object.entries(fbin))
+    for (const [x, y] of pairs.map((p, k) => [p, pairs[(k * 7 + 3) % pairs.length]])) {
+      setF64(A, x); setF64(B, y); ex["f64x2." + op](A, B, D);
+      check("f64x2." + op, [x, y], getF64(D), [f(x[0], y[0]), f(x[1], y[1])]);
+    }
+  const fun = { abs: Math.abs, neg: (a) => -a, sqrt: Math.sqrt, ceil: Math.ceil, floor: Math.floor, trunc: Math.trunc, nearest };
+  for (const [op, f] of Object.entries(fun))
+    for (const x of pairs) { setF64(A, x); ex["f64x2." + op](A, D); check("f64x2." + op, [x], getF64(D), lane2(f)(x)); }
+  const fcmp = { eq: (a, c) => a === c, ne: (a, c) => a !== c, lt: (a, c) => a < c, gt: (a, c) => a > c, le: (a, c) => a <= c, ge: (a, c) => a >= c };
+  for (const [op, f] of Object.entries(fcmp))
+    for (const [x, y] of pairs.map((p, k) => [p, pairs[(k * 5 + 1) % pairs.length]])) {
+      setF64(A, x); setF64(B, y); ex["f64x2." + op](A, B, D);
+      check("f64x2." + op, [x, y], getU64(D), [f(x[0], y[0]) ? MASK : 0n, f(x[1], y[1]) ? MASK : 0n]);
+    }
+  for (const x of pairs) {
+    setF64(A, x); ex["f32x4.demote_f64x2_zero"](A, D);
+    check("f32x4.demote_f64x2_zero", [x], getF32(D), [Math.fround(x[0]), Math.fround(x[1]), 0, 0]);
+    ex["i32x4.trunc_sat_f64x2_s_zero"](A, D);
+    check("i32x4.trunc_sat_f64x2_s_zero", [x], getI32(D), [sat(x[0], -2147483648, 2147483647), sat(x[1], -2147483648, 2147483647), 0, 0]);
+    ex["i32x4.trunc_sat_f64x2_u_zero"](A, D);
+    check("i32x4.trunc_sat_f64x2_u_zero", [x], getI32(D), [sat(x[0], 0, 4294967295) | 0, sat(x[1], 0, 4294967295) | 0, 0, 0]);
+  }
+  for (let k = 0; k + 3 < f32s.length; k++) {
+    const q = [f32s[k], f32s[k + 1], f32s[k + 2], f32s[k + 3]];
+    setF32(A, q); ex["f64x2.promote_low_f32x4"](A, D);
+    check("f64x2.promote_low_f32x4", [q], getF64(D), [q[0], q[1]]);
+  }
+  for (let k = 0; k + 3 < i32s.length; k++) {
+    const q = [i32s[k], i32s[k + 1], i32s[k + 2], i32s[k + 3]];
+    setI32(A, q);
+    ex["f64x2.convert_low_i32x4_s"](A, D); check("f64x2.convert_low_i32x4_s", [q], getF64(D), [q[0], q[1]]);
+    ex["f64x2.convert_low_i32x4_u"](A, D); check("f64x2.convert_low_i32x4_u", [q], getF64(D), [q[0] >>> 0, q[1] >>> 0]);
+  }
+  for (const x of f64s) { ex["f64x2.splat"](x, D); check("f64x2.splat", [x], getF64(D), [x, x]); }
+  for (const x of f32s) { ex["f32x4.splat"](x, D); check("f32x4.splat", [x], getF32(D), [x, x, x, x]); }
+  for (const x of i32s) { ex["i32x4.splat"](x, D); check("i32x4.splat", [x], getI32(D), [x, x, x, x]); }
+  for (const x of i64s) { ex["i64x2.splat"](x, D); check("i64x2.splat", [x], getU64(D), [BigInt.asUintN(64, x), BigInt.asUintN(64, x)]); }
+  const words = i64s.map((x) => BigInt.asUintN(64, x));
+  const vecs = words.flatMap((a) => words.map((c) => [a, c]));
+  const vb = { and: (a, c) => a & c, andnot: (a, c) => a & ~c & MASK, or: (a, c) => a | c, xor: (a, c) => a ^ c };
+  for (const [op, f] of Object.entries(vb))
+    for (const [x, y] of vecs.map((p, k) => [p, vecs[(k * 11 + 2) % vecs.length]])) {
+      setU64(A, x); setU64(B, y); ex["v128." + op](A, B, D);
+      check("v128." + op, [x, y], getU64(D), [f(x[0], y[0]), f(x[1], y[1])]);
+    }
+  for (const x of vecs) {
+    setU64(A, x); ex["v128.not"](A, D); check("v128.not", [x], getU64(D), [~x[0] & MASK, ~x[1] & MASK]);
+    check("v128.any_true", [x], [ex["v128.any_true"](A)], [b(x[0] !== 0n || x[1] !== 0n)]);
+  }
+  for (let k = 0; k < vecs.length; k++) {
+    const x = vecs[k], y = vecs[(k * 3 + 1) % vecs.length], m = vecs[(k * 5 + 2) % vecs.length];
+    setU64(A, x); setU64(B, y); setU64(C, m); ex["v128.bitselect"](A, B, C, D);
+    check("v128.bitselect", [x, y, m], getU64(D), [(x[0] & m[0]) | (y[0] & ~m[0] & MASK), (x[1] & m[1]) | (y[1] & ~m[1] & MASK)]);
+  }
+  const ibin = { add: (a, c) => a + c, sub: (a, c) => a - c, mul: (a, c) => a * c };
+  const sgn = (x) => BigInt.asIntN(64, x);
+  for (const [op, f] of Object.entries(ibin))
+    for (const [x, y] of vecs.map((p, k) => [p, vecs[(k * 7 + 4) % vecs.length]])) {
+      setU64(A, x); setU64(B, y); ex["i64x2." + op](A, B, D);
+      check("i64x2." + op, [x, y], getU64(D), [BigInt.asUintN(64, f(x[0], y[0])), BigInt.asUintN(64, f(x[1], y[1]))]);
+    }
+  const icmp = { eq: (a, c) => a === c, ne: (a, c) => a !== c, lt_s: (a, c) => sgn(a) < sgn(c), gt_s: (a, c) => sgn(a) > sgn(c), le_s: (a, c) => sgn(a) <= sgn(c), ge_s: (a, c) => sgn(a) >= sgn(c) };
+  for (const [op, f] of Object.entries(icmp))
+    for (const [x, y] of vecs.map((p, k) => [p, vecs[(k * 9 + 5) % vecs.length]])) {
+      setU64(A, x); setU64(B, y); ex["i64x2." + op](A, B, D);
+      check("i64x2." + op, [x, y], getU64(D), [f(x[0], y[0]) ? MASK : 0n, f(x[1], y[1]) ? MASK : 0n]);
+    }
+  const sh = { shl: (a, n) => a << n, shr_s: (a, n) => sgn(a) >> n, shr_u: (a, n) => a >> n };
+  for (const [op, f] of Object.entries(sh))
+    for (const x of vecs) for (const n of [0, 1, 7, 31, 32, 63, 64, 65, 200]) {
+      setU64(A, x); ex["i64x2." + op](A, n, D);
+      const k = BigInt(n & 63);
+      check("i64x2." + op, [x, n], getU64(D), [BigInt.asUintN(64, f(x[0], k)), BigInt.asUintN(64, f(x[1], k))]);
+    }
 }
 console.log(`${names.length} ops, ${bad} failures`);
 process.exit(bad ? 1 : 0);
