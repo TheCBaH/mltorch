@@ -191,3 +191,18 @@ them (`Loop_target.inner_loops`). The strict nested Wasm route is 41% faster tha
 the compiler-vectorized C compiled to Wasm and 1.6x faster than the native
 scalar C on mobilenetv2_050; first run (cold, includes V8 tier-up) falls from
 235 ms to 118-150 ms.
+
+## Deployment and ISA matrix
+
+- Verified: Wasm SIMD (`f64x2`, standard simd128 only) on Node 20.19.2 and
+  headless Chromium; the in-process host picks scalar or SIMD by validating
+  `Wasm_features.probe`, never from a version number. All seven CI models are
+  bitwise equal to the per-node reference (`make wasm.simd.pt2.runtest`).
+- Native C vectors use GCC generic vectors, verified on AArch64 NEON only
+  (-O0, -O3 and ASan+UBSan via `make c.runtest.all`). There is no runtime CPU
+  dispatch: the vector code is compiled for the build host, so a scalar-only
+  CPU needs a scalar build.
+- Packing of weights (blocking) is not implemented: the measured nested gather
+  already wins (52.0 vs 88.2 ms), so the scratch, prep and cache-identity costs
+  are not paid. Revisit only if a model shows gather-bound loops.
+- Relaxed SIMD, FMA and F32 arithmetic stay out of scope (strict only).

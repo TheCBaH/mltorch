@@ -19,7 +19,7 @@
 	arena.eval arena.eval.report arena.schedule.eval arena.schedule.eval.report pt2.json-model-support pt2.runtest pt2.vars runtest spike.runtest \
 	spike.setup tailcall.js-benchmark tailcall.runtest test \
 	verify.pristine visualizer.build visualizer.patch \
-	visualizer.submodule wasm.browser.runtest wasm.c.pt2.run wasm.c.pt2.runtest wasm.jsoo.pt2.runtest wasm.jsoo.runtest wasm.pt2.bench wasm.pt2.exe wasm.pt2.run wasm.pt2.runtest wasm.runtest wasm.toolchain webapp.bridge-runtest webapp.browser-runtest \
+	visualizer.submodule wasm.browser.runtest wasm.c.pt2.run wasm.c.pt2.runtest wasm.jsoo.pt2.runtest wasm.jsoo.runtest wasm.pt2.bench wasm.pt2.exe wasm.pt2.run wasm.pt2.runtest wasm.simd.pt2.runtest wasm.runtest wasm.toolchain webapp.bridge-runtest webapp.browser-runtest \
 	webapp.build webapp.npm-install webapp.runtest webapp.serve
 all: build
 
@@ -1002,6 +1002,12 @@ wasm.pt2.runtest: wasm.pt2.exe
 	for m in $(PT2_MODELS_CRAM) csatv2; do \
 	  $(MAKE) pt2.download PT2_MODEL=$$m && \
 	  (cd $(PT2_DIR)/$$m && echo "== $$m" && $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --strict --shadow --poison --samples=1) || exit 1; \
+	done
+
+wasm.simd.pt2.runtest: wasm.pt2.exe
+	for m in $(PT2_MODELS_CRAM) csatv2; do \
+	  $(MAKE) pt2.download PT2_MODEL=$$m && \
+	  (cd $(PT2_DIR)/$$m && echo "== $$m (simd)" && $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --simd --strict --shadow --poison --samples=1) || exit 1; \
 	done
 
 wasm.pt2.run: wasm.pt2.exe

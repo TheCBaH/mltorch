@@ -108,8 +108,8 @@ let scalar_cost = function
    lane pays on top of its scalar operation. *)
 let expansion_overhead = 1.
 
-let make ?(inner_loops = true) ~name ~vector_bits ~lanes ~native ~native_cost
-    () =
+let make ?(inner_loops = true) ~name ~vector_bits ~lanes ~native ~native_cost ()
+    =
   let support op = if native op then Native else Expanded in
   let cost op =
     match support op with
@@ -143,12 +143,14 @@ let native = function
 let wasm128 =
   let vector_bits = 128 and lanes = 4 in
   make ~name:"wasm128" ~vector_bits ~lanes ~native
-    ~native_cost:(native_cost ~vector_bits ~lanes) ()
+    ~native_cost:(native_cost ~vector_bits ~lanes)
+    ()
 
 let neon128 =
   let vector_bits = 128 and lanes = 4 in
   make ~inner_loops:false ~name:"neon128" ~vector_bits ~lanes ~native
-    ~native_cost:(native_cost ~vector_bits ~lanes) ()
+    ~native_cost:(native_cost ~vector_bits ~lanes)
+    ()
 
 let scalar =
   {
