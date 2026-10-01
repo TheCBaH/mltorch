@@ -1,0 +1,36 @@
+; Tests for lib/wasm_ir: LEB128, the encoder's bytes, the validator's refusals.
+; (modes best js): the same expect blocks run under js_of_ocaml via node, so a
+; module's bytes are asserted identical natively and under a 32-bit [int].
+
+(library
+ (name wasm_ir_test)
+ (modules wasm_ir_test)
+ (libraries err_trace fmt wasm_ir)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))
+
+; Execution check of the op table: one exported function per [Wasm_op.t], run
+; under node against a JavaScript reference over a cross product of edge
+; values. This is what catches a wrong opcode byte whose signature happens to
+; match its neighbour's, which neither the validator nor a golden can. Node
+; missing is a failure, never a skip.
+
+(executable
+ (name wasm_ops_gen)
+ (modules wasm_ops_gen)
+ (libraries wasm_ir err_trace))
+
+(cram
+ (applies_to ops)
+ (deps wasm_ops_gen.exe ops.js))
+
+(executable
+ (name wasm_fixture_gen)
+ (modules wasm_fixture_gen)
+ (libraries wasm_ir err_trace fmt))
+
+(cram
+ (applies_to fixture)
+ (deps wasm_fixture_gen.exe fixture.js))
