@@ -68,6 +68,65 @@ let run_pipeline ?(show = true) g passes =
               (Rewrite.graph final);
           Format.printf "@[<v 2>map:@,%a@]@." Graph_map.pp map)
 
+(* ---- per_node_with: prepare runs once per sweep, never stale -------------- *)
+
+(* Same condition [trim_identity_at_input] uses to remove one link per sweep
+   (only a permute reading directly off a graph input, i.e. with no
+   producer) — needed here too, so a 3-link chain takes three sweeps under
+   [Pass.fixpoint] and [prepare]'s freshness can be observed sweep over
+   sweep rather than collapsing into one. *)
+let reads_graph_input view x = Option.is_none (Graph_view.def view x)
+
+(* [prepare] returns the CURRENT node count, read off the view it is handed —
+   not a counter closed over from outside — so a stale value here would mean
+   an old sweep's count leaking into a new one, not just an off-by-one. *)
+let prepare_log = ref []
+
+let trim_identity_at_input_with =
+  Pass.per_node_with ~name:"trim_identity_at_input_with"
+    ~prepare:(fun { Pass.view; _ } ->
+      let count = List.length (Graph_ir.nodes (Graph_view.graph view)) in
+      prepare_log := count :: !prepare_log;
+      count)
+    {
+      Pass.Per_node_with.on_node =
+        (fun _prepared { Pass.view; _ } (n : node) ->
+          match (n.Node.op, n.Node.outputs) with
+          | Permute { perm; x }, [ out ]
+            when is_identity_perm perm && reads_graph_input view x ->
+              Some
+                (let open Recipe in
+                 let* out = existing out in
+                 let* x = existing x in
+                 trim ~remove:[ n.Node.id ] ~tie:[ (out, x) ])
+          | _ -> None);
+    }
+
+let%expect_test
+    "per_node_with: prepare runs once per sweep, refreshed each time" =
+  prepare_log := [];
+  let g = Graph_fixtures.permute_identity_chain () in
+  run_pipeline ~show:false g [ Pass.fixpoint trim_identity_at_input_with ];
+  (* One entry per sweep — not per node, and not per match — in the order
+     sweeps ran: the fourth (converged, no match) sweep still calls
+     [prepare] once, since [collect] always runs before a sweep can tell it
+     found nothing. Strictly decreasing: each sweep's count is fresh, never
+     the first sweep's stale node count repeated. *)
+  Format.printf "prepare calls (node count per sweep): %s@."
+    (String.concat ", " (List.map string_of_int (List.rev !prepare_log)));
+  [%expect
+    {|
+      map:
+        values:
+          {t0, t1, t2, t3} -> {t0} identical
+        nodes:
+          {n0} -> {}
+          {n1} -> {}
+          {n2} -> {}
+        provenance:
+          none
+      prepare calls (node count per sweep): 4, 3, 2, 1 |}]
+
 (* ---- sweeps -------------------------------------------------------------- *)
 
 let%expect_test "one sweep merges every match into a single step" =

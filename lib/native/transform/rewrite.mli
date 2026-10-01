@@ -65,6 +65,12 @@ module Make (S : Side.S) : sig
 
   val allocator : 'v t -> 'v allocator
 
+  (* Read-only diagnostic: the next-free and origin watermarks in each id
+     space. For comparison artifacts and benchmarking only — an allocator
+     stays otherwise opaque, so this prints [Id_supply.pp] rather than
+     exposing the supply itself. *)
+  val pp_allocator : Format.formatter -> 'v allocator -> unit
+
   val plan :
     'v t ->
     'v allocator ->
@@ -78,6 +84,15 @@ module Make (S : Side.S) : sig
      outright; an allocation-free recipe has equal start and end and merges
      freely. Regions must also be disjoint. *)
   val merge : 'v recipe -> 'v recipe -> ('v recipe, error) Err.t
+
+  (* Bulk form of [merge]: the same contiguity/disjointness checks and the
+     same resulting order as folding [merge] left to right over the list, but
+     without the O(k) recomputation (a full removed-node union, a full list
+     copy) that folding pairwise repeats on every one of a sweep's k already-
+     planned recipes. Requires a NONEMPTY list — raises [Invalid_argument]
+     otherwise, since every caller (the sweep driver) already special-cases
+     zero recipes before merging.. *)
+  val merge_all : 'v recipe list -> ('v recipe, error) Err.t
   val pp_recipe : Format.formatter -> 'v recipe -> unit
 
   type 'v step = Step : 'w t * ('v, 'w) Graph_map.t -> 'v step

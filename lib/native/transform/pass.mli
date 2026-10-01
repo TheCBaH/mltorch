@@ -300,6 +300,28 @@ module Make (S : Side.S) : sig
 
   val per_node : name:string -> per_node -> t
 
+  (* [per_node]'s rank-2 callback cannot close over anything computed inside
+     the sweep it is offered to — the version the callback runs at comes from
+     the state the driver holds, which [per_node]'s own callback never sees
+     until it is called per node. [prepare env] computes a VERSION-INDEPENDENT
+     value once per sweep instead (e.g. a plain [Tensor_id.Set.t]: raw ids
+     carry no version), and [on_node] receives it alongside the node. Nothing
+     is cached ACROSS sweeps — [prepare] reruns every [collect], so a later
+     sweep never sees stale data from an earlier one. Routed through the same
+     private [of_sweep] as [per_node]/[of_pattern], so verification, trace,
+     allocation and audit behavior stay centralized. *)
+  module Per_node_with : sig
+    (* Its own module: [on_node] would otherwise collide with [per_node]'s
+       field of the same name, and the two callbacks are genuinely shaped
+       differently rather than one being a renaming of the other. *)
+    type 'a t = {
+      on_node : 'v. 'a -> env -> node -> ('v, unit) Recipe.Make(S).t option;
+    }
+  end
+
+  val per_node_with :
+    name:string -> prepare:(env -> 'a) -> 'a Per_node_with.t -> t
+
   type 'a builder = {
     build : 'v. 'a -> Region.Make(S.Dialect).t -> ('v, unit) Recipe.Make(S).t;
   }

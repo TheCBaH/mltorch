@@ -669,3 +669,174 @@ let%expect_test "guard: merging recipes from a branched allocator is rejected" =
           | Ok _ -> Format.printf "accepted@.")
       | Error e, _ | _, Error e -> fail_with e));
   [%expect {| recipes were planned from a branched allocator |}]
+
+(* ---- merge_all: bulk merge agrees with folding [merge] pairwise ----------- *)
+
+let relu_over ~node ~operand ~onto =
+  Recipe.(
+    let* out = fresh (shape ~h:2 ~w:3 ~c:4) in
+    let* onto = existing onto in
+    replace ~remove:[ node ]
+      ~insert:
+        [
+          {
+            op = Relu { x = operand };
+            outputs = [ Fresh out ];
+            from = [ node ];
+          };
+        ]
+      ~subst:[ (New out, Old onto) ]
+      ())
+
+let show_recipe_result label = function
+  | Error e ->
+      Format.printf "%s: %a@." label Rewrite.pp_error (Err.Error.kind e)
+  | Ok r -> Format.printf "%s: %a@." label Rewrite.pp_recipe r
+
+let%expect_test
+    "merge_all: three contiguous, non-overlapping recipes agree with folding \
+     merge pairwise" =
+  (match Rewrite.origin (Graph_fixtures.permute_sequence ()) with
+  | Error e -> fail_with e
+  | Ok (Rewrite.Origin state) -> (
+      let alloc = Rewrite.allocator state in
+      match
+        Rewrite.plan state alloc
+          (relu_over ~node:(n_ 2) ~operand:(t_ 2) ~onto:(t_ 3))
+      with
+      | Error e -> fail_with e
+      | Ok (a, alloc) -> (
+          match
+            Rewrite.plan state alloc
+              (relu_over ~node:(n_ 1) ~operand:(t_ 1) ~onto:(t_ 2))
+          with
+          | Error e -> fail_with e
+          | Ok (b, alloc) -> (
+              match
+                Rewrite.plan state alloc
+                  (relu_over ~node:(n_ 0) ~operand:(t_ 0) ~onto:(t_ 1))
+              with
+              | Error e -> fail_with e
+              | Ok (c, _) ->
+                  let folded =
+                    let open Err.Syntax in
+                    let* ab = Rewrite.merge a b in
+                    Rewrite.merge ab c
+                  in
+                  show_recipe_result "folded pairwise" folded;
+                  show_recipe_result "merge_all" (Rewrite.merge_all [ a; b; c ])
+              ))));
+  [%expect
+    {|
+    folded pairwise: remove: [n2]
+                     insert:
+                       +0: [t4] = relu x=t2 from=[n2]
+                     subst:
+                       t4 := t3
+                     claims:
+                       t3 -> t3 identical
+                     remove: [n1]
+                     insert:
+                       +0: [t5] = relu x=t1 from=[n1]
+                     subst:
+                       t5 := t2
+                     claims:
+                       t2 -> t2 identical
+                     remove: [n0]
+                     insert:
+                       +0: [t6] = relu x=t0 from=[n0]
+                     subst:
+                       t6 := t1
+                     claims:
+                       t1 -> t1 identical
+    merge_all: remove: [n2]
+               insert:
+                 +0: [t4] = relu x=t2 from=[n2]
+               subst:
+                 t4 := t3
+               claims:
+                 t3 -> t3 identical
+               remove: [n1]
+               insert:
+                 +0: [t5] = relu x=t1 from=[n1]
+               subst:
+                 t5 := t2
+               claims:
+                 t2 -> t2 identical
+               remove: [n0]
+               insert:
+                 +0: [t6] = relu x=t0 from=[n0]
+               subst:
+                 t6 := t1
+               claims:
+                 t1 -> t1 identical |}]
+
+let%expect_test "merge_all: a singleton list is the recipe unchanged" =
+  (match Rewrite.origin (Graph_fixtures.permute_sequence ()) with
+  | Error e -> fail_with e
+  | Ok (Rewrite.Origin state) -> (
+      match
+        Rewrite.plan state (Rewrite.allocator state)
+          (relu_over ~node:(n_ 2) ~operand:(t_ 2) ~onto:(t_ 3))
+      with
+      | Error e -> fail_with e
+      | Ok (a, _) ->
+          show_recipe_result "single" (Ok a);
+          show_recipe_result "merge_all [single]" (Rewrite.merge_all [ a ])));
+  [%expect
+    {|
+    single: remove: [n2]
+            insert:
+              +0: [t4] = relu x=t2 from=[n2]
+            subst:
+              t4 := t3
+            claims:
+              t3 -> t3 identical
+    merge_all [single]: remove: [n2]
+                        insert:
+                          +0: [t4] = relu x=t2 from=[n2]
+                        subst:
+                          t4 := t3
+                        claims:
+                          t3 -> t3 identical |}]
+
+let%expect_test "merge_all: discontiguous allocation is rejected, same as merge"
+    =
+  (match Rewrite.origin (Graph_fixtures.permute_sequence ()) with
+  | Error e -> fail_with e
+  | Ok (Rewrite.Origin state) -> (
+      let alloc = Rewrite.allocator state in
+      let plan builder = Rewrite.plan state alloc builder in
+      match
+        ( plan (relu_over ~node:(n_ 2) ~operand:(t_ 2) ~onto:(t_ 3)),
+          plan (relu_over ~node:(n_ 1) ~operand:(t_ 1) ~onto:(t_ 2)) )
+      with
+      | Ok (a, _), Ok (b, _) ->
+          show_recipe_result "merge_all" (Rewrite.merge_all [ a; b ])
+      | Error e, _ | _, Error e -> fail_with e));
+  [%expect {| merge_all: recipes were planned from a branched allocator |}]
+
+let%expect_test
+    "merge_all: two recipes claiming the same node overlap, same as merge" =
+  (match Rewrite.origin (Graph_fixtures.permute_sequence ()) with
+  | Error e -> fail_with e
+  | Ok (Rewrite.Origin state) -> (
+      let alloc = Rewrite.allocator state in
+      match
+        Rewrite.plan state alloc
+          (relu_over ~node:(n_ 2) ~operand:(t_ 2) ~onto:(t_ 3))
+      with
+      | Error e -> fail_with e
+      | Ok (a, alloc) -> (
+          match
+            Rewrite.plan state alloc
+              (relu_over ~node:(n_ 2) ~operand:(t_ 2) ~onto:(t_ 3))
+          with
+          | Error e -> fail_with e
+          | Ok (b, _) ->
+              show_recipe_result "merge" (Rewrite.merge a b);
+              show_recipe_result "merge_all" (Rewrite.merge_all [ a; b ]))));
+  [%expect
+    {|
+    merge: two replacements both claim node n2
+    merge_all: two replacements both claim node n2 |}]

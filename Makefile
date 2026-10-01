@@ -1,4 +1,5 @@
-.PHONY: benchmark.region_compute benchmark.region_pixel build check \
+.PHONY: benchmark.canonical benchmark.canonical.corpus \
+	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
 	expr_probe.deep-runtest expr_probe.runtest format inference inference-runa \
@@ -163,6 +164,27 @@ pt2.json-model-support:
 arena.eval:
 	ARENA_EVAL_MODELS=$(abspath $(PT2_JSON_MODELS_DIR)) \
 		opam exec -- dune runtest test/arena_eval_corpus_cram.t
+
+# The canonical-transform performance benchmark. Default subset is the
+# three iteration models used for analysis; BENCHMARK_CANONICAL_MODELS
+# empty selects the full 100-model corpus. Never a golden: see
+# bin/native_transform_bench.ml's own doc comment.
+BENCHMARK_CANONICAL_DIR ?= _build/native-transform-bench
+BENCHMARK_CANONICAL_MODELS ?= ghostnetv3_050,mixnet_xl,convit_tiny
+BENCHMARK_CANONICAL_ARGS ?= --warmup 1 --repeats 5
+benchmark.canonical:
+	@mkdir -p $(BENCHMARK_CANONICAL_DIR)
+	opam exec -- dune exec bin/native_transform_bench.exe -- \
+		--models-dir $(PT2_JSON_MODELS_DIR) --expected-models 100 \
+		$(if $(BENCHMARK_CANONICAL_MODELS),--models $(BENCHMARK_CANONICAL_MODELS),) \
+		$(BENCHMARK_CANONICAL_ARGS) \
+		--output $(BENCHMARK_CANONICAL_DIR)/samples.jsonl \
+		--artifacts $(BENCHMARK_CANONICAL_DIR)/artifacts \
+		--dune-profile dev
+
+# The full 100-model corpus, for the baseline-vs-final comparison.
+benchmark.canonical.corpus: BENCHMARK_CANONICAL_MODELS :=
+benchmark.canonical.corpus: benchmark.canonical
 
 ARENA_EVAL_DIR ?= _build/arena-eval
 ARENA_EVAL_ARGS ?= --iterations 0,10,25,50,100,200,400,800 --seeds 1,2 \

@@ -8,6 +8,21 @@
    is outside the four-axis dialect entirely. Leaving the definition of
    "canonical" in a CLI would have meant two callers agreeing by coincidence. *)
 
+(* The ordered stages [canonical_with_trace] composes into one [Pass.sequence]:
+   reshape_to_permute, relayout (an outer fixpoint of nine inner fixpoints),
+   prune, the first fold_const fixpoint, fold_batch_norm, the second fold_const
+   fixpoint. Exposed so a benchmark or test can run and time each stage
+   separately (chaining the state through [Pass.run_all], one stage at a time)
+   while still agreeing with [canonical]/[canonical_with_trace]'s own
+   single-composite execution — [canonical_with_trace] is built FROM this list,
+   so there is one authoritative pass-order definition, not two that could
+   drift apart. Separately executing a stage is not guaranteed to reproduce
+   [canonical_with_trace]'s own overhead exactly (verification/trace scope
+   differ per call); compare outputs and maps against [canonical_with_trace]
+   itself before trusting a staged measurement. *)
+val canonical_stages :
+  on_materialized_fold:(Fold_const.Trace.event -> unit) -> Pass.t list
+
 (* [fold] no longer controls any pass. Const-SSA folding is part of the one
    canonical graph, whether captures have materialized payloads or not.
 

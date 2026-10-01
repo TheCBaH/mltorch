@@ -1,0 +1,9 @@
+; Timing and comparison-artifact support for the canonical-transform
+; performance work. Split
+; out of bin/ so test/native can exercise the comparison artifact directly
+; rather than only through the CLI.
+
+(library
+ (name native_transform_bench)
+ (wrapped false)
+ (libraries core err_trace fmt jsont jsont.bytesrw native native_graph))

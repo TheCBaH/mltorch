@@ -98,3 +98,55 @@ let%expect_test
   in
   Format.printf "same graph: %b@." (String.equal (printed false) (printed true));
   [%expect {| same graph: true |}]
+
+(* [canonical_stages]
+   exists so a benchmark can time each stage separately by chaining
+   [Pass.run_all] over them one at a time, rather than running the single
+   composite [canonical_with_trace] builds from that same list. Running them
+   separately is not guaranteed to reproduce identical behavior — a
+   [Pass.sequence] is not merely "run these in order" as far as verification
+   or trace scope is concerned — so this pins that, for this fixture, staged
+   execution agrees with the composite on both the resulting graph and the
+   composed correspondence/node map. *)
+let staged g =
+  let open Err.Syntax in
+  let* (Rewrite.Origin origin) =
+    (Rewrite.origin g :> (Rewrite.origin, Pass.error) Err.t)
+  in
+  let stages = Pipeline.canonical_stages ~on_materialized_fold:(fun _ -> ()) in
+  let+ (Rewrite.Step (final, map)) =
+    Err.List.fold_left
+      (fun (Rewrite.Step (state, map)) stage ->
+        let+ (Rewrite.Step (next, step_map)) = Pass.run_all state [ stage ] in
+        Rewrite.Step (next, Graph_map.compose map step_map))
+      (Rewrite.Step (origin, Graph_map.identity))
+      stages
+  in
+  (* [map]'s destination version is existentially bound by unpacking [Step]
+     above; printing it now, rather than returning it, keeps that type from
+     escaping this function's scope. *)
+  ( Fmt.to_to_string Graph_ir.pp (Rewrite.graph final),
+    Fmt.to_to_string Graph_map.pp map )
+
+let composite g =
+  let open Err.Syntax in
+  let* (Rewrite.Origin origin) =
+    (Rewrite.origin g :> (Rewrite.origin, Pass.error) Err.t)
+  in
+  let+ (Rewrite.Step (final, map)) =
+    Pass.run_all origin [ Pipeline.canonical ~fold:false ]
+  in
+  ( Fmt.to_to_string Graph_ir.pp (Rewrite.graph final),
+    Fmt.to_to_string Graph_map.pp map )
+
+let%expect_test "pipeline: staged execution agrees with the single composite" =
+  let g = mixed () in
+  match (staged g, composite g) with
+  | Error e, _ | _, Error e ->
+      Format.printf "failed: %a@." Pass.pp_error (Err.Error.kind e)
+  | Ok (staged_g, staged_map), Ok (composite_g, composite_map) ->
+      Format.printf "same graph: %b@." (String.equal staged_g composite_g);
+      Format.printf "same map: %b@." (String.equal staged_map composite_map);
+      [%expect {|
+    same graph: true
+    same map: true |}]

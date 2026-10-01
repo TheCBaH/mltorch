@@ -13,6 +13,7 @@
   native
   native_graph
   native_op_walk
+  native_transform_bench
   walk_core)
  ; See test/native4d/dune for why [js] carries no `enabled_if`.
  (inline_tests

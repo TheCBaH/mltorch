@@ -59,16 +59,18 @@ let prune =
    [fold] remains temporarily for caller compatibility. It is deliberately
    ignored; callers that need bytes must materialize the returned constant store
    explicitly. *)
+let canonical_stages ~on_materialized_fold =
+  [
+    Reshape_to_permute.pass;
+    relayout;
+    prune;
+    Pass.fixpoint (Fold_const.pass_with_trace on_materialized_fold);
+    Fold_batch_norm.pass;
+    Pass.fixpoint (Fold_const.pass_with_trace on_materialized_fold);
+  ]
+
 let canonical_with_trace ~on_materialized_fold ~fold:_ =
-  Pass.sequence ~name:"canonical"
-    [
-      Reshape_to_permute.pass;
-      relayout;
-      prune;
-      Pass.fixpoint (Fold_const.pass_with_trace on_materialized_fold);
-      Fold_batch_norm.pass;
-      Pass.fixpoint (Fold_const.pass_with_trace on_materialized_fold);
-    ]
+  Pass.sequence ~name:"canonical" (canonical_stages ~on_materialized_fold)
 
 let canonical ~fold =
   canonical_with_trace ~on_materialized_fold:(fun _ -> ()) ~fold

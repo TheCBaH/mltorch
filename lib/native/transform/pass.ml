@@ -556,6 +556,17 @@ module Make (S : Side.S) = struct
   }
 
   type per_node = { on_node : 'v. env -> node -> ('v, unit) Rcp.t option }
+
+  (* Its own module, per the project's record-type convention: [on_node]
+     would otherwise collide with [per_node]'s field of the same name in this
+     scope, which is exactly the duplicate-label trap the convention exists
+     to avoid — the two are shaped differently ([per_node_with]'s callback
+     also takes the prepared value) and neither should have to rename its
+     field to make room for the other. *)
+  module Per_node_with = struct
+    type 'a t = { on_node : 'v. 'a -> env -> node -> ('v, unit) Rcp.t option }
+  end
+
   type 'a builder = { build : 'v. 'a -> Rgn.t -> ('v, unit) Rcp.t }
 
   (* The driver's own rank-2 hook: [of_sweep] runs [collect] at the version of the
@@ -580,14 +591,12 @@ module Make (S : Side.S) = struct
     in
     match List.rev planned with
     | [] -> Err.return None
-    | first :: rest ->
-        let* merged =
-          List.fold_left
-            (fun acc recipe ->
-              let* acc = acc in
-              lift (Rw.merge acc recipe))
-            (Err.return first) rest
-        in
+    | recipes ->
+        (* [Rw.merge_all] over [merge] folded pairwise: same checks, same
+           resulting order, without recomputing the accumulated removed-node
+           set and re-copying the accumulated replacement list on every one
+           of a sweep's k recipes. [recipes] is nonempty by the match above. *)
+        let* merged = lift (Rw.merge_all recipes) in
         let+ step = lift (Rw.apply state merged) in
         Some step
 
@@ -702,6 +711,16 @@ module Make (S : Side.S) = struct
         collect =
           (fun env ->
             List.filter_map (on_node env)
+              (Graph_common.nodes (View.graph env.view)));
+      }
+
+  let per_node_with ~name ~prepare { Per_node_with.on_node } =
+    of_sweep ~name
+      {
+        collect =
+          (fun env ->
+            let prepared = prepare env in
+            List.filter_map (on_node prepared env)
               (Graph_common.nodes (View.graph env.view)));
       }
 

@@ -106,6 +106,7 @@ module Make (S : Side.S) = struct
   let snapshot t = t.snapshot
   let view t = Snap.view t.snapshot
   let allocator t = Allocator t.ids
+  let pp_allocator fmt (Allocator ids) = Id_supply.pp fmt ids
 
   let fold_result f init l =
     List.fold_left
@@ -173,16 +174,20 @@ module Make (S : Side.S) = struct
     in
     Err.return ({ replacements; start = ids; finish }, Allocator finish)
 
+  (* The union of every replacement's [remove] set. Shared by [merge]/
+     [merge_all], [splice] and [apply] — each needs "every node this batch of
+     replacements deletes", not just one replacement's own. *)
+  let removed_nodes replacements =
+    List.fold_left
+      (fun acc (r : _ Rcp.replacement) -> Node_id.Set.union acc r.remove)
+      Node_id.Set.empty replacements
+
   let merge a b =
     let* () =
       if Id_supply.equal a.finish b.start then Err.return ()
       else Err.fail `Discontiguous_allocation
     in
-    let a_nodes =
-      List.fold_left
-        (fun acc (r : _ Rcp.replacement) -> Node_id.Set.union acc r.remove)
-        Node_id.Set.empty a.replacements
-    in
+    let a_nodes = removed_nodes a.replacements in
     let* () =
       fold_result
         (fun () (r : _ Rcp.replacement) ->
@@ -197,6 +202,45 @@ module Make (S : Side.S) = struct
         start = a.start;
         finish = b.finish;
       }
+
+  (* Bulk [merge], for a sweep's k already-planned recipes: folding [merge]
+     pairwise recomputes the whole accumulated removed-node union and
+     re-copies the whole accumulated list on every one of the k calls. Here
+     each recipe's own removed-node set is computed once and every
+     replacement list is copied once ([List.rev_append] then one final
+     [List.rev]). Same checks in the same order as folding [merge] left to
+     right, so error identity/precedence match exactly. Nonempty only —
+     [sweep] already special-cases zero recipes before ever merging. *)
+  let merge_all = function
+    | [] -> invalid_arg "Rewrite.merge_all: recipes must be nonempty"
+    | first :: rest ->
+        let+ _nodes, replacements_rev, finish =
+          fold_result
+            (fun (nodes, replacements_rev, finish) r ->
+              let* () =
+                if Id_supply.equal finish r.start then Err.return ()
+                else Err.fail `Discontiguous_allocation
+              in
+              let r_nodes = removed_nodes r.replacements in
+              match
+                Node_id.Set.choose_opt (Node_id.Set.inter nodes r_nodes)
+              with
+              | Some id -> Err.fail (`Overlapping_replacements id)
+              | None ->
+                  Err.return
+                    ( Node_id.Set.union nodes r_nodes,
+                      List.rev_append r.replacements replacements_rev,
+                      r.finish ))
+            ( removed_nodes first.replacements,
+              List.rev first.replacements,
+              first.finish )
+            rest
+        in
+        {
+          replacements = List.rev replacements_rev;
+          start = first.start;
+          finish;
+        }
 
   let pp_recipe fmt r =
     Fmt.pf fmt "@[<v>%a@]" Fmt.(list ~sep:cut Rcp.pp_replacement) r.replacements
@@ -269,11 +313,6 @@ module Make (S : Side.S) = struct
 
   (* ---- assembling the new graph -------------------------------------------- *)
 
-  let removed_nodes replacements =
-    List.fold_left
-      (fun acc (r : _ Rcp.replacement) -> Node_id.Set.union acc r.remove)
-      Node_id.Set.empty replacements
-
   (* Inserted nodes get their ids here, which is why a recipe never names one. *)
   let stamp ids replacements =
     List.fold_left
@@ -297,34 +336,61 @@ module Make (S : Side.S) = struct
     |> fun (ids, acc) -> (ids, List.rev acc)
 
   (* Splice each replacement's new nodes at its first removed node; a replacement
-     that removes nothing appends. Order is fixed up by the topological sort. *)
+     that removes nothing appends. Order is fixed up by the topological sort.
+
+     [first_of] used to
+     rescan the whole node list per replacement, computed twice (once for
+     [anchored], once for [floating]); [kept] then rescanned the whole
+     [anchored] list per graph node. Both are O(n) work repeated once per
+     replacement or per node — O(n*k) for k replacements. [positions] indexes
+     each node's place in [g.Graph.nodes] once, so a replacement's anchor (the
+     MINIMUM position among its [remove] set — the same node
+     [List.find_opt] over that list already returned, since it visits nodes
+     in that same order) is one fold over a small set rather than a scan of
+     the whole graph; [by_anchor] then makes [kept] a lookup, computed once,
+     not a list scan repeated per node. *)
   let splice (g : graph) stamped =
     let removed = removed_nodes (List.map fst stamped) in
+    let positions =
+      List.fold_left
+        (fun (m, i) (n : node) -> (Node_id.Map.add n.Node.id i m, i + 1))
+        (Node_id.Map.empty, 0) g.Graph.nodes
+      |> fst
+    in
     let first_of (r : _ Rcp.replacement) =
-      List.find_opt
-        (fun (n : node) -> Node_id.Set.mem n.Node.id r.remove)
-        g.Graph.nodes
-      |> Option.map (fun (n : node) -> n.Node.id)
+      Node_id.Set.fold
+        (fun id best ->
+          match (Node_id.Map.find_opt id positions, best) with
+          | None, _ -> best
+          | Some pos, None -> Some (pos, id)
+          | Some pos, Some (best_pos, _) when pos < best_pos -> Some (pos, id)
+          | Some _, Some _ -> best)
+        r.remove None
+      |> Option.map snd
+    in
+    let placed =
+      List.map (fun (r, nodes) -> (first_of r, List.map fst nodes)) stamped
     in
     let anchored =
       List.filter_map
-        (fun (r, nodes) ->
-          Option.map (fun anchor -> (anchor, List.map fst nodes)) (first_of r))
-        stamped
+        (fun (anchor, nodes) -> Option.map (fun a -> (a, nodes)) anchor)
+        placed
     in
     let floating =
       List.concat_map
-        (fun (r, nodes) -> if first_of r = None then List.map fst nodes else [])
-        stamped
+        (fun (anchor, nodes) -> if Option.is_none anchor then nodes else [])
+        placed
+    in
+    let by_anchor =
+      List.fold_left
+        (fun m (anchor, nodes) -> Node_id.Map.add anchor nodes m)
+        Node_id.Map.empty anchored
     in
     let kept =
       List.concat_map
         (fun (n : node) ->
           let here =
-            List.concat_map
-              (fun (anchor, nodes) ->
-                if Node_id.equal anchor n.Node.id then nodes else [])
-              anchored
+            Option.value (Node_id.Map.find_opt n.Node.id by_anchor) ~default:[]
           in
           here @ if Node_id.Set.mem n.Node.id removed then [] else [ n ])
         g.Graph.nodes

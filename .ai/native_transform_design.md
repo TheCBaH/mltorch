@@ -329,6 +329,8 @@ val view      : 'v t -> Graph_view.t        (* validated index of the current gr
 type 'v allocator                           (* abstract; watermarked *)
 type 'v recipe                              (* abstract; retains start and end watermark *)
 val allocator : 'v t -> 'v allocator
+val pp_allocator : Format.formatter -> 'v allocator -> unit
+             (* read-only diagnostic (prints Id_supply.pp); no other allocator access exists *)
 val plan  : 'v t -> 'v allocator -> Recipe.builder ->
             ('v recipe * 'v allocator, error) Err.t
 val merge : 'v recipe -> 'v recipe -> ('v recipe, error) Err.t
