@@ -121,48 +121,51 @@ let beam problem (limits : Arena_schedule.Limits.t) =
     in
     layers 0 [ start ] 0 0 1
 
+let portfolio (c : Arena_schedule.Config.t) problem =
+  let open Err.Syntax in
+  let* cands, stats = G.candidates problem in
+  let* outcome = beam problem c.limits in
+  let* cands =
+    match outcome.order with
+    | Some order
+      when not (List.exists (fun (k : G.Candidate.t) -> k.order = order) cands)
+      ->
+        let* metrics = Problem.metrics problem order in
+        Err.return
+          (cands
+          @ [
+              {
+                G.Candidate.strategy = Arena_schedule.Strategy.Beam;
+                order;
+                metrics;
+              };
+            ])
+    | _ -> Err.return cands
+  in
+  let stats =
+    {
+      stats with
+      expansions = outcome.stats.expansions;
+      retained_states = outcome.stats.retained_states;
+      state_bytes = outcome.stats.state_bytes;
+      max_ready_width = max stats.max_ready_width outcome.stats.max_ready_width;
+    }
+  in
+  Err.return (cands, stats, outcome.stop)
+
+(* A search that ended on a limit says so, unless it proved the bound. *)
+let stop_of ~selected ~beam_stop =
+  match (selected, beam_stop) with
+  | Stop.Lower_bound_reached, _ -> Stop.Lower_bound_reached
+  | _, ((Stop.Budget_exhausted | State_limit) as s) -> s
+  | _ -> Stop.Completed
+
 let run (c : Arena_schedule.Config.t) g =
   let open Err.Syntax in
   let* problem = Problem.of_graph c g in
   match (c.mode, c.retain) with
   | Intermediate, All -> Arena_schedule.identity g
   | _ ->
-      let* cands, stats = G.candidates problem in
-      let* outcome = beam problem c.limits in
-      let* cands =
-        match outcome.order with
-        | Some order
-          when not
-                 (List.exists
-                    (fun (k : G.Candidate.t) -> k.order = order)
-                    cands) ->
-            let* metrics = Problem.metrics problem order in
-            Err.return
-              (cands
-              @ [
-                  {
-                    G.Candidate.strategy = Arena_schedule.Strategy.Beam;
-                    order;
-                    metrics;
-                  };
-                ])
-        | _ -> Err.return cands
-      in
-      let stats =
-        {
-          stats with
-          expansions = outcome.stats.expansions;
-          retained_states = outcome.stats.retained_states;
-          state_bytes = outcome.stats.state_bytes;
-          max_ready_width =
-            max stats.max_ready_width outcome.stats.max_ready_width;
-        }
-      in
+      let* cands, stats, beam_stop = portfolio c problem in
       let* r = G.select problem cands stats in
-      let stop =
-        match (r.stop, outcome.stop) with
-        | Lower_bound_reached, _ -> Stop.Lower_bound_reached
-        | _, ((Budget_exhausted | State_limit) as s) -> s
-        | _ -> Stop.Completed
-      in
-      Err.return { r with stop }
+      Err.return { r with stop = stop_of ~selected:r.stop ~beam_stop }

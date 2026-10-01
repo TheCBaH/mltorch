@@ -24,6 +24,24 @@ val beam :
     [(max (peak, bound), peak, live, all-allocation peak, prefix order)]. With
     no expansion budget the beam does not run. *)
 
+val portfolio :
+  Arena_schedule.Config.t ->
+  Problem.t ->
+  ( Arena_schedule_greedy.Candidate.t list
+    * Arena_schedule.Stats.t
+    * Arena_schedule.Stop.t,
+    [> Problem.error ] )
+  Err.t
+(** The original order, both greedy orders and the beam's, without repeats, in
+    that order; the stop reason is the beam's. *)
+
+val stop_of :
+  selected:Arena_schedule.Stop.t ->
+  beam_stop:Arena_schedule.Stop.t ->
+  Arena_schedule.Stop.t
+(** The result's stop reason: the bound when selection proved it, otherwise the
+    limit the beam ended on, otherwise completion. *)
+
 val run :
   Arena_schedule.Config.t ->
   Graph_ir.graph ->
