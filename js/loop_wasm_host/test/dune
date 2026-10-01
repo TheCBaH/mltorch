@@ -49,3 +49,20 @@
     async.actual
     (run node async_probe.bc.js))
    (diff async.expected async.actual))))
+
+; The same host in a browser: no node API is used, so the bundle runs in a page
+; (web/scripts/wasm-browser-check.mjs drives it with playwright).
+
+(executable
+ (name browser_probe)
+ (modes js)
+ (modules browser_probe)
+ (libraries
+  core
+  err_trace
+  fmt
+  js_of_ocaml
+  loop_ir
+  loop_wasm_host
+  native
+  native_test))

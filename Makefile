@@ -19,7 +19,7 @@
 	arena.eval arena.eval.report arena.schedule.eval arena.schedule.eval.report pt2.json-model-support pt2.runtest pt2.vars runtest spike.runtest \
 	spike.setup tailcall.js-benchmark tailcall.runtest test \
 	verify.pristine visualizer.build visualizer.patch \
-	visualizer.submodule wasm.jsoo.pt2.runtest wasm.jsoo.runtest wasm.pt2.bench wasm.pt2.exe wasm.pt2.run wasm.pt2.runtest wasm.runtest webapp.bridge-runtest webapp.browser-runtest \
+	visualizer.submodule wasm.browser.runtest wasm.jsoo.pt2.runtest wasm.jsoo.runtest wasm.pt2.bench wasm.pt2.exe wasm.pt2.run wasm.pt2.runtest wasm.runtest webapp.bridge-runtest webapp.browser-runtest \
 	webapp.build webapp.npm-install webapp.runtest webapp.serve
 all: build
 
@@ -946,6 +946,26 @@ wasm.jsoo.pt2.runtest: jsoo.pt2.download
 	    2>/dev/null | grep '^module identity' > $(CURDIR)/_build/wasm_native.identity
 	diff -u _build/wasm_native.identity _build/wasm_jsoo.identity
 	@echo "wasm jsoo: $(JS_PT2_MODEL) generated in JavaScript, byte-identical to the native module, ranking verified"
+
+# The Wasm backend in a real browser (Chromium via playwright): the fixtures
+# generated in the page by the JavaScript build of the compiler and compiled
+# through the promise API, a real model generated natively (loop_wasm_pt2
+# --export) and run in the page twice on one instance with a dirty workspace,
+# outputs byte-identical to node's, and the deployment limits (a CSP without
+# 'wasm-unsafe-eval' is a typed compile error). Needs the playwright browser
+# (`cd web && npm ci && npm run install:chromium`); in a container without
+# root, WASM_BROWSER_LD_LIBRARY_PATH names a directory of the browser's system
+# libraries, from `python3 web/scripts/chromium-userland-libs.py DIR`.
+WASM_BROWSER_LD_LIBRARY_PATH ?=
+
+wasm.browser.runtest: jsoo.pt2.download
+	opam exec -- dune build js/loop_wasm_host/test/browser_probe.bc.js bin/loop_wasm_pt2.exe
+	cd $(JS_PT2_DIR) && $(CURDIR)/$(WASM_PT2_EXE) $(JS_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt \
+	  --samples=1 --export=$(CURDIR)/_build/wasm_export
+	cd web && $(if $(WASM_BROWSER_LD_LIBRARY_PATH),LD_LIBRARY_PATH="$(WASM_BROWSER_LD_LIBRARY_PATH)") \
+	  PLAYWRIGHT_BROWSERS_PATH="$(abspath web/.playwright-browsers)" \
+	  node scripts/wasm-browser-check.mjs $(CURDIR)/_build/default/js/loop_wasm_host/test/browser_probe.bc.js \
+	  $(CURDIR)/_build/wasm_export
 
 # The whole-model Wasm backend (Loop_bundle_wasm, lib/loop_wasm_exec) on real
 # downloaded models, under node. wasm.pt2.runtest is the gate: every CI model

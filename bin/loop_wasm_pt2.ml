@@ -4,6 +4,7 @@
 
    argv: <model.pt2> <inputs.pt> <expected.json> <outputs.pt> [--strict]
          [--shadow] [--poison] [--samples=N] [--keep=DIR] [--bench=N]
+         [--export=DIR]
 
    [--shadow] also runs [Eval_direct.run] (the per-node reference) on the same
    graph, constants and input and requires every graph output to be bitwise
@@ -109,7 +110,51 @@ let prepared ~keep archive =
       cache := Some cached;
       Err.return cached
 
-let infer ~keep ~shadow ~poison ~bench:bench_n archive image =
+(* [--export=DIR]: the artifacts of this run for a host that is not node: the
+   module, the packed payload files, the outputs file this run produced, and the
+   placement the module's memory is sized for. *)
+let export dir p ~input_id ~input outs =
+  let module H = Loop_wasm_exec.Host in
+  let module Io = Loop_c_exec.Payload_io in
+  let w = H.bundle_wasm p in
+  let identity = w.Loop_bundle_wasm.identity in
+  let copy src dst =
+    Loop_c_exec.Proc.write_file (Filename.concat dir dst)
+      (Loop_c_exec.Proc.read_file src)
+  in
+  Io.mkdir_p dir;
+  copy (H.module_path p) "model.wasm";
+  copy (H.weights_path p) "weights.bin";
+  let check = function
+    | Ok () -> ()
+    | Error (`Io m) -> failwith m
+  in
+  check
+    (Io.write_payload w.Loop_bundle_wasm.inputs ~identity
+       ~path:(Filename.concat dir "inputs.bin")
+       [ input ]);
+  ignore input_id;
+  check
+    (Io.write_payload w.Loop_bundle_wasm.outputs ~identity
+       ~path:(Filename.concat dir "outputs.bin")
+       outs);
+  copy
+    (Filename.concat (H.directory p) "outputs.template")
+    "outputs.template";
+  let pl = w.Loop_bundle_wasm.placement in
+  Loop_c_exec.Proc.write_file
+    (Filename.concat dir "placement.json")
+    (Printf.sprintf
+       "{\"weights\":%d,\"inputs\":%d,\"workspace\":%d,\"outputs\":%d,\"total\":%d,\"workspaceBytes\":%Ld,\"outputsBytes\":%Ld,\"identity\":\"%s\"}\n"
+       pl.Loop_bundle_wasm.Placement.weights pl.Loop_bundle_wasm.Placement.inputs
+       pl.Loop_bundle_wasm.Placement.workspace
+       pl.Loop_bundle_wasm.Placement.outputs pl.Loop_bundle_wasm.Placement.total
+       (C_workspace_plan.bytes w.Loop_bundle_wasm.workspace)
+       w.Loop_bundle_wasm.outputs.C_payload_layout.length
+       (Digest.to_hex identity));
+  Printf.eprintf "loop_wasm_pt2: exported to %s\n%!" dir
+
+let infer ~keep ~export:export_dir ~shadow ~poison ~bench:bench_n archive image =
   let open Err.Syntax in
   let map e = (e :> eval) in
   let* g, constants, b, p = prepared ~keep archive in
@@ -129,6 +174,7 @@ let infer ~keep ~shadow ~poison ~bench:bench_n archive image =
       Printf.eprintf "loop_wasm_pt2: node phases (ms): %s\n%!"
         (String.concat ", "
            (List.map (fun (k, v) -> Printf.sprintf "%s %.2f" k v) l)));
+  Option.iter (fun d -> export d p ~input_id ~input outs) export_dir;
   let* () =
     if not shadow then Err.return ()
     else
@@ -159,6 +205,7 @@ let () =
   let poison, argv = flag "--poison" argv in
   let samples, argv = valued "--samples=" argv in
   let keep, argv = valued "--keep=" argv in
+  let export_dir, argv = valued "--export=" argv in
   let bench_n, argv = valued "--bench=" argv in
   let bench_n = Option.map int_of_string bench_n in
   match Infer_report.parse_argv argv with
@@ -171,7 +218,7 @@ let () =
           (Infer_report.run
              ?max_samples:(Option.map int_of_string samples)
              ~now
-             ~infer:(infer ~keep ~shadow ~poison ~bench:bench_n)
+             ~infer:(infer ~keep ~export:export_dir ~shadow ~poison ~bench:bench_n)
              paths options)
       with
       | Ok () -> ()

@@ -201,6 +201,26 @@ lowering that can run to thousands of elements uses tail-recursive append and
 map (`Loop_wasm_ctx.( @ )`, `Wasm.Instr.map_calls`), and a 60,000-statement
 kernel in `test/loop_ir/loop_wasm_test.ml` guards it (stock `@` overflows).
 
+## Browser
+
+`make wasm.browser.runtest` drives Chromium (playwright) over a page that loads
+the JS build of the compiler. Evidence recorded for Chromium 141.0.7390.37
+headless shell on Linux AArch64: fixtures generated in the page and compiled
+through `WebAssembly.instantiate` match the reference; a real model (the native
+compiler's `--export` artifacts, 43,695-byte module) runs twice on one instance
+with a dirty workspace and its outputs are byte-identical to node's (first run
+~343 ms, warm ~176 ms, memory 13.7 MB). Deployment limits observed:
+
+- A Content-Security-Policy needs `'wasm-unsafe-eval'` in `script-src` for the
+  module to compile; without it `prepare_async` returns the typed
+  `Wasm_compile` error naming the refusal. Unlike the generated-JS backend, no
+  `'unsafe-eval'` (`new Function`) is needed.
+- This Chromium accepted a main-thread synchronous compile of the 43 KB module;
+  the platform may refuse larger or any synchronous compiles on the main thread,
+  so a browser must use `prepare_async`.
+- Node passing is not browser evidence: the page is the only place these
+  were observed.
+
 ## Kernel module layout
 
 The module defines and exports `memory`. Bytes `[0, heap_base)` are the
