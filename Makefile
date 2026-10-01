@@ -1032,11 +1032,11 @@ wasm.c.pt2.run: wasm.pt2.exe wasm.toolchain
 # sanitizers, which dune does not track: LOOP_C_CFLAGS replaces -O2, hence
 # --force. A missing compiler fails; it never skips.
 c.runtest.o0:
-	LOOP_C_CFLAGS="-O0" opam exec -- dune build @test/loop_c/runtest --force
+	LOOP_C_CFLAGS="-O0" opam exec -- dune build @test/loop_c/runtest @test/loop_c_vector/runtest --force
 
 c.runtest.san:
 	LOOP_C_CFLAGS="-O1 -fsanitize=address,undefined -fno-sanitize-recover=all" \
-	  opam exec -- dune build @test/loop_c/runtest --force
+	  opam exec -- dune build @test/loop_c/runtest @test/loop_c_vector/runtest --force
 
 c.runtest.all: c.runtest.o0 c.runtest.san
 
