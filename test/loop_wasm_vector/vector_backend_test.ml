@@ -58,7 +58,7 @@ let%expect_test "every vector program: SIMD Wasm equals the interpreter" =
     index value                    equal    simd128
     temporaries                    equal    simd128
     sqrt and trunc                 equal    simd128
-    transcendentals                equal
+    transcendentals                equal    simd128
     int32 source                   equal    simd128
     bool store                     equal
     nested loops, vector inner     equal    simd128
