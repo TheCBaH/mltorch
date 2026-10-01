@@ -53,6 +53,7 @@ type ctx = {
           is definitely assigned at this point *)
   mutable next_temp : int;
   mutable ops : (T.Op.t * int) list;
+  inner_ok : bool;
   mutable weight : int;
       (** how many times the statement being converted runs per iteration of the
           loop: the product of the trip counts of the inner loops around it, so
@@ -239,6 +240,8 @@ let rec stmt ctx (s : Loop_stmt.t) : (V.stmt list, Reason.t) result =
   | Loop_stmt.Charge_scan_update | Loop_stmt.Release_scan_state _
   | Loop_stmt.Reserve_scan_state _ | Loop_stmt.Reset_meter ->
       Error (Reason.Body_statement "scan meter")
+  | Loop_stmt.For _ when not ctx.inner_ok ->
+      Error (Reason.Body_statement "inner loop (target declines)")
   | Loop_stmt.For { var = iv; lo; hi; body } ->
       if F.mentions ctx.var lo || F.mentions ctx.var hi then
         Error (Reason.Body_statement "inner loop bounds from the loop variable")
@@ -297,6 +300,7 @@ let attempt ~(target : T.t) ~reads_total (loop : Loop_stmt.t) =
                 next_temp = 0;
                 ops = [];
                 weight = 1;
+                inner_ok = target.T.inner_loops;
               }
             in
             let converted =

@@ -53,6 +53,9 @@ type t = {
       (** the logical lane count the vectorizer plans for: how many binary64
           lanes one vector iteration covers (a multiple of the lanes of one
           register) *)
+  inner_loops : bool;
+      (** whether a vector loop may hold inner loops (reductions run per lane
+          in lockstep): measured to pay on Wasm and to lose on native C *)
   support : Op.t -> support;
   cost : Op.t -> float;
       (** relative cost of one vector operation across [lanes], against [lanes]

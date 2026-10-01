@@ -80,6 +80,7 @@ type t = {
   name : string;
   vector_bits : int;
   lanes : int;
+  inner_loops : bool;
   support : Op.t -> support;
   cost : Op.t -> float;
 }
@@ -107,14 +108,15 @@ let scalar_cost = function
    lane pays on top of its scalar operation. *)
 let expansion_overhead = 1.
 
-let make ~name ~vector_bits ~lanes ~native ~native_cost =
+let make ?(inner_loops = true) ~name ~vector_bits ~lanes ~native ~native_cost
+    () =
   let support op = if native op then Native else Expanded in
   let cost op =
     match support op with
     | Native -> native_cost op
     | Expanded -> float_of_int lanes *. (scalar_cost op +. expansion_overhead)
   in
-  { name; vector_bits; lanes; support; cost }
+  { name; vector_bits; lanes; inner_loops; support; cost }
 
 (* A native operation is one instruction per register a logical vector spans,
    at the unit cost listed (a conversion is two instructions, a division or
@@ -141,18 +143,19 @@ let native = function
 let wasm128 =
   let vector_bits = 128 and lanes = 4 in
   make ~name:"wasm128" ~vector_bits ~lanes ~native
-    ~native_cost:(native_cost ~vector_bits ~lanes)
+    ~native_cost:(native_cost ~vector_bits ~lanes) ()
 
 let neon128 =
   let vector_bits = 128 and lanes = 4 in
-  make ~name:"neon128" ~vector_bits ~lanes ~native
-    ~native_cost:(native_cost ~vector_bits ~lanes)
+  make ~inner_loops:false ~name:"neon128" ~vector_bits ~lanes ~native
+    ~native_cost:(native_cost ~vector_bits ~lanes) ()
 
 let scalar =
   {
     name = "scalar";
     vector_bits = 64;
     lanes = 1;
+    inner_loops = false;
     support = (fun _ -> Expanded);
     cost = (fun op -> scalar_cost op +. expansion_overhead);
   }

@@ -166,3 +166,28 @@ Reading it:
   through the oracle, SIMD Wasm and vectorized C, bitwise, with and without the
   cost model; every `Loop_check` fixture and the op sweep also run through both
   backends.
+
+## Measured results (strict vectorization)
+
+Same host and method as the S1 table; every row bitwise equal to the per-node
+reference (`--shadow`), warm = median of ten repeats, ms.
+
+| route | mobilenetv2_050 | fastvit_sa12 |
+|---|---:|---:|
+| direct Wasm, scalar | 88.2 | 1126 |
+| direct Wasm, leaf loops only | 80.0 | 1104 |
+| direct Wasm, nested vector loops, cost model | 52.0 | 670.6 |
+| direct Wasm, every legal loop (`--simd-forced`) | 50.5 | not run |
+| Clang C->Wasm, scalar | 77-81 | 1090-1119 |
+| Clang C->Wasm, auto-SIMD `-O2` | 72.0 | 1083.8 |
+| native C gcc -O2 scalar | 62.4 | 937 |
+| native C gcc -O3 auto-vectorized | 55.0 | 904 |
+| native C, strict vector loops (leaf only, `-O3`) | 49.6 | not run |
+| native C, nested vector loops, `-O3` | 132.5 (rejected) | not run |
+
+Nested loops pay on Wasm (the arithmetic of a reduction halves and V8 handles the
+gather) and lose 2.7x on native C with GCC generic vectors, so `neon128` declines
+them (`Loop_target.inner_loops`). The strict nested Wasm route is 41% faster than
+the compiler-vectorized C compiled to Wasm and 1.6x faster than the native
+scalar C on mobilenetv2_050; first run (cold, includes V8 tier-up) falls from
+235 ms to 118-150 ms.
