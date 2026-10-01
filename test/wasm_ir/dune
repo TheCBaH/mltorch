@@ -15,7 +15,8 @@
 ; under node against a JavaScript reference over a cross product of edge
 ; values. This is what catches a wrong opcode byte whose signature happens to
 ; match its neighbour's, which neither the validator nor a golden can. Node
-; missing is a failure, never a skip.
+; missing is a failure, never a skip. Run by `make wasm.runtest`, which sets
+; MLTORCH_WASM; plain `make runtest` needs no node.
 
 (executable
  (name wasm_ops_gen)
@@ -24,6 +25,8 @@
 
 (cram
  (applies_to ops)
+ (enabled_if
+  (<> %{env:MLTORCH_WASM=} ""))
  (deps wasm_ops_gen.exe ops.js))
 
 (executable
@@ -33,4 +36,6 @@
 
 (cram
  (applies_to fixture)
+ (enabled_if
+  (<> %{env:MLTORCH_WASM=} ""))
  (deps wasm_fixture_gen.exe fixture.js))

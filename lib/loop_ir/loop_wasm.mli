@@ -1,0 +1,42 @@
+(** WebAssembly emission for a [Loop_program.t]: one exported function
+    [loop_kernel] over linear memory, structured [block]/[loop] control, no host
+    call except the [Math] imports a program reaches, and no trap on a value.
+    Output is deterministic: lowering twice is byte-identical, and names depend
+    on position of first appearance, never on allocation ids.
+
+    The function takes one [i32] pointer per program buffer, in program order,
+    and returns [0] on success or [1] after writing the failure record at
+    {!error_address}, whose layout is [Loop_wasm_failure]'s (the C backend's
+    [struct model_error]). The module defines and exports its [memory]; the
+    first [heap_base] bytes are its own (error record, per-channel quantization
+    tables, local arrays), and a host places buffers at or above it. See the
+    Wasm backend design doc in [.ai/] for the ABI, numeric and size policy. *)
+
+type error =
+  [ `Index_constant_out_of_range of int | `Local_arrays_too_large of int64 ]
+
+val pp_error : Format.formatter -> [< error ] -> unit
+
+type t = {
+  module_ : Wasm.Module.t;
+      (** defines the smallest memory that covers the static region *)
+  heap_base : int;  (** 16-aligned end of the module's own bytes *)
+  sites : Loop_failure.t array;
+      (** the program's [Fail_if] failures in emission order, as
+          [Loop_js_failure.sites]: a record that names a site indexes it *)
+}
+
+val function_name : string
+(** ["loop_kernel"]. *)
+
+val error_address : int
+(** The byte address of the failure record: [0]. *)
+
+val lower : Loop_program.t -> (t, error) Err.t
+
+val with_pages : t -> pages:int -> Wasm.Module.t
+(** The module with [pages] initial memory pages; [Invalid_argument] below the
+    static region's need. *)
+
+val encode : t -> (string, Wasm_check.error) Err.t
+(** [Wasm_encode.module_] of [module_]. *)

@@ -103,14 +103,14 @@ A kernel module is self-contained.
 - Memory: one linear memory, **exported as `memory`**, defined by the module
   (min pages from the memory plan; no import, no growth by generated code).
 - Exports: `loop_kernel(b0, b1, …, bN-1 : i32) -> i32`, one pointer per program
-  buffer in program order (`Loop_js` order). Returns `0` on success, otherwise
-  `kind + 1` where `kind` is the index in `Loop_js_failure.Kind.all`.
-- Error record: at the fixed address exported as the `i32` global `error`.
-  Layout is `struct model_error`: `i32 kind`, `i32 invocation` (`-1` from a
+  buffer in program order (`Loop_js` order). Returns `0` on success and `1`
+  after writing the failure record, whose `kind` is the index in
+  `Loop_js_failure.Kind.all`.
+- Error record: at the fixed address `Loop_wasm.error_address` (`0`). Layout is `struct model_error`: `i32 kind`, `i32 invocation` (`-1` from a
   kernel; the schedule overwrites it), `i64 v[12]` (96 bytes), 104 bytes total,
   8-aligned, little-endian. The kernel writes `kind` and `v` as the C helper
   `fail_set` does and zeroes `v` first.
-- Imports (only the reachable ones, module `m`): `exp`, `log`, `sin`, `cos`,
+- Imports (only the reachable ones, module `math`): `exp`, `log`, `sin`, `cos`,
   each `(f64) -> f64`. Nothing else is ever imported, and no import is called
   per execution mark.
 - Whole-model entry (W6): `model_run(weights, inputs, workspace, outputs : i32)
@@ -155,12 +155,45 @@ Only this configuration is admitted for Wasm in W6. A node `Loop_node_program`
 or `Loop_region_program` refuses stays refused and is reported in the coverage
 census; a model is "supported" only with zero such invocations and no fallback.
 
+## Kernel module layout
+
+The module defines and exports `memory`. Bytes `[0, heap_base)` are the
+module's own: the 104-byte error record at 0, then per-channel quantization
+tables (constant `f64` data segments), then local arrays (`Alloc`, zeroed by the
+statement each call). A host places buffers at or above `heap_base`
+(`Loop_wasm.t.heap_base`, 16-aligned) and passes their absolute addresses; the
+static region is capped at 1 GiB, inside the 2 GiB memory policy.
+`Loop_wasm.lower` returns the module with the smallest memory;
+`Loop_wasm.with_pages` sets the host's.
+
+Index arithmetic is `i32`. Overflow checks form each node's value in `i64` from
+operands that already passed their own check. Calls in a kernel body are
+symbolic (`Loop_wasm_runtime.Callee`) and renumbered once the reachable imports
+and helpers are known, so unreached helpers are never emitted.
+
+## Verification
+
+- `make wasm.runtest` (needs node; outside `runtest`): the op table executed
+  under node against a JavaScript reference (`test/wasm_ir`), a structural
+  fixture, and every `Loop_check` fixture and op-sweep program run through the
+  emitted module under node (`test/loop_wasm`, the same sources
+  `test/loop_ir` and `test/loop_c` run, copied). A deliberate defect in the
+  lowering (a swapped operator, a dropped `Round_f32`, a signed bounds compare,
+  an off-by-one quantization zero point) turns the suite red.
+- `test/loop_ir/loop_wasm_test.ml` pins module sizes and digests for one module
+  per failure constructor and runs under `make jsoo.inline-runtest` too, so
+  native and 32-bit-`int` output agree byte for byte.
+
 ## Where it lives
 
-- `lib/wasm_ir`: `Wasm` types, checker, deterministic binary encoder. Pure,
+- `lib/wasm_ir`: `Wasm` types, `Wasm_op` table, `Wasm_check`, `Wasm_encode`,
+  `Wasm_wat`. Pure,
   `fmt` + `err_trace` only, js_of_ocaml-safe (lengths and constants in
   `int32`/`int64`, never a 63-bit `int`).
-- Loop-to-Wasm lowering, runtime helpers and bundle composition go beside
-  `Loop_js` in `lib/loop_ir`, native- and jsoo-reachable.
-- Host execution (Node process, in-process `WebAssembly`) stays out of every
-  pure library, as `lib/loop_c_exec` and `js/loop_js_exec` do.
+- Loop-to-Wasm lowering (`Loop_wasm`, `Loop_wasm_value`, `Loop_wasm_fail`,
+  `Loop_wasm_ctx`), helpers (`Loop_wasm_runtime`) and the record layout
+  (`Loop_wasm_failure`) sit beside `Loop_js` in `lib/loop_ir`, native- and
+  jsoo-reachable (mirrored in `js/jsoo/loop_ir_js`). Bundle composition follows.
+- Host execution stays out of every pure library, as `lib/loop_c_exec` and
+  `js/loop_js_exec` do: `lib/loop_wasm_exec` runs a module under a node
+  subprocess (native only); an in-process `WebAssembly` host is separate.

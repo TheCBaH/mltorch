@@ -125,6 +125,21 @@ module Instr = struct
     | Select  (** the untyped form: numeric operands only *)
     | Store of Store.t * Mem_arg.t
     | Unreachable
+
+  (* Renumbers every [Call], so a producer can emit calls to symbolic callees
+     and fix the function index space once the module's imports and helpers
+     are known. *)
+  let rec map_calls f = function
+    | Block (bt, l) -> Block (bt, List.map (map_calls f) l)
+    | Call n -> Call (f n)
+    | If (bt, yes, no) ->
+        If (bt, List.map (map_calls f) yes, List.map (map_calls f) no)
+    | Loop (bt, l) -> Loop (bt, List.map (map_calls f) l)
+    | ( Br _ | Br_if _ | Drop | F32_const _ | F64_const _ | Global_get _
+      | Global_set _ | I32_const _ | I64_const _ | Load _ | Local_get _
+      | Local_set _ | Local_tee _ | Numeric _ | Return | Select | Store _
+      | Unreachable ) as i ->
+        i
 end
 
 module Func_type = struct

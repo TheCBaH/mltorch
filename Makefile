@@ -19,7 +19,7 @@
 	arena.eval arena.eval.report arena.schedule.eval arena.schedule.eval.report pt2.json-model-support pt2.runtest pt2.vars runtest spike.runtest \
 	spike.setup tailcall.js-benchmark tailcall.runtest test \
 	verify.pristine visualizer.build visualizer.patch \
-	visualizer.submodule webapp.bridge-runtest webapp.browser-runtest \
+	visualizer.submodule wasm.runtest webapp.bridge-runtest webapp.browser-runtest \
 	webapp.build webapp.npm-install webapp.runtest webapp.serve
 all: build
 
@@ -913,6 +913,17 @@ loop.js.runtest:
 	NO_COLOR=1 opam exec -- dune build @test/loop_ir/loop-js-gate
 
 js.runtest: jsoo.runtest jsoo.inline-runtest melange.runtest loop.js.runtest
+
+# The Wasm backend (lib/wasm_ir, Loop_wasm): the op table and a structural
+# fixture executed under node, then every Loop_check fixture and the op sweep
+# run through the emitted module under node (test/loop_wasm). Needs node, so it
+# is outside `runtest`; MLTORCH_WASM enables the node-backed suites, and a
+# missing node fails them. The pure expect suites (module bytes and digests)
+# also run under js_of_ocaml here, so native and 32-bit-int output must agree.
+wasm.runtest:
+	MLTORCH_WASM=1 NO_COLOR=1 opam exec -- dune build --force \
+	  @test/wasm_ir/runtest @test/wasm_ir/runtest-js \
+	  @test/loop_wasm/runtest @test/loop_ir/runtest-js
 
 # The C backend's differential suites (test/loop_c) run under `runtest` at the
 # production flags. These re-run the same suites at -O0 and under the

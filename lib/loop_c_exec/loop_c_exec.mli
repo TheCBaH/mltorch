@@ -24,6 +24,23 @@ val compiler : string list ref
 
 module Proc = C_proc
 module Host = C_host
+module Blob = C_blob
+
+val layout : Loop_program.t -> int list * int
+(** Byte offset of each buffer in the blob that holds every buffer, and the
+    blob's size: each buffer rounded up to 64 bytes. *)
+
+val bind_buffers :
+  outputs:(Tensor_id.t -> Tensor.packed option) ->
+  Loop_program.t ->
+  bind:(Tensor_id.t -> Tensor.packed option) ->
+  ( Tensor.packed Tensor_id.Map.t,
+    [> `Binding_mismatch of Kernel_eval.Binding_mismatch.t
+    | `Unbound_input of Tensor_id.t ] )
+  result
+(** [Loop_interp.run]'s binding rules, shared by every host executor: an Input
+    must be bound and match its signature, an Output is fresh (or a bound
+    tensor, zero-filled), Scratch is always fresh. *)
 
 val compile :
   string -> (string, [> `C_compile of string | `C_host of string ]) result
