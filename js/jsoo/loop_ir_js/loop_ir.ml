@@ -4,11 +4,14 @@
    a new lib/loop_ir module here too, or [open Loop_ir] in a mirrored
    consumer (js/loop_js_exec/loop_js_exec.ml) silently stops seeing it. *)
 
+module C_payload_layout = C_payload_layout
+module C_workspace_plan = C_workspace_plan
 module Loop_array = Loop_array
 module Loop_bool = Loop_bool
 module Loop_buffer = Loop_buffer
 module Loop_bundle = Loop_bundle
 module Loop_bundle_js = Loop_bundle_js
+module Loop_bundle_wasm = Loop_bundle_wasm
 module Loop_carrier = Loop_carrier
 module Loop_check = Loop_check
 module Loop_expr = Loop_expr
@@ -49,5 +52,6 @@ module Loop_wasm = Loop_wasm
 module Loop_wasm_ctx = Loop_wasm_ctx
 module Loop_wasm_fail = Loop_wasm_fail
 module Loop_wasm_failure = Loop_wasm_failure
+module Loop_wasm_link = Loop_wasm_link
 module Loop_wasm_runtime = Loop_wasm_runtime
 module Loop_wasm_value = Loop_wasm_value

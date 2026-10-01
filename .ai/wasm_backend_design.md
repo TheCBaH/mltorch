@@ -148,12 +148,40 @@ first, and linear memory bounds are an *additional* net, not the semantic check
 - Alignment: every buffer base is aligned to its cell size; the error record
   and local-array region to 8.
 
-## Whole-model admission (frozen configuration)
+## Whole-model module
 
-`Loop_bundle.build` default: `Separate` layout, constants and inputs `Copied`.
-Only this configuration is admitted for Wasm in W6. A node `Loop_node_program`
-or `Loop_region_program` refuses stays refused and is reported in the coverage
-census; a model is "supported" only with zero such invocations and no fallback.
+`Loop_bundle_wasm.build` composes a `Loop_bundle.t` the way `Loop_bundle_c`
+does, and shares its planners: `C_payload_layout` (weights, inputs and outputs
+files) and `C_workspace_plan` (arena pools, then a scratch region holding every
+invocation's local arrays and carved buffers). The payload files are therefore
+byte-identical to the C backend's except for the identity in their headers.
+
+- Admitted configuration (frozen): `Separate` layout, `Borrowed` constants and
+  inputs (`Loop_bundle_wasm.default_config`). Anything else is a typed refusal
+  before any byte is made. There is no fallback in this backend: a model that
+  builds has every scheduled invocation generated.
+- Kernels are the same functions `Loop_wasm.kernel` makes, interned by complete
+  body, taking `(local, b0, ..)` so storage offsets are arguments and two
+  invocations of one op shape share a function (MobileNetV2: 415 invocations,
+  123 kernels, as the C backend).
+- `model_run(weights, inputs, workspace, outputs) -> i32` takes absolute
+  addresses in the one linear memory. Per invocation it zeroes the scratch
+  carves and workspace outputs it owns (`memory.fill`), fills synthetic
+  operands (`Fill_f32`), calls the kernel and, on a nonzero status, stores the
+  failing invocation's position at the record's `invocation` slot and returns
+  `1`. After the schedule it `memory.copy`s each graph output (aliases,
+  duplicates and forwarded inputs included) into the outputs region.
+- The module's memory is sized for the default `Placement` (static bytes,
+  weights, inputs, workspace, outputs, 64-aligned) and capped at 2 GiB; a host
+  may place the regions elsewhere in memory it provides. The module's own bytes
+  are the error record and per-channel constant tables.
+- `identity` is the digest of the encoded module and keys the payload headers.
+- Host: `Wasm_host` (native, `lib/loop_wasm_exec`) writes `model.wasm`,
+  `weights.bin` and a header-only outputs template, runs a node runner
+  (`runner.js`, embedded) that places the regions, runs `model_run` and
+  optionally repeats it on the same instance (outputs must stay identical), and
+  prints the failure record (exit 5) or a timing line (compile, instantiate,
+  copy in, first run, warm run, copy out).
 
 ## Kernel module layout
 
@@ -181,8 +209,14 @@ and helpers are known, so unreached helpers are never emitted.
   lowering (a swapped operator, a dropped `Round_f32`, a signed bounds compare,
   an off-by-one quantization zero point) turns the suite red.
 - `test/loop_ir/loop_wasm_test.ml` pins module sizes and digests for one module
-  per failure constructor and runs under `make jsoo.inline-runtest` too, so
-  native and 32-bit-`int` output agree byte for byte.
+  per failure constructor and for whole-model fixtures, and runs under
+  `make jsoo.inline-runtest` too, so native and 32-bit-`int` output agree byte
+  for byte.
+- `make wasm.pt2.runtest` (downloaded models): every CI model through
+  `model_run` under node, every graph output bitwise equal to the per-node
+  reference (`--shadow`), the release ranking (`--strict`), workspace and
+  outputs poisoned first. `make wasm.pt2.run` is `fastvit_sa12` alone and
+  `make wasm.pt2.bench` repeats the schedule on one instance.
 
 ## Where it lives
 

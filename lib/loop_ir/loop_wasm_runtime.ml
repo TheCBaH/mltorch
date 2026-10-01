@@ -8,6 +8,7 @@ module Callee = struct
     | Exp
     | F16_to_float
     | Fail_set
+    | Fill_f32
     | Floor_div
     | I64_div
     | Log
@@ -21,6 +22,7 @@ module Callee = struct
       Exp;
       F16_to_float;
       Fail_set;
+      Fill_f32;
       Floor_div;
       I64_div;
       Log;
@@ -43,12 +45,14 @@ module Callee = struct
     | Exp -> Some "exp"
     | Log -> Some "log"
     | Sin -> Some "sin"
-    | Ceil_div | Erf | F16_to_float | Fail_set | Floor_div | I64_div -> None
+    | Ceil_div | Erf | F16_to_float | Fail_set | Fill_f32 | Floor_div | I64_div
+      ->
+        None
 
   let deps = function
     | Erf -> [ Exp ]
-    | Ceil_div | Cos | Exp | F16_to_float | Fail_set | Floor_div | I64_div | Log
-    | Sin ->
+    | Ceil_div | Cos | Exp | F16_to_float | Fail_set | Fill_f32 | Floor_div
+    | I64_div | Log | Sin ->
         []
 end
 
@@ -233,11 +237,49 @@ let erf =
       @ [ n Wasm_op.F64_mul; n Wasm_op.F64_sub; n Wasm_op.F64_mul ];
   }
 
+(* [fill_f32 ptr count value]: [count] binary32 cells set to [value] rounded to
+   binary32, for a synthetic operand the graph does not supply. *)
+let fill_f32 =
+  let c = 3 in
+  {
+    Wasm.Func.type_ = ft [ wt_i32; wt_i32; wt_f64 ] [];
+    locals = [ wt_i32 ];
+    body =
+      [
+        I.Block
+          ( None,
+            [
+              I.Loop
+                ( None,
+                  [
+                    get c;
+                    get 1;
+                    n Wasm_op.I32_ge_u;
+                    I.Br_if 1;
+                    get 0;
+                    get c;
+                    i32 2;
+                    n Wasm_op.I32_shl;
+                    n Wasm_op.I32_add;
+                    get 2;
+                    n Wasm_op.F32_demote_f64;
+                    I.Store (Wasm.Store.F32_store, arg2 0);
+                    get c;
+                    i32 1;
+                    n Wasm_op.I32_add;
+                    set c;
+                    I.Br 0;
+                  ] );
+            ] );
+      ];
+  }
+
 let body : Callee.t -> Wasm.Func.t option = function
   | Callee.Ceil_div -> Some (rounded_div ~floor:false)
   | Callee.Erf -> Some erf
   | Callee.F16_to_float -> Some f16_to_float
   | Callee.Fail_set -> Some fail_set
+  | Callee.Fill_f32 -> Some fill_f32
   | Callee.Floor_div -> Some (rounded_div ~floor:true)
   | Callee.I64_div -> Some i64_div
   | Callee.Cos | Callee.Exp | Callee.Log | Callee.Sin -> None
@@ -248,4 +290,5 @@ let signature : Callee.t -> Wasm.Func_type.t = function
       ft [ wt_f64 ] [ wt_f64 ]
   | Callee.F16_to_float -> ft [ wt_i32 ] [ wt_f64 ]
   | Callee.Fail_set -> ft [ wt_i32 ] []
+  | Callee.Fill_f32 -> ft [ wt_i32; wt_i32; wt_f64 ] []
   | Callee.I64_div -> ft [ wt_i64; wt_i64 ] [ wt_i64 ]

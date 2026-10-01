@@ -120,6 +120,8 @@ module Instr = struct
     | Local_set of int
     | Local_tee of int
     | Loop of Block_type.t * t list
+    | Memory_copy  (** [dst src len], bytes, memory 0 *)
+    | Memory_fill  (** [dst value len], bytes, memory 0 *)
     | Numeric of Wasm_op.t
     | Return
     | Select  (** the untyped form: numeric operands only *)
@@ -137,8 +139,8 @@ module Instr = struct
     | Loop (bt, l) -> Loop (bt, List.map (map_calls f) l)
     | ( Br _ | Br_if _ | Drop | F32_const _ | F64_const _ | Global_get _
       | Global_set _ | I32_const _ | I64_const _ | Load _ | Local_get _
-      | Local_set _ | Local_tee _ | Numeric _ | Return | Select | Store _
-      | Unreachable ) as i ->
+      | Local_set _ | Local_tee _ | Memory_copy | Memory_fill | Numeric _
+      | Return | Select | Store _ | Unreachable ) as i ->
         i
 end
 

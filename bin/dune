@@ -193,3 +193,18 @@
   native_predict
   pt2
   unix))
+
+(executable
+ (name loop_wasm_pt2)
+ (modules loop_wasm_pt2)
+ (libraries
+  err_trace
+  infer_report
+  loop_c_exec
+  loop_ir
+  loop_wasm_exec
+  native
+  native_interp
+  native_predict
+  pt2
+  unix))

@@ -51,6 +51,8 @@ let rec pp_instr ~depth ppf (i : Wasm.Instr.t) =
       line "loop%a" pp_bt bt;
       body l;
       line "end"
+  | Wasm.Instr.Memory_copy -> line "memory.copy"
+  | Wasm.Instr.Memory_fill -> line "memory.fill"
   | Wasm.Instr.Numeric op -> line "%s" (Wasm_op.name op)
   | Wasm.Instr.Return -> line "return"
   | Wasm.Instr.Select -> line "select"

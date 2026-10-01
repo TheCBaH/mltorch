@@ -19,7 +19,7 @@
 	arena.eval arena.eval.report arena.schedule.eval arena.schedule.eval.report pt2.json-model-support pt2.runtest pt2.vars runtest spike.runtest \
 	spike.setup tailcall.js-benchmark tailcall.runtest test \
 	verify.pristine visualizer.build visualizer.patch \
-	visualizer.submodule wasm.runtest webapp.bridge-runtest webapp.browser-runtest \
+	visualizer.submodule wasm.pt2.bench wasm.pt2.exe wasm.pt2.run wasm.pt2.runtest wasm.runtest webapp.bridge-runtest webapp.browser-runtest \
 	webapp.build webapp.npm-install webapp.runtest webapp.serve
 all: build
 
@@ -924,6 +924,36 @@ wasm.runtest:
 	MLTORCH_WASM=1 NO_COLOR=1 opam exec -- dune build --force \
 	  @test/wasm_ir/runtest @test/wasm_ir/runtest-js \
 	  @test/loop_wasm/runtest @test/loop_ir/runtest-js
+
+# The whole-model Wasm backend (Loop_bundle_wasm, lib/loop_wasm_exec) on real
+# downloaded models, under node. wasm.pt2.runtest is the gate: every CI model
+# (the same set as c.pt2.runtest) through model_run with every graph output
+# bitwise equal to the per-node reference (--shadow), the release ranking
+# (--strict) and the workspace and outputs poisoned first so a read of stale
+# memory shows. There is no fallback in this backend, so a model that runs has
+# every scheduled invocation generated. wasm.pt2.run is fastvit_sa12 alone
+# (Region-authored ops; the reference alone is ~100s), manual. wasm.pt2.bench
+# runs the schedule repeatedly on one instance and reports the phases.
+WASM_PT2_EXE = _build/default/bin/loop_wasm_pt2.exe
+
+wasm.pt2.exe:
+	opam exec -- dune build bin/loop_wasm_pt2.exe
+
+wasm.pt2.runtest: wasm.pt2.exe
+	for m in $(PT2_MODELS_CRAM) csatv2; do \
+	  $(MAKE) pt2.download PT2_MODEL=$$m && \
+	  (cd $(PT2_DIR)/$$m && echo "== $$m" && $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --strict --shadow --poison --samples=1) || exit 1; \
+	done
+
+wasm.pt2.run: wasm.pt2.exe
+	$(MAKE) pt2.download PT2_MODEL=fastvit_sa12
+	cd $(PT2_DIR)/fastvit_sa12 && $(CURDIR)/$(WASM_PT2_EXE) fastvit_sa12.pt2 inputs.pt expected.json outputs.pt --strict --shadow --poison --samples=1
+
+wasm.pt2.bench: wasm.pt2.exe
+	for m in mobilenetv2_050 fastvit_sa12; do \
+	  $(MAKE) pt2.download PT2_MODEL=$$m && \
+	  (cd $(PT2_DIR)/$$m && echo "== $$m" && $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --samples=1 --bench=20) || exit 1; \
+	done
 
 # The C backend's differential suites (test/loop_c) run under `runtest` at the
 # production flags. These re-run the same suites at -O0 and under the

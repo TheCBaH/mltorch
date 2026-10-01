@@ -79,6 +79,20 @@ A module using every structural form, compiled and run under node.
       f32.load offset=0 align=4
       f64.promote_f32
     )
+    (func 6 (param i32) (result i32)
+      local.get 0
+      i32.const 7
+      i32.const 4
+      memory.fill
+      local.get 0
+      i32.const 8
+      i32.add
+      local.get 0
+      i32.const 4
+      memory.copy
+      local.get 0
+      i32.load offset=8 align=4
+    )
     (export "memory" (memory 0))
     (export "sum_f64" (func 1))
     (export "fact" (func 2))
@@ -86,6 +100,7 @@ A module using every structural form, compiled and run under node.
     (export "bump" (func 4))
     (export "put_f32" (func 5))
     (export "counter" (global 0))
+    (export "fill_copy" (func 6))
     (data (offset 16) 2 bytes)
   )
   $ node fixture.js fixture.wasm

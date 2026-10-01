@@ -125,6 +125,26 @@ let m =
               op Wasm_op.F64_promote_f32;
             ];
         };
+        (* fill_copy(p) : fill 4 bytes with 7, copy them 8 bytes up, read back *)
+        {
+          Func.type_ = { Func_type.params = [ I32 ]; results = [ I32 ] };
+          locals = [];
+          body =
+            [
+              Instr.Local_get 0;
+              i32 7l;
+              i32 4l;
+              Instr.Memory_fill;
+              Instr.Local_get 0;
+              i32 8l;
+              op Wasm_op.I32_add;
+              Instr.Local_get 0;
+              i32 4l;
+              Instr.Memory_copy;
+              Instr.Local_get 0;
+              Instr.Load (Load.I32_load, arg 2 8);
+            ];
+        };
       ];
     exports =
       [
@@ -135,6 +155,7 @@ let m =
         { Export.name = "bump"; kind = Export.Func 4 };
         { Export.name = "put_f32"; kind = Export.Func 5 };
         { Export.name = "counter"; kind = Export.Global 0 };
+        { Export.name = "fill_copy"; kind = Export.Func 6 };
       ];
     data = [ { Data.offset = 16; bytes = "AB" } ];
     customs = [ { Custom.name = "abi"; payload = "loop-wasm/1" } ];

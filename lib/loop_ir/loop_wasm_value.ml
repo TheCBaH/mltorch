@@ -175,7 +175,9 @@ let load_i64 st b addr =
 
 let array_address st a i =
   let off = Hashtbl.find st.arrays (Loop_array.to_int a) in
-  [ i32 off ] @ index st i @ [ i32 3; n Wasm_op.I32_shl; n Wasm_op.I32_add ]
+  [ get 0; i32 off; n Wasm_op.I32_add ]
+  @ index st i
+  @ [ i32 3; n Wasm_op.I32_shl; n Wasm_op.I32_add ]
 
 let rec num st : float Loop_expr.t -> I.t list = function
   | Loop_expr.Array_get (a, i) ->

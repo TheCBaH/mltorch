@@ -10,7 +10,16 @@ let error_address = Loop_wasm_ctx.error_address
 
 type t = {
   module_ : Wasm.Module.t;
+  local_base : int;
   heap_base : int;
+  sites : Loop_failure.t array;
+}
+
+type kernel = {
+  func : Wasm.Func.t;
+  callees : R.Callee.t list;
+  local_bytes : int64;
+  data : Wasm.Data.t list;
   sites : Loop_failure.t array;
 }
 
@@ -47,7 +56,7 @@ let rec stmt st ~limits (s : Loop_stmt.t) : I.t list =
   match s with
   | Loop_stmt.Alloc (a, count) ->
       let len = (count :> int) in
-      let off = reserve st (Int64.of_int (8 * len)) in
+      let off = reserve_local st (Int64.of_int (8 * len)) in
       Hashtbl.replace st.arrays (Loop_array.to_int a) off;
       if len = 0 then []
       else
@@ -65,7 +74,9 @@ let rec stmt st ~limits (s : Loop_stmt.t) : I.t list =
                       int_const st len;
                       n Wasm_op.I32_ge_s;
                       I.Br_if 1;
+                      get 0;
                       i32 off;
+                      n Wasm_op.I32_add;
                       get c;
                       i32 3;
                       n Wasm_op.I32_shl;
@@ -247,61 +258,7 @@ let f64_bytes xs =
     xs;
   Buffer.contents buf
 
-(* The callees a kernel reached, closed under what the helpers themselves call,
-   in [Callee.all] order. *)
-let reached used =
-  let rec close acc = function
-    | [] -> acc
-    | c :: rest ->
-        if List.mem c acc then close acc rest
-        else close (c :: acc) (R.Callee.deps c @ rest)
-  in
-  let set = close [] used in
-  List.filter (fun c -> List.mem c set) R.Callee.all
-
-let link st (kernel : Wasm.Func.t) =
-  let callees = reached st.used in
-  let imports =
-    List.filter (fun c -> Option.is_some (R.Callee.import c)) callees
-  in
-  let defined =
-    List.filter (fun c -> Option.is_none (R.Callee.import c)) callees
-  in
-  let n_imports = List.length imports in
-  let position c l =
-    let rec go i = function
-      | [] -> invalid_arg "Loop_wasm.link: callee not reached"
-      | c' :: rest -> if c = c' then i else go (i + 1) rest
-    in
-    go 0 l
-  in
-  let final pseudo =
-    let c = R.Callee.of_index pseudo in
-    if Option.is_some (R.Callee.import c) then position c imports
-    else n_imports + position c defined
-  in
-  let renumber (f : Wasm.Func.t) =
-    { f with Wasm.Func.body = List.map (I.map_calls final) f.Wasm.Func.body }
-  in
-  let funcs =
-    List.map (fun c -> renumber (Option.get (R.body c))) defined
-    @ [ renumber kernel ]
-  in
-  let imports =
-    List.map
-      (fun c ->
-        {
-          Wasm.Import.module_name = R.import_module;
-          name = Option.get (R.Callee.import c);
-          type_ = R.signature c;
-        })
-      imports
-  in
-  (imports, funcs, n_imports + List.length defined)
-
-let align16 x = Int64.logand (Int64.add x 15L) (Int64.lognot 15L)
-
-let lower (p : Loop_program.t) : (t, error) Err.t =
+let kernel_exact ~table_alloc (p : Loop_program.t) : (kernel, error) Err.t =
   Err.Escape.with_escape (fun esc ->
       let buffers = Hashtbl.create 8 in
       List.iteri
@@ -312,7 +269,7 @@ let lower (p : Loop_program.t) : (t, error) Err.t =
         {
           esc;
           extra = [];
-          n_params = List.length p.Loop_program.buffers;
+          n_params = 1 + List.length p.Loop_program.buffers;
           vars = Hashtbl.create 8;
           bounds = Hashtbl.create 8;
           floats = Hashtbl.create 8;
@@ -321,7 +278,8 @@ let lower (p : Loop_program.t) : (t, error) Err.t =
           buffers;
           tables = Hashtbl.create 4;
           arrays = Hashtbl.create 4;
-          static_top = Int64.of_int W.record_bytes;
+          local_top = 0L;
+          table_alloc;
           used = [];
           meter = None;
           sites = F.sites p;
@@ -336,8 +294,8 @@ let lower (p : Loop_program.t) : (t, error) Err.t =
             | None -> []
             | Some params ->
                 let bytes = 8 * List.length params in
-                let scales = reserve st (Int64.of_int bytes) in
-                let zeros = reserve st (Int64.of_int bytes) in
+                let scales = table_alloc ~bytes in
+                let zeros = table_alloc ~bytes in
                 Hashtbl.replace st.tables
                   (Tensor_id.to_int b.Loop_buffer.id)
                   (scales, zeros);
@@ -364,20 +322,58 @@ let lower (p : Loop_program.t) : (t, error) Err.t =
         | Some (remaining, _) ->
             [ I.I64_const (Expr.Scan_limits.max_updates limits); set remaining ]
       in
-      let kernel =
-        {
-          Wasm.Func.type_ =
-            {
-              Wasm.Func_type.params =
-                List.map (fun _ -> Wasm_type.I32) p.Loop_program.buffers;
-              results = [ Wasm_type.I32 ];
-            };
-          locals = List.rev st.extra;
-          body = prologue @ body @ [ i32 0 ];
-        }
+      {
+        func =
+          {
+            Wasm.Func.type_ =
+              {
+                Wasm.Func_type.params =
+                  Wasm_type.I32
+                  :: List.map (fun _ -> Wasm_type.I32) p.Loop_program.buffers;
+                results = [ Wasm_type.I32 ];
+              };
+            locals = List.rev st.extra;
+            body = prologue @ body @ [ i32 0 ];
+          };
+        callees = Loop_wasm_link.reached st.used;
+        local_bytes = st.local_top;
+        data;
+        sites = st.sites;
+      })
+
+(* Widened for a caller that composes it with other errors, which would
+   otherwise have to name this row's tags itself. *)
+let kernel ~table_alloc p =
+  Err.map_error
+    (fun (e : error) ->
+      match e with
+      | `Index_constant_out_of_range _ as e -> e
+      | `Local_arrays_too_large _ as e -> e)
+    (kernel_exact ~table_alloc p)
+
+let align16 x = Int64.logand (Int64.add x 15L) (Int64.lognot 15L)
+
+let lower (p : Loop_program.t) : (t, error) Err.t =
+  (* The module's own bytes: the error record, then constant tables as the
+     kernel asks for them, then the local region, then the host's buffers. *)
+  let top =
+    ref (Int64.of_int (Int64.to_int (align16 (Int64.of_int W.record_bytes))))
+  in
+  let table_alloc ~bytes =
+    let off = align8 !top in
+    top := Int64.add off (Int64.of_int bytes);
+    Int64.to_int off
+  in
+  Err.map
+    (fun (k : kernel) ->
+      let imports, funcs, base =
+        Loop_wasm_link.link ~callees:k.callees [ k.func ]
       in
-      let imports, funcs, kernel_index = link st kernel in
-      let heap_base = Int64.to_int (align16 st.static_top) in
+      let local_base = Int64.to_int (align16 !top) in
+      let heap_base =
+        Int64.to_int
+          (align16 (Int64.add (Int64.of_int local_base) k.local_bytes))
+      in
       let pages = max 1 ((heap_base + 65535) / 65536) in
       {
         module_ =
@@ -391,15 +387,17 @@ let lower (p : Loop_program.t) : (t, error) Err.t =
                 { Wasm.Export.name = "memory"; kind = Wasm.Export.Memory };
                 {
                   Wasm.Export.name = function_name;
-                  kind = Wasm.Export.Func kernel_index;
+                  kind = Wasm.Export.Func base;
                 };
               ];
-            data;
+            data = k.data;
             customs = [ { Wasm.Custom.name = "abi"; payload = "loop-wasm/1" } ];
           };
+        local_base;
         heap_base;
-        sites = st.sites;
+        sites = k.sites;
       })
+    (kernel_exact ~table_alloc p)
 
 let with_pages t ~pages =
   match t.module_.Wasm.Module.memory with

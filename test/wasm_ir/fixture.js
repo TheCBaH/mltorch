@@ -13,6 +13,7 @@ assert.strictEqual(e.fact(21n), BigInt.asIntN(64, 51090942171709440000n)); // wr
 assert.strictEqual(e.pick(1, 16), 65);
 assert.strictEqual(e.pick(1, 17), 66);
 assert.strictEqual(e.pick(0, 0x7FFFFFFF), -1); // the load is lazy: no trap
+assert.strictEqual(e.fill_copy(256), 0x07070707);
 assert.strictEqual(e.bump(), 6);
 assert.strictEqual(e.counter.value, 6);
 assert.strictEqual(e.put_f32(128, 16777217), 16777216);

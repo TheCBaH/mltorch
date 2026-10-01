@@ -18,6 +18,8 @@ type error =
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
+module Host = Wasm_host
+
 val node : string list ref
 (** The command that runs a script: [["node"]]. *)
 

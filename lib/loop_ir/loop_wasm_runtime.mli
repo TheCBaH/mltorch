@@ -12,6 +12,7 @@ module Callee : sig
     | Exp
     | F16_to_float
     | Fail_set
+    | Fill_f32
     | Floor_div
     | I64_div
     | Log

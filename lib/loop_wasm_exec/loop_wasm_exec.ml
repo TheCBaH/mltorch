@@ -13,24 +13,29 @@ let pp_error ppf : [< error ] -> unit = function
   | `Wasm_unsupported e -> Loop_wasm.pp_error ppf e
   | #Loop_interp.error as e -> Loop_interp.pp_error ppf e
 
+module Host = Wasm_host
+
 let ( let* ) = Result.bind
-let node = ref [ "node" ]
+let node = Wasm_host.node
 let word_bytes = 8
 let read_i32 s pos = Int32.to_int (String.get_int32_le s pos)
 
 (* The runner reads the module and the input blob, places the blob at
-   [heap_base], calls [loop_kernel] with one pointer per buffer, and writes
+   [heap_base] (the local region before it poisoned), calls [loop_kernel] with
+   the local base and one pointer per buffer, and writes
    [status, kind, v[12], blob]: the C host's result file, so one decoder
    serves both. The math imports are the host's [Math]. *)
 let runner =
   {|const fs = require("fs");
-const [wasmPath, inPath, outPath, heapBase, total, ...offsets] = process.argv.slice(2);
+const [wasmPath, inPath, outPath, heapBase, total, localBase, ...offsets] = process.argv.slice(2);
 const inst = new WebAssembly.Instance(new WebAssembly.Module(fs.readFileSync(wasmPath)),
   { math: { exp: Math.exp, log: Math.log, sin: Math.sin, cos: Math.cos } });
 const mem = inst.exports.memory.buffer;
-const base = Number(heapBase), size = Number(total);
+const base = Number(heapBase), size = Number(total), local = Number(localBase);
+// The local region starts dirty: a kernel zeroes what it uses.
+new Uint8Array(mem).fill(0xAB, local, base);
 new Uint8Array(mem).set(fs.readFileSync(inPath), base);
-const rc = inst.exports.loop_kernel(...offsets.map((o) => base + Number(o)));
+const rc = inst.exports.loop_kernel(local, ...offsets.map((o) => base + Number(o)));
 const out = Buffer.alloc(104 + size);
 out.writeInt32LE(rc, 0);
 out.writeInt32LE(new DataView(mem).getInt32(0, true), 4);
@@ -112,6 +117,7 @@ let exec ?(outputs = fun _ -> None) (p : Loop_program.t) ~bind =
                 result_file;
                 string_of_int heap_base;
                 string_of_int total;
+                string_of_int lowered.Loop_wasm.local_base;
               ]
             @ List.map string_of_int offsets
           in

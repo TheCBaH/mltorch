@@ -119,6 +119,8 @@ let rec instr b (i : Wasm.Instr.t) =
       block_type b bt;
       List.iter (instr b) body;
       byte b 0x0B
+  | Wasm.Instr.Memory_copy -> List.iter (byte b) [ 0xFC; 0x0A; 0x00; 0x00 ]
+  | Wasm.Instr.Memory_fill -> List.iter (byte b) [ 0xFC; 0x0B; 0x00 ]
   | Wasm.Instr.Numeric op -> List.iter (byte b) (Wasm_op.bytes op)
   | Wasm.Instr.Return -> byte b 0x0F
   | Wasm.Instr.Select -> byte b 0x1B

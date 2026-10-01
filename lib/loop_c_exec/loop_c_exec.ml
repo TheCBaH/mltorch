@@ -95,6 +95,7 @@ let source p =
       Err.return (text, List.map string_of_int offsets)
 
 module Blob = C_blob
+module Payload_io = C_payload_io
 
 let memo : (string, string) Hashtbl.t = Hashtbl.create 16
 

@@ -25,6 +25,7 @@ val compiler : string list ref
 module Proc = C_proc
 module Host = C_host
 module Blob = C_blob
+module Payload_io = C_payload_io
 
 val layout : Loop_program.t -> int list * int
 (** Byte offset of each buffer in the blob that holds every buffer, and the

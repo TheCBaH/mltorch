@@ -226,6 +226,9 @@ let rec instr ctx st (i : Wasm.Instr.t) =
       List.iter (instr ctx st) body;
       pop_frame ctx st;
       push_all st results
+  | Wasm.Instr.Memory_copy | Wasm.Instr.Memory_fill ->
+      if not ctx.has_memory then throw ctx Reason.Memory_required;
+      pop_all ctx st [ Wasm_type.I32; Wasm_type.I32; Wasm_type.I32 ]
   | Wasm.Instr.Numeric op ->
       let params, results = Wasm_op.signature op in
       pop_all ctx st params;

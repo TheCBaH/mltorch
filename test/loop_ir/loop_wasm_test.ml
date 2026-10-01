@@ -26,23 +26,23 @@ let%expect_test "a kernel is one exported function over linear memory" =
     {|
       (module
         (memory 1)
-        (func 0 (param i32 i32) (result i32)
+        (func 0 (param i32 i32 i32) (result i32)
           (local i32)
           i32.const 0
-          local.set 2
+          local.set 3
           block
             loop
-              local.get 2
+              local.get 3
               i32.const 4
               i32.ge_s
               br_if 1
-              local.get 1
               local.get 2
+              local.get 3
               i32.const 2
               i32.shl
               i32.add
-              local.get 0
-              local.get 2
+              local.get 1
+              local.get 3
               i32.const 2
               i32.shl
               i32.add
@@ -52,10 +52,10 @@ let%expect_test "a kernel is one exported function over linear memory" =
               f64.mul
               f32.demote_f64
               f32.store offset=0 align=4
-              local.get 2
+              local.get 3
               i32.const 1
               i32.add
-              local.set 2
+              local.set 3
               br 0
             end
           end
@@ -159,15 +159,15 @@ let%expect_test "one module per failure constructor, stable across backends" =
           { local = None; row = i0; lane = Loop_index.Const 1; extent = 2 }));
   [%expect
     {|
-    gather                 239 bytes, md5 945224237e3e5b9784faab3de1e11dbd
-    i64 division by zero   225 bytes, md5 f7ac7a8926349791f9b1b72736b52ff0
-    i64 division overflow  225 bytes, md5 eff58f60ebe5a25363bbade721ffb18c
-    i64 from float         286 bytes, md5 14377ef2d12de351ea60d304a1132d0f
-    index overflow         323 bytes, md5 c746ed6348e88a5fd1c0736dfa237d02
-    load out of range      454 bytes, md5 06bd3517c0ec58bddcb069ee73911af8
-    local out of range     232 bytes, md5 ca51c525dfbf665e47157df478aebc25
-    scan lane              269 bytes, md5 76b614fc29d6d3912038ae8cea4a5bae
-    scan row               269 bytes, md5 53ec7262a4a5b6dccd26bfe08f45a490 |}]
+    gather                 240 bytes, md5 ca919d65659454900a20d770a3d35544
+    i64 division by zero   226 bytes, md5 3cc15f0b0d4baf84f693b0205ba9bf31
+    i64 division overflow  226 bytes, md5 0cfe428c45a57d8f3f8bdb4120a4fe12
+    i64 from float         287 bytes, md5 fc19fc1bc1aab1a16512ab0823d5a60d
+    index overflow         324 bytes, md5 07eb66d3555d4f4822fd496402a29d23
+    load out of range      455 bytes, md5 def5557e43d6d068d2f1e692d6384b7f
+    local out of range     233 bytes, md5 d6cca77caa1f0cfe818e0224d48e4124
+    scan lane              270 bytes, md5 350c621696159eab69280a38ed1a1877
+    scan row               270 bytes, md5 e9acb33106434c4cbc9c58848a8f00af |}]
 
 let%expect_test "constants outside the 32-bit index domain are refused" =
   let p =
@@ -182,3 +182,57 @@ let%expect_test "constants outside the 32-bit index domain are refused" =
   | Ok _ -> Fmt.pr "accepted@."
   | Error e -> Fmt.pr "%a@." Loop_wasm.pp_error e);
   [%expect {| index constant 0 is not a valid 32-bit index operand |}]
+
+(* ---- whole models: bytes and layouts, native and 32-bit [int] -------------- *)
+
+let model_summary g =
+  let b =
+    Err.or_raise ~pp_error:Loop_bundle.pp_error
+      (Loop_bundle.build ~config:Loop_bundle_wasm.default_config g)
+  in
+  let w =
+    Err.or_raise ~pp_error:Loop_bundle_wasm.pp_error (Loop_bundle_wasm.build b)
+  in
+  let st = w.Loop_bundle_wasm.stats in
+  Fmt.str "%d invocations, %d kernels, %d bytes, md5 %s, memory %d bytes"
+    st.Loop_bundle_wasm.invocations st.Loop_bundle_wasm.distinct_kernels
+    st.Loop_bundle_wasm.module_bytes
+    (Digest.to_hex w.Loop_bundle_wasm.identity)
+    w.Loop_bundle_wasm.placement.Loop_bundle_wasm.Placement.total
+
+let%expect_test "whole-model modules are identical natively and under jsoo" =
+  List.iter
+    (fun (name, g) -> Fmt.pr "%-12s %s@." name (model_summary g))
+    [
+      ("chain", Native_test.Graph_fixtures.chain ());
+      ("residual", Native_test.Graph_fixtures.residual ());
+      ("layer_norm", Native_test.Graph_fixtures.sink_permute_layer_norm ());
+      ("sdpa", Native_test.Graph_fixtures.sink_permute_sdpa ());
+    ];
+  [%expect
+    {|
+    chain        3 invocations, 3 kernels, 935 bytes, md5 97246f834f7160adb3dc8dec061ab634, memory 1408 bytes
+    residual     3 invocations, 2 kernels, 453 bytes, md5 c756474f6c8cd53a32161975024daa32, memory 640 bytes
+    layer_norm   2 invocations, 2 kernels, 899 bytes, md5 84cb2209bd3c90ac5457073f3b2ccd0f, memory 1024 bytes
+    sdpa         2 invocations, 2 kernels, 1186 bytes, md5 7cbce0f175154662a31f39a8959cf9ef, memory 2048 bytes |}]
+
+let%expect_test "an unsupported storage configuration is refused, not degraded"
+    =
+  let g = Native_test.Graph_fixtures.chain () in
+  (match
+     Err.payload
+       (Loop_bundle.build
+          ~config:
+            {
+              Loop_bundle_wasm.default_config with
+              Storage_script.Config.inputs = Storage_script.Ownership.Copied;
+            }
+          g)
+   with
+  | Error e -> Fmt.pr "bundle: %a@." Loop_bundle.pp_error e
+  | Ok b -> (
+      match Err.payload (Loop_bundle_wasm.build b) with
+      | Error e -> Fmt.pr "refused: %a@." Loop_bundle_wasm.pp_error e
+      | Ok _ -> Fmt.pr "accepted@."));
+  [%expect
+    {| refused: storage config layout=separate constants=borrowed inputs=copied: the whole-model backends admit only separate layout with borrowed constants and inputs |}]

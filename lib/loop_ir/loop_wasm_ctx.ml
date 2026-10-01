@@ -31,8 +31,11 @@ type st = {
   indices : (int, int) Hashtbl.t;
   buffers : (int, int) Hashtbl.t;  (** tensor id -> parameter position *)
   tables : (int, int * int) Hashtbl.t;  (** per-channel scale and zero tables *)
-  arrays : (int, int) Hashtbl.t;  (** array id -> static byte offset *)
-  mutable static_top : int64;
+  arrays : (int, int) Hashtbl.t;
+      (** array id -> byte offset from the [local] base pointer *)
+  mutable local_top : int64;
+  table_alloc : bytes:int -> int;
+      (** reserves [bytes] of constant data, returning its absolute address *)
   mutable used : R.Callee.t list;
   mutable meter : (int * int) option;  (** [scan_remaining], [scan_live] *)
   sites : Loop_failure.t array;
@@ -75,18 +78,21 @@ let ftemp st t = local st.floats st (Loop_temp.to_int t) Wasm_type.F64
 let itemp st t = local st.int64s st (Loop_temp.to_int t) Wasm_type.I64
 let xtemp st t = local st.indices st (Loop_temp.to_int t) Wasm_type.I32
 
+(* Parameter 0 is the [local] base pointer, so buffer [k] is parameter [k + 1]. *)
 let buffer_param st (b : Loop_buffer.t) =
-  Hashtbl.find st.buffers (Tensor_id.to_int b.Loop_buffer.id)
+  1 + Hashtbl.find st.buffers (Tensor_id.to_int b.Loop_buffer.id)
 
 let align8 x = Int64.logand (Int64.add x 7L) (Int64.lognot 7L)
 
-(* Reserves [bytes] of the static region, 8-aligned. *)
-let reserve st bytes =
-  let off = align8 st.static_top in
+(* Reserves [bytes] of the kernel's local region, 8-aligned, relative to the
+   [local] base the caller passes: invocations run one after another, so every
+   kernel's arrays overlay the same region. *)
+let reserve_local st bytes =
+  let off = align8 st.local_top in
   let top = Int64.add off bytes in
   if Int64.compare top static_cap > 0 then
     refuse st (`Local_arrays_too_large top);
-  st.static_top <- top;
+  st.local_top <- top;
   Int64.to_int off
 
 (* The per-axis coordinates of [Loop_ir]'s accesses become one row-major offset,
