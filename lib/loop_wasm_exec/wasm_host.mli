@@ -35,6 +35,7 @@ val node : string list ref
 (** The command that runs a script: [["node"]]. *)
 
 val prepare :
+  ?simd:bool ->
   dir:string ->
   Loop_bundle.t ->
   constants:(Tensor_id.t -> Tensor.packed option) ->

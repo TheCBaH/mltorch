@@ -26,6 +26,7 @@ val node : string list ref
 (** The command that runs a script: [["node"]]. *)
 
 val exec :
+  ?simd:bool ->
   ?outputs:(Tensor_id.t -> Tensor.packed option) ->
   Loop_program.t ->
   bind:(Tensor_id.t -> Tensor.packed option) ->
@@ -43,3 +44,7 @@ val exec_counted :
 
 val executor : Loop_check.Executor.t
 (** [exec] as a differential-harness executor, to {!Loop_check.install}. *)
+
+val executor_simd : Loop_check.Executor.t
+(** [executor] over modules lowered with [simd]: the strict 128-bit vector
+    loops, which must produce the same bits as the scalar executor. *)

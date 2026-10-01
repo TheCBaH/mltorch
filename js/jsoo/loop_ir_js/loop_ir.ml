@@ -63,3 +63,4 @@ module Loop_wasm_failure = Loop_wasm_failure
 module Loop_wasm_link = Loop_wasm_link
 module Loop_wasm_runtime = Loop_wasm_runtime
 module Loop_wasm_value = Loop_wasm_value
+module Loop_wasm_vector = Loop_wasm_vector

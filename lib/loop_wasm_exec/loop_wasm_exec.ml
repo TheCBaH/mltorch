@@ -61,13 +61,13 @@ let runner_path =
 
 let max_bytes = 0x8000_0000L
 
-let exec_gen ~count_marks ?(outputs = fun _ -> None) (p : Loop_program.t) ~bind
-    =
+let exec_gen ~simd ~count_marks ?(outputs = fun _ -> None) (p : Loop_program.t)
+    ~bind =
   let result : (Tensor.packed Tensor_id.Map.t * int list, error) result =
     let* lowered =
       Result.map_error
         (fun e -> `Wasm_unsupported e)
-        (Err.payload (Loop_wasm.lower ~count_marks p))
+        (Err.payload (Loop_wasm.lower ~simd ~count_marks p))
     in
     let* tensors =
       (C.bind_buffers ~outputs p ~bind
@@ -181,17 +181,17 @@ let exec_gen ~count_marks ?(outputs = fun _ -> None) (p : Loop_program.t) ~bind
   in
   match result with Ok m -> Err.return m | Error e -> Err.fail e
 
-let exec ?outputs p ~bind =
-  Err.map fst (exec_gen ~count_marks:false ?outputs p ~bind)
+let exec ?(simd = false) ?outputs p ~bind =
+  Err.map fst (exec_gen ~simd ~count_marks:false ?outputs p ~bind)
 
 let exec_counted ?outputs p ~bind =
   Err.map
     (fun (m, counts) -> (m, List.combine Loop_mark.all counts))
-    (exec_gen ~count_marks:true ?outputs p ~bind)
+    (exec_gen ~simd:false ~count_marks:true ?outputs p ~bind)
 
-let executor : Loop_check.Executor.t =
+let executor_with ~simd : Loop_check.Executor.t =
  fun p ~bind ->
-  match Err.payload (exec p ~bind) with
+  match Err.payload (exec ~simd p ~bind) with
   | Ok m -> Err.return m
   | Error (#Loop_interp.error as e) -> Err.fail (e :> Loop_check.Executor.error)
   | Error (`Wasm_host m) -> Err.fail (`Js_exception ("Wasm host: " ^ m))
@@ -202,3 +202,6 @@ let executor : Loop_check.Executor.t =
   | Error (`Wasm_unsupported u) ->
       Err.fail
         (`Js_exception (Fmt.str "Wasm unsupported: %a" Loop_wasm.pp_error u))
+
+let executor = executor_with ~simd:false
+let executor_simd = executor_with ~simd:true

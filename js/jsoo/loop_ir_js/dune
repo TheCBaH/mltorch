@@ -29,7 +29,7 @@
 
 (copy_files
  (files
-  %{workspace_root}/lib/loop_ir/{loop_array,loop_bool,loop_buffer,loop_carrier,loop_expr,loop_failure,loop_index,loop_lower_ctx,loop_lower_index,loop_lower_region,loop_lower_value,loop_mark,loop_program,loop_stmt,loop_stored,loop_temp,loop_unsupported,loop_var,loop_wasm_ctx,loop_wasm_fail,loop_wasm_value}.ml))
+  %{workspace_root}/lib/loop_ir/{loop_array,loop_bool,loop_buffer,loop_carrier,loop_expr,loop_failure,loop_index,loop_lower_ctx,loop_lower_index,loop_lower_region,loop_lower_value,loop_mark,loop_program,loop_stmt,loop_stored,loop_temp,loop_unsupported,loop_var,loop_wasm_ctx,loop_wasm_fail,loop_wasm_value,loop_wasm_vector}.ml))
 
 (library
  (name loop_ir_js)
