@@ -131,12 +131,16 @@ module Instr = struct
   (* Renumbers every [Call], so a producer can emit calls to symbolic callees
      and fix the function index space once the module's imports and helpers
      are known. *)
-  let rec map_calls f = function
-    | Block (bt, l) -> Block (bt, List.map (map_calls f) l)
+  let rec map_calls f =
+    (* [List.map] is not tail-recursive and a kernel body can be thousands of
+       instructions long: js_of_ocaml's stack is far shallower than a native
+       one. *)
+    let map l = List.rev (List.rev_map (map_calls f) l) in
+    function
+    | Block (bt, l) -> Block (bt, map l)
     | Call n -> Call (f n)
-    | If (bt, yes, no) ->
-        If (bt, List.map (map_calls f) yes, List.map (map_calls f) no)
-    | Loop (bt, l) -> Loop (bt, List.map (map_calls f) l)
+    | If (bt, yes, no) -> If (bt, map yes, map no)
+    | Loop (bt, l) -> Loop (bt, map l)
     | ( Br _ | Br_if _ | Drop | F32_const _ | F64_const _ | Global_get _
       | Global_set _ | I32_const _ | I64_const _ | Load _ | Local_get _
       | Local_set _ | Local_tee _ | Memory_copy | Memory_fill | Numeric _

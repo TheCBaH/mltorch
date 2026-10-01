@@ -6,6 +6,9 @@ module I = Wasm.Instr
 module R = Loop_wasm_runtime
 module L = Loop_wasm_link
 
+let ( @ ) a b = List.rev_append (List.rev a) b
+let concat l = List.concat_map Fun.id l
+
 module Placement = struct
   type t = {
     weights : int;
@@ -185,9 +188,9 @@ let invocation ws ~position ~kernel (inv : Loop_bundle.invocation)
          (List.combine buffers inv.Loop_bundle.edges))
   in
   Err.return
-    (List.concat (List.rev inits)
+    (concat (List.rev inits)
     @ local
-    @ List.concat (List.rev args)
+    @ concat (List.rev args)
     @ [
         L.kernel_call kernel;
         I.If
@@ -275,7 +278,7 @@ let build (b : Loop_bundle.t) : (t, error) Err.t =
           results = [ Wasm_type.I32 ];
         };
       locals = [];
-      body = List.concat calls @ List.concat copies @ [ I.I32_const 0l ];
+      body = concat calls @ concat copies @ [ I.I32_const 0l ];
     }
   in
   (* The callees: every kernel's, and [model_run]'s own [Fill_f32]. *)

@@ -19,7 +19,7 @@
 	arena.eval arena.eval.report arena.schedule.eval arena.schedule.eval.report pt2.json-model-support pt2.runtest pt2.vars runtest spike.runtest \
 	spike.setup tailcall.js-benchmark tailcall.runtest test \
 	verify.pristine visualizer.build visualizer.patch \
-	visualizer.submodule wasm.pt2.bench wasm.pt2.exe wasm.pt2.run wasm.pt2.runtest wasm.runtest webapp.bridge-runtest webapp.browser-runtest \
+	visualizer.submodule wasm.jsoo.pt2.runtest wasm.jsoo.runtest wasm.pt2.bench wasm.pt2.exe wasm.pt2.run wasm.pt2.runtest wasm.runtest webapp.bridge-runtest webapp.browser-runtest \
 	webapp.build webapp.npm-install webapp.runtest webapp.serve
 all: build
 
@@ -924,6 +924,28 @@ wasm.runtest:
 	MLTORCH_WASM=1 NO_COLOR=1 opam exec -- dune build --force \
 	  @test/wasm_ir/runtest @test/wasm_ir/runtest-js \
 	  @test/loop_wasm/runtest @test/loop_ir/runtest-js
+
+# The Wasm backend generated AND run inside the JavaScript build of the compiler
+# (js/loop_wasm_host): the in-process host's fixtures under node, the
+# promise-based preparation path, and the node-vs-jsoo agreement of the
+# generated module. wasm.jsoo.pt2.runtest runs one real model (JS_PT2_MODEL,
+# already downloaded for jsoo.pt2.runtest) through the JS build with --strict
+# and warm repeats on one instance, and requires the module it emitted to be
+# byte-identical (same digest) to the native compiler's.
+wasm.jsoo.runtest:
+	NO_COLOR=1 opam exec -- dune build @js/loop_wasm_host/test/runtest-js \
+	  @js/loop_wasm_host/test/wasm-jsoo-gate
+
+wasm.jsoo.pt2.runtest: jsoo.pt2.download
+	opam exec -- dune build js/jsoo/loop_wasm_pt2_js/loop_wasm_pt2_js.bc.js bin/loop_wasm_pt2.exe
+	cd $(JS_PT2_DIR) && \
+	  node $(CURDIR)/_build/default/js/jsoo/loop_wasm_pt2_js/loop_wasm_pt2_js.bc.js \
+	    $(JS_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt --strict --repeat=3 --samples=1 \
+	    | grep '^module identity' > $(CURDIR)/_build/wasm_jsoo.identity && \
+	  $(CURDIR)/$(WASM_PT2_EXE) $(JS_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt --samples=1 \
+	    2>/dev/null | grep '^module identity' > $(CURDIR)/_build/wasm_native.identity
+	diff -u _build/wasm_native.identity _build/wasm_jsoo.identity
+	@echo "wasm jsoo: $(JS_PT2_MODEL) generated in JavaScript, byte-identical to the native module, ranking verified"
 
 # The whole-model Wasm backend (Loop_bundle_wasm, lib/loop_wasm_exec) on real
 # downloaded models, under node. wasm.pt2.runtest is the gate: every CI model

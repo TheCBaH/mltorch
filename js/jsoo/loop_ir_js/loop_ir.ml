@@ -13,6 +13,7 @@ module Loop_bundle = Loop_bundle
 module Loop_bundle_js = Loop_bundle_js
 module Loop_bundle_wasm = Loop_bundle_wasm
 module Loop_carrier = Loop_carrier
+module Loop_c_failure = Loop_c_failure
 module Loop_check = Loop_check
 module Loop_expr = Loop_expr
 module Loop_failure = Loop_failure

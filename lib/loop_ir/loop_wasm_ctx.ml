@@ -3,6 +3,12 @@ module R = Loop_wasm_runtime
 module F = Loop_js_failure
 module W = Loop_wasm_failure
 
+(* A kernel's instruction lists run to thousands of elements, and the stock
+   [@] and [List.map] recurse once per element: fine natively, a stack
+   overflow under js_of_ocaml. Every file that opens this module gets the
+   tail-recursive [@]. *)
+let ( @ ) a b = List.rev_append (List.rev a) b
+let map f l = List.rev (List.rev_map f l)
 let function_name = "loop_kernel"
 let error_address = 0
 

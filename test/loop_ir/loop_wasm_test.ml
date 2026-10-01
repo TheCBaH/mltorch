@@ -236,3 +236,20 @@ let%expect_test "an unsupported storage configuration is refused, not degraded"
       | Ok _ -> Fmt.pr "accepted@."));
   [%expect
     {| refused: storage config layout=separate constants=borrowed inputs=copied: the whole-model backends admit only separate layout with borrowed constants and inputs |}]
+
+(* js_of_ocaml's stack is far shallower than a native one: a kernel body of tens
+   of thousands of statements must lower without recursing once per element. *)
+let%expect_test
+    "a very long kernel body lowers and encodes under a shallow stack" =
+  let b = buffer 1 (shape_w 2) f32 Loop_buffer.Output in
+  let store k =
+    Loop_stmt.Store
+      {
+        buffer = b;
+        coord = at_w (Loop_index.Const (k land 1));
+        value = Loop_stored.F32 (Loop_expr.Const (float_of_int k));
+      }
+  in
+  let p = program ~buffers:[ b ] (List.init 60_000 store) in
+  Fmt.pr "%s@." (summary p);
+  [%expect {| 1260081 bytes, md5 9d5366ae7edb55f062d6a5c66094841c |}]

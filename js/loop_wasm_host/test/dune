@@ -1,0 +1,51 @@
+; The in-process Wasm host's tests: js_of_ocaml only, run under node by
+; `make jsoo.inline-runtest`. Each compares the model's outputs against the
+; per-node evaluator on the same graph, bitwise. The module is generated here,
+; in the JavaScript build of the compiler, and run through node's own
+; [WebAssembly]: no process, no file and no external tool is involved.
+
+(library
+ (name loop_wasm_host_test)
+ (modules loop_wasm_host_test)
+ (libraries
+  core
+  err_trace
+  fmt
+  js_of_ocaml
+  loop_ir
+  loop_wasm_host
+  native
+  native_test)
+ (inline_tests
+  (modes js))
+ (preprocess
+  (pps ppx_expect)))
+
+; [prepare_async] compiles through the promise API, which a browser's main
+; thread requires for a large module. Its continuation runs on a later turn of
+; the event loop, after an inline test would already have finished, so this is
+; an executable run under node by `make wasm.jsoo.runtest`, not an inline test.
+
+(executable
+ (name async_probe)
+ (modes js)
+ (modules async_probe)
+ (libraries
+  core
+  err_trace
+  fmt
+  js_of_ocaml
+  loop_ir
+  loop_wasm_host
+  native
+  native_test))
+
+(rule
+ (alias wasm-jsoo-gate)
+ (deps async_probe.bc.js)
+ (action
+  (progn
+   (with-stdout-to
+    async.actual
+    (run node async_probe.bc.js))
+   (diff async.expected async.actual))))

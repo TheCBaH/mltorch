@@ -1,6 +1,9 @@
 module I = Wasm.Instr
 module R = Loop_wasm_runtime
 
+let ( @ ) a b = List.rev_append (List.rev a) b
+let map f l = List.rev (List.rev_map f l)
+
 (* The callees a kernel reached, closed under what the helpers themselves call,
    in [Callee.all] order. *)
 let reached used =
@@ -41,11 +44,11 @@ let link ~callees kernels =
       else n_imports + position c defined
   in
   let renumber (f : Wasm.Func.t) =
-    { f with Wasm.Func.body = List.map (I.map_calls final) f.Wasm.Func.body }
+    { f with Wasm.Func.body = map (I.map_calls final) f.Wasm.Func.body }
   in
   let funcs =
-    List.map (fun c -> renumber (Option.get (R.body c))) defined
-    @ List.map renumber kernels
+    map (fun c -> renumber (Option.get (R.body c))) defined
+    @ map renumber kernels
   in
   let imports =
     List.map

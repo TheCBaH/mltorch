@@ -183,6 +183,24 @@ byte-identical to the C backend's except for the identity in their headers.
   prints the failure record (exit 5) or a timing line (compile, instantiate,
   copy in, first run, warm run, copy out).
 
+## In-process host (js_of_ocaml)
+
+`js/loop_wasm_host` (mirrored in `js/jsoo/loop_wasm_host_js`) generates the
+module with the JavaScript build of the compiler and runs it through the host's
+own `WebAssembly`: no process, file or external tool. `prepare` compiles
+synchronously (node, workers); `prepare_async` uses `WebAssembly.instantiate`
+for a browser main thread and calls its continuation once, on a later turn.
+Memory is allocated once and never grown; views are retaken every run and
+dropped by `dispose`. Weights are placed once at preparation; each run places
+the inputs, calls `model_run`, and copies outputs into fresh tensors. A trap is
+`Js_exception`; a failure record decodes through `Loop_c_failure` (mirrored)
+into the interpreter's row with the invocation position.
+
+js_of_ocaml's stack is far shallower than a native one: every list in the Wasm
+lowering that can run to thousands of elements uses tail-recursive append and
+map (`Loop_wasm_ctx.( @ )`, `Wasm.Instr.map_calls`), and a 60,000-statement
+kernel in `test/loop_ir/loop_wasm_test.ml` guards it (stock `@` overflows).
+
 ## Kernel module layout
 
 The module defines and exports `memory`. Bytes `[0, heap_base)` are the
@@ -212,6 +230,10 @@ and helpers are known, so unreached helpers are never emitted.
   per failure constructor and for whole-model fixtures, and runs under
   `make jsoo.inline-runtest` too, so native and 32-bit-`int` output agree byte
   for byte.
+- `make wasm.jsoo.runtest`: the in-process host's fixtures under node, and the
+  promise-based preparation gate. `make wasm.jsoo.pt2.runtest`: a real model
+  generated and run inside the JS build, with the module it emitted
+  byte-identical (same digest) to the native compiler's.
 - `make wasm.pt2.runtest` (downloaded models): every CI model through
   `model_run` under node, every graph output bitwise equal to the per-node
   reference (`--shadow`), the release ranking (`--strict`), workspace and

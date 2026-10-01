@@ -1,0 +1,20 @@
+; The whole-model Wasm backend, generated AND run inside the JavaScript build
+; of the compiler: a real downloaded model is lowered, bundled and emitted as a
+; WebAssembly module in-process, instantiated through node's own [WebAssembly]
+; and run, with no native process and no external compiler involved.
+; js_of_ocaml only, like loop_js_pt2.
+
+(executable
+ (name loop_wasm_pt2_js)
+ (modes js)
+ (modules loop_wasm_pt2_js)
+ (libraries
+  err_trace
+  infer_report
+  js_of_ocaml
+  loop_ir_js
+  loop_wasm_host_js
+  native_js
+  native_interp_js
+  native_predict_js
+  pt2))
