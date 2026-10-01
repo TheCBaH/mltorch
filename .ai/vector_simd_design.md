@@ -127,3 +127,42 @@ Reading it:
   loop vectorizer leaves alone, not from the pointwise loops it already
   handles. That is S6's question; S3-S4 build the shared machinery on the
   simple loops first.
+
+## Implemented decisions (S2-S6 first pass)
+
+- **One vector layer, three consumers.** `Loop_vector` (types), `Loop_vector_check`
+  (verifier), `Loop_vector_expand` (oracle), `Loop_vectorize` (analysis),
+  `Loop_target` (legality and cost) are backend-free and js_of_ocaml-reachable;
+  `Loop_wasm_vector` (`f64x2`, two registers per four logical lanes) and the
+  vector section of `Loop_c` (GCC/Clang generic vectors) are the only consumers
+  that know a register.
+- **Nested vector loops.** The unit that vectorizes is a loop whose iterations
+  are independent, *including* the loops inside it: a reduction over an inner
+  loop runs once, for all lanes in lockstep, each lane's own accumulator chain
+  in the scalar order. A vector body is therefore a tree: assignments, stores,
+  marks, uniform index temporaries, and `Inner` loops whose bounds do not depend
+  on the lane variable. Vector temporaries are mutable (an accumulator is
+  assigned again by an inner loop); the verifier checks definite assignment, and
+  an inner loop's first assignments do not count after it (it may run zero
+  times). A mark inside is bumped once per lane. Loops are tried innermost first;
+  a loop that holds a vector loop stays scalar around it.
+- **Splats.** A scalar expression independent of the lane variable is broadcast;
+  one that also does not reach an inner loop's variable is computed once, before
+  the loop, and the others where they are used. A splat may not load from a
+  buffer the loop stores.
+- **Aliasing.** Distinct buffers of one invocation are disjoint by construction
+  (every operand and the output are live together, so the allocator places them
+  apart); two accesses of one buffer must be identical.
+- **Strided and gathered accesses are legal and costed.** A gather (a weight
+  matrix read down a column across lanes) is scalar loads assembled into a
+  vector; it is cheaper than it looks because the arithmetic after it is halved.
+  The first cost model priced the assembly at two scalar operations per lane and
+  rejected the loops that win the most; a measurement with every cost zero
+  (`Loop_target.forced`, `--simd-forced`) showed it, and the overhead is now one.
+- **The oracle is independent.** It is built from the vector body alone and is
+  run against the original scalar program; a dropped inner rounding, a wrong
+  stride, and every verifier refusal are tested to be caught.
+- **The test corpus is shared.** `test/loop_ir/loop_vector_programs.ml` is run
+  through the oracle, SIMD Wasm and vectorized C, bitwise, with and without the
+  cost model; every `Loop_check` fixture and the op sweep also run through both
+  backends.

@@ -239,6 +239,159 @@ let all =
                 ];
             };
         ] );
+    ( "matmul: reduction per output",
+      let ic = Loop_index.Var (v 2) and oc = i0 and pp = Loop_index.Var (v 1) in
+      let x k = Loop_expr.Temp (Loop_carrier.Float, temp k) in
+      program ~buffers:[ input; aux; output ]
+        [
+          Loop_stmt.For
+            {
+              var = v 1;
+              lo = Loop_index.Const 0;
+              hi = Loop_index.Const 5;
+              body =
+                [
+                  Loop_stmt.For
+                    {
+                      var = v 0;
+                      lo = Loop_index.Const 0;
+                      hi = Loop_index.Const 8;
+                      body =
+                        [
+                          Loop_stmt.Assign
+                            (Loop_carrier.Float, temp 0, Loop_expr.Const 0.);
+                          Loop_stmt.For
+                            {
+                              var = v 2;
+                              lo = Loop_index.Const 0;
+                              hi = Loop_index.Const 6;
+                              body =
+                                [
+                                  Loop_stmt.Mark Loop_mark.Reduction;
+                                  Loop_stmt.Assign
+                                    ( Loop_carrier.Float,
+                                      temp 1,
+                                      Loop_expr.Const 0. );
+                                  Loop_stmt.Assign
+                                    ( Loop_carrier.Float,
+                                      temp 2,
+                                      Loop_expr.Const 0. );
+                                  Loop_stmt.Assign
+                                    ( Loop_carrier.Float,
+                                      temp 2,
+                                      binary Expr.Value.Add (x 2)
+                                        (binary Expr.Value.Mul
+                                           (ld input
+                                              (Loop_index.Add
+                                                 (Loop_index.Scale (6, pp), ic)))
+                                           (ld aux
+                                              (Loop_index.Add
+                                                 (Loop_index.Scale (6, oc), ic))))
+                                    );
+                                  Loop_stmt.Assign
+                                    ( Loop_carrier.Float,
+                                      temp 1,
+                                      binary Expr.Value.Add (x 1) (x 2) );
+                                  Loop_stmt.Assign
+                                    ( Loop_carrier.Float,
+                                      temp 0,
+                                      binary Expr.Value.Add (x 0) (x 1) );
+                                ];
+                            };
+                          Loop_stmt.Mark Loop_mark.Emitter;
+                          store_f32 output
+                            (Loop_index.Add (Loop_index.Scale (8, pp), oc))
+                            (binary Expr.Value.Add (x 0) (Loop_expr.Const 0.));
+                        ];
+                    };
+                ];
+            };
+        ] );
+    ( "reduction with a triangular inner bound",
+      let ic = Loop_index.Var (v 2) and oc = i0 and pp = Loop_index.Var (v 1) in
+      let x k = Loop_expr.Temp (Loop_carrier.Float, temp k) in
+      program ~buffers:[ input; aux; output ]
+        [
+          Loop_stmt.For
+            {
+              var = v 1;
+              lo = Loop_index.Const 0;
+              hi = Loop_index.Const 4;
+              body =
+                [
+                  Loop_stmt.For
+                    {
+                      var = v 0;
+                      lo = Loop_index.Const 0;
+                      hi = Loop_index.Const 12;
+                      body =
+                        [
+                          Loop_stmt.Assign
+                            (Loop_carrier.Float, temp 0, Loop_expr.Const 1.);
+                          Loop_stmt.For
+                            {
+                              var = v 2;
+                              lo = Loop_index.Const 0;
+                              hi = Loop_index.Add (pp, Loop_index.Const 2);
+                              body =
+                                [
+                                  Loop_stmt.Assign
+                                    ( Loop_carrier.Float,
+                                      temp 0,
+                                      binary Expr.Value.Add (x 0)
+                                        (binary Expr.Value.Mul
+                                           (ld input
+                                              (Loop_index.Add
+                                                 (Loop_index.Scale (4, pp), ic)))
+                                           (ld aux (Loop_index.Add (oc, ic))))
+                                    );
+                                ];
+                            };
+                          store_f32 output
+                            (Loop_index.Add (Loop_index.Scale (12, pp), oc))
+                            (x 0);
+                        ];
+                    };
+                ];
+            };
+        ] );
+    ( "uniform index temporary",
+      let x k = Loop_expr.Temp (Loop_carrier.Float, temp k) in
+      program ~buffers:[ input; aux; output ]
+        [
+          Loop_stmt.For
+            {
+              var = v 1;
+              lo = Loop_index.Const 0;
+              hi = Loop_index.Const 3;
+              body =
+                [
+                  Loop_stmt.Assign_index
+                    (temp 9, Loop_index.Scale (7, Loop_index.Var (v 1)));
+                  Loop_stmt.For
+                    {
+                      var = v 0;
+                      lo = Loop_index.Const 0;
+                      hi = Loop_index.Const 8;
+                      body =
+                        [
+                          Loop_stmt.Assign
+                            ( Loop_carrier.Float,
+                              temp 0,
+                              binary Expr.Value.Mul
+                                (ld input
+                                   (Loop_index.Add (Loop_index.Temp (temp 9), i0)))
+                                (Loop_expr.Const 0.5) );
+                          store_f32 output
+                            (Loop_index.Add
+                               (Loop_index.Scale (8, Loop_index.Var (v 1)), i0))
+                            (binary Expr.Value.Add (x 0)
+                               (ld aux (Loop_index.Temp (temp 9))));
+                        ];
+                    };
+                ];
+            };
+        ] );
     ( "extents around the width: 3",
       loop ~n:3 [ store_f32 output i0 (binary Expr.Value.Mul (ld input i0) c) ]
     );

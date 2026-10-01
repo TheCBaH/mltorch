@@ -51,6 +51,23 @@ type stored = Bool of t | F32 of t
 
 type stmt =
   | Assign of Temp.t * t
+      (** assigns the vector temporary, which an inner loop may update again (an
+          accumulator): per lane, the scalar assignment sequence *)
+  | Index_assign of Loop_temp.t * Loop_index.t
+      (** an index temporary the same for every lane: its value does not depend
+          on the loop variable *)
+  | Inner of {
+      var : Loop_var.t;
+      lo : Loop_index.t;
+      hi : Loop_index.t;
+      body : stmt list;
+    }
+      (** a scalar loop around vector statements, the same trip count for every
+          lane (its bounds do not depend on the loop variable): each iteration
+          runs the body for all lanes in lockstep *)
+  | Mark of Loop_mark.t
+      (** an execution mark, once per lane: [lanes] marks per vector iteration
+      *)
   | Store of { access : Access.t; value : stored }
 
 type loop = {

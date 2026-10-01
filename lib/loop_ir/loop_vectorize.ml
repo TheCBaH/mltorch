@@ -31,7 +31,14 @@ end
 
 module Decision = struct
   type outcome = Vectorized | Kept_scalar of Reason.t
-  type t = { trips : int; executions : int64; ops : int; outcome : outcome }
+
+  type t = {
+    trips : int;
+    work : int64;
+    executions : int64;
+    ops : int;
+    outcome : outcome;
+  }
 end
 
 type report = Decision.t list
@@ -42,15 +49,22 @@ type ctx = {
   var : Loop_var.t;
   loop_temps : Loop_temp.Set.t;
   mutable assigned : V.Temp.t Loop_temp.Map.t;
+      (** the vector temporary each scalar temporary currently names: only what
+          is definitely assigned at this point *)
   mutable next_temp : int;
   mutable ops : (T.Op.t * int) list;
+  mutable weight : int;
+      (** how many times the statement being converted runs per iteration of the
+          loop: the product of the trip counts of the inner loops around it, so
+          the cost model weighs an inner loop's body by its length *)
 }
 
 let count ctx op =
+  let w = ctx.weight in
   ctx.ops <-
     (match List.assoc_opt op ctx.ops with
-    | Some n -> (op, n + 1) :: List.remove_assoc op ctx.ops
-    | None -> (op, 1) :: ctx.ops)
+    | Some n -> (op, n + w) :: List.remove_assoc op ctx.ops
+    | None -> (op, w) :: ctx.ops)
 
 let invariant ctx e = not (F.expr_depends ctx.var ctx.loop_temps e)
 
@@ -187,14 +201,27 @@ let store ctx buffer offset (value : Loop_stored.t) =
           else T.Op.Strided_store);
     Ok (V.Store { access = a; value = v })
 
-let stmt ctx (s : Loop_stmt.t) : (V.stmt list, Reason.t) result =
+let rec stmt ctx (s : Loop_stmt.t) : (V.stmt list, Reason.t) result =
   match s with
   | Loop_stmt.Assign (Loop_carrier.Float, t, e) ->
       let* e = conv ctx e in
-      let vt = V.Temp.of_int ctx.next_temp in
-      ctx.next_temp <- ctx.next_temp + 1;
+      (* A temporary assigned again names the same vector temporary: an
+         accumulator updated by an inner loop. *)
+      let vt =
+        match Loop_temp.Map.find_opt t ctx.assigned with
+        | Some vt -> vt
+        | None ->
+            let vt = V.Temp.of_int ctx.next_temp in
+            ctx.next_temp <- ctx.next_temp + 1;
+            vt
+      in
       ctx.assigned <- Loop_temp.Map.add t vt ctx.assigned;
       Ok [ V.Assign (vt, e) ]
+  | Loop_stmt.Mark m -> Ok [ V.Mark m ]
+  | Loop_stmt.Assign_index (t, i) ->
+      if F.mentions ctx.var i then
+        Error (Reason.Body_statement "index assignment from the loop variable")
+      else Ok [ V.Index_assign (t, i) ]
   | Loop_stmt.Store_flat { buffer; offset; value } ->
       let* st = store ctx buffer offset value in
       Ok [ st ]
@@ -203,17 +230,43 @@ let stmt ctx (s : Loop_stmt.t) : (V.stmt list, Reason.t) result =
       Ok [ st ]
   | Loop_stmt.Assign (Loop_carrier.Int64, _, _) ->
       Error (Reason.Body_statement "int64 assignment")
-  | Loop_stmt.Assign_index _ | Loop_stmt.Assign_index_of_i64 _ ->
+  | Loop_stmt.Assign_index_of_i64 _ ->
       Error (Reason.Body_statement "index assignment")
   | Loop_stmt.Fail_if _ -> Error (Reason.Body_statement "failure check")
-  | Loop_stmt.Mark _ -> Error (Reason.Body_statement "mark")
   | Loop_stmt.Alloc _ | Loop_stmt.Array_set _ ->
       Error (Reason.Body_statement "local array")
   | Loop_stmt.If _ -> Error (Reason.Body_statement "branch")
-  | Loop_stmt.For _ -> Error (Reason.Body_statement "nested loop")
   | Loop_stmt.Charge_scan_update | Loop_stmt.Release_scan_state _
   | Loop_stmt.Reserve_scan_state _ | Loop_stmt.Reset_meter ->
       Error (Reason.Body_statement "scan meter")
+  | Loop_stmt.For { var = iv; lo; hi; body } ->
+      if F.mentions ctx.var lo || F.mentions ctx.var hi then
+        Error (Reason.Body_statement "inner loop bounds from the loop variable")
+      else
+        let trips =
+          match (lo, hi) with
+          | Loop_index.Const a, Loop_index.Const b -> max 1 (b - a)
+          | _ -> 16
+        in
+        let saved = ctx.assigned and saved_weight = ctx.weight in
+        ctx.weight <- saved_weight * trips;
+        let converted =
+          List.fold_left
+            (fun acc s ->
+              let* done_ = acc in
+              let* v = stmt ctx s in
+              Ok (done_ @ v))
+            (Ok []) body
+        in
+        (* What the inner loop assigned for the first time is not definitely
+           assigned after it, which may run no iterations. *)
+        ctx.assigned <-
+          Loop_temp.Map.filter
+            (fun t _ -> Loop_temp.Map.mem t saved)
+            ctx.assigned;
+        ctx.weight <- saved_weight;
+        let* body = converted in
+        Ok [ V.Inner { var = iv; lo; hi; body } ]
 
 let const_bounds = function
   | Loop_index.Const lo, Loop_index.Const hi -> Some (lo, hi)
@@ -243,6 +296,7 @@ let attempt ~(target : T.t) ~reads_total (loop : Loop_stmt.t) =
                 assigned = Loop_temp.Map.empty;
                 next_temp = 0;
                 ops = [];
+                weight = 1;
               }
             in
             let converted =
@@ -300,59 +354,87 @@ let reads_of_program (p : Loop_program.t) =
            m)
        Loop_temp.Map.empty
 
+(* The innermost-loop iterations one execution of a loop covers. *)
+let rec work (s : Loop_stmt.t) =
+  match s with
+  | Loop_stmt.For { lo; hi; body; _ } ->
+      let trips =
+        match (lo, hi) with
+        | Loop_index.Const a, Loop_index.Const b -> Int64.of_int (max 0 (b - a))
+        | _ -> 1L
+      in
+      let inner =
+        List.fold_left
+          (fun acc s -> if F.has_loop s then Int64.add acc (work s) else acc)
+          0L body
+      in
+      Int64.mul trips (if Int64.equal inner 0L then 1L else inner)
+  | Loop_stmt.If (_, a, b) ->
+      List.fold_left (fun acc s -> Int64.add acc (work s)) 0L (a @ b)
+  | _ -> 0L
+
 let program ?(target = T.wasm128) (p : Loop_program.t) =
   let reads_total = reads_of_program p in
-  let decisions = ref [] in
+  (* Loops are tried innermost first: a loop whose body holds a vector loop is
+     left as a scalar loop around it, and a loop whose own iterations are
+     independent takes its inner loops with it (an inner reduction runs once, for
+     all lanes in lockstep, in each lane's own order). A decision for a loop an
+     outer vector loop absorbed is dropped: the outer decision covers it. *)
   let rec nodes ~enclosing stmts =
-    List.map
-      (fun (s : Loop_stmt.t) ->
+    List.fold_left
+      (fun (acc, decs) (s : Loop_stmt.t) ->
         match s with
-        | Loop_stmt.For { var; lo; hi; body }
-          when not (List.exists F.has_loop body) -> (
-            let trips, ops, outcome = attempt ~target ~reads_total s in
-            let n_ops = List.fold_left (fun n (_, k) -> n + k) 0 ops in
-            let record outcome =
-              decisions :=
-                { Decision.trips; executions = enclosing; ops = n_ops; outcome }
-                :: !decisions
-            in
-            match outcome with
-            | Ok vloop -> (
-                match
-                  Loop_vector_check.program
-                    { V.scalar = p; body = [ V.Vector vloop ] }
-                with
-                | Ok () ->
-                    record Decision.Vectorized;
-                    V.Vector vloop
-                | Error (_ : Loop_vector_check.error Err.Error.t) ->
-                    record (Decision.Kept_scalar Reason.Loop_carried);
-                    ignore (var, lo, hi);
-                    V.Scalar s)
-            | Error r ->
-                record (Decision.Kept_scalar r);
-                V.Scalar s)
-        | Loop_stmt.For { var; lo; hi; body } ->
+        | Loop_stmt.For { var; lo; hi; body } -> (
             let factor =
               match (lo, hi) with
               | Loop_index.Const a, Loop_index.Const b ->
                   Int64.of_int (max 1 (b - a))
               | _ -> 1L
             in
-            V.Loop
-              {
-                var;
-                lo;
-                hi;
-                body = nodes ~enclosing:(Int64.mul enclosing factor) body;
-              }
+            let children, child_decs =
+              nodes ~enclosing:(Int64.mul enclosing factor) body
+            in
+            if V.count_vector_loops children > 0 then
+              ( acc @ [ V.Loop { var; lo; hi; body = children } ],
+                decs @ child_decs )
+            else
+              let trips, ops, outcome = attempt ~target ~reads_total s in
+              let n_ops = List.fold_left (fun n (_, k) -> n + k) 0 ops in
+              let record outcome =
+                {
+                  Decision.trips;
+                  executions = enclosing;
+                  work = work s;
+                  ops = n_ops;
+                  outcome;
+                }
+              in
+              match outcome with
+              | Ok vloop -> (
+                  match
+                    Loop_vector_check.program
+                      { V.scalar = p; body = [ V.Vector vloop ] }
+                  with
+                  | Ok () ->
+                      ( acc @ [ V.Vector vloop ],
+                        decs @ [ record Decision.Vectorized ] )
+                  | Error _ ->
+                      ( acc @ [ V.Scalar s ],
+                        decs @ child_decs
+                        @ [ record (Decision.Kept_scalar Reason.Loop_carried) ]
+                      ))
+              | Error r ->
+                  ( acc @ [ V.Scalar s ],
+                    decs @ child_decs @ [ record (Decision.Kept_scalar r) ] ))
         | Loop_stmt.If (c, a, b) ->
-            V.If (c, nodes ~enclosing a, nodes ~enclosing b)
-        | s -> V.Scalar s)
-      stmts
+            let na, da = nodes ~enclosing a in
+            let nb, db = nodes ~enclosing b in
+            (acc @ [ V.If (c, na, nb) ], decs @ da @ db)
+        | s -> (acc @ [ V.Scalar s ], decs))
+      ([], []) stmts
   in
-  let body = nodes ~enclosing:1L p.Loop_program.body in
-  ({ V.scalar = p; body }, List.rev !decisions)
+  let body, decisions = nodes ~enclosing:1L p.Loop_program.body in
+  ({ V.scalar = p; body }, decisions)
 
 let tally (r : report) =
   let add acc name n w =

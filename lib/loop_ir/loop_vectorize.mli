@@ -40,6 +40,9 @@ module Decision : sig
 
   type t = {
     trips : int;  (** iterations of the loop itself *)
+    work : int64;
+        (** the innermost-loop iterations one execution covers: [trips] for a
+            leaf loop, the product with the inner loops' for a nest *)
     executions : int64;
         (** how many times the loop runs: the product of the constant trip
             counts of its enclosing loops, [1] outside any *)
@@ -49,7 +52,8 @@ module Decision : sig
 end
 
 type report = Decision.t list
-(** One decision per leaf loop, in program order. *)
+(** One decision per loop tried, in program order; a loop absorbed by an
+    enclosing vector loop has none of its own. *)
 
 val program :
   ?target:Loop_target.t -> Loop_program.t -> Loop_vector.program * report
@@ -59,5 +63,5 @@ val program :
 
 val tally : report -> (string * (int * int64)) list
 (** Per outcome name ([vectorized] or a reason's name): how many loops, and how
-    many loop-iteration executions ([trips * executions]) they cover, in a
-    stable order. *)
+    many innermost-loop iterations ([work * executions]) they cover, in a stable
+    order. *)

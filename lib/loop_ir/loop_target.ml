@@ -105,7 +105,7 @@ let scalar_cost = function
 
 (* Extract a lane, operate on it, put the result back: the overhead an expanded
    lane pays on top of its scalar operation. *)
-let expansion_overhead = 2.
+let expansion_overhead = 1.
 
 let make ~name ~vector_bits ~lanes ~native ~native_cost =
   let support op = if native op then Native else Expanded in

@@ -6,14 +6,19 @@
     temporary assigned before it is read; every access's stride equal to the
     loop variable's coefficient in its offset; a splat independent of the loop
     variable; no store through a broadcast; no buffer both stored and loaded
-    unless at the identical access. That the vector body computes what the
-    scalar loop computes is the oracle's claim ({!Loop_vector_expand}), checked
-    by running both. *)
+    unless at the identical access. An inner loop's bounds and an index
+    temporary's value must not depend on the loop variable, and a temporary must
+    be assigned before it is read on every path (an inner loop's own assignments
+    do not count after it). That the vector body computes what the scalar loop
+    computes is the oracle's claim ({!Loop_vector_expand}), checked by running
+    both. *)
 
 module Reason : sig
   type t =
     | Bad_lanes of int
+    | Index_assignment_depends_on_loop_variable
     | Index_value_step_mismatch of { step : int; coefficient : int }
+    | Inner_bounds_depend_on_loop_variable
     | Non_constant_bounds
     | Offset_not_affine
     | Splat_depends_on_loop_variable
@@ -23,7 +28,6 @@ module Reason : sig
     | Stores_overlap of Loop_buffer.t
     | Stride_mismatch of { stride : int; coefficient : int }
     | Temp_read_before_assigned of Loop_vector.Temp.t
-    | Temp_assigned_twice of Loop_vector.Temp.t
     | Unsupported_load_format of Loop_buffer.t
 end
 

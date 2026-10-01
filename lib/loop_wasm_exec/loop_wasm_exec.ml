@@ -184,10 +184,10 @@ let exec_gen ~vector ~count_marks ?(outputs = fun _ -> None)
 let exec ?vector ?outputs p ~bind =
   Err.map fst (exec_gen ~vector ~count_marks:false ?outputs p ~bind)
 
-let exec_counted ?outputs p ~bind =
+let exec_counted ?vector ?outputs p ~bind =
   Err.map
     (fun (m, counts) -> (m, List.combine Loop_mark.all counts))
-    (exec_gen ~vector:None ~count_marks:true ?outputs p ~bind)
+    (exec_gen ~vector ~count_marks:true ?outputs p ~bind)
 
 let executor_with ?vector : Loop_check.Executor.t =
  fun p ~bind ->

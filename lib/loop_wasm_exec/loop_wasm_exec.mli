@@ -35,6 +35,7 @@ val exec :
     {!Loop_interp.run}'s. *)
 
 val exec_counted :
+  ?vector:Loop_target.t ->
   ?outputs:(Tensor_id.t -> Tensor.packed option) ->
   Loop_program.t ->
   bind:(Tensor_id.t -> Tensor.packed option) ->

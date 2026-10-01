@@ -418,7 +418,10 @@ let vload nm (a : V.Access.t) =
 let rec vexpr nm vs (e : V.t) : string =
   match e with
   | V.Const x -> "vf_splat(" ^ float_lit x ^ ")"
-  | V.Splat s -> List.assq s vs.splats
+  | V.Splat s -> (
+      match List.assq_opt s vs.splats with
+      | Some name -> name
+      | None -> "vf_splat(" ^ num nm s ^ ")")
   | V.Binary (op, a, b) ->
       let a = vexpr nm vs a in
       let b = vexpr nm vs b in
@@ -492,22 +495,63 @@ let vstore nm vs ~ind (a : V.Access.t) (value : V.stored) =
       @ List.init 4 lane
       @ [ ind ^ "}" ]
 
-let rec collect_splats acc (e : V.t) =
+module VF = Loop_vector_facts
+
+(* A splat computed once, before the loop, is one that no enclosing inner loop's
+   variable reaches; any other is evaluated where it is used. *)
+let hoistable inner e =
+  not (List.exists (fun v -> VF.expr_depends v Loop_temp.Set.empty e) inner)
+
+let rec collect_splats ~inner acc (e : V.t) =
   match e with
-  | V.Splat s -> if List.memq s acc then acc else acc @ [ s ]
+  | V.Splat s ->
+      if List.memq s acc || not (hoistable inner s) then acc else acc @ [ s ]
   | V.Binary (_, a, b) | V.Float_max (a, b) ->
-      collect_splats (collect_splats acc a) b
-  | V.Round_f32 a | V.Unary (_, a) -> collect_splats acc a
+      collect_splats ~inner (collect_splats ~inner acc a) b
+  | V.Round_f32 a | V.Unary (_, a) -> collect_splats ~inner acc a
   | V.Select (m, a, b) ->
-      collect_splats (collect_splats (mask_splats acc m) a) b
+      collect_splats ~inner
+        (collect_splats ~inner (mask_splats ~inner acc m) a)
+        b
   | V.Const _ | V.Index_value _ | V.Load _ | V.Temp _ -> acc
 
-and mask_splats acc (m : V.mask) =
+and mask_splats ~inner acc (m : V.mask) =
   match m with
-  | V.Not m -> mask_splats acc m
-  | V.Or (a, b) -> mask_splats (mask_splats acc a) b
+  | V.Not m -> mask_splats ~inner acc m
+  | V.Or (a, b) -> mask_splats ~inner (mask_splats ~inner acc a) b
   | V.Pool_better (a, b) | V.Value_eq (a, b) | V.Value_lt (a, b) ->
-      collect_splats (collect_splats acc a) b
+      collect_splats ~inner (collect_splats ~inner acc a) b
+
+let rec stmt_splats ~inner acc (s : V.stmt) =
+  match s with
+  | V.Assign (_, e) -> collect_splats ~inner acc e
+  | V.Store { value = V.F32 e | V.Bool e; _ } -> collect_splats ~inner acc e
+  | V.Index_assign _ | V.Mark _ -> acc
+  | V.Inner { var; body; _ } ->
+      List.fold_left (stmt_splats ~inner:(var :: inner)) acc body
+
+let rec assigned_vtemps acc (s : V.stmt) =
+  match s with
+  | V.Assign (t, _) -> if List.mem t acc then acc else acc @ [ t ]
+  | V.Inner { body; _ } -> List.fold_left assigned_vtemps acc body
+  | V.Index_assign _ | V.Mark _ | V.Store _ -> acc
+
+let rec vstmt nm vs ~ind (s : V.stmt) : string list =
+  match s with
+  | V.Assign (t, e) ->
+      [ Printf.sprintf "%s%s = %s;" ind (vtemp t) (vexpr nm vs e) ]
+  | V.Store { access; value } -> vstore nm vs ~ind access value
+  | V.Index_assign (t, i) ->
+      [ Printf.sprintf "%s%s = %s;" ind (index_temp nm t) (index nm i) ]
+  | V.Mark _ -> []
+  | V.Inner { var = v; lo; hi; body } ->
+      let name = var nm v in
+      [
+        Printf.sprintf "%sfor (int64_t %s = %s; %s < %s; %s++) {" ind name
+          (index nm lo) name (index nm hi) name;
+      ]
+      @ List.concat_map (vstmt nm vs ~ind:(ind ^ "  ")) body
+      @ [ ind ^ "}" ]
 
 let vloop nm ~depth ~scalar_stmt (l : V.loop) : string list =
   let ind = indent depth in
@@ -521,15 +565,7 @@ let vloop nm ~depth ~scalar_stmt (l : V.loop) : string list =
   in
   let stop = lo + (max 0 (hi - lo) / l.V.lanes * l.V.lanes) in
   let vs = { splats = [] } in
-  let exprs =
-    List.concat_map
-      (fun (s : V.stmt) ->
-        match s with
-        | V.Assign (_, e) -> [ e ]
-        | V.Store { value = V.F32 e | V.Bool e; _ } -> [ e ])
-      l.V.body
-  in
-  let splat_exprs = List.fold_left collect_splats [] exprs in
+  let splat_exprs = List.fold_left (stmt_splats ~inner:[]) [] l.V.body in
   let prelude =
     List.mapi
       (fun k e ->
@@ -539,19 +575,14 @@ let vloop nm ~depth ~scalar_stmt (l : V.loop) : string list =
       splat_exprs
   in
   let iv = var nm l.V.var in
-  let body =
-    List.concat_map
-      (fun (s : V.stmt) ->
-        match s with
-        | V.Assign (t, e) ->
-            [
-              Printf.sprintf "%s    const v4df %s = %s; (void)%s;" ind (vtemp t)
-                (vexpr nm vs e) (vtemp t);
-            ]
-        | V.Store { access; value } ->
-            vstore nm vs ~ind:(ind ^ "    ") access value)
-      l.V.body
+  let decls =
+    List.map
+      (fun t ->
+        Printf.sprintf "%s    v4df %s = {0.0, 0.0, 0.0, 0.0}; (void)%s;" ind
+          (vtemp t) (vtemp t))
+      (List.fold_left assigned_vtemps [] l.V.body)
   in
+  let body = List.concat_map (vstmt nm vs ~ind:(ind ^ "    ")) l.V.body in
   let remainder =
     match l.V.scalar with
     | Loop_stmt.For f ->
@@ -564,7 +595,7 @@ let vloop nm ~depth ~scalar_stmt (l : V.loop) : string list =
       Printf.sprintf "%s  for (int64_t %s = %s; %s < %s; %s += %d) {" ind iv
         (int_lit lo) iv (int_lit stop) iv l.V.lanes;
     ]
-  @ body
+  @ decls @ body
   @ [ ind ^ "  }" ]
   @ remainder
   @ [ ind ^ "}" ]

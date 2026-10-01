@@ -45,7 +45,8 @@ let corpus ~target =
 
 let%expect_test "every vector program: vectorized C equals the interpreter" =
   corpus ~target:Loop_target.neon128;
-  [%expect {|
+  [%expect
+    {|
     double rounding                equal    vector code
     arith chain                    equal    vector code
     offset view                    equal    vector code
@@ -69,7 +70,8 @@ let%expect_test "every vector program: vectorized C equals the interpreter" =
 let%expect_test
     "the same with every cost zero: strided, expanded and bool paths" =
   corpus ~target:(Loop_target.forced Loop_target.neon128);
-  [%expect {|
+  [%expect
+    {|
     double rounding                equal    vector code
     arith chain                    equal    vector code
     offset view                    equal    vector code

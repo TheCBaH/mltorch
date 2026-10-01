@@ -447,9 +447,38 @@ let%expect_test "every verifier refusal" =
     stride mismatch                invalid vector program: stride 2, but the loop variable's coefficient is 1
     non-affine offset              invalid vector program: an access offset is not affine in the loop variable
     temp read before assigned      invalid vector program: vector temporary v0 is read before it is assigned
-    temp assigned twice            invalid vector program: vector temporary v0 is assigned twice
+    temp assigned twice            ok
     store through a broadcast      invalid vector program: a store with stride zero
     stored and loaded elsewhere    invalid vector program: buffer t1 is stored and loaded at different accesses
     splat reads the loop variable  invalid vector program: a splat reads the loop variable or a loop temporary
     splat loads a stored buffer    invalid vector program: a splat loads from buffer t1, which the loop stores
     index value step               invalid vector program: index value steps by 2, the loop variable's coefficient is 1 |}]
+
+let%expect_test "the oracle over the whole backend corpus, nests included" =
+  List.iter
+    (fun (name, p) -> verdict name p ~bind:Loop_vector_programs.bind)
+    Loop_vector_programs.all;
+  [%expect
+    {|
+    double rounding              vectorized=1; verified; values equal
+    arith chain                  vectorized=1; verified; values equal
+    offset view                  vectorized=1; verified; values equal
+    broadcast and invariant      vectorized=1; verified; values equal
+    strided                      unprofitable=1; verified; values equal
+    maximum                      vectorized=1; verified; values equal
+    select and compare           vectorized=1; verified; values equal
+    pool_better                  vectorized=1; verified; values equal
+    not and or                   vectorized=1; verified; values equal
+    index value                  vectorized=1; verified; values equal
+    temporaries                  vectorized=1; verified; values equal
+    sqrt and trunc               vectorized=1; verified; values equal
+    transcendentals              unprofitable=1; verified; values equal
+    int32 source                 vectorized=1; verified; values equal
+    bool store                   unprofitable=1; verified; values equal
+    nested loops, vector inner   vectorized=1; verified; values equal
+    matmul: reduction per output vectorized=1; verified; values equal
+    reduction with a triangular inner bound vectorized=1; verified; values equal
+    uniform index temporary      vectorized=1; verified; values equal
+    extents around the width: 3  too_short=1; verified; values equal
+    extents around the width: 4  vectorized=1; verified; values equal
+    extents around the width: 5  vectorized=1; verified; values equal |}]

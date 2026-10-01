@@ -48,6 +48,14 @@ type stored = Bool of t | F32 of t
 
 type stmt =
   | Assign of Temp.t * t
+  | Index_assign of Loop_temp.t * Loop_index.t
+  | Inner of {
+      var : Loop_var.t;
+      lo : Loop_index.t;
+      hi : Loop_index.t;
+      body : stmt list;
+    }
+  | Mark of Loop_mark.t
   | Store of { access : Access.t; value : stored }
 
 type loop = {

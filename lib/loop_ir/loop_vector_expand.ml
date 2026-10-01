@@ -182,26 +182,31 @@ let expand (p : V.program) : Loop_program.t =
       | V.Value_lt (a, b) -> Loop_bool.Value_lt (expr a k, expr b k)
     in
     let lanes_of f = List.init lanes f in
-    let body =
-      List.concat_map
-        (fun (s : V.stmt) ->
-          match s with
-          | V.Assign (t, e) ->
-              lanes_of (fun k ->
-                  Loop_stmt.Assign (Loop_carrier.Float, temp_of t k, expr e k))
-          | V.Store { access; value } ->
-              lanes_of (fun k ->
-                  Loop_stmt.Store_flat
-                    {
-                      buffer = access.V.Access.buffer;
-                      offset = at access k;
-                      value =
-                        (match value with
-                        | V.F32 e -> Loop_stored.F32 (expr e k)
-                        | V.Bool e -> Loop_stored.Bool (expr e k));
-                    }))
-        l.V.body
+    let rec stmts ss = List.concat_map stmt ss
+    and stmt (s : V.stmt) =
+      match s with
+      | V.Assign (t, e) ->
+          lanes_of (fun k ->
+              Loop_stmt.Assign (Loop_carrier.Float, temp_of t k, expr e k))
+      | V.Store { access; value } ->
+          lanes_of (fun k ->
+              Loop_stmt.Store_flat
+                {
+                  buffer = access.V.Access.buffer;
+                  offset = at access k;
+                  value =
+                    (match value with
+                    | V.F32 e -> Loop_stored.F32 (expr e k)
+                    | V.Bool e -> Loop_stored.Bool (expr e k));
+                })
+      | V.Mark m -> lanes_of (fun _ -> Loop_stmt.Mark m)
+      | V.Index_assign (t, i) ->
+          (* The same for every lane: assigned once. *)
+          [ Loop_stmt.Assign_index (t, subst l.V.var (lane_var 0) i) ]
+      | V.Inner { var; lo; hi; body } ->
+          [ Loop_stmt.For { var; lo; hi; body = stmts body } ]
     in
+    let body = stmts l.V.body in
     let remainder =
       match l.V.scalar with
       | Loop_stmt.For f ->

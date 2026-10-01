@@ -70,28 +70,39 @@ let () =
           in
           (match !show with
           | None -> ()
-          | Some reason ->
-              let found = ref false in
+          | Some reason -> (
+              (* The invocation whose loop of this outcome covers the most
+                 iterations. *)
+              let best = ref None in
               List.iter
                 (fun (inv : Loop_bundle.invocation) ->
-                  if not !found then
-                    let _, r =
-                      Loop_vectorize.program ~target:!target
-                        inv.Loop_bundle.program
-                    in
-                    if
-                      List.exists
-                        (fun (d : Loop_vectorize.Decision.t) ->
-                          match d.Loop_vectorize.Decision.outcome with
-                          | Loop_vectorize.Decision.Kept_scalar r ->
-                              Loop_vectorize.Reason.name r = reason
-                          | Loop_vectorize.Decision.Vectorized ->
-                              reason = "vectorized")
-                        r
-                    then (
-                      found := true;
-                      Fmt.pr "%a@." Loop_pp.program inv.Loop_bundle.program))
-                b.Loop_bundle.invocations);
+                  let _, r =
+                    Loop_vectorize.program ~target:!target
+                      inv.Loop_bundle.program
+                  in
+                  List.iter
+                    (fun (d : Loop_vectorize.Decision.t) ->
+                      let name =
+                        match d.Loop_vectorize.Decision.outcome with
+                        | Loop_vectorize.Decision.Kept_scalar r ->
+                            Loop_vectorize.Reason.name r
+                        | Loop_vectorize.Decision.Vectorized -> "vectorized"
+                      in
+                      let w =
+                        Int64.mul d.Loop_vectorize.Decision.work
+                          d.Loop_vectorize.Decision.executions
+                      in
+                      if name = reason then
+                        match !best with
+                        | Some (bw, _) when bw >= w -> ()
+                        | _ -> best := Some (w, inv))
+                    r)
+                b.Loop_bundle.invocations;
+              match !best with
+              | None -> ()
+              | Some (w, inv) ->
+                  Fmt.pr "heaviest (%Ld iterations):@.%a@." w Loop_pp.program
+                    inv.Loop_bundle.program));
           let tally = Loop_vectorize.tally all in
           let total_iter =
             List.fold_left (fun acc (_, (_, w)) -> Int64.add acc w) 0L tally

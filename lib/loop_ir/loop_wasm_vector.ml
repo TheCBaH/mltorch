@@ -37,6 +37,13 @@ type vctx = {
       (** a splatted scalar expression and the local holding its vector *)
 }
 
+module F = Loop_vector_facts
+
+(* A splat computed once, before the loop, is one that no enclosing inner loop's
+   variable reaches; any other is evaluated where it is used. *)
+let hoistable inner e =
+  not (List.exists (fun v -> F.expr_depends v Loop_temp.Set.empty e) inner)
+
 let temp_local st vc t h =
   let regs =
     match Hashtbl.find_opt vc.temps (V.Temp.to_int t) with
@@ -48,10 +55,10 @@ let temp_local st vc t h =
   in
   regs.(h)
 
-let splat_local vc e =
+let splat_instrs st vc e =
   match List.find_opt (fun (e', _) -> e' == e) vc.splats with
-  | Some (_, l) -> l
-  | None -> invalid_arg "Loop_wasm_vector: a splat that was not collected"
+  | Some (_, l) -> [ get l ]
+  | None -> num st e @ [ vn Wasm_op.F64x2_splat ]
 
 (* The two scalar lanes of half [h]: lane indices [2h] and [2h + 1]. *)
 let lane_indices h = (2 * h, (2 * h) + 1)
@@ -74,7 +81,7 @@ let pair first second =
 let rec half st vc h (e : V.t) : I.t list =
   match e with
   | V.Const x -> [ I.V128_const (f64_pair_bytes x) ]
-  | V.Splat s -> [ get (splat_local vc s) ]
+  | V.Splat s -> splat_instrs st vc s
   | V.Binary (op, a, b) ->
       let a = half st vc h a in
       let b = half st vc h b in
@@ -230,31 +237,89 @@ let store st vc (a : V.Access.t) (value : V.stored) =
                      ])
                  [ (k0, 0); (k1, 1) ]))
 
-let stmt st vc (s : V.stmt) =
+(* The scalar expressions a loop splats and may hoist, each once, in order of
+   appearance; [inner] is the variables of the inner loops around the point. *)
+let rec collect_splats ~inner acc (e : V.t) =
+  match e with
+  | V.Splat s ->
+      if List.exists (fun x -> x == s) acc || not (hoistable inner s) then acc
+      else acc @ [ s ]
+  | V.Binary (_, a, b) | V.Float_max (a, b) ->
+      collect_splats ~inner (collect_splats ~inner acc a) b
+  | V.Round_f32 a | V.Unary (_, a) -> collect_splats ~inner acc a
+  | V.Select (m, a, b) ->
+      collect_splats ~inner
+        (collect_splats ~inner (mask_splats ~inner acc m) a)
+        b
+  | V.Const _ | V.Index_value _ | V.Load _ | V.Temp _ -> acc
+
+and mask_splats ~inner acc (m : V.mask) =
+  match m with
+  | V.Not m -> mask_splats ~inner acc m
+  | V.Or (a, b) -> mask_splats ~inner (mask_splats ~inner acc a) b
+  | V.Pool_better (a, b) | V.Value_eq (a, b) | V.Value_lt (a, b) ->
+      collect_splats ~inner (collect_splats ~inner acc a) b
+
+let rec stmt_splats ~inner acc (s : V.stmt) =
+  match s with
+  | V.Assign (_, e) -> collect_splats ~inner acc e
+  | V.Store { value = V.F32 e | V.Bool e; _ } -> collect_splats ~inner acc e
+  | V.Index_assign _ | V.Mark _ -> acc
+  | V.Inner { var; body; _ } ->
+      List.fold_left (stmt_splats ~inner:(var :: inner)) acc body
+
+let rec stmt st vc (s : V.stmt) =
   match s with
   | V.Assign (t, e) ->
       List.concat
         (List.init vc.halves (fun h ->
              half st vc h e @ [ set (temp_local st vc t h) ]))
   | V.Store { access; value } -> store st vc access value
-
-(* The scalar expressions a loop splats, each once, in order of appearance. *)
-let rec collect_splats acc (e : V.t) =
-  match e with
-  | V.Splat s -> if List.exists (fun x -> x == s) acc then acc else acc @ [ s ]
-  | V.Binary (_, a, b) | V.Float_max (a, b) ->
-      collect_splats (collect_splats acc a) b
-  | V.Round_f32 a | V.Unary (_, a) -> collect_splats acc a
-  | V.Select (m, a, b) ->
-      collect_splats (collect_splats (mask_splats acc m) a) b
-  | V.Const _ | V.Index_value _ | V.Load _ | V.Temp _ -> acc
-
-and mask_splats acc (m : V.mask) =
-  match m with
-  | V.Not m -> mask_splats acc m
-  | V.Or (a, b) -> mask_splats (mask_splats acc a) b
-  | V.Pool_better (a, b) | V.Value_eq (a, b) | V.Value_lt (a, b) ->
-      collect_splats (collect_splats acc a) b
+  | V.Index_assign (t, i) -> index st i @ [ set (xtemp st t) ]
+  | V.Mark m -> (
+      (* A counting build bumps the mark's word once per lane; the default build
+         emits nothing. *)
+      match st.mark_base with
+      | None -> []
+      | Some base ->
+          let at = base + (4 * Loop_mark.index m) in
+          [
+            i32 at;
+            i32 at;
+            I.Load (Wasm.Load.I32_load, { Wasm.Mem_arg.align = 2; offset = 0 });
+            i32 (2 * vc.halves);
+            n Wasm_op.I32_add;
+            I.Store
+              (Wasm.Store.I32_store, { Wasm.Mem_arg.align = 2; offset = 0 });
+          ])
+  | V.Inner { var = v; lo; hi = hi_ix; body } ->
+      let name = var st v in
+      let lo = index st lo in
+      let hi, limit =
+        match hi_ix with
+        | Loop_index.Const _ | Loop_index.Var _ -> ([], index st hi_ix)
+        | _ ->
+            let b = bound st v in
+            (index st hi_ix @ [ set b ], [ get b ])
+      in
+      let body = List.concat_map (stmt st vc) body in
+      lo
+      @ [ set name ]
+      @ hi
+      @ [
+          I.Block
+            ( None,
+              [
+                I.Loop
+                  ( None,
+                    [ get name ]
+                    @ limit
+                    @ [ n Wasm_op.I32_ge_s; I.Br_if 1 ]
+                    @ body
+                    @ [ get name; i32 1; n Wasm_op.I32_add; set name; I.Br 0 ]
+                  );
+              ] );
+        ]
 
 let loop st ~scalar_stmt (l : V.loop) : I.t list =
   let halves = l.V.lanes / 2 in
@@ -264,14 +329,7 @@ let loop st ~scalar_stmt (l : V.loop) : I.t list =
     | _ -> invalid_arg "Loop_wasm_vector: a vector loop without constant bounds"
   in
   let vc = { halves; temps = Hashtbl.create 8; splats = [] } in
-  let splat_exprs =
-    List.fold_left
-      (fun acc (s : V.stmt) ->
-        match s with
-        | V.Assign (_, e) -> collect_splats acc e
-        | V.Store { value = V.F32 e | V.Bool e; _ } -> collect_splats acc e)
-      [] l.V.body
-  in
+  let splat_exprs = List.fold_left (stmt_splats ~inner:[]) [] l.V.body in
   (* Each splatted scalar is computed once, before the loop: it depends on
      neither the loop variable nor anything the loop assigns or stores. *)
   let prelude =

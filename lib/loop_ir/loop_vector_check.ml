@@ -3,7 +3,9 @@ module V = Loop_vector
 module Reason = struct
   type t =
     | Bad_lanes of int
+    | Index_assignment_depends_on_loop_variable
     | Index_value_step_mismatch of { step : int; coefficient : int }
+    | Inner_bounds_depend_on_loop_variable
     | Non_constant_bounds
     | Offset_not_affine
     | Splat_depends_on_loop_variable
@@ -13,11 +15,14 @@ module Reason = struct
     | Stores_overlap of Loop_buffer.t
     | Stride_mismatch of { stride : int; coefficient : int }
     | Temp_read_before_assigned of Loop_vector.Temp.t
-    | Temp_assigned_twice of Loop_vector.Temp.t
     | Unsupported_load_format of Loop_buffer.t
 
   let pp ppf = function
     | Bad_lanes n -> Fmt.pf ppf "%d lanes (at least two are needed)" n
+    | Index_assignment_depends_on_loop_variable ->
+        Fmt.string ppf "an index temporary is assigned from the loop variable"
+    | Inner_bounds_depend_on_loop_variable ->
+        Fmt.string ppf "an inner loop's bounds depend on the loop variable"
     | Index_value_step_mismatch { step; coefficient } ->
         Fmt.pf ppf
           "index value steps by %d, the loop variable's coefficient is %d" step
@@ -43,8 +48,6 @@ module Reason = struct
     | Temp_read_before_assigned t ->
         Fmt.pf ppf "vector temporary %a is read before it is assigned" V.Temp.pp
           t
-    | Temp_assigned_twice t ->
-        Fmt.pf ppf "vector temporary %a is assigned twice" V.Temp.pp t
     | Unsupported_load_format b ->
         Fmt.pf ppf "buffer t%d has a format a vector load does not decode"
           (Tensor_id.to_int b.Loop_buffer.id)
@@ -59,6 +62,7 @@ let ( let* ) = Result.bind
 
 module F = Loop_vector_facts
 
+let mentions = F.mentions
 let assigned_temps = F.assigned_temps
 let expr_depends = F.expr_depends
 let format_ok = F.format_ok
@@ -83,6 +87,7 @@ let loop (l : V.loop) =
           List.fold_left assigned_temps Loop_temp.Set.empty scalar_body
         in
         let splat_buffers = ref [] in
+        let stores = ref [] and reads = ref [] in
         let access (a : V.Access.t) =
           match coefficient var a.V.Access.offset with
           | Error r -> fail r
@@ -111,7 +116,9 @@ let loop (l : V.loop) =
           | V.Load a ->
               if not (format_ok a.V.Access.buffer) then
                 fail (Reason.Unsupported_load_format a.V.Access.buffer)
-              else access a
+              else (
+                reads := a :: !reads;
+                access a)
           | V.Round_f32 a | V.Unary (_, a) -> vexpr assigned a
           | V.Select (m, a, b) ->
               let* () = mask assigned m in
@@ -136,41 +143,39 @@ let loop (l : V.loop) =
               let* () = vexpr assigned a in
               vexpr assigned b
         in
-        let rec loads acc (e : V.t) =
-          match e with
-          | V.Load a -> a :: acc
-          | V.Binary (_, a, b) | V.Float_max (a, b) -> loads (loads acc a) b
-          | V.Round_f32 a | V.Unary (_, a) -> loads acc a
-          | V.Select (m, a, b) -> loads (loads (mask_loads acc m) a) b
-          | V.Const _ | V.Index_value _ | V.Splat _ | V.Temp _ -> acc
-        and mask_loads acc (m : V.mask) =
-          match m with
-          | V.Not m -> mask_loads acc m
-          | V.Or (a, b) -> mask_loads (mask_loads acc a) b
-          | V.Pool_better (a, b) | V.Value_eq (a, b) | V.Value_lt (a, b) ->
-              loads (loads acc a) b
-        in
-        let* assigned, stores, reads =
+        (* [assigned] is what is definitely assigned on entry: an inner loop's
+           own assignments do not count after it, which may run no iterations. *)
+        let rec body assigned stmts =
           List.fold_left
             (fun acc (s : V.stmt) ->
-              let* assigned, stores, reads = acc in
+              let* assigned = acc in
               match s with
               | V.Assign (t, e) ->
                   let* () = vexpr assigned e in
-                  if V.Temp.Set.mem t assigned then
-                    fail (Reason.Temp_assigned_twice t)
-                  else Ok (V.Temp.Set.add t assigned, stores, loads reads e)
+                  Ok (V.Temp.Set.add t assigned)
+              | V.Index_assign (_, i) ->
+                  if mentions var i then
+                    fail Reason.Index_assignment_depends_on_loop_variable
+                  else Ok assigned
+              | V.Mark _ -> Ok assigned
+              | V.Inner { lo; hi; body = inner; _ } ->
+                  if mentions var lo || mentions var hi then
+                    fail Reason.Inner_bounds_depend_on_loop_variable
+                  else
+                    let* _ = body assigned inner in
+                    Ok assigned
               | V.Store { access = a; value } ->
                   let e = match value with V.Bool e | V.F32 e -> e in
                   let* () = vexpr assigned e in
                   let* () = access a in
                   if a.V.Access.stride = 0 then
                     fail Reason.Store_through_broadcast
-                  else Ok (assigned, a :: stores, loads reads e))
-            (Ok (V.Temp.Set.empty, [], []))
-            l.V.body
+                  else (
+                    stores := a :: !stores;
+                    Ok assigned))
+            (Ok assigned) stmts
         in
-        ignore assigned;
+        let* _ = body V.Temp.Set.empty l.V.body in
         (* A buffer stored and loaded must be touched at one identical access;
            two stores to a buffer must be identical too, so statement-major
            lane order cannot reorder overlapping writes. *)
@@ -190,7 +195,7 @@ let loop (l : V.loop) =
                     (fun (r : V.Access.t) ->
                       Tensor_id.equal r.V.Access.buffer.Loop_buffer.id id
                       && not (same r s))
-                    reads
+                    !reads
                 then fail (Reason.Store_loaded_elsewhere s.V.Access.buffer)
                 else Ok ()
               in
@@ -219,9 +224,9 @@ let loop (l : V.loop) =
               with
               | Some b -> fail (Reason.Splat_loads_stored_buffer b)
               | None -> Ok ())
-            (Ok ()) stores
+            (Ok ()) !stores
         in
-        stores_ok stores
+        stores_ok !stores
     | _ -> fail Reason.Non_constant_bounds
 
 let rec nodes ns =

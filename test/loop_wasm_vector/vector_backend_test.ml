@@ -62,6 +62,9 @@ let%expect_test "every vector program: SIMD Wasm equals the interpreter" =
     int32 source                   equal    simd128
     bool store                     equal
     nested loops, vector inner     equal    simd128
+    matmul: reduction per output   equal    simd128
+    reduction with a triangular inner bound equal    simd128
+    uniform index temporary        equal    simd128
     extents around the width: 3    equal
     extents around the width: 4    equal    simd128
     extents around the width: 5    equal    simd128 |}]
@@ -87,6 +90,40 @@ let%expect_test
     int32 source                   equal    simd128
     bool store                     equal    simd128
     nested loops, vector inner     equal    simd128
+    matmul: reduction per output   equal    simd128
+    reduction with a triangular inner bound equal    simd128
+    uniform index temporary        equal    simd128
     extents around the width: 3    equal
     extents around the width: 4    equal    simd128
     extents around the width: 5    equal    simd128 |}]
+
+(* Execution marks keep their multiplicity: a vector iteration bumps a mark once
+   per lane, so the counting build's counts equal the scalar program's. *)
+let%expect_test "marks under vectorization count as the scalar program does" =
+  List.iter
+    (fun (name, p) ->
+      let bind = Loop_vector_programs.bind in
+      let counts vector =
+        match
+          Err.payload
+            (Loop_wasm_exec.exec_counted ?vector ~outputs:(zeroed p) p ~bind)
+        with
+        | Ok (_, c) -> c
+        | Error e -> Fmt.failwith "%a" Loop_wasm_exec.pp_error e
+      in
+      let scalar = counts None in
+      let vec = counts (Some (Loop_target.forced Loop_target.wasm128)) in
+      Fmt.pr "%-30s %s; counts %s@." name
+        (String.concat " "
+           (List.filter_map
+              (fun (m, n) ->
+                if n = 0 then None
+                else Some (Printf.sprintf "%s=%d" (Loop_mark.name m) n))
+              scalar))
+        (if scalar = vec then "equal" else "DIFFER"))
+    (List.filter
+       (fun (name, _) ->
+         String.length name >= 6 && String.sub name 0 6 = "matmul")
+       Loop_vector_programs.all);
+  [%expect
+    {| matmul: reduction per output   emitter=40 reduction=240; counts equal |}]

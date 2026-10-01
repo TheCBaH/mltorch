@@ -4,7 +4,7 @@
 
    argv: <model.pt2> <inputs.pt> <expected.json> <outputs.pt> [--strict]
          [--shadow] [--poison] [--samples=N] [--keep=DIR] [--bench=N]
-         [--export=DIR] [--via-c] [--cflags=FLAGS] [--wat=FILE] [--simd]
+         [--export=DIR] [--via-c] [--cflags=FLAGS] [--wat=FILE] [--simd] [--simd-forced]
 
    [--shadow] also runs [Eval_direct.run] (the per-node reference) on the same
    graph, constants and input and requires every graph output to be bitwise
@@ -289,7 +289,12 @@ let () =
   let export_dir, argv = valued "--export=" argv in
   let via_c, argv = flag "--via-c" argv in
   let simd, argv = flag "--simd" argv in
-  let vector = if simd then Some Loop_target.wasm128 else None in
+  let forced, argv = flag "--simd-forced" argv in
+  let vector =
+    if forced then Some (Loop_target.forced Loop_target.wasm128)
+    else if simd then Some Loop_target.wasm128
+    else None
+  in
   let wat, argv = valued "--wat=" argv in
   let cflags, argv = valued "--cflags=" argv in
   let cflags =
