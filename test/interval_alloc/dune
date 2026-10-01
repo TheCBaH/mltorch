@@ -5,7 +5,7 @@
 
 (library
  (name interval_alloc_test)
- (libraries err_trace fmt interval_alloc)
+ (libraries core err_trace fmt interval_alloc)
  (inline_tests
   (modes best js))
  (preprocess

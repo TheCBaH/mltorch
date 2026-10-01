@@ -10,6 +10,8 @@
    [create] allocates every pool up front, so a partial arena never exists and
    an out-of-memory is one error row, not a failure in the middle of a run. *)
 
+open Core.Storage_units
+
 module Poison : sig
   (** A value written into a slot each time it is acquired, so a cell the writer
       forgot to overwrite holds poison instead of the previous tenant's data.
@@ -24,18 +26,42 @@ module Admission : sig
     | Best_effort
         (** A plan the arena cannot take (over a ceiling, or the pools cannot be
             allocated) falls back to a release-only run. *)
-    | Required of int64
+    | Required of Byte_size.t
         (** The scoped footprint (the pools plus the script's out-of-arena
             payload bytes, in bytes) must fit the budget, or the run is rejected
             before it starts. There is no release-only fallback. *)
 end
 
 module Over_budget : sig
-  type t = { footprint : int64; budget : int64 }
+  type t = { footprint : Byte_size.t; budget : Byte_size.t }
 end
 
 module Alloc_failed : sig
-  type t = { kind : Alloc_script.Kind.t; bytes : int64 }
+  type t = { kind : Alloc_script.Kind.t; bytes : Byte_size.t }
+end
+
+(** What a backend guarantees about a pool's base address. [Logical_only]: slot
+    offsets are aligned relative to their pool, but the pool's storage is
+    whatever the allocator returns (malloc's, or an ArrayBuffer's), so a slot is
+    physically aligned only as far as that base happens to be. *)
+module Physical_alignment : sig
+  type t = Logical_only
+
+  val pp : Format.formatter -> t -> unit
+
+  val backend : t
+  (** What this backend gives every pool. *)
+end
+
+(** Whether a run accepts slots aligned only relative to their pool.
+    [Physical_required] refuses a plan whose base alignment the backend cannot
+    give, rather than silently reducing it to a logical one. *)
+module Physical_requirement : sig
+  type t = Logical_accepted | Physical_required
+end
+
+module Physical_unsupported : sig
+  type t = { required : Byte_alignment.t; provided : Physical_alignment.t }
 end
 
 type error =
@@ -43,8 +69,12 @@ type error =
   | `Arena_busy
   | `Arena_script_mismatch of Alloc_script.Difference.t
   | `Arena_slot of Tensor_id.t
-  | `Over_budget of Over_budget.t ]
-(** [`Arena_slot id]: the slot of [id] does not fit its edge's format. *)
+  | `Over_budget of Over_budget.t
+  | `Physical_alignment_unsupported of Physical_unsupported.t
+  | `Storage_script_mismatch of Alloc_script.Position.t ]
+(** [`Arena_slot id]: the slot of [id] does not fit its edge's format.
+    [`Storage_script_mismatch]: a storage plan's script differs from the run's
+    at that event ([Storage_script.first_difference]). *)
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
@@ -55,10 +85,14 @@ val create : ?poison:Poison.t -> Arena_plan.t -> (t, [> error ]) Err.t
 
 val plan : t -> Arena_plan.t
 
+val physical_alignment : t -> Physical_alignment.t
+(** Every backend today is [Logical_only]. *)
+
 val footprint :
-  Arena_plan.t -> (int64, [> `Peak_bytes_overflow of Tensor_id.t ]) Err.t
-(** The scoped footprint in bytes: the pools plus the script's out-of-arena
-    payload bytes. It says nothing about the process's total memory. *)
+  Arena_plan.t -> (Byte_size.t, [> `Peak_bytes_overflow of Tensor_id.t ]) Err.t
+(** The scoped footprint: the pools plus the script's out-of-arena payload
+    bytes, saturating at [Int64.max_int]. It says nothing about the process's
+    total memory. *)
 
 val view : t -> Tensor_id.t -> (Tensor.packed option, [> error ]) Err.t
 (** The slot of an eligible edge, poisoned first when the arena has a poison;
@@ -68,11 +102,18 @@ val view : t -> Tensor_id.t -> (Tensor.packed option, [> error ]) Err.t
 (** Mixed-mode copies: results a node executor returned in storage other than
     the destination it was given, copied into the slot. *)
 module Copies : sig
-  type t = { count : int64; bytes : int64 }
+  type t = { count : int64; bytes : Byte_size.t }
 end
 
 val copies : t -> Copies.t
-val record_copy : t -> bytes:int64 -> unit
+val record_copy : t -> bytes:Byte_size.t -> unit
+val busy : t -> bool
+
+val acquire : t -> (unit, [> `Arena_busy ]) Err.t
+(** Marks the arena in use until {!release}: for storage that outlives a run (a
+    result lease). [`Arena_busy] when it already is. *)
+
+val release : t -> unit
 
 val with_run :
   t -> (unit -> ('a, ([> `Arena_busy ] as 'e)) Err.t) -> ('a, 'e) Err.t

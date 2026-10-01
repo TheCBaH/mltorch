@@ -12,18 +12,24 @@ let below (t : t) bound =
   hi mod bound
 
 (* A random valid script over int keys: [n] allocs, frees interleaved, some
-   blocks never freed. *)
-let script (t : t) ~n ~max_size =
+   blocks never freed. Alignments are powers of two up to
+   [2^max_log_alignment] (default 0: every block unaligned), drawn only when
+   asked for, so a script without them is the one it always was. *)
+let script ?(max_log_alignment = 0) (t : t) ~n ~max_size =
   let live = ref [] and events = ref [] and next = ref 0 in
   while !next < n || !live <> [] do
     let alloc = !next < n && (!live = [] || below t 3 <> 0) in
     if alloc then begin
       let key = !next in
       incr next;
-      events :=
-        Interval_alloc.Event.Alloc
-          { key; size = Int64.of_int (below t (max_size + 1)) }
-        :: !events;
+      let size = Units.size (Int64.of_int (below t (max_size + 1))) in
+      let alignment =
+        if max_log_alignment = 0 then Units.one
+        else
+          Units.alignment
+            (Int64.shift_left 1L (below t (max_log_alignment + 1)))
+      in
+      events := Interval_alloc.Event.Alloc { key; size; alignment } :: !events;
       live := key :: !live
     end
     else begin

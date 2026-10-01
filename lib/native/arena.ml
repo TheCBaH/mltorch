@@ -1,21 +1,41 @@
 (* See arena.mli. *)
 
 open Bigarray
+open Core.Storage_units
+
+(* Conversions the plan has already ruled out: a slot's offset is aligned to at
+   least its cell width, and a pool's total bytes are far below [int64]. *)
+let invariant r = Err.or_raise ~pp_error r
 
 module Poison = struct
   type t = A | B
 end
 
 module Admission = struct
-  type t = Best_effort | Required of int64
+  type t = Best_effort | Required of Byte_size.t
 end
 
 module Over_budget = struct
-  type t = { footprint : int64; budget : int64 }
+  type t = { footprint : Byte_size.t; budget : Byte_size.t }
 end
 
 module Alloc_failed = struct
-  type t = { kind : Alloc_script.Kind.t; bytes : int64 }
+  type t = { kind : Alloc_script.Kind.t; bytes : Byte_size.t }
+end
+
+module Physical_alignment = struct
+  type t = Logical_only
+
+  let pp ppf Logical_only = Format.pp_print_string ppf "logical_only"
+  let backend = Logical_only
+end
+
+module Physical_requirement = struct
+  type t = Logical_accepted | Physical_required
+end
+
+module Physical_unsupported = struct
+  type t = { required : Byte_alignment.t; provided : Physical_alignment.t }
 end
 
 type error =
@@ -23,12 +43,14 @@ type error =
   | `Arena_busy
   | `Arena_script_mismatch of Alloc_script.Difference.t
   | `Arena_slot of Tensor_id.t
-  | `Over_budget of Over_budget.t ]
+  | `Over_budget of Over_budget.t
+  | `Physical_alignment_unsupported of Physical_unsupported.t
+  | `Storage_script_mismatch of Alloc_script.Position.t ]
 
 let pp_error ppf : [< error ] -> unit = function
   | `Arena_alloc_failed { Alloc_failed.kind; bytes } ->
-      Format.fprintf ppf "arena: cannot allocate the %a pool (%Ld bytes)"
-        Alloc_script.Kind.pp kind bytes
+      Format.fprintf ppf "arena: cannot allocate the %a pool (%a bytes)"
+        Alloc_script.Kind.pp kind Byte_size.pp bytes
   | `Arena_busy -> Format.pp_print_string ppf "arena: already in use by a run"
   | `Arena_script_mismatch { Alloc_script.Difference.position; left; right } ->
       let pp_event ppf = function
@@ -43,11 +65,21 @@ let pp_error ppf : [< error ] -> unit = function
       Format.fprintf ppf "arena: the slot of t%d does not fit its format"
         (Tensor_id.to_int id)
   | `Over_budget { Over_budget.footprint; budget } ->
-      Format.fprintf ppf "arena: the run needs %Ld bytes but the budget is %Ld"
-        footprint budget
+      Format.fprintf ppf "arena: the run needs %a bytes but the budget is %a"
+        Byte_size.pp footprint Byte_size.pp budget
+  | `Physical_alignment_unsupported { Physical_unsupported.required; provided }
+    ->
+      Format.fprintf ppf
+        "arena: the pools need a base aligned to %a bytes, the backend gives %a"
+        Byte_alignment.pp required Physical_alignment.pp provided
+  | `Storage_script_mismatch position ->
+      Format.fprintf ppf
+        "arena: the storage plan was built for a different run: its script \
+         differs at event %a"
+        Alloc_script.Position.pp position
 
 module Copies = struct
-  type t = { count : int64; bytes : int64 }
+  type t = { count : int64; bytes : Byte_size.t }
 end
 
 type pool =
@@ -68,12 +100,14 @@ type t = {
 
 let plan t = t.plan
 let copies t = t.copies
+let physical_alignment _ = Physical_alignment.backend
 
+(* A tally: no run copies 2^63 bytes. *)
 let record_copy t ~bytes =
   t.copies <-
     {
       Copies.count = Int64.succ t.copies.Copies.count;
-      bytes = Int64.add t.copies.Copies.bytes bytes;
+      bytes = invariant (Byte_size.add t.copies.Copies.bytes bytes);
     }
 
 (* Poison values: finite, representable in every kind, different between [A] and
@@ -128,7 +162,10 @@ let create ?poison plan =
     in
     (* A pool is bounded below [Hard.numel] by the plan, so the count fits an
        [int] on every backend. *)
-    match make_pool p.Arena_plan.Pool.kind (Int64.to_int p.numel) with
+    match
+      make_pool p.Arena_plan.Pool.kind
+        (Int64.to_int (Element_count.to_int64 p.numel))
+    with
     | exception (Out_of_memory | Invalid_argument _) -> failed ()
     | None -> failed ()
     | Some pool -> Err.return (p.kind, pool)
@@ -140,17 +177,19 @@ let create ?poison plan =
     pools;
     poison;
     busy = false;
-    copies = { Copies.count = 0L; bytes = 0L };
+    copies = { Copies.count = 0L; bytes = Byte_size.zero };
   }
 
 let footprint plan =
   let open Err.Syntax in
   let stats = Arena_plan.stats plan in
   let+ outside = Alloc_script.out_of_arena_bytes (Arena_plan.script plan) in
-  let pools = stats.Arena_plan.Stats.pool_bytes in
-  if Int64.compare pools (Int64.sub Int64.max_int outside) > 0 then
-    Int64.max_int
-  else Int64.add pools outside
+  (* Saturating: a footprint past [int64] is over every budget. *)
+  match
+    Err.payload (Byte_size.add stats.Arena_plan.Stats.pool_bytes outside)
+  with
+  | Ok total -> total
+  | Error (`Quantity_overflow _) -> invariant (Byte_size.of_int64 Int64.max_int)
 
 let view t id =
   match Arena_plan.slot t.plan id with
@@ -160,8 +199,17 @@ let view t id =
       match List.assoc_opt slot.Arena_plan.Slot.kind t.pools with
       | None -> bad ()
       | Some pool -> (
-          let offset = Int64.to_int slot.Arena_plan.Slot.offset in
-          let n = Int64.to_int slot.Arena_plan.Slot.numel in
+          let offset =
+            invariant
+              (Element_offset.of_bytes slot.Arena_plan.Slot.offset
+                 (Alloc_script.Kind.element_bytes slot.Arena_plan.Slot.kind))
+          in
+          (* Inside a pool the plan bounded below [Hard.numel] cells, so both
+             fit an [int] on every backend. *)
+          let offset = Int64.to_int (Element_offset.to_int64 offset)
+          and n =
+            Int64.to_int (Element_count.to_int64 slot.Arena_plan.Slot.numel)
+          in
           let shape = slot.Arena_plan.Slot.signature.Tensor_sig.shape in
           Option.iter (fun p -> fill_slice pool offset n p) t.poison;
           let real fmt data =
@@ -195,20 +243,25 @@ let settle t id ~dst ~result =
     let open Err.Syntax in
     let+ () = Tensor.blit_into result dst in
     (match Arena_plan.slot t.plan id with
-    | Some slot ->
-        record_copy t
-          ~bytes:
-            (Int64.mul slot.Arena_plan.Slot.numel
-               (Alloc_script.Kind.cell_bytes slot.Arena_plan.Slot.kind))
+    | Some slot -> record_copy t ~bytes:slot.Arena_plan.Slot.bytes
     | None -> ());
     dst
 
-let with_run t f =
+let busy t = t.busy
+
+let acquire t =
   if t.busy then Err.fail ~pos:__POS__ `Arena_busy
   else begin
     t.busy <- true;
-    Fun.protect ~finally:(fun () -> t.busy <- false) f
+    Err.return ()
   end
+
+let release t = t.busy <- false
+
+let with_run t f =
+  match acquire t with
+  | Error _ as e -> e
+  | Ok () -> Fun.protect ~finally:(fun () -> release t) f
 
 let fill_for_test t poison =
   List.iter (fun (_, pool) -> fill pool poison) t.pools

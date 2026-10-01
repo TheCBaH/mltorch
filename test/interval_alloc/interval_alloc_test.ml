@@ -1,14 +1,26 @@
+open Core.Storage_units
 open Interval_alloc
 
-(* "+a:4" allocates [a] with size 4; "-a" frees it. *)
+(* "+a:4" allocates [a] with size 4, "+a:4@8" with alignment 8 as well; "-a"
+   frees it. *)
 let event s =
   match (s.[0], String.index_opt s ':') with
   | '+', Some i ->
+      let rest = String.sub s (i + 1) (String.length s - i - 1) in
+      let size, alignment =
+        match String.index_opt rest '@' with
+        | None -> (rest, Units.one)
+        | Some j ->
+            ( String.sub rest 0 j,
+              Units.alignment
+                (Int64.of_string
+                   (String.sub rest (j + 1) (String.length rest - j - 1))) )
+      in
       Event.Alloc
         {
           key = String.sub s 1 (i - 1);
-          size =
-            Int64.of_string (String.sub s (i + 1) (String.length s - i - 1));
+          size = Units.size (Int64.of_string size);
+          alignment;
         }
   | '-', None -> Event.Free (String.sub s 1 (String.length s - 1))
   | _ -> invalid_arg s
@@ -22,12 +34,14 @@ let script events =
 
 let placements s =
   String.concat " "
-    (List.map (fun (k, o) -> Fmt.str "%s@%Ld" k o) (Solution.placements s))
+    (List.map
+       (fun (k, o) -> Fmt.str "%s@%a" k Byte_offset.pp o)
+       (Solution.placements s))
 
 let show name events =
   let s = script events in
   Fmt.pr "%s: lower bound %a@." name
-    (Fmt.result ~ok:Fmt.int64 ~error:(fun ppf _ -> Fmt.string ppf "error"))
+    (Fmt.result ~ok:Byte_size.pp ~error:(fun ppf _ -> Fmt.string ppf "error"))
     (Err.payload (lower_bound s));
   List.iter
     (fun strategy ->
@@ -36,7 +50,7 @@ let show name events =
       | Ok sol -> (
           match check s sol with
           | Ok _ ->
-              Fmt.pr "  %a: pool %Ld  %s@." Strategy.pp strategy
+              Fmt.pr "  %a: pool %a  %s@." Strategy.pp strategy Byte_size.pp
                 (Solution.pool sol) (placements sol)
           | Error _ -> Fmt.pr "  %a: CHECK FAILED@." Strategy.pp strategy))
     Strategy.all
@@ -104,7 +118,7 @@ let%expect_test "hand-built scripts" =
 let pp_key ppf k = Fmt.string ppf k
 
 let pp_block ppf { Block.key; offset; size } =
-  Fmt.pf ppf "%s[%Ld,+%Ld]" key offset size
+  Fmt.pf ppf "%s[%a,+%a]" key Byte_offset.pp offset Byte_size.pp size
 
 let pp_error ppf = function
   | `Double_alloc k -> Fmt.pf ppf "double alloc %a" pp_key k
@@ -112,12 +126,12 @@ let pp_error ppf = function
   | `Duplicate_placement k -> Fmt.pf ppf "duplicate placement %a" pp_key k
   | `Free_unknown k -> Fmt.pf ppf "free of unknown %a" pp_key k
   | `Live_overflow k -> Fmt.pf ppf "live sum overflows at %a" pp_key k
-  | `Negative_offset k -> Fmt.pf ppf "negative offset %a" pp_key k
-  | `Negative_size { Negative_size.key; size } ->
-      Fmt.pf ppf "negative size %a %Ld" pp_key key size
+  | `Misaligned { Misaligned.block; alignment } ->
+      Fmt.pf ppf "%a not aligned to %a" pp_block block Byte_alignment.pp
+        alignment
   | `Offset_overflow k -> Fmt.pf ppf "offset overflow %a" pp_key k
   | `Out_of_pool { Out_of_pool.block; pool } ->
-      Fmt.pf ppf "%a outside pool %Ld" pp_block block pool
+      Fmt.pf ppf "%a outside pool %a" pp_block block Byte_size.pp pool
   | `Overlap { Overlap.first; second } ->
       Fmt.pf ppf "%a overlaps %a" pp_block first pp_block second
   | `Pool_overflow k -> Fmt.pf ppf "pool overflows at %a" pp_key k
@@ -134,14 +148,12 @@ let%expect_test "validate rejects malformed scripts" =
   reject [ "+a:1"; "-a"; "+a:2" ];
   reject [ "-a" ];
   reject [ "+a:1"; "-a"; "-a" ];
-  reject [ "+a:-3" ];
   [%expect
     {|
     double alloc a
     double alloc a
     free of unknown a
-    double free a
-    negative size a -3 |}]
+    double free a |}]
 
 (* The checker must be able to fail: each mutation of a good solution below is
    a different way for a placement to be wrong. *)
@@ -153,27 +165,42 @@ let%expect_test "check rejects bad placements" =
     | Error _ -> assert false
   in
   let pool = Solution.pool good and ps = Solution.placements good in
-  let verdict sol =
+  let verdict ?(s = s) sol =
     match check s sol with
-    | Ok w -> Fmt.pr "ok pool %Ld@." (Interval_alloc.pool w)
+    | Ok w -> Fmt.pr "ok pool %a@." Byte_size.pp (Interval_alloc.pool w)
     | Error e -> Fmt.pr "%a@." pp_error (Err.Error.kind e)
   in
+  let zero = Byte_offset.zero in
   verdict good;
   verdict
     (Solution.Unsafe.make ~pool
-       (List.map (fun (k, o) -> if k = "b" then (k, 0L) else (k, o)) ps));
+       (List.map (fun (k, o) -> if k = "b" then (k, zero) else (k, o)) ps));
   verdict (Solution.Unsafe.make ~pool (List.filter (fun (k, _) -> k <> "c") ps));
-  verdict (Solution.Unsafe.make ~pool:(Int64.pred pool) ps);
-  verdict (Solution.Unsafe.make ~pool (("z", 0L) :: ps));
-  verdict (Solution.Unsafe.make ~pool (("a", 0L) :: ps));
   verdict
-    (Solution.Unsafe.make ~pool
-       (List.map (fun (k, o) -> if k = "a" then (k, -1L) else (k, o)) ps));
+    (Solution.Unsafe.make
+       ~pool:(Units.size (Int64.pred (Byte_size.to_int64 pool)))
+       ps);
+  verdict (Solution.Unsafe.make ~pool (("z", zero) :: ps));
+  verdict (Solution.Unsafe.make ~pool (("a", zero) :: ps));
   verdict
-    (Solution.Unsafe.make ~pool:Int64.max_int
+    (Solution.Unsafe.make ~pool:(Units.size Int64.max_int)
        (List.map
-          (fun (k, o) -> if k = "a" then (k, Int64.max_int) else (k, o))
+          (fun (k, o) ->
+            if k = "a" then (k, Units.offset Int64.max_int) else (k, o))
           ps));
+  (* Inside the pool and overlapping nothing, but not at a multiple of its
+     alignment. *)
+  let aligned = script [ "+a:4@4"; "+b:2@2"; "-a"; "-b" ] in
+  let pool = Units.size 12L in
+  verdict ~s:aligned
+    (Solution.Unsafe.make ~pool
+       [ ("a", Units.offset 4L); ("b", Units.offset 0L) ]);
+  verdict ~s:aligned
+    (Solution.Unsafe.make ~pool
+       [ ("a", Units.offset 6L); ("b", Units.offset 0L) ]);
+  verdict ~s:aligned
+    (Solution.Unsafe.make ~pool
+       [ ("a", Units.offset 4L); ("b", Units.offset 9L) ]);
   [%expect
     {|
     ok pool 9
@@ -182,16 +209,18 @@ let%expect_test "check rejects bad placements" =
     b[7,+2] outside pool 8
     unknown key z
     duplicate placement a
-    negative offset a
-    offset overflow a |}]
+    offset overflow a
+    ok pool 12
+    a[6,+4] not aligned to 4
+    b[9,+2] not aligned to 2 |}]
 
 let%expect_test "lower bound overflow" =
   let s = script [ "+a:9223372036854775807"; "+b:1" ] in
   (match lower_bound s with
-  | Ok n -> Fmt.pr "%Ld@." n
+  | Ok n -> Fmt.pr "%a@." Byte_size.pp n
   | Error e -> Fmt.pr "%a@." pp_error (Err.Error.kind e));
   (match solve Strategy.Greedy_by_size s with
-  | Ok sol -> Fmt.pr "pool %Ld@." (Solution.pool sol)
+  | Ok sol -> Fmt.pr "pool %a@." Byte_size.pp (Solution.pool sol)
   | Error e -> Fmt.pr "%a@." pp_error (Err.Error.kind e));
   [%expect {|
     live sum overflows at b
@@ -200,14 +229,14 @@ let%expect_test "lower bound overflow" =
 (* Every strategy's solution passes [check] and is no smaller than the bound;
    the same script solved twice gives the same offsets, and renaming the keys
    (event order fixed) does too. *)
-let%expect_test "random scripts" =
-  let g = Gen.make 7 in
+let random_scripts ?max_log_alignment ~seed ~max_size () =
+  let g = Gen.make seed in
   let worst = ref 0. and total = ref 0. and count = ref 0 in
   for i = 1 to 200 do
     let events =
-      Gen.script g
+      Gen.script ?max_log_alignment g
         ~n:(5 + Gen.below g (if i mod 20 = 0 then 250 else 60))
-        ~max_size:50
+        ~max_size
     in
     let s =
       match Script.validate ~equal:Int.equal events with
@@ -217,7 +246,8 @@ let%expect_test "random scripts" =
     let renamed =
       List.map
         (function
-          | Event.Alloc { key; size } -> Event.Alloc { key = key + 1000; size }
+          | Event.Alloc { key; size; alignment } ->
+              Event.Alloc { key = key + 1000; size; alignment }
           | Event.Free k -> Event.Free (k + 1000))
         events
     in
@@ -235,15 +265,19 @@ let%expect_test "random scripts" =
             | Ok _ -> ()
             | Error _ ->
                 Fmt.pr "script %d: %a fails check@." i Strategy.pp strategy);
-            if Solution.pool a < lb then Fmt.pr "script %d: below the bound@." i;
+            if Byte_size.compare (Solution.pool a) lb < 0 then
+              Fmt.pr "script %d: below the bound@." i;
             if Solution.placements a <> Solution.placements b then
               Fmt.pr "script %d: not deterministic@." i;
             if
               List.map snd (Solution.placements a)
               <> List.map snd (Solution.placements c)
             then Fmt.pr "script %d: depends on key names@." i;
-            if lb > 0L then begin
-              let r = Int64.to_float (Solution.pool a) /. Int64.to_float lb in
+            if Byte_size.compare lb Byte_size.zero > 0 then begin
+              let r =
+                Int64.to_float (Byte_size.to_int64 (Solution.pool a))
+                /. Int64.to_float (Byte_size.to_int64 lb)
+              in
               worst := Float.max !worst r;
               total := !total +. r;
               incr count
@@ -253,5 +287,15 @@ let%expect_test "random scripts" =
   done;
   Fmt.pr "solutions %d, mean pool/bound %.3f, max %.3f@." !count
     (!total /. float_of_int !count)
-    !worst;
+    !worst
+
+let%expect_test "random scripts" =
+  random_scripts ~seed:7 ~max_size:50 ();
   [%expect {| solutions 800, mean pool/bound 1.015, max 1.163 |}]
+
+(* Alignments up to 64 on sizes that are mostly not multiples of them: every
+   placement must still pass the checker, which now also rejects a misaligned
+   offset. *)
+let%expect_test "random aligned scripts" =
+  random_scripts ~max_log_alignment:6 ~seed:11 ~max_size:200 ();
+  [%expect {| solutions 800, mean pool/bound 1.076, max 1.275 |}]

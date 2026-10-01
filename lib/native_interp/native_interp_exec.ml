@@ -36,8 +36,42 @@ let eval_in_arena ?arena ?on_arena ~retain graph ~eval =
           notify (Arena_run.Outcome.Used used);
           env)
 
-let run ?arena ?on_arena ?hooks ?region_executor ?region_group_executor
-    ?node_executor archive ~input =
+(* Runs [graph] in role arenas under [layout], constants and inputs copied, and
+   returns the results copied out of their lease. *)
+let eval_in_storage ~layout ?on_storage ?hooks ?region_executor
+    ?region_group_executor ?node_executor ~retain graph ~constants ~inputs =
+  let open Err.Syntax in
+  let arena r =
+    Err.map_error ~pos:__POS__ (fun e -> `Arena (e :> Arena_run.error)) r
+  in
+  let config =
+    {
+      Storage_script.Config.layout;
+      constants = Storage_script.Ownership.Copied;
+      inputs = Storage_script.Ownership.Copied;
+    }
+  in
+  let* script = arena (Eval_direct.storage_script ~retain config graph) in
+  let* plan = arena (Storage_plan.create script) in
+  let* prepared = arena (Constant_arena.create plan ~constants) in
+  let* runner = arena (Storage_run.create plan prepared) in
+  let* lease =
+    arena
+      (Storage_run.run runner ?hooks ?region_executor ?region_group_executor
+         ?node_executor ~retain graph ~inputs)
+  in
+  let* env, _ =
+    Result_lease.copy_out lease
+    |> Err.map_error ~pos:__POS__ (function
+      | `Lease_released -> invalid_arg "a fresh lease is live"
+      | (`Quant_missing _ | #Tensor.dst_error) as e -> `Arena e)
+  in
+  let+ report = arena (Storage_run.report runner) in
+  Option.iter (fun f -> f report) on_storage;
+  env
+
+let run ?arena ?layout ?on_arena ?on_storage ?hooks ?region_executor
+    ?region_group_executor ?node_executor archive ~input =
   let open Err.Syntax in
   let* lowered = lower_archive archive in
   let graph = lowered.Pt2_native_graph.graph in
@@ -84,10 +118,16 @@ let run ?arena ?on_arena ?hooks ?region_executor ?region_group_executor
   in
   let retain = Release_schedule.Retain.Only Tensor_id.Set.empty in
   let* env =
-    eval_in_arena ?arena ?on_arena ~retain graph ~eval:(fun arena ->
-        Eval_direct.run ?arena ?hooks:eval_hooks ?region_executor
-          ?region_group_executor ?node_executor ~retain ~constants graph ~inputs
-        |> Err.map_error ~pos:__POS__ (fun e -> `Eval e))
+    match layout with
+    | Some layout ->
+        eval_in_storage ~layout ?on_storage ?hooks:eval_hooks ?region_executor
+          ?region_group_executor ?node_executor ~retain graph ~constants ~inputs
+    | None ->
+        eval_in_arena ?arena ?on_arena ~retain graph ~eval:(fun arena ->
+            Eval_direct.run ?arena ?hooks:eval_hooks ?region_executor
+              ?region_group_executor ?node_executor ~retain ~constants graph
+              ~inputs
+            |> Err.map_error ~pos:__POS__ (fun e -> `Eval e))
   in
   Err.List.map
     (fun id ->

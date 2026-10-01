@@ -1,7 +1,9 @@
 (* Offsets in allocation order plus the pool they were packed into. Anyone can
    build one ([Unsafe.make]): it is only a claim until [check] accepts it. *)
 
-type 'k t = { placements : ('k * int64) list; pool : int64 }
+open Core.Storage_units
+
+type 'k t = { placements : ('k * Byte_offset.t) list; pool : Byte_size.t }
 
 let placements t = t.placements
 let pool t = t.pool

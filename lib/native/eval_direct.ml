@@ -398,13 +398,13 @@ let released_ids g sched =
         (Release_schedule.after sched node.Node.id))
     Tensor_id.Set.empty g.Graph.nodes
 
-let alloc_of g ~released id =
+let alloc_of ?policy g ~released id =
   let open Err.Syntax in
   let* sg =
     Tensor_id.Map.find_opt id g.Graph.tensors
     |> Err.of_option (`Missing_tensor_sig id)
   in
-  widen (Alloc_script.alloc ~released sg)
+  widen (Alloc_script.alloc ?policy ~released sg)
 
 (* The tensor an output is computed into: what its edge declares, format and
    quantization included. *)
@@ -416,32 +416,33 @@ let fresh_dst g id =
   in
   widen (Tensor.create_of_sig sg)
 
-(* An eligible edge under an arena computes into its slot; everything else into
-   a fresh tensor. The flag says which, since only a slot needs the result
-   settled into it. *)
-let dst_for ?arena g id =
+(* An edge some arena places computes into its slot; everything else into a
+   fresh tensor. The arena says which, since only a slot needs the result
+   settled into it. Arenas place disjoint edges, so the first that has a slot
+   is the only one. *)
+let dst_for ~arenas g id =
   let open Err.Syntax in
-  match arena with
-  | None ->
-      let+ dst = fresh_dst g id in
-      (dst, false)
-  | Some a -> (
-      let* slot = widen (Arena.view a id) in
-      match slot with
-      | Some dst -> Err.return (dst, true)
-      | None ->
-          let+ dst = fresh_dst g id in
-          (dst, false))
+  let rec find = function
+    | [] ->
+        let+ dst = fresh_dst g id in
+        (dst, None)
+    | a :: rest -> (
+        let* slot = widen (Arena.view a id) in
+        match slot with
+        | Some dst -> Err.return (dst, Some a)
+        | None -> find rest)
+  in
+  find arenas
 
 (* What to bind for an output: a slot's own tensor even when an executor
    answered in storage of its own (its cells are copied in), so the run's
    values live where the plan says they do. *)
-let settle ?arena ~backed ~dst id result =
-  match arena with
-  | Some a when backed -> widen (Arena.settle a id ~dst ~result)
-  | _ -> Err.return result
+let settle ~backed ~dst id result =
+  match backed with
+  | Some a -> widen (Arena.settle a id ~dst ~result)
+  | None -> Err.return result
 
-let rec run_graph ?arena ?hooks ?trace ?on_format_mismatch ?region_counters
+let rec run_graph ~arenas ?hooks ?trace ?on_format_mismatch ?region_counters
     ?region_executor ?region_group_executor ?node_executor
     ?(limits = Kernel.Limits.default) ?(retain = Release_schedule.Retain.All)
     ~constants (g : graph) (env : Tensor.packed Tensor_id.Map.t) :
@@ -457,15 +458,15 @@ let rec run_graph ?arena ?hooks ?trace ?on_format_mismatch ?region_counters
   let eval node env =
     match hooks with
     | None ->
-        eval_node ?arena ?on_format_mismatch ?region_counters ?region_executor
+        eval_node ~arenas ?on_format_mismatch ?region_counters ?region_executor
           ?region_group_executor ?node_executor ~limits ~synthetic_ids ~sched g
           env node
     | Some (Hooks h) ->
         let state = h.on_start node in
         let+ env =
-          eval_node ?arena ?on_format_mismatch ?region_counters ?region_executor
-            ?region_group_executor ?node_executor ~limits ~synthetic_ids ~sched
-            g env node
+          eval_node ~arenas ?on_format_mismatch ?region_counters
+            ?region_executor ?region_group_executor ?node_executor ~limits
+            ~synthetic_ids ~sched g env node
         in
         h.on_end node state;
         env
@@ -505,7 +506,7 @@ let rec run_graph ?arena ?hooks ?trace ?on_format_mismatch ?region_counters
       in
       walk ~sched g ~step ~release:free env
 
-and eval_node ?arena ?on_format_mismatch ?region_counters ?region_executor
+and eval_node ~arenas ?on_format_mismatch ?region_counters ?region_executor
     ?region_group_executor ?node_executor ~limits ~synthetic_ids ~sched
     (g : graph) (env : Tensor.packed Tensor_id.Map.t) (node : node) :
     (Tensor.packed Tensor_id.Map.t, error) Err.t =
@@ -547,7 +548,7 @@ and eval_node ?arena ?on_format_mismatch ?region_counters ?region_executor
       let* backed_dsts =
         Err.List.map
           (fun (output, oid, _) ->
-            let+ dst, backed = dst_for ?arena g oid in
+            let+ dst, backed = dst_for ~arenas g oid in
             (oid, Region_computation.emitter_of_output output, dst, backed))
           outs
       in
@@ -562,16 +563,14 @@ and eval_node ?arena ?on_format_mismatch ?region_counters ?region_executor
       in
       Err.List.fold_left
         (fun env (oid, emitter, dst, backed) ->
-          let* result =
-            settle ?arena ~backed ~dst oid (List.assoc emitter results)
-          in
+          let* result = settle ~backed ~dst oid (List.assoc emitter results) in
           check_format ?on_format_mismatch g node oid result;
           Err.return (Tensor_id.Map.add oid result env))
         env backed_dsts
   | _ ->
       Err.List.fold_left
         (fun env (output, oid, out_shape) ->
-          let* dst, backed = dst_for ?arena g oid in
+          let* dst, backed = dst_for ~arenas g oid in
           let* result =
             if Region_computation.is_region_authored op then
               region_result ~limits
@@ -587,12 +586,12 @@ and eval_node ?arena ?on_format_mismatch ?region_counters ?region_executor
                      Eval_direct_compute.compute g op ~output ~out_shape ~dst
                        ~operand_env ~shape_env ~fill))
           in
-          let* result = settle ?arena ~backed ~dst oid result in
+          let* result = settle ~backed ~dst oid result in
           check_format ?on_format_mismatch g node oid result;
           Err.return (Tensor_id.Map.add oid result env))
         env outs
 
-let dry_run ?(retain = Release_schedule.Retain.All) (g : graph) =
+let dry_run ?alignment ?(retain = Release_schedule.Retain.All) (g : graph) =
   let open Err.Syntax in
   let sched =
     Release_schedule.schedule ~operands:Graph_ir.operands ~is_sink ~retain g
@@ -602,7 +601,9 @@ let dry_run ?(retain = Release_schedule.Retain.All) (g : graph) =
     let* shapes = node_shapes g node.Node.op in
     let* outs = node_outs ~sched node shapes in
     let+ allocs =
-      Err.List.map (fun (_, oid, _) -> alloc_of g ~released oid) outs
+      Err.List.map
+        (fun (_, oid, _) -> alloc_of ?policy:alignment g ~released oid)
+        outs
     in
     ( List.fold_left
         (fun set (a : Alloc_script.Alloc.t) ->
@@ -628,28 +629,140 @@ let dry_run ?(retain = Release_schedule.Retain.All) (g : graph) =
   in
   List.rev events
 
-let run ?arena ?hooks ?trace ?on_format_mismatch ?region_counters
-    ?region_executor ?region_group_executor ?node_executor
-    ?(limits = Kernel.Limits.default) ?retain ?(constants = []) (g : graph)
-    ~(inputs : (Tensor_id.t * Tensor.packed) list) =
+(* The blocks a run owns and may reclaim: everything but constants and payloads
+   that live outside every arena as the caller's own. *)
+let reclaimable (b : Storage_script.Block.t) =
+  match b.Storage_script.Block.role with
+  | Storage_script.Role.Constant -> false
+  | Storage_script.Role.Input -> Option.is_some b.Storage_script.Block.arena
+  | Storage_script.Role.Intermediate | Storage_script.Role.Output -> true
+
+let storage_script ?(alignment = Alignment_policy.standard)
+    ?(retain = Release_schedule.Retain.All) (config : Storage_script.Config.t)
+    (g : graph) =
+  let open Err.Syntax in
+  let module S = Storage_script in
+  let sched =
+    Release_schedule.schedule ~operands:Graph_ir.operands ~is_sink ~retain g
+  in
+  let released =
+    List.fold_left
+      (fun set id -> Tensor_id.Set.add id set)
+      (released_ids g sched)
+      (Release_schedule.initial sched)
+  in
+  let block role id =
+    let* a = alloc_of ~policy:alignment g ~released id in
+    let kept = not (Tensor_id.Set.mem id released) in
+    let role =
+      match role with
+      | S.Role.Intermediate when kept -> S.Role.Output
+      | role -> role
+    in
+    let quantized = Option.is_some a.Alloc_script.Alloc.signature.quant in
+    Err.return
+      {
+        S.Block.alloc = a;
+        role;
+        arena = S.arena_of config role ~quantized ~kept;
+      }
+  in
+  let* constants =
+    Err.List.map (block S.Role.Constant)
+      (List.filter
+         (fun id ->
+           Graph_ir.input_kind g id = Input.Constant && constant_is_used g id)
+         g.Graph.inputs)
+  in
+  let* inputs = Err.List.map (block S.Role.Input) (input_ids g) in
+  let owned =
+    List.fold_left
+      (fun m (b : S.Block.t) ->
+        if reclaimable b then
+          Tensor_id.Map.add b.S.Block.alloc.Alloc_script.Alloc.id b m
+        else m)
+      Tensor_id.Map.empty inputs
+  in
+  let allocs = List.map (fun b -> S.Event.Alloc b) in
+  let head =
+    List.rev
+      ((S.Event.Boundary S.Boundary.Model_init :: allocs constants)
+      @ (S.Event.Boundary S.Boundary.Input_population :: allocs inputs))
+  in
+  let step (node : node) (owned, events) =
+    let* shapes = node_shapes g node.Node.op in
+    let* outs = node_outs ~sched node shapes in
+    let+ blocks =
+      Err.List.map (fun (_, oid, _) -> block S.Role.Intermediate oid) outs
+    in
+    ( List.fold_left
+        (fun m (b : S.Block.t) ->
+          Tensor_id.Map.add b.S.Block.alloc.Alloc_script.Alloc.id b m)
+        owned blocks,
+      List.rev_append (allocs blocks) (S.Event.Node node.Node.id :: events) )
+  in
+  let free ids (owned, events) =
+    List.fold_left
+      (fun (owned, events) id ->
+        if Tensor_id.Map.mem id owned then
+          (Tensor_id.Map.remove id owned, S.Event.Free id :: events)
+        else (owned, events))
+      (owned, events) ids
+  in
+  let+ owned, events = walk ~sched g ~step ~release:free (owned, head) in
+  let tail =
+    S.Event.Boundary S.Boundary.Result_publication
+    :: S.Event.Boundary S.Boundary.Result_release
+    :: List.map (fun (id, _) -> S.Event.Free id) (Tensor_id.Map.bindings owned)
+  in
+  S.make config alignment (List.rev_append events tail)
+
+(* The graph's inputs, each from [inputs]. *)
+let bind_inputs g inputs =
   let provided =
     List.fold_left
       (fun e (id, t) -> Tensor_id.Map.add id t e)
       Tensor_id.Map.empty inputs
   in
+  Err.List.fold_left
+    (fun env id ->
+      match Tensor_id.Map.find_opt id provided with
+      | None -> Err.fail (`Missing_input id)
+      | Some tensor -> Err.return (Tensor_id.Map.add id tensor env))
+    Tensor_id.Map.empty (input_ids g)
+
+let run_storage ~arenas ~script ?hooks ?on_format_mismatch ?region_counters
+    ?region_executor ?region_group_executor ?node_executor
+    ?(limits = Kernel.Limits.default) ?retain ?(constants = []) (g : graph)
+    ~(inputs : (Tensor_id.t * Tensor.packed) list) =
   let open Err.Syntax in
-  let* env0 =
-    Err.List.fold_left
-      (fun env id ->
-        match Tensor_id.Map.find_opt id provided with
-        | None -> Err.fail (`Missing_input id)
-        | Some tensor -> Err.return (Tensor_id.Map.add id tensor env))
-      Tensor_id.Map.empty (input_ids g)
+  let* env0 = bind_inputs g inputs in
+  (* Before any node runs: a storage plan is valid only for the run whose
+     script it was built from. *)
+  let* own =
+    storage_script
+      ~alignment:(Storage_script.policy script)
+      ?retain
+      (Storage_script.config script)
+      g
   in
+  match Storage_script.first_difference script own with
+  | Some position -> Err.fail ~pos:__POS__ (`Storage_script_mismatch position)
+  | None ->
+      run_graph ~arenas ?hooks ?on_format_mismatch ?region_counters
+        ?region_executor ?region_group_executor ?node_executor ~limits ?retain
+        ~constants g env0
+
+let run ?arena ?hooks ?trace ?on_format_mismatch ?region_counters
+    ?region_executor ?region_group_executor ?node_executor
+    ?(limits = Kernel.Limits.default) ?retain ?(constants = []) (g : graph)
+    ~(inputs : (Tensor_id.t * Tensor.packed) list) =
+  let open Err.Syntax in
+  let* env0 = bind_inputs g inputs in
   let go () =
-    run_graph ?arena ?hooks ?trace ?on_format_mismatch ?region_counters
-      ?region_executor ?region_group_executor ?node_executor ~limits ?retain
-      ~constants g env0
+    run_graph ~arenas:(Option.to_list arena) ?hooks ?trace ?on_format_mismatch
+      ?region_counters ?region_executor ?region_group_executor ?node_executor
+      ~limits ?retain ~constants g env0
   in
   match arena with
   | None -> go ()
@@ -658,11 +771,10 @@ let run ?arena ?hooks ?trace ?on_format_mismatch ?region_counters
          valid only for the run whose script it was built from, and that run
          is the graph under its effective [retain]. *)
       Arena.with_run a (fun () ->
-          let* script = dry_run ?retain g in
+          let plan = Arena.plan a in
+          let* script = dry_run ~alignment:(Arena_plan.policy plan) ?retain g in
           match
-            Alloc_script.first_difference
-              (Arena_plan.script (Arena.plan a))
-              script
+            Alloc_script.first_difference (Arena_plan.script plan) script
           with
           | Some difference ->
               Err.fail ~pos:__POS__ (`Arena_script_mismatch difference)

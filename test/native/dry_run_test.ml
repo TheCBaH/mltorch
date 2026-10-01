@@ -28,25 +28,25 @@ let%expect_test "scripts of small graphs" =
     {|
     -- residual
     node n0
-    alloc t1 float32 16 bytes
+    alloc t1 float32 16 bytes align 64
     node n1
-    alloc t2 float32 16 bytes
+    alloc t2 float32 16 bytes align 64
     free t1
     node n2
-    alloc t3 float32 16 bytes (outside the arena)
+    alloc t3 float32 16 bytes align 64 (outside the arena)
     free t2
     -- residual
     node n0
-    alloc t1 float32 16 bytes (outside the arena)
+    alloc t1 float32 16 bytes align 64 (outside the arena)
     node n1
-    alloc t2 float32 16 bytes (outside the arena)
+    alloc t2 float32 16 bytes align 64 (outside the arena)
     node n2
-    alloc t3 float32 16 bytes (outside the arena)
+    alloc t3 float32 16 bytes align 64 (outside the arena)
     -- multi_output
     node n0
-    alloc t1 float32 32 bytes
+    alloc t1 float32 32 bytes align 64
     node n2
-    alloc t3 float32 32 bytes (outside the arena)
+    alloc t3 float32 32 bytes align 64 (outside the arena)
     free t1 |}]
 
 (* ---- the script's bytes equal the release schedule's ------------------- *)
@@ -99,7 +99,11 @@ let%expect_test "the script's peak plus the inputs equals peak_bytes" =
           in
           let mine =
             match Err.payload (Alloc_script.peak_bytes (dry ~retain g)) with
-            | Ok n -> Int64.add n (input_bytes g)
+            | Ok n ->
+                (* The schedule's figure is raw: compared, not computed. *)
+                Int64.add
+                  (Core.Storage_units.Byte_size.to_int64 n)
+                  (input_bytes g)
             | Error _ -> assert false
           in
           if not (Int64.equal mine reference) then
@@ -202,7 +206,7 @@ let%expect_test "first_difference on dry runs" =
   [%expect
     {|
     equal
-    at @1: alloc t1 float32 16 bytes / alloc t1 float32 16 bytes (outside the arena)
+    at @1: alloc t1 float32 16 bytes align 64 / alloc t1 float32 16 bytes align 64 (outside the arena)
     at @0: node n0 / node n1 |}]
 
 (* Scripts differing only in a [Free] cannot come from two dry runs: a changed

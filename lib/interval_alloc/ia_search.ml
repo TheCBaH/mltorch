@@ -4,6 +4,7 @@
    and the moves of iteration [i] do not depend on the budget, so a larger
    budget only extends the same walk. *)
 
+open Core.Storage_units
 module Script = Ia_script
 
 module Stop = struct
@@ -34,13 +35,15 @@ let move order src dst =
   order.(dst) <- b
 
 (* Blocks whose top edge sets the pool. *)
-let peak_positions script order offsets pool =
+let peak_positions script order (placed : Ia_decode.Placed.t) =
   let acc = ref [] in
   Array.iteri
     (fun pos b ->
       if
-        script.Script.sizes.(b) <> 0L
-        && Int64.add offsets.(b) script.Script.sizes.(b) = pool
+        (not (Script.empty script b))
+        && Byte_size.equal
+             (Byte_offset.to_size placed.Ia_decode.Placed.ends.(b))
+             placed.pool
       then acc := pos :: !acc)
     order;
   Array.of_list (List.rev !acc)
@@ -52,24 +55,26 @@ let peak_positions script order offsets pool =
    later checkpoint reports it. [at c] is called as checkpoint [c] is
    recorded, in increasing order. *)
 let improve_at ?(at = ignore) mode ~checkpoints ~seed script ~lower_bound order
-    (offsets0, pool0) =
+    (start : Ia_decode.Placed.t) =
   let checkpoints =
     List.sort_uniq Int64.compare (List.map (Int64.max 0L) checkpoints)
   in
   let last = List.fold_left Int64.max 0L checkpoints in
   let n = Script.blocks script in
-  let best = ref (Array.copy order, offsets0, pool0) in
+  let best = ref (Array.copy order, start) in
   let rng = ref seed and used = ref 0L in
   let pending = ref checkpoints and recorded = ref [] in
   let stop_of pool =
-    if Int64.compare pool lower_bound <= 0 then Stop.Lower_bound
+    if Byte_size.compare pool lower_bound <= 0 then Stop.Lower_bound
     else Stop.Budget_exhausted
   in
   let record ~iterations c =
-    let _, offsets, pool = !best in
+    let _, placed = !best in
     at c;
     recorded :=
-      (c, (offsets, pool), { Effort.iterations; stop = stop_of pool })
+      ( c,
+        placed,
+        { Effort.iterations; stop = stop_of placed.Ia_decode.Placed.pool } )
       :: !recorded
   in
   let ( let* ) = Result.bind in
@@ -79,18 +84,18 @@ let improve_at ?(at = ignore) mode ~checkpoints ~seed script ~lower_bound order
         record ~iterations:c c;
         pending := rest
     | _ -> ());
-    let _, _, pool = !best in
+    let _, { Ia_decode.Placed.pool; _ } = !best in
     if
       n < 2
-      || Int64.compare pool lower_bound <= 0
+      || Byte_size.compare pool lower_bound <= 0
       || Int64.compare !used last >= 0
     then Ok ()
     else begin
       used := Int64.succ !used;
-      let cur, cur_offsets, cur_pool = !best in
+      let cur, cur_placed = !best in
       let cand = Array.copy cur in
       rng := next !rng;
-      let peaks = peak_positions script cur cur_offsets cur_pool in
+      let peaks = peak_positions script cur cur_placed in
       let src =
         if Array.length peaks = 0 then below !rng n
         else peaks.(below !rng (Array.length peaks))
@@ -108,8 +113,12 @@ let improve_at ?(at = ignore) mode ~checkpoints ~seed script ~lower_bound order
         cand.(b) <- t
       end
       else move cand src dst;
-      let* offsets, pool = Ia_decode.offsets mode script cand in
-      if Int64.compare pool cur_pool <= 0 then best := (cand, offsets, pool);
+      let* placed = Ia_decode.offsets mode script cand in
+      if
+        Byte_size.compare placed.Ia_decode.Placed.pool
+          cur_placed.Ia_decode.Placed.pool
+        <= 0
+      then best := (cand, placed);
       go ()
     end
   in

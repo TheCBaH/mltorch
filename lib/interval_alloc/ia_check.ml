@@ -1,13 +1,20 @@
-(* The witness check: every block placed exactly once, inside the pool, and no
-   two blocks live at the same time overlapping. Shared by the public [check]
-   and by the reference search, which validates its own candidates. *)
+(* The witness check: every block placed exactly once, aligned, inside the
+   pool, and no two blocks live at the same time overlapping. Shared by the
+   public [check] and by the reference search, which validates its own
+   candidates. *)
+
+open Core.Storage_units
 
 module Block = struct
-  type 'k t = { key : 'k; offset : int64; size : int64 }
+  type 'k t = { key : 'k; offset : Byte_offset.t; size : Byte_size.t }
+end
+
+module Misaligned = struct
+  type 'k t = { block : 'k Block.t; alignment : Byte_alignment.t }
 end
 
 module Out_of_pool = struct
-  type 'k t = { block : 'k Block.t; pool : int64 }
+  type 'k t = { block : 'k Block.t; pool : Byte_size.t }
 end
 
 module Overlap = struct
@@ -47,35 +54,43 @@ let check (script : _ Ia_script.t) solution =
     in
     unplaced 0
   in
+  (* Every block's end, once it is known to fit. *)
+  let ends = Array.make n Byte_offset.zero in
   let* () =
     let rec bounds i =
       if i >= n then Ok ()
       else
-        let offset = offset_of i in
-        if Int64.compare offset 0L < 0 then
-          Err.fail ~pos:__POS__ (`Negative_offset keys.(i))
+        let offset = offset_of i
+        and alignment = script.Ia_script.alignments.(i) in
+        if not (Byte_offset.is_aligned offset alignment) then
+          Err.fail ~pos:__POS__
+            (`Misaligned { Misaligned.block = block i; alignment })
         else
-          match Ia_script.add_checked offset sizes.(i) with
-          | None -> Err.fail ~pos:__POS__ (`Offset_overflow keys.(i))
-          | Some hi ->
-              if Int64.compare hi pool > 0 then
-                Err.fail ~pos:__POS__
-                  (`Out_of_pool { Out_of_pool.block = block i; pool })
-              else bounds (i + 1)
+          let* hi =
+            Byte_offset.advance offset sizes.(i)
+            |> Err.map_error ~pos:__POS__ (fun (`Quantity_overflow _) ->
+                `Offset_overflow keys.(i))
+          in
+          if Byte_size.compare (Byte_offset.to_size hi) pool > 0 then
+            Err.fail ~pos:__POS__
+              (`Out_of_pool { Out_of_pool.block = block i; pool })
+          else begin
+            ends.(i) <- hi;
+            bounds (i + 1)
+          end
     in
     bounds 0
   in
   let disjoint a b =
-    let lo_a = offset_of a and lo_b = offset_of b in
-    Int64.compare (Int64.add lo_a sizes.(a)) lo_b <= 0
-    || Int64.compare (Int64.add lo_b sizes.(b)) lo_a <= 0
+    Byte_offset.compare ends.(a) (offset_of b) <= 0
+    || Byte_offset.compare ends.(b) (offset_of a) <= 0
   in
   let rec overlaps a b =
     if a >= n then Ok ()
     else if b >= n then overlaps (a + 1) (a + 2)
     else if
-      sizes.(a) <> 0L
-      && sizes.(b) <> 0L
+      (not (Ia_script.empty script a))
+      && (not (Ia_script.empty script b))
       && Ia_script.conflicts script a b
       && not (disjoint a b)
     then

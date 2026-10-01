@@ -27,16 +27,22 @@ let show script =
   match Err.payload (Arena_problem.of_script script) with
   | Error (`Arena_script id) -> Fmt.pr "inconsistent at %a@." Tensor_id.pp id
   | Ok p ->
+      let events label kind script =
+        Fmt.pr "%a %s:" Alloc_script.Kind.pp kind label;
+        List.iter
+          (function
+            | Interval_alloc.Event.Alloc { key; size; alignment } ->
+                Fmt.pr " +%a(%a@%a)" Tensor_id.pp key
+                  Core.Storage_units.Byte_size.pp size
+                  Core.Storage_units.Byte_alignment.pp alignment
+            | Interval_alloc.Event.Free key -> Fmt.pr " -%a" Tensor_id.pp key)
+          (Interval_alloc.Script.events script);
+        Fmt.pr "@."
+      in
       List.iter
-        (fun { Arena_problem.Kind_problem.kind; script } ->
-          Fmt.pr "%a:" Alloc_script.Kind.pp kind;
-          List.iter
-            (function
-              | Interval_alloc.Event.Alloc { key; size } ->
-                  Fmt.pr " +%a(%Ld)" Tensor_id.pp key size
-              | Interval_alloc.Event.Free key -> Fmt.pr " -%a" Tensor_id.pp key)
-            (Interval_alloc.Script.events script);
-          Fmt.pr "@.")
+        (fun { Arena_problem.Kind_problem.kind; script; padded } ->
+          events "exact" kind script;
+          events "padded" kind padded)
         (Arena_problem.kinds p);
       Fmt.pr "first %a@." Tensor_id.pp (Arena_problem.first_id p)
 
@@ -61,8 +67,10 @@ let%expect_test "projection keeps order and drops what is not eligible" =
     ];
   [%expect
     {|
-    float32: +t1(4) +t3(4) -t1 +t4(4) -t3
-    int64: +t2(4) -t2
+    float32 exact: +t1(16@64) +t3(16@64) -t1 +t4(16@64) -t3
+    float32 padded: +t1(64@64) +t3(64@64) -t1 +t4(64@64) -t3
+    int64 exact: +t2(32@64) -t2
+    int64 padded: +t2(64@64) -t2
     first t1 |}]
 
 let%expect_test "no eligible edge: no problem" =

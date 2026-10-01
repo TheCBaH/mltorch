@@ -553,10 +553,17 @@ val lower_archive : Pt2_archive.t -> (Pt2_native_graph.t, error) Err.t
    [Required budget] it is an [`Arena] error before anything is evaluated.
    [?on_arena] also reports, after a run that used one, its pool bytes, the
    out-of-arena payload bytes and the mixed-mode copies. Results are equal bit
-   for bit either way. Off by default. *)
+   for bit either way. Off by default.
+
+   [?layout] instead runs every storage role in its own arenas
+   ([Storage_run]), constants and the input copied in, and returns the results
+   copied out of their lease; [?on_storage] receives the runner's report. It
+   takes precedence over [?arena]. *)
 val run :
   ?arena:Arena.Admission.t ->
+  ?layout:Storage_script.Layout.t ->
   ?on_arena:(Arena_run.Outcome.t -> unit) ->
+  ?on_storage:(Storage_run.Report.t -> unit) ->
   ?hooks:hooks ->
   ?region_executor:Region_executor.t ->
   ?region_group_executor:Region_executor.group ->

@@ -32,11 +32,11 @@ let run ?arena ?node_executor ?region_executor ?region_group_executor
   Eval_direct.run ?arena ?node_executor ?region_executor ?region_group_executor
     ~retain ~constants:(bound g Input.Constant) g ~inputs:(bound g Input.Input)
 
-let acquire ?poison ?(retain = only_empty) g =
+let acquire ?alignment ?poison ?(retain = only_empty) g =
   match
     Err.payload
-      (Arena_run.acquire ?poison ~retain ~admission:Arena.Admission.Best_effort
-         g)
+      (Arena_run.acquire ?alignment ?poison ~retain
+         ~admission:Arena.Admission.Best_effort g)
   with
   | Ok (Arena_run.Arena a) -> a
   | Ok (Arena_run.Release_only _) -> Fmt.failwith "arena declined"
@@ -173,10 +173,11 @@ let%expect_test
       Arena_plan.slot (Arena.plan arena)
         (List.hd (List.nth g.Graph.nodes n).Node.outputs)
     with
-    | Some s -> Int64.to_int s.Arena_plan.Slot.offset
-    | None -> -1
+    | Some s -> Core.Storage_units.Byte_offset.to_int64 s.Arena_plan.Slot.offset
+    | None -> -1L
   in
-  Fmt.pr "slots of the first three relus: %d %d %d@." (slot 0) (slot 1) (slot 2);
+  Fmt.pr "slots of the first three relus: %Ld %Ld %Ld@." (slot 0) (slot 1)
+    (slot 2);
   let outputs poison =
     match
       Err.payload
@@ -189,7 +190,7 @@ let%expect_test
     (Tensor.equal_bits (outputs Arena.Poison.A) (outputs Arena.Poison.B));
   [%expect
     {|
-    slots of the first three relus: 4 0 4
+    slots of the first three relus: 64 0 64
     paired runs agree: false |}]
 
 (* ---- no arena memory escapes the run -------------------------------------- *)
@@ -365,11 +366,11 @@ let%expect_test
     {|
     the same run: RAN; 3 executor calls
     a later node reads another edge: arena: the plan was built for a different run: at event @4 the plan has free t1, this run has free t2; 0 executor calls
-    other graph outputs: arena: the plan was built for a different run: at event @1 the plan has alloc t1 float32 16 bytes, this run has alloc t1 float32 16 bytes (outside the arena); 0 executor calls
-    retain changed: arena: the plan was built for a different run: at event @1 the plan has alloc t1 float32 16 bytes, this run has alloc t1 float32 16 bytes (outside the arena); 0 executor calls
-    retain omitted: arena: the plan was built for a different run: at event @1 the plan has alloc t1 float32 16 bytes, this run has alloc t1 float32 16 bytes (outside the arena); 0 executor calls
+    other graph outputs: arena: the plan was built for a different run: at event @1 the plan has alloc t1 float32 16 bytes align 64, this run has alloc t1 float32 16 bytes align 64 (outside the arena); 0 executor calls
+    retain changed: arena: the plan was built for a different run: at event @1 the plan has alloc t1 float32 16 bytes align 64, this run has alloc t1 float32 16 bytes align 64 (outside the arena); 0 executor calls
+    retain omitted: arena: the plan was built for a different run: at event @1 the plan has alloc t1 float32 16 bytes align 64, this run has alloc t1 float32 16 bytes align 64 (outside the arena); 0 executor calls
     swapped nodes: arena: the plan was built for a different run: at event @0 the plan has node n0, this run has node n1; 0 executor calls
-    another graph: arena: the plan was built for a different run: at event @1 the plan has alloc t1 float32 16 bytes, this run has alloc t7 float32 108 bytes; 0 executor calls |}]
+    another graph: arena: the plan was built for a different run: at event @1 the plan has alloc t1 float32 16 bytes align 64, this run has alloc t7 float32 108 bytes align 64; 0 executor calls |}]
 
 (* ---- an executor that answers in storage of its own -------------------------- *)
 
@@ -506,13 +507,15 @@ let%expect_test "quantized unbind and split next to arena-backed edges" =
 (* ---- admission --------------------------------------------------------------- *)
 
 let%expect_test "admission" =
+  let open Core.Storage_units in
+  let units r = Err.or_raise ~pp_error r in
   let g = fixture "residual" in
   let footprint =
     match Err.payload (Arena.footprint (Arena.plan (acquire g))) with
     | Ok n -> n
     | Error _ -> assert false
   in
-  Fmt.pr "footprint %Ld bytes@." footprint;
+  Fmt.pr "footprint %a bytes@." Byte_size.pp footprint;
   let attempt label ?limits ~admission () =
     let calls, node_executor = counting () in
     let result =
@@ -524,8 +527,7 @@ let%expect_test "admission" =
     Fmt.pr "%s: %s; %d executor calls@." label
       (match Err.payload result with
       | Ok (_, Arena_run.Outcome.Used r) ->
-          Fmt.str "arena, pool %Ld bytes, outside %Ld"
-            r.Arena_run.Report.pool_bytes r.Arena_run.Report.out_of_arena_bytes
+          Fmt.str "arena: used %a" Arena_run.Report.pp r
       | Ok (_, Arena_run.Outcome.Declined reason) ->
           Fmt.str "release-only (%a)" Arena_run.pp_error reason
       | Error e -> Fmt.str "REJECTED: %a" Arena_run.pp_error e)
@@ -533,7 +535,7 @@ let%expect_test "admission" =
   in
   attempt "required, enough" ~admission:(Arena.Admission.Required footprint) ();
   attempt "required, one byte short"
-    ~admission:(Arena.Admission.Required (Int64.pred footprint))
+    ~admission:(Arena.Admission.Required (units (Byte_size.pred footprint)))
     ();
   let d = Kernel.Limits.default in
   let tight =
@@ -551,13 +553,103 @@ let%expect_test "admission" =
     | Error _ -> assert false
   in
   attempt "required, over a ceiling" ~limits:tight
-    ~admission:(Arena.Admission.Required Int64.max_int) ();
+    ~admission:
+      (Arena.Admission.Required (units (Byte_size.of_int64 Int64.max_int)))
+    ();
   attempt "best effort, over a ceiling" ~limits:tight
     ~admission:Arena.Admission.Best_effort ();
   [%expect
     {|
-    footprint 48 bytes
-    required, enough: arena, pool 32 bytes, outside 16; 3 executor calls
-    required, one byte short: REJECTED: arena: the run needs 48 bytes but the budget is 47; 0 executor calls
-    required, over a ceiling: REJECTED: arena: the float32 pool needs 8 cells (32 bytes), over 8 bytes; 0 executor calls
-    best effort, over a ceiling: release-only (arena: the float32 pool needs 8 cells (32 bytes), over 8 bytes); 3 executor calls |}]
+    footprint 96 bytes
+    required, enough: arena: used pool_bytes=80 out_of_arena_bytes=16 base_alignment=64 physical_alignment=logical_only mixed_mode_copies=0 (0 bytes); 3 executor calls
+    required, one byte short: REJECTED: arena: the run needs 96 bytes but the budget is 95; 0 executor calls
+    required, over a ceiling: REJECTED: arena: the float32 pool needs 20 cells (80 bytes), over 8 bytes; 0 executor calls
+    best effort, over a ceiling: release-only (arena: the float32 pool needs 20 cells (80 bytes), over 8 bytes); 3 executor calls |}]
+
+(* ---- alignment policy -------------------------------------------------------- *)
+
+(* A host request reaches every slot, and a plan runs under the policy it was
+   made under: runs still equal release runs. A plan whose recorded policy is
+   not the one its script was made under is refused before any node runs. *)
+let%expect_test "a host alignment request" =
+  let page = Alignment_policy.page_alignment in
+  let alignment = Alignment_policy.with_host page in
+  let bad = ref 0 and misaligned = ref 0 in
+  List.iter
+    (fun (name, build) ->
+      let g = build () in
+      let arena = acquire ~alignment g in
+      List.iter
+        (fun (s : Arena_plan.Slot.t) ->
+          if not (Core.Storage_units.Byte_offset.is_aligned s.offset page) then
+            incr misaligned)
+        (Arena_plan.slots (Arena.plan arena));
+      match compare_runs name g (run g) (run ~arena g) with
+      | None -> ()
+      | Some msg ->
+          incr bad;
+          Fmt.pr "%s@." msg)
+    Graph_fixtures.all;
+  Fmt.pr "%d fixtures, %d differ, %d slots off a page@."
+    (List.length Graph_fixtures.all)
+    !bad !misaligned;
+  let g = fixture "residual" in
+  let script =
+    Err.or_raise ~pp_error:Eval_direct.pp_error
+      (Eval_direct.dry_run ~retain:only_empty g)
+  in
+  let mislabelled =
+    Err.or_raise
+      ~pp_error:(fun ppf _ -> Fmt.string ppf "plan")
+      (Arena_plan.create ~alignment script)
+  in
+  let arena =
+    Err.or_raise ~pp_error:Arena.pp_error (Arena.create mislabelled)
+  in
+  Fmt.pr "mislabelled plan: %a@."
+    Fmt.(result ~ok:(any "ran") ~error:pp_error)
+    (run ~arena g);
+  [%expect
+    {|
+    45 fixtures, 0 differ, 0 slots off a page
+    mislabelled plan: arena: the plan was built for a different run: at event @1 the plan has alloc t1 float32 16 bytes align 64, this run has alloc t1 float32 16 bytes align 4096 |}]
+
+(* A run that needs physically aligned slots is refused (or, best effort,
+   declined) on a backend that only aligns them relative to their pool, before
+   any node runs; one that accepts logical alignment runs. *)
+let%expect_test "physical alignment is required explicitly" =
+  let g = fixture "residual" in
+  let attempt label ~physical ~admission =
+    let calls, node_executor = counting () in
+    let result =
+      Arena_run.with_arena ~physical ~retain:only_empty ~admission g
+        (fun arena ->
+          Eval_direct.run ?arena ~node_executor ~retain:only_empty g
+            ~inputs:(bound g Input.Input)
+          |> Err.map_error (fun e -> (e :> Arena_run.error)))
+    in
+    Fmt.pr "%s: %s; %d executor calls@." label
+      (match Err.payload result with
+      | Ok (_, Arena_run.Outcome.Used _) -> "used"
+      | Ok (_, Arena_run.Outcome.Declined reason) ->
+          Fmt.str "release-only (%a)" Arena_run.pp_error reason
+      | Error e -> Fmt.str "REJECTED: %a" Arena_run.pp_error e)
+      !calls
+  in
+  let unbounded =
+    Arena.Admission.Required
+      (Err.or_raise ~pp_error:Core.Storage_units.pp_error
+         (Core.Storage_units.Byte_size.of_int64 Int64.max_int))
+  in
+  attempt "logical accepted"
+    ~physical:Arena.Physical_requirement.Logical_accepted ~admission:unbounded;
+  attempt "physical required"
+    ~physical:Arena.Physical_requirement.Physical_required ~admission:unbounded;
+  attempt "physical required, best effort"
+    ~physical:Arena.Physical_requirement.Physical_required
+    ~admission:Arena.Admission.Best_effort;
+  [%expect
+    {|
+    logical accepted: used; 3 executor calls
+    physical required: REJECTED: arena: the pools need a base aligned to 64 bytes, the backend gives logical_only; 0 executor calls
+    physical required, best effort: release-only (arena: the pools need a base aligned to 64 bytes, the backend gives logical_only); 3 executor calls |}]

@@ -1,0 +1,12 @@
+; Tests for [Core]'s scalar types. (modes best js): the same expect blocks run
+; under js_of_ocaml via node (the @runtest-js alias, see the root dune), since
+; the storage quantities are [int64] precisely so that the 32-bit [int] there
+; is never asked to hold one.
+
+(library
+ (name core_test)
+ (libraries core err_trace fmt)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))

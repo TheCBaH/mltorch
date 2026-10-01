@@ -2,41 +2,54 @@
 
 A standalone library that packs a script of allocations and frees into one pool.
 It is the placement half of the tensor arena and knows nothing about tensors,
-element kinds or Bigarrays: the client makes one problem per pool and owns the
-units.
+element kinds or Bigarrays: the client makes one problem per pool. Its units are
+bytes, as `Core.Storage_units` types, so a client cannot hand it element counts
+or mix sizes with offsets.
 
 ## Contract
 
 - **Script.** `Script.validate ~equal events` accepts a list of
-  `Alloc {key; size}` / `Free key` events. A key is allocated once and freed at
-  most once, after its allocation; a size is non-negative. A block never freed
-  lives to the end. Keys are compared only through the `equal` given here (and
-  reused by `check`), so the library is generic in the key.
+  `Alloc {key; size; alignment}` / `Free key` events. A key is allocated once
+  and freed at most once, after its allocation; a size is non-negative and an
+  alignment a positive power of two, both by type. A block never freed lives to
+  the end. Keys are compared only through the `equal` given here (and reused by
+  `check`), so the library is generic in the key.
+- **Alignment.** A block's offset must be a multiple of its alignment. Only the
+  start is aligned: a size is never rounded up, so a later block may begin
+  inside the same alignment unit. Offsets are relative to the pool, so an
+  aligned offset is physically aligned only if the client's pool base is.
 - **Liveness is by event position.** A block allocated at `p` and freed at `q`
   is live over `[p, q)`. A `Free` placed after a later `Alloc` therefore
   conflicts with it: this is what keeps a node's operand and its output apart
   when the operand is released after the node runs.
-- **Sizes and offsets are `int64`.** js_of_ocaml's `int` is 32 bits. Sums are
-  overflow-checked (`Live_overflow`, `Pool_overflow`, `Offset_overflow`).
+- **Sizes and offsets are `int64`-backed.** js_of_ocaml's `int` is 32 bits.
+  Arithmetic goes through `Core.Storage_units`' checked operations; an overflow
+  surfaces as `Live_overflow`, `Pool_overflow` or `Offset_overflow`. A failure
+  the code has already ruled out (the end of a block the checker placed inside
+  its pool) raises rather than inventing a row.
 - **Witness.** `check` accepts a `Solution` only if every block is placed
-  exactly once, at a non-negative offset, inside the pool, without overlapping
-  any block it is live with. `Witness.t` is abstract and only `check` builds
+  exactly once, at a multiple of its alignment (`Misaligned` otherwise, even
+  when everything fits), inside the pool, without overlapping any block it is
+  live with. `Witness.t` is abstract and only `check` builds
   one; `Solution.Unsafe.make` exists so tests can build a bad claim. Errors are
   data (the keys and byte ranges), not prose.
 - **Strategies.** `Greedy_by_area`, `Greedy_by_lifetime`, `Greedy_by_size`,
   `Greedy_by_size_best_fit`. Each sorts blocks by its key (largest first, ties in
   allocation order) and places each at the lowest fitting gap (best-fit: the
-  smallest fitting gap). Deterministic: the result depends on the event order and
+  smallest fitting gap), measured from the gap's first aligned offset. Deterministic: the result depends on the event order and
   sizes, never on key names or a clock.
 - **Lower bound.** The maximum running sum of live sizes: no placement of that
-  script, in that order, can use a smaller pool.
+  script, in that order, can use a smaller pool. It ignores alignment, so
+  padding can leave the optimum above it.
 
 ## Tests
 
 `test/interval_alloc` runs natively and under `@runtest-js`: hand-built scripts,
 `validate` rejections, checker mutations (overlap, unplaced, out-of-pool,
-overflow), and seeded random scripts checking every strategy against `check`,
-the bound, determinism and key-renaming.
+misaligned, overflow), and seeded random scripts, with and without alignment,
+checking every strategy against `check`, the bound, determinism and
+key-renaming. Dropping the decoder's or the reference search's alignment turns
+the aligned suites red.
 
 ## Search and budget
 
@@ -78,7 +91,10 @@ them: nothing it finds seeds `solve_best` or `improve`.
   Complete because a fitting placement that honours the choices so far orients
   the overlapping pair one way or the other, and adding that edge only raises
   offsets towards that placement's, so its branch is never pruned; finite
-  because every branch adds an edge no earlier choice implied. Pruning: a block
+  because every branch adds an edge no earlier choice implied. With alignment, a
+  block's offset is the least aligned offset at or above its predecessors' ends;
+  completeness survives because an aligned placement at or above each of those
+  ends is at or above their aligned-up maximum. Pruning: a block
   whose end would pass the ceiling, and a raise reaching the new edge's source (a
   cycle). A candidate still goes through `check` before it is returned.
 - **Search order** (measured on 200k random scripts, not a correctness
@@ -98,6 +114,8 @@ them: nothing it finds seeds `solve_best` or `improve`.
   bound".
 - **Tests** grade it against an independent brute-force enumeration of integer
   offsets, including a seven-block script whose optimum is one above the live
-  bound, and drive the bisection with a scripted oracle. Such scripts are rare:
-  none in hundreds of thousands of random scripts of up to five blocks, and one
-  in about 1.5 million of seven.
+  bound, and drive the bisection with a scripted oracle. Such scripts are rare
+  without alignment: none in hundreds of thousands of random scripts of up to
+  five blocks, and one in about 1.5 million of seven. With alignment they are
+  common, since padding is outside the live bound: 79 of 400 small scripts with
+  alignments up to 4, all agreeing with the aligned brute force.

@@ -3,28 +3,33 @@
     blocks live at the same time never share cells, and [check] turns a
     placement into a {!Witness} that only a verified placement can produce.
 
-    Units are the client's. Sizes, offsets and pool totals are [int64], since
-    the library is reachable from js_of_ocaml, whose [int] is 32 bits. Time is a
+    Sizes, offsets and pools are bytes ({!Core.Storage_units}), and every block
+    has an alignment its offset must be a multiple of. Offsets are relative to
+    the pool: that its base is aligned is the client's to provide. Time is a
     position in the script, so no tick type appears here. A block allocated at
     position [p] and freed at [q] is live from [p] up to, not including, [q]: an
     operand freed after its consumer's output was allocated conflicts with that
     output. *)
 
+open Core.Storage_units
+
 module Event : sig
-  type 'k t = Alloc of { key : 'k; size : int64 } | Free of 'k
+  type 'k t =
+    | Alloc of { key : 'k; size : Byte_size.t; alignment : Byte_alignment.t }
+    | Free of 'k
 end
 
 (** A placed block, as errors report it. *)
 module Block : sig
-  type 'k t = { key : 'k; offset : int64; size : int64 }
+  type 'k t = { key : 'k; offset : Byte_offset.t; size : Byte_size.t }
 end
 
-module Negative_size : sig
-  type 'k t = { key : 'k; size : int64 }
+module Misaligned : sig
+  type 'k t = { block : 'k Block.t; alignment : Byte_alignment.t }
 end
 
 module Out_of_pool : sig
-  type 'k t = { block : 'k Block.t; pool : int64 }
+  type 'k t = { block : 'k Block.t; pool : Byte_size.t }
 end
 
 module Overlap : sig
@@ -34,16 +39,13 @@ end
 module Script : sig
   type 'k t
   (** Validated: every key is allocated once and freed at most once, after its
-      allocation, and no size is negative. *)
+      allocation. *)
 
   val validate :
     equal:('k -> 'k -> bool) ->
     'k Event.t list ->
     ( 'k t,
-      [> `Double_alloc of 'k
-      | `Double_free of 'k
-      | `Free_unknown of 'k
-      | `Negative_size of 'k Negative_size.t ] )
+      [> `Double_alloc of 'k | `Double_free of 'k | `Free_unknown of 'k ] )
     Err.t
   (** Keys are compared only here and in {!check}, so validation is quadratic in
       the number of blocks at worst. *)
@@ -90,11 +92,11 @@ end
 module Solution : sig
   type 'k t
 
-  val placements : 'k t -> ('k * int64) list
-  val pool : 'k t -> int64
+  val placements : 'k t -> ('k * Byte_offset.t) list
+  val pool : 'k t -> Byte_size.t
 
   module Unsafe : sig
-    val make : pool:int64 -> ('k * int64) list -> 'k t
+    val make : pool:Byte_size.t -> ('k * Byte_offset.t) list -> 'k t
     (** For tests that need a bad solution. *)
   end
 end
@@ -104,15 +106,16 @@ module Witness : sig
   type 'k t
 end
 
-val lower_bound : 'k Script.t -> (int64, [> `Live_overflow of 'k ]) Err.t
-(** The largest sum of live sizes at once: no placement can use less. *)
+val lower_bound : 'k Script.t -> (Byte_size.t, [> `Live_overflow of 'k ]) Err.t
+(** The largest sum of live sizes at once: no placement can use less. It ignores
+    alignment, so it stays a bound, not always a tight one. *)
 
 module Stats : sig
   type t = {
-    lower_bound : int64;
-    constructive : Strategy.t * int64;
+    lower_bound : Byte_size.t;
+    constructive : Strategy.t * Byte_size.t;
         (** The winning strategy of the portfolio and its pool. *)
-    pool : int64;
+    pool : Byte_size.t;
     iterations : int64;
     stop : Stop.t;
   }
@@ -128,20 +131,27 @@ val check :
   'k Solution.t ->
   ( 'k Witness.t,
     [> `Duplicate_placement of 'k
-    | `Negative_offset of 'k
+    | `Misaligned of 'k Misaligned.t
     | `Offset_overflow of 'k
     | `Out_of_pool of 'k Out_of_pool.t
     | `Overlap of 'k Overlap.t
     | `Unknown_key of 'k
     | `Unplaced of 'k ] )
   Err.t
-(** Every block placed exactly once, inside the pool, and no two blocks live at
-    the same time overlapping. *)
+(** Every block placed exactly once, at a multiple of its alignment, inside the
+    pool, and no two blocks live at the same time overlapping. *)
 
-val placements : 'k Witness.t -> ('k * int64) list
+val placements : 'k Witness.t -> ('k * Byte_offset.t) list
 (** In allocation order. *)
 
-val pool : 'k Witness.t -> int64
+val pool : 'k Witness.t -> Byte_size.t
+
+val fit : 'k Script.t -> 'k Witness.t -> 'k Witness.t
+(** The same placement at its actual length: the pool cut to the highest
+    occupied end, zero-size blocks at zero. [script] must be the one the witness
+    was checked against. A placement checked against a script of larger blocks
+    at the same alignments is one of this script too, and [fit] then gives back
+    what the larger blocks' padding held. *)
 
 val improve :
   Budget.t ->
@@ -150,7 +160,7 @@ val improve :
   ( 'k Solution.t * Effort.t,
     [> `Duplicate_placement of 'k
     | `Live_overflow of 'k
-    | `Negative_offset of 'k
+    | `Misaligned of 'k Misaligned.t
     | `Offset_overflow of 'k
     | `Out_of_pool of 'k Out_of_pool.t
     | `Overlap of 'k Overlap.t
@@ -181,7 +191,7 @@ val improve_at :
   ( (int64 * 'k Solution.t * Effort.t) list,
     [> `Duplicate_placement of 'k
     | `Live_overflow of 'k
-    | `Negative_offset of 'k
+    | `Misaligned of 'k Misaligned.t
     | `Offset_overflow of 'k
     | `Out_of_pool of 'k Out_of_pool.t
     | `Overlap of 'k Overlap.t
@@ -250,10 +260,10 @@ module Reference : sig
     Limits.t ->
     Work.t ->
     'k Script.t ->
-    ceiling:int64 ->
+    ceiling:Byte_size.t ->
     ( 'k Witness.t Answer.t,
       [> `Duplicate_placement of 'k
-      | `Negative_offset of 'k
+      | `Misaligned of 'k Misaligned.t
       | `Offset_overflow of 'k
       | `Out_of_pool of 'k Out_of_pool.t
       | `Overlap of 'k Overlap.t
@@ -266,7 +276,7 @@ module Reference : sig
 
   (** A feasible answer outside the proven interval, or above its ceiling. *)
   module Invalid_candidate : sig
-    type t = { pool : int64; lower : int64; ceiling : int64 }
+    type t = { pool : Byte_size.t; lower : Byte_size.t; ceiling : Byte_size.t }
   end
 
   module Status : sig
@@ -286,22 +296,22 @@ module Reference : sig
     type 'w t = {
       status : Status.t;
       stop : Stop.t;
-      live_bound : int64;
-      initial_upper : int64;  (** The incumbent's actual length. *)
-      lower : int64;
-      upper : int64;
+      live_bound : Byte_size.t;
+      initial_upper : Byte_size.t;  (** The incumbent's actual length. *)
+      lower : Byte_size.t;
+      upper : Byte_size.t;
       incumbent : 'w;  (** A placement of length [upper]. *)
       queries : int64;
     }
   end
 
   val bisect :
-    live_bound:int64 ->
-    upper:int64 ->
+    live_bound:Byte_size.t ->
+    upper:Byte_size.t ->
     incumbent:'w ->
-    pool:('w -> int64) ->
+    pool:('w -> Byte_size.t) ->
     query:
-      (int64 ->
+      (Byte_size.t ->
       ( 'w Answer.t,
         ([> `Invalid_candidate of Invalid_candidate.t ] as 'e) )
       Err.t) ->
@@ -320,7 +330,7 @@ module Reference : sig
       [> `Duplicate_placement of 'k
       | `Invalid_candidate of Invalid_candidate.t
       | `Live_overflow of 'k
-      | `Negative_offset of 'k
+      | `Misaligned of 'k Misaligned.t
       | `Offset_overflow of 'k
       | `Out_of_pool of 'k Out_of_pool.t
       | `Overlap of 'k Overlap.t

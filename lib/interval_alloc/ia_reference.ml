@@ -11,13 +11,17 @@
    fits the ceiling and honours the choices made so far orients the
    overlapping pair one way or the other, and adding that edge only raises
    offsets towards that placement's, so the branch that contains it is never
-   pruned. Every branch adds an edge no earlier choice implied, so the search
-   is finite. A branch cut by a limit makes the answer [Unknown], never
+   pruned. A block's offset is the least aligned offset at or above its
+   predecessors' ends; that stays complete, since an aligned placement at or
+   above every one of those ends is at or above their aligned-up maximum.
+   Every branch adds an edge no earlier choice implied, so the search is
+   finite. A branch cut by a limit makes the answer [Unknown], never
    [Infeasible].
 
    No clock and no recursion: the depth-first search is a loop over an
    explicit stack, and work is counted in expanded states. *)
 
+open Core.Storage_units
 module Script = Ia_script
 
 module Limits = struct
@@ -44,11 +48,12 @@ end
 (* A feasible answer outside what the bisection has proven: below the lower
    bound, or above the ceiling it was asked about. *)
 module Invalid_candidate = struct
-  type t = { pool : int64; lower : int64; ceiling : int64 }
+  type t = { pool : Byte_size.t; lower : Byte_size.t; ceiling : Byte_size.t }
 end
 
-(* An undo record: a raised offset, or an edge pushed on a successor list. *)
-type trail = Edge of int | Offset of int * int64
+(* An undo record: a raised offset (with its end), or an edge pushed on a
+   successor list. *)
+type trail = Edge of int | Offset of int * Byte_offset.t * Byte_offset.t
 
 (* One branching pair and which of its two orientations to try next. *)
 type frame = { a : int; b : int; mutable next : int; mark : int }
@@ -56,10 +61,12 @@ type frame = { a : int; b : int; mutable next : int; mark : int }
 let feasible (limits : Limits.t) (work : Work.t) (script : _ Script.t) ~ceiling
     =
   let n = Script.blocks script in
-  let sizes = script.Script.sizes in
-  let positive = List.filter (fun i -> sizes.(i) <> 0L) (List.init n Fun.id) in
-  if List.exists (fun i -> Int64.compare sizes.(i) ceiling > 0) positive then
-    Ok Answer.Infeasible
+  let sizes = script.Script.sizes and alignments = script.Script.alignments in
+  let positive =
+    List.filter (fun i -> not (Script.empty script i)) (List.init n Fun.id)
+  in
+  if List.exists (fun i -> Byte_size.compare sizes.(i) ceiling > 0) positive
+  then Ok Answer.Infeasible
   else
     let pairs =
       List.concat_map
@@ -71,28 +78,41 @@ let feasible (limits : Limits.t) (work : Work.t) (script : _ Script.t) ~ceiling
         positive
       |> Array.of_list
     in
-    let lb = Array.make n 0L and succ = Array.make n [] in
+    (* Every block starts at zero, which any alignment admits. *)
+    let lb = Array.make n Byte_offset.zero
+    and ends = Array.map Byte_offset.of_size sizes
+    and succ = Array.make n [] in
     let trail = Stack.create () and queue = Queue.create () in
     let undo_to mark =
       while Stack.length trail > mark do
         match Stack.pop trail with
         | Edge u -> succ.(u) <- List.tl succ.(u)
-        | Offset (x, v) -> lb.(x) <- v
+        | Offset (x, v, e) ->
+            lb.(x) <- v;
+            ends.(x) <- e
       done
     in
-    (* Raise [x]'s offset to at least [v]; false when that cannot fit, or when
-       it reaches [source], which closes a cycle through the new edge. *)
+    (* Raise [x]'s offset to the least aligned one at or above [v]; false
+       when that cannot fit, or when it reaches [source], which closes a cycle
+       through the new edge. An offset past [int64] does not fit either. *)
     let raise_to ~source x v =
-      if Int64.compare v lb.(x) <= 0 then true
+      if Byte_offset.compare v lb.(x) <= 0 then true
       else if x = source then false
       else
-        match Script.add_checked v sizes.(x) with
-        | Some hi when Int64.compare hi ceiling <= 0 ->
-            Stack.push (Offset (x, lb.(x))) trail;
-            lb.(x) <- v;
+        match
+          Result.bind
+            (Byte_offset.align_up v alignments.(x))
+            (fun o ->
+              Result.map (fun hi -> (o, hi)) (Byte_offset.advance o sizes.(x)))
+        with
+        | Ok (o, hi)
+          when Byte_size.compare (Byte_offset.to_size hi) ceiling <= 0 ->
+            Stack.push (Offset (x, lb.(x), ends.(x))) trail;
+            lb.(x) <- o;
+            ends.(x) <- hi;
             Queue.add x queue;
             true
-        | Some _ | None -> false
+        | Ok _ | Error _ -> false
     in
     (* [u] below [v], then longest paths to a fixpoint. *)
     let add_edge u v =
@@ -103,16 +123,15 @@ let feasible (limits : Limits.t) (work : Work.t) (script : _ Script.t) ~ceiling
         match Queue.take_opt queue with
         | None -> true
         | Some x ->
-            let hi = Int64.add lb.(x) sizes.(x) in
-            if List.for_all (fun y -> raise_to ~source:u y hi) succ.(x) then
-              drain ()
+            if List.for_all (fun y -> raise_to ~source:u y ends.(x)) succ.(x)
+            then drain ()
             else false
       in
-      raise_to ~source:u v (Int64.add lb.(u) sizes.(u)) && drain ()
+      raise_to ~source:u v ends.(u) && drain ()
     in
     let overlap a b =
-      Int64.compare lb.(a) (Int64.add lb.(b) sizes.(b)) < 0
-      && Int64.compare lb.(b) (Int64.add lb.(a) sizes.(a)) < 0
+      Byte_offset.compare lb.(a) ends.(b) < 0
+      && Byte_offset.compare lb.(b) ends.(a) < 0
     in
     (* The overlapping pair reaching highest: the one closest to breaking the
        ceiling, so a dead end shows up early. Ties keep pair order. *)
@@ -121,13 +140,9 @@ let feasible (limits : Limits.t) (work : Work.t) (script : _ Script.t) ~ceiling
       Array.iter
         (fun (a, b) ->
           if overlap a b then
-            let top =
-              Int64.max
-                (Int64.add lb.(a) sizes.(a))
-                (Int64.add lb.(b) sizes.(b))
-            in
+            let top = Byte_offset.max ends.(a) ends.(b) in
             match !best with
-            | Some (t, _) when Int64.compare t top >= 0 -> ()
+            | Some (t, _) when Byte_offset.compare t top >= 0 -> ()
             | _ -> best := Some (top, (a, b)))
         pairs;
       Option.map snd !best
@@ -160,7 +175,7 @@ let feasible (limits : Limits.t) (work : Work.t) (script : _ Script.t) ~ceiling
               (* The larger block goes below first; a tie keeps allocation
                  order. *)
               let lo, hi =
-                if Int64.compare sizes.(f.b) sizes.(f.a) > 0 then (f.b, f.a)
+                if Byte_size.compare sizes.(f.b) sizes.(f.a) > 0 then (f.b, f.a)
                 else (f.a, f.b)
               in
               let u, v = if f.next = 0 then (lo, hi) else (hi, lo) in
@@ -174,8 +189,8 @@ let feasible (limits : Limits.t) (work : Work.t) (script : _ Script.t) ~ceiling
     | Some `Found ->
         let pool =
           List.fold_left
-            (fun pool i -> Int64.max pool (Int64.add lb.(i) sizes.(i)))
-            0L positive
+            (fun pool i -> Byte_size.max pool (Byte_offset.to_size ends.(i)))
+            Byte_size.zero positive
         in
         let candidate =
           Ia_solution.Unsafe.make ~pool
@@ -200,10 +215,10 @@ module Bounds = struct
   type 'w t = {
     status : Status.t;
     stop : Stop.t;
-    live_bound : int64;
-    initial_upper : int64;
-    lower : int64;
-    upper : int64;
+    live_bound : Byte_size.t;
+    initial_upper : Byte_size.t;
+    lower : Byte_size.t;
+    upper : Byte_size.t;
     incumbent : 'w;
     queries : int64;
   }
@@ -217,8 +232,8 @@ let bisect ~live_bound ~upper:initial_upper ~incumbent ~pool ~query =
   let ( let* ) = Result.bind in
   let finish ~stop lower upper incumbent queries =
     let status =
-      if Int64.compare lower upper < 0 then Status.Incomplete
-      else if Int64.equal upper live_bound then Status.Optimal_live_bound
+      if Byte_size.compare lower upper < 0 then Status.Incomplete
+      else if Byte_size.equal upper live_bound then Status.Optimal_live_bound
       else Status.Optimal_above_live_bound
     in
     Ok
@@ -234,23 +249,26 @@ let bisect ~live_bound ~upper:initial_upper ~incumbent ~pool ~query =
       }
   in
   let rec go lower upper incumbent queries =
-    if Int64.compare lower upper >= 0 then
+    if Byte_size.compare lower upper >= 0 then
       finish ~stop:Stop.Closed upper upper incumbent queries
     else
+      (* [lower < upper], so [upper - 1] is a size and [ceiling < upper]. *)
       let ceiling =
         if Int64.equal queries 0L then lower
-        else Int64.add lower (Int64.div (Int64.sub (Int64.pred upper) lower) 2L)
+        else Byte_size.midpoint lower (Script.invariant (Byte_size.pred upper))
       in
       let queries = Int64.succ queries in
       let* answer = query ceiling in
       match answer with
       | Answer.Feasible w ->
           let p = pool w in
-          if Int64.compare p lower < 0 || Int64.compare p ceiling > 0 then
+          if Byte_size.compare p lower < 0 || Byte_size.compare p ceiling > 0
+          then
             Err.fail ~pos:__POS__
               (`Invalid_candidate { Invalid_candidate.pool = p; lower; ceiling })
           else go lower p w queries
-      | Answer.Infeasible -> go (Int64.succ ceiling) upper incumbent queries
+      | Answer.Infeasible ->
+          go (Script.invariant (Byte_size.succ ceiling)) upper incumbent queries
       | Answer.Unknown Cut.Depth ->
           finish ~stop:Stop.Depth_limit lower upper incumbent queries
       | Answer.Unknown Cut.States ->
@@ -264,16 +282,19 @@ let bisect ~live_bound ~upper:initial_upper ~incumbent ~pool ~query =
 let normalize (script : _ Script.t) solution =
   let n = Script.blocks script in
   let sizes = script.Script.sizes and keys = script.Script.keys in
-  let offsets = Array.make n 0L in
+  let offsets = Array.make n Byte_offset.zero in
   List.iter
     (fun (k, offset) ->
       match Script.find_index script.Script.equal keys n k with
-      | Some i -> if sizes.(i) <> 0L then offsets.(i) <- offset
+      | Some i -> if not (Script.empty script i) then offsets.(i) <- offset
       | None -> assert false)
     (Ia_solution.placements solution);
-  let pool = ref 0L in
+  (* Checked: every block ends inside the pool. *)
+  let pool = ref Byte_size.zero in
   Array.iteri
-    (fun i offset -> pool := Int64.max !pool (Int64.add offset sizes.(i)))
+    (fun i offset ->
+      let hi = Script.invariant (Byte_offset.advance offset sizes.(i)) in
+      pool := Byte_size.max !pool (Byte_offset.to_size hi))
     offsets;
   Ia_solution.Unsafe.make ~pool:!pool
     (List.init n (fun i -> (keys.(i), offsets.(i))))

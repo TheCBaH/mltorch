@@ -17,7 +17,10 @@
 module X = Arena_eval_extract
 module J = Arena_eval_json
 module IA = Interval_alloc
+open Core.Storage_units
 
+(* Reports are raw [int64] JSON: sizes leave their type here. *)
+let b64 = Byte_size.to_int64
 let version = 1
 
 module Run = struct
@@ -135,9 +138,9 @@ let problem_stats script =
   let live = ref 0 and peak = ref 0 in
   List.iteri
     (fun pos -> function
-      | IA.Event.Alloc { key; size } ->
+      | IA.Event.Alloc { key; size; _ } ->
           let k = Tensor_id.to_int key in
-          Hashtbl.replace ranges k (pos, length, size);
+          Hashtbl.replace ranges k (pos, length, b64 size);
           order := k :: !order;
           incr live;
           peak := max !peak !live
@@ -188,6 +191,9 @@ module Kind_result = struct
     stats : Problem_stats.t;
     reference : Arena_eval.Reference_row.t;
     rows : Arena_eval.Row.t list;
+    placed : int64;
+        (** The production portfolio on the exact-size script: the pool a plan
+            actually places, where every other figure is of the padded one. *)
   }
 end
 
@@ -197,19 +203,21 @@ let pp_eval_error ppf = function
         match e with
         | `Duplicate_placement id
         | `Live_overflow id
-        | `Negative_offset id
         | `Offset_overflow id
         | `Pool_overflow id
         | `Unknown_key id
         | `Unplaced id ->
             id
-        | `Out_of_pool { IA.Out_of_pool.block; _ } -> block.IA.Block.key
+        | `Misaligned { IA.Misaligned.block; _ }
+        | `Out_of_pool { IA.Out_of_pool.block; _ } ->
+            block.IA.Block.key
         | `Overlap { IA.Overlap.first; _ } -> first.IA.Block.key
       in
       Fmt.pf ppf "invalid placement at %a" Tensor_id.pp id
   | `Invalid_candidate { IA.Reference.Invalid_candidate.pool; lower; ceiling }
     ->
-      Fmt.pf ppf "reference candidate %Ld outside [%Ld, %Ld]" pool lower ceiling
+      Fmt.pf ppf "reference candidate %a outside [%a, %a]" Byte_size.pp pool
+        Byte_size.pp lower Byte_size.pp ceiling
 
 let problem_digest script =
   Digest.to_hex
@@ -217,29 +225,35 @@ let problem_digest script =
        (String.concat ";"
           (List.map
              (function
-               | IA.Event.Alloc { key; size } ->
-                   Printf.sprintf "+%d:%Ld" (Tensor_id.to_int key) size
+               | IA.Event.Alloc { key; size; alignment } ->
+                   Printf.sprintf "+%d:%Ld@%Ld" (Tensor_id.to_int key)
+                     (b64 size)
+                     (Byte_alignment.to_int64 alignment)
                | IA.Event.Free key ->
                    Printf.sprintf "-%d" (Tensor_id.to_int key))
              (IA.Script.events script))))
 
-let evaluate_kind ~now (run : Run.t) { Arena_problem.Kind_problem.kind; script }
-    =
+(* The minimum is of the padded script, where it is provable; [placed] is the
+   production planner on the exact one, what a plan holds. *)
+let evaluate_kind ~now (run : Run.t)
+    ({ Arena_problem.Kind_problem.kind; padded = script; _ } as problem) =
   let open Err.Syntax in
   let* live_bound =
     IA.lower_bound script
-    |> Err.map_error (fun e ->
+    |> Err.map_error ~pos:__POS__ (fun e ->
         `Arena_placement (e :> Arena_plan.Placement_error.t))
   in
   let* rows = Arena_eval.strategies ~now run.eval script in
-  let+ reference = Arena_eval.reference ~now run.eval script in
+  let* reference = Arena_eval.reference ~now run.eval script in
+  let+ placed = Arena_eval.placed run.eval problem in
   {
     Kind_result.kind;
     digest = problem_digest script;
-    live_bound;
+    live_bound = b64 live_bound;
     stats = problem_stats script;
     reference;
     rows;
+    placed = b64 placed;
   }
 
 (* --- rows ---------------------------------------------------------------- *)
@@ -298,11 +312,11 @@ let reference_row ids (k : Kind_result.t) =
     @ [
         ("type", J.str "reference");
         ("kind", J.str (kind_name k.kind));
-        ("live_bound", J.i64 b.live_bound);
-        ("initial_upper", J.i64 b.initial_upper);
-        ("lower", J.i64 b.lower);
-        ("upper", J.i64 b.upper);
-        ("gap", J.i64 (Int64.sub b.upper b.lower));
+        ("live_bound", J.i64 (b64 b.live_bound));
+        ("initial_upper", J.i64 (b64 b.initial_upper));
+        ("lower", J.i64 (b64 b.lower));
+        ("upper", J.i64 (b64 b.upper));
+        ("gap", J.i64 (Int64.sub (b64 b.upper) (b64 b.lower)));
         ("status", J.str (status_name b.status));
         ("stop", J.str (stop_name b.stop));
         ("queries", J.i64 b.queries);
@@ -314,22 +328,22 @@ let reference_row ids (k : Kind_result.t) =
 
 let strategy_row ids (k : Kind_result.t) (r : Arena_eval.Row.t) =
   let b = k.reference.bounds in
-  let p = r.pool in
+  let p = b64 r.pool in
   let gaps =
-    if Int64.equal b.lower b.upper then
+    if Int64.equal (b64 b.lower) (b64 b.upper) then
       [
-        ("excess", J.i64 (Int64.sub p b.upper));
+        ("excess", J.i64 (Int64.sub p (b64 b.upper)));
         ( "excess_ratio",
-          if Int64.equal b.upper 0L then J.null
+          if Int64.equal (b64 b.upper) 0L then J.null
           else
             J.num
-              (Int64.to_float (Int64.sub p b.upper) /. Int64.to_float b.upper)
-        );
+              (Int64.to_float (Int64.sub p (b64 b.upper))
+              /. Int64.to_float (b64 b.upper)) );
       ]
     else
       [
-        ("excess_min", J.i64 (Int64.max 0L (Int64.sub p b.upper)));
-        ("excess_max", J.i64 (Int64.sub p b.lower));
+        ("excess_min", J.i64 (Int64.max 0L (Int64.sub p (b64 b.upper))));
+        ("excess_max", J.i64 (Int64.sub p (b64 b.lower)));
       ]
   in
   J.obj
@@ -342,7 +356,7 @@ let strategy_row ids (k : Kind_result.t) (r : Arena_eval.Row.t) =
         ("strategy", J.str (strategy_name r.method_));
         ("iterations", J.opt J.i64 (Option.map fst r.budget));
         ("seed", J.opt J.i64 (Option.map snd r.budget));
-        ("constructive_pool", J.i64 r.constructive_pool);
+        ("constructive_pool", J.i64 (b64 r.constructive_pool));
         ("pool", J.i64 p);
         ( "iterations_used",
           J.opt J.i64
@@ -372,23 +386,23 @@ let comparison ids (k : Kind_result.t) =
     List.fold_left
       (fun acc (r : Arena_eval.Row.t) ->
         match acc with
-        | Some (p, _) when Int64.compare p r.pool <= 0 -> acc
-        | _ -> Some (r.pool, label r))
+        | Some (p, _) when Int64.compare p (b64 r.pool) <= 0 -> acc
+        | _ -> Some (b64 r.pool, label r))
       None k.rows
   in
   let best_pool, best_label =
-    match best with Some x -> x | None -> (b.upper, "reference")
+    match best with Some x -> x | None -> (b64 b.upper, "reference")
   in
-  if Int64.compare best_pool b.lower < 0 then
+  if Int64.compare best_pool (b64 b.lower) < 0 then
     Error
       (Fmt.str "%s: pool %Ld below the proven lower bound %Ld" best_label
-         best_pool b.lower)
+         best_pool (b64 b.lower))
   else
-    let upper = Int64.min b.upper best_pool in
-    let closed = Int64.equal upper b.lower in
+    let upper = Int64.min (b64 b.upper) best_pool in
+    let closed = Int64.equal upper (b64 b.lower) in
     let proof =
       if not closed then None
-      else if Int64.equal b.lower b.upper then Some "reference"
+      else if Int64.equal (b64 b.lower) (b64 b.upper) then Some "reference"
       else Some best_label
     in
     Ok
@@ -397,37 +411,30 @@ let comparison ids (k : Kind_result.t) =
          @ [
              ("type", J.str "comparison");
              ("kind", J.str (kind_name k.kind));
-             ("lower", J.i64 b.lower);
+             ("lower", J.i64 (b64 b.lower));
              ("upper", J.i64 upper);
              ("closed", J.bool closed);
              ("proof", J.opt J.str proof);
              ("best_observed", J.i64 best_pool);
              ("best_observed_by", J.str best_label);
+             ("placed", J.i64 k.placed);
            ]))
 
 (* Checked [int64] arithmetic for byte aggregates. *)
-let mul a b =
-  if Int64.equal a 0L || Int64.compare b (Int64.div Int64.max_int a) <= 0 then
-    Some (Int64.mul a b)
-  else None
-
 let add a b =
   if Int64.compare a (Int64.sub Int64.max_int b) <= 0 then Some (Int64.add a b)
   else None
 
 let sum_bytes f kinds =
   List.fold_left
-    (fun acc (k : Kind_result.t) ->
-      Option.bind acc (fun acc ->
-          Option.bind
-            (mul (f k) (Alloc_script.Kind.cell_bytes k.kind))
-            (add acc)))
+    (fun acc (k : Kind_result.t) -> Option.bind acc (fun acc -> add acc (f k)))
     (Some 0L) kinds
 
 let best_pool (k : Kind_result.t) =
   List.fold_left
-    (fun m (r : Arena_eval.Row.t) -> Int64.min m r.pool)
-    k.reference.bounds.upper k.rows
+    (fun m (r : Arena_eval.Row.t) -> Int64.min m (b64 r.pool))
+    (b64 k.reference.bounds.upper)
+    k.rows
 
 (* The production planner's pool: the portfolio at the largest budget, first
    seed. *)
@@ -439,18 +446,19 @@ let production_pool (run : Run.t) (k : Kind_result.t) =
       match (r.method_, r.budget) with
       | Arena_eval.Method.Portfolio, Some (i, s)
         when Int64.equal i top && Int64.equal s seed ->
-          Some r.pool
+          Some (b64 r.pool)
       | _ -> None)
     k.rows
-  |> Option.value ~default:k.reference.bounds.upper
+  |> Option.value ~default:(b64 k.reference.bounds.upper)
 
 let admitted run (k : Kind_result.t) =
-  let numel = production_pool run k in
-  Int64.compare numel Kernel.Limits.Hard.numel < 0
-  &&
-  match mul numel (Alloc_script.Kind.cell_bytes k.kind) with
-  | Some bytes -> Int64.compare bytes Kernel.Limits.default.max_bytes <= 0
-  | None -> false
+  let bytes = production_pool run k in
+  Int64.compare
+    (Int64.div bytes
+       (Element_bytes.to_int64 (Alloc_script.Kind.element_bytes k.kind)))
+    Kernel.Limits.Hard.numel
+  < 0
+  && Int64.compare bytes Kernel.Limits.default.max_bytes <= 0
 
 let aggregate run ids problem kinds =
   let or_fail what = function
@@ -459,24 +467,28 @@ let aggregate run ids problem kinds =
   in
   let peak what r =
     match Err.payload r with
-    | Ok v -> Ok v
+    | Ok v -> Ok (b64 v)
     | Error (`Peak_bytes_overflow _) -> or_fail what None
   in
   let ( let* ) = Result.bind in
   let* live = or_fail "live bound" (sum_bytes (fun k -> k.live_bound) kinds) in
   let* lower =
     or_fail "lower bound"
-      (sum_bytes (fun k -> k.Kind_result.reference.bounds.lower) kinds)
+      (sum_bytes (fun k -> b64 k.Kind_result.reference.bounds.lower) kinds)
   in
   let* upper =
     or_fail "upper bound"
       (sum_bytes
-         (fun k -> Int64.min k.Kind_result.reference.bounds.upper (best_pool k))
+         (fun k ->
+           Int64.min (b64 k.Kind_result.reference.bounds.upper) (best_pool k))
          kinds)
   in
   let* best = or_fail "best observed" (sum_bytes best_pool kinds) in
   let* production =
     or_fail "production" (sum_bytes (production_pool run) kinds)
+  in
+  let* placed =
+    or_fail "placed" (sum_bytes (fun k -> k.Kind_result.placed) kinds)
   in
   let* combined =
     peak "combined bound" (Arena_problem.combined_bound_bytes problem)
@@ -494,8 +506,9 @@ let aggregate run ids problem kinds =
              J.bool
                (List.for_all
                   (fun k ->
-                    Int64.equal k.Kind_result.reference.bounds.lower
-                      (Int64.min k.reference.bounds.upper (best_pool k)))
+                    Int64.equal
+                      (b64 k.Kind_result.reference.bounds.lower)
+                      (Int64.min (b64 k.reference.bounds.upper) (best_pool k)))
                   kinds) );
            ("admitted", J.bool (List.for_all (admitted run) kinds));
            ("per_kind_live_bound_bytes", J.i64 live);
@@ -504,6 +517,7 @@ let aggregate run ids problem kinds =
            ("upper_bytes", J.i64 upper);
            ("best_observed_bytes", J.i64 best);
            ("production_bytes", J.i64 production);
+           ("placed_bytes", J.i64 placed);
            ("out_of_arena_bytes", J.i64 outside);
          ]))
 
@@ -528,7 +542,10 @@ let write_artifact dir (k : Kind_result.t) =
                    J.list
                      (fun (id, offset) ->
                        J.list Fun.id
-                         [ J.int (Tensor_id.to_int id); J.i64 offset ])
+                         [
+                           J.int (Tensor_id.to_int id);
+                           J.i64 (Byte_offset.to_int64 offset);
+                         ])
                      ps ))
                placements) );
       ]

@@ -85,11 +85,8 @@ let arena_declined = ref false
 
 let pp_arena_outcome ppf (outcome : Arena_run.Outcome.t) =
   match outcome with
-  | Used { pool_bytes; out_of_arena_bytes; copies } ->
-      Format.fprintf ppf
-        "arena: used pool_bytes=%Ld out_of_arena_bytes=%Ld \
-         mixed_mode_copies=%Ld (%Ld bytes)"
-        pool_bytes out_of_arena_bytes copies.count copies.bytes
+  | Used report ->
+      Format.fprintf ppf "arena: used %a" Arena_run.Report.pp report
   | Declined e ->
       arena_declined := true;
       Format.fprintf ppf "arena: declined: %a" Arena_run.pp_error e

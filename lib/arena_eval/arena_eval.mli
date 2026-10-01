@@ -42,10 +42,11 @@ module Row : sig
     budget : (int64 * int64) option;
         (** Iterations and seed; [None] for a constructive pass, which has no
             search. *)
-    constructive_pool : int64;  (** The pool before any search. *)
-    pool : int64;
+    constructive_pool : Core.Storage_units.Byte_size.t;
+        (** The pool before any search. *)
+    pool : Core.Storage_units.Byte_size.t;
     effort : Interval_alloc.Effort.t option;
-    placements : (Tensor_id.t * int64) list;
+    placements : (Tensor_id.t * Core.Storage_units.Byte_offset.t) list;
     digest : string;
     timing : Timing.t;
   }
@@ -53,7 +54,9 @@ end
 
 module Reference_row : sig
   type t = {
-    bounds : (Tensor_id.t * int64) list Interval_alloc.Reference.Bounds.t;
+    bounds :
+      (Tensor_id.t * Core.Storage_units.Byte_offset.t) list
+      Interval_alloc.Reference.Bounds.t;
         (** The incumbent is the placement of length [bounds.upper]. *)
     states : int64;
     max_depth : int64;
@@ -66,7 +69,7 @@ type error =
   [ `Arena_placement of Arena_plan.Placement_error.t
   | `Invalid_candidate of Interval_alloc.Reference.Invalid_candidate.t ]
 
-val digest : (Tensor_id.t * int64) list -> string
+val digest : (Tensor_id.t * Core.Storage_units.Byte_offset.t) list -> string
 (** Of a placement, in the order given. *)
 
 val strategies :
@@ -85,3 +88,11 @@ val reference :
   (Reference_row.t, [> error ]) Err.t
 (** [Interval_alloc.Reference.minimum] from the zero-budget portfolio's
     placement. Timed once: a bounded search is not repeated. *)
+
+val placed :
+  Config.t ->
+  Arena_problem.Kind_problem.t ->
+  (Core.Storage_units.Byte_size.t, [> error ]) Err.t
+(** The pool [Arena_plan.place] holds at the largest budget and the first seed:
+    exact sizes, what a plan actually places, where every other figure here is
+    of the script it is given. *)

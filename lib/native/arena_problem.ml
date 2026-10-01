@@ -1,15 +1,21 @@
 (* See arena_problem.mli. *)
 
+open Core.Storage_units
 module Kind = Alloc_script.Kind
 
 module Kind_problem = struct
-  type t = { kind : Kind.t; script : Tensor_id.t Interval_alloc.Script.t }
+  type t = {
+    kind : Kind.t;
+    script : Tensor_id.t Interval_alloc.Script.t;
+    padded : Tensor_id.t Interval_alloc.Script.t;
+  }
 end
 
 type t = {
   script : Alloc_script.t;
   eligible : Alloc_script.Alloc.t Tensor_id.Map.t;
   kinds : Kind_problem.t list;
+  combined : Tensor_id.t Interval_alloc.Script.t option;
 }
 
 let script t = t.script
@@ -21,6 +27,15 @@ let first_id t =
   | Some (id, _) -> id
   | None -> Tensor_id.of_int 0
 
+(* A slot's payload, exact, or padded to its alignment for a minimum. A payload
+   is bounded far below [int64], so the padding cannot overflow. *)
+let exact (a : Alloc_script.Alloc.t) = a.Alloc_script.Alloc.bytes
+
+let padded (a : Alloc_script.Alloc.t) =
+  Err.or_raise ~pp_error
+    (Byte_alignment.pad a.Alloc_script.Alloc.bytes
+       a.Alloc_script.Alloc.alignment)
+
 let of_script (script : Alloc_script.t) =
   let open Err.Syntax in
   let eligible =
@@ -31,52 +46,58 @@ let of_script (script : Alloc_script.t) =
         | _ -> acc)
       Tensor_id.Map.empty script
   in
-  let events_of kind =
+  (* The eligible events of the kinds [keep] admits, each block [extent]. *)
+  let events extent keep =
     List.filter_map
       (function
         | Alloc_script.Event.Alloc a
-          when a.Alloc_script.Alloc.eligible
-               && Kind.equal a.Alloc_script.Alloc.kind kind ->
+          when a.Alloc_script.Alloc.eligible && keep a.Alloc_script.Alloc.kind
+          ->
             Some
               (Interval_alloc.Event.Alloc
                  {
                    key = a.Alloc_script.Alloc.id;
-                   size = a.Alloc_script.Alloc.numel;
+                   size = extent a;
+                   alignment = a.Alloc_script.Alloc.alignment;
                  })
         | Alloc_script.Event.Free id -> (
             match Tensor_id.Map.find_opt id eligible with
-            | Some a when Kind.equal a.Alloc_script.Alloc.kind kind ->
+            | Some a when keep a.Alloc_script.Alloc.kind ->
                 Some (Interval_alloc.Event.Free id)
             | _ -> None)
         | Alloc_script.Event.Alloc _ | Alloc_script.Event.Node _ -> None)
       script
   in
-  let problem kind =
-    match events_of kind with
+  let problem extent keep =
+    match events extent keep with
     | [] -> Err.return None
     | events ->
         let+ ia_script =
           Interval_alloc.Script.validate ~equal:Tensor_id.equal events
           |> Err.map_error ~pos:__POS__ (fun e ->
               match e with
-              | `Double_alloc id
-              | `Double_free id
-              | `Free_unknown id
-              | `Negative_size { Interval_alloc.Negative_size.key = id; _ } ->
+              | `Double_alloc id | `Double_free id | `Free_unknown id ->
                   `Arena_script id)
         in
-        Some { Kind_problem.kind; script = ia_script }
+        Some ia_script
   in
-  let+ kinds = Err.List.map problem Kind.all in
-  { script; eligible; kinds = List.filter_map Fun.id kinds }
+  let kind_problem kind =
+    let* script = problem exact (Kind.equal kind) in
+    let+ padded = problem padded (Kind.equal kind) in
+    match (script, padded) with
+    | Some script, Some padded -> Some { Kind_problem.kind; script; padded }
+    | _ -> None
+  in
+  let* kinds = Err.List.map kind_problem Kind.all in
+  let+ combined = problem padded (fun _ -> true) in
+  { script; eligible; kinds = List.filter_map Fun.id kinds; combined }
 
 let combined_bound_bytes t =
-  Alloc_script.peak_bytes
-    (List.filter
-       (function
-         | Alloc_script.Event.Alloc a -> a.Alloc_script.Alloc.eligible
-         | Alloc_script.Event.Free id -> Tensor_id.Map.mem id t.eligible
-         | Alloc_script.Event.Node _ -> false)
-       t.script)
+  match t.combined with
+  | None -> Err.return Byte_size.zero
+  | Some s ->
+      Interval_alloc.lower_bound s
+      |> Err.map_error ~pos:__POS__ (fun (`Live_overflow id) ->
+          `Peak_bytes_overflow id)
 
 let out_of_arena_bytes t = Alloc_script.out_of_arena_bytes t.script

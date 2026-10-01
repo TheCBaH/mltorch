@@ -4,6 +4,7 @@ module Dim = Dim
 module Float_bits = Float_bits
 module Geometry = Geometry
 module Role = Role
+module Storage_units = Storage_units
 module Tagged_int = Tagged_int
 
 module Pretty = struct

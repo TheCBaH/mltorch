@@ -1,6 +1,7 @@
+open Core.Storage_units
 module Event = Ia_script.Event
 module Block = Ia_check.Block
-module Negative_size = Ia_script.Negative_size
+module Misaligned = Ia_check.Misaligned
 module Out_of_pool = Ia_check.Out_of_pool
 module Overlap = Ia_check.Overlap
 
@@ -36,12 +37,13 @@ let solve strategy (script : _ Script.t) =
   Result.map (Ia_decode.solution script) (Ia_decode.offsets mode script order)
 
 let check = Ia_check.check
+let fit = Ia_reference.normalize
 
 module Stats = struct
   type t = {
-    lower_bound : int64;
-    constructive : Strategy.t * int64;
-    pool : int64;
+    lower_bound : Byte_size.t;
+    constructive : Strategy.t * Byte_size.t;
+    pool : Byte_size.t;
     iterations : int64;
     stop : Stop.t;
   }
@@ -49,8 +51,9 @@ module Stats = struct
   let pp ppf t =
     let strategy, cpool = t.constructive in
     Format.fprintf ppf
-      "lower bound %Ld, constructive %a %Ld, pool %Ld, %Ld iterations (%s)"
-      t.lower_bound Strategy.pp strategy cpool t.pool t.iterations
+      "lower bound %a, constructive %a %a, pool %a, %Ld iterations (%s)"
+      Byte_size.pp t.lower_bound Strategy.pp strategy Byte_size.pp cpool
+      Byte_size.pp t.pool t.iterations
       (match t.stop with
       | Stop.Lower_bound -> "at the bound"
       | Budget_exhausted -> "budget exhausted")
@@ -65,10 +68,11 @@ let portfolio (script : _ Script.t) =
     Err.List.fold_left
       (fun best strategy ->
         let mode, order = Ia_decode.plan strategy script in
-        let* ((_, pool) as result) = Ia_decode.offsets mode script order in
+        let* result = Ia_decode.offsets mode script order in
         match best with
-        | Some (_, _, _, (_, best_pool)) when Int64.compare best_pool pool <= 0
-          ->
+        | Some (_, _, _, (best_result : Ia_decode.Placed.t))
+          when Byte_size.compare best_result.pool result.Ia_decode.Placed.pool
+               <= 0 ->
             Ok best
         | _ -> Ok (Some (strategy, mode, order, result)))
       None Strategy.all
@@ -77,7 +81,7 @@ let portfolio (script : _ Script.t) =
 
 let solve_best_at ?at ~iterations ~seed (script : _ Script.t) =
   let* lb = lower_bound script in
-  let* strategy, mode, order, ((_, cpool) as start) = portfolio script in
+  let* strategy, mode, order, start = portfolio script in
   let* results =
     Ia_search.improve_at ?at mode ~checkpoints:iterations ~seed script
       ~lower_bound:lb order start
@@ -89,8 +93,8 @@ let solve_best_at ?at ~iterations ~seed (script : _ Script.t) =
            Ia_decode.solution script result,
            {
              Stats.lower_bound = lb;
-             constructive = (strategy, cpool);
-             pool = snd result;
+             constructive = (strategy, start.Ia_decode.Placed.pool);
+             pool = result.Ia_decode.Placed.pool;
              iterations = effort.iterations;
              stop = effort.stop;
            } ))
@@ -111,12 +115,21 @@ let improve_at ?at ~iterations ~seed (script : _ Script.t) solution =
   let* lb = lower_bound script in
   let n = Ia_script.blocks script in
   let offsets = Array.of_list (List.map snd (Ia_solution.placements witness)) in
+  (* Checked: every block ends inside the pool. *)
+  let ends =
+    Array.mapi
+      (fun i o ->
+        Ia_script.invariant (Byte_offset.advance o script.Ia_script.sizes.(i)))
+      offsets
+  in
   let order = Array.init n Fun.id in
-  Array.stable_sort (fun a b -> Int64.compare offsets.(a) offsets.(b)) order;
+  Array.stable_sort
+    (fun a b -> Byte_offset.compare offsets.(a) offsets.(b))
+    order;
   let* results =
     Ia_search.improve_at ?at Ia_decode.Mode.First_fit ~checkpoints:iterations
       ~seed script ~lower_bound:lb order
-      (offsets, Ia_solution.pool witness)
+      { Ia_decode.Placed.offsets; ends; pool = Ia_solution.pool witness }
   in
   Ok
     (List.map

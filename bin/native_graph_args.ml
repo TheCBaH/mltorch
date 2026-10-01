@@ -43,6 +43,24 @@ let arena_arg =
   in
   Arg.(value & flag & info [ "arena" ] ~doc)
 
+let arena_layout_arg =
+  let doc =
+    "Run every storage role (constants, the input, intermediates, outputs) in \
+     planned arenas under the $(docv) layout -- $(b,separate) or $(b,shared) \
+     -- and print the runner's report. Overrides $(b,--arena)."
+  in
+  Arg.(
+    value
+    & opt
+        (some
+           (enum
+              [
+                ("separate", Storage_script.Layout.Separate);
+                ("shared", Storage_script.Layout.Shared_execution);
+              ]))
+        None
+    & info [ "arena-layout" ] ~docv:"LAYOUT" ~doc)
+
 let fold_arg =
   let doc =
     "Load every captured weight up front so constant folding can hoist \

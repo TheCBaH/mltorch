@@ -14,6 +14,12 @@ lib/core/tagged_int.mli	defn	val of_int : int -> t
 lib/core/tagged_int.mli	tally	val check_room : t -> count:int -> unit
 lib/core/tagged_int.mli	tally	val alloc_n : t -> int -> id list * t
 lib/core/tagged_int.mli	hash	val compare : t -> t -> int
+lib/core/storage_units.mli	hash	val compare : t -> t -> int
+lib/core/storage_units.mli	hash	val compare : t -> t -> int
+lib/core/storage_units.mli	hash	val compare : t -> t -> int
+lib/core/storage_units.mli	hash	val compare : t -> t -> int
+lib/core/storage_units.mli	hash	val compare : t -> t -> int
+lib/core/storage_units.mli	hash	val compare : t -> t -> int
 lib/expr_internal/axis.mli	expr-literal	val to_int : t -> int
 lib/expr_internal/axis.mli	expr-literal	val compare : t -> t -> int
 lib/expr_internal/source.mli	expr-literal	val create : int -> t
@@ -114,6 +120,7 @@ lib/native/slot.mli	cell	val at : Range.t -> int -> int option
 lib/native/slot.mli	cell	val trace_at : offset t -> width:extent t -> row:int -> lane:int -> int
 lib/native/stage_program.mli	budget	val pixel_body : max_size:int -> max_depth:int -> scan_limits:Expr.Scan_limits.t -> t -> (float Expr.Value.t, pixel_body_error) Err.t
 lib/native/stage_program.mli	budget	val check : max_size:int -> max_depth:int -> t -> (unit, Region_group.error) Err.t end
+lib/native/storage_script.mli	hash	val compare : t -> t -> int
 lib/native/transform/cluster_relation.mli	hash	val compare : t -> t -> int
 lib/native/transform/cluster_relation.mli	tally	val cardinal : 'v set -> int
 lib/native/transform/cluster_var.mli	defn	val compare : t -> t -> int

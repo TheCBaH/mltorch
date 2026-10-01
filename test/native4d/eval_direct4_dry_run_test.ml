@@ -52,12 +52,12 @@ let%expect_test "a chain's script" =
   [%expect
     {|
     node n0
-    alloc t1 float32 16 bytes
+    alloc t1 float32 16 bytes align 64
     node n1
-    alloc t2 float32 16 bytes
+    alloc t2 float32 16 bytes align 64
     free t1
     node n2
-    alloc t3 float32 16 bytes (outside the arena)
+    alloc t3 float32 16 bytes align 64 (outside the arena)
     free t2 |}]
 
 let tensor_of_sig (sg : Tensor_sig.t) =

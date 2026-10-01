@@ -15,7 +15,8 @@
    result holds no arena memory. A plan runs only on the run it was built from:
    at entry this dry-runs the graph under the effective [retain] and requires the
    plan's script to equal it ([`Arena_script_mismatch] otherwise), before any node
-   runs. An arena is used by one run at a time ([`Arena_busy]). Results are equal
+   runs. That dry run is under the plan's own alignment policy, the one its
+   script was made under. An arena is used by one run at a time ([`Arena_busy]). Results are equal
    bit for bit to a run without one.
 
    [?trace] is a test hook: it receives the script the run actually follows, read
@@ -76,11 +77,46 @@ type hooks =
 val pp_error : Format.formatter -> [< error ] -> unit
 
 val dry_run :
-  ?retain:Release_schedule.Retain.t -> graph -> (Alloc_script.t, error) Err.t
+  ?alignment:Alignment_policy.t ->
+  ?retain:Release_schedule.Retain.t ->
+  graph ->
+  (Alloc_script.t, error) Err.t
 (** The allocation script [run ?retain] would follow, without computing
     anything: shares [run]'s fold, so which outputs are allocated and when each
     edge is released are decided in one place. Graph inputs and constants are
     bound by the caller and never appear in it. *)
+
+val storage_script :
+  ?alignment:Alignment_policy.t ->
+  ?retain:Release_schedule.Retain.t ->
+  Storage_script.Config.t ->
+  graph ->
+  (Storage_script.t, error) Err.t
+(** Every block a run under [config] touches, by role and arena, and when it is
+    allocated and freed: [dry_run]'s fold, with the used constants and graph
+    inputs added and the run's boundaries marked. See [Storage_script]. *)
+
+val run_storage :
+  arenas:Arena.t list ->
+  script:Storage_script.t ->
+  ?hooks:hooks ->
+  ?on_format_mismatch:(Format_mismatch.t -> unit) ->
+  ?region_counters:Region_execution.counters Tensor_id.Map.t ->
+  ?region_executor:Region_executor.t ->
+  ?region_group_executor:Region_executor.group ->
+  ?node_executor:Node_executor.t ->
+  ?limits:Kernel.Limits.t ->
+  ?retain:Release_schedule.Retain.t ->
+  ?constants:(Tensor_id.t * Tensor.packed) list ->
+  graph ->
+  inputs:(Tensor_id.t * Tensor.packed) list ->
+  (Tensor.packed Tensor_id.Map.t, error) Err.t
+(** A run whose outputs are computed into the slots [arenas] place (the arenas
+    of a [Storage_plan] built from [script]), [`Storage_script_mismatch] before
+    any node runs when this run's own storage script under [retain] is not
+    [script]. Constants and inputs are bound as given: filling their slots is
+    the caller's ([Storage_run]), and so is holding the arenas. Unlike [run], a
+    result may be a view into an arena. *)
 
 val run :
   ?arena:Arena.t ->

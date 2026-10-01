@@ -1,6 +1,7 @@
 (* [Interval_alloc.Reference]: the bounded exact search, graded against an
-   independent brute-force enumeration of integer offsets. *)
+   independent brute-force enumeration of aligned integer offsets. *)
 
+open Core.Storage_units
 open Interval_alloc
 module R = Reference
 
@@ -12,7 +13,10 @@ let ok = function
       | _ -> Fmt.failwith "unexpected error")
 
 let script_of_events events = ok (Script.validate ~equal:Int.equal events)
-let alloc key size = Event.Alloc { key; size }
+
+let alloc key size =
+  Event.Alloc { key; size = Units.size size; alignment = Units.one }
+
 let free key = Event.Free key
 
 let limits ?(max_states = 1_000_000L) ?(max_depth = 1_000L) () =
@@ -20,37 +24,41 @@ let limits ?(max_states = 1_000_000L) ?(max_depth = 1_000L) () =
 
 (* Test-only oracle, sharing nothing with the library: live ranges from the
    events, then for each length from zero up, a backtracking enumeration of
-   every integer offset of every positive block. *)
+   every aligned integer offset of every positive block. *)
 let brute_force events =
   let length = List.length events in
   let blocks = Hashtbl.create 8 in
   List.iteri
     (fun pos -> function
-      | Event.Alloc { key; size } ->
-          Hashtbl.replace blocks key (pos, length, Int64.to_int size)
+      | Event.Alloc { key; size; alignment } ->
+          Hashtbl.replace blocks key
+            ( pos,
+              length,
+              Int64.to_int (Byte_size.to_int64 size),
+              Int64.to_int (Byte_alignment.to_int64 alignment) )
       | Event.Free key ->
-          let a, _, size = Hashtbl.find blocks key in
-          Hashtbl.replace blocks key (a, pos, size))
+          let a, _, size, align = Hashtbl.find blocks key in
+          Hashtbl.replace blocks key (a, pos, size, align))
     events;
   let blocks =
     Hashtbl.fold (fun _ b acc -> b :: acc) blocks []
-    |> List.filter (fun (_, _, size) -> size > 0)
+    |> List.filter (fun (_, _, size, _) -> size > 0)
     |> List.sort compare |> Array.of_list
   in
   let n = Array.length blocks in
   let clash i j =
-    let a, f, _ = blocks.(i) and a', f', _ = blocks.(j) in
+    let a, f, _, _ = blocks.(i) and a', f', _, _ = blocks.(j) in
     a < f' && a' < f
   in
   let offsets = Array.make n 0 in
   let rec fits pool i =
     i >= n
     ||
-    let _, _, size = blocks.(i) in
+    let _, _, size, align = blocks.(i) in
     let clear o j =
       (not (clash i j))
       ||
-      let _, _, sj = blocks.(j) in
+      let _, _, sj, _ = blocks.(j) in
       o + size <= offsets.(j) || offsets.(j) + sj <= o
     in
     let rec try_at o =
@@ -59,7 +67,7 @@ let brute_force events =
           &&
           (offsets.(i) <- o;
            fits pool (i + 1))
-         || try_at (o + 1))
+         || try_at (o + align))
     in
     try_at 0
   in
@@ -83,31 +91,42 @@ let pp_stop ppf = function
   | State_limit -> Fmt.string ppf "state limit"
 
 let show ((b : _ R.Bounds.t), work) =
-  Fmt.pr "%a (%a): live %Ld, incumbent %Ld, [%Ld, %Ld], %Ld queries@." pp_status
-    b.status pp_stop b.stop b.live_bound b.initial_upper b.lower b.upper
-    b.queries;
-  Fmt.pr "  witness pool %Ld, %Ld states, depth %Ld@." (pool b.incumbent)
-    (R.Work.states work) (R.Work.max_depth work)
+  Fmt.pr "%a (%a): live %a, incumbent %a, [%a, %a], %Ld queries@." pp_status
+    b.status pp_stop b.stop Byte_size.pp b.live_bound Byte_size.pp
+    b.initial_upper Byte_size.pp b.lower Byte_size.pp b.upper b.queries;
+  Fmt.pr "  witness pool %a, %Ld states, depth %Ld@." Byte_size.pp
+    (pool b.incumbent) (R.Work.states work) (R.Work.max_depth work)
 
-let%expect_test "against brute force on small scripts" =
-  let g = Gen.make 31 in
+let against_brute_force ?max_log_alignment ~seed () =
+  let g = Gen.make seed in
   let bad = ref 0 and above = ref 0 and total = ref 0 in
   for i = 1 to 400 do
-    let events = Gen.script g ~n:(2 + Gen.below g 5) ~max_size:4 in
+    let events =
+      Gen.script ?max_log_alignment g ~n:(2 + Gen.below g 5) ~max_size:4
+    in
     let b, _ = minimum (script_of_events events) in
+    let upper = Byte_size.to_int64 b.R.Bounds.upper in
     incr total;
     if b.R.Bounds.status = R.Status.Optimal_above_live_bound then incr above;
     if b.R.Bounds.status = R.Status.Incomplete then
       Fmt.pr "script %d: incomplete@." i
-    else if b.R.Bounds.upper <> brute_force events then begin
+    else if upper <> brute_force events then begin
       incr bad;
-      Fmt.pr "script %d: %Ld, brute force %Ld@." i b.R.Bounds.upper
-        (brute_force events)
+      Fmt.pr "script %d: %Ld, brute force %Ld@." i upper (brute_force events)
     end
   done;
   Fmt.pr "scripts %d, disagreements %d, above the live bound %d@." !total !bad
-    !above;
+    !above
+
+let%expect_test "against brute force on small scripts" =
+  against_brute_force ~seed:31 ();
   [%expect {| scripts 400, disagreements 0, above the live bound 0 |}]
+
+(* Alignments up to 4 on sizes up to 4: an optimum above the live bound is
+   common here, since padding is not in that bound. *)
+let%expect_test "against brute force on small aligned scripts" =
+  against_brute_force ~max_log_alignment:2 ~seed:37 ();
+  [%expect {| scripts 400, disagreements 0, above the live bound 79 |}]
 
 (* Seven blocks whose optimum is one above the live bound: the only way to
    close the interval is an exhaustive [Infeasible] at the live bound. *)
@@ -141,8 +160,11 @@ let%expect_test "an optimum above the live bound" =
 let%expect_test "one ceiling" =
   let s = script_of_events above_live in
   let answer ?(limits = limits ()) c =
-    match ok (R.feasible limits (R.Work.create ()) s ~ceiling:c) with
-    | R.Answer.Feasible w -> Fmt.pr "%Ld: feasible, pool %Ld@." c (pool w)
+    match
+      ok (R.feasible limits (R.Work.create ()) s ~ceiling:(Units.size c))
+    with
+    | R.Answer.Feasible w ->
+        Fmt.pr "%Ld: feasible, pool %a@." c Byte_size.pp (pool w)
     | Infeasible -> Fmt.pr "%Ld: infeasible@." c
     | Unknown R.Cut.Depth -> Fmt.pr "%Ld: unknown (depth)@." c
     | Unknown R.Cut.States -> Fmt.pr "%Ld: unknown (states)@." c
@@ -197,7 +219,9 @@ let%expect_test "no overflow near the top of int64" =
   let big = Int64.shift_left 1L 62 in
   let s = script_of_events [ alloc 0 big; alloc 1 big ] in
   (match
-     ok (R.feasible (limits ()) (R.Work.create ()) s ~ceiling:Int64.max_int)
+     ok
+       (R.feasible (limits ()) (R.Work.create ()) s
+          ~ceiling:(Units.size Int64.max_int))
    with
   | R.Answer.Infeasible -> Fmt.pr "infeasible@."
   | _ -> Fmt.pr "not infeasible@.");
@@ -209,22 +233,26 @@ let%expect_test "no overflow near the top of int64" =
 let bisect ?(report = Fun.id) ?(unknown = fun _ -> false) ~live ~upper opt =
   let asked = ref [] in
   let query c =
+    let c = Byte_size.to_int64 c in
     asked := c :: !asked;
     if unknown c then Ok (R.Answer.Unknown R.Cut.States)
-    else if Int64.compare c opt >= 0 then Ok (R.Answer.Feasible (report c))
+    else if Int64.compare c opt >= 0 then
+      Ok (R.Answer.Feasible (Units.size (report c)))
     else Ok R.Answer.Infeasible
   in
+  let upper = Units.size upper in
   let result =
-    R.bisect ~live_bound:live ~upper ~incumbent:upper ~pool:Fun.id ~query
+    R.bisect ~live_bound:(Units.size live) ~upper ~incumbent:upper ~pool:Fun.id
+      ~query
   in
   Fmt.pr "asked %a: " Fmt.(list ~sep:(any ", ") int64) (List.rev !asked);
   match Err.payload result with
   | Ok b ->
-      Fmt.pr "%a (%a) [%Ld, %Ld], %Ld queries@." pp_status b.R.Bounds.status
-        pp_stop b.stop b.lower b.upper b.queries
+      Fmt.pr "%a (%a) [%a, %a], %Ld queries@." pp_status b.R.Bounds.status
+        pp_stop b.stop Byte_size.pp b.lower Byte_size.pp b.upper b.queries
   | Error (`Invalid_candidate { R.Invalid_candidate.pool; lower; ceiling }) ->
-      Fmt.pr "invalid candidate %Ld (lower %Ld, ceiling %Ld)@." pool lower
-        ceiling
+      Fmt.pr "invalid candidate %a (lower %a, ceiling %a)@." Byte_size.pp pool
+        Byte_size.pp lower Byte_size.pp ceiling
 
 let%expect_test "bisection" =
   (* Live bound first, then midpoints. *)

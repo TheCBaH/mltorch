@@ -333,24 +333,12 @@ let leaderboard_section buf t =
    legalization changes the problem and is not an allocator gain. *)
 (* --- per model ------------------------------------------------------------ *)
 
-(* The bytes of one element of the kind a row names. *)
-let cell_bytes name =
-  List.find_map
-    (fun k ->
-      if Fmt.str "%a" Alloc_script.Kind.pp k = name then
-        Some (Alloc_script.Kind.cell_bytes k)
-      else None)
-    Alloc_script.Kind.all
-
-(* Checked: a byte total that overflows [int64] is reported as absent. *)
-let add_bytes acc pool kind =
-  match (acc, Option.bind kind cell_bytes) with
-  | Some acc, Some cb ->
-      if Int64.compare pool (Int64.div Int64.max_int cb) > 0 then None
-      else
-        let b = Int64.mul pool cb in
-        if Int64.compare acc (Int64.sub Int64.max_int b) > 0 then None
-        else Some (Int64.add acc b)
+(* Checked: a byte total that overflows [int64] is reported as absent. Rows
+   are in bytes already. *)
+let add_bytes acc b =
+  match acc with
+  | Some acc when Int64.compare acc (Int64.sub Int64.max_int b) <= 0 ->
+      Some (Int64.add acc b)
   | _ -> None
 
 (* A strategy row's column: the method alone for a single pass, with its
@@ -369,6 +357,7 @@ module Model_arena = struct
     lower : int64 option;
     upper : int64 option;
     proven : bool;
+    placed : int64 option;  (** The exact-size production pool. *)
     pools : (string * int64 option) list;  (** Column, bytes; in row order. *)
   }
 end
@@ -382,7 +371,9 @@ let model_arenas t =
     match Hashtbl.find_opt by_key k with
     | Some e -> e
     | None ->
-        let e = (ref 0, ref (Some 0L), ref (Some 0L), ref true, ref []) in
+        let e =
+          (ref 0, ref (Some 0L), ref (Some 0L), ref true, ref (Some 0L), ref [])
+        in
         Hashtbl.replace by_key k e;
         order := k :: !order;
         e
@@ -390,27 +381,26 @@ let model_arenas t =
   List.iter
     (fun j ->
       if is "comparison" j then begin
-        let kinds, lower, upper, proven, _ = entry j in
-        let kind = get_s "kind" j in
+        let kinds, lower, upper, proven, placed, _ = entry j in
         incr kinds;
-        lower := add_bytes !lower (get_i64 "lower" j) kind;
-        upper := add_bytes !upper (get_i64 "upper" j) kind;
-        proven := !proven && get_b "closed" j
+        lower := add_bytes !lower (get_i64 "lower" j);
+        upper := add_bytes !upper (get_i64 "upper" j);
+        proven := !proven && get_b "closed" j;
+        placed := add_bytes !placed (get_i64 "placed" j)
       end
       else if is "strategy" j then begin
-        let _, _, _, _, pools = entry j in
+        let _, _, _, _, _, pools = entry j in
         let c = column j in
         let prev =
           match List.assoc_opt c !pools with Some v -> v | None -> Some 0L
         in
         pools :=
-          (c, add_bytes prev (get_i64 "pool" j) (get_s "kind" j))
-          :: List.remove_assoc c !pools
+          (c, add_bytes prev (get_i64 "pool" j)) :: List.remove_assoc c !pools
       end)
     t.rows;
   List.rev_map
     (fun ((m, d) as k) ->
-      let kinds, lower, upper, proven, pools = Hashtbl.find by_key k in
+      let kinds, lower, upper, proven, placed, pools = Hashtbl.find by_key k in
       {
         Model_arena.model = Option.value m ~default:"?";
         dialect = Option.value d ~default:"?";
@@ -418,6 +408,7 @@ let model_arenas t =
         lower = !lower;
         upper = !upper;
         proven = !proven;
+        placed = !placed;
         pools = List.rev !pools;
       })
     !order
@@ -443,6 +434,7 @@ let model_rows t =
              ("proven", J.bool a.proven);
              ("lower_bytes", J.opt J.i64 a.lower);
              ("upper_bytes", J.opt J.i64 a.upper);
+             ("placed_bytes", J.opt J.i64 a.placed);
              ( "pools",
                J.list
                  (fun c -> J.opt J.i64 (Option.join (List.assoc_opt c a.pools)))
@@ -541,6 +533,7 @@ let paired_section buf t =
              ])
            [
              ("production pool", "production_bytes");
+             ("placed pool (exact sizes)", "placed_bytes");
              ("best observed pool", "best_observed_bytes");
              ("proven lower bound", "lower_bytes");
              ("per-kind live bound", "per_kind_live_bound_bytes");

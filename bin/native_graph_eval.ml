@@ -10,14 +10,11 @@ open Native_graph_args
    arena-forced CI step) can grep it without needing --verbose's noise. *)
 let pp_arena_outcome fmt (outcome : Arena_run.Outcome.t) =
   match outcome with
-  | Used { pool_bytes; out_of_arena_bytes; copies } ->
-      Format.fprintf fmt
-        "arena: used pool_bytes=%Ld out_of_arena_bytes=%Ld \
-         mixed_mode_copies=%Ld (%Ld bytes)"
-        pool_bytes out_of_arena_bytes copies.count copies.bytes
+  | Used report ->
+      Format.fprintf fmt "arena: used %a" Arena_run.Report.pp report
   | Declined e -> Format.fprintf fmt "arena: declined: %a" Arena_run.pp_error e
 
-let eval model input expect verbose arena : (unit, string) result =
+let eval model input expect verbose arena layout : (unit, string) result =
   with_archive model (fun archive ->
       let* input =
         to_cli Pt2_archive.pp_error (Pt2_archive.load_first_pt_tensor input)
@@ -56,6 +53,13 @@ let eval model input expect verbose arena : (unit, string) result =
         to_cli Native_interp.pp_error
           (Native_interp.run ?hooks
              ?arena:(if arena then Some Arena.Admission.Best_effort else None)
+             ?layout
+             ?on_storage:
+               (Option.map
+                  (fun _ report ->
+                    Format.printf "arena layout: %a@." Storage_run.Report.pp
+                      report)
+                  layout)
              ?on_arena:
                (if arena then
                   Some
@@ -99,7 +103,8 @@ let eval_cmd =
   in
   Cmd.v (Cmd.info "eval" ~doc)
     Term.(
-      const eval $ pt2_arg $ input_arg $ expect_arg $ verbose_arg $ arena_arg)
+      const eval $ pt2_arg $ input_arg $ expect_arg $ verbose_arg $ arena_arg
+      $ arena_layout_arg)
 
 (* The canonical pipeline now lives in [Pipeline], because Native4D needs the
    same definition of "canonical" and two callers agreeing by coincidence is not

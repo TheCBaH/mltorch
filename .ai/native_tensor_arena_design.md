@@ -21,7 +21,10 @@ named here).
    allocated and when each edge is released, so the two can never disagree by
    construction.
 2. `Arena_plan.create` splits the script's eligible events by Bigarray kind
-   into one `Interval_alloc.Script.t` per kind, solves each with
+   into one `Interval_alloc.Script.t` per kind, in bytes with each block at
+   the alignment its script `Alloc` records (§2.1; never below its cell width,
+   so every offset is a whole number of cells, and slots and pools are reported
+   in cells), solves each with
    `Interval_alloc.solve_best`, and keeps only witnessed placements
    (`Interval_alloc.check`).
 3. `Arena.create` allocates one pool per kind from the plan and hands out typed
@@ -49,11 +52,62 @@ format uses: `Bool` and the unsigned-8-bit formats share `Int8_unsigned`,
 `F16`/`BF16` share `Int16_unsigned`. `I16`/`I8` (quantized) have no `Kind` at
 all — `Kind.of_fmt` only classifies formats that can be eligible.
 
+### 2.1 Alignment
+
+`Alloc_script.alloc` records each edge's `bytes` (its `Element_count` times its
+kind's `Element_bytes`, both `Core.Storage_units` types) and an `alignment`
+from `Alignment_policy.default`: a 64-byte cache line up to and including one
+4096-byte page, a page above it, and never less than the element's own width.
+A host may raise that floor: `Alignment_policy.t` is the standard policy or
+the standard policy with a host request (`with_host`), and the alignment is
+the largest of the size default, the element width and the request, so a
+request can strengthen the default but never weaken it. The policy is part of
+the plan's identity. `Eval_direct.dry_run ?alignment` records the policy's
+alignments in every `Alloc`, `Arena_plan` keeps the policy it was made under,
+and a run dry-runs under the plan's policy, so the whole-script comparison (§4)
+covers it: a plan labelled with a policy its script was not made under is an
+`` `Arena_script_mismatch ``. Reusing a plan under another policy goes through
+`Arena_plan.revalidate`, which keeps sizes, lifetimes and offsets (so
+disjointness and bounds still hold) and rechecks only each start against the
+new alignment, refusing the first misaligned slot. Offsets are relative to a
+pool: they are physically aligned only if the pool's base is.
+
+A slot is placed at its exact payload size, only its start aligned: start
+alignment does not reserve the rest of a cache line or page, so a smaller slot
+may use the tail of a page-aligned one. Padding enters only the minimum.
+`Arena_problem` poses each kind twice, as an exact script and as a padded one
+(every block `Byte_alignment.pad`ded to its alignment). The padded script's live
+bound counts the alignment gaps, so its optimum is provable where the exact
+script's live bound, which leaves them out, is often not closed; the reported
+per-kind and combined bounds are the padded ones. Any placement of the padded
+script is also a placement of the exact one, so the exact optimum lies between
+the exact live bound and the padded minimum.
+
+`Arena_plan.place` runs the portfolio on both scripts, checks each placement
+against the exact script, cuts it to its actual length (`Interval_alloc.fit`),
+and keeps the shorter. Placing exact sizes alone lost on six corpus models —
+the strategies order differently once sizes are no longer multiples of their
+alignment, up to 47% on `tf_efficientnet_lite3` — and keeping the padded
+placement as a candidate means a plan never holds more than padding would.
+
+Each `Arena_plan.Pool` records the strictest alignment of its slots, the base
+alignment its storage would need, and `Arena_plan.base_alignment` is the
+strictest over pools. No backend meets it: a Bigarray is malloc-backed and a
+JavaScript ArrayBuffer guarantees about 8 bytes, and pure OCaml cannot observe
+an address. So `Arena.physical_alignment` is `Logical_only` on every backend,
+and the report says so rather than declining every arena. A caller that needs
+the physical guarantee says so: `Arena_run.acquire ~physical:Physical_required`
+refuses (under `Required`) or declines (under `Best_effort`) a plan whose base
+alignment the backend cannot give, as `` `Physical_alignment_unsupported ``,
+before any node runs — the logical alignment is never passed off as physical.
+A physically aligned native pool (an aligned allocation behind a managed
+Bigarray) is future work.
+
 ## 3. The witness contract
 
 `Interval_alloc.Witness.t` is abstract: only `Interval_alloc.check` produces
 one, from a `Script.t` and a `Solution.t`. It requires every block placed
-exactly once, at a non-negative offset inside the pool, with no two live
+exactly once, at a multiple of its alignment inside the pool, with no two live
 blocks overlapping. `Arena_plan.t` keeps the whole witnessed script, not just
 the offsets, because that script is what the run-time binding (§4) compares
 against.
@@ -117,7 +171,7 @@ any id or order.
 
 ## 6. Admission
 
-`Arena.Admission.t = Best_effort | Required of budget_bytes`.
+`Arena.Admission.t = Best_effort | Required of Byte_size.t`.
 
 - **`Best_effort`:** a plan the arena cannot take — over a per-kind ceiling
   (`` `Arena_over_limit ``, checked against `Kernel.Limits.Hard.numel` and
@@ -129,6 +183,9 @@ any id or order.
   arena's own row) with no fallback. `Arena_run.with_arena` is the entry point
   that enforces this: under `Required`, `f` (the caller's evaluation) is never
   invoked if acquisition fails.
+
+Physical alignment (§2.1) is a separate, explicit requirement
+(`Arena.Physical_requirement`), checked with the same refuse-or-decline split.
 
 ## 7. Non-vacuity — what a mutation must break
 
@@ -163,6 +220,11 @@ none of them is claimed to be the process's total memory:
   regression (a formerly-`dst`-honoring executor that stops) shows up as a
   number rather than silently costing time.
 
+Sizes and offsets throughout (`Arena_plan.Slot`/`Pool`/`Stats`, the admission
+budget, the report) are `Core.Storage_units` types; a slot's byte offset
+becomes an element offset only in `Arena.view`, by an exact conversion.
+`Arena_run.Report` also carries the base and physical alignment (§2.1).
+
 Constants, the graph's own inputs, and anything a caller retains are never
 counted as arena savings.
 
@@ -186,7 +248,9 @@ the portfolio and the reference minimum (`Interval_alloc.Reference`) on the
 payload-free normalized graphs of the whole pinned corpus. Both dialects' scripts
 come from dry runs of their own graphs (`Eval_direct.dry_run`,
 `Native4d.Eval_direct4.dry_run`, `Only empty`), projected per kind by
-`Arena_problem`, the extraction `Arena_plan` itself uses. Classification of
+`Arena_problem`, the extraction `Arena_plan` itself uses. Every figure is of the
+padded script (§2.1), where a minimum is provable, except `placed_bytes`: the
+pool `Arena_plan.place` actually holds at the largest budget, exact sizes. Classification of
 refusals is `Me_classify`'s, so it agrees with the committed model-support
 report.
 
@@ -235,6 +299,19 @@ On this evidence, an SMT backend would add proof power where it isn't needed.
 The only open gaps are three sub-1.4% cases. Search budget, and scheduling for
 anything below a node order's live bound, are the levers that matter.
 
+The figures above predate alignment (§2.1), when blocks were aligned only to
+their cell width. The committed cram now carries the aligned, padded figures.
+With the default portfolio (50 iterations, seed 1), alignment adds 0.03% to
+Native's summed arena and 0.07% to Native4D's; the largest single increase is
+`nf_regnet_b0` (Native4D), 2.9%. Padding the sizes costs 0.003% on top of
+aligning the starts alone, and it is what keeps the minimums provable: with
+aligned starts but unpadded sizes, only 88 of 100 Native and 86 of 97 Native4D
+models were proven, since the live bound left the padding out. Padded, 99 and
+97 are, and `convit_tiny` (Native, 1.36%) is the only open gap. That is why
+the minimum is still computed padded while placement is exact (§2.1): the
+placed pool (`placed_bytes`) is never above the padded production pool, below it
+on 53 of 197 model/dialect pairs, and 0.013% smaller in total.
+
 ## 10. Default, prepared runs, Native4D
 
 **`Native_interp_exec` stays opt-in (`?arena`), not default-on.** A one-shot
@@ -282,8 +359,122 @@ instead, one per backend:
   `--arena` is the jsoo counterpart of `native_graph eval --arena`.
 
 Both flags print whether the plan was used or declined (one line: `arena:
-used ...` / `arena: declined: ...`), and both targets fail on a decline as
+used ...`, from `Arena_run.Report.pp`, / `arena: declined: ...`), and both targets fail on a decline as
 well as on a wrong answer, so a regression that makes the plan inadmissible
 for this model is caught here too, not only in the RSS table above.
 `Native_interp_exec` itself is still opt-in on both backends — these are
 permanent CI checks of the path, not a change to the default.
+
+## 12. Storage roles, layouts and ownership
+
+§1–§11 place only intermediates: `Alloc_script` omits constants and graph
+inputs and makes outputs ineligible, and that stays the default path. Arenas for
+every storage role build on a second script, not on changing an eligibility
+flag.
+
+### 12.1 The storage script
+
+`Eval_direct.storage_script ?alignment ?retain config g` is `dry_run`'s fold
+with the rest of a run's storage added (`Storage_script`): the used constants
+after a `Model_init` boundary, the graph inputs after `Input_population`, each
+node's outputs and releases, then `Result_publication` and `Result_release`,
+after which every block the run still owns is freed. Each block carries its
+`Role` (`Constant`, `Input`, `Intermediate`, `Output`) and the logical arena it
+lives in (`Arena_id`), or none.
+
+- **Config.** `Layout.Separate` (constants, copied inputs, intermediates and
+  outputs each in their own arena) or `Layout.Shared_execution` (constants
+  alone, one `Execution` arena for the rest), and an `Ownership` for constants
+  and for inputs: `Borrowed` (the caller's payload, used in place, never
+  reclaimed) or `Copied` (copied into a slot, which only the copy occupies).
+  A runtime-owned input slot filled through a scoped interface is not built:
+  the current tensor type cannot revoke an escaped view.
+- **Lifetimes.** Constants are never freed: they are persistent model state,
+  not scratch between runs. A borrowed payload is never freed either. A graph
+  output or retained edge lives to `Result_release` whatever its role, so an
+  input or constant forwarded as an output keeps the longest lifetime and is
+  one block, counted once. A retained intermediate is an `Output`. A copied
+  input is freed after its last reader like any intermediate.
+- **Outside every arena.** A quantized block (a pool holds one element kind and
+  no quantization parameters) and a borrowed one.
+- **Identity.** Config and alignment policy are part of the script: two scripts
+  differ at position 0 when either does.
+
+`Storage_script.arena_script` projects one arena's blocks into an ordinary
+`Alloc_script` (eligible iff in that arena, boundaries dropped), so each
+logical arena is planned by the unchanged `Arena_problem`/`Arena_plan` of
+§1–§3, with its own per-kind pools.
+
+### 12.2 Plans, constants and runs
+
+- **`Storage_plan.create ?limits ?budget script`** plans each logical arena that
+  holds a block as its own `Arena_plan`, under the script's policy. Its
+  `Footprint` keeps apart what must not be summed blindly: `constants` (held
+  once per resident model), `execution` (every other arena's pools: once per
+  run slot, and the result arena once per outstanding result), `borrowed`
+  (caller payloads the run only reads) and `outside` (quantized edges). An
+  output is counted in its arena, never again as a payload.
+- **`Constant_arena.create plan ~constants`** prepares one version of the
+  model's constants: copied into the `Constants` arena (never poisoned), or
+  bound in place when borrowed. Every run of the model binds the same slot
+  views read-only. A new model is a new `Constant_arena` in new storage with a
+  new `Generation`, so it cannot overwrite what an older lease still reads: the
+  old version is alive while anything references it. Load copies are
+  preparation cost, reported apart from any run's.
+- **`Storage_run.run`** acquires a result arena and every scratch arena
+  (`Inputs`/`Intermediates` under `Separate`; none under `Shared_execution`,
+  whose `Execution` arena is the result arena), copies each copied input into
+  its slot, and runs `Eval_direct.run_storage`, which first requires the run's
+  own storage script to equal the plan's (`` `Storage_script_mismatch ``).
+  Scratch is released on every exit (`Fun.protect`); the result arena only on
+  an error or exception. Poison (a test option) fills each slot as the run
+  takes it, never a constant's.
+
+### 12.3 Result leases
+
+A successful run returns a `Result_lease`, not a map: its outputs are views
+into the result arena, which stays pinned (`Arena.busy`) until
+`Result_lease.release`. Returning from a run never licenses overwriting its
+results. `Storage_run` keeps at most `max_outstanding` result arenas (default
+one), created lazily; a run while all are pinned fails with `` `Arena_busy ``
+before touching anything. `with_outputs` is scoped access and fails with
+`` `Lease_released `` after release; `copy_out` copies every output into fresh
+storage and releases. Release is idempotent. A lease also holds its constant
+version, so a forwarded constant reads its own model's values.
+
+An escaped raw view cannot be revoked: the tensor type has no such notion. The
+guarantee is therefore that the arena behind a live lease is never reused, not
+that a view taken through `with_outputs` stops working after release — reading
+one then is the caller's error, and the next run may overwrite it.
+
+Non-vacuity: letting `Storage_run` pick a pinned result arena makes every case
+of the "live result is never overwritten" test report `OVERWRITTEN`.
+
+### 12.4 Layout figures
+
+On the `roles` fixture and every graph fixture, every layout and ownership
+combination is equal bit for bit to a release run, and two poisons agree. The
+layout is a measurement choice, not a free win: on `chain` shared execution
+halves the execution pools (472 → 236 B), but on `residual` it grows them
+(112 → 144 B), because three co-live 16 B blocks at 64 B alignment leave gaps
+in one pool that separate pools each absorb at their end. Under
+`Shared_execution` a lease pins the whole execution arena (144 B there, against
+16 B of outputs under `Separate`), so the smaller figure is not the smaller
+working set once results are held.
+
+Measured on `mobilenetv2_050` (`native_graph eval --arena-layout
+separate|shared`, one sample; `--arena` for the intermediates-only arena of
+§1–§11). All three runs print the same outputs, bit for bit.
+
+| run | constants | execution pools | result arena (pinned while leased) |
+|---|---|---|---|
+| `--arena` (intermediates only) | not arena-backed | 5,125,120 B + 4,000 B outside | fresh outputs |
+| `separate` | 7,949,024 B | 5,731,232 B | 4,000 B |
+| `shared` | 7,949,024 B | 5,129,120 B | 5,129,120 B |
+
+The constant arena holds 7,948,896 B of payload (262 copies) in 7,949,024 B:
+the rest is alignment. `separate` adds the 602,112 B input copy and the
+outputs as arenas of their own; `shared` absorbs both into the same pool,
+4,000 B above the intermediates-only one. These are pool sizes, not a
+working set: peak RSS was the same (~57 MB) in all three runs, and nothing here
+measures what a copied-in constant saves against the archive's own payload.

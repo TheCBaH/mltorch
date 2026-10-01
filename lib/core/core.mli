@@ -25,6 +25,11 @@ module Dim = Dim
 module Geometry = Geometry
 module Role = Role
 
+(* Tagged byte and element quantities of tensor storage (sizes, offsets,
+   alignments, counts, widths), abstract over [int64] with checked
+   arithmetic. *)
+module Storage_units = Storage_units
+
 (* Generative [private int] domains for ids, ordinals and other numbers that are
    only compared, keyed and printed. See .ai/ (domain-typed integers). *)
 module Tagged_int : module type of Tagged_int

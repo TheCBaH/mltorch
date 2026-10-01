@@ -1,4 +1,8 @@
+open Core.Storage_units
 open Interval_alloc
+
+(* Pools leave their type to be compared and averaged as plain numbers. *)
+let sz = Byte_size.to_int64
 
 let script_of_events events =
   match Script.validate ~equal:Int.equal events with
@@ -6,6 +10,7 @@ let script_of_events events =
   | Error _ -> assert false
 
 let ok = function Ok x -> x | Error _ -> assert false
+let pool_of sol = sz (Solution.pool sol)
 let budget ?(seed = 1L) n = Budget.create ~iterations:n ~seed
 
 let pp_stop ppf = function
@@ -15,7 +20,9 @@ let pp_stop ppf = function
 (* A script where every constructive strategy is above the bound and the search
    finds a smaller pool than all four. *)
 let beaten =
-  let a k size = Event.Alloc { key = k; size } and f k = Event.Free k in
+  let a k size =
+    Event.Alloc { key = k; size = Units.size size; alignment = Units.one }
+  and f k = Event.Free k in
   [
     a 0 7L;
     a 1 1L;
@@ -44,8 +51,7 @@ let%expect_test "search strictly beats every constructive strategy" =
   let s = script_of_events beaten in
   List.iter
     (fun strategy ->
-      Fmt.pr "%a: %Ld@." Strategy.pp strategy
-        (Solution.pool (ok (solve strategy s))))
+      Fmt.pr "%a: %Ld@." Strategy.pp strategy (pool_of (ok (solve strategy s))))
     Strategy.all;
   let sol, stats = ok (solve_best ~budget:(budget 100L) s) in
   Fmt.pr "%a@." Stats.pp stats;
@@ -64,9 +70,11 @@ let%expect_test "budget and bound" =
     let s = script_of_events events in
     let _, st = ok (solve_best ~budget:b s) in
     Fmt.pr "%s: %Ld iterations, %a, pool %Ld, bound %Ld@." name st.iterations
-      pp_stop st.stop st.pool st.lower_bound
+      pp_stop st.stop (sz st.pool) (sz st.lower_bound)
   in
-  let a k size = Event.Alloc { key = k; size } and f k = Event.Free k in
+  let a k size =
+    Event.Alloc { key = k; size = Units.size size; alignment = Units.one }
+  and f k = Event.Free k in
   run "budget 0, above the bound" beaten (budget 0L);
   run "budget 0, at the bound" [ a 0 8L ] (budget 0L);
   run "budget 100, constructive at the bound"
@@ -82,37 +90,37 @@ let%expect_test "budget and bound" =
     budget 100, bound reached partway: 5 iterations, at the bound, pool 26, bound 26
     negative budget: 0 iterations, budget exhausted, pool 28, bound 26 |}]
 
-let random_scripts ~seed ~count ~size ~max_size =
+let random_scripts ?max_log_alignment ~seed ~count ~size ~max_size () =
   let g = Gen.make seed in
   List.init count (fun _ ->
-      script_of_events (Gen.script g ~n:(3 + Gen.below g size) ~max_size))
+      script_of_events
+        (Gen.script ?max_log_alignment g ~n:(3 + Gen.below g size) ~max_size))
 
-let%expect_test "random scripts: search is sound and never grows a pool" =
-  let scripts = random_scripts ~seed:11 ~count:200 ~size:80 ~max_size:50 in
+let sound scripts =
   let before = ref 0. and after = ref 0. and worst = ref 0. in
   let optimal = ref 0 and total = ref 0 in
   List.iteri
     (fun i s ->
-      let lb = ok (lower_bound s) in
+      let lb = sz (ok (lower_bound s)) in
       let best_constructive =
         List.fold_left
-          (fun m st -> Int64.min m (Solution.pool (ok (solve st s))))
+          (fun m st -> Int64.min m (pool_of (ok (solve st s))))
           Int64.max_int Strategy.all
       in
       let sol, st = ok (solve_best ~budget:(budget 30L) s) in
       if Result.is_error (check s sol) then Fmt.pr "script %d: fails check@." i;
-      if Solution.pool sol < lb then Fmt.pr "script %d: below bound@." i;
-      if Solution.pool sol > best_constructive then
+      if pool_of sol < lb then Fmt.pr "script %d: below bound@." i;
+      if pool_of sol > best_constructive then
         Fmt.pr "script %d: worse than constructive@." i;
       if st.iterations > 30L then Fmt.pr "script %d: over budget@." i;
-      if st.stop = Stop.Lower_bound <> (st.pool = lb) then
+      if st.stop = Stop.Lower_bound <> (sz st.pool = lb) then
         Fmt.pr "script %d: stop disagrees with bound@." i;
       (* [improve] from each strategy's solution never grows it. *)
       List.iter
         (fun strategy ->
           let start = ok (solve strategy s) in
           let better, _ = ok (improve (budget 10L) s start) in
-          if Solution.pool better > Solution.pool start then
+          if pool_of better > pool_of start then
             Fmt.pr "script %d: improve grew a pool@." i;
           if Result.is_error (check s better) then
             Fmt.pr "script %d: improve fails check@." i)
@@ -120,8 +128,8 @@ let%expect_test "random scripts: search is sound and never grows a pool" =
       if lb > 0L then begin
         let r x = Int64.to_float x /. Int64.to_float lb in
         before := !before +. r best_constructive;
-        after := !after +. r (Solution.pool sol);
-        worst := Float.max !worst (r (Solution.pool sol));
+        after := !after +. r (pool_of sol);
+        worst := Float.max !worst (r (pool_of sol));
         incr total;
         if st.stop = Stop.Lower_bound then incr optimal
       end)
@@ -129,9 +137,22 @@ let%expect_test "random scripts: search is sound and never grows a pool" =
   let mean x = x /. float_of_int !total in
   Fmt.pr
     "scripts %d: mean pool/bound %.3f -> %.3f (max %.3f), %d at the bound@."
-    !total (mean !before) (mean !after) !worst !optimal;
+    !total (mean !before) (mean !after) !worst !optimal
+
+let%expect_test "random scripts: search is sound and never grows a pool" =
+  sound (random_scripts ~seed:11 ~count:200 ~size:80 ~max_size:50 ());
   [%expect
     {| scripts 200: mean pool/bound 1.008 -> 1.005 (max 1.060), 137 at the bound |}]
+
+(* The same with alignments up to 64: the search decodes with alignment too,
+   so every improved placement must still pass the checker. *)
+let%expect_test "random aligned scripts: search is sound and never grows a pool"
+    =
+  sound
+    (random_scripts ~max_log_alignment:6 ~seed:13 ~count:100 ~size:60
+       ~max_size:200 ());
+  [%expect
+    {| scripts 100: mean pool/bound 1.058 -> 1.041 (max 1.198), 0 at the bound |}]
 
 let%expect_test
     "same budget and seed, same offsets; a bigger budget never loses" =
@@ -142,12 +163,12 @@ let%expect_test
         Fmt.pr "script %d: not deterministic@." i;
       let pools =
         List.map
-          (fun n -> Solution.pool (fst (ok (solve_best ~budget:(budget n) s))))
+          (fun n -> pool_of (fst (ok (solve_best ~budget:(budget n) s))))
           [ 0L; 5L; 20L; 80L ]
       in
       if pools <> List.sort (fun a b -> Int64.compare b a) pools then
         Fmt.pr "script %d: budget not monotone@." i)
-    (random_scripts ~seed:5 ~count:60 ~size:60 ~max_size:40);
+    (random_scripts ~seed:5 ~count:60 ~size:60 ~max_size:40 ());
   Fmt.pr "done@.";
   [%expect {| done |}]
 
@@ -159,7 +180,8 @@ let optimum events =
     let alloc = Hashtbl.create 8 and free = Hashtbl.create 8 in
     List.iteri
       (fun pos -> function
-        | Event.Alloc { key; size } -> Hashtbl.replace alloc key (pos, size)
+        | Event.Alloc { key; size; _ } ->
+            Hashtbl.replace alloc key (pos, sz size)
         | Event.Free key -> Hashtbl.replace free key pos)
       events;
     let length = List.length events in
@@ -218,17 +240,17 @@ let%expect_test "against the exact optimum on small scripts" =
     let s = script_of_events events in
     let opt = optimum events in
     let sol, st = ok (solve_best ~budget:(budget 50L) s) in
-    if Solution.pool sol < opt then begin
+    if pool_of sol < opt then begin
       incr bad;
       Fmt.pr "script %d: below the optimum@." i
     end;
     if st.stop = Stop.Lower_bound then begin
       incr proven;
-      if st.pool <> opt then Fmt.pr "script %d: bound claimed, not optimal@." i
+      if sz st.pool <> opt then
+        Fmt.pr "script %d: bound claimed, not optimal@." i
     end;
     if opt > 0L then
-      gaps :=
-        (Int64.to_float (Solution.pool sol) /. Int64.to_float opt) :: !gaps
+      gaps := (Int64.to_float (pool_of sol) /. Int64.to_float opt) :: !gaps
   done;
   let n = List.length !gaps in
   Fmt.pr
@@ -288,6 +310,6 @@ let%expect_test "checkpoints equal separate runs" =
               end)
             (ok (improve_at ~iterations:grid ~seed s start)))
         [ 1L; 7L ])
-    (random_scripts ~seed:9 ~count:40 ~size:50 ~max_size:40);
+    (random_scripts ~seed:9 ~count:40 ~size:50 ~max_size:40 ());
   Fmt.pr "checked %d, differing %d@." !checked !bad;
   [%expect {| checked 800, differing 0 |}]

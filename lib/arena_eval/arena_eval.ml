@@ -29,10 +29,10 @@ module Row = struct
   type t = {
     method_ : Method.t;
     budget : (int64 * int64) option;
-    constructive_pool : int64;
-    pool : int64;
+    constructive_pool : Core.Storage_units.Byte_size.t;
+    pool : Core.Storage_units.Byte_size.t;
     effort : Interval_alloc.Effort.t option;
-    placements : (Tensor_id.t * int64) list;
+    placements : (Tensor_id.t * Core.Storage_units.Byte_offset.t) list;
     digest : string;
     timing : Timing.t;
   }
@@ -40,7 +40,9 @@ end
 
 module Reference_row = struct
   type t = {
-    bounds : (Tensor_id.t * int64) list Interval_alloc.Reference.Bounds.t;
+    bounds :
+      (Tensor_id.t * Core.Storage_units.Byte_offset.t) list
+      Interval_alloc.Reference.Bounds.t;
     states : int64;
     max_depth : int64;
     seconds : float;
@@ -58,7 +60,8 @@ let digest placements =
        (String.concat ";"
           (List.map
              (fun (id, offset) ->
-               Printf.sprintf "%d:%Ld" (Tensor_id.to_int id) offset)
+               Printf.sprintf "%d:%Ld" (Tensor_id.to_int id)
+                 (Core.Storage_units.Byte_offset.to_int64 offset))
              placements)))
 
 let placement e = `Arena_placement (e : Arena_plan.Placement_error.t)
@@ -220,7 +223,7 @@ let reference ~now (config : Config.t) script =
     Interval_alloc.Reference.minimum config.reference script ~incumbent
     |> Err.map_error ~pos:__POS__ (function
       | `Invalid_candidate c -> `Invalid_candidate c
-      | ( `Duplicate_placement _ | `Live_overflow _ | `Negative_offset _
+      | ( `Duplicate_placement _ | `Live_overflow _ | `Misaligned _
         | `Offset_overflow _ | `Out_of_pool _ | `Overlap _ | `Unknown_key _
         | `Unplaced _ ) as e ->
           placement e)
@@ -235,3 +238,13 @@ let reference ~now (config : Config.t) script =
       seconds;
       digest = digest placements;
     }
+
+let placed (config : Config.t) problem =
+  let budget =
+    Interval_alloc.Budget.create
+      ~iterations:(List.fold_left Int64.max 0L config.iterations)
+      ~seed:(match config.seeds with s :: _ -> s | [] -> 0L)
+  in
+  Err.map
+    (fun (witness, _) -> Interval_alloc.pool witness)
+    (Arena_plan.place ~budget problem)

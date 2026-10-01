@@ -25,24 +25,37 @@ type outcome =
 val acquire :
   ?limits:Kernel.Limits.t ->
   ?budget:Interval_alloc.Budget.t ->
+  ?alignment:Alignment_policy.t ->
+  ?physical:Arena.Physical_requirement.t ->
   ?poison:Arena.Poison.t ->
   ?retain:Release_schedule.Retain.t ->
   admission:Arena.Admission.t ->
   graph ->
   (outcome, error) Err.t
 (** Dry-runs [graph] under [retain] (default: keep everything, so nothing is
-    eligible), plans it, checks the admission and allocates the pools. The arena
-    must then be run on that same graph and [retain]. *)
+    eligible) and [alignment] (default [standard]), plans it, checks the
+    admission and allocates the pools. Under [physical = Physical_required]
+    (default [Logical_accepted]) a base alignment the backend cannot give is
+    [`Physical_alignment_unsupported]: refused under [Required], declined under
+    [Best_effort]. The arena must then be run on that same graph and [retain];
+    the plan carries the policy. *)
 
 (** What an arena run held, for a caller's stats. Pool bytes, the script's
     out-of-arena payload bytes, and mixed-mode copies are reported separately:
     none of them is the process's total memory. *)
 module Report : sig
   type t = {
-    pool_bytes : int64;
-    out_of_arena_bytes : int64;
+    pool_bytes : Core.Storage_units.Byte_size.t;
+    out_of_arena_bytes : Core.Storage_units.Byte_size.t;
+    base_alignment : Core.Storage_units.Byte_alignment.t option;
+        (** What the pools' storage needs ({!Arena_plan.base_alignment}). *)
+    physical_alignment : Arena.Physical_alignment.t;
+        (** What the backend gives it. *)
     copies : Arena.Copies.t;
   }
+
+  val pp : Format.formatter -> t -> unit
+  (** One line of [key=value] fields, for a CLI's [arena: used] report. *)
 end
 
 val report :
@@ -58,6 +71,8 @@ end
 val with_arena :
   ?limits:Kernel.Limits.t ->
   ?budget:Interval_alloc.Budget.t ->
+  ?alignment:Alignment_policy.t ->
+  ?physical:Arena.Physical_requirement.t ->
   ?poison:Arena.Poison.t ->
   ?retain:Release_schedule.Retain.t ->
   admission:Arena.Admission.t ->

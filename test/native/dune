@@ -55,3 +55,10 @@
 (cram
  (applies_to tagged_int_opacity)
  (deps tagged_int_opacity.sh core_probe.exe))
+
+; [Core.Storage_units]: byte/element, size/offset and size/alignment must not
+; unify. Reuses core_probe, which already links [core].
+
+(cram
+ (applies_to storage_units_opacity)
+ (deps storage_units_opacity.sh core_probe.exe))

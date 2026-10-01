@@ -24,6 +24,12 @@ let config ?(iterations = [ 0L; 5L; 50L ]) ?(seeds = [ 1L; 2L ]) () =
 let ok = function Ok x -> x | Error _ -> Fmt.failwith "unexpected error"
 let script events = ok (IA.Script.validate ~equal:Tensor_id.equal events)
 
+(* Test literals, meant valid: a refusal is a broken test. *)
+let units r = Err.or_raise ~pp_error:Core.Storage_units.pp_error r
+let bytes v = units (Core.Storage_units.Byte_size.of_int64 v)
+let one = units (Core.Storage_units.Byte_alignment.of_int64 1L)
+let sz = Core.Storage_units.Byte_size.to_int64
+
 (* A seeded random script over tensor ids, identical on every run. *)
 let random ~seed ~n =
   let s = ref (Int64.of_int seed) in
@@ -35,7 +41,12 @@ let random ~seed ~n =
   while !next < n || !live <> [] do
     if !next < n && (!live = [] || below 3 <> 0) then begin
       events :=
-        IA.Event.Alloc { key = t !next; size = Int64.of_int (1 + below 40) }
+        IA.Event.Alloc
+          {
+            key = t !next;
+            size = bytes (Int64.of_int (1 + below 40));
+            alignment = one;
+          }
         :: !events;
       live := !next :: !live;
       incr next
@@ -62,7 +73,7 @@ let%expect_test "the matrix: every strategy, improved, and the portfolio" =
       Fmt.pr "%-32s %-5s %4Ld -> %4Ld  construct %.0f search %.0f check %.0f@."
         (Fmt.str "%a" Arena_eval.Method.pp r.method_)
         (Fmt.str "%a" pp_budget r.budget)
-        r.constructive_pool r.pool r.timing.construct r.timing.search
+        (sz r.constructive_pool) (sz r.pool) r.timing.construct r.timing.search
         r.timing.check)
     rows;
   [%expect
@@ -119,7 +130,8 @@ let%expect_test "random scripts: never worse than the start, and replayable" =
         if a.pool > a.constructive_pool || a.pool < lb then begin
           incr bad;
           Fmt.pr "seed %d %a: pool %Ld from %Ld, bound %Ld@." seed
-            Arena_eval.Method.pp a.method_ a.pool a.constructive_pool lb
+            Arena_eval.Method.pp a.method_ (sz a.pool) (sz a.constructive_pool)
+            (sz lb)
         end;
         match (a.method_, a.budget) with
         | Arena_eval.Method.Improved _, Some (0L, _) ->
@@ -141,7 +153,9 @@ let%expect_test "random scripts: never worse than the start, and replayable" =
     List.iter
       (fun m ->
         let p = pools m 1L in
-        if p <> List.sort (fun a b -> Int64.compare b a) p then begin
+        if
+          p <> List.sort (fun a b -> Core.Storage_units.Byte_size.compare b a) p
+        then begin
           incr bad;
           Fmt.pr "seed %d %a: budget not monotone@." seed Arena_eval.Method.pp m
         end)
@@ -153,7 +167,7 @@ let%expect_test "random scripts: never worse than the start, and replayable" =
 
 (* The reference minimum of a script whose optimum is above the live bound. *)
 let%expect_test "the reference row" =
-  let a k s = IA.Event.Alloc { key = t k; size = s }
+  let a k s = IA.Event.Alloc { key = t k; size = bytes s; alignment = one }
   and f k = IA.Event.Free (t k) in
   let s =
     script
@@ -177,6 +191,6 @@ let%expect_test "the reference row" =
   let r = ok (Arena_eval.reference ~now:(clock ()) (config ()) s) in
   let b = r.bounds in
   Fmt.pr "live %Ld, incumbent %Ld, [%Ld, %Ld], %Ld states, %.0fs, %d placed@."
-    b.live_bound b.initial_upper b.lower b.upper r.states r.seconds
-    (List.length b.incumbent);
+    (sz b.live_bound) (sz b.initial_upper) (sz b.lower) (sz b.upper) r.states
+    r.seconds (List.length b.incumbent);
   [%expect {| live 7, incumbent 8, [8, 8], 50 states, 1s, 7 placed |}]
