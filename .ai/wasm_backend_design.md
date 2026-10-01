@@ -276,9 +276,9 @@ copying; the Wasm routes' first run includes V8 tiering and the host-side
 
 Reading it: the direct emitter's module is 2.2x smaller than Clang's and, after
 the second unit-loop round, within 14% (mobilenetv2_050) and 1% (fastvit_sa12)
-of Clang-compiled scalar Wasm warm; both are 1.2x (mobilenetv2_050) and 1.2x
-(fastvit_sa12) slower than native scalar C on the same host and 1.7x / 1.5x
-faster than the generated JavaScript. `compile` is `new WebAssembly.Module`:
+of Clang-compiled scalar Wasm warm; direct Wasm is 1.4x (mobilenetv2_050) and
+1.2x (fastvit_sa12) slower than native scalar C on the same host and 1.7x /
+1.5x faster than the generated JavaScript. `compile` is `new WebAssembly.Module`:
 V8 compiles lazily and tiers up, so it says little; `first run` is the honest
 cold figure. Before the second unit-loop round the direct route's warm run was
 164 ms (mobilenetv2_050). Timings were taken with nothing else running; a run
