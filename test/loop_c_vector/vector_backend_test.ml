@@ -59,10 +59,13 @@ let%expect_test "every vector program: vectorized C equals the interpreter" =
     index value                    equal    vector code
     temporaries                    equal    vector code
     sqrt and trunc                 equal    vector code
-    transcendentals                equal    scalar
+    transcendentals                equal    vector code
     int32 source                   equal    vector code
     bool store                     equal    scalar
     nested loops, vector inner     equal    vector code
+    matmul: reduction per output   equal    vector code
+    reduction with a triangular inner bound equal    vector code
+    uniform index temporary        equal    vector code
     extents around the width: 3    equal    scalar
     extents around the width: 4    equal    vector code
     extents around the width: 5    equal    vector code |}]
@@ -88,6 +91,9 @@ let%expect_test
     int32 source                   equal    vector code
     bool store                     equal    vector code
     nested loops, vector inner     equal    vector code
+    matmul: reduction per output   equal    vector code
+    reduction with a triangular inner bound equal    vector code
+    uniform index temporary        equal    vector code
     extents around the width: 3    equal    scalar
     extents around the width: 4    equal    vector code
     extents around the width: 5    equal    vector code |}]
