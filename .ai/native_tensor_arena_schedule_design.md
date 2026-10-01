@@ -1,8 +1,15 @@
 # Memory-aware topological scheduling — design record
 
-Status (2026-10-01): proposed; implementation not started. Detailed working
-design, staged implementation plan and tracker are in `ai/`. This record holds
-the durable contract; existing allocator/evaluator behavior is described in
+Status (2026-10-01): implemented, opt-in. Modules in `lib/native`:
+`Arena_schedule` (vocabulary, structural checks), `Arena_schedule_problem`
+(facts, exact replay, bounds, independent fresh-script validator),
+`Arena_schedule_greedy` (peak-first and live-first), `Arena_schedule_search`
+(bounded beam, portfolio), `Arena_schedule_plan` (pool-byte selection and the
+graph-with-plan result). `Native_interp.run`/`evaluate` take `?schedule`,
+`native_graph eval` takes `--schedule-memory`, and `bin/arena_schedule_eval`
+measures the corpus (`make arena.schedule.eval`). Detailed working design,
+stage plan and tracker are in `ai/`. This record holds the durable contract;
+existing allocator/evaluator behavior is described in
 [the arena record](native_tensor_arena_design.md),
 [release record](native_tensor_release_design.md) and
 [interval allocator record](interval_alloc_design.md).
@@ -116,3 +123,12 @@ timing belongs in host artifacts. Capture source/corpus revisions and policies.
 Zero accepted pool growth is required; actual reductions remain unmeasured.
 Default-on execution, prepared-run caching, Native4D adaptation and RSS claims
 require further evidence outside this initial plan.
+
+## Measured result
+
+On the 100-model corpus (Native, intermediates, standard alignment) the
+constructive orders cut paired witnessed pool bytes 4.65% (12 models reduced,
+88 unchanged, none grown; up to 49% on ghostnetv3). Beam search (widths 1-16,
+up to 100000 expansions) added at most 1 KiB, so execution stays opt-in and
+the recommended setting is constructive-only (`expansions = 0`). Role-mode,
+quantized and Native4D corpora remain unmeasured; no RSS claim is made.

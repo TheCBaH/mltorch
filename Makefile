@@ -16,7 +16,7 @@
 	native-infer-verify-direct.% native-transform-verify \
 	native-transform-verify.% precommit profile.landmarks \
 	profile.memtrace pt2.download pt2.download-all pt2.download-cram \
-	arena.eval arena.eval.report pt2.json-model-support pt2.runtest pt2.vars runtest spike.runtest \
+	arena.eval arena.eval.report arena.schedule.eval arena.schedule.eval.report pt2.json-model-support pt2.runtest pt2.vars runtest spike.runtest \
 	spike.setup tailcall.js-benchmark tailcall.runtest test \
 	verify.pristine visualizer.build visualizer.patch \
 	visualizer.submodule webapp.bridge-runtest webapp.browser-runtest \
@@ -198,6 +198,32 @@ arena.eval.report:
 		--summary $(ARENA_EVAL_DIR)/arena-eval.md \
 		--models-output $(ARENA_EVAL_DIR)/arena-eval-models.jsonl \
 		--artifacts $(ARENA_EVAL_DIR)/placements
+
+# Memory-aware scheduling over the same corpus (bin/arena_schedule_eval.ml):
+# the original order against the constructive and beam-searched orders, by the
+# pool bytes the production planner allocates. arena.schedule.eval is
+# test/arena_schedule_corpus_cram.t, gated on ARENA_EVAL_MODELS like arena.eval
+# and kept apart from it: the allocator golden is a fixed-order result.
+# arena.schedule.eval.report is the full sweep (budgets, then widths) with
+# timings, for a local look; nothing it writes is committed.
+arena.schedule.eval:
+	ARENA_EVAL_MODELS=$(abspath $(PT2_JSON_MODELS_DIR)) \
+		opam exec -- dune runtest test/arena_schedule_corpus_cram.t
+
+ARENA_SCHEDULE_EVAL_DIR ?= _build/arena-schedule-eval
+arena.schedule.eval.report:
+	@mkdir -p $(ARENA_SCHEDULE_EVAL_DIR)
+	opam exec -- dune exec bin/arena_schedule_eval.exe -- \
+		--models-dir $(PT2_JSON_MODELS_DIR) --expected-models 100 \
+		--output $(ARENA_SCHEDULE_EVAL_DIR)/budgets.jsonl \
+		--timings $(ARENA_SCHEDULE_EVAL_DIR)/budgets-timings.jsonl \
+		--summary $(ARENA_SCHEDULE_EVAL_DIR)/budgets.md
+	opam exec -- dune exec bin/arena_schedule_eval.exe -- \
+		--models-dir $(PT2_JSON_MODELS_DIR) --expected-models 100 \
+		--settings width1=1:10000,width4=4:10000,width16=16:10000 \
+		--output $(ARENA_SCHEDULE_EVAL_DIR)/widths.jsonl \
+		--timings $(ARENA_SCHEDULE_EVAL_DIR)/widths-timings.jsonl \
+		--summary $(ARENA_SCHEDULE_EVAL_DIR)/widths.md
 
 # Shared argument list for every interp_run.exe invocation below, so
 # inference-run and benchmark.inference can't drift apart.
