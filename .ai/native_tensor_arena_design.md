@@ -238,7 +238,11 @@ figure, not one the cram models currently need; A2r ("a stronger placement
 method") was not needed. The node order itself is out of scope (design's own
 §7, this document's home in the untracked design predates this record); if a
 future model needs a smaller arena than its order allows, the next lever is
-scheduling, not the allocator.
+scheduling, not the allocator. The proposed
+[memory-aware scheduling pass](native_tensor_arena_schedule_design.md) addresses
+that separate problem while keeping this allocator's order a fixed input. It
+also compares witnessed pools before accepting an order: a lower exact live
+peak alone does not guarantee fewer allocated bytes.
 
 ### 9.1 Corpus evaluation (the 100 tracked model.json graphs)
 
