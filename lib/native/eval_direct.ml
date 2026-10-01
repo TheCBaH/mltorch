@@ -218,17 +218,9 @@ let region_group_result ~limits ~region_counters
          outs)
   |> Err.map_error (fun error -> `Region_execution error)
 
-(* Edges something reads: a graph output, or an operand of a node that is not a
-   [Discard] sink. An index output nothing reads is not worth allocating. *)
-let live_edges (g : graph) =
-  let add = List.fold_left (fun s id -> Tensor_id.Set.add id s) in
-  List.fold_left
-    (fun live (node : node) ->
-      match node.Node.op with
-      | Discard _ -> live
-      | op -> add live (Graph_ir.operands op))
-    (add Tensor_id.Set.empty g.Graph.outputs)
-    g.Graph.nodes
+(* A [Discard] sink reads nothing: an index output only it names is not worth
+   allocating, and is released as soon as it would exist. *)
+let is_sink = function Discard _ -> true | _ -> false
 
 (* The second output of the argmax-style ops. *)
 let is_index_output (op : op) output =
@@ -300,36 +292,47 @@ let admit (g : graph) (op : op) : (unit, [> error ]) Err.t =
       check_scalar_op "addcmul" tensor2
   | _ -> Err.return ()
 
+let release env ids =
+  List.fold_left (fun env id -> Tensor_id.Map.remove id env) env ids
+
 let rec run_graph ?hooks ?region_counters ?region_executor
     ?region_group_executor ?node_executor ?(limits = Kernel.Limits.default)
-    ~constants (g : graph) (env : Tensor.packed Tensor_id.Map.t) :
+    ?(retain = Release_schedule.Retain.All) ~constants (g : graph)
+    (env : Tensor.packed Tensor_id.Map.t) :
     (Tensor.packed Tensor_id.Map.t, error) Err.t =
   let open Err.Syntax in
   let* env = bind_constants g constants env in
   let synthetic_ids = fresh_synthetic_ids g in
-  let live = live_edges g in
+  let sched =
+    Release_schedule.schedule ~operands:Graph_ir.operands ~is_sink ~retain g
+  in
+  (* A node's releases come after [on_end], so a hook runs while the node's
+     operands are still bound. *)
   Err.List.fold_left
     (fun env node ->
       match hooks with
       (* A [Discard] produces nothing, and the edge it sinks may be an
          unallocated dead index output: there is nothing to look up. *)
-      | _ when match node.Node.op with Discard _ -> true | _ -> false ->
-          Err.return env
+      | _ when is_sink node.Node.op -> Err.return env
       | None ->
-          eval_node ?region_counters ?region_executor ?region_group_executor
-            ?node_executor ~limits ~synthetic_ids ~live g env node
+          let+ env =
+            eval_node ?region_counters ?region_executor ?region_group_executor
+              ?node_executor ~limits ~synthetic_ids ~sched g env node
+          in
+          release env (Release_schedule.after sched node.Node.id)
       | Some (Hooks h) ->
           let state = h.on_start node in
           let* env =
             eval_node ?region_counters ?region_executor ?region_group_executor
-              ?node_executor ~limits ~synthetic_ids ~live g env node
+              ?node_executor ~limits ~synthetic_ids ~sched g env node
           in
           h.on_end node state;
-          Err.return env)
-    env g.Graph.nodes
+          Err.return (release env (Release_schedule.after sched node.Node.id)))
+    (release env (Release_schedule.initial sched))
+    g.Graph.nodes
 
 and eval_node ?region_counters ?region_executor ?region_group_executor
-    ?node_executor ~limits ~synthetic_ids ~live (g : graph)
+    ?node_executor ~limits ~synthetic_ids ~sched (g : graph)
     (env : Tensor.packed Tensor_id.Map.t) (node : node) :
     (Tensor.packed Tensor_id.Map.t, error) Err.t =
   let open Err.Syntax in
@@ -379,7 +382,9 @@ and eval_node ?region_counters ?region_executor ?region_group_executor
         (Output_ordinal.of_int output, oid, out_shape))
       pairs
     |> List.filter (fun (output, oid, _) ->
-        not (is_index_output op output && not (Tensor_id.Set.mem oid live)))
+        not
+          (is_index_output op output
+          && not (Release_schedule.has_reader sched oid)))
   in
   (* A multi-output region-authored node (today, only [Lstm]) shares one
      recurrence across all its outputs (project step 19) instead of folding
@@ -431,7 +436,7 @@ and eval_node ?region_counters ?region_executor ?region_group_executor
         env outs
 
 let run ?hooks ?region_counters ?region_executor ?region_group_executor
-    ?node_executor ?(limits = Kernel.Limits.default) ?(constants = [])
+    ?node_executor ?(limits = Kernel.Limits.default) ?retain ?(constants = [])
     (g : graph) ~(inputs : (Tensor_id.t * Tensor.packed) list) =
   let provided =
     List.fold_left
@@ -448,4 +453,4 @@ let run ?hooks ?region_counters ?region_executor ?region_group_executor
       Tensor_id.Map.empty (input_ids g)
   in
   run_graph ?hooks ?region_counters ?region_executor ?region_group_executor
-    ?node_executor ~limits ~constants g env0
+    ?node_executor ~limits ?retain ~constants g env0

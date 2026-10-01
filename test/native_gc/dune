@@ -1,0 +1,11 @@
+; That a released payload really becomes garbage: a Weak slot emptied by
+; Gc.full_major. Native only, which is why this is not part of test/native:
+; under js_of_ocaml Weak and Gc give no such guarantee, so the same check would
+; fail there for reasons unrelated to the evaluators.
+
+(library
+ (name native_gc_test)
+ (libraries err_trace fmt native native4d)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

@@ -31,7 +31,11 @@ let dispatch ~verify ?(ppf = Format.err_formatter) (env : Interp_decode.env)
       Fmt.pf ppf "[verify] %s: bridge error: %a@." node.target
         Op_bridge.pp_error (Err.Error.kind e)
   | Some (Some (Ok (graph, bindings))) -> (
-      match Eval_direct.run graph ~inputs:bindings with
+      match
+        Eval_direct.run graph
+          ~retain:(Release_schedule.Retain.Only Graph_ir.Tensor_id.Set.empty)
+          ~inputs:bindings
+      with
       | Error e ->
           Fmt.pf ppf "[verify] %s: eval error: %a@." node.target
             Eval_direct.pp_error (Err.Error.kind e)

@@ -1,8 +1,17 @@
 (* Direct (concrete) evaluation of a native graph. Walks the topo-ordered nodes
    threading an immutable env, runs each op through [Eval_op.Make (Direct)] and
-   [Schedule.evaluate]. Structural groups do not affect evaluation. Returns EVERY edge's
-   tensor (inputs, intermediates, outputs), keyed by edge id — so callers can print
-   any intermediate, not just the graph outputs. See .ai/native_graph_design.md. *)
+   [Schedule.evaluate]. Structural groups do not affect evaluation. See
+   .ai/native_graph_design.md.
+
+   [?retain] decides what the result holds, keyed by edge id:
+   - [Release_schedule.Retain.All], the default: EVERY edge's tensor (inputs,
+     intermediates, outputs), so callers can print any intermediate.
+   - [Only s]: exactly [g.outputs] and those of [s] that were bound. Every other
+     edge leaves the env right after its last reader runs, so its payload is
+     garbage from then on rather than at the end of the run. Outputs and errors
+     are identical to an [All] run.
+   Neither setting ever holds an index output nothing reads: it is not
+   allocated. See .ai/ (tensor release). *)
 
 open Graph_ir
 
@@ -43,6 +52,7 @@ val run :
   ?region_group_executor:Region_executor.group ->
   ?node_executor:Node_executor.t ->
   ?limits:Kernel.Limits.t ->
+  ?retain:Release_schedule.Retain.t ->
   ?constants:(Tensor_id.t * Tensor.packed) list ->
   graph ->
   inputs:(Tensor_id.t * Tensor.packed) list ->

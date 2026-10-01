@@ -110,6 +110,7 @@ let materialize ?needed resolve store =
             in
             let* env =
               Eval_direct.run graph
+                ~retain:(Release_schedule.Retain.Only Tensor_id.Set.empty)
                 ~constants:(List.combine operands payloads)
                 ~inputs:[]
               |> Err.map_error (fun e -> `Direct e)
