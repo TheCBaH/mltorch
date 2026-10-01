@@ -14,6 +14,8 @@ let pp_error ppf : [< error ] -> unit = function
   | #Loop_interp.error as e -> Loop_interp.pp_error ppf e
 
 module Host = Wasm_host
+module Via_c = Wasm_c_host
+module Node = Wasm_node
 
 let ( let* ) = Result.bind
 let node = Wasm_host.node
@@ -27,7 +29,7 @@ let read_i32 s pos = Int32.to_int (String.get_int32_le s pos)
    serves both. The math imports are the host's [Math]. *)
 let runner =
   {|const fs = require("fs");
-const [wasmPath, inPath, outPath, heapBase, total, localBase, ...offsets] = process.argv.slice(2);
+const [wasmPath, inPath, outPath, heapBase, total, localBase, markBase, ...offsets] = process.argv.slice(2);
 const inst = new WebAssembly.Instance(new WebAssembly.Module(fs.readFileSync(wasmPath)),
   { math: { exp: Math.exp, log: Math.log, sin: Math.sin, cos: Math.cos } });
 const mem = inst.exports.memory.buffer;
@@ -36,11 +38,12 @@ const base = Number(heapBase), size = Number(total), local = Number(localBase);
 new Uint8Array(mem).fill(0xAB, local, base);
 new Uint8Array(mem).set(fs.readFileSync(inPath), base);
 const rc = inst.exports.loop_kernel(local, ...offsets.map((o) => base + Number(o)));
-const out = Buffer.alloc(104 + size);
+const out = Buffer.alloc(104 + size + 24);
 out.writeInt32LE(rc, 0);
 out.writeInt32LE(new DataView(mem).getInt32(0, true), 4);
 out.set(new Uint8Array(mem, 8, 96), 8);
 out.set(new Uint8Array(mem, base, size), 104);
+if (Number(markBase) >= 0) out.set(new Uint8Array(mem, Number(markBase), 24), 104 + size);
 fs.writeFileSync(outPath, out);
 |}
 
@@ -58,12 +61,13 @@ let runner_path =
 
 let max_bytes = 0x8000_0000L
 
-let exec ?(outputs = fun _ -> None) (p : Loop_program.t) ~bind =
-  let result : (Tensor.packed Tensor_id.Map.t, error) result =
+let exec_gen ~count_marks ?(outputs = fun _ -> None) (p : Loop_program.t) ~bind
+    =
+  let result : (Tensor.packed Tensor_id.Map.t * int list, error) result =
     let* lowered =
       Result.map_error
         (fun e -> `Wasm_unsupported e)
-        (Err.payload (Loop_wasm.lower p))
+        (Err.payload (Loop_wasm.lower ~count_marks p))
     in
     let* tensors =
       (C.bind_buffers ~outputs p ~bind
@@ -118,6 +122,8 @@ let exec ?(outputs = fun _ -> None) (p : Loop_program.t) ~bind =
                 string_of_int heap_base;
                 string_of_int total;
                 string_of_int lowered.Loop_wasm.local_base;
+                string_of_int
+                  (Option.value lowered.Loop_wasm.mark_base ~default:(-1));
               ]
             @ List.map string_of_int offsets
           in
@@ -155,18 +161,33 @@ let exec ?(outputs = fun _ -> None) (p : Loop_program.t) ~bind =
                               (Tensor_id.Map.find b.Loop_buffer.id tensors)
                         | Loop_buffer.Input | Loop_buffer.Scratch -> ())
                       p.Loop_program.buffers offsets);
+                let counts =
+                  if count_marks then
+                    List.init (List.length Loop_mark.all) (fun k ->
+                        read_i32 s (header + total + (4 * k)))
+                  else []
+                in
                 Ok
-                  (List.fold_left
-                     (fun acc (b : Loop_buffer.t) ->
-                       match b.Loop_buffer.role with
-                       | Loop_buffer.Output ->
-                           Tensor_id.Map.add b.Loop_buffer.id
-                             (Tensor_id.Map.find b.Loop_buffer.id tensors)
-                             acc
-                       | Loop_buffer.Input | Loop_buffer.Scratch -> acc)
-                     Tensor_id.Map.empty p.Loop_program.buffers))
+                  ( List.fold_left
+                      (fun acc (b : Loop_buffer.t) ->
+                        match b.Loop_buffer.role with
+                        | Loop_buffer.Output ->
+                            Tensor_id.Map.add b.Loop_buffer.id
+                              (Tensor_id.Map.find b.Loop_buffer.id tensors)
+                              acc
+                        | Loop_buffer.Input | Loop_buffer.Scratch -> acc)
+                      Tensor_id.Map.empty p.Loop_program.buffers,
+                    counts ))
   in
   match result with Ok m -> Err.return m | Error e -> Err.fail e
+
+let exec ?outputs p ~bind =
+  Err.map fst (exec_gen ~count_marks:false ?outputs p ~bind)
+
+let exec_counted ?outputs p ~bind =
+  Err.map
+    (fun (m, counts) -> (m, List.combine Loop_mark.all counts))
+    (exec_gen ~count_marks:true ?outputs p ~bind)
 
 let executor : Loop_check.Executor.t =
  fun p ~bind ->

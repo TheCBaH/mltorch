@@ -19,6 +19,8 @@ type error =
 val pp_error : Format.formatter -> [< error ] -> unit
 
 module Host = Wasm_host
+module Via_c = Wasm_c_host
+module Node = Wasm_node
 
 val node : string list ref
 (** The command that runs a script: [["node"]]. *)
@@ -30,6 +32,14 @@ val exec :
   (Tensor.packed Tensor_id.Map.t, error) Err.t
 (** Lowers, runs and returns exactly the Output buffers. [outputs] behaves as
     {!Loop_interp.run}'s. *)
+
+val exec_counted :
+  ?outputs:(Tensor_id.t -> Tensor.packed option) ->
+  Loop_program.t ->
+  bind:(Tensor_id.t -> Tensor.packed option) ->
+  (Tensor.packed Tensor_id.Map.t * (Loop_mark.t * int) list, error) Err.t
+(** [exec] on a counting build ({!Loop_wasm.lower}'s [count_marks]): also the
+    number of times each [Mark] statement ran, in [Loop_mark.all] order. *)
 
 val executor : Loop_check.Executor.t
 (** [exec] as a differential-harness executor, to {!Loop_check.install}. *)

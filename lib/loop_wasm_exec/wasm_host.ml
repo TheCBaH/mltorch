@@ -37,70 +37,14 @@ type prepared = {
   module_file : string;
   weights : string;
   template : string;  (** the outputs file's header and zero padding *)
-  runner : string;
   bundle : Loop_bundle.t;
   w : Loop_bundle_wasm.t;
   mutable runs : int;
   mutable timings : (string * float) list;
 }
 
-let node = ref [ "node" ]
+let node = Wasm_node.node
 let ( let* ) = Result.bind
-let exit_inference = 5
-let failure_prefix = "model_error:"
-let timing_prefix = "wasm_timing:"
-
-(* The runner places the four regions at the module's default placement, runs
-   [model_run], and writes the outputs region. A failure is the record, as a
-   line the host parses, and exit status 5; anything else (a compile error, a
-   trap) is node's own nonzero exit. The math imports are the host's [Math]. *)
-let runner_text =
-  {|const fs = require("fs");
-const now = () => Number(process.hrtime.bigint()) / 1e6;
-const [wasmPath, weightsPath, inputsPath, templatePath, outputsPath, ...rest] = process.argv.slice(2);
-const [wAt, iAt, wsAt, oAt, wsBytes, oBytes] = rest.slice(0, 6).map(Number);
-const flags = rest.slice(6);
-const poison = flags.includes("--poison");
-const repeat = Number((flags.find((f) => f.startsWith("--repeat=")) || "--repeat=0").slice(9));
-const bytes = fs.readFileSync(wasmPath);
-let t = now();
-const mod = new WebAssembly.Module(bytes);
-const compile = now() - t;
-t = now();
-const inst = new WebAssembly.Instance(mod, { math: { exp: Math.exp, log: Math.log, sin: Math.sin, cos: Math.cos } });
-const instantiate = now() - t;
-const mem = new Uint8Array(inst.exports.memory.buffer);
-t = now();
-const weights = fs.readFileSync(weightsPath), inputs = fs.readFileSync(inputsPath), template = fs.readFileSync(templatePath);
-mem.set(weights, wAt); mem.set(inputs, iAt);
-if (poison) { mem.fill(0xAB, wsAt, wsAt + wsBytes); mem.fill(0xAB, oAt, oAt + oBytes); }
-mem.set(template, oAt);
-const copyIn = now() - t;
-const fail = () => {
-  const dv = new DataView(inst.exports.memory.buffer);
-  const words = [dv.getInt32(4, true), dv.getInt32(0, true)];
-  for (let k = 0; k < 12; k++) words.push(dv.getBigInt64(8 + 8 * k, true));
-  console.log("model_error: " + words.join(" "));
-  process.exit(5);
-};
-t = now();
-if (inst.exports.model_run(wAt, iAt, wsAt, oAt) !== 0) fail();
-const first = now() - t;
-t = now();
-const reference = Buffer.from(mem.subarray(oAt, oAt + oBytes));
-const copyOut = now() - t;
-const times = [];
-for (let r = 0; r < repeat; r++) {
-  t = now();
-  if (inst.exports.model_run(wAt, iAt, wsAt, oAt) !== 0) fail();
-  times.push(now() - t);
-  if (!reference.equals(Buffer.from(mem.subarray(oAt, oAt + oBytes)))) { console.log("repeat output differs"); process.exit(6); }
-}
-times.sort((a, b) => a - b);
-const warm = times.length ? times[Math.floor(times.length / 2)] : 0;
-fs.writeFileSync(outputsPath, reference);
-console.log("wasm_timing: " + JSON.stringify({ compile, instantiate, copy_in: copyIn, first_run: first, warm_run: warm, copy_out: copyOut }));
-|}
 
 let prepare_r ~dir (b : Loop_bundle.t) ~constants =
   let* w =
@@ -118,7 +62,7 @@ let prepare_r ~dir (b : Loop_bundle.t) ~constants =
   let* () =
     Io.io (fun () ->
         Proc.write_file (file "model.wasm") w.Loop_bundle_wasm.bytes;
-        Proc.write_file (file "runner.js") runner_text)
+        ())
   in
   let* () =
     Io.write_payload w.Loop_bundle_wasm.weights ~identity
@@ -146,76 +90,11 @@ let prepare_r ~dir (b : Loop_bundle.t) ~constants =
       module_file = file "model.wasm";
       weights = file "weights.bin";
       template = file "outputs.template";
-      runner = file "runner.js";
       bundle = b;
       w;
       runs = 0;
       timings = [];
     }
-
-let parse_failure p log =
-  let lines = String.split_on_char '\n' log in
-  match
-    List.find_opt
-      (fun l -> String.starts_with ~prefix:failure_prefix l)
-      (List.rev lines)
-  with
-  | None -> Error (`Bad_failure_record "no model_error line")
-  | Some line -> (
-      let words =
-        String.split_on_char ' '
-          (String.sub line
-             (String.length failure_prefix)
-             (String.length line - String.length failure_prefix))
-        |> List.filter (fun s -> s <> "")
-      in
-      match List.map Int64.of_string_opt words with
-      | inv :: kind :: v when List.for_all Option.is_some (inv :: kind :: v)
-        -> (
-          let get = Option.get in
-          let invocation = Int64.to_int (get inv) in
-          let invocations = p.bundle.Loop_bundle.invocations in
-          if invocation < 0 || invocation >= List.length invocations then
-            Error (`Bad_failure_record "invocation out of range")
-          else
-            let inv_p = List.nth invocations invocation in
-            let sites = Loop_js_failure.sites inv_p.Loop_bundle.program in
-            match
-              Loop_c_failure.decode ~sites
-                ~kind:(Int64.to_int (get kind))
-                ~v:(Array.of_list (List.map get v))
-            with
-            | Ok row -> Error (`Inference_failed (invocation, row))
-            | Error m -> Error (`Bad_failure_record m))
-      | _ -> Error (`Bad_failure_record line))
-
-let timing_of log =
-  match
-    List.find_opt
-      (fun l -> String.starts_with ~prefix:timing_prefix l)
-      (String.split_on_char '\n' log)
-  with
-  | None -> []
-  | Some line ->
-      (* A flat JSON object of numbers: split it by hand. *)
-      let body =
-        String.sub line
-          (String.length timing_prefix)
-          (String.length line - String.length timing_prefix)
-      in
-      let body = String.trim body in
-      let body = String.sub body 1 (String.length body - 2) in
-      List.filter_map
-        (fun kv ->
-          match String.split_on_char ':' kv with
-          | [ k; v ] -> (
-              let k = String.trim k in
-              let k = String.sub k 1 (String.length k - 2) in
-              match float_of_string_opt (String.trim v) with
-              | Some f -> Some (k, f)
-              | None -> None)
-          | _ -> None)
-        (String.split_on_char ',' body)
 
 let run_r ?(poison = false) ?(repeat = 0) p ~bind =
   p.runs <- p.runs + 1;
@@ -240,32 +119,26 @@ let run_r ?(poison = false) ?(repeat = 0) p ~bind =
       in
       let pl = p.w.Loop_bundle_wasm.placement in
       let ws = p.w.Loop_bundle_wasm.workspace in
-      let argv =
-        !node
-        @ [
-            p.runner;
-            p.module_file;
-            p.weights;
-            inputs;
-            p.template;
-            outputs;
-            string_of_int pl.Loop_bundle_wasm.Placement.weights;
-            string_of_int pl.Loop_bundle_wasm.Placement.inputs;
-            string_of_int pl.Loop_bundle_wasm.Placement.workspace;
-            string_of_int pl.Loop_bundle_wasm.Placement.outputs;
-            Int64.to_string (C_workspace_plan.bytes ws);
-            Int64.to_string p.w.Loop_bundle_wasm.outputs.P.length;
-          ]
-        @ (if poison then [ "--poison" ] else [])
-        @ if repeat > 0 then [ Printf.sprintf "--repeat=%d" repeat ] else []
-      in
-      match Proc.run argv with
+      match
+        Wasm_node.execute ~dir:p.dir ~module_file:p.module_file
+          ~weights:p.weights ~inputs ~template:p.template ~outputs
+          {
+            Wasm_node.weights = pl.Loop_bundle_wasm.Placement.weights;
+            inputs = pl.Loop_bundle_wasm.Placement.inputs;
+            workspace = pl.Loop_bundle_wasm.Placement.workspace;
+            outputs = pl.Loop_bundle_wasm.Placement.outputs;
+            workspace_bytes = C_workspace_plan.bytes ws;
+            outputs_bytes = p.w.Loop_bundle_wasm.outputs.P.length;
+          }
+          ~poison ~repeat
+      with
       | Error m -> Error (`Node_unavailable m)
       | Ok (Proc.Exited 0, log) ->
-          p.timings <- timing_of log;
+          p.timings <- Wasm_node.timing_of log;
           Io.read_payload p.w.Loop_bundle_wasm.outputs
             ~identity:p.w.Loop_bundle_wasm.identity ~path:outputs
-      | Ok (Proc.Exited n, log) when n = exit_inference -> parse_failure p log
+      | Ok (Proc.Exited n, log) when n = Wasm_node.exit_inference ->
+          Wasm_node.parse_failure p.bundle log
       | Ok (st, log) -> Error (`Run_failed (st, log)))
 
 let lift r = Err.import Fun.id r

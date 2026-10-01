@@ -11,6 +11,7 @@ let error_address = Loop_wasm_ctx.error_address
 type t = {
   module_ : Wasm.Module.t;
   local_base : int;
+  mark_base : int option;
   heap_base : int;
   sites : Loop_failure.t array;
 }
@@ -177,7 +178,21 @@ let rec stmt st ~limits (s : Loop_stmt.t) : I.t list =
         n Wasm_op.I64_sub;
         set remaining;
       ]
-  | Loop_stmt.Mark _ -> []
+  | Loop_stmt.Mark m -> (
+      (* A counting build bumps its mark's word; the default build emits
+         nothing, so no inference path pays for a mark or calls the host. *)
+      match st.mark_base with
+      | None -> []
+      | Some base ->
+          let at = base + (4 * Loop_mark.index m) in
+          [
+            i32 at;
+            i32 at;
+            I.Load (Wasm.Load.I32_load, arg 2 0);
+            i32 1;
+            n Wasm_op.I32_add;
+            I.Store (Wasm.Store.I32_store, arg 2 0);
+          ])
   | Loop_stmt.Release_scan_state width ->
       let _, live = meter st in
       [
@@ -258,7 +273,8 @@ let f64_bytes xs =
     xs;
   Buffer.contents buf
 
-let kernel_exact ~table_alloc (p : Loop_program.t) : (kernel, error) Err.t =
+let kernel_exact ~mark_base ~table_alloc (p : Loop_program.t) :
+    (kernel, error) Err.t =
   Err.Escape.with_escape (fun esc ->
       let buffers = Hashtbl.create 8 in
       List.iteri
@@ -280,6 +296,7 @@ let kernel_exact ~table_alloc (p : Loop_program.t) : (kernel, error) Err.t =
           arrays = Hashtbl.create 4;
           local_top = 0L;
           table_alloc;
+          mark_base;
           used = [];
           meter = None;
           sites = F.sites p;
@@ -343,21 +360,27 @@ let kernel_exact ~table_alloc (p : Loop_program.t) : (kernel, error) Err.t =
 
 (* Widened for a caller that composes it with other errors, which would
    otherwise have to name this row's tags itself. *)
-let kernel ~table_alloc p =
+let kernel ?mark_base ~table_alloc p =
   Err.map_error
     (fun (e : error) ->
       match e with
       | `Index_constant_out_of_range _ as e -> e
       | `Local_arrays_too_large _ as e -> e)
-    (kernel_exact ~table_alloc p)
+    (kernel_exact ~mark_base ~table_alloc p)
 
 let align16 x = Int64.logand (Int64.add x 15L) (Int64.lognot 15L)
 
-let lower (p : Loop_program.t) : (t, error) Err.t =
+let lower ?(count_marks = false) (p : Loop_program.t) : (t, error) Err.t =
   (* The module's own bytes: the error record, then constant tables as the
      kernel asks for them, then the local region, then the host's buffers. *)
-  let top =
-    ref (Int64.of_int (Int64.to_int (align16 (Int64.of_int W.record_bytes))))
+  let top = ref (align16 (Int64.of_int W.record_bytes)) in
+  let mark_base =
+    if count_marks then (
+      let at = Int64.to_int !top in
+      top :=
+        align16 (Int64.add !top (Int64.of_int (4 * List.length Loop_mark.all)));
+      Some at)
+    else None
   in
   let table_alloc ~bytes =
     let off = align8 !top in
@@ -395,9 +418,10 @@ let lower (p : Loop_program.t) : (t, error) Err.t =
           };
         local_base;
         heap_base;
+        mark_base;
         sites = k.sites;
       })
-    (kernel_exact ~table_alloc p)
+    (kernel_exact ~mark_base ~table_alloc p)
 
 let with_pages t ~pages =
   match t.module_.Wasm.Module.memory with

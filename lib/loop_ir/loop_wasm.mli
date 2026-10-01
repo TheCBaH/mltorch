@@ -24,6 +24,9 @@ type t = {
       (** defines the smallest memory that covers the static region *)
   local_base : int;
       (** the [local] pointer to pass: where the kernel's local arrays live *)
+  mark_base : int option;
+      (** where a counting build keeps one [i32] per [Loop_mark.all], in that
+          order; [None] for the default build, which emits nothing for a mark *)
   heap_base : int;
       (** 16-aligned end of the module's own bytes, local arrays included: a
           host places buffers at or above it *)
@@ -38,7 +41,11 @@ val function_name : string
 val error_address : int
 (** The byte address of the failure record: [0]. *)
 
-val lower : Loop_program.t -> (t, error) Err.t
+val lower : ?count_marks:bool -> Loop_program.t -> (t, error) Err.t
+(** [count_marks] (default [false]) makes each [Mark] statement bump its word at
+    [mark_base], so a test can compare the counts with the interpreter's. The
+    default build is unchanged byte for byte and no inference path calls the
+    host per mark. *)
 
 (** {1 Kernels for composition}
 
@@ -57,7 +64,10 @@ type kernel = {
 }
 
 val kernel :
-  table_alloc:(bytes:int -> int) -> Loop_program.t -> (kernel, [> error ]) Err.t
+  ?mark_base:int ->
+  table_alloc:(bytes:int -> int) ->
+  Loop_program.t ->
+  (kernel, [> error ]) Err.t
 
 val with_pages : t -> pages:int -> Wasm.Module.t
 (** The module with [pages] initial memory pages; [Invalid_argument] below the

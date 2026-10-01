@@ -62,6 +62,7 @@
   native_op_walk
   native_test
   str
+  unix
   walk_core)
  (inline_tests
   (enabled_if

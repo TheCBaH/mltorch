@@ -19,7 +19,7 @@
 	arena.eval arena.eval.report arena.schedule.eval arena.schedule.eval.report pt2.json-model-support pt2.runtest pt2.vars runtest spike.runtest \
 	spike.setup tailcall.js-benchmark tailcall.runtest test \
 	verify.pristine visualizer.build visualizer.patch \
-	visualizer.submodule wasm.browser.runtest wasm.jsoo.pt2.runtest wasm.jsoo.runtest wasm.pt2.bench wasm.pt2.exe wasm.pt2.run wasm.pt2.runtest wasm.runtest webapp.bridge-runtest webapp.browser-runtest \
+	visualizer.submodule wasm.browser.runtest wasm.c.pt2.run wasm.c.pt2.runtest wasm.jsoo.pt2.runtest wasm.jsoo.runtest wasm.pt2.bench wasm.pt2.exe wasm.pt2.run wasm.pt2.runtest wasm.runtest wasm.toolchain webapp.bridge-runtest webapp.browser-runtest \
 	webapp.build webapp.npm-install webapp.runtest webapp.serve
 all: build
 
@@ -920,10 +920,26 @@ js.runtest: jsoo.runtest jsoo.inline-runtest melange.runtest loop.js.runtest
 # is outside `runtest`; MLTORCH_WASM enables the node-backed suites, and a
 # missing node fails them. The pure expect suites (module bytes and digests)
 # also run under js_of_ocaml here, so native and 32-bit-int output must agree.
-wasm.runtest:
-	MLTORCH_WASM=1 NO_COLOR=1 opam exec -- dune build --force \
+wasm.runtest: wasm.toolchain
+	MLTORCH_WASM=1 MLTORCH_WASI_SYSROOT="$(WASI_SYSROOT)" NO_COLOR=1 opam exec -- dune build --force \
 	  @test/wasm_ir/runtest @test/wasm_ir/runtest-js \
 	  @test/loop_wasm/runtest @test/loop_ir/runtest-js
+
+# The wasm32 C library and compiler runtime the C-to-Wasm baseline links with:
+# the installed Clang and wasm-ld already target wasm32 but ship no libc, so
+# stock generated C stops at math.h. WASI_SYSROOT is the usr directory holding
+# include/wasm32-wasi and lib/wasm32-wasi: where the Debian packages wasi-libc
+# and libclang-rt-<N>-dev-wasm32 install (WASI_SYSROOT=/usr after an apt
+# install, as CI does), or where scripts/wasi-sysroot-userland.py unpacks them
+# without root. A missing library is an error, never a skip.
+WASI_SYSROOT ?= $(CURDIR)/.toolchains/wasi/root/usr
+
+wasm.toolchain:
+	@if [ ! -f "$(WASI_SYSROOT)/include/wasm32-wasi/math.h" ]; then \
+	  echo "wasm toolchain: no wasm32 libc under $(WASI_SYSROOT); unpacking it"; \
+	  python3 scripts/wasi-sysroot-userland.py .toolchains/wasi && \
+	  test -f "$(WASI_SYSROOT)/include/wasm32-wasi/math.h"; \
+	fi
 
 # The Wasm backend generated AND run inside the JavaScript build of the compiler
 # (js/loop_wasm_host): the in-process host's fixtures under node, the
@@ -996,6 +1012,19 @@ wasm.pt2.bench: wasm.pt2.exe
 	  $(MAKE) pt2.download PT2_MODEL=$$m && \
 	  (cd $(PT2_DIR)/$$m && echo "== $$m" && $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --samples=1 --bench=20) || exit 1; \
 	done
+
+# The baseline route: the C backend's unit compiled to Wasm (strict scalar
+# flags) over the same payload files, every output bitwise equal to the
+# per-node reference. Compare its phases with wasm.pt2.bench's.
+wasm.c.pt2.runtest: wasm.pt2.exe wasm.toolchain
+	for m in $(PT2_MODELS_CRAM) csatv2; do \
+	  $(MAKE) pt2.download PT2_MODEL=$$m && \
+	  (cd $(PT2_DIR)/$$m && echo "== $$m" && MLTORCH_WASI_SYSROOT="$(WASI_SYSROOT)" $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --via-c --strict --shadow --poison --samples=1 --bench=3) || exit 1; \
+	done
+
+wasm.c.pt2.run: wasm.pt2.exe wasm.toolchain
+	$(MAKE) pt2.download PT2_MODEL=fastvit_sa12
+	cd $(PT2_DIR)/fastvit_sa12 && MLTORCH_WASI_SYSROOT="$(WASI_SYSROOT)" $(CURDIR)/$(WASM_PT2_EXE) fastvit_sa12.pt2 inputs.pt expected.json outputs.pt --via-c --strict --shadow --poison --samples=1
 
 # The C backend's differential suites (test/loop_c) run under `runtest` at the
 # production flags. These re-run the same suites at -O0 and under the

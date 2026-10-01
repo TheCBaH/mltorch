@@ -37,7 +37,9 @@ let check name g k =
   in
   let sig_of id = Tensor_id.Map.find id g.Graph.tensors in
   let constants =
-    List.map (fun id -> (id, tensor_of ~salt:3 (sig_of id))) b.Loop_bundle.constants
+    List.map
+      (fun id -> (id, tensor_of ~salt:3 (sig_of id)))
+      b.Loop_bundle.constants
   in
   H.prepare_async b
     ~constants:(fun id -> List.assoc_opt id constants)
@@ -46,23 +48,29 @@ let check name g k =
       | Error e -> say "%s: prepare failed: %a" name H.pp_error e
       | Ok m ->
           let inputs =
-            List.map (fun id -> (id, tensor_of ~salt:1 (sig_of id))) b.Loop_bundle.inputs
+            List.map
+              (fun id -> (id, tensor_of ~salt:1 (sig_of id)))
+              b.Loop_bundle.inputs
           in
           let reference =
             Err.or_raise ~pp_error:Eval_direct.pp_error
               (Eval_direct.run g ~constants ~inputs)
           in
-          (match Err.payload (H.run m ~bind:(fun id -> List.assoc_opt id inputs)) with
+          (match
+             Err.payload (H.run m ~bind:(fun id -> List.assoc_opt id inputs))
+           with
           | Error e -> say "%s: run failed: %a" name H.pp_error e
           | Ok outs ->
               say "%s: %s (%d bytes of module)" name
                 (if
                    List.for_all2
-                     (fun id t -> bits t = bits (Tensor_id.Map.find id reference))
+                     (fun id t ->
+                       bits t = bits (Tensor_id.Map.find id reference))
                      g.Graph.outputs outs
                  then "identical to the reference"
                  else "DIFFERS")
-                (H.bundle_wasm m).Loop_bundle_wasm.stats.Loop_bundle_wasm.module_bytes);
+                (H.bundle_wasm m).Loop_bundle_wasm.stats
+                  .Loop_bundle_wasm.module_bytes);
           H.dispose m);
       k ())
 

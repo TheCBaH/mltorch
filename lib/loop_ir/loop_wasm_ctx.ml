@@ -42,6 +42,8 @@ type st = {
   mutable local_top : int64;
   table_alloc : bytes:int -> int;
       (** reserves [bytes] of constant data, returning its absolute address *)
+  mark_base : int option;
+      (** where a counting build keeps one [i32] per {!Loop_mark.t} *)
   mutable used : R.Callee.t list;
   mutable meter : (int * int) option;  (** [scan_remaining], [scan_live] *)
   sites : Loop_failure.t array;
