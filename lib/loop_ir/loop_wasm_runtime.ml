@@ -38,6 +38,19 @@ module Callee = struct
 
   let of_index i = List.nth all i
 
+  let name = function
+    | Ceil_div -> "ceil_div"
+    | Cos -> "cos"
+    | Erf -> "erf"
+    | Exp -> "exp"
+    | F16_to_float -> "f16_to_float"
+    | Fail_set -> "fail_set"
+    | Fill_f32 -> "fill_f32"
+    | Floor_div -> "floor_div"
+    | I64_div -> "i64_div"
+    | Log -> "log"
+    | Sin -> "sin"
+
   (* The host's [Math] function a callee is bound to, for the four that are
      imports; every other callee is a function defined in the module. *)
   let import = function

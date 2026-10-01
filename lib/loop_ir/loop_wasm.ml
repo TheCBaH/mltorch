@@ -398,23 +398,29 @@ let lower ?(count_marks = false) (p : Loop_program.t) : (t, error) Err.t =
           (align16 (Int64.add (Int64.of_int local_base) k.local_bytes))
       in
       let pages = max 1 ((heap_base + 65535) / 65536) in
+      let m =
+        {
+          Wasm.Module.imports;
+          funcs;
+          globals = [];
+          memory = Some { Wasm.Memory.min_pages = pages; max_pages = None };
+          exports =
+            [
+              { Wasm.Export.name = "memory"; kind = Wasm.Export.Memory };
+              { Wasm.Export.name = function_name; kind = Wasm.Export.Func base };
+            ];
+          data = k.data;
+          customs = [ { Wasm.Custom.name = "abi"; payload = "loop-wasm/1" } ];
+        }
+      in
+      let manifest = Loop_wasm_link.manifest ~callees:k.callees m in
       {
         module_ =
           {
-            Wasm.Module.imports;
-            funcs;
-            globals = [];
-            memory = Some { Wasm.Memory.min_pages = pages; max_pages = None };
-            exports =
-              [
-                { Wasm.Export.name = "memory"; kind = Wasm.Export.Memory };
-                {
-                  Wasm.Export.name = function_name;
-                  kind = Wasm.Export.Func base;
-                };
-              ];
-            data = k.data;
-            customs = [ { Wasm.Custom.name = "abi"; payload = "loop-wasm/1" } ];
+            m with
+            Wasm.Module.customs =
+              m.Wasm.Module.customs
+              @ [ { Wasm.Custom.name = "manifest"; payload = manifest } ];
           };
         local_base;
         heap_base;

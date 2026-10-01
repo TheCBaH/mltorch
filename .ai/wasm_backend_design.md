@@ -201,6 +201,40 @@ lowering that can run to thousands of elements uses tail-recursive append and
 map (`Loop_wasm_ctx.( @ )`, `Wasm.Instr.map_calls`), and a 60,000-statement
 kernel in `test/loop_ir/loop_wasm_test.ml` guards it (stock `@` overflows).
 
+## Features and manifest
+
+`Wasm_features.of_module` scans a module for post-MVP features (bulk memory,
+non-trapping float-to-int, sign extension; SIMD is reserved) and `probe`
+builds a tiny module using exactly one, which a host validates to detect the
+extension (`test/wasm_ir/features.t`: all four validate under node 20.19.2, and
+a truncated probe does not). The scalar backend needs `bulk-memory` only for a
+whole-model module and `nontrapping-float-to-int` only where a program converts
+a float to I64; it never needs SIMD or a relaxed instruction.
+
+Every module carries an `abi` custom section (`loop-wasm/1`) and a `manifest`
+section: the ABI, required features, imports, helper functions and the numeric
+policy (`working=f64 f32=round-and-widen fma=none reassociation=none
+i64=modular index=i32-checked`). The module's digest is its identity and covers
+the manifest, so a change of ABI, helper set or policy changes the identity.
+
+## C-to-Wasm baseline
+
+`Wasm_c_host` compiles the C backend's whole-model unit (`model_infer.c`, plus a
+three-export wrapper: `run`, `error_ptr`, `heap_base`) with Clang against a
+wasm32 libc, links with `wasm-ld`, sizes the memory from the linked
+`heap_base`, and runs it through the same node runner and payload files as the
+direct route. Toolchain: the installed Clang 19.1.7 and `wasm-ld` plus the
+Debian packages `wasi-libc` and `libclang-rt-19-dev-wasm32`
+(`scripts/wasi-sysroot-userland.py` unpacks them without root; `WASI_SYSROOT=/usr`
+after an apt install). Flags are strict scalar: `-O2 -ffp-contract=off
+-fno-strict-aliasing -fno-vectorize -fno-slp-vectorize -mno-simd128`; the
+generated assembly is scanned for vector mnemonics (0 in every model run) rather
+than assuming the flags suffice. The link needs `-nodefaultlibs -lc -lm` and the
+builtins archive named explicitly, since the installed Clang's resource
+directory has none for wasm32. `make wasm.c.pt2.runtest` runs it over the CI
+models; quantized programs, which the C emitter refuses, remain obligations of
+the direct route only.
+
 ## Browser
 
 `make wasm.browser.runtest` drives Chromium (playwright) over a page that loads
@@ -220,6 +254,24 @@ with a dirty workspace and its outputs are byte-identical to node's (first run
   so a browser must use `prepare_async`.
 - Node passing is not browser evidence: the page is the only place these
   were observed.
+
+## Reproduction
+
+| Question | Command | Needs |
+|---|---|---|
+| Op table, fixtures, every `Loop_check` fixture and op sweep through emitted Wasm, C-compiled route, marks, feature probes, native/jsoo byte agreement | `make wasm.runtest` | node, wasm32 libc (`make wasm.toolchain` unpacks one without root) |
+| In-process host under node, promise preparation | `make wasm.jsoo.runtest` | node |
+| Does each deliberate defect turn the suite red? | `scripts/wasm-mutation-check.sh` | as `wasm.runtest` |
+| Real models, direct emitter vs reference | `make wasm.pt2.runtest` | downloaded models, node |
+| Real models, C compiled to Wasm vs reference | `make wasm.c.pt2.runtest` | as above plus the wasm32 libc |
+| Model generated in JavaScript, byte-identical to native | `make wasm.jsoo.pt2.runtest` | one downloaded model, node |
+| In a browser | `make wasm.browser.runtest` | playwright Chromium (`WASM_BROWSER_LD_LIBRARY_PATH` without root, see `web/scripts/chromium-userland-libs.py`) |
+| Phases and warm repeats | `make wasm.pt2.bench` (direct), `loop_wasm_pt2 --via-c --bench=N` | downloaded models |
+
+`loop_wasm_pt2` flags: `--strict` (release ranking), `--shadow` (bitwise vs the
+per-node reference), `--poison` (workspace and outputs), `--bench=N`,
+`--via-c [--cflags=FLAGS]`, `--export=DIR` (artifacts for another host),
+`--wat=FILE` (readable dump of the generated module), `--keep=DIR`.
 
 ## Kernel module layout
 

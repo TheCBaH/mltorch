@@ -78,6 +78,20 @@ let scalar_flags =
 
 let memory_cap = 0x8000_0000L
 
+(* The compiler runtime's wasm32 builtins, wherever the package put them for the
+   installed Clang's version: [lib/llvm-N/lib/clang/N/lib/wasi/]. *)
+let find_builtins sysroot =
+  let ls d = try Array.to_list (Sys.readdir d) with Sys_error _ -> [] in
+  let ( / ) = Filename.concat in
+  List.sort compare (ls (sysroot / "lib"))
+  |> List.filter (String.starts_with ~prefix:"llvm-")
+  |> List.concat_map (fun llvm ->
+      let clang = sysroot / "lib" / llvm / "lib" / "clang" in
+      List.map
+        (fun v -> clang / v / "lib" / "wasi" / "libclang_rt.builtins-wasm32.a")
+        (List.sort compare (ls clang)))
+  |> List.find_opt Sys.file_exists
+
 let toolchain_from_env () =
   match Sys.getenv_opt "MLTORCH_WASI_SYSROOT" with
   | None | Some "" ->
@@ -85,11 +99,7 @@ let toolchain_from_env () =
         (`Toolchain_missing
            "MLTORCH_WASI_SYSROOT is unset (run \
             scripts/wasi-sysroot-userland.py and pass its SYSROOT)")
-  | Some sysroot ->
-      let builtins =
-        Filename.concat sysroot
-          "lib/llvm-19/lib/clang/19/lib/wasi/libclang_rt.builtins-wasm32.a"
-      in
+  | Some sysroot -> (
       let clang =
         Option.value (Sys.getenv_opt "MLTORCH_WASM_CLANG") ~default:"clang"
       in
@@ -101,14 +111,19 @@ let toolchain_from_env () =
         Error
           (`Toolchain_missing
              (Printf.sprintf "no wasm32 libc headers under %s" sysroot))
-      else if not (Sys.file_exists builtins) then
-        Error (`Toolchain_missing ("no compiler runtime at " ^ builtins))
       else
-        Ok
-          {
-            clang = [ clang; "--target=wasm32-wasi"; "--sysroot=" ^ sysroot ];
-            builtins;
-          }
+        match find_builtins sysroot with
+        | None ->
+            Error
+              (`Toolchain_missing
+                 (Printf.sprintf "no wasm32 compiler runtime under %s" sysroot))
+        | Some builtins ->
+            Ok
+              {
+                clang =
+                  [ clang; "--target=wasm32-wasi"; "--sysroot=" ^ sysroot ];
+                builtins;
+              })
 
 (* The C entry points a host can call: [run] over the inference unit's
    [model_run], the failure record's address, and where the module's static data

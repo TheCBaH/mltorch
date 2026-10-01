@@ -196,3 +196,29 @@ let%expect_test "typed errors: missing input, disposed model" =
     no value for input t0
     the model was disposed
     memory after dispose: 0 |}]
+
+let%expect_test
+    "an input of the wrong shape or format is refused before running" =
+  let g = Native_test.Graph_fixtures.chain () in
+  let b, constants, m = prepare g in
+  ignore constants;
+  let input_id = List.hd b.Loop_bundle.inputs in
+  let expected = sig_of_edge b input_id in
+  let wrong_shape =
+    Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1
+      ~c:(Dim.to_int (Vec6.get expected.Tensor_sig.shape Expr.Axis.C) + 1)
+  in
+  let bad = Tensor.materialize wrong_shape (fun _ -> 0.) in
+  (match
+     Err.payload
+       (H.run m ~bind:(fun id ->
+            if Tensor_id.equal id input_id then Some bad else None))
+   with
+  | Error e -> Fmt.pr "%a@." H.pp_error e
+  | Ok _ -> Fmt.pr "ran@.");
+  (* The refusal leaves the instance usable. *)
+  check g m b constants ~salt:0;
+  [%expect
+    {|
+    t0: bound tensor has the wrong shape
+    output t9 identical to the reference: true |}]

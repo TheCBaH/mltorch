@@ -4,7 +4,7 @@
 
    argv: <model.pt2> <inputs.pt> <expected.json> <outputs.pt> [--strict]
          [--shadow] [--poison] [--samples=N] [--keep=DIR] [--bench=N]
-         [--export=DIR] [--via-c] [--cflags=FLAGS]
+         [--export=DIR] [--via-c] [--cflags=FLAGS] [--wat=FILE]
 
    [--shadow] also runs [Eval_direct.run] (the per-node reference) on the same
    graph, constants and input and requires every graph output to be bitwise
@@ -110,7 +110,7 @@ let placement_json (pl : Loop_wasm_exec.Node.placement) ~total ~identity =
     pl.Loop_wasm_exec.Node.workspace_bytes pl.Loop_wasm_exec.Node.outputs_bytes
     (Digest.to_hex identity)
 
-let direct_route ~dir b ~constants =
+let direct_route ~dir ~wat b ~constants =
   let open Err.Syntax in
   let map e = (e :> eval) in
   let module H = Loop_wasm_exec.Host in
@@ -132,6 +132,11 @@ let direct_route ~dir b ~constants =
     w.Loop_bundle_wasm.placement.Loop_bundle_wasm.Placement.total (ms t1) dir;
   Printf.printf "module identity %s\n%!"
     (Digest.to_hex w.Loop_bundle_wasm.identity);
+  Option.iter
+    (fun f ->
+      Loop_c_exec.Proc.write_file f
+        (Wasm_wat.to_string w.Loop_bundle_wasm.module_))
+    wat;
   Err.return
     {
       run =
@@ -197,7 +202,7 @@ let c_route ~dir ~flags b ~constants =
           prerr_endline "--export applies to the direct route only");
     }
 
-let prepared ~keep ~via_c ~cflags archive =
+let prepared ~keep ~via_c ~cflags ~wat archive =
   let open Err.Syntax in
   let map e = (e :> eval) in
   match !cache with
@@ -222,17 +227,17 @@ let prepared ~keep ~via_c ~cflags archive =
       let constants_of id = Graph_ir.Tensor_id.Map.find_opt id constants in
       let* route =
         if via_c then c_route ~dir ~flags:cflags b ~constants:constants_of
-        else direct_route ~dir b ~constants:constants_of
+        else direct_route ~dir ~wat b ~constants:constants_of
       in
       let cached = (g, constants, b, route) in
       cache := Some cached;
       Err.return cached
 
-let infer ~keep ~via_c ~cflags ~export:export_dir ~shadow ~poison ~bench:bench_n
-    archive image =
+let infer ~keep ~via_c ~cflags ~wat ~export:export_dir ~shadow ~poison
+    ~bench:bench_n archive image =
   let open Err.Syntax in
   let map e = (e :> eval) in
-  let* g, constants, b, route = prepared ~keep ~via_c ~cflags archive in
+  let* g, constants, b, route = prepared ~keep ~via_c ~cflags ~wat archive in
   let* input = Native_interp.tensor_of_pt2 image |> Err.map_error map in
   let input_id = List.hd b.Loop_bundle.inputs in
   let t0 = now () in
@@ -281,6 +286,7 @@ let () =
   let keep, argv = valued "--keep=" argv in
   let export_dir, argv = valued "--export=" argv in
   let via_c, argv = flag "--via-c" argv in
+  let wat, argv = valued "--wat=" argv in
   let cflags, argv = valued "--cflags=" argv in
   let cflags =
     Option.map
@@ -300,8 +306,8 @@ let () =
              ?max_samples:(Option.map int_of_string samples)
              ~now
              ~infer:
-               (infer ~keep ~via_c ~cflags ~export:export_dir ~shadow ~poison
-                  ~bench:bench_n)
+               (infer ~keep ~via_c ~cflags ~wat ~export:export_dir ~shadow
+                  ~poison ~bench:bench_n)
              paths options)
       with
       | Ok () -> ()

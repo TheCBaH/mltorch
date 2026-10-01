@@ -16,3 +16,8 @@ val link :
 (** [link ~callees fs] is the imports, every function in index order (helpers,
     then [fs] renumbered), and the index of the first of [fs]. [callees] must
     cover everything [fs] call. *)
+
+val manifest :
+  callees:Loop_wasm_runtime.Callee.t list -> Wasm.Module.t -> string
+(** The text of the module's [manifest] custom section: ABI, required features,
+    imports, helpers and numeric policy. *)

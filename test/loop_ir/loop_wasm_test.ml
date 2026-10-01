@@ -159,15 +159,15 @@ let%expect_test "one module per failure constructor, stable across backends" =
           { local = None; row = i0; lane = Loop_index.Const 1; extent = 2 }));
   [%expect
     {|
-    gather                 240 bytes, md5 ca919d65659454900a20d770a3d35544
-    i64 division by zero   226 bytes, md5 3cc15f0b0d4baf84f693b0205ba9bf31
-    i64 division overflow  226 bytes, md5 0cfe428c45a57d8f3f8bdb4120a4fe12
-    i64 from float         287 bytes, md5 fc19fc1bc1aab1a16512ab0823d5a60d
-    index overflow         324 bytes, md5 07eb66d3555d4f4822fd496402a29d23
-    load out of range      455 bytes, md5 def5557e43d6d068d2f1e692d6384b7f
-    local out of range     233 bytes, md5 d6cca77caa1f0cfe818e0224d48e4124
-    scan lane              270 bytes, md5 350c621696159eab69280a38ed1a1877
-    scan row               270 bytes, md5 e9acb33106434c4cbc9c58848a8f00af |}]
+    gather                 401 bytes, md5 e50e49e668546dacf847b20652b435cd
+    i64 division by zero   387 bytes, md5 752fb0e5e1623beb4844970770dc8630
+    i64 division overflow  387 bytes, md5 4e6466a408711d6b0e0738e239e38c0f
+    i64 from float         448 bytes, md5 66dc896b7b224a5e2084d52a1812c84d
+    index overflow         485 bytes, md5 06f1f38931c0b99bd30c5e209e7ba20b
+    load out of range      616 bytes, md5 086dd9c05e0107330ad001b5acb23daa
+    local out of range     394 bytes, md5 5205f21b493b315cd29433996e03c12f
+    scan lane              431 bytes, md5 98831e2533a05848bd6d7f846de4dba1
+    scan row               431 bytes, md5 8eb48d7c80478547d80b5f809a7d1185 |}]
 
 let%expect_test "constants outside the 32-bit index domain are refused" =
   let p =
@@ -211,10 +211,10 @@ let%expect_test "whole-model modules are identical natively and under jsoo" =
     ];
   [%expect
     {|
-    chain        3 invocations, 3 kernels, 935 bytes, md5 97246f834f7160adb3dc8dec061ab634, memory 1408 bytes
-    residual     3 invocations, 2 kernels, 453 bytes, md5 c756474f6c8cd53a32161975024daa32, memory 640 bytes
-    layer_norm   2 invocations, 2 kernels, 899 bytes, md5 84cb2209bd3c90ac5457073f3b2ccd0f, memory 1024 bytes
-    sdpa         2 invocations, 2 kernels, 1186 bytes, md5 7cbce0f175154662a31f39a8959cf9ef, memory 2048 bytes |}]
+    chain        3 invocations, 3 kernels, 1108 bytes, md5 667fe40e9c184d345d40b327fffe9a54, memory 1408 bytes
+    residual     3 invocations, 2 kernels, 626 bytes, md5 51e1a375a140fca7361504e60a36ac1d, memory 640 bytes
+    layer_norm   2 invocations, 2 kernels, 1072 bytes, md5 542288b5f71f06882795734961cd2d45, memory 1024 bytes
+    sdpa         2 invocations, 2 kernels, 1368 bytes, md5 60281ccfd7da69ce62fe1954cdb78dbb, memory 2048 bytes |}]
 
 let%expect_test "an unsupported storage configuration is refused, not degraded"
     =
@@ -252,4 +252,90 @@ let%expect_test
   in
   let p = program ~buffers:[ b ] (List.init 60_000 store) in
   Fmt.pr "%s@." (summary p);
-  [%expect {| 1260081 bytes, md5 9d5366ae7edb55f062d6a5c66094841c |}]
+  [%expect {| 1260233 bytes, md5 1ffff941c40d5a4432da5e51e6320ead |}]
+
+(* ---- the manifest: what a host should know before compiling ---------------- *)
+
+let manifest_of (m : Wasm.Module.t) =
+  match
+    List.find_opt
+      (fun (c : Wasm.Custom.t) -> c.Wasm.Custom.name = "manifest")
+      m.Wasm.Module.customs
+  with
+  | Some c -> c.Wasm.Custom.payload
+  | None -> "(no manifest)"
+
+let%expect_test "the manifest names the ABI, features, imports and helpers" =
+  let show name m = Fmt.pr "-- %s@.%s" name (manifest_of m) in
+  show "doubling" (lowered Loop_programs.doubling).Loop_wasm.module_;
+  let overflowing =
+    Loop_index.Add (Loop_index.Scale (3, i0), Loop_index.Const 5)
+  in
+  show "index overflow check"
+    (lowered
+       (failing (Loop_bool.Index_overflows overflowing)
+          (Loop_failure.Index_overflow { index = overflowing })))
+      .Loop_wasm.module_;
+  show "float to i64"
+    (lowered
+       (failing always
+          (Loop_failure.I64_from_float { value = Loop_expr.Const 1. })))
+      .Loop_wasm.module_;
+  let g = Native_test.Graph_fixtures.sink_permute_layer_norm () in
+  let b =
+    Err.or_raise ~pp_error:Loop_bundle.pp_error
+      (Loop_bundle.build ~config:Loop_bundle_wasm.default_config g)
+  in
+  show "layer_norm model"
+    (Err.or_raise ~pp_error:Loop_bundle_wasm.pp_error (Loop_bundle_wasm.build b))
+      .Loop_bundle_wasm.module_;
+  [%expect
+    {|
+    -- doubling
+    loop-wasm/1
+    features:
+    imports:
+    helpers:
+    numerics: working=f64 f32=round-and-widen fma=none reassociation=none i64=modular index=i32-checked
+    -- index overflow check
+    loop-wasm/1
+    features:
+    imports:
+    helpers: fail_set
+    numerics: working=f64 f32=round-and-widen fma=none reassociation=none i64=modular index=i32-checked
+    -- float to i64
+    loop-wasm/1
+    features:
+    imports:
+    helpers: fail_set
+    numerics: working=f64 f32=round-and-widen fma=none reassociation=none i64=modular index=i32-checked
+    -- layer_norm model
+    loop-wasm/1
+    features: bulk-memory
+    imports:
+    helpers: fill_f32
+    numerics: working=f64 f32=round-and-widen fma=none reassociation=none i64=modular index=i32-checked |}]
+
+(* ---- memory admission: every region is bounded before a pointer is made ----- *)
+
+let%expect_test "a model whose memory exceeds the 2 GiB policy is refused" =
+  let shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:600_000_000 in
+  let g =
+    Graph_builder.build ~name:"too_big"
+      ~outputs:(fun o -> [ o ])
+      Graph_builder.(
+        let* x = input ~shape () in
+        relu x)
+    |> Err.or_raise ~pp_error:Graph_builder.pp_error
+  in
+  (match
+     Err.payload (Loop_bundle.build ~config:Loop_bundle_wasm.default_config g)
+   with
+  | Error e -> Fmt.pr "bundle: %a@." Loop_bundle.pp_error e
+  | Ok b -> (
+      match Err.payload (Loop_bundle_wasm.build b) with
+      | Error e -> Fmt.pr "refused: %a@." Loop_bundle_wasm.pp_error e
+      | Ok w ->
+          Fmt.pr "accepted with %d bytes of memory@."
+            w.Loop_bundle_wasm.placement.Loop_bundle_wasm.Placement.total));
+  [%expect {| refused: 2400000000 bytes exceed the 2 GiB memory policy |}]

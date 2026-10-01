@@ -322,6 +322,19 @@ let build (b : Loop_bundle.t) : (t, error) Err.t =
       customs = [ { Wasm.Custom.name = "abi"; payload = "loop-wasm/1" } ];
     }
   in
+  let module_ =
+    {
+      module_ with
+      Wasm.Module.customs =
+        module_.Wasm.Module.customs
+        @ [
+            {
+              Wasm.Custom.name = "manifest";
+              payload = L.manifest ~callees module_;
+            };
+          ];
+    }
+  in
   let* bytes =
     Err.map_error
       (fun (`Wasm_invalid i) -> `Wasm_invalid i)

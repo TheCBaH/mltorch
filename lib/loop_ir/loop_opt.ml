@@ -12,6 +12,8 @@ let passes : pass list =
     Loop_opt_unit_loops.run;
     Loop_opt_fold.run;
     Loop_opt_simplify.run;
+    Loop_opt_unit_loops.run;
+    Loop_opt_fold.run;
     Loop_opt_guards.run;
     Loop_opt_cse.run;
     Loop_opt_hoist.run;

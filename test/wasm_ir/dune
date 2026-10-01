@@ -39,3 +39,18 @@
  (enabled_if
   (<> %{env:MLTORCH_WASM=} ""))
  (deps wasm_fixture_gen.exe fixture.js))
+
+; Feature detection validates the actual extension: each feature's probe module
+; must validate under the installed node, and a deliberately truncated one must
+; not (so the check can fail).
+
+(executable
+ (name wasm_features_gen)
+ (modules wasm_features_gen)
+ (libraries wasm_ir))
+
+(cram
+ (applies_to features)
+ (enabled_if
+  (<> %{env:MLTORCH_WASM=} ""))
+ (deps wasm_features_gen.exe))

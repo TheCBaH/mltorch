@@ -194,3 +194,45 @@ let%expect_test "every validator refusal" =
     export target          error: invalid module: export of unknown index 9
     data past memory       error: invalid module: data segment [65535, +2) exceeds the initial memory
     limits                 error: invalid module: memory limits min=2 max=1 |}]
+
+let%expect_test "the features a module needs are found by scanning it" =
+  let uses ops =
+    Wasm_features.of_module
+      {
+        Module.empty with
+        funcs =
+          [
+            {
+              Func.type_ = { Func_type.params = []; results = [] };
+              locals = [];
+              body = ops;
+            };
+          ];
+        memory = Some { Memory.min_pages = 1; max_pages = None };
+      }
+  in
+  let show name l =
+    Fmt.pr "%-22s [%s]@." name
+      (String.concat ", " (List.map Wasm_features.name l))
+  in
+  show "nothing" (uses []);
+  show "scalar f64" (uses [ f64 1.; f64 2.; op Wasm_op.F64_add; Instr.Drop ]);
+  show "memory.fill" (uses [ i32 0l; i32 0l; i32 0l; Instr.Memory_fill ]);
+  show "memory.copy nested"
+    (uses [ Instr.Block (None, [ i32 0l; i32 0l; i32 0l; Instr.Memory_copy ]) ]);
+  show "trunc_sat in an if"
+    (uses
+       [
+         i32 1l;
+         Instr.If
+           (None, [ f64 1.; op Wasm_op.I64_trunc_sat_f64_s; Instr.Drop ], []);
+       ]);
+  show "sign extension" (uses [ i32 1l; op Wasm_op.I32_extend8_s; Instr.Drop ]);
+  [%expect
+    {|
+    nothing                []
+    scalar f64             []
+    memory.fill            [bulk-memory]
+    memory.copy nested     [bulk-memory]
+    trunc_sat in an if     [nontrapping-float-to-int]
+    sign extension         [sign-extension] |}]

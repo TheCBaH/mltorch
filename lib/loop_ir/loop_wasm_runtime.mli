@@ -26,6 +26,9 @@ module Callee : sig
 
   val of_index : int -> t
 
+  val name : t -> string
+  (** The helper's or import's name, as a manifest prints it. *)
+
   val import : t -> string option
   (** The [Math] function bound for an import, [None] for a defined helper. *)
 

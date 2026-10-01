@@ -61,3 +61,30 @@ let link ~callees kernels =
       imports
   in
   (imports, funcs, n_imports + helpers)
+
+(* What a host should know before it compiles the module: the ABI, the
+   post-MVP features it needs, what it imports, which helpers it carries and the
+   numeric policy it implements. Deterministic text: it is a custom section of
+   the module, so the module's digest (its identity) covers it. *)
+let manifest ~callees (m : Wasm.Module.t) =
+  let callees = reached callees in
+  (* A list prints as [key: a b c]; an empty one as [key:], never with a
+     trailing space. *)
+  let line key items =
+    key ^ ":" ^ String.concat "" (List.map (( ^ ) " ") items)
+  in
+  let names f = List.map R.Callee.name (List.filter f callees) in
+  String.concat "\n"
+    [
+      "loop-wasm/1";
+      line "features" (List.map Wasm_features.name (Wasm_features.of_module m));
+      line "imports"
+        (List.map
+           (fun (i : Wasm.Import.t) ->
+             i.Wasm.Import.module_name ^ "." ^ i.Wasm.Import.name)
+           m.Wasm.Module.imports);
+      line "helpers" (names (fun c -> Option.is_none (R.Callee.import c)));
+      "numerics: working=f64 f32=round-and-widen fma=none reassociation=none \
+       i64=modular index=i32-checked";
+      "";
+    ]
