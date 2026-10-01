@@ -16,7 +16,14 @@ module Block : sig
     id : Tensor_id.t;
     kind : Alloc_script.Kind.t;
     bytes : Byte_size.t;
-    eligible : bool;  (** [Alloc_script.Alloc.eligible]: an arena may back it *)
+    arena : Storage_script.Arena_id.t option;
+        (** Role mode: the logical arena the block lives in; [None] always in
+            intermediate mode. *)
+    eligible : bool;
+        (** Counts toward the target: an intermediate arena may back it
+            ([Alloc_script.Alloc.eligible]); in role mode, it lives in an
+            execution arena, so not in [Constants] and not outside every arena.
+        *)
     releasable : bool;
         (** The baseline run frees it: false for graph outputs and retained
             edges, whatever their kind. *)
@@ -29,7 +36,6 @@ type error =
   | `Dry_run of Eval_direct.error
   | `Order_not_valid of Node_id.t
   | `Peak_bytes_overflow of Tensor_id.t
-  | `Roles_unsupported
   | `Too_many_nodes ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
@@ -51,8 +57,13 @@ type t
 
 val of_graph : Arena_schedule.Config.t -> graph -> (t, [> error ]) Err.t
 (** Validates the graph ([Graph_view.of_graph]) and dry-runs it once under the
-    config's retention and alignment. Only [Intermediate] mode is supported
-    here. *)
+    config's retention and alignment: [Eval_direct.dry_run] in intermediate
+    mode, [Eval_direct.storage_script] in role mode. *)
+
+val prefix : t -> Block.t list
+(** Role mode: the constants and graph inputs allocated before the first node,
+    in order; empty in intermediate mode. Those nothing reads and the script
+    frees at once are released before the first node. *)
 
 val graph : t -> graph
 
@@ -66,7 +77,8 @@ val blocks : t -> Position.t -> Block.t list
 *)
 
 val reads : t -> Position.t -> Block.t list
-(** The allocated tensors the node reads as a non-sink, each once. *)
+(** The allocated tensors the node reads as a non-sink, each once (role mode:
+    constants and inputs included). *)
 
 val preds : t -> Position.t -> Position.t list
 (** Distinct producer nodes of every operand, sinks' included. *)

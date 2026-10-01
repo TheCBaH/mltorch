@@ -24,7 +24,7 @@ module State = struct
     peak_all : Byte_size.t;
   }
 
-  let start problem =
+  let base problem =
     let n = Problem.node_count problem in
     let succs = Array.make n [] in
     let positions = List.init n Position.of_int in
@@ -91,6 +91,27 @@ module State = struct
         else Problem.add ~id:b.id s b.bytes)
       (Err.return Byte_size.zero)
       bs
+
+  (* The fixed prefix (role mode: constants and inputs) is allocated, and what
+     nothing reads and the script frees is released, before the first node. *)
+  let start problem =
+    let open Err.Syntax in
+    let t = base problem in
+    let prefix = Problem.prefix problem in
+    let unread =
+      List.filter
+        (fun (b : Problem.Block.t) ->
+          b.releasable && Problem.readers problem b.id = 0)
+        prefix
+    in
+    let* up_t = sum ~eligible_only:true prefix in
+    let* up_all = sum ~eligible_only:false prefix in
+    let* f_t = sum ~eligible_only:true unread in
+    let* f_all = sum ~eligible_only:false unread in
+    let id = Tensor_id.of_int 0 in
+    let* live = Problem.sub ~id up_t f_t in
+    let* live_all = Problem.sub ~id up_all f_all in
+    Err.return { t with live; live_all; peak = up_t; peak_all = up_all }
 
   let transition t p =
     let open Err.Syntax in
@@ -199,7 +220,8 @@ let schedule problem policy =
           let* state = State.step state p in
           go state (evals + List.length ready) (max widest (List.length ready))
   in
-  go (State.start problem) 0 0
+  let* start = State.start problem in
+  go start 0 0
 
 module Candidate = struct
   type t = {
@@ -271,8 +293,11 @@ let select problem cands stats =
 let run (c : Arena_schedule.Config.t) g =
   let open Err.Syntax in
   let* problem = Problem.of_graph c g in
-  match c.retain with
-  | All -> Arena_schedule.identity g
-  | Only _ ->
+  match (c.mode, c.retain) with
+  | Intermediate, All ->
+      (* Nothing is ever released, so no order changes the eligible peak. In
+         role mode inputs and outputs still move the peak: no shortcut. *)
+      Arena_schedule.identity g
+  | _ ->
       let* cands, stats = candidates problem in
       select problem cands stats

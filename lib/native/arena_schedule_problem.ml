@@ -12,9 +12,12 @@ module Block = struct
     id : Tensor_id.t;
     kind : Kind.t;
     bytes : Byte_size.t;
+    arena : Storage_script.Arena_id.t option;
     eligible : bool;
     releasable : bool;
   }
+
+  let pool b = { Pool.arena = b.arena; kind = b.kind }
 end
 
 type error =
@@ -23,7 +26,6 @@ type error =
   | `Dry_run of Eval_direct.error
   | `Order_not_valid of Node_id.t
   | `Peak_bytes_overflow of Tensor_id.t
-  | `Roles_unsupported
   | `Too_many_nodes ]
 
 let pp_error ppf : [< error ] -> unit = function
@@ -36,8 +38,6 @@ let pp_error ppf : [< error ] -> unit = function
       Fmt.pf ppf "node %a runs before one of its producers" Node_id.pp id
   | `Peak_bytes_overflow id ->
       Fmt.pf ppf "live bytes overflow at %a" Tensor_id.pp id
-  | `Roles_unsupported ->
-      Fmt.string ppf "role-storage lifetimes are not supported here"
   | `Too_many_nodes -> Fmt.string ppf "the graph has too many nodes to schedule"
 
 (* A ceiling on the node count: positions and per-node arrays stay far inside
@@ -51,7 +51,8 @@ type t = {
   reads : Block.t list array;
   preds : Position.t list array;
   readers : int Tensor_id.Map.t;
-  kinds : Kind.t list;  (** the kinds with an eligible block *)
+  prefix : Block.t list;
+  pools : Pool.t list;  (** the pools with an eligible block, sorted *)
 }
 
 let is_sink = function Discard _ -> true | _ -> false
@@ -61,99 +62,146 @@ let add ~id a b = Byte_size.add a b |> Err.map_error ~pos:__POS__ (overflow id)
 let sub ~id a b = Byte_size.sub a b |> Err.map_error ~pos:__POS__ (underflow id)
 let dedupe ~compare l = List.sort_uniq compare l
 
+(* What a baseline script says, whichever kind it is: every allocation with the
+   arena it lives in, the tensors released before the result is published, and
+   the allocations that precede the first node. *)
+type facts = {
+  allocs :
+    (Alloc_script.Alloc.t * Storage_script.Arena_id.t option * bool)
+    Tensor_id.Map.t;
+  freed : Tensor_id.Set.t;
+  prefix_ids : Tensor_id.t list;
+}
+
+let intermediate_facts script =
+  let allocs, freed =
+    List.fold_left
+      (fun (allocs, freed) -> function
+        | Alloc_script.Event.Alloc a ->
+            ( Tensor_id.Map.add a.Alloc_script.Alloc.id (a, None, a.eligible)
+                allocs,
+              freed )
+        | Free id -> (allocs, Tensor_id.Set.add id freed)
+        | Node _ -> (allocs, freed))
+      (Tensor_id.Map.empty, Tensor_id.Set.empty)
+      script
+  in
+  { allocs; freed; prefix_ids = [] }
+
+let role_facts script =
+  let execution = function
+    | None | Some Storage_script.Arena_id.Constants -> false
+    | Some _ -> true
+  in
+  let allocs, freed, prefix, _, _ =
+    List.fold_left
+      (fun (allocs, freed, prefix, seen_node, published) -> function
+        | Storage_script.Event.Alloc (b : Storage_script.Block.t) ->
+            let id = b.alloc.id in
+            ( Tensor_id.Map.add id (b.alloc, b.arena, execution b.arena) allocs,
+              freed,
+              (if seen_node then prefix else id :: prefix),
+              seen_node,
+              published )
+        | Free id when not published ->
+            (allocs, Tensor_id.Set.add id freed, prefix, seen_node, published)
+        | Free _ -> (allocs, freed, prefix, seen_node, published)
+        | Node _ -> (allocs, freed, prefix, true, published)
+        | Boundary Result_publication -> (allocs, freed, prefix, seen_node, true)
+        | Boundary _ -> (allocs, freed, prefix, seen_node, published))
+      (Tensor_id.Map.empty, Tensor_id.Set.empty, [], false, false)
+      (Storage_script.events script)
+  in
+  { allocs; freed; prefix_ids = List.rev prefix }
+
 let of_graph (c : Arena_schedule.Config.t) (g : graph) =
   let open Err.Syntax in
-  match c.mode with
-  | Roles _ -> Err.fail ~pos:__POS__ `Roles_unsupported
-  | Intermediate ->
-      let* _view =
-        Graph_view.of_graph g |> Err.map_error ~pos:__POS__ (fun e -> `Graph e)
-      in
-      let nodes = Array.of_list g.Graph.nodes in
-      let* () =
-        if Array.length nodes > max_nodes then
-          Err.fail ~pos:__POS__ `Too_many_nodes
-        else Err.return ()
-      in
-      let* script =
+  let* _view =
+    Graph_view.of_graph g |> Err.map_error ~pos:__POS__ (fun e -> `Graph e)
+  in
+  let nodes = Array.of_list g.Graph.nodes in
+  let* () =
+    if Array.length nodes > max_nodes then Err.fail ~pos:__POS__ `Too_many_nodes
+    else Err.return ()
+  in
+  let* { allocs; freed; prefix_ids } =
+    match c.mode with
+    | Intermediate ->
         Eval_direct.dry_run ~alignment:c.alignment ~retain:c.retain g
         |> Err.map_error ~pos:__POS__ (fun e -> `Dry_run e)
-      in
-      let allocs, freed =
+        |> Err.map intermediate_facts
+    | Roles config ->
+        Eval_direct.storage_script ~alignment:c.alignment ~retain:c.retain
+          config g
+        |> Err.map_error ~pos:__POS__ (fun e -> `Dry_run e)
+        |> Err.map role_facts
+  in
+  let block id =
+    Tensor_id.Map.find_opt id allocs
+    |> Option.map (fun ((a : Alloc_script.Alloc.t), arena, eligible) ->
+        {
+          Block.id;
+          kind = a.kind;
+          bytes = a.bytes;
+          arena;
+          eligible;
+          releasable = Tensor_id.Set.mem id freed;
+        })
+  in
+  let producer =
+    Array.to_seqi nodes
+    |> Seq.fold_left
+         (fun m (i, (n : node)) ->
+           List.fold_left
+             (fun m o -> Tensor_id.Map.add o (Position.of_int i) m)
+             m n.Node.outputs)
+         Tensor_id.Map.empty
+  in
+  let blocks =
+    Array.map (fun (n : node) -> List.filter_map block n.Node.outputs) nodes
+  in
+  let operand_ids (n : node) =
+    dedupe ~compare:Tensor_id.compare (Graph_ir.operands n.Node.op)
+  in
+  let reads =
+    Array.map
+      (fun (n : node) ->
+        if is_sink n.Node.op then [] else List.filter_map block (operand_ids n))
+      nodes
+  in
+  let preds =
+    Array.map
+      (fun n ->
+        List.filter_map
+          (fun o -> Tensor_id.Map.find_opt o producer)
+          (operand_ids n)
+        |> dedupe ~compare:Position.compare)
+      nodes
+  in
+  let readers =
+    Array.fold_left
+      (fun m rs ->
         List.fold_left
-          (fun (allocs, freed) -> function
-            | Alloc_script.Event.Alloc a ->
-                (Tensor_id.Map.add a.Alloc_script.Alloc.id a allocs, freed)
-            | Free id -> (allocs, Tensor_id.Set.add id freed)
-            | Node _ -> (allocs, freed))
-          (Tensor_id.Map.empty, Tensor_id.Set.empty)
-          script
-      in
-      let block id =
-        Tensor_id.Map.find_opt id allocs
-        |> Option.map (fun (a : Alloc_script.Alloc.t) ->
-            {
-              Block.id;
-              kind = a.kind;
-              bytes = a.bytes;
-              eligible = a.eligible;
-              releasable = Tensor_id.Set.mem id freed;
-            })
-      in
-      let producer =
-        Array.to_seqi nodes
-        |> Seq.fold_left
-             (fun m (i, (n : node)) ->
-               List.fold_left
-                 (fun m o -> Tensor_id.Map.add o (Position.of_int i) m)
-                 m n.Node.outputs)
-             Tensor_id.Map.empty
-      in
-      let blocks =
-        Array.map (fun (n : node) -> List.filter_map block n.Node.outputs) nodes
-      in
-      let operand_ids (n : node) =
-        dedupe ~compare:Tensor_id.compare (Graph_ir.operands n.Node.op)
-      in
-      let reads =
-        Array.map
-          (fun (n : node) ->
-            if is_sink n.Node.op then []
-            else List.filter_map block (operand_ids n))
-          nodes
-      in
-      let preds =
-        Array.map
-          (fun n ->
-            List.filter_map
-              (fun o -> Tensor_id.Map.find_opt o producer)
-              (operand_ids n)
-            |> dedupe ~compare:Position.compare)
-          nodes
-      in
-      let readers =
-        Array.fold_left
-          (fun m rs ->
-            List.fold_left
-              (fun m (b : Block.t) ->
-                Tensor_id.Map.update b.id
-                  (fun n -> Some (1 + Option.value n ~default:0))
-                  m)
-              m rs)
-          Tensor_id.Map.empty reads
-      in
-      let kinds =
-        List.filter
-          (fun k ->
-            Array.exists
-              (List.exists (fun (b : Block.t) ->
-                   b.eligible && Kind.equal b.kind k))
-              blocks)
-          Kind.all
-      in
-      Err.return { graph = g; nodes; blocks; reads; preds; readers; kinds }
+          (fun m (b : Block.t) ->
+            Tensor_id.Map.update b.id
+              (fun n -> Some (1 + Option.value n ~default:0))
+              m)
+          m rs)
+      Tensor_id.Map.empty reads
+  in
+  let prefix = List.filter_map block prefix_ids in
+  let pools =
+    let eligible =
+      List.filter (fun (b : Block.t) -> b.eligible) prefix
+      @ List.concat (Array.to_list blocks)
+      |> List.filter (fun (b : Block.t) -> b.eligible)
+    in
+    List.sort_uniq Pool.compare (List.map Block.pool eligible)
+  in
+  Err.return { graph = g; nodes; blocks; reads; preds; readers; prefix; pools }
 
 let graph t = t.graph
+let prefix t = t.prefix
 let node_count t = Array.length t.nodes
 let node t p = t.nodes.((p : Position.t :> int))
 let blocks t p = t.blocks.((p : Position.t :> int))
@@ -193,8 +241,8 @@ let reorder t order =
    running figure per pool, each with the largest value it has held. *)
 module Account = struct
   type t = {
-    kinds : Kind.t list;
-    live : Byte_size.t array;  (** all; target; outside; then one per kind *)
+    pools : Pool.t list;
+    live : Byte_size.t array;  (** all; target; outside; then one per pool *)
     peak : Byte_size.t array;
   }
 
@@ -202,25 +250,29 @@ module Account = struct
   let target = 1
   let outside = 2
 
-  let create kinds =
-    let n = 3 + List.length kinds in
+  let create pools =
+    let n = 3 + List.length pools in
     {
-      kinds;
+      pools;
       live = Array.make n Byte_size.zero;
       peak = Array.make n Byte_size.zero;
     }
 
   let slot t (b : Block.t) =
+    let want = Block.pool b in
     let rec index i = function
       | [] -> None
-      | k :: rest -> if Kind.equal k b.kind then Some i else index (i + 1) rest
+      | p :: rest -> if Pool.equal p want then Some i else index (i + 1) rest
     in
-    index 3 t.kinds
+    index 3 t.pools
 
+  (* A block counts toward the total always, toward the target and its pool
+     when eligible, and toward the outside figure when no arena holds it. *)
   let cells t (b : Block.t) =
     if b.eligible then
       all :: target :: (match slot t b with Some i -> [ i ] | None -> [])
-    else [ all; outside ]
+    else if Option.is_none b.arena then [ all; outside ]
+    else [ all ]
 
   let alloc t (b : Block.t) =
     let open Err.Syntax in
@@ -245,11 +297,7 @@ module Account = struct
 
   let metrics t =
     let open Err.Syntax in
-    let pools =
-      List.mapi
-        (fun i k -> ({ Pool.arena = None; kind = k }, t.peak.(3 + i)))
-        t.kinds
-    in
+    let pools = List.mapi (fun i p -> (p, t.peak.(3 + i))) t.pools in
     let* sum =
       List.fold_left
         (fun acc (_, b) ->
@@ -274,7 +322,7 @@ let iter_result f l =
 let metrics t order =
   let open Err.Syntax in
   let* () = is_valid_order t order in
-  let acct = Account.create t.kinds in
+  let acct = Account.create t.pools in
   let remaining = Hashtbl.create 64 in
   let left (b : Block.t) =
     match Hashtbl.find_opt remaining b.id with
@@ -298,23 +346,40 @@ let metrics t order =
         else Err.return ())
       outs
   in
+  let* () = iter_result (Account.alloc acct) t.prefix in
+  let* () =
+    iter_result
+      (fun (b : Block.t) ->
+        if readers t b.id = 0 && b.releasable then Account.free acct b
+        else Err.return ())
+      t.prefix
+  in
   let* () = iter_result step (Array.to_list order) in
   Account.metrics acct
 
 let lower_bound t =
   let open Err.Syntax in
-  let acct = Account.create t.kinds in
+  let acct = Account.create t.pools in
+  let raise_to one =
+    Array.iteri
+      (fun j v -> acct.peak.(j) <- Byte_size.max acct.peak.(j) v)
+      one.Account.peak
+  in
+  (* The fixed prefix is allocated whatever the order. *)
+  let* () =
+    let one = Account.create t.pools in
+    let* () = iter_result (Account.alloc one) t.prefix in
+    raise_to one;
+    Err.return ()
+  in
   let step i (n : node) =
     if is_sink n.Node.op then Err.return ()
     else
       let p = Position.of_int i in
-      let held = blocks t p @ reads t p in
-      (* A fresh account per node: what it needs while it runs, alone. *)
-      let one = Account.create t.kinds in
-      let* () = iter_result (Account.alloc one) held in
-      Array.iteri
-        (fun j v -> acct.peak.(j) <- Byte_size.max acct.peak.(j) v)
-        one.peak;
+      (* What the node needs while it runs, alone: its outputs and operands. *)
+      let one = Account.create t.pools in
+      let* () = iter_result (Account.alloc one) (blocks t p @ reads t p) in
+      raise_to one;
       Err.return ()
   in
   let* () =
@@ -323,7 +388,7 @@ let lower_bound t =
   Account.metrics acct
 
 (* The independent path. *)
-let fresh_metrics (c : Arena_schedule.Config.t) (g : graph) =
+let fresh_intermediate (c : Arena_schedule.Config.t) (g : graph) =
   let open Err.Syntax in
   let* script =
     Eval_direct.dry_run ~alignment:c.alignment ~retain:c.retain g
@@ -391,3 +456,62 @@ let fresh_metrics (c : Arena_schedule.Config.t) (g : graph) =
       outside_peak;
       all_peak;
     }
+
+let fresh_roles (c : Arena_schedule.Config.t) config (g : graph) =
+  let open Err.Syntax in
+  let* script =
+    Eval_direct.storage_script ~alignment:c.alignment ~retain:c.retain config g
+    |> Err.map_error ~pos:__POS__ (fun e -> `Dry_run e)
+  in
+  let peak where =
+    Storage_script.peak_bytes script ~where
+    |> Err.map_error ~pos:__POS__ (fun (`Peak_bytes_overflow id) ->
+        `Peak_bytes_overflow id)
+  in
+  let execution (b : Storage_script.Block.t) =
+    match b.arena with
+    | None | Some Storage_script.Arena_id.Constants -> false
+    | Some _ -> true
+  in
+  let pools =
+    List.filter_map
+      (function
+        | Storage_script.Event.Alloc (b : Storage_script.Block.t)
+          when execution b ->
+            Some { Pool.arena = b.arena; kind = b.alloc.kind }
+        | _ -> None)
+      (Storage_script.events script)
+    |> List.sort_uniq Pool.compare
+  in
+  let* target_peak = peak execution in
+  let* outside_peak =
+    peak (fun (b : Storage_script.Block.t) -> Option.is_none b.arena)
+  in
+  let* all_peak = peak (fun _ -> true) in
+  let* pool_peaks =
+    List.fold_left
+      (fun acc (pool : Pool.t) ->
+        let* acc = acc in
+        let* v =
+          peak (fun (b : Storage_script.Block.t) ->
+              b.arena = pool.arena && Kind.equal b.alloc.kind pool.kind)
+        in
+        Err.return ((pool, v) :: acc))
+      (Err.return []) pools
+  in
+  let pool_peaks = List.rev pool_peaks in
+  let* pool_peak_sum =
+    List.fold_left
+      (fun acc (_, b) ->
+        let* s = acc in
+        add ~id:(Tensor_id.of_int 0) s b)
+      (Err.return Byte_size.zero)
+      pool_peaks
+  in
+  Err.return
+    { Metrics.target_peak; pool_peaks; pool_peak_sum; outside_peak; all_peak }
+
+let fresh_metrics (c : Arena_schedule.Config.t) g =
+  match c.mode with
+  | Intermediate -> fresh_intermediate c g
+  | Roles config -> fresh_roles c config g

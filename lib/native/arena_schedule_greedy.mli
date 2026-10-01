@@ -18,8 +18,9 @@ end
 module State : sig
   type t
 
-  val start : Problem.t -> t
-  (** Nothing scheduled; the ready set is every node without predecessors. *)
+  val start : Problem.t -> (t, [> Problem.error ]) Err.t
+  (** Nothing scheduled; the ready set is every node without predecessors, and
+      the problem's fixed prefix is already allocated. *)
 
   val ready : t -> Position.t list
   (** Ascending original position. *)
@@ -72,4 +73,5 @@ val run :
   Graph_ir.graph ->
   (Arena_schedule.Result.t, [> Problem.error ]) Err.t
 (** Validates, builds the problem, schedules both ways and selects. Under
-    [Retain.All] nothing is ever released, so the original is returned. *)
+    [Retain.All] in intermediate mode nothing is ever released, so the original
+    is returned. *)
