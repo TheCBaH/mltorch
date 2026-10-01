@@ -34,6 +34,19 @@ type error =
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
+val add :
+  id:Tensor_id.t ->
+  Byte_size.t ->
+  Byte_size.t ->
+  (Byte_size.t, [> `Peak_bytes_overflow of Tensor_id.t ]) Err.t
+(** Checked byte arithmetic, an overflow reported against [id]. *)
+
+val sub :
+  id:Tensor_id.t ->
+  Byte_size.t ->
+  Byte_size.t ->
+  (Byte_size.t, [> `Peak_bytes_overflow of Tensor_id.t ]) Err.t
+
 type t
 
 val of_graph : Arena_schedule.Config.t -> graph -> (t, [> error ]) Err.t
