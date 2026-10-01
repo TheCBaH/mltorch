@@ -750,3 +750,24 @@
 (cram
  (applies_to weights_config_cram)
  (deps %{exe:parse_weights_config.exe} mobilenetv2_050_weights_config.json))
+
+; The arena allocator evaluation's CLI over two committed model.json sources
+; (copied above): coverage and status rows, the corpus-count check, and the
+; resume guard. Timings are measurements and are never printed.
+
+(cram
+ (applies_to arena_alloc_eval_cram)
+ (deps
+  %{exe:../bin/arena_alloc_eval.exe}
+  regnetx_002_model.json
+  test_convnext2_model.json))
+
+; The arena allocator evaluation over the whole tracked model.json corpus.
+; Gated on ARENA_EVAL_MODELS (the corpus directory, set by `make arena.eval`)
+; so plain runtest never pays for it.
+
+(cram
+ (applies_to arena_eval_corpus_cram)
+ (deps (universe) %{exe:../bin/arena_alloc_eval.exe})
+ (enabled_if
+  (<> %{env:ARENA_EVAL_MODELS=} "")))

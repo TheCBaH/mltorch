@@ -91,86 +91,42 @@ let sum_checked id values =
 
 let create ?(limits = Kernel.Limits.default) ?budget (script : Alloc_script.t) =
   let open Err.Syntax in
-  let eligible =
-    List.fold_left
-      (fun acc -> function
-        | Alloc_script.Event.Alloc a when a.Alloc_script.Alloc.eligible ->
-            Tensor_id.Map.add a.Alloc_script.Alloc.id a acc
-        | _ -> acc)
-      Tensor_id.Map.empty script
+  let* problem = Arena_problem.of_script script in
+  let first_id = Arena_problem.first_id problem in
+  let plan_kind { Arena_problem.Kind_problem.kind; script = ia_script } =
+    let placement e = `Arena_placement (e : Placement_error.t) in
+    let* solution, stats =
+      Interval_alloc.solve_best ?budget ia_script
+      |> Err.map_error ~pos:__POS__ (function
+          | (`Live_overflow _ | `Pool_overflow _) as e -> placement e)
+    in
+    let* witness =
+      Interval_alloc.check ia_script solution
+      |> Err.map_error ~pos:__POS__ (fun e -> placement e)
+    in
+    let numel = Interval_alloc.pool witness in
+    let bytes = Int64.mul numel (Kind.cell_bytes kind) in
+    let over limit =
+      Err.fail ~pos:__POS__
+        (`Arena_over_limit { Over_limit.kind; numel; bytes; limit })
+    in
+    if Int64.compare numel Kernel.Limits.Hard.numel >= 0 then
+      over (Over_limit.Elements Kernel.Limits.Hard.numel)
+    else if Int64.compare bytes limits.Kernel.Limits.max_bytes > 0 then
+      over (Over_limit.Bytes limits.Kernel.Limits.max_bytes)
+    else Err.return (kind, witness, stats, numel, bytes)
   in
-  let first_id =
-    match Tensor_id.Map.min_binding_opt eligible with
-    | Some (id, _) -> id
-    | None -> Tensor_id.of_int 0
-  in
-  (* Only eligible edges take part; their frees keep their place among the
-     allocs, and the [Node] markers are dropped: an interval allocator needs
-     order, not node boundaries. *)
-  let events_of kind =
-    List.filter_map
-      (function
-        | Alloc_script.Event.Alloc a
-          when a.Alloc_script.Alloc.eligible
-               && Kind.equal a.Alloc_script.Alloc.kind kind ->
-            Some
-              (Interval_alloc.Event.Alloc
-                 {
-                   key = a.Alloc_script.Alloc.id;
-                   size = a.Alloc_script.Alloc.numel;
-                 })
-        | Alloc_script.Event.Free id -> (
-            match Tensor_id.Map.find_opt id eligible with
-            | Some a when Kind.equal a.Alloc_script.Alloc.kind kind ->
-                Some (Interval_alloc.Event.Free id)
-            | _ -> None)
-        | Alloc_script.Event.Alloc _ | Alloc_script.Event.Node _ -> None)
-      script
-  in
-  let plan_kind kind =
-    match events_of kind with
-    | [] -> Err.return None
-    | events ->
-        let* ia_script =
-          Interval_alloc.Script.validate ~equal:Tensor_id.equal events
-          |> Err.map_error ~pos:__POS__ (fun e ->
-              match e with
-              | `Double_alloc id
-              | `Double_free id
-              | `Free_unknown id
-              | `Negative_size { Interval_alloc.Negative_size.key = id; _ } ->
-                  `Arena_script id)
-        in
-        let placement e = `Arena_placement (e : Placement_error.t) in
-        let* solution, stats =
-          Interval_alloc.solve_best ?budget ia_script
-          |> Err.map_error ~pos:__POS__ (function
-              | (`Live_overflow _ | `Pool_overflow _) as e -> placement e)
-        in
-        let* witness =
-          Interval_alloc.check ia_script solution
-          |> Err.map_error ~pos:__POS__ (fun e -> placement e)
-        in
-        let numel = Interval_alloc.pool witness in
-        let bytes = Int64.mul numel (Kind.cell_bytes kind) in
-        let over limit =
-          Err.fail ~pos:__POS__
-            (`Arena_over_limit { Over_limit.kind; numel; bytes; limit })
-        in
-        if Int64.compare numel Kernel.Limits.Hard.numel >= 0 then
-          over (Over_limit.Elements Kernel.Limits.Hard.numel)
-        else if Int64.compare bytes limits.Kernel.Limits.max_bytes > 0 then
-          over (Over_limit.Bytes limits.Kernel.Limits.max_bytes)
-        else Err.return (Some (kind, witness, stats, numel, bytes))
-  in
-  let* planned = Err.List.map plan_kind Kind.all in
-  let planned = List.filter_map Fun.id planned in
+  let* planned = Err.List.map plan_kind (Arena_problem.kinds problem) in
   let slots =
     List.fold_left
       (fun acc (kind, witness, _, _, _) ->
         List.fold_left
           (fun acc (id, offset) ->
-            let a = Tensor_id.Map.find id eligible in
+            let a =
+              match Arena_problem.eligible problem id with
+              | Some a -> a
+              | None -> assert false
+            in
             Tensor_id.Map.add id
               {
                 Slot.id;
@@ -200,18 +156,12 @@ let create ?(limits = Kernel.Limits.default) ?budget (script : Alloc_script.t) =
          planned)
   in
   let* combined_bound_bytes =
-    Alloc_script.peak_bytes
-      (List.filter
-         (function
-           | Alloc_script.Event.Alloc a -> a.Alloc_script.Alloc.eligible
-           | Alloc_script.Event.Free id -> Tensor_id.Map.mem id eligible
-           | Alloc_script.Event.Node _ -> false)
-         script)
+    Arena_problem.combined_bound_bytes problem
     |> Err.map_error ~pos:__POS__ (fun (`Peak_bytes_overflow id) ->
         `Arena_placement (`Live_overflow id))
   in
   let* out_of_arena_bytes =
-    Alloc_script.out_of_arena_bytes script
+    Arena_problem.out_of_arena_bytes problem
     |> Err.map_error ~pos:__POS__ (fun (`Peak_bytes_overflow id) ->
         `Arena_placement (`Live_overflow id))
   in

@@ -1,0 +1,7 @@
+; Allocator evaluation over arena problems: the strategies, their order
+; search, the production portfolio and the reference minimum, on the same
+; per-kind scripts. Native-only and clock-free: the caller passes [~now].
+
+(library
+ (name arena_eval)
+ (libraries err_trace fmt interval_alloc native))

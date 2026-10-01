@@ -238,3 +238,56 @@ let%expect_test "against the exact optimum on small scripts" =
     !proven;
   [%expect
     {| scripts 299: mean pool/optimum 1.000, max 1.029, 299 proven at the bound |}]
+
+(* One checkpointed walk equals a separate run at each budget: same placement,
+   same effort. The grid is unsorted and repeats a budget on purpose. *)
+let%expect_test "checkpoints equal separate runs" =
+  let grid = [ 40L; 0L; 5L; 5L; 200L; 17L ] in
+  let bad = ref 0 and checked = ref 0 in
+  List.iteri
+    (fun i s ->
+      List.iter
+        (fun seed ->
+          let times = ref [] in
+          let at_best =
+            ok
+              (solve_best_at
+                 ~at:(fun b -> times := b :: !times)
+                 ~iterations:grid ~seed s)
+          in
+          if List.rev !times <> List.map (fun (b, _, _) -> b) at_best then
+            incr bad;
+          List.iter
+            (fun (b, sol, (st : Stats.t)) ->
+              incr checked;
+              let sol', st' =
+                ok (solve_best ~budget:(Budget.create ~iterations:b ~seed) s)
+              in
+              if
+                Solution.placements sol <> Solution.placements sol' || st <> st'
+              then begin
+                incr bad;
+                Fmt.pr "script %d seed %Ld budget %Ld: solve_best differs@." i
+                  seed b
+              end)
+            at_best;
+          let start = fst (ok (solve_best ~budget:(budget 0L) s)) in
+          List.iter
+            (fun (b, sol, eff) ->
+              incr checked;
+              let sol', eff' =
+                ok (improve (Budget.create ~iterations:b ~seed) s start)
+              in
+              if
+                Solution.placements sol <> Solution.placements sol'
+                || eff <> eff'
+              then begin
+                incr bad;
+                Fmt.pr "script %d seed %Ld budget %Ld: improve differs@." i seed
+                  b
+              end)
+            (ok (improve_at ~iterations:grid ~seed s start)))
+        [ 1L; 7L ])
+    (random_scripts ~seed:9 ~count:40 ~size:50 ~max_size:40);
+  Fmt.pr "checked %d, differing %d@." !checked !bad;
+  [%expect {| checked 800, differing 0 |}]

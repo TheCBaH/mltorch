@@ -59,3 +59,45 @@ checked solution, ordering blocks by offset.
   constructive best averages ~1.008 of the bound and the search ~1.005; against
   an exact branch-and-bound oracle on scripts of up to 8 blocks the search
   reaches the optimum in all but a few percent of cases.
+
+## Reference minimum (`Reference`)
+
+A bounded exact search that grades the strategies rather than competing with
+them: nothing it finds seeds `solve_best` or `improve`.
+
+- **One ceiling.** `Reference.feasible limits work script ~ceiling` answers
+  `Feasible` (a checked witness whose pool is its actual length), `Infeasible`
+  (proven), or `Unknown Depth | Unknown States`. A branch cut by a limit makes
+  the answer `Unknown`; only an exhausted search is `Infeasible`, and a heuristic
+  failure never is.
+- **Orientation search.** Two positive-size blocks that are live together must be
+  stacked one above the other; a set of such choices is a DAG whose longest paths
+  are the lowest offsets it allows. The search keeps those offsets incrementally
+  (an undo trail, no recursion), and branches only on a conflicting pair whose
+  current ranges still overlap: when none do, the offsets are a placement.
+  Complete because a fitting placement that honours the choices so far orients
+  the overlapping pair one way or the other, and adding that edge only raises
+  offsets towards that placement's, so its branch is never pruned; finite
+  because every branch adds an edge no earlier choice implied. Pruning: a block
+  whose end would pass the ceiling, and a raise reaching the new edge's source (a
+  cycle). A candidate still goes through `check` before it is returned.
+- **Search order** (measured on 200k random scripts, not a correctness
+  property): the overlapping pair reaching highest first, the larger block below
+  first. Choosing the lowest pair instead cost ~3x the states and left ~4x the
+  scripts unresolved at 100k states.
+- **Bisection.** `Reference.minimum` checks the incumbent, normalizes its pool to
+  the highest occupied end (zero-size blocks at zero), and proves
+  `lower <= optimum <= upper`: nothing is asked when the incumbent already meets
+  the live bound; otherwise the live bound first, then the midpoint of what is
+  open below the incumbent. `Feasible` tightens `upper` to the witness's length,
+  `Infeasible` lifts `lower` past the ceiling, `Unknown` stops. Work is
+  cumulative across a search's queries, not replenished per ceiling. A feasible
+  answer below `lower` or above its ceiling is `Invalid_candidate`, a defect.
+  `Status.Optimal_above_live_bound` rests on exhaustive `Infeasible` answers, so
+  it is distinct from `Stop.Lower_bound`, which only ever means "at the live
+  bound".
+- **Tests** grade it against an independent brute-force enumeration of integer
+  offsets, including a seven-block script whose optimum is one above the live
+  bound, and drive the bisection with a scripted oracle. Such scripts are rare:
+  none in hundreds of thousands of random scripts of up to five blocks, and one
+  in about 1.5 million of seven.

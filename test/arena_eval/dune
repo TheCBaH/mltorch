@@ -1,0 +1,9 @@
+; Tests for [Arena_eval]: the strategy matrix and the reference row, on
+; hand-built and seeded random scripts, under a fake clock.
+
+(library
+ (name arena_eval_test)
+ (libraries arena_eval err_trace fmt interval_alloc native)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

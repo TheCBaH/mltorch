@@ -178,6 +178,63 @@ method") was not needed. The node order itself is out of scope (design's own
 future model needs a smaller arena than its order allows, the next lever is
 scheduling, not the allocator.
 
+### 9.1 Corpus evaluation (the 100 tracked model.json graphs)
+
+The cram models turned out to be the easy cases. `make arena.eval`
+(`bin/arena_alloc_eval.ml`) measures every strategy, the order search from each,
+the portfolio and the reference minimum (`Interval_alloc.Reference`) on the
+payload-free normalized graphs of the whole pinned corpus. Both dialects' scripts
+come from dry runs of their own graphs (`Eval_direct.dry_run`,
+`Native4d.Eval_direct4.dry_run`, `Only empty`), projected per kind by
+`Arena_problem`, the extraction `Arena_plan` itself uses. Classification of
+refusals is `Me_classify`'s, so it agrees with the committed model-support
+report.
+
+- **What is committed.** `make arena.eval` is the gated cram
+  `test/arena_eval_corpus_cram.t`. It runs in CI's build job, never in
+  `runtest`. Its expected output is each model's and dialect's proven bounds,
+  and the arena of every strategy at every budget and seed, summed over kinds,
+  in bytes. It carries no timings.
+- **Why it is deterministic.** The search is seeded, the reference is bounded
+  by states rather than by a clock, and the grid is fixed inside the `.t`.
+- **What a diff means.** A change there is an allocator producing a different
+  arena. Review it before promoting, as for any cram. That table is also the
+  evidence for choosing the default strategy and budget.
+- **The full run.** `make arena.eval.report` is the same evaluation with its
+  timings, markdown summary and placements, for a local look.
+
+Figures below are from the first run (budgets 0/25/100/400, seed 1, reference
+100k states, depth 256):
+
+- **Coverage.** Native evaluated 100/100. Native4D evaluated 97/100; 3 are
+  refused at conversion as `outside_dialect_domain` (`bat_resnext26ts`,
+  `eca_halonext26ts`, `lambda_resnet26t`). There were no failures. Every pool
+  the production planner chose passes admission.
+- **Every proven minimum is the live bound.** That is 100 of 102 Native kinds
+  and 98 of 99 Native4D kinds, closed either by the reference search or by a
+  strategy's checked placement reaching the bound. No problem needed an
+  optimum above the live bound. Three stay open, each with a gap under 1.4%:
+  `convit_tiny` (Native) and `nf_regnet_b0` (both dialects).
+- **The constructive strategies alone are not enough.** The portfolio with no
+  search reaches the live bound on only 81 of 102 kinds. It reaches 88 with 25
+  iterations, 90 with 100 and 99 with 400. Single strategies can be far off:
+  `greedy_by_area` on `regnetz_d8` is 55% above the bound.
+  - The search, not the portfolio, is what closes these.
+  - The portfolio's own search, which keeps its winner's decoder, beats the
+    generic first-fit `improve` from any single strategy.
+  - The default budget of 50 is therefore a real trade-off on this corpus, not
+    just headroom.
+- **Dialect makes no difference to the allocator.** On the 97 paired models
+  the Native4D and Native best pools and bounds are within 0.1 MiB of each other
+  out of about 927 MiB in total.
+- **Planning cost.** About 1 s per model for the whole matrix per dialect, with
+  400 iterations the dominant term. Import and normalization, which are shared,
+  take about the same again.
+
+On this evidence, an SMT backend would add proof power where it isn't needed.
+The only open gaps are three sub-1.4% cases. Search budget, and scheduling for
+anything below a node order's live bound, are the levers that matter.
+
 ## 10. Default, prepared runs, Native4D
 
 **`Native_interp_exec` stays opt-in (`?arena`), not default-on.** A one-shot

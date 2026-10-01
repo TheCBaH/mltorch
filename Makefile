@@ -15,7 +15,7 @@
 	native-infer-verify-direct.% native-transform-verify \
 	native-transform-verify.% precommit profile.landmarks \
 	profile.memtrace pt2.download pt2.download-all pt2.download-cram \
-	pt2.json-model-support pt2.runtest pt2.vars runtest spike.runtest \
+	arena.eval arena.eval.report pt2.json-model-support pt2.runtest pt2.vars runtest spike.runtest \
 	spike.setup tailcall.js-benchmark tailcall.runtest test \
 	verify.pristine visualizer.build visualizer.patch \
 	visualizer.submodule webapp.bridge-runtest webapp.browser-runtest \
@@ -149,6 +149,33 @@ pt2.json-model-support:
 	@mkdir -p $(dir $(PT2_JSON_MODEL_SUPPORT))
 	opam exec -- dune exec bin/pt2_json_model_support.exe -- \
 		$(PT2_JSON_MODELS_DIR) $(PT2_JSON_MODEL_SUPPORT)
+
+# The arena allocator evaluation over the same corpus, both normalized
+# dialects: every strategy, its order search, the portfolio and the bounded
+# reference minimum, per element kind. See bin/arena_alloc_eval.ml.
+#
+# arena.eval is test/arena_eval_corpus_cram.t, whose expected output is each
+# model's minimum arena and every strategy's arena at every budget (bytes,
+# no timings): gated on ARENA_EVAL_MODELS, so it is in no runtest alias, and
+# a drift is an allocator's result changing -- promote it like any cram.
+# arena.eval.report is the same evaluation with its timings, summary and
+# placements, for a local look; nothing it writes is committed.
+arena.eval:
+	ARENA_EVAL_MODELS=$(abspath $(PT2_JSON_MODELS_DIR)) \
+		opam exec -- dune runtest test/arena_eval_corpus_cram.t
+
+ARENA_EVAL_DIR ?= _build/arena-eval
+ARENA_EVAL_ARGS ?= --iterations 0,10,25,50,100,200,400,800 --seeds 1,2 \
+	--reference-max-states 100000 --reference-max-depth 256
+arena.eval.report:
+	@mkdir -p $(ARENA_EVAL_DIR)
+	opam exec -- dune exec bin/arena_alloc_eval.exe -- \
+		--models-dir $(PT2_JSON_MODELS_DIR) --expected-models 100 \
+		--dialects native,native4d --stage normalized $(ARENA_EVAL_ARGS) \
+		--output $(ARENA_EVAL_DIR)/arena-eval.jsonl \
+		--summary $(ARENA_EVAL_DIR)/arena-eval.md \
+		--models-output $(ARENA_EVAL_DIR)/arena-eval-models.jsonl \
+		--artifacts $(ARENA_EVAL_DIR)/placements
 
 # Shared argument list for every interp_run.exe invocation below, so
 # inference-run and benchmark.inference can't drift apart.

@@ -242,18 +242,55 @@ let is_index_output (op : Op.t) output =
       true
   | _ -> false
 
+(* What a node produces, decided once for real and dry runs alike, as in
+   [Eval_direct]: the output shapes, and which outputs are allocated at all. *)
+let node_shapes (g : Graph.graph) (op : Op.t) =
+  widen
+    (Graph_shape4.output_shape op ~sig_of:(fun r ->
+         Tensor_id.Map.find_opt r g.Graph.Graph.tensors
+         |> Err.of_option (`Missing_tensor_sig r)))
+
+(* One entry per output edge. A dead index output is neither computed nor
+   allocated: nothing reads it, so [env] never needs it. *)
+let node_outs ~sched (node : Graph.node) shapes =
+  let open Err.Syntax in
+  let op = node.Graph.Node.op in
+  let+ pairs =
+    Err.List.map2
+      ~unequal_lengths:(fun actual expected ->
+        `Output_arity_mismatch { expected; actual })
+      (fun oid out_shape -> Err.return (oid, out_shape))
+      node.Graph.Node.outputs shapes
+  in
+  List.mapi
+    (fun output (oid, out_shape) ->
+      (Output_ordinal.of_int output, oid, out_shape))
+    pairs
+  |> List.filter (fun (output, oid, _) ->
+      not
+        (is_index_output op output
+        && not (Release_schedule.has_reader sched oid)))
+
+(* The fold every run shares, real or dry: the initial releases, then each
+   node's [step] followed by its releases. *)
+let walk ~sched (g : Graph.graph) ~step ~release state =
+  let open Err.Syntax in
+  Err.List.fold_left
+    (fun state (node : Graph.node) ->
+      if is_sink node.Graph.Node.op then Err.return state
+      else
+        let+ state = step node state in
+        release (Release_schedule.after sched node.Graph.Node.id) state)
+    (release (Release_schedule.initial sched) state)
+    g.Graph.Graph.nodes
+
 let eval_node ?region_counters ~limits ~synthetic_ids ~sched (g : Graph.graph)
     env (node : Graph.node) =
   let open Err.Syntax in
   let op = node.Graph.Node.op in
   let fmt_of r = (Tensor_id.Map.find r g.Graph.Graph.tensors).Tensor_sig.fmt in
   let fill v shape = Tensor.materialize shape (fun _ -> v) in
-  let* shapes =
-    widen
-      (Graph_shape4.output_shape op ~sig_of:(fun r ->
-           Tensor_id.Map.find_opt r g.Graph.Graph.tensors
-           |> Err.of_option (`Missing_tensor_sig r)))
-  in
+  let* shapes = node_shapes g op in
   let* operand_env =
     Err.List.fold_left
       (fun acc r ->
@@ -268,25 +305,7 @@ let eval_node ?region_counters ~limits ~synthetic_ids ~sched (g : Graph.graph)
         Tensor_id.Map.add r sh acc)
       Tensor_id.Map.empty (Op.operands op)
   in
-  let* pairs =
-    Err.List.map2
-      ~unequal_lengths:(fun actual expected ->
-        `Output_arity_mismatch { expected; actual })
-      (fun oid out_shape -> Err.return (oid, out_shape))
-      node.Graph.Node.outputs shapes
-  in
-  (* A dead index output is neither computed nor allocated: nothing reads it,
-     so [env] never needs it. *)
-  let outs =
-    List.mapi
-      (fun output (oid, out_shape) ->
-        (Output_ordinal.of_int output, oid, out_shape))
-      pairs
-    |> List.filter (fun (output, oid, _) ->
-        not
-          (is_index_output op output
-          && not (Release_schedule.has_reader sched oid)))
-  in
+  let* outs = node_outs ~sched node shapes in
   (* See Eval_direct.eval_node's identical branch for the full rationale:
      a multi-output region-authored node (today, only [Lstm]) shares one
      recurrence across all its outputs instead of folding [region_result]
@@ -818,7 +837,67 @@ let eval_node ?region_counters ~limits ~synthetic_ids ~sched (g : Graph.graph)
 let release env ids =
   List.fold_left (fun env id -> Tensor_id.Map.remove id env) env ids
 
-let run ?region_counters ?(limits = Kernel.Limits.default)
+(* Every edge some node releases: what makes an allocated edge eligible. *)
+let released_ids (g : Graph.graph) sched =
+  List.fold_left
+    (fun set (node : Graph.node) ->
+      List.fold_left
+        (fun set id -> Tensor_id.Set.add id set)
+        set
+        (Release_schedule.after sched node.Graph.Node.id))
+    Tensor_id.Set.empty g.Graph.Graph.nodes
+
+let alloc_of (g : Graph.graph) ~released id =
+  let open Err.Syntax in
+  let* sg =
+    Tensor_id.Map.find_opt id g.Graph.Graph.tensors
+    |> Err.of_option (`Missing_tensor_sig id)
+  in
+  widen (Alloc_script.alloc ~released sg)
+
+(* The allocation script [run ?retain] follows, without computing anything:
+   [Eval_direct.dry_run]'s contract, over this dialect's own nodes, shapes and
+   release schedule. *)
+let dry_run ?(retain = Release_schedule.Retain.All) (g : Graph.graph) =
+  let open Err.Syntax in
+  let sched =
+    Release_schedule.schedule ~operands:Op.operands ~is_sink ~retain g
+  in
+  let released = released_ids g sched in
+  let step (node : Graph.node) (allocated, events) =
+    let* shapes = node_shapes g node.Graph.Node.op in
+    let* outs = node_outs ~sched node shapes in
+    let+ allocs =
+      Err.List.map (fun (_, oid, _) -> alloc_of g ~released oid) outs
+    in
+    ( List.fold_left
+        (fun set (a : Alloc_script.Alloc.t) ->
+          Tensor_id.Set.add a.Alloc_script.Alloc.id set)
+        allocated allocs,
+      List.rev_append
+        (List.map (fun a -> Alloc_script.Event.Alloc a) allocs)
+        (Alloc_script.Event.Node node.Graph.Node.id :: events) )
+  in
+  (* A release of an edge that was never allocated (an input, a constant, a dead
+     index output) is not an event. *)
+  let free ids (allocated, events) =
+    List.fold_left
+      (fun (allocated, events) id ->
+        if Tensor_id.Set.mem id allocated then
+          ( Tensor_id.Set.remove id allocated,
+            Alloc_script.Event.Free id :: events )
+        else (allocated, events))
+      (allocated, events) ids
+  in
+  let+ _, events =
+    walk ~sched g ~step ~release:free (Tensor_id.Set.empty, [])
+  in
+  List.rev events
+
+(* [?trace] is a test hook, as in [Eval_direct.run]: it receives the script the
+   run actually follows, read from what the run holds rather than from the
+   schedule, so a test can compare it with [dry_run]'s. *)
+let run ?region_counters ?trace ?(limits = Kernel.Limits.default)
     ?(retain = Release_schedule.Retain.All) ?(constants = []) (g : Graph.graph)
     ~(inputs : (Tensor_id.t * Tensor.packed) list) =
   let provided =
@@ -840,12 +919,39 @@ let run ?region_counters ?(limits = Kernel.Limits.default)
   let sched =
     Release_schedule.schedule ~operands:Op.operands ~is_sink ~retain g
   in
+  let eval node env =
+    eval_node ?region_counters ~limits ~synthetic_ids ~sched g env node
+  in
   (* Eval_direct's contract: see its [?retain]. *)
-  Err.List.fold_left
-    (fun env (node : Graph.node) ->
-      let+ env =
-        eval_node ?region_counters ~limits ~synthetic_ids ~sched g env node
+  match trace with
+  | None ->
+      walk ~sched g ~step:eval ~release:(fun ids env -> release env ids) env
+  | Some emit ->
+      let released = released_ids g sched
+      and produced = ref Tensor_id.Set.empty in
+      let step (node : Graph.node) env =
+        emit (Alloc_script.Event.Node node.Graph.Node.id);
+        let* env' = eval node env in
+        let+ () =
+          Err.List.iter
+            (fun oid ->
+              if Tensor_id.Map.mem oid env' && not (Tensor_id.Map.mem oid env)
+              then begin
+                let+ a = alloc_of g ~released oid in
+                produced := Tensor_id.Set.add oid !produced;
+                emit (Alloc_script.Event.Alloc a)
+              end
+              else Err.return ())
+            node.Graph.Node.outputs
+        in
+        env'
       in
-      release env (Release_schedule.after sched node.Graph.Node.id))
-    (release env (Release_schedule.initial sched))
-    g.Graph.Graph.nodes
+      let free ids env =
+        List.iter
+          (fun id ->
+            if Tensor_id.Set.mem id !produced && Tensor_id.Map.mem id env then
+              emit (Alloc_script.Event.Free id))
+          ids;
+        release env ids
+      in
+      walk ~sched g ~step ~release:free env

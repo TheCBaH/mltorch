@@ -14,5 +14,12 @@
 
 (library
  (name interval_alloc)
- (private_modules ia_decode ia_script ia_search ia_solution ia_strategy)
+ (private_modules
+  ia_check
+  ia_decode
+  ia_reference
+  ia_script
+  ia_search
+  ia_solution
+  ia_strategy)
  (libraries err_trace fmt))

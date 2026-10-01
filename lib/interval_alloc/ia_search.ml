@@ -45,17 +45,45 @@ let peak_positions script order offsets pool =
     order;
   Array.of_list (List.rev !acc)
 
-let improve mode budget script ~lower_bound order (offsets0, pool0) =
+(* One walk to the largest of [checkpoints], reporting the best result at each
+   of them (sorted, deduplicated) as a run with that budget would: the walk's
+   iteration [i] does not depend on the budget, so every shorter run is a
+   prefix of this one. A walk that reaches the lower bound stops, and every
+   later checkpoint reports it. [at c] is called as checkpoint [c] is
+   recorded, in increasing order. *)
+let improve_at ?(at = ignore) mode ~checkpoints ~seed script ~lower_bound order
+    (offsets0, pool0) =
+  let checkpoints =
+    List.sort_uniq Int64.compare (List.map (Int64.max 0L) checkpoints)
+  in
+  let last = List.fold_left Int64.max 0L checkpoints in
   let n = Script.blocks script in
   let best = ref (Array.copy order, offsets0, pool0) in
-  let rng = ref budget.Budget.seed and used = ref 0L in
+  let rng = ref seed and used = ref 0L in
+  let pending = ref checkpoints and recorded = ref [] in
+  let stop_of pool =
+    if Int64.compare pool lower_bound <= 0 then Stop.Lower_bound
+    else Stop.Budget_exhausted
+  in
+  let record ~iterations c =
+    let _, offsets, pool = !best in
+    at c;
+    recorded :=
+      (c, (offsets, pool), { Effort.iterations; stop = stop_of pool })
+      :: !recorded
+  in
   let ( let* ) = Result.bind in
   let rec go () =
+    (match !pending with
+    | c :: rest when Int64.equal c !used ->
+        record ~iterations:c c;
+        pending := rest
+    | _ -> ());
     let _, _, pool = !best in
     if
       n < 2
       || Int64.compare pool lower_bound <= 0
-      || Int64.compare !used budget.Budget.iterations >= 0
+      || Int64.compare !used last >= 0
     then Ok ()
     else begin
       used := Int64.succ !used;
@@ -86,9 +114,17 @@ let improve mode budget script ~lower_bound order (offsets0, pool0) =
     end
   in
   let* () = go () in
-  let _, offsets, pool = !best in
-  let stop =
-    if Int64.compare pool lower_bound <= 0 then Stop.Lower_bound
-    else Stop.Budget_exhausted
+  (* Stopped early: the later checkpoints are this result. *)
+  List.iter (fun c -> record ~iterations:!used c) !pending;
+  Ok (List.rev !recorded)
+
+let improve mode budget script ~lower_bound order start =
+  let ( let* ) = Result.bind in
+  let* results =
+    improve_at mode
+      ~checkpoints:[ budget.Budget.iterations ]
+      ~seed:budget.Budget.seed script ~lower_bound order start
   in
-  Ok ((offsets, pool), { Effort.iterations = !used; stop })
+  match results with
+  | [ (_, result, effort) ] -> Ok (result, effort)
+  | _ -> assert false
