@@ -106,6 +106,11 @@ jobs:
     - name: pt2 load test
       run: |
         ${{ env.EXEC }} make pt2.runtest
+    # The whole-model C backend on the downloaded models: generated C compiled with the
+    # image's gcc, every output bitwise equal to the per-node reference.
+    - name: whole-model C backend (all downloaded models)
+      run: |
+        ${{ env.EXEC }} make c.pt2.runtest
     # Payload-free model-support sweep over the ~100 models in the pinned
     # producer submodule (already checked out, no download) -- see
     # bin/pt2_json_model_support.ml. Verified by "verify pristine" below,

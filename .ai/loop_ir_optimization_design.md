@@ -316,7 +316,7 @@ copies, so `make melange.runtest` covers them too.
   run the raw and optimized programs through `Loop_interp` and compare
   bitwise, with failures compared by kind and payload through
   `Loop_check.compare`'s semantics.
-- **Existing gates unchanged:** `loop_node_check_test`/`loop_sweep_test`
+- **Existing gates unchanged:** `loop_node_check_test`/`loop_sweep_N_test` (the op sweep, sliced across four files for the timing gate)
   (optimized program vs `Kernel_eval`), the `loop-js-gate`,
   `make jsoo.inline-runtest`, and (for stages 4/6/9, not yet implemented;
   spot-checked anyway for the implemented ones) `make loop_js.node.pt2.runtest`.

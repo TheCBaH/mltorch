@@ -9,7 +9,8 @@
 ; generated code. Their committed expect output must hold with it.
 
 (copy_files
- (files %{workspace_root}/test/loop_ir/{loop_fixtures,loop_programs}.ml))
+ (files
+  %{workspace_root}/test/loop_ir/{loop_fixtures,loop_programs,loop_sweep_common}.ml))
 
 ; The copied suites each start by naming [Js_exec_install]. Inline tests run as
 ; their module initialises, in link order, so without that dependency a suite
@@ -23,17 +24,25 @@
   loop_fusion_test.ml
   loop_region_test.ml
   loop_scan_test.ml
-  loop_sweep_test.ml)
+  loop_sweep_test.ml
+  loop_sweep_0_test.ml
+  loop_sweep_1_test.ml
+  loop_sweep_2_test.ml
+  loop_sweep_3_test.ml)
  (deps
   %{workspace_root}/test/loop_ir/loop_check_test.ml
   %{workspace_root}/test/loop_ir/loop_formats_test.ml
   %{workspace_root}/test/loop_ir/loop_fusion_test.ml
   %{workspace_root}/test/loop_ir/loop_region_test.ml
   %{workspace_root}/test/loop_ir/loop_scan_test.ml
-  %{workspace_root}/test/loop_ir/loop_sweep_test.ml)
+  %{workspace_root}/test/loop_ir/loop_sweep_test.ml
+  %{workspace_root}/test/loop_ir/loop_sweep_0_test.ml
+  %{workspace_root}/test/loop_ir/loop_sweep_1_test.ml
+  %{workspace_root}/test/loop_ir/loop_sweep_2_test.ml
+  %{workspace_root}/test/loop_ir/loop_sweep_3_test.ml)
  (action
   (bash
-   "for f in loop_check_test loop_formats_test loop_fusion_test loop_region_test loop_scan_test loop_sweep_test; do { echo 'let () = assert Js_exec_install.installed'; cat %{workspace_root}/test/loop_ir/$f.ml; } > $f.ml; done")))
+   "for f in loop_check_test loop_formats_test loop_fusion_test loop_region_test loop_scan_test loop_sweep_test loop_sweep_0_test loop_sweep_1_test loop_sweep_2_test loop_sweep_3_test; do { echo 'let () = assert Js_exec_install.installed'; cat %{workspace_root}/test/loop_ir/$f.ml; } > $f.ml; done")))
 
 (library
  (name loop_js_exec_test)

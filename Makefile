@@ -1,4 +1,4 @@
-.PHONY: benchmark.canonical benchmark.canonical.corpus \
+.PHONY: c.pt2.bench c.pt2.exe c.pt2.run c.pt2.runtest c.pt2.san c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
@@ -887,6 +887,60 @@ loop.js.runtest:
 	NO_COLOR=1 opam exec -- dune build @test/loop_ir/loop-js-gate
 
 js.runtest: jsoo.runtest jsoo.inline-runtest melange.runtest loop.js.runtest
+
+# The C backend's differential suites (test/loop_c) run under `runtest` at the
+# production flags. These re-run the same suites at -O0 and under the
+# sanitizers, which dune does not track: LOOP_C_CFLAGS replaces -O2, hence
+# --force. A missing compiler fails; it never skips.
+c.runtest.o0:
+	LOOP_C_CFLAGS="-O0" opam exec -- dune build @test/loop_c/runtest --force
+
+c.runtest.san:
+	LOOP_C_CFLAGS="-O1 -fsanitize=address,undefined -fno-sanitize-recover=all" \
+	  opam exec -- dune build @test/loop_c/runtest --force
+
+c.runtest.all: c.runtest.o0 c.runtest.san
+
+# The whole-model C backend on real downloaded models (native gcc; needs the
+# model data, so not part of `runtest`). c.pt2.runtest is the CI gate:
+# every CI model (C_PT2_CI_MODELS) through the compiled standalone binary, every output bitwise
+# equal to the per-node reference (--shadow) and the release ranking (--strict),
+# workspace poisoned first so a read of stale memory shows. c.pt2.run is
+# fastvit_sa12 (Region-authored ops; the reference alone is ~100s), manual.
+# c.pt2.san re-runs both with the generated binary under ASan+UBSan, without
+# the reference.
+C_PT2_EXE = _build/default/bin/loop_c_pt2.exe
+C_PT2_SAN = --cc=gcc -std=c11 -O1 -fsanitize=address,undefined -fno-sanitize-recover=all -ffp-contract=off -fno-strict-aliasing -Wall -Wextra -Werror
+
+c.pt2.exe:
+	opam exec -- dune build bin/loop_c_pt2.exe
+
+# Every model CI downloads (the cram set plus csatv2): ~3.5 min, dominated by
+# the reference evaluator on fastvit_sa12 and efficientnet_b0.
+C_PT2_CI_MODELS = $(PT2_MODELS_CRAM) csatv2
+
+c.pt2.runtest: c.pt2.exe
+	for m in $(C_PT2_CI_MODELS); do \
+	  $(MAKE) pt2.download PT2_MODEL=$$m && \
+	  (cd $(PT2_DIR)/$$m && echo "== $$m" && $(CURDIR)/$(C_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --strict --shadow --poison --samples=1) || exit 1; \
+	done
+
+c.pt2.run: c.pt2.exe
+	$(MAKE) pt2.download PT2_MODEL=fastvit_sa12
+	cd $(PT2_DIR)/fastvit_sa12 && $(CURDIR)/$(C_PT2_EXE) fastvit_sa12.pt2 inputs.pt expected.json outputs.pt --strict --shadow --poison --samples=1
+
+# Phases of one run apart, then 20 warm repeats inside the binary (stderr).
+c.pt2.bench: c.pt2.exe
+	for m in mobilenetv2_050 fastvit_sa12; do \
+	  $(MAKE) pt2.download PT2_MODEL=$$m && \
+	  (cd $(PT2_DIR)/$$m && $(CURDIR)/$(C_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --samples=1 --bench=20) || exit 1; \
+	done
+
+c.pt2.san: c.pt2.exe
+	for m in mobilenetv2_050 fastvit_sa12; do \
+	  $(MAKE) pt2.download PT2_MODEL=$$m && \
+	  (cd $(PT2_DIR)/$$m && $(CURDIR)/$(C_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --strict --poison --samples=1 "$(C_PT2_SAN)") || exit 1; \
+	done
 
 # Compares Loop_interp.run's wall-clock cost natively (ocamlopt) against
 # itself and the generated-code executor under node (jsoo), on the same

@@ -173,3 +173,21 @@
   native
   native_aten_bridge
   pt2))
+
+; The whole-model C backend on a real downloaded .pt2 model: generate, compile
+; with the host C compiler, run through the standalone binary. Native only;
+; MANUAL like the other model runners (`make c.pt2.run`).
+
+(executable
+ (name loop_c_pt2)
+ (modules loop_c_pt2)
+ (libraries
+  err_trace
+  infer_report
+  loop_c_exec
+  loop_ir
+  native
+  native_interp
+  native_predict
+  pt2
+  unix))

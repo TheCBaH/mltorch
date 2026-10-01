@@ -1,0 +1,7 @@
+; Native-only host side of the C backend: compiles emitted C with the host
+; compiler and runs it as a subprocess. Kept apart from [loop_ir] because that
+; library is js_of_ocaml-reachable and must not depend on [unix].
+
+(library
+ (name loop_c_exec)
+ (libraries err_trace fmt loop_ir native unix))

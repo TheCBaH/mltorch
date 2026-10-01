@@ -296,6 +296,18 @@ opam exec -- dune build   --root . lib/native
 opam exec -- dune runtest --root . test/native
 ```
 
+### C backend (needs a host C compiler, gcc)
+
+```sh
+dune build @test/loop_c/runtest   # kernel + host-process suites (part of make runtest)
+make c.runtest.all                # the same at -O0 and under ASan+UBSan
+make c.pt2.runtest                # every CI model through generated C, bitwise vs the reference
+make c.pt2.run                    # fastvit_sa12 the same way (manual); c.pt2.san, c.pt2.bench
+```
+
+A missing compiler fails these; it never skips. See `.ai/` for the C backend
+design record.
+
 ### .pt2 / interpreter (gated on real model data)
 
 ```sh
