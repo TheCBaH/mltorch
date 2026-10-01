@@ -110,12 +110,12 @@ let placement_json (pl : Loop_wasm_exec.Node.placement) ~total ~identity =
     pl.Loop_wasm_exec.Node.workspace_bytes pl.Loop_wasm_exec.Node.outputs_bytes
     (Digest.to_hex identity)
 
-let direct_route ~dir ~wat ~simd b ~constants =
+let direct_route ~dir ~wat ~vector b ~constants =
   let open Err.Syntax in
   let map e = (e :> eval) in
   let module H = Loop_wasm_exec.Host in
   let t1 = now () in
-  let* p = H.prepare ~simd ~dir b ~constants |> Err.map_error map in
+  let* p = H.prepare ?vector ~dir b ~constants |> Err.map_error map in
   let w = H.bundle_wasm p in
   let st = w.Loop_bundle_wasm.stats in
   let ws = w.Loop_bundle_wasm.workspace in
@@ -202,7 +202,7 @@ let c_route ~dir ~flags b ~constants =
           prerr_endline "--export applies to the direct route only");
     }
 
-let prepared ~keep ~via_c ~cflags ~wat ~simd archive =
+let prepared ~keep ~via_c ~cflags ~wat ~vector archive =
   let open Err.Syntax in
   let map e = (e :> eval) in
   match !cache with
@@ -227,18 +227,18 @@ let prepared ~keep ~via_c ~cflags ~wat ~simd archive =
       let constants_of id = Graph_ir.Tensor_id.Map.find_opt id constants in
       let* route =
         if via_c then c_route ~dir ~flags:cflags b ~constants:constants_of
-        else direct_route ~dir ~wat ~simd b ~constants:constants_of
+        else direct_route ~dir ~wat ~vector b ~constants:constants_of
       in
       let cached = (g, constants, b, route) in
       cache := Some cached;
       Err.return cached
 
-let infer ~keep ~via_c ~cflags ~wat ~simd ~export:export_dir ~shadow ~poison
+let infer ~keep ~via_c ~cflags ~wat ~vector ~export:export_dir ~shadow ~poison
     ~bench:bench_n archive image =
   let open Err.Syntax in
   let map e = (e :> eval) in
   let* g, constants, b, route =
-    prepared ~keep ~via_c ~cflags ~wat ~simd archive
+    prepared ~keep ~via_c ~cflags ~wat ~vector archive
   in
   let* input = Native_interp.tensor_of_pt2 image |> Err.map_error map in
   let input_id = List.hd b.Loop_bundle.inputs in
@@ -289,6 +289,7 @@ let () =
   let export_dir, argv = valued "--export=" argv in
   let via_c, argv = flag "--via-c" argv in
   let simd, argv = flag "--simd" argv in
+  let vector = if simd then Some Loop_target.wasm128 else None in
   let wat, argv = valued "--wat=" argv in
   let cflags, argv = valued "--cflags=" argv in
   let cflags =
@@ -309,8 +310,8 @@ let () =
              ?max_samples:(Option.map int_of_string samples)
              ~now
              ~infer:
-               (infer ~keep ~via_c ~cflags ~wat ~simd ~export:export_dir ~shadow
-                  ~poison ~bench:bench_n)
+               (infer ~keep ~via_c ~cflags ~wat ~vector ~export:export_dir
+                  ~shadow ~poison ~bench:bench_n)
              paths options)
       with
       | Ok () -> ()

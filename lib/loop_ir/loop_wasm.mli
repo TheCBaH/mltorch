@@ -42,13 +42,16 @@ val error_address : int
 (** The byte address of the failure record: [0]. *)
 
 val lower :
-  ?simd:bool -> ?count_marks:bool -> Loop_program.t -> (t, error) Err.t
-(** [simd] (default [false]) lowers the independent loops {!Loop_vectorize}
-    finds to 128-bit SIMD under the strict contract; the module then needs the
-    [simd128] feature and nothing else new. [count_marks] (default [false])
-    makes each [Mark] statement bump its word at [mark_base], so a test can
-    compare the counts with the interpreter's. The default build is unchanged
-    byte for byte and no inference path calls the host per mark. *)
+  ?vector:Loop_target.t ->
+  ?count_marks:bool ->
+  Loop_program.t ->
+  (t, error) Err.t
+(** [vector] lowers the independent loops {!Loop_vectorize} finds for the target
+    to 128-bit SIMD under the strict contract (use {!Loop_target.wasm128}); the
+    module then needs the [simd128] feature and nothing else new. [count_marks]
+    (default [false]) makes each [Mark] statement bump its word at [mark_base],
+    so a test can compare the counts with the interpreter's. The default build
+    is unchanged byte for byte and no inference path calls the host per mark. *)
 
 (** {1 Kernels for composition}
 
@@ -67,7 +70,7 @@ type kernel = {
 }
 
 val kernel :
-  ?simd:bool ->
+  ?vector:Loop_target.t ->
   ?mark_base:int ->
   table_alloc:(bytes:int -> int) ->
   Loop_program.t ->

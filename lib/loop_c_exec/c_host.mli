@@ -42,6 +42,7 @@ val default_compiler : string list
     replaces [-O2] (for [-O0] and sanitizer runs). *)
 
 val prepare :
+  ?vector:Loop_target.t ->
   ?compiler:string list ->
   dir:string ->
   Loop_bundle.t ->

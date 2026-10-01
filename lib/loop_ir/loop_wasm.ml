@@ -133,7 +133,7 @@ let rec stmt st ~limits (s : Loop_stmt.t) : I.t list =
           let p = pred st p in
           p @ [ I.If (None, failure st ~site f, []) ])
   | Loop_stmt.For { var = v; lo; hi = hi_ix; body } ->
-      for_loop st v lo hi_ix (block st ~limits body)
+      for_loop st v lo hi_ix (fun () -> block st ~limits body)
   | Loop_stmt.If (p, yes, no) ->
       let p = pred st p in
       let yes = block st ~limits yes in
@@ -206,7 +206,9 @@ let rec stmt st ~limits (s : Loop_stmt.t) : I.t list =
   | Loop_stmt.Store_flat { buffer = b; offset = i; value } ->
       store st b (Flat i) value
 
-(* A scalar loop over [\[lo, hi)] whose body is already lowered. *)
+(* A scalar loop over [\[lo, hi)]. The body is lowered last, by [body]: the
+   loop's own locals come first, so a module's local numbering does not depend on
+   whether a body allocates any. *)
 and for_loop st v lo hi_ix body =
   let name = var st v in
   let lo = index st lo in
@@ -217,6 +219,7 @@ and for_loop st v lo hi_ix body =
         let b = bound st v in
         (index st hi_ix @ [ set b ], [ get b ])
   in
+  let body = body () in
   lo
   @ [ set name ]
   @ hi
@@ -245,7 +248,7 @@ and node st ~limits (nd : Loop_vector.node) =
       let no = nodes st ~limits no in
       p @ [ I.If (None, yes, no) ]
   | Loop_vector.Loop { var = v; lo; hi; body } ->
-      for_loop st v lo hi (nodes st ~limits body)
+      for_loop st v lo hi (fun () -> nodes st ~limits body)
   | Loop_vector.Vector l ->
       Loop_wasm_vector.loop st ~scalar_stmt:(stmt st ~limits) l
 
@@ -292,7 +295,7 @@ let f64_bytes xs =
     xs;
   Buffer.contents buf
 
-let kernel_exact ~simd ~mark_base ~table_alloc (p : Loop_program.t) :
+let kernel_exact ~vector ~mark_base ~table_alloc (p : Loop_program.t) :
     (kernel, error) Err.t =
   Err.Escape.with_escape (fun esc ->
       let buffers = Hashtbl.create 8 in
@@ -350,20 +353,21 @@ let kernel_exact ~simd ~mark_base ~table_alloc (p : Loop_program.t) :
       in
       let limits = p.Loop_program.scan_limits in
       let body =
-        if simd then (
-          (* Strict vectorization for the 128-bit Wasm target: the program, with
+        match vector with
+        | Some target ->
+            (* Strict vectorization for the 128-bit Wasm target: the program, with
              its independent loops replaced by vector loops; the verifier runs
              before anything is lowered. *)
-          let vp, _ = Loop_vectorize.program ~target:Loop_target.wasm128 p in
-          (match Err.payload (Loop_vector_check.program vp) with
-          | Ok () -> ()
-          | Error e ->
-              invalid_arg
-                (Fmt.str
-                   "Loop_wasm: the vectorizer built an invalid program: %a"
-                   Loop_vector_check.pp_error e));
-          nodes st ~limits vp.Loop_vector.body)
-        else block st ~limits p.Loop_program.body
+            let vp, _ = Loop_vectorize.program ~target p in
+            (match Err.payload (Loop_vector_check.program vp) with
+            | Ok () -> ()
+            | Error e ->
+                invalid_arg
+                  (Fmt.str
+                     "Loop_wasm: the vectorizer built an invalid program: %a"
+                     Loop_vector_check.pp_error e));
+            nodes st ~limits vp.Loop_vector.body
+        | None -> block st ~limits p.Loop_program.body
       in
       if st.next_site <> Array.length st.sites then
         invalid_arg "Loop_wasm: a failure site was not written";
@@ -394,18 +398,18 @@ let kernel_exact ~simd ~mark_base ~table_alloc (p : Loop_program.t) :
 
 (* Widened for a caller that composes it with other errors, which would
    otherwise have to name this row's tags itself. *)
-let kernel ?(simd = false) ?mark_base ~table_alloc p =
+let kernel ?vector ?mark_base ~table_alloc p =
   Err.map_error
     (fun (e : error) ->
       match e with
       | `Index_constant_out_of_range _ as e -> e
       | `Local_arrays_too_large _ as e -> e)
-    (kernel_exact ~simd ~mark_base ~table_alloc p)
+    (kernel_exact ~vector ~mark_base ~table_alloc p)
 
 let align16 x = Int64.logand (Int64.add x 15L) (Int64.lognot 15L)
 
-let lower ?(simd = false) ?(count_marks = false) (p : Loop_program.t) :
-    (t, error) Err.t =
+let lower ?vector ?(count_marks = false) (p : Loop_program.t) : (t, error) Err.t
+    =
   (* The module's own bytes: the error record, then constant tables as the
      kernel asks for them, then the local region, then the host's buffers. *)
   let top = ref (align16 (Int64.of_int W.record_bytes)) in
@@ -462,7 +466,7 @@ let lower ?(simd = false) ?(count_marks = false) (p : Loop_program.t) :
         mark_base;
         sites = k.sites;
       })
-    (kernel_exact ~simd ~mark_base ~table_alloc p)
+    (kernel_exact ~vector ~mark_base ~table_alloc p)
 
 let with_pages t ~pages =
   match t.module_.Wasm.Module.memory with

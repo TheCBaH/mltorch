@@ -212,7 +212,7 @@ let invocation ws ~position ~kernel (inv : Loop_bundle.invocation)
 
 let align n a = Int64.mul (Int64.div (Int64.add n (Int64.sub a 1L)) a) a
 
-let build ?(simd = false) (b : Loop_bundle.t) : (t, error) Err.t =
+let build ?vector (b : Loop_bundle.t) : (t, error) Err.t =
   let open Err.Syntax in
   let g = b.Loop_bundle.graph in
   let sigs ids =
@@ -239,7 +239,9 @@ let build ?(simd = false) (b : Loop_bundle.t) : (t, error) Err.t =
   let* compiled =
     Err.List.map
       (fun (inv : Loop_bundle.invocation) ->
-        let* k = Loop_wasm.kernel ~simd ~table_alloc inv.Loop_bundle.program in
+        let* k =
+          Loop_wasm.kernel ?vector ~table_alloc inv.Loop_bundle.program
+        in
         let index = Kernels.intern kernels k in
         let local_doubles = Int64.div k.Loop_wasm.local_bytes 8L in
         let+ sc = W.scratch inv ~local_doubles in

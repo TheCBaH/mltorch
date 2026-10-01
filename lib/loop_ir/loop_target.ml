@@ -157,6 +157,7 @@ let scalar =
     cost = (fun op -> scalar_cost op +. expansion_overhead);
   }
 
+let forced t = { t with name = t.name ^ "+forced"; cost = (fun _ -> 0.) }
 let all = [ neon128; scalar; wasm128 ]
 
 let profitable t body =

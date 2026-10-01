@@ -71,6 +71,11 @@ val scalar : t
 (** A target with no vector unit: every operation [Expanded] at the scalar cost,
     so nothing is ever profitable. The control for the cost model. *)
 
+val forced : t -> t
+(** The same legality with every cost zero, so the vectorizer takes every legal
+    loop: for tests of the paths the cost model would decline (strided accesses,
+    expanded transcendentals, bool stores). *)
+
 val all : t list
 
 val profitable : t -> (Op.t * int) list -> bool

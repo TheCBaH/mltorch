@@ -55,9 +55,9 @@ type error =
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
-val build : ?simd:bool -> Loop_bundle.t -> (t, error) Err.t
-(** [simd] (default [false]) lowers the independent loops the strict vectorizer
-    finds to 128-bit SIMD ({!Loop_wasm.lower}); the module then needs the
+val build : ?vector:Loop_target.t -> Loop_bundle.t -> (t, error) Err.t
+(** [vector] lowers the independent loops the strict vectorizer finds for the
+    target to 128-bit SIMD ({!Loop_wasm.lower}); the module then needs the
     [simd128] feature. *)
 
 val default_config : Storage_script.Config.t

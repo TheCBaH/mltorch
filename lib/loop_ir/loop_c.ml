@@ -385,6 +385,190 @@ let meter_failure which limit =
 
 let indent n = String.make (2 * n) ' '
 
+(* ---- vector loops --------------------------------------------------------- *)
+
+module V = Loop_vector
+
+(* A vector expression as C text of type [v4df] (a mask as [v4di]). Vector
+   temporaries are named by their id; a splatted scalar by its position among the
+   loop's splats. *)
+type vstate = { mutable splats : (float Loop_expr.t * string) list }
+
+let lane_offset (a : V.Access.t) k : Loop_index.t =
+  if k = 0 then a.V.Access.offset
+  else
+    Loop_index.Add (a.V.Access.offset, Loop_index.Const (k * a.V.Access.stride))
+
+let vtemp t = "vt" ^ string_of_int (V.Temp.to_int t)
+
+let vload nm (a : V.Access.t) =
+  let b = a.V.Access.buffer in
+  let scalar k = load_cell nm b (Flat (lane_offset a k)) in
+  let lanes () = String.concat ", " (List.init 4 scalar) in
+  if a.V.Access.stride = 0 then "vf_splat(" ^ scalar 0 ^ ")"
+  else if a.V.Access.stride <> 1 then "((v4df){" ^ lanes () ^ "})"
+  else
+    let at = "(" ^ buffer nm b ^ " + " ^ index nm a.V.Access.offset ^ ")" in
+    match fmt_of b with
+    | "f32" -> "vf_load_f32(" ^ at ^ ")"
+    | "f64" -> "vf_load_f64(" ^ at ^ ")"
+    | "i32" -> "vf_load_i32(" ^ at ^ ")"
+    | _ -> "((v4df){" ^ lanes () ^ "})"
+
+let rec vexpr nm vs (e : V.t) : string =
+  match e with
+  | V.Const x -> "vf_splat(" ^ float_lit x ^ ")"
+  | V.Splat s -> List.assq s vs.splats
+  | V.Binary (op, a, b) ->
+      let a = vexpr nm vs a in
+      let b = vexpr nm vs b in
+      "(" ^ a ^ " " ^ binary_sym op ^ " " ^ b ^ ")"
+  | V.Float_max (a, b) ->
+      let a = vexpr nm vs a in
+      let b = vexpr nm vs b in
+      "vf_max(" ^ a ^ ", " ^ b ^ ")"
+  | V.Round_f32 a -> "vf_round_f32(" ^ vexpr nm vs a ^ ")"
+  | V.Unary (op, a) ->
+      let a = vexpr nm vs a in
+      (match op with Expr.Value.Erf -> use nm R.Name.Erf | _ -> ());
+      let name =
+        match op with
+        | Expr.Value.Cos -> "vf_cos"
+        | Expr.Value.Erf -> "vf_erf"
+        | Expr.Value.Exp -> "vf_exp"
+        | Expr.Value.Log -> "vf_log"
+        | Expr.Value.Sin -> "vf_sin"
+        | Expr.Value.Sqrt -> "vf_sqrt"
+        | Expr.Value.Trunc -> "vf_trunc"
+      in
+      name ^ "(" ^ a ^ ")"
+  | V.Select (m, a, b) ->
+      let m = vmask nm vs m in
+      let a = vexpr nm vs a in
+      let b = vexpr nm vs b in
+      "vf_sel(" ^ m ^ ", " ^ a ^ ", " ^ b ^ ")"
+  | V.Temp t -> vtemp t
+  | V.Index_value { base; step } ->
+      "((v4df){"
+      ^ String.concat ", "
+          (List.init 4 (fun k ->
+               "(double)"
+               ^ index nm (Loop_index.Add (base, Loop_index.Const (k * step)))))
+      ^ "})"
+  | V.Load a -> vload nm a
+
+and vmask nm vs (m : V.mask) : string =
+  match m with
+  | V.Not m -> "(~" ^ vmask nm vs m ^ ")"
+  | V.Or (a, b) -> "(" ^ vmask nm vs a ^ " | " ^ vmask nm vs b ^ ")"
+  | V.Value_eq (a, b) -> "(" ^ vexpr nm vs a ^ " == " ^ vexpr nm vs b ^ ")"
+  | V.Value_lt (a, b) -> "(" ^ vexpr nm vs a ^ " < " ^ vexpr nm vs b ^ ")"
+  | V.Pool_better (best, value) ->
+      (* The candidate wins on strict greater-than or on NaN. Both operands are
+         pure, so naming the value twice is exact. *)
+      let best = vexpr nm vs best in
+      let value = vexpr nm vs value in
+      "((" ^ value ^ " > " ^ best ^ ") | (" ^ value ^ " != " ^ value ^ "))"
+
+let vstore nm vs ~ind (a : V.Access.t) (value : V.stored) =
+  let b = a.V.Access.buffer in
+  let e = match value with V.F32 e | V.Bool e -> e in
+  let v = vexpr nm vs e in
+  match value with
+  | V.F32 _ when a.V.Access.stride = 1 ->
+      [
+        Printf.sprintf "%svf_store_f32(%s + %s, %s);" ind (buffer nm b)
+          (index nm a.V.Access.offset)
+          v;
+      ]
+  | _ ->
+      let lane k =
+        let cell = buffer nm b ^ "[" ^ index nm (lane_offset a k) ^ "]" in
+        match value with
+        | V.F32 _ -> Printf.sprintf "%s%s = (float)vs[%d];" ind cell k
+        | V.Bool _ -> Printf.sprintf "%s%s = vs[%d] != 0.0 ? 1 : 0;" ind cell k
+      in
+      [ Printf.sprintf "%s{ const v4df vs = %s;" ind v ]
+      @ List.init 4 lane
+      @ [ ind ^ "}" ]
+
+let rec collect_splats acc (e : V.t) =
+  match e with
+  | V.Splat s -> if List.memq s acc then acc else acc @ [ s ]
+  | V.Binary (_, a, b) | V.Float_max (a, b) ->
+      collect_splats (collect_splats acc a) b
+  | V.Round_f32 a | V.Unary (_, a) -> collect_splats acc a
+  | V.Select (m, a, b) ->
+      collect_splats (collect_splats (mask_splats acc m) a) b
+  | V.Const _ | V.Index_value _ | V.Load _ | V.Temp _ -> acc
+
+and mask_splats acc (m : V.mask) =
+  match m with
+  | V.Not m -> mask_splats acc m
+  | V.Or (a, b) -> mask_splats (mask_splats acc a) b
+  | V.Pool_better (a, b) | V.Value_eq (a, b) | V.Value_lt (a, b) ->
+      collect_splats (collect_splats acc a) b
+
+let vloop nm ~depth ~scalar_stmt (l : V.loop) : string list =
+  let ind = indent depth in
+  use nm R.Name.Vector_prelude;
+  use nm R.Name.Float_max;
+  use nm R.Name.Erf;
+  let lo, hi =
+    match (l.V.lo, l.V.hi) with
+    | Loop_index.Const lo, Loop_index.Const hi -> (lo, hi)
+    | _ -> invalid_arg "Loop_c: a vector loop without constant bounds"
+  in
+  let stop = lo + (max 0 (hi - lo) / l.V.lanes * l.V.lanes) in
+  let vs = { splats = [] } in
+  let exprs =
+    List.concat_map
+      (fun (s : V.stmt) ->
+        match s with
+        | V.Assign (_, e) -> [ e ]
+        | V.Store { value = V.F32 e | V.Bool e; _ } -> [ e ])
+      l.V.body
+  in
+  let splat_exprs = List.fold_left collect_splats [] exprs in
+  let prelude =
+    List.mapi
+      (fun k e ->
+        let name = Printf.sprintf "vs%d" k in
+        vs.splats <- vs.splats @ [ (e, name) ];
+        Printf.sprintf "%s  const v4df %s = vf_splat(%s);" ind name (num nm e))
+      splat_exprs
+  in
+  let iv = var nm l.V.var in
+  let body =
+    List.concat_map
+      (fun (s : V.stmt) ->
+        match s with
+        | V.Assign (t, e) ->
+            [
+              Printf.sprintf "%s    const v4df %s = %s; (void)%s;" ind (vtemp t)
+                (vexpr nm vs e) (vtemp t);
+            ]
+        | V.Store { access; value } ->
+            vstore nm vs ~ind:(ind ^ "    ") access value)
+      l.V.body
+  in
+  let remainder =
+    match l.V.scalar with
+    | Loop_stmt.For f ->
+        scalar_stmt (Loop_stmt.For { f with lo = Loop_index.Const stop })
+    | s -> scalar_stmt s
+  in
+  [ ind ^ "{" ]
+  @ prelude
+  @ [
+      Printf.sprintf "%s  for (int64_t %s = %s; %s < %s; %s += %d) {" ind iv
+        (int_lit lo) iv (int_lit stop) iv l.V.lanes;
+    ]
+  @ body
+  @ [ ind ^ "  }" ]
+  @ remainder
+  @ [ ind ^ "}" ]
+
 let rec stmt nm ~limits ~depth (s : Loop_stmt.t) : string list =
   let ind = indent depth in
   let line l = [ ind ^ l ] in
@@ -503,6 +687,42 @@ and store nm b addr value =
 
 and block nm ~limits ~depth body = List.concat_map (stmt nm ~limits ~depth) body
 
+and node nm ~limits ~depth (nd : V.node) : string list =
+  let ind = indent depth in
+  match nd with
+  | V.Scalar s -> stmt nm ~limits ~depth s
+  | V.If (p, yes, no) ->
+      let p = pred nm p in
+      let yes = nodes nm ~limits ~depth:(depth + 1) yes in
+      let no = nodes nm ~limits ~depth:(depth + 1) no in
+      [ ind ^ "if " ^ p ^ " {" ]
+      @ yes
+      @
+      if no = [] then [ ind ^ "}" ]
+      else [ ind ^ "} else {" ] @ no @ [ ind ^ "}" ]
+  | V.Loop { var = v; lo; hi = hi_ix; body } ->
+      let name = var nm v in
+      let lo = index nm lo in
+      let hi = index nm hi_ix in
+      let inline, limit =
+        match hi_ix with
+        | Loop_index.Const _ | Loop_index.Var _ -> ([], hi)
+        | _ ->
+            let n = bound nm v in
+            ([ ind ^ "  const int64_t " ^ n ^ " = " ^ hi ^ ";" ], n)
+      in
+      [ ind ^ "{" ]
+      @ inline
+      @ [
+          Printf.sprintf "%s  for (int64_t %s = %s; %s < %s; %s++) {" ind name
+            lo name limit name;
+        ]
+      @ nodes nm ~limits ~depth:(depth + 2) body
+      @ [ ind ^ "  }"; ind ^ "}" ]
+  | V.Vector l -> vloop nm ~depth ~scalar_stmt:(stmt nm ~limits ~depth) l
+
+and nodes nm ~limits ~depth ns = List.concat_map (node nm ~limits ~depth) ns
+
 (* What function scope must declare: the temporaries, in first-assigned order,
    and whether the program touches the scan meter. *)
 let declarations (p : Loop_program.t) =
@@ -547,7 +767,7 @@ let param_type (b : Loop_buffer.t) =
   | Loop_buffer.Input -> "const " ^ t
   | Loop_buffer.Output | Loop_buffer.Scratch -> t
 
-let kernel ~name (p : Loop_program.t) : (t, [> error ]) Err.t =
+let kernel ?vector ~name (p : Loop_program.t) : (t, [> error ]) Err.t =
   match check_formats p with
   | Error e -> Err.fail e
   | Ok () ->
@@ -572,7 +792,19 @@ let kernel ~name (p : Loop_program.t) : (t, [> error ]) Err.t =
           p.Loop_program.buffers
       in
       let limits = p.Loop_program.scan_limits in
-      let body = block nm ~limits ~depth:1 p.Loop_program.body in
+      let body =
+        match vector with
+        | None -> block nm ~limits ~depth:1 p.Loop_program.body
+        | Some target ->
+            let vp, _ = Loop_vectorize.program ~target p in
+            (match Err.payload (Loop_vector_check.program vp) with
+            | Ok () -> ()
+            | Error e ->
+                invalid_arg
+                  (Fmt.str "Loop_c: the vectorizer built an invalid program: %a"
+                     Loop_vector_check.pp_error e));
+            nodes nm ~limits ~depth:1 vp.Loop_vector.body
+      in
       if nm.next_site <> Array.length nm.sites then
         invalid_arg "Loop_c: a failure site was not written";
       let floats, int64s, indices, meter = declarations p in

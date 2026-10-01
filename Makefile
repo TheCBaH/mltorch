@@ -923,7 +923,8 @@ js.runtest: jsoo.runtest jsoo.inline-runtest melange.runtest loop.js.runtest
 wasm.runtest: wasm.toolchain
 	MLTORCH_WASM=1 MLTORCH_WASI_SYSROOT="$(WASI_SYSROOT)" NO_COLOR=1 opam exec -- dune build --force \
 	  @test/wasm_ir/runtest @test/wasm_ir/runtest-js \
-	  @test/loop_wasm/runtest @test/loop_ir/runtest-js
+	  @test/loop_wasm/runtest @test/loop_wasm_vector/runtest \
+	  @test/loop_ir/runtest-js
 
 # The wasm32 C library and compiler runtime the C-to-Wasm baseline links with:
 # the installed Clang and wasm-ld already target wasm32 but ship no libc, so

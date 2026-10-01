@@ -8,7 +8,7 @@
 
 (copy_files
  (files
-  %{workspace_root}/test/loop_ir/{loop_fixtures,loop_programs,loop_sweep_common}.ml))
+  %{workspace_root}/test/loop_ir/{loop_fixtures,loop_programs,loop_sweep_common,loop_vector_programs}.ml))
 
 (rule
  (targets
@@ -48,7 +48,7 @@
    "for f in loop_check_test loop_formats_test loop_fusion_test loop_group_test loop_int64_test loop_interp_test loop_opt_differential_test loop_pixel_test loop_region_test loop_scan_test loop_sweep_test loop_sweep_0_test loop_sweep_1_test loop_sweep_2_test loop_sweep_3_test; do { echo 'let () = assert Wasm_exec_install.installed'; cat %{workspace_root}/test/loop_ir/$f.ml; } > $f.ml; done")))
 
 (library
- (name loop_wasm_simd_test)
+ (name loop_wasm_vector_test)
  (libraries
   core
   err_trace

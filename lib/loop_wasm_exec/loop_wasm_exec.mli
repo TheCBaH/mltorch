@@ -26,7 +26,7 @@ val node : string list ref
 (** The command that runs a script: [["node"]]. *)
 
 val exec :
-  ?simd:bool ->
+  ?vector:Loop_target.t ->
   ?outputs:(Tensor_id.t -> Tensor.packed option) ->
   Loop_program.t ->
   bind:(Tensor_id.t -> Tensor.packed option) ->
