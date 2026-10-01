@@ -32,7 +32,11 @@ module State : sig
   (** Schedules a ready node. *)
 
   val order : t -> Position.t array
+
   val peak : t -> Byte_size.t
+  (** The largest target payload held so far. *)
+
+  val all_peak : t -> Byte_size.t
   val live : t -> Byte_size.t
 end
 

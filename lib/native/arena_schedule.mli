@@ -50,6 +50,10 @@ module Limits : sig
   val constructive_only : t
   (** No beam: width 1, no expansions. *)
 
+  val default_beam : t
+  (** An explicit beam request: width 8, 100000 expansions, 256 MiB of search
+      state. Provisional, pending corpus cost evidence. *)
+
   val equal : t -> t -> bool
 end
 

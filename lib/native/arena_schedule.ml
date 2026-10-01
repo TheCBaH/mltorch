@@ -49,6 +49,14 @@ module Limits = struct
   let constructive_only =
     { width = 1; expansions = 0; state_bytes = Byte_size.zero }
 
+  let default_beam =
+    {
+      width = 8;
+      expansions = 100_000;
+      state_bytes =
+        Result.get_ok (Err.payload (Byte_size.of_int64 268_435_456L));
+    }
+
   let equal a b =
     a.width = b.width
     && a.expansions = b.expansions

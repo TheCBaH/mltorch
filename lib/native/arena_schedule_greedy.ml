@@ -169,6 +169,7 @@ module State = struct
 
   let order t = Array.of_list (List.rev t.order)
   let peak t = t.peak
+  let all_peak t = t.peak_all
   let live t = t.live
 end
 
