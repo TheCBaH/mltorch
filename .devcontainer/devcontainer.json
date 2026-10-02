@@ -37,7 +37,7 @@
         // Node/npm run the js_of_ocaml, melange and browser gates. Exact Debian
         // package pins keep a developer rebuild and CI on one runtime too.
         "./features/npm": {
-            "node_version": "20.19.2+dfsg-1+deb13u2",
+            "node_version": "20.19.2+dfsg-1+deb13u3",
             "npm_version": "9.2.0~ds1-3"
         },
     },
