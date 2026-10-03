@@ -959,7 +959,7 @@ wasm.jsoo.pt2.runtest: jsoo.pt2.download
 	  node $(CURDIR)/_build/default/js/jsoo/loop_wasm_pt2_js/loop_wasm_pt2_js.bc.js \
 	    $(JS_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt --strict --repeat=3 --samples=1 \
 	    | grep '^module identity' > $(CURDIR)/_build/wasm_jsoo.identity && \
-	  $(CURDIR)/$(WASM_PT2_EXE) $(JS_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt --samples=1 \
+	  $(CURDIR)/$(WASM_PT2_EXE) $(JS_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt --reference --samples=1 \
 	    2>/dev/null | grep '^module identity' > $(CURDIR)/_build/wasm_native.identity
 	diff -u _build/wasm_native.identity _build/wasm_jsoo.identity
 	@echo "wasm jsoo: $(JS_PT2_MODEL) generated in JavaScript, byte-identical to the native module, ranking verified"
