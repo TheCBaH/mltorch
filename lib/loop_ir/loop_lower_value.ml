@@ -437,6 +437,15 @@ and reduce ctx (r : Expr.Reduction.t) =
   in
   let loop body = emit ctx (Loop_stmt.For { var; lo; hi; body }) in
   match r.Expr.Reduction.kind with
+  | Expr.Reduction.Sum when ctx.structured ->
+      let acc = fresh_temp ctx in
+      let term, body =
+        in_block inner (fun inner -> value inner r.Expr.Reduction.body)
+      in
+      emit ctx
+        (Loop_stmt.Reduce_sum
+           { var; lo; hi; acc; seed = 0.; body; term; at = Some ctx.at });
+      temp_float acc
   | Expr.Reduction.Sum | Expr.Reduction.Max ->
       let acc = fresh_temp ctx in
       let seed, combine =

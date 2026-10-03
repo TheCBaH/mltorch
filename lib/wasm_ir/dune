@@ -1,0 +1,14 @@
+; A typed WebAssembly (core 2.0 scalar subset) representation: value types,
+; numeric operations, a structural validator and a deterministic binary
+; encoder. Nothing here knows the Loop IR, so a second producer needs no
+; tensor or graph library. See the Wasm backend design doc in .ai/.
+;
+; Wrapped false with a [wasm_] prefix on every module, as [js_ast] is. Depends
+; on [err_trace] and [fmt] only, and is JS-reachable, so the integer rule
+; applies: every immediate that can reach 2^31 is an [int32]/[int64], and no
+; length or constant is ever held in a 63-bit [int] unchecked.
+
+(library
+ (name wasm_ir)
+ (wrapped false)
+ (libraries err_trace fmt))

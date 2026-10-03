@@ -7,6 +7,7 @@ module Disagreement = struct
     | Loop_only_failed of string
     | Missing_output of Tensor_id.t
     | Reference_only_failed of string
+    | Structured_sums of string
     | Unexpected_output of Tensor_id.t
     | Value_mismatch of Tensor_id.t
 
@@ -21,6 +22,7 @@ module Disagreement = struct
         Fmt.pf fmt "loop produced no output for %a" Tensor_id.pp id
     | Reference_only_failed kind ->
         Fmt.pf fmt "only the reference failed: %s" kind
+    | Structured_sums why -> Fmt.pf fmt "structured lowering: %s" why
     | Unexpected_output id ->
         Fmt.pf fmt "loop produced an extra output %a" Tensor_id.pp id
     | Value_mismatch id -> Fmt.pf fmt "%a differs bitwise" Tensor_id.pp id
@@ -176,6 +178,32 @@ let compare_executor ~reference (result : (_, Executor.error) Err.t) =
       compare_results (Err.payload reference) (Error e)
   | Ok outputs -> compare_results (Err.payload reference) (Ok outputs)
 
+(* Structured lowering must be the same program as the plain one once its sums
+   are expanded, and its sums must pass their own checks: every plan run through
+   this harness proves it for the plan's own sums. *)
+let structured_verdict plan =
+  match
+    ( Err.payload (Loop_lower.lower_structured plan),
+      Err.payload (Loop_lower.lower_unoptimized plan) )
+  with
+  | Ok structured, Ok plain -> (
+      if
+        (* [compare], not [<>]: a NaN constant is equal to itself here. *)
+        Stdlib.compare (Loop_sum.program structured) plain <> 0
+      then
+        Some
+          (Disagreement.Structured_sums
+             "the expanded program differs from the plain lowering")
+      else
+        match Err.payload (Loop_sum.check structured) with
+        | Ok () -> None
+        | Error e ->
+            Some
+              (Disagreement.Structured_sums (Fmt.str "%a" Loop_sum.pp_error e)))
+  | Error _, Error _ -> None
+  | Ok _, Error _ | Error _, Ok _ ->
+      Some (Disagreement.Structured_sums "only one lowering was refused")
+
 let run ?exec (plan : Fusion_plan.t) ~bind =
   let exec = match exec with Some _ -> exec | None -> !installed in
   match Err.payload (Loop_lower.lower plan) with
@@ -183,6 +211,24 @@ let run ?exec (plan : Fusion_plan.t) ~bind =
   | Ok program -> (
       let reference = Kernel_eval.run_plan plan ~bind in
       let verdict = compare ~reference ~loop:(Loop_interp.run program ~bind) in
+      let verdict =
+        match structured_verdict plan with
+        | Some d -> Disagree d
+        | None -> (
+            (* the optimized program's sums recover, and expand back to it *)
+            let recovered = Loop_sum.recover program in
+            match Err.payload (Loop_sum.check recovered) with
+            | Error e ->
+                Disagree
+                  (Disagreement.Structured_sums
+                     (Fmt.str "recovered: %a" Loop_sum.pp_error e))
+            | Ok () ->
+                if Stdlib.compare (Loop_sum.program recovered) program <> 0 then
+                  Disagree
+                    (Disagreement.Structured_sums
+                       "a recovered program does not expand to its source")
+                else verdict)
+      in
       match (verdict, exec) with
       | Disagree _, _ | _, None -> verdict
       | (Agree | Agree_on_failure _ | Refused _), Some exec -> (

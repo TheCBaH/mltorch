@@ -79,7 +79,9 @@ Changing any of these is a versioned change.
 ## Toolchain policy
 
 `gcc` (or `clang`), `-std=c11 -O2 -ffp-contract=off -fno-strict-aliasing -Wall
--Wextra -Werror`, linked with `-lm`. No fast-math. Every generated unit must
+-Wextra -Werror -Wno-psabi`, linked with `-lm` (`-Wno-psabi`: the vector idiom's
+32-byte types cross only `static inline` helpers, but gcc on x86 without AVX
+reports their ABI as a warning, which `-Werror` would make fatal). No fast-math. Every generated unit must
 compile warning-free at `-O0`, `-O2`, and under
 `-fsanitize=address,undefined -fno-sanitize-recover=all`. The host is checked at
 generation (64-bit little-endian, `sizeof(double) == 8`); a host that fails is
@@ -168,3 +170,13 @@ invocations), `edgenext_xx_small` (394), `efficientnet_b0` (583), `fastvit_sa12`
 evaluator did not finish in 20 minutes, so no comparison) and
 `vit_small_patch16_dinov3_qkvb` (not downloaded). CI runs the cram set plus
 `csatv2`; the rest are manual.
+
+## Binary32 kernels (pointer)
+
+The numeric contract above (binary64 carriers, `Round_f32` as a cast pair) is the
+`Reference_f64` policy and stays the default. Under `Simd_fp32_ordered` or
+`Simd_fp32_relaxed` a kernel the planner vectorizes is emitted in `float`
+(constants `f`-suffixed, `FLT_EVAL_METHOD == 0` asserted, float helpers,
+sixteen-lane `v16sf` vectors, `fmaf` multiply-adds, local arrays packed two to a
+scratch double); every other kernel is emitted exactly as before. See the fp32
+design record in this directory, and `loop_c_pt2 --numerics`.

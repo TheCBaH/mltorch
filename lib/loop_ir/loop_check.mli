@@ -15,6 +15,9 @@ module Disagreement : sig
     | Loop_only_failed of string
     | Missing_output of Tensor_id.t
     | Reference_only_failed of string
+    | Structured_sums of string
+        (** the structured lowering expanded to a different program than the
+            plain one, or one of its sums failed {!Loop_sum.check} *)
     | Unexpected_output of Tensor_id.t
     | Value_mismatch of Tensor_id.t
 

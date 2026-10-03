@@ -1,0 +1,8 @@
+; Native-only host side of the Wasm backend: runs the module [Loop_wasm] emits
+; under node as a subprocess. Kept apart from [loop_ir] because that library is
+; js_of_ocaml-reachable and must not depend on [unix]. Reuses the C host's
+; process, blob and buffer-binding helpers, which are not C-specific.
+
+(library
+ (name loop_wasm_exec)
+ (libraries err_trace fmt loop_c_exec loop_ir native unix wasm_ir))

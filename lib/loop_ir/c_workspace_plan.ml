@@ -15,8 +15,8 @@ type error =
 let pp_error ppf : [< error ] -> unit = function
   | `Config_unsupported c ->
       Format.fprintf ppf
-        "storage config %a: the C backend admits only separate layout with \
-         borrowed constants and inputs"
+        "storage config %a: the whole-model backends admit only separate \
+         layout with borrowed constants and inputs"
         S.Config.pp c
   | `Edge_unplaced id ->
       Format.fprintf ppf "t%d: no arena slot and no payload entry"

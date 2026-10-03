@@ -40,8 +40,12 @@ let layout (p : Loop_program.t) =
 
 let kernel_name = "kernel"
 
-let source p =
-  match Err.payload (Loop_c.kernel ~name:kernel_name p) with
+let source ?vector ?numerics ?precision ?fuse_reductions p =
+  match
+    Err.payload
+      (Loop_c.kernel ?vector ?numerics ?precision ?fuse_reductions
+         ~name:kernel_name p)
+  with
   | Error e -> Err.fail (`C_unsupported e)
   | Ok k ->
       let offsets, total = layout p in
@@ -95,6 +99,7 @@ let source p =
       Err.return (text, List.map string_of_int offsets)
 
 module Blob = C_blob
+module Payload_io = C_payload_io
 
 let memo : (string, string) Hashtbl.t = Hashtbl.create 16
 
@@ -162,12 +167,13 @@ let bind_buffers ~outputs (p : Loop_program.t) ~bind =
           Ok (Tensor_id.Map.add b.Loop_buffer.id (Loop_interp.allocate b) acc))
     (Ok Tensor_id.Map.empty) p.Loop_program.buffers
 
-let exec ?(outputs = fun _ -> None) (p : Loop_program.t) ~bind =
+let exec ?vector ?numerics ?precision ?fuse_reductions
+    ?(outputs = fun _ -> None) (p : Loop_program.t) ~bind =
   let result : (Tensor.packed Tensor_id.Map.t, error) result =
     let* text, _ =
       Result.map_error
         (fun e -> (e : [ `C_unsupported of Loop_c.error ] :> error))
-        (Err.payload (source p))
+        (Err.payload (source ?vector ?numerics ?precision ?fuse_reductions p))
     in
     let* exe = (compile text :> (string, error) result) in
     let* tensors =
@@ -252,9 +258,9 @@ let exec ?(outputs = fun _ -> None) (p : Loop_program.t) ~bind =
    emitter refuses it with a typed error. Here, and only here, a program refused
    for that reason is answered by the interpreter, so a shared fixture with a
    quantized operand stays comparable; any other refusal is a defect. *)
-let executor : Loop_check.Executor.t =
+let executor_with ?vector : Loop_check.Executor.t =
  fun p ~bind ->
-  match Err.payload (exec p ~bind) with
+  match Err.payload (exec ?vector p ~bind) with
   | Error (`C_unsupported (`Unsupported_format (_, ("i16" | "i8")))) -> (
       match Err.payload (Loop_interp.run p ~bind) with
       | Ok m -> Err.return m
@@ -265,3 +271,6 @@ let executor : Loop_check.Executor.t =
   | Error (`C_host m) -> Err.fail (`Js_exception ("C host: " ^ m))
   | Error (`C_unsupported u) ->
       Err.fail (`Js_exception (Fmt.str "C unsupported: %a" Loop_c.pp_error u))
+
+let executor = executor_with ?vector:None
+let executor_vector = executor_with ~vector:Loop_target.neon128

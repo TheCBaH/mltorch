@@ -1,0 +1,40 @@
+(** The verifier of a vector program: shape, types and the legality facts a
+    vector loop needs, checked from the program and never from emitted text. A
+    program that fails it is never given to a backend.
+
+    What it proves per vector loop: lanes at least two; constant bounds; every
+    temporary assigned before it is read; every access's stride equal to the
+    loop variable's coefficient in its offset; a splat independent of the loop
+    variable; no store through a broadcast; no buffer both stored and loaded
+    unless at the identical access. An inner loop's bounds and an index
+    temporary's value must not depend on the loop variable, and a temporary must
+    be assigned before it is read on every path (an inner loop's own assignments
+    do not count after it). That the vector body computes what the scalar loop
+    computes is the oracle's claim ({!Loop_vector_expand}), checked by running
+    both. *)
+
+module Reason : sig
+  type t =
+    | Bad_lanes of int
+    | Bad_parts of int
+    | Fused_term_not_a_product
+    | Index_assignment_depends_on_loop_variable
+    | Index_value_step_mismatch of { step : int; coefficient : int }
+    | Inner_bounds_depend_on_loop_variable
+    | Non_constant_bounds
+    | Offset_not_affine
+    | Reduction_too_short of { terms : int; lanes : int }
+    | Splat_depends_on_loop_variable
+    | Splat_loads_stored_buffer of Loop_buffer.t
+    | Store_through_broadcast
+    | Store_loaded_elsewhere of Loop_buffer.t
+    | Stores_overlap of Loop_buffer.t
+    | Stride_mismatch of { stride : int; coefficient : int }
+    | Temp_read_before_assigned of Loop_vector.Temp.t
+    | Unsupported_load_format of Loop_buffer.t
+end
+
+type error = [ `Vector_invalid of Reason.t ]
+
+val pp_error : Format.formatter -> [< error ] -> unit
+val program : Loop_vector.program -> (unit, error) Err.t

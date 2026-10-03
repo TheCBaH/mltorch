@@ -1,8 +1,8 @@
-.PHONY: c.pt2.bench c.pt2.exe c.pt2.run c.pt2.runtest c.pt2.san c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
+.PHONY: c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
-	expr_probe.deep-runtest expr_probe.runtest format inference inference-runa \
+	expr_probe.deep-runtest expr_probe.runtest format fp32.bench fp32.bench.wasm inference inference-runa \
 	inline-timing-report inline-timing-report-js js.build js.runtest \
 	jsoo.build jsoo.inline-runtest jsoo.pt2.download jsoo.pt2.run \
 	jsoo.pt2.runtest jsoo.pt2.vars jsoo.runtest loop.js.runtest \
@@ -19,7 +19,7 @@
 	arena.eval arena.eval.report arena.schedule.eval arena.schedule.eval.report pt2.json-model-support pt2.runtest pt2.vars runtest spike.runtest \
 	spike.setup tailcall.js-benchmark tailcall.runtest test \
 	verify.pristine visualizer.build visualizer.patch \
-	visualizer.submodule webapp.bridge-runtest webapp.browser-runtest \
+	visualizer.submodule wasm.browser.runtest wasm.c.pt2.run wasm.c.pt2.runtest wasm.jsoo.pt2.runtest wasm.jsoo.runtest wasm.pt2.bench wasm.pt2.exe wasm.pt2.perf wasm.pt2.run wasm.pt2.runtest wasm.simd.pt2.runtest wasm.runtest wasm.toolchain webapp.bridge-runtest webapp.browser-runtest \
 	webapp.build webapp.npm-install webapp.runtest webapp.serve
 all: build
 
@@ -914,16 +914,145 @@ loop.js.runtest:
 
 js.runtest: jsoo.runtest jsoo.inline-runtest melange.runtest loop.js.runtest
 
+# The Wasm backend (lib/wasm_ir, Loop_wasm): the op table and a structural
+# fixture executed under node, then every Loop_check fixture and the op sweep
+# run through the emitted module under node (test/loop_wasm). Needs node, so it
+# is outside `runtest`; MLTORCH_WASM enables the node-backed suites, and a
+# missing node fails them. The pure expect suites (module bytes and digests)
+# also run under js_of_ocaml here, so native and 32-bit-int output must agree.
+wasm.runtest: wasm.toolchain
+	MLTORCH_WASM=1 MLTORCH_WASI_SYSROOT="$(WASI_SYSROOT)" NO_COLOR=1 opam exec -- dune build --force \
+	  @test/wasm_ir/runtest @test/wasm_ir/runtest-js \
+	  @test/loop_wasm/runtest @test/loop_wasm_vector/runtest \
+	  @test/loop_ir/runtest-js
+
+# The wasm32 C library and compiler runtime the C-to-Wasm baseline links with:
+# the installed Clang and wasm-ld already target wasm32 but ship no libc, so
+# stock generated C stops at math.h. WASI_SYSROOT is the usr directory holding
+# include/wasm32-wasi and lib/wasm32-wasi: where the Debian packages wasi-libc
+# and libclang-rt-<N>-dev-wasm32 install (WASI_SYSROOT=/usr after an apt
+# install, as CI does), or where scripts/wasi-sysroot-userland.py unpacks them
+# without root. A missing library is an error, never a skip.
+WASI_SYSROOT ?= $(CURDIR)/.toolchains/wasi/root/usr
+
+wasm.toolchain:
+	@if [ ! -f "$(WASI_SYSROOT)/include/wasm32-wasi/math.h" ]; then \
+	  echo "wasm toolchain: no wasm32 libc under $(WASI_SYSROOT); unpacking it"; \
+	  python3 scripts/wasi-sysroot-userland.py .toolchains/wasi && \
+	  test -f "$(WASI_SYSROOT)/include/wasm32-wasi/math.h"; \
+	fi
+
+# The Wasm backend generated AND run inside the JavaScript build of the compiler
+# (js/loop_wasm_host): the in-process host's fixtures under node, the
+# promise-based preparation path, and the node-vs-jsoo agreement of the
+# generated module. wasm.jsoo.pt2.runtest runs one real model (JS_PT2_MODEL,
+# already downloaded for jsoo.pt2.runtest) through the JS build with --strict
+# and warm repeats on one instance, and requires the module it emitted to be
+# byte-identical (same digest) to the native compiler's.
+wasm.jsoo.runtest:
+	NO_COLOR=1 opam exec -- dune build @js/loop_wasm_host/test/runtest-js \
+	  @js/loop_wasm_host/test/wasm-jsoo-gate
+
+wasm.jsoo.pt2.runtest: jsoo.pt2.download
+	opam exec -- dune build js/jsoo/loop_wasm_pt2_js/loop_wasm_pt2_js.bc.js bin/loop_wasm_pt2.exe
+	cd $(JS_PT2_DIR) && \
+	  node $(CURDIR)/_build/default/js/jsoo/loop_wasm_pt2_js/loop_wasm_pt2_js.bc.js \
+	    $(JS_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt --strict --repeat=3 --samples=1 \
+	    | grep '^module identity' > $(CURDIR)/_build/wasm_jsoo.identity && \
+	  $(CURDIR)/$(WASM_PT2_EXE) $(JS_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt --reference --samples=1 \
+	    2>/dev/null | grep '^module identity' > $(CURDIR)/_build/wasm_native.identity
+	diff -u _build/wasm_native.identity _build/wasm_jsoo.identity
+	@echo "wasm jsoo: $(JS_PT2_MODEL) generated in JavaScript, byte-identical to the native module, ranking verified"
+
+# The Wasm backend in a real browser (Chromium via playwright): the fixtures
+# generated in the page by the JavaScript build of the compiler and compiled
+# through the promise API, a real model generated natively (loop_wasm_pt2
+# --export) and run in the page twice on one instance with a dirty workspace,
+# outputs byte-identical to node's, and the deployment limits (a CSP without
+# 'wasm-unsafe-eval' is a typed compile error). Needs the playwright browser
+# (`cd web && npm ci && npm run install:chromium`); in a container without
+# root, WASM_BROWSER_LD_LIBRARY_PATH names a directory of the browser's system
+# libraries, from `python3 web/scripts/chromium-userland-libs.py DIR`.
+WASM_BROWSER_LD_LIBRARY_PATH ?=
+
+wasm.browser.runtest: jsoo.pt2.download
+	opam exec -- dune build js/loop_wasm_host/test/browser_probe.bc.js bin/loop_wasm_pt2.exe
+	cd $(JS_PT2_DIR) && $(CURDIR)/$(WASM_PT2_EXE) $(JS_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt \
+	  --samples=1 --export=$(CURDIR)/_build/wasm_export
+	cd $(JS_PT2_DIR) && $(CURDIR)/$(WASM_PT2_EXE) $(JS_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt \
+	  --samples=1 --simd --export=$(CURDIR)/_build/wasm_export_simd
+	cd web && $(if $(WASM_BROWSER_LD_LIBRARY_PATH),LD_LIBRARY_PATH="$(WASM_BROWSER_LD_LIBRARY_PATH)") \
+	  PLAYWRIGHT_BROWSERS_PATH="$(abspath web/.playwright-browsers)" \
+	  node scripts/wasm-browser-check.mjs $(CURDIR)/_build/default/js/loop_wasm_host/test/browser_probe.bc.js \
+	  $(CURDIR)/_build/wasm_export $(CURDIR)/_build/wasm_export_simd
+
+# The whole-model Wasm backend (Loop_bundle_wasm, lib/loop_wasm_exec) on real
+# downloaded models, under node. wasm.pt2.runtest is the gate: every CI model
+# (the same set as c.pt2.runtest) through model_run with every graph output
+# bitwise equal to the per-node reference (--shadow), the release ranking
+# (--strict) and the workspace and outputs poisoned first so a read of stale
+# memory shows. There is no fallback in this backend, so a model that runs has
+# every scheduled invocation generated. wasm.pt2.run is fastvit_sa12 alone
+# (Region-authored ops; the reference alone is ~100s), manual. wasm.pt2.bench
+# runs the schedule repeatedly on one instance and reports the phases.
+WASM_PT2_EXE = _build/default/bin/loop_wasm_pt2.exe
+
+wasm.pt2.exe:
+	opam exec -- dune build bin/loop_wasm_pt2.exe
+
+wasm.pt2.runtest: wasm.pt2.exe
+	for m in $(PT2_MODELS_CRAM) csatv2; do \
+	  $(MAKE) pt2.download PT2_MODEL=$$m && \
+	  (cd $(PT2_DIR)/$$m && echo "== $$m" && $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --reference --strict --shadow --poison --samples=1) || exit 1; \
+	done
+
+wasm.simd.pt2.runtest: wasm.pt2.exe
+	for m in $(PT2_MODELS_CRAM) csatv2; do \
+	  $(MAKE) pt2.download PT2_MODEL=$$m && \
+	  (cd $(PT2_DIR)/$$m && echo "== $$m (simd)" && $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --reference --simd --strict --shadow --poison --samples=1) || exit 1; \
+	done
+
+# The same for the Wasm backend, under node: the default policy against the frozen
+# tolerance (see c.pt2.perf).
+wasm.pt2.perf: wasm.pt2.exe
+	for m in $(PT2_MODELS_CRAM) csatv2; do \
+	  $(MAKE) pt2.download PT2_MODEL=$$m && \
+	  (cd $(PT2_DIR)/$$m && echo "== $$m" && $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --strict --shadow-numeric --poison --samples=1) || exit 1; \
+	done
+
+wasm.pt2.run: wasm.pt2.exe
+	$(MAKE) pt2.download PT2_MODEL=fastvit_sa12
+	cd $(PT2_DIR)/fastvit_sa12 && $(CURDIR)/$(WASM_PT2_EXE) fastvit_sa12.pt2 inputs.pt expected.json outputs.pt --reference --strict --shadow --poison --samples=1
+
+wasm.pt2.bench: wasm.pt2.exe
+	for m in mobilenetv2_050 fastvit_sa12; do \
+	  $(MAKE) pt2.download PT2_MODEL=$$m && \
+	  (cd $(PT2_DIR)/$$m && echo "== $$m" && $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --samples=1 --bench=20) || exit 1; \
+	done
+
+# The baseline route: the C backend's unit compiled to Wasm (strict scalar
+# flags) over the same payload files, every output bitwise equal to the
+# per-node reference. Compare its phases with wasm.pt2.bench's.
+wasm.c.pt2.runtest: wasm.pt2.exe wasm.toolchain
+	for m in $(PT2_MODELS_CRAM) csatv2; do \
+	  $(MAKE) pt2.download PT2_MODEL=$$m && \
+	  (cd $(PT2_DIR)/$$m && echo "== $$m" && MLTORCH_WASI_SYSROOT="$(WASI_SYSROOT)" $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --via-c --strict --shadow --poison --samples=1 --bench=3) || exit 1; \
+	done
+
+wasm.c.pt2.run: wasm.pt2.exe wasm.toolchain
+	$(MAKE) pt2.download PT2_MODEL=fastvit_sa12
+	cd $(PT2_DIR)/fastvit_sa12 && MLTORCH_WASI_SYSROOT="$(WASI_SYSROOT)" $(CURDIR)/$(WASM_PT2_EXE) fastvit_sa12.pt2 inputs.pt expected.json outputs.pt --via-c --strict --shadow --poison --samples=1
+
 # The C backend's differential suites (test/loop_c) run under `runtest` at the
 # production flags. These re-run the same suites at -O0 and under the
 # sanitizers, which dune does not track: LOOP_C_CFLAGS replaces -O2, hence
 # --force. A missing compiler fails; it never skips.
 c.runtest.o0:
-	LOOP_C_CFLAGS="-O0" opam exec -- dune build @test/loop_c/runtest --force
+	LOOP_C_CFLAGS="-O0" opam exec -- dune build @test/loop_c/runtest @test/loop_c_vector/runtest --force
 
 c.runtest.san:
 	LOOP_C_CFLAGS="-O1 -fsanitize=address,undefined -fno-sanitize-recover=all" \
-	  opam exec -- dune build @test/loop_c/runtest --force
+	  opam exec -- dune build @test/loop_c/runtest @test/loop_c_vector/runtest --force
 
 c.runtest.all: c.runtest.o0 c.runtest.san
 
@@ -936,7 +1065,7 @@ c.runtest.all: c.runtest.o0 c.runtest.san
 # c.pt2.san re-runs both with the generated binary under ASan+UBSan, without
 # the reference.
 C_PT2_EXE = _build/default/bin/loop_c_pt2.exe
-C_PT2_SAN = --cc=gcc -std=c11 -O1 -fsanitize=address,undefined -fno-sanitize-recover=all -ffp-contract=off -fno-strict-aliasing -Wall -Wextra -Werror
+C_PT2_SAN = --cc=gcc -std=c11 -O1 -fsanitize=address,undefined -fno-sanitize-recover=all -ffp-contract=off -fno-strict-aliasing -Wall -Wextra -Werror -Wno-psabi
 
 c.pt2.exe:
 	opam exec -- dune build bin/loop_c_pt2.exe
@@ -948,12 +1077,38 @@ C_PT2_CI_MODELS = $(PT2_MODELS_CRAM) csatv2
 c.pt2.runtest: c.pt2.exe
 	for m in $(C_PT2_CI_MODELS); do \
 	  $(MAKE) pt2.download PT2_MODEL=$$m && \
-	  (cd $(PT2_DIR)/$$m && echo "== $$m" && $(CURDIR)/$(C_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --strict --shadow --poison --samples=1) || exit 1; \
+	  (cd $(PT2_DIR)/$$m && echo "== $$m" && $(CURDIR)/$(C_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --reference --strict --shadow --poison --samples=1) || exit 1; \
 	done
 
 c.pt2.run: c.pt2.exe
 	$(MAKE) pt2.download PT2_MODEL=fastvit_sa12
-	cd $(PT2_DIR)/fastvit_sa12 && $(CURDIR)/$(C_PT2_EXE) fastvit_sa12.pt2 inputs.pt expected.json outputs.pt --strict --shadow --poison --samples=1
+	cd $(PT2_DIR)/fastvit_sa12 && $(CURDIR)/$(C_PT2_EXE) fastvit_sa12.pt2 inputs.pt expected.json outputs.pt --reference --strict --shadow --poison --samples=1
+
+# The performance path (the default policy, simd_fp32_relaxed) on every CI model:
+# the release ranking, the workspace poisoned, and every graph output within the
+# frozen tolerance of the binary64 reference (--shadow-numeric: |actual - ref| <=
+# 1e-4 + 1e-4 |ref|, nonfinite cells matched by kind), with the per-precision
+# kernel coverage printed. The strict gates above stay bitwise on --reference.
+c.pt2.perf: c.pt2.exe
+	for m in $(C_PT2_CI_MODELS); do \
+	  $(MAKE) pt2.download PT2_MODEL=$$m && \
+	  (cd $(PT2_DIR)/$$m && echo "== $$m" && $(CURDIR)/$(C_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --strict --shadow-numeric --poison --samples=1) || exit 1; \
+	done
+
+# Binary64 against binary32 SIMD kernels on dense programs (native C): raw
+# samples as JSON lines on stdout, a table on stderr. Each result is verified
+# against the interpreter at its own precision, so a wrong answer fails the run
+# whatever it measured; --selftest also proves the check can fail.
+fp32.bench:
+	mkdir -p _build
+	opam exec -- dune exec bin/loop_fp32_bench.exe -- --selftest --json=$(CURDIR)/_build/fp32-bench-c.jsonl
+
+# The same programs through the direct Wasm backend under node: modules lowered for
+# standard SIMD (and relaxed SIMD where node validates it), instantiated once,
+# warmed past the engine's baseline tier, timed in nine batches inside node.
+fp32.bench.wasm:
+	mkdir -p _build
+	opam exec -- dune exec bin/loop_fp32_bench.exe -- --wasm --selftest --json=$(CURDIR)/_build/fp32-bench-wasm.jsonl
 
 # Phases of one run apart, then 20 warm repeats inside the binary (stderr).
 c.pt2.bench: c.pt2.exe

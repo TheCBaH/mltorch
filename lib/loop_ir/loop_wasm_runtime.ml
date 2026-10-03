@@ -1,0 +1,347 @@
+module I = Wasm.Instr
+
+module Callee = struct
+  type t =
+    | Ceil_div
+    | Cos
+    | Erf
+    | Erf_f32
+    | Exp
+    | F16_to_float
+    | Fail_set
+    | Fill_f32
+    | Floor_div
+    | I64_div
+    | Log
+    | Sin
+
+  let all =
+    [
+      Ceil_div;
+      Cos;
+      Erf;
+      Erf_f32;
+      Exp;
+      F16_to_float;
+      Fail_set;
+      Fill_f32;
+      Floor_div;
+      I64_div;
+      Log;
+      Sin;
+    ]
+
+  let index c =
+    let rec go i = function
+      | [] -> invalid_arg "Loop_wasm_runtime.Callee.index"
+      | c' :: rest -> if c = c' then i else go (i + 1) rest
+    in
+    go 0 all
+
+  let of_index i = List.nth all i
+
+  let name = function
+    | Ceil_div -> "ceil_div"
+    | Cos -> "cos"
+    | Erf -> "erf"
+    | Erf_f32 -> "erf_f32"
+    | Exp -> "exp"
+    | F16_to_float -> "f16_to_float"
+    | Fail_set -> "fail_set"
+    | Fill_f32 -> "fill_f32"
+    | Floor_div -> "floor_div"
+    | I64_div -> "i64_div"
+    | Log -> "log"
+    | Sin -> "sin"
+
+  (* The host's [Math] function a callee is bound to, for the four that are
+     imports; every other callee is a function defined in the module. *)
+  let import = function
+    | Cos -> Some "cos"
+    | Exp -> Some "exp"
+    | Log -> Some "log"
+    | Sin -> Some "sin"
+    | Ceil_div | Erf | Erf_f32 | F16_to_float | Fail_set | Fill_f32 | Floor_div
+    | I64_div ->
+        None
+
+  let deps = function
+    | Erf | Erf_f32 -> [ Exp ]
+    | Ceil_div | Cos | Exp | F16_to_float | Fail_set | Fill_f32 | Floor_div
+    | I64_div | Log | Sin ->
+        []
+end
+
+let import_module = "math"
+let call c = I.Call (Callee.index c)
+let f64 x = I.F64_const (Int64.bits_of_float x)
+let i32 n = I.I32_const (Int32.of_int n)
+let n op = I.Numeric op
+let get i = I.Local_get i
+let set i = I.Local_set i
+let ( ++ ) a b = a @ b
+let ft params results = { Wasm.Func_type.params; results }
+let wt_f64 = Wasm_type.F64
+let wt_f32 = Wasm_type.F32
+let wt_i32 = Wasm_type.I32
+let wt_i64 = Wasm_type.I64
+let arg3 offset = { Wasm.Mem_arg.align = 3; offset }
+let arg2 offset = { Wasm.Mem_arg.align = 2; offset }
+
+(* [fail_set kind]: the record's [kind], [invocation = -1] and every [v] slot
+   zero, as the C helper of the same name does. *)
+let fail_set =
+  {
+    Wasm.Func.type_ = ft [ wt_i32 ] [];
+    locals = [];
+    body =
+      [
+        i32 Loop_wasm_failure.kind_offset;
+        get 0;
+        I.Store (Wasm.Store.I32_store, arg2 Loop_wasm_failure.kind_offset);
+        i32 0;
+        i32 (-1);
+        I.Store (Wasm.Store.I32_store, arg2 Loop_wasm_failure.invocation_offset);
+      ]
+      @ List.concat_map
+          (fun k ->
+            [
+              i32 0;
+              I.I64_const 0L;
+              I.Store
+                (Wasm.Store.I64_store, arg3 (Loop_wasm_failure.slot_offset k));
+            ])
+          (List.init Loop_wasm_failure.error_words Fun.id);
+  }
+
+(* Division by a positive constant, rounding toward negative infinity
+   ([floor_div]) or positive infinity ([ceil_div]). Both are exact over the
+   whole [int32] range, which negating a numerator is not. *)
+let rounded_div ~floor =
+  let q = 2 in
+  {
+    Wasm.Func.type_ = ft [ wt_i32; wt_i32 ] [ wt_i32 ];
+    locals = [ wt_i32 ];
+    body =
+      [ get 0; get 1; n Wasm_op.I32_div_s; set q ]
+      @ [ get q; i32 (if floor then -1 else 1); n Wasm_op.I32_add; get q ]
+      @ [ get 0; get 1; n Wasm_op.I32_rem_s; i32 0 ]
+      @ [ n (if floor then Wasm_op.I32_lt_s else Wasm_op.I32_gt_s); I.Select ];
+  }
+
+(* Total, like the C helper: a [Fail_if] precedes every division, so neither
+   special case is reachable, and this one can never trap. *)
+let i64_div =
+  {
+    Wasm.Func.type_ = ft [ wt_i64; wt_i64 ] [ wt_i64 ];
+    locals = [];
+    body =
+      [
+        get 1;
+        n Wasm_op.I64_eqz;
+        I.If
+          ( Some wt_i64,
+            [ I.I64_const 0L ],
+            [
+              get 1;
+              I.I64_const (-1L);
+              n Wasm_op.I64_eq;
+              I.If
+                ( Some wt_i64,
+                  [ I.I64_const 0L; get 0; n Wasm_op.I64_sub ],
+                  [ get 0; get 1; n Wasm_op.I64_div_s ] );
+            ] );
+      ];
+  }
+
+(* [Half.Half.to_float], branch for branch. The scale [2^(exp - 25)] is built
+   from its exponent bits, so it is exact. *)
+let f16_to_float =
+  let sign = 1 and exp = 2 and mant = 3 and m = 4 in
+  let field shift mask =
+    [ get 0; i32 shift; n Wasm_op.I32_shr_u; i32 mask; n Wasm_op.I32_and ]
+  in
+  {
+    Wasm.Func.type_ = ft [ wt_i32 ] [ wt_f64 ];
+    locals = [ wt_i32; wt_i32; wt_i32; wt_f64 ];
+    body =
+      field 15 1
+      @ [ set sign ]
+      @ field 10 0x1f
+      @ [ set exp ]
+      @ field 0 0x3ff
+      @ [ set mant ]
+      @ [
+          get exp;
+          n Wasm_op.I32_eqz;
+          I.If
+            ( None,
+              [
+                get mant;
+                n Wasm_op.F64_convert_i32_u;
+                f64 (Float.ldexp 1. (-24));
+                n Wasm_op.F64_mul;
+                set m;
+              ],
+              [
+                get exp;
+                i32 0x1f;
+                n Wasm_op.I32_eq;
+                I.If
+                  ( None,
+                    [
+                      get mant;
+                      n Wasm_op.I32_eqz;
+                      I.If
+                        (Some wt_f64, [ f64 Float.infinity ], [ f64 Float.nan ]);
+                      set m;
+                    ],
+                    [
+                      get mant;
+                      i32 0x400;
+                      n Wasm_op.I32_or;
+                      n Wasm_op.F64_convert_i32_u;
+                      get exp;
+                      i32 998;
+                      n Wasm_op.I32_add;
+                      n Wasm_op.I64_extend_i32_u;
+                      I.I64_const 52L;
+                      n Wasm_op.I64_shl;
+                      n Wasm_op.F64_reinterpret_i64;
+                      n Wasm_op.F64_mul;
+                      set m;
+                    ] );
+              ] );
+          get sign;
+          I.If (Some wt_f64, [ get m; n Wasm_op.F64_neg ], [ get m ]);
+        ];
+  }
+
+(* [Value.erf_approx], operation for operation: the Abramowitz-Stegun
+   polynomial, whose only transcendental is its inner [exp]. *)
+let erf =
+  let ax = 1 and t = 2 and poly = 3 in
+  let ( * ) a b = a ++ b ++ [ n Wasm_op.F64_mul ] in
+  let ( + ) a b = a ++ b ++ [ n Wasm_op.F64_add ] in
+  let c x = [ f64 x ] in
+  let tv = [ get t ] in
+  let horner =
+    tv
+    * (c 0.254829592
+      + tv
+        * (c (-0.284496736)
+          + tv
+            * (c 1.421413741 + (tv * (c (-1.453152027) + (tv * c 1.061405429))))
+          ))
+  in
+  {
+    Wasm.Func.type_ = ft [ wt_f64 ] [ wt_f64 ];
+    locals = [ wt_f64; wt_f64; wt_f64 ];
+    body =
+      [ get 0; n Wasm_op.F64_abs; set ax ]
+      @ c 1.
+      @ (c 1. + (c 0.3275911 * [ get ax ]))
+      @ [ n Wasm_op.F64_div; set t ]
+      @ horner
+      @ [ set poly ]
+      @ [ get 0; f64 0.; n Wasm_op.F64_lt ]
+      @ [ I.If (Some wt_f64, [ f64 (-1.) ], [ f64 1. ]) ]
+      @ c 1.
+      @ [ get poly ]
+      @ [
+          get ax; n Wasm_op.F64_neg; get ax; n Wasm_op.F64_mul; call Callee.Exp;
+        ]
+      @ [ n Wasm_op.F64_mul; n Wasm_op.F64_sub; n Wasm_op.F64_mul ];
+  }
+
+(* [Loop_numerics.erf32], operation for operation: the same polynomial with a
+   rounding after every binary32 operation, and the inner [exp] the binary64
+   import on the widened argument, rounded once. Every constant is the binary32
+   value of the double the reference writes. *)
+let erf_f32 =
+  let x = 0 and ax = 1 and t = 2 and q = 3 and e = 4 in
+  let c v = I.F32_const (Int32.bits_of_float v) in
+  (* q <- a + q, and q <- t * q *)
+  let up a = [ c a; get q; n Wasm_op.F32_add; set q ] in
+  let mul_t = [ get t; get q; n Wasm_op.F32_mul; set q ] in
+  {
+    Wasm.Func.type_ = ft [ wt_f32 ] [ wt_f32 ];
+    locals = [ wt_f32; wt_f32; wt_f32; wt_f32 ];
+    body =
+      [ get x; n Wasm_op.F32_abs; set ax ]
+      (* t = 1 / (1 + p * ax) *)
+      @ [ c 1.; c 0.3275911; get ax; n Wasm_op.F32_mul ]
+      @ [ n Wasm_op.F32_add; set t ]
+      @ [ c 1.; get t; n Wasm_op.F32_div; set t ]
+      (* q = t * a5, then (a4 + q) * t down to (a1 + q) * t *)
+      @ [ get t; c 1.061405429; n Wasm_op.F32_mul; set q ]
+      @ up (-1.453152027) @ mul_t @ up 1.421413741 @ mul_t @ up (-0.284496736)
+      @ mul_t @ up 0.254829592 @ mul_t
+      (* e = exp (-(ax * ax)) *)
+      @ [ get ax; get ax; n Wasm_op.F32_mul; n Wasm_op.F32_neg ]
+      @ [ n Wasm_op.F64_promote_f32; call Callee.Exp; n Wasm_op.F32_demote_f64 ]
+      @ [ set e ]
+      (* sign * (1 - q * e) *)
+      @ [ get x; c 0.; n Wasm_op.F32_lt ]
+      @ [ I.If (Some wt_f32, [ c (-1.) ], [ c 1. ]) ]
+      @ [ c 1.; get q; get e; n Wasm_op.F32_mul; n Wasm_op.F32_sub ]
+      @ [ n Wasm_op.F32_mul ];
+  }
+
+(* [fill_f32 ptr count value]: [count] binary32 cells set to [value] rounded to
+   binary32, for a synthetic operand the graph does not supply. *)
+let fill_f32 =
+  let c = 3 in
+  {
+    Wasm.Func.type_ = ft [ wt_i32; wt_i32; wt_f64 ] [];
+    locals = [ wt_i32 ];
+    body =
+      [
+        I.Block
+          ( None,
+            [
+              I.Loop
+                ( None,
+                  [
+                    get c;
+                    get 1;
+                    n Wasm_op.I32_ge_u;
+                    I.Br_if 1;
+                    get 0;
+                    get c;
+                    i32 2;
+                    n Wasm_op.I32_shl;
+                    n Wasm_op.I32_add;
+                    get 2;
+                    n Wasm_op.F32_demote_f64;
+                    I.Store (Wasm.Store.F32_store, arg2 0);
+                    get c;
+                    i32 1;
+                    n Wasm_op.I32_add;
+                    set c;
+                    I.Br 0;
+                  ] );
+            ] );
+      ];
+  }
+
+let body : Callee.t -> Wasm.Func.t option = function
+  | Callee.Ceil_div -> Some (rounded_div ~floor:false)
+  | Callee.Erf -> Some erf
+  | Callee.Erf_f32 -> Some erf_f32
+  | Callee.F16_to_float -> Some f16_to_float
+  | Callee.Fail_set -> Some fail_set
+  | Callee.Fill_f32 -> Some fill_f32
+  | Callee.Floor_div -> Some (rounded_div ~floor:true)
+  | Callee.I64_div -> Some i64_div
+  | Callee.Cos | Callee.Exp | Callee.Log | Callee.Sin -> None
+
+let signature : Callee.t -> Wasm.Func_type.t = function
+  | Callee.Ceil_div | Callee.Floor_div -> ft [ wt_i32; wt_i32 ] [ wt_i32 ]
+  | Callee.Cos | Callee.Erf | Callee.Exp | Callee.Log | Callee.Sin ->
+      ft [ wt_f64 ] [ wt_f64 ]
+  | Callee.Erf_f32 -> ft [ wt_f32 ] [ wt_f32 ]
+  | Callee.F16_to_float -> ft [ wt_i32 ] [ wt_f64 ]
+  | Callee.Fail_set -> ft [ wt_i32 ] []
+  | Callee.Fill_f32 -> ft [ wt_i32; wt_i32; wt_f64 ] []
+  | Callee.I64_div -> ft [ wt_i64; wt_i64 ] [ wt_i64 ]

@@ -109,7 +109,8 @@ let rec collect_store_buffers (stmts : Loop_stmt.t list) acc =
       match stmt with
       | Loop_stmt.Store { buffer; _ } | Loop_stmt.Store_flat { buffer; _ } ->
           buffer :: acc
-      | Loop_stmt.For { body; _ } -> collect_store_buffers body acc
+      | Loop_stmt.For { body; _ } | Loop_stmt.Reduce_sum { body; _ } ->
+          collect_store_buffers body acc
       | Loop_stmt.If (_, a, b) ->
           collect_store_buffers b (collect_store_buffers a acc)
       | Loop_stmt.Alloc _ | Loop_stmt.Array_set _ | Loop_stmt.Assign _

@@ -7,15 +7,21 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Native on each architecture; the devcontainer action tags its image
+        # per architecture.
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
     steps:
     - name: git cache
       uses: actions/cache@v6
       with:
         path: .git
-        key: git-${{ runner.os }}-${{ github.ref_name }}
+        key: git-${{ runner.os }}-${{ runner.arch }}-${{ github.ref_name }}
         restore-keys: |
-          git-${{ runner.os }}-
+          git-${{ runner.os }}-${{ runner.arch }}-
     - name: checkout
       uses: actions/checkout@v7
       with:
@@ -64,10 +70,10 @@ jobs:
       uses: actions/cache@v6
       with:
         path: .ccache
-        key: ccache-${{ steps.cache_keys.outputs.month }}-${{ steps.cache_keys.outputs.pytorch }}-${{ hashFiles('lib/aten/**/*.cpp', 'lib/aten/**/*.h', 'lib/aten/build_archive.sh', 'lib/aten/gen_macros.sh', 'lib/aten/run_codegen.sh') }}
+        key: ccache-${{ runner.arch }}-${{ steps.cache_keys.outputs.month }}-${{ steps.cache_keys.outputs.pytorch }}-${{ hashFiles('lib/aten/**/*.cpp', 'lib/aten/**/*.h', 'lib/aten/build_archive.sh', 'lib/aten/gen_macros.sh', 'lib/aten/run_codegen.sh') }}
         restore-keys: |
-          ccache-${{ steps.cache_keys.outputs.month }}-${{ steps.cache_keys.outputs.pytorch }}-
-          ccache-${{ steps.cache_keys.outputs.month }}-
+          ccache-${{ runner.arch }}-${{ steps.cache_keys.outputs.month }}-${{ steps.cache_keys.outputs.pytorch }}-
+          ccache-${{ runner.arch }}-${{ steps.cache_keys.outputs.month }}-
     - name: build
       run: |
         mkdir -p .ccache
@@ -81,6 +87,17 @@ jobs:
     - name: benchmark region pixel
       run: |
         ${{ env.EXEC }} make benchmark.region_pixel
+    # Binary64 against binary32 SIMD kernels through the native C backend on the
+    # runner's CPU: every result verified against its oracle (a wrong answer fails
+    # the step, a slow one never does), the raw samples kept as an artifact.
+    - name: fp32 microbenchmark (native C)
+      run: |
+        ${{ env.EXEC }} make fp32.bench
+    - name: fp32 microbenchmark results
+      uses: actions/upload-artifact@v4
+      with:
+        name: fp32-bench-c-${{ runner.arch }}
+        path: _build/fp32-bench-c.jsonl
     # Model release .zips (12 MB-1.1 GB each; ~5.3 GB total across all 22
     # models exercised by `make inference`) are fetched from the
     # devcontainer.pytorch-image-models GitHub release (a public asset, so curl needs no

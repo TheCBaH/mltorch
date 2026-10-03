@@ -10,6 +10,7 @@ val stmts :
   f:(Loop_index.t -> Loop_index.t) -> Loop_stmt.t list -> Loop_stmt.t list
 
 val index : f:(Loop_index.t -> Loop_index.t) -> Loop_index.t -> Loop_index.t
+val expr : f:(Loop_index.t -> Loop_index.t) -> 'a Loop_expr.t -> 'a Loop_expr.t
 val pred : f:(Loop_index.t -> Loop_index.t) -> Loop_expr.pred -> Loop_expr.pred
 
 val stmt : f:(Loop_index.t -> Loop_index.t) -> Loop_stmt.t -> Loop_stmt.t
