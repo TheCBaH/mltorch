@@ -29,7 +29,7 @@ all: build
 # not a hand-authored subset -- so archive URLs/digests/required members and
 # retirement info all come from it instead of being re-typed here.
 PT2_MANIFEST_VERSION := 2
-PT2_RELEASE := v0.0.5
+PT2_RELEASE := v0.0.6
 PT2_REPO := TheCBaH/devcontainer.pytorch-image-models
 PT2_MODEL := mobilenetv2_050
 PT2_DIR := data/pt2-functional
