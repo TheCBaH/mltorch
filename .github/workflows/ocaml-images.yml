@@ -7,7 +7,12 @@ on:
 
 jobs:
   devcontainer:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Native builds: the action tags each image with its architecture.
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
     permissions:
       packages: write
     steps:

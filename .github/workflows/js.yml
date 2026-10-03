@@ -5,7 +5,7 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Four independent jobs so the backends verify in parallel rather than in
+# Four independent jobs (each on x86_64 and arm64 runners) so the backends verify in parallel rather than in
 # series behind each other, and so a melange failure names melange in the job
 # list instead of being buried in a combined log.
 #
@@ -39,7 +39,11 @@ on:
 
 jobs:
   jsoo:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
     steps:
     - name: checkout
       uses: actions/checkout@v7
@@ -163,7 +167,11 @@ jobs:
   # everything here; the browser half is in the `browser` job below. WASI_SYSROOT
   # is /usr: the image installs wasi-libc and libclang-rt-dev-wasm32 with apt.
   wasm:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
     steps:
     - name: checkout
       uses: actions/checkout@v7
@@ -201,7 +209,7 @@ jobs:
     - name: wasm fp32 microbenchmark results
       uses: actions/upload-artifact@v4
       with:
-        name: fp32-bench-wasm
+        name: fp32-bench-wasm-${{ runner.arch }}
         path: _build/fp32-bench-wasm.jsonl
     - name: cache keys
       id: cache_keys
@@ -249,7 +257,11 @@ jobs:
   # produces from it, which is the only check anywhere that our export is one
   # the real element accepts rather than one our own validator accepts.
   browser:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
     steps:
     - name: checkout
       uses: actions/checkout@v7
@@ -286,14 +298,14 @@ jobs:
       uses: actions/cache@v6
       with:
         path: web/node_modules
-        key: web-npm-${{ hashFiles('web/package-lock.json') }}
+        key: web-npm-${{ runner.arch }}-${{ hashFiles('web/package-lock.json') }}
     - name: playwright browser cache
       uses: actions/cache@v6
       with:
         # The browser is used from inside the devcontainer, so it must live in
         # the workspace rather than the runner user's home directory.
         path: web/.playwright-browsers
-        key: playwright-${{ hashFiles('web/package-lock.json') }}
+        key: playwright-${{ runner.arch }}-${{ hashFiles('web/package-lock.json') }}
     - name: build the renderer and install chromium
       run: |
         ${{ env.EXEC }} make spike.setup
@@ -315,7 +327,11 @@ jobs:
         ${{ env.EXEC }} make wasm.browser.runtest
 
   melange:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
     steps:
     - name: checkout
       uses: actions/checkout@v7
