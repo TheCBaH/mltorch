@@ -521,6 +521,9 @@ type error =
         is reused rather than restated, so this spelling and the nested
         [`Build (`Output_count_over_limit _)] carry the same payload. *)
   | `Provenance of Pt2_native_graph.error
+  | `Schedule of Arena_schedule_plan.error
+    (** The scheduler failed on a graph it should have accepted: a defect, not a
+        refusal. A refusal keeps the [`Arena] row it always had. *)
   | `Tensor_bridge of tensor_bridge
   | `Transform of Pass.error
   | `Unsupported_input of unsupported_input
@@ -544,6 +547,22 @@ val pp_tensor_bridge : Format.formatter -> [< tensor_bridge ] -> unit
 val lower : Pytorch_types.ExportedProgram.t -> (Pt2_native_graph.t, error) Err.t
 val lower_archive : Pt2_archive.t -> (Pt2_native_graph.t, error) Err.t
 
+(* Opt-in memory-aware reordering of the nodes a run executes. The graph is
+   scheduled once, after lowering (or, for {!evaluate}, after the transforms),
+   before any arena is planned; hooks, the arena plan and the run all use the
+   scheduled graph, so a plan is never paired with an order it was not built
+   for. Outputs are bit for bit those of the unscheduled run; hook order, and
+   which of several independent failures is reported first, may differ, which
+   is why it is off by default and why a custom [node_executor] must accept it.
+   With [?arena] or [?layout] the order is chosen by the allocated pool bytes
+   of checked placements and is never larger than the original's; without
+   either, by payload alone. [limits] bounds the search ({!Arena_schedule});
+   [report] receives the figures of the original and the chosen order. *)
+type schedule = Native_interp_exec.schedule = {
+  limits : Arena_schedule.Limits.t;
+  report : (Arena_schedule_plan.Summary.t -> unit) option;
+}
+
 (* Execute a one-user-input static graph.  Captured tensor payloads are loaded
    through the sidecar's [Tensor_id -> target] map, never through native IR.
 
@@ -562,6 +581,7 @@ val lower_archive : Pt2_archive.t -> (Pt2_native_graph.t, error) Err.t
 val run :
   ?arena:Arena.Admission.t ->
   ?layout:Storage_script.Layout.t ->
+  ?schedule:schedule ->
   ?on_arena:(Arena_run.Outcome.t -> unit) ->
   ?on_storage:(Storage_run.Report.t -> unit) ->
   ?hooks:hooks ->
@@ -697,6 +717,7 @@ type loaded = {
    edge simply has no archive path. *)
 val evaluate :
   ?arena:Arena.Admission.t ->
+  ?schedule:schedule ->
   ?on_arena:(Arena_run.Outcome.t -> unit) ->
   ?region_executor:Region_executor.t ->
   ?region_group_executor:Region_executor.group ->

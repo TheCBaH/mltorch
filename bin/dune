@@ -104,13 +104,15 @@
 ; strategy, its order search, the portfolio and the reference minimum, per
 ; normalized dialect and element kind. See `make arena.eval`.
 
-(executable
- (name arena_alloc_eval)
+(executables
+ (names arena_alloc_eval arena_schedule_eval)
  (modules
   arena_alloc_eval
   arena_eval_extract
   arena_eval_json
-  arena_eval_summary)
+  arena_eval_summary
+  arena_schedule_eval
+  arena_schedule_report)
  (libraries
   arena_eval
   cmdliner

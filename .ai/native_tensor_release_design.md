@@ -132,4 +132,7 @@ it has not been measured under node.
   itself; same hazard.
 - **Ordering for memory.** `g.nodes` is one topological order among many;
   choosing one that lowers `peak_bytes` is a separate problem that §5 makes
-  measurable.
+  measurable. The proposed
+  [memory-aware scheduling design](native_tensor_arena_schedule_design.md)
+  separates dependency order from storage readers, regenerates releases for
+  each order, and checks actual arena pool sizes before runtime acceptance.

@@ -771,3 +771,13 @@
  (deps (universe) %{exe:../bin/arena_alloc_eval.exe})
  (enabled_if
   (<> %{env:ARENA_EVAL_MODELS=} "")))
+
+; The memory-scheduling evaluation over the whole tracked model.json corpus:
+; pool bytes before and after, per model. Gated on ARENA_EVAL_MODELS (set by
+; `make arena.schedule.eval`) so plain runtest never pays for it.
+
+(cram
+ (applies_to arena_schedule_corpus_cram)
+ (deps (universe) %{exe:../bin/arena_schedule_eval.exe})
+ (enabled_if
+  (<> %{env:ARENA_EVAL_MODELS=} "")))
