@@ -41,7 +41,7 @@ let load_dense (tensor : Pt2_tensor.t) ~element_size ~read_cell ~materialize =
              Dim.to_int (Vec6.get coord axis) * stride)
            tensor.strides)
     in
-    let data_len = Bytes.length tensor.data in
+    let data_len = Pt2_storage.length tensor.data in
     (* Bound the WHOLE reachable index range once, in int64, before
        materializing. [storage_index] itself runs per element in plain int,
        where a product or sum of in-range factors can still overflow -- and
@@ -117,20 +117,20 @@ let tensor_of_pt2 (tensor : Pt2_tensor.t) =
   | Pt2_dtype.Float32 ->
       load_dense tensor ~element_size:4
         ~read_cell:(fun data offset ->
-          Int32.float_of_bits (Bytes.get_int32_le data offset))
+          Int32.float_of_bits (Pt2_storage.get_int32_le data offset))
         ~materialize:Tensor.materialize
   | Pt2_dtype.Float64 ->
       load_dense tensor ~element_size:8
         ~read_cell:(fun data offset ->
-          Int64.float_of_bits (Bytes.get_int64_le data offset))
+          Int64.float_of_bits (Pt2_storage.get_int64_le data offset))
         ~materialize:(Tensor.materialize_fmt (Payload.Fmt Payload.F64))
   | Pt2_dtype.Bool ->
       (* A nonzero byte reads as true; the stored payload is canonical 0/1. *)
       load_dense tensor ~element_size:1
-        ~read_cell:(fun data offset -> Bytes.get_uint8 data offset <> 0)
+        ~read_cell:(fun data offset -> Pt2_storage.get_uint8 data offset <> 0)
         ~materialize:Tensor.materialize_bool
   | Pt2_dtype.Int64 ->
       load_dense tensor ~element_size:8
-        ~read_cell:(fun data offset -> Bytes.get_int64_le data offset)
+        ~read_cell:(fun data offset -> Pt2_storage.get_int64_le data offset)
         ~materialize:Tensor.materialize_i64
   | dtype -> Err.fail (`Tensor_bridge (`Unsupported_dtype dtype))

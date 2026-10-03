@@ -74,7 +74,7 @@ let%expect_test "metadata: numel, contiguity, pp" =
       sizes = [ 2; 3 ];
       strides;
       storage_offset = 0;
-      data = Bytes.create (6 * 4);
+      data = Pt2_storage.of_string (String.make (6 * 4) '\000');
     }
   in
   let c = mk [ 3; 1 ]
@@ -268,7 +268,7 @@ let%expect_test "Pt2_tensor.numel rejects a product that overflows mid-fold" =
       sizes;
       strides = List.map (fun _ -> 1) sizes;
       storage_offset = 0;
-      data = Bytes.create 0;
+      data = Pt2_storage.empty;
     }
   in
   Printf.printf "wraps=%b overflows-int=%b ok=%b\n"
@@ -276,3 +276,34 @@ let%expect_test "Pt2_tensor.numel rejects a product that overflows mid-fold" =
     (raises_invalid_arg (fun () -> Pt2_tensor.numel (mk [ max_int; 2 ])))
     (Pt2_tensor.numel (mk [ 2; 3; 4 ]) = 24);
   [%expect {| wraps=true overflows-int=true ok=true |}]
+
+let%expect_test "storage: copy, little-endian reads, bounds" =
+  (* 11 bytes: one eight-byte word plus a three-byte tail. *)
+  let s = "\x01\x02\x03\x04\x05\x06\x07\x08\xfe\xff\x80" in
+  let b = Pt2_storage.of_string s in
+  Printf.printf "len=%d u8=%d,%d,%d\n" (Pt2_storage.length b)
+    (Pt2_storage.get_uint8 b 0)
+    (Pt2_storage.get_uint8 b 8)
+    (Pt2_storage.get_uint8 b 10);
+  Printf.printf "i32=%lx i64=%Lx i32@7=%lx\n"
+    (Pt2_storage.get_int32_le b 0)
+    (Pt2_storage.get_int64_le b 0)
+    (Pt2_storage.get_int32_le b 7);
+  let raises f =
+    try
+      ignore (f ());
+      false
+    with Invalid_argument _ -> true
+  in
+  Printf.printf "oob: i32@8=%b i64@4=%b u8@11=%b\n"
+    (raises (fun () -> Pt2_storage.get_int32_le b 8))
+    (raises (fun () -> Pt2_storage.get_int64_le b 4))
+    (raises (fun () -> Pt2_storage.get_uint8 b 11));
+  Printf.printf "empty=%d\n" (Pt2_storage.length (Pt2_storage.of_string ""));
+  [%expect
+    {|
+    len=11 u8=1,254,128
+    i32=4030201 i64=807060504030201 i32@7=80fffe08
+    oob: i32@8=true i64@4=true u8@11=true
+    empty=0
+    |}]

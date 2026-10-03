@@ -6,8 +6,17 @@ open Pytorch_types
 open Pytorch_weights_config
 open Err.Syntax
 
+(* Where the weight and constant bytes come from. A [.pt2] zip holds them as
+   members; a [Loader] supplies the storage of a captured tensor by its config
+   name, which is how a Hub safetensors checkpoint stands in for the zip (the
+   graph and the configs are then read from elsewhere, see
+   [Pt2_safetensors]). *)
+type payload =
+  | Loader of (string -> (Pt2_storage.t, string) result)
+  | Zip of Pt2_zip.t
+
 type t = {
-  zip : Pt2_zip.t;
+  payload : payload;
   program : ExportedProgram.t;
   weights : ModelWeightsConfig.t;
   constants : ModelWeightsConfig.t;
@@ -29,6 +38,7 @@ type error =
   | `Missing_captured_tensor of string
   | `Missing_weight of string
   | `Model_json_decode of string
+  | `Payload of string * string
   | `Pt_pickle of string * Pt2_pickle.error
   | `Read_archive_member of string * Pt2_zip.error
   | `Weight_tensor of string * Pt2_tensor.error
@@ -50,6 +60,8 @@ let pp_error ppf : error -> unit = function
   | `Missing_weight name -> Fmt.pf ppf "no weight named %S" name
   | `Model_json_decode msg ->
       Fmt.pf ppf "failed to decode models/model.json: %s" msg
+  | `Payload (name, msg) ->
+      Fmt.pf ppf "failed to load the payload of %S: %s" name msg
   | `Pt_pickle (path, error) ->
       Fmt.pf ppf "failed to decode tensor pickle %S: %a" path
         Pt2_pickle.pp_error error
@@ -165,7 +177,13 @@ let of_string ?limits ~name contents =
         Jsont_bytesrw.decode_string ModelWeightsConfig.jsont json
         |> Err.import ~pos:__POS__ (fun e -> `Constants_config_decode e)
   in
-  Err.return { zip; program; weights; constants }
+  Err.return { payload = Zip zip; program; weights; constants }
+
+(* An archive whose graph and configs were decoded elsewhere and whose tensor
+   bytes come from [load], called with the config name of each captured tensor.
+   [load]'s message is third-party text, hence the named [`Payload] row. *)
+let of_parts ~program ~weights ~constants ~load =
+  { payload = Loader load; program; weights; constants }
 
 let open_pt2 ?limits ?max_bytes path =
   let* contents = read_file ?max_bytes path in
@@ -183,8 +201,15 @@ let constant_names t =
   String_map.bindings t.constants.ModelWeightsConfig.config |> List.map fst
 
 let load_entry t ~dir name (e : WeightEntry.t) =
-  let* data = read_member t.zip (dir ^ "/" ^ e.path_name) in
-  Pt2_tensor.of_meta e.tensor_meta ~data:(Bytes.of_string data)
+  let* data =
+    match t.payload with
+    | Zip zip ->
+        let+ data = read_member zip (dir ^ "/" ^ e.path_name) in
+        Pt2_storage.of_string data
+    | Loader load ->
+        load name |> Err.import ~pos:__POS__ (fun m -> `Payload (name, m))
+  in
+  Pt2_tensor.of_meta e.tensor_meta ~data
   |> Err.map_error ~pos:__POS__ (fun error -> `Weight_tensor (name, error))
 
 (* Load a parameter/buffer by its config name (e.g. "conv1.weight"). *)
@@ -212,7 +237,7 @@ let tensor_of_rebuild zip rb =
       sizes = rb.Pt2_pickle.sizes;
       strides = rb.Pt2_pickle.strides;
       storage_offset = rb.Pt2_pickle.storage_offset;
-      data = Bytes.of_string data;
+      data = Pt2_storage.of_string data;
     }
 
 (* A standalone `.pt` tensor (the embedded sample input in a PT2 archive) is

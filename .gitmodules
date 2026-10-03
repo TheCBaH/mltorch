@@ -16,3 +16,9 @@
 [submodule "vendored/bytesrw"]
 	path = vendored/bytesrw
 	url = https://github.com/dbuenzli/bytesrw.git
+[submodule "vendored/ocaml-safetensors"]
+	path = vendored/ocaml-safetensors
+	url = https://github.com/TheCBaH/ocaml-safetensors.git
+[submodule "vendored/ocaml-hf-hub"]
+	path = vendored/ocaml-hf-hub
+	url = https://github.com/TheCBaH/ocaml-hf-hub.git

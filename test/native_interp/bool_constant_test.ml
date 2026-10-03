@@ -5,7 +5,8 @@
 
 let bool_tensor bytes =
   let data =
-    Bytes.init (List.length bytes) (fun i -> Char.chr (List.nth bytes i))
+    Pt2_storage.of_string
+      (String.init (List.length bytes) (fun i -> Char.chr (List.nth bytes i)))
   in
   Pt2_tensor.
     {

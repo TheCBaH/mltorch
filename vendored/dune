@@ -14,4 +14,15 @@
 ; kept out of @fmt/@all the same way the others above are, since none of its
 ; ~60 files are ours to reformat or build.
 
-(vendored_dirs ocaml-yamlt opickle ocaml-model-explorer bytesrw)
+; [ocaml-safetensors] and [ocaml-hf-hub] are standalone repos with their own
+; test suites, fixtures and JavaScript build scripts; only the libraries that
+; [lib/pt2_safetensors] depends on are built here. [ocaml-hf-hub] is the sans-IO
+; Hub downloader; [ocaml-safetensors] supplies the bigstring/mmap reader.
+
+(vendored_dirs
+ ocaml-hf-hub
+ ocaml-model-explorer
+ ocaml-safetensors
+ ocaml-yamlt
+ opickle
+ bytesrw)
