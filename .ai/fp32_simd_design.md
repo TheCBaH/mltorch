@@ -146,6 +146,14 @@ and 1x1-convolution shapes 2.0-2.9x ordered, the same relaxed; a 4096-term dot
 6.3x relaxed (error against binary64 6e-5, the sequential binary32 sum 6.7e-4).
 Pointwise loops are a loss for vector code in both precisions on this host.
 
+The same programs on direct Wasm (node 20, aarch64, `make fp32.bench.wasm`, against
+scalar binary64): 1x1-convolution, matvec and matmul shapes 7.0-8.4x with
+binary32 SIMD against 2.4-3.1x for strict binary64 SIMD; a 4096-term dot 6.4x
+relaxed (binary64 SIMD cannot vectorize it, 1.0x); pointwise 4.6x; weights in
+`[N, K]` layout 2.7x. Relaxed madd is within 5% of standard SIMD. The whole-model
+gains are smaller than these kernels' (1.3-1.45x) because most of a model's time is
+not in vectorized dense loops.
+
 Numerical acceptance, frozen from the table above and the sweeps: every graph
 output satisfies `|actual - reference| <= 1e-4 + 1e-4 |reference|`, nonfinite
 cells match by kind, ranking is the release's; observed worst normalized error
@@ -173,7 +181,7 @@ The reference path is the binary64 per-node evaluator.
 | `make runtest` | the unit suites: oracle, C corpus, op sweep, structured sums |
 | `make wasm.runtest` | the Wasm op table (173 ops against JS references, plus relaxed SIMD), the Wasm binary32 corpus under node |
 | `make jsoo.inline-runtest` | the same expect suites under node (the numerics, oracle and sums are js_of_ocaml-reachable) |
-| `make fp32.bench` | binary64 against binary32 dense kernels, raw samples as JSON, results verified at their own precision, `--selftest` proves the check can fail |
+| `make fp32.bench`, `make fp32.bench.wasm` | binary64 against binary32 dense kernels on native C and on direct Wasm under node, raw samples as JSON (`_build/fp32-bench-*.jsonl`, kept as CI artifacts), results verified at their own precision (the relaxed madd as the fused or unfused answer), `--selftest` proves the check can fail; the exit status never depends on timing |
 | `make c.pt2.perf`, `make wasm.pt2.perf` | the default policy on every CI model within the frozen tolerance, coverage printed |
 | `make c.pt2.runtest`, `make wasm.pt2.runtest` | the strict bitwise gates, on `--reference` |
 

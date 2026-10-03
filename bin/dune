@@ -220,4 +220,13 @@
 (executable
  (name loop_fp32_bench)
  (modules loop_fp32_bench)
- (libraries core err_trace expr loop_c_exec loop_ir native unix))
+ (libraries
+  core
+  err_trace
+  expr
+  loop_c_exec
+  loop_ir
+  loop_wasm_exec
+  native
+  unix
+  wasm_ir))

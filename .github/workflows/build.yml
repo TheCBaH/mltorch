@@ -81,6 +81,17 @@ jobs:
     - name: benchmark region pixel
       run: |
         ${{ env.EXEC }} make benchmark.region_pixel
+    # Binary64 against binary32 SIMD kernels through the native C backend on the
+    # runner's CPU: every result verified against its oracle (a wrong answer fails
+    # the step, a slow one never does), the raw samples kept as an artifact.
+    - name: fp32 microbenchmark (native C)
+      run: |
+        ${{ env.EXEC }} make fp32.bench
+    - name: fp32 microbenchmark results
+      uses: actions/upload-artifact@v4
+      with:
+        name: fp32-bench-c
+        path: _build/fp32-bench-c.jsonl
     # Model release .zips (12 MB-1.1 GB each; ~5.3 GB total across all 22
     # models exercised by `make inference`) are fetched from the
     # devcontainer.pytorch-image-models GitHub release (a public asset, so curl needs no

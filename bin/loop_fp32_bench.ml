@@ -1,5 +1,6 @@
-(* Native C benchmark of the working-precision configurations on dense kernels:
-   what binary32 SIMD buys over binary64, kernel by kernel.
+(* Benchmark of the working-precision configurations on dense kernels: what
+   binary32 SIMD buys over binary64, kernel by kernel, on native C (default) or on
+   direct Wasm under node ([--wasm]).
 
    Each program is hand-lowered Loop IR (matvec and matmul with weights in [K,N]
    order and independent output channels contiguous, and a pointwise kernel),
@@ -17,7 +18,17 @@
    it measured. [--selftest] corrupts one cell of one result and requires the
    verification to reject it.
 
-   Output is one JSON object per line on stdout; a table goes to stderr.
+   [--wasm] runs the same programs through the direct Wasm backend under node
+   instead: the module is lowered for [Loop_target.wasm128] (and, when node
+   validates the relaxed-simd probe, [wasm128_relaxed], whose multiply-add the
+   engine may fuse, so its result is checked as one of the two admissible
+   answers), instantiated once, warmed for at least 100 ms so the engine has
+   tiered up, then timed in the same nine batches inside node. The module's own
+   memory holds the buffers, so the timed region is the kernel alone.
+
+   Output is one JSON object per line on stdout (also written to FILE with
+   [--json=FILE], which CI keeps as an artifact); a table goes to stderr. The exit
+   status reflects verification only, never timing, so a noisy runner cannot fail it.
    Inputs come from a fixed LCG (seed 17) scaled into about [-1, 1]. Setup
    (code generation, compilation, packing) is outside the timed region. *)
 
@@ -160,7 +171,7 @@ module Config = struct
 
   let simd = Loop_target.with_inner_loops true Loop_target.neon128
 
-  let all =
+  let native =
     [
       {
         name = "f64_scalar";
@@ -193,7 +204,31 @@ module Config = struct
         vector = Some simd;
       };
     ]
+
+  (* The same five on [wasm128] (inner loops are on there already), and one for
+     relaxed SIMD where node validates its probe. *)
+  let wasm () =
+    let w = Loop_target.wasm128 in
+    List.map
+      (fun c -> if c.vector = None then c else { c with vector = Some w })
+      native
+    @
+    if Loop_wasm_exec.Node.supports Wasm_features.Relaxed_simd then
+      [
+        {
+          name = "fp32_relaxed_madd_simd";
+          numerics = Loop_numerics.Simd_fp32_relaxed;
+          precision = None;
+          vector = Some Loop_target.wasm128_relaxed;
+        };
+      ]
+    else []
+
+  let all backend = match backend with `C -> native | `Wasm -> wasm ()
 end
+
+let backend =
+  if Array.exists (String.equal "--wasm") Sys.argv then `Wasm else `C
 
 (* ---- inputs -------------------------------------------------------------- *)
 
@@ -307,7 +342,7 @@ type run = {
 
 let ( let* ) = Result.bind
 
-let execute (b : Bench.t) (c : Config.t) =
+let execute_c (b : Bench.t) (c : Config.t) =
   let p = b.Bench.program in
   let* k =
     Result.map_error
@@ -389,10 +424,140 @@ let execute (b : Bench.t) (c : Config.t) =
               outputs;
             })
 
+(* ---- the Wasm route -------------------------------------------------------- *)
+
+(* Instantiates the module once, warms it for 100 ms (so V8 has tiered up past its
+   baseline compiler), then times [reps] calls nine times. Writes
+   [status, samples, blob]. *)
+let wasm_runner =
+  {|const fs = require("fs");
+const [wasmPath, inPath, outPath, heapBase, total, localBase, reps, ...offsets] = process.argv.slice(2);
+const inst = new WebAssembly.Instance(new WebAssembly.Module(fs.readFileSync(wasmPath)),
+  { math: { exp: Math.exp, log: Math.log, sin: Math.sin, cos: Math.cos } });
+const mem = inst.exports.memory.buffer;
+const base = Number(heapBase), size = Number(total), local = Number(localBase), n = Number(reps);
+new Uint8Array(mem).fill(0xAB, local, base);
+new Uint8Array(mem).set(fs.readFileSync(inPath), base);
+const ptrs = offsets.map((o) => base + Number(o));
+const call = () => inst.exports.loop_kernel(local, ...ptrs);
+let rc = call();
+const t0 = performance.now();
+while (performance.now() - t0 < 100) for (let i = 0; i < 4; i++) rc = rc || call();
+const samples = [];
+for (let s = 0; s < 9; s++) {
+  const t = performance.now();
+  for (let r = 0; r < n; r++) rc = rc || call();
+  samples.push(performance.now() - t);
+}
+const out = Buffer.alloc(4 + 8 * 9 + size);
+out.writeInt32LE(rc, 0);
+samples.forEach((x, i) => out.writeDoubleLE(x, 4 + 8 * i));
+out.set(new Uint8Array(mem, base, size), 4 + 8 * 9);
+fs.writeFileSync(outPath, out);
+|}
+
+let execute_wasm (b : Bench.t) (c : Config.t) =
+  let p = b.Bench.program in
+  let* lowered =
+    Result.map_error
+      (fun e -> Fmt.str "%s: %a" c.Config.name Loop_wasm.pp_error e)
+      (Err.payload
+         (Loop_wasm.lower ?vector:c.Config.vector ~numerics:c.Config.numerics
+            ?precision:c.Config.precision p))
+  in
+  let* tensors =
+    Result.map_error
+      (fun _ -> "binding failed")
+      (Loop_c_exec.bind_buffers ~outputs:(fun _ -> None) p ~bind:(bind p))
+  in
+  let offsets, total = Loop_c_exec.layout p in
+  let heap_base = lowered.Loop_wasm.heap_base in
+  let pages = max 1 ((heap_base + total + 65535) / 65536) in
+  let* wasm =
+    Result.map_error
+      (fun (`Wasm_invalid i) ->
+        Fmt.str "%a" Wasm_check.pp_error (`Wasm_invalid i))
+      (Err.payload (Wasm_encode.module_ (Loop_wasm.with_pages lowered ~pages)))
+  in
+  let features = Wasm_features.of_module lowered.Loop_wasm.module_ in
+  let dir = Loop_c_exec.Proc.temp_dir "loop_fp32_bench_wasm" in
+  Fun.protect
+    ~finally:(fun () -> Loop_c_exec.Proc.remove_tree dir)
+    (fun () ->
+      let module_file = Filename.concat dir "k.wasm"
+      and blob = Filename.concat dir "in.bin"
+      and result = Filename.concat dir "out.bin"
+      and runner = Filename.concat dir "runner.js" in
+      Loop_c_exec.Proc.write_file module_file wasm;
+      Loop_c_exec.Proc.write_file runner wasm_runner;
+      let fd = Unix.openfile blob [ Unix.O_RDWR; Unix.O_CREAT ] 0o600 in
+      Unix.ftruncate fd (max total 1);
+      List.iter2
+        (fun (buf : Loop_buffer.t) off ->
+          if buf.Loop_buffer.role = Loop_buffer.Input then
+            Loop_c_exec.Blob.copy `In fd off
+              (Tensor_id.Map.find buf.Loop_buffer.id tensors))
+        p.Loop_program.buffers offsets;
+      Unix.close fd;
+      let argv =
+        Loop_wasm_exec.Node.command features
+        @ [
+            runner;
+            module_file;
+            blob;
+            result;
+            string_of_int heap_base;
+            string_of_int total;
+            string_of_int lowered.Loop_wasm.local_base;
+            string_of_int b.Bench.reps;
+          ]
+        @ List.map string_of_int offsets
+      in
+      let* st, log = Loop_c_exec.Proc.run argv in
+      if st <> Loop_c_exec.Proc.Exited 0 then Error ("node failed: " ^ log)
+      else
+        let s = Loop_c_exec.Proc.read_file result in
+        if Int32.to_int (String.get_int32_le s 0) <> 0 then
+          Error "the kernel reported a failure"
+        else
+          let samples_ms =
+            Array.init samples (fun i ->
+                Int64.float_of_bits (String.get_int64_le s (4 + (i * 8))))
+          in
+          let header = 4 + (8 * samples) in
+          let fd = Unix.openfile result [ Unix.O_RDWR ] 0o600 in
+          List.iter2
+            (fun (buf : Loop_buffer.t) off ->
+              if buf.Loop_buffer.role = Loop_buffer.Output then
+                Loop_c_exec.Blob.copy `Out fd (header + off)
+                  (Tensor_id.Map.find buf.Loop_buffer.id tensors))
+            p.Loop_program.buffers offsets;
+          Unix.close fd;
+          let outputs =
+            List.fold_left
+              (fun acc (buf : Loop_buffer.t) ->
+                if buf.Loop_buffer.role = Loop_buffer.Output then
+                  Tensor_id.Map.add buf.Loop_buffer.id
+                    (Tensor_id.Map.find buf.Loop_buffer.id tensors)
+                    acc
+                else acc)
+              Tensor_id.Map.empty p.Loop_program.buffers
+          in
+          Ok
+            {
+              precision = lowered.Loop_wasm.precision;
+              source_bytes = String.length wasm;
+              samples_ms;
+              outputs;
+            })
+
+let execute b c =
+  match backend with `C -> execute_c b c | `Wasm -> execute_wasm b c
+
 (* ---- verification (independent of timing) -------------------------------- *)
 
-let interp ?precision p =
-  match Err.payload (Loop_interp.run ?precision p ~bind:(bind p)) with
+let interp ?precision ?fused p =
+  match Err.payload (Loop_interp.run ?precision ?fused p ~bind:(bind p)) with
   | Ok m -> m
   | Error e -> Fmt.failwith "interpreter: %a" Loop_interp.pp_error e
 
@@ -436,7 +601,13 @@ let json_floats a =
   ^ String.concat "," (Array.to_list (Array.map (Printf.sprintf "%.4f") a))
   ^ "]"
 
-let compiler_text () = String.concat " " !Loop_c_exec.compiler
+let compiler_text () =
+  match backend with
+  | `C -> String.concat " " !Loop_c_exec.compiler
+  | `Wasm -> (
+      match Loop_c_exec.Proc.run (!Loop_wasm_exec.node @ [ "--version" ]) with
+      | Ok (_, v) -> "node " ^ String.trim v
+      | Error _ -> "node")
 
 let () =
   let selftest = Array.exists (String.equal "--selftest") Sys.argv in
@@ -475,7 +646,21 @@ let () =
                 interp ~precision:plan.Loop_plan.precision
                   (Loop_plan.oracle plan p)
               in
-              let exact = equal_outputs expected r.outputs in
+              (* A relaxed multiply-add is the fused or the unfused answer at the
+                 engine's choice: either whole-kernel oracle is admissible. *)
+              let relaxed_madd =
+                match c.Config.vector with
+                | Some t -> (Loop_target.f32 t).Loop_target.relaxed_madd
+                | None -> false
+              in
+              let exact =
+                equal_outputs expected r.outputs
+                || relaxed_madd
+                   && equal_outputs
+                        (interp ~precision:plan.Loop_plan.precision ~fused:false
+                           (Loop_plan.oracle plan p))
+                        r.outputs
+              in
               let rejects_corrupt =
                 not (equal_outputs expected (corrupt r.outputs))
               in
@@ -494,16 +679,26 @@ let () =
                 (if exact then "" else "  WRONG");
               results :=
                 Printf.sprintf
-                  "{\"program\":%S,\"config\":%S,\"precision\":%S,\"reps\":%d,\"samples_ms\":%s,\"median_ms\":%.4f,\"exact_vs_oracle\":%b,\"rejects_corruption\":%b,\"max_abs_vs_f64\":%g,\"max_rel_vs_f64\":%g,\"source_bytes\":%d,\"compiler\":%S}"
+                  "{\"backend\":%S,\"program\":%S,\"config\":%S,\"precision\":%S,\"reps\":%d,\"samples_ms\":%s,\"median_ms\":%.4f,\"exact_vs_oracle\":%b,\"rejects_corruption\":%b,\"max_abs_vs_f64\":%g,\"max_rel_vs_f64\":%g,\"source_bytes\":%d,\"compiler\":%S}"
+                  (match backend with `C -> "c" | `Wasm -> "wasm")
                   b.Bench.name c.Config.name
                   (Loop_numerics.Precision.name r.precision)
                   b.Bench.reps (json_floats r.samples_ms) m exact
                   rejects_corrupt max_abs max_rel r.source_bytes
                   (compiler_text ())
                 :: !results)
-        Config.all)
+        (Config.all backend))
     benches;
   List.iter print_endline (List.rev !results);
+  Array.iter
+    (fun a ->
+      let prefix = "--json=" in
+      if String.starts_with ~prefix a then
+        Loop_c_exec.Proc.write_file
+          (String.sub a (String.length prefix)
+             (String.length a - String.length prefix))
+          (String.concat "\n" (List.rev !results) ^ "\n"))
+    Sys.argv;
   if !failures > 0 then (
     Printf.eprintf "loop_fp32_bench: %d verification failure(s)\n%!" !failures;
     exit 1)

@@ -312,6 +312,7 @@ design record.
 
 ```sh
 make fp32.bench      # binary64 vs binary32 dense kernels (native C), results verified, --selftest
+make fp32.bench.wasm # the same through direct Wasm under node (CI runs both and keeps the samples)
 make c.pt2.perf      # default (performance) policy on every CI model, within the frozen tolerance
 make wasm.pt2.perf   # the same under node
 ```

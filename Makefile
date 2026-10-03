@@ -2,7 +2,7 @@
 	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
-	expr_probe.deep-runtest expr_probe.runtest format fp32.bench inference inference-runa \
+	expr_probe.deep-runtest expr_probe.runtest format fp32.bench fp32.bench.wasm inference inference-runa \
 	inline-timing-report inline-timing-report-js js.build js.runtest \
 	jsoo.build jsoo.inline-runtest jsoo.pt2.download jsoo.pt2.run \
 	jsoo.pt2.runtest jsoo.pt2.vars jsoo.runtest loop.js.runtest \
@@ -1100,7 +1100,15 @@ c.pt2.perf: c.pt2.exe
 # against the interpreter at its own precision, so a wrong answer fails the run
 # whatever it measured; --selftest also proves the check can fail.
 fp32.bench:
-	opam exec -- dune exec bin/loop_fp32_bench.exe -- --selftest
+	mkdir -p _build
+	opam exec -- dune exec bin/loop_fp32_bench.exe -- --selftest --json=$(CURDIR)/_build/fp32-bench-c.jsonl
+
+# The same programs through the direct Wasm backend under node: modules lowered for
+# standard SIMD (and relaxed SIMD where node validates it), instantiated once,
+# warmed past the engine's baseline tier, timed in nine batches inside node.
+fp32.bench.wasm:
+	mkdir -p _build
+	opam exec -- dune exec bin/loop_fp32_bench.exe -- --wasm --selftest --json=$(CURDIR)/_build/fp32-bench-wasm.jsonl
 
 # Phases of one run apart, then 20 warm repeats inside the binary (stderr).
 c.pt2.bench: c.pt2.exe
