@@ -39,11 +39,11 @@ mutate "Round_f32 dropped" \
 mutate "bounds check signed" \
   'int_const st extent; n Wasm_op.I32_ge_u' 'int_const st extent; n Wasm_op.I32_ge_s'
 mutate "Float_max as min" \
-  'a @ b @ \[ n Wasm_op.F64_max \]' 'a @ b @ [ n Wasm_op.F64_min ]'
+  'else Wasm_op.F64_max' 'else Wasm_op.F64_min'
 mutate "quantization zero point off by one" \
   'f64 (float_of_int zero);' 'f64 (float_of_int (zero + 1));'
 mutate "Pool_better wins ties (greater-or-equal)" \
-  'n Wasm_op.F64_gt;' 'n Wasm_op.F64_ge;'
+  'else (Wasm_op.F64_gt, Wasm_op.F64_ne)' 'else (Wasm_op.F64_ge, Wasm_op.F64_ne)'
 mutate "I64 add lowered as sub" \
   'Expr.Value.I64_add -> a @ b @ \[ n Wasm_op.I64_add \]' 'Expr.Value.I64_add -> a @ b @ [ n Wasm_op.I64_sub ]'
 
