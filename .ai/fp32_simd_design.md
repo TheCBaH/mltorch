@@ -160,6 +160,44 @@ cells match by kind, ranking is the release's; observed worst normalized error
 (max abs over the output's scale) is 1.9e-6 and worst absolute error 2.8e-5.
 The reference path is the binary64 per-node evaluator.
 
+## Register blocking over rows
+
+`Loop_block` unroll-and-jams a scalar loop with constant bounds that directly
+holds a vector loop whose body carries an accumulator (a dense kernel: rows
+around output channels around a sum). `Loop_target.row_block` rows run in one
+vector iteration; an inner loop all rows have becomes one loop whose body holds
+each row's statements in turn, so the rows' multiply-add chains overlap and a
+load they share is issued once. Rows left over run unblocked. Each output cell
+keeps its own operation order, so the pass is legal under every policy and the
+blocked kernel is bitwise the unblocked one (tested: C and Wasm equal the plan's
+oracle, and the blocked oracle equals the unblocked plan's).
+
+Independence of the rows is proved, not assumed: the blocked vector loop goes
+through `Loop_vector_check`, whose store rules now accept two accesses to one
+buffer when they have the same stride and offsets differing by a constant `d`
+with `d` not a multiple of the stride within the iteration count (their cells
+never meet; an offset mentioning an inner loop's variable is not proved). Rows
+whose stores overlap fail it and the loop stays as it was (a test turns red when
+that proof is weakened).
+
+Measured, aarch64 NEON, default relaxed policy: a 196x96x96 pointwise convolution
+2.9 -> 0.96 ms, a 16-row matmul 3.1x, a convolution in `[N,K]` weight layout
+1.3-1.4x; whole models (two rows, native C) 28.2 -> 25.4 ms (mobilenetv2_050),
+7.3 -> 6.8 (mobilenetv3_small_050), 55 -> 48 (regnetx_002); two and four rows are
+equal on models. `neon128` blocks two rows. `wasm128` plans none: dense kernels
+gain about 20% under V8 (`make fp32.bench.wasm`, `--row-block=N` on the model
+runners) but whole models did not move, so the default stays off.
+
+Two measured limits. First, GCC's SLP vectorizer, given sixteen scalar `fmaf`
+per `v16sf`, stops vectorizing once several accumulators are live (four rows of a
+96x96 shape fell to scalar code, 3x slower); a NEON `vfmaq_f32` per quarter
+through a union fixed a micro kernel but made whole models 1.4x slower, so
+`vs_fma` is unchanged. Second, the headroom this leaves is in the C vector type
+itself: a hand-written matmul on native `float32x4_t` quarters runs 17 GMAC/s
+unblocked and about 50 blocked, against 5 and 8 for generic 64-byte vectors, so
+representing the sixteen lanes as four native vectors in the emitted C is the
+next lever (not done: it touches every vector helper and operator).
+
 ## Decisions taken on measurement
 
 - Sixteen lanes; unfused sum accumulates; contraction on.
@@ -187,7 +225,7 @@ The reference path is the binary64 per-node evaluator.
 
 `loop_c_pt2` and `loop_wasm_pt2` default to the performance path; `--reference`
 selects the binary64 scalar reference, `--numerics=NAME` any policy,
-`--shadow-numeric` the tolerance check, and `--shadow` (bitwise) is refused for a
+`--shadow-numeric` the tolerance check, `--row-block=N` the rows per blocked iteration, and `--shadow` (bitwise) is refused for a
 binary32 policy.
 
 ## Limits

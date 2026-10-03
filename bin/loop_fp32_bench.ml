@@ -203,6 +203,12 @@ module Config = struct
         precision = None;
         vector = Some simd;
       };
+      {
+        name = "fp32_relaxed_unblocked";
+        numerics = Loop_numerics.Simd_fp32_relaxed;
+        precision = None;
+        vector = Some (Loop_target.with_row_block 1 simd);
+      };
     ]
 
   (* The same five on [wasm128] (inner loops are on there already), and one for
@@ -210,7 +216,12 @@ module Config = struct
   let wasm () =
     let w = Loop_target.wasm128 in
     List.map
-      (fun c -> if c.vector = None then c else { c with vector = Some w })
+      (fun c ->
+        match c.vector with
+        | None -> c
+        | Some v ->
+            let rows = v.Loop_target.row_block in
+            { c with vector = Some (Loop_target.with_row_block rows w) })
       native
     @
     if Loop_wasm_exec.Node.supports Wasm_features.Relaxed_simd then
@@ -676,16 +687,20 @@ let () =
                 m
                 (m /. float_of_int b.Bench.reps *. 1000.)
                 (!f64_median /. m) max_abs
-                (if exact then "" else "  WRONG");
+                ((if exact then "" else "  WRONG")
+                ^
+                if plan.Loop_plan.blocked > 0 then
+                  Printf.sprintf "  blocked %d" plan.Loop_plan.blocked
+                else "");
               results :=
                 Printf.sprintf
-                  "{\"backend\":%S,\"program\":%S,\"config\":%S,\"precision\":%S,\"reps\":%d,\"samples_ms\":%s,\"median_ms\":%.4f,\"exact_vs_oracle\":%b,\"rejects_corruption\":%b,\"max_abs_vs_f64\":%g,\"max_rel_vs_f64\":%g,\"source_bytes\":%d,\"compiler\":%S}"
+                  "{\"backend\":%S,\"program\":%S,\"config\":%S,\"precision\":%S,\"reps\":%d,\"samples_ms\":%s,\"median_ms\":%.4f,\"exact_vs_oracle\":%b,\"rejects_corruption\":%b,\"max_abs_vs_f64\":%g,\"max_rel_vs_f64\":%g,\"blocked\":%d,\"source_bytes\":%d,\"compiler\":%S}"
                   (match backend with `C -> "c" | `Wasm -> "wasm")
                   b.Bench.name c.Config.name
                   (Loop_numerics.Precision.name r.precision)
                   b.Bench.reps (json_floats r.samples_ms) m exact
-                  rejects_corrupt max_abs max_rel r.source_bytes
-                  (compiler_text ())
+                  rejects_corrupt max_abs max_rel plan.Loop_plan.blocked
+                  r.source_bytes (compiler_text ())
                 :: !results)
         (Config.all backend))
     benches;

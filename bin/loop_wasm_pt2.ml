@@ -355,6 +355,7 @@ let () =
     else None
   in
   let numerics, argv = valued "--numerics=" argv in
+  let row_block, argv = valued "--row-block=" argv in
   (* The default is the performance path: binary32 kernels where the planner
      vectorizes, scheduled sums ([simd_fp32_relaxed]), 128-bit SIMD when node
      validates its probe. [--reference] (and the C-compiled [--via-c] route, which
@@ -388,6 +389,11 @@ let () =
            standard SIMD";
         Loop_target.wasm128)
     else Loop_target.wasm128
+  in
+  let base =
+    match row_block with
+    | Some n -> Loop_target.with_row_block (int_of_string n) base
+    | None -> base
   in
   let vector =
     if not wants_simd then None

@@ -87,6 +87,7 @@ type t = {
   inner_loops : bool;
   fma : bool;
   relaxed_madd : bool;
+  row_block : int;
   support : Op.t -> support;
   cost : Op.t -> float;
   at : Loop_numerics.Precision.t -> t;
@@ -134,8 +135,8 @@ let expansion_overhead = 1.
    scalar binary64 on a dense matvec and sixteen 2.9x (see the fp32 design
    record). *)
 let rec make ?(inner_loops = fun _ -> true) ?(fma = false)
-    ?(relaxed_madd = false) ~name ~vector_bits ~f64_lanes ~f32_lanes ~native
-    ~native_cost precision =
+    ?(relaxed_madd = false) ?(row_block = 1) ~name ~vector_bits ~f64_lanes
+    ~f32_lanes ~native ~native_cost precision =
   let lanes =
     match precision with
     | Loop_numerics.Precision.F32 -> f32_lanes
@@ -161,11 +162,12 @@ let rec make ?(inner_loops = fun _ -> true) ?(fma = false)
     inner_loops = inner_loops precision;
     fma;
     relaxed_madd;
+    row_block;
     support;
     cost;
     at =
       (fun p ->
-        make ~inner_loops ~fma ~relaxed_madd
+        make ~inner_loops ~fma ~relaxed_madd ~row_block
           ~name:
             (match precision with
             | Loop_numerics.Precision.F32 ->
@@ -232,7 +234,8 @@ let neon128 =
     ~inner_loops:(function
       | Loop_numerics.Precision.F32 -> true
       | Loop_numerics.Precision.F64 -> false)
-    ~fma:true ~name:"neon128" ~vector_bits ~f64_lanes:4 ~f32_lanes:16 ~native
+    ~fma:true ~row_block:2 ~name:"neon128" ~vector_bits ~f64_lanes:4
+    ~f32_lanes:16 ~native
     ~native_cost:(fun ~precision ~lanes op ->
       native_cost ~vector_bits ~precision ~lanes op)
     Loop_numerics.Precision.F64
@@ -246,6 +249,7 @@ let rec scalar =
     inner_loops = false;
     fma = false;
     relaxed_madd = false;
+    row_block = 1;
     support = (fun _ -> Expanded);
     cost =
       (fun op ->
@@ -264,6 +268,9 @@ let rec forced t =
 
 let rec with_inner_loops inner_loops t =
   { t with inner_loops; at = (fun p -> with_inner_loops inner_loops (t.at p)) }
+
+let rec with_row_block row_block t =
+  { t with row_block; at = (fun p -> with_row_block row_block (t.at p)) }
 
 let f32 t = t.at Loop_numerics.Precision.F32
 let all = [ neon128; scalar; wasm128; wasm128_relaxed ]

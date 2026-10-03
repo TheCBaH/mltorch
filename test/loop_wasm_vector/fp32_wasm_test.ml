@@ -340,3 +340,44 @@ let%expect_test "relaxed madd: the result is the fused or the unfused answer" =
     dot, 70 terms                  simd128        admissible: true; fused and unfused differ: false
     dot, 64 terms                  simd128        admissible: true; fused and unfused differ: false
     matvec: 21 outputs, k 4        relaxed-simd,simd128 admissible: true; fused and unfused differ: true |}]
+
+(* ---- register blocking over rows ------------------------------------------ *)
+
+(* The same programs as the C suite: a blocked kernel equals its plan's oracle
+   bit for bit and the unblocked plan's oracle too; overlapping rows stay
+   unblocked. Wasm plans no blocking by default (it did not pay on whole models
+   under V8), so the factor is asked for. *)
+let%expect_test "row blocking on SIMD Wasm" =
+  let numerics = Loop_numerics.Simd_fp32_relaxed in
+  let bind = Loop_fp32_programs.moderate_bind in
+  let m = Loop_fp32_programs.matmul in
+  let target = Loop_target.with_row_block 2 Loop_target.wasm128 in
+  List.iter
+    (fun (name, p) ->
+      let plan = Loop_plan.resolve ~target ~numerics p in
+      let plain = Loop_plan.resolve ~target:Loop_target.wasm128 ~numerics p in
+      let precision = plan.Loop_plan.precision in
+      let run plan =
+        Loop_interp.run ~precision ~outputs:(zeroed p) (Loop_plan.oracle plan p)
+          ~bind
+      in
+      let w =
+        Loop_wasm_exec.exec ~vector:target ~numerics ~outputs:(zeroed p) p ~bind
+      in
+      Fmt.pr
+        "%-28s blocked %d (default %d); Wasm vs oracle %s; vs unblocked %s@."
+        name plan.Loop_plan.blocked plain.Loop_plan.blocked
+        (verdict (run plan) w)
+        (verdict (run plain) (run plan)))
+    [
+      ("5 rows, 17 outputs, k 3", m ~m:5 ~k:3 ~n:17 ());
+      ("4 rows, 16 outputs, k 4", m ~m:4 ~k:4 ~n:16 ());
+      ("one row", m ~m:1 ~k:4 ~n:16 ());
+      ("rows overlap (stride 8)", m ~row_stride:8 ~m:3 ~k:3 ~n:16 ());
+    ];
+  [%expect
+    {|
+    5 rows, 17 outputs, k 3      blocked 1 (default 0); Wasm vs oracle equal; vs unblocked equal
+    4 rows, 16 outputs, k 4      blocked 1 (default 0); Wasm vs oracle equal; vs unblocked equal
+    one row                      blocked 0 (default 0); Wasm vs oracle equal; vs unblocked equal
+    rows overlap (stride 8)      blocked 0 (default 0); Wasm vs oracle equal; vs unblocked equal |}]

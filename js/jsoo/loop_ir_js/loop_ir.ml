@@ -7,6 +7,7 @@
 module C_payload_layout = C_payload_layout
 module C_workspace_plan = C_workspace_plan
 module Loop_array = Loop_array
+module Loop_block = Loop_block
 module Loop_bool = Loop_bool
 module Loop_buffer = Loop_buffer
 module Loop_bundle = Loop_bundle

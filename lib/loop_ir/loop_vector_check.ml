@@ -81,6 +81,33 @@ let coefficient var offset =
   | Ok c -> Ok c
   | Error `Not_affine -> Error Reason.Offset_not_affine
 
+(* Whether two accesses to one buffer touch no common cell over the iterations
+   of the loop: the same non-zero stride [c] and offsets that differ by a
+   constant [d], so the cells meet only if [c] divides [d] and the quotient is
+   within the iteration count. An offset that mentions an inner loop's variable
+   spans more than the loop variable's iterations and is not proved. *)
+let disjoint ~inner_vars ~iterations (a : V.Access.t) (b : V.Access.t) =
+  let c = a.V.Access.stride in
+  c <> 0 && c = b.V.Access.stride
+  && Tensor_id.equal a.V.Access.buffer.Loop_buffer.id
+       b.V.Access.buffer.Loop_buffer.id
+  && (not
+        (List.exists
+           (fun v ->
+             F.mentions v a.V.Access.offset || F.mentions v b.V.Access.offset)
+           inner_vars))
+  &&
+  match
+    ( Loop_linear.of_index a.V.Access.offset,
+      Loop_linear.of_index b.V.Access.offset )
+  with
+  | Some la, Some lb -> (
+      match Loop_linear.sub la lb with
+      | Some { Loop_linear.terms = []; const = d } ->
+          d mod c <> 0 || abs (d / c) >= iterations
+      | _ -> false)
+  | _ -> false
+
 let loop (l : V.loop) =
   let fail r = Error (`Vector_invalid r) in
   let var = l.V.var in
@@ -189,14 +216,28 @@ let loop (l : V.loop) =
             (Ok assigned) stmts
         in
         let* _ = body V.Temp.Set.empty l.V.body in
-        (* A buffer stored and loaded must be touched at one identical access;
-           two stores to a buffer must be identical too, so statement-major
-           lane order cannot reorder overlapping writes. *)
+        (* A buffer stored and loaded must be touched at one identical access,
+           or at accesses whose cells provably never meet; two stores to a
+           buffer likewise, so statement-major lane order cannot reorder
+           overlapping writes. *)
+        let lo_n, hi_n =
+          match (l.V.lo, l.V.hi) with
+          | Loop_index.Const a, Loop_index.Const b -> (a, b)
+          | _ -> (0, 0)
+        in
+        let inner_vars =
+          let rec go acc = function
+            | V.Inner { var; body; _ } -> List.fold_left go (var :: acc) body
+            | V.Assign _ | V.Index_assign _ | V.Mark _ | V.Store _ -> acc
+          in
+          List.fold_left go [] l.V.body
+        in
         let same (a : V.Access.t) (b : V.Access.t) =
           Tensor_id.equal a.V.Access.buffer.Loop_buffer.id
             b.V.Access.buffer.Loop_buffer.id
-          && a.V.Access.offset = b.V.Access.offset
-          && a.V.Access.stride = b.V.Access.stride
+          && (a.V.Access.offset = b.V.Access.offset
+              && a.V.Access.stride = b.V.Access.stride
+             || disjoint ~inner_vars ~iterations:(hi_n - lo_n) a b)
         in
         let rec stores_ok = function
           | [] -> Ok ()

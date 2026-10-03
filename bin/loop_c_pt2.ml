@@ -266,6 +266,7 @@ let () =
   let vector_flag, argv = flag "--vector" argv in
   let reference, argv = flag "--reference" argv in
   let numerics, argv = valued "--numerics=" argv in
+  let row_block, argv = valued "--row-block=" argv in
   (* The default is the performance path: binary32 kernels where the planner
      vectorizes, scheduled sums and contraction ([simd_fp32_relaxed]).
      [--reference] is the binary64 scalar reference path every strict gate runs;
@@ -286,7 +287,11 @@ let () =
   in
   let vector =
     if vector_flag || numerics <> Loop_numerics.Reference_f64 then
-      Some Loop_target.neon128
+      Some
+        (match row_block with
+        | Some n ->
+            Loop_target.with_row_block (int_of_string n) Loop_target.neon128
+        | None -> Loop_target.neon128)
     else None
   in
   (match numerics with

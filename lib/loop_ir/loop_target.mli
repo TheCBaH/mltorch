@@ -67,6 +67,10 @@ type t = {
       (** whether vector code may use a multiply-add the engine fuses or not at
           its choice ([f32x4.relaxed_madd]): a plan built for it states that its
           results are either one, never that they are bitwise reproducible *)
+  row_block : int;
+      (** how many consecutive iterations of a scalar loop around a vector loop
+          one blocked iteration covers (see {!Loop_block}); 1 is no blocking.
+          Registers, not lanes, bound it: each row holds its own accumulators *)
   support : Op.t -> support;
   cost : Op.t -> float;
       (** relative cost of one vector operation across [lanes], against [lanes]
@@ -102,6 +106,9 @@ val forced : t -> t
 val with_inner_loops : bool -> t -> t
 (** The same target with vector loops that hold inner loops allowed or not, at
     every precision. *)
+
+val with_row_block : int -> t -> t
+(** The same target with another row-block factor, at every precision. *)
 
 val f32 : t -> t
 (** [f32 t] is [t.at F32]: the target a binary32 kernel is planned against. *)

@@ -16,6 +16,7 @@ type t = {
       (** why an fp32 policy left this kernel binary64, when admission was the
           reason *)
   report : Loop_vectorize.report;  (** the decisions of [vector]'s planning *)
+  blocked : int;  (** how many row loops {!Loop_block} blocked in [vector] *)
 }
 
 val resolve :

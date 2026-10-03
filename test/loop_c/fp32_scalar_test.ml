@@ -396,3 +396,62 @@ let%expect_test "scheduled sums with fused accumulates: C equals the oracle" =
     dot, 83 terms                            f32 equal    1 scheduled sum(s), fused
     dot, 70 terms                            f32 equal    1 scheduled sum(s), fused
     dot, 64 terms                            f32 equal    1 scheduled sum(s), fused |}]
+
+(* ---- register blocking over rows ------------------------------------------ *)
+
+(* A blocked kernel is checked three ways: compiled C equals its plan's oracle
+   bit for bit; the blocked oracle equals the unblocked plan's, so blocking
+   changed no cell; and a program whose rows overlap is left unblocked. *)
+let blocking_corpus ~target programs =
+  List.iter
+    (fun (name, p) ->
+      let numerics = Loop_numerics.Simd_fp32_relaxed in
+      let bind = Loop_fp32_programs.moderate_bind in
+      let plan = Loop_plan.resolve ~target ~numerics p in
+      let plain =
+        Loop_plan.resolve
+          ~target:(Loop_target.with_row_block 1 target)
+          ~numerics p
+      in
+      let precision = plan.Loop_plan.precision in
+      let run plan =
+        Loop_interp.run ~precision ~outputs:(zeroed p) (Loop_plan.oracle plan p)
+          ~bind
+      in
+      let c =
+        Loop_c_exec.exec ~vector:target ~numerics ~outputs:(zeroed p) p ~bind
+      in
+      Fmt.pr "%-34s blocked %d; C vs oracle %s; vs unblocked %s@." name
+        plan.Loop_plan.blocked
+        (verdict (run plan) c)
+        (verdict (run plain) (run plan)))
+    programs
+
+let blocking_programs =
+  let m = Loop_fp32_programs.matmul in
+  [
+    ("5 rows, 17 outputs, k 3", m ~m:5 ~k:3 ~n:17 ());
+    ("4 rows, 16 outputs, k 4", m ~m:4 ~k:4 ~n:16 ());
+    ("one row", m ~m:1 ~k:4 ~n:16 ());
+    ("rows overlap (stride 8)", m ~row_stride:8 ~m:3 ~k:3 ~n:16 ());
+  ]
+
+let%expect_test "row blocking: two rows per iteration" =
+  blocking_corpus ~target:Loop_target.neon128 blocking_programs;
+  [%expect
+    {|
+    5 rows, 17 outputs, k 3            blocked 1; C vs oracle equal; vs unblocked equal
+    4 rows, 16 outputs, k 4            blocked 1; C vs oracle equal; vs unblocked equal
+    one row                            blocked 0; C vs oracle equal; vs unblocked equal
+    rows overlap (stride 8)            blocked 0; C vs oracle equal; vs unblocked equal |}]
+
+let%expect_test "row blocking: four rows per iteration, rows left over" =
+  blocking_corpus
+    ~target:(Loop_target.with_row_block 4 Loop_target.neon128)
+    blocking_programs;
+  [%expect
+    {|
+    5 rows, 17 outputs, k 3            blocked 1; C vs oracle equal; vs unblocked equal
+    4 rows, 16 outputs, k 4            blocked 1; C vs oracle equal; vs unblocked equal
+    one row                            blocked 0; C vs oracle equal; vs unblocked equal
+    rows overlap (stride 8)            blocked 0; C vs oracle equal; vs unblocked equal |}]

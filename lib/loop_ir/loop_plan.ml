@@ -6,6 +6,7 @@ type t = {
   vector : Loop_vector.program option;
   refusal : Loop_numerics.Refusal.t option;
   report : Loop_vectorize.report;
+  blocked : int;
 }
 
 let plan ?target p =
@@ -18,7 +19,7 @@ let split = function
 let resolve ?target ?fuse_reductions ~numerics p =
   let f64 refusal =
     let vector, report = split (plan ?target p) in
-    { numerics; precision = P.F64; vector; refusal; report }
+    { numerics; precision = P.F64; vector; refusal; report; blocked = 0 }
   in
   match (numerics, target) with
   | Loop_numerics.Reference_f64, _ | _, None -> f64 None
@@ -33,6 +34,10 @@ let resolve ?target ?fuse_reductions ~numerics p =
               p
           in
           if Loop_vector.count_vector_loops vp.Loop_vector.body > 0 then
+            (* Rows blocked first: contraction rewrites each copy alike. *)
+            let vp, blocked =
+              Loop_block.program ~target:(Loop_target.f32 t) vp
+            in
             (* Contraction, where the policy permits it and the target has a
                fused operation: after the sums are scheduled. *)
             let vp =
@@ -52,6 +57,7 @@ let resolve ?target ?fuse_reductions ~numerics p =
               vector = Some vp;
               refusal = None;
               report;
+              blocked;
             }
           else f64 None)
 
@@ -66,6 +72,7 @@ let force ?target ~precision p =
           vector;
           refusal = None;
           report;
+          blocked = 0;
         }
   | P.F32 -> (
       match Loop_numerics.admit p with
@@ -84,6 +91,7 @@ let force ?target ~precision p =
               vector;
               refusal = None;
               report;
+              blocked = 0;
             })
 
 let oracle t (p : Loop_program.t) =

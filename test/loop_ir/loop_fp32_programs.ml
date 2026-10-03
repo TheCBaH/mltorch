@@ -9,6 +9,52 @@ module P = Loop_vector_programs
 
 let un op e = Loop_expr.Unary (op, e)
 
+(* The shared corpus was written for four binary64 lanes; binary32 plans
+   sixteen, so reductions per output are repeated here at widths that fill a
+   vector and leave a remainder. [row_stride] is the distance between output
+   rows (the row width by default); a smaller one makes the rows overlap. *)
+let matmul ?row_stride ~m ~k ~n () =
+  let row_stride = Option.value row_stride ~default:n in
+  let acc = Loop_fixtures.temp 0 in
+  let acc_e = Loop_expr.Temp (Loop_carrier.Float, acc) in
+  let mi = Loop_index.Var (Loop_fixtures.v 0)
+  and ni = Loop_index.Var (Loop_fixtures.v 1)
+  and ki = Loop_index.Var (Loop_fixtures.v 2) in
+  let ( +: ) a b = Loop_index.Add (a, b) in
+  let term =
+    P.binary Expr.Value.Mul
+      (P.ld P.input (Loop_index.Scale (k, mi) +: ki))
+      (P.ld P.aux (Loop_index.Scale (n, ki) +: ni))
+  in
+  let loop var hi body =
+    Loop_stmt.For
+      {
+        var = Loop_fixtures.v var;
+        lo = Loop_index.Const 0;
+        hi = Loop_index.Const hi;
+        body;
+      }
+  in
+  Loop_fixtures.program
+    ~buffers:[ P.input; P.aux; P.output ]
+    [
+      loop 0 m
+        [
+          loop 1 n
+            [
+              Loop_stmt.Assign (Loop_carrier.Float, acc, Loop_expr.Const 0.);
+              loop 2 k
+                [
+                  Loop_stmt.Assign
+                    (Loop_carrier.Float, acc, P.binary Expr.Value.Add acc_e term);
+                ];
+              P.store_f32 P.output
+                (Loop_index.Scale (row_stride, mi) +: ni)
+                (Loop_expr.Round_f32 acc_e);
+            ];
+        ];
+    ]
+
 (* Programs that exist for binary32 alone: the helpers with a float transcription
    and the packed float scratch. *)
 let extra =
@@ -50,56 +96,10 @@ let extra =
           };
       ]
   in
-  (* The shared corpus was written for four binary64 lanes; binary32 plans
-     sixteen, so reductions per output are repeated here at widths that fill a
-     vector and leave a remainder. *)
-  let matmul ~m ~k ~n =
-    let acc = Loop_fixtures.temp 0 in
-    let acc_e = Loop_expr.Temp (Loop_carrier.Float, acc) in
-    let mi = Loop_index.Var (Loop_fixtures.v 0)
-    and ni = Loop_index.Var (Loop_fixtures.v 1)
-    and ki = Loop_index.Var (Loop_fixtures.v 2) in
-    let ( +: ) a b = Loop_index.Add (a, b) in
-    let term =
-      P.binary Expr.Value.Mul
-        (P.ld P.input (Loop_index.Scale (k, mi) +: ki))
-        (P.ld P.aux (Loop_index.Scale (n, ki) +: ni))
-    in
-    let loop var hi body =
-      Loop_stmt.For
-        {
-          var = Loop_fixtures.v var;
-          lo = Loop_index.Const 0;
-          hi = Loop_index.Const hi;
-          body;
-        }
-    in
-    Loop_fixtures.program
-      ~buffers:[ P.input; P.aux; P.output ]
-      [
-        loop 0 m
-          [
-            loop 1 n
-              [
-                Loop_stmt.Assign (Loop_carrier.Float, acc, Loop_expr.Const 0.);
-                loop 2 k
-                  [
-                    Loop_stmt.Assign
-                      ( Loop_carrier.Float,
-                        acc,
-                        P.binary Expr.Value.Add acc_e term );
-                  ];
-                P.store_f32 P.output
-                  (Loop_index.Scale (n, mi) +: ni)
-                  (Loop_expr.Round_f32 acc_e);
-              ];
-          ];
-      ]
-  in
   [
-    ("matvec: 21 outputs, k 4", matmul ~m:1 ~k:4 ~n:21);
-    ("matmul: 3 rows, 19 outputs, k 4", matmul ~m:3 ~k:4 ~n:19);
-    ("matvec: exactly one vector", matmul ~m:1 ~k:4 ~n:16);
+    ("matvec: 21 outputs, k 4", matmul ~m:1 ~k:4 ~n:21 ());
+    ("matmul: 3 rows, 19 outputs, k 4", matmul ~m:3 ~k:4 ~n:19 ());
+    ("matvec: exactly one vector", matmul ~m:1 ~k:4 ~n:16 ());
     ( "int64 to float, once rounded",
       (* 2^60 + 2^36 + 1 sits just above the midpoint of two binary32 values:
          through binary64 first it would round the wrong way *)
