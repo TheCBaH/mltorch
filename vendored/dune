@@ -18,6 +18,7 @@
 ; test suites, fixtures and JavaScript build scripts; only the libraries that
 ; [lib/pt2_safetensors] depends on are built here. [ocaml-hf-hub] is the sans-IO
 ; Hub downloader; [ocaml-safetensors] supplies the bigstring/mmap reader.
+; Its javascript/shared driver is not built here: js/pt2_safetensors_js copies it.
 
 (vendored_dirs
  ocaml-hf-hub

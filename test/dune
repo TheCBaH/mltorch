@@ -649,7 +649,7 @@
  ; decoding. [unix] stays: this runner supplies the clock the shared library
  ; takes as [~now], which is what keeps [unix] out of the js_of_ocaml build of
  ; the same flow.
- (libraries core err_trace infer_report interp pt2 unix))
+ (libraries core err_trace infer_report interp pt2 pt2_safetensors_unix unix))
 
 ; The structural crams below (native_graph_*, native_transform_*,
 ; native_transform_verify, native4d_to4d, me_visualize) used to run against
@@ -781,3 +781,39 @@
  (deps (universe) %{exe:../bin/arena_schedule_eval.exe})
  (enabled_if
   (<> %{env:ARENA_EVAL_MODELS=} "")))
+
+; Every committed safetensors.json in the model submodule, checked against that
+; model's own configs: no checkpoint, no network, no PT2_DATA, so it runs in the
+; default suite. The submodule is outside dune's scan, so (as for the weight
+; configs above) it is reached through the project root and not dep-tracked:
+; `touch test/dune` after bumping it.
+
+(executable
+ (name pt2_safetensors_maps)
+ (modules pt2_safetensors_maps)
+ (libraries err_trace pt2 pt2_safetensors schema_runtime))
+
+(rule
+ (target pt2_safetensors_maps.out)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    %{exe:pt2_safetensors_maps.exe}
+    %{project_root}/../../modules/devcontainer.pytorch-image-models/models))))
+
+(rule
+ (alias runtest)
+ (action
+  (diff pt2_safetensors_maps.expected pt2_safetensors_maps.out)))
+
+(executable
+ (name pt2_safetensors_equal)
+ (modules pt2_safetensors_equal)
+ (libraries err_trace pt2 pt2_safetensors_unix))
+
+(cram
+ (applies_to pt2_safetensors_cram)
+ (deps (universe) %{exe:pt2_safetensors_equal.exe})
+ (enabled_if
+  (<> %{env:PT2_DATA=} "")))

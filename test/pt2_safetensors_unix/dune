@@ -1,0 +1,16 @@
+; open_dir against a synthetic checkpoint served by a fake Hub transport over a
+; real temporary cache. Native only: the cache and the mmap are unix.
+
+(library
+ (name pt2_safetensors_unix_test)
+ (libraries
+  err_trace
+  hf-hub
+  hf-hub-unix
+  pt2
+  pt2_safetensors_test
+  pt2_safetensors_unix
+  unix)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

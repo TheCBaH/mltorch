@@ -1,0 +1,51 @@
+; The Hub-fetching half of the safetensors weight source, for the JavaScript
+; backends: a pinned checkpoint downloaded by hf-hub's own JavaScript driver
+; instead of a native helper handing over a file.
+;
+; The driver is hf-hub's JavaScript example (javascript/shared), copied rather
+; than forked, and so is the js_of_ocaml binding it is written against -- the
+; Melange binding is not reachable here. The host half (node-host.cjs,
+; fetch.js, browser-host.js) is plain JavaScript the page or node loads first;
+; see the hf-hub submodule's javascript/README.md for the host boundary.
+;
+; js_of_ocaml only: the binding calls [caml_js_*] primitives, so this links into
+; a (modes js) executable and nowhere else. It still builds natively.
+;
+; Every stanza is off under the melange profile: that CI job initializes no
+; submodule but err_trace, so the copy_files sources below do not exist there.
+
+(copy_files
+ (enabled_if
+  (<> %{profile} melange))
+ (files
+  %{workspace_root}/vendored/ocaml-hf-hub/javascript/shared/{driver.ml,runtime.mli}))
+
+(copy_files
+ (enabled_if
+  (<> %{profile} melange))
+ (files
+  %{workspace_root}/vendored/ocaml-hf-hub/javascript/jsoo/{hub.ml,runtime.ml}))
+
+(library
+ (name pt2_safetensors_js)
+ (enabled_if
+  (<> %{profile} melange))
+ (modules driver hub pt2_safetensors_js runtime)
+ (libraries err_trace fmt hf-hub js_of_ocaml pt2_safetensors))
+
+; The probe entry, loaded by node_run.cjs or the browser page after a host. It
+; links [probes_pt2_js], the mirror libraries the native golden is diffed
+; against, not the ordinary ones.
+
+(executable
+ (name safetensors_probe)
+ (modes js)
+ (enabled_if
+  (<> %{profile} melange))
+ (modules safetensors_probe)
+ (libraries
+  err_trace
+  js_of_ocaml
+  probes_pt2_js
+  pt2_safetensors
+  pt2_safetensors_js))

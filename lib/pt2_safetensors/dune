@@ -1,0 +1,16 @@
+; The safetensors weight source for a Pt2_archive: a Hub checkpoint stands in
+; for the .pt2 zip's data/ members. Pure -- no unix, no network -- so js_of_ocaml
+; reaches it; the file/Hub side is lib/pt2_safetensors_unix.
+
+(library
+ (name pt2_safetensors)
+ (wrapped false)
+ (libraries
+  err_trace
+  fmt
+  jsont
+  jsont.bytesrw
+  pt2
+  pytorch_types
+  schema_runtime
+  safetensors))

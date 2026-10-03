@@ -120,9 +120,27 @@ jobs:
       run: |
         make pt2.download-cram
         make pt2.download PT2_MODEL=csatv2
+    # The checkpoints each model's safetensors.json pins, in a huggingface_hub-layout
+    # cache under data/hf-hub (HF_HUB_CACHE below), so the weight-source steps read the
+    # Hub once per pin instead of every run. Keyed by the pins of the two models those
+    # steps use; the blobs are content-addressed, so the restore-key prefix is a safe
+    # warm start. data/hf-hub is gitignored and bind-mounted like data/pt2-functional.
+    - name: safetensors checkpoints cache
+      uses: actions/cache@v6
+      with:
+        path: data/hf-hub
+        key: hf-hub-${{ hashFiles('modules/devcontainer.pytorch-image-models/models/mobilenetv2_050/models/safetensors.json', 'modules/devcontainer.pytorch-image-models/models/fastvit_sa12/models/safetensors.json') }}
+        restore-keys: |
+          hf-hub-
     - name: pt2 load test
       run: |
-        ${{ env.EXEC }} make pt2.runtest
+        ${{ env.EXEC }} sh -ceu 'HF_HUB_CACHE="$(pwd)/data/hf-hub" make pt2.runtest'
+    # Inference with the weights mapped from the pinned Hub checkpoint rather than the
+    # .pt2, --strict against the release's own outputs: the weight-equality cram above
+    # shows the bytes match, this shows the answer does.
+    - name: safetensors inference
+      run: |
+        ${{ env.EXEC }} sh -ceu 'HF_HUB_CACHE="$(pwd)/data/hf-hub" make safetensors.run'
     # The whole-model C backend on the downloaded models: generated C compiled with the
     # image's gcc, every output bitwise equal to the per-node reference.
     - name: whole-model C backend (all downloaded models)

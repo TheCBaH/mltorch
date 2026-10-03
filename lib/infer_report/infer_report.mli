@@ -24,8 +24,16 @@ type mode =
    per the record-namespace convention. *)
 
 module Paths : sig
+  module Model : sig
+    type t =
+      | Pt2 of string  (** a [.pt2] archive *)
+      | Safetensors of string
+          (** a [models/<name>] directory of the model submodule: its committed
+              graph and configs, weights from the checkpoint it pins *)
+  end
+
   type t = {
-    pt2 : string;
+    model : Model.t;
     images_dir : string;
     synsets : string;
     metadata : string;
@@ -69,6 +77,8 @@ type 'eval error =
   | `Expected_decode of string
   | `Mismatch of Mismatch.t  (** strict mode only *)
   | `No_reference of string
+  | `Open_model of string
+    (** a model directory the runner's opener refused; its rendered error *)
   | Pt2_archive.error
   | `Results_decode of string ]
 
@@ -121,6 +131,7 @@ val report :
 
 val run :
   ?max_samples:int ->
+  ?open_safetensors:(string -> (Pt2_archive.t, string) result) ->
   now:(unit -> float) ->
   infer:(Pt2_archive.t -> Pt2_tensor.t -> ((int * float) list, 'eval) Err.t) ->
   Paths.t ->
@@ -130,6 +141,11 @@ val run :
     maps, checks their lexical key agreement, and classifies evaluator failures
     under [`Eval]. [max_samples] is {!report}'s own, forwarded unchanged to
     whichever of the two branches this ends up taking.
+
+    [open_safetensors] opens a [Paths.Model.Safetensors] directory. It is a
+    parameter because the checkpoint cache and mmap are unix, which this library
+    must not depend on; a runner that does not pass one rejects such a model
+    with [`Open_model].
 
     [~now] is the clock. It is a parameter rather than [Unix.gettimeofday]
     because [unix] must not enter the js_of_ocaml closure; the ATen runner

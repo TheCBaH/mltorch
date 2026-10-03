@@ -22,14 +22,7 @@ let read_file path =
 let ok what pp r =
   Err.or_raise ~pp_error:(fun ppf e -> Fmt.pf ppf "probe: %s: %a" what pp e) r
 
-let run ~pt2 ~input =
-  print_endline "=== pt2-inference ===";
-  let archive_bytes = read_file pt2 in
-  Printf.printf "archive-bytes %d\n" (String.length archive_bytes);
-  let archive =
-    ok "open archive" Pt2_archive.pp_error
-      (Pt2_archive.of_string ~name:pt2 archive_bytes)
-  in
+let run_archive archive ~input_name ~input =
   let lowered =
     ok "lower" Native_interp.pp_error (Native_interp.lower_archive archive)
   in
@@ -37,7 +30,7 @@ let run ~pt2 ~input =
     (List.length lowered.Pt2_native_graph.graph.Graph_ir.Graph.nodes);
   let tensor =
     ok "load input" Pt2_archive.pp_error
-      (Pt2_archive.pt_tensor_map_of_string ~name:input (read_file input))
+      (Pt2_archive.pt_tensor_map_of_string ~name:input_name input)
     |> List.hd |> snd
   in
   Printf.printf "input-shape [%s]\n"
@@ -87,3 +80,82 @@ let run ~pt2 ~input =
                 Printf.sprintf "%d:%s" j (Walk_core.Float32.to_hex v))
               top)))
     outputs
+
+let run ~pt2 ~input =
+  print_endline "=== pt2-inference ===";
+  let archive_bytes = read_file pt2 in
+  Printf.printf "archive-bytes %d\n" (String.length archive_bytes);
+  let archive =
+    ok "open archive" Pt2_archive.pp_error
+      (Pt2_archive.of_string ~name:pt2 archive_bytes)
+  in
+  run_archive archive ~input_name:input ~input:(read_file input)
+
+(* The weights come from a safetensors checkpoint instead of the .pt2 zip: the
+   graph and weight configs and the checkpoint's bytes, all as strings. The same
+   [run_archive] as [run], so the output is directly comparable with [run]'s
+   -- and, being the same source on every backend, with its own native golden.
+   Strings rather than paths because a browser has no file system.
+   [Safetensors.Memory.of_string] copies the checkpoint, which is what a run
+   without an mmap has. *)
+module Safetensors_files = struct
+  type t = {
+    constants : string option;
+    map : string;
+    program : string;
+    weights : string;
+  }
+end
+
+let run_safetensors_strings (files : Safetensors_files.t) ~checkpoint
+    ~input_name ~input =
+  print_endline "=== safetensors-inference ===";
+  let program =
+    ok "models/model.json" Pt2_archive.pp_error
+      (Pt2_archive.program_of_json files.program)
+  in
+  let weights =
+    ok "model_weights_config.json" Pt2_archive.pp_error
+      (Pt2_archive.weights_config_of_json files.weights)
+  in
+  let constants =
+    match files.constants with
+    | Some json ->
+        ok "model_constants_config.json" Pt2_archive.pp_error
+          (Pt2_archive.constants_config_of_json json)
+    | None -> Pt2_archive.no_constants
+  in
+  let map =
+    ok "safetensors.json" Pt2_safetensors.pp_error
+      (Pt2_safetensors.map_of_string files.map)
+  in
+  Printf.printf "checkpoint-bytes %d\n" (String.length checkpoint);
+  let memory =
+    match Safetensors.Memory.of_string checkpoint with
+    | Ok m -> m
+    | Error _ -> failwith "probe: invalid safetensors checkpoint"
+  in
+  let archive =
+    ok "open checkpoint" Pt2_safetensors.pp_error
+      (Pt2_safetensors.of_parts ~map ~program ~weights ~constants memory)
+  in
+  run_archive archive ~input_name ~input
+
+(* The same, with the model files read from a [models/<name>] directory and the
+   checkpoint from a path. *)
+let run_safetensors ~model_dir ~checkpoint ~input =
+  let file rel = Filename.concat model_dir rel in
+  let constants_rel = "data/constants/model_constants_config.json" in
+  let files =
+    {
+      Safetensors_files.program = read_file (file "models/model.json");
+      weights = read_file (file "data/weights/model_weights_config.json");
+      constants =
+        (if Sys.file_exists (file constants_rel) then
+           Some (read_file (file constants_rel))
+         else None);
+      map = read_file (file "models/safetensors.json");
+    }
+  in
+  run_safetensors_strings files ~checkpoint:(read_file checkpoint)
+    ~input_name:input ~input:(read_file input)

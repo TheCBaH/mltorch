@@ -4,6 +4,7 @@ _build/
 .claude/
 .devcontainer/devcontainer-lock.json
 AGENTS.md
+data/hf-hub/
 data/pt2/
 data/pt2-functional/
 .profile/
