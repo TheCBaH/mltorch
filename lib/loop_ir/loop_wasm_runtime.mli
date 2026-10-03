@@ -9,6 +9,8 @@ module Callee : sig
     | Ceil_div
     | Cos
     | Erf
+    | Erf_f32
+        (** {!Loop_numerics.erf32} in [f32], one rounding per operation *)
     | Exp
     | F16_to_float
     | Fail_set

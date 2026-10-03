@@ -26,6 +26,10 @@ let rec scan_expr : type a. ids -> a Loop_expr.t -> unit =
   | Loop_expr.Binary (_, a, b) | Loop_expr.Float_max (a, b) ->
       scan_expr ids a;
       scan_expr ids b
+  | Loop_expr.Fma (a, b, c) ->
+      scan_expr ids a;
+      scan_expr ids b;
+      scan_expr ids c
   | Loop_expr.Const _ | Loop_expr.I64_const _ -> ()
   | Loop_expr.Float_to_i64 a -> scan_expr ids a
   | Loop_expr.I64_to_float a -> scan_expr ids a
@@ -88,6 +92,13 @@ let rec scan_stmt ids (s : Loop_stmt.t) =
       scan_index ids lo;
       scan_index ids hi;
       List.iter (scan_stmt ids) body
+  | Loop_stmt.Reduce_sum { var; lo; hi; acc; body; term; _ } ->
+      ids.var <- max ids.var (Loop_var.to_int var);
+      ids.temp <- max ids.temp (Loop_temp.to_int acc);
+      scan_index ids lo;
+      scan_index ids hi;
+      List.iter (scan_stmt ids) body;
+      scan_expr ids term
   | Loop_stmt.If (p, a, b) ->
       scan_pred ids p;
       List.iter (scan_stmt ids) a;
@@ -112,6 +123,43 @@ let subst var by idx =
 
 let add_const idx k =
   if k = 0 then idx else Loop_index.Add (idx, Loop_index.Const k)
+
+(* Lane [k] of a vector expression at [var = base], as a scalar expression: the
+   scalar program's own loads and arithmetic, one lane at a time. [temp] names the
+   scalar temporary that holds a vector temporary's lane. *)
+let rec lane_expr ~var ~base ~temp (e : V.t) k : float Loop_expr.t =
+  let expr e k = lane_expr ~var ~base ~temp e k in
+  match e with
+  | V.Binary (op, a, b) -> Loop_expr.Binary (op, expr a k, expr b k)
+  | V.Const x -> Loop_expr.Const x
+  | V.Float_max (a, b) -> Loop_expr.Float_max (expr a k, expr b k)
+  | V.Fma (a, b, c) -> Loop_expr.Fma (expr a k, expr b k, expr c k)
+  | V.Index_value { base = b; step } ->
+      Loop_expr.Value_of_index
+        (Loop_index.Add (subst var base b, Loop_index.Const (k * step)))
+  | V.Load a ->
+      Loop_expr.Load_flat
+        ( a.V.Access.buffer,
+          Loop_index.Add
+            ( subst var base a.V.Access.offset,
+              Loop_index.Const (k * a.V.Access.stride) ) )
+  | V.Round_f32 a -> Loop_expr.Round_f32 (expr a k)
+  | V.Select (m, a, b) ->
+      Loop_expr.Select (lane_mask ~var ~base ~temp m k, expr a k, expr b k)
+  | V.Splat s -> s
+  | V.Temp t -> Loop_expr.Temp (Loop_carrier.Float, temp t k)
+  | V.Unary (op, a) -> Loop_expr.Unary (op, expr a k)
+
+and lane_mask ~var ~base ~temp (m : V.mask) k : Loop_expr.pred =
+  let expr e k = lane_expr ~var ~base ~temp e k in
+  match m with
+  | V.Not m -> Loop_bool.Not (lane_mask ~var ~base ~temp m k)
+  | V.Or (a, b) ->
+      Loop_bool.Or
+        (lane_mask ~var ~base ~temp a k, lane_mask ~var ~base ~temp b k)
+  | V.Pool_better (a, b) -> Loop_bool.Pool_better (expr a k, expr b k)
+  | V.Value_eq (a, b) -> Loop_bool.Value_eq (expr a k, expr b k)
+  | V.Value_lt (a, b) -> Loop_bool.Value_lt (expr a k, expr b k)
 
 let expand (p : V.program) : Loop_program.t =
   let ids = { temp = -1; var = -1 } in
@@ -158,28 +206,8 @@ let expand (p : V.program) : Loop_program.t =
         ( subst l.V.var (lane_var 0) a.V.Access.offset,
           Loop_index.Const (k * a.V.Access.stride) )
     in
-    let rec expr (e : V.t) k : float Loop_expr.t =
-      match e with
-      | V.Binary (op, a, b) -> Loop_expr.Binary (op, expr a k, expr b k)
-      | V.Const x -> Loop_expr.Const x
-      | V.Float_max (a, b) -> Loop_expr.Float_max (expr a k, expr b k)
-      | V.Index_value { base; step } ->
-          Loop_expr.Value_of_index
-            (Loop_index.Add
-               (subst l.V.var (lane_var 0) base, Loop_index.Const (k * step)))
-      | V.Load a -> Loop_expr.Load_flat (a.V.Access.buffer, at a k)
-      | V.Round_f32 a -> Loop_expr.Round_f32 (expr a k)
-      | V.Select (m, a, b) -> Loop_expr.Select (mask m k, expr a k, expr b k)
-      | V.Splat s -> s
-      | V.Temp t -> Loop_expr.Temp (Loop_carrier.Float, temp_of t k)
-      | V.Unary (op, a) -> Loop_expr.Unary (op, expr a k)
-    and mask (m : V.mask) k : Loop_expr.pred =
-      match m with
-      | V.Not m -> Loop_bool.Not (mask m k)
-      | V.Or (a, b) -> Loop_bool.Or (mask a k, mask b k)
-      | V.Pool_better (a, b) -> Loop_bool.Pool_better (expr a k, expr b k)
-      | V.Value_eq (a, b) -> Loop_bool.Value_eq (expr a k, expr b k)
-      | V.Value_lt (a, b) -> Loop_bool.Value_lt (expr a k, expr b k)
+    let expr e k =
+      lane_expr ~var:l.V.var ~base:(lane_var 0) ~temp:temp_of e k
     in
     let lanes_of f = List.init lanes f in
     let rec stmts ss = List.concat_map stmt ss
@@ -233,9 +261,132 @@ let expand (p : V.program) : Loop_program.t =
        ])
     @ remainder
   in
+  (* A scheduled sum as the scalar statements its definition spells out
+     ({!Loop_vector.Reduction}): lane accumulators, the main rounds as a loop and
+     the leftover vectors straight-line, the adjacent-pair trees, the sequential
+     tail and the seed. *)
+  let reduction (r : V.Reduction.t) : Loop_stmt.t list =
+    let lanes = r.V.Reduction.lanes and parts = r.V.Reduction.parts in
+    let lo = r.V.Reduction.lo in
+    let n = r.V.Reduction.hi - lo in
+    let full = n / lanes in
+    let main = full / parts and extra = full mod parts in
+    let tail = n - (full * lanes) in
+    let float t = Loop_expr.Temp (Loop_carrier.Float, t) in
+    let add a b = Loop_expr.Binary (Expr.Value.Add, a, b) in
+    let assign t e = Loop_stmt.Assign (Loop_carrier.Float, t, e) in
+    let mark = Loop_stmt.Mark Loop_mark.Reduction in
+    let lane_temps =
+      Array.init parts (fun _ -> Array.init lanes (fun _ -> fresh_temp ()))
+    in
+    let no_temps _ _ =
+      invalid_arg "Loop_vector_expand: a reduction term has no temporaries"
+    in
+    let term_at base k =
+      lane_expr ~var:r.V.Reduction.var ~base ~temp:no_temps r.V.Reduction.term k
+    in
+    (* One accumulate: [acc + term], or [fma(a, b, acc)] when the sum is fused. *)
+    let accumulate acc_expr base k =
+      match (r.V.Reduction.fused, r.V.Reduction.term) with
+      | true, V.Binary (Expr.Value.Mul, a, b) ->
+          Loop_expr.Fma
+            ( lane_expr ~var:r.V.Reduction.var ~base ~temp:no_temps a k,
+              lane_expr ~var:r.V.Reduction.var ~base ~temp:no_temps b k,
+              acc_expr )
+      | true, _ ->
+          invalid_arg "Loop_vector_expand: a fused reduction without a product"
+      | false, _ -> add acc_expr (term_at base k)
+    in
+    let each_lane f = List.concat (List.init lanes f) in
+    let init =
+      List.concat
+        (List.init parts (fun j ->
+             List.init lanes (fun k ->
+                 assign lane_temps.(j).(k) (Loop_expr.Const 0.))))
+    in
+    let i = fresh_var () in
+    let main_stmts =
+      if main = 0 then []
+      else
+        [
+          Loop_stmt.For
+            {
+              var = i;
+              lo = Loop_index.Const 0;
+              hi = Loop_index.Const main;
+              body =
+                List.concat
+                  (List.init parts (fun j ->
+                       let base =
+                         Loop_index.Add
+                           ( Loop_index.Const (lo + (j * lanes)),
+                             Loop_index.Scale (parts * lanes, Loop_index.Var i)
+                           )
+                       in
+                       each_lane (fun k ->
+                           [
+                             mark;
+                             assign
+                               lane_temps.(j).(k)
+                               (accumulate (float lane_temps.(j).(k)) base k);
+                           ])));
+            };
+        ]
+    in
+    let extra_stmts =
+      List.concat
+        (List.init extra (fun e ->
+             let base =
+               Loop_index.Const (lo + (((main * parts) + e) * lanes))
+             in
+             each_lane (fun k ->
+                 [
+                   mark;
+                   assign
+                     lane_temps.(e).(k)
+                     (accumulate (float lane_temps.(e).(k)) base k);
+                 ])))
+    in
+    (* The adjacent-pair tree: neighbours are added, an odd one out carried on. *)
+    let rec tree = function
+      | [] -> invalid_arg "Loop_vector_expand.tree"
+      | [ x ] -> x
+      | xs ->
+          let rec pairs = function
+            | a :: b :: rest -> add a b :: pairs rest
+            | rest -> rest
+          in
+          tree (pairs xs)
+    in
+    let combined = Array.init lanes (fun _ -> fresh_temp ()) in
+    let combine =
+      List.init lanes (fun k ->
+          assign combined.(k)
+            (tree (List.init parts (fun j -> float lane_temps.(j).(k)))))
+    in
+    let horizontal = fresh_temp () in
+    let horizontal_stmt =
+      assign horizontal (tree (List.init lanes (fun k -> float combined.(k))))
+    in
+    let tail_temp = fresh_temp () in
+    let tail_stmts =
+      assign tail_temp (Loop_expr.Const 0.)
+      :: List.concat
+           (List.init tail (fun u ->
+                let base = Loop_index.Const (lo + (full * lanes) + u) in
+                [ mark; assign tail_temp (accumulate (float tail_temp) base 0) ]))
+    in
+    init @ main_stmts @ extra_stmts @ combine @ [ horizontal_stmt ] @ tail_stmts
+    @ [
+        assign r.V.Reduction.acc
+          (add (Loop_expr.Const r.V.Reduction.seed)
+             (add (float horizontal) (float tail_temp)));
+      ]
+  in
   let rec node (n : V.node) : Loop_stmt.t list =
     match n with
     | V.Scalar s -> [ s ]
+    | V.Reduction r -> reduction r
     | V.Vector l -> vector_loop l
     | V.If (c, a, b) -> [ Loop_stmt.If (c, nodes a, nodes b) ]
     | V.Loop { var; lo; hi; body } ->

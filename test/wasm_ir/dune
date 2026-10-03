@@ -54,3 +54,17 @@
  (enabled_if
   (<> %{env:MLTORCH_WASM=} ""))
  (deps wasm_features_gen.exe))
+
+; The relaxed operations, which a default node rejects: run under node with the
+; feature flag, against both admissible results.
+
+(executable
+ (name wasm_relaxed_gen)
+ (modules wasm_relaxed_gen)
+ (libraries wasm_ir err_trace fmt))
+
+(cram
+ (applies_to relaxed)
+ (enabled_if
+  (<> %{env:MLTORCH_WASM=} ""))
+ (deps wasm_relaxed_gen.exe relaxed.js))

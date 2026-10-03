@@ -1,14 +1,28 @@
-type t = Bulk_memory | Non_trapping_float_to_int | Sign_extension | Simd128
+type t =
+  | Bulk_memory
+  | Non_trapping_float_to_int
+  | Relaxed_simd
+  | Sign_extension
+  | Simd128
 
-let all = [ Bulk_memory; Non_trapping_float_to_int; Sign_extension; Simd128 ]
+let all =
+  [
+    Bulk_memory;
+    Non_trapping_float_to_int;
+    Relaxed_simd;
+    Sign_extension;
+    Simd128;
+  ]
 
 let name = function
   | Bulk_memory -> "bulk-memory"
   | Non_trapping_float_to_int -> "nontrapping-float-to-int"
+  | Relaxed_simd -> "relaxed-simd"
   | Sign_extension -> "sign-extension"
   | Simd128 -> "simd128"
 
 let of_op : Wasm_op.t -> t option = function
+  | Wasm_op.F32x4_relaxed_madd -> Some Relaxed_simd
   | Wasm_op.F32x4_demote_f64x2_zero | Wasm_op.F32x4_splat | Wasm_op.F64x2_abs
   | Wasm_op.F64x2_add | Wasm_op.F64x2_ceil | Wasm_op.F64x2_convert_low_i32x4_s
   | Wasm_op.F64x2_convert_low_i32x4_u | Wasm_op.F64x2_div | Wasm_op.F64x2_eq
@@ -24,36 +38,45 @@ let of_op : Wasm_op.t -> t option = function
   | Wasm_op.I64x2_shr_s | Wasm_op.I64x2_shr_u | Wasm_op.I64x2_splat
   | Wasm_op.I64x2_sub | Wasm_op.V128_and | Wasm_op.V128_andnot
   | Wasm_op.V128_any_true | Wasm_op.V128_bitselect | Wasm_op.V128_not
-  | Wasm_op.V128_or | Wasm_op.V128_xor ->
+  | Wasm_op.V128_or | Wasm_op.V128_xor | Wasm_op.F32x4_abs | Wasm_op.F32x4_add
+  | Wasm_op.F32x4_div | Wasm_op.F32x4_eq | Wasm_op.F32x4_ge | Wasm_op.F32x4_gt
+  | Wasm_op.F32x4_le | Wasm_op.F32x4_lt | Wasm_op.F32x4_max | Wasm_op.F32x4_min
+  | Wasm_op.F32x4_mul | Wasm_op.F32x4_ne | Wasm_op.F32x4_neg
+  | Wasm_op.F32x4_sqrt | Wasm_op.F32x4_sub | Wasm_op.F32x4_trunc ->
       Some Simd128
   | Wasm_op.I32_extend16_s | Wasm_op.I32_extend8_s -> Some Sign_extension
   | Wasm_op.I32_trunc_sat_f64_s | Wasm_op.I32_trunc_sat_f64_u
   | Wasm_op.I64_trunc_sat_f64_s | Wasm_op.I64_trunc_sat_f64_u ->
       Some Non_trapping_float_to_int
-  | Wasm_op.F32_demote_f64 | Wasm_op.F32_reinterpret_i32 | Wasm_op.F64_abs
-  | Wasm_op.F64_add | Wasm_op.F64_ceil | Wasm_op.F64_convert_i32_s
-  | Wasm_op.F64_convert_i32_u | Wasm_op.F64_convert_i64_s
-  | Wasm_op.F64_convert_i64_u | Wasm_op.F64_copysign | Wasm_op.F64_div
-  | Wasm_op.F64_eq | Wasm_op.F64_floor | Wasm_op.F64_ge | Wasm_op.F64_gt
-  | Wasm_op.F64_le | Wasm_op.F64_lt | Wasm_op.F64_max | Wasm_op.F64_min
-  | Wasm_op.F64_mul | Wasm_op.F64_ne | Wasm_op.F64_nearest | Wasm_op.F64_neg
-  | Wasm_op.F64_promote_f32 | Wasm_op.F64_reinterpret_i64 | Wasm_op.F64_sqrt
-  | Wasm_op.F64_sub | Wasm_op.F64_trunc | Wasm_op.I32_add | Wasm_op.I32_and
-  | Wasm_op.I32_clz | Wasm_op.I32_ctz | Wasm_op.I32_div_s | Wasm_op.I32_div_u
-  | Wasm_op.I32_eq | Wasm_op.I32_eqz | Wasm_op.I32_ge_s | Wasm_op.I32_ge_u
-  | Wasm_op.I32_gt_s | Wasm_op.I32_gt_u | Wasm_op.I32_le_s | Wasm_op.I32_le_u
-  | Wasm_op.I32_lt_s | Wasm_op.I32_lt_u | Wasm_op.I32_mul | Wasm_op.I32_ne
-  | Wasm_op.I32_or | Wasm_op.I32_popcnt | Wasm_op.I32_reinterpret_f32
-  | Wasm_op.I32_rem_s | Wasm_op.I32_rem_u | Wasm_op.I32_shl | Wasm_op.I32_shr_s
-  | Wasm_op.I32_shr_u | Wasm_op.I32_sub | Wasm_op.I32_wrap_i64 | Wasm_op.I32_xor
-  | Wasm_op.I64_add | Wasm_op.I64_and | Wasm_op.I64_div_s | Wasm_op.I64_div_u
-  | Wasm_op.I64_eq | Wasm_op.I64_eqz | Wasm_op.I64_extend_i32_s
-  | Wasm_op.I64_extend_i32_u | Wasm_op.I64_ge_s | Wasm_op.I64_ge_u
-  | Wasm_op.I64_gt_s | Wasm_op.I64_gt_u | Wasm_op.I64_le_s | Wasm_op.I64_le_u
-  | Wasm_op.I64_lt_s | Wasm_op.I64_lt_u | Wasm_op.I64_mul | Wasm_op.I64_ne
-  | Wasm_op.I64_or | Wasm_op.I64_reinterpret_f64 | Wasm_op.I64_rem_s
-  | Wasm_op.I64_rem_u | Wasm_op.I64_shl | Wasm_op.I64_shr_s | Wasm_op.I64_shr_u
-  | Wasm_op.I64_sub | Wasm_op.I64_xor ->
+  | Wasm_op.F32_convert_i32_s | Wasm_op.F32_convert_i32_u
+  | Wasm_op.F32_convert_i64_s | Wasm_op.F32_demote_f64
+  | Wasm_op.F32_reinterpret_i32 | Wasm_op.F64_abs | Wasm_op.F64_add
+  | Wasm_op.F64_ceil | Wasm_op.F64_convert_i32_s | Wasm_op.F64_convert_i32_u
+  | Wasm_op.F64_convert_i64_s | Wasm_op.F64_convert_i64_u | Wasm_op.F64_copysign
+  | Wasm_op.F64_div | Wasm_op.F64_eq | Wasm_op.F64_floor | Wasm_op.F64_ge
+  | Wasm_op.F64_gt | Wasm_op.F64_le | Wasm_op.F64_lt | Wasm_op.F64_max
+  | Wasm_op.F64_min | Wasm_op.F64_mul | Wasm_op.F64_ne | Wasm_op.F64_nearest
+  | Wasm_op.F64_neg | Wasm_op.F64_promote_f32 | Wasm_op.F64_reinterpret_i64
+  | Wasm_op.F64_sqrt | Wasm_op.F64_sub | Wasm_op.F64_trunc | Wasm_op.I32_add
+  | Wasm_op.I32_and | Wasm_op.I32_clz | Wasm_op.I32_ctz | Wasm_op.I32_div_s
+  | Wasm_op.I32_div_u | Wasm_op.I32_eq | Wasm_op.I32_eqz | Wasm_op.I32_ge_s
+  | Wasm_op.I32_ge_u | Wasm_op.I32_gt_s | Wasm_op.I32_gt_u | Wasm_op.I32_le_s
+  | Wasm_op.I32_le_u | Wasm_op.I32_lt_s | Wasm_op.I32_lt_u | Wasm_op.I32_mul
+  | Wasm_op.I32_ne | Wasm_op.I32_or | Wasm_op.I32_popcnt
+  | Wasm_op.I32_reinterpret_f32 | Wasm_op.I32_rem_s | Wasm_op.I32_rem_u
+  | Wasm_op.I32_shl | Wasm_op.I32_shr_s | Wasm_op.I32_shr_u | Wasm_op.I32_sub
+  | Wasm_op.I32_wrap_i64 | Wasm_op.I32_xor | Wasm_op.I64_add | Wasm_op.I64_and
+  | Wasm_op.I64_div_s | Wasm_op.I64_div_u | Wasm_op.I64_eq | Wasm_op.I64_eqz
+  | Wasm_op.I64_extend_i32_s | Wasm_op.I64_extend_i32_u | Wasm_op.I64_ge_s
+  | Wasm_op.I64_ge_u | Wasm_op.I64_gt_s | Wasm_op.I64_gt_u | Wasm_op.I64_le_s
+  | Wasm_op.I64_le_u | Wasm_op.I64_lt_s | Wasm_op.I64_lt_u | Wasm_op.I64_mul
+  | Wasm_op.I64_ne | Wasm_op.I64_or | Wasm_op.I64_reinterpret_f64
+  | Wasm_op.I64_rem_s | Wasm_op.I64_rem_u | Wasm_op.I64_shl | Wasm_op.I64_shr_s
+  | Wasm_op.I64_shr_u | Wasm_op.I64_sub | Wasm_op.I64_xor | Wasm_op.F32_abs
+  | Wasm_op.F32_add | Wasm_op.F32_div | Wasm_op.F32_eq | Wasm_op.F32_ge
+  | Wasm_op.F32_gt | Wasm_op.F32_le | Wasm_op.F32_lt | Wasm_op.F32_max
+  | Wasm_op.F32_min | Wasm_op.F32_mul | Wasm_op.F32_ne | Wasm_op.F32_neg
+  | Wasm_op.F32_sqrt | Wasm_op.F32_sub | Wasm_op.F32_trunc ->
       None
 
 let rec of_instr acc (i : Wasm.Instr.t) =
@@ -108,6 +131,16 @@ let probe f =
             Wasm.Instr.Local_get 0;
             Wasm.Instr.Numeric Wasm_op.I32_trunc_sat_f64_s;
           ]
+    | Relaxed_simd ->
+        func
+          [ Wasm_type.V128; Wasm_type.V128; Wasm_type.V128 ]
+          [ Wasm_type.V128 ]
+          [
+            Wasm.Instr.Local_get 0;
+            Wasm.Instr.Local_get 1;
+            Wasm.Instr.Local_get 2;
+            Wasm.Instr.Numeric Wasm_op.F32x4_relaxed_madd;
+          ]
     | Sign_extension ->
         func [ Wasm_type.I32 ] [ Wasm_type.I32 ]
           [ Wasm.Instr.Local_get 0; Wasm.Instr.Numeric Wasm_op.I32_extend8_s ]
@@ -123,7 +156,7 @@ let probe f =
          bytes), drop, end. *)
       "\000asm\001\000\000\000\001\004\001\096\000\000\003\002\001\000\n\
        \023\001\021\000\253\012" ^ String.make 16 '\000' ^ "\026\011"
-  | Bulk_memory | Non_trapping_float_to_int | Sign_extension -> (
+  | Bulk_memory | Non_trapping_float_to_int | Relaxed_simd | Sign_extension -> (
       match Err.payload (Wasm_encode.module_ m) with
       | Ok s -> s
       | Error _ ->

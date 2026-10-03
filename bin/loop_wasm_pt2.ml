@@ -4,7 +4,8 @@
 
    argv: <model.pt2> <inputs.pt> <expected.json> <outputs.pt> [--strict]
          [--shadow] [--poison] [--samples=N] [--keep=DIR] [--bench=N]
-         [--export=DIR] [--via-c] [--cflags=FLAGS] [--wat=FILE] [--simd] [--simd-forced]
+         [--export=DIR] [--via-c] [--cflags=FLAGS] [--wat=FILE] [--simd] [--simd-forced] [--relaxed-simd]
+         [--reference] [--numerics=NAME] [--shadow-numeric] [--atol=X] [--rtol=X]
 
    [--shadow] also runs [Eval_direct.run] (the per-node reference) on the same
    graph, constants and input and requires every graph output to be bitwise
@@ -13,8 +14,19 @@
    [--bench=N] runs the schedule N more times on the same instance, dirty
    workspace included, requiring identical outputs, and reports the phases.
    [--via-c] runs the C backend's unit compiled to Wasm instead (needs
-   MLTORCH_WASI_SYSROOT), [--cflags] replacing its scalar flags. Timings go to
-   stderr. *)
+   MLTORCH_WASI_SYSROOT), [--cflags] replacing its scalar flags.
+   [--relaxed-simd] plans multiply-adds for relaxed SIMD (f32x4.relaxed_madd) when
+   node validates that feature's probe, else says so and plans standard SIMD.
+   The default is the performance path (numerics simd_fp32_relaxed, 128-bit SIMD
+   when node validates it); --reference (or --via-c) selects the binary64 scalar
+   reference path every strict gate (--shadow) runs, --simd alone vectorizes it
+   strictly. [--numerics=NAME] picks the numerical policy (Loop_numerics.name; a
+   simd_fp32_* policy plans SIMD, runs the kernels the planner vectorizes in
+   binary32, refuses --shadow (those are not
+   bitwise the reference) and is checked by --shadow-numeric instead, which
+   reports absolute, relative, normalized and ULP error and every nonfinite cell
+   against the same reference, failing outside |actual - reference| <= atol +
+   rtol * |reference| (1e-4 each by default). Timings go to stderr. *)
 
 open Loop_ir
 
@@ -24,12 +36,16 @@ type eval =
   | Loop_bundle.error
   | Loop_wasm_exec.Host.error
   | Loop_wasm_exec.Via_c.error
-  | `Bundle_mismatch of int ]
+  | `Bundle_mismatch of int
+  | `Numeric_mismatch of int ]
 
 let pp_eval ppf : eval -> unit = function
   | `Bundle_mismatch n ->
       Format.fprintf ppf
         "Wasm model: %d output(s) differ bitwise from the reference" n
+  | `Numeric_mismatch n ->
+      Format.fprintf ppf
+        "Wasm model: %d cell(s) outside the numerical tolerance" n
   | #Loop_wasm_exec.Host.error as e -> Loop_wasm_exec.Host.pp_error ppf e
   | #Loop_wasm_exec.Via_c.error as e -> Loop_wasm_exec.Via_c.pp_error ppf e
   | #Loop_bundle.error as e -> Loop_bundle.pp_error ppf e
@@ -110,12 +126,12 @@ let placement_json (pl : Loop_wasm_exec.Node.placement) ~total ~identity =
     pl.Loop_wasm_exec.Node.workspace_bytes pl.Loop_wasm_exec.Node.outputs_bytes
     (Digest.to_hex identity)
 
-let direct_route ~dir ~wat ~vector b ~constants =
+let direct_route ~dir ~wat ~vector ~numerics b ~constants =
   let open Err.Syntax in
   let map e = (e :> eval) in
   let module H = Loop_wasm_exec.Host in
   let t1 = now () in
-  let* p = H.prepare ?vector ~dir b ~constants |> Err.map_error map in
+  let* p = H.prepare ?vector ~numerics ~dir b ~constants |> Err.map_error map in
   let w = H.bundle_wasm p in
   let st = w.Loop_bundle_wasm.stats in
   let ws = w.Loop_bundle_wasm.workspace in
@@ -130,6 +146,13 @@ let direct_route ~dir ~wat ~vector b ~constants =
     (C_workspace_plan.bytes ws)
     (C_workspace_plan.graph_arena_bytes ws)
     w.Loop_bundle_wasm.placement.Loop_bundle_wasm.Placement.total (ms t1) dir;
+  Printf.eprintf "loop_wasm_pt2: %s\n%!"
+    (Loop_numerics.coverage ~numerics:st.Loop_bundle_wasm.numerics
+       ~f32_kernels:st.Loop_bundle_wasm.f32_kernels
+       ~kernels:st.Loop_bundle_wasm.distinct_kernels
+       ~f32_invocations:st.Loop_bundle_wasm.f32_invocations
+       ~invocations:st.Loop_bundle_wasm.invocations
+       ~refusals:st.Loop_bundle_wasm.fp32_refusals);
   Printf.printf "module identity %s\n%!"
     (Digest.to_hex w.Loop_bundle_wasm.identity);
   Option.iter
@@ -202,7 +225,7 @@ let c_route ~dir ~flags b ~constants =
           prerr_endline "--export applies to the direct route only");
     }
 
-let prepared ~keep ~via_c ~cflags ~wat ~vector archive =
+let prepared ~keep ~via_c ~cflags ~wat ~vector ~numerics archive =
   let open Err.Syntax in
   let map e = (e :> eval) in
   match !cache with
@@ -227,18 +250,18 @@ let prepared ~keep ~via_c ~cflags ~wat ~vector archive =
       let constants_of id = Graph_ir.Tensor_id.Map.find_opt id constants in
       let* route =
         if via_c then c_route ~dir ~flags:cflags b ~constants:constants_of
-        else direct_route ~dir ~wat ~vector b ~constants:constants_of
+        else direct_route ~dir ~wat ~vector ~numerics b ~constants:constants_of
       in
       let cached = (g, constants, b, route) in
       cache := Some cached;
       Err.return cached
 
-let infer ~keep ~via_c ~cflags ~wat ~vector ~export:export_dir ~shadow ~poison
-    ~bench:bench_n archive image =
+let infer ~keep ~via_c ~cflags ~wat ~vector ~numerics ~export:export_dir ~shadow
+    ~numeric ~poison ~bench:bench_n archive image =
   let open Err.Syntax in
   let map e = (e :> eval) in
   let* g, constants, b, route =
-    prepared ~keep ~via_c ~cflags ~wat ~vector archive
+    prepared ~keep ~via_c ~cflags ~wat ~vector ~numerics archive
   in
   let* input = Native_interp.tensor_of_pt2 image |> Err.map_error map in
   let input_id = List.hd b.Loop_bundle.inputs in
@@ -278,6 +301,35 @@ let infer ~keep ~via_c ~cflags ~wat ~vector ~export:export_dir ~shadow ~poison
         (List.length outs) (ms t1);
       if bad = 0 then Err.return () else Err.fail (`Bundle_mismatch bad)
   in
+  let* () =
+    match numeric with
+    | None -> Err.return ()
+    | Some (atol, rtol) -> (
+        let t1 = now () in
+        let* reference =
+          Eval_direct.run g
+            ~constants:(Graph_ir.Tensor_id.Map.bindings constants)
+            ~inputs:[ (input_id, input) ]
+          |> Err.map_error map
+        in
+        let per_output =
+          Loop_numeric_diff.outputs ~atol ~rtol
+            ~reference:(fun id -> Graph_ir.Tensor_id.Map.find id reference)
+            (List.combine g.Graph_ir.Graph.outputs outs)
+        in
+        List.iter
+          (fun (id, d) ->
+            Format.eprintf "loop_wasm_pt2: numeric shadow t%d: %a@."
+              (Graph_ir.Tensor_id.to_int id)
+              Loop_numeric_diff.pp d)
+          per_output;
+        Printf.eprintf
+          "loop_wasm_pt2: numeric shadow done (reference %.0f ms)\n%!" (ms t1);
+        match Loop_numeric_diff.total per_output with
+        | Some d when d.Loop_numeric_diff.failing > 0 ->
+            Err.fail (`Numeric_mismatch d.Loop_numeric_diff.failing)
+        | _ -> Err.return ())
+  in
   let* top = Native_predict.top_predictions outs 5 |> Err.map_error map in
   Err.return (List.map (fun ((c : Dim.index Dim.t), p) -> ((c :> int), p)) top)
 
@@ -290,11 +342,72 @@ let () =
   let via_c, argv = flag "--via-c" argv in
   let simd, argv = flag "--simd" argv in
   let forced, argv = flag "--simd-forced" argv in
-  let vector =
-    if forced then Some (Loop_target.forced Loop_target.wasm128)
-    else if simd then Some Loop_target.wasm128
+  let relaxed_simd, argv = flag "--relaxed-simd" argv in
+  let reference, argv = flag "--reference" argv in
+  let numeric, argv = flag "--shadow-numeric" argv in
+  let atol, argv = valued "--atol=" argv in
+  let rtol, argv = valued "--rtol=" argv in
+  let numeric =
+    if numeric then
+      Some
+        ( Option.fold ~none:1e-4 ~some:float_of_string atol,
+          Option.fold ~none:1e-4 ~some:float_of_string rtol )
     else None
   in
+  let numerics, argv = valued "--numerics=" argv in
+  (* The default is the performance path: binary32 kernels where the planner
+     vectorizes, scheduled sums ([simd_fp32_relaxed]), 128-bit SIMD when node
+     validates its probe. [--reference] (and the C-compiled [--via-c] route, which
+     has no numerical policy) is the binary64 reference path every strict gate
+     runs; [--numerics=NAME] picks any policy, and a binary32 one always plans
+     SIMD. *)
+  let numerics =
+    match numerics with
+    | None ->
+        if reference || via_c then Loop_numerics.Reference_f64
+        else Loop_numerics.Simd_fp32_relaxed
+    | Some n -> (
+        match Loop_numerics.of_name n with
+        | Some p -> p
+        | None ->
+            Printf.eprintf "loop_wasm_pt2: unknown numerics %S (one of %s)\n" n
+              (String.concat ", "
+                 (List.map Loop_numerics.name Loop_numerics.all));
+            exit 2)
+  in
+  let wants_simd =
+    simd || forced || relaxed_simd || numerics <> Loop_numerics.Reference_f64
+  in
+  let base =
+    if relaxed_simd then
+      if Loop_wasm_exec.Node.supports Wasm_features.Relaxed_simd then
+        Loop_target.wasm128_relaxed
+      else (
+        prerr_endline
+          "loop_wasm_pt2: node does not validate relaxed SIMD; planning \
+           standard SIMD";
+        Loop_target.wasm128)
+    else Loop_target.wasm128
+  in
+  let vector =
+    if not wants_simd then None
+    else if not (Loop_wasm_exec.Node.supports Wasm_features.Simd128) then (
+      prerr_endline
+        "loop_wasm_pt2: node does not validate simd128; planning scalar \
+         binary64";
+      None)
+    else if forced then Some (Loop_target.forced base)
+    else Some base
+  in
+  let numerics =
+    match vector with None -> Loop_numerics.Reference_f64 | Some _ -> numerics
+  in
+  if shadow && numerics <> Loop_numerics.Reference_f64 then (
+    prerr_endline
+      "loop_wasm_pt2: --shadow is bitwise against the binary64 reference, \
+       which binary32 kernels do not match; use --reference, or \
+       --shadow-numeric for the default policy";
+    exit 2);
   let wat, argv = valued "--wat=" argv in
   let cflags, argv = valued "--cflags=" argv in
   let cflags =
@@ -315,8 +428,8 @@ let () =
              ?max_samples:(Option.map int_of_string samples)
              ~now
              ~infer:
-               (infer ~keep ~via_c ~cflags ~wat ~vector ~export:export_dir
-                  ~shadow ~poison ~bench:bench_n)
+               (infer ~keep ~via_c ~cflags ~wat ~vector ~numerics
+                  ~export:export_dir ~shadow ~numeric ~poison ~bench:bench_n)
              paths options)
       with
       | Ok () -> ()

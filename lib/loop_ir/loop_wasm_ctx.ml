@@ -13,13 +13,17 @@ let function_name = "loop_kernel"
 let error_address = 0
 
 type error =
-  [ `Index_constant_out_of_range of int | `Local_arrays_too_large of int64 ]
+  [ `Index_constant_out_of_range of int
+  | `Local_arrays_too_large of int64
+  | `Unsupported_precision of Loop_numerics.Refusal.t ]
 
 let pp_error ppf : [< error ] -> unit = function
   | `Index_constant_out_of_range n ->
       Fmt.pf ppf "index constant %d is not a valid 32-bit index operand" n
   | `Local_arrays_too_large n ->
       Fmt.pf ppf "local arrays need %Ld bytes, beyond the static region" n
+  | `Unsupported_precision r ->
+      Fmt.pf ppf "binary32 is not admitted: %a" Loop_numerics.Refusal.pp r
 
 (* The static region (error record, per-channel tables, local arrays) must stay
    far below the 2 GiB memory policy, so every offset below is a positive
@@ -28,6 +32,10 @@ let static_cap = 0x4000_0000L
 
 type st = {
   esc : error Err.Escape.t;
+  f32 : bool;  (** the kernel's working precision is binary32 *)
+  relaxed_madd : bool;
+      (** the plan was made for relaxed SIMD: a vector multiply-add is
+          [f32x4.relaxed_madd] *)
   mutable extra : Wasm_type.t list;  (** locals past the buffer parameters *)
   n_params : int;
   vars : (int, int) Hashtbl.t;
@@ -55,6 +63,15 @@ let i32 k = I.I32_const (Int32.of_int k)
 let get i = I.Local_get i
 let set i = I.Local_set i
 let f64 x = I.F64_const (Int64.bits_of_float x)
+
+(* The working float of a kernel: binary64, or binary32 under an fp32 plan. A
+   binary32 constant is the binary64 value rounded once, as the oracle's. *)
+let ftype st = if st.f32 then Wasm_type.F32 else Wasm_type.F64
+let fconst st x = if st.f32 then I.F32_const (Int32.bits_of_float x) else f64 x
+
+(* log2 of a local array cell: eight bytes in binary64, four in binary32. *)
+let array_log2 st = if st.f32 then 2 else 3
+let array_cell_bytes st = if st.f32 then 4 else 8
 let arg align offset = { Wasm.Mem_arg.align; offset }
 let fits32 k = Int32.to_int (Int32.of_int k) = k
 let refuse st e = Err.Escape.throw st.esc e
@@ -82,7 +99,7 @@ let local table st key ty =
 
 let var st v = local st.vars st (Loop_var.to_int v) Wasm_type.I32
 let bound st v = local st.bounds st (Loop_var.to_int v) Wasm_type.I32
-let ftemp st t = local st.floats st (Loop_temp.to_int t) Wasm_type.F64
+let ftemp st t = local st.floats st (Loop_temp.to_int t) (ftype st)
 let itemp st t = local st.int64s st (Loop_temp.to_int t) Wasm_type.I64
 let xtemp st t = local st.indices st (Loop_temp.to_int t) Wasm_type.I32
 

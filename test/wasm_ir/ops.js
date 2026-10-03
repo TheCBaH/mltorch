@@ -46,9 +46,38 @@ const f32s = [...new Set(f64s.map(Math.fround))];
 
 // name -> [operand kinds, reference, skip?]
 const T = { i32: i32s, i64: i64s, f32: f32s, f64: f64s };
+const f = Math.fround;
+// int64 to binary32 with one rounding: the low bits below binary64's 53 fold into
+// a sticky bit first, so no double rounding through binary64
+const f64toF32 = (n) => {
+  const neg = n < 0n, mag = neg ? -n : n;
+  let v;
+  if (mag < (1n << 53n)) v = Number(mag);
+  else v = Number((mag >> 11n) | ((mag & 0x7FFn) !== 0n ? 1n : 0n)) * 2048;
+  return f(neg ? -v : v);
+};
 const ref = {
+  "f32.abs": [["f32"], (a) => f(Math.abs(a))],
+  "f32.add": [["f32", "f32"], (a, c) => f(a + c)],
+  "f32.convert_i32_s": [["i32"], (a) => f(a)],
+  "f32.convert_i32_u": [["i32"], (a) => f(a >>> 0)],
+  "f32.convert_i64_s": [["i64"], (a) => f64toF32(a)],
   "f32.demote_f64": [["f64"], (a) => Math.fround(a)],
+  "f32.div": [["f32", "f32"], (a, c) => f(a / c)],
+  "f32.eq": [["f32", "f32"], (a, c) => b(a === c)],
+  "f32.ge": [["f32", "f32"], (a, c) => b(a >= c)],
+  "f32.gt": [["f32", "f32"], (a, c) => b(a > c)],
+  "f32.le": [["f32", "f32"], (a, c) => b(a <= c)],
+  "f32.lt": [["f32", "f32"], (a, c) => b(a < c)],
+  "f32.max": [["f32", "f32"], (a, c) => f(Math.max(a, c))],
+  "f32.min": [["f32", "f32"], (a, c) => f(Math.min(a, c))],
+  "f32.mul": [["f32", "f32"], (a, c) => f(a * c)],
+  "f32.ne": [["f32", "f32"], (a, c) => b(a !== c)],
+  "f32.neg": [["f32"], (a) => f(-a)],
   "f32.reinterpret_i32": [["i32"], (a) => bitsf32(a)],
+  "f32.sqrt": [["f32"], (a) => f(Math.sqrt(a))],
+  "f32.sub": [["f32", "f32"], (a, c) => f(a - c)],
+  "f32.trunc": [["f32"], (a) => f(Math.trunc(a))],
   "f64.abs": [["f64"], Math.abs],
   "f64.add": [["f64", "f64"], (a, c) => a + c],
   "f64.ceil": [["f64"], Math.ceil],
@@ -214,6 +243,24 @@ for (const [name, [kinds, f, skip]] of Object.entries(ref)) {
     ex["f64x2.convert_low_i32x4_s"](A, D); check("f64x2.convert_low_i32x4_s", [q], getF64(D), [q[0], q[1]]);
     ex["f64x2.convert_low_i32x4_u"](A, D); check("f64x2.convert_low_i32x4_u", [q], getF64(D), [q[0] >>> 0, q[1] >>> 0]);
   }
+  // f32x4: every lane is the scalar binary32 operation, rounded once.
+  const quads = f32s.map((_, k) => [0, 1, 2, 3].map((j) => f32s[(k + 5 * j) % f32s.length]));
+  const f = Math.fround;
+  const f32bin = { add: (a, c) => f(a + c), sub: (a, c) => f(a - c), mul: (a, c) => f(a * c), div: (a, c) => f(a / c), min: (a, c) => f(Math.min(a, c)), max: (a, c) => f(Math.max(a, c)) };
+  for (const [op, g] of Object.entries(f32bin))
+    for (const [x, y] of quads.flatMap((p) => [0, 3, 7, 11].map((o) => [p, quads[(quads.indexOf(p) + o) % quads.length]]))) {
+      setF32(A, x); setF32(B, y); ex["f32x4." + op](A, B, D);
+      check("f32x4." + op, [x, y], getF32(D), x.map((v, k) => g(v, y[k])));
+    }
+  const f32un = { abs: (a) => f(Math.abs(a)), neg: (a) => f(-a), sqrt: (a) => f(Math.sqrt(a)), trunc: (a) => f(Math.trunc(a)) };
+  for (const [op, g] of Object.entries(f32un))
+    for (const x of quads) { setF32(A, x); ex["f32x4." + op](A, D); check("f32x4." + op, [x], getF32(D), x.map(g)); }
+  const f32cmp = { eq: (a, c) => a === c, ne: (a, c) => a !== c, lt: (a, c) => a < c, gt: (a, c) => a > c, le: (a, c) => a <= c, ge: (a, c) => a >= c };
+  for (const [op, g] of Object.entries(f32cmp))
+    for (const [x, y] of quads.flatMap((p) => [0, 2, 5, 9].map((o) => [p, quads[(quads.indexOf(p) + o) % quads.length]]))) {
+      setF32(A, x); setF32(B, y); ex["f32x4." + op](A, B, D);
+      check("f32x4." + op, [x, y], getI32(D), x.map((v, k) => (g(v, y[k]) ? -1 : 0)));
+    }
   for (const x of f64s) { ex["f64x2.splat"](x, D); check("f64x2.splat", [x], getF64(D), [x, x]); }
   for (const x of f32s) { ex["f32x4.splat"](x, D); check("f32x4.splat", [x], getF32(D), [x, x, x, x]); }
   for (const x of i32s) { ex["i32x4.splat"](x, D); check("i32x4.splat", [x], getI32(D), [x, x, x, x]); }

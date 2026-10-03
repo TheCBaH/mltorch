@@ -2,6 +2,37 @@ open Loop_ir
 module Proc = Loop_c_exec.Proc
 
 let node = ref [ "node" ]
+
+(* A feature a default node 20 has off: the flag that enables it. *)
+let flags_for = function
+  | Wasm_features.Relaxed_simd -> [ "--experimental-wasm-relaxed-simd" ]
+  | Wasm_features.Bulk_memory | Wasm_features.Non_trapping_float_to_int
+  | Wasm_features.Sign_extension | Wasm_features.Simd128 ->
+      []
+
+(* The command that runs a script for a module using these features. *)
+let command features =
+  !node @ List.concat_map flags_for (List.sort_uniq compare features)
+
+(* Whether the engine, started as [command [f]] would be, validates [f]'s probe:
+   the real extension, never a version number. *)
+let supports ?(flags = true) f =
+  let probe = Wasm_features.probe f in
+  let hex =
+    String.concat ","
+      (List.init (String.length probe) (fun i ->
+           string_of_int (Char.code probe.[i])))
+  in
+  let script =
+    Printf.sprintf
+      "process.exit(WebAssembly.validate(new Uint8Array([%s])) ? 0 : 1)" hex
+  in
+  match
+    Proc.run ((if flags then command [ f ] else !node) @ [ "-e"; script ])
+  with
+  | Ok (Proc.Exited 0, _) -> true
+  | Ok _ | Error _ -> false
+
 let exit_inference = 5
 let failure_prefix = "model_error:"
 let timing_prefix = "wasm_timing:"
@@ -140,12 +171,12 @@ type placement = {
 
 (* Runs the runner on prepared files; the result is the process status and its
    log, for the caller to classify. *)
-let execute ~dir ~module_file ~weights ~inputs ~template ~outputs
-    (pl : placement) ~poison ~repeat =
+let execute ?(features = []) ~dir ~module_file ~weights ~inputs ~template
+    ~outputs (pl : placement) ~poison ~repeat =
   let runner = Filename.concat dir "runner.js" in
   if not (Sys.file_exists runner) then Proc.write_file runner runner_text;
   Proc.run
-    (!node
+    (command features
     @ [
         runner;
         module_file;

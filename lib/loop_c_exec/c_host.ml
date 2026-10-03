@@ -83,12 +83,12 @@ let compiler_banner compiler =
       | None -> text)
   | _ -> "unknown"
 
-let prepare_r ?vector ?(compiler = default_compiler) ~dir (b : Loop_bundle.t)
-    ~constants =
+let prepare_r ?vector ?numerics ?(compiler = default_compiler) ~dir
+    (b : Loop_bundle.t) ~constants =
   let* c =
     Result.map_error
       (fun e -> `Generate e)
-      (Err.payload (Loop_bundle_c.build ?vector b))
+      (Err.payload (Loop_bundle_c.build ?vector ?numerics b))
   in
   let* () = unix_io (fun () -> mkdir_p dir) in
   let file name = Filename.concat dir name in
@@ -214,8 +214,8 @@ let bundle_c p = p.c
 let compiler_identity p = p.compiler_identity
 let lift r = Err.import Fun.id r
 
-let prepare ?vector ?compiler ~dir b ~constants =
-  lift (prepare_r ?vector ?compiler ~dir b ~constants)
+let prepare ?vector ?numerics ?compiler ~dir b ~constants =
+  lift (prepare_r ?vector ?numerics ?compiler ~dir b ~constants)
 
 let write_inputs p ~bind ~path = lift (write_inputs_r p ~bind ~path)
 let read_outputs p ~path = lift (read_outputs_r p ~path)

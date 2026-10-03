@@ -146,7 +146,8 @@ let sites (p : Loop_program.t) =
   let rec go (s : Loop_stmt.t) =
     match s with
     | Loop_stmt.Fail_if (_, f) -> acc := f :: !acc
-    | Loop_stmt.For { body; _ } -> List.iter go body
+    | Loop_stmt.For { body; _ } | Loop_stmt.Reduce_sum { body; _ } ->
+        List.iter go body
     | Loop_stmt.If (_, yes, no) ->
         List.iter go yes;
         List.iter go no

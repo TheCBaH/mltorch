@@ -27,6 +27,9 @@ type t =
   | Binary of Expr.Value.binary_op * t * t
   | Const of float
   | Float_max of t * t
+  | Fma of t * t * t
+      (** [a * b + c] per lane with one rounding: a guaranteed fused operation,
+          built only for a target that has one *)
   | Index_value of { base : Loop_index.t; step : int }
       (** lane [k] is [float (base + k * step)] *)
   | Load of Access.t
@@ -86,6 +89,52 @@ type loop = {
     [var = lo + j * lanes], then [scalar] restricted to [\[lo + q * lanes, hi)].
 *)
 
+type vec = t
+
+val shift : Loop_var.t -> int -> t -> t
+(** [shift var delta e] is [e] evaluated [delta] iterations of [var] later: the
+    same lanes, every access offset and index value base with [var] replaced by
+    [var + delta]. A splat does not mention [var] and is unchanged. *)
+
+(** A sum scheduled along its own axis, under a policy that permits reordering
+    it (see the fp32 design record in [ai/]): the terms of [\[lo, hi)] are
+    summed in vectors of [lanes] consecutive terms across [parts] independent
+    accumulators, combined in a fixed tree.
+
+    Precisely, with [n = hi - lo], [full = n / lanes] vectors,
+    [main = full / parts] rounds and [extra = full mod parts] left over, every
+    accumulator lane [a(j, k)] starts at [+0.]; round [i] adds term
+    [lo + (i * parts + j) * lanes + k] into [a(j, k)]; the [extra] vectors go to
+    accumulators [0 .. extra - 1] in order; each lane [k] then becomes the
+    adjacent-pair tree of [a(0, k) .. a(parts - 1, k)], and the lanes the
+    adjacent-pair tree of those; the [n - full * lanes] trailing terms are
+    summed sequentially from [+0.] into [t]; and the result is
+    [seed + (tree + t)]. One [Reduction] mark runs per term. That is a
+    definition of the answer, not an approximation of the sequential sum, and
+    {!Loop_vector_expand} spells it out as scalar statements for the
+    interpreter. *)
+module Reduction : sig
+  type t = {
+    acc : Loop_temp.t;  (** the float temporary the result is assigned to *)
+    seed : float;
+    var : Loop_var.t;  (** the sum's variable, free in [term] *)
+    lo : int;
+    hi : int;
+    lanes : int;  (** terms in one accumulator vector *)
+    parts : int;  (** independent accumulator vectors *)
+    term : vec;
+        (** lane [k] of a vector at [var = b] is the scalar term at [b + k]: its
+            loads are affine in [var] with the stride their access records *)
+    fused : bool;
+        (** the accumulate is a fused multiply-add: [term] is a product [a * b]
+            and every step, the tail's included, is [fma(a, b, accumulator)]
+            with one rounding instead of [accumulator + a * b] with two *)
+    scalar : Loop_stmt.t;
+        (** the {!Loop_stmt.Reduce_sum} this stands for: every backend's
+            sequential fallback *)
+  }
+end
+
 type node =
   | If of Loop_expr.pred * node list * node list
   | Loop of {
@@ -94,6 +143,7 @@ type node =
       hi : Loop_index.t;
       body : node list;
     }  (** a scalar loop that contains a vector loop *)
+  | Reduction of Reduction.t
   | Scalar of Loop_stmt.t
   | Vector of loop
 

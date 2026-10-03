@@ -134,6 +134,7 @@ let rewrite_body ~ratio ~single p env0 body =
         e
     | Loop_expr.Binary (op, a, b) -> Loop_expr.Binary (op, ex a, ex b)
     | Loop_expr.Float_max (a, b) -> Loop_expr.Float_max (ex a, ex b)
+    | Loop_expr.Fma (a, b, c) -> Loop_expr.Fma (ex a, ex b, ex c)
     | Loop_expr.Float_to_i64 a -> Loop_expr.Float_to_i64 (ex a)
     | Loop_expr.I64_binary (op, a, b) -> Loop_expr.I64_binary (op, ex a, ex b)
     | Loop_expr.I64_to_float a -> Loop_expr.I64_to_float (ex a)
@@ -194,6 +195,10 @@ let rewrite_body ~ratio ~single p env0 body =
     | Loop_stmt.Fail_if (q, f) -> Loop_stmt.Fail_if (pred env q, f)
     | Loop_stmt.Assign_index_of_i64 (t, e) ->
         Loop_stmt.Assign_index_of_i64 (t, expr env e)
+    | Loop_stmt.Reduce_sum _ ->
+        invalid_arg
+          "Loop_opt_collapse: a structured sum is expanded at the entry point \
+           (Loop_sum.program)"
     | Loop_stmt.Alloc _ | Loop_stmt.Charge_scan_update | Loop_stmt.Mark _
     | Loop_stmt.Release_scan_state _ | Loop_stmt.Reserve_scan_state _
     | Loop_stmt.Reset_meter ->

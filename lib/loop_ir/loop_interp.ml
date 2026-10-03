@@ -40,6 +40,8 @@ type state = {
   limits : Expr.Scan_limits.t;
   mutable meter : meter;
   counters : counters;
+  precision : Loop_numerics.Precision.t;
+  fused : bool;
   buffers : Tensor.packed Tensor_id.Map.t;
   vars : (int, int) Hashtbl.t;
   floats : (int, float) Hashtbl.t;
@@ -185,7 +187,14 @@ let flat_coord st (b : Loop_buffer.t) i =
   if rest <> 0 then invalid_arg "Loop_interp: unchecked access out of range";
   Expr.Coord.of_fn (fun a -> List.assoc a comps)
 
-let round_f32 x = Int32.float_of_bits (Int32.bits_of_float x)
+let round_f32 = Loop_numerics.round32
+
+(* Under binary32 every float-valued operation rounds once, to the value a
+   binary32 unit would produce: the oracle for generated fp32 kernels. *)
+let working st x =
+  match st.precision with
+  | Loop_numerics.Precision.F32 -> round_f32 x
+  | Loop_numerics.Precision.F64 -> x
 
 let rec eval : type a. state -> a Loop_expr.t -> a =
  fun st -> function
@@ -198,12 +207,22 @@ let rec eval : type a. state -> a Loop_expr.t -> a =
   | Loop_expr.Binary (op, a, b) ->
       let x = eval st a in
       let y = eval st b in
-      Expr.Value.apply_binary op x y
-  | Loop_expr.Const x -> x
+      working st (Expr.Value.apply_binary op x y)
+  | Loop_expr.Const x -> working st x
   | Loop_expr.Float_max (a, b) ->
       let x = eval st a in
       let y = eval st b in
       Expr.Max_op.apply Expr.Max_op.Float_max x y
+  | Loop_expr.Fma (a, b, c) -> (
+      let x = eval st a in
+      let y = eval st b in
+      let z = eval st c in
+      match (st.precision, st.fused) with
+      | Loop_numerics.Precision.F32, true -> Loop_numerics.fma32 x y z
+      | Loop_numerics.Precision.F32, false ->
+          Loop_numerics.round32 (Loop_numerics.round32 (x *. y) +. z)
+      | Loop_numerics.Precision.F64, true -> Float.fma x y z
+      | Loop_numerics.Precision.F64, false -> (x *. y) +. z)
   | Loop_expr.Float_to_i64 a ->
       Err.Escape.or_throw st.esc
         (Err.map_error
@@ -218,7 +237,11 @@ let rec eval : type a. state -> a Loop_expr.t -> a =
            (Expr.Value.apply_i64_binary op x y))
   | Loop_expr.I64_const n -> n
   | Loop_expr.I64_of_index i -> index st i
-  | Loop_expr.I64_to_float a -> Int64.to_float (eval st a)
+  | Loop_expr.I64_to_float a -> (
+      let n = eval st a in
+      match st.precision with
+      | Loop_numerics.Precision.F32 -> Loop_numerics.round32_of_i64 n
+      | Loop_numerics.Precision.F64 -> Int64.to_float n)
   | Loop_expr.Load (b, c) -> read st b (checked_coord st b c)
   | Loop_expr.Load_flat (b, i) -> read st b (flat_coord st b i)
   | Loop_expr.Load_i64 (b, c) -> read_i64 st b (checked_coord st b c)
@@ -229,17 +252,23 @@ let rec eval : type a. state -> a Loop_expr.t -> a =
       lookup st.floats (Loop_temp.to_int t) "float temporary"
   | Loop_expr.Temp (Loop_carrier.Int64, t) ->
       lookup st.int64s (Loop_temp.to_int t) "int64 temporary"
-  | Loop_expr.Unary (op, a) -> Expr.Value.apply_unary op (eval st a)
+  | Loop_expr.Unary (op, a) -> (
+      let x = eval st a in
+      match (st.precision, op) with
+      | Loop_numerics.Precision.F32, Expr.Value.Erf -> Loop_numerics.erf32 x
+      | _ -> working st (Expr.Value.apply_unary op x))
   | Loop_expr.Value_of_index i ->
       let i = idx st i in
-      Err.Escape.or_throw st.esc
-        (Err.map_error
-           (fun (e : Expr.Eval.index_error) -> (e :> error))
-           (Expr.Eval.float_of_index i))
+      working st
+        (Err.Escape.or_throw st.esc
+           (Err.map_error
+              (fun (e : Expr.Eval.index_error) -> (e :> error))
+              (Expr.Eval.float_of_index i)))
 
 and read st b c : float =
   st.counters.loads <- st.counters.loads + 1;
-  Tensor.read_at_raw (buffer_tensor st b) (fun a -> Expr.Coord.get c a)
+  working st
+    (Tensor.read_at_raw (buffer_tensor st b) (fun a -> Expr.Coord.get c a))
 
 and read_i64 st b c : int64 =
   st.counters.loads <- st.counters.loads + 1;
@@ -434,6 +463,10 @@ let rec exec st : Loop_stmt.t -> unit = function
       done
   | Loop_stmt.If (p, yes, no) ->
       List.iter (exec st) (if pred st p then yes else no)
+  | Loop_stmt.Reduce_sum _ ->
+      invalid_arg
+        "Loop_interp: a structured sum is expanded at the entry point \
+         (Loop_sum.program)"
   | Loop_stmt.Mark m -> (
       let c = st.counters in
       match m with
@@ -492,7 +525,9 @@ let bind_buffers ?(outputs = fun _ -> None) esc (p : Loop_program.t) ~bind =
           Tensor_id.Map.add b.Loop_buffer.id (allocate b) acc)
     Tensor_id.Map.empty p.Loop_program.buffers
 
-let run ?(counters = counters ()) ?outputs (p : Loop_program.t) ~bind =
+let run ?(counters = counters ()) ?(precision = Loop_numerics.Precision.F64)
+    ?(fused = true) ?outputs (p : Loop_program.t) ~bind =
+  let p = Loop_sum.program p in
   Err.Escape.with_escape @@ fun esc ->
   let st =
     {
@@ -500,6 +535,8 @@ let run ?(counters = counters ()) ?outputs (p : Loop_program.t) ~bind =
       limits = p.Loop_program.scan_limits;
       meter = fresh_meter p.Loop_program.scan_limits;
       counters;
+      precision;
+      fused;
       buffers = bind_buffers ?outputs esc p ~bind;
       vars = Hashtbl.create 16;
       floats = Hashtbl.create 16;

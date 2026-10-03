@@ -14,6 +14,7 @@ type t = {
   mark_base : int option;
   heap_base : int;
   sites : Loop_failure.t array;
+  precision : Loop_numerics.Precision.t;
 }
 
 type kernel = {
@@ -22,6 +23,8 @@ type kernel = {
   local_bytes : int64;
   data : Wasm.Data.t list;
   sites : Loop_failure.t array;
+  precision : Loop_numerics.Precision.t;
+  refusal : Loop_numerics.Refusal.t option;
 }
 
 (* The [Fail_if] sites are numbered in the walk [Loop_js_failure.sites] makes,
@@ -57,7 +60,7 @@ let rec stmt st ~limits (s : Loop_stmt.t) : I.t list =
   match s with
   | Loop_stmt.Alloc (a, count) ->
       let len = (count :> int) in
-      let off = reserve_local st (Int64.of_int (8 * len)) in
+      let off = reserve_local st (Int64.of_int (array_cell_bytes st * len)) in
       Hashtbl.replace st.arrays (Loop_array.to_int a) off;
       if len = 0 then []
       else
@@ -79,11 +82,11 @@ let rec stmt st ~limits (s : Loop_stmt.t) : I.t list =
                       i32 off;
                       n Wasm_op.I32_add;
                       get c;
-                      i32 3;
+                      i32 (array_log2 st);
                       n Wasm_op.I32_shl;
                       n Wasm_op.I32_add;
-                      f64 0.;
-                      I.Store (Wasm.Store.F64_store, arg 3 0);
+                      fconst st 0.;
+                      array_store st;
                       get c;
                       i32 1;
                       n Wasm_op.I32_add;
@@ -95,7 +98,7 @@ let rec stmt st ~limits (s : Loop_stmt.t) : I.t list =
   | Loop_stmt.Array_set (a, i, e) ->
       let at = array_address st a i in
       let e = num st e in
-      at @ e @ [ I.Store (Wasm.Store.F64_store, arg 3 0) ]
+      at @ e @ [ array_store st ]
   | Loop_stmt.Assign (Loop_carrier.Float, t, e) ->
       let e = num st e in
       e @ [ set (ftemp st t) ]
@@ -152,6 +155,10 @@ let rec stmt st ~limits (s : Loop_stmt.t) : I.t list =
         n Wasm_op.I64_sub;
         set remaining;
       ]
+  | Loop_stmt.Reduce_sum _ ->
+      invalid_arg
+        "Loop_wasm: a structured sum is expanded at the entry point \
+         (Loop_sum.program)"
   | Loop_stmt.Mark m -> (
       (* A counting build bumps its mark's word; the default build emits
          nothing, so no inference path pays for a mark or calls the host. *)
@@ -242,6 +249,7 @@ and for_loop st v lo hi_ix body =
 and node st ~limits (nd : Loop_vector.node) =
   match nd with
   | Loop_vector.Scalar s -> stmt st ~limits s
+  | Loop_vector.Reduction r -> Loop_wasm_vector.reduction st r
   | Loop_vector.If (p, yes, no) ->
       let p = pred st p in
       let yes = nodes st ~limits yes in
@@ -260,13 +268,18 @@ and store st b addr value =
   | Loop_stored.Bool e ->
       let e = num st e in
       at @ e
-      @ [ f64 0.; n Wasm_op.F64_ne; I.Store (Wasm.Store.I32_store8, arg 0 0) ]
+      @ [
+          fconst st 0.;
+          n (if st.f32 then Wasm_op.F32_ne else Wasm_op.F64_ne);
+          I.Store (Wasm.Store.I32_store8, arg 0 0);
+        ]
   | Loop_stored.F32 (Loop_expr.Round_f32 e) | Loop_stored.F32 e ->
       (* The store narrows to binary32 itself, so an outermost [Round_f32] is
          the same rounding written twice. *)
       let e = num st e in
       at @ e
-      @ [ n Wasm_op.F32_demote_f64; I.Store (Wasm.Store.F32_store, arg 2 0) ]
+      @ (if st.f32 then [] else [ n Wasm_op.F32_demote_f64 ])
+      @ [ I.Store (Wasm.Store.F32_store, arg 2 0) ]
   | Loop_stored.I64 e ->
       let e = big st e in
       at @ e @ [ I.Store (Wasm.Store.I64_store, arg 3 0) ]
@@ -295,121 +308,148 @@ let f64_bytes xs =
     xs;
   Buffer.contents buf
 
-let kernel_exact ~vector ~mark_base ~table_alloc (p : Loop_program.t) :
-    (kernel, error) Err.t =
-  Err.Escape.with_escape (fun esc ->
-      let buffers = Hashtbl.create 8 in
-      List.iteri
-        (fun k (b : Loop_buffer.t) ->
-          Hashtbl.replace buffers (Tensor_id.to_int b.Loop_buffer.id) k)
-        p.Loop_program.buffers;
-      let st =
-        {
-          esc;
-          extra = [];
-          n_params = 1 + List.length p.Loop_program.buffers;
-          vars = Hashtbl.create 8;
-          bounds = Hashtbl.create 8;
-          floats = Hashtbl.create 8;
-          int64s = Hashtbl.create 8;
-          indices = Hashtbl.create 8;
-          buffers;
-          tables = Hashtbl.create 4;
-          arrays = Hashtbl.create 4;
-          local_top = 0L;
-          table_alloc;
-          mark_base;
-          used = [];
-          meter = None;
-          sites = F.sites p;
-          next_site = 0;
-        }
-      in
-      (* Per-channel parameters, once, as constant [f64] arrays. *)
-      let data =
-        List.concat_map
-          (fun (b : Loop_buffer.t) ->
-            match channel_tables b with
-            | None -> []
-            | Some params ->
-                let bytes = 8 * List.length params in
-                let scales = table_alloc ~bytes in
-                let zeros = table_alloc ~bytes in
-                Hashtbl.replace st.tables
-                  (Tensor_id.to_int b.Loop_buffer.id)
-                  (scales, zeros);
-                [
-                  {
-                    Wasm.Data.offset = scales;
-                    bytes = f64_bytes (List.map fst params);
-                  };
-                  {
-                    Wasm.Data.offset = zeros;
-                    bytes =
-                      f64_bytes (List.map (fun (_, z) -> float_of_int z) params);
-                  };
-                ])
-          p.Loop_program.buffers
-      in
-      let limits = p.Loop_program.scan_limits in
-      let body =
-        match vector with
-        | Some target ->
-            (* Strict vectorization for the 128-bit Wasm target: the program, with
+let kernel_exact ~vector ~numerics ~precision ~mark_base ~table_alloc
+    (p : Loop_program.t) : (kernel, error) Err.t =
+  let p = Loop_sum.program p in
+  let plan =
+    match precision with
+    | None -> Ok (Loop_plan.resolve ?target:vector ~numerics p)
+    | Some precision ->
+        Result.map_error
+          (fun r -> `Unsupported_precision r)
+          (Loop_plan.force ?target:vector ~precision p)
+  in
+  match plan with
+  | Error e -> Err.fail e
+  | Ok plan ->
+      Err.Escape.with_escape (fun esc ->
+          let buffers = Hashtbl.create 8 in
+          List.iteri
+            (fun k (b : Loop_buffer.t) ->
+              Hashtbl.replace buffers (Tensor_id.to_int b.Loop_buffer.id) k)
+            p.Loop_program.buffers;
+          let st =
+            {
+              esc;
+              f32 = plan.Loop_plan.precision = Loop_numerics.Precision.F32;
+              relaxed_madd =
+                (match vector with
+                | Some t -> (Loop_target.f32 t).Loop_target.relaxed_madd
+                | None -> false);
+              extra = [];
+              n_params = 1 + List.length p.Loop_program.buffers;
+              vars = Hashtbl.create 8;
+              bounds = Hashtbl.create 8;
+              floats = Hashtbl.create 8;
+              int64s = Hashtbl.create 8;
+              indices = Hashtbl.create 8;
+              buffers;
+              tables = Hashtbl.create 4;
+              arrays = Hashtbl.create 4;
+              local_top = 0L;
+              table_alloc;
+              mark_base;
+              used = [];
+              meter = None;
+              sites = F.sites p;
+              next_site = 0;
+            }
+          in
+          (* Per-channel parameters, once, as constant [f64] arrays. *)
+          let data =
+            List.concat_map
+              (fun (b : Loop_buffer.t) ->
+                match channel_tables b with
+                | None -> []
+                | Some params ->
+                    let bytes = 8 * List.length params in
+                    let scales = table_alloc ~bytes in
+                    let zeros = table_alloc ~bytes in
+                    Hashtbl.replace st.tables
+                      (Tensor_id.to_int b.Loop_buffer.id)
+                      (scales, zeros);
+                    [
+                      {
+                        Wasm.Data.offset = scales;
+                        bytes = f64_bytes (List.map fst params);
+                      };
+                      {
+                        Wasm.Data.offset = zeros;
+                        bytes =
+                          f64_bytes
+                            (List.map (fun (_, z) -> float_of_int z) params);
+                      };
+                    ])
+              p.Loop_program.buffers
+          in
+          let limits = p.Loop_program.scan_limits in
+          let body =
+            match plan.Loop_plan.vector with
+            | Some vp ->
+                (* Strict vectorization for the 128-bit Wasm target: the program, with
              its independent loops replaced by vector loops; the verifier runs
              before anything is lowered. *)
-            let vp, _ = Loop_vectorize.program ~target p in
-            (match Err.payload (Loop_vector_check.program vp) with
-            | Ok () -> ()
-            | Error e ->
-                invalid_arg
-                  (Fmt.str
-                     "Loop_wasm: the vectorizer built an invalid program: %a"
-                     Loop_vector_check.pp_error e));
-            nodes st ~limits vp.Loop_vector.body
-        | None -> block st ~limits p.Loop_program.body
-      in
-      if st.next_site <> Array.length st.sites then
-        invalid_arg "Loop_wasm: a failure site was not written";
-      let prologue =
-        match st.meter with
-        | None -> []
-        | Some (remaining, _) ->
-            [ I.I64_const (Expr.Scan_limits.max_updates limits); set remaining ]
-      in
-      {
-        func =
+                (match Err.payload (Loop_vector_check.program vp) with
+                | Ok () -> ()
+                | Error e ->
+                    invalid_arg
+                      (Fmt.str
+                         "Loop_wasm: the vectorizer built an invalid program: \
+                          %a"
+                         Loop_vector_check.pp_error e));
+                nodes st ~limits vp.Loop_vector.body
+            | None -> block st ~limits p.Loop_program.body
+          in
+          if st.next_site <> Array.length st.sites then
+            invalid_arg "Loop_wasm: a failure site was not written";
+          let prologue =
+            match st.meter with
+            | None -> []
+            | Some (remaining, _) ->
+                [
+                  I.I64_const (Expr.Scan_limits.max_updates limits);
+                  set remaining;
+                ]
+          in
           {
-            Wasm.Func.type_ =
+            func =
               {
-                Wasm.Func_type.params =
-                  Wasm_type.I32
-                  :: List.map (fun _ -> Wasm_type.I32) p.Loop_program.buffers;
-                results = [ Wasm_type.I32 ];
+                Wasm.Func.type_ =
+                  {
+                    Wasm.Func_type.params =
+                      Wasm_type.I32
+                      :: List.map
+                           (fun _ -> Wasm_type.I32)
+                           p.Loop_program.buffers;
+                    results = [ Wasm_type.I32 ];
+                  };
+                locals = List.rev st.extra;
+                body = prologue @ body @ [ i32 0 ];
               };
-            locals = List.rev st.extra;
-            body = prologue @ body @ [ i32 0 ];
-          };
-        callees = Loop_wasm_link.reached st.used;
-        local_bytes = st.local_top;
-        data;
-        sites = st.sites;
-      })
+            callees = Loop_wasm_link.reached st.used;
+            local_bytes = st.local_top;
+            data;
+            sites = st.sites;
+            precision = plan.Loop_plan.precision;
+            refusal = plan.Loop_plan.refusal;
+          })
 
 (* Widened for a caller that composes it with other errors, which would
    otherwise have to name this row's tags itself. *)
-let kernel ?vector ?mark_base ~table_alloc p =
+let kernel ?vector ?(numerics = Loop_numerics.Reference_f64) ?precision
+    ?mark_base ~table_alloc p =
   Err.map_error
     (fun (e : error) ->
       match e with
       | `Index_constant_out_of_range _ as e -> e
-      | `Local_arrays_too_large _ as e -> e)
-    (kernel_exact ~vector ~mark_base ~table_alloc p)
+      | `Local_arrays_too_large _ as e -> e
+      | `Unsupported_precision _ as e -> e)
+    (kernel_exact ~vector ~numerics ~precision ~mark_base ~table_alloc p)
 
 let align16 x = Int64.logand (Int64.add x 15L) (Int64.lognot 15L)
 
-let lower ?vector ?(count_marks = false) (p : Loop_program.t) : (t, error) Err.t
-    =
+let lower ?vector ?(numerics = Loop_numerics.Reference_f64) ?precision
+    ?(count_marks = false) (p : Loop_program.t) : (t, error) Err.t =
   (* The module's own bytes: the error record, then constant tables as the
      kernel asks for them, then the local region, then the host's buffers. *)
   let top = ref (align16 (Int64.of_int W.record_bytes)) in
@@ -452,7 +492,10 @@ let lower ?vector ?(count_marks = false) (p : Loop_program.t) : (t, error) Err.t
           customs = [ { Wasm.Custom.name = "abi"; payload = "loop-wasm/1" } ];
         }
       in
-      let manifest = Loop_wasm_link.manifest ~callees:k.callees m in
+      let manifest =
+        Loop_wasm_link.manifest ~numerics ~precisions:[ k.precision ]
+          ~callees:k.callees m
+      in
       {
         module_ =
           {
@@ -465,8 +508,9 @@ let lower ?vector ?(count_marks = false) (p : Loop_program.t) : (t, error) Err.t
         heap_base;
         mark_base;
         sites = k.sites;
+        precision = k.precision;
       })
-    (kernel_exact ~vector ~mark_base ~table_alloc p)
+    (kernel_exact ~vector ~numerics ~precision ~mark_base ~table_alloc p)
 
 let with_pages t ~pages =
   match t.module_.Wasm.Module.memory with

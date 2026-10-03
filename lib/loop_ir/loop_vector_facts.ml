@@ -43,6 +43,8 @@ let rec assigned_temps acc (s : Loop_stmt.t) =
   | Loop_stmt.Assign_index_of_i64 (t, _) ->
       Loop_temp.Set.add t acc
   | Loop_stmt.For { body; _ } -> List.fold_left assigned_temps acc body
+  | Loop_stmt.Reduce_sum { acc = t; body; _ } ->
+      List.fold_left assigned_temps (Loop_temp.Set.add t acc) body
   | Loop_stmt.If (_, a, b) ->
       List.fold_left assigned_temps (List.fold_left assigned_temps acc a) b
   | Loop_stmt.Alloc _ | Loop_stmt.Array_set _ | Loop_stmt.Charge_scan_update
@@ -63,6 +65,8 @@ let rec expr_depends : type a.
   | Loop_expr.Array_get (_, i) -> idx i
   | Loop_expr.Binary (_, a, b) | Loop_expr.Float_max (a, b) ->
       expr_depends v temps a || expr_depends v temps b
+  | Loop_expr.Fma (a, b, c) ->
+      expr_depends v temps a || expr_depends v temps b || expr_depends v temps c
   | Loop_expr.Const _ | Loop_expr.I64_const _ -> false
   | Loop_expr.Float_to_i64 a -> expr_depends v temps a
   | Loop_expr.I64_to_float a -> expr_depends v temps a
@@ -101,6 +105,7 @@ let rec expr_buffers : type a. a Loop_expr.t -> Loop_buffer.t list =
       [ b ]
   | Loop_expr.Binary (_, a, b) | Loop_expr.Float_max (a, b) ->
       expr_buffers a @ expr_buffers b
+  | Loop_expr.Fma (a, b, c) -> expr_buffers a @ expr_buffers b @ expr_buffers c
   | Loop_expr.I64_binary (_, a, b) -> expr_buffers a @ expr_buffers b
   | Loop_expr.Float_to_i64 a -> expr_buffers a
   | Loop_expr.I64_to_float a -> expr_buffers a
@@ -133,6 +138,7 @@ let rec expr_temps : type a. a Loop_expr.t -> Loop_temp.t list =
   | Loop_expr.Temp (_, t) -> [ t ]
   | Loop_expr.Binary (_, a, b) | Loop_expr.Float_max (a, b) ->
       expr_temps a @ expr_temps b
+  | Loop_expr.Fma (a, b, c) -> expr_temps a @ expr_temps b @ expr_temps c
   | Loop_expr.I64_binary (_, a, b) -> expr_temps a @ expr_temps b
   | Loop_expr.Float_to_i64 a -> expr_temps a
   | Loop_expr.I64_to_float a -> expr_temps a
@@ -175,6 +181,9 @@ let rec stmt_temp_reads acc (s : Loop_stmt.t) =
         (List.fold_left stmt_temp_reads (pred_temps p @ acc) a)
         b
   | Loop_stmt.For { body; _ } -> List.fold_left stmt_temp_reads acc body
+  | Loop_stmt.Reduce_sum { acc = t; body; term; _ } ->
+      (* the accumulate reads its own accumulator *)
+      List.fold_left stmt_temp_reads (t :: (expr_temps term @ acc)) body
   | Loop_stmt.Alloc _ | Loop_stmt.Assign_index _ | Loop_stmt.Charge_scan_update
   | Loop_stmt.Mark _ | Loop_stmt.Release_scan_state _
   | Loop_stmt.Reserve_scan_state _ | Loop_stmt.Reset_meter ->

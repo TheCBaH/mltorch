@@ -21,6 +21,8 @@ let passes : pass list =
   ]
 
 let run ?(passes = passes) program =
+  (* The passes read expanded sums; the planner is the one reader of the node. *)
+  let program = Loop_sum.program program in
   List.fold_left (fun program pass -> pass program) program passes
 
 module Pass = struct

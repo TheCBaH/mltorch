@@ -43,6 +43,7 @@ val default_compiler : string list
 
 val prepare :
   ?vector:Loop_target.t ->
+  ?numerics:Loop_numerics.t ->
   ?compiler:string list ->
   dir:string ->
   Loop_bundle.t ->

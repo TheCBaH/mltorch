@@ -40,8 +40,12 @@ let layout (p : Loop_program.t) =
 
 let kernel_name = "kernel"
 
-let source ?vector p =
-  match Err.payload (Loop_c.kernel ?vector ~name:kernel_name p) with
+let source ?vector ?numerics ?precision ?fuse_reductions p =
+  match
+    Err.payload
+      (Loop_c.kernel ?vector ?numerics ?precision ?fuse_reductions
+         ~name:kernel_name p)
+  with
   | Error e -> Err.fail (`C_unsupported e)
   | Ok k ->
       let offsets, total = layout p in
@@ -163,12 +167,13 @@ let bind_buffers ~outputs (p : Loop_program.t) ~bind =
           Ok (Tensor_id.Map.add b.Loop_buffer.id (Loop_interp.allocate b) acc))
     (Ok Tensor_id.Map.empty) p.Loop_program.buffers
 
-let exec ?vector ?(outputs = fun _ -> None) (p : Loop_program.t) ~bind =
+let exec ?vector ?numerics ?precision ?fuse_reductions
+    ?(outputs = fun _ -> None) (p : Loop_program.t) ~bind =
   let result : (Tensor.packed Tensor_id.Map.t, error) result =
     let* text, _ =
       Result.map_error
         (fun e -> (e : [ `C_unsupported of Loop_c.error ] :> error))
-        (Err.payload (source ?vector p))
+        (Err.payload (source ?vector ?numerics ?precision ?fuse_reductions p))
     in
     let* exe = (compile text :> (string, error) result) in
     let* tensors =

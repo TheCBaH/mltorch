@@ -3,7 +3,15 @@ module S = Storage_script
 module P = C_payload_layout
 module W = C_workspace_plan
 
-type stats = { invocations : int; distinct_kernels : int; source_bytes : int }
+type stats = {
+  invocations : int;
+  distinct_kernels : int;
+  source_bytes : int;
+  numerics : Loop_numerics.t;
+  f32_invocations : int;
+  f32_kernels : int;
+  fp32_refusals : (Loop_numerics.Refusal.t * int) list;
+}
 
 type t = {
   source : string;
@@ -60,9 +68,9 @@ module Kernels = struct
   let create () = { table = Hashtbl.create 64; order = []; next = 0 }
   let placeholder = "KERNEL"
 
-  let intern ?vector t program =
+  let intern ?vector ?numerics t program =
     let open Err.Syntax in
-    let+ k = Loop_c.kernel ?vector ~name:placeholder program in
+    let+ k = Loop_c.kernel ?vector ?numerics ~name:placeholder program in
     match Hashtbl.find_opt t.table k.Loop_c.source with
     | Some e -> e
     | None ->
@@ -185,7 +193,8 @@ let invocation_text ws ~position ~kernel (inv : Loop_bundle.invocation)
            "  }";
          ]))
 
-let build ?vector (b : Loop_bundle.t) : (t, error) Err.t =
+let build ?vector ?(numerics = Loop_numerics.Reference_f64) (b : Loop_bundle.t)
+    : (t, error) Err.t =
   let open Err.Syntax in
   let g = b.Loop_bundle.graph in
   let sigs ids =
@@ -205,7 +214,9 @@ let build ?vector (b : Loop_bundle.t) : (t, error) Err.t =
   let* compiled =
     Err.List.map
       (fun (inv : Loop_bundle.invocation) ->
-        let* e = Kernels.intern ?vector kernels inv.Loop_bundle.program in
+        let* e =
+          Kernels.intern ?vector ~numerics kernels inv.Loop_bundle.program
+        in
         let+ sc =
           W.scratch inv ~local_doubles:e.Kernels.kernel.Loop_c.local_doubles
         in
@@ -259,6 +270,25 @@ let build ?vector (b : Loop_bundle.t) : (t, error) Err.t =
        ]
       @ calls @ copies @ [ "  return 0;"; "}"; "" ])
   in
+  let is_f32 (e : Kernels.entry) =
+    e.Kernels.kernel.Loop_c.precision = Loop_numerics.Precision.F32
+  in
+  let f32_invocations =
+    List.length (List.filter (fun (_, e, _) -> is_f32 e) compiled)
+  in
+  let f32_kernels = List.length (List.filter is_f32 (Kernels.all kernels)) in
+  let fp32_refusals =
+    List.fold_left
+      (fun acc (_, (e : Kernels.entry), _) ->
+        match e.Kernels.kernel.Loop_c.refusal with
+        | None -> acc
+        | Some r -> (
+            match List.assoc_opt r acc with
+            | Some n -> (r, n + 1) :: List.remove_assoc r acc
+            | None -> (r, 1) :: acc))
+      [] compiled
+    |> List.sort compare
+  in
   let body =
     String.concat "\n"
       ([ Loop_c_runtime.prelude; C_model_abi.declarations; helpers ]
@@ -266,6 +296,14 @@ let build ?vector (b : Loop_bundle.t) : (t, error) Err.t =
       @ [
           Printf.sprintf "/* %d invocations, %d distinct kernels */"
             (List.length compiled)
+            (List.length (Kernels.all kernels));
+          (* The numerical plan is part of the artifact: a kernel's precision is
+             in its text, and the policy and its per-precision coverage are
+             here, under the identity digest. *)
+          Printf.sprintf
+            "/* %s; %d of %d invocations and %d of %d kernels binary32 */"
+            (Loop_numerics.identity numerics)
+            f32_invocations (List.length compiled) f32_kernels
             (List.length (Kernels.all kernels));
           run;
         ])
@@ -310,5 +348,9 @@ let build ?vector (b : Loop_bundle.t) : (t, error) Err.t =
           invocations = List.length compiled;
           distinct_kernels = List.length (Kernels.all kernels);
           source_bytes = String.length source;
+          numerics;
+          f32_invocations;
+          f32_kernels;
+          fp32_refusals;
         };
     }

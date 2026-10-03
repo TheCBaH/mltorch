@@ -27,6 +27,8 @@ val node : string list ref
 
 val exec :
   ?vector:Loop_target.t ->
+  ?numerics:Loop_numerics.t ->
+  ?precision:Loop_numerics.Precision.t ->
   ?outputs:(Tensor_id.t -> Tensor.packed option) ->
   Loop_program.t ->
   bind:(Tensor_id.t -> Tensor.packed option) ->
@@ -36,6 +38,8 @@ val exec :
 
 val exec_counted :
   ?vector:Loop_target.t ->
+  ?numerics:Loop_numerics.t ->
+  ?precision:Loop_numerics.Precision.t ->
   ?outputs:(Tensor_id.t -> Tensor.packed option) ->
   Loop_program.t ->
   bind:(Tensor_id.t -> Tensor.packed option) ->

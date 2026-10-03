@@ -36,6 +36,7 @@ val node : string list ref
 
 val prepare :
   ?vector:Loop_target.t ->
+  ?numerics:Loop_numerics.t ->
   dir:string ->
   Loop_bundle.t ->
   constants:(Tensor_id.t -> Tensor.packed option) ->

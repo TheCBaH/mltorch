@@ -11,6 +11,8 @@ let rec collect_loads : type a.
   | Loop_expr.Binary (_, a, b) -> collect_loads ~cond a @ collect_loads ~cond b
   | Loop_expr.Const _ -> []
   | Loop_expr.Float_max (a, b) -> collect_loads ~cond a @ collect_loads ~cond b
+  | Loop_expr.Fma (a, b, c) ->
+      collect_loads ~cond a @ collect_loads ~cond b @ collect_loads ~cond c
   | Loop_expr.Float_to_i64 a -> collect_loads ~cond a
   | Loop_expr.I64_binary (_, a, b) ->
       collect_loads ~cond a @ collect_loads ~cond b
@@ -73,6 +75,9 @@ let rec rewrite_expr : type a.
   | Loop_expr.Const _ -> e
   | Loop_expr.Float_max (a, b) ->
       Loop_expr.Float_max (rewrite_expr subs a, rewrite_expr subs b)
+  | Loop_expr.Fma (a, b, c) ->
+      Loop_expr.Fma
+        (rewrite_expr subs a, rewrite_expr subs b, rewrite_expr subs c)
   | Loop_expr.Float_to_i64 a -> Loop_expr.Float_to_i64 (rewrite_expr subs a)
   | Loop_expr.I64_binary (op, a, b) ->
       Loop_expr.I64_binary (op, rewrite_expr subs a, rewrite_expr subs b)

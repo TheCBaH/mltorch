@@ -308,6 +308,22 @@ make c.pt2.run                    # fastvit_sa12 the same way (manual); c.pt2.sa
 A missing compiler fails these; it never skips. See `.ai/` for the C backend
 design record.
 
+### Binary32 SIMD kernels (C and Wasm)
+
+```sh
+make fp32.bench      # binary64 vs binary32 dense kernels (native C), results verified, --selftest
+make c.pt2.perf      # default (performance) policy on every CI model, within the frozen tolerance
+make wasm.pt2.perf   # the same under node
+```
+
+`loop_c_pt2` and `loop_wasm_pt2` default to the performance policy
+(`simd_fp32_relaxed`); `--reference` selects the binary64 scalar reference that
+every strict bitwise gate (`--shadow`, `c.pt2.runtest`, `wasm.pt2.runtest`) runs,
+`--numerics=NAME` picks any policy and `--shadow-numeric` checks a binary32 run
+against the reference within `--atol`/`--rtol` (1e-4 each). A new strict gate must
+pass `--reference`. See `.ai/` for the numerical contract, the oracle and the
+measured decisions.
+
 ### .pt2 / interpreter (gated on real model data)
 
 ```sh

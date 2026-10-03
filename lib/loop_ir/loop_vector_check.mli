@@ -16,11 +16,14 @@
 module Reason : sig
   type t =
     | Bad_lanes of int
+    | Bad_parts of int
+    | Fused_term_not_a_product
     | Index_assignment_depends_on_loop_variable
     | Index_value_step_mismatch of { step : int; coefficient : int }
     | Inner_bounds_depend_on_loop_variable
     | Non_constant_bounds
     | Offset_not_affine
+    | Reduction_too_short of { terms : int; lanes : int }
     | Splat_depends_on_loop_variable
     | Splat_loads_stored_buffer of Loop_buffer.t
     | Store_through_broadcast

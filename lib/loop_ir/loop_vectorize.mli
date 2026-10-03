@@ -56,7 +56,10 @@ type report = Decision.t list
     enclosing vector loop has none of its own. *)
 
 val program :
-  ?target:Loop_target.t -> Loop_program.t -> Loop_vector.program * report
+  ?target:Loop_target.t ->
+  ?reductions:bool ->
+  Loop_program.t ->
+  Loop_vector.program * report
 (** [target] defaults to {!Loop_target.wasm128}. Its [lanes] sets the logical
     width and its costs decide profitability. The scalar program is returned
     inside the result unchanged. *)

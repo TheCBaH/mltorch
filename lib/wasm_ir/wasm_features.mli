@@ -8,11 +8,17 @@
 type t =
   | Bulk_memory  (** [memory.copy], [memory.fill] *)
   | Non_trapping_float_to_int  (** the [trunc_sat] conversions *)
+  | Relaxed_simd
+      (** [f32x4.relaxed_madd]: off by default in node 20 (behind
+          [--experimental-wasm-relaxed-simd]), so a host must ask the engine *)
   | Sign_extension  (** [i32.extend8_s], [i32.extend16_s] *)
   | Simd128  (** any [v128] instruction (none is representable yet) *)
 
 val all : t list
 val name : t -> string
+
+val of_op : Wasm_op.t -> t option
+(** The feature an operation needs, [None] for core ones. *)
 
 val of_module : Wasm.Module.t -> t list
 (** The features the module uses, in {!all} order, without duplicates. *)

@@ -18,6 +18,14 @@ val link :
     cover everything [fs] call. *)
 
 val manifest :
-  callees:Loop_wasm_runtime.Callee.t list -> Wasm.Module.t -> string
+  ?numerics:Loop_numerics.t ->
+  ?precisions:Loop_numerics.Precision.t list ->
+  callees:Loop_wasm_runtime.Callee.t list ->
+  Wasm.Module.t ->
+  string
 (** The text of the module's [manifest] custom section: ABI, required features,
-    imports, helpers and numeric policy. *)
+    imports, helpers and numeric policy. [numerics] (reference by default) and
+    the working [precisions] of the module's kernels are part of it: a binary64
+    module under the reference policy prints the text it always has, any other
+    names the policy and the precisions it uses, so two numerical plans never
+    share a manifest, and so never an identity. *)

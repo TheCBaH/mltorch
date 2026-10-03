@@ -62,11 +62,37 @@ let link ~callees kernels =
   in
   (imports, funcs, n_imports + helpers)
 
+(* The numeric policy a module implements. A binary64 module under the reference
+   policy keeps the text it has always had, byte for byte; any other says which
+   policy it was built under and which working precisions its kernels use. *)
+let numerics_line ~numerics ~precisions =
+  let module P = Loop_numerics.Precision in
+  let f32 = List.mem P.F32 precisions and f64 = List.mem P.F64 precisions in
+  match (numerics, f32) with
+  | Loop_numerics.Reference_f64, false ->
+      "numerics: working=f64 f32=round-and-widen fma=none reassociation=none \
+       i64=modular index=i32-checked"
+  | _ ->
+      Printf.sprintf
+        "numerics: policy=%s working=%s f32=%s fma=%s reassociation=%s \
+         i64=modular index=i32-checked"
+        (Loop_numerics.name numerics)
+        (match (f32, f64) with
+        | true, true -> "mixed"
+        | true, false -> "f32"
+        | false, _ -> "f64")
+        (if f32 then "exact" else "round-and-widen")
+        (if Loop_numerics.contraction_permitted numerics then "permitted"
+         else "none")
+        (if Loop_numerics.reassociation_permitted numerics then "permitted"
+         else "none")
+
 (* What a host should know before it compiles the module: the ABI, the
    post-MVP features it needs, what it imports, which helpers it carries and the
    numeric policy it implements. Deterministic text: it is a custom section of
    the module, so the module's digest (its identity) covers it. *)
-let manifest ~callees (m : Wasm.Module.t) =
+let manifest ?(numerics = Loop_numerics.Reference_f64) ?(precisions = [])
+    ~callees (m : Wasm.Module.t) =
   let callees = reached callees in
   (* A list prints as [key: a b c]; an empty one as [key:], never with a
      trailing space. *)
@@ -84,7 +110,6 @@ let manifest ~callees (m : Wasm.Module.t) =
              i.Wasm.Import.module_name ^ "." ^ i.Wasm.Import.name)
            m.Wasm.Module.imports);
       line "helpers" (names (fun c -> Option.is_none (R.Callee.import c)));
-      "numerics: working=f64 f32=round-and-widen fma=none reassociation=none \
-       i64=modular index=i32-checked";
+      numerics_line ~numerics ~precisions;
       "";
     ]

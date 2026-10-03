@@ -354,3 +354,12 @@ and helpers are known, so unreached helpers are never emitted.
 - Host execution stays out of every pure library, as `lib/loop_c_exec` and
   `js/loop_js_exec` do: `lib/loop_wasm_exec` runs a module under a node
   subprocess (native only); an in-process `WebAssembly` host is separate.
+
+## Binary32 kernels and relaxed SIMD (pointer)
+
+The scalar and SIMD contracts above are the `Reference_f64` policy and stay the
+default. Under a `Simd_fp32_*` policy a vectorized kernel uses `f32` locals and
+`f32x4` registers (four per sixteen-lane vector), and `f32x4.relaxed_madd` when
+the plan was made for `Loop_target.wasm128_relaxed` and the engine validates the
+`relaxed-simd` probe. The manifest names the policy and the working precisions.
+See the fp32 design record in this directory.

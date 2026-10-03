@@ -38,19 +38,20 @@ let with_dir f =
     ~finally:(fun () -> Loop_c_exec.Proc.remove_tree dir)
     (fun () -> f dir)
 
-let prepare g dir =
+let prepare ?vector ?numerics ?(constant = tensor_of ~salt:3) g dir =
   let b =
     Err.or_raise ~pp_error:Loop_bundle.pp_error
       (Loop_bundle.build ~config:Loop_bundle_c.default_config g)
   in
   let constants =
     List.map
-      (fun id -> (id, tensor_of ~salt:3 (sig_of_edge b id)))
+      (fun id -> (id, constant (sig_of_edge b id)))
       b.Loop_bundle.constants
   in
   let p =
     Err.or_raise ~pp_error:Loop_c_exec.Host.pp_error
-      (Loop_c_exec.Host.prepare ~dir b ~constants:(map_of constants))
+      (Loop_c_exec.Host.prepare ?vector ?numerics ~dir b
+         ~constants:(map_of constants))
   in
   (b, constants, p)
 
@@ -90,6 +91,85 @@ let%expect_test "chain: compiled model matches the reference, repeatedly" =
     output t9 identical to the reference: true
     output t9 identical to the reference: true
     3 invocations, 3 kernels |}]
+
+(* ---- binary32 kernels under a numerical policy ------------------------------ *)
+
+let wide_chain () =
+  let module F = Native_test.Graph_fixtures in
+  F.build "wide_chain"
+    Graph_builder.(
+      let* x = input ~shape:(F.nhwc ~h:10 ~w:10 ~c:8) () in
+      let* w =
+        constant ~shape:(F.weight_shape ~out_channels:16 ~in_channels:8) ()
+      in
+      let* bias = constant ~shape:(F.s1c 16) () in
+      let* gamma = constant ~shape:(F.s1c 16) () in
+      let* beta = constant ~shape:(F.s1c 16) () in
+      let* mean = constant ~shape:(F.s1c 16) () in
+      let* var = constant ~shape:(F.s1c 16) () in
+      let* y = conv2d (F.conv_params ~in_channels:8) ~x ~weight:w ~bias () in
+      let* n =
+        batch_norm F.bn_params ~x:y ~weight:gamma ~bias:beta ~running_mean:mean
+          ~running_var:var ()
+      in
+      relu n)
+
+(* Strictly positive parameters (a batch-norm variance must be), distinct per
+   cell so a wrong lane shows. *)
+let positive (sg : Tensor_sig.t) =
+  Tensor.materialize sg.Tensor_sig.shape (fun c ->
+      0.25
+      +. 0.05
+         *. float_of_int ((Vec6.offset sg.Tensor_sig.shape c :> int) mod 11))
+
+(* Binary32 kernels are not bitwise the reference: report the largest absolute
+   difference from it, against a bound, and the kernels' precisions. *)
+let max_diff a b =
+  let (Tensor.Tensor ta) = a in
+  let m = ref 0. in
+  Vec6.iter ta.Tensor.shape (fun c ->
+      let x = Tensor.read_at a (Vec6.get c)
+      and y = Tensor.read_at b (Vec6.get c) in
+      m := Float.max !m (Float.abs (x -. y)));
+  !m
+
+let%expect_test
+    "Simd_fp32_ordered: a compiled model computes in binary32 where it \
+     vectorizes" =
+  with_dir (fun dir ->
+      let g = wide_chain () in
+      let b, constants, p =
+        prepare ~vector:Loop_target.neon128
+          ~numerics:Loop_numerics.Simd_fp32_ordered ~constant:positive g dir
+      in
+      let inputs =
+        List.map
+          (fun id -> (id, tensor_of ~salt:1 (sig_of_edge b id)))
+          b.Loop_bundle.inputs
+      in
+      let reference =
+        Err.or_raise ~pp_error:Eval_direct.pp_error
+          (Eval_direct.run g ~constants ~inputs)
+      in
+      let st = (Loop_c_exec.Host.bundle_c p).Loop_bundle_c.stats in
+      Fmt.pr "%s: %d of %d invocations binary32@."
+        (Loop_numerics.name st.Loop_bundle_c.numerics)
+        st.Loop_bundle_c.f32_invocations st.Loop_bundle_c.invocations;
+      match Err.payload (Loop_c_exec.Host.run p ~bind:(map_of inputs)) with
+      | Error e -> Fmt.pr "run failed: %a@." Loop_c_exec.Host.pp_error e
+      | Ok outs ->
+          List.iter2
+            (fun id t ->
+              let d = max_diff t (Tensor_id.Map.find id reference) in
+              Fmt.pr
+                "output t%d within 1e-4 of the reference: %b; identical: %b@."
+                (Tensor_id.to_int id) (d < 1e-4)
+                (bits t = bits (Tensor_id.Map.find id reference)))
+            g.Graph.outputs outs);
+  [%expect
+    {|
+    simd_fp32_ordered: 3 of 3 invocations binary32
+    output t9 within 1e-4 of the reference: true; identical: false |}]
 
 (* ---- the process contract: every rejection has its own exit status ---------- *)
 

@@ -213,3 +213,11 @@
  (name loop_vector_census)
  (modules loop_vector_census)
  (libraries err_trace fmt loop_ir native native_interp pt2))
+
+; The native C benchmark of binary64 against binary32 SIMD kernels (see the
+; header of loop_fp32_bench.ml). MANUAL: `make fp32.bench`, never in runtest.
+
+(executable
+ (name loop_fp32_bench)
+ (modules loop_fp32_bench)
+ (libraries core err_trace expr loop_c_exec loop_ir native unix))

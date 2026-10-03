@@ -35,6 +35,7 @@ let rec closed : type a. a Loop_expr.t -> bool = function
   | Loop_expr.Const _ -> true
   | Loop_expr.Binary (_, a, b) | Loop_expr.Float_max (a, b) ->
       closed a && closed b
+  | Loop_expr.Fma (a, b, c) -> closed a && closed b && closed c
   | Loop_expr.Round_f32 a | Loop_expr.Unary (_, a) -> closed a
   | Loop_expr.Select (p, a, b) -> closed_pred p && closed a && closed b
   | Loop_expr.Array_get _ | Loop_expr.Float_to_i64 _ | Loop_expr.I64_binary _
@@ -83,6 +84,7 @@ let rec reads : type a. Loop_range.Env.t -> target -> a Loop_expr.t -> bool =
       | Cell (a', c) -> Loop_array.equal a a' && may_hit env i c
       | Temp _ -> false)
   | Loop_expr.Binary (_, a, b) | Loop_expr.Float_max (a, b) -> go a || go b
+  | Loop_expr.Fma (a, b, c) -> go a || go b || go c
   | Loop_expr.I64_binary (_, a, b) -> go a || go b
   | Loop_expr.Float_to_i64 a -> go a
   | Loop_expr.I64_to_float a -> go a
@@ -144,6 +146,10 @@ let stmt_reads env target (s : Loop_stmt.t) =
   | Loop_stmt.Fail_if (p, f) ->
       reads_pred env target p || reads_failure env target f
   | Loop_stmt.For _ -> false
+  | Loop_stmt.Reduce_sum _ ->
+      invalid_arg
+        "Loop_opt_hoist: a structured sum is expanded at the entry point \
+         (Loop_sum.program)"
   | Loop_stmt.If (p, _, _) -> reads_pred env target p
   | Loop_stmt.Store { value; _ } | Loop_stmt.Store_flat { value; _ } ->
       reads_stored env target value

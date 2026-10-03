@@ -19,6 +19,26 @@ type t =
     }  (** Half-open: [lo] inclusive, [hi] exclusive. *)
   | If of Loop_expr.pred * t list * t list
   | Mark of Loop_mark.t
+  | Reduce_sum of {
+      var : Loop_var.t;
+      lo : Loop_index.t;
+      hi : Loop_index.t;
+      acc : Loop_temp.t;
+          (** the float temporary the sum is built in, and read after the node
+              as its value *)
+      seed : float;  (** the value [acc] starts from: [+0.] for a sum *)
+      body : t list;
+          (** the statements that evaluate one term, run before it is read *)
+      term : float Loop_expr.t;  (** one term, a function of [var] *)
+      at : Tensor_id.t option;
+          (** the value whose lowering produced it; [None] for a sum recovered
+              from an optimized program ({!Loop_sum.recover}) *)
+    }
+      (** A sum kept as one operation until the performance planner has seen
+          it: the ordered left fold [acc <- seed; for var in [lo, hi): body;
+          acc <- acc + term], with one [Reduction] mark per iteration. Only the
+          planner and {!Loop_sum} read it; every other consumer is handed
+          {!Loop_sum.expand}'s program, which is the loop it stands for. *)
   | Release_scan_state of int
       (** Gives back the [2 * width] live state a [Reserve_scan_state] took. *)
   | Reserve_scan_state of int

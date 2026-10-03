@@ -15,7 +15,11 @@
     the ABI, numeric and size policy. *)
 
 type error =
-  [ `Index_constant_out_of_range of int | `Local_arrays_too_large of int64 ]
+  [ `Index_constant_out_of_range of int
+  | `Local_arrays_too_large of int64
+  | `Unsupported_precision of Loop_numerics.Refusal.t
+    (** [precision] was [F32] and {!Loop_numerics.admit} refused the program *)
+  ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
@@ -33,6 +37,8 @@ type t = {
   sites : Loop_failure.t array;
       (** the program's [Fail_if] failures in emission order, as
           [Loop_js_failure.sites]: a record that names a site indexes it *)
+  precision : Loop_numerics.Precision.t;
+      (** the working precision the kernel was lowered in *)
 }
 
 val function_name : string
@@ -43,6 +49,8 @@ val error_address : int
 
 val lower :
   ?vector:Loop_target.t ->
+  ?numerics:Loop_numerics.t ->
+  ?precision:Loop_numerics.Precision.t ->
   ?count_marks:bool ->
   Loop_program.t ->
   (t, error) Err.t
@@ -67,10 +75,15 @@ type kernel = {
   data : Wasm.Data.t list;
       (** constant tables, at the absolute addresses [table_alloc] returned *)
   sites : Loop_failure.t array;
+  precision : Loop_numerics.Precision.t;  (** the working precision it uses *)
+  refusal : Loop_numerics.Refusal.t option;
+      (** why an fp32 policy left it binary64, when admission was the reason *)
 }
 
 val kernel :
   ?vector:Loop_target.t ->
+  ?numerics:Loop_numerics.t ->
+  ?precision:Loop_numerics.Precision.t ->
   ?mark_base:int ->
   table_alloc:(bytes:int -> int) ->
   Loop_program.t ->

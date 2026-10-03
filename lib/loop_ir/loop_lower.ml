@@ -153,7 +153,7 @@ let group_unit ctx g selected ~limits =
   | Error _ -> Loop_lower_ctx.refuse ctx Loop_unsupported.Region_admission);
   Loop_lower_region.lower_group ctx g selected
 
-let lower_unoptimized (plan : Fusion_plan.t) =
+let lower_unoptimized_with ~structured (plan : Fusion_plan.t) =
   Err.Escape.with_escape @@ fun esc ->
   let k = plan.Fusion_plan.kernel in
   let stored (v : Kernel.Value.t) =
@@ -195,6 +195,7 @@ let lower_unoptimized (plan : Fusion_plan.t) =
           temps = Loop_temp.Next.first;
         };
       meter = ref false;
+      structured;
       hoisted = ref [];
       block = ref [];
     }
@@ -300,4 +301,6 @@ let lower_unoptimized (plan : Fusion_plan.t) =
     max_depth = k.Kernel.limits.Kernel.Limits.max_depth;
   }
 
+let lower_unoptimized plan = lower_unoptimized_with ~structured:false plan
+let lower_structured plan = lower_unoptimized_with ~structured:true plan
 let lower (plan : Fusion_plan.t) = Err.map Loop_opt.run (lower_unoptimized plan)
