@@ -19,7 +19,7 @@
 	arena.eval arena.eval.report arena.schedule.eval arena.schedule.eval.report pt2.json-model-support pt2.runtest pt2.vars runtest spike.runtest \
 	spike.setup tailcall.js-benchmark tailcall.runtest test \
 	verify.pristine visualizer.build visualizer.patch \
-	visualizer.submodule webapp.bridge-runtest webapp.browser-runtest \
+	visualizer.submodule wasm.browser.runtest wasm.c.pt2.run wasm.c.pt2.runtest wasm.jsoo.pt2.runtest wasm.jsoo.runtest wasm.pt2.bench wasm.pt2.exe wasm.pt2.run wasm.pt2.runtest wasm.runtest wasm.toolchain webapp.bridge-runtest webapp.browser-runtest \
 	webapp.build webapp.npm-install webapp.runtest webapp.serve
 all: build
 
@@ -913,6 +913,118 @@ loop.js.runtest:
 	NO_COLOR=1 opam exec -- dune build @test/loop_ir/loop-js-gate
 
 js.runtest: jsoo.runtest jsoo.inline-runtest melange.runtest loop.js.runtest
+
+# The Wasm backend (lib/wasm_ir, Loop_wasm): the op table and a structural
+# fixture executed under node, then every Loop_check fixture and the op sweep
+# run through the emitted module under node (test/loop_wasm). Needs node, so it
+# is outside `runtest`; MLTORCH_WASM enables the node-backed suites, and a
+# missing node fails them. The pure expect suites (module bytes and digests)
+# also run under js_of_ocaml here, so native and 32-bit-int output must agree.
+wasm.runtest: wasm.toolchain
+	MLTORCH_WASM=1 MLTORCH_WASI_SYSROOT="$(WASI_SYSROOT)" NO_COLOR=1 opam exec -- dune build --force \
+	  @test/wasm_ir/runtest @test/wasm_ir/runtest-js \
+	  @test/loop_wasm/runtest @test/loop_ir/runtest-js
+
+# The wasm32 C library and compiler runtime the C-to-Wasm baseline links with:
+# the installed Clang and wasm-ld already target wasm32 but ship no libc, so
+# stock generated C stops at math.h. WASI_SYSROOT is the usr directory holding
+# include/wasm32-wasi and lib/wasm32-wasi: where the Debian packages wasi-libc
+# and libclang-rt-<N>-dev-wasm32 install (WASI_SYSROOT=/usr after an apt
+# install, as CI does), or where scripts/wasi-sysroot-userland.py unpacks them
+# without root. A missing library is an error, never a skip.
+WASI_SYSROOT ?= $(CURDIR)/.toolchains/wasi/root/usr
+
+wasm.toolchain:
+	@if [ ! -f "$(WASI_SYSROOT)/include/wasm32-wasi/math.h" ]; then \
+	  echo "wasm toolchain: no wasm32 libc under $(WASI_SYSROOT); unpacking it"; \
+	  python3 scripts/wasi-sysroot-userland.py .toolchains/wasi && \
+	  test -f "$(WASI_SYSROOT)/include/wasm32-wasi/math.h"; \
+	fi
+
+# The Wasm backend generated AND run inside the JavaScript build of the compiler
+# (js/loop_wasm_host): the in-process host's fixtures under node, the
+# promise-based preparation path, and the node-vs-jsoo agreement of the
+# generated module. wasm.jsoo.pt2.runtest runs one real model (JS_PT2_MODEL,
+# already downloaded for jsoo.pt2.runtest) through the JS build with --strict
+# and warm repeats on one instance, and requires the module it emitted to be
+# byte-identical (same digest) to the native compiler's.
+wasm.jsoo.runtest:
+	NO_COLOR=1 opam exec -- dune build @js/loop_wasm_host/test/runtest-js \
+	  @js/loop_wasm_host/test/wasm-jsoo-gate
+
+wasm.jsoo.pt2.runtest: jsoo.pt2.download
+	opam exec -- dune build js/jsoo/loop_wasm_pt2_js/loop_wasm_pt2_js.bc.js bin/loop_wasm_pt2.exe
+	cd $(JS_PT2_DIR) && \
+	  node $(CURDIR)/_build/default/js/jsoo/loop_wasm_pt2_js/loop_wasm_pt2_js.bc.js \
+	    $(JS_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt --strict --repeat=3 --samples=1 \
+	    | grep '^module identity' > $(CURDIR)/_build/wasm_jsoo.identity && \
+	  $(CURDIR)/$(WASM_PT2_EXE) $(JS_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt --samples=1 \
+	    2>/dev/null | grep '^module identity' > $(CURDIR)/_build/wasm_native.identity
+	diff -u _build/wasm_native.identity _build/wasm_jsoo.identity
+	@echo "wasm jsoo: $(JS_PT2_MODEL) generated in JavaScript, byte-identical to the native module, ranking verified"
+
+# The Wasm backend in a real browser (Chromium via playwright): the fixtures
+# generated in the page by the JavaScript build of the compiler and compiled
+# through the promise API, a real model generated natively (loop_wasm_pt2
+# --export) and run in the page twice on one instance with a dirty workspace,
+# outputs byte-identical to node's, and the deployment limits (a CSP without
+# 'wasm-unsafe-eval' is a typed compile error). Needs the playwright browser
+# (`cd web && npm ci && npm run install:chromium`); in a container without
+# root, WASM_BROWSER_LD_LIBRARY_PATH names a directory of the browser's system
+# libraries, from `python3 web/scripts/chromium-userland-libs.py DIR`.
+WASM_BROWSER_LD_LIBRARY_PATH ?=
+
+wasm.browser.runtest: jsoo.pt2.download
+	opam exec -- dune build js/loop_wasm_host/test/browser_probe.bc.js bin/loop_wasm_pt2.exe
+	cd $(JS_PT2_DIR) && $(CURDIR)/$(WASM_PT2_EXE) $(JS_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt \
+	  --samples=1 --export=$(CURDIR)/_build/wasm_export
+	cd web && $(if $(WASM_BROWSER_LD_LIBRARY_PATH),LD_LIBRARY_PATH="$(WASM_BROWSER_LD_LIBRARY_PATH)") \
+	  PLAYWRIGHT_BROWSERS_PATH="$(abspath web/.playwright-browsers)" \
+	  node scripts/wasm-browser-check.mjs $(CURDIR)/_build/default/js/loop_wasm_host/test/browser_probe.bc.js \
+	  $(CURDIR)/_build/wasm_export
+
+# The whole-model Wasm backend (Loop_bundle_wasm, lib/loop_wasm_exec) on real
+# downloaded models, under node. wasm.pt2.runtest is the gate: every CI model
+# (the same set as c.pt2.runtest) through model_run with every graph output
+# bitwise equal to the per-node reference (--shadow), the release ranking
+# (--strict) and the workspace and outputs poisoned first so a read of stale
+# memory shows. There is no fallback in this backend, so a model that runs has
+# every scheduled invocation generated. wasm.pt2.run is fastvit_sa12 alone
+# (Region-authored ops; the reference alone is ~100s), manual. wasm.pt2.bench
+# runs the schedule repeatedly on one instance and reports the phases.
+WASM_PT2_EXE = _build/default/bin/loop_wasm_pt2.exe
+
+wasm.pt2.exe:
+	opam exec -- dune build bin/loop_wasm_pt2.exe
+
+wasm.pt2.runtest: wasm.pt2.exe
+	for m in $(PT2_MODELS_CRAM) csatv2; do \
+	  $(MAKE) pt2.download PT2_MODEL=$$m && \
+	  (cd $(PT2_DIR)/$$m && echo "== $$m" && $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --strict --shadow --poison --samples=1) || exit 1; \
+	done
+
+wasm.pt2.run: wasm.pt2.exe
+	$(MAKE) pt2.download PT2_MODEL=fastvit_sa12
+	cd $(PT2_DIR)/fastvit_sa12 && $(CURDIR)/$(WASM_PT2_EXE) fastvit_sa12.pt2 inputs.pt expected.json outputs.pt --strict --shadow --poison --samples=1
+
+wasm.pt2.bench: wasm.pt2.exe
+	for m in mobilenetv2_050 fastvit_sa12; do \
+	  $(MAKE) pt2.download PT2_MODEL=$$m && \
+	  (cd $(PT2_DIR)/$$m && echo "== $$m" && $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --samples=1 --bench=20) || exit 1; \
+	done
+
+# The baseline route: the C backend's unit compiled to Wasm (strict scalar
+# flags) over the same payload files, every output bitwise equal to the
+# per-node reference. Compare its phases with wasm.pt2.bench's.
+wasm.c.pt2.runtest: wasm.pt2.exe wasm.toolchain
+	for m in $(PT2_MODELS_CRAM) csatv2; do \
+	  $(MAKE) pt2.download PT2_MODEL=$$m && \
+	  (cd $(PT2_DIR)/$$m && echo "== $$m" && MLTORCH_WASI_SYSROOT="$(WASI_SYSROOT)" $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --via-c --strict --shadow --poison --samples=1 --bench=3) || exit 1; \
+	done
+
+wasm.c.pt2.run: wasm.pt2.exe wasm.toolchain
+	$(MAKE) pt2.download PT2_MODEL=fastvit_sa12
+	cd $(PT2_DIR)/fastvit_sa12 && MLTORCH_WASI_SYSROOT="$(WASI_SYSROOT)" $(CURDIR)/$(WASM_PT2_EXE) fastvit_sa12.pt2 inputs.pt expected.json outputs.pt --via-c --strict --shadow --poison --samples=1
 
 # The C backend's differential suites (test/loop_c) run under `runtest` at the
 # production flags. These re-run the same suites at -O0 and under the

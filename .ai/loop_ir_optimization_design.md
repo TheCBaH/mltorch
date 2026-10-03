@@ -86,9 +86,20 @@ are pure functions of the program and use no per-backend knowledge.
 Pass order carries behavior: each pass exposes facts the next one uses. It is
 therefore fixed in `Loop_opt.passes` and documented there. It is deliberately
 not alphabetical. The sections below are numbered by design topic; the run
-order is 1, 2, 2b, 3, 5 (CSE, which compares per-axis coordinates), 4
-(hoisting, which can leave a loop perfectly nested), 6 (collapsing, which
-flattens those coordinates).
+order is 1, 2, 2b, 1 and 2 again, 3, 5 (CSE, which compares per-axis
+coordinates), 4 (hoisting, which can leave a loop perfectly nested), 6
+(collapsing, which flattens those coordinates).
+
+Unit-loop elimination and folding run a second time after 2b. A convolution's
+window loops have clamped, non-literal bounds, so the first elimination leaves
+them alone; range-aware simplification then proves them to be `[0, 1)` (a 1x1
+kernel, or a window that never leaves its padding), and without a second
+round they stayed as one-trip loops with their own induction variable, bounds
+test and address arithmetic. Measured on the whole-model Wasm backend, where
+the engine does not clean them up the way an optimizing C compiler does: a
+single repeat of `mobilenetv2_050` fell from 164 ms to 91 ms warm, with every
+output still bitwise equal to the reference. The second round changes no
+committed golden of any other backend.
 
 1. **Unit-loop elimination** (`loop_opt_unit_loops.ml`, implemented). A `For`
    whose bounds are literal `Const`s exactly one apart becomes its body with

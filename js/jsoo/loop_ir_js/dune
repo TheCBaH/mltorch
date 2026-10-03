@@ -25,13 +25,13 @@
 
 (copy_files
  (files
-  %{workspace_root}/lib/loop_ir/{loop_bundle,loop_bundle_js,loop_check,loop_index_map,loop_interp,loop_js,loop_linear,loop_js_failure,loop_js_runtime,loop_lower,loop_node_program,loop_opt,loop_opt_collapse,loop_opt_cse,loop_opt_fold,loop_opt_guards,loop_opt_hoist,loop_opt_scope,loop_opt_simplify,loop_opt_unit_loops,loop_pp,loop_range,loop_region_program}.{ml,mli}))
+  %{workspace_root}/lib/loop_ir/{c_payload_layout,c_workspace_plan,loop_bundle,loop_c_failure,loop_bundle_js,loop_bundle_wasm,loop_check,loop_index_map,loop_interp,loop_js,loop_linear,loop_js_failure,loop_js_runtime,loop_lower,loop_node_program,loop_opt,loop_opt_collapse,loop_opt_cse,loop_opt_fold,loop_opt_guards,loop_opt_hoist,loop_opt_scope,loop_opt_simplify,loop_opt_unit_loops,loop_pp,loop_range,loop_region_program,loop_wasm,loop_wasm_failure,loop_wasm_link,loop_wasm_runtime}.{ml,mli}))
 
 (copy_files
  (files
-  %{workspace_root}/lib/loop_ir/{loop_array,loop_bool,loop_buffer,loop_carrier,loop_expr,loop_failure,loop_index,loop_lower_ctx,loop_lower_index,loop_lower_region,loop_lower_value,loop_mark,loop_program,loop_stmt,loop_stored,loop_temp,loop_unsupported,loop_var}.ml))
+  %{workspace_root}/lib/loop_ir/{loop_array,loop_bool,loop_buffer,loop_carrier,loop_expr,loop_failure,loop_index,loop_lower_ctx,loop_lower_index,loop_lower_region,loop_lower_value,loop_mark,loop_program,loop_stmt,loop_stored,loop_temp,loop_unsupported,loop_var,loop_wasm_ctx,loop_wasm_fail,loop_wasm_value}.ml))
 
 (library
  (name loop_ir_js)
- (libraries core err_trace expr_js fmt js_ast native_js)
+ (libraries core err_trace expr_js fmt js_ast native_js wasm_ir)
  (wrapped false))

@@ -10,3 +10,15 @@ let name = function
   | Reduction -> "reduction"
   | Scan -> "scan"
   | Scan_update -> "scan_update"
+
+(* Closed and alphabetical: the position is the counter's slot in a counting
+   Wasm build, so a host reads them back in this order. *)
+let all = [ Emitter; Key; Local; Reduction; Scan; Scan_update ]
+
+let index = function
+  | Emitter -> 0
+  | Key -> 1
+  | Local -> 2
+  | Reduction -> 3
+  | Scan -> 4
+  | Scan_update -> 5
