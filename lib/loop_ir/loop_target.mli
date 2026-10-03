@@ -23,6 +23,7 @@ module Op : sig
     | Convert_i32_load
     | Div
     | Float_max
+    | Fma
     | Index_value
     | Logic  (** [Not], [Or] on masks *)
     | Neg_abs
@@ -49,22 +50,45 @@ type support =
 type t = {
   name : string;
   vector_bits : int;  (** the physical register width *)
+  precision : Loop_numerics.Precision.t;
+      (** the working precision of the lanes this description prices *)
   lanes : int;
-      (** the logical lane count the vectorizer plans for: how many binary64
-          lanes one vector iteration covers (a multiple of the lanes of one
-          register) *)
+      (** the logical lane count the vectorizer plans for: how many lanes of
+          [precision] one vector iteration covers (a multiple of the lanes of
+          one register) *)
   inner_loops : bool;
       (** whether a vector loop may hold inner loops (reductions run per lane in
           lockstep): measured to pay on Wasm and to lose on native C *)
+  fma : bool;
+      (** whether the target has a guaranteed fused multiply-add the plan may
+          use under a policy that permits contraction: native NEON does (through
+          [fmaf]), standard Wasm SIMD does not *)
+  relaxed_madd : bool;
+      (** whether vector code may use a multiply-add the engine fuses or not at
+          its choice ([f32x4.relaxed_madd]): a plan built for it states that its
+          results are either one, never that they are bitwise reproducible *)
+  row_block : int;
+      (** how many consecutive iterations of a scalar loop around a vector loop
+          one blocked iteration covers (see {!Loop_block}); 1 is no blocking.
+          Registers, not lanes, bound it: each row holds its own accumulators *)
   support : Op.t -> support;
   cost : Op.t -> float;
       (** relative cost of one vector operation across [lanes], against [lanes]
           scalar operations at [1.0] each *)
+  at : Loop_numerics.Precision.t -> t;
+      (** the same machine at another working precision: lane count and prices
+          change (a binary32 load converts nothing, [Round_f32] is free), the
+          legality does not *)
 }
 
 val wasm128 : t
 (** Portable WebAssembly SIMD: 128-bit registers, two binary64 lanes each, four
     logical lanes (two registers) by default. *)
+
+val wasm128_relaxed : t
+(** {!wasm128} with relaxed SIMD's [f32x4.relaxed_madd] for binary32 vector
+    multiply-adds. A module planned for it needs the [relaxed-simd] feature: a
+    host that cannot validate that probe plans for {!wasm128} instead. *)
 
 val neon128 : t
 (** AArch64 NEON, the installed native target: 128-bit registers, two binary64
@@ -78,6 +102,16 @@ val forced : t -> t
 (** The same legality with every cost zero, so the vectorizer takes every legal
     loop: for tests of the paths the cost model would decline (strided accesses,
     expanded transcendentals, bool stores). *)
+
+val with_inner_loops : bool -> t -> t
+(** The same target with vector loops that hold inner loops allowed or not, at
+    every precision. *)
+
+val with_row_block : int -> t -> t
+(** The same target with another row-block factor, at every precision. *)
+
+val f32 : t -> t
+(** [f32 t] is [t.at F32]: the target a binary32 kernel is planned against. *)
 
 val all : t list
 

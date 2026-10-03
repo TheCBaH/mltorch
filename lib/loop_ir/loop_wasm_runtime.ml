@@ -5,6 +5,7 @@ module Callee = struct
     | Ceil_div
     | Cos
     | Erf
+    | Erf_f32
     | Exp
     | F16_to_float
     | Fail_set
@@ -19,6 +20,7 @@ module Callee = struct
       Ceil_div;
       Cos;
       Erf;
+      Erf_f32;
       Exp;
       F16_to_float;
       Fail_set;
@@ -42,6 +44,7 @@ module Callee = struct
     | Ceil_div -> "ceil_div"
     | Cos -> "cos"
     | Erf -> "erf"
+    | Erf_f32 -> "erf_f32"
     | Exp -> "exp"
     | F16_to_float -> "f16_to_float"
     | Fail_set -> "fail_set"
@@ -58,12 +61,12 @@ module Callee = struct
     | Exp -> Some "exp"
     | Log -> Some "log"
     | Sin -> Some "sin"
-    | Ceil_div | Erf | F16_to_float | Fail_set | Fill_f32 | Floor_div | I64_div
-      ->
+    | Ceil_div | Erf | Erf_f32 | F16_to_float | Fail_set | Fill_f32 | Floor_div
+    | I64_div ->
         None
 
   let deps = function
-    | Erf -> [ Exp ]
+    | Erf | Erf_f32 -> [ Exp ]
     | Ceil_div | Cos | Exp | F16_to_float | Fail_set | Fill_f32 | Floor_div
     | I64_div | Log | Sin ->
         []
@@ -79,6 +82,7 @@ let set i = I.Local_set i
 let ( ++ ) a b = a @ b
 let ft params results = { Wasm.Func_type.params; results }
 let wt_f64 = Wasm_type.F64
+let wt_f32 = Wasm_type.F32
 let wt_i32 = Wasm_type.I32
 let wt_i64 = Wasm_type.I64
 let arg3 offset = { Wasm.Mem_arg.align = 3; offset }
@@ -250,6 +254,40 @@ let erf =
       @ [ n Wasm_op.F64_mul; n Wasm_op.F64_sub; n Wasm_op.F64_mul ];
   }
 
+(* [Loop_numerics.erf32], operation for operation: the same polynomial with a
+   rounding after every binary32 operation, and the inner [exp] the binary64
+   import on the widened argument, rounded once. Every constant is the binary32
+   value of the double the reference writes. *)
+let erf_f32 =
+  let x = 0 and ax = 1 and t = 2 and q = 3 and e = 4 in
+  let c v = I.F32_const (Int32.bits_of_float v) in
+  (* q <- a + q, and q <- t * q *)
+  let up a = [ c a; get q; n Wasm_op.F32_add; set q ] in
+  let mul_t = [ get t; get q; n Wasm_op.F32_mul; set q ] in
+  {
+    Wasm.Func.type_ = ft [ wt_f32 ] [ wt_f32 ];
+    locals = [ wt_f32; wt_f32; wt_f32; wt_f32 ];
+    body =
+      [ get x; n Wasm_op.F32_abs; set ax ]
+      (* t = 1 / (1 + p * ax) *)
+      @ [ c 1.; c 0.3275911; get ax; n Wasm_op.F32_mul ]
+      @ [ n Wasm_op.F32_add; set t ]
+      @ [ c 1.; get t; n Wasm_op.F32_div; set t ]
+      (* q = t * a5, then (a4 + q) * t down to (a1 + q) * t *)
+      @ [ get t; c 1.061405429; n Wasm_op.F32_mul; set q ]
+      @ up (-1.453152027) @ mul_t @ up 1.421413741 @ mul_t @ up (-0.284496736)
+      @ mul_t @ up 0.254829592 @ mul_t
+      (* e = exp (-(ax * ax)) *)
+      @ [ get ax; get ax; n Wasm_op.F32_mul; n Wasm_op.F32_neg ]
+      @ [ n Wasm_op.F64_promote_f32; call Callee.Exp; n Wasm_op.F32_demote_f64 ]
+      @ [ set e ]
+      (* sign * (1 - q * e) *)
+      @ [ get x; c 0.; n Wasm_op.F32_lt ]
+      @ [ I.If (Some wt_f32, [ c (-1.) ], [ c 1. ]) ]
+      @ [ c 1.; get q; get e; n Wasm_op.F32_mul; n Wasm_op.F32_sub ]
+      @ [ n Wasm_op.F32_mul ];
+  }
+
 (* [fill_f32 ptr count value]: [count] binary32 cells set to [value] rounded to
    binary32, for a synthetic operand the graph does not supply. *)
 let fill_f32 =
@@ -290,6 +328,7 @@ let fill_f32 =
 let body : Callee.t -> Wasm.Func.t option = function
   | Callee.Ceil_div -> Some (rounded_div ~floor:false)
   | Callee.Erf -> Some erf
+  | Callee.Erf_f32 -> Some erf_f32
   | Callee.F16_to_float -> Some f16_to_float
   | Callee.Fail_set -> Some fail_set
   | Callee.Fill_f32 -> Some fill_f32
@@ -301,6 +340,7 @@ let signature : Callee.t -> Wasm.Func_type.t = function
   | Callee.Ceil_div | Callee.Floor_div -> ft [ wt_i32; wt_i32 ] [ wt_i32 ]
   | Callee.Cos | Callee.Erf | Callee.Exp | Callee.Log | Callee.Sin ->
       ft [ wt_f64 ] [ wt_f64 ]
+  | Callee.Erf_f32 -> ft [ wt_f32 ] [ wt_f32 ]
   | Callee.F16_to_float -> ft [ wt_i32 ] [ wt_f64 ]
   | Callee.Fail_set -> ft [ wt_i32 ] []
   | Callee.Fill_f32 -> ft [ wt_i32; wt_i32; wt_f64 ] []

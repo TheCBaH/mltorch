@@ -10,6 +10,17 @@
     checks that the vectorization (its dependence and aliasing analysis
     included) preserved values, failures and mark counts. *)
 
+val lane_expr :
+  var:Loop_var.t ->
+  base:Loop_index.t ->
+  temp:(Loop_vector.Temp.t -> int -> Loop_temp.t) ->
+  Loop_vector.t ->
+  int ->
+  float Loop_expr.t
+(** Lane [k] of a vector expression at [var = base], as the scalar expression
+    the scalar program evaluates there. [temp] names the scalar holding a vector
+    temporary's lane. *)
+
 val expand : Loop_vector.program -> Loop_program.t
 (** [Invalid_argument] on a vector loop without constant bounds, which the
     verifier rejects first. *)

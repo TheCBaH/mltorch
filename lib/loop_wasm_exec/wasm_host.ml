@@ -46,11 +46,11 @@ type prepared = {
 let node = Wasm_node.node
 let ( let* ) = Result.bind
 
-let prepare_r ?vector ~dir (b : Loop_bundle.t) ~constants =
+let prepare_r ?vector ?numerics ~dir (b : Loop_bundle.t) ~constants =
   let* w =
     Result.map_error
       (fun e -> `Generate e)
-      (Err.payload (Loop_bundle_wasm.build ?vector b))
+      (Err.payload (Loop_bundle_wasm.build ?vector ?numerics b))
   in
   let* () = Io.unix_io (fun () -> Io.mkdir_p dir) in
   let file name = Filename.concat dir name in
@@ -120,8 +120,10 @@ let run_r ?(poison = false) ?(repeat = 0) p ~bind =
       let pl = p.w.Loop_bundle_wasm.placement in
       let ws = p.w.Loop_bundle_wasm.workspace in
       match
-        Wasm_node.execute ~dir:p.dir ~module_file:p.module_file
-          ~weights:p.weights ~inputs ~template:p.template ~outputs
+        Wasm_node.execute
+          ~features:(Wasm_features.of_module p.w.Loop_bundle_wasm.module_)
+          ~dir:p.dir ~module_file:p.module_file ~weights:p.weights ~inputs
+          ~template:p.template ~outputs
           {
             Wasm_node.weights = pl.Loop_bundle_wasm.Placement.weights;
             inputs = pl.Loop_bundle_wasm.Placement.inputs;
@@ -143,8 +145,8 @@ let run_r ?(poison = false) ?(repeat = 0) p ~bind =
 
 let lift r = Err.import Fun.id r
 
-let prepare ?vector ~dir b ~constants =
-  lift (prepare_r ?vector ~dir b ~constants)
+let prepare ?vector ?numerics ~dir b ~constants =
+  lift (prepare_r ?vector ?numerics ~dir b ~constants)
 
 let run ?poison ?repeat p ~bind = lift (run_r ?poison ?repeat p ~bind)
 let timings p = p.timings

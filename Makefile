@@ -1,8 +1,8 @@
-.PHONY: c.pt2.bench c.pt2.exe c.pt2.run c.pt2.runtest c.pt2.san c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
+.PHONY: c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
-	expr_probe.deep-runtest expr_probe.runtest format inference inference-runa \
+	expr_probe.deep-runtest expr_probe.runtest format fp32.bench fp32.bench.wasm inference inference-runa \
 	inline-timing-report inline-timing-report-js js.build js.runtest \
 	jsoo.build jsoo.inline-runtest jsoo.pt2.download jsoo.pt2.run \
 	jsoo.pt2.runtest jsoo.pt2.vars jsoo.runtest loop.js.runtest \
@@ -19,7 +19,7 @@
 	arena.eval arena.eval.report arena.schedule.eval arena.schedule.eval.report pt2.json-model-support pt2.runtest pt2.vars runtest spike.runtest \
 	spike.setup tailcall.js-benchmark tailcall.runtest test \
 	verify.pristine visualizer.build visualizer.patch \
-	visualizer.submodule wasm.browser.runtest wasm.c.pt2.run wasm.c.pt2.runtest wasm.jsoo.pt2.runtest wasm.jsoo.runtest wasm.pt2.bench wasm.pt2.exe wasm.pt2.run wasm.pt2.runtest wasm.simd.pt2.runtest wasm.runtest wasm.toolchain webapp.bridge-runtest webapp.browser-runtest \
+	visualizer.submodule wasm.browser.runtest wasm.c.pt2.run wasm.c.pt2.runtest wasm.jsoo.pt2.runtest wasm.jsoo.runtest wasm.pt2.bench wasm.pt2.exe wasm.pt2.perf wasm.pt2.run wasm.pt2.runtest wasm.simd.pt2.runtest wasm.runtest wasm.toolchain webapp.bridge-runtest webapp.browser-runtest \
 	webapp.build webapp.npm-install webapp.runtest webapp.serve
 all: build
 
@@ -959,7 +959,7 @@ wasm.jsoo.pt2.runtest: jsoo.pt2.download
 	  node $(CURDIR)/_build/default/js/jsoo/loop_wasm_pt2_js/loop_wasm_pt2_js.bc.js \
 	    $(JS_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt --strict --repeat=3 --samples=1 \
 	    | grep '^module identity' > $(CURDIR)/_build/wasm_jsoo.identity && \
-	  $(CURDIR)/$(WASM_PT2_EXE) $(JS_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt --samples=1 \
+	  $(CURDIR)/$(WASM_PT2_EXE) $(JS_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt --reference --samples=1 \
 	    2>/dev/null | grep '^module identity' > $(CURDIR)/_build/wasm_native.identity
 	diff -u _build/wasm_native.identity _build/wasm_jsoo.identity
 	@echo "wasm jsoo: $(JS_PT2_MODEL) generated in JavaScript, byte-identical to the native module, ranking verified"
@@ -1003,18 +1003,26 @@ wasm.pt2.exe:
 wasm.pt2.runtest: wasm.pt2.exe
 	for m in $(PT2_MODELS_CRAM) csatv2; do \
 	  $(MAKE) pt2.download PT2_MODEL=$$m && \
-	  (cd $(PT2_DIR)/$$m && echo "== $$m" && $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --strict --shadow --poison --samples=1) || exit 1; \
+	  (cd $(PT2_DIR)/$$m && echo "== $$m" && $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --reference --strict --shadow --poison --samples=1) || exit 1; \
 	done
 
 wasm.simd.pt2.runtest: wasm.pt2.exe
 	for m in $(PT2_MODELS_CRAM) csatv2; do \
 	  $(MAKE) pt2.download PT2_MODEL=$$m && \
-	  (cd $(PT2_DIR)/$$m && echo "== $$m (simd)" && $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --simd --strict --shadow --poison --samples=1) || exit 1; \
+	  (cd $(PT2_DIR)/$$m && echo "== $$m (simd)" && $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --reference --simd --strict --shadow --poison --samples=1) || exit 1; \
+	done
+
+# The same for the Wasm backend, under node: the default policy against the frozen
+# tolerance (see c.pt2.perf).
+wasm.pt2.perf: wasm.pt2.exe
+	for m in $(PT2_MODELS_CRAM) csatv2; do \
+	  $(MAKE) pt2.download PT2_MODEL=$$m && \
+	  (cd $(PT2_DIR)/$$m && echo "== $$m" && $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --strict --shadow-numeric --poison --samples=1) || exit 1; \
 	done
 
 wasm.pt2.run: wasm.pt2.exe
 	$(MAKE) pt2.download PT2_MODEL=fastvit_sa12
-	cd $(PT2_DIR)/fastvit_sa12 && $(CURDIR)/$(WASM_PT2_EXE) fastvit_sa12.pt2 inputs.pt expected.json outputs.pt --strict --shadow --poison --samples=1
+	cd $(PT2_DIR)/fastvit_sa12 && $(CURDIR)/$(WASM_PT2_EXE) fastvit_sa12.pt2 inputs.pt expected.json outputs.pt --reference --strict --shadow --poison --samples=1
 
 wasm.pt2.bench: wasm.pt2.exe
 	for m in mobilenetv2_050 fastvit_sa12; do \
@@ -1057,7 +1065,7 @@ c.runtest.all: c.runtest.o0 c.runtest.san
 # c.pt2.san re-runs both with the generated binary under ASan+UBSan, without
 # the reference.
 C_PT2_EXE = _build/default/bin/loop_c_pt2.exe
-C_PT2_SAN = --cc=gcc -std=c11 -O1 -fsanitize=address,undefined -fno-sanitize-recover=all -ffp-contract=off -fno-strict-aliasing -Wall -Wextra -Werror
+C_PT2_SAN = --cc=gcc -std=c11 -O1 -fsanitize=address,undefined -fno-sanitize-recover=all -ffp-contract=off -fno-strict-aliasing -Wall -Wextra -Werror -Wno-psabi
 
 c.pt2.exe:
 	opam exec -- dune build bin/loop_c_pt2.exe
@@ -1069,12 +1077,38 @@ C_PT2_CI_MODELS = $(PT2_MODELS_CRAM) csatv2
 c.pt2.runtest: c.pt2.exe
 	for m in $(C_PT2_CI_MODELS); do \
 	  $(MAKE) pt2.download PT2_MODEL=$$m && \
-	  (cd $(PT2_DIR)/$$m && echo "== $$m" && $(CURDIR)/$(C_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --strict --shadow --poison --samples=1) || exit 1; \
+	  (cd $(PT2_DIR)/$$m && echo "== $$m" && $(CURDIR)/$(C_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --reference --strict --shadow --poison --samples=1) || exit 1; \
 	done
 
 c.pt2.run: c.pt2.exe
 	$(MAKE) pt2.download PT2_MODEL=fastvit_sa12
-	cd $(PT2_DIR)/fastvit_sa12 && $(CURDIR)/$(C_PT2_EXE) fastvit_sa12.pt2 inputs.pt expected.json outputs.pt --strict --shadow --poison --samples=1
+	cd $(PT2_DIR)/fastvit_sa12 && $(CURDIR)/$(C_PT2_EXE) fastvit_sa12.pt2 inputs.pt expected.json outputs.pt --reference --strict --shadow --poison --samples=1
+
+# The performance path (the default policy, simd_fp32_relaxed) on every CI model:
+# the release ranking, the workspace poisoned, and every graph output within the
+# frozen tolerance of the binary64 reference (--shadow-numeric: |actual - ref| <=
+# 1e-4 + 1e-4 |ref|, nonfinite cells matched by kind), with the per-precision
+# kernel coverage printed. The strict gates above stay bitwise on --reference.
+c.pt2.perf: c.pt2.exe
+	for m in $(C_PT2_CI_MODELS); do \
+	  $(MAKE) pt2.download PT2_MODEL=$$m && \
+	  (cd $(PT2_DIR)/$$m && echo "== $$m" && $(CURDIR)/$(C_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --strict --shadow-numeric --poison --samples=1) || exit 1; \
+	done
+
+# Binary64 against binary32 SIMD kernels on dense programs (native C): raw
+# samples as JSON lines on stdout, a table on stderr. Each result is verified
+# against the interpreter at its own precision, so a wrong answer fails the run
+# whatever it measured; --selftest also proves the check can fail.
+fp32.bench:
+	mkdir -p _build
+	opam exec -- dune exec bin/loop_fp32_bench.exe -- --selftest --json=$(CURDIR)/_build/fp32-bench-c.jsonl
+
+# The same programs through the direct Wasm backend under node: modules lowered for
+# standard SIMD (and relaxed SIMD where node validates it), instantiated once,
+# warmed past the engine's baseline tier, timed in nine batches inside node.
+fp32.bench.wasm:
+	mkdir -p _build
+	opam exec -- dune exec bin/loop_fp32_bench.exe -- --wasm --selftest --json=$(CURDIR)/_build/fp32-bench-wasm.jsonl
 
 # Phases of one run apart, then 20 warm repeats inside the binary (stderr).
 c.pt2.bench: c.pt2.exe

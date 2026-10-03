@@ -7,10 +7,46 @@
    access and constants are separate instructions ([Wasm.Instr]). No relaxed
    operation is representable. *)
 type t =
+  | F32_abs
+  | F32_add
+  | F32_convert_i32_s
+  | F32_convert_i32_u
+  | F32_convert_i64_s
   | F32_demote_f64
+  | F32_div
+  | F32_eq
+  | F32_ge
+  | F32_gt
+  | F32_le
+  | F32_lt
+  | F32_max
+  | F32_min
+  | F32_mul
+  | F32_ne
+  | F32_neg
   | F32_reinterpret_i32
+  | F32_sqrt
+  | F32_sub
+  | F32_trunc
+  | F32x4_abs
+  | F32x4_add
   | F32x4_demote_f64x2_zero
+  | F32x4_div
+  | F32x4_eq
+  | F32x4_ge
+  | F32x4_gt
+  | F32x4_le
+  | F32x4_lt
+  | F32x4_max
+  | F32x4_min
+  | F32x4_mul
+  | F32x4_ne
+  | F32x4_neg
+  | F32x4_relaxed_madd
   | F32x4_splat
+  | F32x4_sqrt
+  | F32x4_sub
+  | F32x4_trunc
   | F64_abs
   | F64_add
   | F64_ceil
@@ -148,10 +184,46 @@ type t =
 
 let all =
   [
+    F32_abs;
+    F32_add;
+    F32_convert_i32_s;
+    F32_convert_i32_u;
+    F32_convert_i64_s;
     F32_demote_f64;
+    F32_div;
+    F32_eq;
+    F32_ge;
+    F32_gt;
+    F32_le;
+    F32_lt;
+    F32_max;
+    F32_min;
+    F32_mul;
+    F32_ne;
+    F32_neg;
     F32_reinterpret_i32;
+    F32_sqrt;
+    F32_sub;
+    F32_trunc;
+    F32x4_abs;
+    F32x4_add;
     F32x4_demote_f64x2_zero;
+    F32x4_div;
+    F32x4_eq;
+    F32x4_ge;
+    F32x4_gt;
+    F32x4_le;
+    F32x4_lt;
+    F32x4_max;
+    F32x4_min;
+    F32x4_mul;
+    F32x4_ne;
+    F32x4_neg;
+    F32x4_relaxed_madd;
     F32x4_splat;
+    F32x4_sqrt;
+    F32x4_sub;
+    F32x4_trunc;
     F64_abs;
     F64_add;
     F64_ceil;
@@ -289,10 +361,46 @@ let all =
   ]
 
 let name = function
+  | F32_abs -> "f32.abs"
+  | F32_add -> "f32.add"
+  | F32_convert_i32_s -> "f32.convert_i32_s"
+  | F32_convert_i32_u -> "f32.convert_i32_u"
+  | F32_convert_i64_s -> "f32.convert_i64_s"
   | F32_demote_f64 -> "f32.demote_f64"
+  | F32_div -> "f32.div"
+  | F32_eq -> "f32.eq"
+  | F32_ge -> "f32.ge"
+  | F32_gt -> "f32.gt"
+  | F32_le -> "f32.le"
+  | F32_lt -> "f32.lt"
+  | F32_max -> "f32.max"
+  | F32_min -> "f32.min"
+  | F32_mul -> "f32.mul"
+  | F32_ne -> "f32.ne"
+  | F32_neg -> "f32.neg"
   | F32_reinterpret_i32 -> "f32.reinterpret_i32"
+  | F32_sqrt -> "f32.sqrt"
+  | F32_sub -> "f32.sub"
+  | F32_trunc -> "f32.trunc"
+  | F32x4_abs -> "f32x4.abs"
+  | F32x4_add -> "f32x4.add"
   | F32x4_demote_f64x2_zero -> "f32x4.demote_f64x2_zero"
+  | F32x4_div -> "f32x4.div"
+  | F32x4_eq -> "f32x4.eq"
+  | F32x4_ge -> "f32x4.ge"
+  | F32x4_gt -> "f32x4.gt"
+  | F32x4_le -> "f32x4.le"
+  | F32x4_lt -> "f32x4.lt"
+  | F32x4_max -> "f32x4.max"
+  | F32x4_min -> "f32x4.min"
+  | F32x4_mul -> "f32x4.mul"
+  | F32x4_ne -> "f32x4.ne"
+  | F32x4_neg -> "f32x4.neg"
+  | F32x4_relaxed_madd -> "f32x4.relaxed_madd"
   | F32x4_splat -> "f32x4.splat"
+  | F32x4_sqrt -> "f32x4.sqrt"
+  | F32x4_sub -> "f32x4.sub"
+  | F32x4_trunc -> "f32x4.trunc"
   | F64_abs -> "f64.abs"
   | F64_add -> "f64.add"
   | F64_ceil -> "f64.ceil"
@@ -429,10 +537,46 @@ let name = function
   | V128_xor -> "v128.xor"
 
 let bytes = function
+  | F32_abs -> [ 0x8B ]
+  | F32_add -> [ 0x92 ]
+  | F32_convert_i32_s -> [ 0xB2 ]
+  | F32_convert_i32_u -> [ 0xB3 ]
+  | F32_convert_i64_s -> [ 0xB4 ]
   | F32_demote_f64 -> [ 0xB6 ]
+  | F32_div -> [ 0x95 ]
+  | F32_eq -> [ 0x5B ]
+  | F32_ge -> [ 0x60 ]
+  | F32_gt -> [ 0x5E ]
+  | F32_le -> [ 0x5F ]
+  | F32_lt -> [ 0x5D ]
+  | F32_max -> [ 0x97 ]
+  | F32_min -> [ 0x96 ]
+  | F32_mul -> [ 0x94 ]
+  | F32_ne -> [ 0x5C ]
+  | F32_neg -> [ 0x8C ]
   | F32_reinterpret_i32 -> [ 0xBE ]
+  | F32_sqrt -> [ 0x91 ]
+  | F32_sub -> [ 0x93 ]
+  | F32_trunc -> [ 0x8F ]
+  | F32x4_abs -> [ 0xFD; 0xE0; 0x01 ]
+  | F32x4_add -> [ 0xFD; 0xE4; 0x01 ]
   | F32x4_demote_f64x2_zero -> [ 0xFD; 0x5E ]
+  | F32x4_div -> [ 0xFD; 0xE7; 0x01 ]
+  | F32x4_eq -> [ 0xFD; 0x41 ]
+  | F32x4_ge -> [ 0xFD; 0x46 ]
+  | F32x4_gt -> [ 0xFD; 0x44 ]
+  | F32x4_le -> [ 0xFD; 0x45 ]
+  | F32x4_lt -> [ 0xFD; 0x43 ]
+  | F32x4_max -> [ 0xFD; 0xE9; 0x01 ]
+  | F32x4_min -> [ 0xFD; 0xE8; 0x01 ]
+  | F32x4_mul -> [ 0xFD; 0xE6; 0x01 ]
+  | F32x4_ne -> [ 0xFD; 0x42 ]
+  | F32x4_neg -> [ 0xFD; 0xE1; 0x01 ]
+  | F32x4_relaxed_madd -> [ 0xFD; 0x85; 0x02 ]
   | F32x4_splat -> [ 0xFD; 0x13 ]
+  | F32x4_sqrt -> [ 0xFD; 0xE3; 0x01 ]
+  | F32x4_sub -> [ 0xFD; 0xE5; 0x01 ]
+  | F32x4_trunc -> [ 0xFD; 0x69 ]
   | F64_abs -> [ 0x99 ]
   | F64_add -> [ 0xA0 ]
   | F64_ceil -> [ 0x9B ]
@@ -569,10 +713,47 @@ let bytes = function
   | V128_xor -> [ 0xFD; 0x51 ]
 
 let signature = function
+  | F32_abs -> ([ Wasm_type.F32 ], [ Wasm_type.F32 ])
+  | F32_add -> ([ Wasm_type.F32; Wasm_type.F32 ], [ Wasm_type.F32 ])
+  | F32_convert_i32_s -> ([ Wasm_type.I32 ], [ Wasm_type.F32 ])
+  | F32_convert_i32_u -> ([ Wasm_type.I32 ], [ Wasm_type.F32 ])
+  | F32_convert_i64_s -> ([ Wasm_type.I64 ], [ Wasm_type.F32 ])
   | F32_demote_f64 -> ([ Wasm_type.F64 ], [ Wasm_type.F32 ])
+  | F32_div -> ([ Wasm_type.F32; Wasm_type.F32 ], [ Wasm_type.F32 ])
+  | F32_eq -> ([ Wasm_type.F32; Wasm_type.F32 ], [ Wasm_type.I32 ])
+  | F32_ge -> ([ Wasm_type.F32; Wasm_type.F32 ], [ Wasm_type.I32 ])
+  | F32_gt -> ([ Wasm_type.F32; Wasm_type.F32 ], [ Wasm_type.I32 ])
+  | F32_le -> ([ Wasm_type.F32; Wasm_type.F32 ], [ Wasm_type.I32 ])
+  | F32_lt -> ([ Wasm_type.F32; Wasm_type.F32 ], [ Wasm_type.I32 ])
+  | F32_max -> ([ Wasm_type.F32; Wasm_type.F32 ], [ Wasm_type.F32 ])
+  | F32_min -> ([ Wasm_type.F32; Wasm_type.F32 ], [ Wasm_type.F32 ])
+  | F32_mul -> ([ Wasm_type.F32; Wasm_type.F32 ], [ Wasm_type.F32 ])
+  | F32_ne -> ([ Wasm_type.F32; Wasm_type.F32 ], [ Wasm_type.I32 ])
+  | F32_neg -> ([ Wasm_type.F32 ], [ Wasm_type.F32 ])
   | F32_reinterpret_i32 -> ([ Wasm_type.I32 ], [ Wasm_type.F32 ])
+  | F32_sqrt -> ([ Wasm_type.F32 ], [ Wasm_type.F32 ])
+  | F32_sub -> ([ Wasm_type.F32; Wasm_type.F32 ], [ Wasm_type.F32 ])
+  | F32_trunc -> ([ Wasm_type.F32 ], [ Wasm_type.F32 ])
+  | F32x4_abs -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F32x4_add -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
   | F32x4_demote_f64x2_zero -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F32x4_div -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F32x4_eq -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F32x4_ge -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F32x4_gt -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F32x4_le -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F32x4_lt -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F32x4_max -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F32x4_min -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F32x4_mul -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F32x4_ne -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F32x4_neg -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F32x4_relaxed_madd ->
+      ([ Wasm_type.V128; Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
   | F32x4_splat -> ([ Wasm_type.F32 ], [ Wasm_type.V128 ])
+  | F32x4_sqrt -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F32x4_sub -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F32x4_trunc -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])
   | F64_abs -> ([ Wasm_type.F64 ], [ Wasm_type.F64 ])
   | F64_add -> ([ Wasm_type.F64; Wasm_type.F64 ], [ Wasm_type.F64 ])
   | F64_ceil -> ([ Wasm_type.F64 ], [ Wasm_type.F64 ])

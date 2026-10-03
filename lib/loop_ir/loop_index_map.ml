@@ -22,6 +22,7 @@ let rec expr : type a.
   | Loop_expr.Binary (op, a, b) -> Loop_expr.Binary (op, expr ~f a, expr ~f b)
   | Loop_expr.Const _ -> e
   | Loop_expr.Float_max (a, b) -> Loop_expr.Float_max (expr ~f a, expr ~f b)
+  | Loop_expr.Fma (a, b, c) -> Loop_expr.Fma (expr ~f a, expr ~f b, expr ~f c)
   | Loop_expr.Float_to_i64 a -> Loop_expr.Float_to_i64 (expr ~f a)
   | Loop_expr.I64_binary (op, a, b) ->
       Loop_expr.I64_binary (op, expr ~f a, expr ~f b)
@@ -96,6 +97,15 @@ and stmt ~f (s : Loop_stmt.t) : Loop_stmt.t =
         { var; lo = index ~f lo; hi = index ~f hi; body = stmts ~f body }
   | Loop_stmt.If (p, a, b) -> Loop_stmt.If (pred ~f p, stmts ~f a, stmts ~f b)
   | Loop_stmt.Mark _ -> s
+  | Loop_stmt.Reduce_sum r ->
+      Loop_stmt.Reduce_sum
+        {
+          r with
+          lo = index ~f r.lo;
+          hi = index ~f r.hi;
+          body = stmts ~f r.body;
+          term = expr ~f r.term;
+        }
   | Loop_stmt.Release_scan_state _ -> s
   | Loop_stmt.Reserve_scan_state _ -> s
   | Loop_stmt.Reset_meter -> s

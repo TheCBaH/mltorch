@@ -7,7 +7,7 @@
 
 (copy_files
  (files
-  %{workspace_root}/test/loop_ir/{loop_fixtures,loop_programs,loop_sweep_common}.ml))
+  %{workspace_root}/test/loop_ir/{loop_fixtures,loop_programs,loop_sweep_common,loop_vector_programs,loop_fp32_programs}.ml))
 
 (rule
  (targets

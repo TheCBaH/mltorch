@@ -7,6 +7,10 @@ type _ t =
   | Const : float -> float t
   | Float_max : float t * float t -> float t
   | Float_to_i64 : float t -> int64 t
+  | Fma : float t * float t * float t -> float t
+      (** [a * b + c] with one rounding: a guaranteed fused operation, never an
+          [a * b] rounded and then added. Only a plan that permits contraction
+          builds it ({!Loop_contract}). *)
   | I64_binary : Expr.Value.i64_binary_op * int64 t * int64 t -> int64 t
   | I64_const : int64 -> int64 t
   | I64_of_index : Loop_index.t -> int64 t

@@ -114,20 +114,44 @@ let load_cell st (b : Loop_buffer.t) addr =
   match fmt_of b with
   | "bf16" ->
       load Wasm.Load.I32_load16_u
-      @ [
-          i32 16;
-          n Wasm_op.I32_shl;
-          n Wasm_op.F32_reinterpret_i32;
-          n Wasm_op.F64_promote_f32;
-        ]
+      @ [ i32 16; n Wasm_op.I32_shl; n Wasm_op.F32_reinterpret_i32 ]
+      @ if st.f32 then [] else [ n Wasm_op.F64_promote_f32 ]
   | "bool" ->
       load Wasm.Load.I32_load8_u
-      @ [ i32 0; n Wasm_op.I32_ne; n Wasm_op.F64_convert_i32_u ]
-  | "f16" -> load Wasm.Load.I32_load16_u @ [ call st R.Callee.F16_to_float ]
-  | "f32" -> load Wasm.Load.F32_load @ [ n Wasm_op.F64_promote_f32 ]
-  | "f64" -> load Wasm.Load.F64_load
-  | "i32" -> load Wasm.Load.I32_load @ [ n Wasm_op.F64_convert_i32_s ]
-  | "i64" -> load Wasm.Load.I64_load @ [ n Wasm_op.F64_convert_i64_s ]
+      @ [
+          i32 0;
+          n Wasm_op.I32_ne;
+          n
+            (if st.f32 then Wasm_op.F32_convert_i32_u
+             else Wasm_op.F64_convert_i32_u);
+        ]
+  | "f16" ->
+      load Wasm.Load.I32_load16_u
+      @ [ call st R.Callee.F16_to_float ]
+      @ if st.f32 then [ n Wasm_op.F32_demote_f64 ] else []
+  | "f32" ->
+      load Wasm.Load.F32_load
+      @ if st.f32 then [] else [ n Wasm_op.F64_promote_f32 ]
+  | "f64" ->
+      load Wasm.Load.F64_load
+      @ if st.f32 then [ n Wasm_op.F32_demote_f64 ] else []
+  | "i32" ->
+      (* binary32: one rounding of an exact int32 *)
+      load Wasm.Load.I32_load
+      @ [
+          n
+            (if st.f32 then Wasm_op.F32_convert_i32_s
+             else Wasm_op.F64_convert_i32_s);
+        ]
+  | "i64" ->
+      (* binary32: [f32.convert_i64_s] rounds once; through binary64 first it
+         would round twice *)
+      load Wasm.Load.I64_load
+      @ [
+          n
+            (if st.f32 then Wasm_op.F32_convert_i64_s
+             else Wasm_op.F64_convert_i64_s);
+        ]
   | ("i16" | "i8") as f -> (
       let l =
         if f = "i8" then Wasm.Load.I32_load8_s else Wasm.Load.I32_load16_s
@@ -177,53 +201,101 @@ let array_address st a i =
   let off = Hashtbl.find st.arrays (Loop_array.to_int a) in
   [ get 0; i32 off; n Wasm_op.I32_add ]
   @ index st i
-  @ [ i32 3; n Wasm_op.I32_shl; n Wasm_op.I32_add ]
+  @ [ i32 (array_log2 st); n Wasm_op.I32_shl; n Wasm_op.I32_add ]
+
+let array_store st =
+  if st.f32 then I.Store (Wasm.Store.F32_store, arg 2 0)
+  else I.Store (Wasm.Store.F64_store, arg 3 0)
 
 let rec num st : float Loop_expr.t -> I.t list = function
   | Loop_expr.Array_get (a, i) ->
-      array_address st a i @ [ I.Load (Wasm.Load.F64_load, arg 3 0) ]
+      array_address st a i
+      @ [
+          (if st.f32 then I.Load (Wasm.Load.F32_load, arg 2 0)
+           else I.Load (Wasm.Load.F64_load, arg 3 0));
+        ]
   | Loop_expr.Binary (op, a, b) ->
       let a = num st a in
       let b = num st b in
       a @ b
       @ [
           n
-            (match op with
-            | Expr.Value.Add -> Wasm_op.F64_add
-            | Expr.Value.Div -> Wasm_op.F64_div
-            | Expr.Value.Mul -> Wasm_op.F64_mul
-            | Expr.Value.Sub -> Wasm_op.F64_sub);
+            (match (st.f32, op) with
+            | false, Expr.Value.Add -> Wasm_op.F64_add
+            | false, Expr.Value.Div -> Wasm_op.F64_div
+            | false, Expr.Value.Mul -> Wasm_op.F64_mul
+            | false, Expr.Value.Sub -> Wasm_op.F64_sub
+            | true, Expr.Value.Add -> Wasm_op.F32_add
+            | true, Expr.Value.Div -> Wasm_op.F32_div
+            | true, Expr.Value.Mul -> Wasm_op.F32_mul
+            | true, Expr.Value.Sub -> Wasm_op.F32_sub);
         ]
-  | Loop_expr.Const x -> [ f64 x ]
+  | Loop_expr.Const x -> [ fconst st x ]
+  | Loop_expr.Fma _ ->
+      invalid_arg
+        "Loop_wasm: standard WebAssembly has no fused multiply-add (see the \
+         relaxed-SIMD target)"
   | Loop_expr.Float_max (a, b) ->
       let a = num st a in
       let b = num st b in
-      a @ b @ [ n Wasm_op.F64_max ]
-  | Loop_expr.I64_to_float a -> big st a @ [ n Wasm_op.F64_convert_i64_s ]
+      a @ b @ [ n (if st.f32 then Wasm_op.F32_max else Wasm_op.F64_max) ]
+  | Loop_expr.I64_to_float a ->
+      big st a
+      @ [
+          n
+            (if st.f32 then Wasm_op.F32_convert_i64_s
+             else Wasm_op.F64_convert_i64_s);
+        ]
   | Loop_expr.Load (b, c) -> load_cell st b (At c)
   | Loop_expr.Load_flat (b, i) -> load_cell st b (Flat i)
   | Loop_expr.Round_f32 a ->
-      num st a @ [ n Wasm_op.F32_demote_f64; n Wasm_op.F64_promote_f32 ]
+      (* the identity in binary32: the value is already single precision *)
+      if st.f32 then num st a
+      else num st a @ [ n Wasm_op.F32_demote_f64; n Wasm_op.F64_promote_f32 ]
   | Loop_expr.Select (p, a, b) ->
       let p = pred st p in
       let a = num st a in
       let b = num st b in
-      p @ [ I.If (Some Wasm_type.F64, a, b) ]
+      p @ [ I.If (Some (ftype st), a, b) ]
   | Loop_expr.Temp (Loop_carrier.Float, t) -> [ get (ftemp st t) ]
   | Loop_expr.Unary (op, a) -> (
       let a = num st a in
-      match op with
-      | Expr.Value.Cos -> a @ [ call st R.Callee.Cos ]
-      | Expr.Value.Erf -> a @ [ call st R.Callee.Erf ]
-      | Expr.Value.Exp -> a @ [ call st R.Callee.Exp ]
-      | Expr.Value.Log -> a @ [ call st R.Callee.Log ]
-      | Expr.Value.Sin -> a @ [ call st R.Callee.Sin ]
-      | Expr.Value.Sqrt -> a @ [ n Wasm_op.F64_sqrt ]
-      | Expr.Value.Trunc -> a @ [ n Wasm_op.F64_trunc ])
-  | Loop_expr.Value_of_index i -> index st i @ [ n Wasm_op.F64_convert_i32_s ]
+      if st.f32 then
+        (* Binary32: the binary64 import on the widened argument, rounded once;
+           a square root and a truncation are exact in [f32]. *)
+        let wide c =
+          a @ [ n Wasm_op.F64_promote_f32; call st c; n Wasm_op.F32_demote_f64 ]
+        in
+        match op with
+        | Expr.Value.Cos -> wide R.Callee.Cos
+        | Expr.Value.Erf -> a @ [ call st R.Callee.Erf_f32 ]
+        | Expr.Value.Exp -> wide R.Callee.Exp
+        | Expr.Value.Log -> wide R.Callee.Log
+        | Expr.Value.Sin -> wide R.Callee.Sin
+        | Expr.Value.Sqrt -> a @ [ n Wasm_op.F32_sqrt ]
+        | Expr.Value.Trunc -> a @ [ n Wasm_op.F32_trunc ]
+      else
+        match op with
+        | Expr.Value.Cos -> a @ [ call st R.Callee.Cos ]
+        | Expr.Value.Erf -> a @ [ call st R.Callee.Erf ]
+        | Expr.Value.Exp -> a @ [ call st R.Callee.Exp ]
+        | Expr.Value.Log -> a @ [ call st R.Callee.Log ]
+        | Expr.Value.Sin -> a @ [ call st R.Callee.Sin ]
+        | Expr.Value.Sqrt -> a @ [ n Wasm_op.F64_sqrt ]
+        | Expr.Value.Trunc -> a @ [ n Wasm_op.F64_trunc ])
+  | Loop_expr.Value_of_index i ->
+      index st i
+      @ [
+          n
+            (if st.f32 then Wasm_op.F32_convert_i32_s
+             else Wasm_op.F64_convert_i32_s);
+        ]
 
 and big st : int64 Loop_expr.t -> I.t list = function
-  | Loop_expr.Float_to_i64 a -> num st a @ [ n Wasm_op.I64_trunc_sat_f64_s ]
+  | Loop_expr.Float_to_i64 a ->
+      num st a
+      @ (if st.f32 then [ n Wasm_op.F64_promote_f32 ] else [])
+      @ [ n Wasm_op.I64_trunc_sat_f64_s ]
   | Loop_expr.I64_binary (op, a, b) -> (
       let a = big st a in
       let b = big st b in
@@ -280,26 +352,21 @@ and pred st : Loop_expr.pred -> I.t list = function
       (* The candidate wins on strict greater-than or on NaN. *)
       let best = num st best in
       let value = num st value in
-      let b = fresh st Wasm_type.F64 in
-      let v = fresh st Wasm_type.F64 in
+      let b = fresh st (ftype st) in
+      let v = fresh st (ftype st) in
+      let gt, ne =
+        if st.f32 then (Wasm_op.F32_gt, Wasm_op.F32_ne)
+        else (Wasm_op.F64_gt, Wasm_op.F64_ne)
+      in
       best
       @ [ set b ]
       @ value
-      @ [
-          set v;
-          get v;
-          get b;
-          n Wasm_op.F64_gt;
-          get v;
-          get v;
-          n Wasm_op.F64_ne;
-          n Wasm_op.I32_or;
-        ]
+      @ [ set v; get v; get b; n gt; get v; get v; n ne; n Wasm_op.I32_or ]
   | Loop_bool.Value_eq (a, b) ->
       let a = num st a in
       let b = num st b in
-      a @ b @ [ n Wasm_op.F64_eq ]
+      a @ b @ [ n (if st.f32 then Wasm_op.F32_eq else Wasm_op.F64_eq) ]
   | Loop_bool.Value_lt (a, b) ->
       let a = num st a in
       let b = num st b in
-      a @ b @ [ n Wasm_op.F64_lt ]
+      a @ b @ [ n (if st.f32 then Wasm_op.F32_lt else Wasm_op.F64_lt) ]

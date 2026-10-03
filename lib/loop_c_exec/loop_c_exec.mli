@@ -50,6 +50,9 @@ val compile :
 
 val source :
   ?vector:Loop_target.t ->
+  ?numerics:Loop_numerics.t ->
+  ?precision:Loop_numerics.Precision.t ->
+  ?fuse_reductions:bool ->
   Loop_program.t ->
   (string * string list, [> `C_unsupported of Loop_c.error ]) Err.t
 (** The complete translation unit (a [main] driving one kernel call) and the
@@ -57,6 +60,9 @@ val source :
 
 val exec :
   ?vector:Loop_target.t ->
+  ?numerics:Loop_numerics.t ->
+  ?precision:Loop_numerics.Precision.t ->
+  ?fuse_reductions:bool ->
   ?outputs:(Tensor_id.t -> Tensor.packed option) ->
   Loop_program.t ->
   bind:(Tensor_id.t -> Tensor.packed option) ->

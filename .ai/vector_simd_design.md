@@ -206,3 +206,12 @@ scalar C on mobilenetv2_050; first run (cold, includes V8 tier-up) falls from
   already wins (52.0 vs 88.2 ms), so the scratch, prep and cache-identity costs
   are not paid. Revisit only if a model shows gather-bound loops.
 - Relaxed SIMD, FMA and F32 arithmetic stay out of scope (strict only).
+
+## Binary32 kernels (pointer)
+
+Everything above is the strict, binary64 contract and it is unchanged: it is the
+default and the reference. A kernel the planner vectorizes may instead run in
+binary32 under an explicit numerical policy, with sixteen logical lanes, scheduled
+sums and optional fused multiply-adds; that has its own contract and oracle, in
+the fp32 design record in this directory. The strict shadow commands stay bitwise
+against the binary64 reference.

@@ -8,6 +8,19 @@ open Loop_ir
 val node : string list ref
 (** The command that runs a script: [["node"]]. *)
 
+val flags_for : Wasm_features.t -> string list
+(** The flags that turn a feature on in a default node 20 ([relaxed-simd] is off
+    there); none for the others. *)
+
+val command : Wasm_features.t list -> string list
+(** {!node} with the flags a module using these features needs. *)
+
+val supports : ?flags:bool -> Wasm_features.t -> bool
+(** Whether node, started with the flags the feature needs ([flags], default
+    [true]; [false] is the bare command), validates the feature's probe module:
+    how a host finds out, rather than guessing from a version. A host that
+    cannot use relaxed SIMD plans for standard SIMD. *)
+
 val exit_inference : int
 (** The runner's exit status for a failure record: [5]. *)
 
@@ -22,6 +35,7 @@ type placement = {
 (** Where the four regions go in the module's memory. *)
 
 val execute :
+  ?features:Wasm_features.t list ->
   dir:string ->
   module_file:string ->
   weights:string ->

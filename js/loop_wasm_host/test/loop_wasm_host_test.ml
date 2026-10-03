@@ -248,6 +248,7 @@ let%expect_test "feature detection validates the probe, and SIMD models run" =
     {|
     bulk-memory: true
     nontrapping-float-to-int: true
+    relaxed-simd: false
     sign-extension: true
     simd128: true
     output t9 identical to the reference: true

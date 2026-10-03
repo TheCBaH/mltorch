@@ -47,6 +47,8 @@ type t = {
   meter : bool ref;
       (** set when the value being lowered reads the scan meter, so its nest
           starts each meter scope with [Reset_meter] *)
+  structured : bool;
+      (** emit a float sum as one {!Loop_stmt.Reduce_sum} instead of its loop *)
   hoisted : Loop_stmt.t list ref;
       (** allocations every evaluation reuses, placed before the first nest *)
   block : Loop_stmt.t list ref;  (** the current block, most recent first *)

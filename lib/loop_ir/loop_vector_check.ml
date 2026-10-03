@@ -3,11 +3,14 @@ module V = Loop_vector
 module Reason = struct
   type t =
     | Bad_lanes of int
+    | Bad_parts of int
+    | Fused_term_not_a_product
     | Index_assignment_depends_on_loop_variable
     | Index_value_step_mismatch of { step : int; coefficient : int }
     | Inner_bounds_depend_on_loop_variable
     | Non_constant_bounds
     | Offset_not_affine
+    | Reduction_too_short of { terms : int; lanes : int }
     | Splat_depends_on_loop_variable
     | Splat_loads_stored_buffer of Loop_buffer.t
     | Store_through_broadcast
@@ -19,6 +22,9 @@ module Reason = struct
 
   let pp ppf = function
     | Bad_lanes n -> Fmt.pf ppf "%d lanes (at least two are needed)" n
+    | Bad_parts n -> Fmt.pf ppf "%d accumulators (at least one is needed)" n
+    | Fused_term_not_a_product ->
+        Fmt.string ppf "a fused reduction whose term is not a product"
     | Index_assignment_depends_on_loop_variable ->
         Fmt.string ppf "an index temporary is assigned from the loop variable"
     | Inner_bounds_depend_on_loop_variable ->
@@ -30,6 +36,9 @@ module Reason = struct
     | Non_constant_bounds -> Fmt.string ppf "the loop bounds are not constants"
     | Offset_not_affine ->
         Fmt.string ppf "an access offset is not affine in the loop variable"
+    | Reduction_too_short { terms; lanes } ->
+        Fmt.pf ppf "a reduction of %d terms holds no full vector of %d lanes"
+          terms lanes
     | Splat_depends_on_loop_variable ->
         Fmt.string ppf "a splat reads the loop variable or a loop temporary"
     | Splat_loads_stored_buffer b ->
@@ -72,6 +81,33 @@ let coefficient var offset =
   | Ok c -> Ok c
   | Error `Not_affine -> Error Reason.Offset_not_affine
 
+(* Whether two accesses to one buffer touch no common cell over the iterations
+   of the loop: the same non-zero stride [c] and offsets that differ by a
+   constant [d], so the cells meet only if [c] divides [d] and the quotient is
+   within the iteration count. An offset that mentions an inner loop's variable
+   spans more than the loop variable's iterations and is not proved. *)
+let disjoint ~inner_vars ~iterations (a : V.Access.t) (b : V.Access.t) =
+  let c = a.V.Access.stride in
+  c <> 0 && c = b.V.Access.stride
+  && Tensor_id.equal a.V.Access.buffer.Loop_buffer.id
+       b.V.Access.buffer.Loop_buffer.id
+  && (not
+        (List.exists
+           (fun v ->
+             F.mentions v a.V.Access.offset || F.mentions v b.V.Access.offset)
+           inner_vars))
+  &&
+  match
+    ( Loop_linear.of_index a.V.Access.offset,
+      Loop_linear.of_index b.V.Access.offset )
+  with
+  | Some la, Some lb -> (
+      match Loop_linear.sub la lb with
+      | Some { Loop_linear.terms = []; const = d } ->
+          d mod c <> 0 || abs (d / c) >= iterations
+      | _ -> false)
+  | _ -> false
+
 let loop (l : V.loop) =
   let fail r = Error (`Vector_invalid r) in
   let var = l.V.var in
@@ -103,6 +139,10 @@ let loop (l : V.loop) =
           | V.Binary (_, a, b) | V.Float_max (a, b) ->
               let* () = vexpr assigned a in
               vexpr assigned b
+          | V.Fma (a, b, c) ->
+              let* () = vexpr assigned a in
+              let* () = vexpr assigned b in
+              vexpr assigned c
           | V.Const _ -> Ok ()
           | V.Index_value { base; step } -> (
               match coefficient var base with
@@ -176,14 +216,28 @@ let loop (l : V.loop) =
             (Ok assigned) stmts
         in
         let* _ = body V.Temp.Set.empty l.V.body in
-        (* A buffer stored and loaded must be touched at one identical access;
-           two stores to a buffer must be identical too, so statement-major
-           lane order cannot reorder overlapping writes. *)
+        (* A buffer stored and loaded must be touched at one identical access,
+           or at accesses whose cells provably never meet; two stores to a
+           buffer likewise, so statement-major lane order cannot reorder
+           overlapping writes. *)
+        let lo_n, hi_n =
+          match (l.V.lo, l.V.hi) with
+          | Loop_index.Const a, Loop_index.Const b -> (a, b)
+          | _ -> (0, 0)
+        in
+        let inner_vars =
+          let rec go acc = function
+            | V.Inner { var; body; _ } -> List.fold_left go (var :: acc) body
+            | V.Assign _ | V.Index_assign _ | V.Mark _ | V.Store _ -> acc
+          in
+          List.fold_left go [] l.V.body
+        in
         let same (a : V.Access.t) (b : V.Access.t) =
           Tensor_id.equal a.V.Access.buffer.Loop_buffer.id
             b.V.Access.buffer.Loop_buffer.id
-          && a.V.Access.offset = b.V.Access.offset
-          && a.V.Access.stride = b.V.Access.stride
+          && (a.V.Access.offset = b.V.Access.offset
+              && a.V.Access.stride = b.V.Access.stride
+             || disjoint ~inner_vars ~iterations:(hi_n - lo_n) a b)
         in
         let rec stores_ok = function
           | [] -> Ok ()
@@ -229,12 +283,43 @@ let loop (l : V.loop) =
         stores_ok !stores
     | _ -> fail Reason.Non_constant_bounds
 
+(* A scheduled sum is a vector loop with no stores: its term is checked as a loop
+   body would be (affine accesses, splats independent of the sum's variable), so
+   every load a lane makes is a load the scalar loop makes at that term. *)
+let reduction (r : V.Reduction.t) =
+  let fail r = Error (`Vector_invalid r) in
+  if r.V.Reduction.parts < 1 then fail (Reason.Bad_parts r.V.Reduction.parts)
+  else if r.V.Reduction.lanes < 2 then
+    fail (Reason.Bad_lanes r.V.Reduction.lanes)
+  else
+    let terms = r.V.Reduction.hi - r.V.Reduction.lo in
+    if
+      r.V.Reduction.fused
+      &&
+      match r.V.Reduction.term with
+      | V.Binary (Expr.Value.Mul, _, _) -> false
+      | _ -> true
+    then fail Reason.Fused_term_not_a_product
+    else if terms < r.V.Reduction.lanes then
+      fail (Reason.Reduction_too_short { terms; lanes = r.V.Reduction.lanes })
+    else
+      loop
+        {
+          V.var = r.V.Reduction.var;
+          lo = Loop_index.Const r.V.Reduction.lo;
+          hi = Loop_index.Const r.V.Reduction.hi;
+          lanes = r.V.Reduction.lanes;
+          body = [ V.Assign (V.Temp.of_int 0, r.V.Reduction.term) ];
+          scalar = r.V.Reduction.scalar;
+        }
+
 let rec nodes ns =
   List.fold_left
     (fun acc n ->
       let* () = acc in
       match n with
       | V.Scalar _ -> Ok ()
+      | V.Reduction r -> reduction r
       | V.Vector l -> loop l
       | V.If (_, a, b) ->
           let* () = nodes a in

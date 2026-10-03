@@ -29,7 +29,17 @@ module Placement : sig
   }
 end
 
-type stats = { invocations : int; distinct_kernels : int; module_bytes : int }
+type stats = {
+  invocations : int;
+  distinct_kernels : int;
+  module_bytes : int;
+  numerics : Loop_numerics.t;  (** the policy the module was built under *)
+  f32_invocations : int;  (** invocations of a binary32 kernel *)
+  f32_kernels : int;  (** distinct binary32 kernels *)
+  fp32_refusals : (Loop_numerics.Refusal.t * int) list;
+      (** invocations a [Simd_fp32_*] policy left binary64 because admission
+          refused them, by reason: coverage is never silently partial *)
+}
 
 type t = {
   module_ : Wasm.Module.t;
@@ -55,7 +65,11 @@ type error =
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
-val build : ?vector:Loop_target.t -> Loop_bundle.t -> (t, error) Err.t
+val build :
+  ?vector:Loop_target.t ->
+  ?numerics:Loop_numerics.t ->
+  Loop_bundle.t ->
+  (t, error) Err.t
 (** [vector] lowers the independent loops the strict vectorizer finds for the
     target to 128-bit SIMD ({!Loop_wasm.lower}); the module then needs the
     [simd128] feature. *)

@@ -92,6 +92,7 @@ let from_float_failure st value =
     [ i32 (W.kind_index kind); call st R.Callee.Fail_set; i32 1; I.Return ]
   in
   num st value
+  @ (if st.f32 then [ n Wasm_op.F64_promote_f32 ] else [])
   @ [ set x; get x; get x; n Wasm_op.F64_ne ]
   @ [
       I.If

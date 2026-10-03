@@ -214,6 +214,8 @@ let rec num nm : float Loop_expr.t -> B.num B.t = function
       let b = num nm b in
       binary_js op a b
   | Loop_expr.Const x -> B.Num.const x
+  | Loop_expr.Fma _ ->
+      invalid_arg "Loop_js: a fused multiply-add has no JavaScript form"
   | Loop_expr.Float_max (a, b) ->
       (* [Loop_js_runtime.float_max_body] is exactly [return Math.max(a, b)]:
          emitting the call inline skips a function-call indirection with no
@@ -467,6 +469,10 @@ let rec stmt nm ~limits (s : Loop_stmt.t) : Js_ast.stmt list =
         B.Stmt.decr_num scan_remaining (B.Num.const 1.);
       ]
   | Loop_stmt.Mark _ -> []
+  | Loop_stmt.Reduce_sum _ ->
+      invalid_arg
+        "Loop_js: a structured sum is expanded at the entry point \
+         (Loop_sum.program)"
   | Loop_stmt.Release_scan_state width ->
       [ B.Stmt.decr_num scan_live (B.Num.const (float_of_int (2 * width))) ]
   | Loop_stmt.Reserve_scan_state width ->
@@ -534,6 +540,10 @@ let declarations (p : Loop_program.t) =
     | Loop_stmt.Assign_index (t, _) | Loop_stmt.Assign_index_of_i64 (t, _) ->
         add indices t
     | Loop_stmt.For { body; _ } -> List.iter go body
+    | Loop_stmt.Reduce_sum _ ->
+        invalid_arg
+          "Loop_js: a structured sum is expanded at the entry point \
+           (Loop_sum.program)"
     | Loop_stmt.If (_, yes, no) ->
         List.iter go yes;
         List.iter go no
@@ -579,6 +589,7 @@ let prelude entry =
     Loop_js_runtime.helpers
 
 let to_ast (p : Loop_program.t) =
+  let p = Loop_sum.program p in
   let nm =
     {
       vars = Hashtbl.create 8;

@@ -50,12 +50,19 @@ let () =
           List.mapi (fun i _ -> Instr.Local_get i) params @ [ Instr.Numeric op ];
       }
   in
-  let funcs = List.map wrapper Wasm_op.all in
+  (* A relaxed operation needs a flag a default node lacks, so it would make the
+     whole module invalid there: it is exercised on its own (relaxed.t). *)
+  let ops =
+    List.filter
+      (fun op -> Wasm_features.of_op op <> Some Wasm_features.Relaxed_simd)
+      Wasm_op.all
+  in
+  let funcs = List.map wrapper ops in
   let exports =
     { Export.name = "memory"; kind = Export.Memory }
     :: List.mapi
          (fun i op -> { Export.name = Wasm_op.name op; kind = Export.Func i })
-         Wasm_op.all
+         ops
   in
   let m =
     {

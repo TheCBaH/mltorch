@@ -61,13 +61,14 @@ let runner_path =
 
 let max_bytes = 0x8000_0000L
 
-let exec_gen ~vector ~count_marks ?(outputs = fun _ -> None)
-    (p : Loop_program.t) ~bind =
+let exec_gen ~vector ~numerics ~precision ~count_marks
+    ?(outputs = fun _ -> None) (p : Loop_program.t) ~bind =
   let result : (Tensor.packed Tensor_id.Map.t * int list, error) result =
     let* lowered =
       Result.map_error
         (fun e -> `Wasm_unsupported e)
-        (Err.payload (Loop_wasm.lower ?vector ~count_marks p))
+        (Err.payload
+           (Loop_wasm.lower ?vector ?numerics ?precision ~count_marks p))
     in
     let* tensors =
       (C.bind_buffers ~outputs p ~bind
@@ -113,7 +114,8 @@ let exec_gen ~vector ~count_marks ?(outputs = fun _ -> None)
                   | Loop_buffer.Output | Loop_buffer.Scratch -> ())
                 p.Loop_program.buffers offsets);
           let argv =
-            !node
+            Wasm_node.command
+              (Wasm_features.of_module lowered.Loop_wasm.module_)
             @ [
                 Lazy.force runner_path;
                 module_file;
@@ -181,13 +183,14 @@ let exec_gen ~vector ~count_marks ?(outputs = fun _ -> None)
   in
   match result with Ok m -> Err.return m | Error e -> Err.fail e
 
-let exec ?vector ?outputs p ~bind =
-  Err.map fst (exec_gen ~vector ~count_marks:false ?outputs p ~bind)
+let exec ?vector ?numerics ?precision ?outputs p ~bind =
+  Err.map fst
+    (exec_gen ~vector ~numerics ~precision ~count_marks:false ?outputs p ~bind)
 
-let exec_counted ?vector ?outputs p ~bind =
+let exec_counted ?vector ?numerics ?precision ?outputs p ~bind =
   Err.map
     (fun (m, counts) -> (m, List.combine Loop_mark.all counts))
-    (exec_gen ~vector ~count_marks:true ?outputs p ~bind)
+    (exec_gen ~vector ~numerics ~precision ~count_marks:true ?outputs p ~bind)
 
 let executor_with ?vector : Loop_check.Executor.t =
  fun p ~bind ->

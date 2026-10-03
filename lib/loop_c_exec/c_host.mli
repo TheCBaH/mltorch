@@ -38,11 +38,12 @@ val pp_error : Format.formatter -> [< error ] -> unit
 
 val default_compiler : string list
 (** [gcc -std=c11 -O2 -ffp-contract=off -fno-strict-aliasing -Wall -Wextra
-     -Werror]: the argument vector before the sources. [LOOP_C_CFLAGS], if set,
-    replaces [-O2] (for [-O0] and sanitizer runs). *)
+     -Werror -Wno-psabi]: the argument vector before the sources.
+    [LOOP_C_CFLAGS], if set, replaces [-O2] (for [-O0] and sanitizer runs). *)
 
 val prepare :
   ?vector:Loop_target.t ->
+  ?numerics:Loop_numerics.t ->
   ?compiler:string list ->
   dir:string ->
   Loop_bundle.t ->

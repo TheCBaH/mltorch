@@ -191,6 +191,18 @@ jobs:
     - name: wasm mutation check
       run: |
         ${{ env.EXEC }} env WASI_SYSROOT=/usr scripts/wasm-mutation-check.sh
+    # The binary64 against binary32 SIMD microbenchmark on the runner's node: dense
+    # kernels through the direct Wasm backend, every result verified against its
+    # oracle (a wrong answer fails the step, a slow one never does), the raw samples
+    # kept as an artifact.
+    - name: wasm fp32 microbenchmark
+      run: |
+        ${{ env.EXEC }} make fp32.bench.wasm
+    - name: wasm fp32 microbenchmark results
+      uses: actions/upload-artifact@v4
+      with:
+        name: fp32-bench-wasm
+        path: _build/fp32-bench-wasm.jsonl
     - name: cache keys
       id: cache_keys
       run: |

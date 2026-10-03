@@ -1,604 +1,5 @@
-module R = Loop_c_runtime
-module F = Loop_js_failure
-
-type error = [ `Unsupported_format of Tensor_id.t * string ]
-
-let pp_error ppf : [< error ] -> unit = function
-  | `Unsupported_format (id, f) ->
-      Format.fprintf ppf "t%d: format %s has no C implementation"
-        (Tensor_id.to_int id) f
-
-type t = {
-  source : string;
-  helpers : R.Name.t list;
-  local_doubles : int64;
-  buffer_types : string list;
-}
-
-(* Names by first appearance, per emission, as [Loop_js] does. Every operand is
-   an expression string built left to right, so a name never depends on the
-   order OCaml happens to evaluate arguments in. *)
-type names = {
-  vars : (int, int) Hashtbl.t;
-  temps : (int, int) Hashtbl.t;
-  index_temps : (int, int) Hashtbl.t;
-  arrays : (int, int) Hashtbl.t;
-  buffers : (int, int) Hashtbl.t;
-  sites : Loop_failure.t array;
-  mutable next_site : int;
-  mutable used : R.Name.t list;
-  mutable local_doubles : int64;
-}
-
-let ordinal table key =
-  match Hashtbl.find_opt table key with
-  | Some n -> n
-  | None ->
-      let n = Hashtbl.length table in
-      Hashtbl.add table key n;
-      n
-
-let use nm h = if not (List.mem h nm.used) then nm.used <- h :: nm.used
-
-let call nm h args =
-  use nm h;
-  R.Name.to_string h ^ "(" ^ String.concat ", " args ^ ")"
-
-let var nm v = "i" ^ string_of_int (ordinal nm.vars (Loop_var.to_int v))
-let bound nm v = "n" ^ string_of_int (ordinal nm.vars (Loop_var.to_int v))
-let temp nm t = "x" ^ string_of_int (ordinal nm.temps (Loop_temp.to_int t))
-
-let index_temp nm t =
-  "o" ^ string_of_int (ordinal nm.index_temps (Loop_temp.to_int t))
-
-let array nm a = "a" ^ string_of_int (ordinal nm.arrays (Loop_array.to_int a))
-
-let buffer nm (b : Loop_buffer.t) =
-  "b" ^ string_of_int (ordinal nm.buffers (Tensor_id.to_int b.Loop_buffer.id))
-
-let fmt_of (b : Loop_buffer.t) =
-  let (Payload.Fmt f) = b.Loop_buffer.sg.Tensor_sig.fmt in
-  Payload.fmt_name f
-
-(* The storage cell of a buffer, by format. A quantized format has no C
-   implementation: it is refused by [check_formats] before any text is made. *)
-let cell_type b =
-  match fmt_of b with
-  | "bf16" | "f16" -> Some "uint16_t"
-  | "bool" -> Some "uint8_t"
-  | "f32" -> Some "float"
-  | "f64" -> Some "double"
-  | "i32" -> Some "int32_t"
-  | "i64" -> Some "int64_t"
-  | _ -> None
-
-let int_lit n = "((int64_t)" ^ string_of_int n ^ ")"
-
-let i64_lit n =
-  if Int64.equal n Int64.min_int then "(-INT64_C(9223372036854775807) - 1)"
-  else if Int64.compare n 0L < 0 then
-    "(-INT64_C" ^ "(" ^ Int64.to_string (Int64.neg n) ^ "))"
-  else "INT64_C(" ^ Int64.to_string n ^ ")"
-
-let float_lit x =
-  if Float.is_nan x then "NAN"
-  else if x = Float.infinity then "INFINITY"
-  else if x = Float.neg_infinity then "(-INFINITY)"
-  else "(" ^ Printf.sprintf "%h" x ^ ")"
-
-let rec index nm : Loop_index.t -> string = function
-  | Loop_index.Add (a, b) ->
-      let a = index nm a in
-      let b = index nm b in
-      "(" ^ a ^ " + " ^ b ^ ")"
-  | Loop_index.Ceil_div_pos (a, d) ->
-      let a = index nm a in
-      "(-" ^ call nm R.Name.Floor_div [ "-" ^ a; int_lit d ] ^ ")"
-  | Loop_index.Clamp_low a -> call nm R.Name.Idx_clamp_low [ index nm a ]
-  | Loop_index.Const n -> int_lit n
-  | Loop_index.Floor_div_pos (a, d) ->
-      let a = index nm a in
-      call nm R.Name.Floor_div [ a; int_lit d ]
-  | Loop_index.Max (a, b) ->
-      let a = index nm a in
-      let b = index nm b in
-      call nm R.Name.Idx_max [ a; b ]
-  | Loop_index.Min (a, b) ->
-      let a = index nm a in
-      let b = index nm b in
-      call nm R.Name.Idx_min [ a; b ]
-  | Loop_index.Scale (k, a) -> "(" ^ int_lit k ^ " * " ^ index nm a ^ ")"
-  | Loop_index.Temp t -> index_temp nm t
-  | Loop_index.Var v -> var nm v
-
-(* The dense row-major offset of a coordinate in a buffer's shape, folded as it
-   is built: a unit extent scales by one and a constant component adds a
-   constant, so neither prints. Only constants small enough that the product
-   cannot leave the index domain are folded. *)
-let small n = n > -0x4000_0000 && n < 0x4000_0000
-
-let scale_i k (a : Loop_index.t) : Loop_index.t =
-  match a with
-  | _ when k = 1 -> a
-  | Loop_index.Const n when small n && small k && small (k * n) ->
-      Loop_index.Const (k * n)
-  | _ -> Loop_index.Scale (k, a)
-
-let add_i (a : Loop_index.t) (b : Loop_index.t) : Loop_index.t =
-  match (a, b) with
-  | Loop_index.Const 0, x | x, Loop_index.Const 0 -> x
-  | Loop_index.Const x, Loop_index.Const y when small x && small y ->
-      Loop_index.Const (x + y)
-  | _ -> Loop_index.Add (a, b)
-
-let offset nm (b : Loop_buffer.t) (c : Loop_index.coord) =
-  let shape = b.Loop_buffer.sg.Tensor_sig.shape in
-  List.fold_left
-    (fun acc a ->
-      let extent = Dim.to_int (Vec6.get shape a) in
-      let i = Expr.Coord.get c a in
-      match acc with
-      | None -> Some i
-      | Some acc -> Some (add_i (scale_i extent acc) i))
-    None Expr.Axis.all
-  |> Option.get |> index nm
-
-type overflow_node = { op : int; value : string; lhs : string; rhs : string }
-
-(* One node per checked operation, post-order: the first to leave the int32
-   domain is the one the interpreter reports, with its operands. *)
-let overflow_nodes nm i =
-  let rec go acc (i : Loop_index.t) =
-    match i with
-    | Loop_index.Add (a, b) ->
-        let acc = go (go acc a) b in
-        let lhs = index nm a in
-        let rhs = index nm b in
-        { op = 0; value = index nm i; lhs; rhs } :: acc
-    | Loop_index.Scale (k, a) ->
-        let acc = go acc a in
-        let rhs = index nm a in
-        { op = 1; value = index nm i; lhs = int_lit k; rhs } :: acc
-    | Loop_index.Ceil_div_pos (a, _)
-    | Loop_index.Clamp_low a
-    | Loop_index.Floor_div_pos (a, _) ->
-        go acc a
-    | Loop_index.Max (a, b) | Loop_index.Min (a, b) -> go (go acc a) b
-    | Loop_index.Const _ | Loop_index.Temp _ | Loop_index.Var _ -> acc
-  in
-  List.rev (go [] i)
-
-let outside_int32 v =
-  "(" ^ v ^ " < -INT64_C(2147483648) || " ^ v ^ " >= INT64_C(2147483648))"
-
-type addr = At of Loop_index.coord | Flat of Loop_index.t
-
-let addr_offset nm b = function At c -> offset nm b c | Flat i -> index nm i
-
-let load_cell nm b addr =
-  let cell = buffer nm b ^ "[" ^ addr_offset nm b addr ^ "]" in
-  match fmt_of b with
-  | "bf16" -> call nm R.Name.Bf16_to_float [ cell ]
-  | "bool" -> "(" ^ cell ^ " != 0 ? 1.0 : 0.0)"
-  | "f16" -> call nm R.Name.F16_to_float [ cell ]
-  | "f32" | "f64" | "i32" | "i64" -> "(double)" ^ cell
-  | f -> invalid_arg ("Loop_c: no decode for format " ^ f)
-
-let unary_c nm (op : Expr.Value.unary_op) a =
-  match op with
-  | Expr.Value.Cos -> "cos(" ^ a ^ ")"
-  | Expr.Value.Erf -> call nm R.Name.Erf [ a ]
-  | Expr.Value.Exp -> "exp(" ^ a ^ ")"
-  | Expr.Value.Log -> "log(" ^ a ^ ")"
-  | Expr.Value.Sin -> "sin(" ^ a ^ ")"
-  | Expr.Value.Sqrt -> "sqrt(" ^ a ^ ")"
-  | Expr.Value.Trunc -> "trunc(" ^ a ^ ")"
-
-let binary_sym : Expr.Value.binary_op -> string = function
-  | Expr.Value.Add -> "+"
-  | Expr.Value.Div -> "/"
-  | Expr.Value.Mul -> "*"
-  | Expr.Value.Sub -> "-"
-
-let rec num nm : float Loop_expr.t -> string = function
-  | Loop_expr.Array_get (a, i) -> array nm a ^ "[" ^ index nm i ^ "]"
-  | Loop_expr.Binary (op, a, b) ->
-      let a = num nm a in
-      let b = num nm b in
-      "(" ^ a ^ " " ^ binary_sym op ^ " " ^ b ^ ")"
-  | Loop_expr.Const x -> float_lit x
-  | Loop_expr.Float_max (a, b) ->
-      let a = num nm a in
-      let b = num nm b in
-      call nm R.Name.Float_max [ a; b ]
-  | Loop_expr.I64_to_float a -> "((double)" ^ big nm a ^ ")"
-  | Loop_expr.Load (b, c) -> load_cell nm b (At c)
-  | Loop_expr.Load_flat (b, i) -> load_cell nm b (Flat i)
-  | Loop_expr.Round_f32 a -> "((double)(float)" ^ num nm a ^ ")"
-  | Loop_expr.Select (p, a, b) ->
-      let p = pred nm p in
-      let a = num nm a in
-      let b = num nm b in
-      "(" ^ p ^ " ? " ^ a ^ " : " ^ b ^ ")"
-  | Loop_expr.Temp (Loop_carrier.Float, t) -> temp nm t
-  | Loop_expr.Unary (op, a) -> unary_c nm op (num nm a)
-  | Loop_expr.Value_of_index i -> "((double)" ^ index nm i ^ ")"
-
-and big nm : int64 Loop_expr.t -> string = function
-  | Loop_expr.Float_to_i64 a -> call nm R.Name.I64_from_float [ num nm a ]
-  | Loop_expr.I64_binary (op, a, b) -> (
-      let a = big nm a in
-      let b = big nm b in
-      let wrap sym =
-        "((int64_t)((uint64_t)" ^ a ^ " " ^ sym ^ " (uint64_t)" ^ b ^ "))"
-      in
-      match op with
-      | Expr.Value.I64_add -> wrap "+"
-      | Expr.Value.I64_div -> call nm R.Name.I64_div [ a; b ]
-      | Expr.Value.I64_mul -> wrap "*"
-      | Expr.Value.I64_sub -> wrap "-")
-  | Loop_expr.I64_const n -> i64_lit n
-  | Loop_expr.I64_of_index i -> index nm i
-  | Loop_expr.Load_i64 (b, c) -> buffer nm b ^ "[" ^ offset nm b c ^ "]"
-  | Loop_expr.Load_i64_flat (b, i) -> buffer nm b ^ "[" ^ index nm i ^ "]"
-  | Loop_expr.Select (p, a, b) ->
-      let p = pred nm p in
-      let a = big nm a in
-      let b = big nm b in
-      "(" ^ p ^ " ? " ^ a ^ " : " ^ b ^ ")"
-  | Loop_expr.Temp (Loop_carrier.Int64, t) -> temp nm t
-
-and pred nm : Loop_expr.pred -> string = function
-  | Loop_bool.I64_eq (a, b) ->
-      let a = big nm a in
-      let b = big nm b in
-      "(" ^ a ^ " == " ^ b ^ ")"
-  | Loop_bool.I64_lt (a, b) ->
-      let a = big nm a in
-      let b = big nm b in
-      "(" ^ a ^ " < " ^ b ^ ")"
-  | Loop_bool.Index_eq (a, b) ->
-      let a = index nm a in
-      let b = index nm b in
-      "(" ^ a ^ " == " ^ b ^ ")"
-  | Loop_bool.Index_lt (a, b) ->
-      let a = index nm a in
-      let b = index nm b in
-      "(" ^ a ^ " < " ^ b ^ ")"
-  | Loop_bool.Index_overflows i -> (
-      match overflow_nodes nm i with
-      | [] -> "0"
-      | nodes ->
-          "("
-          ^ String.concat " || "
-              (List.map (fun n -> outside_int32 n.value) nodes)
-          ^ ")")
-  | Loop_bool.Not p -> "(!" ^ pred nm p ^ ")"
-  | Loop_bool.Or (p, q) ->
-      let p = pred nm p in
-      let q = pred nm q in
-      "(" ^ p ^ " || " ^ q ^ ")"
-  | Loop_bool.Out_of_range (i, n) ->
-      let i = index nm i in
-      "(" ^ i ^ " < 0 || " ^ i ^ " >= " ^ int_lit n ^ ")"
-  | Loop_bool.Pool_better (best, value) ->
-      let best = num nm best in
-      let value = num nm value in
-      (* [Max_op.pool_better]: the candidate wins on strict greater-than OR
-         on NaN. Both operands are pure, so naming them twice is exact. *)
-      "(" ^ value ^ " > " ^ best ^ " || " ^ value ^ " != " ^ value ^ ")"
-  | Loop_bool.Value_eq (a, b) ->
-      let a = num nm a in
-      let b = num nm b in
-      "(" ^ a ^ " == " ^ b ^ ")"
-  | Loop_bool.Value_lt (a, b) ->
-      let a = num nm a in
-      let b = num nm b in
-      "(" ^ a ^ " < " ^ b ^ ")"
-
-let kind_num k = string_of_int (R.kind_index k)
-
-(* A failure is a returned status, never an exception or a [longjmp]. The
-   fields are the ones [Loop_js_failure.fields] names, in its order, written to
-   [err->v]; the expressions are evaluated only here, once the check fired. *)
-let set_fields fields =
-  String.concat " "
-    (List.mapi
-       (fun i e -> Printf.sprintf "err->v[%d] = (int64_t)(%s);" i e)
-       fields)
-
-let fail_record kind fields =
-  Printf.sprintf "{ fail_set(err, %s); %s return 1; }" (kind_num kind)
-    (set_fields fields)
-
-let scan_failure nm which ~site ~local ~row ~lane ~extent =
-  let row = index nm row in
-  let lane = index nm lane in
-  fail_record F.Kind.Scan_projection
-    [
-      (match which with F.Projection.Lane -> "0" | F.Projection.Row -> "1");
-      (if Option.is_some local then "1" else "0");
-      row;
-      lane;
-      string_of_int extent;
-      string_of_int site;
-    ]
-
-let failure nm ~site : Loop_failure.t -> string = function
-  | Loop_failure.Load_out_of_range { buffer = b; coord = c } ->
-      let shape = b.Loop_buffer.sg.Tensor_sig.shape in
-      let extents =
-        List.map
-          (fun a -> int_lit (Dim.to_int (Vec6.get shape a)))
-          Expr.Axis.all
-      in
-      let coord =
-        List.rev
-          (List.fold_left
-             (fun acc a -> index nm (Expr.Coord.get c a) :: acc)
-             [] Expr.Axis.all)
-      in
-      Printf.sprintf
-        "{ const int64_t ext[6] = {%s}; const int64_t co[6] = {%s}; return %s; \
-         }"
-        (String.concat ", " extents)
-        (String.concat ", " coord)
-        (call nm R.Name.Coord_failure
-           [ "err"; int_lit (Tensor_id.to_int b.Loop_buffer.id); "ext"; "co" ])
-  | Loop_failure.Gather_out_of_range { raw; extent } ->
-      fail_record F.Kind.Gather_index_out_of_range
-        [ big nm raw; string_of_int extent ]
-  | Loop_failure.I64_division_by_zero ->
-      fail_record F.Kind.I64_division_by_zero []
-  | Loop_failure.I64_division_overflow ->
-      fail_record F.Kind.I64_division_overflow []
-  | Loop_failure.I64_from_float { value } ->
-      "return "
-      ^ call nm R.Name.I64_from_float_failure [ "err"; num nm value ]
-      ^ ";"
-  | Loop_failure.Index_overflow _ ->
-      invalid_arg "Loop_c.failure: an index overflow is written per node"
-  | Loop_failure.Local_out_of_range _ ->
-      fail_record F.Kind.Unbound_local [ string_of_int site ]
-  | Loop_failure.Scan_lane_out_of_range { local; row; lane; extent } ->
-      scan_failure nm F.Projection.Lane ~site ~local ~row ~lane ~extent
-  | Loop_failure.Scan_row_out_of_range { local; row; lane; extent } ->
-      scan_failure nm F.Projection.Row ~site ~local ~row ~lane ~extent
-
-(* The [Fail_if] sites are numbered in the walk [Loop_js_failure.sites] makes,
-   and each is checked against that array by physical equality. *)
-let next_site nm f =
-  let k = nm.next_site in
-  if k >= Array.length nm.sites || nm.sites.(k) != f then
-    invalid_arg "Loop_c: a failure site drifted from Loop_js_failure.sites";
-  nm.next_site <- k + 1;
-  k
-
-let meter_failure which limit =
-  fail_record F.Kind.Scan_meter
-    [
-      (match which with
-      | F.Meter.State_over_limit -> "0"
-      | F.Meter.Updates_exhausted -> "1");
-      limit;
-    ]
-
-let indent n = String.make (2 * n) ' '
-
-(* ---- vector loops --------------------------------------------------------- *)
-
-module V = Loop_vector
-
-(* A vector expression as C text of type [v4df] (a mask as [v4di]). Vector
-   temporaries are named by their id; a splatted scalar by its position among the
-   loop's splats. *)
-type vstate = { mutable splats : (float Loop_expr.t * string) list }
-
-let lane_offset (a : V.Access.t) k : Loop_index.t =
-  if k = 0 then a.V.Access.offset
-  else
-    Loop_index.Add (a.V.Access.offset, Loop_index.Const (k * a.V.Access.stride))
-
-let vtemp t = "vt" ^ string_of_int (V.Temp.to_int t)
-
-let vload nm (a : V.Access.t) =
-  let b = a.V.Access.buffer in
-  let scalar k = load_cell nm b (Flat (lane_offset a k)) in
-  let lanes () = String.concat ", " (List.init 4 scalar) in
-  if a.V.Access.stride = 0 then "vf_splat(" ^ scalar 0 ^ ")"
-  else if a.V.Access.stride <> 1 then "((v4df){" ^ lanes () ^ "})"
-  else
-    let at = "(" ^ buffer nm b ^ " + " ^ index nm a.V.Access.offset ^ ")" in
-    match fmt_of b with
-    | "f32" -> "vf_load_f32(" ^ at ^ ")"
-    | "f64" -> "vf_load_f64(" ^ at ^ ")"
-    | "i32" -> "vf_load_i32(" ^ at ^ ")"
-    | _ -> "((v4df){" ^ lanes () ^ "})"
-
-let rec vexpr nm vs (e : V.t) : string =
-  match e with
-  | V.Const x -> "vf_splat(" ^ float_lit x ^ ")"
-  | V.Splat s -> (
-      match List.assq_opt s vs.splats with
-      | Some name -> name
-      | None -> "vf_splat(" ^ num nm s ^ ")")
-  | V.Binary (op, a, b) ->
-      let a = vexpr nm vs a in
-      let b = vexpr nm vs b in
-      "(" ^ a ^ " " ^ binary_sym op ^ " " ^ b ^ ")"
-  | V.Float_max (a, b) ->
-      let a = vexpr nm vs a in
-      let b = vexpr nm vs b in
-      "vf_max(" ^ a ^ ", " ^ b ^ ")"
-  | V.Round_f32 a -> "vf_round_f32(" ^ vexpr nm vs a ^ ")"
-  | V.Unary (op, a) ->
-      let a = vexpr nm vs a in
-      (match op with Expr.Value.Erf -> use nm R.Name.Erf | _ -> ());
-      let name =
-        match op with
-        | Expr.Value.Cos -> "vf_cos"
-        | Expr.Value.Erf -> "vf_erf"
-        | Expr.Value.Exp -> "vf_exp"
-        | Expr.Value.Log -> "vf_log"
-        | Expr.Value.Sin -> "vf_sin"
-        | Expr.Value.Sqrt -> "vf_sqrt"
-        | Expr.Value.Trunc -> "vf_trunc"
-      in
-      name ^ "(" ^ a ^ ")"
-  | V.Select (m, a, b) ->
-      let m = vmask nm vs m in
-      let a = vexpr nm vs a in
-      let b = vexpr nm vs b in
-      "vf_sel(" ^ m ^ ", " ^ a ^ ", " ^ b ^ ")"
-  | V.Temp t -> vtemp t
-  | V.Index_value { base; step } ->
-      "((v4df){"
-      ^ String.concat ", "
-          (List.init 4 (fun k ->
-               "(double)"
-               ^ index nm (Loop_index.Add (base, Loop_index.Const (k * step)))))
-      ^ "})"
-  | V.Load a -> vload nm a
-
-and vmask nm vs (m : V.mask) : string =
-  match m with
-  | V.Not m -> "(~" ^ vmask nm vs m ^ ")"
-  | V.Or (a, b) -> "(" ^ vmask nm vs a ^ " | " ^ vmask nm vs b ^ ")"
-  | V.Value_eq (a, b) -> "(" ^ vexpr nm vs a ^ " == " ^ vexpr nm vs b ^ ")"
-  | V.Value_lt (a, b) -> "(" ^ vexpr nm vs a ^ " < " ^ vexpr nm vs b ^ ")"
-  | V.Pool_better (best, value) ->
-      (* The candidate wins on strict greater-than or on NaN. Both operands are
-         pure, so naming the value twice is exact. *)
-      let best = vexpr nm vs best in
-      let value = vexpr nm vs value in
-      "((" ^ value ^ " > " ^ best ^ ") | (" ^ value ^ " != " ^ value ^ "))"
-
-let vstore nm vs ~ind (a : V.Access.t) (value : V.stored) =
-  let b = a.V.Access.buffer in
-  let e = match value with V.F32 e | V.Bool e -> e in
-  let v = vexpr nm vs e in
-  match value with
-  | V.F32 _ when a.V.Access.stride = 1 ->
-      [
-        Printf.sprintf "%svf_store_f32(%s + %s, %s);" ind (buffer nm b)
-          (index nm a.V.Access.offset)
-          v;
-      ]
-  | _ ->
-      let lane k =
-        let cell = buffer nm b ^ "[" ^ index nm (lane_offset a k) ^ "]" in
-        match value with
-        | V.F32 _ -> Printf.sprintf "%s%s = (float)vs[%d];" ind cell k
-        | V.Bool _ -> Printf.sprintf "%s%s = vs[%d] != 0.0 ? 1 : 0;" ind cell k
-      in
-      [ Printf.sprintf "%s{ const v4df vs = %s;" ind v ]
-      @ List.init 4 lane
-      @ [ ind ^ "}" ]
-
-module VF = Loop_vector_facts
-
-(* A splat computed once, before the loop, is one that no enclosing inner loop's
-   variable reaches; any other is evaluated where it is used. *)
-let hoistable inner e =
-  not (List.exists (fun v -> VF.expr_depends v Loop_temp.Set.empty e) inner)
-
-let rec collect_splats ~inner acc (e : V.t) =
-  match e with
-  | V.Splat s ->
-      if List.memq s acc || not (hoistable inner s) then acc else acc @ [ s ]
-  | V.Binary (_, a, b) | V.Float_max (a, b) ->
-      collect_splats ~inner (collect_splats ~inner acc a) b
-  | V.Round_f32 a | V.Unary (_, a) -> collect_splats ~inner acc a
-  | V.Select (m, a, b) ->
-      collect_splats ~inner
-        (collect_splats ~inner (mask_splats ~inner acc m) a)
-        b
-  | V.Const _ | V.Index_value _ | V.Load _ | V.Temp _ -> acc
-
-and mask_splats ~inner acc (m : V.mask) =
-  match m with
-  | V.Not m -> mask_splats ~inner acc m
-  | V.Or (a, b) -> mask_splats ~inner (mask_splats ~inner acc a) b
-  | V.Pool_better (a, b) | V.Value_eq (a, b) | V.Value_lt (a, b) ->
-      collect_splats ~inner (collect_splats ~inner acc a) b
-
-let rec stmt_splats ~inner acc (s : V.stmt) =
-  match s with
-  | V.Assign (_, e) -> collect_splats ~inner acc e
-  | V.Store { value = V.F32 e | V.Bool e; _ } -> collect_splats ~inner acc e
-  | V.Index_assign _ | V.Mark _ -> acc
-  | V.Inner { var; body; _ } ->
-      List.fold_left (stmt_splats ~inner:(var :: inner)) acc body
-
-let rec assigned_vtemps acc (s : V.stmt) =
-  match s with
-  | V.Assign (t, _) -> if List.mem t acc then acc else acc @ [ t ]
-  | V.Inner { body; _ } -> List.fold_left assigned_vtemps acc body
-  | V.Index_assign _ | V.Mark _ | V.Store _ -> acc
-
-let rec vstmt nm vs ~ind (s : V.stmt) : string list =
-  match s with
-  | V.Assign (t, e) ->
-      [ Printf.sprintf "%s%s = %s;" ind (vtemp t) (vexpr nm vs e) ]
-  | V.Store { access; value } -> vstore nm vs ~ind access value
-  | V.Index_assign (t, i) ->
-      [ Printf.sprintf "%s%s = %s;" ind (index_temp nm t) (index nm i) ]
-  | V.Mark _ -> []
-  | V.Inner { var = v; lo; hi; body } ->
-      let name = var nm v in
-      [
-        Printf.sprintf "%sfor (int64_t %s = %s; %s < %s; %s++) {" ind name
-          (index nm lo) name (index nm hi) name;
-      ]
-      @ List.concat_map (vstmt nm vs ~ind:(ind ^ "  ")) body
-      @ [ ind ^ "}" ]
-
-let vloop nm ~depth ~scalar_stmt (l : V.loop) : string list =
-  let ind = indent depth in
-  use nm R.Name.Vector_prelude;
-  use nm R.Name.Float_max;
-  use nm R.Name.Erf;
-  let lo, hi =
-    match (l.V.lo, l.V.hi) with
-    | Loop_index.Const lo, Loop_index.Const hi -> (lo, hi)
-    | _ -> invalid_arg "Loop_c: a vector loop without constant bounds"
-  in
-  let stop = lo + (max 0 (hi - lo) / l.V.lanes * l.V.lanes) in
-  let vs = { splats = [] } in
-  let splat_exprs = List.fold_left (stmt_splats ~inner:[]) [] l.V.body in
-  let prelude =
-    List.mapi
-      (fun k e ->
-        let name = Printf.sprintf "vs%d" k in
-        vs.splats <- vs.splats @ [ (e, name) ];
-        Printf.sprintf "%s  const v4df %s = vf_splat(%s);" ind name (num nm e))
-      splat_exprs
-  in
-  let iv = var nm l.V.var in
-  let decls =
-    List.map
-      (fun t ->
-        Printf.sprintf "%s    v4df %s = {0.0, 0.0, 0.0, 0.0}; (void)%s;" ind
-          (vtemp t) (vtemp t))
-      (List.fold_left assigned_vtemps [] l.V.body)
-  in
-  let body = List.concat_map (vstmt nm vs ~ind:(ind ^ "    ")) l.V.body in
-  let remainder =
-    match l.V.scalar with
-    | Loop_stmt.For f ->
-        scalar_stmt (Loop_stmt.For { f with lo = Loop_index.Const stop })
-    | s -> scalar_stmt s
-  in
-  [ ind ^ "{" ]
-  @ prelude
-  @ [
-      Printf.sprintf "%s  for (int64_t %s = %s; %s < %s; %s += %d) {" ind iv
-        (int_lit lo) iv (int_lit stop) iv l.V.lanes;
-    ]
-  @ decls @ body
-  @ [ ind ^ "  }" ]
-  @ remainder
-  @ [ ind ^ "}" ]
+open Loop_c_base
+open Loop_c_vector
 
 let rec stmt nm ~limits ~depth (s : Loop_stmt.t) : string list =
   let ind = indent depth in
@@ -607,12 +8,21 @@ let rec stmt nm ~limits ~depth (s : Loop_stmt.t) : string list =
   | Loop_stmt.Alloc (a, n) ->
       let n = (n :> int) in
       let off = nm.local_doubles in
-      nm.local_doubles <- Int64.add off (Int64.of_int n);
       let a = array nm a in
-      line
-        (Printf.sprintf
-           "double *%s = local + %Ld; memset(%s, 0, %d * sizeof(double));" a off
-           a n)
+      if nm.f32 then (
+        (* Binary32 cells pack two to a [double] of scratch. *)
+        nm.local_doubles <- Int64.add off (Int64.of_int ((n + 1) / 2));
+        line
+          (Printf.sprintf
+             "float *%s = (float *)(local + %Ld); memset(%s, 0, %d * \
+              sizeof(float));"
+             a off a n))
+      else (
+        nm.local_doubles <- Int64.add off (Int64.of_int n);
+        line
+          (Printf.sprintf
+             "double *%s = local + %Ld; memset(%s, 0, %d * sizeof(double));" a
+             off a n))
   | Loop_stmt.Array_set (a, i, e) ->
       let i = index nm i in
       let e = num nm e in
@@ -681,6 +91,10 @@ let rec stmt nm ~limits ~depth (s : Loop_stmt.t) : string list =
            (meter_failure F.Meter.Updates_exhausted limit))
       @ line "scan_remaining -= 1;"
   | Loop_stmt.Mark _ -> []
+  | Loop_stmt.Reduce_sum _ ->
+      invalid_arg
+        "Loop_c: a structured sum is expanded at the entry point \
+         (Loop_sum.program)"
   | Loop_stmt.Release_scan_state width ->
       line (Printf.sprintf "scan_live -= %d;" (2 * width))
   | Loop_stmt.Reserve_scan_state width ->
@@ -708,7 +122,7 @@ and store nm b addr value =
          both are pure. *)
       let e = num nm e in
       let cell = cell () in
-      Printf.sprintf "%s = (%s) != 0.0 ? 1 : 0;" cell e
+      Printf.sprintf "%s = (%s) != %s ? 1 : 0;" cell e (lit nm 0.)
   | Loop_stored.F32 (Loop_expr.Round_f32 e) | Loop_stored.F32 e ->
       let e = num nm e in
       Printf.sprintf "%s = (float)%s;" (cell ()) e
@@ -722,6 +136,7 @@ and node nm ~limits ~depth (nd : V.node) : string list =
   let ind = indent depth in
   match nd with
   | V.Scalar s -> stmt nm ~limits ~depth s
+  | V.Reduction r -> vreduction nm ~depth r
   | V.If (p, yes, no) ->
       let p = pred nm p in
       let yes = nodes nm ~limits ~depth:(depth + 1) yes in
@@ -772,6 +187,10 @@ let declarations (p : Loop_program.t) =
     | Loop_stmt.Assign_index (t, _) | Loop_stmt.Assign_index_of_i64 (t, _) ->
         add indices t
     | Loop_stmt.For { body; _ } -> List.iter go body
+    | Loop_stmt.Reduce_sum _ ->
+        invalid_arg
+          "Loop_c: a structured sum is expanded at the entry point \
+           (Loop_sum.program)"
     | Loop_stmt.If (_, yes, no) ->
         List.iter go yes;
         List.iter go no
@@ -798,10 +217,22 @@ let param_type (b : Loop_buffer.t) =
   | Loop_buffer.Input -> "const " ^ t
   | Loop_buffer.Output | Loop_buffer.Scratch -> t
 
-let kernel ?vector ~name (p : Loop_program.t) : (t, [> error ]) Err.t =
-  match check_formats p with
-  | Error e -> Err.fail e
-  | Ok () ->
+let kernel ?vector ?(numerics = Loop_numerics.Reference_f64) ?precision
+    ?fuse_reductions ~name (p : Loop_program.t) : (t, [> error ]) Err.t =
+  let p = Loop_sum.program p in
+  let plan =
+    match precision with
+    | None -> Ok (Loop_plan.resolve ?target:vector ?fuse_reductions ~numerics p)
+    | Some precision ->
+        Result.map_error
+          (fun r -> `Unsupported_precision r)
+          (Loop_plan.force ?target:vector ~precision p)
+  in
+  match (check_formats p, plan) with
+  | Error e, _ -> Err.fail e
+  | Ok (), Error e -> Err.fail e
+  | Ok (), Ok plan ->
+      let precision = plan.Loop_plan.precision in
       let nm =
         {
           vars = Hashtbl.create 8;
@@ -809,6 +240,7 @@ let kernel ?vector ~name (p : Loop_program.t) : (t, [> error ]) Err.t =
           index_temps = Hashtbl.create 8;
           arrays = Hashtbl.create 8;
           buffers = Hashtbl.create 8;
+          f32 = precision = Loop_numerics.Precision.F32;
           sites = F.sites p;
           next_site = 0;
           used = [];
@@ -824,10 +256,9 @@ let kernel ?vector ~name (p : Loop_program.t) : (t, [> error ]) Err.t =
       in
       let limits = p.Loop_program.scan_limits in
       let body =
-        match vector with
+        match plan.Loop_plan.vector with
         | None -> block nm ~limits ~depth:1 p.Loop_program.body
-        | Some target ->
-            let vp, _ = Loop_vectorize.program ~target p in
+        | Some vp ->
             (match Err.payload (Loop_vector_check.program vp) with
             | Ok () -> ()
             | Error e ->
@@ -839,6 +270,7 @@ let kernel ?vector ~name (p : Loop_program.t) : (t, [> error ]) Err.t =
       if nm.next_site <> Array.length nm.sites then
         invalid_arg "Loop_c: a failure site was not written";
       let floats, int64s, indices, meter = declarations p in
+      let fty = float_type nm in
       let decl ty init ids name_of =
         List.map
           (fun t -> Printf.sprintf "  %s %s = %s;" ty (name_of nm t) init)
@@ -852,7 +284,7 @@ let kernel ?vector ~name (p : Loop_program.t) : (t, [> error ]) Err.t =
         @ List.map (fun t -> temp nm t) int64s
       in
       let temps =
-        decl "double" "0.0" floats temp
+        decl fty (lit nm 0.) floats temp
         @ decl "int64_t" "0" indices index_temp
         @ decl "int64_t" "0" int64s temp
         @ List.map (fun n -> Printf.sprintf "  (void)%s;" n) named
@@ -883,12 +315,32 @@ let kernel ?vector ~name (p : Loop_program.t) : (t, [> error ]) Err.t =
           ([ Printf.sprintf "static int %s(%s) {" name params_text ]
           @ voids @ temps @ meter @ body @ [ "  return 0;"; "}"; "" ])
       in
+      if nm.f32 then use nm R.Name.F32_prelude;
       let used = nm.used in
       Err.return
         {
           source;
           helpers = List.filter (fun n -> List.mem n used) R.Name.all;
           local_doubles = nm.local_doubles;
+          precision;
+          refusal = plan.Loop_plan.refusal;
           buffer_types =
             List.map (fun b -> Option.get (cell_type b)) p.Loop_program.buffers;
         }
+
+(* The emitter is split: names, scalar expressions and failures in [Loop_c_base],
+   the vector loops and scheduled sums in [Loop_c_vector], statements and the
+   kernel here. The interface is this module's. *)
+type error = Loop_c_base.error
+
+type nonrec t = Loop_c_base.t = {
+  source : string;
+  helpers : R.Name.t list;
+  local_doubles : int64;
+  precision : Loop_numerics.Precision.t;
+  refusal : Loop_numerics.Refusal.t option;
+  buffer_types : string list;
+}
+
+let pp_error = Loop_c_base.pp_error
+let float_lit = Loop_c_base.float_lit

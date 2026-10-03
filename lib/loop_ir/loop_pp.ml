@@ -73,6 +73,8 @@ let rec pp_expr : type a. names -> Format.formatter -> a Loop_expr.t -> unit =
   | Loop_expr.Float_max (a, b) ->
       Fmt.pf fmt "float_max(%a, %a)" (pp_expr nm) a (pp_expr nm) b
   | Loop_expr.Float_to_i64 a -> Fmt.pf fmt "float_to_i64(%a)" (pp_expr nm) a
+  | Loop_expr.Fma (a, b, c) ->
+      Fmt.pf fmt "fma(%a, %a, %a)" (pp_expr nm) a (pp_expr nm) b (pp_expr nm) c
   | Loop_expr.I64_binary (op, a, b) ->
       Fmt.pf fmt "(%a %s %a)" (pp_expr nm) a
         (Expr.Value.i64_binary_sym op)
@@ -173,6 +175,10 @@ let rec pp_stmt nm fmt : Loop_stmt.t -> unit = function
       Fmt.pf fmt "@[<v 2>if %a:%a@]" (pp_pred nm) p (pp_block nm) yes;
       if no <> [] then Fmt.pf fmt "@,@[<v 2>else:%a@]" (pp_block nm) no
   | Loop_stmt.Mark m -> Fmt.pf fmt "mark %s" (Loop_mark.name m)
+  | Loop_stmt.Reduce_sum { var; lo; hi; acc; seed; body; term; at = _ } ->
+      Fmt.pf fmt "@[<v 2>%a = sum %g over %a in [%a, %a):%a@,term %a@]"
+        (pp_temp nm) acc seed (pp_var nm) var (pp_index nm) lo (pp_index nm) hi
+        (pp_block nm) body (pp_expr nm) term
   | Loop_stmt.Store { buffer; coord; value } ->
       Fmt.pf fmt "store %a[%a] = %a" Tensor_id.pp buffer.Loop_buffer.id
         (pp_coord nm) coord (pp_stored nm) value

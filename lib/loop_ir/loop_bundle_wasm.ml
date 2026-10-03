@@ -19,7 +19,15 @@ module Placement = struct
   }
 end
 
-type stats = { invocations : int; distinct_kernels : int; module_bytes : int }
+type stats = {
+  invocations : int;
+  distinct_kernels : int;
+  module_bytes : int;
+  numerics : Loop_numerics.t;
+  f32_invocations : int;
+  f32_kernels : int;
+  fp32_refusals : (Loop_numerics.Refusal.t * int) list;
+}
 
 type t = {
   module_ : Wasm.Module.t;
@@ -212,7 +220,8 @@ let invocation ws ~position ~kernel (inv : Loop_bundle.invocation)
 
 let align n a = Int64.mul (Int64.div (Int64.add n (Int64.sub a 1L)) a) a
 
-let build ?vector (b : Loop_bundle.t) : (t, error) Err.t =
+let build ?vector ?(numerics = Loop_numerics.Reference_f64) (b : Loop_bundle.t)
+    : (t, error) Err.t =
   let open Err.Syntax in
   let g = b.Loop_bundle.graph in
   let sigs ids =
@@ -240,23 +249,24 @@ let build ?vector (b : Loop_bundle.t) : (t, error) Err.t =
     Err.List.map
       (fun (inv : Loop_bundle.invocation) ->
         let* k =
-          Loop_wasm.kernel ?vector ~table_alloc inv.Loop_bundle.program
+          Loop_wasm.kernel ?vector ~numerics ~table_alloc
+            inv.Loop_bundle.program
         in
         let index = Kernels.intern kernels k in
         let local_doubles = Int64.div k.Loop_wasm.local_bytes 8L in
         let+ sc = W.scratch inv ~local_doubles in
-        (inv, index, sc))
+        (inv, index, sc, k))
       b.Loop_bundle.invocations
   in
   let scratch_bytes =
     List.fold_left
-      (fun m (_, _, sc) -> Int64.max m sc.W.Scratch.bytes)
+      (fun m (_, _, sc, _) -> Int64.max m sc.W.Scratch.bytes)
       0L compiled
   in
   let* ws = W.create b ~weights ~inputs ~scratch_bytes in
   let* calls =
     Err.List.map
-      (fun (position, (inv, kernel, sc)) ->
+      (fun (position, (inv, kernel, sc, _)) ->
         invocation ws ~position ~kernel inv sc)
       (List.mapi (fun i x -> (i, x)) compiled)
   in
@@ -332,7 +342,12 @@ let build ?vector (b : Loop_bundle.t) : (t, error) Err.t =
         @ [
             {
               Wasm.Custom.name = "manifest";
-              payload = L.manifest ~callees module_;
+              payload =
+                L.manifest ~numerics
+                  ~precisions:
+                    (List.sort_uniq compare
+                       (List.map (fun k -> k.Loop_wasm.precision) all_kernels))
+                  ~callees module_;
             };
           ];
     }
@@ -364,5 +379,28 @@ let build ?vector (b : Loop_bundle.t) : (t, error) Err.t =
           invocations = List.length compiled;
           distinct_kernels = List.length all_kernels;
           module_bytes = String.length bytes;
+          numerics;
+          f32_invocations =
+            List.length
+              (List.filter
+                 (fun (_, _, _, k) ->
+                   k.Loop_wasm.precision = Loop_numerics.Precision.F32)
+                 compiled);
+          f32_kernels =
+            List.length
+              (List.filter
+                 (fun k -> k.Loop_wasm.precision = Loop_numerics.Precision.F32)
+                 all_kernels);
+          fp32_refusals =
+            List.fold_left
+              (fun acc (_, _, _, (k : Loop_wasm.kernel)) ->
+                match k.Loop_wasm.refusal with
+                | None -> acc
+                | Some r -> (
+                    match List.assoc_opt r acc with
+                    | Some n -> (r, n + 1) :: List.remove_assoc r acc
+                    | None -> (r, 1) :: acc))
+              [] compiled
+            |> List.sort compare;
         };
     }

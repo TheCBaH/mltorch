@@ -115,6 +115,10 @@ def main() -> int:
                     break
             if name_field is None or inline_tests_field is None:
                 continue
+            # Gated on an environment variable (the Wasm suites, which need
+            # node): without it dune has no runner to build.
+            if "MLTORCH_WASM" in str(find_field(inline_tests_field, "enabled_if")):
+                continue
             lib = unquote(name_field[0])
             for mode in modes_of(inline_tests_field):
                 print(f"{directory}\t{lib}\t{mode}")

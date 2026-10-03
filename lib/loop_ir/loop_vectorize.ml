@@ -109,6 +109,12 @@ let rec conv ctx (e : float Loop_expr.t) : (V.t, Reason.t) result =
       let* b = conv ctx b in
       count ctx T.Op.Float_max;
       Ok (V.Float_max (a, b))
+  | Loop_expr.Fma (a, b, c) ->
+      let* a = conv ctx a in
+      let* b = conv ctx b in
+      let* c = conv ctx c in
+      count ctx T.Op.Fma;
+      Ok (V.Fma (a, b, c))
   | Loop_expr.Round_f32 a ->
       let* a = conv ctx a in
       count ctx T.Op.Round_f32;
@@ -219,6 +225,10 @@ let rec stmt ctx (s : Loop_stmt.t) : (V.stmt list, Reason.t) result =
       ctx.assigned <- Loop_temp.Map.add t vt ctx.assigned;
       Ok [ V.Assign (vt, e) ]
   | Loop_stmt.Mark m -> Ok [ V.Mark m ]
+  | Loop_stmt.Reduce_sum _ ->
+      invalid_arg
+        "Loop_vectorize: a structured sum is expanded at the entry point \
+         (Loop_sum.program)"
   | Loop_stmt.Assign_index (t, i) ->
       if F.mentions ctx.var i then
         Error (Reason.Body_statement "index assignment from the loop variable")
@@ -377,7 +387,163 @@ let rec work (s : Loop_stmt.t) =
       List.fold_left (fun acc s -> Int64.add acc (work s)) 0L (a @ b)
   | _ -> 0L
 
-let program ?(target = T.wasm128) (p : Loop_program.t) =
+(* ---- sums along their own axis ----------------------------------------------
+
+   Under a policy that permits reordering a sum, the sums left in scalar code
+   (those no enclosing loop's lanes took) are scheduled along their own axis: see
+   {!Loop_vector.Reduction}. Only a sum with a pure term (no statements before
+   it), constant bounds, a contiguous load to vectorize and enough terms to
+   amortize the horizontal combine is scheduled; any other is its sequential
+   expansion, with the reason recorded. *)
+
+let rec has_contiguous_load (e : V.t) =
+  match e with
+  | V.Load a -> a.V.Access.stride = 1
+  | V.Binary (_, a, b) | V.Float_max (a, b) ->
+      has_contiguous_load a || has_contiguous_load b
+  | V.Fma (a, b, c) ->
+      has_contiguous_load a || has_contiguous_load b || has_contiguous_load c
+  | V.Round_f32 a | V.Unary (_, a) -> has_contiguous_load a
+  | V.Select (_, a, b) -> has_contiguous_load a || has_contiguous_load b
+  | V.Const _ | V.Index_value _ | V.Splat _ | V.Temp _ -> false
+
+(* At least this many full vectors, so the horizontal combine is a small part of
+   the sum. *)
+let min_vectors = 4
+let max_parts = 4
+
+let plan_sum ~(target : T.t) (sum : Loop_stmt.t) =
+  match sum with
+  | Loop_stmt.Reduce_sum { var; lo; hi; acc; seed; body; term; at = _ } -> (
+      match (lo, hi) with
+      | Loop_index.Const lo_n, Loop_index.Const hi_n -> (
+          let trips = max 0 (hi_n - lo_n) in
+          let lanes = target.T.lanes in
+          if body <> [] then Error (trips, Reason.Body_statement "sum body")
+          else if lanes < 2 then Error (trips, Reason.Unprofitable)
+          else if trips / lanes < min_vectors then
+            Error (trips, Reason.Too_short { trips; lanes })
+          else
+            let ctx =
+              {
+                var;
+                loop_temps = Loop_temp.Set.empty;
+                assigned = Loop_temp.Map.empty;
+                next_temp = 0;
+                ops = [];
+                weight = 1;
+                inner_ok = false;
+              }
+            in
+            match conv ctx term with
+            | Error r -> Error (trips, r)
+            | Ok vterm ->
+                if not (has_contiguous_load vterm) then
+                  Error (trips, Reason.Unprofitable)
+                else
+                  let full = trips / lanes in
+                  let parts = min max_parts (max 1 (full / 2)) in
+                  Ok
+                    ( trips,
+                      {
+                        V.Reduction.acc;
+                        seed;
+                        var;
+                        lo = lo_n;
+                        hi = hi_n;
+                        lanes;
+                        parts;
+                        term = vterm;
+                        fused = false;
+                        scalar = sum;
+                      } ))
+      | _ -> Error (0, Reason.Non_constant_bounds))
+  | _ -> invalid_arg "Loop_vectorize.plan_sum: not a sum"
+
+let schedule_reductions ~target nodes_in =
+  let decision ~trips ~executions outcome =
+    { Decision.trips; executions; work = Int64.of_int trips; ops = 0; outcome }
+  in
+  (* The nodes a recovered statement becomes, and the decisions taken in it. *)
+  let rec stmt ~executions (s : Loop_stmt.t) : V.node list * Decision.t list =
+    match s with
+    | Loop_stmt.Reduce_sum _ -> (
+        match plan_sum ~target s with
+        | Ok (trips, r) ->
+            ( [ V.Reduction r ],
+              [ decision ~trips ~executions Decision.Vectorized ] )
+        | Error (trips, reason) ->
+            ( List.map (fun s -> V.Scalar s) (Loop_sum.expand s),
+              [ decision ~trips ~executions (Decision.Kept_scalar reason) ] ))
+    | Loop_stmt.For { var; lo; hi; body } ->
+        let factor =
+          match (lo, hi) with
+          | Loop_index.Const a, Loop_index.Const b ->
+              Int64.of_int (max 1 (b - a))
+          | _ -> 1L
+        in
+        let kids, decs = block ~executions:(Int64.mul executions factor) body in
+        if V.count_vector_loops kids > 0 then
+          ([ V.Loop { var; lo; hi; body = kids } ], decs)
+        else ([ V.Scalar (List.hd (Loop_sum.expand s)) ], decs)
+    | Loop_stmt.If (c, a, b) ->
+        let na, da = block ~executions a and nb, db = block ~executions b in
+        if V.count_vector_loops na + V.count_vector_loops nb > 0 then
+          ([ V.If (c, na, nb) ], da @ db)
+        else ([ V.Scalar (List.hd (Loop_sum.expand s)) ], da @ db)
+    | s -> ([ V.Scalar s ], [])
+  and block ~executions stmts =
+    List.fold_left
+      (fun (nodes, decs) s ->
+        let n, d = stmt ~executions s in
+        (nodes @ n, decs @ d))
+      ([], []) stmts
+  in
+  let rec node ~executions (n : V.node) : V.node list * Decision.t list =
+    match n with
+    | V.Scalar s -> block ~executions [ s ]
+    | V.If (c, a, b) ->
+        let na, da = nodes ~executions a and nb, db = nodes ~executions b in
+        ([ V.If (c, na, nb) ], da @ db)
+    | V.Loop { var; lo; hi; body } ->
+        let factor =
+          match (lo, hi) with
+          | Loop_index.Const a, Loop_index.Const b ->
+              Int64.of_int (max 1 (b - a))
+          | _ -> 1L
+        in
+        let body, decs = nodes ~executions:(Int64.mul executions factor) body in
+        ([ V.Loop { var; lo; hi; body } ], decs)
+    | V.Vector _ | V.Reduction _ -> ([ n ], [])
+  and nodes ~executions ns =
+    (* A sum is recovered from its seed and loop together, so a run of adjacent
+       scalar statements is one block. *)
+    let rec runs = function
+      | V.Scalar s :: rest ->
+          let more, rest = scalars rest in
+          `Block (s :: more) :: runs rest
+      | n :: rest -> `Node n :: runs rest
+      | [] -> []
+    and scalars = function
+      | V.Scalar s :: rest ->
+          let more, rest = scalars rest in
+          (s :: more, rest)
+      | rest -> ([], rest)
+    in
+    List.fold_left
+      (fun (acc, decs) run ->
+        let n, d =
+          match run with
+          | `Block stmts -> block ~executions (Loop_sum.recover_block stmts)
+          | `Node n -> node ~executions n
+        in
+        (acc @ n, decs @ d))
+      ([], []) (runs ns)
+  in
+  nodes ~executions:1L nodes_in
+
+let program ?(target = T.wasm128) ?(reductions = false) (p : Loop_program.t) =
+  let p = Loop_sum.program p in
   let reads_total = reads_of_program p in
   (* Loops are tried innermost first: a loop whose body holds a vector loop is
      left as a scalar loop around it, and a loop whose own iterations are
@@ -438,6 +604,12 @@ let program ?(target = T.wasm128) (p : Loop_program.t) =
       ([], []) stmts
   in
   let body, decisions = nodes ~enclosing:1L p.Loop_program.body in
+  let body, decisions =
+    if reductions then
+      let body, sums = schedule_reductions ~target body in
+      (body, decisions @ sums)
+    else (body, decisions)
+  in
   ({ V.scalar = p; body }, decisions)
 
 let tally (r : report) =

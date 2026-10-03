@@ -3,14 +3,53 @@
     and constants are separate instructions in {!Wasm.Instr}). A closed table:
     the validator and the encoder read the same row for an operation, so its
     stack signature and its bytes cannot drift. Conversions from float to
-    integer are the non-trapping saturating forms only. No relaxed SIMD
-    operation is representable. *)
+    integer are the non-trapping saturating forms only. The only relaxed SIMD
+    operation is [F32x4_relaxed_madd], reported by {!Wasm_features} so a host
+    can refuse it. *)
 
 type t =
+  | F32_abs
+  | F32_add
+  | F32_convert_i32_s
+  | F32_convert_i32_u
+  | F32_convert_i64_s
   | F32_demote_f64
+  | F32_div
+  | F32_eq
+  | F32_ge
+  | F32_gt
+  | F32_le
+  | F32_lt
+  | F32_max
+  | F32_min
+  | F32_mul
+  | F32_ne
+  | F32_neg
   | F32_reinterpret_i32
+  | F32_sqrt
+  | F32_sub
+  | F32_trunc
+  | F32x4_abs
+  | F32x4_add
   | F32x4_demote_f64x2_zero
+  | F32x4_div
+  | F32x4_eq
+  | F32x4_ge
+  | F32x4_gt
+  | F32x4_le
+  | F32x4_lt
+  | F32x4_max
+  | F32x4_min
+  | F32x4_mul
+  | F32x4_ne
+  | F32x4_neg
+  | F32x4_relaxed_madd
+      (** [a * b + c], fused or not at the engine's choice: the one relaxed-SIMD
+          operation, which needs the [relaxed-simd] feature *)
   | F32x4_splat
+  | F32x4_sqrt
+  | F32x4_sub
+  | F32x4_trunc
   | F64_abs
   | F64_add
   | F64_ceil
