@@ -41,7 +41,7 @@
  
    let pp ppf (ctx, m, msg) =
      let pp_meta ppf m =
-@@ -1481,7 +1481,7 @@
+@@ -1512,7 +1512,7 @@
            try
              if map.dec_skip i b then b else
              map.dec_add i (decode map.elt v) b
@@ -50,7 +50,7 @@
          in
          next map meta b (i + 1) vs
      in
-@@ -1530,7 +1530,7 @@
+@@ -1561,7 +1561,7 @@
        match String_map.find_opt n mem_decs with
        | Some (Mem_dec m) ->
            let dict = try Dict.add m.id (decode m.type' v) dict with
@@ -59,7 +59,7 @@
            in
            let mem_miss = String_map.remove n mem_miss in
            decode_object_basic map meta umems umap mem_miss mem_decs dict mems
-@@ -1545,7 +1545,7 @@
+@@ -1576,7 +1576,7 @@
            | Unknown_keep (umap', _) ->
                let umap =
                  try umap'.dec_add nmeta n (decode umap'.mems_type v) umap with
@@ -68,7 +68,7 @@
                in
                decode_object_basic
                  map meta umems umap mem_miss mem_decs dict mems
-@@ -1581,7 +1581,7 @@
+@@ -1612,7 +1612,7 @@
      | ((n, meta as nm), v as mem) :: mems ->
          if n = cases.tag.name then
            let tag = try decode cases.tag.type' v with
@@ -77,7 +77,7 @@
            in
            decode_case_tag map meta tag delay mems
          else
-@@ -1592,7 +1592,7 @@
+@@ -1623,7 +1623,7 @@
                map meta umems cases mem_miss mem_decs dict delay mems
          | Some (Mem_dec m) ->
              let dict = try Dict.add m.id (decode m.type' v) dict with
@@ -86,7 +86,7 @@
              in
              let mem_miss = String_map.remove n mem_miss in
              decode_object_cases
-@@ -1612,7 +1612,7 @@
+@@ -1643,7 +1643,7 @@
      | Object _ -> dec t map.dec_object j
  
    let dec = decode
@@ -95,7 +95,7 @@
    let decode t j = Result.map_error Error.to_string (decode' t j)
  
    (* Encode *)
-@@ -1626,7 +1626,7 @@
+@@ -1657,7 +1657,7 @@
    | Array map ->
        let enc map acc i elt =
          try encode map.elt elt :: acc with
@@ -104,7 +104,7 @@
        in
        list ~meta:(map.enc_meta v) (List.rev (map.enc (enc map) [] v))
    | Object map ->
-@@ -1646,7 +1646,7 @@
+@@ -1677,7 +1677,7 @@
          if mmap.enc_omit v then obj else
          ((mmap.name, Meta.none), encode mmap.type' v) :: obj
        with
@@ -113,7 +113,7 @@
      in
      let obj = List.fold_left (encode_mem map) obj map.mem_encs in
      match map.shape with
-@@ -1661,7 +1661,7 @@
+@@ -1692,7 +1692,7 @@
              if cases.tag.enc_omit case.tag then obj else
              (n, encode cases.tag.type' case.tag) :: obj
            with
@@ -122,7 +122,7 @@
          in
          match u with
          | Some (Unknown_keep (umap, enc)) ->
-@@ -1678,20 +1678,20 @@
+@@ -1709,20 +1709,20 @@
       let encode_mem map meta name v obj =
         let n = (name, meta) in
         let v = try encode umap.mems_type v with
@@ -146,7 +146,7 @@
     let recode t v = Result.map_error Error.to_string (recode' t v)
  end
  
-@@ -1724,7 +1724,7 @@
+@@ -1755,7 +1755,7 @@
    Repr.String (Base.map ~dec ~enc ~enc_meta:Json.meta ())
  
  let json, json_array, mem_list, json_object =

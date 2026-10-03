@@ -13,13 +13,13 @@
 ;
 ;    A recorded patch, not a regex. `Error` appears in three namespaces --
 ;    exception constructor, module, result constructor -- textually identical.
-;    jsont.ml:2058 is `| Error e ->` on a *result*; a substitution over that
+;    jsont.ml:538 is `| Error e ->` on a *result*; a substitution over that
 ;    form corrupts it and still compiles. The patch was made by renaming the
 ;    unambiguous sites, then letting the compiler name the remaining eight
 ;    exception-position arms one at a time. That is the only way to tell them
 ;    apart, and the sha256 guard is what makes it safe to rely on afterwards.
 ;
-; 2. `let rec elt = Repr.Rec any and ... and any = lazy ...` (jsont.ml:1727) is
+; 2. `let rec elt = Repr.Rec any and ... and any = lazy ...` (jsont.ml:1758) is
 ;    a recursive value definition. Melange emits it as a Caml_obj.update_dummy
 ;    over a `const` declared later in the file, and JS's temporal dead zone
 ;    makes that a hard runtime failure the moment anything requires jsont:
@@ -50,7 +50,7 @@
    bash
    patch.sh
    %{lib:jsont:jsont.ml}
-   ab7808a381224bdf8a7d74967c79f65db40febb555871b651f37fde01495e112
+   0308620e9693b247ee5c18334f3c8408e1abfa355d0f864b5ae9a78447d4b43a
    jsont.ml.patch
    %{target})))
 
@@ -64,7 +64,7 @@
    bash
    patch.sh
    %{lib:jsont:jsont.mli}
-   ba0ffff8f5319584ed08bf9ec051cbbd622e9bbb763f3014dacc75a6c444a60a
+   36dba76f6210e9e9598de51998d14eded7030b3ab44285f26f8a196f6be1dd1e
    jsont.mli.patch
    %{target})))
 

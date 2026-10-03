@@ -18,4 +18,4 @@
 	url = https://github.com/TheCBaH/devcontainer.pytorch-image-models.git
 [submodule "vendored/bytesrw"]
 	path = vendored/bytesrw
-	url = https://github.com/TheCBaH/bytesrw.git
+	url = https://github.com/dbuenzli/bytesrw.git

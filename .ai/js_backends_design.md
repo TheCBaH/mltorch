@@ -515,7 +515,7 @@ either way: `7.0.1-414` still rejects the duplicate export.
 
 Both edits live in `js/melange/vendor/jsont/*.patch`, applied by a rule that refuses to
 run unless the upstream source matches a recorded sha256 — they are only correct for
-jsont 0.2.0, and a later release could accept them while meaning something else.
+jsont 0.4.0, and a later release could accept them while meaning something else.
 
 No `Printexc` shim is needed, but melange's `Printexc` is only *partly* usable and the
 difference bit us. `get_callstack` is declared and returns a value its own
@@ -573,7 +573,7 @@ dune's private `.objs/melange` layout.
 | `melange` | `5.1.0-414` | newest that co-installs with `ppx_expect` on OCaml 4.14 — see below |
 | `ppx_expect` | `v0.16.2` | pinned *with* melange |
 | `js_of_ocaml{,-compiler,-ppx}` | `6.4.1` | measured toolchain |
-| `jsont` | `0.2.0` | the patch's sha256 guard |
+| `jsont` | `0.4.0` | the patch's sha256 guard |
 | `fmt` | `0.11.0` | vendored source |
 | `@devcontainers/cli` | `0.88.0` | `--skip-post-create` is load-bearing |
 | `nodejs` | `20.19.2+dfsg-1+deb13u2` | exact Debian package used by the JS and browser gates |
