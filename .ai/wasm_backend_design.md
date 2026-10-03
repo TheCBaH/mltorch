@@ -255,6 +255,35 @@ with a dirty workspace and its outputs are byte-identical to node's (first run
 - Node passing is not browser evidence: the page is the only place these
   were observed.
 
+## Measurements (scalar)
+
+Matched model, input and storage plan; Linux AArch64 (NEON, no SVE), Node
+20.19.2, gcc 14.2.0, Clang 19.1.7; one sample; warm = median of ten repeats on
+one instance with a dirty workspace; times in ms. Warm figures include no
+copying; the Wasm routes' first run includes V8 tiering and the host-side
+`copy_in` (weights and input placement) is listed separately.
+
+| route | model | module B | memory B | compile | instantiate | copy in | first run | warm |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| native C (`gcc -O2`) | mobilenetv2_050 | | | | | | 65.7 | 62.3 |
+| C compiled to Wasm | mobilenetv2_050 | 95,476 | 14,734,272 | 0.25 | 0.04 | 4.4 | 176 | 77.2 |
+| direct Wasm | mobilenetv2_050 | 42,471 | 13,685,696 | 0.21 | 0.04 | 5.2 | 235 | 88.2 |
+| generated JavaScript | mobilenetv2_050 | | | | | | 279 | 149 |
+| native C (`gcc -O2`) | fastvit_sa12 | | | | | | 944 | 935 |
+| C compiled to Wasm | fastvit_sa12 | 144,871 | 57,762,624 | 0.38 | 0.26 | 25.0 | 2398 | 1119 |
+| direct Wasm | fastvit_sa12 | 63,123 | 56,714,048 | 0.45 | 0.08 | 27.0 | 2247 | 1126 |
+| generated JavaScript | fastvit_sa12 | | | | | | 1976 | 1703 |
+
+Reading it: the direct emitter's module is 2.2x smaller than Clang's and, after
+the second unit-loop round, within 14% (mobilenetv2_050) and 1% (fastvit_sa12)
+of Clang-compiled scalar Wasm warm; direct Wasm is 1.4x (mobilenetv2_050) and
+1.2x (fastvit_sa12) slower than native scalar C on the same host and 1.7x /
+1.5x faster than the generated JavaScript. `compile` is `new WebAssembly.Module`:
+V8 compiles lazily and tiers up, so it says little; `first run` is the honest
+cold figure. Before the second unit-loop round the direct route's warm run was
+164 ms (mobilenetv2_050). Timings were taken with nothing else running; a run
+beside other work moved them by tens of percent.
+
 ## Reproduction
 
 | Question | Command | Needs |

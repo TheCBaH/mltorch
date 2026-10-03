@@ -5,6 +5,7 @@
    argv: <model.pt2> <inputs.pt> <expected.json> <outputs.pt> [--strict]
          [--shadow] [--poison] [--samples=N] [--keep=DIR] [--cc=CMD]
          [--bench=N]
+         [--vector]
 
    [--shadow] also runs [Eval_direct.run] (the per-node reference) on the same
    graph, constants and input and requires every graph output to be bitwise
@@ -59,7 +60,7 @@ let now = Unix.gettimeofday
 let ms t0 = (now () -. t0) *. 1000.
 let cache = ref None
 
-let prepared ~keep ~compiler archive =
+let prepared ~keep ~compiler ~vector archive =
   let open Err.Syntax in
   let map e = (e :> eval) in
   match !cache with
@@ -82,7 +83,7 @@ let prepared ~keep ~compiler archive =
         | None -> Loop_c_exec.Proc.temp_dir "loop_c_pt2"
       in
       let* p =
-        Loop_c_exec.Host.prepare ?compiler ~dir b ~constants:(fun id ->
+        Loop_c_exec.Host.prepare ?vector ?compiler ~dir b ~constants:(fun id ->
             Graph_ir.Tensor_id.Map.find_opt id constants)
         |> Err.map_error map
       in
@@ -147,10 +148,10 @@ let bench p ~bind n =
     (fun f -> try Sys.remove f with Sys_error _ -> ())
     [ inputs; outputs ]
 
-let infer ~keep ~compiler ~shadow ~poison ~bench:bench_n archive image =
+let infer ~keep ~compiler ~vector ~shadow ~poison ~bench:bench_n archive image =
   let open Err.Syntax in
   let map e = (e :> eval) in
-  let* g, constants, b, p = prepared ~keep ~compiler archive in
+  let* g, constants, b, p = prepared ~keep ~compiler ~vector archive in
   let* input = Native_interp.tensor_of_pt2 image |> Err.map_error map in
   let input_id = List.hd b.Loop_bundle.inputs in
   let t0 = now () in
@@ -196,6 +197,8 @@ let () =
   let keep, argv = valued "--keep=" argv in
   let bench_n, argv = valued "--bench=" argv in
   let bench_n = Option.map int_of_string bench_n in
+  let vector, argv = flag "--vector" argv in
+  let vector = if vector then Some Loop_target.neon128 else None in
   let cc, argv = valued "--cc=" argv in
   let compiler =
     Option.map
@@ -212,7 +215,8 @@ let () =
           (Infer_report.run
              ?max_samples:(Option.map int_of_string samples)
              ~now
-             ~infer:(infer ~keep ~compiler ~shadow ~poison ~bench:bench_n)
+             ~infer:
+               (infer ~keep ~compiler ~vector ~shadow ~poison ~bench:bench_n)
              paths options)
       with
       | Ok () -> ()

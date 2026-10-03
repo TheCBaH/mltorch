@@ -103,35 +103,7 @@ let reserve_local st bytes =
   st.local_top <- top;
   Int64.to_int off
 
-(* The per-axis coordinates of [Loop_ir]'s accesses become one row-major offset,
-   folded as it is built exactly as [Loop_c] does. *)
-let small k = k > -0x4000_0000 && k < 0x4000_0000
-
-let scale_i k (a : Loop_index.t) : Loop_index.t =
-  match a with
-  | _ when k = 1 -> a
-  | Loop_index.Const m when small m && small k && small (k * m) ->
-      Loop_index.Const (k * m)
-  | _ -> Loop_index.Scale (k, a)
-
-let add_i (a : Loop_index.t) (b : Loop_index.t) : Loop_index.t =
-  match (a, b) with
-  | Loop_index.Const 0, x | x, Loop_index.Const 0 -> x
-  | Loop_index.Const x, Loop_index.Const y when small x && small y ->
-      Loop_index.Const (x + y)
-  | _ -> Loop_index.Add (a, b)
-
-let offset_index (b : Loop_buffer.t) (c : Loop_index.coord) : Loop_index.t =
-  let shape = b.Loop_buffer.sg.Tensor_sig.shape in
-  List.fold_left
-    (fun acc a ->
-      let extent = Dim.to_int (Vec6.get shape a) in
-      let i = Expr.Coord.get c a in
-      match acc with
-      | None -> Some i
-      | Some acc -> Some (add_i (scale_i extent acc) i))
-    None Expr.Axis.all
-  |> Option.get
+let offset_index = Loop_flat.offset
 
 let fmt_of (b : Loop_buffer.t) =
   let (Payload.Fmt f) = b.Loop_buffer.sg.Tensor_sig.fmt in

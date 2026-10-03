@@ -1,11 +1,16 @@
-(* The numeric instructions of the scalar subset, as one closed table: each
+(* The numeric instructions of the supported subset as one closed table: each
    carries its spec encoding and its stack signature, so the validator and the
    encoder read the same row and cannot drift. Alphabetical; the encoding is the
    spec's, not the order. Float-to-int conversions are the non-trapping
-   saturating forms only: generated code never traps on a value. *)
+   saturating forms only: generated code never traps on a value. The 128-bit
+   operations are the standard SIMD ones with no immediate; lane access, memory
+   access and constants are separate instructions ([Wasm.Instr]). No relaxed
+   operation is representable. *)
 type t =
   | F32_demote_f64
   | F32_reinterpret_i32
+  | F32x4_demote_f64x2_zero
+  | F32x4_splat
   | F64_abs
   | F64_add
   | F64_ceil
@@ -32,6 +37,29 @@ type t =
   | F64_sqrt
   | F64_sub
   | F64_trunc
+  | F64x2_abs
+  | F64x2_add
+  | F64x2_ceil
+  | F64x2_convert_low_i32x4_s
+  | F64x2_convert_low_i32x4_u
+  | F64x2_div
+  | F64x2_eq
+  | F64x2_floor
+  | F64x2_ge
+  | F64x2_gt
+  | F64x2_le
+  | F64x2_lt
+  | F64x2_max
+  | F64x2_min
+  | F64x2_mul
+  | F64x2_ne
+  | F64x2_nearest
+  | F64x2_neg
+  | F64x2_promote_low_f32x4
+  | F64x2_splat
+  | F64x2_sqrt
+  | F64x2_sub
+  | F64x2_trunc
   | I32_add
   | I32_and
   | I32_clz
@@ -65,6 +93,9 @@ type t =
   | I32_trunc_sat_f64_u
   | I32_wrap_i64
   | I32_xor
+  | I32x4_splat
+  | I32x4_trunc_sat_f64x2_s_zero
+  | I32x4_trunc_sat_f64x2_u_zero
   | I64_add
   | I64_and
   | I64_div_s
@@ -94,11 +125,33 @@ type t =
   | I64_trunc_sat_f64_s
   | I64_trunc_sat_f64_u
   | I64_xor
+  | I64x2_add
+  | I64x2_eq
+  | I64x2_ge_s
+  | I64x2_gt_s
+  | I64x2_le_s
+  | I64x2_lt_s
+  | I64x2_mul
+  | I64x2_ne
+  | I64x2_shl
+  | I64x2_shr_s
+  | I64x2_shr_u
+  | I64x2_splat
+  | I64x2_sub
+  | V128_and
+  | V128_andnot
+  | V128_any_true
+  | V128_bitselect
+  | V128_not
+  | V128_or
+  | V128_xor
 
 let all =
   [
     F32_demote_f64;
     F32_reinterpret_i32;
+    F32x4_demote_f64x2_zero;
+    F32x4_splat;
     F64_abs;
     F64_add;
     F64_ceil;
@@ -125,6 +178,29 @@ let all =
     F64_sqrt;
     F64_sub;
     F64_trunc;
+    F64x2_abs;
+    F64x2_add;
+    F64x2_ceil;
+    F64x2_convert_low_i32x4_s;
+    F64x2_convert_low_i32x4_u;
+    F64x2_div;
+    F64x2_eq;
+    F64x2_floor;
+    F64x2_ge;
+    F64x2_gt;
+    F64x2_le;
+    F64x2_lt;
+    F64x2_max;
+    F64x2_min;
+    F64x2_mul;
+    F64x2_ne;
+    F64x2_nearest;
+    F64x2_neg;
+    F64x2_promote_low_f32x4;
+    F64x2_splat;
+    F64x2_sqrt;
+    F64x2_sub;
+    F64x2_trunc;
     I32_add;
     I32_and;
     I32_clz;
@@ -158,6 +234,9 @@ let all =
     I32_trunc_sat_f64_u;
     I32_wrap_i64;
     I32_xor;
+    I32x4_splat;
+    I32x4_trunc_sat_f64x2_s_zero;
+    I32x4_trunc_sat_f64x2_u_zero;
     I64_add;
     I64_and;
     I64_div_s;
@@ -187,11 +266,33 @@ let all =
     I64_trunc_sat_f64_s;
     I64_trunc_sat_f64_u;
     I64_xor;
+    I64x2_add;
+    I64x2_eq;
+    I64x2_ge_s;
+    I64x2_gt_s;
+    I64x2_le_s;
+    I64x2_lt_s;
+    I64x2_mul;
+    I64x2_ne;
+    I64x2_shl;
+    I64x2_shr_s;
+    I64x2_shr_u;
+    I64x2_splat;
+    I64x2_sub;
+    V128_and;
+    V128_andnot;
+    V128_any_true;
+    V128_bitselect;
+    V128_not;
+    V128_or;
+    V128_xor;
   ]
 
 let name = function
   | F32_demote_f64 -> "f32.demote_f64"
   | F32_reinterpret_i32 -> "f32.reinterpret_i32"
+  | F32x4_demote_f64x2_zero -> "f32x4.demote_f64x2_zero"
+  | F32x4_splat -> "f32x4.splat"
   | F64_abs -> "f64.abs"
   | F64_add -> "f64.add"
   | F64_ceil -> "f64.ceil"
@@ -218,6 +319,29 @@ let name = function
   | F64_sqrt -> "f64.sqrt"
   | F64_sub -> "f64.sub"
   | F64_trunc -> "f64.trunc"
+  | F64x2_abs -> "f64x2.abs"
+  | F64x2_add -> "f64x2.add"
+  | F64x2_ceil -> "f64x2.ceil"
+  | F64x2_convert_low_i32x4_s -> "f64x2.convert_low_i32x4_s"
+  | F64x2_convert_low_i32x4_u -> "f64x2.convert_low_i32x4_u"
+  | F64x2_div -> "f64x2.div"
+  | F64x2_eq -> "f64x2.eq"
+  | F64x2_floor -> "f64x2.floor"
+  | F64x2_ge -> "f64x2.ge"
+  | F64x2_gt -> "f64x2.gt"
+  | F64x2_le -> "f64x2.le"
+  | F64x2_lt -> "f64x2.lt"
+  | F64x2_max -> "f64x2.max"
+  | F64x2_min -> "f64x2.min"
+  | F64x2_mul -> "f64x2.mul"
+  | F64x2_ne -> "f64x2.ne"
+  | F64x2_nearest -> "f64x2.nearest"
+  | F64x2_neg -> "f64x2.neg"
+  | F64x2_promote_low_f32x4 -> "f64x2.promote_low_f32x4"
+  | F64x2_splat -> "f64x2.splat"
+  | F64x2_sqrt -> "f64x2.sqrt"
+  | F64x2_sub -> "f64x2.sub"
+  | F64x2_trunc -> "f64x2.trunc"
   | I32_add -> "i32.add"
   | I32_and -> "i32.and"
   | I32_clz -> "i32.clz"
@@ -251,6 +375,9 @@ let name = function
   | I32_trunc_sat_f64_u -> "i32.trunc_sat_f64_u"
   | I32_wrap_i64 -> "i32.wrap_i64"
   | I32_xor -> "i32.xor"
+  | I32x4_splat -> "i32x4.splat"
+  | I32x4_trunc_sat_f64x2_s_zero -> "i32x4.trunc_sat_f64x2_s_zero"
+  | I32x4_trunc_sat_f64x2_u_zero -> "i32x4.trunc_sat_f64x2_u_zero"
   | I64_add -> "i64.add"
   | I64_and -> "i64.and"
   | I64_div_s -> "i64.div_s"
@@ -280,10 +407,32 @@ let name = function
   | I64_trunc_sat_f64_s -> "i64.trunc_sat_f64_s"
   | I64_trunc_sat_f64_u -> "i64.trunc_sat_f64_u"
   | I64_xor -> "i64.xor"
+  | I64x2_add -> "i64x2.add"
+  | I64x2_eq -> "i64x2.eq"
+  | I64x2_ge_s -> "i64x2.ge_s"
+  | I64x2_gt_s -> "i64x2.gt_s"
+  | I64x2_le_s -> "i64x2.le_s"
+  | I64x2_lt_s -> "i64x2.lt_s"
+  | I64x2_mul -> "i64x2.mul"
+  | I64x2_ne -> "i64x2.ne"
+  | I64x2_shl -> "i64x2.shl"
+  | I64x2_shr_s -> "i64x2.shr_s"
+  | I64x2_shr_u -> "i64x2.shr_u"
+  | I64x2_splat -> "i64x2.splat"
+  | I64x2_sub -> "i64x2.sub"
+  | V128_and -> "v128.and"
+  | V128_andnot -> "v128.andnot"
+  | V128_any_true -> "v128.any_true"
+  | V128_bitselect -> "v128.bitselect"
+  | V128_not -> "v128.not"
+  | V128_or -> "v128.or"
+  | V128_xor -> "v128.xor"
 
 let bytes = function
   | F32_demote_f64 -> [ 0xB6 ]
   | F32_reinterpret_i32 -> [ 0xBE ]
+  | F32x4_demote_f64x2_zero -> [ 0xFD; 0x5E ]
+  | F32x4_splat -> [ 0xFD; 0x13 ]
   | F64_abs -> [ 0x99 ]
   | F64_add -> [ 0xA0 ]
   | F64_ceil -> [ 0x9B ]
@@ -310,6 +459,29 @@ let bytes = function
   | F64_sqrt -> [ 0x9F ]
   | F64_sub -> [ 0xA1 ]
   | F64_trunc -> [ 0x9D ]
+  | F64x2_abs -> [ 0xFD; 0xEC; 0x01 ]
+  | F64x2_add -> [ 0xFD; 0xF0; 0x01 ]
+  | F64x2_ceil -> [ 0xFD; 0x74 ]
+  | F64x2_convert_low_i32x4_s -> [ 0xFD; 0xFE; 0x01 ]
+  | F64x2_convert_low_i32x4_u -> [ 0xFD; 0xFF; 0x01 ]
+  | F64x2_div -> [ 0xFD; 0xF3; 0x01 ]
+  | F64x2_eq -> [ 0xFD; 0x47 ]
+  | F64x2_floor -> [ 0xFD; 0x75 ]
+  | F64x2_ge -> [ 0xFD; 0x4C ]
+  | F64x2_gt -> [ 0xFD; 0x4A ]
+  | F64x2_le -> [ 0xFD; 0x4B ]
+  | F64x2_lt -> [ 0xFD; 0x49 ]
+  | F64x2_max -> [ 0xFD; 0xF5; 0x01 ]
+  | F64x2_min -> [ 0xFD; 0xF4; 0x01 ]
+  | F64x2_mul -> [ 0xFD; 0xF2; 0x01 ]
+  | F64x2_ne -> [ 0xFD; 0x48 ]
+  | F64x2_nearest -> [ 0xFD; 0x94; 0x01 ]
+  | F64x2_neg -> [ 0xFD; 0xED; 0x01 ]
+  | F64x2_promote_low_f32x4 -> [ 0xFD; 0x5F ]
+  | F64x2_splat -> [ 0xFD; 0x14 ]
+  | F64x2_sqrt -> [ 0xFD; 0xEF; 0x01 ]
+  | F64x2_sub -> [ 0xFD; 0xF1; 0x01 ]
+  | F64x2_trunc -> [ 0xFD; 0x7A ]
   | I32_add -> [ 0x6A ]
   | I32_and -> [ 0x71 ]
   | I32_clz -> [ 0x67 ]
@@ -343,6 +515,9 @@ let bytes = function
   | I32_trunc_sat_f64_u -> [ 0xFC; 0x03 ]
   | I32_wrap_i64 -> [ 0xA7 ]
   | I32_xor -> [ 0x73 ]
+  | I32x4_splat -> [ 0xFD; 0x11 ]
+  | I32x4_trunc_sat_f64x2_s_zero -> [ 0xFD; 0xFC; 0x01 ]
+  | I32x4_trunc_sat_f64x2_u_zero -> [ 0xFD; 0xFD; 0x01 ]
   | I64_add -> [ 0x7C ]
   | I64_and -> [ 0x83 ]
   | I64_div_s -> [ 0x7F ]
@@ -372,10 +547,32 @@ let bytes = function
   | I64_trunc_sat_f64_s -> [ 0xFC; 0x06 ]
   | I64_trunc_sat_f64_u -> [ 0xFC; 0x07 ]
   | I64_xor -> [ 0x85 ]
+  | I64x2_add -> [ 0xFD; 0xCE; 0x01 ]
+  | I64x2_eq -> [ 0xFD; 0xD6; 0x01 ]
+  | I64x2_ge_s -> [ 0xFD; 0xDB; 0x01 ]
+  | I64x2_gt_s -> [ 0xFD; 0xD9; 0x01 ]
+  | I64x2_le_s -> [ 0xFD; 0xDA; 0x01 ]
+  | I64x2_lt_s -> [ 0xFD; 0xD8; 0x01 ]
+  | I64x2_mul -> [ 0xFD; 0xD5; 0x01 ]
+  | I64x2_ne -> [ 0xFD; 0xD7; 0x01 ]
+  | I64x2_shl -> [ 0xFD; 0xCB; 0x01 ]
+  | I64x2_shr_s -> [ 0xFD; 0xCC; 0x01 ]
+  | I64x2_shr_u -> [ 0xFD; 0xCD; 0x01 ]
+  | I64x2_splat -> [ 0xFD; 0x12 ]
+  | I64x2_sub -> [ 0xFD; 0xD1; 0x01 ]
+  | V128_and -> [ 0xFD; 0x4E ]
+  | V128_andnot -> [ 0xFD; 0x4F ]
+  | V128_any_true -> [ 0xFD; 0x53 ]
+  | V128_bitselect -> [ 0xFD; 0x52 ]
+  | V128_not -> [ 0xFD; 0x4D ]
+  | V128_or -> [ 0xFD; 0x50 ]
+  | V128_xor -> [ 0xFD; 0x51 ]
 
 let signature = function
   | F32_demote_f64 -> ([ Wasm_type.F64 ], [ Wasm_type.F32 ])
   | F32_reinterpret_i32 -> ([ Wasm_type.I32 ], [ Wasm_type.F32 ])
+  | F32x4_demote_f64x2_zero -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F32x4_splat -> ([ Wasm_type.F32 ], [ Wasm_type.V128 ])
   | F64_abs -> ([ Wasm_type.F64 ], [ Wasm_type.F64 ])
   | F64_add -> ([ Wasm_type.F64; Wasm_type.F64 ], [ Wasm_type.F64 ])
   | F64_ceil -> ([ Wasm_type.F64 ], [ Wasm_type.F64 ])
@@ -402,6 +599,29 @@ let signature = function
   | F64_sqrt -> ([ Wasm_type.F64 ], [ Wasm_type.F64 ])
   | F64_sub -> ([ Wasm_type.F64; Wasm_type.F64 ], [ Wasm_type.F64 ])
   | F64_trunc -> ([ Wasm_type.F64 ], [ Wasm_type.F64 ])
+  | F64x2_abs -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F64x2_add -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F64x2_ceil -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F64x2_convert_low_i32x4_s -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F64x2_convert_low_i32x4_u -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F64x2_div -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F64x2_eq -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F64x2_floor -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F64x2_ge -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F64x2_gt -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F64x2_le -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F64x2_lt -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F64x2_max -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F64x2_min -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F64x2_mul -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F64x2_ne -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F64x2_nearest -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F64x2_neg -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F64x2_promote_low_f32x4 -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F64x2_splat -> ([ Wasm_type.F64 ], [ Wasm_type.V128 ])
+  | F64x2_sqrt -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F64x2_sub -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F64x2_trunc -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])
   | I32_add -> ([ Wasm_type.I32; Wasm_type.I32 ], [ Wasm_type.I32 ])
   | I32_and -> ([ Wasm_type.I32; Wasm_type.I32 ], [ Wasm_type.I32 ])
   | I32_clz -> ([ Wasm_type.I32 ], [ Wasm_type.I32 ])
@@ -435,6 +655,9 @@ let signature = function
   | I32_trunc_sat_f64_u -> ([ Wasm_type.F64 ], [ Wasm_type.I32 ])
   | I32_wrap_i64 -> ([ Wasm_type.I64 ], [ Wasm_type.I32 ])
   | I32_xor -> ([ Wasm_type.I32; Wasm_type.I32 ], [ Wasm_type.I32 ])
+  | I32x4_splat -> ([ Wasm_type.I32 ], [ Wasm_type.V128 ])
+  | I32x4_trunc_sat_f64x2_s_zero -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | I32x4_trunc_sat_f64x2_u_zero -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])
   | I64_add -> ([ Wasm_type.I64; Wasm_type.I64 ], [ Wasm_type.I64 ])
   | I64_and -> ([ Wasm_type.I64; Wasm_type.I64 ], [ Wasm_type.I64 ])
   | I64_div_s -> ([ Wasm_type.I64; Wasm_type.I64 ], [ Wasm_type.I64 ])
@@ -464,3 +687,24 @@ let signature = function
   | I64_trunc_sat_f64_s -> ([ Wasm_type.F64 ], [ Wasm_type.I64 ])
   | I64_trunc_sat_f64_u -> ([ Wasm_type.F64 ], [ Wasm_type.I64 ])
   | I64_xor -> ([ Wasm_type.I64; Wasm_type.I64 ], [ Wasm_type.I64 ])
+  | I64x2_add -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | I64x2_eq -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | I64x2_ge_s -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | I64x2_gt_s -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | I64x2_le_s -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | I64x2_lt_s -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | I64x2_mul -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | I64x2_ne -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | I64x2_shl -> ([ Wasm_type.V128; Wasm_type.I32 ], [ Wasm_type.V128 ])
+  | I64x2_shr_s -> ([ Wasm_type.V128; Wasm_type.I32 ], [ Wasm_type.V128 ])
+  | I64x2_shr_u -> ([ Wasm_type.V128; Wasm_type.I32 ], [ Wasm_type.V128 ])
+  | I64x2_splat -> ([ Wasm_type.I64 ], [ Wasm_type.V128 ])
+  | I64x2_sub -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | V128_and -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | V128_andnot -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | V128_any_true -> ([ Wasm_type.V128 ], [ Wasm_type.I32 ])
+  | V128_bitselect ->
+      ([ Wasm_type.V128; Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | V128_not -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | V128_or -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | V128_xor -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])

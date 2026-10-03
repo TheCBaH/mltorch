@@ -9,6 +9,23 @@ let name = function
   | Simd128 -> "simd128"
 
 let of_op : Wasm_op.t -> t option = function
+  | Wasm_op.F32x4_demote_f64x2_zero | Wasm_op.F32x4_splat | Wasm_op.F64x2_abs
+  | Wasm_op.F64x2_add | Wasm_op.F64x2_ceil | Wasm_op.F64x2_convert_low_i32x4_s
+  | Wasm_op.F64x2_convert_low_i32x4_u | Wasm_op.F64x2_div | Wasm_op.F64x2_eq
+  | Wasm_op.F64x2_floor | Wasm_op.F64x2_ge | Wasm_op.F64x2_gt | Wasm_op.F64x2_le
+  | Wasm_op.F64x2_lt | Wasm_op.F64x2_max | Wasm_op.F64x2_min | Wasm_op.F64x2_mul
+  | Wasm_op.F64x2_ne | Wasm_op.F64x2_nearest | Wasm_op.F64x2_neg
+  | Wasm_op.F64x2_promote_low_f32x4 | Wasm_op.F64x2_splat | Wasm_op.F64x2_sqrt
+  | Wasm_op.F64x2_sub | Wasm_op.F64x2_trunc | Wasm_op.I32x4_splat
+  | Wasm_op.I32x4_trunc_sat_f64x2_s_zero | Wasm_op.I32x4_trunc_sat_f64x2_u_zero
+  | Wasm_op.I64x2_add | Wasm_op.I64x2_eq | Wasm_op.I64x2_ge_s
+  | Wasm_op.I64x2_gt_s | Wasm_op.I64x2_le_s | Wasm_op.I64x2_lt_s
+  | Wasm_op.I64x2_mul | Wasm_op.I64x2_ne | Wasm_op.I64x2_shl
+  | Wasm_op.I64x2_shr_s | Wasm_op.I64x2_shr_u | Wasm_op.I64x2_splat
+  | Wasm_op.I64x2_sub | Wasm_op.V128_and | Wasm_op.V128_andnot
+  | Wasm_op.V128_any_true | Wasm_op.V128_bitselect | Wasm_op.V128_not
+  | Wasm_op.V128_or | Wasm_op.V128_xor ->
+      Some Simd128
   | Wasm_op.I32_extend16_s | Wasm_op.I32_extend8_s -> Some Sign_extension
   | Wasm_op.I32_trunc_sat_f64_s | Wasm_op.I32_trunc_sat_f64_u
   | Wasm_op.I64_trunc_sat_f64_s | Wasm_op.I64_trunc_sat_f64_u ->
@@ -48,6 +65,9 @@ let rec of_instr acc (i : Wasm.Instr.t) =
   | Wasm.Instr.Memory_copy | Wasm.Instr.Memory_fill -> Bulk_memory :: acc
   | Wasm.Instr.Numeric op -> (
       match of_op op with Some f -> f :: acc | None -> acc)
+  | Wasm.Instr.Simd_lane _ | Wasm.Instr.Simd_load _ | Wasm.Instr.Simd_store _
+  | Wasm.Instr.V128_const _ ->
+      Simd128 :: acc
   | Wasm.Instr.Br _ | Wasm.Instr.Br_if _ | Wasm.Instr.Call _ | Wasm.Instr.Drop
   | Wasm.Instr.F32_const _ | Wasm.Instr.F64_const _ | Wasm.Instr.Global_get _
   | Wasm.Instr.Global_set _ | Wasm.Instr.I32_const _ | Wasm.Instr.I64_const _

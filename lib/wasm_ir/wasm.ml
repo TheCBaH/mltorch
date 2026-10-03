@@ -101,6 +101,101 @@ module Store = struct
     | I64_store -> "i64.store"
 end
 
+module Simd_lane = struct
+  (* Lane access of the shapes the vector layer uses. [lanes] bounds the lane
+     index. *)
+  type t =
+    | F32x4_extract
+    | F32x4_replace
+    | F64x2_extract
+    | F64x2_replace
+    | I32x4_extract
+    | I32x4_replace
+    | I64x2_extract
+    | I64x2_replace
+
+  let lanes = function
+    | F32x4_extract | F32x4_replace | I32x4_extract | I32x4_replace -> 4
+    | F64x2_extract | F64x2_replace | I64x2_extract | I64x2_replace -> 2
+
+  let scalar = function
+    | F32x4_extract | F32x4_replace -> Wasm_type.F32
+    | F64x2_extract | F64x2_replace -> Wasm_type.F64
+    | I32x4_extract | I32x4_replace -> Wasm_type.I32
+    | I64x2_extract | I64x2_replace -> Wasm_type.I64
+
+  let is_extract = function
+    | F32x4_extract | F64x2_extract | I32x4_extract | I64x2_extract -> true
+    | F32x4_replace | F64x2_replace | I32x4_replace | I64x2_replace -> false
+
+  let byte = function
+    | F32x4_extract -> 0x1F
+    | F32x4_replace -> 0x20
+    | F64x2_extract -> 0x21
+    | F64x2_replace -> 0x22
+    | I32x4_extract -> 0x1B
+    | I32x4_replace -> 0x1C
+    | I64x2_extract -> 0x1D
+    | I64x2_replace -> 0x1E
+
+  let name = function
+    | F32x4_extract -> "f32x4.extract_lane"
+    | F32x4_replace -> "f32x4.replace_lane"
+    | F64x2_extract -> "f64x2.extract_lane"
+    | F64x2_replace -> "f64x2.replace_lane"
+    | I32x4_extract -> "i32x4.extract_lane"
+    | I32x4_replace -> "i32x4.replace_lane"
+    | I64x2_extract -> "i64x2.extract_lane"
+    | I64x2_replace -> "i64x2.replace_lane"
+end
+
+module Simd_load = struct
+  (* The 128-bit loads: the whole register, a 64- or 32-bit value into the low
+     lanes with the rest zero, or a value broadcast to every lane. *)
+  type t = Load | Load32_splat | Load32_zero | Load64_splat | Load64_zero
+
+  let natural_align = function
+    | Load -> 4
+    | Load32_splat | Load32_zero -> 2
+    | Load64_splat | Load64_zero -> 3
+
+  let sub = function
+    | Load -> 0x00
+    | Load32_splat -> 0x09
+    | Load32_zero -> 0x5C
+    | Load64_splat -> 0x0A
+    | Load64_zero -> 0x5D
+
+  let name = function
+    | Load -> "v128.load"
+    | Load32_splat -> "v128.load32_splat"
+    | Load32_zero -> "v128.load32_zero"
+    | Load64_splat -> "v128.load64_splat"
+    | Load64_zero -> "v128.load64_zero"
+end
+
+module Simd_store = struct
+  (* The whole register, or one 32- or 64-bit lane of it. *)
+  type t = Store | Store32_lane | Store64_lane
+
+  let natural_align = function
+    | Store -> 4
+    | Store32_lane -> 2
+    | Store64_lane -> 3
+
+  let lanes = function Store -> 0 | Store32_lane -> 4 | Store64_lane -> 2
+
+  let sub = function
+    | Store -> 0x0B
+    | Store32_lane -> 0x5A
+    | Store64_lane -> 0x5B
+
+  let name = function
+    | Store -> "v128.store"
+    | Store32_lane -> "v128.store32_lane"
+    | Store64_lane -> "v128.store64_lane"
+end
+
 module Instr = struct
   type t =
     | Block of Block_type.t * t list
@@ -125,8 +220,13 @@ module Instr = struct
     | Numeric of Wasm_op.t
     | Return
     | Select  (** the untyped form: numeric operands only *)
+    | Simd_lane of Simd_lane.t * int
+    | Simd_load of Simd_load.t * Mem_arg.t
+    | Simd_store of Simd_store.t * Mem_arg.t * int
+        (** the lane, ignored (0) by a whole-register store *)
     | Store of Store.t * Mem_arg.t
     | Unreachable
+    | V128_const of string  (** the 16 bytes, little-endian lanes *)
 
   (* Renumbers every [Call], so a producer can emit calls to symbolic callees
      and fix the function index space once the module's imports and helpers
@@ -144,7 +244,8 @@ module Instr = struct
     | ( Br _ | Br_if _ | Drop | F32_const _ | F64_const _ | Global_get _
       | Global_set _ | I32_const _ | I64_const _ | Load _ | Local_get _
       | Local_set _ | Local_tee _ | Memory_copy | Memory_fill | Numeric _
-      | Return | Select | Store _ | Unreachable ) as i ->
+      | Return | Select | Simd_lane _ | Simd_load _ | Simd_store _ | Store _
+      | Unreachable | V128_const _ ) as i ->
         i
 end
 

@@ -124,6 +124,23 @@ let rec instr b (i : Wasm.Instr.t) =
   | Wasm.Instr.Numeric op -> List.iter (byte b) (Wasm_op.bytes op)
   | Wasm.Instr.Return -> byte b 0x0F
   | Wasm.Instr.Select -> byte b 0x1B
+  | Wasm.Instr.Simd_lane (op, lane) ->
+      byte b 0xFD;
+      u32 b (Wasm.Simd_lane.byte op);
+      byte b lane
+  | Wasm.Instr.Simd_load (l, m) ->
+      byte b 0xFD;
+      u32 b (Wasm.Simd_load.sub l);
+      mem_arg b m
+  | Wasm.Instr.Simd_store (s, m, lane) ->
+      byte b 0xFD;
+      u32 b (Wasm.Simd_store.sub s);
+      mem_arg b m;
+      if Wasm.Simd_store.lanes s > 0 then byte b lane
+  | Wasm.Instr.V128_const bytes ->
+      byte b 0xFD;
+      u32 b 0x0C;
+      Buffer.add_string b bytes
   | Wasm.Instr.Store (s, m) ->
       byte b (Wasm.Store.byte s);
       mem_arg b m

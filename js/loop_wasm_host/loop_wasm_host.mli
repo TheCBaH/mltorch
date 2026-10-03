@@ -36,12 +36,19 @@ type error =
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
+val supports : Wasm_features.t -> bool
+(** Whether this host validates a module using the feature, by validating the
+    feature's own probe module ({!Wasm_features.probe}), never from a version
+    number. Choose the scalar module when [supports Simd128] is [false]. *)
+
 val prepare :
+  ?vector:Loop_target.t ->
   Loop_bundle.t ->
   constants:(Tensor_id.t -> Tensor.packed option) ->
   (t, error) Err.t
 
 val prepare_async :
+  ?vector:Loop_target.t ->
   Loop_bundle.t ->
   constants:(Tensor_id.t -> Tensor.packed option) ->
   ((t, error) Err.t -> unit) ->

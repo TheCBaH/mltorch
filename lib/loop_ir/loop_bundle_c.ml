@@ -60,9 +60,9 @@ module Kernels = struct
   let create () = { table = Hashtbl.create 64; order = []; next = 0 }
   let placeholder = "KERNEL"
 
-  let intern t program =
+  let intern ?vector t program =
     let open Err.Syntax in
-    let+ k = Loop_c.kernel ~name:placeholder program in
+    let+ k = Loop_c.kernel ?vector ~name:placeholder program in
     match Hashtbl.find_opt t.table k.Loop_c.source with
     | Some e -> e
     | None ->
@@ -185,7 +185,7 @@ let invocation_text ws ~position ~kernel (inv : Loop_bundle.invocation)
            "  }";
          ]))
 
-let build (b : Loop_bundle.t) : (t, error) Err.t =
+let build ?vector (b : Loop_bundle.t) : (t, error) Err.t =
   let open Err.Syntax in
   let g = b.Loop_bundle.graph in
   let sigs ids =
@@ -205,7 +205,7 @@ let build (b : Loop_bundle.t) : (t, error) Err.t =
   let* compiled =
     Err.List.map
       (fun (inv : Loop_bundle.invocation) ->
-        let* e = Kernels.intern kernels inv.Loop_bundle.program in
+        let* e = Kernels.intern ?vector kernels inv.Loop_bundle.program in
         let+ sc =
           W.scratch inv ~local_doubles:e.Kernels.kernel.Loop_c.local_doubles
         in

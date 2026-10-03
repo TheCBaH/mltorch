@@ -29,7 +29,15 @@ type t = {
       (** the C cell type each buffer argument points to, in order *)
 }
 
-val kernel : name:string -> Loop_program.t -> (t, [> error ]) Err.t
+val kernel :
+  ?vector:Loop_target.t ->
+  name:string ->
+  Loop_program.t ->
+  (t, [> error ]) Err.t
+(** [vector] vectorizes the independent loops {!Loop_vectorize} finds for the
+    target (four binary64 lanes), under the strict contract, and emits them with
+    GCC/Clang generic vectors; the text then needs {!Loop_c_runtime.Name}'s
+    [Vector_prelude]. *)
 
 val float_lit : float -> string
 (** A C [double] constant that reads back to exactly the same bits (hexadecimal

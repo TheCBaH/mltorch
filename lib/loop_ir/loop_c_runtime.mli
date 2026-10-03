@@ -14,6 +14,9 @@ module Name : sig
     | Idx_clamp_low
     | Idx_max
     | Idx_min
+    | Vector_prelude
+        (** the generic-vector types and lane helpers of vectorized C; its users
+            also need {!Float_max} and {!Erf} *)
 
   val all : t list
   val to_string : t -> string

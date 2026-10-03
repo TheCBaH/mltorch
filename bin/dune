@@ -208,3 +208,8 @@
   native_predict
   pt2
   unix))
+
+(executable
+ (name loop_vector_census)
+ (modules loop_vector_census)
+ (libraries err_trace fmt loop_ir native native_interp pt2))

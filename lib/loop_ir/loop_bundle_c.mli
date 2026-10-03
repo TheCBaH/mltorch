@@ -30,7 +30,11 @@ type error =
   | `Output_outside_workspace of Tensor_id.t ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
-val build : Loop_bundle.t -> (t, error) Err.t
+
+val build : ?vector:Loop_target.t -> Loop_bundle.t -> (t, error) Err.t
+(** [vector] vectorizes each kernel's independent loops for the target under the
+    strict contract ({!Loop_c.kernel}); the unit then uses GCC/Clang generic
+    vectors. *)
 
 val default_config : Storage_script.Config.t
 (** The configuration the C backend admits: separate layout, borrowed constants

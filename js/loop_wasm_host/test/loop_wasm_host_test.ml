@@ -222,3 +222,33 @@ let%expect_test
     {|
     t0: bound tensor has the wrong shape
     output t9 identical to the reference: true |}]
+
+let%expect_test "feature detection validates the probe, and SIMD models run" =
+  List.iter
+    (fun f -> Fmt.pr "%s: %b@." (Wasm_features.name f) (H.supports f))
+    Wasm_features.all;
+  let g = Native_test.Graph_fixtures.chain () in
+  let b = build g in
+  let constants =
+    List.map
+      (fun id -> (id, tensor_of ~salt:3 (sig_of_edge b id)))
+      b.Loop_bundle.constants
+  in
+  let m =
+    Err.or_raise ~pp_error:H.pp_error
+      (H.prepare
+         ~vector:(Loop_target.forced Loop_target.wasm128)
+         b ~constants:(map_of constants))
+  in
+  check g m b constants ~salt:1;
+  Fmt.pr "needs simd128: %b@."
+    (List.mem Wasm_features.Simd128
+       (Wasm_features.of_module (H.bundle_wasm m).Loop_bundle_wasm.module_));
+  [%expect
+    {|
+    bulk-memory: true
+    nontrapping-float-to-int: true
+    sign-extension: true
+    simd128: true
+    output t9 identical to the reference: true
+    needs simd128: true |}]

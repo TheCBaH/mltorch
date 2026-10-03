@@ -18,6 +18,7 @@ module Name = struct
     | Idx_clamp_low
     | Idx_max
     | Idx_min
+    | Vector_prelude
 
   let all =
     [
@@ -33,6 +34,7 @@ module Name = struct
       Idx_clamp_low;
       Idx_max;
       Idx_min;
+      Vector_prelude;
     ]
 
   let to_string = function
@@ -48,6 +50,7 @@ module Name = struct
     | Idx_clamp_low -> "idx_clamp_low"
     | Idx_max -> "idx_max"
     | Idx_min -> "idx_min"
+    | Vector_prelude -> "vector_prelude"
 end
 
 (* The failure record: [kind] is the position of the failure's kind in
@@ -85,6 +88,54 @@ let prelude =
       "  memset(e->v, 0, sizeof e->v);";
       "  return 1;";
       "}";
+      "";
+    ]
+
+(* The 128-bit-vector idiom of the vectorized C: four binary64 lanes as a GCC/
+   Clang generic vector, which each target lowers to its own registers (two
+   NEON or SSE2 registers, one AVX register). Loads and stores go through
+   [memcpy], so alignment and aliasing are never assumed. A lane is its scalar
+   iteration: the arithmetic is the C operator per lane (the build disables FP
+   contraction), a narrowing to binary32 is the vector conversion (round to
+   nearest even), and the operations C has no vector form for (the maximum with
+   its NaN and signed-zero rule, a square root, a transcendental) run lane by
+   lane through the same scalar function. *)
+let vector_prelude =
+  String.concat "\n"
+    [
+      "typedef double v4df __attribute__((vector_size(32)));";
+      "typedef float v4sf __attribute__((vector_size(16)));";
+      "typedef int64_t v4di __attribute__((vector_size(32)));";
+      "typedef int32_t v4si __attribute__((vector_size(16)));";
+      "static inline v4df vf_splat(double x) { return (v4df){x, x, x, x}; }";
+      "static inline v4df vf_load_f32(const float *p) { v4sf s; memcpy(&s, p, \
+       sizeof s); return __builtin_convertvector(s, v4df); }";
+      "static inline v4df vf_load_f64(const double *p) { v4df v; memcpy(&v, p, \
+       sizeof v); return v; }";
+      "static inline v4df vf_load_i32(const int32_t *p) { v4si s; memcpy(&s, \
+       p, sizeof s); return __builtin_convertvector(s, v4df); }";
+      "static inline void vf_store_f32(float *p, v4df v) { v4sf s = \
+       __builtin_convertvector(v, v4sf); memcpy(p, &s, sizeof s); }";
+      "static inline v4df vf_round_f32(v4df v) { return \
+       __builtin_convertvector(__builtin_convertvector(v, v4sf), v4df); }";
+      "static inline v4df vf_sel(v4di m, v4df a, v4df b) { return \
+       (v4df)(((v4di)a & m) | ((v4di)b & ~m)); }";
+      "static inline v4df vf_max(v4df a, v4df b) { v4df r; for (int k = 0; k < \
+       4; k++) r[k] = float_max(a[k], b[k]); return r; }";
+      "static inline v4df vf_sqrt(v4df a) { v4df r; for (int k = 0; k < 4; \
+       k++) r[k] = sqrt(a[k]); return r; }";
+      "static inline v4df vf_trunc(v4df a) { v4df r; for (int k = 0; k < 4; \
+       k++) r[k] = trunc(a[k]); return r; }";
+      "static inline v4df vf_cos(v4df a) { v4df r; for (int k = 0; k < 4; k++) \
+       r[k] = cos(a[k]); return r; }";
+      "static inline v4df vf_exp(v4df a) { v4df r; for (int k = 0; k < 4; k++) \
+       r[k] = exp(a[k]); return r; }";
+      "static inline v4df vf_log(v4df a) { v4df r; for (int k = 0; k < 4; k++) \
+       r[k] = log(a[k]); return r; }";
+      "static inline v4df vf_sin(v4df a) { v4df r; for (int k = 0; k < 4; k++) \
+       r[k] = sin(a[k]); return r; }";
+      "static inline v4df vf_erf(v4df a) { v4df r; for (int k = 0; k < 4; k++) \
+       r[k] = erf_approx(a[k]); return r; }";
       "";
     ]
 
@@ -186,6 +237,7 @@ let text : Name.t -> string = function
   | Name.Idx_min ->
       "static inline int64_t idx_min(int64_t a, int64_t b) { return a < b ? a \
        : b; }\n"
+  | Name.Vector_prelude -> vector_prelude
 
 let helpers names =
   String.concat "\n"

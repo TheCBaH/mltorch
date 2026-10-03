@@ -145,13 +145,21 @@ let finish w bundle ~constants instance =
           (Js.string "byteLength");
     }
 
-let generate b =
+let generate ?vector b =
   if not little_endian then
     Error (`Js_exception "a big-endian host is not supported")
-  else Result.map_error (fun e -> `Generate e) (Err.payload (B.build b))
+  else Result.map_error (fun e -> `Generate e) (Err.payload (B.build ?vector b))
 
-let prepare_r b ~constants =
-  let* w = generate b in
+let supports f =
+  match webassembly () with
+  | None -> false
+  | Some wa ->
+      let bytes = bytes_of_string (Wasm_features.probe f) in
+      Js.to_bool
+        (Js.Unsafe.meth_call wa "validate" [| inject bytes |] : bool Js.t)
+
+let prepare_r ?vector b ~constants =
+  let* w = generate ?vector b in
   match webassembly () with
   | None -> Error `Wasm_unavailable
   | Some wa ->
@@ -175,10 +183,10 @@ let prepare_r b ~constants =
       finish w b ~constants instance
 
 let lift r = Err.import Fun.id r
-let prepare b ~constants = lift (prepare_r b ~constants)
+let prepare ?vector b ~constants = lift (prepare_r ?vector b ~constants)
 
-let prepare_async b ~constants k =
-  match generate b with
+let prepare_async ?vector b ~constants k =
+  match generate ?vector b with
   | Error e -> k (lift (Error e))
   | Ok w -> (
       match webassembly () with

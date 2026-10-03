@@ -19,7 +19,7 @@
 	arena.eval arena.eval.report arena.schedule.eval arena.schedule.eval.report pt2.json-model-support pt2.runtest pt2.vars runtest spike.runtest \
 	spike.setup tailcall.js-benchmark tailcall.runtest test \
 	verify.pristine visualizer.build visualizer.patch \
-	visualizer.submodule wasm.browser.runtest wasm.c.pt2.run wasm.c.pt2.runtest wasm.jsoo.pt2.runtest wasm.jsoo.runtest wasm.pt2.bench wasm.pt2.exe wasm.pt2.run wasm.pt2.runtest wasm.runtest wasm.toolchain webapp.bridge-runtest webapp.browser-runtest \
+	visualizer.submodule wasm.browser.runtest wasm.c.pt2.run wasm.c.pt2.runtest wasm.jsoo.pt2.runtest wasm.jsoo.runtest wasm.pt2.bench wasm.pt2.exe wasm.pt2.run wasm.pt2.runtest wasm.simd.pt2.runtest wasm.runtest wasm.toolchain webapp.bridge-runtest webapp.browser-runtest \
 	webapp.build webapp.npm-install webapp.runtest webapp.serve
 all: build
 
@@ -923,7 +923,8 @@ js.runtest: jsoo.runtest jsoo.inline-runtest melange.runtest loop.js.runtest
 wasm.runtest: wasm.toolchain
 	MLTORCH_WASM=1 MLTORCH_WASI_SYSROOT="$(WASI_SYSROOT)" NO_COLOR=1 opam exec -- dune build --force \
 	  @test/wasm_ir/runtest @test/wasm_ir/runtest-js \
-	  @test/loop_wasm/runtest @test/loop_ir/runtest-js
+	  @test/loop_wasm/runtest @test/loop_wasm_vector/runtest \
+	  @test/loop_ir/runtest-js
 
 # The wasm32 C library and compiler runtime the C-to-Wasm baseline links with:
 # the installed Clang and wasm-ld already target wasm32 but ship no libc, so
@@ -978,10 +979,12 @@ wasm.browser.runtest: jsoo.pt2.download
 	opam exec -- dune build js/loop_wasm_host/test/browser_probe.bc.js bin/loop_wasm_pt2.exe
 	cd $(JS_PT2_DIR) && $(CURDIR)/$(WASM_PT2_EXE) $(JS_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt \
 	  --samples=1 --export=$(CURDIR)/_build/wasm_export
+	cd $(JS_PT2_DIR) && $(CURDIR)/$(WASM_PT2_EXE) $(JS_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt \
+	  --samples=1 --simd --export=$(CURDIR)/_build/wasm_export_simd
 	cd web && $(if $(WASM_BROWSER_LD_LIBRARY_PATH),LD_LIBRARY_PATH="$(WASM_BROWSER_LD_LIBRARY_PATH)") \
 	  PLAYWRIGHT_BROWSERS_PATH="$(abspath web/.playwright-browsers)" \
 	  node scripts/wasm-browser-check.mjs $(CURDIR)/_build/default/js/loop_wasm_host/test/browser_probe.bc.js \
-	  $(CURDIR)/_build/wasm_export
+	  $(CURDIR)/_build/wasm_export $(CURDIR)/_build/wasm_export_simd
 
 # The whole-model Wasm backend (Loop_bundle_wasm, lib/loop_wasm_exec) on real
 # downloaded models, under node. wasm.pt2.runtest is the gate: every CI model
@@ -1001,6 +1004,12 @@ wasm.pt2.runtest: wasm.pt2.exe
 	for m in $(PT2_MODELS_CRAM) csatv2; do \
 	  $(MAKE) pt2.download PT2_MODEL=$$m && \
 	  (cd $(PT2_DIR)/$$m && echo "== $$m" && $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --strict --shadow --poison --samples=1) || exit 1; \
+	done
+
+wasm.simd.pt2.runtest: wasm.pt2.exe
+	for m in $(PT2_MODELS_CRAM) csatv2; do \
+	  $(MAKE) pt2.download PT2_MODEL=$$m && \
+	  (cd $(PT2_DIR)/$$m && echo "== $$m (simd)" && $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --simd --strict --shadow --poison --samples=1) || exit 1; \
 	done
 
 wasm.pt2.run: wasm.pt2.exe
@@ -1031,11 +1040,11 @@ wasm.c.pt2.run: wasm.pt2.exe wasm.toolchain
 # sanitizers, which dune does not track: LOOP_C_CFLAGS replaces -O2, hence
 # --force. A missing compiler fails; it never skips.
 c.runtest.o0:
-	LOOP_C_CFLAGS="-O0" opam exec -- dune build @test/loop_c/runtest --force
+	LOOP_C_CFLAGS="-O0" opam exec -- dune build @test/loop_c/runtest @test/loop_c_vector/runtest --force
 
 c.runtest.san:
 	LOOP_C_CFLAGS="-O1 -fsanitize=address,undefined -fno-sanitize-recover=all" \
-	  opam exec -- dune build @test/loop_c/runtest --force
+	  opam exec -- dune build @test/loop_c/runtest @test/loop_c_vector/runtest --force
 
 c.runtest.all: c.runtest.o0 c.runtest.san
 

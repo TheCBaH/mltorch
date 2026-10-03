@@ -16,21 +16,23 @@ import fs from "node:fs";
 import path from "node:path";
 import { chromium } from "@playwright/test";
 
-const [probe, dir] = process.argv.slice(2);
+const [probe, dir, simdDir] = process.argv.slice(2);
 if (!probe || !dir) {
-  console.error("usage: wasm-browser-check.mjs <browser_probe.bc.js> <export-dir>");
+  console.error("usage: wasm-browser-check.mjs <browser_probe.bc.js> <export-dir> [<simd-export-dir>]");
   process.exit(2);
 }
 
 const driver = `
 const imports = { math: { exp: Math.exp, log: Math.log, sin: Math.sin, cos: Math.cos } };
-const get = async (f) => new Uint8Array(await (await fetch("/model/" + f)).arrayBuffer());
+let prefix = "/model/";
+const get = async (f) => new Uint8Array(await (await fetch(prefix + f)).arrayBuffer());
 window.syncCompile = async () => {
   const bytes = await get("model.wasm");
   try { new WebAssembly.Module(bytes); return "main-thread synchronous compile accepted"; }
   catch (e) { return "main-thread synchronous compile refused: " + e.name; }
 };
-window.runModel = async () => {
+window.runModel = async (p) => {
+  prefix = p || "/model/";
   const [wasm, weights, inputs, template, expected] = await Promise.all(
     ["model.wasm", "weights.bin", "inputs.bin", "outputs.template", "outputs.bin"].map(get));
   const pl = JSON.parse(new TextDecoder().decode(await get("placement.json")));
@@ -72,6 +74,10 @@ function serve(csp) {
       const f = path.join(dir, path.basename(url));
       if (fs.existsSync(f)) { res.writeHead(200, { "Content-Type": "application/octet-stream" }); res.end(fs.readFileSync(f)); }
       else { res.writeHead(404); res.end(); }
+    } else if (url.startsWith("/simd/") && simdDir) {
+      const f = path.join(simdDir, path.basename(url));
+      if (fs.existsSync(f)) { res.writeHead(200, { "Content-Type": "application/octet-stream" }); res.end(fs.readFileSync(f)); }
+      else { res.writeHead(404); res.end(); }
     } else { res.writeHead(404); res.end(); }
   });
   return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server)));
@@ -107,6 +113,12 @@ await session(allowed, async (p, browser, errors) => {
   const r = await p.evaluate(() => window.runModel());
   console.log("  model: " + JSON.stringify(r));
   expect(r.ok, "real model: two runs on one instance, outputs byte-identical to node's");
+  if (simdDir) {
+    const s = await p.evaluate(() => window.runModel("/simd/"));
+    console.log("  simd model: " + JSON.stringify(s));
+    expect(s.ok, "SIMD model (simd128): outputs byte-identical to node's");
+    expect(s.warmMs < r.warmMs, "SIMD model runs faster warm than the scalar one in the browser");
+  }
 });
 
 // 3b. A policy without 'wasm-unsafe-eval' must refuse, as a typed failure.

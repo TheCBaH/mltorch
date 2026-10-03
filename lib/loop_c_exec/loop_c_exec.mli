@@ -49,12 +49,14 @@ val compile :
     flags, and returns the executable's path (removed at exit). *)
 
 val source :
+  ?vector:Loop_target.t ->
   Loop_program.t ->
   (string * string list, [> `C_unsupported of Loop_c.error ]) Err.t
 (** The complete translation unit (a [main] driving one kernel call) and the
     list of buffer offsets in the blob, for inspection. *)
 
 val exec :
+  ?vector:Loop_target.t ->
   ?outputs:(Tensor_id.t -> Tensor.packed option) ->
   Loop_program.t ->
   bind:(Tensor_id.t -> Tensor.packed option) ->
@@ -64,3 +66,7 @@ val exec :
 
 val executor : Loop_check.Executor.t
 (** [exec] as a differential-harness executor, to {!Loop_check.install}. *)
+
+val executor_vector : Loop_check.Executor.t
+(** [exec] with the strict vectorizer on ({!Loop_target.neon128}'s four lanes):
+    the same bits as {!executor}. *)
