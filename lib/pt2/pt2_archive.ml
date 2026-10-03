@@ -142,6 +142,23 @@ let read_member zip path =
   |> Err.map_error ~pos:__POS__ (fun error ->
       `Read_archive_member (path, error))
 
+(* The three JSON documents an archive is made of, decoded without a zip so a
+   caller that finds them elsewhere (a model directory) shares the decoders and
+   their error rows. *)
+let program_of_json json =
+  Jsont_bytesrw.decode_string ExportedProgram.jsont json
+  |> Err.import ~pos:__POS__ (fun e -> `Model_json_decode e)
+
+let weights_config_of_json json =
+  Jsont_bytesrw.decode_string ModelWeightsConfig.jsont json
+  |> Err.import ~pos:__POS__ (fun e -> `Weights_config_decode e)
+
+let constants_config_of_json json =
+  Jsont_bytesrw.decode_string ModelWeightsConfig.jsont json
+  |> Err.import ~pos:__POS__ (fun e -> `Constants_config_decode e)
+
+let no_constants = { ModelWeightsConfig.config = String_map.empty }
+
 (* Decoding is separated from reading so an archive that is already in memory
    never has to reach a filesystem: a JS build has no useful one, and a browser
    receives the bytes from a fetch or a file picker. [~name] is only a label for
@@ -153,17 +170,11 @@ let of_string ?limits ~name contents =
     |> Err.map_error ~pos:__POS__ (fun error -> `Zip_open (path, error))
   in
   let* program_json = read_member zip "models/model.json" in
-  let* program =
-    Jsont_bytesrw.decode_string ExportedProgram.jsont program_json
-    |> Err.import ~pos:__POS__ (fun e -> `Model_json_decode e)
-  in
+  let* program = program_of_json program_json in
   let* weights_json =
     read_member zip "data/weights/model_weights_config.json"
   in
-  let* weights =
-    Jsont_bytesrw.decode_string ModelWeightsConfig.jsont weights_json
-    |> Err.import ~pos:__POS__ (fun e -> `Weights_config_decode e)
-  in
+  let* weights = weights_config_of_json weights_json in
   let* constants_data =
     Pt2_zip.read_rel zip "data/constants/model_constants_config.json"
     |> Err.map_error ~pos:__POS__ (fun error ->
@@ -172,10 +183,8 @@ let of_string ?limits ~name contents =
   in
   let* constants =
     match constants_data with
-    | None -> Err.return { ModelWeightsConfig.config = String_map.empty }
-    | Some json ->
-        Jsont_bytesrw.decode_string ModelWeightsConfig.jsont json
-        |> Err.import ~pos:__POS__ (fun e -> `Constants_config_decode e)
+    | None -> Err.return no_constants
+    | Some json -> constants_config_of_json json
   in
   Err.return { payload = Zip zip; program; weights; constants }
 

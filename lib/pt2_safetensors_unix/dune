@@ -1,0 +1,19 @@
+; Native side of the safetensors weight source: read a model directory from the
+; devcontainer.pytorch-image-models submodule and open its pinned Hub
+; checkpoint through the huggingface_hub-compatible cache. Never reached by
+; js_of_ocaml -- the cache and the mmap are unix -- which is why this is not
+; folded into lib/pt2_safetensors.
+
+(library
+ (name pt2_safetensors_unix)
+ (wrapped false)
+ (libraries
+  err_trace
+  fmt
+  hf-hub
+  hf-hub-safetensors
+  hf-hub-unix
+  pt2
+  pt2_safetensors
+  safetensors
+  unix))

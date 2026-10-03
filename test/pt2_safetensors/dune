@@ -1,0 +1,22 @@
+; Hermetic tests for lib/pt2_safetensors: a synthetic checkpoint and a
+; hand-written one-parameter program, so no downloaded weights are needed. The
+; unix tests use a fake Hub transport over a real temporary cache. The
+; unix tests use a fake Hub transport over a real temporary cache.
+
+(library
+ (name pt2_safetensors_test)
+ (libraries
+  err_trace
+  fmt
+  hf-hub
+  hf-hub-unix
+  pt2
+  pt2_safetensors
+  pt2_safetensors_unix
+  pytorch_types
+  safetensors
+  schema_runtime
+  unix)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
