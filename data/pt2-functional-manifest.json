@@ -1,13 +1,13 @@
 {
   "images": {
     "bytes": 1001538,
-    "sha256": "870644dc78e65303ae4cac2af2bc500890fb4be8dbd6a9a01001087185acc76f",
-    "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/images.zip"
+    "sha256": "40857015c1d510d3074f7ac142586ab7eaa18324d610a8db7eb13fbc09acf5d9",
+    "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/images.zip"
   },
   "models": {
     "bat_resnext26ts": {
       "archive": {
-        "bytes": 43127813,
+        "bytes": 43127804,
         "members": [
           "bat_resnext26ts.pt2",
           "contract.json",
@@ -16,14 +16,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "d73def7ce4bb0faa813ea98f83e7e68d6a073965ac1f27cbc82832064475a476",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/bat_resnext26ts.zip"
+        "sha256": "5743d1bab3fb8375b3436b558896a06c3018481ebb88e43a6c6f86cc83d96054",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/bat_resnext26ts.zip"
       },
       "status": "current"
     },
     "convit_tiny": {
       "archive": {
-        "bytes": 23673427,
+        "bytes": 23673497,
         "members": [
           "contract.json",
           "convit_tiny.pt2",
@@ -32,14 +32,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "b54fffa3b158273fe0d7d428c8c1b6d506e5a5dfdb3db524a110328dd6b1ca49",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/convit_tiny.zip"
+        "sha256": "9ae56705c00c1af338cfde276f2dbe9a79609e36c4911a5f2ea375f851db7d3e",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/convit_tiny.zip"
       },
       "status": "current"
     },
     "convmixer_1024_20_ks9_p14": {
       "archive": {
-        "bytes": 93368951,
+        "bytes": 93368959,
         "members": [
           "contract.json",
           "convmixer_1024_20_ks9_p14.pt2",
@@ -48,14 +48,30 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "bac90016ab3a7853a80ce5973e6bd3a4ca516296c034549bf3a1def13a82659d",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/convmixer_1024_20_ks9_p14.zip"
+        "sha256": "33e089771e69e6dae87be562ee4acdab6e1028a37930c80df653aa7b97eeea28",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/convmixer_1024_20_ks9_p14.zip"
+      },
+      "status": "current"
+    },
+    "cpubone_b0_bfrobust": {
+      "archive": {
+        "bytes": 41109020,
+        "members": [
+          "contract.json",
+          "cpubone_b0_bfrobust.pt2",
+          "expected.json",
+          "inputs.pt",
+          "outputs.pt",
+          "preprocessing.json"
+        ],
+        "sha256": "f5321a7b741fc2648eefcede03baf4990da5654356f7775864a56b01e7af4f3c",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/cpubone_b0_bfrobust.zip"
       },
       "status": "current"
     },
     "csatv2": {
       "archive": {
-        "bytes": 43722544,
+        "bytes": 43722257,
         "members": [
           "contract.json",
           "csatv2.pt2",
@@ -64,14 +80,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "d79d7d8e4f497b66cfc8b3d3d3b212fdf5e69223823fd198cf3043254fb2f006",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/csatv2.zip"
+        "sha256": "969d985419c2cad0d0ba45f2a4e91a98e5ef0292d07acf81382dbaa54b7b3e6d",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/csatv2.zip"
       },
       "status": "current"
     },
     "eca_halonext26ts": {
       "archive": {
-        "bytes": 43227272,
+        "bytes": 43227090,
         "members": [
           "contract.json",
           "eca_halonext26ts.pt2",
@@ -80,14 +96,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "725ac5da61e4a5194f1a3650a972700edd2c1997b9a4ab41e68ac449f2c2ef62",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/eca_halonext26ts.zip"
+        "sha256": "3d4204d6a436f256093b9a1236a88f81df3a0466c5c8683e3e33213de74568ca",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/eca_halonext26ts.zip"
       },
       "status": "current"
     },
     "edgenext_xx_small": {
       "archive": {
-        "bytes": 7375544,
+        "bytes": 7375691,
         "members": [
           "contract.json",
           "edgenext_xx_small.pt2",
@@ -96,14 +112,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "46f6a65c0bb78671ab2e8edf51256666ccd2f8c060c627d4c64b2f0c817bf602",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/edgenext_xx_small.zip"
+        "sha256": "7b58854cbe8efdb0a2502344958d99f0c34221cca22cd744634b62742347e69c",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/edgenext_xx_small.zip"
       },
       "status": "current"
     },
     "efficientnet_b0": {
       "archive": {
-        "bytes": 22224754,
+        "bytes": 22224660,
         "members": [
           "contract.json",
           "efficientnet_b0.pt2",
@@ -112,14 +128,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "b541bdc8ba09f264924c4d3b59aa651e4fe5403af68a9508fac1248cb8c0855b",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/efficientnet_b0.zip"
+        "sha256": "bb18c1410adbaf6bd067454343c88e703cd1a5730d2300bee776ea54266da380",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/efficientnet_b0.zip"
       },
       "status": "current"
     },
     "efficientnet_b1_pruned": {
       "archive": {
-        "bytes": 26161207,
+        "bytes": 26161046,
         "members": [
           "contract.json",
           "efficientnet_b1_pruned.pt2",
@@ -128,14 +144,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "362020c565fe8f510917f57b7a9eb767fff8aaf3930327aad40bfb4d430dd5cb",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/efficientnet_b1_pruned.zip"
+        "sha256": "0f2ce92ef0a4d766221afd55cd55c9c5971a5a0d7f1a8b531e89e4155bede7b0",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/efficientnet_b1_pruned.zip"
       },
       "status": "current"
     },
     "efficientnet_b2_pruned": {
       "archive": {
-        "bytes": 33547351,
+        "bytes": 33547406,
         "members": [
           "contract.json",
           "efficientnet_b2_pruned.pt2",
@@ -144,14 +160,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "008a9f7567907510f0d7d490cf3fdc9eb5db6595e44539a2292d17e0523657bd",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/efficientnet_b2_pruned.zip"
+        "sha256": "a5823d413882faa7fff8fede920d4ce5a96ced22204907fe28561a0ebc143028",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/efficientnet_b2_pruned.zip"
       },
       "status": "current"
     },
     "efficientnet_b3_pruned": {
       "archive": {
-        "bytes": 39333382,
+        "bytes": 39333522,
         "members": [
           "contract.json",
           "efficientnet_b3_pruned.pt2",
@@ -160,14 +176,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "da6aa945b112749237c3f003e4ed21a8e339f90d50c8892ecedfe18844b88351",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/efficientnet_b3_pruned.zip"
+        "sha256": "d5b1282f39d188f49598757f40e89546e43ea53414a4be6dcb2b87e9442e69f0",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/efficientnet_b3_pruned.zip"
       },
       "status": "current"
     },
     "efficientnet_el": {
       "archive": {
-        "bytes": 42171532,
+        "bytes": 42171494,
         "members": [
           "contract.json",
           "efficientnet_el.pt2",
@@ -176,14 +192,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "a92c2f72e6b64f44f6b43e2964ddd3163a79f4207e6a9d05a614c122daaad388",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/efficientnet_el.zip"
+        "sha256": "123ee41ca51f901c5dd9e54e7d0dc50516f702cb0c912e57f83ba6c1152168c5",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/efficientnet_el.zip"
       },
       "status": "current"
     },
     "efficientnet_es": {
       "archive": {
-        "bytes": 22846410,
+        "bytes": 22846295,
         "members": [
           "contract.json",
           "efficientnet_es.pt2",
@@ -192,14 +208,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "a1d9d90981420629b83a8a74bfe874b441eb51e0b81d61c9b39a6019c6f8363a",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/efficientnet_es.zip"
+        "sha256": "398caed977840cca7d913f927d8a0c46f5bf54cb9c818c81e9dc2c40d405e0d3",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/efficientnet_es.zip"
       },
       "status": "current"
     },
     "efficientvit_b0": {
       "archive": {
-        "bytes": 15108385,
+        "bytes": 15108439,
         "members": [
           "contract.json",
           "efficientvit_b0.pt2",
@@ -208,14 +224,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "b1752f057dea603675470c8379f3afcfae462af2806feeb4dc6f50cbfd0b55f7",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/efficientvit_b0.zip"
+        "sha256": "4b41feb6d166013a148f1a28fa3a5c090fadc38f11c2b906d5afbdf3d1b15e91",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/efficientvit_b0.zip"
       },
       "status": "current"
     },
     "fastvit_sa12": {
       "archive": {
-        "bytes": 45570938,
+        "bytes": 45570861,
         "members": [
           "contract.json",
           "expected.json",
@@ -224,14 +240,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "e3e089ac3c4842ac9a4312c485ba861f953cb88e2b20dbe440e4679846090c64",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/fastvit_sa12.zip"
+        "sha256": "5045db4fbd11b64f3118f1e3a007598c78273f12c4073971076e7f46b710bf0f",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/fastvit_sa12.zip"
       },
       "status": "current"
     },
     "fastvit_t8": {
       "archive": {
-        "bytes": 17486507,
+        "bytes": 17486584,
         "members": [
           "contract.json",
           "expected.json",
@@ -240,14 +256,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "aac202f4468b609f3721fd40e58ea5d4ea87aeac329f84cd3615d1a6a1dfa52b",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/fastvit_t8.zip"
+        "sha256": "c3741eeabbf2d0d7dfb935776e9e96ee2be42c332ef5270f3494a53c73b1e33a",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/fastvit_t8.zip"
       },
       "status": "current"
     },
     "fbnetc_100": {
       "archive": {
-        "bytes": 23271145,
+        "bytes": 23271148,
         "members": [
           "contract.json",
           "expected.json",
@@ -256,14 +272,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "2cd8c37ae235d8bcd47d714a07b7ebc8635e5bc65b97b2685656a4519dd1a080",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/fbnetc_100.zip"
+        "sha256": "64f19c594083a65923f400221f14018732e441fdefafaba62f18d18076da6761",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/fbnetc_100.zip"
       },
       "status": "current"
     },
     "fbnetv3_g": {
       "archive": {
-        "bytes": 64614211,
+        "bytes": 64614079,
         "members": [
           "contract.json",
           "expected.json",
@@ -272,14 +288,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "28de6ab085bea7f8303fe8185fd8f6824f6c6f0d30e41aa788af9c2c8418528d",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/fbnetv3_g.zip"
+        "sha256": "c23b0ca823c59ca1ce880e94c1c5a75cb443abe4a402f41dd8ccc155e6315b99",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/fbnetv3_g.zip"
       },
       "status": "current"
     },
     "ghostnetv2_100": {
       "archive": {
-        "bytes": 25788909,
+        "bytes": 25788838,
         "members": [
           "contract.json",
           "expected.json",
@@ -288,14 +304,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "46b75cd92682298d8bcdfe32d4c77a39c182fa8b7ff3b887b960121c1a0cc989",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/ghostnetv2_100.zip"
+        "sha256": "0aa0da6b0a44936384b7787c8797e920e6471f06a2ed655dfce0ba0b1138f856",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/ghostnetv2_100.zip"
       },
       "status": "current"
     },
     "ghostnetv2_130": {
       "archive": {
-        "bytes": 36358022,
+        "bytes": 36358150,
         "members": [
           "contract.json",
           "expected.json",
@@ -304,14 +320,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "a04292f505f0b4b1a8cf5acf049aedcf52730ad07d471dfc947cdcad8e28a9c1",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/ghostnetv2_130.zip"
+        "sha256": "c0b39ef9b0d57a150927f9414e02ca6321a9a85b003e5e87517a6aaffbb1b886",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/ghostnetv2_130.zip"
       },
       "status": "current"
     },
     "ghostnetv2_160": {
       "archive": {
-        "bytes": 49261012,
+        "bytes": 49261081,
         "members": [
           "contract.json",
           "expected.json",
@@ -320,14 +336,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "06916f26e45cb0efd7f8ff8abd2a56991c4dd8eeca6f25078a82cec4882935ec",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/ghostnetv2_160.zip"
+        "sha256": "bd5dc6f1fa90cf4e6995af716c1d557daab68e106b0e7e77f6607a492650c6e0",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/ghostnetv2_160.zip"
       },
       "status": "current"
     },
     "hgnetv2_b0": {
       "archive": {
-        "bytes": 24776905,
+        "bytes": 24776784,
         "members": [
           "contract.json",
           "expected.json",
@@ -336,14 +352,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "cae96a9d662ede13015e319a6a00c5fba8f2346e9036131943444a8ac61943a3",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/hgnetv2_b0.zip"
+        "sha256": "af7f5681ee2d0344cb8d4e20ab991af43c29b86cabb2025bf245f520d02b0d88",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/hgnetv2_b0.zip"
       },
       "status": "current"
     },
     "inception_next_atto": {
       "archive": {
-        "bytes": 17886112,
+        "bytes": 17886238,
         "members": [
           "contract.json",
           "expected.json",
@@ -352,14 +368,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "fd786c29d87703c3b6dab02a57ff72b0921d269d986e3168c36c41421a76a84a",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/inception_next_atto.zip"
+        "sha256": "e97063b42ae69e245b7a7181e30af5a258f23d501b0e7f6e5245fd4cf25fbcaa",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/inception_next_atto.zip"
       },
       "status": "current"
     },
     "inception_v3": {
       "archive": {
-        "bytes": 91118291,
+        "bytes": 91118055,
         "members": [
           "contract.json",
           "expected.json",
@@ -368,14 +384,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "3d12ddd7bee1182d184e9d4167136f5db39aaf918714305276eb71490ab38dae",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/inception_v3.zip"
+        "sha256": "a9a4d24fd40d45085e39c5e2264aabb2dc737047849d966a56576137f6777b78",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/inception_v3.zip"
       },
       "status": "current"
     },
     "lambda_resnet26t": {
       "archive": {
-        "bytes": 41736809,
+        "bytes": 41736783,
         "members": [
           "contract.json",
           "expected.json",
@@ -384,30 +400,46 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "5d82dbce79ffcba4ec085abf5d6ee5b35c8a9a85b83206a49c8ed30fd8f0f66c",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/lambda_resnet26t.zip"
+        "sha256": "33832fa9f7611c5fade354fe56e1f9df83f6232eb8354354bce242f802d33013",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/lambda_resnet26t.zip"
       },
       "status": "current"
     },
-    "maxxvitv2_nano_rw_256": {
+    "lcnetv2_base": {
       "archive": {
-        "bytes": 91312648,
+        "bytes": 27508495,
         "members": [
           "contract.json",
           "expected.json",
           "inputs.pt",
-          "maxxvitv2_nano_rw_256.pt2",
+          "lcnetv2_base.pt2",
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "ae0dd494c6255b82c26c3d2ca704ee9e1acb193e9e5ed2b9d448cd1a3f6ead13",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/maxxvitv2_nano_rw_256.zip"
+        "sha256": "91d9a5ec70941b5d9ed45df15557bd059d9715252b4f4d856bc0b7036a28ce72",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/lcnetv2_base.zip"
+      },
+      "status": "current"
+    },
+    "lcnetv2_large": {
+      "archive": {
+        "bytes": 41966957,
+        "members": [
+          "contract.json",
+          "expected.json",
+          "inputs.pt",
+          "lcnetv2_large.pt2",
+          "outputs.pt",
+          "preprocessing.json"
+        ],
+        "sha256": "240d778ce62b2279289674f2e882f59cb358002f398dac371b3f19cec92b8dcd",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/lcnetv2_large.zip"
       },
       "status": "current"
     },
     "mixnet_l": {
       "archive": {
-        "bytes": 29850273,
+        "bytes": 29850337,
         "members": [
           "contract.json",
           "expected.json",
@@ -416,14 +448,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "67e378ae9b56bb9ba20d44df12d3d64d45c7884419865b3dfe64b7fd8efc2faf",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/mixnet_l.zip"
+        "sha256": "f3be1294fdc30459be3e02d2ee1c4b145dfebcbd83990fd384f737c62be7d884",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/mixnet_l.zip"
       },
       "status": "current"
     },
     "mixnet_xl": {
       "archive": {
-        "bytes": 46879305,
+        "bytes": 46879173,
         "members": [
           "contract.json",
           "expected.json",
@@ -432,14 +464,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "49188b53eed777cc0a68231fe4ec2aafcd6814740471f95804d727d306b47123",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/mixnet_xl.zip"
+        "sha256": "568c317c090b2a5f6c8ebdde4f9d24bb8d3fac69659258c6e800a080578501b6",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/mixnet_xl.zip"
       },
       "status": "current"
     },
     "mobilenet_edgetpu_v2_m": {
       "archive": {
-        "bytes": 34087551,
+        "bytes": 34087452,
         "members": [
           "contract.json",
           "expected.json",
@@ -448,14 +480,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "e4451dbc707c3fc8c5d9c422a0bb5510c385e60cb0fd297a6803d51b8788c6a5",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/mobilenet_edgetpu_v2_m.zip"
+        "sha256": "e9140d6b78ecef29452845919b9235eb6d0dbb87247b89eeb3bf714ee34ab1d8",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/mobilenet_edgetpu_v2_m.zip"
       },
       "status": "current"
     },
     "mobilenetv1_100": {
       "archive": {
-        "bytes": 18226911,
+        "bytes": 18226989,
         "members": [
           "contract.json",
           "expected.json",
@@ -464,14 +496,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "d3eb61ea8b875c617af99990f1d00825f6b799f08f53a3ae449e7e4b5ba2d7d2",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/mobilenetv1_100.zip"
+        "sha256": "adcef2fd3f9b98b31cfe1196556c929f8a6c51942321f736dbe39e1a3ba5c7d6",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/mobilenetv1_100.zip"
       },
       "status": "current"
     },
     "mobilenetv1_125": {
       "archive": {
-        "bytes": 25786227,
+        "bytes": 25786318,
         "members": [
           "contract.json",
           "expected.json",
@@ -480,14 +512,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "e66de6ef95167a0ae9a59bfa49f1eb3e4cf3230dbc39684f45ec37d2d6d562ca",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/mobilenetv1_125.zip"
+        "sha256": "a83c37a8af70ecd6e818c45704d0b5f6c26045f7ff262d2dbdd265d083fd8517",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/mobilenetv1_125.zip"
       },
       "status": "current"
     },
     "mobilenetv2_050": {
       "archive": {
-        "bytes": 9781913,
+        "bytes": 9781921,
         "members": [
           "contract.json",
           "expected.json",
@@ -496,30 +528,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "73caa704b4f799f28216550a2cb4beba4e45686818372652ec3dff94ec2851ef",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/mobilenetv2_050.zip"
-      },
-      "status": "current"
-    },
-    "mobilenetv3_large_150d": {
-      "archive": {
-        "bytes": 56329705,
-        "members": [
-          "contract.json",
-          "expected.json",
-          "inputs.pt",
-          "mobilenetv3_large_150d.pt2",
-          "outputs.pt",
-          "preprocessing.json"
-        ],
-        "sha256": "942c4b31d5f200c853934829a3dcd13c8abcdb5dee14c2d2da43302206893d15",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/mobilenetv3_large_150d.zip"
+        "sha256": "36cce16499aacb01c1ac0b41f08f251ca38eed3e0d25df63a3656c72f8ee6a78",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/mobilenetv2_050.zip"
       },
       "status": "current"
     },
     "mobilenetv3_small_050": {
       "archive": {
-        "bytes": 8379356,
+        "bytes": 8379381,
         "members": [
           "contract.json",
           "expected.json",
@@ -528,14 +544,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "330cabc556f6e4079762e4a808501016a20e0c059eb37a4fd9ceb9be93419c2c",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/mobilenetv3_small_050.zip"
+        "sha256": "c250f144698ac148b2a323612979fd4f57b05184fdd102b1289c45e484f89c78",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/mobilenetv3_small_050.zip"
       },
       "status": "current"
     },
     "mobilenetv4_conv_blur_medium": {
       "archive": {
-        "bytes": 39017571,
+        "bytes": 39017747,
         "members": [
           "contract.json",
           "expected.json",
@@ -544,14 +560,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "fe32e113b9782f4e548057f3ec27362877ee6ca5eb179155e02bb51a0d994607",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/mobilenetv4_conv_blur_medium.zip"
+        "sha256": "d93409e2da2238bfd30e34241d8e0a84caaa6d18dbc3b2211d3755e79c96606a",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/mobilenetv4_conv_blur_medium.zip"
       },
       "status": "current"
     },
     "mobilenetv4_conv_small_050": {
       "archive": {
-        "bytes": 10701638,
+        "bytes": 10701644,
         "members": [
           "contract.json",
           "expected.json",
@@ -560,30 +576,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "de17fab28007d54ea1bb27f0b5587b8eb4baa9c043f4e0331bfbba9a0865f07c",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/mobilenetv4_conv_small_050.zip"
-      },
-      "status": "current"
-    },
-    "mobileone_s2": {
-      "archive": {
-        "bytes": 32080392,
-        "members": [
-          "contract.json",
-          "expected.json",
-          "inputs.pt",
-          "mobileone_s2.pt2",
-          "outputs.pt",
-          "preprocessing.json"
-        ],
-        "sha256": "9e1ec3972c9ee5238d5e73299dcacea640c16345b553b5158a6da35efc5de907",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/mobileone_s2.zip"
+        "sha256": "d3983289642545a877309f0115df68a6f2640ee781eabef75664cd996ad7349b",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/mobilenetv4_conv_small_050.zip"
       },
       "status": "current"
     },
     "mobileone_s3": {
       "archive": {
-        "bytes": 40756363,
+        "bytes": 40756413,
         "members": [
           "contract.json",
           "expected.json",
@@ -592,14 +592,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "89895f95c5c4164e5786fc4a6b443486435d45983fad9186d8d799fc1ac0c84f",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/mobileone_s3.zip"
+        "sha256": "e16d40bbcedba2f43b0908ce340370afa594cacf25eaf958f5fdc774b564ab97",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/mobileone_s3.zip"
       },
       "status": "current"
     },
     "mobilevitv2_175": {
       "archive": {
-        "bytes": 55482125,
+        "bytes": 55482068,
         "members": [
           "contract.json",
           "expected.json",
@@ -608,14 +608,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "2fffe5153df7aa8509ad55dc6a13134b8c5cfc3a792fe42f79a85829004ce88a",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/mobilevitv2_175.zip"
+        "sha256": "1103f621402bea3c25f624392ea255d300333cbdcc73ff94438c83ebb83de43c",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/mobilevitv2_175.zip"
       },
       "status": "current"
     },
     "mvitv2_tiny": {
       "archive": {
-        "bytes": 92170893,
+        "bytes": 92170852,
         "members": [
           "contract.json",
           "expected.json",
@@ -624,14 +624,14 @@
           "outputs.pt",
           "preprocessing.json"
         ],
-        "sha256": "d5ed87f129fdbbf0476b260749f8369d83ec055d5dd2b856a02553fef14b594d",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/mvitv2_tiny.zip"
+        "sha256": "8942c6e367fedec27deebdd8b5f306f92c1d55a65f845b6628650921843530be",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/mvitv2_tiny.zip"
       },
       "status": "current"
     },
     "rdnet_tiny": {
       "archive": {
-        "bytes": 91207997,
+        "bytes": 91208036,
         "members": [
           "contract.json",
           "expected.json",
@@ -640,14 +640,14 @@
           "preprocessing.json",
           "rdnet_tiny.pt2"
         ],
-        "sha256": "8e92d9de6aec4670f15178be7245f86ae136db32297a60a942872d8f42152a68",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/rdnet_tiny.zip"
+        "sha256": "e9da1273f20abdb0cd7ac8e923da90f5690625dfd446de106f4be1437e0e3073",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/rdnet_tiny.zip"
       },
       "status": "current"
     },
     "regnetx_002": {
       "archive": {
-        "bytes": 12511366,
+        "bytes": 12511442,
         "members": [
           "contract.json",
           "expected.json",
@@ -656,14 +656,14 @@
           "preprocessing.json",
           "regnetx_002.pt2"
         ],
-        "sha256": "faeab883b73bedcbaf1b431d7f050eac84de1560a4ecd18f3fe3e67814e1df87",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/regnetx_002.zip"
+        "sha256": "800a4fb51378fe5d292516792db6805f89adde967520d2ac0ad0e8ec56313031",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/regnetx_002.zip"
       },
       "status": "current"
     },
     "regnetx_006": {
       "archive": {
-        "bytes": 25625244,
+        "bytes": 25625372,
         "members": [
           "contract.json",
           "expected.json",
@@ -672,14 +672,14 @@
           "preprocessing.json",
           "regnetx_006.pt2"
         ],
-        "sha256": "4668a6e3f3c6a6e03b8e8d1ba669a48196db7c6a6eb88931d43fbe54cb8b00bb",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/regnetx_006.zip"
+        "sha256": "5f83b237675e8e805385013408492c9f56ec820ab2e00dc03f3774f38a111d38",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/regnetx_006.zip"
       },
       "status": "current"
     },
     "regnetx_016": {
       "archive": {
-        "bytes": 36806088,
+        "bytes": 36805881,
         "members": [
           "contract.json",
           "expected.json",
@@ -688,14 +688,14 @@
           "preprocessing.json",
           "regnetx_016.pt2"
         ],
-        "sha256": "479baead593ee64166bfa4b6877b3a27ec4a0c4878db170be18ee7d0c88dc771",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/regnetx_016.zip"
+        "sha256": "9b173e7c4c5eb3bd802fcccca1b94f884209ac2fc1d96ff012a327dc6fdf54f2",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/regnetx_016.zip"
       },
       "status": "current"
     },
     "regnetx_040": {
       "archive": {
-        "bytes": 85083934,
+        "bytes": 85083936,
         "members": [
           "contract.json",
           "expected.json",
@@ -704,14 +704,14 @@
           "preprocessing.json",
           "regnetx_040.pt2"
         ],
-        "sha256": "24b32fc7f26b3ac734f2cb2c5f2e0be179e1a83d433754c53ea9ceb552bb5ba4",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/regnetx_040.zip"
+        "sha256": "276da4660d92fcad8c41f4bd63c1dd95e0475b3daffbac5c888a33c84703c1f4",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/regnetx_040.zip"
       },
       "status": "current"
     },
     "regnety_004": {
       "archive": {
-        "bytes": 18701617,
+        "bytes": 18701315,
         "members": [
           "contract.json",
           "expected.json",
@@ -720,14 +720,14 @@
           "preprocessing.json",
           "regnety_004.pt2"
         ],
-        "sha256": "61fe029c7fcef665023ef443ec0fb6876501b64186cf49b5cce13472bbeb1f59",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/regnety_004.zip"
+        "sha256": "8056bcd460eaefb9dbddaf6232e46c364b4e5886030e5e325890b7624eaa5653",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/regnety_004.zip"
       },
       "status": "current"
     },
     "regnety_008_tv": {
       "archive": {
-        "bytes": 26492500,
+        "bytes": 26492586,
         "members": [
           "contract.json",
           "expected.json",
@@ -736,14 +736,14 @@
           "preprocessing.json",
           "regnety_008_tv.pt2"
         ],
-        "sha256": "41983f094549567775fafe9d41280b4ce7ddccc4e574917f567f297ab3254cea",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/regnety_008_tv.zip"
+        "sha256": "3beafe1726169b97a356005e53db61fa99a72884f4fb9cff9e39eacadc18c07f",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/regnety_008_tv.zip"
       },
       "status": "current"
     },
     "regnetz_d8": {
       "archive": {
-        "bytes": 89882052,
+        "bytes": 89882141,
         "members": [
           "contract.json",
           "expected.json",
@@ -752,14 +752,14 @@
           "preprocessing.json",
           "regnetz_d8.pt2"
         ],
-        "sha256": "a9d5ce011509af0569336cc03a7152848e3cb6487aaaf335c2708e14cc8e7b6d",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/regnetz_d8.zip"
+        "sha256": "f0d17dc046417c9f7245fd114720b6db053dbd482ae1b91ed6d0ba9569e8d7ec",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/regnetz_d8.zip"
       },
       "status": "current"
     },
     "repghostnet_058": {
       "archive": {
-        "bytes": 12000231,
+        "bytes": 12000317,
         "members": [
           "contract.json",
           "expected.json",
@@ -768,14 +768,14 @@
           "preprocessing.json",
           "repghostnet_058.pt2"
         ],
-        "sha256": "77c3f8e7277072de0f716fc6f9563f48f2bfb993373a6af22d01eaba7ea6414c",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/repghostnet_058.zip"
+        "sha256": "db0bd4c7a75f74d900856d532913863a7902c7262fd5ac4539e7e07021ab2ae1",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/repghostnet_058.zip"
       },
       "status": "current"
     },
     "repghostnet_111": {
       "archive": {
-        "bytes": 19485878,
+        "bytes": 19485824,
         "members": [
           "contract.json",
           "expected.json",
@@ -784,30 +784,14 @@
           "preprocessing.json",
           "repghostnet_111.pt2"
         ],
-        "sha256": "978f3d4719ff45b9528c3a2d261c517a164252bc520614cefedb514abb0c9390",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/repghostnet_111.zip"
-      },
-      "status": "current"
-    },
-    "repghostnet_130": {
-      "archive": {
-        "bytes": 22987661,
-        "members": [
-          "contract.json",
-          "expected.json",
-          "inputs.pt",
-          "outputs.pt",
-          "preprocessing.json",
-          "repghostnet_130.pt2"
-        ],
-        "sha256": "84ca71ff9714603b25d1598f08598c4251a8dd233d4358c1673b609fbdb6fd42",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/repghostnet_130.zip"
+        "sha256": "abb300e26a03b2ce01bf9e9fb79a404f715150977c69a68d60dbd52a1400102a",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/repghostnet_111.zip"
       },
       "status": "current"
     },
     "repghostnet_150": {
       "archive": {
-        "bytes": 27086286,
+        "bytes": 27086370,
         "members": [
           "contract.json",
           "expected.json",
@@ -816,14 +800,14 @@
           "preprocessing.json",
           "repghostnet_150.pt2"
         ],
-        "sha256": "08f9bdcfceae24ebc412ebd53be7f5529db529a53abb16fd04037a3bba4da748",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/repghostnet_150.zip"
+        "sha256": "a20f6ebb1e0de3f0df5b3e6f54167abd9f34c1760e1dbd0caa68683541f5c701",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/repghostnet_150.zip"
       },
       "status": "current"
     },
     "repvit_m1_0": {
       "archive": {
-        "bytes": 29811862,
+        "bytes": 29811935,
         "members": [
           "contract.json",
           "expected.json",
@@ -832,14 +816,14 @@
           "preprocessing.json",
           "repvit_m1_0.pt2"
         ],
-        "sha256": "79681496b7c91f7f1431938209fccade4c8d2229aaf1c46ce425b431151be053",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/repvit_m1_0.zip"
+        "sha256": "bf44818343039d94ef35cc1e8b00d57c82378c2f73154954e7a335d3965a9be2",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/repvit_m1_0.zip"
       },
       "status": "current"
     },
     "resnest14d": {
       "archive": {
-        "bytes": 41931711,
+        "bytes": 41931773,
         "members": [
           "contract.json",
           "expected.json",
@@ -848,14 +832,14 @@
           "preprocessing.json",
           "resnest14d.pt2"
         ],
-        "sha256": "b43563eb5f7defaab1ac4969181aabf96777e84a0a150226f2ec08c3b2db2a69",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/resnest14d.zip"
+        "sha256": "72ce8f4943878feade08481960af26ff13b256de2ae5ee8284779549e63f587a",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/resnest14d.zip"
       },
       "status": "current"
     },
     "rexnet_100": {
       "archive": {
-        "bytes": 20435347,
+        "bytes": 20435341,
         "members": [
           "contract.json",
           "expected.json",
@@ -864,14 +848,14 @@
           "preprocessing.json",
           "rexnet_100.pt2"
         ],
-        "sha256": "2f757e140793930b69c938fa5d15f122193ff0a0fc872bcae012c62aa9f5175d",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/rexnet_100.zip"
+        "sha256": "525dd40ab5471361dafdc14e6c3f07f09f7fb915bbd24e59922221b67be0322f",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/rexnet_100.zip"
       },
       "status": "current"
     },
     "rexnet_130": {
       "archive": {
-        "bytes": 30720670,
+        "bytes": 30720520,
         "members": [
           "contract.json",
           "expected.json",
@@ -880,14 +864,14 @@
           "preprocessing.json",
           "rexnet_130.pt2"
         ],
-        "sha256": "414368c44fc805a952f5dd3d638517474da824cc79d8f17fd1607623203ade1e",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/rexnet_130.zip"
+        "sha256": "220eb6b20f70a03a11a8c9f5571e0ba7157ff607b1965b90d19a59f626e068f3",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/rexnet_130.zip"
       },
       "status": "current"
     },
     "rexnet_150": {
       "archive": {
-        "bytes": 38824577,
+        "bytes": 38824472,
         "members": [
           "contract.json",
           "expected.json",
@@ -896,14 +880,14 @@
           "preprocessing.json",
           "rexnet_150.pt2"
         ],
-        "sha256": "7325343560cf201fae5dec8f2ade5934138b4413017e08afdb8a7a1bafff4cbf",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/rexnet_150.zip"
+        "sha256": "ef0fa043f402dd2e029be18d5a2c870b7e46fa8ea490e5034cec41b33897eb45",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/rexnet_150.zip"
       },
       "status": "current"
     },
     "rexnet_200": {
       "archive": {
-        "bytes": 63584228,
+        "bytes": 63584175,
         "members": [
           "contract.json",
           "expected.json",
@@ -912,14 +896,14 @@
           "preprocessing.json",
           "rexnet_200.pt2"
         ],
-        "sha256": "104299602725d5a9307b4cf32f03ff0caec744a2348a674788f6ea58bde19089",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/rexnet_200.zip"
+        "sha256": "d068d31d96dbfbbf9aaae865b4839ab9d55d0bc694ac4591d673656f0bd2322a",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/rexnet_200.zip"
       },
       "status": "current"
     },
     "rexnetr_200": {
       "archive": {
-        "bytes": 63862831,
+        "bytes": 63862850,
         "members": [
           "contract.json",
           "expected.json",
@@ -928,14 +912,14 @@
           "preprocessing.json",
           "rexnetr_200.pt2"
         ],
-        "sha256": "b55829e49d5acde1cbae19979b4e63ffa027462fdd10efb042fb6dae790faa4b",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/rexnetr_200.zip"
+        "sha256": "f2b5b5271ce60d443b16230abedcdf8c96fb86edb3108675bf872b68d6148e31",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/rexnetr_200.zip"
       },
       "status": "current"
     },
     "skresnet18": {
       "archive": {
-        "bytes": 46902700,
+        "bytes": 46902774,
         "members": [
           "contract.json",
           "expected.json",
@@ -944,14 +928,14 @@
           "preprocessing.json",
           "skresnet18.pt2"
         ],
-        "sha256": "fb952c2c68343e742e8b0b34e77165b1ebd7862b1ab98a8bafc37c70372c9fee",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/skresnet18.zip"
+        "sha256": "c72335b1f796efe2a153c0eb644d079f5578ec9b0e9df9f5e3c1bf7ebc3acc37",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/skresnet18.zip"
       },
       "status": "current"
     },
     "swiftformer_xs": {
       "archive": {
-        "bytes": 15386723,
+        "bytes": 15386524,
         "members": [
           "contract.json",
           "expected.json",
@@ -960,14 +944,14 @@
           "preprocessing.json",
           "swiftformer_xs.pt2"
         ],
-        "sha256": "62f45c39af8251ccfdc482dbd11caaf6c309920280a38a493a9591992bb06e9a",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/swiftformer_xs.zip"
+        "sha256": "fce04f5411cc77257d1cc06ad908311bf6f61afb4e07a9df161287e2e369ad18",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/swiftformer_xs.zip"
       },
       "status": "current"
     },
     "test_convnext2": {
       "archive": {
-        "bytes": 3075349,
+        "bytes": 3075347,
         "members": [
           "contract.json",
           "expected.json",
@@ -976,14 +960,14 @@
           "preprocessing.json",
           "test_convnext2.pt2"
         ],
-        "sha256": "9b8f624f7a9f4873265b4ed4cbb6f68b6ec2e722410e0058df671e23f30b79b4",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/test_convnext2.zip"
+        "sha256": "b00e74067a44936cec93396e66f2604fc993579be3632f2a670af127774514c6",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/test_convnext2.zip"
       },
       "status": "current"
     },
     "test_efficientnet_gn": {
       "archive": {
-        "bytes": 2620074,
+        "bytes": 2620164,
         "members": [
           "contract.json",
           "expected.json",
@@ -992,14 +976,14 @@
           "preprocessing.json",
           "test_efficientnet_gn.pt2"
         ],
-        "sha256": "07624bb73ed78ff2981dbc0072465f6e7979f149f7722f2cf1f46fb8ff9245ee",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/test_efficientnet_gn.zip"
+        "sha256": "baceecd11ed773aa7198e7f6705bdd8f32dd36e96bed9c9fade5f609cfe170ef",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/test_efficientnet_gn.zip"
       },
       "status": "current"
     },
     "tf_efficientnet_es": {
       "archive": {
-        "bytes": 22876239,
+        "bytes": 22876037,
         "members": [
           "contract.json",
           "expected.json",
@@ -1008,14 +992,14 @@
           "preprocessing.json",
           "tf_efficientnet_es.pt2"
         ],
-        "sha256": "94eb27f3518470920b30466af5dfc609829191aa74c1cf96e0554337810619b0",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/tf_efficientnet_es.zip"
+        "sha256": "f1d716068c5971b5786bce9bd73a49023b75dc0ac6557db46ac6365dc5cc277b",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/tf_efficientnet_es.zip"
       },
       "status": "current"
     },
     "tf_efficientnet_lite3": {
       "archive": {
-        "bytes": 32963523,
+        "bytes": 32963404,
         "members": [
           "contract.json",
           "expected.json",
@@ -1024,14 +1008,14 @@
           "preprocessing.json",
           "tf_efficientnet_lite3.pt2"
         ],
-        "sha256": "e530457ecaf7dd34f7511607ad40b79fc98316d7db49d3ff6c239515ad666213",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/tf_efficientnet_lite3.zip"
+        "sha256": "448f985f22a1b3b16ec93072e21ce54b22c7c10ddbe4094fc6a58c845ec409c2",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/tf_efficientnet_lite3.zip"
       },
       "status": "current"
     },
     "tf_mixnet_l": {
       "archive": {
-        "bytes": 29797198,
+        "bytes": 29797160,
         "members": [
           "contract.json",
           "expected.json",
@@ -1040,14 +1024,14 @@
           "preprocessing.json",
           "tf_mixnet_l.pt2"
         ],
-        "sha256": "031856aa0b33dbad08523e32de0f62bac473d7655b5af7e2595b721a0325d597",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/tf_mixnet_l.zip"
+        "sha256": "27e454ac4dd734cf324571724903e72500e4c3a766eb86ba6713f21e5185b2ea",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/tf_mixnet_l.zip"
       },
       "status": "current"
     },
     "tf_mixnet_s": {
       "archive": {
-        "bytes": 17893374,
+        "bytes": 17893375,
         "members": [
           "contract.json",
           "expected.json",
@@ -1056,14 +1040,14 @@
           "preprocessing.json",
           "tf_mixnet_s.pt2"
         ],
-        "sha256": "f04efaef8694f9a9213de6a59d2ff20d4e53792257d3d801dace3261edf0911d",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/tf_mixnet_s.zip"
+        "sha256": "fd0e23988bd4b45dc4aa4212505249f46b4659e14b737859c4041af647f0627c",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/tf_mixnet_s.zip"
       },
       "status": "current"
     },
     "tf_mobilenetv3_large_minimal_100": {
       "archive": {
-        "bytes": 17118721,
+        "bytes": 17118896,
         "members": [
           "contract.json",
           "expected.json",
@@ -1072,30 +1056,14 @@
           "preprocessing.json",
           "tf_mobilenetv3_large_minimal_100.pt2"
         ],
-        "sha256": "f316c407de67e039413c2558f0a259125b00794b062a3d4d4ddab76937f614ad",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/tf_mobilenetv3_large_minimal_100.zip"
-      },
-      "status": "current"
-    },
-    "tf_mobilenetv3_small_100": {
-      "archive": {
-        "bytes": 11918664,
-        "members": [
-          "contract.json",
-          "expected.json",
-          "inputs.pt",
-          "outputs.pt",
-          "preprocessing.json",
-          "tf_mobilenetv3_small_100.pt2"
-        ],
-        "sha256": "e0c958e3f321741c3d43596241b504b097fa78b35920d2bb7a0a1b5d01a388e7",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/tf_mobilenetv3_small_100.zip"
+        "sha256": "ada40384311b06c14de380c5feed589aa15b43d031f39e888c07299bbad08305",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/tf_mobilenetv3_large_minimal_100.zip"
       },
       "status": "current"
     },
     "tf_mobilenetv3_small_minimal_100": {
       "archive": {
-        "bytes": 10098769,
+        "bytes": 10098699,
         "members": [
           "contract.json",
           "expected.json",
@@ -1104,14 +1072,14 @@
           "preprocessing.json",
           "tf_mobilenetv3_small_minimal_100.pt2"
         ],
-        "sha256": "5034ac80a1f14a71682c09075e3f192687c08dfc870ca1d7c1f97c6aaec92f7f",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/tf_mobilenetv3_small_minimal_100.zip"
+        "sha256": "d6adf1e5db0e3435a6142dc9aa3176c5c8961eaf76d4214df4c99e8fb70dc9c9",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/tf_mobilenetv3_small_minimal_100.zip"
       },
       "status": "current"
     },
     "vit_tiny_r_s16_p8_224": {
       "archive": {
-        "bytes": 25990060,
+        "bytes": 25990271,
         "members": [
           "contract.json",
           "expected.json",
@@ -1120,26 +1088,27 @@
           "preprocessing.json",
           "vit_tiny_r_s16_p8_224.pt2"
         ],
-        "sha256": "2a776397770d3475860bee690597b80cd3b9b21ce9423d84877793263cc7a848",
-        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.4/vit_tiny_r_s16_p8_224.zip"
+        "sha256": "3cf659f745b1e482207b5edeca1676d7a9edcbdfbcc86da79647426f1a8ebe08",
+        "url": "https://github.com/TheCBaH/devcontainer.pytorch-image-models/releases/download/v0.0.5/vit_tiny_r_s16_p8_224.zip"
       },
       "status": "current"
     }
   },
   "producer": {
-    "commit": "a24c245fbd66214a7749806110186ef0a389391f",
-    "commit_timestamp": "2026-08-23T20:21:48Z",
+    "commit": "2f3fd187a7e24757d4a7746f276d8c8ded8c1838",
+    "commit_timestamp": "2026-09-18T04:15:02Z",
     "repo": "TheCBaH/devcontainer.pytorch-image-models",
-    "tag": "v0.0.4",
-    "timm_version": "1.0.28",
+    "tag": "v0.0.5",
+    "timm_version": "1.0.29",
     "torch_version": "2.13.0+cpu"
   },
   "release_models": {
-    "count": 70,
+    "count": 68,
     "names": [
       "bat_resnext26ts",
       "convit_tiny",
       "convmixer_1024_20_ks9_p14",
+      "cpubone_b0_bfrobust",
       "csatv2",
       "eca_halonext26ts",
       "edgenext_xx_small",
@@ -1161,18 +1130,17 @@
       "inception_next_atto",
       "inception_v3",
       "lambda_resnet26t",
-      "maxxvitv2_nano_rw_256",
+      "lcnetv2_base",
+      "lcnetv2_large",
       "mixnet_l",
       "mixnet_xl",
       "mobilenet_edgetpu_v2_m",
       "mobilenetv1_100",
       "mobilenetv1_125",
       "mobilenetv2_050",
-      "mobilenetv3_large_150d",
       "mobilenetv3_small_050",
       "mobilenetv4_conv_blur_medium",
       "mobilenetv4_conv_small_050",
-      "mobileone_s2",
       "mobileone_s3",
       "mobilevitv2_175",
       "mvitv2_tiny",
@@ -1186,7 +1154,6 @@
       "regnetz_d8",
       "repghostnet_058",
       "repghostnet_111",
-      "repghostnet_130",
       "repghostnet_150",
       "repvit_m1_0",
       "resnest14d",
@@ -1204,12 +1171,36 @@
       "tf_mixnet_l",
       "tf_mixnet_s",
       "tf_mobilenetv3_large_minimal_100",
-      "tf_mobilenetv3_small_100",
       "tf_mobilenetv3_small_minimal_100",
       "vit_tiny_r_s16_p8_224"
     ]
   },
   "retired": {
+    "maxxvitv2_nano_rw_256": {
+      "migrate_to": null,
+      "reason": "Coverage-optimization reshuffle after bumping modules/pytorch-image-models to e617d17: the new families it adds (e.g. beit3_*, aimv2_*) claim (operator, configuration) units more cheaply, pushing this out of the top 100. The maxxvit family has no other release candidate this round; the model itself is untouched upstream and can return if coverage shifts again.",
+      "removed_in": "v0.0.4"
+    },
+    "mobilenetv3_large_150d": {
+      "migrate_to": "mobilenetv3_small_050",
+      "reason": "Same coverage-optimization reshuffle as maxxvitv2_nano_rw_256.",
+      "removed_in": "v0.0.4"
+    },
+    "mobileone_s2": {
+      "migrate_to": "mobileone_s3",
+      "reason": "Same coverage-optimization reshuffle as maxxvitv2_nano_rw_256.",
+      "removed_in": "v0.0.4"
+    },
+    "repghostnet_130": {
+      "migrate_to": "repghostnet_111",
+      "reason": "Same coverage-optimization reshuffle as maxxvitv2_nano_rw_256.",
+      "removed_in": "v0.0.4"
+    },
+    "tf_mobilenetv3_small_100": {
+      "migrate_to": "tf_mobilenetv3_small_minimal_100",
+      "reason": "Same coverage-optimization reshuffle as maxxvitv2_nano_rw_256.",
+      "removed_in": "v0.0.4"
+    },
     "vit_small_patch16_dinov3_qkvb": {
       "migrate_to": null,
       "reason": "Selection's release eligibility now requires a classification head (num_classes > 0). This is timm's DINOv3 self-supervised backbone (lvd1689m tag): num_classes=0 by design, so it has no logits for the release archive's expected-top5 contract to report -- export_pt2 was producing a contract.json with classes.count=0, which fails contract.schema.json's minimum-1 constraint.",
@@ -1224,6 +1215,7 @@
       "bat_resnext26ts",
       "convit_tiny",
       "convmixer_1024_20_ks9_p14",
+      "cpubone_b0_bfrobust",
       "csatv2",
       "darknet17",
       "eca_halonext26ts",
@@ -1255,23 +1247,23 @@
       "inception_v3",
       "lambda_resnet26t",
       "lcnet_035",
+      "lcnetv2_base",
+      "lcnetv2_large",
       "legacy_seresnext26_32x4d",
-      "maxxvitv2_nano_rw_256",
       "mixnet_l",
       "mixnet_xl",
       "mixnet_xxl",
+      "mnasnet_075",
       "mnasnet_140",
       "mobilenet_edgetpu_v2_l",
       "mobilenet_edgetpu_v2_m",
       "mobilenetv1_100",
       "mobilenetv1_125",
       "mobilenetv2_050",
-      "mobilenetv3_large_150d",
       "mobilenetv3_small_050",
       "mobilenetv4_conv_blur_medium",
       "mobilenetv4_conv_small_050",
       "mobilenetv5_base",
-      "mobileone_s2",
       "mobileone_s3",
       "mobilevitv2_175",
       "mvitv2_tiny",
@@ -1288,7 +1280,6 @@
       "regnetz_d8",
       "repghostnet_058",
       "repghostnet_111",
-      "repghostnet_130",
       "repghostnet_150",
       "repvit_m1_0",
       "resnest14d",
@@ -1307,6 +1298,7 @@
       "starnet_s050",
       "starnet_s100",
       "swiftformer_xs",
+      "swin_tiny_patch4_window7_224",
       "test_convnext2",
       "test_efficientnet_gn",
       "test_vit4",
@@ -1315,9 +1307,8 @@
       "tf_mixnet_l",
       "tf_mixnet_s",
       "tf_mobilenetv3_large_minimal_100",
-      "tf_mobilenetv3_small_100",
       "tf_mobilenetv3_small_minimal_100",
-      "vit_small_patch16_dinov3_qkvb",
+      "vit_small_patch16_lingbot",
       "vit_tiny_r_s16_p8_224",
       "volo_d1_224",
       "xception41p"
