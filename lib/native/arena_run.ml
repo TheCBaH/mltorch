@@ -31,18 +31,12 @@ let pp_error ppf : [< error ] -> unit = function
 
 type outcome = Arena of Arena.t | Release_only of error
 
-let plan_and_create ?limits ?budget ?alignment
-    ?(physical = Arena.Physical_requirement.Logical_accepted) ?poison ?retain
-    ~admission g =
+(* The metadata-only half of acquiring an arena: a plan against the physical
+   requirement and the admission, with no pool allocated. A scheduler compares
+   candidate plans with this before it commits to one. *)
+let check_plan ?(physical = Arena.Physical_requirement.Logical_accepted)
+    ~admission plan =
   let open Err.Syntax in
-  let* script =
-    Eval_direct.dry_run ?alignment ?retain g
-    |> Err.map_error (fun e -> (e :> error))
-  in
-  let* plan =
-    Arena_plan.create ?limits ?budget ?alignment script
-    |> Err.map_error (fun e -> (e :> error))
-  in
   let* () =
     match (physical, Arena_plan.base_alignment plan) with
     | Arena.Physical_requirement.Physical_required, Some required -> (
@@ -58,18 +52,29 @@ let plan_and_create ?limits ?budget ?alignment
     | Arena.Physical_requirement.Logical_accepted, _ ->
         Err.return ()
   in
-  let* () =
-    match admission with
-    | Arena.Admission.Best_effort -> Err.return ()
-    | Arena.Admission.Required budget ->
-        let* footprint =
-          Arena.footprint plan |> Err.map_error (fun e -> (e :> error))
-        in
-        if Byte_size.compare footprint budget > 0 then
-          Err.fail ~pos:__POS__
-            (`Over_budget { Arena.Over_budget.footprint; budget })
-        else Err.return ()
+  match admission with
+  | Arena.Admission.Best_effort -> Err.return ()
+  | Arena.Admission.Required budget ->
+      let* footprint =
+        Arena.footprint plan |> Err.map_error (fun e -> (e :> error))
+      in
+      if Byte_size.compare footprint budget > 0 then
+        Err.fail ~pos:__POS__
+          (`Over_budget { Arena.Over_budget.footprint; budget })
+      else Err.return ()
+
+let plan_and_create ?limits ?budget ?alignment ?physical ?poison ?retain
+    ~admission g =
+  let open Err.Syntax in
+  let* script =
+    Eval_direct.dry_run ?alignment ?retain g
+    |> Err.map_error (fun e -> (e :> error))
   in
+  let* plan =
+    Arena_plan.create ?limits ?budget ?alignment script
+    |> Err.map_error (fun e -> (e :> error))
+  in
+  let* () = check_plan ?physical ~admission plan in
   Arena.create ?poison plan |> Err.map_error (fun e -> (e :> error))
 
 (* The row is data for the caller's report, not an error of this run: under
@@ -78,6 +83,17 @@ let decline (e : error Err.Error.t) =
   match Err.export ~pos:__POS__ (Error e) with
   | Error row -> Release_only row
   | Ok _ -> assert false
+
+let acquire_plan ?physical ?poison ~admission plan =
+  let open Err.Syntax in
+  let created =
+    let* () = check_plan ?physical ~admission plan in
+    Arena.create ?poison plan |> Err.map_error (fun e -> (e :> error))
+  in
+  match (created, admission) with
+  | Ok arena, _ -> Err.return (Arena arena)
+  | Error e, Arena.Admission.Best_effort -> Err.return (decline e)
+  | (Error _ as e), Arena.Admission.Required _ -> (e :> (outcome, error) Err.t)
 
 let acquire ?limits ?budget ?alignment ?physical ?poison ?retain ~admission g =
   match

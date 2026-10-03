@@ -61,6 +61,30 @@ let arena_layout_arg =
         None
     & info [ "arena-layout" ] ~docv:"LAYOUT" ~doc)
 
+let schedule_memory_arg =
+  let doc =
+    "Reorder the nodes (opt-in) to lower live tensor memory before running, \
+     and print the original and chosen figures. With $(b,--arena) or \
+     $(b,--arena-layout) the order is chosen by the allocated pool bytes of \
+     checked placements and is never larger than the original; otherwise by \
+     payload alone. Outputs are bit-identical; hook order may differ."
+  in
+  Arg.(value & flag & info [ "schedule-memory" ] ~doc)
+
+let schedule_beam_width_arg =
+  let doc = "Beam width of the $(b,--schedule-memory) search." in
+  Arg.(
+    value
+    & opt int Arena_schedule.Limits.default_beam.width
+    & info [ "schedule-beam-width" ] ~docv:"N" ~doc)
+
+let schedule_beam_expansions_arg =
+  let doc =
+    "Child-expansion budget of the $(b,--schedule-memory) beam search; 0 (the \
+     default) runs the two constructive orders only."
+  in
+  Arg.(value & opt int 0 & info [ "schedule-beam-expansions" ] ~docv:"N" ~doc)
+
 let fold_arg =
   let doc =
     "Load every captured weight up front so constant folding can hoist \

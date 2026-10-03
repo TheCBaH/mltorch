@@ -40,6 +40,24 @@ val acquire :
     [Best_effort]. The arena must then be run on that same graph and [retain];
     the plan carries the policy. *)
 
+val check_plan :
+  ?physical:Arena.Physical_requirement.t ->
+  admission:Arena.Admission.t ->
+  Arena_plan.t ->
+  (unit, error) Err.t
+(** The physical-alignment and admission checks {!acquire} makes on a plan,
+    without allocating any pool: [`Physical_alignment_unsupported] or
+    [`Over_budget] as {!acquire} would fail under [Required]. *)
+
+val acquire_plan :
+  ?physical:Arena.Physical_requirement.t ->
+  ?poison:Arena.Poison.t ->
+  admission:Arena.Admission.t ->
+  Arena_plan.t ->
+  (outcome, error) Err.t
+(** {!acquire} from a plan already built, so a chosen plan is not placed again.
+    The caller owns running it on the graph and [retain] it was made from. *)
+
 (** What an arena run held, for a caller's stats. Pool bytes, the script's
     out-of-arena payload bytes, and mixed-mode copies are reported separately:
     none of them is the process's total memory. *)

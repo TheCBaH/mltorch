@@ -60,7 +60,7 @@ let lowering : [< Native_interp.error ] -> verdict = function
      verify and lens rows are internal invariants; and [`Eval] and
      [`Tensor_bridge] belong to execution, which export does not perform. *)
   | `Arena _ | `Build _ | `Eval _ | `Lens _ | `Materialize _ | `Provenance _
-  | `Tensor_bridge _ | `Transform _ | `Verify _
+  | `Schedule _ | `Tensor_bridge _ | `Transform _ | `Verify _
   | #Native_interp.malformed ->
       Fatal
 
