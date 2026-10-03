@@ -79,7 +79,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   stacks. See `.ai/` for the error-handling design and printer-convention docs.
 
 - **Never assume a 63-bit `int` in the JS-reachable libraries** — `lib/native`,
-  `lib/walk_core`, `lib/core`, `lib/native4d`, `lib/expr`, `lib/interval_alloc` (sizes and
+  `lib/walk_core`, `lib/core`, `lib/pt2_safetensors` (checkpoint shapes compare as
+  `int64`; sizes pin as `int64`), `lib/native4d`, `lib/expr`, `lib/interval_alloc` (sizes and
   offsets are `int64` throughout), `lib/pt2`, `lib/native_graph`,
   `lib/native_interp` (js_of_ocaml reaches these last three since the probe began reading
   real `.pt2` models), `lib/loop_ir` (its lowering and interpreter run under node in the
@@ -331,6 +332,7 @@ measured decisions.
 ```sh
 make pt2.download-cram   # fetch the 5 models in PT2_MODELS_CRAM (see the Makefile)
 make pt2.runtest         # run pt2_load_cram.t + interp_*_cram.t against them
+make safetensors.run     # one model from its committed graph JSON + pinned Hub checkpoint, no .pt2 (--strict)
 make inference           # timed smoke run over every model in PT2_MODELS_ALL
 ```
 
@@ -361,6 +363,8 @@ test/*_cram.t                                      ← cram tests decode real mo
 | `bin/schema_gen.ml` | `schema_gen` (exe) | CLI: reads YAML, calls generator |
 | `lib/expr/` | `expr` | The symbolic expression language: typed indices, values, reductions, intrinsics. Depends only on `core`+`fmt`, so it owns no tensor, storage or graph type — `native` consumes it, never the reverse |
 | `lib/pt2/` | `pt2` | Libtorch-free `.pt2` reader: ZIP (via `zipc`), pickle (via vendored `opickle`), model.json/weights-config decoding |
+| `lib/pt2_safetensors/` | `pt2_safetensors` | A `.pt2`-free weight source: the `safetensors.json` map (a pinned Hub checkpoint plus config-name -> checkpoint key/dtype/shape), validated against the graph's configs and the checkpoint header up front, yielding a `Pt2_archive.t` whose tensor bytes are zero-copy views. Pure, so js_of_ocaml-reachable |
+| `lib/pt2_safetensors_unix/` | `pt2_safetensors_unix` | `open_dir model_dir`: reads a submodule model directory and maps its pinned checkpoint through the huggingface_hub cache (`vendored/ocaml-hf-hub`), checking the pin's sha256 and size. Native only |
 | `lib/pt2_aten/` | `pt2_aten` | Bridges `pt2`'s raw strided tensors to runnable `Aten_tensor.t` (via `of_storage`), kept separate so `pt2`'s own tests need no C++ build |
 | `lib/loop_ir/` | `loop_ir` | The Loop IR: a structured loop program lowered from a `Fusion_plan.t`, its reference interpreter, the differential harness against `Kernel_eval`, and the JavaScript emitter. Depends on `native`, never the reverse |
 | `lib/js_ast/` | `js_ast` | A closed subset of ECMAScript as data: identifiers, the AST, typed builders (`Js_build`: `Number`, index and `BigInt` kinds that cannot be mixed), the printer, and a scope checker. Depends on `fmt` only; mirrored into Melange (`js/melange/js_ast`) so its output is diffed across native, jsoo and Melange |
@@ -383,5 +387,5 @@ Cram tests run `ocaml schema_runtime.cma script.ml 2>/dev/null`. Both `schema_ru
 ## Key Constraints
 
 - `modules/pytorch/` and `modules/devcontainer.pytorch-image-models/` are git submodules excluded from dune's scan. Reach them via shell rules using `%{project_root}/../../`. No automatic dep-tracking — `touch data/dune` to force a rebuild when `schema.yaml` changes.
-- `yamlt` is vendored under `vendored/ocaml-yamlt/` (not on opam); `opickle` (pickle decoding) is vendored under `vendored/opickle/` the same way.
+- `yamlt` is vendored under `vendored/ocaml-yamlt/` (not on opam); `opickle` (pickle decoding) is vendored under `vendored/opickle/` the same way. So are `vendored/ocaml-safetensors` (bigstring/mmap checkpoint reader) and `vendored/ocaml-hf-hub` (the sans-IO Hub downloader and its huggingface_hub-compatible cache); both are standalone repos built from here as libraries only.
 - `data/pt2/<model>/` (downloaded release weights/images/results) is gitignored and not part of the default build — fetch via `make pt2.download-cram` or `make pt2.download-all` before running the gated tests above.
