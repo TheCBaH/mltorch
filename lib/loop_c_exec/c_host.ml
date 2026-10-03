@@ -57,6 +57,7 @@ let base_compiler =
     "-Wall";
     "-Wextra";
     "-Werror";
+    "-Wno-psabi";
   ]
 
 (* [LOOP_C_CFLAGS] replaces the optimisation flag, so the same suites run at
