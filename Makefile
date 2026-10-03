@@ -1065,7 +1065,7 @@ c.runtest.all: c.runtest.o0 c.runtest.san
 # c.pt2.san re-runs both with the generated binary under ASan+UBSan, without
 # the reference.
 C_PT2_EXE = _build/default/bin/loop_c_pt2.exe
-C_PT2_SAN = --cc=gcc -std=c11 -O1 -fsanitize=address,undefined -fno-sanitize-recover=all -ffp-contract=off -fno-strict-aliasing -Wall -Wextra -Werror
+C_PT2_SAN = --cc=gcc -std=c11 -O1 -fsanitize=address,undefined -fno-sanitize-recover=all -ffp-contract=off -fno-strict-aliasing -Wall -Wextra -Werror -Wno-psabi
 
 c.pt2.exe:
 	opam exec -- dune build bin/loop_c_pt2.exe
