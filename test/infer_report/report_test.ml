@@ -248,7 +248,8 @@ let show_argv argv =
   Fmt.pr "%a@."
     (Fmt.result
        ~ok:(fun ppf ((p : Paths.t), (o : Options.t)) ->
-         Fmt.pf ppf "%s %s %s %s%s%s" p.pt2
+         Fmt.pf ppf "%s %s %s %s%s%s"
+           (match p.model with Pt2 s | Safetensors s -> s)
            (Option.value p.inputs ~default:"?")
            (Option.value p.expected ~default:"?")
            (Option.value p.outputs ~default:"?")

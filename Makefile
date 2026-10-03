@@ -15,7 +15,7 @@
 	native-infer-verify-arena.% native-infer-verify-direct \
 	native-infer-verify-direct.% native-transform-verify \
 	native-transform-verify.% precommit profile.landmarks \
-	profile.memtrace pt2.download pt2.download-all pt2.download-cram \
+	profile.memtrace pt2.download pt2.download-all pt2.download-cram safetensors.run \
 	arena.eval arena.eval.report arena.schedule.eval arena.schedule.eval.report pt2.json-model-support pt2.runtest pt2.vars runtest spike.runtest \
 	spike.setup tailcall.js-benchmark tailcall.runtest test \
 	verify.pristine visualizer.build visualizer.patch \
@@ -122,8 +122,10 @@ pt2.runtest:
 		echo "pt2.runtest: missing $(PT2_DIR)/csatv2/csatv2.pt2 -- run 'make pt2.download PT2_MODEL=csatv2' first" >&2; \
 		exit 1; \
 	}
-	PT2_DATA=$(abspath $(PT2_DIR)) NO_COLOR=1 opam exec -- dune runtest \
-		test/pt2_load_cram.t test/interp_functional_cram.t test/const_ssa_trace_cram.t \
+	PT2_DATA=$(abspath $(PT2_DIR)) PT2_SAFETENSORS_MODELS=$(abspath $(PT2_JSON_MODELS_DIR)) \
+		NO_COLOR=1 opam exec -- dune runtest \
+		test/pt2_load_cram.t test/pt2_safetensors_cram.t test/interp_functional_cram.t \
+		test/const_ssa_trace_cram.t \
 		test/const_ssa_payload_free_cram.t test/const_ssa_evaluate_cram.t \
 		test/pt2_model_support_cram.t \
 		test/native_graph_regnetx_002_cram.t test/native_graph_mobilenetv2_050_cram.t \
@@ -238,6 +240,18 @@ PT2_INFER_ARGS = $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 $(PT2_MODEL_DIR)/inputs.pt \
 # `dune exec` builds the binary as needed.
 inference-run: pt2.download
 	opam exec -- dune exec test/interp_run.exe -- $(PT2_INFER_ARGS)
+
+# Run $(PT2_MODEL) from its committed graph JSON with the weights mapped from the
+# Hub checkpoint its safetensors.json pins (fetched into the huggingface_hub
+# cache on first use, then served from it), instead of from the .pt2. The
+# inputs and reference outputs still come from the release bundle, the only
+# place they exist, so --strict is the check that the checkpoint's weights give
+# the producer's own answer. Needs the network once, or a warm cache.
+safetensors.run: pt2.download
+	opam exec -- dune build test/interp_run.exe
+	_build/default/test/interp_run.exe $(PT2_JSON_MODELS_DIR)/$(PT2_MODEL) \
+		$(PT2_MODEL_DIR)/inputs.pt $(PT2_MODEL_DIR)/expected.json \
+		$(PT2_MODEL_DIR)/outputs.pt --strict --safetensors
 
 # The raw interpreter binary, built once via plain `dune build` (never `dune
 # exec`). inference.% below runs this directly instead, so `make -j` can fan

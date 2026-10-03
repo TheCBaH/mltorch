@@ -12,8 +12,12 @@ module SMap = Map.Make (String)
 type mode = Cram | Natural
 
 module Paths = struct
+  module Model = struct
+    type t = Pt2 of string | Safetensors of string
+  end
+
   type t = {
-    pt2 : string;
+    model : Model.t;
     images_dir : string;
     synsets : string;
     metadata : string;
@@ -46,6 +50,7 @@ type 'eval error =
   | `Expected_decode of string
   | `Mismatch of Mismatch.t
   | `No_reference of string
+  | `Open_model of string
   | Pt2_archive.error
   | `Results_decode of string ]
 
@@ -59,6 +64,7 @@ let pp_error pp_eval ppf : 'eval error -> unit = function
       Fmt.pf ppf "@[<h>%s: top-%d [%a] does not match reference [%a]@]" sample
         (List.length local) pp_indices local pp_indices reference
   | `No_reference key -> Fmt.pf ppf "no reference for %S" key
+  | `Open_model msg -> Fmt.string ppf msg
   | #Pt2_archive.error as e -> Pt2_archive.pp_error ppf e
   | `Results_decode msg -> Fmt.pf ppf "results.json: %s" msg
 
@@ -127,7 +133,8 @@ let decode_expected path =
 
 let usage =
   "usage: <model.pt2> <inputs.pt> <expected.json> <outputs.pt> [--cram] \
-   [--strict]"
+   [--strict] [--safetensors]  (--safetensors: the first path is a model \
+   directory, not a .pt2)"
 
 let is_flag s = String.length s > 0 && s.[0] = '-'
 
@@ -142,10 +149,11 @@ let rec take_paths n acc args =
     | a :: _ when is_flag a -> Error usage
     | a :: rest -> take_paths (n - 1) (a :: acc) rest
 
-let rec take_flags mode strict = function
-  | [] -> Ok { Options.mode; strict }
-  | "--cram" :: rest -> take_flags Cram strict rest
-  | "--strict" :: rest -> take_flags mode true rest
+let rec take_flags mode strict safetensors = function
+  | [] -> Ok ({ Options.mode; strict }, safetensors)
+  | "--cram" :: rest -> take_flags Cram strict safetensors rest
+  | "--safetensors" :: rest -> take_flags mode strict true rest
+  | "--strict" :: rest -> take_flags mode true safetensors rest
   | _ -> Error usage
 
 let parse_argv argv =
@@ -155,12 +163,14 @@ let parse_argv argv =
       match take_paths 4 [] args with
       | Error _ as e -> e
       | Ok ([ pt2; inputs; expected; outputs ], rest) -> (
-          match take_flags Natural false rest with
+          match take_flags Natural false false rest with
           | Error _ as e -> e
-          | Ok options ->
+          | Ok (options, safetensors) ->
               Ok
                 ( {
-                    Paths.pt2;
+                    Paths.model =
+                      (if safetensors then Paths.Model.Safetensors pt2
+                       else Paths.Model.Pt2 pt2);
                     images_dir = "";
                     synsets = "";
                     metadata = "";
@@ -278,12 +288,22 @@ let timed now label f =
   Printf.eprintf "%s: %.1f ms\n%!" label ((now () -. t0) *. 1000.);
   result
 
-let run ?max_samples ~now ~infer (paths : Paths.t) options =
+let open_model ?open_safetensors now : Paths.Model.t -> _ = function
+  | Pt2 path ->
+      timed now "pt2 open" (fun () -> Pt2_archive.open_pt2 path)
+      |> Err.map_error (fun e -> (e : Pt2_archive.error :> _ error))
+  | Safetensors dir -> (
+      match open_safetensors with
+      | None ->
+          Err.fail
+            (`Open_model "this runner cannot open a safetensors model directory")
+      | Some open_dir ->
+          timed now "safetensors open" (fun () -> open_dir dir)
+          |> Err.import ~pos:__POS__ (fun msg -> `Open_model msg))
+
+let run ?max_samples ?open_safetensors ~now ~infer (paths : Paths.t) options =
   let open Err.Syntax in
-  let* archive =
-    timed now "pt2 open" (fun () -> Pt2_archive.open_pt2 paths.pt2)
-    |> Err.map_error (fun e -> (e : Pt2_archive.error :> _ error))
-  in
+  let* archive = open_model ?open_safetensors now paths.model in
   match (paths.inputs, paths.expected, paths.outputs) with
   | Some inputs_path, Some expected_path, Some outputs_path ->
       let* inputs =
