@@ -12,21 +12,21 @@ let to_tensor (t : Pt2_tensor.t) =
   match t.Pt2_tensor.dtype with
   | Pt2_dtype.Float32 ->
       let data = t.Pt2_tensor.data in
-      let n = Bytes.length data / 4 in
+      let n = Pt2_storage.length data / 4 in
       let ba = Bigarray.Array1.create Bigarray.float32 Bigarray.c_layout n in
       for i = 0 to n - 1 do
         Bigarray.Array1.unsafe_set ba i
-          (Int32.float_of_bits (Bytes.get_int32_le data (i * 4)))
+          (Int32.float_of_bits (Pt2_storage.get_int32_le data (i * 4)))
       done;
       Aten_tensor.of_storage Aten_dtype.float32 ba ~sizes:t.Pt2_tensor.sizes
         ~strides:t.Pt2_tensor.strides
         ~storage_offset:t.Pt2_tensor.storage_offset
   | Pt2_dtype.Int64 ->
       let data = t.Pt2_tensor.data in
-      let n = Bytes.length data / 8 in
+      let n = Pt2_storage.length data / 8 in
       let ba = Bigarray.Array1.create Bigarray.int64 Bigarray.c_layout n in
       for i = 0 to n - 1 do
-        Bigarray.Array1.unsafe_set ba i (Bytes.get_int64_le data (i * 8))
+        Bigarray.Array1.unsafe_set ba i (Pt2_storage.get_int64_le data (i * 8))
       done;
       Aten_tensor.of_storage Aten_dtype.int64 ba ~sizes:t.Pt2_tensor.sizes
         ~strides:t.Pt2_tensor.strides

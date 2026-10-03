@@ -10,7 +10,8 @@ type t = {
   sizes : int list;
   strides : int list;
   storage_offset : int;
-  data : bytes; (* the full storage, [numel storage] elements of [dtype] *)
+  data : Pt2_storage.t;
+      (* the full storage, [numel storage] elements of [dtype]; read-only *)
 }
 
 type error = [ Pt2_dtype.error | `Symbolic_value of string ]

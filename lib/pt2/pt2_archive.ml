@@ -184,7 +184,7 @@ let constant_names t =
 
 let load_entry t ~dir name (e : WeightEntry.t) =
   let* data = read_member t.zip (dir ^ "/" ^ e.path_name) in
-  Pt2_tensor.of_meta e.tensor_meta ~data:(Bytes.of_string data)
+  Pt2_tensor.of_meta e.tensor_meta ~data:(Pt2_storage.of_string data)
   |> Err.map_error ~pos:__POS__ (fun error -> `Weight_tensor (name, error))
 
 (* Load a parameter/buffer by its config name (e.g. "conv1.weight"). *)
@@ -212,7 +212,7 @@ let tensor_of_rebuild zip rb =
       sizes = rb.Pt2_pickle.sizes;
       strides = rb.Pt2_pickle.strides;
       storage_offset = rb.Pt2_pickle.storage_offset;
-      data = Bytes.of_string data;
+      data = Pt2_storage.of_string data;
     }
 
 (* A standalone `.pt` tensor (the embedded sample input in a PT2 archive) is
