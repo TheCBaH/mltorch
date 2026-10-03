@@ -117,6 +117,30 @@ let%expect_test "every Native_interp row, classified" =
     Verify                                 fatal
     Lens                                   fatal |}]
 
+let%expect_test "SDPA work ceiling is recoverable, shape mismatches are fatal" =
+  let query = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:6 ~w:1029 ~c:64 in
+  let check label ~key ~mask =
+    match
+      Attention.Sdpa.output_shape ~query_shape:query ~key_shape:key
+        ~value_shape:query ~mask_shape:mask
+    with
+    | Ok _ -> failwith "expected SDPA rejection"
+    | Error e -> show label (MC.lowering (`Build (Err.Error.kind e)))
+  in
+  check "Total_work_over_limit" ~key:query ~mask:None;
+  check "Batch_mismatch" ~key:(Vec6.set query Axis.H (Dim.extent 5)) ~mask:None;
+  check "Extent_mismatch"
+    ~key:(Vec6.set query Axis.C (Dim.extent 32))
+    ~mask:None;
+  check "Mask_shape" ~key:query
+    ~mask:(Some (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:2 ~c:1));
+  [%expect
+    {|
+    Total_work_over_limit                  unavailable over_limit
+    Batch_mismatch                         fatal
+    Extent_mismatch                        fatal
+    Mask_shape                             fatal |}]
+
 let%expect_test "every reason has a diagnostic code, and it is not assumed" =
   (* The two closed vocabularies meet in one place. They agree in spelling,
      which is exactly why the map is written out: a code added for the worker

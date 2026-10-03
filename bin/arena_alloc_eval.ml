@@ -9,7 +9,7 @@
    deterministic order; [--summary] renders it as markdown, from the file, so a
    resumed run summarizes the same way as a fresh one. Exits nonzero on a
    corpus-count mismatch, a failed extraction, an invalid placement or an
-   internal error; a classified Native4D refusal and a bounded reference search
+   internal error; a classified dialect refusal and a bounded reference search
    running out of work are results, not failures.
 
    See .ai/ (the tensor arena design) for what the figures mean. *)

@@ -5,6 +5,7 @@
         "dockerfile": "Dockerfile"
     },
     "features": {
+        "ghcr.io/devcontainers/features/sshd:1": {},
         "ghcr.io/devcontainers/features/common-utils:2": {
             "installZsh": "true",
             "username": "vscode",
@@ -21,8 +22,10 @@
         // ppx_expect, silently taking every inline test with it. 5.1.0-414 is
         // what the solver picks anyway.
         // fmt and jsont are pinned because js/melange/vendor copies their
-        // sources and the jsont patch is checksum-guarded against 0.2.0.
-        // bytesrw is pinned for plain reproducibility of the native build.
+        // sources and the jsont patch is checksum-guarded against 0.4.0.
+        // bytesrw is pinned for plain reproducibility of the native build; 0.4.1 is
+        // the first release whose Bytes.Writer.limit raises Stream.Error (not
+        // Invalid_argument) when the budget lands exactly on a slice boundary.
         // cmdliner is pinned because its CLI error-message rendering (quoted
         // vs styled text, see Cmdliner_base.styler) is asserted verbatim in
         // test/me_visualize_json_cram.t; an unpinned bump silently broke that
@@ -35,12 +38,12 @@
         // build or that solve. See .ai/js_backends_design.md.
         "ghcr.io/thecbah/ocaml-features/ocaml:1": {
             "version": "4.14.3",
-            "packages": "bytesrw#0.3.0 cmdliner#2.1.1 ctypes ctypes-foreign fmt#0.11.0 js_of_ocaml#6.4.1 js_of_ocaml-compiler#6.4.1 js_of_ocaml-ppx#6.4.1 jsont#0.2.0 landmarks landmarks-ppx melange#5.1.0-414 err_trace#git+https://github.com/TheCBaH/err_trace#main err_trace-melange#git+https://github.com/TheCBaH/err_trace#main memtrace ppx_expect#v0.16.2 utop yaml zipc"
+            "packages": "bytesrw#0.4.1 cmdliner#2.1.1 ctypes ctypes-foreign fmt#0.11.0 js_of_ocaml#6.4.1 js_of_ocaml-compiler#6.4.1 js_of_ocaml-ppx#6.4.1 jsont#0.4.0 landmarks landmarks-ppx melange#5.1.0-414 err_trace#git+https://github.com/TheCBaH/err_trace#main err_trace-melange#git+https://github.com/TheCBaH/err_trace#main memtrace ppx_expect#v0.16.2 utop yaml zipc"
         },
         // Node/npm run the js_of_ocaml, melange and browser gates. Exact Debian
         // package pins keep a developer rebuild and CI on one runtime too.
         "./features/npm": {
-            "node_version": "20.19.2+dfsg-1+deb13u2",
+            "node_version": "20.19.2+dfsg-1+deb13u3",
             "npm_version": "9.2.0~ds1-3"
         },
     },

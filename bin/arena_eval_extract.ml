@@ -230,9 +230,10 @@ let dialect ~now d transformed =
   | Dialect.Native -> native ~now transformed
   | Dialect.Native4d -> native4d ~now transformed
 
-(* A shared failure becomes the same prerequisite status on every branch. *)
+(* A shared refusal applies to every branch. Only an import defect blocks a
+   branch with a failed prerequisite. *)
 let prerequisite = function
   | Outcome.Failed { stage; diagnostic }
-  | Outcome.Prerequisite { stage; diagnostic }
-  | Outcome.Refused { stage; diagnostic; _ } ->
+  | Outcome.Prerequisite { stage; diagnostic } ->
       Outcome.Prerequisite { stage; diagnostic }
+  | Outcome.Refused _ as o -> o

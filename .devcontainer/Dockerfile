@@ -10,6 +10,7 @@ RUN set -eux;\
   curl\
   g++\
   git\
+  libclang-rt-dev-wasm32\
   libffi-dev\
   lld\
   make\
@@ -19,6 +20,7 @@ RUN set -eux;\
   python3-yaml\
   ripgrep\
   time\
+  wasi-libc\
   wget\
   xxd\
   xz-utils\

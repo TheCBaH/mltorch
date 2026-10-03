@@ -74,15 +74,15 @@ let of_rows ~expected ~dialects rows =
     coverage = List.map (coverage rows) dialects;
   }
 
-(* Every model attempted in every dialect; Native evaluated for all; nothing
-   failed and nothing blocked by a failed import. A classified Native4D
-   refusal is a result. *)
+(* Every model attempted in every dialect; nothing failed or was blocked by a
+   failed import. A classified refusal is a result in either dialect. *)
 let ok t =
   t.models = t.expected
   && List.for_all
        (fun (c : Coverage.t) ->
          c.attempted = t.expected && c.failed = [] && c.prerequisite = 0
-         && (c.dialect <> "native" || c.evaluated = t.expected))
+         && c.evaluated + List.fold_left (fun n (_, k) -> n + k) 0 c.refused
+            = t.expected)
        t.coverage
 
 let coverage_rows t =
