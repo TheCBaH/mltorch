@@ -42,6 +42,7 @@ val default_compiler : string list
     [LOOP_C_CFLAGS], if set, replaces [-O2] (for [-O0] and sanitizer runs). *)
 
 val prepare :
+  ?dialect:Loop_c_dialect.t ->
   ?vector:Loop_target.t ->
   ?numerics:Loop_numerics.t ->
   ?kernel:(name:string -> Loop_bundle.invocation -> (Loop_c.t, string) result) ->
@@ -51,7 +52,8 @@ val prepare :
   constants:(Tensor_id.t -> Tensor.packed option) ->
   (prepared, error) Err.t
 (** Generates [model_infer.c] and [model_main.c] and [weights.bin] into [dir]
-    (created if absent), and compiles them to [dir/model]. [constants] supplies
+    (created if absent), and compiles them to [dir/model]. [dialect] spells
+    [model_infer.c] only; [model_main.c] stays host C. [constants] supplies
     every tensor of the bundle's [constants], read once here. [dir] is kept. *)
 
 val run :
