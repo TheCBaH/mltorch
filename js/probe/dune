@@ -40,7 +40,9 @@
   err_trace
   fmt
   pt2
+  pt2_safetensors
   pytorch_types
+  safetensors
   schema_runtime
   jsont
   jsont.bytesrw
@@ -117,3 +119,12 @@
    (run
     cat
     %{project_root}/../../modules/devcontainer.pytorch-image-models/models/mobilenetv2_050/models/model.json))))
+
+; Native only: resolves a model directory's pinned checkpoint through the Hub
+; cache and prints its path, for the node run of pt2_probe --safetensors, which
+; is handed the file rather than fetching it. See `make jsoo.safetensors.runtest`.
+
+(executable
+ (name safetensors_path)
+ (modules safetensors_path)
+ (libraries err_trace fmt pt2_safetensors_unix))

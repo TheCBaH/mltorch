@@ -10,6 +10,10 @@
 let () =
   match Sys.argv with
   | [| _; pt2; input |] -> Probe_pt2.run ~pt2 ~input
+  | [| _; "--safetensors"; model_dir; checkpoint; input |] ->
+      Probe_pt2.run_safetensors ~model_dir ~checkpoint ~input
   | _ ->
-      prerr_endline "usage: pt2_probe <model.pt2> <input.pt>";
+      prerr_endline
+        "usage: pt2_probe <model.pt2> <input.pt>\n\
+        \       pt2_probe --safetensors <model_dir> <checkpoint> <input.pt>";
       exit 2

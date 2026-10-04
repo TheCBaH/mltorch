@@ -26,30 +26,18 @@ let pp_error ppf : error -> unit = function
       Fmt.pf ppf "checkpoint is %Ld bytes, safetensors.json pins %Ld" actual
         expected
 
-let open_dir ?env ?http dir =
-  let file rel = Filename.concat dir rel in
-  let* program_json = Pt2_archive.read_file (file "models/model.json") in
-  let* program = Pt2_archive.program_of_json program_json in
-  let* weights_json =
-    Pt2_archive.read_file (file "data/weights/model_weights_config.json")
+let read_map dir =
+  let* map_json =
+    Pt2_archive.read_file (Filename.concat dir "models/safetensors.json")
   in
-  let* weights = Pt2_archive.weights_config_of_json weights_json in
-  let constants_path = file "data/constants/model_constants_config.json" in
-  let* constants =
-    if Sys.file_exists constants_path then
-      let* json = Pt2_archive.read_file constants_path in
-      Pt2_archive.constants_config_of_json json
-    else Err.return Pt2_archive.no_constants
-  in
-  let* map_json = Pt2_archive.read_file (file "models/safetensors.json") in
   let* map = Pt2_safetensors.map_of_string map_json in
   (* Refuse before any download: a map that cannot run needs no checkpoint. *)
-  let* () =
-    match map.unmapped with
-    | [] -> Err.return ()
-    | names -> Err.fail (`Unmapped_constants names)
-  in
-  let source = map.source in
+  match map.unmapped with
+  | [] -> Err.return map
+  | names -> Err.fail (`Unmapped_constants names)
+
+(* The pinned checkpoint, mapped, after its sha256 and size agree with the pin. *)
+let resolve ?env ?http (source : Pt2_safetensors.Checkpoint_map.Source.t) =
   let* repo =
     Hf_hub.Repo_id.of_string source.repo_id
     |> Err.import ~pos:__POS__ (fun e -> `Source e)
@@ -80,4 +68,28 @@ let open_dir ?env ?http dir =
           (`Source_mismatch
              (Source_mismatch.Size { actual = st_size; expected = source.size }))
   in
+  Err.return (memory, blob)
+
+let checkpoint_path ?env ?http dir =
+  let* map = read_map dir in
+  let* _, blob = resolve ?env ?http map.source in
+  Err.return blob.path
+
+let open_dir ?env ?http dir =
+  let file rel = Filename.concat dir rel in
+  let* program_json = Pt2_archive.read_file (file "models/model.json") in
+  let* program = Pt2_archive.program_of_json program_json in
+  let* weights_json =
+    Pt2_archive.read_file (file "data/weights/model_weights_config.json")
+  in
+  let* weights = Pt2_archive.weights_config_of_json weights_json in
+  let constants_path = file "data/constants/model_constants_config.json" in
+  let* constants =
+    if Sys.file_exists constants_path then
+      let* json = Pt2_archive.read_file constants_path in
+      Pt2_archive.constants_config_of_json json
+    else Err.return Pt2_archive.no_constants
+  in
+  let* map = read_map dir in
+  let* memory, _ = resolve ?env ?http map.source in
   Pt2_safetensors.of_parts ~map ~program ~weights ~constants memory

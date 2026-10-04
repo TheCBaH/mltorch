@@ -127,6 +127,21 @@ jobs:
     - name: jsoo pt2 inference test
       run: |
         ${{ env.EXEC }} make jsoo.pt2.runtest
+    # The same model with its weights from the Hub checkpoint its safetensors.json
+    # pins: native fetches it into data/hf-hub and hands node the file, then the
+    # native and node runs are diffed, and native is checked equal to the .pt2 run
+    # above. Its own cache entry, keyed by that one model's pin -- not build.yml's,
+    # for the reason jsoo_pt2 has its own key.
+    - name: safetensors checkpoint cache
+      uses: actions/cache@v6
+      with:
+        path: data/hf-hub
+        key: hf-hub-jsoo-${{ hashFiles('modules/devcontainer.pytorch-image-models/models/mobilenetv2_050/models/safetensors.json') }}
+        restore-keys: |
+          hf-hub-jsoo-
+    - name: jsoo safetensors inference test
+      run: |
+        ${{ env.EXEC }} sh -ceu 'HF_HUB_CACHE="$(pwd)/data/hf-hub" make jsoo.safetensors.runtest'
     # Every node of the same already-cached model through its own generated-JS
     # kernel ~100s, the same order as
     # the step above, and no new download since it reuses JS_PT2_MODEL's own

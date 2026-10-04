@@ -5,7 +5,7 @@
 	expr_probe.deep-runtest expr_probe.runtest format fp32.bench fp32.bench.wasm inference inference-runa \
 	inline-timing-report inline-timing-report-js js.build js.runtest \
 	jsoo.build jsoo.inline-runtest jsoo.pt2.download jsoo.pt2.run \
-	jsoo.pt2.runtest jsoo.pt2.vars jsoo.runtest loop.js.runtest \
+	jsoo.pt2.runtest jsoo.pt2.vars jsoo.runtest jsoo.safetensors.runtest loop.js.runtest \
 	loop_js.bench loop_js.bundle.pt2.bench loop_js.bundle.pt2.runtest loop_js.node.pt2.direct.runtest \
 	loop_js.node.pt2.fast.direct.runtest loop_js.node.pt2.fast.runtest \
 	loop_js.node.pt2.runtest loop_js.pt2.download loop_js.pt2.run \
@@ -701,6 +701,29 @@ JS_PT2_MODEL := mobilenetv2_050
 JS_PT2_DIR := $(PT2_DIR)/$(JS_PT2_MODEL)
 JS_PT2_ARCHIVE := $(JS_PT2_DIR)/$(JS_PT2_MODEL).pt2
 JS_PT2_INPUT := $(JS_PT2_DIR)/inputs.pt
+
+# The same model with its weights from the pinned Hub checkpoint instead of the
+# .pt2: native fetches (and checks) the checkpoint into $(HF_HUB_CACHE) and
+# prints its path, then the native golden and node read that one file. Needs the
+# network once, or a warm cache. Outside js.runtest like jsoo.pt2.runtest.
+JS_SAFETENSORS_MODEL_DIR := $(PT2_JSON_MODELS_DIR)/$(JS_PT2_MODEL)
+
+jsoo.safetensors.runtest: jsoo.build
+	@test -f $(JS_PT2_INPUT) || { \
+		echo "jsoo.safetensors.runtest: missing $(JS_PT2_INPUT) -- run 'make pt2.download PT2_MODEL=$(JS_PT2_MODEL)' first" >&2; \
+		exit 1; \
+	}
+	@ckpt=$$($(JS_BUILD)/probe/safetensors_path.exe $(JS_SAFETENSORS_MODEL_DIR)) && \
+	$(JS_BUILD)/probe/pt2_probe.exe --safetensors $(JS_SAFETENSORS_MODEL_DIR) $$ckpt $(JS_PT2_INPUT) \
+	  > $(JS_BUILD)/safetensors_native.txt && \
+	node $(JS_BUILD)/jsoo/pt2_probe.bc.js --safetensors $(JS_SAFETENSORS_MODEL_DIR) $$ckpt $(JS_PT2_INPUT) \
+	  > $(JS_BUILD)/safetensors_jsoo.txt
+	@diff -u $(JS_BUILD)/safetensors_native.txt $(JS_BUILD)/safetensors_jsoo.txt \
+	  && echo "jsoo: $(JS_PT2_MODEL) safetensors inference matches native ($$(wc -l < $(JS_BUILD)/safetensors_native.txt) lines)"
+	@sed 1d $(JS_BUILD)/safetensors_native.txt | grep -v '^checkpoint-bytes\|^archive-bytes' > $(JS_BUILD)/safetensors_native.body; \
+	$(JS_BUILD)/probe/pt2_probe.exe $(JS_PT2_ARCHIVE) $(JS_PT2_INPUT) | sed 1d | grep -v '^archive-bytes' > $(JS_BUILD)/pt2_native.body; \
+	diff -u $(JS_BUILD)/pt2_native.body $(JS_BUILD)/safetensors_native.body \
+	  && echo "jsoo: $(JS_PT2_MODEL) safetensors outputs equal the .pt2's"
 
 jsoo.pt2.download:
 	$(MAKE) pt2.download PT2_MODEL=$(JS_PT2_MODEL)

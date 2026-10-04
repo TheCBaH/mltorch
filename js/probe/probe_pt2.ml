@@ -22,14 +22,7 @@ let read_file path =
 let ok what pp r =
   Err.or_raise ~pp_error:(fun ppf e -> Fmt.pf ppf "probe: %s: %a" what pp e) r
 
-let run ~pt2 ~input =
-  print_endline "=== pt2-inference ===";
-  let archive_bytes = read_file pt2 in
-  Printf.printf "archive-bytes %d\n" (String.length archive_bytes);
-  let archive =
-    ok "open archive" Pt2_archive.pp_error
-      (Pt2_archive.of_string ~name:pt2 archive_bytes)
-  in
+let run_archive archive ~input =
   let lowered =
     ok "lower" Native_interp.pp_error (Native_interp.lower_archive archive)
   in
@@ -87,3 +80,54 @@ let run ~pt2 ~input =
                 Printf.sprintf "%d:%s" j (Walk_core.Float32.to_hex v))
               top)))
     outputs
+
+let run ~pt2 ~input =
+  print_endline "=== pt2-inference ===";
+  let archive_bytes = read_file pt2 in
+  Printf.printf "archive-bytes %d\n" (String.length archive_bytes);
+  let archive =
+    ok "open archive" Pt2_archive.pp_error
+      (Pt2_archive.of_string ~name:pt2 archive_bytes)
+  in
+  run_archive archive ~input
+
+(* The weights come from a safetensors checkpoint instead of the .pt2 zip: the
+   graph and weight configs from [model_dir], the checkpoint's bytes from
+   [checkpoint]. The same [run_archive] below that point, so the output is
+   directly comparable with [run]'s -- and, being the same source on both
+   backends, with its own native golden. [Safetensors.Memory.of_string] copies
+   the file, which is what a node run without an mmap has. *)
+let run_safetensors ~model_dir ~checkpoint ~input =
+  print_endline "=== safetensors-inference ===";
+  let file rel = Filename.concat model_dir rel in
+  let json rel of_json =
+    ok rel Pt2_archive.pp_error (of_json (read_file (file rel)))
+  in
+  let program = json "models/model.json" Pt2_archive.program_of_json in
+  let weights =
+    json "data/weights/model_weights_config.json"
+      Pt2_archive.weights_config_of_json
+  in
+  let constants_rel = "data/constants/model_constants_config.json" in
+  let constants =
+    if Sys.file_exists (file constants_rel) then
+      json constants_rel Pt2_archive.constants_config_of_json
+    else Pt2_archive.no_constants
+  in
+  let map =
+    ok "safetensors.json" Pt2_safetensors.pp_error
+      (Pt2_safetensors.map_of_string
+         (read_file (file "models/safetensors.json")))
+  in
+  let checkpoint_bytes = read_file checkpoint in
+  Printf.printf "checkpoint-bytes %d\n" (String.length checkpoint_bytes);
+  let memory =
+    match Safetensors.Memory.of_string checkpoint_bytes with
+    | Ok m -> m
+    | Error _ -> failwith "probe: invalid safetensors checkpoint"
+  in
+  let archive =
+    ok "open checkpoint" Pt2_safetensors.pp_error
+      (Pt2_safetensors.of_parts ~map ~program ~weights ~constants memory)
+  in
+  run_archive archive ~input

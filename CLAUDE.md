@@ -244,6 +244,7 @@ make melange.build.scaffold  # shim + fmt + jsont_base only — the diagnostic f
 # Gated on downloaded weights, so outside js.runtest — CI runs it in the jsoo job,
 # which fetches this one model under its own cache key (never build.yml's).
 make jsoo.pt2.download       # = pt2.download for the tier-2/3 model
+make jsoo.safetensors.runtest # the same model's weights from its pinned Hub checkpoint: node vs native, and equal to the .pt2 run
 make jsoo.pt2.runtest        # open a real .pt2, lower it, run inference, diff
 make loop_js.node.pt2.runtest # every node of mobilenetv2_050 through generated JS, shadowed, --strict
 ```
