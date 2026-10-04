@@ -70,11 +70,14 @@ other two) is neither the full pipeline's nor the empty one's.
   > print('custom differs from optimized', custom != opt, 'and from raw', custom != raw)"
   custom differs from optimized True and from raw True
 
-An unknown pass name is rejected, not silently ignored.
+An unknown pass name is rejected, not silently ignored. NO_COLOR, for the reason
+me_visualize_json_cram.t gives: cmdliner quotes the option name only when
+styling is off, and cram strips ANSI, so the golden would otherwise depend on
+the caller's $TERM.
 
-  $ ../bin/native_graph.exe visualize --model model.json --generated-js=not_a_pass --output bad.json
+  $ NO_COLOR=1 ../bin/native_graph.exe visualize --model model.json --generated-js=not_a_pass --output bad.json
   Usage: native_graph visualize [--help] [OPTION]…
-  native_graph: option --generated-js: unknown optimization pass "not_a_pass"
+  native_graph: option '--generated-js': unknown optimization pass "not_a_pass"
                 (known: unit_loops, fold, simplify, guards, cse, hoist,
                 collapse)
   [124]
