@@ -53,6 +53,10 @@ let lowering : [< Native_interp.error ] -> verdict = function
      should not have. *)
   | `Output_count_over_limit _ | `Build (`Output_count_over_limit _) ->
       Unavailable C.Over_limit
+  (* SDPA bounds its total work during shape inference, before an allocation
+     script can be built. A valid model can exceed that resource ceiling. *)
+  | `Build (`Sdpa (Shape_error.Sdpa.Total_work_over_limit _)) ->
+      Unavailable C.Over_limit
   (* Everything else is a defect or a stage this path never reaches. A
      malformed graph is a decoder that accepted what it should not have — every
      [Native_interp.malformed] row alike, which is why they are matched as the

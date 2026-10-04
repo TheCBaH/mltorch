@@ -37,11 +37,13 @@ val lowering : [< Native_interp.error ] -> verdict
     [`Unsupported_operator] and [`Unsupported_input] are recoverable — and
     recoverable for a [.pt2] and a bare [model.json] alike, because
     [Native_interp.lower] takes an [ExportedProgram.t] and gains no operator
-    support from the archive payload. Everything else is fatal: a malformed
-    graph is a decoder that accepted what it should not have, the builder,
-    provenance, transform, verify, lens and materialization rows are internal
-    invariants, and [`Eval]/[`Tensor_bridge] belong to execution, which export
-    never performs. *)
+    support from the archive payload. The output-count ceiling (including its
+    builder spelling) and the builder's SDPA total-work ceiling are recoverable
+    [Over_limit] rejections. Everything else is fatal: a malformed graph is a
+    decoder that accepted what it should not have, the builder, provenance,
+    transform, verify, lens and materialization rows are internal invariants,
+    and [`Eval]/[`Tensor_bridge] belong to execution, which export never
+    performs. *)
 
 val kernel : [< Kernel_adapt.error ] -> verdict
 (** [`Passthrough_output] is [Unsupported_graph_shape] and RECOVERABLE — a graph

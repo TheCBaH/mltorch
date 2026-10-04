@@ -61,3 +61,23 @@ launched by omission.
 
   $ ../bin/arena_alloc_eval.exe --models-dir corpus --expected-models 2 --output x.jsonl 2>&1 | grep missing
   arena_alloc_eval: required option --reference-max-states is missing
+
+A classified import refusal is a result in both dialects. A malformed source
+still fails, and blocks the dependent dialect with a failed prerequisite.
+
+  $ mkdir -p unsupported/regnetx_002/models
+  $ sed 's/torch.ops.aten.conv2d.default/torch.ops.aten.bogus.default/g' regnetx_002_model.json > unsupported/regnetx_002/models/model.json
+  $ R="../bin/arena_alloc_eval.exe --models-dir unsupported --expected-models 1 --iterations 0 --reference-max-states 1 --reference-max-depth 1"
+  $ $R --output refused.jsonl 2>/dev/null
+  $ grep -o '"model":"[^"]*","dialect":"[^"]*","type":"dialect","status":"[^"]*","stage":"[^"]*","reason":"[^"]*"' refused.jsonl
+  "model":"regnetx_002","dialect":"native","type":"dialect","status":"refused","stage":"native_import","reason":"unsupported_operator"
+  "model":"regnetx_002","dialect":"native4d","type":"dialect","status":"refused","stage":"native_import","reason":"unsupported_operator"
+  $ grep '"type":"coverage"' refused.jsonl
+  {"type":"coverage","dialect":"native","expected":1,"attempted":1,"evaluated":0,"refused":1,"prerequisite":0,"failed":0}
+  {"type":"coverage","dialect":"native4d","expected":1,"attempted":1,"evaluated":0,"refused":1,"prerequisite":0,"failed":0}
+  $ echo '{}' > unsupported/regnetx_002/models/model.json
+  $ $R --output failed.jsonl 2>/dev/null
+  [1]
+  $ grep '"type":"coverage"' failed.jsonl
+  {"type":"coverage","dialect":"native","expected":1,"attempted":1,"evaluated":0,"refused":0,"prerequisite":0,"failed":1}
+  {"type":"coverage","dialect":"native4d","expected":1,"attempted":1,"evaluated":0,"refused":0,"prerequisite":1,"failed":0}
