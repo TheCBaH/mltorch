@@ -1,4 +1,4 @@
-open Fixtures
+open Pt2_safetensors_test.Fixtures
 
 let temp_dir () =
   let d = Filename.temp_file "pt2-st-" "" in

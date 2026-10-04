@@ -1,22 +1,14 @@
 ; Hermetic tests for lib/pt2_safetensors: a synthetic checkpoint and a
-; hand-written one-parameter program, so no downloaded weights are needed. The
-; unix tests use a fake Hub transport over a real temporary cache. The
-; unix tests use a fake Hub transport over a real temporary cache.
+; hand-written one-parameter program, so no downloaded weights are needed.
+; Pure, so the suite also runs under js_of_ocaml (@runtest-js); the unix side
+; is test/pt2_safetensors_unix.
+;
+; See test/native4d/dune for why [js] carries no `enabled_if`.
 
 (library
  (name pt2_safetensors_test)
- (libraries
-  err_trace
-  fmt
-  hf-hub
-  hf-hub-unix
-  pt2
-  pt2_safetensors
-  pt2_safetensors_unix
-  pytorch_types
-  safetensors
-  schema_runtime
-  unix)
- (inline_tests)
+ (libraries err_trace fmt pt2 pt2_safetensors pytorch_types safetensors)
+ (inline_tests
+  (modes best js))
  (preprocess
   (pps ppx_expect)))
