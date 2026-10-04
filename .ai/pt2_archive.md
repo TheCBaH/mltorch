@@ -145,12 +145,27 @@ release bundle, the only place they exist. `make pt2.runtest` also checks that
 every captured tensor of `mobilenetv2_050` and `fastvit_sa12` from the
 checkpoint is byte-equal to the `.pt2`'s.
 
-**Under js_of_ocaml.** The Hub driver and the mmap are native, but the weight
-source is not: `Pt2_safetensors.of_parts` takes a `Safetensors.Memory.t`, which
-`Memory.of_string` builds from file bytes (a copy, where the native path maps).
-`pt2_probe --safetensors <model_dir> <checkpoint> <input>` does exactly that on
-both backends, and `make jsoo.safetensors.runtest` diffs native against node, then
-checks the native output equals the `.pt2` run's. The checkpoint is fetched and
-pin-checked natively by `Pt2_safetensors_unix.checkpoint_path` (the
-`safetensors_path` executable) and handed to node as a file. A node-side Hub
-driver is not built; the sans-IO core is the part that would be shared.
+**Under js_of_ocaml.** The mmap is native, but the weight source is not:
+`Pt2_safetensors.of_parts` takes a `Safetensors.Memory.t`, which `Memory.of_string`
+builds from file bytes (a copy, where the native path maps). The Hub download is
+not native-only either: `js/pt2_safetensors_js` runs hf-hub's own JavaScript
+driver (`javascript/shared` in the submodule, copied by dune, with its
+js_of_ocaml `Runtime` binding) and fetches the pinned checkpoint itself, then
+applies the same pin check as the native side (`Pt2_safetensors.check_source`:
+etag against the pinned sha256, byte count against the pinned size). The
+driver's host half is plain JavaScript loaded first -- `node-host.cjs` (a
+huggingface_hub-layout cache on disk, shared with the native one) or
+`browser-host.js` (in memory, Web Crypto), each given a `bytes` accessor.
+
+The entry `safetensors_probe` takes the model files as strings, so one source
+serves node (`node_run.cjs`) and the page. Both run `Probe_pt2`, the source of
+the native golden (`pt2_probe --safetensors <model_dir> <checkpoint> <input>`,
+the checkpoint path from `Pt2_safetensors_unix.checkpoint_path`), and are diffed
+against it: `make jsoo.safetensors.runtest` for node, then checks the native
+output equals the `.pt2` run's; `make safetensors.browser.runtest` for Chromium
+via playwright (`web/scripts/safetensors-browser-check.mjs`), comparing the
+page's console output line for line. The browser reaches the live Hub through
+hf-hub's example proxy, because a browser cannot read the metadata headers of the
+Hub's redirecting HEAD; that run needs the network. The browser buffers the whole
+checkpoint and holds it in memory, so this suits the small models, not large
+checkpoints.

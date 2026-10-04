@@ -1,30 +1,16 @@
 open Err.Syntax
 
-module Source_mismatch = struct
-  type t =
-    | Sha256 of { actual : string option; expected : string }
-    | Size of { actual : int64; expected : int64 }
-end
-
 type error =
   [ Pt2_archive.error
   | Pt2_safetensors.error
   | `Checkpoint of Hf_hub_safetensors.error
-  | `Source of Hf_hub.Error.t
-  | `Source_mismatch of Source_mismatch.t ]
+  | `Source of Hf_hub.Error.t ]
 
 let pp_error ppf : error -> unit = function
   | #Pt2_archive.error as e -> Pt2_archive.pp_error ppf e
   | #Pt2_safetensors.error as e -> Pt2_safetensors.pp_error ppf e
   | `Checkpoint e -> Hf_hub_safetensors.pp_error ppf e
   | `Source e -> Fmt.pf ppf "invalid checkpoint source: %a" Hf_hub.Error.pp e
-  | `Source_mismatch (Sha256 { actual; expected }) ->
-      Fmt.pf ppf "checkpoint sha256 is %a, safetensors.json pins %s"
-        Fmt.(option ~none:(any "unknown") string)
-        actual expected
-  | `Source_mismatch (Size { actual; expected }) ->
-      Fmt.pf ppf "checkpoint is %Ld bytes, safetensors.json pins %Ld" actual
-        expected
 
 let read_map dir =
   let* map_json =
@@ -51,23 +37,8 @@ let resolve ?env ?http (source : Pt2_safetensors.Checkpoint_map.Source.t) =
       ~filename:source.filename ()
     |> Err.import ~pos:__POS__ (fun e -> `Checkpoint e)
   in
-  let* () =
-    if blob.Hf_hub.Blob.etag = Some source.sha256 then Err.return ()
-    else
-      Err.fail
-        (`Source_mismatch
-           (Source_mismatch.Sha256
-              { actual = blob.etag; expected = source.sha256 }))
-  in
-  let* () =
-    match Unix.LargeFile.stat blob.path with
-    | { Unix.LargeFile.st_size; _ } when Int64.equal st_size source.size ->
-        Err.return ()
-    | { st_size; _ } ->
-        Err.fail
-          (`Source_mismatch
-             (Source_mismatch.Size { actual = st_size; expected = source.size }))
-  in
+  let size = (Unix.LargeFile.stat blob.path).st_size in
+  let* () = Pt2_safetensors.check_source source ~etag:blob.etag ~size in
   Err.return (memory, blob)
 
 let checkpoint_path ?env ?http dir =

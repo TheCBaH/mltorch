@@ -65,11 +65,18 @@ module Mismatch = struct
     | Graph_shape of { graph : int list; map : int list }
 end
 
+module Source_mismatch = struct
+  type t =
+    | Sha256 of { actual : string option; expected : string }
+    | Size of { actual : int64; expected : int64 }
+end
+
 type error =
   [ `Map_decode of string
   | `Mismatch of string * Mismatch.t
   | `Missing_in_checkpoint of string * string
   | `Schema_version of int
+  | `Source_mismatch of Source_mismatch.t
   | `Unmapped_constants of string list
   | `Unmapped_tensor of string
   | Pt2_tensor.error ]
@@ -99,6 +106,13 @@ let pp_error ppf : error -> unit = function
       Fmt.pf ppf "tensor %S: checkpoint has no tensor %S" name key
   | `Schema_version v ->
       Fmt.pf ppf "unsupported safetensors.json schema_version %d" v
+  | `Source_mismatch (Sha256 { actual; expected }) ->
+      Fmt.pf ppf "checkpoint sha256 is %a, safetensors.json pins %s"
+        Fmt.(option ~none:(any "unknown") string)
+        actual expected
+  | `Source_mismatch (Size { actual; expected }) ->
+      Fmt.pf ppf "checkpoint is %Ld bytes, safetensors.json pins %Ld" actual
+        expected
   | `Unmapped_constants names ->
       Fmt.pf ppf "the checkpoint lacks %d captured tensor(s): %a"
         (List.length names)
@@ -107,6 +121,17 @@ let pp_error ppf : error -> unit = function
   | `Unmapped_tensor name ->
       Fmt.pf ppf "captured tensor %S is not in safetensors.json" name
   | #Pt2_tensor.error as e -> Pt2_tensor.pp_error ppf e
+
+let check_source (source : Checkpoint_map.Source.t) ~etag ~size =
+  if etag <> Some source.sha256 then
+    Err.fail
+      (`Source_mismatch
+         (Source_mismatch.Sha256 { actual = etag; expected = source.sha256 }))
+  else if not (Int64.equal size source.size) then
+    Err.fail
+      (`Source_mismatch
+         (Source_mismatch.Size { actual = size; expected = source.size }))
+  else Err.return ()
 
 let supported_schema_version = 1
 

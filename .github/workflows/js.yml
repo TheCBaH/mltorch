@@ -340,6 +340,12 @@ jobs:
     - name: wasm in a real browser
       run: |
         ${{ env.EXEC }} make wasm.browser.runtest
+    # The safetensors weight source in the page: the checkpoint downloaded from
+    # the Hub by hf-hub's JavaScript driver, checked against the pin, and the
+    # model run on it; the console output must equal the native golden.
+    - name: safetensors in a real browser
+      run: |
+        ${{ env.EXEC }} sh -ceu 'make jsoo.pt2.download && make safetensors.browser.runtest'
 
   melange:
     strategy:

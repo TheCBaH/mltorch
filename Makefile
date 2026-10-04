@@ -5,7 +5,7 @@
 	expr_probe.deep-runtest expr_probe.runtest format fp32.bench fp32.bench.wasm inference inference-runa \
 	inline-timing-report inline-timing-report-js js.build js.runtest \
 	jsoo.build jsoo.inline-runtest jsoo.pt2.download jsoo.pt2.run \
-	jsoo.pt2.runtest jsoo.pt2.vars jsoo.runtest jsoo.safetensors.runtest loop.js.runtest \
+	jsoo.pt2.runtest jsoo.pt2.vars jsoo.runtest jsoo.safetensors.golden jsoo.safetensors.runtest loop.js.runtest \
 	loop_js.bench loop_js.bundle.pt2.bench loop_js.bundle.pt2.runtest loop_js.node.pt2.direct.runtest \
 	loop_js.node.pt2.fast.direct.runtest loop_js.node.pt2.fast.runtest \
 	loop_js.node.pt2.runtest loop_js.pt2.download loop_js.pt2.run \
@@ -16,7 +16,7 @@
 	native-infer-verify-direct.% native-transform-verify \
 	native-transform-verify.% precommit profile.landmarks \
 	profile.memtrace pt2.download pt2.download-all pt2.download-cram safetensors.run \
-	arena.eval arena.eval.report arena.schedule.eval arena.schedule.eval.report pt2.json-model-support pt2.runtest pt2.vars runtest spike.runtest \
+	arena.eval arena.eval.report arena.schedule.eval arena.schedule.eval.report pt2.json-model-support pt2.runtest pt2.vars runtest safetensors.browser.runtest spike.runtest \
 	spike.setup tailcall.js-benchmark tailcall.runtest test \
 	verify.pristine visualizer.build visualizer.patch \
 	visualizer.submodule wasm.browser.runtest wasm.c.pt2.run wasm.c.pt2.runtest wasm.jsoo.pt2.runtest wasm.jsoo.runtest wasm.pt2.bench wasm.pt2.exe wasm.pt2.perf wasm.pt2.run wasm.pt2.runtest wasm.simd.pt2.runtest wasm.runtest wasm.toolchain webapp.bridge-runtest webapp.browser-runtest \
@@ -665,7 +665,7 @@ JS_BUILD := _build/default/js
 JS_MODEL_JSON := $(JS_BUILD)/probe/model.json
 
 jsoo.build:
-	opam exec -- dune build js/probe js/jsoo js/run
+	opam exec -- dune build js/probe js/jsoo js/pt2_safetensors_js js/run
 
 jsoo.runtest: jsoo.build
 	@$(JS_BUILD)/probe/native_probe.exe $(JS_MODEL_JSON) > $(JS_BUILD)/native.txt
@@ -703,20 +703,26 @@ JS_PT2_ARCHIVE := $(JS_PT2_DIR)/$(JS_PT2_MODEL).pt2
 JS_PT2_INPUT := $(JS_PT2_DIR)/inputs.pt
 
 # The same model with its weights from the pinned Hub checkpoint instead of the
-# .pt2: native fetches (and checks) the checkpoint into $(HF_HUB_CACHE) and
-# prints its path, then the native golden and node read that one file. Needs the
-# network once, or a warm cache. Outside js.runtest like jsoo.pt2.runtest.
+# .pt2. The golden is native: it fetches (and checks) the checkpoint into
+# $(HF_HUB_CACHE), prints its path, and runs from that file. Node downloads the
+# checkpoint itself, through hf-hub's JavaScript driver into the same cache, and
+# its output is diffed against the golden. Needs the network once, or a warm
+# cache. Outside js.runtest like jsoo.pt2.runtest.
 JS_SAFETENSORS_MODEL_DIR := $(PT2_JSON_MODELS_DIR)/$(JS_PT2_MODEL)
+JS_SAFETENSORS_PROBE := $(JS_BUILD)/pt2_safetensors_js/safetensors_probe.bc.js
 
-jsoo.safetensors.runtest: jsoo.build
+# The native golden alone; node and the browser are diffed against it.
+jsoo.safetensors.golden: jsoo.build
 	@test -f $(JS_PT2_INPUT) || { \
-		echo "jsoo.safetensors.runtest: missing $(JS_PT2_INPUT) -- run 'make pt2.download PT2_MODEL=$(JS_PT2_MODEL)' first" >&2; \
+		echo "$@: missing $(JS_PT2_INPUT) -- run 'make pt2.download PT2_MODEL=$(JS_PT2_MODEL)' first" >&2; \
 		exit 1; \
 	}
 	@ckpt=$$($(JS_BUILD)/probe/safetensors_path.exe $(JS_SAFETENSORS_MODEL_DIR)) && \
 	$(JS_BUILD)/probe/pt2_probe.exe --safetensors $(JS_SAFETENSORS_MODEL_DIR) $$ckpt $(JS_PT2_INPUT) \
-	  > $(JS_BUILD)/safetensors_native.txt && \
-	node $(JS_BUILD)/jsoo/pt2_probe.bc.js --safetensors $(JS_SAFETENSORS_MODEL_DIR) $$ckpt $(JS_PT2_INPUT) \
+	  > $(JS_BUILD)/safetensors_native.txt
+
+jsoo.safetensors.runtest: jsoo.safetensors.golden
+	@node js/pt2_safetensors_js/node_run.cjs $(JS_SAFETENSORS_PROBE) $(JS_SAFETENSORS_MODEL_DIR) $(JS_PT2_INPUT) \
 	  > $(JS_BUILD)/safetensors_jsoo.txt
 	@diff -u $(JS_BUILD)/safetensors_native.txt $(JS_BUILD)/safetensors_jsoo.txt \
 	  && echo "jsoo: $(JS_PT2_MODEL) safetensors inference matches native ($$(wc -l < $(JS_BUILD)/safetensors_native.txt) lines)"
@@ -724,6 +730,16 @@ jsoo.safetensors.runtest: jsoo.build
 	$(JS_BUILD)/probe/pt2_probe.exe $(JS_PT2_ARCHIVE) $(JS_PT2_INPUT) | sed 1d | grep -v '^archive-bytes' > $(JS_BUILD)/pt2_native.body; \
 	diff -u $(JS_BUILD)/pt2_native.body $(JS_BUILD)/safetensors_native.body \
 	  && echo "jsoo: $(JS_PT2_MODEL) safetensors outputs equal the .pt2's"
+
+# The same checkpoint download and inference in a real browser (Chromium via
+# playwright): hf-hub's JavaScript driver over Fetch and Web Crypto, through its
+# example metadata proxy to the live Hub, then the probe on the bytes. The page's
+# console output must equal the native golden. Needs the playwright browser like
+# wasm.browser.runtest, and the network.
+safetensors.browser.runtest: jsoo.safetensors.golden
+	cd web && PLAYWRIGHT_BROWSERS_PATH="$(abspath web/.playwright-browsers)" \
+	  node scripts/safetensors-browser-check.mjs $(CURDIR)/$(JS_SAFETENSORS_PROBE) \
+	  $(CURDIR)/$(JS_SAFETENSORS_MODEL_DIR) $(CURDIR)/$(JS_PT2_INPUT) $(CURDIR)/$(JS_BUILD)/safetensors_native.txt
 
 jsoo.pt2.download:
 	$(MAKE) pt2.download PT2_MODEL=$(JS_PT2_MODEL)
@@ -1007,10 +1023,8 @@ wasm.jsoo.pt2.runtest: jsoo.pt2.download
 # --export) and run in the page twice on one instance with a dirty workspace,
 # outputs byte-identical to node's, and the deployment limits (a CSP without
 # 'wasm-unsafe-eval' is a typed compile error). Needs the playwright browser
-# (`cd web && npm ci && npm run install:chromium`); in a container without
-# root, WASM_BROWSER_LD_LIBRARY_PATH names a directory of the browser's system
-# libraries, from `python3 web/scripts/chromium-userland-libs.py DIR`.
-WASM_BROWSER_LD_LIBRARY_PATH ?=
+# (`cd web && npm ci && npm run install:chromium`); its system libraries come
+# with the devcontainer image.
 
 wasm.browser.runtest: jsoo.pt2.download
 	opam exec -- dune build js/loop_wasm_host/test/browser_probe.bc.js bin/loop_wasm_pt2.exe
@@ -1018,8 +1032,7 @@ wasm.browser.runtest: jsoo.pt2.download
 	  --samples=1 --export=$(CURDIR)/_build/wasm_export
 	cd $(JS_PT2_DIR) && $(CURDIR)/$(WASM_PT2_EXE) $(JS_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt \
 	  --samples=1 --simd --export=$(CURDIR)/_build/wasm_export_simd
-	cd web && $(if $(WASM_BROWSER_LD_LIBRARY_PATH),LD_LIBRARY_PATH="$(WASM_BROWSER_LD_LIBRARY_PATH)") \
-	  PLAYWRIGHT_BROWSERS_PATH="$(abspath web/.playwright-browsers)" \
+	cd web && PLAYWRIGHT_BROWSERS_PATH="$(abspath web/.playwright-browsers)" \
 	  node scripts/wasm-browser-check.mjs $(CURDIR)/_build/default/js/loop_wasm_host/test/browser_probe.bc.js \
 	  $(CURDIR)/_build/wasm_export $(CURDIR)/_build/wasm_export_simd
 

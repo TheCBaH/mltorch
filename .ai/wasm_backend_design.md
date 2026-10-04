@@ -294,7 +294,7 @@ beside other work moved them by tens of percent.
 | Real models, direct emitter vs reference | `make wasm.pt2.runtest` | downloaded models, node |
 | Real models, C compiled to Wasm vs reference | `make wasm.c.pt2.runtest` | as above plus the wasm32 libc |
 | Model generated in JavaScript, byte-identical to native | `make wasm.jsoo.pt2.runtest` | one downloaded model, node |
-| In a browser | `make wasm.browser.runtest` | playwright Chromium (`WASM_BROWSER_LD_LIBRARY_PATH` without root, see `web/scripts/chromium-userland-libs.py`) |
+| In a browser | `make wasm.browser.runtest` | playwright Chromium (its system libraries are in the devcontainer image) |
 | Phases and warm repeats | `make wasm.pt2.bench` (direct), `loop_wasm_pt2 --via-c --bench=N` | downloaded models |
 
 `loop_wasm_pt2` flags: `--strict` (release ranking), `--shadow` (bitwise vs the

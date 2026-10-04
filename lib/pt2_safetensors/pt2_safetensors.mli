@@ -50,12 +50,21 @@ module Mismatch : sig
     | Graph_shape of { graph : int list; map : int list }
 end
 
+module Source_mismatch : sig
+  type t =
+    | Sha256 of { actual : string option; expected : string }
+        (** The downloaded blob's etag (a git-LFS file's sha256) is not the
+            pinned one; [None] when the blob has no etag. *)
+    | Size of { actual : int64; expected : int64 }
+end
+
 type error =
   [ `Map_decode of string
   | `Mismatch of string * Mismatch.t
   | `Missing_in_checkpoint of string * string
     (** config name, checkpoint key *)
   | `Schema_version of int
+  | `Source_mismatch of Source_mismatch.t
   | `Unmapped_constants of string list
   | `Unmapped_tensor of string
   | Pt2_tensor.error ]
@@ -64,6 +73,15 @@ val pp_error : Format.formatter -> error -> unit
 
 val map_of_string : string -> (Checkpoint_map.t, [> error ]) Err.t
 (** Decode [safetensors.json] and check [schema_version = 1]. *)
+
+val check_source :
+  Checkpoint_map.Source.t ->
+  etag:string option ->
+  size:int64 ->
+  (unit, [> error ]) Err.t
+(** The checkpoint a download produced is the one [source] pins: its etag equals
+    the pinned sha256 and its size the pinned size. Shared by the native cache
+    and the JavaScript drivers, which differ only in where the bytes landed. *)
 
 val check_graph :
   map:Checkpoint_map.t ->
