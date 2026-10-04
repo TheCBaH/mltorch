@@ -51,12 +51,17 @@ val compile :
 val kernel_name : string
 (** The function a translation unit calls. *)
 
-val translation_unit : Loop_c.t -> Loop_program.t -> string * string list
+val translation_unit :
+  ?dialect:Loop_c_dialect.t ->
+  Loop_c.t ->
+  Loop_program.t ->
+  string * string list
 (** The complete translation unit around an emitted kernel (its text, helpers
     and scratch size) and the buffer offsets, for [p]'s buffers in order. The
     kernel may come from any emitter that keeps {!Loop_c}'s function shape. *)
 
 val exec_kernel :
+  ?dialect:Loop_c_dialect.t ->
   kernel:Loop_c.t ->
   sites:Loop_failure.t array ->
   ?outputs:(Tensor_id.t -> Tensor.packed option) ->
@@ -66,7 +71,19 @@ val exec_kernel :
 (** Compiles and runs an emitted kernel over [p]'s buffers, decoding a failure
     record against [sites]. {!exec} is this with {!Loop_c}'s own kernel. *)
 
+val unit_text :
+  ?dialect:Loop_c_dialect.t ->
+  ?vector:Loop_target.t ->
+  ?numerics:Loop_numerics.t ->
+  ?precision:Loop_numerics.Precision.t ->
+  ?fuse_reductions:bool ->
+  Loop_program.t ->
+  (Loop_c.t * string, Loop_c.error) result
+(** The kernel and the translation unit without a driver: prelude, helpers and
+    the kernel function, in a dialect. *)
+
 val source :
+  ?dialect:Loop_c_dialect.t ->
   ?vector:Loop_target.t ->
   ?numerics:Loop_numerics.t ->
   ?precision:Loop_numerics.Precision.t ->
@@ -77,6 +94,7 @@ val source :
     list of buffer offsets in the blob, for inspection. *)
 
 val exec :
+  ?dialect:Loop_c_dialect.t ->
   ?vector:Loop_target.t ->
   ?numerics:Loop_numerics.t ->
   ?precision:Loop_numerics.Precision.t ->
@@ -90,6 +108,11 @@ val exec :
 
 val executor : Loop_check.Executor.t
 (** [exec] as a differential-harness executor, to {!Loop_check.install}. *)
+
+val executor_compcert : Loop_check.Executor.t
+(** [exec] with {!Loop_c_dialect.Compcert_scalar}: the same bits as {!executor}
+    from text with no preprocessor directive, compiled here by the host
+    compiler. *)
 
 val executor_vector : Loop_check.Executor.t
 (** [exec] with the strict vectorizer on ({!Loop_target.neon128}'s four lanes):

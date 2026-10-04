@@ -44,12 +44,17 @@ type error =
 val pp_error : Format.formatter -> [< error ] -> unit
 
 val build :
+  ?dialect:Loop_c_dialect.t ->
   ?vector:Loop_target.t ->
   ?numerics:Loop_numerics.t ->
   ?kernel:(name:string -> Loop_bundle.invocation -> (Loop_c.t, string) result) ->
   Loop_bundle.t ->
   (t, error) Err.t
-(** [vector] vectorizes each kernel's independent loops for the target under the
+(** [dialect] ({!Loop_c_dialect.Gnu} by default) spells the whole unit; under
+    {!Loop_c_dialect.Compcert_scalar} it has no preprocessor directive and
+    [vector] is refused.
+
+    [vector] vectorizes each kernel's independent loops for the target under the
     strict contract ({!Loop_c.kernel}); the unit then uses GCC/Clang generic
     vectors. [numerics] ({!Loop_numerics.Reference_f64} by default) is each
     kernel's precision policy; it and the per-precision coverage are recorded in

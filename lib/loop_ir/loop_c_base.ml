@@ -2,10 +2,13 @@ module R = Loop_c_runtime
 module F = Loop_js_failure
 
 type error =
-  [ `Unsupported_format of Tensor_id.t * string
+  [ `Unsupported_dialect of string
+  | `Unsupported_format of Tensor_id.t * string
   | `Unsupported_precision of Loop_numerics.Refusal.t ]
 
 let pp_error ppf : [< error ] -> unit = function
+  | `Unsupported_dialect what ->
+      Format.fprintf ppf "the Compcert_scalar dialect has no %s" what
   | `Unsupported_format (id, f) ->
       Format.fprintf ppf "t%d: format %s has no C implementation"
         (Tensor_id.to_int id) f
@@ -32,6 +35,7 @@ type names = {
   index_temps : (int, int) Hashtbl.t;
   arrays : (int, int) Hashtbl.t;
   buffers : (int, int) Hashtbl.t;
+  dialect : Loop_c_dialect.t;
   f32 : bool;  (** the kernel's working precision is binary32 *)
   sites : Loop_failure.t array;
   mutable next_site : int;
@@ -82,22 +86,27 @@ let cell_type b =
   | _ -> None
 
 let int_lit n = "((int64_t)" ^ string_of_int n ^ ")"
+let i64_lit_in nm n = Loop_c_dialect.i64 nm.dialect n
+let i64_lit n = Loop_c_dialect.i64 Loop_c_dialect.Gnu n
 
-let i64_lit n =
-  if Int64.equal n Int64.min_int then "(-INT64_C(9223372036854775807) - 1)"
-  else if Int64.compare n 0L < 0 then
-    "(-INT64_C" ^ "(" ^ Int64.to_string (Int64.neg n) ^ "))"
-  else "INT64_C(" ^ Int64.to_string n ^ ")"
-
-let float_lit x =
-  if Float.is_nan x then "NAN"
-  else if x = Float.infinity then "INFINITY"
-  else if x = Float.neg_infinity then "(-INFINITY)"
+let float_lit ?(dialect = Loop_c_dialect.Gnu) x =
+  if Float.is_nan x then Loop_c_dialect.nan dialect
+  else if x = Float.infinity then Loop_c_dialect.infinity dialect
+  else if x = Float.neg_infinity then
+    "(-" ^ Loop_c_dialect.infinity dialect ^ ")"
   else "(" ^ Printf.sprintf "%h" x ^ ")"
 
 (* The literal of the kernel's working type: an fp32 kernel rounds constants to
    binary32 and writes them [f]-suffixed so nothing promotes through double. *)
-let lit nm x = if nm.f32 then Loop_numerics.f32_literal x else float_lit x
+let lit nm x =
+  if nm.f32 then
+    match Loop_numerics.f32_literal x with
+    | "NAN" -> Loop_c_dialect.nan nm.dialect
+    | "INFINITY" -> Loop_c_dialect.infinity nm.dialect
+    | "(-INFINITY)" -> "(-" ^ Loop_c_dialect.infinity nm.dialect ^ ")"
+    | s -> s
+  else float_lit ~dialect:nm.dialect x
+
 let float_type nm = if nm.f32 then "float" else "double"
 
 let rec index nm : Loop_index.t -> string = function
@@ -182,8 +191,11 @@ let overflow_nodes nm i =
   in
   List.rev (go [] i)
 
-let outside_int32 v =
-  "(" ^ v ^ " < -INT64_C(2147483648) || " ^ v ^ " >= INT64_C(2147483648))"
+let outside_int32_in dialect v =
+  let n = Loop_c_dialect.i64 dialect 2147483648L in
+  "(" ^ v ^ " < -" ^ n ^ " || " ^ v ^ " >= " ^ n ^ ")"
+
+let outside_int32 = outside_int32_in Loop_c_dialect.Gnu
 
 type addr = At of Loop_index.coord | Flat of Loop_index.t
 
@@ -280,7 +292,7 @@ and big nm : int64 Loop_expr.t -> string = function
       | Expr.Value.I64_div -> call nm R.Name.I64_div [ a; b ]
       | Expr.Value.I64_mul -> wrap "*"
       | Expr.Value.I64_sub -> wrap "-")
-  | Loop_expr.I64_const n -> i64_lit n
+  | Loop_expr.I64_const n -> i64_lit_in nm n
   | Loop_expr.I64_of_index i -> index nm i
   | Loop_expr.Load_i64 (b, c) -> buffer nm b ^ "[" ^ offset nm b c ^ "]"
   | Loop_expr.Load_i64_flat (b, i) -> buffer nm b ^ "[" ^ index nm i ^ "]"
@@ -314,7 +326,7 @@ and pred nm : Loop_expr.pred -> string = function
       | nodes ->
           "("
           ^ String.concat " || "
-              (List.map (fun n -> outside_int32 n.value) nodes)
+              (List.map (fun n -> outside_int32_in nm.dialect n.value) nodes)
           ^ ")")
   | Loop_bool.Not p -> "(!" ^ pred nm p ^ ")"
   | Loop_bool.Or (p, q) ->

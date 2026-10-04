@@ -82,21 +82,19 @@ let kind_index k =
   in
   go 0 Loop_js_failure.Kind.all
 
-let prelude =
-  String.concat "\n"
+let prelude_in dialect =
+  let error_record words =
     [
-      "#include <math.h>";
-      "#include <stddef.h>";
-      "#include <stdint.h>";
-      "#include <string.h>";
-      "";
-      Printf.sprintf "#define MODEL_ERROR_WORDS %d" error_words;
       "struct model_error {";
       "  int32_t kind;";
       "  int32_t invocation;";
-      "  int64_t v[MODEL_ERROR_WORDS];";
+      "  int64_t v[" ^ words ^ "];";
       "};";
       "";
+    ]
+  in
+  let fail_set =
+    [
       "static inline int fail_set(struct model_error *e, int32_t kind) {";
       "  e->kind = kind;";
       "  e->invocation = -1;";
@@ -105,6 +103,48 @@ let prelude =
       "}";
       "";
     ]
+  in
+  String.concat "\n"
+    (match dialect with
+    | Loop_c_dialect.Gnu ->
+        [
+          "#include <math.h>";
+          "#include <stddef.h>";
+          "#include <stdint.h>";
+          "#include <string.h>";
+          "";
+          Printf.sprintf "#define MODEL_ERROR_WORDS %d" error_words;
+        ]
+        @ error_record "MODEL_ERROR_WORDS"
+        @ fail_set
+    | Loop_c_dialect.Compcert_scalar ->
+        [
+          "typedef signed int int32_t;";
+          "typedef signed long int64_t;";
+          "typedef unsigned char uint8_t;";
+          "typedef unsigned short uint16_t;";
+          "typedef unsigned int uint32_t;";
+          "typedef unsigned long uint64_t;";
+          "typedef unsigned long size_t;";
+          "extern void *memcpy(void *, const void *, size_t);";
+          "extern void *memset(void *, int, size_t);";
+          "extern double cos(double);";
+          "extern double exp(double);";
+          "extern double fabs(double);";
+          "extern float fabsf(float);";
+          "extern double fma(double, double, double);";
+          "extern float fmaf(float, float, float);";
+          "extern double ldexp(double, int);";
+          "extern double log(double);";
+          "extern double sin(double);";
+          "extern double sqrt(double);";
+          "extern float sqrtf(float);";
+          "extern double trunc(double);";
+          "extern float truncf(float);";
+          "";
+        ]
+        @ error_record (string_of_int error_words)
+        @ fail_set)
 
 (* The 128-bit-vector idiom of the vectorized C: four binary64 lanes as a GCC/
    Clang generic vector, which each target lowers to its own registers (two
@@ -210,7 +250,9 @@ let vector_prelude_f32 =
 
 let lit = Loop_numerics.f32_literal
 
-let text : Name.t -> string = function
+let text dialect : Name.t -> string =
+  let nan = Loop_c_dialect.nan dialect in
+  function
   | Name.Bf16_to_float ->
       "static inline double bf16_to_float(uint16_t h) {\n\
       \  uint32_t b = (uint32_t)h << 16;\n\
@@ -281,34 +323,47 @@ let text : Name.t -> string = function
         (lit 0.3275911) (lit 0.254829592) (lit (-0.284496736)) (lit 1.421413741)
         (lit (-1.453152027)) (lit 1.061405429)
   | Name.F16_to_float ->
-      "static inline double f16_to_float(uint16_t h) {\n\
-      \  const uint32_t sign = (h >> 15) & 1u;\n\
-      \  const uint32_t exp16 = (h >> 10) & 0x1fu;\n\
-      \  const uint32_t mant = h & 0x3ffu;\n\
-      \  double m;\n\
-      \  if (exp16 == 0) m = (double)mant * 0x1p-24;\n\
-      \  else if (exp16 == 0x1f) m = mant == 0 ? INFINITY : NAN;\n\
-      \  else m = (double)(mant | 0x400u) * ldexp(1.0, (int)exp16 - 25);\n\
-      \  return sign == 1 ? -m : m;\n\
-       }\n"
-  | Name.F32_prelude ->
+      Printf.sprintf
+        "static inline double f16_to_float(uint16_t h) {\n\
+        \  const uint32_t sign = (h >> 15) & 1u;\n\
+        \  const uint32_t exp16 = (h >> 10) & 0x1fu;\n\
+        \  const uint32_t mant = h & 0x3ffu;\n\
+        \  double m;\n\
+        \  if (exp16 == 0) m = (double)mant * 0x1p-24;\n\
+        \  else if (exp16 == 0x1f) m = mant == 0 ? %s : %s;\n\
+        \  else m = (double)(mant | 0x400u) * ldexp(1.0, (int)exp16 - 25);\n\
+        \  return sign == 1 ? -m : m;\n\
+         }\n"
+        (Loop_c_dialect.infinity dialect)
+        nan
+  | Name.F32_prelude -> (
       (* Every float expression of an fp32 kernel is evaluated in binary32:
-         refuse a host that widens (x87), and never let a literal promote. *)
-      "#include <float.h>\n\
-       _Static_assert(FLT_EVAL_METHOD == 0, \"binary32 expressions must not \
-       widen\");\n"
+         refuse a host that widens (x87), and never let a literal promote.
+         CompCert evaluates in the type's own precision. *)
+      match dialect with
+      | Loop_c_dialect.Gnu ->
+          "#include <float.h>\n\
+           _Static_assert(FLT_EVAL_METHOD == 0, \"binary32 expressions must \
+           not widen\");\n"
+      | Loop_c_dialect.Compcert_scalar -> "")
   | Name.Float_max_f32 ->
-      "static inline float float_max_f32(float a, float b) {\n\
-      \  if (a != a || b != b) return NAN;\n\
-      \  if (a == 0.0f && b == 0.0f) return signbit(a) ? b : a;\n\
-      \  return a > b ? a : b;\n\
-       }\n"
+      Printf.sprintf
+        "static inline float float_max_f32(float a, float b) {\n\
+        \  if (a != a || b != b) return %s;\n\
+        \  if (a == 0.0f && b == 0.0f) return %s ? b : a;\n\
+        \  return a > b ? a : b;\n\
+         }\n"
+        nan
+        (Loop_c_dialect.signbit dialect "a")
   | Name.Float_max ->
-      "static inline double float_max(double a, double b) {\n\
-      \  if (a != a || b != b) return NAN;\n\
-      \  if (a == 0.0 && b == 0.0) return signbit(a) ? b : a;\n\
-      \  return a > b ? a : b;\n\
-       }\n"
+      Printf.sprintf
+        "static inline double float_max(double a, double b) {\n\
+        \  if (a != a || b != b) return %s;\n\
+        \  if (a == 0.0 && b == 0.0) return %s ? b : a;\n\
+        \  return a > b ? a : b;\n\
+         }\n"
+        nan
+        (Loop_c_dialect.signbit dialect "a")
   | Name.Floor_div ->
       "static inline int64_t floor_div(int64_t n, int64_t d) {\n\
       \  int64_t q = n / d;\n\
@@ -334,12 +389,13 @@ let text : Name.t -> string = function
         "static inline int i64_from_float_failure(struct model_error *e, \
          double x) {\n\
         \  if (x != x) return fail_set(e, %d);\n\
-        \  if (!isfinite(x)) return fail_set(e, %d);\n\
+        \  if (!%s) return fail_set(e, %d);\n\
         \  fail_set(e, %d);\n\
         \  memcpy(&e->v[0], &x, sizeof x);\n\
         \  return 1;\n\
          }\n"
         (kind_index Loop_js_failure.Kind.I64_from_float_nan)
+        (Loop_c_dialect.isfinite dialect "x")
         (kind_index Loop_js_failure.Kind.I64_from_float_infinite)
         (kind_index Loop_js_failure.Kind.I64_from_float_out_of_range)
   | Name.Idx_clamp_low ->
@@ -373,8 +429,10 @@ let text : Name.t -> string = function
            (List.init n (fun k ->
                 Printf.sprintf "  r[%d] = fmaf(a[%d], b[%d], c[%d]);" k k k k)))
 
-let helpers names =
+let prelude = prelude_in Loop_c_dialect.Gnu
+
+let helpers ?(dialect = Loop_c_dialect.Gnu) names =
   String.concat "\n"
     (List.filter_map
-       (fun n -> if List.mem n names then Some (text n) else None)
+       (fun n -> if List.mem n names then Some (text dialect n) else None)
        Name.all)
