@@ -40,7 +40,7 @@ let layout (p : Loop_program.t) =
 
 let kernel_name = "kernel"
 
-let translation_unit (k : Loop_c.t) p =
+let translation_unit ?(dialect = Loop_c_dialect.Gnu) (k : Loop_c.t) p =
   let offsets, total = layout p in
   let args =
     List.map2
@@ -70,7 +70,8 @@ let translation_unit (k : Loop_c.t) p =
         "  int32_t rc32 = rc;";
         "  fwrite(&rc32, sizeof rc32, 1, out);";
         "  fwrite(&err.kind, sizeof err.kind, 1, out);";
-        "  fwrite(err.v, sizeof err.v[0], MODEL_ERROR_WORDS, out);";
+        Printf.sprintf "  fwrite(err.v, sizeof err.v[0], %d, out);"
+          Loop_c_runtime.error_words;
         "  fwrite(blob, 1, total, out);";
         "  fclose(out);";
         "  free(blob); free(local);";
@@ -82,8 +83,8 @@ let translation_unit (k : Loop_c.t) p =
   let text =
     String.concat "\n"
       [
-        Loop_c_runtime.prelude;
-        Loop_c_runtime.helpers k.Loop_c.helpers;
+        Loop_c_runtime.prelude_in dialect;
+        Loop_c_runtime.helpers ~dialect k.Loop_c.helpers;
         k.Loop_c.prelude;
         k.Loop_c.source;
         main;
@@ -91,14 +92,34 @@ let translation_unit (k : Loop_c.t) p =
   in
   (text, List.map string_of_int offsets)
 
-let source ?vector ?numerics ?precision ?fuse_reductions p =
+let unit_text ?(dialect = Loop_c_dialect.Gnu) ?vector ?numerics ?precision
+    ?fuse_reductions p =
   match
     Err.payload
-      (Loop_c.kernel ?vector ?numerics ?precision ?fuse_reductions
+      (Loop_c.kernel ~dialect ?vector ?numerics ?precision ?fuse_reductions
          ~name:kernel_name p)
   with
+  | Error e -> Error e
+  | Ok k ->
+      Ok
+        ( k,
+          String.concat "\n"
+            [
+              Loop_c_runtime.prelude_in dialect;
+              Loop_c_runtime.helpers ~dialect k.Loop_c.helpers;
+              k.Loop_c.prelude;
+              k.Loop_c.source;
+            ] )
+
+let source ?dialect ?vector ?numerics ?precision ?fuse_reductions p =
+  match
+    Err.payload
+      (Loop_c.kernel
+         ~dialect:(Option.value dialect ~default:Loop_c_dialect.Gnu)
+         ?vector ?numerics ?precision ?fuse_reductions ~name:kernel_name p)
+  with
   | Error e -> Err.fail (`C_unsupported e)
-  | Ok k -> Err.return (translation_unit k p)
+  | Ok k -> Err.return (translation_unit ?dialect k p)
 
 module Blob = C_blob
 module Payload_io = C_payload_io
@@ -171,10 +192,10 @@ let bind_buffers ~outputs (p : Loop_program.t) ~bind =
 
 (* Runs a kernel some emitter made for [p]'s buffers: [kernel] is its text and
    [sites] the failure sites its records are decoded against. *)
-let exec_kernel ~(kernel : Loop_c.t) ~sites ?(outputs = fun _ -> None)
+let exec_kernel ?dialect ~(kernel : Loop_c.t) ~sites ?(outputs = fun _ -> None)
     (p : Loop_program.t) ~bind =
   let result : (Tensor.packed Tensor_id.Map.t, error) result =
-    let text, _ = translation_unit kernel p in
+    let text, _ = translation_unit ?dialect kernel p in
     let* exe = (compile text :> (string, error) result) in
     let* tensors =
       (bind_buffers ~outputs p ~bind
@@ -251,24 +272,26 @@ let exec_kernel ~(kernel : Loop_c.t) ~sites ?(outputs = fun _ -> None)
   in
   match result with Ok m -> Err.return m | Error e -> Err.fail e
 
-let exec ?vector ?numerics ?precision ?fuse_reductions ?outputs
+let exec ?dialect ?vector ?numerics ?precision ?fuse_reductions ?outputs
     (p : Loop_program.t) ~bind =
   match
     Err.payload
-      (Loop_c.kernel ?vector ?numerics ?precision ?fuse_reductions
-         ~name:kernel_name p)
+      (Loop_c.kernel
+         ~dialect:(Option.value dialect ~default:Loop_c_dialect.Gnu)
+         ?vector ?numerics ?precision ?fuse_reductions ~name:kernel_name p)
   with
   | Error e -> Err.fail (`C_unsupported e)
   | Ok kernel ->
-      exec_kernel ~kernel ~sites:(Loop_js_failure.sites p) ?outputs p ~bind
+      exec_kernel ?dialect ~kernel ~sites:(Loop_js_failure.sites p) ?outputs p
+        ~bind
 
 (* A quantized buffer has no C implementation: the design admits none, and the
    emitter refuses it with a typed error. Here, and only here, a program refused
    for that reason is answered by the interpreter, so a shared fixture with a
    quantized operand stays comparable; any other refusal is a defect. *)
-let executor_with ?vector : Loop_check.Executor.t =
+let executor_with ?dialect ?vector : Loop_check.Executor.t =
  fun p ~bind ->
-  match Err.payload (exec ?vector p ~bind) with
+  match Err.payload (exec ?dialect ?vector p ~bind) with
   | Error (`C_unsupported (`Unsupported_format (_, ("i16" | "i8")))) -> (
       match Err.payload (Loop_interp.run p ~bind) with
       | Ok m -> Err.return m
@@ -280,5 +303,9 @@ let executor_with ?vector : Loop_check.Executor.t =
   | Error (`C_unsupported u) ->
       Err.fail (`Js_exception (Fmt.str "C unsupported: %a" Loop_c.pp_error u))
 
-let executor = executor_with ?vector:None
-let executor_vector = executor_with ~vector:Loop_target.neon128
+let executor = executor_with ?dialect:None ?vector:None
+
+let executor_compcert =
+  executor_with ~dialect:Loop_c_dialect.Compcert_scalar ?vector:None
+
+let executor_vector = executor_with ?dialect:None ~vector:Loop_target.neon128

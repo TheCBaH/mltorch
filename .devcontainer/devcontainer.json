@@ -38,7 +38,8 @@
         // build or that solve. See .ai/js_backends_design.md.
         "ghcr.io/thecbah/ocaml-features/ocaml:1": {
             "version": "4.14.3",
-            "packages": "bytesrw#0.4.1 cmdliner#2.1.1 ctypes ctypes-foreign fmt#0.11.0 js_of_ocaml#6.4.1 js_of_ocaml-compiler#6.4.1 js_of_ocaml-ppx#6.4.1 jsont#0.4.0 landmarks landmarks-ppx melange#5.1.0-414 err_trace#git+https://github.com/TheCBaH/err_trace#main err_trace-melange#git+https://github.com/TheCBaH/err_trace#main memtrace ppx_expect#v0.16.2 utop yaml zipc"
+            "packages": "bytesrw#0.4.1 cmdliner#2.1.1 ctypes ctypes-foreign fmt#0.11.0 js_of_ocaml#6.4.1 js_of_ocaml-compiler#6.4.1 js_of_ocaml-ppx#6.4.1 jsont#0.4.0 landmarks landmarks-ppx melange#5.1.0-414 err_trace#git+https://github.com/TheCBaH/err_trace#main err_trace-melange#git+https://github.com/TheCBaH/err_trace#main memtrace menhir ppx_expect#v0.16.2 utop yaml zipc",
+            "system-packages": "pkg-config"
         },
         // Node/npm run the js_of_ocaml, melange and browser gates. Exact Debian
         // package pins keep a developer rebuild and CI on one runtime too.

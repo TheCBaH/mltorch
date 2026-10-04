@@ -46,5 +46,8 @@ val kind_index : Loop_js_failure.Kind.t -> int
 val prelude : string
 (** Includes, [struct model_error] and [fail_set]. *)
 
-val helpers : Name.t list -> string
+val prelude_in : Loop_c_dialect.t -> string
+(** {!prelude} in a dialect; [prelude_in Gnu] is {!prelude}. *)
+
+val helpers : ?dialect:Loop_c_dialect.t -> Name.t list -> string
 (** The definitions of exactly these helpers, in {!Name.all} order. *)

@@ -1,0 +1,27 @@
+; The in-process host through an embedded CompCert: the same tests as
+; test/loop_c_embed, copied rather than forked, with the CompCert loader in
+; place of the gcc one. Their committed expect output must hold with it: the
+; model compiled by CompCert, assembled by rivet and run from mapped memory
+; is bitwise equal to the reference. Enabled by MLTORCH_COMPCERT, which
+; make compcert.embed.runtest sets.
+
+(copy_files ../loop_c_embed/{embed_test,c_host_fixtures}.ml)
+
+(library
+ (name loop_c_embed_compcert_test)
+ (libraries
+  core
+  err_trace
+  fmt
+  loop_c_embed
+  loop_c_embed_compcert
+  loop_c_exec
+  loop_ir
+  native
+  native_test
+  unix)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect))
+ (enabled_if
+  (<> %{env:MLTORCH_COMPCERT=none} none)))

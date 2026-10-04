@@ -116,8 +116,12 @@ def main() -> int:
             if name_field is None or inline_tests_field is None:
                 continue
             # Gated on an environment variable (the Wasm suites, which need
-            # node): without it dune has no runner to build.
-            if "MLTORCH_WASM" in str(find_field(inline_tests_field, "enabled_if")):
+            # node; the CompCert suites): without it dune has no runner to
+            # build. The gate sits on the library or on its inline_tests.
+            gate = str(find_field(form, "enabled_if")) + str(
+                find_field(inline_tests_field, "enabled_if")
+            )
+            if "MLTORCH_WASM" in gate or "MLTORCH_COMPCERT" in gate:
                 continue
             lib = unquote(name_field[0])
             for mode in modes_of(inline_tests_field):

@@ -27,3 +27,10 @@
  ocaml-yamlt
  opickle
  bytesrw)
+
+; [rivet] and [rivet-compcert] are not built in this workspace: the image
+; installs both as opam packages from these checkouts (make
+; compcert.embed.install), because rivet_compcert's embedding needs an
+; out-of-tree CompCert build. Dune must not see their projects.
+
+(data_only_dirs rivet rivet-compcert)

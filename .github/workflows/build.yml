@@ -254,3 +254,29 @@ jobs:
     - name: inline test timing report
       run: |
         ${{ env.EXEC }} make inline-timing-report
+
+  # The in-process host through an embedded CompCert, on each architecture:
+  # the whole-model tests run with CompCert (rivet and rivet_compcert, built
+  # for the runner's ISA from the vendored submodules) compiling the generated C.
+  compcert-embed:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+    - name: checkout
+      uses: actions/checkout@v7
+      with:
+        submodules: true
+    - name: devcontainer
+      uses: TheCBaH/devcontainer-action/devcontainer@v1
+      id: devcontainer
+      with:
+        cli-version: '0.88.0'
+    - name: setup
+      run: |
+        echo 'EXEC=${{ steps.devcontainer.outputs.exec }}' >> $GITHUB_ENV
+    - name: loop_c_embed through CompCert
+      run: |
+        ${{ env.EXEC }} make compcert.embed.runtest

@@ -1,0 +1,69 @@
+; The Compcert_scalar dialect's differential suite. The Loop_check fixtures and
+; the op sweep are the SAME source files test/loop_ir runs against the
+; interpreter, copied rather than forked: [C_compcert_install] hands the
+; executor that compiles the dialect's text with the host compiler to
+; [Loop_check], so every [Loop_check.run] in them is also checked, bitwise,
+; against C with no preprocessor directive and no header macro. This is the C
+; an embedded CompCert is given; here gcc stands in for it. Their committed
+; expect output must hold with it. Needs a C compiler (gcc): a missing one is a
+; failure, never a skip.
+
+(copy_files
+ (files
+  %{workspace_root}/test/loop_ir/{loop_fixtures,loop_programs,loop_sweep_common,loop_vector_programs}.ml))
+
+(rule
+ (targets
+  loop_check_test.ml
+  loop_formats_test.ml
+  loop_fusion_test.ml
+  loop_group_test.ml
+  loop_int64_test.ml
+  loop_interp_test.ml
+  loop_opt_differential_test.ml
+  loop_pixel_test.ml
+  loop_region_test.ml
+  loop_scan_test.ml
+  loop_sweep_test.ml
+  loop_sweep_0_test.ml
+  loop_sweep_1_test.ml
+  loop_sweep_2_test.ml
+  loop_sweep_3_test.ml)
+ (deps
+  %{workspace_root}/test/loop_ir/loop_check_test.ml
+  %{workspace_root}/test/loop_ir/loop_formats_test.ml
+  %{workspace_root}/test/loop_ir/loop_fusion_test.ml
+  %{workspace_root}/test/loop_ir/loop_group_test.ml
+  %{workspace_root}/test/loop_ir/loop_int64_test.ml
+  %{workspace_root}/test/loop_ir/loop_interp_test.ml
+  %{workspace_root}/test/loop_ir/loop_opt_differential_test.ml
+  %{workspace_root}/test/loop_ir/loop_pixel_test.ml
+  %{workspace_root}/test/loop_ir/loop_region_test.ml
+  %{workspace_root}/test/loop_ir/loop_scan_test.ml
+  %{workspace_root}/test/loop_ir/loop_sweep_test.ml
+  %{workspace_root}/test/loop_ir/loop_sweep_0_test.ml
+  %{workspace_root}/test/loop_ir/loop_sweep_1_test.ml
+  %{workspace_root}/test/loop_ir/loop_sweep_2_test.ml
+  %{workspace_root}/test/loop_ir/loop_sweep_3_test.ml)
+ (action
+  (bash
+   "for f in loop_check_test loop_formats_test loop_fusion_test loop_group_test loop_int64_test loop_interp_test loop_opt_differential_test loop_pixel_test loop_region_test loop_scan_test loop_sweep_test loop_sweep_0_test loop_sweep_1_test loop_sweep_2_test loop_sweep_3_test; do { echo 'let () = assert C_compcert_install.installed'; cat %{workspace_root}/test/loop_ir/$f.ml; } > $f.ml; done")))
+
+(library
+ (name loop_c_compcert_test)
+ (libraries
+  core
+  err_trace
+  expr
+  fmt
+  js_ast
+  loop_c_exec
+  loop_ir
+  native
+  native_op_walk
+  native_test
+  str
+  walk_core)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

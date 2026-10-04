@@ -32,3 +32,20 @@ val read_payload :
   path:string ->
   (Tensor.packed list, [> `Bad_output of string | `Io of string ]) result
 (** Validates the file's size and header, then decodes every entry. *)
+
+val write_region :
+  C_payload_layout.t ->
+  identity:string ->
+  Unix.file_descr ->
+  base:int ->
+  Tensor.packed list ->
+  (unit, [> `Io of string ]) result
+(** {!write_payload} into the region of an open file that starts at [base]. *)
+
+val read_region :
+  C_payload_layout.t ->
+  identity:string ->
+  Unix.file_descr ->
+  base:int ->
+  (Tensor.packed list, [> `Bad_output of string | `Io of string ]) result
+(** {!read_payload} from such a region. *)

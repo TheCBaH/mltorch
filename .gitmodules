@@ -22,3 +22,9 @@
 [submodule "vendored/ocaml-hf-hub"]
 	path = vendored/ocaml-hf-hub
 	url = https://github.com/TheCBaH/ocaml-hf-hub.git
+[submodule "vendored/rivet"]
+	path = vendored/rivet
+	url = https://github.com/TheCBaH/rivet.git
+[submodule "vendored/rivet-compcert"]
+	path = vendored/rivet-compcert
+	url = https://github.com/TheCBaH/rivet-compcert.git

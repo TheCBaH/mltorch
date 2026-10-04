@@ -1,0 +1,19 @@
+; The Compcert_embed LOADER for a aarch64 host. Enabled by MLTORCH_COMPCERT=aarch64,
+; set by make compcert.embed.runtest; rivet_compcert.compcert_embed_aarch64 is
+; installed by make compcert.embed.install.
+
+(copy_files# ../compcert_loader.ml)
+
+(rule
+ (write-file compcert_embed_target.ml "include Compcert_embed_aarch64\n"))
+
+(library
+ (name loop_c_embed_compcert)
+ (libraries
+  fmt
+  loop_c_embed
+  rivet_compcert.compcert_embed
+  rivet_compcert.compcert_embed_aarch64
+  rivet.native_exec)
+ (enabled_if
+  (= %{env:MLTORCH_COMPCERT=none} aarch64)))
