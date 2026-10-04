@@ -1,0 +1,19 @@
+; The Compcert_embed LOADER for a x86_64 host. Enabled by MLTORCH_COMPCERT=x86_64,
+; set by make compcert.embed.runtest; rivet_compcert.compcert_embed_x86_64 is an
+; opam package of the devcontainer image.
+
+(copy_files# ../compcert_loader.ml)
+
+(rule
+ (write-file compcert_embed_target.ml "include Compcert_embed_x86_64\n"))
+
+(library
+ (name loop_c_embed_compcert)
+ (libraries
+  fmt
+  loop_c_embed
+  rivet_compcert.compcert_embed
+  rivet_compcert.compcert_embed_x86_64
+  rivet.native_exec)
+ (enabled_if
+  (= %{env:MLTORCH_COMPCERT=none} x86_64)))

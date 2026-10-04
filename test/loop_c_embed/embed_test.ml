@@ -1,6 +1,6 @@
 open Graph_ir
 open Loop_ir
-module E = Loop_c_embed.Make (Gcc_loader)
+module E = Loop_c_embed.Make (Embed_loader)
 
 (* The whole-model backend run in this process through the dialect, against the
    per-node reference evaluator, compared bitwise. *)

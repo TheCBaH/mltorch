@@ -38,7 +38,13 @@
         // build or that solve. See .ai/js_backends_design.md.
         "ghcr.io/thecbah/ocaml-features/ocaml:1": {
             "version": "4.14.3",
-            "packages": "bytesrw#0.4.1 cmdliner#2.1.1 ctypes ctypes-foreign fmt#0.11.0 js_of_ocaml#6.4.1 js_of_ocaml-compiler#6.4.1 js_of_ocaml-ppx#6.4.1 jsont#0.4.0 landmarks landmarks-ppx melange#5.1.0-414 err_trace#git+https://github.com/TheCBaH/err_trace#main err_trace-melange#git+https://github.com/TheCBaH/err_trace#main memtrace ppx_expect#v0.16.2 utop yaml zipc"
+            "packages": "bytesrw#0.4.1 cmdliner#2.1.1 ctypes ctypes-foreign fmt#0.11.0 js_of_ocaml#6.4.1 js_of_ocaml-compiler#6.4.1 js_of_ocaml-ppx#6.4.1 jsont#0.4.0 landmarks landmarks-ppx melange#5.1.0-414 err_trace#git+https://github.com/TheCBaH/err_trace#main err_trace-melange#git+https://github.com/TheCBaH/err_trace#main memtrace menhir ppx_expect#v0.16.2 utop yaml zarith zipc",
+            "system-packages": "libgmp-dev pkg-config",
+            // rivet and rivet_compcert are installed from source archives (no
+            // submodules), at the revisions rivet-compcert's vendor/rivet pins
+            // together; rivet_compcert builds the host ISA's embedding and
+            // downloads the CompCert artifacts pinned in its compcert.lock.
+            "pin-packages": "rivet https://github.com/TheCBaH/rivet/archive/0d6f744259e10c30d1920e086583b4d346afaee9.tar.gz,rivet_compcert https://github.com/TheCBaH/rivet-compcert/archive/fda3e66e627fd67267a3eacc57cf0c399c4f675c.tar.gz"
         },
         // Node/npm run the js_of_ocaml, melange and browser gates. Exact Debian
         // package pins keep a developer rebuild and CI on one runtime too.

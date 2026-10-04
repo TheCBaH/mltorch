@@ -1,4 +1,4 @@
-.PHONY: c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
+.PHONY: compcert.embed.runtest c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
@@ -1122,6 +1122,14 @@ wasm.c.pt2.runtest: wasm.pt2.exe wasm.toolchain
 wasm.c.pt2.run: wasm.pt2.exe wasm.toolchain
 	$(MAKE) pt2.download PT2_MODEL=fastvit_sa12
 	cd $(PT2_DIR)/fastvit_sa12 && MLTORCH_WASI_SYSROOT="$(WASI_SYSROOT)" $(CURDIR)/$(WASM_PT2_EXE) fastvit_sa12.pt2 inputs.pt expected.json outputs.pt --via-c --strict --shadow --poison --samples=1
+
+# The in-process host through an embedded CompCert (lib/loop_c_embed_compcert):
+# rivet and rivet_compcert are opam packages of the image, which builds
+# rivet_compcert for the host's ISA; the same tests as test/loop_c_embed run
+# with the CompCert loader in place of the gcc one.
+COMPCERT_ISA := $(shell uname -m | sed -e 's/^amd64$$/x86_64/' -e 's/^arm64$$/aarch64/')
+compcert.embed.runtest:
+	MLTORCH_COMPCERT=$(COMPCERT_ISA) opam exec -- dune build @test/loop_c_embed_compcert/runtest --force
 
 # The C backend's differential suites (test/loop_c) run under `runtest` at the
 # production flags. These re-run the same suites at -O0 and under the
