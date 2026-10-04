@@ -144,3 +144,13 @@ is content-addressed and never rewritten.
 release bundle, the only place they exist. `make pt2.runtest` also checks that
 every captured tensor of `mobilenetv2_050` and `fastvit_sa12` from the
 checkpoint is byte-equal to the `.pt2`'s.
+
+**Under js_of_ocaml.** The Hub driver and the mmap are native, but the weight
+source is not: `Pt2_safetensors.of_parts` takes a `Safetensors.Memory.t`, which
+`Memory.of_string` builds from file bytes (a copy, where the native path maps).
+`pt2_probe --safetensors <model_dir> <checkpoint> <input>` does exactly that on
+both backends, and `make jsoo.safetensors.runtest` diffs native against node, then
+checks the native output equals the `.pt2` run's. The checkpoint is fetched and
+pin-checked natively by `Pt2_safetensors_unix.checkpoint_path` (the
+`safetensors_path` executable) and handed to node as a file. A node-side Hub
+driver is not built; the sans-IO core is the part that would be shared.
