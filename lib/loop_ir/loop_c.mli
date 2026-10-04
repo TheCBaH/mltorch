@@ -15,7 +15,9 @@
     [f32], [f64], [i32] and [i64]. A quantized buffer is a typed refusal. *)
 
 type error =
-  [ `Unsupported_format of Tensor_id.t * string
+  [ `Unsupported_dialect of string
+    (** the dialect has no form for something the kernel asks for *)
+  | `Unsupported_format of Tensor_id.t * string
   | `Unsupported_precision of Loop_numerics.Refusal.t
     (** [precision] was [F32] and {!Loop_numerics.admit} refused the program *)
   ]
@@ -38,6 +40,7 @@ type t = {
 }
 
 val kernel :
+  ?dialect:Loop_c_dialect.t ->
   ?vector:Loop_target.t ->
   ?numerics:Loop_numerics.t ->
   ?precision:Loop_numerics.Precision.t ->
@@ -45,7 +48,12 @@ val kernel :
   name:string ->
   Loop_program.t ->
   (t, [> error ]) Err.t
-(** [vector] vectorizes the independent loops {!Loop_vectorize} finds for the
+(** [dialect] ({!Loop_c_dialect.Gnu} by default) spells the text; the
+    {!Loop_c_dialect.Compcert_scalar} text needs {!Loop_c_runtime.prelude_in}
+    and {!Loop_c_runtime.helpers} in the same dialect, and has no vector form
+    ([`Unsupported_dialect] when [vector] is given).
+
+    [vector] vectorizes the independent loops {!Loop_vectorize} finds for the
     target, under the strict contract, and emits them with GCC/Clang generic
     vectors; the text then needs {!Loop_c_runtime.Name}'s [Vector_prelude] (four
     binary64 lanes) or [Vector_prelude_f32] ({!Loop_c_runtime.f32_lanes}
@@ -63,6 +71,6 @@ val kernel :
     cells to a scratch [double]. A program {!Loop_numerics.admit} refuses is a
     typed [`Unsupported_precision]. *)
 
-val float_lit : float -> string
+val float_lit : ?dialect:Loop_c_dialect.t -> float -> string
 (** A C [double] constant that reads back to exactly the same bits (hexadecimal
     floating point; [NAN] and [INFINITY] for the specials). *)

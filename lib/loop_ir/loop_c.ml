@@ -43,7 +43,7 @@ let rec stmt nm ~limits ~depth (s : Loop_stmt.t) : string list =
           List.map
             (fun n ->
               ind
-              ^ Printf.sprintf "if %s %s" (outside_int32 n.value)
+              ^ Printf.sprintf "if %s %s" (outside_int32 nm n.value)
                   (fail_record F.Kind.Index_overflow
                      [ string_of_int n.op; n.lhs; n.rhs ]))
             (overflow_nodes nm i)
@@ -85,7 +85,7 @@ let rec stmt nm ~limits ~depth (s : Loop_stmt.t) : string list =
       if no = [] then [ ind ^ "}" ]
       else [ ind ^ "} else {" ] @ no @ [ ind ^ "}" ]
   | Loop_stmt.Charge_scan_update ->
-      let limit = i64_lit (Expr.Scan_limits.max_updates limits) in
+      let limit = i64_lit nm (Expr.Scan_limits.max_updates limits) in
       line
         (Printf.sprintf "if (scan_remaining <= 0) %s"
            (meter_failure F.Meter.Updates_exhausted limit))
@@ -107,7 +107,7 @@ let rec stmt nm ~limits ~depth (s : Loop_stmt.t) : string list =
   | Loop_stmt.Reset_meter ->
       line
         (Printf.sprintf "scan_remaining = %s;"
-           (i64_lit (Expr.Scan_limits.max_updates limits)))
+           (i64_lit nm (Expr.Scan_limits.max_updates limits)))
       @ line "scan_live = 0;"
   | Loop_stmt.Store { buffer = b; coord = c; value } ->
       line (store nm b (At c) value)
@@ -217,16 +217,22 @@ let param_type (b : Loop_buffer.t) =
   | Loop_buffer.Input -> "const " ^ t
   | Loop_buffer.Output | Loop_buffer.Scratch -> t
 
-let kernel ?vector ?(numerics = Loop_numerics.Reference_f64) ?precision
-    ?fuse_reductions ~name (p : Loop_program.t) : (t, [> error ]) Err.t =
+let kernel ?(dialect = Loop_c_dialect.Gnu) ?vector
+    ?(numerics = Loop_numerics.Reference_f64) ?precision ?fuse_reductions ~name
+    (p : Loop_program.t) : (t, [> error ]) Err.t =
   let p = Loop_sum.program p in
   let plan =
-    match precision with
-    | None -> Ok (Loop_plan.resolve ?target:vector ?fuse_reductions ~numerics p)
-    | Some precision ->
-        Result.map_error
-          (fun r -> `Unsupported_precision r)
-          (Loop_plan.force ?target:vector ~precision p)
+    match (dialect, vector) with
+    | Loop_c_dialect.Compcert_scalar, Some _ ->
+        Error (`Unsupported_dialect "vector form")
+    | _ -> (
+        match precision with
+        | None ->
+            Ok (Loop_plan.resolve ?target:vector ?fuse_reductions ~numerics p)
+        | Some precision ->
+            Result.map_error
+              (fun r -> `Unsupported_precision r)
+              (Loop_plan.force ?target:vector ~precision p))
   in
   match (check_formats p, plan) with
   | Error e, _ -> Err.fail e
@@ -240,6 +246,7 @@ let kernel ?vector ?(numerics = Loop_numerics.Reference_f64) ?precision
           index_temps = Hashtbl.create 8;
           arrays = Hashtbl.create 8;
           buffers = Hashtbl.create 8;
+          dialect;
           f32 = precision = Loop_numerics.Precision.F32;
           sites = F.sites p;
           next_site = 0;
@@ -293,7 +300,7 @@ let kernel ?vector ?(numerics = Loop_numerics.Reference_f64) ?precision
         if meter then
           [
             Printf.sprintf "  int64_t scan_remaining = %s;"
-              (i64_lit (Expr.Scan_limits.max_updates limits));
+              (i64_lit nm (Expr.Scan_limits.max_updates limits));
             "  int64_t scan_live = 0;";
             "  (void)scan_live;";
           ]
@@ -343,4 +350,4 @@ type nonrec t = Loop_c_base.t = {
 }
 
 let pp_error = Loop_c_base.pp_error
-let float_lit = Loop_c_base.float_lit
+let float_lit ?dialect x = Loop_c_base.float_lit ?dialect x

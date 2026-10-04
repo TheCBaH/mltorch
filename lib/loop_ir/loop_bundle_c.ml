@@ -47,8 +47,6 @@ let default_config : S.Config.t =
     inputs = S.Ownership.Borrowed;
   }
 
-let u64 n = Printf.sprintf "UINT64_C(%Ld)" n
-
 let c_bytes s =
   String.concat ", "
     (List.init (String.length s) (fun i -> string_of_int (Char.code s.[i])))
@@ -68,9 +66,11 @@ module Kernels = struct
   let create () = { table = Hashtbl.create 64; order = []; next = 0 }
   let placeholder = "KERNEL"
 
-  let intern ?vector ?numerics t program =
+  let intern ?dialect ?vector ?numerics t program =
     let open Err.Syntax in
-    let+ k = Loop_c.kernel ?vector ?numerics ~name:placeholder program in
+    let+ k =
+      Loop_c.kernel ?dialect ?vector ?numerics ~name:placeholder program
+    in
     match Hashtbl.find_opt t.table k.Loop_c.source with
     | Some e -> e
     | None ->
@@ -115,7 +115,7 @@ let scratch_ptr ty ws_scratch (c : W.Scratch.carve) =
 
 (* One invocation: initialise what it owns, call, and record which invocation
    failed. A kernel receives only [const] views of what it merely reads. *)
-let invocation_text ws ~position ~kernel (inv : Loop_bundle.invocation)
+let invocation_text ?dialect ws ~position ~kernel (inv : Loop_bundle.invocation)
     (sc : W.Scratch.t) =
   let open Err.Syntax in
   let scratch_at = W.scratch_offset ws in
@@ -139,7 +139,7 @@ let invocation_text ws ~position ~kernel (inv : Loop_bundle.invocation)
                      %Ld; k++) p[k] = (float)%s; }"
                     p
                     (Int64.div c.W.Scratch.bytes 4L)
-                    (Loop_c.float_lit v)
+                    (Loop_c.float_lit ?dialect v)
             in
             Err.return (p :: args, init :: inits)
         | None -> (
@@ -193,8 +193,9 @@ let invocation_text ws ~position ~kernel (inv : Loop_bundle.invocation)
            "  }";
          ]))
 
-let build ?vector ?(numerics = Loop_numerics.Reference_f64) (b : Loop_bundle.t)
-    : (t, error) Err.t =
+let build ?(dialect = Loop_c_dialect.Gnu) ?vector
+    ?(numerics = Loop_numerics.Reference_f64) (b : Loop_bundle.t) :
+    (t, error) Err.t =
   let open Err.Syntax in
   let g = b.Loop_bundle.graph in
   let sigs ids =
@@ -215,7 +216,8 @@ let build ?vector ?(numerics = Loop_numerics.Reference_f64) (b : Loop_bundle.t)
     Err.List.map
       (fun (inv : Loop_bundle.invocation) ->
         let* e =
-          Kernels.intern ?vector ~numerics kernels inv.Loop_bundle.program
+          Kernels.intern ~dialect ?vector ~numerics kernels
+            inv.Loop_bundle.program
         in
         let+ sc =
           W.scratch inv ~local_doubles:e.Kernels.kernel.Loop_c.local_doubles
@@ -232,7 +234,7 @@ let build ?vector ?(numerics = Loop_numerics.Reference_f64) (b : Loop_bundle.t)
   let* calls =
     Err.List.map
       (fun (position, (inv, kernel, sc)) ->
-        invocation_text ws ~position ~kernel inv sc)
+        invocation_text ~dialect ws ~position ~kernel inv sc)
       (List.mapi (fun i x -> (i, x)) compiled)
   in
   let* copies =
@@ -250,7 +252,7 @@ let build ?vector ?(numerics = Loop_numerics.Reference_f64) (b : Loop_bundle.t)
       outputs.P.entries
   in
   let helpers =
-    Loop_c_runtime.helpers
+    Loop_c_runtime.helpers ~dialect
       (List.sort_uniq compare
          (List.concat_map
             (fun e -> e.Kernels.kernel.Loop_c.helpers)
@@ -291,7 +293,7 @@ let build ?vector ?(numerics = Loop_numerics.Reference_f64) (b : Loop_bundle.t)
   in
   let body =
     String.concat "\n"
-      ([ Loop_c_runtime.prelude; C_model_abi.declarations; helpers ]
+      ([ Loop_c_runtime.prelude_in dialect; C_model_abi.declarations; helpers ]
       @ List.map Kernels.source (Kernels.all kernels)
       @ [
           Printf.sprintf "/* %d invocations, %d distinct kernels */"
@@ -316,15 +318,15 @@ let build ?vector ?(numerics = Loop_numerics.Reference_f64) (b : Loop_bundle.t)
     String.concat "\n"
       [
         Printf.sprintf "const uint64_t model_weights_size = %s;"
-          (u64 weights.P.length);
+          (Loop_c_dialect.u64 dialect weights.P.length);
         Printf.sprintf "const uint64_t model_inputs_size = %s;"
-          (u64 inputs.P.length);
+          (Loop_c_dialect.u64 dialect inputs.P.length);
         Printf.sprintf "const uint64_t model_outputs_size = %s;"
-          (u64 outputs.P.length);
+          (Loop_c_dialect.u64 dialect outputs.P.length);
         Printf.sprintf "const uint64_t model_workspace_size = %s;"
-          (u64 (W.bytes ws));
+          (Loop_c_dialect.u64 dialect (W.bytes ws));
         Printf.sprintf "const uint64_t model_workspace_alignment = %s;"
-          (u64 (W.alignment ws));
+          (Loop_c_dialect.u64 dialect (W.alignment ws));
         Printf.sprintf "const unsigned char model_weights_header[64] = {%s};"
           (c_bytes (header weights));
         Printf.sprintf "const unsigned char model_inputs_header[64] = {%s};"

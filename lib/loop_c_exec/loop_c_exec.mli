@@ -48,7 +48,19 @@ val compile :
 (** Compiles one translation unit with {!compiler}, memoised by source and
     flags, and returns the executable's path (removed at exit). *)
 
+val unit_text :
+  ?dialect:Loop_c_dialect.t ->
+  ?vector:Loop_target.t ->
+  ?numerics:Loop_numerics.t ->
+  ?precision:Loop_numerics.Precision.t ->
+  ?fuse_reductions:bool ->
+  Loop_program.t ->
+  (Loop_c.t * string, Loop_c.error) result
+(** The kernel and the translation unit without a driver: prelude, helpers and
+    the kernel function, in a dialect. *)
+
 val source :
+  ?dialect:Loop_c_dialect.t ->
   ?vector:Loop_target.t ->
   ?numerics:Loop_numerics.t ->
   ?precision:Loop_numerics.Precision.t ->
@@ -59,6 +71,7 @@ val source :
     list of buffer offsets in the blob, for inspection. *)
 
 val exec :
+  ?dialect:Loop_c_dialect.t ->
   ?vector:Loop_target.t ->
   ?numerics:Loop_numerics.t ->
   ?precision:Loop_numerics.Precision.t ->
@@ -72,6 +85,11 @@ val exec :
 
 val executor : Loop_check.Executor.t
 (** [exec] as a differential-harness executor, to {!Loop_check.install}. *)
+
+val executor_compcert : Loop_check.Executor.t
+(** [exec] with {!Loop_c_dialect.Compcert_scalar}: the same bits as {!executor}
+    from text with no preprocessor directive, compiled here by the host
+    compiler. *)
 
 val executor_vector : Loop_check.Executor.t
 (** [exec] with the strict vectorizer on ({!Loop_target.neon128}'s four lanes):

@@ -40,14 +40,28 @@ let layout (p : Loop_program.t) =
 
 let kernel_name = "kernel"
 
-let source ?vector ?numerics ?precision ?fuse_reductions p =
+let unit_text ?(dialect = Loop_c_dialect.Gnu) ?vector ?numerics ?precision
+    ?fuse_reductions p =
   match
     Err.payload
-      (Loop_c.kernel ?vector ?numerics ?precision ?fuse_reductions
+      (Loop_c.kernel ~dialect ?vector ?numerics ?precision ?fuse_reductions
          ~name:kernel_name p)
   with
-  | Error e -> Err.fail (`C_unsupported e)
+  | Error e -> Error e
   | Ok k ->
+      Ok
+        ( k,
+          String.concat "\n"
+            [
+              Loop_c_runtime.prelude_in dialect;
+              Loop_c_runtime.helpers ~dialect k.Loop_c.helpers;
+              k.Loop_c.source;
+            ] )
+
+let source ?dialect ?vector ?numerics ?precision ?fuse_reductions p =
+  match unit_text ?dialect ?vector ?numerics ?precision ?fuse_reductions p with
+  | Error e -> Err.fail (`C_unsupported e)
+  | Ok (k, unit) ->
       let offsets, total = layout p in
       let args =
         List.map2
@@ -78,7 +92,8 @@ let source ?vector ?numerics ?precision ?fuse_reductions p =
             "  int32_t rc32 = rc;";
             "  fwrite(&rc32, sizeof rc32, 1, out);";
             "  fwrite(&err.kind, sizeof err.kind, 1, out);";
-            "  fwrite(err.v, sizeof err.v[0], MODEL_ERROR_WORDS, out);";
+            Printf.sprintf "  fwrite(err.v, sizeof err.v[0], %d, out);"
+              Loop_c_runtime.error_words;
             "  fwrite(blob, 1, total, out);";
             "  fclose(out);";
             "  free(blob); free(local);";
@@ -87,15 +102,7 @@ let source ?vector ?numerics ?precision ?fuse_reductions p =
             "";
           ]
       in
-      let text =
-        String.concat "\n"
-          [
-            Loop_c_runtime.prelude;
-            Loop_c_runtime.helpers k.Loop_c.helpers;
-            k.Loop_c.source;
-            main;
-          ]
-      in
+      let text = String.concat "\n" [ unit; main ] in
       Err.return (text, List.map string_of_int offsets)
 
 module Blob = C_blob
@@ -167,13 +174,14 @@ let bind_buffers ~outputs (p : Loop_program.t) ~bind =
           Ok (Tensor_id.Map.add b.Loop_buffer.id (Loop_interp.allocate b) acc))
     (Ok Tensor_id.Map.empty) p.Loop_program.buffers
 
-let exec ?vector ?numerics ?precision ?fuse_reductions
+let exec ?dialect ?vector ?numerics ?precision ?fuse_reductions
     ?(outputs = fun _ -> None) (p : Loop_program.t) ~bind =
   let result : (Tensor.packed Tensor_id.Map.t, error) result =
     let* text, _ =
       Result.map_error
         (fun e -> (e : [ `C_unsupported of Loop_c.error ] :> error))
-        (Err.payload (source ?vector ?numerics ?precision ?fuse_reductions p))
+        (Err.payload
+           (source ?dialect ?vector ?numerics ?precision ?fuse_reductions p))
     in
     let* exe = (compile text :> (string, error) result) in
     let* tensors =
@@ -258,9 +266,9 @@ let exec ?vector ?numerics ?precision ?fuse_reductions
    emitter refuses it with a typed error. Here, and only here, a program refused
    for that reason is answered by the interpreter, so a shared fixture with a
    quantized operand stays comparable; any other refusal is a defect. *)
-let executor_with ?vector : Loop_check.Executor.t =
+let executor_with ?dialect ?vector : Loop_check.Executor.t =
  fun p ~bind ->
-  match Err.payload (exec ?vector p ~bind) with
+  match Err.payload (exec ?dialect ?vector p ~bind) with
   | Error (`C_unsupported (`Unsupported_format (_, ("i16" | "i8")))) -> (
       match Err.payload (Loop_interp.run p ~bind) with
       | Ok m -> Err.return m
@@ -272,5 +280,9 @@ let executor_with ?vector : Loop_check.Executor.t =
   | Error (`C_unsupported u) ->
       Err.fail (`Js_exception (Fmt.str "C unsupported: %a" Loop_c.pp_error u))
 
-let executor = executor_with ?vector:None
-let executor_vector = executor_with ~vector:Loop_target.neon128
+let executor = executor_with ?dialect:None ?vector:None
+
+let executor_compcert =
+  executor_with ~dialect:Loop_c_dialect.Compcert_scalar ?vector:None
+
+let executor_vector = executor_with ?dialect:None ~vector:Loop_target.neon128
