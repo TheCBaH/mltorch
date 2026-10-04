@@ -90,3 +90,42 @@ let read_payload (layout : P.t) ~identity ~path =
                       C_blob.copy `Out fd (Int64.to_int e.P.Entry.offset) t;
                       t)
                 layout.P.entries))
+
+(* The same payloads inside one file: a region of [fd] starting at byte [base]
+   holds the header and the tensors at their entries' offsets. *)
+let write_region (layout : P.t) ~identity fd ~base tensors =
+  unix_io (fun () ->
+      let header = P.header layout ~identity in
+      let (_ : int) = Unix.lseek fd base Unix.SEEK_SET in
+      let (_ : int) = Unix.write_substring fd header 0 (String.length header) in
+      List.iter2
+        (fun (e : P.Entry.t) t ->
+          C_blob.copy `In fd (base + Int64.to_int e.P.Entry.offset) t)
+        layout.P.entries tensors)
+
+let read_region (layout : P.t) ~identity fd ~base =
+  let expected = P.header layout ~identity in
+  let* head =
+    unix_io (fun () ->
+        let b = Bytes.create (String.length expected) in
+        let (_ : int) = Unix.lseek fd base Unix.SEEK_SET in
+        let rec fill off =
+          if off < Bytes.length b then
+            match Unix.read fd b off (Bytes.length b - off) with
+            | 0 -> raise (Sys_error "short region")
+            | n -> fill (off + n)
+        in
+        fill 0;
+        Bytes.to_string b)
+  in
+  if head <> expected then Error (`Bad_output "header mismatch")
+  else
+    unix_io (fun () ->
+        List.map
+          (fun (e : P.Entry.t) ->
+            match Err.payload (Tensor.create_of_sig e.P.Entry.sg) with
+            | Error (`Quant_missing _) -> raise (Failure "quantized output")
+            | Ok t ->
+                C_blob.copy `Out fd (base + Int64.to_int e.P.Entry.offset) t;
+                t)
+          layout.P.entries)

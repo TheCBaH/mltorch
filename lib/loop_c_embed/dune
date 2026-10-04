@@ -1,0 +1,8 @@
+; The in-process host of the whole-model C backend: the Compcert_scalar unit is
+; loaded once by a loader and called for any number of inputs, with no child
+; process. The loader is a parameter, so nothing here depends on CompCert or on
+; how the code is run; see loop_c_embed.mli. Native only (unix).
+
+(library
+ (name loop_c_embed)
+ (libraries err_trace fmt loop_c_exec loop_ir native unix))

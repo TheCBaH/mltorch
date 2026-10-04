@@ -1,0 +1,24 @@
+; The in-process host against a loader that is not CompCert: [Gcc_loader] builds
+; the same preprocessor-free unit into a shared object with the host compiler,
+; loads it with dlopen and calls [entry] through ctypes. What is checked is the
+; host: the entry adapter, the region layout, payload packing, repeated calls on
+; one loaded unit, contexts, failure decoding. The CompCert loader is a thin
+; adapter outside this suite.
+
+(library
+ (name loop_c_embed_test)
+ (libraries
+  core
+  ctypes
+  ctypes.foreign
+  err_trace
+  fmt
+  loop_c_embed
+  loop_c_exec
+  loop_ir
+  native
+  native_test
+  unix)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
