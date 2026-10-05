@@ -174,6 +174,13 @@ type t =
       (** Checked multiplication by a literal that is itself an index. *)
   | Index_scale_in_domain of int64 * Ssa_value.t
       (** [Index_scale] whose product is proved to stay in the index domain. *)
+  | Lanewise of t
+      (** A pure scalar operation applied to every lane at once: its operands
+          are vectors (or masks) of one width, lane [k] of the result is the
+          scalar operation on lane [k] of each operand, evaluated by the same
+          function the scalar operation is. Only the float and predicate
+          operations of the scalar surface may be lifted, and a lane is never a
+          failure site: none of them can fail. *)
   | Load of { buffer : Ssa_id.Buffer.t; at : Ssa_access.t; decode : Decode.t }
   | Load_in_bounds of {
       buffer : Ssa_id.Buffer.t;
@@ -195,6 +202,9 @@ type t =
       value : Ssa_value.t;
     }
   | Mark of Ssa_mark.t
+  | Mark_lanes of { mark : Ssa_mark.t; lanes : Ssa_type.Lanes.t }
+      (** [lanes] marks at once: what a vector iteration counts for the scalar
+          iterations it covers. *)
   | Meter_charge
       (** One update against the scan meter, before the update body runs:
           exactly the limit succeed and the next fails. *)
@@ -220,26 +230,61 @@ type t =
       encode : Encode.t;
       value : Ssa_value.t;
     }
+  | Vec_extract of { lane : Ssa_type.Lane.t; vector : Ssa_value.t }
+  | Vec_insert of {
+      lane : Ssa_type.Lane.t;
+      vector : Ssa_value.t;
+      element : Ssa_value.t;
+    }
+  | Vec_iota of { base : Ssa_value.t; step : int64; lanes : Ssa_type.Lanes.t }
+      (** Lane [k] is the binary64 value of [base + k * step], computed in
+          int64: [base] is an index and [step] a literal index, so it cannot
+          wrap. *)
+  | Vec_load of {
+      buffer : Ssa_id.Buffer.t;
+      at : Ssa_value.t Expr.Coord.t;
+      steps : int64 Expr.Coord.t;
+      decode : Decode.t;
+      lanes : Ssa_type.Lanes.t;
+    }
+      (** Lane [k] reads the cell at [at + k * steps], axis by axis. Every lane
+          is read, and every lane must be inside the buffer: the verifier
+          accepts the operation only where the range analysis proves it, so a
+          mask never hides a lane that would have failed. *)
+  | Vec_splat of { element : Ssa_value.t; lanes : Ssa_type.Lanes.t }
+  | Vec_store of {
+      buffer : Ssa_id.Buffer.t;
+      at : Ssa_value.t Expr.Coord.t;
+      steps : int64 Expr.Coord.t;
+      encode : Encode.t;
+      value : Ssa_value.t;
+      lanes : Ssa_type.Lanes.t;
+    }
+      (** Lane [k] writes the cell at [at + k * steps]; the lanes are written in
+          order and the verifier requires all of them in bounds. *)
 
 (* Checked operations and accesses are effectful even when their result looks
    like a scalar expression: they sequence on the effect chain. *)
-let effectful = function
+let rec effectful = function
+  | Lanewise op -> effectful op
   | Const _ | Convert _ | Float_binary _ | Float_compare _ | Float_max _
   | Float_unary _ | I64_arith _ | I64_compare _ | Index_add_in_domain _
   | Index_ceil_div _ | Index_clamp_low _ | Index_compare _ | Index_floor_div _
   | Index_max _ | Index_min _ | Index_scale_in_domain _ | Pool_better _
-  | Pred_not _ | Pred_or _ | Select _ ->
+  | Pred_not _ | Pred_or _ | Select _ | Vec_extract _ | Vec_insert _
+  | Vec_iota _ | Vec_splat _ ->
       false
   | Check_access _ | Check_gather _ | Check_local _ | Check_scan _
   | Float_to_i64 _ | I64_div _ | Index_add _ | Index_of_i64 _ | Index_scale _
   | Load _ | Load_in_bounds _ | Local_alloc _ | Local_read _ | Local_write _
-  | Mark _ | Meter_charge | Meter_release _ | Meter_reserve _ | Meter_reset
-  | Store _ ->
+  | Mark _ | Mark_lanes _ | Meter_charge | Meter_release _ | Meter_reserve _
+  | Meter_reset | Store _ | Vec_load _ | Vec_store _ ->
       true
 
-let operands = function
-  | Const _ | Local_alloc _ | Mark _ | Meter_charge | Meter_release _
-  | Meter_reserve _ | Meter_reset ->
+let rec operands = function
+  | Lanewise op -> operands op
+  | Const _ | Local_alloc _ | Mark _ | Mark_lanes _ | Meter_charge
+  | Meter_release _ | Meter_reserve _ | Meter_reset ->
       []
   | Check_access { at; _ } | Load { at; _ } | Load_in_bounds { at; _ } ->
       Ssa_access.operands at
@@ -275,10 +320,17 @@ let operands = function
   | Local_write { local; at; value } -> [ local; at; value ]
   | Select (p, a, b) -> [ p; a; b ]
   | Store { at; value; _ } -> Ssa_access.operands at @ [ value ]
+  | Vec_extract { vector; _ } -> [ vector ]
+  | Vec_insert { vector; element; _ } -> [ vector; element ]
+  | Vec_iota { base; _ } -> [ base ]
+  | Vec_load { at; _ } -> Expr.Coord.to_list at
+  | Vec_splat { element; _ } -> [ element ]
+  | Vec_store { at; value; _ } -> Expr.Coord.to_list at @ [ value ]
 
-let map_operands f = function
-  | ( Const _ | Local_alloc _ | Mark _ | Meter_charge | Meter_release _
-    | Meter_reserve _ | Meter_reset ) as op ->
+let rec map_operands f = function
+  | Lanewise op -> Lanewise (map_operands f op)
+  | ( Const _ | Local_alloc _ | Mark _ | Mark_lanes _ | Meter_charge
+    | Meter_release _ | Meter_reserve _ | Meter_reset ) as op ->
       op
   | Check_access { buffer; at } ->
       Check_access { buffer; at = Ssa_access.map f at }
@@ -371,6 +423,18 @@ let map_operands f = function
   | Store { buffer; at; encode; value } ->
       let at = Ssa_access.map f at in
       Store { buffer; at; encode; value = f value }
+  | Vec_extract { lane; vector } -> Vec_extract { lane; vector = f vector }
+  | Vec_insert { lane; vector; element } ->
+      let vector = f vector in
+      let element = f element in
+      Vec_insert { lane; vector; element }
+  | Vec_iota { base; step; lanes } -> Vec_iota { base = f base; step; lanes }
+  | Vec_load { buffer; at; steps; decode; lanes } ->
+      Vec_load { buffer; at = Expr.Coord.map f at; steps; decode; lanes }
+  | Vec_splat { element; lanes } -> Vec_splat { element = f element; lanes }
+  | Vec_store { buffer; at; steps; encode; value; lanes } ->
+      let at = Expr.Coord.map f at in
+      Vec_store { buffer; at; steps; encode; value = f value; lanes }
 
 let binary_name = function
   | Expr.Value.Add -> "add"
@@ -387,7 +451,8 @@ let unary_name = function
   | Expr.Value.Sqrt -> "sqrt"
   | Expr.Value.Trunc -> "trunc"
 
-let name = function
+let rec name = function
+  | Lanewise op -> "lanes." ^ name op
   | Check_access _ -> "check_access"
   | Check_gather _ -> "check_gather"
   | Check_local _ -> "check_local"
@@ -419,6 +484,7 @@ let name = function
   | Local_read _ -> "local.read"
   | Local_write _ -> "local.write"
   | Mark _ -> "mark"
+  | Mark_lanes _ -> "mark_lanes"
   | Meter_charge -> "meter.charge"
   | Meter_release _ -> "meter.release"
   | Meter_reserve _ -> "meter.reserve"
@@ -428,6 +494,12 @@ let name = function
   | Pred_or _ -> "pred.or"
   | Select _ -> "select"
   | Store _ -> "store"
+  | Vec_extract _ -> "vec.extract"
+  | Vec_insert _ -> "vec.insert"
+  | Vec_iota _ -> "vec.iota"
+  | Vec_load _ -> "vec.load"
+  | Vec_splat _ -> "vec.splat"
+  | Vec_store _ -> "vec.store"
 
 (* Two pure operations with the same key compute the same value from the same
    operands: the name carries the operator and the conversion, the rest of the
@@ -437,6 +509,11 @@ let key op =
   let id (v : Ssa_value.t) = string_of_int (v.Ssa_value.id :> int) in
   let attrs =
     match op with
+    | Vec_extract { lane; _ } | Vec_insert { lane; _ } ->
+        string_of_int (Ssa_type.Lane.to_int lane)
+    | Vec_iota { step; lanes; _ } ->
+        Int64.to_string step ^ "x" ^ string_of_int (Ssa_type.Lanes.to_int lanes)
+    | Vec_splat { lanes; _ } -> string_of_int (Ssa_type.Lanes.to_int lanes)
     | Const c -> (
         let bits x =
           if Float.is_nan x then "nan"

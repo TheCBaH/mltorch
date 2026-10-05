@@ -13,6 +13,19 @@ module Lanes =
     end)
     ()
 
+(* One lane's position within a vector: a different domain from the count of
+   lanes, so an extract's lane cannot be passed for a width. *)
+module Lane =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "lane"
+    end)
+    ()
+
+(* The widest vector the IR names. A logical width, not a register: a target
+   maps it onto however many registers it takes. *)
+let max_lanes = 64
+
 (* [Effect] is a compile-time sequencing token with no machine representation. *)
 type t =
   | Effect

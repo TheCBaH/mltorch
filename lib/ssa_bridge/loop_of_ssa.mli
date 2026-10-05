@@ -9,4 +9,6 @@
     load is guarded by the bounds check the SSA load performs. *)
 
 val convert : Ssa_ir.Ssa_program.t -> Loop_ir.Loop_program.t
-(** The program must verify; [Invalid_argument] otherwise. *)
+(** The program must verify; [Invalid_argument] otherwise, and for a program
+    with vector operations, which the Loop IR names no form for: expand them to
+    scalar lanes first. *)

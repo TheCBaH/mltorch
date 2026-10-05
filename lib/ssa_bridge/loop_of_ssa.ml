@@ -460,6 +460,12 @@ let convert (p : Ssa_program.t) =
             [ Loop_stmt.Store { buffer = b; coord; value = stored } ]
         | `Flat offset ->
             [ Loop_stmt.Store_flat { buffer = b; offset; value = stored } ])
+    | Ssa_op.Lanewise _ | Ssa_op.Mark_lanes _ | Ssa_op.Vec_extract _
+    | Ssa_op.Vec_insert _ | Ssa_op.Vec_iota _ | Ssa_op.Vec_load _
+    | Ssa_op.Vec_splat _ | Ssa_op.Vec_store _ ->
+        invalid_arg
+          "Loop_of_ssa: a vector operation has no Loop form; expand it to \
+           scalar lanes first"
   in
   let drop_effect vs =
     List.filter (fun v -> not (is_type Ssa_type.Effect v)) vs

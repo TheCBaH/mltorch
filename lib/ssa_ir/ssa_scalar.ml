@@ -112,7 +112,9 @@ let eval (op : Ssa_op.t) ~(result : Ssa_type.t) ~(get : Ssa_value.t -> t) :
   | Ssa_op.Index_add _ | Ssa_op.Index_add_in_domain _ | Ssa_op.Index_of_i64 _
   | Ssa_op.Index_scale _ | Ssa_op.Index_scale_in_domain _ | Ssa_op.Load _
   | Ssa_op.Load_in_bounds _ | Ssa_op.Local_alloc _ | Ssa_op.Local_read _
-  | Ssa_op.Local_write _ | Ssa_op.Mark _ | Ssa_op.Meter_charge
-  | Ssa_op.Meter_release _ | Ssa_op.Meter_reserve _ | Ssa_op.Meter_reset
-  | Ssa_op.Store _ ->
+  | Ssa_op.Lanewise _ | Ssa_op.Local_write _ | Ssa_op.Mark _
+  | Ssa_op.Mark_lanes _ | Ssa_op.Meter_charge | Ssa_op.Meter_release _
+  | Ssa_op.Meter_reserve _ | Ssa_op.Meter_reset | Ssa_op.Store _
+  | Ssa_op.Vec_extract _ | Ssa_op.Vec_insert _ | Ssa_op.Vec_iota _
+  | Ssa_op.Vec_load _ | Ssa_op.Vec_splat _ | Ssa_op.Vec_store _ ->
       None

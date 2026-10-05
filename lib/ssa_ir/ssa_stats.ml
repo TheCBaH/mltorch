@@ -31,7 +31,9 @@ let of_op (op : Ssa_op.t) =
     | _ -> 0
   in
   let loads =
-    match op with Ssa_op.Load _ | Ssa_op.Load_in_bounds _ -> 1 | _ -> 0
+    match op with
+    | Ssa_op.Load _ | Ssa_op.Load_in_bounds _ | Ssa_op.Vec_load _ -> 1
+    | _ -> 0
   in
   {
     instrs = 1;

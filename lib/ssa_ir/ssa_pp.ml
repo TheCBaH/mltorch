@@ -36,8 +36,34 @@ let access st = function
       "[" ^ join (List.map (name st) (Expr.Coord.to_list c)) ^ "]"
   | Ssa_access.Flat v -> "@" ^ name st v
 
-let op st (o : Ssa_op.t) =
+let coords st c = "[" ^ join (List.map (name st) (Expr.Coord.to_list c)) ^ "]"
+let steps c = "[" ^ join (List.map Int64.to_string (Expr.Coord.to_list c)) ^ "]"
+let lanes l = Fmt.str "x%d" (Ssa_type.Lanes.to_int l)
+
+let rec op st (o : Ssa_op.t) =
   match o with
+  | Ssa_op.Lanewise inner -> "lanes " ^ op st inner
+  | Ssa_op.Mark_lanes { mark; lanes = l } ->
+      Fmt.str "mark_lanes %s %s" (Ssa_mark.name mark) (lanes l)
+  | Ssa_op.Vec_extract { lane; vector } ->
+      Fmt.str "vec.extract %d, %s" (Ssa_type.Lane.to_int lane) (name st vector)
+  | Ssa_op.Vec_insert { lane; vector; element } ->
+      Fmt.str "vec.insert %d, %s, %s"
+        (Ssa_type.Lane.to_int lane)
+        (name st vector) (name st element)
+  | Ssa_op.Vec_iota { base; step; lanes = l } ->
+      Fmt.str "vec.iota %s %s, step %Ld" (lanes l) (name st base) step
+  | Ssa_op.Vec_load { buffer; at; steps = s; decode; lanes = l } ->
+      Fmt.str "vec.load.%s %a%s step %s %s"
+        (Ssa_op.Decode.name decode)
+        Ssa_id.Buffer.pp buffer (coords st at) (steps s) (lanes l)
+  | Ssa_op.Vec_splat { element; lanes = l } ->
+      Fmt.str "vec.splat %s %s" (lanes l) (name st element)
+  | Ssa_op.Vec_store { buffer; at; steps = s; encode; value; lanes = l } ->
+      Fmt.str "vec.store.%s %a%s step %s %s, %s"
+        (Ssa_op.Encode.name encode)
+        Ssa_id.Buffer.pp buffer (coords st at) (steps s) (lanes l)
+        (name st value)
   | Ssa_op.Check_access { buffer; at } ->
       Fmt.str "check_access %a%s" Ssa_id.Buffer.pp buffer (access st at)
   | Ssa_op.Check_local { var; at; extent } ->

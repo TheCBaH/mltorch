@@ -15,7 +15,7 @@ type site = { region : Ssa_id.Region.t; statement : Statement.t }
 (** What an operation that carries a proof asserts. It is accepted only where
     {!Ssa_range} re-derives it from the program: the proof is never trusted,
     only checked. *)
-type claim = Add_in_domain | In_bounds | Scale_in_domain
+type claim = Add_in_domain | In_bounds | Lanes_in_bounds | Scale_in_domain
 
 type problem =
   | Buffer_declaration of Ssa_id.Buffer.t

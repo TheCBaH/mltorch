@@ -156,6 +156,24 @@ its own name becomes its interface and hides its siblings (the lowering is
   `Ssa_clone` copies statements with fresh definitions and regions. A strided
   loop projects to the Loop IR as a trip counter with the induction value
   reconstructed from it.
+- **Vectors** (`Vec`, `Mask`, `Ssa_type.Lanes`; at most 64 logical lanes, a width
+  and never a register). A vector holds binary32 or binary64 lanes, a mask holds
+  predicates; no int64 vector exists. Every pure float or predicate operation of
+  the scalar surface lifts through one constructor, `Lanewise`, whose typing
+  scalarizes the operands and applies the scalar rule, and whose interpreter
+  evaluates each lane through the scalar function: lane semantics cannot drift
+  from scalar semantics. `Vec_splat`, `Vec_iota` (lane `k` is the binary64 value
+  of `base + k * step`, in int64), `Vec_extract` and `Vec_insert` are the only
+  other pure vector operations. `Vec_load`/`Vec_store` address lane `k` at
+  `at + k * steps` per axis, read or write every lane, and are accepted only where
+  the range analysis proves every lane inside the buffer, so a mask can never
+  hide a lane that would have failed: there is no masked memory operation.
+  `Mark_lanes` counts what a vector iteration stands for, and an `Ordered_sum`
+  or a loop may carry a vector, each lane its own left fold. `Ssa_vec_expand`
+  rewrites a vector program into scalar lanes from the program alone (a memory
+  operation becomes one access per lane with the proofs the vector one carried),
+  which is the independent reference every vector result is checked against. The
+  Loop converter refuses a vector operation: expand first.
 - Evidence beyond mutations: the op sweep through the optimizer has no
   disagreement, no change of logical work and no extra read; hand-built failing
   programs keep exactly the checks that report their failure; the optimized
