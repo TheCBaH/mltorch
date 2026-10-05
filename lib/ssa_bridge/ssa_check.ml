@@ -126,6 +126,85 @@ let run_f32 ?(prepare = Fun.id) (plan : Fusion_plan.t) ~bind =
           in
           compare ~reference ~ssa:(Ssa_lower.Ssa_exec.run plan program ~bind))
 
+(* An outcome of the SSA executor as the reference's error vocabulary, for the
+   comparison: an invalid program is a defect, never a failure row. *)
+let as_reference (r : (_, Ssa_lower.Ssa_exec.error) Err.t) =
+  Err.map_error
+    (function
+      | `Invalid_program _ ->
+          invalid_arg "Ssa_check: the oracle does not verify"
+      | (#Ssa_interp.failure | `Binding_mismatch _ | `Unbound_input _) as e ->
+          (e :> Kernel_eval.error))
+    r
+
+(* A relaxed plan against the binary64 reference: every finite cell within the
+   tolerance, every nonfinite cell the same kind. *)
+let within_tolerance ~atol ~rtol reference ssa =
+  match (Err.payload reference, Err.payload ssa) with
+  | Ok reference, Ok ssa -> (
+      let failing =
+        Tensor_id.Map.fold
+          (fun id r acc ->
+            match (acc, Tensor_id.Map.find_opt id ssa) with
+            | Some _, _ -> acc
+            | None, None -> Some id
+            | None, Some s ->
+                let d =
+                  Loop_ir.Loop_numeric_diff.compare ~atol ~rtol ~actual:s
+                    ~reference:r
+                in
+                if d.Loop_ir.Loop_numeric_diff.failing = 0 then None
+                else Some id)
+          reference None
+      in
+      match failing with
+      | Some id -> Disagree (Disagreement.Value_mismatch id)
+      | None -> Agree)
+  | _ -> compare_results (Err.payload reference) (Err.payload ssa)
+
+let run_planned ?(alias = Ssa_effects.Distinct_buffers) ~numerics ~target
+    (plan : Fusion_plan.t) ~bind =
+  match Err.payload (Ssa_lower.Ssa_lower_plan.lower plan) with
+  | Error (`Unsupported u) -> (Refused u, None)
+  | Ok program ->
+      let resolved = Ssa_plan.resolve ~target ~alias ~numerics program in
+      let exec p = Ssa_lower.Ssa_exec.run plan p ~bind in
+      let result = exec resolved.Ssa_plan.program in
+      let reference = Kernel_eval.run_plan plan ~bind in
+      (* the plan against its own oracle, bit for bit *)
+      let own =
+        compare_results
+          (Err.payload (as_reference (exec (Ssa_plan.oracle resolved))))
+          (Err.payload result)
+      in
+      let verdict =
+        match own with
+        | Agree | Agree_on_failure _ -> (
+            match (resolved.Ssa_plan.precision, numerics) with
+            | Ssa_numerics.Precision.F64, _ -> compare ~reference ~ssa:result
+            | ( Ssa_numerics.Precision.F32,
+                (Ssa_numerics.Reference_f64 | Ssa_numerics.Simd_fp32_ordered) )
+              -> (
+                match Err.payload (Loop_ir.Loop_lower.lower plan) with
+                | Error (`Unsupported _) ->
+                    Disagree
+                      (Disagreement.Reference_only_failed "loop_unsupported")
+                | Ok loop ->
+                    let f32 =
+                      Err.map_error
+                        (fun (e : Loop_ir.Loop_interp.error) ->
+                          (e :> Kernel_eval.error))
+                        (Loop_ir.Loop_interp.run
+                           ~precision:Loop_ir.Loop_numerics.Precision.F32 loop
+                           ~bind)
+                    in
+                    compare ~reference:f32 ~ssa:result)
+            | Ssa_numerics.Precision.F32, Ssa_numerics.Simd_fp32_relaxed ->
+                within_tolerance ~atol:1e-4 ~rtol:1e-4 reference result)
+        | Disagree _ | Not_admitted _ | Refused _ -> own
+      in
+      (verdict, Some resolved)
+
 type marks = {
   emitters : int;
   keys : int;

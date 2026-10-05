@@ -24,6 +24,26 @@ let vectorize ~alias ~target =
         ((if changed then q else p), changed));
   }
 
+let schedule_sums ~target =
+  {
+    name = "schedule_sums";
+    run =
+      (fun p ->
+        let q, report = Ssa_vector_sum.program ~target p in
+        let changed =
+          List.exists
+            (fun (d : Ssa_vector_sum.Decision.t) ->
+              match d.Ssa_vector_sum.Decision.outcome with
+              | Ssa_vector_sum.Decision.Scheduled _ -> true
+              | Ssa_vector_sum.Decision.Kept_sequential _ -> false)
+            report
+        in
+        ((if changed then q else p), changed));
+  }
+
+let contract ~scalar =
+  { name = "contract"; run = Ssa_opt_contract.pass ~scalar }
+
 let pipeline ?target ~alias () =
   [ simplify; guards; simplify; hoist ~alias ]
   @ (match target with

@@ -373,36 +373,120 @@ let const t ty c =
 
 let index_ty = Ssa_type.Scalar Ssa_type.Index
 
+(* One jammed group of clones of (pre; one ordered sum; post): the clones' sums
+   share one loop that carries an accumulator per clone, each adding its own
+   terms in the original order, and the clones' stores follow it in clone order
+   along the effect chain. [clones] pair the statements that set a clone up
+   (its shifted index) with the clone's renaming. Returns the statements and the
+   effect they leave. *)
+let jam t ~clones ~pre ~sum_lo ~sum_hi ~seed ~sum_results ~sum_body ~post
+    ~eff_in =
+  let seed_ty = seed.Ssa_value.ty in
+  let kiv', jam_eff_param =
+    (Ssa_rewrite.fresh t index_ty, Ssa_rewrite.fresh t Ssa_type.Effect)
+  in
+  let g = List.length clones in
+  let acc_params = List.init g (fun _ -> Ssa_rewrite.fresh t seed_ty) in
+  let out_effect = Ssa_rewrite.fresh t Ssa_type.Effect in
+  let sums = List.init g (fun _ -> Ssa_rewrite.fresh t seed_ty) in
+  let sum_value = List.hd sum_results in
+  let sum_effect = List.nth sum_results 1 in
+  let kiv, sum_effect_param =
+    match sum_body.Ssa_region.params with
+    | [ k; e ] -> (k, e)
+    | _ -> invalid_arg "Ssa_opt_block: the reduction's parameters"
+  in
+  let term_value = List.hd sum_body.Ssa_region.yields in
+  let term_effect = List.nth sum_body.Ssa_region.yields 1 in
+  (* an accumulate on vectors is lane-wise *)
+  let accumulate acc term =
+    let op = Ssa_op.Float_binary (Expr.Value.Add, acc, term) in
+    match seed_ty with
+    | Ssa_type.Vec _ | Ssa_type.Mask _ -> Ssa_op.Lanewise op
+    | Ssa_type.Effect | Ssa_type.Local | Ssa_type.Scalar _ -> op
+  in
+  let pres = ref [] and seeds = ref [] and updates = ref [] in
+  let cur = ref jam_eff_param in
+  let terms =
+    List.concat
+      (List.mapi
+         (fun j (setup, cl) ->
+           pres := !pres @ setup @ Ssa_clone.stmts cl pre;
+           seeds := !seeds @ [ Ssa_clone.value cl seed ];
+           (* the reduction's own index is shared by every clone *)
+           Hashtbl.replace cl.Ssa_clone.renaming (kiv.Ssa_value.id :> int) kiv';
+           Hashtbl.replace cl.Ssa_clone.renaming
+             (sum_effect_param.Ssa_value.id :> int)
+             !cur;
+           let body = Ssa_clone.stmts cl sum_body.Ssa_region.body in
+           let term = Ssa_clone.value cl term_value in
+           cur := Ssa_clone.value cl term_effect;
+           let next = Ssa_rewrite.fresh t seed_ty in
+           updates :=
+             !updates
+             @ [
+                 ( next,
+                   instr ~results:[ next ]
+                     (accumulate (List.nth acc_params j) term) );
+               ];
+           body)
+         clones)
+  in
+  let jam_body =
+    {
+      Ssa_region.id = Ssa_clone.fresh_region (Ssa_clone.create t ~subst:[]);
+      params = (kiv' :: acc_params) @ [ jam_eff_param ];
+      body = terms @ List.map snd !updates;
+      yields = List.map fst !updates @ [ !cur ];
+    }
+  in
+  let first = snd (List.hd clones) in
+  let loop =
+    Ssa_stmt.For
+      {
+        lo = Ssa_clone.value first sum_lo;
+        hi = Ssa_clone.value first sum_hi;
+        step = 1L;
+        inits = !seeds @ [ eff_in ];
+        results = sums @ [ out_effect ];
+        body = jam_body;
+      }
+  in
+  (* the stores, each after the reduction, in clone order along the chain *)
+  let chain = ref out_effect in
+  let posts =
+    List.concat
+      (List.mapi
+         (fun j (_, cl) ->
+           Hashtbl.replace cl.Ssa_clone.renaming
+             (sum_value.Ssa_value.id :> int)
+             (List.nth sums j);
+           Hashtbl.replace cl.Ssa_clone.renaming
+             (sum_effect.Ssa_value.id :> int)
+             !chain;
+           let stmts = Ssa_clone.stmts cl post in
+           List.iter
+             (function
+               | Ssa_stmt.Instr i -> (
+                   match (i.Ssa_instr.token, List.rev i.Ssa_instr.results) with
+                   | Some _, out :: _ -> chain := out
+                   | _ -> ())
+               | _ -> ())
+             stmts;
+           stmts)
+         clones)
+  in
+  (!pres @ [ loop ] @ posts, !chain)
+
 let build t ~g (shape : shape) (original : Ssa_region.t Ssa_stmt.t) ~inits
     ~results =
   let q = Int64.div shape.trips (Int64.of_int g) in
   let full_hi = Int64.add shape.lo (Int64.mul q (Int64.of_int g)) in
   let lo_v, lo_i = const t index_ty (Ssa_const.Index shape.lo) in
   let fhi_v, fhi_i = const t index_ty (Ssa_const.Index full_hi) in
-  (* the full-group loop's own region *)
   let iv' = Ssa_rewrite.fresh t index_ty in
   let eff' = Ssa_rewrite.fresh t Ssa_type.Effect in
-  let kiv' = Ssa_rewrite.fresh t index_ty in
-  let jam_eff_param = Ssa_rewrite.fresh t Ssa_type.Effect in
-  let seed_ty = shape.seed.Ssa_value.ty in
-  let acc_params = List.init g (fun _ -> Ssa_rewrite.fresh t seed_ty) in
-  let out_effect = Ssa_rewrite.fresh t Ssa_type.Effect in
-  let sums = List.init g (fun _ -> Ssa_rewrite.fresh t seed_ty) in
-  let sum_value = List.hd shape.sum_results in
-  let sum_effect = List.nth shape.sum_results 1 in
-  let sum_params = shape.sum_body.Ssa_region.params in
-  let kiv, sum_effect_param =
-    match sum_params with
-    | [ k; e ] -> (k, e)
-    | _ -> invalid_arg "Ssa_opt_block: the reduction's parameters"
-  in
-  let term_value = List.hd shape.sum_body.Ssa_region.yields in
-  let term_effect = List.nth shape.sum_body.Ssa_region.yields 1 in
   (* clone j: the original body with its output index moved by j *)
-  let pres = ref []
-  and terms = ref []
-  and seeds = ref []
-  and updates = ref [] in
   let clones =
     List.init g (fun j ->
         let w_stmts, w =
@@ -415,85 +499,17 @@ let build t ~g (shape : shape) (original : Ssa_region.t Ssa_stmt.t) ~inits
         in
         (w_stmts, Ssa_clone.create t ~subst:[ (shape.iv, w) ]))
   in
-  let cur = ref jam_eff_param in
-  let term_stmts_per_clone =
-    List.mapi
-      (fun j (w_stmts, cl) ->
-        pres := !pres @ w_stmts @ Ssa_clone.stmts cl shape.pre;
-        seeds := !seeds @ [ Ssa_clone.value cl shape.seed ];
-        (* the reduction's own index is shared by every clone *)
-        Hashtbl.replace cl.Ssa_clone.renaming (kiv.Ssa_value.id :> int) kiv';
-        Hashtbl.replace cl.Ssa_clone.renaming
-          (sum_effect_param.Ssa_value.id :> int)
-          !cur;
-        let body = Ssa_clone.stmts cl shape.sum_body.Ssa_region.body in
-        let term = Ssa_clone.value cl term_value in
-        cur := Ssa_clone.value cl term_effect;
-        let acc = List.nth acc_params j in
-        let next = Ssa_rewrite.fresh t seed_ty in
-        updates :=
-          !updates
-          @ [
-              ( next,
-                instr ~results:[ next ]
-                  (Ssa_op.Float_binary (Expr.Value.Add, acc, term)) );
-            ];
-        body)
-      clones
-  in
-  terms := List.concat term_stmts_per_clone;
-  let jam_yields_effect = !cur in
-  let jam_body =
-    {
-      Ssa_region.id = Ssa_clone.fresh_region (Ssa_clone.create t ~subst:[]);
-      params = (kiv' :: acc_params) @ [ jam_eff_param ];
-      body = !terms @ List.map snd !updates;
-      yields = List.map fst !updates @ [ jam_yields_effect ];
-    }
-  in
-  let sum_lo = Ssa_clone.value (snd (List.hd clones)) shape.sum_lo in
-  let sum_hi = Ssa_clone.value (snd (List.hd clones)) shape.sum_hi in
-  let jam =
-    Ssa_stmt.For
-      {
-        lo = sum_lo;
-        hi = sum_hi;
-        step = 1L;
-        inits = !seeds @ [ eff' ];
-        results = sums @ [ out_effect ];
-        body = jam_body;
-      }
-  in
-  (* the stores, each after the reduction, in group order along the chain *)
-  let chain = ref out_effect in
-  let posts =
-    List.concat
-      (List.mapi
-         (fun j (_, cl) ->
-           Hashtbl.replace cl.Ssa_clone.renaming
-             (sum_value.Ssa_value.id :> int)
-             (List.nth sums j);
-           Hashtbl.replace cl.Ssa_clone.renaming
-             (sum_effect.Ssa_value.id :> int)
-             !chain;
-           let stmts = Ssa_clone.stmts cl shape.post in
-           List.iter
-             (function
-               | Ssa_stmt.Instr i -> (
-                   match (i.Ssa_instr.token, List.rev i.Ssa_instr.results) with
-                   | Some _, out :: _ -> chain := out
-                   | _ -> ())
-               | _ -> ())
-             stmts;
-           stmts)
-         clones)
+  let body, chain =
+    jam t ~clones ~pre:shape.pre ~sum_lo:shape.sum_lo ~sum_hi:shape.sum_hi
+      ~seed:shape.seed ~sum_results:shape.sum_results ~sum_body:shape.sum_body
+      ~post:shape.post ~eff_in:eff'
   in
   let full_body =
     {
       Ssa_region.id = Ssa_clone.fresh_region (Ssa_clone.create t ~subst:[]);
       params = [ iv'; eff' ];
-      body = !pres @ [ jam ] @ posts;
-      yields = [ !chain ];
+      body;
+      yields = [ chain ];
     }
   in
   let e_full = Ssa_rewrite.fresh t Ssa_type.Effect in

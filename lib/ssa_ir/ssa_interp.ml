@@ -82,6 +82,7 @@ type st = {
   program : Ssa_program.t;
   memory : Ssa_memory.t;
   counters : Counters.t;
+  fused : bool;
   env : v array;
   mutable meter : meter;
 }
@@ -264,7 +265,8 @@ let exec_op st (i : Ssa_instr.t) =
     | E | L _ | M _ | V _ -> invalid_arg "Ssa_interp: a scalar operand"
   in
   match
-    Ssa_scalar.eval i.Ssa_instr.op ~result:result.Ssa_value.ty ~get:scalar
+    Ssa_scalar.eval ~fused:st.fused i.Ssa_instr.op ~result:result.Ssa_value.ty
+      ~get:scalar
   with
   | Some (Ssa_scalar.F f) -> put (F f)
   | Some (Ssa_scalar.I n) -> put (I n)
@@ -416,7 +418,8 @@ let exec_op st (i : Ssa_instr.t) =
           in
           let lane k =
             match
-              Ssa_scalar.eval inner ~result:lane_ty ~get:(lane_value st k)
+              Ssa_scalar.eval ~fused:st.fused inner ~result:lane_ty
+                ~get:(lane_value st k)
             with
             | Some v -> v
             | None ->
@@ -582,7 +585,8 @@ and stmt st : Ssa_region.t Ssa_stmt.t -> unit = function
       done;
       List.iter2 (set st) results [ !acc; E ]
 
-let run ?(counters = Counters.create ()) (p : Ssa_program.t) ~memory =
+let run ?(counters = Counters.create ()) ?(fused = true) (p : Ssa_program.t)
+    ~memory =
   match Err.payload (Ssa_verify.check p) with
   | Error (`Invalid_program d) -> Err.fail (`Invalid_program d : error)
   | Ok () ->
@@ -595,6 +599,7 @@ let run ?(counters = Counters.create ()) (p : Ssa_program.t) ~memory =
               program = p;
               memory;
               counters;
+              fused;
               env = Array.make (p.Ssa_program.next_value :> int) E;
               meter = fresh_meter p.Ssa_program.scan_limits;
             }

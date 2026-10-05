@@ -29,8 +29,8 @@ let is_f32 (ty : Ssa_type.t) = Ssa_type.equal ty (Ssa_type.Scalar Ssa_type.F32)
 
 (* [get] reads an operand's value; [result] is the type of the operation's
    result. [None] for an operation that is not pure and total. *)
-let eval (op : Ssa_op.t) ~(result : Ssa_type.t) ~(get : Ssa_value.t -> t) :
-    t option =
+let eval ?(fused = true) (op : Ssa_op.t) ~(result : Ssa_type.t)
+    ~(get : Ssa_value.t -> t) : t option =
   let float a =
     match get a with F x -> x | I _ | P _ -> invalid_arg "Ssa_scalar: float"
   in
@@ -73,7 +73,13 @@ let eval (op : Ssa_op.t) ~(result : Ssa_type.t) ~(get : Ssa_value.t -> t) :
       let y = float b in
       let z = float c in
       Some
-        (F (if is_f32 result then Ssa_numerics.fma32 x y z else Float.fma x y z))
+        (F
+           (match (is_f32 result, fused) with
+           | true, true -> Ssa_numerics.fma32 x y z
+           | true, false ->
+               Ssa_const.round_f32 (Ssa_const.round_f32 (x *. y) +. z)
+           | false, true -> Float.fma x y z
+           | false, false -> (x *. y) +. z))
   | Ssa_op.Float_unary (op, a) ->
       let x = float a in
       Some

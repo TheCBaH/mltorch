@@ -35,6 +35,16 @@ val vectorize : alias:Ssa_effects.policy -> target:Ssa_target.t -> pass
 (** {!Ssa_vectorize.program}: loops of independent outputs become vector loops
     where the target's cost model says they pay. *)
 
+val schedule_sums : target:Ssa_target.t -> pass
+(** {!Ssa_vector_sum.program}: sums no enclosing loop's lanes took are scheduled
+    along their own axis. Reorders a sum, so only a plan whose numerical policy
+    permits it runs this. *)
+
+val contract : scalar:bool -> pass
+(** {!Ssa_opt_contract.pass}: [a + x * y] becomes one fused operation. Only a
+    plan whose numerical policy permits contraction, on a target with a fused
+    operation, runs this. *)
+
 val pipeline :
   ?target:Ssa_target.t -> alias:Ssa_effects.policy -> unit -> pass list
 (** The default order. Each pass sees the result of the last. With a [target]

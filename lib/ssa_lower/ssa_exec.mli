@@ -14,6 +14,7 @@ val pp_error : Format.formatter -> [< error ] -> unit
 
 val run :
   ?counters:Ssa_ir.Ssa_interp.Counters.t ->
+  ?fused:bool ->
   Fusion_plan.t ->
   Ssa_ir.Ssa_program.t ->
   bind:(Tensor_id.t -> Tensor.packed option) ->

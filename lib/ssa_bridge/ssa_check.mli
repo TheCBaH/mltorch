@@ -59,6 +59,22 @@ val run_f32 :
     {!Ssa_ir.Ssa_numerics.admit} refuses is {!Not_admitted}, never a
     disagreement. *)
 
+val run_planned :
+  ?alias:Ssa_ir.Ssa_effects.policy ->
+  numerics:Ssa_ir.Ssa_numerics.t ->
+  target:Ssa_ir.Ssa_target.t ->
+  Fusion_plan.t ->
+  bind:(Tensor_id.t -> Tensor.packed option) ->
+  verdict * Ssa_ir.Ssa_plan.t option
+(** The plan {!Ssa_ir.Ssa_plan.resolve} makes for the lowered kernel, run and
+    judged twice. Against its own oracle (its vector program spelled out lane by
+    lane), bit for bit, always. Against the reference it is defined to match: a
+    binary64 plan the evaluator's bits; a binary32 plan under the ordered policy
+    the Loop interpreter at binary32, bit for bit; a binary32 plan under the
+    relaxed policy the binary64 evaluator within [1e-4 + 1e-4 |x|] (a reordered
+    sum is not bitwise anything else). The resolved plan is returned so a caller
+    can say what was planned; [None] for a kernel lowering refuses. *)
+
 type marks = {
   emitters : int;
   keys : int;
