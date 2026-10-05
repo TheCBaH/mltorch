@@ -86,6 +86,8 @@ let op st (o : Ssa_op.t) =
       Fmt.str "float.%s %s" (Ssa_op.unary_name u) (name st x)
   | Ssa_op.Index_add (x, y) ->
       Fmt.str "index.add %s, %s" (name st x) (name st y)
+  | Ssa_op.Index_add_in_domain (x, y) ->
+      Fmt.str "index.add_in_domain %s, %s" (name st x) (name st y)
   | Ssa_op.Index_ceil_div (k, x) ->
       Fmt.str "index.ceil_div %Ld, %s" k (name st x)
   | Ssa_op.Index_clamp_low x -> Fmt.str "index.clamp_low %s" (name st x)
@@ -100,6 +102,12 @@ let op st (o : Ssa_op.t) =
       Fmt.str "index.min %s, %s" (name st x) (name st y)
   | Ssa_op.Index_of_i64 x -> Fmt.str "index.of_i64 %s" (name st x)
   | Ssa_op.Index_scale (k, x) -> Fmt.str "index.scale %Ld, %s" k (name st x)
+  | Ssa_op.Index_scale_in_domain (k, x) ->
+      Fmt.str "index.scale_in_domain %Ld, %s" k (name st x)
+  | Ssa_op.Load_in_bounds { buffer; at; decode } ->
+      Fmt.str "load.in_bounds.%s %a%s"
+        (Ssa_op.Decode.name decode)
+        Ssa_id.Buffer.pp buffer (access st at)
   | Ssa_op.Load { buffer; at; decode } ->
       Fmt.str "load.%s %a%s"
         (Ssa_op.Decode.name decode)

@@ -7,6 +7,10 @@ module Statement =
 
 type site = { region : Ssa_id.Region.t; statement : Statement.t }
 
+(* What an operation that carries a proof asserts. {!check} accepts it only
+   where {!Ssa_range} re-derives it from the program itself. *)
+type claim = Add_in_domain | In_bounds | Scale_in_domain
+
 type problem =
   | Buffer_declaration of Ssa_id.Buffer.t
   | Buffer_format of {
@@ -27,6 +31,7 @@ type problem =
   | Signature of { expected : Ssa_type.t list; found : Ssa_type.t list }
   | Step_not_positive of int64
   | Typing of Ssa_typing.error
+  | Unproven of claim
   | Use_retyped of {
       value : Ssa_id.Value.t;
       defined : Ssa_type.t;
@@ -72,6 +77,12 @@ let pp_problem fmt = function
         pp_types found
   | Step_not_positive s -> Fmt.pf fmt "loop step %Ld is not positive" s
   | Typing e -> Ssa_typing.pp_error fmt e
+  | Unproven c ->
+      Fmt.pf fmt "a proof of %s cannot be re-derived"
+        (match c with
+        | Add_in_domain -> "a sum staying in the index domain"
+        | In_bounds -> "an access staying in its buffer"
+        | Scale_in_domain -> "a product staying in the index domain")
   | Use_retyped { value; defined; used } ->
       Fmt.pf fmt "%a is defined as %a and used as %a" Ssa_id.Value.pp value
         Ssa_type.pp defined Ssa_type.pp used
@@ -191,7 +202,8 @@ let instr ctx scope ~live (i : Ssa_instr.t) =
       | Ssa_access.Flat _ when Ssa_format.per_channel b.Ssa_buffer.format ->
           fail ctx scope (Flat_on_per_channel buffer)
       | Ssa_access.Flat _ | Ssa_access.Coord _ -> ())
-  | Ssa_op.Load { buffer; decode; at } ->
+  | Ssa_op.Load { buffer; decode; at }
+  | Ssa_op.Load_in_bounds { buffer; decode; at } ->
       check_access ctx scope buffer
         ~family:(Ssa_op.Decode.family decode)
         ~writes:false ~at
@@ -200,17 +212,17 @@ let instr ctx scope ~live (i : Ssa_instr.t) =
         ~family:(Ssa_op.Encode.family encode)
         ~writes:true ~at
   | Ssa_op.Check_gather _ | Ssa_op.Check_local _ | Ssa_op.Check_scan _
-  | Ssa_op.Const _ | Ssa_op.Convert _ | Ssa_op.Local_alloc _
-  | Ssa_op.Local_read _ | Ssa_op.Local_write _ | Ssa_op.Meter_charge
-  | Ssa_op.Meter_release _ | Ssa_op.Meter_reserve _ | Ssa_op.Meter_reset
-  | Ssa_op.Float_binary _ | Ssa_op.Float_compare _ | Ssa_op.Float_max _
-  | Ssa_op.Float_to_i64 _ | Ssa_op.Float_unary _ | Ssa_op.I64_arith _
-  | Ssa_op.I64_compare _ | Ssa_op.I64_div _ | Ssa_op.Index_add _
-  | Ssa_op.Index_of_i64 _ | Ssa_op.Index_ceil_div _ | Ssa_op.Index_clamp_low _
-  | Ssa_op.Index_compare _ | Ssa_op.Index_floor_div _ | Ssa_op.Index_max _
-  | Ssa_op.Index_min _ | Ssa_op.Index_scale _ | Ssa_op.Mark _
-  | Ssa_op.Pool_better _ | Ssa_op.Pred_not _ | Ssa_op.Pred_or _
-  | Ssa_op.Select _ ->
+  | Ssa_op.Const _ | Ssa_op.Convert _ | Ssa_op.Index_add_in_domain _
+  | Ssa_op.Index_scale_in_domain _ | Ssa_op.Local_alloc _ | Ssa_op.Local_read _
+  | Ssa_op.Local_write _ | Ssa_op.Meter_charge | Ssa_op.Meter_release _
+  | Ssa_op.Meter_reserve _ | Ssa_op.Meter_reset | Ssa_op.Float_binary _
+  | Ssa_op.Float_compare _ | Ssa_op.Float_max _ | Ssa_op.Float_to_i64 _
+  | Ssa_op.Float_unary _ | Ssa_op.I64_arith _ | Ssa_op.I64_compare _
+  | Ssa_op.I64_div _ | Ssa_op.Index_add _ | Ssa_op.Index_of_i64 _
+  | Ssa_op.Index_ceil_div _ | Ssa_op.Index_clamp_low _ | Ssa_op.Index_compare _
+  | Ssa_op.Index_floor_div _ | Ssa_op.Index_max _ | Ssa_op.Index_min _
+  | Ssa_op.Index_scale _ | Ssa_op.Mark _ | Ssa_op.Pool_better _
+  | Ssa_op.Pred_not _ | Ssa_op.Pred_or _ | Ssa_op.Select _ ->
       ());
   let values =
     match Ssa_typing.result_types op with
@@ -360,6 +372,56 @@ let check_buffers ctx scope =
       seen := Ssa_id.Buffer.Set.add b.Ssa_buffer.id !seen)
     ctx.program.Ssa_program.buffers
 
+(* The second phase: every operation that carries a proof must have it
+   re-derived by the range analysis. It runs only on a program that already
+   passed the structural walk, which the analysis relies on. *)
+let check_proofs ctx scope =
+  let p = ctx.program in
+  let ranges = Ssa_range.analyze p in
+  let rec region (scope : scope) (r : Ssa_region.t) =
+    let scope = { scope with region = r.Ssa_region.id } in
+    List.iteri
+      (fun index s ->
+        let scope = { scope with statement = Statement.of_int index } in
+        stmt scope s)
+      r.Ssa_region.body
+  and stmt scope : Ssa_region.t Ssa_stmt.t -> unit = function
+    | Ssa_stmt.Instr i -> (
+        match i.Ssa_instr.op with
+        | Ssa_op.Index_add_in_domain (a, b) ->
+            if not (Ssa_range.add_stays_in_domain ranges a b) then
+              fail ctx scope (Unproven Add_in_domain)
+        | Ssa_op.Index_scale_in_domain (k, a) ->
+            if not (Ssa_range.scale_stays_in_domain ranges k a) then
+              fail ctx scope (Unproven Scale_in_domain)
+        | Ssa_op.Load_in_bounds { buffer; at; _ } -> (
+            match Ssa_program.find_buffer p buffer with
+            | Some b ->
+                if not (Ssa_range.in_bounds ranges b at) then
+                  fail ctx scope (Unproven In_bounds)
+            | None -> fail ctx scope (Buffer_unknown buffer))
+        | Ssa_op.Check_access _ | Ssa_op.Check_gather _ | Ssa_op.Check_local _
+        | Ssa_op.Check_scan _ | Ssa_op.Const _ | Ssa_op.Convert _
+        | Ssa_op.Float_binary _ | Ssa_op.Float_compare _ | Ssa_op.Float_max _
+        | Ssa_op.Float_to_i64 _ | Ssa_op.Float_unary _ | Ssa_op.I64_arith _
+        | Ssa_op.I64_compare _ | Ssa_op.I64_div _ | Ssa_op.Index_add _
+        | Ssa_op.Index_ceil_div _ | Ssa_op.Index_clamp_low _
+        | Ssa_op.Index_compare _ | Ssa_op.Index_floor_div _ | Ssa_op.Index_max _
+        | Ssa_op.Index_min _ | Ssa_op.Index_of_i64 _ | Ssa_op.Index_scale _
+        | Ssa_op.Load _ | Ssa_op.Local_alloc _ | Ssa_op.Local_read _
+        | Ssa_op.Local_write _ | Ssa_op.Mark _ | Ssa_op.Meter_charge
+        | Ssa_op.Meter_release _ | Ssa_op.Meter_reserve _ | Ssa_op.Meter_reset
+        | Ssa_op.Pool_better _ | Ssa_op.Pred_not _ | Ssa_op.Pred_or _
+        | Ssa_op.Select _ | Ssa_op.Store _ ->
+            ())
+    | Ssa_stmt.For { body; _ } | Ssa_stmt.Ordered_sum { body; _ } ->
+        region scope body
+    | Ssa_stmt.If { then_; else_; _ } ->
+        region scope then_;
+        region scope else_
+  in
+  region scope p.Ssa_program.entry
+
 let check (p : Ssa_program.t) =
   Err.Escape.with_escape @@ fun esc ->
   let ctx =
@@ -383,4 +445,5 @@ let check (p : Ssa_program.t) =
       ~live_of:(fun scope params -> effect_of ctx scope params)
       p.Ssa_program.entry
   in
-  expect_signature ctx scope ~expected:[ Ssa_type.Effect ] ~found:yielded
+  expect_signature ctx scope ~expected:[ Ssa_type.Effect ] ~found:yielded;
+  check_proofs ctx scope

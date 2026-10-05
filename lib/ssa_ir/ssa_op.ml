@@ -156,6 +156,9 @@ type t =
   | Index_add of Ssa_value.t * Ssa_value.t
       (** Checked: leaving the index domain fails at this operation with its
           operands. *)
+  | Index_add_in_domain of Ssa_value.t * Ssa_value.t
+      (** [Index_add] whose sum is proved to stay in the index domain: pure and
+          total, and valid only where {!Ssa_verify} can re-derive the proof. *)
   | Index_ceil_div of int64 * Ssa_value.t
       (** Mathematical ceiling by a positive literal divisor, never truncation.
       *)
@@ -169,7 +172,17 @@ type t =
           defect of the program, not a failure row. *)
   | Index_scale of int64 * Ssa_value.t
       (** Checked multiplication by a literal that is itself an index. *)
+  | Index_scale_in_domain of int64 * Ssa_value.t
+      (** [Index_scale] whose product is proved to stay in the index domain. *)
   | Load of { buffer : Ssa_id.Buffer.t; at : Ssa_access.t; decode : Decode.t }
+  | Load_in_bounds of {
+      buffer : Ssa_id.Buffer.t;
+      at : Ssa_access.t;
+      decode : Decode.t;
+    }
+      (** [Load] whose coordinate is proved inside the buffer: it checks
+          nothing, still reads memory, and is valid only where {!Ssa_verify} can
+          re-derive the proof. *)
   | Local_alloc of { slots : int64; var : Expr.Local_var.t option }
       (** A fresh scratch object of [slots] binary64 cells, every cell unset. A
           read of an unset cell is a defect, never an undefined value. *)
@@ -212,21 +225,24 @@ type t =
    like a scalar expression: they sequence on the effect chain. *)
 let effectful = function
   | Const _ | Convert _ | Float_binary _ | Float_compare _ | Float_max _
-  | Float_unary _ | I64_arith _ | I64_compare _ | Index_ceil_div _
-  | Index_clamp_low _ | Index_compare _ | Index_floor_div _ | Index_max _
-  | Index_min _ | Pool_better _ | Pred_not _ | Pred_or _ | Select _ ->
+  | Float_unary _ | I64_arith _ | I64_compare _ | Index_add_in_domain _
+  | Index_ceil_div _ | Index_clamp_low _ | Index_compare _ | Index_floor_div _
+  | Index_max _ | Index_min _ | Index_scale_in_domain _ | Pool_better _
+  | Pred_not _ | Pred_or _ | Select _ ->
       false
   | Check_access _ | Check_gather _ | Check_local _ | Check_scan _
   | Float_to_i64 _ | I64_div _ | Index_add _ | Index_of_i64 _ | Index_scale _
-  | Load _ | Local_alloc _ | Local_read _ | Local_write _ | Mark _
-  | Meter_charge | Meter_release _ | Meter_reserve _ | Meter_reset | Store _ ->
+  | Load _ | Load_in_bounds _ | Local_alloc _ | Local_read _ | Local_write _
+  | Mark _ | Meter_charge | Meter_release _ | Meter_reserve _ | Meter_reset
+  | Store _ ->
       true
 
 let operands = function
   | Const _ | Local_alloc _ | Mark _ | Meter_charge | Meter_release _
   | Meter_reserve _ | Meter_reset ->
       []
-  | Check_access { at; _ } | Load { at; _ } -> Ssa_access.operands at
+  | Check_access { at; _ } | Load { at; _ } | Load_in_bounds { at; _ } ->
+      Ssa_access.operands at
   | Check_gather { raw = a; _ }
   | Check_local { at = a; _ }
   | Convert (_, a)
@@ -237,6 +253,7 @@ let operands = function
   | Index_floor_div (_, a)
   | Index_of_i64 a
   | Index_scale (_, a)
+  | Index_scale_in_domain (_, a)
   | Pred_not a ->
       [ a ]
   | Float_binary (_, a, b)
@@ -246,6 +263,7 @@ let operands = function
   | I64_compare (_, a, b)
   | I64_div (a, b)
   | Index_add (a, b)
+  | Index_add_in_domain (a, b)
   | Index_compare (_, a, b)
   | Index_max (a, b)
   | Index_min (a, b)
@@ -310,6 +328,10 @@ let map_operands f = function
       let a = f a in
       let b = f b in
       Index_add (a, b)
+  | Index_add_in_domain (a, b) ->
+      let a = f a in
+      let b = f b in
+      Index_add_in_domain (a, b)
   | Index_ceil_div (k, a) -> Index_ceil_div (k, f a)
   | Index_clamp_low a -> Index_clamp_low (f a)
   | Index_compare (c, a, b) ->
@@ -327,6 +349,9 @@ let map_operands f = function
       Index_min (a, b)
   | Index_of_i64 a -> Index_of_i64 (f a)
   | Index_scale (k, a) -> Index_scale (k, f a)
+  | Index_scale_in_domain (k, a) -> Index_scale_in_domain (k, f a)
+  | Load_in_bounds { buffer; at; decode } ->
+      Load_in_bounds { buffer; at = Ssa_access.map f at; decode }
   | Load { buffer; at; decode } ->
       Load { buffer; at = Ssa_access.map f at; decode }
   | Pool_better (a, b) ->
@@ -378,6 +403,7 @@ let name = function
   | I64_compare (c, _, _) -> "i64.compare." ^ Compare.name c
   | I64_div _ -> "i64.div"
   | Index_add _ -> "index.add"
+  | Index_add_in_domain _ -> "index.add_in_domain"
   | Index_ceil_div _ -> "index.ceil_div"
   | Index_clamp_low _ -> "index.clamp_low"
   | Index_compare (c, _, _) -> "index.compare." ^ Compare.name c
@@ -386,7 +412,9 @@ let name = function
   | Index_min _ -> "index.min"
   | Index_of_i64 _ -> "index.of_i64"
   | Index_scale _ -> "index.scale"
+  | Index_scale_in_domain _ -> "index.scale_in_domain"
   | Load _ -> "load"
+  | Load_in_bounds _ -> "load.in_bounds"
   | Local_alloc _ -> "local.alloc"
   | Local_read _ -> "local.read"
   | Local_write _ -> "local.write"
@@ -400,3 +428,35 @@ let name = function
   | Pred_or _ -> "pred.or"
   | Select _ -> "select"
   | Store _ -> "store"
+
+(* Two pure operations with the same key compute the same value from the same
+   operands: the name carries the operator and the conversion, the rest of the
+   attributes follow, and the operands are named by id. Constants compare by their
+   bits, all NaNs as one, as {!Ssa_const.equal} does. *)
+let key op =
+  let id (v : Ssa_value.t) = string_of_int (v.Ssa_value.id :> int) in
+  let attrs =
+    match op with
+    | Const c -> (
+        let bits x =
+          if Float.is_nan x then "nan"
+          else Int64.to_string (Int64.bits_of_float x)
+        in
+        match c with
+        | Ssa_const.F32 x -> "f32:" ^ bits x
+        | Ssa_const.F64 x -> "f64:" ^ bits x
+        | Ssa_const.I64 x -> "i64:" ^ Int64.to_string x
+        | Ssa_const.Index x -> "index:" ^ Int64.to_string x
+        | Ssa_const.Pred b -> "pred:" ^ string_of_bool b)
+    | Index_add_in_domain _ | Index_ceil_div _ | Index_floor_div _
+    | Index_scale _ | Index_scale_in_domain _ -> (
+        match op with
+        | Index_ceil_div (k, _)
+        | Index_floor_div (k, _)
+        | Index_scale (k, _)
+        | Index_scale_in_domain (k, _) ->
+            Int64.to_string k
+        | _ -> "")
+    | _ -> ""
+  in
+  String.concat " " ((name op ^ "[" ^ attrs ^ "]") :: List.map id (operands op))

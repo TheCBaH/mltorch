@@ -379,3 +379,78 @@ let%expect_test "a per-channel buffer takes coordinate accesses only" =
     r0, stmt1: b0 is per-channel quantized and takes no flat access
     ok
     r0, stmt0: buffer b0 is declared twice, or with extents no index holds |}]
+
+(* ---- proofs ------------------------------------------------------------------ *)
+
+let%expect_test
+    "an operation that carries a proof is accepted only where the range \
+     analysis re-derives it" =
+  let const n k = instr [ v n index_ty ] (Ssa_op.Const (Ssa_const.Index k)) in
+  let sum a b r =
+    instr
+      [ v r index_ty ]
+      (Ssa_op.Index_add_in_domain (v a index_ty, v b index_ty))
+  in
+  let top = 0x7FFF_FFFFL in
+  let case a b =
+    verdict
+      (program (region 0 [ e0 ] [ const 1 a; const 2 b; sum 1 2 3 ] [ e0 ]))
+  in
+  case 1L 2L;
+  case top 1L;
+  case (-0x8000_0000L) (-1L);
+  (* a product *)
+  let scale a k =
+    verdict
+      (program
+         (region 0 [ e0 ]
+            [
+              const 1 a;
+              instr
+                [ v 2 index_ty ]
+                (Ssa_op.Index_scale_in_domain (k, v 1 index_ty));
+            ]
+            [ e0 ]))
+  in
+  scale 3L 2L;
+  scale 0x4000_0000L 2L;
+  (* a load: constants and an induction value against the extent *)
+  let input extent = buffer 0 ~h:1L ~w:extent Ssa_format.F32 Ssa_buffer.Input in
+  let load_at coord =
+    instr ~token:e0
+      [ v 9 f64_ty; v 10 effect_ty ]
+      (Ssa_op.Load_in_bounds
+         {
+           buffer = buf 0;
+           at = Ssa_access.Coord coord;
+           decode = Ssa_op.Decode.F32_to_f64;
+         })
+  in
+  let zero = v 1 index_ty in
+  let pos k = v k index_ty in
+  let coord w = Expr.Coord.make ~n:zero ~t:zero ~d:zero ~h:zero ~w ~c:zero in
+  let attempt extent w =
+    verdict
+      (program
+         ~buffers:[ input extent ]
+         (region 0 [ e0 ]
+            [
+              instr [ zero ] (Ssa_op.Const (Ssa_const.Index 0L));
+              instr [ pos 2 ] (Ssa_op.Const (Ssa_const.Index w));
+              load_at (coord (pos 2));
+            ]
+            [ v 10 effect_ty ]))
+  in
+  attempt 4L 3L;
+  attempt 4L 4L;
+  attempt 4L (-1L);
+  [%expect
+    {|
+    ok
+    r0, stmt2: a proof of a sum staying in the index domain cannot be re-derived
+    r0, stmt2: a proof of a sum staying in the index domain cannot be re-derived
+    ok
+    r0, stmt1: a proof of a product staying in the index domain cannot be re-derived
+    ok
+    r0, stmt2: a proof of an access staying in its buffer cannot be re-derived
+    r0, stmt2: a proof of an access staying in its buffer cannot be re-derived |}]

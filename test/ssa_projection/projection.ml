@@ -222,6 +222,15 @@ let direct (c : case) =
   | Ok p -> Some p
   | Error (`Unsupported _) -> None
 
+(* The direct program after the pass pipeline. The emitters allocate each buffer
+   themselves, so the buffers are distinct, which is what lets a load move past
+   a write to another buffer. *)
+let optimized (c : case) =
+  Option.map
+    (fun p ->
+      fst (Ssa_ir.Ssa_opt.run ~alias:Ssa_ir.Ssa_effects.Distinct_buffers p))
+    (direct c)
+
 let bridged (c : case) =
   match Err.payload (Loop_lower.lower c.plan) with
   | Error _ -> None
@@ -239,5 +248,5 @@ let run ~exec =
           match program c with
           | None -> Fmt.pr "%s, %s: not lowered@." c.name route
           | Some p -> Fmt.pr "%s, %s: %s@." c.name route (verdict ~exec c p))
-        [ ("direct", direct); ("bridge", bridged) ])
+        [ ("direct", direct); ("bridge", bridged); ("optimized", optimized) ])
     cases

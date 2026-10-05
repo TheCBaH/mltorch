@@ -191,15 +191,15 @@ let result_types : Ssa_op.t -> (Ssa_type.t list, error) result = function
                  { first = a.Ssa_value.ty; second = b.Ssa_value.ty })
       | found ->
           Error (Operand_not_float { position = Position.of_int 0; found }))
-  | Ssa_op.Index_add (a, b) ->
+  | Ssa_op.Index_add (a, b) | Ssa_op.Index_add_in_domain (a, b) ->
       let* () = expect_all ~first:0 index [ a; b ] in
       Ok [ index ]
-  | Ssa_op.Index_scale (k, a) ->
+  | Ssa_op.Index_scale (k, a) | Ssa_op.Index_scale_in_domain (k, a) ->
       if not (Ssa_const.in_index_domain k) then Error (Scale_out_of_domain k)
       else
         let* () = expect (Position.of_int 0) index a in
         Ok [ index ]
-  | Ssa_op.Load { at; decode; _ } ->
+  | Ssa_op.Load { at; decode; _ } | Ssa_op.Load_in_bounds { at; decode; _ } ->
       let* () = expect_all ~first:0 index (Ssa_access.operands at) in
       Ok [ Ssa_op.Decode.result decode ]
   | Ssa_op.Mark _ -> Ok []

@@ -2,8 +2,9 @@
 
 Status: the source surface the op sweep walks is implemented (typed IR,
 verifier, printer, reference interpreter, direct source lowering including
-Region programs, locals, scans and groups, differential harness). No analysis,
-optimization pass, vector form, CFG form or direct emitter exists yet. The semantics, task list and per-task evidence live in the
+Region programs, locals, scans and groups, differential harness), with the
+analyses and the exact optimizations over it. No vector form, CFG form or direct
+emitter exists yet. The semantics, task list and per-task evidence live in the
 SSA design, implementation plan and tracker in the sibling design repository;
 this file records what the code in `lib/` actually does and where it deliberately
 differs from the proposal.
@@ -104,6 +105,45 @@ its own name becomes its interface and hides its siblings (the lowering is
 - A group lowers to one nest over the canonical key: the shared locals once per
   key, then each member's emitter over its own Whole axes at its own physical
   key, each with its own conversion and store.
+
+## Analyses and passes
+
+- `Ssa_uses` records definitions, uses and the region tree of one revision and
+  answers lexical dominance; it is bound to its revision. `Ssa_range` derives
+  integer ranges (a missing fact is the whole domain, `Empty` is an unreachable
+  definition; a checked operation's range is its wide range clipped to the
+  domain, because an execution that left it failed first) and the claims they
+  back: a sum or product stays in the domain, an access stays in its buffer, a
+  loop runs a known number of times. `Ssa_effects` summarizes what a statement
+  reads, writes, may fail on and counts, and states which buffers may overlap as
+  a policy a caller chooses: `Conservative` (any pair may), or `Distinct_buffers`
+  for a caller that has established it (a runner that allocates each buffer).
+  No pass picks one.
+- **Proofs are re-derived, never trusted.** An operation that carries a proof
+  (`index.add_in_domain`, `index.scale_in_domain`, `load.in_bounds`) is accepted by
+  the verifier only where `Ssa_range` re-derives the claim from the program; a
+  second phase of `Ssa_verify.check` does it after the structural walk. This
+  replaces a private proof constructor: the proof object would only have named a
+  claim the verifier then had to check anyway.
+- `Ssa_rewrite` rebuilds a program with a rule applied post-order and returns the
+  next revision; a pass states what happens to one statement. `Ssa_scalar` is the
+  single definition of the pure scalar operations: the interpreter and the
+  constant folder both evaluate through it.
+- Passes (`Ssa_opt`): **simplify** (fold, pure CSE, dead pure values) never deletes
+  a checked operation, a load, a mark or a meter operation for being unused and
+  applies no algebraic identity; **guards** turns a checked operation the ranges
+  prove cannot fail into its in-domain form (pure, its effect reconnected), a
+  load proved in bounds into the unchecked form, deletes a check that cannot
+  fire, removes a loop that cannot run and inlines one that runs once; **hoist**
+  moves pure total operations out of any loop and a load only when it is in
+  bounds, the loop runs, and nothing in it may write what it reads; **share**
+  replaces a repeated load by the earlier one until something may write its
+  buffer, and discards what a loop body may overwrite on entering it. The driver
+  verifies every revision a pass returns.
+- Evidence beyond mutations: the op sweep through the optimizer has no
+  disagreement, no change of logical work and no extra read; hand-built failing
+  programs keep exactly the checks that report their failure; the optimized
+  programs run through C, Wasm and JavaScript.
 
 ## Verifier and interpreter bounds
 

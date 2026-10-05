@@ -203,3 +203,4 @@ lib/ssa_ir/ssa_interp.mli	tally	val stores : t -> int end
 lib/ssa_ir/ssa_interp.mli	as-written	type failure = [ `Coord_out_of_range of Expr.Source.t * Expr.Axis.t * int * int Expr.Coord.t | `Gather_index_out_of_range of Expr.Eval.Gather_index_out_of_range.t | `I64_division_by_zero | `I64_division_overflow | `I64_from_float_infinite | `I64_from_float_nan | `I64_from_float_out_of_range of float | `Index_overflow of Expr.Index_overflow.t | `Scan_meter of Expr.Scan_meter.error | `Scan_projection of Expr.Eval.scan_error | `Unbound_local of Expr.Local_var.t ]
 lib/ssa_ir/ssa_verify.mli	budget	val max_region_depth : int
 lib/ssa_bridge/ssa_check.mli	tally	type marks = { emitters : int; keys : int; locals : int; reductions : int; scan_updates : int; scans : int; }
+lib/ssa_ir/ssa_opt.mli	tally	type report = (string * int) list

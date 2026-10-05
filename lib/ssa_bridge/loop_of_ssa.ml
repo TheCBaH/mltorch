@@ -378,6 +378,15 @@ let convert (p : Ssa_program.t) =
           | `F64 -> sum
         in
         [ Loop_stmt.Assign (Loop_carrier.Float, temp r, sum) ]
+    | Ssa_op.Index_add_in_domain (a, b) ->
+        [
+          Loop_stmt.Assign_index (temp (result ()), Loop_index.Add (ix a, ix b));
+        ]
+    | Ssa_op.Index_scale_in_domain (k, a) ->
+        [
+          Loop_stmt.Assign_index
+            (temp (result ()), Loop_index.Scale (int_of k, ix a));
+        ]
     | Ssa_op.Index_add (a, b) ->
         let tree = Loop_index.Add (ix a, ix b) in
         [
@@ -394,27 +403,34 @@ let convert (p : Ssa_program.t) =
               Loop_failure.Index_overflow { index = tree } );
           Loop_stmt.Assign_index (temp (result ()), tree);
         ]
-    | Ssa_op.Load { buffer = id; at; decode } -> (
+    | Ssa_op.Load { buffer = id; at; decode }
+    | Ssa_op.Load_in_bounds { buffer = id; at; decode } -> (
         let b = buffer id in
         let r = result () in
+        (* a load proved in bounds needs no guard of its own *)
+        let guard c =
+          match i.Ssa_instr.op with
+          | Ssa_op.Load_in_bounds _ -> []
+          | _ -> [ load_guard b c ]
+        in
         match (access at, decode = Ssa_op.Decode.I64) with
         | `Coord c, false ->
-            [
-              load_guard b c;
-              Loop_stmt.Assign
-                (Loop_carrier.Float, temp r, Loop_expr.Load (b, c));
-            ]
+            guard c
+            @ [
+                Loop_stmt.Assign
+                  (Loop_carrier.Float, temp r, Loop_expr.Load (b, c));
+              ]
         | `Flat o, false ->
             [
               Loop_stmt.Assign
                 (Loop_carrier.Float, temp r, Loop_expr.Load_flat (b, o));
             ]
         | `Coord c, true ->
-            [
-              load_guard b c;
-              Loop_stmt.Assign
-                (Loop_carrier.Int64, temp r, Loop_expr.Load_i64 (b, c));
-            ]
+            guard c
+            @ [
+                Loop_stmt.Assign
+                  (Loop_carrier.Int64, temp r, Loop_expr.Load_i64 (b, c));
+              ]
         | `Flat o, true ->
             [
               Loop_stmt.Assign

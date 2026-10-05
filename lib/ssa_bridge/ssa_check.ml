@@ -93,13 +93,13 @@ let compare_results reference ssa =
 let compare ~reference ~ssa =
   compare_results (Err.payload reference) (Err.payload ssa)
 
-let run (plan : Fusion_plan.t) ~bind =
+let run ?(prepare = Fun.id) (plan : Fusion_plan.t) ~bind =
   match Err.payload (Ssa_lower.Ssa_lower_plan.lower plan) with
   | Error (`Unsupported u) -> Refused u
   | Ok program ->
       compare
         ~reference:(Kernel_eval.run_plan plan ~bind)
-        ~ssa:(Ssa_lower.Ssa_exec.run plan program ~bind)
+        ~ssa:(Ssa_lower.Ssa_exec.run plan (prepare program) ~bind)
 
 type marks = {
   emitters : int;

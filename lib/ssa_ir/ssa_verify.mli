@@ -12,6 +12,11 @@ module Statement : Core.Tagged_int.S
 
 type site = { region : Ssa_id.Region.t; statement : Statement.t }
 
+(** What an operation that carries a proof asserts. It is accepted only where
+    {!Ssa_range} re-derives it from the program: the proof is never trusted,
+    only checked. *)
+type claim = Add_in_domain | In_bounds | Scale_in_domain
+
 type problem =
   | Buffer_declaration of Ssa_id.Buffer.t
       (** Duplicate id, a non-positive extent, more elements than an index
@@ -45,6 +50,7 @@ type problem =
           signature its operands imply. *)
   | Step_not_positive of int64
   | Typing of Ssa_typing.error
+  | Unproven of claim
   | Use_retyped of {
       value : Ssa_id.Value.t;
       defined : Ssa_type.t;

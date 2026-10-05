@@ -35,9 +35,15 @@ val compare :
   verdict
 (** The verdict alone, so a test can perturb one side and watch it flip. *)
 
-val run : Fusion_plan.t -> bind:(Tensor_id.t -> Tensor.packed option) -> verdict
+val run :
+  ?prepare:(Ssa_ir.Ssa_program.t -> Ssa_ir.Ssa_program.t) ->
+  Fusion_plan.t ->
+  bind:(Tensor_id.t -> Tensor.packed option) ->
+  verdict
 (** [Kernel_eval.run_plan], and, if lowering accepts the plan, the SSA
-    interpreter over the lowered program. *)
+    interpreter over the lowered program after [prepare] (the identity by
+    default): a pass or a pipeline under test is checked against the reference
+    exactly as the lowering is. *)
 
 type marks = {
   emitters : int;
