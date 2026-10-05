@@ -41,6 +41,16 @@ let copy dst src =
     ~index:(fun () -> ix src)
     ~i64:(fun () -> ex src)
 
+let loop_buffer (b : Ssa_buffer.t) =
+  let sg = Ssa_lower.Ssa_sig.signature b in
+  let role =
+    match b.Ssa_buffer.role with
+    | Ssa_buffer.Input -> Loop_buffer.Input
+    | Ssa_buffer.Output -> Loop_buffer.Output
+    | Ssa_buffer.Scratch -> Loop_buffer.Scratch
+  in
+  { Loop_buffer.id = sg.Tensor_sig.id; sg; role }
+
 let buffer_of (p : Ssa_program.t) =
   let table =
     List.map

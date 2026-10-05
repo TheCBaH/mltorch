@@ -286,6 +286,30 @@ in types, operations and accesses, and no register, spill or frame appears.
 `copies` gives an edge's parallel copy without effects or self moves and
 `sequentialize` orders it with one temporary per cycle.
 
+## Direct C consumer
+
+`Ssa_c` (library `lib/ssa_c`) emits C straight from a structured program, with no
+Loop IR between: one `static int` function with `Loop_c`'s shape (error record,
+scratch `double *local`, one typed pointer per buffer the program names), the
+same runtime helpers and failure-record ABI (`Loop_c_runtime`, `Loop_js_failure`)
+so every existing host runs it, and a failure-site table the record decoder
+reads. Every value is a C variable declared at function scope and assigned where
+it is defined, so a carried value or an `if` result is a plain assignment and an
+iteration's transfer goes through temporaries unless a parameter is yielded to
+itself. Types are the program's: binary32 values are `float` (the translation
+unit asserts `FLT_EVAL_METHOD == 0`), `Float_fma` is `fma`/`fmaf`, vectors are
+GCC/Clang generic vectors of the logical width (a power of two) with masks as
+64-bit-lane vectors, a contiguous full-lane access is one `memcpy` and any other
+stride goes lane by lane, and the operations C has no vector form for run lane by
+lane through the scalar helper. Checked operations are explicit `if` + record at
+their own site, with the operands the interpreter reports. Precision and
+contraction are never decided here. Quantized buffers are a typed refusal; a
+buffer no operation touches is no argument (the caller validates its binding).
+Checks against the reference: the op sweep lowered and optimized, plans for every
+policy on neon (against the structured interpreter on the same program),
+hand-built control flow and every failure row, the vector surface, and mutations
+of addressing, checks, transfers, masks and fused operations.
+
 ## Verifier and interpreter bounds
 
 `Ssa_verify.max_region_depth` (256) bounds region nesting; the interpreter

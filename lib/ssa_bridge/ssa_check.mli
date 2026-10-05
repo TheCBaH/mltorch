@@ -42,6 +42,13 @@ val compare :
   verdict
 (** The verdict alone, so a test can perturb one side and watch it flip. *)
 
+val compare_kernel :
+  reference:(Tensor.packed Tensor_id.Map.t, Kernel_eval.error) Err.t ->
+  actual:(Tensor.packed Tensor_id.Map.t, Kernel_eval.error) Err.t ->
+  verdict
+(** {!compare} for an executor that reports the reference's own error rows (a
+    generated-code host): bitwise values, kind and payload on failures. *)
+
 val run :
   ?prepare:(Ssa_ir.Ssa_program.t -> Ssa_ir.Ssa_program.t) ->
   ?engine:Ssa_lower.Ssa_exec.engine ->

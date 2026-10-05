@@ -104,6 +104,9 @@ let compare_results reference ssa =
 let compare ~reference ~ssa =
   compare_results (Err.payload reference) (Err.payload ssa)
 
+let compare_kernel ~reference ~actual =
+  compare_results (Err.payload reference) (Err.payload actual)
+
 let run ?(prepare = Fun.id) ?engine (plan : Fusion_plan.t) ~bind =
   match Err.payload (Ssa_lower.Ssa_lower_plan.lower plan) with
   | Error (`Unsupported u) -> Refused u
