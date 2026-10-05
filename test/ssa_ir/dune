@@ -1,0 +1,11 @@
+; Tests for lib/ssa_ir: the structured SSA IR, its verifier, printer and
+; reference interpreter. Pure OCaml, so `dune runtest test/ssa_ir` runs in
+; isolation.
+
+(library
+ (name ssa_ir_test)
+ (libraries core err_trace expr fmt ssa_ir)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))

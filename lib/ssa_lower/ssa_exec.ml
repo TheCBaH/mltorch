@@ -1,0 +1,106 @@
+open Ssa_ir
+
+type error =
+  [ Ssa_interp.failure
+  | `Binding_mismatch of Kernel_eval.Binding_mismatch.t
+  | `Invalid_program of Ssa_verify.diagnostic
+  | `Unbound_input of Tensor_id.t ]
+
+let pp_error fmt : [< error ] -> unit = function
+  | #Ssa_interp.error as e -> Ssa_interp.pp_error fmt e
+  | `Binding_mismatch m -> Kernel_eval.Binding_mismatch.pp fmt m
+  | `Unbound_input id -> Fmt.pf fmt "no binding for input %a" Tensor_id.pp id
+
+let shape_of (b : Ssa_buffer.t) =
+  let e a = Int64.to_int (Expr.Coord.get b.Ssa_buffer.extents a) in
+  Vec6.shape ~n:(e Expr.Axis.N) ~t:(e Expr.Axis.T) ~d:(e Expr.Axis.D)
+    ~h:(e Expr.Axis.H) ~w:(e Expr.Axis.W) ~c:(e Expr.Axis.C)
+
+(* A bound input's cells, in the row-major order [Vec6.iter] visits. *)
+let cells_of (b : Ssa_buffer.t) (t : Tensor.packed) =
+  let shape = shape_of b in
+  match b.Ssa_buffer.format with
+  | Ssa_format.Bool | Ssa_format.F32 ->
+      let a =
+        Array.make
+          (Int64.to_int (Option.get (Ssa_buffer.elements b.Ssa_buffer.extents)))
+          0.
+      in
+      Vec6.iter shape (fun c ->
+          a.((Vec6.offset shape c :> int)) <- Tensor.read t c);
+      Ssa_memory.Floats a
+  | Ssa_format.I64 ->
+      let a =
+        Array.make
+          (Int64.to_int (Option.get (Ssa_buffer.elements b.Ssa_buffer.extents)))
+          0L
+      in
+      Vec6.iter shape (fun c ->
+          a.((Vec6.offset shape c :> int)) <-
+            (match
+               Tensor.read_i64_at6 t (fun axis -> Dim.to_int (Vec6.get c axis))
+             with
+            | Ok v -> v
+            | Error _ -> invalid_arg "Ssa_exec: an i64 input is not i64"));
+      Ssa_memory.Int64s a
+
+(* An output's cells as the tensor a caller receives. *)
+let tensor_of (b : Ssa_buffer.t) cells =
+  let shape = shape_of b in
+  let at c = (Vec6.offset shape c :> int) in
+  match (b.Ssa_buffer.format, cells) with
+  | Ssa_format.F32, Ssa_memory.Floats a ->
+      Tensor.materialize shape (fun c -> a.(at c))
+  | Ssa_format.Bool, Ssa_memory.Floats a ->
+      Tensor.materialize_bool shape (fun c -> a.(at c) <> 0.)
+  | Ssa_format.I64, Ssa_memory.Int64s a ->
+      Tensor.materialize_i64 shape (fun c -> a.(at c))
+  | _ -> invalid_arg "Ssa_exec: cells do not match the buffer format"
+
+let run ?counters (plan : Fusion_plan.t) (p : Ssa_program.t) ~bind =
+  Err.Escape.with_escape @@ fun esc ->
+  (* The reference validates every bound input first, in input order, used or
+     not, so a failure there is reported before any evaluation. *)
+  List.iter
+    (fun (i : Kernel.Input.t) ->
+      match i.Kernel.Input.binding with
+      | Kernel.Binding.Caller | Kernel.Binding.Captured_constant -> (
+          let sg = i.Kernel.Input.sg in
+          match bind sg.Tensor_sig.id with
+          | None ->
+              Err.Escape.throw esc (`Unbound_input sg.Tensor_sig.id : error)
+          | Some t ->
+              Err.Escape.or_throw esc
+                (Err.map_error
+                   (fun (`Binding_mismatch m) -> `Binding_mismatch m)
+                   (Kernel_eval.check_binding sg.Tensor_sig.id sg t)))
+      | Kernel.Binding.Filled _ | Kernel.Binding.Filled_i64 _ -> ())
+    plan.Fusion_plan.kernel.Kernel.inputs;
+  let memory =
+    List.fold_left
+      (fun m (b : Ssa_buffer.t) ->
+        let cells =
+          match b.Ssa_buffer.role with
+          | Ssa_buffer.Input -> (
+              match bind (Tensor_id.of_int (b.Ssa_buffer.id :> int)) with
+              | Some t -> cells_of b t
+              | None -> invalid_arg "Ssa_exec: a declared input is unbound")
+          | Ssa_buffer.Output | Ssa_buffer.Scratch -> Ssa_memory.zeroed b
+        in
+        Ssa_id.Buffer.Map.add b.Ssa_buffer.id cells m)
+      Ssa_id.Buffer.Map.empty p.Ssa_program.buffers
+  in
+  Err.Escape.or_throw esc
+    (Err.map_error
+       (fun (e : Ssa_interp.error) -> (e :> error))
+       (Ssa_interp.run ?counters p ~memory));
+  List.fold_left
+    (fun acc (b : Ssa_buffer.t) ->
+      match b.Ssa_buffer.role with
+      | Ssa_buffer.Output ->
+          let cells = Ssa_id.Buffer.Map.find b.Ssa_buffer.id memory in
+          Tensor_id.Map.add
+            (Tensor_id.of_int (b.Ssa_buffer.id :> int))
+            (tensor_of b cells) acc
+      | Ssa_buffer.Input | Ssa_buffer.Scratch -> acc)
+    Tensor_id.Map.empty p.Ssa_program.buffers

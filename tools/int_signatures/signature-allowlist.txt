@@ -197,3 +197,8 @@ lib/native_interp/native_interp.mli	tally	type loaded = { from_state : int; from
 lib/native_predict/native_predict.mli	as-written	type t = { classes : Dim.extent Dim.t; wanted : int } end
 lib/native_predict/native_predict.mli	as-written	type error = [ `Invalid_k of int | `Non_finite_logit of Non_finite.t | `Not_class_logits of Vec6.shape | `Output_count of int | `Too_few_classes of Too_few_classes.t ]
 lib/native_predict/native_predict.mli	as-written	val top_predictions : Tensor.packed list -> int -> ((Dim.index Dim.t * float) list, error) Err.t
+lib/ssa_ir/ssa_interp.mli	tally	val mark : t -> Ssa_mark.t -> int
+lib/ssa_ir/ssa_interp.mli	tally	val loads : t -> int
+lib/ssa_ir/ssa_interp.mli	tally	val stores : t -> int end
+lib/ssa_ir/ssa_interp.mli	as-written	type failure = [ `Coord_out_of_range of Expr.Source.t * Expr.Axis.t * int * int Expr.Coord.t | `Index_overflow of Expr.Index_overflow.t ]
+lib/ssa_ir/ssa_verify.mli	budget	val max_region_depth : int
