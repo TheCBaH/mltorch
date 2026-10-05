@@ -311,3 +311,102 @@ let%expect_test "deep nesting is bounded by the verifier and runs inside it" =
     ok
     out0=42
     r88, stmt1: region nesting is too deep |}]
+
+(* ---- int64 ------------------------------------------------------------------ *)
+
+(* The binary32 nearest to an int64, ties to even, from the integer alone: the
+   magnitude's top 24 bits, then the discarded bits against a half. *)
+let nearest_f32 n =
+  let neg = Int64.compare n 0L < 0 in
+  if Int64.equal n 0L then 0.
+  else
+    (* min_int's magnitude is 2^63, which is a power of two and exact *)
+    let mag = if neg then Int64.neg n else n in
+    let bits = ref 0 in
+    (let m = ref mag in
+     while not (Int64.equal !m 0L) do
+       incr bits;
+       m := Int64.shift_right_logical !m 1
+     done);
+    let value =
+      if !bits <= 24 then Int64.to_float mag
+      else
+        let drop = !bits - 24 in
+        let q = Int64.shift_right_logical mag drop in
+        let rem = Int64.logand mag (Int64.pred (Int64.shift_left 1L drop)) in
+        let half = Int64.shift_left 1L (drop - 1) in
+        let c = Int64.unsigned_compare rem half in
+        let q =
+          if c > 0 || (c = 0 && Int64.equal (Int64.logand q 1L) 1L) then
+            Int64.succ q
+          else q
+        in
+        Int64.to_float q *. Float.pow 2. (float_of_int drop)
+    in
+    if neg then -.value else value
+
+let%expect_test
+    "an int64 converts to binary32 with one rounding, in the interpreter" =
+  let samples =
+    [|
+      16777217L;
+      0x0020000020000001L;
+      0x0020000020000000L;
+      0x7FFFFF7FFFFFFFFFL;
+      Int64.add (Int64.shift_left 1L 53) 1L;
+      Int64.max_int;
+      Int64.min_int;
+      -16777217L;
+      Int64.neg 0x0020000020000001L;
+      3L;
+      0L;
+      Int64.add (Int64.shift_left 1L 62) 1L;
+    |]
+  in
+  let n = Array.length samples in
+  let bufs =
+    [ row_buffer 1 (Int64.of_int n) Ssa_format.F32 Ssa_buffer.Output ]
+  in
+  let p =
+    build ~buffers:bufs (fun bld ->
+        Array.iteri
+          (fun k x ->
+            let f = B.f32_to_f64 bld (B.i64_to_f32 bld (B.i64 bld x)) in
+            store_at bld 1 (idx bld k) f)
+          samples)
+  in
+  let out = Array.make n 0. in
+  let memory = memory [ (1, floats out) ] in
+  show_failure (run_result p ~memory);
+  let wrong =
+    List.filter
+      (fun k ->
+        not (Core.Float_bits.equal_portable out.(k) (nearest_f32 samples.(k))))
+      (List.init n Fun.id)
+  in
+  Fmt.pr "disagreements with the integer rounding: %d@." (List.length wrong);
+  (* a conversion through binary64 would round twice on the second sample *)
+  Fmt.pr "binary64 first would differ: %b@."
+    (not
+       (Core.Float_bits.equal_portable
+          (Ssa_const.round_f32 (Int64.to_float samples.(1)))
+          (nearest_f32 samples.(1))));
+  [%expect
+    {|
+    ok
+    disagreements with the integer rounding: 0
+    binary64 first would differ: true |}]
+
+let%expect_test "narrowing an int64 outside the index domain is a defect" =
+  let bufs = [ row_buffer 1 4L Ssa_format.F32 Ssa_buffer.Output ] in
+  let p =
+    build ~buffers:bufs (fun bld ->
+        let narrowed = B.index_of_i64 bld (B.i64 bld 0x1_0000_0000L) in
+        store_at bld 1 narrowed (B.f64 bld 1.))
+  in
+  let memory = memory [ (1, floats (Array.make 4 0.)) ] in
+  (match run_result p ~memory with
+  | exception Invalid_argument _ -> Fmt.pr "defect@."
+  | Ok () -> Fmt.pr "no failure@."
+  | Error e -> Fmt.pr "row: %a@." Ssa_interp.pp_error e);
+  [%expect {| defect |}]

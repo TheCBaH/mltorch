@@ -333,3 +333,48 @@ let%expect_test "an effect may be reused in mutually exclusive branches" =
     ok
     r1, stmt3: effect v0 is not the current effect v7
     |}]
+
+let%expect_test "a per-channel buffer takes coordinate accesses only" =
+  let per_channel =
+    Ssa_format.I8
+      (Ssa_format.Per_channel
+         { scale = [| 0.5; 0.25 |]; zero_point = [| 0; 1 |] })
+  in
+  let declare channels =
+    {
+      Ssa_buffer.id = buf 0;
+      extents =
+        Expr.Coord.make ~n:1L ~t:1L ~d:1L ~h:1L ~w:1L ~c:(Int64.of_int channels);
+      format = per_channel;
+      role = Ssa_buffer.Input;
+    }
+  in
+  let load at =
+    instr ~token:e0
+      [ v 2 f64_ty; v 3 effect_ty ]
+      (Ssa_op.Load { buffer = buf 0; at; decode = Ssa_op.Decode.I8_dequant })
+  in
+  let zero = instr [ i1 ] (Ssa_op.Const (Ssa_const.Index 0L)) in
+  let flat = load (Ssa_access.Flat i1) in
+  let coord =
+    load
+      (Ssa_access.Coord (Expr.Coord.make ~n:i1 ~t:i1 ~d:i1 ~h:i1 ~w:i1 ~c:i1))
+  in
+  verdict
+    (program
+       ~buffers:[ declare 2 ]
+       (region 0 [ e0 ] [ zero; flat ] [ v 3 effect_ty ]));
+  verdict
+    (program
+       ~buffers:[ declare 2 ]
+       (region 0 [ e0 ] [ zero; coord ] [ v 3 effect_ty ]));
+  (* the parameters must cover exactly the C extent *)
+  verdict
+    (program
+       ~buffers:[ declare 3 ]
+       (region 0 [ e0 ] [ zero; coord ] [ v 3 effect_ty ]));
+  [%expect
+    {|
+    r0, stmt1: b0 is per-channel quantized and takes no flat access
+    ok
+    r0, stmt0: buffer b0 is declared twice, or with extents no index holds |}]

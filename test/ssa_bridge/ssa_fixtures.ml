@@ -75,3 +75,52 @@ let matmul_bind ~m ~k ~n ~a ~b id =
   if Tensor_id.equal id (tid 0) then tensor (hw m k) a
   else if Tensor_id.equal id (tid 1) then tensor (hw k n) b
   else None
+
+(* A four-cell reduction over C into one cell. *)
+let four_cell_reduction kind =
+  let body =
+    Expr.Builder.run
+      (Expr.Builder.reduction ~kind ~lo:Expr.Index.zero ~hi:(Expr.Index.const 4)
+         (fun i ->
+           Expr.Builder.return
+             (Loop_programs.ld
+                (Loop_programs.at Expr.Axis.C
+                   (Expr.Index.of_position i |> Expr.Index.assume_position)))))
+  in
+  Err.or_raise ~pp_error:Kernel.pp_error
+    (Kernel.create
+       ~inputs:
+         [
+           {
+             Kernel.Input.id = Loop_fixtures.tid 0;
+             sg = Loop_fixtures.sg 0 (Loop_programs.s1c 4) Loop_fixtures.f32;
+             binding = Kernel.Binding.Caller;
+           };
+         ]
+       ~values:
+         [
+           {
+             Kernel.Value.id = Loop_fixtures.tid 1;
+             sg = Loop_fixtures.sg 1 (Loop_programs.s1c 1) Loop_fixtures.f32;
+             computation = Region_group.Ref.Solo (Region_program.pixel body);
+             result = Kernel.Result_conversion.Round_f32;
+           };
+         ]
+       ~outputs:[ Loop_fixtures.tid 1 ]
+       ())
+
+(* t1[w] = select (w < 2.) t0[w + 1] 0.: the untaken arm reads out of range at
+   w = 3, so an eager select fails where the reference does not. *)
+let lazy_select_kernel =
+  let w = Expr.Index.output Expr.Axis.W in
+  let shifted =
+    Expr.Index.add (Expr.Index.of_position w) (Expr.Index.const 1)
+  in
+  Loop_fixtures.pixel_kernel
+    (Expr.Value.select
+       (Expr.Bool.value_lt
+          (Expr.Value.value_of_index (Expr.Index.of_position w))
+          (Expr.Value.const 2.))
+       (Loop_programs.ld
+          (Loop_programs.at Expr.Axis.W (Expr.Index.assume_position shifted)))
+       (Expr.Value.const 0.))

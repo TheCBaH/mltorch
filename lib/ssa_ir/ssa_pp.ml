@@ -38,19 +38,56 @@ let access st = function
 
 let op st (o : Ssa_op.t) =
   match o with
+  | Ssa_op.Check_access { buffer; at } ->
+      Fmt.str "check_access %a%s" Ssa_id.Buffer.pp buffer (access st at)
+  | Ssa_op.Check_gather { raw; extent } ->
+      Fmt.str "check_gather %s, %Ld" (name st raw) extent
   | Ssa_op.Const c -> Fmt.str "const %a" Ssa_const.pp c
   | Ssa_op.Convert (c, a) ->
       Fmt.str "convert.%s %s" (Ssa_op.Convert.name c) (name st a)
   | Ssa_op.Float_binary (b, x, y) ->
       Fmt.str "float.%s %s, %s" (Ssa_op.binary_name b) (name st x) (name st y)
+  | Ssa_op.Float_compare (c, x, y) ->
+      Fmt.str "float.compare.%s %s, %s" (Ssa_op.Compare.name c) (name st x)
+        (name st y)
+  | Ssa_op.Float_max (x, y) ->
+      Fmt.str "float.max %s, %s" (name st x) (name st y)
+  | Ssa_op.Float_to_i64 x -> Fmt.str "float.to_i64 %s" (name st x)
+  | Ssa_op.I64_arith (o, x, y) ->
+      Fmt.str "i64.%s %s, %s" (Ssa_op.I64_op.name o) (name st x) (name st y)
+  | Ssa_op.I64_compare (c, x, y) ->
+      Fmt.str "i64.compare.%s %s, %s" (Ssa_op.Compare.name c) (name st x)
+        (name st y)
+  | Ssa_op.I64_div (x, y) -> Fmt.str "i64.div %s, %s" (name st x) (name st y)
+  | Ssa_op.Float_unary (u, x) ->
+      Fmt.str "float.%s %s" (Ssa_op.unary_name u) (name st x)
   | Ssa_op.Index_add (x, y) ->
       Fmt.str "index.add %s, %s" (name st x) (name st y)
+  | Ssa_op.Index_ceil_div (k, x) ->
+      Fmt.str "index.ceil_div %Ld, %s" k (name st x)
+  | Ssa_op.Index_clamp_low x -> Fmt.str "index.clamp_low %s" (name st x)
+  | Ssa_op.Index_compare (c, x, y) ->
+      Fmt.str "index.compare.%s %s, %s" (Ssa_op.Compare.name c) (name st x)
+        (name st y)
+  | Ssa_op.Index_floor_div (k, x) ->
+      Fmt.str "index.floor_div %Ld, %s" k (name st x)
+  | Ssa_op.Index_max (x, y) ->
+      Fmt.str "index.max %s, %s" (name st x) (name st y)
+  | Ssa_op.Index_min (x, y) ->
+      Fmt.str "index.min %s, %s" (name st x) (name st y)
+  | Ssa_op.Index_of_i64 x -> Fmt.str "index.of_i64 %s" (name st x)
   | Ssa_op.Index_scale (k, x) -> Fmt.str "index.scale %Ld, %s" k (name st x)
   | Ssa_op.Load { buffer; at; decode } ->
       Fmt.str "load.%s %a%s"
         (Ssa_op.Decode.name decode)
         Ssa_id.Buffer.pp buffer (access st at)
   | Ssa_op.Mark m -> Fmt.str "mark %s" (Ssa_mark.name m)
+  | Ssa_op.Pool_better (x, y) ->
+      Fmt.str "pool_better %s, %s" (name st x) (name st y)
+  | Ssa_op.Pred_not x -> Fmt.str "pred.not %s" (name st x)
+  | Ssa_op.Pred_or (x, y) -> Fmt.str "pred.or %s, %s" (name st x) (name st y)
+  | Ssa_op.Select (p, x, y) ->
+      Fmt.str "select %s, %s, %s" (name st p) (name st x) (name st y)
   | Ssa_op.Store { buffer; at; encode; value } ->
       Fmt.str "store.%s %a%s, %s"
         (Ssa_op.Encode.name encode)

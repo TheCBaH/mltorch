@@ -2,7 +2,13 @@
    [Floats] cell of an [F32] buffer already holds a binary32 value, and a
    [Bool] one is 0 or 1. Independent of Bigarray and of any tensor type, so the
    interpreter owns no storage layout but its own. *)
-type cells = Floats of float array | Int64s of int64 array
+type cells =
+  | Floats of float array
+  | Int64s of int64 array
+  | Ints of int array
+      (** Raw 16-bit float bits, quantized and 32-bit integer cells: each fits a
+          32-bit [int]. *)
+
 type t = cells Ssa_id.Buffer.Map.t
 
 let zeroed (b : Ssa_buffer.t) =
@@ -10,9 +16,10 @@ let zeroed (b : Ssa_buffer.t) =
   | None -> invalid_arg "Ssa_memory.zeroed: more elements than an index holds"
   | Some n -> (
       let n = Int64.to_int n in
-      match b.Ssa_buffer.format with
-      | Ssa_format.Bool | Ssa_format.F32 -> Floats (Array.make n 0.)
-      | Ssa_format.I64 -> Int64s (Array.make n 0L))
+      match Ssa_format.cells b.Ssa_buffer.format with
+      | Ssa_format.Float_cells -> Floats (Array.make n 0.)
+      | Ssa_format.Int64_cells -> Int64s (Array.make n 0L)
+      | Ssa_format.Int_cells -> Ints (Array.make n 0))
 
 (* Zeroed storage for the buffers [keep] selects, in a program's order. *)
 let allocate ~keep (buffers : Ssa_buffer.t list) =

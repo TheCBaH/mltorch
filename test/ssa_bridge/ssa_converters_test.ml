@@ -54,7 +54,8 @@ let%expect_test "the Loop program, converted to SSA, agrees with the reference"
     |}]
 
 let%expect_test
-    "a structured sum converts to an ordered sum, and a guard is refused" =
+    "a structured sum converts to an ordered sum, and an unknown guard is \
+     refused" =
   let m = 3 and k = 4 and n = 2 in
   let plan = Fusion_plan.default (matmul_kernel ~m ~k ~n) in
   let a = operand 3 (m * k) and b = operand 5 (k * n) in
@@ -91,16 +92,30 @@ let%expect_test
           Fmt.pr "reductions ssa=%d loop=%d@."
             (Ssa_interp.Counters.mark counters Ssa_mark.Reduction)
             loop_counters.Loop_interp.reductions));
-  (* the shifted load keeps a guard the converter does not reproduce yet *)
+  (* the shifted load keeps its bounds guard, which becomes a checked access *)
   bridge_verdict
     (Fusion_plan.default Loop_programs.shifted_kernel)
     ~bind:(bind_data ~shape:(Loop_fixtures.shape_w 4) [| 0.; 0.; 0.; 0. |]);
+  (* a guard the converter has no recipe for is refused, never dropped *)
+  let unknown_guard =
+    Loop_fixtures.program
+      [
+        Loop_stmt.Fail_if
+          ( Loop_bool.Index_lt (Loop_index.Const 0, Loop_index.Const 1),
+            Loop_failure.I64_division_by_zero );
+      ]
+  in
+  (match Err.payload (Ssa_of_loop.convert unknown_guard) with
+  | Error (`Unsupported u) ->
+      Fmt.pr "refused: %a@." Ssa_of_loop_unsupported.pp u
+  | Ok _ -> Fmt.pr "converted@.");
   [%expect
     {|
     structured sums: 1
     ordered_sum present: true
     agree
     reductions ssa=24 loop=24
+    agree on failure: coord_out_of_range
     refused: guard is not converted
     |}]
 
@@ -275,3 +290,50 @@ let%expect_test "the projection reproduces failures at the same site" =
     index_overflow | same row: true
     ok 3 | same row: true
     |}]
+
+(* ---- flat accesses ----------------------------------------------------------- *)
+
+let%expect_test
+    "a flat program converts to SSA and projects back, with the same cells" =
+  let loop = Loop_programs.reversed_flat in
+  let data = [| 1.; 2.; 3.; 4.; 5.; 6. |] in
+  let shape = Loop_programs.shape_hw in
+  let bind id =
+    if Tensor_id.equal id (tid 0) then
+      Some
+        (Loop_fixtures.f32_tensor shape (fun c ->
+             data.((Vec6.offset shape c :> int))))
+    else None
+  in
+  let cells result =
+    match Err.payload result with
+    | Ok m ->
+        let t = Tensor_id.Map.find (tid 1) m in
+        List.init 6 (fun i ->
+            Tensor.read t
+              (Vec6.coord ~n:0 ~t:0 ~d:0 ~h:(i / 3) ~w:(i mod 3) ~c:0))
+    | Error e -> Fmt.failwith "%a" Loop_interp.pp_error e
+  in
+  let reference = cells (Loop_interp.run loop ~bind) in
+  (* through SSA *)
+  let ssa_program =
+    match Err.payload (Ssa_of_loop.convert loop) with
+    | Ok p -> p
+    | Error (`Unsupported u) -> Fmt.failwith "%a" Ssa_of_loop_unsupported.pp u
+  in
+  let out = Array.make 6 0. in
+  let memory = memory [ (0, floats (Array.copy data)); (1, floats out) ] in
+  run ssa_program ~memory;
+  (* and back to Loop *)
+  let projected =
+    cells (Loop_interp.run (Loop_of_ssa.convert ssa_program) ~bind)
+  in
+  let show l = String.concat " " (List.map (Fmt.str "%g") l) in
+  Fmt.pr "loop:      %s@.ssa:       %s@.projected: %s@." (show reference)
+    (show (Array.to_list out))
+    (show projected);
+  [%expect
+    {|
+    loop:      12 10 8 6 4 2
+    ssa:       12 10 8 6 4 2
+    projected: 12 10 8 6 4 2 |}]

@@ -41,10 +41,12 @@ let record t (verdict : Ssa_check.verdict) =
   | Ssa_check.Agree -> t.agree <- t.agree + 1
   | Ssa_check.Agree_on_failure _ -> t.agree_on_failure <- t.agree_on_failure + 1
   | Ssa_check.Disagree d ->
-      t.disagreements <- Fmt.str "%a" Ssa_check.Disagreement.pp d :: t.disagreements
+      t.disagreements <-
+        Fmt.str "%a" Ssa_check.Disagreement.pp d :: t.disagreements
   | Ssa_check.Refused u ->
       let name =
-        Ssa_lower.Ssa_unsupported.construct_name u.Ssa_lower.Ssa_unsupported.construct
+        Ssa_lower.Ssa_unsupported.construct_name
+          u.Ssa_lower.Ssa_unsupported.construct
       in
       if not (List.mem name t.refusals) then t.refusals <- t.refusals @ [ name ]
 

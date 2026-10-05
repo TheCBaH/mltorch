@@ -66,15 +66,6 @@ let%expect_test "unsupported constructs are refusals, not failures" =
         Fmt.pr "%s@." (Ssa_lower.Ssa_unsupported.construct_name u.construct)
     | v -> Fmt.pr "%a@." Ssa_check.pp_verdict v
   in
-  refused
-    (Loop_programs.reduction_kernel Expr.Reduction.Max ~lo:Expr.Index.zero
-       ~hi:(Expr.Index.const 3));
-  refused
-    (Loop_programs.reduction_kernel Expr.Reduction.Argmax_index
-       ~lo:Expr.Index.zero ~hi:(Expr.Index.const 3));
-  refused (Loop_fixtures.pixel_kernel (Expr.Value.exp Loop_fixtures.load_t0));
+  refused Loop_fixtures.region_kernel;
   [%expect {|
-    max reduction
-    argmax reduction
-    unary operation
-    |}]
+    region program |}]

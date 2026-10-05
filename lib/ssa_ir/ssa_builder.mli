@@ -59,12 +59,95 @@ val f64_binary :
   Ssa_type.f64 value ->
   Ssa_type.f64 value
 
+val float_to_i64 : t -> Ssa_type.f64 value -> Ssa_type.i64 value
+(** Checked: NaN, an infinity or a value from 2^63 up, or below -2^63, fails. *)
+
+val i64_arith :
+  t ->
+  Ssa_op.I64_op.t ->
+  Ssa_type.i64 value ->
+  Ssa_type.i64 value ->
+  Ssa_type.i64 value
+(** Modular: wraps, and cannot fail. *)
+
+val i64_div :
+  t -> Ssa_type.i64 value -> Ssa_type.i64 value -> Ssa_type.i64 value
+(** Truncating toward zero; fails on a zero divisor, then on [min_int / -1]. *)
+
+val i64_compare :
+  t ->
+  Ssa_op.Compare.t ->
+  Ssa_type.i64 value ->
+  Ssa_type.i64 value ->
+  Ssa_type.pred value
+
+val i64_to_f64 : t -> Ssa_type.i64 value -> Ssa_type.f64 value
+(** One rounding, at binary64. *)
+
+val i64_to_f32 : t -> Ssa_type.i64 value -> Ssa_type.f32 value
+(** One rounding, at binary32: not a conversion through binary64. *)
+
+val index_of_i64 : t -> Ssa_type.i64 value -> Ssa_type.index value
+(** For a value already inside the index domain; outside it is a defect. *)
+
+val f64_max :
+  t -> Ssa_type.f64 value -> Ssa_type.f64 value -> Ssa_type.f64 value
+(** [Float.max], with the NaN and signed-zero behavior of [Expr.Max_op]. *)
+
+val f64_unary :
+  t -> Expr.Value.unary_op -> Ssa_type.f64 value -> Ssa_type.f64 value
+
+val float_compare :
+  t ->
+  Ssa_op.Compare.t ->
+  Ssa_type.f64 value ->
+  Ssa_type.f64 value ->
+  Ssa_type.pred value
+(** Ordered: false when either side is NaN, and signed zeros are equal. *)
+
+val pool_better :
+  t -> Ssa_type.f64 value -> Ssa_type.f64 value -> Ssa_type.pred value
+(** [pool_better best value]: the candidate wins on strict greater-than or on
+    NaN. *)
+
 val index_add :
   t -> Ssa_type.index value -> Ssa_type.index value -> Ssa_type.index value
 (** Checked: the first operation to leave the index domain fails with its
     operands. *)
 
 val index_scale : t -> int64 -> Ssa_type.index value -> Ssa_type.index value
+
+val index_floor_div : t -> int64 -> Ssa_type.index value -> Ssa_type.index value
+(** By a positive literal: the mathematical floor, also for a negative
+    numerator. *)
+
+val index_ceil_div : t -> int64 -> Ssa_type.index value -> Ssa_type.index value
+
+val index_min :
+  t -> Ssa_type.index value -> Ssa_type.index value -> Ssa_type.index value
+
+val index_max :
+  t -> Ssa_type.index value -> Ssa_type.index value -> Ssa_type.index value
+
+val index_clamp_low : t -> Ssa_type.index value -> Ssa_type.index value
+(** [max 0 x]: total in the index domain. *)
+
+val index_compare :
+  t ->
+  Ssa_op.Compare.t ->
+  Ssa_type.index value ->
+  Ssa_type.index value ->
+  Ssa_type.pred value
+
+val pred_not : t -> Ssa_type.pred value -> Ssa_type.pred value
+
+val pred_or :
+  t -> Ssa_type.pred value -> Ssa_type.pred value -> Ssa_type.pred value
+(** Both operands are already computed; not a short-circuit. *)
+
+val select : t -> Ssa_type.pred value -> 'a value -> 'a value -> 'a value
+(** Chooses between values already computed; an arm that must stay lazy is an
+    [if]. *)
 
 (** {1 Memory and accounting} *)
 
@@ -85,6 +168,12 @@ val store_f64 :
 val store_i64 : t -> Ssa_id.Buffer.t -> access -> Ssa_type.i64 value -> unit
 val mark : t -> Ssa_mark.t -> unit
 
+val check_gather : t -> Ssa_type.i64 value -> extent:int64 -> unit
+(** A gather's raw index must lie between [-extent] and [extent - 1]. *)
+
+val check_access : t -> Ssa_id.Buffer.t -> access -> unit
+(** The bounds check of a coordinate load, without the read. *)
+
 (** {1 Structured control} *)
 
 val for_ :
@@ -94,8 +183,9 @@ val for_ :
   init:'s pack ->
   (t -> Ssa_type.index value -> 's pack -> 's pack) ->
   's pack
-(** A loop over [lo, hi) with step one. The body receives the induction value
-    and the carried values and returns the next carried values. *)
+(** A loop from [lo] up to, not including, [hi], with step one. The body
+    receives the induction value and the carried values and returns the next
+    carried values. *)
 
 val if_ :
   t ->

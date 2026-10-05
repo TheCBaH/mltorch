@@ -70,6 +70,55 @@ let non_commutative =
        (Expr.Value.sub Loop_fixtures.load_t0 (Expr.Value.const 1.5))
        (Expr.Value.const 0.7))
 
+let reduction kind name data =
+  {
+    name;
+    plan = Fusion_plan.default (Ssa_fixtures.four_cell_reduction kind);
+    bind =
+      (fun id ->
+        if Tensor_id.equal id (Loop_fixtures.tid 0) then
+          Some
+            (Loop_fixtures.f32_tensor (Loop_programs.s1c 4) (fun c ->
+                 data.((Vec6.offset (Loop_programs.s1c 4) c :> int))))
+        else None);
+  }
+
+let format name ~fmt ?quant cells =
+  let n = Array.length cells in
+  {
+    name;
+    plan = Fusion_plan.default (Loop_programs.format_kernel ~fmt ?quant n);
+    bind =
+      (fun id ->
+        if Tensor_id.equal id (Loop_fixtures.tid 0) then
+          Some (Loop_programs.raw_tensor fmt ?quant n cells)
+        else None);
+  }
+
+let int64_body name ~cells ?(floats = [| 2.9; -2.9; 0.; 0. |]) body =
+  {
+    name;
+    plan = Fusion_plan.default (Loop_programs.i64_body_kernel body);
+    bind = Loop_programs.i64_bind ~floats ~cells;
+  }
+
+let pool name ?(result = Expr.Intrinsic.Max_pool.Value) ~kernel ~pad data =
+  {
+    name;
+    plan =
+      Fusion_plan.default
+        (Loop_programs.pool_kernel ~input:4 ~out:2 ~kernel ~stride:2 ~pad
+           ~result);
+    bind = Ssa_fixtures.bind_data ~shape:(Loop_programs.hw 4 4) data;
+  }
+
+let gather name cells =
+  {
+    name;
+    plan = Fusion_plan.default Loop_programs.gather_kernel;
+    bind = Loop_programs.i64_bind ~floats:[| 10.; 20.; 30.; 40. |] ~cells;
+  }
+
 let cases =
   [
     pointwise "pointwise specials" [| -0.; 1.5; nan; 3. |] Loop_programs.kernel;
@@ -77,6 +126,47 @@ let cases =
       [| 1e30; -1e30; 0.1; 16777217. |]
       Loop_programs.kernel;
     pointwise "pointwise sub and div" [| 0.; 1.5; -2.25; 7. |] non_commutative;
+    pointwise "pointwise exp" [| nan; -0.; 3.; -50. |]
+      (Loop_programs.unary_kernel Expr.Value.Exp);
+    pointwise "pointwise sqrt" [| nan; -0.; 2.; -1. |]
+      (Loop_programs.unary_kernel Expr.Value.Sqrt);
+    pointwise "lazy select" [| 5.; 6.; 7.; 8. |] Ssa_fixtures.lazy_select_kernel;
+    format "f16 decode" ~fmt:(Payload.Fmt Payload.F16)
+      [| 0x3c00L; 0x0001L; 0x7c00L; 0xfe00L |];
+    format "i8 per channel" ~fmt:(Payload.Fmt Payload.I8)
+      ~quant:
+        (Err.or_raise ~pp_error:Quant.pp_error
+           (Quant.per_channel ~scale:[| 0.5; 0.25; 2.; 0.1 |]
+              ~zero_point:[| 0; 1; -2; 5 |]))
+      [| -128L; 127L; 3L; -4L |];
+    format "i64 read as a float" ~fmt:(Payload.Fmt Payload.I64)
+      [|
+        Int64.add (Int64.shift_left 1L 53) 1L; Int64.min_int; Int64.max_int; -1L;
+      |];
+    int64_body "i64 division" ~cells:[| -7L; 7L; -7L; 7L |]
+      (Expr.Value.i64_div Loop_programs.i64_here (Expr.Value.i64_const 2L));
+    int64_body "i64 division by zero" ~cells:[| -7L; 7L; -7L; 7L |]
+      (Expr.Value.i64_div Loop_programs.i64_here (Expr.Value.i64_const 0L));
+    int64_body "i64 modular multiply"
+      ~cells:[| Int64.max_int; Int64.min_int; 3L; -5L |]
+      (Expr.Value.i64_mul Loop_programs.i64_here Loop_programs.i64_here);
+    int64_body "float to i64" ~floats:[| 2.9; -2.9; nan; 1e30 |]
+      ~cells:[| 0L; 0L; 0L; 0L |]
+      (Expr.Value.float_to_i64
+         (Expr.Value.load
+            (Expr_bridge.source_of_id (Loop_fixtures.tid 0))
+            Loop_programs.out_coord));
+    pool "max pool padded window" ~kernel:3 ~pad:1 (Array.init 16 float_of_int);
+    pool "max pool index with NaN" ~result:Expr.Intrinsic.Max_pool.Index
+      ~kernel:2 ~pad:0
+      (Array.init 16 (fun i -> if i < 2 then nan else float_of_int i));
+    gather "gather in range and negative" [| 0L; -1L; -4L; 3L |];
+    gather "gather out of range" [| 4L; 0L; 0L; 0L |];
+    reduction Expr.Reduction.Max "max with NaN" [| nan; 1.; nan; 0. |];
+    reduction Expr.Reduction.Argmax_index "argmax index ties"
+      [| 1.; 3.; 3.; 2. |];
+    reduction Expr.Reduction.Argmax_value "argmax value NaN"
+      [| 1.; nan; 3.; nan |];
     matmul (1, 1, 1);
     matmul (1, 3, 2);
     matmul (5, 7, 3);

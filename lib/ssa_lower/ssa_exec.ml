@@ -11,38 +11,57 @@ let pp_error fmt : [< error ] -> unit = function
   | `Binding_mismatch m -> Kernel_eval.Binding_mismatch.pp fmt m
   | `Unbound_input id -> Fmt.pf fmt "no binding for input %a" Tensor_id.pp id
 
-let shape_of (b : Ssa_buffer.t) =
-  let e a = Int64.to_int (Expr.Coord.get b.Ssa_buffer.extents a) in
-  Vec6.shape ~n:(e Expr.Axis.N) ~t:(e Expr.Axis.T) ~d:(e Expr.Axis.D)
-    ~h:(e Expr.Axis.H) ~w:(e Expr.Axis.W) ~c:(e Expr.Axis.C)
+let shape_of = Ssa_sig.shape
 
-(* A bound input's cells, in the row-major order [Vec6.iter] visits. *)
-let cells_of (b : Ssa_buffer.t) (t : Tensor.packed) =
+let elements (b : Ssa_buffer.t) =
+  match Ssa_buffer.elements b.Ssa_buffer.extents with
+  | Some n -> Int64.to_int n
+  | None -> invalid_arg "Ssa_exec: a buffer larger than an index"
+
+(* A bound input's cells, in the row-major order [Vec6.iter] visits, which is
+   also the order of the tensor's dense storage. *)
+let cells_of (b : Ssa_buffer.t) (Tensor.Tensor t as packed) =
   let shape = shape_of b in
-  match b.Ssa_buffer.format with
-  | Ssa_format.Bool | Ssa_format.F32 ->
-      let a =
-        Array.make
-          (Int64.to_int (Option.get (Ssa_buffer.elements b.Ssa_buffer.extents)))
-          0.
-      in
+  let n = elements b in
+  match Ssa_format.cells b.Ssa_buffer.format with
+  | Ssa_format.Float_cells ->
+      (* a Bool cell of any nonzero byte reads as 1, a decoded float exactly *)
+      let a = Array.make n 0. in
       Vec6.iter shape (fun c ->
-          a.((Vec6.offset shape c :> int)) <- Tensor.read t c);
+          a.((Vec6.offset shape c :> int)) <- Tensor.read packed c);
       Ssa_memory.Floats a
-  | Ssa_format.I64 ->
-      let a =
-        Array.make
-          (Int64.to_int (Option.get (Ssa_buffer.elements b.Ssa_buffer.extents)))
-          0L
-      in
+  | Ssa_format.Int64_cells ->
+      let a = Array.make n 0L in
       Vec6.iter shape (fun c ->
           a.((Vec6.offset shape c :> int)) <-
             (match
-               Tensor.read_i64_at6 t (fun axis -> Dim.to_int (Vec6.get c axis))
+               Tensor.read_i64_at6 packed (fun axis ->
+                   Dim.to_int (Vec6.get c axis))
              with
             | Ok v -> v
             | Error _ -> invalid_arg "Ssa_exec: an i64 input is not i64"));
       Ssa_memory.Int64s a
+  | Ssa_format.Int_cells -> (
+      (* the raw storage cell: 16-bit float bits, a quantized integer or an i32 *)
+      match t.Tensor.payload.Payload.fmt with
+      | Payload.BF16 ->
+          Ssa_memory.Ints
+            (Array.init n (fun i -> t.Tensor.payload.Payload.data.{i}))
+      | Payload.F16 ->
+          Ssa_memory.Ints
+            (Array.init n (fun i -> t.Tensor.payload.Payload.data.{i}))
+      | Payload.I16 ->
+          Ssa_memory.Ints
+            (Array.init n (fun i -> t.Tensor.payload.Payload.data.{i}))
+      | Payload.I8 ->
+          Ssa_memory.Ints
+            (Array.init n (fun i -> t.Tensor.payload.Payload.data.{i}))
+      | Payload.I32 ->
+          Ssa_memory.Ints
+            (Array.init n (fun i ->
+                 Int32.to_int t.Tensor.payload.Payload.data.{i}))
+      | Payload.Bool | Payload.F32 | Payload.F64 | Payload.I64 ->
+          invalid_arg "Ssa_exec: cells do not match the input's format")
 
 (* An output's cells as the tensor a caller receives. *)
 let tensor_of (b : Ssa_buffer.t) cells =

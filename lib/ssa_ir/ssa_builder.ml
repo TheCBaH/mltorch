@@ -77,7 +77,27 @@ let f64_to_f32 b a = convert b Ssa_op.Convert.F64_to_f32 a
 let index_to_f64 b a = convert b Ssa_op.Convert.Index_to_f64 a
 let index_to_i64 b a = convert b Ssa_op.Convert.Index_to_i64 a
 let f64_binary b op x y = one b (Ssa_op.Float_binary (op, x, y))
+let f64_max b x y = one b (Ssa_op.Float_max (x, y))
+let f64_unary b op x = one b (Ssa_op.Float_unary (op, x))
+let float_compare b c x y = one b (Ssa_op.Float_compare (c, x, y))
+let float_to_i64 b x = one b (Ssa_op.Float_to_i64 x)
+let i64_arith b op x y = one b (Ssa_op.I64_arith (op, x, y))
+let i64_compare b c x y = one b (Ssa_op.I64_compare (c, x, y))
+let i64_div b x y = one b (Ssa_op.I64_div (x, y))
+let i64_to_f32 b a = convert b Ssa_op.Convert.I64_to_f32 a
+let i64_to_f64 b a = convert b Ssa_op.Convert.I64_to_f64 a
+let index_of_i64 b x = one b (Ssa_op.Index_of_i64 x)
 let index_add b x y = one b (Ssa_op.Index_add (x, y))
+let index_ceil_div b k x = one b (Ssa_op.Index_ceil_div (k, x))
+let index_clamp_low b x = one b (Ssa_op.Index_clamp_low x)
+let index_compare b c x y = one b (Ssa_op.Index_compare (c, x, y))
+let index_floor_div b k x = one b (Ssa_op.Index_floor_div (k, x))
+let index_max b x y = one b (Ssa_op.Index_max (x, y))
+let index_min b x y = one b (Ssa_op.Index_min (x, y))
+let pool_better b best value = one b (Ssa_op.Pool_better (best, value))
+let pred_not b x = one b (Ssa_op.Pred_not x)
+let pred_or b x y = one b (Ssa_op.Pred_or (x, y))
+let select b p x y = one b (Ssa_op.Select (p, x, y))
 
 let index_scale b k x =
   if not (Ssa_const.in_index_domain k) then
@@ -100,8 +120,13 @@ let declared b id =
 let load_f64 b buffer ~decode at =
   declared b buffer;
   (match decode with
-  | Ssa_op.Decode.Bool_to_f64 | Ssa_op.Decode.F32_to_f64 -> ()
-  | Ssa_op.Decode.I64 -> invalid_arg "Ssa_builder.load_f64: an i64 decode");
+  | Ssa_op.Decode.I64 -> invalid_arg "Ssa_builder.load_f64: an i64 decode"
+  | Ssa_op.Decode.Bf16_to_f64 | Ssa_op.Decode.Bool_to_f64
+  | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.F32_to_f64
+  | Ssa_op.Decode.F64_to_f64 | Ssa_op.Decode.I16_dequant
+  | Ssa_op.Decode.I32_to_f64 | Ssa_op.Decode.I64_to_f64
+  | Ssa_op.Decode.I8_dequant ->
+      ());
   one b (Ssa_op.Load { buffer; at = access at; decode })
 
 let load_i64 b buffer at =
@@ -122,6 +147,14 @@ let store_i64 b buffer at value =
   store b buffer ~encode:Ssa_op.Encode.I64 at value
 
 let mark b m = ignore (instr b (Ssa_op.Mark m))
+
+let check_gather b raw ~extent =
+  ignore (instr b (Ssa_op.Check_gather { raw; extent }))
+
+let check_access b buffer at =
+  declared b buffer;
+  ignore (instr b (Ssa_op.Check_access { buffer; at = access at }))
+
 let child b ~live = { shared = b.shared; rev = []; live }
 
 let new_region b ~params ~body ~yields =

@@ -14,11 +14,12 @@ type site = { region : Ssa_id.Region.t; statement : Statement.t }
 
 type problem =
   | Buffer_declaration of Ssa_id.Buffer.t
-      (** Duplicate id, a non-positive extent, or more elements than an index
-          holds. *)
+      (** Duplicate id, a non-positive extent, more elements than an index
+          holds, or per-channel parameters for a different number of channels
+          than the C extent. *)
   | Buffer_format of {
       buffer : Ssa_id.Buffer.t;
-      accessed : Ssa_format.t;
+      accessed : Ssa_format.Family.t;
       declared : Ssa_format.t;
     }
   | Buffer_not_stored of Ssa_id.Buffer.t
@@ -33,6 +34,9 @@ type problem =
           link of the chain. *)
   | Effect_unique of Ssa_type.t list
       (** A region signature that does not carry exactly one effect. *)
+  | Flat_on_per_channel of Ssa_id.Buffer.t
+      (** A flat element offset on a per-channel quantized buffer: it cannot
+          name the channel the decode needs. *)
   | Region_defined_twice of Ssa_id.Region.t
   | Region_too_deep
   | Result_types of { declared : Ssa_type.t list; expected : Ssa_type.t list }

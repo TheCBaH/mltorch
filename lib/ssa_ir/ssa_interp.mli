@@ -21,6 +21,12 @@ end
 
 type failure =
   [ `Coord_out_of_range of Expr.Source.t * Expr.Axis.t * int * int Expr.Coord.t
+  | `Gather_index_out_of_range of Expr.Eval.Gather_index_out_of_range.t
+  | `I64_division_by_zero
+  | `I64_division_overflow
+  | `I64_from_float_infinite
+  | `I64_from_float_nan
+  | `I64_from_float_out_of_range of float
   | `Index_overflow of Expr.Index_overflow.t ]
 (** The failures a program can raise, the rows [Expr.Eval] and [Kernel_eval]
     report for the same events. *)

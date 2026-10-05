@@ -34,6 +34,24 @@ let in_index_domain x =
 
 let round_f32 x = Int32.float_of_bits (Int32.bits_of_float x)
 
+(* Binary32 of an int64 with a single rounding. Above 2^53 a binary64 conversion
+   would already round once: the magnitude's low 11 bits fold into a sticky bit
+   instead, which leaves the 53-bit value exact and keeps every rounding decision
+   binary32 needs. *)
+let round32_of_i64 n =
+  let neg = Int64.compare n 0L < 0 in
+  let mag = if neg then Int64.neg n else n in
+  let v =
+    if Int64.equal (Int64.shift_right_logical mag 53) 0L then Int64.to_float mag
+    else
+      let sticky =
+        if Int64.equal (Int64.logand mag 0x7FFL) 0L then 0L else 1L
+      in
+      let high = Int64.logor (Int64.shift_right_logical mag 11) sticky in
+      Int64.to_float high *. 2048.
+  in
+  round_f32 (if neg then -.v else v)
+
 let pp fmt = function
   | F32 x -> Fmt.pf fmt "%h:f32" x
   | F64 x -> Fmt.pf fmt "%h:f64" x

@@ -5,7 +5,14 @@ open Ssa_ir
 type error = [ `Unsupported of Ssa_unsupported.t ]
 
 (* What a source names here: a declared buffer, or a reason there is none. *)
-type source = Buffer of Ssa_buffer.t | Filled | Unsupported_format of string
+type source =
+  | Buffer of Ssa_buffer.t
+  | Fill of Ssa_buffer.t * float
+      (** A [Filled] input: no data, but a read still checks its coordinate
+          against the declared shape and then folds to the value a materialized
+          fill would decode to. *)
+  | Fill_i64 of Ssa_buffer.t * int64
+  | Unsupported_format of string
 
 type t = {
   esc : error Err.Escape.t;

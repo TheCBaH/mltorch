@@ -11,7 +11,7 @@ type problem =
   | Buffer_declaration of Ssa_id.Buffer.t
   | Buffer_format of {
       buffer : Ssa_id.Buffer.t;
-      accessed : Ssa_format.t;
+      accessed : Ssa_format.Family.t;
       declared : Ssa_format.t;
     }
   | Buffer_not_stored of Ssa_id.Buffer.t
@@ -20,6 +20,7 @@ type problem =
   | Effect_missing
   | Effect_stale of { used : Ssa_value.t; live : Ssa_value.t }
   | Effect_unique of Ssa_type.t list
+  | Flat_on_per_channel of Ssa_id.Buffer.t
   | Region_defined_twice of Ssa_id.Region.t
   | Region_too_deep
   | Result_types of { declared : Ssa_type.t list; expected : Ssa_type.t list }
@@ -44,7 +45,8 @@ let pp_problem fmt = function
         Ssa_id.Buffer.pp b
   | Buffer_format { buffer; accessed; declared } ->
       Fmt.pf fmt "%a is declared %s but accessed as %s" Ssa_id.Buffer.pp buffer
-        (Ssa_format.name declared) (Ssa_format.name accessed)
+        (Ssa_format.name declared)
+        (Ssa_format.Family.name accessed)
   | Buffer_not_stored b ->
       Fmt.pf fmt "%a is an input and is never written" Ssa_id.Buffer.pp b
   | Buffer_unknown b -> Fmt.pf fmt "%a is not declared" Ssa_id.Buffer.pp b
@@ -53,6 +55,9 @@ let pp_problem fmt = function
   | Effect_stale { used; live } ->
       Fmt.pf fmt "effect %a is not the current effect %a" Ssa_id.Value.pp
         used.Ssa_value.id Ssa_id.Value.pp live.Ssa_value.id
+  | Flat_on_per_channel b ->
+      Fmt.pf fmt "%a is per-channel quantized and takes no flat access"
+        Ssa_id.Buffer.pp b
   | Effect_unique ts ->
       Fmt.pf fmt "a region carries exactly one effect, signature (%a)" pp_types
         ts
@@ -157,17 +162,22 @@ let consume ctx scope ~live (e : Ssa_value.t) =
   if not (Ssa_value.equal e live) then
     fail ctx scope (Effect_stale { used = e; live })
 
-let buffer ctx scope id =
+let buffer_of ctx scope id =
   match Ssa_program.find_buffer ctx.program id with
   | Some b -> b
   | None -> fail ctx scope (Buffer_unknown id)
 
-let check_access ctx scope id ~format ~writes =
-  let b = buffer ctx scope id in
-  if b.Ssa_buffer.format <> format then
+let check_access ctx scope id ~family ~writes ~(at : Ssa_access.t) =
+  let b = buffer_of ctx scope id in
+  if Ssa_format.family b.Ssa_buffer.format <> family then
     fail ctx scope
       (Buffer_format
-         { buffer = id; accessed = format; declared = b.Ssa_buffer.format });
+         { buffer = id; accessed = family; declared = b.Ssa_buffer.format });
+  (* a flat element offset cannot name the channel a per-channel decode needs *)
+  (match at with
+  | Ssa_access.Flat _ when Ssa_format.per_channel b.Ssa_buffer.format ->
+      fail ctx scope (Flat_on_per_channel id)
+  | Ssa_access.Flat _ | Ssa_access.Coord _ -> ());
   if writes && b.Ssa_buffer.role = Ssa_buffer.Input then
     fail ctx scope (Buffer_not_stored id)
 
@@ -175,16 +185,29 @@ let instr ctx scope ~live (i : Ssa_instr.t) =
   let op = i.Ssa_instr.op in
   List.iter (use ctx scope) (Ssa_op.operands op);
   (match op with
-  | Ssa_op.Load { buffer; decode; _ } ->
+  | Ssa_op.Check_access { buffer; at } -> (
+      let b = buffer_of ctx scope buffer in
+      match at with
+      | Ssa_access.Flat _ when Ssa_format.per_channel b.Ssa_buffer.format ->
+          fail ctx scope (Flat_on_per_channel buffer)
+      | Ssa_access.Flat _ | Ssa_access.Coord _ -> ())
+  | Ssa_op.Load { buffer; decode; at } ->
       check_access ctx scope buffer
-        ~format:(Ssa_op.Decode.format decode)
-        ~writes:false
-  | Ssa_op.Store { buffer; encode; _ } ->
+        ~family:(Ssa_op.Decode.family decode)
+        ~writes:false ~at
+  | Ssa_op.Store { buffer; encode; at; _ } ->
       check_access ctx scope buffer
-        ~format:(Ssa_op.Encode.format encode)
-        ~writes:true
-  | Ssa_op.Const _ | Ssa_op.Convert _ | Ssa_op.Float_binary _
-  | Ssa_op.Index_add _ | Ssa_op.Index_scale _ | Ssa_op.Mark _ ->
+        ~family:(Ssa_op.Encode.family encode)
+        ~writes:true ~at
+  | Ssa_op.Check_gather _ | Ssa_op.Const _ | Ssa_op.Convert _
+  | Ssa_op.Float_binary _ | Ssa_op.Float_compare _ | Ssa_op.Float_max _
+  | Ssa_op.Float_to_i64 _ | Ssa_op.Float_unary _ | Ssa_op.I64_arith _
+  | Ssa_op.I64_compare _ | Ssa_op.I64_div _ | Ssa_op.Index_add _
+  | Ssa_op.Index_of_i64 _ | Ssa_op.Index_ceil_div _ | Ssa_op.Index_clamp_low _
+  | Ssa_op.Index_compare _ | Ssa_op.Index_floor_div _ | Ssa_op.Index_max _
+  | Ssa_op.Index_min _ | Ssa_op.Index_scale _ | Ssa_op.Mark _
+  | Ssa_op.Pool_better _ | Ssa_op.Pred_not _ | Ssa_op.Pred_or _
+  | Ssa_op.Select _ ->
       ());
   let values =
     match Ssa_typing.result_types op with
@@ -319,9 +342,17 @@ let check_buffers ctx scope =
   let seen = ref Ssa_id.Buffer.Set.empty in
   List.iter
     (fun (b : Ssa_buffer.t) ->
+      let channels_match =
+        match Ssa_format.channels b.Ssa_buffer.format with
+        | None -> true
+        | Some n ->
+            Int64.equal (Int64.of_int n)
+              (Expr.Coord.get b.Ssa_buffer.extents Expr.Axis.C)
+      in
       if
         Ssa_id.Buffer.Set.mem b.Ssa_buffer.id !seen
         || Ssa_buffer.elements b.Ssa_buffer.extents = None
+        || not channels_match
       then fail ctx scope (Buffer_declaration b.Ssa_buffer.id);
       seen := Ssa_id.Buffer.Set.add b.Ssa_buffer.id !seen)
     ctx.program.Ssa_program.buffers

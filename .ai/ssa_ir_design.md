@@ -1,8 +1,8 @@
 # Structured SSA computation IR — implemented design
 
-Status: first slice implemented (typed IR, verifier, printer, reference
-interpreter, direct source lowering for pointwise and ordered-sum kernels,
-differential harness). The semantics, task list and per-task evidence live in the
+Status: scalar surface implemented (typed IR, verifier, printer, reference
+interpreter, direct source lowering of every pixel kernel the sweep walks except
+region programs, differential harness). The semantics, task list and per-task evidence live in the
 SSA design, implementation plan and tracker in the sibling design repository;
 this file records what the code in `lib/` actually does and where it deliberately
 differs from the proposal.
@@ -47,6 +47,37 @@ its own name becomes its interface and hides its siblings (the lowering is
 - A failure ends the invocation (`Err.Escape` in the interpreter). There is no
   failure terminator yet; failure is a dynamic outcome of an operation.
 
+## Scalar semantics
+
+- **Index.** `Add` and `Scale` are checked and effectful; `min`, `max`,
+  `clamp_low`, `floor_div` and `ceil_div` (positive literal divisor, a
+  mathematical floor and ceiling for a negative numerator) are total and pure.
+  A literal outside the 32-bit domain or a non-positive divisor is a typed
+  refusal at lowering, never narrowed.
+- **int64.** `add`, `sub` and `mul` are modular. `div` is checked (a zero
+  divisor fails first, then `min_int / -1`) and `float_to_i64` is checked (NaN,
+  an infinity or out of range). `i64_to_f64` rounds once at binary64 and
+  `i64_to_f32` once at binary32: the integer's top 24 bits and a sticky bit, not
+  a conversion through binary64 (checked against an integer-only oracle).
+  Narrowing an int64 to an index is a defect outside the domain; a gather checks
+  its raw index in the int64 domain before it normalizes and narrows.
+- **Selection.** A source `Select` lowers to an `if`, so only the selected arm
+  loads, fails or loops; the `select` operation only chooses between values
+  already computed and exists for reductions and for passes that have proved an
+  arm total. `pred.or` is not a short circuit.
+- **Maxima.** A float `max` is `Expr.Max_op`'s `Float_max`; argmax advances value
+  and index together under `pool_better`, whose ties keep the incumbent and whose
+  NaN re-triggers (so the last NaN wins). The max-pool intrinsic is the
+  rows-then-columns double loop over its clipped window, written with the same
+  operations.
+- **Formats.** A buffer is one of bf16, bool, f16, f32, f64, i16, i32, i64 or i8,
+  the quantized two carrying `scale * (q - zero_point)` per tensor or per channel
+  along C. A load names its decode; a flat offset cannot name a channel, so the
+  verifier rejects a flat access on a per-channel buffer, and per-channel
+  parameters must cover exactly the C extent. A `Filled` input is a scratch
+  buffer that is never written: its read checks the coordinate against the shape
+  and folds to the value a materialized fill decodes to.
+
 ## Verifier and interpreter bounds
 
 `Ssa_verify.max_region_depth` (256) bounds region nesting; the interpreter
@@ -60,6 +91,10 @@ statements by lowering). The inline suite runs the depth-200 case under node.
   first-class `buffer<F>` values.
 - Vector, mask and offset types are declared in `Ssa_type` but no operation uses
   them yet.
+- A gather, a division and a float-to-int conversion have no separate guard
+  operation: the checked operation is the check. The Loop converter turns each
+  Loop guard into the same check at its own site and relies on the later
+  checked operation being unable to fail again.
 - The first lowering emits a checked access at every load and a checked
   operation at every index `Add`/`Scale` and does no range reasoning; removing
   checks is the range analysis' job, over a program that is already correct.
@@ -71,11 +106,12 @@ statements by lowering). The inline suite runs the depth-200 case under node.
 Both are comparison instruments, never the permanent frontend or consumer.
 
 - `Ssa_of_loop` turns mutable temporaries into values: a temporary assigned in a
-  loop body and live before it becomes an iteration argument, and a structured
-  sum becomes an `ordered_sum`. It refuses what it cannot reproduce faithfully,
-  chiefly a `Fail_if`, because the SSA form must keep the guard's evaluation site
-  and there is no recipe for it yet (checked-index and gather guards, with the
-  other scalar failure rows, come with the wider scalar surface).
+  loop body and live before it becomes an iteration argument, one assigned in
+  both arms of an `if` becomes its result, and a structured sum becomes an
+  `ordered_sum`. A `Fail_if` is converted when it is one the Loop lowering writes
+  (an index that may leave the domain, a coordinate outside its buffer, a gather,
+  a division, a float-to-int conversion); any other guard is refused rather than
+  dropped.
 - `Loop_of_ssa` gives every value a Loop temporary, so an SSA program runs
   through the existing interpreter and the C, Wasm and JavaScript emitters. A
   loop's yields are all snapshotted before any parameter is overwritten; a

@@ -45,30 +45,14 @@ let buffer_of (p : Ssa_program.t) =
   let table =
     List.map
       (fun (b : Ssa_buffer.t) ->
-        let id = Tensor_id.of_int (b.Ssa_buffer.id :> int) in
-        let e a = Int64.to_int (Expr.Coord.get b.Ssa_buffer.extents a) in
-        let shape =
-          Vec6.shape ~n:(e Expr.Axis.N) ~t:(e Expr.Axis.T) ~d:(e Expr.Axis.D)
-            ~h:(e Expr.Axis.H) ~w:(e Expr.Axis.W) ~c:(e Expr.Axis.C)
-        in
-        let fmt =
-          match b.Ssa_buffer.format with
-          | Ssa_format.Bool -> Payload.Fmt Payload.Bool
-          | Ssa_format.F32 -> Payload.Fmt Payload.F32
-          | Ssa_format.I64 -> Payload.Fmt Payload.I64
-        in
+        let sg = Ssa_lower.Ssa_sig.signature b in
         let role =
           match b.Ssa_buffer.role with
           | Ssa_buffer.Input -> Loop_buffer.Input
           | Ssa_buffer.Output -> Loop_buffer.Output
           | Ssa_buffer.Scratch -> Loop_buffer.Scratch
         in
-        ( b.Ssa_buffer.id,
-          {
-            Loop_buffer.id;
-            sg = Tensor_sig.create ~id ~name:"" ~shape ~fmt ();
-            role;
-          } ))
+        (b.Ssa_buffer.id, { Loop_buffer.id = sg.Tensor_sig.id; sg; role }))
       p.Ssa_program.buffers
   in
   fun id ->
@@ -98,6 +82,19 @@ let convert (p : Ssa_program.t) =
   | Ok () -> ()
   | Error e -> invalid_arg (Fmt.str "Loop_of_ssa: %a" Ssa_verify.pp_error e));
   let buffer = buffer_of p in
+  (* A predicate has no temporary: it is the Loop expression that computes it
+     from the temporaries of its operands, kept until a consumer reads it. *)
+  let preds : (int, Loop_expr.pred) Hashtbl.t = Hashtbl.create 16 in
+  let pred_of (v : Ssa_value.t) =
+    match Hashtbl.find_opt preds (v.Ssa_value.id :> int) with
+    | Some p -> p
+    | None -> invalid_arg "Loop_of_ssa: a predicate with no definition"
+  in
+  let define_pred (v : Ssa_value.t) p =
+    Hashtbl.replace preds (v.Ssa_value.id :> int) p;
+    []
+  in
+  let always = Loop_bool.Index_eq (Loop_index.Const 0, Loop_index.Const 0) in
   (* fresh temporaries for the snapshots of parallel transfers *)
   let fresh = ref (p.Ssa_program.next_value :> int) in
   let snapshot_of (v : Ssa_value.t) =
@@ -117,6 +114,150 @@ let convert (p : Ssa_program.t) =
       | [] -> invalid_arg "Loop_of_ssa: no result"
     in
     match i.Ssa_instr.op with
+    | Ssa_op.Check_access { buffer = id; at } -> (
+        let b = buffer id in
+        match access at with `Coord c -> [ load_guard b c ] | `Flat _ -> [])
+    | Ssa_op.Check_gather { raw; extent } ->
+        let bound n = Loop_expr.I64_const n in
+        [
+          Loop_stmt.Fail_if
+            ( Loop_bool.Or
+                ( Loop_bool.I64_lt (ex raw, bound (Int64.neg extent)),
+                  Loop_bool.Not (Loop_bool.I64_lt (ex raw, bound extent)) ),
+              Loop_failure.Gather_out_of_range
+                { raw = ex raw; extent = int_of extent } );
+        ]
+    | Ssa_op.Float_to_i64 a ->
+        (* NaN, an infinity, or outside [-2^63, 2^63): the upper bound is the
+           exact power of two and exclusive, not [Int64.max_int]'s float, which
+           rounds up to that same power *)
+        let two63 = Float.pow 2. 63. in
+        let v = fx a in
+        [
+          Loop_stmt.Fail_if
+            ( Loop_bool.Or
+                ( Loop_bool.Not (Loop_bool.Value_eq (v, v)),
+                  Loop_bool.Or
+                    ( Loop_bool.Value_lt (v, Loop_expr.Const (-.two63)),
+                      Loop_bool.Not
+                        (Loop_bool.Value_lt (v, Loop_expr.Const two63)) ) ),
+              Loop_failure.I64_from_float { value = v } );
+          Loop_stmt.Assign
+            (Loop_carrier.Int64, temp (result ()), Loop_expr.Float_to_i64 v);
+        ]
+    | Ssa_op.I64_arith (o, a, b) ->
+        let op =
+          match o with
+          | Ssa_op.I64_op.Add -> Expr.Value.I64_add
+          | Ssa_op.I64_op.Mul -> Expr.Value.I64_mul
+          | Ssa_op.I64_op.Sub -> Expr.Value.I64_sub
+        in
+        [
+          Loop_stmt.Assign
+            ( Loop_carrier.Int64,
+              temp (result ()),
+              Loop_expr.I64_binary (op, ex a, ex b) );
+        ]
+    | Ssa_op.I64_compare (c, a, b) ->
+        define_pred (result ())
+          (match c with
+          | Ssa_op.Compare.Eq -> Loop_bool.I64_eq (ex a, ex b)
+          | Ssa_op.Compare.Lt -> Loop_bool.I64_lt (ex a, ex b))
+    | Ssa_op.I64_div (a, b) ->
+        (* a zero divisor first, then [min_int / -1], as the reference checks *)
+        [
+          Loop_stmt.Fail_if
+            ( Loop_bool.I64_eq (ex b, Loop_expr.I64_const 0L),
+              Loop_failure.I64_division_by_zero );
+          Loop_stmt.If
+            ( Loop_bool.I64_eq (ex a, Loop_expr.I64_const Int64.min_int),
+              [
+                Loop_stmt.Fail_if
+                  ( Loop_bool.I64_eq (ex b, Loop_expr.I64_const (-1L)),
+                    Loop_failure.I64_division_overflow );
+              ],
+              [] );
+          Loop_stmt.Assign
+            ( Loop_carrier.Int64,
+              temp (result ()),
+              Loop_expr.I64_binary (Expr.Value.I64_div, ex a, ex b) );
+        ]
+    | Ssa_op.Index_of_i64 a ->
+        [ Loop_stmt.Assign_index_of_i64 (temp (result ()), ex a) ]
+    | Ssa_op.Float_compare (c, a, b) ->
+        define_pred (result ())
+          (match c with
+          | Ssa_op.Compare.Eq -> Loop_bool.Value_eq (fx a, fx b)
+          | Ssa_op.Compare.Lt -> Loop_bool.Value_lt (fx a, fx b))
+    | Ssa_op.Float_max (a, b) ->
+        [
+          Loop_stmt.Assign
+            ( Loop_carrier.Float,
+              temp (result ()),
+              Loop_expr.Float_max (fx a, fx b) );
+        ]
+    | Ssa_op.Float_unary (u, a) ->
+        [
+          Loop_stmt.Assign
+            (Loop_carrier.Float, temp (result ()), Loop_expr.Unary (u, fx a));
+        ]
+    | Ssa_op.Index_ceil_div (k, a) ->
+        [
+          Loop_stmt.Assign_index
+            (temp (result ()), Loop_index.Ceil_div_pos (ix a, int_of k));
+        ]
+    | Ssa_op.Index_clamp_low a ->
+        [
+          Loop_stmt.Assign_index (temp (result ()), Loop_index.Clamp_low (ix a));
+        ]
+    | Ssa_op.Index_compare (c, a, b) ->
+        define_pred (result ())
+          (match c with
+          | Ssa_op.Compare.Eq -> Loop_bool.Index_eq (ix a, ix b)
+          | Ssa_op.Compare.Lt -> Loop_bool.Index_lt (ix a, ix b))
+    | Ssa_op.Index_floor_div (k, a) ->
+        [
+          Loop_stmt.Assign_index
+            (temp (result ()), Loop_index.Floor_div_pos (ix a, int_of k));
+        ]
+    | Ssa_op.Index_max (a, b) ->
+        [
+          Loop_stmt.Assign_index (temp (result ()), Loop_index.Max (ix a, ix b));
+        ]
+    | Ssa_op.Index_min (a, b) ->
+        [
+          Loop_stmt.Assign_index (temp (result ()), Loop_index.Min (ix a, ix b));
+        ]
+    | Ssa_op.Pool_better (a, b) ->
+        define_pred (result ()) (Loop_bool.Pool_better (fx a, fx b))
+    | Ssa_op.Pred_not a -> define_pred (result ()) (Loop_bool.Not (pred_of a))
+    | Ssa_op.Pred_or (a, b) ->
+        define_pred (result ()) (Loop_bool.Or (pred_of a, pred_of b))
+    | Ssa_op.Select (p, a, b) -> (
+        let r = result () in
+        match r.Ssa_value.ty with
+        | Ssa_type.Scalar (Ssa_type.F32 | Ssa_type.F64) ->
+            [
+              Loop_stmt.Assign
+                ( Loop_carrier.Float,
+                  temp r,
+                  Loop_expr.Select (pred_of p, fx a, fx b) );
+            ]
+        | Ssa_type.Scalar Ssa_type.I64 ->
+            [
+              Loop_stmt.Assign
+                ( Loop_carrier.Int64,
+                  temp r,
+                  Loop_expr.Select (pred_of p, ex a, ex b) );
+            ]
+        | _ ->
+            (* the Loop index language has no conditional: a statement *)
+            [
+              Loop_stmt.If
+                ( pred_of p,
+                  [ Loop_stmt.Assign_index (temp r, ix a) ],
+                  [ Loop_stmt.Assign_index (temp r, ix b) ] );
+            ])
     | Ssa_op.Const c -> (
         let r = result () in
         match c with
@@ -135,7 +276,8 @@ let convert (p : Ssa_program.t) =
               ~float:(fun () -> assert false)
               ~index:(fun () -> Loop_index.Const (int_of x))
               ~i64:(fun () -> assert false)
-        | Ssa_const.Pred _ -> [])
+        | Ssa_const.Pred b ->
+            define_pred r (if b then always else Loop_bool.Not always))
     | Ssa_op.Convert (c, a) -> (
         let r = result () in
         match c with
@@ -145,6 +287,15 @@ let convert (p : Ssa_program.t) =
             [
               Loop_stmt.Assign
                 (Loop_carrier.Float, temp r, Loop_expr.Round_f32 (fx a));
+            ]
+        | Ssa_op.Convert.I64_to_f32 ->
+            (* the Loop IR rounds an int64 once only at the working precision
+               of the whole kernel, never to binary32 on its own *)
+            invalid_arg "Loop_of_ssa: i64_to_f32 has no Loop form"
+        | Ssa_op.Convert.I64_to_f64 ->
+            [
+              Loop_stmt.Assign
+                (Loop_carrier.Float, temp r, Loop_expr.I64_to_float (ex a));
             ]
         | Ssa_op.Convert.Index_to_f64 ->
             [
@@ -184,25 +335,25 @@ let convert (p : Ssa_program.t) =
     | Ssa_op.Load { buffer = id; at; decode } -> (
         let b = buffer id in
         let r = result () in
-        match (access at, decode) with
-        | `Coord c, (Ssa_op.Decode.Bool_to_f64 | Ssa_op.Decode.F32_to_f64) ->
+        match (access at, decode = Ssa_op.Decode.I64) with
+        | `Coord c, false ->
             [
               load_guard b c;
               Loop_stmt.Assign
                 (Loop_carrier.Float, temp r, Loop_expr.Load (b, c));
             ]
-        | `Flat o, (Ssa_op.Decode.Bool_to_f64 | Ssa_op.Decode.F32_to_f64) ->
+        | `Flat o, false ->
             [
               Loop_stmt.Assign
                 (Loop_carrier.Float, temp r, Loop_expr.Load_flat (b, o));
             ]
-        | `Coord c, Ssa_op.Decode.I64 ->
+        | `Coord c, true ->
             [
               load_guard b c;
               Loop_stmt.Assign
                 (Loop_carrier.Int64, temp r, Loop_expr.Load_i64 (b, c));
             ]
-        | `Flat o, Ssa_op.Decode.I64 ->
+        | `Flat o, true ->
             [
               Loop_stmt.Assign
                 (Loop_carrier.Int64, temp r, Loop_expr.Load_i64_flat (b, o));
@@ -273,8 +424,7 @@ let convert (p : Ssa_program.t) =
           @ List.concat
               (List.map2 copy results (drop_effect r.Ssa_region.yields))
         in
-        ignore cond;
-        [ Loop_stmt.If (predicate cond, branch then_, branch else_) ]
+        [ Loop_stmt.If (pred_of cond, branch then_, branch else_) ]
     | Ssa_stmt.Ordered_sum { lo; hi; seed; token = _; results; body } ->
         let iv =
           match body.Ssa_region.params with
@@ -312,31 +462,6 @@ let convert (p : Ssa_program.t) =
               };
           ]
         @ [ Loop_stmt.Assign (Loop_carrier.Float, temp sum, fx acc) ]
-  and predicate (c : Ssa_value.t) =
-    (* A predicate exists only as a constant for now; find its definition. *)
-    match find_const c with
-    | Some true -> Loop_bool.Index_eq (Loop_index.Const 0, Loop_index.Const 0)
-    | Some false ->
-        Loop_bool.Not
-          (Loop_bool.Index_eq (Loop_index.Const 0, Loop_index.Const 0))
-    | None -> invalid_arg "Loop_of_ssa: a predicate that is not a constant"
-  and find_const (c : Ssa_value.t) =
-    let rec in_region (r : Ssa_region.t) =
-      List.find_map in_stmt r.Ssa_region.body
-    and in_stmt : Ssa_region.t Ssa_stmt.t -> bool option = function
-      | Ssa_stmt.Instr
-          { Ssa_instr.results = [ r ]; op = Ssa_op.Const (Ssa_const.Pred b); _ }
-        when Ssa_value.equal r c ->
-          Some b
-      | Ssa_stmt.Instr _ -> None
-      | Ssa_stmt.For { body; _ } | Ssa_stmt.Ordered_sum { body; _ } ->
-          in_region body
-      | Ssa_stmt.If { then_; else_; _ } -> (
-          match in_region then_ with
-          | Some b -> Some b
-          | None -> in_region else_)
-    in
-    in_region p.Ssa_program.entry
   in
   {
     Loop_program.buffers =

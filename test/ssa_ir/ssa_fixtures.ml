@@ -95,4 +95,5 @@ let matmul_expected ~m ~k ~n a b =
 let output_floats memory id =
   match Ssa_memory.find memory (buf id) with
   | Some (Ssa_memory.Floats a) -> a
-  | Some (Ssa_memory.Int64s _) | None -> invalid_arg "output_floats"
+  | Some (Ssa_memory.Int64s _ | Ssa_memory.Ints _) | None ->
+      invalid_arg "output_floats"
