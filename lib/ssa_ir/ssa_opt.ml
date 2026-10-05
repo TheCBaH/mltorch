@@ -5,8 +5,19 @@ let guards = { name = "guards"; run = Ssa_opt_guards.pass }
 let hoist ~alias = { name = "hoist"; run = Ssa_opt_hoist.pass ~alias }
 let share ~alias = { name = "share"; run = Ssa_opt_share.pass ~alias }
 
+let block ~alias ~group =
+  { name = "block"; run = Ssa_opt_block.pass ~policy:alias ~group }
+
 let pipeline ~alias =
-  [ simplify; guards; simplify; hoist ~alias; share ~alias; simplify ]
+  [
+    simplify;
+    guards;
+    simplify;
+    hoist ~alias;
+    block ~alias ~group:Ssa_opt_block.Auto;
+    share ~alias;
+    simplify;
+  ]
 
 type report = (string * int) list
 

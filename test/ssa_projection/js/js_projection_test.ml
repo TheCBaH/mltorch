@@ -93,6 +93,9 @@ let%expect_test
     matmul 4x4x4, direct: agree
     matmul 4x4x4, bridge: agree
     matmul 4x4x4, optimized: agree
+    matmul 3x5x9, direct: agree
+    matmul 3x5x9, bridge: agree
+    matmul 3x5x9, optimized: agree
     sum [0,0), direct: agree
     sum [0,0), bridge: agree
     sum [0,0), optimized: agree

@@ -13,7 +13,7 @@ let%expect_test "optimizer sweep, slice 0 of 4" =
     div                      agree=12 failed-alike=0 instrs 292 -> 114, checked 24 -> 0, loops 72 -> 34
     expand                   agree=12 failed-alike=0 instrs 240 -> 88, checked 12 -> 0, loops 72 -> 36
     hardswish                agree=12 failed-alike=0 instrs 480 -> 182, checked 60 -> 0, loops 72 -> 42
-    linear                   agree=12 failed-alike=0 instrs 398 -> 166, checked 36 -> 0, loops 84 -> 36
+    linear                   agree=12 failed-alike=0 instrs 398 -> 606, checked 36 -> 0, loops 84 -> 42
     max_pool2d_with_indices  agree=12 failed-alike=0 instrs 984 -> 534, checked 228 -> 12, loops 192 -> 120
     mul_scalar               agree=12 failed-alike=0 instrs 216 -> 108, checked 12 -> 0, loops 72 -> 36
     pad                      agree=12 failed-alike=0 instrs 720 -> 316, checked 252 -> 0, loops 72 -> 36

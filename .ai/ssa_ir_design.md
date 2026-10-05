@@ -140,6 +140,22 @@ its own name becomes its interface and hides its siblings (the lowering is
   replaces a repeated load by the earlier one until something may write its
   buffer, and discards what a loop body may overwrite on entering it. The driver
   verifies every revision a pass returns.
+- **Independent-output blocking** (`Ssa_opt_block`, in the pipeline after hoist
+  and before share). A loop with constant trips whose iterations are separate
+  outputs around one ordered sum becomes full groups of G outputs (one reduction
+  loop with an accumulator per output, each adding its own terms in the original
+  order) plus the original loop over the remainder. Legality is checked and a
+  refusal names the failing condition: the body cannot fail (so reordering
+  outputs is unobservable), touches neither the meter nor locals, reads nothing
+  it may write, the reduction's bounds do not vary with the output, and every
+  store's coordinates are the iteration index or independent of it. Values and
+  logical work are unchanged by construction and checked against the unblocked
+  program; the loads the group repeats are merged by share. G is chosen from 8,
+  4 and 2 by the trip count and a sixteen-value register estimate, and only if
+  some read is shared across outputs; `Fixed` forces a size for the tests.
+  `Ssa_clone` copies statements with fresh definitions and regions. A strided
+  loop projects to the Loop IR as a trip counter with the induction value
+  reconstructed from it.
 - Evidence beyond mutations: the op sweep through the optimizer has no
   disagreement, no change of logical work and no extra read; hand-built failing
   programs keep exactly the checks that report their failure; the optimized

@@ -5,7 +5,7 @@ let%expect_test "optimizer sweep, slice 3 of 4" =
     {|
     disagreements: 0, work differs: 0, more loads: 0
     add_scalar               agree=12 failed-alike=0 instrs 216 -> 114, checked 12 -> 0, loops 72 -> 36
-    batched_matmul           agree=12 failed-alike=0 instrs 320 -> 144, checked 24 -> 0, loops 84 -> 56
+    batched_matmul           agree=12 failed-alike=0 instrs 320 -> 452, checked 24 -> 0, loops 84 -> 52
     clone                    agree=12 failed-alike=0 instrs 192 -> 94, checked 12 -> 0, loops 72 -> 36
     cumsum                   agree=12 failed-alike=0 instrs 252 -> 138, checked 24 -> 0, loops 84 -> 60
     eq_tensor                agree=12 failed-alike=0 instrs 320 -> 146, checked 24 -> 0, loops 72 -> 44

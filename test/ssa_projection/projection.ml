@@ -200,6 +200,7 @@ let cases =
     matmul (1, 3, 2);
     matmul (5, 7, 3);
     matmul (4, 4, 4);
+    matmul (3, 5, 9);
     empty_sum ~lo:0 ~hi:0;
     empty_sum ~lo:2 ~hi:1;
     empty_sum ~lo:0 ~hi:3;

@@ -22,6 +22,15 @@ val share : alias:Ssa_effects.policy -> pass
 (** A load an earlier load already performed, with nothing that may write its
     buffer in between. *)
 
+val block : alias:Ssa_effects.policy -> group:Ssa_opt_block.group -> pass
+(** Independent outputs computed together: a loop whose iterations are separate
+    outputs around one reduction becomes full groups that run the reduction once
+    with an accumulator per output, plus the original loop for the remainder.
+    Each output keeps its own accumulator and its terms in order, so its value
+    and the logical work are unchanged; the loads the group shares are then
+    merged by {!share}. A loop that does not meet every condition is left alone.
+*)
+
 val pipeline : alias:Ssa_effects.policy -> pass list
 (** The default order. Each pass sees the result of the last. *)
 

@@ -11,6 +11,7 @@
 type t = {
   subst : (int, Ssa_value.t) Hashtbl.t;
   mutable next_value : Ssa_id.Value.Next.t;
+  mutable next_region : Ssa_id.Region.Next.t;
   mutable changed : bool;
 }
 
@@ -93,6 +94,7 @@ let program ?(enter = ignore) ?(leave = ignore) ?(enter_stmt = ignore)
     {
       subst = Hashtbl.create 64;
       next_value = p.Ssa_program.next_value;
+      next_region = p.Ssa_program.next_region;
       changed = false;
     }
   in
@@ -127,5 +129,6 @@ let program ?(enter = ignore) ?(leave = ignore) ?(enter_stmt = ignore)
       Ssa_program.entry;
       revision = Ssa_id.Revision.succ p.Ssa_program.revision;
       next_value = t.next_value;
+      next_region = t.next_region;
     },
     t.changed )

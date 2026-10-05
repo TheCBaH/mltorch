@@ -467,7 +467,7 @@ let convert (p : Ssa_program.t) =
   let rec region (r : Ssa_region.t) = List.concat_map stmt r.Ssa_region.body
   and stmt : Ssa_region.t Ssa_stmt.t -> Loop_stmt.t list = function
     | Ssa_stmt.Instr i -> op i
-    | Ssa_stmt.For { lo; hi; step = _; inits; results; body } ->
+    | Ssa_stmt.For { lo; hi; step; inits; results; body } ->
         let iv, params =
           match body.Ssa_region.params with
           | iv :: params -> (iv, drop_effect params)
@@ -482,15 +482,34 @@ let convert (p : Ssa_program.t) =
           List.concat (List.map2 copy snapshots yields)
           @ List.concat (List.map2 copy params snapshots)
         in
+        (* the Loop IR counts in unit steps: a stride is a count of trips and
+           the induction value is reconstructed from the trip number *)
+        let counter, count, induction =
+          if Int64.equal step 1L then (var iv, ix hi, Loop_index.Var (var iv))
+          else
+            let k =
+              Loop_var.of_int
+                (let n = !fresh in
+                 incr fresh;
+                 n)
+            in
+            ( k,
+              Loop_index.Ceil_div_pos
+                ( Loop_index.Add (ix hi, Loop_index.Scale (-1, ix lo)),
+                  int_of step ),
+              Loop_index.Add
+                (ix lo, Loop_index.Scale (int_of step, Loop_index.Var k)) )
+        in
+        let first = if Int64.equal step 1L then ix lo else Loop_index.Const 0 in
         List.concat (List.map2 copy params inits)
         @ [
             Loop_stmt.For
               {
-                var = var iv;
-                lo = ix lo;
-                hi = ix hi;
+                var = counter;
+                lo = first;
+                hi = count;
                 body =
-                  Loop_stmt.Assign_index (temp iv, Loop_index.Var (var iv))
+                  Loop_stmt.Assign_index (temp iv, induction)
                   :: (region body @ update);
               };
           ]

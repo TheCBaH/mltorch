@@ -134,19 +134,32 @@ let analyze (p : Ssa_program.t) =
         ()
   in
   let rec region (r : Ssa_region.t) = List.iter stmt r.Ssa_region.body
-  and induction ~lo ~hi (iv : Ssa_value.t) =
+  and induction ~lo ~hi ~step (iv : Ssa_value.t) =
     (* a loop that cannot run has no induction value: its body is unreachable *)
     match (get lo, get hi) with
     | Empty, _ | _, Empty -> set iv Empty
     | Range l, Range h ->
         if Int64.compare h.hi l.lo <= 0 then set iv Empty
+        else if Int64.equal l.lo l.hi && Int64.equal h.lo h.hi then
+          (* constant bounds: the last value the stride reaches, exactly *)
+          if Int64.compare h.lo l.lo <= 0 then set iv Empty
+          else
+            let trips =
+              Int64.div (Int64.add (Int64.sub h.lo l.lo) (Int64.pred step)) step
+            in
+            set iv
+              (Range
+                 {
+                   lo = l.lo;
+                   hi = Int64.add l.lo (Int64.mul (Int64.pred trips) step);
+                 })
         else
           set iv (Range { lo = l.lo; hi = Stdlib.max l.lo (Int64.pred h.hi) })
   and stmt : Ssa_region.t Ssa_stmt.t -> unit = function
     | Ssa_stmt.Instr i -> op i
-    | Ssa_stmt.For { lo; hi; body; _ } ->
+    | Ssa_stmt.For { lo; hi; step; body; _ } ->
         (match body.Ssa_region.params with
-        | iv :: _ -> induction ~lo ~hi iv
+        | iv :: _ -> induction ~lo ~hi ~step iv
         | [] -> ());
         region body
     | Ssa_stmt.If { results; then_; else_; _ } ->
@@ -164,7 +177,7 @@ let analyze (p : Ssa_program.t) =
           results
     | Ssa_stmt.Ordered_sum { lo; hi; body; _ } ->
         (match body.Ssa_region.params with
-        | iv :: _ -> induction ~lo ~hi iv
+        | iv :: _ -> induction ~lo ~hi ~step:1L iv
         | [] -> ());
         region body
   in

@@ -7,7 +7,7 @@ let%expect_test "optimizer sweep, slice 1 of 4" =
     add                      agree=12 failed-alike=0 instrs 280 -> 120, checked 24 -> 0, loops 72 -> 40
     arange_i64               agree=12 failed-alike=0 instrs 216 -> 96, checked 0 -> 0, loops 72 -> 12
     avg_pool2d               agree=12 failed-alike=0 instrs 670 -> 374, checked 234 -> 4, loops 96 -> 60
-    bmm                      agree=12 failed-alike=0 instrs 300 -> 144, checked 24 -> 0, loops 84 -> 36
+    bmm                      agree=12 failed-alike=0 instrs 300 -> 450, checked 24 -> 0, loops 84 -> 20
     conv2d_padding           agree=12 failed-alike=0 instrs 900 -> 454, checked 268 -> 12, loops 108 -> 72
     div_scalar               agree=12 failed-alike=0 instrs 216 -> 116, checked 12 -> 0, loops 72 -> 36
     eye                      agree=12 failed-alike=0 instrs 252 -> 138, checked 24 -> 0, loops 72 -> 36
