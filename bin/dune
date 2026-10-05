@@ -192,6 +192,8 @@
   native_interp
   native_predict
   pt2
+  ssa_backends
+  ssa_ir
   unix))
 
 (executable
@@ -207,6 +209,8 @@
   native_interp
   native_predict
   pt2
+  ssa_backends
+  ssa_ir
   unix))
 
 (executable

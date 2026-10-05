@@ -6,6 +6,7 @@
          [--shadow] [--poison] [--samples=N] [--keep=DIR] [--bench=N]
          [--export=DIR] [--via-c] [--cflags=FLAGS] [--wat=FILE] [--simd] [--simd-forced] [--relaxed-simd]
          [--reference] [--numerics=NAME] [--shadow-numeric] [--atol=X] [--rtol=X]
+         [--ssa=representation|exact|planned]
 
    [--shadow] also runs [Eval_direct.run] (the per-node reference) on the same
    graph, constants and input and requires every graph output to be bitwise
@@ -126,12 +127,25 @@ let placement_json (pl : Loop_wasm_exec.Node.placement) ~total ~identity =
     pl.Loop_wasm_exec.Node.workspace_bytes pl.Loop_wasm_exec.Node.outputs_bytes
     (Digest.to_hex identity)
 
+(* [--ssa=NAME]: the SSA backend makes the kernels instead of the Loop emitter
+   (see [Ssa_backends.Pipeline]); the default is the Loop path. *)
+let ssa_pipeline : Ssa_backends.Pipeline.t option ref = ref None
+
 let direct_route ~dir ~wat ~vector ~numerics b ~constants =
   let open Err.Syntax in
   let map e = (e :> eval) in
   let module H = Loop_wasm_exec.Host in
   let t1 = now () in
-  let* p = H.prepare ?vector ~numerics ~dir b ~constants |> Err.map_error map in
+  let* p =
+    H.prepare ?vector ~numerics
+      ?kernel:
+        (Option.map
+           (fun pipeline ~table_alloc inv ->
+             Ssa_backends.wasm ~pipeline ~table_alloc inv)
+           !ssa_pipeline)
+      ~dir b ~constants
+    |> Err.map_error map
+  in
   let w = H.bundle_wasm p in
   let st = w.Loop_bundle_wasm.stats in
   let ws = w.Loop_bundle_wasm.workspace in
@@ -414,6 +428,32 @@ let () =
        which binary32 kernels do not match; use --reference, or \
        --shadow-numeric for the default policy";
     exit 2);
+  let ssa, argv = valued "--ssa=" argv in
+  (ssa_pipeline :=
+     match ssa with
+     | None -> None
+     | Some "representation" -> Some Ssa_backends.Pipeline.Representation
+     | Some "exact" -> Some Ssa_backends.Pipeline.Exact
+     | Some "planned" ->
+         Some
+           (Ssa_backends.Pipeline.Planned
+              {
+                numerics =
+                  Option.get
+                    (Ssa_ir.Ssa_numerics.of_name (Loop_numerics.name numerics));
+                target =
+                  (match vector with
+                  | Some t ->
+                      Ssa_ir.Ssa_target.with_row_block t.Loop_target.row_block
+                        (if relaxed_simd then Ssa_ir.Ssa_target.wasm128_relaxed
+                         else Ssa_ir.Ssa_target.wasm128)
+                  | None -> Ssa_ir.Ssa_target.scalar);
+              })
+     | Some other ->
+         Printf.eprintf
+           "loop_wasm_pt2: unknown --ssa=%S (representation, exact or planned)\n"
+           other;
+         exit 2);
   let wat, argv = valued "--wat=" argv in
   let cflags, argv = valued "--cflags=" argv in
   let cflags =

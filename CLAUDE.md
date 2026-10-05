@@ -324,7 +324,9 @@ make wasm.pt2.perf   # the same under node
 (`simd_fp32_relaxed`); `--reference` selects the binary64 scalar reference that
 every strict bitwise gate (`--shadow`, `c.pt2.runtest`, `wasm.pt2.runtest`) runs,
 `--numerics=NAME` picks any policy, `--row-block=N` sets the rows per blocked
-iteration, and `--shadow-numeric` checks a binary32 run
+iteration, `--ssa=representation|exact|planned` makes the kernels through the
+structured SSA backend instead of the Loop emitter (an opt-in comparison path),
+and `--shadow-numeric` checks a binary32 run
 against the reference within `--atol`/`--rtol` (1e-4 each). A new strict gate must
 pass `--reference`. See `.ai/` for the numerical contract, the oracle and the
 measured decisions.
