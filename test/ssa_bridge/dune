@@ -14,6 +14,9 @@
   loop_ir
   loop_ir_test
   native
+  native_op_walk
+  native_test
+  walk_core
   ssa_bridge
   ssa_ir
   ssa_ir_test
