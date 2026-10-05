@@ -35,6 +35,12 @@ val vectorize : alias:Ssa_effects.policy -> target:Ssa_target.t -> pass
 (** {!Ssa_vectorize.program}: loops of independent outputs become vector loops
     where the target's cost model says they pay. *)
 
+val rows : alias:Ssa_effects.policy -> target:Ssa_target.t -> pass
+(** {!Ssa_opt_rows.program}: the rows around a vector loop are blocked by the
+    target's row factor. Every output computes the same operations in the same
+    order, so the result is bitwise the unblocked program's under every
+    numerical policy. *)
+
 val schedule_sums : target:Ssa_target.t -> pass
 (** {!Ssa_vector_sum.program}: sums no enclosing loop's lanes took are scheduled
     along their own axis. Reorders a sum, so only a plan whose numerical policy
@@ -48,8 +54,9 @@ val contract : scalar:bool -> pass
 val pipeline :
   ?target:Ssa_target.t -> alias:Ssa_effects.policy -> unit -> pass list
 (** The default order. Each pass sees the result of the last. With a [target]
-    the vectorizer runs after the guards and the hoisting it relies on and
-    before the scalar blocking, which takes only what the vectorizer left. *)
+    the vectorizer runs after the guards and the hoisting it relies on, then the
+    row blocking, and both come before the scalar blocking, which takes only
+    what the vectorizer left. *)
 
 type report = (string * int) list
 (** For each pass of the pipeline, how many rounds it changed something in. *)

@@ -24,6 +24,17 @@ let vectorize ~alias ~target =
         ((if changed then q else p), changed));
   }
 
+let rows ~alias ~(target : Ssa_target.t) =
+  {
+    name = "rows";
+    run =
+      (fun p ->
+        let q, n =
+          Ssa_opt_rows.program ~rows:target.Ssa_target.row_block ~policy:alias p
+        in
+        (q, n > 0));
+  }
+
 let schedule_sums ~target =
   {
     name = "schedule_sums";
@@ -51,6 +62,7 @@ let pipeline ?target ~alias () =
         (* the splats the vectorizer made are loop invariant *)
         [
           vectorize ~alias ~target;
+          rows ~alias ~target;
           block ~alias ~group:Ssa_opt_block.Auto;
           hoist ~alias;
         ]

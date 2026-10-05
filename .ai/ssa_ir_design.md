@@ -232,8 +232,20 @@ its own name becomes its interface and hides its siblings (the lowering is
   contracted count, and `Ssa_plan.oracle` is the independent evaluation.
   `Ssa_check.run_planned` compares the plan with its own oracle bitwise, then,
   for an ordered policy, with the Loop binary32 interpreter, and for a relaxed
-  one with the binary64 reference within 1e-4. Row blocking is not implemented:
-  a draft built programs that failed verification and is not in the tree.
+  one with the binary64 reference within 1e-4.
+- **Row blocking** (`Ssa_opt_rows`, after vectorization, factor `Ssa_target.row_block`).
+  A loop over rows around a vector loop that holds one ordered sum and its stores
+  runs a block of rows per iteration: the rows' sums share one loop with an
+  accumulator per row (the jam of `Ssa_opt_block`), so a load the rows share is
+  issued once and their dependent add chains interleave. Each output cell does
+  the same operations in the same order, so the result is bitwise the unblocked
+  program's under every policy; the rows left over run as the original loop.
+  Legality is the independent-output test on the row index: the vector loop
+  cannot fail, touches no meter or scratch, reads nothing it may write, its
+  and the sum's bounds do not vary with the row, every store's coordinates are
+  the row index itself or independent of it. A vector loop with a remainder
+  loop beside it, and a scalar column loop (the column blocking's), are left
+  alone.
 - Evidence beyond mutations: the op sweep through the optimizer has no
   disagreement, no change of logical work and no extra read; hand-built failing
   programs keep exactly the checks that report their failure; the optimized

@@ -59,6 +59,9 @@ let resolve ?target ?(alias = Ssa_effects.Conservative) ~numerics
         }
     | Some target ->
         let q, vectorized = Ssa_vectorize.program ~alias ~target scalar in
+        let q, blocked =
+          Ssa_opt_rows.program ~rows:target.Ssa_target.row_block ~policy:alias q
+        in
         {
           numerics;
           precision = P.F64;
@@ -66,7 +69,7 @@ let resolve ?target ?(alias = Ssa_effects.Conservative) ~numerics
           refusal;
           vectorized;
           sums = [];
-          blocked = 0;
+          blocked;
           contracted = 0;
         }
   in
@@ -101,6 +104,10 @@ let resolve ?target ?(alias = Ssa_effects.Conservative) ~numerics
             else (q, [])
           in
           if count_vector_loops vectorized > 0 || scheduled sums then
+            let q, blocked =
+              Ssa_opt_rows.program ~rows:f32_target.Ssa_target.row_block
+                ~policy:alias q
+            in
             let q = run ~alias (after ~alias) q in
             {
               numerics;
@@ -109,7 +116,7 @@ let resolve ?target ?(alias = Ssa_effects.Conservative) ~numerics
               refusal = None;
               vectorized;
               sums;
-              blocked = 0;
+              blocked;
               contracted = Ssa_opt_contract.contracted q;
             }
           else f64 None)
