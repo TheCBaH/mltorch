@@ -9,13 +9,9 @@ open Ssa_ir
 module R = Loop_ir.Loop_c_runtime
 
 type error =
-  [ `Unknown_site
-  | `Unsupported_format of Ssa_id.Buffer.t * string
-  | `Unsupported_lanes of int ]
+  [ `Unsupported_format of Ssa_id.Buffer.t * string | `Unsupported_lanes of int ]
 
 let pp_error ppf : [< error ] -> unit = function
-  | `Unknown_site ->
-      Fmt.string ppf "a failure site the program's site table does not name"
   | `Unsupported_format (b, f) ->
       Fmt.pf ppf "%a: format %s has no C implementation" Ssa_id.Buffer.pp b f
   | `Unsupported_lanes n ->
@@ -162,9 +158,12 @@ let site cx (f : Loop_ir.Loop_failure.t) =
       cx.site_count <- k + 1;
       k
   | Some table ->
-      (* the first entry of the caller's table that names the same failure *)
+      (* the first entry of the caller's table that names the same failure; a
+         check the table has no entry for is one its own lowering proved can
+         never fire, so its index is one past the table, which a decoder
+         reports as a defect rather than as a failure *)
       let rec find i =
-        if i >= Array.length table then raise (Refused `Unknown_site)
+        if i >= Array.length table then i
         else if Loop_ir.Loop_failure.same_site table.(i) f then i
         else find (i + 1)
       in

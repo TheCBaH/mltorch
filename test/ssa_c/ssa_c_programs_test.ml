@@ -534,14 +534,25 @@ let%expect_test "a failure site is the index of the caller's matching entry" =
           Fmt.pr "decoded to the wanted variable: %b@."
             (Expr.Local_var.equal v local_var)
       | _ -> Fmt.pr "unexpected outcome@."));
-  (* a table that does not name the failure is a typed refusal *)
+  (* a table that does not name the failure: the record decodes as a defect *)
   (match
      Ssa_c.kernel ~sites:[| entry other |] ~name:Loop_c_exec.kernel_name p
    with
   | Error e -> Fmt.pr "refused: %a@." Ssa_c.pp_error e
-  | Ok _ -> Fmt.pr "accepted@.");
+  | Ok (kernel, sites) -> (
+      let loop =
+        Lf.program
+          ~buffers:(List.map Loop_of_ssa.loop_buffer (Ssa_c.arguments p))
+          []
+      in
+      match
+        Err.payload
+          (Loop_c_exec.exec_kernel ~kernel ~sites loop ~bind:(fun _ -> None))
+      with
+      | Error (`C_host m) -> Fmt.pr "reported as a defect: %s@." m
+      | _ -> Fmt.pr "unexpected outcome@."));
   [%expect
     {|
     table returned as given: true
     decoded to the wanted variable: true
-    refused: a failure site the program's site table does not name |}]
+    reported as a defect: failure site out of range |}]

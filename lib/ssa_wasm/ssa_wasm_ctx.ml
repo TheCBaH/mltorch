@@ -14,7 +14,6 @@ let map f l = List.rev (List.rev_map f l)
 type error =
   [ `Local_arrays_too_large of int64
   | `Loop_leaves_domain
-  | `Unknown_site
   | `Unsupported_format of Ssa_id.Buffer.t * string
   | `Unsupported_lanes of int
   | `Unsupported_operation of string ]
@@ -22,8 +21,6 @@ type error =
 let pp_error ppf : [< error ] -> unit = function
   | `Local_arrays_too_large n ->
       Fmt.pf ppf "local arrays need %Ld bytes, beyond the static region" n
-  | `Unknown_site ->
-      Fmt.string ppf "a failure site the program's site table does not name"
   | `Loop_leaves_domain ->
       Fmt.string ppf
         "a loop's last increment may leave the 32-bit index domain, so its \
@@ -96,8 +93,10 @@ let site st f =
       st.site_count <- k + 1;
       k
   | Some table ->
+      (* a check the table has no entry for is one its own lowering proved can
+         never fire: its index is one past the table, a defect to a decoder *)
       let rec find i =
-        if i >= Array.length table then refuse `Unknown_site
+        if i >= Array.length table then i
         else if LF.same_site table.(i) f then i
         else find (i + 1)
       in

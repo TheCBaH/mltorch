@@ -5,13 +5,10 @@ module F = Loop_ir.Loop_js_failure
 module LF = Loop_ir.Loop_failure
 
 type error =
-  [ `Unknown_site
-  | `Unsupported_format of Ssa_id.Buffer.t * string
+  [ `Unsupported_format of Ssa_id.Buffer.t * string
   | `Unsupported_operation of string ]
 
 let pp_error ppf : [< error ] -> unit = function
-  | `Unknown_site ->
-      Fmt.string ppf "a failure site the program's site table does not name"
   | `Unsupported_format (b, f) ->
       Fmt.pf ppf "%a: format %s has no JavaScript implementation"
         Ssa_id.Buffer.pp b f
@@ -143,8 +140,10 @@ let site cx f =
       cx.site_count <- k + 1;
       k
   | Some table ->
+      (* a check the table has no entry for is one its own lowering proved can
+         never fire: its index is one past the table, a defect to a decoder *)
       let rec find i =
-        if i >= Array.length table then raise (Refused `Unknown_site)
+        if i >= Array.length table then i
         else if LF.same_site table.(i) f then i
         else find (i + 1)
       in

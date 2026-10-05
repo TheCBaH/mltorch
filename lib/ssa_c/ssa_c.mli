@@ -30,5 +30,7 @@ val kernel :
     taken, in order: a caller that binds every declared buffer positionally
     passes them all. [sites] is a failure-site table the records must decode
     against (a bundle's, made from the Loop program): each record's site is the
-    index of the first entry that names the same failure and local variable,
-    [`Unknown_site] if none does, and the table is what is returned. *)
+    index of the first entry that names the same failure and local variable, one
+    past the end if none does (a check the table's own program proved can never
+    fire, which a decoder reports as a defect), and the table is what is
+    returned. *)

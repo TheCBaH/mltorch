@@ -15,8 +15,7 @@
     no JavaScript form that keeps its single rounding). *)
 
 type error =
-  [ `Unknown_site
-  | `Unsupported_format of Ssa_ir.Ssa_id.Buffer.t * string
+  [ `Unsupported_format of Ssa_ir.Ssa_id.Buffer.t * string
   | `Unsupported_operation of string ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
