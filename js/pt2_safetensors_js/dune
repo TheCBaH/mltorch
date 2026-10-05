@@ -10,17 +10,26 @@
 ;
 ; js_of_ocaml only: the binding calls [caml_js_*] primitives, so this links into
 ; a (modes js) executable and nowhere else. It still builds natively.
+;
+; Every stanza is off under the melange profile: that CI job initializes no
+; submodule but err_trace, so the copy_files sources below do not exist there.
 
 (copy_files
+ (enabled_if
+  (<> %{profile} melange))
  (files
   %{workspace_root}/vendored/ocaml-hf-hub/javascript/shared/{driver.ml,runtime.mli}))
 
 (copy_files
+ (enabled_if
+  (<> %{profile} melange))
  (files
   %{workspace_root}/vendored/ocaml-hf-hub/javascript/jsoo/{hub.ml,runtime.ml}))
 
 (library
  (name pt2_safetensors_js)
+ (enabled_if
+  (<> %{profile} melange))
  (modules driver hub pt2_safetensors_js runtime)
  (libraries err_trace fmt hf-hub js_of_ocaml pt2_safetensors))
 
@@ -31,6 +40,8 @@
 (executable
  (name safetensors_probe)
  (modes js)
+ (enabled_if
+  (<> %{profile} melange))
  (modules safetensors_probe)
  (libraries
   err_trace
