@@ -4,8 +4,8 @@
 ; No hand-written entry module is needed here: lib/core's own core.ml IS the
 ; module consumers name, so [wrapped false] already yields [Core].
 ;
-; The error framework it used to hold is now [Err], mirrored separately by
-; js/melange/vendor/err_trace; what remains here is [Core.Pretty].
+; The error framework it used to hold is now [Err], provided by the opam
+; package err_trace-melange; what remains here is [Core.Pretty].
 ;
 ; [Err.fail] captures a callstack through [Printexc.get_callstack]. Melange
 ; declares it, but at runtime it yields a value its own [raw_backtrace_length]
@@ -24,4 +24,4 @@
  (modes melange)
  (enabled_if
   (= %{profile} melange))
- (libraries fmt_mel err_trace_mel))
+ (libraries fmt_mel err_trace-melange))

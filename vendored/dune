@@ -5,11 +5,8 @@
 ; uninitialised on purpose -- it is the upstream TypeScript renderer, fetched
 ; from npm at the pinned version rather than built from source here.
 ;
-; [err_trace] is the error framework (module [Err]). Its own test/ needs base,
-; lwt, rresult, cmdliner, mirage-flow, logs and yojson -- adapter suites that
-; are its business, not ours. [vendored_dirs] is what keeps them off our @all:
-; only the src/ library is built, and only because lib/core depends on it.
-; Its melange stanza is NOT used here -- see js/melange/vendor/err_trace/dune.
+; [err_trace] (module [Err]) is not vendored: it is the opam package, and
+; melange builds use its [err_trace-melange] library.
 ;
 ; [bytesrw] is NOT built by dune at all -- it carries no dune files (upstream
 ; ships a topkg/ocamlbuild build), and this project consumes the real opam
@@ -29,5 +26,4 @@
  ocaml-safetensors
  ocaml-yamlt
  opickle
- err_trace
  bytesrw)

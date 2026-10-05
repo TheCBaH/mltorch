@@ -73,7 +73,7 @@ not require running inference first.
 | `lib/model_explorer_export/` | Exports graph snapshots and computation details for the browser UI |
 | `lib/walk_core/` | Backend-neutral verification foundation: PCG32, bit-exact Float32, the random-walk run loop |
 | `lib/core/` | Shared printer glue (`Core.Pretty`) |
-| `vendored/err_trace` | `Err`, the repo-wide result/error framework; `lib/err_host` reads its configuration at an executable's entry point |
+| opam `err_trace` | `Err`, the repo-wide result/error framework; `lib/err_host` reads its configuration at an executable's entry point |
 | `js/webapp/`, `js/jsoo/`, `js/melange/` | The browser-compiled frontend and its two JS backends |
 
 See `.ai`'s other docs for each area in depth — `native_graph_design.md`,

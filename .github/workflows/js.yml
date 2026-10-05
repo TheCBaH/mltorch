@@ -365,17 +365,10 @@ jobs:
     - name: setup
       run: |
         echo 'EXEC=${{ steps.devcontainer.outputs.exec }}' >> $GITHUB_ENV
-    # Named, never --recursive (see "Submodules: name them" below). core (and
-    # its melange mirror, core_mel) depends on err_trace -- Core.Pretty prints
-    # Err.Error.t -- so melange needs this one submodule despite otherwise
-    # staying submodule-free.
-    - name: init the err_trace submodule
-      run: |
-        git submodule update --init vendored/err_trace
     # AFTER the devcontainer step, not before: before it this passes trivially
-    # and proves nothing. Excludes vendored/err_trace, initialized deliberately
-    # above; checks every other gitlink, so a new submodule is covered without
-    # anyone remembering to update this.
+    # and proves nothing. Checks every gitlink, so a new submodule is covered
+    # without anyone remembering to update this. err_trace is the opam package,
+    # not a submodule.
     #
     # This is now the melange job's alone, and it does more than assert a
     # checkout flag: melange's reach is meant to stop at walk_core + core, and
@@ -384,8 +377,8 @@ jobs:
     # likely because a probe section drifted to the wrong library.
     - name: assert no other submodule was initialized
       run: |
-        if git submodule status | grep -v vendored/err_trace | grep -qv '^-'; then
-          echo "A submodule other than vendored/err_trace was initialized." >&2
+        if git submodule status | grep -qv '^-'; then
+          echo "A submodule was initialized." >&2
           git submodule status >&2
           exit 1
         fi
