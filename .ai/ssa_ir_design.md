@@ -13,7 +13,7 @@ differs from the proposal.
 |---|---|---|
 | `lib/ssa_ir` | Pure IR: ids, types, ops, regions, builder, verifier, printer, interpreter | `core`, `err_trace`, `expr`, `fmt` |
 | `lib/ssa_lower` | Direct lowering of a `Fusion_plan.t`; runs a lowered program over bound tensors | `ssa_ir`, `native` |
-| `lib/ssa_bridge` | Differential harness against `Kernel_eval` and the Loop interpreter; Loop ↔ SSA converters | `ssa_ir`, `ssa_lower`, `loop_ir`, `native` |
+| `lib/ssa_bridge` | Differential harness against `Kernel_eval`; `Ssa_of_loop` and `Loop_of_ssa` converters | `ssa_ir`, `ssa_lower`, `loop_ir`, `native` |
 
 `ssa_ir` owns no tensor, kernel or graph type, so it cannot reach a native process
 API or a physical target. Nothing in `loop_ir` or `native` knows SSA exists. A
@@ -66,10 +66,33 @@ statements by lowering). The inline suite runs the depth-200 case under node.
   Unsupported source constructs are typed refusals (`Ssa_unsupported`), distinct
   from every runtime failure.
 
+## Loop converters
+
+Both are comparison instruments, never the permanent frontend or consumer.
+
+- `Ssa_of_loop` turns mutable temporaries into values: a temporary assigned in a
+  loop body and live before it becomes an iteration argument, and a structured
+  sum becomes an `ordered_sum`. It refuses what it cannot reproduce faithfully,
+  chiefly a `Fail_if`, because the SSA form must keep the guard's evaluation site
+  and there is no recipe for it yet (checked-index and gather guards, with the
+  other scalar failure rows, come with the wider scalar surface).
+- `Loop_of_ssa` gives every value a Loop temporary, so an SSA program runs
+  through the existing interpreter and the C, Wasm and JavaScript emitters. A
+  loop's yields are all snapshotted before any parameter is overwritten; a
+  checked index operation becomes the `Fail_if` of its own overflow at the same
+  site; a coordinate load is preceded by the bounds check the SSA load performs.
+  It has more locals and copies than a direct emitter would produce, which is why
+  a representation-only measurement must not be read as a consumer result.
+
 ## Testing
 
 `test/ssa_ir` (verifier mutations built from records, interpreter control flow,
 printer determinism) and `test/ssa_bridge` (differential against `Kernel_eval`,
-logical-work marks against the Loop interpreter) run natively and under node.
+logical-work marks against the Loop interpreter, the two converters) run
+natively and under node. `test/ssa_projection` runs one shared table of cases
+(the source-direct and the bridge program, each projected to the Loop IR) through
+generated C (native, part of `runtest`), the direct Wasm emitter (under node,
+`make wasm.runtest`) and generated JavaScript (in process under node,
+`make jsoo.inline-runtest`), against the reference.
 A correctness-sensitive rule is considered tested only after reverting it and
 watching a test go red.

@@ -33,14 +33,6 @@ let rec raw_list : type s. s pack -> Ssa_value.t list = function
   | Nil -> []
   | Cons (v, rest) -> v :: raw_list rest
 
-(* A pack of fresh definitions with the types of the template's. *)
-let rec fresh_like : type s. t -> s pack -> s pack =
- fun b -> function
-  | Nil -> Nil
-  | Cons (v, rest) ->
-      let w = mint b v.Ssa_value.ty in
-      Cons (w, fresh_like b rest)
-
 let last vs = List.nth vs (List.length vs - 1)
 
 let instr b op =
@@ -140,18 +132,32 @@ let new_region b ~params ~body ~yields =
 let finish_region b inner ~params ~yields =
   new_region b ~params ~body:(List.rev inner.rev) ~yields
 
-let for_ b ~lo ~hi ~init body =
+let signature_error what =
+  invalid_arg ("Ssa_builder: " ^ what ^ " do not match the carried signature")
+
+let same_types a b =
+  List.length a = List.length b
+  && List.for_all2
+       (fun (x : Ssa_value.t) (y : Ssa_value.t) ->
+         Ssa_type.equal x.Ssa_value.ty y.Ssa_value.ty)
+       a b
+
+let fresh_list b vs =
+  List.map (fun (v : Ssa_value.t) -> mint b v.Ssa_value.ty) vs
+
+let for_dyn b ~lo ~hi ~init body =
   let iv = mint b (scalar Ssa_type.Index) in
-  let carried = fresh_like b init in
+  let carried = fresh_list b init in
   let eff = mint b Ssa_type.Effect in
   let inner = child b ~live:eff in
   let next = body inner iv carried in
+  if not (same_types init next) then signature_error "yielded values";
   let region =
     finish_region b inner
-      ~params:((iv :: raw_list carried) @ [ eff ])
-      ~yields:(raw_list next @ [ inner.live ])
+      ~params:((iv :: carried) @ [ eff ])
+      ~yields:(next @ [ inner.live ])
   in
-  let results = fresh_like b init in
+  let results = fresh_list b init in
   let eff_out = mint b Ssa_type.Effect in
   emit b
     (Ssa_stmt.For
@@ -159,35 +165,78 @@ let for_ b ~lo ~hi ~init body =
          lo;
          hi;
          step = 1L;
-         inits = raw_list init @ [ b.live ];
-         results = raw_list results @ [ eff_out ];
+         inits = init @ [ b.live ];
+         results = results @ [ eff_out ];
          body = region;
        });
   b.live <- eff_out;
   results
 
-let if_ b cond ~then_ ~else_ =
+let if_dyn b cond ~then_ ~else_ =
   let branch f =
     let inner = child b ~live:b.live in
     let out = f inner in
-    ( out,
-      finish_region b inner ~params:[] ~yields:(raw_list out @ [ inner.live ])
-    )
+    (out, finish_region b inner ~params:[] ~yields:(out @ [ inner.live ]))
   in
   let yes, then_region = branch then_ in
-  let _, else_region = branch else_ in
-  let results = fresh_like b yes in
+  let no, else_region = branch else_ in
+  if not (same_types yes no) then signature_error "branch results";
+  let results = fresh_list b yes in
   let eff_out = mint b Ssa_type.Effect in
   emit b
     (Ssa_stmt.If
        {
          cond;
-         results = raw_list results @ [ eff_out ];
+         results = results @ [ eff_out ];
          then_ = then_region;
          else_ = else_region;
        });
   b.live <- eff_out;
   results
+
+(* The pack of a flat list of values, in the shape and types of a template. *)
+let rec rebuild : type s. s pack -> Ssa_value.t list -> s pack =
+ fun template vs ->
+  match (template, vs) with
+  | Nil, [] -> Nil
+  | Cons (w, rest), v :: vs ->
+      if not (Ssa_type.equal w.Ssa_value.ty v.Ssa_value.ty) then
+        signature_error "values";
+      Cons (v, rebuild rest vs)
+  | Nil, _ :: _ | Cons _, [] -> signature_error "values"
+
+let for_ b ~lo ~hi ~init body =
+  let results =
+    for_dyn b ~lo ~hi ~init:(raw_list init) (fun b iv carried ->
+        raw_list (body b iv (rebuild init carried)))
+  in
+  rebuild init results
+
+let if_ b cond ~then_ ~else_ =
+  let template = ref None in
+  let results =
+    if_dyn b cond
+      ~then_:(fun b ->
+        let out = then_ b in
+        template := Some out;
+        raw_list out)
+      ~else_:(fun b -> raw_list (else_ b))
+  in
+  match !template with
+  | Some t -> rebuild t results
+  | None -> invalid_arg "Ssa_builder.if_: no then-branch"
+
+let as_type ty (v : Ssa_value.t) : 'a value =
+  if Ssa_type.equal v.Ssa_value.ty ty then v
+  else
+    invalid_arg
+      (Fmt.str "Ssa_builder: %a is not %a" Ssa_type.pp v.Ssa_value.ty
+         Ssa_type.pp ty)
+
+let as_f64 v = as_type (scalar Ssa_type.F64) v
+let as_i64 v = as_type (scalar Ssa_type.I64) v
+let as_index v = as_type (scalar Ssa_type.Index) v
+let as_pred v = as_type (scalar Ssa_type.Pred) v
 
 let ordered_sum b ~lo ~hi ~seed body =
   let iv = mint b (scalar Ssa_type.Index) in

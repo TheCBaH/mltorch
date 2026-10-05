@@ -16,6 +16,7 @@
   native
   ssa_bridge
   ssa_ir
+  ssa_ir_test
   ssa_lower)
  (inline_tests
   (modes best js))

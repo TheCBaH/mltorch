@@ -1,0 +1,30 @@
+; The SSA projection suite for one backend: the source-direct and bridge SSA
+; programs, projected to the Loop IR and run by this backend's executor, against
+; the reference. The case table is test/ssa_projection/projection.ml, copied
+; rather than forked, so every backend is asked the same questions.
+
+(copy_files %{workspace_root}/test/ssa_projection/projection.ml)
+
+; js_of_ocaml only, run under node by `make jsoo.inline-runtest`: the generated
+; JavaScript runs in this process, which cannot link into a native runner.
+
+(library
+ (name ssa_projection_js_test)
+ (libraries
+  core
+  err_trace
+  expr
+  fmt
+  js_of_ocaml
+  loop_ir
+  loop_ir_test
+  loop_js_exec
+  native
+  ssa_bridge
+  ssa_bridge_test
+  ssa_ir
+  ssa_lower)
+ (inline_tests
+  (modes js))
+ (preprocess
+  (pps ppx_expect)))

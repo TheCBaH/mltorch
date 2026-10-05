@@ -105,6 +105,33 @@ val if_ :
   's pack
 (** Only the selected region executes. Both return the same signature. *)
 
+(** {1 Untyped control flow}
+
+    For a converter whose carried values are not known statically. The signature
+    is checked at run time, and the verifier checks it again. *)
+
+val for_dyn :
+  t ->
+  lo:Ssa_type.index value ->
+  hi:Ssa_type.index value ->
+  init:Ssa_value.t list ->
+  (t -> Ssa_type.index value -> Ssa_value.t list -> Ssa_value.t list) ->
+  Ssa_value.t list
+
+val if_dyn :
+  t ->
+  Ssa_type.pred value ->
+  then_:(t -> Ssa_value.t list) ->
+  else_:(t -> Ssa_value.t list) ->
+  Ssa_value.t list
+
+val as_f64 : Ssa_value.t -> Ssa_type.f64 value
+(** A typed handle for a value of that type; [Invalid_argument] otherwise. *)
+
+val as_i64 : Ssa_value.t -> Ssa_type.i64 value
+val as_index : Ssa_value.t -> Ssa_type.index value
+val as_pred : Ssa_value.t -> Ssa_type.pred value
+
 val ordered_sum :
   t ->
   lo:Ssa_type.index value ->

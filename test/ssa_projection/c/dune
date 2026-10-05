@@ -1,0 +1,27 @@
+; The SSA projection suite for one backend: the source-direct and bridge SSA
+; programs, projected to the Loop IR and run by this backend's executor, against
+; the reference. The case table is test/ssa_projection/projection.ml, copied
+; rather than forked, so every backend is asked the same questions.
+
+(copy_files %{workspace_root}/test/ssa_projection/projection.ml)
+
+; Needs a C compiler (gcc): a missing one is a failure, never a skip.
+
+(library
+ (name ssa_projection_c_test)
+ (libraries
+  core
+  err_trace
+  expr
+  fmt
+  loop_c_exec
+  loop_ir
+  loop_ir_test
+  native
+  ssa_bridge
+  ssa_bridge_test
+  ssa_ir
+  ssa_lower)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
