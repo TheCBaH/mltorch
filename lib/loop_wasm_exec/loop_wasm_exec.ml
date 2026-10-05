@@ -61,15 +61,11 @@ let runner_path =
 
 let max_bytes = 0x8000_0000L
 
-let exec_gen ~vector ~numerics ~precision ~count_marks
+(* Runs a lowered module over [p]'s buffers: [lowered] came from any emitter
+   that keeps {!Loop_wasm}'s ABI, and [p] supplies the layout and the binding. *)
+let exec_lowered ~(lowered : Loop_wasm.t) ~count_marks
     ?(outputs = fun _ -> None) (p : Loop_program.t) ~bind =
   let result : (Tensor.packed Tensor_id.Map.t * int list, error) result =
-    let* lowered =
-      Result.map_error
-        (fun e -> `Wasm_unsupported e)
-        (Err.payload
-           (Loop_wasm.lower ?vector ?numerics ?precision ~count_marks p))
-    in
     let* tensors =
       (C.bind_buffers ~outputs p ~bind
         :> (Tensor.packed Tensor_id.Map.t, error) result)
@@ -182,6 +178,17 @@ let exec_gen ~vector ~numerics ~precision ~count_marks
                     counts ))
   in
   match result with Ok m -> Err.return m | Error e -> Err.fail e
+
+let exec_gen ~vector ~numerics ~precision ~count_marks ?outputs
+    (p : Loop_program.t) ~bind =
+  match
+    Err.payload (Loop_wasm.lower ?vector ?numerics ?precision ~count_marks p)
+  with
+  | Error e -> Err.fail (`Wasm_unsupported e : error)
+  | Ok lowered -> exec_lowered ~lowered ~count_marks ?outputs p ~bind
+
+let exec_module ~lowered ?outputs p ~bind =
+  Err.map fst (exec_lowered ~lowered ~count_marks:false ?outputs p ~bind)
 
 let exec ?vector ?numerics ?precision ?outputs p ~bind =
   Err.map fst

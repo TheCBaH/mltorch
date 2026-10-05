@@ -329,6 +329,31 @@ and optimized under node, hand-built control flow, every failure row, int64
 wrap, `-0`, binary32 rounding and a stride that does not divide its range, and
 mutations of each.
 
+## Direct WebAssembly consumer
+
+`Ssa_wasm` (library `lib/ssa_wasm`) emits one exported `loop_kernel` over linear
+memory straight from a structured program, producing the same `Loop_wasm.kernel`
+and `Loop_wasm.t` records as the Loop emitter (`Loop_wasm.lower_with` takes any
+kernel producer), so the module layout, helper functions, `Math` imports,
+manifest and failure-record ABI are one definition and `Loop_wasm_exec.exec_module`
+runs it under node. A value is a local typed by the program's own types (index
+`i32`, int64 `i64`, binary32 `f32`, predicate `i32`) and a vector or mask is a
+group of `v128` registers, two `f64` lanes or four `f32` lanes each; a mask is
+held as `i64x2` or `i32x4` lanes by the comparison that made it and re-held lane
+by lane where it meets the other shape. A loop's carried values transfer through
+the operand stack (every yield pushed, then popped in reverse), so the rebinding
+is simultaneous with no temporary; an induction counter that could wrap an `i32`
+(its last increment leaves the index domain) is a typed refusal. Contiguous
+`f32` to `f64` vector loads are `v128.load64_zero` plus a promote, `f64` to `f32`
+stores a demote plus a 64-bit lane store; any other stride goes lane by lane.
+`Float_fma` is the one relaxed-SIMD `f32x4.relaxed_madd`, only where the plan was
+made for relaxed SIMD; a scalar fused operation and a binary64 one are refused.
+Checks: the op sweep lowered and optimized, planned programs for strict vectors,
+ordered binary32 (standard SIMD) and relaxed binary32 (relaxed SIMD) against the
+structured interpreter, hand-built control flow and every failure row, the vector
+surface, and mutations of addressing, checks, transfers, selects, lanes and
+accumulation.
+
 ## Verifier and interpreter bounds
 
 `Ssa_verify.max_region_depth` (256) bounds region nesting; the interpreter

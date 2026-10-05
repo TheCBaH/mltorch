@@ -1,0 +1,28 @@
+; Direct WebAssembly emission from SSA against the reference evaluator: every
+; walked plan is lowered, prepared, emitted by [Ssa_wasm], validated, run under
+; node and compared with [Kernel_eval]. Needs node: a missing one is a failure,
+; never a skip.
+
+(library
+ (name ssa_wasm_test)
+ (libraries
+  core
+  err_trace
+  expr
+  fmt
+  loop_ir
+  loop_ir_test
+  loop_wasm_exec
+  native
+  native_op_walk
+  native_test
+  ssa_bridge
+  ssa_bridge_test
+  ssa_ir
+  ssa_lower
+  ssa_wasm
+  wasm_ir
+  walk_core)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
