@@ -89,7 +89,8 @@ let boolean o f = Js.to_bool (Js.Unsafe.coerce (field o f))
    [int] is 32 bits. *)
 let int_field o f =
   let x = number o f in
-  if Float.is_integer x && Float.abs x <= 2147483647. then Ok (int_of_float x)
+  if Float.is_integer x && x >= -2147483648. && x <= 2147483647. then
+    Ok (int_of_float x)
   else
     Error
       (Printf.sprintf "field %s is not a 32-bit integer"
@@ -119,7 +120,7 @@ let decode compiled o : (error, string) result =
               Js.float_of_number
                 (Js.Unsafe.coerce (get coord (string_of_int i)))
             in
-            if Float.is_integer x && Float.abs x <= 2147483647. then
+            if Float.is_integer x && x >= -2147483648. && x <= 2147483647. then
               Ok (int_of_float x)
             else Error "coord component is not a 32-bit integer"
           in
