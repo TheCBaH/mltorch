@@ -13,8 +13,9 @@ module Pipeline : sig
   type t =
     | Exact
         (** the exact optimizations only: simplify, guards, hoisting and load
-            sharing, with no alias assumption (the storage plan may overlay
-            buffers) *)
+            sharing, with the buffers of one invocation taken as distinct memory
+            (the storage plan allocates every output before releasing an
+            operand) *)
     | Planned of {
         numerics : Ssa_ir.Ssa_numerics.t;
         target : Ssa_ir.Ssa_target.t;

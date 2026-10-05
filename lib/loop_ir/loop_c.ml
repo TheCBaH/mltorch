@@ -320,6 +320,7 @@ let kernel ?vector ?(numerics = Loop_numerics.Reference_f64) ?precision
       Err.return
         {
           source;
+          prelude = "";
           helpers = List.filter (fun n -> List.mem n used) R.Name.all;
           local_doubles = nm.local_doubles;
           precision;
@@ -335,6 +336,7 @@ type error = Loop_c_base.error
 
 type nonrec t = Loop_c_base.t = {
   source : string;
+  prelude : string;
   helpers : R.Name.t list;
   local_doubles : int64;
   precision : Loop_numerics.Precision.t;

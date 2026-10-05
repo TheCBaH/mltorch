@@ -367,8 +367,11 @@ positionally, bound through `edges`) and the failure-record ABI stay the bundle'
 `Ssa_backends` (library `lib/ssa_backends`) supplies the producers: it lowers
 `placed`, runs a `Pipeline` (`Representation`, the exact passes only, or the
 policy planner for a numerical policy and target) and emits with the invocation's
-own buffer list. Passes assume no alias, because the storage plan may overlay
-buffers. A record names its site by the index of an entry of the Loop program's own
+own buffer list. Passes take one invocation's buffers as distinct memory (the storage plan
+allocates every output before releasing any operand, and the arena checker rejects an
+overlap), the guarantee `Distinct_buffers` asks a caller to have established; a kernel's
+own types and helper functions travel as a `Loop_c.t` `prelude`, guarded blocks that
+the bundle emits once. A record names its site by the index of an entry of the Loop program's own
 failure-site table (`Loop_failure.same_site`: the same kind of failure at the same
 local variable), which is how the bundle hosts decode a failure from an SSA kernel
 unchanged. A kernel the SSA path cannot make is `Kernel_refused`, never a silent

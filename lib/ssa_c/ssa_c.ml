@@ -244,16 +244,22 @@ let kernel ?buffers ?sites ~name:fname (p : Ssa_program.t) =
           @ voids @ decl_lines @ meter
           @ [ body ^ "  return 0;"; "}"; "" ])
       in
+      (* the emitter's own types and functions, each block guarded so that the
+         kernels of one translation unit can all carry theirs *)
+      let guarded (name, text) =
+        Printf.sprintf "#ifndef SSA_C_%s\n#define SSA_C_%s\n%s\n#endif" name
+          name text
+      in
       let prelude =
         String.concat "\n"
-          (List.map snd cx.vector_types @ List.map snd cx.vector_helpers)
+          (List.map guarded (cx.vector_types @ cx.vector_helpers))
       in
       if cx.f32 then use cx R.Name.F32_prelude;
       let used = cx.used in
       Ok
         ( {
-            Loop_ir.Loop_c.source =
-              (if prelude = "" then fn else prelude ^ "\n" ^ fn);
+            Loop_ir.Loop_c.source = fn;
+            prelude;
             helpers = List.filter (fun n -> List.mem n used) R.Name.all;
             local_doubles = cx.local_doubles;
             precision =

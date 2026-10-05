@@ -17,9 +17,13 @@ end
 
 let ( let* ) = Result.bind
 
-(* The storage plan may place two buffers of one invocation over each other when
-   their lifetimes allow, so no pass may assume distinct buffers. *)
-let alias = Ssa_effects.Conservative
+(* One invocation's buffers are distinct memory: the storage plan allocates every
+   output before it releases any operand, so no two buffers an invocation names
+   are live in the same cell (the arena checker rejects an overlap), and the
+   scratch region its locals use is separate again. This is the guarantee
+   [Distinct_buffers] asks a caller to have established; the Loop emitters rely
+   on the same fact when they vectorize. *)
+let alias = Ssa_effects.Distinct_buffers
 
 let exact_passes =
   [

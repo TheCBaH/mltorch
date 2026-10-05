@@ -300,9 +300,16 @@ let build ?vector ?(numerics = Loop_numerics.Reference_f64) ?kernel
       [] compiled
     |> List.sort compare
   in
+  let preludes =
+    String.concat "\n"
+      (List.sort_uniq compare
+         (List.map
+            (fun e -> e.Kernels.kernel.Loop_c.prelude)
+            (Kernels.all kernels)))
+  in
   let body =
     String.concat "\n"
-      ([ Loop_c_runtime.prelude; C_model_abi.declarations; helpers ]
+      ([ Loop_c_runtime.prelude; C_model_abi.declarations; helpers; preludes ]
       @ List.map Kernels.source (Kernels.all kernels)
       @ [
           Printf.sprintf "/* %d invocations, %d distinct kernels */"

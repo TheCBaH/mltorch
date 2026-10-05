@@ -24,6 +24,11 @@ val pp_error : Format.formatter -> [< error ] -> unit
 
 type t = {
   source : string;  (** the function definition *)
+  prelude : string;
+      (** text the definition needs before it that is not a runtime helper (an
+          emitter's own types and functions), made of blocks guarded so that
+          several kernels' preludes can sit in one unit: empty for this module's
+          own kernels *)
   helpers : Loop_c_runtime.Name.t list;  (** the helpers it calls *)
   local_doubles : int64;
       (** [double]s of scratch [local] must provide: the sum of the program's

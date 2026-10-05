@@ -84,6 +84,7 @@ let translation_unit (k : Loop_c.t) p =
       [
         Loop_c_runtime.prelude;
         Loop_c_runtime.helpers k.Loop_c.helpers;
+        k.Loop_c.prelude;
         k.Loop_c.source;
         main;
       ]
