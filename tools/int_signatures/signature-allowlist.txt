@@ -203,4 +203,16 @@ lib/ssa_ir/ssa_interp.mli	tally	val stores : t -> int end
 lib/ssa_ir/ssa_interp.mli	as-written	type failure = [ `Coord_out_of_range of Expr.Source.t * Expr.Axis.t * int * int Expr.Coord.t | `Gather_index_out_of_range of Expr.Eval.Gather_index_out_of_range.t | `I64_division_by_zero | `I64_division_overflow | `I64_from_float_infinite | `I64_from_float_nan | `I64_from_float_out_of_range of float | `Index_overflow of Expr.Index_overflow.t | `Scan_meter of Expr.Scan_meter.error | `Scan_projection of Expr.Eval.scan_error | `Unbound_local of Expr.Local_var.t ]
 lib/ssa_ir/ssa_verify.mli	budget	val max_region_depth : int
 lib/ssa_bridge/ssa_check.mli	tally	type marks = { emitters : int; keys : int; locals : int; reductions : int; scan_updates : int; scans : int; }
+lib/ssa_bridge/ssa_check.mli	tally	type t = { ssa_f32 : bool; loop_f32 : bool; ssa_loops : int; loop_loops : int; ssa_blocked : int; loop_blocked : int; } end
 lib/ssa_ir/ssa_opt.mli	tally	type report = (string * int) list
+lib/ssa_ir/ssa_opt_rows.mli	budget	val program : rows:int -> policy:Ssa_effects.policy -> Ssa_program.t -> Ssa_program.t * int
+lib/ssa_ir/ssa_opt_rows.mli	tally	val analyze : rows:int -> policy:Ssa_effects.policy -> Ssa_program.t -> (Ssa_id.Region.t * (int, refusal) result) list
+lib/ssa_ir/ssa_numerics.mli	tally	val coverage : numerics:t -> f32_kernels:int -> kernels:int -> f32_invocations:int -> invocations:int -> refusals:(Refusal.t * int) list -> string
+lib/ssa_ir/ssa_target.mli	budget	type t = { name : string; vector_bits : int; precision : Ssa_numerics.Precision.t; lanes : Ssa_type.Lanes.t; inner_loops : bool; fma : bool; relaxed_madd : bool; row_block : int; support : Op.t -> support; cost : Op.t -> float; at : Ssa_numerics.Precision.t -> t; }
+lib/ssa_ir/ssa_target.mli	budget	val with_row_block : int -> t -> t
+lib/ssa_ir/ssa_target.mli	tally	val profitable : t -> (Op.t * int) list -> bool
+lib/ssa_ir/ssa_vectorize.mli	tally	type t = { loop : Ssa_id.Region.t; trips : int64; work : int64; executions : int64; ops : (Ssa_target.Op.t * int) list; outcome : outcome; } end
+lib/ssa_ir/ssa_vectorize.mli	tally	val tally : report -> (string * (int * int64)) list
+lib/ssa_ir/ssa_opt_contract.mli	tally	val contracted : Ssa_program.t -> int
+lib/ssa_ir/ssa_plan.mli	tally	type t = { numerics : Ssa_numerics.t; precision : Ssa_numerics.Precision.t; program : Ssa_program.t; refusal : Ssa_numerics.Refusal.t option; vectorized : Ssa_vectorize.report; sums : Ssa_vector_sum.report; blocked : int; contracted : int; }
+lib/ssa_ir/ssa_vector_sum.mli	tally	type outcome = | Kept_sequential of Reason.t | Scheduled of { parts : int }

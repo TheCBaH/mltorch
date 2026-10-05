@@ -123,14 +123,17 @@ let analyze (p : Ssa_program.t) =
         | _ -> ())
     | Ssa_op.Check_access _ | Ssa_op.Check_gather _ | Ssa_op.Check_local _
     | Ssa_op.Check_scan _ | Ssa_op.Const _ | Ssa_op.Convert _
-    | Ssa_op.Float_binary _ | Ssa_op.Float_compare _ | Ssa_op.Float_max _
-    | Ssa_op.Float_to_i64 _ | Ssa_op.Float_unary _ | Ssa_op.I64_arith _
-    | Ssa_op.I64_compare _ | Ssa_op.I64_div _ | Ssa_op.Index_compare _
-    | Ssa_op.Load _ | Ssa_op.Load_in_bounds _ | Ssa_op.Local_alloc _
-    | Ssa_op.Local_read _ | Ssa_op.Local_write _ | Ssa_op.Mark _
+    | Ssa_op.Float_binary _ | Ssa_op.Float_compare _ | Ssa_op.Float_fma _
+    | Ssa_op.Float_max _ | Ssa_op.Float_to_i64 _ | Ssa_op.Float_unary _
+    | Ssa_op.I64_arith _ | Ssa_op.I64_compare _ | Ssa_op.I64_div _
+    | Ssa_op.Index_compare _ | Ssa_op.Load _ | Ssa_op.Load_in_bounds _
+    | Ssa_op.Local_alloc _ | Ssa_op.Lanewise _ | Ssa_op.Local_read _
+    | Ssa_op.Local_write _ | Ssa_op.Mark _ | Ssa_op.Mark_lanes _
     | Ssa_op.Meter_charge | Ssa_op.Meter_release _ | Ssa_op.Meter_reserve _
     | Ssa_op.Meter_reset | Ssa_op.Pool_better _ | Ssa_op.Pred_not _
-    | Ssa_op.Pred_or _ | Ssa_op.Store _ ->
+    | Ssa_op.Pred_or _ | Ssa_op.Store _ | Ssa_op.Vec_extract _
+    | Ssa_op.Vec_insert _ | Ssa_op.Vec_iota _ | Ssa_op.Vec_load _
+    | Ssa_op.Vec_splat _ | Ssa_op.Vec_store _ ->
         ()
   in
   let rec region (r : Ssa_region.t) = List.iter stmt r.Ssa_region.body
@@ -204,6 +207,25 @@ let in_bounds t (b : Ssa_buffer.t) (at : Ssa_access.t) =
       match Ssa_buffer.elements b.Ssa_buffer.extents with
       | Some n -> subset (range t o) ~lo:0L ~hi:(Int64.pred n)
       | None -> false)
+
+(* Every lane of a vector access inside the buffer: along each axis the first
+   lane's coordinate range, moved by the span the lanes' steps add, stays inside
+   the extent. The steps are literals, so the span is exact. *)
+let lanes_in_bounds t (b : Ssa_buffer.t) ~(at : Ssa_value.t Expr.Coord.t)
+    ~(steps : int64 Expr.Coord.t) ~lanes =
+  let reach = Int64.of_int (Ssa_type.Lanes.to_int lanes - 1) in
+  Expr.Coord.foldi
+    (fun axis ok v ->
+      ok
+      &&
+      let span = Int64.mul reach (Expr.Coord.get steps axis) in
+      match range t v with
+      | Empty -> true
+      | Range r ->
+          let extent = Expr.Coord.get b.Ssa_buffer.extents axis in
+          Int64.compare (Int64.add r.lo (Stdlib.min 0L span)) 0L >= 0
+          && Int64.compare (Int64.add r.hi (Stdlib.max 0L span)) extent < 0)
+    true at
 
 (* What a loop's bounds say about how often its body runs. *)
 type trips = At_least_one | Exactly of int64 | Unknown | Zero

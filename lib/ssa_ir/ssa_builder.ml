@@ -289,7 +289,7 @@ let as_index v = as_type (scalar Ssa_type.Index) v
 let as_pred v = as_type (scalar Ssa_type.Pred) v
 let as_local v = as_type Ssa_type.Local v
 
-let ordered_sum b ~lo ~hi ~seed body =
+let ordered_sum_dyn b ~lo ~hi ~seed body =
   let iv = mint b (scalar Ssa_type.Index) in
   let eff = mint b Ssa_type.Effect in
   let inner = child b ~live:eff in
@@ -311,6 +311,29 @@ let ordered_sum b ~lo ~hi ~seed body =
        });
   b.live <- eff_out;
   sum
+
+let ordered_sum = ordered_sum_dyn
+let lanewise b op = one b (Ssa_op.Lanewise op)
+
+let mark_lanes b mark ~lanes =
+  ignore (instr b (Ssa_op.Mark_lanes { mark; lanes }))
+
+let vec_extract b ~lane vector = one b (Ssa_op.Vec_extract { lane; vector })
+
+let vec_insert b ~lane vector element =
+  one b (Ssa_op.Vec_insert { lane; vector; element })
+
+let vec_iota b ~lanes ~step base = one b (Ssa_op.Vec_iota { base; step; lanes })
+let vec_splat b ~lanes element = one b (Ssa_op.Vec_splat { element; lanes })
+
+let vec_load b buffer ~decode ~lanes ~steps at =
+  declared b buffer;
+  one b (Ssa_op.Vec_load { buffer; at; steps; decode; lanes })
+
+let vec_store b buffer ~encode ~lanes ~steps at value =
+  declared b buffer;
+  ignore
+    (instr b (Ssa_op.Vec_store { buffer; at; steps; encode; value; lanes }))
 
 (* Runs [f] against a block that is thrown away. It spends value and region ids,
    which only leaves gaps: an id names a definition, it is not an ordinal. *)

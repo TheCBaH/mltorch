@@ -9,7 +9,7 @@ type site = { region : Ssa_id.Region.t; statement : Statement.t }
 
 (* What an operation that carries a proof asserts. {!check} accepts it only
    where {!Ssa_range} re-derives it from the program itself. *)
-type claim = Add_in_domain | In_bounds | Scale_in_domain
+type claim = Add_in_domain | In_bounds | Lanes_in_bounds | Scale_in_domain
 
 type problem =
   | Buffer_declaration of Ssa_id.Buffer.t
@@ -82,6 +82,8 @@ let pp_problem fmt = function
         (match c with
         | Add_in_domain -> "a sum staying in the index domain"
         | In_bounds -> "an access staying in its buffer"
+        | Lanes_in_bounds ->
+            "every lane of a vector access staying in its buffer"
         | Scale_in_domain -> "a product staying in the index domain")
   | Use_retyped { value; defined; used } ->
       Fmt.pf fmt "%a is defined as %a and used as %a" Ssa_id.Value.pp value
@@ -192,6 +194,15 @@ let check_access ctx scope id ~family ~writes ~(at : Ssa_access.t) =
   if writes && b.Ssa_buffer.role = Ssa_buffer.Input then
     fail ctx scope (Buffer_not_stored id)
 
+let check_vector_access ctx scope id ~family ~writes =
+  let b = buffer_of ctx scope id in
+  if Ssa_format.family b.Ssa_buffer.format <> family then
+    fail ctx scope
+      (Buffer_format
+         { buffer = id; accessed = family; declared = b.Ssa_buffer.format });
+  if writes && b.Ssa_buffer.role = Ssa_buffer.Input then
+    fail ctx scope (Buffer_not_stored id)
+
 let instr ctx scope ~live (i : Ssa_instr.t) =
   let op = i.Ssa_instr.op in
   List.iter (use ctx scope) (Ssa_op.operands op);
@@ -211,18 +222,31 @@ let instr ctx scope ~live (i : Ssa_instr.t) =
       check_access ctx scope buffer
         ~family:(Ssa_op.Encode.family encode)
         ~writes:true ~at
+  | Ssa_op.Vec_load { buffer; decode; at = _; _ } ->
+      (* a lane is addressed by coordinates, so a per-channel decode reads the
+         channel each lane's own coordinate names *)
+      check_vector_access ctx scope buffer
+        ~family:(Ssa_op.Decode.family decode)
+        ~writes:false
+  | Ssa_op.Vec_store { buffer; encode; _ } ->
+      check_vector_access ctx scope buffer
+        ~family:(Ssa_op.Encode.family encode)
+        ~writes:true
   | Ssa_op.Check_gather _ | Ssa_op.Check_local _ | Ssa_op.Check_scan _
   | Ssa_op.Const _ | Ssa_op.Convert _ | Ssa_op.Index_add_in_domain _
   | Ssa_op.Index_scale_in_domain _ | Ssa_op.Local_alloc _ | Ssa_op.Local_read _
   | Ssa_op.Local_write _ | Ssa_op.Meter_charge | Ssa_op.Meter_release _
   | Ssa_op.Meter_reserve _ | Ssa_op.Meter_reset | Ssa_op.Float_binary _
-  | Ssa_op.Float_compare _ | Ssa_op.Float_max _ | Ssa_op.Float_to_i64 _
-  | Ssa_op.Float_unary _ | Ssa_op.I64_arith _ | Ssa_op.I64_compare _
-  | Ssa_op.I64_div _ | Ssa_op.Index_add _ | Ssa_op.Index_of_i64 _
-  | Ssa_op.Index_ceil_div _ | Ssa_op.Index_clamp_low _ | Ssa_op.Index_compare _
-  | Ssa_op.Index_floor_div _ | Ssa_op.Index_max _ | Ssa_op.Index_min _
-  | Ssa_op.Index_scale _ | Ssa_op.Mark _ | Ssa_op.Pool_better _
-  | Ssa_op.Pred_not _ | Ssa_op.Pred_or _ | Ssa_op.Select _ ->
+  | Ssa_op.Float_compare _ | Ssa_op.Float_fma _ | Ssa_op.Float_max _
+  | Ssa_op.Float_to_i64 _ | Ssa_op.Float_unary _ | Ssa_op.I64_arith _
+  | Ssa_op.I64_compare _ | Ssa_op.I64_div _ | Ssa_op.Index_add _
+  | Ssa_op.Index_of_i64 _ | Ssa_op.Index_ceil_div _ | Ssa_op.Index_clamp_low _
+  | Ssa_op.Index_compare _ | Ssa_op.Index_floor_div _ | Ssa_op.Index_max _
+  | Ssa_op.Index_min _ | Ssa_op.Index_scale _ | Ssa_op.Lanewise _
+  | Ssa_op.Mark _ | Ssa_op.Mark_lanes _ | Ssa_op.Pool_better _
+  | Ssa_op.Pred_not _ | Ssa_op.Pred_or _ | Ssa_op.Select _
+  | Ssa_op.Vec_extract _ | Ssa_op.Vec_insert _ | Ssa_op.Vec_iota _
+  | Ssa_op.Vec_splat _ ->
       ());
   let values =
     match Ssa_typing.result_types op with
@@ -326,7 +350,9 @@ and stmt ctx scope ~depth ~live : Ssa_region.t Ssa_stmt.t -> scope * Ssa_value.t
       expect_type ctx scope index hi;
       use ctx scope seed;
       (match seed.Ssa_value.ty with
-      | Ssa_type.Scalar (Ssa_type.F32 | Ssa_type.F64) -> ()
+      | Ssa_type.Scalar (Ssa_type.F32 | Ssa_type.F64)
+      | Ssa_type.Vec ((Ssa_type.F32 | Ssa_type.F64), _) ->
+          ()
       | found ->
           fail ctx scope
             (Typing
@@ -400,19 +426,29 @@ let check_proofs ctx scope =
                 if not (Ssa_range.in_bounds ranges b at) then
                   fail ctx scope (Unproven In_bounds)
             | None -> fail ctx scope (Buffer_unknown buffer))
+        | Ssa_op.Vec_load { buffer; at; steps; lanes; _ }
+        | Ssa_op.Vec_store { buffer; at; steps; lanes; _ } -> (
+            match Ssa_program.find_buffer p buffer with
+            | Some b ->
+                if not (Ssa_range.lanes_in_bounds ranges b ~at ~steps ~lanes)
+                then fail ctx scope (Unproven Lanes_in_bounds)
+            | None -> fail ctx scope (Buffer_unknown buffer))
         | Ssa_op.Check_access _ | Ssa_op.Check_gather _ | Ssa_op.Check_local _
         | Ssa_op.Check_scan _ | Ssa_op.Const _ | Ssa_op.Convert _
-        | Ssa_op.Float_binary _ | Ssa_op.Float_compare _ | Ssa_op.Float_max _
-        | Ssa_op.Float_to_i64 _ | Ssa_op.Float_unary _ | Ssa_op.I64_arith _
-        | Ssa_op.I64_compare _ | Ssa_op.I64_div _ | Ssa_op.Index_add _
-        | Ssa_op.Index_ceil_div _ | Ssa_op.Index_clamp_low _
-        | Ssa_op.Index_compare _ | Ssa_op.Index_floor_div _ | Ssa_op.Index_max _
-        | Ssa_op.Index_min _ | Ssa_op.Index_of_i64 _ | Ssa_op.Index_scale _
+        | Ssa_op.Float_binary _ | Ssa_op.Float_compare _ | Ssa_op.Float_fma _
+        | Ssa_op.Float_max _ | Ssa_op.Float_to_i64 _ | Ssa_op.Float_unary _
+        | Ssa_op.I64_arith _ | Ssa_op.I64_compare _ | Ssa_op.I64_div _
+        | Ssa_op.Index_add _ | Ssa_op.Index_ceil_div _
+        | Ssa_op.Index_clamp_low _ | Ssa_op.Index_compare _
+        | Ssa_op.Index_floor_div _ | Ssa_op.Index_max _ | Ssa_op.Index_min _
+        | Ssa_op.Index_of_i64 _ | Ssa_op.Index_scale _ | Ssa_op.Lanewise _
         | Ssa_op.Load _ | Ssa_op.Local_alloc _ | Ssa_op.Local_read _
-        | Ssa_op.Local_write _ | Ssa_op.Mark _ | Ssa_op.Meter_charge
-        | Ssa_op.Meter_release _ | Ssa_op.Meter_reserve _ | Ssa_op.Meter_reset
-        | Ssa_op.Pool_better _ | Ssa_op.Pred_not _ | Ssa_op.Pred_or _
-        | Ssa_op.Select _ | Ssa_op.Store _ ->
+        | Ssa_op.Local_write _ | Ssa_op.Mark _ | Ssa_op.Mark_lanes _
+        | Ssa_op.Vec_extract _ | Ssa_op.Vec_insert _ | Ssa_op.Vec_iota _
+        | Ssa_op.Vec_splat _ | Ssa_op.Meter_charge | Ssa_op.Meter_release _
+        | Ssa_op.Meter_reserve _ | Ssa_op.Meter_reset | Ssa_op.Pool_better _
+        | Ssa_op.Pred_not _ | Ssa_op.Pred_or _ | Ssa_op.Select _
+        | Ssa_op.Store _ ->
             ())
     | Ssa_stmt.For { body; _ } | Ssa_stmt.Ordered_sum { body; _ } ->
         region scope body

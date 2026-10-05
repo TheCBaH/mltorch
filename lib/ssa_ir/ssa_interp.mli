@@ -40,10 +40,15 @@ val pp_error : Format.formatter -> [< error ] -> unit
 
 val run :
   ?counters:Counters.t ->
+  ?fused:bool ->
   Ssa_program.t ->
   memory:Ssa_memory.t ->
   (unit, error) Err.t
 (** Executes the program over [memory], which must hold every declared buffer.
     An access outside a buffer through a flat offset or a store is a defect in
     the program and raises [Invalid_argument]: only a checked operation fails
-    with a row. *)
+    with a row.
+
+    [fused] (default [true]) is what a {!Ssa_op.Float_fma} means: one rounding,
+    or, when [false], a multiply rounded and then an add rounded. A plan built
+    for an engine that may do either is correct if it matches one of the two. *)

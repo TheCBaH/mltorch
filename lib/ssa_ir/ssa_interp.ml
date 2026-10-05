@@ -63,7 +63,14 @@ type local = {
   var : Expr.Local_var.t option;
 }
 
-type v = E | F of float | I of int64 | L of local | P of bool
+type v =
+  | E
+  | F of float
+  | I of int64
+  | L of local
+  | M of bool array
+  | P of bool
+  | V of float array
 
 (* The scan meter, as [Expr.Scan_meter] keeps it: an update budget that fails
    BEFORE the charged body runs, and live state counted against the nesting
@@ -75,6 +82,7 @@ type st = {
   program : Ssa_program.t;
   memory : Ssa_memory.t;
   counters : Counters.t;
+  fused : bool;
   env : v array;
   mutable meter : meter;
 }
@@ -88,25 +96,27 @@ let fresh_meter (limits : Expr.Scan_limits.t) =
 let local_of st x =
   match get st x with
   | L l -> l
-  | E | F _ | I _ | P _ -> invalid_arg "Ssa_interp: local"
+  | E | F _ | I _ | M _ | P _ | V _ -> invalid_arg "Ssa_interp: local"
 
 let float_of st x =
   match get st x with
   | F f -> f
-  | E | I _ | L _ | P _ -> invalid_arg "Ssa_interp: float"
+  | E | I _ | L _ | M _ | P _ | V _ -> invalid_arg "Ssa_interp: float"
 
 let int_of st x =
   match get st x with
   | I i -> i
-  | E | F _ | L _ | P _ -> invalid_arg "Ssa_interp: int"
+  | E | F _ | L _ | M _ | P _ | V _ -> invalid_arg "Ssa_interp: int"
 
 let bool_of st x =
   match get st x with
   | P b -> b
-  | E | F _ | I _ | L _ -> invalid_arg "Ssa_interp: pred"
+  | E | F _ | I _ | L _ | M _ | V _ -> invalid_arg "Ssa_interp: pred"
 
 let is_f32 (x : Ssa_value.t) =
-  Ssa_type.equal x.Ssa_value.ty (Ssa_type.Scalar Ssa_type.F32)
+  match x.Ssa_value.ty with
+  | Ssa_type.Scalar Ssa_type.F32 | Ssa_type.Vec (Ssa_type.F32, _) -> true
+  | _ -> false
 
 let buffer st id =
   match Ssa_program.find_buffer st.program id with
@@ -123,22 +133,23 @@ let coord_of st c = Expr.Coord.map (int_of st) c
 (* The element offset an access names, after the checks the access owes. A
    coordinate load reports the first axis outside; a flat offset or any store
    outside is a defect, not a row. *)
+let element_of_coord st (b : Ssa_buffer.t) c ~checked =
+  match Ssa_memory.first_outside b.Ssa_buffer.extents c with
+  | None -> Int64.to_int (Ssa_memory.offset b.Ssa_buffer.extents c)
+  | Some axis ->
+      if checked then
+        Err.Escape.throw st.esc
+          (`Coord_out_of_range
+             ( Ssa_buffer.source b,
+               axis,
+               Int64.to_int (Expr.Coord.get c axis),
+               Expr.Coord.map Int64.to_int c )
+            : failure)
+      else invalid_arg "Ssa_interp: store outside its buffer"
+
 let element st (b : Ssa_buffer.t) (at : Ssa_access.t) ~checked =
   match at with
-  | Ssa_access.Coord c -> (
-      let c = coord_of st c in
-      match Ssa_memory.first_outside b.Ssa_buffer.extents c with
-      | None -> Int64.to_int (Ssa_memory.offset b.Ssa_buffer.extents c)
-      | Some axis ->
-          if checked then
-            Err.Escape.throw st.esc
-              (`Coord_out_of_range
-                 ( Ssa_buffer.source b,
-                   axis,
-                   Int64.to_int (Expr.Coord.get c axis),
-                   Expr.Coord.map Int64.to_int c )
-                : failure)
-          else invalid_arg "Ssa_interp: store outside its buffer")
+  | Ssa_access.Coord c -> element_of_coord st b (coord_of st c) ~checked
   | Ssa_access.Flat o -> (
       let o = int_of st o in
       match Ssa_buffer.elements b.Ssa_buffer.extents with
@@ -186,6 +197,59 @@ let channel_of st = function
       Int64.to_int (int_of st c.Expr.Coord.c)
   | _ -> 0
 
+(* One cell decoded to the working value it stands for. [channel] is the C
+   coordinate a per-channel dequantization reads. *)
+let read_cell st id (b : Ssa_buffer.t) decode ~at ~channel =
+  match (cells st id, decode) with
+  | ( Ssa_memory.Floats a,
+      ( Ssa_op.Decode.Bool_to_f64 | Ssa_op.Decode.F32_to_f64
+      | Ssa_op.Decode.F64_to_f64 ) ) ->
+      F a.(at)
+  | Ssa_memory.Int64s a, Ssa_op.Decode.I64 -> I a.(at)
+  | Ssa_memory.Int64s a, Ssa_op.Decode.I64_to_f64 -> F (Int64.to_float a.(at))
+  | Ssa_memory.Ints a, Ssa_op.Decode.F16_to_f64 ->
+      F (Ssa_half.f16_to_float a.(at))
+  | Ssa_memory.Ints a, Ssa_op.Decode.Bf16_to_f64 ->
+      F (Ssa_half.bf16_to_float a.(at))
+  | Ssa_memory.Ints a, Ssa_op.Decode.I32_to_f64 -> F (float_of_int a.(at))
+  | Ssa_memory.Ints a, (Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I8_dequant)
+    -> (
+      match Ssa_format.quant b.Ssa_buffer.format with
+      | Some q -> F (Ssa_format.dequantize q ~channel ~cell:a.(at))
+      | None -> invalid_arg "Ssa_interp: dequantizing an unquantized buffer")
+  | (Ssa_memory.Floats _ | Ssa_memory.Int64s _ | Ssa_memory.Ints _), _ ->
+      invalid_arg "Ssa_interp: decode does not match the cells"
+
+let write_cell st id encode ~at (value : v) =
+  match (cells st id, encode, value) with
+  | Ssa_memory.Floats a, Ssa_op.Encode.Bool_nonzero, F x ->
+      a.(at) <- (if x <> 0. then 1. else 0.)
+  | Ssa_memory.Floats a, Ssa_op.Encode.F32_round, F x ->
+      a.(at) <- Ssa_const.round_f32 x
+  | Ssa_memory.Int64s a, Ssa_op.Encode.I64, I x -> a.(at) <- x
+  | _ -> invalid_arg "Ssa_interp: encode does not match the cells"
+
+(* The coordinate lane [k] of a vector access names. *)
+let lane_coord (c : int64 Expr.Coord.t) (steps : int64 Expr.Coord.t) k =
+  Expr.Coord.mapi
+    (fun axis x ->
+      Int64.add x (Int64.mul (Int64.of_int k) (Expr.Coord.get steps axis)))
+    c
+
+(* A lane of a vector or mask operand, as the scalar value the operation lifted
+   to lanes reads. *)
+let lane_value st k x =
+  match get st x with
+  | V a -> Ssa_scalar.F a.(k)
+  | M a -> Ssa_scalar.P a.(k)
+  | E | F _ | I _ | L _ | P _ -> invalid_arg "Ssa_interp: a vector operand"
+
+let lanes_of (ty : Ssa_type.t) =
+  match ty with
+  | Ssa_type.Vec (_, l) | Ssa_type.Mask l -> Ssa_type.Lanes.to_int l
+  | Ssa_type.Effect | Ssa_type.Local | Ssa_type.Scalar _ ->
+      invalid_arg "Ssa_interp: not a vector type"
+
 let exec_op st (i : Ssa_instr.t) =
   let result =
     match i.Ssa_instr.results with
@@ -198,10 +262,11 @@ let exec_op st (i : Ssa_instr.t) =
     | F f -> Ssa_scalar.F f
     | I n -> Ssa_scalar.I n
     | P b -> Ssa_scalar.P b
-    | E | L _ -> invalid_arg "Ssa_interp: a scalar operand"
+    | E | L _ | M _ | V _ -> invalid_arg "Ssa_interp: a scalar operand"
   in
   match
-    Ssa_scalar.eval i.Ssa_instr.op ~result:result.Ssa_value.ty ~get:scalar
+    Ssa_scalar.eval ~fused:st.fused i.Ssa_instr.op ~result:result.Ssa_value.ty
+      ~get:scalar
   with
   | Some (Ssa_scalar.F f) -> put (F f)
   | Some (Ssa_scalar.I n) -> put (I n)
@@ -330,7 +395,7 @@ let exec_op st (i : Ssa_instr.t) =
           let y = int_of st a in
           put (checked_index st `Mul k y (Int64.mul k y))
       | Ssa_op.Load { buffer = id; at; decode }
-      | Ssa_op.Load_in_bounds { buffer = id; at; decode } -> (
+      | Ssa_op.Load_in_bounds { buffer = id; at; decode } ->
           let b = buffer st id in
           (* a load proved in bounds checks nothing: outside is a defect of the
          proof, as for a store *)
@@ -341,55 +406,124 @@ let exec_op st (i : Ssa_instr.t) =
           in
           let at = element st b at ~checked in
           st.counters.Counters.loads <- st.counters.Counters.loads + 1;
-          match (cells st id, decode) with
-          | ( Ssa_memory.Floats a,
-              ( Ssa_op.Decode.Bool_to_f64 | Ssa_op.Decode.F32_to_f64
-              | Ssa_op.Decode.F64_to_f64 ) ) ->
-              put (F a.(at))
-          | Ssa_memory.Int64s a, Ssa_op.Decode.I64 -> put (I a.(at))
-          | Ssa_memory.Int64s a, Ssa_op.Decode.I64_to_f64 ->
-              put (F (Int64.to_float a.(at)))
-          | Ssa_memory.Ints a, Ssa_op.Decode.F16_to_f64 ->
-              put (F (Ssa_half.f16_to_float a.(at)))
-          | Ssa_memory.Ints a, Ssa_op.Decode.Bf16_to_f64 ->
-              put (F (Ssa_half.bf16_to_float a.(at)))
-          | Ssa_memory.Ints a, Ssa_op.Decode.I32_to_f64 ->
-              put (F (float_of_int a.(at)))
-          | ( Ssa_memory.Ints a,
-              (Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I8_dequant) ) -> (
-              match Ssa_format.quant b.Ssa_buffer.format with
-              | Some q ->
-                  put
-                    (F
-                       (Ssa_format.dequantize q
-                          ~channel:(channel_of st i.Ssa_instr.op)
-                          ~cell:a.(at)))
-              | None ->
-                  invalid_arg "Ssa_interp: dequantizing an unquantized buffer")
-          | (Ssa_memory.Floats _ | Ssa_memory.Int64s _ | Ssa_memory.Ints _), _
-            ->
-              invalid_arg "Ssa_interp: decode does not match the cells")
+          put
+            (read_cell st id b decode ~at
+               ~channel:(channel_of st i.Ssa_instr.op))
+      | Ssa_op.Lanewise inner -> (
+          let n = lanes_of result.Ssa_value.ty in
+          let lane_ty =
+            match result.Ssa_value.ty with
+            | Ssa_type.Vec (s, _) -> Ssa_type.Scalar s
+            | _ -> Ssa_type.Scalar Ssa_type.Pred
+          in
+          let lane k =
+            match
+              Ssa_scalar.eval ~fused:st.fused inner ~result:lane_ty
+                ~get:(lane_value st k)
+            with
+            | Some v -> v
+            | None ->
+                invalid_arg "Ssa_interp: a lane-wise operation is not pure"
+          in
+          match result.Ssa_value.ty with
+          | Ssa_type.Vec _ ->
+              put
+                (V
+                   (Array.init n (fun k ->
+                        match lane k with
+                        | Ssa_scalar.F x -> x
+                        | Ssa_scalar.I _ | Ssa_scalar.P _ ->
+                            invalid_arg "Ssa_interp: a lane is not a float")))
+          | _ ->
+              put
+                (M
+                   (Array.init n (fun k ->
+                        match lane k with
+                        | Ssa_scalar.P b -> b
+                        | Ssa_scalar.F _ | Ssa_scalar.I _ ->
+                            invalid_arg "Ssa_interp: a lane is not a predicate")))
+          )
       | Ssa_op.Mark m -> Counters.count st.counters m
-      | Ssa_op.Store { buffer = id; at; encode; value } -> (
+      | Ssa_op.Mark_lanes { mark; lanes } ->
+          for _ = 1 to Ssa_type.Lanes.to_int lanes do
+            Counters.count st.counters mark
+          done
+      | Ssa_op.Vec_extract { lane; vector } -> (
+          let k = Ssa_type.Lane.to_int lane in
+          match get st vector with
+          | V a -> put (F a.(k))
+          | M a -> put (P a.(k))
+          | E | F _ | I _ | L _ | P _ -> invalid_arg "Ssa_interp: a vector")
+      | Ssa_op.Vec_insert { lane; vector; element } -> (
+          let k = Ssa_type.Lane.to_int lane in
+          match (get st vector, get st element) with
+          | V a, F x ->
+              let a = Array.copy a in
+              a.(k) <- x;
+              put (V a)
+          | M a, P x ->
+              let a = Array.copy a in
+              a.(k) <- x;
+              put (M a)
+          | _ -> invalid_arg "Ssa_interp: a vector insert")
+      | Ssa_op.Vec_iota { base; step; lanes } ->
+          let base = int_of st base in
+          put
+            (V
+               (Array.init (Ssa_type.Lanes.to_int lanes) (fun k ->
+                    Int64.to_float
+                      (Int64.add base (Int64.mul (Int64.of_int k) step)))))
+      | Ssa_op.Vec_splat { element; lanes } -> (
+          let n = Ssa_type.Lanes.to_int lanes in
+          match get st element with
+          | F x -> put (V (Array.make n x))
+          | P b -> put (M (Array.make n b))
+          | E | I _ | L _ | M _ | V _ -> invalid_arg "Ssa_interp: a splat")
+      | Ssa_op.Vec_load { buffer = id; at; steps; decode; lanes } ->
+          let b = buffer st id in
+          let n = Ssa_type.Lanes.to_int lanes in
+          let first = coord_of st at in
+          let cells =
+            Array.init n (fun k ->
+                let c = lane_coord first steps k in
+                let at = element_of_coord st b c ~checked:false in
+                st.counters.Counters.loads <- st.counters.Counters.loads + 1;
+                match
+                  read_cell st id b decode ~at
+                    ~channel:(Int64.to_int c.Expr.Coord.c)
+                with
+                | F x -> x
+                | E | I _ | L _ | M _ | P _ | V _ ->
+                    invalid_arg "Ssa_interp: a vector load of a non-float")
+          in
+          put (V cells)
+      | Ssa_op.Vec_store { buffer = id; at; steps; encode; value; lanes } -> (
+          let b = buffer st id in
+          let first = coord_of st at in
+          match get st value with
+          | V values ->
+              for k = 0 to Ssa_type.Lanes.to_int lanes - 1 do
+                let at =
+                  element_of_coord st b (lane_coord first steps k)
+                    ~checked:false
+                in
+                st.counters.Counters.stores <- st.counters.Counters.stores + 1;
+                write_cell st id encode ~at (F values.(k))
+              done
+          | E | F _ | I _ | L _ | M _ | P _ ->
+              invalid_arg "Ssa_interp: a vector store")
+      | Ssa_op.Store { buffer = id; at; encode; value } ->
           let b = buffer st id in
           let at = element st b at ~checked:false in
           st.counters.Counters.stores <- st.counters.Counters.stores + 1;
-          match (cells st id, encode) with
-          | Ssa_memory.Floats a, Ssa_op.Encode.Bool_nonzero ->
-              a.(at) <- (if float_of st value <> 0. then 1. else 0.)
-          | Ssa_memory.Floats a, Ssa_op.Encode.F32_round ->
-              a.(at) <- Ssa_const.round_f32 (float_of st value)
-          | Ssa_memory.Int64s a, Ssa_op.Encode.I64 -> a.(at) <- int_of st value
-          | (Ssa_memory.Floats _ | Ssa_memory.Int64s _ | Ssa_memory.Ints _), _
-            ->
-              invalid_arg "Ssa_interp: encode does not match the cells")
+          write_cell st id encode ~at (get st value)
       | Ssa_op.Const _ | Ssa_op.Convert _ | Ssa_op.Float_binary _
-      | Ssa_op.Float_compare _ | Ssa_op.Float_max _ | Ssa_op.Float_unary _
-      | Ssa_op.I64_arith _ | Ssa_op.I64_compare _ | Ssa_op.Index_ceil_div _
-      | Ssa_op.Index_clamp_low _ | Ssa_op.Index_compare _
-      | Ssa_op.Index_floor_div _ | Ssa_op.Index_max _ | Ssa_op.Index_min _
-      | Ssa_op.Pool_better _ | Ssa_op.Pred_not _ | Ssa_op.Pred_or _
-      | Ssa_op.Select _ ->
+      | Ssa_op.Float_compare _ | Ssa_op.Float_fma _ | Ssa_op.Float_max _
+      | Ssa_op.Float_unary _ | Ssa_op.I64_arith _ | Ssa_op.I64_compare _
+      | Ssa_op.Index_ceil_div _ | Ssa_op.Index_clamp_low _
+      | Ssa_op.Index_compare _ | Ssa_op.Index_floor_div _ | Ssa_op.Index_max _
+      | Ssa_op.Index_min _ | Ssa_op.Pool_better _ | Ssa_op.Pred_not _
+      | Ssa_op.Pred_or _ | Ssa_op.Select _ ->
           (* evaluated by [Ssa_scalar] above, which is total on them *)
           invalid_arg "Ssa_interp: a pure operation reached the effectful cases"
       )
@@ -432,7 +566,7 @@ and stmt st : Ssa_region.t Ssa_stmt.t -> unit = function
         | [] -> invalid_arg "Ssa_interp: sum without an induction value"
       in
       let narrow = if is_f32 seed then Ssa_const.round_f32 else Fun.id in
-      let acc = ref (float_of st seed) in
+      let acc = ref (get st seed) in
       let i = ref lo in
       while Int64.compare !i hi < 0 do
         set st iv (I !i);
@@ -441,14 +575,18 @@ and stmt st : Ssa_region.t Ssa_stmt.t -> unit = function
             if Ssa_type.equal p.Ssa_value.ty Ssa_type.Effect then set st p E)
           body.Ssa_region.params;
         region st body;
-        (match yields st body with
-        | F term :: _ -> acc := narrow (!acc +. term)
+        (match (yields st body, !acc) with
+        | F term :: _, F sum -> acc := F (narrow (sum +. term))
+        | V term :: _, V sum ->
+            (* each lane is its own left fold *)
+            acc := V (Array.mapi (fun k s -> narrow (s +. term.(k))) sum)
         | _ -> invalid_arg "Ssa_interp: a sum term is not a float");
         i := Int64.add !i 1L
       done;
-      List.iter2 (set st) results [ F !acc; E ]
+      List.iter2 (set st) results [ !acc; E ]
 
-let run ?(counters = Counters.create ()) (p : Ssa_program.t) ~memory =
+let run ?(counters = Counters.create ()) ?(fused = true) (p : Ssa_program.t)
+    ~memory =
   match Err.payload (Ssa_verify.check p) with
   | Error (`Invalid_program d) -> Err.fail (`Invalid_program d : error)
   | Ok () ->
@@ -461,6 +599,7 @@ let run ?(counters = Counters.create ()) (p : Ssa_program.t) ~memory =
               program = p;
               memory;
               counters;
+              fused;
               env = Array.make (p.Ssa_program.next_value :> int) E;
               meter = fresh_meter p.Ssa_program.scan_limits;
             }

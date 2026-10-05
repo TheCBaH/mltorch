@@ -62,17 +62,22 @@ let of_op (op : Ssa_op.t) =
       { empty with may_fail = true }
   | Ssa_op.Local_alloc _ | Ssa_op.Local_write _ -> { empty with locals = true }
   | Ssa_op.Local_read _ -> { empty with locals = true; may_fail = true }
-  | Ssa_op.Mark _ -> { empty with marks = true }
+  | Ssa_op.Mark _ | Ssa_op.Mark_lanes _ -> { empty with marks = true }
+  | Ssa_op.Vec_load { buffer; _ } -> read buffer ~fails:false
+  | Ssa_op.Vec_store { buffer; _ } ->
+      { empty with writes = Ssa_id.Buffer.Set.singleton buffer }
   | Ssa_op.Meter_charge | Ssa_op.Meter_reserve _ ->
       { empty with meter = true; may_fail = true }
   | Ssa_op.Meter_release _ | Ssa_op.Meter_reset -> { empty with meter = true }
   | Ssa_op.Const _ | Ssa_op.Convert _ | Ssa_op.Float_binary _
-  | Ssa_op.Float_compare _ | Ssa_op.Float_max _ | Ssa_op.Float_unary _
-  | Ssa_op.I64_arith _ | Ssa_op.I64_compare _ | Ssa_op.Index_add_in_domain _
-  | Ssa_op.Index_ceil_div _ | Ssa_op.Index_clamp_low _ | Ssa_op.Index_compare _
-  | Ssa_op.Index_floor_div _ | Ssa_op.Index_max _ | Ssa_op.Index_min _
-  | Ssa_op.Index_scale_in_domain _ | Ssa_op.Pool_better _ | Ssa_op.Pred_not _
-  | Ssa_op.Pred_or _ | Ssa_op.Select _ ->
+  | Ssa_op.Float_compare _ | Ssa_op.Float_fma _ | Ssa_op.Float_max _
+  | Ssa_op.Float_unary _ | Ssa_op.I64_arith _ | Ssa_op.I64_compare _
+  | Ssa_op.Index_add_in_domain _ | Ssa_op.Index_ceil_div _
+  | Ssa_op.Index_clamp_low _ | Ssa_op.Index_compare _ | Ssa_op.Index_floor_div _
+  | Ssa_op.Index_max _ | Ssa_op.Index_min _ | Ssa_op.Index_scale_in_domain _
+  | Ssa_op.Lanewise _ | Ssa_op.Pool_better _ | Ssa_op.Pred_not _
+  | Ssa_op.Pred_or _ | Ssa_op.Select _ | Ssa_op.Vec_extract _
+  | Ssa_op.Vec_insert _ | Ssa_op.Vec_iota _ | Ssa_op.Vec_splat _ ->
       empty
 
 let rec of_stmt : Ssa_region.t Ssa_stmt.t -> summary = function

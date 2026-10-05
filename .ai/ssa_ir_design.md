@@ -156,6 +156,96 @@ its own name becomes its interface and hides its siblings (the lowering is
   `Ssa_clone` copies statements with fresh definitions and regions. A strided
   loop projects to the Loop IR as a trip counter with the induction value
   reconstructed from it.
+- **Vectors** (`Vec`, `Mask`, `Ssa_type.Lanes`; at most 64 logical lanes, a width
+  and never a register). A vector holds binary32 or binary64 lanes, a mask holds
+  predicates; no int64 vector exists. Every pure float or predicate operation of
+  the scalar surface lifts through one constructor, `Lanewise`, whose typing
+  scalarizes the operands and applies the scalar rule, and whose interpreter
+  evaluates each lane through the scalar function: lane semantics cannot drift
+  from scalar semantics. `Vec_splat`, `Vec_iota` (lane `k` is the binary64 value
+  of `base + k * step`, in int64), `Vec_extract` and `Vec_insert` are the only
+  other pure vector operations. `Vec_load`/`Vec_store` address lane `k` at
+  `at + k * steps` per axis, read or write every lane, and are accepted only where
+  the range analysis proves every lane inside the buffer, so a mask can never
+  hide a lane that would have failed: there is no masked memory operation.
+  `Mark_lanes` counts what a vector iteration stands for, and an `Ordered_sum`
+  or a loop may carry a vector, each lane its own left fold. `Ssa_vec_expand`
+  rewrites a vector program into scalar lanes from the program alone (a memory
+  operation becomes one access per lane with the proofs the vector one carried),
+  which is the independent reference every vector result is checked against. The
+  Loop converter refuses a vector operation: expand first.
+- **Numerical policy and precision.** `Ssa_numerics` restates the three presets
+  (`Reference_f64`, `Simd_fp32_ordered`, `Simd_fp32_relaxed`), their permissions
+  and identities, the backends that accept them, and the admission rule (a
+  dequantizing read has no binary32 decode), because this library sees no Loop
+  type; the bridge suite checks every name, identity, target price and binary32
+  helper against the Loop planner's. `Ssa_precision.to_f32` makes binary32
+  explicit before vectorization: a read is narrowed once, a constant rounded
+  once, an int64 or index converted in one rounding, a store or checked
+  conversion widens first (exact), a scratch cell widens on write and narrows on
+  read. Binary32 operations round once in the interpreter, `Float_unary` on a
+  binary32 operand is the binary64 function rounded once (`erf` is `erf32`) and
+  `Float_fma` is `fmaf`. The binary32 sweep (every walked plan against the Loop
+  interpreter at binary32) agrees bitwise.
+- **Targets.** `Ssa_target` is the Loop target description as data: legality
+  (native or expanded per operation) kept apart from cost, per precision, with
+  the logical width a `Lanes` value; `forced` zeroes every price so a test takes
+  every legal loop.
+- **Vectorization** (`Ssa_vectorize`, in the pipeline after hoisting and before
+  scalar blocking when a target is given). A loop whose iterations are
+  independent outputs, with the loops inside it, becomes full vector iterations
+  plus the original loop as the remainder. Every value the body defines is
+  classified uniform, affine in the induction value with a literal stride, or a
+  vector; an access is a base coordinate and a step per axis; a carried value
+  becomes a vector when anything feeding it is one, found by a fixed point.
+  Refused, each with its reason named: a branch, an operation that can fail, a
+  scratch or meter operation, a varying int64, a non-affine index, a varying
+  inner bound, a store every lane would write, a loop that carries values, a
+  buffer the loop writes and reads at different coordinates, an unproved
+  overlap of buffers (unless the caller states them distinct), too few trips,
+  and a body the target prices out. The vector program is checked against the
+  reference, the scalar program and its scalar-lane expansion, and the sweep
+  runs it for the cost model's target and for every legal loop.
+- **Scheduled sums** (`Ssa_vector_sum`, relaxed policy only). A sum no enclosing
+  loop's lanes took is rewritten along its own axis. The schedule is a
+  definition, not an accident of the code: the terms split into `parts` lanes of
+  `rounds` terms each, plus `extra` leftover terms; each lane folds its terms in
+  order, the lanes combine by adjacent-pair trees, and the result is the seed plus
+  (horizontal total plus the tail folded in order). The oracle evaluates exactly
+  this definition scalar by scalar, so a regrouping error shows as a bitwise
+  mismatch rather than a tolerance miss.
+- **Contraction** (`Ssa_opt_contract`, relaxed policy, targets with a fused
+  operation). `a + x * y` becomes one `Float_fma` with the product on the right
+  taken first; a scalar flag selects scalar contraction for targets whose fused
+  form is only scalar. `Float_fma` is a single rounding in the interpreter
+  (`fma32` at binary32, `Float.fma` at binary64); `?fused:false` gives the
+  unfused reading (round the product, then the sum) for a target whose
+  multiply-add may or may not fuse, so `wasm128_relaxed` is accepted only where
+  the result matches under the fused reading. `Float_fma` has no Loop form: the
+  Loop converter refuses it, and a planned program runs through `Ssa_exec`.
+- **The planner** (`Ssa_plan.resolve ?target ?alias ~numerics`). Binary32 is
+  chosen only when the target vectorizes at least one loop or schedules a sum
+  and admission passes; otherwise the plan stays binary64 and says why
+  (`refusal`). Contraction runs before sum scheduling, otherwise it would fuse
+  the scheduler's own accumulate and break the schedule definition. The plan
+  records the precision, the program, the vectorized and scheduled counts and the
+  contracted count, and `Ssa_plan.oracle` is the independent evaluation.
+  `Ssa_check.run_planned` compares the plan with its own oracle bitwise, then,
+  for an ordered policy, with the Loop binary32 interpreter, and for a relaxed
+  one with the binary64 reference within 1e-4.
+- **Row blocking** (`Ssa_opt_rows`, after vectorization, factor `Ssa_target.row_block`).
+  A loop over rows around a vector loop that holds one ordered sum and its stores
+  runs a block of rows per iteration: the rows' sums share one loop with an
+  accumulator per row (the jam of `Ssa_opt_block`), so a load the rows share is
+  issued once and their dependent add chains interleave. Each output cell does
+  the same operations in the same order, so the result is bitwise the unblocked
+  program's under every policy; the rows left over run as the original loop.
+  Legality is the independent-output test on the row index: the vector loop
+  cannot fail, touches no meter or scratch, reads nothing it may write, its
+  and the sum's bounds do not vary with the row, every store's coordinates are
+  the row index itself or independent of it. A vector loop with a remainder
+  loop beside it, and a scalar column loop (the column blocking's), are left
+  alone.
 - Evidence beyond mutations: the op sweep through the optimizer has no
   disagreement, no change of logical work and no extra read; hand-built failing
   programs keep exactly the checks that report their failure; the optimized

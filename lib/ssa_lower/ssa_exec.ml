@@ -76,7 +76,7 @@ let tensor_of (b : Ssa_buffer.t) cells =
       Tensor.materialize_i64 shape (fun c -> a.(at c))
   | _ -> invalid_arg "Ssa_exec: cells do not match the buffer format"
 
-let run ?counters (plan : Fusion_plan.t) (p : Ssa_program.t) ~bind =
+let run ?counters ?fused (plan : Fusion_plan.t) (p : Ssa_program.t) ~bind =
   Err.Escape.with_escape @@ fun esc ->
   (* The reference validates every bound input first, in input order, used or
      not, so a failure there is reported before any evaluation. *)
@@ -112,7 +112,7 @@ let run ?counters (plan : Fusion_plan.t) (p : Ssa_program.t) ~bind =
   Err.Escape.or_throw esc
     (Err.map_error
        (fun (e : Ssa_interp.error) -> (e :> error))
-       (Ssa_interp.run ?counters p ~memory));
+       (Ssa_interp.run ?counters ?fused p ~memory));
   List.fold_left
     (fun acc (b : Ssa_buffer.t) ->
       match b.Ssa_buffer.role with

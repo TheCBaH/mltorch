@@ -34,23 +34,38 @@ let in_index_domain x =
 
 let round_f32 x = Int32.float_of_bits (Int32.bits_of_float x)
 
-(* Binary32 of an int64 with a single rounding. Above 2^53 a binary64 conversion
-   would already round once: the magnitude's low 11 bits fold into a sticky bit
-   instead, which leaves the 53-bit value exact and keeps every rounding decision
-   binary32 needs. *)
+(* Binary32 of an int64 with a single rounding, ties to even, from the integer
+   alone: the magnitude's top 24 bits, then the discarded bits against a half.
+   Above 2^53 a binary64 conversion would already round once; nothing here
+   converts to a float until the value fits in 24 bits. *)
 let round32_of_i64 n =
-  let neg = Int64.compare n 0L < 0 in
-  let mag = if neg then Int64.neg n else n in
-  let v =
-    if Int64.equal (Int64.shift_right_logical mag 53) 0L then Int64.to_float mag
-    else
-      let sticky =
-        if Int64.equal (Int64.logand mag 0x7FFL) 0L then 0L else 1L
-      in
-      let high = Int64.logor (Int64.shift_right_logical mag 11) sticky in
-      Int64.to_float high *. 2048.
-  in
-  round_f32 (if neg then -.v else v)
+  if Int64.equal n 0L then 0.
+  else
+    let neg = Int64.compare n 0L < 0 in
+    (* min_int's magnitude is 2^63, a power of two, exact as unsigned *)
+    let mag = if neg then Int64.neg n else n in
+    let bits = ref 0 in
+    (let m = ref mag in
+     while not (Int64.equal !m 0L) do
+       incr bits;
+       m := Int64.shift_right_logical !m 1
+     done);
+    let value =
+      if !bits <= 24 then Int64.to_float mag
+      else
+        let drop = !bits - 24 in
+        let q = Int64.shift_right_logical mag drop in
+        let rem = Int64.logand mag (Int64.pred (Int64.shift_left 1L drop)) in
+        let half = Int64.shift_left 1L (drop - 1) in
+        let c = Int64.unsigned_compare rem half in
+        let q =
+          if c > 0 || (c = 0 && Int64.equal (Int64.logand q 1L) 1L) then
+            Int64.succ q
+          else q
+        in
+        Int64.to_float q *. Float.pow 2. (float_of_int drop)
+    in
+    if neg then -.value else value
 
 let pp fmt = function
   | F32 x -> Fmt.pf fmt "%h:f32" x

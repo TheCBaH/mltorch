@@ -29,8 +29,8 @@ let is_f32 (ty : Ssa_type.t) = Ssa_type.equal ty (Ssa_type.Scalar Ssa_type.F32)
 
 (* [get] reads an operand's value; [result] is the type of the operation's
    result. [None] for an operation that is not pure and total. *)
-let eval (op : Ssa_op.t) ~(result : Ssa_type.t) ~(get : Ssa_value.t -> t) :
-    t option =
+let eval ?(fused = true) (op : Ssa_op.t) ~(result : Ssa_type.t)
+    ~(get : Ssa_value.t -> t) : t option =
   let float a =
     match get a with F x -> x | I _ | P _ -> invalid_arg "Ssa_scalar: float"
   in
@@ -68,7 +68,29 @@ let eval (op : Ssa_op.t) ~(result : Ssa_type.t) ~(get : Ssa_value.t -> t) :
       let x = float a in
       let y = float b in
       Some (F (Expr.Max_op.apply Expr.Max_op.Float_max x y))
-  | Ssa_op.Float_unary (op, a) -> Some (F (Expr.Value.apply_unary op (float a)))
+  | Ssa_op.Float_fma (a, b, c) ->
+      let x = float a in
+      let y = float b in
+      let z = float c in
+      Some
+        (F
+           (match (is_f32 result, fused) with
+           | true, true -> Ssa_numerics.fma32 x y z
+           | true, false ->
+               Ssa_const.round_f32 (Ssa_const.round_f32 (x *. y) +. z)
+           | false, true -> Float.fma x y z
+           | false, false -> (x *. y) +. z))
+  | Ssa_op.Float_unary (op, a) ->
+      let x = float a in
+      Some
+        (F
+           (if not (is_f32 result) then Expr.Value.apply_unary op x
+            else
+              match op with
+              | Expr.Value.Erf -> Ssa_numerics.erf32 x
+              | Expr.Value.Cos | Expr.Value.Exp | Expr.Value.Log
+              | Expr.Value.Sin | Expr.Value.Sqrt | Expr.Value.Trunc ->
+                  Ssa_const.round_f32 (Expr.Value.apply_unary op x)))
   | Ssa_op.I64_arith (op, a, b) ->
       let x = int a in
       let y = int b in
@@ -112,7 +134,9 @@ let eval (op : Ssa_op.t) ~(result : Ssa_type.t) ~(get : Ssa_value.t -> t) :
   | Ssa_op.Index_add _ | Ssa_op.Index_add_in_domain _ | Ssa_op.Index_of_i64 _
   | Ssa_op.Index_scale _ | Ssa_op.Index_scale_in_domain _ | Ssa_op.Load _
   | Ssa_op.Load_in_bounds _ | Ssa_op.Local_alloc _ | Ssa_op.Local_read _
-  | Ssa_op.Local_write _ | Ssa_op.Mark _ | Ssa_op.Meter_charge
-  | Ssa_op.Meter_release _ | Ssa_op.Meter_reserve _ | Ssa_op.Meter_reset
-  | Ssa_op.Store _ ->
+  | Ssa_op.Lanewise _ | Ssa_op.Local_write _ | Ssa_op.Mark _
+  | Ssa_op.Mark_lanes _ | Ssa_op.Meter_charge | Ssa_op.Meter_release _
+  | Ssa_op.Meter_reserve _ | Ssa_op.Meter_reset | Ssa_op.Store _
+  | Ssa_op.Vec_extract _ | Ssa_op.Vec_insert _ | Ssa_op.Vec_iota _
+  | Ssa_op.Vec_load _ | Ssa_op.Vec_splat _ | Ssa_op.Vec_store _ ->
       None

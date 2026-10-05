@@ -267,6 +267,16 @@ val as_index : Ssa_value.t -> Ssa_type.index value
 val as_pred : Ssa_value.t -> Ssa_type.pred value
 val as_local : Ssa_value.t -> Ssa_type.local value
 
+val ordered_sum_dyn :
+  t ->
+  lo:Ssa_type.index value ->
+  hi:Ssa_type.index value ->
+  seed:Ssa_value.t ->
+  (t -> Ssa_type.index value -> Ssa_value.t) ->
+  Ssa_value.t
+(** [ordered_sum] for a seed of any float or vector-of-float type: the term the
+    body returns must have the seed's type. *)
+
 val ordered_sum :
   t ->
   lo:Ssa_type.index value ->
@@ -275,3 +285,49 @@ val ordered_sum :
   (t -> Ssa_type.index value -> Ssa_type.f64 value) ->
   Ssa_type.f64 value
 (** The left fold of the terms the body returns, from [seed]. *)
+
+(** {1 Vectors}
+
+    Untyped, like the dynamic control flow: the types of the operands are
+    checked by {!Ssa_typing} when the operation is built, and a violation raises
+    [Invalid_argument]. A vector memory operation is valid only where the range
+    analysis proves every lane in bounds, which the verifier checks when the
+    program is finished. *)
+
+val lanewise : t -> Ssa_op.t -> Ssa_value.t
+(** A pure float or predicate operation applied to every lane of its vector
+    operands. *)
+
+val mark_lanes : t -> Ssa_mark.t -> lanes:Ssa_type.Lanes.t -> unit
+val vec_extract : t -> lane:Ssa_type.Lane.t -> Ssa_value.t -> Ssa_value.t
+
+val vec_insert :
+  t -> lane:Ssa_type.Lane.t -> Ssa_value.t -> Ssa_value.t -> Ssa_value.t
+
+val vec_iota :
+  t ->
+  lanes:Ssa_type.Lanes.t ->
+  step:int64 ->
+  Ssa_type.index value ->
+  Ssa_value.t
+
+val vec_splat : t -> lanes:Ssa_type.Lanes.t -> Ssa_value.t -> Ssa_value.t
+
+val vec_load :
+  t ->
+  Ssa_id.Buffer.t ->
+  decode:Ssa_op.Decode.t ->
+  lanes:Ssa_type.Lanes.t ->
+  steps:int64 Expr.Coord.t ->
+  Ssa_value.t Expr.Coord.t ->
+  Ssa_value.t
+
+val vec_store :
+  t ->
+  Ssa_id.Buffer.t ->
+  encode:Ssa_op.Encode.t ->
+  lanes:Ssa_type.Lanes.t ->
+  steps:int64 Expr.Coord.t ->
+  Ssa_value.t Expr.Coord.t ->
+  Ssa_value.t ->
+  unit

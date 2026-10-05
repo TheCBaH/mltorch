@@ -43,6 +43,8 @@ let record t (verdict : Ssa_check.verdict) =
   | Ssa_check.Disagree d ->
       t.disagreements <-
         Fmt.str "%a" Ssa_check.Disagreement.pp d :: t.disagreements
+  | Ssa_check.Not_admitted _ ->
+      invalid_arg "a binary64 run is never refused by binary32 admission"
   | Ssa_check.Refused u ->
       let name =
         Ssa_lower.Ssa_unsupported.construct_name
