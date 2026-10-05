@@ -14,6 +14,11 @@ type facts = {
   mutable vector_loops : int;
   mutable sums : int;
   mutable fused : int;
+  mutable same_precision : int;
+  mutable same_loops : int;
+  mutable more_loops : int;
+  mutable fewer_loops : int;
+  mutable same_blocked : int;
 }
 
 let facts : (string, facts) Hashtbl.t = Hashtbl.create 8
@@ -22,7 +27,20 @@ let facts_of config =
   match Hashtbl.find_opt facts config with
   | Some f -> f
   | None ->
-      let f = { plans = 0; f32 = 0; vector_loops = 0; sums = 0; fused = 0 } in
+      let f =
+        {
+          plans = 0;
+          f32 = 0;
+          vector_loops = 0;
+          sums = 0;
+          fused = 0;
+          same_precision = 0;
+          same_loops = 0;
+          more_loops = 0;
+          fewer_loops = 0;
+          same_blocked = 0;
+        }
+      in
       Hashtbl.add facts config f;
       f
 
@@ -53,6 +71,17 @@ let check ~config ~numerics ~target plan ~bind =
                  | Ssa_vector_sum.Decision.Kept_sequential _ -> false)
                r.Ssa_plan.sums);
       f.fused <- f.fused + r.Ssa_plan.contracted);
+  (match Ssa_check.compare_plans ~numerics ~target plan with
+  | None -> ()
+  | Some c ->
+      let f = facts_of config in
+      let open Ssa_check.Plan_comparison in
+      if c.ssa_f32 = c.loop_f32 then f.same_precision <- f.same_precision + 1;
+      if c.ssa_loops = c.loop_loops then f.same_loops <- f.same_loops + 1
+      else if c.ssa_loops > c.loop_loops then f.more_loops <- f.more_loops + 1
+      else f.fewer_loops <- f.fewer_loops + 1;
+      if c.ssa_blocked = c.loop_blocked then
+        f.same_blocked <- f.same_blocked + 1);
   verdict
 
 let sweep ~config ~numerics ~target ~shard =
@@ -66,4 +95,8 @@ let report ~config =
   Fmt.pr
     "  plans=%d binary32=%d vector-loops=%d scheduled-sums=%d \
      fused-multiply-adds=%d@."
-    f.plans f.f32 f.vector_loops f.sums f.fused
+    f.plans f.f32 f.vector_loops f.sums f.fused;
+  Fmt.pr
+    "  against the Loop plan: same-precision=%d same-vector-loops=%d \
+     more-vector-loops=%d fewer-vector-loops=%d same-blocked-rows=%d@."
+    f.same_precision f.same_loops f.more_loops f.fewer_loops f.same_blocked

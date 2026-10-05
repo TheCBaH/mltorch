@@ -75,6 +75,30 @@ val run_planned :
     sum is not bitwise anything else). The resolved plan is returned so a caller
     can say what was planned; [None] for a kernel lowering refuses. *)
 
+module Plan_comparison : sig
+  type t = {
+    ssa_f32 : bool;  (** the SSA plan runs in binary32 *)
+    loop_f32 : bool;  (** the Loop plan does *)
+    ssa_loops : int;  (** vector loops the SSA plan holds *)
+    loop_loops : int;
+    ssa_blocked : int;  (** row loops blocked *)
+    loop_blocked : int;
+  }
+end
+
+val compare_plans :
+  ?alias:Ssa_ir.Ssa_effects.policy ->
+  numerics:Ssa_ir.Ssa_numerics.t ->
+  target:Ssa_ir.Ssa_target.t ->
+  Fusion_plan.t ->
+  Plan_comparison.t option
+(** The decisions the SSA planner and the Loop planner make for the same kernel,
+    target and policy, side by side. They are two implementations of one
+    planning contract, so a disagreement is either a legitimate difference in
+    what each analysis can prove or a defect in one of them; the comparison does
+    not say which. [None] if either refuses to lower the kernel or no Loop
+    target has the SSA target's name. *)
+
 type marks = {
   emitters : int;
   keys : int;

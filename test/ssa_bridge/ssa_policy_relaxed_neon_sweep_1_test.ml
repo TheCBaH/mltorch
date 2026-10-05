@@ -24,4 +24,5 @@ let%expect_test "policy sweep (relaxed_neon), slice 1 of 4" =
     sqrt                         agree=12 failed-alike=0
     to_copy_bool                 agree=12 failed-alike=0
     upsample_bilinear2d          agree=12 failed-alike=0
-      plans=216 binary32=24 vector-loops=46 scheduled-sums=0 fused-multiply-adds=8 |}]
+      plans=216 binary32=24 vector-loops=46 scheduled-sums=0 fused-multiply-adds=8
+      against the Loop plan: same-precision=132 same-vector-loops=140 more-vector-loops=0 fewer-vector-loops=76 same-blocked-rows=212 |}]

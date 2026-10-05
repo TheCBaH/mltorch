@@ -24,4 +24,5 @@ let%expect_test "policy sweep (ordered_wasm), slice 3 of 4" =
     to_copy_long                 agree=12 failed-alike=0
     unbind                       agree=12 failed-alike=0
     vector_norm                  agree=12 failed-alike=0
-      plans=216 binary32=6 vector-loops=116 scheduled-sums=0 fused-multiply-adds=0 |}]
+      plans=216 binary32=6 vector-loops=116 scheduled-sums=0 fused-multiply-adds=0
+      against the Loop plan: same-precision=106 same-vector-loops=120 more-vector-loops=0 fewer-vector-loops=96 same-blocked-rows=216 |}]

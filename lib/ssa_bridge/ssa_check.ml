@@ -205,6 +205,67 @@ let run_planned ?(alias = Ssa_effects.Distinct_buffers) ~numerics ~target
       in
       (verdict, Some resolved)
 
+module Plan_comparison = struct
+  type t = {
+    ssa_f32 : bool;
+    loop_f32 : bool;
+    ssa_loops : int;
+    loop_loops : int;
+    ssa_blocked : int;
+    loop_blocked : int;
+  }
+end
+
+let compare_plans ?(alias = Ssa_effects.Distinct_buffers) ~numerics ~target
+    (plan : Fusion_plan.t) =
+  let loop_target =
+    List.find_opt
+      (fun (t : Loop_ir.Loop_target.t) ->
+        String.equal t.Loop_ir.Loop_target.name target.Ssa_target.name)
+      Loop_ir.Loop_target.all
+  and loop_numerics =
+    List.find_opt
+      (fun n ->
+        String.equal (Loop_ir.Loop_numerics.name n) (Ssa_numerics.name numerics))
+      Loop_ir.Loop_numerics.all
+  in
+  match
+    ( Err.payload (Ssa_lower.Ssa_lower_plan.lower plan),
+      Err.payload (Loop_ir.Loop_lower.lower plan),
+      loop_target,
+      loop_numerics )
+  with
+  | Ok ssa, Ok loop, Some loop_target, Some loop_numerics ->
+      let s = Ssa_plan.resolve ~target ~alias ~numerics ssa in
+      let l =
+        Loop_ir.Loop_plan.resolve ~target:loop_target ~numerics:loop_numerics
+          loop
+      in
+      Some
+        {
+          Plan_comparison.ssa_f32 =
+            s.Ssa_plan.precision = Ssa_numerics.Precision.F32;
+          loop_f32 =
+            l.Loop_ir.Loop_plan.precision = Loop_ir.Loop_numerics.Precision.F32;
+          ssa_loops =
+            List.length
+              (List.filter
+                 (fun (d : Ssa_vectorize.Decision.t) ->
+                   d.Ssa_vectorize.Decision.outcome
+                   = Ssa_vectorize.Decision.Vectorized)
+                 s.Ssa_plan.vectorized);
+          loop_loops =
+            List.length
+              (List.filter
+                 (fun (d : Loop_ir.Loop_vectorize.Decision.t) ->
+                   d.Loop_ir.Loop_vectorize.Decision.outcome
+                   = Loop_ir.Loop_vectorize.Decision.Vectorized)
+                 l.Loop_ir.Loop_plan.report);
+          ssa_blocked = s.Ssa_plan.blocked;
+          loop_blocked = l.Loop_ir.Loop_plan.blocked;
+        }
+  | _ -> None
+
 type marks = {
   emitters : int;
   keys : int;
