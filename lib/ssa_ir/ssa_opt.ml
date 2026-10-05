@@ -8,16 +8,34 @@ let share ~alias = { name = "share"; run = Ssa_opt_share.pass ~alias }
 let block ~alias ~group =
   { name = "block"; run = Ssa_opt_block.pass ~policy:alias ~group }
 
-let pipeline ~alias =
-  [
-    simplify;
-    guards;
-    simplify;
-    hoist ~alias;
-    block ~alias ~group:Ssa_opt_block.Auto;
-    share ~alias;
-    simplify;
-  ]
+let vectorize ~alias ~target =
+  {
+    name = "vectorize";
+    run =
+      (fun p ->
+        let q, report = Ssa_vectorize.program ~alias ~target p in
+        let changed =
+          List.exists
+            (fun (d : Ssa_vectorize.Decision.t) ->
+              d.Ssa_vectorize.Decision.outcome
+              = Ssa_vectorize.Decision.Vectorized)
+            report
+        in
+        ((if changed then q else p), changed));
+  }
+
+let pipeline ?target ~alias () =
+  [ simplify; guards; simplify; hoist ~alias ]
+  @ (match target with
+    | Some target ->
+        (* the splats the vectorizer made are loop invariant *)
+        [
+          vectorize ~alias ~target;
+          block ~alias ~group:Ssa_opt_block.Auto;
+          hoist ~alias;
+        ]
+    | None -> [ block ~alias ~group:Ssa_opt_block.Auto ])
+  @ [ share ~alias; simplify ]
 
 type report = (string * int) list
 
@@ -29,8 +47,11 @@ let verified ~after (p : Ssa_program.t) =
         (Fmt.str "Ssa_opt: %s returned a program that does not verify: %a" after
            Ssa_verify.pp_error e)
 
-let run ?(alias = Ssa_effects.Conservative) ?passes (p : Ssa_program.t) =
-  let passes = match passes with Some ps -> ps | None -> pipeline ~alias in
+let run ?(alias = Ssa_effects.Conservative) ?target ?passes (p : Ssa_program.t)
+    =
+  let passes =
+    match passes with Some ps -> ps | None -> pipeline ?target ~alias ()
+  in
   let counts = Hashtbl.create 8 in
   let rec rounds p n =
     let p, changed =

@@ -142,6 +142,10 @@ type t =
   | Convert of Convert.t * Ssa_value.t
   | Float_binary of Expr.Value.binary_op * Ssa_value.t * Ssa_value.t
   | Float_compare of Compare.t * Ssa_value.t * Ssa_value.t
+  | Float_fma of Ssa_value.t * Ssa_value.t * Ssa_value.t
+      (** [a * b + c] with one rounding, at the operands' type: binary64
+          [Float.fma], binary32 [fmaf] (see {!Ssa_numerics.fma32}). Only a plan
+          whose numerical policy permits contraction contains one. *)
   | Float_max of Ssa_value.t * Ssa_value.t
       (** [Expr.Max_op.Float_max]: [Float.max], with its NaN and signed-zero
           behavior. *)
@@ -267,12 +271,12 @@ type t =
    like a scalar expression: they sequence on the effect chain. *)
 let rec effectful = function
   | Lanewise op -> effectful op
-  | Const _ | Convert _ | Float_binary _ | Float_compare _ | Float_max _
-  | Float_unary _ | I64_arith _ | I64_compare _ | Index_add_in_domain _
-  | Index_ceil_div _ | Index_clamp_low _ | Index_compare _ | Index_floor_div _
-  | Index_max _ | Index_min _ | Index_scale_in_domain _ | Pool_better _
-  | Pred_not _ | Pred_or _ | Select _ | Vec_extract _ | Vec_insert _
-  | Vec_iota _ | Vec_splat _ ->
+  | Const _ | Convert _ | Float_binary _ | Float_compare _ | Float_fma _
+  | Float_max _ | Float_unary _ | I64_arith _ | I64_compare _
+  | Index_add_in_domain _ | Index_ceil_div _ | Index_clamp_low _
+  | Index_compare _ | Index_floor_div _ | Index_max _ | Index_min _
+  | Index_scale_in_domain _ | Pool_better _ | Pred_not _ | Pred_or _ | Select _
+  | Vec_extract _ | Vec_insert _ | Vec_iota _ | Vec_splat _ ->
       false
   | Check_access _ | Check_gather _ | Check_local _ | Check_scan _
   | Float_to_i64 _ | I64_div _ | Index_add _ | Index_of_i64 _ | Index_scale _
@@ -320,6 +324,7 @@ let rec operands = function
   | Local_write { local; at; value } -> [ local; at; value ]
   | Select (p, a, b) -> [ p; a; b ]
   | Store { at; value; _ } -> Ssa_access.operands at @ [ value ]
+  | Float_fma (a, b, c) -> [ a; b; c ]
   | Vec_extract { vector; _ } -> [ vector ]
   | Vec_insert { vector; element; _ } -> [ vector; element ]
   | Vec_iota { base; _ } -> [ base ]
@@ -358,6 +363,11 @@ let rec map_operands f = function
       let a = f a in
       let b = f b in
       Float_compare (c, a, b)
+  | Float_fma (a, b, c) ->
+      let a = f a in
+      let b = f b in
+      let c = f c in
+      Float_fma (a, b, c)
   | Float_max (a, b) ->
       let a = f a in
       let b = f b in
@@ -461,6 +471,7 @@ let rec name = function
   | Convert (c, _) -> "convert." ^ Convert.name c
   | Float_binary (op, _, _) -> "float." ^ binary_name op
   | Float_compare (c, _, _) -> "float.compare." ^ Compare.name c
+  | Float_fma _ -> "float.fma"
   | Float_max _ -> "float.max"
   | Float_to_i64 _ -> "float.to_i64"
   | Float_unary (op, _) -> "float." ^ unary_name op

@@ -25,6 +25,9 @@ type verdict =
   | Agree_on_failure of string
       (** Both executors failed, with the same kind and payload. *)
   | Disagree of Disagreement.t
+  | Not_admitted of Ssa_ir.Ssa_numerics.Refusal.t
+      (** binary32 execution was asked for and the plan's payloads have no
+          binary32 decode *)
   | Refused of Ssa_lower.Ssa_unsupported.t
 
 val pp_verdict : Format.formatter -> verdict -> unit
@@ -44,6 +47,17 @@ val run :
     interpreter over the lowered program after [prepare] (the identity by
     default): a pass or a pipeline under test is checked against the reference
     exactly as the lowering is. *)
+
+val run_f32 :
+  ?prepare:(Ssa_ir.Ssa_program.t -> Ssa_ir.Ssa_program.t) ->
+  Fusion_plan.t ->
+  bind:(Tensor_id.t -> Tensor.packed option) ->
+  verdict
+(** The binary32 reading of a plan: the lowered program after
+    {!Ssa_ir.Ssa_precision.to_f32} and [prepare], against the Loop interpreter
+    run at binary32, which is the binary32 oracle of a scalar kernel. A plan
+    {!Ssa_ir.Ssa_numerics.admit} refuses is {!Not_admitted}, never a
+    disagreement. *)
 
 type marks = {
   emitters : int;

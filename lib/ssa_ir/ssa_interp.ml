@@ -515,12 +515,12 @@ let exec_op st (i : Ssa_instr.t) =
           st.counters.Counters.stores <- st.counters.Counters.stores + 1;
           write_cell st id encode ~at (get st value)
       | Ssa_op.Const _ | Ssa_op.Convert _ | Ssa_op.Float_binary _
-      | Ssa_op.Float_compare _ | Ssa_op.Float_max _ | Ssa_op.Float_unary _
-      | Ssa_op.I64_arith _ | Ssa_op.I64_compare _ | Ssa_op.Index_ceil_div _
-      | Ssa_op.Index_clamp_low _ | Ssa_op.Index_compare _
-      | Ssa_op.Index_floor_div _ | Ssa_op.Index_max _ | Ssa_op.Index_min _
-      | Ssa_op.Pool_better _ | Ssa_op.Pred_not _ | Ssa_op.Pred_or _
-      | Ssa_op.Select _ ->
+      | Ssa_op.Float_compare _ | Ssa_op.Float_fma _ | Ssa_op.Float_max _
+      | Ssa_op.Float_unary _ | Ssa_op.I64_arith _ | Ssa_op.I64_compare _
+      | Ssa_op.Index_ceil_div _ | Ssa_op.Index_clamp_low _
+      | Ssa_op.Index_compare _ | Ssa_op.Index_floor_div _ | Ssa_op.Index_max _
+      | Ssa_op.Index_min _ | Ssa_op.Pool_better _ | Ssa_op.Pred_not _
+      | Ssa_op.Pred_or _ | Ssa_op.Select _ ->
           (* evaluated by [Ssa_scalar] above, which is total on them *)
           invalid_arg "Ssa_interp: a pure operation reached the effectful cases"
       )

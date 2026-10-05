@@ -237,15 +237,16 @@ let instr ctx scope ~live (i : Ssa_instr.t) =
   | Ssa_op.Index_scale_in_domain _ | Ssa_op.Local_alloc _ | Ssa_op.Local_read _
   | Ssa_op.Local_write _ | Ssa_op.Meter_charge | Ssa_op.Meter_release _
   | Ssa_op.Meter_reserve _ | Ssa_op.Meter_reset | Ssa_op.Float_binary _
-  | Ssa_op.Float_compare _ | Ssa_op.Float_max _ | Ssa_op.Float_to_i64 _
-  | Ssa_op.Float_unary _ | Ssa_op.I64_arith _ | Ssa_op.I64_compare _
-  | Ssa_op.I64_div _ | Ssa_op.Index_add _ | Ssa_op.Index_of_i64 _
-  | Ssa_op.Index_ceil_div _ | Ssa_op.Index_clamp_low _ | Ssa_op.Index_compare _
-  | Ssa_op.Index_floor_div _ | Ssa_op.Index_max _ | Ssa_op.Index_min _
-  | Ssa_op.Index_scale _ | Ssa_op.Lanewise _ | Ssa_op.Mark _
-  | Ssa_op.Mark_lanes _ | Ssa_op.Pool_better _ | Ssa_op.Pred_not _
-  | Ssa_op.Pred_or _ | Ssa_op.Select _ | Ssa_op.Vec_extract _
-  | Ssa_op.Vec_insert _ | Ssa_op.Vec_iota _ | Ssa_op.Vec_splat _ ->
+  | Ssa_op.Float_compare _ | Ssa_op.Float_fma _ | Ssa_op.Float_max _
+  | Ssa_op.Float_to_i64 _ | Ssa_op.Float_unary _ | Ssa_op.I64_arith _
+  | Ssa_op.I64_compare _ | Ssa_op.I64_div _ | Ssa_op.Index_add _
+  | Ssa_op.Index_of_i64 _ | Ssa_op.Index_ceil_div _ | Ssa_op.Index_clamp_low _
+  | Ssa_op.Index_compare _ | Ssa_op.Index_floor_div _ | Ssa_op.Index_max _
+  | Ssa_op.Index_min _ | Ssa_op.Index_scale _ | Ssa_op.Lanewise _
+  | Ssa_op.Mark _ | Ssa_op.Mark_lanes _ | Ssa_op.Pool_better _
+  | Ssa_op.Pred_not _ | Ssa_op.Pred_or _ | Ssa_op.Select _
+  | Ssa_op.Vec_extract _ | Ssa_op.Vec_insert _ | Ssa_op.Vec_iota _
+  | Ssa_op.Vec_splat _ ->
       ());
   let values =
     match Ssa_typing.result_types op with
@@ -434,19 +435,20 @@ let check_proofs ctx scope =
             | None -> fail ctx scope (Buffer_unknown buffer))
         | Ssa_op.Check_access _ | Ssa_op.Check_gather _ | Ssa_op.Check_local _
         | Ssa_op.Check_scan _ | Ssa_op.Const _ | Ssa_op.Convert _
-        | Ssa_op.Float_binary _ | Ssa_op.Float_compare _ | Ssa_op.Float_max _
-        | Ssa_op.Float_to_i64 _ | Ssa_op.Float_unary _ | Ssa_op.I64_arith _
-        | Ssa_op.I64_compare _ | Ssa_op.I64_div _ | Ssa_op.Index_add _
-        | Ssa_op.Index_ceil_div _ | Ssa_op.Index_clamp_low _
-        | Ssa_op.Index_compare _ | Ssa_op.Index_floor_div _ | Ssa_op.Index_max _
-        | Ssa_op.Index_min _ | Ssa_op.Index_of_i64 _ | Ssa_op.Index_scale _
-        | Ssa_op.Lanewise _ | Ssa_op.Load _ | Ssa_op.Local_alloc _
-        | Ssa_op.Local_read _ | Ssa_op.Local_write _ | Ssa_op.Mark _
-        | Ssa_op.Mark_lanes _ | Ssa_op.Vec_extract _ | Ssa_op.Vec_insert _
-        | Ssa_op.Vec_iota _ | Ssa_op.Vec_splat _ | Ssa_op.Meter_charge
-        | Ssa_op.Meter_release _ | Ssa_op.Meter_reserve _ | Ssa_op.Meter_reset
-        | Ssa_op.Pool_better _ | Ssa_op.Pred_not _ | Ssa_op.Pred_or _
-        | Ssa_op.Select _ | Ssa_op.Store _ ->
+        | Ssa_op.Float_binary _ | Ssa_op.Float_compare _ | Ssa_op.Float_fma _
+        | Ssa_op.Float_max _ | Ssa_op.Float_to_i64 _ | Ssa_op.Float_unary _
+        | Ssa_op.I64_arith _ | Ssa_op.I64_compare _ | Ssa_op.I64_div _
+        | Ssa_op.Index_add _ | Ssa_op.Index_ceil_div _
+        | Ssa_op.Index_clamp_low _ | Ssa_op.Index_compare _
+        | Ssa_op.Index_floor_div _ | Ssa_op.Index_max _ | Ssa_op.Index_min _
+        | Ssa_op.Index_of_i64 _ | Ssa_op.Index_scale _ | Ssa_op.Lanewise _
+        | Ssa_op.Load _ | Ssa_op.Local_alloc _ | Ssa_op.Local_read _
+        | Ssa_op.Local_write _ | Ssa_op.Mark _ | Ssa_op.Mark_lanes _
+        | Ssa_op.Vec_extract _ | Ssa_op.Vec_insert _ | Ssa_op.Vec_iota _
+        | Ssa_op.Vec_splat _ | Ssa_op.Meter_charge | Ssa_op.Meter_release _
+        | Ssa_op.Meter_reserve _ | Ssa_op.Meter_reset | Ssa_op.Pool_better _
+        | Ssa_op.Pred_not _ | Ssa_op.Pred_or _ | Ssa_op.Select _
+        | Ssa_op.Store _ ->
             ())
     | Ssa_stmt.For { body; _ } | Ssa_stmt.Ordered_sum { body; _ } ->
         region scope body

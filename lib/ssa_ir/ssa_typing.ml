@@ -131,9 +131,9 @@ let element_of position (v : Ssa_value.t) =
 
 let lanewise_allowed : Ssa_op.t -> bool = function
   | Ssa_op.Convert ((Ssa_op.Convert.F32_to_f64 | Ssa_op.Convert.F64_to_f32), _)
-  | Ssa_op.Float_binary _ | Ssa_op.Float_compare _ | Ssa_op.Float_max _
-  | Ssa_op.Float_unary _ | Ssa_op.Pool_better _ | Ssa_op.Pred_not _
-  | Ssa_op.Pred_or _ | Ssa_op.Select _ ->
+  | Ssa_op.Float_binary _ | Ssa_op.Float_compare _ | Ssa_op.Float_fma _
+  | Ssa_op.Float_max _ | Ssa_op.Float_unary _ | Ssa_op.Pool_better _
+  | Ssa_op.Pred_not _ | Ssa_op.Pred_or _ | Ssa_op.Select _ ->
       true
   | _ -> false
 
@@ -275,6 +275,10 @@ let rec result_types : Ssa_op.t -> (Ssa_type.t list, error) result = function
   | Ssa_op.Float_max (a, b) ->
       let* t = same_float a b in
       Ok [ t ]
+  | Ssa_op.Float_fma (a, b, c) ->
+      let* t = same_float a b in
+      let* _ = same_float b c in
+      Ok [ t ]
   | Ssa_op.Float_to_i64 a ->
       let* () = expect (Position.of_int 0) f64 a in
       Ok [ i64 ]
@@ -288,8 +292,8 @@ let rec result_types : Ssa_op.t -> (Ssa_type.t list, error) result = function
       let* () = expect (Position.of_int 0) i64 a in
       Ok [ index ]
   | Ssa_op.Float_unary (_, a) ->
-      let* () = expect (Position.of_int 0) f64 a in
-      Ok [ f64 ]
+      let* t = same_float a a in
+      Ok [ t ]
   | Ssa_op.Index_ceil_div (k, a) | Ssa_op.Index_floor_div (k, a) ->
       let* () = positive_divisor k in
       let* () = expect (Position.of_int 0) index a in
@@ -304,7 +308,7 @@ let rec result_types : Ssa_op.t -> (Ssa_type.t list, error) result = function
       let* () = expect_all ~first:0 index [ a; b ] in
       Ok [ index ]
   | Ssa_op.Pool_better (a, b) ->
-      let* () = expect_all ~first:0 f64 [ a; b ] in
+      let* _ = same_float a b in
       Ok [ pred ]
   | Ssa_op.Pred_not a ->
       let* () = expect (Position.of_int 0) pred a in

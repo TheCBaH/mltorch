@@ -123,17 +123,17 @@ let analyze (p : Ssa_program.t) =
         | _ -> ())
     | Ssa_op.Check_access _ | Ssa_op.Check_gather _ | Ssa_op.Check_local _
     | Ssa_op.Check_scan _ | Ssa_op.Const _ | Ssa_op.Convert _
-    | Ssa_op.Float_binary _ | Ssa_op.Float_compare _ | Ssa_op.Float_max _
-    | Ssa_op.Float_to_i64 _ | Ssa_op.Float_unary _ | Ssa_op.I64_arith _
-    | Ssa_op.I64_compare _ | Ssa_op.I64_div _ | Ssa_op.Index_compare _
-    | Ssa_op.Load _ | Ssa_op.Load_in_bounds _ | Ssa_op.Local_alloc _
-    | Ssa_op.Lanewise _ | Ssa_op.Local_read _ | Ssa_op.Local_write _
-    | Ssa_op.Mark _ | Ssa_op.Mark_lanes _ | Ssa_op.Meter_charge
-    | Ssa_op.Meter_release _ | Ssa_op.Meter_reserve _ | Ssa_op.Meter_reset
-    | Ssa_op.Pool_better _ | Ssa_op.Pred_not _ | Ssa_op.Pred_or _
-    | Ssa_op.Store _ | Ssa_op.Vec_extract _ | Ssa_op.Vec_insert _
-    | Ssa_op.Vec_iota _ | Ssa_op.Vec_load _ | Ssa_op.Vec_splat _
-    | Ssa_op.Vec_store _ ->
+    | Ssa_op.Float_binary _ | Ssa_op.Float_compare _ | Ssa_op.Float_fma _
+    | Ssa_op.Float_max _ | Ssa_op.Float_to_i64 _ | Ssa_op.Float_unary _
+    | Ssa_op.I64_arith _ | Ssa_op.I64_compare _ | Ssa_op.I64_div _
+    | Ssa_op.Index_compare _ | Ssa_op.Load _ | Ssa_op.Load_in_bounds _
+    | Ssa_op.Local_alloc _ | Ssa_op.Lanewise _ | Ssa_op.Local_read _
+    | Ssa_op.Local_write _ | Ssa_op.Mark _ | Ssa_op.Mark_lanes _
+    | Ssa_op.Meter_charge | Ssa_op.Meter_release _ | Ssa_op.Meter_reserve _
+    | Ssa_op.Meter_reset | Ssa_op.Pool_better _ | Ssa_op.Pred_not _
+    | Ssa_op.Pred_or _ | Ssa_op.Store _ | Ssa_op.Vec_extract _
+    | Ssa_op.Vec_insert _ | Ssa_op.Vec_iota _ | Ssa_op.Vec_load _
+    | Ssa_op.Vec_splat _ | Ssa_op.Vec_store _ ->
         ()
   in
   let rec region (r : Ssa_region.t) = List.iter stmt r.Ssa_region.body

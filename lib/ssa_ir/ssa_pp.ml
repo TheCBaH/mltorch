@@ -99,6 +99,8 @@ let rec op st (o : Ssa_op.t) =
   | Ssa_op.Float_compare (c, x, y) ->
       Fmt.str "float.compare.%s %s, %s" (Ssa_op.Compare.name c) (name st x)
         (name st y)
+  | Ssa_op.Float_fma (x, y, z) ->
+      Fmt.str "float.fma %s, %s, %s" (name st x) (name st y) (name st z)
   | Ssa_op.Float_max (x, y) ->
       Fmt.str "float.max %s, %s" (name st x) (name st y)
   | Ssa_op.Float_to_i64 x -> Fmt.str "float.to_i64 %s" (name st x)

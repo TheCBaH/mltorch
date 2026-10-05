@@ -174,6 +174,38 @@ its own name becomes its interface and hides its siblings (the lowering is
   operation becomes one access per lane with the proofs the vector one carried),
   which is the independent reference every vector result is checked against. The
   Loop converter refuses a vector operation: expand first.
+- **Numerical policy and precision.** `Ssa_numerics` restates the three presets
+  (`Reference_f64`, `Simd_fp32_ordered`, `Simd_fp32_relaxed`), their permissions
+  and identities, the backends that accept them, and the admission rule (a
+  dequantizing read has no binary32 decode), because this library sees no Loop
+  type; the bridge suite checks every name, identity, target price and binary32
+  helper against the Loop planner's. `Ssa_precision.to_f32` makes binary32
+  explicit before vectorization: a read is narrowed once, a constant rounded
+  once, an int64 or index converted in one rounding, a store or checked
+  conversion widens first (exact), a scratch cell widens on write and narrows on
+  read. Binary32 operations round once in the interpreter, `Float_unary` on a
+  binary32 operand is the binary64 function rounded once (`erf` is `erf32`) and
+  `Float_fma` is `fmaf`. The binary32 sweep (every walked plan against the Loop
+  interpreter at binary32) agrees bitwise.
+- **Targets.** `Ssa_target` is the Loop target description as data: legality
+  (native or expanded per operation) kept apart from cost, per precision, with
+  the logical width a `Lanes` value; `forced` zeroes every price so a test takes
+  every legal loop.
+- **Vectorization** (`Ssa_vectorize`, in the pipeline after hoisting and before
+  scalar blocking when a target is given). A loop whose iterations are
+  independent outputs, with the loops inside it, becomes full vector iterations
+  plus the original loop as the remainder. Every value the body defines is
+  classified uniform, affine in the induction value with a literal stride, or a
+  vector; an access is a base coordinate and a step per axis; a carried value
+  becomes a vector when anything feeding it is one, found by a fixed point.
+  Refused, each with its reason named: a branch, an operation that can fail, a
+  scratch or meter operation, a varying int64, a non-affine index, a varying
+  inner bound, a store every lane would write, a loop that carries values, a
+  buffer the loop writes and reads at different coordinates, an unproved
+  overlap of buffers (unless the caller states them distinct), too few trips,
+  and a body the target prices out. The vector program is checked against the
+  reference, the scalar program and its scalar-lane expansion, and the sweep
+  runs it for the cost model's target and for every legal loop.
 - Evidence beyond mutations: the op sweep through the optimizer has no
   disagreement, no change of logical work and no extra read; hand-built failing
   programs keep exactly the checks that report their failure; the optimized

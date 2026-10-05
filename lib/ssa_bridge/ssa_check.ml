@@ -32,12 +32,14 @@ type verdict =
   | Agree
   | Agree_on_failure of string
   | Disagree of Disagreement.t
+  | Not_admitted of Ssa_numerics.Refusal.t
   | Refused of Ssa_lower.Ssa_unsupported.t
 
 let pp_verdict fmt = function
   | Agree -> Fmt.string fmt "agree"
   | Agree_on_failure kind -> Fmt.pf fmt "agree on failure: %s" kind
   | Disagree d -> Fmt.pf fmt "DISAGREE: %a" Disagreement.pp d
+  | Not_admitted r -> Fmt.pf fmt "not admitted: %a" Ssa_numerics.Refusal.pp r
   | Refused u -> Fmt.pf fmt "refused: %a" Ssa_lower.Ssa_unsupported.pp u
 
 (* The first output, in id order, the other side lacks or holds differently. *)
@@ -100,6 +102,29 @@ let run ?(prepare = Fun.id) (plan : Fusion_plan.t) ~bind =
       compare
         ~reference:(Kernel_eval.run_plan plan ~bind)
         ~ssa:(Ssa_lower.Ssa_exec.run plan (prepare program) ~bind)
+
+(* The binary32 oracle of a scalar kernel is the Loop interpreter at binary32:
+   every float operation in binary64, rounded once. *)
+let run_f32 ?(prepare = Fun.id) (plan : Fusion_plan.t) ~bind =
+  match
+    ( Err.payload (Ssa_lower.Ssa_lower_plan.lower plan),
+      Err.payload (Loop_ir.Loop_lower.lower plan) )
+  with
+  | Error (`Unsupported u), _ -> Refused u
+  | Ok _, Error (`Unsupported _) ->
+      Disagree (Disagreement.Reference_only_failed "loop_unsupported")
+  | Ok program, Ok loop -> (
+      match Ssa_numerics.admit program with
+      | Error r -> Not_admitted r
+      | Ok () ->
+          let program = prepare (Ssa_precision.to_f32 program) in
+          let reference =
+            Err.map_error
+              (fun (e : Loop_ir.Loop_interp.error) -> (e :> Kernel_eval.error))
+              (Loop_ir.Loop_interp.run
+                 ~precision:Loop_ir.Loop_numerics.Precision.F32 loop ~bind)
+          in
+          compare ~reference ~ssa:(Ssa_lower.Ssa_exec.run plan program ~bind))
 
 type marks = {
   emitters : int;

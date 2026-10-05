@@ -68,7 +68,23 @@ let eval (op : Ssa_op.t) ~(result : Ssa_type.t) ~(get : Ssa_value.t -> t) :
       let x = float a in
       let y = float b in
       Some (F (Expr.Max_op.apply Expr.Max_op.Float_max x y))
-  | Ssa_op.Float_unary (op, a) -> Some (F (Expr.Value.apply_unary op (float a)))
+  | Ssa_op.Float_fma (a, b, c) ->
+      let x = float a in
+      let y = float b in
+      let z = float c in
+      Some
+        (F (if is_f32 result then Ssa_numerics.fma32 x y z else Float.fma x y z))
+  | Ssa_op.Float_unary (op, a) ->
+      let x = float a in
+      Some
+        (F
+           (if not (is_f32 result) then Expr.Value.apply_unary op x
+            else
+              match op with
+              | Expr.Value.Erf -> Ssa_numerics.erf32 x
+              | Expr.Value.Cos | Expr.Value.Exp | Expr.Value.Log
+              | Expr.Value.Sin | Expr.Value.Sqrt | Expr.Value.Trunc ->
+                  Ssa_const.round_f32 (Expr.Value.apply_unary op x)))
   | Ssa_op.I64_arith (op, a, b) ->
       let x = int a in
       let y = int b in

@@ -1,27 +1,24 @@
 open Ssa_bridge
 
-(* The op sweep, through direct SSA lowering: every native op's own random walk,
-   each subject adapted to a Kernel and run under both placements (everything
-   stored, and the planner's fused plan), against [Kernel_eval]. The same
-   subjects the Loop IR sweep runs, so a refusal here is a measured gap against
-   the Loop lowering's coverage.
-
-   A refusal is recorded, not hidden: the report is the inventory of what the
-   lowering does not yet cover. Nothing may DISAGREE. *)
+(* The op sweep for one planning configuration: every native op's random walk,
+   lowered, planned as the configuration says and checked against that
+   configuration's own oracle. A configuration is a name and a function from a
+   plan and its bindings to a verdict; the walks, seeds and slices are the direct
+   sweep's, so a slice here covers exactly the ops its namesake does. *)
 
 type tally = {
   mutable agree : int;
   mutable agree_on_failure : int;
   mutable disagreements : string list;
-  mutable refusals : string list;
-      (** constructs, deduplicated, in first-seen order *)
+  mutable not_admitted : int;
   mutable not_a_kernel : int;
+  mutable refusals : int;
 }
 
-let tallies : (string, tally) Hashtbl.t = Hashtbl.create 64
+let tallies : (string * string, tally) Hashtbl.t = Hashtbl.create 64
 
-let tally target =
-  match Hashtbl.find_opt tallies target with
+let tally config target =
+  match Hashtbl.find_opt tallies (config, target) with
   | Some t -> t
   | None ->
       let t =
@@ -29,11 +26,12 @@ let tally target =
           agree = 0;
           agree_on_failure = 0;
           disagreements = [];
-          refusals = [];
+          not_admitted = 0;
           not_a_kernel = 0;
+          refusals = 0;
         }
       in
-      Hashtbl.add tallies target t;
+      Hashtbl.add tallies (config, target) t;
       t
 
 let record t (verdict : Ssa_check.verdict) =
@@ -43,45 +41,38 @@ let record t (verdict : Ssa_check.verdict) =
   | Ssa_check.Disagree d ->
       t.disagreements <-
         Fmt.str "%a" Ssa_check.Disagreement.pp d :: t.disagreements
-  | Ssa_check.Not_admitted _ ->
-      invalid_arg "a binary64 run is never refused by binary32 admission"
-  | Ssa_check.Refused u ->
-      let name =
-        Ssa_lower.Ssa_unsupported.construct_name
-          u.Ssa_lower.Ssa_unsupported.construct
-      in
-      if not (List.mem name t.refusals) then t.refusals <- t.refusals @ [ name ]
+  | Ssa_check.Not_admitted _ -> t.not_admitted <- t.not_admitted + 1
+  | Ssa_check.Refused _ -> t.refusals <- t.refusals + 1
 
-let verify _ppf (s : Native_op_walk.Subject.t) =
-  let t = tally s.Native_op_walk.Subject.target in
+let verify ~config ~check _ppf (s : Native_op_walk.Subject.t) =
+  let t = tally config s.Native_op_walk.Subject.target in
   let prog = Eval_symbolic.run s.Native_op_walk.Subject.graph in
   (match Kernel_adapt.of_stage_program prog with
   | Error _ -> t.not_a_kernel <- t.not_a_kernel + 1
   | Ok kernel ->
       let bind id = List.assoc_opt id s.Native_op_walk.Subject.inputs in
       List.iter
-        (fun plan -> record t (Ssa_check.run plan ~bind))
+        (fun plan -> record t (check plan ~bind))
         [ Fusion_plan.default kernel; fst (Fusion_plan.plan kernel) ]);
   true
 
 let silent = Format.make_formatter (fun _ _ _ -> ()) (fun () -> ())
 
-(* The ops are dealt round-robin into [shards] slices, one test file each. The
-   seed stays the op's index in [all_walks], so a slice walks exactly what the
-   Loop sweep's does. *)
-let sweep ~shard ~shards =
+let sweep ~config ~check ~shard ~shards =
   List.iteri
     (fun index (m : Native_op_walk.op) ->
       if index mod shards = shard then
         ignore
-          (Walk_core.Walk.run m ~verify ~ppf:silent
+          (Walk_core.Walk.run m ~verify:(verify ~config ~check) ~ppf:silent
              ~pcg:(Walk_core.Pcg.seed ~seed:(Int64.of_int index) ~seq:1L)
              ~steps:5))
     Native_op_walk.all_walks
 
-let report () =
+let report ~config =
   let rows =
-    Hashtbl.fold (fun target t acc -> (target, t) :: acc) tallies []
+    Hashtbl.fold
+      (fun (c, target) t acc -> if c = config then (target, t) :: acc else acc)
+      tallies []
     |> List.sort (fun (a, _) (b, _) -> String.compare a b)
   in
   List.iter
@@ -92,10 +83,11 @@ let report () =
     (List.fold_left (fun n (_, t) -> n + List.length t.disagreements) 0 rows);
   List.iter
     (fun (target, t) ->
-      Fmt.pr "%-28s agree=%d failed-alike=%d%s%s@." target t.agree
+      Fmt.pr "%-28s agree=%d failed-alike=%d%s%s%s@." target t.agree
         t.agree_on_failure
-        (if t.refusals = [] then ""
-         else " refused: " ^ String.concat ", " t.refusals)
+        (if t.not_admitted > 0 then Fmt.str " not-admitted=%d" t.not_admitted
+         else "")
+        (if t.refusals > 0 then Fmt.str " refused=%d" t.refusals else "")
         (if t.not_a_kernel > 0 then Fmt.str " not-a-kernel=%d" t.not_a_kernel
          else ""))
     rows

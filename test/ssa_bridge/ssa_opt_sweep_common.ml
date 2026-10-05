@@ -64,6 +64,8 @@ let record t plan ~bind =
       | Ssa_check.Disagree d ->
           t.disagreements <-
             Fmt.str "%a" Ssa_check.Disagreement.pp d :: t.disagreements
+      | Ssa_check.Not_admitted _ ->
+          invalid_arg "a binary64 run is never refused by binary32 admission"
       | Ssa_check.Refused _ -> t.refusals <- t.refusals + 1);
       (* the logical work, up to a failure as well as at the end *)
       let before = counters plan program ~bind
