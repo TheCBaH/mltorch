@@ -20,8 +20,17 @@ val arguments : Ssa_ir.Ssa_program.t -> Ssa_ir.Ssa_buffer.t list
     binding is the caller's. *)
 
 val kernel :
+  ?buffers:Ssa_ir.Ssa_buffer.t list ->
+  ?sites:Loop_ir.Loop_failure.t array ->
   name:string ->
   Ssa_ir.Ssa_program.t ->
   (Loop_ir.Loop_c.t * Loop_ir.Loop_failure.t array, error) result
 (** The kernel in the shape the C hosts take, and the failure sites its records
-    are decoded against. *)
+    are decoded against. [buffers] (default {!arguments}) are the arguments
+    taken, in order: a caller that binds every declared buffer positionally
+    passes them all. [sites] is a failure-site table the records must decode
+    against (a bundle's, made from the Loop program): each record's site is the
+    index of the first entry that names the same failure and local variable, one
+    past the end if none does (a check the table's own program proved can never
+    fire, which a decoder reports as a defect), and the table is what is
+    returned. *)

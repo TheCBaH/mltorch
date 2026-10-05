@@ -340,6 +340,7 @@ let timed_source (b : Bench.t) (k : Loop_c.t) =
       "#define _POSIX_C_SOURCE 200809L";
       Loop_c_runtime.prelude;
       Loop_c_runtime.helpers k.Loop_c.helpers;
+      k.Loop_c.prelude;
       k.Loop_c.source;
       main;
     ]

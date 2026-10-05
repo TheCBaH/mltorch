@@ -26,6 +26,6 @@ let%expect_test "Wasm sweep of vector and numerical plans, slice 2 of 4" =
     ];
   [%expect
     {|
-    strict-vectors: disagreements 0, agree 216, failed alike 0, refused 0; with vectors 80, relaxed 0
-    ordered-binary32: disagreements 0, agree 216, failed alike 0, refused 0; with vectors 80, relaxed 0
-    relaxed-binary32: disagreements 0, agree 216, failed alike 0, refused 0; with vectors 80, relaxed 6 |}]
+    strict-vectors: disagreements 0, agree 216, failed alike 0, refused 0; with vectors 136, relaxed 0
+    ordered-binary32: disagreements 0, agree 216, failed alike 0, refused 0; with vectors 136, relaxed 0
+    relaxed-binary32: disagreements 0, agree 216, failed alike 0, refused 0; with vectors 136, relaxed 6 |}]

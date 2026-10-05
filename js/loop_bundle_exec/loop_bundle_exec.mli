@@ -27,6 +27,7 @@ val pp_error : Format.formatter -> [< error ] -> unit
 
 val prepare :
   ?max_outstanding:int ->
+  ?kernel:(Loop_bundle.invocation -> (Js_ast.Program.t, string) result) ->
   Loop_bundle.t ->
   constants:(Tensor_id.t -> Tensor.packed option) ->
   (prepared, error) Err.t

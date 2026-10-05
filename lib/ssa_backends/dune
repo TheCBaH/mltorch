@@ -1,0 +1,22 @@
+; The structured SSA IR as a whole-model backend: each bundle invocation's
+; placed kernel is lowered to SSA, optionally optimized or planned for a
+; numerical policy and a target, and emitted by the direct C, JavaScript or
+; WebAssembly consumer through the bundle builders' [kernel] hooks. The default
+; Loop path is untouched; this is the opt-in comparison path.
+
+(library
+ (name ssa_backends)
+ (libraries
+  core
+  err_trace
+  expr
+  fmt
+  js_ast
+  loop_ir
+  native
+  ssa_c
+  ssa_ir
+  ssa_js
+  ssa_lower
+  ssa_wasm
+  wasm_ir))

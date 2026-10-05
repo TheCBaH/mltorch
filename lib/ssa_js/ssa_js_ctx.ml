@@ -58,6 +58,7 @@ type t = {
   mutable tables : A.Stmt.t list;
   locals : (int, int64 * Expr.Local_var.t option) Hashtbl.t;
   buffers : Ssa_buffer.t list;
+  site_table : LF.t array option;
 }
 
 let buffer_index cx bid =
@@ -132,10 +133,21 @@ let temp cx =
   n
 
 let site cx f =
-  let k = cx.site_count in
-  cx.sites <- f :: cx.sites;
-  cx.site_count <- k + 1;
-  k
+  match cx.site_table with
+  | None ->
+      let k = cx.site_count in
+      cx.sites <- f :: cx.sites;
+      cx.site_count <- k + 1;
+      k
+  | Some table ->
+      (* a check the table has no entry for is one its own lowering proved can
+         never fire: its index is one past the table, a defect to a decoder *)
+      let rec find i =
+        if i >= Array.length table then i
+        else if LF.same_site table.(i) f then i
+        else find (i + 1)
+      in
+      find 0
 
 let assign cx (v : Ssa_value.t) e =
   match define cx v with

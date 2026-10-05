@@ -129,6 +129,17 @@ its own name becomes its interface and hides its siblings (the lowering is
   next revision; a pass states what happens to one statement. `Ssa_scalar` is the
   single definition of the pure scalar operations: the interpreter and the
   constant folder both evaluate through it.
+- **Relational bounds** (`Ssa_range`). A window loop's taps run over
+  `[max (0, a), min (K, b))` and an access inside it reads `base + k`: inside
+  the buffer only relationally, which intervals over `base` and `k` cannot show.
+  An induction value keeps the facts its bounds give (`d * k >= a`,
+  `d * k <= a`, from `clamp_low`, `max`, `min` and the ceiling and floor
+  divisions of a dilation) and a coordinate's linear form, built through the
+  additions, scalings and constants that define it, is proved by replacing
+  `c * k` with the matching fact's side (depth two) and checking the rest by
+  interval. The loop's own bounds are the only premise, and the verifier
+  re-derives a proof through the same function. A vector access's coordinate the
+  lanes do not move along takes the same proof.
 - Passes (`Ssa_opt`): **simplify** (fold, pure CSE, dead pure values) never deletes
   a checked operation, a load, a mark or a meter operation for being unused and
   applies no algebraic identity; **guards** turns a checked operation the ranges
@@ -138,8 +149,14 @@ its own name becomes its interface and hides its siblings (the lowering is
   moves pure total operations out of any loop and a load only when it is in
   bounds, the loop runs, and nothing in it may write what it reads; **share**
   replaces a repeated load by the earlier one until something may write its
-  buffer, and discards what a loop body may overwrite on entering it. The driver
-  verifies every revision a pass returns.
+  buffer, and discards what a loop body may overwrite on entering it;
+  **convert_ifs** (`Ssa_opt_if`, planner pipelines only, after guards) turns a
+  branch whose arms hold only pure instructions and loads proved in bounds into a
+  select over the arms' values: both arms run, which cannot fail or count, the
+  then arm's loads precede the else arm's on the one effect chain, and an arm with
+  a checked operation, mark, store or loop keeps the branch. A lowered clamp or
+  guarded load is a branch, and the vectorizer holds no branch in a loop body.
+  The driver verifies every revision a pass returns.
 - **Independent-output blocking** (`Ssa_opt_block`, in the pipeline after hoist
   and before share). A loop with constant trips whose iterations are separate
   outputs around one ordered sum becomes full groups of G outputs (one reduction
@@ -353,6 +370,48 @@ ordered binary32 (standard SIMD) and relaxed binary32 (relaxed SIMD) against the
 structured interpreter, hand-built control flow and every failure row, the vector
 surface, and mutations of addressing, checks, transfers, selects, lanes and
 accumulation.
+
+## Whole-model bundles through SSA
+
+The three bundle builders take an optional `kernel` hook that makes each
+invocation's kernel instead of the Loop emitter: `Loop_bundle_c.build ?kernel`,
+`Loop_bundle_wasm.build ?kernel`, `Loop_bundle_js.build ?kernel`, threaded through
+`C_host.prepare`, `Wasm_host.prepare` and `Loop_bundle_exec.prepare`. Each
+`Loop_bundle.invocation` carries `placed`, the placed kernel its program was
+lowered from, so a consumer can lower plans itself; the storage plan, the payload
+and workspace layout, the schedule, the argument convention (every program buffer,
+positionally, bound through `edges`) and the failure-record ABI stay the bundle's.
+`Ssa_backends` (library `lib/ssa_backends`) supplies the producers: it lowers
+`placed`, runs a `Pipeline` (`Representation`, the exact passes only, or the
+policy planner for a numerical policy and target) and emits with the invocation's
+own buffer list. Passes take one invocation's buffers as distinct memory (the storage plan
+allocates every output before releasing any operand, and the arena checker rejects an
+overlap), the guarantee `Distinct_buffers` asks a caller to have established; a kernel's
+own types and helper functions travel as a `Loop_c.t` `prelude`, guarded blocks that
+the bundle emits once. A record names its site by the index of an entry of the Loop program's own
+failure-site table (`Loop_failure.same_site`: the same kind of failure at the same
+local variable), which is how the bundle hosts decode a failure from an SSA kernel
+unchanged. A kernel the SSA path cannot make is `Kernel_refused`, never a silent
+fallback; the unoptimized pipeline refuses an invocation whose lowering still
+names a fusion scratch buffer the invocation does not have, which the exact passes
+remove. A kernel's precision is its pipeline's (the plan's, for a planned one), not
+the types its text uses: the strict pipelines hold binary32 buffers' values in
+binary32 and compute in binary64, and report no binary32 kernel. Checks: the chain and a convolution, batch norm and relu bundle through
+each of C, Wasm (node) and JavaScript (node) are bitwise the reference for the
+representation, exact and strict-planned pipelines, and within 1e-4 under the
+ordered and relaxed binary32 policies. On the model cohort (mobilenetv2_050,
+regnetx_002, efficientnet_b0, fastvit_sa12, mobilenetv3_small_050, test_convnext2,
+csatv2) every model runs bitwise against the reference through the exact and
+strict-planned pipelines and within the frozen tolerance through the planned
+performance policy. These runs are CI gates: `make c.pt2.ssa.runtest`/`c.pt2.ssa.perf`,
+`wasm.pt2.ssa.runtest`/`wasm.pt2.ssa.perf`, and `loop_js.bundle.pt2.ssa.runtest`
+(`js/jsoo/ssa_js_pt2`, over the ordinary libraries: it evaluates no `Expr` of its
+own, its reference being `Eval_direct`, so the tail-call mirrors are not needed). The performance policy is not yet as fast as the Loop path:
+the planner vectorizes fewer kernels (mobilenetv2_050: 178 of 415 invocations in
+binary32 against 205) and the run is 1.0 to 1.2x the Loop time (csatv2 equal),
+because the Loop IR collapses dense nests that the SSA vectorizer meets nested;
+`test/ssa_c/bench` measures generation,
+compile, first and warm costs and source size per pipeline beside the Loop path.
 
 ## Verifier and interpreter bounds
 

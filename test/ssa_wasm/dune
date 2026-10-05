@@ -18,6 +18,7 @@
   native_test
   ssa_bridge
   ssa_bridge_test
+  ssa_backends
   ssa_ir
   ssa_lower
   ssa_wasm

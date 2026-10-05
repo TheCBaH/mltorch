@@ -146,6 +146,15 @@ jobs:
     - name: whole-model C backend (all downloaded models)
       run: |
         ${{ env.EXEC }} make c.pt2.runtest
+    # The same models with every kernel made by the structured SSA backend: strict
+    # (bitwise against the binary64 reference, exact and planned pipelines), then
+    # the planned pipeline under the default policy within the frozen tolerance.
+    - name: whole-model C backend through SSA (all downloaded models)
+      run: |
+        ${{ env.EXEC }} make c.pt2.ssa.runtest
+    - name: whole-model C backend through SSA, default policy (all downloaded models)
+      run: |
+        ${{ env.EXEC }} make c.pt2.ssa.perf
     # Payload-free model-support sweep over the ~100 models in the pinned
     # producer submodule (already checked out, no download) -- see
     # bin/pt2_json_model_support.ml. Verified by "verify pristine" below,

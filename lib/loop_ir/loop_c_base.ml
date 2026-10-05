@@ -15,6 +15,7 @@ let pp_error ppf : [< error ] -> unit = function
 
 type t = {
   source : string;
+  prelude : string;
   helpers : R.Name.t list;
   local_doubles : int64;
   precision : Loop_numerics.Precision.t;

@@ -58,6 +58,8 @@ type error =
   | C_workspace_plan.error
   | Loop_wasm.error
   | Wasm_check.error
+  | `Kernel_refused of string
+    (** the [kernel] hook declined an invocation: its own words *)
   | `Memory_over_policy of int64
     (** the placement or an offset exceeds the 2 GiB memory policy *)
   | `Missing_signature of Tensor_id.t
@@ -68,11 +70,18 @@ val pp_error : Format.formatter -> [< error ] -> unit
 val build :
   ?vector:Loop_target.t ->
   ?numerics:Loop_numerics.t ->
+  ?kernel:
+    (table_alloc:(bytes:int -> int) ->
+    Loop_bundle.invocation ->
+    (Loop_wasm.kernel, string) result) ->
   Loop_bundle.t ->
   (t, error) Err.t
 (** [vector] lowers the independent loops the strict vectorizer finds for the
     target to 128-bit SIMD ({!Loop_wasm.lower}); the module then needs the
-    [simd128] feature. *)
+    [simd128] feature. [kernel] makes each invocation's kernel instead of
+    {!Loop_wasm.kernel} (and then [vector] is not used): it takes the
+    constant-table allocator the module's layout fixes and the invocation, whose
+    program's buffers it must take positionally, all of them, in order. *)
 
 val default_config : Storage_script.Config.t
 (** The configuration admitted: separate layout, borrowed constants and inputs.

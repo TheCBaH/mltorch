@@ -28,6 +28,16 @@ val kernel :
     extra, unrelated int64 output [lower]'s own kernel does not, and the two
     would disagree over a value neither was ever asked to compute. *)
 
+val lower_placed :
+  ?limits:Kernel.Limits.t ->
+  ?passes:Loop_opt.pass list ->
+  Graph_ir.graph ->
+  Graph_ir.node ->
+  output:Output_ordinal.t ->
+  (Fusion_plan.t * Loop_program.t, error) Err.t
+(** {!lower} with the placed kernel it lowered, for a consumer that lowers plans
+    itself: both come from the one kernel. *)
+
 val lower :
   ?limits:Kernel.Limits.t ->
   ?passes:Loop_opt.pass list ->

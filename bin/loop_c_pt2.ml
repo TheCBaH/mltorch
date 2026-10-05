@@ -4,7 +4,7 @@
 
    argv: <model.pt2> <inputs.pt> <expected.json> <outputs.pt> [--strict]
          [--shadow] [--poison] [--samples=N] [--keep=DIR] [--cc=CMD]
-         [--bench=N] [--reference] [--vector]
+         [--bench=N] [--reference] [--vector] [--ssa=representation|exact|planned]
          [--numerics=NAME] [--shadow-numeric] [--atol=X] [--rtol=X]
 
    The default is the performance path (numerics simd_fp32_relaxed, vectorized
@@ -76,6 +76,10 @@ let now = Unix.gettimeofday
 let ms t0 = (now () -. t0) *. 1000.
 let cache = ref None
 
+(* [--ssa=NAME]: the SSA backend makes the kernels instead of the Loop emitter
+   (see [Ssa_backends.Pipeline]); the default is the Loop path. *)
+let ssa_pipeline : Ssa_backends.Pipeline.t option ref = ref None
+
 let prepared ~keep ~compiler ~vector ~numerics archive =
   let open Err.Syntax in
   let map e = (e :> eval) in
@@ -99,7 +103,12 @@ let prepared ~keep ~compiler ~vector ~numerics archive =
         | None -> Loop_c_exec.Proc.temp_dir "loop_c_pt2"
       in
       let* p =
-        Loop_c_exec.Host.prepare ?vector ~numerics ?compiler ~dir b
+        Loop_c_exec.Host.prepare ?vector ~numerics
+          ?kernel:
+            (Option.map
+               (fun pipeline -> Ssa_backends.c ~pipeline)
+               !ssa_pipeline)
+          ?compiler ~dir b
           ~constants:(fun id -> Graph_ir.Tensor_id.Map.find_opt id constants)
         |> Err.map_error map
       in
@@ -303,6 +312,31 @@ let () =
            which binary32 kernels do not match; use --reference, or \
            --shadow-numeric for the default policy";
         exit 2));
+  let ssa, argv = valued "--ssa=" argv in
+  (ssa_pipeline :=
+     match ssa with
+     | None -> None
+     | Some "representation" -> Some Ssa_backends.Pipeline.Representation
+     | Some "exact" -> Some Ssa_backends.Pipeline.Exact
+     | Some "planned" ->
+         Some
+           (Ssa_backends.Pipeline.Planned
+              {
+                numerics =
+                  Option.get
+                    (Ssa_ir.Ssa_numerics.of_name (Loop_numerics.name numerics));
+                target =
+                  (match vector with
+                  | Some t ->
+                      Ssa_ir.Ssa_target.with_row_block t.Loop_target.row_block
+                        Ssa_ir.Ssa_target.neon128
+                  | None -> Ssa_ir.Ssa_target.scalar);
+              })
+     | Some other ->
+         Printf.eprintf
+           "loop_c_pt2: unknown --ssa=%S (representation, exact or planned)\n"
+           other;
+         exit 2);
   let cc, argv = valued "--cc=" argv in
   let compiler =
     Option.map

@@ -44,6 +44,7 @@ val default_compiler : string list
 val prepare :
   ?vector:Loop_target.t ->
   ?numerics:Loop_numerics.t ->
+  ?kernel:(name:string -> Loop_bundle.invocation -> (Loop_c.t, string) result) ->
   ?compiler:string list ->
   dir:string ->
   Loop_bundle.t ->

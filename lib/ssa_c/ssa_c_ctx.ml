@@ -35,9 +35,10 @@ type t = {
       (** a scratch object's slots and the variable it names *)
   out : Buffer.t;
   buffers : Ssa_buffer.t list;
+  site_table : Loop_ir.Loop_failure.t array option;
 }
 
-let create buffers =
+let create ?site_table buffers =
   {
     names = Hashtbl.create 64;
     decls = [];
@@ -53,6 +54,7 @@ let create buffers =
     locals = Hashtbl.create 8;
     out = Buffer.create 4096;
     buffers;
+    site_table;
   }
 
 let use cx h = if not (List.mem h cx.used) then cx.used <- h :: cx.used
@@ -149,10 +151,23 @@ let temp cx =
 
 (* A failure site: where a record's static part (which local) is looked up. *)
 let site cx (f : Loop_ir.Loop_failure.t) =
-  let k = cx.site_count in
-  cx.sites <- f :: cx.sites;
-  cx.site_count <- k + 1;
-  k
+  match cx.site_table with
+  | None ->
+      let k = cx.site_count in
+      cx.sites <- f :: cx.sites;
+      cx.site_count <- k + 1;
+      k
+  | Some table ->
+      (* the first entry of the caller's table that names the same failure; a
+         check the table has no entry for is one its own lowering proved can
+         never fire, so its index is one past the table, which a decoder
+         reports as a defect rather than as a failure *)
+      let rec find i =
+        if i >= Array.length table then i
+        else if Loop_ir.Loop_failure.same_site table.(i) f then i
+        else find (i + 1)
+      in
+      find 0
 
 let vector_helper cx name text =
   if not (List.mem_assoc name cx.vector_helpers) then

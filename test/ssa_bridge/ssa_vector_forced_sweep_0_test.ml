@@ -27,11 +27,10 @@ let%expect_test "vector sweep (forced), slice 0 of 4" =
     upsample_bicubic2d           agree=12 failed-alike=0
       branch                             loops=86 work=11602
       carries_values                     loops=74 work=0
-      no_vector_form:load                loops=6 work=3136
       no_vector_form:load.in_bounds      loops=60 work=2464
       no_vector_form:local.alloc         loops=32 work=9770
       no_vector_form:local.read          loops=22 work=2782
       no_vector_form:select              loops=24 work=1072
-      non_affine_access                  loops=70 work=6504
+      non_affine_access                  loops=58 work=6068
       too_short                          loops=168 work=8592
-      vectorized                         loops=148 work=12998 |}]
+      vectorized                         loops=154 work=16134 |}]

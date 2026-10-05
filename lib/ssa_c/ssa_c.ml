@@ -178,15 +178,15 @@ and stmt cx depth ~limits (s : Ssa_region.t Ssa_stmt.t) =
       | [] -> ());
       line cx depth "}"
 
-let kernel ~name:fname (p : Ssa_program.t) =
+let kernel ?buffers ?sites ~name:fname (p : Ssa_program.t) =
   (match Err.payload (Ssa_verify.check p) with
   | Ok () -> ()
   | Error e ->
       invalid_arg
         (Fmt.str "Ssa_c.kernel: the program does not verify: %a"
            Ssa_verify.pp_error e));
-  let buffers = arguments p in
-  let cx = Ssa_c_ctx.create buffers in
+  let buffers = Option.value buffers ~default:(arguments p) in
+  let cx = Ssa_c_ctx.create ?site_table:sites buffers in
   match
     let params =
       List.map
@@ -244,16 +244,22 @@ let kernel ~name:fname (p : Ssa_program.t) =
           @ voids @ decl_lines @ meter
           @ [ body ^ "  return 0;"; "}"; "" ])
       in
+      (* the emitter's own types and functions, each block guarded so that the
+         kernels of one translation unit can all carry theirs *)
+      let guarded (name, text) =
+        Printf.sprintf "#ifndef SSA_C_%s\n#define SSA_C_%s\n%s\n#endif" name
+          name text
+      in
       let prelude =
         String.concat "\n"
-          (List.map snd cx.vector_types @ List.map snd cx.vector_helpers)
+          (List.map guarded (cx.vector_types @ cx.vector_helpers))
       in
       if cx.f32 then use cx R.Name.F32_prelude;
       let used = cx.used in
       Ok
         ( {
-            Loop_ir.Loop_c.source =
-              (if prelude = "" then fn else prelude ^ "\n" ^ fn);
+            Loop_ir.Loop_c.source = fn;
+            prelude;
             helpers = List.filter (fun n -> List.mem n used) R.Name.all;
             local_doubles = cx.local_doubles;
             precision =
@@ -266,4 +272,6 @@ let kernel ~name:fname (p : Ssa_program.t) =
                   cell_type b.Ssa_buffer.id b.Ssa_buffer.format)
                 buffers;
           },
-          Array.of_list (List.rev cx.sites) )
+          match sites with
+          | Some table -> table
+          | None -> Array.of_list (List.rev cx.sites) )

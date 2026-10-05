@@ -62,7 +62,155 @@ let floor_div n d =
 
 let ceil_div n d = Int64.neg (floor_div (Int64.neg n) d)
 
-type t = { ranges : range Ssa_id.Value.Map.t }
+(* ---- relational bounds: linear forms and loop facts ---------------------------
+
+   A window loop is [for k in [max (0, a), min (K, b))] and an access inside it
+   is at [base + k]. Its bounds check follows from the loop's bounds only
+   relationally ([k >= -base] makes [base + k >= 0]), which an interval over
+   [k] and [base] separately cannot see. So an induction value keeps the facts
+   its bounds give, [d * k >= a] and [d * k <= a], and a bound on a coordinate's
+   linear form is proved by replacing [c * k] with the matching fact's side and
+   checking what is left by interval. The loop's own bounds are the proof: the
+   program claims nothing. Values are immutable, so a fact may mention any value
+   in scope at the loop. *)
+
+module Lin = struct
+  type t = { terms : (Ssa_value.t * int64) list; const : int64 }
+
+  (* Coefficients and constants stay small enough that a product with an index
+     range, and a sum of a few of them, cannot wrap [int64]. *)
+  let max_coef = 0x10_0000L
+  let max_const = 0x100_0000_0000L
+
+  let within bound n =
+    Int64.compare n (Int64.neg bound) >= 0 && Int64.compare n bound <= 0
+
+  let const c = { terms = []; const = c }
+
+  let rec merge a b =
+    match (a, b) with
+    | [], l | l, [] -> Some l
+    | ((va, ca) :: ra as la), ((vb, cb) :: rb as lb) ->
+        let c = Ssa_id.Value.compare va.Ssa_value.id vb.Ssa_value.id in
+        if c < 0 then Option.map (fun r -> (va, ca) :: r) (merge ra lb)
+        else if c > 0 then Option.map (fun r -> (vb, cb) :: r) (merge la rb)
+        else
+          let sum = Int64.add ca cb in
+          if not (within max_coef sum) then None
+          else
+            Option.map
+              (fun r -> if Int64.equal sum 0L then r else (va, sum) :: r)
+              (merge ra rb)
+
+  let add a b =
+    match merge a.terms b.terms with
+    | None -> None
+    | Some terms ->
+        let c = Int64.add a.const b.const in
+        if within max_const c then Some { terms; const = c } else None
+
+  let scale k f =
+    if not (within max_coef k) then None
+    else if Int64.equal k 0L then Some (const 0L)
+    else
+      let terms = List.map (fun (v, c) -> (v, Int64.mul k c)) f.terms in
+      let c = Int64.mul k f.const in
+      if
+        List.for_all (fun (_, c) -> within max_coef c) terms
+        && within max_const c
+      then Some { terms; const = c }
+      else None
+
+  let sub a b = Option.bind (scale (-1L) b) (add a)
+end
+
+type fact = { d : int64; bound : Lin.t }
+type facts = { lower : fact list; upper : fact list }
+
+type t = {
+  ranges : range Ssa_id.Value.Map.t;
+  defs : Ssa_op.t Ssa_id.Value.Map.t;
+  facts : facts Ssa_id.Value.Map.t;
+}
+
+let ( let* ) = Option.bind
+let definition t (v : Ssa_value.t) = Ssa_id.Value.Map.find_opt v.Ssa_value.id t
+
+(* The linear form of an index value, through the additions, scalings and
+   constants that define it; anything else is an atom. A checked operation is
+   taken as its mathematical result, because an execution where it fails never
+   reaches the access. *)
+let rec linear defs (v : Ssa_value.t) =
+  let atom = Some { Lin.terms = [ (v, 1L) ]; const = 0L } in
+  match definition defs v with
+  | Some (Ssa_op.Const (Ssa_const.Index n | Ssa_const.I64 n)) ->
+      if Lin.within Lin.max_const n then Some (Lin.const n) else None
+  | Some (Ssa_op.Index_add (a, b) | Ssa_op.Index_add_in_domain (a, b)) ->
+      let* x = linear defs a in
+      let* y = linear defs b in
+      Lin.add x y
+  | Some (Ssa_op.Index_scale (k, a) | Ssa_op.Index_scale_in_domain (k, a)) ->
+      let* x = linear defs a in
+      Lin.scale k x
+  | Some _ | None -> atom
+
+(* [bound = e + c], [e] the one atom of the form at coefficient 1. *)
+let single_atom (f : Lin.t) =
+  match f.Lin.terms with [ (a, 1L) ] -> Some (a, f.Lin.const) | _ -> None
+
+(* [k >= lo]: [max] and [clamp_low] give one fact per operand, and
+   [k >= ceil (x / d) + c] gives [d * k >= x + d * c]. *)
+let rec lower_facts defs (lo : Ssa_value.t) =
+  match definition defs lo with
+  | Some (Ssa_op.Index_clamp_low a) ->
+      { d = 1L; bound = Lin.const 0L } :: lower_facts defs a
+  | Some (Ssa_op.Index_max (a, b)) -> lower_facts defs a @ lower_facts defs b
+  | Some _ | None -> (
+      match linear defs lo with
+      | None -> []
+      | Some f -> (
+          let plain = [ { d = 1L; bound = f } ] in
+          match single_atom f with
+          | Some (atom, c) -> (
+              match definition defs atom with
+              | Some (Ssa_op.Index_ceil_div (d, x)) -> (
+                  match
+                    let* x = linear defs x in
+                    let* dc = Lin.scale d (Lin.const c) in
+                    Lin.add x dc
+                  with
+                  | Some bound -> { d; bound } :: plain
+                  | None -> plain)
+              | Some _ | None -> plain)
+          | None -> plain))
+
+(* [k < hi], so [k <= hi - 1]: [min] gives one fact per operand, and
+   [k <= floor (x / d) + c - 1] gives [d * k <= x + d * (c - 1)]. *)
+let rec upper_facts defs (hi : Ssa_value.t) =
+  match definition defs hi with
+  | Some (Ssa_op.Index_min (a, b)) -> upper_facts defs a @ upper_facts defs b
+  | Some _ | None -> (
+      match linear defs hi with
+      | None -> []
+      | Some f -> (
+          let plain =
+            match Lin.add f (Lin.const (-1L)) with
+            | Some bound -> [ { d = 1L; bound } ]
+            | None -> []
+          in
+          match single_atom f with
+          | Some (atom, c) -> (
+              match definition defs atom with
+              | Some (Ssa_op.Index_floor_div (d, x)) -> (
+                  match
+                    let* x = linear defs x in
+                    let* dc = Lin.scale d (Lin.const (Int64.pred c)) in
+                    Lin.add x dc
+                  with
+                  | Some bound -> { d; bound } :: plain
+                  | None -> plain)
+              | Some _ | None -> plain)
+          | None -> plain))
 
 let of_type (v : Ssa_value.t) =
   match v.Ssa_value.ty with
@@ -76,6 +224,8 @@ let range t (v : Ssa_value.t) =
 
 let analyze (p : Ssa_program.t) =
   let ranges = ref Ssa_id.Value.Map.empty in
+  let defs = ref Ssa_id.Value.Map.empty in
+  let facts = ref Ssa_id.Value.Map.empty in
   let set (v : Ssa_value.t) r =
     ranges := Ssa_id.Value.Map.add v.Ssa_value.id r !ranges
   in
@@ -89,6 +239,7 @@ let analyze (p : Ssa_program.t) =
   let op (i : Ssa_instr.t) =
     let result = List.hd i.Ssa_instr.results in
     let set_result r = set result r in
+    defs := Ssa_id.Value.Map.add result.Ssa_value.id i.Ssa_instr.op !defs;
     match i.Ssa_instr.op with
     | Ssa_op.Const (Ssa_const.Index n) | Ssa_op.Const (Ssa_const.I64 n) ->
         set_result (point n)
@@ -138,6 +289,10 @@ let analyze (p : Ssa_program.t) =
   in
   let rec region (r : Ssa_region.t) = List.iter stmt r.Ssa_region.body
   and induction ~lo ~hi ~step (iv : Ssa_value.t) =
+    facts :=
+      Ssa_id.Value.Map.add iv.Ssa_value.id
+        { lower = lower_facts !defs lo; upper = upper_facts !defs hi }
+        !facts;
     (* a loop that cannot run has no induction value: its body is unreachable *)
     match (get lo, get hi) with
     | Empty, _ | _, Empty -> set iv Empty
@@ -185,12 +340,67 @@ let analyze (p : Ssa_program.t) =
         region body
   in
   region p.Ssa_program.entry;
-  { ranges = !ranges }
+  { ranges = !ranges; defs = !defs; facts = !facts }
 
 (* ---- the claims the ranges back ---------------------------------------------- *)
 
 let add_stays_in_domain t a b = within_domain (add (range t a) (range t b))
 let scale_stays_in_domain t k a = within_domain (scale k (range t a))
+
+(* The range of a linear form: each atom's range scaled by its coefficient. *)
+let lin_range t (f : Lin.t) =
+  List.fold_left
+    (fun acc (a, c) -> add acc (scale c (range t a)))
+    (point f.Lin.const) f.Lin.terms
+
+(* [f >= 0] (for [`Lower]) or [f <= 0] (for [`Upper]). With [c * k] in [f] and a
+   fact [d * k >= a] (or [<= a]) where [c = m * d], [c * k] is bounded by [m * a]
+   on the side the sign of [m] picks, so it is replaced by that. *)
+let rec provable t ~depth side (f : Lin.t) =
+  (match (lin_range t f, side) with
+    | Empty, _ -> true
+    | Range r, `Lower -> Int64.compare r.lo 0L >= 0
+    | Range r, `Upper -> Int64.compare r.hi 0L <= 0)
+  || depth > 0
+     && List.exists
+          (fun ((atom : Ssa_value.t), c) ->
+            match Ssa_id.Value.Map.find_opt atom.Ssa_value.id t.facts with
+            | None -> false
+            | Some b ->
+                let facts =
+                  match (side, Int64.compare c 0L > 0) with
+                  | `Lower, true | `Upper, false -> b.lower
+                  | `Lower, false | `Upper, true -> b.upper
+                in
+                List.exists
+                  (fun { d; bound } ->
+                    Int64.equal (Int64.rem c d) 0L
+                    &&
+                    match
+                      let* without =
+                        Lin.sub f { Lin.terms = [ (atom, c) ]; const = 0L }
+                      in
+                      let* by = Lin.scale (Int64.div c d) bound in
+                      Lin.add without by
+                    with
+                    | Some f' -> provable t ~depth:(depth - 1) side f'
+                    | None -> false)
+                  facts)
+          f.Lin.terms
+
+(* A coordinate component inside [0, extent) by its own range, or relationally
+   through the bounds of the loops it is made from. *)
+let in_extent t (v : Ssa_value.t) extent =
+  subset (range t v) ~lo:0L ~hi:(Int64.pred extent)
+  ||
+  match linear t.defs v with
+  | None -> false
+  | Some f -> (
+      provable t ~depth:2 `Lower f
+      &&
+      match Lin.add f (Lin.const (Int64.sub 1L extent)) with
+      | Some g -> provable t ~depth:2 `Upper g
+      | None -> false)
 
 (* Every coordinate component inside the buffer's extent on its axis, or the flat
    offset inside its element count. *)
@@ -199,9 +409,7 @@ let in_bounds t (b : Ssa_buffer.t) (at : Ssa_access.t) =
   | Ssa_access.Coord c ->
       Expr.Coord.foldi
         (fun axis ok v ->
-          ok
-          && subset (range t v) ~lo:0L
-               ~hi:(Int64.pred (Expr.Coord.get b.Ssa_buffer.extents axis)))
+          ok && in_extent t v (Expr.Coord.get b.Ssa_buffer.extents axis))
         true c
   | Ssa_access.Flat o -> (
       match Ssa_buffer.elements b.Ssa_buffer.extents with
@@ -219,12 +427,16 @@ let lanes_in_bounds t (b : Ssa_buffer.t) ~(at : Ssa_value.t Expr.Coord.t)
       ok
       &&
       let span = Int64.mul reach (Expr.Coord.get steps axis) in
-      match range t v with
-      | Empty -> true
-      | Range r ->
-          let extent = Expr.Coord.get b.Ssa_buffer.extents axis in
-          Int64.compare (Int64.add r.lo (Stdlib.min 0L span)) 0L >= 0
-          && Int64.compare (Int64.add r.hi (Stdlib.max 0L span)) extent < 0)
+      let extent = Expr.Coord.get b.Ssa_buffer.extents axis in
+      (* a coordinate the lanes do not move along is one scalar coordinate:
+         the loops' bounds may prove it, as for a scalar access *)
+      if Int64.equal span 0L then in_extent t v extent
+      else
+        match range t v with
+        | Empty -> true
+        | Range r ->
+            Int64.compare (Int64.add r.lo (Stdlib.min 0L span)) 0L >= 0
+            && Int64.compare (Int64.add r.hi (Stdlib.max 0L span)) extent < 0)
     true at
 
 (* What a loop's bounds say about how often its body runs. *)

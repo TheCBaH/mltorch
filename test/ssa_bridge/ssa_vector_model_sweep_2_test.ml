@@ -26,10 +26,9 @@ let%expect_test "vector sweep (model), slice 2 of 4" =
       branch                             loops=80 work=2512
       carries_values                     loops=12 work=0
       no_vector_form:check_gather        loops=4 work=64
-      no_vector_form:load                loops=12 work=7744
       no_vector_form:load.in_bounds      loops=178 work=11598
       no_vector_form:select              loops=42 work=5072
       non_affine_access                  loops=40 work=7788
       too_short                          loops=220 work=14242
-      unprofitable                       loops=82 work=2152
+      unprofitable                       loops=94 work=9896
       vectorized                         loops=34 work=16784 |}]

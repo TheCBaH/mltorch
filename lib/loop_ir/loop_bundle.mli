@@ -39,6 +39,11 @@ type invocation = {
       (** the node's scheduled outputs this program writes, in the order its
           [Output] buffers appear. One for every node but a grouped Region node,
           whose scheduled outputs share one recurrence. *)
+  placed : Fusion_plan.t;
+      (** the placed kernel [program] was lowered from, for a consumer that
+          lowers plans itself: its buffers are [program]'s (a source or an
+          output; an unused input may be declared and is never an argument), and
+          [edges] binds [program]'s buffers, never this plan's by position *)
   program : Loop_program.t;
   edges : Tensor_id.t list;
       (** the graph edge (or a [synthetics] id) each of [program]'s buffers

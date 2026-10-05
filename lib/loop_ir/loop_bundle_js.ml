@@ -3,12 +3,14 @@ module S = Storage_script
 module U = Core.Storage_units
 
 type error =
-  [ `Local_too_large of Tensor_id.t
+  [ `Kernel_refused of string
+  | `Local_too_large of Tensor_id.t
   | `Pool_index_overflow of Tensor_id.t * int64
   | `Storage_units of Core.Storage_units.error
   | `Unbound_arena of Tensor_id.t ]
 
 let pp_error ppf : [< error ] -> unit = function
+  | `Kernel_refused m -> Format.fprintf ppf "a kernel was refused: %s" m
   | `Local_too_large id ->
       Format.fprintf ppf
         "t%d: a kernel-local buffer does not fit a 32-bit index"
@@ -268,7 +270,7 @@ let dedup_stmts stmts =
         true))
     stmts
 
-let build (b : Loop_bundle.t) : (t, error) Err.t =
+let build ?kernel (b : Loop_bundle.t) : (t, error) Err.t =
   let open Err.Syntax in
   let arena_of = arena_of_script b in
   let pools =
@@ -338,7 +340,15 @@ let build (b : Loop_bundle.t) : (t, error) Err.t =
   let+ body_stmts, _ =
     Err.List.fold_left
       (fun (stmts, position) (inv : Loop_bundle.invocation) ->
-        let idx = intern (Loop_js.to_ast inv.Loop_bundle.program) in
+        let* ast =
+          match kernel with
+          | None -> Err.return (Loop_js.to_ast inv.Loop_bundle.program)
+          | Some k -> (
+              match k inv with
+              | Ok ast -> Err.return ast
+              | Error m -> Err.fail (`Kernel_refused m))
+        in
+        let idx = intern ast in
         let+ inv_stmts =
           invocation_stmts st ~kernel_name:(kernel_name idx) ~position inv
         in

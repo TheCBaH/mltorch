@@ -37,7 +37,7 @@ let tensor_sig_of_binding ~id (Tensor.Tensor t) =
   Tensor_sig.create ~id ~name:"loop_js region source" ~shape:t.Tensor.shape
     ~fmt:(Payload.Fmt t.Tensor.payload.Payload.fmt) ?quant ()
 
-let lower_sigs ~limits ~out_shape ~sigs program =
+let plan_sigs ~limits ~out_shape ~sigs program =
   let open Err.Syntax in
   let sources = Region_program.Fold.sources program in
   let source_ids =
@@ -67,12 +67,16 @@ let lower_sigs ~limits ~out_shape ~sigs program =
       result = Kernel.Result_conversion.Round_f32;
     }
   in
-  let* kernel =
+  let+ kernel =
     Kernel.create ~limits ~inputs ~values:[ value ] ~outputs:[ value_id ] ()
     |> Err.map_error (fun e -> `Kernel e)
   in
-  Loop_lower.lower (Fusion_plan.default kernel)
-  |> Err.map_error (fun e -> `Lower e)
+  Fusion_plan.default kernel
+
+let lower_sigs ~limits ~out_shape ~sigs program =
+  let open Err.Syntax in
+  let* plan = plan_sigs ~limits ~out_shape ~sigs program in
+  Loop_lower.lower plan |> Err.map_error (fun e -> `Lower e)
 
 (* The group sibling of [lower] (T7.2): the SAME shape, but for several
    sibling values sharing one [Region_group.t] (project step 19 -- today
@@ -90,7 +94,7 @@ let lower_sigs ~limits ~out_shape ~sigs program =
    [Region_execution.materialize_group]'s own convention: every caller here
    derives [selected] from [group] itself, same as that function's callers
    do. *)
-let lower_group_sigs ~limits ~sigs ~(selected : Region_group.Ordinal.t list)
+let plan_group_sigs ~limits ~sigs ~(selected : Region_group.Ordinal.t list)
     (group : Region_group.t) =
   let open Err.Syntax in
   let sources =
@@ -139,14 +143,17 @@ let lower_group_sigs ~limits ~sigs ~(selected : Region_group.Ordinal.t list)
       ()
     |> Err.map_error (fun e -> `Kernel e)
   in
-  let+ program =
-    Loop_lower.lower (Fusion_plan.default kernel)
-    |> Err.map_error (fun e -> `Lower e)
-  in
-  ( program,
-    List.map2
-      (fun ordinal (v : Kernel.Value.t) -> (ordinal, v.Kernel.Value.id))
-      selected values )
+  Err.return
+    ( Fusion_plan.default kernel,
+      List.map2
+        (fun ordinal (v : Kernel.Value.t) -> (ordinal, v.Kernel.Value.id))
+        selected values )
+
+let lower_group_sigs ~limits ~sigs ~selected group =
+  let open Err.Syntax in
+  let* plan, ids = plan_group_sigs ~limits ~sigs ~selected group in
+  let+ program = Loop_lower.lower plan |> Err.map_error (fun e -> `Lower e) in
+  (program, ids)
 
 let sigs_of_bindings bindings =
   Tensor_id.Map.mapi

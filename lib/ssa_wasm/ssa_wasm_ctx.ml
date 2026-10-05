@@ -62,6 +62,7 @@ type t = {
   mutable f32 : bool;
   relaxed_madd : bool;
   ranges : Ssa_range.t;
+  site_table : LF.t array option;
 }
 
 let n op = I.Numeric op
@@ -85,10 +86,21 @@ let fresh st ty =
   id
 
 let site st f =
-  let k = st.site_count in
-  st.sites <- f :: st.sites;
-  st.site_count <- k + 1;
-  k
+  match st.site_table with
+  | None ->
+      let k = st.site_count in
+      st.sites <- f :: st.sites;
+      st.site_count <- k + 1;
+      k
+  | Some table ->
+      (* a check the table has no entry for is one its own lowering proved can
+         never fire: its index is one past the table, a defect to a decoder *)
+      let rec find i =
+        if i >= Array.length table then i
+        else if LF.same_site table.(i) f then i
+        else find (i + 1)
+      in
+      find 0
 
 (* An index literal that becomes an [i32] immediate. *)
 let index_const k =

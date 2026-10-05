@@ -46,11 +46,11 @@ type prepared = {
 let node = Wasm_node.node
 let ( let* ) = Result.bind
 
-let prepare_r ?vector ?numerics ~dir (b : Loop_bundle.t) ~constants =
+let prepare_r ?vector ?numerics ?kernel ~dir (b : Loop_bundle.t) ~constants =
   let* w =
     Result.map_error
       (fun e -> `Generate e)
-      (Err.payload (Loop_bundle_wasm.build ?vector ?numerics b))
+      (Err.payload (Loop_bundle_wasm.build ?vector ?numerics ?kernel b))
   in
   let* () = Io.unix_io (fun () -> Io.mkdir_p dir) in
   let file name = Filename.concat dir name in
@@ -145,8 +145,8 @@ let run_r ?(poison = false) ?(repeat = 0) p ~bind =
 
 let lift r = Err.import Fun.id r
 
-let prepare ?vector ?numerics ~dir b ~constants =
-  lift (prepare_r ?vector ?numerics ~dir b ~constants)
+let prepare ?vector ?numerics ?kernel ~dir b ~constants =
+  lift (prepare_r ?vector ?numerics ?kernel ~dir b ~constants)
 
 let run ?poison ?repeat p ~bind = lift (run_r ?poison ?repeat p ~bind)
 let timings p = p.timings

@@ -30,7 +30,9 @@
 open Graph_ir
 
 type error =
-  [ `Local_too_large of Tensor_id.t
+  [ `Kernel_refused of string
+    (** the [kernel] hook declined a program: its own words *)
+  | `Local_too_large of Tensor_id.t
   | `Pool_index_overflow of Tensor_id.t * int64
   | `Storage_units of Core.Storage_units.error
   | `Unbound_arena of Tensor_id.t ]
@@ -49,10 +51,16 @@ type t = {
   entry_name : Js_ident.t;
 }
 
-val build : Loop_bundle.t -> (t, error) Err.t
+val build :
+  ?kernel:(Loop_bundle.invocation -> (Js_ast.Program.t, string) result) ->
+  Loop_bundle.t ->
+  (t, error) Err.t
 (** The entry returns [null] on success, or [[position, record]] for the first
     failing invocation: its index in [Loop_bundle.t.invocations] and the
-    kernel's own failure record, decoded against that invocation's program. *)
+    kernel's own failure record, decoded against that invocation's program.
+    [kernel] makes each invocation's function instead of {!Loop_js.to_ast}: it
+    must take the invocation program's buffers positionally, all of them, in
+    order, and return failure records of the same shape. *)
 
 val locate :
   Loop_bundle.t ->
