@@ -4,7 +4,7 @@ module B = Ssa_builder
 module Fx = Ssa_ir_test.Ssa_fixtures
 module Lf = Loop_ir_test.Loop_fixtures
 
-(* Hand-built programs through generated C against the structured interpreter:
+(* Hand-built programs through generated JavaScript against the structured interpreter:
    control flow, every failing operation and the row it reports, rounding, the
    scan meter and scratch locals. The outcome text, every output cell and the
    failure row must be the interpreter's. *)
@@ -56,14 +56,14 @@ let structured p =
   (row, Array.to_list out @ Array.to_list bits)
 
 let c p =
-  let kernel, sites =
-    match Ssa_c.kernel ~name:Loop_c_exec.kernel_name p with
+  let ast, sites =
+    match Ssa_js.program p with
     | Ok k -> k
-    | Error e -> Fmt.failwith "%a" Ssa_c.pp_error e
+    | Error e -> Fmt.failwith "%a" Ssa_js.pp_error e
   in
   let loop =
     Lf.program
-      ~buffers:(List.map Loop_of_ssa.loop_buffer (Ssa_c.arguments p))
+      ~buffers:(List.map Loop_of_ssa.loop_buffer (Ssa_js.arguments p))
       []
   in
   let shape = Lf.shape_w 4 in
@@ -72,10 +72,19 @@ let c p =
       Some (Lf.f32_tensor shape (fun c -> input.((Vec6.offset shape c :> int))))
     else None
   in
-  match Err.payload (Loop_c_exec.exec_kernel ~kernel ~sites loop ~bind) with
+  let compiled =
+    match
+      Err.payload
+        (Loop_js_exec.compile_kernel ~sites loop (Js_print.factory_body ast))
+    with
+    | Ok c -> c
+    | Error (`Js_compile m) ->
+        Fmt.failwith "the engine refused the source: %s" m
+  in
+  match Err.payload (Loop_js_exec.run compiled ~bind) with
   | Error (#Loop_ir.Loop_interp.error as e) ->
       (Some (e :> Kernel_eval.error), [])
-  | Error e -> Fmt.failwith "%a" Loop_c_exec.pp_error e
+  | Error e -> Fmt.failwith "%a" Loop_js_exec.pp_error e
   | Ok outputs ->
       let cells id n =
         match Tensor_id.Map.find_opt (Lf.tid id) outputs with
@@ -252,9 +261,9 @@ let%expect_test "failing operations report the interpreter's rows" =
     t0[0,0,0,3,9,0] out of range on axis H: 3 |  | same row and cells as the interpreter: true
     t0[0,0,0,0,-1,0] out of range on axis W: -1 |  | same row and cells as the interpreter: true
     t0[0,0,0,0,4,0] out of range on axis W: 4 |  | same row and cells as the interpreter: true
-    index overflow: add 2147483647 1 exceeds the 63-bit int domain |  | same row and cells as the interpreter: true
-    index overflow: mul 2 1073741824 exceeds the 63-bit int domain |  | same row and cells as the interpreter: true
-    index overflow: add -2147483648 -1 exceeds the 63-bit int domain |  | same row and cells as the interpreter: true
+    index overflow: add 2147483647 1 exceeds the 32-bit int domain |  | same row and cells as the interpreter: true
+    index overflow: mul 2 1073741824 exceeds the 32-bit int domain |  | same row and cells as the interpreter: true
+    index overflow: add -2147483648 -1 exceeds the 32-bit int domain |  | same row and cells as the interpreter: true
     I64 division by zero |  | same row and cells as the interpreter: true
     I64 division overflow: -2^63 / -1 does not fit |  | same row and cells as the interpreter: true
     ok | -3 0 0 0 0 0 0 0 0 0 0 0 | same row and cells as the interpreter: true
@@ -374,11 +383,11 @@ let%expect_test "rounding, conversion and order are part of the value" =
             (Fx.at bld ~h:(idx bld 0) ~w:(idx bld k))
             (B.f64 bld x))
         [ nan; -0.; 2.5; 0. ]);
+  (* an int64 to binary64 conversion rounds once, and is exact up to 2^53 *)
   List.iteri
     (fun k x ->
       attempt (fun bld ->
-          store_at bld 1 (idx bld k)
-            (B.f32_to_f64 bld (B.i64_to_f32 bld (B.i64 bld x)))))
+          store_at bld 1 (idx bld k) (B.i64_to_f64 bld (B.i64 bld x))))
     [
       16777217L;
       0x0020000020000001L;
@@ -426,17 +435,6 @@ let%expect_test "rounding, conversion and order are part of the value" =
     ok | 1.22474 nan 0 0 0 0 0 0 0 0 0 0 | same row and cells as the interpreter: true
     ok | 1 -2 0 0 0 0 0 0 0 0 0 0 | same row and cells as the interpreter: true
     ok | nan 0 0 3 3 0 0 0 0 0 0 0 | same row and cells as the interpreter: true |}]
-
-(* a fused multiply-add rounds once: the product's low bits survive into the sum *)
-let%expect_test "a contracted multiply-add is one rounding in C too" =
-  let contract p = fst (Ssa_opt_contract.pass ~scalar:true p) in
-  attempt ~prepare:contract (fun bld ->
-      let x = B.f64 bld 0.1 and y = B.f64 bld 0.1 and z = B.f64 bld (-0.01) in
-      store_at bld 1 (idx bld 0)
-        (B.f64_binary bld Expr.Value.Add z
-           (B.f64_binary bld Expr.Value.Mul x y)));
-  [%expect
-    {| ok | 9.02056e-19 0 0 0 0 0 0 0 0 0 0 0 | same row and cells as the interpreter: true |}]
 
 (* what the narrow cases of each representation would get wrong *)
 let%expect_test "integer wrap, negative zero, binary32 rounding and strides" =

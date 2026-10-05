@@ -1,0 +1,31 @@
+; Direct JavaScript emission from SSA against the reference evaluator: every
+; walked plan is lowered, prepared, emitted by [Ssa_js], compiled by the engine
+; and run in this process, and its outputs and failure rows are compared with
+; [Kernel_eval]. js_of_ocaml only (loop_js_exec cannot link natively): run under
+; node by `make jsoo.inline-runtest`.
+
+(library
+ (name ssa_js_test)
+ (libraries
+  core
+  err_trace
+  expr
+  fmt
+  js_ast
+  js_of_ocaml
+  loop_ir
+  loop_ir_test
+  loop_js_exec
+  native
+  native_op_walk
+  native_test
+  ssa_bridge
+  ssa_bridge_test
+  ssa_ir
+  ssa_js
+  ssa_lower
+  walk_core)
+ (inline_tests
+  (modes js))
+ (preprocess
+  (pps ppx_expect)))

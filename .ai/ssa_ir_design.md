@@ -310,6 +310,25 @@ policy on neon (against the structured interpreter on the same program),
 hand-built control flow and every failure row, the vector surface, and mutations
 of addressing, checks, transfers, masks and fused operations.
 
+## Direct JavaScript consumer
+
+`Ssa_js` (library `lib/ssa_js`) builds a `Js_ast.Program.t` straight from a
+structured program, with the argument convention (one typed array per buffer the
+program names) and the failure-record shape of `Loop_js`, so the same in-process
+host runs it (`Loop_js_exec.compile_kernel` takes the failure-site table the
+emitter made). Representations: an index is a `Number`, an int64 a `BigInt`
+wrapped with `asIntN`, a float a `Number` (binary32 results rounded with
+`Math.fround`), a predicate a boolean; every value is a `let` at function scope.
+A loop runs a trip counter, `iv = lo + k * step`, so any step and the empty range
+need no special case, and an index that came from `ceil`/`floor` is normalised
+(`+ 0`) before it becomes a float because it can be `-0`. Checked operations
+return their record at their own site. Refused, typed, not emitted: vectors and
+masks, fused multiply-add, binary32 `erf` and an int64 to binary32 conversion
+(each would lose its single rounding in a `Number`). Checks: the op sweep lowered
+and optimized under node, hand-built control flow, every failure row, int64
+wrap, `-0`, binary32 rounding and a stride that does not divide its range, and
+mutations of each.
+
 ## Verifier and interpreter bounds
 
 `Ssa_verify.max_region_depth` (256) bounds region nesting; the interpreter

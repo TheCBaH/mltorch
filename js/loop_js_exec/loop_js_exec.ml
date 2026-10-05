@@ -69,11 +69,13 @@ let compile_source source =
       | exception Js.Js_error.Exn e ->
           Err.import (fun m -> `Js_compile m) (Error (Js.Js_error.to_string e)))
 
-let compile_as (program : Loop_program.t) source =
+let compile_kernel ~sites (program : Loop_program.t) source =
   match compile_source source with
-  | Ok kernel ->
-      Err.return { program; sites = Loop_js_failure.sites program; kernel }
+  | Ok kernel -> Err.return { program; sites; kernel }
   | Error e -> Error e
+
+let compile_as (program : Loop_program.t) source =
+  compile_kernel ~sites:(Loop_js_failure.sites program) program source
 
 let compile program =
   compile_as program (Js_print.factory_body (Loop_js.to_ast program))
