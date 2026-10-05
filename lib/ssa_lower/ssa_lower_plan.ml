@@ -90,13 +90,29 @@ let body ctx (plan : Fusion_plan.t) (v : Kernel.Value.t) pixel =
   | _ :: _ :: _ -> Ssa_lower_ctx.refuse ctx Ssa_unsupported.Virtual_use
 
 (* The dense six-axis nest, N outermost and C innermost, as [Vec6.iter] visits a
-   tensor. [store] writes the cell's value, inside the nest. *)
+   tensor. [store] lowers and writes the cell's value, inside the nest. A cell
+   that reads the scan meter starts with a fresh one, which only lowering the
+   cell can tell: the cell is built once into a block that is thrown away to
+   find out. *)
 let nest_with (ctx : Ssa_lower_ctx.t) ~id ~(sg : Tensor_sig.t) store =
+  let uses_meter =
+    let probed = ref false in
+    Ssa_builder.probe ctx.Ssa_lower_ctx.b (fun b ->
+        let zero = Ssa_builder.index b 0L in
+        let axes = Expr.Coord.of_fn (fun _ -> zero) in
+        let meter = ref false in
+        store
+          { ctx with Ssa_lower_ctx.b; axes = Some axes; at = id; meter }
+          axes;
+        probed := !meter);
+    !probed
+  in
   let rec go (ctx : Ssa_lower_ctx.t) inductions = function
     | [] ->
         let axes =
           Expr.Coord.of_fn (fun a -> List.assoc a (List.rev inductions))
         in
+        if uses_meter then Ssa_builder.meter_reset ctx.Ssa_lower_ctx.b;
         store { ctx with Ssa_lower_ctx.axes = Some axes } axes
     | a :: rest ->
         let lo = Ssa_builder.index ctx.Ssa_lower_ctx.b 0L in
@@ -134,6 +150,47 @@ let nest_i64 ctx (v : Kernel.Value_i64.t) =
       Ssa_builder.store_i64 ctx.Ssa_lower_ctx.b
         (Ssa_lower_ctx.buffer_id v.Kernel.Value_i64.id)
         (Ssa_builder.Coord axes) x)
+
+(* The reference rejects a Region program over its admission budget (local
+   slots, scan state, updates per key) before it evaluates anything, by
+   [Region_program.preflight] on the converted program. Refusing what it rejects
+   keeps the two from disagreeing about a program neither is meant to run. *)
+let region_unit ~refuse_at (v : Kernel.Value.t) program
+    ~(limits : Kernel.Limits.t) =
+  match
+    Region_execution.lower_region ~max_size:limits.Kernel.Limits.max_size
+      ~max_depth:limits.Kernel.Limits.max_depth
+      ~max_local_slots:limits.Kernel.Limits.max_local_slots
+      ~scan_limits:(Kernel.Limits.scan_limits limits)
+      ~output_shape:v.Kernel.Value.sg.Tensor_sig.shape
+      (Region_program.with_output program
+         (Kernel.Result_conversion.apply v.Kernel.Value.result
+            (Region_program.output program)))
+  with
+  | Ok _ -> ()
+  | Error _ -> refuse_at v.Kernel.Value.id Ssa_unsupported.Region_admission
+
+(* A run of grouped values: one shared recurrence per canonical key, one store
+   per SELECTED member. The reference re-validates each member's converted
+   emitter before running, and so does this. *)
+let group_unit ~refuse_at (first : Kernel.Value.t) g selected
+    ~(limits : Kernel.Limits.t) =
+  let converted =
+    Region_group.map_outputs g (fun ordinal output ->
+        match List.assoc_opt ordinal selected with
+        | Some (v : Kernel.Value.t) ->
+            Kernel.Result_conversion.apply v.Kernel.Value.result output
+        | None -> output)
+  in
+  match
+    Region_execution.lower_group ~max_size:limits.Kernel.Limits.max_size
+      ~max_depth:limits.Kernel.Limits.max_depth
+      ~max_local_slots:limits.Kernel.Limits.max_local_slots
+      ~scan_limits:(Kernel.Limits.scan_limits limits)
+      converted
+  with
+  | Ok _ -> ()
+  | Error _ -> refuse_at first.Kernel.Value.id Ssa_unsupported.Region_admission
 
 let lower (plan : Fusion_plan.t) =
   Err.Escape.with_escape @@ fun esc ->
@@ -174,7 +231,9 @@ let lower (plan : Fusion_plan.t) =
   in
   let buffers = inputs @ outputs @ i64_outputs in
   Err.or_raise ~pp_error:Ssa_verify.pp_error
-    (Ssa_builder.program ~buffers (fun b ->
+    (Ssa_builder.program
+       ~scan_limits:(Kernel.Limits.scan_limits k.Kernel.limits) ~buffers
+       (fun b ->
          let ctx =
            {
              Ssa_lower_ctx.esc;
@@ -183,6 +242,8 @@ let lower (plan : Fusion_plan.t) =
              sources;
              axes = None;
              reducers = Expr.Reduce_var.Map.empty;
+             locals = Expr.Local_var.Map.empty;
+             meter = ref false;
            }
          in
          (* An int64 value runs before the first float value that reads it, and
@@ -227,14 +288,36 @@ let lower (plan : Fusion_plan.t) =
                    Region_group.Ref.pixel_expression v.Kernel.Value.computation
                  with
                  | Some pixel -> nest ctx plan v pixel
-                 | None ->
-                     refuse_at v.Kernel.Value.id Ssa_unsupported.Region_program)
+                 | None -> (
+                     let limits = k.Kernel.limits in
+                     match
+                       Region_group.Ref.project
+                         ~max_size:limits.Kernel.Limits.max_size
+                         ~max_depth:limits.Kernel.Limits.max_depth
+                         v.Kernel.Value.computation
+                     with
+                     | Ok program ->
+                         region_unit ~refuse_at v program ~limits;
+                         Ssa_lower_region.lower ctx v program
+                     | Error _ ->
+                         refuse_at v.Kernel.Value.id
+                           Ssa_unsupported.Region_program))
              | Region_group.Run.Solo _ -> ()
-             | Region_group.Run.Group (_, members) -> (
+             | Region_group.Run.Group (g, members) -> (
                  match List.filter (fun (_, v) -> stored v) members with
                  | [] -> ()
-                 | (_, first) :: _ ->
-                     refuse_at first.Kernel.Value.id
-                       Ssa_unsupported.Region_program))
+                 | (_, first) :: _ as selected ->
+                     reads_i64
+                       (List.fold_left
+                          (fun acc (_, (v : Kernel.Value.t)) ->
+                            Expr.Source.Set.union acc
+                              (Region_group.Ref.sources
+                                 v.Kernel.Value.computation))
+                          Expr.Source.Set.empty selected);
+                     group_unit ~refuse_at first g selected
+                       ~limits:k.Kernel.limits;
+                     Ssa_lower_region.lower_group
+                       { ctx with Ssa_lower_ctx.at = first.Kernel.Value.id }
+                       g selected))
            runs;
          List.iter emit_i64 k.Kernel.values_i64))

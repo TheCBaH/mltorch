@@ -18,8 +18,8 @@ let%expect_test "op sweep, slice 0 of 4" =
     mul_scalar                   agree=12 failed-alike=0
     pad                          agree=12 failed-alike=0
     relu                         agree=12 failed-alike=0
-    sdpa                         agree=0 failed-alike=0 refused: region program
-    softmax                      agree=0 failed-alike=0 refused: region program
+    sdpa                         agree=12 failed-alike=0
+    softmax                      agree=12 failed-alike=0
     split_with_sizes_i64         agree=12 failed-alike=0
     sum                          agree=12 failed-alike=0
     upsample_bicubic2d           agree=12 failed-alike=0 |}]

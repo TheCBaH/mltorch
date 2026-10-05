@@ -66,6 +66,11 @@ let%expect_test "unsupported constructs are refusals, not failures" =
         Fmt.pr "%s@." (Ssa_lower.Ssa_unsupported.construct_name u.construct)
     | v -> Fmt.pr "%a@." Ssa_check.pp_verdict v
   in
+  (* an int64 read of an f32 input is refused by format; the reference fails at
+     run time, so the two are never compared *)
+  refused Loop_programs.i64_load_of_f32_kernel;
+  (* a region program is no longer a refusal *)
   refused Loop_fixtures.region_kernel;
   [%expect {|
-    region program |}]
+    load of format f32
+    agree |}]

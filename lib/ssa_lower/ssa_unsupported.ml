@@ -8,6 +8,7 @@ type construct =
   | Index_literal
   | Load_format of string
   | Local_read
+  | Region_admission
   | Region_program
   | Scan_read
   | Unmaterialized_source
@@ -20,6 +21,7 @@ let construct_name = function
   | Index_literal -> "index literal outside the index domain"
   | Load_format f -> "load of format " ^ f
   | Local_read -> "region local read"
+  | Region_admission -> "region program over its admission budget"
   | Region_program -> "region program"
   | Scan_read -> "scan read"
   | Unmaterialized_source -> "load of an unmaterialized value"

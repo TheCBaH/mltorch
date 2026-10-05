@@ -125,6 +125,19 @@ type t =
   | Check_gather of { raw : Ssa_value.t; extent : int64 }
       (** A gather's raw index must lie in [-extent, extent - 1], checked in the
           int64 domain before it is normalized and narrowed. *)
+  | Check_local of { var : Expr.Local_var.t; at : Ssa_value.t; extent : int64 }
+      (** A read position must lie in [0, extent) of the local variable it
+          names; outside it fails as the reference's unbound local does. *)
+  | Check_scan of {
+      var : Expr.Local_var.t option;
+      row : Ssa_value.t;
+      lane : Ssa_value.t;
+      row_extent : int64;
+      lane_extent : int64;
+    }
+      (** A scan projection's row, then its lane, against their extents: the row
+          wins a simultaneous failure. [var] names a materialized trace, [None]
+          an inline scan. *)
   | Const of Ssa_const.t
   | Convert of Convert.t * Ssa_value.t
   | Float_binary of Expr.Value.binary_op * Ssa_value.t * Ssa_value.t
@@ -157,7 +170,27 @@ type t =
   | Index_scale of int64 * Ssa_value.t
       (** Checked multiplication by a literal that is itself an index. *)
   | Load of { buffer : Ssa_id.Buffer.t; at : Ssa_access.t; decode : Decode.t }
+  | Local_alloc of { slots : int64; var : Expr.Local_var.t option }
+      (** A fresh scratch object of [slots] binary64 cells, every cell unset. A
+          read of an unset cell is a defect, never an undefined value. *)
+  | Local_read of { local : Ssa_value.t; at : Ssa_value.t }
+      (** Outside the object fails as an unbound local when the object names a
+          variable, and is a defect when it does not. *)
+  | Local_write of {
+      local : Ssa_value.t;
+      at : Ssa_value.t;
+      value : Ssa_value.t;
+    }
   | Mark of Ssa_mark.t
+  | Meter_charge
+      (** One update against the scan meter, before the update body runs:
+          exactly the limit succeed and the next fails. *)
+  | Meter_release of int64
+      (** Gives back the [2 * width] live state a reserve took. *)
+  | Meter_reserve of int64
+      (** [width] lanes of two rolling rows against the nesting peak of live
+          state. *)
+  | Meter_reset  (** A fresh meter: the full update budget, no live state. *)
   | Pool_better of Ssa_value.t * Ssa_value.t
       (** [Expr.Max_op.pool_better ~best ~value]: the one predicate a paired
           argmax state advances under. *)
@@ -183,14 +216,19 @@ let effectful = function
   | Index_clamp_low _ | Index_compare _ | Index_floor_div _ | Index_max _
   | Index_min _ | Pool_better _ | Pred_not _ | Pred_or _ | Select _ ->
       false
-  | Check_access _ | Check_gather _ | Float_to_i64 _ | I64_div _ | Index_add _
-  | Index_of_i64 _ | Index_scale _ | Load _ | Mark _ | Store _ ->
+  | Check_access _ | Check_gather _ | Check_local _ | Check_scan _
+  | Float_to_i64 _ | I64_div _ | Index_add _ | Index_of_i64 _ | Index_scale _
+  | Load _ | Local_alloc _ | Local_read _ | Local_write _ | Mark _
+  | Meter_charge | Meter_release _ | Meter_reserve _ | Meter_reset | Store _ ->
       true
 
 let operands = function
-  | Const _ | Mark _ -> []
+  | Const _ | Local_alloc _ | Mark _ | Meter_charge | Meter_release _
+  | Meter_reserve _ | Meter_reset ->
+      []
   | Check_access { at; _ } | Load { at; _ } -> Ssa_access.operands at
   | Check_gather { raw = a; _ }
+  | Check_local { at = a; _ }
   | Convert (_, a)
   | Float_to_i64 a
   | Float_unary (_, a)
@@ -214,14 +252,33 @@ let operands = function
   | Pool_better (a, b)
   | Pred_or (a, b) ->
       [ a; b ]
+  | Check_scan { row; lane; _ } -> [ row; lane ]
+  | Local_read { local; at } -> [ local; at ]
+  | Local_write { local; at; value } -> [ local; at; value ]
   | Select (p, a, b) -> [ p; a; b ]
   | Store { at; value; _ } -> Ssa_access.operands at @ [ value ]
 
 let map_operands f = function
-  | (Const _ | Mark _) as op -> op
+  | ( Const _ | Local_alloc _ | Mark _ | Meter_charge | Meter_release _
+    | Meter_reserve _ | Meter_reset ) as op ->
+      op
   | Check_access { buffer; at } ->
       Check_access { buffer; at = Ssa_access.map f at }
   | Check_gather { raw; extent } -> Check_gather { raw = f raw; extent }
+  | Check_local { var; at; extent } -> Check_local { var; at = f at; extent }
+  | Check_scan { var; row; lane; row_extent; lane_extent } ->
+      let row = f row in
+      let lane = f lane in
+      Check_scan { var; row; lane; row_extent; lane_extent }
+  | Local_read { local; at } ->
+      let local = f local in
+      let at = f at in
+      Local_read { local; at }
+  | Local_write { local; at; value } ->
+      let local = f local in
+      let at = f at in
+      let value = f value in
+      Local_write { local; at; value }
   | Convert (c, a) -> Convert (c, f a)
   | Float_binary (op, a, b) ->
       let a = f a in
@@ -308,6 +365,8 @@ let unary_name = function
 let name = function
   | Check_access _ -> "check_access"
   | Check_gather _ -> "check_gather"
+  | Check_local _ -> "check_local"
+  | Check_scan _ -> "check_scan"
   | Const _ -> "const"
   | Convert (c, _) -> "convert." ^ Convert.name c
   | Float_binary (op, _, _) -> "float." ^ binary_name op
@@ -328,7 +387,14 @@ let name = function
   | Index_of_i64 _ -> "index.of_i64"
   | Index_scale _ -> "index.scale"
   | Load _ -> "load"
+  | Local_alloc _ -> "local.alloc"
+  | Local_read _ -> "local.read"
+  | Local_write _ -> "local.write"
   | Mark _ -> "mark"
+  | Meter_charge -> "meter.charge"
+  | Meter_release _ -> "meter.release"
+  | Meter_reserve _ -> "meter.reserve"
+  | Meter_reset -> "meter.reset"
   | Pool_better _ -> "pool_better"
   | Pred_not _ -> "pred.not"
   | Pred_or _ -> "pred.or"

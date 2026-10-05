@@ -22,6 +22,7 @@ let program ?(buffers = []) entry =
     Ssa_program.revision = Ssa_id.Revision.of_int 0;
     buffers;
     entry;
+    scan_limits = Expr.Scan_limits.default;
     next_value = Ssa_id.Value.Next.of_int 64;
     next_region = Ssa_id.Region.Next.of_int 64;
   }

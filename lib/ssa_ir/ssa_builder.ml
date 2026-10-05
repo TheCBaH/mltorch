@@ -147,6 +147,23 @@ let store_i64 b buffer at value =
   store b buffer ~encode:Ssa_op.Encode.I64 at value
 
 let mark b m = ignore (instr b (Ssa_op.Mark m))
+let local_alloc ?var b ~slots = one b (Ssa_op.Local_alloc { slots; var })
+let local_read b local at = one b (Ssa_op.Local_read { local; at })
+
+let local_write b local at value =
+  ignore (instr b (Ssa_op.Local_write { local; at; value }))
+
+let check_local b ~var ~extent at =
+  ignore (instr b (Ssa_op.Check_local { var; at; extent }))
+
+let check_scan b ~var ~row ~lane ~row_extent ~lane_extent =
+  ignore
+    (instr b (Ssa_op.Check_scan { var; row; lane; row_extent; lane_extent }))
+
+let meter_charge b = ignore (instr b Ssa_op.Meter_charge)
+let meter_release b ~width = ignore (instr b (Ssa_op.Meter_release width))
+let meter_reserve b ~width = ignore (instr b (Ssa_op.Meter_reserve width))
+let meter_reset b = ignore (instr b Ssa_op.Meter_reset)
 
 let check_gather b raw ~extent =
   ignore (instr b (Ssa_op.Check_gather { raw; extent }))
@@ -270,6 +287,7 @@ let as_f64 v = as_type (scalar Ssa_type.F64) v
 let as_i64 v = as_type (scalar Ssa_type.I64) v
 let as_index v = as_type (scalar Ssa_type.Index) v
 let as_pred v = as_type (scalar Ssa_type.Pred) v
+let as_local v = as_type Ssa_type.Local v
 
 let ordered_sum b ~lo ~hi ~seed body =
   let iv = mint b (scalar Ssa_type.Index) in
@@ -294,9 +312,15 @@ let ordered_sum b ~lo ~hi ~seed body =
   b.live <- eff_out;
   sum
 
+(* Runs [f] against a block that is thrown away. It spends value and region ids,
+   which only leaves gaps: an id names a definition, it is not an ordinal. *)
+let probe b f =
+  let inner = child b ~live:(mint b Ssa_type.Effect) in
+  ignore (f inner)
+
 let set_origin b o = b.shared.origin <- o
 
-let program ~buffers f =
+let program ?(scan_limits = Expr.Scan_limits.default) ~buffers f =
   let shared =
     {
       buffers;
@@ -322,6 +346,7 @@ let program ~buffers f =
       Ssa_program.revision = Ssa_id.Revision.of_int 0;
       buffers;
       entry;
+      scan_limits;
       next_value = shared.next_value;
       next_region = shared.next_region;
     }

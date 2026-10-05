@@ -410,3 +410,158 @@ let%expect_test "narrowing an int64 outside the index domain is a defect" =
   | Ok () -> Fmt.pr "no failure@."
   | Error e -> Fmt.pr "row: %a@." Ssa_interp.pp_error e);
   [%expect {| defect |}]
+
+(* ---- scratch locals and the scan meter -------------------------------------- *)
+
+let local_var = Expr.Builder.run Expr.Builder.fresh_local
+let out_bufs = [ row_buffer 1 8L Ssa_format.F32 Ssa_buffer.Output ]
+
+let attempt_run ?scan_limits f =
+  let p =
+    Err.or_raise ~pp_error:Ssa_verify.pp_error
+      (B.program ?scan_limits ~buffers:out_bufs f)
+  in
+  let out = Array.make 8 0. in
+  let memory = memory [ (1, floats out) ] in
+  match run_result p ~memory with
+  | exception Invalid_argument m -> Fmt.pr "defect: %s@." m
+  | Ok () ->
+      Fmt.pr "ok %s@."
+        (String.concat " " (List.map (Fmt.str "%g") (Array.to_list out)))
+  | Error e -> Fmt.pr "%a@." Ssa_interp.pp_error e
+
+let%expect_test
+    "a local is written before it is read, and each key gets a fresh one" =
+  (* the cell a read depends on must have been written in this key: an unset
+     cell is never an undefined value *)
+  attempt_run (fun bld ->
+      let h = B.local_alloc bld ~slots:2L in
+      B.local_write bld h (idx bld 1) (B.f64 bld 7.);
+      store_at bld 1 (idx bld 0) (B.local_read bld h (idx bld 1)));
+  attempt_run (fun bld ->
+      let h = B.local_alloc bld ~slots:2L in
+      store_at bld 1 (idx bld 0) (B.local_read bld h (idx bld 0)));
+  (* two keys; only the first writes. The second key's object is its own, so its
+     read is of an unset cell, not of what the first key left behind *)
+  attempt_run (fun bld ->
+      let B.Nil =
+        B.for_ bld ~lo:(idx bld 0) ~hi:(idx bld 2) ~init:B.Nil
+          (fun bld key B.Nil ->
+            let h = B.local_alloc bld ~slots:1L in
+            let first = B.index_compare bld Ssa_op.Compare.Eq key (idx bld 0) in
+            let B.Nil =
+              B.if_ bld first
+                ~then_:(fun bld ->
+                  B.local_write bld h (idx bld 0) (B.f64 bld 5.);
+                  B.Nil)
+                ~else_:(fun _ -> B.Nil)
+            in
+            store_at bld 1 key (B.local_read bld h (idx bld 0));
+            B.Nil)
+      in
+      ());
+  [%expect
+    {|
+    ok 7 0 0 0 0 0 0 0
+    defect: Ssa_interp: a read of a local cell that was never written
+    defect: Ssa_interp: a read of a local cell that was never written |}]
+
+let%expect_test
+    "a local read outside its range fails as unbound when it names a variable" =
+  attempt_run (fun bld ->
+      let h = B.local_alloc ~var:local_var bld ~slots:2L in
+      B.local_write bld h (idx bld 0) (B.f64 bld 1.);
+      store_at bld 1 (idx bld 0) (B.local_read bld h (idx bld 2)));
+  attempt_run (fun bld ->
+      let h = B.local_alloc bld ~slots:2L in
+      store_at bld 1 (idx bld 0) (B.local_read bld h (idx bld 2)));
+  attempt_run (fun bld ->
+      B.check_local bld ~var:local_var ~extent:2L (idx bld 1);
+      store_at bld 1 (idx bld 0) (B.f64 bld 3.));
+  attempt_run (fun bld ->
+      B.check_local bld ~var:local_var ~extent:2L (B.index bld (-1L));
+      store_at bld 1 (idx bld 0) (B.f64 bld 3.));
+  [%expect
+    {|
+    local #0 is unbound here
+    defect: Ssa_interp: a local read outside its object
+    ok 3 0 0 0 0 0 0 0
+    local #0 is unbound here |}]
+
+let%expect_test "a scan projection checks its row, then its lane" =
+  let project ~row ~lane =
+    attempt_run (fun bld ->
+        B.check_scan bld ~var:(Some local_var)
+          ~row:(B.index bld (Int64.of_int row))
+          ~lane:(B.index bld (Int64.of_int lane))
+          ~row_extent:3L ~lane_extent:2L;
+        store_at bld 1 (idx bld 0) (B.f64 bld 1.))
+  in
+  project ~row:2 ~lane:1;
+  project ~row:3 ~lane:0;
+  project ~row:0 ~lane:2;
+  project ~row:3 ~lane:2;
+  project ~row:(-1) ~lane:0;
+  [%expect
+    {|
+    ok 1 0 0 0 0 0 0 0
+    scan row 3 out of range [0,3)
+    scan lane 2 out of range [0,2) at row 0
+    scan row 3 out of range [0,3)
+    scan row -1 out of range [0,3) |}]
+
+let limits ~max_state ~max_updates =
+  Err.or_raise ~pp_error:Expr.Scan_limits.pp_error
+    (Expr.Scan_limits.create ~max_state ~max_updates)
+
+let%expect_test
+    "the meter fails one past its budget and counts state against the peak" =
+  let charges n ~max_updates =
+    attempt_run ~scan_limits:(limits ~max_state:100 ~max_updates) (fun bld ->
+        for _ = 1 to n do
+          B.meter_charge bld
+        done;
+        store_at bld 1 (idx bld 0) (B.f64 bld 1.))
+  in
+  charges 3 ~max_updates:3L;
+  charges 4 ~max_updates:3L;
+  charges 1 ~max_updates:0L;
+  let reserve widths ~max_state =
+    attempt_run ~scan_limits:(limits ~max_state ~max_updates:10L) (fun bld ->
+        List.iter
+          (fun width -> B.meter_reserve bld ~width:(Int64.of_int width))
+          widths;
+        store_at bld 1 (idx bld 0) (B.f64 bld 1.))
+  in
+  (* 2 * width live cells, nested *)
+  reserve [ 3 ] ~max_state:6;
+  reserve [ 3 ] ~max_state:5;
+  reserve [ 2; 2 ] ~max_state:8;
+  reserve [ 2; 2 ] ~max_state:7;
+  (* a release gives the state back, a reset gives back everything *)
+  attempt_run ~scan_limits:(limits ~max_state:6 ~max_updates:10L) (fun bld ->
+      B.meter_reserve bld ~width:3L;
+      B.meter_release bld ~width:3L;
+      B.meter_reserve bld ~width:3L;
+      store_at bld 1 (idx bld 0) (B.f64 bld 1.));
+  attempt_run ~scan_limits:(limits ~max_state:6 ~max_updates:10L) (fun bld ->
+      B.meter_reserve bld ~width:3L;
+      B.meter_reset bld;
+      B.meter_reserve bld ~width:3L;
+      store_at bld 1 (idx bld 0) (B.f64 bld 1.));
+  attempt_run ~scan_limits:(limits ~max_state:6 ~max_updates:10L) (fun bld ->
+      B.meter_reserve bld ~width:3L;
+      B.meter_reserve bld ~width:3L;
+      store_at bld 1 (idx bld 0) (B.f64 bld 1.));
+  [%expect
+    {|
+    ok 1 0 0 0 0 0 0 0
+    scan updates exhausted at limit 3
+    scan updates exhausted at limit 0
+    ok 1 0 0 0 0 0 0 0
+    scan state exceeds limit 5
+    ok 1 0 0 0 0 0 0 0
+    scan state exceeds limit 7
+    ok 1 0 0 0 0 0 0 0
+    ok 1 0 0 0 0 0 0 0
+    scan state exceeds limit 6 |}]

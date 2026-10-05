@@ -13,7 +13,7 @@ let%expect_test "op sweep, slice 1 of 4" =
     eye                          agree=12 failed-alike=0
     gelu                         agree=12 failed-alike=0
     hardtanh                     agree=12 failed-alike=0
-    lstm                         agree=0 failed-alike=0 refused: region program
+    lstm                         agree=12 failed-alike=0
     mean                         agree=12 failed-alike=0
     mul_scalar_i64               agree=12 failed-alike=0
     permute                      agree=12 failed-alike=0

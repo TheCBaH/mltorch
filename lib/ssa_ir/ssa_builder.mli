@@ -24,10 +24,16 @@ type access =
   | Flat of Ssa_type.index value
 
 val program :
+  ?scan_limits:Expr.Scan_limits.t ->
   buffers:Ssa_buffer.t list ->
   (t -> unit) ->
   (Ssa_program.t, Ssa_verify.error) Err.t
 (** Builds the entry region, then verifies the finished revision. *)
+
+val probe : t -> (t -> 'a) -> unit
+(** Runs the function against a block that is discarded, to learn what building
+    something would involve before building it. It leaves gaps in the id space
+    and nothing else. *)
 
 val set_origin : t -> Ssa_origin.t -> unit
 (** The origin of every operation built after this call, in this builder and its
@@ -168,6 +174,44 @@ val store_f64 :
 val store_i64 : t -> Ssa_id.Buffer.t -> access -> Ssa_type.i64 value -> unit
 val mark : t -> Ssa_mark.t -> unit
 
+(** {1 Scratch locals and the scan meter} *)
+
+val local_alloc :
+  ?var:Expr.Local_var.t -> t -> slots:int64 -> Ssa_type.local value
+(** A fresh object of [slots] binary64 cells, every cell unset: reading one that
+    was never written is a defect. [var] names the variable an out-of-range read
+    reports as unbound. *)
+
+val local_read :
+  t -> Ssa_type.local value -> Ssa_type.index value -> Ssa_type.f64 value
+
+val local_write :
+  t ->
+  Ssa_type.local value ->
+  Ssa_type.index value ->
+  Ssa_type.f64 value ->
+  unit
+
+val check_local :
+  t -> var:Expr.Local_var.t -> extent:int64 -> Ssa_type.index value -> unit
+(** The position must lie between zero and [extent] (exclusive) of the
+    variable's own range. *)
+
+val check_scan :
+  t ->
+  var:Expr.Local_var.t option ->
+  row:Ssa_type.index value ->
+  lane:Ssa_type.index value ->
+  row_extent:int64 ->
+  lane_extent:int64 ->
+  unit
+(** The row, then the lane, against their extents: the row wins. *)
+
+val meter_reset : t -> unit
+val meter_charge : t -> unit
+val meter_reserve : t -> width:int64 -> unit
+val meter_release : t -> width:int64 -> unit
+
 val check_gather : t -> Ssa_type.i64 value -> extent:int64 -> unit
 (** A gather's raw index must lie between [-extent] and [extent - 1]. *)
 
@@ -221,6 +265,7 @@ val as_f64 : Ssa_value.t -> Ssa_type.f64 value
 val as_i64 : Ssa_value.t -> Ssa_type.i64 value
 val as_index : Ssa_value.t -> Ssa_type.index value
 val as_pred : Ssa_value.t -> Ssa_type.pred value
+val as_local : Ssa_value.t -> Ssa_type.local value
 
 val ordered_sum :
   t ->

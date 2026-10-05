@@ -119,6 +119,21 @@ let gather name cells =
     bind = Loop_programs.i64_bind ~floats:[| 10.; 20.; 30.; 40. |] ~cells;
   }
 
+let rows_data = [| 1.; 2.; 3.; 10.; 20.; 30. |]
+
+let rows_bind id =
+  if Tensor_id.equal id (Loop_fixtures.tid 0) then
+    Some
+      (Loop_fixtures.f32_tensor Loop_programs.rows_shape (fun c ->
+           rows_data.((Vec6.offset Loop_programs.rows_shape c :> int))))
+  else None
+
+let region name kernel =
+  { name; plan = Fusion_plan.default kernel; bind = rows_bind }
+
+let group name kernel =
+  { name; plan = Fusion_plan.default kernel; bind = (fun _ -> None) }
+
 let cases =
   [
     pointwise "pointwise specials" [| -0.; 1.5; nan; 3. |] Loop_programs.kernel;
@@ -162,6 +177,20 @@ let cases =
       (Array.init 16 (fun i -> if i < 2 then nan else float_of_int i));
     gather "gather in range and negative" [| 0L; -1L; -4L; 3L |];
     gather "gather out of range" [| 4L; 0L; 0L; 0L |];
+    region "region: scalar local"
+      (Loop_programs.region_kernel_of Loop_programs.centered_program);
+    region "region: vector local"
+      (Loop_programs.region_kernel_of
+         (Loop_programs.vector_program ~extent:3 ~pick:(Loop_programs.pick 2)));
+    region "region: vector read past its extent"
+      (Loop_programs.region_kernel_of
+         (Loop_programs.vector_program ~extent:3 ~pick:(Loop_programs.pick 3)));
+    region "region: trace local"
+      (Loop_programs.region_kernel_of (Loop_programs.trace_program ~steps:2));
+    region "region: inline scan" (Loop_programs.inline_scan_kernel ~steps:2);
+    group "group: bool member"
+      (Loop_programs.bool_group_kernel ~second:(fun read ->
+           Expr.Value.sub read (Expr.Value.const 2.)));
     reduction Expr.Reduction.Max "max with NaN" [| nan; 1.; nan; 0. |];
     reduction Expr.Reduction.Argmax_index "argmax index ties"
       [| 1.; 3.; 3.; 2. |];

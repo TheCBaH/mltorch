@@ -82,6 +82,31 @@ let result_types : Ssa_op.t -> (Ssa_type.t list, error) result = function
   | Ssa_op.Check_access { at; _ } ->
       let* () = expect_all ~first:0 index (Ssa_access.operands at) in
       Ok []
+  | Ssa_op.Check_local { at; extent; _ } ->
+      let* () = positive_divisor extent in
+      let* () = expect (Position.of_int 0) index at in
+      Ok []
+  | Ssa_op.Check_scan { row; lane; row_extent; lane_extent; _ } ->
+      let* () = positive_divisor row_extent in
+      let* () = positive_divisor lane_extent in
+      let* () = expect_all ~first:0 index [ row; lane ] in
+      Ok []
+  | Ssa_op.Local_alloc { slots; _ } ->
+      let* () = positive_divisor slots in
+      Ok [ Ssa_type.Local ]
+  | Ssa_op.Local_read { local; at } ->
+      let* () = expect (Position.of_int 0) Ssa_type.Local local in
+      let* () = expect (Position.of_int 1) index at in
+      Ok [ f64 ]
+  | Ssa_op.Local_write { local; at; value } ->
+      let* () = expect (Position.of_int 0) Ssa_type.Local local in
+      let* () = expect (Position.of_int 1) index at in
+      let* () = expect (Position.of_int 2) f64 value in
+      Ok []
+  | Ssa_op.Meter_charge | Ssa_op.Meter_reset -> Ok []
+  | Ssa_op.Meter_release width | Ssa_op.Meter_reserve width ->
+      let* () = positive_divisor width in
+      Ok []
   | Ssa_op.Float_compare (_, a, b) ->
       let* _ = same_float a b in
       Ok [ pred ]

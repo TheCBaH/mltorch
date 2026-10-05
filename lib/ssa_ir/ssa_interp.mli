@@ -27,7 +27,10 @@ type failure =
   | `I64_from_float_infinite
   | `I64_from_float_nan
   | `I64_from_float_out_of_range of float
-  | `Index_overflow of Expr.Index_overflow.t ]
+  | `Index_overflow of Expr.Index_overflow.t
+  | `Scan_meter of Expr.Scan_meter.error
+  | `Scan_projection of Expr.Eval.scan_error
+  | `Unbound_local of Expr.Local_var.t ]
 (** The failures a program can raise, the rows [Expr.Eval] and [Kernel_eval]
     report for the same events. *)
 

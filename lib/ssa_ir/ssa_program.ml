@@ -7,6 +7,8 @@ type t = {
       (** Binding order: an input is validated, in this order, before anything
           runs. *)
   entry : Ssa_region.t;
+  scan_limits : Expr.Scan_limits.t;
+      (** The budget the scan meter charges against. *)
   next_value : Ssa_id.Value.Next.t;
   next_region : Ssa_id.Region.Next.t;
 }

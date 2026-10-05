@@ -1,8 +1,9 @@
 # Structured SSA computation IR — implemented design
 
-Status: scalar surface implemented (typed IR, verifier, printer, reference
-interpreter, direct source lowering of every pixel kernel the sweep walks except
-region programs, differential harness). The semantics, task list and per-task evidence live in the
+Status: the source surface the op sweep walks is implemented (typed IR,
+verifier, printer, reference interpreter, direct source lowering including
+Region programs, locals, scans and groups, differential harness). No analysis,
+optimization pass, vector form, CFG form or direct emitter exists yet. The semantics, task list and per-task evidence live in the
 SSA design, implementation plan and tracker in the sibling design repository;
 this file records what the code in `lib/` actually does and where it deliberately
 differs from the proposal.
@@ -77,6 +78,32 @@ its own name becomes its interface and hides its siblings (the lowering is
   parameters must cover exactly the C extent. A `Filled` input is a scratch
   buffer that is never written: its read checks the coordinate against the shape
   and folds to the value a materialized fill decodes to.
+
+## Regions, locals and scans
+
+- **Locals are scratch objects.** `local.alloc` makes a fresh object of binary64
+  cells, every cell unset; `local.write` and `local.read` address it by index. A
+  read of an unset cell is a defect, never an undefined value. A Region program
+  allocates each local inside its key's region, so what one key wrote is never
+  visible to the next by construction; reusing an object across keys is a later,
+  proved optimization. A read outside an object fails as the reference's unbound
+  local when the object names a variable, and is a defect when it does not.
+  `check_local` is the range check of a vector read or a scan's `prev`.
+- **A trace** is written row 0 from the initializer and rows 1..steps from the
+  update, each lane charged against the meter before its update runs; its cached
+  read checks the row, then the lane, before either is used (`check_scan`), so
+  the row wins a simultaneous failure. An **inline scan** reserves `2 * width`
+  live state, fills two rolling rows, charges per lane update, copies the next
+  row back, reads the lane and releases the state.
+- **The meter** (`meter.reset|charge|reserve|release`) is invocation state with
+  the program's scan limits. A Region key starts a fresh meter, and so does a
+  pixel cell that reads it: whether a key or a cell reads the meter at all is
+  found by lowering it once into a block that is thrown away
+  (`Ssa_builder.probe`), because a reset the emitters then declare meter state
+  for, and never use, does not compile.
+- A group lowers to one nest over the canonical key: the shared locals once per
+  key, then each member's emitter over its own Whole axes at its own physical
+  key, each with its own conversion and store.
 
 ## Verifier and interpreter bounds
 

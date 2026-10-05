@@ -14,7 +14,12 @@ module Lanes =
     ()
 
 (* [Effect] is a compile-time sequencing token with no machine representation. *)
-type t = Effect | Mask of Lanes.t | Scalar of scalar | Vec of scalar * Lanes.t
+type t =
+  | Effect
+  | Local
+  | Mask of Lanes.t
+  | Scalar of scalar
+  | Vec of scalar * Lanes.t
 
 let scalar_name = function
   | F32 -> "f32"
@@ -26,14 +31,15 @@ let scalar_name = function
 
 let equal a b =
   match (a, b) with
-  | Effect, Effect -> true
+  | Effect, Effect | Local, Local -> true
   | Mask a, Mask b -> Lanes.equal a b
   | Scalar a, Scalar b -> a = b
   | Vec (s, a), Vec (t, b) -> s = t && Lanes.equal a b
-  | (Effect | Mask _ | Scalar _ | Vec _), _ -> false
+  | (Effect | Local | Mask _ | Scalar _ | Vec _), _ -> false
 
 let pp fmt = function
   | Effect -> Fmt.string fmt "effect"
+  | Local -> Fmt.string fmt "local"
   | Mask l -> Fmt.pf fmt "mask<%a>" Lanes.pp l
   | Scalar s -> Fmt.string fmt (scalar_name s)
   | Vec (s, l) -> Fmt.pf fmt "vec<%a,%s>" Lanes.pp l (scalar_name s)
@@ -44,5 +50,6 @@ type f32 = F32_marker
 type f64 = F64_marker
 type i64 = I64_marker
 type index = Index_marker
+type local = Local_marker
 type offset = Offset_marker
 type pred = Pred_marker

@@ -10,12 +10,12 @@ let%expect_test "op sweep, slice 3 of 4" =
     cumsum                       agree=12 failed-alike=0
     eq_tensor                    agree=12 failed-alike=0
     hardsigmoid                  agree=12 failed-alike=0
-    layer_norm                   agree=0 failed-alike=0 refused: region program
+    layer_norm                   agree=12 failed-alike=0
     max_pool2d                   agree=12 failed-alike=0
     mul_i64                      agree=12 failed-alike=0
     ne_tensor                    agree=12 failed-alike=0
     pow                          agree=12 failed-alike=0
-    rms_norm                     agree=0 failed-alike=0 refused: region program
+    rms_norm                     agree=12 failed-alike=0
     slice                        agree=12 failed-alike=0
     split_with_sizes             agree=12 failed-alike=0
     sub_i64                      agree=12 failed-alike=0

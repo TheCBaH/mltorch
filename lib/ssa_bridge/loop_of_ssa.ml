@@ -28,7 +28,7 @@ let assign (v : Ssa_value.t) ~float ~index ~i64 =
       [ Loop_stmt.Assign_index (temp v, index ()) ]
   | Ssa_type.Scalar Ssa_type.I64 ->
       [ Loop_stmt.Assign (Loop_carrier.Int64, temp v, i64 ()) ]
-  | Ssa_type.Effect -> []
+  | Ssa_type.Effect | Ssa_type.Local -> []
   | Ssa_type.Mask _
   | Ssa_type.Scalar (Ssa_type.Offset | Ssa_type.Pred)
   | Ssa_type.Vec _ ->
@@ -82,6 +82,17 @@ let convert (p : Ssa_program.t) =
   | Ok () -> ()
   | Error e -> invalid_arg (Fmt.str "Loop_of_ssa: %a" Ssa_verify.pp_error e));
   let buffer = buffer_of p in
+  (* A scratch object is a Loop array named by its handle's id, with the slots
+     and variable its checked reads need. *)
+  let locals : (int, int64 * Expr.Local_var.t option) Hashtbl.t =
+    Hashtbl.create 8
+  in
+  let array (v : Ssa_value.t) = Loop_array.of_int (v.Ssa_value.id :> int) in
+  let local_guard ~var ~at ~extent =
+    Loop_stmt.Fail_if
+      ( Loop_bool.Out_of_range (at, extent),
+        Loop_failure.Local_out_of_range { local = var; index = at; extent } )
+  in
   (* A predicate has no temporary: it is the Loop expression that computes it
      from the temporaries of its operands, kept until a consumer reads it. *)
   let preds : (int, Loop_expr.pred) Hashtbl.t = Hashtbl.create 16 in
@@ -117,6 +128,57 @@ let convert (p : Ssa_program.t) =
     | Ssa_op.Check_access { buffer = id; at } -> (
         let b = buffer id in
         match access at with `Coord c -> [ load_guard b c ] | `Flat _ -> [])
+    | Ssa_op.Check_local { var; at; extent } ->
+        [ local_guard ~var ~at:(ix at) ~extent:(int_of extent) ]
+    | Ssa_op.Check_scan { var; row; lane; row_extent; lane_extent } ->
+        [
+          Loop_stmt.Fail_if
+            ( Loop_bool.Out_of_range (ix row, int_of row_extent),
+              Loop_failure.Scan_row_out_of_range
+                {
+                  local = var;
+                  row = ix row;
+                  lane = ix lane;
+                  extent = int_of row_extent;
+                } );
+          Loop_stmt.Fail_if
+            ( Loop_bool.Out_of_range (ix lane, int_of lane_extent),
+              Loop_failure.Scan_lane_out_of_range
+                {
+                  local = var;
+                  row = ix row;
+                  lane = ix lane;
+                  extent = int_of lane_extent;
+                } );
+        ]
+    | Ssa_op.Local_alloc { slots; var } ->
+        let r = result () in
+        Hashtbl.replace locals (r.Ssa_value.id :> int) (slots, var);
+        [
+          Loop_stmt.Alloc
+            (array r, Slot.count_of_extent (Slot.extent (int_of slots)));
+        ]
+    | Ssa_op.Local_read { local; at } ->
+        let r = result () in
+        let guard =
+          match Hashtbl.find_opt locals (local.Ssa_value.id :> int) with
+          | Some (slots, Some var) ->
+              [ local_guard ~var ~at:(ix at) ~extent:(int_of slots) ]
+          | Some (_, None) | None -> []
+        in
+        guard
+        @ [
+            Loop_stmt.Assign
+              ( Loop_carrier.Float,
+                temp r,
+                Loop_expr.Array_get (array local, ix at) );
+          ]
+    | Ssa_op.Local_write { local; at; value } ->
+        [ Loop_stmt.Array_set (array local, ix at, fx value) ]
+    | Ssa_op.Meter_charge -> [ Loop_stmt.Charge_scan_update ]
+    | Ssa_op.Meter_release w -> [ Loop_stmt.Release_scan_state (int_of w) ]
+    | Ssa_op.Meter_reserve w -> [ Loop_stmt.Reserve_scan_state (int_of w) ]
+    | Ssa_op.Meter_reset -> [ Loop_stmt.Reset_meter ]
     | Ssa_op.Check_gather { raw; extent } ->
         let bound n = Loop_expr.I64_const n in
         [

@@ -25,7 +25,10 @@ type failure =
   | `I64_from_float_infinite
   | `I64_from_float_nan
   | `I64_from_float_out_of_range of float
-  | `Index_overflow of Expr.Index_overflow.t ]
+  | `Index_overflow of Expr.Index_overflow.t
+  | `Scan_meter of Expr.Scan_meter.error
+  | `Scan_projection of Expr.Eval.scan_error
+  | `Unbound_local of Expr.Local_var.t ]
 
 type error = [ failure | `Invalid_program of Ssa_verify.diagnostic ]
 
@@ -41,6 +44,10 @@ let pp_error fmt : [< error ] -> unit = function
   | ( `I64_from_float_infinite | `I64_from_float_nan
     | `I64_from_float_out_of_range _ ) as e ->
       Expr.Value.pp_i64_from_float_error fmt e
+  | `Scan_meter e -> Expr.Scan_meter.pp_error fmt e
+  | `Scan_projection e -> Expr.Eval.pp_scan_error fmt e
+  | `Unbound_local v ->
+      Fmt.pf fmt "local %a is unbound here" Expr.Local_var.pp v
   | `Index_overflow { Expr.Index_overflow.op; lhs; rhs } ->
       Fmt.pf fmt "index %s overflows on %d and %d"
         (match op with `Add -> "add" | `Mul -> "mul" | `Sub -> "sub")
@@ -50,7 +57,18 @@ let pp_error fmt : [< error ] -> unit = function
 (* A runtime value. An index and an i64 are both [I], a binary32 and a binary64
    both [F]: the verifier has already fixed which a slot holds, and a binary32
    value is kept rounded. *)
-type v = E | F of float | I of int64 | P of bool
+type local = {
+  cells : float array;
+  written : bool array;
+  var : Expr.Local_var.t option;
+}
+
+type v = E | F of float | I of int64 | L of local | P of bool
+
+(* The scan meter, as [Expr.Scan_meter] keeps it: an update budget that fails
+   BEFORE the charged body runs, and live state counted against the nesting
+   peak. *)
+type meter = { mutable live_state : int; mutable updates_remaining : int64 }
 
 type st = {
   esc : failure Err.Escape.t;
@@ -58,25 +76,34 @@ type st = {
   memory : Ssa_memory.t;
   counters : Counters.t;
   env : v array;
+  mutable meter : meter;
 }
 
 let get st (x : Ssa_value.t) = st.env.((x.Ssa_value.id :> int))
 let set st (x : Ssa_value.t) v = st.env.((x.Ssa_value.id :> int)) <- v
 
+let fresh_meter (limits : Expr.Scan_limits.t) =
+  { live_state = 0; updates_remaining = Expr.Scan_limits.max_updates limits }
+
+let local_of st x =
+  match get st x with
+  | L l -> l
+  | E | F _ | I _ | P _ -> invalid_arg "Ssa_interp: local"
+
 let float_of st x =
   match get st x with
   | F f -> f
-  | E | I _ | P _ -> invalid_arg "Ssa_interp: float"
+  | E | I _ | L _ | P _ -> invalid_arg "Ssa_interp: float"
 
 let int_of st x =
   match get st x with
   | I i -> i
-  | E | F _ | P _ -> invalid_arg "Ssa_interp: int"
+  | E | F _ | L _ | P _ -> invalid_arg "Ssa_interp: int"
 
 let bool_of st x =
   match get st x with
   | P b -> b
-  | E | F _ | I _ -> invalid_arg "Ssa_interp: pred"
+  | E | F _ | I _ | L _ -> invalid_arg "Ssa_interp: pred"
 
 let is_f32 (x : Ssa_value.t) =
   Ssa_type.equal x.Ssa_value.ty (Ssa_type.Scalar Ssa_type.F32)
@@ -179,6 +206,79 @@ let exec_op st (i : Ssa_instr.t) =
   match i.Ssa_instr.op with
   | Ssa_op.Check_access { buffer = id; at } ->
       ignore (element st (buffer st id) at ~checked:true)
+  | Ssa_op.Check_local { var; at; extent } ->
+      let at = int_of st at in
+      if Int64.compare at 0L < 0 || Int64.compare at extent >= 0 then
+        Err.Escape.throw st.esc (`Unbound_local var : failure)
+  | Ssa_op.Check_scan { var; row; lane; row_extent; lane_extent } ->
+      let row = Int64.to_int (int_of st row) in
+      let lane = Int64.to_int (int_of st lane) in
+      let projection = { Expr.Eval.Scan_projection.local = var; row; lane } in
+      let bounds extent = { Expr.Eval.Scan_bounds.projection; extent } in
+      if row < 0 || Int64.compare (Int64.of_int row) row_extent >= 0 then
+        Err.Escape.throw st.esc
+          (`Scan_projection
+             (Expr.Eval.Row_out_of_range (bounds (Int64.to_int row_extent)))
+            : failure)
+      else if lane < 0 || Int64.compare (Int64.of_int lane) lane_extent >= 0
+      then
+        Err.Escape.throw st.esc
+          (`Scan_projection
+             (Expr.Eval.Lane_out_of_range (bounds (Int64.to_int lane_extent)))
+            : failure)
+  | Ssa_op.Local_alloc { slots; var } ->
+      let n = Int64.to_int slots in
+      put (L { cells = Array.make n 0.; written = Array.make n false; var })
+  | Ssa_op.Local_read { local; at } ->
+      let l = local_of st local in
+      let at = int_of st at in
+      let n = Array.length l.cells in
+      if Int64.compare at 0L < 0 || Int64.compare at (Int64.of_int n) >= 0 then
+        match l.var with
+        | Some v -> Err.Escape.throw st.esc (`Unbound_local v : failure)
+        | None -> invalid_arg "Ssa_interp: a local read outside its object"
+      else
+        let at = Int64.to_int at in
+        if not l.written.(at) then
+          invalid_arg
+            "Ssa_interp: a read of a local cell that was never written"
+        else put (F l.cells.(at))
+  | Ssa_op.Local_write { local; at; value } ->
+      let l = local_of st local in
+      let at = int_of st at in
+      let n = Array.length l.cells in
+      if Int64.compare at 0L < 0 || Int64.compare at (Int64.of_int n) >= 0 then
+        invalid_arg "Ssa_interp: a local write outside its object"
+      else
+        let at = Int64.to_int at in
+        l.cells.(at) <- float_of st value;
+        l.written.(at) <- true
+  | Ssa_op.Meter_charge ->
+      if Int64.compare st.meter.updates_remaining 0L <= 0 then
+        Err.Escape.throw st.esc
+          (`Scan_meter
+             (Expr.Scan_meter.Updates_exhausted
+                {
+                  limit =
+                    Expr.Scan_limits.max_updates
+                      st.program.Ssa_program.scan_limits;
+                })
+            : failure)
+      else st.meter.updates_remaining <- Int64.sub st.meter.updates_remaining 1L
+  | Ssa_op.Meter_release width ->
+      st.meter.live_state <- st.meter.live_state - (2 * Int64.to_int width)
+  | Ssa_op.Meter_reserve width ->
+      let need = 2 * Int64.to_int width in
+      let limits = st.program.Ssa_program.scan_limits in
+      if st.meter.live_state + need > Expr.Scan_limits.max_state limits then
+        Err.Escape.throw st.esc
+          (`Scan_meter
+             (Expr.Scan_meter.State_over_limit
+                { limit = Expr.Scan_limits.max_state limits })
+            : failure)
+      else st.meter.live_state <- st.meter.live_state + need
+  | Ssa_op.Meter_reset ->
+      st.meter <- fresh_meter st.program.Ssa_program.scan_limits
   | Ssa_op.Check_gather { raw; extent } ->
       let raw = int_of st raw in
       let bound = extent in
@@ -398,6 +498,7 @@ let run ?(counters = Counters.create ()) (p : Ssa_program.t) ~memory =
               memory;
               counters;
               env = Array.make (p.Ssa_program.next_value :> int) E;
+              meter = fresh_meter p.Ssa_program.scan_limits;
             }
           in
           region st p.Ssa_program.entry )

@@ -37,6 +37,18 @@ let%expect_test
     gather in range and negative, bridge: agree
     gather out of range, direct: agree on failure: gather_index_out_of_range
     gather out of range, bridge: agree on failure: gather_index_out_of_range
+    region: scalar local, direct: agree
+    region: scalar local, bridge: agree
+    region: vector local, direct: agree
+    region: vector local, bridge: agree
+    region: vector read past its extent, direct: agree on failure: unbound_local
+    region: vector read past its extent, bridge: agree on failure: unbound_local
+    region: trace local, direct: agree
+    region: trace local, bridge: agree
+    region: inline scan, direct: agree
+    region: inline scan, bridge: agree
+    group: bool member, direct: agree
+    group: bool member, bridge: agree
     max with NaN, direct: agree
     max with NaN, bridge: agree
     argmax index ties, direct: agree

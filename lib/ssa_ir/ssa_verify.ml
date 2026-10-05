@@ -199,7 +199,10 @@ let instr ctx scope ~live (i : Ssa_instr.t) =
       check_access ctx scope buffer
         ~family:(Ssa_op.Encode.family encode)
         ~writes:true ~at
-  | Ssa_op.Check_gather _ | Ssa_op.Const _ | Ssa_op.Convert _
+  | Ssa_op.Check_gather _ | Ssa_op.Check_local _ | Ssa_op.Check_scan _
+  | Ssa_op.Const _ | Ssa_op.Convert _ | Ssa_op.Local_alloc _
+  | Ssa_op.Local_read _ | Ssa_op.Local_write _ | Ssa_op.Meter_charge
+  | Ssa_op.Meter_release _ | Ssa_op.Meter_reserve _ | Ssa_op.Meter_reset
   | Ssa_op.Float_binary _ | Ssa_op.Float_compare _ | Ssa_op.Float_max _
   | Ssa_op.Float_to_i64 _ | Ssa_op.Float_unary _ | Ssa_op.I64_arith _
   | Ssa_op.I64_compare _ | Ssa_op.I64_div _ | Ssa_op.Index_add _

@@ -12,7 +12,13 @@ module Int_map = Map.Make (Int)
 (* What each Loop name denotes at a point of the walk. Temporaries are keyed by
    their id, loop variables by theirs; float and index temporaries share the id
    space of [Loop_temp], so one map holds both. *)
-type env = { temps : Ssa_value.t Int_map.t; vars : Ssa_value.t Int_map.t }
+type env = {
+  temps : Ssa_value.t Int_map.t;
+  vars : Ssa_value.t Int_map.t;
+  arrays : Ssa_value.t Int_map.t;
+      (** the scratch objects allocated so far: handles, which dominate their
+          uses and are never carried *)
+}
 
 type ctx = {
   esc : error Err.Escape.t;
@@ -102,7 +108,9 @@ let rec expr ctx env : float Loop_expr.t -> Ssa_type.f64 B.value = function
   | Loop_expr.Temp (Loop_carrier.Float, t) ->
       B.as_f64 (lookup ctx env.temps (temp_key t))
   | Loop_expr.Value_of_index i -> B.index_to_f64 ctx.b (index ctx env i)
-  | Loop_expr.Array_get _ -> refuse ctx Ssa_of_loop_unsupported.Array
+  | Loop_expr.Array_get (a, i) ->
+      let handle = B.as_local (lookup ctx env.arrays (Loop_array.to_int a)) in
+      B.local_read ctx.b handle (index ctx env i)
   | Loop_expr.Float_max (a, b) ->
       let a = expr ctx env a in
       let b = expr ctx env b in
@@ -241,6 +249,10 @@ let out_of_i64_range v =
         ( Loop_bool.Value_lt (v, Loop_expr.Const (-.two63)),
           Loop_bool.Not (Loop_bool.Value_lt (v, Loop_expr.Const two63)) ) )
 
+(* An extent no index reaches: the half of a scan projection that is not being
+   checked. *)
+let unreachable_extent = 0x7FFF_FFFFL
+
 (* The leaves of a left-nested [Or] chain. *)
 let rec disjuncts = function
   | Loop_bool.Or (p, q) -> disjuncts p @ disjuncts q
@@ -308,9 +320,25 @@ let guard ctx env cond (failure : Loop_failure.t) =
         refuse ctx Ssa_of_loop_unsupported.Guard;
       (* the conversion checks exactly NaN, an infinity and out of range *)
       ignore (B.float_to_i64 ctx.b (expr ctx env value))
-  | Loop_failure.Local_out_of_range _ | Loop_failure.Scan_lane_out_of_range _
-  | Loop_failure.Scan_row_out_of_range _ ->
-      refuse ctx Ssa_of_loop_unsupported.Guard
+  | Loop_failure.Local_out_of_range { local; index = i; extent } ->
+      if Stdlib.compare cond (Loop_bool.Out_of_range (i, extent)) <> 0 then
+        refuse ctx Ssa_of_loop_unsupported.Guard;
+      B.check_local ctx.b ~var:local ~extent:(Int64.of_int extent)
+        (index ctx env i)
+  | Loop_failure.Scan_row_out_of_range { local; row; lane; extent } ->
+      if Stdlib.compare cond (Loop_bool.Out_of_range (row, extent)) <> 0 then
+        refuse ctx Ssa_of_loop_unsupported.Guard;
+      (* the row alone: a lane extent no lane reaches leaves the lane unchecked,
+         so the lowering's separate row and lane guards stay separate *)
+      B.check_scan ctx.b ~var:local ~row:(index ctx env row)
+        ~lane:(index ctx env lane) ~row_extent:(Int64.of_int extent)
+        ~lane_extent:unreachable_extent
+  | Loop_failure.Scan_lane_out_of_range { local; row; lane; extent } ->
+      if Stdlib.compare cond (Loop_bool.Out_of_range (lane, extent)) <> 0 then
+        refuse ctx Ssa_of_loop_unsupported.Guard;
+      B.check_scan ctx.b ~var:local ~row:(index ctx env row)
+        ~lane:(index ctx env lane) ~row_extent:unreachable_extent
+        ~lane_extent:(Int64.of_int extent)
 
 let rec stmts ctx env = List.fold_left (stmt ctx) env
 
@@ -341,6 +369,7 @@ and stmt ctx env : Loop_stmt.t -> env = function
         B.for_dyn ctx.b ~lo ~hi ~init (fun b iv params ->
             let inner =
               {
+                env with
                 temps =
                   List.fold_left2
                     (fun m t p -> Int_map.add t p m)
@@ -422,13 +451,31 @@ and stmt ctx env : Loop_stmt.t -> env = function
       let sb = buffer ctx b in
       store ctx env sb (fun () -> B.Flat (index ctx env offset)) value;
       env
-  | Loop_stmt.Alloc _ | Loop_stmt.Array_set _ ->
-      refuse ctx Ssa_of_loop_unsupported.Alloc
+  | Loop_stmt.Alloc (a, count) ->
+      let handle = B.local_alloc ctx.b ~slots:(Int64.of_int (count :> int)) in
+      {
+        env with
+        arrays =
+          Int_map.add (Loop_array.to_int a) (handle :> Ssa_value.t) env.arrays;
+      }
+  | Loop_stmt.Array_set (a, i, e) ->
+      (* the value, then the position, as the reference evaluates them *)
+      let handle = B.as_local (lookup ctx env.arrays (Loop_array.to_int a)) in
+      let x = expr ctx env e in
+      B.local_write ctx.b handle (index ctx env i) x;
+      env
   | Loop_stmt.Charge_scan_update ->
-      refuse ctx Ssa_of_loop_unsupported.Charge_scan
-  | Loop_stmt.Release_scan_state _ | Loop_stmt.Reserve_scan_state _ ->
-      refuse ctx Ssa_of_loop_unsupported.Scan_state
-  | Loop_stmt.Reset_meter -> refuse ctx Ssa_of_loop_unsupported.Meter
+      B.meter_charge ctx.b;
+      env
+  | Loop_stmt.Release_scan_state width ->
+      B.meter_release ctx.b ~width:(Int64.of_int width);
+      env
+  | Loop_stmt.Reserve_scan_state width ->
+      B.meter_reserve ctx.b ~width:(Int64.of_int width);
+      env
+  | Loop_stmt.Reset_meter ->
+      B.meter_reset ctx.b;
+      env
 
 let role : Loop_buffer.role -> Ssa_buffer.role = function
   | Loop_buffer.Input -> Ssa_buffer.Input
@@ -455,5 +502,9 @@ let convert (p : Loop_program.t) =
          let ctx = { esc; b; buffers } in
          ignore
            (stmts ctx
-              { temps = Int_map.empty; vars = Int_map.empty }
+              {
+                temps = Int_map.empty;
+                vars = Int_map.empty;
+                arrays = Int_map.empty;
+              }
               p.Loop_program.body)))

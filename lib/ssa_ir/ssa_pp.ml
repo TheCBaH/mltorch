@@ -40,6 +40,29 @@ let op st (o : Ssa_op.t) =
   match o with
   | Ssa_op.Check_access { buffer; at } ->
       Fmt.str "check_access %a%s" Ssa_id.Buffer.pp buffer (access st at)
+  | Ssa_op.Check_local { var; at; extent } ->
+      Fmt.str "check_local %a, %s, %Ld" Expr.Local_var.pp var (name st at)
+        extent
+  | Ssa_op.Check_scan { var; row; lane; row_extent; lane_extent } ->
+      Fmt.str "check_scan %s, %s, %s, %Ld, %Ld"
+        (match var with
+        | Some v -> Fmt.str "%a" Expr.Local_var.pp v
+        | None -> "inline")
+        (name st row) (name st lane) row_extent lane_extent
+  | Ssa_op.Local_alloc { slots; var } ->
+      Fmt.str "local.alloc %Ld%s" slots
+        (match var with
+        | Some v -> Fmt.str " as %a" Expr.Local_var.pp v
+        | None -> "")
+  | Ssa_op.Local_read { local; at } ->
+      Fmt.str "local.read %s[%s]" (name st local) (name st at)
+  | Ssa_op.Local_write { local; at; value } ->
+      Fmt.str "local.write %s[%s], %s" (name st local) (name st at)
+        (name st value)
+  | Ssa_op.Meter_charge -> "meter.charge"
+  | Ssa_op.Meter_release w -> Fmt.str "meter.release %Ld" w
+  | Ssa_op.Meter_reserve w -> Fmt.str "meter.reserve %Ld" w
+  | Ssa_op.Meter_reset -> "meter.reset"
   | Ssa_op.Check_gather { raw; extent } ->
       Fmt.str "check_gather %s, %Ld" (name st raw) extent
   | Ssa_op.Const c -> Fmt.str "const %a" Ssa_const.pp c

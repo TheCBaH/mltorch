@@ -27,10 +27,10 @@ let rec value ctx : float Expr.Value.t -> Ssa_type.f64 B.value = function
   | Expr.Value.Intrinsic (Expr.Intrinsic.Max_pool d) -> max_pool ctx d
   | Expr.Value.Load (src, coord) ->
       load ctx src (fun ctx -> Ssa_lower_index.coord ctx coord)
-  | Expr.Value.Local _ | Expr.Value.Local_at _ ->
-      refuse ctx Ssa_unsupported.Local_read
-  | Expr.Value.Local_scan_at _ | Expr.Value.Scan_at _ ->
-      refuse ctx Ssa_unsupported.Scan_read
+  | Expr.Value.Local v -> local ctx v
+  | Expr.Value.Local_at (v, i) -> local_at ctx v i
+  | Expr.Value.Local_scan_at (v, row, lane) -> scan_cached ctx v row lane
+  | Expr.Value.Scan_at (s, row, lane) -> scan_inline ctx s row lane
   | Expr.Value.Reduce r -> reduce ctx r
   | Expr.Value.Round_f32 a ->
       let a = value ctx a in
@@ -89,6 +89,122 @@ and pred ctx : Expr.Bool.t -> Ssa_type.pred B.value = function
       let a = value ctx a in
       let b = value ctx b in
       B.float_compare ctx.b Ssa_op.Compare.Lt a b
+
+(* A scalar local's single slot. [Region_program.check] proved the read matches
+   the declared shape and comes after the write, so neither is re-checked. *)
+and local ctx v =
+  match local_of ctx v with
+  | Slots { handle; _ } -> B.local_read ctx.b handle (B.index ctx.b 0L)
+  | Prev_row _ -> invalid_arg "Ssa_lower: prev is read only through local_at"
+
+(* A vector local, or a scan's [prev], at a computed position. The read is
+   checked against the variable's declared extent and fails as the reference's
+   unbound local does: the reader answers [None] outside the range. *)
+and local_at ctx v i =
+  let handle, base, extent =
+    match local_of ctx v with
+    | Slots { handle; count; _ } -> (handle, None, count)
+    | Prev_row { handle; base; width } -> (handle, Some base, width)
+  in
+  let i = Ssa_lower_index.index ctx i in
+  B.check_local ctx.b ~var:v ~extent:(Int64.of_int extent) i;
+  let at =
+    match base with None -> i | Some base -> B.index_add ctx.b base i
+  in
+  B.local_read ctx.b handle at
+
+and local_of ctx v =
+  match Expr.Local_var.Map.find_opt v ctx.locals with
+  | Some l -> l
+  | None -> invalid_arg "Ssa_lower: local is not written yet"
+
+(* A cached read of a trace local: row-major, [row * width + lane]. The row is
+   checked first, then the lane, before either is used. *)
+and scan_cached ctx v row lane =
+  match local_of ctx v with
+  | Slots { handle; shape = Region_local.Shape.Scan { width; steps }; _ } ->
+      let width = (width :> int) and steps = (steps :> int) in
+      let row = Ssa_lower_index.index ctx row in
+      let lane = Ssa_lower_index.index ctx lane in
+      B.check_scan ctx.b ~var:(Some v) ~row ~lane
+        ~row_extent:(Int64.of_int (steps + 1))
+        ~lane_extent:(Int64.of_int width);
+      let at =
+        B.index_add ctx.b (B.index_scale ctx.b (Int64.of_int width) row) lane
+      in
+      B.local_read ctx.b handle at
+  | Slots _ | Prev_row _ ->
+      invalid_arg "Ssa_lower: a cached scan read of a local that is no trace"
+
+(* An inline [Scan_at]: the recurrence re-executed, with no sharing across
+   evaluations, on two rolling rows of [width] cells. The bounds are checked
+   first, then the live state is reserved, then the initial row is filled, then
+   [row] update rows each charged once per lane BEFORE its body runs. The next
+   row goes to a second object and is copied back, so [prev] reads the previous
+   row throughout the update, as the reference's [Array.init] over a fixed
+   [prev_row] does. *)
+and scan_inline ctx (s : Expr.Scan.t) row lane =
+  let width = s.Expr.Scan.width and steps = s.Expr.Scan.steps in
+  ctx.meter := true;
+  let row = Ssa_lower_index.index ctx row in
+  let lane = Ssa_lower_index.index ctx lane in
+  B.check_scan ctx.b ~var:None ~row ~lane
+    ~row_extent:(Int64.of_int (steps + 1))
+    ~lane_extent:(Int64.of_int width);
+  B.meter_reserve ctx.b ~width:(Int64.of_int width);
+  let prev = B.local_alloc ctx.b ~slots:(Int64.of_int width) in
+  let cur = B.local_alloc ctx.b ~slots:(Int64.of_int width) in
+  let zero b = B.index b 0L in
+  let each_lane b ~bind body =
+    let B.Nil =
+      B.for_ b ~lo:(zero b)
+        ~hi:(B.index b (Int64.of_int width))
+        ~init:B.Nil
+        (fun b l B.Nil ->
+          body { ctx with b; reducers = bind l ctx.reducers } l;
+          B.Nil)
+    in
+    ()
+  in
+  each_lane ctx.b ~bind:(Expr.Reduce_var.Map.add s.Expr.Scan.lane)
+    (fun inner l -> B.local_write inner.b prev l (value inner s.Expr.Scan.init));
+  let B.Nil =
+    B.for_ ctx.b ~lo:(zero ctx.b) ~hi:row ~init:B.Nil (fun b step B.Nil ->
+        let stepper =
+          {
+            ctx with
+            b;
+            reducers =
+              Expr.Reduce_var.Map.add s.Expr.Scan.step step ctx.reducers;
+            locals =
+              Expr.Local_var.Map.add s.Expr.Scan.prev
+                (Prev_row { handle = prev; base = zero b; width })
+                ctx.locals;
+          }
+        in
+        each_lane b
+          ~bind:(fun l -> Expr.Reduce_var.Map.add s.Expr.Scan.lane l)
+          (fun inner l ->
+            ignore stepper;
+            B.meter_charge inner.b;
+            let inner =
+              {
+                inner with
+                reducers =
+                  Expr.Reduce_var.Map.add s.Expr.Scan.step step inner.reducers;
+                locals = stepper.locals;
+              }
+            in
+            B.local_write inner.b cur l (value inner s.Expr.Scan.update));
+        each_lane b
+          ~bind:(fun _ reducers -> reducers)
+          (fun inner l ->
+            B.local_write inner.b prev l (B.local_read inner.b cur l));
+        B.Nil)
+  in
+  let result = B.local_read ctx.b prev lane in
+  B.meter_release ctx.b ~width:(Int64.of_int width);
+  result
 
 (* A source read as a float, at a coordinate lowered by [coord] once the source
    is known. A [Filled] input still bounds-checks: only the read is folded, and
