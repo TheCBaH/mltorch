@@ -206,6 +206,34 @@ its own name becomes its interface and hides its siblings (the lowering is
   and a body the target prices out. The vector program is checked against the
   reference, the scalar program and its scalar-lane expansion, and the sweep
   runs it for the cost model's target and for every legal loop.
+- **Scheduled sums** (`Ssa_vector_sum`, relaxed policy only). A sum no enclosing
+  loop's lanes took is rewritten along its own axis. The schedule is a
+  definition, not an accident of the code: the terms split into `parts` lanes of
+  `rounds` terms each, plus `extra` leftover terms; each lane folds its terms in
+  order, the lanes combine by adjacent-pair trees, and the result is the seed plus
+  (horizontal total plus the tail folded in order). The oracle evaluates exactly
+  this definition scalar by scalar, so a regrouping error shows as a bitwise
+  mismatch rather than a tolerance miss.
+- **Contraction** (`Ssa_opt_contract`, relaxed policy, targets with a fused
+  operation). `a + x * y` becomes one `Float_fma` with the product on the right
+  taken first; a scalar flag selects scalar contraction for targets whose fused
+  form is only scalar. `Float_fma` is a single rounding in the interpreter
+  (`fma32` at binary32, `Float.fma` at binary64); `?fused:false` gives the
+  unfused reading (round the product, then the sum) for a target whose
+  multiply-add may or may not fuse, so `wasm128_relaxed` is accepted only where
+  the result matches under the fused reading. `Float_fma` has no Loop form: the
+  Loop converter refuses it, and a planned program runs through `Ssa_exec`.
+- **The planner** (`Ssa_plan.resolve ?target ?alias ~numerics`). Binary32 is
+  chosen only when the target vectorizes at least one loop or schedules a sum
+  and admission passes; otherwise the plan stays binary64 and says why
+  (`refusal`). Contraction runs before sum scheduling, otherwise it would fuse
+  the scheduler's own accumulate and break the schedule definition. The plan
+  records the precision, the program, the vectorized and scheduled counts and the
+  contracted count, and `Ssa_plan.oracle` is the independent evaluation.
+  `Ssa_check.run_planned` compares the plan with its own oracle bitwise, then,
+  for an ordered policy, with the Loop binary32 interpreter, and for a relaxed
+  one with the binary64 reference within 1e-4. Row blocking is not implemented:
+  a draft built programs that failed verification and is not in the tree.
 - Evidence beyond mutations: the op sweep through the optimizer has no
   disagreement, no change of logical work and no extra read; hand-built failing
   programs keep exactly the checks that report their failure; the optimized
