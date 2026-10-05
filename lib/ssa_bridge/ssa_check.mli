@@ -7,9 +7,13 @@
 
 module Disagreement : sig
   type t =
+    | Cfg_lowering of Ssa_ir.Ssa_cfg_lower.error
+        (** The program has no graph form: a loop whose last increment may leave
+            the index domain. *)
     | Error_kind of { reference : string; ssa : string }
     | Error_payload of string
         (** Same kind, different payload; the kind is named. *)
+    | Invalid_cfg of Ssa_ir.Ssa_cfg_verify.diagnostic
     | Invalid_program of Ssa_ir.Ssa_verify.diagnostic
     | Missing_output of Tensor_id.t
     | Reference_only_failed of string
@@ -38,8 +42,16 @@ val compare :
   verdict
 (** The verdict alone, so a test can perturb one side and watch it flip. *)
 
+val compare_kernel :
+  reference:(Tensor.packed Tensor_id.Map.t, Kernel_eval.error) Err.t ->
+  actual:(Tensor.packed Tensor_id.Map.t, Kernel_eval.error) Err.t ->
+  verdict
+(** {!compare} for an executor that reports the reference's own error rows (a
+    generated-code host): bitwise values, kind and payload on failures. *)
+
 val run :
   ?prepare:(Ssa_ir.Ssa_program.t -> Ssa_ir.Ssa_program.t) ->
+  ?engine:Ssa_lower.Ssa_exec.engine ->
   Fusion_plan.t ->
   bind:(Tensor_id.t -> Tensor.packed option) ->
   verdict

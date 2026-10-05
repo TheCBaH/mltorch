@@ -40,6 +40,56 @@ let layout (p : Loop_program.t) =
 
 let kernel_name = "kernel"
 
+let translation_unit (k : Loop_c.t) p =
+  let offsets, total = layout p in
+  let args =
+    List.map2
+      (fun ty off -> Printf.sprintf "(%s *)(blob + %d)" ty off)
+      k.Loop_c.buffer_types offsets
+  in
+  let main =
+    String.concat "\n"
+      [
+        "#include <stdio.h>";
+        "#include <stdlib.h>";
+        "int main(int argc, char **argv) {";
+        "  if (argc != 3) return 2;";
+        Printf.sprintf "  const size_t total = %d;" total;
+        "  unsigned char *blob = malloc(total ? total : 1);";
+        "  FILE *in = fopen(argv[1], \"rb\");";
+        "  if (!blob || !in || fread(blob, 1, total, in) != total) return 3;";
+        "  fclose(in);";
+        Printf.sprintf "  double *local = calloc(%Ld + 1, sizeof(double));"
+          k.Loop_c.local_doubles;
+        "  struct model_error err;";
+        "  memset(&err, 0, sizeof err);";
+        Printf.sprintf "  int rc = %s(&err, local%s);" kernel_name
+          (String.concat "" (List.map (fun a -> ", " ^ a) args));
+        "  FILE *out = fopen(argv[2], \"wb\");";
+        "  if (!out) return 4;";
+        "  int32_t rc32 = rc;";
+        "  fwrite(&rc32, sizeof rc32, 1, out);";
+        "  fwrite(&err.kind, sizeof err.kind, 1, out);";
+        "  fwrite(err.v, sizeof err.v[0], MODEL_ERROR_WORDS, out);";
+        "  fwrite(blob, 1, total, out);";
+        "  fclose(out);";
+        "  free(blob); free(local);";
+        "  return 0;";
+        "}";
+        "";
+      ]
+  in
+  let text =
+    String.concat "\n"
+      [
+        Loop_c_runtime.prelude;
+        Loop_c_runtime.helpers k.Loop_c.helpers;
+        k.Loop_c.source;
+        main;
+      ]
+  in
+  (text, List.map string_of_int offsets)
+
 let source ?vector ?numerics ?precision ?fuse_reductions p =
   match
     Err.payload
@@ -47,56 +97,7 @@ let source ?vector ?numerics ?precision ?fuse_reductions p =
          ~name:kernel_name p)
   with
   | Error e -> Err.fail (`C_unsupported e)
-  | Ok k ->
-      let offsets, total = layout p in
-      let args =
-        List.map2
-          (fun ty off -> Printf.sprintf "(%s *)(blob + %d)" ty off)
-          k.Loop_c.buffer_types offsets
-      in
-      let main =
-        String.concat "\n"
-          [
-            "#include <stdio.h>";
-            "#include <stdlib.h>";
-            "int main(int argc, char **argv) {";
-            "  if (argc != 3) return 2;";
-            Printf.sprintf "  const size_t total = %d;" total;
-            "  unsigned char *blob = malloc(total ? total : 1);";
-            "  FILE *in = fopen(argv[1], \"rb\");";
-            "  if (!blob || !in || fread(blob, 1, total, in) != total) return \
-             3;";
-            "  fclose(in);";
-            Printf.sprintf "  double *local = calloc(%Ld + 1, sizeof(double));"
-              k.Loop_c.local_doubles;
-            "  struct model_error err;";
-            "  memset(&err, 0, sizeof err);";
-            Printf.sprintf "  int rc = %s(&err, local%s);" kernel_name
-              (String.concat "" (List.map (fun a -> ", " ^ a) args));
-            "  FILE *out = fopen(argv[2], \"wb\");";
-            "  if (!out) return 4;";
-            "  int32_t rc32 = rc;";
-            "  fwrite(&rc32, sizeof rc32, 1, out);";
-            "  fwrite(&err.kind, sizeof err.kind, 1, out);";
-            "  fwrite(err.v, sizeof err.v[0], MODEL_ERROR_WORDS, out);";
-            "  fwrite(blob, 1, total, out);";
-            "  fclose(out);";
-            "  free(blob); free(local);";
-            "  return 0;";
-            "}";
-            "";
-          ]
-      in
-      let text =
-        String.concat "\n"
-          [
-            Loop_c_runtime.prelude;
-            Loop_c_runtime.helpers k.Loop_c.helpers;
-            k.Loop_c.source;
-            main;
-          ]
-      in
-      Err.return (text, List.map string_of_int offsets)
+  | Ok k -> Err.return (translation_unit k p)
 
 module Blob = C_blob
 module Payload_io = C_payload_io
@@ -167,14 +168,12 @@ let bind_buffers ~outputs (p : Loop_program.t) ~bind =
           Ok (Tensor_id.Map.add b.Loop_buffer.id (Loop_interp.allocate b) acc))
     (Ok Tensor_id.Map.empty) p.Loop_program.buffers
 
-let exec ?vector ?numerics ?precision ?fuse_reductions
-    ?(outputs = fun _ -> None) (p : Loop_program.t) ~bind =
+(* Runs a kernel some emitter made for [p]'s buffers: [kernel] is its text and
+   [sites] the failure sites its records are decoded against. *)
+let exec_kernel ~(kernel : Loop_c.t) ~sites ?(outputs = fun _ -> None)
+    (p : Loop_program.t) ~bind =
   let result : (Tensor.packed Tensor_id.Map.t, error) result =
-    let* text, _ =
-      Result.map_error
-        (fun e -> (e : [ `C_unsupported of Loop_c.error ] :> error))
-        (Err.payload (source ?vector ?numerics ?precision ?fuse_reductions p))
-    in
+    let text, _ = translation_unit kernel p in
     let* exe = (compile text :> (string, error) result) in
     let* tensors =
       (bind_buffers ~outputs p ~bind
@@ -222,10 +221,7 @@ let exec ?vector ?numerics ?precision ?fuse_reductions
                   Array.init Loop_c_runtime.error_words (fun i ->
                       String.get_int64_le s (8 + (i * word_bytes)))
                 in
-                match
-                  Loop_c_failure.decode ~sites:(Loop_js_failure.sites p) ~kind
-                    ~v
-                with
+                match Loop_c_failure.decode ~sites ~kind ~v with
                 | Ok row -> Error (row :> error)
                 | Error m -> Error (`C_host m)
               else
@@ -253,6 +249,17 @@ let exec ?vector ?numerics ?precision ?fuse_reductions
                      Tensor_id.Map.empty p.Loop_program.buffers))
   in
   match result with Ok m -> Err.return m | Error e -> Err.fail e
+
+let exec ?vector ?numerics ?precision ?fuse_reductions ?outputs
+    (p : Loop_program.t) ~bind =
+  match
+    Err.payload
+      (Loop_c.kernel ?vector ?numerics ?precision ?fuse_reductions
+         ~name:kernel_name p)
+  with
+  | Error e -> Err.fail (`C_unsupported e)
+  | Ok kernel ->
+      exec_kernel ~kernel ~sites:(Loop_js_failure.sites p) ?outputs p ~bind
 
 (* A quantized buffer has no C implementation: the design admits none, and the
    emitter refuses it with a typed error. Here, and only here, a program refused

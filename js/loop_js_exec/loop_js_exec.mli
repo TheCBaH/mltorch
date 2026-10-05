@@ -27,6 +27,15 @@ val compile_source :
 (** [new Function(source)()] for a factory body, memoised by the source. Exposed
     so the refusal of a source the engine cannot parse can be tested. *)
 
+val compile_kernel :
+  sites:Loop_failure.t array ->
+  Loop_program.t ->
+  string ->
+  (compiled, [> `Js_compile of string ]) Err.t
+(** [compile_as] for a kernel some other emitter made for the program's buffers:
+    [sites] is the failure-site table its records are decoded against, and the
+    program supplies the argument arrays and their validation. *)
+
 val compile_as :
   Loop_program.t -> string -> (compiled, [> `Js_compile of string ]) Err.t
 (** [compile] with the factory body supplied instead of printed: for a test that

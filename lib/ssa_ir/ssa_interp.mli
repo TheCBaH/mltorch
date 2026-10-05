@@ -52,3 +52,32 @@ val run :
     [fused] (default [true]) is what a {!Ssa_op.Float_fma} means: one rounding,
     or, when [false], a multiply rounded and then an add rounded. A plan built
     for an engine that may do either is correct if it matches one of the two. *)
+
+(** The operations of the interpreter without its control flow, for a consumer
+    that sequences them itself. {!exec} is the one meaning of an operation, so a
+    second interpreter cannot drift from this one on any operation, and only its
+    own control flow is under test when the two are compared. *)
+module Machine : sig
+  type t
+  type value
+
+  val run :
+    ?counters:Counters.t ->
+    ?fused:bool ->
+    buffers:Ssa_buffer.t list ->
+    scan_limits:Expr.Scan_limits.t ->
+    next_value:Ssa_id.Value.Next.t ->
+    memory:Ssa_memory.t ->
+    (t -> unit) ->
+    (unit, error) Err.t
+  (** Runs the body over a fresh machine; a failure ends it with the row. *)
+
+  val exec : t -> Ssa_instr.t -> unit
+  val read : t -> Ssa_value.t -> value
+  val write : t -> Ssa_value.t -> value -> unit
+  val index : t -> Ssa_value.t -> int64
+  val predicate : t -> Ssa_value.t -> bool
+
+  val effect_value : value
+  (** What an effect is at run time: nothing. *)
+end

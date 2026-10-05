@@ -8,6 +8,9 @@
     becomes the [Fail_if] of its own overflow at the same site, and a coordinate
     load is guarded by the bounds check the SSA load performs. *)
 
+val loop_buffer : Ssa_ir.Ssa_buffer.t -> Loop_ir.Loop_buffer.t
+(** A declared buffer as the Loop IR names it: its signature, role and id. *)
+
 val convert : Ssa_ir.Ssa_program.t -> Loop_ir.Loop_program.t
 (** The program must verify; [Invalid_argument] otherwise, and for a program
     with vector operations, which the Loop IR names no form for: expand them to

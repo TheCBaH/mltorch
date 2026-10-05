@@ -251,6 +251,109 @@ its own name becomes its interface and hides its siblings (the lowering is
   programs keep exactly the checks that report their failure; the optimized
   programs run through C, Wasm and JavaScript.
 
+## Control-flow graph form
+
+`Ssa_cfg_lower.program` turns a verified structured program into `Ssa_cfg.t`:
+blocks (`Ssa_cfg_block.t`) with typed parameters (the only phi convention),
+straight-line operations and one terminator (`Branch`, `Jump`, `Return`), and
+edges (`Ssa_cfg_edge.t`) whose arguments bind the target's parameters
+simultaneously. A `for` is a header (parameters: induction value and carried
+values, the effect among them) that compares against the bound and branches to
+the body or to an exit whose parameters are the loop's results; the body ends in
+`index.add_in_domain iv, step` and the back edge. An `if` branches to two blocks
+that meet in a join whose parameters are its results. An ordered sum is a loop
+whose accumulator is a header parameter and whose terms are added on the back
+edge (lane-wise for a vector), the effect threaded through the iterations. A
+captured value is a dominating definition; no critical edge is made.
+
+`Ssa_cfg_verify` checks reachability, one definition per value, dominance of
+every use (`Ssa_cfg.immediate_dominators`), edge arguments against parameters,
+predicate branch conditions, operation typing and buffer rules, and the effect
+chain: a block with an effect parameter starts the chain there, one without
+needs exactly one predecessor and continues its chain, an edge passes the chain
+to the target's effect parameter and `Return` consumes it. Proof-carrying
+operations are claims verified in the structured program; the lowering re-checks
+the one it adds (the last increment stays in the index domain) and refuses
+otherwise. `Ssa_cfg_interp` owns only control flow and runs every operation
+through `Ssa_interp.Machine.exec`, so a disagreement with the structured
+interpreter is a disagreement about control flow; `Ssa_exec.run ~engine:Cfg`
+and `Ssa_check.run ~engine:Cfg` run whole plans that way (the graph sweeps run
+every walked plan lowered, optimized and vectorized).
+
+`Ssa_cfg_handoff` is the boundary to the native plan: values are machine data
+(`Data ty`) or erased effects, precision and access layout are already explicit
+in types, operations and accesses, and no register, spill or frame appears.
+`copies` gives an edge's parallel copy without effects or self moves and
+`sequentialize` orders it with one temporary per cycle.
+
+## Direct C consumer
+
+`Ssa_c` (library `lib/ssa_c`) emits C straight from a structured program, with no
+Loop IR between: one `static int` function with `Loop_c`'s shape (error record,
+scratch `double *local`, one typed pointer per buffer the program names), the
+same runtime helpers and failure-record ABI (`Loop_c_runtime`, `Loop_js_failure`)
+so every existing host runs it, and a failure-site table the record decoder
+reads. Every value is a C variable declared at function scope and assigned where
+it is defined, so a carried value or an `if` result is a plain assignment and an
+iteration's transfer goes through temporaries unless a parameter is yielded to
+itself. Types are the program's: binary32 values are `float` (the translation
+unit asserts `FLT_EVAL_METHOD == 0`), `Float_fma` is `fma`/`fmaf`, vectors are
+GCC/Clang generic vectors of the logical width (a power of two) with masks as
+64-bit-lane vectors, a contiguous full-lane access is one `memcpy` and any other
+stride goes lane by lane, and the operations C has no vector form for run lane by
+lane through the scalar helper. Checked operations are explicit `if` + record at
+their own site, with the operands the interpreter reports. Precision and
+contraction are never decided here. Quantized buffers are a typed refusal; a
+buffer no operation touches is no argument (the caller validates its binding).
+Checks against the reference: the op sweep lowered and optimized, plans for every
+policy on neon (against the structured interpreter on the same program),
+hand-built control flow and every failure row, the vector surface, and mutations
+of addressing, checks, transfers, masks and fused operations.
+
+## Direct JavaScript consumer
+
+`Ssa_js` (library `lib/ssa_js`) builds a `Js_ast.Program.t` straight from a
+structured program, with the argument convention (one typed array per buffer the
+program names) and the failure-record shape of `Loop_js`, so the same in-process
+host runs it (`Loop_js_exec.compile_kernel` takes the failure-site table the
+emitter made). Representations: an index is a `Number`, an int64 a `BigInt`
+wrapped with `asIntN`, a float a `Number` (binary32 results rounded with
+`Math.fround`), a predicate a boolean; every value is a `let` at function scope.
+A loop runs a trip counter, `iv = lo + k * step`, so any step and the empty range
+need no special case, and an index that came from `ceil`/`floor` is normalised
+(`+ 0`) before it becomes a float because it can be `-0`. Checked operations
+return their record at their own site. Refused, typed, not emitted: vectors and
+masks, fused multiply-add, binary32 `erf` and an int64 to binary32 conversion
+(each would lose its single rounding in a `Number`). Checks: the op sweep lowered
+and optimized under node, hand-built control flow, every failure row, int64
+wrap, `-0`, binary32 rounding and a stride that does not divide its range, and
+mutations of each.
+
+## Direct WebAssembly consumer
+
+`Ssa_wasm` (library `lib/ssa_wasm`) emits one exported `loop_kernel` over linear
+memory straight from a structured program, producing the same `Loop_wasm.kernel`
+and `Loop_wasm.t` records as the Loop emitter (`Loop_wasm.lower_with` takes any
+kernel producer), so the module layout, helper functions, `Math` imports,
+manifest and failure-record ABI are one definition and `Loop_wasm_exec.exec_module`
+runs it under node. A value is a local typed by the program's own types (index
+`i32`, int64 `i64`, binary32 `f32`, predicate `i32`) and a vector or mask is a
+group of `v128` registers, two `f64` lanes or four `f32` lanes each; a mask is
+held as `i64x2` or `i32x4` lanes by the comparison that made it and re-held lane
+by lane where it meets the other shape. A loop's carried values transfer through
+the operand stack (every yield pushed, then popped in reverse), so the rebinding
+is simultaneous with no temporary; an induction counter that could wrap an `i32`
+(its last increment leaves the index domain) is a typed refusal. Contiguous
+`f32` to `f64` vector loads are `v128.load64_zero` plus a promote, `f64` to `f32`
+stores a demote plus a 64-bit lane store; any other stride goes lane by lane.
+`Float_fma` is the one relaxed-SIMD `f32x4.relaxed_madd`, only where the plan was
+made for relaxed SIMD; a scalar fused operation and a binary64 one are refused.
+Checks: the op sweep lowered and optimized, planned programs for strict vectors,
+ordered binary32 (standard SIMD) and relaxed binary32 (relaxed SIMD) against the
+structured interpreter, hand-built control flow and every failure row, the vector
+surface, and mutations of addressing, checks, transfers, selects, lanes and
+accumulation.
+
 ## Verifier and interpreter bounds
 
 `Ssa_verify.max_region_depth` (256) bounds region nesting; the interpreter

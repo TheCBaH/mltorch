@@ -1,0 +1,8 @@
+; Direct C emission from the structured SSA IR: no Loop IR in between. It reuses
+; the C runtime text and failure-record ABI of [loop_ir] (one definition of the
+; record a host decodes) and nothing of its program or its emitter. Pure text,
+; no process API: the compiler and the host are [loop_c_exec]'s.
+
+(library
+ (name ssa_c)
+ (libraries core err_trace expr fmt loop_ir ssa_ir))

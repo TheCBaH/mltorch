@@ -69,11 +69,13 @@ let compile_source source =
       | exception Js.Js_error.Exn e ->
           Err.import (fun m -> `Js_compile m) (Error (Js.Js_error.to_string e)))
 
-let compile_as (program : Loop_program.t) source =
+let compile_kernel ~sites (program : Loop_program.t) source =
   match compile_source source with
-  | Ok kernel ->
-      Err.return { program; sites = Loop_js_failure.sites program; kernel }
+  | Ok kernel -> Err.return { program; sites; kernel }
   | Error e -> Error e
+
+let compile_as (program : Loop_program.t) source =
+  compile_kernel ~sites:(Loop_js_failure.sites program) program source
 
 let compile program =
   compile_as program (Js_print.factory_body (Loop_js.to_ast program))
@@ -89,7 +91,8 @@ let boolean o f = Js.to_bool (Js.Unsafe.coerce (field o f))
    [int] is 32 bits. *)
 let int_field o f =
   let x = number o f in
-  if Float.is_integer x && Float.abs x <= 2147483647. then Ok (int_of_float x)
+  if Float.is_integer x && x >= -2147483648. && x <= 2147483647. then
+    Ok (int_of_float x)
   else
     Error
       (Printf.sprintf "field %s is not a 32-bit integer"
@@ -119,7 +122,7 @@ let decode compiled o : (error, string) result =
               Js.float_of_number
                 (Js.Unsafe.coerce (get coord (string_of_int i)))
             in
-            if Float.is_integer x && Float.abs x <= 2147483647. then
+            if Float.is_integer x && x >= -2147483648. && x <= 2147483647. then
               Ok (int_of_float x)
             else Error "coord component is not a 32-bit integer"
           in

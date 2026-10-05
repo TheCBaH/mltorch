@@ -3,6 +3,13 @@
    tensor id it was lowered from, so a failure row names the same source a
    reference executor does. *)
 
+module Block =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "bb"
+    end)
+    ()
+
 module Buffer =
   Core.Tagged_int.Make
     (struct

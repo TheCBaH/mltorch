@@ -1,0 +1,8 @@
+; Direct WebAssembly emission from the structured SSA IR: no Loop IR in between.
+; It reuses the module layout, runtime helpers and failure-record ABI of
+; [loop_ir] (one definition of what a host loads and decodes) and the typed
+; [wasm_ir]. Pure data: js_of_ocaml-reachable like [loop_ir].
+
+(library
+ (name ssa_wasm)
+ (libraries core err_trace expr fmt loop_ir ssa_ir wasm_ir))

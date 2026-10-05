@@ -48,6 +48,24 @@ val compile :
 (** Compiles one translation unit with {!compiler}, memoised by source and
     flags, and returns the executable's path (removed at exit). *)
 
+val kernel_name : string
+(** The function a translation unit calls. *)
+
+val translation_unit : Loop_c.t -> Loop_program.t -> string * string list
+(** The complete translation unit around an emitted kernel (its text, helpers
+    and scratch size) and the buffer offsets, for [p]'s buffers in order. The
+    kernel may come from any emitter that keeps {!Loop_c}'s function shape. *)
+
+val exec_kernel :
+  kernel:Loop_c.t ->
+  sites:Loop_failure.t array ->
+  ?outputs:(Tensor_id.t -> Tensor.packed option) ->
+  Loop_program.t ->
+  bind:(Tensor_id.t -> Tensor.packed option) ->
+  (Tensor.packed Tensor_id.Map.t, error) Err.t
+(** Compiles and runs an emitted kernel over [p]'s buffers, decoding a failure
+    record against [sites]. {!exec} is this with {!Loop_c}'s own kernel. *)
+
 val source :
   ?vector:Loop_target.t ->
   ?numerics:Loop_numerics.t ->

@@ -2,8 +2,10 @@ open Ssa_ir
 
 module Disagreement = struct
   type t =
+    | Cfg_lowering of Ssa_cfg_lower.error
     | Error_kind of { reference : string; ssa : string }
     | Error_payload of string
+    | Invalid_cfg of Ssa_cfg_verify.diagnostic
     | Invalid_program of Ssa_verify.diagnostic
     | Missing_output of Tensor_id.t
     | Reference_only_failed of string
@@ -12,9 +14,14 @@ module Disagreement = struct
     | Value_mismatch of Tensor_id.t
 
   let pp fmt = function
+    | Cfg_lowering e ->
+        Fmt.pf fmt "the program has no graph form: %a" Ssa_cfg_lower.pp_error e
     | Error_kind { reference; ssa } ->
         Fmt.pf fmt "failure kinds differ: reference %s, ssa %s" reference ssa
     | Error_payload kind -> Fmt.pf fmt "%s payloads differ" kind
+    | Invalid_cfg d ->
+        Fmt.pf fmt "the lowered graph does not verify: %a"
+          Ssa_cfg_verify.pp_diagnostic d
     | Invalid_program d ->
         Fmt.pf fmt "the lowered program does not verify: %a"
           Ssa_verify.pp_diagnostic d
@@ -77,6 +84,8 @@ let compare_outputs reference ssa =
 let compare_results reference ssa =
   match (reference, ssa) with
   | Ok reference, Ok ssa -> compare_outputs reference ssa
+  | _, Error (`Cfg_lowering e) -> Disagree (Disagreement.Cfg_lowering e)
+  | _, Error (`Invalid_cfg d) -> Disagree (Disagreement.Invalid_cfg d)
   | _, Error (`Invalid_program d) -> Disagree (Disagreement.Invalid_program d)
   | Error r, Error (#Kernel_eval.error as s) ->
       let reference_kind = Loop_ir.Loop_check.kind r
@@ -95,13 +104,16 @@ let compare_results reference ssa =
 let compare ~reference ~ssa =
   compare_results (Err.payload reference) (Err.payload ssa)
 
-let run ?(prepare = Fun.id) (plan : Fusion_plan.t) ~bind =
+let compare_kernel ~reference ~actual =
+  compare_results (Err.payload reference) (Err.payload actual)
+
+let run ?(prepare = Fun.id) ?engine (plan : Fusion_plan.t) ~bind =
   match Err.payload (Ssa_lower.Ssa_lower_plan.lower plan) with
   | Error (`Unsupported u) -> Refused u
   | Ok program ->
       compare
         ~reference:(Kernel_eval.run_plan plan ~bind)
-        ~ssa:(Ssa_lower.Ssa_exec.run plan (prepare program) ~bind)
+        ~ssa:(Ssa_lower.Ssa_exec.run ?engine plan (prepare program) ~bind)
 
 (* The binary32 oracle of a scalar kernel is the Loop interpreter at binary32:
    every float operation in binary64, rounded once. *)
@@ -131,7 +143,7 @@ let run_f32 ?(prepare = Fun.id) (plan : Fusion_plan.t) ~bind =
 let as_reference (r : (_, Ssa_lower.Ssa_exec.error) Err.t) =
   Err.map_error
     (function
-      | `Invalid_program _ ->
+      | `Cfg_lowering _ | `Invalid_cfg _ | `Invalid_program _ ->
           invalid_arg "Ssa_check: the oracle does not verify"
       | (#Ssa_interp.failure | `Binding_mismatch _ | `Unbound_input _) as e ->
           (e :> Kernel_eval.error))

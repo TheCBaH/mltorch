@@ -1,0 +1,27 @@
+; Direct C emission from SSA against the reference evaluator: every walked plan
+; is lowered, prepared, emitted by [Ssa_c], compiled with the host compiler and
+; run, and its outputs and failure rows are compared with [Kernel_eval]. Needs
+; a C compiler (gcc): a missing one is a failure, never a skip.
+
+(library
+ (name ssa_c_test)
+ (libraries
+  core
+  err_trace
+  expr
+  fmt
+  loop_c_exec
+  loop_ir
+  loop_ir_test
+  native
+  native_op_walk
+  native_test
+  ssa_bridge
+  ssa_bridge_test
+  ssa_c
+  ssa_ir
+  ssa_lower
+  walk_core)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

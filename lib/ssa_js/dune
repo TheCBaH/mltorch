@@ -1,0 +1,8 @@
+; Direct JavaScript emission from the structured SSA IR: no Loop IR in between.
+; It reuses the runtime helpers and the failure-record shape of [loop_ir] (one
+; definition of the record a host decodes) and the closed [js_ast]. Pure data
+; and text, no host: js_of_ocaml-reachable like [loop_ir].
+
+(library
+ (name ssa_js)
+ (libraries core err_trace expr fmt js_ast loop_ir ssa_ir))

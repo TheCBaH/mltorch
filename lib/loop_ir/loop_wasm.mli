@@ -89,6 +89,15 @@ val kernel :
   Loop_program.t ->
   (kernel, [> error ]) Err.t
 
+val lower_with :
+  ?numerics:Loop_numerics.t ->
+  ?count_marks:bool ->
+  (mark_base:int option -> table_alloc:(bytes:int -> int) -> (kernel, 'e) Err.t) ->
+  (t, 'e) Err.t
+(** {!lower} for a kernel some other emitter makes: [produce] gets the mark base
+    and the constant-table allocator the module's layout fixes, and its kernel
+    is linked, given a memory and exported exactly as {!lower} does. *)
+
 val with_pages : t -> pages:int -> Wasm.Module.t
 (** The module with [pages] initial memory pages; [Invalid_argument] below the
     static region's need. *)

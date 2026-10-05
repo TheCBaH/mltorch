@@ -448,8 +448,10 @@ let kernel ?vector ?(numerics = Loop_numerics.Reference_f64) ?precision
 
 let align16 x = Int64.logand (Int64.add x 15L) (Int64.lognot 15L)
 
-let lower ?vector ?(numerics = Loop_numerics.Reference_f64) ?precision
-    ?(count_marks = false) (p : Loop_program.t) : (t, error) Err.t =
+let lower_with ?(numerics = Loop_numerics.Reference_f64) ?(count_marks = false)
+    (produce :
+      mark_base:int option -> table_alloc:(bytes:int -> int) -> ('a, 'e) Err.t)
+    =
   (* The module's own bytes: the error record, then constant tables as the
      kernel asks for them, then the local region, then the host's buffers. *)
   let top = ref (align16 (Int64.of_int W.record_bytes)) in
@@ -510,7 +512,12 @@ let lower ?vector ?(numerics = Loop_numerics.Reference_f64) ?precision
         sites = k.sites;
         precision = k.precision;
       })
-    (kernel_exact ~vector ~numerics ~precision ~mark_base ~table_alloc p)
+    (produce ~mark_base ~table_alloc)
+
+let lower ?vector ?(numerics = Loop_numerics.Reference_f64) ?precision
+    ?(count_marks = false) (p : Loop_program.t) : (t, error) Err.t =
+  lower_with ~numerics ~count_marks (fun ~mark_base ~table_alloc ->
+      kernel_exact ~vector ~numerics ~precision ~mark_base ~table_alloc p)
 
 let with_pages t ~pages =
   match t.module_.Wasm.Module.memory with

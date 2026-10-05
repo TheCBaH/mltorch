@@ -25,6 +25,16 @@ module Node = Wasm_node
 val node : string list ref
 (** The command that runs a script: [["node"]]. *)
 
+val exec_module :
+  lowered:Loop_wasm.t ->
+  ?outputs:(Tensor_id.t -> Tensor.packed option) ->
+  Loop_program.t ->
+  bind:(Tensor_id.t -> Tensor.packed option) ->
+  (Tensor.packed Tensor_id.Map.t, error) Err.t
+(** Runs a lowered module some emitter made for [p]'s buffers, decoding a
+    failure record against its [sites]. {!exec} is this after
+    {!Loop_wasm.lower}. *)
+
 val exec :
   ?vector:Loop_target.t ->
   ?numerics:Loop_numerics.t ->
