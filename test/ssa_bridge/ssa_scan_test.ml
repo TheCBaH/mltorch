@@ -143,7 +143,7 @@ let ssa_at_first_cell ~limits =
 (* The reference's row for an SSA failure; an invalid program has none. *)
 let row (e : Ssa_lower.Ssa_exec.error) : Kernel_eval.error option =
   match e with
-  | `Invalid_program _ -> None
+  | `Cfg_lowering _ | `Invalid_cfg _ | `Invalid_program _ -> None
   | (`Binding_mismatch _ | `Unbound_input _ | #Ssa_interp.failure) as e ->
       Some (e :> Kernel_eval.error)
 

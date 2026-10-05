@@ -208,6 +208,22 @@ let buffer st (b : Ssa_buffer.t) =
     (Ssa_format.name b.Ssa_buffer.format)
     (join (List.map Int64.to_string (Expr.Coord.to_list b.Ssa_buffer.extents)))
 
+(* The pieces another form of the same program prints with. *)
+module Parts = struct
+  type nonrec state = state
+
+  let create () =
+    { out = Buffer.create 256; names = Hashtbl.create 64; next = 0 }
+
+  let line = line
+  let buffer = buffer
+  let defs = defs
+  let uses = uses
+  let name = name
+  let contents st = Buffer.contents st.out
+  let instr st indent i = stmt st indent (Ssa_stmt.Instr i)
+end
+
 let to_string (p : Ssa_program.t) =
   let st = { out = Buffer.create 256; names = Hashtbl.create 64; next = 0 } in
   List.iter (buffer st) p.Ssa_program.buffers;

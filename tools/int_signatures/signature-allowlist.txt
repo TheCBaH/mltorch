@@ -205,6 +205,8 @@ lib/ssa_ir/ssa_verify.mli	budget	val max_region_depth : int
 lib/ssa_bridge/ssa_check.mli	tally	type marks = { emitters : int; keys : int; locals : int; reductions : int; scan_updates : int; scans : int; }
 lib/ssa_bridge/ssa_check.mli	tally	type t = { ssa_f32 : bool; loop_f32 : bool; ssa_loops : int; loop_loops : int; ssa_blocked : int; loop_blocked : int; } end
 lib/ssa_ir/ssa_opt.mli	tally	type report = (string * int) list
+lib/ssa_ir/ssa_pp.mli	arity	val line : state -> int -> ('a, Format.formatter, unit, unit) format4 -> 'a
+lib/ssa_ir/ssa_pp.mli	arity	val instr : state -> int -> Ssa_instr.t -> unit
 lib/ssa_ir/ssa_opt_rows.mli	budget	val program : rows:int -> policy:Ssa_effects.policy -> Ssa_program.t -> Ssa_program.t * int
 lib/ssa_ir/ssa_opt_rows.mli	tally	val analyze : rows:int -> policy:Ssa_effects.policy -> Ssa_program.t -> (Ssa_id.Region.t * (int, refusal) result) list
 lib/ssa_ir/ssa_numerics.mli	tally	val coverage : numerics:t -> f32_kernels:int -> kernels:int -> f32_invocations:int -> invocations:int -> refusals:(Refusal.t * int) list -> string

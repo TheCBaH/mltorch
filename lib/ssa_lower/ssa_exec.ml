@@ -3,12 +3,18 @@ open Ssa_ir
 type error =
   [ Ssa_interp.failure
   | `Binding_mismatch of Kernel_eval.Binding_mismatch.t
+  | `Cfg_lowering of Ssa_cfg_lower.error
+  | `Invalid_cfg of Ssa_cfg_verify.diagnostic
   | `Invalid_program of Ssa_verify.diagnostic
   | `Unbound_input of Tensor_id.t ]
+
+type engine = Cfg | Structured
 
 let pp_error fmt : [< error ] -> unit = function
   | #Ssa_interp.error as e -> Ssa_interp.pp_error fmt e
   | `Binding_mismatch m -> Kernel_eval.Binding_mismatch.pp fmt m
+  | `Cfg_lowering e -> Ssa_cfg_lower.pp_error fmt e
+  | `Invalid_cfg d -> Ssa_cfg_verify.pp_diagnostic fmt d
   | `Unbound_input id -> Fmt.pf fmt "no binding for input %a" Tensor_id.pp id
 
 let shape_of = Ssa_sig.shape
@@ -76,7 +82,8 @@ let tensor_of (b : Ssa_buffer.t) cells =
       Tensor.materialize_i64 shape (fun c -> a.(at c))
   | _ -> invalid_arg "Ssa_exec: cells do not match the buffer format"
 
-let run ?counters ?fused (plan : Fusion_plan.t) (p : Ssa_program.t) ~bind =
+let run ?counters ?fused ?(engine = Structured) (plan : Fusion_plan.t)
+    (p : Ssa_program.t) ~bind =
   Err.Escape.with_escape @@ fun esc ->
   (* The reference validates every bound input first, in input order, used or
      not, so a failure there is reported before any evaluation. *)
@@ -110,9 +117,21 @@ let run ?counters ?fused (plan : Fusion_plan.t) (p : Ssa_program.t) ~bind =
       Ssa_id.Buffer.Map.empty p.Ssa_program.buffers
   in
   Err.Escape.or_throw esc
-    (Err.map_error
-       (fun (e : Ssa_interp.error) -> (e :> error))
-       (Ssa_interp.run ?counters ?fused p ~memory));
+    (match engine with
+    | Structured ->
+        Err.map_error
+          (fun (e : Ssa_interp.error) -> (e :> error))
+          (Ssa_interp.run ?counters ?fused p ~memory)
+    | Cfg -> (
+        match Err.payload (Ssa_verify.check p) with
+        | Error (`Invalid_program d) -> Err.fail (`Invalid_program d : error)
+        | Ok () -> (
+            match Ssa_cfg_lower.program p with
+            | Error e -> Err.fail (`Cfg_lowering e : error)
+            | Ok cfg ->
+                Err.map_error
+                  (fun (e : Ssa_cfg_interp.error) -> (e :> error))
+                  (Ssa_cfg_interp.run ?counters ?fused cfg ~memory))));
   List.fold_left
     (fun acc (b : Ssa_buffer.t) ->
       match b.Ssa_buffer.role with

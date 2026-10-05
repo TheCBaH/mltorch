@@ -79,7 +79,8 @@ type meter = { mutable live_state : int; mutable updates_remaining : int64 }
 
 type st = {
   esc : failure Err.Escape.t;
-  program : Ssa_program.t;
+  buffers : Ssa_buffer.t list;
+  scan_limits : Expr.Scan_limits.t;
   memory : Ssa_memory.t;
   counters : Counters.t;
   fused : bool;
@@ -119,7 +120,11 @@ let is_f32 (x : Ssa_value.t) =
   | _ -> false
 
 let buffer st id =
-  match Ssa_program.find_buffer st.program id with
+  match
+    List.find_opt
+      (fun (b : Ssa_buffer.t) -> Ssa_id.Buffer.equal b.Ssa_buffer.id id)
+      st.buffers
+  with
   | Some b -> b
   | None -> invalid_arg "Ssa_interp: undeclared buffer"
 
@@ -331,11 +336,7 @@ let exec_op st (i : Ssa_instr.t) =
             Err.Escape.throw st.esc
               (`Scan_meter
                  (Expr.Scan_meter.Updates_exhausted
-                    {
-                      limit =
-                        Expr.Scan_limits.max_updates
-                          st.program.Ssa_program.scan_limits;
-                    })
+                    { limit = Expr.Scan_limits.max_updates st.scan_limits })
                 : failure)
           else
             st.meter.updates_remaining <-
@@ -344,7 +345,7 @@ let exec_op st (i : Ssa_instr.t) =
           st.meter.live_state <- st.meter.live_state - (2 * Int64.to_int width)
       | Ssa_op.Meter_reserve width ->
           let need = 2 * Int64.to_int width in
-          let limits = st.program.Ssa_program.scan_limits in
+          let limits = st.scan_limits in
           if st.meter.live_state + need > Expr.Scan_limits.max_state limits then
             Err.Escape.throw st.esc
               (`Scan_meter
@@ -352,8 +353,7 @@ let exec_op st (i : Ssa_instr.t) =
                     { limit = Expr.Scan_limits.max_state limits })
                 : failure)
           else st.meter.live_state <- st.meter.live_state + need
-      | Ssa_op.Meter_reset ->
-          st.meter <- fresh_meter st.program.Ssa_program.scan_limits
+      | Ssa_op.Meter_reset -> st.meter <- fresh_meter st.scan_limits
       | Ssa_op.Check_gather { raw; extent } ->
           let raw = int_of st raw in
           let bound = extent in
@@ -596,7 +596,8 @@ let run ?(counters = Counters.create ()) ?(fused = true) (p : Ssa_program.t)
           let st =
             {
               esc;
-              program = p;
+              buffers = p.Ssa_program.buffers;
+              scan_limits = p.Ssa_program.scan_limits;
               memory;
               counters;
               fused;
@@ -605,3 +606,35 @@ let run ?(counters = Counters.create ()) ?(fused = true) (p : Ssa_program.t)
             }
           in
           region st p.Ssa_program.entry )
+
+(* The machine without its control flow: a consumer that sequences the
+   operations itself (the CFG interpreter) runs each through [exec], so every
+   operation means exactly what it means here. *)
+module Machine = struct
+  type nonrec t = st
+  type value = v
+
+  let run ?(counters = Counters.create ()) ?(fused = true) ~buffers ~scan_limits
+      ~next_value ~memory body =
+    Err.map_error
+      (fun (f : failure) -> (f :> error))
+      ( Err.Escape.with_escape @@ fun esc ->
+        body
+          {
+            esc;
+            buffers;
+            scan_limits;
+            memory;
+            counters;
+            fused;
+            env = Array.make (next_value : Ssa_id.Value.Next.t :> int) E;
+            meter = fresh_meter scan_limits;
+          } )
+
+  let exec = exec_op
+  let read = get
+  let write = set
+  let index = int_of
+  let predicate = bool_of
+  let effect_value = E
+end

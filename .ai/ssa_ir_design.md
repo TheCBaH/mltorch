@@ -251,6 +251,41 @@ its own name becomes its interface and hides its siblings (the lowering is
   programs keep exactly the checks that report their failure; the optimized
   programs run through C, Wasm and JavaScript.
 
+## Control-flow graph form
+
+`Ssa_cfg_lower.program` turns a verified structured program into `Ssa_cfg.t`:
+blocks (`Ssa_cfg_block.t`) with typed parameters (the only phi convention),
+straight-line operations and one terminator (`Branch`, `Jump`, `Return`), and
+edges (`Ssa_cfg_edge.t`) whose arguments bind the target's parameters
+simultaneously. A `for` is a header (parameters: induction value and carried
+values, the effect among them) that compares against the bound and branches to
+the body or to an exit whose parameters are the loop's results; the body ends in
+`index.add_in_domain iv, step` and the back edge. An `if` branches to two blocks
+that meet in a join whose parameters are its results. An ordered sum is a loop
+whose accumulator is a header parameter and whose terms are added on the back
+edge (lane-wise for a vector), the effect threaded through the iterations. A
+captured value is a dominating definition; no critical edge is made.
+
+`Ssa_cfg_verify` checks reachability, one definition per value, dominance of
+every use (`Ssa_cfg.immediate_dominators`), edge arguments against parameters,
+predicate branch conditions, operation typing and buffer rules, and the effect
+chain: a block with an effect parameter starts the chain there, one without
+needs exactly one predecessor and continues its chain, an edge passes the chain
+to the target's effect parameter and `Return` consumes it. Proof-carrying
+operations are claims verified in the structured program; the lowering re-checks
+the one it adds (the last increment stays in the index domain) and refuses
+otherwise. `Ssa_cfg_interp` owns only control flow and runs every operation
+through `Ssa_interp.Machine.exec`, so a disagreement with the structured
+interpreter is a disagreement about control flow; `Ssa_exec.run ~engine:Cfg`
+and `Ssa_check.run ~engine:Cfg` run whole plans that way (the graph sweeps run
+every walked plan lowered, optimized and vectorized).
+
+`Ssa_cfg_handoff` is the boundary to the native plan: values are machine data
+(`Data ty`) or erased effects, precision and access layout are already explicit
+in types, operations and accesses, and no register, spill or frame appears.
+`copies` gives an edge's parallel copy without effects or self moves and
+`sequentialize` orders it with one temporary per cycle.
+
 ## Verifier and interpreter bounds
 
 `Ssa_verify.max_region_depth` (256) bounds region nesting; the interpreter
