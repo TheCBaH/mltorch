@@ -24,8 +24,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   `module rec`; a variant that only references the others can stay outside the recursive
   group by parametrizing it (see `lib/native/graph_ir.ml`: `'g gop`).
 
-- **Result/Option handling**: the error framework is `Err`, from vendored `err_trace`
-  (`vendored/err_trace` — name and public_name are the same, unlike most libs here).
+- **Result/Option handling**: the error framework is `Err`, from `err_trace`
+  (an opam package; its melange build is `err_trace-melange`).
   `lib/core` keeps `Core.Pretty` (Fmt glue) beside the scalar types `Core.Dim`,
   `Core.Geometry` and `Core.Tagged_int` — the dependency runs one way, `Err` must never
   depend on Fmt.

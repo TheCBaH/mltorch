@@ -10,9 +10,6 @@
 [submodule "vendored/ocaml-model-explorer"]
 	path = vendored/ocaml-model-explorer
 	url = https://github.com/TheCBaH/ocaml-model-explorer.git
-[submodule "vendored/err_trace"]
-	path = vendored/err_trace
-	url = https://github.com/TheCBaH/err_trace.git
 [submodule "modules/devcontainer.pytorch-image-models"]
 	path = modules/devcontainer.pytorch-image-models
 	url = https://github.com/TheCBaH/devcontainer.pytorch-image-models.git

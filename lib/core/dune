@@ -1,6 +1,6 @@
 ; The repo's shared foundations: printer glue and the scalar types ([Dim],
 ; [Geometry], [Tagged_int]) below the expression language. The error framework that used to live here is
-; [Err] (vendored/err_trace); see .ai/error_handling_design.md.
+; [Err] (the opam package err_trace); see .ai/ for the design.
 ;
 ; Wrapped (default), so it is referenced as Core.Pretty.* — a shared library
 ; must not leak a global module into wrapped-false consumers (e.g. lib/native).

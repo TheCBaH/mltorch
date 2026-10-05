@@ -41,7 +41,7 @@
  (modes melange)
  (enabled_if
   (= %{profile} melange))
- (libraries core_mel err_trace_mel fmt_mel)
+ (libraries core_mel err_trace-melange fmt_mel)
  (preprocess
   (action
    (run %{bin:cppo} -D JS_BACKEND -D MELANGE_BACKEND %{input-file}))))

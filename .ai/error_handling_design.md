@@ -1,8 +1,8 @@
 # Error handling: `Err` (err_trace)
 
 The repo's recoverable-error framework is `Err`, the single module of the
-`err_trace` library vendored at `vendored/err_trace` (name and public_name are
-the same). It replaced `lib/core`'s hand-rolled `Core.Error.t` / `Core.result`.
+`err_trace` opam package (installed from upstream main by the devcontainer; its
+melange build is `err_trace-melange`). It replaced `lib/core`'s hand-rolled `Core.Error.t` / `Core.result`.
 
 `lib/core` still exists and still holds `Core.Pretty`. That is Fmt glue, and the
 dependency runs one way only: `Core` may print an `Err.Error.t`, and `Err` may
