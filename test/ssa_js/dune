@@ -15,11 +15,13 @@
   js_of_ocaml
   loop_ir
   loop_ir_test
+  loop_bundle_exec
   loop_js_exec
   native
   native_op_walk
   native_test
   ssa_bridge
+  ssa_backends
   ssa_bridge_test
   ssa_ir
   ssa_js

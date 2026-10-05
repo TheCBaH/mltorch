@@ -46,6 +46,7 @@ type error =
   | W.error
   | Loop_wasm.error
   | Wasm_check.error
+  | `Kernel_refused of string
   | `Memory_over_policy of int64
   | `Missing_signature of Tensor_id.t
   | `Output_outside_workspace of Tensor_id.t ]
@@ -55,6 +56,7 @@ let pp_error ppf : [< error ] -> unit = function
   | #W.error as e -> W.pp_error ppf e
   | #Loop_wasm.error as e -> Loop_wasm.pp_error ppf e
   | #Wasm_check.error as e -> Wasm_check.pp_error ppf e
+  | `Kernel_refused m -> Format.fprintf ppf "a kernel was refused: %s" m
   | `Memory_over_policy n ->
       Format.fprintf ppf "%Ld bytes exceed the 2 GiB memory policy" n
   | `Missing_signature id ->
@@ -220,8 +222,8 @@ let invocation ws ~position ~kernel (inv : Loop_bundle.invocation)
 
 let align n a = Int64.mul (Int64.div (Int64.add n (Int64.sub a 1L)) a) a
 
-let build ?vector ?(numerics = Loop_numerics.Reference_f64) (b : Loop_bundle.t)
-    : (t, error) Err.t =
+let build ?vector ?(numerics = Loop_numerics.Reference_f64) ?kernel
+    (b : Loop_bundle.t) : (t, error) Err.t =
   let open Err.Syntax in
   let g = b.Loop_bundle.graph in
   let sigs ids =
@@ -249,8 +251,16 @@ let build ?vector ?(numerics = Loop_numerics.Reference_f64) (b : Loop_bundle.t)
     Err.List.map
       (fun (inv : Loop_bundle.invocation) ->
         let* k =
-          Loop_wasm.kernel ?vector ~numerics ~table_alloc
-            inv.Loop_bundle.program
+          match kernel with
+          | Some k -> (
+              match k ~table_alloc inv with
+              | Ok k -> Err.return k
+              | Error m -> Err.fail (`Kernel_refused m))
+          | None ->
+              Err.map_error
+                (fun (e : Loop_wasm.error) -> (e :> error))
+                (Loop_wasm.kernel ?vector ~numerics ~table_alloc
+                   inv.Loop_bundle.program)
         in
         let index = Kernels.intern kernels k in
         let local_doubles = Int64.div k.Loop_wasm.local_bytes 8L in

@@ -27,6 +27,7 @@ type error =
   [ P.error
   | W.error
   | Loop_c.error
+  | `Kernel_refused of string
   | `Missing_signature of Tensor_id.t
   | `Output_outside_workspace of Tensor_id.t ]
 
@@ -34,6 +35,7 @@ let pp_error ppf : [< error ] -> unit = function
   | #P.error as e -> P.pp_error ppf e
   | #W.error as e -> W.pp_error ppf e
   | #Loop_c.error as e -> Loop_c.pp_error ppf e
+  | `Kernel_refused m -> Format.fprintf ppf "a kernel was refused: %s" m
   | `Missing_signature id ->
       Format.fprintf ppf "t%d: no tensor signature" (Tensor_id.to_int id)
   | `Output_outside_workspace id ->
@@ -68,9 +70,9 @@ module Kernels = struct
   let create () = { table = Hashtbl.create 64; order = []; next = 0 }
   let placeholder = "KERNEL"
 
-  let intern ?vector ?numerics t program =
+  let intern ~produce t inv =
     let open Err.Syntax in
-    let+ k = Loop_c.kernel ?vector ?numerics ~name:placeholder program in
+    let+ k = produce ~name:placeholder inv in
     match Hashtbl.find_opt t.table k.Loop_c.source with
     | Some e -> e
     | None ->
@@ -193,8 +195,19 @@ let invocation_text ws ~position ~kernel (inv : Loop_bundle.invocation)
            "  }";
          ]))
 
-let build ?vector ?(numerics = Loop_numerics.Reference_f64) (b : Loop_bundle.t)
-    : (t, error) Err.t =
+let build ?vector ?(numerics = Loop_numerics.Reference_f64) ?kernel
+    (b : Loop_bundle.t) : (t, error) Err.t =
+  let produce ~name (inv : Loop_bundle.invocation) =
+    match kernel with
+    | Some k -> (
+        match k ~name inv with
+        | Ok k -> Err.return k
+        | Error m -> Err.fail (`Kernel_refused m))
+    | None ->
+        Err.map_error
+          (fun (e : Loop_c.error) -> (e :> error))
+          (Loop_c.kernel ?vector ~numerics ~name inv.Loop_bundle.program)
+  in
   let open Err.Syntax in
   let g = b.Loop_bundle.graph in
   let sigs ids =
@@ -214,9 +227,7 @@ let build ?vector ?(numerics = Loop_numerics.Reference_f64) (b : Loop_bundle.t)
   let* compiled =
     Err.List.map
       (fun (inv : Loop_bundle.invocation) ->
-        let* e =
-          Kernels.intern ?vector ~numerics kernels inv.Loop_bundle.program
-        in
+        let* e = Kernels.intern ~produce kernels inv in
         let+ sc =
           W.scratch inv ~local_doubles:e.Kernels.kernel.Loop_c.local_doubles
         in

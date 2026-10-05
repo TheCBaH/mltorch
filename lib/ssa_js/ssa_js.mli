@@ -15,7 +15,8 @@
     no JavaScript form that keeps its single rounding). *)
 
 type error =
-  [ `Unsupported_format of Ssa_ir.Ssa_id.Buffer.t * string
+  [ `Unknown_site
+  | `Unsupported_format of Ssa_ir.Ssa_id.Buffer.t * string
   | `Unsupported_operation of string ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
@@ -31,7 +32,11 @@ val arguments : Ssa_ir.Ssa_program.t -> Ssa_ir.Ssa_buffer.t list
     names. A declared buffer nothing touches is no argument. *)
 
 val program :
+  ?buffers:Ssa_ir.Ssa_buffer.t list ->
+  ?sites:Loop_ir.Loop_failure.t array ->
   Ssa_ir.Ssa_program.t ->
   (Js_ast.Program.t * Loop_ir.Loop_failure.t array, error) result
 (** The program and the failure sites its records are decoded against. Every
-    identifier is bound ([Js_check.closed] runs before it returns). *)
+    identifier is bound ([Js_check.closed] runs before it returns). [buffers]
+    (default {!arguments}) are the arguments taken, in order. [sites] is a
+    failure-site table to decode against, as for {!Ssa_c.kernel}. *)

@@ -22,11 +22,15 @@ val arguments : Ssa_ir.Ssa_program.t -> Ssa_ir.Ssa_buffer.t list
     order: those an operation names. *)
 
 val kernel :
+  ?buffers:Ssa_ir.Ssa_buffer.t list ->
+  ?sites:Loop_ir.Loop_failure.t array ->
   relaxed_madd:bool ->
   table_alloc:(bytes:int -> int) ->
   Ssa_ir.Ssa_program.t ->
   (Loop_ir.Loop_wasm.kernel, error) result
-(** A kernel for composition into a module. *)
+(** A kernel for composition into a module. [buffers] (default {!arguments}) are
+    the arguments taken after [local], in order. [sites] is a failure-site table
+    to decode against, as for {!Ssa_c.kernel}. *)
 
 val lower :
   ?relaxed_madd:bool ->

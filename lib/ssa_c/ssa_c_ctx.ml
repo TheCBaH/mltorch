@@ -9,9 +9,13 @@ open Ssa_ir
 module R = Loop_ir.Loop_c_runtime
 
 type error =
-  [ `Unsupported_format of Ssa_id.Buffer.t * string | `Unsupported_lanes of int ]
+  [ `Unknown_site
+  | `Unsupported_format of Ssa_id.Buffer.t * string
+  | `Unsupported_lanes of int ]
 
 let pp_error ppf : [< error ] -> unit = function
+  | `Unknown_site ->
+      Fmt.string ppf "a failure site the program's site table does not name"
   | `Unsupported_format (b, f) ->
       Fmt.pf ppf "%a: format %s has no C implementation" Ssa_id.Buffer.pp b f
   | `Unsupported_lanes n ->
@@ -35,9 +39,10 @@ type t = {
       (** a scratch object's slots and the variable it names *)
   out : Buffer.t;
   buffers : Ssa_buffer.t list;
+  site_table : Loop_ir.Loop_failure.t array option;
 }
 
-let create buffers =
+let create ?site_table buffers =
   {
     names = Hashtbl.create 64;
     decls = [];
@@ -53,6 +58,7 @@ let create buffers =
     locals = Hashtbl.create 8;
     out = Buffer.create 4096;
     buffers;
+    site_table;
   }
 
 let use cx h = if not (List.mem h cx.used) then cx.used <- h :: cx.used
@@ -149,10 +155,20 @@ let temp cx =
 
 (* A failure site: where a record's static part (which local) is looked up. *)
 let site cx (f : Loop_ir.Loop_failure.t) =
-  let k = cx.site_count in
-  cx.sites <- f :: cx.sites;
-  cx.site_count <- k + 1;
-  k
+  match cx.site_table with
+  | None ->
+      let k = cx.site_count in
+      cx.sites <- f :: cx.sites;
+      cx.site_count <- k + 1;
+      k
+  | Some table ->
+      (* the first entry of the caller's table that names the same failure *)
+      let rec find i =
+        if i >= Array.length table then raise (Refused `Unknown_site)
+        else if Loop_ir.Loop_failure.same_site table.(i) f then i
+        else find (i + 1)
+      in
+      find 0
 
 let vector_helper cx name text =
   if not (List.mem_assoc name cx.vector_helpers) then

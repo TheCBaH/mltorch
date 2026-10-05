@@ -354,6 +354,30 @@ structured interpreter, hand-built control flow and every failure row, the vecto
 surface, and mutations of addressing, checks, transfers, selects, lanes and
 accumulation.
 
+## Whole-model bundles through SSA
+
+The three bundle builders take an optional `kernel` hook that makes each
+invocation's kernel instead of the Loop emitter: `Loop_bundle_c.build ?kernel`,
+`Loop_bundle_wasm.build ?kernel`, `Loop_bundle_js.build ?kernel`, threaded through
+`C_host.prepare`, `Wasm_host.prepare` and `Loop_bundle_exec.prepare`. Each
+`Loop_bundle.invocation` carries `placed`, the placed kernel its program was
+lowered from, so a consumer can lower plans itself; the storage plan, the payload
+and workspace layout, the schedule, the argument convention (every program buffer,
+positionally, bound through `edges`) and the failure-record ABI stay the bundle's.
+`Ssa_backends` (library `lib/ssa_backends`) supplies the producers: it lowers
+`placed`, runs a `Pipeline` (`Representation`, the exact passes only, or the
+policy planner for a numerical policy and target) and emits with the invocation's
+own buffer list. Passes assume no alias, because the storage plan may overlay
+buffers. A record names its site by the index of an entry of the Loop program's own
+failure-site table (`Loop_failure.same_site`: the same kind of failure at the same
+local variable), which is how the bundle hosts decode a failure from an SSA kernel
+unchanged. A kernel the SSA path cannot make is `Kernel_refused`, never a silent
+fallback. Checks: the chain and a convolution, batch norm and relu bundle through
+each of C, Wasm (node) and JavaScript (node) are bitwise the reference for the
+representation, exact and strict-planned pipelines, and within 1e-4 under the
+ordered and relaxed binary32 policies; `test/ssa_c/bench` measures generation,
+compile, first and warm costs and source size per pipeline beside the Loop path.
+
 ## Verifier and interpreter bounds
 
 `Ssa_verify.max_region_depth` (256) bounds region nesting; the interpreter

@@ -50,6 +50,27 @@ val lower_group :
     [lower_group] itself minted (fresh, disjoint from every source id, and from
     each other by construction). *)
 
+val plan_sigs :
+  limits:Kernel.Limits.t ->
+  out_shape:Vec6.shape ->
+  sigs:Tensor_sig.t Tensor_id.Map.t ->
+  Region_program.t ->
+  ( Fusion_plan.t,
+    [> `Kernel of Kernel.error | `Unresolved_source of Tensor_id.t ] )
+  Err.t
+(** The placed single-value kernel {!lower_sigs} lowers: for a consumer that
+    lowers plans itself. *)
+
+val plan_group_sigs :
+  limits:Kernel.Limits.t ->
+  sigs:Tensor_sig.t Tensor_id.Map.t ->
+  selected:Region_group.Ordinal.t list ->
+  Region_group.t ->
+  ( Fusion_plan.t * (Region_group.Ordinal.t * Tensor_id.t) list,
+    [> `Kernel of Kernel.error | `Unresolved_source of Tensor_id.t ] )
+  Err.t
+(** The placed group kernel {!lower_group_sigs} lowers, with its output ids. *)
+
 val lower_sigs :
   limits:Kernel.Limits.t ->
   out_shape:Vec6.shape ->

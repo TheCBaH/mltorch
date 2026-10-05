@@ -36,6 +36,8 @@ type error =
   [ C_payload_layout.error
   | C_workspace_plan.error
   | Loop_c.error
+  | `Kernel_refused of string
+    (** the [kernel] hook declined an invocation: its own words *)
   | `Missing_signature of Tensor_id.t
   | `Output_outside_workspace of Tensor_id.t ]
 
@@ -44,13 +46,20 @@ val pp_error : Format.formatter -> [< error ] -> unit
 val build :
   ?vector:Loop_target.t ->
   ?numerics:Loop_numerics.t ->
+  ?kernel:(name:string -> Loop_bundle.invocation -> (Loop_c.t, string) result) ->
   Loop_bundle.t ->
   (t, error) Err.t
 (** [vector] vectorizes each kernel's independent loops for the target under the
     strict contract ({!Loop_c.kernel}); the unit then uses GCC/Clang generic
     vectors. [numerics] ({!Loop_numerics.Reference_f64} by default) is each
     kernel's precision policy; it and the per-precision coverage are recorded in
-    the unit, under its identity. *)
+    the unit, under its identity.
+
+    [kernel] makes each invocation's kernel instead of {!Loop_c.kernel} (and
+    then [vector] is not used): it receives the placeholder name the bundle
+    interns under and the invocation, whose program's buffers the kernel must
+    take positionally, all of them, in order. [numerics] is still what the unit
+    records. *)
 
 val default_config : Storage_script.Config.t
 (** The configuration the C backend admits: separate layout, borrowed constants

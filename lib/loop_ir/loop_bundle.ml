@@ -15,6 +15,7 @@ end
 type invocation = {
   node : Node_id.t;
   outputs : Output.t list;
+  placed : Fusion_plan.t;
   program : Loop_program.t;
   edges : Tensor_id.t list;
   synthetics : synthetic list;
@@ -160,8 +161,8 @@ let region_program ~limits (g : graph) (node : node) ~(outputs : Output.t list)
               (`Region_construction (Region_computation.Invalid_group e)
                 :> error))
         in
-        let+ program, ids =
-          Loop_region_program.lower_group_sigs ~limits ~sigs:(sigs ())
+        let* plan, ids =
+          Loop_region_program.plan_group_sigs ~limits ~sigs:(sigs ())
             ~selected:
               (List.map
                  (fun (o : Output.t) ->
@@ -170,7 +171,12 @@ let region_program ~limits (g : graph) (node : node) ~(outputs : Output.t list)
             (Region_execution.group lowered)
           |> Err.map_error (fun e -> (`Region_lower e :> error))
         in
-        ( program,
+        let+ program =
+          Loop_lower.lower plan
+          |> Err.map_error (fun e -> (`Region_lower (`Lower e) :> error))
+        in
+        ( plan,
+          program,
           List.map2
             (fun (o : Output.t) (_, id) -> (id, o.Output.oid))
             outputs ids )
@@ -204,10 +210,14 @@ let region_program ~limits (g : graph) (node : node) ~(outputs : Output.t list)
         match lowered with
         | Region_execution.Pixel_loop _ -> assert false
         | Region_execution.Region_loop l ->
-            let+ program =
-              Loop_region_program.lower_sigs ~limits ~sigs:(sigs ()) ~out_shape
+            let* plan =
+              Loop_region_program.plan_sigs ~limits ~sigs:(sigs ()) ~out_shape
                 (Region_execution.program l)
               |> Err.map_error (fun e -> (`Region_lower e :> error))
+            in
+            let+ program =
+              Loop_lower.lower plan
+              |> Err.map_error (fun e -> (`Region_lower (`Lower e) :> error))
             in
             let out =
               List.find
@@ -215,9 +225,9 @@ let region_program ~limits (g : graph) (node : node) ~(outputs : Output.t list)
                   b.Loop_buffer.role = Loop_buffer.Output)
                 program.Loop_program.buffers
             in
-            (program, [ (out.Loop_buffer.id, oid) ]))
+            (plan, program, [ (out.Loop_buffer.id, oid) ]))
   in
-  let program, bound_outputs = lowered_program in
+  let plan, program, bound_outputs = lowered_program in
   let synthetics =
     List.filter_map
       (fun (b : Loop_buffer.t) ->
@@ -236,7 +246,7 @@ let region_program ~limits (g : graph) (node : node) ~(outputs : Output.t list)
         | None -> b.Loop_buffer.id)
       program.Loop_program.buffers
   in
-  Err.return (program, edges, synthetics)
+  Err.return (plan, program, edges, synthetics)
 
 let build ?(limits = Kernel.Limits.default) ?(config = default_config) ?plan
     (g : graph) =
@@ -278,19 +288,27 @@ let build ?(limits = Kernel.Limits.default) ?(config = default_config) ?plan
     Err.List.map
       (fun ((node : node), (outputs : Output.t list)) ->
         if Region_computation.is_region_authored node.Node.op then
-          let+ program, edges, synthetics =
+          let+ plan, program, edges, synthetics =
             region_program ~limits g node ~outputs
           in
-          { node = node.Node.id; outputs; program; edges; synthetics }
+          {
+            node = node.Node.id;
+            outputs;
+            placed = plan;
+            program;
+            edges;
+            synthetics;
+          }
         else
           let ({ Output.ordinal = output; _ } : Output.t) = List.hd outputs in
-          let+ program =
-            Loop_node_program.lower ~limits g node ~output
+          let+ plan, program =
+            Loop_node_program.lower_placed ~limits g node ~output
             |> Err.map_error (fun e -> (e :> error))
           in
           {
             node = node.Node.id;
             outputs;
+            placed = plan;
             program;
             edges =
               List.map

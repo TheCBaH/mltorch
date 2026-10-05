@@ -178,15 +178,15 @@ and stmt cx depth ~limits (s : Ssa_region.t Ssa_stmt.t) =
       | [] -> ());
       line cx depth "}"
 
-let kernel ~name:fname (p : Ssa_program.t) =
+let kernel ?buffers ?sites ~name:fname (p : Ssa_program.t) =
   (match Err.payload (Ssa_verify.check p) with
   | Ok () -> ()
   | Error e ->
       invalid_arg
         (Fmt.str "Ssa_c.kernel: the program does not verify: %a"
            Ssa_verify.pp_error e));
-  let buffers = arguments p in
-  let cx = Ssa_c_ctx.create buffers in
+  let buffers = Option.value buffers ~default:(arguments p) in
+  let cx = Ssa_c_ctx.create ?site_table:sites buffers in
   match
     let params =
       List.map
@@ -266,4 +266,6 @@ let kernel ~name:fname (p : Ssa_program.t) =
                   cell_type b.Ssa_buffer.id b.Ssa_buffer.format)
                 buffers;
           },
-          Array.of_list (List.rev cx.sites) )
+          match sites with
+          | Some table -> table
+          | None -> Array.of_list (List.rev cx.sites) )

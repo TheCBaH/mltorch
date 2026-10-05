@@ -1,0 +1,17 @@
+; Measurements of the C bundle through the structured SSA backend beside the Loop
+; path, for the pipelines that separate the cost of the representation from the
+; exact passes and from the added ones. Not part of runtest: it measures, and
+; prints raw samples with the compiler and host it ran on.
+
+(executable
+ (name ssa_bundle_bench)
+ (libraries
+  err_trace
+  fmt
+  loop_c_exec
+  loop_ir
+  native
+  native_test
+  ssa_backends
+  ssa_ir
+  unix))

@@ -494,3 +494,54 @@ let%expect_test "integer wrap, negative zero, binary32 rounding and strides" =
     ok | 0 0 0 0 0 0 0 0 0 0 0 0 | same row and cells as the interpreter: true
     ok | 2 0 0 0 0 0 0 0 0 0 0 0 | same row and cells as the interpreter: true
     ok | 12 0 0 0 0 0 0 0 0 0 0 0 | same row and cells as the interpreter: true |}]
+
+(* A bundle decodes a record against its own table of failure sites, so an
+   emitted site is the index of an entry of that table naming the same failure
+   and variable, not a number of the emitter's own. *)
+let%expect_test "a failure site is the index of the caller's matching entry" =
+  let local_var, other =
+    Expr.Builder.run
+      Expr.Builder.Syntax.(
+        let* a = Expr.Builder.fresh_local in
+        let* b = Expr.Builder.fresh_local in
+        Expr.Builder.return (a, b))
+  in
+  let entry local =
+    Loop_ir.Loop_failure.Local_out_of_range
+      { local; index = Loop_ir.Loop_index.Const 0; extent = 2 }
+  in
+  (* the wanted variable's entry is third *)
+  let table = [| entry other; entry other; entry local_var |] in
+  let p =
+    build (fun bld ->
+        B.check_local bld ~var:local_var ~extent:2L (B.index bld 5L);
+        store_at bld 1 (idx bld 0) (B.f64 bld 1.))
+  in
+  (match Ssa_c.kernel ~sites:table ~name:Loop_c_exec.kernel_name p with
+  | Error e -> Fmt.pr "refused: %a@." Ssa_c.pp_error e
+  | Ok (kernel, sites) -> (
+      Fmt.pr "table returned as given: %b@." (sites == table);
+      let loop =
+        Lf.program
+          ~buffers:(List.map Loop_of_ssa.loop_buffer (Ssa_c.arguments p))
+          []
+      in
+      match
+        Err.payload
+          (Loop_c_exec.exec_kernel ~kernel ~sites loop ~bind:(fun _ -> None))
+      with
+      | Error (`Unbound_local v) ->
+          Fmt.pr "decoded to the wanted variable: %b@."
+            (Expr.Local_var.equal v local_var)
+      | _ -> Fmt.pr "unexpected outcome@."));
+  (* a table that does not name the failure is a typed refusal *)
+  (match
+     Ssa_c.kernel ~sites:[| entry other |] ~name:Loop_c_exec.kernel_name p
+   with
+  | Error e -> Fmt.pr "refused: %a@." Ssa_c.pp_error e
+  | Ok _ -> Fmt.pr "accepted@.");
+  [%expect
+    {|
+    table returned as given: true
+    decoded to the wanted variable: true
+    refused: a failure site the program's site table does not name |}]

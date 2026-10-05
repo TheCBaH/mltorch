@@ -139,10 +139,12 @@ let copy_in (slot : slot) (e : edge) tensor =
             (Js.Unsafe.meth_call slot.pools.(pool) "set" [| view; num off |]);
           Ok ())
 
-let prepare ?(max_outstanding = 1) (b : Loop_bundle.t) ~constants :
+let prepare ?(max_outstanding = 1) ?kernel (b : Loop_bundle.t) ~constants :
     (prepared, error) Err.t =
   let open Err.Syntax in
-  let* js = Loop_bundle_js.build b |> Err.map_error (fun e -> (e :> error)) in
+  let* js =
+    Loop_bundle_js.build ?kernel b |> Err.map_error (fun e -> (e :> error))
+  in
   let* () =
     if Loop_js_exec.little_endian then Err.return ()
     else Err.fail (`Js_exception "a big-endian host is not supported")

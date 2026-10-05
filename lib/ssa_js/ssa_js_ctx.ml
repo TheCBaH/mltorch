@@ -5,10 +5,13 @@ module F = Loop_ir.Loop_js_failure
 module LF = Loop_ir.Loop_failure
 
 type error =
-  [ `Unsupported_format of Ssa_id.Buffer.t * string
+  [ `Unknown_site
+  | `Unsupported_format of Ssa_id.Buffer.t * string
   | `Unsupported_operation of string ]
 
 let pp_error ppf : [< error ] -> unit = function
+  | `Unknown_site ->
+      Fmt.string ppf "a failure site the program's site table does not name"
   | `Unsupported_format (b, f) ->
       Fmt.pf ppf "%a: format %s has no JavaScript implementation"
         Ssa_id.Buffer.pp b f
@@ -58,6 +61,7 @@ type t = {
   mutable tables : A.Stmt.t list;
   locals : (int, int64 * Expr.Local_var.t option) Hashtbl.t;
   buffers : Ssa_buffer.t list;
+  site_table : LF.t array option;
 }
 
 let buffer_index cx bid =
@@ -132,10 +136,19 @@ let temp cx =
   n
 
 let site cx f =
-  let k = cx.site_count in
-  cx.sites <- f :: cx.sites;
-  cx.site_count <- k + 1;
-  k
+  match cx.site_table with
+  | None ->
+      let k = cx.site_count in
+      cx.sites <- f :: cx.sites;
+      cx.site_count <- k + 1;
+      k
+  | Some table ->
+      let rec find i =
+        if i >= Array.length table then raise (Refused `Unknown_site)
+        else if LF.same_site table.(i) f then i
+        else find (i + 1)
+      in
+      find 0
 
 let assign cx (v : Ssa_value.t) e =
   match define cx v with

@@ -518,14 +518,14 @@ let prelude entry =
     (fun h -> if List.memq h chosen then h.R.Helper.body else [])
     R.helpers
 
-let program (p : Ssa_program.t) =
+let program ?buffers ?sites (p : Ssa_program.t) =
   (match Err.payload (Ssa_verify.check p) with
   | Ok () -> ()
   | Error e ->
       invalid_arg
         (Fmt.str "Ssa_js.program: the program does not verify: %a"
            Ssa_verify.pp_error e));
-  let buffers = arguments p in
+  let buffers = Option.value buffers ~default:(arguments p) in
   let cx =
     {
       names = Hashtbl.create 64;
@@ -537,6 +537,7 @@ let program (p : Ssa_program.t) =
       tables = [];
       locals = Hashtbl.create 8;
       buffers;
+      site_table = sites;
     }
   in
   match
@@ -579,4 +580,8 @@ let program (p : Ssa_program.t) =
             (Fmt.str "Ssa_js.program: the program is not closed: %a"
                Fmt.(list ~sep:(any "; ") Js_check.Fault.pp)
                faults));
-      Ok (program, Array.of_list (List.rev cx.sites))
+      Ok
+        ( program,
+          match sites with
+          | Some table -> table
+          | None -> Array.of_list (List.rev cx.sites) )
