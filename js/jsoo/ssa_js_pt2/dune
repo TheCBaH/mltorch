@@ -1,0 +1,24 @@
+; Whole-model inference through the structured SSA backend's generated
+; JavaScript, under node. js_of_ocaml only, like loop_js_pt2, but over the
+; ordinary libraries: the SSA backend has no mirror, and this runner evaluates
+; no [Expr] of its own (its reference is another generated-JS bundle, not
+; [Eval_direct]), so the deep recursion the mirrors exist for is not reached.
+
+(executable
+ (name ssa_js_pt2)
+ (modes js)
+ (modules ssa_js_pt2)
+ (libraries
+  err_trace
+  fmt
+  infer_report
+  js_ast
+  loop_bundle_exec
+  loop_ir
+  loop_js_exec
+  native
+  native_interp
+  native_predict
+  pt2
+  ssa_backends
+  ssa_ir))

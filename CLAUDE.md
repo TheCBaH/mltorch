@@ -311,6 +311,16 @@ make c.pt2.run                    # fastvit_sa12 the same way (manual); c.pt2.sa
 A missing compiler fails these; it never skips. See `.ai/` for the C backend
 design record.
 
+The same models through the structured SSA backend (an opt-in path; the Loop
+emitter stays the default) have their own gates, in CI beside the Loop ones:
+
+```sh
+make c.pt2.ssa.runtest        # every CI model, SSA kernels (SSA_PIPELINES: exact planned), bitwise vs the reference
+make c.pt2.ssa.perf           # the planned pipeline under the default policy, within the frozen tolerance
+make wasm.pt2.ssa.runtest     # the same two through Wasm under node (wasm.pt2.ssa.perf)
+make loop_js.bundle.pt2.ssa.runtest # one model's whole bundle through SSA-made JavaScript, bitwise vs Eval_direct
+```
+
 ### Binary32 SIMD kernels (C and Wasm)
 
 ```sh

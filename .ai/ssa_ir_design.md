@@ -403,7 +403,10 @@ ordered and relaxed binary32 policies. On the model cohort (mobilenetv2_050,
 regnetx_002, efficientnet_b0, fastvit_sa12, mobilenetv3_small_050, test_convnext2,
 csatv2) every model runs bitwise against the reference through the exact and
 strict-planned pipelines and within the frozen tolerance through the planned
-performance policy. The performance policy is not yet as fast as the Loop path:
+performance policy. These runs are CI gates: `make c.pt2.ssa.runtest`/`c.pt2.ssa.perf`,
+`wasm.pt2.ssa.runtest`/`wasm.pt2.ssa.perf`, and `loop_js.bundle.pt2.ssa.runtest`
+(`js/jsoo/ssa_js_pt2`, over the ordinary libraries: it evaluates no `Expr` of its
+own, its reference being `Eval_direct`, so the tail-call mirrors are not needed). The performance policy is not yet as fast as the Loop path:
 the planner vectorizes fewer kernels (mobilenetv2_050: 178 of 415 invocations in
 binary32 against 205) and the run is 1.0 to 1.2x the Loop time (csatv2 equal),
 because the Loop IR collapses dense nests that the SSA vectorizer meets nested;
