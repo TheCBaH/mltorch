@@ -7,7 +7,7 @@ let%expect_test "optimizer sweep, slice 2 of 4" =
     add_i64                  agree=12 failed-alike=0 instrs 264 -> 84, checked 24 -> 0, loops 72 -> 36
     batch_norm               agree=12 failed-alike=0 instrs 588 -> 256, checked 60 -> 0, loops 72 -> 48
     clamp                    agree=12 failed-alike=0 instrs 288 -> 114, checked 32 -> 0, loops 72 -> 36
-    convolution              agree=12 failed-alike=0 instrs 840 -> 460, checked 238 -> 12, loops 108 -> 78
+    convolution              agree=12 failed-alike=0 instrs 840 -> 460, checked 238 -> 0, loops 108 -> 78
     eq_scalar                agree=12 failed-alike=0 instrs 264 -> 140, checked 12 -> 0, loops 72 -> 38
     gt_scalar                agree=12 failed-alike=0 instrs 264 -> 138, checked 12 -> 0, loops 72 -> 42
     index_tensor             agree=12 failed-alike=0 instrs 348 -> 174, checked 48 -> 36, loops 72 -> 28

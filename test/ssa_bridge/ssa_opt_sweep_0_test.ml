@@ -9,7 +9,7 @@ let%expect_test "optimizer sweep, slice 0 of 4" =
     arange                   agree=12 failed-alike=0 instrs 240 -> 120, checked 0 -> 0, loops 72 -> 12
     batch_norm_no_stats      agree=12 failed-alike=0 instrs 3168 -> 1120, checked 156 -> 0, loops 696 -> 552
     bitwise_not              agree=12 failed-alike=0 instrs 264 -> 128, checked 12 -> 0, loops 72 -> 40
-    conv2d                   agree=12 failed-alike=0 instrs 810 -> 416, checked 230 -> 12, loops 108 -> 72
+    conv2d                   agree=12 failed-alike=0 instrs 810 -> 416, checked 230 -> 0, loops 108 -> 72
     div                      agree=12 failed-alike=0 instrs 292 -> 114, checked 24 -> 0, loops 72 -> 34
     expand                   agree=12 failed-alike=0 instrs 240 -> 88, checked 12 -> 0, loops 72 -> 36
     hardswish                agree=12 failed-alike=0 instrs 480 -> 182, checked 60 -> 0, loops 72 -> 42

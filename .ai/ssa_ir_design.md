@@ -129,6 +129,17 @@ its own name becomes its interface and hides its siblings (the lowering is
   next revision; a pass states what happens to one statement. `Ssa_scalar` is the
   single definition of the pure scalar operations: the interpreter and the
   constant folder both evaluate through it.
+- **Relational bounds** (`Ssa_range`). A window loop's taps run over
+  `[max (0, a), min (K, b))` and an access inside it reads `base + k`: inside
+  the buffer only relationally, which intervals over `base` and `k` cannot show.
+  An induction value keeps the facts its bounds give (`d * k >= a`,
+  `d * k <= a`, from `clamp_low`, `max`, `min` and the ceiling and floor
+  divisions of a dilation) and a coordinate's linear form, built through the
+  additions, scalings and constants that define it, is proved by replacing
+  `c * k` with the matching fact's side (depth two) and checking the rest by
+  interval. The loop's own bounds are the only premise, and the verifier
+  re-derives a proof through the same function. A vector access's coordinate the
+  lanes do not move along takes the same proof.
 - Passes (`Ssa_opt`): **simplify** (fold, pure CSE, dead pure values) never deletes
   a checked operation, a load, a mark or a meter operation for being unused and
   applies no algebraic identity; **guards** turns a checked operation the ranges
@@ -393,11 +404,10 @@ regnetx_002, efficientnet_b0, fastvit_sa12, mobilenetv3_small_050, test_convnext
 csatv2) every model runs bitwise against the reference through the exact and
 strict-planned pipelines and within the frozen tolerance through the planned
 performance policy. The performance policy is not yet as fast as the Loop path:
-the planner vectorizes fewer kernels (mobilenetv2_050: 160 of 415 invocations in
-binary32 against 205) and the run is up to 1.4x slower, mostly because a padded
-window's access is not proved in bounds (the Loop IR's relational bounds on a
-clamped window have no counterpart in `Ssa_range`), so the checked load blocks
-the vectorizer; `test/ssa_c/bench` measures generation,
+the planner vectorizes fewer kernels (mobilenetv2_050: 178 of 415 invocations in
+binary32 against 205) and the run is 1.0 to 1.2x the Loop time (csatv2 equal),
+because the Loop IR collapses dense nests that the SSA vectorizer meets nested;
+`test/ssa_c/bench` measures generation,
 compile, first and warm costs and source size per pipeline beside the Loop path.
 
 ## Verifier and interpreter bounds

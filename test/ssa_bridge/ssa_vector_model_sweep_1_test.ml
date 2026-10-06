@@ -25,10 +25,9 @@ let%expect_test "vector sweep (model), slice 1 of 4" =
     upsample_bilinear2d          agree=12 failed-alike=0
       branch                             loops=104 work=2384
       no_vector_form:convert.index_to_i64 loops=12 work=156
-      no_vector_form:load                loops=16 work=6504
       no_vector_form:load.in_bounds      loops=24 work=440
       no_vector_form:meter.charge        loops=48 work=2016
-      non_affine_access                  loops=78 work=8238
+      non_affine_access                  loops=70 work=8130
       too_short                          loops=130 work=7338
-      unprofitable                       loops=46 work=1088
-      vectorized                         loops=90 work=14612 |}]
+      unprofitable                       loops=58 work=7232
+      vectorized                         loops=94 work=14972 |}]
