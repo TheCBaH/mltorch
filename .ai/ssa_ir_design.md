@@ -138,8 +138,14 @@ its own name becomes its interface and hides its siblings (the lowering is
   moves pure total operations out of any loop and a load only when it is in
   bounds, the loop runs, and nothing in it may write what it reads; **share**
   replaces a repeated load by the earlier one until something may write its
-  buffer, and discards what a loop body may overwrite on entering it. The driver
-  verifies every revision a pass returns.
+  buffer, and discards what a loop body may overwrite on entering it;
+  **convert_ifs** (`Ssa_opt_if`, planner pipelines only, after guards) turns a
+  branch whose arms hold only pure instructions and loads proved in bounds into a
+  select over the arms' values: both arms run, which cannot fail or count, the
+  then arm's loads precede the else arm's on the one effect chain, and an arm with
+  a checked operation, mark, store or loop keeps the branch. A lowered clamp or
+  guarded load is a branch, and the vectorizer holds no branch in a loop body.
+  The driver verifies every revision a pass returns.
 - **Independent-output blocking** (`Ssa_opt_block`, in the pipeline after hoist
   and before share). A loop with constant trips whose iterations are separate
   outputs around one ordered sum becomes full groups of G outputs (one reduction
@@ -375,10 +381,23 @@ the bundle emits once. A record names its site by the index of an entry of the L
 failure-site table (`Loop_failure.same_site`: the same kind of failure at the same
 local variable), which is how the bundle hosts decode a failure from an SSA kernel
 unchanged. A kernel the SSA path cannot make is `Kernel_refused`, never a silent
-fallback. Checks: the chain and a convolution, batch norm and relu bundle through
+fallback; the unoptimized pipeline refuses an invocation whose lowering still
+names a fusion scratch buffer the invocation does not have, which the exact passes
+remove. A kernel's precision is its pipeline's (the plan's, for a planned one), not
+the types its text uses: the strict pipelines hold binary32 buffers' values in
+binary32 and compute in binary64, and report no binary32 kernel. Checks: the chain and a convolution, batch norm and relu bundle through
 each of C, Wasm (node) and JavaScript (node) are bitwise the reference for the
 representation, exact and strict-planned pipelines, and within 1e-4 under the
-ordered and relaxed binary32 policies; `test/ssa_c/bench` measures generation,
+ordered and relaxed binary32 policies. On the model cohort (mobilenetv2_050,
+regnetx_002, efficientnet_b0, fastvit_sa12, mobilenetv3_small_050, test_convnext2,
+csatv2) every model runs bitwise against the reference through the exact and
+strict-planned pipelines and within the frozen tolerance through the planned
+performance policy. The performance policy is not yet as fast as the Loop path:
+the planner vectorizes fewer kernels (mobilenetv2_050: 160 of 415 invocations in
+binary32 against 205) and the run is up to 1.4x slower, mostly because a padded
+window's access is not proved in bounds (the Loop IR's relational bounds on a
+clamped window have no counterpart in `Ssa_range`), so the checked load blocks
+the vectorizer; `test/ssa_c/bench` measures generation,
 compile, first and warm costs and source size per pipeline beside the Loop path.
 
 ## Verifier and interpreter bounds

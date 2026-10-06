@@ -30,8 +30,12 @@ let run ~alias passes p = fst (Ssa_opt.run ~alias ~passes p)
 
 (* The passes every plan runs before it looks for vectors: what the vectorizer
    relies on (checks proved away, invariants hoisted). *)
-let before ~alias =
-  [ Ssa_opt.simplify; Ssa_opt.guards; Ssa_opt.simplify; Ssa_opt.hoist ~alias ]
+let before ?target ~alias () =
+  [ Ssa_opt.simplify; Ssa_opt.guards; Ssa_opt.simplify ]
+  @ (match target with
+    | Some _ -> [ Ssa_opt.convert_ifs; Ssa_opt.simplify ]
+    | None -> [])
+  @ [ Ssa_opt.hoist ~alias ]
 
 let after ~alias =
   [
@@ -43,7 +47,7 @@ let after ~alias =
 
 let resolve ?target ?(alias = Ssa_effects.Conservative) ~numerics
     (p : Ssa_program.t) =
-  let scalar = run ~alias (before ~alias) p in
+  let scalar = run ~alias (before ?target ~alias ()) p in
   let f64 refusal =
     match target with
     | None ->

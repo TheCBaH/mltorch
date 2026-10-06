@@ -10,6 +10,11 @@ type pass = { name : string; run : Ssa_program.t -> Ssa_program.t * bool }
 val simplify : pass
 (** Constant folding, pure common subexpressions and dead pure values. *)
 
+val convert_ifs : pass
+(** A branch whose arms only compute pure values, passing the effect through,
+    becomes a select over them: both arms run, which cannot fail or count. A
+    select is a value a vector loop can hold; a branch is not. *)
+
 val guards : pass
 (** What the ranges prove cannot happen: checked operations that cannot fail,
     checks that cannot fire, loops whose trip count is fixed. *)
