@@ -686,7 +686,7 @@ instead — `make profile.memtrace` and `make profile.landmarks` — targeting
 the same fixture `benchmark.native_conv2d` measures, so a profile run's
 hotspots map directly onto that number (`PROFILE_FIXTURE` overrides which
 JSON op-spec either runs against). Both are wired into CI (`.github/
-workflows/build.yml`, after "verify pristine") so a regression's *shape*, not
+workflows/ci.yml`, after "verify pristine") so a regression's *shape*, not
 just its magnitude, is visible on every push without re-deriving
 instrumentation by hand again.
 

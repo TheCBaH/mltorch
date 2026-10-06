@@ -350,12 +350,12 @@ Every other check of §7's non-vacuity table runs the arena over synthetic
 `Graph_fixtures` graphs, in-process. Two CI checks run it over a real model
 instead, one per backend:
 
-- **Native**: `make native-infer-verify-arena` (`.github/workflows/build.yml`,
+- **Native**: `make native-infer-verify-arena` (`.github/workflows/ci.yml`,
   alongside `native-infer-verify-direct`). `native_graph eval --arena` forces
   `Admission.Best_effort` for `mobilenetv2_050` and compares the output
   against the real ATen reference, the same way `native-infer-verify-direct`
   does without it.
-- **jsoo/node**: `make loop_js.node.pt2.runtest` (`.github/workflows/js.yml`'s
+- **jsoo/node**: `make loop_js.node.pt2.runtest` (`.github/workflows/ci.yml`'s
   "jsoo pt2 node coverage" step) runs the same model, under node, through
   `Loop_js_exec`-compiled JavaScript, with `--arena` added to its existing
   `--nodes --shadow --strict` invocation — one run, not a second pass,

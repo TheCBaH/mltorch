@@ -4,7 +4,7 @@ OCaml tooling for [PyTorch](https://pytorch.org/) export artifacts, built on [Js
 
 Generates a typed OCaml decoder from the PyTorch export schema YAML, reads `.pt2` export archives without libtorch, and runs the exported graph end-to-end on real ATen ops.
 
-[![build](https://github.com/TheCBaH/mltorch/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/TheCBaH/mltorch/actions/workflows/build.yml)
+[![ci](https://github.com/TheCBaH/mltorch/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/TheCBaH/mltorch/actions/workflows/ci.yml)
 [![pages](https://github.com/TheCBaH/mltorch/actions/workflows/pages.yml/badge.svg?branch=main)](https://github.com/TheCBaH/mltorch/actions/workflows/pages.yml)
 
 ## What this is

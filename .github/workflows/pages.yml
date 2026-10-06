@@ -52,7 +52,7 @@ jobs:
       run: echo 'EXEC=${{ steps.devcontainer.outputs.exec }}' >> $GITHUB_ENV
     # `webapp.build` needs the visualizer bundle, which is built from the nested
     # submodule rather than installed from npm; `submodules: true` above is
-    # top-level only. Same cache as the js.yml browser job, so whichever runs
+    # top-level only. Same cache as the ci.yml browser job, so whichever runs
     # first pays for the Angular build and the other reuses it.
     - name: visualizer submodule
       run: |

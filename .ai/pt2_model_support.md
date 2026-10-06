@@ -164,7 +164,7 @@ branch's success):
   program (`reason: "unsupported_graph_shape"` or `"over_limit"`).
 
 Run `make pt2.json-model-support` to regenerate; `make verify.pristine`
-(already in CI, see `.github/workflows/build.yml`'s "pt2 json model support"
+(already in CI, see `.github/workflows/ci.yml`'s "pt2 json model support"
 + "verify pristine" steps) catches drift, the same as any other checked-in
 generated file in this repo -- no separate diff/check target needed.
 
@@ -616,11 +616,11 @@ What remains outside Native4D (3 of 100) and why, so it is not rediscovered:
 - `PT2_MODELS_NATIVE_VERIFY` (Makefile) wires `mobilenetv2_050`,
   `regnetx_002`, `efficientnet_b0` and `test_convnext2` into
   `make native-infer-verify`/`native-transform-verify`, which
-  `.github/workflows/build.yml` already runs. Adding a model there is a
+  `.github/workflows/ci.yml` already runs. Adding a model there is a
   Makefile-only change once it passes both by hand.
 - `test/pt2_model_support_cram.t` is the machine-checked half of this
   table: `make pt2.runtest` runs it (locally and in CI, see
-  `.github/workflows/build.yml`'s "pt2 load test" step) and fails on any
+  `.github/workflows/ci.yml`'s "pt2 load test" step) and fails on any
   drift, promoted the same way as any other cram golden
   (`dune promote test/pt2_model_support_cram.t`). Re-run it after any change
   that adds a Native or Native4D operation, and update this table's prose

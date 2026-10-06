@@ -97,8 +97,8 @@ make jsoo.pt2.run            # tier 3; MANUAL, ~7.5 min -- see below
 
 Deliberately outside `make runtest`, same reasoning as `pt2.runtest`: they need node,
 and linking js_of_ocaml on every local test run is not worth it. CI runs jsoo and
-melange as two parallel jobs in `.github/workflows/js.yml`, and all three jsoo *test*
-targets — `jsoo.pt2.runtest` included — run in the jsoo job. `jsoo.pt2.run` does not,
+melange as parallel suites in `.github/workflows/ci.yml`, and all three jsoo *test*
+targets — `jsoo.pt2.runtest` included — run in the jsoo-models suite. `jsoo.pt2.run` does not,
 and is not in `js.runtest` either; see tier 3.
 
 `js.build` is composed of `jsoo.build` and `melange.build` rather than being a bare
@@ -624,9 +624,14 @@ below it.
 
 ## CI
 
-`.github/workflows/js.yml`, three parallel jobs with **different** submodule needs and
-different failure modes. The split is about attribution: a job that can go red for its own
-reasons gets its own name in the job list.
+`.github/workflows/ci.yml` is one job run per (os, suite) matrix entry; the JS suites are
+`jsoo`, `jsoo-models`, `wasm`, `wasm-models`, `wasm-ssa`, `browser` and `melange`, with
+**different** submodule needs and different failure modes, set by per-suite `include` flags.
+The split is about attribution: a suite that can go red for its own reasons gets its own
+name in the job list. The `*-models` suites hold the steps that download weights, so the
+slow model sweeps run in parallel with the rest instead of behind it. (The per-job
+descriptions below predate that split: read "job" as "suite", and `jsoo`'s tier-2 steps as
+`jsoo-models`.)
 
 The **jsoo** job checks submodules out (top level, non-recursive): `pytorch_types` comes
 from `schema.yaml` in `modules/pytorch`, and the tier-1 fixture from
@@ -634,7 +639,7 @@ from `schema.yaml` in `modules/pytorch`, and the tier-1 fixture from
 `jsoo.pt2.runtest` as separate steps so a failure names the layer. It needs no ccache — it
 builds no C++.
 
-**Tier 2 runs here, not in `build.yml`.** It could run there for free: that job already
+**Tier 2 runs here, not in `ci.yml`.** It could run there for free: that job already
 downloads `PT2_MODELS_CRAM`, which contains mobilenet_v3_small, so the step cost one
 invocation and no download. It ran there first for exactly that reason, and the reason was
 wrong twice over.
@@ -674,12 +679,12 @@ It fails for reasons the other two cannot — an npm lockfile, a downloaded brow
 renderer version — which is exactly why burying it in either would make a browser regression
 read as an OCaml one.
 
-**Its cache key must not be `build.yml`'s.** `pt2.vars` describes an archive of every model
+**Its cache key must not be `ci.yml`'s.** `pt2.vars` describes an archive of every model
 CI has downloaded this release; `jsoo.pt2.vars` describes one model, so it emits its own
 key (`pt2-jsoo-<release>-<model>`) and its own glob. Sharing the key would not fail, which
 is what makes it worth stating: Actions caches are immutable once saved, so whichever
 workflow reached a cold key first would define its contents, and a one-model archive stored
-under the all-models key silently makes every later save a no-op and every `build.yml` run
+under the all-models key silently makes every later save a no-op and every `ci.yml` run
 re-download the other four — forever, with nothing going red. `jsoo.pt2.vars` needs no
 model-list hash, unlike `PT2_MODELS_HASH`, because the key names the single model it holds.
 
@@ -688,7 +693,7 @@ which `core` (and its melange mirror, `core_mel`) needs because `Core.Pretty` pr
 `Err.Error.t`. Checking out without `submodules:` is not enough on its own: the shared
 devcontainer action runs `devcontainer up`, which runs this repo's `postCreateCommand`,
 which runs `git submodule update --init`. The action's `post-create` input (default
-`true`, so `build.yml` and `ocaml-images.yml` are unaffected) passes `--skip-post-create`,
+`true`, so `ci.yml` and `ocaml-images.yml` are unaffected) passes `--skip-post-create`,
 so the job then initializes `vendored/err_trace` itself, by name, and nothing else. It
 asserts *after* that step that no *other* gitlink was initialized — before it the check
 passes trivially — and checks every gitlink but that one path.
@@ -700,7 +705,7 @@ grown — most likely a probe section that drifted into the wrong library.
 
 ### Submodules: name them, never `--recursive`
 
-`build.yml` initialised pytorch's nested submodules with `--recursive`, which is 37 repos.
+`ci.yml` initialised pytorch's nested submodules with `--recursive`, which is 37 repos.
 `lib/aten/dune` documents the actual prerequisite as `third_party/fmt third_party/cpuinfo`,
 and measured against `.git/modules/modules/pytorch`:
 
@@ -715,9 +720,9 @@ in the tree references any other `third_party` path, neither `fmt` nor `cpuinfo`
 submodules of its own, and `build_archive.sh` deliberately builds `CPU_CAPABILITY=DEFAULT`
 so SLEEF — the one other plausible candidate — is never needed.
 
-**No `.git` cache in `js.yml`.** With the recursion gone the jsoo job fetches ~98 MB, and a
+**No `.git` cache in `ci.yml`.** With the recursion gone the jsoo job fetches ~98 MB, and a
 ~100 MB Actions cache restore is not reliably faster than a ~100 MB shallow fetch from
-GitHub's own CDN; `build.yml`'s key is per-ref, so it would miss on every new branch anyway.
+GitHub's own CDN; `ci.yml`'s key is per-ref, so it would miss on every new branch anyway.
 
 ## Not done
 

@@ -88,6 +88,10 @@ let same a b =
   && Array.length a.cells = Array.length b.cells
   && Array.for_all2 Core.Float_bits.equal_portable a.cells b.cells
 
+(* A NaN's sign is the host's: x86 makes -nan where arm64 makes nan. *)
+let pp_cell ppf x =
+  if Float.is_nan x then Fmt.string ppf "nan" else Fmt.float ppf x
+
 let show ?(input = [| 1.5; -2.; 3.25; 0.; 5.; -6.5; 7.; 8. |]) p =
   let reference = structured p input in
   let direct = c p input in
@@ -97,7 +101,7 @@ let show ?(input = [| 1.5; -2.; 3.25; 0.; 5.; -6.5; 7.; 8. |]) p =
   Fmt.pr
     "%s | %s | C agrees with the interpreter: %b | optimized C agrees: %b@."
     direct.result
-    (String.concat " " (Array.to_list (Array.map (Fmt.str "%g") direct.cells)))
+    (Fmt.str "%a" Fmt.(array ~sep:(any " ") pp_cell) direct.cells)
     (same reference direct) (same reference optimized)
 
 let%expect_test "lane-wise arithmetic, conversion and iota" =

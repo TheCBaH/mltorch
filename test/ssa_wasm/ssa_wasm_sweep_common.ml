@@ -73,6 +73,10 @@ let verify ~config ~prepare ~engine ~relaxed _ppf (s : Native_op_walk.Subject.t)
 
 let silent = Format.make_formatter (fun _ _ _ -> ()) (fun () -> ())
 
+(* Each slice is one inline-test partition and has to stay under the timing
+   report's threshold. There is one slice per walk: the slowest walk alone takes
+   about 5s on arm64, so more slices cannot help, and fewer put two heavy walks
+   together. Summed over slices the tallies are the unsharded ones. *)
 let sweep ?(engine = Reference) ?(relaxed = false) ~config ~prepare ~shard
     ~shards () =
   List.iteri

@@ -30,7 +30,7 @@ line count, so Cram files are out of scope for the enforcement script below.
 ## Enforcement
 
 `scripts/check-file-size.sh`, wired into CI as the `file size check` step in
-`.github/workflows/build.yml` (before the devcontainer step; it uses Bash, git,
+`.github/workflows/ci.yml` (before the devcontainer step; it uses Bash, git,
 awk, and wc) and runnable locally via `make check.file-size`. Two checks,
 deliberately different in mechanism:
 

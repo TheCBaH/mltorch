@@ -84,6 +84,10 @@ let c p =
       in
       (None, cells 1 8 @ cells 2 4)
 
+(* A NaN's sign is the host's: x86 makes -nan where arm64 makes nan. *)
+let pp_cell ppf x =
+  if Float.is_nan x then Fmt.string ppf "nan" else Fmt.float ppf x
+
 let attempt ?scan_limits ?(prepare = Fun.id) f =
   let p = prepare (build ?scan_limits f) in
   let s_row, s_cells = structured p in
@@ -94,7 +98,7 @@ let attempt ?scan_limits ?(prepare = Fun.id) f =
     | Some e -> Fmt.str "%a" Kernel_eval.pp_error e
   in
   Fmt.pr "%s | %a | same row and cells as the interpreter: %b@." text
-    Fmt.(list ~sep:(any " ") float)
+    Fmt.(list ~sep:(any " ") pp_cell)
     (if c_row = None then c_cells else [])
     (s_row = c_row
     && (c_row <> None

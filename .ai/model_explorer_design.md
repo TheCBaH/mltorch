@@ -1656,8 +1656,8 @@ bumping the submodule, `rm -rf $(VISUALIZER_DIST)`.
 `new URL(..., import.meta.url)`, so the custom-element target emits no worker chunk of its
 own and `worker.js` can only come from the app build.
 
-CI checks submodules out top-level only, by the policy `build.yml` documents, so both the
-`js.yml` browser job and `pages.yml` name the nested checkout explicitly — before the cache
+CI checks submodules out top-level only, by the policy `ci.yml` documents, so both the
+`ci.yml` browser job and `pages.yml` name the nested checkout explicitly — before the cache
 step, which is what makes the key computable.
 
 ---

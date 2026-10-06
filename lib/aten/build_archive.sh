@@ -30,7 +30,7 @@ PT=$(cd "$1" && pwd)
 
 # Use ccache as a compiler launcher when it is on PATH. This is what makes the
 # 194-object ATen compile cheap to rebuild: in CI the CCACHE_DIR is persisted
-# through the GitHub Actions cache (see .github/workflows/build.yml), so an
+# through the GitHub Actions cache (see .github/workflows/ci.yml), so an
 # unchanged PyTorch checkout recompiles from cache. Harmless no-op when ccache
 # is not installed: $CCACHE expands to nothing and clang++ runs directly.
 CCACHE="$(command -v ccache || true)"

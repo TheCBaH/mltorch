@@ -750,7 +750,7 @@ jsoo.pt2.download:
 # silent, permanent regression rather than a failure: caches are immutable once
 # saved, so whichever workflow reached a cold key first would save its own
 # contents there, and a one-model archive stored under the all-models key makes
-# every later save a no-op and every build.yml run re-download the rest.
+# every later save a no-op and every ci.yml run re-download the rest.
 #
 # No model-list hash here, unlike PT2_MODELS_HASH: the key names the one model
 # it holds, so changing JS_PT2_MODEL already changes the key.
@@ -905,7 +905,7 @@ loop_js.pt2.run: jsoo.build
 # Cache vars for LOOP_JS_PT2_MODEL, same shape as jsoo.pt2.vars and for the
 # same reason (a dedicated key, not pt2.vars' all-models one) -- needed
 # because, unlike loop_js.pt2.run above, the two fast targets below ARE
-# wired into CI (js.yml), so a cold run must not re-download this model's
+# wired into CI (ci.yml), so a cold run must not re-download this model's
 # 96MB zip on every push.
 loop_js.pt2.vars:
 	@echo "loop_js_pt2_zip_glob=$(PT2_DIR)/$(LOOP_JS_PT2_MODEL)/*.zip"
@@ -1283,7 +1283,7 @@ VISUALIZER_SRC   := $(MODEL_EXPLORER)/src/ui
 VISUALIZER_DIST  := $(VISUALIZER_SRC)/custom_element_npm/dist
 VISUALIZER_PATCH := $(abspath patches/model-explorer-custom-element-worker.patch)
 
-# CI checks submodules out top-level only, by deliberate policy (build.yml), so
+# CI checks submodules out top-level only, by deliberate policy (ci.yml), so
 # the nested one is named here the same way pytorch's two are.
 #
 # Guarded on the checkout already existing rather than run unconditionally: the

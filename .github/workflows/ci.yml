@@ -1,0 +1,695 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# One job, run once per (os, suite). Every suite shares the checkout, the
+# devcontainer and the cache-key setup; each suite's own steps are selected by
+# `matrix.suite`, and the per-suite switches (submodules, ccache, models) are
+# `include` entries below. Suites are sized to finish in about the same time, so
+# the workflow's wall clock is the slowest suite rather than their sum, and a
+# failure still names the layer (`ci / jsoo-models (ubuntu-24.04)`) in the job
+# list instead of being buried in a combined log.
+#
+#   native-test    build, `make runtest`, the native benchmarks, formatting, profiling
+#   native-models  the downloaded models through the native evaluator and C backend
+#   native-ssa     the same models with every kernel made by the SSA backend
+#   native-corpus  the payload-free sweeps over the producer submodule's models
+#   native-verify  whole-graph inference and transform verification against ATen
+#   compcert       the in-process host through an embedded CompCert
+#   jsoo           js_of_ocaml: differential, inline tests, Loop IR generated code
+#   jsoo-models    js_of_ocaml on real models (tier 2): downloads, inference, bundles
+#   wasm           the WebAssembly backend under node: fixtures, mutation check
+#   wasm-models    every CI model through the Wasm backends
+#   wasm-ssa       every CI model through the Wasm backends, kernels from SSA
+#   browser        the real Model Explorer element under Chromium, Wasm in the page
+#   melange        the pure half (walk_core + core) through Melange
+#
+# The suites have DIFFERENT scopes, deliberately:
+#
+#   native-*  need pytorch's third_party (fmt, cpuinfo) for the aten build, and
+#             ccache for it. The checkout is top-level only: the vendored
+#             libraries' own source but NOT their nested submodules (opickle
+#             pulls in cpython purely as test data).
+#   jsoo      reads and runs real PT2 models, so it needs pytorch_types, generated
+#             from schema.yaml inside modules/pytorch: submodules checked out, but
+#             no ccache and no C++ build.
+#   melange   reaches only walk_core + core + vendored fmt/jsont. It touches
+#             nothing PyTorch, so it keeps the submodule-free path and asserts it.
+#   browser   fails for its own reasons (an npm lockfile, a downloaded browser, a
+#             renderer version), hence its own suite.
+#
+# `make jsoo.pt2.run` (tier 3) is deliberately NOT here: ~7.5 minutes to
+# re-check rankings that have not moved since the release was built, when
+# jsoo.pt2.runtest already covers backend divergence in ~45s.
+
+jobs:
+  ci:
+    name: ${{ matrix.suite }} (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # Native on each architecture; the devcontainer action tags its image
+        # per architecture.
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+        suite:
+        - browser
+        - compcert
+        - jsoo
+        - jsoo-models
+        - melange
+        - native-corpus
+        - native-models
+        - native-ssa
+        - native-test
+        - native-verify
+        - wasm
+        - wasm-models
+        - wasm-ssa
+        include:
+        # submodules: top-level checkout. native: the aten build (git cache,
+        # pytorch third_party, ccache). models: the PT2_MODELS_CRAM zips plus
+        # csatv2 under the shared build cache key.
+        - {suite: browser, submodules: true}
+        - {suite: compcert, submodules: true}
+        - {suite: jsoo, submodules: true}
+        - {suite: jsoo-models, submodules: true}
+        - {suite: melange, submodules: false, post_create: 'false'}
+        - {suite: native-corpus, submodules: true, native: true}
+        - {suite: native-models, submodules: true, native: true, models: true}
+        - {suite: native-ssa, submodules: true, native: true, models: true}
+        - {suite: native-test, submodules: true, native: true}
+        - {suite: native-verify, submodules: true, native: true, models: true}
+        - {suite: wasm, submodules: true}
+        - {suite: wasm-models, submodules: true, models: true}
+        - {suite: wasm-ssa, submodules: true, models: true}
+    runs-on: ${{ matrix.os }}
+    steps:
+    - name: git cache
+      if: matrix.native
+      uses: actions/cache@v6
+      with:
+        path: .git
+        key: git-${{ runner.os }}-${{ runner.arch }}-${{ matrix.suite }}-${{ github.ref_name }}
+        restore-keys: |
+          git-${{ runner.os }}-${{ runner.arch }}-${{ matrix.suite }}-
+    - name: checkout
+      uses: actions/checkout@v7
+      with:
+        submodules: ${{ matrix.submodules }}
+        # 2, not the default 1, for the native suites: scripts/check-file-size.sh
+        # diffs HEAD against HEAD^ to find files added by this commit, which needs
+        # the parent commit present.
+        fetch-depth: ${{ matrix.native && 2 || 1 }}
+    # Named, not --recursive. lib/aten/dune documents the prerequisite as
+    # exactly these two, and pytorch declares 37 nested submodules -- 306MB of
+    # the 403MB object store, against ~97MB for pytorch itself. Neither fmt nor
+    # cpuinfo has nested submodules of its own, so this is equivalent for the
+    # build and drops the other 35 repos.
+    - name: pytorch submodules
+      if: matrix.native
+      run: |
+        git -C modules/pytorch submodule update --init --depth 1 \
+          third_party/fmt third_party/cpuinfo
+    # The file-size regression check has no toolchain dependency, so it runs
+    # before the devcontainer is up and fails fast on an oversized file.
+    - name: file size check
+      if: matrix.suite == 'native-test'
+      run: make check.file-size
+    - name: devcontainer
+      uses: TheCBaH/devcontainer-action/devcontainer@v1
+      id: devcontainer
+      with:
+        post-create: ${{ matrix.post_create || 'true' }}
+        cli-version: '0.88.0'
+    - name: setup
+      run: |
+        echo 'EXEC=${{ steps.devcontainer.outputs.exec }}' >> $GITHUB_ENV
+    - name: cache keys
+      if: matrix.submodules
+      id: cache_keys
+      run: |
+        echo "pytorch=$(git rev-parse HEAD:modules/pytorch)" >> $GITHUB_OUTPUT
+        echo "month=$(date +'%Y-%m')" >> $GITHUB_OUTPUT
+        make -s pt2.vars >> $GITHUB_OUTPUT
+        make -s jsoo.pt2.vars >> $GITHUB_OUTPUT
+        make -s loop_js.pt2.vars >> $GITHUB_OUTPUT
+
+    # {1 native}
+    #
+    # .ccache is at the repo root, which the devcontainer bind-mounts, so the
+    # host dir actions/cache manages and the container's CCACHE_DIR are the same
+    # files. Keyed by month + pinned PyTorch commit + hash of the build scripts
+    # (they decide which C++ sources compile and how); restore-keys warm-start
+    # from the closest prior cache.
+    - name: ccache cache
+      if: matrix.native
+      uses: actions/cache@v6
+      with:
+        path: .ccache
+        key: ccache-${{ runner.arch }}-${{ steps.cache_keys.outputs.month }}-${{ steps.cache_keys.outputs.pytorch }}-${{ hashFiles('lib/aten/**/*.cpp', 'lib/aten/**/*.h', 'lib/aten/build_archive.sh', 'lib/aten/gen_macros.sh', 'lib/aten/run_codegen.sh') }}
+        restore-keys: |
+          ccache-${{ runner.arch }}-${{ steps.cache_keys.outputs.month }}-${{ steps.cache_keys.outputs.pytorch }}-
+          ccache-${{ runner.arch }}-${{ steps.cache_keys.outputs.month }}-
+    - name: build
+      if: matrix.native
+      run: |
+        mkdir -p .ccache
+        ${{ env.EXEC }} sh -ceu 'CCACHE_DIR="$(pwd)/.ccache" CCACHE_MAXSIZE=1G make build BUILD_OPTIONS="--display short"'
+    - name: ccache stats
+      if: matrix.native
+      run: |
+        ${{ env.EXEC }} sh -ceu 'CCACHE_DIR="$(pwd)/.ccache" ccache -s'
+
+    # Model release .zips (12 MB-1.1 GB each; ~5.3 GB total across all 22
+    # models exercised by `make inference`) are fetched from the
+    # devcontainer.pytorch-image-models GitHub release (a public asset, so curl needs no
+    # token) into data/pt2-functional/<model>/. One cache entry covers every zip
+    # downloaded so far this release (glob path), keyed by release tag + a
+    # hash of the model list, so adding/removing a model creates a fresh
+    # cache entry instead of an immutable cache silently going stale; the
+    # restore-key drops the hash to still warm-start from the closest prior
+    # cache. The path/key come from `make pt2.vars` so they track the
+    # Makefile. data/pt2-functional/ is gitignored; the host dir is bind-mounted into the
+    # devcontainer, so the gated steps see it.
+    #
+    # Only native-models saves it: its `inference` sweep downloads the rest of
+    # the models, and a cache is immutable, so a suite that saved first with
+    # fewer zips would pin the smaller set under the same key.
+    - name: pt2 models cache
+      if: matrix.suite == 'native-models'
+      uses: actions/cache@v6
+      with:
+        path: ${{ steps.cache_keys.outputs.pt2_zip_glob }}
+        key: ${{ steps.cache_keys.outputs.pt2_cache_key }}
+        restore-keys: |
+          ${{ steps.cache_keys.outputs.pt2_cache_restore_key }}
+    - name: pt2 models cache (restore only)
+      if: matrix.models && matrix.suite != 'native-models'
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ steps.cache_keys.outputs.pt2_zip_glob }}
+        key: ${{ steps.cache_keys.outputs.pt2_cache_key }}
+        restore-keys: |
+          ${{ steps.cache_keys.outputs.pt2_cache_restore_key }}
+    - name: pt2 cram models download
+      if: matrix.models
+      run: |
+        make pt2.download-cram
+        make pt2.download PT2_MODEL=csatv2
+
+    # {2 native-test}
+    - name: test
+      if: matrix.suite == 'native-test'
+      run: |
+        ${{ env.EXEC }} make runtest
+    - name: benchmark region pixel
+      if: matrix.suite == 'native-test'
+      run: |
+        ${{ env.EXEC }} make benchmark.region_pixel
+    # Binary64 against binary32 SIMD kernels through the native C backend on the
+    # runner's CPU: every result verified against its oracle (a wrong answer fails
+    # the step, a slow one never does), the raw samples kept as an artifact.
+    - name: fp32 microbenchmark (native C)
+      if: matrix.suite == 'native-test'
+      run: |
+        ${{ env.EXEC }} make fp32.bench
+    - name: fp32 microbenchmark results
+      if: matrix.suite == 'native-test'
+      uses: actions/upload-artifact@v7
+      with:
+        name: fp32-bench-c-${{ runner.arch }}
+        path: _build/fp32-bench-c.jsonl
+    - name: format
+      if: matrix.suite == 'native-test'
+      run: |
+        ${{ env.EXEC }} make format
+    - name: verify pristine
+      if: matrix.suite == 'native-test'
+      run: |
+        ${{ env.EXEC }} make verify.pristine
+    # Last two steps: both build under a different dune profile/env than
+    # everything above (memtrace is the same build, landmarks rebuilds
+    # lib/native under --profile landmarks -- see lib/native/dune), so they
+    # run after "verify pristine" to keep that extra rebuild churn from
+    # affecting any earlier step's timing/artifacts. See Makefile's
+    # profile.* targets and the inference-performance design in .ai/.
+    - name: profile native conv2d (memtrace)
+      if: matrix.suite == 'native-test'
+      run: |
+        ${{ env.EXEC }} make profile.memtrace
+    # landmarks needs PROFILE_FIXTURE overridden to a tiny synthetic conv:
+    # *active* tracking (not just idle instrumentation) times every single
+    # instrumented call, and the full resnet18 fixture (~1.83B inner calls)
+    # takes minutes, not seconds, under that. The callgraph prints to stderr.
+    - name: profile native conv2d (landmarks)
+      if: matrix.suite == 'native-test'
+      run: |
+        ${{ env.EXEC }} make profile.landmarks PROFILE_FIXTURE=test/data/profile/conv2d_small.json
+    # Runs last: starts with `dune clean`, so anything after would pay a
+    # needless cold rebuild. js/melange's own mode is the jsoo suites' job.
+    - name: inline test timing report
+      if: matrix.suite == 'native-test'
+      run: |
+        ${{ env.EXEC }} make inline-timing-report
+
+    # {2 native-models}
+    #
+    # The checkpoints each model's safetensors.json pins, in a huggingface_hub-layout
+    # cache under data/hf-hub (HF_HUB_CACHE below), so the weight-source steps read the
+    # Hub once per pin instead of every run. Keyed by the pins of the two models those
+    # steps use; the blobs are content-addressed, so the restore-key prefix is a safe
+    # warm start. data/hf-hub is gitignored and bind-mounted like data/pt2-functional.
+    - name: safetensors checkpoints cache
+      if: matrix.suite == 'native-models'
+      uses: actions/cache@v6
+      with:
+        path: data/hf-hub
+        key: hf-hub-${{ hashFiles('modules/devcontainer.pytorch-image-models/models/mobilenetv2_050/models/safetensors.json', 'modules/devcontainer.pytorch-image-models/models/fastvit_sa12/models/safetensors.json') }}
+        restore-keys: |
+          hf-hub-
+    - name: pt2 load test
+      if: matrix.suite == 'native-models'
+      run: |
+        ${{ env.EXEC }} sh -ceu 'HF_HUB_CACHE="$(pwd)/data/hf-hub" make pt2.runtest'
+    # Inference with the weights mapped from the pinned Hub checkpoint rather than the
+    # .pt2, --strict against the release's own outputs: the weight-equality cram above
+    # shows the bytes match, this shows the answer does.
+    - name: safetensors inference
+      if: matrix.suite == 'native-models'
+      run: |
+        ${{ env.EXEC }} sh -ceu 'HF_HUB_CACHE="$(pwd)/data/hf-hub" make safetensors.run'
+    # The whole-model C backend on the downloaded models: generated C compiled with the
+    # image's gcc, every output bitwise equal to the per-node reference.
+    - name: whole-model C backend (all downloaded models)
+      if: matrix.suite == 'native-models'
+      run: |
+        ${{ env.EXEC }} make c.pt2.runtest
+    # Fast per-push latency signal for the smallest model (resnet18), so
+    # regressions show up without waiting on the full 22-model "inference"
+    # sweep. Reuses the resnet18 data already fetched by "pt2 cram models
+    # download" and the binary just built by "pt2 load test".
+    - name: bench inference (smallest model)
+      if: matrix.suite == 'native-models'
+      run: |
+        ${{ env.EXEC }} make benchmark.inference
+    # Every inference.<model> is independent, so this is safe to parallelize
+    # across the runner's actual core count (queried inside the devcontainer,
+    # in case it ever differs from the host's). Note: at the high end this is
+    # memory-, not CPU-, bound (efficientnet_b7 alone peaks ~5.6 GB RSS) - if
+    # a future runner's core count ever outscales its RAM (GH's standard
+    # tiers scale both together, ~4 GB/core), revisit with an explicit cap.
+    - name: inference
+      if: matrix.suite == 'native-models'
+      run: |
+        ${{ env.EXEC }} sh -ceu 'make -j"$(nproc)" inference'
+
+    # {2 native-ssa}
+    #
+    # The same models with every kernel made by the structured SSA backend: strict
+    # (bitwise against the binary64 reference, exact and planned pipelines), then
+    # the planned pipeline under the default policy within the frozen tolerance.
+    - name: whole-model C backend through SSA (all downloaded models)
+      if: matrix.suite == 'native-ssa'
+      run: |
+        ${{ env.EXEC }} make c.pt2.ssa.runtest
+    - name: whole-model C backend through SSA, default policy (all downloaded models)
+      if: matrix.suite == 'native-ssa'
+      run: |
+        ${{ env.EXEC }} make c.pt2.ssa.perf
+
+    # {2 native-corpus}
+    #
+    # Payload-free model-support sweep over the ~100 models in the pinned
+    # producer submodule (already checked out, no download) -- see
+    # bin/pt2_json_model_support.ml. Verified by "verify pristine" below,
+    # same as any other checked-in generated file.
+    - name: pt2 json model support
+      if: matrix.suite == 'native-corpus'
+      run: |
+        ${{ env.EXEC }} make pt2.json-model-support
+    # Arena allocator evaluation over the same models, both normalized
+    # dialects, still payload-free: test/arena_eval_corpus_cram.t, whose
+    # expected output is every model's minimum arena and every strategy's
+    # arena at every budget. Gated out of `make runtest`; a drift here is an
+    # allocator's result changing, promoted like any other cram.
+    - name: arena allocator evaluation
+      if: matrix.suite == 'native-corpus'
+      run: |
+        ${{ env.EXEC }} make arena.eval
+
+    # {2 native-verify}
+    #
+    # The canonical (folded) graph against ATen -- the default form, matching the
+    # JS side (loop_js_pt2's own default).
+    - name: native whole-graph inference verification
+      if: matrix.suite == 'native-verify'
+      run: |
+        ${{ env.EXEC }} make native-infer-verify
+    # The same ATen check on the raw, untransformed graph, but only for the
+    # smaller PT2_MODELS_NATIVE_VERIFY_DIRECT subset (mobilenetv2_050): the
+    # transform pipeline (permute simplification, folding, ...) is otherwise
+    # only checked structurally, by the golden text in the transform crams, and
+    # numerically against the untransformed graph (not ATen) by
+    # native-transform-verify below.
+    - name: native whole-graph inference verification (direct graph)
+      if: matrix.suite == 'native-verify'
+      run: |
+        ${{ env.EXEC }} make native-infer-verify-direct
+    # Same model, same ATen reference, but with `native_graph eval --arena`:
+    # intermediates come from a planned tensor arena instead of release-only
+    # allocation. Everything else that exercises the arena is an in-process unit
+    # test against synthetic graphs, so this is the one CI step that runs it over
+    # a real model, and fails both on a wrong answer and on a Best_effort plan
+    # being silently declined.
+    - name: native whole-graph inference verification (arena)
+      if: matrix.suite == 'native-verify'
+      run: |
+        ${{ env.EXEC }} make native-infer-verify-arena
+    # Both the structural and --fold pipelines, each numerically compared
+    # against the untransformed graph, so a transformation that silently changes
+    # output values (rather than node structure) is still caught.
+    - name: native transform pipeline verification
+      if: matrix.suite == 'native-verify'
+      run: |
+        ${{ env.EXEC }} make native-transform-verify
+
+    # Every native suite but native-test ends here: a sweep that regenerates a
+    # checked-in file must leave the tree as it found it.
+    - name: verify pristine
+      if: matrix.native && matrix.suite != 'native-test'
+      run: |
+        ${{ env.EXEC }} make verify.pristine
+
+    # {2 compcert}
+    #
+    # The whole-model tests run with CompCert (rivet and rivet_compcert, built for
+    # the runner's ISA from the vendored submodules) compiling the generated C.
+    - name: loop_c_embed through CompCert
+      if: matrix.suite == 'compcert'
+      run: |
+        ${{ env.EXEC }} make compcert.embed.runtest
+
+    # {2 jsoo}
+    - name: jsoo differential test
+      if: matrix.suite == 'jsoo'
+      run: |
+        ${{ env.EXEC }} make jsoo.runtest
+    # A third distinct question, same reason the steps below are their own
+    # steps: does each backend match its OWN committed golden for the Expr
+    # evaluation-order oracle's cases -- unspecified-order sites the plan
+    # deliberately allows backends to disagree on, so this is a per-backend
+    # diff, not a cross-backend one like jsoo.runtest above.
+    - name: expr evaluation-order oracle
+      if: matrix.suite == 'jsoo'
+      run: |
+        ${{ env.EXEC }} make expr_order.runtest
+    # A separate step from the differential probe above, so a failure names the
+    # layer: the probe answers "do the backends agree", these answer "is the
+    # answer right".
+    - name: jsoo inline tests
+      if: matrix.suite == 'jsoo'
+      run: |
+        ${{ env.EXEC }} make jsoo.inline-runtest
+    # The Loop IR's generated JavaScript, run under node, against what the Loop
+    # interpreter says the same programs do: "is the emitted code right", which
+    # neither the differential probe nor the inline tests ask.
+    - name: loop ir generated code
+      if: matrix.suite == 'jsoo'
+      run: |
+        ${{ env.EXEC }} make loop.js.runtest
+
+    # {2 jsoo-models}
+    #
+    # Tier 2, the only JS steps that need downloaded weights. One model (~99MB),
+    # not PT2_MODELS_CRAM, under its OWN cache key -- see the jsoo.pt2.vars
+    # comment in the Makefile for why sharing the native key would silently
+    # poison it.
+    - name: pt2 model cache
+      if: matrix.suite == 'jsoo-models'
+      uses: actions/cache@v6
+      with:
+        path: ${{ steps.cache_keys.outputs.jsoo_pt2_zip_glob }}
+        key: ${{ steps.cache_keys.outputs.jsoo_pt2_cache_key }}
+        restore-keys: |
+          ${{ steps.cache_keys.outputs.jsoo_pt2_cache_restore_key }}
+    - name: pt2 model download
+      if: matrix.suite == 'jsoo-models'
+      run: |
+        make jsoo.pt2.download
+    # A second model (fastvit_sa12, ~96MB), its own key for the same reason
+    # jsoo_pt2 has one -- see loop_js.pt2.vars' own comment in the Makefile.
+    # Needed by the fast-path steps below.
+    - name: loop_js pt2 model cache
+      if: matrix.suite == 'jsoo-models'
+      uses: actions/cache@v6
+      with:
+        path: ${{ steps.cache_keys.outputs.loop_js_pt2_zip_glob }}
+        key: ${{ steps.cache_keys.outputs.loop_js_pt2_cache_key }}
+        restore-keys: |
+          ${{ steps.cache_keys.outputs.loop_js_pt2_cache_restore_key }}
+    - name: loop_js pt2 model download
+      if: matrix.suite == 'jsoo-models'
+      run: |
+        make loop_js.pt2.download
+    - name: jsoo pt2 inference test
+      if: matrix.suite == 'jsoo-models'
+      run: |
+        ${{ env.EXEC }} make jsoo.pt2.runtest
+    # The same model with its weights from the Hub checkpoint its safetensors.json
+    # pins: native fetches it into data/hf-hub and hands node the file, then the
+    # native and node runs are diffed, and native is checked equal to the .pt2 run
+    # above. Its own cache entry, keyed by that one model's pin.
+    - name: safetensors checkpoint cache
+      if: matrix.suite == 'jsoo-models'
+      uses: actions/cache@v6
+      with:
+        path: data/hf-hub
+        key: hf-hub-jsoo-${{ hashFiles('modules/devcontainer.pytorch-image-models/models/mobilenetv2_050/models/safetensors.json') }}
+        restore-keys: |
+          hf-hub-jsoo-
+    - name: jsoo safetensors inference test
+      if: matrix.suite == 'jsoo-models'
+      run: |
+        ${{ env.EXEC }} sh -ceu 'HF_HUB_CACHE="$(pwd)/data/hf-hub" make jsoo.safetensors.runtest'
+    # Every node of the same already-cached model through its own generated-JS
+    # kernel, and no new download since it reuses JS_PT2_MODEL's own cache
+    # entry. Also the jsoo/node side of the tensor arena check (--arena).
+    - name: jsoo pt2 node coverage
+      if: matrix.suite == 'jsoo-models'
+      run: |
+        ${{ env.EXEC }} make loop_js.node.pt2.runtest
+    # Same model, --direct: the raw, untransformed graph through the compiled
+    # kernels instead of canonical's folded one.
+    - name: jsoo pt2 node coverage (direct graph)
+      if: matrix.suite == 'jsoo-models'
+      run: |
+        ${{ env.EXEC }} make loop_js.node.pt2.direct.runtest
+    # The whole-model bundle (one JS entry call), bitwise against per-node.
+    - name: jsoo pt2 whole-model bundle
+      if: matrix.suite == 'jsoo-models'
+      run: |
+        ${{ env.EXEC }} make loop_js.bundle.pt2.runtest
+    # The same bundle with every kernel made by the structured SSA backend,
+    # bitwise against Eval_direct (exact and planned pipelines).
+    - name: jsoo pt2 whole-model bundle through SSA
+      if: matrix.suite == 'jsoo-models'
+      run: |
+        ${{ env.EXEC }} make loop_js.bundle.pt2.ssa.runtest
+    # fastvit_sa12, WITHOUT --shadow: Loop_node_executor's own default
+    # (shadow:false) trusts each compiled kernel directly instead of also
+    # running the reference interpreter, verified only by --strict's ranking
+    # check. Removing the shadow double-run is what makes this model affordable
+    # in CI at all, and the only CI coverage of Region-authored ops
+    # (RmsNorm/LayerNorm/Softmax/Sdpa) under generated JS: mobilenetv2_050 above
+    # has none.
+    - name: jsoo pt2 node coverage (fastvit, fast path)
+      if: matrix.suite == 'jsoo-models'
+      run: |
+        ${{ env.EXEC }} make loop_js.node.pt2.fast.runtest
+    - name: jsoo pt2 node coverage (fastvit, fast path, direct graph)
+      if: matrix.suite == 'jsoo-models'
+      run: |
+        ${{ env.EXEC }} make loop_js.node.pt2.fast.direct.runtest
+
+    # {2 wasm}
+    #
+    # The WebAssembly backend (see the Wasm backend design doc in .ai/). Node runs
+    # everything here; the browser half is the `browser` suite. WASI_SYSROOT is
+    # /usr: the image installs wasi-libc and libclang-rt-dev-wasm32 with apt.
+    #
+    # The op table and structural fixtures under node, every Loop_check fixture
+    # and the op sweep through the emitted module, the C-compiled route, and the
+    # byte-for-byte agreement of native and 32-bit-int generation.
+    - name: wasm fixtures and differential
+      if: matrix.suite == 'wasm'
+      run: |
+        ${{ env.EXEC }} make WASI_SYSROOT=/usr wasm.runtest
+    - name: wasm generated in JavaScript
+      if: matrix.suite == 'wasm'
+      run: |
+        ${{ env.EXEC }} make wasm.jsoo.runtest
+    # A passing suite is not evidence that it can fail: each deliberate defect in
+    # the lowering must turn the differential red.
+    - name: wasm mutation check
+      if: matrix.suite == 'wasm'
+      run: |
+        ${{ env.EXEC }} env WASI_SYSROOT=/usr scripts/wasm-mutation-check.sh
+    # The binary64 against binary32 SIMD microbenchmark on the runner's node: dense
+    # kernels through the direct Wasm backend, every result verified against its
+    # oracle (a wrong answer fails the step, a slow one never does), the raw samples
+    # kept as an artifact.
+    - name: wasm fp32 microbenchmark
+      if: matrix.suite == 'wasm'
+      run: |
+        ${{ env.EXEC }} make fp32.bench.wasm
+    - name: wasm fp32 microbenchmark results
+      if: matrix.suite == 'wasm'
+      uses: actions/upload-artifact@v7
+      with:
+        name: fp32-bench-wasm-${{ runner.arch }}
+        path: _build/fp32-bench-wasm.jsonl
+
+    # {2 wasm-models}
+    #
+    # Every CI model through model_run under node, every output bitwise equal to
+    # the per-node reference, workspace poisoned: the direct emitter, then the
+    # C backend's unit compiled to Wasm.
+    - name: whole-model wasm backend (all downloaded models)
+      if: matrix.suite == 'wasm-models'
+      run: |
+        ${{ env.EXEC }} make WASI_SYSROOT=/usr wasm.pt2.runtest
+    - name: whole-model wasm backend, C compiled to wasm (all downloaded models)
+      if: matrix.suite == 'wasm-models'
+      run: |
+        ${{ env.EXEC }} make WASI_SYSROOT=/usr wasm.c.pt2.runtest
+    - name: whole-model wasm SIMD backend (all downloaded models)
+      if: matrix.suite == 'wasm-models'
+      run: |
+        ${{ env.EXEC }} make WASI_SYSROOT=/usr wasm.simd.pt2.runtest
+    # The model generated by the JavaScript build of the compiler, byte-identical
+    # to the native compiler's.
+    - name: wasm model generated in javascript
+      if: matrix.suite == 'wasm-models'
+      run: |
+        ${{ env.EXEC }} make wasm.jsoo.pt2.runtest
+
+    # {2 wasm-ssa}
+    #
+    # The same models with every kernel made by the structured SSA backend:
+    # strict first, then the planned pipeline under the default policy.
+    - name: whole-model wasm backend through SSA (all downloaded models)
+      if: matrix.suite == 'wasm-ssa'
+      run: |
+        ${{ env.EXEC }} make WASI_SYSROOT=/usr wasm.pt2.ssa.runtest
+    - name: whole-model wasm backend through SSA, default policy (all downloaded models)
+      if: matrix.suite == 'wasm-ssa'
+      run: |
+        ${{ env.EXEC }} make WASI_SYSROOT=/usr wasm.pt2.ssa.perf
+
+    # {2 browser}
+    #
+    # It needs the modules/devcontainer.pytorch-image-models submodule for resnet18's
+    # committed model.json: the gate renders the session `native_graph visualize`
+    # actually produces from it, which is the only check anywhere that our export is
+    # one the real element accepts rather than one our own validator accepts.
+    #
+    # The visualizer is BUILT from the submodule rather than installed from npm
+    # (see the `visualizer.build` block in the Makefile), and the checkout above is
+    # top-level only -- so the nested checkout is named here, and it has to precede
+    # the cache step because it is what makes the key computable.
+    - name: visualizer submodule
+      if: matrix.suite == 'browser'
+      run: |
+        git -C vendored/ocaml-model-explorer submodule update --init --depth 1 model-explorer
+        echo "VISUALIZER_REF=$(git -C vendored/ocaml-model-explorer rev-parse HEAD:model-explorer)" >> $GITHUB_ENV
+    # Cache the BUILT BUNDLE, not node_modules: on a hit this skips a
+    # 1191-package npm ci and two Angular builds outright. The submodule commit
+    # and the patch are jointly what determine the output, so both are in the
+    # key -- a bump or a re-derived patch gets a fresh entry rather than
+    # silently reusing a bundle built from different source.
+    - name: visualizer bundle cache
+      if: matrix.suite == 'browser'
+      uses: actions/cache@v6
+      with:
+        path: vendored/ocaml-model-explorer/model-explorer/src/ui/custom_element_npm/dist
+        key: visualizer-${{ env.VISUALIZER_REF }}-${{ hashFiles('patches/model-explorer-custom-element-worker.patch') }}
+    - name: node modules cache
+      if: matrix.suite == 'browser'
+      uses: actions/cache@v6
+      with:
+        path: web/node_modules
+        key: web-npm-${{ runner.arch }}-${{ hashFiles('web/package-lock.json') }}
+    - name: playwright browser cache
+      if: matrix.suite == 'browser'
+      uses: actions/cache@v6
+      with:
+        # The browser is used from inside the devcontainer, so it must live in
+        # the workspace rather than the runner user's home directory.
+        path: web/.playwright-browsers
+        key: playwright-${{ runner.arch }}-${{ hashFiles('web/package-lock.json') }}
+    - name: build the renderer and install chromium
+      if: matrix.suite == 'browser'
+      run: |
+        ${{ env.EXEC }} make spike.setup
+    # Two specs, and they answer different questions: the 0A spike asks what the
+    # renderer does, the Stage 1 gate asks whether what we emit is something it
+    # accepts. See the Model Explorer design in .ai/.
+    - name: browser gate
+      if: matrix.suite == 'browser'
+      run: |
+        ${{ env.EXEC }} make spike.runtest
+    - name: webapp unit and assembled-site gates
+      if: matrix.suite == 'browser'
+      run: |
+        ${{ env.EXEC }} make webapp.runtest webapp.bridge-runtest webapp.browser-runtest
+    # The WebAssembly backend in the page: fixtures generated by the JavaScript
+    # build of the compiler and compiled through the promise API, a real model
+    # exported by the native compiler run twice on one instance, and the CSP
+    # limit. Reuses the chromium installed above.
+    - name: wasm in a real browser
+      if: matrix.suite == 'browser'
+      run: |
+        ${{ env.EXEC }} make wasm.browser.runtest
+    # The safetensors weight source in the page: the checkpoint downloaded from
+    # the Hub by hf-hub's JavaScript driver, checked against the pin, and the
+    # model run on it; the console output must equal the native golden.
+    - name: safetensors in a real browser
+      if: matrix.suite == 'browser'
+      run: |
+        ${{ env.EXEC }} sh -ceu 'make jsoo.pt2.download && make safetensors.browser.runtest'
+
+    # {2 melange}
+    #
+    # AFTER the devcontainer step, not before: before it this passes trivially
+    # and proves nothing. Checks every gitlink, so a new submodule is covered
+    # without anyone remembering to update this. err_trace is the opam package,
+    # not a submodule.
+    #
+    # It does more than assert a checkout flag: melange's reach is meant to stop
+    # at walk_core + core, and everything past that line goes through
+    # pytorch_types, which needs a submodule. If this ever goes red, the melange
+    # closure has grown -- most likely because a probe section drifted to the
+    # wrong library.
+    - name: assert no other submodule was initialized
+      if: matrix.suite == 'melange'
+      run: |
+        if git submodule status | grep -qv '^-'; then
+          echo "A submodule was initialized." >&2
+          git submodule status >&2
+          exit 1
+        fi
+        echo "no other submodules initialized"
+    # The scaffold first, so a failure says which layer broke: if this passes
+    # and the next step fails, the vendored libraries are fine and the problem
+    # is the jsont patch or what sits on it.
+    - name: melange scaffold builds
+      if: matrix.suite == 'melange'
+      run: |
+        ${{ env.EXEC }} make melange.build.scaffold
+    - name: melange differential test
+      if: matrix.suite == 'melange'
+      run: |
+        ${{ env.EXEC }} make melange.runtest
