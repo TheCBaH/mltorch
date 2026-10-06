@@ -35,7 +35,11 @@ let exact_passes =
     Ssa_opt.simplify;
   ]
 
-let program pipeline (inv : Loop_ir.Loop_bundle.invocation) =
+(* The program and the working precision its pipeline chose. A kernel's
+   precision is the plan's, not whatever types its text happens to use: the
+   strict pipelines hold binary32 buffers' values in binary32 but compute in
+   binary64, and must not report as binary32 kernels. *)
+let prepare pipeline (inv : Loop_ir.Loop_bundle.invocation) =
   match
     Err.payload (Ssa_lower.Ssa_lower_plan.lower inv.Loop_ir.Loop_bundle.placed)
   with
@@ -43,10 +47,22 @@ let program pipeline (inv : Loop_ir.Loop_bundle.invocation) =
       Error (Fmt.str "%a" Ssa_lower.Ssa_unsupported.pp u)
   | Ok p -> (
       match pipeline with
-      | Pipeline.Representation -> Ok p
-      | Pipeline.Exact -> Ok (fst (Ssa_opt.run ~alias ~passes:exact_passes p))
+      | Pipeline.Representation -> Ok (p, Loop_ir.Loop_numerics.Precision.F64)
+      | Pipeline.Exact ->
+          Ok
+            ( fst (Ssa_opt.run ~alias ~passes:exact_passes p),
+              Loop_ir.Loop_numerics.Precision.F64 )
       | Pipeline.Planned { numerics; target } ->
-          Ok (Ssa_plan.resolve ~target ~alias ~numerics p).Ssa_plan.program)
+          let plan = Ssa_plan.resolve ~target ~alias ~numerics p in
+          Ok
+            ( plan.Ssa_plan.program,
+              match plan.Ssa_plan.precision with
+              | Ssa_numerics.Precision.F32 ->
+                  Loop_ir.Loop_numerics.Precision.F32
+              | Ssa_numerics.Precision.F64 ->
+                  Loop_ir.Loop_numerics.Precision.F64 ))
+
+let program pipeline inv = Result.map fst (prepare pipeline inv)
 
 (* The invocation's buffers, as SSA declares them, in the program's order: the
    bundle binds them positionally to edges. A buffer the SSA program names that
@@ -84,21 +100,23 @@ let arguments (inv : Loop_ir.Loop_bundle.invocation) (p : Ssa_program.t) ~named
   | Some n ->
       Error
         (Fmt.str
-           "%a is touched by the SSA program and is no buffer of the invocation"
-           Ssa_id.Buffer.pp n.Ssa_buffer.id)
+           "%a (%s) is touched by the SSA program and is no buffer of the \
+            invocation: a fusion scratch the pipeline did not remove"
+           Ssa_id.Buffer.pp n.Ssa_buffer.id
+           (Ssa_buffer.role_name n.Ssa_buffer.role))
 
 let sites (inv : Loop_ir.Loop_bundle.invocation) =
   Loop_ir.Loop_js_failure.sites inv.Loop_ir.Loop_bundle.program
 
 let c ~pipeline ~name inv =
-  let* p = program pipeline inv in
+  let* p, precision = prepare pipeline inv in
   let* buffers = arguments inv p ~named:Ssa_c.arguments in
   match Ssa_c.kernel ~buffers ~sites:(sites inv) ~name p with
-  | Ok (k, _) -> Ok k
+  | Ok (k, _) -> Ok { k with Loop_ir.Loop_c.precision }
   | Error e -> Error (Fmt.str "%a" Ssa_c.pp_error e)
 
 let wasm ~pipeline ~table_alloc inv =
-  let* p = program pipeline inv in
+  let* p, precision = prepare pipeline inv in
   let* buffers = arguments inv p ~named:Ssa_wasm.arguments in
   let relaxed_madd =
     match pipeline with
@@ -108,7 +126,7 @@ let wasm ~pipeline ~table_alloc inv =
   match
     Ssa_wasm.kernel ~buffers ~sites:(sites inv) ~relaxed_madd ~table_alloc p
   with
-  | Ok k -> Ok k
+  | Ok k -> Ok { k with Loop_ir.Loop_wasm.precision }
   | Error e -> Error (Fmt.str "%a" Ssa_wasm.pp_error e)
 
 let js ~pipeline inv =
