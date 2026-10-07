@@ -93,6 +93,22 @@ let pp_op n fmt (op : Mir_op.t) =
       Fmt.pf fmt "%s [%a] align %Ld" name v addr align
   | Mir_op.Store ({ Mir_op.Access.addr; align; _ }, x) ->
       Fmt.pf fmt "%s [%a], %a align %Ld" name v addr v x align
+  | Mir_op.Vextract (lane, a) ->
+      Fmt.pf fmt "%s %a, %a" name v a Mir_type.Lane.pp lane
+  | Mir_op.Vinsert (lane, a, x) ->
+      Fmt.pf fmt "%s %a, %a, %a" name v a Mir_type.Lane.pp lane v x
+  | Mir_op.Vload { Mir_op.Vaccess.lanes; addr; stride; align; _ } ->
+      Fmt.pf fmt "%s %a [%a] stride %Ld align %Ld" name Mir_type.Lanes.pp lanes
+        v addr stride align
+  | Mir_op.Vconcat parts -> Fmt.pf fmt "%s %a" name vs parts
+  | Mir_op.Vslice (first, count, a) ->
+      Fmt.pf fmt "%s %a, %a %a" name v a Mir_type.Lane.pp first
+        Mir_type.Lanes.pp count
+  | Mir_op.Vsplat (lanes, a) ->
+      Fmt.pf fmt "%s %a %a" name Mir_type.Lanes.pp lanes v a
+  | Mir_op.Vstore ({ Mir_op.Vaccess.lanes; addr; stride; align; _ }, x) ->
+      Fmt.pf fmt "%s %a [%a], %a stride %Ld align %Ld" name Mir_type.Lanes.pp
+        lanes v addr v x stride align
   | Mir_op.Copy _ | Mir_op.Fbinary _ | Mir_op.Fcmp _ | Mir_op.Fconvert _
   | Mir_op.Ffma _ | Mir_op.Fto_sint _ | Mir_op.Funary _ | Mir_op.Iarith _
   | Mir_op.Icmp _ | Mir_op.Idiv _ | Mir_op.Iext _ | Mir_op.Itrunc _

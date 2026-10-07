@@ -62,6 +62,7 @@ module Mutation : sig
     | Stale_local
         (** a local allocation that keeps its site's earlier bytes instead of
             starting undefined *)
+    | Vector_stride  (** a lane access's stride doubled *)
     | Zero_extend  (** index widening by zero- instead of sign-extension *)
 end
 

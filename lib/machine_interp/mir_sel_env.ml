@@ -19,13 +19,14 @@ type t = {
 let bits env v =
   match env.get v with
   | Mir_datum.Bits b -> b
-  | Mir_datum.Flags _ | Mir_datum.Order | Mir_datum.Ptr _ ->
+  | Mir_datum.Flags _ | Mir_datum.Lanes _ | Mir_datum.Order | Mir_datum.Ptr _ ->
       env.defect Mir_observation.Defect.Invalid_program
 
 let ptr env v =
   match env.get v with
   | Mir_datum.Ptr p -> p
-  | Mir_datum.Bits _ | Mir_datum.Flags _ | Mir_datum.Order ->
+  | Mir_datum.Bits _ | Mir_datum.Flags _ | Mir_datum.Lanes _ | Mir_datum.Order
+    ->
       env.defect Mir_observation.Defect.Invalid_program
 
 (* The [mask] bits of a condition value; reading a bit its producer left
@@ -36,7 +37,7 @@ let flags env v ~mask =
       if Int64.equal (Int64.logand mask (Int64.lognot defined)) 0L then
         Int64.logand bits mask
       else env.defect Mir_observation.Defect.Uninitialized
-  | Mir_datum.Bits _ | Mir_datum.Order | Mir_datum.Ptr _ ->
+  | Mir_datum.Bits _ | Mir_datum.Lanes _ | Mir_datum.Order | Mir_datum.Ptr _ ->
       env.defect Mir_observation.Defect.Invalid_program
 
 let fault env = function

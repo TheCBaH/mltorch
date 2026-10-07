@@ -64,7 +64,8 @@ let sub_flags sz a b =
 
 let flags v defined = Mir_datum.Flags { bits = Int64.logand v defined; defined }
 let fval fsz x = match fsz with Fsz.D -> N.f64 x | Fsz.S -> N.f32 x
-let fres fsz x = b (match fsz with Fsz.D -> N.of_f64 x | Fsz.S -> N.round32 x)
+let lres fsz x = match fsz with Fsz.D -> N.of_f64 x | Fsz.S -> N.round32 x
+let fres fsz x = b (lres fsz x)
 let ones = function Fsz.D -> -1L | Fsz.S -> 0xFFFF_FFFFL
 let fmask = function Fsz.D -> -1L | Fsz.S -> 0xFFFF_FFFFL
 
@@ -92,6 +93,25 @@ let cvtts2si x =
   if Float.is_nan x || x >= 9223372036854775808. || x < -9223372036854775808.
   then Int64.min_int
   else Int64.of_float x
+
+(* A vector operand's lanes. *)
+let lanes env v =
+  match env.E.get v with
+  | Mir_datum.Lanes l -> l
+  | Mir_datum.Bits _ | Mir_datum.Flags _ | Mir_datum.Order | Mir_datum.Ptr _ ->
+      env.E.defect Mir_observation.Defect.Invalid_program
+
+let vec l = Mir_datum.Lanes l
+let lane_bytes = function Fsz.D -> 8L | Fsz.S -> 4L
+
+(* Lane [j]'s address in a packed access at [a]. *)
+let lane_at env (a : Addr.t) pk j =
+  match
+    Mir_memory.offset_by (address env a)
+      (Int64.mul (Int64.of_int j) (lane_bytes (Pk.fsz pk)))
+  with
+  | Some p -> p
+  | None -> env.E.defect Mir_observation.Defect.Bad_access
 
 let exec env op =
   let get = env.E.get in
@@ -178,6 +198,10 @@ let exec env op =
           | Fop.Mul -> a *. c
           | Fop.Sub -> a -. c);
       ]
+  | Cvtpd2ps x ->
+      [ vec (Array.map (fun l -> N.round32 (N.f64 l)) (lanes env x)) ]
+  | Cvtps2pd x ->
+      [ vec (Array.map (fun l -> N.of_f64 (N.f32 l)) (lanes env x)) ]
   | Flogic (o, fsz, x, y) ->
       let a = bits env x and c = bits env y in
       [
@@ -208,6 +232,31 @@ let exec env op =
       | None -> env.E.defect Mir_observation.Defect.Invalid_program)
   | Load (m, a) ->
       [ b (E.load env (address env a) ~bytes:(Msz.bytes m) ~align:1L) ]
+  | Movlhps (x, y) ->
+      let l = Array.copy (lanes env x) and h = lanes env y in
+      l.(2) <- h.(0);
+      l.(3) <- h.(1);
+      [ vec l ]
+  | Movq_low x -> [ vec (Array.sub (lanes env x) 0 2) ]
+  | Movq_widen x ->
+      let l = lanes env x in
+      [ vec [| l.(0); l.(1); 0L; 0L |] ]
+  | Movup_load (pk, a) ->
+      [
+        vec
+          (Array.init (Pk.lanes pk) (fun j ->
+               E.load env (lane_at env a pk j)
+                 ~bytes:(lane_bytes (Pk.fsz pk))
+                 ~align:1L));
+      ]
+  | Movup_store (pk, a, x) ->
+      Array.iteri
+        (fun j l ->
+          E.store env (lane_at env a pk j)
+            ~bytes:(lane_bytes (Pk.fsz pk))
+            ~align:1L l)
+        (lanes env x);
+      []
   | Mov (_, x) | Movap x -> [ get x ]
   | Mov_imm (_, k) -> [ b k ]
   | Movq_from_gpr (_, x) | Movq_to_gpr (_, x) -> [ b (bits env x) ]
@@ -215,6 +264,58 @@ let exec env op =
   | Movzx32 x | Trunc32 x -> [ b (Int64.logand (bits env x) 0xFFFF_FFFFL) ]
   | Trunc_zx (w, x) -> [ b (Int64.logand (bits env x) (Mir_width.mask w)) ]
   | Neg (sz, x) -> [ b (norm sz (Int64.neg (bits env x))) ]
+  | Pbin (o, pk, x, y) ->
+      let fsz = Pk.fsz pk in
+      [
+        vec
+          (Array.map2
+             (fun p q ->
+               let p = fval fsz p and q = fval fsz q in
+               lres fsz
+                 (match o with
+                 | Fop.Add -> p +. q
+                 | Fop.Div -> p /. q
+                 | Fop.Max -> maxs p q
+                 | Fop.Mul -> p *. q
+                 | Fop.Sub -> p -. q))
+             (lanes env x) (lanes env y));
+      ]
+  | Pfmadd231 (pk, x, y, z) ->
+      let p = lanes env x and q = lanes env y and c = lanes env z in
+      [
+        vec
+          (Array.init (Array.length c) (fun j ->
+               match pk with
+               | Pk.Ps -> N.fma32 p.(j) q.(j) c.(j)
+               | Pk.Pd ->
+                   N.of_f64
+                     (Float.fma (N.f64 p.(j)) (N.f64 q.(j)) (N.f64 c.(j)))));
+      ]
+  | Plogic (o, pk, x, y) ->
+      let m = fmask (Pk.fsz pk) in
+      [
+        vec
+          (Array.map2
+             (fun a c ->
+               Int64.logand m
+                 (match o with
+                 | Flogic.And -> Int64.logand a c
+                 | Flogic.Andn -> Int64.logand (Int64.lognot a) c
+                 | Flogic.Or -> Int64.logor a c
+                 | Flogic.Xor -> Int64.logxor a c))
+             (lanes env x) (lanes env y));
+      ]
+  | Pshufd_half x -> [ vec (Array.sub (lanes env x) 2 2) ]
+  | Pshufd_lane (_, k, x) -> [ b (lanes env x).(k) ]
+  | Pshufd_splat (pk, x) -> [ vec (Array.make (Pk.lanes pk) (bits env x)) ]
+  | Psqrt (pk, x) ->
+      let fsz = Pk.fsz pk in
+      [
+        vec
+          (Array.map
+             (fun l -> lres fsz (Float.sqrt (fval fsz l)))
+             (lanes env x));
+      ]
   | Round_trunc (fsz, x) -> [ fres fsz (Float.trunc (fval fsz (bits env x))) ]
   | Setcc_zx (c, f) ->
       [

@@ -214,6 +214,11 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
       by_value;
     (* slots: shared by values whose spilled pieces never overlap *)
     let slots = ref [] and slot_of = Hashtbl.create 16 in
+    let spill_bytes bits =
+      Int64.of_int
+        (if bits > 64 && mutated st Mutation.Half_spill then bits / 16
+         else bits / 8)
+    in
     let spilled_ranges ps =
       List.concat_map
         (fun (p : Piece.t) ->
@@ -233,7 +238,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
     List.iter
       (fun (k, (p : Piece.t), rs) ->
         let _, bits = shape p.Piece.value in
-        let bytes = Int64.of_int (bits / 8) in
+        let bytes = spill_bytes bits in
         let disjoint xs ys =
           List.for_all
             (fun (a, b) -> List.for_all (fun (c, d) -> b <= c || d <= a) ys)
@@ -263,7 +268,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
           slot =
             (if Hashtbl.mem remat k then Mir_id.Slot.of_int (marker_base + k)
              else Hashtbl.find slot_of k);
-          bytes = Int64.of_int (bits / 8);
+          bytes = spill_bytes bits;
         }
     in
     let rematerialize body =

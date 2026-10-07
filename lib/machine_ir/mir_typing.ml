@@ -9,6 +9,7 @@ module Immediate = struct
     | Bitcast_pair  (** not i32<->f32 or i64<->f64 *)
     | Const_bits  (** noncanonical bits, or a type a constant cannot have *)
     | Event_count  (** below one *)
+    | Lane  (** a lane outside its vector, or a lane count outside [1, 64] *)
     | Width_order
         (** an extension that does not widen, a truncation that does not narrow
         *)
@@ -18,6 +19,7 @@ module Immediate = struct
     | Bitcast_pair -> "bitcast_pair"
     | Const_bits -> "const_bits"
     | Event_count -> "event_count"
+    | Lane -> "lane"
     | Width_order -> "width_order"
 end
 
@@ -51,10 +53,36 @@ let operand position (v : Mir_value.t) ok =
   else Error (Error.Bad_operand { position; found = v.Mir_value.ty })
 
 let same position (v : Mir_value.t) ty = operand position v (Mir_type.equal ty)
-let float_ty = Mir_type.is_float
+
+(* A float, or a vector of floats: what the lanewise float operations take. *)
+let float_ty = function
+  | Mir_type.F32 | Mir_type.F64
+  | Mir_type.Vec ((Mir_type.Elem.F32 | Mir_type.Elem.F64), _) ->
+      true
+  | _ -> false
+
+(* A predicate, or a mask. *)
+let pred_ty = function Mir_type.Pred | Mir_type.Mask _ -> true | _ -> false
+
+(* The predicate or mask a comparison of [ty] gives. *)
+let truth_of = function
+  | Mir_type.Vec (_, n) -> Mir_type.Mask n
+  | _ -> Mir_type.Pred
+
 let int_ty = Mir_type.is_int
 let width_of = function Mir_type.Int w -> Some w | _ -> None
 let immediate ok i = if ok then Ok () else Error (Error.Bad_immediate i)
+
+(* A vector access's address, lane count and alignment: every lane's address
+   a multiple of [align], which divides the element's size. *)
+let vaccess { Mir_op.Vaccess.elem; lanes; addr; stride; align } =
+  let* () = same 0 addr Mir_type.Ptr in
+  let* () = immediate (Mir_type.lanes_in_range lanes) Immediate.Lane in
+  immediate
+    (Mir_layout.is_power_of_two align
+    && Int64.compare align (Mir_type.Elem.bytes elem) <= 0
+    && Int64.equal (Int64.rem stride align) 0L)
+    Immediate.Alignment
 
 let check ~(signature : Mir_op.Callee.t -> Signature.t option)
     ~(view : Mir_id.View.t -> bool) (op : Mir_op.t) =
@@ -105,8 +133,8 @@ let check ~(signature : Mir_op.Callee.t -> Signature.t option)
   | Fcmp (_, a, b) ->
       let* () = operand 0 a float_ty in
       let* () = same 1 b a.Mir_value.ty in
-      Ok [ Mir_type.Pred ]
-  | Fconvert (c, a) ->
+      Ok [ truth_of a.Mir_value.ty ]
+  | Fconvert (c, a) -> (
       let src, dst =
         match c with
         | Fconvert.F32_to_f64 -> (Mir_type.F32, Mir_type.F64)
@@ -114,8 +142,16 @@ let check ~(signature : Mir_op.Callee.t -> Signature.t option)
         | Fconvert.S64_to_f32 -> (Mir_type.i64, Mir_type.F32)
         | Fconvert.S64_to_f64 -> (Mir_type.i64, Mir_type.F64)
       in
-      let* () = same 0 a src in
-      Ok [ dst ]
+      (* the precision conversions also lane by lane *)
+      match (c, a.Mir_value.ty) with
+      | (Fconvert.F32_to_f64 | Fconvert.F64_to_f32), Mir_type.Vec (e, n) ->
+          let* () =
+            operand 0 a (fun _ -> Mir_type.equal (Mir_type.of_elem e) src)
+          in
+          Ok [ Mir_type.Vec (Option.get (Mir_type.elem dst), n) ]
+      | _ ->
+          let* () = same 0 a src in
+          Ok [ dst ])
   | Ffma (a, b, c) ->
       let* () = operand 0 a float_ty in
       let* () = same 1 b a.Mir_value.ty in
@@ -157,24 +193,27 @@ let check ~(signature : Mir_op.Callee.t -> Signature.t option)
       in
       Ok [ Mir_type.Int width ]
   | Pbinary (_, a, b) ->
-      let* () = same 0 a Mir_type.Pred in
-      let* () = same 1 b Mir_type.Pred in
-      Ok [ Mir_type.Pred ]
+      let* () = operand 0 a pred_ty in
+      let* () = same 1 b a.Mir_value.ty in
+      Ok [ a.Mir_value.ty ]
   | Pnot a ->
-      let* () = same 0 a Mir_type.Pred in
-      Ok [ Mir_type.Pred ]
+      let* () = operand 0 a pred_ty in
+      Ok [ a.Mir_value.ty ]
   | Ptr_add (a, b) ->
       let* () = same 0 a Mir_type.Ptr in
       let* () = same 1 b Mir_type.i64 in
       Ok [ Mir_type.Ptr ]
   | Select (p, a, b) ->
-      let* () = same 0 p Mir_type.Pred in
+      let* () = operand 0 p pred_ty in
       let* () =
-        operand 1 a (function
-          | Mir_type.Flags | Mir_type.Order | Mir_type.Mask _ | Mir_type.Vec _
-            ->
-              false
-          | _ -> true)
+        operand 1 a (fun ty ->
+            match (p.Mir_value.ty, ty) with
+            | Mir_type.Mask n, Mir_type.Vec (_, m) -> Mir_type.Lanes.equal n m
+            | ( Mir_type.Pred,
+                ( Mir_type.F32 | Mir_type.F64 | Mir_type.Int _ | Mir_type.Pred
+                | Mir_type.Ptr ) ) ->
+                true
+            | _ -> false)
       in
       let* () = same 2 b a.Mir_value.ty in
       Ok [ a.Mir_value.ty ]
@@ -189,3 +228,69 @@ let check ~(signature : Mir_op.Callee.t -> Signature.t option)
       in
       Ok []
   | Undef v -> if view v then Ok [] else Error (Error.Unknown_view v)
+  | Vconcat vs -> (
+      match vs with
+      | [] -> Error (Error.Arity { expected = 1; found = 0 })
+      | (first : Mir_value.t) :: _ -> (
+          match first.Mir_value.ty with
+          | Mir_type.Vec (e, _) ->
+              let rec go i n = function
+                | [] ->
+                    let lanes = Mir_type.Lanes.of_int n in
+                    let* () =
+                      immediate (Mir_type.lanes_in_range lanes) Immediate.Lane
+                    in
+                    Ok [ Mir_type.Vec (e, lanes) ]
+                | (v : Mir_value.t) :: rest -> (
+                    match v.Mir_value.ty with
+                    | Mir_type.Vec (f, m) when Mir_type.Elem.equal e f ->
+                        go (i + 1) (n + Mir_type.Lanes.to_int m) rest
+                    | found -> Error (Error.Bad_operand { position = i; found })
+                    )
+              in
+              go 0 0 vs
+          | found -> Error (Error.Bad_operand { position = 0; found })))
+  | Vextract (lane, a) -> (
+      match a.Mir_value.ty with
+      | Mir_type.Vec (e, n) ->
+          let k = Mir_type.Lane.to_int lane in
+          let* () =
+            immediate (k >= 0 && k < Mir_type.Lanes.to_int n) Immediate.Lane
+          in
+          Ok [ Mir_type.of_elem e ]
+      | found -> Error (Error.Bad_operand { position = 0; found }))
+  | Vinsert (lane, a, x) -> (
+      match a.Mir_value.ty with
+      | Mir_type.Vec (e, n) ->
+          let k = Mir_type.Lane.to_int lane in
+          let* () =
+            immediate (k >= 0 && k < Mir_type.Lanes.to_int n) Immediate.Lane
+          in
+          let* () = same 1 x (Mir_type.of_elem e) in
+          Ok [ a.Mir_value.ty ]
+      | found -> Error (Error.Bad_operand { position = 0; found }))
+  | Vload acc ->
+      let* () = vaccess acc in
+      Ok [ Mir_type.Vec (acc.Vaccess.elem, acc.Vaccess.lanes) ]
+  | Vslice (first, count, a) -> (
+      match a.Mir_value.ty with
+      | Mir_type.Vec (e, n) ->
+          let k = Mir_type.Lane.to_int first
+          and c = Mir_type.Lanes.to_int count in
+          let* () =
+            immediate
+              (k >= 0 && c >= 1 && k + c <= Mir_type.Lanes.to_int n)
+              Immediate.Lane
+          in
+          Ok [ Mir_type.Vec (e, count) ]
+      | found -> Error (Error.Bad_operand { position = 0; found }))
+  | Vsplat (n, a) -> (
+      let* () = immediate (Mir_type.lanes_in_range n) Immediate.Lane in
+      match Mir_type.elem a.Mir_value.ty with
+      | Some e -> Ok [ Mir_type.Vec (e, n) ]
+      | None ->
+          Error (Error.Bad_operand { position = 0; found = a.Mir_value.ty }))
+  | Vstore (acc, v) ->
+      let* () = vaccess acc in
+      let* () = same 1 v (Mir_type.Vec (acc.Vaccess.elem, acc.Vaccess.lanes)) in
+      Ok []

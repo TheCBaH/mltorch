@@ -9,6 +9,7 @@ module Refusal = struct
     | Invalid_selection of Mir_diagnostic.t
     | Missing_site of Mir_failure.t
     | Operation of string
+    | Vector of Mir_vsplit.Refusal.t
     | Width of Mir_type.t
 
   let pp fmt = function
@@ -24,6 +25,7 @@ module Refusal = struct
         Fmt.pf fmt "selection defect: %a" Mir_diagnostic.pp d
     | Missing_site f -> Fmt.pf fmt "no site-table entry for %a" Mir_failure.pp f
     | Operation o -> Fmt.pf fmt "%s is not selected for x86_64" o
+    | Vector r -> Mir_vsplit.Refusal.pp fmt r
     | Width t ->
         Fmt.pf fmt "type %a has no x86_64 register in this slice" Mir_type.pp t
 end
@@ -169,186 +171,305 @@ let fselect st ~result fsz p a c =
   let y = emit st t (Flogic (Flogic.Andn, fsz, m, c)) in
   ignore (emit st ~result t (Flogic (Flogic.Or, fsz, x, y)))
 
-let instr st (i : Mir_op.t Mir_instr.t) =
-  st.b.Mir_select.origin <- i.Mir_instr.origin;
-  let result = match i.Mir_instr.results with [ r ] -> Some r | _ -> None in
+(* The packed format of a register-wide vector value, or the half. *)
+let pk_of st (t : Mir_type.t) =
+  if Mir_type.equal t (Pk.ty Pk.Ps) then `Pk Pk.Ps
+  else if Mir_type.equal t (Pk.ty Pk.Pd) then `Pk Pk.Pd
+  else if Mir_type.equal t half_ty then `Half
+  else refuse st (Refusal.Width t)
+
+let is_vector (v : Mir_value.t) =
+  match v.Mir_value.ty with
+  | Mir_type.Vec _ | Mir_type.Mask _ -> true
+  | _ -> false
+
+(* A register-wide vector operation: SSE2 packed forms on XMM registers (FMA
+   and SSE4.1 only under their features). IEEE maximum, a lane insert and a
+   strided access have no packed form here: typed refusals. *)
+let vector st (i : Mir_op.t Mir_instr.t) =
   let r () =
-    match result with Some r -> r | None -> invalid_arg "X64_select: a result"
+    match i.Mir_instr.results with
+    | [ r ] -> r
+    | _ -> invalid_arg "X64_select: a vector result"
   in
   let def op = ignore (emit st ~result:(r ()) (r ()).Mir_value.ty op) in
   let unsupported () =
-    refuse st (Refusal.Operation (Mir_op.name i.Mir_instr.op))
+    refuse st (Refusal.Operation ("vector " ^ Mir_op.name i.Mir_instr.op))
   in
-  let ty (v : Mir_value.t) = v.Mir_value.ty in
-  let setcc c f = def (Setcc_zx (c, f)) in
+  let pk (v : Mir_value.t) =
+    match pk_of st v.Mir_value.ty with `Pk p -> p | `Half -> unsupported ()
+  in
+  let half (v : Mir_value.t) =
+    match pk_of st v.Mir_value.ty with `Half -> () | `Pk _ -> unsupported ()
+  in
   match i.Mir_instr.op with
-  | Mir_op.Addr view -> def (Lea_view view)
-  | Mir_op.Bitcast (t, a) -> (
-      match (ty a, t) with
-      | Mir_type.Int Mir_width.W32, Mir_type.F32 ->
-          def (Movq_from_gpr (Fsz.S, a))
-      | Mir_type.Int Mir_width.W64, Mir_type.F64 ->
-          def (Movq_from_gpr (Fsz.D, a))
-      | Mir_type.F32, _ -> def (Movq_to_gpr (Fsz.S, a))
-      | _ -> def (Movq_to_gpr (Fsz.D, a)))
-  | Mir_op.Call (callee, args) ->
-      let results = i.Mir_instr.results in
-      let status = fresh st Mir_type.i32 in
-      push st ?order:i.Mir_instr.order (results @ [ status ])
-        (Mir_sel.Op.Machine
-           (Call
-              {
-                callee;
-                args;
-                results =
-                  List.map (fun (v : Mir_value.t) -> v.Mir_value.ty) results;
-              }));
-      if st.fallible callee then (
-        if results <> [] || st.b.Mir_select.results <> [] then
-          refuse st (Refusal.Fallible_with_results callee);
-        let f = emit st Mir_type.Flags (Test (Sz.L, status, status)) in
-        Mir_select.split_on_status st.b
-          ~nonzero:(fun _ -> Jcc (Cond.Ne, f))
-          ~status ~after:(Option.get i.Mir_instr.order).Mir_order.output)
-  | Mir_op.Const c -> ignore (const st ~result:(r ()) c)
   | Mir_op.Copy a -> (
-      match ty a with
-      | Mir_type.F32 | Mir_type.F64 -> def (Movap a)
-      | t -> def (Mov (sz_of st t, a)))
-  | Mir_op.Event (e, n) ->
-      push st ?order:i.Mir_instr.order [] (Mir_sel.Op.Event (e, n))
-  | Mir_op.Fbinary (Mir_op.Fbinary.Max, a, c) ->
-      fmax st ~result:(r ()) (fsz_of st (ty a)) a c
-  | Mir_op.Fbinary (o, a, c) ->
+      match pk_of st a.Mir_value.ty with
+      | `Pk _ -> def (Movap a)
+      | `Half -> unsupported ())
+  | Mir_op.Fbinary (Mir_op.Fbinary.Max, _, _) -> unsupported ()
+  | Mir_op.Fbinary (o, a, b) ->
       let o =
         match o with
         | Mir_op.Fbinary.Add -> Fop.Add
         | Mir_op.Fbinary.Div -> Fop.Div
+        | Mir_op.Fbinary.Max -> Fop.Max
         | Mir_op.Fbinary.Mul -> Fop.Mul
         | Mir_op.Fbinary.Sub -> Fop.Sub
-        | Mir_op.Fbinary.Max -> Fop.Max
       in
-      def (Fbin (o, fsz_of st (ty a), a, c))
-  | Mir_op.Fcmp (c, a, b) -> (
-      let fsz = fsz_of st (ty a) in
-      match c with
-      | Mir_op.Fcmp.Eq ->
-          (* equal and ordered: ZF set and PF clear *)
-          let f = emit st Mir_type.Flags (Ucomis (fsz, a, b)) in
-          if mutated st Mutation.No_parity then setcc Cond.E f
-          else
-            let e = emit st Mir_type.Pred (Setcc_zx (Cond.E, f)) in
-            let np = emit st Mir_type.Pred (Setcc_zx (Cond.Np, f)) in
-            def (Alu (Alu.And, Sz.L, e, np))
-      | Mir_op.Fcmp.Lt ->
-          setcc Cond.A (emit st Mir_type.Flags (Ucomis (fsz, b, a)))
-      | Mir_op.Fcmp.Le ->
-          setcc Cond.Ae (emit st Mir_type.Flags (Ucomis (fsz, b, a)))
-      | Mir_op.Fcmp.Unordered ->
-          setcc Cond.P (emit st Mir_type.Flags (Ucomis (fsz, a, b))))
-  | Mir_op.Fconvert (c, a) ->
-      def
-        (match c with
-        | Mir_op.Fconvert.F32_to_f64 -> Cvt (Fsz.D, a)
-        | Mir_op.Fconvert.F64_to_f32 -> Cvt (Fsz.S, a)
-        | Mir_op.Fconvert.S64_to_f32 -> Cvtsi2s (Fsz.S, a)
-        | Mir_op.Fconvert.S64_to_f64 -> Cvtsi2s (Fsz.D, a))
+      def (Pbin (o, pk a, a, b))
+  | Mir_op.Fconvert (Mir_op.Fconvert.F32_to_f64, a) ->
+      half a;
+      def (Cvtps2pd a)
+  | Mir_op.Fconvert (Mir_op.Fconvert.F64_to_f32, a) when pk a = Pk.Pd ->
+      def (Cvtpd2ps a)
   | Mir_op.Ffma (a, b, c) ->
-      (* SSE2 has no fused multiply-add: never a rounded multiply then add *)
       need_feature st Mir_target.Feature.Fma;
-      def (Fmadd231 (fsz_of st (ty a), a, b, c))
-  | Mir_op.Fto_sint a -> def (Cvtts2si (Fsz.D, a))
+      def (Pfmadd231 (pk a, a, b, c))
   | Mir_op.Funary (Mir_op.Funary.Neg, a) ->
-      let fsz = fsz_of st (ty a) in
-      let it, sign =
-        match fsz with
-        | Fsz.D -> (Mir_type.i64, Int64.min_int)
-        | Fsz.S -> (Mir_type.i32, 0x8000_0000L)
+      (* the sign bit of every lane flipped *)
+      let p = pk a in
+      let fsz = Pk.fsz p in
+      let sign =
+        const st
+          (match fsz with
+          | Fsz.D -> Mir_const.f64 (-0.)
+          | Fsz.S -> Mir_const.f32 (-0.))
       in
-      let g = emit st it (Mov_imm (it, sign)) in
-      let m = emit st (ty a) (Movq_from_gpr (fsz, g)) in
-      def (Flogic (Flogic.Xor, fsz, a, m))
-  | Mir_op.Funary (Mir_op.Funary.Sqrt, a) -> def (Sqrt (fsz_of st (ty a), a))
-  | Mir_op.Funary (Mir_op.Funary.Trunc, a) ->
-      need_feature st Mir_target.Feature.Sse41;
-      def (Round_trunc (fsz_of st (ty a), a))
-  | Mir_op.Iarith (o, a, c) -> (
-      let sz = sz_of st (ty a) in
-      let shift k =
-        match Mir_select.const_of st.b c with
-        | Some n -> def (Shift_imm (k, sz, a, Int64.to_int n))
-        | None -> unsupported ()
-      in
-      match o with
-      | Mir_op.Iarith.Add -> def (Alu (Alu.Add, sz, a, c))
-      | Mir_op.Iarith.And -> def (Alu (Alu.And, sz, a, c))
-      | Mir_op.Iarith.Mul -> def (Imul (sz, a, c))
-      | Mir_op.Iarith.Or -> def (Alu (Alu.Or, sz, a, c))
-      | Mir_op.Iarith.Shl -> shift Shift.Shl
-      | Mir_op.Iarith.Shr_s -> shift Shift.Sar
-      | Mir_op.Iarith.Shr_u -> shift Shift.Shr
-      | Mir_op.Iarith.Sub -> def (Alu (Alu.Sub, sz, a, c))
-      | Mir_op.Iarith.Xor -> def (Alu (Alu.Xor, sz, a, c)))
-  | Mir_op.Icmp (c, a, b) ->
-      setcc (icond st c) (emit st Mir_type.Flags (Cmp (sz_of st (ty a), a, b)))
-  | Mir_op.Idiv (o, a, b) ->
-      if not (Mir_type.equal (ty a) Mir_type.i64) then
-        refuse st (Refusal.Width (ty a));
-      let a, b = if mutated st Mutation.Division_swap then (b, a) else (a, b) in
-      let q, rem =
+      let signs = emit st (Pk.ty p) (Pshufd_splat (p, sign)) in
+      def (Plogic (Flogic.Xor, p, signs, a))
+  | Mir_op.Funary (Mir_op.Funary.Sqrt, a) -> def (Psqrt (pk a, a))
+  | Mir_op.Vconcat [ a; b ] ->
+      half a;
+      half b;
+      let low = emit st (Pk.ty Pk.Ps) (Movq_widen a) in
+      def (Movlhps (low, b))
+  | Mir_op.Vextract (lane, a) ->
+      def (Pshufd_lane (Pk.fsz (pk a), Mir_type.Lane.to_int lane, a))
+  | Mir_op.Vload { Mir_op.Vaccess.addr; stride; _ } ->
+      let p = pk (r ()) in
+      let fsz = Pk.fsz p in
+      let size = match fsz with Fsz.D -> 8L | Fsz.S -> 4L in
+      if Int64.equal stride size then
+        push st ?order:i.Mir_instr.order
+          [ r () ]
+          (Mir_sel.Op.Machine (Movup_load (p, address st addr)))
+      else if Int64.equal stride 0L then (
+        let x = fresh st (fty fsz) in
+        push st ?order:i.Mir_instr.order [ x ]
+          (Mir_sel.Op.Machine
+             (Load
+                ( (match fsz with Fsz.D -> Msz.D | Fsz.S -> Msz.S),
+                  address st addr )));
+        def (Pshufd_splat (p, x)))
+      else unsupported ()
+  | Mir_op.Vslice (first, count, a)
+    when Mir_type.Lanes.to_int count = 2 && pk a = Pk.Ps -> (
+      match Mir_type.Lane.to_int first with
+      | 0 -> def (Movq_low a)
+      | 2 -> def (Pshufd_half a)
+      | _ -> unsupported ())
+  | Mir_op.Vsplat (_, x) -> def (Pshufd_splat (pk (r ()), x))
+  | Mir_op.Vstore ({ Mir_op.Vaccess.addr; stride; _ }, v) ->
+      let p = pk v in
+      let size = match Pk.fsz p with Fsz.D -> 8L | Fsz.S -> 4L in
+      if Int64.equal stride size then
+        push st ?order:i.Mir_instr.order []
+          (Mir_sel.Op.Machine (Movup_store (p, address st addr, v)))
+      else unsupported ()
+  | _ -> unsupported ()
+
+let instr st (i : Mir_op.t Mir_instr.t) =
+  st.b.Mir_select.origin <- i.Mir_instr.origin;
+  if List.exists is_vector (Mir_op.operands i.Mir_instr.op @ i.Mir_instr.results)
+  then vector st i
+  else
+    let result = match i.Mir_instr.results with [ r ] -> Some r | _ -> None in
+    let r () =
+      match result with
+      | Some r -> r
+      | None -> invalid_arg "X64_select: a result"
+    in
+    let def op = ignore (emit st ~result:(r ()) (r ()).Mir_value.ty op) in
+    let unsupported () =
+      refuse st (Refusal.Operation (Mir_op.name i.Mir_instr.op))
+    in
+    let ty (v : Mir_value.t) = v.Mir_value.ty in
+    let setcc c f = def (Setcc_zx (c, f)) in
+    match i.Mir_instr.op with
+    | Mir_op.Addr view -> def (Lea_view view)
+    | Mir_op.Bitcast (t, a) -> (
+        match (ty a, t) with
+        | Mir_type.Int Mir_width.W32, Mir_type.F32 ->
+            def (Movq_from_gpr (Fsz.S, a))
+        | Mir_type.Int Mir_width.W64, Mir_type.F64 ->
+            def (Movq_from_gpr (Fsz.D, a))
+        | Mir_type.F32, _ -> def (Movq_to_gpr (Fsz.S, a))
+        | _ -> def (Movq_to_gpr (Fsz.D, a)))
+    | Mir_op.Call (callee, args) ->
+        let results = i.Mir_instr.results in
+        let status = fresh st Mir_type.i32 in
+        push st ?order:i.Mir_instr.order (results @ [ status ])
+          (Mir_sel.Op.Machine
+             (Call
+                {
+                  callee;
+                  args;
+                  results =
+                    List.map (fun (v : Mir_value.t) -> v.Mir_value.ty) results;
+                }));
+        if st.fallible callee then (
+          if results <> [] || st.b.Mir_select.results <> [] then
+            refuse st (Refusal.Fallible_with_results callee);
+          let f = emit st Mir_type.Flags (Test (Sz.L, status, status)) in
+          Mir_select.split_on_status st.b
+            ~nonzero:(fun _ -> Jcc (Cond.Ne, f))
+            ~status ~after:(Option.get i.Mir_instr.order).Mir_order.output)
+    | Mir_op.Const c -> ignore (const st ~result:(r ()) c)
+    | Mir_op.Copy a -> (
+        match ty a with
+        | Mir_type.F32 | Mir_type.F64 -> def (Movap a)
+        | t -> def (Mov (sz_of st t, a)))
+    | Mir_op.Event (e, n) ->
+        push st ?order:i.Mir_instr.order [] (Mir_sel.Op.Event (e, n))
+    | Mir_op.Fbinary (Mir_op.Fbinary.Max, a, c) ->
+        fmax st ~result:(r ()) (fsz_of st (ty a)) a c
+    | Mir_op.Fbinary (o, a, c) ->
+        let o =
+          match o with
+          | Mir_op.Fbinary.Add -> Fop.Add
+          | Mir_op.Fbinary.Div -> Fop.Div
+          | Mir_op.Fbinary.Mul -> Fop.Mul
+          | Mir_op.Fbinary.Sub -> Fop.Sub
+          | Mir_op.Fbinary.Max -> Fop.Max
+        in
+        def (Fbin (o, fsz_of st (ty a), a, c))
+    | Mir_op.Fcmp (c, a, b) -> (
+        let fsz = fsz_of st (ty a) in
+        match c with
+        | Mir_op.Fcmp.Eq ->
+            (* equal and ordered: ZF set and PF clear *)
+            let f = emit st Mir_type.Flags (Ucomis (fsz, a, b)) in
+            if mutated st Mutation.No_parity then setcc Cond.E f
+            else
+              let e = emit st Mir_type.Pred (Setcc_zx (Cond.E, f)) in
+              let np = emit st Mir_type.Pred (Setcc_zx (Cond.Np, f)) in
+              def (Alu (Alu.And, Sz.L, e, np))
+        | Mir_op.Fcmp.Lt ->
+            setcc Cond.A (emit st Mir_type.Flags (Ucomis (fsz, b, a)))
+        | Mir_op.Fcmp.Le ->
+            setcc Cond.Ae (emit st Mir_type.Flags (Ucomis (fsz, b, a)))
+        | Mir_op.Fcmp.Unordered ->
+            setcc Cond.P (emit st Mir_type.Flags (Ucomis (fsz, a, b))))
+    | Mir_op.Fconvert (c, a) ->
+        def
+          (match c with
+          | Mir_op.Fconvert.F32_to_f64 -> Cvt (Fsz.D, a)
+          | Mir_op.Fconvert.F64_to_f32 -> Cvt (Fsz.S, a)
+          | Mir_op.Fconvert.S64_to_f32 -> Cvtsi2s (Fsz.S, a)
+          | Mir_op.Fconvert.S64_to_f64 -> Cvtsi2s (Fsz.D, a))
+    | Mir_op.Ffma (a, b, c) ->
+        (* SSE2 has no fused multiply-add: never a rounded multiply then add *)
+        need_feature st Mir_target.Feature.Fma;
+        def (Fmadd231 (fsz_of st (ty a), a, b, c))
+    | Mir_op.Fto_sint a -> def (Cvtts2si (Fsz.D, a))
+    | Mir_op.Funary (Mir_op.Funary.Neg, a) ->
+        let fsz = fsz_of st (ty a) in
+        let it, sign =
+          match fsz with
+          | Fsz.D -> (Mir_type.i64, Int64.min_int)
+          | Fsz.S -> (Mir_type.i32, 0x8000_0000L)
+        in
+        let g = emit st it (Mov_imm (it, sign)) in
+        let m = emit st (ty a) (Movq_from_gpr (fsz, g)) in
+        def (Flogic (Flogic.Xor, fsz, a, m))
+    | Mir_op.Funary (Mir_op.Funary.Sqrt, a) -> def (Sqrt (fsz_of st (ty a), a))
+    | Mir_op.Funary (Mir_op.Funary.Trunc, a) ->
+        need_feature st Mir_target.Feature.Sse41;
+        def (Round_trunc (fsz_of st (ty a), a))
+    | Mir_op.Iarith (o, a, c) -> (
+        let sz = sz_of st (ty a) in
+        let shift k =
+          match Mir_select.const_of st.b c with
+          | Some n -> def (Shift_imm (k, sz, a, Int64.to_int n))
+          | None -> unsupported ()
+        in
         match o with
-        | Mir_op.Idiv.Div_s -> (r (), fresh st Mir_type.i64)
-        | Mir_op.Idiv.Rem_s -> (fresh st Mir_type.i64, r ())
-      in
-      push st [ q; rem ] (Mir_sel.Op.Machine (Cqo_idiv (a, b)))
-  | Mir_op.Iext (Mir_op.Iext.Sext, Mir_width.W64, a)
-    when Mir_type.equal (ty a) Mir_type.i32 ->
-      def (Movsxd a)
-  | Mir_op.Iext (Mir_op.Iext.Zext, Mir_width.W64, a)
-    when Mir_type.equal (ty a) Mir_type.i32 ->
-      def (Movzx32 a)
-  | Mir_op.Iext (k, Mir_width.W32, a)
-    when Mir_type.equal (ty a) Mir_type.i8 || Mir_type.equal (ty a) Mir_type.i16
-    ->
-      let from = match ty a with Mir_type.Int w -> w | _ -> Mir_width.W8 in
-      def (Ext { signed = k = Mir_op.Iext.Sext; from; src = a })
-  | Mir_op.Iext _ -> unsupported ()
-  | (Mir_op.Itrunc (Mir_width.W32, a) | Mir_op.Narrow (Mir_width.W32, a))
-    when Mir_type.equal (ty a) Mir_type.i64 ->
-      def (Trunc32 a)
-  | Mir_op.Itrunc (((Mir_width.W8 | Mir_width.W16) as w), a)
-    when Mir_type.equal (ty a) Mir_type.i32 ->
-      def (Trunc_zx (w, a))
-  | Mir_op.Itrunc _ | Mir_op.Narrow _ -> unsupported ()
-  | Mir_op.Load { Mir_op.Access.width; addr; _ } ->
-      push st ?order:i.Mir_instr.order
-        [ r () ]
-        (Mir_sel.Op.Machine (Load (msz_of width, address st addr)))
-  | Mir_op.Pbinary (o, a, b) ->
-      def
-        (Alu
-           ( (match o with
-             | Mir_op.Pbinary.And -> Alu.And
-             | Mir_op.Pbinary.Or -> Alu.Or
-             | Mir_op.Pbinary.Xor -> Alu.Xor),
-             Sz.L,
-             a,
-             b ))
-  | Mir_op.Pnot a ->
-      let one = emit st Mir_type.Pred (Mov_imm (Mir_type.Pred, 1L)) in
-      def (Alu (Alu.Xor, Sz.L, a, one))
-  | Mir_op.Ptr_add (p, d) -> def (Alu (Alu.Add, Sz.Q, p, d))
-  | Mir_op.Select (p, a, c) -> (
-      match ty a with
-      | Mir_type.F32 | Mir_type.F64 ->
-          fselect st ~result:(r ()) (fsz_of st (ty a)) p a c
-      | t ->
-          let f = emit st Mir_type.Flags (Test (Sz.L, p, p)) in
-          def (Cmov (sz_of st t, Cond.Ne, f, a, c)))
-  | Mir_op.Store ({ Mir_op.Access.width; addr; _ }, v) ->
-      push st ?order:i.Mir_instr.order []
-        (Mir_sel.Op.Machine (Store (msz_of width, address st addr, v)))
-  | Mir_op.Undef v -> push st ?order:i.Mir_instr.order [] (Mir_sel.Op.Undef v)
+        | Mir_op.Iarith.Add -> def (Alu (Alu.Add, sz, a, c))
+        | Mir_op.Iarith.And -> def (Alu (Alu.And, sz, a, c))
+        | Mir_op.Iarith.Mul -> def (Imul (sz, a, c))
+        | Mir_op.Iarith.Or -> def (Alu (Alu.Or, sz, a, c))
+        | Mir_op.Iarith.Shl -> shift Shift.Shl
+        | Mir_op.Iarith.Shr_s -> shift Shift.Sar
+        | Mir_op.Iarith.Shr_u -> shift Shift.Shr
+        | Mir_op.Iarith.Sub -> def (Alu (Alu.Sub, sz, a, c))
+        | Mir_op.Iarith.Xor -> def (Alu (Alu.Xor, sz, a, c)))
+    | Mir_op.Icmp (c, a, b) ->
+        setcc (icond st c)
+          (emit st Mir_type.Flags (Cmp (sz_of st (ty a), a, b)))
+    | Mir_op.Idiv (o, a, b) ->
+        if not (Mir_type.equal (ty a) Mir_type.i64) then
+          refuse st (Refusal.Width (ty a));
+        let a, b =
+          if mutated st Mutation.Division_swap then (b, a) else (a, b)
+        in
+        let q, rem =
+          match o with
+          | Mir_op.Idiv.Div_s -> (r (), fresh st Mir_type.i64)
+          | Mir_op.Idiv.Rem_s -> (fresh st Mir_type.i64, r ())
+        in
+        push st [ q; rem ] (Mir_sel.Op.Machine (Cqo_idiv (a, b)))
+    | Mir_op.Iext (Mir_op.Iext.Sext, Mir_width.W64, a)
+      when Mir_type.equal (ty a) Mir_type.i32 ->
+        def (Movsxd a)
+    | Mir_op.Iext (Mir_op.Iext.Zext, Mir_width.W64, a)
+      when Mir_type.equal (ty a) Mir_type.i32 ->
+        def (Movzx32 a)
+    | Mir_op.Iext (k, Mir_width.W32, a)
+      when Mir_type.equal (ty a) Mir_type.i8
+           || Mir_type.equal (ty a) Mir_type.i16 ->
+        let from = match ty a with Mir_type.Int w -> w | _ -> Mir_width.W8 in
+        def (Ext { signed = k = Mir_op.Iext.Sext; from; src = a })
+    | Mir_op.Iext _ -> unsupported ()
+    | (Mir_op.Itrunc (Mir_width.W32, a) | Mir_op.Narrow (Mir_width.W32, a))
+      when Mir_type.equal (ty a) Mir_type.i64 ->
+        def (Trunc32 a)
+    | Mir_op.Itrunc (((Mir_width.W8 | Mir_width.W16) as w), a)
+      when Mir_type.equal (ty a) Mir_type.i32 ->
+        def (Trunc_zx (w, a))
+    | Mir_op.Itrunc _ | Mir_op.Narrow _ -> unsupported ()
+    | Mir_op.Load { Mir_op.Access.width; addr; _ } ->
+        push st ?order:i.Mir_instr.order
+          [ r () ]
+          (Mir_sel.Op.Machine (Load (msz_of width, address st addr)))
+    | Mir_op.Pbinary (o, a, b) ->
+        def
+          (Alu
+             ( (match o with
+               | Mir_op.Pbinary.And -> Alu.And
+               | Mir_op.Pbinary.Or -> Alu.Or
+               | Mir_op.Pbinary.Xor -> Alu.Xor),
+               Sz.L,
+               a,
+               b ))
+    | Mir_op.Pnot a ->
+        let one = emit st Mir_type.Pred (Mov_imm (Mir_type.Pred, 1L)) in
+        def (Alu (Alu.Xor, Sz.L, a, one))
+    | Mir_op.Ptr_add (p, d) -> def (Alu (Alu.Add, Sz.Q, p, d))
+    | Mir_op.Select (p, a, c) -> (
+        match ty a with
+        | Mir_type.F32 | Mir_type.F64 ->
+            fselect st ~result:(r ()) (fsz_of st (ty a)) p a c
+        | t ->
+            let f = emit st Mir_type.Flags (Test (Sz.L, p, p)) in
+            def (Cmov (sz_of st t, Cond.Ne, f, a, c)))
+    | Mir_op.Store ({ Mir_op.Access.width; addr; _ }, v) ->
+        push st ?order:i.Mir_instr.order []
+          (Mir_sel.Op.Machine (Store (msz_of width, address st addr, v)))
+    | Mir_op.Undef v -> push st ?order:i.Mir_instr.order [] (Mir_sel.Op.Undef v)
+    | Mir_op.Vconcat _ | Mir_op.Vextract _ | Mir_op.Vinsert _ | Mir_op.Vload _
+    | Mir_op.Vslice _ | Mir_op.Vsplat _ | Mir_op.Vstore _ ->
+        unsupported ()
 
 let fail st (f : Mir_fail.t) =
   st.b.Mir_select.origin <- f.Mir_fail.origin;
@@ -376,7 +497,22 @@ let fail st (f : Mir_fail.t) =
   | Some term -> term
   | None -> refuse st (Refusal.Missing_site f.Mir_fail.failure)
 
+(* A vector is register-wide by now; a mask is never kept in a register. *)
+let scalar st vs =
+  List.iter
+    (fun (v : Mir_value.t) ->
+      match v.Mir_value.ty with
+      | Mir_type.Mask _ -> refuse st (Refusal.Width v.Mir_value.ty)
+      | Mir_type.Vec _ -> ignore (pk_of st v.Mir_value.ty)
+      | _ -> ())
+    vs
+
 let block st (blk : (Mir_op.t, Mir_terminator.t) Mir_block.t) =
+  scalar st blk.Mir_block.params;
+  List.iter
+    (fun (i : Mir_op.t Mir_instr.t) ->
+      scalar st (Mir_op.operands i.Mir_instr.op @ i.Mir_instr.results))
+    blk.Mir_block.body;
   Mir_select.start st.b blk.Mir_block.id blk.Mir_block.params
     blk.Mir_block.order;
   let body =
@@ -412,9 +548,14 @@ let block st (blk : (Mir_op.t, Mir_terminator.t) Mir_block.t) =
 
 let program ?mutation ?(sites = [||]) ?(unlisted = Mir_failure.Unlisted.Refused)
     ?(features = [ Mir_target.Feature.Sse2 ]) (g : Mir_verify.Generic.t) =
+  Err.Escape.with_escape @@ fun esc ->
+  let g =
+    match Err.payload (Mir_vsplit.program ~register_bytes:16L g) with
+    | Ok g -> g
+    | Error r -> Err.Escape.throw esc (Refusal.Vector r)
+  in
   let p = Mir_verify.Generic.program g in
   let fallible = Mir_select.fallibility p in
-  Err.Escape.with_escape @@ fun esc ->
   let funcs =
     List.map
       (fun (f : (Mir_op.t, Mir_terminator.t) Mir_func.t) ->

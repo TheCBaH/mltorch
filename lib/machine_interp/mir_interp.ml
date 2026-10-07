@@ -176,13 +176,14 @@ let set frame (v : Mir_value.t) x =
 let bits st frame v =
   match get st frame v with
   | Mir_datum.Bits b -> b
-  | Mir_datum.Flags _ | Mir_datum.Order | Mir_datum.Ptr _ ->
+  | Mir_datum.Flags _ | Mir_datum.Lanes _ | Mir_datum.Order | Mir_datum.Ptr _ ->
       defect st frame D.Invalid_program
 
 let ptr st frame v =
   match get st frame v with
   | Mir_datum.Ptr p -> p
-  | Mir_datum.Flags _ | Mir_datum.Order | Mir_datum.Bits _ ->
+  | Mir_datum.Flags _ | Mir_datum.Lanes _ | Mir_datum.Order | Mir_datum.Bits _
+    ->
       defect st frame D.Invalid_program
 
 let width_of st frame (v : Mir_value.t) =
@@ -204,6 +205,20 @@ let float_result (ty : Mir_type.t) x =
   | _ -> Mir_numeric.of_f64 x
 
 let pred b = Mir_datum.Bits (if b then 1L else 0L)
+let truth b = if b then 1L else 0L
+
+(* The scalar type one lane of [ty] has: [ty] itself for a scalar. *)
+let lane_ty (ty : Mir_type.t) =
+  match ty with
+  | Mir_type.Vec (e, _) -> Mir_type.of_elem e
+  | Mir_type.Mask _ -> Mir_type.Pred
+  | t -> t
+
+let decode (ty : Mir_type.t) b =
+  match ty with Mir_type.F32 -> Mir_numeric.f32 b | _ -> Mir_numeric.f64 b
+
+let elem_bytes (acc : Mir_op.Vaccess.t) =
+  Mir_type.Elem.bytes acc.Mir_op.Vaccess.elem
 
 let memory_fault st frame = function
   | Mir_memory.Fault.Bad_access -> defect st frame D.Bad_access
@@ -305,6 +320,43 @@ and exec st ~depth frame (i : Mir_op.t Mir_instr.t) =
   | Some o -> set frame o.Mir_order.output Mir_datum.Order
   | None -> ());
   let b = bits st frame and fl = float_of st frame in
+  (* a scalar operation on bits, or the same on every lane *)
+  let lanes v =
+    match get st frame v with
+    | Mir_datum.Lanes l -> l
+    | Mir_datum.Bits _ | Mir_datum.Flags _ | Mir_datum.Order | Mir_datum.Ptr _
+      ->
+        defect st frame D.Invalid_program
+  in
+  let lanewise vs f =
+    match vs with
+    | [] -> defect st frame D.Invalid_program
+    | v :: _ -> (
+        match get st frame v with
+        | Mir_datum.Lanes l ->
+            let ls = List.map lanes vs in
+            if List.exists (fun m -> Array.length m <> Array.length l) ls then
+              defect st frame D.Invalid_program;
+            put
+              (Mir_datum.Lanes
+                 (Array.init (Array.length l) (fun k ->
+                      f (List.map (fun m -> m.(k)) ls))))
+        | _ -> put (Mir_datum.Bits (f (List.map b vs))))
+  in
+  let two f = function [ x; y ] -> f x y | _ -> invalid_arg "Mir_interp" in
+  let three f = function
+    | [ x; y; z ] -> f x y z
+    | _ -> invalid_arg "Mir_interp"
+  in
+  let vaddr (acc : Mir_op.Vaccess.t) k =
+    match
+      Mir_memory.offset_by
+        (ptr st frame acc.Mir_op.Vaccess.addr)
+        (Int64.mul (Int64.of_int k) acc.Mir_op.Vaccess.stride)
+    with
+    | Some p -> p
+    | None -> defect st frame D.Bad_access
+  in
   match i.Mir_instr.op with
   | Mir_op.Addr view -> (
       match Binding.view st.binding st.program view with
@@ -353,34 +405,44 @@ and exec st ~depth frame (i : Mir_op.t Mir_instr.t) =
       let k = event_slot e in
       st.events.(k) <- Int64.add st.events.(k) n
   | Mir_op.Fbinary (o, x, y) ->
-      put
-        (Mir_datum.Bits
-           (float_result x.Mir_value.ty
-              (Mir_numeric.float_binary o (fl x) (fl y))))
+      let ty = lane_ty x.Mir_value.ty in
+      lanewise [ x; y ]
+        (two (fun p q ->
+             float_result ty
+               (Mir_numeric.float_binary o (decode ty p) (decode ty q))))
   | Mir_op.Fcmp (c, x, y) ->
-      put (pred (Mir_numeric.float_compare c (fl x) (fl y)))
+      let ty = lane_ty x.Mir_value.ty in
+      lanewise [ x; y ]
+        (two (fun p q ->
+             truth (Mir_numeric.float_compare c (decode ty p) (decode ty q))))
   | Mir_op.Fconvert (c, a) ->
-      put
-        (Mir_datum.Bits
-           (match c with
-           | Mir_op.Fconvert.F32_to_f64 -> Mir_numeric.of_f64 (fl a)
-           | Mir_op.Fconvert.F64_to_f32 -> Mir_numeric.round32 (fl a)
-           | Mir_op.Fconvert.S64_to_f32 -> Mir_numeric.s64_to_f32 (b a)
-           | Mir_op.Fconvert.S64_to_f64 -> Mir_numeric.s64_to_f64 (b a)))
+      let ty = lane_ty a.Mir_value.ty in
+      lanewise [ a ] (function
+        | [ x ] -> (
+            match c with
+            | Mir_op.Fconvert.F32_to_f64 -> Mir_numeric.of_f64 (decode ty x)
+            | Mir_op.Fconvert.F64_to_f32 -> Mir_numeric.round32 (decode ty x)
+            | Mir_op.Fconvert.S64_to_f32 -> Mir_numeric.s64_to_f32 x
+            | Mir_op.Fconvert.S64_to_f64 -> Mir_numeric.s64_to_f64 x)
+        | _ -> invalid_arg "Mir_interp")
   | Mir_op.Ffma (x, y, z) ->
-      put
-        (Mir_datum.Bits
-           (match x.Mir_value.ty with
-           | Mir_type.F32 -> Mir_numeric.fma32 (b x) (b y) (b z)
-           | _ -> Mir_numeric.of_f64 (Float.fma (fl x) (fl y) (fl z))))
+      let ty = lane_ty x.Mir_value.ty in
+      lanewise [ x; y; z ]
+        (three (fun p q r ->
+             match ty with
+             | Mir_type.F32 -> Mir_numeric.fma32 p q r
+             | _ ->
+                 Mir_numeric.of_f64
+                   (Float.fma (decode ty p) (decode ty q) (decode ty r))))
   | Mir_op.Fto_sint a -> (
       match Mir_numeric.f64_to_s64 (fl a) with
       | Some n -> put (Mir_datum.Bits n)
       | None -> defect st frame D.Domain)
   | Mir_op.Funary (u, a) ->
-      put
-        (Mir_datum.Bits
-           (float_result a.Mir_value.ty (Mir_numeric.float_unary u (fl a))))
+      let ty = lane_ty a.Mir_value.ty in
+      lanewise [ a ] (function
+        | [ x ] -> float_result ty (Mir_numeric.float_unary u (decode ty x))
+        | _ -> invalid_arg "Mir_interp")
   | Mir_op.Iarith (o, x, y) ->
       let w = width_of st frame x in
       let c = b y in
@@ -420,20 +482,28 @@ and exec st ~depth frame (i : Mir_op.t Mir_instr.t) =
       then defect st frame D.Domain
       else put (Mir_datum.Bits (Mir_width.normalize w x))
   | Mir_op.Pbinary (o, x, y) ->
-      let x = Int64.equal (b x) 1L and y = Int64.equal (b y) 1L in
-      put
-        (pred
-           (match o with
-           | Mir_op.Pbinary.And -> x && y
-           | Mir_op.Pbinary.Or -> x || y
-           | Mir_op.Pbinary.Xor -> x <> y))
-  | Mir_op.Pnot a -> put (pred (not (Int64.equal (b a) 1L)))
+      lanewise [ x; y ]
+        (two (fun p q ->
+             let p = Int64.equal p 1L and q = Int64.equal q 1L in
+             truth
+               (match o with
+               | Mir_op.Pbinary.And -> p && q
+               | Mir_op.Pbinary.Or -> p || q
+               | Mir_op.Pbinary.Xor -> p <> q)))
+  | Mir_op.Pnot a ->
+      lanewise [ a ] (function
+        | [ p ] -> truth (not (Int64.equal p 1L))
+        | _ -> invalid_arg "Mir_interp")
   | Mir_op.Ptr_add (p, d) -> (
       match Mir_memory.offset_by (ptr st frame p) (b d) with
       | Some q -> put (Mir_datum.Ptr q)
       | None -> defect st frame D.Bad_access)
-  | Mir_op.Select (p, x, y) ->
-      put (get st frame (if Int64.equal (b p) 1L then x else y))
+  | Mir_op.Select (p, x, y) -> (
+      match p.Mir_value.ty with
+      | Mir_type.Mask _ ->
+          lanewise [ p; x; y ]
+            (three (fun m s t -> if Int64.equal m 1L then s else t))
+      | _ -> put (get st frame (if Int64.equal (b p) 1L then x else y)))
   | Mir_op.Store ({ Mir_op.Access.width; addr; align }, v) -> (
       match
         Mir_memory.store st.memory (ptr st frame addr)
@@ -445,6 +515,43 @@ and exec st ~depth frame (i : Mir_op.t Mir_instr.t) =
       match Binding.view st.binding st.program view with
       | Some p -> Mir_memory.undefine st.memory p
       | None -> defect st frame D.Invalid_program)
+  | Mir_op.Vconcat vs ->
+      put (Mir_datum.Lanes (Array.concat (List.map lanes vs)))
+  | Mir_op.Vslice (first, count, a) ->
+      put
+        (Mir_datum.Lanes
+           (Array.sub (lanes a)
+              (Mir_type.Lane.to_int first)
+              (Mir_type.Lanes.to_int count)))
+  | Mir_op.Vextract (lane, a) ->
+      put (Mir_datum.Bits (lanes a).(Mir_type.Lane.to_int lane))
+  | Mir_op.Vinsert (lane, a, x) ->
+      let l = Array.copy (lanes a) in
+      l.(Mir_type.Lane.to_int lane) <- b x;
+      put (Mir_datum.Lanes l)
+  | Mir_op.Vload acc ->
+      let n = Mir_type.Lanes.to_int acc.Mir_op.Vaccess.lanes in
+      put
+        (Mir_datum.Lanes
+           (Array.init n (fun k ->
+                match
+                  Mir_memory.load st.memory (vaddr acc k)
+                    ~bytes:(elem_bytes acc) ~align:acc.Mir_op.Vaccess.align
+                with
+                | Ok x -> x
+                | Error e -> memory_fault st frame e)))
+  | Mir_op.Vsplat (n, a) ->
+      put (Mir_datum.Lanes (Array.make (Mir_type.Lanes.to_int n) (b a)))
+  | Mir_op.Vstore (acc, v) ->
+      Array.iteri
+        (fun k x ->
+          match
+            Mir_memory.store st.memory (vaddr acc k) ~bytes:(elem_bytes acc)
+              ~align:acc.Mir_op.Vaccess.align x
+          with
+          | Ok () -> ()
+          | Error e -> memory_fault st frame e)
+        (lanes v)
 
 let run ?(fuel = 10_000_000L) ?(max_depth = 64) ?invocation ?(models = []) g
     memory binding ~args =

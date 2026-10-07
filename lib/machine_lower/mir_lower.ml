@@ -352,7 +352,7 @@ let compare_op = function
   | Ssa_op.Compare.Lt -> (Mir_op.Icmp.Slt, Mir_op.Fcmp.Lt)
 
 (* One SSA operation; [result] receives its value, if it has one. *)
-let instr st (i : Ssa_instr.t) =
+let rec instr st (i : Ssa_instr.t) =
   let op = i.Ssa_instr.op in
   let v = value st in
   let result m =
@@ -710,10 +710,35 @@ let instr st (i : Ssa_instr.t) =
   | Ssa_op.Store { buffer; at; encode = enc; value = x } ->
       let e = entry_of st buffer in
       encode st (address st e at) enc (v x)
-  | Ssa_op.Lanewise _ | Ssa_op.Vec_extract _ | Ssa_op.Vec_insert _
-  | Ssa_op.Vec_iota _ | Ssa_op.Vec_load _ | Ssa_op.Vec_splat _
-  | Ssa_op.Vec_store _ ->
-      unsupported st op
+  | Ssa_op.Lanewise inner ->
+      (* the scalar expansion, on vector operands *)
+      if Mir_lower_vector.liftable inner then instr st { i with op = inner }
+      else unsupported st op
+  | Ssa_op.Vec_extract { lane; vector } ->
+      result
+        (emit st
+           (Mir_op.Vextract
+              (Mir_type.Lane.of_int (Ssa_type.Lane.to_int lane), v vector)))
+  | Ssa_op.Vec_insert { lane; vector; element } ->
+      result
+        (emit st
+           (Mir_op.Vinsert
+              ( Mir_type.Lane.of_int (Ssa_type.Lane.to_int lane),
+                v vector,
+                v element )))
+  | Ssa_op.Vec_iota { base; step; lanes } ->
+      result (Mir_lower_vector.iota st ~base:(v base) ~step ~lanes)
+  | Ssa_op.Vec_load { buffer; at; steps; decode = d; lanes } ->
+      result
+        (Mir_lower_vector.load st op (entry_of st buffer) ~at ~steps ~lanes d)
+  | Ssa_op.Vec_splat { element; lanes } ->
+      result
+        (emit st
+           (Mir_op.Vsplat
+              (Mir_type.Lanes.of_int (Ssa_type.Lanes.to_int lanes), v element)))
+  | Ssa_op.Vec_store { buffer; at; steps; encode = enc; value = x; lanes } ->
+      Mir_lower_vector.store st op (entry_of st buffer) ~at ~steps ~lanes enc
+        (v x)
 
 let data_values vs = List.filter (fun v -> not (is_effect v)) vs
 

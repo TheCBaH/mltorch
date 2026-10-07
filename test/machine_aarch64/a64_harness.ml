@@ -58,6 +58,13 @@ let plan ?mutation ?sites kernel ~bind =
   | Error e -> e
   | Ok case -> report ?mutation ?sites case
 
+let planned ?mutation ?sites ~target ~numerics kernel ~bind =
+  match
+    Src.case_of_planned ~target ~numerics (Fusion_plan.default kernel) ~bind
+  with
+  | Error e -> e
+  | Ok case -> report ?mutation ?sites case
+
 let program ?mutation ?sites ?fma ?precision p ~inputs =
   match Src.case_of_program p ~inputs ?fma ?precision () with
   | Error e -> e

@@ -21,6 +21,7 @@ end
 module Mutation = struct
   type t =
     | Call_interval  (** a call's clobbered views not blocked *)
+    | Half_spill  (** a spilled register-wide vector given half its bytes *)
     | Hole  (** an inactive interval's later ranges ignored *)
     | Split_move  (** a split inside a block without its transition move *)
 end

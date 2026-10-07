@@ -62,7 +62,7 @@ let number env v =
   match env.E.get v with
   | Mir_datum.Bits x -> x
   | Mir_datum.Ptr p -> Mir_memory.address env.E.memory p
-  | Mir_datum.Flags _ | Mir_datum.Order ->
+  | Mir_datum.Flags _ | Mir_datum.Lanes _ | Mir_datum.Order ->
       env.E.defect Mir_observation.Defect.Invalid_program
 
 let addr env base k =
@@ -88,6 +88,37 @@ let logic (o : Logic.t) sz x y =
     | Logic.And -> Int64.logand x y
     | Logic.Eor -> Int64.logxor x y
     | Logic.Orr -> Int64.logor x y)
+
+(* A vector operand's lanes. *)
+let lanes env v =
+  match env.E.get v with
+  | Mir_datum.Lanes l -> l
+  | Mir_datum.Bits _ | Mir_datum.Flags _ | Mir_datum.Order | Mir_datum.Ptr _ ->
+      env.E.defect Mir_observation.Defect.Invalid_program
+
+let vec l = Mir_datum.Lanes l
+let lane_bytes = function Fsz.D -> 8L | Fsz.S -> 4L
+
+(* A binary32 or binary64 lane's value, and a result rounded to its lane. *)
+let lval fsz x = match fsz with Fsz.D -> N.f64 x | Fsz.S -> N.f32 x
+let lres fsz x = match fsz with Fsz.D -> N.of_f64 x | Fsz.S -> N.round32 x
+
+let fop (o : Fop.t) x y =
+  match o with
+  | Fop.Add -> x +. y
+  | Fop.Div -> x /. y
+  | Fop.Max -> N.fmax x y
+  | Fop.Mul -> x *. y
+  | Fop.Sub -> x -. y
+
+let funary fsz (u : Funary.t) x =
+  match u with
+  | Funary.Fneg -> (
+      match fsz with
+      | Fsz.D -> Int64.logxor x Int64.min_int
+      | Fsz.S -> Int64.logxor x 0x8000_0000L)
+  | Funary.Frintz -> lres fsz (Float.trunc (lval fsz x))
+  | Funary.Fsqrt -> lres fsz (Float.sqrt (lval fsz x))
 
 let exec env op =
   let get = env.E.get in
@@ -137,6 +168,9 @@ let exec env op =
         (if Cond.holds c (E.flags env f ~mask:(Cond.reads c)) then get x
          else get y);
       ]
+  | Dup_elem (arr, x) -> [ vec (Array.make (Arr.lanes arr) (bits env x)) ]
+  | Dup_half (k, x) -> [ vec (Array.sub (lanes env x) (2 * k) 2) ]
+  | Dup_lane (_, k, x) -> [ b (lanes env x).(k) ]
   | Ext { signed; from; src } ->
       let k = Mir_width.bits from in
       let x = Int64.logand (bits env src) (Mir_width.mask from) in
@@ -163,6 +197,8 @@ let exec env op =
   | Fcmp (fsz, x, y) -> [ flags (fcmp_flags (fval env fsz x) (fval env fsz y)) ]
   | Fcvt (Fsz.D, x) -> [ b (N.of_f64 (N.f32 (bits env x))) ]
   | Fcvt (Fsz.S, x) -> [ b (N.round32 (N.f64 (bits env x))) ]
+  | Fcvtl x -> [ vec (Array.map (fun l -> N.of_f64 (N.f32 l)) (lanes env x)) ]
+  | Fcvtn x -> [ vec (Array.map (fun l -> N.round32 (N.f64 l)) (lanes env x)) ]
   | Fcvtzs (fsz, x) -> [ b (fcvtzs (fval env fsz x)) ]
   | Fmadd (Fsz.D, x, y, z) ->
       [
@@ -188,6 +224,33 @@ let exec env op =
             | Fsz.S -> b (Int64.logxor (bits env x) 0x8000_0000L))
         | Funary.Frintz -> fres fsz (Float.trunc v)
         | Funary.Fsqrt -> fres fsz (Float.sqrt v));
+      ]
+  | Ins_half (x, y) ->
+      let l = Array.copy (lanes env x) and h = lanes env y in
+      l.(2) <- h.(0);
+      l.(3) <- h.(1);
+      [ vec l ]
+  | Ins_lane (_, k, x, y) ->
+      let l = Array.copy (lanes env x) in
+      l.(k) <- bits env y;
+      [ vec l ]
+  | Ld1_lane (fsz, k, x, base) ->
+      let l = Array.copy (lanes env x) in
+      l.(k) <- E.load env (E.ptr env base) ~bytes:(lane_bytes fsz) ~align:1L;
+      [ vec l ]
+  | Ld1r (arr, base) ->
+      let x =
+        E.load env (E.ptr env base) ~bytes:(lane_bytes (Arr.fsz arr)) ~align:1L
+      in
+      [ vec (Array.make (Arr.lanes arr) x) ]
+  | Ldr_vec (arr, base, k) ->
+      let size = lane_bytes (Arr.fsz arr) in
+      [
+        vec
+          (Array.init (Arr.lanes arr) (fun j ->
+               E.load env
+                 (addr env base (Int64.add k (Int64.mul (Int64.of_int j) size)))
+                 ~bytes:size ~align:1L));
       ]
   | Ldr (m, base, k) ->
       let size = Msz.bytes m in
@@ -227,9 +290,22 @@ let exec env op =
       in
       [ b (norm sz q) ]
   | Shift_imm (o, sz, x, k) -> [ b (shift_imm sz o (bits env x) k) ]
+  | St1_lane (fsz, k, x, base) ->
+      E.store env (E.ptr env base) ~bytes:(lane_bytes fsz) ~align:1L
+        (lanes env x).(k);
+      []
   | Str (m, base, k, x) ->
       let size = Msz.bytes m in
       E.store env (addr env base k) ~bytes:size ~align:1L (bits env x);
+      []
+  | Str_vec (arr, base, k, x) ->
+      let size = lane_bytes (Arr.fsz arr) in
+      Array.iteri
+        (fun j l ->
+          E.store env
+            (addr env base (Int64.add k (Int64.mul (Int64.of_int j) size)))
+            ~bytes:size ~align:1L l)
+        (lanes env x);
       []
   | Sub (sz, x, y) -> (
       match get x with
@@ -238,6 +314,32 @@ let exec env op =
   | Sxtw x -> [ b (Int64.of_int32 (Int64.to_int32 (bits env x))) ]
   | Trunc (w, x) -> [ b (Int64.logand (bits env x) (Mir_width.mask w)) ]
   | Uxtw x | Wtrunc x -> [ b (Int64.logand (bits env x) 0xFFFF_FFFFL) ]
+  | Vfbin (o, arr, x, y) ->
+      let fsz = Arr.fsz arr in
+      [
+        vec
+          (Array.map2
+             (fun p q -> lres fsz (fop o (lval fsz p) (lval fsz q)))
+             (lanes env x) (lanes env y));
+      ]
+  | Vfmla (arr, acc, x, y) ->
+      let fsz = Arr.fsz arr in
+      let a = lanes env acc and p = lanes env x and q = lanes env y in
+      [
+        vec
+          (Array.init (Array.length a) (fun j ->
+               match fsz with
+               | Fsz.S -> N.fma32 p.(j) q.(j) a.(j)
+               | Fsz.D ->
+                   N.of_f64
+                     (Float.fma (N.f64 p.(j)) (N.f64 q.(j)) (N.f64 a.(j)))));
+      ]
+  | Vfunary (u, arr, x) ->
+      [ vec (Array.map (funary (Arr.fsz arr) u) (lanes env x)) ]
+  | Vmov (_, x) -> [ vec (lanes env x) ]
+  | Vwiden x ->
+      let l = lanes env x in
+      [ vec [| l.(0); l.(1); 0L; 0L |] ]
 
 let test env = function
   | B_cond (c, f) -> Cond.holds c (E.flags env f ~mask:(Cond.reads c))

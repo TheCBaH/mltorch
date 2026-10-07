@@ -5,8 +5,9 @@
     [i32] status — every function's results do. A call becomes [bl] with its
     arguments and results in fixed registers; a call that may fail is followed
     by a branch on its status, whose taken side returns that status with the
-    callee's record untouched. Anything outside the admitted slice is a typed
-    refusal. *)
+    callee's record untouched. Vectors are first split into register-wide slices
+    ({!Mir_vsplit}) and selected as Advanced SIMD forms on Q (4S, 2D) and D (2S)
+    registers. Anything outside the admitted slice is a typed refusal. *)
 
 open Machine_ir
 
@@ -20,6 +21,8 @@ module Refusal : sig
     | Missing_site of Mir_failure.t
         (** a reachable site-bearing failure with no compatible table entry *)
     | Operation of string  (** a generic operation, by name, not admitted *)
+    | Vector of Mir_vsplit.Refusal.t
+        (** a vector the split into register-wide slices refuses *)
     | Width of Mir_type.t  (** a value type this slice keeps in no register *)
 
   val pp : Format.formatter -> t -> unit
@@ -29,7 +32,9 @@ end
     defect a comparison must detect. No consumer passes one. *)
 module Mutation : sig
   type t =
+    | Contiguous_lanes  (** a strided vector load read contiguously *)
     | Contract  (** a separate multiply and add selected as one [fmadd] *)
+    | Dropped_half  (** a narrowing's upper half left zero *)
     | Fcmp_lt_cond
         (** ordered less-than tested with [lt] (true when unordered) *)
     | Missing_failure_word

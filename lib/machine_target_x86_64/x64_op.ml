@@ -136,6 +136,25 @@ module Cmp_pred = struct
   let name = function Eq -> "eq" | Unord -> "unord"
 end
 
+(* A packed format: four binary32 lanes (PS) or two binary64 lanes (PD) of an
+   XMM register. *)
+module Pk = struct
+  type t = Pd | Ps
+
+  let fsz = function Pd -> Fsz.D | Ps -> Fsz.S
+  let lanes = function Pd -> 2 | Ps -> 4
+
+  let ty t =
+    Mir_type.Vec
+      ( (match t with Pd -> Mir_type.Elem.F64 | Ps -> Mir_type.Elem.F32),
+        Mir_type.Lanes.of_int (lanes t) )
+
+  let name = function Pd -> "pd" | Ps -> "ps"
+end
+
+(* Two binary32 lanes in an XMM register's low half. *)
+let half_ty = Mir_type.Vec (Mir_type.Elem.F32, Mir_type.Lanes.of_int 2)
+
 type v = Mir_value.t
 
 (* [base + index * scale + disp]: scale 1, 2, 4 or 8; disp a signed 32-bit
@@ -159,6 +178,8 @@ type t =
   | Cmps of Cmp_pred.t * Fsz.t * v * v
   | Cqo_idiv of v * v  (** CQO then IDIV: rdx:rax / divisor *)
   | Cvt of Fsz.t * v  (** CVTSS2SD or CVTSD2SS, to the given precision *)
+  | Cvtpd2ps of v  (** CVTPD2PS: two binary64 lanes to a low binary32 half *)
+  | Cvtps2pd of v  (** CVTPS2PD: a low binary32 half to two binary64 lanes *)
   | Cvtsi2s of Fsz.t * v  (** from a 64-bit integer *)
   | Cvtts2si of Fsz.t * v  (** to a 64-bit integer, truncating *)
   | Ext of { signed : bool; from : Mir_width.t; src : v }
@@ -173,11 +194,25 @@ type t =
   | Mov of Sz.t * v
   | Mov_imm of Mir_type.t * int64  (** MOV r32, imm32 or MOVABS r64, imm64 *)
   | Movap of v  (** MOVAPS/MOVAPD register copy *)
+  | Movlhps of v * v
+      (** MOVLHPS: the half as the upper 64 bits, tied to the vector *)
   | Movq_from_gpr of Fsz.t * v
+  | Movq_low of v  (** MOVQ xmm, xmm: a PS vector's low half, upper zero *)
   | Movq_to_gpr of Fsz.t * v
+  | Movq_widen of v  (** MOVQ xmm, xmm: a half as a PS vector, upper zero *)
+  | Movup_load of Pk.t * Addr.t  (** MOVUPS/MOVUPD from memory *)
+  | Movup_store of Pk.t * Addr.t * v  (** MOVUPS/MOVUPD to memory *)
   | Movsxd of v
   | Movzx32 of v  (** MOV r32, r32: a 32-bit value zero-extended *)
   | Neg of Sz.t * v
+  | Pbin of Fop.t * Pk.t * v * v  (** ADDPS … SUBPD, tied; no MAXPS *)
+  | Pfmadd231 of Pk.t * v * v * v
+      (** VFMADD231PS/PD: [a * b + c] a lane, tied to [c] *)
+  | Plogic of Flogic.t * Pk.t * v * v  (** ANDPS … XORPD, tied *)
+  | Pshufd_half of v  (** PSHUFD 0xEE: a PS vector's high half, low *)
+  | Pshufd_lane of Fsz.t * int * v  (** PSHUFD: lane [k] to lane 0, a scalar *)
+  | Pshufd_splat of Pk.t * v  (** PSHUFD 0x00 or 0x44: a scalar to every lane *)
+  | Psqrt of Pk.t * v  (** SQRTPS/SQRTPD *)
   | Round_trunc of Fsz.t * v  (** ROUNDSD/ROUNDSS with immediate 3 *)
   | Setcc_zx of Cond.t * v
       (** SETcc r8 then MOVZX r32, r8: probed natively as the pair *)
@@ -199,12 +234,17 @@ let uses = function
   | Cqo_idiv (a, b)
   | Fbin (_, _, a, b)
   | Flogic (_, _, a, b)
+  | Movlhps (a, b)
+  | Pbin (_, _, a, b)
+  | Plogic (_, _, a, b)
   | Imul (_, a, b)
   | Test (_, a, b)
   | Ucomis (_, a, b) ->
       [ a; b ]
   | Bt (_, a, _)
   | Cvt (_, a)
+  | Cvtpd2ps a
+  | Cvtps2pd a
   | Cvtsi2s (_, a)
   | Cvtts2si (_, a)
   | Ext { src = a; _ }
@@ -212,10 +252,16 @@ let uses = function
   | Mov (_, a)
   | Movap a
   | Movq_from_gpr (_, a)
+  | Movq_low a
   | Movq_to_gpr (_, a)
+  | Movq_widen a
   | Movsxd a
   | Movzx32 a
   | Neg (_, a)
+  | Pshufd_half a
+  | Pshufd_lane (_, _, a)
+  | Pshufd_splat (_, a)
+  | Psqrt (_, a)
   | Round_trunc (_, a)
   | Setcc_zx (_, a)
   | Shift_imm (_, _, a, _)
@@ -225,19 +271,25 @@ let uses = function
       [ a ]
   | Call { args; _ } -> args
   | Cmov (_, _, f, a, b) -> [ f; a; b ]
-  | Fmadd231 (_, a, b, c) -> [ a; b; c ]
+  | Fmadd231 (_, a, b, c) | Pfmadd231 (_, a, b, c) -> [ a; b; c ]
   | Lea_view _ | Mov_imm _ -> []
-  | Load (_, addr) -> Addr.uses addr
-  | Store (_, addr, x) -> Addr.uses addr @ [ x ]
+  | Load (_, addr) | Movup_load (_, addr) -> Addr.uses addr
+  | Movup_store (_, addr, x) | Store (_, addr, x) -> Addr.uses addr @ [ x ]
 
 let test_uses = function Jcc (_, f) -> [ f ]
 let test_flags_read = function Jcc (c, _) -> Cond.reads c
-let ordered = function Call _ | Load _ | Store _ -> true | _ -> false
+
+let ordered = function
+  | Call _ | Load _ | Movup_load _ | Movup_store _ | Store _ -> true
+  | _ -> false
+
 let tied0 = [ Mir_target.Constraint.Tied { result = 0; use = 0 } ]
 
 let constraints = function
-  | Alu _ | Cmps _ | Fbin _ | Flogic _ | Imul _ | Neg _ | Shift_imm _ -> tied0
-  | Cmov _ | Fmadd231 _ ->
+  | Alu _ | Cmps _ | Fbin _ | Flogic _ | Imul _ | Movlhps _ | Neg _ | Pbin _
+  | Plogic _ | Shift_imm _ ->
+      tied0
+  | Cmov _ | Fmadd231 _ | Pfmadd231 _ ->
       [ Mir_target.Constraint.Tied { result = 0; use = 2 } ]
   | Cqo_idiv _ ->
       (* CQO writes rdx before IDIV reads the divisor *)
@@ -310,7 +362,8 @@ let flags_read = function
 let result_write = function
   | Cmps _ | Cvt _ | Cvtsi2s _ | Fbin _ | Fmadd231 _ | Round_trunc _ | Sqrt _ ->
       Mir_target.Write.Merge
-  | Flogic _ | Movap _ -> Mir_target.Write.Undefined_upper
+  | Flogic _ | Movap _ | Pshufd_half _ | Pshufd_lane _ ->
+      Mir_target.Write.Undefined_upper
   | _ -> Mir_target.Write.Zero_upper
 
 let unit_bits = function
@@ -320,10 +373,13 @@ let unit_bits = function
   | Mir_target.Bank.Gpr -> 64
 
 let op_features = function
-  | Fmadd231 _ -> [ Mir_target.Feature.Fma ]
+  | Fmadd231 _ | Pfmadd231 _ -> [ Mir_target.Feature.Fma ]
   | Round_trunc _ -> [ Mir_target.Feature.Sse41 ]
-  | Cmps _ | Cvt _ | Cvtsi2s _ | Cvtts2si _ | Fbin _ | Flogic _ | Movap _
-  | Movq_from_gpr _ | Movq_to_gpr _ | Sqrt _ | Ucomis _ ->
+  | Cmps _ | Cvt _ | Cvtpd2ps _ | Cvtps2pd _ | Cvtsi2s _ | Cvtts2si _ | Fbin _
+  | Flogic _ | Movap _ | Movlhps _ | Movq_from_gpr _ | Movq_low _
+  | Movq_to_gpr _ | Movq_widen _ | Movup_load _ | Movup_store _ | Pbin _
+  | Plogic _ | Pshufd_half _ | Pshufd_lane _ | Pshufd_splat _ | Psqrt _ | Sqrt _
+  | Ucomis _ ->
       [ Mir_target.Feature.Sse2 ]
   | Load ((Msz.S | Msz.D), _) | Store ((Msz.S | Msz.D), _, _) ->
       [ Mir_target.Feature.Sse2 ]
@@ -361,6 +417,8 @@ let fpr fsz (t : Mir_type.t) =
   | _ -> false
 
 let fty = function Fsz.D -> Mir_type.F64 | Fsz.S -> Mir_type.F32
+let is_pk pk t = Mir_type.equal t (Pk.ty pk)
+let is_half t = Mir_type.equal t half_ty
 
 let disp32 k =
   Int64.compare k (-0x8000_0000L) >= 0 && Int64.compare k 0x7FFF_FFFFL <= 0
@@ -438,6 +496,12 @@ let typing op =
       let src = match fsz with Fsz.D -> Fsz.S | Fsz.S -> Fsz.D in
       let* () = need (fpr src (ty a)) "cvt operand" in
       Ok [ fty fsz ]
+  | Cvtpd2ps a ->
+      let* () = need (is_pk Pk.Pd (ty a)) "cvtpd2ps operand" in
+      Ok [ half_ty ]
+  | Cvtps2pd a ->
+      let* () = need (is_half (ty a)) "cvtps2pd operand" in
+      Ok [ Pk.ty Pk.Pd ]
   | Cvtsi2s (fsz, a) ->
       let* () = need (Mir_type.equal (ty a) Mir_type.i64) "cvtsi2s operand" in
       Ok [ fty fsz ]
@@ -495,6 +559,53 @@ let typing op =
   | Movap a ->
       let* () = need (fpr Fsz.D (ty a) || fpr Fsz.S (ty a)) "movap operand" in
       Ok [ ty a ]
+  | Movlhps (a, b) ->
+      let* () =
+        need (is_pk Pk.Ps (ty a) && is_half (ty b)) "movlhps operands"
+      in
+      Ok [ ty a ]
+  | Movq_low a ->
+      let* () = need (is_pk Pk.Ps (ty a)) "movq operand" in
+      Ok [ half_ty ]
+  | Movq_widen a ->
+      let* () = need (is_half (ty a)) "movq operand" in
+      Ok [ Pk.ty Pk.Ps ]
+  | Movup_load (pk, a) ->
+      let* () = addr_ok a in
+      Ok [ Pk.ty pk ]
+  | Movup_store (pk, a, x) ->
+      let* () = addr_ok a in
+      let* () = need (is_pk pk (ty x)) "movup value" in
+      Ok []
+  | Pbin (o, pk, a, b) ->
+      let* () = need (o <> Fop.Max) "maxps is not IEEE maximum" in
+      let* () = need (is_pk pk (ty a) && is_pk pk (ty b)) "packed operands" in
+      Ok [ Pk.ty pk ]
+  | Pfmadd231 (pk, a, b, c) ->
+      let* () =
+        need
+          (is_pk pk (ty a) && is_pk pk (ty b) && is_pk pk (ty c))
+          "packed fma operands"
+      in
+      Ok [ Pk.ty pk ]
+  | Plogic (_, pk, a, b) ->
+      let* () = need (is_pk pk (ty a) && is_pk pk (ty b)) "packed operands" in
+      Ok [ Pk.ty pk ]
+  | Pshufd_half a ->
+      let* () = need (is_pk Pk.Ps (ty a)) "pshufd operand" in
+      Ok [ half_ty ]
+  | Pshufd_lane (fsz, k, a) ->
+      let pk = match fsz with Fsz.D -> Pk.Pd | Fsz.S -> Pk.Ps in
+      let* () =
+        need (k >= 0 && k < Pk.lanes pk && is_pk pk (ty a)) "pshufd lane"
+      in
+      Ok [ fty fsz ]
+  | Pshufd_splat (pk, a) ->
+      let* () = need (fpr (Pk.fsz pk) (ty a)) "pshufd scalar" in
+      Ok [ Pk.ty pk ]
+  | Psqrt (pk, a) ->
+      let* () = need (is_pk pk (ty a)) "sqrtp operand" in
+      Ok [ Pk.ty pk ]
   | Movq_from_gpr (fsz, a) ->
       let src =
         match fsz with Fsz.D -> Mir_type.i64 | Fsz.S -> Mir_type.i32
@@ -575,6 +686,8 @@ let pp_op pv fmt op =
       Fmt.pf fmt "cmp%s%s %a" (Cmp_pred.name p) (Fsz.name fsz) vs [ a; b ]
   | Cqo_idiv (a, b) -> Fmt.pf fmt "cqo; idivq %a" vs [ a; b ]
   | Cvt (fsz, a) -> Fmt.pf fmt "cvt.%s %a" (Fsz.name fsz) pv a
+  | Cvtpd2ps a -> Fmt.pf fmt "cvtpd2ps %a" pv a
+  | Cvtps2pd a -> Fmt.pf fmt "cvtps2pd %a" pv a
   | Cvtsi2s (fsz, a) -> Fmt.pf fmt "cvtsi2%sq %a" (Fsz.name fsz) pv a
   | Cvtts2si (fsz, a) -> Fmt.pf fmt "cvtt%s2siq %a" (Fsz.name fsz) pv a
   | Fbin (o, fsz, a, b) ->
@@ -597,6 +710,12 @@ let pp_op pv fmt op =
   | Mov (sz, a) -> Fmt.pf fmt "mov%s %a" (Sz.name sz) pv a
   | Mov_imm (t, k) -> Fmt.pf fmt "mov.%a $%Ld" Mir_type.pp t k
   | Movap a -> Fmt.pf fmt "movap %a" pv a
+  | Movlhps (a, b) -> Fmt.pf fmt "movlhps %a" vs [ a; b ]
+  | Movq_low a -> Fmt.pf fmt "movq.low %a" pv a
+  | Movq_widen a -> Fmt.pf fmt "movq.widen %a" pv a
+  | Movup_load (pk, a) -> Fmt.pf fmt "movu%s %a" (Pk.name pk) (pp_addr pv) a
+  | Movup_store (pk, a, x) ->
+      Fmt.pf fmt "movu%s %a, %a" (Pk.name pk) pv x (pp_addr pv) a
   | Movq_from_gpr (fsz, a) ->
       Fmt.pf fmt "mov%s.from_gpr %a"
         (match fsz with Fsz.D -> "q" | Fsz.S -> "d")
@@ -608,6 +727,19 @@ let pp_op pv fmt op =
   | Movsxd a -> Fmt.pf fmt "movslq %a" pv a
   | Movzx32 a -> Fmt.pf fmt "movl.zx %a" pv a
   | Neg (sz, a) -> Fmt.pf fmt "neg%s %a" (Sz.name sz) pv a
+  | Pbin (o, pk, a, b) ->
+      Fmt.pf fmt "%s%s %a" (Fop.name o) (Pk.name pk) vs [ a; b ]
+  | Pfmadd231 (pk, a, b, c) ->
+      Fmt.pf fmt "vfmadd231%s %a" (Pk.name pk) vs [ a; b; c ]
+  | Plogic (o, pk, a, b) ->
+      Fmt.pf fmt "%s%s %a" (Flogic.name o)
+        (match pk with Pk.Pd -> "d" | Pk.Ps -> "s")
+        vs [ a; b ]
+  | Pshufd_half a -> Fmt.pf fmt "pshufd $0xee, %a" pv a
+  | Pshufd_lane (fsz, k, a) ->
+      Fmt.pf fmt "pshufd.%s[%d] %a" (Fsz.name fsz) k pv a
+  | Pshufd_splat (pk, a) -> Fmt.pf fmt "pshufd.splat%s %a" (Pk.name pk) pv a
+  | Psqrt (pk, a) -> Fmt.pf fmt "sqrt%s %a" (Pk.name pk) pv a
   | Round_trunc (fsz, a) -> Fmt.pf fmt "round%s $3, %a" (Fsz.name fsz) pv a
   | Setcc_zx (c, f) -> Fmt.pf fmt "set%s+movzbl %a" (Cond.name c) pv f
   | Shift_imm (o, sz, a, k) ->

@@ -12,6 +12,7 @@ let view bank ~bits k =
   match (bank, bits) with
   | Mir_target.Bank.Gpr, 64 -> A64_reg.x k
   | Mir_target.Bank.Gpr, 32 -> A64_reg.w k
+  | Mir_target.Bank.Fpr, 128 -> A64_reg.q k
   | Mir_target.Bank.Fpr, 64 -> A64_reg.d k
   | Mir_target.Bank.Fpr, 32 -> A64_reg.s k
   | Mir_target.Bank.Flags, _ -> A64_reg.nzcv

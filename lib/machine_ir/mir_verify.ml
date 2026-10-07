@@ -226,8 +226,11 @@ let semantic esc (cx : Mir_check.context)
                 reject P.Unproven_domain
           | Mir_op.Load { Mir_op.Access.addr; _ } ->
               permit addr Mir_view.readable
-          | Mir_op.Store ({ Mir_op.Access.addr; _ }, _) ->
+          | Mir_op.Store ({ Mir_op.Access.addr; _ }, _)
+          | Mir_op.Vstore ({ Mir_op.Vaccess.addr; _ }, _) ->
               permit addr Mir_view.writable
+          | Mir_op.Vload { Mir_op.Vaccess.addr; _ } ->
+              permit addr Mir_view.readable
           | Mir_op.Undef view -> (
               match cx.Mir_check.view view with
               | Some v when Mir_view.writable v.Mir_view.perm -> ()
@@ -237,7 +240,9 @@ let semantic esc (cx : Mir_check.context)
           | Mir_op.Fconvert _ | Mir_op.Ffma _ | Mir_op.Funary _
           | Mir_op.Iarith _ | Mir_op.Icmp _ | Mir_op.Iext _ | Mir_op.Itrunc _
           | Mir_op.Narrow _ | Mir_op.Pbinary _ | Mir_op.Pnot _
-          | Mir_op.Ptr_add _ | Mir_op.Select _ ->
+          | Mir_op.Ptr_add _ | Mir_op.Select _ | Mir_op.Vconcat _
+          | Mir_op.Vextract _ | Mir_op.Vinsert _ | Mir_op.Vslice _
+          | Mir_op.Vsplat _ ->
               ())
         b.Mir_block.body)
     f.Mir_func.blocks

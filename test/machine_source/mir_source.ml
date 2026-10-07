@@ -248,6 +248,104 @@ let check ?mutation plan ~bind =
             | [] -> ""
             | d -> " DISAGREE " ^ String.concat "; " d))
 
+(* Generic vector operations in a lowered program. *)
+let vector_ops (lowered : Mir_lower.result) =
+  List.fold_left
+    (fun n (f : (Mir_op.t, _) Mir_func.t) ->
+      List.fold_left
+        (fun n (b : (Mir_op.t, _) Mir_block.t) ->
+          List.fold_left
+            (fun n (i : Mir_op.t Mir_instr.t) ->
+              if
+                List.exists
+                  (fun (v : Mir_value.t) ->
+                    match v.Mir_value.ty with
+                    | Mir_type.Mask _ | Mir_type.Vec _ -> true
+                    | _ -> false)
+                  (Mir_op.operands i.Mir_instr.op @ i.Mir_instr.results)
+              then n + 1
+              else n)
+            n b.Mir_block.body)
+        n f.Mir_func.blocks)
+    0 (Mir_verify.Generic.program lowered.Mir_lower.program).Mir_program.funcs
+
+(* A plan resolved for a vector target under [numerics]: the plan's oracle
+   (its vectors spelled out lane by lane) and its own program on the
+   structured interpreter, against the generic route. *)
+let check_planned ?mutation ?split_mutation ~target ~numerics plan ~bind =
+  match Err.payload (Ssa_lower.Ssa_lower_plan.lower plan) with
+  | Error e ->
+      Fmt.str "refused by source lowering: %a" Ssa_lower.Ssa_lower_plan.pp_error
+        e
+  | Ok p -> (
+      let resolved =
+        Ssa_plan.resolve ~target ~alias:Ssa_effects.Distinct_buffers ~numerics p
+      in
+      let p = resolved.Ssa_plan.program in
+      match
+        Err.payload
+          (Mir_lower.program ?mutation
+             ~planning:(Some (Mir_lower.summary ~target resolved))
+             p)
+      with
+      | Error r -> Fmt.str "refused: %a" Mir_lower.Refusal.pp r
+      | Ok lowered ->
+          let oracle =
+            ssa_route "oracle" plan (Ssa_plan.oracle resolved) ~bind
+          in
+          let planned = ssa_route "planned" plan p ~bind in
+          let generic =
+            mir_route lowered ~input:(fun b ->
+                Option.map (pack b)
+                  (bind (Tensor_id.of_int (b.Ssa_buffer.id :> int))))
+          in
+          (* the same program with its vectors in 16-byte slices *)
+          let split =
+            match
+              Err.payload
+                (Mir_vsplit.program ?mutation:split_mutation ~register_bytes:16L
+                   lowered.Mir_lower.program)
+            with
+            | Error r ->
+                {
+                  Route.name = "split";
+                  observation =
+                    {
+                      Mir_observation.status =
+                        Mir_observation.Status.Unsupported
+                          (Fmt.str "%a" Mir_vsplit.Refusal.pp r);
+                      outputs = [];
+                      events = [];
+                    };
+                }
+            | Ok program ->
+                {
+                  (mir_route { lowered with Mir_lower.program } ~input:(fun b ->
+                       Option.map (pack b)
+                         (bind (Tensor_id.of_int (b.Ssa_buffer.id :> int)))))
+                  with
+                  Route.name = "split";
+                }
+          in
+          let disagreements =
+            List.filter_map Fun.id
+              [
+                verdict ~expected:oracle ~actual:planned;
+                verdict ~expected:oracle ~actual:generic;
+                verdict ~expected:oracle ~actual:split;
+              ]
+          in
+          Fmt.str "%s (%s, %d vector operations%s)%s"
+            (status_name generic.Route.observation)
+            (Ssa_numerics.Precision.name resolved.Ssa_plan.precision)
+            (vector_ops lowered)
+            (match resolved.Ssa_plan.contracted with
+            | 0 -> ""
+            | n -> Fmt.str ", %d contracted" n)
+            (match disagreements with
+            | [] -> ""
+            | d -> " DISAGREE " ^ String.concat "; " d))
+
 (* The bytes of input cells, little-endian, by the buffer's format. *)
 let pack_cells (b : Ssa_buffer.t) (cells : Ssa_memory.cells) =
   let each n a f =
@@ -443,6 +541,38 @@ let case_of_plan plan ~bind =
               Case.lowered;
               bound = bound_of lowered ~input;
               oracle = ssa_route "structured" plan p ~bind;
+              generic = mir_route lowered ~input;
+            })
+
+(* A plan resolved for a vector target: its oracle is the plan's own, every
+   vector spelled out lane by lane. *)
+let case_of_planned ~target ~numerics plan ~bind =
+  match Err.payload (Ssa_lower.Ssa_lower_plan.lower plan) with
+  | Error e ->
+      Error
+        (Fmt.str "refused by source lowering: %a"
+           Ssa_lower.Ssa_lower_plan.pp_error e)
+  | Ok p -> (
+      let resolved =
+        Ssa_plan.resolve ~target ~alias:Ssa_effects.Distinct_buffers ~numerics p
+      in
+      match
+        Err.payload
+          (Mir_lower.program
+             ~planning:(Some (Mir_lower.summary ~target resolved))
+             resolved.Ssa_plan.program)
+      with
+      | Error r -> Error (Fmt.str "refused: %a" Mir_lower.Refusal.pp r)
+      | Ok lowered ->
+          let input b =
+            Option.map (pack b)
+              (bind (Tensor_id.of_int (b.Ssa_buffer.id :> int)))
+          in
+          Ok
+            {
+              Case.lowered;
+              bound = bound_of lowered ~input;
+              oracle = ssa_route "oracle" plan (Ssa_plan.oracle resolved) ~bind;
               generic = mir_route lowered ~input;
             })
 

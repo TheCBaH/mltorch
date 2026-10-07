@@ -314,7 +314,38 @@ census slice that will admit it.
   binary32 every step is a binary32 operation and `exp` runs between a
   widening and one rounding, matching `Ssa_numerics.erf32`. A program
   declares exactly the helpers it calls. A flat `check_access` lowers to
-  nothing (it has no source failure). Vectors are the only refused family.
+  nothing (it has no source failure).
+- Vectors (M11.1). A planned program's logical vectors stay logical: a
+  `vec<xN,f32|f64>` or `mask<xN>` value is one generic value of any lane
+  count up to 64, and splitting it into physical registers is selection's
+  job. The float and predicate operations (`fadd`… `fmax`, `fcmp`, the
+  precision conversions, `ffma`, `fneg/fsqrt/ftrunc`, `pand/por/pxor/pnot`,
+  `select`, `copy`) apply lane by lane to vectors and masks of one lane count
+  (a vector `fcmp` is a mask, a mask selects between vectors); the vector
+  operations proper are `vsplat`, `vextract`, `vinsert`, and `vload`/`vstore`
+  of `lanes` elements at `addr + k * stride` bytes (stride the element size:
+  contiguous; 0: a broadcast), every lane accessed. A `Lanewise` lifts only
+  operations whose scalar expansion is itself lanewise; a lifted
+  transcendental is refused. A vector access's stride is its steps'
+  row-major element offset times the element size; its decode or encode is a
+  lanewise conversion, and only binary32/binary64 storage is admitted.
+  `vec.iota` is the splat of `f64(base)` plus inserted lane constants (each
+  exact below 2^53). The oracle is the plan's own (`Ssa_plan.oracle`: every
+  vector spelled out lane by lane, at the plan's precision); binary32 plans
+  agree with it bitwise, and a doubled lane stride is caught.
+- Slices (`Mir_vsplit`, generic to generic, before selection). Every vector
+  becomes `register_bytes / element bytes`-lane slices — the lane map: logical
+  lane `k` is lane `k mod per` of slice `k / per` — so selection sees only
+  register-wide vectors. Lanewise operations run per slice, block parameters
+  and edge arguments expand slice by slice, a lane access splits into one
+  access per slice at its first lane's address (chained on the original's
+  order), and extracts and inserts touch the slice holding the lane. A
+  precision conversion changes how many lanes a slice holds, so a widening
+  converts each half of a narrow slice (`vslice`) and a narrowing joins two
+  converted halves (`vconcat`). The split program runs on the generic
+  interpreter against the plan's oracle; swapped or stale slices are caught.
+  Masks, vectors that fill no whole register, and vectors through a call,
+  return or failure payload are refused.
 
 `Mir_ssa_rows` maps an SSA interpreter failure to the Machine IR row it must
 equal; it is the oracle adapter, used by tests and model hosts.
@@ -478,6 +509,22 @@ symbol. Each deliberately wrong semantic entry (carry, unfused fmadd, fmax of
 signed zeros, unordered flags, W-write merge) must make the run fail. A
 non-AArch64 host reports "unavailable", never a pass.
 
+
+**Vectors** (M11.2): selection splits first (`Mir_vsplit`, 16-byte slices),
+then selects Advanced SIMD forms on Q (4S, 2D) and D (2S) registers: `fadd`…
+`fmax`, `fneg/fsqrt/frintz`, `fmla` (tied accumulator, one rounding), `mov`,
+`fcvtl`/`fcvtn` for the half-slice conversions, `dup` (splat, a lane, a half),
+`ins` (a lane; a 2S half into a widened 4S), `ldr`/`str` Q for a contiguous
+access, `ld1r` for a broadcast, and a strided access as `ld1r` then one
+`ld1`/`st1` lane at a time, in lane order. Each form's semantics are per lane
+(`Mir_datum.Lanes`), FMAX as the scalar one. Evidence: planned binary32
+pointwise and matmul kernels, selected, agree with the generic route and the
+plan's oracle; a strided load read contiguously, a contracted multiply-add and
+a narrowing's dropped upper half are each caught by some kernel. A swapped
+pair of halves is not a usable mutation: every load and store narrows once,
+lanewise arithmetic commutes with the permutation, and the two swaps cancel.
+Native NEON execution waits on an assembler that encodes these forms.
+
 ## x86-64
 
 Selection runs through the shared builder (`Mir_select`: value identities,
@@ -508,6 +555,16 @@ keeps rsp 16-byte aligned at calls; the physical interpreter pushes a token
 and requires it intact at the callee's exit. MXCSR moves only through memory,
 which the late-form contract does not admit, so x86-64 frames leave it to the
 native entry wrapper. Native per-form conformance needs an x86-64 runner.
+
+
+**Vectors** (M11.2): after the same split, SSE2 packed forms on XMM
+registers: `addps`… `divpd` (tied), `sqrtps/pd`, negation as `xorps` with a
+splat of -0, `cvtps2pd`/`cvtpd2ps` for the half-slice conversions, `movq` for
+a half and its widening, `pshufd` for a splat, a lane and the upper half,
+`movlhps` to join halves, `movups/pd` for contiguous access, a scalar load
+then a splat for a broadcast; `vfmadd231ps/pd` only under FMA. `maxps` is
+not IEEE maximum, SSE2 has no lane insert, and a strided access has no
+packed form: each is a typed refusal here.
 
 ## Allocated stage, checking and reference allocation
 
@@ -654,6 +711,21 @@ both targets, and the hole only on a three-register AArch64 pool: with full
 pools no hole decides a register, and on x86-64 the allocations it changes
 still pass the checker, so the intersections it ignored held no read.
 
+**Vectors in registers and frames** (M11.3). A register-wide slice is one
+value of 128 bits (Q, XMM) and a half of 64 (D, the low half of an XMM); the
+physical verifier, both allocators and the scratch views take them like any
+float, and a spilled one gets a 16-byte slot. The physical interpreter packs
+lanes into the register unit's two words and reads them back by the value's
+lane count, and moves a vector through frame memory a word at a time. A call
+clobbers the upper half of AArch64's v8-v15, so a Q value cannot stay there
+across a call: given only v8-v10, linear scan keeps such a vector in its slot,
+and with the call's clobbers ignored the checker reports the stale register.
+A spill given half a vector's bytes does not fit its value and the physical
+verifier rejects it. Row-blocked vector matmul under the production pipeline
+(4x8x32, neon128): AArch64 keeps one and two rows' accumulators in registers
+and spills at four (peak 41 FPR values); x86-64 spills in the loop at every
+factor (16 XMM registers, six of them the reference strategy's scratch).
+
 **Scheduling** (`Mir_schedule`) runs on the selected program before liveness
 and allocation, one block at a time — so nothing is speculated across a branch
 or a failure check. A block's dependence graph, taken from its source order,
@@ -665,10 +737,13 @@ than the verifier's rule. A schedule is checked to permute every body within
 that graph, the selected verifier runs again, and a changed order is a new
 revision. The production policy, `Sink`, places a pure, flags-preserving
 instruction whose results stay in the block just before its first dependent's
-source place; the `Scanned` route schedules so before linear scan. It cuts
-spill stores on three-register pools (x86-64 sdpa 120 to 101, AArch64 softmax
-39 to 23) and is roughly neutral with full pools; sinking a whole pure chain to
-its final consumer spilled more. `Reverse` (latest ready first) is evidence
+source place, unless that would lengthen an operand's life (an operand not
+read at or after the new place); the `Scanned` route schedules so before
+linear scan. It cuts spill stores on three-register pools (x86-64 sdpa 120 to
+101) and is roughly neutral with full pools; sinking a whole pure chain to its
+final consumer spilled more, and sinking past an operand's last use spilled
+row-blocked vector accumulators (AArch64 matmul, two rows: 4 hot spills, none
+with the rule). `Reverse` (latest ready first) is evidence
 only: the legal order farthest from the source, run bitwise on every model
 route, and with any one dependence class dropped refused by the check.
 

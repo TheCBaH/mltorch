@@ -315,7 +315,18 @@ let machine_type : Ssa_type.t -> (Machine_ir.Mir_type.t, Slice.t) result =
   function
   | Ssa_type.Effect -> Ok Machine_ir.Mir_type.Order
   | Ssa_type.Local -> Ok Machine_ir.Mir_type.Ptr
-  | Ssa_type.Mask _ | Ssa_type.Vec _ -> Error Slice.Vectors
+  | Ssa_type.Mask n ->
+      Ok
+        (Machine_ir.Mir_type.Mask
+           (Machine_ir.Mir_type.Lanes.of_int (Ssa_type.Lanes.to_int n)))
+  | Ssa_type.Vec (s, n) -> (
+      let n = Machine_ir.Mir_type.Lanes.of_int (Ssa_type.Lanes.to_int n) in
+      match s with
+      | Ssa_type.F32 ->
+          Ok (Machine_ir.Mir_type.Vec (Machine_ir.Mir_type.Elem.F32, n))
+      | Ssa_type.F64 ->
+          Ok (Machine_ir.Mir_type.Vec (Machine_ir.Mir_type.Elem.F64, n))
+      | Ssa_type.I64 | Ssa_type.Index | Ssa_type.Pred -> Error Slice.Vectors)
   | Ssa_type.Scalar Ssa_type.F32 -> Ok Machine_ir.Mir_type.F32
   | Ssa_type.Scalar Ssa_type.F64 -> Ok Machine_ir.Mir_type.F64
   | Ssa_type.Scalar Ssa_type.I64 -> Ok Machine_ir.Mir_type.i64

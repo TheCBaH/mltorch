@@ -17,7 +17,8 @@ module Policy = struct
             the source's, for the evidence suite *)
     | Sink
         (** a pure instruction whose results stay in its block moved down to
-            just before its first dependent *)
+            just before its first dependent, when that lengthens no operand's
+            life *)
     | Source  (** the selected order, unchanged *)
 
   let name = function
@@ -153,13 +154,35 @@ module Make (T : Mir_sel.TARGET) = struct
              not (Mir_id.Value.Set.mem v.Mir_value.id escapes))
            i.Mir_instr.results
     in
+    (* the last body position reading each value, [n] past the body when it
+       escapes *)
+    let last = Hashtbl.create 16 in
+    Array.iteri
+      (fun j (i : instr) ->
+        List.iter
+          (fun (v : Mir_value.t) -> Hashtbl.replace last (key v) j)
+          (uses i))
+      body;
+    let last_use (v : Mir_value.t) =
+      if Mir_id.Value.Set.mem v.Mir_value.id escapes then n
+      else Option.value ~default:(-1) (Hashtbl.find_opt last (key v))
+    in
+    (* moving [k] to [a] lengthens no operand's life: each is read at [a] or
+       later anyway *)
+    let keeps_operands k a =
+      List.for_all
+        (fun (v : Mir_value.t) -> is_flags v || last_use v >= a)
+        (uses body.(k))
+    in
     let priority =
       Array.init n (fun k ->
           match policy with
           | Policy.Reverse -> (-k, 0)
           | Policy.Sink -> (
               match succs.(k) with
-              | c :: cs when sinkable body.(k) -> (List.fold_left min c cs, k)
+              | c :: cs when sinkable body.(k) ->
+                  let a = List.fold_left min c cs in
+                  if keeps_operands k a then (a, k) else (k, k)
               | _ -> (k, k))
           | Policy.Source -> (k, 0))
     in

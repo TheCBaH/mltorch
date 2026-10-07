@@ -113,6 +113,20 @@ module Access = struct
   type t = { width : Mir_width.t; addr : Mir_value.t; align : int64 }
 end
 
+module Vaccess = struct
+  (* [lanes] elements, lane [k] a raw little-endian [elem] at [addr + k *
+     stride] bytes — [stride] the element's size is contiguous, 0 a broadcast
+     of one element — each at an address that is a multiple of [align]. Every
+     lane is accessed: a lane outside its object is a defect, never hidden. *)
+  type t = {
+    elem : Mir_type.Elem.t;
+    lanes : Mir_type.Lanes.t;
+    addr : Mir_value.t;
+    stride : int64;
+    align : int64;
+  }
+end
+
 type t =
   | Addr of Mir_id.View.t
   | Bitcast of Mir_type.t * Mir_value.t
@@ -150,6 +164,22 @@ type t =
       (** every byte of the view undefined again: a fresh object's lifetime
           begins there. Ordered as a write; a native realization emits nothing.
       *)
+  | Vconcat of Mir_value.t list
+      (** the vectors' lanes one after another, in list order *)
+  | Vextract of Mir_type.Lane.t * Mir_value.t
+  | Vinsert of Mir_type.Lane.t * Mir_value.t * Mir_value.t
+      (** the vector with one lane replaced by the element *)
+  | Vload of Vaccess.t
+  | Vslice of Mir_type.Lane.t * Mir_type.Lanes.t * Mir_value.t
+      (** [count] consecutive lanes from [first] *)
+  | Vsplat of Mir_type.Lanes.t * Mir_value.t
+  | Vstore of Vaccess.t * Mir_value.t  (** lanes written in lane order *)
+
+(* The float and predicate operations ([Copy], [Fbinary], [Fcmp], the
+   precision conversions, [Ffma], [Funary], [Pbinary], [Pnot], [Select]) also
+   apply lane by lane to vectors and masks of one lane count: lane [k] of the
+   result is the scalar operation on lane [k] of each operand, and a [Fcmp]
+   of vectors is a mask. *)
 
 (* How an operation interacts with order. [Partial] is pure but defined only on
    a restricted domain: it is never speculated above its guards. *)
@@ -165,11 +195,12 @@ let effect_class = function
   | Call _ -> Effect.Call
   | Event _ -> Effect.Event
   | Fto_sint _ | Idiv _ | Narrow _ -> Effect.Partial
-  | Load _ -> Effect.Read
-  | Store _ | Undef _ -> Effect.Write
+  | Load _ | Vload _ -> Effect.Read
+  | Store _ | Undef _ | Vstore _ -> Effect.Write
   | Addr _ | Bitcast _ | Const _ | Copy _ | Fbinary _ | Fcmp _ | Fconvert _
   | Ffma _ | Funary _ | Iarith _ | Icmp _ | Iext _ | Itrunc _ | Pbinary _
-  | Pnot _ | Ptr_add _ | Select _ ->
+  | Pnot _ | Ptr_add _ | Select _ | Vconcat _ | Vextract _ | Vinsert _
+  | Vslice _ | Vsplat _ ->
       Effect.Pure
 
 let operands = function
@@ -182,7 +213,10 @@ let operands = function
   | Iext (_, _, a)
   | Itrunc (_, a)
   | Narrow (_, a)
-  | Pnot a ->
+  | Pnot a
+  | Vextract (_, a)
+  | Vslice (_, _, a)
+  | Vsplat (_, a) ->
       [ a ]
   | Fbinary (_, a, b)
   | Fcmp (_, a, b)
@@ -190,12 +224,14 @@ let operands = function
   | Icmp (_, a, b)
   | Idiv (_, a, b)
   | Pbinary (_, a, b)
-  | Ptr_add (a, b) ->
+  | Ptr_add (a, b)
+  | Vinsert (_, a, b) ->
       [ a; b ]
-  | Call (_, args) -> args
+  | Call (_, args) | Vconcat args -> args
   | Ffma (a, b, c) | Select (a, b, c) -> [ a; b; c ]
-  | Load { Access.addr; _ } -> [ addr ]
-  | Store ({ Access.addr; _ }, v) -> [ addr; v ]
+  | Load { Access.addr; _ } | Vload { Vaccess.addr; _ } -> [ addr ]
+  | Store ({ Access.addr; _ }, v) | Vstore ({ Vaccess.addr; _ }, v) ->
+      [ addr; v ]
 
 let map_operands f = function
   | (Addr _ | Const _ | Event _ | Undef _) as op -> op
@@ -242,6 +278,17 @@ let map_operands f = function
   | Store (acc, v) ->
       let addr = f acc.Access.addr in
       Store ({ acc with Access.addr }, f v)
+  | Vconcat vs -> Vconcat (List.map f vs)
+  | Vextract (l, a) -> Vextract (l, f a)
+  | Vinsert (l, a, b) ->
+      let a = f a in
+      Vinsert (l, a, f b)
+  | Vload acc -> Vload { acc with Vaccess.addr = f acc.Vaccess.addr }
+  | Vslice (l, n, a) -> Vslice (l, n, f a)
+  | Vsplat (n, a) -> Vsplat (n, f a)
+  | Vstore (acc, v) ->
+      let addr = f acc.Vaccess.addr in
+      Vstore ({ acc with Vaccess.addr }, f v)
 
 let name = function
   | Addr _ -> "addr"
@@ -269,3 +316,10 @@ let name = function
   | Select _ -> "select"
   | Store ({ Access.width; _ }, _) -> "store." ^ Mir_width.name width
   | Undef _ -> "undef"
+  | Vconcat _ -> "vconcat"
+  | Vextract _ -> "vextract"
+  | Vinsert _ -> "vinsert"
+  | Vload { Vaccess.elem; _ } -> "vload." ^ Mir_type.Elem.name elem
+  | Vslice _ -> "vslice"
+  | Vsplat _ -> "vsplat"
+  | Vstore ({ Vaccess.elem; _ }, _) -> "vstore." ^ Mir_type.Elem.name elem

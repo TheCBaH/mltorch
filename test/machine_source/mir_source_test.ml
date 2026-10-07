@@ -177,7 +177,7 @@ let%expect_test "an exp kernel through its libm helper" =
     ~bind:(data_bind [| 1.; 2.; 3.; 4. |]);
   [%expect {| ok [reference: agree] |}]
 
-let%expect_test "outside the slice is a typed refusal: vectors" =
+let%expect_test "a vector built directly: splat, then extract" =
   let module B = Ssa_ir.Ssa_builder in
   let out =
     {
@@ -205,4 +205,4 @@ let%expect_test "outside the slice is a typed refusal: vectors" =
              x))
   in
   print_endline (Mir_source.check_program p ~inputs:[]);
-  [%expect {| refused: vec.splat is admitted by M11 |}]
+  [%expect {| ok [0x1p+0:f32] |}]

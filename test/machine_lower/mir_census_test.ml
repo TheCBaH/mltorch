@@ -350,10 +350,10 @@ let%expect_test "types" =
     {|
     effect -> order
     local -> ptr64
-    mask<x4> -> refused until M11
+    mask<x4> -> mask<x4>
     f32 -> f32
     f64 -> f64
     i64 -> i64
     index -> i32
     pred -> pred
-    vec<x4,f32> -> refused until M11 |}]
+    vec<x4,f32> -> vec<x4,f32> |}]

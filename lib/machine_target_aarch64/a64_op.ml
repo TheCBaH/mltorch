@@ -117,6 +117,24 @@ module Funary = struct
   let name = function Fneg -> "fneg" | Frintz -> "frintz" | Fsqrt -> "fsqrt"
 end
 
+(* An Advanced SIMD arrangement: two binary64 lanes of a Q register, two
+   binary32 lanes of a D register, or four binary32 lanes of a Q register. *)
+module Arr = struct
+  type t = D2 | S2 | S4
+
+  let fsz = function D2 -> Fsz.D | S2 | S4 -> Fsz.S
+  let lanes = function D2 | S2 -> 2 | S4 -> 4
+
+  let ty t =
+    Mir_type.Vec
+      ( (match fsz t with
+        | Fsz.D -> Mir_type.Elem.F64
+        | Fsz.S -> Mir_type.Elem.F32),
+        Mir_type.Lanes.of_int (lanes t) )
+
+  let name = function D2 -> "2d" | S2 -> "2s" | S4 -> "4s"
+end
+
 type v = Mir_value.t
 
 type t =
@@ -131,21 +149,36 @@ type t =
   | Cmp_imm of Sz.t * v * int64  (** SUBS ZR, #imm12 *)
   | Csel of Sz.t * Cond.t * v * v * v  (** flags, then, else *)
   | Cset of Cond.t * v  (** CSINC Wd, WZR, WZR, invert(cond): 0 or 1 *)
+  | Dup_elem of Arr.t * v  (** DUP Vd.T, Vn.Ts[0]: every lane the scalar *)
+  | Dup_half of int * v
+      (** DUP Dd, Vn.D[k]: half [k] of a 4S vector as a 2S vector *)
+  | Dup_lane of Fsz.t * int * v  (** DUP Sd/Dd, Vn.Ts[k]: a lane as a scalar *)
   | Ext of { signed : bool; from : Mir_width.t; src : v }
       (** SXTB, SXTH, UXTB, UXTH: a W register from a byte or halfword *)
   | Fbin of Fop.t * Fsz.t * v * v
   | Fcmp of Fsz.t * v * v
   | Fcsel of Fsz.t * Cond.t * v * v * v
   | Fcvt of Fsz.t * v  (** to the given precision from the other *)
+  | Fcvtl of v  (** FCVTL Vd.2D, Vn.2S *)
+  | Fcvtn of v  (** FCVTN Vd.2S, Vn.2D: one rounding a lane, upper half zero *)
   | Fcvtzs of Fsz.t * v  (** to X, toward zero, saturating *)
   | Fmadd of Fsz.t * v * v * v  (** [a * b + c], one rounding *)
   | Fmov of Fsz.t * v  (** register copy *)
   | Fmov_from_gpr of Fsz.t * v  (** S from W, D from X: the bits *)
   | Fmov_to_gpr of Fsz.t * v  (** W from S, X from D *)
   | Funary of Funary.t * Fsz.t * v
+  | Ins_half of v * v
+      (** INS Vd.D[1], Vn.D[0]: the 2S vector as the upper half, tied to the 4S
+          vector *)
+  | Ins_lane of Fsz.t * int * v * v
+      (** INS Vd.Ts[k], Vn.Ts[0]: tied to the vector *)
+  | Ld1_lane of Fsz.t * int * v * v
+      (** LD1 \{Vt.Ts\}[k], [Xn]: one lane from memory, tied to the vector *)
+  | Ld1r of Arr.t * v  (** LD1R \{Vt.T\}, [Xn]: one element to every lane *)
   | Ldr of Msz.t * v * int64
       (** [base, #imm]: unsigned, a multiple of the size, at most 4095 of them;
           B and H zero-extend into a W register *)
+  | Ldr_vec of Arr.t * v * int64  (** LDR Qt or Dt, [Xn, #imm] *)
   | Logic of Logic.t * Sz.t * v * v
   | Logic_imm of Logic.t * Sz.t * v * int64  (** a bitmask immediate *)
   | Mov of Sz.t * v  (** ORR Rd, ZR, Rm *)
@@ -161,12 +194,22 @@ type t =
   | Scvtf of Fsz.t * v  (** from X, one rounding *)
   | Sdiv of Sz.t * v * v  (** truncating; [x / 0 = 0], [min / -1 = min] *)
   | Shift_imm of Shift.t * Sz.t * v * int
+  | St1_lane of Fsz.t * int * v * v  (** ST1 \{Vt.Ts\}[k], [Xn]: vector, base *)
   | Str of Msz.t * v * int64 * v  (** base, imm, value *)
+  | Str_vec of Arr.t * v * int64 * v
+      (** STR Qt or Dt, [Xn, #imm]: base, value *)
   | Sub of Sz.t * v * v
   | Sxtw of v  (** X from W, sign-extended *)
   | Trunc of Mir_width.t * v
       (** UXTB, UXTH: a byte or halfword value from the low bits of a W *)
   | Uxtw of v  (** X from W, zero-extended (a W move) *)
+  | Vfbin of Fop.t * Arr.t * v * v
+  | Vfmla of Arr.t * v * v * v
+      (** FMLA: [acc + a * b] a lane, one rounding, tied to the accumulator *)
+  | Vfunary of Funary.t * Arr.t * v
+  | Vmov of Arr.t * v  (** MOV Vd, Vn: the whole vector *)
+  | Vwiden of v
+      (** FMOV Dd, Dn: a 2S vector as the lower half of a 4S, upper half zero *)
   | Wtrunc of v  (** W from the low half of an X *)
 
 type test = B_cond of Cond.t * v | Cbnz of Sz.t * v | Cbz of Sz.t * v
@@ -179,20 +222,32 @@ let uses = function
   | Logic (_, _, a, b)
   | Mul (_, a, b)
   | Sdiv (_, a, b)
-  | Sub (_, a, b) ->
+  | Sub (_, a, b)
+  | Ins_half (a, b)
+  | Ins_lane (_, _, a, b)
+  | Ld1_lane (_, _, a, b)
+  | St1_lane (_, _, a, b)
+  | Vfbin (_, _, a, b) ->
       [ a; b ]
   | Add_imm (_, a, _)
   | Add_lo12 (a, _)
   | Cmp_imm (_, a, _)
   | Cset (_, a)
+  | Dup_elem (_, a)
+  | Dup_half (_, a)
+  | Dup_lane (_, _, a)
   | Ext { src = a; _ }
   | Fcvt (_, a)
+  | Fcvtl a
+  | Fcvtn a
   | Fcvtzs (_, a)
   | Fmov (_, a)
   | Fmov_from_gpr (_, a)
   | Fmov_to_gpr (_, a)
   | Funary (_, _, a)
   | Ldr (_, a, _)
+  | Ld1r (_, a)
+  | Ldr_vec (_, a, _)
   | Logic_imm (_, _, a, _)
   | Mov (_, a)
   | Movk (_, a, _, _)
@@ -203,13 +258,16 @@ let uses = function
   | Sxtw a
   | Trunc (_, a)
   | Uxtw a
+  | Vfunary (_, _, a)
+  | Vmov (_, a)
+  | Vwiden a
   | Wtrunc a ->
       [ a ]
   | Adrp _ | Movn _ | Movz _ -> []
   | Bl { args; _ } -> args
   | Csel (_, _, f, a, b) | Fcsel (_, _, f, a, b) -> [ f; a; b ]
-  | Fmadd (_, a, b, c) | Msub (_, a, b, c) -> [ a; b; c ]
-  | Str (_, base, _, x) -> [ base; x ]
+  | Fmadd (_, a, b, c) | Msub (_, a, b, c) | Vfmla (_, a, b, c) -> [ a; b; c ]
+  | Str (_, base, _, x) | Str_vec (_, base, _, x) -> [ base; x ]
 
 let test_uses = function
   | B_cond (_, f) -> [ f ]
@@ -219,7 +277,11 @@ let test_flags_read = function
   | B_cond (c, _) -> Cond.reads c
   | Cbnz _ | Cbz _ -> 0L
 
-let ordered = function Bl _ | Ldr _ | Str _ -> true | _ -> false
+let ordered = function
+  | Bl _ | Ld1_lane _ | Ld1r _ | Ldr _ | Ldr_vec _ | St1_lane _ | Str _
+  | Str_vec _ ->
+      true
+  | _ -> false
 
 let constraints = function
   | Bl { args; results; _ } ->
@@ -230,7 +292,8 @@ let constraints = function
           (fun result view ->
             Mir_target.Constraint.Fixed_result { result; view })
           (A64_regs.results (results @ [ Mir_type.i32 ]))
-  | Movk _ -> [ Mir_target.Constraint.Tied { result = 0; use = 0 } ]
+  | Ins_half _ | Ins_lane _ | Ld1_lane _ | Movk _ | Vfmla _ ->
+      [ Mir_target.Constraint.Tied { result = 0; use = 0 } ]
   | _ -> []
 
 (* Every admitted form writes a W, X, S or D view and zeroes the rest of the
@@ -289,8 +352,11 @@ let op_features = function
       if List.exists fp (results @ List.map (fun (a : v) -> a.Mir_value.ty) args)
       then [ Mir_target.Feature.Fp ]
       else []
-  | Fbin _ | Fcmp _ | Fcsel _ | Fcvt _ | Fcvtzs _ | Fmadd _ | Fmov _
-  | Fmov_from_gpr _ | Fmov_to_gpr _ | Funary _ | Scvtf _ ->
+  | Dup_elem _ | Dup_half _ | Dup_lane _ | Fbin _ | Fcmp _ | Fcsel _ | Fcvt _
+  | Fcvtl _ | Fcvtn _ | Fcvtzs _ | Fmadd _ | Fmov _ | Fmov_from_gpr _
+  | Fmov_to_gpr _ | Funary _ | Ins_half _ | Ins_lane _ | Ld1_lane _ | Ld1r _
+  | Ldr_vec _ | Scvtf _ | St1_lane _ | Str_vec _ | Vfbin _ | Vfmla _ | Vfunary _
+  | Vmov _ | Vwiden _ ->
       [ Mir_target.Feature.Fp ]
   | Ldr ((Msz.S | Msz.D), _, _) | Str ((Msz.S | Msz.D), _, _, _) ->
       [ Mir_target.Feature.Fp ]
@@ -364,6 +430,18 @@ let fpr fsz (t : Mir_type.t) =
 
 let fty = function Fsz.D -> Mir_type.F64 | Fsz.S -> Mir_type.F32
 let need ok why = if ok then Ok () else Error why
+
+(* The Q arrangement a lane form of [fsz] addresses. *)
+let full = function Fsz.D -> Arr.D2 | Fsz.S -> Arr.S4
+let is_arr arr (t : Mir_type.t) = Mir_type.equal t (Arr.ty arr)
+let lane_ok fsz k = k >= 0 && k < Arr.lanes (full fsz)
+
+(* A vector register's offset: a multiple of its size, at most 4095 of them. *)
+let vec_offset arr k =
+  let size = match arr with Arr.S2 -> 8L | Arr.D2 | Arr.S4 -> 16L in
+  Int64.compare k 0L >= 0
+  && Int64.equal (Int64.rem k size) 0L
+  && Int64.compare (Int64.div k size) 4095L <= 0
 
 (* The same integer type in and out; pointers stay pointers through X adds. *)
 let typing op =
@@ -441,6 +519,17 @@ let typing op =
   | Cset (_, f) ->
       let* () = need (Mir_type.equal (ty f) Mir_type.Flags) "cset flags" in
       Ok [ Mir_type.Pred ]
+  | Dup_elem (arr, a) ->
+      let* () = need (fpr (Arr.fsz arr) (ty a)) "dup source" in
+      Ok [ Arr.ty arr ]
+  | Dup_half (k, a) ->
+      let* () = need ((k = 0 || k = 1) && is_arr Arr.S4 (ty a)) "dup half" in
+      Ok [ Arr.ty Arr.S2 ]
+  | Dup_lane (fsz, k, a) ->
+      let* () =
+        need (lane_ok fsz k && is_arr (full fsz) (ty a)) "dup lane source"
+      in
+      Ok [ fty fsz ]
   | Fbin (_, fsz, a, b) ->
       let* () = need (fpr fsz (ty a) && fpr fsz (ty b)) "fp operands" in
       Ok [ fty fsz ]
@@ -455,6 +544,12 @@ let typing op =
       let src = match fsz with Fsz.D -> Fsz.S | Fsz.S -> Fsz.D in
       let* () = need (fpr src (ty a)) "fcvt operand" in
       Ok [ fty fsz ]
+  | Fcvtl a ->
+      let* () = need (is_arr Arr.S2 (ty a)) "fcvtl source" in
+      Ok [ Arr.ty Arr.D2 ]
+  | Fcvtn a ->
+      let* () = need (is_arr Arr.D2 (ty a)) "fcvtn source" in
+      Ok [ Arr.ty Arr.S2 ]
   | Fcvtzs (fsz, a) ->
       let* () = need (fpr fsz (ty a)) "fcvtzs operand" in
       Ok [ Mir_type.i64 ]
@@ -480,6 +575,34 @@ let typing op =
   | Funary (_, fsz, a) ->
       let* () = need (fpr fsz (ty a)) "fp operand" in
       Ok [ fty fsz ]
+  | Ins_half (a, b) ->
+      let* () =
+        need (is_arr Arr.S4 (ty a) && is_arr Arr.S2 (ty b)) "ins half operands"
+      in
+      Ok [ ty a ]
+  | Ins_lane (fsz, k, a, x) ->
+      let* () =
+        need
+          (lane_ok fsz k && is_arr (full fsz) (ty a) && fpr fsz (ty x))
+          "ins lane operands"
+      in
+      Ok [ ty a ]
+  | Ld1_lane (fsz, k, a, base) ->
+      let* () =
+        need
+          (lane_ok fsz k
+          && is_arr (full fsz) (ty a)
+          && Mir_type.equal (ty base) Mir_type.Ptr)
+          "ld1 lane operands"
+      in
+      Ok [ ty a ]
+  | Ld1r (arr, base) ->
+      let* () = need (Mir_type.equal (ty base) Mir_type.Ptr) "ld1r base" in
+      Ok [ Arr.ty arr ]
+  | Ldr_vec (arr, base, k) ->
+      let* () = need (Mir_type.equal (ty base) Mir_type.Ptr) "ldr base" in
+      let* () = need (vec_offset arr k) "ldr offset" in
+      Ok [ Arr.ty arr ]
   | Ldr (m, base, k) ->
       let* () = need (Mir_type.equal (ty base) Mir_type.Ptr) "ldr base" in
       let size = Msz.bytes m in
@@ -599,6 +722,20 @@ let typing op =
       let* () = need (arith sz (ty a)) "shift operand" in
       let* () = need (k >= 0 && k < Sz.bits sz) "shift amount" in
       Ok [ ty a ]
+  | St1_lane (fsz, k, a, base) ->
+      let* () =
+        need
+          (lane_ok fsz k
+          && is_arr (full fsz) (ty a)
+          && Mir_type.equal (ty base) Mir_type.Ptr)
+          "st1 lane operands"
+      in
+      Ok []
+  | Str_vec (arr, base, k, x) ->
+      let* () = need (Mir_type.equal (ty base) Mir_type.Ptr) "str base" in
+      let* () = need (vec_offset arr k) "str offset" in
+      let* () = need (is_arr arr (ty x)) "str value" in
+      Ok []
   | Str (m, base, k, x) ->
       let* () = need (Mir_type.equal (ty base) Mir_type.Ptr) "str base" in
       let size = Msz.bytes m in
@@ -647,6 +784,24 @@ let typing op =
           "narrowing source"
       in
       Ok [ Mir_type.Int w ]
+  | Vfbin (_, arr, a, b) ->
+      let* () =
+        need (is_arr arr (ty a) && is_arr arr (ty b)) "vector operands"
+      in
+      Ok [ Arr.ty arr ]
+  | Vfmla (arr, a, b, c) ->
+      let* () =
+        need
+          (is_arr arr (ty a) && is_arr arr (ty b) && is_arr arr (ty c))
+          "fmla operands"
+      in
+      Ok [ Arr.ty arr ]
+  | Vfunary (_, arr, a) | Vmov (arr, a) ->
+      let* () = need (is_arr arr (ty a)) "vector operand" in
+      Ok [ Arr.ty arr ]
+  | Vwiden a ->
+      let* () = need (is_arr Arr.S2 (ty a)) "widen source" in
+      Ok [ Arr.ty Arr.S4 ]
   | Wtrunc a ->
       let* () = need (Mir_type.equal (ty a) Mir_type.i64) "truncate source" in
       Ok [ Mir_type.i32 ]
@@ -674,6 +829,10 @@ let pp_op pv fmt op =
   | Csel (sz, c, f, a, b) ->
       Fmt.pf fmt "csel.%s.%s %a" (Sz.name sz) (Cond.name c) vs [ f; a; b ]
   | Cset (c, f) -> Fmt.pf fmt "cset.%s %a" (Cond.name c) pv f
+  | Dup_elem (arr, a) -> Fmt.pf fmt "dup.%s %a" (Arr.name arr) pv a
+  | Dup_half (k, a) -> Fmt.pf fmt "dup.d %a.d[%d]" pv a k
+  | Dup_lane (fsz, k, a) ->
+      Fmt.pf fmt "dup.%s %a.%s[%d]" (Fsz.name fsz) pv a (Fsz.name fsz) k
   | Ext { signed; from; src } ->
       Fmt.pf fmt "%sxt%s %a"
         (if signed then "s" else "u")
@@ -685,6 +844,8 @@ let pp_op pv fmt op =
   | Fcsel (fsz, c, f, a, b) ->
       Fmt.pf fmt "fcsel.%s.%s %a" (Fsz.name fsz) (Cond.name c) vs [ f; a; b ]
   | Fcvt (fsz, a) -> Fmt.pf fmt "fcvt.%s %a" (Fsz.name fsz) pv a
+  | Fcvtl a -> Fmt.pf fmt "fcvtl.2d %a" pv a
+  | Fcvtn a -> Fmt.pf fmt "fcvtn.2s %a" pv a
   | Fcvtzs (fsz, a) -> Fmt.pf fmt "fcvtzs.x.%s %a" (Fsz.name fsz) pv a
   | Fmadd (fsz, a, b, c) ->
       Fmt.pf fmt "fmadd.%s %a" (Fsz.name fsz) vs [ a; b; c ]
@@ -693,7 +854,15 @@ let pp_op pv fmt op =
   | Fmov_to_gpr (fsz, a) -> Fmt.pf fmt "fmov.gpr.%s %a" (Fsz.name fsz) pv a
   | Funary (u, fsz, a) ->
       Fmt.pf fmt "%s.%s %a" (Funary.name u) (Fsz.name fsz) pv a
+  | Ins_half (a, b) -> Fmt.pf fmt "ins %a.d[1], %a.d[0]" pv a pv b
+  | Ins_lane (fsz, k, a, x) ->
+      Fmt.pf fmt "ins %a.%s[%d], %a" pv a (Fsz.name fsz) k pv x
+  | Ld1_lane (fsz, k, a, base) ->
+      Fmt.pf fmt "ld1 %a.%s[%d], [%a]" pv a (Fsz.name fsz) k pv base
+  | Ld1r (arr, base) -> Fmt.pf fmt "ld1r.%s [%a]" (Arr.name arr) pv base
   | Ldr (m, base, k) -> Fmt.pf fmt "ldr.%s [%a, #%Ld]" (Msz.name m) pv base k
+  | Ldr_vec (arr, base, k) ->
+      Fmt.pf fmt "ldr.%s [%a, #%Ld]" (Arr.name arr) pv base k
   | Logic (o, sz, a, b) ->
       Fmt.pf fmt "%s.%s %a" (Logic.name o) (Sz.name sz) vs [ a; b ]
   | Logic_imm (o, sz, a, k) ->
@@ -711,8 +880,12 @@ let pp_op pv fmt op =
   | Sdiv (sz, a, b) -> Fmt.pf fmt "sdiv.%s %a" (Sz.name sz) vs [ a; b ]
   | Shift_imm (o, sz, a, k) ->
       Fmt.pf fmt "%s.%s %a, #%d" (Shift.name o) (Sz.name sz) pv a k
+  | St1_lane (fsz, k, a, base) ->
+      Fmt.pf fmt "st1 %a.%s[%d], [%a]" pv a (Fsz.name fsz) k pv base
   | Str (m, base, k, x) ->
       Fmt.pf fmt "str.%s %a, [%a, #%Ld]" (Msz.name m) pv x pv base k
+  | Str_vec (arr, base, k, x) ->
+      Fmt.pf fmt "str.%s %a, [%a, #%Ld]" (Arr.name arr) pv x pv base k
   | Sub (sz, a, b) -> Fmt.pf fmt "sub.%s %a" (Sz.name sz) vs [ a; b ]
   | Sxtw a -> Fmt.pf fmt "sxtw %a" pv a
   | Uxtw a -> Fmt.pf fmt "uxtw %a" pv a
@@ -720,6 +893,14 @@ let pp_op pv fmt op =
       Fmt.pf fmt "uxt%s.trunc %a"
         (match w with Mir_width.W8 -> "b" | _ -> "h")
         pv a
+  | Vfbin (o, arr, a, b) ->
+      Fmt.pf fmt "%s.%s %a" (Fop.name o) (Arr.name arr) vs [ a; b ]
+  | Vfmla (arr, a, b, c) ->
+      Fmt.pf fmt "fmla.%s %a" (Arr.name arr) vs [ a; b; c ]
+  | Vfunary (u, arr, a) ->
+      Fmt.pf fmt "%s.%s %a" (Funary.name u) (Arr.name arr) pv a
+  | Vmov (arr, a) -> Fmt.pf fmt "mov.%s %a" (Arr.name arr) pv a
+  | Vwiden a -> Fmt.pf fmt "fmov.d %a" pv a
   | Wtrunc a -> Fmt.pf fmt "mov.w.x %a" pv a
 
 let pp_test pv fmt = function

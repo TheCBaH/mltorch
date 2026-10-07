@@ -68,6 +68,19 @@ let equal a b =
   | (F32 | F64 | Flags | Int _ | Mask _ | Order | Pred | Ptr | Vec _), _ ->
       false
 
+(* The scalar type of a vector element, and the element a scalar type is. *)
+let of_elem = function Elem.F32 -> F32 | Elem.F64 -> F64 | Elem.Int w -> Int w
+
+let elem = function
+  | F32 -> Some Elem.F32
+  | F64 -> Some Elem.F64
+  | Int w -> Some (Elem.Int w)
+  | Flags | Mask _ | Order | Pred | Ptr | Vec _ -> None
+
+let lanes_in_range l =
+  let n = Lanes.to_int l in
+  n >= 1 && n <= max_lanes
+
 let is_float = function F32 | F64 -> true | _ -> false
 let is_int = function Int _ -> true | _ -> false
 

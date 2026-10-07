@@ -25,7 +25,14 @@ module Make (T : Mir_sel.TARGET) = struct
     | Mir_type.F32 -> Some (Mir_target.Bank.Fpr, 32)
     | Mir_type.Flags ->
         Some (Mir_target.Bank.Flags, T.flags_view.Mir_target.View.bits)
-    | Mir_type.Mask _ | Mir_type.Order | Mir_type.Vec _ -> None
+    | Mir_type.Vec (e, n) -> (
+        (* a register-wide slice or its half *)
+        match
+          Int64.to_int (Mir_type.Elem.bytes e) * 8 * Mir_type.Lanes.to_int n
+        with
+        | (64 | 128) as bits -> Some (Mir_target.Bank.Fpr, bits)
+        | _ -> None)
+    | Mir_type.Mask _ | Mir_type.Order -> None
 
   let in_memory bits (l : Loc.t) =
     match l with

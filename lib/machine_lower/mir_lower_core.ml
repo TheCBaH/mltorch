@@ -60,6 +60,7 @@ module Mutation = struct
     | Scale_bytes
     | Sequential_transfer
     | Stale_local
+    | Vector_stride  (** a lane access's stride doubled *)
     | Zero_extend
 end
 

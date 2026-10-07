@@ -132,6 +132,15 @@ let plan ?mutation ?features ?alloc_mutation ?frame_mutation ?pad ?stage kernel
   | Ok c ->
       report ?mutation ?features ?alloc_mutation ?frame_mutation ?pad ?stage c
 
+let planned ?mutation ?features ?alloc_mutation ?frame_mutation ?pad ?stage
+    ~target ~numerics kernel ~bind =
+  match
+    Src.case_of_planned ~target ~numerics (Fusion_plan.default kernel) ~bind
+  with
+  | Error e -> e
+  | Ok c ->
+      report ?mutation ?features ?alloc_mutation ?frame_mutation ?pad ?stage c
+
 let program ?mutation ?sites ?features ?alloc_mutation ?frame_mutation ?pad
     ?stage ?fma ?precision p ~inputs =
   match Src.case_of_program p ~inputs ?fma ?precision () with

@@ -14,6 +14,8 @@ module Refusal : sig
     | Invalid_selection of Mir_diagnostic.t
     | Missing_site of Mir_failure.t
     | Operation of string
+    | Vector of Mir_vsplit.Refusal.t
+        (** a vector the split into register-wide slices refuses *)
     | Width of Mir_type.t
 
   val pp : Format.formatter -> t -> unit
