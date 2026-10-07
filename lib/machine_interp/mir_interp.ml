@@ -433,6 +433,10 @@ and exec st ~depth frame (i : Mir_op.t Mir_instr.t) =
       with
       | Ok () -> ()
       | Error e -> memory_fault st frame e)
+  | Mir_op.Undef view -> (
+      match Binding.view st.binding st.program view with
+      | Some p -> Mir_memory.undefine st.memory p
+      | None -> defect st frame D.Invalid_program)
 
 let run ?(fuel = 10_000_000L) ?(max_depth = 64) ?invocation ?(models = []) g
     memory binding ~args =

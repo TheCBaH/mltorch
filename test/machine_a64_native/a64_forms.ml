@@ -425,4 +425,32 @@ let forms =
           (Msz.S, F Fsz.S);
           (Msz.D, F Fsz.D);
         ];
+      List.map
+        (fun (signed, from, name) ->
+          {
+            (form ~inputs:[ G Sz.W ] name (G Sz.W) name (fun vs ->
+                 Ext
+                   {
+                     signed;
+                     from;
+                     src = { (arg vs 0) with Mir_value.ty = Mir_type.Int from };
+                   }))
+            with
+            Form.asm = Printf.sprintf "%s %%w[d], %%w[a]" name;
+          })
+        [
+          (true, Mir_width.W8, "sxtb");
+          (true, Mir_width.W16, "sxth");
+          (false, Mir_width.W8, "uxtb");
+          (false, Mir_width.W16, "uxth");
+        ];
+      List.map
+        (fun (w, name) ->
+          {
+            (form ~inputs:[ G Sz.W ] (name ^ ".trunc") (G Sz.W) name (fun vs ->
+                 Trunc (w, arg vs 0)))
+            with
+            Form.asm = Printf.sprintf "%s %%w[d], %%w[a]" name;
+          })
+        [ (Mir_width.W8, "uxtb"); (Mir_width.W16, "uxth") ];
     ]

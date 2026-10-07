@@ -37,7 +37,10 @@ type result = { selected : X64_stage.Sel.Verified.t; record : Mir_id.View.t }
 val program :
   ?mutation:Mutation.t ->
   ?sites:Mir_failure.Site_entry.t array ->
+  ?unlisted:Mir_failure.Unlisted.t ->
   ?features:Mir_target.Feature.t list ->
   Mir_verify.Generic.t ->
   (result, Refusal.t) Err.t
-(** [features] defaults to the baseline, [[Sse2]]. *)
+(** [features] defaults to the baseline, [[Sse2]]. [unlisted] (default
+    [Refused]) is what a site-bearing failure [sites] has no entry for means: a
+    refusal, or the sentinel site. *)

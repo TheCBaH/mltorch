@@ -1,11 +1,16 @@
 (* The selected stage: one target's closed opcode family over virtual SSA
    values, with explicit constraints, implicit effects and condition state.
    Selected programs hold no opaque failure exit: a failure is record stores
-   and a status return. The only target-neutral instruction is a logical event,
-   kept so counting interpretation still observes the source's marks. *)
+   and a status return. The target-neutral instructions are a logical event,
+   kept so counting interpretation still observes the source's marks, and a
+   view's bytes becoming undefined, kept so a fresh object's freshness is still
+   checked; neither emits code. *)
 
 module Op = struct
-  type 'op t = Event of Mir_event.t * int64 | Machine of 'op
+  type 'op t =
+    | Event of Mir_event.t * int64
+    | Machine of 'op
+    | Undef of Mir_id.View.t
 end
 
 module Terminator = struct
@@ -106,8 +111,14 @@ module Make (T : TARGET) = struct
     type term = T.test Terminator.t
 
     let stage = Mir_diagnostic.Stage.Selected
-    let operands = function Op.Event _ -> [] | Op.Machine o -> T.uses o
-    let ordered = function Op.Event _ -> true | Op.Machine o -> T.ordered o
+
+    let operands = function
+      | Op.Event _ | Op.Undef _ -> []
+      | Op.Machine o -> T.uses o
+
+    let ordered = function
+      | Op.Event _ | Op.Undef _ -> true
+      | Op.Machine o -> T.ordered o
 
     let typing _ = function
       | Op.Event (_, n) ->
@@ -118,6 +129,7 @@ module Make (T : TARGET) = struct
                  (Mir_typing.Error.Bad_immediate
                     Mir_typing.Immediate.Event_count))
       | Op.Machine o -> Result.map_error (fun s -> P.Target s) (T.typing o)
+      | Op.Undef _ -> Ok []
 
     let edges = Terminator.edges
 
@@ -171,7 +183,7 @@ module Make (T : TARGET) = struct
           (fun (i : Stage.op Mir_instr.t) ->
             let instr = i.Mir_instr.id in
             match i.Mir_instr.op with
-            | Op.Event _ -> ()
+            | Op.Event _ | Op.Undef _ -> ()
             | Op.Machine o ->
                 List.iter
                   (fun ft ->
@@ -253,6 +265,7 @@ module Make (T : TARGET) = struct
   let pp_op n fmt = function
     | Op.Event (e, k) -> Fmt.pf fmt "event %s x%Ld" (Mir_event.name e) k
     | Op.Machine o -> T.pp_op (Mir_pp.Names.value n) fmt o
+    | Op.Undef v -> Fmt.pf fmt "undef %a" Mir_id.View.pp v
 
   let pp_term n fmt = function
     | Terminator.Branch { test; then_; else_ } ->

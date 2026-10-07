@@ -200,11 +200,11 @@ let%expect_test "support matrix" =
         NaN -> failure i64_from_float_nan (block split)
         an infinity -> failure i64_from_float_infinite (block split)
         outside [-2^63, 2^63) -> failure i64_from_float_out_of_range (block split)
-    float.cos              M4.4  helper:cos   -      call
-    float.erf              M4.4  helper:erf   -      call
-    float.exp              M4.4  helper:exp   -      call
-    float.log              M4.4  helper:log   -      call
-    float.sin              M4.4  helper:sin   -      call
+    float.cos              M4.4  helper:cos   -      call libm (binary32: fext; call; fround)
+    float.erf              M4.4  helper:exp   -      owned: abs; A-S polynomial; call exp (binary32 steps at binary32)
+    float.exp              M4.4  helper:exp   -      call libm (binary32: fext; call; fround)
+    float.log              M4.4  helper:log   -      call libm (binary32: fext; call; fround)
+    float.sin              M4.4  helper:sin   -      call libm (binary32: fext; call; fround)
     float.sqrt             M3    primitive    -      fsqrt (correctly rounded)
     float.trunc            M3    primitive    -      ftrunc
     i64.add                M3    primitive    -      add.i64 (modular)
@@ -293,7 +293,7 @@ let%expect_test "support matrix" =
         flat offset outside the buffer -> defect (invariant)
     load.in_bounds         M4.2  primitive    reads  byte offset; load.i8; sext; sub zero_point; scvt; fmul scale (channel from C)
         coordinate outside (proof; byte range checked) -> defect (invariant)
-    local.alloc            M4.3  primitive    local  fresh dynamic object; no native slice
+    local.alloc            M4.3  primitive    local  per-site scratch region; undef; addr
     local.read             M4.3  primitive    local  bounds guard when named; load.i64; bitcast
         outside a named local's object -> failure unbound_local (block split)
         outside an anonymous local's object -> defect (invariant)
@@ -302,10 +302,10 @@ let%expect_test "support matrix" =
         outside its object -> defect (invariant)
     mark                   M3    primitive    event  event x1
     mark_lanes             M3    primitive    event  event x lanes
-    meter.charge           M4.3  primitive    meter  load remaining; sle 0 guard; store remaining-1
+    meter.charge           M4.3  primitive    meter  load remaining; slt 0 guard; store remaining-1
         no update left (before the body) -> failure scan_meter (block split)
     meter.release          M4.3  primitive    meter  load live; sub; store
-    meter.reserve          M4.3  primitive    meter  load live; add; slt guard; store
+    meter.reserve          M4.3  primitive    meter  load live; add; sle limit guard; store
         live state over the peak -> failure scan_meter (block split)
     meter.reset            M4.3  primitive    meter  store limit; store 0
     pool_better            M4.1  primitive    -      fcmp.olt best value; fcmp.uno value; por
@@ -349,7 +349,7 @@ let%expect_test "types" =
   [%expect
     {|
     effect -> order
-    local -> refused until M4.3
+    local -> ptr64
     mask<x4> -> refused until M11
     f32 -> f32
     f64 -> f64

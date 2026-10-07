@@ -19,6 +19,12 @@ module Refusal : sig
         (** the lowering produced a program its verifier rejects: a compiler
             defect *)
     | Invalid_program of Ssa_ir.Ssa_verify.diagnostic
+    | Local_object of Ssa_ir.Ssa_id.Value.t
+        (** a local used through a value other than its own allocation's result,
+            whose object is then not statically known *)
+    | Local_storage of Ssa_ir.Ssa_id.Value.t
+        (** the allocation whose object takes the program's local bytes past
+            {!Mir_layout_map.Scratch.local_limit} *)
     | Operation of { op : string; slice : Mir_census.Slice.t }
         (** an SSA operation (by its stable name) admitted only by a later slice
         *)
@@ -34,16 +40,28 @@ end
     defect the differential harness must detect. No consumer passes one. *)
 module Mutation : sig
   type t =
+    | Channel_zero  (** a per-channel decode reading channel 0's parameters *)
+    | Charge_after_body
+        (** a meter charge moved to the end of its block, after the body it
+            guards *)
     | Conversion_order
         (** a float-to-i64 range guard before its NaN and infinity guards *)
     | Double_rounding  (** i64 to binary32 through binary64 *)
     | Eager_load  (** a checked load's read moved above its guards *)
+    | Erf_distributed
+        (** the error function's last polynomial step distributed over its sum
+        *)
+    | Erf_single_rounding
+        (** the binary32 error function computed in binary64 and rounded once *)
     | Guard_order  (** axis guards in reverse order *)
     | Operand_order  (** a float subtraction's or division's operands swapped *)
     | Scale_bytes  (** element offsets scaled by twice the element bytes *)
     | Sequential_transfer
         (** an edge argument that names an earlier rebound parameter reads its
             new value *)
+    | Stale_local
+        (** a local allocation that keeps its site's earlier bytes instead of
+            starting undefined *)
     | Zero_extend  (** index widening by zero- instead of sign-extension *)
 end
 

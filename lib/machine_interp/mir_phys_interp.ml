@@ -543,7 +543,11 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
                   | Mir_sel.Op.Event (e, n) ->
                       let k = slot_of e in
                       events.(k) <- Int64.add events.(k) n
-                  | Mir_sel.Op.Machine op -> exec op uses defs))
+                  | Mir_sel.Op.Machine op -> exec op uses defs
+                  | Mir_sel.Op.Undef v -> (
+                      match view v with
+                      | Some p -> Mir_memory.undefine memory p
+                      | None -> defect D.Invalid_program)))
             b.Mir_phys.Block.body;
           tick (here None);
           match b.Mir_phys.Block.terminator with

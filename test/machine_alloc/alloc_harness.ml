@@ -50,7 +50,10 @@ let physical ?mutation ?edit ?(sites = [||]) (case : Src.Case.t) =
               (Mir_interp.instantiate (regions_program phys) memory
                  ~bound:case.Src.Case.bound)
           in
-          let r = P.run phys memory binding ~args:[] in
+          let r =
+            P.run ~models:Machine_interp.Mir_math_model.all phys memory binding
+              ~args:[]
+          in
           let sel = A64_stage.Sel.Verified.selected res.A64_select.selected in
           let record =
             (Option.get
@@ -63,13 +66,13 @@ let physical ?mutation ?edit ?(sites = [||]) (case : Src.Case.t) =
                ~layout:case.Src.Case.lowered.Machine_lower.Mir_lower.layout
                ~sites ~record memory binding r.P.outcome r.P.events))
 
-let report ?mutation ?edit case =
-  match physical ?mutation ?edit case with
+let report ?mutation ?edit ?sites case =
+  match physical ?mutation ?edit ?sites case with
   | Rejected e -> "rejected: " ^ e
   | Checked obs -> (
       let alloc = { Src.Route.name = "allocated"; observation = obs } in
       let sel =
-        match Machine_aarch64_test.A64_harness.selected case with
+        match Machine_aarch64_test.A64_harness.selected ?sites case with
         | Ok (_, o) -> Some { Src.Route.name = "aarch64"; observation = o }
         | Error _ -> None
       in
@@ -88,10 +91,10 @@ let plan ?mutation ?edit kernel ~bind =
   | Error e -> e
   | Ok c -> report ?mutation ?edit c
 
-let program ?mutation ?edit ?fma p ~inputs =
-  match Src.case_of_program p ~inputs ?fma () with
+let program ?mutation ?edit ?sites ?fma ?precision p ~inputs =
+  match Src.case_of_program p ~inputs ?fma ?precision () with
   | Error e -> e
-  | Ok c -> report ?mutation ?edit c
+  | Ok c -> report ?mutation ?edit ?sites c
 
 module Fr = Machine_alloc.Mir_frame.Make (A64) (A64_frame)
 
@@ -143,7 +146,8 @@ let realized_report ?mutation ?pad (case : Src.Case.t) =
                  ~bound:case.Src.Case.bound)
           in
           let r =
-            P.run ~realized:true ~seed:caller_state real memory binding ~args:[]
+            P.run ~models:Machine_interp.Mir_math_model.all ~realized:true
+              ~seed:caller_state real memory binding ~args:[]
           in
           let sel = A64_stage.Sel.Verified.selected res.A64_select.selected in
           let record =

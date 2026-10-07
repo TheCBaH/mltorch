@@ -204,12 +204,13 @@ let split_on_status b ~nonzero ~status ~after =
    [const ty bits] materializes a constant; [float_bits] moves a float
    payload's bits to an integer register; [skip] leaves one word unstored (a
    mutation). [None] when a site-bearing kind finds no compatible entry. *)
-let store_record b (f : Mir_fail.t) ~sites ~base ~const ~float_bits ~store ~one
-    ?skip () =
+let store_record b (f : Mir_fail.t) ?unlisted ~sites ~base ~const ~float_bits
+    ~store ~one ?skip () =
   let failure = f.Mir_fail.failure in
   let site =
     if Mir_failure.uses_site failure then
-      Mir_failure.bind_site ~table:sites failure |> Option.map Option.some
+      Mir_failure.bind_site ?unlisted ~table:sites failure
+      |> Option.map Option.some
     else Some None
   in
   match site with

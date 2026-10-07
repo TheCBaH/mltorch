@@ -299,7 +299,7 @@ module Make (T : Mir_sel.TARGET) = struct
                   | _ -> st')
               | Mir_phys.Instr.Exec { instr; uses; defs } -> (
                   match instr.Mir_instr.op with
-                  | Mir_sel.Op.Event _ -> st
+                  | Mir_sel.Op.Event _ | Mir_sel.Op.Undef _ -> st
                   | Mir_sel.Op.Machine op ->
                       List.iter2 (need st) uses (T.uses op);
                       let st = List.fold_left kill_view st (T.clobbers op) in

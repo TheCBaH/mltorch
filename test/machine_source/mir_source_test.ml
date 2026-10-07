@@ -171,8 +171,38 @@ let%expect_test "recurrences and simultaneous transfers" =
     n=10: ok [0x1.b8p+5:f32 0x1.64p+6:f32 0x1p+0:f32 0x1p+1:f32]
     sequential: ok [0x1.4p+2:f32 0x1p+3:f32 0x1p+1:f32 0x1p+1:f32] DISAGREE structured vs generic: output t1[3]: 0x1p+0:f32 vs 0x1p+1:f32 |}]
 
-let%expect_test "outside the slice is a typed refusal" =
+let%expect_test "an exp kernel through its libm helper" =
   show
     (Loop_programs.unary_kernel Expr.Value.Exp)
     ~bind:(data_bind [| 1.; 2.; 3.; 4. |]);
-  [%expect {| refused: float.exp is admitted by M4.4 |}]
+  [%expect {| ok [reference: agree] |}]
+
+let%expect_test "outside the slice is a typed refusal: vectors" =
+  let module B = Ssa_ir.Ssa_builder in
+  let out =
+    {
+      Ssa_ir.Ssa_buffer.id = Ssa_ir.Ssa_id.Buffer.of_int 0;
+      extents = Expr.Coord.make ~n:1L ~t:1L ~d:1L ~h:1L ~w:1L ~c:1L;
+      format = Ssa_ir.Ssa_format.F32;
+      role = Ssa_ir.Ssa_buffer.Output;
+    }
+  in
+  let p =
+    Err.or_raise ~pp_error:Ssa_ir.Ssa_verify.pp_error
+      (B.program ~buffers:[ out ] (fun bld ->
+           let v =
+             B.vec_splat bld
+               ~lanes:(Ssa_ir.Ssa_type.Lanes.of_int 2)
+               (B.f64 bld 1. :> Ssa_ir.Ssa_value.t)
+           in
+           let x =
+             B.as_f64
+               (B.vec_extract bld ~lane:(Ssa_ir.Ssa_type.Lane.of_int 0) v)
+           in
+           B.store_f64 bld out.Ssa_ir.Ssa_buffer.id
+             ~encode:Ssa_ir.Ssa_op.Encode.F32_round
+             (B.Flat (B.index bld 0L))
+             x))
+  in
+  print_endline (Mir_source.check_program p ~inputs:[]);
+  [%expect {| refused: vec.splat is admitted by M11 |}]

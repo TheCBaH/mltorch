@@ -157,13 +157,29 @@ module Site_entry = struct
         false
 end
 
+(* What a table's silence about a site-bearing failure means. *)
+module Unlisted = struct
+  type t =
+    | Refused  (** nothing: the table is not known to list every site *)
+    | Unreachable
+        (** proved unreachable: the table's producer lists every site its own
+            lowering could not prove away (a bundle's Loop table), so an
+            unlisted failure takes the one-past-table sentinel, and a record
+            that reaches it decodes as a defect *)
+end
+
 (* The site word of a site-bearing failure: the first compatible entry of the
-   supplied table, as the SSA C emitter selects it. [None] for a reachable
-   failure with no compatible entry — a refusal, never a sentinel. *)
-let bind_site ~(table : Site_entry.t array) failure =
+   supplied table, as the SSA C emitter selects it, else the sentinel when the
+   table is complete. [None] for a failure with no compatible entry in a table
+   not known to be complete — a refusal. *)
+let bind_site ?(unlisted = Unlisted.Refused) ~(table : Site_entry.t array)
+    failure =
   let n = Array.length table in
   let rec go i =
-    if i >= n then None
+    if i >= n then
+      match unlisted with
+      | Unlisted.Refused -> None
+      | Unlisted.Unreachable -> Some (Mir_id.Site.of_int n)
     else if Site_entry.compatible table.(i) failure then
       Some (Mir_id.Site.of_int i)
     else go (i + 1)

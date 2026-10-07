@@ -110,7 +110,7 @@ module Make (T : Mir_sel.TARGET) (R : REGISTERS) = struct
   (* One selected instruction: reloads, the instruction, spills. *)
   let instr st (i : T.op Mir_sel.Op.t Mir_instr.t) =
     match i.Mir_instr.op with
-    | Mir_sel.Op.Event _ ->
+    | Mir_sel.Op.Event _ | Mir_sel.Op.Undef _ ->
         [ Mir_phys.Instr.Exec { instr = i; uses = []; defs = [] } ]
     | Mir_sel.Op.Machine op ->
         let operands = T.uses op in

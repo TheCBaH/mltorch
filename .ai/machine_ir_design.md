@@ -154,8 +154,13 @@ local variable) and typed payload. The model record keeps each kind's existing
 schema — `kind:int32` at 0, `invocation:int32` at 4, twelve `int64` words from
 8 — and only `scan_projection` (word 5) and `unbound_local` (word 0) hold a site
 word. A site binds to the first compatible entry of the bundle's own site table
-(the SSA C emitter's rule); a reachable site-bearing failure with no compatible
-entry is a refusal, and decoding the one-past-table sentinel is a defect.
+(the SSA C emitter's rule). What a table's silence means is stated, not
+guessed (`Mir_failure.Unlisted`): by default a site-bearing failure with no
+compatible entry is a refusal; a table declared complete — a bundle's Loop
+table, which lists every site its lowering could not prove unreachable — gives
+it the one-past-table sentinel, as `Ssa_c` does, and decoding the sentinel is
+a defect, so a failure the declaration wrongly ruled out still cannot pass as
+a row.
 
 `Mir_observation` normalizes a route's run: status (success, failure row,
 defect, unsupported capability, exhausted fuel), defined cells of each public
@@ -193,6 +198,8 @@ it never calls the SSA interpreter, `Ssa_scalar` or a generated kernel.
   host's binary64-to-binary32 rounding. Tests cross-check FMA and i64-to-f32
   against the SSA library's separate derivations (random and constructed
   double-rounding cases).
+- **Freshness**: `undef` clears the initialization of exactly its view's
+  window; the bytes stay, so a stale read is a defect rather than a value.
 - **Control**: an iterative block dispatcher; edge arguments are all read
   before any parameter is rebound; calls nest to a bounded depth; a step
   budget bounds the run. A `fail` stops at once with its row; a callee's or
@@ -251,13 +258,70 @@ census slice that will admit it.
   predicate is `olt(best, value) or uno(value)`; a gather check guards
   `[-extent, extent)`; `Float_fma` is `ffma`, admitted only when the summary
   permits contraction.
+- **Storage and quantization** (the M4.2 slice): binary16 decodes through
+  explicit bit manipulation to binary64; bfloat16 is the high half of a
+  binary32 (`zext; shl 16; bitcast`); i32 sign-extends then `scvt`. Bool is
+  computed in i32 — a decode zero-extends the byte and compares with zero, an
+  encode selects `0`/`1` (NaN stores 1) and `itrunc`s to i8 before the byte
+  store — because neither target keeps i8 arithmetic: on both, an i8 or i16
+  value lives in a 32-bit register with only its low bits meaningful, which
+  is all a byte store and an extension read. The `itrunc` is AArch64
+  `uxtb`/`uxth` and x86-64 `movzx`, natively conformance-tested on AArch64.
+  Dequantization is `scale × (q − zero_point)` with `q` sign-extended to
+  i64: per-tensor parameters are constants; per-channel ones are an i64-word
+  table per buffer (`Mir_layout_map.Params`: scale bits at `8c`, zero point
+  after the scales), a read-only bound region indexed by the access's C
+  coordinate. A flat access names no channel, and the SSA verifier already
+  rejects a per-channel buffer through one, so the lowering's own refusal is
+  only a backstop.
+- **Locals and the meter** (the M4.3 slice): each `local.alloc` site owns a
+  scratch region (`Mir_layout_map.Scratch`, eight bytes per binary64 cell,
+  checked arithmetic, all sites together bounded by `local_limit`), and every
+  run of the site begins with `undef view` — the generic op that makes a
+  view's bytes undefined again — before `addr view` gives the local's
+  pointer. Reusing one region for every run of a site is sound only because
+  no earlier instance stays reachable: a local reaching a use through
+  anything but its own allocation's result (a loop or join parameter) is
+  refused, so no CFG lifetime or escape metadata is needed, and SSA handle
+  uniqueness is never taken as a stack-reuse proof. A read of a cell this run
+  never wrote is then the interpreter's `uninitialized` defect, as it is the
+  oracle's. A read outside a named local's object guards `[0, slots)` (in
+  i64) and fails `unbound_local`, its site bound to the first compatible
+  table entry; outside an anonymous one, and any write outside, is the
+  byte-range defect. `check_local` is the same guard; `check_scan` guards the
+  row, then the lane, with payload `(row, lane, extent)`. The scan meter is a
+  runtime region of two i64 words (updates remaining, live state), reset at
+  entry when the program touches it and by `meter.reset`: a charge loads the
+  remaining count, fails `scan_meter(updates_exhausted)` unless it is
+  positive — before the body it guards — and stores it less one; a reserve
+  fails `scan_meter(state_over_limit)` when the live state plus `2 × width`
+  passes the limit; a release subtracts. Both are invocation storage
+  re-established on entry or at the site, so a failure needs no cleanup.
+  `Local` lowers to `ptr`.
+- **Math functions** (the M4.4 slice): `cos`, `exp`, `log` and `sin` are
+  calls to `Mir_math` helpers — versioned, pure, binary64, infallible — each
+  bound to the C library symbol of its name, which a native realization
+  declares and links. Their interpreter models (`Mir_math_model`) are the
+  host's binary64 libm, which is the primitive the oracle and the C and Wasm
+  backends use: agreement holds by construction, and another platform's libm
+  is a reported disagreement, never a tolerance. A binary32 operand widens,
+  calls, and rounds once, as the precision rewrite defines. `erf` is owned:
+  no helper, but the reference's Abramowitz-Stegun formula expanded into
+  primitives (an exact absolute value by masking the sign bit, `fdiv`, the
+  Horner chain in the reference's association) with one `exp` call; at
+  binary32 every step is a binary32 operation and `exp` runs between a
+  widening and one rounding, matching `Ssa_numerics.erf32`. A program
+  declares exactly the helpers it calls. A flat `check_access` lowers to
+  nothing (it has no source failure). Vectors are the only refused family.
 
 `Mir_ssa_rows` maps an SSA interpreter failure to the Machine IR row it must
 equal; it is the oracle adapter, used by tests and model hosts.
 
 `Mir_lower.Mutation` is fault injection for the evidence suite only
-(conversion guard order, double rounding through binary64, eager load, guard
-order, operand order, byte scaling, sequential transfer, zero extension);
+(channel zero, charge after the body, conversion guard order, double
+rounding through binary64, eager load, the error function's last step
+distributed or its binary32 form rounded once, guard order, operand order,
+byte scaling, sequential transfer, stale local bytes, zero extension);
 every mutation is detected by the source harness.
 
 ## Source differential harness
@@ -288,7 +352,9 @@ families, per-form features, uses, typing, order, constraints, result write
 rule, implicit clobbers, whether it changes condition state, the condition bits
 it defines and reads. `Mir_sel.Make` instantiates the selected container (the
 generic `Mir_block`/`Mir_func`/`Mir_program` over `Op.t = Event | Machine of
-target op` and `Terminator.t = Branch of test | Jump | Return` — no `fail`
+target op | Undef` — the two target-neutral instructions emit no code; `undef`
+stays through allocation, where it has no locations, so every stage's
+interpreter still checks a local's freshness — and `Terminator.t = Branch of test | Jump | Return` — no `fail`
 exists here), its verifier (the shared structure plus: features within the
 program's set, constraint shapes, branch-test typing, and **local condition
 state** — a `flags` value is used only in its own block with no
@@ -495,4 +561,10 @@ where a value is dead is accepted imprecision from the loop rule.
 OCaml's arm64 backend contracts `x *. y +. z` into one fused instruction. Any
 host computation that must round a product before a sum (an unfused oracle, a
 two-step reference) hides the product behind `Sys.opaque_identity`;
-`Ssa_scalar`'s unfused `Float_fma` path does.
+`Ssa_scalar`'s unfused `Float_fma` path does, and so does the reference error
+function (`Expr`'s Abramowitz-Stegun form), which on AArch64 had compiled to
+five fused instructions and differed from the as-written formula — the one
+the C (`-ffp-contract=off`), Wasm and JavaScript evaluations compute — by an
+ulp at 0.5. Still fused on AArch64 and outside this design's scope: the Loop
+reference interpreter's unfused binary64 `Fma` branch and the `arange`
+factory's `start + i * step`.

@@ -1,49 +1,8 @@
 open Ssa_ir
 open Machine_ir
+include Mir_lower_core
 module B = Mir_builder
 module L = Mir_layout_map
-
-module Refusal = struct
-  type t =
-    | Buffer_layout of Ssa_id.Buffer.t
-    | Cfg of Ssa_cfg_lower.error
-    | Invalid_cfg of Ssa_cfg_verify.diagnostic
-    | Invalid_lowering of Mir_diagnostic.t
-    | Invalid_program of Ssa_verify.diagnostic
-    | Operation of { op : string; slice : Mir_census.Slice.t }
-    | Planning of Mir_planning.mismatch
-    | Precision of Mir_planning.Precision.t
-    | Type of { ty : Ssa_type.t; slice : Mir_census.Slice.t }
-
-  let pp fmt = function
-    | Buffer_layout b ->
-        Fmt.pf fmt "buffer %a has no representable size" Ssa_id.Buffer.pp b
-    | Cfg e -> Ssa_cfg_lower.pp_error fmt e
-    | Invalid_cfg d -> Ssa_cfg_verify.pp_error fmt (`Invalid_cfg d)
-    | Invalid_lowering d -> Fmt.pf fmt "lowering defect: %a" Mir_diagnostic.pp d
-    | Invalid_program d -> Ssa_verify.pp_diagnostic fmt d
-    | Operation { op; slice } ->
-        Fmt.pf fmt "%s is admitted by %s" op (Mir_census.Slice.name slice)
-    | Planning m -> Mir_planning.pp_mismatch fmt m
-    | Precision p ->
-        Fmt.pf fmt "binary32 arithmetic under a %s summary"
-          (Mir_planning.Precision.name p)
-    | Type { ty; slice } ->
-        Fmt.pf fmt "type %a is admitted by %s" Ssa_type.pp ty
-          (Mir_census.Slice.name slice)
-end
-
-module Mutation = struct
-  type t =
-    | Conversion_order
-    | Double_rounding
-    | Eager_load
-    | Guard_order
-    | Operand_order
-    | Scale_bytes
-    | Sequential_transfer
-    | Zero_extend
-end
 
 type result = {
   program : Mir_verify.Generic.t;
@@ -90,157 +49,137 @@ let summary ?target ?fma (plan : Ssa_plan.t) =
     ~policy:(Ssa_numerics.identity plan.Ssa_plan.numerics)
     ~schedule ~precision ~lanes ~fma ~capabilities
 
-(* The lowering state of one function. *)
-type st = {
-  esc : Refusal.t Err.Escape.t;
-  bld : B.t;
-  layout : L.Entry.t list;
-  values : (int, Mir_value.t) Hashtbl.t;  (** SSA value id -> machine value *)
-  heads : (int, B.block) Hashtbl.t;
-      (** CFG block id -> its first machine block *)
-  mutable cur : B.block;
-  mutable origin : Mir_origin.t;
-  mutation : Mutation.t option;
-}
-
-let mutated st m = st.mutation = Some m
-let refuse st r = Err.Escape.throw st.esc r
-
-let machine_type st (ty : Ssa_type.t) =
-  match Mir_census.machine_type ty with
-  | Ok t -> t
-  | Error slice -> refuse st (Refusal.Type { ty; slice })
-
-let is_effect (v : Ssa_value.t) = Ssa_type.equal v.Ssa_value.ty Ssa_type.Effect
-
-let value st (v : Ssa_value.t) =
-  match Hashtbl.find_opt st.values (v.Ssa_value.id :> int) with
-  | Some m -> m
-  | None -> invalid_arg "Mir_lower: a value used before its definition"
-
-let bind st (v : Ssa_value.t) m =
-  Hashtbl.replace st.values (v.Ssa_value.id :> int) m
-
-let with_role st role = st.origin <- { st.origin with Mir_origin.role }
-let emit st op = B.emit ~origin:st.origin st.bld st.cur op
-let emit_unit st op = B.emit_unit ~origin:st.origin st.bld st.cur op
-let const st c = emit st (Mir_op.Const c)
-let i32k st x = const st (Mir_const.i32 x)
-let i64k st x = const st (Mir_const.i64 x)
-
-let sext st v =
-  let k =
-    if mutated st Mutation.Zero_extend then Mir_op.Iext.Zext
-    else Mir_op.Iext.Sext
+(* binary16 bits (in an i32) to binary64 by primitives: a normal or an
+   infinity/NaN by its binary32 bit pattern, a subnormal or zero as its
+   significand times 2^-24, the sign applied last. *)
+let f16_decode st h =
+  let i32 x = i32k st x in
+  let iar o a b = emit st (Mir_op.Iarith (o, a, b)) in
+  let s = iar Mir_op.Iarith.Shr_u h (i32 15L) in
+  let e =
+    iar Mir_op.Iarith.And (iar Mir_op.Iarith.Shr_u h (i32 10L)) (i32 0x1FL)
   in
-  emit st (Mir_op.Iext (k, Mir_width.W64, v))
-
-let icmp st c a b = emit st (Mir_op.Icmp (c, a, b))
-let pand st a b = emit st (Mir_op.Pbinary (Mir_op.Pbinary.And, a, b))
-let select st p a b = emit st (Mir_op.Select (p, a, b))
-
-(* Ends the current block on [ok]: true continues in a fresh block, false
-   reaches a fresh block that computes the payload and fails. *)
-let guard st ~ok failure payload =
-  let role = st.origin.Mir_origin.role in
-  let cont = B.new_block st.bld [] and bad = B.new_block st.bld [] in
-  B.branch st.cur ok (cont, []) (bad, []);
-  st.cur <- bad;
-  with_role st Mir_origin.Role.Payload;
-  let p = payload () in
-  B.fail st.cur failure p;
-  st.cur <- cont;
-  with_role st role
-
-let pnot st a = emit st (Mir_op.Pnot a)
-let fcmp st c a b = emit st (Mir_op.Fcmp (c, a, b))
-let f64k st x = const st (Mir_const.f64 x)
-let index_min = -0x8000_0000L
-let index_max = 0x7FFF_FFFFL
-
-(* An i64 inside the index domain. *)
-let in_index_domain st x =
-  let lo = icmp st Mir_op.Icmp.Sle (i64k st index_min) x in
-  let hi = icmp st Mir_op.Icmp.Sle x (i64k st index_max) in
-  pand st lo hi
-
-let entry_of st id =
-  match L.find st.layout id with
-  | Some e -> e
-  | None -> invalid_arg "Mir_lower: an undeclared buffer"
-
-(* The axis guards of a checked coordinate access, in axis order: the first
-   axis outside fails with every coordinate. *)
-let coord_guards st (e : L.Entry.t) (c : Ssa_value.t Expr.Coord.t) =
-  let extents = e.L.Entry.buffer.Ssa_buffer.extents in
-  let source = Ssa_buffer.source e.L.Entry.buffer in
-  with_role st Mir_origin.Role.Guard;
-  List.iter
-    (fun axis ->
-      let x = value st (Expr.Coord.get c axis) in
-      let ext = Expr.Coord.get extents axis in
-      let ok =
-        pand st
-          (icmp st Mir_op.Icmp.Sle (i32k st 0L) x)
-          (icmp st Mir_op.Icmp.Slt x (i32k st ext))
-      in
-      guard st ~ok
-        (Mir_failure.Coord_out_of_range { Mir_failure.Coord.source; axis })
-        (fun () ->
-          List.map
-            (fun a -> sext st (value st (Expr.Coord.get c a)))
-            Expr.Axis.all))
-    (if mutated st Mutation.Guard_order then List.rev Expr.Axis.all
-     else Expr.Axis.all)
-
-(* The address of an access: the view's base plus the row-major element offset
-   times the element bytes, all in i64. A flat offset is an element index. *)
-let address st (e : L.Entry.t) (at : Ssa_access.t) =
-  with_role st Mir_origin.Role.Address;
-  let element =
-    match at with
-    | Ssa_access.Flat v -> sext st (value st v)
-    | Ssa_access.Coord c ->
-        let extents = e.L.Entry.buffer.Ssa_buffer.extents in
-        List.fold_left
-          (fun acc axis ->
-            let x = sext st (value st (Expr.Coord.get c axis)) in
-            match acc with
-            | None -> Some x
-            | Some acc ->
-                let scaled =
-                  emit st
-                    (Mir_op.Iarith
-                       ( Mir_op.Iarith.Mul,
-                         acc,
-                         i64k st (Expr.Coord.get extents axis) ))
-                in
-                Some (emit st (Mir_op.Iarith (Mir_op.Iarith.Add, scaled, x))))
-          None Expr.Axis.all
-        |> Option.get
+  let m = iar Mir_op.Iarith.And h (i32 0x3FFL) in
+  let sign = iar Mir_op.Iarith.Shl s (i32 31L) in
+  let mant = iar Mir_op.Iarith.Shl m (i32 13L) in
+  let f32_of bits =
+    emit st
+      (Mir_op.Fconvert
+         ( Mir_op.Fconvert.F32_to_f64,
+           emit st (Mir_op.Bitcast (Mir_type.F32, bits)) ))
   in
-  let scale =
-    if mutated st Mutation.Scale_bytes then Int64.mul 2L e.L.Entry.elem_bytes
-    else e.L.Entry.elem_bytes
+  let normal =
+    f32_of
+      (iar Mir_op.Iarith.Or sign
+         (iar Mir_op.Iarith.Or
+            (iar Mir_op.Iarith.Shl
+               (iar Mir_op.Iarith.Add e (i32 112L))
+               (i32 23L))
+            mant))
   in
-  let bytes =
-    emit st (Mir_op.Iarith (Mir_op.Iarith.Mul, element, i64k st scale))
+  let special =
+    f32_of
+      (iar Mir_op.Iarith.Or sign (iar Mir_op.Iarith.Or (i32 0x7F80_0000L) mant))
   in
-  let base = emit st (Mir_op.Addr e.L.Entry.view) in
-  emit st (Mir_op.Ptr_add (base, bytes))
+  let tiny =
+    emit st
+      (Mir_op.Fbinary
+         ( Mir_op.Fbinary.Mul,
+           emit st (Mir_op.Fconvert (Mir_op.Fconvert.S64_to_f64, sext st m)),
+           f64k st (Float.ldexp 1. (-24)) ))
+  in
+  let tiny =
+    select st
+      (icmp st Mir_op.Icmp.Eq s (i32 0L))
+      tiny
+      (emit st (Mir_op.Funary (Mir_op.Funary.Neg, tiny)))
+  in
+  select st
+    (icmp st Mir_op.Icmp.Eq e (i32 0L))
+    tiny
+    (select st (icmp st Mir_op.Icmp.Eq e (i32 0x1FL)) special normal)
 
-let unsupported st op =
-  let r = Mir_census.op_row op in
-  refuse st
-    (Refusal.Operation
-       { op = r.Mir_census.Row.op; slice = r.Mir_census.Row.slice })
+let zext32 st v = emit st (Mir_op.Iext (Mir_op.Iext.Zext, Mir_width.W32, v))
+let sext32 st v = emit st (Mir_op.Iext (Mir_op.Iext.Sext, Mir_width.W32, v))
 
-let decode st op addr (d : Ssa_op.Decode.t) =
+(* [scale * (q - zero_point)], the parameters per tensor, or per channel from
+   the buffer's parameter table at its C coordinate. *)
+let dequantize st op (e : L.Entry.t) q ~channel =
+  let q = sext st (sext32 st q) in
+  let s, z =
+    match
+      ( Ssa_format.quant e.L.Entry.buffer.Ssa_buffer.format,
+        L.Params.view e,
+        channel )
+    with
+    | Some (Ssa_format.Per_tensor { scale; zero_point }), _, _ ->
+        (f64k st scale, i64k st (Int64.of_int zero_point))
+    | Some (Ssa_format.Per_channel _), Some table, Some c ->
+        let base = emit st (Mir_op.Addr table) in
+        let c = if mutated st Mutation.Channel_zero then i32k st 0L else c in
+        let off =
+          emit st (Mir_op.Iarith (Mir_op.Iarith.Mul, sext st c, i64k st 8L))
+        in
+        let at k =
+          emit st
+            (Mir_op.Ptr_add
+               ( base,
+                 emit st (Mir_op.Iarith (Mir_op.Iarith.Add, off, i64k st k)) ))
+        in
+        let load a =
+          emit st
+            (Mir_op.Load
+               { Mir_op.Access.width = Mir_width.W64; addr = a; align = 8L })
+        in
+        let scale = emit st (Mir_op.Bitcast (Mir_type.F64, load (at 0L))) in
+        (scale, load (at (L.Params.zero_point_offset e)))
+    | _ -> unsupported st op
+  in
+  let diff = emit st (Mir_op.Iarith (Mir_op.Iarith.Sub, q, z)) in
+  emit st
+    (Mir_op.Fbinary
+       ( Mir_op.Fbinary.Mul,
+         s,
+         emit st (Mir_op.Fconvert (Mir_op.Fconvert.S64_to_f64, diff)) ))
+
+let decode ?entry ?channel st op addr (d : Ssa_op.Decode.t) =
   with_role st Mir_origin.Role.Decode;
   let load width align =
     emit st (Mir_op.Load { Mir_op.Access.width; addr; align })
   in
   match d with
+  | Ssa_op.Decode.Bf16_to_f64 ->
+      (* the high half of a binary32 *)
+      let bits =
+        emit st
+          (Mir_op.Iarith
+             (Mir_op.Iarith.Shl, zext32 st (load Mir_width.W16 2L), i32k st 16L))
+      in
+      emit st
+        (Mir_op.Fconvert
+           ( Mir_op.Fconvert.F32_to_f64,
+             emit st (Mir_op.Bitcast (Mir_type.F32, bits)) ))
+  | Ssa_op.Decode.Bool_to_f64 ->
+      let b = zext32 st (load Mir_width.W8 1L) in
+      select st
+        (icmp st Mir_op.Icmp.Ne b (i32k st 0L))
+        (f64k st 1.) (f64k st 0.)
+  | Ssa_op.Decode.F16_to_f64 ->
+      f16_decode st (zext32 st (load Mir_width.W16 2L))
+  | Ssa_op.Decode.I32_to_f64 ->
+      emit st
+        (Mir_op.Fconvert
+           (Mir_op.Fconvert.S64_to_f64, sext st (load Mir_width.W32 4L)))
+  | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I8_dequant -> (
+      match entry with
+      | None -> unsupported st op
+      | Some e ->
+          let q =
+            match d with
+            | Ssa_op.Decode.I8_dequant -> load Mir_width.W8 1L
+            | _ -> load Mir_width.W16 2L
+          in
+          dequantize st op e q ~channel)
   | Ssa_op.Decode.F32_to_f64 ->
       let bits = load Mir_width.W32 4L in
       let f = emit st (Mir_op.Bitcast (Mir_type.F32, bits)) in
@@ -251,12 +190,8 @@ let decode st op addr (d : Ssa_op.Decode.t) =
   | Ssa_op.Decode.I64_to_f64 ->
       emit st
         (Mir_op.Fconvert (Mir_op.Fconvert.S64_to_f64, load Mir_width.W64 8L))
-  | Ssa_op.Decode.Bf16_to_f64 | Ssa_op.Decode.Bool_to_f64
-  | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.I16_dequant
-  | Ssa_op.Decode.I32_to_f64 | Ssa_op.Decode.I8_dequant ->
-      unsupported st op
 
-let encode st op addr (enc : Ssa_op.Encode.t) v =
+let encode st addr (enc : Ssa_op.Encode.t) v =
   with_role st Mir_origin.Role.Encode;
   let store width align x =
     emit_unit st (Mir_op.Store ({ Mir_op.Access.width; addr; align }, x))
@@ -266,7 +201,145 @@ let encode st op addr (enc : Ssa_op.Encode.t) v =
       let r = emit st (Mir_op.Fconvert (Mir_op.Fconvert.F64_to_f32, v)) in
       store Mir_width.W32 4L (emit st (Mir_op.Bitcast (Mir_type.i32, r)))
   | Ssa_op.Encode.I64 -> store Mir_width.W64 8L v
-  | Ssa_op.Encode.Bool_nonzero -> unsupported st op
+  | Ssa_op.Encode.Bool_nonzero ->
+      (* [v <> 0.]: a NaN stores 1 *)
+      let zero = emit st (Mir_op.Fcmp (Mir_op.Fcmp.Eq, v, f64k st 0.)) in
+      let b = select st zero (i32k st 0L) (i32k st 1L) in
+      store Mir_width.W8 1L (emit st (Mir_op.Itrunc (Mir_width.W8, b)))
+
+(* [0 <= x < extent] for an index [x], in i64 so any extent compares. *)
+let within st x extent =
+  let x = sext st x in
+  pand st
+    (icmp st Mir_op.Icmp.Sle (i64k st 0L) x)
+    (icmp st Mir_op.Icmp.Slt x (i64k st extent))
+
+let local_object st (l : Ssa_value.t) =
+  match Hashtbl.find_opt st.locals (l.Ssa_value.id :> int) with
+  | Some o -> o
+  | None -> refuse st (Refusal.Local_object l.Ssa_value.id)
+
+(* The address of cell [at] of the object [base] points to. *)
+let cell st base at =
+  with_role st Mir_origin.Role.Address;
+  let off =
+    emit st (Mir_op.Iarith (Mir_op.Iarith.Mul, sext st at, i64k st 8L))
+  in
+  emit st (Mir_op.Ptr_add (base, off))
+
+(* A scan meter word: [off] bytes into the meter. *)
+let meter_word st off =
+  with_role st Mir_origin.Role.Address;
+  let base = emit st (Mir_op.Addr (snd L.Scratch.meter).Mir_view.id) in
+  emit st (Mir_op.Ptr_add (base, i64k st off))
+
+let load64 st addr =
+  emit st
+    (Mir_op.Load { Mir_op.Access.width = Mir_width.W64; addr; align = 8L })
+
+let store64 st addr x =
+  emit_unit st
+    (Mir_op.Store ({ Mir_op.Access.width = Mir_width.W64; addr; align = 8L }, x))
+
+(* A fresh meter: the whole update budget, no live state. *)
+let meter_reset st =
+  store64 st
+    (meter_word st L.Scratch.meter_remaining)
+    (i64k st (Expr.Scan_limits.max_updates st.limits));
+  store64 st (meter_word st L.Scratch.meter_live) (i64k st 0L)
+
+(* One update: fails when none is left, before the body it guards runs. *)
+let meter_charge st =
+  let at = meter_word st L.Scratch.meter_remaining in
+  with_role st Mir_origin.Role.Compute;
+  let r = load64 st at in
+  with_role st Mir_origin.Role.Guard;
+  guard st
+    ~ok:(icmp st Mir_op.Icmp.Slt (i64k st 0L) r)
+    (Mir_failure.Scan_meter Mir_failure.Meter.Updates_exhausted)
+    (fun () -> [ i64k st (Expr.Scan_limits.max_updates st.limits) ]);
+  with_role st Mir_origin.Role.Compute;
+  store64 st at (emit st (Mir_op.Iarith (Mir_op.Iarith.Sub, r, i64k st 1L)))
+
+(* A call to a math helper, which the program then declares. *)
+let math st fn x =
+  if not (List.mem fn st.helpers) then st.helpers <- fn :: st.helpers;
+  let d = Mir_math.descriptor fn in
+  let signature = function
+    | Mir_op.Callee.Helper _ ->
+        Some
+          {
+            Mir_typing.Signature.params = d.Mir_helper.params;
+            results = d.Mir_helper.results;
+          }
+    | Mir_op.Callee.Func _ -> None
+  in
+  match
+    B.op ~origin:st.origin st.bld st.cur ~signature
+      (Mir_op.Call (Mir_op.Callee.Helper d.Mir_helper.id, [ x ]))
+  with
+  | Ok [ r ] -> r
+  | _ -> invalid_arg "Mir_lower: a math helper call"
+
+let fbin st o a b = emit st (Mir_op.Fbinary (o, a, b))
+
+(* The error function, owned: the reference's Abramowitz-Stegun form in its
+   own operation order, [exp] the only call. At binary32 every step is a
+   binary32 operation (each rounds once, as the reference rounds each binary64
+   step) and [exp] runs in binary64 between a widening and one rounding. *)
+let rec erf st x =
+  if
+    mutated st Mutation.Erf_single_rounding
+    && Mir_type.equal x.Mir_value.ty Mir_type.F32
+  then
+    emit st
+      (Mir_op.Fconvert
+         ( Mir_op.Fconvert.F64_to_f32,
+           erf st (emit st (Mir_op.Fconvert (Mir_op.Fconvert.F32_to_f64, x))) ))
+  else erf_steps st x
+
+and erf_steps st x =
+  let ty = x.Mir_value.ty in
+  let f32 = Mir_type.equal ty Mir_type.F32 in
+  let k c =
+    const st
+      (if f32 then Mir_const.f32 (Ssa_const.round_f32 c) else Mir_const.f64 c)
+  in
+  let abs =
+    let ity = if f32 then Mir_type.i32 else Mir_type.i64 in
+    let mask = if f32 then 0x7FFF_FFFFL else Int64.max_int in
+    let bits = emit st (Mir_op.Bitcast (ity, x)) in
+    let m = const st { Mir_const.ty = ity; bits = mask } in
+    emit st
+      (Mir_op.Bitcast (ty, emit st (Mir_op.Iarith (Mir_op.Iarith.And, bits, m))))
+  in
+  let sign = select st (fcmp st Mir_op.Fcmp.Lt x (k 0.)) (k (-1.)) (k 1.) in
+  let mul = fbin st Mir_op.Fbinary.Mul and add = fbin st Mir_op.Fbinary.Add in
+  let t =
+    fbin st Mir_op.Fbinary.Div (k 1.) (add (k 1.) (mul (k 0.3275911) abs))
+  in
+  let poly =
+    List.fold_left
+      (fun acc a -> mul t (add (k a) acc))
+      (mul t (k 1.061405429))
+      [ -1.453152027; 1.421413741; -0.284496736 ]
+  in
+  let poly =
+    if mutated st Mutation.Erf_distributed then
+      add (mul t (k 0.254829592)) (mul t poly)
+    else mul t (add (k 0.254829592) poly)
+  in
+  let sq = emit st (Mir_op.Funary (Mir_op.Funary.Neg, mul abs abs)) in
+  let e =
+    if f32 then
+      emit st
+        (Mir_op.Fconvert
+           ( Mir_op.Fconvert.F64_to_f32,
+             math st Mir_math.Fn.Exp
+               (emit st (Mir_op.Fconvert (Mir_op.Fconvert.F32_to_f64, sq))) ))
+    else math st Mir_math.Fn.Exp sq
+  in
+  mul sign (fbin st Mir_op.Fbinary.Sub (k 1.) (mul poly e))
 
 let fbinary = function
   | Expr.Value.Add -> Mir_op.Fbinary.Add
@@ -335,6 +408,32 @@ let instr st (i : Ssa_instr.t) =
       result (emit st (Mir_op.Funary (Mir_op.Funary.Sqrt, v a)))
   | Ssa_op.Float_unary (Expr.Value.Trunc, a) ->
       result (emit st (Mir_op.Funary (Mir_op.Funary.Trunc, v a)))
+  | Ssa_op.Float_unary (Expr.Value.Erf, a) -> result (erf st (v a))
+  | Ssa_op.Float_unary
+      ( ((Expr.Value.Cos | Expr.Value.Exp | Expr.Value.Log | Expr.Value.Sin) as u),
+        a ) ->
+      let fn =
+        match u with
+        | Expr.Value.Cos -> Mir_math.Fn.Cos
+        | Expr.Value.Exp -> Mir_math.Fn.Exp
+        | Expr.Value.Log -> Mir_math.Fn.Log
+        | _ -> Mir_math.Fn.Sin
+      in
+      let x = v a in
+      (* a binary32 operand: the binary64 result rounded once *)
+      result
+        (if Mir_type.equal x.Mir_value.ty Mir_type.F32 then
+           emit st
+             (Mir_op.Fconvert
+                ( Mir_op.Fconvert.F64_to_f32,
+                  math st fn
+                    (emit st (Mir_op.Fconvert (Mir_op.Fconvert.F32_to_f64, x)))
+                ))
+         else math st fn x)
+  | Ssa_op.Check_access { at = Ssa_access.Flat _; _ } ->
+      (* no source failure: outside the buffer is a defect, and the access
+         that follows reports it *)
+      ()
   | Ssa_op.I64_arith (o, a, b) ->
       let o =
         match o with
@@ -486,8 +585,13 @@ let instr st (i : Ssa_instr.t) =
       result (select st (icmp st Mir_op.Icmp.Slt x y) x y)
   | Ssa_op.Load { buffer; at; decode = d } ->
       let e = entry_of st buffer in
+      let channel =
+        match at with
+        | Ssa_access.Coord c -> Some (value st c.Expr.Coord.c)
+        | Ssa_access.Flat _ -> None
+      in
       if mutated st Mutation.Eager_load then (
-        let x = decode st op (address st e at) d in
+        let x = decode ~entry:e ?channel st op (address st e at) d in
         (match at with
         | Ssa_access.Coord c -> coord_guards st e c
         | Ssa_access.Flat _ -> ());
@@ -496,10 +600,102 @@ let instr st (i : Ssa_instr.t) =
         (match at with
         | Ssa_access.Coord c -> coord_guards st e c
         | Ssa_access.Flat _ -> ());
-        result (decode st op (address st e at) d))
+        result (decode ~entry:e ?channel st op (address st e at) d))
   | Ssa_op.Load_in_bounds { buffer; at; decode = d } ->
       let e = entry_of st buffer in
-      result (decode st op (address st e at) d)
+      let channel =
+        match at with
+        | Ssa_access.Coord c -> Some (value st c.Expr.Coord.c)
+        | Ssa_access.Flat _ -> None
+      in
+      result (decode ~entry:e ?channel st op (address st e at) d)
+  | Ssa_op.Check_local { var; at; extent } ->
+      with_role st Mir_origin.Role.Guard;
+      guard st
+        ~ok:(within st (v at) extent)
+        (Mir_failure.Unbound_local var)
+        (fun () -> [])
+  | Ssa_op.Check_scan { var; row; lane; row_extent; lane_extent } ->
+      (* the row, then the lane: the row wins a simultaneous failure *)
+      let r = v row and l = v lane in
+      with_role st Mir_origin.Role.Guard;
+      List.iter
+        (fun (which, x, extent) ->
+          guard st ~ok:(within st x extent)
+            (Mir_failure.Scan_projection { Mir_failure.Scan.which; var })
+            (fun () -> [ sext st r; sext st l; i64k st extent ]))
+        [
+          (Mir_failure.Scan_axis.Row, r, row_extent);
+          (Mir_failure.Scan_axis.Lane, l, lane_extent);
+        ]
+  | Ssa_op.Local_alloc { slots; var } ->
+      let id =
+        match List.filter (fun r -> not (is_effect r)) i.Ssa_instr.results with
+        | [ r ] -> r.Ssa_value.id
+        | _ -> invalid_arg "Mir_lower: a local allocation's result"
+      in
+      let bytes =
+        match Mir_layout.mul slots 8L with
+        | Some b -> b
+        | None -> refuse st (Refusal.Local_storage id)
+      in
+      (match Mir_layout.add st.local_bytes bytes with
+      | Some total when Int64.compare total L.Scratch.local_limit <= 0 ->
+          st.local_bytes <- total
+      | _ -> refuse st (Refusal.Local_storage id));
+      let region, view = L.Scratch.local (Hashtbl.length st.locals) ~bytes in
+      st.objects <- (region, view) :: st.objects;
+      Hashtbl.replace st.locals (id :> int) { Local_object.slots; var };
+      (* every run of the site begins a fresh object *)
+      if not (mutated st Mutation.Stale_local) then
+        emit_unit st (Mir_op.Undef view.Mir_view.id);
+      result (emit st (Mir_op.Addr view.Mir_view.id))
+  | Ssa_op.Local_read { local; at } ->
+      let o = local_object st local and x = v at in
+      (* outside a named variable's object is its unbound-local failure;
+         outside an anonymous one is a defect the byte range check reports *)
+      (match o.Local_object.var with
+      | Some var ->
+          with_role st Mir_origin.Role.Guard;
+          guard st ~ok:(within st x o.Local_object.slots)
+            (Mir_failure.Unbound_local var) (fun () -> [])
+      | None -> ());
+      let a = cell st (v local) x in
+      with_role st Mir_origin.Role.Compute;
+      result (emit st (Mir_op.Bitcast (Mir_type.F64, load64 st a)))
+  | Ssa_op.Local_write { local; at; value = x } ->
+      ignore (local_object st local);
+      let a = cell st (v local) (v at) in
+      with_role st Mir_origin.Role.Compute;
+      store64 st a (emit st (Mir_op.Bitcast (Mir_type.i64, v x)))
+  | Ssa_op.Meter_charge ->
+      if mutated st Mutation.Charge_after_body then
+        st.deferred_charges <- st.deferred_charges + 1
+      else meter_charge st
+  | Ssa_op.Meter_release width ->
+      let at = meter_word st L.Scratch.meter_live in
+      with_role st Mir_origin.Role.Compute;
+      let live = load64 st at in
+      store64 st at
+        (emit st
+           (Mir_op.Iarith (Mir_op.Iarith.Sub, live, i64k st (Int64.mul 2L width))))
+  | Ssa_op.Meter_reserve width ->
+      let at = meter_word st L.Scratch.meter_live in
+      with_role st Mir_origin.Role.Compute;
+      let live =
+        emit st
+          (Mir_op.Iarith
+             (Mir_op.Iarith.Add, load64 st at, i64k st (Int64.mul 2L width)))
+      in
+      let limit = Int64.of_int (Expr.Scan_limits.max_state st.limits) in
+      with_role st Mir_origin.Role.Guard;
+      guard st
+        ~ok:(icmp st Mir_op.Icmp.Sle live (i64k st limit))
+        (Mir_failure.Scan_meter Mir_failure.Meter.State_over_limit)
+        (fun () -> [ i64k st limit ]);
+      with_role st Mir_origin.Role.Compute;
+      store64 st at live
+  | Ssa_op.Meter_reset -> meter_reset st
   | Ssa_op.Mark m ->
       emit_unit st (Mir_op.Event (Mir_census_event.of_mark m, 1L))
   | Ssa_op.Mark_lanes { mark; lanes } ->
@@ -513,18 +709,10 @@ let instr st (i : Ssa_instr.t) =
   | Ssa_op.Select (p, a, b) -> result (select st (v p) (v a) (v b))
   | Ssa_op.Store { buffer; at; encode = enc; value = x } ->
       let e = entry_of st buffer in
-      encode st op (address st e at) enc (v x)
-  | Ssa_op.Check_access { at = Ssa_access.Flat _; _ }
-  | Ssa_op.Check_local _ | Ssa_op.Check_scan _
-  | Ssa_op.Float_unary
-      ( ( Expr.Value.Cos | Expr.Value.Erf | Expr.Value.Exp | Expr.Value.Log
-        | Expr.Value.Sin ),
-        _ )
-  | Ssa_op.Lanewise _ | Ssa_op.Local_alloc _ | Ssa_op.Local_read _
-  | Ssa_op.Local_write _ | Ssa_op.Meter_charge | Ssa_op.Meter_release _
-  | Ssa_op.Meter_reserve _ | Ssa_op.Meter_reset | Ssa_op.Vec_extract _
-  | Ssa_op.Vec_insert _ | Ssa_op.Vec_iota _ | Ssa_op.Vec_load _
-  | Ssa_op.Vec_splat _ | Ssa_op.Vec_store _ ->
+      encode st (address st e at) enc (v x)
+  | Ssa_op.Lanewise _ | Ssa_op.Vec_extract _ | Ssa_op.Vec_insert _
+  | Ssa_op.Vec_iota _ | Ssa_op.Vec_load _ | Ssa_op.Vec_splat _
+  | Ssa_op.Vec_store _ ->
       unsupported st op
 
 let data_values vs = List.filter (fun v -> not (is_effect v)) vs
@@ -572,6 +760,10 @@ let block st (b : Ssa_cfg_block.t) =
         };
       instr st i)
     b.Ssa_cfg_block.body;
+  for _ = 1 to st.deferred_charges do
+    meter_charge st
+  done;
+  st.deferred_charges <- 0;
   match b.Ssa_cfg_block.terminator with
   | Ssa_cfg_terminator.Jump e ->
       let target, args = edge st e in
@@ -648,6 +840,12 @@ let program ?mutation ~planning (p : Ssa_program.t) =
       layout;
       values = Hashtbl.create 256;
       heads = Hashtbl.create 32;
+      locals = Hashtbl.create 8;
+      objects = [];
+      local_bytes = 0L;
+      limits = p.Ssa_program.scan_limits;
+      deferred_charges = 0;
+      helpers = [];
       cur = entry;
       origin = Mir_origin.unknown;
       mutation;
@@ -668,14 +866,46 @@ let program ?mutation ~planning (p : Ssa_program.t) =
       List.iter2 (bind st) params (B.param mb);
       Hashtbl.replace st.heads (b.Ssa_cfg_block.id :> int) mb)
     rpo;
-  B.jump entry (Hashtbl.find st.heads (cfg.Ssa_cfg.entry :> int)) [];
+  (* the invocation's meter starts fresh *)
+  let metered =
+    List.exists
+      (fun (b : Ssa_cfg_block.t) ->
+        List.exists
+          (fun (i : Ssa_instr.t) ->
+            match
+              (Mir_census.op_row i.Ssa_instr.op).Mir_census.Row.observable
+            with
+            | Mir_census.Observable.Meter -> true
+            | _ -> false)
+          b.Ssa_cfg_block.body)
+      cfg.Ssa_cfg.blocks
+  in
+  if metered then meter_reset st;
+  B.jump st.cur (Hashtbl.find st.heads (cfg.Ssa_cfg.entry :> int)) [];
   (* blocks in reverse postorder, so every use follows its definition *)
   List.iter (block st) rpo;
   let fn = Mir_id.Func.of_int 0 in
   let f = B.func bld ~id:fn ~name:"kernel" ~entry ~results:[] in
+  let scratch =
+    List.rev st.objects @ if metered then [ L.Scratch.meter ] else []
+  in
   let mir =
-    B.program ~regions:(List.map L.region layout)
-      ~views:(List.map L.view layout) ~planning [ f ] ~main:fn
+    B.program
+      ~regions:
+        (List.map L.region layout
+        @ List.concat_map (fun e -> List.map fst (L.Params.objects e)) layout
+        @ List.map fst scratch)
+      ~views:
+        (List.map L.view layout
+        @ List.concat_map (fun e -> List.map snd (L.Params.objects e)) layout
+        @ List.map snd scratch)
+      ~helpers:
+        (List.filter_map
+           (fun fn ->
+             if List.mem fn st.helpers then Some (Mir_math.descriptor fn)
+             else None)
+           Mir_math.Fn.all)
+      ~planning [ f ] ~main:fn
   in
   match Err.payload (Mir_verify.generic mir) with
   | Ok g -> { program = g; layout; planning }

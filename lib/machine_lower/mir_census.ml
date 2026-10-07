@@ -171,11 +171,13 @@ let rec op_row (op : Ssa_op.t) =
       match u with
       | Expr.Value.Sqrt -> row name Slice.First "fsqrt (correctly rounded)"
       | Expr.Value.Trunc -> row name Slice.First "ftrunc"
-      | Expr.Value.Cos | Expr.Value.Erf | Expr.Value.Exp | Expr.Value.Log
-      | Expr.Value.Sin ->
-          row name Slice.Helpers "call"
-            ~disposition:(Disposition.Helper (Ssa_op.unary_name u))
-            ~observable:Observable.Pure)
+      | Expr.Value.Erf ->
+          row name Slice.Helpers
+            "owned: abs; A-S polynomial; call exp (binary32 steps at binary32)"
+            ~disposition:(Disposition.Helper "exp")
+      | Expr.Value.Cos | Expr.Value.Exp | Expr.Value.Log | Expr.Value.Sin ->
+          row name Slice.Helpers "call libm (binary32: fext; call; fround)"
+            ~disposition:(Disposition.Helper (Ssa_op.unary_name u)))
   | Ssa_op.I64_arith (o, _, _) ->
       row
         ("i64." ^ Ssa_op.I64_op.name o)
@@ -246,7 +248,7 @@ let rec op_row (op : Ssa_op.t) =
         ~conditions:[ defect "coordinate outside (proof; byte range checked)" ]
         ~observable:Observable.Reads
   | Ssa_op.Local_alloc _ ->
-      row "local.alloc" Slice.Locals "fresh dynamic object; no native slice"
+      row "local.alloc" Slice.Locals "per-site scratch region; undef; addr"
         ~observable:Observable.Local_state
   | Ssa_op.Local_read _ ->
       row "local.read" Slice.Locals "bounds guard when named; load.i64; bitcast"
@@ -267,14 +269,14 @@ let rec op_row (op : Ssa_op.t) =
       row "mark_lanes" Slice.First "event x lanes" ~observable:Observable.Event
   | Ssa_op.Meter_charge ->
       row "meter.charge" Slice.Locals
-        "load remaining; sle 0 guard; store remaining-1"
+        "load remaining; slt 0 guard; store remaining-1"
         ~conditions:[ fail "no update left (before the body)" "scan_meter" ]
         ~observable:Observable.Meter
   | Ssa_op.Meter_release _ ->
       row "meter.release" Slice.Locals "load live; sub; store"
         ~observable:Observable.Meter
   | Ssa_op.Meter_reserve _ ->
-      row "meter.reserve" Slice.Locals "load live; add; slt guard; store"
+      row "meter.reserve" Slice.Locals "load live; add; sle limit guard; store"
         ~conditions:[ fail "live state over the peak" "scan_meter" ]
         ~observable:Observable.Meter
   | Ssa_op.Meter_reset ->
@@ -312,7 +314,7 @@ let rec op_row (op : Ssa_op.t) =
 let machine_type : Ssa_type.t -> (Machine_ir.Mir_type.t, Slice.t) result =
   function
   | Ssa_type.Effect -> Ok Machine_ir.Mir_type.Order
-  | Ssa_type.Local -> Error Slice.Locals
+  | Ssa_type.Local -> Ok Machine_ir.Mir_type.Ptr
   | Ssa_type.Mask _ | Ssa_type.Vec _ -> Error Slice.Vectors
   | Ssa_type.Scalar Ssa_type.F32 -> Ok Machine_ir.Mir_type.F32
   | Ssa_type.Scalar Ssa_type.F64 -> Ok Machine_ir.Mir_type.F64

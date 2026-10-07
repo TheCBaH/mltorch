@@ -129,8 +129,24 @@ let get_byte (i : Instance.t) off =
       if Bytes.get p.Page.init k = '\000' then None
       else Some (Char.code (Bytes.get p.Page.data k))
 
-(* Every byte of [lo, lo + n) undefined again: a fresh logical lifetime. *)
-let undefine (i : Instance.t) = Hashtbl.reset i.Instance.pages
+(* Every byte of the pointer's view window undefined again: a fresh logical
+   lifetime. *)
+let undefine t (p : Pointer.t) =
+  let i = instance t p.Pointer.instance in
+  let rec go off =
+    if Int64.compare off p.Pointer.hi < 0 then (
+      let n, k = locate off in
+      let next = Int64.shift_left (Int64.succ n) page_bits in
+      let stop =
+        if Int64.compare next p.Pointer.hi < 0 then next else p.Pointer.hi
+      in
+      (match Hashtbl.find_opt i.Instance.pages n with
+      | Some page ->
+          Bytes.fill page.Page.init k (Int64.to_int (Int64.sub stop off)) '\000'
+      | None -> ());
+      go stop)
+  in
+  go p.Pointer.lo
 
 let write_string t key ~offset s =
   let i = instance t key in

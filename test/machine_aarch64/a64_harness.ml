@@ -22,7 +22,8 @@ let selected ?mutation ?(sites = [||]) (case : Src.Case.t) =
       | Error e -> Error e
       | Ok binding ->
           let r =
-            A64_stage.Interp.run res.A64_select.selected memory binding ~args:[]
+            A64_stage.Interp.run ~models:Machine_interp.Mir_math_model.all
+              res.A64_select.selected memory binding ~args:[]
           in
           let record =
             (Option.get (Mir_program.find_view program res.A64_select.record))
@@ -57,8 +58,8 @@ let plan ?mutation ?sites kernel ~bind =
   | Error e -> e
   | Ok case -> report ?mutation ?sites case
 
-let program ?mutation ?sites ?fma p ~inputs =
-  match Src.case_of_program p ~inputs ?fma () with
+let program ?mutation ?sites ?fma ?precision p ~inputs =
+  match Src.case_of_program p ~inputs ?fma ?precision () with
   | Error e -> e
   | Ok case -> report ?mutation ?sites case
 
@@ -75,7 +76,10 @@ let generic_program ?mutation (p : Mir_program.generic) ~args =
   let binding =
     Result.get_ok (Mir_interp.instantiate p memory ~bound:(fun _ -> None))
   in
-  let generic = Mir_interp.run g memory binding ~args in
+  let generic =
+    Mir_interp.run ~models:Machine_interp.Mir_math_model.all g memory binding
+      ~args
+  in
   match Err.payload (A64_select.program ?mutation g) with
   | Error r -> Fmt.str "refused: %a" A64_select.Refusal.pp r
   | Ok res ->
@@ -87,7 +91,8 @@ let generic_program ?mutation (p : Mir_program.generic) ~args =
              ~bound:(fun _ -> None))
       in
       let r =
-        A64_stage.Interp.run res.A64_select.selected memory binding ~args
+        A64_stage.Interp.run ~models:Machine_interp.Mir_math_model.all
+          res.A64_select.selected memory binding ~args
       in
       let strip = function
         | Mir_interp.Outcome.Success vs -> (

@@ -188,3 +188,4 @@ let check ~(signature : Mir_op.Callee.t -> Signature.t option)
           Immediate.Alignment
       in
       Ok []
+  | Undef v -> if view v then Ok [] else Error (Error.Unknown_view v)

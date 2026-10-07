@@ -45,5 +45,8 @@ type result = {
 val program :
   ?mutation:Mutation.t ->
   ?sites:Mir_failure.Site_entry.t array ->
+  ?unlisted:Mir_failure.Unlisted.t ->
   Mir_verify.Generic.t ->
   (result, Refusal.t) Err.t
+(** [unlisted] (default [Refused]) is what a site-bearing failure [sites] has no
+    entry for means: a refusal, or the sentinel site. *)

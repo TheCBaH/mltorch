@@ -131,6 +131,8 @@ type t =
   | Cmp_imm of Sz.t * v * int64  (** SUBS ZR, #imm12 *)
   | Csel of Sz.t * Cond.t * v * v * v  (** flags, then, else *)
   | Cset of Cond.t * v  (** CSINC Wd, WZR, WZR, invert(cond): 0 or 1 *)
+  | Ext of { signed : bool; from : Mir_width.t; src : v }
+      (** SXTB, SXTH, UXTB, UXTH: a W register from a byte or halfword *)
   | Fbin of Fop.t * Fsz.t * v * v
   | Fcmp of Fsz.t * v * v
   | Fcsel of Fsz.t * Cond.t * v * v * v
@@ -162,6 +164,8 @@ type t =
   | Str of Msz.t * v * int64 * v  (** base, imm, value *)
   | Sub of Sz.t * v * v
   | Sxtw of v  (** X from W, sign-extended *)
+  | Trunc of Mir_width.t * v
+      (** UXTB, UXTH: a byte or halfword value from the low bits of a W *)
   | Uxtw of v  (** X from W, zero-extended (a W move) *)
   | Wtrunc of v  (** W from the low half of an X *)
 
@@ -181,6 +185,7 @@ let uses = function
   | Add_lo12 (a, _)
   | Cmp_imm (_, a, _)
   | Cset (_, a)
+  | Ext { src = a; _ }
   | Fcvt (_, a)
   | Fcvtzs (_, a)
   | Fmov (_, a)
@@ -196,6 +201,7 @@ let uses = function
   | Scvtf (_, a)
   | Shift_imm (_, _, a, _)
   | Sxtw a
+  | Trunc (_, a)
   | Uxtw a
   | Wtrunc a ->
       [ a ]
@@ -414,6 +420,14 @@ let typing op =
         need (gpr sz (ty a) && Mir_type.equal (ty a) (ty b)) "csel operands"
       in
       Ok [ ty a ]
+  | Ext { from; src; _ } ->
+      let* () =
+        need
+          ((from = Mir_width.W8 || from = Mir_width.W16)
+          && Mir_type.equal (ty src) (Mir_type.Int from))
+          "extension source"
+      in
+      Ok [ Mir_type.i32 ]
   | Cset (_, f) ->
       let* () = need (Mir_type.equal (ty f) Mir_type.Flags) "cset flags" in
       Ok [ Mir_type.Pred ]
@@ -615,6 +629,14 @@ let typing op =
   | Sxtw a | Uxtw a ->
       let* () = need (Mir_type.equal (ty a) Mir_type.i32) "extend source" in
       Ok [ Mir_type.i64 ]
+  | Trunc (w, a) ->
+      let* () =
+        need
+          ((w = Mir_width.W8 || w = Mir_width.W16)
+          && Mir_type.equal (ty a) Mir_type.i32)
+          "narrowing source"
+      in
+      Ok [ Mir_type.Int w ]
   | Wtrunc a ->
       let* () = need (Mir_type.equal (ty a) Mir_type.i64) "truncate source" in
       Ok [ Mir_type.i32 ]
@@ -642,6 +664,11 @@ let pp_op pv fmt op =
   | Csel (sz, c, f, a, b) ->
       Fmt.pf fmt "csel.%s.%s %a" (Sz.name sz) (Cond.name c) vs [ f; a; b ]
   | Cset (c, f) -> Fmt.pf fmt "cset.%s %a" (Cond.name c) pv f
+  | Ext { signed; from; src } ->
+      Fmt.pf fmt "%sxt%s %a"
+        (if signed then "s" else "u")
+        (match from with Mir_width.W8 -> "b" | _ -> "h")
+        pv src
   | Fbin (o, fsz, a, b) ->
       Fmt.pf fmt "%s.%s %a" (Fop.name o) (Fsz.name fsz) vs [ a; b ]
   | Fcmp (fsz, a, b) -> Fmt.pf fmt "fcmp.%s %a" (Fsz.name fsz) vs [ a; b ]
@@ -679,6 +706,10 @@ let pp_op pv fmt op =
   | Sub (sz, a, b) -> Fmt.pf fmt "sub.%s %a" (Sz.name sz) vs [ a; b ]
   | Sxtw a -> Fmt.pf fmt "sxtw %a" pv a
   | Uxtw a -> Fmt.pf fmt "uxtw %a" pv a
+  | Trunc (w, a) ->
+      Fmt.pf fmt "uxt%s.trunc %a"
+        (match w with Mir_width.W8 -> "b" | _ -> "h")
+        pv a
   | Wtrunc a -> Fmt.pf fmt "mov.w.x %a" pv a
 
 let pp_test pv fmt = function

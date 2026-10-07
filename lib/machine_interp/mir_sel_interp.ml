@@ -210,7 +210,11 @@ module Make (T : SEMANTICS) = struct
                   let rs = T.exec env o in
                   if List.length rs <> List.length i.Mir_instr.results then
                     defect D.Invalid_program;
-                  List.iter2 set i.Mir_instr.results rs)
+                  List.iter2 set i.Mir_instr.results rs
+              | Mir_sel.Op.Undef v -> (
+                  match env.Mir_sel_env.view v with
+                  | Some p -> Mir_memory.undefine env.Mir_sel_env.memory p
+                  | None -> defect D.Invalid_program))
             b.Mir_block.body;
           tick
             {

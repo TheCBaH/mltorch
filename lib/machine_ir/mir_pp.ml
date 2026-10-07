@@ -84,6 +84,7 @@ let pp_op n fmt (op : Mir_op.t) =
   let name = Mir_op.name op in
   match op with
   | Mir_op.Addr view -> Fmt.pf fmt "addr %a" Mir_id.View.pp view
+  | Mir_op.Undef view -> Fmt.pf fmt "undef %a" Mir_id.View.pp view
   | Mir_op.Bitcast (ty, a) -> Fmt.pf fmt "bitcast.%a %a" Mir_type.pp ty v a
   | Mir_op.Call (c, args) -> Fmt.pf fmt "call %a(%a)" Mir_op.Callee.pp c vs args
   | Mir_op.Const c -> Fmt.pf fmt "const %a" Mir_const.pp c

@@ -146,6 +146,10 @@ type t =
       (** a pointer plus a signed i64 byte offset: never integer arithmetic *)
   | Select of Mir_value.t * Mir_value.t * Mir_value.t
   | Store of Access.t * Mir_value.t
+  | Undef of Mir_id.View.t
+      (** every byte of the view undefined again: a fresh object's lifetime
+          begins there. Ordered as a write; a native realization emits nothing.
+      *)
 
 (* How an operation interacts with order. [Partial] is pure but defined only on
    a restricted domain: it is never speculated above its guards. *)
@@ -162,14 +166,14 @@ let effect_class = function
   | Event _ -> Effect.Event
   | Fto_sint _ | Idiv _ | Narrow _ -> Effect.Partial
   | Load _ -> Effect.Read
-  | Store _ -> Effect.Write
+  | Store _ | Undef _ -> Effect.Write
   | Addr _ | Bitcast _ | Const _ | Copy _ | Fbinary _ | Fcmp _ | Fconvert _
   | Ffma _ | Funary _ | Iarith _ | Icmp _ | Iext _ | Itrunc _ | Pbinary _
   | Pnot _ | Ptr_add _ | Select _ ->
       Effect.Pure
 
 let operands = function
-  | Addr _ | Const _ | Event _ -> []
+  | Addr _ | Const _ | Event _ | Undef _ -> []
   | Bitcast (_, a)
   | Copy a
   | Fconvert (_, a)
@@ -194,7 +198,7 @@ let operands = function
   | Store ({ Access.addr; _ }, v) -> [ addr; v ]
 
 let map_operands f = function
-  | (Addr _ | Const _ | Event _) as op -> op
+  | (Addr _ | Const _ | Event _ | Undef _) as op -> op
   | Bitcast (ty, a) -> Bitcast (ty, f a)
   | Call (c, args) -> Call (c, List.map f args)
   | Copy a -> Copy (f a)
@@ -264,3 +268,4 @@ let name = function
   | Ptr_add _ -> "ptr.add"
   | Select _ -> "select"
   | Store ({ Access.width; _ }, _) -> "store." ^ Mir_width.name width
+  | Undef _ -> "undef"

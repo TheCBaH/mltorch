@@ -178,10 +178,10 @@ module Make (T : Mir_sel.TARGET) = struct
                 | Mir_phys.Instr.Exec { instr; uses; defs } -> (
                     let instr_id = instr.Mir_instr.id in
                     match instr.Mir_instr.op with
-                    | Mir_sel.Op.Event _ ->
+                    | Mir_sel.Op.Event _ | Mir_sel.Op.Undef _ ->
                         if uses <> [] || defs <> [] then
                           reject ~block ~instr:instr_id
-                            "an event with locations"
+                            "a target-neutral instruction with locations"
                     | Mir_sel.Op.Machine op ->
                         let operands = T.uses op in
                         let results = instr.Mir_instr.results in

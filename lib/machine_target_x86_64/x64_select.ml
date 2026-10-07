@@ -46,6 +46,7 @@ type st = {
   esc : Refusal.t Err.Escape.t;
   mutation : Mutation.t option;
   sites : Mir_failure.Site_entry.t array;
+  unlisted : Mir_failure.Unlisted.t;
   fallible : Mir_op.Callee.t -> bool;
   features : Mir_target.Feature.t list;
 }
@@ -306,10 +307,18 @@ let instr st (i : Mir_op.t Mir_instr.t) =
   | Mir_op.Iext (Mir_op.Iext.Zext, Mir_width.W64, a)
     when Mir_type.equal (ty a) Mir_type.i32 ->
       def (Movzx32 a)
+  | Mir_op.Iext (k, Mir_width.W32, a)
+    when Mir_type.equal (ty a) Mir_type.i8 || Mir_type.equal (ty a) Mir_type.i16
+    ->
+      let from = match ty a with Mir_type.Int w -> w | _ -> Mir_width.W8 in
+      def (Ext { signed = k = Mir_op.Iext.Sext; from; src = a })
   | Mir_op.Iext _ -> unsupported ()
   | (Mir_op.Itrunc (Mir_width.W32, a) | Mir_op.Narrow (Mir_width.W32, a))
     when Mir_type.equal (ty a) Mir_type.i64 ->
       def (Trunc32 a)
+  | Mir_op.Itrunc (((Mir_width.W8 | Mir_width.W16) as w), a)
+    when Mir_type.equal (ty a) Mir_type.i32 ->
+      def (Trunc_zx (w, a))
   | Mir_op.Itrunc _ | Mir_op.Narrow _ -> unsupported ()
   | Mir_op.Load { Mir_op.Access.width; addr; _ } ->
       push st ?order:i.Mir_instr.order
@@ -339,10 +348,11 @@ let instr st (i : Mir_op.t Mir_instr.t) =
   | Mir_op.Store ({ Mir_op.Access.width; addr; _ }, v) ->
       push st ?order:i.Mir_instr.order []
         (Mir_sel.Op.Machine (Store (msz_of width, address st addr, v)))
+  | Mir_op.Undef v -> push st ?order:i.Mir_instr.order [] (Mir_sel.Op.Undef v)
 
 let fail st (f : Mir_fail.t) =
   match
-    Mir_select.store_record st.b f ~sites:st.sites
+    Mir_select.store_record st.b f ~unlisted:st.unlisted ~sites:st.sites
       ~base:(fun () -> emit st Mir_type.Ptr (Lea_view Mir_select.record_view))
       ~const:(fun ty bits ->
         let bits =
@@ -393,8 +403,8 @@ let block st (blk : (Mir_op.t, Mir_terminator.t) Mir_block.t) =
   in
   Mir_select.finish st.b terminator
 
-let program ?mutation ?(sites = [||]) ?(features = [ Mir_target.Feature.Sse2 ])
-    (g : Mir_verify.Generic.t) =
+let program ?mutation ?(sites = [||]) ?(unlisted = Mir_failure.Unlisted.Refused)
+    ?(features = [ Mir_target.Feature.Sse2 ]) (g : Mir_verify.Generic.t) =
   let p = Mir_verify.Generic.program g in
   let fallible = Mir_select.fallibility p in
   Err.Escape.with_escape @@ fun esc ->
@@ -402,7 +412,15 @@ let program ?mutation ?(sites = [||]) ?(features = [ Mir_target.Feature.Sse2 ])
     List.map
       (fun (f : (Mir_op.t, Mir_terminator.t) Mir_func.t) ->
         let st =
-          { b = Mir_select.create f; esc; mutation; sites; fallible; features }
+          {
+            b = Mir_select.create f;
+            esc;
+            mutation;
+            sites;
+            unlisted;
+            fallible;
+            features;
+          }
         in
         List.iter (block st) f.Mir_func.blocks;
         {

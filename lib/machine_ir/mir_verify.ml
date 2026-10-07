@@ -228,6 +228,10 @@ let semantic esc (cx : Mir_check.context)
               permit addr Mir_view.readable
           | Mir_op.Store ({ Mir_op.Access.addr; _ }, _) ->
               permit addr Mir_view.writable
+          | Mir_op.Undef view -> (
+              match cx.Mir_check.view view with
+              | Some v when Mir_view.writable v.Mir_view.perm -> ()
+              | _ -> reject (P.Permission view))
           | Mir_op.Addr _ | Mir_op.Bitcast _ | Mir_op.Call _ | Mir_op.Const _
           | Mir_op.Copy _ | Mir_op.Event _ | Mir_op.Fbinary _ | Mir_op.Fcmp _
           | Mir_op.Fconvert _ | Mir_op.Ffma _ | Mir_op.Funary _

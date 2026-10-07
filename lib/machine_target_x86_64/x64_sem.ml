@@ -159,6 +159,14 @@ let exec env op =
   | Cvtsi2s (Fsz.D, x) -> [ b (N.s64_to_f64 (bits env x)) ]
   | Cvtsi2s (Fsz.S, x) -> [ b (N.s64_to_f32 (bits env x)) ]
   | Cvtts2si (fsz, x) -> [ b (cvtts2si (fval fsz (bits env x))) ]
+  | Ext { signed; from; src } ->
+      let k = Mir_width.bits from in
+      let x = Int64.logand (bits env src) (Mir_width.mask from) in
+      let x =
+        if signed then Int64.shift_right (Int64.shift_left x (64 - k)) (64 - k)
+        else x
+      in
+      [ b (norm Sz.L x) ]
   | Fbin (o, fsz, x, y) ->
       let a = fval fsz (bits env x) and c = fval fsz (bits env y) in
       [
@@ -205,6 +213,7 @@ let exec env op =
   | Movq_from_gpr (_, x) | Movq_to_gpr (_, x) -> [ b (bits env x) ]
   | Movsxd x -> [ b (Int64.of_int32 (Int64.to_int32 (bits env x))) ]
   | Movzx32 x | Trunc32 x -> [ b (Int64.logand (bits env x) 0xFFFF_FFFFL) ]
+  | Trunc_zx (w, x) -> [ b (Int64.logand (bits env x) (Mir_width.mask w)) ]
   | Neg (sz, x) -> [ b (norm sz (Int64.neg (bits env x))) ]
   | Round_trunc (fsz, x) -> [ fres fsz (Float.trunc (fval fsz (bits env x))) ]
   | Setcc_zx (c, f) ->

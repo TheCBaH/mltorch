@@ -161,6 +161,8 @@ type t =
   | Cvt of Fsz.t * v  (** CVTSS2SD or CVTSD2SS, to the given precision *)
   | Cvtsi2s of Fsz.t * v  (** from a 64-bit integer *)
   | Cvtts2si of Fsz.t * v  (** to a 64-bit integer, truncating *)
+  | Ext of { signed : bool; from : Mir_width.t; src : v }
+      (** MOVSX/MOVZX r32 from a byte or word *)
   | Fbin of Fop.t * Fsz.t * v * v
   | Flogic of Flogic.t * Fsz.t * v * v
   | Fmadd231 of Fsz.t * v * v * v  (** [a * b + c], one rounding, tied to [c] *)
@@ -184,6 +186,8 @@ type t =
   | Store of Msz.t * Addr.t * v
   | Test of Sz.t * v * v
   | Trunc32 of v  (** MOV r32, r32 of a 64-bit value *)
+  | Trunc_zx of Mir_width.t * v
+      (** MOVZX r32 from the low byte or word of an r32 *)
   | Ucomis of Fsz.t * v * v
 
 type test = Jcc of Cond.t * v
@@ -203,6 +207,7 @@ let uses = function
   | Cvt (_, a)
   | Cvtsi2s (_, a)
   | Cvtts2si (_, a)
+  | Ext { src = a; _ }
   | Lea (a, _)
   | Mov (_, a)
   | Movap a
@@ -215,7 +220,8 @@ let uses = function
   | Setcc_zx (_, a)
   | Shift_imm (_, _, a, _)
   | Sqrt (_, a)
-  | Trunc32 a ->
+  | Trunc32 a
+  | Trunc_zx (_, a) ->
       [ a ]
   | Call { args; _ } -> args
   | Cmov (_, _, f, a, b) -> [ f; a; b ]
@@ -335,7 +341,10 @@ let arith sz (t : Mir_type.t) =
 let gpr sz (t : Mir_type.t) =
   match (sz, t) with
   | Sz.Q, (Mir_type.Int Mir_width.W64 | Mir_type.Ptr) -> true
-  | Sz.L, (Mir_type.Int Mir_width.W32 | Mir_type.Pred) -> true
+  | ( Sz.L,
+      ( Mir_type.Int (Mir_width.W8 | Mir_width.W16 | Mir_width.W32)
+      | Mir_type.Pred ) ) ->
+      true
   | _ -> false
 
 let fpr fsz (t : Mir_type.t) =
@@ -427,6 +436,14 @@ let typing op =
   | Cvtts2si (fsz, a) ->
       let* () = need (fpr fsz (ty a)) "cvtts2si operand" in
       Ok [ Mir_type.i64 ]
+  | Ext { from; src; _ } ->
+      let* () =
+        need
+          ((from = Mir_width.W8 || from = Mir_width.W16)
+          && Mir_type.equal (ty src) (Mir_type.Int from))
+          "extension source"
+      in
+      Ok [ Mir_type.i32 ]
   | Fmadd231 (fsz, a, b, c) ->
       let* () =
         need (fpr fsz (ty a) && fpr fsz (ty b) && fpr fsz (ty c)) "fma operands"
@@ -514,6 +531,14 @@ let typing op =
   | Trunc32 a ->
       let* () = need (Mir_type.equal (ty a) Mir_type.i64) "truncate source" in
       Ok [ Mir_type.i32 ]
+  | Trunc_zx (w, a) ->
+      let* () =
+        need
+          ((w = Mir_width.W8 || w = Mir_width.W16)
+          && Mir_type.equal (ty a) Mir_type.i32)
+          "narrowing source"
+      in
+      Ok [ Mir_type.Int w ]
   | Ucomis (fsz, a, b) ->
       let* () = need (fpr fsz (ty a) && fpr fsz (ty b)) "ucomis operands" in
       Ok [ Mir_type.Flags ]
@@ -550,6 +575,11 @@ let pp_op pv fmt op =
       Fmt.pf fmt "%s%s %a" (Flogic.name o)
         (match fsz with Fsz.D -> "d" | Fsz.S -> "s")
         vs [ a; b ]
+  | Ext { signed; from; src } ->
+      Fmt.pf fmt "mov%s%sl %a"
+        (if signed then "s" else "z")
+        (match from with Mir_width.W8 -> "b" | _ -> "w")
+        pv src
   | Fmadd231 (fsz, a, b, c) ->
       Fmt.pf fmt "vfmadd231%s %a" (Fsz.name fsz) vs [ a; b; c ]
   | Imul (sz, a, b) -> Fmt.pf fmt "imul%s %a" (Sz.name sz) vs [ a; b ]
@@ -579,6 +609,10 @@ let pp_op pv fmt op =
       Fmt.pf fmt "store.%s %a, %a" (Msz.name m) pv x (pp_addr pv) a
   | Test (sz, a, b) -> Fmt.pf fmt "test%s %a" (Sz.name sz) vs [ a; b ]
   | Trunc32 a -> Fmt.pf fmt "movl.trunc %a" pv a
+  | Trunc_zx (w, a) ->
+      Fmt.pf fmt "movz%sl.trunc %a"
+        (match w with Mir_width.W8 -> "b" | _ -> "w")
+        pv a
   | Ucomis (fsz, a, b) -> Fmt.pf fmt "ucomi%s %a" (Fsz.name fsz) vs [ a; b ]
 
 let pp_test pv fmt = function

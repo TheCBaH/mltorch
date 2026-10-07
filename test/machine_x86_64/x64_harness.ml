@@ -18,10 +18,10 @@ let record_region (res : X64_select.result) =
      (Mir_program.find_view sel.X64_stage.Sel.program res.X64_select.record))
     .Mir_view.region
 
-let selected ?mutation ?features (case : Src.Case.t) =
+let selected ?mutation ?(sites = [||]) ?features (case : Src.Case.t) =
   match
     Err.payload
-      (X64_select.program ?mutation ?features
+      (X64_select.program ?mutation ~sites ?features
          case.Src.Case.lowered.Machine_lower.Mir_lower.program)
   with
   | Error r -> Error (Fmt.str "%a" X64_select.Refusal.pp r)
@@ -34,13 +34,14 @@ let selected ?mutation ?features (case : Src.Case.t) =
              ~bound:case.Src.Case.bound)
       in
       let r =
-        X64_stage.Interp.run res.X64_select.selected memory binding ~args:[]
+        X64_stage.Interp.run ~models:Machine_interp.Mir_math_model.all
+          res.X64_select.selected memory binding ~args:[]
       in
       Ok
         ( res,
           Src.selected_observation
-            ~layout:case.Src.Case.lowered.Machine_lower.Mir_lower.layout
-            ~sites:[||] ~record:(record_region res) memory binding
+            ~layout:case.Src.Case.lowered.Machine_lower.Mir_lower.layout ~sites
+            ~record:(record_region res) memory binding
             r.X64_stage.Interp.outcome r.X64_stage.Interp.events )
 
 (* Callee-saved registers as a caller might leave them. *)
@@ -51,9 +52,9 @@ let caller_state regs =
 
 type stage = Allocated | Realized | Selected
 
-let route ?mutation ?features ?alloc_mutation ?frame_mutation ?pad stage
-    (case : Src.Case.t) =
-  match selected ?mutation ?features case with
+let route ?mutation ?(sites = [||]) ?features ?alloc_mutation ?frame_mutation
+    ?pad stage (case : Src.Case.t) =
+  match selected ?mutation ~sites ?features case with
   | Error e -> Error ("refused: " ^ e)
   | Ok (res, obs) -> (
       match stage with
@@ -92,7 +93,8 @@ let route ?mutation ?features ?alloc_mutation ?frame_mutation ?pad stage
                              ~bound:case.Src.Case.bound)
                       in
                       let r =
-                        P.run ~realized
+                        P.run ~models:Machine_interp.Mir_math_model.all
+                          ~realized
                           ~seed:(if realized then caller_state else fun _ -> ())
                           phys memory binding ~args:[]
                       in
@@ -100,14 +102,15 @@ let route ?mutation ?features ?alloc_mutation ?frame_mutation ?pad stage
                         (Src.selected_observation
                            ~layout:
                              case.Src.Case.lowered
-                               .Machine_lower.Mir_lower.layout ~sites:[||]
+                               .Machine_lower.Mir_lower.layout ~sites
                            ~record:(record_region res) memory binding
                            r.P.outcome r.P.events)))))
 
-let report ?mutation ?features ?alloc_mutation ?frame_mutation ?pad
+let report ?mutation ?sites ?features ?alloc_mutation ?frame_mutation ?pad
     ?(stage = Selected) case =
   match
-    route ?mutation ?features ?alloc_mutation ?frame_mutation ?pad stage case
+    route ?mutation ?sites ?features ?alloc_mutation ?frame_mutation ?pad stage
+      case
   with
   | Error e -> e
   | Ok obs -> (
@@ -129,9 +132,10 @@ let plan ?mutation ?features ?alloc_mutation ?frame_mutation ?pad ?stage kernel
   | Ok c ->
       report ?mutation ?features ?alloc_mutation ?frame_mutation ?pad ?stage c
 
-let program ?mutation ?features ?alloc_mutation ?frame_mutation ?pad ?stage ?fma
-    p ~inputs =
-  match Src.case_of_program p ~inputs ?fma () with
+let program ?mutation ?sites ?features ?alloc_mutation ?frame_mutation ?pad
+    ?stage ?fma ?precision p ~inputs =
+  match Src.case_of_program p ~inputs ?fma ?precision () with
   | Error e -> e
   | Ok c ->
-      report ?mutation ?features ?alloc_mutation ?frame_mutation ?pad ?stage c
+      report ?mutation ?sites ?features ?alloc_mutation ?frame_mutation ?pad
+        ?stage c

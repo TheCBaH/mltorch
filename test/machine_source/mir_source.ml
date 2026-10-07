@@ -107,6 +107,7 @@ let mir_outputs memory binding (layout : Mir_layout_map.Entry.t list) =
             match b.Ssa_buffer.format with
             | Ssa_format.F32 -> Mir_type.F32
             | Ssa_format.F64 -> Mir_type.F64
+            | Ssa_format.Bool -> Mir_type.i8
             | _ -> Mir_type.i64
           in
           let cells =
@@ -148,7 +149,7 @@ let observe_run (r : Mir_interp.run) ~outputs =
 
 (* The generic route: [input] gives a bound input buffer's bytes; outputs
    start zeroed, the established host contract. *)
-let mir_route (lowered : Mir_lower.result) ~input =
+let mir_route ?fuel (lowered : Mir_lower.result) ~input =
   let program = Mir_verify.Generic.program lowered.Mir_lower.program in
   let memory = Mir_memory.create () in
   let bound region =
@@ -175,7 +176,8 @@ let mir_route (lowered : Mir_lower.result) ~input =
         }
     | Ok binding ->
         let r =
-          Mir_interp.run lowered.Mir_lower.program memory binding ~args:[]
+          Mir_interp.run ?fuel ~models:Machine_interp.Mir_math_model.all
+            lowered.Mir_lower.program memory binding ~args:[]
         in
         observe_run r ~outputs:(fun () ->
             mir_outputs memory binding lowered.Mir_lower.layout)
@@ -248,25 +250,27 @@ let check ?mutation plan ~bind =
 
 (* The bytes of input cells, little-endian, by the buffer's format. *)
 let pack_cells (b : Ssa_buffer.t) (cells : Ssa_memory.cells) =
+  let each n a f =
+    let bytes = Bytes.create (n * Array.length a) in
+    Array.iteri (fun i x -> f bytes (n * i) x) a;
+    Bytes.to_string bytes
+  in
   match (b.Ssa_buffer.format, cells) with
   | Ssa_format.F32, Ssa_memory.Floats a ->
-      let bytes = Bytes.create (4 * Array.length a) in
-      Array.iteri
-        (fun i x -> Bytes.set_int32_le bytes (4 * i) (Int32.bits_of_float x))
-        a;
-      Bytes.to_string bytes
+      each 4 a (fun by i x -> Bytes.set_int32_le by i (Int32.bits_of_float x))
   | Ssa_format.F64, Ssa_memory.Floats a ->
-      let bytes = Bytes.create (8 * Array.length a) in
-      Array.iteri
-        (fun i x -> Bytes.set_int64_le bytes (8 * i) (Int64.bits_of_float x))
-        a;
-      Bytes.to_string bytes
+      each 8 a (fun by i x -> Bytes.set_int64_le by i (Int64.bits_of_float x))
+  | Ssa_format.Bool, Ssa_memory.Floats a ->
+      each 1 a (fun by i x -> Bytes.set_uint8 by i (if x <> 0. then 1 else 0))
   | Ssa_format.I64, Ssa_memory.Int64s a ->
-      let bytes = Bytes.create (8 * Array.length a) in
-      Array.iteri (fun i x -> Bytes.set_int64_le bytes (8 * i) x) a;
-      Bytes.to_string bytes
-  | _ ->
-      invalid_arg "Mir_source.pack_cells: a format this harness does not pack"
+      each 8 a (fun by i x -> Bytes.set_int64_le by i x)
+  | (Ssa_format.Bf16 | Ssa_format.F16 | Ssa_format.I16 _), Ssa_memory.Ints a ->
+      each 2 a (fun by i x -> Bytes.set_uint16_le by i (x land 0xFFFF))
+  | Ssa_format.I8 _, Ssa_memory.Ints a ->
+      each 1 a (fun by i x -> Bytes.set_uint8 by i (x land 0xFF))
+  | Ssa_format.I32, Ssa_memory.Ints a ->
+      each 4 a (fun by i x -> Bytes.set_int32_le by i (Int32.of_int x))
+  | _ -> invalid_arg "Mir_source.pack_cells: cells that do not match the format"
 
 let ssa_cells (b : Ssa_buffer.t) (c : Ssa_memory.cells) =
   match (b.Ssa_buffer.format, c) with
@@ -274,6 +278,11 @@ let ssa_cells (b : Ssa_buffer.t) (c : Ssa_memory.cells) =
       Array.map (fun x -> Some (f32_cell x)) a
   | Ssa_format.F64, Ssa_memory.Floats a ->
       Array.map (fun x -> Some (Mir_const.f64 x)) a
+  | Ssa_format.Bool, Ssa_memory.Floats a ->
+      Array.map
+        (fun x ->
+          Some (Mir_const.int Mir_width.W8 (if x <> 0. then 1L else 0L)))
+        a
   | Ssa_format.I64, Ssa_memory.Int64s a ->
       Array.map (fun x -> Some (Mir_const.i64 x)) a
   | _ -> invalid_arg "Mir_source.ssa_cells: a format this harness does not read"
@@ -281,12 +290,13 @@ let ssa_cells (b : Ssa_buffer.t) (c : Ssa_memory.cells) =
 (* A structured SSA program built directly, its buffers given as SSA cells:
    the structured and CFG interpreters (unfused FMA never: Machine IR's is
    one rounding) against the generic route. *)
-let check_program ?mutation ?(fma = Mir_planning.Fma.Forbidden)
-    (p : Ssa_program.t) ~(inputs : (int * Ssa_memory.cells) list) =
+let check_program ?mutation ?fuel ?(fma = Mir_planning.Fma.Forbidden)
+    ?(precision = Mir_planning.Precision.F64) (p : Ssa_program.t)
+    ~(inputs : (int * Ssa_memory.cells) list) =
   let planning =
     Mir_planning.make ~subject:(Mir_lower.subject p) ~policy:"reference_f64"
-      ~schedule:"scalar" ~precision:Mir_planning.Precision.F64
-      ~lanes:(Mir_type.Lanes.of_int 1) ~fma ~capabilities:[]
+      ~schedule:"scalar" ~precision ~lanes:(Mir_type.Lanes.of_int 1) ~fma
+      ~capabilities:[]
   in
   match
     Err.payload (Mir_lower.program ?mutation ~planning:(Some planning) p)
@@ -342,15 +352,20 @@ let check_program ?mutation ?(fma = Mir_planning.Fma.Forbidden)
             };
         }
       in
+      (* the SSA interpreter reports a defect as [Invalid_argument] *)
       let structured =
-        route "structured" (fun counters memory ->
-            match Err.payload (Ssa_interp.run ~counters p ~memory) with
-            | Ok () -> Ok ()
-            | Error (#Ssa_interp.failure as f) -> Error f
-            | Error (`Invalid_program _) -> invalid_arg "an invalid program")
+        match
+          route "structured" (fun counters memory ->
+              match Err.payload (Ssa_interp.run ~counters p ~memory) with
+              | Ok () -> Ok ()
+              | Error (#Ssa_interp.failure as f) -> Error f
+              | Error (`Invalid_program _) -> invalid_arg "an invalid program")
+        with
+        | r -> Ok r
+        | exception Invalid_argument m -> Error m
       in
       let generic =
-        mir_route lowered ~input:(fun b ->
+        mir_route ?fuel lowered ~input:(fun b ->
             Option.map (pack_cells b)
               (List.assoc_opt (b.Ssa_buffer.id :> int) inputs))
       in
@@ -367,9 +382,17 @@ let check_program ?mutation ?(fma = Mir_planning.Fma.Forbidden)
       Fmt.str "%s%s%s"
         (status_name generic.Route.observation)
         (if values = [] then "" else " [" ^ String.concat " " values ^ "]")
-        (match verdict ~expected:structured ~actual:generic with
-        | None -> ""
-        | Some d -> " DISAGREE " ^ d)
+        (match structured with
+        | Error m -> (
+            (* a defect agrees with nothing, but only the generic route
+               missing one is a finding *)
+            match generic.Route.observation.Mir_observation.status with
+            | Mir_observation.Status.Defect _ -> "; oracle defect: " ^ m
+            | _ -> " DISAGREE oracle defect: " ^ m)
+        | Ok structured -> (
+            match verdict ~expected:structured ~actual:generic with
+            | None -> ""
+            | Some d -> " DISAGREE " ^ d))
 
 (* One lowered case, for a later stage's harness: the generic program, the
    bytes of its bound regions, and the routes it is compared against. *)
@@ -502,11 +525,12 @@ let selected_observation ~(layout : Mir_layout_map.Entry.t list) ~sites ~record
 
 let case_of_program (p : Ssa_program.t)
     ~(inputs : (int * Ssa_memory.cells) list)
-    ?(fma = Mir_planning.Fma.Forbidden) () =
+    ?(fma = Mir_planning.Fma.Forbidden)
+    ?(precision = Mir_planning.Precision.F64) () =
   let planning =
     Mir_planning.make ~subject:(Mir_lower.subject p) ~policy:"reference_f64"
-      ~schedule:"scalar" ~precision:Mir_planning.Precision.F64
-      ~lanes:(Mir_type.Lanes.of_int 1) ~fma ~capabilities:[]
+      ~schedule:"scalar" ~precision ~lanes:(Mir_type.Lanes.of_int 1) ~fma
+      ~capabilities:[]
   in
   match Err.payload (Mir_lower.program ~planning:(Some planning) p) with
   | Error r -> Error (Fmt.str "refused: %a" Mir_lower.Refusal.pp r)

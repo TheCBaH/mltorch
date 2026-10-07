@@ -137,6 +137,14 @@ let exec env op =
         (if Cond.holds c (E.flags env f ~mask:(Cond.reads c)) then get x
          else get y);
       ]
+  | Ext { signed; from; src } ->
+      let k = Mir_width.bits from in
+      let x = Int64.logand (bits env src) (Mir_width.mask from) in
+      let x =
+        if signed then Int64.shift_right (Int64.shift_left x (64 - k)) (64 - k)
+        else x
+      in
+      [ b (norm Sz.W x) ]
   | Cset (c, f) ->
       [
         b (if Cond.holds c (E.flags env f ~mask:(Cond.reads c)) then 1L else 0L);
@@ -228,6 +236,7 @@ let exec env op =
       | Mir_datum.Ptr p -> [ ptr_add env p (Int64.neg (bits env y)) ]
       | _ -> [ b (norm sz (Int64.sub (bits env x) (bits env y))) ])
   | Sxtw x -> [ b (Int64.of_int32 (Int64.to_int32 (bits env x))) ]
+  | Trunc (w, x) -> [ b (Int64.logand (bits env x) (Mir_width.mask w)) ]
   | Uxtw x | Wtrunc x -> [ b (Int64.logand (bits env x) 0xFFFF_FFFFL) ]
 
 let test env = function
