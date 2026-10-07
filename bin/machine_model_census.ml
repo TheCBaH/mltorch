@@ -24,9 +24,15 @@
    with [--blocking=feedback] each invocation's SSA output blocking is chosen
    by that pressure first, and the choices are tallied.
 
+   [--traffic=aarch64|x86_64] runs the invocations (the first K with
+   [--run=K], else all) on that target's production pipeline in the physical
+   interpreter, compares them like [--run], and reports what they executed:
+   instructions, register moves, frame stores and reloads and
+   rematerializations, in total and by operation.
+
    argv: <model.pt2> [--ssa=exact|representation] [--run=K]
    [--measure=aarch64|x86_64] [--pressure=aarch64|x86_64]
-   [--blocking=feedback] *)
+   [--blocking=feedback] [--traffic=aarch64|x86_64] *)
 
 open Loop_ir
 module M = Machine_model.Mir_model
@@ -142,6 +148,9 @@ let pressure_summary route reports ~choices =
        (fun m (p : P.t) -> max m (Option.value ~default:0L p.P.frame))
        0L ok)
     (List.fold_left (fun n (p : P.t) -> n + p.P.helper_calls) 0 ok);
+  Fmt.pr "%s hot spills %a@." (M.Route.name route) P.pp_depths
+    ( merge ( + ) (List.concat_map (fun (p : P.t) -> p.P.by_depth) ok),
+      List.fold_left (fun n (p : P.t) -> n + p.P.innermost) 0 ok );
   match choices with
   | [] -> ()
   | l ->
@@ -149,6 +158,53 @@ let pressure_summary route reports ~choices =
         Fmt.(
           list ~sep:(any ", ") (fun fmt (g, n) -> Fmt.pf fmt "group %d x%d" g n))
         (merge ( + ) (List.map (fun g -> (g, 1)) l))
+
+(* What the invocations run so far executed of their allocation, in total and
+   by operation, largest stores and reloads first. *)
+let traffic_summary (b : Loop_bundle.t) m route =
+  let module Tr = Machine_interp.Mir_phys_interp.Traffic in
+  let ran =
+    List.filter_map
+      (fun (i, t) ->
+        match t with
+        | Some (t : Tr.t) when Int64.compare t.Tr.instructions 0L > 0 ->
+            Some (i, t)
+        | _ -> None)
+      (M.traffic m)
+  in
+  let op (inv : Loop_bundle.invocation) =
+    match
+      List.find_opt
+        (fun (n : _ Graph_common.Node.t) ->
+          n.Graph_common.Node.id = inv.Loop_bundle.node)
+        b.Loop_bundle.graph.Graph_common.Graph.nodes
+    with
+    | Some n ->
+        let s =
+          Fmt.str "%a"
+            (Graph_ir.pp_op b.Loop_bundle.graph)
+            n.Graph_common.Node.op
+        in
+        List.hd
+          (String.split_on_char ' '
+             (String.map (function '\n' -> ' ' | c -> c) s))
+    | None -> "?"
+  in
+  let by_op = Hashtbl.create 16 in
+  List.iter
+    (fun (inv, t) ->
+      let k = op inv in
+      Hashtbl.replace by_op k
+        (Tr.add t (Option.value ~default:Tr.zero (Hashtbl.find_opt by_op k))))
+    ran;
+  Fmt.pr "%s traffic: %a@." (M.Route.name route) Tr.pp
+    (List.fold_left (fun acc (_, t) -> Tr.add acc t) Tr.zero ran);
+  Hashtbl.fold (fun k t acc -> (k, t) :: acc) by_op []
+  |> List.sort (fun (_, (a : Tr.t)) (_, (b : Tr.t)) ->
+      compare
+        (Int64.add b.Tr.stores b.Tr.reloads)
+        (Int64.add a.Tr.stores a.Tr.reloads))
+  |> List.iter (fun (k, t) -> Fmt.pr "  %s: %a@." k Tr.pp t)
 
 (* The first [count] invocations against the reference, tensor by tensor. *)
 let prefix (b : Loop_bundle.t) m ~constants ~count =
@@ -207,6 +263,7 @@ let () =
   let measure = ref None in
   let pressure = ref None in
   let feedback = ref false in
+  let traffic = ref None in
   let args =
     List.filter
       (fun a ->
@@ -232,6 +289,12 @@ let () =
             false
         | [ "--blocking"; "feedback" ] ->
             feedback := true;
+            false
+        | [ "--traffic"; "aarch64" ] ->
+            traffic := Some (M.Route.Aarch64 M.Stage.Scanned);
+            false
+        | [ "--traffic"; "x86_64" ] ->
+            traffic := Some (M.Route.X86_64 M.Stage.Scanned);
             false
         | _ -> true)
       (List.tl (Array.to_list Sys.argv))
@@ -261,7 +324,11 @@ let () =
           exit 1
       | Ok (b, constants) -> (
           let n = List.length b.Loop_bundle.invocations in
-          let route = Option.value ~default:M.Route.Generic !pressure in
+          let route =
+            match (!traffic, !pressure) with
+            | Some r, _ | None, Some r -> r
+            | None, None -> M.Route.Generic
+          in
           let blocking =
             if !feedback then Machine_model.Mir_blocking.Policy.Feedback
             else Machine_model.Mir_blocking.Policy.Unblocked
@@ -305,9 +372,12 @@ let () =
                          (fun (d : Machine_model.Mir_blocking.Decision.t) ->
                            d.Machine_model.Mir_blocking.Decision.chosen)
                          decisions));
-              match !run with
-              | None -> ()
-              | Some count -> prefix b m ~constants ~count)
+              match (!run, !traffic) with
+              | None, None -> ()
+              | Some count, None -> prefix b m ~constants ~count
+              | count, Some route ->
+                  prefix b m ~constants ~count:(Option.value ~default:n count);
+                  traffic_summary b m route)
           | Error refusals ->
               let tally = Hashtbl.create 16 in
               List.iter

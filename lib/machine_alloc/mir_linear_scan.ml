@@ -7,11 +7,13 @@
      or wholly spilled to the value's slot. A piece is split only at an even
      position: before an instruction, where a transition move runs, or at a
      block start, where edge resolution does.
-   - Spilled pieces stay correct at every use and definition: an operand in a
-     slot is reloaded into the reference allocator's scratch just before its
-     instruction and a result in a slot is written through the result scratch
-     and stored, so no split is ever forced for legality — splitting is how a
-     spilled value gets a register back before its next use.
+   - Needs. An instruction's operands and results, and a branch's test, are
+     registers: the piece holding a value there must be in one, evicting an
+     occupant the instruction does not itself need, and a definition whose
+     next use is farther than any occupant's holds it only until the next
+     instruction. Only fixed and tied operands, edge arguments and moves
+     reach a slot, so allocation keeps no scratch of its own beyond the
+     parallel copy's: the slot-to-slot copy and the cycle break.
    - Constraints. A fixed use or result blocks its register for the
      instruction (a fixed interval) and is reached by moves before or after
      it; a call's clobbered views are blocked as it writes, so a value live
@@ -24,7 +26,9 @@
      previous register; with none free, the occupant whose next use is
      farthest, weighted by loop depth (a use ten times deeper in loops counts
      as ten times nearer), is evicted to its slot — or the current piece is
-     spilled when its own next use is farther still.
+     spilled when its own next use is farther still. An evicted occupant is
+     split at the shallowest block start since its last read, if one is
+     shallower than here, so a loop that never reads it does not store it.
    - Resolution. Pieces that change location inside a block do so through one
      parallel copy at the split; across an edge, every value live into the
      target (block parameters from the edge's arguments) moves from where the
@@ -140,9 +144,16 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                 | Mir_target.Constraint.Fixed_use { view; _ } ->
                     fixed :=
                       { Fixed.view; lo = p; hi = p + 1; own = [] } :: !fixed
-                | Mir_target.Constraint.Fixed_result { view; _ } ->
+                | Mir_target.Constraint.Fixed_result { result; view } ->
+                    (* only its own result is written there *)
                     fixed :=
-                      { Fixed.view; lo = p + 1; hi = p + 2; own } :: !fixed
+                      {
+                        Fixed.view;
+                        lo = p + 1;
+                        hi = p + 2;
+                        own = [ List.nth own result ];
+                      }
+                      :: !fixed
                 | Mir_target.Constraint.Early_clobber k
                 | Mir_target.Constraint.Tied { result = k; _ } ->
                     Hashtbl.replace opens
@@ -166,6 +177,55 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                 i)
           b.Mir_block.body)
       f.Mir_func.blocks;
+    (* where each value must be in a register: an operand neither fixed nor
+       tied, a result not fixed, a branch's test *)
+    let needs = Hashtbl.create 64 in
+    let need (v : Mir_value.t) x =
+      if not (is_flags v) then
+        let k = Mir_id.Value.to_int v.Mir_value.id in
+        Hashtbl.replace needs k
+          (x :: Option.value ~default:[] (Hashtbl.find_opt needs k))
+    in
+    Hashtbl.iter
+      (fun p (i : S.Stage.op Mir_instr.t) ->
+        match i.Mir_instr.op with
+        | Mir_sel.Op.Event _ | Mir_sel.Op.Undef _ -> ()
+        | Mir_sel.Op.Machine op ->
+            let cs = T.constraints op in
+            List.iteri
+              (fun k v ->
+                if
+                  not
+                    (List.exists
+                       (function
+                         | Mir_target.Constraint.Fixed_use { use; _ }
+                         | Mir_target.Constraint.Tied { use; _ } ->
+                             use = k
+                         | _ -> false)
+                       cs)
+                then need v p)
+              (T.uses op);
+            List.iteri
+              (fun k r ->
+                if
+                  not
+                    (List.exists
+                       (function
+                         | Mir_target.Constraint.Fixed_result { result; _ } ->
+                             result = k
+                         | _ -> false)
+                       cs)
+                then need r (p + 1))
+              i.Mir_instr.results)
+      at;
+    List.iter
+      (fun bid ->
+        let _, to_ = span_of bid in
+        match (block bid).Mir_block.terminator with
+        | Mir_sel.Terminator.Branch { test; _ } ->
+            List.iter (fun v -> need v (to_ - 1)) (T.test_uses test)
+        | Mir_sel.Terminator.Jump _ | Mir_sel.Terminator.Return _ -> ())
+      order;
     let intervals = Lv.intervals f in
     let pieces =
       List.filter_map
@@ -188,6 +248,11 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                   Piece.value = v;
                   ranges;
                   uses = iv.Lv.Interval.uses;
+                  needs =
+                    List.sort_uniq compare
+                      (Option.value ~default:[]
+                         (Hashtbl.find_opt needs
+                            (Mir_id.Value.to_int v.Mir_value.id)));
                   where = Where.Unassigned;
                 })
         intervals
@@ -197,6 +262,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
       List.concat_map
         (fun bank ->
           scan st ~bank ~fixed:!fixed ~depth
+            ~starts:(List.map (fun (_, (a, _)) -> a) spans)
             (List.filter (fun p -> bank_of p = bank) pieces))
         [ Mir_target.Bank.Fpr; Mir_target.Bank.Gpr ]
     in
@@ -400,13 +466,6 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
           [ Mir_phys.Instr.Exec { instr = i; uses = []; defs = [] } ]
       | Mir_sel.Op.Machine op ->
           let operands = T.uses op and cs = T.constraints op in
-          let late =
-            T.clobbers op <> []
-            || List.exists
-                 (function
-                   | Mir_target.Constraint.Fixed_result _ -> true | _ -> false)
-                 cs
-          in
           let fixed_use k =
             List.find_map
               (function
@@ -432,7 +491,8 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                 | _ -> None)
               cs
           in
-          (* where each result is written *)
+          (* where each result is written: a needed result's piece holds a
+             register there *)
           let defs =
             List.mapi
               (fun k (r : Mir_value.t) ->
@@ -440,46 +500,8 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                 else
                   match fixed_result k with
                   | Some view -> Loc.Reg view
-                  | None -> (
-                      let bank, bits = shape r in
-                      if late then Loc.Reg (R.result_scratch bank ~bits)
-                      else
-                        match loc r (p + 1) with
-                        | Loc.Reg _ as l -> l
-                        | Loc.Slot _ | Loc.Mem _ ->
-                            Loc.Reg (R.result_scratch bank ~bits)))
+                  | None -> loc r (p + 1))
               i.Mir_instr.results
-          in
-          (* stack operands reloaded into scratch, the k-th distinct one into
-             the k-th scratch *)
-          let stacked =
-            List.sort_uniq Mir_value.compare
-              (List.filteri
-                 (fun k (v : Mir_value.t) ->
-                   (not (is_flags v))
-                   && fixed_use k = None
-                   && tied_result k = None
-                   && match loc v p with Loc.Slot _ -> true | _ -> false)
-                 operands)
-          in
-          let scratch_of (v : Mir_value.t) =
-            let rec index n = function
-              | [] -> None
-              | w :: rest ->
-                  if Mir_value.equal v w then Some n else index (n + 1) rest
-            in
-            Option.map
-              (fun n ->
-                let bank, bits = shape v in
-                Loc.Reg (R.use_scratch bank ~bits n))
-              (index 0 stacked)
-          in
-          let reloads =
-            List.map
-              (fun v ->
-                Mir_phys.Instr.Move
-                  { dst = Option.get (scratch_of v); src = loc v p; value = v })
-              stacked
           in
           let uses =
             List.mapi
@@ -487,8 +509,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                 match (fixed_use k, tied_result k) with
                 | Some view, _ -> Loc.Reg view
                 | None, Some r -> List.nth defs r
-                | None, None -> (
-                    match scratch_of v with Some l -> l | None -> loc v p))
+                | None, None -> loc v p)
               operands
           in
           (* fixed and tied operands, all at once *)
@@ -537,9 +558,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                        Some { Mir_parallel_copy.dst = want; src = d; value = r })
                  (List.combine i.Mir_instr.results defs))
           in
-          reloads @ pre
-          @ [ Mir_phys.Instr.Exec { instr = i; uses; defs } ]
-          @ post
+          pre @ [ Mir_phys.Instr.Exec { instr = i; uses; defs } ] @ post
     in
     let splits = ref [] in
     let fresh_block () =
@@ -620,25 +639,14 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                    transitions p @ instr p i)
                  b.Mir_block.body)
           in
-          let reload_test vs =
-            List.mapi
-              (fun k (v : Mir_value.t) ->
-                if is_flags v then (Loc.Reg T.flags_view, [])
-                else
-                  match loc v (to_ - 1) with
-                  | Loc.Reg _ as l -> (l, [])
-                  | src ->
-                      let bank, bits = shape v in
-                      let r = Loc.Reg (R.use_scratch bank ~bits k) in
-                      (r, [ Mir_phys.Instr.Move { dst = r; src; value = v } ]))
-              vs
-          in
           let tail, terminator =
             match b.Mir_block.terminator with
             | Mir_sel.Terminator.Jump e ->
                 (edge_moves id e, Mir_phys.Term.Jump e.Mir_edge.target)
             | Mir_sel.Terminator.Branch { test; then_; else_ } ->
-                let located = reload_test (T.test_uses test) in
+                let located =
+                  List.map (fun v -> loc v (to_ - 1)) (T.test_uses test)
+                in
                 let via index (e : Mir_edge.t) =
                   let moves = edge_moves id e in
                   if moves = [] then e.Mir_edge.target
@@ -658,14 +666,9 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                     sid
                 in
                 let then_b = via 0 then_ and else_b = via 1 else_ in
-                ( List.concat_map snd located,
+                ( [],
                   Mir_phys.Term.Branch
-                    {
-                      test;
-                      uses = List.map fst located;
-                      then_ = then_b;
-                      else_ = else_b;
-                    } )
+                    { test; uses = located; then_ = then_b; else_ = else_b } )
             | Mir_sel.Terminator.Return { Mir_return.values; _ } ->
                 ( transfer
                     (List.map2

@@ -106,9 +106,9 @@ let%expect_test "liveness sets equal the path definition" =
     cases;
   [%expect
     {|
-    11 blocks, 123 values, 1353 checks, 0 wrong
-    17 blocks, 213 values, 3621 checks, 0 wrong
-    8 blocks, 162 values, 1296 checks, 0 wrong |}]
+    11 blocks, 75 values, 825 checks, 0 wrong
+    17 blocks, 173 values, 2941 checks, 0 wrong
+    8 blocks, 82 values, 656 checks, 0 wrong |}]
 
 let%expect_test "intervals of a loop, with holes" =
   match
@@ -137,19 +137,19 @@ let%expect_test "intervals of a loop, with holes" =
         {|
         %18:f64 7,16 uses 15
         %19:f64 11,16 uses 15
-        %3:f64 16,22 314,317 uses 21,316
-        %2:i32 16,22 314,323 uses 18,322
-        %4:f64 16,22 314,328 uses 21,316,327
-        %6:f64 22,83 uses 82
-        %7:f64 22,147 uses 146
-        %85:f64 155,164 uses 163
-        %86:f64 159,164 uses 163
-        %9:i32 164,170 302,309 uses 166,308
-        %11:f64 164,170 302,314 uses 169,313
-        %10:f64 164,170 302,314 uses 169,313
-        %13:f64 170,231 uses 230
-        %14:f64 170,295 uses 294
-        %157:f64 317,328 uses 327 |}]
+        %3:f64 16,22 154,157 uses 21,156
+        %2:i32 16,22 154,163 uses 18,162
+        %4:f64 16,22 154,168 uses 21,156,167
+        %6:f64 22,43 uses 42
+        %7:f64 22,67 uses 66
+        %45:f64 75,84 uses 83
+        %46:f64 79,84 uses 83
+        %9:i32 84,90 142,149 uses 86,148
+        %10:f64 84,90 142,154 uses 89,153
+        %11:f64 84,90 142,154 uses 89,153
+        %13:f64 90,111 uses 110
+        %14:f64 90,135 uses 134
+        %77:f64 157,168 uses 167 |}]
 
 (* Soundness: every use position and every block start a value is live into
    lies in one of its ranges. Coverage where a value is dead is imprecision,
@@ -198,4 +198,4 @@ let%expect_test "intervals cover the sets" =
         spans)
     (L.intervals f);
   Fmt.pr "%d checks: %d unsound, %d imprecise@." !checks !unsound !imprecise;
-  [%expect {| 1500 checks: 0 unsound, 5 imprecise |}]
+  [%expect {| 912 checks: 0 unsound, 5 imprecise |}]

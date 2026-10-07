@@ -201,7 +201,7 @@ let%expect_test "an IDIV divisor where CQO writes is rejected" =
   [%expect
     {|
     original: accepted
-    edited: allocated fn0 bb28 i777: target constraint: an early-clobber result overlaps a use |}]
+    edited: allocated fn0 bb28 i677: target constraint: an early-clobber result overlaps a use |}]
 
 module Calls = Machine_alloc_test.Calls_test
 

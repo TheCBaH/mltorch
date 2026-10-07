@@ -75,6 +75,8 @@ type st = {
   bld : B.t;
   layout : L.Entry.t list;
   values : (int, Mir_value.t) Hashtbl.t;  (** SSA value id -> machine value *)
+  constants : (int, Mir_const.t) Hashtbl.t;
+      (** machine value id -> the constant it was emitted as *)
   heads : (int, B.block) Hashtbl.t;
       (** CFG block id -> its first machine block *)
   locals : (int, Local_object.t) Hashtbl.t;
@@ -111,7 +113,17 @@ let bind st (v : Ssa_value.t) m =
 let with_role st role = st.origin <- { st.origin with Mir_origin.role }
 let emit st op = B.emit ~origin:st.origin st.bld st.cur op
 let emit_unit st op = B.emit_unit ~origin:st.origin st.bld st.cur op
-let const st c = emit st (Mir_op.Const c)
+
+let const st c =
+  let v = emit st (Mir_op.Const c) in
+  Hashtbl.replace st.constants (Mir_id.Value.to_int v.Mir_value.id) c;
+  v
+
+let is_zero st (v : Mir_value.t) =
+  match Hashtbl.find_opt st.constants (Mir_id.Value.to_int v.Mir_value.id) with
+  | Some c -> Int64.equal c.Mir_const.bits 0L
+  | None -> false
+
 let i32k st x = const st (Mir_const.i32 x)
 let i64k st x = const st (Mir_const.i64 x)
 
@@ -181,30 +193,40 @@ let coord_guards st (e : L.Entry.t) (c : Ssa_value.t Expr.Coord.t) =
      else Expr.Axis.all)
 
 (* The address of an access: the view's base plus the row-major element offset
-   times the element bytes, all in i64. A flat offset is an element index. *)
+   times the element bytes, all in i64. A flat offset is an element index.
+   The row-major fold leaves out what is exactly zero or one: a coordinate
+   emitted as the constant 0 adds nothing (and while every earlier one is, the
+   offset is still zero), and an extent of 1 multiplies by nothing. *)
 let address st (e : L.Entry.t) (at : Ssa_access.t) =
   with_role st Mir_origin.Role.Address;
   let element =
     match at with
     | Ssa_access.Flat v -> sext st (value st v)
-    | Ssa_access.Coord c ->
+    | Ssa_access.Coord c -> (
         let extents = e.L.Entry.buffer.Ssa_buffer.extents in
         List.fold_left
           (fun acc axis ->
-            let x = sext st (value st (Expr.Coord.get c axis)) in
+            let x = value st (Expr.Coord.get c axis) in
+            let zero = is_zero st x in
             match acc with
-            | None -> Some x
+            | None -> if zero then None else Some (sext st x)
             | Some acc ->
+                let ext = Expr.Coord.get extents axis in
                 let scaled =
-                  emit st
-                    (Mir_op.Iarith
-                       ( Mir_op.Iarith.Mul,
-                         acc,
-                         i64k st (Expr.Coord.get extents axis) ))
+                  if Int64.equal ext 1L then acc
+                  else
+                    emit st
+                      (Mir_op.Iarith (Mir_op.Iarith.Mul, acc, i64k st ext))
                 in
-                Some (emit st (Mir_op.Iarith (Mir_op.Iarith.Add, scaled, x))))
+                if zero then Some scaled
+                else
+                  Some
+                    (emit st
+                       (Mir_op.Iarith (Mir_op.Iarith.Add, scaled, sext st x))))
           None Expr.Axis.all
-        |> Option.get
+        |> function
+        | Some x -> x
+        | None -> i64k st 0L)
   in
   let scale =
     if mutated st Mutation.Scale_bytes then Int64.mul 2L e.L.Entry.elem_bytes

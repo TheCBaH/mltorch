@@ -14,6 +14,11 @@ type t = {
       (** per bank, register to frame in a block on a cycle *)
   hot_loads : (Mir_target.Bank.t * int) list;
       (** per bank, frame to register in a block on a cycle *)
+  by_depth : (int * int) list;
+      (** per loop depth from 1, ascending: the hot stores and loads of every
+          bank in blocks that many natural loops contain *)
+  innermost : int;
+      (** the hot stores and loads in blocks of a loop holding no other *)
   stats : Mir_alloc_stats.t;
   frame : int64 option;  (** the largest realized frame, when realized *)
   helper_calls : int;
@@ -21,6 +26,16 @@ type t = {
 
 let total l = List.fold_left (fun n (_, k) -> n + k) 0 l
 let hot_spills t = total t.hot_stores + total t.hot_loads
+
+(* Hot stores and loads by loop depth, then those in innermost loops. *)
+let pp_depths fmt (by_depth, innermost) =
+  match by_depth with
+  | [] -> Fmt.string fmt "none"
+  | l ->
+      Fmt.pf fmt "%a; innermost %d"
+        Fmt.(
+          list ~sep:(any ", ") (fun fmt (d, n) -> Fmt.pf fmt "depth %d: %d" d n))
+        l innermost
 
 let pp fmt t =
   let banks =
@@ -63,6 +78,22 @@ let on_cycle (f : (_, _) Mir_phys.Func.t) =
     (fun (b : (_, _) Mir_phys.Block.t) ->
       if reaches_itself b.Mir_phys.Block.id then Some b else None)
     f.Mir_phys.Func.blocks
+
+(* Each block's natural-loop nest: how many loops contain it, and whether the
+   smallest of them holds another loop's header. *)
+let nest (f : (_, _) Mir_phys.Func.t) =
+  let loops =
+    Mir_loop.find ~entry:f.Mir_phys.Func.entry
+      (List.map
+         (fun (b : (_, _) Mir_phys.Block.t) ->
+           ( b.Mir_phys.Block.id,
+             Mir_phys.Term.successors b.Mir_phys.Block.terminator ))
+         f.Mir_phys.Func.blocks)
+  in
+  fun id ->
+    match Mir_loop.around loops id with
+    | [] -> (0, false)
+    | l :: _ as mine -> (List.length mine, not (Mir_loop.nests loops l))
 
 module Make (T : Mir_sel.TARGET) = struct
   module Lv = Mir_liveness.Make (T)
@@ -110,6 +141,7 @@ module Make (T : Mir_sel.TARGET) = struct
 
   let report sel (p : (T.op, T.test) Mir_phys.Program.t) =
     let hot_stores = Hashtbl.create 2 and hot_loads = Hashtbl.create 2 in
+    let by_depth = Hashtbl.create 4 and innermost = ref 0 in
     let helper_calls = ref 0 in
     let count h (v : Mir_value.t) =
       match V.shape v.Mir_value.ty with
@@ -120,8 +152,15 @@ module Make (T : Mir_sel.TARGET) = struct
     in
     List.iter
       (fun f ->
+        let nest = nest f in
         List.iter
           (fun (b : (_, _) Mir_phys.Block.t) ->
+            let depth, inner = nest b.Mir_phys.Block.id in
+            let spill () =
+              Hashtbl.replace by_depth depth
+                (1 + Option.value ~default:0 (Hashtbl.find_opt by_depth depth));
+              if inner then incr innermost
+            in
             List.iter
               (function
                 | Mir_phys.Instr.Move { dst; src; value } -> (
@@ -129,8 +168,12 @@ module Make (T : Mir_sel.TARGET) = struct
                       ( Mir_alloc_stats.is_memory dst,
                         Mir_alloc_stats.is_memory src )
                     with
-                    | true, false -> count hot_stores value
-                    | false, true -> count hot_loads value
+                    | true, false ->
+                        spill ();
+                        count hot_stores value
+                    | false, true ->
+                        spill ();
+                        count hot_loads value
                     | false, false | true, true -> ())
                 | Mir_phys.Instr.Exec _ | Mir_phys.Instr.Late _
                 | Mir_phys.Instr.Remat _ | Mir_phys.Instr.Save _
@@ -161,6 +204,10 @@ module Make (T : Mir_sel.TARGET) = struct
       peak = peak sel;
       hot_stores = by_bank hot_stores;
       hot_loads = by_bank hot_loads;
+      by_depth =
+        List.sort compare
+          (Hashtbl.fold (fun d n acc -> (d, n) :: acc) by_depth []);
+      innermost = !innermost;
       stats = Mir_alloc_stats.of_program p;
       frame =
         List.fold_left

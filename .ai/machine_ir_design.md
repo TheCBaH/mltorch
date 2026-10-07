@@ -244,7 +244,10 @@ census slice that will admit it.
   address formation and read.
 - **Access**: the row-major element offset in i64 (sign-extended
   coordinates, extents as constants), scaled by the element bytes, added to
-  the view's address. Decodes and encodes are explicit (`load.i32; bitcast;
+  the view's address. The fold leaves out only what is exactly neutral: a
+  coordinate emitted as the constant 0 (and every leading one while the
+  offset is still zero) and a multiplication by an extent of 1, so the
+  offset's value never changes and no bounds argument is needed. Decodes and encodes are explicit (`load.i32; bitcast;
   fext` for binary32, `fround; bitcast; store.i32` back). Unchecked accesses
   keep only the interpreter's byte-range defect check.
 - **Origins**: every instruction records its CFG block and position, the SSA
@@ -684,19 +687,31 @@ register can hold something else, which the checker reports.
 same intervals allocated as pieces, each wholly in one register or spilled,
 split only at even positions — before an instruction, where a parallel copy
 moves every piece that changes location there, or at a block start, where
-edge resolution does. Spilled pieces stay legal at every use and definition
-through the reference allocator's scratch (an operand reloaded just before,
-a result written through the result scratch and stored), so a split is never
-needed for legality; it is how a spilled value regains a register before its
-next use. Fixed uses and results block their register for the instruction
+edge resolution does. An instruction's operands and results and a branch's
+test are *needs*: the piece holding a value there is in a register. A piece
+that needs one at once is never spilled: it evicts an occupant the evicting
+instruction does not itself need (split where the eviction lands, which for
+a definition is the instruction before it), and a definition whose next use
+is farther than any occupant's holds the register only until the next
+instruction, then is stored. Only fixed and tied operands, edge arguments and
+moves read a slot, so linear scan keeps none of the reference strategy's
+operand or result scratch: those registers are allocatable, and only the
+parallel copy's slot-to-slot and cycle scratch stay out of the pool. A cycle
+break saves the register as its readers read it, which matters once a W and
+an X view of one register meet in one transfer. Fixed uses and results block their register for the instruction
 and are reached by moves; a call's clobbers block the views it writes (so
 AArch64's v8-v15 keep scalars across a call); an instruction's own results
-ignore its own blocks, being written after it; a tied or early-clobber result
+ignore its clobbers, being written after them, and a fixed result's block is
+ignored only by that result; a tied or early-clobber result
 opens at the instruction's read, and a tied operand is copied into the
 result's register. The register free longest wins (preferring the value's
 previous one); with none, the occupant whose next use is farthest — weighted
 tenfold per loop level — is evicted, or the current piece is spilled when its
-own next use is farther still. Moves are emitted only for values live by
+own next use is farther still. An evicted occupant is split where its move
+runs least often: the latest of the block starts after its last read with the
+fewest loops around the edge into them, or the eviction point (Wimmer and
+Franz's spill position out of loops), so a value a loop never reads is stored
+before the loop rather than in it. Moves are emitted only for values live by
 dataflow. Spilled values share slots when their spilled pieces never overlap.
 A value whose instruction reads nothing and is pure, total and unconstrained
 is rematerialized: no slot, a reload becomes a `Remat` of the selected
@@ -706,10 +721,13 @@ the checker requires it to be the function's own selected instruction and
 keeps every other holder of the value, and it is not the instruction's one
 realization. The model adapter's `Scanned` route runs linear scan, frames and
 publication. Fault injection: call clobbers not blocked, inactive intervals
-ignored, a split without its move. The checker catches the first and last on
-both targets, and the hole only on a three-register AArch64 pool: with full
-pools no hole decides a register, and on x86-64 the allocations it changes
-still pass the checker, so the intersections it ignored held no read.
+ignored, an occupant evicted at an instruction that needs it, a split without
+its move. The checker catches the first and last on both targets; the hole on
+a three-register AArch64 pool and on x86-64's full pools (elsewhere the
+allocations it changes still pass, so the intersections it ignored held no
+read); the physical verifier catches the needed eviction on both
+three-register pools as an operand in a slot, and with full pools no eviction
+meets an operand of the evicting instruction.
 
 **Vectors in registers and frames** (M11.3). A register-wide slice is one
 value of 128 bits (Q, XMM) and a half of 64 (D, the low half of an XMM); the
@@ -724,7 +742,8 @@ A spill given half a vector's bytes does not fit its value and the physical
 verifier rejects it. Row-blocked vector matmul under the production pipeline
 (4x8x32, neon128): AArch64 keeps one and two rows' accumulators in registers
 and spills at four (peak 41 FPR values); x86-64 spills in the loop at every
-factor (16 XMM registers, six of them the reference strategy's scratch).
+factor (14 of its 16 XMM registers allocatable): 4, 15 and 42 hot FPR stores
+at one, two and four rows.
 
 **Scheduling** (`Mir_schedule`) runs on the selected program before liveness
 and allocation, one block at a time — so nothing is speculated across a branch
@@ -739,8 +758,9 @@ revision. The production policy, `Sink`, places a pure, flags-preserving
 instruction whose results stay in the block just before its first dependent's
 source place, unless that would lengthen an operand's life (an operand not
 read at or after the new place); the `Scanned` route schedules so before
-linear scan. It cuts spill stores on three-register pools (x86-64 sdpa 120 to
-101) and is roughly neutral with full pools; sinking a whole pure chain to its
+linear scan. It cuts spill stores on three-register x86-64 pools (sdpa 114 to
+91), barely moves them on three-register AArch64 pools (80 to 78), and with
+full pools is neutral to slightly worse (x86-64 sdpa 25 to 30); sinking a whole pure chain to its
 final consumer spilled more, and sinking past an operand's last use spilled
 row-blocked vector accumulators (AArch64 matmul, two rows: 4 hot spills, none
 with the rule). `Reverse` (latest ready first) is evidence
@@ -750,7 +770,9 @@ route, and with any one dependence class dropped refused by the check.
 **Pressure feedback** (`Mir_pressure`, `Mir_blocking`). A kernel's pressure is
 counted, never timed: the most values live at once per bank of the selected
 program, the spill stores and reloads per bank in blocks on a cycle of the
-physical one (its hot loops), the largest realized frame and the helper calls,
+physical one (its hot loops) — also by natural-loop depth (a back edge's
+target dominates its source) and in innermost loops, those holding no other
+loop's header — the largest realized frame and the helper calls,
 all after the production pipeline (sink scheduling, linear scan, frames). The
 model adapter's `Feedback` blocking feeds it back to structured SSA: the
 candidates are the unblocked exact program and the exact program with
@@ -759,12 +781,33 @@ admits for some loop — bounded and each already legal, and bitwise the
 unblocked program — and the choice is the candidate whose hot loops spill
 least, the largest group among equals. Precision and operation order are never
 a candidate, so a spill is reported or avoided, not hidden. On the CI models
-AArch64 keeps every blocked matmul's accumulators in registers at group 8; on
-x86-64 the linear scan has six GPRs (the other caller-saved ones are the
-reference strategy's reload, result, copy and cycle scratch), peak GPR demand
-is 24-26, and hot GPR spills appear in most kernels whatever the group — so
-feedback keeps x86-64 unblocked. Reclaiming that scratch for allocation is the
-open lever.
+AArch64 keeps every blocked matmul's accumulators in registers at group 8 and
+spills in no loop. x86-64 allocates ten GPRs (rsp, rbp, r10 and r11 are
+reserved, rcx and rdx the parallel copy's scratch) against a peak demand of
+24-26: hot GPR spills remain in 578 of 3859 invocations (3507 stores, 2886
+reloads; 21925 stores in 3453 while the reference strategy's operand and result
+scratch stayed out of the pool, 4653 in 665 before the access fold dropped zero
+coordinates and unit extents, 3784 before evictions were split out of loops),
+and feedback blocks invocations where it once blocked none. What stays live is the kernels' own index state,
+not address temporaries: in a convolution, the six loop counters, the clamped
+window bounds and the row and column bases are live through the innermost
+loop, and the spilled values are those loop parameters, integer selects and
+narrowed index sums. By depth, 4088 of x86-64's 7683 hot spill moves are in
+innermost loops and 3712 at depth 5 or 6, a convolution's kernel-window loops,
+and most of them are of values those loops read. Hoisting each address's
+loop-invariant terms into one pointer per access before its loop was built and
+measured (exact: an i64 offset read as coefficients times leaves through
+additions, constant multiplications and extensions of narrowed values) and not
+kept: the counters and window bounds stay live through the inner loops for the
+outer ones, so the pointers only added to them — peak demand rose to 29-32 and
+hot spills at depths 2 and 3 grew several-fold for a fifth fewer at depth 6.
+With three-tap windows, depth counts are no proxy for executed moves; deciding
+that trade needs executed spill counts. The physical interpreter counts what a
+run executes of the allocation's making (`Mir_phys_interp.Traffic`: frame
+stores and reloads, register moves, rematerializations, other instructions),
+each allocated route's kernel accumulates it, and the census's `--traffic`
+runs a model's invocations on a target's production pipeline, compares them
+with the reference and reports it by operation.
 
 ## Host numerics
 

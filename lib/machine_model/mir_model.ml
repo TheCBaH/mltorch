@@ -266,6 +266,14 @@ module Stop = struct
         Fmt.pf fmt "output %a has a byte no invocation wrote" Tensor_id.pp id
 end
 
+(* Each invocation's executed allocation traffic so far, on an allocated
+   stage. *)
+let traffic t =
+  List.map
+    (fun (k : Kernel.t) ->
+      (k.Kernel.invocation, k.Kernel.exec.Mir_model_route.Exec.traffic ()))
+    t.kernels
+
 module Context = struct
   type model = t
 

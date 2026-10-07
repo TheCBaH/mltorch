@@ -97,18 +97,18 @@ let%expect_test "feedback chooses per target; every group bitwise" =
       aarch64 scanned feedback: bitwise
         n0: chosen 8
             group 1: peak fpr 4, gpr 9; hot stores none, loads none; 0 helper calls; frame 16 bytes
-            group 8: peak fpr 18, gpr 16; hot stores none, loads none; 0 helper calls; frame 64 bytes
-            group 4: peak fpr 10, gpr 12; hot stores none, loads none; 0 helper calls; frame 32 bytes
+            group 8: peak fpr 18, gpr 16; hot stores none, loads none; 0 helper calls; frame 32 bytes
+            group 4: peak fpr 10, gpr 12; hot stores none, loads none; 0 helper calls; frame 16 bytes
             group 2: peak fpr 6, gpr 10; hot stores none, loads none; 0 helper calls; frame 16 bytes
       aarch64 scanned group 8: bitwise
       aarch64 scanned group 4: bitwise
       aarch64 scanned group 2: bitwise
       x86_64 scanned feedback: bitwise
-        n0: chosen 1
-            group 1: peak fpr 4, gpr 10; hot stores gpr 3, loads gpr 2; 0 helper calls; frame 56 bytes
-            group 8: peak fpr 18, gpr 17; hot stores fpr 9, gpr 20, loads fpr 9, gpr 19; 0 helper calls; frame 152 bytes
-            group 4: peak fpr 10, gpr 13; hot stores fpr 1, gpr 12, loads fpr 1, gpr 11; 0 helper calls; frame 72 bytes
-            group 2: peak fpr 6, gpr 11; hot stores gpr 7, loads gpr 6; 0 helper calls; frame 72 bytes
+        n0: chosen 4
+            group 1: peak fpr 4, gpr 10; hot stores none, loads none; 0 helper calls; frame 40 bytes
+            group 8: peak fpr 18, gpr 17; hot stores fpr 5, gpr 9, loads fpr 5, gpr 9; 0 helper calls; frame 104 bytes
+            group 4: peak fpr 10, gpr 13; hot stores none, loads none; 0 helper calls; frame 40 bytes
+            group 2: peak fpr 6, gpr 11; hot stores none, loads none; 0 helper calls; frame 40 bytes
       x86_64 scanned group 8: bitwise
       x86_64 scanned group 4: bitwise
       x86_64 scanned group 2: bitwise
@@ -116,18 +116,18 @@ let%expect_test "feedback chooses per target; every group bitwise" =
       aarch64 scanned feedback: bitwise
         n0: chosen 8
             group 1: peak fpr 4, gpr 11; hot stores none, loads none; 0 helper calls; frame 16 bytes
-            group 8: peak fpr 18, gpr 19; hot stores none, loads none; 0 helper calls; frame 80 bytes
-            group 4: peak fpr 10, gpr 14; hot stores none, loads none; 0 helper calls; frame 48 bytes
-            group 2: peak fpr 6, gpr 12; hot stores none, loads none; 0 helper calls; frame 32 bytes
+            group 8: peak fpr 18, gpr 19; hot stores none, loads none; 0 helper calls; frame 48 bytes
+            group 4: peak fpr 10, gpr 14; hot stores none, loads none; 0 helper calls; frame 16 bytes
+            group 2: peak fpr 6, gpr 12; hot stores none, loads none; 0 helper calls; frame 16 bytes
       aarch64 scanned group 8: bitwise
       aarch64 scanned group 4: bitwise
       aarch64 scanned group 2: bitwise
       x86_64 scanned feedback: bitwise
-        n0: chosen 1
-            group 1: peak fpr 4, gpr 12; hot stores gpr 8, loads gpr 7; 0 helper calls; frame 72 bytes
-            group 8: peak fpr 18, gpr 20; hot stores fpr 9, gpr 47, loads fpr 9, gpr 35; 0 helper calls; frame 152 bytes
-            group 4: peak fpr 10, gpr 15; hot stores fpr 1, gpr 24, loads fpr 1, gpr 19; 0 helper calls; frame 72 bytes
-            group 2: peak fpr 6, gpr 13; hot stores gpr 16, loads gpr 13; 0 helper calls; frame 72 bytes
+        n0: chosen 2
+            group 1: peak fpr 4, gpr 12; hot stores none, loads none; 0 helper calls; frame 40 bytes
+            group 8: peak fpr 18, gpr 20; hot stores fpr 5, gpr 11, loads fpr 5, gpr 11; 0 helper calls; frame 104 bytes
+            group 4: peak fpr 10, gpr 15; hot stores gpr 1, loads gpr 1; 0 helper calls; frame 56 bytes
+            group 2: peak fpr 6, gpr 13; hot stores none, loads none; 0 helper calls; frame 40 bytes
       x86_64 scanned group 8: bitwise
       x86_64 scanned group 4: bitwise
       x86_64 scanned group 2: bitwise
@@ -156,6 +156,8 @@ let%expect_test "the choice: least hot spilling, then the largest group" =
                 hot_stores =
                   (if n > 0 then [ (Machine_ir.Mir_target.Bank.Fpr, n) ] else []);
                 hot_loads = [];
+                by_depth = [];
+                innermost = 0;
                 stats = Machine_alloc.Mir_alloc_stats.empty;
                 frame = None;
                 helper_calls = 0;

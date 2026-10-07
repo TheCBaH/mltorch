@@ -1,7 +1,8 @@
-(* The registers allocation draws on. Scratch comes from the caller-saved
-   temporaries (x9-x15, v16-v23), never a reserved register: operands x9-x11
-   and v16-v18, the result x12 and v19, slot copies x13 and v20, transfer
-   cycles x14 and v21. Arguments and results follow AAPCS64's sequence —
+(* The registers allocation draws on. The reference strategy's scratch comes
+   from the caller-saved temporaries (x9-x15, v16-v23), never a reserved
+   register: operands x9-x11 and v16-v18, the result x12 and v19, slot copies
+   x13 and v20, transfer cycles x14 and v21; linear scan keeps only the copy
+   and cycle scratch out of its pool. Arguments and results follow AAPCS64's sequence —
    integers and pointers in x0-x7 (a 32-bit value in its W view), floats in
    v0-v7 (S or D) — and a function with several results returns them in that
    same sequence, an extension of the base convention's single result. *)
@@ -57,9 +58,12 @@ let results = sequence
 (* What production allocation draws on, in preference order: caller-saved
    registers first (a value not live across a call pays nothing to keep), then
    callee-saved ones; never a reserved register (x16-x18, x29, x30) nor the
-   allocator's own scratch (x9-x14, v16-v21). *)
+   parallel copy's scratch (x13, x14, v20, v21). The reference strategy's
+   operand and result scratch is allocatable here: linear scan gives every
+   operand and result a register of its own. *)
 let allocatable = function
-  | Mir_target.Bank.Gpr -> A64_reg.range 0 8 @ [ 15 ] @ A64_reg.range 19 28
+  | Mir_target.Bank.Gpr -> A64_reg.range 0 12 @ [ 15 ] @ A64_reg.range 19 28
   | Mir_target.Bank.Fpr ->
-      A64_reg.range 0 7 @ A64_reg.range 22 31 @ A64_reg.range 8 15
+      A64_reg.range 0 7 @ A64_reg.range 16 19 @ A64_reg.range 22 31
+      @ A64_reg.range 8 15
   | Mir_target.Bank.Control | Mir_target.Bank.Flags -> []

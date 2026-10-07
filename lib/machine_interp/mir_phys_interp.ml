@@ -21,6 +21,37 @@ open Machine_ir
 module D = Mir_observation.Defect
 module Loc = Mir_phys.Loc
 
+(* What a run executed of the allocation's own making: frame stores and
+   reloads (moves between a register and a slot or frame memory), register
+   moves, rematerializations, and every other instruction. *)
+module Traffic = struct
+  type t = {
+    instructions : int64;
+    moves : int64;
+    reloads : int64;
+    remats : int64;
+    stores : int64;
+  }
+
+  let zero =
+    { instructions = 0L; moves = 0L; reloads = 0L; remats = 0L; stores = 0L }
+
+  let add a b =
+    {
+      instructions = Int64.add a.instructions b.instructions;
+      moves = Int64.add a.moves b.moves;
+      reloads = Int64.add a.reloads b.reloads;
+      remats = Int64.add a.remats b.remats;
+      stores = Int64.add a.stores b.stores;
+    }
+
+  let pp fmt t =
+    Fmt.pf fmt
+      "%Ld instructions, %Ld register moves, %Ld stores, %Ld reloads, %Ld \
+       rematerialized"
+      t.instructions t.moves t.stores t.reloads t.remats
+end
+
 module Make (T : Mir_sel_interp.SEMANTICS) = struct
   module Sel = Mir_sel_interp.Make (T)
 
@@ -33,6 +64,7 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
     outcome : Mir_interp.Outcome.t;
     events : (Mir_event.t * int64) list;
     steps : int64;
+    traffic : Traffic.t;
   }
 
   let mask bits =
@@ -109,6 +141,8 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
       (p : (T.op, T.test) Mir_phys.Program.t) memory binding ~args =
     let events = Array.make 6 0L in
     let steps = ref 0L and fuel = ref fuel in
+    let traffic = ref Traffic.zero in
+    let count f = traffic := f !traffic in
     let regs = { units = Hashtbl.create 64 } in
     let views_program =
       {
@@ -608,6 +642,24 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
               match i with
               | Mir_phys.Instr.Move { dst; src; value } ->
                   tick (here None);
+                  let memory = function
+                    | Loc.Slot _ | Loc.Mem _ -> true
+                    | Loc.Reg _ -> false
+                  in
+                  count (fun t ->
+                      match (memory dst, memory src) with
+                      | true, false ->
+                          {
+                            t with
+                            Traffic.stores = Int64.succ t.Traffic.stores;
+                          }
+                      | false, true ->
+                          {
+                            t with
+                            Traffic.reloads = Int64.succ t.Traffic.reloads;
+                          }
+                      | false, false | true, true ->
+                          { t with Traffic.moves = Int64.succ t.Traffic.moves });
                   write Mir_target.Write.Zero_upper dst
                     (read ?lanes:(lanes_of value.Mir_value.ty) src)
               | Mir_phys.Instr.Save { dst; src } ->
@@ -622,15 +674,27 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
                   | None -> defect D.Bad_access)
               | Mir_phys.Instr.Late { op; uses; defs } ->
                   tick (here None);
+                  count (fun t ->
+                      {
+                        t with
+                        Traffic.instructions = Int64.succ t.Traffic.instructions;
+                      });
                   exec op uses defs
               | Mir_phys.Instr.Remat { instr; defs } -> (
                   tick (here (Some instr.Mir_instr.id));
+                  count (fun t ->
+                      { t with Traffic.remats = Int64.succ t.Traffic.remats });
                   match instr.Mir_instr.op with
                   | Mir_sel.Op.Machine op -> exec op [] defs
                   | Mir_sel.Op.Event _ | Mir_sel.Op.Undef _ ->
                       defect D.Invalid_program)
               | Mir_phys.Instr.Exec { instr; uses; defs } -> (
                   tick (here (Some instr.Mir_instr.id));
+                  count (fun t ->
+                      {
+                        t with
+                        Traffic.instructions = Int64.succ t.Traffic.instructions;
+                      });
                   match instr.Mir_instr.op with
                   | Mir_sel.Op.Event (e, n) ->
                       let k = slot_of e in
@@ -692,5 +756,6 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
       outcome;
       events = List.map (fun e -> (e, events.(slot_of e))) Mir_event.all;
       steps = !steps;
+      traffic = !traffic;
     }
 end

@@ -84,6 +84,15 @@ module Stop : sig
   val pp : Format.formatter -> t -> unit
 end
 
+val traffic :
+  t ->
+  (Loop_ir.Loop_bundle.invocation
+  * Machine_interp.Mir_phys_interp.Traffic.t option)
+  list
+(** Per invocation, what its runs so far executed of the allocation's making:
+    frame stores and reloads, register moves, rematerializations and other
+    instructions — [None] on a stage that allocates nothing. *)
+
 module Context : sig
   type model := t
   type t

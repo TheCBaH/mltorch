@@ -864,6 +864,7 @@ let program ?mutation ~planning (p : Ssa_program.t) =
       bld;
       layout;
       values = Hashtbl.create 256;
+      constants = Hashtbl.create 64;
       heads = Hashtbl.create 32;
       locals = Hashtbl.create 8;
       objects = [];

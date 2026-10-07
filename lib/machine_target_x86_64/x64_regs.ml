@@ -1,6 +1,7 @@
-(* The registers allocation draws on: operands r8, r9, rsi and xmm8-xmm10,
+(* The reference strategy's scratch: operands r8, r9, rsi and xmm8-xmm10,
    the result rdi and xmm11, slot copies rcx and xmm12, transfer cycles rdx and
-   xmm13 — all caller-saved, none reserved. Arguments follow System V: integers
+   xmm13 — all caller-saved, none reserved; linear scan keeps only the copy and
+   cycle scratch out of its pool. Arguments follow System V: integers
    and pointers in rdi, rsi, rdx, rcx, r8, r9 (a 32-bit value in its 32-bit
    view), floats in xmm0-xmm7; results in rax then rdx, xmm0 then xmm1. *)
 
@@ -66,9 +67,13 @@ let results = sequence ~ints:[| X64_reg.rax; X64_reg.rdx |] ~floats:[| 0; 1 |]
 
 (* What production allocation draws on, in preference order: caller-saved
    first, then callee-saved; never a reserved register (rsp, rbp, r10, r11)
-   nor the allocator's own scratch (r8, r9, rsi, rdi, rcx, rdx and
-   xmm8-xmm13). *)
+   nor the parallel copy's scratch (rcx, rdx, xmm12, xmm13). The reference
+   strategy's operand and result scratch is allocatable here: linear scan
+   gives every operand and result a register of its own. *)
 let allocatable = function
-  | Mir_target.Bank.Gpr -> [ X64_reg.rax; X64_reg.rbx; 12; 13; 14; 15 ]
-  | Mir_target.Bank.Fpr -> List.init 8 Fun.id @ [ 14; 15 ]
+  | Mir_target.Bank.Gpr ->
+      [
+        X64_reg.rax; X64_reg.rsi; X64_reg.rdi; 8; 9; X64_reg.rbx; 12; 13; 14; 15;
+      ]
+  | Mir_target.Bank.Fpr -> List.init 12 Fun.id @ [ 14; 15 ]
   | Mir_target.Bank.Control | Mir_target.Bank.Flags -> []

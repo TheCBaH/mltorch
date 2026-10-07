@@ -23,6 +23,8 @@ module Mutation = struct
     | Call_interval  (** a call's clobbered views not blocked *)
     | Half_spill  (** a spilled register-wide vector given half its bytes *)
     | Hole  (** an inactive interval's later ranges ignored *)
+    | Needed_eviction
+        (** an occupant evicted at an instruction that reads or writes it *)
     | Split_move  (** a split inside a block without its transition move *)
 end
 
@@ -51,6 +53,9 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
       value : Mir_value.t;
       mutable ranges : (int * int) list;  (** half-open, ascending *)
       mutable uses : int list;  (** ascending *)
+      mutable needs : int list;
+          (** ascending: where it must be in a register — a read by an
+              instruction or a branch, or its own definition *)
       mutable where : Where.t;
     }
 
@@ -89,11 +94,13 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
           value = p.value;
           ranges = after;
           uses = List.filter (fun u -> u >= s) p.uses;
+          needs = List.filter (fun u -> u >= s) p.needs;
           where = Where.Unassigned;
         }
       in
       p.ranges <- before;
       p.uses <- List.filter (fun u -> u < s) p.uses;
+      p.needs <- List.filter (fun u -> u < s) p.needs;
       q
   end
 
@@ -113,13 +120,18 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
      terminator reads it (the block's start, if it has none). *)
   let split_for u = if u land 1 = 0 then u else u - 1
 
+  (* Whether what [p] holds from [at] on must be in a register at once: a
+     need no split at or after [at] can come before. *)
+  let must (p : Piece.t) ~at =
+    List.exists (fun r -> r >= at && split_for r <= at) p.Piece.needs
+
   type st = { mutation : Mutation.t option; mutable next_block : int }
 
   let mutated st m = st.mutation = Some m
 
   (* --- linear scan, one bank at a time ----------------------------------- *)
 
-  let scan st ~bank ~fixed ~depth (pieces : Piece.t list) =
+  let scan st ~bank ~fixed ~depth ~starts (pieces : Piece.t list) =
     let pool = R.allocatable bank in
     let view_of (p : Piece.t) k =
       R.view bank ~bits:(snd (shape p.Piece.value)) k
@@ -270,8 +282,18 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                       else None)
                     (!active @ !inactive)
                 in
+                let needed =
+                  List.exists
+                    (fun p ->
+                      reg_of p = Some k
+                      && Piece.covers p pos
+                      && must p ~at:(split_for pos))
+                    !active
+                in
                 match fixed_block cur k with
                 | Some x when x <= pos + 1 -> None
+                | _ when needed && not (mutated st Mutation.Needed_eviction) ->
+                    None
                 | _ ->
                     let u = List.fold_left min max_int uses in
                     if u = max_int then Some infinity
@@ -291,13 +313,34 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                 | Some u -> float_of_int (u - pos) /. weight u
                 | None -> infinity
               in
+              let need = must cur ~at:pos in
               match candidate with
-              | Some (k, s) when s >= own ->
+              | Some (k, s) when s >= own || need ->
                   (* evict every occupant of [k] that meets [cur] *)
-                  let s_e = split_for pos in
+                  (* an occupant leaves its register where the move runs
+                     least often: at the latest of the shallowest block
+                     starts since it was last read or needed, or here *)
+                  let split_of (p : Piece.t) =
+                    let here = split_for pos in
+                    let last =
+                      List.fold_left
+                        (fun m u -> if u < pos then max m u else m)
+                        (Piece.start p - 1)
+                        (p.Piece.uses @ p.Piece.needs)
+                    in
+                    List.fold_left
+                      (fun (best, cost) b ->
+                        let c = depth (b - 1) in
+                        if b > last && b < here && c < cost then (b, c)
+                        else (best, cost))
+                      (here, depth here)
+                      (List.rev starts)
+                    |> fst
+                  in
                   let evict (p : Piece.t) =
                     if Piece.covers p pos then (
                       active := List.filter (fun q -> q != p) !active;
+                      let s_e = split_of p in
                       if s_e > Piece.start p then
                         let r = Piece.split p s_e in
                         spill_from r ~after:pos
@@ -325,12 +368,20 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                   List.iter
                     (fun p -> if reg_of p = Some k then evict p)
                     (!active @ !inactive);
-                  (* still blocked later by a fixed interval: split before it *)
-                  (match fixed_block cur k with
-                  | Some x when split_for x > pos ->
-                      let q = Piece.split cur (split_for x) in
-                      push q
-                  | _ -> ());
+                  (* still blocked later by a fixed interval: split before it;
+                     taken only for a need: split after it *)
+                  let blocked =
+                    match fixed_block cur k with
+                    | Some x when split_for x > pos -> [ split_for x ]
+                    | _ -> []
+                  and needed = if s < own then [ (pos lor 1) + 1 ] else [] in
+                  (match blocked @ needed with
+                  | [] -> ()
+                  | cuts ->
+                      let q =
+                        Piece.split cur (List.fold_left min max_int cuts)
+                      in
+                      push q);
                   assign k
               | _ -> spill_from cur ~after:pos));
           loop ()

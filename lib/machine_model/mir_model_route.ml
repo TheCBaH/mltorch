@@ -50,6 +50,9 @@ module Exec = struct
       Mir_observation.Status.t;
     artifact : (Format.formatter -> unit) option;
         (** the published artifact's summary, on the realized stage *)
+    traffic : unit -> Mir_phys_interp.Traffic.t option;
+        (** what this kernel's runs so far executed of the allocation's making,
+            on an allocated stage *)
   }
 end
 
@@ -102,6 +105,7 @@ let generic (g : Mir_verify.Generic.t) =
         | Mir_interp.Outcome.Unsupported s ->
             Mir_observation.Status.Unsupported s);
     artifact = None;
+    traffic = (fun () -> None);
   }
 
 (* The selected and allocated routes of one target. *)
@@ -217,6 +221,7 @@ struct
             status memory binding
               (I.run ?fuel ~models v memory binding ~args:[]).I.outcome);
         artifact = None;
+        traffic = (fun () -> None);
       }
     in
     match stage with
@@ -243,17 +248,21 @@ struct
         | Error e -> Error ("publish: " ^ e)
         | Ok artifact ->
             let phys = Mir_artifact.program artifact in
+            let traffic = ref Mir_phys_interp.Traffic.zero in
             Ok
               {
                 Exec.instantiate = instantiate (regions_program phys);
                 run =
                   (fun ?fuel memory binding ~invocation:_ ->
-                    status memory binding
-                      (P.run ?fuel ~models ~realized:true phys memory binding
-                         ~args:[])
-                        .P.outcome);
+                    let r =
+                      P.run ?fuel ~models ~realized:true phys memory binding
+                        ~args:[]
+                    in
+                    traffic := Mir_phys_interp.Traffic.add !traffic r.P.traffic;
+                    status memory binding r.P.outcome);
                 artifact =
                   Some (fun fmt -> Mir_artifact.pp_summary fmt artifact);
+                traffic = (fun () -> Some !traffic);
               })
     | Stage.Allocated -> (
         let phys = A.allocate v in
@@ -265,15 +274,20 @@ struct
                 Error
                   (Fmt.str "checker: %a" Machine_check.Mir_checker.pp_error e)
             | Ok () ->
+                let traffic = ref Mir_phys_interp.Traffic.zero in
                 Ok
                   {
                     Exec.instantiate = instantiate (regions_program phys);
                     run =
                       (fun ?fuel memory binding ~invocation:_ ->
-                        status memory binding
-                          (P.run ?fuel ~models phys memory binding ~args:[])
-                            .P.outcome);
+                        let r =
+                          P.run ?fuel ~models phys memory binding ~args:[]
+                        in
+                        traffic :=
+                          Mir_phys_interp.Traffic.add !traffic r.P.traffic;
+                        status memory binding r.P.outcome);
                     artifact = None;
+                    traffic = (fun () -> Some !traffic);
                   }))
 end
 
