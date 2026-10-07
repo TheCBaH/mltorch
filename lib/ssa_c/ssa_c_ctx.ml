@@ -117,8 +117,6 @@ let c_type cx (ty : Ssa_type.t) =
       Some ("float", "0")
   | Ssa_type.Scalar Ssa_type.F64 -> Some ("double", "0")
   | Ssa_type.Scalar (Ssa_type.I64 | Ssa_type.Index) -> Some ("int64_t", "0")
-  | Ssa_type.Scalar Ssa_type.Offset ->
-      invalid_arg "Ssa_c: a native byte offset has no kernel form"
   | Ssa_type.Scalar Ssa_type.Pred -> Some ("int", "0")
   | Ssa_type.Vec (Ssa_type.F32, l) ->
       cx.f32 <- true;

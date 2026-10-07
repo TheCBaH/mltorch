@@ -424,8 +424,9 @@ statements by lowering). The inline suite runs the depth-200 case under node.
 
 - Buffers are declared objects named by id in an operation's attributes, not
   first-class `buffer<F>` values.
-- Vector, mask and offset types are declared in `Ssa_type` but no operation uses
-  them yet.
+- There is no byte-offset scalar: the reserved `Offset` type, which no
+  operation produced, was removed when Machine IR took ownership of byte
+  addressing (see the Machine IR design in this directory).
 - A gather, a division and a float-to-int conversion have no separate guard
   operation: the checked operation is the check. The Loop converter turns each
   Loop guard into the same check at its own site and relies on the later

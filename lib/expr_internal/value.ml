@@ -226,7 +226,12 @@ let apply_binary = function
   | Mul -> ( *. )
   | Sub -> ( -. )
 
+(* Every product is rounded on its own: [Sys.opaque_identity] keeps a native
+   compiler that fuses [a +. b *. c] (OCaml on AArch64 does) from turning the
+   formula into fused multiply-adds, which the C, Wasm and JavaScript
+   evaluations of it never use. *)
 let erf_approx x =
+  let o = Sys.opaque_identity in
   let p = 0.3275911 in
   let a1 = 0.254829592 in
   let a2 = -0.284496736 in
@@ -235,11 +240,11 @@ let erf_approx x =
   let a5 = 1.061405429 in
   let sign = if x < 0. then -1. else 1. in
   let ax = Stdlib.abs_float x in
-  let t = 1. /. (1. +. (p *. ax)) in
+  let t = 1. /. (1. +. o (p *. ax)) in
   let poly =
-    t *. (a1 +. (t *. (a2 +. (t *. (a3 +. (t *. (a4 +. (t *. a5))))))))
+    t *. (a1 +. o (t *. (a2 +. o (t *. (a3 +. o (t *. (a4 +. o (t *. a5))))))))
   in
-  sign *. (1. -. (poly *. Stdlib.exp (-.ax *. ax)))
+  sign *. (1. -. o (poly *. Stdlib.exp (-.ax *. ax)))
 
 let apply_unary = function
   | Cos -> Stdlib.cos

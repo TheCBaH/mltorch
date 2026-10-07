@@ -114,7 +114,7 @@ let is_erased (v : Ssa_value.t) = Ssa_type.equal v.Ssa_value.ty Ssa_type.Effect
 let lanes_per_register : Ssa_type.scalar -> int = function
   | Ssa_type.F32 -> 4
   | Ssa_type.F64 -> 2
-  | Ssa_type.I64 | Ssa_type.Index | Ssa_type.Offset | Ssa_type.Pred ->
+  | Ssa_type.I64 | Ssa_type.Index | Ssa_type.Pred ->
       invalid_arg "Ssa_wasm: a vector of a non-float"
 
 (* How many registers a vector or mask type takes. A mask is counted in the
@@ -134,8 +134,6 @@ let local_types st (v : Ssa_value.t) ~shape : Wasm_type.t list =
   | Ssa_type.Scalar Ssa_type.F64 -> [ Wasm_type.F64 ]
   | Ssa_type.Scalar Ssa_type.I64 -> [ Wasm_type.I64 ]
   | Ssa_type.Scalar (Ssa_type.Index | Ssa_type.Pred) -> [ Wasm_type.I32 ]
-  | Ssa_type.Scalar Ssa_type.Offset ->
-      invalid_arg "Ssa_wasm: a native byte offset has no kernel form"
   | Ssa_type.Vec (s, l) ->
       if s = Ssa_type.F32 then st.f32 <- true;
       List.init

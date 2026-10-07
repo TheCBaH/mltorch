@@ -1,8 +1,8 @@
-(* The scalar domains. [Index] is the language's valid 32-bit position,
-   [I64] an exact two's-complement integer, and [Offset] a native byte offset
-   that exists only for a layout boundary. [F32] and [F64] are different types
-   even where an interpreter holds both in an OCaml [float]. *)
-type scalar = F32 | F64 | I64 | Index | Offset | Pred
+(* The scalar domains. [Index] is the language's valid 32-bit position and
+   [I64] an exact two's-complement integer. [F32] and [F64] are different types
+   even where an interpreter holds both in an OCaml [float]. No scalar is a byte
+   offset: byte addressing is formed below this IR, by Machine IR lowering. *)
+type scalar = F32 | F64 | I64 | Index | Pred
 
 (* The lane count of a vector or mask. A domain of its own: no extent, position
    or id can be passed for it. *)
@@ -39,7 +39,6 @@ let scalar_name = function
   | F64 -> "f64"
   | I64 -> "i64"
   | Index -> "index"
-  | Offset -> "offset"
   | Pred -> "pred"
 
 let equal a b =
@@ -64,5 +63,4 @@ type f64 = F64_marker
 type i64 = I64_marker
 type index = Index_marker
 type local = Local_marker
-type offset = Offset_marker
 type pred = Pred_marker

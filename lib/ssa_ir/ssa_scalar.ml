@@ -79,7 +79,10 @@ let eval ?(fused = true) (op : Ssa_op.t) ~(result : Ssa_type.t)
            | true, false ->
                Ssa_const.round_f32 (Ssa_const.round_f32 (x *. y) +. z)
            | false, true -> Float.fma x y z
-           | false, false -> (x *. y) +. z))
+           | false, false ->
+               (* opaque: OCaml's arm64 backend otherwise contracts this
+                  product and sum into one fused instruction *)
+               Sys.opaque_identity (x *. y) +. z))
   | Ssa_op.Float_unary (op, a) ->
       let x = float a in
       Some

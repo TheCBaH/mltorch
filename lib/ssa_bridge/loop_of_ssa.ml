@@ -29,9 +29,7 @@ let assign (v : Ssa_value.t) ~float ~index ~i64 =
   | Ssa_type.Scalar Ssa_type.I64 ->
       [ Loop_stmt.Assign (Loop_carrier.Int64, temp v, i64 ()) ]
   | Ssa_type.Effect | Ssa_type.Local -> []
-  | Ssa_type.Mask _
-  | Ssa_type.Scalar (Ssa_type.Offset | Ssa_type.Pred)
-  | Ssa_type.Vec _ ->
+  | Ssa_type.Mask _ | Ssa_type.Scalar Ssa_type.Pred | Ssa_type.Vec _ ->
       invalid_arg "Loop_of_ssa: a value with no Loop carrier"
 
 (* [dst := src], the copy of a carried value. *)

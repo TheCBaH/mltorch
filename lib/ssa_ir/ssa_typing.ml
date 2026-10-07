@@ -118,7 +118,7 @@ let vector_of lanes = function
   | Ssa_type.Scalar ((Ssa_type.F32 | Ssa_type.F64) as s) ->
       Ok (Ssa_type.Vec (s, lanes))
   | Ssa_type.Scalar Ssa_type.Pred -> Ok (Ssa_type.Mask lanes)
-  | Ssa_type.Scalar (Ssa_type.I64 | Ssa_type.Index | Ssa_type.Offset)
+  | Ssa_type.Scalar (Ssa_type.I64 | Ssa_type.Index)
   | Ssa_type.Effect | Ssa_type.Local | Ssa_type.Mask _ | Ssa_type.Vec _ ->
       Error I64_vector
 

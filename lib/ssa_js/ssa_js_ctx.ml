@@ -100,8 +100,6 @@ let init_of (ty : Ssa_type.t) =
       Some (num 0.)
   | Ssa_type.Scalar Ssa_type.I64 -> Some (big_lit 0L)
   | Ssa_type.Scalar Ssa_type.Pred -> Some (bool false)
-  | Ssa_type.Scalar Ssa_type.Offset ->
-      invalid_arg "Ssa_js: a native byte offset has no kernel form"
   | Ssa_type.Mask _ | Ssa_type.Vec _ ->
       raise (Refused (`Unsupported_operation "a vector or mask"))
 
