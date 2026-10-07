@@ -22,7 +22,9 @@ let well_formed t =
   | Mir_type.F32 -> Mir_width.canonical Mir_width.W32 t.bits
   | Mir_type.Int w -> Mir_width.canonical w t.bits
   | Mir_type.Pred -> Int64.equal t.bits 0L || Int64.equal t.bits 1L
-  | Mir_type.Mask _ | Mir_type.Order | Mir_type.Ptr | Mir_type.Vec _ -> false
+  | Mir_type.Flags | Mir_type.Mask _ | Mir_type.Order | Mir_type.Ptr
+  | Mir_type.Vec _ ->
+      false
 
 let equal a b = Mir_type.equal a.ty b.ty && Int64.equal a.bits b.bits
 
@@ -34,5 +36,6 @@ let pp fmt t =
   | Mir_type.Int w ->
       Fmt.pf fmt "%Ld:%a" (Mir_width.signed w t.bits) Mir_width.pp w
   | Mir_type.Pred -> Fmt.pf fmt "%b" (Int64.equal t.bits 1L)
-  | Mir_type.Mask _ | Mir_type.Order | Mir_type.Ptr | Mir_type.Vec _ ->
+  | Mir_type.Flags | Mir_type.Mask _ | Mir_type.Order | Mir_type.Ptr
+  | Mir_type.Vec _ ->
       Fmt.pf fmt "0x%Lx:%a" t.bits Mir_type.pp t.ty

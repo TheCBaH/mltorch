@@ -1,0 +1,10 @@
+; The independent allocation checker: from the selected program it derives
+; the values each use expects; from the allocated program the locations each
+; instruction actually reads and writes; and it reconciles them by symbolic
+; dataflow through joins and loops. It never imports the allocator, whose
+; reports are witnesses to check, not facts to trust. See the Machine IR
+; design in .ai/.
+
+(library
+ (name machine_check)
+ (libraries core err_trace fmt machine_ir))

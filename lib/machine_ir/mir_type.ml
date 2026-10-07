@@ -42,6 +42,10 @@ end
 type t =
   | F32
   | F64
+  | Flags
+      (** a selected program's condition state: defined bits per producing form,
+          consumed in the block that defines it, never a block parameter, stack
+          value or edge argument *)
   | Int of Mir_width.t
   | Mask of Lanes.t
   | Order
@@ -56,11 +60,13 @@ let i64 = Int Mir_width.W64
 
 let equal a b =
   match (a, b) with
-  | F32, F32 | F64, F64 | Order, Order | Pred, Pred | Ptr, Ptr -> true
+  | F32, F32 | F64, F64 | Flags, Flags | Order, Order | Pred, Pred | Ptr, Ptr ->
+      true
   | Int a, Int b -> Mir_width.equal a b
   | Mask a, Mask b -> Lanes.equal a b
   | Vec (e, a), Vec (f, b) -> Elem.equal e f && Lanes.equal a b
-  | (F32 | F64 | Int _ | Mask _ | Order | Pred | Ptr | Vec _), _ -> false
+  | (F32 | F64 | Flags | Int _ | Mask _ | Order | Pred | Ptr | Vec _), _ ->
+      false
 
 let is_float = function F32 | F64 -> true | _ -> false
 let is_int = function Int _ -> true | _ -> false
@@ -79,13 +85,14 @@ let bytes = function
   | Ptr -> Some 8L
   | Vec (e, l) ->
       Some (Int64.mul (Elem.bytes e) (Int64.of_int (Lanes.to_int l)))
-  | Mask _ | Order | Pred -> None
+  | Flags | Mask _ | Order | Pred -> None
 
 let pp fmt = function
   | F32 -> Fmt.string fmt "f32"
   | F64 -> Fmt.string fmt "f64"
   | Int w -> Mir_width.pp fmt w
   | Mask l -> Fmt.pf fmt "mask<%a>" Lanes.pp l
+  | Flags -> Fmt.string fmt "flags"
   | Order -> Fmt.string fmt "order"
   | Pred -> Fmt.string fmt "pred"
   | Ptr -> Fmt.string fmt "ptr64"

@@ -30,14 +30,7 @@ module Outcome = struct
           r.Mir_observation.Row.payload
     | Fuel_exhausted -> Fmt.string fmt "fuel exhausted"
     | Success vs ->
-        Fmt.pf fmt "success [%a]"
-          Fmt.(
-            list ~sep:(any ", ") (fun fmt -> function
-              | Mir_datum.Bits b -> Fmt.pf fmt "0x%Lx" b
-              | Mir_datum.Order -> Fmt.string fmt "order"
-              | Mir_datum.Ptr p ->
-                  Fmt.pf fmt "ptr+%Ld" p.Mir_memory.Pointer.offset))
-          vs
+        Fmt.pf fmt "success [%a]" Fmt.(list ~sep:(any ", ") Mir_datum.pp) vs
     | Unsupported s -> Fmt.pf fmt "unsupported %s" s
 end
 
@@ -45,6 +38,23 @@ module Binding = struct
   type t = Mir_memory.Key.t Mir_id.Region.Map.t
 
   let instance t r = Mir_id.Region.Map.find_opt r t
+
+  (* A pointer to a view's first byte, from any stage's program: views are
+     stage-independent. *)
+  let view_of t (p : (_, _) Mir_program.t) v =
+    match Mir_program.find_view p v with
+    | None -> None
+    | Some view ->
+        Option.map
+          (fun key ->
+            {
+              Mir_memory.Pointer.instance = key;
+              lo = view.Mir_view.offset;
+              hi = Int64.add view.Mir_view.offset view.Mir_view.size;
+              perm = view.Mir_view.perm;
+              offset = view.Mir_view.offset;
+            })
+          (instance t view.Mir_view.region)
 
   let view t (p : Mir_program.generic) v =
     match Mir_program.find_view p v with
@@ -62,7 +72,7 @@ module Binding = struct
           (instance t view.Mir_view.region)
 end
 
-let instantiate (p : Mir_program.generic) memory ~bound =
+let instantiate (p : (_, _) Mir_program.t) memory ~bound =
   List.fold_left
     (fun acc (r : Mir_region.t) ->
       match acc with
@@ -158,12 +168,14 @@ let set frame (v : Mir_value.t) x =
 let bits st frame v =
   match get st frame v with
   | Mir_datum.Bits b -> b
-  | Mir_datum.Order | Mir_datum.Ptr _ -> defect st frame D.Invalid_program
+  | Mir_datum.Flags _ | Mir_datum.Order | Mir_datum.Ptr _ ->
+      defect st frame D.Invalid_program
 
 let ptr st frame v =
   match get st frame v with
   | Mir_datum.Ptr p -> p
-  | Mir_datum.Order | Mir_datum.Bits _ -> defect st frame D.Invalid_program
+  | Mir_datum.Flags _ | Mir_datum.Order | Mir_datum.Bits _ ->
+      defect st frame D.Invalid_program
 
 let width_of st frame (v : Mir_value.t) =
   match v.Mir_value.ty with

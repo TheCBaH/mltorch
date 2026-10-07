@@ -1,0 +1,30 @@
+; x86-64 selected and allocated Machine IR, interpreted on any host: forms and
+; malformed variants, generic-vs-selected on source and hand-built programs,
+; reference allocation with the checker, realized frames, and the target's
+; mutations. Native per-form conformance needs an x86-64 runner.
+
+(library
+ (name machine_x86_64_test)
+ (libraries
+  core
+  err_trace
+  expr
+  fmt
+  loop_ir_test
+  machine_aarch64_test
+  machine_alloc
+  machine_alloc_test
+  machine_check
+  machine_interp
+  machine_ir
+  machine_lower
+  machine_source_test
+  machine_target_aarch64
+  machine_target_x86_64
+  native
+  ssa_bridge_test
+  ssa_ir
+  ssa_ir_test)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

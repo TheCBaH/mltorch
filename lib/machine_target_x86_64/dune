@@ -1,0 +1,9 @@
+; x86-64 for Machine IR: register views and the System V contract, the
+; admitted SSE2 (with optional SSE4.1 and FMA) and GPR forms with their
+; semantics, two-address ties and fixed operands, and selection from generic
+; Machine IR. Interpretable on any host. Semantics cite the Intel SDM, never
+; assembler acceptance. See the Machine IR design in .ai/.
+
+(library
+ (name machine_target_x86_64)
+ (libraries core err_trace expr fmt machine_interp machine_ir))

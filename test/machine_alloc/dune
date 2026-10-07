@@ -1,0 +1,27 @@
+; Allocated Machine IR: the reference allocator's output checked by the
+; independent checker and run by the physical interpreter against the
+; selected route; checker and verifier mutations; liveness.
+
+(library
+ (name machine_alloc_test)
+ (libraries
+  core
+  err_trace
+  expr
+  fmt
+  loop_ir_test
+  machine_aarch64_test
+  machine_alloc
+  machine_check
+  machine_interp
+  machine_ir
+  machine_lower
+  machine_source_test
+  machine_target_aarch64
+  native
+  ssa_bridge_test
+  ssa_ir
+  ssa_ir_test)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

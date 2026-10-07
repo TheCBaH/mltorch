@@ -74,8 +74,8 @@ let cell_equal (a : Mir_const.t) (b : Mir_const.t) =
   | Mir_type.F32 ->
       let f x = Int32.float_of_bits (Int64.to_int32 x) in
       Core.Float_bits.equal_portable (f a.Mir_const.bits) (f b.Mir_const.bits)
-  | Mir_type.Int _ | Mir_type.Mask _ | Mir_type.Order | Mir_type.Pred
-  | Mir_type.Ptr | Mir_type.Vec _ ->
+  | Mir_type.Flags | Mir_type.Int _ | Mir_type.Mask _ | Mir_type.Order
+  | Mir_type.Pred | Mir_type.Ptr | Mir_type.Vec _ ->
       Int64.equal a.Mir_const.bits b.Mir_const.bits
 
 let row_equal ~sites (a : Mir_observation.Row.t) (b : Mir_observation.Row.t) =

@@ -21,14 +21,20 @@ module Defect = struct
     | Bad_access  (** outside a region, misaligned, or not permitted *)
     | Domain  (** a partial operation outside its defined domain *)
     | Invalid_program
+    | Preserved_state  (** a function exit with a callee-saved bit changed *)
+    | Return_address  (** a function exit whose link register lost its value *)
     | Sentinel_site
+    | Stack_alignment  (** a call with the stack pointer misaligned *)
     | Uninitialized  (** a read of a byte or flag never defined *)
 
   let name = function
     | Bad_access -> "bad_access"
     | Domain -> "domain"
     | Invalid_program -> "invalid_program"
+    | Preserved_state -> "preserved_state"
+    | Return_address -> "return_address"
     | Sentinel_site -> "sentinel_site"
+    | Stack_alignment -> "stack_alignment"
     | Uninitialized -> "uninitialized"
 end
 

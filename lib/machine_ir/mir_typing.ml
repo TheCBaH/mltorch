@@ -171,7 +171,9 @@ let check ~(signature : Mir_op.Callee.t -> Signature.t option)
       let* () = same 0 p Mir_type.Pred in
       let* () =
         operand 1 a (function
-          | Mir_type.Order | Mir_type.Mask _ | Mir_type.Vec _ -> false
+          | Mir_type.Flags | Mir_type.Order | Mir_type.Mask _ | Mir_type.Vec _
+            ->
+              false
           | _ -> true)
       in
       let* () = same 2 b a.Mir_value.ty in

@@ -39,10 +39,14 @@ module Binding : sig
   val view :
     t -> Mir_program.generic -> Mir_id.View.t -> Mir_memory.Pointer.t option
   (** A pointer to a view's first byte, with its window and permission. *)
+
+  val view_of :
+    t -> (_, _) Mir_program.t -> Mir_id.View.t -> Mir_memory.Pointer.t option
+  (** {!view} for a program of any stage: views are stage-independent. *)
 end
 
 val instantiate :
-  Mir_program.generic ->
+  (_, _) Mir_program.t ->
   Mir_memory.t ->
   bound:(Mir_id.Region.t -> string option) ->
   (Binding.t, string) result

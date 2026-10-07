@@ -99,7 +99,7 @@ let observe ?(source = Expr.Source.create 0) (r : Mir_interp.run) ~results =
                (fun ty v ->
                  match v with
                  | Mir_datum.Bits bits -> Some { Mir_const.ty; bits }
-                 | Mir_datum.Order | Mir_datum.Ptr _ -> None)
+                 | Mir_datum.Flags _ | Mir_datum.Order | Mir_datum.Ptr _ -> None)
                results vs) )
     | Mir_interp.Outcome.Failure row ->
         (Mir_observation.Status.Failure row, [||])

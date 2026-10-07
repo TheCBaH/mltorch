@@ -20,8 +20,16 @@ instruction patterns. CompCert remains a separate C backend.
 | `lib/machine_ir` | Schema, types, containers, builder, verifier, printer, comparison protocol | `core`, `err_trace`, `expr`, `fmt` |
 | `lib/machine_interp` | Byte memory, numeric primitives, generic interpreter, helper models | `machine_ir` |
 | `lib/machine_lower` | Census; verified CFG SSA -> generic Machine IR | `machine_ir`, `ssa_ir` |
+| `lib/machine_target_aarch64` | AArch64 views and AAPCS64, admitted forms and semantics, selection, allocation registers | `machine_ir`, `machine_interp` |
+| `lib/machine_target_x86_64` | x86-64 views and System V, admitted SSE2/GPR forms (SSE4.1, FMA3 under features), selection, allocation registers | `machine_ir`, `machine_interp` |
+| `lib/machine_alloc` | Liveness and intervals, physical parallel copies, the reference allocator, frame realization | `machine_ir` |
+| `lib/machine_check` | The independent symbolic allocation checker | `machine_ir` only — never the allocator |
 | `test/machine_ir`, `test/machine_lower` | Fixtures, malformed-IR and mutation evidence, census matrix | the above |
 | `test/machine_source` | Source differential harness: reference, structured SSA, CFG, generic | the above, `native`, `ssa_lower`, the Loop/SSA test fixtures |
+| `test/machine_aarch64` | Selected forms, malformed rejections, generic vs selected (C3), selection mutations | the above |
+| `test/machine_a64_native` | Native per-form conformance executable (C3n), `make machine.a64.conformance` | `machine_target_aarch64`, `unix`, gcc on an AArch64 host |
+| `test/machine_alloc` | Allocation, checking, physical interpretation (C4), frames (C5), mutations, liveness | the above |
+| `test/machine_x86_64` | x86-64 forms, negatives, C3/C4/C5 interpreted on any host, mutations | the above |
 
 `expr` supplies only neutral language identities (axes, sources, local
 variables) used by failure static identity. `machine_ir` never depends on
@@ -264,6 +272,223 @@ route must agree with the SSA routes on outputs as exact binary32 cells, on
 failure rows and on logical marks. The reference's own verdict against SSA is
 shown alongside: on a 63-bit host it does not report the index overflow the
 SSA IR checks for, which is the existing documented difference.
+
+## Target interface and the selected stage
+
+`Mir_target` (pure, in `machine_ir`) names features (closed across targets),
+register banks, physical views (`bits` of a unit from bit `lo`: W0/X0 share a
+unit, as do S0/D0/Q0), destination write rules (`merge` or `zero_upper`),
+allocation constraints (fixed use/result, tied, early clobber), classes, the
+ABI (argument/result views, preserved views with their preserved bit range,
+reserved views, stack alignment) and the cited specification. Hardware,
+assembler and interpreter capability stay separate properties.
+
+`Mir_sel.TARGET` is what a target supplies: its closed opcode and branch-test
+families, per-form features, uses, typing, order, constraints, result write
+rule, implicit clobbers, whether it changes condition state, the condition bits
+it defines and reads. `Mir_sel.Make` instantiates the selected container (the
+generic `Mir_block`/`Mir_func`/`Mir_program` over `Op.t = Event | Machine of
+target op` and `Terminator.t = Branch of test | Jump | Return` — no `fail`
+exists here), its verifier (the shared structure plus: features within the
+program's set, constraint shapes, branch-test typing, and **local condition
+state** — a `flags` value is used only in its own block with no
+condition-changing instruction in between, reads only bits its producer
+defines, and is never a block parameter) and printer. A verified selected
+program exists only as `Verified.t`. `Mir_sel_interp.Make` runs one through
+the target's semantic function (`exec`, `test`) with the generic dispatcher's
+control and simultaneous edges; a tie constrains allocation only, so the
+virtual input keeps its value. Reading an undefined condition bit is a defect.
+
+## AArch64
+
+Forms (DDI 0487 K.a): add/sub (register, imm12), mul, sdiv, msub, logical
+(register, bitmask immediate — encodability checked), shifts by immediate,
+mov/movz/movn/movk (movk tied), sxtw/uxtw/W truncation, cmp (register, imm12),
+csel/cset, fp add/sub/mul/div/max, fneg/frintz/fsqrt, fcmp, fcsel, fcvt,
+fcvtzs, scvtf, fmadd, fmov (register, to/from GPR), ldr/str (B, H, W, X, S, D
+at an unsigned scaled offset), adrp + add :lo12: for a view's address, and
+b.cond/cbz/cbnz tests. W arithmetic takes i32 only (a predicate or byte would
+leave its canonical range); a predicate lives in a W register as 0/1.
+Every form zeroes the rest of its destination unit. SUBS and FCMP define all of
+NZCV (FCMP: 0011 unordered, 0110 equal, 1000 less, 0010 greater); nothing else
+in the slice touches NZCV. Loads and stores permit unaligned normal-memory
+access.
+
+**Selection** (`A64_select`) keeps every generic value's id and type, and
+blocks, parameters and order states unchanged; temporaries are fresh.
+Constants are MOVZ/MOVN/MOVK sequences (floats via a GPR and FMOV); an address
+is ADRP + ADD :lo12:; a predicate result is CMP/FCMP then CSET (ordered
+less-than is `mi`, less-or-equal `ls`, unordered `vs`, unsigned `lo`/`ls`); a
+select is CMP #0 then CSEL/FCSEL `ne`; remainder is SDIV then MSUB; a
+predicate branch is CBNZ. `fail` becomes the model failure record written
+into a runtime view (kind, invocation -1, the kind's words from
+`Mir_failure.layout`, the site word bound through the supplied table — a
+missing compatible entry is a refusal) and a return of status 1; a return gets
+status 0. i8/i16 arithmetic is refused in this slice; calls are described
+with allocation below. `A64_select.Mutation` is fault injection for evidence
+(contraction, `lt` for ordered less-than, a missing record word, signed for
+unsigned compare).
+
+**Generic vs selected (C3)**: the selected run's status 0 means success with
+outputs in memory; otherwise the stored record is decoded through the site
+table and compared as a row. Source kernels, failure kernels, matmul and the
+integer/conversion programs agree with both the generic route and the SSA
+oracle.
+
+**Native per-form conformance (C3n)**: `make machine.a64.conformance` builds a
+generated inline-assembly harness with gcc and runs every admitted form
+instance (immediates, conditions and sizes enumerated) on the host CPU: NZCV is
+seeded before and read right after the instruction, the destination is seeded
+with a pattern so the write rule is visible, memory forms use a canaried
+buffer, FPCR is fixed to round-to-nearest-even with no flush-to-zero, no
+default NaN and no traps, then restored, and FP/ASIMD support is probed with
+`getauxval`. Operands are every pair of boundary values plus seeded random
+ones. Results compare exactly (any NaN for a NaN — payloads are not modelled),
+flags exactly, memory exactly; ADRP/ADD :lo12: are checked against a real
+symbol. Each deliberately wrong semantic entry (carry, unfused fmadd, fmax of
+signed zeros, unordered flags, W-write merge) must make the run fail. A
+non-AArch64 host reports "unavailable", never a pass.
+
+## x86-64
+
+Selection runs through the shared builder (`Mir_select`: value identities,
+temporaries, order remapping across splits, status propagation, record stores
+from `Mir_failure.layout`, the record's runtime view), which AArch64 now uses
+too. Forms (Intel SDM 325462-084): ALU ops, IMUL, NEG and shifts by immediate
+tied to their first operand; CMP/TEST/BT/UCOMISD producing condition state
+(TEST leaves AF undefined, BT defines CF only); CMOV tied to its else operand;
+`setcc`+`movzbl` as one probed pair; CQO+IDIV with the dividend and both
+results in rax/rdx and rdx early-clobbered against the divisor (IDIV's #DE is a
+domain defect); MOV/MOVABS immediates; LEA (RIP-relative for views); loads and
+stores with `[base + index*scale + disp32]` (selection folds a pointer plus an
+index times 1, 2, 4 or 8); legacy-SSE scalar arithmetic, conversions and SQRT
+merging the destination's upper bits; whole-register ANDP/ANDNP/ORP/XORP and
+MOVAP leaving them untracked (`undefined_upper`); CMPSD/CMPSS equal and
+unordered masks; ROUNDSD/SS only under SSE4.1 and VFMADD231SD/SS only under
+FMA, else a typed refusal — never a rounded multiply and add. Compares:
+ordered equality is `e` and `np` combined; ordered less-than and
+less-or-equal compare reversed with `a`/`ae`; unordered is `p`. MAXSD returns
+its source operand for a NaN or two zeros, so IEEE maximum is a sequence:
+equal operands give their AND, a NaN operand their sum. A float select masks
+through CMOV-chosen all-ones/zero moved to the XMM bank. System V calls take
+rdi, rsi, rdx, rcx, r8, r9 and xmm0-7, return in rax/rdx and xmm0/1, and
+clobber rax, rcx, rdx, rsi, rdi, r8-r11, every XMM register and the flags;
+rbx, rbp and r12-r15 are preserved; rsp, rbp, r10 and r11 are reserved. A
+call pushes an 8-byte return address (`call_push`): the frame plus the push
+keeps rsp 16-byte aligned at calls; the physical interpreter pushes a token
+and requires it intact at the callee's exit. MXCSR moves only through memory,
+which the late-form contract does not admit, so x86-64 frames leave it to the
+native entry wrapper. Native per-form conformance needs an x86-64 runner.
+
+## Allocated stage, checking and reference allocation
+
+**Form** (`Mir_phys`): SSA is gone. A location is a register view or a frame
+slot (read and written whole, before layout). A block has no parameters: its
+origin is the selected block it realizes or the selected edge a split block
+carries, and its entry contract lists where each selected parameter arrives.
+An executed instruction keeps its selected form — whose virtual operands are
+correspondence metadata only — plus one location per use and per result;
+moves carry the value they transfer as a witness. Terminators branch on
+located operands, jump, or return values already in convention registers.
+
+**Physical verifier** (`Mir_phys_verify`): each location fits its value (bank
+and width; a condition only in the condition register; a slot exactly the
+value's bytes), no reserved register is touched, operand counts match, fixed
+operands are in their register, a tied result shares its use's unit, an
+early-clobber result overlaps no use, instruction operands are registers.
+
+**Physical interpreter** (`Mir_phys_interp`): register units with a validity
+mask per bit; every register starts undefined; a result is written under its
+form's write rule (zero-upper or merge); a declared clobber leaves its units
+undefined; slots hold a value of the size written. It never consults virtual
+names: operands resolve by position to their listed locations.
+
+**Checker** (`Mir_checker`, in its own library with no allocator import): from
+the selected program it takes what each use expects; from the allocated one
+what each location holds, by symbolic dataflow over units and slots (a holder
+is a value and the width it was written at). Moves copy a holder after
+verifying the witness; an instruction checks its uses, forgets clobbered
+units, the condition register when it changes condition state without a
+condition result, and every older holder of the values it defines (a stale
+loop-iteration copy), then records its results. Entering a block's
+realization renames the carrying selected edge's arguments to the block's
+parameters at the claimed locations. States meet by intersection to a
+fixpoint, so a value unknown on any path is unknown at the join. Structure is
+checked too: each selected block realized once, its instructions present in
+order, terminators reaching the selected targets directly or through one
+split block of that edge. A rejection is a compiler error; the artifact is
+never run.
+
+**Reference allocator** (`Mir_ref_alloc`): every value in its own slot;
+operands reloaded into per-position scratch registers (or their fixed
+register), the result written to a result scratch (or its fixed or tied
+register, or the condition register) and spilled. Parameters live in slots, so
+an edge is a simultaneous slot-to-slot transfer resolved by
+`Mir_parallel_copy` — a move whose destination nothing pending still reads
+goes first; a remaining cycle saves one destination to a cycle scratch; overlap
+decides "still read" — placed at the end of a single-successor block or in a
+split block. AArch64 draws scratch from x9-x14 and v16-v21 (`A64_regs`).
+`Mir_ref_alloc.Mutation` injects allocation defects for evidence.
+
+**Calls.** The fallible convention is a status return: every selected
+function returns its results then an `i32` status (0 success); on failure the
+callee has already stored its record and no result is defined. AArch64 `bl`
+takes its arguments and results in fixed registers (AAPCS64 sequences:
+x0-x7 with W views for 32-bit values, v0-v7 as S or D; several results in
+the same sequence, an extension of the base convention) and clobbers every
+bit AAPCS64 does not preserve: x0-x18, x30, v0-v7 and v16-v31 whole, the
+upper 64 bits of v8-v15, NZCV. Selection follows a call that may fail
+(a helper declaring failures, or a function that can reach `fail` or such a
+call) with a branch on its status whose taken side returns that status, the
+record untouched; the block splits there and later order states are remapped
+to the continuation's. A call that may fail with results, or from a function
+with results, is refused in this slice (neither result could be left
+undefined). The selected interpreter runs a callee function in its own frame
+and a helper by its model, storing a failing helper's record exactly as an
+owned native helper must; the physical interpreter does the same over shared
+registers with a frame of slots per activation, invalidates exactly the
+clobbered bits after the call, and on every function exit compares each
+callee-saved range that was defined on entry (a change is a
+`preserved_state` defect). The checker kills a holder only when the clobbered
+bits overlap the bits it was written with, so a D value in v8 survives a call
+and the same value in v16 does not.
+
+**Frame realization** (`Mir_frame`, target hooks in `Mir_sel.TARGET`,
+`A64_frame` and `X64_frame`): slots become memory based on the stack pointer
+(`Mem {base; offset; bytes}`). Layout gives each slot and save word an aligned
+offset (an optional pad forces large offsets in tests); the frame size plus
+any pushed return address keeps the stack 16-byte aligned, and each target
+decides which stack-pointer steps encode and keep its own alignment (AArch64
+multiples of 16, as an access through a misaligned SP faults; x86-64 whole
+words). A function's frame size is `None` until realization. The prologue moves the stack pointer in encodable
+steps (a 4 KiB-multiple part and the rest; a frame needing more is refused as
+beyond the code model), saves the link register when the function calls,
+every callee-saved register it writes, and — in the entry function — the
+caller's FPCR, which it then zeroes (round to nearest even, no flush to zero,
+no default NaN, no traps); an epilogue before every return, failure exits
+included, restores all of it. An offset no access encodes is reached through
+reserved x16: a late `add` computes the address and the access is based on
+x16; FPCR travels through reserved x17. Late forms touch only reserved
+scratch, the stack pointer and control registers; saves move preserved, link
+or reserved registers whole. The physical verifier checks frame accesses
+(based on SP or reserved scratch, inside the frame, encodable), step
+encodability and alignment, and save widths. The checker resolves frame memory
+through address holders (`entry SP + k`, tracked through `Sp` steps and late
+address arithmetic), kills overlapping frame bytes on writes, and otherwise
+treats realized programs like abstract ones. The physical interpreter, with
+`~realized:true`, runs on a stack region: an activation may touch only its
+own frame, a spilled pointer keeps its provenance while its bytes are
+untouched, a call needs an aligned stack, an exit needs the entry stack
+pointer back and the link register's return address intact, preserved state
+and FPCR are compared on every exit, and an FP form under any FPCR but the
+modelled zero is unsupported. Bounding the window per activation stands in
+for canaries: any access outside it is a defect at once.
+
+**Liveness** (`Mir_liveness`): live-in/out to a fixpoint (block parameters
+define, edge arguments use at the source's end, order excluded) and linear-scan
+intervals over reverse postorder with two positions per instruction, lifetime
+holes, and loop-header extension. A value's range covers each read; coverage
+where a value is dead is accepted imprecision from the loop rule.
 
 ## Host numerics
 

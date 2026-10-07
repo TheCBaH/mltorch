@@ -370,3 +370,206 @@ let check_program ?mutation ?(fma = Mir_planning.Fma.Forbidden)
         (match verdict ~expected:structured ~actual:generic with
         | None -> ""
         | Some d -> " DISAGREE " ^ d)
+
+(* One lowered case, for a later stage's harness: the generic program, the
+   bytes of its bound regions, and the routes it is compared against. *)
+module Case = struct
+  type t = {
+    lowered : Mir_lower.result;
+    bound : Mir_id.Region.t -> string option;
+    oracle : Route.t;  (** structured SSA *)
+    generic : Route.t;
+  }
+end
+
+let bound_of (lowered : Mir_lower.result) ~input region =
+  List.find_map
+    (fun (e : Mir_layout_map.Entry.t) ->
+      if not (Mir_id.Region.equal e.Mir_layout_map.Entry.region region) then
+        None
+      else
+        let b = e.Mir_layout_map.Entry.buffer in
+        match b.Ssa_buffer.role with
+        | Ssa_buffer.Input -> input b
+        | Ssa_buffer.Output ->
+            Some (String.make (Int64.to_int (Mir_layout_map.size e)) '\000')
+        | Ssa_buffer.Scratch -> None)
+    lowered.Mir_lower.layout
+
+let case_of_plan plan ~bind =
+  match Err.payload (Ssa_lower.Ssa_lower_plan.lower plan) with
+  | Error e ->
+      Error
+        (Fmt.str "refused by source lowering: %a"
+           Ssa_lower.Ssa_lower_plan.pp_error e)
+  | Ok p -> (
+      let resolved = Ssa_plan.resolve ~numerics:Ssa_numerics.Reference_f64 p in
+      let p = resolved.Ssa_plan.program in
+      match
+        Err.payload
+          (Mir_lower.program ~planning:(Some (Mir_lower.summary resolved)) p)
+      with
+      | Error r -> Error (Fmt.str "refused: %a" Mir_lower.Refusal.pp r)
+      | Ok lowered ->
+          let input b =
+            Option.map (pack b)
+              (bind (Tensor_id.of_int (b.Ssa_buffer.id :> int)))
+          in
+          Ok
+            {
+              Case.lowered;
+              bound = bound_of lowered ~input;
+              oracle = ssa_route "structured" plan p ~bind;
+              generic = mir_route lowered ~input;
+            })
+
+(* The failure row a stored model record holds, decoded through the site
+   table. *)
+let record_row memory key ~sites =
+  let bytes =
+    Mir_memory.read_bytes memory key ~offset:0L
+      ~n:(Int64.to_int Mir_failure.record_bytes)
+  in
+  let word off n =
+    let rec go k acc =
+      if k < 0 then Some acc
+      else
+        match bytes.(off + k) with
+        | None -> None
+        | Some x ->
+            go (k - 1) (Int64.logor (Int64.shift_left acc 8) (Int64.of_int x))
+    in
+    go (n - 1) 0L
+  in
+  let words =
+    List.init Mir_failure.record_words (fun k -> word (8 + (8 * k)) 8)
+  in
+  match (word 0 4, word 4 4, List.for_all Option.is_some words) with
+  | Some kind, Some invocation, true -> (
+      let v = Array.of_list (List.map Option.get words) in
+      match Mir_failure.decode ~table:sites ~kind:(Int64.to_int32 kind) ~v with
+      | Ok (failure, payload, site) ->
+          let payload =
+            List.map2
+              (fun ty bits -> { Mir_const.ty; bits })
+              (Mir_failure.payload failure)
+              payload
+          in
+          let invocation =
+            if Int64.equal invocation 0xFFFF_FFFFL then None
+            else Some (Int64.to_int32 invocation)
+          in
+          Mir_observation.Status.Failure
+            { Mir_observation.Row.failure; payload; invocation; site }
+      | Error Mir_failure.Decode_error.Sentinel_site ->
+          Mir_observation.Status.Defect Mir_observation.Defect.Sentinel_site
+      | Error _ ->
+          Mir_observation.Status.Defect Mir_observation.Defect.Invalid_program)
+  | _ -> Mir_observation.Status.Defect Mir_observation.Defect.Uninitialized
+
+(* The observation of a selected-stage run: status 0 is success with the
+   outputs in memory; any other status reads the failure record the program
+   stored in [record]. *)
+let selected_observation ~(layout : Mir_layout_map.Entry.t list) ~sites ~record
+    memory binding (outcome : Mir_interp.Outcome.t) events =
+  let status =
+    match outcome with
+    | Mir_interp.Outcome.Success vs -> (
+        match List.rev vs with
+        | Mir_datum.Bits 0L :: _ -> Mir_observation.Status.Success
+        | Mir_datum.Bits _ :: _ -> (
+            match Mir_interp.Binding.instance binding record with
+            | Some key -> record_row memory key ~sites
+            | None ->
+                Mir_observation.Status.Defect
+                  Mir_observation.Defect.Invalid_program)
+        | _ ->
+            Mir_observation.Status.Defect Mir_observation.Defect.Invalid_program
+        )
+    | Mir_interp.Outcome.Failure row -> Mir_observation.Status.Failure row
+    | Mir_interp.Outcome.Defect (d, _) -> Mir_observation.Status.Defect d
+    | Mir_interp.Outcome.Fuel_exhausted -> Mir_observation.Status.Fuel_exhausted
+    | Mir_interp.Outcome.Unsupported s -> Mir_observation.Status.Unsupported s
+  in
+  {
+    Mir_observation.status;
+    outputs =
+      (match status with
+      | Mir_observation.Status.Success -> mir_outputs memory binding layout
+      | _ -> []);
+    events;
+  }
+
+let case_of_program (p : Ssa_program.t)
+    ~(inputs : (int * Ssa_memory.cells) list)
+    ?(fma = Mir_planning.Fma.Forbidden) () =
+  let planning =
+    Mir_planning.make ~subject:(Mir_lower.subject p) ~policy:"reference_f64"
+      ~schedule:"scalar" ~precision:Mir_planning.Precision.F64
+      ~lanes:(Mir_type.Lanes.of_int 1) ~fma ~capabilities:[]
+  in
+  match Err.payload (Mir_lower.program ~planning:(Some planning) p) with
+  | Error r -> Error (Fmt.str "refused: %a" Mir_lower.Refusal.pp r)
+  | Ok lowered ->
+      let input b =
+        Option.map (pack_cells b)
+          (List.assoc_opt (b.Ssa_buffer.id :> int) inputs)
+      in
+      let copy = function
+        | Ssa_memory.Floats a -> Ssa_memory.Floats (Array.copy a)
+        | Ssa_memory.Int64s a -> Ssa_memory.Int64s (Array.copy a)
+        | Ssa_memory.Ints a -> Ssa_memory.Ints (Array.copy a)
+      in
+      let memory =
+        List.fold_left
+          (fun m (b : Ssa_buffer.t) ->
+            Ssa_id.Buffer.Map.add b.Ssa_buffer.id
+              (match List.assoc_opt (b.Ssa_buffer.id :> int) inputs with
+              | Some c -> copy c
+              | None -> Ssa_memory.zeroed b)
+              m)
+          Ssa_id.Buffer.Map.empty p.Ssa_program.buffers
+      in
+      let counters = Ssa_interp.Counters.create () in
+      let status =
+        match Err.payload (Ssa_interp.run ~counters p ~memory) with
+        | Ok () -> Mir_observation.Status.Success
+        | Error (#Ssa_interp.failure as f) ->
+            Mir_observation.Status.Failure (Mir_ssa_rows.row f)
+        | Error (`Invalid_program _) ->
+            Mir_observation.Status.Defect Mir_observation.Defect.Invalid_program
+      in
+      let outputs =
+        List.filter_map
+          (fun (b : Ssa_buffer.t) ->
+            match
+              (b.Ssa_buffer.role, Ssa_memory.find memory b.Ssa_buffer.id)
+            with
+            | Ssa_buffer.Output, Some c ->
+                Some
+                  {
+                    Mir_observation.Output.source = Ssa_buffer.source b;
+                    cells = ssa_cells b c;
+                  }
+            | _ -> None)
+          p.Ssa_program.buffers
+      in
+      Ok
+        {
+          Case.lowered;
+          bound = bound_of lowered ~input;
+          oracle =
+            {
+              Route.name = "structured";
+              observation =
+                {
+                  Mir_observation.status;
+                  outputs =
+                    (match status with
+                    | Mir_observation.Status.Success -> outputs
+                    | _ -> []);
+                  events = ssa_events counters;
+                };
+            };
+          generic = mir_route lowered ~input;
+        }

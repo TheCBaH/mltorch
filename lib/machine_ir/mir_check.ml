@@ -176,8 +176,11 @@ module Make (S : STAGE) = struct
         let bid = b.Mir_block.id in
         List.iter
           (fun (p : Mir_value.t) ->
-            if not (Mir_type.has_storage p.Mir_value.ty) then
-              reject ~block:bid (P.Value_type p.Mir_value.id);
+            (* condition state never crosses an edge in this slice *)
+            if
+              (not (Mir_type.has_storage p.Mir_value.ty))
+              || Mir_type.equal p.Mir_value.ty Mir_type.Flags
+            then reject ~block:bid (P.Value_type p.Mir_value.id);
             define bid (-1) p (Def.Param bid))
           b.Mir_block.params;
         if not (Mir_type.equal b.Mir_block.order.Mir_value.ty Mir_type.Order)

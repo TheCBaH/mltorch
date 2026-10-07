@@ -1,0 +1,10 @@
+; AArch64 for Machine IR: register views and the AAPCS64 contract, the
+; admitted selected forms with their semantics and constraints, and selection
+; from generic Machine IR. Interpretable on any host; native per-form
+; conformance is a separate harness. Semantics cite the Arm Architecture
+; Reference Manual (DDI 0487), never assembler acceptance. See the Machine IR
+; design in .ai/.
+
+(library
+ (name machine_target_aarch64)
+ (libraries core err_trace expr fmt machine_interp machine_ir))

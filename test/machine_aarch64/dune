@@ -1,0 +1,24 @@
+; AArch64 selected Machine IR: hand-built forms and their malformed variants,
+; generic-vs-selected interpretation on source and hand-built programs, and the
+; target-specific selection mutations. Runs on any host.
+
+(library
+ (name machine_aarch64_test)
+ (libraries
+  core
+  err_trace
+  expr
+  fmt
+  loop_ir_test
+  machine_interp
+  machine_ir
+  machine_lower
+  machine_source_test
+  machine_target_aarch64
+  native
+  ssa_bridge_test
+  ssa_ir
+  ssa_ir_test)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

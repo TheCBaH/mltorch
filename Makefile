@@ -1,6 +1,6 @@
 .PHONY: compcert.embed.install compcert.embed.runtest c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
-	check.file-size check.int-signatures check.whitespace clean \
+	check.file-size check.int-signatures check.whitespace clean machine.a64.conformance \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
 	expr_probe.deep-runtest expr_probe.runtest format fp32.bench fp32.bench.wasm inference inference-runa \
 	inline-timing-report inline-timing-report-js js.build js.runtest \
@@ -1151,6 +1151,18 @@ c.runtest.o0:
 c.runtest.san:
 	LOOP_C_CFLAGS="-O1 -fsanitize=address,undefined -fno-sanitize-recover=all" \
 	  opam exec -- dune build @test/loop_c/runtest @test/loop_c_vector/runtest --force
+
+# Native per-form conformance for the admitted AArch64 Machine IR forms: each
+# form runs on this CPU (inline assembly, gcc) on seeded boundary and random
+# operands and is compared with the interpreter's semantics; then every
+# deliberately wrong semantic entry must be caught. Needs an AArch64 host: on
+# any other host the run reports "unavailable" and fails, never passes.
+MACHINE_A64_MUTATIONS = cmp-carry fmadd-unfused fmax-zero nan-flags w-merge
+machine.a64.conformance:
+	opam exec -- dune exec test/machine_a64_native/a64_conformance.exe
+	set -e; for m in $(MACHINE_A64_MUTATIONS); do \
+	  opam exec -- dune exec test/machine_a64_native/a64_conformance.exe -- --mutate $$m; \
+	done
 
 c.runtest.all: c.runtest.o0 c.runtest.san
 

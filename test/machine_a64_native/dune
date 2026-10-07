@@ -1,0 +1,17 @@
+; Native per-form conformance for the admitted AArch64 forms: each form runs
+; on the host CPU through a generated inline-assembly harness (GNU toolchain)
+; on seeded random and boundary operands, compared with the interpreter's
+; semantic function under the form's defined-bit, flag and write masks. Needs
+; an AArch64 host and gcc; host-dependent, so it is a make target
+; (machine.a64.conformance), not part of runtest.
+
+(executable
+ (name a64_conformance)
+ (libraries
+  core
+  err_trace
+  fmt
+  machine_interp
+  machine_ir
+  machine_target_aarch64
+  unix))

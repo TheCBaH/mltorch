@@ -93,7 +93,7 @@ let equal a b =
 (* The types of the payload a [Fail] supplies, in order. A coordinate is its six
    components in axis order; every integer field is an [i64] holding the value
    sign-extended from its source domain. *)
-let payload = function
+let payload_types = function
   | Coord_out_of_range _ -> List.init 6 (fun _ -> Mir_type.i64)
   | Gather_index_out_of_range -> [ Mir_type.i64; Mir_type.i64 ]
   | I64_division_by_zero | I64_division_overflow | I64_from_float_infinite
@@ -105,6 +105,8 @@ let payload = function
   | Scan_projection _ -> [ Mir_type.i64; Mir_type.i64; Mir_type.i64 ]
 
 (* Whether the kind's record holds a site word. *)
+let payload = payload_types
+
 let uses_site = function
   | Scan_projection _ | Unbound_local _ -> true
   | Coord_out_of_range _ | Gather_index_out_of_range | I64_division_by_zero
@@ -170,48 +172,76 @@ let bind_site ~(table : Site_entry.t array) failure =
 
 let axis_word a = Int64.of_int (Expr.Axis.to_int a)
 
+(* Where each record word comes from: a constant of the static identity, a
+   payload value (by position; a float payload as its bits), or the site.
+   Every word not listed is zero. [words] and selection's record stores both
+   read this, so the two cannot drift. *)
+module Word = struct
+  type t = Const of int64 | Payload of int | Site
+end
+
+let layout = function
+  | Coord_out_of_range { Coord.source; axis } ->
+      [
+        (0, Word.Const (Int64.of_int (Expr.Source.to_int source)));
+        (1, Word.Const (axis_word axis));
+        (2, Word.Payload (Expr.Axis.to_int axis));
+      ]
+      @ List.init 6 (fun k -> (3 + k, Word.Payload k))
+  | Gather_index_out_of_range -> [ (0, Word.Payload 0); (1, Word.Payload 1) ]
+  | I64_from_float_out_of_range -> [ (0, Word.Payload 0) ]
+  | Index_overflow op ->
+      [
+        ( 0,
+          Word.Const
+            (match op with Overflow_op.Add -> 0L | Overflow_op.Mul -> 1L) );
+        (1, Word.Payload 0);
+        (2, Word.Payload 1);
+      ]
+  | Scan_meter m ->
+      [
+        ( 0,
+          Word.Const
+            (match m with
+            | Meter.State_over_limit -> 0L
+            | Meter.Updates_exhausted -> 1L) );
+        (1, Word.Payload 0);
+      ]
+  | Scan_projection { Scan.which; var } ->
+      [
+        ( 0,
+          Word.Const
+            (match which with Scan_axis.Lane -> 0L | Scan_axis.Row -> 1L) );
+        (1, Word.Const (if Option.is_some var then 1L else 0L));
+        (2, Word.Payload 0);
+        (3, Word.Payload 1);
+        (4, Word.Payload 2);
+        (5, Word.Site);
+      ]
+  | Unbound_local _ -> [ (0, Word.Site) ]
+  | I64_division_by_zero | I64_division_overflow | I64_from_float_infinite
+  | I64_from_float_nan ->
+      []
+
 (* The words of a record, from the static identity, the payload (each an int64:
    a float payload as its bits) and the site a site-bearing kind needs. *)
 let words failure ~(payload : int64 list) ~(site : Mir_id.Site.t option) =
+  if List.length payload <> List.length (payload_types failure) then
+    invalid_arg "Mir_failure.words: payload does not match the kind";
   let v = Array.make record_words 0L in
-  let site_word () =
-    match site with
-    | Some s -> Int64.of_int (Mir_id.Site.to_int s)
-    | None -> invalid_arg "Mir_failure.words: a site-bearing kind needs a site"
-  in
-  (match (failure, payload) with
-  | Coord_out_of_range { Coord.source; axis }, coord ->
-      v.(0) <- Int64.of_int (Expr.Source.to_int source);
-      v.(1) <- axis_word axis;
-      v.(2) <- List.nth coord (Expr.Axis.to_int axis);
-      List.iteri (fun k x -> v.(3 + k) <- x) coord
-  | Gather_index_out_of_range, [ raw; extent ] ->
-      v.(0) <- raw;
-      v.(1) <- extent
-  | I64_from_float_out_of_range, [ bits ] -> v.(0) <- bits
-  | Index_overflow op, [ lhs; rhs ] ->
-      v.(0) <- (match op with Overflow_op.Add -> 0L | Overflow_op.Mul -> 1L);
-      v.(1) <- lhs;
-      v.(2) <- rhs
-  | Scan_meter m, [ limit ] ->
-      v.(0) <-
-        (match m with
-        | Meter.State_over_limit -> 0L
-        | Meter.Updates_exhausted -> 1L);
-      v.(1) <- limit
-  | Scan_projection { Scan.which; var }, [ row; lane; extent ] ->
-      v.(0) <- (match which with Scan_axis.Lane -> 0L | Scan_axis.Row -> 1L);
-      v.(1) <- (if Option.is_some var then 1L else 0L);
-      v.(2) <- row;
-      v.(3) <- lane;
-      v.(4) <- extent;
-      v.(5) <- site_word ()
-  | Unbound_local _, [] -> v.(0) <- site_word ()
-  | ( ( I64_division_by_zero | I64_division_overflow | I64_from_float_infinite
-      | I64_from_float_nan ),
-      [] ) ->
-      ()
-  | _ -> invalid_arg "Mir_failure.words: payload does not match the kind");
+  List.iter
+    (fun (k, w) ->
+      v.(k) <-
+        (match w with
+        | Word.Const c -> c
+        | Word.Payload i -> List.nth payload i
+        | Word.Site -> (
+            match site with
+            | Some s -> Int64.of_int (Mir_id.Site.to_int s)
+            | None ->
+                invalid_arg
+                  "Mir_failure.words: a site-bearing kind needs a site")))
+    (layout failure);
   v
 
 let pp_var fmt = function

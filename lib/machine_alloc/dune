@@ -1,0 +1,8 @@
+; Register allocation for Machine IR: liveness and intervals over selected
+; virtual programs, the physical parallel-copy resolver, and the constrained
+; reference allocator. Never depends on the checker that judges it. See the
+; Machine IR design in .ai/.
+
+(library
+ (name machine_alloc)
+ (libraries core err_trace fmt machine_ir))
