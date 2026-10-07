@@ -100,9 +100,10 @@ let branch b cond then_ else_ =
 let return b values =
   terminate b (Mir_terminator.Return { Mir_return.values; order = b.current })
 
-let fail b failure payload =
+let fail ?(origin = Mir_origin.unknown) b failure payload =
   terminate b
-    (Mir_terminator.Fail { Mir_fail.failure; payload; order = b.current })
+    (Mir_terminator.Fail
+       { Mir_fail.failure; payload; order = b.current; origin })
 
 let finish b =
   match b.terminator with

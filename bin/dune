@@ -213,6 +213,25 @@
   ssa_ir
   unix))
 
+; Which invocations of a downloaded model the Machine IR adapter admits, and
+; why the rest refuse. MANUAL: `make machine.pt2.census`, never in runtest.
+
+(executable
+ (name machine_model_census)
+ (modules machine_model_census)
+ (libraries
+  err_trace
+  fmt
+  loop_ir
+  machine_ir
+  machine_lower
+  machine_model
+  native
+  native_interp
+  pt2
+  ssa_backends
+  unix))
+
 (executable
  (name loop_vector_census)
  (modules loop_vector_census)

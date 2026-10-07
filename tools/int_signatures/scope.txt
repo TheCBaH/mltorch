@@ -7,6 +7,7 @@ lib/machine_check
 lib/machine_interp
 lib/machine_ir
 lib/machine_lower
+lib/machine_model
 lib/machine_target_aarch64
 lib/machine_target_x86_64
 lib/native

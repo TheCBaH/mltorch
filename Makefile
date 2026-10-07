@@ -1,6 +1,6 @@
 .PHONY: compcert.embed.install compcert.embed.runtest c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
-	check.file-size check.int-signatures check.whitespace clean machine.a64.conformance \
+	check.file-size check.int-signatures check.whitespace clean machine.a64.conformance machine.pt2.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
 	expr_probe.deep-runtest expr_probe.runtest format fp32.bench fp32.bench.wasm inference inference-runa \
 	inline-timing-report inline-timing-report-js js.build js.runtest \
@@ -1162,6 +1162,16 @@ machine.a64.conformance:
 	opam exec -- dune exec test/machine_a64_native/a64_conformance.exe
 	set -e; for m in $(MACHINE_A64_MUTATIONS); do \
 	  opam exec -- dune exec test/machine_a64_native/a64_conformance.exe -- --mutate $$m; \
+	done
+
+# Which invocations of each CI model the Machine IR adapter admits through the
+# exact SSA pipeline, with every refusal tallied by reason. Lowering only, so
+# it is quick; needs the model data, so not part of `runtest`.
+machine.pt2.census:
+	opam exec -- dune build bin/machine_model_census.exe
+	for m in $(C_PT2_CI_MODELS); do \
+	  $(MAKE) pt2.download PT2_MODEL=$$m && \
+	  _build/default/bin/machine_model_census.exe $(PT2_DIR)/$$m/$$m.pt2 || exit 1; \
 	done
 
 c.runtest.all: c.runtest.o0 c.runtest.san

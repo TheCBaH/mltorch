@@ -280,6 +280,14 @@ let call_clobbers =
 
 let clobbers = function Call _ -> call_clobbers | _ -> []
 
+let references = function
+  | Call { callee; _ } -> [ Mir_target.Reference.Call callee ]
+  | Lea_view view ->
+      [
+        Mir_target.Reference.View (view, Mir_target.Reference.Form.Pc_relative);
+      ]
+  | _ -> []
+
 let writes_flags = function
   | Alu _ | Bt _ | Call _ | Cmp _ | Cqo_idiv _ | Imul _ | Neg _ | Shift_imm _
   | Test _ | Ucomis _ ->

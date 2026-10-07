@@ -104,6 +104,24 @@ module Abi = struct
   }
 end
 
+(* A symbolic address a form encodes, which a native realization resolves by
+   relocation: part of a view's address, or a call's target. *)
+module Reference = struct
+  module Form = struct
+    type t =
+      | Page  (** the 4 KiB page of the address (AArch64 ADRP) *)
+      | Page_offset  (** its low 12 bits (AArch64 ADD :lo12:) *)
+      | Pc_relative  (** a 32-bit displacement from the next instruction *)
+
+    let name = function
+      | Page -> "page"
+      | Page_offset -> "page_offset"
+      | Pc_relative -> "pc_relative"
+  end
+
+  type t = Call of Mir_op.Callee.t | View of Mir_id.View.t * Form.t
+end
+
 (* The specification a selected form's semantics cite. *)
 module Source = struct
   type t = { document : string; revision : string }

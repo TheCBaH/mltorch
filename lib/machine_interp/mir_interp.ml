@@ -72,12 +72,20 @@ module Binding = struct
           (instance t view.Mir_view.region)
 end
 
-let instantiate (p : (_, _) Mir_program.t) memory ~bound =
+let instantiate ?(shared = fun _ -> None) (p : (_, _) Mir_program.t) memory
+    ~bound =
   List.fold_left
     (fun acc (r : Mir_region.t) ->
-      match acc with
-      | Error _ -> acc
-      | Ok m -> (
+      match (acc, shared r.Mir_region.id) with
+      | Error _, _ -> acc
+      | Ok m, Some key ->
+          if Int64.equal (Mir_memory.size memory key) r.Mir_region.size then
+            Ok (Mir_id.Region.Map.add r.Mir_region.id key m)
+          else
+            Error
+              (Fmt.str "%a: a shared instance of another size" Mir_id.Region.pp
+                 r.Mir_region.id)
+      | Ok m, None -> (
           match
             Mir_memory.alloc memory ~region:r.Mir_region.id
               ~size:r.Mir_region.size ~align:r.Mir_region.align ()

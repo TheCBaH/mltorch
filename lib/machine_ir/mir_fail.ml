@@ -6,4 +6,6 @@ type t = {
   failure : Mir_failure.t;
   payload : Mir_value.t list;
   order : Mir_value.t;
+  origin : Mir_origin.t;
+      (** the guard it ends, which its expansion's instructions inherit *)
 }

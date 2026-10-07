@@ -134,7 +134,7 @@ let guard st ~ok failure payload =
   st.cur <- bad;
   with_role st Mir_origin.Role.Payload;
   let p = payload () in
-  B.fail st.cur failure p;
+  B.fail ~origin:st.origin st.cur failure p;
   st.cur <- cont;
   with_role st role
 

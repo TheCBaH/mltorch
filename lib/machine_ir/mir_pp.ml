@@ -104,7 +104,7 @@ let pp_term n fmt = function
   | Mir_terminator.Branch { Mir_branch.cond; then_; else_ } ->
       Fmt.pf fmt "branch %a, %a, %a" (Names.value n) cond (pp_edge n) then_
         (pp_edge n) else_
-  | Mir_terminator.Fail { Mir_fail.failure; payload; order } ->
+  | Mir_terminator.Fail { Mir_fail.failure; payload; order; _ } ->
       Fmt.pf fmt "fail %a(%a; %a)" Mir_failure.pp failure (Names.values n)
         payload (Names.value n) order
   | Mir_terminator.Jump e -> Fmt.pf fmt "jump %a" (pp_edge n) e

@@ -1,0 +1,29 @@
+; Whole bundles through generic Machine IR (lib/machine_model) against the
+; per-node reference evaluator: conv/batch-norm/relu and the Region-authored
+; nodes, repeated calls in one context, independent contexts, and the first
+; failing invocation.
+
+(library
+ (name machine_model_test)
+ (libraries
+  core
+  err_trace
+  expr
+  fmt
+  loop_c_exec
+  loop_ir
+  machine_alloc
+  machine_alloc_test
+  machine_interp
+  machine_ir
+  machine_lower
+  machine_model
+  machine_source_test
+  machine_target_aarch64
+  native
+  native_test
+  ssa_backends
+  ssa_ir)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

@@ -74,6 +74,10 @@ module type TARGET = sig
   (** implicit register writes beyond the results: fixed scratch, a call's
       caller-saved views *)
 
+  val references : op -> Mir_target.Reference.t list
+  (** the symbolic addresses the form encodes, each a relocation a native
+      realization needs *)
+
   val writes_flags : op -> bool
   (** whether the form changes condition state, with or without a [Flags] result
   *)

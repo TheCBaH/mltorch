@@ -72,6 +72,8 @@ let instance t key =
   | Some i -> i
   | None -> invalid_arg "Mir_memory: no such instance"
 
+(* An instance's size in bytes. *)
+let size t key = (instance t key).Instance.size
 let align_up x a = Option.get (Mir_layout.align_up x ~align:a)
 
 (* A new instance of [size] bytes at a fresh base aligned to [align] (at least

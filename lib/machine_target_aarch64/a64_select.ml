@@ -287,6 +287,7 @@ let instr st (i : Mir_op.t Mir_instr.t) =
 
 (* The failure record stores, then status 1. *)
 let fail st (f : Mir_fail.t) =
+  st.b.Mir_select.origin <- f.Mir_fail.origin;
   let base () =
     let page = emit st Mir_type.Ptr (Adrp Mir_select.record_view) in
     emit st Mir_type.Ptr (Add_lo12 (page, Mir_select.record_view))
@@ -313,7 +314,13 @@ let block st (blk : (Mir_op.t, Mir_terminator.t) Mir_block.t) =
     else blk.Mir_block.body
   in
   List.iter (instr st) body;
-  st.b.Mir_select.origin <- Mir_origin.unknown;
+  (* a terminator's expansion — a failure's record, a return's status —
+     belongs to the block's last operation: for a failure block, the payload
+     of the guard that failed *)
+  st.b.Mir_select.origin <-
+    (match List.rev body with
+    | (last : Mir_op.t Mir_instr.t) :: _ -> last.Mir_instr.origin
+    | [] -> Mir_origin.unknown);
   let terminator =
     match blk.Mir_block.terminator with
     | Mir_terminator.Branch { Mir_branch.cond; then_; else_ } ->

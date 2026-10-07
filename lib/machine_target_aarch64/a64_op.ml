@@ -263,6 +263,16 @@ let call_clobbers =
 
 let clobbers = function Bl _ -> call_clobbers | _ -> []
 
+let references = function
+  | Add_lo12 (_, view) ->
+      [
+        Mir_target.Reference.View (view, Mir_target.Reference.Form.Page_offset);
+      ]
+  | Adrp view ->
+      [ Mir_target.Reference.View (view, Mir_target.Reference.Form.Page) ]
+  | Bl { callee; _ } -> [ Mir_target.Reference.Call callee ]
+  | _ -> []
+
 let writes_flags = function
   | Bl _ | Cmp _ | Cmp_imm _ | Fcmp _ -> true
   | _ -> false

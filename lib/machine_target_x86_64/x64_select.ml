@@ -351,6 +351,7 @@ let instr st (i : Mir_op.t Mir_instr.t) =
   | Mir_op.Undef v -> push st ?order:i.Mir_instr.order [] (Mir_sel.Op.Undef v)
 
 let fail st (f : Mir_fail.t) =
+  st.b.Mir_select.origin <- f.Mir_fail.origin;
   match
     Mir_select.store_record st.b f ~unlisted:st.unlisted ~sites:st.sites
       ~base:(fun () -> emit st Mir_type.Ptr (Lea_view Mir_select.record_view))
@@ -383,7 +384,13 @@ let block st (blk : (Mir_op.t, Mir_terminator.t) Mir_block.t) =
     else blk.Mir_block.body
   in
   List.iter (instr st) body;
-  st.b.Mir_select.origin <- Mir_origin.unknown;
+  (* a terminator's expansion — a failure's record, a return's status —
+     belongs to the block's last operation: for a failure block, the payload
+     of the guard that failed *)
+  st.b.Mir_select.origin <-
+    (match List.rev body with
+    | (last : Mir_op.t Mir_instr.t) :: _ -> last.Mir_instr.origin
+    | [] -> Mir_origin.unknown);
   let terminator =
     match blk.Mir_block.terminator with
     | Mir_terminator.Branch { Mir_branch.cond; then_; else_ } ->

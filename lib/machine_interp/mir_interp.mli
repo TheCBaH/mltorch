@@ -46,14 +46,18 @@ module Binding : sig
 end
 
 val instantiate :
+  ?shared:(Mir_id.Region.t -> Mir_memory.Key.t option) ->
   (_, _) Mir_program.t ->
   Mir_memory.t ->
   bound:(Mir_id.Region.t -> string option) ->
   (Binding.t, string) result
 (** One instance per region: a [Bound] region holds the bytes [bound] supplies
     (or none defined), a [Constant] one its bytes, an [Uninitialized] one
-    nothing. [Error] names a region the synthetic address space cannot place or
-    whose bound bytes are too many. *)
+    nothing. A region [shared] names is bound to that existing instance instead
+    — a host's storage that persists across runs — whose bytes are left as they
+    are; it must be exactly the region's size. [Error] names a region the
+    synthetic address space cannot place, whose bound bytes are too many, or
+    whose shared instance has another size. *)
 
 type run = {
   outcome : Outcome.t;

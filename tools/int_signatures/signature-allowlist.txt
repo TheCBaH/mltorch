@@ -28,6 +28,8 @@ lib/expr_internal/source.mli	expr-literal	val compare : t -> t -> int
 lib/expr_internal/source.mli	expr-literal	val hash : t -> int
 lib/machine_ir/mir_planning.mli	hash	val compare : t -> t -> int end
 lib/machine_interp/mir_interp.mli	budget	val run : ?fuel:int64 -> ?max_depth:int -> ?invocation:int32 -> ?models:Mir_helper_model.t list -> Mir_verify.Generic.t -> Mir_memory.t -> Binding.t -> args:Mir_datum.t list -> run
+lib/machine_model/mir_model.mli	tally	val invocations : t -> int
+lib/machine_model/mir_model.mli	budget	val run_prefix : ?fuel:int64 -> t -> inputs:(Tensor_id.t -> Tensor.packed option) -> count:int -> (Tensor_id.t list, Stop.t) result
 lib/native/alloc_script.mli	hash	val compare : t -> t -> int
 lib/native/arena_schedule.mli	hash	val compare : t -> t -> int
 lib/native/arena_schedule.mli	budget	type t = private { width : int; expansions : int; state_bytes : Byte_size.t }

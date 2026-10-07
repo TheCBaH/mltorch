@@ -50,7 +50,10 @@ val branch :
   unit
 
 val return : block -> Mir_value.t list -> unit
-val fail : block -> Mir_failure.t -> Mir_value.t list -> unit
+
+val fail :
+  ?origin:Mir_origin.t -> block -> Mir_failure.t -> Mir_value.t list -> unit
+(** [origin]: the guard the failure ends, inherited by its expansion *)
 
 val func :
   t ->

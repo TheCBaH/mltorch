@@ -24,12 +24,14 @@ instruction patterns. CompCert remains a separate C backend.
 | `lib/machine_target_x86_64` | x86-64 views and System V, admitted SSE2/GPR forms (SSE4.1, FMA3 under features), selection, allocation registers | `machine_ir`, `machine_interp` |
 | `lib/machine_alloc` | Liveness and intervals, physical parallel copies, the reference allocator, frame realization | `machine_ir` |
 | `lib/machine_check` | The independent symbolic allocation checker | `machine_ir` only — never the allocator |
+| `lib/machine_model` | Whole bundles through Machine IR on every route: per-invocation lowering, contexts with persistent tensor storage, published artifacts | `machine_lower`, `machine_interp`, `ssa_backends`, `loop_ir`, `native` |
 | `test/machine_ir`, `test/machine_lower` | Fixtures, malformed-IR and mutation evidence, census matrix | the above |
 | `test/machine_source` | Source differential harness: reference, structured SSA, CFG, generic | the above, `native`, `ssa_lower`, the Loop/SSA test fixtures |
 | `test/machine_aarch64` | Selected forms, malformed rejections, generic vs selected (C3), selection mutations | the above |
 | `test/machine_a64_native` | Native per-form conformance executable (C3n), `make machine.a64.conformance` | `machine_target_aarch64`, `unix`, gcc on an AArch64 host |
 | `test/machine_alloc` | Allocation, checking, physical interpretation (C4), frames (C5), mutations, liveness | the above |
 | `test/machine_x86_64` | x86-64 forms, negatives, C3/C4/C5 interpreted on any host, mutations | the above |
+| `test/machine_model`, `bin/machine_model_census` | Bundles against the per-node reference; the cohort census and real-weight prefixes (`make machine.pt2.census`) | the above, `native_test`, downloaded models for the census |
 
 `expr` supplies only neutral language identities (axes, sources, local
 variables) used by failure static identity. `machine_ir` never depends on
@@ -336,6 +338,67 @@ route must agree with the SSA routes on outputs as exact binary32 cells, on
 failure rows and on logical marks. The reference's own verdict against SSA is
 shown alongside: on a 63-bit host it does not report the index overflow the
 SSA IR checks for, which is the existing documented difference.
+
+## Model adapter
+
+`Mir_model.prepare` takes a `Loop_bundle.t` and lowers each invocation's
+placed kernel with the bundle path's own SSA producer (`Ssa_backends.program`,
+`Exact` or `Representation`; `Planned` is refused per invocation) and then
+`Mir_lower`, reporting every refusal with its invocation and node rather than
+the first. The bundle's schedule, positional argument convention (a Loop
+buffer is the SSA buffer of the same id, bound to its edge) and invocation
+numbering stay the bundle's. A `Context` owns one memory instance per graph
+tensor: constants (and Region nodes' synthetic operands) are written once,
+inputs per call, and an invocation binds its buffer regions to those
+instances through `Mir_interp.instantiate ~shared`, which leaves their bytes
+as they are. Storage therefore persists across calls, so freshness is
+enforced, not assumed: before each invocation its output tensors' bytes are
+undefined, and a read of any undefined byte is the interpreter's defect.
+Each invocation's own scratch (locals, meter, parameter tables) is a fresh
+instance. A call stops at the first invocation that does not succeed, with
+its position (the record's invocation word) and node; the context remains
+usable. `run_prefix` runs an explicit invocation sequence and returns the
+tensors written, for real-weight prefixes far shorter than a model.
+
+`prepare ~route` makes every kernel executable on one route
+(`Mir_model_route`): the generic interpreter, or a target's selected program
+(AArch64 or x86-64), or that program reference-allocated, physically verified
+and symbolically checked — a checker rejection refuses the kernel. Target
+routes select against the invocation's own Loop site table, declared
+complete, and read a failure from the stored record (`Mir_record`), whose
+invocation word the program leaves as all ones for the host. Selected and
+physical programs keep the generic program's buffer regions, so one binding
+scheme serves every route. The realized stage runs only a published artifact.
+
+## Assembly handoff
+
+`Mir_artifact` is what native assembly receives, and `Make(T).publish` is
+the only way to make one: it refuses a program with an unrealized frame,
+re-runs the physical verifier and the symbolic checker (against the selected
+program) rather than trusting the allocation that produced it, and refuses a
+helper with no native binding — interpreter-only helper support cannot
+complete a native artifact (`Mir_math`'s helpers bind their libm symbol). An
+artifact carries its identity (target, cited specification, features, the
+planning summary, helpers), its symbols (each region a data symbol: `Bound`
+regions are defined by the host per invocation, `Uninitialized` ones are the
+artifact's bss, `Constant` ones its rodata; each function; each libm
+binding), its relocations and every executed instruction's origin. A form
+names the symbolic addresses it encodes through the target's `references`
+hook (`Mir_target.Reference`: an AArch64 ADRP page and ADD `:lo12:` offset, an
+x86-64 RIP-relative displacement, a call), so a relocation is listed from
+the instruction, never inferred by a printer; a view's relocation targets its
+region's symbol with the view's offset as addend. Origins survive selection
+for every instruction a generic one expands to — including a failure's record
+stores, since a generic `fail` carries the origin of the guard it ends.
+Printing GNU syntax, assembling, linking or loading through rivet are
+downstream (native roadmap P8/P9).
+
+Measurement keeps the stages apart (`machine_model_census --measure=TARGET`):
+SSA lowering, Machine IR lowering, selection, reference allocation, frame
+realization, publication and constant packing are timed separately with the
+caller's clock; printing, assembly, loading and first/warm native calls are
+reported as downstream, never estimated, and interpreter timing is never
+evidence of native speed.
 
 ## Target interface and the selected stage
 
