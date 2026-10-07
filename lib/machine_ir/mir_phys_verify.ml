@@ -41,6 +41,20 @@ module Make (T : Mir_sel.TARGET) = struct
     | Some (_, bits), (Loc.Slot _ | Loc.Mem _) -> in_memory bits l
     | None, _ -> false
 
+  (* Whether running an instruction again recreates its one result: it reads
+     nothing, is unordered (pure and total), and constrains, clobbers and
+     changes condition state not at all. *)
+  let rematerializable (i : T.op Mir_sel.Op.t Mir_instr.t) =
+    match (i.Mir_instr.op, i.Mir_instr.results) with
+    | Mir_sel.Op.Machine op, [ r ] ->
+        T.uses op = []
+        && (not (T.ordered op))
+        && T.constraints op = []
+        && T.clobbers op = []
+        && (not (T.writes_flags op))
+        && not (Mir_type.equal r.Mir_value.ty Mir_type.Flags)
+    | _ -> false
+
   let is_reserved (v : Mir_target.View.t) =
     List.exists (Mir_target.View.overlap v) T.abi.Mir_target.Abi.reserved
 
@@ -153,6 +167,19 @@ module Make (T : Mir_sel.TARGET) = struct
                     | _ ->
                         reject ~block
                           "a save not between a register and the frame")
+                | Mir_phys.Instr.Remat { instr; defs } -> (
+                    if not (rematerializable instr) then
+                      reject ~block ~instr:instr.Mir_instr.id
+                        "a rematerialized instruction that reads, orders, \
+                         constrains or clobbers";
+                    match defs with
+                    | [ (Loc.Reg _ as d) ] ->
+                        check ~block ~instr:instr.Mir_instr.id
+                          (List.hd instr.Mir_instr.results)
+                          d
+                    | _ ->
+                        reject ~block ~instr:instr.Mir_instr.id
+                          "a rematerialization not into one register")
                 | Mir_phys.Instr.Sp delta ->
                     if not (T.stack_step_ok delta) then
                       reject ~block "a stack-pointer step that does not encode"

@@ -537,6 +537,12 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
               | Mir_phys.Instr.Late { op; uses; defs } ->
                   tick (here None);
                   exec op uses defs
+              | Mir_phys.Instr.Remat { instr; defs } -> (
+                  tick (here (Some instr.Mir_instr.id));
+                  match instr.Mir_instr.op with
+                  | Mir_sel.Op.Machine op -> exec op [] defs
+                  | Mir_sel.Op.Event _ | Mir_sel.Op.Undef _ ->
+                      defect D.Invalid_program)
               | Mir_phys.Instr.Exec { instr; uses; defs } -> (
                   tick (here (Some instr.Mir_instr.id));
                   match instr.Mir_instr.op with

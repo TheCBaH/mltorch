@@ -48,16 +48,22 @@ type t
 
 val prepare :
   ?route:Route.t ->
+  ?blocking:Mir_blocking.Policy.t ->
   pipeline:Ssa_backends.Pipeline.t ->
   Loop_ir.Loop_bundle.t ->
   (t, Refusal.t list) result
 (** Every invocation lowered (and made executable on [route], [Generic] by
     default, its failure sites bound against the invocation's Loop table), or
     every refusal: a [Planned] pipeline is refused for each invocation (no
-    binary32 or vector slice is admitted here). *)
+    binary32 or vector slice is admitted here). [blocking] ([Unblocked] by
+    default) needs the [Exact] pipeline; [Feedback] measures through the route's
+    target, and on the generic route, which has none, stays unblocked. *)
 
 val invocations : t -> int
 (** How many invocations the schedule holds. *)
+
+val blocking : t -> (Node_id.t * Mir_blocking.Decision.t) list
+(** Each feedback decision, by the node of its invocation, in schedule order. *)
 
 val generic : t -> Mir_verify.Generic.t list
 (** Each invocation's generic program, in schedule order. *)

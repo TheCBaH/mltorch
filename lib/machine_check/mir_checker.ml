@@ -23,6 +23,9 @@ module Problem = struct
         (** a use, move source, parameter or result whose location does not hold
             the expected value at the expected width *)
     | Realization  (** a selected block realized never or twice *)
+    | Rematerialized of Mir_id.Instr.t
+        (** a re-run of an instruction that is not one of the function's own, or
+            not pure, total and operand-free *)
     | Successor  (** a terminator that does not reach its selected targets *)
 
   let pp fmt = function
@@ -34,6 +37,7 @@ module Problem = struct
         Fmt.pf fmt "%a does not hold %a" Loc.pp at Mir_value.pp value
     | Realization ->
         Fmt.string fmt "a selected block is realized never or twice"
+    | Rematerialized i -> Fmt.pf fmt "%a may not be run again" Mir_id.Instr.pp i
     | Successor -> Fmt.string fmt "a successor that is not the selected edge's"
 end
 
@@ -50,6 +54,7 @@ let pp_error fmt e =
 
 module Make (T : Mir_sel.TARGET) = struct
   module S = Mir_sel.Make (T)
+  module V = Mir_phys_verify.Make (T)
 
   (* Where a holder lives: a register unit or a slot. *)
   (* Where a holder lives: a register unit, a frame slot before layout, or
@@ -178,6 +183,26 @@ module Make (T : Mir_sel.TARGET) = struct
           sf.Mir_func.blocks;
         let selected id = Option.get (Mir_func.find_block sf id) in
         let physical id = Option.get (Mir_phys.Func.find_block pf id) in
+        (* a re-run must be one of the function's own instructions, as
+           selected, and one a second run recreates *)
+        let own = Hashtbl.create 64 in
+        List.iter
+          (fun (b : (S.Stage.op, S.Stage.term) Mir_block.t) ->
+            List.iter
+              (fun (i : _ Mir_instr.t) ->
+                Hashtbl.replace own (Mir_id.Instr.to_int i.Mir_instr.id) i)
+              b.Mir_block.body)
+          sf.Mir_func.blocks;
+        let rerunnable ~block (i : _ Mir_instr.t) =
+          match Hashtbl.find_opt own (Mir_id.Instr.to_int i.Mir_instr.id) with
+          | Some (s : _ Mir_instr.t)
+            when s.Mir_instr.op = i.Mir_instr.op
+                 && List.equal Mir_value.equal s.Mir_instr.results
+                      i.Mir_instr.results
+                 && V.rematerializable i ->
+              ()
+          | _ -> fail ~block (Problem.Rematerialized i.Mir_instr.id)
+        in
         (* the selected edge a physical edge carries, and its target *)
         let selected_edge (from : Mir_id.Block.t) index =
           let edges =
@@ -222,6 +247,8 @@ module Make (T : Mir_sel.TARGET) = struct
                 List.iter
                   (function
                     | Mir_phys.Instr.Exec _ -> fail ~block Problem.Instructions
+                    | Mir_phys.Instr.Remat { instr; _ } ->
+                        rerunnable ~block instr
                     | Mir_phys.Instr.Late _ | Mir_phys.Instr.Move _
                     | Mir_phys.Instr.Save _ | Mir_phys.Instr.Sp _ ->
                         ())
@@ -235,6 +262,9 @@ module Make (T : Mir_sel.TARGET) = struct
                   List.filter_map
                     (function
                       | Mir_phys.Instr.Exec { instr; _ } -> Some instr
+                      | Mir_phys.Instr.Remat { instr; _ } ->
+                          rerunnable ~block instr;
+                          None
                       | Mir_phys.Instr.Late _ | Mir_phys.Instr.Move _
                       | Mir_phys.Instr.Save _ | Mir_phys.Instr.Sp _ ->
                           None)
@@ -281,6 +311,10 @@ module Make (T : Mir_sel.TARGET) = struct
                   match K.find_opt k st with
                   | Some (Address d) -> K.add k (Address (Int64.add d delta)) st
                   | Some (Value _) | None -> K.remove k st)
+              | Mir_phys.Instr.Remat { instr; defs } ->
+                  (* the same value again: every other holder stays valid *)
+                  let st = List.fold_left kill st defs in
+                  List.fold_left2 set st defs instr.Mir_instr.results
               | Mir_phys.Instr.Late { op; uses; defs } -> (
                   (* address arithmetic on an address stays an address;
                      anything else a late form writes is forgotten *)

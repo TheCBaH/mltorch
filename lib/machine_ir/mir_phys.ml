@@ -65,6 +65,11 @@ module Instr = struct
             (** the virtual value the move transfers: a witness the checker
                 verifies, never trusts *)
       }
+    | Remat of { instr : 'op Mir_sel.Op.t Mir_instr.t; defs : Loc.t list }
+        (** a selected instruction run again where a spilled value of it is
+            needed, instead of a reload: it must read nothing, be pure and
+            total, and constrain and clobber nothing, so a second run is the
+            same value. It is not the instruction's one realization. *)
     | Save of { dst : Loc.t; src : Loc.t }
         (** a callee-saved register or the link register to its save area or
             back: state the function preserves, not any virtual value *)

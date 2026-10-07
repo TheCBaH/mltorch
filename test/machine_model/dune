@@ -14,12 +14,14 @@
   loop_ir
   machine_alloc
   machine_alloc_test
+  machine_check
   machine_interp
   machine_ir
   machine_lower
   machine_model
   machine_source_test
   machine_target_aarch64
+  machine_target_x86_64
   native
   native_test
   ssa_backends

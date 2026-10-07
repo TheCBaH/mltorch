@@ -53,6 +53,7 @@ module Kernel = struct
     exec : Mir_model_route.Exec.t;
     edges : (Mir_id.Region.t * Tensor_id.t) list;
     outputs : Mir_id.Region.t list;  (** the regions it writes *)
+    blocking : Mir_blocking.Decision.t option;  (** feedback's, if it ran *)
   }
 end
 
@@ -62,71 +63,138 @@ type t = {
   sigs : Tensor_sig.t Tensor_id.Map.t;  (** every edge a buffer binds *)
 }
 
-let planning p =
+let planning ~group p =
   Mir_planning.make ~subject:(Ml.subject p) ~policy:"reference_f64"
-    ~schedule:"scalar" ~precision:Mir_planning.Precision.F64
-    ~lanes:(Mir_type.Lanes.of_int 1) ~fma:Mir_planning.Fma.Forbidden
-    ~capabilities:[]
+    ~schedule:
+      (if group = 1 then "scalar" else Fmt.str "scalar, groups of %d" group)
+    ~precision:Mir_planning.Precision.F64 ~lanes:(Mir_type.Lanes.of_int 1)
+    ~fma:Mir_planning.Fma.Forbidden ~capabilities:[]
 
-let kernel ~route ~pipeline (inv : Loop_ir.Loop_bundle.invocation) =
-  match pipeline with
-  | Ssa_backends.Pipeline.Planned _ ->
+(* The lowered program of an invocation under a blocking policy, and the
+   decision feedback made. *)
+let source ~route ~blocking ~pipeline (inv : Loop_ir.Loop_bundle.invocation) =
+  let ( let* ) = Result.bind in
+  let lower ~group p =
+    Result.map_error
+      (fun r -> Reason.Lowering r)
+      (Err.payload (Ml.program ~planning:(Some (planning ~group p)) p))
+  in
+  let exact () =
+    Result.map_error
+      (fun s -> Reason.Source s)
+      (Ssa_backends.program Ssa_backends.Pipeline.Exact inv)
+  in
+  let blocked g =
+    Result.map_error
+      (fun s -> Reason.Source s)
+      (Ssa_backends.blocked ~group:g inv)
+  in
+  match (pipeline, blocking) with
+  | Ssa_backends.Pipeline.Planned _, _ ->
       Error (Reason.Source "a planned pipeline is not admitted")
-  | Ssa_backends.Pipeline.Exact | Ssa_backends.Pipeline.Representation -> (
-      match Ssa_backends.program pipeline inv with
-      | Error s -> Error (Reason.Source s)
-      | Ok p -> (
-          match Err.payload (Ml.program ~planning:(Some (planning p)) p) with
-          | Error r -> Error (Reason.Lowering r)
-          | Ok lowered -> (
-              match
-                Mir_model_route.exec route ~sites:(sites inv) lowered.Ml.program
-              with
-              | Error s -> Error (Reason.Route s)
-              | Ok exec ->
-                  (* the bundle's buffers positionally, by the SSA buffer each
-                 one is *)
-                  let region (b : Loop_ir.Loop_buffer.t) =
-                    List.find_map
-                      (fun (e : L.Entry.t) ->
-                        if
-                          Tensor_id.to_int b.Loop_ir.Loop_buffer.id
-                          = (e.L.Entry.buffer.Ssa_ir.Ssa_buffer.id :> int)
-                        then Some e
-                        else None)
-                      lowered.Ml.layout
-                  in
-                  let bound =
-                    List.filter_map
-                      (fun (b, edge) ->
-                        Option.map (fun e -> (e, edge)) (region b))
-                      (List.combine
-                         inv.Loop_ir.Loop_bundle.program
-                           .Loop_ir.Loop_program.buffers
-                         inv.Loop_ir.Loop_bundle.edges)
-                  in
-                  Ok
-                    {
-                      Kernel.invocation = inv;
-                      lowered;
-                      exec;
-                      edges =
-                        List.map
-                          (fun ((e : L.Entry.t), edge) ->
-                            (e.L.Entry.region, edge))
-                          bound;
-                      outputs =
-                        List.filter_map
-                          (fun ((e : L.Entry.t), _) ->
-                            match e.L.Entry.buffer.Ssa_ir.Ssa_buffer.role with
-                            | Ssa_ir.Ssa_buffer.Output -> Some e.L.Entry.region
-                            | Ssa_ir.Ssa_buffer.Input
-                            | Ssa_ir.Ssa_buffer.Scratch ->
-                                None)
-                          bound;
-                    })))
+  | ( Ssa_backends.Pipeline.Representation,
+      (Mir_blocking.Policy.Feedback | Mir_blocking.Policy.Group _) ) ->
+      Error (Reason.Source "blocking needs the exact pipeline")
+  | ( (Ssa_backends.Pipeline.Exact | Ssa_backends.Pipeline.Representation),
+      Mir_blocking.Policy.Unblocked ) ->
+      let* p =
+        Result.map_error
+          (fun s -> Reason.Source s)
+          (Ssa_backends.program pipeline inv)
+      in
+      let* l = lower ~group:1 p in
+      Ok (l, None)
+  | Ssa_backends.Pipeline.Exact, Mir_blocking.Policy.Group g -> (
+      let* q = blocked g in
+      match q with
+      | Some q ->
+          let* l = lower ~group:g q in
+          Ok (l, None)
+      | None ->
+          let* p = exact () in
+          let* l = lower ~group:1 p in
+          Ok (l, None))
+  | Ssa_backends.Pipeline.Exact, Mir_blocking.Policy.Feedback ->
+      let* p = exact () in
+      let* others =
+        List.fold_right
+          (fun g acc ->
+            let* acc = acc in
+            let* q = blocked g in
+            Ok (match q with Some q -> (g, q) :: acc | None -> acc))
+          Mir_blocking.groups (Ok [])
+      in
+      let lowered =
+        List.map (fun (g, q) -> (g, lower ~group:g q)) ((1, p) :: others)
+      in
+      let decision =
+        Mir_blocking.decide
+          (List.map
+             (fun (group, l) ->
+               {
+                 Mir_blocking.Candidate.group;
+                 pressure =
+                   (match l with
+                   | Error r -> Error (Fmt.str "%a" Reason.pp r)
+                   | Ok l ->
+                       Mir_model_route.pressure route ~sites:(sites inv)
+                         l.Ml.program);
+               })
+             lowered)
+      in
+      let* l = List.assoc decision.Mir_blocking.Decision.chosen lowered in
+      Ok (l, Some decision)
 
-let prepare ?(route = Route.Generic) ~pipeline (b : Loop_ir.Loop_bundle.t) =
+let kernel ~route ~blocking ~pipeline (inv : Loop_ir.Loop_bundle.invocation) =
+  match source ~route ~blocking ~pipeline inv with
+  | Error r -> Error r
+  | Ok (lowered, decision) -> (
+      match
+        Mir_model_route.exec route ~sites:(sites inv) lowered.Ml.program
+      with
+      | Error s -> Error (Reason.Route s)
+      | Ok exec ->
+          (* the bundle's buffers positionally, by the SSA buffer each
+                 one is *)
+          let region (b : Loop_ir.Loop_buffer.t) =
+            List.find_map
+              (fun (e : L.Entry.t) ->
+                if
+                  Tensor_id.to_int b.Loop_ir.Loop_buffer.id
+                  = (e.L.Entry.buffer.Ssa_ir.Ssa_buffer.id :> int)
+                then Some e
+                else None)
+              lowered.Ml.layout
+          in
+          let bound =
+            List.filter_map
+              (fun (b, edge) -> Option.map (fun e -> (e, edge)) (region b))
+              (List.combine
+                 inv.Loop_ir.Loop_bundle.program.Loop_ir.Loop_program.buffers
+                 inv.Loop_ir.Loop_bundle.edges)
+          in
+          Ok
+            {
+              Kernel.invocation = inv;
+              lowered;
+              exec;
+              edges =
+                List.map
+                  (fun ((e : L.Entry.t), edge) -> (e.L.Entry.region, edge))
+                  bound;
+              outputs =
+                List.filter_map
+                  (fun ((e : L.Entry.t), _) ->
+                    match e.L.Entry.buffer.Ssa_ir.Ssa_buffer.role with
+                    | Ssa_ir.Ssa_buffer.Output -> Some e.L.Entry.region
+                    | Ssa_ir.Ssa_buffer.Input | Ssa_ir.Ssa_buffer.Scratch ->
+                        None)
+                  bound;
+              blocking = decision;
+            })
+
+let prepare ?(route = Route.Generic) ?(blocking = Mir_blocking.Policy.Unblocked)
+    ~pipeline (b : Loop_ir.Loop_bundle.t) =
   let results =
     List.mapi
       (fun k (inv : Loop_ir.Loop_bundle.invocation) ->
@@ -137,7 +205,7 @@ let prepare ?(route = Route.Generic) ~pipeline (b : Loop_ir.Loop_bundle.t) =
               node = inv.Loop_ir.Loop_bundle.node;
               reason;
             })
-          (kernel ~route ~pipeline inv))
+          (kernel ~route ~blocking ~pipeline inv))
       b.Loop_ir.Loop_bundle.invocations
   in
   match
@@ -159,6 +227,14 @@ let prepare ?(route = Route.Generic) ~pipeline (b : Loop_ir.Loop_bundle.t) =
       Ok { bundle = b; kernels; sigs }
 
 let invocations t = List.length t.kernels
+
+let blocking t =
+  List.filter_map
+    (fun (k : Kernel.t) ->
+      Option.map
+        (fun d -> (k.Kernel.invocation.Loop_ir.Loop_bundle.node, d))
+        k.Kernel.blocking)
+    t.kernels
 
 let generic t =
   List.map (fun (k : Kernel.t) -> k.Kernel.lowered.Ml.program) t.kernels

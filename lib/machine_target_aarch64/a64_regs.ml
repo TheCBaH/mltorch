@@ -52,3 +52,13 @@ let sequence tys =
 
 let args = sequence
 let results = sequence
+
+(* What production allocation draws on, in preference order: caller-saved
+   registers first (a value not live across a call pays nothing to keep), then
+   callee-saved ones; never a reserved register (x16-x18, x29, x30) nor the
+   allocator's own scratch (x9-x14, v16-v21). *)
+let allocatable = function
+  | Mir_target.Bank.Gpr -> A64_reg.range 0 8 @ [ 15 ] @ A64_reg.range 19 28
+  | Mir_target.Bank.Fpr ->
+      A64_reg.range 0 7 @ A64_reg.range 22 31 @ A64_reg.range 8 15
+  | Mir_target.Bank.Control | Mir_target.Bank.Flags -> []

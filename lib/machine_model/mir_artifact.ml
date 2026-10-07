@@ -242,6 +242,14 @@ module Make (T : Mir_sel.TARGET) = struct
                         } ->
                         (Some id, Some op)
                     | Mir_phys.Instr.Late { op; _ } -> (None, Some op)
+                    | Mir_phys.Instr.Remat
+                        {
+                          instr =
+                            { Mir_instr.id; op = Mir_sel.Op.Machine op; _ };
+                          _;
+                        } ->
+                        (Some id, Some op)
+                    | Mir_phys.Instr.Remat _ -> (None, None)
                     | Mir_phys.Instr.Exec _ | Mir_phys.Instr.Move _
                     | Mir_phys.Instr.Save _ | Mir_phys.Instr.Sp _ ->
                         (None, None)

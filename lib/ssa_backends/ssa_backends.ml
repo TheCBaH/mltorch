@@ -64,6 +64,23 @@ let prepare pipeline (inv : Loop_ir.Loop_bundle.invocation) =
 
 let program pipeline inv = Result.map fst (prepare pipeline inv)
 
+let blocked ~group inv =
+  Result.map
+    (fun p ->
+      let q, report =
+        Ssa_opt.run ~alias
+          ~passes:
+            [
+              Ssa_opt.block ~alias ~group:(Ssa_opt_block.Fixed group);
+              Ssa_opt.share ~alias;
+              Ssa_opt.simplify;
+            ]
+          p
+      in
+      if Option.value ~default:0 (List.assoc_opt "block" report) > 0 then Some q
+      else None)
+    (program Pipeline.Exact inv)
+
 (* The invocation's buffers, as SSA declares them, in the program's order: the
    bundle binds them positionally to edges. A buffer the SSA program names that
    the invocation does not have cannot be bound. *)

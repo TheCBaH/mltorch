@@ -33,6 +33,14 @@ val program :
   (Ssa_ir.Ssa_program.t, string) result
 (** The program an invocation is emitted from. *)
 
+val blocked :
+  group:int ->
+  Loop_ir.Loop_bundle.invocation ->
+  (Ssa_ir.Ssa_program.t option, string) result
+(** The [Exact] program with independent outputs blocked in groups of [group]
+    ({!Ssa_ir.Ssa_opt.block}, then load sharing): bitwise the [Exact] program.
+    [None] when no loop admits that group. *)
+
 val c :
   pipeline:Pipeline.t ->
   name:string ->

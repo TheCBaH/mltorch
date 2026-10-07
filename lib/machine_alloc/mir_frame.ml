@@ -72,7 +72,9 @@ module Make (T : Mir_sel.TARGET) (F : FRAME with type op = T.op) = struct
     let written =
       List.concat_map
         (function
-          | Mir_phys.Instr.Exec { defs; _ } | Mir_phys.Instr.Late { defs; _ } ->
+          | Mir_phys.Instr.Exec { defs; _ }
+          | Mir_phys.Instr.Late { defs; _ }
+          | Mir_phys.Instr.Remat { defs; _ } ->
               defs
           | Mir_phys.Instr.Move { dst; _ } -> [ dst ]
           | Mir_phys.Instr.Save _ | Mir_phys.Instr.Sp _ -> [])

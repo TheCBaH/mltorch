@@ -617,7 +617,79 @@ for canaries: any access outside it is a defect at once.
 define, edge arguments use at the source's end, order excluded) and linear-scan
 intervals over reverse postorder with two positions per instruction, lifetime
 holes, and loop-header extension. A value's range covers each read; coverage
-where a value is dead is accepted imprecision from the loop rule.
+where a value is dead is accepted imprecision from the loop rule — reverse
+postorder need not keep a loop contiguous, so a header's live-ins can cover
+blocks of an unrelated loop. Allocation may treat such coverage as occupancy,
+but no move may read a value there: on a path around the other loop the
+register can hold something else, which the checker reports.
+
+**Production allocation** (`Mir_linear_scan`, after Wimmer and Franz): the
+same intervals allocated as pieces, each wholly in one register or spilled,
+split only at even positions — before an instruction, where a parallel copy
+moves every piece that changes location there, or at a block start, where
+edge resolution does. Spilled pieces stay legal at every use and definition
+through the reference allocator's scratch (an operand reloaded just before,
+a result written through the result scratch and stored), so a split is never
+needed for legality; it is how a spilled value regains a register before its
+next use. Fixed uses and results block their register for the instruction
+and are reached by moves; a call's clobbers block the views it writes (so
+AArch64's v8-v15 keep scalars across a call); an instruction's own results
+ignore its own blocks, being written after it; a tied or early-clobber result
+opens at the instruction's read, and a tied operand is copied into the
+result's register. The register free longest wins (preferring the value's
+previous one); with none, the occupant whose next use is farthest — weighted
+tenfold per loop level — is evicted, or the current piece is spilled when its
+own next use is farther still. Moves are emitted only for values live by
+dataflow. Spilled values share slots when their spilled pieces never overlap.
+A value whose instruction reads nothing and is pure, total and unconstrained
+is rematerialized: no slot, a reload becomes a `Remat` of the selected
+instruction, a store is dropped. `Remat` is a physical instruction of its
+own: the physical verifier admits only such instructions into one register,
+the checker requires it to be the function's own selected instruction and
+keeps every other holder of the value, and it is not the instruction's one
+realization. The model adapter's `Scanned` route runs linear scan, frames and
+publication. Fault injection: call clobbers not blocked, inactive intervals
+ignored, a split without its move. The checker catches the first and last on
+both targets, and the hole only on a three-register AArch64 pool: with full
+pools no hole decides a register, and on x86-64 the allocations it changes
+still pass the checker, so the intersections it ignored held no read.
+
+**Scheduling** (`Mir_schedule`) runs on the selected program before liveness
+and allocation, one block at a time — so nothing is speculated across a branch
+or a failure check. A block's dependence graph, taken from its source order,
+holds a value's definition before its uses, the order chain (every load,
+store, call, event and `undef` keeps its place relative to the others: there
+is no alias analysis), and condition state: a flags writer stays on the side
+of each `Flags` value's range (definition to last use) it started on, stricter
+than the verifier's rule. A schedule is checked to permute every body within
+that graph, the selected verifier runs again, and a changed order is a new
+revision. The production policy, `Sink`, places a pure, flags-preserving
+instruction whose results stay in the block just before its first dependent's
+source place; the `Scanned` route schedules so before linear scan. It cuts
+spill stores on three-register pools (x86-64 sdpa 120 to 101, AArch64 softmax
+39 to 23) and is roughly neutral with full pools; sinking a whole pure chain to
+its final consumer spilled more. `Reverse` (latest ready first) is evidence
+only: the legal order farthest from the source, run bitwise on every model
+route, and with any one dependence class dropped refused by the check.
+
+**Pressure feedback** (`Mir_pressure`, `Mir_blocking`). A kernel's pressure is
+counted, never timed: the most values live at once per bank of the selected
+program, the spill stores and reloads per bank in blocks on a cycle of the
+physical one (its hot loops), the largest realized frame and the helper calls,
+all after the production pipeline (sink scheduling, linear scan, frames). The
+model adapter's `Feedback` blocking feeds it back to structured SSA: the
+candidates are the unblocked exact program and the exact program with
+independent outputs blocked at each group size (8, 4, 2) the SSA pass itself
+admits for some loop — bounded and each already legal, and bitwise the
+unblocked program — and the choice is the candidate whose hot loops spill
+least, the largest group among equals. Precision and operation order are never
+a candidate, so a spill is reported or avoided, not hidden. On the CI models
+AArch64 keeps every blocked matmul's accumulators in registers at group 8; on
+x86-64 the linear scan has six GPRs (the other caller-saved ones are the
+reference strategy's reload, result, copy and cycle scratch), peak GPR demand
+is 24-26, and hot GPR spills appear in most kernels whatever the group — so
+feedback keeps x86-64 unblocked. Reclaiming that scratch for allocation is the
+open lever.
 
 ## Host numerics
 

@@ -10,14 +10,23 @@
    per-node reference, bit for bit.
 
    [--measure=aarch64|x86_64] times every back-end stage of every invocation
-   separately — SSA lowering, Machine IR lowering, selection, reference
-   allocation, frame realization, publication (re-verification and checking
-   included) — and the packing of the model's constants into bytes. Printing,
-   assembly, loading and native calls are downstream of the artifact and are
-   reported as such, never estimated.
+   separately — SSA lowering, Machine IR lowering, selection, sink scheduling,
+   reference and linear-scan allocation, frame realization, publication of the
+   reference allocation (re-verification and checking included) — and the
+   packing of the model's constants into bytes. Printing, assembly, loading
+   and native calls are downstream of the artifact and are reported as such,
+   never estimated.
+
+   [--pressure=aarch64|x86_64] reports what the production pipeline (sink
+   scheduling, linear scan, frames) leaves under register pressure, summed
+   over the invocations: the largest peak of live values per bank, the spill
+   stores and reloads in hot loops, the largest frame and the helper calls;
+   with [--blocking=feedback] each invocation's SSA output blocking is chosen
+   by that pressure first, and the choices are tallied.
 
    argv: <model.pt2> [--ssa=exact|representation] [--run=K]
-   [--measure=aarch64|x86_64] *)
+   [--measure=aarch64|x86_64] [--pressure=aarch64|x86_64]
+   [--blocking=feedback] *)
 
 open Loop_ir
 module M = Machine_model.Mir_model
@@ -43,7 +52,7 @@ let stages (b : Loop_bundle.t) ~pipeline ~constants route =
             n + String.length (Machine_model.Mir_tensor_bytes.to_string t))
           constants 0)
   in
-  let totals = Array.make 6 0. and relocations = ref 0 and refused = ref 0 in
+  let totals = Array.make 8 0. and relocations = ref 0 and refused = ref 0 in
   let add k x = totals.(k) <- totals.(k) +. x in
   List.iter
     (fun (inv : Loop_bundle.invocation) ->
@@ -77,21 +86,69 @@ let stages (b : Loop_bundle.t) ~pipeline ~constants route =
               | Ok t ->
                   let open Machine_model.Mir_model_route.Timing in
                   add 2 t.select;
-                  add 3 t.allocate;
-                  add 4 t.realize;
-                  add 5 t.publish;
+                  add 3 t.schedule;
+                  add 4 t.allocate;
+                  add 5 t.scan;
+                  add 6 t.realize;
+                  add 7 t.publish;
                   relocations := !relocations + t.relocations)))
     b.Loop_bundle.invocations;
   Fmt.pr
-    "%s: lowering ssa %.2f s, machine %.2f s; selection %.2f s; allocation \
-     %.2f s; realization %.2f s; publication %.2f s; %d relocations; %d \
-     refused@."
+    "%s: lowering ssa %.2f s, machine %.2f s; selection %.2f s; scheduling \
+     %.2f s; allocation reference %.2f s, linear scan %.2f s; realization %.2f \
+     s; publication %.2f s; %d relocations; %d refused@."
     (M.Route.name route) totals.(0) totals.(1) totals.(2) totals.(3) totals.(4)
-    totals.(5) !relocations !refused;
+    totals.(5) totals.(6) totals.(7) !relocations !refused;
   Fmt.pr "packing: %d constant bytes in %.2f s@." packed packing;
   Fmt.pr
     "printing, assembly, loading, first and warm calls: downstream of the \
      artifact, not measured here@."
+
+(* What the production pipeline leaves under register pressure, over every
+   invocation: [reports] holds one per invocation. *)
+let pressure_summary route reports ~choices =
+  let module P = Machine_alloc.Mir_pressure in
+  let ok = List.filter_map Result.to_option reports in
+  let merge f l =
+    List.fold_left
+      (fun acc (b, n) ->
+        let m = Option.value ~default:0 (List.assoc_opt b acc) in
+        (b, f m n) :: List.remove_assoc b acc)
+      [] l
+    |> List.sort compare
+  in
+  let banks fmt = function
+    | [] -> Fmt.string fmt "none"
+    | l ->
+        Fmt.(
+          list ~sep:(any ", ") (fun fmt (b, n) ->
+              Fmt.pf fmt "%s %d" (Machine_ir.Mir_target.Bank.name b) n))
+          fmt l
+  in
+  Fmt.pr
+    "%s pressure: %d invocations (%d unmeasured); largest peak %a; hot stores \
+     %a, loads %a, in %d invocations; largest frame %Ld bytes; %d helper \
+     calls@."
+    (M.Route.name route) (List.length reports)
+    (List.length reports - List.length ok)
+    banks
+    (merge max (List.concat_map (fun (p : P.t) -> p.P.peak) ok))
+    banks
+    (merge ( + ) (List.concat_map (fun (p : P.t) -> p.P.hot_stores) ok))
+    banks
+    (merge ( + ) (List.concat_map (fun (p : P.t) -> p.P.hot_loads) ok))
+    (List.length (List.filter (fun p -> P.hot_spills p > 0) ok))
+    (List.fold_left
+       (fun m (p : P.t) -> max m (Option.value ~default:0L p.P.frame))
+       0L ok)
+    (List.fold_left (fun n (p : P.t) -> n + p.P.helper_calls) 0 ok);
+  match choices with
+  | [] -> ()
+  | l ->
+      Fmt.pr "feedback chose: %a@."
+        Fmt.(
+          list ~sep:(any ", ") (fun fmt (g, n) -> Fmt.pf fmt "group %d x%d" g n))
+        (merge ( + ) (List.map (fun g -> (g, 1)) l))
 
 (* The first [count] invocations against the reference, tensor by tensor. *)
 let prefix (b : Loop_bundle.t) m ~constants ~count =
@@ -148,6 +205,8 @@ let () =
   let pipeline = ref Ssa_backends.Pipeline.Exact in
   let run = ref None in
   let measure = ref None in
+  let pressure = ref None in
+  let feedback = ref false in
   let args =
     List.filter
       (fun a ->
@@ -164,6 +223,15 @@ let () =
             false
         | [ "--measure"; "x86_64" ] ->
             measure := Some (M.Route.X86_64 M.Stage.Realized);
+            false
+        | [ "--pressure"; "aarch64" ] ->
+            pressure := Some (M.Route.Aarch64 M.Stage.Selected);
+            false
+        | [ "--pressure"; "x86_64" ] ->
+            pressure := Some (M.Route.X86_64 M.Stage.Selected);
+            false
+        | [ "--blocking"; "feedback" ] ->
+            feedback := true;
             false
         | _ -> true)
       (List.tl (Array.to_list Sys.argv))
@@ -193,13 +261,50 @@ let () =
           exit 1
       | Ok (b, constants) -> (
           let n = List.length b.Loop_bundle.invocations in
-          match Machine_model.Mir_model.prepare ~pipeline:!pipeline b with
+          let route = Option.value ~default:M.Route.Generic !pressure in
+          let blocking =
+            if !feedback then Machine_model.Mir_blocking.Policy.Feedback
+            else Machine_model.Mir_blocking.Policy.Unblocked
+          in
+          match
+            Machine_model.Mir_model.prepare ~route ~blocking ~pipeline:!pipeline
+              b
+          with
           | Ok m -> (
               Fmt.pr "%s: %d of %d invocations admitted@."
                 (Filename.basename path) n n;
               (match !measure with
               | None -> ()
               | Some route -> stages b ~pipeline:!pipeline ~constants route);
+              (match !pressure with
+              | None -> ()
+              | Some route ->
+                  let decisions = List.map snd (M.blocking m) in
+                  let reports =
+                    if !feedback then
+                      List.map
+                        (fun (d : Machine_model.Mir_blocking.Decision.t) ->
+                          (List.find
+                             (fun (c : Machine_model.Mir_blocking.Candidate.t)
+                                ->
+                               c.Machine_model.Mir_blocking.Candidate.group
+                               = d.Machine_model.Mir_blocking.Decision.chosen)
+                             d.Machine_model.Mir_blocking.Decision.candidates)
+                            .Machine_model.Mir_blocking.Candidate.pressure)
+                        decisions
+                    else
+                      List.map2
+                        (fun inv g ->
+                          Machine_model.Mir_model_route.pressure route
+                            ~sites:(M.sites inv) g)
+                        b.Loop_bundle.invocations (M.generic m)
+                  in
+                  pressure_summary route reports
+                    ~choices:
+                      (List.map
+                         (fun (d : Machine_model.Mir_blocking.Decision.t) ->
+                           d.Machine_model.Mir_blocking.Decision.chosen)
+                         decisions));
               match !run with
               | None -> ()
               | Some count -> prefix b m ~constants ~count)

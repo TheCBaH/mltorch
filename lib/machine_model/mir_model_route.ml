@@ -1,20 +1,28 @@
 (* One invocation's generic program made executable on a route: the generic
-   interpreter, or a target's selected program on its semantic interpreter, or
-   that program reference-allocated, verified physically and checked
-   symbolically, on the physical interpreter — or realized with its frames and
-   published as an artifact, which re-verifies and re-checks it, and only then
-   run. A checker rejection is a compiler error: the kernel is refused, never
-   run. *)
+   interpreter, or a target's selected program — as selected or scheduled — on
+   its semantic interpreter, or that program reference-allocated, verified
+   physically and checked symbolically, on the physical interpreter — or
+   realized with its frames and published as an artifact, which re-verifies and
+   re-checks it, and only then run. A checker rejection is a compiler error:
+   the kernel is refused, never run. *)
 
 open Machine_ir
 open Machine_interp
 
 module Stage = struct
-  type t = Allocated | Realized | Selected
+  type t =
+    | Allocated  (** reference allocation *)
+    | Realized  (** reference allocation, frames, publication *)
+    | Scanned
+        (** sink scheduling, linear-scan allocation, frames, publication *)
+    | Scheduled of Machine_alloc.Mir_schedule.Policy.t
+    | Selected
 
   let name = function
     | Allocated -> "allocated"
     | Realized -> "realized"
+    | Scanned -> "scanned"
+    | Scheduled p -> "scheduled " ^ Machine_alloc.Mir_schedule.Policy.name p
     | Selected -> "selected"
 end
 
@@ -67,7 +75,9 @@ let models = Mir_math_model.all
 module Timing = struct
   type t = {
     select : float;
-    allocate : float;
+    schedule : float;  (** sink scheduling *)
+    allocate : float;  (** reference allocation *)
+    scan : float;  (** linear-scan allocation of the scheduled program *)
     realize : float;
     publish : float;  (** re-verification and re-checking included *)
     relocations : int;
@@ -97,7 +107,7 @@ let generic (g : Mir_verify.Generic.t) =
 (* The selected and allocated routes of one target. *)
 module Target
     (T : Mir_sel_interp.SEMANTICS)
-    (R : Machine_alloc.Mir_ref_alloc.REGISTERS)
+    (R : Machine_alloc.Mir_linear_scan.POOL)
     (F : Machine_alloc.Mir_frame.FRAME with type op = T.op)
     (X : sig
       type result
@@ -113,11 +123,14 @@ module Target
 struct
   module I = Mir_sel_interp.Make (T)
   module A = Machine_alloc.Mir_ref_alloc.Make (T) (R)
+  module Ls = Machine_alloc.Mir_linear_scan.Make (T) (R)
+  module Sch = Machine_alloc.Mir_schedule.Make (T)
   module V = Mir_phys_verify.Make (T)
   module C = Machine_check.Mir_checker.Make (T)
   module P = Mir_phys_interp.Make (T)
   module Fr = Machine_alloc.Mir_frame.Make (T) (F)
   module Pub = Mir_artifact.Make (T)
+  module Pr = Machine_alloc.Mir_pressure.Make (T)
 
   let ( let* ) = Result.bind
 
@@ -134,6 +147,15 @@ struct
     let res, select = timed (fun () -> X.select ~sites g) in
     let* res = res in
     let v = X.selected res in
+    let s, schedule =
+      timed (fun () -> Sch.schedule Machine_alloc.Mir_schedule.Policy.Sink v)
+    in
+    let* s =
+      Result.map_error
+        (Fmt.str "schedule: %a" Machine_alloc.Mir_schedule.Refusal.pp)
+        s
+    in
+    let _, scan = timed (fun () -> Ls.allocate s) in
     let phys, allocate = timed (fun () -> A.allocate v) in
     let real, realize = timed (fun () -> Fr.realize phys) in
     let* real =
@@ -146,12 +168,30 @@ struct
     Ok
       {
         Timing.select;
+        schedule;
         allocate;
+        scan;
         realize;
         publish;
         relocations = List.length (Mir_artifact.relocations artifact);
         symbols = List.length (Mir_artifact.symbols artifact);
       }
+
+  (* The production pipeline's pressure: sink scheduling, linear scan and
+     frames. *)
+  let pressure ~sites g =
+    let* res = X.select ~sites g in
+    let* s =
+      Result.map_error
+        (Fmt.str "schedule: %a" Machine_alloc.Mir_schedule.Refusal.pp)
+        (Sch.schedule Machine_alloc.Mir_schedule.Policy.Sink (X.selected res))
+    in
+    let* real =
+      Result.map_error
+        (Fmt.str "frame: %a" Machine_alloc.Mir_frame.Refusal.pp)
+        (Fr.realize (Ls.allocate s))
+    in
+    Ok (Pr.report s real)
 
   let exec stage ~sites g =
     let* res = X.select ~sites g in
@@ -164,26 +204,40 @@ struct
     let status memory binding outcome =
       Mir_record.of_outcome memory binding ~sites ~record outcome
     in
+    let scheduled policy =
+      Result.map_error
+        (Fmt.str "schedule: %a" Machine_alloc.Mir_schedule.Refusal.pp)
+        (Sch.schedule policy v)
+    in
+    let selected v =
+      {
+        Exec.instantiate = instantiate program;
+        run =
+          (fun ?fuel memory binding ~invocation:_ ->
+            status memory binding
+              (I.run ?fuel ~models v memory binding ~args:[]).I.outcome);
+        artifact = None;
+      }
+    in
     match stage with
-    | Stage.Selected ->
-        Ok
-          {
-            Exec.instantiate = instantiate program;
-            run =
-              (fun ?fuel memory binding ~invocation:_ ->
-                status memory binding
-                  (I.run ?fuel ~models v memory binding ~args:[]).I.outcome);
-            artifact = None;
-          }
-    | Stage.Realized -> (
+    | Stage.Selected -> Ok (selected v)
+    | Stage.Scheduled policy -> Result.map selected (scheduled policy)
+    | Stage.Realized | Stage.Scanned -> (
         let* planning =
           Option.to_result ~none:"a generic program with no planning summary"
             (Mir_verify.Generic.program g).Mir_program.planning
         in
+        let* v, phys =
+          if stage = Stage.Scanned then
+            Result.map
+              (fun s -> (s, Ls.allocate s))
+              (scheduled Machine_alloc.Mir_schedule.Policy.Sink)
+          else Ok (v, A.allocate v)
+        in
         let* real =
           Result.map_error
             (Fmt.str "frame: %a" Machine_alloc.Mir_frame.Refusal.pp)
-            (Fr.realize (A.allocate v))
+            (Fr.realize phys)
         in
         match Pub.publish ~planning v real with
         | Error e -> Error ("publish: " ^ e)
@@ -264,6 +318,13 @@ let measure route ~now ~sites g =
   | Route.Aarch64 _ -> A64_route.measure ~now ~sites g
   | Route.Generic -> Error "the generic route has no back end to measure"
   | Route.X86_64 _ -> X64_route.measure ~now ~sites g
+
+(* A target route's pressure for one kernel, whatever its stage. *)
+let pressure route ~sites g =
+  match route with
+  | Route.Aarch64 _ -> A64_route.pressure ~sites g
+  | Route.Generic -> Error "the generic route has no registers"
+  | Route.X86_64 _ -> X64_route.pressure ~sites g
 
 let exec route ~sites g =
   match route with

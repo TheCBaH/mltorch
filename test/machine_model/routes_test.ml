@@ -14,9 +14,15 @@ let routes =
       Aarch64 M.Stage.Selected;
       Aarch64 M.Stage.Allocated;
       Aarch64 M.Stage.Realized;
+      Aarch64 M.Stage.Scanned;
+      Aarch64 (M.Stage.Scheduled Machine_alloc.Mir_schedule.Policy.Reverse);
+      Aarch64 (M.Stage.Scheduled Machine_alloc.Mir_schedule.Policy.Sink);
       X86_64 M.Stage.Selected;
       X86_64 M.Stage.Allocated;
       X86_64 M.Stage.Realized;
+      X86_64 M.Stage.Scanned;
+      X86_64 (M.Stage.Scheduled Machine_alloc.Mir_schedule.Policy.Reverse);
+      X86_64 (M.Stage.Scheduled Machine_alloc.Mir_schedule.Policy.Sink);
     ]
 
 let with_dir f =
@@ -110,27 +116,45 @@ let%expect_test "conv, batch norm, relu; batched matmul; linear" =
       aarch64 selected: bitwise
       aarch64 allocated: bitwise
       aarch64 realized: bitwise
+      aarch64 scanned: bitwise
+      aarch64 scheduled reverse: bitwise
+      aarch64 scheduled sink: bitwise
       x86_64 selected: bitwise
       x86_64 allocated: bitwise
       x86_64 realized: bitwise
+      x86_64 scanned: bitwise
+      x86_64 scheduled reverse: bitwise
+      x86_64 scheduled sink: bitwise
       direct C: bitwise
     bmm 2x(5x7 . 7x3):
       generic: bitwise
       aarch64 selected: bitwise
       aarch64 allocated: bitwise
       aarch64 realized: bitwise
+      aarch64 scanned: bitwise
+      aarch64 scheduled reverse: bitwise
+      aarch64 scheduled sink: bitwise
       x86_64 selected: bitwise
       x86_64 allocated: bitwise
       x86_64 realized: bitwise
+      x86_64 scanned: bitwise
+      x86_64 scheduled reverse: bitwise
+      x86_64 scheduled sink: bitwise
       direct C: bitwise
     linear 8 -> 4:
       generic: bitwise
       aarch64 selected: bitwise
       aarch64 allocated: bitwise
       aarch64 realized: bitwise
+      aarch64 scanned: bitwise
+      aarch64 scheduled reverse: bitwise
+      aarch64 scheduled sink: bitwise
       x86_64 selected: bitwise
       x86_64 allocated: bitwise
       x86_64 realized: bitwise
+      x86_64 scanned: bitwise
+      x86_64 scheduled reverse: bitwise
+      x86_64 scheduled sink: bitwise
       direct C: bitwise |}]
 
 let sdpa () =
@@ -169,36 +193,60 @@ let%expect_test "attention: some cells, a whole row, every cell masked" =
       aarch64 selected: bitwise
       aarch64 allocated: bitwise
       aarch64 realized: bitwise
+      aarch64 scanned: bitwise
+      aarch64 scheduled reverse: bitwise
+      aarch64 scheduled sink: bitwise
       x86_64 selected: bitwise
       x86_64 allocated: bitwise
       x86_64 realized: bitwise
+      x86_64 scanned: bitwise
+      x86_64 scheduled reverse: bitwise
+      x86_64 scheduled sink: bitwise
       direct C: bitwise
     sdpa, a whole row:
       generic: bitwise
       aarch64 selected: bitwise
       aarch64 allocated: bitwise
       aarch64 realized: bitwise
+      aarch64 scanned: bitwise
+      aarch64 scheduled reverse: bitwise
+      aarch64 scheduled sink: bitwise
       x86_64 selected: bitwise
       x86_64 allocated: bitwise
       x86_64 realized: bitwise
+      x86_64 scanned: bitwise
+      x86_64 scheduled reverse: bitwise
+      x86_64 scheduled sink: bitwise
       direct C: bitwise
     sdpa, every cell:
       generic: bitwise
       aarch64 selected: bitwise
       aarch64 allocated: bitwise
       aarch64 realized: bitwise
+      aarch64 scanned: bitwise
+      aarch64 scheduled reverse: bitwise
+      aarch64 scheduled sink: bitwise
       x86_64 selected: bitwise
       x86_64 allocated: bitwise
       x86_64 realized: bitwise
+      x86_64 scanned: bitwise
+      x86_64 scheduled reverse: bitwise
+      x86_64 scheduled sink: bitwise
       direct C: bitwise
     softmax over C:
       generic: bitwise
       aarch64 selected: bitwise
       aarch64 allocated: bitwise
       aarch64 realized: bitwise
+      aarch64 scanned: bitwise
+      aarch64 scheduled reverse: bitwise
+      aarch64 scheduled sink: bitwise
       x86_64 selected: bitwise
       x86_64 allocated: bitwise
       x86_64 realized: bitwise
+      x86_64 scanned: bitwise
+      x86_64 scheduled reverse: bitwise
+      x86_64 scheduled sink: bitwise
       direct C: bitwise |}]
 
 let%expect_test "the first failing invocation on every route" =
@@ -236,9 +284,15 @@ let%expect_test "the first failing invocation on every route" =
     aarch64 selected: invocation 1 (n1): failure gather_index_out_of_range(3:i64, 3:i64)
     aarch64 allocated: invocation 1 (n1): failure gather_index_out_of_range(3:i64, 3:i64)
     aarch64 realized: invocation 1 (n1): failure gather_index_out_of_range(3:i64, 3:i64)
+    aarch64 scanned: invocation 1 (n1): failure gather_index_out_of_range(3:i64, 3:i64)
+    aarch64 scheduled reverse: invocation 1 (n1): failure gather_index_out_of_range(3:i64, 3:i64)
+    aarch64 scheduled sink: invocation 1 (n1): failure gather_index_out_of_range(3:i64, 3:i64)
     x86_64 selected: invocation 1 (n1): failure gather_index_out_of_range(3:i64, 3:i64)
     x86_64 allocated: invocation 1 (n1): failure gather_index_out_of_range(3:i64, 3:i64)
-    x86_64 realized: invocation 1 (n1): failure gather_index_out_of_range(3:i64, 3:i64) |}]
+    x86_64 realized: invocation 1 (n1): failure gather_index_out_of_range(3:i64, 3:i64)
+    x86_64 scanned: invocation 1 (n1): failure gather_index_out_of_range(3:i64, 3:i64)
+    x86_64 scheduled reverse: invocation 1 (n1): failure gather_index_out_of_range(3:i64, 3:i64)
+    x86_64 scheduled sink: invocation 1 (n1): failure gather_index_out_of_range(3:i64, 3:i64) |}]
 
 (* A table the bundle declares complete: a site-bearing failure it does not
    list takes the sentinel, and a record that reaches it is a defect, never a
@@ -288,6 +342,12 @@ let%expect_test "an unlisted site that is reached decodes as a defect" =
     aarch64 selected: defect(sentinel_site)
     aarch64 allocated: defect(sentinel_site)
     aarch64 realized: defect(sentinel_site)
+    aarch64 scanned: defect(sentinel_site)
+    aarch64 scheduled reverse: defect(sentinel_site)
+    aarch64 scheduled sink: defect(sentinel_site)
     x86_64 selected: defect(sentinel_site)
     x86_64 allocated: defect(sentinel_site)
-    x86_64 realized: defect(sentinel_site) |}]
+    x86_64 realized: defect(sentinel_site)
+    x86_64 scanned: defect(sentinel_site)
+    x86_64 scheduled reverse: defect(sentinel_site)
+    x86_64 scheduled sink: defect(sentinel_site) |}]

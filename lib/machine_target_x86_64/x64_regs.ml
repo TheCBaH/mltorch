@@ -62,3 +62,12 @@ let args =
     ~floats:(Array.init 8 Fun.id)
 
 let results = sequence ~ints:[| X64_reg.rax; X64_reg.rdx |] ~floats:[| 0; 1 |]
+
+(* What production allocation draws on, in preference order: caller-saved
+   first, then callee-saved; never a reserved register (rsp, rbp, r10, r11)
+   nor the allocator's own scratch (r8, r9, rsi, rdi, rcx, rdx and
+   xmm8-xmm13). *)
+let allocatable = function
+  | Mir_target.Bank.Gpr -> [ X64_reg.rax; X64_reg.rbx; 12; 13; 14; 15 ]
+  | Mir_target.Bank.Fpr -> List.init 8 Fun.id @ [ 14; 15 ]
+  | Mir_target.Bank.Control | Mir_target.Bank.Flags -> []
