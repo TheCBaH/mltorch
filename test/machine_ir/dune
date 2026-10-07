@@ -1,0 +1,11 @@
+; Machine IR: hand-built fixtures, the verifier's malformed-IR rejections, the
+; printer's normalization and (with lib/machine_interp) generic execution and
+; its mutations. Native only: no JavaScript runtime is admitted for these
+; numerics.
+
+(library
+ (name machine_ir_test)
+ (libraries core err_trace expr fmt machine_interp machine_ir ssa_ir)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

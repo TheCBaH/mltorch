@@ -1,0 +1,26 @@
+; The source differential harness for Machine IR: fresh pointwise, matmul and
+; failure kernels lowered through the current source lowering, run by the
+; reference, the structured SSA interpreter, the CFG interpreter and the
+; generic Machine IR interpreter over separately packed byte memory.
+
+(library
+ (name machine_source_test)
+ (libraries
+  core
+  err_trace
+  expr
+  fmt
+  loop_ir
+  loop_ir_test
+  machine_interp
+  machine_ir
+  machine_lower
+  native
+  ssa_bridge
+  ssa_bridge_test
+  ssa_ir
+  ssa_ir_test
+  ssa_lower)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

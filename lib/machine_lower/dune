@@ -1,0 +1,8 @@
+; Verified CFG SSA to generic Machine IR, and the census that assigns every SSA
+; constructor its machine expansion, helper requirement or typed refusal.
+; Depends on [ssa_ir] and [machine_ir], never the reverse. See the Machine IR
+; design in .ai/.
+
+(library
+ (name machine_lower)
+ (libraries core err_trace expr fmt machine_ir ssa_ir))

@@ -1,0 +1,10 @@
+; The independent Machine IR interpreter: synthetic byte-addressed memory with
+; per-byte initialization and permissions, its own primitive numeric
+; semantics and opcode dispatch, an iterative block dispatcher, helper models
+; and the defect taxonomy. It never executes an instruction through the SSA
+; interpreter, a source interpreter or a generated kernel. See the Machine IR
+; design in .ai/.
+
+(library
+ (name machine_interp)
+ (libraries core err_trace expr fmt machine_ir))

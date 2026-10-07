@@ -1,0 +1,9 @@
+; CFG-to-generic Machine IR: the census matrix, the lowering's refusals and the
+; source differential harness against the SSA and Loop oracles.
+
+(library
+ (name machine_lower_test)
+ (libraries core err_trace expr fmt machine_ir machine_lower ssa_ir)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

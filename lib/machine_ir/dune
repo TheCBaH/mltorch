@@ -1,0 +1,11 @@
+; Machine IR: the project-owned representation below the CFG form of the SSA
+; IR. Pure schema, types, program containers, builder, verifier and printer;
+; no interpreter, target, allocator, Unix, Bigarray or emitter. It sees only
+; [core], [err_trace], [expr] (the language's neutral identities: axes,
+; sources, local variables) and [fmt]. See the Machine IR design in .ai/.
+;
+; Wrapped (default): consumers write [Machine_ir.Mir_op].
+
+(library
+ (name machine_ir)
+ (libraries core err_trace expr fmt))
