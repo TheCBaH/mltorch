@@ -167,6 +167,8 @@ end
 
 type t =
   | Alu of Alu.t * Sz.t * v * v
+  | Alu_imm of Alu.t * Sz.t * v * int64
+      (** an imm32, sign-extended at 64 bits; tied *)
   | Bt of Sz.t * v * int  (** CF := the bit; OF, SF, AF, PF undefined *)
   | Call of {
       callee : Mir_op.Callee.t;
@@ -175,6 +177,7 @@ type t =
     }
   | Cmov of Sz.t * Cond.t * v * v * v  (** flags, taken, else (tied) *)
   | Cmp of Sz.t * v * v
+  | Cmp_imm of Sz.t * v * int64  (** CMP r, imm32 *)
   | Cmps of Cmp_pred.t * Fsz.t * v * v
   | Cqo_idiv of v * v  (** CQO then IDIV: rdx:rax / divisor *)
   | Cvt of Fsz.t * v  (** CVTSS2SD or CVTSD2SS, to the given precision *)
@@ -188,6 +191,7 @@ type t =
   | Flogic of Flogic.t * Fsz.t * v * v
   | Fmadd231 of Fsz.t * v * v * v  (** [a * b + c], one rounding, tied to [c] *)
   | Imul of Sz.t * v * v
+  | Imul_imm of Sz.t * v * int64  (** IMUL r, r/m, imm32: not tied *)
   | Lea of v * int64
   | Lea_view of Mir_id.View.t  (** RIP-relative *)
   | Load of Msz.t * Addr.t
@@ -241,13 +245,16 @@ let uses = function
   | Test (_, a, b)
   | Ucomis (_, a, b) ->
       [ a; b ]
+  | Alu_imm (_, _, a, _)
   | Bt (_, a, _)
+  | Cmp_imm (_, a, _)
   | Cvt (_, a)
   | Cvtpd2ps a
   | Cvtps2pd a
   | Cvtsi2s (_, a)
   | Cvtts2si (_, a)
   | Ext { src = a; _ }
+  | Imul_imm (_, a, _)
   | Lea (a, _)
   | Mov (_, a)
   | Movap a
@@ -286,8 +293,8 @@ let ordered = function
 let tied0 = [ Mir_target.Constraint.Tied { result = 0; use = 0 } ]
 
 let constraints = function
-  | Alu _ | Cmps _ | Fbin _ | Flogic _ | Imul _ | Movlhps _ | Neg _ | Pbin _
-  | Plogic _ | Shift_imm _ ->
+  | Alu _ | Alu_imm _ | Cmps _ | Fbin _ | Flogic _ | Imul _ | Movlhps _ | Neg _
+  | Pbin _ | Plogic _ | Shift_imm _ ->
       tied0
   | Cmov _ | Fmadd231 _ | Pfmadd231 _ ->
       [ Mir_target.Constraint.Tied { result = 0; use = 2 } ]
@@ -341,14 +348,14 @@ let references = function
   | _ -> []
 
 let writes_flags = function
-  | Alu _ | Bt _ | Call _ | Cmp _ | Cqo_idiv _ | Imul _ | Neg _ | Shift_imm _
-  | Test _ | Ucomis _ ->
+  | Alu _ | Alu_imm _ | Bt _ | Call _ | Cmp _ | Cmp_imm _ | Cqo_idiv _ | Imul _
+  | Imul_imm _ | Neg _ | Shift_imm _ | Test _ | Ucomis _ ->
       true
   | _ -> false
 
 let flags_defined = function
   | Bt _ -> Flag.cf
-  | Cmp _ | Ucomis _ -> Flag.all
+  | Cmp _ | Cmp_imm _ | Ucomis _ -> Flag.all
   | Test _ -> Int64.logand Flag.all (Int64.lognot Flag.af)
   | _ -> 0L
 
@@ -423,6 +430,11 @@ let is_half t = Mir_type.equal t half_ty
 let disp32 k =
   Int64.compare k (-0x8000_0000L) >= 0 && Int64.compare k 0x7FFF_FFFFL <= 0
 
+(* An immediate operand at [sz]: the 32 bits at 32, a value the imm32's sign
+   extension reaches at 64. *)
+let imm32 sz k =
+  match sz with Sz.L -> Mir_width.canonical Mir_width.W32 k | Sz.Q -> disp32 k
+
 let addr_ok (a : Addr.t) =
   let* () =
     need (Mir_type.equal (ty a.Addr.base) Mir_type.Ptr) "address base"
@@ -445,6 +457,10 @@ let typing op =
       | _, _, t, u ->
           let* () = need (arith sz t && Mir_type.equal t u) "alu operands" in
           Ok [ t ])
+  | Alu_imm (_, sz, a, k) ->
+      let* () = need (arith sz (ty a)) "alu operand" in
+      let* () = need (imm32 sz k) "alu immediate" in
+      Ok [ ty a ]
   | Bt (sz, a, k) ->
       let* () = need (arith sz (ty a)) "bt operand" in
       let* () = need (k >= 0 && k < Sz.bits sz) "bit index" in
@@ -480,6 +496,10 @@ let typing op =
       let* () =
         need (gpr sz (ty a) && Mir_type.equal (ty a) (ty b)) "compare operands"
       in
+      Ok [ Mir_type.Flags ]
+  | Cmp_imm (sz, a, k) ->
+      let* () = need (arith sz (ty a)) "compare operand" in
+      let* () = need (imm32 sz k) "compare immediate" in
       Ok [ Mir_type.Flags ]
   | Cmps (_, fsz, a, b) | Fbin (_, fsz, a, b) | Flogic (_, fsz, a, b) ->
       let* () = need (fpr fsz (ty a) && fpr fsz (ty b)) "sse operands" in
@@ -525,6 +545,10 @@ let typing op =
       let* () =
         need (arith sz (ty a) && Mir_type.equal (ty a) (ty b)) "imul operands"
       in
+      Ok [ ty a ]
+  | Imul_imm (sz, a, k) ->
+      let* () = need (arith sz (ty a)) "imul operand" in
+      let* () = need (imm32 sz k) "imul immediate" in
       Ok [ ty a ]
   | Lea (a, k) ->
       let* () = need (Mir_type.equal (ty a) Mir_type.Ptr) "lea base" in
@@ -676,12 +700,15 @@ let pp_op pv fmt op =
   match op with
   | Alu (o, sz, a, b) ->
       Fmt.pf fmt "%s%s %a" (Alu.name o) (Sz.name sz) vs [ a; b ]
+  | Alu_imm (o, sz, a, k) ->
+      Fmt.pf fmt "%s%s %a, $%Ld" (Alu.name o) (Sz.name sz) pv a k
   | Bt (sz, a, k) -> Fmt.pf fmt "bt%s %a, $%d" (Sz.name sz) pv a k
   | Call { callee; args; _ } ->
       Fmt.pf fmt "call %a(%a)" Mir_op.Callee.pp callee vs args
   | Cmov (sz, c, f, a, b) ->
       Fmt.pf fmt "cmov%s%s %a" (Cond.name c) (Sz.name sz) vs [ f; a; b ]
   | Cmp (sz, a, b) -> Fmt.pf fmt "cmp%s %a" (Sz.name sz) vs [ a; b ]
+  | Cmp_imm (sz, a, k) -> Fmt.pf fmt "cmp%s %a, $%Ld" (Sz.name sz) pv a k
   | Cmps (p, fsz, a, b) ->
       Fmt.pf fmt "cmp%s%s %a" (Cmp_pred.name p) (Fsz.name fsz) vs [ a; b ]
   | Cqo_idiv (a, b) -> Fmt.pf fmt "cqo; idivq %a" vs [ a; b ]
@@ -704,6 +731,7 @@ let pp_op pv fmt op =
   | Fmadd231 (fsz, a, b, c) ->
       Fmt.pf fmt "vfmadd231%s %a" (Fsz.name fsz) vs [ a; b; c ]
   | Imul (sz, a, b) -> Fmt.pf fmt "imul%s %a" (Sz.name sz) vs [ a; b ]
+  | Imul_imm (sz, a, k) -> Fmt.pf fmt "imul%s %a, $%Ld" (Sz.name sz) pv a k
   | Lea (a, k) -> Fmt.pf fmt "leaq %Ld(%a)" k pv a
   | Lea_view view -> Fmt.pf fmt "leaq %a(%%rip)" Mir_id.View.pp view
   | Load (m, a) -> Fmt.pf fmt "load.%s %a" (Msz.name m) (pp_addr pv) a

@@ -24,12 +24,17 @@ end
 (** Fault injection for the evidence suite. No consumer passes one. *)
 module Mutation : sig
   type t =
+    | Commuted_sub
+        (** a subtraction's left constant folded as if it were the right *)
     | Contract  (** a separate multiply and add selected as one FMA *)
     | Division_swap  (** IDIV's dividend and divisor exchanged *)
+    | Fused_float_eq
+        (** a branch on ordered float equality fused as one [je] *)
     | Max_no_nan  (** IEEE maximum without its NaN repair *)
     | Missing_failure_word
         (** the last word a record's kind defines not stored *)
     | No_parity  (** ordered equality tested by ZF alone *)
+    | Pruned_live  (** values only a terminator reads pruned as unread *)
     | Scaled_address  (** a folded index scaled by twice its element size *)
     | Signed_compare  (** an unsigned compare tested with a signed condition *)
 end

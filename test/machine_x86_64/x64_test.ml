@@ -44,6 +44,9 @@ let programs () =
     ("mixed", A64T.mixed, [ (0, floats [ 1. +. eps; 1. -. eps; -1. ]) ]);
     ("mixed nan", A64T.mixed, [ (0, floats [ Float.nan; 1.; 3e15 ]) ]);
     ("mixed zeros", A64T.mixed, [ (0, floats [ -0.; 0.; -2.5 ]) ]);
+    ("branches", A64T.branches, [ (0, floats [ 1.; 2. ]) ]);
+    ("branches nan", A64T.branches, [ (0, floats [ Float.nan; Float.nan ]) ]);
+    ("branches zeros", A64T.branches, [ (0, floats [ -0.; 0. ]) ]);
     ( "recurrences",
       Machine_alloc_test.Alloc_test.recurrences 5,
       Machine_alloc_test.Alloc_test.inputs );
@@ -78,6 +81,9 @@ let%expect_test "selected (C3)" =
     mixed: ok
     mixed nan: ok
     mixed zeros: ok
+    branches: ok
+    branches nan: ok
+    branches zeros: ok
     recurrences: ok |}]
 
 let%expect_test "allocated and checked (C4)" =
@@ -100,6 +106,9 @@ let%expect_test "allocated and checked (C4)" =
     mixed: ok
     mixed nan: ok
     mixed zeros: ok
+    branches: ok
+    branches nan: ok
+    branches zeros: ok
     recurrences: ok |}]
 
 let%expect_test "realized frames (C5)" =
@@ -125,6 +134,9 @@ let%expect_test "realized frames (C5)" =
     mixed: ok
     mixed nan: ok
     mixed zeros: ok
+    branches: ok
+    branches nan: ok
+    branches zeros: ok
     recurrences: ok
     large frame: ok |}]
 
@@ -197,9 +209,15 @@ let%expect_test "x86-64 selection mutations are detected" =
   Fmt.pr "equality without parity: %s@."
     (H.program ~mutation:No_parity equal_program
        ~inputs:[ (0, floats [ Float.nan; Float.nan ]) ]);
+  Fmt.pr "fused float equality: %s@."
+    (H.program ~mutation:Fused_float_eq A64T.branches
+       ~inputs:[ (0, floats [ Float.nan; Float.nan ]) ]);
   Fmt.pr "maximum without NaN repair: %s@."
     (H.program ~mutation:Max_no_nan A64T.mixed
        ~inputs:[ (0, floats [ Float.nan; 1.; 3e15 ]) ]);
+  Fmt.pr "commuted subtraction: %s@."
+    (H.program ~mutation:Commuted_sub A64T.sub_from
+       ~inputs:[ (0, i64s [ 7L; 0L ]) ]);
   Fmt.pr "contraction: %s@."
     (H.program
        ~features:Mir_target.Feature.[ Fma; Sse2 ]
@@ -208,14 +226,20 @@ let%expect_test "x86-64 selection mutations are detected" =
   Fmt.pr "missing failure word: %s@."
     (H.plan ~mutation:Missing_failure_word Loop_programs.shifted_kernel
        ~bind:zeros);
+  Fmt.pr "pruned live: %s@."
+    (H.plan ~mutation:Pruned_live Loop_programs.kernel
+       ~bind:(data_bind [| 1.; 2.; 3.; 4. |]));
   [%expect
     {|
     division operand swap: ok DISAGREE generic vs x86_64: output t1[0]: -3:i64 vs 0:i64; structured vs x86_64: output t1[0]: -3:i64 vs 0:i64
     scaled address: defect(bad_access) DISAGREE generic vs x86_64: inconclusive: success vs defect(bad_access); structured vs x86_64: inconclusive: success vs defect(bad_access)
     equality without parity: ok DISAGREE generic vs x86_64: output t1[0]: 0x0p+0:f32 vs 0x1p+0:f32; structured vs x86_64: output t1[0]: 0x0p+0:f32 vs 0x1p+0:f32
+    fused float equality: ok DISAGREE generic vs x86_64: output t1[0]: 0x0p+0:f32 vs 0x1p+0:f32; structured vs x86_64: output t1[0]: 0x0p+0:f32 vs 0x1p+0:f32
     maximum without NaN repair: ok DISAGREE generic vs x86_64: output t1[2]: nan:f32 vs 0x1p+0:f32; structured vs x86_64: output t1[2]: nan:f32 vs 0x1p+0:f32
+    commuted subtraction: ok DISAGREE generic vs x86_64: output t1[0]: -2:i64 vs 2:i64; structured vs x86_64: output t1[0]: -2:i64 vs 2:i64
     contraction: ok DISAGREE generic vs x86_64: output t1[0]: 0x0p+0:f32 vs -0x1p-54:f32; structured vs x86_64: output t1[0]: 0x0p+0:f32 vs -0x1p-54:f32
-    missing failure word: defect(uninitialized) DISAGREE generic vs x86_64: inconclusive: failure(coord_out_of_range(t0, W)) vs defect(uninitialized); structured vs x86_64: inconclusive: failure(coord_out_of_range(t0, W)) vs defect(uninitialized) |}]
+    missing failure word: defect(uninitialized) DISAGREE generic vs x86_64: inconclusive: failure(coord_out_of_range(t0, W)) vs defect(uninitialized); structured vs x86_64: inconclusive: failure(coord_out_of_range(t0, W)) vs defect(uninitialized)
+    pruned live: refused: selection defect: selected fn0 bb1: %6 is never defined |}]
 
 let%expect_test "allocation and frame mutations on x86-64" =
   let mm = matmul_kernel ~m:5 ~k:3 ~n:3
@@ -233,6 +257,6 @@ let%expect_test "allocation and frame mutations on x86-64" =
        ~frame_mutation:Machine_alloc.Mir_frame.Mutation.Misalign mm ~bind);
   [%expect
     {|
-    two-address tie broken: rejected: physical verifier: allocated fn0 bb6 i78: target constraint: a tied result not in its use's register
+    two-address tie broken: rejected: physical verifier: allocated fn0 bb4 i103: target constraint: a tied result not in its use's register
     cycle scratch: rejected: checker: fn0 bb5: [slot13:8] does not hold %13
     misaligned frame: rejected: physical verifier: allocated fn0: target constraint: a frame size that breaks stack alignment |}]

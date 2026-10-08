@@ -77,6 +77,11 @@ let i64_program f =
       and y = B.load_i64 bld (F.buf 0) (at bld 1L) in
       B.store_i64 bld (F.buf 1) (cell bld) (f bld x y))
 
+(* [5 - x]: a constant only the subtraction's left operand can be *)
+let sub_from =
+  i64_program (fun bld x _ ->
+      B.i64_arith bld Ssa_ir.Ssa_op.I64_op.Sub (B.i64 bld 5L) x)
+
 let to_i64 =
   F.build
     ~buffers:
@@ -126,6 +131,38 @@ let mixed =
       in
       st 3L (B.f32_to_f64 bld (B.i64_to_f32 bld (B.float_to_i64 bld n))))
 
+(* Branches on float compares: [x = y] and [x < y] each choose which constant
+   is stored. *)
+let branches =
+  F.build
+    ~buffers:
+      [
+        F.buffer 0 ~h:1L ~w:2L Ssa_ir.Ssa_format.F64 Ssa_ir.Ssa_buffer.Input;
+        F.buffer 1 ~h:1L ~w:2L Ssa_ir.Ssa_format.F32 Ssa_ir.Ssa_buffer.Output;
+      ]
+    (fun bld ->
+      let ld w =
+        B.load_f64 bld (F.buf 0) ~decode:Ssa_ir.Ssa_op.Decode.F64_to_f64
+          (at bld w)
+      in
+      let x = ld 0L and y = ld 1L in
+      let st bld w k =
+        B.store_f64 bld (F.buf 1) ~encode:Ssa_ir.Ssa_op.Encode.F32_round
+          (at bld (Int64.of_int w))
+          (B.f64 bld k);
+        B.Nil
+      in
+      List.iteri
+        (fun w c ->
+          let B.Nil =
+            B.if_ bld
+              (B.float_compare bld c x y)
+              ~then_:(fun bld -> st bld w 1.)
+              ~else_:(fun bld -> st bld w 0.)
+          in
+          ())
+        Ssa_ir.Ssa_op.Compare.[ Eq; Lt ])
+
 let%expect_test "integer and conversion programs" =
   let p = i64_program (fun bld x y -> B.i64_div bld x y) in
   List.iter
@@ -149,6 +186,9 @@ let%expect_test "integer and conversion programs" =
       [ -0.; 0.; -2.5 ];
       [ 2.; 1.; 4611686293305294849. ];
     ];
+  List.iter
+    (fun xs -> show (A64_harness.program branches ~inputs:[ (0, floats xs) ]))
+    [ [ 1.; 1. ]; [ 1.; 2. ]; [ Float.nan; Float.nan ]; [ -0.; 0. ] ];
   [%expect
     {|
     ok
@@ -163,11 +203,21 @@ let%expect_test "integer and conversion programs" =
     ok
     ok
     ok
+    ok
+    ok
+    ok
+    ok
     ok |}]
 
 let%expect_test "selection mutations are detected" =
   let open Machine_target_aarch64.A64_select.Mutation in
   let eps = Float.ldexp 1. (-27) in
+  Fmt.pr "commuted subtraction: %s@."
+    (A64_harness.program ~mutation:Commuted_sub sub_from
+       ~inputs:[ (0, i64s [ 7L; 0L ]) ]);
+  Fmt.pr "lost NaN branch, fused: %s@."
+    (A64_harness.program ~mutation:Fcmp_lt_cond branches
+       ~inputs:[ (0, floats [ Float.nan; 1. ]) ]);
   Fmt.pr "contraction: %s@."
     (A64_harness.program ~mutation:Contract mixed
        ~inputs:[ (0, floats [ 1. +. eps; 1. -. eps; -1. ]) ]);
@@ -178,8 +228,14 @@ let%expect_test "selection mutations are detected" =
     (A64_harness.plan ~mutation:Missing_failure_word
        Loop_programs.shifted_kernel
        ~bind:(data_bind [| 0.; 0.; 0.; 0. |]));
+  Fmt.pr "pruned live: %s@."
+    (A64_harness.plan ~mutation:Pruned_live Loop_programs.kernel
+       ~bind:(data_bind [| 1.; 2.; 3.; 4. |]));
   [%expect
     {|
+    commuted subtraction: ok DISAGREE generic vs aarch64: output t1[0]: -2:i64 vs 2:i64; structured vs aarch64: output t1[0]: -2:i64 vs 2:i64
+    lost NaN branch, fused: ok DISAGREE generic vs aarch64: output t1[1]: 0x0p+0:f32 vs 0x1p+0:f32; structured vs aarch64: output t1[1]: 0x0p+0:f32 vs 0x1p+0:f32
     contraction: ok DISAGREE generic vs aarch64: output t1[0]: 0x0p+0:f32 vs -0x1p-54:f32; structured vs aarch64: output t1[0]: 0x0p+0:f32 vs -0x1p-54:f32
     lost NaN branch: ok DISAGREE generic vs aarch64: output t1[1]: 0x0p+0:f32 vs 0x1p+0:f32; structured vs aarch64: output t1[1]: 0x0p+0:f32 vs 0x1p+0:f32
-    missing failure word: defect(uninitialized) DISAGREE generic vs aarch64: inconclusive: failure(coord_out_of_range(t0, W)) vs defect(uninitialized); structured vs aarch64: inconclusive: failure(coord_out_of_range(t0, W)) vs defect(uninitialized) |}]
+    missing failure word: defect(uninitialized) DISAGREE generic vs aarch64: inconclusive: failure(coord_out_of_range(t0, W)) vs defect(uninitialized); structured vs aarch64: inconclusive: failure(coord_out_of_range(t0, W)) vs defect(uninitialized)
+    pruned live: refused: selection defect: selected fn0 bb1: %6 is never defined |}]

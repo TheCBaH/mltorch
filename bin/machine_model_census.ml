@@ -28,7 +28,9 @@
    [--run=K], else all) on that target's production pipeline in the physical
    interpreter, compares them like [--run], and reports what they executed:
    instructions, register moves, frame stores and reloads and
-   rematerializations, in total and by operation.
+   rematerializations, in total and by operation; then the executed
+   instructions by origin role and the most executed role and mnemonic
+   pairs.
 
    argv: <model.pt2> [--ssa=exact|representation] [--run=K]
    [--measure=aarch64|x86_64] [--pressure=aarch64|x86_64]
@@ -204,7 +206,30 @@ let traffic_summary (b : Loop_bundle.t) m route =
       compare
         (Int64.add b.Tr.stores b.Tr.reloads)
         (Int64.add a.Tr.stores a.Tr.reloads))
-  |> List.iter (fun (k, t) -> Fmt.pr "  %s: %a@." k Tr.pp t)
+  |> List.iter (fun (k, t) -> Fmt.pr "  %s: %a@." k Tr.pp t);
+  (* what the executed instructions were: by origin role, then the most
+     executed role and mnemonic pairs *)
+  let total = List.fold_left (fun acc (_, t) -> Tr.add acc t) Tr.zero ran in
+  let pct n =
+    100. *. Int64.to_float n
+    /. Float.max 1. (Int64.to_float total.Tr.instructions)
+  in
+  let roles = Hashtbl.create 8 in
+  Tr.Ops.iter
+    (fun k n ->
+      let role = List.hd (String.split_on_char ' ' k) in
+      Hashtbl.replace roles role
+        (Int64.add n (Option.value ~default:0L (Hashtbl.find_opt roles role))))
+    total.Tr.ops;
+  Fmt.pr "by role:@.";
+  Hashtbl.fold (fun k n acc -> (k, n) :: acc) roles []
+  |> List.sort (fun (_, a) (_, b) -> Int64.compare b a)
+  |> List.iter (fun (k, n) -> Fmt.pr "  %s: %Ld (%.1f%%)@." k n (pct n));
+  Fmt.pr "by operation:@.";
+  Tr.Ops.bindings total.Tr.ops
+  |> List.sort (fun (_, a) (_, b) -> Int64.compare b a)
+  |> List.filteri (fun i _ -> i < 25)
+  |> List.iter (fun (k, n) -> Fmt.pr "  %s: %Ld (%.1f%%)@." k n (pct n))
 
 (* The first [count] invocations against the reference, tensor by tensor. *)
 let prefix (b : Loop_bundle.t) m ~constants ~count =

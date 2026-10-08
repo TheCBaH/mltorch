@@ -97,27 +97,65 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
       snd (List.find (fun (b, _) -> Mir_id.Block.equal b id) spans)
     in
     let order = List.map fst spans in
-    (* loops: a header and the end of its last back edge's source *)
-    let loops =
+    (* loop depth by natural-loop membership, not layout: a loop's body may
+       be laid out after its exit *)
+    let nests =
+      Mir_loop.find ~entry:f.Mir_func.entry
+        (List.map
+           (fun id ->
+             ( id,
+               List.map
+                 (fun (e : Mir_edge.t) -> e.Mir_edge.target)
+                 (Mir_sel.Terminator.edges (block id).Mir_block.terminator) ))
+           order)
+    in
+    let block_depth id = List.length (Mir_loop.around nests id) in
+    let ends = List.fold_left (fun m (_, (_, b)) -> max m b) 0 spans in
+    let depths = Array.make (ends + 1) 0 in
+    List.iter
+      (fun (id, (a, b)) -> Array.fill depths a (b - a) (block_depth id))
+      spans;
+    let depth x = if x >= 0 && x <= ends then depths.(x) else 0 in
+    (* what a split at [x] costs, as the loop depth its moves run at: a value
+       in a register before [x] and in its slot after needs a move on every
+       edge the position separates, run as often as the shallower of its
+       blocks, and one at [x] itself unless [x] is a block start *)
+    let starts = List.map (fun (_, (a, _)) -> a) spans in
+    let crossing =
       List.concat_map
-        (fun hid ->
-          let hf, ht = span_of hid in
-          List.filter_map
-            (fun pid ->
-              let _, pt = span_of pid in
-              if
-                pt > ht
-                && List.exists
-                     (fun (e : Mir_edge.t) ->
-                       Mir_id.Block.equal e.Mir_edge.target hid)
-                     (Mir_sel.Terminator.edges (block pid).Mir_block.terminator)
-              then Some (hf, pt)
-              else None)
-            order)
+        (fun id ->
+          let _, b = span_of id in
+          List.map
+            (fun (e : Mir_edge.t) ->
+              let t, _ = span_of e.Mir_edge.target in
+              (b - 1, t, min (block_depth id) (block_depth e.Mir_edge.target)))
+            (Mir_sel.Terminator.edges (block id).Mir_block.terminator))
         order
     in
-    let depth x =
-      List.length (List.filter (fun (a, b) -> a <= x && x < b) loops)
+    (* each loop's stretch of positions, innermost first: contiguous in the
+       liveness layout *)
+    let loops =
+      List.filter_map
+        (fun (l : Mir_loop.t) ->
+          let ss =
+            List.filter_map
+              (fun (id, sp) -> if Mir_loop.mem l id then Some sp else None)
+              spans
+          in
+          match ss with
+          | [] -> None
+          | _ ->
+              Some
+                ( List.fold_left (fun m (a, _) -> min m a) max_int ss,
+                  List.fold_left (fun m (_, b) -> max m b) 0 ss ))
+        nests
+      |> List.sort (fun (a, b) (c, d) -> compare (b - a) (d - c))
+    in
+    let split_cost x =
+      List.fold_left
+        (fun c (a, t, d) -> if a < x <> (t < x) then max c d else c)
+        (if List.mem x starts then -1 else depth x)
+        crossing
     in
     (* instruction positions and their constraints *)
     let at = Hashtbl.create 64 in
@@ -227,6 +265,56 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
         | Mir_sel.Terminator.Jump _ | Mir_sel.Terminator.Return _ -> ())
       order;
     let intervals = Lv.intervals f in
+    let uses_of =
+      let t = Hashtbl.create 64 in
+      List.iter
+        (fun (iv : Lv.Interval.t) ->
+          Hashtbl.replace t
+            (Mir_id.Value.to_int iv.Lv.Interval.value.Mir_value.id)
+            iv.Lv.Interval.uses)
+        intervals;
+      fun (v : Mir_value.t) ->
+        Option.value ~default:[]
+          (Hashtbl.find_opt t (Mir_id.Value.to_int v.Mir_value.id))
+    in
+    (* a tied operand the instruction reads last, and only once, ends just
+       before it, and the result prefers its register: the copy into the
+       result is then a move to itself and vanishes. The result still opens at
+       the read, so it shares no register with another operand. *)
+    let trimmed = Hashtbl.create 16 and prefer = Hashtbl.create 16 in
+    let ends = Hashtbl.create 64 in
+    List.iter
+      (fun (iv : Lv.Interval.t) ->
+        Hashtbl.replace ends
+          (Mir_id.Value.to_int iv.Lv.Interval.value.Mir_value.id)
+          (List.fold_left (fun m (_, b) -> max m b) 0 iv.Lv.Interval.ranges))
+      intervals;
+    Hashtbl.iter
+      (fun p (i : S.Stage.op Mir_instr.t) ->
+        match i.Mir_instr.op with
+        | Mir_sel.Op.Event _ | Mir_sel.Op.Undef _ -> ()
+        | Mir_sel.Op.Machine op ->
+            let operands = T.uses op in
+            List.iter
+              (function
+                | Mir_target.Constraint.Tied { result; use } ->
+                    let v = List.nth operands use in
+                    let key = Mir_id.Value.to_int v.Mir_value.id in
+                    if
+                      (not (is_flags v))
+                      && List.length (List.filter (Mir_value.equal v) operands)
+                         = 1
+                      && (Hashtbl.find_opt ends key = Some (p + 1)
+                         || mutated st Mutation.Live_tie)
+                    then (
+                      Hashtbl.replace trimmed key p;
+                      Hashtbl.replace prefer
+                        (Mir_id.Value.to_int
+                           (List.nth i.Mir_instr.results result).Mir_value.id)
+                        v)
+                | _ -> ())
+              (T.constraints op))
+      at;
     let pieces =
       List.filter_map
         (fun (iv : Lv.Interval.t) ->
@@ -240,6 +328,19 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
               with
               | (_, b) :: rest, Some o -> (o, b) :: rest
               | rs, _ -> rs
+            in
+            let ranges =
+              match
+                Hashtbl.find_opt trimmed (Mir_id.Value.to_int v.Mir_value.id)
+              with
+              | None -> ranges
+              | Some p ->
+                  List.filter_map
+                    (fun (a, b) ->
+                      if b <= p then Some (a, b)
+                      else if a < p then Some (a, p)
+                      else None)
+                    ranges
             in
             if ranges = [] then None
             else
@@ -261,8 +362,9 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
     let allocated =
       List.concat_map
         (fun bank ->
-          scan st ~bank ~fixed:!fixed ~depth
-            ~starts:(List.map (fun (_, (a, _)) -> a) spans)
+          scan st ~bank ~fixed:!fixed ~depth ~starts ~split_cost ~loops ~uses_of
+            ~prefer:(fun (v : Mir_value.t) ->
+              Hashtbl.find_opt prefer (Mir_id.Value.to_int v.Mir_value.id))
             (List.filter (fun p -> bank_of p = bank) pieces))
         [ Mir_target.Bank.Fpr; Mir_target.Bank.Gpr ]
     in
@@ -434,36 +536,36 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
          | None -> false)
     in
     (* transitions at an even position inside a block *)
-    let transitions x =
+    let transition_moves x =
       if mutated st Mutation.Split_move then []
       else
-        transfer
-          (Hashtbl.fold
-             (fun _ ps acc ->
-               match
-                 List.find_opt
-                   (fun p ->
-                     Piece.start p = x
-                     && Piece.covers p x && live_at p.Piece.value x)
-                   ps
-               with
-               | Some q -> (
-                   match List.find_opt (fun p -> Piece.covers p (x - 1)) ps with
-                   | Some p when p != q ->
-                       {
-                         Mir_parallel_copy.dst = loc_of_piece q;
-                         src = loc_of_piece p;
-                         value = q.Piece.value;
-                       }
-                       :: acc
-                   | _ -> acc)
-               | None -> acc)
-             by_value [])
+        Hashtbl.fold
+          (fun _ ps acc ->
+            match
+              List.find_opt
+                (fun p ->
+                  Piece.start p = x
+                  && Piece.covers p x && live_at p.Piece.value x)
+                ps
+            with
+            | Some q -> (
+                match List.find_opt (fun p -> Piece.covers p (x - 1)) ps with
+                | Some p when p != q ->
+                    {
+                      Mir_parallel_copy.dst = loc_of_piece q;
+                      src = loc_of_piece p;
+                      value = q.Piece.value;
+                    }
+                    :: acc
+                | _ -> acc)
+            | None -> acc)
+          by_value []
     in
     let instr p (i : S.Stage.op Mir_instr.t) =
       match i.Mir_instr.op with
       | Mir_sel.Op.Event _ | Mir_sel.Op.Undef _ ->
-          [ Mir_phys.Instr.Exec { instr = i; uses = []; defs = [] } ]
+          transfer (transition_moves p)
+          @ [ Mir_phys.Instr.Exec { instr = i; uses = []; defs = [] } ]
       | Mir_sel.Op.Machine op ->
           let operands = T.uses op and cs = T.constraints op in
           let fixed_use k =
@@ -512,31 +614,35 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                 | None, None -> loc v p)
               operands
           in
-          (* fixed and tied operands, all at once *)
+          (* the split transitions here, then fixed and tied operands, all at
+             once: every source is read where it was before the instruction,
+             so a transition into a trimmed operand's register cannot clobber
+             it first *)
           let pre =
             transfer
-              (List.concat
-                 (List.mapi
-                    (fun k (v : Mir_value.t) ->
-                      match (fixed_use k, tied_result k) with
-                      | Some view, _ ->
-                          [
-                            {
-                              Mir_parallel_copy.dst = Loc.Reg view;
-                              src = loc v p;
-                              value = v;
-                            };
-                          ]
-                      | None, Some r ->
-                          [
-                            {
-                              Mir_parallel_copy.dst = List.nth defs r;
-                              src = loc v p;
-                              value = v;
-                            };
-                          ]
-                      | None, None -> [])
-                    operands))
+              (transition_moves p
+              @ List.concat
+                  (List.mapi
+                     (fun k (v : Mir_value.t) ->
+                       match (fixed_use k, tied_result k) with
+                       | Some view, _ ->
+                           [
+                             {
+                               Mir_parallel_copy.dst = Loc.Reg view;
+                               src = loc v (p - 1);
+                               value = v;
+                             };
+                           ]
+                       | None, Some r ->
+                           [
+                             {
+                               Mir_parallel_copy.dst = List.nth defs r;
+                               src = loc v (p - 1);
+                               value = v;
+                             };
+                           ]
+                       | None, None -> [])
+                     operands))
           in
           (* results that are not where their interval holds them *)
           let post =
@@ -636,7 +742,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
               (List.mapi
                  (fun j i ->
                    let p = from + 2 + (2 * j) in
-                   transitions p @ instr p i)
+                   instr p i)
                  b.Mir_block.body)
           in
           let tail, terminator =

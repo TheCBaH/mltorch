@@ -134,6 +134,18 @@ let exec env op =
                  | Alu.Sub -> Int64.sub a c
                  | Alu.Xor -> Int64.logxor a c));
           ])
+  | Alu_imm (o, sz, x, k) ->
+      let a = bits env x in
+      [
+        b
+          (norm sz
+             (match o with
+             | Alu.Add -> Int64.add a k
+             | Alu.And -> Int64.logand a k
+             | Alu.Or -> Int64.logor a k
+             | Alu.Sub -> Int64.sub a k
+             | Alu.Xor -> Int64.logxor a k));
+      ]
   | Bt (_, x, k) ->
       [
         flags
@@ -161,6 +173,7 @@ let exec env op =
         | _ -> bits env v
       in
       [ flags (sub_flags sz (n x) (n y)) Flag.all ]
+  | Cmp_imm (sz, x, k) -> [ flags (sub_flags sz (bits env x) k) Flag.all ]
   | Cmps (p, fsz, x, y) ->
       let a = fval fsz (bits env x) and c = fval fsz (bits env y) in
       let t =
@@ -225,6 +238,7 @@ let exec env op =
   | Fmadd231 (Fsz.S, x, y, z) ->
       [ b (N.fma32 (bits env x) (bits env y) (bits env z)) ]
   | Imul (sz, x, y) -> [ b (norm sz (Int64.mul (bits env x) (bits env y))) ]
+  | Imul_imm (sz, x, k) -> [ b (norm sz (Int64.mul (bits env x) k)) ]
   | Lea (x, k) -> [ Mir_datum.Ptr (ptr_add env (E.ptr env x) k) ]
   | Lea_view view -> (
       match env.E.view view with

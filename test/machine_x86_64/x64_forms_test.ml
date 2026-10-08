@@ -123,6 +123,34 @@ let%expect_test "x86-64 forms and malformed variants" =
     success [0x0]
     success [0x8000000000000000] |}]
 
+let%expect_test "x86-64 immediates and their reach" =
+  let a = v 0 Mir_type.i64 and w = v 1 Mir_type.i32 in
+  let f = v 10 Mir_type.Flags and p = v 11 Mir_type.Pred in
+  let r = v 12 Mir_type.i64 in
+  let args = [ Mir_datum.Bits 6L; Mir_datum.Bits 0xFFFF_FFFFL ] in
+  List.iter
+    (fun op -> run (program [ a; w ] [ ([ r ], op) ] [ r ]) args)
+    [
+      (* the imm32 is sign-extended at 64 bits *)
+      Alu_imm (Alu.Add, Sz.Q, a, -7L);
+      Imul_imm (Sz.Q, a, -3L);
+      Alu_imm (Alu.Add, Sz.Q, a, 0x8000_0000L);
+    ];
+  (* at 32 bits, every 32-bit value: -1 compares equal to 0xFFFFFFFF *)
+  run
+    (program [ a; w ]
+       [
+         ([ f ], Cmp_imm (Sz.L, w, 0xFFFF_FFFFL)); ([ p ], Setcc_zx (Cond.E, f));
+       ]
+       [ p ])
+    args;
+  [%expect
+    {|
+    success [0xffffffffffffffff]
+    success [0xffffffffffffffee]
+    rejected: selected fn0 bb0 i0: target constraint: alu immediate
+    success [0x1] |}]
+
 let%expect_test "an IDIV divisor where CQO writes is rejected" =
   let div =
     Machine_aarch64_test.A64_select_test.i64_program (fun bld x y ->

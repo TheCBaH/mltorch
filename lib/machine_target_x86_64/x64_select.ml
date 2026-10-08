@@ -32,11 +32,14 @@ end
 
 module Mutation = struct
   type t =
+    | Commuted_sub
     | Contract
     | Division_swap
+    | Fused_float_eq
     | Max_no_nan
     | Missing_failure_word
     | No_parity
+    | Pruned_live
     | Scaled_address
     | Signed_compare
 end
@@ -107,25 +110,77 @@ let msz_of (w : Mir_width.t) =
   | Mir_width.W32 -> Msz.L
   | Mir_width.W64 -> Msz.Q
 
-(* An address operand: [base + index * scale] when the generic address is a
-   pointer plus an index times 1, 2, 4 or 8. *)
+(* An address operand: [base + index * scale + disp] when the generic address
+   is a pointer plus an index times 1, 2, 4 or 8, then plus a constant that
+   fits 32 signed bits; either part may be absent. *)
 let address st (a : Mir_value.t) =
   let def v =
     Hashtbl.find_opt st.b.Mir_select.defs (Mir_id.Value.to_int v.Mir_value.id)
   in
+  let scaled a =
+    match def a with
+    | Some (Mir_op.Ptr_add (base, off)) -> (
+        match def off with
+        | Some (Mir_op.Iarith (Mir_op.Iarith.Mul, x, k)) -> (
+            match Mir_select.const_of st.b k with
+            | Some s when List.mem s [ 1L; 2L; 4L; 8L ] ->
+                let s =
+                  if mutated st Mutation.Scaled_address then Int64.mul 2L s
+                  else s
+                in
+                { Addr.base; index = Some (x, s); disp = 0L }
+            | _ -> { Addr.base = a; index = None; disp = 0L })
+        | _ -> { Addr.base = a; index = None; disp = 0L })
+    | _ -> { Addr.base = a; index = None; disp = 0L }
+  in
   match def a with
-  | Some (Mir_op.Ptr_add (base, off)) -> (
-      match def off with
-      | Some (Mir_op.Iarith (Mir_op.Iarith.Mul, x, k)) -> (
-          match Mir_select.const_of st.b k with
-          | Some s when List.mem s [ 1L; 2L; 4L; 8L ] ->
-              let s =
-                if mutated st Mutation.Scaled_address then Int64.mul 2L s else s
-              in
-              { Addr.base; index = Some (x, s); disp = 0L }
-          | _ -> { Addr.base = a; index = None; disp = 0L })
-      | _ -> { Addr.base = a; index = None; disp = 0L })
-  | _ -> { Addr.base = a; index = None; disp = 0L }
+  | Some (Mir_op.Ptr_add (inner, off)) -> (
+      match Mir_select.const_of st.b off with
+      | Some d
+        when Int64.compare d (-0x8000_0000L) >= 0
+             && Int64.compare d 0x7FFF_FFFFL <= 0 ->
+          { (scaled inner) with Addr.disp = d }
+      | _ -> scaled a)
+  | _ -> scaled a
+
+(* [a op c] with a constant operand the form's imm32 encodes: the other
+   operand and the constant, which is [c] unless the operation [commutes]. *)
+let immediate st sz ~commutes a c =
+  let imm v =
+    match Mir_select.const_of st.b v with
+    | Some k when imm32 sz k -> Some k
+    | _ -> None
+  in
+  match imm c with
+  | Some k -> Some (a, k)
+  | None when commutes -> Option.map (fun k -> (c, k)) (imm a)
+  | None -> None
+
+(* A compare whose truth is one condition of the flags it sets: the
+   condition and the flags. Ordered float equality needs two (ZF and not PF),
+   so it is not one. *)
+let condition st (op : Mir_op.t) =
+  let ty (v : Mir_value.t) = v.Mir_value.ty in
+  match op with
+  | Mir_op.Icmp (c, a, b) ->
+      let sz = sz_of st (ty a) in
+      Some
+        ( icond st c,
+          emit st Mir_type.Flags
+            (match immediate st sz ~commutes:false a b with
+            | Some (x, k) -> Cmp_imm (sz, x, k)
+            | None -> Cmp (sz, a, b)) )
+  | Mir_op.Fcmp (c, a, b) -> (
+      let fsz = fsz_of st (ty a) in
+      let ucomis x y = emit st Mir_type.Flags (Ucomis (fsz, x, y)) in
+      match c with
+      | Mir_op.Fcmp.Eq ->
+          if mutated st Mutation.Fused_float_eq then Some (Cond.E, ucomis a b)
+          else None
+      | Mir_op.Fcmp.Le -> Some (Cond.Ae, ucomis b a)
+      | Mir_op.Fcmp.Lt -> Some (Cond.A, ucomis b a)
+      | Mir_op.Fcmp.Unordered -> Some (Cond.P, ucomis a b))
+  | _ -> None
 
 (* IEEE maximum from MAXSD, which returns its source operand for a NaN or two
    zeros: two equal operands give their AND (+0 over -0), and a NaN operand
@@ -344,23 +399,18 @@ let instr st (i : Mir_op.t Mir_instr.t) =
           | Mir_op.Fbinary.Max -> Fop.Max
         in
         def (Fbin (o, fsz_of st (ty a), a, c))
-    | Mir_op.Fcmp (c, a, b) -> (
-        let fsz = fsz_of st (ty a) in
-        match c with
-        | Mir_op.Fcmp.Eq ->
-            (* equal and ordered: ZF set and PF clear *)
-            let f = emit st Mir_type.Flags (Ucomis (fsz, a, b)) in
-            if mutated st Mutation.No_parity then setcc Cond.E f
-            else
-              let e = emit st Mir_type.Pred (Setcc_zx (Cond.E, f)) in
-              let np = emit st Mir_type.Pred (Setcc_zx (Cond.Np, f)) in
-              def (Alu (Alu.And, Sz.L, e, np))
-        | Mir_op.Fcmp.Lt ->
-            setcc Cond.A (emit st Mir_type.Flags (Ucomis (fsz, b, a)))
-        | Mir_op.Fcmp.Le ->
-            setcc Cond.Ae (emit st Mir_type.Flags (Ucomis (fsz, b, a)))
-        | Mir_op.Fcmp.Unordered ->
-            setcc Cond.P (emit st Mir_type.Flags (Ucomis (fsz, a, b))))
+    | Mir_op.Fcmp (Mir_op.Fcmp.Eq, a, b) ->
+        (* equal and ordered: ZF set and PF clear *)
+        let f = emit st Mir_type.Flags (Ucomis (fsz_of st (ty a), a, b)) in
+        if mutated st Mutation.No_parity then setcc Cond.E f
+        else
+          let e = emit st Mir_type.Pred (Setcc_zx (Cond.E, f)) in
+          let np = emit st Mir_type.Pred (Setcc_zx (Cond.Np, f)) in
+          def (Alu (Alu.And, Sz.L, e, np))
+    | Mir_op.Fcmp _ | Mir_op.Icmp _ -> (
+        match condition st i.Mir_instr.op with
+        | Some (c, f) -> setcc c f
+        | None -> unsupported ())
     | Mir_op.Fconvert (c, a) ->
         def
           (match c with
@@ -394,19 +444,28 @@ let instr st (i : Mir_op.t Mir_instr.t) =
           | Some n -> def (Shift_imm (k, sz, a, Int64.to_int n))
           | None -> unsupported ()
         in
+        let alu o =
+          match
+            immediate st sz
+              ~commutes:(o <> Alu.Sub || mutated st Mutation.Commuted_sub)
+              a c
+          with
+          | Some (x, k) -> def (Alu_imm (o, sz, x, k))
+          | None -> def (Alu (o, sz, a, c))
+        in
         match o with
-        | Mir_op.Iarith.Add -> def (Alu (Alu.Add, sz, a, c))
-        | Mir_op.Iarith.And -> def (Alu (Alu.And, sz, a, c))
-        | Mir_op.Iarith.Mul -> def (Imul (sz, a, c))
-        | Mir_op.Iarith.Or -> def (Alu (Alu.Or, sz, a, c))
+        | Mir_op.Iarith.Add -> alu Alu.Add
+        | Mir_op.Iarith.And -> alu Alu.And
+        | Mir_op.Iarith.Mul -> (
+            match immediate st sz ~commutes:true a c with
+            | Some (x, k) -> def (Imul_imm (sz, x, k))
+            | None -> def (Imul (sz, a, c)))
+        | Mir_op.Iarith.Or -> alu Alu.Or
         | Mir_op.Iarith.Shl -> shift Shift.Shl
         | Mir_op.Iarith.Shr_s -> shift Shift.Sar
         | Mir_op.Iarith.Shr_u -> shift Shift.Shr
-        | Mir_op.Iarith.Sub -> def (Alu (Alu.Sub, sz, a, c))
-        | Mir_op.Iarith.Xor -> def (Alu (Alu.Xor, sz, a, c)))
-    | Mir_op.Icmp (c, a, b) ->
-        setcc (icond st c)
-          (emit st Mir_type.Flags (Cmp (sz_of st (ty a), a, b)))
+        | Mir_op.Iarith.Sub -> alu Alu.Sub
+        | Mir_op.Iarith.Xor -> alu Alu.Xor)
     | Mir_op.Idiv (o, a, b) ->
         if not (Mir_type.equal (ty a) Mir_type.i64) then
           refuse st (Refusal.Width (ty a));
@@ -455,7 +514,10 @@ let instr st (i : Mir_op.t Mir_instr.t) =
     | Mir_op.Pnot a ->
         let one = emit st Mir_type.Pred (Mov_imm (Mir_type.Pred, 1L)) in
         def (Alu (Alu.Xor, Sz.L, a, one))
-    | Mir_op.Ptr_add (p, d) -> def (Alu (Alu.Add, Sz.Q, p, d))
+    | Mir_op.Ptr_add (p, d) -> (
+        match Mir_select.const_of st.b d with
+        | Some k when disp32 k -> def (Lea (p, k))
+        | _ -> def (Alu (Alu.Add, Sz.Q, p, d)))
     | Mir_op.Select (p, a, c) -> (
         match ty a with
         | Mir_type.F32 | Mir_type.F64 ->
@@ -507,6 +569,20 @@ let scalar st vs =
       | _ -> ())
     vs
 
+(* A branch on a compare of its own block tests the compare's flags,
+   compared again at the branch; the predicate is pruned when nothing else
+   reads it. *)
+let fused_compare st (blk : (Mir_op.t, Mir_terminator.t) Mir_block.t)
+    (cond : Mir_value.t) =
+  match
+    List.find_opt
+      (fun (i : Mir_op.t Mir_instr.t) ->
+        List.exists (Mir_value.equal cond) i.Mir_instr.results)
+      blk.Mir_block.body
+  with
+  | Some i -> condition st i.Mir_instr.op
+  | None -> None
+
 let block st (blk : (Mir_op.t, Mir_terminator.t) Mir_block.t) =
   scalar st blk.Mir_block.params;
   List.iter
@@ -530,13 +606,14 @@ let block st (blk : (Mir_op.t, Mir_terminator.t) Mir_block.t) =
   let terminator =
     match blk.Mir_block.terminator with
     | Mir_terminator.Branch { Mir_branch.cond; then_; else_ } ->
-        let f = emit st Mir_type.Flags (Test (Sz.L, cond, cond)) in
+        let test =
+          match fused_compare st blk cond with
+          | Some (c, f) -> Jcc (c, f)
+          | None ->
+              Jcc (Cond.Ne, emit st Mir_type.Flags (Test (Sz.L, cond, cond)))
+        in
         Mir_sel.Terminator.Branch
-          {
-            test = Jcc (Cond.Ne, f);
-            then_ = ord_edge st then_;
-            else_ = ord_edge st else_;
-          }
+          { test; then_ = ord_edge st then_; else_ = ord_edge st else_ }
     | Mir_terminator.Jump e -> Mir_sel.Terminator.Jump (ord_edge st e)
     | Mir_terminator.Return { Mir_return.values; order } ->
         let status = emit st Mir_type.i32 (Mov_imm (Mir_type.i32, 0L)) in
@@ -554,7 +631,9 @@ let program ?mutation ?(sites = [||]) ?(unlisted = Mir_failure.Unlisted.Refused)
     | Ok g -> g
     | Error r -> Err.Escape.throw esc (Refusal.Vector r)
   in
-  let p = Mir_verify.Generic.program g in
+  let p =
+    Mir_verify.Generic.program (Mir_narrow.program (Mir_offsets.program g))
+  in
   let fallible = Mir_select.fallibility p in
   let funcs =
     List.map
@@ -581,7 +660,11 @@ let program ?mutation ?(sites = [||]) ?(unlisted = Mir_failure.Unlisted.Refused)
       p.Mir_program.funcs
   in
   match
-    Err.payload (S.verify { S.features; program = Mir_select.program p funcs })
+    Err.payload
+      (S.verify
+         (S.prune
+            ~ignore_terminators:(mutation = Some Mutation.Pruned_live)
+            { S.features; program = Mir_select.program p funcs }))
   with
   | Ok v -> { selected = v; record = Mir_select.record_view }
   | Error d -> Err.Escape.throw esc (Refusal.Invalid_selection d)

@@ -266,6 +266,86 @@ module Make (T : TARGET) = struct
 
   let verify = Verified.verify
 
+  (* Instructions nothing reads and with no effect of their own — not
+     ordered, clobbering nothing, no fixed or early-clobber operand — removed
+     to a fixpoint: the arithmetic an address form folded in leaves behind.
+     [ignore_terminators] is fault injection: values only a terminator reads
+     counted as unread. *)
+  let prune ?(ignore_terminators = false) (sel : selected) =
+    let key (v : Mir_value.t) = Mir_id.Value.to_int v.Mir_value.id in
+    let removable (i : T.op Op.t Mir_instr.t) =
+      match i.Mir_instr.op with
+      | Op.Machine o ->
+          (not (T.ordered o))
+          && T.clobbers o = []
+          && List.for_all
+               (function
+                 | Mir_target.Constraint.Tied _ -> true
+                 | Mir_target.Constraint.Early_clobber _
+                 | Mir_target.Constraint.Fixed_result _
+                 | Mir_target.Constraint.Fixed_use _ ->
+                     false)
+               (T.constraints o)
+      | Op.Event _ | Op.Undef _ -> false
+    in
+    let rec func (f : (T.op Op.t, T.test Terminator.t) Mir_func.t) =
+      let used = Hashtbl.create 256 in
+      let use v = Hashtbl.replace used (key v) () in
+      List.iter
+        (fun (b : (T.op Op.t, T.test Terminator.t) Mir_block.t) ->
+          List.iter
+            (fun (i : T.op Op.t Mir_instr.t) ->
+              (match i.Mir_instr.op with
+              | Op.Machine o -> List.iter use (T.uses o)
+              | Op.Event _ | Op.Undef _ -> ());
+              Option.iter
+                (fun (o : Mir_order.t) -> use o.Mir_order.input)
+                i.Mir_instr.order)
+            b.Mir_block.body;
+          if not ignore_terminators then (
+            (match b.Mir_block.terminator with
+            | Terminator.Branch { test; _ } -> List.iter use (T.test_uses test)
+            | Terminator.Return { Mir_return.values; order } ->
+                List.iter use values;
+                use order
+            | Terminator.Jump _ -> ());
+            List.iter
+              (fun (e : Mir_edge.t) -> List.iter use (Mir_edge.operands e))
+              (Terminator.edges b.Mir_block.terminator)))
+        f.Mir_func.blocks;
+      let removed = ref false in
+      let blocks =
+        List.map
+          (fun (b : (T.op Op.t, T.test Terminator.t) Mir_block.t) ->
+            {
+              b with
+              Mir_block.body =
+                List.filter
+                  (fun (i : T.op Op.t Mir_instr.t) ->
+                    let dead =
+                      removable i
+                      && List.for_all
+                           (fun v -> not (Hashtbl.mem used (key v)))
+                           i.Mir_instr.results
+                    in
+                    if dead then removed := true;
+                    not dead)
+                  b.Mir_block.body;
+            })
+          f.Mir_func.blocks
+      in
+      let f = { f with Mir_func.blocks } in
+      if !removed then func f else f
+    in
+    {
+      sel with
+      program =
+        {
+          sel.program with
+          Mir_program.funcs = List.map func sel.program.Mir_program.funcs;
+        };
+    }
+
   let pp_op n fmt = function
     | Op.Event (e, k) -> Fmt.pf fmt "event %s x%Ld" (Mir_event.name e) k
     | Op.Machine o -> T.pp_op (Mir_pp.Names.value n) fmt o

@@ -23,6 +23,9 @@ module Mutation = struct
     | Call_interval  (** a call's clobbered views not blocked *)
     | Half_spill  (** a spilled register-wide vector given half its bytes *)
     | Hole  (** an inactive interval's later ranges ignored *)
+    | Live_tie
+        (** a tied operand's register given to its result while the operand is
+            still read after the instruction *)
     | Needed_eviction
         (** an occupant evicted at an instruction that reads or writes it *)
     | Split_move  (** a split inside a block without its transition move *)
@@ -131,12 +134,31 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
 
   (* --- linear scan, one bank at a time ----------------------------------- *)
 
-  let scan st ~bank ~fixed ~depth ~starts (pieces : Piece.t list) =
+  let scan st ~bank ~fixed ~depth ~starts ~split_cost ~loops ~uses_of ~prefer
+      (pieces : Piece.t list) =
     let pool = R.allocatable bank in
     let view_of (p : Piece.t) k =
       R.view bank ~bits:(snd (shape p.Piece.value)) k
     in
     let weight u = 10. ** float_of_int (depth u) in
+    (* how soon [p] is read from [pos], per loop weight: its next use, or —
+       when it has none ahead but lives across the back edge of the innermost
+       loop holding [pos] — its first use in that loop, on the next trip *)
+    let urgency (p : Piece.t) ~pos =
+      match Piece.next_use p ~from:pos with
+      | Some u -> float_of_int (u - pos) /. weight u
+      | None -> (
+          match List.find_opt (fun (a, b) -> a <= pos && pos < b) loops with
+          | Some (a, b) when Piece.covers p (b - 1) -> (
+              match
+                List.find_opt
+                  (fun u -> u >= a && u < pos)
+                  (uses_of p.Piece.value)
+              with
+              | Some u -> float_of_int (b - pos + (u - a)) /. weight u
+              | None -> infinity)
+          | _ -> infinity)
+    in
     let all = ref [] in
     let unhandled =
       ref
@@ -233,23 +255,41 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
               | Some a, None | None, Some a -> a
               | None, None -> max_int
           in
-          let hint =
+          (* the value's own last register, else that of the value it is
+             tied to, whose piece ends where this one starts *)
+          let own =
             List.find_map
               (fun (p : Piece.t) ->
                 if Mir_value.equal p.Piece.value cur.Piece.value then reg_of p
                 else None)
               !all
           in
+          let tied =
+            Option.bind (prefer cur.Piece.value) (fun v ->
+                List.find_map
+                  (fun (p : Piece.t) ->
+                    if Mir_value.equal p.Piece.value v && Piece.stop p = pos
+                    then reg_of p
+                    else None)
+                  !all)
+          in
+          let hint = match own with Some _ -> own | None -> tied in
           let best =
-            List.fold_left
-              (fun acc k ->
-                let f = free_until k in
-                match acc with
-                | Some (_, g) when g > f -> acc
-                | Some (bk, g) when g = f && Some bk = hint -> acc
-                | Some (_, g) when g = f && Some k <> hint -> acc
-                | _ -> Some (k, f))
-              None pool
+            match tied with
+            | Some k
+              when own = None && List.mem k pool
+                   && free_until k >= Piece.stop cur ->
+                Some (k, free_until k)
+            | _ ->
+                List.fold_left
+                  (fun acc k ->
+                    let f = free_until k in
+                    match acc with
+                    | Some (_, g) when g > f -> acc
+                    | Some (bk, g) when g = f && Some bk = hint -> acc
+                    | Some (_, g) when g = f && Some k <> hint -> acc
+                    | _ -> Some (k, f))
+                  None pool
           in
           let assign k =
             cur.Piece.where <- Where.In k;
@@ -275,10 +315,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                         && (Piece.covers p pos
                            || Option.is_some
                                 (Piece.intersection cur p ~from:pos))
-                      then
-                        Some
-                          (Option.value ~default:max_int
-                             (Piece.next_use p ~from:pos))
+                      then Some (urgency p ~pos)
                       else None)
                     (!active @ !inactive)
                 in
@@ -294,10 +331,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                 | Some x when x <= pos + 1 -> None
                 | _ when needed && not (mutated st Mutation.Needed_eviction) ->
                     None
-                | _ ->
-                    let u = List.fold_left min max_int uses in
-                    if u = max_int then Some infinity
-                    else Some (float_of_int (u - pos) /. weight u)
+                | _ -> Some (List.fold_left min infinity uses)
               in
               let candidate =
                 List.fold_left
@@ -308,18 +342,15 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                     | Some s, _ -> Some (k, s))
                   None pool
               in
-              let own =
-                match Piece.next_use cur ~from:pos with
-                | Some u -> float_of_int (u - pos) /. weight u
-                | None -> infinity
-              in
+              let own = urgency cur ~pos in
               let need = must cur ~at:pos in
               match candidate with
               | Some (k, s) when s >= own || need ->
                   (* evict every occupant of [k] that meets [cur] *)
-                  (* an occupant leaves its register where the move runs
-                     least often: at the latest of the shallowest block
-                     starts since it was last read or needed, or here *)
+                  (* an occupant leaves its register where its moves run
+                     least often: right after it was last read or needed, at
+                     a block start since, or here — the latest of the
+                     cheapest *)
                   let split_of (p : Piece.t) =
                     let here = split_for pos in
                     let last =
@@ -328,13 +359,16 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                         (Piece.start p - 1)
                         (p.Piece.uses @ p.Piece.needs)
                     in
+                    let after = (last lor 1) + 1 in
                     List.fold_left
                       (fun (best, cost) b ->
-                        let c = depth (b - 1) in
-                        if b > last && b < here && c < cost then (b, c)
+                        if b > last && b < here then
+                          let c = split_cost b in
+                          if c < cost then (b, c) else (best, cost)
                         else (best, cost))
-                      (here, depth here)
-                      (List.rev starts)
+                      (here, split_cost here)
+                      (List.rev starts
+                      @ if after > Piece.start p then [ after ] else [])
                     |> fst
                   in
                   let evict (p : Piece.t) =

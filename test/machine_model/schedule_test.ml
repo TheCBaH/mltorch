@@ -143,12 +143,12 @@ let%expect_test "dropped dependences are caught" =
   X64.mutations ();
   [%expect
     {|
-    aarch64 data: caught on 6 kernels (verifier alone: 6); first chain/0: dependence: bb1: i157 scheduled after i158, which depends on it
-    aarch64 flags: caught on 3 kernels (verifier alone: 0); first chain/0: dependence: bb4: i167 scheduled after i179, which depends on it
-    aarch64 order: caught on 5 kernels (verifier alone: 5); first chain/0: dependence: bb19: i276 scheduled after i295, which depends on it
-    x86_64 data: caught on 6 kernels (verifier alone: 6); first chain/0: dependence: bb1: i157 scheduled after i158, which depends on it
-    x86_64 flags: caught on 4 kernels (verifier alone: 3); first chain/0: dependence: bb4: i168 scheduled after i180, which depends on it
-    x86_64 order: caught on 5 kernels (verifier alone: 5); first chain/0: dependence: bb19: i280 scheduled after i298, which depends on it |}]
+    aarch64 data: caught on 7 kernels (verifier alone: 7); first chain/0: dependence: bb1: i210 scheduled after i211, which depends on it
+    aarch64 flags: caught on 4 kernels (verifier alone: 0); first chain/0: dependence: bb4: i219 scheduled after i225, which depends on it
+    aarch64 order: caught on 6 kernels (verifier alone: 6); first chain/0: dependence: bb19: i332 scheduled after i337, which depends on it
+    x86_64 data: caught on 7 kernels (verifier alone: 7); first chain/0: dependence: bb1: i210 scheduled after i211, which depends on it
+    x86_64 flags: caught on 4 kernels (verifier alone: 2); first chain/0: dependence: bb4: i219 scheduled after i225, which depends on it
+    x86_64 order: caught on 6 kernels (verifier alone: 6); first chain/0: dependence: bb19: i328 scheduled after i333, which depends on it |}]
 
 let%expect_test "sink scheduling, then linear scan" =
   A64.compare ();
@@ -157,75 +157,87 @@ let%expect_test "sink scheduling, then linear scan" =
   X64_small.compare ();
   [%expect
     {|
-    aarch64 chain/0: sink moves 4 (rev1), reverse 141
-      source: 173 instructions; 17 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
-      sink: 173 instructions; 17 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
-    aarch64 chain/1: sink moves 0 (rev0), reverse 99
-      source: 110 instructions; 9 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
-      sink: 110 instructions; 9 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
-    aarch64 chain/2: sink moves 0 (rev0), reverse 47
-      source: 64 instructions; 7 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
-      sink: 64 instructions; 7 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
-    aarch64 bmm/0: sink moves 0 (rev0), reverse 78
-      source: 92 instructions; 9 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
-      sink: 92 instructions; 9 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
-    aarch64 softmax/0: sink moves 0 (rev0), reverse 273
-      source: 304 instructions; 17 register moves, 0 stores, 0 loads, 0 slot moves, 1 rematerialized; 0 slots (0 bytes)
-      sink: 304 instructions; 17 register moves, 0 stores, 0 loads, 0 slot moves, 1 rematerialized; 0 slots (0 bytes)
-    aarch64 sdpa/0: sink moves 0 (rev0), reverse 655
-      source: 715 instructions; 56 register moves, 2 stores, 1 loads, 0 slot moves, 7 rematerialized; 1 slots (8 bytes)
-      sink: 715 instructions; 56 register moves, 2 stores, 1 loads, 0 slot moves, 7 rematerialized; 1 slots (8 bytes)
-    x86_64 chain/0: sink moves 4 (rev1), reverse 131
-      source: 175 instructions; 64 register moves, 8 stores, 7 loads, 0 slot moves, 4 rematerialized; 5 slots (20 bytes)
-      sink: 175 instructions; 64 register moves, 8 stores, 7 loads, 0 slot moves, 4 rematerialized; 5 slots (20 bytes)
-    x86_64 chain/1: sink moves 0 (rev0), reverse 87
-      source: 104 instructions; 35 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
-      sink: 104 instructions; 35 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
-    x86_64 chain/2: sink moves 0 (rev0), reverse 49
-      source: 66 instructions; 22 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
-      sink: 66 instructions; 22 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
-    x86_64 bmm/0: sink moves 0 (rev0), reverse 75
-      source: 93 instructions; 35 register moves, 0 stores, 0 loads, 0 slot moves, 3 rematerialized; 0 slots (0 bytes)
-      sink: 93 instructions; 35 register moves, 0 stores, 0 loads, 0 slot moves, 3 rematerialized; 0 slots (0 bytes)
-    x86_64 softmax/0: sink moves 4 (rev1), reverse 277
-      source: 314 instructions; 106 register moves, 10 stores, 10 loads, 0 slot moves, 12 rematerialized; 5 slots (32 bytes)
-      sink: 314 instructions; 106 register moves, 10 stores, 10 loads, 0 slot moves, 12 rematerialized; 5 slots (32 bytes)
-    x86_64 sdpa/0: sink moves 4 (rev1), reverse 640
-      source: 723 instructions; 159 register moves, 30 stores, 30 loads, 0 slot moves, 26 rematerialized; 7 slots (44 bytes)
-      sink: 723 instructions; 159 register moves, 30 stores, 30 loads, 0 slot moves, 26 rematerialized; 7 slots (44 bytes)
-    aarch64, 3 registers chain/0: sink moves 4 (rev1), reverse 141
-      source: 173 instructions; 11 register moves, 33 stores, 28 loads, 0 slot moves, 13 rematerialized; 14 slots (68 bytes)
-      sink: 173 instructions; 11 register moves, 33 stores, 28 loads, 0 slot moves, 13 rematerialized; 14 slots (68 bytes)
-    aarch64, 3 registers chain/1: sink moves 0 (rev0), reverse 99
-      source: 110 instructions; 10 register moves, 11 stores, 10 loads, 0 slot moves, 6 rematerialized; 3 slots (16 bytes)
-      sink: 110 instructions; 10 register moves, 11 stores, 10 loads, 0 slot moves, 6 rematerialized; 3 slots (16 bytes)
-    aarch64, 3 registers chain/2: sink moves 0 (rev0), reverse 47
-      source: 64 instructions; 5 register moves, 8 stores, 8 loads, 0 slot moves, 5 rematerialized; 2 slots (8 bytes)
-      sink: 64 instructions; 5 register moves, 8 stores, 8 loads, 0 slot moves, 5 rematerialized; 2 slots (8 bytes)
-    aarch64, 3 registers bmm/0: sink moves 0 (rev0), reverse 78
-      source: 92 instructions; 6 register moves, 13 stores, 13 loads, 0 slot moves, 9 rematerialized; 5 slots (24 bytes)
-      sink: 92 instructions; 6 register moves, 13 stores, 13 loads, 0 slot moves, 9 rematerialized; 5 slots (24 bytes)
-    aarch64, 3 registers softmax/0: sink moves 0 (rev0), reverse 273
-      source: 304 instructions; 9 register moves, 34 stores, 32 loads, 0 slot moves, 21 rematerialized; 9 slots (56 bytes)
-      sink: 304 instructions; 9 register moves, 34 stores, 32 loads, 0 slot moves, 21 rematerialized; 9 slots (56 bytes)
-    aarch64, 3 registers sdpa/0: sink moves 0 (rev0), reverse 655
-      source: 715 instructions; 22 register moves, 76 stores, 70 loads, 0 slot moves, 42 rematerialized; 13 slots (84 bytes)
-      sink: 715 instructions; 22 register moves, 76 stores, 70 loads, 0 slot moves, 42 rematerialized; 13 slots (84 bytes)
-    x86_64, 3 registers chain/0: sink moves 4 (rev1), reverse 131
-      source: 175 instructions; 58 register moves, 39 stores, 34 loads, 0 slot moves, 13 rematerialized; 16 slots (80 bytes)
-      sink: 175 instructions; 58 register moves, 39 stores, 34 loads, 0 slot moves, 13 rematerialized; 16 slots (80 bytes)
-    x86_64, 3 registers chain/1: sink moves 0 (rev0), reverse 87
-      source: 104 instructions; 33 register moves, 25 stores, 23 loads, 0 slot moves, 5 rematerialized; 6 slots (36 bytes)
-      sink: 104 instructions; 33 register moves, 25 stores, 23 loads, 0 slot moves, 5 rematerialized; 6 slots (36 bytes)
-    x86_64, 3 registers chain/2: sink moves 0 (rev0), reverse 49
-      source: 66 instructions; 20 register moves, 12 stores, 12 loads, 0 slot moves, 5 rematerialized; 4 slots (20 bytes)
-      sink: 66 instructions; 20 register moves, 12 stores, 12 loads, 0 slot moves, 5 rematerialized; 4 slots (20 bytes)
-    x86_64, 3 registers bmm/0: sink moves 0 (rev0), reverse 75
-      source: 93 instructions; 30 register moves, 18 stores, 18 loads, 0 slot moves, 9 rematerialized; 6 slots (32 bytes)
-      sink: 93 instructions; 30 register moves, 18 stores, 18 loads, 0 slot moves, 9 rematerialized; 6 slots (32 bytes)
-    x86_64, 3 registers softmax/0: sink moves 4 (rev1), reverse 277
-      source: 314 instructions; 81 register moves, 44 stores, 44 loads, 0 slot moves, 27 rematerialized; 9 slots (56 bytes)
-      sink: 314 instructions; 82 register moves, 46 stores, 46 loads, 0 slot moves, 27 rematerialized; 9 slots (56 bytes)
-    x86_64, 3 registers sdpa/0: sink moves 4 (rev1), reverse 640
-      source: 723 instructions; 137 register moves, 86 stores, 86 loads, 0 slot moves, 52 rematerialized; 11 slots (68 bytes)
-      sink: 723 instructions; 136 register moves, 88 stores, 88 loads, 0 slot moves, 52 rematerialized; 11 slots (68 bytes) |}]
+    aarch64 chain/0: sink moves 8 (rev1), reverse 98
+      source: 114 instructions; 17 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
+      sink: 114 instructions; 17 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
+    aarch64 chain/1: sink moves 0 (rev0), reverse 82
+      source: 88 instructions; 6 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
+      sink: 88 instructions; 6 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
+    aarch64 chain/2: sink moves 0 (rev0), reverse 32
+      source: 45 instructions; 7 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
+      sink: 45 instructions; 7 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
+    aarch64 bmm/0: sink moves 0 (rev0), reverse 56
+      source: 65 instructions; 9 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
+      sink: 65 instructions; 9 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
+    aarch64 softmax/0: sink moves 0 (rev0), reverse 237
+      source: 258 instructions; 17 register moves, 3 stores, 3 loads, 0 slot moves, 0 rematerialized; 1 slots (4 bytes)
+      sink: 258 instructions; 17 register moves, 3 stores, 3 loads, 0 slot moves, 0 rematerialized; 1 slots (4 bytes)
+    aarch64 sdpa/0: sink moves 0 (rev0), reverse 575
+      source: 629 instructions; 30 register moves, 3 stores, 2 loads, 0 slot moves, 0 rematerialized; 1 slots (8 bytes)
+      sink: 629 instructions; 30 register moves, 3 stores, 2 loads, 0 slot moves, 0 rematerialized; 1 slots (8 bytes)
+    aarch64 conv/0: sink moves 8 (rev1), reverse 118
+      source: 135 instructions; 19 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
+      sink: 135 instructions; 19 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
+    x86_64 chain/0: sink moves 38 (rev1), reverse 74
+      source: 98 instructions; 26 register moves, 4 stores, 4 loads, 0 slot moves, 2 rematerialized; 4 slots (20 bytes)
+      sink: 98 instructions; 25 register moves, 4 stores, 4 loads, 0 slot moves, 2 rematerialized; 4 slots (20 bytes)
+    x86_64 chain/1: sink moves 15 (rev1), reverse 57
+      source: 63 instructions; 9 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
+      sink: 63 instructions; 9 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
+    x86_64 chain/2: sink moves 15 (rev1), reverse 24
+      source: 35 instructions; 9 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
+      sink: 35 instructions; 9 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
+    x86_64 bmm/0: sink moves 21 (rev1), reverse 44
+      source: 52 instructions; 13 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
+      sink: 52 instructions; 13 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
+    x86_64 softmax/0: sink moves 47 (rev1), reverse 213
+      source: 232 instructions; 38 register moves, 21 stores, 20 loads, 0 slot moves, 3 rematerialized; 7 slots (44 bytes)
+      sink: 232 instructions; 38 register moves, 21 stores, 20 loads, 0 slot moves, 3 rematerialized; 7 slots (44 bytes)
+    x86_64 sdpa/0: sink moves 60 (rev1), reverse 528
+      source: 573 instructions; 55 register moves, 38 stores, 35 loads, 0 slot moves, 13 rematerialized; 8 slots (52 bytes)
+      sink: 573 instructions; 52 register moves, 38 stores, 35 loads, 0 slot moves, 13 rematerialized; 8 slots (52 bytes)
+    x86_64 conv/0: sink moves 44 (rev1), reverse 90
+      source: 114 instructions; 30 register moves, 12 stores, 12 loads, 0 slot moves, 2 rematerialized; 6 slots (28 bytes)
+      sink: 114 instructions; 30 register moves, 9 stores, 9 loads, 0 slot moves, 2 rematerialized; 6 slots (28 bytes)
+    aarch64, 3 registers chain/0: sink moves 8 (rev1), reverse 98
+      source: 114 instructions; 11 register moves, 47 stores, 38 loads, 0 slot moves, 5 rematerialized; 14 slots (76 bytes)
+      sink: 114 instructions; 11 register moves, 45 stores, 36 loads, 0 slot moves, 6 rematerialized; 14 slots (76 bytes)
+    aarch64, 3 registers chain/1: sink moves 0 (rev0), reverse 82
+      source: 88 instructions; 9 register moves, 15 stores, 12 loads, 0 slot moves, 2 rematerialized; 5 slots (32 bytes)
+      sink: 88 instructions; 9 register moves, 15 stores, 12 loads, 0 slot moves, 2 rematerialized; 5 slots (32 bytes)
+    aarch64, 3 registers chain/2: sink moves 0 (rev0), reverse 32
+      source: 45 instructions; 8 register moves, 12 stores, 10 loads, 0 slot moves, 2 rematerialized; 4 slots (24 bytes)
+      sink: 45 instructions; 8 register moves, 12 stores, 10 loads, 0 slot moves, 2 rematerialized; 4 slots (24 bytes)
+    aarch64, 3 registers bmm/0: sink moves 0 (rev0), reverse 56
+      source: 65 instructions; 11 register moves, 20 stores, 17 loads, 0 slot moves, 3 rematerialized; 7 slots (44 bytes)
+      sink: 65 instructions; 11 register moves, 20 stores, 17 loads, 0 slot moves, 3 rematerialized; 7 slots (44 bytes)
+    aarch64, 3 registers softmax/0: sink moves 0 (rev0), reverse 237
+      source: 258 instructions; 17 register moves, 44 stores, 40 loads, 0 slot moves, 12 rematerialized; 12 slots (80 bytes)
+      sink: 258 instructions; 17 register moves, 44 stores, 40 loads, 0 slot moves, 12 rematerialized; 12 slots (80 bytes)
+    aarch64, 3 registers sdpa/0: sink moves 0 (rev0), reverse 575
+      source: 629 instructions; 30 register moves, 88 stores, 76 loads, 0 slot moves, 19 rematerialized; 16 slots (108 bytes)
+      sink: 629 instructions; 30 register moves, 88 stores, 76 loads, 0 slot moves, 19 rematerialized; 16 slots (108 bytes)
+    aarch64, 3 registers conv/0: sink moves 8 (rev1), reverse 118
+      source: 135 instructions; 12 register moves, 54 stores, 45 loads, 0 slot moves, 8 rematerialized; 15 slots (80 bytes)
+      sink: 135 instructions; 12 register moves, 52 stores, 43 loads, 0 slot moves, 8 rematerialized; 15 slots (80 bytes)
+    x86_64, 3 registers chain/0: sink moves 38 (rev1), reverse 74
+      source: 98 instructions; 14 register moves, 47 stores, 44 loads, 0 slot moves, 8 rematerialized; 14 slots (76 bytes)
+      sink: 98 instructions; 17 register moves, 45 stores, 41 loads, 0 slot moves, 5 rematerialized; 14 slots (76 bytes)
+    x86_64, 3 registers chain/1: sink moves 15 (rev1), reverse 57
+      source: 63 instructions; 9 register moves, 15 stores, 14 loads, 0 slot moves, 4 rematerialized; 7 slots (44 bytes)
+      sink: 63 instructions; 10 register moves, 15 stores, 14 loads, 0 slot moves, 2 rematerialized; 7 slots (44 bytes)
+    x86_64, 3 registers chain/2: sink moves 15 (rev1), reverse 24
+      source: 35 instructions; 9 register moves, 11 stores, 10 loads, 0 slot moves, 4 rematerialized; 5 slots (28 bytes)
+      sink: 35 instructions; 10 register moves, 11 stores, 10 loads, 0 slot moves, 2 rematerialized; 5 slots (28 bytes)
+    x86_64, 3 registers bmm/0: sink moves 21 (rev1), reverse 44
+      source: 52 instructions; 10 register moves, 17 stores, 17 loads, 0 slot moves, 6 rematerialized; 8 slots (48 bytes)
+      sink: 52 instructions; 11 register moves, 17 stores, 17 loads, 0 slot moves, 3 rematerialized; 8 slots (48 bytes)
+    x86_64, 3 registers softmax/0: sink moves 47 (rev1), reverse 213
+      source: 232 instructions; 23 register moves, 37 stores, 39 loads, 0 slot moves, 21 rematerialized; 10 slots (64 bytes)
+      sink: 232 instructions; 28 register moves, 39 stores, 42 loads, 0 slot moves, 17 rematerialized; 10 slots (64 bytes)
+    x86_64, 3 registers sdpa/0: sink moves 60 (rev1), reverse 528
+      source: 573 instructions; 38 register moves, 70 stores, 71 loads, 0 slot moves, 43 rematerialized; 12 slots (76 bytes)
+      sink: 573 instructions; 45 register moves, 73 stores, 74 loads, 0 slot moves, 38 rematerialized; 12 slots (76 bytes)
+    x86_64, 3 registers conv/0: sink moves 44 (rev1), reverse 90
+      source: 114 instructions; 15 register moves, 52 stores, 52 loads, 0 slot moves, 9 rematerialized; 16 slots (84 bytes)
+      sink: 114 instructions; 17 register moves, 52 stores, 51 loads, 0 slot moves, 6 rematerialized; 16 slots (84 bytes) |}]

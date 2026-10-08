@@ -483,14 +483,20 @@ Constants are MOVZ/MOVN/MOVK sequences (floats via a GPR and FMOV); an address
 is ADRP + ADD :lo12:; a predicate result is CMP/FCMP then CSET (ordered
 less-than is `mi`, less-or-equal `ls`, unordered `vs`, unsigned `lo`/`ls`); a
 select is CMP #0 then CSEL/FCSEL `ne`; remainder is SDIV then MSUB; a
-predicate branch is CBNZ. `fail` becomes the model failure record written
+predicate branch is CBNZ, except that a branch on a compare of its own block
+compares again and takes B.cond (the CSET is pruned when nothing else reads
+it). A constant operand a form encodes is folded into it:
+ADD/SUB and CMP take an imm12 (a subtraction only on its right), AND/ORR/EOR a
+bitmask immediate, a multiply by a power of two becomes LSL, and a pointer plus
+an imm12 ADD (immediate); the constant's MOVZ is pruned when nothing else
+reads it. `fail` becomes the model failure record written
 into a runtime view (kind, invocation -1, the kind's words from
 `Mir_failure.layout`, the site word bound through the supplied table — a
 missing compatible entry is a refusal) and a return of status 1; a return gets
 status 0. i8/i16 arithmetic is refused in this slice; calls are described
 with allocation below. `A64_select.Mutation` is fault injection for evidence
 (contraction, `lt` for ordered less-than, a missing record word, signed for
-unsigned compare).
+unsigned compare, a subtraction's left constant folded as its right).
 
 **Generic vs selected (C3)**: the selected run's status 0 means success with
 outputs in memory; otherwise the stored record is decoded through the site
@@ -533,8 +539,10 @@ Native NEON execution waits on an assembler that encodes these forms.
 Selection runs through the shared builder (`Mir_select`: value identities,
 temporaries, order remapping across splits, status propagation, record stores
 from `Mir_failure.layout`, the record's runtime view), which AArch64 now uses
-too. Forms (Intel SDM 325462-084): ALU ops, IMUL, NEG and shifts by immediate
-tied to their first operand; CMP/TEST/BT/UCOMISD producing condition state
+too. Forms (Intel SDM 325462-084): ALU ops (register or imm32), IMUL, NEG and
+shifts by immediate tied to their first operand; IMUL r, r/m, imm32 untied;
+CMP r, imm32 (an imm32 is sign-extended at 64 bits, so a 64-bit form reaches
+only [-2^31, 2^31)); CMP/TEST/BT/UCOMISD producing condition state
 (TEST leaves AF undefined, BT defines CF only); CMOV tied to its else operand;
 `setcc`+`movzbl` as one probed pair; CQO+IDIV with the dividend and both
 results in rax/rdx and rdx early-clobbered against the divisor (IDIV's #DE is a
@@ -555,7 +563,14 @@ clobber rax, rcx, rdx, rsi, rdi, r8-r11, every XMM register and the flags;
 rbx, rbp and r12-r15 are preserved; rsp, rbp, r10 and r11 are reserved. A
 call pushes an 8-byte return address (`call_push`): the frame plus the push
 keeps rsp 16-byte aligned at calls; the physical interpreter pushes a token
-and requires it intact at the callee's exit. MXCSR moves only through memory,
+and requires it intact at the callee's exit. Selection folds a constant operand an imm32 reaches into the ALU, IMUL and
+CMP immediate forms (a subtraction's only on its right; `Commuted_sub` folds
+its left one and is caught), and a pointer plus a disp32 into LEA. A branch on a compare of its own
+block compares again and takes one Jcc (`setcc`+`movzbl` and TEST pruned
+when nothing else reads the predicate) — except ordered float equality,
+which needs ZF and not PF, two conditions; `Fused_float_eq` fuses it anyway
+and is caught. MXCSR moves
+only through memory,
 which the late-form contract does not admit, so x86-64 frames leave it to the
 native entry wrapper. Native per-form conformance needs an x86-64 runner.
 
@@ -704,14 +719,37 @@ AArch64's v8-v15 keep scalars across a call); an instruction's own results
 ignore its clobbers, being written after them, and a fixed result's block is
 ignored only by that result; a tied or early-clobber result
 opens at the instruction's read, and a tied operand is copied into the
-result's register. The register free longest wins (preferring the value's
+result's register — as part of one parallel copy with the split transitions
+at that instruction, every source read where it was before it. A tied operand
+the instruction reads last, and only once, ends just before it instead, and
+the result takes its register when that is free for the result's whole piece:
+the copy becomes a move to itself and vanishes. On x86-64 those copies were 80%
+of executed register moves (`test_convnext2`: 213M of 268M over its first 30
+invocations); with it, executed register moves fall from 591M to 291M over the
+whole of `test_convnext2` and from 778M to 328M over `mobilenetv2_050`'s first
+60 invocations, while frame stores rise there from 43M to 60M (the result
+holds the operand's register longer) and fall here from 125M to 103M — a
+tenth and a sixth less executed work. The register free longest wins (preferring the value's
 previous one); with none, the occupant whose next use is farthest — weighted
-tenfold per loop level — is evicted, or the current piece is spilled when its
-own next use is farther still. An evicted occupant is split where its move
-runs least often: the latest of the block starts after its last read with the
-fewest loops around the edge into them, or the eviction point (Wimmer and
-Franz's spill position out of loops), so a value a loop never reads is stored
-before the loop rather than in it. Moves are emitted only for values live by
+tenfold per natural loop around it — is evicted, or the current piece is
+spilled when its own next use is farther still. A value with no use ahead
+that lives across the back edge of the innermost loop around the eviction
+counts its first use in that loop, on the next trip: the layout puts a loop's
+header before its body, so a bound the header compares reads as never used
+again, and was the first victim. Loop depth is natural-loop membership, not
+a span of the layout, whose exit blocks sit between a loop's header and its
+body. An evicted occupant is split where its moves run least often (Wimmer
+and Franz's spill position out of loops): the latest of the cheapest of right
+after its last read, a block start since, and the eviction point, a split
+costing the depth of the hottest edge it separates — register on one side,
+slot on the other — or of the block it falls in. So a value a loop never
+reads is stored before the loop rather than in it. Over the whole of
+`test_convnext2` this takes x86-64's frame stores from 45M to 22M (moves
+unchanged at 71M), and over `mobilenetv2_050`'s first 60 invocations from
+102M to 82M; AArch64 does not spill there. A layout with each loop's body
+contiguous (exits after it) halves the moves instead, but raises
+mobilenet's stores to 122M, and leaves the hole fault below uncaught: it
+was not kept. Moves are emitted only for values live by
 dataflow. Spilled values share slots when their spilled pieces never overlap.
 A value whose instruction reads nothing and is pure, total and unconstrained
 is rematerialized: no slot, a reload becomes a `Remat` of the selected
@@ -722,10 +760,11 @@ keeps every other holder of the value, and it is not the instruction's one
 realization. The model adapter's `Scanned` route runs linear scan, frames and
 publication. Fault injection: call clobbers not blocked, inactive intervals
 ignored, an occupant evicted at an instruction that needs it, a split without
-its move. The checker catches the first and last on both targets; the hole on
-a three-register AArch64 pool and on x86-64's full pools (elsewhere the
-allocations it changes still pass, so the intersections it ignored held no
-read); the physical verifier catches the needed eviction on both
+its move. The checker catches the first and last on both targets; the hole
+on the three-register pools, and with full ones on x86-64 through a padded,
+strided convolution over a batch of two, whose loop exits reload values while
+every other register is taken (AArch64's larger pools always leave one free
+there); the physical verifier catches the needed eviction on both
 three-register pools as an operand in a slot, and with full pools no eviction
 meets an operand of the evicting instruction.
 
@@ -784,8 +823,8 @@ a candidate, so a spill is reported or avoided, not hidden. On the CI models
 AArch64 keeps every blocked matmul's accumulators in registers at group 8 and
 spills in no loop. x86-64 allocates ten GPRs (rsp, rbp, r10 and r11 are
 reserved, rcx and rdx the parallel copy's scratch) against a peak demand of
-24-26: hot GPR spills remain in 578 of 3859 invocations (3507 stores, 2886
-reloads; 21925 stores in 3453 while the reference strategy's operand and result
+24-26 before address hoisting (below): hot GPR spills then remain in 578 of
+3859 invocations (3507 stores, 2886 reloads; 21925 stores in 3453 while the reference strategy's operand and result
 scratch stayed out of the pool, 4653 in 665 before the access fold dropped zero
 coordinates and unit extents, 3784 before evictions were split out of loops),
 and feedback blocks invocations where it once blocked none. What stays live is the kernels' own index state,
@@ -794,20 +833,112 @@ window bounds and the row and column bases are live through the innermost
 loop, and the spilled values are those loop parameters, integer selects and
 narrowed index sums. By depth, 4088 of x86-64's 7683 hot spill moves are in
 innermost loops and 3712 at depth 5 or 6, a convolution's kernel-window loops,
-and most of them are of values those loops read. Hoisting each address's
-loop-invariant terms into one pointer per access before its loop was built and
-measured (exact: an i64 offset read as coefficients times leaves through
-additions, constant multiplications and extensions of narrowed values) and not
-kept: the counters and window bounds stay live through the inner loops for the
-outer ones, so the pointers only added to them — peak demand rose to 29-32 and
-hot spills at depths 2 and 3 grew several-fold for a fifth fewer at depth 6.
-With three-tap windows, depth counts are no proxy for executed moves; deciding
-that trade needs executed spill counts. The physical interpreter counts what a
-run executes of the allocation's making (`Mir_phys_interp.Traffic`: frame
-stores and reloads, register moves, rematerializations, other instructions),
-each allocated route's kernel accumulates it, and the census's `--traffic`
-runs a model's invocations on a target's production pipeline, compares them
-with the reference and reports it by operation.
+and most of them are of values those loops read. Static counts are no proxy
+for executed moves, though — a convolution's kernel-window loops run three
+taps. The physical interpreter counts what a run executes of the allocation's
+making (`Mir_phys_interp.Traffic`: frame stores and reloads, register moves,
+rematerializations, other instructions), each allocated route's kernel
+accumulates it, and the census's `--traffic` runs a model's invocations on a
+target's production pipeline, compares them with the reference and reports it
+by operation.
+
+**Address hoisting** (`Mir_offsets`, generic to generic, in both selectors
+after the vector split). An address is a pointer plus an i64 byte offset; the
+offset, read through additions, subtractions, multiplications by a constant
+and sign extensions, is coefficients times leaves plus a constant — exact
+modulo 2^64, and an extension of a `narrow` result is the narrowed value
+itself (out of range, the `narrow` is already a defect), so no bound is
+needed. In an innermost natural loop with a preheader (the header's one
+predecessor outside it, ending in a jump), the base and the terms whose leaves
+are defined outside the loop become one pointer at the end of the preheader,
+shared by every access with the same base and terms; inside, an address adds
+the varying terms, their common factor last so a scaled address form takes it
+(once per block for accesses sharing them), then its constant, which both
+selectors fold as a displacement (x86-64 `[base + index*scale + disp32]`,
+AArch64's unsigned scaled immediate). Pure instructions and narrowings nothing
+reads are then deleted, and the result is verified again.
+
+Only the innermost loop, measured. Moving each pointer's own offset out
+through the enclosing loops too built a tower — a pointer per access per
+level, each live through every loop inside it on top of the counters — that
+raised x86-64's peak GPR demand from 24-26 to 29-32 and its hot spill sites
+from 3507 to 7959 stores; executed, it cut instructions by 35-40% on
+`test_convnext2` but raised `mobilenetv2_050`'s frame stores by 42%. Innermost
+only, peak demand is 22-28, hot spill sites 4082 stores in 675 invocations,
+and AArch64 has none. Executed over the whole of `test_convnext2`, x86-64
+runs 1613M instructions, 591M register moves and 43M stores and reloads each
+(2380M, 916M and 73M without hoisting), AArch64 1556M instructions instead of
+2419M; on `mobilenetv2_050`'s first 60 invocations x86-64 runs 1981M, 778M
+and 125M (2281M, 863M and 139M) — every invocation equal to the reference.
+The source harness runs every scalar kernel with and without it, and an
+address missing a varying term (`Dropped_term`) reads the wrong elements
+there.
+
+**32-bit index arithmetic** (`Mir_narrow`, generic to generic, in both
+selectors after address hoisting, which reads through the extensions it
+removes). A `narrow` to 32 bits of an i64 addition, subtraction or
+multiplication equals the same operation at 32 bits on the operands truncated
+(two's-complement arithmetic is a ring homomorphism modulo 2^32), and a
+truncated sign extension is the extended value, so in-domain index sums and
+scalings read their 32-bit operands directly and the extensions left unread
+are deleted. Only the narrowing's own defect is lost, for operations the
+source proved in the index domain. Executed, it removes about a ninth of the
+instructions: x86-64 runs 1431M instead of 1613M over the whole of
+`test_convnext2` and 1770M instead of 1981M over `mobilenetv2_050`'s first 60
+invocations, AArch64 1374M instead of 1556M. The source harness runs every
+scalar kernel through it too, where a narrowed constant one larger
+(`Shifted_constant`) steps a loop past outputs it should write.
+
+**Pruning** (`Mir_sel.prune`, both selectors, before the selected verifier).
+A selected instruction nothing reads, not ordered, clobbering nothing and with
+no fixed or early-clobber operand is removed, to a fixpoint — chiefly the
+arithmetic an address form folded in (x86-64's `[base + index*scale + disp]`
+reads the index, leaving the multiply and add it replaced unread), whose
+two-address forms also cost a copy and a register each. Executed, x86-64 runs
+1169M instructions, 70M register moves and 33M frame stores instead of 1431M,
+246M and 57M over the whole of `test_convnext2`, and 1660M, 243M and 92M
+instead of 1770M, 327M and 103M over `mobilenetv2_050`'s first 60 invocations;
+AArch64, which folds no index, is unchanged. With values only a terminator
+reads counted as unread (`Pruned_live`), the re-run selected verifier rejects
+a branch reading a value nothing defines.
+
+**Immediate operands** (both selectors). Folding constants into immediate
+forms takes executed instructions over the whole of `test_convnext2` from
+1169M to 1049M on x86-64 and from 1374M to 1192M on AArch64, and over
+`mobilenetv2_050`'s first 60 invocations from 1660M to 1414M; every tensor is
+still bit-identical. On x86-64 the frame traffic moves the other way: the
+constants used to be the cheapest values to evict, rematerialized for nothing
+(7.6M rematerializations on convnext, 0.8M after), and without them linear scan
+spills real values instead. Convnext's frame stores go from 33M to 38M, and
+mobilenet's from 92M to 109M. In convnext's first conv2d, one value now spills at an outer
+loop header and reloads on every back edge; that placement is still open.
+
+**Executed profile.** `Traffic.ops` counts the executed instructions by
+origin role and mnemonic, from how often each block ran, and sums to
+`Traffic.instructions`; `census --traffic` prints it. Over `test_convnext2`
+on x86-64, address formation is 30% of what runs (the sign extension,
+multiply and add of an index recomputed every iteration: 16%, 6% and 6%),
+float decode 34% (an f32 element is a 32-bit load, a move to XMM and a
+widening: three instructions), compute 34%; on AArch64 address formation is
+43%, and over `mobilenetv2_050`'s first 60 invocations on x86-64 50%. A
+pointer induction variable per access stream (strength reduction) and a
+float load straight into the FP bank are what this points at; in the planned
+binary32 kernels, an f32 lane widened to f64 by decode and narrowed straight
+back by compute is another fifth.
+
+**Compare and branch** (both selectors). Branching on the flags instead of a
+materialized predicate takes the same runs to 913M instructions on x86-64
+(convnext) and 1124M on AArch64, and mobilenet's 60 invocations to 1202M.
+
+`Feedback` ranks candidates by static hot spill sites. Weighting each site by
+the trip counts of the loops around it (a header branching on a parameter
+below a constant, entered at a constant and stepped by one; unknown counts
+taken as four) was built and measured, and not kept: it estimated a one-row
+matmul's executed spills exactly and blocked ones two to four times over, but
+changed no choice on any CI model for either target — where groups compete,
+both orders agree. Executed, the choices pay: over the whole of
+`test_convnext2`, x86-64 with feedback runs 978M instructions and 88M register
+moves against 1169M and 70M unblocked, at the same frame traffic.
 
 ## Host numerics
 

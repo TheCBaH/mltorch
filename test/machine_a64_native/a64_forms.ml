@@ -104,6 +104,17 @@ let forms =
           @ List.map
               (fun k ->
                 {
+                  (form ~inputs:[ g ] (Printf.sprintf "sub.%s#%Ld" n k) g "sub"
+                     (fun vs -> Sub_imm (sz, arg vs 0, k)))
+                  with
+                  Form.asm =
+                    Printf.sprintf "sub %s, %s, #%Ld" (reg_ref "d" g)
+                      (reg_ref "a" g) k;
+                })
+              [ 0L; 1L; 4095L; 4096L; 16773120L ]
+          @ List.map
+              (fun k ->
+                {
                   (form ~result:false ~inputs:[ g ]
                      (Printf.sprintf "cmp.%s#%Ld" n k) g "cmp" (fun vs ->
                        Cmp_imm (sz, arg vs 0, k)))

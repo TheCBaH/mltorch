@@ -25,21 +25,34 @@ module Loc = Mir_phys.Loc
    reloads (moves between a register and a slot or frame memory), register
    moves, rematerializations, and every other instruction. *)
 module Traffic = struct
+  module Ops = Map.Make (String)
+
   type t = {
     instructions : int64;
     moves : int64;
+    ops : int64 Ops.t;
+        (** the executed instructions by origin role and mnemonic, ["role op"]
+        *)
     reloads : int64;
     remats : int64;
     stores : int64;
   }
 
   let zero =
-    { instructions = 0L; moves = 0L; reloads = 0L; remats = 0L; stores = 0L }
+    {
+      instructions = 0L;
+      moves = 0L;
+      ops = Ops.empty;
+      reloads = 0L;
+      remats = 0L;
+      stores = 0L;
+    }
 
   let add a b =
     {
       instructions = Int64.add a.instructions b.instructions;
       moves = Int64.add a.moves b.moves;
+      ops = Ops.union (fun _ x y -> Some (Int64.add x y)) a.ops b.ops;
       reloads = Int64.add a.reloads b.reloads;
       remats = Int64.add a.remats b.remats;
       stores = Int64.add a.stores b.stores;
@@ -136,6 +149,46 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
 
   let stack_bytes = 0x10_0000L
 
+  (* Each executed instruction by its origin role and mnemonic, from how often
+     each block ran: an [Exec] or [Late] form, as [Traffic.instructions]
+     counts them (a block a defect stopped counts whole). *)
+  let profile runs =
+    let mnemonic op =
+      match
+        String.split_on_char ' ' (Fmt.str "%a" (T.pp_op (fun _ _ -> ())) op)
+      with
+      | m :: _ -> m
+      | [] -> "?"
+    in
+    Hashtbl.fold
+      (fun _ ((b : (T.op, T.test) Mir_phys.Block.t), n) ops ->
+        List.fold_left
+          (fun ops (i : T.op Mir_phys.Instr.t) ->
+            let key =
+              match i with
+              | Mir_phys.Instr.Exec { instr; _ } ->
+                  Some
+                    (Mir_origin.Role.name instr.Mir_instr.origin.Mir_origin.role
+                    ^ " "
+                    ^
+                    match instr.Mir_instr.op with
+                    | Mir_sel.Op.Machine op -> mnemonic op
+                    | Mir_sel.Op.Event _ -> "event"
+                    | Mir_sel.Op.Undef _ -> "undef")
+              | Mir_phys.Instr.Late { op; _ } -> Some ("late " ^ mnemonic op)
+              | Mir_phys.Instr.Move _ | Mir_phys.Instr.Remat _
+              | Mir_phys.Instr.Save _ | Mir_phys.Instr.Sp _ ->
+                  None
+            in
+            match key with
+            | Some k ->
+                Traffic.Ops.update k
+                  (fun c -> Some (Int64.add !n (Option.value ~default:0L c)))
+                  ops
+            | None -> ops)
+          ops b.Mir_phys.Block.body)
+      runs Traffic.Ops.empty
+
   let run ?(fuel = 10_000_000L) ?(max_depth = 64) ?(models = [])
       ?(realized = false) ?(seed = fun (_ : regs) -> ())
       (p : (T.op, T.test) Mir_phys.Program.t) memory binding ~args =
@@ -143,6 +196,8 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
     let steps = ref 0L and fuel = ref fuel in
     let traffic = ref Traffic.zero in
     let count f = traffic := f !traffic in
+    (* how often each block ran, for the profile by operation *)
+    let runs = Hashtbl.create 64 in
     let regs = { units = Hashtbl.create 64 } in
     let views_program =
       {
@@ -637,6 +692,13 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
               instr;
             }
           in
+          (let k =
+             ( Mir_id.Func.to_int f.Mir_phys.Func.id,
+               Mir_id.Block.to_int b.Mir_phys.Block.id )
+           in
+           match Hashtbl.find_opt runs k with
+           | Some (_, n) -> n := Int64.succ !n
+           | None -> Hashtbl.replace runs k (b, ref 1L));
           List.iter
             (fun (i : T.op Mir_phys.Instr.t) ->
               match i with
@@ -756,6 +818,6 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
       outcome;
       events = List.map (fun e -> (e, events.(slot_of e))) Mir_event.all;
       steps = !steps;
-      traffic = !traffic;
+      traffic = { !traffic with Traffic.ops = profile runs };
     }
 end

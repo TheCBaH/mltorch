@@ -106,9 +106,9 @@ let%expect_test "liveness sets equal the path definition" =
     cases;
   [%expect
     {|
-    11 blocks, 75 values, 825 checks, 0 wrong
-    17 blocks, 173 values, 2941 checks, 0 wrong
-    8 blocks, 82 values, 656 checks, 0 wrong |}]
+    11 blocks, 52 values, 572 checks, 0 wrong
+    17 blocks, 155 values, 2635 checks, 0 wrong
+    8 blocks, 57 values, 456 checks, 0 wrong |}]
 
 let%expect_test "intervals of a loop, with holes" =
   match
@@ -135,21 +135,21 @@ let%expect_test "intervals of a loop, with holes" =
         (L.intervals f);
       [%expect
         {|
-        %18:f64 7,16 uses 15
-        %19:f64 11,16 uses 15
-        %3:f64 16,22 154,157 uses 21,156
-        %2:i32 16,22 154,163 uses 18,162
-        %4:f64 16,22 154,168 uses 21,156,167
-        %6:f64 22,43 uses 42
-        %7:f64 22,67 uses 66
-        %45:f64 75,84 uses 83
-        %46:f64 79,84 uses 83
-        %9:i32 84,90 142,149 uses 86,148
-        %10:f64 84,90 142,154 uses 89,153
-        %11:f64 84,90 142,154 uses 89,153
-        %13:f64 90,111 uses 110
-        %14:f64 90,135 uses 134
-        %77:f64 157,168 uses 167 |}]
+        %18:f64 7,14 uses 13
+        %19:f64 11,14 uses 13
+        %3:f64 14,18 112,115 uses 17,114
+        %2:i32 14,18 112,117 uses 16,116
+        %4:f64 14,18 112,118 uses 17,114,117
+        %6:f64 18,31 uses 30
+        %7:f64 18,49 uses 48
+        %45:f64 57,64 uses 63
+        %46:f64 61,64 uses 63
+        %9:i32 64,68 108,111 uses 66,110
+        %10:f64 64,68 108,112 uses 67,111
+        %11:f64 64,68 108,112 uses 67,111
+        %13:f64 68,83 uses 82
+        %14:f64 68,101 uses 100
+        %77:f64 115,118 uses 117 |}]
 
 (* Soundness: every use position and every block start a value is live into
    lies in one of its ranges. Coverage where a value is dead is imprecision,
@@ -198,4 +198,4 @@ let%expect_test "intervals cover the sets" =
         spans)
     (L.intervals f);
   Fmt.pr "%d checks: %d unsound, %d imprecise@." !checks !unsound !imprecise;
-  [%expect {| 912 checks: 0 unsound, 5 imprecise |}]
+  [%expect {| 636 checks: 0 unsound, 5 imprecise |}]

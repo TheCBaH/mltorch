@@ -204,7 +204,7 @@ let status_name (o : Mir_observation.t) =
 
 (* Every route of one plan; the report names the first disagreement, the
    reference's own verdict against the SSA route, and the generic status. *)
-let check ?mutation plan ~bind =
+let check ?mutation ?offsets_mutation ?narrow_mutation plan ~bind =
   match Err.payload (Ssa_lower.Ssa_lower_plan.lower plan) with
   | Error e ->
       Fmt.str "refused by source lowering: %a" Ssa_lower.Ssa_lower_plan.pp_error
@@ -229,16 +229,48 @@ let check ?mutation plan ~bind =
           let cfg =
             ssa_route "cfg" ~engine:Ssa_lower.Ssa_exec.Cfg plan p ~bind
           in
-          let generic =
-            mir_route lowered ~input:(fun b ->
-                Option.map (pack b)
-                  (bind (Tensor_id.of_int (b.Ssa_buffer.id :> int))))
+          let input (b : Ssa_buffer.t) =
+            Option.map (pack b)
+              (bind (Tensor_id.of_int (b.Ssa_buffer.id :> int)))
+          in
+          let generic = mir_route lowered ~input in
+          (* the same program with loop-invariant address terms hoisted *)
+          let offsets =
+            {
+              (mir_route
+                 {
+                   lowered with
+                   Mir_lower.program =
+                     Mir_offsets.program ?mutation:offsets_mutation
+                       lowered.Mir_lower.program;
+                 }
+                 ~input)
+              with
+              Route.name = "offsets";
+            }
+          in
+          (* then its in-domain index arithmetic at 32 bits *)
+          let narrowed =
+            {
+              (mir_route
+                 {
+                   lowered with
+                   Mir_lower.program =
+                     Mir_narrow.program ?mutation:narrow_mutation
+                       (Mir_offsets.program lowered.Mir_lower.program);
+                 }
+                 ~input)
+              with
+              Route.name = "narrowed";
+            }
           in
           let disagreements =
             List.filter_map Fun.id
               [
                 verdict ~expected:structured ~actual:cfg;
                 verdict ~expected:structured ~actual:generic;
+                verdict ~expected:structured ~actual:offsets;
+                verdict ~expected:structured ~actual:narrowed;
               ]
           in
           Fmt.str "%s [reference: %a]%s"

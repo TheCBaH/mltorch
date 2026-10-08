@@ -8,8 +8,11 @@ open Ssa_bridge_test.Ssa_fixtures
 let pointwise body = Loop_fixtures.pixel_kernel body
 let data_bind ?(shape = Loop_fixtures.shape_w 4) data = bind_data ~shape data
 
-let show ?mutation kernel ~bind =
-  Fmt.pr "%s@." (Mir_source.check ?mutation (Fusion_plan.default kernel) ~bind)
+let show ?mutation ?offsets_mutation ?narrow_mutation kernel ~bind =
+  Fmt.pr "%s@."
+    (Mir_source.check ?mutation ?offsets_mutation ?narrow_mutation
+       (Fusion_plan.default kernel)
+       ~bind)
 
 (* the input read at output coordinate [w + dw] on W and [h] on H *)
 let shifted ~dh ~dw =
@@ -58,10 +61,11 @@ let%expect_test "failures: coordinates, competing axes, index overflow" =
     coord_out_of_range(t0, H) [reference: agree on failure: coord_out_of_range]
     index_overflow(mul) [reference: DISAGREE: only ssa failed: index_overflow] |}]
 
-let matmul (m, k, n) =
+let matmul ?offsets_mutation ?narrow_mutation (m, k, n) =
   let a = operand 3 (m * k) and b = operand 5 (k * n) in
   Fmt.pr "%dx%dx%d: " m k n;
-  show (matmul_kernel ~m ~k ~n) ~bind:(matmul_bind ~m ~k ~n ~a ~b)
+  show ?offsets_mutation ?narrow_mutation (matmul_kernel ~m ~k ~n)
+    ~bind:(matmul_bind ~m ~k ~n ~a ~b)
 
 let%expect_test "matmul, odd and empty reductions" =
   List.iter matmul [ (1, 1, 1); (1, 3, 2); (3, 1, 4); (5, 7, 3); (2, 9, 1) ];
@@ -91,6 +95,22 @@ let%expect_test "matmul, odd and empty reductions" =
     sum [2,1): ok [reference: agree]
     sum [0,3): ok [reference: agree] |}]
 
+(* Every route above also runs the program with its loop-invariant address
+   terms hoisted; dropping a term that varies in the loop reads the wrong
+   elements. *)
+let%expect_test "a hoisted address missing a varying term is detected" =
+  matmul ~offsets_mutation:Machine_ir.Mir_offsets.Mutation.Dropped_term (5, 7, 3);
+  [%expect
+    {| 5x7x3: ok [reference: agree] DISAGREE structured vs offsets: output t2[0]: -0x1.fc2c3ep+2:f32 vs -0x1.eaa64ep+5:f32 |}]
+
+(* ... and with its in-domain index arithmetic at 32 bits; a narrowed
+   constant one larger steps a loop past outputs it should write. *)
+let%expect_test "a narrowed constant one larger is detected" =
+  matmul ~narrow_mutation:Machine_ir.Mir_narrow.Mutation.Shifted_constant
+    (5, 7, 3);
+  [%expect
+    {| 5x7x3: ok [reference: agree] DISAGREE structured vs narrowed: output t2[0]: -0x1.fc2c3ep+2:f32 vs 0x1.185f0ap+1:f32 |}]
+
 let%expect_test "lowering mutations are detected" =
   let zeros = data_bind [| 0.; 0.; 0.; 0. |] in
   let open Machine_lower.Mir_lower.Mutation in
@@ -109,11 +129,11 @@ let%expect_test "lowering mutations are detected" =
   show ?mutation:(m Eager_load) Loop_programs.shifted_kernel ~bind:zeros;
   [%expect
     {|
-    zero extension: defect(domain) [reference: agree on failure: coord_out_of_range] DISAGREE structured vs generic: inconclusive: failure(coord_out_of_range(t0, W)) vs defect(domain)
-    byte scaling: defect(bad_access) [reference: agree] DISAGREE structured vs generic: inconclusive: success vs defect(bad_access)
-    operand order: ok [reference: agree] DISAGREE structured vs generic: output t1[0]: 0x1.aaaaaap-1:f32 vs 0x1.124924p+0:f32
-    guard order: coord_out_of_range(t0, W) [reference: agree on failure: coord_out_of_range] DISAGREE structured vs generic: failure row: coord_out_of_range(t0, H)(0:i64, 0:i64, 0:i64, 1:i64, 4:i64, 0:i64) vs coord_out_of_range(t0, W)(0:i64, 0:i64, 0:i64, 1:i64, 4:i64, 0:i64)
-    eager load: defect(bad_access) [reference: agree on failure: coord_out_of_range] DISAGREE structured vs generic: inconclusive: failure(coord_out_of_range(t0, W)) vs defect(bad_access) |}]
+    zero extension: defect(domain) [reference: agree on failure: coord_out_of_range] DISAGREE structured vs generic: inconclusive: failure(coord_out_of_range(t0, W)) vs defect(domain); structured vs offsets: inconclusive: failure(coord_out_of_range(t0, W)) vs defect(domain); structured vs narrowed: failure row: coord_out_of_range(t0, W)(0:i64, 0:i64, 0:i64, 0:i64, -1:i64, 0:i64) vs coord_out_of_range(t0, W)(0:i64, 0:i64, 0:i64, 0:i64, 4294967295:i64, 0:i64)
+    byte scaling: defect(bad_access) [reference: agree] DISAGREE structured vs generic: inconclusive: success vs defect(bad_access); structured vs offsets: inconclusive: success vs defect(bad_access); structured vs narrowed: inconclusive: success vs defect(bad_access)
+    operand order: ok [reference: agree] DISAGREE structured vs generic: output t1[0]: 0x1.aaaaaap-1:f32 vs 0x1.124924p+0:f32; structured vs offsets: output t1[0]: 0x1.aaaaaap-1:f32 vs 0x1.124924p+0:f32; structured vs narrowed: output t1[0]: 0x1.aaaaaap-1:f32 vs 0x1.124924p+0:f32
+    guard order: coord_out_of_range(t0, W) [reference: agree on failure: coord_out_of_range] DISAGREE structured vs generic: failure row: coord_out_of_range(t0, H)(0:i64, 0:i64, 0:i64, 1:i64, 4:i64, 0:i64) vs coord_out_of_range(t0, W)(0:i64, 0:i64, 0:i64, 1:i64, 4:i64, 0:i64); structured vs offsets: failure row: coord_out_of_range(t0, H)(0:i64, 0:i64, 0:i64, 1:i64, 4:i64, 0:i64) vs coord_out_of_range(t0, W)(0:i64, 0:i64, 0:i64, 1:i64, 4:i64, 0:i64); structured vs narrowed: failure row: coord_out_of_range(t0, H)(0:i64, 0:i64, 0:i64, 1:i64, 4:i64, 0:i64) vs coord_out_of_range(t0, W)(0:i64, 0:i64, 0:i64, 1:i64, 4:i64, 0:i64)
+    eager load: defect(bad_access) [reference: agree on failure: coord_out_of_range] DISAGREE structured vs generic: inconclusive: failure(coord_out_of_range(t0, W)) vs defect(bad_access); structured vs offsets: inconclusive: failure(coord_out_of_range(t0, W)) vs defect(bad_access); structured vs narrowed: inconclusive: failure(coord_out_of_range(t0, W)) vs defect(bad_access) |}]
 
 module B = Ssa_ir.Ssa_builder
 module F = Ssa_ir_test.Ssa_fixtures

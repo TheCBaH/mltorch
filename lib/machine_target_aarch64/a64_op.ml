@@ -199,6 +199,7 @@ type t =
   | Str_vec of Arr.t * v * int64 * v
       (** STR Qt or Dt, [Xn, #imm]: base, value *)
   | Sub of Sz.t * v * v
+  | Sub_imm of Sz.t * v * int64  (** SUB (immediate): imm12, optionally <<12 *)
   | Sxtw of v  (** X from W, sign-extended *)
   | Trunc of Mir_width.t * v
       (** UXTB, UXTH: a byte or halfword value from the low bits of a W *)
@@ -255,6 +256,7 @@ let uses = function
   | Msr_fpcr a
   | Scvtf (_, a)
   | Shift_imm (_, _, a, _)
+  | Sub_imm (_, a, _)
   | Sxtw a
   | Trunc (_, a)
   | Uxtw a
@@ -773,6 +775,10 @@ let typing op =
           if Mir_type.equal t u && not (Mir_type.equal t Mir_type.Ptr) then
             Ok [ t ]
           else Error "sub operand types")
+  | Sub_imm (sz, a, k) ->
+      let* () = need (arith sz (ty a)) "sub operand" in
+      let* () = need (imm12 k) "sub immediate" in
+      Ok [ ty a ]
   | Sxtw a | Uxtw a ->
       let* () = need (Mir_type.equal (ty a) Mir_type.i32) "extend source" in
       Ok [ Mir_type.i64 ]
@@ -887,6 +893,7 @@ let pp_op pv fmt op =
   | Str_vec (arr, base, k, x) ->
       Fmt.pf fmt "str.%s %a, [%a, #%Ld]" (Arr.name arr) pv x pv base k
   | Sub (sz, a, b) -> Fmt.pf fmt "sub.%s %a" (Sz.name sz) vs [ a; b ]
+  | Sub_imm (sz, a, k) -> Fmt.pf fmt "sub.%s %a, #%Ld" (Sz.name sz) pv a k
   | Sxtw a -> Fmt.pf fmt "sxtw %a" pv a
   | Uxtw a -> Fmt.pf fmt "uxtw %a" pv a
   | Trunc (w, a) ->

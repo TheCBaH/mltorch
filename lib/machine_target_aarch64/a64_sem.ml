@@ -311,6 +311,7 @@ let exec env op =
       match get x with
       | Mir_datum.Ptr p -> [ ptr_add env p (Int64.neg (bits env y)) ]
       | _ -> [ b (norm sz (Int64.sub (bits env x) (bits env y))) ])
+  | Sub_imm (sz, x, k) -> [ b (norm sz (Int64.sub (bits env x) k)) ]
   | Sxtw x -> [ b (Int64.of_int32 (Int64.to_int32 (bits env x))) ]
   | Trunc (w, x) -> [ b (Int64.logand (bits env x) (Mir_width.mask w)) ]
   | Uxtw x | Wtrunc x -> [ b (Int64.logand (bits env x) 0xFFFF_FFFFL) ]

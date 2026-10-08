@@ -32,6 +32,8 @@ end
     defect a comparison must detect. No consumer passes one. *)
 module Mutation : sig
   type t =
+    | Commuted_sub
+        (** a subtraction's left constant folded as if it were the right *)
     | Contiguous_lanes  (** a strided vector load read contiguously *)
     | Contract  (** a separate multiply and add selected as one [fmadd] *)
     | Dropped_half  (** a narrowing's upper half left zero *)
@@ -39,6 +41,7 @@ module Mutation : sig
         (** ordered less-than tested with [lt] (true when unordered) *)
     | Missing_failure_word
         (** the last word a record's kind defines not stored *)
+    | Pruned_live  (** values only a terminator reads pruned as unread *)
     | Signed_compare  (** an unsigned compare tested with a signed condition *)
 end
 
