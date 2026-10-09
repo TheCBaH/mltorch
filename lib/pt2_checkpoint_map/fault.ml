@@ -2,7 +2,7 @@ module Pair = struct
   type 'a t = { actual : 'a; expected : 'a }
 end
 
-type view = Config | Inventory | Signature
+type view = Computed | Config | Inventory | Signature | Source
 
 module Clash = struct
   type 'a t = { actual : 'a; against : view; expected : 'a; target : string }
@@ -14,6 +14,22 @@ end
 
 module Size_clash = struct
   type t = { actual : int64; expected : int64; target : string }
+end
+
+module Key_ref = struct
+  type t = { file : string; key : string; target : string }
+end
+
+module Source_digest = struct
+  type t = {
+    actual : Pt2_sha256.Digest.t;
+    expected : Pt2_sha256.Digest.t;
+    name : string;
+  }
+end
+
+module Stored_dtype = struct
+  type t = { actual : string; expected : Dtype.t; target : string }
 end
 
 module Over_limit = struct
@@ -51,20 +67,29 @@ type error =
   | `Inline_size of Size_clash.t
   | `Inventory_missing of string
   | `Inventory_surplus of string
+  | `Key_missing of Key_ref.t
   | `Kind_clash of capture_kind Clash.t
   | `Map_json_decode of string
   | `Missing_tensor of string
   | `Over_limit of Over_limit.t
   | `Pack_without_source of string
   | `Negative_extent of string
+  | `Safetensors_header of string * string
+  | `Safetensors_view of string * string
   | `Schema_version of int
   | `Shape_clash of int64 list Clash.t
+  | `Source_digest_mismatch of Source_digest.t
+  | `Source_missing of string
+  | `Source_size_mismatch of Size_clash.t
+  | `Source_surplus of string
+  | `Stored_dtype of Stored_dtype.t
   | `Surplus_tensor of string
   | `Unknown_dtype of string
   | `Unknown_source_file of string * string
   | `Unmapped of string list
   | `Unsupported_conversion of Cast.t
-  | `Value_digest_clash of Pt2_sha256.Digest.t Clash.t ]
+  | `Value_digest_clash of Pt2_sha256.Digest.t Clash.t
+  | `Value_length of Size_clash.t ]
 
 let pp_shape = Fmt.(hbox (brackets (list ~sep:semi int64)))
 
@@ -82,9 +107,11 @@ let pp_document ppf d =
 let pp_view ppf v =
   Fmt.string ppf
     (match v with
-    | Config -> "graph config"
+    | Computed -> "the prepared bytes"
+    | Config -> "the graph config"
     | Inventory -> "captures.json"
-    | Signature -> "graph signature")
+    | Signature -> "the graph signature"
+    | Source -> "the source header")
 
 let pp_kind ppf k =
   Fmt.string ppf
@@ -123,7 +150,7 @@ let pp_error ppf : error -> unit = function
       Fmt.pf ppf "a payload config lists %S, which the graph does not capture"
         target
   | `Dtype_clash { Clash.target; against; expected; actual } ->
-      Fmt.pf ppf "capture %S: %a says dtype %a, map says %a" target pp_view
+      Fmt.pf ppf "capture %S: per %a dtype is %a, map says %a" target pp_view
         against Dtype.pp expected Dtype.pp actual
   | `Duplicate (domain, name) ->
       Fmt.pf ppf "duplicate %a %S" pp_domain domain name
@@ -152,9 +179,11 @@ let pp_error ppf : error -> unit = function
   | `Inventory_surplus target ->
       Fmt.pf ppf "captures.json lists %S, which the graph does not capture"
         target
+  | `Key_missing { Key_ref.target; file; key } ->
+      Fmt.pf ppf "capture %S: %S has no tensor %S" target file key
   | `Kind_clash { Clash.target; against; expected; actual } ->
-      Fmt.pf ppf "capture %S: %a says %a, captures.json says %a" target pp_view
-        against pp_kind expected pp_kind actual
+      Fmt.pf ppf "capture %S: per %a kind is %a, captures.json says %a" target
+        pp_view against pp_kind expected pp_kind actual
   | `Map_json_decode m -> Fmt.pf ppf "failed to decode the checkpoint map: %s" m
   | `Missing_tensor target ->
       Fmt.pf ppf "capture %S has no entry in the map" target
@@ -166,11 +195,27 @@ let pp_error ppf : error -> unit = function
         target
   | `Negative_extent target ->
       Fmt.pf ppf "capture %S: a shape extent is negative" target
+  | `Safetensors_header (file, m) ->
+      Fmt.pf ppf "source %S is not a valid safetensors file: %s" file m
+  | `Safetensors_view (target, m) ->
+      Fmt.pf ppf "capture %S: cannot read its stored tensor: %s" target m
   | `Schema_version v ->
       Fmt.pf ppf "unsupported checkpoint map schema_version %d" v
   | `Shape_clash { Clash.target; against; expected; actual } ->
-      Fmt.pf ppf "capture %S: %a says shape %a, map says %a" target pp_view
+      Fmt.pf ppf "capture %S: per %a shape is %a, map says %a" target pp_view
         against pp_shape expected pp_shape actual
+  | `Source_digest_mismatch { Source_digest.name; actual; expected } ->
+      Fmt.pf ppf "source %S hashes to %a, the map pins %a" name
+        Pt2_sha256.Digest.pp actual Pt2_sha256.Digest.pp expected
+  | `Source_missing name -> Fmt.pf ppf "source %S was not supplied" name
+  | `Source_size_mismatch { Size_clash.target; expected; actual } ->
+      Fmt.pf ppf "source %S is %Ld bytes, the map pins %Ld" target actual
+        expected
+  | `Source_surplus name ->
+      Fmt.pf ppf "source %S was supplied but the map declares no such file" name
+  | `Stored_dtype { Stored_dtype.target; expected; actual } ->
+      Fmt.pf ppf "capture %S: the checkpoint stores %s, the map needs %a" target
+        actual Dtype.pp expected
   | `Surplus_tensor target ->
       Fmt.pf ppf "map entry %S is not a capture of the graph" target
   | `Unknown_dtype code -> Fmt.pf ppf "unknown dtype code %S" code
@@ -184,5 +229,8 @@ let pp_error ppf : error -> unit = function
       Fmt.pf ppf "capture %S: conversion %a to %a is not implemented" target
         Dtype.pp from Dtype.pp to_
   | `Value_digest_clash { Clash.target; against; expected; actual } ->
-      Fmt.pf ppf "capture %S: %a says digest %a, map says %a" target pp_view
+      Fmt.pf ppf "capture %S: per %a digest is %a, map says %a" target pp_view
         against Pt2_sha256.Digest.pp expected Pt2_sha256.Digest.pp actual
+  | `Value_length { Size_clash.target; expected; actual } ->
+      Fmt.pf ppf "capture %S: prepared value is %Ld bytes, the shape needs %Ld"
+        target actual expected

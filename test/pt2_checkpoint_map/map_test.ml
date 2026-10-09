@@ -160,16 +160,14 @@ let%expect_test "origins are consistent with their entries" =
 
 let%expect_test "pack needs the graph-owned source and pins are well formed" =
   decode_map
-    (replace
-       ~sub:
-         (jstr {|,"graph_owned":%s|}
-            (file_pin ~name:"pack.safetensors" ~extra:""))
-       ~by:"" map_json);
+    (replace ~sub:(jstr {|,"graph_owned":%s|} (pack_pin ())) ~by:"" map_json);
   let t sub by = decode_map (replace ~sub ~by map_json) in
   t {|"name":"toy.safetensors"|} {|"name":"a/b"|};
   t {|"name":"toy.safetensors"|} {|"name":".."|};
   t {|"name":"toy.safetensors"|} {|"name":""|};
-  t {|"size":1000,"url":"https://example.org/toy.safetensors"|}
+  t
+    (jstr {|"size":%d,"url":"https://example.org/toy.safetensors"|}
+       (String.length toy_bytes))
     {|"size":0,"url":"https://example.org/toy.safetensors"|};
   t {|"url":"https://example.org/toy.safetensors"|}
     {|"url":"http://example.org/toy.safetensors"|};
@@ -219,7 +217,7 @@ let%expect_test "duplicates and limits" =
     duplicate capture "w"
     capture count is 6, over the limit 5
     checkpoint file count is 1, over the limit 0
-    document size is 1785, over the limit 100
+    document size is 1782, over the limit 100
     inline value size is 4, over the limit 3
     tensor rank is 2, over the limit 1
     tensor byte size is 24, over the limit 20 |}]
@@ -373,17 +371,17 @@ let%expect_test "each capture against the graph, the inventory and its digest" =
   [%expect
     {|
     -- kind
-    capture "h": graph signature says PARAMETER, captures.json says BUFFER
+    capture "h": per the graph signature kind is PARAMETER, captures.json says BUFFER
     -- dtype: config, then inventory
-    capture "h": graph config says dtype I64, map says F32
-    capture "h": captures.json says dtype I64, map says F32
+    capture "h": per the graph config dtype is I64, map says F32
+    capture "h": per captures.json dtype is I64, map says F32
     -- shape: config, then inventory
-    capture "h": graph config says shape [3], map says [2]
-    capture "h": captures.json says shape [3], map says [2]
+    capture "h": per the graph config shape is [3], map says [2]
+    capture "h": per captures.json shape is [3], map says [2]
     -- layout
     capture "w": graph tensor is not a dense row-major buffer
     -- value digest
-    capture "h": captures.json says digest 621e6b9d912e2d0c9b2fc35bfd56ec75345026a6e61d0821763646eabacf47aa, map says 252b3318179cc24998f3670913d52d39085cf65b0dfa98fa523ffeab4b6683fe
+    capture "h": per captures.json digest is 621e6b9d912e2d0c9b2fc35bfd56ec75345026a6e61d0821763646eabacf47aa, map says 252b3318179cc24998f3670913d52d39085cf65b0dfa98fa523ffeab4b6683fe
     -- conversions
     ok
     capture "h": conversion F64 to F32 is not implemented

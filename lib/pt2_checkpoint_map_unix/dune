@@ -1,0 +1,8 @@
+; Native side of the checkpoint-map v2 source: map local files as bigstrings for
+; Pt2_checkpoint_map.Prepare. Never reached by js_of_ocaml (the mmap is unix),
+; which is why it is not folded into lib/pt2_checkpoint_map. Acquisition --
+; cache, Hub, release assets -- is a later layer on the same interface.
+
+(library
+ (name pt2_checkpoint_map_unix)
+ (libraries err_trace fmt pt2_checkpoint_map safetensors unix))

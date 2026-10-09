@@ -7,4 +7,6 @@ module Document = Document
 module Dtype = Dtype
 module Fault = Fault
 module Limits = Limits
+module Prepare = Prepare
 module Validate = Validate
+module Widen = Widen

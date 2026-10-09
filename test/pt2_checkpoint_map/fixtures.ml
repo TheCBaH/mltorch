@@ -91,20 +91,80 @@ let captures_json ?(graph_sha256 = fun s -> s) ?(artifact_id = artifact_id)
        ])
     (graph_sha256 (Pt2_sha256.Digest.to_hex (Pt2_sha256.string graph)))
 
-let file_pin ~name ~extra =
-  jstr {|{"name":%S,"sha256":%S,"size":1000,"url":"https://example.org/%s"%s}|}
-    name (String.make 64 'c') name extra
+(* --- sources: real safetensors bytes, so the pins below are the files' --- *)
+
+let le32 f =
+  let b = Bytes.create 4 in
+  Bytes.set_int32_le b 0 (Int32.bits_of_float f);
+  Bytes.to_string b
+
+let le64 i =
+  let b = Bytes.create 8 in
+  Bytes.set_int64_le b 0 i;
+  Bytes.to_string b
+
+(* A safetensors file: header length, JSON header, then the tensors back to
+   back in the order given. *)
+let safetensors items =
+  let _, parts =
+    List.fold_left
+      (fun (off, acc) (name, dtype, shape, raw) ->
+        let len = String.length raw in
+        ( off + len,
+          jstr {|%S:{"dtype":%S,"shape":[%s],"data_offsets":[%d,%d]}|} name
+            dtype
+            (String.concat "," (List.map string_of_int shape))
+            off (off + len)
+          :: acc ))
+      (0, []) items
+  in
+  let header = "{" ^ String.concat "," (List.rev parts) ^ "}" in
+  let prefix = Bytes.create 8 in
+  Bytes.set_int64_le prefix 0 (Int64.of_int (String.length header));
+  Bytes.to_string prefix ^ header
+  ^ String.concat "" (List.map (fun (_, _, _, r) -> r) items)
+
+let w_bytes = String.concat "" (List.map le32 [ 0.; 1.; 2.; 3.; 4.; 5. ])
+let h_stored = "\xc0\x3f\x00\xc0" (* BF16 1.5, -2.0 *)
+let k_bytes = String.concat "" (List.map le32 [ 7.; 8. ])
+
+let toy_bytes =
+  safetensors
+    [
+      ("model.w", "F32", [ 2; 3 ], w_bytes);
+      ("model.h", "BF16", [ 2 ], h_stored);
+      ( "model.other",
+        "I64",
+        [ 3 ],
+        String.concat "" [ le64 5L; le64 6L; le64 7L ] );
+    ]
+
+let pack_bytes = safetensors [ ("k", "F32", [ 2 ], k_bytes) ]
+let hex_of s = Pt2_sha256.Digest.to_hex (Pt2_sha256.string s)
+
+let file_pin ?(sha = "") ?(size = -1) ~name ~data ~extra () =
+  jstr {|{"name":%S,"sha256":%S,"size":%d,"url":"https://example.org/%s"%s}|}
+    name
+    (if sha = "" then hex_of data else sha)
+    (if size < 0 then String.length data else size)
+    name extra
 
 let rev = String.make 40 'a'
+
+let toy_pin ?sha ?size () =
+  file_pin ?sha ?size ~name:"toy.safetensors" ~data:toy_bytes
+    ~extra:(jstr {|,"repo_id":"o/toy","revision":"%s"|} rev)
+    ()
+
+let pack_pin () =
+  file_pin ~name:"pack.safetensors" ~data:pack_bytes ~extra:"" ()
 
 let map_json =
   jstr
     {|{"schema_version":2,"artifact_id":%S,"graph_sha256":%S,"model_id":"toy","sources":{"checkpoint":{"files":[%s]},"graph_owned":%s},"tensors":{%s},"unmapped":[]}|}
     artifact_id
     (Pt2_sha256.Digest.to_hex (Pt2_sha256.string program_json))
-    (file_pin ~name:"toy.safetensors"
-       ~extra:(jstr {|,"repo_id":"o/toy","revision":"%s"|} rev))
-    (file_pin ~name:"pack.safetensors" ~extra:"")
+    (toy_pin ()) (pack_pin ())
     (String.concat ","
        [
          jstr

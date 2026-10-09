@@ -1,0 +1,17 @@
+; Mapping real files: the prepared captures must outlive the descriptors, the
+; host's own references and the files themselves. Native only (mmap).
+
+(library
+ (name pt2_checkpoint_map_unix_test)
+ (libraries
+  err_trace
+  fmt
+  pt2
+  pt2_checkpoint_map
+  pt2_checkpoint_map_test
+  pt2_checkpoint_map_unix
+  pt2_sha256
+  unix)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

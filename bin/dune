@@ -313,4 +313,6 @@
   jsont.bytesrw
   pt2
   pt2_checkpoint_map
-  pt2_sha256))
+  pt2_checkpoint_map_unix
+  pt2_sha256
+  unix))

@@ -15,4 +15,5 @@
   pt2
   pt2_sha256
   pytorch_types
+  safetensors
   schema_runtime))

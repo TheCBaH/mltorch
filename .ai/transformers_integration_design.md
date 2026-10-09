@@ -368,3 +368,32 @@ is opened.
 source file read. All 35 released bundles of `checkpoint-003207ae59ed`
 validate; 19 single-fault mutations of one bundle are each refused at the
 intended check.
+
+## 14. Source verification and capture preparation (implemented)
+
+`Prepare.verify_sources` takes the bytes of every declared file as bigstrings
+the host owns (`lib/pt2_checkpoint_map_unix` maps local files; later layers add
+cache and download) and checks them in order: exact name set, size, whole-file
+SHA-256, then the safetensors header. `Prepare.capture_set` then produces each
+capture from its origin and proves it: an uncast checkpoint or pack tensor is a
+zero-copy view after dtype and shape checks against the stored header; a
+widening, `fill` or inline value is an owned copy; every result's byte length
+and SHA-256 must equal the map's pin. The set exists only if every capture,
+unused ones included, passed, and it returns the same storage on every lookup.
+Allocations are bounded per buffer (a js_of_ocaml-safe ceiling) and in
+aggregate with the mapped sources, before the allocation happens.
+
+`Widen` converts BF16 and F16 to binary32 by integer bit manipulation only, so
+signed zero, subnormals, infinities and NaN payloads cannot be altered by a
+float round trip or differ on JavaScript. BF16 is the 16 bits followed by zero
+bits. F16 renormalizes subnormals and makes a NaN quiet while keeping its sign
+and payload, matching the hardware conversions torch uses; no released map
+contains an F16 source, so that rule rests on tests, not a release digest.
+All 65,536 patterns of both formats are checked against tables computed in
+Python.
+
+Measured against the released data (checkpoint-003207ae59ed): BERT 42 and
+MobileViT 347 captures (uncast), the SmolVLM connector (a 28 MB BF16 to F32
+cast from the 513 MB Hub checkpoint) and the 55 TinyCLIP text-tower captures
+all reproduce the map's digests in OCaml; the hashing is pure OCaml at about
+127 MB/s.

@@ -1,4 +1,4 @@
-(** What can be wrong with a checkpoint map, before any source is read. Payloads
+(** What can be wrong with a checkpoint map or the sources it names. Payloads
     carry the data that identifies the defect -- capture target, both digests,
     both shapes -- never a rendered message; {!pp} renders them. *)
 
@@ -8,11 +8,14 @@ module Pair : sig
 end
 
 type view =
+  | Computed
   | Config
   | Inventory
   | Signature
-      (** What a capture's expected value was read from: a payload config, the
-          producer's [captures.json], or the graph signature. *)
+  | Source
+      (** What a capture's expected value was read from: the bytes just
+          prepared, a payload config, the producer's [captures.json], the graph
+          signature or a source file's own header. *)
 
 module Clash : sig
   type 'a t = { actual : 'a; against : view; expected : 'a; target : string }
@@ -26,6 +29,24 @@ end
 
 module Size_clash : sig
   type t = { actual : int64; expected : int64; target : string }
+end
+
+module Key_ref : sig
+  type t = { file : string; key : string; target : string }
+end
+
+module Source_digest : sig
+  type t = {
+    actual : Pt2_sha256.Digest.t;
+    expected : Pt2_sha256.Digest.t;
+    name : string;
+  }
+end
+
+module Stored_dtype : sig
+  type t = { actual : string; expected : Dtype.t; target : string }
+  (** [actual] is the checkpoint's own dtype code, which need not be one of the
+      map's. *)
 end
 
 module Over_limit : sig
@@ -64,19 +85,28 @@ type error =
   | `Inline_size of Size_clash.t
   | `Inventory_missing of string
   | `Inventory_surplus of string
+  | `Key_missing of Key_ref.t
   | `Kind_clash of capture_kind Clash.t
   | `Map_json_decode of string
   | `Missing_tensor of string
   | `Over_limit of Over_limit.t
   | `Pack_without_source of string
   | `Negative_extent of string
+  | `Safetensors_header of string * string
+  | `Safetensors_view of string * string
   | `Schema_version of int
   | `Shape_clash of int64 list Clash.t
+  | `Source_digest_mismatch of Source_digest.t
+  | `Source_missing of string
+  | `Source_size_mismatch of Size_clash.t
+  | `Source_surplus of string
+  | `Stored_dtype of Stored_dtype.t
   | `Surplus_tensor of string
   | `Unknown_dtype of string
   | `Unknown_source_file of string * string
   | `Unmapped of string list
   | `Unsupported_conversion of Cast.t
-  | `Value_digest_clash of Pt2_sha256.Digest.t Clash.t ]
+  | `Value_digest_clash of Pt2_sha256.Digest.t Clash.t
+  | `Value_length of Size_clash.t ]
 
 val pp_error : error Fmt.t
