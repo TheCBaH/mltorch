@@ -6,6 +6,8 @@ open Machine_ir
 type t =
   | Address_offset of { symbol : string; addend : int64 }
       (** a symbol offset the form cannot carry *)
+  | Cpu_feature of string  (** a feature this CPU does not report *)
+  | Cpu_unknown  (** a CPU whose features cannot be read *)
   | Form of string  (** a selected form Rivet has no instruction for *)
   | Frame_access of { bytes : int64; bank : Mir_target.Bank.t }
       (** a save or reload of a width or register file with no scalar form *)
@@ -22,6 +24,8 @@ type t =
 let pp fmt = function
   | Address_offset { symbol; addend } ->
       Fmt.pf fmt "symbol %s+%Ld: an offset no form carries" symbol addend
+  | Cpu_feature f -> Fmt.pf fmt "this CPU does not report feature %s" f
+  | Cpu_unknown -> Fmt.string fmt "this CPU's features cannot be read"
   | Form f -> Fmt.pf fmt "no Rivet instruction for %s" f
   | Frame_access { bytes; bank } ->
       Fmt.pf fmt "no scalar form moves %Ld bytes of the %s bank" bytes

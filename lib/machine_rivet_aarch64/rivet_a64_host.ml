@@ -22,11 +22,13 @@ type kernel = {
   record_slot : int;
   sites : Mir_failure.Site_entry.t array;
   loaded : I.t;
+  manifest : Rivet_a64_manifest.t;
 }
 
 type t = { model : Mm.t; kernels : kernel list }
 
 let model t = t.model
+let manifests t = List.map (fun k -> k.manifest) t.kernels
 let invocations t = List.length t.kernels
 
 let slot_index slots region =
@@ -76,8 +78,12 @@ let prepare ?check ?(allocation = Rt.Allocation.Reference)
                   I.close loaded;
                   Error "the failure record is not a table region"
               | Some record_slot ->
+                  let manifest =
+                    Rivet_a64_manifest.make ~runtime
+                      ~binding:Rivet_a64_module.Table artifact
+                  in
                   let kernel =
-                    { view = v; slots; record_slot; sites; loaded }
+                    { view = v; slots; record_slot; sites; loaded; manifest }
                   in
                   close_with kernel;
                   Ok kernel
