@@ -133,4 +133,4 @@ models run bitwise under both allocators with `system_libm`, and their images
 agree with GNU's.
 
 Logical work counters (`Event`) are not executed natively and are not compared.
-x86-64 and are not covered here.
+x86-64 is not covered here.
