@@ -84,6 +84,22 @@ helpers through Rivet's typed trampolines to this process's libm
 (`system_libm`); the static process has no libm, so there `system_libm` is only
 meaningful with the probe's stubs.
 
+## Vectors
+
+Packed forms are SSE2 on XMM registers (FMA and SSE4.1 only under their
+features). The selector takes, besides the arithmetic: packed compares into masks
+(`CMPPS/CMPPD`, predicates equal, less, less-or-equal, unordered; a mask is a
+register with every bit of a lane set or clear, so a NaN is false for every
+ordered compare); mask logic and not (`pcmpeqd` makes the ones); a mask select as
+`b ^ ((a ^ b) & m)`; a predicate splatted to a mask; IEEE maximum from `MAXPS`
+repaired as the scalar `fmax` is, with masks; a strided load or store as one
+scalar access per lane in lane order; and a lane insert from `SHUFPS/SHUFPD`
+alone (the scalar is splatted, then lanes are picked from it and the vector;
+`INSERTPS` would need SSE4.1). A tie needs equal types, so the destructive
+compare takes a mask-typed copy of its first operand (`Movap_to_mask`). Still
+refused: half-width compares, and any vector the split leaves in a shape that is
+not four binary32 or two binary64 lanes.
+
 ## Host
 
 `Rivet_x64_host` is the AArch64 host over this target: each invocation is
@@ -122,7 +138,7 @@ flags and the buffer. The model is `X64_sem.exec` on the same operands under the
 form's defined bits, `result_write` mask and flag mask. A NaN is one class
 (payload and sign are not modelled and the CPU's default NaN differs from the
 interpreter host's); a pointer result is compared as its offset from the base.
-`--gnu` checks each form's module against the cross binutils. Four model
+`--gnu` checks each form's module against the cross binutils. Five model
 mutations and two mapping mutations must be seen; the immediates around the byte
 rung (127, 128, 255, 256, -128, -129) are enumerated because the form that
 motivated them was wrong only there.

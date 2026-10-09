@@ -179,6 +179,8 @@ let exec env op =
       let t =
         match p with
         | Cmp_pred.Eq -> a = c
+        | Cmp_pred.Le -> a <= c
+        | Cmp_pred.Lt -> a < c
         | Cmp_pred.Unord -> Float.is_nan a || Float.is_nan c
       in
       [ b (if t then ones fsz else 0L) ]
@@ -271,7 +273,7 @@ let exec env op =
             ~align:1L l)
         (lanes env x);
       []
-  | Mov (_, x) | Movap x -> [ get x ]
+  | Mov (_, x) | Movap x | Movap_to_mask (_, x) -> [ get x ]
   | Mov_imm (_, k) -> [ b k ]
   | Movq_from_gpr (_, x) | Movq_to_gpr (_, x) -> [ b (bits env x) ]
   | Movsxd x -> [ b (Int64.of_int32 (Int64.to_int32 (bits env x))) ]
@@ -305,6 +307,34 @@ let exec env op =
                    N.of_f64
                      (Float.fma (N.f64 p.(j)) (N.f64 q.(j)) (N.f64 c.(j)))));
       ]
+  | Pcmp (p, pk, x, y) ->
+      let fsz = Pk.fsz pk in
+      [
+        vec
+          (Array.map2
+             (fun l r ->
+               let a = fval fsz l and c = fval fsz r in
+               if
+                 match p with
+                 | Cmp_pred.Eq -> a = c
+                 | Cmp_pred.Le -> a <= c
+                 | Cmp_pred.Lt -> a < c
+                 | Cmp_pred.Unord -> Float.is_nan a || Float.is_nan c
+               then fmask fsz
+               else 0L)
+             (lanes env x) (lanes env y));
+      ]
+  | Pones pk -> [ vec (Array.make (Pk.lanes pk) (fmask (Pk.fsz pk))) ]
+  | Pshuf (pk, k, x, y) ->
+      let a = lanes env x and c = lanes env y in
+      [
+        vec
+          (match pk with
+          | Pk.Ps ->
+              let pick j = (k lsr (2 * j)) land 3 in
+              [| a.(pick 0); a.(pick 1); c.(pick 2); c.(pick 3) |]
+          | Pk.Pd -> [| a.(k land 1); c.((k lsr 1) land 1) |]);
+      ]
   | Plogic (o, pk, x, y) ->
       let m = fmask (Pk.fsz pk) in
       [
@@ -321,7 +351,8 @@ let exec env op =
       ]
   | Pshufd_half x -> [ vec (Array.sub (lanes env x) 2 2) ]
   | Pshufd_lane (_, k, x) -> [ b (lanes env x).(k) ]
-  | Pshufd_splat (pk, x) -> [ vec (Array.make (Pk.lanes pk) (bits env x)) ]
+  | Pshufd_splat (pk, x) | Pshufd_splat_mask (pk, x) ->
+      [ vec (Array.make (Pk.lanes pk) (bits env x)) ]
   | Psqrt (pk, x) ->
       let fsz = Pk.fsz pk in
       [

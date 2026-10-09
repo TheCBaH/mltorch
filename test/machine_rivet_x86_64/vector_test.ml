@@ -88,3 +88,54 @@ let%expect_test "relaxed binary32 as fused multiply-add" =
     {|
     not built: selection: needs fma, which the program's features do not include
     ok [process: agree] |}]
+
+(* the input read transposed: lane k of an output row reads down a column *)
+let transposed =
+  let at a = Expr.Index.output a in
+  Expr.Value.load
+    (Expr_bridge.source_of_id (tid 0))
+    (Expr.Coord.set
+       (Expr.Coord.set
+          (Expr_bridge.coord_of_vec6 Symbolic.out_vec)
+          Expr.Axis.W (at Expr.Axis.H))
+       Expr.Axis.H (at Expr.Axis.W))
+
+(* Masks and strided lanes in the process, on the CPU: packed compares, bitwise
+   selects, and lane inserts built from SHUFPS. *)
+let%expect_test "masks and strided access as processes" =
+  let zero = Expr.Value.const 0. in
+  List.iter
+    (fun (name, body) ->
+      List.iter
+        (fun n ->
+          Fmt.pr "%s, w=%d: " name n;
+          let d = data n in
+          d.(0) <- Float.nan;
+          d.(1) <- -0.;
+          d.(2) <- 0.;
+          d.(3) <- 3.4e38;
+          let shape = Loop_fixtures.shape_w n in
+          show
+            (Loop_fixtures.pixel_kernel ~shape body)
+            ~bind:(bind_data ~shape d))
+        [ 16; 37 ])
+    [
+      ( "x < 0 ? -x : x / 3",
+        Expr.Value.(
+          select (Expr.Bool.value_lt x zero) (sub zero x) (div x (const 3.))) );
+      ( "x == 0 ? 0 : 1",
+        Expr.Value.(select (Expr.Bool.value_eq x zero) (const 0.) (const 1.)) );
+    ];
+  let square = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:17 ~w:17 ~c:1 in
+  Fmt.pr "transposed read: ";
+  show
+    ~target:(Ssa_ir.Ssa_target.forced Ssa_ir.Ssa_target.neon128)
+    (Loop_fixtures.pixel_kernel ~shape:square transposed)
+    ~bind:(bind_data ~shape:square (data (17 * 17)));
+  [%expect
+    {|
+    x < 0 ? -x : x / 3, w=16: ok [process: agree]
+    x < 0 ? -x : x / 3, w=37: ok [process: agree]
+    x == 0 ? 0 : 1, w=16: ok [process: agree]
+    x == 0 ? 0 : 1, w=37: ok [process: agree]
+    transposed read: ok [process: agree] |}]

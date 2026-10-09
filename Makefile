@@ -1161,7 +1161,7 @@ machine.rivet.x64.runtest: rivet.install
 # qemu-user) against the interpreter's semantics, with the model and mapping
 # mutations that must be caught.
 RIVET_X64_CONFORMANCE = _build/default/test/machine_rivet_x86_64/conformance/rivet_x64_conformance.exe
-MACHINE_X64_MUTATIONS = cmp-carry fma-unfused max-zero ucomi-nan
+MACHINE_X64_MUTATIONS = cmp-carry fma-unfused max-zero pcmp-lt ucomi-nan
 machine.rivet.x64.conformance: rivet.install
 	opam exec -- dune build test/machine_rivet_x86_64/conformance
 	$(RIVET_X64_CONFORMANCE)

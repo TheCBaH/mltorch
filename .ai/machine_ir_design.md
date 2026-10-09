@@ -585,7 +585,7 @@ which needs ZF and not PF, two conditions; `Fused_float_eq` fuses it anyway
 and is caught. MXCSR moves
 only through memory,
 which the late-form contract does not admit, so x86-64 frames leave it to the
-native entry wrapper. Native per-form conformance needs an x86-64 runner.
+native entry wrapper. Per-form conformance runs on the CPU of an x86-64 host.
 
 
 **Vectors** (M11.2): after the same split, SSE2 packed forms on XMM
@@ -594,8 +594,15 @@ splat of -0, `cvtps2pd`/`cvtpd2ps` for the half-slice conversions, `movq` for
 a half and its widening, `pshufd` for a splat, a lane and the upper half,
 `movlhps` to join halves, `movups/pd` for contiguous access, a scalar load
 then a splat for a broadcast; `vfmadd231ps/pd` only under FMA. `maxps` is
-not IEEE maximum, SSE2 has no lane insert, and a strided access has no
-packed form: each is a typed refusal here.
+not IEEE maximum, so a packed maximum is the scalar sequence on masks (equal
+operands their AND, a NaN operand their sum). A packed compare is `cmpps/pd`
+into a mask (a register with every bit of a lane set or clear; a NaN is false
+for every ordered predicate), masks combine with `andp/orp/xorp`, not is an xor
+with `pcmpeqd`'s ones, and a select is `b ^ ((a ^ b) & m)`. SSE2 has no lane
+insert, so one is a splat of the scalar and two `shufps/pd` picking lanes from
+it and from the vector; a strided access is one scalar access per lane, a
+load joined by those inserts. A tie needs equal types, so the destructive
+compare takes a mask-typed copy of its first operand.
 
 ## Allocated stage, checking and reference allocation
 

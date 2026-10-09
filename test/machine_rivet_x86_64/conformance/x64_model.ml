@@ -116,7 +116,7 @@ let lane_ty (t : Mir_type.t) =
    one. *)
 type operand = { datum : Mir_datum.t; lo : int64; hi : int64 }
 
-let operand st (ty : Mir_type.t) k =
+let rec operand st (ty : Mir_type.t) k =
   let scalar f32 f64 =
     match k with
     | Some k -> (pick f32 k, pick f64 k)
@@ -148,6 +148,10 @@ let operand st (ty : Mir_type.t) k =
             | None -> rand_f64 st)
       in
       { datum = Mir_datum.Lanes lanes; lo = lanes.(0); hi = lanes.(1) }
+  | Mir_type.Mask n when Mir_type.Lanes.to_int n = 2 ->
+      operand st (Mir_type.Vec (Mir_type.Elem.F64, n)) k
+  | Mir_type.Mask n when Mir_type.Lanes.to_int n = 4 ->
+      operand st (Mir_type.Vec (Mir_type.Elem.F32, n)) k
   | Mir_type.Vec (Mir_type.Elem.F32, n) ->
       let n = Mir_type.Lanes.to_int n in
       let lanes =
@@ -167,13 +171,14 @@ let operand st (ty : Mir_type.t) k =
 (* ---- the interpreter side ----------------------------------------------------- *)
 
 module Mutation = struct
-  type t = Cmp_carry | Fma_unfused | Max_zero | Ucomi_nan
+  type t = Cmp_carry | Fma_unfused | Max_zero | Pcmp_lt | Ucomi_nan
 
   let all =
     [
       ("cmp-carry", Cmp_carry);
       ("fma-unfused", Fma_unfused);
       ("max-zero", Max_zero);
+      ("pcmp-lt", Pcmp_lt);
       ("ucomi-nan", Ucomi_nan);
     ]
 end
@@ -201,6 +206,8 @@ let semantics mutation env op =
       let x = Int64.float_of_bits (bits a)
       and y = Int64.float_of_bits (bits b) in
       if x = 0. && y = 0. then [ Mir_datum.Bits (bits a) ] else real ()
+  | Some Mutation.Pcmp_lt, Pcmp (Cmp_pred.Lt, pk, a, b) ->
+      X64_sem.exec env (Pcmp (Cmp_pred.Le, pk, a, b))
   | Some Mutation.Ucomi_nan, Ucomis (fsz, a, b) ->
       let f v =
         match fsz with
@@ -297,6 +304,7 @@ let pack_lanes (t : Mir_type.t) (l : int64 array) =
   match t with
   | Mir_type.Vec (Mir_type.Elem.F64, _) ->
       (l.(0), if Array.length l > 1 then l.(1) else 0L)
+  | Mir_type.Mask n when Mir_type.Lanes.to_int n = 2 -> (l.(0), l.(1))
   | _ ->
       let g j = if j < Array.length l then l.(j) else 0L in
       let pack a b =
@@ -413,7 +421,7 @@ let predict mutation (f : X64_forms.t) (v : vector) : prediction =
                     mask_lo = keep;
                     mask_hi = 0L;
                   })
-        | Mir_type.Vec _, Mir_datum.Lanes l ->
+        | (Mir_type.Vec _ | Mir_type.Mask _), Mir_datum.Lanes l ->
             let lo, hi = pack_lanes ty l in
             let mlo, mhi = half_mask_of_ty ty in
             let mlo, mhi =

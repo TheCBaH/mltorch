@@ -129,11 +129,13 @@ module Flogic = struct
     | Xor -> "xorp"
 end
 
-(* CMPSD/CMPSS predicates admitted: 0 (equal, ordered) and 3 (unordered). *)
+(* CMPSD/CMPSS and CMPPS/CMPPD predicates admitted: 0 (equal, ordered), 1
+   (less than, ordered), 2 (less or equal, ordered) and 3 (unordered). *)
 module Cmp_pred = struct
-  type t = Eq | Unord
+  type t = Eq | Le | Lt | Unord
 
-  let name = function Eq -> "eq" | Unord -> "unord"
+  let imm = function Eq -> 0L | Lt -> 1L | Le -> 2L | Unord -> 3L
+  let name = function Eq -> "eq" | Le -> "le" | Lt -> "lt" | Unord -> "unord"
 end
 
 (* A packed format: four binary32 lanes (PS) or two binary64 lanes (PD) of an
@@ -149,6 +151,9 @@ module Pk = struct
       ( (match t with Pd -> Mir_type.Elem.F64 | Ps -> Mir_type.Elem.F32),
         Mir_type.Lanes.of_int (lanes t) )
 
+  (* the mask a packed compare of these lanes fills: every bit of a lane set or
+     clear *)
+  let mask_ty t = Mir_type.Mask (Mir_type.Lanes.of_int (lanes t))
   let name = function Pd -> "pd" | Ps -> "ps"
 end
 
@@ -198,6 +203,7 @@ type t =
   | Mov of Sz.t * v
   | Mov_imm of Mir_type.t * int64  (** MOV r32, imm32 or MOVABS r64, imm64 *)
   | Movap of v  (** MOVAPS/MOVAPD register copy *)
+  | Movap_to_mask of Pk.t * v  (** the same, the copy typed as a mask *)
   | Movlhps of v * v
       (** MOVLHPS: the half as the upper 64 bits, tied to the vector *)
   | Movq_from_gpr of Fsz.t * v
@@ -209,13 +215,26 @@ type t =
   | Movsxd of v
   | Movzx32 of v  (** MOV r32, r32: a 32-bit value zero-extended *)
   | Neg of Sz.t * v
-  | Pbin of Fop.t * Pk.t * v * v  (** ADDPS … SUBPD, tied; no MAXPS *)
+  | Pbin of Fop.t * Pk.t * v * v
+      (** ADDPS … SUBPD, tied; MAXPS is not IEEE maximum, as for {!Fbin} *)
+  | Pcmp of Cmp_pred.t * Pk.t * v * v
+      (** CMPPS/CMPPD: a mask, every bit of a lane set where the compare holds;
+          tied to the first operand, which is a copy typed as the mask
+          ({!Movap_to_mask}) because a tie needs equal types *)
   | Pfmadd231 of Pk.t * v * v * v
       (** VFMADD231PS/PD: [a * b + c] a lane, tied to [c] *)
-  | Plogic of Flogic.t * Pk.t * v * v  (** ANDPS … XORPD, tied *)
+  | Plogic of Flogic.t * Pk.t * v * v
+      (** ANDPS … XORPD, tied; the operands are vectors or masks of the lanes,
+          and the result has the first operand's type *)
+  | Pones of Pk.t  (** PCMPEQD r, r: a mask with every bit set *)
+  | Pshuf of Pk.t * int * v * v
+      (** SHUFPS/SHUFPD: lanes from the first operand, then from the second,
+          chosen by the immediate; tied to the first *)
   | Pshufd_half of v  (** PSHUFD 0xEE: a PS vector's high half, low *)
   | Pshufd_lane of Fsz.t * int * v  (** PSHUFD: lane [k] to lane 0, a scalar *)
   | Pshufd_splat of Pk.t * v  (** PSHUFD 0x00 or 0x44: a scalar to every lane *)
+  | Pshufd_splat_mask of Pk.t * v
+      (** the same, the scalar's bits taken as a lane of a mask *)
   | Psqrt of Pk.t * v  (** SQRTPS/SQRTPD *)
   | Round_trunc of Fsz.t * v  (** ROUNDSD/ROUNDSS with immediate 3 *)
   | Setcc_zx of Cond.t * v
@@ -240,7 +259,9 @@ let uses = function
   | Flogic (_, _, a, b)
   | Movlhps (a, b)
   | Pbin (_, _, a, b)
+  | Pcmp (_, _, a, b)
   | Plogic (_, _, a, b)
+  | Pshuf (_, _, a, b)
   | Imul (_, a, b)
   | Test (_, a, b)
   | Ucomis (_, a, b) ->
@@ -258,6 +279,7 @@ let uses = function
   | Lea (a, _)
   | Mov (_, a)
   | Movap a
+  | Movap_to_mask (_, a)
   | Movq_from_gpr (_, a)
   | Movq_low a
   | Movq_to_gpr (_, a)
@@ -268,6 +290,7 @@ let uses = function
   | Pshufd_half a
   | Pshufd_lane (_, _, a)
   | Pshufd_splat (_, a)
+  | Pshufd_splat_mask (_, a)
   | Psqrt (_, a)
   | Round_trunc (_, a)
   | Setcc_zx (_, a)
@@ -279,7 +302,7 @@ let uses = function
   | Call { args; _ } -> args
   | Cmov (_, _, f, a, b) -> [ f; a; b ]
   | Fmadd231 (_, a, b, c) | Pfmadd231 (_, a, b, c) -> [ a; b; c ]
-  | Lea_view _ | Mov_imm _ -> []
+  | Lea_view _ | Mov_imm _ | Pones _ -> []
   | Load (_, addr) | Movup_load (_, addr) -> Addr.uses addr
   | Movup_store (_, addr, x) | Store (_, addr, x) -> Addr.uses addr @ [ x ]
 
@@ -294,7 +317,7 @@ let tied0 = [ Mir_target.Constraint.Tied { result = 0; use = 0 } ]
 
 let constraints = function
   | Alu _ | Alu_imm _ | Cmps _ | Fbin _ | Flogic _ | Imul _ | Movlhps _ | Neg _
-  | Pbin _ | Plogic _ | Shift_imm _ ->
+  | Pbin _ | Pcmp _ | Plogic _ | Pshuf _ | Shift_imm _ ->
       tied0
   | Cmov _ | Fmadd231 _ | Pfmadd231 _ ->
       [ Mir_target.Constraint.Tied { result = 0; use = 2 } ]
@@ -383,9 +406,10 @@ let op_features = function
   | Fmadd231 _ | Pfmadd231 _ -> [ Mir_target.Feature.Fma ]
   | Round_trunc _ -> [ Mir_target.Feature.Sse41 ]
   | Cmps _ | Cvt _ | Cvtpd2ps _ | Cvtps2pd _ | Cvtsi2s _ | Cvtts2si _ | Fbin _
-  | Flogic _ | Movap _ | Movlhps _ | Movq_from_gpr _ | Movq_low _
-  | Movq_to_gpr _ | Movq_widen _ | Movup_load _ | Movup_store _ | Pbin _
-  | Plogic _ | Pshufd_half _ | Pshufd_lane _ | Pshufd_splat _ | Psqrt _ | Sqrt _
+  | Flogic _ | Movap _ | Movap_to_mask _ | Movlhps _ | Movq_from_gpr _
+  | Movq_low _ | Movq_to_gpr _ | Movq_widen _ | Movup_load _ | Movup_store _
+  | Pbin _ | Pcmp _ | Plogic _ | Pones _ | Pshuf _ | Pshufd_half _
+  | Pshufd_lane _ | Pshufd_splat _ | Pshufd_splat_mask _ | Psqrt _ | Sqrt _
   | Ucomis _ ->
       [ Mir_target.Feature.Sse2 ]
   | Load ((Msz.S | Msz.D), _) | Store ((Msz.S | Msz.D), _, _) ->
@@ -425,6 +449,8 @@ let fpr fsz (t : Mir_type.t) =
 
 let fty = function Fsz.D -> Mir_type.F64 | Fsz.S -> Mir_type.F32
 let is_pk pk t = Mir_type.equal t (Pk.ty pk)
+let is_mask pk t = Mir_type.equal t (Pk.mask_ty pk)
+let is_lanes pk t = is_pk pk t || is_mask pk t
 let is_half t = Mir_type.equal t half_ty
 
 let disp32 k =
@@ -581,7 +607,13 @@ let typing op =
       in
       Ok [ t ]
   | Movap a ->
-      let* () = need (fpr Fsz.D (ty a) || fpr Fsz.S (ty a)) "movap operand" in
+      let* () =
+        need
+          (fpr Fsz.D (ty a)
+          || fpr Fsz.S (ty a)
+          || List.exists (fun pk -> is_lanes pk (ty a)) [ Pk.Pd; Pk.Ps ])
+          "movap operand"
+      in
       Ok [ ty a ]
   | Movlhps (a, b) ->
       let* () =
@@ -601,8 +633,7 @@ let typing op =
       let* () = addr_ok a in
       let* () = need (is_pk pk (ty x)) "movup value" in
       Ok []
-  | Pbin (o, pk, a, b) ->
-      let* () = need (o <> Fop.Max) "maxps is not IEEE maximum" in
+  | Pbin (_, pk, a, b) ->
       let* () = need (is_pk pk (ty a) && is_pk pk (ty b)) "packed operands" in
       Ok [ Pk.ty pk ]
   | Pfmadd231 (pk, a, b, c) ->
@@ -612,8 +643,27 @@ let typing op =
           "packed fma operands"
       in
       Ok [ Pk.ty pk ]
+  | Movap_to_mask (pk, a) ->
+      let* () = need (is_pk pk (ty a)) "movap operand" in
+      Ok [ Pk.mask_ty pk ]
+  | Pcmp (_, pk, a, b) ->
+      let* () = need (is_mask pk (ty a) && is_pk pk (ty b)) "packed operands" in
+      Ok [ Pk.mask_ty pk ]
   | Plogic (_, pk, a, b) ->
+      let* () =
+        need (is_lanes pk (ty a) && is_lanes pk (ty b)) "packed operands"
+      in
+      Ok [ ty a ]
+  | Pones pk -> Ok [ Pk.mask_ty pk ]
+  | Pshuf (pk, k, a, b) ->
       let* () = need (is_pk pk (ty a) && is_pk pk (ty b)) "packed operands" in
+      let* () =
+        need
+          (match pk with
+          | Pk.Ps -> k >= 0 && k < 256
+          | Pk.Pd -> k >= 0 && k < 4)
+          "shuffle immediate"
+      in
       Ok [ Pk.ty pk ]
   | Pshufd_half a ->
       let* () = need (is_pk Pk.Ps (ty a)) "pshufd operand" in
@@ -627,6 +677,9 @@ let typing op =
   | Pshufd_splat (pk, a) ->
       let* () = need (fpr (Pk.fsz pk) (ty a)) "pshufd scalar" in
       Ok [ Pk.ty pk ]
+  | Pshufd_splat_mask (pk, a) ->
+      let* () = need (fpr (Pk.fsz pk) (ty a)) "pshufd scalar" in
+      Ok [ Pk.mask_ty pk ]
   | Psqrt (pk, a) ->
       let* () = need (is_pk pk (ty a)) "sqrtp operand" in
       Ok [ Pk.ty pk ]
@@ -738,6 +791,7 @@ let pp_op pv fmt op =
   | Mov (sz, a) -> Fmt.pf fmt "mov%s %a" (Sz.name sz) pv a
   | Mov_imm (t, k) -> Fmt.pf fmt "mov.%a $%Ld" Mir_type.pp t k
   | Movap a -> Fmt.pf fmt "movap %a" pv a
+  | Movap_to_mask (_, a) -> Fmt.pf fmt "movap.mask %a" pv a
   | Movlhps (a, b) -> Fmt.pf fmt "movlhps %a" vs [ a; b ]
   | Movq_low a -> Fmt.pf fmt "movq.low %a" pv a
   | Movq_widen a -> Fmt.pf fmt "movq.widen %a" pv a
@@ -759,14 +813,21 @@ let pp_op pv fmt op =
       Fmt.pf fmt "%s%s %a" (Fop.name o) (Pk.name pk) vs [ a; b ]
   | Pfmadd231 (pk, a, b, c) ->
       Fmt.pf fmt "vfmadd231%s %a" (Pk.name pk) vs [ a; b; c ]
+  | Pcmp (p, pk, a, b) ->
+      Fmt.pf fmt "cmp%s%s %a" (Cmp_pred.name p) (Pk.name pk) vs [ a; b ]
   | Plogic (o, pk, a, b) ->
       Fmt.pf fmt "%s%s %a" (Flogic.name o)
         (match pk with Pk.Pd -> "d" | Pk.Ps -> "s")
         vs [ a; b ]
+  | Pones pk -> Fmt.pf fmt "pcmpeqd.ones%s" (Pk.name pk)
+  | Pshuf (pk, k, a, b) ->
+      Fmt.pf fmt "shuf%s $0x%x, %a" (Pk.name pk) k vs [ a; b ]
   | Pshufd_half a -> Fmt.pf fmt "pshufd $0xee, %a" pv a
   | Pshufd_lane (fsz, k, a) ->
       Fmt.pf fmt "pshufd.%s[%d] %a" (Fsz.name fsz) k pv a
   | Pshufd_splat (pk, a) -> Fmt.pf fmt "pshufd.splat%s %a" (Pk.name pk) pv a
+  | Pshufd_splat_mask (pk, a) ->
+      Fmt.pf fmt "pshufd.splat_mask%s %a" (Pk.name pk) pv a
   | Psqrt (pk, a) -> Fmt.pf fmt "sqrt%s %a" (Pk.name pk) pv a
   | Round_trunc (fsz, a) -> Fmt.pf fmt "round%s $3, %a" (Fsz.name fsz) pv a
   | Setcc_zx (c, f) -> Fmt.pf fmt "set%s+movzbl %a" (Cond.name c) pv f

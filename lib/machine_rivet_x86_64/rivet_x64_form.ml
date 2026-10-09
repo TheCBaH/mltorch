@@ -164,8 +164,7 @@ let instructions env (op : X.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
   | X.Cmp (sz, _, _) -> [ mk ("cmp" ^ sfx sz) [ gs sz (u 1); gs sz (u 0) ] ]
   | X.Cmp_imm (sz, _, k) -> [ mk ("cmp" ^ sfx sz) [ imm k; gs sz (u 0) ] ]
   | X.Cmps (p, fsz, _, _) ->
-      let k = match p with X.Cmp_pred.Eq -> 0L | X.Cmp_pred.Unord -> 3L in
-      [ mk ("cmp" ^ fs fsz) [ imm k; x (u 1); x (d 0) ] ]
+      [ mk ("cmp" ^ fs fsz) [ imm (X.Cmp_pred.imm p); x (u 1); x (d 0) ] ]
   | X.Cqo_idiv _ -> [ mk "cqto" []; mk "idivq" [ gq (u 1) ] ]
   | X.Cvt (fsz, _) ->
       [
@@ -268,7 +267,7 @@ let instructions env (op : X.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       match t with
       | Mir_type.Int Mir_width.W64 -> [ mk "movq" [ imm k; gq (d 0) ] ]
       | _ -> [ mk "movl" [ imm k; gl (d 0) ] ])
-  | X.Movap _ -> [ mk "movaps" [ x (u 0); x (d 0) ] ]
+  | X.Movap _ | X.Movap_to_mask _ -> [ mk "movaps" [ x (u 0); x (d 0) ] ]
   | X.Movlhps _ -> [ mk "movlhps" [ x (u 1); x (d 0) ] ]
   | X.Movq_from_gpr (fsz, _) -> (
       match fsz with
@@ -289,6 +288,8 @@ let instructions env (op : X.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
   | X.Neg (sz, _) -> [ mk ("neg" ^ sfx sz) [ gs sz (d 0) ] ]
   | X.Pbin (o, pk, _, _) ->
       [ mk (X.Fop.name o ^ X.Pk.name pk) [ x (u 1); x (d 0) ] ]
+  | X.Pcmp (p, pk, _, _) ->
+      [ mk ("cmp" ^ X.Pk.name pk) [ imm (X.Cmp_pred.imm p); x (u 1); x (d 0) ] ]
   | X.Pfmadd231 (pk, _, _, _) ->
       [ mk ("vfmadd231" ^ X.Pk.name pk) [ x (u 1); x (u 0); x (d 0) ] ]
   | X.Plogic (o, pk, _, _) ->
@@ -296,6 +297,13 @@ let instructions env (op : X.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
         mk
           (X.Flogic.name o ^ match pk with X.Pk.Pd -> "d" | X.Pk.Ps -> "s")
           [ x (u 1); x (d 0) ];
+      ]
+  | X.Pones _ -> [ mk "pcmpeqd" [ x (d 0); x (d 0) ] ]
+  | X.Pshuf (pk, k, _, _) ->
+      [
+        mk
+          (match pk with X.Pk.Pd -> "shufpd" | X.Pk.Ps -> "shufps")
+          [ imm (Int64.of_int k); x (u 1); x (d 0) ];
       ]
   | X.Pshufd_half _ -> [ mk "pshufd" [ imm 0xEEL; x (u 0); x (d 0) ] ]
   | X.Pshufd_lane (fsz, k, _) ->
@@ -305,7 +313,7 @@ let instructions env (op : X.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
         | X.Fsz.D -> if k = 0 then 0x44 else 0xEE
       in
       [ mk "pshufd" [ imm (Int64.of_int i); x (u 0); x (d 0) ] ]
-  | X.Pshufd_splat (pk, _) ->
+  | X.Pshufd_splat (pk, _) | X.Pshufd_splat_mask (pk, _) ->
       [
         mk "pshufd"
           [

@@ -60,7 +60,6 @@ let imm_for = function
 let alus = Alu.[ Add; And; Or; Sub; Xor ]
 let shifts = Shift.[ Sar; Shl; Shr ]
 let fops = Fop.[ Add; Div; Max; Mul; Sub ]
-let pops = Fop.[ Add; Div; Mul; Sub ]
 let logics = Flogic.[ And; Andn; Or; Xor ]
 let sz_name = Sz.name
 let fs_name = Fsz.name
@@ -238,7 +237,7 @@ let all : t list =
               (Printf.sprintf "%s%s" (Fop.name o) n)
               [ Val t; Val t ]
               (fun vs -> Pbin (o, pk, nth vs 0, nth vs 1)))
-          pops;
+          fops;
         List.map
           (fun o ->
             form
@@ -247,7 +246,35 @@ let all : t list =
               [ Val t; Val t ]
               (fun vs -> Plogic (o, pk, nth vs 0, nth vs 1)))
           logics;
+        List.map
+          (fun o ->
+            form
+              (Printf.sprintf "%s%s mask" (Flogic.name o)
+                 (match pk with Pk.Pd -> "d" | Pk.Ps -> "s"))
+              [ Val t; Val (Pk.mask_ty pk) ]
+              (fun vs -> Plogic (o, pk, nth vs 0, nth vs 1)))
+          logics;
+        List.map
+          (fun p ->
+            form
+              (Printf.sprintf "cmp%s%s" (Cmp_pred.name p) n)
+              [ Val (Pk.mask_ty pk); Val t ]
+              (fun vs -> Pcmp (p, pk, nth vs 0, nth vs 1)))
+          Cmp_pred.[ Eq; Le; Lt; Unord ];
+        List.map
+          (fun k ->
+            form (Printf.sprintf "shuf%s $0x%x" n k) [ Val t; Val t ] (fun vs ->
+                Pshuf (pk, k, nth vs 0, nth vs 1)))
+          (match pk with
+          | Pk.Ps -> [ 0x00; 0x0A; 0x1B; 0x50; 0x84; 0xE4; 0xE8; 0xF0; 0xFF ]
+          | Pk.Pd -> [ 0; 1; 2; 3 ]);
         [
+          form ("movap.mask" ^ n) [ Val t ] (fun vs ->
+              Movap_to_mask (pk, nth vs 0));
+          form ("pcmpeqd.ones" ^ n) [] (fun _ -> Pones pk);
+          form ("pshufd.splat_mask" ^ n)
+            [ Val (fty (Pk.fsz pk)) ]
+            (fun vs -> Pshufd_splat_mask (pk, nth vs 0));
           form ("vfmadd231" ^ n) [ Val t; Val t; Val t ] (fun vs ->
               Pfmadd231 (pk, nth vs 0, nth vs 1, nth vs 2));
           form ("sqrt" ^ n) [ Val t ] (fun vs -> Psqrt (pk, nth vs 0));

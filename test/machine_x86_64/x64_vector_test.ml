@@ -4,9 +4,10 @@ open Ssa_bridge_test.Ssa_fixtures
 (* M11.2: planned binary32 vector kernels selected as SSE2 packed forms, their
    selected run against the generic route and the plan's oracle. *)
 
-let show ?features ?stage ?(target = Ssa_ir.Ssa_target.neon128) kernel ~bind =
+let show ?mutation ?features ?stage ?(target = Ssa_ir.Ssa_target.neon128) kernel
+    ~bind =
   Fmt.pr "%s@."
-    (X64_harness.planned ?features ?stage ~target
+    (X64_harness.planned ?mutation ?features ?stage ~target
        ~numerics:Ssa_ir.Ssa_numerics.Simd_fp32_ordered kernel ~bind)
 
 let data n = Array.init n (fun i -> (float_of_int (i * 7 mod 11) -. 5.) /. 4.)
@@ -65,13 +66,89 @@ let transposed =
           Expr.Axis.W (at Expr.Axis.H))
        Expr.Axis.H (at Expr.Axis.W))
 
-let%expect_test "a strided access has no packed SSE2 form: a typed refusal" =
+(* A strided access is one scalar access per lane, in lane order; a loaded
+   vector is built by lane inserts, with SHUFPS alone. *)
+let strided_kernel () =
   let square = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:17 ~w:17 ~c:1 in
-  show
+  ( square,
+    Loop_fixtures.pixel_kernel ~shape:square transposed,
+    bind_data ~shape:square (data (17 * 17)) )
+
+let%expect_test "a strided access as lane loads and inserts" =
+  let square, kernel, bind = strided_kernel () in
+  ignore square;
+  show ~target:(Ssa_ir.Ssa_target.forced Ssa_ir.Ssa_target.neon128) kernel ~bind;
+  [%expect {| ok |}]
+
+let%expect_test "a lane insert on the wrong lane is caught" =
+  let _, kernel, bind = strided_kernel () in
+  show ~mutation:Machine_target_x86_64.X64_select.Mutation.Insert_next_lane
     ~target:(Ssa_ir.Ssa_target.forced Ssa_ir.Ssa_target.neon128)
-    (Loop_fixtures.pixel_kernel ~shape:square transposed)
-    ~bind:(bind_data ~shape:square (data (17 * 17)));
-  [%expect {| refused: vector vload.f32 is not selected for x86_64 |}]
+    kernel ~bind;
+  [%expect
+    {| ok DISAGREE generic vs x86_64: output t1[0]: -0x1.4p+0:f32 vs 0x0p+0:f32; oracle vs x86_64: output t1[0]: -0x1.4p+0:f32 vs 0x0p+0:f32 |}]
+
+(* Masks: a packed compare makes a register of all-ones and all-zero lanes, a
+   select chooses bit by bit, and a NaN is false for every ordered compare. *)
+let mask_kernels =
+  let zero = Expr.Value.const 0. in
+  [
+    ( "x < 0 ? -x : x / 3",
+      Expr.Value.(
+        select (Expr.Bool.value_lt x zero) (sub zero x) (div x (const 3.))) );
+    ( "x == 0 ? 0 : 1",
+      Expr.Value.(select (Expr.Bool.value_eq x zero) (const 0.) (const 1.)) );
+  ]
+
+let mask_data n =
+  let d = data n in
+  d.(0) <- Float.nan;
+  d.(1) <- -0.;
+  d.(2) <- 0.;
+  d.(3) <- 3.4e38;
+  d
+
+let%expect_test "masks as packed compares" =
+  List.iter
+    (fun (name, body) ->
+      List.iter
+        (fun n ->
+          Fmt.pr "%s, w=%d: " name n;
+          let shape = Loop_fixtures.shape_w n in
+          show
+            (Loop_fixtures.pixel_kernel ~shape body)
+            ~bind:(bind_data ~shape (mask_data n)))
+        [ 16; 37 ])
+    mask_kernels;
+  [%expect
+    {|
+    x < 0 ? -x : x / 3, w=16: ok
+    x < 0 ? -x : x / 3, w=37: ok
+    x == 0 ? 0 : 1, w=16: ok
+    x == 0 ? 0 : 1, w=37: ok |}]
+
+let%expect_test "mask selection mutations are caught" =
+  let name, body = List.hd mask_kernels in
+  let shape = Loop_fixtures.shape_w 37 in
+  Fmt.pr "%s: " name;
+  show
+    (Loop_fixtures.pixel_kernel ~shape body)
+    ~bind:(bind_data ~shape (mask_data 37));
+  List.iter
+    (fun (m, mutation) ->
+      Fmt.pr "  %s: " m;
+      show ~mutation
+        (Loop_fixtures.pixel_kernel ~shape body)
+        ~bind:(bind_data ~shape (mask_data 37)))
+    Machine_target_x86_64.X64_select.Mutation.
+      [
+        ("arms exchanged", Mask_arms); ("less-than as less-or-equal", Mask_lt_le);
+      ];
+  [%expect
+    {|
+    x < 0 ? -x : x / 3: ok
+      arms exchanged: ok DISAGREE generic vs x86_64: output t1[1]: -0x0p+0:f32 vs 0x0p+0:f32; oracle vs x86_64: output t1[1]: -0x0p+0:f32 vs 0x0p+0:f32
+      less-than as less-or-equal: ok DISAGREE generic vs x86_64: output t1[1]: -0x0p+0:f32 vs 0x0p+0:f32; oracle vs x86_64: output t1[1]: -0x0p+0:f32 vs 0x0p+0:f32 |}]
 
 let%expect_test "reference allocation and frames: XMM registers, 16-byte slots"
     =
