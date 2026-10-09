@@ -96,10 +96,10 @@ let%expect_test "feedback chooses per target; every group bitwise" =
     linear 8 -> 16, 3 rows:
       aarch64 scanned feedback: bitwise
         n0: chosen 8
-            group 1: peak fpr 4, gpr 8; hot stores none, loads none; 0 helper calls; frame 16 bytes
-            group 8: peak fpr 18, gpr 9; hot stores none, loads none; 0 helper calls; frame 16 bytes
-            group 4: peak fpr 10, gpr 9; hot stores none, loads none; 0 helper calls; frame 16 bytes
-            group 2: peak fpr 6, gpr 9; hot stores none, loads none; 0 helper calls; frame 16 bytes
+            group 1: peak fpr 4, gpr 7; hot stores none, loads none; 0 helper calls; frame 16 bytes
+            group 8: peak fpr 18, gpr 8; hot stores none, loads none; 0 helper calls; frame 16 bytes
+            group 4: peak fpr 10, gpr 8; hot stores none, loads none; 0 helper calls; frame 16 bytes
+            group 2: peak fpr 6, gpr 8; hot stores none, loads none; 0 helper calls; frame 16 bytes
       aarch64 scanned group 8: bitwise
       aarch64 scanned group 4: bitwise
       aarch64 scanned group 2: bitwise

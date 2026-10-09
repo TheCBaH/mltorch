@@ -106,9 +106,9 @@ let%expect_test "liveness sets equal the path definition" =
     cases;
   [%expect
     {|
-    11 blocks, 52 values, 572 checks, 0 wrong
-    17 blocks, 155 values, 2635 checks, 0 wrong
-    8 blocks, 57 values, 456 checks, 0 wrong |}]
+    11 blocks, 43 values, 473 checks, 0 wrong
+    17 blocks, 147 values, 2499 checks, 0 wrong
+    8 blocks, 40 values, 320 checks, 0 wrong |}]
 
 let%expect_test "intervals of a loop, with holes" =
   match
@@ -137,19 +137,19 @@ let%expect_test "intervals of a loop, with holes" =
         {|
         %18:f64 7,14 uses 13
         %19:f64 11,14 uses 13
-        %3:f64 14,18 112,115 uses 17,114
-        %2:i32 14,18 112,117 uses 16,116
-        %4:f64 14,18 112,118 uses 17,114,117
+        %3:f64 14,18 78,81 uses 17,80
+        %2:i32 14,18 78,83 uses 16,82
+        %4:f64 14,18 78,84 uses 17,80,83
         %6:f64 18,31 uses 30
-        %7:f64 18,49 uses 48
-        %45:f64 57,64 uses 63
-        %46:f64 61,64 uses 63
-        %9:i32 64,68 108,111 uses 66,110
-        %10:f64 64,68 108,112 uses 67,111
-        %11:f64 64,68 108,112 uses 67,111
-        %13:f64 68,83 uses 82
-        %14:f64 68,101 uses 100
-        %77:f64 115,118 uses 117 |}]
+        %7:f64 18,37 uses 36
+        %45:f64 43,50 uses 49
+        %46:f64 47,50 uses 49
+        %9:i32 50,54 74,77 uses 52,76
+        %10:f64 50,54 74,78 uses 53,77
+        %11:f64 50,54 74,78 uses 53,77
+        %13:f64 54,63 uses 62
+        %14:f64 54,69 uses 68
+        %77:f64 81,84 uses 83 |}]
 
 (* Soundness: every use position and every block start a value is live into
    lies in one of its ranges. Coverage where a value is dead is imprecision,
@@ -198,4 +198,4 @@ let%expect_test "intervals cover the sets" =
         spans)
     (L.intervals f);
   Fmt.pr "%d checks: %d unsound, %d imprecise@." !checks !unsound !imprecise;
-  [%expect {| 636 checks: 0 unsound, 5 imprecise |}]
+  [%expect {| 528 checks: 0 unsound, 5 imprecise |}]

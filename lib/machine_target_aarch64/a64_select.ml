@@ -49,7 +49,50 @@ type st = {
   sites : Mir_failure.Site_entry.t array;
   unlisted : Mir_failure.Unlisted.t;
   fallible : Mir_op.Callee.t -> bool;
+  float_loads : (int, Mir_value.t) Hashtbl.t;
+      (** a load read only by one bitcast to a float: the float it defines *)
 }
+
+(* The loads whose one reader is a bitcast to the float of the same width: the
+   load is made a floating-point load defining the bitcast's value, which
+   spares the move between register files. *)
+let float_loads (f : (Mir_op.t, Mir_terminator.t) Mir_func.t) =
+  let key (v : Mir_value.t) = Mir_id.Value.to_int v.Mir_value.id in
+  let uses = Hashtbl.create 256 and defs = Hashtbl.create 256 in
+  let use v =
+    Hashtbl.replace uses (key v)
+      (1 + Option.value ~default:0 (Hashtbl.find_opt uses (key v)))
+  in
+  List.iter
+    (fun (b : (Mir_op.t, Mir_terminator.t) Mir_block.t) ->
+      List.iter
+        (fun (i : Mir_op.t Mir_instr.t) ->
+          List.iter use (Mir_op.operands i.Mir_instr.op);
+          List.iter
+            (fun v -> Hashtbl.replace defs (key v) i.Mir_instr.op)
+            i.Mir_instr.results)
+        b.Mir_block.body;
+      List.iter use (Mir_terminator.operands b.Mir_block.terminator))
+    f.Mir_func.blocks;
+  let fused = Hashtbl.create 64 in
+  List.iter
+    (fun (b : (Mir_op.t, Mir_terminator.t) Mir_block.t) ->
+      List.iter
+        (fun (i : Mir_op.t Mir_instr.t) ->
+          match (i.Mir_instr.op, i.Mir_instr.results) with
+          | Mir_op.Bitcast (((Mir_type.F32 | Mir_type.F64) as t), a), [ r ]
+            when Hashtbl.find_opt uses (key a) = Some 1 -> (
+              match Hashtbl.find_opt defs (key a) with
+              | Some (Mir_op.Load { Mir_op.Access.width; _ })
+                when (width = Mir_width.W32 && Mir_type.equal t Mir_type.F32)
+                     || (width = Mir_width.W64 && Mir_type.equal t Mir_type.F64)
+                ->
+                  Hashtbl.replace fused (key a) r
+              | _ -> ())
+          | _ -> ())
+        b.Mir_block.body)
+    f.Mir_func.blocks;
+  fused
 
 let refuse st r = Err.Escape.throw st.esc r
 let mutated st m = st.mutation = Some m
@@ -211,6 +254,41 @@ let displaced st (addr : Mir_value.t) ~ok =
       | Some c when ok c -> (base, c)
       | _ -> (addr, 0L))
   | _ -> (addr, 0L)
+
+(* An access address as a base and a 32-bit index scaled by the access size:
+   [base + sext(i) * bytes], however the product is written (a shift or a
+   multiply by the size, or none for a byte). The register-offset forms fold
+   the extension, the scale and the addition into the access. *)
+let indexed st (addr : Mir_value.t) ~bytes =
+  let def (v : Mir_value.t) =
+    Hashtbl.find_opt st.b.Mir_select.defs (Mir_id.Value.to_int v.Mir_value.id)
+  in
+  let sext_index (e : Mir_value.t) =
+    match def e with
+    | Some (Mir_op.Iext (Mir_op.Iext.Sext, Mir_width.W64, i))
+      when Mir_type.equal i.Mir_value.ty Mir_type.i32 ->
+        Some i
+    | _ -> None
+  in
+  let scaled (d : Mir_value.t) =
+    match def d with
+    | Some (Mir_op.Iarith (Mir_op.Iarith.Shl, e, k))
+      when match Mir_select.const_of st.b k with
+           | Some c -> Int64.equal (Int64.shift_left 1L (Int64.to_int c)) bytes
+           | None -> false ->
+        sext_index e
+    | Some (Mir_op.Iarith (Mir_op.Iarith.Mul, e, k))
+      when Mir_select.const_of st.b k = Some bytes ->
+        sext_index e
+    | Some (Mir_op.Iarith (Mir_op.Iarith.Mul, k, e))
+      when Mir_select.const_of st.b k = Some bytes ->
+        sext_index e
+    | _ -> if Int64.equal bytes 1L then sext_index d else None
+  in
+  match def addr with
+  | Some (Mir_op.Ptr_add (base, d)) ->
+      Option.map (fun i -> (base, i)) (scaled d)
+  | _ -> None
 
 (* [n] ordered forms in a row, chained on the order [o] threads. *)
 let chained st (o : Mir_order.t option) n f =
@@ -385,6 +463,9 @@ let instr st (i : Mir_op.t Mir_instr.t) =
     | Mir_op.Addr view ->
         let page = emit st Mir_type.Ptr (Adrp view) in
         def (Add_lo12 (page, view))
+    | Mir_op.Bitcast (_, a)
+      when Hashtbl.mem st.float_loads (Mir_id.Value.to_int a.Mir_value.id) ->
+        ()
     | Mir_op.Bitcast (t, a) -> (
         match (ty a, t) with
         | Mir_type.Int Mir_width.W32, Mir_type.F32 ->
@@ -526,13 +607,28 @@ let instr st (i : Mir_op.t Mir_instr.t) =
         def (Trunc (w, a))
     | Mir_op.Itrunc _ | Mir_op.Narrow _ -> unsupported ()
     | Mir_op.Load { Mir_op.Access.width; addr; _ } ->
-        let m = msz_of width in
-        let base, k =
-          displaced st addr ~ok:(A64.frame_offset_ok ~bytes:(Msz.bytes m))
+        let fused =
+          Hashtbl.find_opt st.float_loads
+            (Mir_id.Value.to_int (r ()).Mir_value.id)
+        in
+        let m =
+          match (fused, width) with
+          | Some _, Mir_width.W32 -> Msz.S
+          | Some _, _ -> Msz.D
+          | None, _ -> msz_of width
+        in
+        let form =
+          match indexed st addr ~bytes:(Msz.bytes m) with
+          | Some (base, idx) -> Ldr_idx (m, base, idx)
+          | _ ->
+              let base, k =
+                displaced st addr ~ok:(A64.frame_offset_ok ~bytes:(Msz.bytes m))
+              in
+              Ldr (m, base, k)
         in
         push st ?order:i.Mir_instr.order
-          [ r () ]
-          (Mir_sel.Op.Machine (Ldr (m, base, k)))
+          [ Option.value fused ~default:(r ()) ]
+          (Mir_sel.Op.Machine form)
     | Mir_op.Pbinary (o, a, b) ->
         def
           (Logic
@@ -555,12 +651,28 @@ let instr st (i : Mir_op.t Mir_instr.t) =
             def (Fcsel (fsz_of st (ty a), Cond.Ne, f, a, b))
         | t -> def (Csel (sz_of st t, Cond.Ne, f, a, b)))
     | Mir_op.Store ({ Mir_op.Access.width; addr; _ }, v) ->
-        let m = msz_of width in
-        let base, k =
-          displaced st addr ~ok:(A64.frame_offset_ok ~bytes:(Msz.bytes m))
+        let v, m =
+          match
+            Hashtbl.find_opt st.b.Mir_select.defs
+              (Mir_id.Value.to_int v.Mir_value.id)
+          with
+          | Some (Mir_op.Bitcast (_, f))
+            when (width = Mir_width.W32 && Mir_type.equal (ty f) Mir_type.F32)
+                 || (width = Mir_width.W64 && Mir_type.equal (ty f) Mir_type.F64)
+            ->
+              (f, if width = Mir_width.W32 then Msz.S else Msz.D)
+          | _ -> (v, msz_of width)
         in
-        push st ?order:i.Mir_instr.order []
-          (Mir_sel.Op.Machine (Str (m, base, k, v)))
+        let form =
+          match indexed st addr ~bytes:(Msz.bytes m) with
+          | Some (base, idx) -> Str_idx (m, base, idx, v)
+          | _ ->
+              let base, k =
+                displaced st addr ~ok:(A64.frame_offset_ok ~bytes:(Msz.bytes m))
+              in
+              Str (m, base, k, v)
+        in
+        push st ?order:i.Mir_instr.order [] (Mir_sel.Op.Machine form)
     | Mir_op.Undef v -> push st ?order:i.Mir_instr.order [] (Mir_sel.Op.Undef v)
     | Mir_op.Vconcat _ | Mir_op.Vextract _ | Mir_op.Vinsert _ | Mir_op.Vload _
     | Mir_op.Vslice _ | Mir_op.Vsplat _ | Mir_op.Vstore _ ->
@@ -654,14 +766,23 @@ let program ?mutation ?(sites = [||]) ?(unlisted = Mir_failure.Unlisted.Refused)
     | Error r -> Err.Escape.throw esc (Refusal.Vector r)
   in
   let p =
-    Mir_verify.Generic.program (Mir_narrow.program (Mir_offsets.program g))
+    Mir_verify.Generic.program
+      (Mir_cse.program (Mir_narrow.program (Mir_offsets.program g)))
   in
   let fallible = Mir_select.fallibility p in
   let funcs =
     List.map
       (fun (f : (Mir_op.t, Mir_terminator.t) Mir_func.t) ->
         let st =
-          { b = Mir_select.create f; esc; mutation; sites; unlisted; fallible }
+          {
+            b = Mir_select.create f;
+            esc;
+            mutation;
+            sites;
+            unlisted;
+            fallible;
+            float_loads = float_loads f;
+          }
         in
         List.iter (block st) f.Mir_func.blocks;
         {

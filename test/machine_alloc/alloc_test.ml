@@ -258,4 +258,4 @@ let%expect_test "hand edits of a correct allocation are caught" =
     live-in claim: rejected: checker: fn0 bb1: [slot4:8] does not hold %19
     incoming edge state: rejected: checker: fn0 bb3: [slot6:8] does not hold %6
     tie kept: ok
-    tie broken: rejected: physical verifier: allocated fn0 bb36 i1011: target constraint: a tied result not in its use's register |}]
+    tie broken: rejected: physical verifier: allocated fn0 bb36 i996: target constraint: a tied result not in its use's register |}]

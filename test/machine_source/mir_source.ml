@@ -204,7 +204,8 @@ let status_name (o : Mir_observation.t) =
 
 (* Every route of one plan; the report names the first disagreement, the
    reference's own verdict against the SSA route, and the generic status. *)
-let check ?mutation ?offsets_mutation ?narrow_mutation plan ~bind =
+let check ?mutation ?offsets_mutation ?narrow_mutation ?cse_mutation plan ~bind
+    =
   match Err.payload (Ssa_lower.Ssa_lower_plan.lower plan) with
   | Error e ->
       Fmt.str "refused by source lowering: %a" Ssa_lower.Ssa_lower_plan.pp_error
@@ -264,6 +265,22 @@ let check ?mutation ?offsets_mutation ?narrow_mutation plan ~bind =
               Route.name = "narrowed";
             }
           in
+          (* then repeated computations within a block merged *)
+          let merged =
+            {
+              (mir_route
+                 {
+                   lowered with
+                   Mir_lower.program =
+                     Mir_cse.program ?mutation:cse_mutation
+                       (Mir_narrow.program
+                          (Mir_offsets.program lowered.Mir_lower.program));
+                 }
+                 ~input)
+              with
+              Route.name = "merged";
+            }
+          in
           let disagreements =
             List.filter_map Fun.id
               [
@@ -271,6 +288,7 @@ let check ?mutation ?offsets_mutation ?narrow_mutation plan ~bind =
                 verdict ~expected:structured ~actual:generic;
                 verdict ~expected:structured ~actual:offsets;
                 verdict ~expected:structured ~actual:narrowed;
+                verdict ~expected:structured ~actual:merged;
               ]
           in
           Fmt.str "%s [reference: %a]%s"

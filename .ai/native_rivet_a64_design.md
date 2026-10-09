@@ -180,5 +180,32 @@ model's invocations through the route against the per-node reference and, with
 models run bitwise under both allocators with `system_libm`, and their images
 agree with GNU's. Under the default mode all seven run on the owned `exp`.
 
+## Code quality: what the measurements moved
+
+The per-invocation profile of a model (`census --profile=N`) is flat: the cost
+is the inner loops of convolutions and matmuls, so the lever is the code of one
+reduction step. Three changes, each kept because it lowered the warm time with
+the output still bitwise equal to the reference:
+
+- **Floating-point accesses without a register-file move.** A load read only
+  by a bitcast to the float of the same width is selected as a float load that
+  defines the bitcast's value; a store of a bitcast stores the float register.
+  Removes an `fmov` between the general and floating-point files per access.
+- **Block-local common subexpressions** (`Mir_cse`, after address hoisting and
+  narrowing): a pure, unordered instruction that equals an earlier one in its
+  block reads the earlier result, unless another block or a terminator reads the
+  duplicate. Two accesses of one reduction step shared a sign extension and a
+  stride multiply.
+- **Register-offset accesses** (`Ldr_idx`, `Str_idx`): `base + sext(i32) *
+  size` folds the extension, scale and addition into the access.
+  Alone it did not move the time, which is why it is not the first thing to
+  tune; it stays because it shortens the code and GNU encodes it identically.
+
+Each has a check that fails without it (a selected-code count in the kernel
+tests, a merged-constants mutation on the source routes). What is left in the
+inner loop is a stride multiply and a sign extension per access, a materialized
+constant, and two branches per iteration; strength-reducing the address into a
+loop-carried pointer is the next measured step and is not done.
+
 Logical work counters (`Event`) are not executed natively and are not compared.
 x86-64 is not covered here.
