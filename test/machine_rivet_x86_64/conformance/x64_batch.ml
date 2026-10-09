@@ -324,7 +324,7 @@ let build ?mutation f vs =
   | Error r -> Error (Fmt.str "%a" Machine_rivet_x86_64.Rivet_x64_refusal.pp r)
 
 let elf built =
-  Machine_rivet_x86_64.Rivet_x64_qemu.elf_of ~entry:"_start" [ built.modul ]
+  Machine_rivet_x86_64.Rivet_x64_process.elf_of ~entry:"_start" [ built.modul ]
 
 (* The observed record [r] of the output block. *)
 type observed = {

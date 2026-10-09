@@ -1,5 +1,5 @@
 (* Planned binary32 vector kernels selected as SSE2 packed forms, run as
-   emulated x86-64 processes against the same selected program on the
+   x86-64 processes against the same selected program on the
    interpreter. *)
 
 open Loop_ir_test
@@ -53,19 +53,38 @@ let%expect_test "pointwise and matmul as packed SSE2" =
     ];
   [%expect
     {|
-    x / 3 - 1.5, w=16: ok [emulated: agree]
-    x / 3 - 1.5, w=37: ok [emulated: agree]
-    sqrt x, w=16: ok [emulated: agree]
-    sqrt x, w=37: ok [emulated: agree]
-    x * x + x, w=16: ok [emulated: agree]
-    x * x + x, w=37: ok [emulated: agree]
-    0 - x, w=16: ok [emulated: agree]
-    0 - x, w=37: ok [emulated: agree]
-    2x3x16: ok [emulated: agree]
-    3x5x17: ok [emulated: agree]
-    5x7x33: ok [emulated: agree]
-    1x7x33: ok [emulated: agree]
-    5x1x33: ok [emulated: agree]
-    5x2x33: ok [emulated: agree]
-    5x7x32: ok [emulated: agree]
-    5x7x34: ok [emulated: agree] |}]
+    x / 3 - 1.5, w=16: ok [process: agree]
+    x / 3 - 1.5, w=37: ok [process: agree]
+    sqrt x, w=16: ok [process: agree]
+    sqrt x, w=37: ok [process: agree]
+    x * x + x, w=16: ok [process: agree]
+    x * x + x, w=37: ok [process: agree]
+    0 - x, w=16: ok [process: agree]
+    0 - x, w=37: ok [process: agree]
+    2x3x16: ok [process: agree]
+    3x5x17: ok [process: agree]
+    5x7x33: ok [process: agree]
+    1x7x33: ok [process: agree]
+    5x1x33: ok [process: agree]
+    5x2x33: ok [process: agree]
+    5x7x32: ok [process: agree]
+    5x7x34: ok [process: agree] |}]
+
+(* x * x + x under the relaxed policy is one fused multiply-add per lane: it
+   needs the FMA feature, and the process runs it on this CPU. *)
+let%expect_test "relaxed binary32 as fused multiply-add" =
+  let shape = Loop_fixtures.shape_w 37 in
+  let d = data 37 in
+  let kernel = Loop_fixtures.pixel_kernel ~shape Expr.Value.(add (mul x x) x) in
+  let show features =
+    Fmt.pr "%s@."
+      (H.planned ?features ~target:Ssa_ir.Ssa_target.neon128
+         ~numerics:Ssa_ir.Ssa_numerics.Simd_fp32_relaxed kernel
+         ~bind:(bind_data ~shape d))
+  in
+  show None;
+  show (Some Machine_ir.Mir_target.Feature.[ Sse2; Fma ]);
+  [%expect
+    {|
+    not built: selection: needs fma, which the program's features do not include
+    ok [process: agree] |}]

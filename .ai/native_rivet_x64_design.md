@@ -1,26 +1,36 @@
 # Native x86-64 through typed Rivet modules — implemented design
 
-Status: **in progress, emulated only**. A published x86-64 `Mir_artifact`
-becomes a typed `Normalized_ast.module_` of Rivet `X86_64.Instruction.t`
-values, built through the encoder's surface constructor (a mnemonic and typed
-operands, never assembly text). Rivet lowers and lays it out; this host is
-AArch64, so the image cannot be loaded here. It is written as a static ELF and
-run as a process under `qemu-x86_64` (qemu-user). **That is binary translation of
-the real instruction bytes, not an x86-64 CPU**: it checks the encodings and the
-control flow, and says nothing about a CPU's timing, flag corner cases beyond
-what qemu implements, or memory ordering. No execution or ABI gate for x86-64 is
-closed by it. The shared parts (the table of region addresses, the runtime mode)
-are `lib/machine_rivet_common`; the AArch64 design is in the sibling record.
+Status: **runs on an x86-64 CPU**. A published x86-64 `Mir_artifact` becomes a
+typed `Normalized_ast.module_` of Rivet `X86_64.Instruction.t` values, built
+through the encoder's surface constructor (a mnemonic and typed operands, never
+assembly text). Rivet lowers and lays it out, and it runs two ways. On an
+x86-64 host `Rivet_x64_image.load` maps it into this process (`Native_exec`) and
+the table-bound `Rivet_x64_host` calls it with the context's tensors passed by
+address, as the AArch64 host does. Anywhere, `Rivet_x64_process` writes the
+bound image as a static ELF and runs it as a process: directly on an x86-64
+host, under `qemu-x86_64` (binary translation of the same bytes, not a CPU)
+elsewhere. `Rivet_x64_process.runner` says which, and every report prints it:
+only a `Cpu` run is evidence about flags, MXCSR, timing or memory ordering. The
+shared parts (the table of region addresses, the runtime mode, CFI) are
+`lib/machine_rivet_common`; the AArch64 design is in the sibling record.
 
 ```text
 Mir_artifact (checked, realized physical program)
   -> Rivet_x64_form    selected/late/move/save/sp forms -> X86_64.Instruction.t
   -> Rivet_x64_module  functions, blocks, data, entry wrapper -> Normalized_ast.module_
-  -> Rivet_x64_image   Pipeline_direct plan/bind -> Image.t at fixed addresses
+  -> Rivet_x64_image   Pipeline_direct plan; load into this process, or bind at fixed addresses
+  -> Rivet_x64_host    table-bound model host: loaded kernels, contexts, tensors by address
   -> Rivet_x64_elf     a bound image -> a static ELF executable
-  -> Rivet_x64_qemu    harness module, prepare once, launch per run under qemu-user
-  -> Rivet_x64_route   one prepared image per bundle invocation, as a Mir_model route
+  -> Rivet_x64_process harness module, prepare once, launch per run (CPU, else qemu-user)
+  -> Rivet_x64_route   one prepared process per bundle invocation, as a Mir_model route
 ```
+
+`Rivet_x64_cpu` checks the features an artifact was selected for against the
+flags in `/proc/cpuinfo` (`sse2`, `sse4_1`, `fma`, `avx`, `avx2`) before the
+host loads anything; a CPU whose flags cannot be read is refused.
+`Rivet_x64_manifest` is the AArch64 manifest for this target: features,
+planning, runtime mode, region binding, declared and carried helpers, a digest
+of the code.
 
 `lib/machine_rivet_x86_64_gnu` prints the same module through Rivet
 (`Gnu_module` with `Instruction.pp_gnu`), has the cross binutils assemble and link
@@ -69,8 +79,19 @@ probe record is meaningful for such a run.
 
 As on AArch64: the default refuses a kernel that calls a C-library helper the
 project does not own. `exp` is owned (see the owned `exp` design below), so a
-default image carries it and is not refused. There is no libm in the emulated
-process, so `system_libm` is only meaningful with the probe's stubs.
+default image carries it and is not refused. A loaded image binds the other
+helpers through Rivet's typed trampolines to this process's libm
+(`system_libm`); the static process has no libm, so there `system_libm` is only
+meaningful with the probe's stubs.
+
+## Host
+
+`Rivet_x64_host` is the AArch64 host over this target: each invocation is
+published and loaded once, tensors are the context's own storage passed through
+the table in `rdi` (the entry moves it to `rbp`), scratch and the failure record
+belong to the context, an image is immutable and shared, a first failure
+names its record and the context goes on. `?features` and `?cpuinfo` choose what
+the artifact may use and what the CPU is taken to report.
 
 ## Owned `exp`
 
@@ -93,8 +114,8 @@ and `sin` remain refused by the default mode.
 
 ## Conformance
 
-`make machine.rivet.x64.conformance` runs 472 form instances over 207,031
-boundary and random vectors. Each form is a batch process: a loop over records
+`make machine.rivet.x64.conformance` runs the form instances over boundary and
+random vectors, on the CPU of an x86-64 host. Each form is a batch process: a loop over records
 loading operands into the registers the form's locations name, seeding RFLAGS and
 the destination, running the form's Rivet instructions, and storing results,
 flags and the buffer. The model is `X64_sem.exec` on the same operands under the
@@ -116,6 +137,6 @@ whole); `.2byte/.4byte/.8byte` in the x86 and AArch64 directive tables.
 
 ## Not done
 
-CFI and a derived object file; branch-range and feature-disabled negatives; the
-model/context host (the route copies storage per run, and a run is a process);
-the other libm helpers (`cos`, `log`, `sin`); any timing.
+A derived object file kept as an artifact; branch-range negatives; the other libm
+helpers (`cos`, `log`, `sin`); AVX and AVX2; half-width compares; frequency-pinned
+timing.

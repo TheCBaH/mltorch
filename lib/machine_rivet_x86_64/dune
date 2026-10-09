@@ -2,10 +2,10 @@
 ; does for AArch64: a published [Mir_artifact] becomes a [Normalized_ast] module
 ; of Rivet x86-64 instructions, built through the encoder's surface constructor
 ; (a mnemonic and typed operands, never assembly text), laid out by Rivet, and
-; bound through the same table of region addresses. This host is AArch64, so the
-; code cannot be loaded here: [Rivet_x64_elf] makes a static ELF of the bound
-; image and [Rivet_x64_run] executes it under qemu-user, which is emulation, not
-; an x86-64 runner. Built only where Rivet is installed.
+; bound through the same table of region addresses. [Rivet_x64_elf] makes a
+; static ELF of the bound image and [Rivet_x64_process] executes it: directly on
+; an x86-64 host, under qemu-user (emulation) elsewhere. Built only where Rivet
+; is installed.
 
 (library
  (name machine_rivet_x86_64)
@@ -20,6 +20,7 @@
   rivet.driver_direct
   rivet.foundation
   rivet.image
+  rivet.native_exec
   rivet.x86_64_encode
   rivet.x86_family_encode
   unix)

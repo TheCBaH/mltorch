@@ -276,9 +276,9 @@
   unix)
  (optional))
 
-; The same for x86-64, run as emulated processes under qemu-user (EMULATION, not
-; an x86-64 CPU). Built only where Rivet is installed; MANUAL, needs the model
-; data and qemu-x86_64.
+; The same for x86-64: as static processes (on an x86-64 CPU, else under
+; qemu-user, which is emulation) or, on an x86-64 host, loaded into this process
+; (--table). Built only where Rivet is installed; MANUAL, needs the model data.
 
 (executable
  (name machine_rivet_x64_census)
@@ -287,8 +287,10 @@
   err_trace
   fmt
   loop_ir
+  machine_ir
   machine_model
   machine_rivet_x86_64
+  machine_rivet_x86_64_gnu
   native
   native_interp
   pt2

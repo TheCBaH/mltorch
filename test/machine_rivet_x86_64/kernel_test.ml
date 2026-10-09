@@ -1,4 +1,4 @@
-(* Source kernels as emulated x86-64 processes: every case runs on the physical
+(* Source kernels as x86-64 processes: every case runs on the physical
    interpreter and under qemu-user over the same bound bytes. *)
 
 open Loop_ir_test
@@ -20,9 +20,9 @@ let%expect_test "pointwise: signed zero, NaN, binary32 boundaries" =
   check Cases.noncommutative ~bind:(data_bind [| 7.; -0.; 1e-40; 3.4e38 |]);
   [%expect
     {|
-    ok [emulated: agree]
-    ok [emulated: agree]
-    ok [emulated: agree] |}]
+    ok [process: agree]
+    ok [process: agree]
+    ok [process: agree] |}]
 
 let%expect_test "failures: coordinates and competing axes" =
   let zeros = data_bind [| 0.; 0.; 0.; 0. |] in
@@ -31,9 +31,9 @@ let%expect_test "failures: coordinates and competing axes" =
   check (Cases.shifted ~dh:1 ~dw:4) ~bind:zeros;
   [%expect
     {|
-    coord_out_of_range(t0, W) [emulated: agree]
-    coord_out_of_range(t0, W) [emulated: agree]
-    coord_out_of_range(t0, H) [emulated: agree] |}]
+    coord_out_of_range(t0, W) [process: agree]
+    coord_out_of_range(t0, W) [process: agree]
+    coord_out_of_range(t0, H) [process: agree] |}]
 
 let%expect_test "matmul, odd shapes" =
   List.iter
@@ -44,11 +44,11 @@ let%expect_test "matmul, odd shapes" =
     [ (1, 1, 1); (1, 3, 2); (3, 1, 4); (5, 7, 3); (2, 9, 1) ];
   [%expect
     {|
-    1x1x1: ok [emulated: agree]
-    1x3x2: ok [emulated: agree]
-    3x1x4: ok [emulated: agree]
-    5x7x3: ok [emulated: agree]
-    2x9x1: ok [emulated: agree] |}]
+    1x1x1: ok [process: agree]
+    1x3x2: ok [process: agree]
+    3x1x4: ok [process: agree]
+    5x7x3: ok [process: agree]
+    2x9x1: ok [process: agree] |}]
 
 let%expect_test "an exp kernel runs on the project's own exp" =
   check
@@ -59,8 +59,8 @@ let%expect_test "an exp kernel runs on the project's own exp" =
     ~bind:(data_bind [| 1.; 2.; 3.; 4. |]);
   [%expect
     {|
-    ok [emulated: agree]
-    emulated: helper log has no implementation in this image |}]
+    ok [process: agree]
+    process: helper log has no implementation in this image |}]
 
 (* The same modules through GNU: assembled and linked at Rivet's addresses, the
    loadable bytes and global symbol addresses are Rivet's. *)
@@ -132,9 +132,9 @@ let%expect_test "the kernel keeps the ABI and ignores the caller's FP controls"
     ~bind:(data_bind [| 1.; 2.; 3.; 4. |]);
   [%expect
     {|
-    ok [emulated: agree]
-    ok [emulated: agree]
-    coord_out_of_range(t0, W) [emulated: agree]
+    ok [process: agree]
+    ok [process: agree]
+    coord_out_of_range(t0, W) [process: agree]
     ABI kept |}]
 
 (* Each wrapper defect below leaves a program that still assembles and runs;
@@ -163,9 +163,9 @@ let%expect_test "wrapper defects are detected" =
   | Error e -> Fmt.pr "%s@." e);
   [%expect
     {|
-    rbx clobbered: ok [emulated: agree] ABI broken: rbx changed from b0b0b0b0b0b0b0b to 1
-    caller's MXCSR kept: ok [emulated: DISAGREE output t2[2]: -0x1.02779cp+4:f32 vs -0x1.02779ap+4:f32]
-    MXCSR not restored: ok [emulated: agree] ABI broken: mxcsr changed from ffc0 to 1f80
+    rbx clobbered: ok [process: agree] ABI broken: rbx changed from b0b0b0b0b0b0b0b to 1
+    caller's MXCSR kept: ok [process: DISAGREE output t2[2]: -0x1.02779cp+4:f32 vs -0x1.02779ap+4:f32]
+    MXCSR not restored: ok [process: agree] ABI broken: mxcsr changed from ffc0 to 1f80
     stack misaligned: ABI broken: a helper was entered with a misaligned stack |}]
 
 (* Frames that put their slots far from the stack pointer. *)
@@ -183,9 +183,9 @@ let%expect_test "large frames" =
     ~bind:(matmul_bind ~m:5 ~k:7 ~n:3 ~a ~b);
   [%expect
     {|
-    ok [emulated: agree]
-    ok [emulated: agree]
-    ok [emulated: agree] |}]
+    ok [process: agree]
+    ok [process: agree]
+    ok [process: agree] |}]
 
 (* Call-frame information describes the code: at every instruction the CFA
    offset GNU's decoding of .eh_frame gives equals the one the instructions

@@ -1151,14 +1151,14 @@ machine.rivet.a64.runtest: rivet.install
 	opam exec -- dune build @test/machine_rivet_aarch64/runtest --force
 
 # Published x86-64 artifacts as typed Rivet modules, run as static processes
-# under qemu-user against the physical interpreter. This is emulation, not an
-# x86-64 CPU. Needs qemu-x86_64.
+# against the physical interpreter: on the CPU of an x86-64 host, under qemu-user
+# (emulation) elsewhere, where it needs qemu-x86_64.
 machine.rivet.x64.runtest: rivet.install
 	opam exec -- dune build @test/machine_rivet_x86_64/runtest --force
 
 # The x86-64 per-form conformance: each admitted form made as typed Rivet
-# instructions and run as a batch process under qemu-user (emulation, not an
-# x86-64 CPU) against the interpreter's semantics, with the model and mapping
+# instructions and run as a batch process (on an x86-64 CPU, else under
+# qemu-user) against the interpreter's semantics, with the model and mapping
 # mutations that must be caught.
 RIVET_X64_CONFORMANCE = _build/default/test/machine_rivet_x86_64/conformance/rivet_x64_conformance.exe
 MACHINE_X64_MUTATIONS = cmp-carry fma-unfused max-zero ucomi-nan

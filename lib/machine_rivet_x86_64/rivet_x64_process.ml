@@ -1,7 +1,7 @@
-(* An artifact run as a static x86-64 process under qemu-user. This is
-   emulation: it checks the instruction bytes and the control flow against the
-   interpreter's, and says nothing about an x86-64 CPU's timing, its flag
-   corner cases beyond what qemu implements, or its memory ordering.
+(* An artifact run as a static x86-64 process: directly on an x86-64 host, under
+   qemu-user anywhere else. {!runner} says which; only the direct run is
+   evidence about an x86-64 CPU (its flags, MXCSR, timing and memory ordering),
+   and qemu checks the instruction bytes and the control flow alone.
 
    The process is built from the artifact's table-bound module and a harness:
    one data block holding every mutable region at its caller's initial bytes,
@@ -333,7 +333,18 @@ let with_block (p : prepared) ~bound =
       if !patched then Ok { p.image with Image.segments }
       else Error "the harness block is in no segment"
 
-let qemu = "qemu-x86_64"
+module Runner = struct
+  type t = Cpu | Qemu
+
+  let pp fmt = function
+    | Cpu -> Fmt.string fmt "x86-64 CPU"
+    | Qemu -> Fmt.string fmt "qemu-user (emulation)"
+end
+
+let runner =
+  match Native_exec.host_isa with
+  | Some "x86_64" -> Runner.Cpu
+  | Some _ | None -> Runner.Qemu
 
 type outcome = {
   status : int64;
@@ -359,24 +370,26 @@ let execute ?(timeout = 120) elf =
       Unix.chmod path 0o755;
       let fd = Unix.openfile out [ Unix.O_WRONLY; Unix.O_TRUNC ] 0o600 in
       let devnull = Unix.openfile "/dev/null" [ Unix.O_RDONLY ] 0 in
-      let pid =
-        Unix.create_process "timeout"
-          [| "timeout"; string_of_int timeout; qemu; path |]
-          devnull fd Unix.stderr
+      let command =
+        match runner with
+        | Runner.Cpu -> [| "timeout"; string_of_int timeout; path |]
+        | Runner.Qemu ->
+            [| "timeout"; string_of_int timeout; "qemu-x86_64"; path |]
       in
+      let pid = Unix.create_process "timeout" command devnull fd Unix.stderr in
       Unix.close fd;
       Unix.close devnull;
       match snd (Unix.waitpid [] pid) with
       | Unix.WEXITED 0 -> Ok (In_channel.with_open_bin out In_channel.input_all)
-      | Unix.WEXITED n -> Error (Fmt.str "the emulated process exited %d" n)
+      | Unix.WEXITED n -> Error (Fmt.str "the process exited %d" n)
       | Unix.WSIGNALED n | Unix.WSTOPPED n ->
-          Error (Fmt.str "the emulated process was stopped by signal %d" n))
+          Error (Fmt.str "the process was stopped by signal %d" n))
 
 let decode ?(probe = false) lay out =
   if String.length out <> lay.total then
     Error
-      (Fmt.str "the emulated process wrote %d bytes, expected %d"
-         (String.length out) lay.total)
+      (Fmt.str "the process wrote %d bytes, expected %d" (String.length out)
+         lay.total)
   else
     let word k = String.get_int64_le out k in
     Ok
