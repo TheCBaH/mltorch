@@ -1,4 +1,4 @@
-.PHONY: transformers.matrix transformers.admission transformers.download transformers.open transformers.replay compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
+.PHONY: transformers.gate transformers.matrix transformers.admission transformers.download transformers.open transformers.replay compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean machine.a64.conformance machine.pt2.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
@@ -188,6 +188,19 @@ transformers.open:
 # producer's tolerances, one versioned JSON report per artifact. Exits nonzero
 # unless every selected artifact passes -- a refusal counts as not passing.
 TRANSFORMERS_REPORTS ?= _build/transformers-reports
+# The opt-in real-fixture gate CI runs: fetch (network) and replay the two
+# small artifacts that pass exactly, so a regression in the loader, the empty-
+# cache rewrite, the mask vocabulary or the embedding gather turns a published
+# case red. Exits nonzero unless both pass. The other cohort rows are measured
+# by `transformers.replay` and are not gates (several fail by small margins on
+# purpose; see the tracker).
+TRANSFORMERS_GATE_ARTIFACTS = \
+	mobilevit-xxs/image-classification/reference/forward/fp32/dynamo/static/ckpt-6703997f9e94 \
+	bert-tiny/text-encoder/reference/forward/fp32/dynamo/static/ckpt-6f75de8b60a9
+transformers.gate:
+	$(MAKE) transformers.download TRANSFORMERS_ARTIFACTS="$(TRANSFORMERS_GATE_ARTIFACTS)"
+	$(MAKE) transformers.replay TRANSFORMERS_ARTIFACTS="$(TRANSFORMERS_GATE_ARTIFACTS)"
+
 # The aggregate matrix over stored replay reports: one row per artifact and
 # backend, "not run" where there is no report. Offline.
 #   make transformers.matrix TRANSFORMERS_REPORTS=dir

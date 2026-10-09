@@ -270,6 +270,20 @@ jobs:
         key: hf-hub-${{ hashFiles('modules/devcontainer.pytorch-image-models/models/mobilenetv2_050/models/safetensors.json', 'modules/devcontainer.pytorch-image-models/models/fastvit_sa12/models/safetensors.json') }}
         restore-keys: |
           hf-hub-
+    # Released Transformers fixtures (data/transformers/cohort.json): the two small
+    # artifacts that pass exactly, replayed from a content-addressed cache that
+    # verifies every layer against its pin. Keyed by the cohort manifest, so a new
+    # pin starts a fresh entry.
+    - name: transformers fixtures cache
+      if: matrix.suite == 'native-models'
+      uses: actions/cache@v6
+      with:
+        path: data/transformers-cache
+        key: transformers-${{ hashFiles('data/transformers/cohort.json') }}
+    - name: transformers replay gate
+      if: matrix.suite == 'native-models'
+      run: |
+        ${{ env.EXEC }} make transformers.gate
     - name: pt2 load test
       if: matrix.suite == 'native-models'
       run: |
