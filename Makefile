@@ -1,4 +1,4 @@
-.PHONY: transformers.admission transformers.download transformers.open compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
+.PHONY: transformers.admission transformers.download transformers.open transformers.replay compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean machine.a64.conformance machine.pt2.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
@@ -182,6 +182,16 @@ transformers.download:
 transformers.open:
 	opam exec -- dune exec bin/transformers_fixture.exe -- open \
 		$(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) $(TRANSFORMERS_ARTIFACTS)
+
+# Offline numerical replay of the cohort's published cases through Native direct
+# execution: every output element against the producer's reference under the
+# producer's tolerances, one versioned JSON report per artifact. Exits nonzero
+# unless every selected artifact passes -- a refusal counts as not passing.
+TRANSFORMERS_REPORTS ?= _build/transformers-reports
+transformers.replay:
+	opam exec -- dune exec bin/transformers_replay.exe -- \
+		$(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) \
+		--report-dir $(TRANSFORMERS_REPORTS) $(TRANSFORMERS_ARTIFACTS)
 
 # The arena allocator evaluation over the same corpus, both normalized
 # dialects: every strategy, its order search, the portfolio and the bounded

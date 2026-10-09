@@ -61,10 +61,11 @@ let lowering : [< Native_interp.error ] -> verdict = function
      malformed graph is a decoder that accepted what it should not have — every
      [Native_interp.malformed] row alike, which is why they are matched as the
      one included row rather than listed; the builder, provenance, transform,
-     verify and lens rows are internal invariants; and [`Eval] and
-     [`Tensor_bridge] belong to execution, which export does not perform. *)
-  | `Arena _ | `Build _ | `Eval _ | `Lens _ | `Materialize _ | `Provenance _
-  | `Schedule _ | `Tensor_bridge _ | `Transform _ | `Verify _
+     verify and lens rows are internal invariants; and [`Eval],
+     [`Input_binding] and [`Tensor_bridge] belong to execution, which export
+     does not perform. *)
+  | `Arena _ | `Build _ | `Eval _ | `Input_binding _ | `Lens _ | `Materialize _
+  | `Provenance _ | `Schedule _ | `Tensor_bridge _ | `Transform _ | `Verify _
   | #Native_interp.malformed ->
       Fatal
 

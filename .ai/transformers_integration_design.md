@@ -434,3 +434,50 @@ time it is reopened. Missing `model.pt2` is the expected shape of a slim bundle.
 capture. Measured on the four cohort artifacts of `checkpoint-003207ae59ed`
 (about 650 MB): cold fetch 29 s, offline reopen 12 s (mostly SmolVLM's 513 MB
 hashed twice, once for the cache check and once in memory).
+
+## 16. Named calls and replay (implemented)
+
+`Native_interp.run_named` binds user inputs by the exporter's names and checks
+before evaluating anything: the signature has no mutation (every output spec is
+a user output), the supplied names are exactly the graph's user inputs (none
+missing, unexpected or repeated), and each tensor has the declared dtype and
+static shape. A failure is an `` `Input_binding `` row; mixed float, int64 and
+bool inputs keep their own dtypes. `run ~input` is the old one-input API and
+keeps its behavior, including its `Not_exactly_one_user_input` refusal and the
+absence of name and dtype checks; both share one run body. The transformed
+route (`evaluate`) has no named variant yet; the replay harness executes the
+direct route only and the report names the route it ran.
+
+`lib/pt2_fixture` adds the pure replay vocabulary: `Contract` (plain functional
+tensor call only: no positional arguments, no mutation, keyword order equal to
+the input list), `Cases` (held to the contract: id sequence, tensor names and
+order, tolerances), `Logical` (any strided reference tensor gathered into
+row-major bytes after its reachable storage range is bounded in int64),
+`Tensor_digest` (the producer's content digest, line for line), `Compare` and
+`Report`. A reference output and an actual output meet only as `Logical`
+tensors, so Native's channels-last storage and a `.pt` file's strides cannot be
+mistaken for values.
+
+Comparison follows `torch.testing.assert_close` with `equal_nan = false`:
+integers and booleans exactly; floats equal (infinities and signed zeros
+included) or within `|a - r| <= atol + rtol * |r|`, evaluated in binary32 with
+`atol` and `rtol` first rounded to binary32, as torch does for float32; a NaN
+never matches. Every element is checked and the first eight mismatches are kept
+with their logical coordinates. Tolerances come from the contract and are never
+relaxed.
+
+`lib/pt2_fixture_replay` reads each case's `.pt` maps from the verified bundle,
+reorders their lexical keys into contract order, recomputes both content
+digests, checks the inputs against the contract, runs the case and compares each
+output. A digest that disagrees with its descriptor, an input that disagrees
+with the contract, and an engine refusal are recorded in the versioned JSON
+report (`status` is `passed`, `failed` or `refused`) and are never a pass. A
+dynamic-shape contract is refused outright.
+
+First numbers (the initial cohort, Native direct, consumer at the S4 commit):
+MobileViT-xxs original size, both cases, all 1000 logits within tolerance
+(max absolute error 3.1e-4, relative 5.5e-5); the SmolVLM connector case-01
+passes and case-00 fails the same two elements as the earlier v1 probe
+(absolute errors 1.57e-5 and 1.56e-5 against allowances of 1.42e-5 and
+1.33e-5); BERT-tiny and the TinyCLIP text tower are refused at
+`aten.embedding.default`.

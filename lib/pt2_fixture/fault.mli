@@ -4,6 +4,7 @@
 
 type layer =
   | Archive
+  | Cases
   | Contract
   | Graph
   | Manifest
@@ -16,7 +17,9 @@ type layer =
 
 type field =
   | Artifact_id
+  | Case_ids
   | Cases
+  | Dialect
   | File_name
   | Graph_sha256
   | Map_member
@@ -24,6 +27,7 @@ type field =
   | Release_tag
   | Repository
   | Schema_version
+  | Tolerances
   | Url  (** A scalar both sides of a comparison carry. *)
 
 module Digest_clash : sig
@@ -42,11 +46,47 @@ module Field_clash : sig
   type t = { actual : string; expected : string; field : field; layer : layer }
 end
 
+type role = Inputs | Outputs
+
+module Case_digest : sig
+  type t = {
+    actual : Pt2_sha256.Digest.t;
+    case : string;
+    expected : Pt2_sha256.Digest.t;
+    role : role;
+  }
+end
+
+module Case_names : sig
+  type t = {
+    actual : string list;
+    case : string;
+    expected : string list;
+    role : role;
+  }
+end
+
+module Logical_fault : sig
+  type t =
+    [ `Logical_numel_overflow
+    | `Logical_over_limit of int64
+    | `Logical_stride_range of int
+    | `Logical_unsupported_dtype of Pt2_dtype.t ]
+end
+
 type error =
-  [ `Cohort_decode of string
+  [ `Case_digest of Case_digest.t
+  | `Case_names of Case_names.t
+  | `Cases_decode of string
+  | `Cohort_decode of string
+  | `Contract_decode of string
+  | `Contract_mutations of string list
+  | `Contract_shape of string
   | `Digest_clash of Digest_clash.t
+  | `Digest_name of string
   | `Entry_missing of layer * string
   | `Field_clash of Field_clash.t
+  | `Logical_tensor of string * Logical_fault.t
   | `Manifest_decode of string
   | `Member_missing of string
   | `Member_surplus of string

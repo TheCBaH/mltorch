@@ -2,18 +2,13 @@ open Err.Syntax
 module Map = Pt2_checkpoint_map
 module Cohort = Pt2_fixture.Cohort
 
-type error =
-  [ Fault.error
-  | Pt2_archive.error
-  | Pt2_checkpoint_map_unix.error
-  | `Contract_decode of string ]
+type error = [ Fault.error | Pt2_archive.error | Pt2_checkpoint_map_unix.error ]
 
 let pp_error ppf : error -> unit = function
   | #Fault.error as e -> Fault.pp_error ppf e
   | #Pt2_archive.error as e -> Pt2_archive.pp_error ppf e
   | #Pt2_checkpoint_map_unix.error as e ->
       Pt2_checkpoint_map_unix.pp_error ppf e
-  | `Contract_decode m -> Fmt.pf ppf "failed to decode contract.json: %s" m
 
 type t = {
   archive : Pt2_archive.t;

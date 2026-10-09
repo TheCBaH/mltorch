@@ -7,11 +7,7 @@
     → the map's own source pins → each source file's bytes → each capture's
     final value. Nothing is executed until every layer has passed. *)
 
-type error =
-  [ Fault.error
-  | Pt2_archive.error
-  | Pt2_checkpoint_map_unix.error
-  | `Contract_decode of string ]
+type error = [ Fault.error | Pt2_archive.error | Pt2_checkpoint_map_unix.error ]
 
 val pp_error : error Fmt.t
 

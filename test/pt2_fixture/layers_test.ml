@@ -141,3 +141,119 @@ let%expect_test "the cohort pins the map's digest" =
   show (check_manifest ~entry:(List.hd bumped.entries) manifest_bytes);
   [%expect
     {| the checkpoint map: digest is 7c2654dc80e72258a54516b984c066bda4bc1a4fc7769c9424a3fbbf9f249f85, expected 0c2654dc80e72258a54516b984c066bda4bc1a4fc7769c9424a3fbbf9f249f85 |}]
+
+(* --- contract.json and cases.json --- *)
+
+module Fx = Pt2_checkpoint_map_test.Fixtures
+
+let contract_json
+    ?(call = {|{"args":[],"kwargs":["x"],"outputs":"tensor_tuple"}|})
+    ?(mutations = "[]") ?(dynamic = "{}")
+    ?(inputs = {|[{"dtype":"float32","name":"x","shape":[2]}]|}) () =
+  Printf.sprintf
+    {|{"artifact_id":%S,"call":%s,"dynamic_constraints":%s,"graph_sha256":%S,"inputs":%s,"mutations":%s,"outputs":[{"dtype":"float32","name":"y","shape":[2]}],"tolerances":{"atol":1e-05,"rtol":0.0001},"verified_cases":2,"schema_version":1}|}
+    artifact_id call dynamic (hex Fx.program_json) inputs mutations
+
+let case id inputs outputs =
+  Printf.sprintf
+    {|{"id":%S,"inputs":%s,"inputs_sha256":%S,"outputs":%s,"outputs_sha256":%S}|}
+    id inputs (String.make 64 'a') outputs (String.make 64 'b')
+
+let cases_json ?(artifact = artifact_id) ?(atol = "1e-05")
+    ?(cases =
+      [ case "case-00" {|["x"]|} {|["y"]|}; case "case-01" {|["x"]|} {|["y"]|} ])
+    () =
+  Printf.sprintf
+    {|{"artifact_id":%S,"cases":[%s],"schema_version":1,"tolerances":{"atol":%s,"rtol":0.0001}}|}
+    artifact (String.concat "," cases) atol
+
+let check_contract text =
+  match Err.payload (F.Contract.of_string text) with
+  | Ok c ->
+      Printf.printf "ok (%d inputs, %d outputs, dynamic %b)\n"
+        (List.length c.inputs) (List.length c.outputs) c.dynamic
+  | Error e -> show (Error e)
+
+let%expect_test "only a plain functional tensor call is a contract" =
+  check_contract (contract_json ());
+  check_contract
+    (contract_json ~call:{|{"args":["x"],"kwargs":[],"outputs":"tensor_tuple"}|}
+       ());
+  check_contract
+    (contract_json ~call:{|{"args":[],"kwargs":["x"],"outputs":"tensor"}|} ());
+  check_contract
+    (contract_json ~call:{|{"args":[],"kwargs":["z"],"outputs":"tensor_tuple"}|}
+       ());
+  check_contract (contract_json ~mutations:{|[{"buffer":"b"}]|} ());
+  check_contract (contract_json ~dynamic:{|{"batch":[1,8]}|} ());
+  check_contract
+    (contract_json
+       ~call:{|{"args":[],"kwargs":["x","x"],"outputs":"tensor_tuple"}|}
+       ~inputs:
+         {|[{"dtype":"float32","name":"x","shape":[2]},{"dtype":"float32","name":"x","shape":[2]}]|}
+       ());
+  check_contract
+    (contract_json ~inputs:{|[{"dtype":"float33","name":"x","shape":[2]}]|} ());
+  [%expect
+    {|
+    ok (1 inputs, 1 outputs, dynamic false)
+    the contract is not a plain tensor call: positional arguments
+    the contract is not a plain tensor call: result is tensor
+    the contract is not a plain tensor call: keyword order differs from the input list
+    the contract declares mutations: mutation
+    ok (1 inputs, 1 outputs, dynamic true)
+    the contract is not a plain tensor call: duplicate input name "x"
+    unknown dtype code "float33" |}]
+
+let check_cases ?(contract = contract_json ()) text =
+  let contract =
+    match Err.payload (F.Contract.of_string contract) with
+    | Ok c -> c
+    | Error _ -> failwith "contract"
+  in
+  show
+    (Err.payload
+       (let open Err.Syntax in
+        let* cases = F.Cases.of_string text in
+        F.Cases.check contract cases))
+
+let%expect_test "cases.json is held to the contract" =
+  check_cases (cases_json ());
+  check_cases (cases_json ~artifact:"other" ());
+  check_cases (cases_json ~atol:"1e-06" ());
+  check_cases (cases_json ~cases:[ case "case-00" {|["x"]|} {|["y"]|} ] ());
+  check_cases (cases_json ~cases:[] ());
+  check_cases
+    (cases_json
+       ~cases:
+         [
+           case "case-00" {|["x"]|} {|["y"]|};
+           case "case-02" {|["x"]|} {|["y"]|};
+         ]
+       ());
+  check_cases
+    (cases_json
+       ~cases:
+         [
+           case "case-00" {|["w"]|} {|["y"]|};
+           case "case-01" {|["x"]|} {|["y"]|};
+         ]
+       ());
+  check_cases
+    (cases_json
+       ~cases:
+         [
+           case "case-00" {|["x"]|} {|["y"]|};
+           case "case-01" {|["x"]|} {|["z"]|};
+         ]
+       ());
+  [%expect
+    {|
+    ok
+    cases.json: artifact id is "other", expected "toy/task/reference/forward/fp32/dynamo/static/ckpt-aaaaaaaaaaaa"
+    cases.json: tolerances is "atol=1e-06 rtol=0.0001", expected "atol=1e-05 rtol=0.0001"
+    cases.json: case list is "1", expected "2"
+    cases.json: case list is "0", expected "2"
+    cases.json: case ids is "case-02", expected "case-01"
+    case case-00 inputs: tensors are [w], expected [x]
+    case case-01 outputs: tensors are [z], expected [y] |}]

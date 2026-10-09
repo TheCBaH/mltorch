@@ -202,8 +202,39 @@ type unsupported_option =
     implements, deferred until a model demonstrates it. *)
 
 type unsupported_input = [ `Non_tensor | `Not_exactly_one_user_input of int ]
+
+(** {1 Named inputs}
+
+    Why a set of named user inputs cannot be bound to a graph; each is found
+    before anything is evaluated. *)
+
+module Dtype_mismatch : sig
+  type t = { name : string; expected : Pt2_dtype.t; got : Pt2_dtype.t }
+end
+
+module Shape_mismatch : sig
+  type t = {
+    name : string;
+    expected : Aten_int.Size.t list;
+    got : Aten_int.Size.t list;
+  }
+end
+
 (** Two different rejections, not one with a message. Both recoverable — see
     [Me_classify.lowering] — and only the second has a figure to report. *)
+module Input_binding : sig
+  type t =
+    | Duplicate of string
+    | Dtype_mismatch of Dtype_mismatch.t
+    | Missing of string
+    | Mutation of string
+        (** The signature has an output that is not a user output: the graph
+            mutates a buffer or an input, which a named call cannot express. *)
+    | Shape_mismatch of Shape_mismatch.t
+    | Unexpected of string
+    | Unnamed  (** A user input the graph's provenance gives no source name. *)
+    | Unsupported_dtype of Pt2_dtype.t
+end
 
 (** Own modules, per the record-namespace convention: three of these carry an
     [op] field and two an [arg]. *)
@@ -509,6 +540,7 @@ type error =
     (** An arena that was required could not be had: nothing was evaluated. *)
   | `Build of Graph_builder.error
   | `Eval of Eval_direct.error
+  | `Input_binding of Input_binding.t
   | `Lens of Pt2_native_graph.lens_error
   | `Materialize of Const_ssa_materialize.error
   | malformed
@@ -591,6 +623,39 @@ val run :
   Pt2_archive.t ->
   input:Pt2_tensor.t ->
   (Tensor.packed list, error) Err.t
+
+(* Execute a static graph with its user inputs bound BY NAME, as the exporter
+   named them (the keywords of the call). Everything {!run} does, plus the
+   binder: before any node is evaluated the signature must be free of mutations
+   (every output a user output), the names must be exactly the graph's user
+   inputs -- none missing, unexpected or repeated -- and each tensor must carry
+   the dtype and the static shape the graph declares. A failure is an
+   [`Input_binding] row. Mixed dtypes (float images, int64 ids, bool masks) keep
+   their own dtypes.
+
+   Outputs are the graph's, in its output order; the caller names them from its
+   contract. {!run} remains for the one-input case and is unchanged. *)
+val run_named :
+  ?arena:Arena.Admission.t ->
+  ?layout:Storage_script.Layout.t ->
+  ?schedule:schedule ->
+  ?on_arena:(Arena_run.Outcome.t -> unit) ->
+  ?on_storage:(Storage_run.Report.t -> unit) ->
+  ?hooks:hooks ->
+  ?region_executor:Region_executor.t ->
+  ?region_group_executor:Region_executor.group ->
+  ?node_executor:Node_executor.t ->
+  Pt2_archive.t ->
+  inputs:(string * Pt2_tensor.t) list ->
+  (Tensor.packed list, error) Err.t
+
+val named_user_inputs :
+  Pt2_native_graph.t ->
+  ( (string * Graph_ir.Tensor_id.t * Pytorch_types.TensorMeta.t option) list,
+    [> `Input_binding of Input_binding.t ] )
+  Err.t
+(** The user inputs of a lowered graph in graph order: the name a caller binds
+    each by, its tensor id and its declared metadata. *)
 
 (* Transforming, printing and executing are separate: a caller that only wants to
    SEE what a pipeline produced should not have to run inference to find out. *)

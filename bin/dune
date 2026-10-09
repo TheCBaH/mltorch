@@ -332,3 +332,17 @@
   pt2_fixture
   pt2_fixture_unix
   unix))
+
+; Replay a released fixture's reference cases through the Native engine, offline
+; from the cache, and write a versioned report per artifact.
+
+(executable
+ (name transformers_replay)
+ (modules transformers_replay)
+ (libraries
+  err_trace
+  fmt
+  pt2_fixture
+  pt2_fixture_replay
+  pt2_fixture_unix
+  unix))

@@ -1,0 +1,17 @@
+; Replay a released fixture's reference cases through the Native engine and
+; compare every output element. The host half of the chain: it reads case
+; tensors from the verified bundle, runs the opened fixture, and produces the
+; report. Native only (it reads files and links the engine).
+
+(library
+ (name pt2_fixture_replay)
+ (libraries
+  err_trace
+  fmt
+  native
+  native_interp
+  pt2
+  pt2_checkpoint_map
+  pt2_fixture
+  pt2_fixture_unix
+  pt2_sha256))
