@@ -91,9 +91,14 @@ let regions_program (p : (_, _) Mir_phys.Program.t) =
   }
 
 (* The artifact as a loaded image: the main function's name is its entry. *)
-let image ?mutation artifact =
+let image ?mutation ~runtime artifact =
   let phys = Art.program artifact in
   let render pp e = Fmt.str "%a" pp e in
+  let* () =
+    Result.map_error
+      (render Rivet_a64_refusal.pp)
+      (Rivet_a64_runtime.admit runtime artifact)
+  in
   let* modul =
     Result.map_error
       (render Rivet_a64_refusal.pp)
@@ -137,9 +142,9 @@ let kernel loaded =
   Gc.finalise (fun k -> I.close k.loaded) k;
   k
 
-let exec_of ?mutation ~allocation ~sites (g : Mir_verify.Generic.t) =
+let exec_of ?mutation ~allocation ~runtime ~sites (g : Mir_verify.Generic.t) =
   let* { artifact; record } = publish ~allocation ~sites g in
-  let* loaded = image ?mutation artifact in
+  let* loaded = image ?mutation ~runtime artifact in
   let k = kernel loaded in
   let phys = Art.program artifact in
   let regions = phys.Mir_phys.Program.regions in
@@ -219,9 +224,13 @@ let exec_of ?mutation ~allocation ~sites (g : Mir_verify.Generic.t) =
       traffic = (fun () -> None);
     }
 
-let route ?mutation ?(allocation = Allocation.Reference) () =
+let route ?mutation ?(allocation = Allocation.Reference)
+    ?(runtime = Rivet_a64_runtime.Dependency_free) () =
   Route.Route.Custom
     {
-      Route.Custom.name = "aarch64 native " ^ Allocation.name allocation;
-      exec = (fun ~sites g -> exec_of ?mutation ~allocation ~sites g);
+      Route.Custom.name =
+        Fmt.str "aarch64 native %s %s"
+          (Allocation.name allocation)
+          (Rivet_a64_runtime.name runtime);
+      exec = (fun ~sites g -> exec_of ?mutation ~allocation ~runtime ~sites g);
     }

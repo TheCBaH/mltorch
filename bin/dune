@@ -253,3 +253,23 @@
   native
   unix
   wasm_ir))
+
+; A model's invocations as AArch64 images through typed Rivet modules, run on
+; this CPU against the per-node reference (see the header of the source). Built
+; only where Rivet is installed; MANUAL, needs the model data.
+
+(executable
+ (name machine_rivet_a64_census)
+ (modules machine_rivet_a64_census)
+ (libraries
+  err_trace
+  fmt
+  loop_ir
+  machine_model
+  machine_rivet_aarch64
+  native
+  native_interp
+  pt2
+  ssa_backends
+  unix)
+ (optional))

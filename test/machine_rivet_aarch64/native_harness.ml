@@ -116,46 +116,12 @@ let isolated (f : unit -> ('a, string) result) : ('a, string) result =
 
 (* The artifact in this process: bound regions written, the kernel called, every
    bound region read back into a fresh memory the observation decodes. *)
-let native ?mutation case ~sites ({ artifact; _ } as b) =
+let native ?mutation
+    ?(runtime = Machine_rivet_aarch64.Rivet_a64_runtime.System_libm) case ~sites
+    ({ artifact; _ } as b) =
   let phys = Art.program artifact in
-  let* modul =
-    Result.map_error
-      (Fmt.str "module: %a" Refusal.pp)
-      (Err.payload (Module.of_artifact ?mutation artifact))
-  in
-  let helpers =
-    List.filter_map
-      (fun (s : Art.Symbol.t) ->
-        match s.Art.Symbol.kind with
-        | Art.Symbol.External_function f -> Some f
-        | _ -> None)
-      (Art.symbols artifact)
-  in
-  let* host =
-    if helpers = [] then Ok []
-    else
-      Result.map
-        (fun m -> [ m ])
-        (Result.map_error
-           (Fmt.str "helpers: %a" Refusal.pp)
-           (Err.payload (Module.helpers ~host_symbol:Image.host_symbol helpers)))
-  in
-  let main =
-    (List.find
-       (fun (f : (_, _) Mir_phys.Func.t) ->
-         Mir_id.Func.equal f.Mir_phys.Func.id phys.Mir_phys.Program.main)
-       phys.Mir_phys.Program.funcs)
-      .Mir_phys.Func.name
-  in
-  let* laid =
-    Result.map_error
-      (Fmt.str "image: %a" Image.Error.pp)
-      (Err.payload (Image.plan ~entry:main (modul :: host)))
-  in
   let* loaded =
-    Result.map_error
-      (Fmt.str "load: %a" Image.Error.pp)
-      (Err.payload (Image.load laid))
+    Machine_rivet_aarch64.Rivet_a64_route.image ?mutation ~runtime artifact
   in
   let regions = phys.Mir_phys.Program.regions in
   let run () =
@@ -226,11 +192,13 @@ let native ?mutation case ~sites ({ artifact; _ } as b) =
           [ Mir_datum.Bits (Int64.logand status 0xFFFF_FFFFL) ]))
 
 (* The native observation against the interpreter's: a one-line verdict. *)
-let compare ?mutation ?(sites = [||]) (case : Src.Case.t) =
+let compare ?mutation ?runtime ?(sites = [||]) (case : Src.Case.t) =
   match build case ~sites with
   | Error e -> "not built: " ^ e
   | Ok b -> (
-      match (interpreted case ~sites b, native ?mutation case ~sites b) with
+      match
+        (interpreted case ~sites b, native ?mutation ?runtime case ~sites b)
+      with
       | Error e, _ -> "interpreter: " ^ e
       | _, Error e -> "native: " ^ e
       | Ok i, Ok n -> (

@@ -8,6 +8,10 @@ module Rt = Machine_rivet_aarch64.Rivet_a64_route
 
 let route = Rt.route ()
 
+(* Softmax and SDPA call the C library's exp: a declared dependency. *)
+let libm =
+  Rt.route ~runtime:Machine_rivet_aarch64.Rivet_a64_runtime.System_libm ()
+
 let%expect_test "conv, batch norm, relu natively" =
   T.check ~route ~constant:T.positive ~calls:3 "chain" F.chain;
   [%expect {| chain (3 invocations): bitwise, bitwise, bitwise |}]
@@ -27,7 +31,7 @@ let%expect_test "wider chain, and both pipelines" =
     wide chain exact (3 invocations): bitwise, bitwise |}]
 
 let%expect_test "Region nodes: locals, scans and the meter in a context" =
-  T.check ~route "softmax over C" (fun () ->
+  T.check ~route:libm "softmax over C" (fun () ->
       F.build "softmax"
         Graph_builder.(
           let* x = input ~shape:(F.s 1 1 2 3 4 5) () in
@@ -44,7 +48,7 @@ let%expect_test "Region nodes: locals, scans and the meter in a context" =
         Graph_builder.(
           let* x = input ~shape:(F.s 1 1 1 3 4 5) () in
           rms_norm { Norm.RmsNorm.dims = [ Axis.C ]; eps = 1e-5 } ~x ()));
-  T.check ~route "sdpa, masked rows"
+  T.check ~route:libm "sdpa, masked rows"
     (fun () ->
       F.build "sdpa_mask"
         Graph_builder.(
@@ -144,7 +148,10 @@ let%expect_test
 (* The same bundles with the split linear-scan allocator behind sink
    scheduling: another physical program, the same answers. *)
 let%expect_test "scanned allocation natively" =
-  let route = Rt.route ~allocation:Rt.Allocation.Scanned () in
+  let route =
+    Rt.route ~allocation:Rt.Allocation.Scanned
+      ~runtime:Machine_rivet_aarch64.Rivet_a64_runtime.System_libm ()
+  in
   T.check ~route ~constant:T.positive ~calls:3 "chain" F.chain;
   T.check ~route ~constant:T.positive "wide chain exact" T.wide_chain;
   T.check ~route "bmm" (fun () ->
@@ -153,7 +160,7 @@ let%expect_test "scanned allocation natively" =
           let* a = input ~shape:(F.s 1 1 1 2 5 7) () in
           let* b = input ~shape:(F.s 1 1 1 2 7 3) () in
           bmm a b));
-  T.check ~route "softmax over C" (fun () ->
+  T.check ~route:libm "softmax over C" (fun () ->
       F.build "softmax"
         Graph_builder.(
           let* x = input ~shape:(F.s 1 1 2 3 4 5) () in
@@ -177,3 +184,14 @@ let%expect_test "mapping mutations change a bundle's answer" =
     {|
     dropped lo12 (3 invocations): DIFFERS
     commuted sub (3 invocations): DIFFERS |}]
+
+(* The default mode adds no third-party runtime: a kernel whose helper is a C
+   library symbol is refused before anything is loaded. *)
+let%expect_test "dependency-free refuses a libm helper" =
+  T.check ~route "softmax over C" (fun () ->
+      F.build "softmax"
+        Graph_builder.(
+          let* x = input ~shape:(F.s 1 1 2 3 4 5) () in
+          softmax { Reduce.Softmax.axis = Axis.C } x));
+  [%expect
+    {| softmax over C: refused: invocation 0 (n0): helper exp needs the system math library, which the mode forbids |}]
