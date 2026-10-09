@@ -24,6 +24,7 @@
   machine_source_test
   machine_target_aarch64
   native
+  native_cfi
   native_test
   unix
   ssa_bridge_test

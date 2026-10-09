@@ -201,3 +201,49 @@ let planned ?runtime ?features ?pad ~target ~numerics kernel ~bind =
   with
   | Error e -> e
   | Ok case -> compare ?runtime ?features ?pad case
+
+(* The call-frame information of the artifact's modules, resident and
+   table-bound (with the entry wrapper), against the instructions. *)
+let cfi ?pad ?(tamper = Fun.id) ?(sites = [||]) (case : Src.Case.t) =
+  match build ?pad case ~sites with
+  | Error e -> "not built: " ^ e
+  | Ok { artifact; _ } ->
+      let number s =
+        let s = String.trim s in
+        let s = if String.length s > 0 && s.[0] = '$' then String.sub s 1 (String.length s - 1) else s in
+        int_of_string_opt (List.hd (String.split_on_char ',' s))
+      in
+      let arch =
+        {
+          Native_cfi.prefix = "x86_64-linux-gnu-";
+          entry_offset = 8;
+          effect =
+            (fun ~mnemonic ~operands ->
+              let on_rsp = String.length operands > 5 && String.sub operands (String.length operands - 5) 5 = ",%rsp" in
+              match mnemonic with
+              | "sub" when on_rsp -> Option.map Fun.id (number operands)
+              | "add" when on_rsp -> Option.map (fun n -> -n) (number operands)
+              | "push" -> Some 8
+              | "pop" -> Some (-8)
+              | _ -> None);
+          barrier =
+            (fun m ->
+              m = "call" || m = "ret"
+              || (String.length m > 0 && m.[0] = 'j'));
+          is_return = (fun m -> m = "ret");
+        }
+      in
+      let module M = Machine_rivet_x86_64.Rivet_x64_module in
+      let one binding =
+        match Err.payload (M.of_artifact ~binding artifact) with
+        | Error r -> Fmt.str "module: %a" Machine_rivet_x86_64.Rivet_x64_refusal.pp r
+        | Ok m -> (
+            match
+              Native_cfi.check arch
+                ~assembly:
+                  (tamper (Machine_rivet_x86_64_gnu.Gnu_coherence.assembly m))
+            with
+            | Ok s -> s
+            | Error e -> e)
+      in
+      String.concat "; " [ one M.Image_resident; one M.Table ]

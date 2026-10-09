@@ -303,3 +303,55 @@ let mnemonics ?select_mutation ?pad ?(sites = [||]) (case : Src.Case.t) =
               | _ -> ())
             m.Asm_core.Normalized_ast.items;
           Ok t)
+
+(* The call-frame information of the artifact's modules, resident and
+   table-bound (with the entry wrapper), against the instructions. *)
+let cfi ?pad ?(tamper = Fun.id) ?(sites = [||]) (case : Src.Case.t) =
+  match build ?pad case ~sites with
+  | Error e -> "not built: " ^ e
+  | Ok { artifact; _ } ->
+      let imm operands =
+        match String.index_opt operands '#' with
+        | Some k ->
+            let rest = String.sub operands (k + 1) (String.length operands - k - 1) in
+            let shifted = Str.string_match (Str.regexp ".*lsl #12") rest 0 in
+            let value =
+              match String.split_on_char ',' rest with
+              | v :: _ -> int_of_string_opt (String.trim v)
+              | [] -> None
+            in
+            Option.map (fun v -> if shifted then v lsl 12 else v) value
+        | None -> None
+      in
+      let arch =
+        {
+          Native_cfi.prefix = "";
+          entry_offset = 0;
+          effect =
+            (fun ~mnemonic ~operands ->
+              let on_sp = String.length operands > 7 && String.sub operands 0 7 = "sp, sp," in
+              match mnemonic with
+              | "sub" when on_sp -> imm operands
+              | "add" when on_sp -> Option.map (fun n -> -n) (imm operands)
+              | _ -> None);
+          barrier =
+            (fun m ->
+              m = "bl" || m = "ret" || m = "b"
+              || (String.length m > 2 && String.sub m 0 2 = "b."));
+          is_return = (fun m -> m = "ret");
+        }
+      in
+      let module M = Module in
+      let one binding =
+        match Err.payload (M.of_artifact ~binding artifact) with
+        | Error r -> Fmt.str "module: %a" Refusal.pp r
+        | Ok m -> (
+            match
+              Native_cfi.check arch
+                ~assembly:
+                  (tamper (Machine_rivet_aarch64_gnu.Gnu_coherence.assembly m))
+            with
+            | Ok s -> s
+            | Error e -> e)
+      in
+      String.concat "; " [ one M.Image_resident; one M.Table ]

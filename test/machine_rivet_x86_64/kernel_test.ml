@@ -180,3 +180,42 @@ let%expect_test "large frames" =
     ok [emulated: agree]
     ok [emulated: agree]
     ok [emulated: agree] |}]
+
+(* Call-frame information describes the code: at every instruction the CFA
+   offset GNU's decoding of .eh_frame gives equals the one the instructions
+   have made. *)
+let%expect_test "call-frame information" =
+  let cfi ?pad kernel ~bind =
+    match Src.case_of_plan (Fusion_plan.default kernel) ~bind with
+    | Error e -> Fmt.pr "%s@." e
+    | Ok case -> Fmt.pr "%s@." (H.cfi ?pad case)
+  in
+  let a = operand 3 35 and b = operand 5 21 in
+  cfi Loop_programs.kernel ~bind:(data_bind [| -0.; 1.5; nan; 3. |]);
+  cfi Loop_programs.shifted_kernel ~bind:(data_bind [| 0.; 0.; 0.; 0. |]);
+  cfi (matmul_kernel ~m:5 ~k:7 ~n:3) ~bind:(matmul_bind ~m:5 ~k:7 ~n:3 ~a ~b);
+  cfi ~pad:1_048_576L Loop_programs.kernel
+    ~bind:(data_bind [| -0.; 1.5; nan; 3. |]);
+  [%expect
+    {|
+    ok (1 functions, 64 instructions); ok (2 functions, 75 instructions)
+    ok (1 functions, 664 instructions); ok (2 functions, 675 instructions)
+    ok (1 functions, 149 instructions); ok (2 functions, 160 instructions)
+    ok (1 functions, 66 instructions); ok (2 functions, 77 instructions) |}]
+
+(* A wrong description is seen: the first stack adjustment says 8 more bytes. *)
+let%expect_test "wrong call-frame information is seen" =
+  let tamper s =
+    Str.replace_first
+      (Str.regexp "\t.cfi_adjust_cfa_offset\t\\([0-9]+\\)")
+      "\t.cfi_adjust_cfa_offset\t\\1000" s
+  in
+  (match
+     Src.case_of_plan
+       (Fusion_plan.default Loop_programs.kernel)
+       ~bind:(data_bind [| -0.; 1.5; nan; 3. |])
+   with
+  | Ok case -> Fmt.pr "%s@." (H.cfi ~tamper case)
+  | Error e -> Fmt.pr "%s@." e);
+  [%expect
+    {| 4 mov $0x0,%edi: CFA offset 120008, instructions say 128; 4 mov $0x0,%edi: CFA offset 120008, instructions say 128 |}]
