@@ -235,7 +235,7 @@ let compare ?mutation ?runtime ?frame_mutation ?probe ?(sites = [||])
 
 (* The artifact's typed modules, assembled by GNU as and linked by GNU ld at
    Rivet's addresses, against Rivet's own image. *)
-let gnu ?mutation ?tamper ?(sites = [||]) (case : Src.Case.t) =
+let gnu ?mutation ?tamper_gnu ?tamper_text ?(sites = [||]) (case : Src.Case.t) =
   match build case ~sites with
   | Error e -> "not built: " ^ e
   | Ok { artifact; _ } -> (
@@ -268,5 +268,5 @@ let gnu ?mutation ?tamper ?(sites = [||]) (case : Src.Case.t) =
       | Error r -> Fmt.str "module: %a" Refusal.pp r
       | Ok m ->
           Fmt.str "%a" Machine_rivet_aarch64_gnu.Gnu_coherence.Verdict.pp
-            (Machine_rivet_aarch64_gnu.Gnu_coherence.check ?tamper ~entry
-               (m :: host)))
+            (Machine_rivet_aarch64_gnu.Gnu_coherence.check ?tamper_gnu
+               ?tamper_text ~entry (m :: host)))

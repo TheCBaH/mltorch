@@ -83,10 +83,10 @@ let%expect_test "mapping mutations are detected natively" =
 
 (* The same modules through GNU: assembled and linked at Rivet's addresses, the
    loadable bytes and global symbol addresses are Rivet's. *)
-let gnu ?tamper kernel ~bind =
+let gnu ?tamper_gnu ?tamper_text kernel ~bind =
   match Src.case_of_plan (Fusion_plan.default kernel) ~bind with
   | Error e -> Fmt.pr "%s@." e
-  | Ok case -> Fmt.pr "%s@." (H.gnu ?tamper case)
+  | Ok case -> Fmt.pr "%s@." (H.gnu ?tamper_gnu ?tamper_text case)
 
 let%expect_test "GNU assembles what Rivet encodes" =
   gnu Loop_programs.kernel ~bind:(data_bind [| -0.; 1.5; nan; 3. |]);
@@ -116,16 +116,22 @@ let%expect_test "a tampered GNU source disagrees" =
     | exception Not_found -> s
   in
   gnu
-    ~tamper:(replace_first ~sub:"\tfsub" ~by:"\tfadd")
+    ~tamper_gnu:(replace_first ~sub:"\tfsub" ~by:"\tfadd")
     Cases.noncommutative
     ~bind:(data_bind [| 7.; -0.; 1e-40; 3.4e38 |]);
   gnu
-    ~tamper:(replace_first ~sub:"\tret" ~by:"\tnop")
+    ~tamper_gnu:(replace_first ~sub:"\tret" ~by:"\tnop")
     Loop_programs.kernel
     ~bind:(data_bind [| -0.; 1.5; nan; 3. |]);
-  [%expect {|
+  gnu
+    ~tamper_text:(replace_first ~sub:"\tfsub" ~by:"\tfadd")
+    Cases.noncommutative
+    ~bind:(data_bind [| 7.; -0.; 1e-40; 3.4e38 |]);
+  [%expect
+    {|
     .text+237: rivet 3a, gnu 2a
-    .text+92: rivet c0, gnu 1f |}]
+    .text+92: rivet c0, gnu 1f
+    reparsed .text+237: typed 3a, text 2a |}]
 
 (* AAPCS64 around the kernel: the callee-saved registers, FPCR and the stack
    pointer come back as they went in, whichever way the kernel exits, and its

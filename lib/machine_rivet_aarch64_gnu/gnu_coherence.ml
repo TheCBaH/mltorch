@@ -1,5 +1,6 @@
 (* Rivet's encoding of a typed module against GNU's of the same module
-   ([tamper] edits the printed source first: evidence that a difference is seen). The
+   ([tamper_gnu] and [tamper_text] edit the source GNU, or Rivet's text route,
+   is given: evidence that a difference is seen). The
    module is printed once by [Gnu_module]; GNU as assembles it and GNU ld links
    it with each section at the address Rivet bound it to. Equal loadable bytes
    and equal global symbol addresses mean the two assemblers read the module
@@ -14,6 +15,8 @@ module Verdict = struct
   type t =
     | Agree of { segments : int; bytes : int; symbols : int }
     | Differ of { segment : string; offset : int; rivet : int; gnu : int }
+    | Reparsed of { segment : string; offset : int; typed : int; text : int }
+        (** Rivet's own text route read the printed module differently *)
     | Symbols of { name : string; rivet : int64 option; gnu : int64 option }
     | Tool of { command : string; status : int; output : string }
     | Rivet of string
@@ -24,6 +27,9 @@ module Verdict = struct
           symbols
     | Differ { segment; offset; rivet; gnu } ->
         Fmt.pf fmt "%s+%d: rivet %02x, gnu %02x" segment offset rivet gnu
+    | Reparsed { segment; offset; typed; text } ->
+        Fmt.pf fmt "reparsed %s+%d: typed %02x, text %02x" segment offset typed
+          text
     | Symbols { name; rivet; gnu } ->
         let a fmt = function
           | Some v -> Fmt.pf fmt "%Lx" v
@@ -118,7 +124,7 @@ let first_difference a b =
 let base = 0x10_0000L
 let stride = 0x100_0000L
 
-let check ?(tamper = Fun.id) ~entry
+let check ?(tamper_gnu = Fun.id) ?(tamper_text = Fun.id) ~entry
     (modules : Aarch64.Instruction.t Normalized_ast.module_ list) : Verdict.t =
   let result =
     let lower m =
@@ -155,6 +161,34 @@ let check ?(tamper = Fun.id) ~entry
       | Ok i -> Ok i
       | Error e -> Error (Verdict.Rivet (Foundation.Diag.render e))
     in
+    (* Rivet's own text route over the printed module, at the same addresses *)
+    let* () =
+      let sources =
+        List.mapi
+          (fun i m ->
+            let name = Printf.sprintf "m%d.s" i in
+            ( name,
+              Foundation.Span.source ~name ~contents:(tamper_text (assembly m))
+            ))
+          modules
+      in
+      match P.assemble_many ~entry sources () with
+      | Error e -> Error (Verdict.Rivet (Foundation.Diag.render e))
+      | Ok laid2 -> (
+          match Image.bind_image laid2 ~addresses with
+          | Error e -> Error (Verdict.Rivet (Foundation.Diag.render e))
+          | Ok image2 ->
+              List.fold_left2
+                (fun acc (a : Image.segment) (b : Image.segment) ->
+                  let* () = acc in
+                  match first_difference a.Image.bytes b.Image.bytes with
+                  | None -> Ok ()
+                  | Some (offset, typed, text) ->
+                      Error
+                        (Verdict.Reparsed
+                           { segment = a.Image.name; offset; typed; text }))
+                (Ok ()) image.Image.segments image2.Image.segments)
+    in
     in_temp_dir (fun dir ->
         let* objects =
           List.fold_left
@@ -162,7 +196,7 @@ let check ?(tamper = Fun.id) ~entry
               let* acc = acc in
               let s = Filename.concat dir (Printf.sprintf "m%d.s" i) in
               let o = Filename.concat dir (Printf.sprintf "m%d.o" i) in
-              write s (tamper (assembly m));
+              write s (tamper_gnu (assembly m));
               let* _ =
                 run
                   (Printf.sprintf "as -o %s %s" (Filename.quote o)
