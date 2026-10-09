@@ -249,6 +249,438 @@
         "repo": "wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M",
         "revision": "a2a8c6eaa2549ad66eb7c31b85022bf58273a26c"
       }
+    },
+    {
+      "archive": {
+        "name": "segformer-b0--semantic-segmentation--reference--forward--fp32--dynamo--static--ckpt-489d5cd81a0b.tar.gz",
+        "sha256": "dab2706ce3e21f6c77618a1d1ca944c0db9c8bdd8f793abecf44eaf0efcce81f",
+        "size": 4327695,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/segformer-b0--semantic-segmentation--reference--forward--fp32--dynamo--static--ckpt-489d5cd81a0b.tar.gz"
+      },
+      "artifact_id": "segformer-b0/semantic-segmentation/reference/forward/fp32/dynamo/static/ckpt-489d5cd81a0b",
+      "capture_count": 208,
+      "cases": [
+        "case-00",
+        "case-01"
+      ],
+      "contract_sha256": "f96f15c6516147e758783f2f541a8b16b6d5929438248b8c720bff6466ed8916",
+      "graph_sha256": "02d098ef7fe80f22cd2b4e5898de5abe0ee06eeb389c4fb2d1adce8ee66c96e3",
+      "manifest": {
+        "name": "segformer-b0--semantic-segmentation--reference--forward--fp32--dynamo--static--ckpt-489d5cd81a0b.manifest.json",
+        "sha256": "9bdf480246e078c01245c0cd464cf752a2757a5509f1efbf2b0b00a44978a39f",
+        "size": 3063,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/segformer-b0--semantic-segmentation--reference--forward--fp32--dynamo--static--ckpt-489d5cd81a0b.manifest.json"
+      },
+      "map_member": "models/safetensors.v2.json",
+      "map_sha256": "b57dc435f99e56b3a65013d86e376a0b38fc2f58e087833170691c963268e4ac",
+      "map_sources": {
+        "checkpoint": {
+          "files": [
+            {
+              "name": "model.safetensors",
+              "repo_id": "nvidia/segformer-b0-finetuned-ade-512-512",
+              "revision": "489d5cd81a0b59fab9b7ea758d3548ebe99677da",
+              "sha256": "6ae39addd01de6b1b8bde2cf677d43a5cd733424b8d186de3f95d1c51fee23f9",
+              "size": 15036944,
+              "url": "https://huggingface.co/nvidia/segformer-b0-finetuned-ade-512-512/resolve/489d5cd81a0b59fab9b7ea758d3548ebe99677da/model.safetensors"
+            }
+          ]
+        }
+      },
+      "released_sources": [],
+      "role": "second vision family",
+      "weight_source": {
+        "config_sha256": "209caa9091e4632f7c8883c11170cd08ad29af68b23c09590aa4a5befb1a2a7f",
+        "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
+        "files": {
+          "model.safetensors": {
+            "sha256": "6ae39addd01de6b1b8bde2cf677d43a5cd733424b8d186de3f95d1c51fee23f9",
+            "size": 15036944
+          }
+        },
+        "kind": "checkpoint",
+        "pinned_config_match": true,
+        "repo": "nvidia/segformer-b0-finetuned-ade-512-512",
+        "revision": "489d5cd81a0b59fab9b7ea758d3548ebe99677da"
+      }
+    },
+    {
+      "archive": {
+        "name": "yolos-tiny--object-detection--reference--forward--fp32--dynamo--static--ckpt-95a90f3c189f.tar.gz",
+        "sha256": "1639e8b762d63e49a9d72c03daf029b1545d548c1279185246e8b0ea46a2f9ae",
+        "size": 1244365,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/yolos-tiny--object-detection--reference--forward--fp32--dynamo--static--ckpt-95a90f3c189f.tar.gz"
+      },
+      "artifact_id": "yolos-tiny/object-detection/reference/forward/fp32/dynamo/static/ckpt-95a90f3c189f",
+      "capture_count": 211,
+      "cases": [
+        "case-00",
+        "case-01"
+      ],
+      "contract_sha256": "1e5c59f87f260bad96b42973ad0f791fdd786232b7970fe84fdebaa02d66ad17",
+      "graph_sha256": "4d518f07e0a9605fcdbe25663f082f8775f4bb840f639066b64dada70609f86d",
+      "manifest": {
+        "name": "yolos-tiny--object-detection--reference--forward--fp32--dynamo--static--ckpt-95a90f3c189f.manifest.json",
+        "sha256": "14ce97667e70779043a0ee58adfbb70c5564ba8a476bb870f100857a7416344a",
+        "size": 3020,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/yolos-tiny--object-detection--reference--forward--fp32--dynamo--static--ckpt-95a90f3c189f.manifest.json"
+      },
+      "map_member": "models/safetensors.v2.json",
+      "map_sha256": "5babc254486bc048a458be1eb88f9aeb65027491d90df3db6bf454a8223b676a",
+      "map_sources": {
+        "checkpoint": {
+          "files": [
+            {
+              "name": "model.safetensors",
+              "repo_id": "hustvl/yolos-tiny",
+              "revision": "95a90f3c189fbfca3bcfc6d7315b9e84d95dc2de",
+              "sha256": "5a6a017a20cb522dd347271fa5bd670467e456176aaccd940090e50985ac6e74",
+              "size": 25978888,
+              "url": "https://huggingface.co/hustvl/yolos-tiny/resolve/95a90f3c189fbfca3bcfc6d7315b9e84d95dc2de/model.safetensors"
+            }
+          ]
+        }
+      },
+      "released_sources": [],
+      "role": "detection",
+      "weight_source": {
+        "config_sha256": "a171607bf33c3c85c2cda36e63f681e8b7fd101396b3f0f7a4aa40214020b86e",
+        "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
+        "files": {
+          "model.safetensors": {
+            "sha256": "5a6a017a20cb522dd347271fa5bd670467e456176aaccd940090e50985ac6e74",
+            "size": 25978888
+          }
+        },
+        "kind": "checkpoint",
+        "pinned_config_match": true,
+        "repo": "hustvl/yolos-tiny",
+        "revision": "95a90f3c189fbfca3bcfc6d7315b9e84d95dc2de"
+      }
+    },
+    {
+      "archive": {
+        "name": "tinyclip--image-text-embeddings--reference--image-encoder--fp32--dynamo--static--ckpt-a2a8c6eaa254.tar.gz",
+        "sha256": "971b6e13ff5c86f89fd0a55f97e4515369d04cceedb4cdd4cd0d7d4b538bc4a6",
+        "size": 1166111,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/tinyclip--image-text-embeddings--reference--image-encoder--fp32--dynamo--static--ckpt-a2a8c6eaa254.tar.gz"
+      },
+      "artifact_id": "tinyclip/image-text-embeddings/reference/image-encoder/fp32/dynamo/static/ckpt-a2a8c6eaa254",
+      "capture_count": 169,
+      "cases": [
+        "case-00",
+        "case-01"
+      ],
+      "contract_sha256": "ff1a006c293ac37f09505ebe9f4d5528d515f923c03a40f7057c3903c7ce6e9c",
+      "graph_sha256": "f1021511f35cefde04c8fea522a168f0c1b40b545800ee561ed7aba55533f260",
+      "manifest": {
+        "name": "tinyclip--image-text-embeddings--reference--image-encoder--fp32--dynamo--static--ckpt-a2a8c6eaa254.manifest.json",
+        "sha256": "14a60646ded5c5eeb69410d00ef707f3b4a8e5eb3658b7f716ed5460b9a7607c",
+        "size": 3058,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/tinyclip--image-text-embeddings--reference--image-encoder--fp32--dynamo--static--ckpt-a2a8c6eaa254.manifest.json"
+      },
+      "map_member": "models/safetensors.v2.json",
+      "map_sha256": "970f2fe3abd653e19a45d23498e83d0441abb2530caf2151ff976b06030dfab1",
+      "map_sources": {
+        "checkpoint": {
+          "files": [
+            {
+              "name": "model.safetensors",
+              "repo_id": "wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M",
+              "revision": "a2a8c6eaa2549ad66eb7c31b85022bf58273a26c",
+              "sha256": "9339ee3d736344d0ddcaa6c03edc9f89688f08caaea5401220885233da726fcc",
+              "size": 93812468,
+              "url": "https://huggingface.co/wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M/resolve/a2a8c6eaa2549ad66eb7c31b85022bf58273a26c/model.safetensors"
+            }
+          ]
+        }
+      },
+      "released_sources": [],
+      "role": "vision tower, shares the text tower's checkpoint",
+      "weight_source": {
+        "config_sha256": "c586d856dbd5589b67525db9e791ee0917402405672c7773aead373efb7d7bca",
+        "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
+        "files": {
+          "model.safetensors": {
+            "sha256": "9339ee3d736344d0ddcaa6c03edc9f89688f08caaea5401220885233da726fcc",
+            "size": 93812468
+          }
+        },
+        "kind": "checkpoint",
+        "pinned_config_match": true,
+        "repo": "wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M",
+        "revision": "a2a8c6eaa2549ad66eb7c31b85022bf58273a26c"
+      }
+    },
+    {
+      "archive": {
+        "name": "whisper-tiny--audio-encoder-decoder--reference--encoder--fp32--dynamo--static--ckpt-169d4a4341b3.tar.gz",
+        "sha256": "aa81b47d1ca263988a08a549e046fd8d09798ac920c56e2bb52d5e87e19f32f9",
+        "size": 6088857,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/whisper-tiny--audio-encoder-decoder--reference--encoder--fp32--dynamo--static--ckpt-169d4a4341b3.tar.gz"
+      },
+      "artifact_id": "whisper-tiny/audio-encoder-decoder/reference/encoder/fp32/dynamo/static/ckpt-169d4a4341b3",
+      "capture_count": 67,
+      "cases": [
+        "case-00",
+        "case-01"
+      ],
+      "contract_sha256": "ff66c0e839f66416d478fec3966dc3abfbeca2af04388e4e66bbb436b86a4c22",
+      "graph_sha256": "c994e74dc32fcaf99b393213dc98aebafbf68c4c893c8822aa35c8f61cd68ae7",
+      "manifest": {
+        "name": "whisper-tiny--audio-encoder-decoder--reference--encoder--fp32--dynamo--static--ckpt-169d4a4341b3.manifest.json",
+        "sha256": "4d7c899634f2ca12c2218337295c77ce89ff7fb30edd77b84d9c7717f9760784",
+        "size": 3040,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/whisper-tiny--audio-encoder-decoder--reference--encoder--fp32--dynamo--static--ckpt-169d4a4341b3.manifest.json"
+      },
+      "map_member": "models/safetensors.v2.json",
+      "map_sha256": "37abb7f5abcf901798542fd36c110895906568bb0ff33c3c89ed4d768eec43da",
+      "map_sources": {
+        "checkpoint": {
+          "files": [
+            {
+              "name": "model.safetensors",
+              "repo_id": "openai/whisper-tiny",
+              "revision": "169d4a4341b33bc18d8881c4b69c2e104e1cc0af",
+              "sha256": "7ebd0e69e78190ffe1438491fa05cc1f5c1aa3a4c4db3bc1723adbb551ea2395",
+              "size": 151061672,
+              "url": "https://huggingface.co/openai/whisper-tiny/resolve/169d4a4341b33bc18d8881c4b69c2e104e1cc0af/model.safetensors"
+            }
+          ]
+        }
+      },
+      "released_sources": [],
+      "role": "audio encoder",
+      "weight_source": {
+        "config_sha256": "ffdccec4f3211f4c63310f2b7098f309fe70f3952cedc5e4d11e43f5b2379b98",
+        "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
+        "files": {
+          "model.safetensors": {
+            "sha256": "7ebd0e69e78190ffe1438491fa05cc1f5c1aa3a4c4db3bc1723adbb551ea2395",
+            "size": 151061672
+          }
+        },
+        "kind": "checkpoint",
+        "pinned_config_match": true,
+        "repo": "openai/whisper-tiny",
+        "revision": "169d4a4341b33bc18d8881c4b69c2e104e1cc0af"
+      }
+    },
+    {
+      "archive": {
+        "name": "whisper-tiny--audio-encoder-decoder--reference--prefill--fp32--dynamo--static--ckpt-169d4a4341b3.tar.gz",
+        "sha256": "599b1b9aa45b35e8ea9fe0ffc8a727c62eca9425a0dc2887a22f05e104282a3f",
+        "size": 40072619,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/whisper-tiny--audio-encoder-decoder--reference--prefill--fp32--dynamo--static--ckpt-169d4a4341b3.tar.gz"
+      },
+      "artifact_id": "whisper-tiny/audio-encoder-decoder/reference/prefill/fp32/dynamo/static/ckpt-169d4a4341b3",
+      "capture_count": 185,
+      "cases": [
+        "case-00",
+        "case-01"
+      ],
+      "contract_sha256": "0c15e50b4e029ce7444a9765b6b6114ddf4c5eb8c1c062536e07f2c0e0d385ee",
+      "graph_sha256": "a82bb86530ab8fa956e38c267cb6275590715a4e0e97d353063d5143deb61fae",
+      "manifest": {
+        "name": "whisper-tiny--audio-encoder-decoder--reference--prefill--fp32--dynamo--static--ckpt-169d4a4341b3.manifest.json",
+        "sha256": "38cdd9abef40062fb7456e8675efd2dfb0e483075a14684ef5bd275a7326c2f4",
+        "size": 3047,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/whisper-tiny--audio-encoder-decoder--reference--prefill--fp32--dynamo--static--ckpt-169d4a4341b3.manifest.json"
+      },
+      "map_member": "models/safetensors.v2.json",
+      "map_sha256": "ce4515d7c1e7f86c89615c4fae965b8942c1e891b92841ff2d49896c7640f351",
+      "map_sources": {
+        "checkpoint": {
+          "files": [
+            {
+              "name": "model.safetensors",
+              "repo_id": "openai/whisper-tiny",
+              "revision": "169d4a4341b33bc18d8881c4b69c2e104e1cc0af",
+              "sha256": "7ebd0e69e78190ffe1438491fa05cc1f5c1aa3a4c4db3bc1723adbb551ea2395",
+              "size": 151061672,
+              "url": "https://huggingface.co/openai/whisper-tiny/resolve/169d4a4341b33bc18d8881c4b69c2e104e1cc0af/model.safetensors"
+            }
+          ]
+        }
+      },
+      "released_sources": [],
+      "role": "encoder-decoder prefill, self/cross K/V",
+      "weight_source": {
+        "config_sha256": "ffdccec4f3211f4c63310f2b7098f309fe70f3952cedc5e4d11e43f5b2379b98",
+        "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
+        "files": {
+          "model.safetensors": {
+            "sha256": "7ebd0e69e78190ffe1438491fa05cc1f5c1aa3a4c4db3bc1723adbb551ea2395",
+            "size": 151061672
+          }
+        },
+        "kind": "checkpoint",
+        "pinned_config_match": true,
+        "repo": "openai/whisper-tiny",
+        "revision": "169d4a4341b33bc18d8881c4b69c2e104e1cc0af"
+      }
+    },
+    {
+      "archive": {
+        "name": "smollm2-135m--text-decoder--reference--prefill--fp32--dynamo--static--ckpt-12fd25f77366.tar.gz",
+        "sha256": "51b546590e7ad53065605ac67edfa668bd91597fd9b4620ba6afb835d0c246b7",
+        "size": 1890578,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/smollm2-135m--text-decoder--reference--prefill--fp32--dynamo--static--ckpt-12fd25f77366.tar.gz"
+      },
+      "artifact_id": "smollm2-135m/text-decoder/reference/prefill/fp32/dynamo/static/ckpt-12fd25f77366",
+      "capture_count": 336,
+      "cases": [
+        "case-00",
+        "case-01"
+      ],
+      "contract_sha256": "ba4ab17208edd44778f5267612379fbba63cb60a6807f5e98b1109b93707b17b",
+      "graph_sha256": "5d323ee48bfb648efdc1217b45c4070f960b850d29764974d157e23902e47fea",
+      "manifest": {
+        "name": "smollm2-135m--text-decoder--reference--prefill--fp32--dynamo--static--ckpt-12fd25f77366.manifest.json",
+        "sha256": "abe4c8d1719b5eb37ceab6e2a4beb2b3b29a76fdec7049bc3e4f29736f0f9e7b",
+        "size": 3039,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/smollm2-135m--text-decoder--reference--prefill--fp32--dynamo--static--ckpt-12fd25f77366.manifest.json"
+      },
+      "map_member": "models/safetensors.v2.json",
+      "map_sha256": "f4681d2937143115ce038652bbd248d30a39c4b36fd865b24a043871d7873f9c",
+      "map_sources": {
+        "checkpoint": {
+          "files": [
+            {
+              "name": "model.safetensors",
+              "repo_id": "HuggingFaceTB/SmolLM2-135M-Instruct",
+              "revision": "12fd25f77366fa6b3b4b768ec3050bf629380bac",
+              "sha256": "5af571cbf074e6d21a03528d2330792e532ca608f24ac70a143f6b369968ab8c",
+              "size": 269060552,
+              "url": "https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct/resolve/12fd25f77366fa6b3b4b768ec3050bf629380bac/model.safetensors"
+            }
+          ]
+        }
+      },
+      "released_sources": [],
+      "role": "decoder prefill, K/V cache",
+      "weight_source": {
+        "config_sha256": "8eb740e8bbe4cff95ea7b4588d17a2432deb16e8075bc5828ff7ba9be94d982a",
+        "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
+        "files": {
+          "model.safetensors": {
+            "sha256": "5af571cbf074e6d21a03528d2330792e532ca608f24ac70a143f6b369968ab8c",
+            "size": 269060552
+          }
+        },
+        "kind": "checkpoint",
+        "pinned_config_match": true,
+        "repo": "HuggingFaceTB/SmolLM2-135M-Instruct",
+        "revision": "12fd25f77366fa6b3b4b768ec3050bf629380bac"
+      }
+    },
+    {
+      "archive": {
+        "name": "smollm2-135m--text-decoder--reference--decode--fp32--dynamo--static-h4--ckpt-12fd25f77366.tar.gz",
+        "sha256": "41affb5298a193e8bb0ee1d0bdc001be0e96d5972ecbdd8a65053c885979784d",
+        "size": 1289137,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/smollm2-135m--text-decoder--reference--decode--fp32--dynamo--static-h4--ckpt-12fd25f77366.tar.gz"
+      },
+      "artifact_id": "smollm2-135m/text-decoder/reference/decode/fp32/dynamo/static-h4/ckpt-12fd25f77366",
+      "capture_count": 336,
+      "cases": [
+        "case-00",
+        "case-01"
+      ],
+      "contract_sha256": "62e30b42a075594955622a1179fcd1eae55df502ddf9456b16358ed96fe6ecda",
+      "graph_sha256": "cf51565ae2f92fb55e497cef4dcff17f3c18b55e06831d7ceda935403da3bb86",
+      "manifest": {
+        "name": "smollm2-135m--text-decoder--reference--decode--fp32--dynamo--static-h4--ckpt-12fd25f77366.manifest.json",
+        "sha256": "d72c7c8eeb90a38b52d139277bbb35638d066036da405d8b20fc3eaaba865577",
+        "size": 3047,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/smollm2-135m--text-decoder--reference--decode--fp32--dynamo--static-h4--ckpt-12fd25f77366.manifest.json"
+      },
+      "map_member": "models/safetensors.v2.json",
+      "map_sha256": "807e99071d156bb4b0eabb55b00f6a583ee08a86f0bba4304b07accb07b9bacb",
+      "map_sources": {
+        "checkpoint": {
+          "files": [
+            {
+              "name": "model.safetensors",
+              "repo_id": "HuggingFaceTB/SmolLM2-135M-Instruct",
+              "revision": "12fd25f77366fa6b3b4b768ec3050bf629380bac",
+              "sha256": "5af571cbf074e6d21a03528d2330792e532ca608f24ac70a143f6b369968ab8c",
+              "size": 269060552,
+              "url": "https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct/resolve/12fd25f77366fa6b3b4b768ec3050bf629380bac/model.safetensors"
+            }
+          ]
+        }
+      },
+      "released_sources": [],
+      "role": "decoder decode at history 4",
+      "weight_source": {
+        "config_sha256": "8eb740e8bbe4cff95ea7b4588d17a2432deb16e8075bc5828ff7ba9be94d982a",
+        "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
+        "files": {
+          "model.safetensors": {
+            "sha256": "5af571cbf074e6d21a03528d2330792e532ca608f24ac70a143f6b369968ab8c",
+            "size": 269060552
+          }
+        },
+        "kind": "checkpoint",
+        "pinned_config_match": true,
+        "repo": "HuggingFaceTB/SmolLM2-135M-Instruct",
+        "revision": "12fd25f77366fa6b3b4b768ec3050bf629380bac"
+      }
+    },
+    {
+      "archive": {
+        "name": "smolvlm-256m--image-text-generation--reference--decode--fp32--dynamo--static-h71--ckpt-7e3e67edbbed.tar.gz",
+        "sha256": "dbe00c1fb7434229f6686f906d2c4c16fe40eab208c432cf1f984e033efc8e9a",
+        "size": 12852063,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/smolvlm-256m--image-text-generation--reference--decode--fp32--dynamo--static-h71--ckpt-7e3e67edbbed.tar.gz"
+      },
+      "artifact_id": "smolvlm-256m/image-text-generation/reference/decode/fp32/dynamo/static-h71/ckpt-7e3e67edbbed",
+      "capture_count": 534,
+      "cases": [
+        "case-00",
+        "case-01"
+      ],
+      "contract_sha256": "f1d92931a5957406b3c4eef9bf644970d8004c86d718ab177f115dc46190e0e2",
+      "graph_sha256": "0faa03308ce930626962ad01a3e786c7c4ec5d4dd73d341a70d0cbb50c0d6b6d",
+      "manifest": {
+        "name": "smolvlm-256m--image-text-generation--reference--decode--fp32--dynamo--static-h71--ckpt-7e3e67edbbed.manifest.json",
+        "sha256": "b4bd87336a58eb32523e62fbddd269907cce37e6a92504bba45cbcc8165c6e8a",
+        "size": 3073,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/smolvlm-256m--image-text-generation--reference--decode--fp32--dynamo--static-h71--ckpt-7e3e67edbbed.manifest.json"
+      },
+      "map_member": "models/safetensors.v2.json",
+      "map_sha256": "7b01f953dab383e55fd22398b51a35a6c9d2fc62777530b8fe313e68fc4dc3e3",
+      "map_sources": {
+        "checkpoint": {
+          "files": [
+            {
+              "name": "model.safetensors",
+              "repo_id": "HuggingFaceTB/SmolVLM-256M-Instruct",
+              "revision": "7e3e67edbbed1bf9888184d9df282b700a323964",
+              "sha256": "74dea5904032e5ae99a2e0eef5179e6ac0f1dedc3ab0c7c2a5d4d387c843203e",
+              "size": 513028808,
+              "url": "https://huggingface.co/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/7e3e67edbbed1bf9888184d9df282b700a323964/model.safetensors"
+            }
+          ]
+        }
+      },
+      "released_sources": [],
+      "role": "VLM decode at history 71, shares the connector's checkpoint",
+      "weight_source": {
+        "config_sha256": "b70fb4bfde88df9eeebc9d8ff523733b8bf70d6c9b06c610325960e06ae9db52",
+        "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
+        "files": {
+          "model.safetensors": {
+            "sha256": "74dea5904032e5ae99a2e0eef5179e6ac0f1dedc3ab0c7c2a5d4d387c843203e",
+            "size": 513028808
+          }
+        },
+        "kind": "checkpoint",
+        "pinned_config_match": true,
+        "repo": "HuggingFaceTB/SmolVLM-256M-Instruct",
+        "revision": "7e3e67edbbed1bf9888184d9df282b700a323964"
+      }
     }
   ],
   "publication": {

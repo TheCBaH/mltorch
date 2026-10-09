@@ -158,6 +158,40 @@ let sum ~(lo : Semantics.position index) ~(hi : Semantics.delta index)
   in
   loop lo 0.
 
+type dot_accumulation = Binary64 | Binary32_sequential
+
+let dot_accumulation = ref Binary64
+
+let with_dot_accumulation policy f =
+  let before = !dot_accumulation in
+  dot_accumulation := policy;
+  Fun.protect ~finally:(fun () -> dot_accumulation := before) f
+
+(* Round to the nearest binary32 (ties to even), as the hardware's result. *)
+let round32 x = Int32.float_of_bits (Int32.bits_of_float x)
+
+(* [Binary64]: exactly [sum] of the products (a product of two binary32 values
+   is exact in binary64), so the default changes no result. [Binary32_sequential]:
+   [acc = fma(a k, b k, acc)] rounded to binary32 at every step, [k] ascending
+   -- the chain a binary32 reference accumulates. [Float.fma] is exact up to one
+   rounding to binary64, so a result can differ from a hardware binary32 fma
+   only where that binary64 rounding lands on a binary32 midpoint. *)
+let dot ~(lo : Semantics.position index) ~(hi : Semantics.delta index)
+    ~(a : Semantics.position index -> t) ~(b : Semantics.position index -> t) =
+  match !dot_accumulation with
+  | Binary64 ->
+      let rec loop (i : Semantics.position index) acc =
+        if (i :> int) >= (hi :> int) then acc
+        else loop (Dim.succ i) (acc +. (a i *. b i))
+      in
+      loop lo 0.
+  | Binary32_sequential ->
+      let rec loop (i : Semantics.position index) acc =
+        if (i :> int) >= (hi :> int) then acc
+        else loop (Dim.succ i) (round32 (Float.fma (a i) (b i) acc))
+      in
+      loop lo 0.
+
 let max_reduce ~(lo : Semantics.position index) ~(hi : Semantics.delta index)
     (f : Semantics.position index -> t) =
   let rec loop (i : Semantics.position index) acc =

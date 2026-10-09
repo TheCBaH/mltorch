@@ -164,6 +164,20 @@ module type SEMANTICS = sig
 
   val sum : lo:position index -> hi:delta index -> (position index -> t) -> t
 
+  (* A dot product: the sum over [lo, hi) of [a k * b k]. The same value as
+     [sum] of the products, and symbolically the same expression; it is its own
+     primitive so a concrete evaluation can choose HOW the products are
+     accumulated -- [Direct] sums them exactly in binary64 and rounds once on
+     store, or (opt-in) rounds a sequential binary32 fused chain, the way a
+     reference built on one does. Only the matrix-product ops use it: other
+     reductions have no reference order to match. *)
+  val dot :
+    lo:position index ->
+    hi:delta index ->
+    a:(position index -> t) ->
+    b:(position index -> t) ->
+    t
+
   val max_reduce :
     lo:position index -> hi:delta index -> (position index -> t) -> t
 

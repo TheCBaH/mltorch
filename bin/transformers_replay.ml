@@ -1,4 +1,4 @@
-(* Usage: transformers_replay.exe COHORT.json CACHE_DIR [--report-dir DIR] [ARTIFACT_ID...]
+(* Usage: transformers_replay.exe COHORT.json CACHE_DIR [--report-dir DIR] [--dots exact|binary32-sequential] [ARTIFACT_ID...]
 
    Offline. Opens each selected artifact from CACHE_DIR (every layer verified,
    every capture proved), runs all of its published cases through Native direct
@@ -28,12 +28,22 @@ let flat id = String.concat "--" (String.split_on_char '/' id)
 
 let () =
   let args = List.tl (Array.to_list Sys.argv) in
-  let report_dir, args =
-    match args with
-    | cohort :: cache :: "--report-dir" :: dir :: rest ->
-        (Some dir, cohort :: cache :: rest)
-    | _ -> (None, args)
+  let report_dir = ref None and dots = ref Direct.Binary64 in
+  let rec flags = function
+    | "--report-dir" :: dir :: rest ->
+        report_dir := Some dir;
+        flags rest
+    | "--dots" :: "binary32-sequential" :: rest ->
+        dots := Direct.Binary32_sequential;
+        flags rest
+    | "--dots" :: "exact" :: rest ->
+        dots := Direct.Binary64;
+        flags rest
+    | x :: rest -> x :: flags rest
+    | [] -> []
   in
+  let args = flags args in
+  let report_dir = !report_dir and dots = !dots in
   match args with
   | cohort_path :: cache_dir :: ids -> (
       let setup =
@@ -63,7 +73,7 @@ let () =
               let t0 = Unix.gettimeofday () in
               let run =
                 let* f = Fixture.open_ config cohort entry in
-                Pt2_fixture_replay.replay ~consumer f
+                Pt2_fixture_replay.replay ~dots ~consumer f
               in
               match Err.payload run with
               | Error e ->
@@ -104,7 +114,12 @@ let () =
                        with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
                       Out_channel.with_open_bin
                         (Filename.concat dir
-                           (flat entry.artifact_id ^ ".replay.json"))
+                           (flat entry.artifact_id
+                           ^ (match dots with
+                             | Direct.Binary64 -> ""
+                             | Direct.Binary32_sequential ->
+                                 ".binary32-sequential")
+                           ^ ".replay.json"))
                         (fun oc -> output_string oc (Report.to_string report)))
                     report_dir)
             entries;
@@ -112,5 +127,5 @@ let () =
   | _ ->
       prerr_endline
         "usage: transformers_replay COHORT.json CACHE_DIR [--report-dir DIR] \
-         [ARTIFACT_ID...]";
+         [--dots exact|binary32-sequential] [ARTIFACT_ID...]";
       exit 2

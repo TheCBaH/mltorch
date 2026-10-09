@@ -49,14 +49,13 @@ module Bmm = struct
     let pixel ~(input_shape : Vec6.shape) ~input ~mat2
         (out : Semantics.position S.index Vec6.t) =
       let oh = Vec6.get out Axis.H and oc = Vec6.get out Axis.C in
-      S.sum ~lo:S.index_zero
+      S.dot ~lo:S.index_zero
         ~hi:(S.index_extent (Vec6.get input_shape Axis.C))
-        (fun k ->
-          S.mul
-            (S.load input (out |> Vec6.set_c k))
-            (S.load mat2
-               (Vec6.make ~n:S.index_zero ~t:S.index_zero ~d:S.index_zero ~h:oh
-                  ~w:k ~c:oc)))
+        ~a:(fun k -> S.load input (out |> Vec6.set_c k))
+        ~b:(fun k ->
+          S.load mat2
+            (Vec6.make ~n:S.index_zero ~t:S.index_zero ~d:S.index_zero ~h:oh
+               ~w:k ~c:oc))
   end
 end
 
@@ -142,15 +141,15 @@ module Batched_matmul = struct
     let pixel ~(input_shape : Vec6.shape) ~(mat2_shape : Vec6.shape) ~input
         ~mat2 (out : Semantics.position S.index Vec6.t) =
       let index_zero = S.index_zero in
-      S.sum ~lo:index_zero
+      S.dot ~lo:index_zero
         ~hi:(S.index_extent (Vec6.get input_shape Axis.C))
-        (fun k ->
-          S.mul
-            (S.load input
-               (Pointwise_binary.broadcast_coord ~index_zero input_shape
-                  (out |> Vec6.set_c k)))
-            (S.load mat2
-               (Pointwise_binary.broadcast_coord ~index_zero mat2_shape
-                  (Vec6.set out Axis.W k))))
+        ~a:(fun k ->
+          S.load input
+            (Pointwise_binary.broadcast_coord ~index_zero input_shape
+               (out |> Vec6.set_c k)))
+        ~b:(fun k ->
+          S.load mat2
+            (Pointwise_binary.broadcast_coord ~index_zero mat2_shape
+               (Vec6.set out Axis.W k)))
   end
 end

@@ -121,6 +121,7 @@ let max_pool2d_index input ~x_shape ~kernel ~stride ~pad out =
    [position index -> t], is already the type [reduction] expects. *)
 let reduce ~kind ~lo ~hi f = Expr.Builder.reduction ~kind ~lo ~hi f
 let sum ~lo ~hi f = reduce ~kind:Expr.Reduction.Sum ~lo ~hi f
+let dot ~lo ~hi ~a ~b = sum ~lo ~hi (fun k -> mul (a k) (b k))
 let max_reduce ~lo ~hi f = reduce ~kind:Expr.Reduction.Max ~lo ~hi f
 let max_dim ~lo ~hi f = reduce ~kind:Expr.Reduction.Argmax_value ~lo ~hi f
 let max_dim_index ~lo ~hi f = reduce ~kind:Expr.Reduction.Argmax_index ~lo ~hi f
