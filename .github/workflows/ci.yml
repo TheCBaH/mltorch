@@ -392,6 +392,14 @@ jobs:
       run: |
         ${{ env.EXEC }} make compcert.embed.runtest
 
+    # The same Rivet, without CompCert: the typed x86-64 route, run on the
+    # runner's own CPU (per-form conformance, kernels, the table-bound host).
+    - name: typed Rivet x86-64 route
+      if: matrix.suite == 'compcert' && matrix.os == 'ubuntu-24.04'
+      run: |
+        ${{ env.EXEC }} make machine.rivet.x64.runtest
+        ${{ env.EXEC }} make machine.rivet.x64.conformance
+
     # {2 jsoo}
     - name: jsoo differential test
       if: matrix.suite == 'jsoo'

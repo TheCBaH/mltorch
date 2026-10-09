@@ -1154,7 +1154,7 @@ machine.rivet.a64.runtest: rivet.install
 # against the physical interpreter: on the CPU of an x86-64 host, under qemu-user
 # (emulation) elsewhere, where it needs qemu-x86_64.
 machine.rivet.x64.runtest: rivet.install
-	opam exec -- dune build @test/machine_rivet_x86_64/runtest --force
+	opam exec -- dune build @test/machine_rivet_x86_64/runtest @test/machine_rivet_x86_64_native/runtest --force
 
 # The x86-64 per-form conformance: each admitted form made as typed Rivet
 # instructions and run as a batch process (on an x86-64 CPU, else under
