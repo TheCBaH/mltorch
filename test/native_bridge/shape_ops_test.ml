@@ -698,6 +698,44 @@ let%expect_test "dispatch: alias.default builds a single Clone node" =
     outputs: [t1 f32 [W=2 C=3] <-n0]
     tensor f32 [W=2 C=3] {1, 2, 3, 4, 5, 6} |}]
 
+(* ---- aten.detach.default: ATen as the oracle ----------------------------- *)
+
+(* [detach(self) -> Tensor]: severs autograd history only. Under inference it is
+   the functional identity, the same single [Clone] node [alias.default] binds
+   to. *)
+let detach_verify ~sizes =
+  let n = List.fold_left ( * ) 1 sizes in
+  let x = float_tensor sizes (List.init n (fun i -> float_of_int (i + 1))) in
+  verify_print ~target:"torch.ops.aten.detach.default"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self" ]
+
+let%expect_test "verify: detach.default at several ranks" =
+  detach_verify ~sizes:[ 3; 4 ];
+  detach_verify ~sizes:[ 1; 6; 4 ];
+  detach_verify ~sizes:[ 5 ];
+  [%expect
+    {|
+    aten and native agree
+    aten and native agree
+    aten and native agree |}]
+
+let%expect_test "dispatch: detach.default builds a single Clone node" =
+  let x = float_tensor [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ] in
+  dispatch_print_with_graph ~print_graph:true
+    ~target:"torch.ops.aten.detach.default"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self" ]
+    ~noutputs:1;
+  [%expect
+    {|
+    graph
+    inputs: [t0 f32 [W=2 C=3] ->[n0]]
+    nodes:
+      n0: [t1 f32 [W=2 C=3]] = clone x=t0
+    outputs: [t1 f32 [W=2 C=3] <-n0]
+    tensor f32 [W=2 C=3] {1, 2, 3, 4, 5, 6} |}]
+
 (* ---- aten._assert_tensor_metadata.default: routed to Discard -------------- *)
 
 (* [_assert_tensor_metadata(Tensor a, SymInt[]? size=None, SymInt[]?

@@ -156,8 +156,8 @@ let failed_case id error =
     outputs_digest_ok = false;
   }
 
-let run_case archive (contract : F.Contract.t) (b : Pt2_fixture_unix.Bundle.t)
-    (c : F.Cases.Case.t) =
+let run_case ~on_empty_caches archive (contract : F.Contract.t)
+    (b : Pt2_fixture_unix.Bundle.t) (c : F.Cases.Case.t) =
   let input_names = c.inputs and output_names = c.outputs in
   let path role = Printf.sprintf "cases/%s/%s.pt" c.id role in
   let* inputs = load_tensors b (path "inputs") ~names:input_names in
@@ -204,7 +204,7 @@ let run_case archive (contract : F.Contract.t) (b : Pt2_fixture_unix.Bundle.t)
       else
         match
           Err.payload
-            (Native_interp.run_named archive
+            (Native_interp.run_named ~empty_caches:on_empty_caches archive
                ~inputs:(List.map (fun (n, t, _) -> (n, t)) inputs))
         with
         | Error e ->
@@ -264,6 +264,36 @@ let run_case archive (contract : F.Contract.t) (b : Pt2_fixture_unix.Bundle.t)
                 },
                 None ))
 
+(* One line per empty source, so the report records what was rewritten and
+   where. Every case runs the same graph, so the first case's account stands
+   for all of them. *)
+let describe_empty_caches into (r : Native_interp.Empty_cache_report.t) =
+  if !into = [] then
+    into :=
+      List.map
+        (fun (s : Native_interp.Empty_cache_report.source) ->
+          Printf.sprintf "empty-cache %s: dropped clones [%s]; cat operands %s"
+            s.ssa
+            (String.concat "; " s.clones)
+            (match s.cats with
+            | [] -> "none (unread)"
+            | cats ->
+                String.concat ", "
+                  (List.map
+                     (fun (c : Native_interp.Empty_cache_report.cat) ->
+                       Printf.sprintf "%s at %s" c.cat
+                         (String.concat ","
+                            (List.map
+                               (fun p ->
+                                 string_of_int
+                                   (p
+                                     : Native_interp.Empty_cache_report.Operand
+                                       .t
+                                     :> int))
+                               c.removed)))
+                     cats)))
+        r.sources
+
 let replay ~consumer (f : Pt2_fixture_unix.Fixture.t) =
   let b = f.bundle in
   let read name = Pt2_fixture_unix.Bundle.read_member b name in
@@ -286,6 +316,8 @@ let replay ~consumer (f : Pt2_fixture_unix.Fixture.t) =
           ("source:" ^ s.pin.name, hex s.pin.sha256))
         f.document.checkpoint_files
   in
+  let normalizations = ref [] in
+  let on_empty_caches = describe_empty_caches normalizations in
   let base status refusal cases =
     {
       Report.artifact_id = contract.artifact_id;
@@ -293,6 +325,7 @@ let replay ~consumer (f : Pt2_fixture_unix.Fixture.t) =
       backend;
       cases;
       consumer;
+      normalizations = !normalizations;
       pins;
       refusal;
       rtol = contract.rtol;
@@ -305,7 +338,9 @@ let replay ~consumer (f : Pt2_fixture_unix.Fixture.t) =
          (Some "dynamic-shape contract: no accepted component for the history")
          [])
   else
-    let* results = Err.List.map (run_case f.archive contract b) cases.cases in
+    let* results =
+      Err.List.map (run_case ~on_empty_caches f.archive contract b) cases.cases
+    in
     let cases = List.map fst results in
     match List.find_map snd results with
     | Some why -> Err.return (base Report.Refused (Some why) cases)

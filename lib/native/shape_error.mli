@@ -108,6 +108,15 @@ module Clamp : sig
   val pp_error : Format.formatter -> error -> unit
 end
 
+module Embedding : sig
+  (* [embedding]'s weight is the [V, D] table: in the six-axis frame its W axis
+     is the vocabulary and its C axis the embedding dimension, so every other
+     axis must be extent one. *)
+  type error = Weight_not_a_matrix of Vec6.shape
+
+  val pp_error : Format.formatter -> error -> unit
+end
+
 module Linear : sig
   type channels_mismatch = {
     actual : Dim.extent Dim.t;
@@ -453,6 +462,14 @@ module Index_tensor : sig
         axis : Axis.t;
         extent : Dim.extent Dim.t;
       }
+    | Pair_rank of { self_rank : Rank.t; broadcast_rank : Rank.t }
+        (** [Index_pair]: [self] needs at least two axes, and the broadcast
+            index shape plus [self]'s remaining axes must fit the frame *)
+    | Pair_self_mismatch of {
+        self_rank : Rank.t;
+        axis : Axis.t;
+        extent : Dim.extent Dim.t;
+      }
     | Rank_overflow of { axis : Axis.t; index_rank : Rank.t }
     | Self_collision of {
         axis : Axis.t;
@@ -529,6 +546,7 @@ type t =
   | `Clamp of Clamp.error
   | `Concat of Concat.t
   | `Convolution of Convolution.error
+  | `Embedding of Embedding.error
   | `Group_norm of Group_norm.t
   | `Index_tensor of Index_tensor.t
   | `Im2col of Im2col.t

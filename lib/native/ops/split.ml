@@ -620,6 +620,29 @@ module Slice = struct
       in
       S.load x (Vec6.set out p.axis src)
   end
+
+  (* Exact int64 counterpart of [Compute]: the same coordinate math, reading
+     through [i64_load] so an I64 slice (a position-id buffer's `[:, :n]`)
+     never round-trips through the f32 domain. Same [T]/[S] shape as
+     [Reshape.Reshape.Compute_i64]. *)
+  module Compute_i64
+      (S : Semantics.SEMANTICS)
+      (T : sig
+        type 'a repr
+
+        val i64_load :
+          S.input -> Semantics.position S.index Vec6.t -> int64 repr
+      end) =
+  struct
+    let pixel (p : params) ~x (out : Semantics.position S.index Vec6.t) =
+      let src =
+        S.clamp_low
+          (S.index_add
+             (S.index_const (p.start :> int))
+             (S.index_scale (p.step :> int) (S.of_index (Vec6.get out p.axis))))
+      in
+      T.i64_load x (Vec6.set out p.axis src)
+  end
 end
 
 (* `select.int(Tensor self, int dim, int index) -> Tensor`: narrows [axis] to

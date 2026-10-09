@@ -580,6 +580,24 @@ let%expect_test "cat (Tensor[])" =
   show (O.cat (tensor_arr [ a; b ]) 2 0L);
   [%expect "[2x2] = [1; 2; 3; 4]"]
 
+(* The empty-cache normalization rests on this: a 1-D size-0 operand is skipped
+   by [cat] whatever the other operands' rank, at the first operand, the last,
+   and under a negative dim, and the others keep their order. *)
+let%expect_test "cat skips a 1-D empty operand of any rank" =
+  let empty () =
+    let sizes = CArray.of_list int64_t [ 0L ] in
+    F.new_ (CArray.start sizes) (Unsigned.Size_t.of_int 1) Stype.Float
+  in
+  let x () = make [ 1; 2; 2 ] [ 1.; 2.; 3.; 4. ] in
+  show (O.cat (tensor_arr [ empty (); x () ]) 2 1L);
+  show (O.cat (tensor_arr [ x (); empty () ]) 2 (-2L));
+  show (O.cat (tensor_arr [ empty (); x (); empty (); x () ]) 4 (-2L));
+  [%expect
+    {|
+    [1x2x2] = [1; 2; 3; 4]
+    [1x2x2] = [1; 2; 3; 4]
+    [1x4x2] = [1; 2; 3; 4; 1; 2; 3; 4] |}]
+
 let%expect_test "mean.dim" =
   (* self, dim, keepdim, dtype (None): mean over dim 0, no keepdim: [2x3] → [3] *)
   show

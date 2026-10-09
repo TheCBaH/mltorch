@@ -396,6 +396,64 @@ module Sigmoid = struct
   end
 end
 
+module Tanh = struct
+  (* [aten.tanh.default]: schema `tanh(Tensor self) -> Tensor`, no
+     parameters. tanh(x) = 1 - 2 / (exp(2x) + 1): overflow of the exponential
+     saturates to +-1 and NaN passes through. An exact zero is returned as
+     itself so that tanh(-0) = -0, which the formula would flatten to +0. *)
+  type t = { x : Tensor_ref.t }
+
+  let name = "Tanh"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        { x = Json_util.req_field ms "x" Tensor_ref.jsont name })
+      ~enc:(fun t ->
+        Json_util.jobj [ ("x", Json_util.enc Tensor_ref.jsont t.x) ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>tanh@ x=%a@]" pp_ref t.x
+
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    let pixel x (out : Semantics.position S.index Vec6.t) =
+      let v = S.load x out in
+      let t =
+        S.sub (S.const 1.)
+          (S.div (S.const 2.)
+             (S.add (S.exp (S.mul (S.const 2.) v)) (S.const 1.)))
+      in
+      S.select (S.eq v (S.const 0.)) v t
+  end
+
+  module Walk (L : Walk_core.Limits.S) = struct
+    type cfg = { shape : Walk_core.Shape.t }
+
+    let initial =
+      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
+
+    let cascade c = c
+    let shape (c : cfg) = Walk_bridge.vec6 c.shape
+
+    let axes =
+      Walk_core.Walk.
+        [
+          shape_axis "input" L.limits
+            ~get:(fun c -> c.shape)
+            ~set:(fun _ s -> { shape = s });
+        ]
+
+    let pp fmt (c : cfg) = Walk_core.Shape.pp fmt c.shape
+  end
+end
+
 module Silu = struct
   (* [aten.silu.default]: schema `silu(Tensor self) -> Tensor`, no parameters. *)
   type t = { x : Tensor_ref.t }

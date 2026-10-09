@@ -26,6 +26,7 @@
    Constructors in global alphabetical order, per the repo rule. *)
 
 type op =
+  | Abs of Pointwise.Abs.t
   | Add of Pointwise.Add.t
   | Addcmul of Pointwise.Addcmul.t
   | Add_scalar of Pointwise.Add_scalar.t
@@ -128,6 +129,12 @@ end
 
 let op_registry : (module OP) list =
   [
+    (module struct
+      include Pointwise.Abs
+
+      let inject t = Abs t
+      let project = function Abs t -> Some t | _ -> None
+    end : OP);
     (module struct
       include Pointwise.Add
 

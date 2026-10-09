@@ -127,7 +127,7 @@ let%expect_test "index.Tensor: rejects an indices list longer than self's rank"
     {| long list:                 malformed PT2 graph: index.Tensor: indices has 3 entries, more than self's rank 2 |}]
 
 let%expect_test
-    "index.Tensor: rejects a live entry at a non-last position and two live \
+    "index.Tensor: rejects a live entry at a non-last position and three live \
      entries" =
   let prog1 =
     program ~x_sizes:[ 2; 3 ] ~params:[ "idx0"; "idx1" ]
@@ -141,22 +141,30 @@ let%expect_test
       ()
   in
   show "non-last position (0):" prog1;
+  (* Two live leading entries are the pair form (test/native_interp/
+     index_pair_test.ml); three are still not a gather this lowering knows. *)
   let prog2 =
-    program ~x_sizes:[ 2; 3 ] ~params:[ "idx0"; "idx1" ]
+    program ~x_sizes:[ 2; 3; 4 ] ~params:[ "idx0"; "idx1"; "idx2" ]
       ~extra_tensor_values:
         [
           ("idx0", tensor_meta_dtype long [ 2 ]);
           ("idx1", tensor_meta_dtype long [ 3 ]);
+          ("idx2", tensor_meta_dtype long [ 4 ]);
         ]
-      ~nodes:[ index_node ~self:"x" ~indices:[ `T "idx0"; `T "idx1" ] ~out:"y" ]
+      ~nodes:
+        [
+          index_node ~self:"x"
+            ~indices:[ `T "idx0"; `T "idx1"; `T "idx2" ]
+            ~out:"y";
+        ]
       ~graph_outputs:[ as_tensor "y" ]
       ()
   in
-  show "two live entries:" prog2;
+  show "three live entries:" prog2;
   [%expect
     {|
     non-last position (0):     lowered, nodes=1
-    two live entries:          malformed PT2 graph: index.Tensor: indices has more than one live entry, at positions 0, 1
+    three live entries:        malformed PT2 graph: index.Tensor: indices has more than one live entry, at positions 0, 1, 2
     |}]
 
 let%expect_test "index.Tensor: rejects a boolean-mask entry (wrong dtype)" =

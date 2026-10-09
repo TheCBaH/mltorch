@@ -13,6 +13,7 @@ let targets =
   [
     "torch.ops.aten._native_batch_norm_legit_no_training.default";
     "torch.ops.aten._native_batch_norm_legit.no_stats";
+    "torch.ops.aten.abs.default";
     "torch.ops.aten.add.Tensor";
     "torch.ops.aten.addcmul.default";
     "torch.ops.aten.addmm.default";
@@ -539,6 +540,11 @@ let dispatch ~ctx ~env (node : Node.t) =
            let* y =
              rsub_scalar { Pointwise.Rsub_scalar.other; alpha } (get "self")
            in
+           return [ y ]
+       (* [abs(Tensor self) -> Tensor]: its own node, dtype-preserving (a float
+         stays a float, an int64 an int64 -- the builder threads the I64 edge). *)
+       | "torch.ops.aten.abs.default" ->
+           let* y = abs (get "self") in
            return [ y ]
        | "torch.ops.aten.add.Tensor" -> (
            reject_alpha esc node;

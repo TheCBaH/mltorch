@@ -481,3 +481,201 @@ passes and case-00 fails the same two elements as the earlier v1 probe
 (absolute errors 1.57e-5 and 1.56e-5 against allowances of 1.42e-5 and
 1.33e-5); BERT-tiny and the TinyCLIP text tower are refused at
 `aten.embedding.default`.
+
+## 17. The connector's case-00 mismatch (diagnosed)
+
+The SmolVLM connector is nine data-movement nodes and one bias-free linear:
+36,864 dot products of length 12,288 per case. Replayed from the verified v2
+bundle, case-00 fails exactly two elements (flat indices 4,235 and 31,987;
+absolute errors 1.57e-5 and 1.56e-5 against allowances of 1.42e-5 and 1.33e-5)
+and case-01 passes -- the same elements the earlier v1 probe failed, so the
+v2 loader changed nothing about the answer.
+
+Two independent oracles, run on the same captured input and the same BF16
+weights widened to binary32:
+
+1. Exact arithmetic (Python `fsum` over the exact binary64 products, rounded once
+   to binary32). Native's output equals it bit for bit in all 36,864 elements of
+   both cases. The producer's reference does not: it differs from the exact value
+   by up to 2.7e-4 (mean 5.6e-6), is never closer to it than Native, and at the
+   two failing elements is 1.57e-5 and 1.56e-5 away from the exact value --
+   outside the producer's own tolerance of the exact answer -- while Native is
+   1.7e-9 and 4.7e-10 away.
+2. A sequential binary32 fused-multiply-add chain (`acc = fma(x[j], w[j], acc)`,
+   `j` ascending, rounded to binary32 at each step) reproduces the reference
+   bit for bit in every one of 32 sampled elements, including both failing ones;
+   non-fused, reversed, interleaved and blocked variants reproduce at most 3.
+
+So the reference is the accumulated rounding error of a sequential binary32
+reduction, large enough at length 12,288 to leave its own tolerance. Native
+direct compute is binary64 by design and rounds once on store (see the binary32
+kernels design), so it is closer to the truth than the reference and cannot
+match the reference's noise without emulating that reduction. A test pins this
+contract for a linear of the same length.
+
+This is a numerics-policy decision, not a defect: closing the case needs either a
+reference computed with a higher-precision accumulator or an explicit opt-in
+Native policy that emulates the binary32 sequential chain (and then a separate
+backend row), neither of which is attempted here. The tolerance and the
+reference are unchanged.
+
+## 18. Small operator gaps (implemented)
+
+`aten.detach.default` is the functional identity under inference and binds to
+the existing `Clone` node, like `alias.default`; the node keeps its source op in
+provenance. `aten.arange.start_step` extends the existing arange arm (importer
+and ATen bridge): the overload whose `step` the schema requires, so an absent
+step is an error rather than the default of one. Its dtype rule, exact int64
+bounds, and the positive-step restriction are the other overloads' unchanged
+(a descending range stays refused).
+
+`aten.abs.default` is a genuine one-node `Abs`, dtype-preserving. The float form
+is the three IEEE cases written out (`x < 0` negates as `0 - x`; `x == 0` yields
+`+0`, so `|-0.| = +0.`; anything else, NaN included, passes through) and uses
+only existing semantics primitives, so it needs no new expression constructor
+and no `x + 0` that a simplifier could drop. The int64 form is exact: it reads
+through `i64_load`, compares, and negates as `0 - x` in wrapping int64
+arithmetic, so `abs min_int = min_int` as in ATen, with no float round trip
+above 2^53. The builder threads the I64 output edge; Direct, Symbolic (an int64
+stage) and Native4D carry the same dispatch. The ATen oracle gained bindings for
+`abs`, `detach`, `embedding` and `arange.start_step`; `embedding` required
+`native/Embedding.cpp` in the minimal archive.
+
+Rerunning the 30-row admission sweep moved three first blockers and exposed
+three others, as expected: `aten._to_copy.default` with a `layout` argument,
+`aten.full.default` and `aten.squeeze.default` are now each a graph's first
+refusal. They are recorded, not yet implemented.
+
+## 19. Embedding lookup (implemented)
+
+`aten.embedding.default` is a `Gather` over the table's leading axis: a `[V, D]`
+float32 weight and an int64 index tensor of rank 1 or 2 give an output of the
+indices' shape plus `D`. The indices' ATen rank is carried in the op's params
+because the six-axis frame right-aligns and erases it. `padding_idx` only steers
+ATen's backward pass, so it is kept for provenance and changes no value;
+`scale_grad_by_freq` and `sparse` are read and dropped.
+
+Index semantics are strict, as ATen's: an id outside `[0, V)`, negative ids
+included, is an error, not a wrap. Direct enforces it in a pre-pass and reports a
+typed `Embedding_index_out_of_range` row; the symbolic route wraps instead, a
+difference documented where it is defined. Native4D rejects the op, so
+admission rows for graphs that contain one stop at Native4D by design, while
+Native and Kernel build. The ATen oracle cannot test the invalid-index side: the
+kernel's bounds check aborts the process, so only valid indices are compared.
+
+The importer arm lives in its own module to keep the compute-family dispatcher
+under the file-size cap.
+
+Admission after this change: embedding is no longer the first blocker of any
+graph, and the replay of the released BERT-tiny and TinyCLIP text encoders now
+stops further on (`ge.Scalar`, `le.Tensor`). So embedding is verified against
+the ATen oracle and on micrographs, not yet on a released case.
+
+The rest of the text/tower closure is a family, not one operator: measured across
+the 30 cohort graphs, about 30 targets have no importer arm. Most are comparison
+and logical forms (`ge`/`le`/`lt`/`gt`/`eq`/`ne` scalar and tensor, `__and__`,
+`where` in three overloads), the factory forms (`new_ones`, `full`, `zeros_like`,
+`full_like`), and a few pointwise and structural ones (`tanh`, `exp`, `log`,
+`log1p`, `reciprocal`, `squeeze.default`, `diff`, `index_put`, ...). Comparisons
+exist as Native ops reachable from the ATen bridge but not from the serialized
+importer; the others need Native ops too.
+
+Native keeps one node per ATen op, so none of these may be written as a
+decomposition in the importer (`new_ones` as `zeros + 1` was tried and removed for
+this reason): each needs its own op, or an importer arm onto an existing
+one-node op. That is a separate program of work from the embedding gather and is
+sequenced after the empty-cache normalization that blocks 16 graphs outright.
+
+## 20. Empty-cache normalization (implemented)
+
+The static decode graphs lift the initial key/value cache to a `Tensor_constant`
+of shape `[0]`, clone it, and concatenate it with the step's new keys. ATen's
+`cat` skips a 1-D size-0 operand whatever the other operands' rank (checked
+against the oracle at the first, last and a negative dim), so the concatenation
+is the new keys alone. `Native_interp.normalize_empty_caches` rewrites exactly
+that and nothing else, on the PT2 program before lowering, so Native keeps its
+positive extents and no empty value is ever a graph edge:
+
+- an empty source is a `Tensor_constant` whose metadata is exactly `[0]`;
+- `clone.default` of an empty is empty and is dropped;
+- `cat.default` drops its empty operands, keeping the rest in order; one
+  remaining operand becomes `clone.default` (ATen's `cat` of one tensor is a
+  copy);
+- refused with a typed `` `Empty_cache `` row: any other reader, an empty
+  returned by the graph, a signature that mutates state, a cat whose operands
+  are all empty, and a dtype different from the kept operands (ATen promotes
+  over a skipped operand too, so that is not a pure drop). Zero-length tensors
+  of any other shape stay refused by strict lowering.
+
+The result is a new program value; the published graph, its digest and the
+capture inventory are untouched, and the report names, per source, the clones
+dropped and each cat site with the dropped operand positions (a typed ordinal).
+It is opt-in (`run_named ?empty_caches`, which hands the report to a callback);
+plain `lower` is unchanged, so no path that did not ask is affected. The replay
+report (schema 2) records each rewrite in `normalizations`.
+
+Measured on the 30 cohort graphs: all 16 graphs with empty captures (16, 24 or
+60 sources each) normalize and move on. Their next blockers are recorded, not
+solved here: `new_ones.default`, graphs whose attention masks have symbolic
+dimensions, `eq.Scalar` and `full.default`. No producer case for those graphs
+runs yet, so S7 is confirmed numerically only on micrographs and the oracle.
+
+## 21. The attention-mask vocabulary (implemented)
+
+BERT-tiny's published cases pass on the native path: both cases, all outputs
+(`last_hidden_state`, `pooler_output`), max absolute error under 5e-6. It is the
+first released case that runs through the embedding gather. Getting there took
+the operators every text graph builds its attention mask from:
+
+- Comparisons `ge.Scalar`, `lt.Scalar` and `le.Tensor` are new one-node ops, and
+  the importer now also reaches `eq`/`ne`/`gt` (scalar and tensor forms) that
+  Native already had. Each follows `Gt_scalar`'s split: the generic formula
+  yields 0./1., and Direct lands genuine bool storage. NaN is neither above,
+  below nor equal.
+- `__and__.Tensor` is `Bitwise_and`, restricted to bool values: an int64 operand
+  is refused, since the float-domain nonzero test is the bitwise `and` only for
+  bool. `where.ScalarOther` is `Where_scalar_other`: the tensor where the
+  condition is nonzero, the scalar elsewhere, broadcasting a rank-0 value over
+  the mask. `tanh.default` is `Tanh`, with `tanh(-0) = -0` kept.
+- `new_ones.default` is its own factory node, bool or float32, readable as a
+  rank-0 `True`. It was first written as `zeros + 1` and removed: Native keeps one
+  node per ATen op.
+- `index.Tensor` with two live leading indices is `Index_pair`: the
+  `mask[batch_idx, kv_idx]` and `h[arange, argmax]` forms. The result is the
+  broadcast index shape followed by `self`'s remaining axes. The frame erases
+  ranks, so the payload carries the three ATen ranks; with `t` trailing self
+  axes an index axis sits `t` axes right of the result axis for the same logical
+  dimension, which fixes both coordinate reads. The result keeps `self`'s element
+  format (a gathered mask stays a mask). The single-live-index forms are
+  untouched: the new family claims a node only when `indices` is a pair of live
+  tensors.
+
+Typing changes that make the graph's dtypes real rather than assumed:
+
+- A user input is declared with its metadata dtype. It was always float32, which
+  hid that an `input_ids` edge is int64 and made every integer-index consumer see
+  a float edge.
+- `slice` of an int64 tensor stays int64 and exact (a position-id buffer's
+  `[:, :n]`), as `reshape` and `permute` already did. `add.Tensor` of an int64
+  tensor and a whole scalar stays int64 through the exact add; a float scalar
+  that is whole takes the same path and differs only in the dtype tag, which a
+  float consumer refuses as mixed rather than misreading.
+- Most data-movement ops do not keep a bool edge tag, so a bool commonly arrives
+  as a float32 0./1. `Bitwise_and` and the where condition therefore accept
+  float32 or bool and refuse int64.
+- An explicit `dtype=float32` on `softmax.int` (and the other reduction-family
+  ops that took the shared check) is accepted: float32 is the only float the
+  engine holds, so it is the identity or a conversion it already performs. Any
+  other dtype is still refused.
+
+Native4D rejects all of the new ops; admission rows for graphs using them show a
+Native4D stop by design while Native and Kernel build.
+
+Still open on the text graphs: TinyCLIP's text tower needs `_to_copy` to int32,
+`argmax`, `exp` and `t`; T5 needs `log`, `zeros_like`, `full_like`, `lt`/`min`;
+the vision-language prefill graphs need `masked_scatter`, `index_put` and a bool
+index; `squeeze.default`, `diff`, `full`, `conv_transpose2d`, weight norm and a
+group-norm weight shape remain single-graph blockers. The graphs whose attention
+masks have symbolic dimensions are dynamic-shape variants outside the static
+scope. Several now lower (the SmolLM2 and Whisper decode/prefill graphs, the
+SmolVLM text graphs) but have not been run against their cases.

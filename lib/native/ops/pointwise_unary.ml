@@ -1,6 +1,96 @@
 (* Unary pointwise ops split out of pointwise.ml see pointwise.ml (the facade every external reference to e.g. [Pointwise.Clamp]
    still resolves through). *)
 
+module Abs = struct
+  (* [aten.abs.default]: schema `abs(Tensor self) -> Tensor`, no parameters.
+     Dtype-preserving: a float stays a float, an int64 stays an int64.
+
+     The float form is [if x < 0 then 0 - x else if x == 0 then +0 else x], the
+     three IEEE cases written out so the result needs no negation of zero and
+     no [x + 0] that an algebraic simplifier could drop: [-0.] compares equal to
+     zero and becomes [+0.] (ATen's [|-0.|] is [+0.]), infinities negate
+     exactly, and a NaN compares unordered to everything, so it falls through
+     unchanged. [0 - x] is exact negation for every negative finite [x]. *)
+  type t = { x : Tensor_ref.t }
+
+  let name = "Abs"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        { x = Json_util.req_field ms "x" Tensor_ref.jsont name })
+      ~enc:(fun t ->
+        Json_util.jobj [ ("x", Json_util.enc Tensor_ref.jsont t.x) ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>abs@ x=%a@]" pp_ref t.x
+
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    let pixel x (out : Semantics.position S.index Vec6.t) =
+      let v = S.load x out in
+      let zero = S.const 0. in
+      S.select (S.lt v zero) (S.sub zero v) (S.select (S.eq v zero) zero v)
+  end
+
+  (* Exact int64 counterpart: the operand is read through [T.i64_load] and the
+     negation is [0 - x] in checked wrapping int64 arithmetic, so
+     [abs min_int = min_int] exactly as ATen's two's-complement [abs] has it.
+     Nothing passes through the engine's float domain, which is lossy above
+     2^53. The output stays [int64 repr], so the builder must thread the
+     operand's I64 format into the output edge; see [Graph_builder.abs]. *)
+  module Compute_i64
+      (S : Semantics.SEMANTICS)
+      (T : sig
+        type 'a repr
+        type b
+
+        val i64_load :
+          S.input -> Semantics.position S.index Vec6.t -> int64 repr
+
+        val i64_binary :
+          Expr.Value.i64_binary_op -> int64 repr -> int64 repr -> int64 repr
+
+        val i64_lt : int64 repr -> int64 repr -> b
+        val typed_const : 'a Expr.Scalar.t -> 'a -> 'a repr
+        val typed_select : b -> 'a repr -> 'a repr -> 'a repr
+      end) =
+  struct
+    let pixel x (out : Semantics.position S.index Vec6.t) =
+      let v = T.i64_load x out in
+      let zero = T.typed_const Expr.Scalar.I64 0L in
+      T.typed_select (T.i64_lt v zero)
+        (T.i64_binary Expr.Value.I64_sub zero v)
+        v
+  end
+
+  module Walk (L : Walk_core.Limits.S) = struct
+    type cfg = { shape : Walk_core.Shape.t }
+
+    let initial =
+      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
+
+    let cascade c = c
+    let shape (c : cfg) = Walk_bridge.vec6 c.shape
+
+    let axes =
+      Walk_core.Walk.
+        [
+          shape_axis "input" L.limits
+            ~get:(fun c -> c.shape)
+            ~set:(fun _ s -> { shape = s });
+        ]
+
+    let pp fmt (c : cfg) = Walk_core.Shape.pp fmt c.shape
+  end
+end
+
 module Clamp = struct
   (* [aten.clamp.default]: both bounds are `Scalar?`, and at least one must be
      given — ATen's meta function rejects the both-absent spelling rather than

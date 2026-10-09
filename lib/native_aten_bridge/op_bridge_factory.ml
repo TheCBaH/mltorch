@@ -133,8 +133,8 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
            |> Err.map_error (fun e -> `Build e)
          in
          return (g, []))
-  | ("torch.ops.aten.arange.default" | "torch.ops.aten.arange.start") as target
-    ->
+  | ( "torch.ops.aten.arange.default" | "torch.ops.aten.arange.start"
+    | "torch.ops.aten.arange.start_step" ) as target ->
       Some
         (let scalar_input_is_float =
            List.exists
@@ -204,7 +204,8 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                  scalar_arg_exact ~default:(Aten_scalar.Int 0L) node "end"
                in
                return ((0., Some 0L), stop)
-           | "torch.ops.aten.arange.start" ->
+           | "torch.ops.aten.arange.start" | "torch.ops.aten.arange.start_step"
+             ->
                let* start =
                  scalar_arg_exact ~default:(Aten_scalar.Int 0L) node "start"
                in
@@ -214,8 +215,14 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                return (start, stop)
            | _ -> assert false
          in
+         (* [start_step] is the one overload whose schema requires [step];
+            asking for it without a default is what makes an absent one an
+            error instead of a silent one. *)
          let* step, step_exact =
-           scalar_arg_exact ~default:(Aten_scalar.Int 1L) node "step"
+           match target with
+           | "torch.ops.aten.arange.start_step" ->
+               scalar_arg_exact_required node "step"
+           | _ -> scalar_arg_exact ~default:(Aten_scalar.Int 1L) node "step"
          in
          let exact =
            match (fmt, start_exact, stop_exact, step_exact) with

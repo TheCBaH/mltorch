@@ -200,7 +200,7 @@ let check_node view (n : node) =
      needs an axis check, since their `kernel`/`stride`/`pad`/`output_size`
      params name no axis, the same reason [Max_pool2d]/[Adaptive_max_pool2d]
      need none. *)
-  | Add _ | Addcmul _ | Add_scalar _ | Adaptive_avg_pool2d _
+  | Abs _ | Add _ | Addcmul _ | Add_scalar _ | Adaptive_avg_pool2d _
   | Adaptive_max_pool2d _ | Adaptive_max_pool2d_with_indices _ | Avg_pool2d _
   | Bitwise_not _ | Bmm _ | Clamp _ | Clone _ | Col2im _ | Conv1d _ | Conv2d _
   | Conv2d_padding _ | Cos _ | Div _ | Div_scalar _ | Eq_scalar _ | Eq_tensor _
@@ -375,6 +375,14 @@ let check_node view (n : node) =
      same intrinsic-axis boundary [Batched_matmul]'s multi-batch form,
      [Sdpa]'s own D axis, and [Unfold] above are. *)
   | Conv3d _ -> unsupported ()
+  (* Not a missing counterpart: the four-axis dialect's only gather is
+     [IndexTensor4], which wraps a negative index as advanced indexing does,
+     while an embedding lookup is [index_select] and rejects it. Lowering one
+     onto the other would quietly change the failure behavior of the source
+     operation, so the node stays outside the dialect. *)
+  | Bitwise_and _ | Embedding _ | Ge_scalar _ | Index_pair _ | Le_tensor _
+  | Lt_scalar _ | New_ones _ | Tanh _ | Where_scalar_other _ ->
+      unsupported ()
 
 (* Node predicates FIRST, then the shape rule. The two overlap — a permutation
    that moves C onto D necessarily produces a tensor with extent on D, so either

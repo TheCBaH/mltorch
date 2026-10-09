@@ -45,6 +45,7 @@ val constant :
    operand ([?bias], [?weight]) records [None] in the IR; the evaluator fills the
    identity (zeros bias / ones weight). *)
 (* Op constructors in global alphabetical order (see graph_ir.mli). *)
+val abs : ?name:string -> tensor_ref -> Tensor_id.t t
 val add : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 
 val addcmul :
@@ -100,6 +101,10 @@ val batch_norm_no_stats :
   Tensor_id.t list t
 
 val batched_matmul : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
+
+(* [__and__.Tensor] on bool operands (a 0.0/1.0 encoding), broadcasting; a
+   [Bool] result. See [Pointwise.Bitwise_and]. *)
+val bitwise_and : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 
 (* [bitwise_not.default] restricted to bool operands (a 0.0/1.0 encoding) --
    see [Pointwise.Bitwise_not]. *)
@@ -181,6 +186,15 @@ val einsum :
   tensor_ref ->
   Tensor_id.t t
 
+(* `embedding.default`: the weight's rows selected by the indices. One node;
+   the output keeps the weight's F32 element type. *)
+val embedding :
+  ?name:string ->
+  Embedding.Embedding.params ->
+  weight:tensor_ref ->
+  indices:tensor_ref ->
+  Tensor_id.t t
+
 (* [eq.Scalar(self, other) -> self == other] -- real ATen output dtype Bool,
    unconditionally declared here (see .ml). *)
 val eq_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
@@ -219,11 +233,24 @@ val group_norm :
 (* [gt.Scalar(self, other) -> self > other] -- real ATen output dtype Bool,
    unconditionally declared here (see .ml). *)
 val gt_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
+
+(* [ge.Scalar(self, other) -> self >= other] -- a [Bool] result, as
+   [gt_scalar]. *)
+val ge_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
 val hardsigmoid : ?name:string -> tensor_ref -> Tensor_id.t t
 val hardswish : ?name:string -> tensor_ref -> Tensor_id.t t
 
 val hardtanh :
   ?name:string -> Pointwise.Hardtanh.params -> tensor_ref -> Tensor_id.t t
+
+(* `index.Tensor` with two live leading indices: [self[index0, index1]]. *)
+val index_pair :
+  ?name:string ->
+  Index_tensor.Index_pair.params ->
+  self:tensor_ref ->
+  index0:tensor_ref ->
+  index1:tensor_ref ->
+  Tensor_id.t t
 
 val index_tensor :
   ?name:string ->
@@ -247,6 +274,9 @@ val layer_norm :
     shift 0) and is materialised by [Eval_op], not by the caller: a graph built
     with an explicit ones tensor is a DIFFERENT graph, and the two importers
     have to agree on which one they build. *)
+
+(* [le.Tensor(self, other) -> self <= other] -- a [Bool] result, broadcasting. *)
+val le_tensor : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 
 val leaky_relu :
   ?name:string -> Pointwise.Leaky_relu.params -> tensor_ref -> Tensor_id.t t
@@ -272,6 +302,9 @@ val lstm :
   (Tensor_id.t * Tensor_id.t * Tensor_id.t) t
 
 (* max_dim returns two edges: (values, indices). *)
+(* [lt.Scalar(self, other) -> self < other] -- a [Bool] result. *)
+val lt_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
+
 val max_dim :
   ?name:string ->
   Reduce.MaxDim.params ->
@@ -305,6 +338,10 @@ val ne_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
 (* [ne.Tensor(self, other) -> self != other] -- real ATen output dtype Bool,
    unconditionally declared here (see .ml). *)
 val ne_tensor : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
+
+(* [new_ones.default]: a constant of ones whose shape and format (bool or
+   float32) are the payload; it reads no operand. *)
+val new_ones : ?name:string -> Factory.New_ones.params -> Tensor_id.t t
 
 val pad : ?name:string -> Pad.Pad.params -> tensor_ref -> Tensor_id.t t
 (** Narrows a [Constant] fill to its f32-canonical value, as [add_scalar] does
@@ -404,6 +441,7 @@ val stack :
 
 val sub : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 val sum : ?name:string -> Reduce.Sum.params -> tensor_ref -> Tensor_id.t t
+val tanh : ?name:string -> tensor_ref -> Tensor_id.t t
 
 val to_copy :
   ?name:string -> Pointwise.To_copy.target -> tensor_ref -> Tensor_id.t t
@@ -437,6 +475,11 @@ val upsample_nearest2d :
 
 val vector_norm :
   ?name:string -> Reduce.Vector_norm.params -> tensor_ref -> Tensor_id.t t
+
+(* [where.ScalarOther(condition, self, other)]: [x] where [condition] holds,
+   the scalar elsewhere; the two tensors broadcast. *)
+val where_scalar_other :
+  ?name:string -> condition:tensor_ref -> float -> tensor_ref -> Tensor_id.t t
 
 val arange : ?name:string -> Factory.Arange.params -> Tensor_id.t t
 val zeros : ?name:string -> Factory.Zeros.params -> Tensor_id.t t

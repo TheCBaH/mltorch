@@ -41,7 +41,7 @@
 
 (copy_files
  (files
-  %{workspace_root}/lib/native/{axis,eval_op,graph_common,graph_shape,half,json_util,kernel_hard_shared,payload,region_context,schedule,semantics,symint,tensor,tensor_ref,tensor_sig,walk_bridge}.ml))
+  %{workspace_root}/lib/native/{axis,eval_op,graph_common,graph_ir_registry,graph_shape,half,json_util,kernel_hard_shared,payload,region_context,schedule,semantics,symint,tensor,tensor_ref,tensor_sig,walk_bridge}.ml))
 
 (copy_files
  (files %{workspace_root}/lib/native/ops/*.{ml,mli}))

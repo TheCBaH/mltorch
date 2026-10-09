@@ -72,6 +72,7 @@ let%expect_test "Only empty: every per-op graph's outputs equal an All run's" =
     batch_norm_no_stats: 3 outputs equal
     batched_matmul: 1 outputs equal
     addcmul: 1 outputs equal
+    abs: 1 outputs equal
     relu: 1 outputs equal
     repeat4: 1 outputs equal
     repeat_interleave4: 1 outputs equal

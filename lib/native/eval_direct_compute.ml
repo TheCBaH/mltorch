@@ -5,6 +5,7 @@ module E = Eval_op.Make (Direct)
 
 type error =
   [ `Arange_i64_overflow of Factory.Arange.Overflow.t
+  | `Embedding_index_out_of_range of Embedding.Embedding.Index_out_of_range.t
   | Tensor.dst_error
   | `Unsupported_to_copy_bool_source of Payload.packed_fmt
   | `Unsupported_to_copy_long_source of Payload.packed_fmt ]
@@ -14,6 +15,8 @@ let pp_error ppf : [< error ] -> unit = function
       Format.fprintf ppf
         "arange: exact int64 generation overflows at start=%Ld step=%Ld i=%d"
         start step i
+  | `Embedding_index_out_of_range e ->
+      Embedding.Embedding.Index_out_of_range.pp ppf e
   | #Tensor.dst_error as e -> Tensor.pp_dst_error ppf e
   | `Unsupported_to_copy_bool_source (Payload.Fmt f) ->
       Format.fprintf ppf
@@ -53,6 +56,11 @@ let compute_arms (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
            dst ~axis:params.Split.Split_with_sizes.axis ~offset ~shape:out_shape)
   | Zeros { Factory.Zeros.params = _ } ->
       finish dst (Tensor.write_float dst (fun _ -> 0.))
+  | New_ones { Factory.New_ones.params } -> (
+      match params.fmt with
+      | Payload.Fmt Payload.Bool ->
+          finish dst (Tensor.write_bool dst (fun _ -> true))
+      | _ -> finish dst (Tensor.write_float dst (fun _ -> 1.)))
   | Eye { Factory.Eye.params = _ } ->
       finish dst
         (Tensor.write_float dst (fun coord ->
@@ -129,6 +137,72 @@ let compute_arms (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
                   ~operand:(fun r -> Tensor_id.Map.find r operand_env)
                   ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
                   ~fill)))
+  (* A gather from a bool [self] lands as genuine bool storage (the builder
+     keeps [self]'s format); the float pixel path cannot write a bool
+     destination. *)
+  | Index_pair { Index_tensor.Index_pair.params; self; index0; index1 } -> (
+      let (Tensor.Tensor d) = dst in
+      match d.Tensor.payload.Payload.fmt with
+      | Payload.Bool ->
+          let module C = Index_tensor.Index_pair.Compute (Direct) in
+          let t r = Tensor_id.Map.find r operand_env in
+          let shape r = Tensor_id.Map.find r shape_env in
+          finish dst
+            (Tensor.write_bool dst (fun coord ->
+                 C.pixel params ~self_shape:(shape self)
+                   ~index0_shape:(shape index0) ~index1_shape:(shape index1)
+                   ~self:(t self) ~index0:(t index0) ~index1:(t index1) coord
+                 <> 0.0))
+      | _ ->
+          finish dst
+            (Schedule.evaluate_into dst
+               (E.pixel op ~output
+                  ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                  ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                  ~fill)))
+  (* An I64 operand plus an integral scalar stays int64 (the builder threads
+     an I64 output edge exactly then): the exact add, never the float domain.
+     Every other case keeps the float pixel path. *)
+  | Add_scalar { Pointwise.Scalar_bin.x; scalar } -> (
+      let (Tensor.Tensor d) = dst in
+      match d.Tensor.payload.Payload.fmt with
+      | Payload.I64 ->
+          let module T = struct
+            type 'a repr = 'a
+
+            let i64_load = Direct.i64_load
+            let i64_binary = Direct.i64_binary
+            let typed_const = Direct.typed_const
+          end in
+          let module C = Pointwise.Add_scalar.Compute_i64 (Direct) (T) in
+          let x_t = Tensor_id.Map.find x operand_env in
+          finish dst
+            (Tensor.write_i64 dst (fun coord -> C.pixel ~scalar x_t coord))
+      | _ ->
+          finish dst
+            (Schedule.evaluate_into dst
+               (E.pixel op ~output
+                  ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                  ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                  ~fill)))
+  (* Dtype-preserving Slice, the same shape as Permute above: an I64 source is
+     sliced through [Compute_i64]/[i64_load], exact beyond 2^53; every other
+     format keeps the float pixel path. *)
+  | Slice { Split.Slice.params; x } -> (
+      let x_sig = Tensor_id.Map.find x g.Graph.tensors in
+      match x_sig.Tensor_sig.fmt with
+      | Payload.Fmt Payload.I64 ->
+          let module C = Split.Slice.Compute_i64 (Direct) (Direct) in
+          let x_t = Tensor_id.Map.find x operand_env in
+          finish dst
+            (Tensor.write_i64 dst (fun coord -> C.pixel params ~x:x_t coord))
+      | _ ->
+          finish dst
+            (Schedule.evaluate_into dst
+               (E.pixel op ~output
+                  ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                  ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                  ~fill)))
   (* Explicit int64-input promotion for [Mul_scalar]: the default arm's
      [Pointwise.Mul_scalar.Compute(S).pixel] reads through [S.load], which is
      numerically exact for this promotion ([Payload.get_float]'s I64 case is
@@ -165,6 +239,71 @@ let compute_arms (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
      exactly-one-I64 mixed pair, so the only two domains reaching here are
      (I64, I64) and every other agreeing pair (which the default float pixel
      path already handles identically to before). *)
+  (* Dtype-preserving [Abs]: an I64 operand takes the exact int64 pixel (read
+     through [i64_load], negated in wrapping int64 arithmetic), never the float
+     pixel, whose [S.load] is lossy above 2^53. The builder threads the I64
+     output edge for exactly this case, so the destination is an I64 tensor. *)
+  (* ATen's embedding is [index_select]: every index must lie in [0, V). The
+     gather this delegates to also takes [-V, -1] (it wraps, as advanced
+     indexing does), so the strict rule is enforced here, over every index
+     element before any row is read. A bad index is an error row, never a
+     clamped or wrapped read. *)
+  | Embedding { Embedding.Embedding.weight; indices; _ } -> (
+      let vocabulary = Vec6.get (Tensor_id.Map.find weight shape_env) Axis.W in
+      let indices_t = Tensor_id.Map.find indices operand_env in
+      let bad = ref None in
+      Vec6.iter (Tensor_id.Map.find indices shape_env) (fun coord ->
+          if !bad = None then
+            let raw =
+              Err.or_raise
+                ~pp_error:(fun fmt (`Wrong_format (Payload.Fmt f)) ->
+                  Fmt.pf fmt "embedding indices must be I64, got %s"
+                    (Payload.fmt_name f))
+                (Tensor.read_i64_at6 indices_t (fun a ->
+                     (Vec6.get coord a :> int)))
+            in
+            if
+              Int64.compare raw 0L < 0
+              || Int64.compare raw (Int64.of_int (vocabulary :> int)) >= 0
+            then bad := Some raw);
+      match !bad with
+      | Some raw ->
+          Err.fail
+            (`Embedding_index_out_of_range
+               { Embedding.Embedding.Index_out_of_range.raw; vocabulary })
+      | None ->
+          finish dst
+            (Schedule.evaluate_into dst
+               (E.pixel op ~output
+                  ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                  ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                  ~fill)))
+  | Abs { Pointwise.Abs.x } -> (
+      let x_sig = Tensor_id.Map.find x g.Graph.tensors in
+      match x_sig.Tensor_sig.fmt with
+      | Payload.Fmt Payload.I64 ->
+          (* [Direct]'s own [b] is the abstract predicate of [SEMANTICS]; the
+             typed section's selects and comparisons are on [bool]. *)
+          let module T = struct
+            type 'a repr = 'a
+            type b = bool
+
+            let i64_load = Direct.i64_load
+            let i64_binary = Direct.i64_binary
+            let i64_lt = Direct.i64_lt
+            let typed_const = Direct.typed_const
+            let typed_select = Direct.typed_select
+          end in
+          let module C = Pointwise.Abs.Compute_i64 (Direct) (T) in
+          let x_t = Tensor_id.Map.find x operand_env in
+          finish dst (Tensor.write_i64 dst (fun coord -> C.pixel x_t coord))
+      | _ ->
+          finish dst
+            (Schedule.evaluate_into dst
+               (E.pixel op ~output
+                  ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                  ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                  ~fill)))
   | Add { Pointwise.Bin.a; b } -> (
       let a_sig = Tensor_id.Map.find a g.Graph.tensors in
       let b_sig = Tensor_id.Map.find b g.Graph.tensors in
@@ -376,6 +515,38 @@ let compute_arms (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
       finish dst
         (Tensor.write_bool dst (fun coord ->
              C.pixel ~a_shape ~b_shape a_t b_t coord <> 0.0))
+  (* [Bitwise_and], [Ge_scalar], [Le_tensor] and [Lt_scalar] mirror
+     [Gt_scalar]/[Eq_tensor]'s split below: the [SEMANTICS]-generic formula
+     yields 0./1., and only [Eval_direct] lands it as genuine [Bool] storage,
+     matching the builder's unconditional [Bool] output declaration. *)
+  | Bitwise_and { Pointwise.Bin.a; b } ->
+      let module C = Pointwise.Bitwise_and.Compute (Direct) in
+      let a_t = Tensor_id.Map.find a operand_env in
+      let b_t = Tensor_id.Map.find b operand_env in
+      let a_shape = Tensor_id.Map.find a shape_env in
+      let b_shape = Tensor_id.Map.find b shape_env in
+      finish dst
+        (Tensor.write_bool dst (fun coord ->
+             C.pixel ~a_shape ~b_shape a_t b_t coord <> 0.0))
+  | Ge_scalar { Pointwise.Scalar_bin.x; scalar } ->
+      let module C = Pointwise.Ge_scalar.Compute (Direct) in
+      let x_t = Tensor_id.Map.find x operand_env in
+      finish dst
+        (Tensor.write_bool dst (fun coord -> C.pixel ~scalar x_t coord <> 0.0))
+  | Le_tensor { Pointwise.Bin.a; b } ->
+      let module C = Pointwise.Le_tensor.Compute (Direct) in
+      let a_t = Tensor_id.Map.find a operand_env in
+      let b_t = Tensor_id.Map.find b operand_env in
+      let a_shape = Tensor_id.Map.find a shape_env in
+      let b_shape = Tensor_id.Map.find b shape_env in
+      finish dst
+        (Tensor.write_bool dst (fun coord ->
+             C.pixel ~a_shape ~b_shape a_t b_t coord <> 0.0))
+  | Lt_scalar { Pointwise.Scalar_bin.x; scalar } ->
+      let module C = Pointwise.Lt_scalar.Compute (Direct) in
+      let x_t = Tensor_id.Map.find x operand_env in
+      finish dst
+        (Tensor.write_bool dst (fun coord -> C.pixel ~scalar x_t coord <> 0.0))
   (* [Gt_scalar] mirrors [Bitwise_not]'s own split: [Compute]'s formula is
      [SEMANTICS]-generic (shared with [Symbolic] via [Eval_op.Make], which
      still writes a plain float 0./1.), and only [Eval_direct] intercepts it

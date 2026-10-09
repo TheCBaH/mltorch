@@ -85,9 +85,13 @@ type metadata_role =
   | `Convolution_weight
   | `Cumsum_input
   | `Einsum_operand
+  | `Embedding_indices
+  | `Embedding_weight
   | `Expand_input
   | `Group_norm_bias
   | `Group_norm_weight
+  | `Index_pair_index
+  | `Index_pair_self
   | `Index_tensor_index
   | `Index_tensor_self
   | `Layer_norm_bias
@@ -166,6 +170,21 @@ module Shape_mismatch = struct
     expected : Aten_int.Size.t list;
     got : Aten_int.Size.t list;
   }
+end
+
+(* Why the empty-cache normalization declined a graph. Names are PT2 SSA
+   names: this is a refusal about the model's own use of a zero-length tensor,
+   reported in the vocabulary the model uses. *)
+module Empty_cache = struct
+  type t =
+    | All_empty_cat of string  (** the [cat] output: nothing would remain *)
+    | Dtype_mismatch of { empty : string; other : string }
+        (** ATen's [cat] promotes over the skipped empty operand too, so a
+            different dtype is not a pure drop *)
+    | Escapes_to_output of string
+    | Missing_metadata of string
+    | Mutating_signature
+    | Unsupported_reader of { source : string; target : string }
 end
 
 module Input_binding = struct
@@ -435,6 +454,7 @@ type tensor_bridge =
 type error =
   [ `Arena of Arena_run.error
   | `Build of Graph_builder.error
+  | `Empty_cache of Empty_cache.t
   | `Eval of Eval_direct.error
   | `Input_binding of Input_binding.t
   | `Lens of Pt2_native_graph.lens_error
@@ -486,9 +506,13 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Convolution_weight -> Fmt.string ppf "convolution weight"
   | `Cumsum_input -> Fmt.string ppf "cumsum input"
   | `Einsum_operand -> Fmt.string ppf "einsum operand"
+  | `Embedding_indices -> Fmt.string ppf "embedding indices"
+  | `Embedding_weight -> Fmt.string ppf "embedding weight"
   | `Expand_input -> Fmt.string ppf "expand input"
   | `Group_norm_bias -> Fmt.string ppf "group_norm bias"
   | `Group_norm_weight -> Fmt.string ppf "group_norm weight"
+  | `Index_pair_index -> Fmt.string ppf "index.Tensor leading index"
+  | `Index_pair_self -> Fmt.string ppf "index.Tensor self"
   | `Index_tensor_index -> Fmt.string ppf "index.Tensor indices live entry"
   | `Index_tensor_self -> Fmt.string ppf "index.Tensor self"
   | `Layer_norm_bias -> Fmt.string ppf "layer_norm bias"
@@ -771,9 +795,29 @@ let pp_input_binding ppf : Input_binding.t -> unit = function
       Fmt.pf ppf "named input of dtype %s is not supported"
         (Pt2_dtype.to_string dtype)
 
+let pp_empty_cache ppf : Empty_cache.t -> unit = function
+  | All_empty_cat out ->
+      Fmt.pf ppf "empty cache: every operand of the cat producing %s is empty"
+        out
+  | Dtype_mismatch { empty; other } ->
+      Fmt.pf ppf
+        "empty cache: %s and %s differ in dtype, so dropping %s is not \
+         value-preserving"
+        empty other empty
+  | Escapes_to_output name ->
+      Fmt.pf ppf "empty cache: %s is returned by the graph" name
+  | Missing_metadata name ->
+      Fmt.pf ppf "empty cache: no tensor metadata for %s" name
+  | Mutating_signature ->
+      Fmt.string ppf "empty cache: the signature mutates state"
+  | Unsupported_reader { source; target } ->
+      Fmt.pf ppf "empty cache: %s is read by %s, not a clone or a cat" source
+        target
+
 let pp_error ppf : [< error ] -> unit = function
   | `Arena e -> Arena_run.pp_error ppf e
   | `Build e -> Graph_builder.pp_error ppf e
+  | `Empty_cache e -> pp_empty_cache ppf e
   | `Eval e -> Eval_direct.pp_error ppf e
   | `Input_binding b -> pp_input_binding ppf b
   | `Lens e -> Pt2_native_graph.pp_lens_error ppf e

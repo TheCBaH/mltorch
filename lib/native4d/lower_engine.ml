@@ -177,6 +177,7 @@ let lower_node ~view acc (n : node) =
   | Cos { Pointwise.Cos.x } -> simple (Op.Cos { Pointwise.Cos.x = op_of x })
   | Gelu { Pointwise.Gelu.x; approximate } ->
       simple (Op.Gelu { Pointwise.Gelu.x = op_of x; approximate })
+  | Abs { Pointwise.Abs.x } -> simple (Op.Abs { Pointwise.Abs.x = op_of x })
   | Hardsigmoid { Pointwise.Hardsigmoid.x } ->
       simple (Op.Hardsigmoid { Pointwise.Hardsigmoid.x = op_of x })
   | Hardswish { Pointwise.Hardswish.x } ->
@@ -887,5 +888,7 @@ let lower_node ~view acc (n : node) =
      [Max_pool2d_with_indices]/[Repeat]/[RepeatInterleave]/[Select_scatter]/
      [Softmax]/[Batched_matmul]/[Sdpa]/[Index_tensor]/[Lstm]/[Meshgrid] no
      longer join them: all twelve now have real conversion arms above. *)
-  | Conv3d _ | Discard _ | Unfold _ ->
+  | Bitwise_and _ | Conv3d _ | Discard _ | Embedding _ | Ge_scalar _
+  | Index_pair _ | Le_tensor _ | Lt_scalar _ | New_ones _ | Tanh _ | Unfold _
+  | Where_scalar_other _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))

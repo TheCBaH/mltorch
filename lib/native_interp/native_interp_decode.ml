@@ -516,6 +516,11 @@ let reject_dtype esc (node : Pytorch_types.Node.t) =
       node.Node.inputs
   with
   | None | Some { arg = Argument.None _; _ } -> ()
+  (* float32 is the one float format the engine computes and stores, so an
+     explicit float32 [dtype] is the identity on a float32 operand and the
+     conversion the engine already performs on any other: it changes no value
+     this op returns. Any other [dtype] would, and stays refused. *)
+  | Some { arg = Argument.Scalar_type ScalarType.FLOAT; _ } -> ()
   | Some _ ->
       malformed esc (`Unsupported_option { op = node.target; option = `Dtype })
 

@@ -19,6 +19,10 @@ type t = {
   backend : string;  (** The route that was executed, e.g. ["native-direct"]. *)
   cases : case list;
   consumer : string;  (** The consumer revision, with its workspace state. *)
+  normalizations : string list;
+      (** Consumer-side rewrites the run applied before executing, one line each
+          (e.g. which empty cache sources were dropped and from where). Empty
+          when the graph ran as published. *)
   pins : (string * string) list;
       (** Named digests: graph, contract, map, ... *)
   refusal : string option;

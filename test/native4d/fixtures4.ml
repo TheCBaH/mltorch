@@ -325,6 +325,7 @@ let per_op () =
              addcmul 0.5 self tensor1 tensor2)
         in
         (g, [ nhwc; nhwc; nhwc ]) );
+      ("abs", unary ~shape:nhwc Builder.abs);
       ("relu", unary ~shape:nhwc Builder.relu);
       ("repeat4", unary ~shape:nhwc (Builder.repeat4 (s4 ~n:1 ~h:2 ~w:1 ~c:3)));
       ( "repeat_interleave4",

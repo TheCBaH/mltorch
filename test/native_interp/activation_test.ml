@@ -255,6 +255,57 @@ let%expect_test "arange gets an exact int64 view only from unsaturated ints" =
     exact: false
     exact: false |}]
 
+(* [arange.start_step], written the way the SmolVLM vision tower serializes it:
+   three float bounds, no dtype, no layout. [step] is required by the schema. *)
+let start_step_node inputs =
+  jstr
+    {|{"target":"torch.ops.aten.arange.start_step","inputs":[%s,{"name":"device","arg":{"as_device":{"type":"cpu","index":null}},"kind":2},{"name":"pin_memory","arg":{"as_bool":false},"kind":2}],"outputs":[%s],"metadata":{}}|}
+    inputs (as_tensor "y")
+
+let%expect_test "arange.start_step lowers, with a required step" =
+  let arg name v = jstr {|{"name":"%s","arg":%s,"kind":1}|} name v in
+  let join = String.concat "," in
+  dump "floats (the vision tower):"
+    (prog
+       (start_step_node
+          (join
+             [
+               arg "start" {|{"as_float":0.03125}|};
+               arg "end" {|{"as_float":1.0}|};
+               arg "step" {|{"as_float":0.03125}|};
+             ])));
+  dump "ints:"
+    (prog
+       (start_step_node
+          (join
+             [
+               arg "start" {|{"as_int":2}|};
+               arg "end" {|{"as_int":11}|};
+               arg "step" {|{"as_int":3}|};
+             ])));
+  dump "no step:"
+    (prog
+       (start_step_node
+          (join [ arg "start" {|{"as_int":2}|}; arg "end" {|{"as_int":11}|} ])));
+  [%expect
+    {|
+    floats (the vision tower):
+    graph
+    inputs: [t0 f32 [W=2 C=3]]
+    nodes:
+      n0: [t1 f32 [C=31]] =
+        arange params={start=0.03125; stop=1; step=0.03125; fmt=f32}
+    outputs: [t1 f32 [C=31] <-n0]
+    ints:
+    graph
+    inputs: [t0 f32 [W=2 C=3]]
+    nodes:
+      n0: [t1 i64 [C=3]] =
+        arange params={start=2; stop=11; step=3; fmt=i64; exact={2,11,3}}
+    outputs: [t1 i64 [C=3] <-n0]
+    no step:
+      malformed PT2 graph: torch.ops.aten.arange.start_step: missing argument "step" |}]
+
 let eye_node ?dtype () =
   let dtype =
     match dtype with

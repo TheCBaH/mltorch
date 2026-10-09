@@ -44,11 +44,11 @@ let classify (op : Op.t) ~output =
      broadcast axis read repeatedly and a non-broadcast axis read once each --
      no arithmetic on any of them. *)
   | Expand4 _ -> Output_transfer.Reindexing
-  | Conv2d _ | Depthwise_conv2d _ | Cos _ | Div _ | Div_scalar _ | Gelu _
-  | Batch_norm _ | Batch_norm_no_stats _ | Batched_matmul _ | Group_norm4 _
-  | Grouped_conv2d _ | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Layer_norm _
-  | Leaky_relu _ | Lstm _ | Max_keepdims _ | Max_pool2d _ | Mean_keepdims _
-  | Mul _ | Mul_scalar _ | Pad4 _ ->
+  | Abs _ | Conv2d _ | Depthwise_conv2d _ | Cos _ | Div _ | Div_scalar _
+  | Gelu _ | Batch_norm _ | Batch_norm_no_stats _ | Batched_matmul _
+  | Group_norm4 _ | Grouped_conv2d _ | Hardsigmoid _ | Hardswish _ | Hardtanh _
+  | Layer_norm _ | Leaky_relu _ | Lstm _ | Max_keepdims _ | Max_pool2d _
+  | Mean_keepdims _ | Mul _ | Mul_scalar _ | Pad4 _ ->
       Output_transfer.Continuous
   (* The pure-broadcast case, the same argument Native's own [Output_transfer]
      makes for [Expand]/[Meshgrid]: output k reads only input k, broadcast

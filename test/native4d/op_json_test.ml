@@ -97,6 +97,7 @@ let im2col_params : Im2col.Params.t =
    the list against [Op.op] by eye. *)
 let samples : Op.t list =
   [
+    Abs { Pointwise.Abs.x };
     Add { Pointwise.Bin.a = x; b = y };
     Addcmul
       { Pointwise.Addcmul.self = x; tensor1 = y; tensor2 = w; value = 0.1 };
@@ -405,12 +406,13 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 79, registry: 79 |}]
+  [%expect {| samples: 80, registry: 80 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
   [%expect
     {|
+    abs x=t0
     add a=t0 b=t1
     addcmul self=t0 tensor1=t1 tensor2=t2 value=0.1
     add_scalar x=t0 scalar=0.1
@@ -555,7 +557,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 79 ops |}]
+  [%expect {| round-tripped 80 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

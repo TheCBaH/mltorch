@@ -33,6 +33,9 @@ let curated_selection =
   [
     op "add" ~overload:"Tensor";
     op "add_" ~overload:"Tensor";
+    op "abs";
+    op "detach";
+    op "embedding";
     op "sub" ~overload:"Tensor";
     op "mul" ~overload:"Tensor";
     op "mul" ~overload:"Scalar";
@@ -58,6 +61,7 @@ let curated_selection =
     op "leaky_relu";
     op "arange";
     op "arange" ~overload:"start";
+    op "arange" ~overload:"start_step";
     op "zeros";
     op "eye" ~overload:"m";
     op "silu";

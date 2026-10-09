@@ -266,6 +266,30 @@ module Add_scalar = struct
 
     let pixel ~scalar x out = B.pixel ~combine:S.add ~scalar x out
   end
+
+  (* Exact int64 counterpart of [Compute], for an I64 operand and an integral
+     scalar (ATen's integer-scalar overload keeps the dtype): the add is the
+     checked wrapping int64 add, never a trip through the float domain. The
+     output stays [int64 repr], so the builder threads an I64 output edge; see
+     [Graph_builder.add_scalar] for when. *)
+  module Compute_i64
+      (S : Semantics.SEMANTICS)
+      (T : sig
+        type 'a repr
+
+        val i64_load :
+          S.input -> Semantics.position S.index Vec6.t -> int64 repr
+
+        val i64_binary :
+          Expr.Value.i64_binary_op -> int64 repr -> int64 repr -> int64 repr
+
+        val typed_const : 'a Expr.Scalar.t -> 'a -> 'a repr
+      end) =
+  struct
+    let pixel ~scalar x (out : Semantics.position S.index Vec6.t) =
+      T.i64_binary Expr.Value.I64_add (T.i64_load x out)
+        (T.typed_const Expr.Scalar.I64 (Int64.of_float scalar))
+  end
 end
 
 module Div = struct
