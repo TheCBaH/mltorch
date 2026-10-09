@@ -414,6 +414,60 @@
     },
     {
       "archive": {
+        "name": "tinyclip--image-text-embeddings--reference--forward--fp32--dynamo--static--ckpt-a2a8c6eaa254.tar.gz",
+        "sha256": "dbc401124dcf0b6a23c678685474d43a411348f849c460214de3fc3898350910",
+        "size": 1188767,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/tinyclip--image-text-embeddings--reference--forward--fp32--dynamo--static--ckpt-a2a8c6eaa254.tar.gz"
+      },
+      "artifact_id": "tinyclip/image-text-embeddings/reference/forward/fp32/dynamo/static/ckpt-a2a8c6eaa254",
+      "capture_count": 225,
+      "cases": [
+        "case-00",
+        "case-01"
+      ],
+      "contract_sha256": "e5015c735e3c07c878743b27dfb611409ebe211db8447d7370b872349eaa9526",
+      "graph_sha256": "97666c7ac38b3bb320e57fbe4bfc75a4ed82887e86ed60d25bb28b76bb0b0b0b",
+      "manifest": {
+        "name": "tinyclip--image-text-embeddings--reference--forward--fp32--dynamo--static--ckpt-a2a8c6eaa254.manifest.json",
+        "sha256": "16a0dd3dc7c1fc2f2fa7b67819db34626da8a2180973fbf13e9a7e7802018523",
+        "size": 3049,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/tinyclip--image-text-embeddings--reference--forward--fp32--dynamo--static--ckpt-a2a8c6eaa254.manifest.json"
+      },
+      "map_member": "models/safetensors.v2.json",
+      "map_sha256": "50297d9a973c3b17aa06ea486e3ad91abf0c5b6f78fca6128913d722f2b6dbb4",
+      "map_sources": {
+        "checkpoint": {
+          "files": [
+            {
+              "name": "model.safetensors",
+              "repo_id": "wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M",
+              "revision": "a2a8c6eaa2549ad66eb7c31b85022bf58273a26c",
+              "sha256": "9339ee3d736344d0ddcaa6c03edc9f89688f08caaea5401220885233da726fcc",
+              "size": 93812468,
+              "url": "https://huggingface.co/wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M/resolve/a2a8c6eaa2549ad66eb7c31b85022bf58273a26c/model.safetensors"
+            }
+          ]
+        }
+      },
+      "released_sources": [],
+      "role": "both towers and the similarity logits",
+      "weight_source": {
+        "config_sha256": "c586d856dbd5589b67525db9e791ee0917402405672c7773aead373efb7d7bca",
+        "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
+        "files": {
+          "model.safetensors": {
+            "sha256": "9339ee3d736344d0ddcaa6c03edc9f89688f08caaea5401220885233da726fcc",
+            "size": 93812468
+          }
+        },
+        "kind": "checkpoint",
+        "pinned_config_match": true,
+        "repo": "wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M",
+        "revision": "a2a8c6eaa2549ad66eb7c31b85022bf58273a26c"
+      }
+    },
+    {
+      "archive": {
         "name": "whisper-tiny--audio-encoder-decoder--reference--encoder--fp32--dynamo--static--ckpt-169d4a4341b3.tar.gz",
         "sha256": "aa81b47d1ca263988a08a549e046fd8d09798ac920c56e2bb52d5e87e19f32f9",
         "size": 6088857,

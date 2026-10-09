@@ -18,6 +18,7 @@ module Abs = Pointwise_unary.Abs
 module Clamp = Pointwise_unary.Clamp
 module Clone = Pointwise_unary.Clone
 module Cos = Pointwise_unary.Cos
+module Exp = Pointwise_unary.Exp
 module Expand = Pointwise_unary.Expand
 module Sin = Pointwise_unary.Sin
 module Sqrt = Pointwise_unary.Sqrt

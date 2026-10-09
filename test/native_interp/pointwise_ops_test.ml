@@ -263,3 +263,15 @@ let%expect_test "argmax and the int32 cast, as TinyCLIP's pooling writes them" =
       to_copy x=t0 target=int
     to int16 is still refused
       malformed PT2 graph: torch.ops.aten._to_copy.default: dtype is not supported |}]
+
+let%expect_test
+    "exp, and t as a matrix transpose that is the identity below rank 2" =
+  dump "exp" (prog [ node "exp.default" [ tin "self" "x" ] "y" ] [ 2; 3 ]);
+  dump "t of a [2,3]"
+    (prog [ node "t.default" [ tin "self" "x" ] "y" ] [ 3; 2 ]);
+  [%expect
+    {|
+    exp
+      exp x=t0
+    t of a [2,3]
+      permute x=t0 perm=[W<-C, C<-W] |}]

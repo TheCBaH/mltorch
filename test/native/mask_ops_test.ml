@@ -456,3 +456,15 @@ let%expect_test "to_copy int32 keeps in-range values and refuses the rest" =
     f32 truncates: i64 [C=3] {2, -2, 7}
     i64 one past the top: raised: to_copy int32: 2147483648 is outside [-2^31, 2^31)
     i64 one below the bottom: raised: to_copy int32: -2147483649 is outside [-2^31, 2^31) |}]
+
+let%expect_test "exp: values, the infinities, NaN and float32 overflow" =
+  let xs = [ 0.; 1.; -1.; -.inf; inf; nan; 100.; -100. ] in
+  let shape = s1c (List.length xs) in
+  show "exp"
+    (run
+       ~inputs:[ (shape, f32, floats shape xs) ]
+       (function [ x ] -> Graph_builder.exp x | _ -> assert false));
+  (* e = 2.71828 and 1/e = 0.367879; exp(100) = 2.7e43 exceeds float32 and
+     stores as +inf; exp(-100) = 3.7e-44 is a float32 denormal. *)
+  [%expect
+    {| exp: f32 [C=8] {1, 2.71828, 0.367879, 0, inf, nan, inf, 3.78351e-44} |}]

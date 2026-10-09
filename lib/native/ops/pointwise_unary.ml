@@ -609,6 +609,33 @@ module Cos = struct
   end
 end
 
+module Exp = struct
+  type t = { x : Tensor_ref.t }
+
+  let name = "Exp"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        { x = Json_util.req_field ms "x" Tensor_ref.jsont name })
+      ~enc:(fun t ->
+        Json_util.jobj [ ("x", Json_util.enc Tensor_ref.jsont t.x) ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>exp@ x=%a@]" pp_ref t.x
+
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    let pixel x (out : Semantics.position S.index Vec6.t) = S.exp (S.load x out)
+  end
+end
+
 module Sin = struct
   type t = { x : Tensor_ref.t }
 

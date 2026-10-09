@@ -712,6 +712,7 @@ Measured, each row preserved as run (tolerances and references unchanged):
 | SmolLM2 decode, history 4 | case-01: 5 of 49,152 logits over (4.3e-5) | 20 over |
 | SmolLM2 prefill | 174 and 1,880 of 196,608 logits over (max 7.4e-5) | 1,974 and 2,685 over, plus K/V |
 | TinyCLIP text tower | pass (after `argmax` and the int32 cast, below) | not run |
+| TinyCLIP forward (both towers + logits) | pass (adds `exp`, `t`) | not run |
 | Whisper prefill | not run | |
 | Whisper-tiny encoder | 16 and 18 of 576,000 elements over | not run |
 

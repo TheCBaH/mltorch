@@ -717,6 +717,7 @@ let sigmoid ?name x =
   op1 ?name ~kind:"sigmoid" (Sigmoid { Pointwise.Sigmoid.x })
 
 let silu ?name x = op1 ?name ~kind:"silu" (Silu { Pointwise.Silu.x })
+let exp ?name x = op1 ?name ~kind:"exp" (Exp { Pointwise.Exp.x })
 let sin ?name x = op1 ?name ~kind:"sin" (Sin { Pointwise.Sin.x })
 
 let softmax ?name params x =

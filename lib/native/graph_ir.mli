@@ -79,6 +79,7 @@ type op =
      [Eq_scalar] (same IEEE equality policy, broadcast operands). No corpus
      caller today; landed on Direct only. *)
   | Eq_tensor of Pointwise.Eq_tensor.t
+  | Exp of Pointwise.Exp.t
   | Expand of Pointwise.Expand.t
   | Eye of Factory.Eye.t
   | Floor_div_scalar of Pointwise.Floor_div_scalar.t

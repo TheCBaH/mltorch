@@ -46,6 +46,7 @@ type op =
   | Embedding of Embedding.Embedding.t
   | Eq_scalar of Pointwise.Eq_scalar.t
   | Eq_tensor of Pointwise.Eq_tensor.t
+  | Exp of Pointwise.Exp.t
   | Expand of Pointwise.Expand.t
   | Eye of Factory.Eye.t
   | Floor_div_scalar of Pointwise.Floor_div_scalar.t

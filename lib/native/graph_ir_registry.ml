@@ -203,6 +203,12 @@ let op_registry : (module OP) list =
       let project = function Eq_tensor t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Pointwise.Exp
+
+      let inject t = Exp t
+      let project = function Exp t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Pointwise.Expand
 
       let inject t = Expand t

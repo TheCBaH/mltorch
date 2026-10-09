@@ -12,12 +12,14 @@
 
 open Pytorch_types
 open Native_interp_decode
+open Native_interp_decode_shape
 
 let targets =
   [
     "torch.ops.aten.__and__.Tensor";
     "torch.ops.aten.eq.Scalar";
     "torch.ops.aten.eq.Tensor";
+    "torch.ops.aten.exp.default";
     "torch.ops.aten.ge.Scalar";
     "torch.ops.aten.gt.Scalar";
     "torch.ops.aten.le.Tensor";
@@ -25,6 +27,7 @@ let targets =
     "torch.ops.aten.ne.Scalar";
     "torch.ops.aten.ne.Tensor";
     "torch.ops.aten.new_ones.default";
+    "torch.ops.aten.t.default";
     "torch.ops.aten.tanh.default";
     "torch.ops.aten.where.ScalarOther";
   ]
@@ -35,6 +38,7 @@ let dispatch ~ctx ~env (node : Node.t) =
     Some
       (let open Graph_builder in
        let esc = ctx.Native_interp_lower_context.esc in
+       let graph = ctx.Native_interp_lower_context.graph in
        let get = Native_interp_lower_context.get ctx env node in
        let scalar () = required_scalar_arg esc node "other" in
        match node.target with
@@ -46,6 +50,9 @@ let dispatch ~ctx ~env (node : Node.t) =
            return [ y ]
        | "torch.ops.aten.eq.Tensor" ->
            let* y = eq_tensor (get "self") (get "other") in
+           return [ y ]
+       | "torch.ops.aten.exp.default" ->
+           let* y = exp (get "self") in
            return [ y ]
        | "torch.ops.aten.ge.Scalar" ->
            let* y = ge_scalar (scalar ()) (get "self") in
@@ -107,6 +114,25 @@ let dispatch ~ctx ~env (node : Node.t) =
                (List.map (fun i -> SymInt.Int i) (ints_arg esc node "size"))
            in
            let* y = new_ones { Factory.New_ones.shape; fmt } in
+           return [ y ]
+       (* `t(Tensor self)`: a matrix transpose, and the identity below rank 2.
+          It is `transpose.int(0, 1)` on a rank-2 tensor, so it lowers to the
+          same one permute node. *)
+       | "torch.ops.aten.t.default" ->
+           let x_name = tensor_name esc node "self" in
+           let rank =
+             meta_rank
+               (tensor_meta esc graph ~ssa:x_name ~role:`Transpose_input)
+           in
+           let dims =
+             List.init
+               (rank :> int)
+               (fun i ->
+                 Aten_int.Dim.of_int (if (rank :> int) = 2 then 1 - i else i))
+           in
+           let* y =
+             permute (native_perm esc ~tensor:x_name ~rank dims) (get "self")
+           in
            return [ y ]
        | "torch.ops.aten.tanh.default" ->
            let* y = tanh (get "self") in
