@@ -27,12 +27,61 @@ let dir directive = N.Directive { directive; origin }
 let lbl name = N.Label { name; origin }
 let const n = Asm_core.Expr.Const (Foundation.Bigint.of_int64 n)
 
+(* The probe: the registers the System V ABI makes the callee preserve are set
+   to sentinels and MXCSR to a rounding mode, flush-to-zero and denormals-are-
+   zero setting the kernel must neither use nor lose, then the image's entry
+   is called; the helpers it calls are stubs that record a misaligned stack
+   and clobber every register a callee may. *)
+module Abi = struct
+  type t = {
+    callee_saved : (string * int64 * int64) list;  (** name, before, after *)
+    rsp_before : int64;
+    rsp_after : int64;
+    mxcsr_before : int64;
+    mxcsr_after : int64;
+    misaligned : int64;  (** the OR of every helper entry's [(rsp+8) land 15] *)
+  }
+
+  let altered_mxcsr = 0xFFC0L
+
+  let sentinels =
+    [
+      ("rbx", 0x0B0B_0B0B_0B0B_0B0BL);
+      ("rbp", 0x0505_0505_0505_0505L);
+      ("r12", 0x1212_1212_1212_1212L);
+      ("r13", 0x1313_1313_1313_1313L);
+      ("r14", 0x1414_1414_1414_1414L);
+      ("r15", 0x1515_1515_1515_1515L);
+    ]
+
+  let violations t =
+    List.filter_map
+      (fun (n, b, a) ->
+        if Int64.equal a b then None
+        else Some (Fmt.str "%s changed from %Lx to %Lx" n b a))
+      t.callee_saved
+    @ (if Int64.equal t.rsp_before t.rsp_after then []
+       else [ Fmt.str "rsp changed from %Lx to %Lx" t.rsp_before t.rsp_after ])
+    @ (if Int64.equal t.mxcsr_before t.mxcsr_after then []
+       else
+         [
+           Fmt.str "mxcsr changed from %Lx to %Lx" t.mxcsr_before t.mxcsr_after;
+         ])
+    @
+    if Int64.equal t.misaligned 0L then []
+    else [ "a helper was entered with a misaligned stack" ]
+end
+
 type layout = { slots : (Table.slot * int) list; total : int }
 
-(* The status word, then each slot at 16-byte alignment (or its own, if more). *)
+(* The status word, the ABI probe's record, then each slot at 16-byte alignment
+   (or its own, if more). *)
+let probe_record = 8
+let first_slot = 128
+
 let layout slots =
   let align_up n a = (n + a - 1) / a * a in
-  let at = ref 8 in
+  let at = ref first_slot in
   let placed =
     List.map
       (fun (s : Table.slot) ->
@@ -43,7 +92,7 @@ let layout slots =
   in
   { slots = placed; total = align_up !at 16 }
 
-let harness ~bound { slots; total } =
+let harness ?(probe = false) ~helpers ~bound { slots; total } =
   Err.Escape.with_escape @@ fun esc ->
   let env =
     {
@@ -62,6 +111,20 @@ let harness ~bound { slots; total } =
         index = None;
         scale = 1;
         disp = Fam.Disp.Sym (Asm_core.Expr.Symbol name);
+      }
+  in
+  let rip_at name off =
+    Fam.Operand.Mem
+      {
+        Fam.Mem.base = Some Fam.rip_reg;
+        index = None;
+        scale = 1;
+        disp =
+          Fam.Disp.Sym
+            (Asm_core.Expr.Binary
+               ( Asm_core.Expr.Add,
+                 Asm_core.Expr.Symbol name,
+                 const (Int64.of_int off) ));
       }
   in
   let initial =
@@ -109,6 +172,61 @@ let harness ~bound { slots; total } =
            });
     ]
   in
+  let probe_regs = [ "rbx"; "rbp"; "r12"; "r13"; "r14"; "r15" ] in
+  let prologue =
+    if not probe then []
+    else
+      List.map (fun (n, v) -> i "movq" [ F.imm v; reg n ]) Abi.sentinels
+      @ [
+          i "subq" [ F.imm 16L; reg "rsp" ];
+          i "movl"
+            [
+              F.imm Abi.altered_mxcsr;
+              F.mem_op ~base:(F.find env "rsp") ~disp:0L ();
+            ];
+          i "ldmxcsr" [ F.mem_op ~base:(F.find env "rsp") ~disp:0L () ];
+          i "addq" [ F.imm 16L; reg "rsp" ];
+          i "movq" [ reg "rsp"; rip_at block 56 ];
+        ]
+  in
+  let epilogue =
+    if not probe then []
+    else
+      List.mapi
+        (fun k n -> i "movq" [ reg n; rip_at block (8 + (8 * k)) ])
+        probe_regs
+      @ [
+          i "movq" [ reg "rsp"; rip_at block 64 ];
+          i "subq" [ F.imm 16L; reg "rsp" ];
+          i "stmxcsr" [ F.mem_op ~base:(F.find env "rsp") ~disp:0L () ];
+          i "movl" [ F.mem_op ~base:(F.find env "rsp") ~disp:0L (); reg "ecx" ];
+          i "movq" [ reg "rcx"; rip_at block 72 ];
+          i "addq" [ F.imm 16L; reg "rsp" ];
+        ]
+  in
+  let stubs =
+    if not probe then []
+    else
+      List.concat_map
+        (fun name ->
+          [
+            dir (D.Align { boundary = 16 });
+            dir (D.Global { name });
+            lbl name;
+            i "leaq"
+              [ F.mem_op ~base:(F.find env "rsp") ~disp:8L (); reg "rax" ];
+            i "andq" [ F.imm 15L; reg "rax" ];
+            i "orq" [ reg "rax"; rip_at block 80 ];
+          ]
+          @ List.map
+              (fun n -> i "movq" [ F.imm 0xDEADL; reg n ])
+              [ "rax"; "rcx"; "rdx"; "rsi"; "rdi"; "r8"; "r9"; "r10"; "r11" ]
+          @ List.init 16 (fun k ->
+              let x = reg (Printf.sprintf "xmm%d" k) in
+              i "xorps" [ x; x ])
+          @ [ i "ret" [] ])
+        helpers
+  in
   let text =
     [
       dir
@@ -117,17 +235,22 @@ let harness ~bound { slots; total } =
       dir (D.Global { name = "_start" });
       lbl "_start";
       i "leaq" [ rip table; reg "rdi" ];
-      i "call" [ Fam.Operand.Sym (Asm_core.Expr.Symbol Table.entry) ];
-      i "movq" [ reg "rax"; rip block ];
-      i "movl" [ F.imm 1L; reg "eax" ];
-      i "movl" [ F.imm 1L; reg "edi" ];
-      i "leaq" [ rip block; reg "rsi" ];
-      i "movl" [ F.imm (Int64.of_int total); reg "edx" ];
-      i "syscall" [];
-      i "movl" [ F.imm 60L; reg "eax" ];
-      i "xorl" [ reg "edi"; reg "edi" ];
-      i "syscall" [];
     ]
+    @ prologue
+    @ [ i "call" [ Fam.Operand.Sym (Asm_core.Expr.Symbol Table.entry) ] ]
+    @ [ i "movq" [ reg "rax"; rip block ] ]
+    @ epilogue
+    @ [
+        i "movl" [ F.imm 1L; reg "eax" ];
+        i "movl" [ F.imm 1L; reg "edi" ];
+        i "leaq" [ rip block; reg "rsi" ];
+        i "movl" [ F.imm (Int64.of_int total); reg "edx" ];
+        i "syscall" [];
+        i "movl" [ F.imm 60L; reg "eax" ];
+        i "xorl" [ reg "edi"; reg "edi" ];
+        i "syscall" [];
+      ]
+    @ stubs
   in
   {
     N.unit_name = "harness";
@@ -155,7 +278,7 @@ let elf_of ~entry modules =
 
 (* The ELF of the artifact and its harness, with the layout that reads its output. *)
 let process ?(runtime = Machine_rivet_common.Rivet_runtime.Dependency_free)
-    ~bound artifact =
+    ?(probe = false) ?entry_mutation ~bound artifact =
   let render pp e = Fmt.str "%a" pp e in
   let* () =
     Result.map_error
@@ -167,19 +290,26 @@ let process ?(runtime = Machine_rivet_common.Rivet_runtime.Dependency_free)
   let* modul =
     Result.map_error
       (render Rivet_x64_refusal.pp)
-      (Err.payload (M.of_artifact ~binding:M.Table artifact))
+      (Err.payload (M.of_artifact ?entry_mutation ~binding:M.Table artifact))
   in
   let* host =
     Result.map_error
       (render Rivet_x64_refusal.pp)
-      (Err.payload (harness ~bound lay))
+      (Err.payload
+         (harness ~probe
+            ~helpers:(Machine_rivet_common.Rivet_runtime.helpers artifact)
+            ~bound lay))
   in
   let* elf = elf_of ~entry:"_start" [ modul; host ] in
   Ok (elf, lay)
 
 let qemu = "qemu-x86_64"
 
-type outcome = { status : int64; regions : (Mir_id.Region.t * string) list }
+type outcome = {
+  status : int64;
+  regions : (Mir_id.Region.t * string) list;
+  abi : Abi.t option;  (** with a probe *)
+}
 
 (* Runs the ELF, returning its standard output. *)
 let execute ?(timeout = 120) elf =
@@ -212,15 +342,31 @@ let execute ?(timeout = 120) elf =
       | Unix.WSIGNALED n | Unix.WSTOPPED n ->
           Error (Fmt.str "the emulated process was stopped by signal %d" n))
 
-let decode lay out =
+let decode ?(probe = false) lay out =
   if String.length out <> lay.total then
     Error
       (Fmt.str "the emulated process wrote %d bytes, expected %d"
          (String.length out) lay.total)
   else
+    let word k = String.get_int64_le out k in
     Ok
       {
-        status = String.get_int64_le out 0;
+        status = word 0;
+        abi =
+          (if not probe then None
+           else
+             Some
+               {
+                 Abi.callee_saved =
+                   List.mapi
+                     (fun k (n, v) -> (n, v, word (8 + (8 * k))))
+                     Abi.sentinels;
+                 rsp_before = word 56;
+                 rsp_after = word 64;
+                 mxcsr_before = Abi.altered_mxcsr;
+                 mxcsr_after = word 72;
+                 misaligned = word 80;
+               });
         regions =
           List.map
             (fun ((s : Table.slot), off) ->
@@ -228,7 +374,7 @@ let decode lay out =
             lay.slots;
       }
 
-let run ?runtime ?timeout ~bound artifact =
-  let* elf, lay = process ?runtime ~bound artifact in
+let run ?runtime ?timeout ?probe ?entry_mutation ~bound artifact =
+  let* elf, lay = process ?runtime ?probe ?entry_mutation ~bound artifact in
   let* out = execute ?timeout elf in
-  decode lay out
+  decode ?probe lay out

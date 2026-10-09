@@ -173,6 +173,16 @@ type binding =
   | Image_resident  (** in the image's own [.bss]: a host reads and writes it *)
   | Table  (** at the caller's address in {!Rivet_table}'s table *)
 
+(* Fault injection for the evidence suite: each is one deliberate defect in the
+   entry wrapper that the ABI probe must detect. No consumer passes one. *)
+module Entry_mutation = struct
+  type t =
+    | Clobber_rbx  (** a callee-saved register left changed *)
+    | Keep_caller_mxcsr  (** the kernel runs under the caller's MXCSR *)
+    | Skip_mxcsr_restore  (** the caller's MXCSR is not put back *)
+    | Misalign_stack  (** the kernel is entered with the stack 8 bytes off *)
+end
+
 (* The entry of a table-bound image: rbp holds the caller's table for the
    kernel, which keeps no state of its own. rbp is callee-saved and the target
    reserves it, so the kernel and every helper leave it alone; the entry saves
@@ -180,7 +190,7 @@ type binding =
    every exception masked) for the call and put back, because the frame leaves
    it alone. The three pushes keep the kernel's entry at the 8 mod 16 the
    System V ABI gives a callee. *)
-let table_entry ~kernel =
+let table_entry ~entry_mutation ~kernel =
   let open Asm_core in
   Err.Escape.with_escape @@ fun esc ->
   let env =
@@ -196,6 +206,9 @@ let table_entry ~kernel =
   let rsp = F.find env "rsp" in
   let slot disp = F.mem_op ~base:rsp ~disp () in
   let name = Rivet_table.entry in
+  let frame =
+    if entry_mutation = Some Entry_mutation.Misalign_stack then 24L else 16L
+  in
   [
     section ".text" Perms.rx ~nobits:false;
     dir (D.Align { boundary = 16 });
@@ -203,25 +216,34 @@ let table_entry ~kernel =
     dir (D.Sym_type { name; kind = D.Function });
     lbl name;
     i "pushq" [ reg "rbp" ];
-    i "subq" [ F.imm 16L; reg "rsp" ];
+    i "subq" [ F.imm frame; reg "rsp" ];
     i "stmxcsr" [ slot 0L ];
-    i "movl" [ F.imm 0x1F80L; slot 4L ];
-    i "ldmxcsr" [ slot 4L ];
-    i "movq" [ reg "rdi"; reg "rbp" ];
-    i "call" [ Fam.Operand.Sym (Expr.Symbol kernel) ];
-    i "ldmxcsr" [ slot 0L ];
-    i "addq" [ F.imm 16L; reg "rsp" ];
-    i "popq" [ reg "rbp" ];
-    i "ret" [];
-    dir
-      (D.Sym_size
-         {
-           name;
-           size = Expr.Binary (Expr.Sub, Expr.Current_location, Expr.Symbol name);
-         });
   ]
+  @ (if entry_mutation = Some Entry_mutation.Keep_caller_mxcsr then []
+     else [ i "movl" [ F.imm 0x1F80L; slot 4L ]; i "ldmxcsr" [ slot 4L ] ])
+  @ [
+      i "movq" [ reg "rdi"; reg "rbp" ];
+      i "call" [ Fam.Operand.Sym (Expr.Symbol kernel) ];
+    ]
+  @ (if entry_mutation = Some Entry_mutation.Skip_mxcsr_restore then []
+     else [ i "ldmxcsr" [ slot 0L ] ])
+  @ (if entry_mutation = Some Entry_mutation.Clobber_rbx then
+       [ i "movq" [ F.imm 1L; reg "rbx" ] ]
+     else [])
+  @ [
+      i "addq" [ F.imm frame; reg "rsp" ];
+      i "popq" [ reg "rbp" ];
+      i "ret" [];
+      dir
+        (D.Sym_size
+           {
+             name;
+             size =
+               Expr.Binary (Expr.Sub, Expr.Current_location, Expr.Symbol name);
+           });
+    ]
 
-let of_artifact ?(binding = Image_resident) artifact =
+let of_artifact ?entry_mutation ?(binding = Image_resident) artifact =
   Err.Escape.with_escape @@ fun esc ->
   let program = Art.program artifact in
   let relocations = relocation_index artifact in
@@ -280,7 +302,7 @@ let of_artifact ?(binding = Image_resident) artifact =
              program.Mir_phys.Program.funcs)
             .Mir_phys.Func.name
         in
-        match table_entry ~kernel:main with
+        match table_entry ~entry_mutation ~kernel:main with
         | Ok items -> items
         | Error e -> Err.Escape.throw_error esc e)
   in
