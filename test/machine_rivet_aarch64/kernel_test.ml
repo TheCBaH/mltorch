@@ -10,11 +10,12 @@ module H = Native_harness
 
 let data_bind ?(shape = Loop_fixtures.shape_w 4) data = bind_data ~shape data
 
-let check ?mutation ?frame_mutation ?pad ?probe kernel ~bind =
+let check ?mutation ?runtime ?frame_mutation ?pad ?probe kernel ~bind =
   match Src.case_of_plan (Fusion_plan.default kernel) ~bind with
   | Error e -> Fmt.pr "%s@." e
   | Ok case ->
-      Fmt.pr "%s@." (H.compare ?mutation ?frame_mutation ?pad ?probe case)
+      Fmt.pr "%s@."
+        (H.compare ?mutation ?runtime ?frame_mutation ?pad ?probe case)
 
 let%expect_test "pointwise: signed zero, NaN, binary32 boundaries" =
   check Loop_programs.kernel ~bind:(data_bind [| -0.; 1.5; nan; 3. |]);
@@ -57,6 +58,21 @@ let%expect_test "an exp kernel through its libm helper" =
     (Loop_programs.unary_kernel Expr.Value.Exp)
     ~bind:(data_bind [| 1.; 2.; 3.; 4. |]);
   [%expect {| ok [native: agree] |}]
+
+(* The default mode carries the project's own exp instead of linking one; the
+   other C library helpers stay refused. *)
+let%expect_test "an exp kernel through the owned exp, and a refused log" =
+  let owned = Machine_rivet_aarch64.Rivet_a64_runtime.Dependency_free in
+  check ~runtime:owned
+    (Loop_programs.unary_kernel Expr.Value.Exp)
+    ~bind:(data_bind [| 1.; -87.5; 88.7; -1e30 |]);
+  check ~runtime:owned
+    (Loop_programs.unary_kernel Expr.Value.Log)
+    ~bind:(data_bind [| 1.; 2.; 3.; 4. |]);
+  [%expect
+    {|
+    ok [native: agree]
+    native: helper log needs the system math library, which the mode forbids |}]
 
 (* Each mapping defect below leaves a program that still assembles, loads and
    runs; only the comparison with the interpreter can tell. *)

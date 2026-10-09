@@ -127,12 +127,14 @@ run natively under the ordered policy, within 7e-4 of binary64 (NA-E5).
 ## Runtime mode
 
 `Rivet_a64_runtime` declares what an image may depend on. `Dependency_free`, the
-default, refuses (a typed `Helper` refusal at `prepare`) any artifact that calls a
-helper bound to a C library symbol; `System_libm` admits it and the image resolves
-the symbol with `dlsym` in the host process. Of the seven CI models, three
-(`mobilenetv3_small_050`, `regnetx_002`, `mobilenetv2_050`) compile fully
-dependency-free; the others refuse their `exp` invocations. Owning the math
-helpers is what retires the system mode for them.
+default, carries the project's own `exp` (`Rivet_a64_exp`, the specification in
+`Machine_ir.Mir_exp`, equal bit for bit to the host libm's) and refuses (a typed
+`Helper` refusal at `prepare`) any artifact that calls another helper bound to a
+C library symbol (`cos`, `log`, `sin`); `System_libm` binds every such helper,
+`exp` included, to the library and the image resolves the symbol with `dlsym` in
+the host process. The manifest lists the declared helpers and, separately, the
+helpers the image carries with a digest of that code. The shared design of the
+owned `exp` is in the x86-64 record.
 
 ## GNU as an independent encoder
 
@@ -176,7 +178,7 @@ The census (`bin/machine_rivet_a64_census`, manual, needs the model data) runs a
 model's invocations through the route against the per-node reference and, with
 `--gnu`, refuses any invocation whose Rivet and GNU images differ. All seven CI
 models run bitwise under both allocators with `system_libm`, and their images
-agree with GNU's.
+agree with GNU's. Under the default mode all seven run on the owned `exp`.
 
 Logical work counters (`Event`) are not executed natively and are not compared.
 x86-64 is not covered here.

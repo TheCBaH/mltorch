@@ -67,9 +67,29 @@ probe record is meaningful for such a run.
 
 ## Runtime mode
 
-As on AArch64: the default refuses a kernel that calls a C-library helper. There
-is no libm in the emulated process, so `system_libm` is only meaningful with the
-probe's stubs.
+As on AArch64: the default refuses a kernel that calls a C-library helper the
+project does not own. `exp` is owned (see the owned `exp` design below), so a
+default image carries it and is not refused. There is no libm in the emulated
+process, so `system_libm` is only meaningful with the probe's stubs.
+
+## Owned `exp`
+
+The project's own binary64 `exp` is the algorithm and the constants of glibc
+2.41's table-driven `exp` (N = 128, degree-5 polynomial, round-to-nearest on
+the reduction, fused multiply-adds where the AArch64 library fuses). The
+specification is `Machine_ir.Mir_exp.model`, checked equal to the host libm on
+1.6 million inputs (random, bit patterns, the two thresholds, every
+half-integer reduction). Each realization is a leaf of typed Rivet
+instructions that follows the model operation for operation: `Rivet_x64_exp`
+here (it needs FMA3, and rounds half away from zero by truncating and
+correcting, since SSE4.1 rounding has no such mode) and `Rivet_a64_exp` on
+AArch64. Each is checked bit for bit against the model through a driver that
+calls it over a batch; each check was seen to fail under a changed constant,
+a changed rounding and an unfused step. The image carries the code in its own
+`.rodata`; the AArch64 manifest records it by digest. Another libm (a
+different rounding of the same algorithm, or a different algorithm) is a
+documented disagreement with the reference, never a tolerance. `cos`, `log`
+and `sin` remain refused by the default mode.
 
 ## Conformance
 
@@ -98,4 +118,4 @@ whole); `.2byte/.4byte/.8byte` in the x86 and AArch64 directive tables.
 
 CFI and a derived object file; branch-range and feature-disabled negatives; the
 model/context host (the route copies storage per run, and a run is a process);
-libm in the emulated process; any timing.
+the other libm helpers (`cos`, `log`, `sin`); any timing.

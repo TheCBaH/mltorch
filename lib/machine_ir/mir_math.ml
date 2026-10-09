@@ -4,7 +4,9 @@
    that symbol; the interpreters' model is the host's binary64 libm — the
    primitive the SSA oracle and the C and Wasm backends already use — so
    agreement with them holds by construction, and another platform's libm
-   differing is a documented disagreement, never a tolerance. Error function
+   differing is a documented disagreement, never a tolerance. [exp] is also
+   implemented by the project ({!Mir_exp}), equal to that libm bit for bit, so
+   a native image can carry it instead of linking the library. Error function
    is not here: it is owned, expanded by the lowering into primitives and an
    [exp] call, in the oracle's own operation order. *)
 

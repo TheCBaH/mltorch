@@ -50,11 +50,17 @@ let%expect_test "matmul, odd shapes" =
     5x7x3: ok [emulated: agree]
     2x9x1: ok [emulated: agree] |}]
 
-let%expect_test "an exp kernel needs a math runtime this image does not carry" =
+let%expect_test "an exp kernel runs on the project's own exp" =
   check
     (Loop_programs.unary_kernel Expr.Value.Exp)
+    ~bind:(data_bind [| 1.; -87.5; 88.7; -1e30 |]);
+  check
+    (Loop_programs.unary_kernel Expr.Value.Log)
     ~bind:(data_bind [| 1.; 2.; 3.; 4. |]);
-  [%expect {| emulated: helper exp has no implementation in this image |}]
+  [%expect
+    {|
+    ok [emulated: agree]
+    emulated: helper log has no implementation in this image |}]
 
 (* The same modules through GNU: assembled and linked at Rivet's addresses, the
    loadable bytes and global symbol addresses are Rivet's. *)
