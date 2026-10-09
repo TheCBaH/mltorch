@@ -132,6 +132,22 @@ let g env sz l = O.Reg (gpr env ~width:(width_bits sz) (loc_view env l))
 let f env fsz l = O.Freg (fpr env ~double:(fsz = A.Fsz.D) (loc_view env l))
 let dbl = function A.Fsz.D -> true | A.Fsz.S -> false
 
+(* {1 Vectors} *)
+
+let varr : A.Arr.t -> Aarch64.Varr.t = function
+  | A.Arr.D2 -> Aarch64.Varr.D2
+  | A.Arr.S2 -> Aarch64.Varr.S2
+  | A.Arr.S4 -> Aarch64.Varr.S4
+
+let lane : A.Fsz.t -> Aarch64.Lane.t = function
+  | A.Fsz.D -> Aarch64.Lane.D
+  | A.Fsz.S -> Aarch64.Lane.S
+
+(* The number of the SIMD&FP register a location is. *)
+let vnum env l = (fpr env ~double:true (loc_view env l)).Aarch64.Freg.num
+let vec env arr l = O.Vec (vnum env l, varr arr)
+let qreg env l = O.Qreg (vnum env l)
+
 (* The nth use or definition. *)
 let nth env what l k =
   match List.nth_opt l k with
@@ -172,6 +188,23 @@ let access env ~load (m : A.Msz.t) ~rt ~base ~offset =
     | A.Msz.D, false -> (Op.Str, fp ~double:true)
   in
   ins op [ reg; mem ]
+
+(* A whole vector register to or from memory: a Q register for four lanes of
+   binary32 or two of binary64, a D register for two of binary32. *)
+let vector_access env ~load (arr : A.Arr.t) ~rt ~base ~offset =
+  match arr with
+  | A.Arr.S2 -> access env ~load A.Msz.D ~rt ~base ~offset
+  | A.Arr.S4 | A.Arr.D2 ->
+      let m =
+        Aarch64.Mem.
+          {
+            base = gpr env ~width:64 (loc_view env base);
+            offset = Aarch64.Disp.Const offset;
+            writeback = false;
+            pre = true;
+          }
+      in
+      ins (if load then Op.Ldr else Op.Str) [ qreg env rt; O.Mem m ]
 
 (* {1 Selected forms} *)
 
@@ -216,7 +249,6 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
   let binary opcode sz =
     [ ins opcode [ g env sz (d 0); g env sz (u 0); g env sz (u 1) ] ]
   in
-  let unsupported () = refuse env (R.Form (form_name op)) in
   let mutated m = env.mutation = Some m in
   match op with
   | A.Add (sz, _, _) -> binary Op.Add sz
@@ -452,11 +484,109 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       ]
   | A.Uxtw _ | A.Wtrunc _ ->
       [ ins Op.Mov [ g env A.Sz.W (d 0); g env A.Sz.W (u 0) ] ]
-  | A.Dup_elem _ | A.Dup_half _ | A.Dup_lane _ | A.Fcvtl _ | A.Fcvtn _
-  | A.Ins_half _ | A.Ins_lane _ | A.Ld1_lane _ | A.Ld1r _ | A.Ldr_vec _
-  | A.St1_lane _ | A.Str_vec _ | A.Vfbin _ | A.Vfmla _ | A.Vfunary _ | A.Vmov _
-  | A.Vwiden _ ->
-      unsupported ()
+  | A.Dup_elem (arr, _) ->
+      [
+        ins Op.Dup
+          [
+            vec env arr (d 0); O.Vlane (vnum env (u 0), lane (A.Arr.fsz arr), 0);
+          ];
+      ]
+  | A.Dup_half (k, _) ->
+      [
+        ins Op.Dup
+          [ f env A.Fsz.D (d 0); O.Vlane (vnum env (u 0), Aarch64.Lane.D, k) ];
+      ]
+  | A.Dup_lane (fsz, k, _) ->
+      [ ins Op.Dup [ f env fsz (d 0); O.Vlane (vnum env (u 0), lane fsz, k) ] ]
+  | A.Fcvtl _ ->
+      [
+        ins Op.Fcvtl
+          [
+            O.Vec (vnum env (d 0), Aarch64.Varr.D2);
+            O.Vec (vnum env (u 0), Aarch64.Varr.S2);
+          ];
+      ]
+  | A.Fcvtn _ ->
+      [
+        ins Op.Fcvtn
+          [
+            O.Vec (vnum env (d 0), Aarch64.Varr.S2);
+            O.Vec (vnum env (u 0), Aarch64.Varr.D2);
+          ];
+      ]
+  | A.Ins_half _ ->
+      (* the 2s vector as the upper half, the tied 4s vector in place *)
+      [
+        ins Op.Ins
+          [
+            O.Vlane (vnum env (d 0), Aarch64.Lane.D, 1);
+            O.Vlane (vnum env (u 1), Aarch64.Lane.D, 0);
+          ];
+      ]
+  | A.Ins_lane (fsz, k, _, _) ->
+      [
+        ins Op.Ins
+          [
+            O.Vlane (vnum env (d 0), lane fsz, k);
+            O.Vlane (vnum env (u 1), lane fsz, 0);
+          ];
+      ]
+  | A.Ld1_lane (fsz, k, _, _) ->
+      [
+        ins Op.Ld1
+          [
+            O.Vlist_lane (vnum env (d 0), lane fsz, k);
+            mem env ~base:(u 1) ~offset:0L;
+          ];
+      ]
+  | A.Ld1r (arr, _) ->
+      [
+        ins Op.Ld1r
+          [ O.Vlist (vnum env (d 0), varr arr); mem env ~base:(u 0) ~offset:0L ];
+      ]
+  | A.St1_lane (fsz, k, _, _) ->
+      [
+        ins Op.St1
+          [
+            O.Vlist_lane (vnum env (u 0), lane fsz, k);
+            mem env ~base:(u 1) ~offset:0L;
+          ];
+      ]
+  | A.Ldr_vec (arr, _, k) ->
+      [ vector_access env ~load:true arr ~rt:(d 0) ~base:(u 0) ~offset:k ]
+  | A.Str_vec (arr, _, k, _) ->
+      [ vector_access env ~load:false arr ~rt:(u 1) ~base:(u 0) ~offset:k ]
+  | A.Vfbin (o, arr, _, _) ->
+      let opcode =
+        match o with
+        | A.Fop.Add -> Op.Fadd
+        | A.Fop.Div -> Op.Fdiv
+        | A.Fop.Max -> Op.Fmax
+        | A.Fop.Mul -> Op.Fmul
+        | A.Fop.Sub -> Op.Fsub
+      in
+      [ ins opcode [ vec env arr (d 0); vec env arr (u 0); vec env arr (u 1) ] ]
+  | A.Vfmla (arr, _, _, _) ->
+      (* the accumulator is tied to the result *)
+      [
+        ins Op.Fmla [ vec env arr (d 0); vec env arr (u 1); vec env arr (u 2) ];
+      ]
+  | A.Vfunary (u_, arr, _) ->
+      let opcode =
+        match u_ with
+        | A.Funary.Fneg -> Op.Fneg
+        | A.Funary.Frintz -> Op.Frintz
+        | A.Funary.Fsqrt -> Op.Fsqrt
+      in
+      [ ins opcode [ vec env arr (d 0); vec env arr (u 0) ] ]
+  | A.Vmov (arr, _) ->
+      let a =
+        match arr with
+        | A.Arr.S2 -> Aarch64.Varr.B8
+        | A.Arr.S4 | A.Arr.D2 -> Aarch64.Varr.B16
+      in
+      [ ins Op.Mov [ O.Vec (vnum env (d 0), a); O.Vec (vnum env (u 0), a) ] ]
+  | A.Vwiden _ -> [ ins Op.Fmov [ f env A.Fsz.D (d 0); f env A.Fsz.D (u 0) ] ]
 
 (* {1 Allocation-added forms} *)
 
@@ -469,6 +599,15 @@ let transfer ?mutation ?(save = false) env ~(dst : Loc.t) ~(src : Loc.t) :
       | Mir_target.Bank.Gpr, Mir_target.Bank.Gpr ->
           let width = min d.Mir_target.View.bits s.Mir_target.View.bits in
           [ ins Op.Mov [ O.Reg (gpr env ~width d); O.Reg (gpr env ~width s) ] ]
+      | Mir_target.Bank.Fpr, Mir_target.Bank.Fpr
+        when d.Mir_target.View.bits = 128 && s.Mir_target.View.bits = 128 ->
+          let num v = (fpr env ~double:true v).Aarch64.Freg.num in
+          [
+            ins Op.Mov
+              [
+                O.Vec (num d, Aarch64.Varr.B16); O.Vec (num s, Aarch64.Varr.B16);
+              ];
+          ]
       | Mir_target.Bank.Fpr, Mir_target.Bank.Fpr
         when d.Mir_target.View.bits <= 64 && s.Mir_target.View.bits <= 64 ->
           let double = d.Mir_target.View.bits = 64 in
@@ -485,6 +624,7 @@ let transfer ?mutation ?(save = false) env ~(dst : Loc.t) ~(src : Loc.t) :
       let load = match dst with Loc.Reg _ -> true | _ -> false in
       let m =
         match (r.Mir_target.View.bank, bytes) with
+        | Mir_target.Bank.Fpr, 16L -> None
         | Mir_target.Bank.Gpr, 8L ->
             Some
               (if mutation = Some Mutation.Narrow_spill && not save then A.Msz.W
@@ -494,10 +634,23 @@ let transfer ?mutation ?(save = false) env ~(dst : Loc.t) ~(src : Loc.t) :
         | Mir_target.Bank.Fpr, 4L -> Some A.Msz.S
         | _ -> None
       in
-      match m with
-      | Some m ->
+      match (m, r.Mir_target.View.bank, bytes) with
+      | Some m, _, _ ->
           [ access env ~load m ~rt:(Loc.Reg r) ~base:(Loc.Reg base) ~offset ]
-      | None ->
+      | None, Mir_target.Bank.Fpr, 16L ->
+          let mem =
+            O.Mem
+              {
+                Aarch64.Mem.base = gpr env ~width:64 base;
+                offset = Aarch64.Disp.Const offset;
+                writeback = false;
+                pre = true;
+              }
+          in
+          [
+            ins (if load then Op.Ldr else Op.Str) [ qreg env (Loc.Reg r); mem ];
+          ]
+      | None, _, _ ->
           refuse env (R.Frame_access { bytes; bank = r.Mir_target.View.bank }))
   | Loc.Slot _, _ | _, Loc.Slot _ -> refuse env (R.Location "a frame slot")
   | Loc.Mem _, Loc.Mem _ -> refuse env (R.Location "memory to memory")

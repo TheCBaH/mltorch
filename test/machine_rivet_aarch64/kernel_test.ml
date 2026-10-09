@@ -207,3 +207,176 @@ let%expect_test "large frames, run and encoded" =
     agree (2 segments, 576 bytes, 4 symbols)
     not built: frame: fn0: a frame beyond the supported code model
     not built: frame: fn0: a frame beyond the supported code model |}]
+
+(* Planned binary32 vector kernels on NEON: the same cases as the selected-form
+   tests, now on the CPU. *)
+let planned ?(numerics = Ssa_ir.Ssa_numerics.Simd_fp32_ordered) ?probe kernel
+    ~bind =
+  match
+    Src.case_of_planned ~target:Ssa_ir.Ssa_target.neon128 ~numerics
+      (Fusion_plan.default kernel)
+      ~bind
+  with
+  | Error e -> Fmt.pr "%s@." e
+  | Ok case -> Fmt.pr "%s@." (H.compare ?probe case)
+
+let vdata n = Array.init n (fun i -> (float_of_int (i * 7 mod 11) -. 5.) /. 4.)
+
+let%expect_test "vector pointwise and matmul on NEON, natively" =
+  let x = Loop_fixtures.load_t0 in
+  List.iter
+    (fun (name, body) ->
+      List.iter
+        (fun n ->
+          Fmt.pr "%s, w=%d: " name n;
+          let d = vdata n in
+          if n > 2 then (
+            d.(0) <- Float.nan;
+            d.(1) <- -0.;
+            d.(2) <- 3.4e38);
+          let shape = Loop_fixtures.shape_w n in
+          planned
+            (Loop_fixtures.pixel_kernel ~shape body)
+            ~bind:(bind_data ~shape d))
+        [ 16; 37 ])
+    [
+      ("x / 3 - 1.5", Expr.Value.(sub (div x (const 3.)) (const 1.5)));
+      ("sqrt x", Expr.Value.sqrt x);
+      ("x * x + x", Expr.Value.(add (mul x x) x));
+    ];
+  List.iter
+    (fun (m, k, n) ->
+      let a = operand 3 (m * k) and b = operand 5 (k * n) in
+      Fmt.pr "%dx%dx%d: " m k n;
+      planned (matmul_kernel ~m ~k ~n) ~bind:(matmul_bind ~m ~k ~n ~a ~b))
+    [ (2, 3, 16); (3, 5, 17); (5, 7, 33) ];
+  [%expect
+    {|
+    x / 3 - 1.5, w=16: ok [native: agree]
+    x / 3 - 1.5, w=37: ok [native: agree]
+    sqrt x, w=16: ok [native: agree]
+    sqrt x, w=37: ok [native: agree]
+    x * x + x, w=16: ok [native: agree]
+    x * x + x, w=37: ok [native: agree]
+    2x3x16: ok [native: agree]
+    3x5x17: ok [native: agree]
+    5x7x33: ok [native: agree] |}]
+
+let vector_gnu ?(numerics = Ssa_ir.Ssa_numerics.Simd_fp32_ordered) kernel ~bind
+    =
+  match
+    Src.case_of_planned ~target:Ssa_ir.Ssa_target.neon128 ~numerics
+      (Fusion_plan.default kernel)
+      ~bind
+  with
+  | Error e -> Fmt.pr "%s@." e
+  | Ok case ->
+      (match H.mnemonics case with
+      | Ok t ->
+          let n k = Option.value ~default:0 (Hashtbl.find_opt t k) in
+          Fmt.pr "%d vector instructions, %d fmla, %d fmadd, %d ld1r; "
+            (n "<vector>") (n "fmla") (n "fmadd") (n "ld1r")
+      | Error e -> Fmt.pr "%s; " e);
+      Fmt.pr "%s@." (H.gnu case)
+
+let%expect_test "vector kernels: the forms they use, and GNU's reading of them"
+    =
+  let a = operand 3 (3 * 5) and b = operand 5 (5 * 17) in
+  vector_gnu
+    (matmul_kernel ~m:3 ~k:5 ~n:17)
+    ~bind:(matmul_bind ~m:3 ~k:5 ~n:17 ~a ~b);
+  vector_gnu ~numerics:Ssa_ir.Ssa_numerics.Simd_fp32_relaxed
+    (matmul_kernel ~m:3 ~k:5 ~n:17)
+    ~bind:(matmul_bind ~m:3 ~k:5 ~n:17 ~a ~b);
+  let shape = Loop_fixtures.shape_w 37 in
+  vector_gnu
+    (Loop_fixtures.pixel_kernel ~shape (Expr.Value.sqrt Loop_fixtures.load_t0))
+    ~bind:(bind_data ~shape (vdata 37));
+  [%expect
+    {|
+    216 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 2456 bytes, 5 symbols)
+    216 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 2456 bytes, 5 symbols)
+    156 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 1444 bytes, 4 symbols) |}]
+
+let%expect_test "contracted vector kernels, natively and with the ABI probe" =
+  let relaxed = Ssa_ir.Ssa_numerics.Simd_fp32_relaxed in
+  List.iter
+    (fun (m, k, n) ->
+      let a = operand 3 (m * k) and b = operand 5 (k * n) in
+      Fmt.pr "%dx%dx%d: " m k n;
+      planned ~numerics:relaxed ~probe:Abi_probe.altered_fpcr
+        (matmul_kernel ~m ~k ~n)
+        ~bind:(matmul_bind ~m ~k ~n ~a ~b))
+    [ (2, 3, 16); (3, 5, 17); (5, 7, 33) ];
+  [%expect
+    {|
+    2x3x16: ok [native: agree]
+    3x5x17: ok [native: agree]
+    5x7x33: ok [native: agree] |}]
+
+(* FMLA: the relaxed policy contracts a multiply feeding an add into the fused
+   vector form, which the CPU must execute as the physical interpreter models
+   it (one rounding). *)
+let%expect_test "fmla on the CPU" =
+  let relaxed = Ssa_ir.Ssa_numerics.Simd_fp32_relaxed in
+  let x = Loop_fixtures.load_t0 in
+  List.iter
+    (fun n ->
+      let shape = Loop_fixtures.shape_w n in
+      let d = vdata n in
+      if n > 2 then (
+        d.(0) <- Float.nan;
+        d.(1) <- -0.;
+        d.(2) <- 3.4e38);
+      Fmt.pr "w=%d: " n;
+      vector_gnu ~numerics:relaxed
+        (Loop_fixtures.pixel_kernel ~shape Expr.Value.(add (mul x x) x))
+        ~bind:(bind_data ~shape d);
+      Fmt.pr "w=%d: " n;
+      planned ~numerics:relaxed ~probe:Abi_probe.altered_fpcr
+        (Loop_fixtures.pixel_kernel ~shape Expr.Value.(add (mul x x) x))
+        ~bind:(bind_data ~shape d))
+    [ 16; 37 ];
+  [%expect
+    {|
+    w=16: 308 vector instructions, 4 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 2212 bytes, 4 symbols)
+    w=16: ok [native: agree]
+    w=37: 308 vector instructions, 4 fmla, 1 fmadd, 0 ld1r; agree (2 segments, 2492 bytes, 4 symbols)
+    w=37: ok [native: agree] |}]
+
+(* Strided lane expansion: the input read transposed, so a vector of outputs
+   gathers one lane at a time (LD1 and INS) and the stores scatter (ST1). *)
+let transposed =
+  let at a = Expr.Index.output a in
+  Expr.Value.load
+    (Expr_bridge.source_of_id (tid 0))
+    (Expr.Coord.set
+       (Expr.Coord.set
+          (Expr_bridge.coord_of_vec6 Symbolic.out_vec)
+          Expr.Axis.W (at Expr.Axis.H))
+       Expr.Axis.H (at Expr.Axis.W))
+
+let%expect_test "lane gathers and every legal loop vectorized, natively" =
+  let square = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:17 ~w:17 ~c:1 in
+  let target = Ssa_ir.Ssa_target.forced Ssa_ir.Ssa_target.neon128 in
+  let numerics = Ssa_ir.Ssa_numerics.Simd_fp32_ordered in
+  let bind = bind_data ~shape:square (vdata (17 * 17)) in
+  let kernel = Loop_fixtures.pixel_kernel ~shape:square transposed in
+  match
+    Src.case_of_planned ~target ~numerics (Fusion_plan.default kernel) ~bind
+  with
+  | Error e -> Fmt.pr "%s@." e
+  | Ok case ->
+      (match H.mnemonics case with
+      | Ok t ->
+          let n k = Option.value ~default:0 (Hashtbl.find_opt t k) in
+          Fmt.pr "ld1 %d, st1 %d, ins %d, ld1r %d, dup %d@." (n "ld1") (n "st1")
+            (n "ins") (n "ld1r") (n "dup")
+      | Error e -> Fmt.pr "%s@." e);
+      Fmt.pr "%s@." (H.compare ~probe:Abi_probe.altered_fpcr case);
+      Fmt.pr "%s@." (H.gnu case);
+      [%expect
+        {|
+        ld1 12, st1 0, ins 8, ld1r 4, dup 16
+        ok [native: agree]
+        agree (2 segments, 2008 bytes, 4 symbols) |}]
