@@ -25,6 +25,7 @@ type op =
   | Batch_norm of Norm.BatchNorm.t
   | Batch_norm_no_stats of Norm.BatchNormNoStats.t
   | Batched_matmul of Matmul.Batched_matmul.t
+  | Bitwise_and of Pointwise.Bitwise_and.t
   | Bitwise_not of Pointwise.Bitwise_not.t
   | Bmm of Matmul.Bmm.t
   | Clamp of Pointwise.Clamp.t
@@ -47,18 +48,22 @@ type op =
   | Expand of Pointwise.Expand.t
   | Eye of Factory.Eye.t
   | Floor_div_scalar of Pointwise.Floor_div_scalar.t
+  | Ge_scalar of Pointwise.Ge_scalar.t
   | Gelu of Pointwise.Gelu.t
   | Group_norm of Norm.GroupNorm.t
   | Gt_scalar of Pointwise.Gt_scalar.t
   | Hardsigmoid of Pointwise.Hardsigmoid.t
   | Hardswish of Pointwise.Hardswish.t
   | Hardtanh of Pointwise.Hardtanh.t
+  | Index_pair of Index_tensor.Index_pair.t
   | Index_tensor of Index_tensor.Index_tensor.t
   | Im2col of Im2col.Im2col.t
+  | Le_tensor of Pointwise.Le_tensor.t
   | Layer_norm of Norm.LayerNorm.t
   | Leaky_relu of Pointwise.Leaky_relu.t
   | Linear of Linear.Linear.t
   | Lstm of Lstm.Lstm.t
+  | Lt_scalar of Pointwise.Lt_scalar.t
   | Max_dim of Reduce.MaxDim.t
   | Max_pool2d of Pool.MaxPool2d.t
   | Max_pool2d_with_indices of Pool.MaxPool2dWithIndices.t
@@ -68,6 +73,7 @@ type op =
   | Mul_scalar of Pointwise.Mul_scalar.t
   | Ne_scalar of Pointwise.Ne_scalar.t
   | Ne_tensor of Pointwise.Ne_tensor.t
+  | New_ones of Factory.New_ones.t
   | Pad of Pad.Pad.t
   | Permute of Permute.Permute.t
   | Pow of Pointwise.Pow.t
@@ -91,6 +97,7 @@ type op =
   | Stack of Concat.Stack.t
   | Sub of Pointwise.Sub.t
   | Sum of Reduce.Sum.t
+  | Tanh of Pointwise.Tanh.t
   | To_copy of Pointwise.To_copy.t
   | Unbind of Split.Unbind.t
   | Unfold of Unfold.Unfold.t
@@ -98,6 +105,7 @@ type op =
   | Upsample_bilinear2d of Resize.Bilinear2d.t
   | Upsample_nearest2d of Resize.Nearest2d.t
   | Vector_norm of Reduce.Vector_norm.t
+  | Where_scalar_other of Pointwise.Where_scalar_other.t
   | Arange of Factory.Arange.t
   | Zeros of Factory.Zeros.t
 

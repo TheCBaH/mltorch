@@ -364,3 +364,38 @@ module Arange = struct
     let pp fmt (c : cfg) = Fmt.pf fmt "count=%d" c.count
   end
 end
+
+(* [new_ones.default(Tensor self, SymInt[] size, *, ScalarType? dtype, ...)]:
+   a constant tensor of ones. [self] only supplies defaults for options left
+   unset, and the serialized form always names the dtype, so the node reads no
+   operand: like [Zeros], the shape and the element format are its payload.
+   The format is bool (the mask constant: a rank-0 [True] that attention
+   masks are AND-ed with) or float32; either way the value is [1.]. *)
+module New_ones = struct
+  type params = Zeros.params = { shape : Vec6.shape; fmt : Payload.packed_fmt }
+  type t = { params : params }
+
+  let name = "New_ones"
+  let params_jsont = Zeros.params_jsont
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        { params = Json_util.req_field ms "params" params_jsont name })
+      ~enc:(fun t ->
+        Json_util.jobj [ ("params", Json_util.enc params_jsont t.params) ])
+      Jsont.json
+
+  let operands _ = []
+  let map_operands _ t = t
+
+  let pp _ fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>new_ones@ params=%a@]" Zeros.pp_params t.params
+
+  let output_shape (p : params) = Err.return p.shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    let pixel _ = S.const 1.
+  end
+end

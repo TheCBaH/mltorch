@@ -291,6 +291,12 @@ module Index_tensor = struct
         axis : Axis.t;
         extent : Dim.extent Dim.t;
       }
+    | Pair_rank of { self_rank : Rank.t; broadcast_rank : Rank.t }
+    | Pair_self_mismatch of {
+        self_rank : Rank.t;
+        axis : Axis.t;
+        extent : Dim.extent Dim.t;
+      }
     | Rank_overflow of { axis : Axis.t; index_rank : Rank.t }
     | Self_collision of {
         axis : Axis.t;
@@ -304,6 +310,17 @@ module Index_tensor = struct
           "index.Tensor: index declared rank %a, but its own axis %a has \
            extent %a (must be 1, outside a rank-%a tensor's own real axes)"
           Rank.pp index_rank Axis.pp axis Dim.pp extent Rank.pp index_rank
+    | Pair_rank { self_rank; broadcast_rank } ->
+        Fmt.pf ppf
+          "index.Tensor: two leading indices need a self of rank >= 2 whose \
+           remaining axes plus the rank-%a broadcast index fit 6 axes (self \
+           has rank %a)"
+          Rank.pp broadcast_rank Rank.pp self_rank
+    | Pair_self_mismatch { self_rank; axis; extent } ->
+        Fmt.pf ppf
+          "index.Tensor: self declared rank %a, but its own axis %a has extent \
+           %a (must be 1, outside a rank-%a tensor's own real axes)"
+          Rank.pp self_rank Axis.pp axis Dim.pp extent Rank.pp self_rank
     | Rank_overflow { axis; index_rank } ->
         Fmt.pf ppf
           "index.Tensor: a rank-%a index ending at axis %a needs more frame \

@@ -619,3 +619,63 @@ Measured on the 30 cohort graphs: all 16 graphs with empty captures (16, 24 or
 solved here: `new_ones.default`, graphs whose attention masks have symbolic
 dimensions, `eq.Scalar` and `full.default`. No producer case for those graphs
 runs yet, so S7 is confirmed numerically only on micrographs and the oracle.
+
+## 21. The attention-mask vocabulary (implemented)
+
+BERT-tiny's published cases pass on the native path: both cases, all outputs
+(`last_hidden_state`, `pooler_output`), max absolute error under 5e-6. It is the
+first released case that runs through the embedding gather. Getting there took
+the operators every text graph builds its attention mask from:
+
+- Comparisons `ge.Scalar`, `lt.Scalar` and `le.Tensor` are new one-node ops, and
+  the importer now also reaches `eq`/`ne`/`gt` (scalar and tensor forms) that
+  Native already had. Each follows `Gt_scalar`'s split: the generic formula
+  yields 0./1., and Direct lands genuine bool storage. NaN is neither above,
+  below nor equal.
+- `__and__.Tensor` is `Bitwise_and`, restricted to bool values: an int64 operand
+  is refused, since the float-domain nonzero test is the bitwise `and` only for
+  bool. `where.ScalarOther` is `Where_scalar_other`: the tensor where the
+  condition is nonzero, the scalar elsewhere, broadcasting a rank-0 value over
+  the mask. `tanh.default` is `Tanh`, with `tanh(-0) = -0` kept.
+- `new_ones.default` is its own factory node, bool or float32, readable as a
+  rank-0 `True`. It was first written as `zeros + 1` and removed: Native keeps one
+  node per ATen op.
+- `index.Tensor` with two live leading indices is `Index_pair`: the
+  `mask[batch_idx, kv_idx]` and `h[arange, argmax]` forms. The result is the
+  broadcast index shape followed by `self`'s remaining axes. The frame erases
+  ranks, so the payload carries the three ATen ranks; with `t` trailing self
+  axes an index axis sits `t` axes right of the result axis for the same logical
+  dimension, which fixes both coordinate reads. The result keeps `self`'s element
+  format (a gathered mask stays a mask). The single-live-index forms are
+  untouched: the new family claims a node only when `indices` is a pair of live
+  tensors.
+
+Typing changes that make the graph's dtypes real rather than assumed:
+
+- A user input is declared with its metadata dtype. It was always float32, which
+  hid that an `input_ids` edge is int64 and made every integer-index consumer see
+  a float edge.
+- `slice` of an int64 tensor stays int64 and exact (a position-id buffer's
+  `[:, :n]`), as `reshape` and `permute` already did. `add.Tensor` of an int64
+  tensor and a whole scalar stays int64 through the exact add; a float scalar
+  that is whole takes the same path and differs only in the dtype tag, which a
+  float consumer refuses as mixed rather than misreading.
+- Most data-movement ops do not keep a bool edge tag, so a bool commonly arrives
+  as a float32 0./1. `Bitwise_and` and the where condition therefore accept
+  float32 or bool and refuse int64.
+- An explicit `dtype=float32` on `softmax.int` (and the other reduction-family
+  ops that took the shared check) is accepted: float32 is the only float the
+  engine holds, so it is the identity or a conversion it already performs. Any
+  other dtype is still refused.
+
+Native4D rejects all of the new ops; admission rows for graphs using them show a
+Native4D stop by design while Native and Kernel build.
+
+Still open on the text graphs: TinyCLIP's text tower needs `_to_copy` to int32,
+`argmax`, `exp` and `t`; T5 needs `log`, `zeros_like`, `full_like`, `lt`/`min`;
+the vision-language prefill graphs need `masked_scatter`, `index_put` and a bool
+index; `squeeze.default`, `diff`, `full`, `conv_transpose2d`, weight norm and a
+group-norm weight shape remain single-graph blockers. The graphs whose attention
+masks have symbolic dimensions are dynamic-shape variants outside the static
+scope. Several now lower (the SmolLM2 and Whisper decode/prefill graphs, the
+SmolVLM text graphs) but have not been run against their cases.

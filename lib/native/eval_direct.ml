@@ -289,12 +289,46 @@ let admit (g : graph) (op : op) : (unit, [> error ]) Err.t =
   in
   match op with
   | Add { Pointwise.Bin.a; b } -> check_pair "add" a b
+  (* A bitwise [and] is a bool operation here: the float-domain formula reads
+     operands as nonzero tests, which is the integer bitwise [and] only for
+     bool. Most data-movement ops do not keep a [Bool] edge tag, so a bool
+     value commonly arrives as a float32 0./1.; an int64 operand is the one
+     the exporter's graph could not mean as a bool, and is refused. *)
+  | Bitwise_and { Pointwise.Bin.a; b } ->
+      let a_fmt = fmt_of a and b_fmt = fmt_of b in
+      if is_i64 a_fmt || is_i64 b_fmt then
+        Err.fail
+          (`Unsupported_mixed_dtype { mixed_op = "bitwise_and"; a_fmt; b_fmt })
+      else Err.return ()
+  (* The gather reads [self] through the float domain: float32 and bool values
+     survive it exactly; int64 would not. The indices are read exactly. *)
+  | Index_pair { Index_tensor.Index_pair.self; index0; index1; _ } -> (
+      match (fmt_of self, fmt_of index0, fmt_of index1) with
+      | ( Payload.Fmt (Payload.F32 | Payload.Bool),
+          Payload.Fmt Payload.I64,
+          Payload.Fmt Payload.I64 ) ->
+          Err.return ()
+      | a_fmt, b_fmt, _ ->
+          Err.fail
+            (`Unsupported_mixed_dtype { mixed_op = "index_pair"; a_fmt; b_fmt })
+      )
   | Embedding { Embedding.Embedding.weight; indices; _ } -> (
       match (fmt_of weight, fmt_of indices) with
       | Payload.Fmt Payload.F32, Payload.Fmt Payload.I64 -> Err.return ()
       | weight_fmt, indices_fmt ->
           Err.fail (`Unsupported_embedding_dtype { weight_fmt; indices_fmt }))
   | Sub { Pointwise.Bin.a; b } -> check_pair "sub" a b
+  (* The condition is a bool value (see [Bitwise_and]), and [x] a float: an
+     integer or bool [x] would promote against the float scalar, which this op
+     does not model. *)
+  | Where_scalar_other { Pointwise.Where_scalar_other.condition; x; _ } ->
+      let a_fmt = fmt_of condition and b_fmt = fmt_of x in
+      if (not (is_i64 a_fmt)) && not (is_bool b_fmt || is_i64 b_fmt) then
+        Err.return ()
+      else
+        Err.fail
+          (`Unsupported_mixed_dtype
+             { mixed_op = "where_scalar_other"; a_fmt; b_fmt })
   | Mul { Pointwise.Bin.a; b } -> check_pair "mul" a b
   | Mul_scalar { Pointwise.Scalar_bin.x; _ } -> check_scalar_op "mul_scalar" x
   | Add_scalar { Pointwise.Scalar_bin.x; _ } -> check_scalar_op "add_scalar" x

@@ -208,6 +208,27 @@ let process_node ~limits ~fill ~pixel (gr : graph) (env, stages, stages_i64)
       let pixel = Expr.Builder.run (C.pixel perm ~x:x_sig Symbolic.out_vec) in
       let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
       (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+  (* The Symbolic twin of [Eval_direct]'s exact int64 [Add_scalar]: taken when
+       the output edge is I64, which the builder sets only for an I64 operand
+       and an integral scalar. *)
+  | Add_scalar { Pointwise.Scalar_bin.x; scalar }, [ (_, oid) ]
+    when is_i64 (Tensor_id.Map.find oid gr.Graph.tensors).Tensor_sig.fmt ->
+      let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+      let x_sig = operand x in
+      let module C = Pointwise.Add_scalar.Compute_i64 (Symbolic) (Symbolic) in
+      let pixel = Expr.Builder.run (C.pixel ~scalar x_sig Symbolic.out_vec) in
+      let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
+      (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+  (* The Symbolic twin of [Eval_direct]'s dtype-preserving [Slice]: same
+       [Compute_i64 (Symbolic) (Symbolic)] shape as [Permute] above. *)
+  | Slice { Split.Slice.params; x }, [ (_, oid) ]
+    when is_i64 (operand x).Tensor_sig.fmt ->
+      let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+      let x_sig = operand x in
+      let module C = Split.Slice.Compute_i64 (Symbolic) (Symbolic) in
+      let pixel = Expr.Builder.run (C.pixel params ~x:x_sig Symbolic.out_vec) in
+      let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
+      (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
   (* The Symbolic twin of [Eval_direct]'s own dtype-preserving tensor-tensor
        [Add]/[Sub]/[Mul] arms: [check_mixed_dtype] above already raises on a
        mismatched I64/F32 pair for these three ops, so by the time a node

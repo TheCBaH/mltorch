@@ -201,3 +201,197 @@ module Index_tensor = struct
       S.load self self_coord
   end
 end
+
+(* `index.Tensor(Tensor self, Tensor?[] indices)` with exactly two live,
+   leading indices: [self[i0, i1]], the advanced-indexing form attention masks
+   (`mask[batch_idx, kv_idx]`) and last-token pooling (`h[arange, argmax]`) use.
+   ATen's rule: the two index tensors broadcast to a shape B, and the result is
+   [B ++ self.shape[2:]].
+
+   Frame layout. Ranks are ATen ranks, which the right-aligned frame erases, so
+   [params] carries all three. With R = [self_rank] and t = R - 2 trailing self
+   axes, B has rank rb = max of the index ranks and the result has rank
+   rb + t. Right-alignment makes three things line up on one fact -- the
+   trailing t axes of self and of the result are the same frame axes, and an
+   index axis [a] sits [t] axes to the RIGHT of the result axis for the same
+   logical dimension -- so the index is read at the result coordinate shifted
+   left by t, and self at (i0, i1) on its two leading real axes with the
+   trailing axes taken from the result unchanged. *)
+module Index_pair = struct
+  type params = {
+    self_rank : Rank.t;
+    index0_rank : Rank.t;
+    index1_rank : Rank.t;
+  }
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"index_pair_params"
+      (fun self_rank index0_rank index1_rank ->
+        { self_rank; index0_rank; index1_rank })
+    |> Jsont.Object.mem "self_rank" Rank.jsont ~enc:(fun p -> p.self_rank)
+    |> Jsont.Object.mem "index0_rank" Rank.jsont ~enc:(fun p -> p.index0_rank)
+    |> Jsont.Object.mem "index1_rank" Rank.jsont ~enc:(fun p -> p.index1_rank)
+    |> Jsont.Object.finish
+
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "@[<hv>{self_rank=%a index0_rank=%a index1_rank=%a}@]" Rank.pp
+      p.self_rank Rank.pp p.index0_rank Rank.pp p.index1_rank
+
+  type t = {
+    params : params;
+    self : Tensor_ref.t;
+    index0 : Tensor_ref.t;
+    index1 : Tensor_ref.t;
+  }
+
+  let name = "IndexPair"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        {
+          params = get "params" params_jsont;
+          self = get "self" Tensor_ref.jsont;
+          index0 = get "index0" Tensor_ref.jsont;
+          index1 = get "index1" Tensor_ref.jsont;
+        })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("self", Json_util.enc Tensor_ref.jsont t.self);
+            ("index0", Json_util.enc Tensor_ref.jsont t.index0);
+            ("index1", Json_util.enc Tensor_ref.jsont t.index1);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.self; t.index0; t.index1 ]
+
+  let map_operands f (t : t) =
+    { t with self = f t.self; index0 = f t.index0; index1 = f t.index1 }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>index_pair@ self=%a@ index0=%a@ index1=%a@ params=%a@]"
+      pp_ref t.self pp_ref t.index0 pp_ref t.index1 pp_params t.params
+
+  let axis_at k = List.nth Axis.all k
+  let rank_int (r : Rank.t) = (r :> int)
+
+  (* The shift between an index axis and the result axis for the same logical
+     dimension, and the broadcast rank. *)
+  let trailing (p : params) = rank_int p.self_rank - 2
+
+  let broadcast_rank (p : params) =
+    max (rank_int p.index0_rank) (rank_int p.index1_rank)
+
+  (* Extents outside a tensor's own [rank] real axes must be 1: the rank is a
+     claim made before the frame erased it, proved here against the shape. *)
+  let check_extents ~rank (shape : Vec6.shape) ~fail =
+    let real = Aten_shape.used_axes ~rank in
+    match
+      List.find_opt
+        (fun a ->
+          (not (List.mem a real)) && not (Dim.equal (Vec6.get shape a) Dim.one))
+        Axis.all
+    with
+    | Some axis -> fail axis (Vec6.get shape axis)
+    | None -> Err.return ()
+
+  let output_shape ~(self_shape : Vec6.shape) ~(index0_shape : Vec6.shape)
+      ~(index1_shape : Vec6.shape) (p : params) =
+    let open Err.Syntax in
+    let t = trailing p and rb = broadcast_rank p in
+    let* () =
+      if rank_int p.self_rank < 2 || rb + t > 6 then
+        Err.fail
+          (`Index_tensor
+             (Shape_error.Index_tensor.Pair_rank
+                { self_rank = p.self_rank; broadcast_rank = Rank.of_int rb }))
+      else Err.return ()
+    in
+    let* () =
+      check_extents ~rank:p.self_rank self_shape ~fail:(fun axis extent ->
+          Err.fail
+            (`Index_tensor
+               (Shape_error.Index_tensor.Pair_self_mismatch
+                  { self_rank = p.self_rank; axis; extent })))
+    in
+    let index_mismatch rank axis extent =
+      Err.fail
+        (`Index_tensor
+           (Shape_error.Index_tensor.Index_shape_mismatch
+              { index_rank = rank; axis; extent }))
+    in
+    let* () =
+      check_extents ~rank:p.index0_rank index0_shape
+        ~fail:(index_mismatch p.index0_rank)
+    in
+    let* () =
+      check_extents ~rank:p.index1_rank index1_shape
+        ~fail:(index_mismatch p.index1_rank)
+    in
+    let ro = rb + t in
+    (* The B dimension at result frame axis [k] (k in [6 - ro, 6 - t)): each
+       index contributes the extent at the axis [t] to the right, if it is one
+       of its real axes. *)
+    let b_extent k =
+      let from shape rank =
+        let a = k + t in
+        if a >= 6 - rank_int rank then Vec6.get shape (axis_at a) else Dim.one
+      in
+      let e0 = from index0_shape p.index0_rank
+      and e1 = from index1_shape p.index1_rank in
+      if Dim.equal e0 e1 then Err.return e0
+      else if Dim.equal e0 Dim.one then Err.return e1
+      else if Dim.equal e1 Dim.one then Err.return e0
+      else
+        Err.fail
+          (`Broadcast
+             Shape_error.Broadcast.{ axis = axis_at k; lhs = e0; rhs = e1 })
+    in
+    Err.List.fold_left
+      (fun s k ->
+        let a = axis_at k in
+        if k >= 6 - t then Err.return (Vec6.set s a (Vec6.get self_shape a))
+        else if k >= 6 - ro then
+          let+ e = b_extent k in
+          Vec6.set s a e
+        else Err.return s)
+      (Vec6.of_fn (fun _ -> Dim.one))
+      [ 0; 1; 2; 3; 4; 5 ]
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    let pixel (p : params) ~(self_shape : Vec6.shape)
+        ~(index0_shape : Vec6.shape) ~(index1_shape : Vec6.shape) ~self ~index0
+        ~index1 (out : Semantics.position S.index Vec6.t) =
+      let t = trailing p in
+      let ax0 = axis_at (6 - rank_int p.self_rank) in
+      let ax1 = axis_at (6 - rank_int p.self_rank + 1) in
+      let index_coord shape =
+        let shifted =
+          Vec6.of_fn (fun a ->
+              let k = Axis.to_int a - t in
+              if k >= 0 then Vec6.get out (axis_at k) else S.index_zero)
+        in
+        Pointwise.broadcast_coord ~index_zero:S.index_zero shape shifted
+      in
+      let p0 =
+        S.load_index index0 (index_coord index0_shape)
+          ~extent:(Vec6.get self_shape ax0)
+      in
+      let p1 =
+        S.load_index index1 (index_coord index1_shape)
+          ~extent:(Vec6.get self_shape ax1)
+      in
+      let self_coord =
+        Vec6.of_fn (fun a ->
+            if Axis.equal a ax0 then p0
+            else if Axis.equal a ax1 then p1
+            else if Axis.to_int a >= 6 - t then Vec6.get out a
+            else S.index_zero)
+      in
+      S.load self self_coord
+  end
+end

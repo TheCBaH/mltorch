@@ -462,6 +462,14 @@ module Index_tensor : sig
         axis : Axis.t;
         extent : Dim.extent Dim.t;
       }
+    | Pair_rank of { self_rank : Rank.t; broadcast_rank : Rank.t }
+        (** [Index_pair]: [self] needs at least two axes, and the broadcast
+            index shape plus [self]'s remaining axes must fit the frame *)
+    | Pair_self_mismatch of {
+        self_rank : Rank.t;
+        axis : Axis.t;
+        extent : Dim.extent Dim.t;
+      }
     | Rank_overflow of { axis : Axis.t; index_rank : Rank.t }
     | Self_collision of {
         axis : Axis.t;

@@ -100,6 +100,11 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
         widen (Matmul.Batched_matmul.output_shape ~input_shape ~mat2_shape)
       in
       [ out ]
+  | Bitwise_and { Pointwise.Bin.a; b } ->
+      let* a_shape = shape a in
+      let* b_shape = shape b in
+      let+ out = widen (Pointwise.Bitwise_and.output_shape a_shape b_shape) in
+      [ out ]
   | Bitwise_not { Pointwise.Bitwise_not.x } ->
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Bitwise_not.output_shape x_shape) in
@@ -233,6 +238,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       in
       let+ out = widen (Norm.GroupNorm.output_shape ~x_shape params) in
       [ out ]
+  | Ge_scalar { Pointwise.Scalar_bin.x; _ } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Ge_scalar.output_shape x_shape) in
+      [ out ]
   | Gt_scalar { Pointwise.Scalar_bin.x; _ } ->
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Gt_scalar.output_shape x_shape) in
@@ -248,6 +257,16 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
   | Hardtanh { Pointwise.Hardtanh.x; _ } ->
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Hardtanh.output_shape x_shape) in
+      [ out ]
+  | Index_pair { Index_tensor.Index_pair.params; self; index0; index1 } ->
+      let* self_shape = shape self in
+      let* index0_shape = shape index0 in
+      let* index1_shape = shape index1 in
+      let+ out =
+        widen
+          (Index_tensor.Index_pair.output_shape ~self_shape ~index0_shape
+             ~index1_shape params)
+      in
       [ out ]
   | Index_tensor { Index_tensor.Index_tensor.params; self; index } ->
       let* self_shape = shape self in
@@ -266,6 +285,11 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
      [check_affine] rather than [check_bias]: they share ONE expected layout
      (the normalized_shape), which is not the per-channel vector
      [Affine_bias.check] knows about. *)
+  | Le_tensor { Pointwise.Bin.a; b } ->
+      let* a_shape = shape a in
+      let* b_shape = shape b in
+      let+ out = widen (Pointwise.Le_tensor.output_shape a_shape b_shape) in
+      [ out ]
   | Layer_norm { Norm.LayerNorm.params; x; weight; bias } ->
       let* x_shape = shape x in
       let opt_shape = function
@@ -334,6 +358,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
              ~c0_shape)
       in
       [ out; h_n; c_n ]
+  | Lt_scalar { Pointwise.Scalar_bin.x; _ } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Lt_scalar.output_shape x_shape) in
+      [ out ]
   | Max_dim { Reduce.MaxDim.params; x } ->
       let* x_shape = shape x in
       let+ out = widen (Reduce.MaxDim.output_shape ~x_shape params) in
@@ -391,6 +419,9 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* a_shape = shape a in
       let* b_shape = shape b in
       let+ out = widen (Pointwise.Ne_tensor.output_shape a_shape b_shape) in
+      [ out ]
+  | New_ones { Factory.New_ones.params } ->
+      let+ out = widen (Factory.New_ones.output_shape params) in
       [ out ]
   | Pad { Pad.Pad.params; x } ->
       let* x_shape = shape x in
@@ -502,6 +533,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* x_shape = shape x in
       let+ out = widen (Reduce.Sum.output_shape ~x_shape params) in
       [ out ]
+  | Tanh { Pointwise.Tanh.x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Tanh.output_shape x_shape) in
+      [ out ]
   | To_copy { Pointwise.To_copy.x; _ } ->
       let* x_shape = shape x in
       let+ out = widen (Pointwise.To_copy.output_shape x_shape) in
@@ -540,6 +575,14 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
   | Vector_norm { Reduce.Vector_norm.params; x } ->
       let* x_shape = shape x in
       let+ out = widen (Reduce.Vector_norm.output_shape ~x_shape params) in
+      [ out ]
+  | Where_scalar_other { Pointwise.Where_scalar_other.condition; x; _ } ->
+      let* condition_shape = shape condition in
+      let* x_shape = shape x in
+      let+ out =
+        widen
+          (Pointwise.Where_scalar_other.output_shape condition_shape x_shape)
+      in
       [ out ]
   | Arange { Factory.Arange.params } ->
       let+ out = widen (Factory.Arange.output_shape params) in

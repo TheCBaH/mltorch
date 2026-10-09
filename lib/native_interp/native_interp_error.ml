@@ -90,6 +90,8 @@ type metadata_role =
   | `Expand_input
   | `Group_norm_bias
   | `Group_norm_weight
+  | `Index_pair_index
+  | `Index_pair_self
   | `Index_tensor_index
   | `Index_tensor_self
   | `Layer_norm_bias
@@ -509,6 +511,8 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Expand_input -> Fmt.string ppf "expand input"
   | `Group_norm_bias -> Fmt.string ppf "group_norm bias"
   | `Group_norm_weight -> Fmt.string ppf "group_norm weight"
+  | `Index_pair_index -> Fmt.string ppf "index.Tensor leading index"
+  | `Index_pair_self -> Fmt.string ppf "index.Tensor self"
   | `Index_tensor_index -> Fmt.string ppf "index.Tensor indices live entry"
   | `Index_tensor_self -> Fmt.string ppf "index.Tensor self"
   | `Layer_norm_bias -> Fmt.string ppf "layer_norm bias"

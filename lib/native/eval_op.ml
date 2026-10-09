@@ -185,6 +185,10 @@ module Make (S : Semantics.SEMANTICS) = struct
           match bias with None -> fill 0. (shape_of x) | Some b -> operand b
         in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) ~weight ~bias out
+    | Bitwise_and { Pointwise.Bin.a; b } ->
+        let module C = Pointwise.Bitwise_and.Compute (S) in
+        C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)
+          (operand b) out
     | Eq_scalar { Pointwise.Scalar_bin.x; scalar } ->
         let module C = Pointwise.Eq_scalar.Compute (S) in
         C.pixel ~scalar (operand x) out
@@ -192,6 +196,9 @@ module Make (S : Semantics.SEMANTICS) = struct
         let module C = Pointwise.Eq_tensor.Compute (S) in
         C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)
           (operand b) out
+    | Ge_scalar { Pointwise.Scalar_bin.x; scalar } ->
+        let module C = Pointwise.Ge_scalar.Compute (S) in
+        C.pixel ~scalar (operand x) out
     | Gt_scalar { Pointwise.Scalar_bin.x; scalar } ->
         let module C = Pointwise.Gt_scalar.Compute (S) in
         C.pixel ~scalar (operand x) out
@@ -204,6 +211,12 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Hardtanh { Pointwise.Hardtanh.params; x } ->
         let module C = Pointwise.Hardtanh.Compute (S) in
         C.pixel params (operand x) out
+    | Index_pair { Index_tensor.Index_pair.params; self; index0; index1 } ->
+        let module C = Index_tensor.Index_pair.Compute (S) in
+        C.pixel params ~self_shape:(shape_of self)
+          ~index0_shape:(shape_of index0) ~index1_shape:(shape_of index1)
+          ~self:(operand self) ~index0:(operand index0) ~index1:(operand index1)
+          out
     | Index_tensor { Index_tensor.Index_tensor.params; self; index } ->
         let module C = Index_tensor.Index_tensor.Compute (S) in
         C.pixel params ~self_shape:(shape_of self) ~self:(operand self)
@@ -212,6 +225,10 @@ module Make (S : Semantics.SEMANTICS) = struct
         let module C = Im2col.Im2col.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
     | Layer_norm _ -> invalid_arg "Eval_op.pixel: LayerNorm is Region-authored"
+    | Le_tensor { Pointwise.Bin.a; b } ->
+        let module C = Pointwise.Le_tensor.Compute (S) in
+        C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)
+          (operand b) out
     | Leaky_relu { Pointwise.Leaky_relu.params; x } ->
         let module C = Pointwise.Leaky_relu.Compute (S) in
         C.pixel params (operand x) out
@@ -224,6 +241,9 @@ module Make (S : Semantics.SEMANTICS) = struct
         in
         C.pixel params ~x:(operand x) ~weight:(operand weight) ~bias out
     | Lstm _ -> invalid_arg "Eval_op.pixel: Lstm is Region-authored"
+    | Lt_scalar { Pointwise.Scalar_bin.x; scalar } ->
+        let module C = Pointwise.Lt_scalar.Compute (S) in
+        C.pixel ~scalar (operand x) out
     | Max_dim { Reduce.MaxDim.params; x } ->
         let module C = Reduce.MaxDim.Compute (S) in
         let pix =
@@ -335,6 +355,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Sum { Reduce.Sum.params; x } ->
         let module C = Reduce.Sum.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
+    | Tanh { Pointwise.Tanh.x } ->
+        let module C = Pointwise.Tanh.Compute (S) in
+        C.pixel (operand x) out
     | To_copy { Pointwise.To_copy.target; x } ->
         let module C = Pointwise.To_copy.Compute (S) in
         C.pixel target (operand x) out
@@ -372,11 +395,19 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Vector_norm { Reduce.Vector_norm.params; x } ->
         let module C = Reduce.Vector_norm.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
+    | Where_scalar_other { Pointwise.Where_scalar_other.condition; scalar; x }
+      ->
+        let module C = Pointwise.Where_scalar_other.Compute (S) in
+        C.pixel ~scalar ~condition_shape:(shape_of condition)
+          ~x_shape:(shape_of x) (operand condition) (operand x) out
     | Arange { Factory.Arange.params } ->
         let module C = Factory.Arange.Compute (S) in
         C.pixel params out
     | Zeros { Factory.Zeros.params } ->
         let module C = Factory.Zeros.Compute (S) in
+        C.pixel params
+    | New_ones { Factory.New_ones.params } ->
+        let module C = Factory.New_ones.Compute (S) in
         C.pixel params
     | Discard _ ->
         invalid_arg

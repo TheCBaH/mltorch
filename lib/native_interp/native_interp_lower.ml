@@ -90,7 +90,7 @@ let lower program =
           let shape = tensor_shape esc graph name in
           let* id =
             match kind with
-            | `Input -> input ~shape ()
+            | `Input -> input ~shape ~fmt:(tensor_fmt graph name) ()
             | `Constant -> constant ~shape ~fmt:(tensor_fmt graph name) ()
           in
           tensor_origins :=
@@ -117,8 +117,12 @@ let lower program =
         List.find_map
           (fun dispatch -> dispatch ~ctx ~env node)
           [
+            (* Ahead of the compute family: it claims only the two-live-index
+               form of [index.Tensor] and defers the rest to that family. *)
+            Native_interp_lower_index.dispatch;
             Native_interp_lower_compute.dispatch;
             Native_interp_lower_embedding.dispatch;
+            Native_interp_lower_pointwise.dispatch;
             Native_interp_lower_pool.dispatch;
             Native_interp_lower_recurrent.dispatch;
             Native_interp_lower_reduce.dispatch;

@@ -110,7 +110,7 @@ let classify (op : op) ~output =
      [Max_pool2d_with_indices]'s index output [Discontinuous]. Unlike that op,
      there is no separate continuous "value" output here to distinguish by
      [output]. *)
-  | Index_tensor _ -> Discontinuous
+  | Index_pair _ | Index_tensor _ -> Discontinuous
   (* The same data-dependent gather [Index_tensor] is: which weight row is read
      comes from the indices' content, not the output coordinate. *)
   | Embedding _ -> Discontinuous
@@ -146,16 +146,23 @@ let classify (op : op) ~output =
      flips the result the same way. *)
   | Eq_scalar _ | Eq_tensor _ | Gt_scalar _ | Ne_scalar _ | Ne_tensor _ ->
       Discontinuous
+  (* The same boundary reasoning for the remaining comparisons, and for the
+     two ops that consume a condition: [Bitwise_and] is a zero test on each
+     operand, and [Where_scalar_other] switches between [x] and the scalar on
+     the condition's zero test. *)
+  | Bitwise_and _ | Ge_scalar _ | Le_tensor _ | Lt_scalar _
+  | Where_scalar_other _ ->
+      Discontinuous
   | Abs _ | Add _ | Addcmul _ | Add_scalar _ | Adaptive_avg_pool2d _
   | Adaptive_max_pool2d _ | Amax _ | Avg_pool2d _ | Batch_norm _
   | Batch_norm_no_stats _ | Batched_matmul _ | Bmm _ | Clamp _ | Conv1d _
   | Conv2d _ | Conv2d_padding _ | Conv3d _ | Convolution _ | Cos _ | Cumsum _
   | Div _ | Div_scalar _ | Eye _ | Gelu _ | Group_norm _ | Hardsigmoid _
   | Hardswish _ | Hardtanh _ | Layer_norm _ | Leaky_relu _ | Linear _ | Lstm _
-  | Max_pool2d _ | Mean _ | Mul _ | Mul_scalar _ | Pow _ | Relu _ | Rms_norm _
-  | Rpow_scalar _ | Rsub_scalar _ | Sdpa _ | Sigmoid _ | Silu _ | Sin _
-  | Softmax _ | Arange _ | Sqrt _ | Sub _ | Sum _ | Upsample_bicubic2d _
-  | Upsample_bilinear2d _ | Vector_norm _ | Zeros _ ->
+  | Max_pool2d _ | Mean _ | Mul _ | Mul_scalar _ | New_ones _ | Pow _ | Relu _
+  | Rms_norm _ | Rpow_scalar _ | Rsub_scalar _ | Sdpa _ | Sigmoid _ | Silu _
+  | Sin _ | Softmax _ | Arange _ | Sqrt _ | Sub _ | Sum _ | Tanh _
+  | Upsample_bicubic2d _ | Upsample_bilinear2d _ | Vector_norm _ | Zeros _ ->
       Continuous
 
 (* [Identical] survives everything, evaluation being deterministic. [Equivalent]

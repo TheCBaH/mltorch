@@ -84,6 +84,8 @@ type metadata_role =
         tags rather than one shared "affine" role: they are separate arguments
         with separate checks, and a shared label could not say which disagreed.
     *)
+  | `Index_pair_index
+  | `Index_pair_self
   | `Index_tensor_index  (** [index.Tensor]'s [indices] live entry. *)
   | `Index_tensor_self  (** [index.Tensor]'s [self]. *)
   | `Layer_norm_bias

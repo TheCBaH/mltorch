@@ -61,21 +61,21 @@ let%expect_test "embedding.default lowers to one Embedding node" =
     {|
     rank-1 indices, default padding_idx:
     graph
-    inputs: [t0 f32 [C=16] ->[n0], t1 f32 [W=49152 C=576] ->[n0] constant]
+    inputs: [t0 i64 [C=16] ->[n0], t1 f32 [W=49152 C=576] ->[n0] constant]
     nodes:
       n0: [t2 f32 [W=16 C=576]] =
         embedding weight=t1 indices=t0 params={indices_rank=1 padding_idx=-1}
     outputs: [t2 f32 [W=16 C=576] <-n0]
     rank-2 indices (1, 16), padding_idx 2:
     graph
-    inputs: [t0 f32 [C=16] ->[n0], t1 f32 [W=49152 C=576] ->[n0] constant]
+    inputs: [t0 i64 [C=16] ->[n0], t1 f32 [W=49152 C=576] ->[n0] constant]
     nodes:
       n0: [t2 f32 [W=16 C=576]] =
         embedding weight=t1 indices=t0 params={indices_rank=2 padding_idx=2}
     outputs: [t2 f32 [W=16 C=576] <-n0]
     rank-2 indices (16, 16), the T5 bucket table:
     graph
-    inputs: [t0 f32 [W=16 C=16] ->[n0], t1 f32 [W=32 C=8] ->[n0] constant]
+    inputs: [t0 i64 [W=16 C=16] ->[n0], t1 f32 [W=32 C=8] ->[n0] constant]
     nodes:
       n0: [t2 f32 [H=16 W=16 C=8]] =
         embedding weight=t1 indices=t0 params={indices_rank=2 padding_idx=-1}

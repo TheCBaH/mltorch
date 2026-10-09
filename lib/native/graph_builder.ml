@@ -193,9 +193,23 @@ let addcmul ?name value self tensor1 tensor2 =
     (Addcmul
        { Pointwise.Addcmul.self; tensor1; tensor2; value = f32_scalar value })
 
+(* An I64 operand plus an integral scalar keeps its dtype (ATen's
+   integer-scalar overload), so the output edge is I64 and [Eval_direct]'s
+   exact [Compute_i64] dispatch delivers it. Integral means a whole number
+   that the f32 payload holds exactly. A float scalar that happens to be whole
+   (`x_i64 + 1.0` is float32 in ATen) takes the same path: the values agree and
+   only the dtype tag is the integer one, which a float consumer refuses as a
+   mixed dtype rather than misreading. Every other case keeps [op1]'s F32. *)
 let add_scalar ?name scalar x =
-  op1 ?name ~kind:"add_scalar"
-    (Add_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar })
+  let* s = get in
+  let sg = Tensor_id.Map.find x s.tensors in
+  let op = Add_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar } in
+  match sg.Tensor_sig.fmt with
+  | Payload.Fmt Payload.I64
+    when Float.is_integer scalar && Float.abs scalar <= 16777216. ->
+      op1 ?name ~fmt:sg.Tensor_sig.fmt ?quant:sg.Tensor_sig.quant
+        ~kind:"add_scalar" op
+  | _ -> op1 ?name ~kind:"add_scalar" op
 
 let adaptive_avg_pool2d ?name params x =
   op1 ?name ~kind:"adaptive_avg_pool2d"
@@ -260,6 +274,14 @@ let batched_matmul ?name input mat2 =
    comment: nothing routes an integer operand here today), so the output is
    unconditionally [Bool], matching [eval_direct.ml]'s own matching
    [Bitwise_not] arm, which writes via [Tensor.materialize_bool]. *)
+(* Real ATen's [__and__.Tensor] on bool operands produces a bool result; the
+   other operand formats are refused at evaluation. *)
+let bitwise_and ?name a b =
+  op1 ?name
+    ~fmt:Payload.(Fmt Bool)
+    ~kind:"bitwise_and"
+    (Bitwise_and { Pointwise.Bin.a; b })
+
 let bitwise_not ?name x =
   op1 ?name
     ~fmt:Payload.(Fmt Bool)
@@ -365,6 +387,13 @@ let gt_scalar ?name scalar x =
     ~kind:"gt_scalar"
     (Gt_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar })
 
+(* [ge.Scalar], like [gt_scalar]: unconditionally a [Bool] result. *)
+let ge_scalar ?name scalar x =
+  op1 ?name
+    ~fmt:Payload.(Fmt Bool)
+    ~kind:"ge_scalar"
+    (Ge_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar })
+
 let hardsigmoid ?name x =
   op1 ?name ~kind:"hardsigmoid" (Hardsigmoid { Pointwise.Hardsigmoid.x })
 
@@ -383,6 +412,18 @@ let hardtanh ?name (params : Pointwise.Hardtanh.params) x =
          x;
        })
 
+(* The result keeps [self]'s element format (bool or float32): a mask gathered
+   from a mask is still a mask, which [bitwise_and] then requires. *)
+let index_pair ?name params ~self ~index0 ~index1 =
+  let* s = get in
+  let fmt =
+    Option.map
+      (fun sg -> sg.Tensor_sig.fmt)
+      (Tensor_id.Map.find_opt self s.tensors)
+  in
+  op1 ?name ?fmt ~kind:"index_pair"
+    (Index_pair { Index_tensor.Index_pair.params; self; index0; index1 })
+
 (* Plain [op1], the same choice [slice]/[select] make: the output dtype
    defaults to F32 rather than preserving [self]'s, a pre-existing
    [Graph_builder.op1] characteristic (round 6 of the design record) that is
@@ -399,6 +440,13 @@ let im2col ?name params x =
 let layer_norm ?name params ~x ?weight ?bias () =
   op1 ?name ~kind:"layer_norm"
     (Layer_norm { Norm.LayerNorm.params; x; weight; bias })
+
+(* [le.Tensor]: a [Bool] result, as [eq_tensor]. *)
+let le_tensor ?name a b =
+  op1 ?name
+    ~fmt:Payload.(Fmt Bool)
+    ~kind:"le_tensor"
+    (Le_tensor { Pointwise.Bin.a; b })
 
 let leaky_relu ?name params x =
   op1 ?name ~kind:"leaky_relu" (Leaky_relu { Pointwise.Leaky_relu.params; x })
@@ -431,6 +479,13 @@ let lstm ?name params ~input ~layers ~h0 ~c0 () =
 
 (* Two outputs (values, indices), the same shape [max_pool2d_with_indices] is
    in for not going through [opN]: see that function's own doc comment. *)
+(* [lt.Scalar], like [gt_scalar]: unconditionally a [Bool] result. *)
+let lt_scalar ?name scalar x =
+  op1 ?name
+    ~fmt:Payload.(Fmt Bool)
+    ~kind:"lt_scalar"
+    (Lt_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar })
+
 let max_dim ?name params x =
   let op = Max_dim { Reduce.MaxDim.params; x } in
   let* s = get in
@@ -528,6 +583,10 @@ let ne_tensor ?name a b =
 (* The fill is narrowed to f32 HERE, at the one point every construction path
    goes through, exactly as [add_scalar]'s scalar is: an unnarrowed float64
    literal would compute in a precision the payload cannot store. *)
+let new_ones ?name params =
+  op1 ?name ~fmt:params.Factory.New_ones.fmt ~kind:"new_ones"
+    (New_ones { Factory.New_ones.params })
+
 let pad ?name (params : Pad.Pad.params) x =
   let params =
     match params.Pad.Pad.mode with
@@ -658,8 +717,16 @@ let softmax ?name params x =
 
 let sqrt ?name x = op1 ?name ~kind:"sqrt" (Sqrt { Pointwise.Sqrt.x })
 
+(* Dtype-preserving for I64, like [reshape]: an I64 operand gives an I64 edge
+   so [Eval_direct]'s exact [Compute_i64] dispatch delivers the result. *)
 let slice ?name params x =
-  op1 ?name ~kind:"slice" (Slice { Split.Slice.params; x })
+  let* s = get in
+  let sg = Tensor_id.Map.find x s.tensors in
+  match sg.Tensor_sig.fmt with
+  | Payload.Fmt Payload.I64 ->
+      op1 ?name ~fmt:sg.Tensor_sig.fmt ?quant:sg.Tensor_sig.quant ~kind:"slice"
+        (Slice { Split.Slice.params; x })
+  | _ -> op1 ?name ~kind:"slice" (Slice { Split.Slice.params; x })
 
 (* Same shape as [unbind]: the output count comes from [params.sizes] via
    [Graph_shape], and every piece carries the input's own dtype/quant. *)
@@ -695,6 +762,8 @@ let sum ?name params x = op1 ?name ~kind:"sum" (Sum { Reduce.Sum.params; x })
    [Payload.Bool] output edge, matching [eval_direct.ml]'s own new
    [Bool] arm, which writes via [Tensor.materialize_bool]. [Float] keeps
    [op1]'s F32 default -- its output genuinely is F32. *)
+let tanh ?name x = op1 ?name ~kind:"tanh" (Tanh { Pointwise.Tanh.x })
+
 let to_copy ?name target x =
   match target with
   | Pointwise.To_copy.Bool ->
@@ -794,3 +863,10 @@ let build ?(dtype = f32) ~name:_ ~outputs (m : 'a t) =
             input_kinds = s.input_kinds;
             outputs = outputs a;
           }
+
+(* [where.ScalarOther]: the result takes [x]'s float format, so the default
+   F32 edge applies. *)
+let where_scalar_other ?name ~condition scalar x =
+  op1 ?name ~kind:"where_scalar_other"
+    (Where_scalar_other
+       { Pointwise.Where_scalar_other.condition; scalar = f32_scalar scalar; x })
