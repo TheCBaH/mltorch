@@ -1,0 +1,46 @@
+; The production closure of the native AArch64 route holds the encoder and the
+; stages below source text, and no lexer, parser, front-end target or text
+; pipeline. The forbidden libraries make a regression a build error; the
+; executable only has to link.
+
+(test
+ (name rivet_closure)
+ (modules rivet_closure)
+ (libraries machine_rivet_aarch64)
+ (forbidden_libraries
+  rivet.asm_syntax
+  rivet.driver
+  rivet.target_intf
+  rivet.aarch64
+  rivet.x86_64
+  rivet.x86_32
+  rivet.arm
+  rivet.riscv32
+  rivet.riscv64)
+ (enabled_if
+  (and
+   %{lib-available:rivet.aarch64_encode}
+   %{lib-available:rivet.driver_direct}
+   %{lib-available:rivet.native_exec}
+   (= %{architecture} arm64))))
+
+; ... and the same for the x86-64 route.
+
+(test
+ (name rivet_closure_x64)
+ (modules rivet_closure_x64)
+ (libraries machine_rivet_x86_64)
+ (forbidden_libraries
+  rivet.asm_syntax
+  rivet.driver
+  rivet.target_intf
+  rivet.aarch64
+  rivet.x86_64
+  rivet.x86_32
+  rivet.arm
+  rivet.riscv32
+  rivet.riscv64)
+ (enabled_if
+  (and
+   %{lib-available:rivet.x86_64_encode}
+   %{lib-available:rivet.driver_direct})))

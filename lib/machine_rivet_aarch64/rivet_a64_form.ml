@@ -8,9 +8,9 @@ open Machine_target_aarch64
 module Loc = Mir_phys.Loc
 module R = Rivet_a64_refusal
 module A = A64_op
-module I = Aarch64.Instruction
-module O = Aarch64.Operand
-module Op = Aarch64.Opcode
+module I = Aarch64_encode.Instruction
+module O = Aarch64_encode.Operand
+module Op = Aarch64_encode.Opcode
 
 (* Fault injection for the evidence suite: each is one deliberate mapping
    defect a native comparison must detect. No consumer passes one. *)
@@ -119,16 +119,16 @@ let gpr env ~width (v : Mir_target.View.t) =
   let unit = Mir_id.Unit.to_int v.Mir_target.View.unit in
   match v.Mir_target.View.bank with
   | Mir_target.Bank.Gpr when unit = sp_unit ->
-      { Aarch64.Reg.num = 31; width; is_sp = true }
+      { Aarch64_encode.Reg.num = 31; width; is_sp = true }
   | Mir_target.Bank.Gpr when unit >= 0 && unit <= 30 ->
-      { Aarch64.Reg.num = unit; width; is_sp = false }
+      { Aarch64_encode.Reg.num = unit; width; is_sp = false }
   | _ -> refuse env (R.Register v.Mir_target.View.name)
 
 let fpr env ~double (v : Mir_target.View.t) =
   let unit = Mir_id.Unit.to_int v.Mir_target.View.unit in
   match v.Mir_target.View.bank with
   | Mir_target.Bank.Fpr when unit >= 32 && unit <= 63 ->
-      { Aarch64.Freg.num = unit - 32; double }
+      { Aarch64_encode.Freg.num = unit - 32; double }
   | _ -> refuse env (R.Register v.Mir_target.View.name)
 
 let loc_view env = function
@@ -142,17 +142,17 @@ let dbl = function A.Fsz.D -> true | A.Fsz.S -> false
 
 (* {1 Vectors} *)
 
-let varr : A.Arr.t -> Aarch64.Varr.t = function
-  | A.Arr.D2 -> Aarch64.Varr.D2
-  | A.Arr.S2 -> Aarch64.Varr.S2
-  | A.Arr.S4 -> Aarch64.Varr.S4
+let varr : A.Arr.t -> Aarch64_encode.Varr.t = function
+  | A.Arr.D2 -> Aarch64_encode.Varr.D2
+  | A.Arr.S2 -> Aarch64_encode.Varr.S2
+  | A.Arr.S4 -> Aarch64_encode.Varr.S4
 
-let lane : A.Fsz.t -> Aarch64.Lane.t = function
-  | A.Fsz.D -> Aarch64.Lane.D
-  | A.Fsz.S -> Aarch64.Lane.S
+let lane : A.Fsz.t -> Aarch64_encode.Lane.t = function
+  | A.Fsz.D -> Aarch64_encode.Lane.D
+  | A.Fsz.S -> Aarch64_encode.Lane.S
 
 (* The number of the SIMD&FP register a location is. *)
-let vnum env l = (fpr env ~double:true (loc_view env l)).Aarch64.Freg.num
+let vnum env l = (fpr env ~double:true (loc_view env l)).Aarch64_encode.Freg.num
 let vec env arr l = O.Vec (vnum env l, varr arr)
 let qreg env l = O.Qreg (vnum env l)
 
@@ -169,8 +169,8 @@ let cond_name (c : A.Cond.t) = A.Cond.name c
 let mem env ~base ~offset =
   O.Mem
     {
-      Aarch64.Mem.base = gpr env ~width:64 (loc_view env base);
-      offset = Aarch64.Disp.Const offset;
+      Aarch64_encode.Mem.base = gpr env ~width:64 (loc_view env base);
+      offset = Aarch64_encode.Disp.Const offset;
       writeback = false;
       pre = true;
     }
@@ -191,9 +191,9 @@ let access ?index env ~load (m : A.Msz.t) ~rt ~base ~offset =
         in
         O.Mem
           {
-            Aarch64.Mem.base = gpr env ~width:64 (loc_view env base);
+            Aarch64_encode.Mem.base = gpr env ~width:64 (loc_view env base);
             offset =
-              Aarch64.Disp.Reg
+              Aarch64_encode.Disp.Reg
                 {
                   index = gpr env ~width:32 (loc_view env index);
                   extend = "sxtw";
@@ -229,10 +229,10 @@ let vector_access env ~load (arr : A.Arr.t) ~rt ~base ~offset =
   | A.Arr.S2 -> access env ~load A.Msz.D ~rt ~base ~offset
   | A.Arr.S4 | A.Arr.D2 ->
       let m =
-        Aarch64.Mem.
+        Aarch64_encode.Mem.
           {
             base = gpr env ~width:64 (loc_view env base);
-            offset = Aarch64.Disp.Const offset;
+            offset = Aarch64_encode.Disp.Const offset;
             writeback = false;
             pre = true;
           }
@@ -259,14 +259,16 @@ let bitfield ~signed ~rd ~rn ~lsb ~width =
     [ rd; rn; imm_int lsb; imm_int width ]
 
 (* x18, which the table binding's entry sets to the caller's table. *)
-let table_base = { Aarch64.Reg.num = 18; width = 64; is_sp = false }
+let table_base = { Aarch64_encode.Reg.num = 18; width = 64; is_sp = false }
 
 (* [value] in [reg] by a move and as many keeps as it has nonzero halfwords. *)
 let materialize reg value =
   let quarter k =
     Int64.logand (Int64.shift_right_logical value (16 * k)) 0xFFFFL
   in
-  let shift k = O.Shift { Aarch64.Shift.kind = "lsl"; amount = 16 * k } in
+  let shift k =
+    O.Shift { Aarch64_encode.Shift.kind = "lsl"; amount = 16 * k }
+  in
   ins Op.Movz [ O.Reg reg; imm (quarter 0) ]
   :: List.filter_map
        (fun k ->
@@ -349,8 +351,8 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
           O.Reg rd;
           O.Mem
             {
-              Aarch64.Mem.base = table_base;
-              offset = Aarch64.Disp.Const (Int64.of_int (8 * slot));
+              Aarch64_encode.Mem.base = table_base;
+              offset = Aarch64_encode.Disp.Const (Int64.of_int (8 * slot));
               writeback = false;
               pre = true;
             };
@@ -360,7 +362,9 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
        else if Int64.compare page 0xFFF000L <= 0 then
          [ ins Op.Add [ O.Reg rd; O.Reg rd; imm page ] ]
        else
-         let scratch = { Aarch64.Reg.num = 16; width = 64; is_sp = false } in
+         let scratch =
+           { Aarch64_encode.Reg.num = 16; width = 64; is_sp = false }
+         in
          materialize scratch page
          @ [ ins Op.Add [ O.Reg rd; O.Reg rd; O.Reg scratch ] ])
   | A.Adrp view ->
@@ -457,7 +461,7 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
           [
             g env sz (d 0);
             imm_int v;
-            O.Shift { Aarch64.Shift.kind = "lsl"; amount = sh };
+            O.Shift { Aarch64_encode.Shift.kind = "lsl"; amount = sh };
           ];
       ]
   | A.Movn (sz, v, sh) ->
@@ -466,7 +470,7 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
           [
             g env sz (d 0);
             imm_int v;
-            O.Shift { Aarch64.Shift.kind = "lsl"; amount = sh };
+            O.Shift { Aarch64_encode.Shift.kind = "lsl"; amount = sh };
           ];
       ]
   | A.Movz (ty, v, sh) ->
@@ -480,7 +484,7 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
           [
             g env sz (d 0);
             imm_int v;
-            O.Shift { Aarch64.Shift.kind = "lsl"; amount = sh };
+            O.Shift { Aarch64_encode.Shift.kind = "lsl"; amount = sh };
           ];
       ]
   | A.Mrs_fpcr _ -> [ ins Op.Mrs [ g env A.Sz.X (d 0); sym "fpcr" ] ]
@@ -537,7 +541,10 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       let k = if mutated Mutation.Wrong_lane then 1 - k else k in
       [
         ins Op.Dup
-          [ f env A.Fsz.D (d 0); O.Vlane (vnum env (u 0), Aarch64.Lane.D, k) ];
+          [
+            f env A.Fsz.D (d 0);
+            O.Vlane (vnum env (u 0), Aarch64_encode.Lane.D, k);
+          ];
       ]
   | A.Dup_lane (fsz, k, _) ->
       let k = if mutated Mutation.Wrong_lane then k lxor 1 else k in
@@ -546,16 +553,16 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       [
         ins Op.Fcvtl
           [
-            O.Vec (vnum env (d 0), Aarch64.Varr.D2);
-            O.Vec (vnum env (u 0), Aarch64.Varr.S2);
+            O.Vec (vnum env (d 0), Aarch64_encode.Varr.D2);
+            O.Vec (vnum env (u 0), Aarch64_encode.Varr.S2);
           ];
       ]
   | A.Fcvtn _ ->
       [
         ins Op.Fcvtn
           [
-            O.Vec (vnum env (d 0), Aarch64.Varr.S2);
-            O.Vec (vnum env (u 0), Aarch64.Varr.D2);
+            O.Vec (vnum env (d 0), Aarch64_encode.Varr.S2);
+            O.Vec (vnum env (u 0), Aarch64_encode.Varr.D2);
           ];
       ]
   | A.Ins_half _ ->
@@ -563,8 +570,8 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       [
         ins Op.Ins
           [
-            O.Vlane (vnum env (d 0), Aarch64.Lane.D, 1);
-            O.Vlane (vnum env (u 1), Aarch64.Lane.D, 0);
+            O.Vlane (vnum env (d 0), Aarch64_encode.Lane.D, 1);
+            O.Vlane (vnum env (u 1), Aarch64_encode.Lane.D, 0);
           ];
       ]
   | A.Ins_lane (fsz, k, _, _) ->
@@ -628,7 +635,7 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       [ ins opcode [ vec env arr (d 0); vec env arr (u 0) ] ]
   | A.Vbit _ ->
       (* the else value's register is the result's *)
-      let b16 = Aarch64.Varr.B16 in
+      let b16 = Aarch64_encode.Varr.B16 in
       [
         ins Op.Bit
           [
@@ -646,7 +653,7 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       in
       [ ins opcode [ vec env arr (d 0); vec env arr (u 0); vec env arr (u 1) ] ]
   | A.Vlogic (o, _, _) ->
-      let b16 = Aarch64.Varr.B16 in
+      let b16 = Aarch64_encode.Varr.B16 in
       let opcode =
         match o with
         | A.Logic.And -> Op.And
@@ -662,15 +669,15 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
           ];
       ]
   | A.Vnot _ ->
-      let b16 = Aarch64.Varr.B16 in
+      let b16 = Aarch64_encode.Varr.B16 in
       [
         ins Op.Not [ O.Vec (vnum env (d 0), b16); O.Vec (vnum env (u 0), b16) ];
       ]
   | A.Vmov (arr, _) ->
       let a =
         match arr with
-        | A.Arr.S2 -> Aarch64.Varr.B8
-        | A.Arr.S4 | A.Arr.D2 -> Aarch64.Varr.B16
+        | A.Arr.S2 -> Aarch64_encode.Varr.B8
+        | A.Arr.S4 | A.Arr.D2 -> Aarch64_encode.Varr.B16
       in
       [ ins Op.Mov [ O.Vec (vnum env (d 0), a); O.Vec (vnum env (u 0), a) ] ]
   | A.Vwiden _ -> [ ins Op.Fmov [ f env A.Fsz.D (d 0); f env A.Fsz.D (u 0) ] ]
@@ -688,11 +695,12 @@ let transfer ?mutation ?(save = false) env ~(dst : Loc.t) ~(src : Loc.t) :
           [ ins Op.Mov [ O.Reg (gpr env ~width d); O.Reg (gpr env ~width s) ] ]
       | Mir_target.Bank.Fpr, Mir_target.Bank.Fpr
         when d.Mir_target.View.bits = 128 && s.Mir_target.View.bits = 128 ->
-          let num v = (fpr env ~double:true v).Aarch64.Freg.num in
+          let num v = (fpr env ~double:true v).Aarch64_encode.Freg.num in
           [
             ins Op.Mov
               [
-                O.Vec (num d, Aarch64.Varr.B16); O.Vec (num s, Aarch64.Varr.B16);
+                O.Vec (num d, Aarch64_encode.Varr.B16);
+                O.Vec (num s, Aarch64_encode.Varr.B16);
               ];
           ]
       | Mir_target.Bank.Fpr, Mir_target.Bank.Fpr
@@ -728,8 +736,8 @@ let transfer ?mutation ?(save = false) env ~(dst : Loc.t) ~(src : Loc.t) :
           let mem =
             O.Mem
               {
-                Aarch64.Mem.base = gpr env ~width:64 base;
-                offset = Aarch64.Disp.Const offset;
+                Aarch64_encode.Mem.base = gpr env ~width:64 base;
+                offset = Aarch64_encode.Disp.Const offset;
                 writeback = false;
                 pre = true;
               }
@@ -744,7 +752,7 @@ let transfer ?mutation ?(save = false) env ~(dst : Loc.t) ~(src : Loc.t) :
 
 (* The stack pointer moved by [delta] bytes. *)
 let stack_step env delta : I.t list =
-  let sp = O.Reg { Aarch64.Reg.num = 31; width = 64; is_sp = true } in
+  let sp = O.Reg { Aarch64_encode.Reg.num = 31; width = 64; is_sp = true } in
   ignore env;
   if Int64.compare delta 0L < 0 then
     [ ins Op.Sub [ sp; sp; imm (Int64.neg delta) ] ]
@@ -770,7 +778,7 @@ let invert (c : A.Cond.t) : A.Cond.t =
   | A.Cond.Vs -> A.Cond.Vc
 
 let rivet_cond (c : A.Cond.t) =
-  match Aarch64.Cond.of_name (A.Cond.name c) with
+  match Aarch64_encode.Cond.of_name (A.Cond.name c) with
   | Some c -> c
   | None -> invalid_arg "Rivet_a64_form.rivet_cond"
 

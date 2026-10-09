@@ -215,16 +215,19 @@ let table_entry ~kernel =
   let i op ops = insn (F.ins op ops) in
   let cfi name argument = dir (D.Cfi { name; argument }) in
   let sp =
-    Aarch64.Operand.Reg { Aarch64.Reg.num = 31; width = 64; is_sp = true }
+    Aarch64_encode.Operand.Reg
+      { Aarch64_encode.Reg.num = 31; width = 64; is_sp = true }
   in
   let x n =
-    Aarch64.Operand.Reg { Aarch64.Reg.num = n; width = 64; is_sp = false }
+    Aarch64_encode.Operand.Reg
+      { Aarch64_encode.Reg.num = n; width = 64; is_sp = false }
   in
   let slot n =
-    Aarch64.Operand.Mem
+    Aarch64_encode.Operand.Mem
       {
-        Aarch64.Mem.base = { Aarch64.Reg.num = 31; width = 64; is_sp = true };
-        offset = Aarch64.Disp.Const (Int64.of_int n);
+        Aarch64_encode.Mem.base =
+          { Aarch64_encode.Reg.num = 31; width = 64; is_sp = true };
+        offset = Aarch64_encode.Disp.Const (Int64.of_int n);
         writeback = false;
         pre = true;
       }
@@ -237,21 +240,22 @@ let table_entry ~kernel =
     dir (D.Sym_type { name; kind = D.Function });
     lbl name;
     cfi ".cfi_startproc" "";
-    i Aarch64.Opcode.Sub [ sp; sp; F.imm 32L ];
+    i Aarch64_encode.Opcode.Sub [ sp; sp; F.imm 32L ];
     cfi ".cfi_adjust_cfa_offset" "32";
-    i Aarch64.Opcode.Str [ x 30; slot 0 ];
+    i Aarch64_encode.Opcode.Str [ x 30; slot 0 ];
     cfi ".cfi_offset" "x30, -32";
-    i Aarch64.Opcode.Str [ x 18; slot 8 ];
+    i Aarch64_encode.Opcode.Str [ x 18; slot 8 ];
     cfi ".cfi_offset" "x18, -24";
-    i Aarch64.Opcode.Mov [ x 18; x 0 ];
-    i Aarch64.Opcode.Bl [ Aarch64.Operand.Sym (Expr.Symbol kernel) ];
-    i Aarch64.Opcode.Ldr [ x 18; slot 8 ];
+    i Aarch64_encode.Opcode.Mov [ x 18; x 0 ];
+    i Aarch64_encode.Opcode.Bl
+      [ Aarch64_encode.Operand.Sym (Expr.Symbol kernel) ];
+    i Aarch64_encode.Opcode.Ldr [ x 18; slot 8 ];
     cfi ".cfi_restore" "x18";
-    i Aarch64.Opcode.Ldr [ x 30; slot 0 ];
+    i Aarch64_encode.Opcode.Ldr [ x 30; slot 0 ];
     cfi ".cfi_restore" "x30";
-    i Aarch64.Opcode.Add [ sp; sp; F.imm 32L ];
+    i Aarch64_encode.Opcode.Add [ sp; sp; F.imm 32L ];
     cfi ".cfi_adjust_cfa_offset" "-32";
-    i Aarch64.Opcode.Ret [];
+    i Aarch64_encode.Opcode.Ret [];
     cfi ".cfi_endproc" "";
     dir
       (D.Sym_size
@@ -341,7 +345,8 @@ let of_artifact ?mutation ?(binding = Image_resident) artifact =
 let helpers ~host_symbol names =
   Err.Escape.with_escape @@ fun esc ->
   let x16 =
-    Aarch64.Operand.Reg { Aarch64.Reg.num = 16; width = 64; is_sp = false }
+    Aarch64_encode.Operand.Reg
+      { Aarch64_encode.Reg.num = 16; width = 64; is_sp = false }
   in
   let stub name =
     let addr =
@@ -359,20 +364,20 @@ let helpers ~host_symbol names =
       dir (D.Global { name });
       dir (D.Sym_type { name; kind = D.Function });
       lbl name;
-      insn (ins Aarch64.Opcode.Movz [ x16; F.imm (quarter 0) ]);
+      insn (ins Aarch64_encode.Opcode.Movz [ x16; F.imm (quarter 0) ]);
     ]
     @ List.map
         (fun k ->
           insn
-            (ins Aarch64.Opcode.Movk
+            (ins Aarch64_encode.Opcode.Movk
                [
                  x16;
                  F.imm (quarter k);
-                 Aarch64.Operand.Shift
-                   { Aarch64.Shift.kind = "lsl"; amount = 16 * k };
+                 Aarch64_encode.Operand.Shift
+                   { Aarch64_encode.Shift.kind = "lsl"; amount = 16 * k };
                ]))
         [ 1; 2; 3 ]
-    @ [ insn (ins Aarch64.Opcode.Br [ x16 ]) ]
+    @ [ insn (ins Aarch64_encode.Opcode.Br [ x16 ]) ]
   in
   {
     N.unit_name = "host";

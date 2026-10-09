@@ -11,7 +11,7 @@ whole models and GNU export are later work.
 Mir_artifact (checked, realized physical program)
   -> Rivet_a64_form    selected/late/move/save forms -> Aarch64.Instruction.t
   -> Rivet_a64_module  functions, blocks, data symbols -> Normalized_ast.module_
-  -> Rivet_a64_image   Driver.Pipeline.lower/plan -> Image.laid_out -> Native_exec
+  -> Rivet_a64_image   Pipeline_direct lower/plan -> Image.laid_out -> Native_exec
   -> Rivet_a64_route   one image per bundle invocation, as a Mir_model route
 ```
 
@@ -123,6 +123,19 @@ run under a binary32 policy: the oracle is not the binary64 reference but the sa
 planned program on the selected-stage interpreter, which the native code equals bit
 for bit; the reference is a tolerance check only. All seven CI models compile and
 run natively under the ordered policy, within 7e-4 of binary64 (NA-E5).
+
+## Dependency closure
+
+Both native routes (this one and the x86-64 route) link Rivet's encoder for their
+target and `rivet.driver_direct`, the stages below source text, and nothing
+else of Rivet but the image and native-execution libraries: no lexer, parser,
+front-end target or text pipeline, and no other target. `test/rivet_closure`
+links each route with those libraries forbidden, so a regression is a build
+error. The GNU coherence libraries keep the full front end on purpose (they
+re-read what Rivet prints), as does the conformance suite. A module that
+carries a target state directive written as text is not accepted by the direct
+stages (`Directive_not_accepted`); a producer that builds instructions as
+values has none.
 
 ## Runtime mode
 

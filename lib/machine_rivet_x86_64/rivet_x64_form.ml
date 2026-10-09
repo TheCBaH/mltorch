@@ -31,16 +31,19 @@ let refuse env r = Err.Escape.throw env.esc r
 let origin = Foundation.Origin.synthesized ~pass:"machine_rivet_x86_64" ()
 
 let make env mnemonic ops =
-  match X86_64.make_surface_instruction ~mnemonic ~origin ops with
+  match X86_64_encode.make_surface_instruction ~mnemonic ~origin ops with
   | Error _ -> refuse env (R.Form mnemonic)
   | Ok s -> (
-      match X86_64.simplify_instruction X86_64.default_state s with
+      match
+        X86_64_encode.simplify_instruction X86_64_encode.default_state s
+      with
       | Ok i -> i
       | Error e ->
           refuse env
             (R.Rivet
-               (Fmt.str "%s: %a" mnemonic (Err.Error.pp_kind X86_64.pp_error) e))
-      )
+               (Fmt.str "%s: %a" mnemonic
+                  (Err.Error.pp_kind X86_64_encode.pp_error)
+                  e)))
 
 (* {1 Registers} *)
 
@@ -55,7 +58,7 @@ let gpr_name ~bits k =
   | _ -> if k < 8 then names8.(k) else Printf.sprintf "r%db" k
 
 let find env name =
-  match X86_64.find_reg name with
+  match X86_64_encode.find_reg name with
   | Some r -> r
   | None -> refuse env (R.Register name)
 
@@ -138,7 +141,7 @@ let addr env (a : X.Addr.t) uses =
 let ( ++ ) = List.append
 
 let instructions env (op : X.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
-    X86_64.Instruction.t list =
+    X86_64_encode.Instruction.t list =
   let u = nth env "use" uses and d = nth env "def" defs in
   let mk = make env in
   let gq l = g env ~bits:64 l and gl l = g env ~bits:32 l in
@@ -340,7 +343,8 @@ let instructions env (op : X.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
 
 (* {1 Allocation-added forms} *)
 
-let transfer env ~(dst : Loc.t) ~(src : Loc.t) : X86_64.Instruction.t list =
+let transfer env ~(dst : Loc.t) ~(src : Loc.t) :
+    X86_64_encode.Instruction.t list =
   let mk = make env in
   match (dst, src) with
   | Loc.Reg d, Loc.Reg s -> (
@@ -371,7 +375,7 @@ let transfer env ~(dst : Loc.t) ~(src : Loc.t) : X86_64.Instruction.t list =
   | Loc.Slot _, _ | _, Loc.Slot _ -> refuse env (R.Location "a frame slot")
   | Loc.Mem _, Loc.Mem _ -> refuse env (R.Location "memory to memory")
 
-let stack_step env delta : X86_64.Instruction.t list =
+let stack_step env delta : X86_64_encode.Instruction.t list =
   let rsp = Op.Reg (find env "rsp") in
   if Int64.compare delta 0L < 0 then
     [ make env "subq" [ imm (Int64.neg delta); rsp ] ]

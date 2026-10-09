@@ -2,7 +2,7 @@
    image, and a laid-out image into this process. The image is the primary
    native artifact: no assembly text is produced on this route. *)
 
-module P = Driver.Pipeline.Make (Aarch64)
+module P = Driver_direct.Pipeline_direct.Make (Aarch64_encode)
 
 module Error = struct
   type t =
@@ -23,7 +23,7 @@ let plan ~entry modules : (laid_out, Error.t) Err.t =
   let rec lower acc = function
     | [] -> Ok (List.rev acc)
     | m :: rest -> (
-        match P.lower ~state:Aarch64.default_state m with
+        match P.lower ~state:Aarch64_encode.default_state m with
         | Ok l -> lower (l :: acc) rest
         | Error e -> Err.fail (`Rivet_lower (render e)))
   in

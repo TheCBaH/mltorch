@@ -9,6 +9,7 @@
   fmt
   machine_rivet_x86_64
   rivet.x86_64
+  rivet.driver
   rivet.asm_core
   rivet.image
   unix)

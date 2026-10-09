@@ -16,7 +16,7 @@ are `lib/machine_rivet_common`; the AArch64 design is in the sibling record.
 Mir_artifact (checked, realized physical program)
   -> Rivet_x64_form    selected/late/move/save/sp forms -> X86_64.Instruction.t
   -> Rivet_x64_module  functions, blocks, data, entry wrapper -> Normalized_ast.module_
-  -> Rivet_x64_image   Driver.Pipeline plan/bind -> Image.t at fixed addresses
+  -> Rivet_x64_image   Pipeline_direct plan/bind -> Image.t at fixed addresses
   -> Rivet_x64_elf     a bound image -> a static ELF executable
   -> Rivet_x64_qemu    harness module, prepare once, launch per run under qemu-user
   -> Rivet_x64_route   one prepared image per bundle invocation, as a Mir_model route
