@@ -1,0 +1,10 @@
+; SHA-256 over strings and bigstrings, in pure OCaml so the same bytes hash the
+; same on native, js_of_ocaml and Melange-free consumers alike. Every word is an
+; Int32 (js_of_ocaml's int is 32-bit, native's is 63-bit, so an int-based
+; implementation would need a mask whose literal truncates on one backend);
+; the byte count is an int64. Depends on nothing: the bigstring type is the
+; stdlib's, spelled out, so this library sits below Pt2_storage.
+
+(library
+ (name pt2_sha256)
+ (libraries fmt))

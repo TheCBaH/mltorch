@@ -1,0 +1,18 @@
+; The pure half of the checkpoint-map v2 weight source: the wire vocabulary, its
+; Jsont codecs and every check that needs no file or network -- the map against
+; itself, then against a graph's signature, captures and configs. Nothing here
+; reads a file, so js_of_ocaml reaches it; the host that fetches and maps
+; sources is lib/pt2_checkpoint_map_unix. The v1 source stays in
+; lib/pt2_safetensors and is not touched.
+
+(library
+ (name pt2_checkpoint_map)
+ (libraries
+  err_trace
+  fmt
+  jsont
+  jsont.bytesrw
+  pt2
+  pt2_sha256
+  pytorch_types
+  schema_runtime))

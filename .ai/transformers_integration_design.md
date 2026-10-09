@@ -340,3 +340,31 @@ rank-limited by `Vec6`, so rank above six is an unsupported-shape result.
 Replay compares each output with `|actual - reference| <= atol + rtol *
 |reference|` using the case's own tolerances (`1e-5`, `1e-4` in the cohort);
 integer and Boolean outputs compare exactly.
+
+## 13. Pure map library (implemented)
+
+`lib/pt2_sha256` is the byte-hash provider: SHA-256 in pure OCaml over `Int32`
+words with an `int64` length, incremental over strings and bigstrings, so one
+implementation gives identical digests on native and js_of_ocaml (checked by
+the published vectors, every chunk size and both backends). It replaces no
+host facility: `hf-hub-unix`'s `sha256sum` shells out and stays the whole-file
+path for large native sources. The OCaml custom operators `&%`/`^%` sit at
+different precedence levels; the compression function parenthesizes every
+mix of them (the first draft did not and produced wrong digests).
+
+`lib/pt2_checkpoint_map` is the pure v2 core. `Document.of_string` decodes the
+map with schema-closed Jsont objects (unknown members rejected where the
+schema forbids them, tensor members kept in order so a repeated key is an
+error rather than a silent overwrite) and checks the map against itself.
+`Validate.check` reads the graph three independent ways -- signature, payload
+configs, `captures.json` -- and requires the map to match all of them in a
+fixed order, so the first reported fault is deterministic. Faults are
+polymorphic variants with data payloads (`Fault`), not strings. Only the
+conversions the host implements (none, BF16 to F32, F16 to F32) pass
+`supported_conversions`; the others parse but are refused before any source
+is opened.
+
+`bin/transformers_map_check.exe` runs this against extracted bundles with no
+source file read. All 35 released bundles of `checkpoint-003207ae59ed`
+validate; 19 single-fault mutations of one bundle are each refused at the
+intended check.

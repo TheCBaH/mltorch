@@ -298,3 +298,19 @@
   ssa_ir
   unix)
  (optional))
+
+; Structural check of extracted checkpoint-map bundles: the v2 map against its
+; graph, configs and captures.json, with no source file read. See
+; lib/pt2_checkpoint_map.
+
+(executable
+ (name transformers_map_check)
+ (modules transformers_map_check)
+ (libraries
+  err_trace
+  fmt
+  jsont
+  jsont.bytesrw
+  pt2
+  pt2_checkpoint_map
+  pt2_sha256))

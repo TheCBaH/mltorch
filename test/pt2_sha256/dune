@@ -1,0 +1,13 @@
+; Known-answer and chunking tests for lib/pt2_sha256. Pure, so the suite also
+; runs under js_of_ocaml (@runtest-js): the point of the library is that both
+; backends produce these exact digests.
+;
+; See test/native4d/dune for why [js] carries no `enabled_if`.
+
+(library
+ (name pt2_sha256_test)
+ (libraries fmt pt2_sha256)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))
