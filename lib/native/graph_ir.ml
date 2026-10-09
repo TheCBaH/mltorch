@@ -208,6 +208,12 @@ let op_registry : (module OP) list =
       let project = function Div_scalar t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Embedding.Embedding
+
+      let inject t = Embedding t
+      let project = function Embedding t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Pointwise.Eq_scalar
 
       let inject t = Eq_scalar t

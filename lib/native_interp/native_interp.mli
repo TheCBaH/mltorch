@@ -74,6 +74,8 @@ type metadata_role =
   | `Convolution_weight
   | `Cumsum_input
   | `Einsum_operand
+  | `Embedding_indices
+  | `Embedding_weight
   | `Expand_input
   | `Group_norm_bias
   | `Group_norm_weight

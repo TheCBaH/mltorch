@@ -259,6 +259,10 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Div_scalar { Pointwise.Scalar_bin.x; scalar } ->
         let module C = Pointwise.Div_scalar.Compute (S) in
         C.pixel ~scalar (operand x) out
+    | Embedding { Embedding.Embedding.params; weight; indices } ->
+        let module C = Embedding.Embedding.Compute (S) in
+        C.pixel params ~weight_shape:(shape_of weight) ~weight:(operand weight)
+          ~indices:(operand indices) out
     | Mul { Pointwise.Bin.a; b } ->
         let module C = Pointwise.Mul.Compute (S) in
         C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)

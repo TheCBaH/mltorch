@@ -1084,6 +1084,38 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
      trace-back exists to solve is specifically about [Native_interp]'s
      metadata-only import stamping a wrong dtype on a *newly built* [Clone]
      node's OWN output signature, which never happens here. *)
+  (* `embedding(weight, indices, padding_idx=-1, scale_grad_by_freq=False,
+     sparse=False)`: its own node (see [Embedding]). The indices' real ATen rank
+     is read from the value, and a non-Long indices tensor is refused here as
+     ATen's own lookup requires an integer one. *)
+  | "torch.ops.aten.embedding.default" ->
+      Some
+        (let* weight_t = tensor_arg aten_env node "weight" in
+         let* indices_t = tensor_arg aten_env node "indices" in
+         if aten_rank weight_t <> Rank.of_int 2 then
+           fail (`Validation_failure "embedding: weight must be 2-D")
+         else if Aten_tensor.scalar_type indices_t <> Aten_scalar_type.Long then
+           fail (`Validation_failure "embedding: indices must be int64")
+         else
+           let indices_rank = aten_rank indices_t in
+           let* padding_idx =
+             decode_result (D.int_arg_result ~default:(-1) node "padding_idx")
+           in
+           let* weight_n = native_of_aten "weight" weight_t in
+           let* indices_n = native_of_aten "indices" indices_t in
+           build_g ~name:"embedding" [ weight_n; indices_n ] (function
+             | [ weight_id; indices_id ] ->
+                 let open Graph_builder in
+                 let+ y =
+                   embedding
+                     {
+                       Embedding.Embedding.indices_rank;
+                       padding_idx = Aten_int.Index.of_int padding_idx;
+                     }
+                     ~weight:weight_id ~indices:indices_id
+                 in
+                 [ y ]
+             | _ -> assert false))
   | "torch.ops.aten.index.Tensor" ->
       Some
         (let* self_t = tensor_arg aten_env node "self" in

@@ -182,6 +182,15 @@ val einsum :
   tensor_ref ->
   Tensor_id.t t
 
+(* `embedding.default`: the weight's rows selected by the indices. One node;
+   the output keeps the weight's F32 element type. *)
+val embedding :
+  ?name:string ->
+  Embedding.Embedding.params ->
+  weight:tensor_ref ->
+  indices:tensor_ref ->
+  Tensor_id.t t
+
 (* [eq.Scalar(self, other) -> self == other] -- real ATen output dtype Bool,
    unconditionally declared here (see .ml). *)
 val eq_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t

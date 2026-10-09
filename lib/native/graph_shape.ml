@@ -366,6 +366,14 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Div_scalar.output_shape x_shape) in
       [ out ]
+  | Embedding { Embedding.Embedding.params; weight; indices } ->
+      let* weight_shape = shape weight in
+      let* indices_shape = shape indices in
+      let+ out =
+        widen
+          (Embedding.Embedding.output_shape ~weight_shape ~indices_shape params)
+      in
+      [ out ]
   | Mul { Pointwise.Bin.a; b } ->
       let* a_shape = shape a in
       let* b_shape = shape b in

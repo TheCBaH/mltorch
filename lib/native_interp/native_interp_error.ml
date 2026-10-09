@@ -85,6 +85,8 @@ type metadata_role =
   | `Convolution_weight
   | `Cumsum_input
   | `Einsum_operand
+  | `Embedding_indices
+  | `Embedding_weight
   | `Expand_input
   | `Group_norm_bias
   | `Group_norm_weight
@@ -486,6 +488,8 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Convolution_weight -> Fmt.string ppf "convolution weight"
   | `Cumsum_input -> Fmt.string ppf "cumsum input"
   | `Einsum_operand -> Fmt.string ppf "einsum operand"
+  | `Embedding_indices -> Fmt.string ppf "embedding indices"
+  | `Embedding_weight -> Fmt.string ppf "embedding weight"
   | `Expand_input -> Fmt.string ppf "expand input"
   | `Group_norm_bias -> Fmt.string ppf "group_norm bias"
   | `Group_norm_weight -> Fmt.string ppf "group_norm weight"

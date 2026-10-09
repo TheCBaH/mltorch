@@ -66,6 +66,7 @@ type op =
        [Max_pool2d_with_indices] — so the op keeps its full ATen arity while the
        edge is explicitly marked unused for a future pruning pass. Like
        [Discard], it is handled inline wherever the [op_registry] is folded. *)
+  | Embedding of Embedding.Embedding.t
   (* `eq.Scalar(self, other) -> self == other`, real ATen output dtype Bool
      (float numerical equality, NaN unequal, signed zeros equal). No corpus
      caller today; landed on Direct only, matching

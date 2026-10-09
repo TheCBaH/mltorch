@@ -44,6 +44,13 @@ type mixed_dtype = {
 
 type scalar_op = { scalar_op : string; fmt : Payload.packed_fmt }
 
+(* An embedding table must be float32 and its indices int64: the only pair the
+   gather reads exactly. *)
+type embedding_dtype = {
+  weight_fmt : Payload.packed_fmt;
+  indices_fmt : Payload.packed_fmt;
+}
+
 type error =
   [ Arena.error
   | Eval_direct_compute.error
@@ -57,6 +64,7 @@ type error =
   | `Region_execution of Region_eval.error
   | `Unsupported_bool_arithmetic of mixed_dtype
   | `Unsupported_bool_scalar_arithmetic of scalar_op
+  | `Unsupported_embedding_dtype of embedding_dtype
   | `Unsupported_mixed_dtype of mixed_dtype ]
 
 (** A result whose shape, format or quantization is not its edge's declared

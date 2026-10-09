@@ -375,6 +375,12 @@ let check_node view (n : node) =
      same intrinsic-axis boundary [Batched_matmul]'s multi-batch form,
      [Sdpa]'s own D axis, and [Unfold] above are. *)
   | Conv3d _ -> unsupported ()
+  (* Not a missing counterpart: the four-axis dialect's only gather is
+     [IndexTensor4], which wraps a negative index as advanced indexing does,
+     while an embedding lookup is [index_select] and rejects it. Lowering one
+     onto the other would quietly change the failure behavior of the source
+     operation, so the node stays outside the dialect. *)
+  | Embedding _ -> unsupported ()
 
 (* Node predicates FIRST, then the shape rule. The two overlap — a permutation
    that moves C onto D necessarily produces a tensor with extent on D, so either

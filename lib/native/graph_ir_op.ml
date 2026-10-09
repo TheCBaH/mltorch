@@ -41,6 +41,7 @@ type op =
   | Div of Pointwise.Div.t
   | Div_scalar of Pointwise.Div_scalar.t
   | Discard of { x : tensor_ref }
+  | Embedding of Embedding.Embedding.t
   | Eq_scalar of Pointwise.Eq_scalar.t
   | Eq_tensor of Pointwise.Eq_tensor.t
   | Expand of Pointwise.Expand.t

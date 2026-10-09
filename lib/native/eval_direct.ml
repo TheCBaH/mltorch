@@ -14,6 +14,13 @@ type mixed_dtype = {
 
 type scalar_op = { scalar_op : string; fmt : Payload.packed_fmt }
 
+(* An embedding table must be float32 and its indices int64: the only pair the
+   gather reads exactly. *)
+type embedding_dtype = {
+  weight_fmt : Payload.packed_fmt;
+  indices_fmt : Payload.packed_fmt;
+}
+
 type error =
   [ Arena.error
   | Eval_direct_compute.error
@@ -27,6 +34,7 @@ type error =
   | `Region_execution of Region_eval.error
   | `Unsupported_bool_arithmetic of mixed_dtype
   | `Unsupported_bool_scalar_arithmetic of scalar_op
+  | `Unsupported_embedding_dtype of embedding_dtype
   | `Unsupported_mixed_dtype of mixed_dtype ]
 
 type hooks =
@@ -65,6 +73,12 @@ let pp_error ppf : [< error ] -> unit = function
       Format.fprintf ppf
         "%s: arithmetic on a Bool operand is not supported, x=%s" scalar_op
         (Payload.fmt_name fmt)
+  | `Unsupported_embedding_dtype
+      { weight_fmt = Payload.Fmt weight; indices_fmt = Payload.Fmt indices } ->
+      Format.fprintf ppf
+        "embedding: weight must be f32 and indices i64, got weight=%s \
+         indices=%s"
+        (Payload.fmt_name weight) (Payload.fmt_name indices)
   | `Unsupported_mixed_dtype
       { mixed_op; a_fmt = Payload.Fmt a_fmt; b_fmt = Payload.Fmt b_fmt } ->
       Format.fprintf ppf "%s: unsupported mixed dtype, a=%s b=%s" mixed_op
@@ -275,6 +289,11 @@ let admit (g : graph) (op : op) : (unit, [> error ]) Err.t =
   in
   match op with
   | Add { Pointwise.Bin.a; b } -> check_pair "add" a b
+  | Embedding { Embedding.Embedding.weight; indices; _ } -> (
+      match (fmt_of weight, fmt_of indices) with
+      | Payload.Fmt Payload.F32, Payload.Fmt Payload.I64 -> Err.return ()
+      | weight_fmt, indices_fmt ->
+          Err.fail (`Unsupported_embedding_dtype { weight_fmt; indices_fmt }))
   | Sub { Pointwise.Bin.a; b } -> check_pair "sub" a b
   | Mul { Pointwise.Bin.a; b } -> check_pair "mul" a b
   | Mul_scalar { Pointwise.Scalar_bin.x; _ } -> check_scalar_op "mul_scalar" x

@@ -108,6 +108,15 @@ module Clamp : sig
   val pp_error : Format.formatter -> error -> unit
 end
 
+module Embedding : sig
+  (* [embedding]'s weight is the [V, D] table: in the six-axis frame its W axis
+     is the vocabulary and its C axis the embedding dimension, so every other
+     axis must be extent one. *)
+  type error = Weight_not_a_matrix of Vec6.shape
+
+  val pp_error : Format.formatter -> error -> unit
+end
+
 module Linear : sig
   type channels_mismatch = {
     actual : Dim.extent Dim.t;
@@ -529,6 +538,7 @@ type t =
   | `Clamp of Clamp.error
   | `Concat of Concat.t
   | `Convolution of Convolution.error
+  | `Embedding of Embedding.error
   | `Group_norm of Group_norm.t
   | `Index_tensor of Index_tensor.t
   | `Im2col of Im2col.t

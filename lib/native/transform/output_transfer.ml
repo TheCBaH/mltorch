@@ -111,6 +111,9 @@ let classify (op : op) ~output =
      there is no separate continuous "value" output here to distinguish by
      [output]. *)
   | Index_tensor _ -> Discontinuous
+  (* The same data-dependent gather [Index_tensor] is: which weight row is read
+     comes from the indices' content, not the output coordinate. *)
+  | Embedding _ -> Discontinuous
   (* No outputs at all, so this is unreachable from propagation; answer
      conservatively rather than inventing a guarantee. *)
   | Discard _ -> Discontinuous

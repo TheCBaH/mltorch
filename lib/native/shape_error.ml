@@ -168,6 +168,15 @@ module Clamp = struct
         Fmt.string ppf "clamp: at least one of 'min' or 'max' must be given"
 end
 
+module Embedding = struct
+  type error = Weight_not_a_matrix of Vec6.shape
+
+  let pp_error ppf = function
+    | Weight_not_a_matrix shape ->
+        Fmt.pf ppf "embedding weight must be a [V, D] matrix, got %a"
+          Vec6.pp_shape shape
+end
+
 module Linear = struct
   type channels_mismatch = {
     actual : Dim.extent Dim.t;
@@ -795,6 +804,7 @@ type t =
   | `Clamp of Clamp.error
   | `Concat of Concat.t
   | `Convolution of Convolution.error
+  | `Embedding of Embedding.error
   | `Group_norm of Group_norm.t
   | `Index_tensor of Index_tensor.t
   | `Im2col of Im2col.t
@@ -827,6 +837,7 @@ let pp ppf = function
   | `Clamp e -> Clamp.pp_error ppf e
   | `Concat e -> Concat.pp ppf e
   | `Convolution e -> Convolution.pp_error ppf e
+  | `Embedding e -> Embedding.pp_error ppf e
   | `Group_norm e -> Group_norm.pp ppf e
   | `Index_tensor e -> Index_tensor.pp ppf e
   | `Im2col e -> Im2col.pp ppf e

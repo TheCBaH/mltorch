@@ -5,6 +5,7 @@ module E = Eval_op.Make (Direct)
 
 type error =
   [ `Arange_i64_overflow of Factory.Arange.Overflow.t
+  | `Embedding_index_out_of_range of Embedding.Embedding.Index_out_of_range.t
   | Tensor.dst_error
   | `Unsupported_to_copy_bool_source of Payload.packed_fmt
   | `Unsupported_to_copy_long_source of Payload.packed_fmt ]
@@ -14,6 +15,8 @@ let pp_error ppf : [< error ] -> unit = function
       Format.fprintf ppf
         "arange: exact int64 generation overflows at start=%Ld step=%Ld i=%d"
         start step i
+  | `Embedding_index_out_of_range e ->
+      Embedding.Embedding.Index_out_of_range.pp ppf e
   | #Tensor.dst_error as e -> Tensor.pp_dst_error ppf e
   | `Unsupported_to_copy_bool_source (Payload.Fmt f) ->
       Format.fprintf ppf
@@ -169,6 +172,41 @@ let compute_arms (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
      through [i64_load], negated in wrapping int64 arithmetic), never the float
      pixel, whose [S.load] is lossy above 2^53. The builder threads the I64
      output edge for exactly this case, so the destination is an I64 tensor. *)
+  (* ATen's embedding is [index_select]: every index must lie in [0, V). The
+     gather this delegates to also takes [-V, -1] (it wraps, as advanced
+     indexing does), so the strict rule is enforced here, over every index
+     element before any row is read. A bad index is an error row, never a
+     clamped or wrapped read. *)
+  | Embedding { Embedding.Embedding.weight; indices; _ } -> (
+      let vocabulary = Vec6.get (Tensor_id.Map.find weight shape_env) Axis.W in
+      let indices_t = Tensor_id.Map.find indices operand_env in
+      let bad = ref None in
+      Vec6.iter (Tensor_id.Map.find indices shape_env) (fun coord ->
+          if !bad = None then
+            let raw =
+              Err.or_raise
+                ~pp_error:(fun fmt (`Wrong_format (Payload.Fmt f)) ->
+                  Fmt.pf fmt "embedding indices must be I64, got %s"
+                    (Payload.fmt_name f))
+                (Tensor.read_i64_at6 indices_t (fun a ->
+                     (Vec6.get coord a :> int)))
+            in
+            if
+              Int64.compare raw 0L < 0
+              || Int64.compare raw (Int64.of_int (vocabulary :> int)) >= 0
+            then bad := Some raw);
+      match !bad with
+      | Some raw ->
+          Err.fail
+            (`Embedding_index_out_of_range
+               { Embedding.Embedding.Index_out_of_range.raw; vocabulary })
+      | None ->
+          finish dst
+            (Schedule.evaluate_into dst
+               (E.pixel op ~output
+                  ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                  ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                  ~fill)))
   | Abs { Pointwise.Abs.x } -> (
       let x_sig = Tensor_id.Map.find x g.Graph.tensors in
       match x_sig.Tensor_sig.fmt with

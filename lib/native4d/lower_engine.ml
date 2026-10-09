@@ -888,5 +888,5 @@ let lower_node ~view acc (n : node) =
      [Max_pool2d_with_indices]/[Repeat]/[RepeatInterleave]/[Select_scatter]/
      [Softmax]/[Batched_matmul]/[Sdpa]/[Index_tensor]/[Lstm]/[Meshgrid] no
      longer join them: all twelve now have real conversion arms above. *)
-  | Conv3d _ | Discard _ | Unfold _ ->
+  | Conv3d _ | Discard _ | Embedding _ | Unfold _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))

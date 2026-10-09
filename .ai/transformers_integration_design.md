@@ -545,3 +545,28 @@ Rerunning the 30-row admission sweep moved three first blockers and exposed
 three others, as expected: `aten._to_copy.default` with a `layout` argument,
 `aten.full.default` and `aten.squeeze.default` are now each a graph's first
 refusal. They are recorded, not yet implemented.
+
+## 19. Embedding lookup (implemented)
+
+`aten.embedding.default` is a `Gather` over the table's leading axis: a `[V, D]`
+float32 weight and an int64 index tensor of rank 1 or 2 give an output of the
+indices' shape plus `D`. The indices' ATen rank is carried in the op's params
+because the six-axis frame right-aligns and erases it. `padding_idx` only steers
+ATen's backward pass, so it is kept for provenance and changes no value;
+`scale_grad_by_freq` and `sparse` are read and dropped.
+
+Index semantics are strict, as ATen's: an id outside `[0, V)`, negative ids
+included, is an error, not a wrap. Direct enforces it in a pre-pass and reports a
+typed `Embedding_index_out_of_range` row; the symbolic route wraps instead, a
+difference documented where it is defined. Native4D rejects the op, so
+admission rows for graphs that contain one stop at Native4D by design, while
+Native and Kernel build. The ATen oracle cannot test the invalid-index side: the
+kernel's bounds check aborts the process, so only valid indices are compared.
+
+The importer arm lives in its own module to keep the compute-family dispatcher
+under the file-size cap.
+
+Admission after this change: embedding is no longer the first blocker of any
+graph. The next ones are `aten.new_ones.default` (five graphs, including the
+BERT-tiny and TinyCLIP text encoders, so embedding is not yet exercised on a
+real released case), `softmax.int` dtype handling, and `diff.default`.

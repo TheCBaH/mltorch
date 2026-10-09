@@ -314,6 +314,13 @@ let cumsum ?name params x =
 (* A sink for a dead edge: appends a [Discard] node with no output. *)
 let discard x = push_node (Discard { x }) []
 
+(* The output is the weight's element type (F32, the only table [Eval_direct]
+   admits), which is [op1]'s default; the indices operand is the separate I64
+   input and never becomes the result. *)
+let embedding ?name params ~weight ~indices =
+  op1 ?name ~kind:"embedding"
+    (Embedding { Embedding.Embedding.params; weight; indices })
+
 (* Real ATen's [eq.Scalar] always produces a bool result, so the output is
    unconditionally [Bool] (matching [gt_scalar]'s own convention below) --
    not conditioned on the operand's format. *)
