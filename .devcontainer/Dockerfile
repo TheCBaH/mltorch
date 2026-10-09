@@ -3,6 +3,7 @@ FROM debian:${VARIANT}
 RUN set -eux;\
     apt-get update;\
     env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends\
+  binutils-x86-64-linux-gnu\
   ca-certificates\
   ccache\
   clang\
@@ -41,6 +42,7 @@ RUN set -eux;\
   python3\
   python3-typing-extensions\
   python3-yaml\
+  qemu-user\
   ripgrep\
   time\
   wasi-libc\

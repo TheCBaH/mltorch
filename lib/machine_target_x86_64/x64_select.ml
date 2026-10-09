@@ -36,6 +36,9 @@ module Mutation = struct
     | Contract
     | Division_swap
     | Fused_float_eq
+    | Insert_next_lane
+    | Mask_arms
+    | Mask_lt_le
     | Max_no_nan
     | Missing_failure_word
     | No_parity
@@ -228,10 +231,57 @@ let fselect st ~result fsz p a c =
 
 (* The packed format of a register-wide vector value, or the half. *)
 let pk_of st (t : Mir_type.t) =
-  if Mir_type.equal t (Pk.ty Pk.Ps) then `Pk Pk.Ps
-  else if Mir_type.equal t (Pk.ty Pk.Pd) then `Pk Pk.Pd
+  if Mir_type.equal t (Pk.ty Pk.Ps) || Mir_type.equal t (Pk.mask_ty Pk.Ps) then
+    `Pk Pk.Ps
+  else if Mir_type.equal t (Pk.ty Pk.Pd) || Mir_type.equal t (Pk.mask_ty Pk.Pd)
+  then `Pk Pk.Pd
   else if Mir_type.equal t half_ty then `Half
   else refuse st (Refusal.Width t)
+
+let is_mask (v : Mir_value.t) =
+  match v.Mir_value.ty with Mir_type.Mask _ -> true | _ -> false
+
+(* [n] ordered forms in a row, chained on the order [o] threads. *)
+let chained st (o : Mir_order.t option) n f =
+  let o = Option.get o in
+  let input = ref o.Mir_order.input in
+  for k = 0 to n - 1 do
+    let output =
+      if k = n - 1 then o.Mir_order.output else fresh st Mir_type.Order
+    in
+    f k { Mir_order.input = !input; output };
+    input := output
+  done
+
+(* Lane [k] of [a] replaced by the scalar [x], on SSE2 alone: [x] to every lane,
+   then SHUFPS/SHUFPD to pick lanes from it and from [a]. *)
+let insert st ?result p k a x =
+  let k =
+    if mutated st Mutation.Insert_next_lane then (k + 1) mod Pk.lanes p else k
+  in
+  let ty = Pk.ty p in
+  let xs = emit st ty (Pshufd_splat (p, x)) in
+  let shuf ?result imm first second =
+    emit st ?result ty (Pshuf (p, imm, first, second))
+  in
+  let lanes l =
+    List.fold_left ( lor ) 0 (List.mapi (fun j i -> i lsl (2 * j)) l)
+  in
+  match (p, k) with
+  | Pk.Pd, 0 -> shuf ?result 2 xs a
+  | Pk.Pd, _ -> shuf ?result 0 a xs
+  | Pk.Ps, 0 ->
+      let t = shuf (lanes [ 0; 0; 1; 1 ]) xs a in
+      shuf ?result (lanes [ 0; 2; 2; 3 ]) t a
+  | Pk.Ps, 1 ->
+      let t = shuf (lanes [ 0; 0; 0; 0 ]) a xs in
+      shuf ?result (lanes [ 0; 2; 2; 3 ]) t a
+  | Pk.Ps, 2 ->
+      let b = shuf (lanes [ 0; 0; 3; 3 ]) xs a in
+      shuf ?result (lanes [ 0; 1; 0; 2 ]) a b
+  | Pk.Ps, _ ->
+      let b = shuf (lanes [ 2; 2; 0; 0 ]) a xs in
+      shuf ?result (lanes [ 0; 1; 0; 2 ]) a b
 
 let is_vector (v : Mir_value.t) =
   match v.Mir_value.ty with
@@ -257,12 +307,75 @@ let vector st (i : Mir_op.t Mir_instr.t) =
   let half (v : Mir_value.t) =
     match pk_of st v.Mir_value.ty with `Half -> () | `Pk _ -> unsupported ()
   in
+  (* lane [k] of a strided access: the address plus [k] strides *)
+  let lane_addr addr stride k =
+    let a = address st addr in
+    let disp = Int64.add a.Addr.disp (Int64.mul (Int64.of_int k) stride) in
+    if disp32 disp then { a with Addr.disp } else unsupported ()
+  in
   match i.Mir_instr.op with
   | Mir_op.Copy a -> (
       match pk_of st a.Mir_value.ty with
       | `Pk _ -> def (Movap a)
       | `Half -> unsupported ())
-  | Mir_op.Fbinary (Mir_op.Fbinary.Max, _, _) -> unsupported ()
+  | Mir_op.Fbinary (Mir_op.Fbinary.Max, a, c) ->
+      (* IEEE maximum from MAXPS as {!fmax} does from MAXSD: two equal operands
+         give their AND (+0 over -0), a NaN operand the sum *)
+      let p = pk a in
+      let ty = Pk.ty p and mty = Pk.mask_ty p in
+      let cmp pred x y =
+        let mx = emit st mty (Movap_to_mask (p, x)) in
+        emit st mty (Pcmp (pred, p, mx, y))
+      in
+      let m = emit st ty (Pbin (Fop.Max, p, a, c)) in
+      let e = cmp Cmp_pred.Eq a c in
+      let z = emit st ty (Plogic (Flogic.And, p, a, c)) in
+      let t1 = emit st ty (Plogic (Flogic.And, p, z, e)) in
+      let t2 = emit st mty (Plogic (Flogic.Andn, p, e, m)) in
+      let r0 = emit st ty (Plogic (Flogic.Or, p, t1, t2)) in
+      let u = cmp Cmp_pred.Unord a c in
+      let s = emit st ty (Pbin (Fop.Add, p, a, c)) in
+      let t = emit st ty (Plogic (Flogic.Xor, p, s, r0)) in
+      let w = emit st ty (Plogic (Flogic.And, p, t, u)) in
+      def (Plogic (Flogic.Xor, p, w, r0))
+  | Mir_op.Fcmp (c, a, b) ->
+      (* ordered compares are false in a lane where either operand is a NaN,
+         as CMPPS is; the first operand is copied into a mask-typed register,
+         which the destructive compare then overwrites *)
+      let p = pk a in
+      let m = emit st (Pk.mask_ty p) (Movap_to_mask (p, a)) in
+      def
+        (Pcmp
+           ( (match c with
+             | Mir_op.Fcmp.Eq -> Cmp_pred.Eq
+             | Mir_op.Fcmp.Le -> Cmp_pred.Le
+             | Mir_op.Fcmp.Lt when mutated st Mutation.Mask_lt_le -> Cmp_pred.Le
+             | Mir_op.Fcmp.Lt -> Cmp_pred.Lt
+             | Mir_op.Fcmp.Unordered -> Cmp_pred.Unord),
+             p,
+             m,
+             b ))
+  | Mir_op.Pbinary (o, a, b) ->
+      def
+        (Plogic
+           ( (match o with
+             | Mir_op.Pbinary.And -> Flogic.And
+             | Mir_op.Pbinary.Or -> Flogic.Or
+             | Mir_op.Pbinary.Xor -> Flogic.Xor),
+             pk a,
+             a,
+             b ))
+  | Mir_op.Pnot a ->
+      let p = pk a in
+      let ones = emit st (Pk.mask_ty p) (Pones p) in
+      def (Plogic (Flogic.Xor, p, a, ones))
+  | Mir_op.Select (m, a, b) when is_mask m ->
+      (* [b ^ ((a ^ b) & m)]: a lane of [a] where the mask is set *)
+      let p = pk a in
+      let a, b = if mutated st Mutation.Mask_arms then (b, a) else (a, b) in
+      let t = emit st a.Mir_value.ty (Plogic (Flogic.Xor, p, a, b)) in
+      let u = emit st a.Mir_value.ty (Plogic (Flogic.And, p, t, m)) in
+      def (Plogic (Flogic.Xor, p, u, b))
   | Mir_op.Fbinary (o, a, b) ->
       let o =
         match o with
@@ -317,13 +430,51 @@ let vector st (i : Mir_op.t Mir_instr.t) =
                 ( (match fsz with Fsz.D -> Msz.D | Fsz.S -> Msz.S),
                   address st addr )));
         def (Pshufd_splat (p, x)))
-      else unsupported ()
+      else
+        (* one scalar load per lane, in lane order, joined by lane inserts *)
+        let acc = ref None in
+        chained st i.Mir_instr.order (Pk.lanes p) (fun k order ->
+            let x = fresh st (fty fsz) in
+            push st ~order [ x ]
+              (Mir_sel.Op.Machine
+                 (Load
+                    ( (match fsz with Fsz.D -> Msz.D | Fsz.S -> Msz.S),
+                      lane_addr addr stride k )));
+            acc :=
+              Some
+                (match !acc with
+                | None -> emit st (Pk.ty p) (Pshufd_splat (p, x))
+                | Some v ->
+                    let result =
+                      if k = Pk.lanes p - 1 then Some (r ()) else None
+                    in
+                    insert st ?result p k v x))
   | Mir_op.Vslice (first, count, a)
     when Mir_type.Lanes.to_int count = 2 && pk a = Pk.Ps -> (
       match Mir_type.Lane.to_int first with
       | 0 -> def (Movq_low a)
       | 2 -> def (Pshufd_half a)
       | _ -> unsupported ())
+  | Mir_op.Vinsert (lane, a, x) ->
+      let result = r () in
+      ignore (insert st ~result (pk a) (Mir_type.Lane.to_int lane) a x)
+  | Mir_op.Vsplat (_, p) when is_mask (r ()) ->
+      (* a predicate is 0 or 1: all ones where it is set, then to every lane *)
+      let mp = pk (r ()) in
+      let sz, ity, fsz =
+        match mp with
+        | Pk.Pd -> (Sz.Q, Mir_type.i64, Fsz.D)
+        | Pk.Ps -> (Sz.L, Mir_type.i32, Fsz.S)
+      in
+      let flags = emit st Mir_type.Flags (Test (Sz.L, p, p)) in
+      let ones =
+        emit st ity
+          (Mov_imm (ity, match mp with Pk.Pd -> -1L | Pk.Ps -> 0xFFFF_FFFFL))
+      in
+      let zero = emit st ity (Mov_imm (ity, 0L)) in
+      let m = emit st ity (Cmov (sz, Cond.Ne, flags, ones, zero)) in
+      let x = emit st (fty fsz) (Movq_from_gpr (fsz, m)) in
+      def (Pshufd_splat_mask (mp, x))
   | Mir_op.Vsplat (_, x) -> def (Pshufd_splat (pk (r ()), x))
   | Mir_op.Vstore ({ Mir_op.Vaccess.addr; stride; _ }, v) ->
       let p = pk v in
@@ -331,7 +482,15 @@ let vector st (i : Mir_op.t Mir_instr.t) =
       if Int64.equal stride size then
         push st ?order:i.Mir_instr.order []
           (Mir_sel.Op.Machine (Movup_store (p, address st addr, v)))
-      else unsupported ()
+      else
+        chained st i.Mir_instr.order (Pk.lanes p) (fun k order ->
+            let x = emit st (fty (Pk.fsz p)) (Pshufd_lane (Pk.fsz p, k, v)) in
+            push st ~order []
+              (Mir_sel.Op.Machine
+                 (Store
+                    ( (match Pk.fsz p with Fsz.D -> Msz.D | Fsz.S -> Msz.S),
+                      lane_addr addr stride k,
+                      x ))))
   | _ -> unsupported ()
 
 let instr st (i : Mir_op.t Mir_instr.t) =
@@ -559,13 +718,13 @@ let fail st (f : Mir_fail.t) =
   | Some term -> term
   | None -> refuse st (Refusal.Missing_site f.Mir_fail.failure)
 
-(* A vector is register-wide by now; a mask is never kept in a register. *)
+(* A vector or a mask is register-wide by now: four binary32 lanes or two
+   binary64, or a half vector. *)
 let scalar st vs =
   List.iter
     (fun (v : Mir_value.t) ->
       match v.Mir_value.ty with
-      | Mir_type.Mask _ -> refuse st (Refusal.Width v.Mir_value.ty)
-      | Mir_type.Vec _ -> ignore (pk_of st v.Mir_value.ty)
+      | Mir_type.Mask _ | Mir_type.Vec _ -> ignore (pk_of st v.Mir_value.ty)
       | _ -> ())
     vs
 

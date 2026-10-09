@@ -1,5 +1,5 @@
 (* A lowered source case through reference allocation, frames and publication,
-   then on the physical interpreter and as an emulated x86-64 process over the
+   then on the physical interpreter and as an x86-64 process over the
    same bound bytes. The two are compared as observations: the status, the
    failure record it decodes to, and the output tensors. *)
 
@@ -12,7 +12,7 @@ module Fr = Machine_alloc.Mir_frame.Make (X64) (X64_frame)
 module Pub = Machine_model.Mir_artifact.Make (X64)
 module P = Mir_phys_interp.Make (X64)
 module Art = Machine_model.Mir_artifact
-module Qemu = Machine_rivet_x86_64.Rivet_x64_qemu
+module Qemu = Machine_rivet_x86_64.Rivet_x64_process
 
 let ( let* ) = Result.bind
 
@@ -79,9 +79,9 @@ let interpreted case ~sites ({ artifact; _ } as b) =
       in
       Ok (observe case ~sites b memory binding r.P.outcome)
 
-(* The artifact as an emulated process: the mutable regions start at the case's
+(* The artifact as a process: the mutable regions start at the case's
    bound bytes and come back as the process left them. *)
-let emulated_full ?runtime ?timeout ?probe ?entry_mutation case ~sites
+let process_full ?runtime ?timeout ?probe ?entry_mutation case ~sites
     ({ artifact; _ } as b) =
   let phys = Art.program artifact in
   let bound r =
@@ -125,10 +125,10 @@ let emulated_full ?runtime ?timeout ?probe ?entry_mutation case ~sites
            [ Mir_datum.Bits (Int64.logand status 0xFFFF_FFFFL) ]),
       abi )
 
-let emulated ?runtime ?timeout case ~sites b =
-  Result.map fst (emulated_full ?runtime ?timeout case ~sites b)
+let process ?runtime ?timeout case ~sites b =
+  Result.map fst (process_full ?runtime ?timeout case ~sites b)
 
-(* The emulated observation against the interpreter's: a one-line verdict. *)
+(* The process observation against the interpreter's: a one-line verdict. *)
 let compare ?runtime ?features ?pad ?probe ?entry_mutation ?(sites = [||])
     (case : Src.Case.t) =
   match build ?features ?pad case ~sites with
@@ -136,10 +136,10 @@ let compare ?runtime ?features ?pad ?probe ?entry_mutation ?(sites = [||])
   | Ok b -> (
       match
         ( interpreted case ~sites b,
-          emulated_full ?runtime ?probe ?entry_mutation case ~sites b )
+          process_full ?runtime ?probe ?entry_mutation case ~sites b )
       with
       | Error e, _ -> "interpreter: " ^ e
-      | _, Error e -> "emulated: " ^ e
+      | _, Error e -> "process: " ^ e
       | Ok i, Ok (n, abi) -> (
           let abi =
             match Option.map Qemu.Abi.violations abi with
@@ -147,9 +147,9 @@ let compare ?runtime ?features ?pad ?probe ?entry_mutation ?(sites = [||])
             | Some v -> " ABI broken: " ^ String.concat "; " v
           in
           match Mir_compare.observations ~expected:i ~actual:n () with
-          | Ok () -> Src.status_name n ^ " [emulated: agree]" ^ abi
+          | Ok () -> Src.status_name n ^ " [process: agree]" ^ abi
           | Error d ->
-              Fmt.str "%s [emulated: DISAGREE %a]%s" (Src.status_name n)
+              Fmt.str "%s [process: DISAGREE %a]%s" (Src.status_name n)
                 Mir_compare.Difference.pp d abi))
 
 (* The System V ABI around a kernel and its helpers, with stub helpers that
@@ -159,10 +159,10 @@ let abi ?pad ?entry_mutation ?(sites = [||]) (case : Src.Case.t) =
   | Error e -> "not built: " ^ e
   | Ok b -> (
       match
-        emulated_full ~runtime:Machine_rivet_common.Rivet_runtime.System_libm
+        process_full ~runtime:Machine_rivet_common.Rivet_runtime.System_libm
           ~probe:true ?entry_mutation case ~sites b
       with
-      | Error e -> "emulated: " ^ e
+      | Error e -> "process: " ^ e
       | Ok (_, None) -> "no probe record"
       | Ok (_, Some a) -> (
           match Qemu.Abi.violations a with
@@ -193,7 +193,7 @@ let gnu ?pad ?tamper_gnu ?tamper_text ?(sites = [||]) (case : Src.Case.t) =
             (Machine_rivet_x86_64_gnu.Gnu_coherence.check ?tamper_gnu
                ?tamper_text ~entry [ m ]))
 
-(* A planned binary32 vector case: the interpreter and the emulated process run
+(* A planned binary32 vector case: the interpreter and the process run
    the same selected program. *)
 let planned ?runtime ?features ?pad ~target ~numerics kernel ~bind =
   match

@@ -1,6 +1,6 @@
 (* Per-form conformance for the admitted x86-64 forms: each form made as typed
-   Rivet instructions, run under qemu-user (emulation, not an x86-64 CPU), and
-   compared with the interpreter's semantics under each form's defined-bit,
+   Rivet instructions, run as processes (on an x86-64 CPU, else under
+   qemu-user), and compared with the interpreter's semantics under each form's defined-bit,
    flag and write masks.
 
    [--mutate NAME] makes the model deliberately wrong in one entry; the run
@@ -123,7 +123,7 @@ let run_form ~mutation ~map_mutation ~gnu ~verbose st (f : X64_forms.t) =
             (if String.length text > 300 then String.sub text 0 300 else text))
   | Ok built -> (
       match
-        Result.bind (B.elf built) Machine_rivet_x86_64.Rivet_x64_qemu.execute
+        Result.bind (B.elf built) Machine_rivet_x86_64.Rivet_x64_process.execute
       with
       | Error e ->
           st.refused <- st.refused + 1;
@@ -215,9 +215,11 @@ let () =
     (run_form ~mutation ~map_mutation ~gnu:!gnu ~verbose:!verbose st)
     forms;
   Fmt.pr
-    "%d forms, %d vectors (emulated under qemu-user), %d skipped by the \
-     model's defects, %d mismatches, %d forms not run@."
-    st.forms st.vectors st.skipped st.mismatches st.refused;
+    "%d forms, %d vectors (on %a), %d skipped by the model's defects, %d \
+     mismatches, %d forms not run@."
+    st.forms st.vectors Machine_rivet_x86_64.Rivet_x64_process.Runner.pp
+    Machine_rivet_x86_64.Rivet_x64_process.runner st.skipped st.mismatches
+    st.refused;
   let failed = st.mismatches > 0 || st.refused > 0 in
   match (mutation, map_mutation) with
   | None, None -> exit (if failed then 1 else 0)

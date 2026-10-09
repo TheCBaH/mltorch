@@ -1,8 +1,8 @@
 ; Published x86-64 artifacts through typed Rivet modules, run as static
-; processes under qemu-user: each case's emulated outcome and region bytes
-; against the physical interpreter's over the same bound bytes. This is
-; emulation, not an x86-64 CPU. Built where the installed Rivet packages are
-; and qemu-x86_64 is on the path.
+; processes: each case's outcome and region bytes against the physical
+; interpreter's over the same bound bytes. The process runs on the CPU of an
+; x86-64 host and under qemu-user elsewhere. Built where the installed Rivet
+; packages are; off x86-64 qemu-x86_64 must be on the path.
 
 (library
  (name machine_rivet_x86_64_test)

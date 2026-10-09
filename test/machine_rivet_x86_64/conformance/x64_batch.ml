@@ -52,7 +52,7 @@ type placed = {
 
 let is_xmm (t : Mir_type.t) =
   match t with
-  | Mir_type.F32 | Mir_type.F64 | Mir_type.Vec _ -> true
+  | Mir_type.F32 | Mir_type.F64 | Mir_type.Mask _ | Mir_type.Vec _ -> true
   | _ -> false
 
 (* Registers for the form's uses, in order, with the fixed ones honoured. *)
@@ -324,7 +324,7 @@ let build ?mutation f vs =
   | Error r -> Error (Fmt.str "%a" Machine_rivet_x86_64.Rivet_x64_refusal.pp r)
 
 let elf built =
-  Machine_rivet_x86_64.Rivet_x64_qemu.elf_of ~entry:"_start" [ built.modul ]
+  Machine_rivet_x86_64.Rivet_x64_process.elf_of ~entry:"_start" [ built.modul ]
 
 (* The observed record [r] of the output block. *)
 type observed = {

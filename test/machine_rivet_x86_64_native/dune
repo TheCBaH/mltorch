@@ -1,0 +1,35 @@
+; Whole bundles through typed Rivet modules loaded into this process, on an
+; x86-64 host: the table-bound host, its manifests and the CPU's admission.
+; Built only where the installed Rivet packages are.
+
+(library
+ (name machine_rivet_x86_64_native_test)
+ (libraries
+  core
+  err_trace
+  expr
+  fmt
+  loop_ir
+  loop_ir_test
+  machine_alloc
+  machine_interp
+  machine_ir
+  machine_lower
+  machine_model
+  machine_model_test
+  machine_rivet_x86_64
+  machine_source_test
+  machine_target_x86_64
+  native
+  native_test
+  ssa_backends
+  ssa_bridge_test
+  ssa_ir
+  unix)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect))
+ (enabled_if
+  (and
+   %{lib-available:rivet.x86_64_encode}
+   (= %{architecture} amd64))))

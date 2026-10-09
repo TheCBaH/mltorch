@@ -30,6 +30,9 @@ module Mutation : sig
     | Division_swap  (** IDIV's dividend and divisor exchanged *)
     | Fused_float_eq
         (** a branch on ordered float equality fused as one [je] *)
+    | Insert_next_lane  (** a lane insert on the lane after the one named *)
+    | Mask_arms  (** a mask select with its arms exchanged *)
+    | Mask_lt_le  (** a less-than compare selected as less-or-equal *)
     | Max_no_nan  (** IEEE maximum without its NaN repair *)
     | Missing_failure_word
         (** the last word a record's kind defines not stored *)

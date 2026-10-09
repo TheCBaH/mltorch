@@ -1,10 +1,10 @@
-(* The emulated x86-64 route of a model bundle: each invocation's generic
-   program is selected, allocated, framed and published, then lowered through
-   typed Rivet modules into an image of its own, laid out once. A run copies the
+(* The process route of a model bundle: each invocation's generic program is
+   selected, allocated, framed and published, then lowered through typed Rivet
+   modules into an image of its own, laid out once. A run copies the
    invocation's storage into the image's data block, executes it as a static
-   process under qemu-user, and copies the results back. This is emulation, not
-   an x86-64 CPU: it checks the instruction bytes and the control flow, and the
-   cost of a run is dominated by the process, so it is for correctness only. *)
+   process ({!Rivet_x64_process.runner}: the CPU, or qemu-user off x86-64), and
+   copies the results back. The cost of a run is dominated by the process, so
+   it is for correctness only. *)
 
 open Machine_ir
 open Machine_interp
@@ -16,7 +16,7 @@ module Fr = Machine_alloc.Mir_frame.Make (X64) (X64_frame)
 module Pub = Machine_model.Mir_artifact.Make (X64)
 module Art = Machine_model.Mir_artifact
 module Route = Machine_model.Mir_model_route
-module Qemu = Rivet_x64_qemu
+module Qemu = Rivet_x64_process
 
 let ( let* ) = Result.bind
 
@@ -35,7 +35,7 @@ type published = {
 }
 
 (* Selection, allocation, frame realization and publication. *)
-let publish ~allocation ~sites (g : Mir_verify.Generic.t) =
+let publish ?features ~allocation ~sites (g : Mir_verify.Generic.t) =
   let* planning =
     Option.to_result ~none:"a generic program with no planning summary"
       (Mir_verify.Generic.program g).Mir_program.planning
@@ -44,7 +44,8 @@ let publish ~allocation ~sites (g : Mir_verify.Generic.t) =
     Result.map_error
       (Fmt.str "%a" X64_select.Refusal.pp)
       (Err.payload
-         (X64_select.program ~sites ~unlisted:Mir_failure.Unlisted.Unreachable g))
+         (X64_select.program ?features ~sites
+            ~unlisted:Mir_failure.Unlisted.Unreachable g))
   in
   let* v, phys =
     match allocation with
@@ -85,6 +86,71 @@ let regions_program (p : (_, _) Mir_phys.Program.t) =
     planning = None;
     revision = Mir_id.Revision.of_int 0;
   }
+
+(* The typed modules that make an artifact an image — its own, the host stubs
+   for the helpers bound to the C library and the project's own code for those
+   it carries — and the entry symbol. *)
+let modules ?entry_mutation ?(binding = Rivet_x64_module.Table) ~runtime
+    artifact =
+  let phys = Art.program artifact in
+  let render pp e = Fmt.str "%a" pp e in
+  let* () =
+    Result.map_error
+      (render Rivet_x64_refusal.pp)
+      (Rivet_x64_runtime.admit runtime artifact)
+  in
+  let* modul =
+    Result.map_error
+      (render Rivet_x64_refusal.pp)
+      (Err.payload
+         (Rivet_x64_module.of_artifact ?entry_mutation ~binding artifact))
+  in
+  let helpers = Rivet_x64_runtime.bound runtime artifact in
+  let* host =
+    if helpers = [] then Ok []
+    else
+      Result.map
+        (fun m -> [ m ])
+        (Result.map_error
+           (render Rivet_x64_refusal.pp)
+           (Err.payload
+              (Rivet_x64_module.helpers ~host_symbol:Rivet_x64_image.host_symbol
+                 helpers)))
+  in
+  let* owned =
+    if Rivet_x64_runtime.carried runtime artifact = [] then Ok []
+    else
+      Result.map
+        (fun m -> [ m ])
+        (Result.map_error
+           (render Rivet_x64_refusal.pp)
+           (Err.payload Rivet_x64_exp.module_))
+  in
+  let main =
+    (List.find
+       (fun (f : (_, _) Mir_phys.Func.t) ->
+         Mir_id.Func.equal f.Mir_phys.Func.id phys.Mir_phys.Program.main)
+       phys.Mir_phys.Program.funcs)
+      .Mir_phys.Func.name
+  in
+  let entry =
+    match binding with
+    | Rivet_x64_module.Table -> Machine_rivet_common.Rivet_table.entry
+    | Rivet_x64_module.Image_resident -> main
+  in
+  Ok (entry, (modul :: host) @ owned)
+
+(* Typed modules as an image loaded into this process, entered at [entry]. Only
+   an x86-64 host can do this. *)
+let load ~entry modules =
+  let* laid =
+    Result.map_error
+      (Fmt.str "%a" Rivet_x64_image.Error.pp)
+      (Err.payload (Rivet_x64_image.plan ~entry modules))
+  in
+  Result.map_error
+    (Fmt.str "%a" Rivet_x64_image.Error.pp)
+    (Err.payload (Rivet_x64_image.load laid))
 
 let exec_of ~allocation ~runtime ~sites (g : Mir_verify.Generic.t) =
   let* { artifact; record } = publish ~allocation ~sites g in
@@ -158,7 +224,7 @@ let route ?(allocation = Allocation.Reference)
   Route.Route.Custom
     {
       Route.Custom.name =
-        Fmt.str "x86_64 emulated %s %s"
+        Fmt.str "x86_64 process %s %s"
           (Allocation.name allocation)
           (Machine_rivet_common.Rivet_runtime.name runtime);
       exec = (fun ~sites g -> exec_of ~allocation ~runtime ~sites g);

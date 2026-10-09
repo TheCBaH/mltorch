@@ -1,10 +1,10 @@
-(* The project-owned exp as x86-64 code, run under qemu-user over a batch of
+(* The project-owned exp as x86-64 code, run as a process over a batch of
    inputs: every result equal, bit for bit, to the specification, which
-   test/machine_ir holds equal to the host libm. Emulation, not an x86-64 CPU. *)
+   test/machine_ir holds equal to the host libm. *)
 
 open Machine_ir
 module Exp = Machine_rivet_x86_64.Rivet_x64_exp
-module Q = Machine_rivet_x86_64.Rivet_x64_qemu
+module Q = Machine_rivet_x86_64.Rivet_x64_process
 module F = Machine_rivet_x86_64.Rivet_x64_form
 module Fam = X86_family_encode
 module N = Asm_core.Normalized_ast
@@ -213,7 +213,7 @@ let patterns seed n =
   let st = Random.State.make [| seed |] in
   Array.init n (fun _ -> Int64.float_of_bits (Random.State.bits64 st))
 
-let%expect_test "owned exp, emulated x86-64" =
+let%expect_test "owned exp, x86-64" =
   differences "specials" specials;
   differences "unit interval" (uniform 1 (-1.) 1. 20_000);
   differences "model range" (uniform 2 (-20.) 20. 40_000);
