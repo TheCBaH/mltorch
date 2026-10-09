@@ -13,6 +13,7 @@
   fmt
   machine_ir
   machine_model
+  machine_rivet_common
   machine_target_aarch64
   rivet.aarch64
   rivet.asm_core
