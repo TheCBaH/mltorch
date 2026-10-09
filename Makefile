@@ -1044,7 +1044,7 @@ wasm.jsoo.pt2.runtest: jsoo.pt2.download
 wasm.browser.runtest: jsoo.pt2.download
 	opam exec -- dune build js/loop_wasm_host/test/browser_probe.bc.js bin/loop_wasm_pt2.exe
 	cd $(JS_PT2_DIR) && $(CURDIR)/$(WASM_PT2_EXE) $(JS_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt \
-	  --samples=1 --export=$(CURDIR)/_build/wasm_export
+	  --samples=1 --reference --export=$(CURDIR)/_build/wasm_export
 	cd $(JS_PT2_DIR) && $(CURDIR)/$(WASM_PT2_EXE) $(JS_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt \
 	  --samples=1 --simd --export=$(CURDIR)/_build/wasm_export_simd
 	cd web && PLAYWRIGHT_BROWSERS_PATH="$(abspath web/.playwright-browsers)" \
