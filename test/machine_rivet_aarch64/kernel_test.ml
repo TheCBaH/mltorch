@@ -117,7 +117,7 @@ let%expect_test "GNU assembles what Rivet encodes" =
     {|
     agree (2 segments, 256 bytes, 4 symbols)
     agree (2 segments, 2704 bytes, 4 symbols)
-    agree (2 segments, 632 bytes, 5 symbols)
+    agree (2 segments, 824 bytes, 5 symbols)
     agree (2 segments, 264 bytes, 5 symbols) |}]
 
 (* Selection folds an index extension, scale and addition into the access, and
@@ -127,42 +127,50 @@ let%expect_test "GNU assembles what Rivet encodes" =
 let%expect_test "register-offset and floating-point accesses" =
   let m, k, n = (5, 7, 3) in
   let a = operand 3 (m * k) and b = operand 5 (k * n) in
-  let kernel = matmul_kernel ~m ~k ~n and bind = matmul_bind ~m ~k ~n ~a ~b in
-  (match Src.case_of_plan (Fusion_plan.default kernel) ~bind with
-  | Error e -> Fmt.pr "%s@." e
-  | Ok case -> (
-      Fmt.pr "%s@." (H.compare case);
-      match H.build case ~sites:[||] with
-      | Error e -> Fmt.pr "%s@." e
-      | Ok b -> (
-          match
-            Err.payload
-              (Machine_rivet_aarch64.Rivet_a64_module.of_artifact b.H.artifact)
-          with
-          | Error _ -> Fmt.pr "refused@."
-          | Ok modul ->
-              let text =
-                Machine_rivet_aarch64_gnu.Gnu_coherence.assembly modul
-              in
-              let count re =
-                let n = ref 0 and from = ref 0 in
-                (try
-                   while true do
-                     from := Str.search_forward (Str.regexp re) text !from + 1;
-                     incr n
-                   done
-                 with Not_found -> ());
-                !n
-              in
-              Fmt.pr "register-offset accesses: %b@." (count "sxtw #2\\]" > 0);
-              Fmt.pr "float loads: %b, moves from a general register: %d@."
-                (count "ldr s[0-9]" > 0)
-                (count "fmov s[0-9]+, w"))));
-  [%expect
-    {|
-    ok [native: agree]
-    register-offset accesses: true
-    float loads: true, moves from a general register: 0 |}]
+  let report name kernel bind =
+    match Src.case_of_plan (Fusion_plan.default kernel) ~bind with
+    | Error e -> Fmt.pr "%s@." e
+    | Ok case -> (
+        Fmt.pr "%s: %s@." name (H.compare case);
+        match H.build case ~sites:[||] with
+        | Error e -> Fmt.pr "%s@." e
+        | Ok b -> (
+            match
+              Err.payload
+                (Machine_rivet_aarch64.Rivet_a64_module.of_artifact b.H.artifact)
+            with
+            | Error _ -> Fmt.pr "refused@."
+            | Ok modul ->
+                let text =
+                  Machine_rivet_aarch64_gnu.Gnu_coherence.assembly modul
+                in
+                let count re =
+                  let n = ref 0 and from = ref 0 in
+                  (try
+                     while true do
+                       from := Str.search_forward (Str.regexp re) text !from + 1;
+                       incr n
+                     done
+                   with Not_found -> ());
+                  !n
+                in
+                Fmt.pr
+                  "  register-offset accesses: %b; float loads: %b, moves from \
+                   a general register: %d@."
+                  (count "sxtw #[0-9]\\]" > 0)
+                  (count "ldr s[0-9]" > 0)
+                  (count "fmov s[0-9]+, w")))
+  in
+  report "matmul" (matmul_kernel ~m ~k ~n) (matmul_bind ~m ~k ~n ~a ~b);
+  report "shifted" Loop_programs.shifted_kernel (data_bind [| 0.; 0.; 0.; 0. |]);
+  report "pointwise" Loop_programs.kernel (data_bind [| 1.; 2.; 3.; 4. |]);
+  [%expect {|
+    matmul: ok [native: agree]
+      register-offset accesses: false; float loads: true, moves from a general register: 0
+    shifted: coord_out_of_range(t0, W) [native: agree]
+      register-offset accesses: true; float loads: true, moves from a general register: 0
+    pointwise: ok [native: agree]
+      register-offset accesses: true; float loads: true, moves from a general register: 0 |}]
 
 (* A difference between the two is seen: GNU is handed source with one
    instruction changed. *)
@@ -354,8 +362,8 @@ let%expect_test "vector kernels: the forms they use, and GNU's reading of them"
     ~bind:(bind_data ~shape (vdata 37));
   [%expect
     {|
-    210 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 2264 bytes, 5 symbols)
-    210 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 2264 bytes, 5 symbols)
+    210 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 2404 bytes, 5 symbols)
+    210 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 2404 bytes, 5 symbols)
     156 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 1324 bytes, 4 symbols) |}]
 
 let%expect_test "contracted vector kernels, natively and with the ABI probe" =
@@ -439,7 +447,7 @@ let%expect_test "lane gathers and every legal loop vectorized, natively" =
         {|
         ld1 12, st1 0, ins 8, ld1r 4, dup 16
         ok [native: agree]
-        agree (2 segments, 1912 bytes, 4 symbols) |}]
+        agree (2 segments, 1984 bytes, 4 symbols) |}]
 
 (* A call per lane: exp has no vector form, so the lanes go out one at a time,
    with the vector held across each call in a full-width spill. *)
@@ -542,7 +550,7 @@ let%expect_test "call-frame information" =
     {|
     ok (1 functions, 64 instructions); ok (2 functions, 73 instructions)
     ok (1 functions, 676 instructions); ok (2 functions, 685 instructions)
-    ok (1 functions, 158 instructions); ok (2 functions, 167 instructions)
+    ok (1 functions, 206 instructions); ok (2 functions, 215 instructions)
     ok (1 functions, 104 instructions); ok (2 functions, 113 instructions) |}]
 
 (* A wrong description is seen: the first stack adjustment says 8 more bytes. *)

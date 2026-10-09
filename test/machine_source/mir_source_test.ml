@@ -104,13 +104,20 @@ let%expect_test "a hoisted address missing a varying term is detected" =
   [%expect
     {| 5x7x3: ok [reference: agree] DISAGREE structured vs offsets: output t2[0]: -0x1.fc2c3ep+2:f32 vs -0x1.eaa64ep+5:f32 |}]
 
+(* A pointer carried round a loop and advanced with its counter: advancing it
+   twice as far reads the wrong elements. *)
+let%expect_test "a loop-carried pointer advanced twice as far is detected" =
+  matmul ~offsets_mutation:Machine_ir.Mir_offsets.Mutation.Doubled_bump (5, 7, 3);
+  [%expect
+    {| 5x7x3: ok [reference: agree] DISAGREE structured vs offsets: inconclusive: success vs defect(bad_access) |}]
+
 (* ... and with its in-domain index arithmetic at 32 bits; a narrowed
    constant one larger steps a loop past outputs it should write. *)
 let%expect_test "a narrowed constant one larger is detected" =
   matmul ~narrow_mutation:Machine_ir.Mir_narrow.Mutation.Shifted_constant
     (5, 7, 3);
   [%expect
-    {| 5x7x3: ok [reference: agree] DISAGREE structured vs narrowed: output t2[0]: -0x1.fc2c3ep+2:f32 vs 0x1.185f0ap+1:f32 |}]
+    {| 5x7x3: ok [reference: agree] DISAGREE structured vs narrowed: output t2[0]: -0x1.fc2c3ep+2:f32 vs -0x1.f36946p+3:f32 |}]
 
 (* ... and with repeated pure computations in a block merged; constants of one
    type merged whatever their value change what is computed. *)

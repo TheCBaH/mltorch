@@ -214,11 +214,24 @@ the output still bitwise equal to the reference:
   Alone it did not move the time, which is why it is not the first thing to
   tune; it stays because it shortens the code and GNU encodes it identically.
 
+- **Address terms hoisted to the outermost level where they are invariant, and
+  counters carried as pointers** (`Mir_offsets`): the offset of an access is a
+  sum of coefficients times leaves; each leaf lives at some depth of the loop
+  nest, and the partial sum of the terms up to a depth is added where the next
+  loop is entered, so a term is computed once per iteration of the loop it
+  varies in and not once per iteration of the innermost loop. A loop counter
+  that its one back edge advances by a constant becomes a pointer carried round
+  that loop (a header parameter, started in the preheader, advanced in the back
+  edge's block). The models' inner loops are short or single-trip (a 1x1
+  convolution's window loops), so hoisting only out of the innermost loop made
+  a counter-carried pointer slower than recomputing; the nest-wide form is what
+  paid.
+
 Each has a check that fails without it (a selected-code count in the kernel
-tests, a merged-constants mutation on the source routes). What is left in the
-inner loop is a stride multiply and a sign extension per access, a materialized
-constant, and two branches per iteration; strength-reducing the address into a
-loop-carried pointer is the next measured step and is not done.
+tests, a merged-constants mutation and a doubled pointer advance on the source
+routes). What is left is a materialized constant and two branches per
+iteration; loop rotation is not done. Pointers carried per loop level raise
+register pressure, which the scanned allocation absorbs on these models.
 
 Logical work counters (`Event`) are not executed natively and are not compared.
 x86-64 is not covered here.

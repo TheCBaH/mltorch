@@ -257,6 +257,6 @@ let%expect_test "allocation and frame mutations on x86-64" =
        ~frame_mutation:Machine_alloc.Mir_frame.Mutation.Misalign mm ~bind);
   [%expect
     {|
-    two-address tie broken: rejected: physical verifier: allocated fn0 bb4 i103: target constraint: a tied result not in its use's register
+    two-address tie broken: rejected: physical verifier: allocated fn0 bb1 i111: target constraint: a tied result not in its use's register
     cycle scratch: rejected: checker: fn0 bb5: [slot13:8] does not hold %13
     misaligned frame: rejected: physical verifier: allocated fn0: target constraint: a frame size that breaks stack alignment |}]
