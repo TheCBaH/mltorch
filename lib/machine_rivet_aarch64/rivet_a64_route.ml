@@ -124,14 +124,18 @@ let modules ?mutation ~runtime artifact =
   in
   Ok (main, modul :: host)
 
-(* The artifact as a loaded image: the main function's name is its entry. *)
-let image ?mutation ~runtime artifact =
-  let* entry, modules = modules ?mutation ~runtime artifact in
+(* Typed modules as a loaded image entered at [entry]. *)
+let load ~entry modules =
   let* laid =
     Result.map_error (Fmt.str "%a" I.Error.pp)
       (Err.payload (I.plan ~entry modules))
   in
   Result.map_error (Fmt.str "%a" I.Error.pp) (Err.payload (I.load laid))
+
+(* The artifact as a loaded image: the main function's name is its entry. *)
+let image ?mutation ~runtime artifact =
+  let* entry, modules = modules ?mutation ~runtime artifact in
+  load ~entry modules
 
 (* A loaded image closes when nothing refers to its kernel any more. *)
 type kernel = { loaded : I.t }

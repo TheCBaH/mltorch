@@ -35,7 +35,7 @@ type built = {
   record : Mir_id.Region.t;
 }
 
-let build (case : Src.Case.t) ~sites =
+let build ?frame_mutation (case : Src.Case.t) ~sites =
   let g = case.Src.Case.lowered.Machine_lower.Mir_lower.program in
   let* planning =
     Option.to_result ~none:"no planning summary"
@@ -50,7 +50,7 @@ let build (case : Src.Case.t) ~sites =
   let* real =
     Result.map_error
       (Fmt.str "frame: %a" Machine_alloc.Mir_frame.Refusal.pp)
-      (Fr.realize (A.allocate v))
+      (Fr.realize ?mutation:frame_mutation (A.allocate v))
   in
   let* artifact = Pub.publish ~planning v real in
   let sel = A64_stage.Sel.Verified.selected v in
@@ -116,12 +116,17 @@ let isolated (f : unit -> ('a, string) result) : ('a, string) result =
 
 (* The artifact in this process: bound regions written, the kernel called, every
    bound region read back into a fresh memory the observation decodes. *)
-let native ?mutation
-    ?(runtime = Machine_rivet_aarch64.Rivet_a64_runtime.System_libm) case ~sites
-    ({ artifact; _ } as b) =
+let native_full ?mutation
+    ?(runtime = Machine_rivet_aarch64.Rivet_a64_runtime.System_libm) ?probe case
+    ~sites ({ artifact; _ } as b) =
   let phys = Art.program artifact in
+  let module Rt = Machine_rivet_aarch64.Rivet_a64_route in
+  let* kernel, modules = Rt.modules ?mutation ~runtime artifact in
   let* loaded =
-    Machine_rivet_aarch64.Rivet_a64_route.image ?mutation ~runtime artifact
+    match probe with
+    | None -> Rt.load ~entry:kernel modules
+    | Some _ ->
+        Rt.load ~entry:Abi_probe.entry (Abi_probe.module_ ~kernel :: modules)
   in
   let regions = phys.Mir_phys.Program.regions in
   let run () =
@@ -150,7 +155,16 @@ let native ?mutation
               | Mir_region.Constant _ | Mir_region.Uninitialized -> Ok ())
             (Ok ()) regions
         in
-        let* status = io_ (Image.call loaded) in
+        let abi_io = Option.map (fun fpcr -> Abi_probe.input ~fpcr) probe in
+        let* status = io_ (Image.call ?io:abi_io loaded) in
+        let status =
+          match abi_io with Some io -> Abi_probe.word io 39 | None -> status
+        in
+        let violations =
+          match (abi_io, probe) with
+          | Some io, Some fpcr -> Abi_probe.violations io ~fpcr
+          | _ -> []
+        in
         let* after =
           List.fold_left
             (fun acc (r : Mir_region.t) ->
@@ -165,9 +179,9 @@ let native ?mutation
                   Ok ((Mir_id.Region.to_int r.Mir_region.id, bytes) :: acc))
             (Ok []) regions
         in
-        Ok (status, after))
+        Ok (status, after, violations))
   in
-  let* status, after = isolated run in
+  let* status, after, violations = isolated run in
   let memory = Mir_memory.create () in
   let bytes_of id = List.assoc_opt (Mir_id.Region.to_int id) after in
   let* binding =
@@ -187,26 +201,37 @@ let native ?mutation
       | _ -> ())
     regions;
   Ok
-    (observe case ~sites b memory binding
-       (Mir_interp.Outcome.Success
-          [ Mir_datum.Bits (Int64.logand status 0xFFFF_FFFFL) ]))
+    ( observe case ~sites b memory binding
+        (Mir_interp.Outcome.Success
+           [ Mir_datum.Bits (Int64.logand status 0xFFFF_FFFFL) ]),
+      violations )
+
+let native ?mutation ?runtime case ~sites b =
+  Result.map fst (native_full ?mutation ?runtime case ~sites b)
 
 (* The native observation against the interpreter's: a one-line verdict. *)
-let compare ?mutation ?runtime ?(sites = [||]) (case : Src.Case.t) =
-  match build case ~sites with
+let compare ?mutation ?runtime ?frame_mutation ?probe ?(sites = [||])
+    (case : Src.Case.t) =
+  match build ?frame_mutation case ~sites with
   | Error e -> "not built: " ^ e
   | Ok b -> (
       match
-        (interpreted case ~sites b, native ?mutation ?runtime case ~sites b)
+        ( interpreted case ~sites b,
+          native_full ?mutation ?runtime ?probe case ~sites b )
       with
       | Error e, _ -> "interpreter: " ^ e
       | _, Error e -> "native: " ^ e
-      | Ok i, Ok n -> (
+      | Ok i, Ok (n, violations) -> (
+          let abi =
+            match violations with
+            | [] -> ""
+            | v -> " ABI broken: " ^ String.concat " " v
+          in
           match Mir_compare.observations ~expected:i ~actual:n () with
-          | Ok () -> Src.status_name n ^ " [native: agree]"
+          | Ok () -> Src.status_name n ^ " [native: agree]" ^ abi
           | Error d ->
-              Fmt.str "%s [native: DISAGREE %a]" (Src.status_name n)
-                Mir_compare.Difference.pp d))
+              Fmt.str "%s [native: DISAGREE %a]%s" (Src.status_name n)
+                Mir_compare.Difference.pp d abi))
 
 (* The artifact's typed modules, assembled by GNU as and linked by GNU ld at
    Rivet's addresses, against Rivet's own image. *)

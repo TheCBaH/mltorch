@@ -44,10 +44,11 @@ let load laid : (t, Error.t) Err.t =
   | Error e -> Err.fail (`Load e)
 
 let close = Native_exec.close
-let io = Bigarray.Array1.create Bigarray.char Bigarray.c_layout 16
+let default_io = Bigarray.Array1.create Bigarray.char Bigarray.c_layout 16
 
-(* Runs the entry once; the value is its integer result register. *)
-let call t : (int64, Error.t) Err.t =
+(* Runs the entry once, with [io] as the entry's one pointer argument; the value
+   is its integer result register. *)
+let call ?(io = default_io) t : (int64, Error.t) Err.t =
   match Native_exec.call t ~io with
   | Ok v -> Err.return v
   | Error e -> Err.fail (`Load e)

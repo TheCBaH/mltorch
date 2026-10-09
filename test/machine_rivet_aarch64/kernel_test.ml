@@ -10,10 +10,10 @@ module H = Native_harness
 
 let data_bind ?(shape = Loop_fixtures.shape_w 4) data = bind_data ~shape data
 
-let check ?mutation kernel ~bind =
+let check ?mutation ?frame_mutation ?probe kernel ~bind =
   match Src.case_of_plan (Fusion_plan.default kernel) ~bind with
   | Error e -> Fmt.pr "%s@." e
-  | Ok case -> Fmt.pr "%s@." (H.compare ?mutation case)
+  | Ok case -> Fmt.pr "%s@." (H.compare ?mutation ?frame_mutation ?probe case)
 
 let%expect_test "pointwise: signed zero, NaN, binary32 boundaries" =
   check Loop_programs.kernel ~bind:(data_bind [| -0.; 1.5; nan; 3. |]);
@@ -126,3 +126,47 @@ let%expect_test "a tampered GNU source disagrees" =
   [%expect {|
     .text+237: rivet 3a, gnu 2a
     .text+92: rivet c0, gnu 1f |}]
+
+(* AAPCS64 around the kernel: the callee-saved registers, FPCR and the stack
+   pointer come back as they went in, whichever way the kernel exits, and its
+   arithmetic ignores the caller's rounding, flush-to-zero and default-NaN
+   controls. *)
+let%expect_test "the kernel keeps the ABI and ignores the caller's FP controls"
+    =
+  let probe = Abi_probe.altered_fpcr in
+  let zeros = data_bind [| 0.; 0.; 0.; 0. |] in
+  check ~probe Loop_programs.kernel ~bind:(data_bind [| -0.; 1.5; nan; 3. |]);
+  check ~probe Cases.noncommutative
+    ~bind:(data_bind [| 7.; -0.; 1e-40; 3.4e38 |]);
+  check ~probe Loop_programs.shifted_kernel ~bind:zeros;
+  check ~probe
+    (Loop_programs.unary_kernel Expr.Value.Exp)
+    ~bind:(data_bind [| 1.; 2.; 3.; 4. |]);
+  let a = operand 3 35 and b = operand 5 21 in
+  check ~probe
+    (matmul_kernel ~m:5 ~k:7 ~n:3)
+    ~bind:(matmul_bind ~m:5 ~k:7 ~n:3 ~a ~b);
+  [%expect
+    {|
+    ok [native: agree]
+    ok [native: agree]
+    coord_out_of_range(t0, W) [native: agree]
+    ok [native: agree]
+    ok [native: agree] |}]
+
+(* A frame that drops one of its duties leaves a kernel that still computes:
+   only the probe sees it. *)
+let%expect_test "frame defects are seen by the probe" =
+  let module Fm = Machine_alloc.Mir_frame.Mutation in
+  let probe = Abi_probe.altered_fpcr in
+  let zeros = data_bind [| 0.; 0.; 0.; 0. |] in
+  Fmt.pr "no control restore: ";
+  check ~probe ~frame_mutation:Fm.No_control_restore Loop_programs.kernel
+    ~bind:(data_bind [| -0.; 1.5; nan; 3. |]);
+  Fmt.pr "epilogue once, failing exit: ";
+  check ~probe ~frame_mutation:Fm.Epilogue_once Loop_programs.shifted_kernel
+    ~bind:zeros;
+  [%expect
+    {|
+    no control restore: ok [native: agree] ABI broken: fpcr
+    epilogue once, failing exit: native: generated code killed by SIGSEGV |}]
