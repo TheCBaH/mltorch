@@ -682,7 +682,8 @@ val run :
 
    [?empty_caches] opts into {!normalize_empty_caches} before lowering and hands
    its report to the callback; without it a zero-length tensor is refused as
-   ever. *)
+   ever. [?dot_accumulation] picks how the matrix-product ops accumulate (see
+   {!Direct.dot_accumulation}); the default is the exact binary64 sum. *)
 val run_named :
   ?arena:Arena.Admission.t ->
   ?layout:Storage_script.Layout.t ->
@@ -694,6 +695,7 @@ val run_named :
   ?region_group_executor:Region_executor.group ->
   ?node_executor:Node_executor.t ->
   ?empty_caches:(Empty_cache_report.t -> unit) ->
+  ?dot_accumulation:Direct.dot_accumulation ->
   Pt2_archive.t ->
   inputs:(string * Pt2_tensor.t) list ->
   (Tensor.packed list, error) Err.t

@@ -128,3 +128,84 @@ let%expect_test
         native equals the sequential binary32 chain: 0 of 6
         the chain strays from the exact value: true |}]
   | Ok _ -> print_endline "wrong output count"
+
+(* The opt-in policy: the same graph under [Binary32_sequential] equals the
+   chain bit for bit, and the policy is scoped to the call -- the next default
+   run is the exact dot again. *)
+let%expect_test "the binary32-sequential policy reproduces the chain, scoped" =
+  let k = 12288 and n = 6 in
+  let x = values k ~seed:7 in
+  let w = Array.init n (fun i -> values k ~seed:(100 + i)) in
+  let wflat = Array.concat (Array.to_list w) in
+  let archive =
+    match
+      Jsont_bytesrw.decode_string Pytorch_types.ExportedProgram.jsont
+        (program ~k ~n)
+    with
+    | Error e -> failwith e
+    | Ok program ->
+        let none =
+          {
+            Pytorch_weights_config.ModelWeightsConfig.config =
+              Schema_runtime.String_map.empty;
+          }
+        in
+        Pt2_archive.of_parts ~program ~weights:none ~constants:none
+          ~load:(fun _ -> Error "no payload")
+  in
+  let run ?dot_accumulation () =
+    match
+      Err.payload
+        (Native_interp.run_named ?dot_accumulation archive
+           ~inputs:
+             [ ("x", pt2_tensor [ 1; k ] x); ("w", pt2_tensor [ n; k ] wflat) ])
+    with
+    | Ok [ out ] ->
+        Array.init n (fun c ->
+            Tensor.read out (Vec6.coord ~n:0 ~t:0 ~d:0 ~h:0 ~w:0 ~c))
+    | _ -> failwith "run failed"
+  in
+  let count f got =
+    let m = ref 0 in
+    Array.iteri (fun c v -> if v = f w.(c) then incr m) got;
+    !m
+  in
+  let chain = run ~dot_accumulation:Direct.Binary32_sequential () in
+  Fmt.pr "policy equals the sequential chain: %d of %d@."
+    (count (sequential_fma x) chain)
+    n;
+  Fmt.pr "policy equals the exact dot: %d of %d@."
+    (count (exact_rounded x) chain)
+    n;
+  let after = run () in
+  Fmt.pr "the next default run is exact again: %d of %d@."
+    (count (exact_rounded x) after)
+    n;
+  [%expect
+    {|
+    policy equals the sequential chain: 6 of 6
+    policy equals the exact dot: 0 of 6
+    the next default run is exact again: 6 of 6 |}]
+
+(* The restore itself, below the run API (which sets the policy on every call):
+   1 + 4 * 2^-24. Exactly, that is 1 + 2^-22, a binary32 value; a binary32 chain
+   loses each 2^-24 to the tie-to-even at 1.0 and stays at 1. *)
+let%expect_test "with_dot_accumulation restores the policy, even on a raise" =
+  let eval () =
+    Direct.dot ~lo:Direct.index_zero ~hi:(Direct.index_const 5)
+      ~a:(fun k -> if (k :> int) = 0 then 1. else ldexp 1. (-24))
+      ~b:(fun _ -> 1.)
+  in
+  Fmt.pr "default: %.10g@." (eval ());
+  Fmt.pr "chain:   %.10g@."
+    (Direct.with_dot_accumulation Direct.Binary32_sequential eval);
+  (try
+     Direct.with_dot_accumulation Direct.Binary32_sequential (fun () ->
+         failwith "boom")
+   with Failure _ -> ());
+  Fmt.pr "after a raise: %.10g@." (eval ());
+  [%expect
+    {|
+    default: 1.000000238
+    chain:   1
+    after a raise: 1.000000238 |}]

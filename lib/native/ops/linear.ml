@@ -146,12 +146,13 @@ module Linear = struct
         (out : Semantics.position S.index Vec6.t) =
       let oc = Vec6.get out Axis.C in
       let acc =
-        S.sum ~lo:S.index_zero ~hi:(S.index_extent p.in_features) (fun ic ->
-            S.mul
-              (S.load x (out |> Vec6.set_c ic))
-              (S.load weight
-                 (Vec6.make ~n:oc ~t:S.index_zero ~d:S.index_zero
-                    ~h:S.index_zero ~w:S.index_zero ~c:ic)))
+        S.dot ~lo:S.index_zero
+          ~hi:(S.index_extent p.in_features)
+          ~a:(fun ic -> S.load x (out |> Vec6.set_c ic))
+          ~b:(fun ic ->
+            S.load weight
+              (Vec6.make ~n:oc ~t:S.index_zero ~d:S.index_zero ~h:S.index_zero
+                 ~w:S.index_zero ~c:ic))
       in
       S.add acc
         (S.load bias

@@ -24,6 +24,14 @@ COHORT = [
     ("smolvlm-256m/image-text-generation/reference/connector/fp32/dynamo/static/ckpt-7e3e67edbbed", "first numerical milestone"),
     ("bert-tiny/text-encoder/reference/forward/fp32/dynamo/static/ckpt-6f75de8b60a9", "needs embedding"),
     ("tinyclip/image-text-embeddings/reference/text-encoder/fp32/dynamo/static/ckpt-a2a8c6eaa254", "text tower follow-up"),
+    ("segformer-b0/semantic-segmentation/reference/forward/fp32/dynamo/static/ckpt-489d5cd81a0b", "second vision family"),
+    ("yolos-tiny/object-detection/reference/forward/fp32/dynamo/static/ckpt-95a90f3c189f", "detection"),
+    ("tinyclip/image-text-embeddings/reference/image-encoder/fp32/dynamo/static/ckpt-a2a8c6eaa254", "vision tower, shares the text tower's checkpoint"),
+    ("whisper-tiny/audio-encoder-decoder/reference/encoder/fp32/dynamo/static/ckpt-169d4a4341b3", "audio encoder"),
+    ("whisper-tiny/audio-encoder-decoder/reference/prefill/fp32/dynamo/static/ckpt-169d4a4341b3", "encoder-decoder prefill, self/cross K/V"),
+    ("smollm2-135m/text-decoder/reference/prefill/fp32/dynamo/static/ckpt-12fd25f77366", "decoder prefill, K/V cache"),
+    ("smollm2-135m/text-decoder/reference/decode/fp32/dynamo/static-h4/ckpt-12fd25f77366", "decoder decode at history 4"),
+    ("smolvlm-256m/image-text-generation/reference/decode/fp32/dynamo/static-h71/ckpt-7e3e67edbbed", "VLM decode at history 71, shares the connector's checkpoint"),
 ]
 
 
