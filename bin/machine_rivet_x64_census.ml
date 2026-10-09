@@ -12,7 +12,7 @@
 
    argv: <model.pt2> [--run=K] (K = 0: compile only) [--allocation=reference|scanned]
    [--gnu] [--fma] [--table [--poison] [--planned=ordered|relaxed]
-   [--against-interp] [--bench=N] [--profile=N]] [--runtime=dependency_free|system_libm] (default
+   [--against-interp] [--bench=N] [--profile=N] [--no-reference]] [--runtime=dependency_free|system_libm] (default
    dependency_free: a kernel calling a C library math helper other than the
    project's own is refused and tallied) *)
 
@@ -89,7 +89,7 @@ let prefix (b : Loop_bundle.t) m ~constants ~count =
 (* The table-bound host: tensors are the context's storage, passed by address.
    The same comparison, with the phases timed apart. *)
 let host_run (b : Loop_bundle.t) ~constants ~allocation ~runtime ~count ~poison
-    ~gnu ~features ~pipeline ~interp ~bench ~profile =
+    ~gnu ~features ~pipeline ~interp ~bench ~profile ~verify =
   let module H = Machine_rivet_x86_64.Rivet_x64_host in
   let n = List.length b.Loop_bundle.invocations in
   let t0 = Unix.gettimeofday () in
@@ -135,12 +135,14 @@ let host_run (b : Loop_bundle.t) ~constants ~allocation ~runtime ~count ~poison
       in
       let t0 = Unix.gettimeofday () in
       let reference =
-        Err.or_raise ~pp_error:Eval_direct.pp_error
-          (Eval_direct.run g
-             ~constants:(Graph_ir.Tensor_id.Map.bindings constants)
-             ~inputs)
+        if verify then
+          Err.or_raise ~pp_error:Eval_direct.pp_error
+            (Eval_direct.run g
+               ~constants:(Graph_ir.Tensor_id.Map.bindings constants)
+               ~inputs)
+        else Graph_ir.Tensor_id.Map.empty
       in
-      Fmt.pr "reference: %.1f s@." (Unix.gettimeofday () -. t0);
+      if verify then Fmt.pr "reference: %.1f s@." (Unix.gettimeofday () -. t0);
       let t0 = Unix.gettimeofday () in
       match
         H.Context.create host ~constants:(fun id ->
@@ -165,6 +167,8 @@ let host_run (b : Loop_bundle.t) ~constants ~allocation ~runtime ~count ~poison
               in
               let worst = ref 0. in
               let differing =
+                if not verify then []
+                else
                 List.filter
                   (fun id ->
                     match H.Context.tensor cx id with
@@ -308,6 +312,7 @@ let () =
   and runtime = ref Machine_rivet_x86_64.Rivet_x64_runtime.Dependency_free
   and gnu = ref false
   and fma = ref false
+  and verify = ref true
   and table = ref false
   and planned = ref None
   and interp = ref false
@@ -354,6 +359,9 @@ let () =
         | [ "--fma" ] ->
             fma := true;
             false
+        | [ "--no-reference" ] ->
+            verify := false;
+            false
         | [ "--runtime"; "dependency_free" ] ->
             runtime := Machine_rivet_x86_64.Rivet_x64_runtime.Dependency_free;
             false
@@ -397,7 +405,7 @@ let () =
               ~features:
                 (if !fma then Some Machine_ir.Mir_target.Feature.[ Sse2; Fma ]
                  else None)
-              ~interp:!interp ~bench:!bench ~profile:!profile
+              ~verify:!verify ~interp:!interp ~bench:!bench ~profile:!profile
               ~pipeline:
                 (match !planned with
                 | Some numerics ->
@@ -439,6 +447,6 @@ let () =
   | _ ->
       prerr_endline
         "usage: machine_rivet_x64_census <model.pt2> [--run=K] \
-         [--allocation=reference|scanned] [--gnu] [--fma] [--table [--poison] \
+         [--allocation=reference|scanned] [--gnu] [--fma] [--no-reference] [--table [--poison] \
          [--planned=ordered|relaxed]] [--runtime=dependency_free|system_libm]";
       exit 2
