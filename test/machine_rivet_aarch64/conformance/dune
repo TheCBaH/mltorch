@@ -3,7 +3,7 @@
 ; this CPU, against the same model prediction. Manual (a make target), like the
 ; GNU-assembler harness it mirrors; needs an AArch64 host and Rivet.
 
-(executable
+(test
  (name rivet_conformance)
  (libraries
   a64_native_model
@@ -18,4 +18,5 @@
   rivet.asm_core
   rivet.foundation
   unix)
- (optional))
+ (build_if %{lib-available:rivet.aarch64})
+ (enabled_if false))

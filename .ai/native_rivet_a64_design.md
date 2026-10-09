@@ -11,7 +11,7 @@ whole models and GNU export are later work.
 Mir_artifact (checked, realized physical program)
   -> Rivet_a64_form    selected/late/move/save forms -> Aarch64.Instruction.t
   -> Rivet_a64_module  functions, blocks, data symbols -> Normalized_ast.module_
-  -> Rivet_a64_image   Driver.Pipeline.lower/plan -> Image.laid_out -> Native_exec
+  -> Rivet_a64_image   Pipeline_direct lower/plan -> Image.laid_out -> Native_exec
   -> Rivet_a64_route   one image per bundle invocation, as a Mir_model route
 ```
 
@@ -23,6 +23,15 @@ machine libraries; it is built only where `rivet.aarch64` is installed
 rivet.install` installs Rivet alone from `vendored/rivet`; the CompCert combined
 install is not a prerequisite. `test/machine_rivet_aarch64` additionally needs an
 AArch64 host (`%{architecture}`), because it executes the generated code.
+
+The manual census and conformance executables use test stanzas with `build_if`
+on the corresponding installed front end, including the GNU route, and
+`enabled_if false` to keep them out of `runtest`. The executable stanza's
+`enabled_if` does not accept library availability in the current Dune language.
+Closure tests also use `build_if` for package availability: a test's
+`enabled_if` only gates execution, so it cannot protect missing forbidden
+libraries during the default build. Their execution gates retain the host
+architecture check.
 
 ## Form mapping
 
@@ -123,6 +132,19 @@ run under a binary32 policy: the oracle is not the binary64 reference but the sa
 planned program on the selected-stage interpreter, which the native code equals bit
 for bit; the reference is a tolerance check only. All seven CI models compile and
 run natively under the ordered policy, within 7e-4 of binary64 (NA-E5).
+
+## Dependency closure
+
+Both native routes (this one and the x86-64 route) link Rivet's encoder for their
+target and `rivet.driver_direct`, the stages below source text, and nothing
+else of Rivet but the image and native-execution libraries: no lexer, parser,
+front-end target or text pipeline, and no other target. `test/rivet_closure`
+links each route with those libraries forbidden, so a regression is a build
+error. The GNU coherence libraries keep the full front end on purpose (they
+re-read what Rivet prints), as does the conformance suite. A module that
+carries a target state directive written as text is not accepted by the direct
+stages (`Directive_not_accepted`); a producer that builds instructions as
+values has none.
 
 ## Runtime mode
 

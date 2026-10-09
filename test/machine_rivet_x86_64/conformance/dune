@@ -5,7 +5,7 @@
 ; emulation: it checks the instructions' bytes against the model, and is not an
 ; x86-64 CPU. A make target (machine.rivet.x64.conformance), not part of runtest.
 
-(executable
+(test
  (name rivet_x64_conformance)
  (libraries
   core
@@ -21,4 +21,5 @@
   rivet.foundation
   rivet.x86_family_encode
   unix)
- (optional))
+ (build_if %{lib-available:rivet.x86_64})
+ (enabled_if false))

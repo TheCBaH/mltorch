@@ -153,6 +153,12 @@ jobs:
         restore-keys: |
           ccache-${{ runner.arch }}-${{ steps.cache_keys.outputs.month }}-${{ steps.cache_keys.outputs.pytorch }}-
           ccache-${{ runner.arch }}-${{ steps.cache_keys.outputs.month }}-
+    # Rivet is an installed opam dependency, not part of the workspace build.
+    # Install the pinned checkout before any native build or test resolves it.
+    - name: install Rivet
+      if: matrix.native
+      run: |
+        ${{ env.EXEC }} make rivet.install
     - name: build
       if: matrix.native
       run: |

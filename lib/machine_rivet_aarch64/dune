@@ -1,5 +1,5 @@
 ; The AArch64 physical program as typed Rivet values: a published
-; [Mir_artifact] becomes a [Normalized_ast.module_] of [Aarch64.Instruction.t]
+; [Mir_artifact] becomes a [Normalized_ast.module_] of [Aarch64_encode.Instruction.t]
 ; with typed directives, with no assembly text on the way, then Rivet lowers,
 ; relaxes, lays out and (natively) loads it. Built only where Rivet is
 ; installed (make compcert.embed.install installs it; the opam package is
@@ -15,10 +15,13 @@
   machine_model
   machine_rivet_common
   machine_target_aarch64
-  rivet.aarch64
+  rivet.aarch64_encode
   rivet.asm_core
-  rivet.driver
+  rivet.driver_direct
   rivet.foundation
   rivet.image
   rivet.native_exec)
- (enabled_if %{lib-available:rivet.aarch64}))
+ (enabled_if
+  (and
+   %{lib-available:rivet.aarch64_encode}
+   %{lib-available:rivet.driver_direct})))

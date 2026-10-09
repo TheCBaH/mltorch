@@ -17,10 +17,13 @@
   machine_rivet_common
   machine_target_x86_64
   rivet.asm_core
-  rivet.driver
+  rivet.driver_direct
   rivet.foundation
   rivet.image
-  rivet.x86_64
+  rivet.x86_64_encode
   rivet.x86_family_encode
   unix)
- (enabled_if %{lib-available:rivet.x86_64}))
+ (enabled_if
+  (and
+   %{lib-available:rivet.x86_64_encode}
+   %{lib-available:rivet.driver_direct})))

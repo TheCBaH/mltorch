@@ -37,7 +37,7 @@ let digest_of modul =
        (Fmt.str "%a"
           (Asm_core.Gnu_module.pp
              { Asm_core.Gnu_module.type_char = '%' }
-             ~instruction:Aarch64.Instruction.pp_gnu)
+             ~instruction:Aarch64_encode.Instruction.pp_gnu)
           modul))
 
 (* The owned helper's code, the same in every process. *)
@@ -82,7 +82,7 @@ let make ~runtime ~binding artifact =
            (Fmt.str "%a"
               (Asm_core.Gnu_module.pp
                  { Asm_core.Gnu_module.type_char = '%' }
-                 ~instruction:Aarch64.Instruction.pp_gnu)
+                 ~instruction:Aarch64_encode.Instruction.pp_gnu)
               modul));
   }
 

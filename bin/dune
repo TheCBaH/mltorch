@@ -258,7 +258,7 @@
 ; this CPU against the per-node reference (see the header of the source). Built
 ; only where Rivet is installed; MANUAL, needs the model data.
 
-(executable
+(test
  (name machine_rivet_a64_census)
  (modules machine_rivet_a64_census)
  (libraries
@@ -274,13 +274,14 @@
   ssa_backends
   ssa_ir
   unix)
- (optional))
+ (build_if %{lib-available:rivet.aarch64})
+ (enabled_if false))
 
 ; The same for x86-64, run as emulated processes under qemu-user (EMULATION, not
 ; an x86-64 CPU). Built only where Rivet is installed; MANUAL, needs the model
 ; data and qemu-x86_64.
 
-(executable
+(test
  (name machine_rivet_x64_census)
  (modules machine_rivet_x64_census)
  (libraries
@@ -295,4 +296,5 @@
   ssa_backends
   ssa_ir
   unix)
- (optional))
+ (build_if %{lib-available:rivet.x86_64})
+ (enabled_if false))

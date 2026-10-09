@@ -361,40 +361,16 @@ let of_artifact ?entry_mutation ?(binding = Image_resident) artifact =
 (* {1 Host helpers}
 
    The image linker has no imports, so a helper the artifact calls is defined
-   by a stub that loads its address in this process and jumps there. The callee
-   returns to the artifact's call site; r11 is the scratch the target reserves
-   and the System V ABI leaves caller-saved. *)
+   by Rivet's typed trampoline: it loads the helper's address in this process
+   into r11, the scratch the target reserves and the System V ABI leaves
+   caller-saved, and jumps there; the callee returns to the artifact's call
+   site. *)
 
 let helpers ~host_symbol names =
   Err.Escape.with_escape @@ fun esc ->
-  let env =
-    {
-      F.mutation = None;
-      esc;
-      reference = (fun _ -> None);
-      table_slot = (fun _ -> None);
-    }
+  let binding name =
+    match host_symbol name with
+    | Some address -> (name, address)
+    | None -> Err.Escape.throw esc (R.Helper name)
   in
-  let r11 = Fam.Operand.Reg (F.find env "r11") in
-  let stub name =
-    let addr =
-      match host_symbol name with
-      | Some a -> a
-      | None -> Err.Escape.throw esc (R.Helper name)
-    in
-    [
-      section ".text" Asm_core.Perms.rx ~nobits:false;
-      dir (D.Align { boundary = 16 });
-      dir (D.Global { name });
-      dir (D.Sym_type { name; kind = D.Function });
-      lbl name;
-      insn (F.make env "movq" [ F.imm addr; r11 ]);
-      insn (F.make env "jmp" [ Fam.Operand.Reg (F.find env "r11") ]);
-    ]
-  in
-  {
-    N.unit_name = "host";
-    items =
-      List.concat_map stub names
-      @ [ dir (D.Declared_section { name = ".note.GNU-stack" }) ];
-  }
+  X86_64_encode.host_trampolines (List.map binding names)

@@ -9,7 +9,7 @@
 
 open Machine_ir
 module F = Rivet_a64_form
-module A = Aarch64
+module A = Aarch64_encode
 module N = Asm_core.Normalized_ast
 module D = Asm_core.Directive
 

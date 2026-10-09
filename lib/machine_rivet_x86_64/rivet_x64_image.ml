@@ -3,7 +3,7 @@
    x86-64 code, so the bound image goes to {!Rivet_x64_elf} instead of into this
    process. *)
 
-module P = Driver.Pipeline.Make (X86_64)
+module P = Driver_direct.Pipeline_direct.Make (X86_64_encode)
 
 module Error = struct
   type t =
@@ -21,7 +21,7 @@ let plan ~entry modules : (laid_out, Error.t) Err.t =
   let rec lower acc = function
     | [] -> Ok (List.rev acc)
     | m :: rest -> (
-        match P.lower ~state:X86_64.default_state m with
+        match P.lower ~state:X86_64_encode.default_state m with
         | Ok l -> lower (l :: acc) rest
         | Error e -> Err.fail (`Rivet_lower (render e)))
   in
