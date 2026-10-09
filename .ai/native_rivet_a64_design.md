@@ -78,6 +78,30 @@ no invocation wrote" check is not made natively. A loaded image is closed by a
 finaliser when its kernel is unreachable. The copy per call is the interim
 binding described above and the dominant cost.
 
+## The table-bound host
+
+`Rivet_a64_host` is the production shape. In the table binding
+(`Rivet_a64_module.Table`) every region but a constant is addressed through x18:
+the image's `mir_entry` saves x18 and the link register, sets x18 to its argument
+(the caller's table of region base addresses, slot `k` for the `k`th mutable
+region, in region order: `Rivet_a64_table`), calls the kernel and restores. An
+`Adrp` of a table region is `ldr xd, [x18, #8k]` plus the whole pages of the
+view's offset, and its `Add_lo12` the low twelve bits; everything else is as in
+the image-resident binding. The image is then code and constants only: immutable,
+and one loaded image serves any number of contexts.
+
+A context owns what a kernel writes. Each graph tensor is a `Tensor.packed` made
+from its signature, and its payload's address goes in the table: tensors are the
+context's own storage and nothing is copied per call (the bytes of a payload are
+the bytes of the Machine IR region). A region no tensor binds (scratch, the
+failure record, parameter tables) is a bigarray of the context's, optionally
+filled with a pattern before each call (`~poison`) so a kernel that reads what it
+has not written shows. A non-zero status is decoded from the record slot by the
+same `Mir_record` the interpreters use and stops the run at that invocation with
+`Mir_model.Stop.At`; the context goes on to the next call. `Mir_model` exposes
+`kernel_views` for this. Constants and inputs are copied into the context's
+tensors (weights per context, as the C host does).
+
 ## Runtime mode
 
 `Rivet_a64_runtime` declares what an image may depend on. `Dependency_free`, the
