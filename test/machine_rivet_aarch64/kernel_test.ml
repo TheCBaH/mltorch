@@ -10,10 +10,11 @@ module H = Native_harness
 
 let data_bind ?(shape = Loop_fixtures.shape_w 4) data = bind_data ~shape data
 
-let check ?mutation ?frame_mutation ?probe kernel ~bind =
+let check ?mutation ?frame_mutation ?pad ?probe kernel ~bind =
   match Src.case_of_plan (Fusion_plan.default kernel) ~bind with
   | Error e -> Fmt.pr "%s@." e
-  | Ok case -> Fmt.pr "%s@." (H.compare ?mutation ?frame_mutation ?probe case)
+  | Ok case ->
+      Fmt.pr "%s@." (H.compare ?mutation ?frame_mutation ?pad ?probe case)
 
 let%expect_test "pointwise: signed zero, NaN, binary32 boundaries" =
   check Loop_programs.kernel ~bind:(data_bind [| -0.; 1.5; nan; 3. |]);
@@ -83,10 +84,10 @@ let%expect_test "mapping mutations are detected natively" =
 
 (* The same modules through GNU: assembled and linked at Rivet's addresses, the
    loadable bytes and global symbol addresses are Rivet's. *)
-let gnu ?tamper_gnu ?tamper_text kernel ~bind =
+let gnu ?pad ?tamper_gnu ?tamper_text kernel ~bind =
   match Src.case_of_plan (Fusion_plan.default kernel) ~bind with
   | Error e -> Fmt.pr "%s@." e
-  | Ok case -> Fmt.pr "%s@." (H.gnu ?tamper_gnu ?tamper_text case)
+  | Ok case -> Fmt.pr "%s@." (H.gnu ?pad ?tamper_gnu ?tamper_text case)
 
 let%expect_test "GNU assembles what Rivet encodes" =
   gnu Loop_programs.kernel ~bind:(data_bind [| -0.; 1.5; nan; 3. |]);
@@ -176,3 +177,33 @@ let%expect_test "frame defects are seen by the probe" =
     {|
     no control restore: ok [native: agree] ABI broken: fpcr
     epilogue once, failing exit: native: generated code killed by SIGSEGV |}]
+
+(* A frame beyond what an immediate offset reaches: the allocator's stores and
+   reloads go through x16, computed by a late form. 40,000 bytes and 1 MiB run;
+   larger frames are encoded and compared with GNU but would overflow a stack,
+   so they are not run, and the frame stage itself refuses one beyond its code
+   model: a stack step is an ADD or SUB of an immediate and an immediate shifted
+   by twelve, so a frame past 16 MiB. *)
+let%expect_test "large frames, run and encoded" =
+  let bind = data_bind [| -0.; 1.5; nan; 3. |] in
+  let probe = Abi_probe.altered_fpcr in
+  check ~pad:40_000L ~probe Cases.noncommutative
+    ~bind:(data_bind [| 7.; -0.; 1e-40; 3.4e38 |]);
+  check ~pad:1_048_576L ~probe Loop_programs.kernel ~bind;
+  let a = operand 3 35 and b = operand 5 21 in
+  check ~pad:1_048_576L
+    (matmul_kernel ~m:5 ~k:7 ~n:3)
+    ~bind:(matmul_bind ~m:5 ~k:7 ~n:3 ~a ~b);
+  gnu ~pad:40_000L Loop_programs.kernel ~bind;
+  gnu ~pad:0x00FE_0000L Loop_programs.kernel ~bind;
+  gnu ~pad:0x0100_0000L Loop_programs.kernel ~bind;
+  gnu ~pad:0x2000_0000L Loop_programs.kernel ~bind;
+  [%expect
+    {|
+    ok [native: agree]
+    ok [native: agree]
+    ok [native: agree]
+    agree (2 segments, 576 bytes, 4 symbols)
+    agree (2 segments, 576 bytes, 4 symbols)
+    not built: frame: fn0: a frame beyond the supported code model
+    not built: frame: fn0: a frame beyond the supported code model |}]

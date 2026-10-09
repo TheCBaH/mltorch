@@ -35,7 +35,7 @@ type built = {
   record : Mir_id.Region.t;
 }
 
-let build ?frame_mutation (case : Src.Case.t) ~sites =
+let build ?frame_mutation ?pad (case : Src.Case.t) ~sites =
   let g = case.Src.Case.lowered.Machine_lower.Mir_lower.program in
   let* planning =
     Option.to_result ~none:"no planning summary"
@@ -50,7 +50,7 @@ let build ?frame_mutation (case : Src.Case.t) ~sites =
   let* real =
     Result.map_error
       (Fmt.str "frame: %a" Machine_alloc.Mir_frame.Refusal.pp)
-      (Fr.realize ?mutation:frame_mutation (A.allocate v))
+      (Fr.realize ?mutation:frame_mutation ?pad (A.allocate v))
   in
   let* artifact = Pub.publish ~planning v real in
   let sel = A64_stage.Sel.Verified.selected v in
@@ -210,9 +210,9 @@ let native ?mutation ?runtime case ~sites b =
   Result.map fst (native_full ?mutation ?runtime case ~sites b)
 
 (* The native observation against the interpreter's: a one-line verdict. *)
-let compare ?mutation ?runtime ?frame_mutation ?probe ?(sites = [||])
+let compare ?mutation ?runtime ?frame_mutation ?pad ?probe ?(sites = [||])
     (case : Src.Case.t) =
-  match build ?frame_mutation case ~sites with
+  match build ?frame_mutation ?pad case ~sites with
   | Error e -> "not built: " ^ e
   | Ok b -> (
       match
@@ -235,8 +235,9 @@ let compare ?mutation ?runtime ?frame_mutation ?probe ?(sites = [||])
 
 (* The artifact's typed modules, assembled by GNU as and linked by GNU ld at
    Rivet's addresses, against Rivet's own image. *)
-let gnu ?mutation ?tamper_gnu ?tamper_text ?(sites = [||]) (case : Src.Case.t) =
-  match build case ~sites with
+let gnu ?mutation ?pad ?tamper_gnu ?tamper_text ?(sites = [||])
+    (case : Src.Case.t) =
+  match build ?pad case ~sites with
   | Error e -> "not built: " ^ e
   | Ok { artifact; _ } -> (
       let phys = Art.program artifact in
