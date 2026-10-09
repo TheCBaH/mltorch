@@ -207,3 +207,41 @@ let compare ?mutation ?runtime ?(sites = [||]) (case : Src.Case.t) =
           | Error d ->
               Fmt.str "%s [native: DISAGREE %a]" (Src.status_name n)
                 Mir_compare.Difference.pp d))
+
+(* The artifact's typed modules, assembled by GNU as and linked by GNU ld at
+   Rivet's addresses, against Rivet's own image. *)
+let gnu ?mutation ?tamper ?(sites = [||]) (case : Src.Case.t) =
+  match build case ~sites with
+  | Error e -> "not built: " ^ e
+  | Ok { artifact; _ } -> (
+      let phys = Art.program artifact in
+      let entry =
+        (List.find
+           (fun (f : (_, _) Mir_phys.Func.t) ->
+             Mir_id.Func.equal f.Mir_phys.Func.id phys.Mir_phys.Program.main)
+           phys.Mir_phys.Program.funcs)
+          .Mir_phys.Func.name
+      in
+      let helpers =
+        List.filter_map
+          (fun (s : Art.Symbol.t) ->
+            match s.Art.Symbol.kind with
+            | Art.Symbol.External_function f -> Some f
+            | _ -> None)
+          (Art.symbols artifact)
+      in
+      let host =
+        if helpers = [] then []
+        else
+          match
+            Err.payload (Module.helpers ~host_symbol:Image.host_symbol helpers)
+          with
+          | Ok m -> [ m ]
+          | Error _ -> []
+      in
+      match Err.payload (Module.of_artifact ?mutation artifact) with
+      | Error r -> Fmt.str "module: %a" Refusal.pp r
+      | Ok m ->
+          Fmt.str "%a" Machine_rivet_aarch64_gnu.Gnu_coherence.Verdict.pp
+            (Machine_rivet_aarch64_gnu.Gnu_coherence.check ?tamper ~entry
+               (m :: host)))

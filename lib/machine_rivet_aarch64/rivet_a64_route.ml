@@ -90,8 +90,9 @@ let regions_program (p : (_, _) Mir_phys.Program.t) =
     revision = Mir_id.Revision.of_int 0;
   }
 
-(* The artifact as a loaded image: the main function's name is its entry. *)
-let image ?mutation ~runtime artifact =
+(* The typed modules that make an artifact an image — its own and the host
+   stubs for its helpers — and the entry symbol. *)
+let modules ?mutation ~runtime artifact =
   let phys = Art.program artifact in
   let render pp e = Fmt.str "%a" pp e in
   let* () =
@@ -104,14 +105,7 @@ let image ?mutation ~runtime artifact =
       (render Rivet_a64_refusal.pp)
       (Err.payload (M.of_artifact ?mutation artifact))
   in
-  let helpers =
-    List.filter_map
-      (fun (s : Art.Symbol.t) ->
-        match s.Art.Symbol.kind with
-        | Art.Symbol.External_function f -> Some f
-        | _ -> None)
-      (Art.symbols artifact)
-  in
+  let helpers = Rivet_a64_runtime.helpers artifact in
   let* host =
     if helpers = [] then Ok []
     else
@@ -128,11 +122,16 @@ let image ?mutation ~runtime artifact =
        phys.Mir_phys.Program.funcs)
       .Mir_phys.Func.name
   in
+  Ok (main, modul :: host)
+
+(* The artifact as a loaded image: the main function's name is its entry. *)
+let image ?mutation ~runtime artifact =
+  let* entry, modules = modules ?mutation ~runtime artifact in
   let* laid =
-    Result.map_error (render I.Error.pp)
-      (Err.payload (I.plan ~entry:main (modul :: host)))
+    Result.map_error (Fmt.str "%a" I.Error.pp)
+      (Err.payload (I.plan ~entry modules))
   in
-  Result.map_error (render I.Error.pp) (Err.payload (I.load laid))
+  Result.map_error (Fmt.str "%a" I.Error.pp) (Err.payload (I.load laid))
 
 (* A loaded image closes when nothing refers to its kernel any more. *)
 type kernel = { loaded : I.t }
@@ -142,8 +141,16 @@ let kernel loaded =
   Gc.finalise (fun k -> I.close k.loaded) k;
   k
 
-let exec_of ?mutation ~allocation ~runtime ~sites (g : Mir_verify.Generic.t) =
+let exec_of ?mutation ?check ~allocation ~runtime ~sites
+    (g : Mir_verify.Generic.t) =
   let* { artifact; record } = publish ~allocation ~sites g in
+  let* () =
+    match check with
+    | None -> Ok ()
+    | Some check ->
+        let* entry, ms = modules ?mutation ~runtime artifact in
+        check ~entry ms
+  in
   let* loaded = image ?mutation ~runtime artifact in
   let k = kernel loaded in
   let phys = Art.program artifact in
@@ -224,7 +231,7 @@ let exec_of ?mutation ~allocation ~runtime ~sites (g : Mir_verify.Generic.t) =
       traffic = (fun () -> None);
     }
 
-let route ?mutation ?(allocation = Allocation.Reference)
+let route ?mutation ?check ?(allocation = Allocation.Reference)
     ?(runtime = Rivet_a64_runtime.Dependency_free) () =
   Route.Route.Custom
     {
@@ -232,5 +239,6 @@ let route ?mutation ?(allocation = Allocation.Reference)
         Fmt.str "aarch64 native %s %s"
           (Allocation.name allocation)
           (Rivet_a64_runtime.name runtime);
-      exec = (fun ~sites g -> exec_of ?mutation ~allocation ~runtime ~sites g);
+      exec =
+        (fun ~sites g -> exec_of ?mutation ?check ~allocation ~runtime ~sites g);
     }

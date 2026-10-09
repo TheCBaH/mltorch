@@ -20,13 +20,15 @@
   machine_model
   machine_model_test
   machine_rivet_aarch64
+  machine_rivet_aarch64_gnu
   machine_source_test
   machine_target_aarch64
   native
   native_test
   unix
   ssa_bridge_test
-  ssa_ir)
+  ssa_ir
+  str)
  (inline_tests)
  (preprocess
   (pps ppx_expect))

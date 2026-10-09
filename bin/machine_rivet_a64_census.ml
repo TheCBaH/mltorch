@@ -11,12 +11,20 @@
    back). The run is dominated by the copy and the reference, not the kernels.
 
    argv: <model.pt2> [--run=K] (K = 0: compile only) [--allocation=reference|scanned]
-   [--runtime=dependency_free|system_libm] (default dependency_free: a kernel
+   [--gnu] [--runtime=dependency_free|system_libm] (default dependency_free: a kernel
    calling a C library math helper is refused and tallied) *)
 
 open Loop_ir
 module M = Machine_model.Mir_model
 module Rt = Machine_rivet_aarch64.Rivet_a64_route
+
+(* GNU assembles and links each invocation's modules where Rivet bound them; a
+   disagreement refuses the invocation, so the tally names it. *)
+let gnu_check ~entry modules =
+  let module G = Machine_rivet_aarch64_gnu.Gnu_coherence in
+  match G.check ~entry modules with
+  | G.Verdict.Agree _ -> Ok ()
+  | v -> Error (Fmt.str "gnu: %a" G.Verdict.pp v)
 
 let bits (Tensor.Tensor t as packed) =
   let acc = ref [] in
@@ -79,7 +87,8 @@ let prefix (b : Loop_bundle.t) m ~constants ~count =
 let () =
   let run = ref None
   and allocation = ref Rt.Allocation.Reference
-  and runtime = ref Machine_rivet_aarch64.Rivet_a64_runtime.Dependency_free in
+  and runtime = ref Machine_rivet_aarch64.Rivet_a64_runtime.Dependency_free
+  and gnu = ref false in
   let args =
     List.filter
       (fun a ->
@@ -92,6 +101,9 @@ let () =
             false
         | [ "--allocation"; "scanned" ] ->
             allocation := Rt.Allocation.Scanned;
+            false
+        | [ "--gnu" ] ->
+            gnu := true;
             false
         | [ "--runtime"; "dependency_free" ] ->
             runtime := Machine_rivet_aarch64.Rivet_a64_runtime.Dependency_free;
@@ -130,7 +142,10 @@ let () =
           let t0 = Unix.gettimeofday () in
           match
             M.prepare
-              ~route:(Rt.route ~allocation:!allocation ~runtime:!runtime ())
+              ~route:
+                (Rt.route
+                   ?check:(if !gnu then Some gnu_check else None)
+                   ~allocation:!allocation ~runtime:!runtime ())
               ~pipeline:Ssa_backends.Pipeline.Exact b
           with
           | Ok m ->

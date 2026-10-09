@@ -267,6 +267,7 @@
   loop_ir
   machine_model
   machine_rivet_aarch64
+  machine_rivet_aarch64_gnu
   native
   native_interp
   pt2

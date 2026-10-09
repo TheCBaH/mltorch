@@ -1,0 +1,15 @@
+; The secondary route: the typed module Rivet encodes is printed as GNU source
+; by Rivet's own printer, assembled and linked by the GNU toolchain at the
+; addresses Rivet bound, and the two images compared byte for byte. Runs
+; processes (as, ld, objcopy, nm), so it is apart from the pure mapping library.
+
+(library
+ (name machine_rivet_aarch64_gnu)
+ (libraries
+  fmt
+  machine_rivet_aarch64
+  rivet.aarch64
+  rivet.asm_core
+  rivet.image
+  unix)
+ (enabled_if %{lib-available:rivet.aarch64}))

@@ -80,3 +80,49 @@ let%expect_test "mapping mutations are detected natively" =
     branch sense: coord_out_of_range(t0, N) [native: DISAGREE failure row: coord_out_of_range(t0, W)(0:i64, 0:i64, 0:i64, 0:i64, 4:i64, 0:i64) vs coord_out_of_range(t0, N)(0:i64, 0:i64, 0:i64, 0:i64, 1:i64, 0:i64)]
     commuted sub: ok [native: DISAGREE output t1[0]: 0x1.aaaaaap-1:f32 vs -0x1.aaaaaap-1:f32]
     narrow spill: native: generated code killed by SIGSEGV |}]
+
+(* The same modules through GNU: assembled and linked at Rivet's addresses, the
+   loadable bytes and global symbol addresses are Rivet's. *)
+let gnu ?tamper kernel ~bind =
+  match Src.case_of_plan (Fusion_plan.default kernel) ~bind with
+  | Error e -> Fmt.pr "%s@." e
+  | Ok case -> Fmt.pr "%s@." (H.gnu ?tamper case)
+
+let%expect_test "GNU assembles what Rivet encodes" =
+  gnu Loop_programs.kernel ~bind:(data_bind [| -0.; 1.5; nan; 3. |]);
+  gnu Loop_programs.shifted_kernel ~bind:(data_bind [| 0.; 0.; 0.; 0. |]);
+  let a = operand 3 35 and b = operand 5 21 in
+  gnu (matmul_kernel ~m:5 ~k:7 ~n:3) ~bind:(matmul_bind ~m:5 ~k:7 ~n:3 ~a ~b);
+  gnu
+    (Loop_programs.unary_kernel Expr.Value.Exp)
+    ~bind:(data_bind [| 1.; 2.; 3.; 4. |]);
+  [%expect
+    {|
+    agree (2 segments, 352 bytes, 4 symbols)
+    agree (2 segments, 2800 bytes, 4 symbols)
+    agree (2 segments, 740 bytes, 5 symbols)
+    agree (2 segments, 360 bytes, 5 symbols) |}]
+
+(* A difference between the two is seen: GNU is handed source with one
+   instruction changed. *)
+let%expect_test "a tampered GNU source disagrees" =
+  let replace_first ~sub ~by s =
+    match Str.search_forward (Str.regexp_string sub) s 0 with
+    | i ->
+        String.sub s 0 i ^ by
+        ^ String.sub s
+            (i + String.length sub)
+            (String.length s - i - String.length sub)
+    | exception Not_found -> s
+  in
+  gnu
+    ~tamper:(replace_first ~sub:"\tfsub" ~by:"\tfadd")
+    Cases.noncommutative
+    ~bind:(data_bind [| 7.; -0.; 1e-40; 3.4e38 |]);
+  gnu
+    ~tamper:(replace_first ~sub:"\tret" ~by:"\tnop")
+    Loop_programs.kernel
+    ~bind:(data_bind [| -0.; 1.5; nan; 3. |]);
+  [%expect {|
+    .text+237: rivet 3a, gnu 2a
+    .text+92: rivet c0, gnu 1f |}]
