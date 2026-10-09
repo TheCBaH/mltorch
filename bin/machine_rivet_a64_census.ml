@@ -11,7 +11,7 @@
    back). The run is dominated by the copy and the reference, not the kernels.
 
    argv: <model.pt2> [--run=K] (K = 0: compile only) [--allocation=reference|scanned]
-   [--gnu] [--table [--poison]] [--runtime=dependency_free|system_libm] (default dependency_free: a kernel
+   [--gnu] [--table [--poison] [--planned=ordered|relaxed]] [--runtime=dependency_free|system_libm] (default dependency_free: a kernel
    calling a C library math helper is refused and tallied) *)
 
 open Loop_ir
@@ -87,14 +87,14 @@ let prefix (b : Loop_bundle.t) m ~constants ~count =
 (* The table-bound host: tensors are the context's storage, passed by address.
    The same comparison, with the phases timed apart. *)
 let host_run (b : Loop_bundle.t) ~constants ~allocation ~runtime ~count ~poison
-    ~gnu =
+    ~gnu ~pipeline ~interp =
   let module H = Machine_rivet_aarch64.Rivet_a64_host in
   let n = List.length b.Loop_bundle.invocations in
   let t0 = Unix.gettimeofday () in
   match
     H.prepare
       ?check:(if gnu then Some gnu_check else None)
-      ~allocation ~runtime ~pipeline:Ssa_backends.Pipeline.Exact b
+      ~allocation ~runtime ~pipeline b
   with
   | Error refusals ->
       let tally = Hashtbl.create 16 in
@@ -156,19 +156,89 @@ let host_run (b : Loop_bundle.t) ~constants ~allocation ~runtime ~count ~poison
           | Error s -> Fmt.pr "run: %a@." M.Stop.pp s
           | Ok written ->
               let seconds = Unix.gettimeofday () -. t0 in
+              let exact =
+                match pipeline with
+                | Ssa_backends.Pipeline.Planned _ -> false
+                | _ -> true
+              in
+              let worst = ref 0. in
               let differing =
                 List.filter
                   (fun id ->
                     match H.Context.tensor cx id with
                     | Ok t -> (
                         match Graph_ir.Tensor_id.Map.find_opt id reference with
-                        | Some r -> bits t <> bits r
+                        | Some r ->
+                            if exact then bits t <> bits r
+                            else begin
+                              List.iter2
+                                (fun x y ->
+                                  let x = Int64.float_of_bits x
+                                  and y = Int64.float_of_bits y in
+                                  let d =
+                                    Float.abs (x -. y)
+                                    /. Float.max 1. (Float.abs y)
+                                  in
+                                  worst :=
+                                    if Float.is_nan d then Float.infinity
+                                    else Float.max !worst d)
+                                (bits t) (bits r);
+                              false
+                            end
                         | None -> true)
                     | Error _ -> true)
                   written
               in
               Fmt.pr "first %d invocations: %d tensors, %d differ (%.2f s)@."
                 count (List.length written) (List.length differing) seconds;
+              if not exact then
+                Fmt.pr "  largest relative difference from binary64: %.3g@."
+                  !worst;
+              if interp then
+                (* the same planned program on the selected-stage interpreter:
+                   what the native code must equal bit for bit *)
+                begin match
+                  M.prepare
+                    ~route:
+                      (M.Route.Aarch64
+                         Machine_model.Mir_model_route.Stage.Selected) ~pipeline
+                    b
+                with
+                | Error _ -> Fmt.pr "  interpreter route refused@."
+                | Ok mi -> (
+                    match
+                      M.Context.create mi ~constants:(fun id ->
+                          Graph_ir.Tensor_id.Map.find_opt id constants)
+                    with
+                    | Error s ->
+                        Fmt.pr "  interpreter context: %a@." M.Stop.pp s
+                    | Ok ci -> (
+                        let t0 = Unix.gettimeofday () in
+                        match
+                          M.Context.run_prefix ~fuel:Int64.max_int ci
+                            ~inputs:(fun id -> List.assoc_opt id inputs)
+                            ~count
+                        with
+                        | Error s ->
+                            Fmt.pr "  interpreter run: %a@." M.Stop.pp s
+                        | Ok written ->
+                            let differ =
+                              List.filter
+                                (fun id ->
+                                  match
+                                    ( M.Context.tensor ci id,
+                                      H.Context.tensor cx id )
+                                  with
+                                  | Ok a, Ok b -> bits a <> bits b
+                                  | _ -> true)
+                                written
+                            in
+                            Fmt.pr
+                              "  against the selected-stage interpreter: %d \
+                               tensors, %d differ (%.1f s)@."
+                              (List.length written) (List.length differ)
+                              (Unix.gettimeofday () -. t0)))
+                end;
               List.iter
                 (fun id -> Fmt.pr "  differs: %a@." Graph_ir.Tensor_id.pp id)
                 differing))
@@ -179,6 +249,8 @@ let () =
   and runtime = ref Machine_rivet_aarch64.Rivet_a64_runtime.Dependency_free
   and gnu = ref false
   and table = ref false
+  and planned = ref None
+  and interp = ref false
   and poison = ref false in
   let args =
     List.filter
@@ -192,6 +264,15 @@ let () =
             false
         | [ "--allocation"; "scanned" ] ->
             allocation := Rt.Allocation.Scanned;
+            false
+        | [ "--planned"; (("ordered" | "relaxed") as n) ] ->
+            planned :=
+              Some
+                (if n = "ordered" then Ssa_ir.Ssa_numerics.Simd_fp32_ordered
+                 else Ssa_ir.Ssa_numerics.Simd_fp32_relaxed);
+            false
+        | [ "--against-interp" ] ->
+            interp := true;
             false
         | [ "--table" ] ->
             table := true;
@@ -239,7 +320,13 @@ let () =
           if !table then
             host_run b ~constants ~allocation:!allocation ~runtime:!runtime
               ~count:(Option.value ~default:n !run)
-              ~poison:!poison ~gnu:!gnu
+              ~poison:!poison ~gnu:!gnu ~interp:!interp
+              ~pipeline:
+                (match !planned with
+                | Some numerics ->
+                    Ssa_backends.Pipeline.Planned
+                      { numerics; target = Ssa_ir.Ssa_target.neon128 }
+                | None -> Ssa_backends.Pipeline.Exact)
           else
             let t0 = Unix.gettimeofday () in
             match
@@ -278,6 +365,6 @@ let () =
   | _ ->
       prerr_endline
         "usage: machine_rivet_a64_census <model.pt2> [--run=K] \
-         [--allocation=reference|scanned] \
-         [--runtime=dependency_free|system_libm]";
+         [--allocation=reference|scanned] [--gnu] [--table [--poison] \
+         [--planned=ordered|relaxed]] [--runtime=dependency_free|system_libm]";
       exit 2

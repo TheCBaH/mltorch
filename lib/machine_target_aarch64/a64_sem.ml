@@ -170,6 +170,7 @@ let exec env op =
       ]
   | Dup_elem (arr, x) -> [ vec (Array.make (Arr.lanes arr) (bits env x)) ]
   | Dup_half (k, x) -> [ vec (Array.sub (lanes env x) (2 * k) 2) ]
+  | Dup_mask (arr, x) -> [ vec (Array.make (Arr.lanes arr) (bits env x)) ]
   | Dup_lane (_, k, x) -> [ b (lanes env x).(k) ]
   | Ext { signed; from; src } ->
       let k = Mir_width.bits from in
@@ -338,6 +339,43 @@ let exec env op =
   | Vfunary (u, arr, x) ->
       [ vec (Array.map (funary (Arr.fsz arr) u) (lanes env x)) ]
   | Vmov (_, x) -> [ vec (lanes env x) ]
+  | Vfcmp (c, arr, x, y) ->
+      (* a lane all ones where the ordered compare holds, zero where it does
+         not or where either operand is a NaN *)
+      let fsz = Arr.fsz arr in
+      let ones = match fsz with Fsz.D -> -1L | Fsz.S -> 0xFFFF_FFFFL in
+      [
+        vec
+          (Array.map2
+             (fun p q ->
+               let a = lval fsz p and b = lval fsz q in
+               let holds =
+                 match c with
+                 | Vcmp.Eq -> a = b
+                 | Vcmp.Ge -> a >= b
+                 | Vcmp.Gt -> a > b
+               in
+               if holds then ones else 0L)
+             (lanes env x) (lanes env y));
+      ]
+  | Vlogic (o, x, y) ->
+      [
+        vec
+          (Array.map2 (fun p q -> logic o Sz.X p q) (lanes env x) (lanes env y));
+      ]
+  | Vnot x ->
+      let l = lanes env x in
+      let w = if Array.length l = 4 then 0xFFFF_FFFFL else -1L in
+      [ vec (Array.map (fun p -> Int64.logand (Int64.lognot p) w) l) ]
+  | Vbit (_, other, x, m) ->
+      let lo = lanes env other and lx = lanes env x and lm = lanes env m in
+      [
+        vec
+          (Array.init (Array.length lm) (fun k ->
+               Int64.logor
+                 (Int64.logand lm.(k) lx.(k))
+                 (Int64.logand (Int64.lognot lm.(k)) lo.(k))));
+      ]
   | Vwiden x ->
       let l = lanes env x in
       [ vec [| l.(0); l.(1); 0L; 0L |] ]

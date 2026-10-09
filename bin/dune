@@ -272,5 +272,6 @@
   native_interp
   pt2
   ssa_backends
+  ssa_ir
   unix)
  (optional))

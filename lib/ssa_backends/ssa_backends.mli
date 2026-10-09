@@ -33,6 +33,14 @@ val program :
   (Ssa_ir.Ssa_program.t, string) result
 (** The program an invocation is emitted from. *)
 
+val plan :
+  numerics:Ssa_ir.Ssa_numerics.t ->
+  target:Ssa_ir.Ssa_target.t ->
+  Loop_ir.Loop_bundle.invocation ->
+  (Ssa_ir.Ssa_plan.t, string) result
+(** The invocation's resolved plan under a numerical policy for a target: the
+    program {!program} returns for [Planned], with the plan's own record. *)
+
 val blocked :
   group:int ->
   Loop_ir.Loop_bundle.invocation ->

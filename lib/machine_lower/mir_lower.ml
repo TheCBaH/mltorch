@@ -281,6 +281,25 @@ let math st fn x =
   | Ok [ r ] -> r
   | _ -> invalid_arg "Mir_lower: a math helper call"
 
+(* A scalar math function of one operand, as the reference computes it: the
+   binary64 helper, with a binary32 operand widened first and the result
+   rounded once. *)
+let math_unary st u x =
+  let fn =
+    match u with
+    | Expr.Value.Cos -> Mir_math.Fn.Cos
+    | Expr.Value.Exp -> Mir_math.Fn.Exp
+    | Expr.Value.Log -> Mir_math.Fn.Log
+    | _ -> Mir_math.Fn.Sin
+  in
+  if Mir_type.equal x.Mir_value.ty Mir_type.F32 then
+    emit st
+      (Mir_op.Fconvert
+         ( Mir_op.Fconvert.F64_to_f32,
+           math st fn
+             (emit st (Mir_op.Fconvert (Mir_op.Fconvert.F32_to_f64, x))) ))
+  else math st fn x
+
 let fbin st o a b = emit st (Mir_op.Fbinary (o, a, b))
 
 (* The error function, owned: the reference's Abramowitz-Stegun form in its
@@ -340,6 +359,25 @@ and erf_steps st x =
     else math st Mir_math.Fn.Exp sq
   in
   mul sign (fbin st Mir_op.Fbinary.Sub (k 1.) (mul poly e))
+
+(* [f] on every lane of a vector, one lane at a time and in lane order: the
+   lane extracted, the scalar function applied, the result inserted into the
+   vector the lanes build up. *)
+let lanewise st x f =
+  match x.Mir_value.ty with
+  | Mir_type.Vec (_, lanes) ->
+      let n = Mir_type.Lanes.to_int lanes in
+      let lane k = f (emit st (Mir_op.Vextract (Mir_type.Lane.of_int k, x))) in
+      let first = lane 0 in
+      let rec go acc k =
+        if k >= n then acc
+        else
+          go
+            (emit st (Mir_op.Vinsert (Mir_type.Lane.of_int k, acc, lane k)))
+            (k + 1)
+      in
+      go (emit st (Mir_op.Vsplat (lanes, first))) 1
+  | _ -> invalid_arg "Mir_lower.lanewise: a vector operand"
 
 let fbinary = function
   | Expr.Value.Add -> Mir_op.Fbinary.Add
@@ -412,24 +450,7 @@ let rec instr st (i : Ssa_instr.t) =
   | Ssa_op.Float_unary
       ( ((Expr.Value.Cos | Expr.Value.Exp | Expr.Value.Log | Expr.Value.Sin) as u),
         a ) ->
-      let fn =
-        match u with
-        | Expr.Value.Cos -> Mir_math.Fn.Cos
-        | Expr.Value.Exp -> Mir_math.Fn.Exp
-        | Expr.Value.Log -> Mir_math.Fn.Log
-        | _ -> Mir_math.Fn.Sin
-      in
-      let x = v a in
-      (* a binary32 operand: the binary64 result rounded once *)
-      result
-        (if Mir_type.equal x.Mir_value.ty Mir_type.F32 then
-           emit st
-             (Mir_op.Fconvert
-                ( Mir_op.Fconvert.F64_to_f32,
-                  math st fn
-                    (emit st (Mir_op.Fconvert (Mir_op.Fconvert.F32_to_f64, x)))
-                ))
-         else math st fn x)
+      result (math_unary st u (v a))
   | Ssa_op.Check_access { at = Ssa_access.Flat _; _ } ->
       (* no source failure: outside the buffer is a defect, and the access
          that follows reports it *)
@@ -710,10 +731,21 @@ let rec instr st (i : Ssa_instr.t) =
   | Ssa_op.Store { buffer; at; encode = enc; value = x } ->
       let e = entry_of st buffer in
       encode st (address st e at) enc (v x)
-  | Ssa_op.Lanewise inner ->
+  | Ssa_op.Lanewise inner -> (
       (* the scalar expansion, on vector operands *)
-      if Mir_lower_vector.liftable inner then instr st { i with op = inner }
-      else unsupported st op
+      match inner with
+      | Ssa_op.Float_unary
+          ( ((Expr.Value.Cos | Expr.Value.Exp | Expr.Value.Log | Expr.Value.Sin)
+             as u),
+            a ) ->
+          (* a call has no vector form: one per lane, in lane order, the
+             results put back into a vector *)
+          result (lanewise st (v a) (math_unary st u))
+      | Ssa_op.Float_unary (Expr.Value.Erf, a) ->
+          result (lanewise st (v a) (erf st))
+      | _ ->
+          if Mir_lower_vector.liftable inner then instr st { i with op = inner }
+          else unsupported st op)
   | Ssa_op.Vec_extract { lane; vector } ->
       result
         (emit st
@@ -730,7 +762,9 @@ let rec instr st (i : Ssa_instr.t) =
       result (Mir_lower_vector.iota st ~base:(v base) ~step ~lanes)
   | Ssa_op.Vec_load { buffer; at; steps; decode = d; lanes } ->
       result
-        (Mir_lower_vector.load st op (entry_of st buffer) ~at ~steps ~lanes d)
+        (Mir_lower_vector.load st op (entry_of st buffer) ~at ~steps ~lanes
+           ~decode:(fun addr d -> decode st op addr d)
+           d)
   | Ssa_op.Vec_splat { element; lanes } ->
       result
         (emit st

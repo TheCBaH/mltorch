@@ -32,7 +32,12 @@ module Make (T : Mir_sel.TARGET) = struct
         with
         | (64 | 128) as bits -> Some (Mir_target.Bank.Fpr, bits)
         | _ -> None)
-    | Mir_type.Mask _ | Mir_type.Order -> None
+    | Mir_type.Mask n -> (
+        (* a register-wide mask: four binary32 lanes or two binary64 *)
+        match Mir_type.Lanes.to_int n with
+        | 2 | 4 -> Some (Mir_target.Bank.Fpr, 128)
+        | _ -> None)
+    | Mir_type.Order -> None
 
   let in_memory bits (l : Loc.t) =
     match l with

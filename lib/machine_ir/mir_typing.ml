@@ -286,9 +286,10 @@ let check ~(signature : Mir_op.Callee.t -> Signature.t option)
       | found -> Error (Error.Bad_operand { position = 0; found }))
   | Vsplat (n, a) -> (
       let* () = immediate (Mir_type.lanes_in_range n) Immediate.Lane in
-      match Mir_type.elem a.Mir_value.ty with
-      | Some e -> Ok [ Mir_type.Vec (e, n) ]
-      | None ->
+      match (a.Mir_value.ty, Mir_type.elem a.Mir_value.ty) with
+      | Mir_type.Pred, _ -> Ok [ Mir_type.Mask n ]
+      | _, Some e -> Ok [ Mir_type.Vec (e, n) ]
+      | _, None ->
           Error (Error.Bad_operand { position = 0; found = a.Mir_value.ty }))
   | Vstore (acc, v) ->
       let* () = vaccess acc in

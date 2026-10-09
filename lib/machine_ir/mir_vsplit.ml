@@ -7,9 +7,12 @@
    lanes a slice holds, so it goes through halves: a widening converts each
    half of a narrow slice ([vslice]), a narrowing joins two converted halves
    ([vconcat]). The result is a generic program again, verified, so the
-   generic interpreter compares it with the logical one. Masks, vectors that
-   fill no whole number of registers, and vectors crossing a call, return or
-   failure payload are refused. *)
+   generic interpreter compares it with the logical one. A mask is split like
+   the vector it was compared from: its lane width is the compared elements',
+   found from the value that makes it, so a mask whose elements cannot be found
+   (a parameter no edge feeds a known mask) is refused, as are vectors that
+   fill no whole number of registers and vectors crossing a call, return or
+   failure payload. *)
 
 module Refusal = struct
   type t =
@@ -73,9 +76,101 @@ let program ?mutation ~register_bytes (g : Mir_verify.Generic.t) =
     in
     (* every vector value's slices, made before any use is rewritten *)
     let slices = Hashtbl.create 64 in
+    (* a mask's lane width, from the elements it was compared from *)
+    let mask_elem : (int, Mir_type.Elem.t) Hashtbl.t = Hashtbl.create 16 in
+    let key (v : Mir_value.t) = Mir_id.Value.to_int v.Mir_value.id in
+    let vec_elem (v : Mir_value.t) =
+      match v.Mir_value.ty with Mir_type.Vec (e, _) -> Some e | _ -> None
+    in
+    let elem_of (v : Mir_value.t) =
+      match v.Mir_value.ty with
+      | Mir_type.Mask _ -> Hashtbl.find_opt mask_elem (key v)
+      | _ -> vec_elem v
+    in
+    let learn (r : Mir_value.t) e =
+      match r.Mir_value.ty with
+      | Mir_type.Mask _ when not (Hashtbl.mem mask_elem (key r)) ->
+          Hashtbl.replace mask_elem (key r) e;
+          true
+      | _ -> false
+    in
+    (* to a fixpoint: a mask parameter learns from the edges that feed it *)
+    let rec propagate () =
+      let changed = ref false in
+      let flow (target : Mir_id.Block.t) args =
+        match
+          List.find_opt
+            (fun (b : (Mir_op.t, Mir_terminator.t) Mir_block.t) ->
+              Mir_id.Block.equal b.Mir_block.id target)
+            f.Mir_func.blocks
+        with
+        | Some tb when List.length tb.Mir_block.params = List.length args ->
+            List.iter2
+              (fun (param : Mir_value.t) (arg : Mir_value.t) ->
+                match elem_of arg with
+                | Some e -> if learn param e then changed := true
+                | None -> ())
+              tb.Mir_block.params args
+        | _ -> ()
+      in
+      List.iter
+        (fun (b : (Mir_op.t, Mir_terminator.t) Mir_block.t) ->
+          List.iter
+            (fun (i : Mir_op.t Mir_instr.t) ->
+              match (i.Mir_instr.op, i.Mir_instr.results) with
+              | Mir_op.Fcmp (_, a, _), [ r ] -> (
+                  match vec_elem a with
+                  | Some e -> if learn r e then changed := true
+                  | None -> ())
+              | (Mir_op.Pnot a | Mir_op.Copy a), [ r ] -> (
+                  match elem_of a with
+                  | Some e -> if learn r e then changed := true
+                  | None -> ())
+              | Mir_op.Pbinary (_, a, c), [ r ] -> (
+                  (* the elements flow every way between the operands and the
+                     result *)
+                  match (elem_of a, elem_of c, elem_of r) with
+                  | Some e, _, _ | None, Some e, _ | None, None, Some e ->
+                      List.iter
+                        (fun v -> if learn v e then changed := true)
+                        [ a; c; r ]
+                  | None, None, None -> ())
+              | Mir_op.Select (m, a, _), [ r ] when is_vector m -> (
+                  (* the arms' elements are the mask's *)
+                  match (elem_of a, elem_of r) with
+                  | Some e, _ | None, Some e ->
+                      if learn m e then changed := true
+                  | None, None -> ())
+              | _ -> ())
+            b.Mir_block.body;
+          match b.Mir_block.terminator with
+          | Mir_terminator.Branch br ->
+              flow br.Mir_branch.then_.Mir_edge.target
+                br.Mir_branch.then_.Mir_edge.args;
+              flow br.Mir_branch.else_.Mir_edge.target
+                br.Mir_branch.else_.Mir_edge.args
+          | Mir_terminator.Jump e -> flow e.Mir_edge.target e.Mir_edge.args
+          | Mir_terminator.Fail _ | Mir_terminator.Return _ -> ())
+        f.Mir_func.blocks;
+      if !changed then propagate ()
+    in
+    propagate ();
+    (* a value's slice type and count: a mask's is its compared elements' *)
+    let shape_of (v : Mir_value.t) =
+      match v.Mir_value.ty with
+      | Mir_type.Mask n -> (
+          match Hashtbl.find_opt mask_elem (key v) with
+          | None -> refuse (Refusal.Mask v.Mir_value.ty)
+          | Some e ->
+              let k = per e and n = Mir_type.Lanes.to_int n in
+              if k < 1 || n mod k <> 0 then
+                refuse (Refusal.Lanes v.Mir_value.ty)
+              else (Mir_type.Mask (Mir_type.Lanes.of_int k), n / k, k))
+      | ty -> shape ty
+    in
     let note (v : Mir_value.t) =
       if is_vector v then
-        let ty, count, _ = shape v.Mir_value.ty in
+        let ty, count, _ = shape_of v in
         Hashtbl.replace slices
           (Mir_id.Value.to_int v.Mir_value.id)
           (Array.init count (fun _ -> fresh ty))
@@ -251,9 +346,7 @@ let program ?mutation ~register_bytes (g : Mir_verify.Generic.t) =
                            addr;
                          }))
             | Mir_op.Vsplat (_, x) ->
-                let _, _, k =
-                  shape (List.hd i.Mir_instr.results).Mir_value.ty
-                in
+                let _, _, k = shape_of (List.hd i.Mir_instr.results) in
                 per_slice (fun _ -> Mir_op.Vsplat (Mir_type.Lanes.of_int k, x))
             | Mir_op.Vstore (acc, v) ->
                 let _, count, k = shape v.Mir_value.ty in
@@ -274,13 +367,19 @@ let program ?mutation ~register_bytes (g : Mir_verify.Generic.t) =
             | Mir_op.Call _ ->
                 scalar_only
                   (Mir_op.operands i.Mir_instr.op @ i.Mir_instr.results)
-            | Mir_op.Fcmp _ | Mir_op.Pbinary _ | Mir_op.Pnot _ | Mir_op.Select _
-              ->
-                refuse
-                  (Refusal.Mask
-                     (List.find is_vector
-                        (Mir_op.operands i.Mir_instr.op @ i.Mir_instr.results))
-                       .Mir_value.ty)
+            | Mir_op.Fcmp (c, a, b) ->
+                per_slice (fun j -> Mir_op.Fcmp (c, (s a).(j), (s b).(j)))
+            | Mir_op.Pbinary (o, a, b) ->
+                per_slice (fun j -> Mir_op.Pbinary (o, (s a).(j), (s b).(j)))
+            | Mir_op.Pnot a -> per_slice (fun j -> Mir_op.Pnot (s a).(j))
+            | Mir_op.Select (m, a, b) ->
+                (* a scalar predicate chooses whole vectors: it is every
+                   slice's, a mask chooses lane by lane *)
+                per_slice (fun j ->
+                    Mir_op.Select
+                      ( (if is_vector m then (s m).(j) else m),
+                        (s a).(j),
+                        (s b).(j) ))
             | op -> refuse (Refusal.Operation (Mir_op.name op)))
         b.Mir_block.body;
       let terminator =

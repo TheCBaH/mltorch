@@ -380,3 +380,85 @@ let%expect_test "lane gathers and every legal loop vectorized, natively" =
         ld1 12, st1 0, ins 8, ld1r 4, dup 16
         ok [native: agree]
         agree (2 segments, 2008 bytes, 4 symbols) |}]
+
+(* A call per lane: exp has no vector form, so the lanes go out one at a time,
+   with the vector held across each call in a full-width spill. *)
+let%expect_test "vector exp, a helper call per lane, natively" =
+  let x = Loop_fixtures.load_t0 in
+  List.iter
+    (fun n ->
+      let shape = Loop_fixtures.shape_w n in
+      let d = vdata n in
+      if n > 2 then (
+        d.(0) <- Float.nan;
+        d.(1) <- -0.;
+        d.(2) <- 3.4e38);
+      Fmt.pr "w=%d: " n;
+      planned ~probe:Abi_probe.altered_fpcr
+        (Loop_fixtures.pixel_kernel ~shape (Expr.Value.exp x))
+        ~bind:(bind_data ~shape d))
+    [ 16; 17; 37 ];
+  [%expect
+    {|
+    w=16: ok [native: agree]
+    w=17: ok [native: agree]
+    w=37: ok [native: agree] |}]
+
+(* Masks: a compare makes all-ones or all-zero lanes and a select chooses by
+   bits. Less-than is the compare with its operands swapped; a NaN is false for
+   every ordered compare. *)
+let%expect_test "compares and selects on masks, natively" =
+  let x = Loop_fixtures.load_t0 in
+  let zero = Expr.Value.const 0. in
+  let kernels =
+    [
+      ( "x < 0 ? -x : x / 3",
+        Expr.Value.(
+          select (Expr.Bool.value_lt x zero) (sub zero x) (div x (const 3.))) );
+      ( "x == 0 ? 0 : 1",
+        Expr.Value.(select (Expr.Bool.value_eq x zero) (const 0.) (const 1.)) );
+      ( "x < 1 ? x * x : x + 1",
+        Expr.Value.(
+          select (Expr.Bool.value_lt x (const 1.)) (mul x x) (add x (const 1.)))
+      );
+    ]
+  in
+  List.iter
+    (fun (name, body) ->
+      List.iter
+        (fun n ->
+          let shape = Loop_fixtures.shape_w n in
+          let d = vdata n in
+          if n > 3 then (
+            d.(0) <- Float.nan;
+            d.(1) <- -0.;
+            d.(2) <- 3.4e38;
+            d.(3) <- 0.);
+          Fmt.pr "%s, w=%d: " name n;
+          let kernel = Loop_fixtures.pixel_kernel ~shape body in
+          (match
+             Src.case_of_planned ~target:Ssa_ir.Ssa_target.neon128
+               ~numerics:Ssa_ir.Ssa_numerics.Simd_fp32_ordered
+               (Fusion_plan.default kernel)
+               ~bind:(bind_data ~shape d)
+           with
+          | Ok case -> (
+              match H.mnemonics case with
+              | Ok t ->
+                  let c k = Option.value ~default:0 (Hashtbl.find_opt t k) in
+                  Fmt.pr "%d fcmgt, %d fcmeq, %d bit; " (c "fcmgt") (c "fcmeq")
+                    (c "bit")
+              | Error e -> Fmt.pr "%s; " e)
+          | Error _ -> ());
+          planned ~probe:Abi_probe.altered_fpcr kernel
+            ~bind:(bind_data ~shape d))
+        [ 16; 37 ])
+    kernels;
+  [%expect
+    {|
+    x < 0 ? -x : x / 3, w=16: 4 fcmgt, 0 fcmeq, 4 bit; ok [native: agree]
+    x < 0 ? -x : x / 3, w=37: 4 fcmgt, 0 fcmeq, 4 bit; ok [native: agree]
+    x == 0 ? 0 : 1, w=16: 0 fcmgt, 4 fcmeq, 4 bit; ok [native: agree]
+    x == 0 ? 0 : 1, w=37: 0 fcmgt, 4 fcmeq, 4 bit; ok [native: agree]
+    x < 1 ? x * x : x + 1, w=16: 4 fcmgt, 0 fcmeq, 4 bit; ok [native: agree]
+    x < 1 ? x * x : x + 1, w=37: 4 fcmgt, 0 fcmeq, 4 bit; ok [native: agree] |}]

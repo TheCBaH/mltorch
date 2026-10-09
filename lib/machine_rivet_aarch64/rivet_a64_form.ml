@@ -52,6 +52,7 @@ let form_name : A.t -> string = function
   | A.Cset _ -> "Cset"
   | A.Dup_elem _ -> "Dup_elem"
   | A.Dup_half _ -> "Dup_half"
+  | A.Dup_mask _ -> "Dup_mask"
   | A.Dup_lane _ -> "Dup_lane"
   | A.Ext _ -> "Ext"
   | A.Fbin _ -> "Fbin"
@@ -93,10 +94,14 @@ let form_name : A.t -> string = function
   | A.Sxtw _ -> "Sxtw"
   | A.Trunc _ -> "Trunc"
   | A.Uxtw _ -> "Uxtw"
+  | A.Vbit _ -> "Vbit"
   | A.Vfbin _ -> "Vfbin"
+  | A.Vfcmp _ -> "Vfcmp"
   | A.Vfmla _ -> "Vfmla"
   | A.Vfunary _ -> "Vfunary"
+  | A.Vlogic _ -> "Vlogic"
   | A.Vmov _ -> "Vmov"
+  | A.Vnot _ -> "Vnot"
   | A.Vwiden _ -> "Vwiden"
   | A.Wtrunc _ -> "Wtrunc"
 
@@ -491,6 +496,11 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
             vec env arr (d 0); O.Vlane (vnum env (u 0), lane (A.Arr.fsz arr), 0);
           ];
       ]
+  | A.Dup_mask (arr, _) ->
+      let sz =
+        match arr with A.Arr.D2 -> A.Sz.X | A.Arr.S2 | A.Arr.S4 -> A.Sz.W
+      in
+      [ ins Op.Dup [ vec env arr (d 0); g env sz (u 0) ] ]
   | A.Dup_half (k, _) ->
       [
         ins Op.Dup
@@ -579,6 +589,46 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
         | A.Funary.Fsqrt -> Op.Fsqrt
       in
       [ ins opcode [ vec env arr (d 0); vec env arr (u 0) ] ]
+  | A.Vbit _ ->
+      (* the else value's register is the result's *)
+      let b16 = Aarch64.Varr.B16 in
+      [
+        ins Op.Bit
+          [
+            O.Vec (vnum env (d 0), b16);
+            O.Vec (vnum env (u 1), b16);
+            O.Vec (vnum env (u 2), b16);
+          ];
+      ]
+  | A.Vfcmp (c, arr, _, _) ->
+      let opcode =
+        match c with
+        | A.Vcmp.Eq -> Op.Fcmeq
+        | A.Vcmp.Ge -> Op.Fcmge
+        | A.Vcmp.Gt -> Op.Fcmgt
+      in
+      [ ins opcode [ vec env arr (d 0); vec env arr (u 0); vec env arr (u 1) ] ]
+  | A.Vlogic (o, _, _) ->
+      let b16 = Aarch64.Varr.B16 in
+      let opcode =
+        match o with
+        | A.Logic.And -> Op.And
+        | A.Logic.Eor -> Op.Eor
+        | A.Logic.Orr -> Op.Orr
+      in
+      [
+        ins opcode
+          [
+            O.Vec (vnum env (d 0), b16);
+            O.Vec (vnum env (u 0), b16);
+            O.Vec (vnum env (u 1), b16);
+          ];
+      ]
+  | A.Vnot _ ->
+      let b16 = Aarch64.Varr.B16 in
+      [
+        ins Op.Not [ O.Vec (vnum env (d 0), b16); O.Vec (vnum env (u 0), b16) ];
+      ]
   | A.Vmov (arr, _) ->
       let a =
         match arr with
