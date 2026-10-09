@@ -1,0 +1,26 @@
+; The x86-64 physical program as typed Rivet values, as lib/machine_rivet_aarch64
+; does for AArch64: a published [Mir_artifact] becomes a [Normalized_ast] module
+; of Rivet x86-64 instructions, built through the encoder's surface constructor
+; (a mnemonic and typed operands, never assembly text), laid out by Rivet, and
+; bound through the same table of region addresses. This host is AArch64, so the
+; code cannot be loaded here: [Rivet_x64_elf] makes a static ELF of the bound
+; image and [Rivet_x64_run] executes it under qemu-user, which is emulation, not
+; an x86-64 runner. Built only where Rivet is installed.
+
+(library
+ (name machine_rivet_x86_64)
+ (libraries
+  err_trace
+  fmt
+  machine_ir
+  machine_model
+  machine_rivet_common
+  machine_target_x86_64
+  rivet.asm_core
+  rivet.driver
+  rivet.foundation
+  rivet.image
+  rivet.x86_64
+  rivet.x86_family_encode
+  unix)
+ (enabled_if %{lib-available:rivet.x86_64}))

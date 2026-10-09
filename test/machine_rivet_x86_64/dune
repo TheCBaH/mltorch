@@ -1,0 +1,33 @@
+; Published x86-64 artifacts through typed Rivet modules, run as static
+; processes under qemu-user: each case's emulated outcome and region bytes
+; against the physical interpreter's over the same bound bytes. This is
+; emulation, not an x86-64 CPU. Built where the installed Rivet packages are
+; and qemu-x86_64 is on the path.
+
+(library
+ (name machine_rivet_x86_64_test)
+ (libraries
+  core
+  err_trace
+  expr
+  fmt
+  loop_ir
+  loop_ir_test
+  machine_alloc
+  machine_interp
+  machine_ir
+  machine_lower
+  machine_model
+  machine_rivet_x86_64
+  machine_source_test
+  machine_target_x86_64
+  native
+  native_test
+  unix
+  ssa_bridge_test
+  ssa_ir
+  str)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect))
+ (enabled_if %{lib-available:rivet.x86_64}))

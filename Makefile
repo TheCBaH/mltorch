@@ -1,4 +1,4 @@
-.PHONY: compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
+.PHONY: compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean machine.a64.conformance machine.pt2.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
@@ -1149,6 +1149,12 @@ rivet.install:
 # the physical interpreter. Needs an AArch64 host.
 machine.rivet.a64.runtest: rivet.install
 	opam exec -- dune build @test/machine_rivet_aarch64/runtest --force
+
+# Published x86-64 artifacts as typed Rivet modules, run as static processes
+# under qemu-user against the physical interpreter. This is emulation, not an
+# x86-64 CPU. Needs qemu-x86_64.
+machine.rivet.x64.runtest: rivet.install
+	opam exec -- dune build @test/machine_rivet_x86_64/runtest --force
 
 # The per-form conformance again, through Rivet: the 240 scalar forms of
 # machine.a64.conformance and the NEON forms, each made as typed Rivet
