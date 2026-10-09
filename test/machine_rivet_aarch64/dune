@@ -1,0 +1,34 @@
+; Published AArch64 artifacts through typed Rivet modules and run natively:
+; each case's native outcome and region bytes against the physical
+; interpreter's over the same bound bytes. Needs an AArch64 host and the
+; installed Rivet packages, so it is built only where they are.
+
+(library
+ (name machine_rivet_aarch64_test)
+ (libraries
+  core
+  err_trace
+  expr
+  fmt
+  loop_ir
+  loop_ir_test
+  machine_alloc
+  machine_aarch64_test
+  machine_interp
+  machine_ir
+  machine_lower
+  machine_model
+  machine_rivet_aarch64
+  machine_source_test
+  machine_target_aarch64
+  native
+  unix
+  ssa_bridge_test
+  ssa_ir)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect))
+ (enabled_if
+  (and
+   %{lib-available:rivet.aarch64}
+   (= %{architecture} arm64))))
