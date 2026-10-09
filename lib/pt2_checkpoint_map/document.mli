@@ -81,6 +81,16 @@ type t = {
           and constants configs. *)
 }
 
+val pin_of_fields :
+  name:string ->
+  sha256:string ->
+  size:int64 ->
+  url:string ->
+  (Pin.t, [> Fault.error ]) Err.t
+(** The checks every pinned file passes: a bare file name, a 64-digit lower-case
+    digest, at least one byte, an [https://] URL. Shared by the layers that pin
+    files (the map, the publication index, the manifests). *)
+
 val supported_schema_version : int
 
 val of_string : ?limits:Limits.t -> string -> (t, [> Fault.error ]) Err.t

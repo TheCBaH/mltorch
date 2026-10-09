@@ -1,0 +1,16 @@
+; The pure layers that say which files make up a released fixture and what each
+; must hash to: the consumer's cohort manifest, the producer's publication
+; index and per-artifact manifest. Each is a separate pin, checked against the
+; one above it; nothing here reads a file or the network (lib/pt2_fixture_unix
+; does), so js_of_ocaml reaches it.
+
+(library
+ (name pt2_fixture)
+ (libraries
+  err_trace
+  fmt
+  jsont
+  jsont.bytesrw
+  pt2_checkpoint_map
+  pt2_sha256
+  schema_runtime))

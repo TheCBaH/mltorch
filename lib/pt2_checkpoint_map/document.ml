@@ -301,14 +301,17 @@ let has_prefix ~prefix s =
   String.length s >= String.length prefix
   && String.equal (String.sub s 0 (String.length prefix)) prefix
 
+let pin_of_fields ~name ~sha256 ~size ~url =
+  let* sha256 = digest_of sha256 in
+  if not (valid_file_name name) then Err.fail (`Bad_pin (Fault.Name, name))
+  else if Int64.compare size 1L < 0 then
+    Err.fail (`Bad_pin (Fault.Size, Int64.to_string size))
+  else if not (has_prefix ~prefix:"https://" url) then
+    Err.fail (`Bad_pin (Fault.Url, url))
+  else Err.return { Pin.name; sha256; size; url }
+
 let pin_of (w : Wire.pin) =
-  let* sha256 = digest_of w.sha256 in
-  if not (valid_file_name w.name) then Err.fail (`Bad_pin (Fault.Name, w.name))
-  else if Int64.compare w.size 1L < 0 then
-    Err.fail (`Bad_pin (Fault.Size, Int64.to_string w.size))
-  else if not (has_prefix ~prefix:"https://" w.url) then
-    Err.fail (`Bad_pin (Fault.Url, w.url))
-  else Err.return { Pin.name = w.name; sha256; size = w.size; url = w.url }
+  pin_of_fields ~name:w.name ~sha256:w.sha256 ~size:w.size ~url:w.url
 
 let source_of (w : Wire.pin) =
   let* pin = pin_of w in

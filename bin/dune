@@ -316,3 +316,19 @@
   pt2_checkpoint_map_unix
   pt2_sha256
   unix))
+
+; Fetch and open the released checkpoint fixtures a cohort manifest pins. See
+; lib/pt2_fixture_unix. `fetch` goes to the network (curl, HTTPS only);
+; `open` is offline and reads only the cache.
+
+(executable
+ (name transformers_fixture)
+ (modules transformers_fixture)
+ (libraries
+  err_trace
+  fmt
+  pt2
+  pt2_checkpoint_map
+  pt2_fixture
+  pt2_fixture_unix
+  unix))

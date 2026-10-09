@@ -1,0 +1,23 @@
+; A synthetic release -- cohort, publication index, manifest, a real gzip'd tar
+; archive and two checkpoint sources -- built in memory from the six-capture
+; toy graph of test/pt2_checkpoint_map, plus tests of the pure pin layers.
+; Pure, so the suite also runs under js_of_ocaml (@runtest-js).
+;
+; See test/native4d/dune for why [js] carries no `enabled_if`.
+
+(library
+ (name pt2_fixture_test)
+ (libraries
+  err_trace
+  fmt
+  pt2
+  pt2_checkpoint_map
+  pt2_checkpoint_map_test
+  pt2_fixture
+  pt2_sha256
+  schema_runtime
+  zipc)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))

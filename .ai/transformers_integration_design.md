@@ -397,3 +397,40 @@ MobileViT 347 captures (uncast), the SmolVLM connector (a 28 MB BF16 to F32
 cast from the 513 MB Hub checkpoint) and the 55 TinyCLIP text-tower captures
 all reproduce the map's digests in OCaml; the hashing is pure OCaml at about
 127 MB/s.
+
+## 15. Acquisition chain (implemented)
+
+`lib/pt2_fixture` (pure) holds the pin layers; `lib/pt2_fixture_unix` is the
+native host. The chain, each link checked against the one above, is: the
+cohort manifest (consumer, trusted) pins the publication index's bytes and each
+artifact's archive, manifest, graph, contract, map and source files; the
+publication must agree with those pins; the manifest must agree with the
+cohort and lists every archive member by size and digest; the archive's members
+must be exactly the manifest's and each must match its pin; the map must name
+exactly the cohort's source files with identical pins; and every source and
+capture is then verified as in the preparation stage. A failure names its layer
+(`Fault.layer`), so a wrong index is never reported as a wrong archive.
+
+Files live in a content-addressed cache: a blob's path is its SHA-256, never a
+producer-supplied name. A download goes to a temporary file, is checked for
+size and digest, and only then renamed into place; a cached file that fails its
+pin is replaced when a transport exists and is an error offline. The transport
+is a function writing one URL to one file (`curl`, HTTPS only, five redirects
+at most); it is trusted with nothing, so a redirect or proxy changes the
+digest, never the expected pin.
+
+The `.tar.gz` reader is a deliberately small host helper, not a tar library: it
+decompresses with `Zipc_deflate` under a size ceiling, checks the CRC and
+length trailer, and accepts regular files only. Links, absolute or escaping
+names, duplicate names and extended headers are refused. An archive is
+extracted only after its member set and every member match the manifest in
+memory, into a temporary directory that is verified once more and renamed to
+`bundles/<archive digest>`; a bundle directory exists whole and verified or not
+at all, and is re-verified (exact member set, no links, sizes, digests) every
+time it is reopened. Missing `model.pt2` is the expected shape of a slim bundle.
+
+`make transformers.download` is the only target that uses the network;
+`make transformers.open` opens the cohort from the cache alone and proves every
+capture. Measured on the four cohort artifacts of `checkpoint-003207ae59ed`
+(about 650 MB): cold fetch 29 s, offline reopen 12 s (mostly SmolVLM's 513 MB
+hashed twice, once for the cache check and once in memory).
