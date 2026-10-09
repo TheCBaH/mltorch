@@ -18,10 +18,12 @@
   machine_ir
   machine_lower
   machine_model
+  machine_model_test
   machine_rivet_aarch64
   machine_source_test
   machine_target_aarch64
   native
+  native_test
   unix
   ssa_bridge_test
   ssa_ir)

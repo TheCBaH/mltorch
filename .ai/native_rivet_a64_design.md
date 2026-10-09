@@ -12,6 +12,7 @@ Mir_artifact (checked, realized physical program)
   -> Rivet_a64_form    selected/late/move/save forms -> Aarch64.Instruction.t
   -> Rivet_a64_module  functions, blocks, data symbols -> Normalized_ast.module_
   -> Rivet_a64_image   Driver.Pipeline.lower/plan -> Image.laid_out -> Native_exec
+  -> Rivet_a64_route   one image per bundle invocation, as a Mir_model route
 ```
 
 ## Library and build gating
@@ -61,6 +62,22 @@ A libm helper is a host-symbol stub in a second module, because its address
 belongs to the process: `movz`/`movk x16` then `br x16`, as typed instructions.
 It must not be cached across processes.
 
+## The model route
+
+`Mir_model_route.Route.Custom` is the extension point for a back end the machine
+libraries do not link. `Rivet_a64_route.route ()` supplies one: each invocation's
+generic program is selected, allocated (the reference allocator, or sink
+scheduling then split linear scan), framed, published and loaded as an image of
+its own at `prepare` time, so a refusal is a route refusal before any call. A run
+copies the invocation's bound regions (tensors, in the context's own
+`Mir_memory`) into the image, calls it, copies the bound regions and the failure
+record back, and decodes the status through the same `Mir_record` the
+interpreters use. The CPU cannot tell which bytes a kernel wrote, so after a run
+every byte of a bound region is defined: the interpreters' "an output has a byte
+no invocation wrote" check is not made natively. A loaded image is closed by a
+finaliser when its kernel is unreachable. The copy per call is the interim
+binding described above and the dominant cost.
+
 ## Rivet additions
 
 The vendored Rivet gained what the machine stages emit and its corpus did not:
@@ -79,6 +96,14 @@ a reported verdict, not the end of the test process. Four mapping defects
 (`Rivet_a64_form.Mutation`: a commuted subtraction, a wrong branch sense, a
 dropped low-12 address, a narrowed spill) each yield a disagreement or a
 signal, which is the evidence the comparison can fail.
+
+Whole bundles (`model_test.ml`) run the model tests' graphs through the route
+against the reference evaluator, bitwise: convolution with batch norm and relu
+(both pipelines, three calls with different inputs), softmax, layer norm, RMS
+norm, SDPA with masked rows, `bmm`, a padded strided convolution, and a gather
+whose runtime index fails in the second invocation with the same record the
+interpreters store; the chain and several kernels also under the scanned
+allocation. Two mapping mutations change a bundle's answer.
 
 Logical work counters (`Event`) are not executed natively and are not compared.
 x86-64 and a GNU export of the same module are not covered here.

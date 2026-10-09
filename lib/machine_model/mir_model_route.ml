@@ -26,15 +26,6 @@ module Stage = struct
     | Selected -> "selected"
 end
 
-module Route = struct
-  type t = Aarch64 of Stage.t | Generic | X86_64 of Stage.t
-
-  let name = function
-    | Aarch64 s -> "aarch64 " ^ Stage.name s
-    | Generic -> "generic"
-    | X86_64 s -> "x86_64 " ^ Stage.name s
-end
-
 (* What a context needs of a kernel: its storage, and a run's status. *)
 module Exec = struct
   type t = {
@@ -54,6 +45,32 @@ module Exec = struct
         (** what this kernel's runs so far executed of the allocation's making,
             on an allocated stage *)
   }
+end
+
+(* A route the caller supplies: a back end this library does not link (native
+   code), made executable from an invocation's generic program. *)
+module Custom = struct
+  type t = {
+    name : string;
+    exec :
+      sites:Mir_failure.Site_entry.t array ->
+      Mir_verify.Generic.t ->
+      (Exec.t, string) result;
+  }
+end
+
+module Route = struct
+  type t =
+    | Aarch64 of Stage.t
+    | Custom of Custom.t
+    | Generic
+    | X86_64 of Stage.t
+
+  let name = function
+    | Aarch64 s -> "aarch64 " ^ Stage.name s
+    | Custom c -> c.Custom.name
+    | Generic -> "generic"
+    | X86_64 s -> "x86_64 " ^ Stage.name s
 end
 
 let instantiate program memory ~shared =
@@ -330,6 +347,7 @@ module X64_route =
 let measure route ~now ~sites g =
   match route with
   | Route.Aarch64 _ -> A64_route.measure ~now ~sites g
+  | Route.Custom _ -> Error "a custom route has no back end to measure"
   | Route.Generic -> Error "the generic route has no back end to measure"
   | Route.X86_64 _ -> X64_route.measure ~now ~sites g
 
@@ -337,11 +355,13 @@ let measure route ~now ~sites g =
 let pressure route ~sites g =
   match route with
   | Route.Aarch64 _ -> A64_route.pressure ~sites g
+  | Route.Custom _ -> Error "a custom route has no registers"
   | Route.Generic -> Error "the generic route has no registers"
   | Route.X86_64 _ -> X64_route.pressure ~sites g
 
 let exec route ~sites g =
   match route with
   | Route.Aarch64 stage -> A64_route.exec stage ~sites g
+  | Route.Custom c -> c.Custom.exec ~sites g
   | Route.Generic -> Ok (generic g)
   | Route.X86_64 stage -> X64_route.exec stage ~sites g
