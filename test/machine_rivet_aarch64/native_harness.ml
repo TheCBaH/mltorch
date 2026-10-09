@@ -233,6 +233,32 @@ let compare ?mutation ?runtime ?select_mutation ?frame_mutation ?pad ?probe
               Fmt.str "%s [native: DISAGREE %a]%s" (Src.status_name n)
                 Mir_compare.Difference.pp d abi))
 
+(* The native observation against the source oracle's own (the structured SSA
+   interpreter on the plan), not against the physical interpreter: the two
+   routes share nothing below the plan. *)
+let oracle ?mutation ?runtime ?(sites = [||]) (case : Src.Case.t) =
+  match build case ~sites with
+  | Error e -> "not built: " ^ e
+  | Ok b -> (
+      match native_full ?mutation ?runtime case ~sites b with
+      | Error e -> "native: " ^ e
+      | Ok (n, _) -> (
+          match
+            (* logical work counters are not executed natively: the oracle's
+               are set aside, its status and outputs compared *)
+            Mir_compare.observations
+              ~expected:
+                {
+                  case.Src.Case.oracle.Src.Route.observation with
+                  Mir_observation.events = n.Mir_observation.events;
+                }
+              ~actual:n ()
+          with
+          | Ok () -> Src.status_name n ^ " [native vs source oracle: agree]"
+          | Error d ->
+              Fmt.str "%s [native vs source oracle: DISAGREE %a]"
+                (Src.status_name n) Mir_compare.Difference.pp d))
+
 (* The artifact's typed modules, assembled by GNU as and linked by GNU ld at
    Rivet's addresses, against Rivet's own image. *)
 let gnu ?mutation ?pad ?tamper_gnu ?tamper_text ?(sites = [||])

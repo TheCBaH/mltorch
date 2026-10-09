@@ -74,6 +74,37 @@ let%expect_test "an exp kernel through the owned exp, and a refused log" =
     ok [native: agree]
     native: helper log needs the system math library, which the mode forbids |}]
 
+(* The same cases against the source oracle itself, the structured SSA
+   interpreter on the plan, with no machine-level interpreter between. *)
+let%expect_test "native agrees with the source oracle" =
+  let oracle ?mutation kernel ~bind =
+    match Src.case_of_plan (Fusion_plan.default kernel) ~bind with
+    | Error e -> Fmt.pr "%s@." e
+    | Ok case -> Fmt.pr "%s@." (H.oracle ?mutation case)
+  in
+  oracle Loop_programs.kernel ~bind:(data_bind [| -0.; 1.5; nan; 3. |]);
+  oracle Cases.noncommutative ~bind:(data_bind [| 7.; -0.; 1e-40; 3.4e38 |]);
+  oracle Loop_programs.shifted_kernel ~bind:(data_bind [| 0.; 0.; 0.; 0. |]);
+  oracle (Cases.shifted ~dh:1 ~dw:4) ~bind:(data_bind [| 0.; 0.; 0.; 0. |]);
+  let a = operand 3 35 and b = operand 5 21 in
+  oracle (matmul_kernel ~m:5 ~k:7 ~n:3) ~bind:(matmul_bind ~m:5 ~k:7 ~n:3 ~a ~b);
+  oracle
+    (Loop_programs.unary_kernel Expr.Value.Exp)
+    ~bind:(data_bind [| 1.; -87.5; 88.7; -1e30 |]);
+  Fmt.pr "commuted subtraction: ";
+  oracle ~mutation:Machine_rivet_aarch64.Rivet_a64_form.Mutation.Commuted_sub
+    Cases.noncommutative
+    ~bind:(data_bind [| 7.; -0.; 1e-40; 3.4e38 |]);
+  [%expect
+    {|
+    ok [native vs source oracle: agree]
+    ok [native vs source oracle: agree]
+    coord_out_of_range(t0, W) [native vs source oracle: agree]
+    coord_out_of_range(t0, H) [native vs source oracle: agree]
+    ok [native vs source oracle: agree]
+    ok [native vs source oracle: agree]
+    commuted subtraction: ok [native vs source oracle: DISAGREE output t1[0]: 0x1.aaaaaap-1:f32 vs -0x1.aaaaaap-1:f32] |}]
+
 (* Each mapping defect below leaves a program that still assembles, loads and
    runs; only the comparison with the interpreter can tell. *)
 let%expect_test "mapping mutations are detected natively" =
@@ -164,7 +195,8 @@ let%expect_test "register-offset and floating-point accesses" =
   report "matmul" (matmul_kernel ~m ~k ~n) (matmul_bind ~m ~k ~n ~a ~b);
   report "shifted" Loop_programs.shifted_kernel (data_bind [| 0.; 0.; 0.; 0. |]);
   report "pointwise" Loop_programs.kernel (data_bind [| 1.; 2.; 3.; 4. |]);
-  [%expect {|
+  [%expect
+    {|
     matmul: ok [native: agree]
       register-offset accesses: false; float loads: true, moves from a general register: 0
     shifted: coord_out_of_range(t0, W) [native: agree]
