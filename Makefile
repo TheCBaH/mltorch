@@ -1,4 +1,4 @@
-.PHONY: compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
+.PHONY: transformers.admission compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean machine.a64.conformance machine.pt2.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
@@ -152,6 +152,17 @@ pt2.json-model-support:
 	@mkdir -p $(dir $(PT2_JSON_MODEL_SUPPORT))
 	opam exec -- dune exec bin/pt2_json_model_support.exe -- \
 		$(PT2_JSON_MODELS_DIR) $(PT2_JSON_MODEL_SUPPORT)
+
+# Graph-only admission over a devcontainer.transformers checkout at the commit
+# pinned in scripts/transformers-admission.sh. Offline: acquiring the checkout
+# and the release fixtures (data/transformers/cohort.json) is separate. Output
+# is local evidence, never committed.
+#   make transformers.admission TRANSFORMERS_SOURCE=/path/to/checkout
+TRANSFORMERS_SOURCE ?=
+TRANSFORMERS_ADMISSION_OUT ?= _build/transformers-admission
+transformers.admission:
+	@test -n "$(TRANSFORMERS_SOURCE)" || { echo "set TRANSFORMERS_SOURCE" >&2; exit 2; }
+	scripts/transformers-admission.sh $(TRANSFORMERS_SOURCE) $(TRANSFORMERS_ADMISSION_OUT)
 
 # The arena allocator evaluation over the same corpus, both normalized
 # dialects: every strategy, its order search, the portfolio and the bounded
