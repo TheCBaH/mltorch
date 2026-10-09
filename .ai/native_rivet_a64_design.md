@@ -78,6 +78,27 @@ no invocation wrote" check is not made natively. A loaded image is closed by a
 finaliser when its kernel is unreachable. The copy per call is the interim
 binding described above and the dominant cost.
 
+## Runtime mode
+
+`Rivet_a64_runtime` declares what an image may depend on. `Dependency_free`, the
+default, refuses (a typed `Helper` refusal at `prepare`) any artifact that calls a
+helper bound to a C library symbol; `System_libm` admits it and the image resolves
+the symbol with `dlsym` in the host process. Of the seven CI models, three
+(`mobilenetv3_small_050`, `regnetx_002`, `mobilenetv2_050`) compile fully
+dependency-free; the others refuse their `exp` invocations. Owning the math
+helpers is what retires the system mode for them.
+
+## GNU as an independent encoder
+
+`lib/machine_rivet_aarch64_gnu` prints the same `Normalized_ast` module with
+Rivet's `Gnu_module` (and the AArch64 `Instruction.pp_gnu`, which spells a
+relocation modifier the GNU way), assembles it with GNU as, links it with GNU ld
+with every section at the address Rivet bound it, and compares the loadable bytes
+and the global symbol addresses. It runs processes, so it is apart from the pure
+mapping library. `Gnu_module` carries no CFI because `Directive.t` has none; an
+unwind description is not claimed. Agreement says two encoders read the module
+alike, not what the code does.
+
 ## Rivet additions
 
 The vendored Rivet gained what the machine stages emit and its corpus did not:
@@ -105,5 +126,11 @@ whose runtime index fails in the second invocation with the same record the
 interpreters store; the chain and several kernels also under the scanned
 allocation. Two mapping mutations change a bundle's answer.
 
+The census (`bin/machine_rivet_a64_census`, manual, needs the model data) runs a
+model's invocations through the route against the per-node reference and, with
+`--gnu`, refuses any invocation whose Rivet and GNU images differ. All seven CI
+models run bitwise under both allocators with `system_libm`, and their images
+agree with GNU's.
+
 Logical work counters (`Event`) are not executed natively and are not compared.
-x86-64 and a GNU export of the same module are not covered here.
+x86-64 and are not covered here.
