@@ -26,8 +26,36 @@ let nth vs k = List.nth vs k
 let form name roles make = { name; roles; make }
 
 let imm_for = function
-  | Sz.L -> [ 0L; 1L; 0xFFFF_FFFFL; 0x7FFF_FFFFL; 0x8000_0000L; 5L ]
-  | Sz.Q -> [ 0L; 1L; -1L; 0x7FFF_FFFFL; -0x8000_0000L; 5L ]
+  | Sz.L ->
+      [
+        0L;
+        1L;
+        5L;
+        127L;
+        128L;
+        255L;
+        256L;
+        0xFFFF_FF80L;
+        0xFFFF_FF7FL;
+        0xFFFF_FFFFL;
+        0x7FFF_FFFFL;
+        0x8000_0000L;
+      ]
+  | Sz.Q ->
+      [
+        0L;
+        1L;
+        5L;
+        127L;
+        128L;
+        255L;
+        256L;
+        -128L;
+        -129L;
+        -1L;
+        0x7FFF_FFFFL;
+        -0x8000_0000L;
+      ]
 
 let alus = Alu.[ Add; And; Or; Sub; Xor ]
 let shifts = Shift.[ Sar; Shl; Shr ]

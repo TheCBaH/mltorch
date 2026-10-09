@@ -192,3 +192,12 @@ let gnu ?pad ?tamper_gnu ?tamper_text ?(sites = [||]) (case : Src.Case.t) =
           Fmt.str "%a" Machine_rivet_x86_64_gnu.Gnu_coherence.Verdict.pp
             (Machine_rivet_x86_64_gnu.Gnu_coherence.check ?tamper_gnu
                ?tamper_text ~entry [ m ]))
+
+(* A planned binary32 vector case: the interpreter and the emulated process run
+   the same selected program. *)
+let planned ?runtime ?features ?pad ~target ~numerics kernel ~bind =
+  match
+    Src.case_of_planned ~target ~numerics (Fusion_plan.default kernel) ~bind
+  with
+  | Error e -> e
+  | Ok case -> compare ?runtime ?features ?pad case

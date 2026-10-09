@@ -136,7 +136,7 @@ let place_defs op tys (u : placed) =
   in
   { locs = List.map fst defs; kinds = List.map snd defs }
 
-type built = { elf : string; count : int }
+type built = { modul : Fam.Instruction.t N.module_; count : int }
 
 let build_inner ?mutation (f : X64_forms.t) (vs : vector list) =
   Err.Escape.with_escape @@ fun esc ->
@@ -315,17 +315,16 @@ let build_inner ?mutation (f : X64_forms.t) (vs : vector list) =
         @ [ dir (D.Declared_section { name = ".note.GNU-stack" }) ];
     }
   in
-  match
-    Machine_rivet_x86_64.Rivet_x64_qemu.elf_of ~entry:"_start" [ modul ]
-  with
-  | Ok elf -> Ok { elf; count = n }
-  | Error e -> Error e
+  Ok { modul; count = n }
 
 let build ?mutation f vs =
   match Err.payload (build_inner ?mutation f vs) with
   | Ok (Ok b) -> Ok b
   | Ok (Error e) -> Error e
   | Error r -> Error (Fmt.str "%a" Machine_rivet_x86_64.Rivet_x64_refusal.pp r)
+
+let elf built =
+  Machine_rivet_x86_64.Rivet_x64_qemu.elf_of ~entry:"_start" [ built.modul ]
 
 (* The observed record [r] of the output block. *)
 type observed = {

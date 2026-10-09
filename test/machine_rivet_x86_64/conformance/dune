@@ -15,6 +15,7 @@
   machine_ir
   machine_rivet_common
   machine_rivet_x86_64
+  machine_rivet_x86_64_gnu
   machine_target_x86_64
   rivet.asm_core
   rivet.foundation

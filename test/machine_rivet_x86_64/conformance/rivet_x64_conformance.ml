@@ -89,7 +89,7 @@ let describe (v : vector) =
   ^ Printf.sprintf " fl=%Lx idx=%Ld seed=%Lx:%Lx" v.flags v.index v.seed_hi
       v.seed_lo
 
-let run_form ~mutation ~map_mutation ~verbose st (f : X64_forms.t) =
+let run_form ~mutation ~map_mutation ~gnu ~verbose st (f : X64_forms.t) =
   let vs = X64_model.vectors f in
   let usable =
     List.filter_map
@@ -99,14 +99,32 @@ let run_form ~mutation ~map_mutation ~verbose st (f : X64_forms.t) =
         | exception Model_defect _ -> None)
       vs
   in
+  (* the instructions do not depend on how many vectors a batch holds *)
+  let usable = if gnu then List.filteri (fun i _ -> i < 4) usable else usable in
   st.forms <- st.forms + 1;
   st.skipped <- st.skipped + (List.length vs - List.length usable);
   match B.build ?mutation:map_mutation f (List.map fst usable) with
   | Error e ->
       st.refused <- st.refused + 1;
       Fmt.pr "%-28s refused: %s@." f.name e
+  | Ok built when gnu -> (
+      match
+        Machine_rivet_x86_64_gnu.Gnu_coherence.check ~entry:"_start"
+          [ built.B.modul ]
+      with
+      | Machine_rivet_x86_64_gnu.Gnu_coherence.Verdict.Agree _ ->
+          st.vectors <- st.vectors + built.B.count
+      | v ->
+          st.mismatches <- st.mismatches + 1;
+          let text =
+            Fmt.str "%a" Machine_rivet_x86_64_gnu.Gnu_coherence.Verdict.pp v
+          in
+          Fmt.pr "%-28s %s@." f.name
+            (if String.length text > 300 then String.sub text 0 300 else text))
   | Ok built -> (
-      match Machine_rivet_x86_64.Rivet_x64_qemu.execute built.B.elf with
+      match
+        Result.bind (B.elf built) Machine_rivet_x86_64.Rivet_x64_qemu.execute
+      with
       | Error e ->
           st.refused <- st.refused + 1;
           Fmt.pr "%-28s did not run: %s@." f.name e
@@ -141,7 +159,8 @@ let () =
   let mutate = ref None
   and map_mutate = ref None
   and only = ref None
-  and verbose = ref false in
+  and verbose = ref false
+  and gnu = ref false in
   Arg.parse
     [
       ( "--mutate",
@@ -150,6 +169,9 @@ let () =
       ( "--map-mutate",
         Arg.String (fun s -> map_mutate := Some s),
         "NAME make the Rivet mapping wrong in one entry" );
+      ( "--gnu",
+        Arg.Set gnu,
+        " check each form's module against GNU as/ld instead of running it" );
       ("--form", Arg.String (fun s -> only := Some s), "SUBSTRING");
       ("--verbose", Arg.Set verbose, " print every mismatch");
     ]
@@ -189,7 +211,9 @@ let () =
   let st =
     { forms = 0; vectors = 0; skipped = 0; mismatches = 0; refused = 0 }
   in
-  List.iter (run_form ~mutation ~map_mutation ~verbose:!verbose st) forms;
+  List.iter
+    (run_form ~mutation ~map_mutation ~gnu:!gnu ~verbose:!verbose st)
+    forms;
   Fmt.pr
     "%d forms, %d vectors (emulated under qemu-user), %d skipped by the \
      model's defects, %d mismatches, %d forms not run@."

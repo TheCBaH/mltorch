@@ -1165,6 +1165,7 @@ MACHINE_X64_MUTATIONS = cmp-carry fma-unfused max-zero ucomi-nan
 machine.rivet.x64.conformance: rivet.install
 	opam exec -- dune build test/machine_rivet_x86_64/conformance
 	$(RIVET_X64_CONFORMANCE)
+	$(RIVET_X64_CONFORMANCE) --gnu
 	set -e; for m in $(MACHINE_X64_MUTATIONS); do $(RIVET_X64_CONFORMANCE) --mutate $$m > /dev/null; done
 	set -e; for m in dropped-disp inverted-cond; do $(RIVET_X64_CONFORMANCE) --map-mutate $$m > /dev/null; done
 
