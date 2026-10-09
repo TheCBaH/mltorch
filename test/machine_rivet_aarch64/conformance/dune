@@ -1,0 +1,21 @@
+; Per-form native conformance through typed Rivet instructions: the forms and
+; vectors of test/machine_a64_native, each form made by the adapter and run on
+; this CPU, against the same model prediction. Manual (a make target), like the
+; GNU-assembler harness it mirrors; needs an AArch64 host and Rivet.
+
+(executable
+ (name rivet_conformance)
+ (libraries
+  a64_native_model
+  core
+  err_trace
+  fmt
+  machine_interp
+  machine_ir
+  machine_rivet_aarch64
+  machine_target_aarch64
+  rivet.aarch64
+  rivet.asm_core
+  rivet.foundation
+  unix)
+ (optional))

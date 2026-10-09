@@ -4,10 +4,30 @@
 ; semantic function under the form's defined-bit, flag and write masks. Needs
 ; an AArch64 host and gcc; host-dependent, so it is a make target
 ; (machine.a64.conformance), not part of runtest.
+;
+; The forms, the operands and the model's prediction are a library so that
+; another route to the CPU (test/machine_rivet_aarch64/conformance: the same
+; forms made as typed Rivet instructions) runs the same vectors against the
+; same model.
+
+(library
+ (name a64_native_model)
+ (wrapped false)
+ (modules a64_forms a64_c a64_model)
+ (libraries
+  core
+  err_trace
+  fmt
+  machine_interp
+  machine_ir
+  machine_target_aarch64
+  unix))
 
 (executable
  (name a64_conformance)
+ (modules a64_conformance)
  (libraries
+  a64_native_model
   core
   err_trace
   fmt

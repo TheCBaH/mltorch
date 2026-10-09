@@ -20,6 +20,7 @@ module Mutation = struct
     | Commuted_sub  (** a subtraction's operands swapped *)
     | Dropped_lo12  (** a symbol's low twelve bits left out of its address *)
     | Narrow_spill  (** a 64-bit spill or reload moved as 32 bits *)
+    | Wrong_lane  (** a lane access on the neighbouring lane *)
 end
 
 type env = {
@@ -502,11 +503,13 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       in
       [ ins Op.Dup [ vec env arr (d 0); g env sz (u 0) ] ]
   | A.Dup_half (k, _) ->
+      let k = if mutated Mutation.Wrong_lane then 1 - k else k in
       [
         ins Op.Dup
           [ f env A.Fsz.D (d 0); O.Vlane (vnum env (u 0), Aarch64.Lane.D, k) ];
       ]
   | A.Dup_lane (fsz, k, _) ->
+      let k = if mutated Mutation.Wrong_lane then k lxor 1 else k in
       [ ins Op.Dup [ f env fsz (d 0); O.Vlane (vnum env (u 0), lane fsz, k) ] ]
   | A.Fcvtl _ ->
       [
@@ -534,6 +537,7 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
           ];
       ]
   | A.Ins_lane (fsz, k, _, _) ->
+      let k = if mutated Mutation.Wrong_lane then k lxor 1 else k in
       [
         ins Op.Ins
           [
@@ -542,6 +546,7 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
           ];
       ]
   | A.Ld1_lane (fsz, k, _, _) ->
+      let k = if mutated Mutation.Wrong_lane then k lxor 1 else k in
       [
         ins Op.Ld1
           [
@@ -555,6 +560,7 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
           [ O.Vlist (vnum env (d 0), varr arr); mem env ~base:(u 0) ~offset:0L ];
       ]
   | A.St1_lane (fsz, k, _, _) ->
+      let k = if mutated Mutation.Wrong_lane then k lxor 1 else k in
       [
         ins Op.St1
           [

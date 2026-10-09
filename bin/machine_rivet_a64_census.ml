@@ -87,7 +87,7 @@ let prefix (b : Loop_bundle.t) m ~constants ~count =
 (* The table-bound host: tensors are the context's storage, passed by address.
    The same comparison, with the phases timed apart. *)
 let host_run (b : Loop_bundle.t) ~constants ~allocation ~runtime ~count ~poison
-    ~gnu ~pipeline ~interp =
+    ~gnu ~pipeline ~interp ~bench =
   let module H = Machine_rivet_aarch64.Rivet_a64_host in
   let n = List.length b.Loop_bundle.invocations in
   let t0 = Unix.gettimeofday () in
@@ -194,6 +194,28 @@ let host_run (b : Loop_bundle.t) ~constants ~allocation ~runtime ~count ~poison
               if not exact then
                 Fmt.pr "  largest relative difference from binary64: %.3g@."
                   !worst;
+              (match bench with
+              | None -> ()
+              | Some reps ->
+                  (* warm calls of the whole schedule: inputs rewritten, every
+                     invocation called, outputs left in the context *)
+                  let times =
+                    List.init reps (fun _ ->
+                        let t0 = Unix.gettimeofday () in
+                        ignore
+                          (H.Context.run_prefix cx
+                             ~inputs:(fun id -> List.assoc_opt id inputs)
+                             ~count);
+                        (Unix.gettimeofday () -. t0) *. 1000.)
+                    |> List.sort compare
+                  in
+                  Fmt.pr
+                    "  warm: min %.3f ms, median %.3f ms, max %.3f ms over %d \
+                     calls@."
+                    (List.hd times)
+                    (List.nth times (reps / 2))
+                    (List.nth times (reps - 1))
+                    reps);
               if interp then
                 (* the same planned program on the selected-stage interpreter:
                    what the native code must equal bit for bit *)
@@ -251,6 +273,7 @@ let () =
   and table = ref false
   and planned = ref None
   and interp = ref false
+  and bench = ref None
   and poison = ref false in
   let args =
     List.filter
@@ -270,6 +293,9 @@ let () =
               Some
                 (if n = "ordered" then Ssa_ir.Ssa_numerics.Simd_fp32_ordered
                  else Ssa_ir.Ssa_numerics.Simd_fp32_relaxed);
+            false
+        | [ "--bench"; n ] ->
+            bench := Some (int_of_string n);
             false
         | [ "--against-interp" ] ->
             interp := true;
@@ -320,7 +346,7 @@ let () =
           if !table then
             host_run b ~constants ~allocation:!allocation ~runtime:!runtime
               ~count:(Option.value ~default:n !run)
-              ~poison:!poison ~gnu:!gnu ~interp:!interp
+              ~poison:!poison ~gnu:!gnu ~interp:!interp ~bench:!bench
               ~pipeline:
                 (match !planned with
                 | Some numerics ->
