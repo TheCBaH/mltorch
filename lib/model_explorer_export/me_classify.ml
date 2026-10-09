@@ -41,7 +41,7 @@ let lowering : [< Native_interp.error ] -> verdict = function
      conditional for a .pt2 and a bare model.json alike: [lower] takes an
      ExportedProgram and gains no operator support from the archive payload. *)
   | `Unsupported_operator _ -> Unavailable C.Unsupported_operator
-  | `Unsupported_input _ -> Unavailable C.Unsupported_input
+  | `Empty_cache _ | `Unsupported_input _ -> Unavailable C.Unsupported_input
   (* A per-node output-count ceiling, in the two spellings a caller can meet: a
      `Tensor[]` node's serialized name list is bounded during lowering, and the
      same limit is enforced again inside shape inference, arriving wrapped as a

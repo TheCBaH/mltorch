@@ -585,3 +585,37 @@ decomposition in the importer (`new_ones` as `zeros + 1` was tried and removed f
 this reason): each needs its own op, or an importer arm onto an existing
 one-node op. That is a separate program of work from the embedding gather and is
 sequenced after the empty-cache normalization that blocks 16 graphs outright.
+
+## 20. Empty-cache normalization (implemented)
+
+The static decode graphs lift the initial key/value cache to a `Tensor_constant`
+of shape `[0]`, clone it, and concatenate it with the step's new keys. ATen's
+`cat` skips a 1-D size-0 operand whatever the other operands' rank (checked
+against the oracle at the first, last and a negative dim), so the concatenation
+is the new keys alone. `Native_interp.normalize_empty_caches` rewrites exactly
+that and nothing else, on the PT2 program before lowering, so Native keeps its
+positive extents and no empty value is ever a graph edge:
+
+- an empty source is a `Tensor_constant` whose metadata is exactly `[0]`;
+- `clone.default` of an empty is empty and is dropped;
+- `cat.default` drops its empty operands, keeping the rest in order; one
+  remaining operand becomes `clone.default` (ATen's `cat` of one tensor is a
+  copy);
+- refused with a typed `` `Empty_cache `` row: any other reader, an empty
+  returned by the graph, a signature that mutates state, a cat whose operands
+  are all empty, and a dtype different from the kept operands (ATen promotes
+  over a skipped operand too, so that is not a pure drop). Zero-length tensors
+  of any other shape stay refused by strict lowering.
+
+The result is a new program value; the published graph, its digest and the
+capture inventory are untouched, and the report names, per source, the clones
+dropped and each cat site with the dropped operand positions (a typed ordinal).
+It is opt-in (`run_named ?empty_caches`, which hands the report to a callback);
+plain `lower` is unchanged, so no path that did not ask is affected. The replay
+report (schema 2) records each rewrite in `normalizations`.
+
+Measured on the 30 cohort graphs: all 16 graphs with empty captures (16, 24 or
+60 sources each) normalize and move on. Their next blockers are recorded, not
+solved here: `new_ones.default`, graphs whose attention masks have symbolic
+dimensions, `eq.Scalar` and `full.default`. No producer case for those graphs
+runs yet, so S7 is confirmed numerically only on micrographs and the oracle.

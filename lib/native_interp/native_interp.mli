@@ -512,6 +512,17 @@ type malformed =
 (** A graph the decoder accepted and this lowering cannot read. FLAT-INCLUDED in
     {!error}: it is this module's own failure domain, not a crossed seam. *)
 
+(** Why {!normalize_empty_caches} declined a graph; names are PT2 SSA names. *)
+module Empty_cache : sig
+  type t =
+    | All_empty_cat of string
+    | Dtype_mismatch of { empty : string; other : string }
+    | Escapes_to_output of string
+    | Missing_metadata of string
+    | Mutating_signature
+    | Unsupported_reader of { source : string; target : string }
+end
+
 module Rank_mismatch : sig
   type t = { sizes : int; strides : int }
 end
@@ -541,6 +552,7 @@ type error =
   [ `Arena of Arena_run.error
     (** An arena that was required could not be had: nothing was evaluated. *)
   | `Build of Graph_builder.error
+  | `Empty_cache of Empty_cache.t
   | `Eval of Eval_direct.error
   | `Input_binding of Input_binding.t
   | `Lens of Pt2_native_graph.lens_error
@@ -580,6 +592,34 @@ val pp_tensor_bridge : Format.formatter -> [< tensor_bridge ] -> unit
    [Tensor_id].  This first static slice covers the ResNet-18 export set. *)
 val lower : Pytorch_types.ExportedProgram.t -> (Pt2_native_graph.t, error) Err.t
 val lower_archive : Pt2_archive.t -> (Pt2_native_graph.t, error) Err.t
+
+(* The one use of a zero-length tensor the static decode graphs make, resolved
+   before {!lower} so Native keeps its positive extents: the initial empty
+   key/value cache is lifted as a [Tensor_constant] of shape [[0]], cloned, and
+   concatenated with the step's new keys, and ATen's [cat] skips a 1-D size-0
+   operand. {!normalize_empty_caches} drops those clones and operands, turning a
+   one-operand cat into a clone, and refuses every other use of such a tensor
+   (a different reader, a graph output, a mutating signature, an all-empty cat,
+   a dtype that differs from the remaining operands). The returned program is a
+   new value; the original and its digest are untouched, and the report names
+   what happened to each empty source so the rewrite is auditable. *)
+module Empty_cache_report : sig
+  module Operand : Core.Tagged_int.S
+
+  type cat = { cat : string; removed : Operand.t list }
+  (** [cat] is the SSA name of the cat's output, [removed] the dropped operand
+      positions of the original operand list. *)
+
+  type source = { ssa : string; clones : string list; cats : cat list }
+  (** One empty source: its SSA name, the clones dropped from it and the cats it
+      was removed from. All three empty means nothing read it. *)
+
+  type t = { sources : source list }
+end
+
+val normalize_empty_caches :
+  Pytorch_types.ExportedProgram.t ->
+  (Pytorch_types.ExportedProgram.t * Empty_cache_report.t, error) Err.t
 
 (* Opt-in memory-aware reordering of the nodes a run executes. The graph is
    scheduled once, after lowering (or, for {!evaluate}, after the transforms),
@@ -636,7 +676,11 @@ val run :
    their own dtypes.
 
    Outputs are the graph's, in its output order; the caller names them from its
-   contract. {!run} remains for the one-input case and is unchanged. *)
+   contract. {!run} remains for the one-input case and is unchanged.
+
+   [?empty_caches] opts into {!normalize_empty_caches} before lowering and hands
+   its report to the callback; without it a zero-length tensor is refused as
+   ever. *)
 val run_named :
   ?arena:Arena.Admission.t ->
   ?layout:Storage_script.Layout.t ->
@@ -647,6 +691,7 @@ val run_named :
   ?region_executor:Region_executor.t ->
   ?region_group_executor:Region_executor.group ->
   ?node_executor:Node_executor.t ->
+  ?empty_caches:(Empty_cache_report.t -> unit) ->
   Pt2_archive.t ->
   inputs:(string * Pt2_tensor.t) list ->
   (Tensor.packed list, error) Err.t

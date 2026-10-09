@@ -54,6 +54,7 @@ module Index_list = Native_interp_error.Index_list
 
 type malformed = Native_interp_error.malformed
 
+module Empty_cache = Native_interp_error.Empty_cache
 module Rank_mismatch = Native_interp_error.Rank_mismatch
 module Storage_range = Native_interp_error.Storage_range
 
@@ -72,6 +73,10 @@ let pp_malformed = Native_interp_error.pp_malformed
 let pp_tensor_bridge = Native_interp_error.pp_tensor_bridge
 let lower = Native_interp_lower.lower
 let lower_archive = Native_interp_lower.lower_archive
+
+module Empty_cache_report = Native_interp_empty_cache.Report
+
+let normalize_empty_caches = Native_interp_empty_cache.normalize
 
 type schedule = Native_interp_exec.schedule = {
   limits : Arena_schedule.Limits.t;

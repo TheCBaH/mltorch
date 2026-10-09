@@ -170,6 +170,21 @@ module Shape_mismatch = struct
   }
 end
 
+(* Why the empty-cache normalization declined a graph. Names are PT2 SSA
+   names: this is a refusal about the model's own use of a zero-length tensor,
+   reported in the vocabulary the model uses. *)
+module Empty_cache = struct
+  type t =
+    | All_empty_cat of string  (** the [cat] output: nothing would remain *)
+    | Dtype_mismatch of { empty : string; other : string }
+        (** ATen's [cat] promotes over the skipped empty operand too, so a
+            different dtype is not a pure drop *)
+    | Escapes_to_output of string
+    | Missing_metadata of string
+    | Mutating_signature
+    | Unsupported_reader of { source : string; target : string }
+end
+
 module Input_binding = struct
   type t =
     | Duplicate of string
@@ -437,6 +452,7 @@ type tensor_bridge =
 type error =
   [ `Arena of Arena_run.error
   | `Build of Graph_builder.error
+  | `Empty_cache of Empty_cache.t
   | `Eval of Eval_direct.error
   | `Input_binding of Input_binding.t
   | `Lens of Pt2_native_graph.lens_error
@@ -775,9 +791,29 @@ let pp_input_binding ppf : Input_binding.t -> unit = function
       Fmt.pf ppf "named input of dtype %s is not supported"
         (Pt2_dtype.to_string dtype)
 
+let pp_empty_cache ppf : Empty_cache.t -> unit = function
+  | All_empty_cat out ->
+      Fmt.pf ppf "empty cache: every operand of the cat producing %s is empty"
+        out
+  | Dtype_mismatch { empty; other } ->
+      Fmt.pf ppf
+        "empty cache: %s and %s differ in dtype, so dropping %s is not \
+         value-preserving"
+        empty other empty
+  | Escapes_to_output name ->
+      Fmt.pf ppf "empty cache: %s is returned by the graph" name
+  | Missing_metadata name ->
+      Fmt.pf ppf "empty cache: no tensor metadata for %s" name
+  | Mutating_signature ->
+      Fmt.string ppf "empty cache: the signature mutates state"
+  | Unsupported_reader { source; target } ->
+      Fmt.pf ppf "empty cache: %s is read by %s, not a clone or a cat" source
+        target
+
 let pp_error ppf : [< error ] -> unit = function
   | `Arena e -> Arena_run.pp_error ppf e
   | `Build e -> Graph_builder.pp_error ppf e
+  | `Empty_cache e -> pp_empty_cache ppf e
   | `Eval e -> Eval_direct.pp_error ppf e
   | `Input_binding b -> pp_input_binding ppf b
   | `Lens e -> Pt2_native_graph.pp_lens_error ppf e

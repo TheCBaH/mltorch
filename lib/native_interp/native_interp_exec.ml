@@ -288,9 +288,19 @@ let bind_named archive ~inputs lowered =
 
 (* The run itself, over inputs a binder has already produced. *)
 let run_lowered ?arena ?layout ?schedule ?on_arena ?on_storage ?hooks
-    ?region_executor ?region_group_executor ?node_executor archive ~bind =
+    ?region_executor ?region_group_executor ?node_executor ?empty_caches archive
+    ~bind =
   let open Err.Syntax in
-  let* lowered = lower_archive archive in
+  let* lowered =
+    match empty_caches with
+    | None -> lower_archive archive
+    | Some on_report ->
+        let* program, report =
+          Native_interp_empty_cache.normalize (Pt2_archive.program archive)
+        in
+        on_report report;
+        Native_interp_lower.lower program
+  in
   let graph = lowered.Pt2_native_graph.graph in
   (* Hooks see the graph the run follows: the lowered one with the nodes in
      the order they execute, ids and provenance unchanged. *)
@@ -358,9 +368,10 @@ let run ?arena ?layout ?schedule ?on_arena ?on_storage ?hooks ?region_executor
             (`Unsupported_input (`Not_exactly_one_user_input (List.length ids))))
 
 let run_named ?arena ?layout ?schedule ?on_arena ?on_storage ?hooks
-    ?region_executor ?region_group_executor ?node_executor archive ~inputs =
+    ?region_executor ?region_group_executor ?node_executor ?empty_caches archive
+    ~inputs =
   run_lowered ?arena ?layout ?schedule ?on_arena ?on_storage ?hooks
-    ?region_executor ?region_group_executor ?node_executor archive
+    ?region_executor ?region_group_executor ?node_executor ?empty_caches archive
     ~bind:(bind_named archive ~inputs)
 
 (* ---- transforming, and running the result --------------------------------- *)
