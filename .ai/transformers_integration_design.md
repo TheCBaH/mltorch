@@ -567,6 +567,21 @@ The importer arm lives in its own module to keep the compute-family dispatcher
 under the file-size cap.
 
 Admission after this change: embedding is no longer the first blocker of any
-graph. The next ones are `aten.new_ones.default` (five graphs, including the
-BERT-tiny and TinyCLIP text encoders, so embedding is not yet exercised on a
-real released case), `softmax.int` dtype handling, and `diff.default`.
+graph, and the replay of the released BERT-tiny and TinyCLIP text encoders now
+stops further on (`ge.Scalar`, `le.Tensor`). So embedding is verified against
+the ATen oracle and on micrographs, not yet on a released case.
+
+The rest of the text/tower closure is a family, not one operator: measured across
+the 30 cohort graphs, about 30 targets have no importer arm. Most are comparison
+and logical forms (`ge`/`le`/`lt`/`gt`/`eq`/`ne` scalar and tensor, `__and__`,
+`where` in three overloads), the factory forms (`new_ones`, `full`, `zeros_like`,
+`full_like`), and a few pointwise and structural ones (`tanh`, `exp`, `log`,
+`log1p`, `reciprocal`, `squeeze.default`, `diff`, `index_put`, ...). Comparisons
+exist as Native ops reachable from the ATen bridge but not from the serialized
+importer; the others need Native ops too.
+
+Native keeps one node per ATen op, so none of these may be written as a
+decomposition in the importer (`new_ones` as `zeros + 1` was tried and removed for
+this reason): each needs its own op, or an importer arm onto an existing
+one-node op. That is a separate program of work from the embedding gather and is
+sequenced after the empty-cache normalization that blocks 16 graphs outright.
