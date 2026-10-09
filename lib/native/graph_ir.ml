@@ -43,6 +43,12 @@ let input_kind = Graph_common.input_kind
 let op_registry : (module OP) list =
   [
     (module struct
+      include Pointwise.Abs
+
+      let inject t = Abs t
+      let project = function Abs t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Pointwise.Add
 
       let inject t = Add t

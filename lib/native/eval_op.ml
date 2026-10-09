@@ -26,6 +26,9 @@ module Make (S : Semantics.SEMANTICS) = struct
       ~(fill : float -> Vec6.shape -> S.input)
       (out : Semantics.position S.index Vec6.t) : S.t =
     match op with
+    | Abs { Pointwise.Abs.x } ->
+        let module C = Pointwise.Abs.Compute (S) in
+        C.pixel (operand x) out
     | Add { Pointwise.Bin.a; b } ->
         let module C = Pointwise.Add.Compute (S) in
         C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)

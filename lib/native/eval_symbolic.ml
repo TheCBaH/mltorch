@@ -217,6 +217,17 @@ let process_node ~limits ~fill ~pixel (gr : graph) (env, stages, stages_i64)
        therefore sufficient, not merely convenient. Same [Compute_i64
        (Symbolic) (Symbolic)] shape as Reshape/Permute above: already
        carrier-generic, no change to [pointwise_binary.ml]. *)
+  (* The Symbolic twin of [Eval_direct]'s dtype-preserving [Abs]: an int64
+     operand builds the exact int64 pixel (an [I64_load], a signed comparison
+     and a [Select] over int64), staged as an int64 stage like [Add] below. *)
+  | Abs { Pointwise.Abs.x }, [ (_, oid) ] when is_i64 (operand x).Tensor_sig.fmt
+    ->
+      let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+      let x_sig = operand x in
+      let module C = Pointwise.Abs.Compute_i64 (Symbolic) (Symbolic) in
+      let pixel = Expr.Builder.run (C.pixel x_sig Symbolic.out_vec) in
+      let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
+      (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
   | Add { Pointwise.Bin.a; b }, [ (_, oid) ]
     when is_i64 (operand a).Tensor_sig.fmt ->
       let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in

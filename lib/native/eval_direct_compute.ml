@@ -165,6 +165,36 @@ let compute_arms (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
      exactly-one-I64 mixed pair, so the only two domains reaching here are
      (I64, I64) and every other agreeing pair (which the default float pixel
      path already handles identically to before). *)
+  (* Dtype-preserving [Abs]: an I64 operand takes the exact int64 pixel (read
+     through [i64_load], negated in wrapping int64 arithmetic), never the float
+     pixel, whose [S.load] is lossy above 2^53. The builder threads the I64
+     output edge for exactly this case, so the destination is an I64 tensor. *)
+  | Abs { Pointwise.Abs.x } -> (
+      let x_sig = Tensor_id.Map.find x g.Graph.tensors in
+      match x_sig.Tensor_sig.fmt with
+      | Payload.Fmt Payload.I64 ->
+          (* [Direct]'s own [b] is the abstract predicate of [SEMANTICS]; the
+             typed section's selects and comparisons are on [bool]. *)
+          let module T = struct
+            type 'a repr = 'a
+            type b = bool
+
+            let i64_load = Direct.i64_load
+            let i64_binary = Direct.i64_binary
+            let i64_lt = Direct.i64_lt
+            let typed_const = Direct.typed_const
+            let typed_select = Direct.typed_select
+          end in
+          let module C = Pointwise.Abs.Compute_i64 (Direct) (T) in
+          let x_t = Tensor_id.Map.find x operand_env in
+          finish dst (Tensor.write_i64 dst (fun coord -> C.pixel x_t coord))
+      | _ ->
+          finish dst
+            (Schedule.evaluate_into dst
+               (E.pixel op ~output
+                  ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                  ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                  ~fill)))
   | Add { Pointwise.Bin.a; b } -> (
       let a_sig = Tensor_id.Map.find a g.Graph.tensors in
       let b_sig = Tensor_id.Map.find b g.Graph.tensors in

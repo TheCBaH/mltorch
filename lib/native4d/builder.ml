@@ -152,6 +152,16 @@ let batch_norm ?fmt params ~x ?weight ?bias ~running_mean ~running_var () =
 
 (* Op constructors in global alphabetical order, as in [Graph_builder]. *)
 
+(* Dtype-preserving, as Native's [Graph_builder.abs]: an I64 operand gives an
+   I64 output edge for [Eval_direct4]'s exact [Compute_i64] dispatch. *)
+let abs x =
+  let* s = get in
+  let x_sig = Tensor_id.Map.find x s.tensors in
+  match x_sig.Tensor_sig.fmt with
+  | Payload.Fmt Payload.I64 ->
+      op1 ~fmt:x_sig.Tensor_sig.fmt (Op.Abs { Pointwise.Abs.x })
+  | _ -> op1 (Op.Abs { Pointwise.Abs.x })
+
 (* Thread the operand's own I64 format/quant into the output edge, matching
    Native's own [Graph_builder.add]/[reshape4]/[permute4]'s precedent above
    -- ONLY when both operands are I64, since [Eval_direct4]'s [Compute_i64]

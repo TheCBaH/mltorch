@@ -45,6 +45,7 @@ val constant :
    operand ([?bias], [?weight]) records [None] in the IR; the evaluator fills the
    identity (zeros bias / ones weight). *)
 (* Op constructors in global alphabetical order (see graph_ir.mli). *)
+val abs : ?name:string -> tensor_ref -> Tensor_id.t t
 val add : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 
 val addcmul :

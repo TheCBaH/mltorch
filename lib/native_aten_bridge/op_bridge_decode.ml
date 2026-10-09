@@ -141,6 +141,13 @@ let scalar_arg_exact ~default node name =
   let* f = float_of_aten_scalar name s in
   return (f, exact_int_of_aten_scalar s)
 
+(* [scalar_arg_exact] for a scalar the schema requires: an absent argument is a
+   decode error, not a default. *)
+let scalar_arg_exact_required node name =
+  let* s = decode_result (D.scalar_arg_result node name) in
+  let* f = float_of_aten_scalar name s in
+  return (f, exact_int_of_aten_scalar s)
+
 let scalar_opt_arg node name =
   let* s = decode_result (D.scalar_opt_arg_result node name) in
   match s with

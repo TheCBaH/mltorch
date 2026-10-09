@@ -200,7 +200,7 @@ let check_node view (n : node) =
      needs an axis check, since their `kernel`/`stride`/`pad`/`output_size`
      params name no axis, the same reason [Max_pool2d]/[Adaptive_max_pool2d]
      need none. *)
-  | Add _ | Addcmul _ | Add_scalar _ | Adaptive_avg_pool2d _
+  | Abs _ | Add _ | Addcmul _ | Add_scalar _ | Adaptive_avg_pool2d _
   | Adaptive_max_pool2d _ | Adaptive_max_pool2d_with_indices _ | Avg_pool2d _
   | Bitwise_not _ | Bmm _ | Clamp _ | Clone _ | Col2im _ | Conv1d _ | Conv2d _
   | Conv2d_padding _ | Cos _ | Div _ | Div_scalar _ | Eq_scalar _ | Eq_tensor _

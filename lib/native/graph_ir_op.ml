@@ -13,6 +13,7 @@ type op =
      each op carries its own payload record (params + operand refs),
      defined in that op's module; the shared serialise / dataflow / pp logic is
      driven from [op_registry] below, not a per-constructor match. *)
+  | Abs of Pointwise.Abs.t
   | Add of Pointwise.Add.t
   | Addcmul of Pointwise.Addcmul.t
   | Add_scalar of Pointwise.Add_scalar.t

@@ -177,6 +177,7 @@ let lower_node ~view acc (n : node) =
   | Cos { Pointwise.Cos.x } -> simple (Op.Cos { Pointwise.Cos.x = op_of x })
   | Gelu { Pointwise.Gelu.x; approximate } ->
       simple (Op.Gelu { Pointwise.Gelu.x = op_of x; approximate })
+  | Abs { Pointwise.Abs.x } -> simple (Op.Abs { Pointwise.Abs.x = op_of x })
   | Hardsigmoid { Pointwise.Hardsigmoid.x } ->
       simple (Op.Hardsigmoid { Pointwise.Hardsigmoid.x = op_of x })
   | Hardswish { Pointwise.Hardswish.x } ->

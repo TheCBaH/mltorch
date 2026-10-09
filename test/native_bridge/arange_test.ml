@@ -42,3 +42,50 @@ let%expect_test "verify: arange.start with a real exact int64 start past 2^53" =
         in_int "start" 9_007_199_254_740_993; in_int "end" 9_007_199_254_740_996;
       ];
   [%expect {| aten and native agree |}]
+
+(* [arange.start_step]: the overload whose step is required. The Transformers
+   SmolVLM vision tower serializes it with all three bounds as floats and no
+   dtype: start = step = 1/32, end = 1, i.e. the 31 positions 1/32 ... 31/32. *)
+let%expect_test
+    "verify: arange.start_step as the SmolVLM vision tower writes it" =
+  verify_print ~target:"torch.ops.aten.arange.start_step" ~bindings:[]
+    ~inputs:
+      [ in_float "start" 0.03125; in_float "end" 1.0; in_float "step" 0.03125 ];
+  [%expect {| aten and native agree |}]
+
+(* A descending range is refused, as it is for the other overloads: the engine
+   admits a positive step only. The refusal is the restriction, not a gap in
+   this overload. *)
+let%expect_test
+    "verify: arange.start_step integer, uneven steps, descending refused" =
+  verify_print ~target:"torch.ops.aten.arange.start_step" ~bindings:[]
+    ~inputs:[ in_int "start" 2; in_int "end" 11; in_int "step" 3 ];
+  verify_print ~target:"torch.ops.aten.arange.start_step" ~bindings:[]
+    ~inputs:[ in_int "start" 10; in_int "end" (-3); in_int "step" (-4) ];
+  verify_print ~target:"torch.ops.aten.arange.start_step" ~bindings:[]
+    ~inputs:[ in_float "start" 0.0; in_float "end" 1.0; in_float "step" 0.3 ];
+  [%expect
+    {|
+    aten and native agree
+    [verify] torch.ops.aten.arange.start_step: bridge error: arange(10, -3, -4): only a positive step is supported
+    aten and native agree
+    aten and native agree |}]
+
+let%expect_test "dispatch: arange.start_step keeps its own dtype rule" =
+  dispatch_print ~target:"torch.ops.aten.arange.start_step" ~bindings:[]
+    ~inputs:[ in_int "start" 2; in_int "end" 11; in_int "step" 3 ]
+    ~noutputs:1;
+  dispatch_print ~target:"torch.ops.aten.arange.start_step" ~bindings:[]
+    ~inputs:[ in_float "start" 0.5; in_float "end" 2.0; in_float "step" 0.5 ]
+    ~noutputs:1;
+  [%expect
+    {|
+    tensor i64 [C=3] {2, 5, 8}
+    tensor f32 [C=3] {0.5, 1, 1.5} |}]
+
+(* The schema makes [step] required; an absent one must not read as 1. *)
+let%expect_test "dispatch: arange.start_step without a step is refused" =
+  dispatch_print ~target:"torch.ops.aten.arange.start_step" ~bindings:[]
+    ~inputs:[ in_int "start" 2; in_int "end" 11 ]
+    ~noutputs:1;
+  [%expect {| error: missing required argument "step" |}]

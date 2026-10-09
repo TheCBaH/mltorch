@@ -29,6 +29,7 @@ type op =
      constructor (so adding an op no longer means editing parallel matches here).
      [Eval_op]/[Graph_shape] still match per op, since they need shape/semantics
      context the payload can't carry. *)
+  | Abs of Pointwise.Abs.t
   | Add of Pointwise.Add.t
   | Addcmul of Pointwise.Addcmul.t
   | Add_scalar of Pointwise.Add_scalar.t

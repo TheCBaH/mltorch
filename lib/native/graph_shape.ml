@@ -33,6 +33,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
         widen (Affine_bias.check ~expected ~actual)
   in
   match op with
+  | Abs { Pointwise.Abs.x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Abs.output_shape x_shape) in
+      [ out ]
   | Add { Pointwise.Bin.a; b } ->
       let* a_shape = shape a in
       let* b_shape = shape b in

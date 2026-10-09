@@ -16,6 +16,7 @@ let targets =
     "torch.ops.aten.cat.default";
     "torch.ops.aten.copy.default";
     "torch.ops.aten.col2im.default";
+    "torch.ops.aten.detach.default";
     "torch.ops.aten.expand.default";
     "torch.ops.aten.eye.m";
     "torch.ops.aten.im2col.default";
@@ -35,6 +36,7 @@ let targets =
     "torch.ops.aten.tile.default";
     "torch.ops.aten.arange.default";
     "torch.ops.aten.arange.start";
+    "torch.ops.aten.arange.start_step";
     "torch.ops.aten.zeros.default";
     "torch.ops.aten.transpose.int";
     "torch.ops.aten.type_as.default";
@@ -56,8 +58,8 @@ let dispatch ~ctx ~env (node : Node.t) =
        let graph = ctx.Native_interp_lower_context.graph in
        let get = Native_interp_lower_context.get ctx env node in
        match node.target with
-       | ("torch.ops.aten.arange.default" | "torch.ops.aten.arange.start") as
-         target ->
+       | ( "torch.ops.aten.arange.default" | "torch.ops.aten.arange.start"
+         | "torch.ops.aten.arange.start_step" ) as target ->
            let optional name =
              List.find_opt
                (fun (a : NamedArgument.t) -> a.name = name)
@@ -111,12 +113,20 @@ let dispatch ~ctx ~env (node : Node.t) =
              match target with
              | "torch.ops.aten.arange.default" ->
                  (0., required_scalar_arg esc node "end")
-             | "torch.ops.aten.arange.start" ->
+             | "torch.ops.aten.arange.start"
+             | "torch.ops.aten.arange.start_step" ->
                  ( required_scalar_arg esc node "start",
                    required_scalar_arg esc node "end" )
              | _ -> assert false
            in
-           let step = scalar_arg esc ~default:1. node "step" in
+           (* [start_step] is the only overload whose schema makes [step]
+              required; the other two default it to one. *)
+           let step =
+             match target with
+             | "torch.ops.aten.arange.start_step" ->
+                 required_scalar_arg esc node "step"
+             | _ -> scalar_arg esc ~default:1. node "step"
+           in
            (* An exact int64 view exists only when every bound the graph
               spelled is an [Argument.Int] that is not one of the decoder's
               saturation values: [Schema_runtime.python_int_jsont] clamps
@@ -1007,6 +1017,14 @@ let dispatch ~ctx ~env (node : Node.t) =
          Native4D already elides it entirely (`.ai/native4d_design.md` §7.1),
          so this legalization costs nothing there either. *)
        | "torch.ops.aten.alias.default" ->
+           let* y = clone (get "self") in
+           return [ y ]
+       (* [detach(Tensor(a) self) -> Tensor(a)] severs the autograd graph and
+         nothing else: same values, shape and dtype. An exported inference
+         program has no autograd to sever, so it is the functional identity,
+         bound to [Clone] like [alias.default]. The node keeps its own source
+         op in the provenance, which is what records that a detach was here. *)
+       | "torch.ops.aten.detach.default" ->
            let* y = clone (get "self") in
            return [ y ]
        (* `expand(Tensor(a) self, SymInt[] size, *, bool implicit=False) ->

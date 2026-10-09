@@ -13,6 +13,7 @@ let broadcast_output_shape = Pointwise_binary.broadcast_output_shape
 let broadcast_coord = Pointwise_binary.broadcast_coord
 
 module Bitwise_not = Pointwise_unary.Bitwise_not
+module Abs = Pointwise_unary.Abs
 module Clamp = Pointwise_unary.Clamp
 module Clone = Pointwise_unary.Clone
 module Cos = Pointwise_unary.Cos

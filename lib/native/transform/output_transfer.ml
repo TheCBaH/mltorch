@@ -143,7 +143,7 @@ let classify (op : op) ~output =
      flips the result the same way. *)
   | Eq_scalar _ | Eq_tensor _ | Gt_scalar _ | Ne_scalar _ | Ne_tensor _ ->
       Discontinuous
-  | Add _ | Addcmul _ | Add_scalar _ | Adaptive_avg_pool2d _
+  | Abs _ | Add _ | Addcmul _ | Add_scalar _ | Adaptive_avg_pool2d _
   | Adaptive_max_pool2d _ | Amax _ | Avg_pool2d _ | Batch_norm _
   | Batch_norm_no_stats _ | Batched_matmul _ | Bmm _ | Clamp _ | Conv1d _
   | Conv2d _ | Conv2d_padding _ | Conv3d _ | Convolution _ | Cos _ | Cumsum _

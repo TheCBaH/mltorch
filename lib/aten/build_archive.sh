@@ -211,6 +211,11 @@ mapfile -t SRCS_GLUE < <(
   # Dropping either file would trade a link error for an unsupported-mode error
   # at a boundary the ATen path is not supposed to have -- the interpreter runs
   # real ATen, where mode is just an argument.
+  # embedding.default (embedding_symint -> at::index_select on the flattened
+  # indices, with a plain take for a rank-1 weight lookup). The backward and
+  # renorm entry points in the same file are referenced from the registration
+  # glue and are never run by the inference oracle.
+  echo "$PT/aten/src/ATen/native/Embedding.cpp"
   echo "$PT/aten/src/ATen/native/PadNd.cpp"
   echo "$PT/aten/src/ATen/native/ReflectionPad.cpp"
   echo "$PT/aten/src/ATen/native/ReplicationPadding.cpp"

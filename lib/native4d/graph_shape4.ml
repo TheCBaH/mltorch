@@ -398,6 +398,9 @@ let output_shape (op : Op.t)
   | Gt_scalar { Pointwise.Scalar_bin.x; _ } ->
       let* x_shape = shape x in
       one (four (Pointwise.Gt_scalar.output_shape x_shape))
+  | Abs { Pointwise.Abs.x } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.Abs.output_shape x_shape))
   | Hardsigmoid { Pointwise.Hardsigmoid.x } ->
       let* x_shape = shape x in
       one (four (Pointwise.Hardsigmoid.output_shape x_shape))

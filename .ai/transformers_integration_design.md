@@ -518,3 +518,30 @@ reference computed with a higher-precision accumulator or an explicit opt-in
 Native policy that emulates the binary32 sequential chain (and then a separate
 backend row), neither of which is attempted here. The tolerance and the
 reference are unchanged.
+
+## 18. Small operator gaps (implemented)
+
+`aten.detach.default` is the functional identity under inference and binds to
+the existing `Clone` node, like `alias.default`; the node keeps its source op in
+provenance. `aten.arange.start_step` extends the existing arange arm (importer
+and ATen bridge): the overload whose `step` the schema requires, so an absent
+step is an error rather than the default of one. Its dtype rule, exact int64
+bounds, and the positive-step restriction are the other overloads' unchanged
+(a descending range stays refused).
+
+`aten.abs.default` is a genuine one-node `Abs`, dtype-preserving. The float form
+is the three IEEE cases written out (`x < 0` negates as `0 - x`; `x == 0` yields
+`+0`, so `|-0.| = +0.`; anything else, NaN included, passes through) and uses
+only existing semantics primitives, so it needs no new expression constructor
+and no `x + 0` that a simplifier could drop. The int64 form is exact: it reads
+through `i64_load`, compares, and negates as `0 - x` in wrapping int64
+arithmetic, so `abs min_int = min_int` as in ATen, with no float round trip
+above 2^53. The builder threads the I64 output edge; Direct, Symbolic (an int64
+stage) and Native4D carry the same dispatch. The ATen oracle gained bindings for
+`abs`, `detach`, `embedding` and `arange.start_step`; `embedding` required
+`native/Embedding.cpp` in the minimal archive.
+
+Rerunning the 30-row admission sweep moved three first blockers and exposed
+three others, as expected: `aten._to_copy.default` with a `layout` argument,
+`aten.full.default` and `aten.squeeze.default` are now each a graph's first
+refusal. They are recorded, not yet implemented.

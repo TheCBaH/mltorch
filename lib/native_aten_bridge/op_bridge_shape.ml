@@ -904,6 +904,19 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let+ y = clone x_id in
                [ y ]
            | _ -> assert false))
+  (* [detach(Tensor(a) self) -> Tensor(a)] drops the autograd history and
+     nothing else, so under inference it is the same functional identity as
+     [alias.default] and binds to the same [Clone] node. *)
+  | "torch.ops.aten.detach.default" ->
+      Some
+        (let* aten_x = tensor_arg aten_env node "self" in
+         let* x = native_of_aten "self" aten_x in
+         build_g ~name:"detach" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = clone x_id in
+               [ y ]
+           | _ -> assert false))
   (* `expand(Tensor(a) self, SymInt[] size, *, bool implicit=False) ->
      Tensor(a)`. [implicit] is read-and-discarded: ATen's own
      [at::native::expand] (TensorShape.cpp) takes it as a literally UNUSED

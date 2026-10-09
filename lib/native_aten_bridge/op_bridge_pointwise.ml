@@ -10,6 +10,16 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
     (Graph_ir.graph * (Graph_ir.Tensor_id.t * Tensor.packed) list, error) Err.t
     option =
   match node.target with
+  (* [abs(self) -> Tensor]: one dtype-preserving Native node. *)
+  | "torch.ops.aten.abs.default" ->
+      Some
+        (let* x = native_tensor_arg aten_env node "self" in
+         build_g ~name:"abs" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = abs x_id in
+               [ y ]
+           | _ -> assert false))
   | "torch.ops.aten.add.Tensor" | "torch.ops.aten.add_.Tensor" ->
       Some
         (let* () = reject_alpha node in

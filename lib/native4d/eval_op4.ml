@@ -200,6 +200,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Gt_scalar { Pointwise.Scalar_bin.x; scalar } ->
         let module C = Pointwise.Gt_scalar.Compute (S) in
         C.pixel ~scalar (operand x) out
+    | Abs { Pointwise.Abs.x } ->
+        let module C = Pointwise.Abs.Compute (S) in
+        C.pixel (operand x) out
     | Hardsigmoid { Pointwise.Hardsigmoid.x } ->
         let module C = Pointwise.Hardsigmoid.Compute (S) in
         C.pixel (operand x) out

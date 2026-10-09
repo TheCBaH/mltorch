@@ -150,6 +150,19 @@ let opN ?name ?fmt ?quant ~kind op : Tensor_id.t list t =
 (* Op constructors in global alphabetical order (see graph_ir.mli). The record
    payloads are built with their first label qualified, which disambiguates the
    op module each belongs to (the [node.Node.outputs] convention). *)
+(* Dtype-preserving: an I64 operand gives an I64 output edge so
+   [Eval_direct]'s exact [Compute_i64] dispatch delivers its result; every other
+   format keeps [op1]'s default (the float pixel). *)
+let abs ?name x =
+  let* s = get in
+  let x_sig = Tensor_id.Map.find x s.tensors in
+  match x_sig.Tensor_sig.fmt with
+  | Payload.Fmt Payload.I64 ->
+      op1 ?name ~fmt:x_sig.Tensor_sig.fmt ?quant:x_sig.Tensor_sig.quant
+        ~kind:"abs"
+        (Abs { Pointwise.Abs.x })
+  | _ -> op1 ?name ~kind:"abs" (Abs { Pointwise.Abs.x })
+
 (* Thread the operand's own I64 format/quant into the output edge, matching
    [reshape]/[permute]'s own precedent -- ONLY when both operands are I64,
    since [Eval_direct]'s [Compute_i64] dispatch can only deliver an exact
