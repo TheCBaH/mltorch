@@ -90,7 +90,8 @@ let instrs_of_func ~table_slot esc relocations
   in
   let env_at bid instr =
     {
-      F.esc;
+      F.mutation = None;
+      esc;
       table_slot;
       reference =
         (fun reference ->
@@ -183,7 +184,12 @@ let table_entry ~kernel =
   let open Asm_core in
   Err.Escape.with_escape @@ fun esc ->
   let env =
-    { F.esc; reference = (fun _ -> None); table_slot = (fun _ -> None) }
+    {
+      F.mutation = None;
+      esc;
+      reference = (fun _ -> None);
+      table_slot = (fun _ -> None);
+    }
   in
   let i mnemonic ops = insn (F.make env mnemonic ops) in
   let reg n = Fam.Operand.Reg (F.find env n) in
@@ -295,7 +301,12 @@ let of_artifact ?(binding = Image_resident) artifact =
 let helpers ~host_symbol names =
   Err.Escape.with_escape @@ fun esc ->
   let env =
-    { F.esc; reference = (fun _ -> None); table_slot = (fun _ -> None) }
+    {
+      F.mutation = None;
+      esc;
+      reference = (fun _ -> None);
+      table_slot = (fun _ -> None);
+    }
   in
   let r11 = Fam.Operand.Reg (F.find env "r11") in
   let stub name =

@@ -12,7 +12,16 @@ module X = X64_op
 module Fam = X86_family_encode
 module Op = Fam.Operand
 
+(* Fault injection for the evidence suite: each is one deliberate mapping
+   defect a native comparison must detect. No consumer passes one. *)
+module Mutation = struct
+  type t =
+    | Dropped_disp  (** an address's displacement left out *)
+    | Inverted_cond  (** a conditional move or set on the opposite condition *)
+end
+
 type env = {
+  mutation : Mutation.t option;
   esc : R.t Err.Escape.t;
   reference : Mir_target.Reference.t -> (string * int64) option;
   table_slot : string -> int option;
@@ -89,7 +98,25 @@ let nth env what l k =
   | Some x -> x
   | None -> refuse env (R.Location (Fmt.str "a missing %s %d" what k))
 
+let invert (c : X.Cond.t) : X.Cond.t =
+  match c with
+  | X.Cond.A -> X.Cond.Be
+  | X.Cond.Be -> X.Cond.A
+  | X.Cond.Ae -> X.Cond.B
+  | X.Cond.B -> X.Cond.Ae
+  | X.Cond.E -> X.Cond.Ne
+  | X.Cond.Ne -> X.Cond.E
+  | X.Cond.G -> X.Cond.Le
+  | X.Cond.Le -> X.Cond.G
+  | X.Cond.Ge -> X.Cond.L
+  | X.Cond.L -> X.Cond.Ge
+  | X.Cond.Np -> X.Cond.P
+  | X.Cond.P -> X.Cond.Np
+
 let cc c = X.Cond.name c
+
+let cc_of env c =
+  cc (if env.mutation = Some Mutation.Inverted_cond then invert c else c)
 
 (* {1 Selected forms} *)
 
@@ -97,13 +124,16 @@ let addr env (a : X.Addr.t) uses =
   (* [uses] are the locations of the address's own values, in order *)
   let base = nth env "use" uses 0 in
   let b = find env (gpr_name ~bits:64 (unit_of env base)) in
+  let disp =
+    if env.mutation = Some Mutation.Dropped_disp then 0L else a.X.Addr.disp
+  in
   match a.X.Addr.index with
-  | None -> mem_op ~base:b ~disp:a.X.Addr.disp ()
+  | None -> mem_op ~base:b ~disp ()
   | Some (_, scale) ->
       let i =
         find env (gpr_name ~bits:64 (unit_of env (nth env "use" uses 1)))
       in
-      mem_op ~base:b ~index:(i, Int64.to_int scale) ~disp:a.X.Addr.disp ()
+      mem_op ~base:b ~index:(i, Int64.to_int scale) ~disp ()
 
 let ( ++ ) = List.append
 
@@ -127,11 +157,12 @@ let instructions env (op : X.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       | Some (sym, _) -> [ mk "call" [ Op.Sym (Asm_core.Expr.Symbol sym) ] ]
       | None -> refuse env (R.Form "an unrecorded call"))
   | X.Cmov (sz, c, _, _, _) ->
-      [ mk ("cmov" ^ cc c) [ gs sz (u 1); gs sz (d 0) ] ]
+      [ mk ("cmov" ^ cc_of env c) [ gs sz (u 1); gs sz (d 0) ] ]
   | X.Cmp (sz, _, _) -> [ mk ("cmp" ^ sfx sz) [ gs sz (u 1); gs sz (u 0) ] ]
   | X.Cmp_imm (sz, _, k) -> [ mk ("cmp" ^ sfx sz) [ imm k; gs sz (u 0) ] ]
   | X.Cmps (p, fsz, _, _) ->
-      [ mk ("cmp" ^ X.Cmp_pred.name p ^ fs fsz) [ x (u 1); x (d 0) ] ]
+      let k = match p with X.Cmp_pred.Eq -> 0L | X.Cmp_pred.Unord -> 3L in
+      [ mk ("cmp" ^ fs fsz) [ imm k; x (u 1); x (d 0) ] ]
   | X.Cqo_idiv _ -> [ mk "cqto" []; mk "idivq" [ gq (u 1) ] ]
   | X.Cvt (fsz, _) ->
       [
@@ -285,7 +316,7 @@ let instructions env (op : X.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       [ mk ("round" ^ fs fsz) [ imm 3L; x (u 0); x (d 0) ] ]
   | X.Setcc_zx (c, _) ->
       [
-        mk ("set" ^ cc c) [ g env ~bits:8 (d 0) ];
+        mk ("set" ^ cc_of env c) [ g env ~bits:8 (d 0) ];
         mk "movzbl" [ g env ~bits:8 (d 0); gl (d 0) ];
       ]
   | X.Shift_imm (o, sz, _, k) ->
@@ -347,21 +378,6 @@ let stack_step env delta : X86_64.Instruction.t list =
   else [ make env "addq" [ imm delta; rsp ] ]
 
 (* {1 Terminators} *)
-
-let invert (c : X.Cond.t) : X.Cond.t =
-  match c with
-  | X.Cond.A -> X.Cond.Be
-  | X.Cond.Be -> X.Cond.A
-  | X.Cond.Ae -> X.Cond.B
-  | X.Cond.B -> X.Cond.Ae
-  | X.Cond.E -> X.Cond.Ne
-  | X.Cond.Ne -> X.Cond.E
-  | X.Cond.G -> X.Cond.Le
-  | X.Cond.Le -> X.Cond.G
-  | X.Cond.Ge -> X.Cond.L
-  | X.Cond.L -> X.Cond.Ge
-  | X.Cond.Np -> X.Cond.P
-  | X.Cond.P -> X.Cond.Np
 
 let branch env (X.Jcc (c, _)) ~label ~inverted =
   let c = if inverted then invert c else c in

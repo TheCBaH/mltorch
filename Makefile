@@ -1,4 +1,4 @@
-.PHONY: compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
+.PHONY: compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean machine.a64.conformance machine.pt2.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
@@ -1155,6 +1155,18 @@ machine.rivet.a64.runtest: rivet.install
 # x86-64 CPU. Needs qemu-x86_64.
 machine.rivet.x64.runtest: rivet.install
 	opam exec -- dune build @test/machine_rivet_x86_64/runtest --force
+
+# The x86-64 per-form conformance: each admitted form made as typed Rivet
+# instructions and run as a batch process under qemu-user (emulation, not an
+# x86-64 CPU) against the interpreter's semantics, with the model and mapping
+# mutations that must be caught.
+RIVET_X64_CONFORMANCE = _build/default/test/machine_rivet_x86_64/conformance/rivet_x64_conformance.exe
+MACHINE_X64_MUTATIONS = cmp-carry fma-unfused max-zero ucomi-nan
+machine.rivet.x64.conformance: rivet.install
+	opam exec -- dune build test/machine_rivet_x86_64/conformance
+	$(RIVET_X64_CONFORMANCE)
+	set -e; for m in $(MACHINE_X64_MUTATIONS); do $(RIVET_X64_CONFORMANCE) --mutate $$m > /dev/null; done
+	set -e; for m in dropped-disp inverted-cond; do $(RIVET_X64_CONFORMANCE) --map-mutate $$m > /dev/null; done
 
 # The per-form conformance again, through Rivet: the 240 scalar forms of
 # machine.a64.conformance and the NEON forms, each made as typed Rivet

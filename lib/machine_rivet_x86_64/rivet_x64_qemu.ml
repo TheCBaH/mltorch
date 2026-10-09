@@ -46,7 +46,12 @@ let layout slots =
 let harness ~bound { slots; total } =
   Err.Escape.with_escape @@ fun esc ->
   let env =
-    { F.esc; reference = (fun _ -> None); table_slot = (fun _ -> None) }
+    {
+      F.mutation = None;
+      esc;
+      reference = (fun _ -> None);
+      table_slot = (fun _ -> None);
+    }
   in
   let reg n = Fam.Operand.Reg (F.find env n) in
   let i mnemonic ops = insn (F.make env mnemonic ops) in
@@ -132,6 +137,22 @@ let harness ~bound { slots; total } =
 
 let base = 0x400000L
 
+(* Typed modules laid out at {!base} and written as a static ELF entered at
+   [entry]. *)
+let elf_of ~entry modules =
+  let render pp e = Fmt.str "%a" pp e in
+  let* laid =
+    Result.map_error
+      (render Rivet_x64_image.Error.pp)
+      (Err.payload (Rivet_x64_image.plan ~entry modules))
+  in
+  let* image =
+    Result.map_error
+      (render Rivet_x64_image.Error.pp)
+      (Err.payload (Rivet_x64_image.bind ~base laid))
+  in
+  Ok (Rivet_x64_elf.write image)
+
 (* The ELF of the artifact and its harness, with the layout that reads its output. *)
 let process ?(runtime = Machine_rivet_common.Rivet_runtime.Dependency_free)
     ~bound artifact =
@@ -153,17 +174,8 @@ let process ?(runtime = Machine_rivet_common.Rivet_runtime.Dependency_free)
       (render Rivet_x64_refusal.pp)
       (Err.payload (harness ~bound lay))
   in
-  let* laid =
-    Result.map_error
-      (render Rivet_x64_image.Error.pp)
-      (Err.payload (Rivet_x64_image.plan ~entry:"_start" [ modul; host ]))
-  in
-  let* image =
-    Result.map_error
-      (render Rivet_x64_image.Error.pp)
-      (Err.payload (Rivet_x64_image.bind ~base laid))
-  in
-  Ok (Rivet_x64_elf.write image, lay)
+  let* elf = elf_of ~entry:"_start" [ modul; host ] in
+  Ok (elf, lay)
 
 let qemu = "qemu-x86_64"
 

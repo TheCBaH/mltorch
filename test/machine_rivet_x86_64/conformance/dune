@@ -1,0 +1,23 @@
+; Native per-form conformance for the admitted x86-64 forms, through typed
+; Rivet: each form is made as Rivet instructions and run under qemu-user on
+; seeded random and boundary operands, compared with the interpreter's
+; semantic function under the form's defined-bit, flag and write masks. This is
+; emulation: it checks the instructions' bytes against the model, and is not an
+; x86-64 CPU. A make target (machine.rivet.x64.conformance), not part of runtest.
+
+(executable
+ (name rivet_x64_conformance)
+ (libraries
+  core
+  err_trace
+  fmt
+  machine_interp
+  machine_ir
+  machine_rivet_common
+  machine_rivet_x86_64
+  machine_target_x86_64
+  rivet.asm_core
+  rivet.foundation
+  rivet.x86_family_encode
+  unix)
+ (optional))
