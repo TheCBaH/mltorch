@@ -481,3 +481,40 @@ passes and case-00 fails the same two elements as the earlier v1 probe
 (absolute errors 1.57e-5 and 1.56e-5 against allowances of 1.42e-5 and
 1.33e-5); BERT-tiny and the TinyCLIP text tower are refused at
 `aten.embedding.default`.
+
+## 17. The connector's case-00 mismatch (diagnosed)
+
+The SmolVLM connector is nine data-movement nodes and one bias-free linear:
+36,864 dot products of length 12,288 per case. Replayed from the verified v2
+bundle, case-00 fails exactly two elements (flat indices 4,235 and 31,987;
+absolute errors 1.57e-5 and 1.56e-5 against allowances of 1.42e-5 and 1.33e-5)
+and case-01 passes -- the same elements the earlier v1 probe failed, so the
+v2 loader changed nothing about the answer.
+
+Two independent oracles, run on the same captured input and the same BF16
+weights widened to binary32:
+
+1. Exact arithmetic (Python `fsum` over the exact binary64 products, rounded once
+   to binary32). Native's output equals it bit for bit in all 36,864 elements of
+   both cases. The producer's reference does not: it differs from the exact value
+   by up to 2.7e-4 (mean 5.6e-6), is never closer to it than Native, and at the
+   two failing elements is 1.57e-5 and 1.56e-5 away from the exact value --
+   outside the producer's own tolerance of the exact answer -- while Native is
+   1.7e-9 and 4.7e-10 away.
+2. A sequential binary32 fused-multiply-add chain (`acc = fma(x[j], w[j], acc)`,
+   `j` ascending, rounded to binary32 at each step) reproduces the reference
+   bit for bit in every one of 32 sampled elements, including both failing ones;
+   non-fused, reversed, interleaved and blocked variants reproduce at most 3.
+
+So the reference is the accumulated rounding error of a sequential binary32
+reduction, large enough at length 12,288 to leave its own tolerance. Native
+direct compute is binary64 by design and rounds once on store (see the binary32
+kernels design), so it is closer to the truth than the reference and cannot
+match the reference's noise without emulating that reduction. A test pins this
+contract for a linear of the same length.
+
+This is a numerics-policy decision, not a defect: closing the case needs either a
+reference computed with a higher-precision accumulator or an explicit opt-in
+Native policy that emulates the binary32 sequential chain (and then a separate
+backend row), neither of which is attempted here. The tolerance and the
+reference are unchanged.
