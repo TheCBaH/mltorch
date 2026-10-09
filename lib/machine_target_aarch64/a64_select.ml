@@ -33,6 +33,8 @@ module Mutation = struct
     | Contract
     | Dropped_half
     | Fcmp_lt_cond
+    | Mask_arms
+    | Mask_lt_operands
     | Missing_failure_word
     | Pruned_live
     | Signed_compare
@@ -153,6 +155,11 @@ let arr_of st (t : Mir_type.t) =
       Arr.S2
   | Mir_type.Vec (Mir_type.Elem.F32, n) when Mir_type.Lanes.to_int n = 4 ->
       Arr.S4
+  | Mir_type.Mask _ -> (
+      (* a mask is the Q register a compare of this many lanes fills *)
+      match Arr.of_mask t with
+      | Some a -> a
+      | None -> refuse st (Refusal.Width t))
   | _ -> refuse st (Refusal.Width t)
 
 let is_vector (v : Mir_value.t) =
@@ -232,7 +239,43 @@ let vector st (i : Mir_op.t Mir_instr.t) =
     refuse st (Refusal.Operation (Mir_op.name i.Mir_instr.op))
   in
   match i.Mir_instr.op with
+  | Mir_op.Copy a
+    when match a.Mir_value.ty with Mir_type.Mask _ -> true | _ -> false ->
+      def (Vlogic (Logic.Orr, a, a))
   | Mir_op.Copy a -> def (Vmov (arr a, a))
+  | Mir_op.Fcmp (c, a, b) -> (
+      (* ordered compares: less-than and less-or-equal swap their operands;
+         unordered is not (both operands equal to themselves) *)
+      let a_arr = arr a in
+      if a_arr = Arr.S2 then refuse st (Refusal.Width a.Mir_value.ty);
+      let mask_ty = Option.get (Arr.mask_ty a_arr) in
+      let cmp k x y = emit st mask_ty (Vfcmp (k, a_arr, x, y)) in
+      match c with
+      | Mir_op.Fcmp.Eq -> def (Vfcmp (Vcmp.Eq, a_arr, a, b))
+      | Mir_op.Fcmp.Lt when mutated st Mutation.Mask_lt_operands ->
+          def (Vfcmp (Vcmp.Gt, a_arr, a, b))
+      | Mir_op.Fcmp.Lt -> def (Vfcmp (Vcmp.Gt, a_arr, b, a))
+      | Mir_op.Fcmp.Le -> def (Vfcmp (Vcmp.Ge, a_arr, b, a))
+      | Mir_op.Fcmp.Unordered ->
+          let both =
+            emit st mask_ty
+              (Vlogic (Logic.And, cmp Vcmp.Eq a a, cmp Vcmp.Eq b b))
+          in
+          def (Vnot both))
+  | Mir_op.Pbinary (o, a, b) ->
+      def
+        (Vlogic
+           ( (match o with
+             | Mir_op.Pbinary.And -> Logic.And
+             | Mir_op.Pbinary.Or -> Logic.Orr
+             | Mir_op.Pbinary.Xor -> Logic.Eor),
+             a,
+             b ))
+  | Mir_op.Pnot a -> def (Vnot a)
+  | Mir_op.Select (m, a, b)
+    when match m.Mir_value.ty with Mir_type.Mask _ -> true | _ -> false ->
+      if mutated st Mutation.Mask_arms then def (Vbit (arr a, a, b, m))
+      else def (Vbit (arr a, b, a, m))
   | Mir_op.Fbinary (o, a, b) ->
       let o =
         match o with
@@ -295,6 +338,17 @@ let vector st (i : Mir_op.t Mir_instr.t) =
          && Mir_type.Lanes.to_int count = 2
          && Mir_type.Lane.to_int first mod 2 = 0 ->
       def (Dup_half (Mir_type.Lane.to_int first / 2, a))
+  | Mir_op.Vsplat (_, p)
+    when match (r ()).Mir_value.ty with Mir_type.Mask _ -> true | _ -> false ->
+      (* a predicate is 0 or 1: all ones where it is set, then to every lane *)
+      let a = arr (r ()) in
+      let sz = match a with Arr.D2 -> Sz.X | Arr.S2 | Arr.S4 -> Sz.W in
+      let ity = match sz with Sz.X -> Mir_type.i64 | Sz.W -> Mir_type.i32 in
+      let flags = emit st Mir_type.Flags (Cmp_imm (Sz.W, p, 0L)) in
+      let ones = emit st ity (Movn (sz, 0, 0)) in
+      let zero = emit st ity (Movz (ity, 0, 0)) in
+      let m = emit st ity (Csel (sz, Cond.Ne, flags, ones, zero)) in
+      def (Dup_mask (a, m))
   | Mir_op.Vsplat (_, x) -> def (Dup_elem (arr (r ()), x))
   | Mir_op.Vstore ({ Mir_op.Vaccess.addr; stride; _ }, v) ->
       let a = arr v in
@@ -533,13 +587,13 @@ let fail st (f : Mir_fail.t) =
   | Some term -> term
   | None -> refuse st (Refusal.Missing_site f.Mir_fail.failure)
 
-(* A vector is register-wide by now; a mask is never kept in a register. *)
+(* A vector or a mask is register-wide by now: four binary32 lanes or two
+   binary64 (a mask), or a half or whole vector. *)
 let scalar st vs =
   List.iter
     (fun (v : Mir_value.t) ->
       match v.Mir_value.ty with
-      | Mir_type.Mask _ -> refuse st (Refusal.Width v.Mir_value.ty)
-      | Mir_type.Vec _ -> ignore (arr_of st v.Mir_value.ty)
+      | Mir_type.Mask _ | Mir_type.Vec _ -> ignore (arr_of st v.Mir_value.ty)
       | _ -> ())
     vs
 

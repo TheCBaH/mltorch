@@ -109,3 +109,63 @@ let%expect_test "vector selection mutations are caught" =
       contiguous lanes: ok DISAGREE generic vs aarch64: output t1[1]: 0x1p+0:f32 vs 0x1p-1:f32; oracle vs aarch64: output t1[1]: 0x1p+0:f32 vs 0x1p-1:f32
       contract: ok
       dropped half: ok DISAGREE generic vs aarch64: output t1[2]: 0x1p-1:f32 vs 0x0p+0:f32; oracle vs aarch64: output t1[2]: 0x1p-1:f32 vs 0x0p+0:f32 |}]
+
+(* Masks: a vector compare makes a Q register of all-ones and all-zero lanes,
+   a select chooses bit by bit, and a NaN is false for every ordered compare. *)
+let mask_kernels =
+  let zero = Expr.Value.const 0. in
+  [
+    ( "x < 0 ? -x : x / 3",
+      Expr.Value.(
+        select (Expr.Bool.value_lt x zero) (sub zero x) (div x (const 3.))) );
+    ( "x == 0 ? 0 : 1",
+      Expr.Value.(select (Expr.Bool.value_eq x zero) (const 0.) (const 1.)) );
+  ]
+
+let%expect_test "masks on NEON" =
+  List.iter
+    (fun (name, body) ->
+      List.iter
+        (fun n ->
+          Fmt.pr "%s, w=%d: " name n;
+          let d = data n in
+          d.(0) <- Float.nan;
+          d.(1) <- -0.;
+          d.(2) <- 0.;
+          d.(3) <- 3.4e38;
+          let shape = Loop_fixtures.shape_w n in
+          show
+            (Loop_fixtures.pixel_kernel ~shape body)
+            ~bind:(bind_data ~shape d))
+        [ 16; 37 ])
+    mask_kernels;
+  [%expect
+    {|
+    x < 0 ? -x : x / 3, w=16: ok
+    x < 0 ? -x : x / 3, w=37: ok
+    x == 0 ? 0 : 1, w=16: ok
+    x == 0 ? 0 : 1, w=37: ok |}]
+
+let%expect_test "mask selection mutations are caught" =
+  let name, body = List.hd mask_kernels in
+  let shape = Loop_fixtures.shape_w 37 in
+  let d = data 37 in
+  d.(0) <- Float.nan;
+  d.(2) <- 0.;
+  Fmt.pr "%s: " name;
+  show (Loop_fixtures.pixel_kernel ~shape body) ~bind:(bind_data ~shape d);
+  List.iter
+    (fun (m, mutation) ->
+      Fmt.pr "  %s: " m;
+      show ~mutation
+        (Loop_fixtures.pixel_kernel ~shape body)
+        ~bind:(bind_data ~shape d))
+    Machine_target_aarch64.A64_select.Mutation.
+      [
+        ("arms exchanged", Mask_arms); ("less-than unswapped", Mask_lt_operands);
+      ];
+  [%expect
+    {|
+    x < 0 ? -x : x / 3: ok
+      arms exchanged: ok DISAGREE generic vs aarch64: output t1[1]: 0x1.555556p-3:f32 vs -0x1p-1:f32; oracle vs aarch64: output t1[1]: 0x1.555556p-3:f32 vs -0x1p-1:f32
+      less-than unswapped: ok DISAGREE generic vs aarch64: output t1[1]: 0x1.555556p-3:f32 vs -0x1p-1:f32; oracle vs aarch64: output t1[1]: 0x1.555556p-3:f32 vs -0x1p-1:f32 |}]

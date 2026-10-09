@@ -57,9 +57,9 @@ let%expect_test "pointwise: lanes, tails and special values" =
     x * x + x, w=17: ok (f32, 14 vector operations)
     x * x + x, w=37: ok (f32, 14 vector operations)
     exp x, w=1: ok (f64, 0 vector operations)
-    exp x, w=16: refused: lanes.float.exp is admitted by M11
-    exp x, w=17: refused: lanes.float.exp is admitted by M11
-    exp x, w=37: refused: lanes.float.exp is admitted by M11 |}]
+    exp x, w=16: ok (f32, 38 vector operations)
+    exp x, w=17: ok (f32, 38 vector operations)
+    exp x, w=37: ok (f32, 38 vector operations) |}]
 
 let matmul (m, k, n) =
   let a = operand 3 (m * k) and b = operand 5 (k * n) in

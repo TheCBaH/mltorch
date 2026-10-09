@@ -35,7 +35,7 @@ type built = {
   record : Mir_id.Region.t;
 }
 
-let build ?frame_mutation ?pad (case : Src.Case.t) ~sites =
+let build ?select_mutation ?frame_mutation ?pad (case : Src.Case.t) ~sites =
   let g = case.Src.Case.lowered.Machine_lower.Mir_lower.program in
   let* planning =
     Option.to_result ~none:"no planning summary"
@@ -44,7 +44,7 @@ let build ?frame_mutation ?pad (case : Src.Case.t) ~sites =
   let* res =
     Result.map_error
       (Fmt.str "selection: %a" A64_select.Refusal.pp)
-      (Err.payload (A64_select.program ~sites g))
+      (Err.payload (A64_select.program ?mutation:select_mutation ~sites g))
   in
   let v = res.A64_select.selected in
   let* real =
@@ -210,9 +210,9 @@ let native ?mutation ?runtime case ~sites b =
   Result.map fst (native_full ?mutation ?runtime case ~sites b)
 
 (* The native observation against the interpreter's: a one-line verdict. *)
-let compare ?mutation ?runtime ?frame_mutation ?pad ?probe ?(sites = [||])
-    (case : Src.Case.t) =
-  match build ?frame_mutation ?pad case ~sites with
+let compare ?mutation ?runtime ?select_mutation ?frame_mutation ?pad ?probe
+    ?(sites = [||]) (case : Src.Case.t) =
+  match build ?select_mutation ?frame_mutation ?pad case ~sites with
   | Error e -> "not built: " ^ e
   | Ok b -> (
       match
@@ -271,3 +271,35 @@ let gnu ?mutation ?pad ?tamper_gnu ?tamper_text ?(sites = [||])
           Fmt.str "%a" Machine_rivet_aarch64_gnu.Gnu_coherence.Verdict.pp
             (Machine_rivet_aarch64_gnu.Gnu_coherence.check ?tamper_gnu
                ?tamper_text ~entry (m :: host)))
+
+(* How many instructions of each mnemonic the artifact's module holds: evidence
+   that a case exercises the forms it claims to. *)
+let mnemonics ?select_mutation ?pad ?(sites = [||]) (case : Src.Case.t) =
+  match build ?select_mutation ?pad case ~sites with
+  | Error e -> Error e
+  | Ok { artifact; _ } -> (
+      match Err.payload (Module.of_artifact artifact) with
+      | Error r -> Error (Fmt.str "%a" Refusal.pp r)
+      | Ok m ->
+          let t = Hashtbl.create 16 in
+          List.iter
+            (function
+              | Asm_core.Normalized_ast.Instruction { insn; _ } ->
+                  let bump k =
+                    Hashtbl.replace t k
+                      (1 + Option.value ~default:0 (Hashtbl.find_opt t k))
+                  in
+                  bump (Aarch64.Opcode.name insn.Aarch64.Instruction.op);
+                  if
+                    List.exists
+                      (function
+                        | Aarch64.Operand.Vec _ | Aarch64.Operand.Vlane _
+                        | Aarch64.Operand.Vlist _ | Aarch64.Operand.Vlist_lane _
+                        | Aarch64.Operand.Qreg _ ->
+                            true
+                        | _ -> false)
+                      insn.Aarch64.Instruction.ops
+                  then bump "<vector>"
+              | _ -> ())
+            m.Asm_core.Normalized_ast.items;
+          Ok t)

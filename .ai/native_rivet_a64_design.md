@@ -102,6 +102,28 @@ same `Mir_record` the interpreters use and stops the run at that invocation with
 `kernel_views` for this. Constants and inputs are copied into the context's
 tensors (weights per context, as the C host does).
 
+## Vectors and masks
+
+The Advanced SIMD forms the selector emits map one to one: `fadd`, `fsub`,
+`fmul`, `fdiv`, `fmax`, `fmla`, `fneg`, `fsqrt`, `frintz` on `2s`/`4s`/`2d`,
+`dup`/`ins` of lanes and of general registers, `ld1`/`st1` of a lane, `ld1r`,
+`ldr`/`str` of `q` and `d`, `fcvtl`/`fcvtn`, and the frame traffic of a 128-bit
+value (`q` spills, `mov v.16b`). A mask is a Q register whose lanes are all ones or
+all zero: `Mask<4>` is `4s` and `Mask<2>` is `2d` (a half-width compare has no
+mask, and a `Mask<2>` is the binary64 one). A compare is `fcmeq`/`fcmge`/`fcmgt`
+(less-than and less-or-equal swap their operands, so a NaN is false), unordered is
+the complement of both operands equal to themselves, `pand/por/pxor/pnot` are
+`and`/`orr`/`eor`/`not`, and a select is `bit` with the else-value's register
+tied to the result. A predicate splat compares it with zero (`csel` of all ones or
+zero) and `dup`s the general register. A scalar predicate choosing between whole
+vectors, a half-width compare and an x86-64 mask are refused.
+
+`Mir_model.prepare` admits an unblocked `Planned` pipeline, so a whole bundle can
+run under a binary32 policy: the oracle is not the binary64 reference but the same
+planned program on the selected-stage interpreter, which the native code equals bit
+for bit; the reference is a tolerance check only. All seven CI models compile and
+run natively under the ordered policy, within 7e-4 of binary64 (NA-E5).
+
 ## Runtime mode
 
 `Rivet_a64_runtime` declares what an image may depend on. `Dependency_free`, the

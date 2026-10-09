@@ -1,4 +1,4 @@
-.PHONY: compcert.embed.install compcert.embed.runtest machine.rivet.a64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
+.PHONY: compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean machine.a64.conformance machine.pt2.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
@@ -1149,6 +1149,17 @@ rivet.install:
 # the physical interpreter. Needs an AArch64 host.
 machine.rivet.a64.runtest: rivet.install
 	opam exec -- dune build @test/machine_rivet_aarch64/runtest --force
+
+# The per-form conformance again, through Rivet: the 240 scalar forms of
+# machine.a64.conformance and the NEON forms, each made as typed Rivet
+# instructions and run on this CPU against the interpreter's semantics, with the
+# model and mapping mutations that must be caught. Needs an AArch64 host.
+RIVET_CONFORMANCE = _build/default/test/machine_rivet_aarch64/conformance/rivet_conformance.exe
+machine.rivet.a64.conformance: rivet.install
+	opam exec -- dune build test/machine_rivet_aarch64/conformance
+	$(RIVET_CONFORMANCE)
+	set -e; for m in $(MACHINE_A64_MUTATIONS); do $(RIVET_CONFORMANCE) --mutate $$m; done
+	set -e; for m in commuted-sub wrong-lane; do $(RIVET_CONFORMANCE) --map-mutate $$m; done
 
 compcert.embed.runtest: compcert.embed.install
 	MLTORCH_COMPCERT=$(COMPCERT_ISA) opam exec -- dune build @test/loop_c_embed_compcert/runtest --force

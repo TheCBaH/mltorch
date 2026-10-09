@@ -64,6 +64,17 @@ let prepare pipeline (inv : Loop_ir.Loop_bundle.invocation) =
 
 let program pipeline inv = Result.map fst (prepare pipeline inv)
 
+(* The resolved plan of an invocation under a policy and a target: what a
+   consumer that needs the plan's own record (its numerics, precision and the
+   target it was made for) takes instead of only the program. *)
+let plan ~numerics ~target inv =
+  match
+    Err.payload (Ssa_lower.Ssa_lower_plan.lower inv.Loop_ir.Loop_bundle.placed)
+  with
+  | Error (`Unsupported u) ->
+      Error (Fmt.str "%a" Ssa_lower.Ssa_unsupported.pp u)
+  | Ok p -> Ok (Ssa_plan.resolve ~target ~alias ~numerics p)
+
 let blocked ~group inv =
   Result.map
     (fun p ->

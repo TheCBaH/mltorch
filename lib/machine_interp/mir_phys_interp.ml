@@ -116,7 +116,7 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
 
   let lanes_of (ty : Mir_type.t) =
     match ty with
-    | Mir_type.Vec (_, n) -> Some (Mir_type.Lanes.to_int n)
+    | Mir_type.Vec (_, n) | Mir_type.Mask n -> Some (Mir_type.Lanes.to_int n)
     | _ -> None
 
   type regs = { units : (int, content) Hashtbl.t }

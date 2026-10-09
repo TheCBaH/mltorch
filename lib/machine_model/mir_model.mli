@@ -54,10 +54,13 @@ val prepare :
   (t, Refusal.t list) result
 (** Every invocation lowered (and made executable on [route], [Generic] by
     default, its failure sites bound against the invocation's Loop table), or
-    every refusal: a [Planned] pipeline is refused for each invocation (no
-    binary32 or vector slice is admitted here). [blocking] ([Unblocked] by
-    default) needs the [Exact] pipeline; [Feedback] measures through the route's
-    target, and on the generic route, which has none, stays unblocked. *)
+    every refusal. A [Planned] pipeline is admitted unblocked: each invocation
+    is lowered with the plan's own summary (its numerics, working precision and
+    target), so its comparison oracle is the plan's, not the binary64 reference;
+    a vector form the target does not admit is a refusal. [blocking]
+    ([Unblocked] by default) needs the [Exact] pipeline; [Feedback] measures
+    through the route's target, and on the generic route, which has none, stays
+    unblocked. *)
 
 val invocations : t -> int
 (** How many invocations the schedule holds. *)

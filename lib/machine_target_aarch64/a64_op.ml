@@ -133,6 +133,29 @@ module Arr = struct
         Mir_type.Lanes.of_int (lanes t) )
 
   let name = function D2 -> "2d" | S2 -> "2s" | S4 -> "4s"
+
+  (* The mask a compare of this arrangement makes: a Q register whose every lane
+     is all ones or all zeros. A half-width arrangement has none (a two-lane
+     mask is the binary64 one). *)
+  let mask_ty = function
+    | S4 -> Some (Mir_type.Mask (Mir_type.Lanes.of_int 4))
+    | D2 -> Some (Mir_type.Mask (Mir_type.Lanes.of_int 2))
+    | S2 -> None
+
+  (* The arrangement a mask type is the mask of. *)
+  let of_mask (t : Mir_type.t) =
+    match t with
+    | Mir_type.Mask n when Mir_type.Lanes.to_int n = 4 -> Some S4
+    | Mir_type.Mask n when Mir_type.Lanes.to_int n = 2 -> Some D2
+    | _ -> None
+end
+
+(* Advanced SIMD floating-point compares: equal, greater or equal, greater. An
+   ordered compare is false in a lane where either operand is a NaN. *)
+module Vcmp = struct
+  type t = Eq | Ge | Gt
+
+  let name = function Eq -> "fcmeq" | Ge -> "fcmge" | Gt -> "fcmgt"
 end
 
 type v = Mir_value.t
@@ -152,6 +175,9 @@ type t =
   | Dup_elem of Arr.t * v  (** DUP Vd.T, Vn.Ts[0]: every lane the scalar *)
   | Dup_half of int * v
       (** DUP Dd, Vn.D[k]: half [k] of a 4S vector as a 2S vector *)
+  | Dup_mask of Arr.t * v
+      (** DUP Vd.T, Wn/Xn: a general register of all ones or zero to every lane,
+          which makes the mask *)
   | Dup_lane of Fsz.t * int * v  (** DUP Sd/Dd, Vn.Ts[k]: a lane as a scalar *)
   | Ext of { signed : bool; from : Mir_width.t; src : v }
       (** SXTB, SXTH, UXTB, UXTH: a W register from a byte or halfword *)
@@ -204,11 +230,20 @@ type t =
   | Trunc of Mir_width.t * v
       (** UXTB, UXTH: a byte or halfword value from the low bits of a W *)
   | Uxtw of v  (** X from W, zero-extended (a W move) *)
+  | Vbit of Arr.t * v * v * v
+      (** BIT Vd.16b, Vn.16b, Vm.16b over [else; then; mask]: bit by bit, [then]
+          where the mask is set and [else] elsewhere; the result takes [else]'s
+          register (tied) *)
   | Vfbin of Fop.t * Arr.t * v * v
+  | Vfcmp of Vcmp.t * Arr.t * v * v
+      (** FCMEQ/FCMGE/FCMGT Vd.T, Vn.T, Vm.T: a lane all ones where the compare
+          holds, else zero *)
+  | Vlogic of Logic.t * v * v  (** AND/ORR/EOR Vd.16b on two masks *)
   | Vfmla of Arr.t * v * v * v
       (** FMLA: [acc + a * b] a lane, one rounding, tied to the accumulator *)
   | Vfunary of Funary.t * Arr.t * v
   | Vmov of Arr.t * v  (** MOV Vd, Vn: the whole vector *)
+  | Vnot of v  (** NOT Vd.16b, Vn.16b (MVN): a mask's complement *)
   | Vwiden of v
       (** FMOV Dd, Dn: a 2S vector as the lower half of a 4S, upper half zero *)
   | Wtrunc of v  (** W from the low half of an X *)
@@ -228,7 +263,9 @@ let uses = function
   | Ins_lane (_, _, a, b)
   | Ld1_lane (_, _, a, b)
   | St1_lane (_, _, a, b)
-  | Vfbin (_, _, a, b) ->
+  | Vfbin (_, _, a, b)
+  | Vfcmp (_, _, a, b)
+  | Vlogic (_, a, b) ->
       [ a; b ]
   | Add_imm (_, a, _)
   | Add_lo12 (a, _)
@@ -236,6 +273,7 @@ let uses = function
   | Cset (_, a)
   | Dup_elem (_, a)
   | Dup_half (_, a)
+  | Dup_mask (_, a)
   | Dup_lane (_, _, a)
   | Ext { src = a; _ }
   | Fcvt (_, a)
@@ -262,13 +300,18 @@ let uses = function
   | Uxtw a
   | Vfunary (_, _, a)
   | Vmov (_, a)
+  | Vnot a
   | Vwiden a
   | Wtrunc a ->
       [ a ]
   | Adrp _ | Movn _ | Movz _ -> []
   | Bl { args; _ } -> args
   | Csel (_, _, f, a, b) | Fcsel (_, _, f, a, b) -> [ f; a; b ]
-  | Fmadd (_, a, b, c) | Msub (_, a, b, c) | Vfmla (_, a, b, c) -> [ a; b; c ]
+  | Fmadd (_, a, b, c)
+  | Msub (_, a, b, c)
+  | Vbit (_, a, b, c)
+  | Vfmla (_, a, b, c) ->
+      [ a; b; c ]
   | Str (_, base, _, x) | Str_vec (_, base, _, x) -> [ base; x ]
 
 let test_uses = function
@@ -294,7 +337,7 @@ let constraints = function
           (fun result view ->
             Mir_target.Constraint.Fixed_result { result; view })
           (A64_regs.results (results @ [ Mir_type.i32 ]))
-  | Ins_half _ | Ins_lane _ | Ld1_lane _ | Movk _ | Vfmla _ ->
+  | Ins_half _ | Ins_lane _ | Ld1_lane _ | Movk _ | Vbit _ | Vfmla _ ->
       [ Mir_target.Constraint.Tied { result = 0; use = 0 } ]
   | _ -> []
 
@@ -354,11 +397,12 @@ let op_features = function
       if List.exists fp (results @ List.map (fun (a : v) -> a.Mir_value.ty) args)
       then [ Mir_target.Feature.Fp ]
       else []
-  | Dup_elem _ | Dup_half _ | Dup_lane _ | Fbin _ | Fcmp _ | Fcsel _ | Fcvt _
-  | Fcvtl _ | Fcvtn _ | Fcvtzs _ | Fmadd _ | Fmov _ | Fmov_from_gpr _
-  | Fmov_to_gpr _ | Funary _ | Ins_half _ | Ins_lane _ | Ld1_lane _ | Ld1r _
-  | Ldr_vec _ | Scvtf _ | St1_lane _ | Str_vec _ | Vfbin _ | Vfmla _ | Vfunary _
-  | Vmov _ | Vwiden _ ->
+  | Dup_elem _ | Dup_half _ | Dup_lane _ | Dup_mask _ | Fbin _ | Fcmp _
+  | Fcsel _ | Fcvt _ | Fcvtl _ | Fcvtn _ | Fcvtzs _ | Fmadd _ | Fmov _
+  | Fmov_from_gpr _ | Fmov_to_gpr _ | Funary _ | Ins_half _ | Ins_lane _
+  | Ld1_lane _ | Ld1r _ | Ldr_vec _ | Scvtf _ | St1_lane _ | Str_vec _ | Vbit _
+  | Vfbin _ | Vfcmp _ | Vfmla _ | Vfunary _ | Vlogic _ | Vmov _ | Vnot _
+  | Vwiden _ ->
       [ Mir_target.Feature.Fp ]
   | Ldr ((Msz.S | Msz.D), _, _) | Str ((Msz.S | Msz.D), _, _, _) ->
       [ Mir_target.Feature.Fp ]
@@ -436,6 +480,10 @@ let need ok why = if ok then Ok () else Error why
 (* The Q arrangement a lane form of [fsz] addresses. *)
 let full = function Fsz.D -> Arr.D2 | Fsz.S -> Arr.S4
 let is_arr arr (t : Mir_type.t) = Mir_type.equal t (Arr.ty arr)
+
+let is_mask arr (t : Mir_type.t) =
+  match Arr.mask_ty arr with Some m -> Mir_type.equal t m | None -> false
+
 let lane_ok fsz k = k >= 0 && k < Arr.lanes (full fsz)
 
 (* A vector register's offset: a multiple of its size, at most 4095 of them. *)
@@ -524,6 +572,16 @@ let typing op =
   | Dup_elem (arr, a) ->
       let* () = need (fpr (Arr.fsz arr) (ty a)) "dup source" in
       Ok [ Arr.ty arr ]
+  | Dup_mask (arr, a) -> (
+      let want =
+        match arr with
+        | Arr.D2 -> Mir_type.i64
+        | Arr.S2 | Arr.S4 -> Mir_type.i32
+      in
+      let* () = need (Mir_type.equal (ty a) want) "dup mask source" in
+      match Arr.mask_ty arr with
+      | Some m -> Ok [ m ]
+      | None -> Error "a half-width compare has no mask")
   | Dup_half (k, a) ->
       let* () = need ((k = 0 || k = 1) && is_arr Arr.S4 (ty a)) "dup half" in
       Ok [ Arr.ty Arr.S2 ]
@@ -802,6 +860,29 @@ let typing op =
           "fmla operands"
       in
       Ok [ Arr.ty arr ]
+  | Vbit (arr, other, a, m) ->
+      let* () = need (is_mask arr (ty m)) "bit mask" in
+      let* () =
+        need (is_arr arr (ty a) && is_arr arr (ty other)) "bit operands"
+      in
+      Ok [ Arr.ty arr ]
+  | Vfcmp (_, arr, a, b) -> (
+      let* () =
+        need (is_arr arr (ty a) && is_arr arr (ty b)) "vector compare operands"
+      in
+      match Arr.mask_ty arr with
+      | Some m -> Ok [ m ]
+      | None -> Error "a half-width compare has no mask")
+  | Vlogic (_, a, b) ->
+      let* () =
+        need
+          (Option.is_some (Arr.of_mask (ty a)) && Mir_type.equal (ty a) (ty b))
+          "mask operands"
+      in
+      Ok [ ty a ]
+  | Vnot a ->
+      let* () = need (Option.is_some (Arr.of_mask (ty a))) "mask operand" in
+      Ok [ ty a ]
   | Vfunary (_, arr, a) | Vmov (arr, a) ->
       let* () = need (is_arr arr (ty a)) "vector operand" in
       Ok [ Arr.ty arr ]
@@ -837,6 +918,7 @@ let pp_op pv fmt op =
   | Cset (c, f) -> Fmt.pf fmt "cset.%s %a" (Cond.name c) pv f
   | Dup_elem (arr, a) -> Fmt.pf fmt "dup.%s %a" (Arr.name arr) pv a
   | Dup_half (k, a) -> Fmt.pf fmt "dup.d %a.d[%d]" pv a k
+  | Dup_mask (arr, a) -> Fmt.pf fmt "dup.%s.gpr %a" (Arr.name arr) pv a
   | Dup_lane (fsz, k, a) ->
       Fmt.pf fmt "dup.%s %a.%s[%d]" (Fsz.name fsz) pv a (Fsz.name fsz) k
   | Ext { signed; from; src } ->
@@ -902,6 +984,12 @@ let pp_op pv fmt op =
         pv a
   | Vfbin (o, arr, a, b) ->
       Fmt.pf fmt "%s.%s %a" (Fop.name o) (Arr.name arr) vs [ a; b ]
+  | Vbit (arr, other, a, m) ->
+      Fmt.pf fmt "bit.%s %a" (Arr.name arr) vs [ other; a; m ]
+  | Vfcmp (c, arr, a, b) ->
+      Fmt.pf fmt "%s.%s %a" (Vcmp.name c) (Arr.name arr) vs [ a; b ]
+  | Vlogic (o, a, b) -> Fmt.pf fmt "%s.16b %a" (Logic.name o) vs [ a; b ]
+  | Vnot a -> Fmt.pf fmt "not.16b %a" pv a
   | Vfmla (arr, a, b, c) ->
       Fmt.pf fmt "fmla.%s %a" (Arr.name arr) vs [ a; b; c ]
   | Vfunary (u, arr, a) ->

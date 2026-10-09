@@ -274,20 +274,25 @@ let%expect_test "independent contexts, and a comparison that can fail" =
 
 let%expect_test "every refusal is reported" =
   let b = bundle (F.chain ()) in
-  (match
-     M.prepare
-       ~pipeline:
-         (Ssa_backends.Pipeline.Planned
-            {
-              numerics = Ssa_ir.Ssa_numerics.Reference_f64;
-              target = Ssa_ir.Ssa_target.neon128;
-            })
-       b
-   with
-  | Error rs -> List.iter (fun r -> Fmt.pr "%a@." M.Refusal.pp r) rs
-  | Ok _ -> Fmt.pr "prepared@.");
+  let planned numerics =
+    Ssa_backends.Pipeline.Planned
+      { numerics; target = Ssa_ir.Ssa_target.neon128 }
+  in
+  let show ?blocking pipeline =
+    match M.prepare ?blocking ~pipeline b with
+    | Error rs -> List.iter (fun r -> Fmt.pr "%a@." M.Refusal.pp r) rs
+    | Ok _ -> Fmt.pr "prepared@."
+  in
+  (* a planned pipeline is lowered with the plan's own summary *)
+  show (planned Ssa_ir.Ssa_numerics.Reference_f64);
+  show (planned Ssa_ir.Ssa_numerics.Simd_fp32_ordered);
+  (* blocking is the exact pipeline's *)
+  show ~blocking:Machine_model.Mir_blocking.Policy.Feedback
+    (planned Ssa_ir.Ssa_numerics.Simd_fp32_ordered);
   [%expect
     {|
-    invocation 0 (n0): a planned pipeline is not admitted
-    invocation 1 (n1): a planned pipeline is not admitted
-    invocation 2 (n2): a planned pipeline is not admitted |}]
+    prepared
+    prepared
+    invocation 0 (n0): blocking needs the exact pipeline
+    invocation 1 (n1): blocking needs the exact pipeline
+    invocation 2 (n2): blocking needs the exact pipeline |}]

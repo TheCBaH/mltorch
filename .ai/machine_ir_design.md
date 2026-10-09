@@ -329,9 +329,15 @@ census slice that will admit it.
   of `lanes` elements at `addr + k * stride` bytes (stride the element size:
   contiguous; 0: a broadcast), every lane accessed. A `Lanewise` lifts only
   operations whose scalar expansion is itself lanewise; a lifted
-  transcendental is refused. A vector access's stride is its steps'
-  row-major element offset times the element size; its decode or encode is a
-  lanewise conversion, and only binary32/binary64 storage is admitted.
+  transcendental (`exp`, `log`, `sin`, `cos`) or `erf` has no vector form and
+  is expanded a lane at a time: the lane extracted, the scalar function (a
+  helper call) applied, the result inserted into the vector the lanes build.
+  A vector access's stride is its steps' row-major element offset times the
+  element size; its decode or encode is a lanewise conversion, and binary32
+  and binary64 storage are loaded as vectors. A float decode of any other
+  storage (`bf16`, `bool`, `f16`, `i32`, `i64`) is likewise a scalar decode
+  at each lane's address, inserted a lane at a time; a dequantizing decode
+  and an integer vector stay refused. A `vec.splat` of a predicate is a mask.
   `vec.iota` is the splat of `f64(base)` plus inserted lane constants (each
   exact below 2^53). The oracle is the plan's own (`Ssa_plan.oracle`: every
   vector spelled out lane by lane, at the plan's precision); binary32 plans
@@ -347,8 +353,13 @@ census slice that will admit it.
   converts each half of a narrow slice (`vslice`) and a narrowing joins two
   converted halves (`vconcat`). The split program runs on the generic
   interpreter against the plan's oracle; swapped or stale slices are caught.
-  Masks, vectors that fill no whole register, and vectors through a call,
-  return or failure payload are refused.
+  A mask is split like the vector it was compared from: its lane width is
+  that vector's elements', found by a fixpoint from the compares that make
+  masks, through `pand/por/pxor/pnot`, `copy`, block parameters fed by known
+  masks, and (backward) the arms of the `select` that consumes it, so a
+  splatted predicate is typed by its use; a mask whose elements are never
+  found is refused. Vectors that fill no whole register, and vectors through
+  a call, return or failure payload, are refused.
 
 `Mir_ssa_rows` maps an SSA interpreter failure to the Machine IR row it must
 equal; it is the oracle adapter, used by tests and model hosts.
@@ -377,7 +388,9 @@ SSA IR checks for, which is the existing documented difference.
 
 `Mir_model.prepare` takes a `Loop_bundle.t` and lowers each invocation's
 placed kernel with the bundle path's own SSA producer (`Ssa_backends.program`,
-`Exact` or `Representation`; `Planned` is refused per invocation) and then
+`Exact`, `Representation` or an unblocked `Planned`, which is lowered with the
+plan's own summary: its numerics, working precision and target, so the oracle
+is the plan's and not the binary64 reference) and then
 `Mir_lower`, reporting every refusal with its invocation and node rather than
 the first. The bundle's schedule, positional argument convention (a Loop
 buffer is the SSA buffer of the same id, bound to its edge) and invocation

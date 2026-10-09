@@ -39,6 +39,9 @@ module Mutation : sig
     | Dropped_half  (** a narrowing's upper half left zero *)
     | Fcmp_lt_cond
         (** ordered less-than tested with [lt] (true when unordered) *)
+    | Mask_arms  (** a bitwise select with its two arms exchanged *)
+    | Mask_lt_operands
+        (** a vector less-than compared as greater-than, operands unswapped *)
     | Missing_failure_word
         (** the last word a record's kind defines not stored *)
     | Pruned_live  (** values only a terminator reads pruned as unread *)

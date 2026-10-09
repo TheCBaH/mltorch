@@ -35,7 +35,32 @@ let vaccess st op (e : L.Entry.t) at steps lanes elem =
     align = Mir_type.Elem.bytes elem;
   }
 
-let load st op (e : L.Entry.t) ~at ~steps ~lanes (d : Ssa_op.Decode.t) =
+(* A decode with no vector load, one lane at a time: each lane's scalar decode at
+   its own address, put into the vector the lanes build up. [decode] is the
+   scalar decode of an address. *)
+let by_lanes st op (e : L.Entry.t) ~at ~steps ~lanes ~decode d =
+  let acc = vaccess st op e at steps lanes Mir_type.Elem.F64 in
+  let n = Mir_type.Lanes.to_int acc.Mir_op.Vaccess.lanes in
+  let lane k =
+    let addr =
+      if k = 0 then acc.Mir_op.Vaccess.addr
+      else
+        emit st
+          (Mir_op.Ptr_add
+             ( acc.Mir_op.Vaccess.addr,
+               i64k st (Int64.mul (Int64.of_int k) acc.Mir_op.Vaccess.stride) ))
+    in
+    decode addr d
+  in
+  let first = lane 0 in
+  let rec go v k =
+    if k >= n then v
+    else
+      go (emit st (Mir_op.Vinsert (Mir_type.Lane.of_int k, v, lane k))) (k + 1)
+  in
+  go (emit st (Mir_op.Vsplat (acc.Mir_op.Vaccess.lanes, first))) 1
+
+let load st op (e : L.Entry.t) ~at ~steps ~lanes ~decode (d : Ssa_op.Decode.t) =
   let vload elem =
     let acc = vaccess st op e at steps lanes elem in
     with_role st Mir_origin.Role.Decode;
@@ -47,9 +72,10 @@ let load st op (e : L.Entry.t) ~at ~steps ~lanes (d : Ssa_op.Decode.t) =
       emit st (Mir_op.Fconvert (Mir_op.Fconvert.F32_to_f64, v))
   | Ssa_op.Decode.F64_to_f64 -> vload Mir_type.Elem.F64
   | Ssa_op.Decode.Bf16_to_f64 | Ssa_op.Decode.Bool_to_f64
-  | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.I16_dequant
-  | Ssa_op.Decode.I32_to_f64 | Ssa_op.Decode.I64 | Ssa_op.Decode.I64_to_f64
-  | Ssa_op.Decode.I8_dequant ->
+  | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.I32_to_f64
+  | Ssa_op.Decode.I64_to_f64 ->
+      by_lanes st op e ~at ~steps ~lanes ~decode d
+  | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I64 | Ssa_op.Decode.I8_dequant ->
       unsupported st op
 
 let store st op (e : L.Entry.t) ~at ~steps ~lanes (enc : Ssa_op.Encode.t) v =

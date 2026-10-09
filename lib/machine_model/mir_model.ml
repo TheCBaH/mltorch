@@ -90,8 +90,26 @@ let source ~route ~blocking ~pipeline (inv : Loop_ir.Loop_bundle.invocation) =
       (Ssa_backends.blocked ~group:g inv)
   in
   match (pipeline, blocking) with
+  | ( Ssa_backends.Pipeline.Planned { numerics; target },
+      Mir_blocking.Policy.Unblocked ) ->
+      (* the plan's own summary: its numerics, precision and target. The
+         comparison oracle is the plan's, not the binary64 reference. *)
+      let* plan =
+        Result.map_error
+          (fun s -> Reason.Source s)
+          (Ssa_backends.plan ~numerics ~target inv)
+      in
+      let* l =
+        Result.map_error
+          (fun r -> Reason.Lowering r)
+          (Err.payload
+             (Ml.program
+                ~planning:(Some (Ml.summary ~target plan))
+                plan.Ssa_ir.Ssa_plan.program))
+      in
+      Ok (l, None)
   | Ssa_backends.Pipeline.Planned _, _ ->
-      Error (Reason.Source "a planned pipeline is not admitted")
+      Error (Reason.Source "blocking needs the exact pipeline")
   | ( Ssa_backends.Pipeline.Representation,
       (Mir_blocking.Policy.Feedback | Mir_blocking.Policy.Group _) ) ->
       Error (Reason.Source "blocking needs the exact pipeline")
