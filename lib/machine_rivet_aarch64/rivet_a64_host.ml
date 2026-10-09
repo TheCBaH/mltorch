@@ -41,7 +41,7 @@ let slot_index slots region =
 (* A loaded image closes when nothing refers to its kernel any more. *)
 let close_with kernel = Gc.finalise (fun k -> I.close k.loaded) kernel
 
-let prepare ?(allocation = Rt.Allocation.Reference)
+let prepare ?check ?(allocation = Rt.Allocation.Reference)
     ?(runtime = Rivet_a64_runtime.Dependency_free) ~pipeline bundle =
   let refuse k (v : Mm.Kernel_view.t) reason =
     {
@@ -63,6 +63,11 @@ let prepare ?(allocation = Rt.Allocation.Reference)
               in
               let* entry, modules =
                 Rt.modules ~binding:Rivet_a64_module.Table ~runtime artifact
+              in
+              let* () =
+                match check with
+                | None -> Ok ()
+                | Some check -> check ~entry modules
               in
               let* loaded = Rt.load ~entry modules in
               let slots = Rivet_a64_table.of_artifact artifact in

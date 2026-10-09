@@ -92,7 +92,9 @@ let host_run (b : Loop_bundle.t) ~constants ~allocation ~runtime ~count ~poison
   let n = List.length b.Loop_bundle.invocations in
   let t0 = Unix.gettimeofday () in
   match
-    H.prepare ~allocation ~runtime ~pipeline:Ssa_backends.Pipeline.Exact b
+    H.prepare
+      ?check:(if gnu then Some gnu_check else None)
+      ~allocation ~runtime ~pipeline:Ssa_backends.Pipeline.Exact b
   with
   | Error refusals ->
       let tally = Hashtbl.create 16 in
@@ -112,8 +114,10 @@ let host_run (b : Loop_bundle.t) ~constants ~allocation ~runtime ~count ~poison
            (fun (a, x) (b, y) ->
              match compare y x with 0 -> compare a b | c -> c)
            (List.of_seq (Hashtbl.to_seq tally)))
+  | Ok _ when count = 0 ->
+      Fmt.pr "%d of %d invocations compiled (%.1f s)@." n n
+        (Unix.gettimeofday () -. t0)
   | Ok host -> (
-      ignore gnu;
       Fmt.pr "%d of %d invocations compiled (%.1f s)@." n n
         (Unix.gettimeofday () -. t0);
       let g = b.Loop_bundle.graph in
