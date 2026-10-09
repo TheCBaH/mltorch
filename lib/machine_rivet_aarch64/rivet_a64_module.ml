@@ -338,50 +338,14 @@ let of_artifact ?mutation ?(binding = Image_resident) artifact =
 (* {1 Host helpers}
 
    The image linker has no imports, so a helper the artifact calls is defined
-   by a stub that loads its address in this process and jumps there. The
-   callee returns to the artifact's caller-saved link register unchanged;
-   x16 is the scratch the AAPCS64 reserves for exactly this. *)
+   by Rivet's typed trampoline: it loads the helper's address in this process
+   into x16 and jumps there, and the callee returns to the artifact's caller. *)
 
 let helpers ~host_symbol names =
   Err.Escape.with_escape @@ fun esc ->
-  let x16 =
-    Aarch64_encode.Operand.Reg
-      { Aarch64_encode.Reg.num = 16; width = 64; is_sp = false }
+  let binding name =
+    match host_symbol name with
+    | Some address -> (name, address)
+    | None -> Err.Escape.throw esc (R.Host_symbol name)
   in
-  let stub name =
-    let addr =
-      match host_symbol name with
-      | Some a -> a
-      | None -> Err.Escape.throw esc (R.Host_symbol name)
-    in
-    let quarter k =
-      Int64.logand (Int64.shift_right_logical addr (16 * k)) 0xffffL
-    in
-    let ins = F.ins in
-    [
-      section ".text" Asm_core.Perms.rx ~nobits:false;
-      dir (D.Align { boundary = 4 });
-      dir (D.Global { name });
-      dir (D.Sym_type { name; kind = D.Function });
-      lbl name;
-      insn (ins Aarch64_encode.Opcode.Movz [ x16; F.imm (quarter 0) ]);
-    ]
-    @ List.map
-        (fun k ->
-          insn
-            (ins Aarch64_encode.Opcode.Movk
-               [
-                 x16;
-                 F.imm (quarter k);
-                 Aarch64_encode.Operand.Shift
-                   { Aarch64_encode.Shift.kind = "lsl"; amount = 16 * k };
-               ]))
-        [ 1; 2; 3 ]
-    @ [ insn (ins Aarch64_encode.Opcode.Br [ x16 ]) ]
-  in
-  {
-    N.unit_name = "host";
-    items =
-      List.concat_map stub names
-      @ [ dir (D.Declared_section { name = ".note.GNU-stack" }) ];
-  }
+  Aarch64_encode.host_trampolines (List.map binding names)
