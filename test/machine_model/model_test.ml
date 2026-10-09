@@ -29,8 +29,8 @@ let sig_of (g : graph) id = Tensor_id.Map.find id g.Graph.tensors
 
 (* One context, [calls] calls with different inputs, each against the
    reference evaluator. *)
-let check ?(pipeline = Ssa_backends.Pipeline.Exact) ?(calls = 2) ?constant
-    ?(input = fun ~salt _ -> values ~salt) name g =
+let check ?route ?(pipeline = Ssa_backends.Pipeline.Exact) ?(calls = 2)
+    ?constant ?(input = fun ~salt _ -> values ~salt) name g =
   let g = g () in
   let b = bundle g in
   let constant = Option.value constant ~default:(values ~salt:3) in
@@ -39,7 +39,7 @@ let check ?(pipeline = Ssa_backends.Pipeline.Exact) ?(calls = 2) ?constant
       (fun id -> (id, constant (sig_of g id)))
       b.Loop_ir.Loop_bundle.constants
   in
-  match M.prepare ~pipeline b with
+  match M.prepare ?route ~pipeline b with
   | Error rs ->
       Fmt.pr "%s: refused: %a@." name Fmt.(list ~sep:(any "; ") M.Refusal.pp) rs
   | Ok m -> (

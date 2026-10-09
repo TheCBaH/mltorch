@@ -62,6 +62,25 @@ val prepare :
 val invocations : t -> int
 (** How many invocations the schedule holds. *)
 
+(** One invocation as a host that runs it by itself needs it: the program, which
+    tensor each buffer region binds, and the regions it writes. *)
+module Kernel_view : sig
+  type t = {
+    invocation : Loop_ir.Loop_bundle.invocation;
+    program : Mir_verify.Generic.t;
+    edges : (Mir_id.Region.t * Tensor_id.t) list;
+    outputs : Mir_id.Region.t list;
+  }
+end
+
+val kernel_views : t -> Kernel_view.t list
+(** Each invocation, in schedule order. *)
+
+val bundle : t -> Loop_ir.Loop_bundle.t
+
+val tensor_sig : t -> Tensor_id.t -> Tensor_sig.t option
+(** The signature of every edge a buffer binds. *)
+
 val blocking : t -> (Node_id.t * Mir_blocking.Decision.t) list
 (** Each feedback decision, by the node of its invocation, in schedule order. *)
 

@@ -1,0 +1,23 @@
+; The AArch64 physical program as typed Rivet values: a published
+; [Mir_artifact] becomes a [Normalized_ast.module_] of [Aarch64.Instruction.t]
+; with typed directives, with no assembly text on the way, then Rivet lowers,
+; relaxes, lays out and (natively) loads it. Built only where Rivet is
+; installed (make compcert.embed.install installs it; the opam package is
+; built from vendored/rivet). A form Rivet cannot encode is a typed refusal
+; before anything is published. See the native assembly design in .ai/.
+
+(library
+ (name machine_rivet_aarch64)
+ (libraries
+  err_trace
+  fmt
+  machine_ir
+  machine_model
+  machine_target_aarch64
+  rivet.aarch64
+  rivet.asm_core
+  rivet.driver
+  rivet.foundation
+  rivet.image
+  rivet.native_exec)
+ (enabled_if %{lib-available:rivet.aarch64}))

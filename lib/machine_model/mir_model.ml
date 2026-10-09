@@ -228,6 +228,29 @@ let prepare ?(route = Route.Generic) ?(blocking = Mir_blocking.Policy.Unblocked)
 
 let invocations t = List.length t.kernels
 
+module Kernel_view = struct
+  type t = {
+    invocation : Loop_ir.Loop_bundle.invocation;
+    program : Mir_verify.Generic.t;
+    edges : (Mir_id.Region.t * Tensor_id.t) list;
+    outputs : Mir_id.Region.t list;
+  }
+end
+
+let kernel_views t =
+  List.map
+    (fun (k : Kernel.t) ->
+      {
+        Kernel_view.invocation = k.Kernel.invocation;
+        program = k.Kernel.lowered.Ml.program;
+        edges = k.Kernel.edges;
+        outputs = k.Kernel.outputs;
+      })
+    t.kernels
+
+let bundle t = t.bundle
+let tensor_sig t id = Tensor_id.Map.find_opt id t.sigs
+
 let blocking t =
   List.filter_map
     (fun (k : Kernel.t) ->

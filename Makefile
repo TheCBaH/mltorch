@@ -1,4 +1,4 @@
-.PHONY: compcert.embed.install compcert.embed.runtest c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
+.PHONY: compcert.embed.install compcert.embed.runtest machine.rivet.a64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean machine.a64.conformance machine.pt2.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
@@ -1137,6 +1137,18 @@ compcert.embed.install:
 	$(OPAM_SUDO) opam pin add --yes --no-action --kind=path rivet vendored/rivet
 	$(OPAM_SUDO) opam pin add --yes --no-action --kind=path rivet_compcert vendored/rivet-compcert
 	$(OPAM_SUDO) opam install --yes --working-dir rivet rivet_compcert
+
+# Rivet alone, from the vendored checkout: the typed AArch64 route
+# (lib/machine_rivet_aarch64) needs the assembler, image planner and loader, not
+# CompCert. Its libraries and tests are built wherever the package is installed.
+rivet.install:
+	$(OPAM_SUDO) opam pin add --yes --no-action --kind=path rivet vendored/rivet
+	$(OPAM_SUDO) opam install --yes --working-dir rivet
+
+# Published AArch64 artifacts as typed Rivet modules, run on this CPU against
+# the physical interpreter. Needs an AArch64 host.
+machine.rivet.a64.runtest: rivet.install
+	opam exec -- dune build @test/machine_rivet_aarch64/runtest --force
 
 compcert.embed.runtest: compcert.embed.install
 	MLTORCH_COMPCERT=$(COMPCERT_ISA) opam exec -- dune build @test/loop_c_embed_compcert/runtest --force
