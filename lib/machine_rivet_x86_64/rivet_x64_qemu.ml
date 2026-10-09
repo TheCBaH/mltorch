@@ -92,7 +92,7 @@ let layout slots =
   in
   { slots = placed; total = align_up !at 16 }
 
-let harness ?(probe = false) ~helpers ~bound { slots; total } =
+let harness ?(probe = false) ~helpers { slots; total } =
   Err.Escape.with_escape @@ fun esc ->
   let env =
     {
@@ -127,18 +127,6 @@ let harness ?(probe = false) ~helpers ~bound { slots; total } =
                  const (Int64.of_int off) ));
       }
   in
-  let initial =
-    let b = Bytes.make total '\000' in
-    List.iter
-      (fun ((s : Table.slot), off) ->
-        match (s.Table.section, bound s.Table.region) with
-        | Art.Section.Bound, Some bytes ->
-            Bytes.blit_string bytes 0 b off
-              (min (String.length bytes) (Int64.to_int s.Table.size))
-        | _ -> ())
-      slots;
-    b
-  in
   let data =
     [
       dir
@@ -146,14 +134,7 @@ let harness ?(probe = false) ~helpers ~bound { slots; total } =
       dir (D.Align { boundary = 16 });
       dir (D.Global { name = block });
       lbl block;
-      dir
-        (D.Data
-           {
-             width = 1;
-             values =
-               List.init total (fun k ->
-                   const (Int64.of_int (Char.code (Bytes.get initial k))));
-           });
+      dir (D.Zero { length = total });
       dir (D.Align { boundary = 8 });
       dir (D.Global { name = table });
       lbl table;
@@ -260,25 +241,29 @@ let harness ?(probe = false) ~helpers ~bound { slots; total } =
 
 let base = 0x400000L
 
-(* Typed modules laid out at {!base} and written as a static ELF entered at
-   [entry]. *)
-let elf_of ~entry modules =
+(* Typed modules laid out at {!base}. *)
+let image_of ~entry modules =
   let render pp e = Fmt.str "%a" pp e in
   let* laid =
     Result.map_error
       (render Rivet_x64_image.Error.pp)
       (Err.payload (Rivet_x64_image.plan ~entry modules))
   in
-  let* image =
-    Result.map_error
-      (render Rivet_x64_image.Error.pp)
-      (Err.payload (Rivet_x64_image.bind ~base laid))
-  in
+  Result.map_error
+    (render Rivet_x64_image.Error.pp)
+    (Err.payload (Rivet_x64_image.bind ~base laid))
+
+(* ... and written as a static ELF entered at [entry]. *)
+let elf_of ~entry modules =
+  let* image = image_of ~entry modules in
   Ok (Rivet_x64_elf.write image)
 
-(* The ELF of the artifact and its harness, with the layout that reads its output. *)
-let process ?(runtime = Machine_rivet_common.Rivet_runtime.Dependency_free)
-    ?(probe = false) ?entry_mutation ~bound artifact =
+(* An artifact and its harness laid out once: the code does not change between
+   runs, only the bytes of the data block do. *)
+type prepared = { image : Image.t; lay : layout; probe : bool }
+
+let prepare ?(runtime = Machine_rivet_common.Rivet_runtime.Dependency_free)
+    ?(probe = false) ?entry_mutation artifact =
   let render pp e = Fmt.str "%a" pp e in
   let* () =
     Result.map_error
@@ -298,10 +283,45 @@ let process ?(runtime = Machine_rivet_common.Rivet_runtime.Dependency_free)
       (Err.payload
          (harness ~probe
             ~helpers:(Machine_rivet_common.Rivet_runtime.helpers artifact)
-            ~bound lay))
+            lay))
   in
-  let* elf = elf_of ~entry:"_start" [ modul; host ] in
-  Ok (elf, lay)
+  let* image = image_of ~entry:"_start" [ modul; host ] in
+  Ok { image; lay; probe }
+
+(* The image with its data block holding the caller's bytes for every bound
+   region. *)
+let with_block (p : prepared) ~bound =
+  match List.assoc_opt block p.image.Image.exports with
+  | None -> Error "the harness block has no address"
+  | Some addr ->
+      let patched = ref false in
+      let segments =
+        List.map
+          (fun (s : Image.segment) ->
+            let len = Int64.of_int (String.length s.Image.bytes) in
+            if
+              Int64.compare addr s.Image.address >= 0
+              && Int64.compare addr (Int64.add s.Image.address len) < 0
+            then begin
+              patched := true;
+              let at = Int64.to_int (Int64.sub addr s.Image.address) in
+              let b = Bytes.of_string s.Image.bytes in
+              List.iter
+                (fun ((slot : Table.slot), off) ->
+                  match (slot.Table.section, bound slot.Table.region) with
+                  | Art.Section.Bound, Some bytes ->
+                      Bytes.blit_string bytes 0 b (at + off)
+                        (min (String.length bytes)
+                           (Int64.to_int slot.Table.size))
+                  | _ -> ())
+                p.lay.slots;
+              { s with Image.bytes = Bytes.unsafe_to_string b }
+            end
+            else s)
+          p.image.Image.segments
+      in
+      if !patched then Ok { p.image with Image.segments }
+      else Error "the harness block is in no segment"
 
 let qemu = "qemu-x86_64"
 
@@ -374,7 +394,12 @@ let decode ?(probe = false) lay out =
             lay.slots;
       }
 
+(* One run of a prepared process over the caller's bound bytes. *)
+let launch ?timeout (p : prepared) ~bound =
+  let* image = with_block p ~bound in
+  let* out = execute ?timeout (Rivet_x64_elf.write image) in
+  decode ~probe:p.probe p.lay out
+
 let run ?runtime ?timeout ?probe ?entry_mutation ~bound artifact =
-  let* elf, lay = process ?runtime ?probe ?entry_mutation ~bound artifact in
-  let* out = execute ?timeout elf in
-  decode ?probe lay out
+  let* p = prepare ?runtime ?probe ?entry_mutation artifact in
+  launch ?timeout p ~bound
