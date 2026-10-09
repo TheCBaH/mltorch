@@ -27,6 +27,9 @@ type env = {
   esc : R.t Err.Escape.t;
   reference : Mir_target.Reference.t -> (string * int64) option;
       (** the symbol and addend the artifact records for this reference *)
+  table_slot : string -> int option;
+      (** the slot of the caller's table a region symbol is addressed through;
+          [None]: the symbol is resident in the image *)
 }
 
 let refuse env r = Err.Escape.throw env.esc r
@@ -120,13 +123,13 @@ let fpr env ~double (v : Mir_target.View.t) =
       { Aarch64.Freg.num = unit - 32; double }
   | _ -> refuse env (R.Register v.Mir_target.View.name)
 
-let view env = function
+let loc_view env = function
   | Loc.Reg v -> v
   | Loc.Slot _ -> refuse env (R.Location "a frame slot")
   | Loc.Mem _ -> refuse env (R.Location "memory")
 
-let g env sz l = O.Reg (gpr env ~width:(width_bits sz) (view env l))
-let f env fsz l = O.Freg (fpr env ~double:(fsz = A.Fsz.D) (view env l))
+let g env sz l = O.Reg (gpr env ~width:(width_bits sz) (loc_view env l))
+let f env fsz l = O.Freg (fpr env ~double:(fsz = A.Fsz.D) (loc_view env l))
 let dbl = function A.Fsz.D -> true | A.Fsz.S -> false
 
 (* The nth use or definition. *)
@@ -142,7 +145,7 @@ let cond_name (c : A.Cond.t) = A.Cond.name c
 let mem env ~base ~offset =
   O.Mem
     {
-      Aarch64.Mem.base = gpr env ~width:64 (view env base);
+      Aarch64.Mem.base = gpr env ~width:64 (loc_view env base);
       offset = Aarch64.Disp.Const offset;
       writeback = false;
       pre = true;
@@ -151,8 +154,8 @@ let mem env ~base ~offset =
 (* A load or store of the access size [m] against [base, #offset]. *)
 let access env ~load (m : A.Msz.t) ~rt ~base ~offset =
   let mem = mem env ~base ~offset in
-  let gp ~width = O.Reg (gpr env ~width (view env rt)) in
-  let fp ~double = O.Freg (fpr env ~double (view env rt)) in
+  let gp ~width = O.Reg (gpr env ~width (loc_view env rt)) in
+  let fp ~double = O.Freg (fpr env ~double (loc_view env rt)) in
   let op, reg =
     match (m, load) with
     | A.Msz.B, true -> (Op.Ldrb, gp ~width:32)
@@ -189,6 +192,22 @@ let bitfield ~signed ~rd ~rn ~lsb ~width =
     (if signed then Op.Sbfx else Op.Ubfx)
     [ rd; rn; imm_int lsb; imm_int width ]
 
+(* x18, which the table binding's entry sets to the caller's table. *)
+let table_base = { Aarch64.Reg.num = 18; width = 64; is_sp = false }
+
+(* [value] in [reg] by a move and as many keeps as it has nonzero halfwords. *)
+let materialize reg value =
+  let quarter k =
+    Int64.logand (Int64.shift_right_logical value (16 * k)) 0xFFFFL
+  in
+  let shift k = O.Shift { Aarch64.Shift.kind = "lsl"; amount = 16 * k } in
+  ins Op.Movz [ O.Reg reg; imm (quarter 0) ]
+  :: List.filter_map
+       (fun k ->
+         if Int64.equal (quarter k) 0L then None
+         else Some (ins Op.Movk [ O.Reg reg; imm (quarter k); shift k ]))
+       [ 1; 2; 3 ]
+
 let ( ++ ) = List.append
 
 let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
@@ -205,6 +224,30 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       [ ins Op.Add [ g env sz (d 0); g env sz (u 0); imm k ] ]
   | A.Add_lo12 (_, _) when mutated Mutation.Dropped_lo12 ->
       [ ins Op.Add [ g env A.Sz.X (d 0); g env A.Sz.X (u 0); imm 0L ] ]
+  | A.Add_lo12 (_, view)
+    when match
+           env.reference
+             (Mir_target.Reference.View
+                (view, Mir_target.Reference.Form.Page_offset))
+         with
+         | Some (symbol, _) -> Option.is_some (env.table_slot symbol)
+         | None -> false ->
+      (* a table-bound region: its base is already in the register, so the
+         low twelve bits of the view's offset are all that remain *)
+      let _, addend =
+        Option.get
+          (env.reference
+             (Mir_target.Reference.View
+                (view, Mir_target.Reference.Form.Page_offset)))
+      in
+      [
+        ins Op.Add
+          [
+            g env A.Sz.X (d 0);
+            g env A.Sz.X (u 0);
+            imm (Int64.logand addend 0xFFFL);
+          ];
+      ]
   | A.Add_lo12 (_, view) ->
       let target =
         address env
@@ -219,6 +262,42 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
             O.Sym (Asm_core.Expr.Modifier ("lo12", target));
           ];
       ]
+  | A.Adrp view
+    when match
+           env.reference
+             (Mir_target.Reference.View (view, Mir_target.Reference.Form.Page))
+         with
+         | Some (symbol, _) -> Option.is_some (env.table_slot symbol)
+         | None -> false ->
+      (* a table-bound region: the base from the caller's table, then the
+         whole pages of the view's offset *)
+      let symbol, addend =
+        Option.get
+          (env.reference
+             (Mir_target.Reference.View (view, Mir_target.Reference.Form.Page)))
+      in
+      let slot = Option.get (env.table_slot symbol) in
+      let rd = gpr env ~width:64 (loc_view env (d 0)) in
+      let page = Int64.logand addend (Int64.lognot 0xFFFL) in
+      ins Op.Ldr
+        [
+          O.Reg rd;
+          O.Mem
+            {
+              Aarch64.Mem.base = table_base;
+              offset = Aarch64.Disp.Const (Int64.of_int (8 * slot));
+              writeback = false;
+              pre = true;
+            };
+        ]
+      ::
+      (if Int64.equal page 0L then []
+       else if Int64.compare page 0xFFF000L <= 0 then
+         [ ins Op.Add [ O.Reg rd; O.Reg rd; imm page ] ]
+       else
+         let scratch = { Aarch64.Reg.num = 16; width = 64; is_sp = false } in
+         materialize scratch page
+         @ [ ins Op.Add [ O.Reg rd; O.Reg rd; O.Reg scratch ] ])
   | A.Adrp view ->
       let target =
         address env

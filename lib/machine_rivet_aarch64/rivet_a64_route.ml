@@ -92,7 +92,7 @@ let regions_program (p : (_, _) Mir_phys.Program.t) =
 
 (* The typed modules that make an artifact an image — its own and the host
    stubs for its helpers — and the entry symbol. *)
-let modules ?mutation ~runtime artifact =
+let modules ?mutation ?binding ~runtime artifact =
   let phys = Art.program artifact in
   let render pp e = Fmt.str "%a" pp e in
   let* () =
@@ -103,7 +103,7 @@ let modules ?mutation ~runtime artifact =
   let* modul =
     Result.map_error
       (render Rivet_a64_refusal.pp)
-      (Err.payload (M.of_artifact ?mutation artifact))
+      (Err.payload (M.of_artifact ?mutation ?binding artifact))
   in
   let helpers = Rivet_a64_runtime.helpers artifact in
   let* host =
@@ -122,7 +122,12 @@ let modules ?mutation ~runtime artifact =
        phys.Mir_phys.Program.funcs)
       .Mir_phys.Func.name
   in
-  Ok (main, modul :: host)
+  let entry =
+    match binding with
+    | Some M.Table -> Rivet_a64_table.entry
+    | Some M.Image_resident | None -> main
+  in
+  Ok (entry, modul :: host)
 
 (* Typed modules as a loaded image entered at [entry]. *)
 let load ~entry modules =

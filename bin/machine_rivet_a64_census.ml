@@ -11,7 +11,7 @@
    back). The run is dominated by the copy and the reference, not the kernels.
 
    argv: <model.pt2> [--run=K] (K = 0: compile only) [--allocation=reference|scanned]
-   [--gnu] [--runtime=dependency_free|system_libm] (default dependency_free: a kernel
+   [--gnu] [--table [--poison]] [--runtime=dependency_free|system_libm] (default dependency_free: a kernel
    calling a C library math helper is refused and tallied) *)
 
 open Loop_ir
@@ -84,11 +84,98 @@ let prefix (b : Loop_bundle.t) m ~constants ~count =
             (fun id -> Fmt.pr "  differs: %a@." Graph_ir.Tensor_id.pp id)
             differing)
 
+(* The table-bound host: tensors are the context's storage, passed by address.
+   The same comparison, with the phases timed apart. *)
+let host_run (b : Loop_bundle.t) ~constants ~allocation ~runtime ~count ~poison
+    ~gnu =
+  let module H = Machine_rivet_aarch64.Rivet_a64_host in
+  let n = List.length b.Loop_bundle.invocations in
+  let t0 = Unix.gettimeofday () in
+  match
+    H.prepare ~allocation ~runtime ~pipeline:Ssa_backends.Pipeline.Exact b
+  with
+  | Error refusals ->
+      let tally = Hashtbl.create 16 in
+      List.iter
+        (fun (r : M.Refusal.t) ->
+          let k = Fmt.str "%a" M.Reason.pp r.M.Refusal.reason in
+          Hashtbl.replace tally k
+            (1 + Option.value ~default:0 (Hashtbl.find_opt tally k)))
+        refusals;
+      Fmt.pr "%d of %d invocations compiled (%.1f s)@."
+        (n - List.length refusals)
+        n
+        (Unix.gettimeofday () -. t0);
+      List.iter
+        (fun (k, c) -> Fmt.pr "  %4d  %s@." c k)
+        (List.sort
+           (fun (a, x) (b, y) ->
+             match compare y x with 0 -> compare a b | c -> c)
+           (List.of_seq (Hashtbl.to_seq tally)))
+  | Ok host -> (
+      ignore gnu;
+      Fmt.pr "%d of %d invocations compiled (%.1f s)@." n n
+        (Unix.gettimeofday () -. t0);
+      let g = b.Loop_bundle.graph in
+      let inputs =
+        List.map
+          (fun id ->
+            let sg = Graph_ir.Tensor_id.Map.find id g.Graph_ir.Graph.tensors in
+            ( id,
+              Tensor.materialize sg.Tensor_sig.shape (fun c ->
+                  let k = (Vec6.offset sg.Tensor_sig.shape c :> int) in
+                  float_of_int ((k mod 17) - 8) /. 8.) ))
+          b.Loop_bundle.inputs
+      in
+      let t0 = Unix.gettimeofday () in
+      let reference =
+        Err.or_raise ~pp_error:Eval_direct.pp_error
+          (Eval_direct.run g
+             ~constants:(Graph_ir.Tensor_id.Map.bindings constants)
+             ~inputs)
+      in
+      Fmt.pr "reference: %.1f s@." (Unix.gettimeofday () -. t0);
+      let t0 = Unix.gettimeofday () in
+      match
+        H.Context.create host ~constants:(fun id ->
+            Graph_ir.Tensor_id.Map.find_opt id constants)
+      with
+      | Error s -> Fmt.pr "context: %a@." M.Stop.pp s
+      | Ok cx -> (
+          Fmt.pr "context: %.2f s@." (Unix.gettimeofday () -. t0);
+          let t0 = Unix.gettimeofday () in
+          match
+            H.Context.run_prefix ~poison cx
+              ~inputs:(fun id -> List.assoc_opt id inputs)
+              ~count
+          with
+          | Error s -> Fmt.pr "run: %a@." M.Stop.pp s
+          | Ok written ->
+              let seconds = Unix.gettimeofday () -. t0 in
+              let differing =
+                List.filter
+                  (fun id ->
+                    match H.Context.tensor cx id with
+                    | Ok t -> (
+                        match Graph_ir.Tensor_id.Map.find_opt id reference with
+                        | Some r -> bits t <> bits r
+                        | None -> true)
+                    | Error _ -> true)
+                  written
+              in
+              Fmt.pr "first %d invocations: %d tensors, %d differ (%.2f s)@."
+                count (List.length written) (List.length differing) seconds;
+              List.iter
+                (fun id -> Fmt.pr "  differs: %a@." Graph_ir.Tensor_id.pp id)
+                differing))
+
 let () =
   let run = ref None
   and allocation = ref Rt.Allocation.Reference
   and runtime = ref Machine_rivet_aarch64.Rivet_a64_runtime.Dependency_free
-  and gnu = ref false in
+  and gnu = ref false
+  and table = ref false
+  and poison = ref false in
   let args =
     List.filter
       (fun a ->
@@ -101,6 +188,12 @@ let () =
             false
         | [ "--allocation"; "scanned" ] ->
             allocation := Rt.Allocation.Scanned;
+            false
+        | [ "--table" ] ->
+            table := true;
+            false
+        | [ "--poison" ] ->
+            poison := true;
             false
         | [ "--gnu" ] ->
             gnu := true;
@@ -139,40 +232,45 @@ let () =
           exit 1
       | Ok (b, constants) -> (
           let n = List.length b.Loop_bundle.invocations in
-          let t0 = Unix.gettimeofday () in
-          match
-            M.prepare
-              ~route:
-                (Rt.route
-                   ?check:(if !gnu then Some gnu_check else None)
-                   ~allocation:!allocation ~runtime:!runtime ())
-              ~pipeline:Ssa_backends.Pipeline.Exact b
-          with
-          | Ok m ->
-              Fmt.pr "%s: %d of %d invocations compiled (%.1f s)@."
-                (Filename.basename path) n n
-                (Unix.gettimeofday () -. t0);
-              let count = Option.value ~default:n !run in
-              if count > 0 then prefix b m ~constants ~count
-          | Error refusals ->
-              let tally = Hashtbl.create 16 in
-              List.iter
-                (fun (r : M.Refusal.t) ->
-                  let k = Fmt.str "%a" M.Reason.pp r.M.Refusal.reason in
-                  Hashtbl.replace tally k
-                    (1 + Option.value ~default:0 (Hashtbl.find_opt tally k)))
-                refusals;
-              Fmt.pr "%s: %d of %d invocations compiled (%.1f s)@."
-                (Filename.basename path)
-                (n - List.length refusals)
-                n
-                (Unix.gettimeofday () -. t0);
-              List.iter
-                (fun (k, c) -> Fmt.pr "  %4d  %s@." c k)
-                (List.sort
-                   (fun (a, x) (b, y) ->
-                     match compare y x with 0 -> compare a b | c -> c)
-                   (List.of_seq (Hashtbl.to_seq tally)))))
+          if !table then
+            host_run b ~constants ~allocation:!allocation ~runtime:!runtime
+              ~count:(Option.value ~default:n !run)
+              ~poison:!poison ~gnu:!gnu
+          else
+            let t0 = Unix.gettimeofday () in
+            match
+              M.prepare
+                ~route:
+                  (Rt.route
+                     ?check:(if !gnu then Some gnu_check else None)
+                     ~allocation:!allocation ~runtime:!runtime ())
+                ~pipeline:Ssa_backends.Pipeline.Exact b
+            with
+            | Ok m ->
+                Fmt.pr "%s: %d of %d invocations compiled (%.1f s)@."
+                  (Filename.basename path) n n
+                  (Unix.gettimeofday () -. t0);
+                let count = Option.value ~default:n !run in
+                if count > 0 then prefix b m ~constants ~count
+            | Error refusals ->
+                let tally = Hashtbl.create 16 in
+                List.iter
+                  (fun (r : M.Refusal.t) ->
+                    let k = Fmt.str "%a" M.Reason.pp r.M.Refusal.reason in
+                    Hashtbl.replace tally k
+                      (1 + Option.value ~default:0 (Hashtbl.find_opt tally k)))
+                  refusals;
+                Fmt.pr "%s: %d of %d invocations compiled (%.1f s)@."
+                  (Filename.basename path)
+                  (n - List.length refusals)
+                  n
+                  (Unix.gettimeofday () -. t0);
+                List.iter
+                  (fun (k, c) -> Fmt.pr "  %4d  %s@." c k)
+                  (List.sort
+                     (fun (a, x) (b, y) ->
+                       match compare y x with 0 -> compare a b | c -> c)
+                     (List.of_seq (Hashtbl.to_seq tally)))))
   | _ ->
       prerr_endline
         "usage: machine_rivet_a64_census <model.pt2> [--run=K] \

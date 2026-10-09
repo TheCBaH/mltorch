@@ -64,3 +64,6 @@ let write_global t name bytes : (unit, Error.t) Err.t =
   | Error e -> Err.fail (`Load e)
 
 let host_symbol = Native_exec.host_symbol
+
+(* The address of a buffer's data, which does not move while it is alive. *)
+let address = Native_exec.io_address

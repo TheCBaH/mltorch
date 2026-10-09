@@ -74,7 +74,7 @@ let relocation_index artifact =
     (Art.relocations artifact);
   t
 
-let instrs_of_func ?mutation esc relocations
+let instrs_of_func ?mutation ~table_slot esc relocations
     (f : (A64_op.t, A64_op.test) Mir_phys.Func.t) =
   let fid = Mir_id.Func.to_int f.Mir_phys.Func.id in
   let blocks = f.Mir_phys.Func.blocks in
@@ -101,6 +101,7 @@ let instrs_of_func ?mutation esc relocations
           {
             F.mutation;
             esc;
+            table_slot;
             reference =
               (fun reference ->
                 List.find_map
@@ -167,10 +168,66 @@ let instrs_of_func ?mutation esc relocations
         :: List.map insn (body @ terminator))
       next
 
-let of_artifact ?mutation artifact =
+(* Where a mutable region's bytes live. *)
+type binding =
+  | Image_resident  (** in the image's own [.bss]: a host reads and writes it *)
+  | Table  (** at the caller's address in {!Rivet_a64_table}'s table *)
+
+(* The entry of a table-bound image: x18 holds the caller's table for the
+   kernel, which keeps no state of its own; x18 and the link register are put
+   back on the way out. *)
+let table_entry ~kernel =
+  let open Asm_core in
+  let i op ops = insn (F.ins op ops) in
+  let sp =
+    Aarch64.Operand.Reg { Aarch64.Reg.num = 31; width = 64; is_sp = true }
+  in
+  let x n =
+    Aarch64.Operand.Reg { Aarch64.Reg.num = n; width = 64; is_sp = false }
+  in
+  let slot n =
+    Aarch64.Operand.Mem
+      {
+        Aarch64.Mem.base = { Aarch64.Reg.num = 31; width = 64; is_sp = true };
+        offset = Aarch64.Disp.Const (Int64.of_int n);
+        writeback = false;
+        pre = true;
+      }
+  in
+  let name = Rivet_a64_table.entry in
+  [
+    section ".text" Perms.rx ~nobits:false;
+    dir (D.Align { boundary = 4 });
+    dir (D.Global { name });
+    dir (D.Sym_type { name; kind = D.Function });
+    lbl name;
+    i Aarch64.Opcode.Sub [ sp; sp; F.imm 32L ];
+    i Aarch64.Opcode.Str [ x 30; slot 0 ];
+    i Aarch64.Opcode.Str [ x 18; slot 8 ];
+    i Aarch64.Opcode.Mov [ x 18; x 0 ];
+    i Aarch64.Opcode.Bl [ Aarch64.Operand.Sym (Expr.Symbol kernel) ];
+    i Aarch64.Opcode.Ldr [ x 18; slot 8 ];
+    i Aarch64.Opcode.Ldr [ x 30; slot 0 ];
+    i Aarch64.Opcode.Add [ sp; sp; F.imm 32L ];
+    i Aarch64.Opcode.Ret [];
+    dir
+      (D.Sym_size
+         {
+           name;
+           size = Expr.Binary (Expr.Sub, Expr.Current_location, Expr.Symbol name);
+         });
+  ]
+
+let of_artifact ?mutation ?(binding = Image_resident) artifact =
   Err.Escape.with_escape @@ fun esc ->
   let program = Art.program artifact in
   let relocations = relocation_index artifact in
+  let slots = Rivet_a64_table.of_artifact artifact in
+  let table_slot =
+    match binding with
+    | Image_resident -> fun _ -> None
+    | Table -> Rivet_a64_table.slot_of_symbol slots
+  in
   let text =
     List.concat_map
       (fun (f : (A64_op.t, A64_op.test) Mir_phys.Func.t) ->
@@ -182,7 +239,7 @@ let of_artifact ?mutation artifact =
           dir (D.Sym_type { name; kind = D.Function });
           lbl name;
         ]
-        @ instrs_of_func ?mutation esc relocations f
+        @ instrs_of_func ?mutation ~table_slot esc relocations f
         @ [
             dir
               (D.Sym_size
@@ -199,13 +256,34 @@ let of_artifact ?mutation artifact =
   in
   let data =
     List.concat_map
-      (fun s -> Option.value ~default:[] (data_items s))
+      (fun (s : Art.Symbol.t) ->
+        match (binding, s.Art.Symbol.kind) with
+        | ( Table,
+            Art.Symbol.Data { section = Art.Section.Bound | Art.Section.Bss; _ }
+          ) ->
+            []
+        | _ -> Option.value ~default:[] (data_items s))
       (Art.symbols artifact)
+  in
+  let entry =
+    match binding with
+    | Image_resident -> []
+    | Table ->
+        let main =
+          (List.find
+             (fun (f : (_, _) Mir_phys.Func.t) ->
+               Mir_id.Func.equal f.Mir_phys.Func.id
+                 program.Mir_phys.Program.main)
+             program.Mir_phys.Program.funcs)
+            .Mir_phys.Func.name
+        in
+        table_entry ~kernel:main
   in
   {
     N.unit_name = "artifact";
     items =
-      text @ data @ [ dir (D.Declared_section { name = ".note.GNU-stack" }) ];
+      text @ entry @ data
+      @ [ dir (D.Declared_section { name = ".note.GNU-stack" }) ];
   }
 
 (* {1 Host helpers}
