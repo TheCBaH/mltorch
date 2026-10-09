@@ -563,6 +563,53 @@ module MaxDim = struct
   end
 end
 
+(* `argmax.default(Tensor self, int? dim=None, bool keepdim=False) -> Tensor`
+   with a given [dim]: the index half of [MaxDim] as a node of its own, since
+   ATen's argmax has one int64 output and no values. The index is the same
+   [Max_op.pool_better] predicate [MaxDim] uses, so ties resolve to the smallest
+   position and a NaN is treated as the maximum, as in ATen. One difference is
+   known: the predicate is the pooling one (a later NaN replaces an earlier
+   one), where ATen's reduction kernel keeps the FIRST NaN, so a row with
+   several NaNs reports the last. The flattened [dim=None] form is not covered:
+   its index runs over the whole tensor, not one axis. *)
+module Argmax = struct
+  type params = MaxDim.params = { axis : Axis.t; keepdim : bool }
+
+  let params_jsont = MaxDim.params_jsont
+  let pp_params = MaxDim.pp_params
+  let output_shape = MaxDim.output_shape
+
+  type t = { params : params; x : Tensor_ref.t }
+
+  let name = "Argmax"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        { params = get "params" params_jsont; x = get "x" Tensor_ref.jsont })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("x", Json_util.enc Tensor_ref.jsont t.x);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { t with x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>argmax@ x=%a@ params=%a@]" pp_ref t.x pp_params t.params
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    module M = MaxDim.Compute (S)
+
+    let pixel = M.index_pixel
+  end
+end
+
 module Vector_norm = struct
   (* L2 vector norm over [dims]: sqrt(sum of squares) -- ATen's
      `aten.linalg_vector_norm.default`, restricted to the schema's `ord=2`

@@ -160,6 +160,96 @@ let compute_arms (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
                   ~operand:(fun r -> Tensor_id.Map.find r operand_env)
                   ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
                   ~fill)))
+  (* [Weight_norm]: the norm over every axis but [axis] is computed once per
+     position along it, not once per element -- the generic pixel re-sums the
+     whole tensor for each output and is only the definition. Squares are
+     accumulated in binary64 and the quotient taken per element, as that pixel
+     does. *)
+  | Weight_norm { Weight_norm.Weight_norm.params; v; g } ->
+      let v_t = Tensor_id.Map.find v operand_env in
+      let g_t = Tensor_id.Map.find g operand_env in
+      let v_shape = Tensor_id.Map.find v shape_env in
+      let axis = params.Weight_norm.Weight_norm.axis in
+      let extent = (Vec6.get v_shape axis :> int) in
+      let sums = Array.make extent 0. in
+      Vec6.iter v_shape (fun c ->
+          let k = (Vec6.get c axis :> int) in
+          let x = Direct.load v_t c in
+          sums.(k) <- sums.(k) +. (x *. x));
+      finish dst
+        (Tensor.write_float dst (fun coord ->
+             let k = (Vec6.get coord axis :> int) in
+             let g_at =
+               Direct.load g_t
+                 (Vec6.mapi
+                    (fun a i ->
+                      if Axis.equal a axis then i else Direct.index_zero)
+                    coord)
+             in
+             Direct.load v_t coord *. (g_at /. sqrt sums.(k))))
+  (* [Full_like] writes its fill in [x]'s own format; an int64 fill must be a
+     whole number, never silently truncated. *)
+  | Full_like { Pointwise.Full_like.value; _ } -> (
+      let (Tensor.Tensor d) = dst in
+      match d.Tensor.payload.Payload.fmt with
+      | Payload.I64 ->
+          if not (Float.is_integer value) then
+            Err.or_raise
+              ~pp_error:(fun fmt v ->
+                Fmt.pf fmt
+                  "full_like: %g is not a whole number for an int64 tensor" v)
+              (Err.fail value)
+          else finish dst (Tensor.write_i64 dst (fun _ -> Int64.of_float value))
+      | Payload.Bool ->
+          finish dst (Tensor.write_bool dst (fun _ -> value <> 0.))
+      | _ -> finish dst (Tensor.write_float dst (fun _ -> value)))
+  (* Int64 operands are compared exactly, never through the float domain. *)
+  | Min_other { Pointwise.Bin.a; b } -> (
+      let a_sig = Tensor_id.Map.find a g.Graph.tensors in
+      match a_sig.Tensor_sig.fmt with
+      | Payload.Fmt Payload.I64 ->
+          let module B = Pointwise_binary.Binary_i64 (Direct) (Direct) in
+          let a_t = Tensor_id.Map.find a operand_env in
+          let b_t = Tensor_id.Map.find b operand_env in
+          let a_shape = Tensor_id.Map.find a shape_env in
+          let b_shape = Tensor_id.Map.find b shape_env in
+          finish dst
+            (Tensor.write_i64 dst (fun coord ->
+                 B.pixel
+                   ~combine:(fun x y -> if Direct.i64_lt y x then y else x)
+                   ~a_shape ~b_shape a_t b_t coord))
+      | _ ->
+          finish dst
+            (Schedule.evaluate_into dst
+               (E.pixel op ~output
+                  ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                  ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                  ~fill)))
+  | Where_self { Pointwise.Where_self.condition; x; y } -> (
+      let x_sig = Tensor_id.Map.find x g.Graph.tensors in
+      match x_sig.Tensor_sig.fmt with
+      | Payload.Fmt Payload.I64 ->
+          let c_t = Tensor_id.Map.find condition operand_env in
+          let x_t = Tensor_id.Map.find x operand_env in
+          let y_t = Tensor_id.Map.find y operand_env in
+          let at r t coord =
+            Pointwise.broadcast_coord ~index_zero:Direct.index_zero
+              (Tensor_id.Map.find r shape_env)
+              coord
+            |> fun c -> t c
+          in
+          finish dst
+            (Tensor.write_i64 dst (fun coord ->
+                 let cond = at condition (Direct.load c_t) coord in
+                 if cond = 0. then at y (Direct.i64_load y_t) coord
+                 else at x (Direct.i64_load x_t) coord))
+      | _ ->
+          finish dst
+            (Schedule.evaluate_into dst
+               (E.pixel op ~output
+                  ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                  ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                  ~fill)))
   (* An I64 operand plus an integral scalar stays int64 (the builder threads
      an I64 output edge exactly then): the exact add, never the float domain.
      Every other case keeps the float pixel path. *)
@@ -178,6 +268,71 @@ let compute_arms (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
           let x_t = Tensor_id.Map.find x operand_env in
           finish dst
             (Tensor.write_i64 dst (fun coord -> C.pixel ~scalar x_t coord))
+      | _ ->
+          finish dst
+            (Schedule.evaluate_into dst
+               (E.pixel op ~output
+                  ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                  ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                  ~fill)))
+  (* Data movement over an int64 operand copies exactly: [Clone], [Expand],
+     [Repeat] and [RepeatInterleave] read through [Compute_i64], as [Reshape]
+     and [Slice] do. Any other format keeps the float pixel path. *)
+  | Clone { Pointwise.Clone.x } -> (
+      let x_sig = Tensor_id.Map.find x g.Graph.tensors in
+      match x_sig.Tensor_sig.fmt with
+      | Payload.Fmt Payload.I64 ->
+          let module C = Pointwise.Clone.Compute_i64 (Direct) (Direct) in
+          let x_t = Tensor_id.Map.find x operand_env in
+          finish dst (Tensor.write_i64 dst (fun coord -> C.pixel x_t coord))
+      | _ ->
+          finish dst
+            (Schedule.evaluate_into dst
+               (E.pixel op ~output
+                  ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                  ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                  ~fill)))
+  | Expand { Pointwise.Expand.params = _; x } -> (
+      let x_sig = Tensor_id.Map.find x g.Graph.tensors in
+      match x_sig.Tensor_sig.fmt with
+      | Payload.Fmt Payload.I64 ->
+          let module C = Pointwise.Expand.Compute_i64 (Direct) (Direct) in
+          let x_t = Tensor_id.Map.find x operand_env in
+          let x_shape = Tensor_id.Map.find x shape_env in
+          finish dst
+            (Tensor.write_i64 dst (fun coord -> C.pixel ~x_shape x_t coord))
+      | _ ->
+          finish dst
+            (Schedule.evaluate_into dst
+               (E.pixel op ~output
+                  ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                  ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                  ~fill)))
+  | Repeat { Repeat.Repeat.params = _; x } -> (
+      let x_sig = Tensor_id.Map.find x g.Graph.tensors in
+      match x_sig.Tensor_sig.fmt with
+      | Payload.Fmt Payload.I64 ->
+          let module C = Repeat.Repeat.Compute_i64 (Direct) (Direct) in
+          let x_t = Tensor_id.Map.find x operand_env in
+          let x_shape = Tensor_id.Map.find x shape_env in
+          finish dst
+            (Tensor.write_i64 dst (fun coord -> C.pixel ~x_shape x_t coord))
+      | _ ->
+          finish dst
+            (Schedule.evaluate_into dst
+               (E.pixel op ~output
+                  ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                  ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                  ~fill)))
+  | RepeatInterleave { Repeat.RepeatInterleave.params; x } -> (
+      let x_sig = Tensor_id.Map.find x g.Graph.tensors in
+      match x_sig.Tensor_sig.fmt with
+      | Payload.Fmt Payload.I64 ->
+          let module C = Repeat.RepeatInterleave.Compute_i64 (Direct) (Direct)
+          in
+          let x_t = Tensor_id.Map.find x operand_env in
+          finish dst
+            (Tensor.write_i64 dst (fun coord -> C.pixel params x_t coord))
       | _ ->
           finish dst
             (Schedule.evaluate_into dst
@@ -215,8 +370,23 @@ let compute_arms (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
      match's: an admitted [Mul_scalar] never has a Bool operand here. *)
   | Mul_scalar { Pointwise.Scalar_bin.x; scalar } -> (
       let x_sig = Tensor_id.Map.find x g.Graph.tensors in
-      match x_sig.Tensor_sig.fmt with
-      | Payload.Fmt Payload.I64 ->
+      let (Tensor.Tensor d) = dst in
+      match (d.Tensor.payload.Payload.fmt, x_sig.Tensor_sig.fmt) with
+      (* The builder threads an I64 output edge only for an I64 operand and an
+         integral scalar: that is the exact integer product. *)
+      | Payload.I64, _ ->
+          let module T = struct
+            type 'a repr = 'a
+
+            let i64_load = Direct.i64_load
+            let i64_binary = Direct.i64_binary
+            let typed_const = Direct.typed_const
+          end in
+          let module C = Pointwise.Mul_scalar.Compute_i64_exact (Direct) (T) in
+          let x_t = Tensor_id.Map.find x operand_env in
+          finish dst
+            (Tensor.write_i64 dst (fun coord -> C.pixel ~scalar x_t coord))
+      | _, Payload.Fmt Payload.I64 ->
           let module C = Pointwise.Mul_scalar.Compute_i64 (Direct) (Direct) in
           let x_t = Tensor_id.Map.find x operand_env in
           finish dst
@@ -387,6 +557,40 @@ let compute_arms (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
                   ~operand:(fun r -> Tensor_id.Map.find r operand_env)
                   ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
                   ~fill)))
+  (* [To_copy]'s [Int] target (int32): the value is carried in an int64 cell,
+     since the engine has no 32-bit integer edge, and a value outside the int32
+     range is an error raised through the same [Err.or_raise] boundary a bad
+     [Long] cast uses -- never the wrap-around ATen's [static_cast] gives, which
+     this carrier could not reproduce. The Symbolic route does not range-check:
+     it is the same carrier without the guard, so an out-of-range value there is
+     carried, not wrapped. *)
+  | To_copy { Pointwise.To_copy.target = Pointwise.To_copy.Int; x } -> (
+      let x_sig = Tensor_id.Map.find x g.Graph.tensors in
+      let x_t = Tensor_id.Map.find x operand_env in
+      let in_range v =
+        if Int64.compare v (-2147483648L) < 0 || Int64.compare v 2147483647L > 0
+        then
+          Err.or_raise
+            ~pp_error:(fun fmt v ->
+              Fmt.pf fmt "to_copy int32: %Ld is outside [-2^31, 2^31)" v)
+            (Err.fail v)
+        else v
+      in
+      match x_sig.Tensor_sig.fmt with
+      | Payload.Fmt Payload.I64 ->
+          finish dst
+            (Tensor.write_i64 dst (fun coord ->
+                 in_range (Direct.i64_load x_t coord)))
+      | Payload.Fmt Payload.Bool ->
+          finish dst
+            (Tensor.write_i64 dst (fun coord ->
+                 if Direct.bool_load x_t coord then 1L else 0L))
+      | Payload.Fmt Payload.F32 ->
+          let module C = Pointwise.To_copy.Compute_to_long (Direct) (Direct) in
+          finish dst
+            (Tensor.write_i64 dst (fun coord -> in_range (C.pixel x_t coord)))
+      | Payload.Fmt other ->
+          Err.fail (`Unsupported_to_copy_long_source (Payload.Fmt other)))
   (* The reverse direction: [To_copy]'s [Long] target on an F32 operand --
      the real "Float to I64" cast, not merely an explicit-cast architecture
      fix like the [Float] arm above. [Compute(S).pixel]'s [Long] arm is a
@@ -604,6 +808,13 @@ let compute_arms (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
            ~x_shape:(Tensor_id.Map.find x shape_env)
            ~x:(Tensor_id.Map.find x operand_env)
            (C.index_pixel params))
+  | Argmax { Reduce.Argmax.params; x } ->
+      let module C = Reduce.Argmax.Compute (Direct) in
+      finish dst
+        (index_i64 dst
+           ~x_shape:(Tensor_id.Map.find x shape_env)
+           ~x:(Tensor_id.Map.find x operand_env)
+           (C.pixel params))
   | Max_dim { Reduce.MaxDim.params; x }
     when Output_ordinal.equal output Output_ordinal.one ->
       let module C = Reduce.MaxDim.Compute (Direct) in

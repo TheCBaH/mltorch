@@ -58,6 +58,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Amax { Reduce.Amax.params; x } ->
         let module C = Reduce.Amax.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
+    | Argmax { Reduce.Argmax.params; x } ->
+        let module C = Reduce.Argmax.Compute (S) in
+        C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
     | Avg_pool2d { Pool.AvgPool2d.params; x } ->
         let module C = Pool.AvgPool2d.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
@@ -162,6 +165,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Cumsum { Reduce.Cumsum.params; x } ->
         let module C = Reduce.Cumsum.Compute (S) in
         C.pixel params ~x:(operand x) out
+    | Exp { Pointwise.Exp.x } ->
+        let module C = Pointwise.Exp.Compute (S) in
+        C.pixel (operand x) out
     | Expand { Pointwise.Expand.params = _; x } ->
         let module C = Pointwise.Expand.Compute (S) in
         C.pixel ~x_shape:(shape_of x) (operand x) out
@@ -171,6 +177,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Floor_div_scalar { Pointwise.Scalar_bin.x; scalar } ->
         let module C = Pointwise.Floor_div_scalar.Compute (S) in
         C.pixel ~scalar (operand x) out
+    | Full_like { Pointwise.Full_like.value; _ } ->
+        let module C = Pointwise.Full_like.Compute (S) in
+        C.pixel ~value out
     | Gelu { Pointwise.Gelu.x; approximate } ->
         let module C = Pointwise.Gelu.Compute (S) in
         C.pixel approximate (operand x) out
@@ -244,6 +253,12 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Lt_scalar { Pointwise.Scalar_bin.x; scalar } ->
         let module C = Pointwise.Lt_scalar.Compute (S) in
         C.pixel ~scalar (operand x) out
+    | Log { Pointwise.Log.x } ->
+        let module C = Pointwise.Log.Compute (S) in
+        C.pixel (operand x) out
+    | Log1p { Pointwise.Log1p.x } ->
+        let module C = Pointwise.Log1p.Compute (S) in
+        C.pixel (operand x) out
     | Max_dim { Reduce.MaxDim.params; x } ->
         let module C = Reduce.MaxDim.Compute (S) in
         let pix =
@@ -283,6 +298,10 @@ module Make (S : Semantics.SEMANTICS) = struct
         let module C = Embedding.Embedding.Compute (S) in
         C.pixel params ~weight_shape:(shape_of weight) ~weight:(operand weight)
           ~indices:(operand indices) out
+    | Min_other { Pointwise.Bin.a; b } ->
+        let module C = Pointwise.Min_other.Compute (S) in
+        C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)
+          (operand b) out
     | Mul { Pointwise.Bin.a; b } ->
         let module C = Pointwise.Mul.Compute (S) in
         C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)
@@ -395,6 +414,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Vector_norm { Reduce.Vector_norm.params; x } ->
         let module C = Reduce.Vector_norm.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
+    | Weight_norm { Weight_norm.Weight_norm.params; v; g } ->
+        let module C = Weight_norm.Weight_norm.Compute (S) in
+        C.pixel params ~v_shape:(shape_of v) ~v:(operand v) ~g:(operand g) out
     | Where_scalar_other { Pointwise.Where_scalar_other.condition; scalar; x }
       ->
         let module C = Pointwise.Where_scalar_other.Compute (S) in
@@ -409,6 +431,10 @@ module Make (S : Semantics.SEMANTICS) = struct
     | New_ones { Factory.New_ones.params } ->
         let module C = Factory.New_ones.Compute (S) in
         C.pixel params
+    | Where_self { Pointwise.Where_self.condition; x; y } ->
+        let module C = Pointwise.Where_self.Compute (S) in
+        C.pixel ~condition_shape:(shape_of condition) ~x_shape:(shape_of x)
+          ~y_shape:(shape_of y) (operand condition) (operand x) (operand y) out
     | Discard _ ->
         invalid_arg
           "Eval_op.pixel: Discard produces no output, so it has no pixel"

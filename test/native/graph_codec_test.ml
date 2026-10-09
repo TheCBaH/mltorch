@@ -110,7 +110,8 @@ let%expect_test "op_name agrees with the JSON case tag, Discard included" =
           let* grouped =
             group_norm
               {
-                Norm.GroupNorm.channel = Axis.C;
+                Norm.GroupNorm.batch = Axis.N;
+                channel = Axis.C;
                 groups = Op_config.Pos.of_int 2;
                 eps = 1e-6;
               }

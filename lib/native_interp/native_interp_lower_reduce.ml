@@ -10,7 +10,13 @@ open Schema_runtime
 open Native_interp_decode
 open Native_interp_decode_shape
 
-let targets = [ "torch.ops.aten.cumsum.default"; "torch.ops.aten.max.dim" ]
+let targets =
+  [
+    "torch.ops.aten.argmax.default";
+    "torch.ops.aten.cumsum.default";
+    "torch.ops.aten.group_norm.default";
+    "torch.ops.aten.max.dim";
+  ]
 
 let dispatch ~ctx ~env (node : Node.t) =
   if not (List.mem node.target targets) then None
@@ -34,6 +40,62 @@ let dispatch ~ctx ~env (node : Node.t) =
           both in ordinary PyTorch code) -- so this importer checks liveness
           per output ([ctx.reads], the same mechanism [lstm.input]'s own
           three-output arm uses) rather than assuming deadness. *)
+       (* `argmax(self, int? dim=None, bool keepdim=False)`. Only a given [dim]
+          is covered: [dim=None] flattens the tensor first, an index over the
+          whole thing rather than along one axis, and is refused as a missing
+          required argument. *)
+       | "torch.ops.aten.argmax.default" ->
+           let x_name = tensor_name esc node "self" in
+           let rank =
+             meta_rank (tensor_meta esc graph ~ssa:x_name ~role:`Amax_input)
+           in
+           let axis =
+             match
+               axes_for_rank esc ~tensor:x_name rank
+                 [ Aten_int.Dim.of_int (required_int_arg esc node "dim") ]
+             with
+             | [ axis ] -> axis
+             | _ -> invalid_arg "Native_interp: argmax lost its singleton axis"
+           in
+           let* y =
+             argmax
+               { Reduce.Argmax.axis; keepdim = bool_arg esc node "keepdim" }
+               (get "self")
+           in
+           return [ y ]
+       (* Group normalization is a statistic over groups of channels, so it
+          lives with the reductions. *)
+       | "torch.ops.aten.group_norm.default" ->
+           let x_name = tensor_name esc node "input" in
+           let to_nhwc, to_nchw, batch =
+             group_norm_perms esc graph ~tensor:x_name
+           in
+           let* x = permute to_nhwc (get "input") in
+           let eps = float_arg esc ~default:1e-05 node "eps" in
+           (* Decoded then discarded, as the bridge and ATen do. *)
+           let (_ : bool) = bool_arg esc ~default:true node "cudnn_enabled" in
+           let groups = int_arg esc node "num_groups" in
+           let groups =
+             pos esc ~op:"group_norm.default" ~param:`Groups groups
+           in
+           let params =
+             { Norm.GroupNorm.batch; channel = Axis.C; groups; eps }
+           in
+           let affine name role =
+             let ssa = optional_tensor_name ~absent_ok:true esc node name in
+             Option.iter
+               (fun ssa -> require_rank esc graph ~ssa ~role ~expected:1)
+               ssa;
+             Option.map (env_find esc env) ssa
+           in
+           let* y =
+             group_norm params ~x
+               ?weight:(affine "weight" `Group_norm_weight)
+               ?bias:(affine "bias" `Group_norm_bias)
+               ()
+           in
+           let* y = permute to_nchw y in
+           return [ y ]
        | "torch.ops.aten.max.dim" ->
            let x_name = tensor_name esc node "self" in
            let rank =

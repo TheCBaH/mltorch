@@ -24,20 +24,43 @@ module GroupNorm = struct
 
      [channel] is a parameter (mirroring [BatchNorm.params.channel]) rather
      than hardcoded to [Axis.C], though every importer sets it there today. *)
-  type params = { channel : Axis.t; groups : Op_config.Pos.t; eps : float }
+  type params = {
+    batch : Axis.t;
+        (** The frame axis holding ATen's dimension 0. A group's statistics are
+            per sample, so it is the one axis (besides [channel]) a group does
+            NOT reduce over: [N] for a frame laid out batch-first, but the
+            innermost-aligned ATen layout puts it at [D] for a rank-4 input and
+            [H] for rank 3. *)
+    channel : Axis.t;
+    groups : Op_config.Pos.t;
+    eps : float;
+  }
 
   let params_jsont : params Jsont.t =
-    Jsont.Object.map ~kind:"group_norm_params" (fun channel groups eps ->
-        { channel; groups = Op_config.Pos.of_int groups; eps })
+    Jsont.Object.map ~kind:"group_norm_params" (fun batch channel groups eps ->
+        {
+          batch = Option.value batch ~default:Axis.N;
+          channel;
+          groups = Op_config.Pos.of_int groups;
+          eps;
+        })
+    |> Jsont.Object.opt_mem "batch" Axis.jsont ~enc:(fun p ->
+        if Axis.equal p.batch Axis.N then None else Some p.batch)
     |> Jsont.Object.mem "channel" Axis.jsont ~enc:(fun p -> p.channel)
     |> Jsont.Object.mem "groups" Jsont.int ~enc:(fun p -> (p.groups :> int))
     |> Jsont.Object.mem "eps" Json_util.f32_jsont ~enc:(fun p -> p.eps)
     |> Jsont.Object.finish
 
   let pp_params fmt (p : params) =
-    Fmt.pf fmt "@[<hv>{channel=%a;@ groups=%d;@ eps=%a}@]" Axis.pp p.channel
-      (p.groups :> int)
-      Fmt.float p.eps
+    if not (Axis.equal p.batch Axis.N) then
+      Fmt.pf fmt "@[<hv>{batch=%a;@ channel=%a;@ groups=%d;@ eps=%a}@]" Axis.pp
+        p.batch Axis.pp p.channel
+        (p.groups :> int)
+        Fmt.float p.eps
+    else
+      Fmt.pf fmt "@[<hv>{channel=%a;@ groups=%d;@ eps=%a}@]" Axis.pp p.channel
+        (p.groups :> int)
+        Fmt.float p.eps
 
   type t = {
     params : params;
@@ -90,9 +113,12 @@ module GroupNorm = struct
   (* Every axis except N and [channel]: what a group reduces over besides its
      own channel slice. Not a caller [dims] list -- ATen's group_norm has no
      axis-selection parameter, so this is fixed by the op's own semantics. *)
-  let spatial_dims (channel : Axis.t) =
+  let spatial_dims ~(batch : Axis.t) (channel : Axis.t) =
     List.filter
-      (fun a -> (not (Axis.equal a Axis.N)) && not (Axis.equal a channel))
+      (fun a ->
+        (not (Axis.equal a Axis.N))
+        && (not (Axis.equal a batch))
+        && not (Axis.equal a channel))
       Axis.all
 
   (* The shape one group reduces over: every [spatial_dims] axis at its full
@@ -100,13 +126,13 @@ module GroupNorm = struct
      1. Used only to BOUND the reduction count -- [Vec6.numel_bounded] divides
      each factor into the ceiling before multiplying, the aggregate rule
      CLAUDE.md states and [normalized_count] above already follows. *)
-  let reduce_shape ~(x_shape : Vec6.shape) ~(channel : Axis.t)
+  let reduce_shape ~(x_shape : Vec6.shape) ~(batch : Axis.t) ~(channel : Axis.t)
       ~(channels_per_group : Dim.extent Dim.t) =
     let base =
       List.fold_left
         (fun acc a -> Vec6.set acc a (Vec6.get x_shape a))
         (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1)
-        (spatial_dims channel)
+        (spatial_dims ~batch channel)
     in
     Vec6.set base channel channels_per_group
 
@@ -125,7 +151,8 @@ module GroupNorm = struct
     | Some cpg ->
         let+ (_ : int64) =
           Vec6.numel_bounded ~limit:Kernel.Limits.Hard.numel
-            (reduce_shape ~x_shape ~channel:p.channel ~channels_per_group:cpg)
+            (reduce_shape ~x_shape ~batch:p.batch ~channel:p.channel
+               ~channels_per_group:cpg)
         in
         x_shape
 
@@ -134,10 +161,12 @@ module GroupNorm = struct
      [Vec6.numel_bounded] on the identical product ([reduce_shape]'s numel) --
      the same precondition [normalized_count_unchecked] documents above, one
      level up: a node whose shape rule never ran cannot be evaluated. *)
-  let count_unchecked ~(x_shape : Vec6.shape) ~(channel : Axis.t) ~cpg =
+  let count_unchecked ~(x_shape : Vec6.shape) ~(batch : Axis.t)
+      ~(channel : Axis.t) ~cpg =
     List.fold_left
       (fun acc a -> acc * (Vec6.get x_shape a :> int))
-      cpg (spatial_dims channel)
+      cpg
+      (spatial_dims ~batch channel)
 
   (* Both affine operands are full PER-CHANNEL vectors -- [normalized_shape]
      with a single-axis [dims] happens to be exactly that layout ([channel] at
@@ -208,6 +237,7 @@ module GroupNorm = struct
 
     let params (c : cfg) : params =
       {
+        batch = Axis.N;
         channel = Axis.C;
         groups = Op_config.Pos.of_int (groups c);
         eps = c.eps;
@@ -270,10 +300,11 @@ module GroupNorm = struct
                 ~hi:(S.index_extent (Vec6.get x_shape d))
                 (fun i -> go rest ((d, i) :: override))
         in
-        go (channel :: spatial_dims channel) []
+        go (channel :: spatial_dims ~batch:p.batch channel) []
       in
       let count =
-        S.const (float_of_int (count_unchecked ~x_shape ~channel ~cpg))
+        S.const
+          (float_of_int (count_unchecked ~x_shape ~batch:p.batch ~channel ~cpg))
       in
       let mean = S.div (sum_over (fun v -> v)) count in
       let var =

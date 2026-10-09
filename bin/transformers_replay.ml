@@ -1,4 +1,5 @@
-(* Usage: transformers_replay.exe COHORT.json CACHE_DIR [--report-dir DIR] [--dots exact|binary32-sequential] [ARTIFACT_ID...]
+(* Usage: transformers_replay.exe COHORT.json CACHE_DIR [--report-dir DIR] [--dots exact|binary32-sequential]
+   [--casts checked|saturating] [ARTIFACT_ID...]
 
    Offline. Opens each selected artifact from CACHE_DIR (every layer verified,
    every capture proved), runs all of its published cases through Native direct
@@ -28,13 +29,21 @@ let flat id = String.concat "--" (String.split_on_char '/' id)
 
 let () =
   let args = List.tl (Array.to_list Sys.argv) in
-  let report_dir = ref None and dots = ref Direct.Binary64 in
+  let report_dir = ref None
+  and dots = ref Direct.Binary64
+  and casts = ref Direct.Checked in
   let rec flags = function
     | "--report-dir" :: dir :: rest ->
         report_dir := Some dir;
         flags rest
     | "--dots" :: "binary32-sequential" :: rest ->
         dots := Direct.Binary32_sequential;
+        flags rest
+    | "--casts" :: "saturating" :: rest ->
+        casts := Direct.Saturating;
+        flags rest
+    | "--casts" :: "checked" :: rest ->
+        casts := Direct.Checked;
         flags rest
     | "--dots" :: "exact" :: rest ->
         dots := Direct.Binary64;
@@ -43,7 +52,7 @@ let () =
     | [] -> []
   in
   let args = flags args in
-  let report_dir = !report_dir and dots = !dots in
+  let report_dir = !report_dir and dots = !dots and casts = !casts in
   match args with
   | cohort_path :: cache_dir :: ids -> (
       let setup =
@@ -73,7 +82,7 @@ let () =
               let t0 = Unix.gettimeofday () in
               let run =
                 let* f = Fixture.open_ config cohort entry in
-                Pt2_fixture_replay.replay ~dots ~consumer f
+                Pt2_fixture_replay.replay ~dots ~casts ~consumer f
               in
               match Err.payload run with
               | Error e ->
@@ -119,6 +128,9 @@ let () =
                              | Direct.Binary64 -> ""
                              | Direct.Binary32_sequential ->
                                  ".binary32-sequential")
+                           ^ (match casts with
+                             | Direct.Checked -> ""
+                             | Direct.Saturating -> ".saturating-casts")
                            ^ ".replay.json"))
                         (fun oc -> output_string oc (Report.to_string report)))
                     report_dir)
@@ -127,5 +139,6 @@ let () =
   | _ ->
       prerr_endline
         "usage: transformers_replay COHORT.json CACHE_DIR [--report-dir DIR] \
-         [--dots exact|binary32-sequential] [ARTIFACT_ID...]";
+         [--dots exact|binary32-sequential] [--casts checked|saturating] \
+         [ARTIFACT_ID...]";
       exit 2

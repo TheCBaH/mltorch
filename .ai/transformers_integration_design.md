@@ -711,7 +711,10 @@ Measured, each row preserved as run (tolerances and references unchanged):
 | SmolVLM decode, history 71 | 1 of 49,280 logits over (1.4e-5 vs allowance 1.1e-5); all 60 K/V pass | 29 over |
 | SmolLM2 decode, history 4 | case-01: 5 of 49,152 logits over (4.3e-5) | 20 over |
 | SmolLM2 prefill | 174 and 1,880 of 196,608 logits over (max 7.4e-5) | 1,974 and 2,685 over, plus K/V |
-| TinyCLIP text, Whisper prefill | not run (int32 cast; see below) | |
+| TinyCLIP text tower | pass (after `argmax` and the int32 cast, below) | not run |
+| TinyCLIP forward (both towers + logits) | pass (adds `exp`, `t`) | not run |
+| Whisper-tiny prefill | pass (after exact int64 `repeat`) | not run |
+| T5-small encoder, forward, prefill, decode h4 | refused (cast of an infinite value) | not run; **pass** under `+saturating-casts` (see below) |
 | Whisper-tiny encoder | 16 and 18 of 576,000 elements over | not run |
 
 The reading: the sequential chain reproduces the reference only for the
@@ -731,3 +734,128 @@ finished and written the report above, so its cost is high (a 3,000-frame
 convolution stem and 1,500-position attention in a pure evaluator) rather than
 unbounded. Whisper prefill was not run; the matrix script
 (`scripts/transformers-matrix.py`) states "not run" for it rather than inferring.
+
+## 23. Last-token pooling: argmax and the int32 cast
+
+TinyCLIP's text tower pools the hidden state at the end-of-text token:
+`(input_ids.int() == eos).int().argmax(-1)` selects the position, and a
+two-index `index.Tensor` reads it. Two small additions close it, and the tower
+passes both published cases.
+
+`argmax.default` over one axis is its own node (the schema's single int64
+output, no values), sharing the index predicate of `max.dim`. The flattened
+`dim=None` form is refused. A difference from ATen is known and tested: with
+several NaNs in a row the predicate reports the last, ATen's reduction the first.
+
+`_to_copy` to int32 is a `To_copy` target of its own. The engine has no 32-bit
+integer edge, so the value rides in an int64 cell; Direct raises on a value
+outside the int32 range instead of wrapping as ATen's cast does, since the cell
+could not reproduce a wrap. The Symbolic route does not range-check, and
+Native4D refuses the target.
+
+## 24. Generation history: what a snapshot establishes
+
+A decode artifact is exported at one history length (`variant.kind =
+static-history`), and its published case is a single step at that length.
+`Pt2_fixture.History` states the consequence and enforces it. A report for such an
+artifact carries a `scope` sentence (schema 3): a snapshot at history N with the
+artifact's capacity, other histories not covered. A feed at any other history is
+refused, and one beyond the capacity is reported as exceeding it, never padded or
+truncated. A prefill can feed a decode artifact only when its `present_*`
+outputs correspond one to one, in order, with the decode's `past_*` inputs, agree
+on batch, heads and head dimension, and have length equal to the decode's
+history. The released SmolLM2 (4) and SmolVLM (71) prefill/decode pairs meet; no
+chained run has been made, because it would have no producer reference to check
+against and a measured result there would not be a gate. Dynamic-shape contracts
+remain refused outright.
+
+## 25. T5's relative-position buckets and the saturating cast
+
+The T5 graphs compute a relative-position bucket in integers: absolute
+distance, a logarithmic bucket for the far ones, a minimum against the last
+bucket, and a `where` choosing between the near and far values. For distance 0
+the far branch is `log 0 = -inf`, cast to int64, and then discarded by the
+`where`. That cast is undefined in C++; aarch64, where the producer ran, saturates
+it (NaN to 0, out of range to the nearest limit). The engine's default cast
+rejects NaN, infinities and out-of-range values, so under it all four static T5
+artifacts are refused with the cast's own message.
+
+The cast is therefore a policy a caller opts into, in the manner of the dot
+accumulation: `Direct.float_to_int`, `Checked` (default) or `Saturating`, scoped
+to the call, named in the report's backend (`native-direct+saturating-casts`) and
+in the report's file name. Under `Saturating` the T5 encoder, forward, prefill and
+decode-at-history-4 artifacts pass both published cases. The graphs only ever use
+the saturated value to be thrown away, which is why the answer does not depend
+on the platform; a graph that used it would.
+
+The integer vocabulary behind it is exact: `min.other` and `where.self` on int64
+compare and select without a float, `full_like` (and `zeros_like`, the same node
+with a zero fill) keeps the format of its operand, and an int64 tensor times a
+whole-number scalar stays int64 (a wrapping product), as `add_scalar` already
+did. A scalar spelled as a whole float takes the same path, which differs from
+ATen only in the dtype tag. The replay boundary also changed: a failure the
+evaluator raises mid-run is now recorded as the artifact's refusal, by kind, rather
+than ending the process.
+
+## 26. Exact int64 data movement, and a bounded text example
+
+**Data movement keeps an int64 operand exact.** `clone`, `expand`, `repeat` and
+`repeat_interleave` now join `reshape`, `permute`, `slice` and `unbind`: an int64
+input gives an int64 edge and is copied through `Compute_i64`, never the float
+domain. The failure that exposed it was Whisper prefill: a `repeat` of position
+ids gave a float32 edge, and the next integer consumer refused it. With it fixed
+Whisper prefill passes both published cases.
+
+**A bounded text example, deliberately not a task-ready claim.** The plan asks for a
+raw-input example that produces the expected tensors under pinned assets, and
+the release cannot supply the expected tensors: its BERT-tiny cases hold random
+vocabulary ids with a fixed mask, its vision cases one seeded normal stream. What
+exists is a chain whose links are each checked as far as this environment allows.
+
+- The pinned assets are `vocab.txt` at the checkpoint's revision (its sha256 is
+  checked before every use) and `config.json`, whose digest equals the one in the
+  artifact's contract.
+- `lib/wordpiece` is BERT's basic tokenizer and WordPiece for ASCII text, with
+  non-ASCII input and the special-token spellings refused rather than guessed.
+  It agrees with an independent Python implementation of the same specification
+  on 421 sentences against the real vocabulary. That is two implementations of a
+  documented algorithm agreeing; it is not the reference tokenizer, which is not
+  available here, and a disagreement with it could still exist.
+- The model is the verified BERT-tiny graph (both published cases pass).
+- The end-to-end embedding has no producer reference. BERT-tiny's pooler output
+  also saturates near +-1, so cosines between pooled vectors are not a similarity
+  measure; the example prints them only to show the pipeline runs.
+
+So the example demonstrates the path from text to tensors to outputs, and the
+claim stops there.
+
+## 27. T04, investigated: no accumulation policy closes the decode and prefill rows
+
+The question T04 left open was whether the decode and prefill logit mismatches come
+from one kernel whose order could be emulated, as the connector's did. Measured on
+SmolLM2 decode (history 4, case 00), where the last operation is the `lm_head`
+linear (576 inputs, 49,152 outputs): the exact input of that linear (the hidden
+state our engine produces) was combined with the checkpoint's weight under 23
+candidate accumulation orders and compared bit for bit with the producer's logits.
+The orders were the exact binary64 sum, a sequential fused chain, a sequential
+unfused chain, and 2, 4, 8, 16 and 32 interleaved lanes, each fused or unfused and
+reduced sequentially, pairwise or by halving.
+
+No order reproduces the reference. The best is 4 lanes fused with a sequential
+reduction, bit-equal on 7,426 of 49,152 logits; the exact sum is bit-equal on
+6,933. The discrepancy has a different character from the connector's: the largest
+difference is 1.9e-5 on logits up to 33.9 in magnitude, 5.6e-7 of the scale (about
+five float32 ulps of the scale). The hidden state fed to the linear is itself a
+float32 value that has passed through thirty layers on both sides, so it carries
+upstream rounding noise that differs between engines; the final dot therefore cannot
+be isolated by comparing outputs, and a bit-exact match would require every kernel
+of the network (normalizations, softmax, activations, every matrix product) to be
+emulated in the producer's order.
+
+Conclusion for the rows that fail: they fail by float32 inference noise. The
+producer's tolerance of 1e-5 absolute on logits of scale ~34 is about 3e-7 of the
+scale, below the noise of any independent float32 implementation, so the elements
+that exceed it are the few with small magnitude (where the allowance is mostly the
+absolute term). That is a property of the tolerance, not of the engine, and the
+measured numbers above are its evidence. The tolerances and references remain
+unchanged; the rows stay failing, with their counts, in the matrix.

@@ -88,7 +88,8 @@ let%expect_test "Direct graph: group_norm splits C into groups, absent affine" =
           let* x = input ~shape:(s 1 1 1 2 1 4) ~name:"x" () in
           group_norm ~name:"out"
             {
-              Norm.GroupNorm.channel = Axis.C;
+              Norm.GroupNorm.batch = Axis.N;
+              channel = Axis.C;
               groups = Op_config.Pos.of_int 2;
               eps = 0.;
             }

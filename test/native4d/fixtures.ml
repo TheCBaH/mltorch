@@ -184,7 +184,8 @@ let group_norm_tiny () =
      let* b = input ~shape:(chan 4) () in
      group_norm
        {
-         Norm.GroupNorm.channel = Axis.C;
+         Norm.GroupNorm.batch = Axis.N;
+         channel = Axis.C;
          groups = Op_config.Pos.of_int 2;
          eps = 1e-5;
        }

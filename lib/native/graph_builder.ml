@@ -253,6 +253,13 @@ let adaptive_max_pool2d_with_indices ?name params x =
 let amax ?name params x =
   op1 ?name ~kind:"amax" (Amax { Reduce.Amax.params; x })
 
+(* ATen's argmax returns int64 indices. *)
+let argmax ?name params x =
+  op1 ?name
+    ~fmt:Payload.(Fmt I64)
+    ~kind:"argmax"
+    (Argmax { Reduce.Argmax.params; x })
+
 let avg_pool2d ?name params x =
   op1 ?name ~kind:"avg_pool2d" (Avg_pool2d { Pool.AvgPool2d.params; x })
 
@@ -303,7 +310,19 @@ let clamp ?name (params : Pointwise.Clamp.params) x =
          x;
        })
 
-let clone ?name x = op1 ?name ~kind:"clone" (Clone { Pointwise.Clone.x })
+(* Data movement keeps an int64 operand's dtype, so [Eval_direct]'s exact
+   [Compute_i64] dispatch delivers it: [clone], [expand], [repeat] and
+   [repeat_interleave] share this rule with [reshape] and [slice]. *)
+let keep_i64 x ~kind op ?name () =
+  let* s = get in
+  let sg = Tensor_id.Map.find x s.tensors in
+  match sg.Tensor_sig.fmt with
+  | Payload.Fmt Payload.I64 ->
+      op1 ?name ~fmt:sg.Tensor_sig.fmt ?quant:sg.Tensor_sig.quant ~kind op
+  | _ -> op1 ?name ~kind op
+
+let clone ?name x =
+  keep_i64 x ~kind:"clone" (Clone { Pointwise.Clone.x }) ?name ()
 
 let col2im ?name params x =
   op1 ?name ~kind:"col2im" (Col2im { Im2col.Col2im.params; x })
@@ -361,7 +380,7 @@ let eq_tensor ?name a b =
     (Eq_tensor { Pointwise.Bin.a; b })
 
 let expand ?name params x =
-  op1 ?name ~kind:"expand" (Expand { Pointwise.Expand.params; x })
+  keep_i64 x ~kind:"expand" (Expand { Pointwise.Expand.params; x }) ?name ()
 
 let eye ?name params =
   op1 ?name ~fmt:params.Factory.Eye.fmt ~kind:"eye" (Eye { Factory.Eye.params })
@@ -393,6 +412,17 @@ let ge_scalar ?name scalar x =
     ~fmt:Payload.(Fmt Bool)
     ~kind:"ge_scalar"
     (Ge_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar })
+
+(* A constant with [x]'s shape and element format; an int64 fill that is not a
+   whole number is refused where it is written (see [Eval_direct_compute]). *)
+let full_like ?name value x =
+  let* s = get in
+  let sg = Tensor_id.Map.find x s.tensors in
+  let op = Full_like { Pointwise.Full_like.x; value = f32_scalar value } in
+  match sg.Tensor_sig.fmt with
+  | Payload.Fmt (Payload.I64 | Payload.Bool) ->
+      op1 ?name ~fmt:sg.Tensor_sig.fmt ~kind:"full_like" op
+  | _ -> op1 ?name ~kind:"full_like" op
 
 let hardsigmoid ?name x =
   op1 ?name ~kind:"hardsigmoid" (Hardsigmoid { Pointwise.Hardsigmoid.x })
@@ -486,6 +516,9 @@ let lt_scalar ?name scalar x =
     ~kind:"lt_scalar"
     (Lt_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar })
 
+let log ?name x = op1 ?name ~kind:"log" (Log { Pointwise.Log.x })
+let log1p ?name x = op1 ?name ~kind:"log1p" (Log1p { Pointwise.Log1p.x })
+
 let max_dim ?name params x =
   let op = Max_dim { Reduce.MaxDim.params; x } in
   let* s = get in
@@ -548,6 +581,17 @@ let meshgrid ?name tensors =
   opN ?name ~kind:"meshgrid" (Meshgrid { Meshgrid.Meshgrid.tensors })
 
 (* Same I64-only threading as [add]; see its comment. *)
+(* Two int64 operands keep their dtype, as [mul] does. *)
+let min_other ?name a b =
+  let* s = get in
+  let a_sig = Tensor_id.Map.find a s.tensors in
+  let b_sig = Tensor_id.Map.find b s.tensors in
+  match (a_sig.Tensor_sig.fmt, b_sig.Tensor_sig.fmt) with
+  | Payload.Fmt Payload.I64, Payload.Fmt Payload.I64 ->
+      op1 ?name ~fmt:a_sig.Tensor_sig.fmt ~kind:"min_other"
+        (Min_other { Pointwise.Bin.a; b })
+  | _ -> op1 ?name ~kind:"min_other" (Min_other { Pointwise.Bin.a; b })
+
 let mul ?name a b =
   let* s = get in
   let a_sig = Tensor_id.Map.find a s.tensors in
@@ -559,9 +603,19 @@ let mul ?name a b =
         (Mul { Pointwise.Bin.a; b })
   | _ -> op1 ?name ~kind:"mul" (Mul { Pointwise.Bin.a; b })
 
+(* An I64 operand times an integral scalar keeps its dtype, as [add_scalar]
+   does (same whole-number bound and same caveat for a float spelling); any
+   other scalar promotes to the default F32. *)
 let mul_scalar ?name scalar x =
-  op1 ?name ~kind:"mul_scalar"
-    (Mul_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar })
+  let* s = get in
+  let sg = Tensor_id.Map.find x s.tensors in
+  let op = Mul_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar } in
+  match sg.Tensor_sig.fmt with
+  | Payload.Fmt Payload.I64
+    when Float.is_integer scalar && Float.abs scalar <= 16777216. ->
+      op1 ?name ~fmt:sg.Tensor_sig.fmt ?quant:sg.Tensor_sig.quant
+        ~kind:"mul_scalar" op
+  | _ -> op1 ?name ~kind:"mul_scalar" op
 
 (* Real ATen's [ne.Scalar] always produces a bool result, so the output is
    unconditionally [Bool] (matching [eq_scalar]/[gt_scalar]'s own convention
@@ -648,11 +702,12 @@ let pow ?name scalar x =
 let relu ?name x = op1 ?name ~kind:"relu" (Relu { Pointwise.Relu.x })
 
 let repeat ?name params x =
-  op1 ?name ~kind:"repeat" (Repeat { Repeat.Repeat.params; x })
+  keep_i64 x ~kind:"repeat" (Repeat { Repeat.Repeat.params; x }) ?name ()
 
 let repeat_interleave ?name params x =
-  op1 ?name ~kind:"repeat_interleave"
+  keep_i64 x ~kind:"repeat_interleave"
     (RepeatInterleave { Repeat.RepeatInterleave.params; x })
+    ?name ()
 
 (* Dtype-preserving for I64 ONLY, not every format, unlike [unbind]/
    [split_with_sizes] below: those route through [Tensor.copy_cells], which
@@ -710,6 +765,7 @@ let sigmoid ?name x =
   op1 ?name ~kind:"sigmoid" (Sigmoid { Pointwise.Sigmoid.x })
 
 let silu ?name x = op1 ?name ~kind:"silu" (Silu { Pointwise.Silu.x })
+let exp ?name x = op1 ?name ~kind:"exp" (Exp { Pointwise.Exp.x })
 let sin ?name x = op1 ?name ~kind:"sin" (Sin { Pointwise.Sin.x })
 
 let softmax ?name params x =
@@ -771,7 +827,7 @@ let to_copy ?name target x =
         ~fmt:Payload.(Fmt Bool)
         ~kind:"to_copy"
         (To_copy { Pointwise.To_copy.target; x })
-  | Pointwise.To_copy.Long ->
+  | Pointwise.To_copy.Int | Pointwise.To_copy.Long ->
       op1 ?name
         ~fmt:Payload.(Fmt I64)
         ~kind:"to_copy"
@@ -864,9 +920,24 @@ let build ?(dtype = f32) ~name:_ ~outputs (m : 'a t) =
             outputs = outputs a;
           }
 
+let weight_norm ?name params ~v ~g =
+  op1 ?name ~kind:"weight_norm"
+    (Weight_norm { Weight_norm.Weight_norm.params; v; g })
+
 (* [where.ScalarOther]: the result takes [x]'s float format, so the default
    F32 edge applies. *)
 let where_scalar_other ?name ~condition scalar x =
   op1 ?name ~kind:"where_scalar_other"
     (Where_scalar_other
        { Pointwise.Where_scalar_other.condition; scalar = f32_scalar scalar; x })
+
+(* The branches share a format: two int64 tensors give an int64 result. *)
+let where_self ?name ~condition x y =
+  let* s = get in
+  let x_sig = Tensor_id.Map.find x s.tensors in
+  let y_sig = Tensor_id.Map.find y s.tensors in
+  let op = Where_self { Pointwise.Where_self.condition; x; y } in
+  match (x_sig.Tensor_sig.fmt, y_sig.Tensor_sig.fmt) with
+  | Payload.Fmt Payload.I64, Payload.Fmt Payload.I64 ->
+      op1 ?name ~fmt:x_sig.Tensor_sig.fmt ~kind:"where_self" op
+  | _ -> op1 ?name ~kind:"where_self" op

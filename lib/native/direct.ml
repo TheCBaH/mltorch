@@ -255,9 +255,27 @@ let i64_to_float (i : int64) : float = Int64.to_float i
    above already uses, per [SEMANTICS]'s doc comment: Direct's "total-looking"
    methods convert a structured [Err.t] failure into an exception at this
    seam rather than inventing a second "Direct can fail" channel. *)
+type float_to_int = Checked | Saturating
+
+let float_to_int = ref Checked
+
+let with_float_to_int policy f =
+  let before = !float_to_int in
+  float_to_int := policy;
+  Fun.protect ~finally:(fun () -> float_to_int := before) f
+
 let float_to_i64 (f : float) : int64 =
-  Err.or_raise ~pp_error:Expr.Value.pp_i64_from_float_error
-    (Expr.Value.i64_of_float f)
+  match !float_to_int with
+  | Checked ->
+      Err.or_raise ~pp_error:Expr.Value.pp_i64_from_float_error
+        (Expr.Value.i64_of_float f)
+  | Saturating ->
+      (* aarch64's [fcvtzs]: NaN gives 0, an out-of-range value the nearest
+         limit, everything else truncates toward zero. *)
+      if Float.is_nan f then 0L
+      else if f >= 9.223372036854775807e18 then Int64.max_int
+      else if f <= -9.223372036854775808e18 then Int64.min_int
+      else Int64.of_float f
 
 (* Same [`Wrong_format] boundary as [load_index], minus [resolve_gather_index]
    -- an [I64_load] reads a tensor's stored value, not a gather coordinate, so

@@ -10,6 +10,12 @@ open Graph_direct_fixtures
 let nan = Float.nan
 let inf = Float.infinity
 
+(* Domain-error NaN signs differ between host libms; the tests compare their
+   class, while every finite value and signed zero keeps its original text. *)
+let pp_float ppf x =
+  if Float.is_nan x then Format.pp_print_string ppf "nan"
+  else Format.fprintf ppf "%g" x
+
 (* Every element, logical row-major, with Bool printed as 0/1. *)
 let pp_all ppf tensor =
   let (Tensor.Tensor t) = tensor in
@@ -20,7 +26,7 @@ let pp_all ppf tensor =
   Vec6.iter t.Tensor.shape (fun c ->
       if not !first then Format.fprintf ppf ", ";
       first := false;
-      Format.fprintf ppf "%g" (Tensor.read tensor c));
+      Format.fprintf ppf "%a" pp_float (Tensor.read tensor c));
   Format.fprintf ppf "}"
 
 let show label result = Format.printf "%s: %a@." label (pp_result pp_all) result
@@ -387,3 +393,377 @@ let%expect_test "int64 add_scalar and slice never touch the float domain" =
     + 1: i64 [C=3] {9007199254740994, 6, -6}
     slice [1, 3): i64 [C=2] {5, -7}
     + 0.5 leaves the integer path: f32 [C=3] {9.0072e+15, 5.5, -6.5} |}]
+
+(* --- argmax and the int32 cast: TinyCLIP's last-token pooling --- *)
+
+let argmax_params axis keepdim = { Reduce.Argmax.axis; keepdim }
+
+let%expect_test "argmax: first maximum, NaN wins, keepdim, int64 result" =
+  let shape = s 1 1 1 1 3 4 in
+  let x =
+    floats shape
+      [ 1.; 5.; 5.; 2.; nan; 1.; nan; 0.; -.inf; -.inf; -.inf; -.inf ]
+  in
+  let go axis keepdim =
+    run
+      ~inputs:[ (shape, f32, x) ]
+      (function
+        | [ x ] -> Graph_builder.argmax (argmax_params axis keepdim) x
+        | _ -> assert false)
+  in
+  let show_long label r =
+    Format.printf "%s: %a@." label (pp_result pp_longs) r
+  in
+  (* Rows (W): [1 5 5 2] -> 1 (the first 5); [nan 1 nan 0] -> 2: a NaN is the
+     maximum, but this engine reports the LAST of several (the pooling
+     predicate), where ATen reports the first -- a known difference, pinned
+     here so it cannot change unnoticed; [-inf x4] -> 0 (the first of a tie). *)
+  show_long "along C" (go Axis.C false);
+  show_long "along C, keepdim" (go Axis.C true);
+  (* Columns (W): c0 = [1 nan -inf] -> 1; c1 = [5 1 -inf] -> 0;
+     c2 = [5 nan -inf] -> 1; c3 = [2 0 -inf] -> 0. *)
+  show_long "along W" (go Axis.W false);
+  [%expect
+    {|
+    along C: i64 [C=3] {1, 2, 0}
+    along C, keepdim: i64 [W=3 C=1] {1, 2, 0}
+    along W: i64 [C=4] {1, 0, 1, 0} |}]
+
+let%expect_test "to_copy int32 keeps in-range values and refuses the rest" =
+  let three = s1c 3 in
+  let cast fmt t =
+    run
+      ~inputs:[ (three, fmt, t) ]
+      (function
+        | [ x ] -> Graph_builder.to_copy Pointwise.To_copy.Int x
+        | _ -> assert false)
+  in
+  let show_long label r =
+    Format.printf "%s: %a@." label (pp_result pp_longs) r
+  in
+  show_long "i64 in range"
+    (cast i64 (longs three [ 49407L; -2147483648L; 2147483647L ]));
+  show_long "bool"
+    (cast bool_
+       (Tensor.materialize_bool three (fun c ->
+            Dim.to_int (Vec6.get c Axis.C) <> 1)));
+  show_long "f32 truncates" (cast f32 (floats three [ 2.9; -2.9; 7. ]));
+  let try_cast label fmt t =
+    try show_long label (cast fmt t)
+    with Err.Exn.E e ->
+      Format.printf "%s: raised: %a@." label Err.Exn.pp_kind e
+  in
+  try_cast "i64 one past the top" i64 (longs three [ 0L; 0L; 2147483648L ]);
+  try_cast "i64 one below the bottom" i64 (longs three [ -2147483649L; 0L; 0L ]);
+  [%expect
+    {|
+    i64 in range: i64 [C=3] {49407, -2147483648, 2147483647}
+    bool: i64 [C=3] {1, 0, 1}
+    f32 truncates: i64 [C=3] {2, -2, 7}
+    i64 one past the top: raised: to_copy int32: 2147483648 is outside [-2^31, 2^31)
+    i64 one below the bottom: raised: to_copy int32: -2147483649 is outside [-2^31, 2^31) |}]
+
+let%expect_test "exp: values, the infinities, NaN and float32 overflow" =
+  let xs = [ 0.; 1.; -1.; -.inf; inf; nan; 100.; -100. ] in
+  let shape = s1c (List.length xs) in
+  show "exp"
+    (run
+       ~inputs:[ (shape, f32, floats shape xs) ]
+       (function [ x ] -> Graph_builder.exp x | _ -> assert false));
+  (* e = 2.71828 and 1/e = 0.367879; exp(100) = 2.7e43 exceeds float32 and
+     stores as +inf; exp(-100) = 3.7e-44 is a float32 denormal. *)
+  [%expect
+    {| exp: f32 [C=8] {1, 2.71828, 0.367879, 0, inf, nan, inf, 3.78351e-44} |}]
+
+(* --- the ops T5's relative-position buckets are built from --- *)
+
+let%expect_test "log: values, zero, negative, infinity and NaN" =
+  let xs = [ 1.; 8.; 0.; -1.; inf; nan ] in
+  let shape = s1c (List.length xs) in
+  show "log"
+    (run
+       ~inputs:[ (shape, f32, floats shape xs) ]
+       (function [ x ] -> Graph_builder.log x | _ -> assert false));
+  (* ln 8 = 2.07944; ln 0 = -inf; ln of a negative is NaN. *)
+  [%expect {| log: f32 [C=6] {0, 2.07944, -inf, nan, inf, nan} |}]
+
+let%expect_test "min.other: the lesser, NaN wins, and int64 is exact" =
+  let four = s1c 4 in
+  let a = floats four [ 1.; 5.; nan; 2. ]
+  and b = floats four [ 3.; 2.; 1.; nan ] in
+  show "float"
+    (run
+       ~inputs:[ (four, f32, a); (four, f32, b) ]
+       (function [ a; b ] -> Graph_builder.min_other a b | _ -> assert false));
+  let big = 9007199254740993L in
+  let show_long label r =
+    Format.printf "%s: %a@." label (pp_result pp_longs) r
+  in
+  show_long "int64 past 2^53"
+    (run
+       ~inputs:
+         [
+           (four, i64, longs four [ big; 3L; -5L; 0L ]);
+           (four, i64, longs four [ 9007199254740992L; 4L; -7L; 0L ]);
+         ]
+       (function [ a; b ] -> Graph_builder.min_other a b | _ -> assert false));
+  show "a mixed int64/float pair is refused"
+    (run
+       ~inputs:[ (four, i64, longs four [ 1L; 2L; 3L; 4L ]); (four, f32, b) ]
+       (function [ a; b ] -> Graph_builder.min_other a b | _ -> assert false));
+  [%expect
+    {|
+    float: f32 [C=4] {1, 2, nan, nan}
+    int64 past 2^53: i64 [C=4] {9007199254740992, 3, -7, 0}
+    a mixed int64/float pair is refused: min_other: unsupported mixed dtype, a=i64 b=f32 |}]
+
+let%expect_test "where.self selects between tensors; int64 branches stay exact"
+    =
+  let four = s1c 4 in
+  let cond = floats four [ 1.; 0.; 1.; 0. ] in
+  show "float"
+    (run
+       ~inputs:
+         [
+           (four, bool_, cond);
+           (four, f32, floats four [ 1.; 2.; 3.; 4. ]);
+           (four, f32, floats four [ 10.; 20.; 30.; 40. ]);
+         ]
+       (function
+         | [ c; x; y ] -> Graph_builder.where_self ~condition:c x y
+         | _ -> assert false));
+  let big = 9007199254740993L in
+  let show_long label r =
+    Format.printf "%s: %a@." label (pp_result pp_longs) r
+  in
+  show_long "int64 past 2^53, a rank-0 branch broadcast"
+    (run
+       ~inputs:
+         [
+           (four, bool_, cond);
+           (s1c 1, i64, longs (s1c 1) [ big ]);
+           (four, i64, longs four [ 1L; 2L; 3L; 4L ]);
+         ]
+       (function
+         | [ c; x; y ] -> Graph_builder.where_self ~condition:c x y
+         | _ -> assert false));
+  [%expect
+    {|
+    float: f32 [C=4] {1, 20, 3, 40}
+    int64 past 2^53, a rank-0 branch broadcast: i64 [C=4] {9007199254740993, 2, 9007199254740993, 4} |}]
+
+let%expect_test "full_like keeps the format; a fractional int64 fill is refused"
+    =
+  let three = s1c 3 in
+  let show_long label r =
+    Format.printf "%s: %a@." label (pp_result pp_longs) r
+  in
+  show "float"
+    (run
+       ~inputs:[ (three, f32, floats three [ 1.; 2.; 3. ]) ]
+       (function [ x ] -> Graph_builder.full_like 2.5 x | _ -> assert false));
+  show_long "int64 15"
+    (run
+       ~inputs:[ (three, i64, longs three [ 1L; 2L; 3L ]) ]
+       (function [ x ] -> Graph_builder.full_like 15. x | _ -> assert false));
+  show "bool zeros"
+    (run
+       ~inputs:[ (three, bool_, Tensor.materialize_bool three (fun _ -> true)) ]
+       (function [ x ] -> Graph_builder.full_like 0. x | _ -> assert false));
+  (try
+     show_long "int64 2.5"
+       (run
+          ~inputs:[ (three, i64, longs three [ 1L; 2L; 3L ]) ]
+          (function
+            | [ x ] -> Graph_builder.full_like 2.5 x | _ -> assert false))
+   with Err.Exn.E e ->
+     Format.printf "int64 2.5: raised: %a@." Err.Exn.pp_kind e);
+  [%expect
+    {|
+    float: f32 [C=3] {2.5, 2.5, 2.5}
+    int64 15: i64 [C=3] {15, 15, 15}
+    bool zeros: bool [C=3] {0, 0, 0}
+    int64 2.5: raised: full_like: 2.5 is not a whole number for an int64 tensor |}]
+
+let%expect_test "an int64 times a whole scalar stays int64 and exact" =
+  let three = s1c 3 in
+  let t = longs three [ 4611686018427387905L; 3L; -2L ] in
+  let show_long label r =
+    Format.printf "%s: %a@." label (pp_result pp_longs) r
+  in
+  (* 2^62 + 1 times 2 is 2^63 + 2, which wraps to -2^63 + 2 in int64. *)
+  show_long "* 2"
+    (run
+       ~inputs:[ (three, i64, t) ]
+       (function [ x ] -> Graph_builder.mul_scalar 2. x | _ -> assert false));
+  show "* 0.5 promotes to float"
+    (run
+       ~inputs:[ (three, i64, longs three [ 3L; 4L; -5L ]) ]
+       (function [ x ] -> Graph_builder.mul_scalar 0.5 x | _ -> assert false));
+  [%expect
+    {|
+    * 2: i64 [C=3] {-9223372036854775806, 6, -4}
+    * 0.5 promotes to float: f32 [C=3] {1.5, 2, -2.5} |}]
+
+(* The cast T5's bucket table relies on: log 0 = -inf cast to int64 and then
+   discarded by a where. Checked rejects it; the aarch64 conversion saturates. *)
+let%expect_test "float to int64: checked rejects, saturating follows aarch64" =
+  let xs = [ 2.9; -2.9; inf; -.inf; nan; 1e30 ] in
+  let shape = s1c (List.length xs) in
+  let cast () =
+    run
+      ~inputs:[ (shape, f32, floats shape xs) ]
+      (function
+        | [ x ] -> Graph_builder.to_copy Pointwise.To_copy.Long x
+        | _ -> assert false)
+  in
+  (try Format.printf "checked: %a@." (pp_result pp_longs) (cast ())
+   with Err.Exn.E e -> Format.printf "checked: raised: %a@." Err.Exn.pp_kind e);
+  Format.printf "saturating: %a@." (pp_result pp_longs)
+    (Direct.with_float_to_int Direct.Saturating cast);
+  [%expect
+    {|
+    checked: raised: Float-to-I64 cast of an infinite value
+    saturating: i64 [C=6] {2, -2, 9223372036854775807, -9223372036854775808, 0, 9223372036854775807} |}]
+
+let%expect_test "log1p: accurate for a tiny x, and the edges" =
+  let xs = [ 0.; 1e-10; -1e-10; 1.; -1.; -2.; inf; nan; 1e-3 ] in
+  let shape = s1c (List.length xs) in
+  (match
+     run
+       ~inputs:[ (shape, f32, floats shape xs) ]
+       (function [ x ] -> Graph_builder.log1p x | _ -> assert false)
+   with
+  | Error _ -> print_endline "error"
+  | Ok y ->
+      List.iteri
+        (fun i x ->
+          let got = Tensor.read y (Vec6.coord ~n:0 ~t:0 ~d:0 ~h:0 ~w:0 ~c:i) in
+          let x32 = Int32.float_of_bits (Int32.bits_of_float x) in
+          (* [Float.log1p] is the correctly rounded reference. *)
+          let want = Float.log1p x32 in
+          let ok =
+            (Float.is_nan got && Float.is_nan want)
+            || got = want
+            || Float.abs (got -. want) <= 1.2e-7 *. Float.abs want
+          in
+          Format.printf "log1p(%g) = %a %s@." x pp_float got
+            (if ok then "ok" else "WRONG"))
+        xs);
+  [%expect
+    {|
+    log1p(0) = 0 ok
+    log1p(1e-10) = 1e-10 ok
+    log1p(-1e-10) = -1e-10 ok
+    log1p(1) = 0.693147 ok
+    log1p(-1) = -inf ok
+    log1p(-2) = nan ok
+    log1p(inf) = inf ok
+    log1p(nan) = nan ok
+    log1p(0.001) = 0.0009995 ok |}]
+
+(* --- exact int64 data movement: clone, expand, repeat, repeat_interleave --- *)
+
+let%expect_test "int64 data movement keeps the dtype and values past 2^53" =
+  let big = 9007199254740993L in
+  let show_long label r =
+    Format.printf "%s: %a@." label (pp_result pp_longs) r
+  in
+  let two = s1c 2 in
+  let t = longs two [ big; -7L ] in
+  show_long "clone"
+    (run
+       ~inputs:[ (two, i64, t) ]
+       (function [ x ] -> Graph_builder.clone x | _ -> assert false));
+  show_long "expand [2] -> [3, 2]"
+    (run
+       ~inputs:[ (two, i64, t) ]
+       (function
+         | [ x ] ->
+             Graph_builder.expand { Pointwise.Expand.size = s 1 1 1 1 3 2 } x
+         | _ -> assert false));
+  show_long "repeat x2"
+    (run
+       ~inputs:[ (two, i64, t) ]
+       (function
+         | [ x ] ->
+             Graph_builder.repeat { Repeat.Repeat.repeats = s 1 1 1 1 1 2 } x
+         | _ -> assert false));
+  show_long "repeat_interleave x2"
+    (run
+       ~inputs:[ (two, i64, t) ]
+       (function
+         | [ x ] ->
+             Graph_builder.repeat_interleave
+               {
+                 Repeat.RepeatInterleave.axis = Axis.C;
+                 repeats = Op_config.Pos.of_int 2;
+               }
+               x
+         | _ -> assert false));
+  [%expect
+    {|
+    clone: i64 [C=2] {9007199254740993, -7}
+    expand [2] -> [3, 2]: i64 [W=3 C=2] {9007199254740993, -7, 9007199254740993, -7, 9007199254740993, -7}
+    repeat x2: i64 [C=4] {9007199254740993, -7, 9007199254740993, -7}
+    repeat_interleave x2: i64 [C=4] {9007199254740993, 9007199254740993, -7, -7} |}]
+
+(* `_weight_norm`: w = v * (g / ||v||), the norm over every axis but one. With
+   v = [[3, 0], [4, 5]] (rows on W, columns on C) and the kept axis C, the column
+   norms are 5 and 5; g = (10, 20) scales them to 2 and 4. *)
+let%expect_test "weight_norm keeps one axis and normalizes over the rest" =
+  let v_shape = s 1 1 1 1 2 2 and g_shape = s1c 2 in
+  let v = floats v_shape [ 3.; 0.; 4.; 5. ] in
+  let g = floats g_shape [ 10.; 20. ] in
+  show "norm over W, kept C"
+    (run
+       ~inputs:[ (v_shape, f32, v); (g_shape, f32, g) ]
+       (function
+         | [ v; g ] ->
+             Graph_builder.weight_norm
+               { Weight_norm.Weight_norm.axis = Axis.C }
+               ~v ~g
+         | _ -> assert false));
+  show "a g of the wrong extent is refused"
+    (run
+       ~inputs:
+         [ (v_shape, f32, v); (s1c 3, f32, floats (s1c 3) [ 1.; 1.; 1. ]) ]
+       (function
+         | [ v; g ] ->
+             Graph_builder.weight_norm
+               { Weight_norm.Weight_norm.axis = Axis.C }
+               ~v ~g
+         | _ -> assert false));
+  [%expect
+    {|
+    norm over W, kept C: f32 [W=2 C=2] {6, 0, 8, 20}
+    a g of the wrong extent is refused: incompatible broadcast extents on axis C: 2 vs 3 |}]
+
+(* GroupNorm statistics must be per sample. Two samples of one group, (1, 3) and
+   (100, 300): per-sample each normalizes to (-1, 1); pooled across the batch
+   they would not. The sample axis of an NHWC-laid-out rank-4 tensor is the frame's
+   [D]. *)
+let%expect_test "group_norm normalizes each sample on its own" =
+  let shape = s 1 1 2 1 1 2 in
+  let x = floats shape [ 1.; 3.; 100.; 300. ] in
+  let one = s1c 2 in
+  show "batch of 2, one group"
+    (run
+       ~inputs:
+         [
+           (shape, f32, x);
+           (one, f32, floats one [ 1.; 1. ]);
+           (one, f32, floats one [ 0.; 0. ]);
+         ]
+       (function
+         | [ x; w; b ] ->
+             Graph_builder.group_norm
+               {
+                 Norm.GroupNorm.batch = Axis.D;
+                 channel = Axis.C;
+                 groups = Op_config.Pos.of_int 1;
+                 eps = 0.;
+               }
+               ~x ~weight:w ~bias:b ()
+         | _ -> assert false));
+  [%expect {| batch of 2, one group: f32 [D=2 H=1 W=1 C=2] {-1, 1, -1, 1} |}]

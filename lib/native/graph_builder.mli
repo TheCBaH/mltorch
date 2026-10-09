@@ -77,6 +77,10 @@ val adaptive_max_pool2d_with_indices :
 
 val amax : ?name:string -> Reduce.Amax.params -> tensor_ref -> Tensor_id.t t
 
+(* `argmax.default` over one axis: the int64 index of the maximum, the first on
+   a tie. *)
+val argmax : ?name:string -> Reduce.Argmax.params -> tensor_ref -> Tensor_id.t t
+
 val avg_pool2d :
   ?name:string -> Pool.AvgPool2d.params -> tensor_ref -> Tensor_id.t t
 
@@ -205,6 +209,8 @@ val eq_tensor : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 
 (* Broadcasts [x] to [params.size]. [Graph_shape] rejects a target that is not
    broadcast-compatible with [x]'s own shape (see [Pointwise.Expand.output_shape]). *)
+val exp : ?name:string -> tensor_ref -> Tensor_id.t t
+
 val expand :
   ?name:string -> Pointwise.Expand.params -> tensor_ref -> Tensor_id.t t
 
@@ -237,6 +243,9 @@ val gt_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
 (* [ge.Scalar(self, other) -> self >= other] -- a [Bool] result, as
    [gt_scalar]. *)
 val ge_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
+
+(* A constant with [x]'s shape and element format (float32, int64 or bool). *)
+val full_like : ?name:string -> float -> tensor_ref -> Tensor_id.t t
 val hardsigmoid : ?name:string -> tensor_ref -> Tensor_id.t t
 val hardswish : ?name:string -> tensor_ref -> Tensor_id.t t
 
@@ -304,6 +313,8 @@ val lstm :
 (* max_dim returns two edges: (values, indices). *)
 (* [lt.Scalar(self, other) -> self < other] -- a [Bool] result. *)
 val lt_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
+val log : ?name:string -> tensor_ref -> Tensor_id.t t
+val log1p : ?name:string -> tensor_ref -> Tensor_id.t t
 
 val max_dim :
   ?name:string ->
@@ -328,6 +339,9 @@ val mean : ?name:string -> Reduce.Mean.params -> tensor_ref -> Tensor_id.t t
    the SAME order, the same "output count is part of the input signature"
    convention [unbind] follows. *)
 val meshgrid : ?name:string -> tensor_ref list -> Tensor_id.t list t
+
+(* The elementwise minimum (NaN propagates); two int64 operands give int64. *)
+val min_other : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 val mul : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 val mul_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
 
@@ -476,10 +490,28 @@ val upsample_nearest2d :
 val vector_norm :
   ?name:string -> Reduce.Vector_norm.params -> tensor_ref -> Tensor_id.t t
 
+(* `_weight_norm(v, g, dim)`: [v * (g / ||v||)], the norm over every axis but
+   one. *)
+val weight_norm :
+  ?name:string ->
+  Weight_norm.Weight_norm.params ->
+  v:tensor_ref ->
+  g:tensor_ref ->
+  Tensor_id.t t
+
 (* [where.ScalarOther(condition, self, other)]: [x] where [condition] holds,
    the scalar elsewhere; the two tensors broadcast. *)
 val where_scalar_other :
   ?name:string -> condition:tensor_ref -> float -> tensor_ref -> Tensor_id.t t
+
+(* `where.self`: the first tensor where the condition holds, the second
+   elsewhere; two int64 branches give int64. *)
+val where_self :
+  ?name:string ->
+  condition:tensor_ref ->
+  tensor_ref ->
+  tensor_ref ->
+  Tensor_id.t t
 
 val arange : ?name:string -> Factory.Arange.params -> Tensor_id.t t
 val zeros : ?name:string -> Factory.Zeros.params -> Tensor_id.t t

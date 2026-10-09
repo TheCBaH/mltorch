@@ -165,7 +165,10 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          let weight_opt, bias_opt =
            match affine with [ w; b ] -> (w, b) | _ -> assert false
          in
-         let params = { Norm.GroupNorm.channel = Axis.C; groups; eps } in
+         (* The bridge relayouts an NCHW input: the sample axis is the frame's [D]. *)
+         let params =
+           { Norm.GroupNorm.batch = Axis.D; channel = Axis.C; groups; eps }
+         in
          build_g ~name:"group_norm_relayout"
            (([ x ] @ Option.to_list weight_opt) @ Option.to_list bias_opt)
            (fun ids ->

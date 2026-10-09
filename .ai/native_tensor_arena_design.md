@@ -266,8 +266,19 @@ report.
 - **Why it is deterministic.** The search is seeded, the reference is bounded
   by states rather than by a clock, and the grid is fixed inside the `.t`.
 - **What a diff means.** A change there is an allocator producing a different
-  arena. Review it before promoting, as for any cram. That table is also the
-  evidence for choosing the default strategy and budget.
+  arena, or its input allocation script changing after import or normalization
+  changes. Review the intermediate dtypes, sizes and lifetimes before
+  promoting, as for any cram. That table is also the evidence for choosing the
+  default strategy and budget.
+
+  The 2026-10-10 refresh changes only `mvitv2_tiny`, in both dialects, after
+  the integer-preserving scalar arithmetic and data-movement changes. The
+  padded combined lower bound is 18,885,888 bytes and upper bound 18,886,720
+  bytes; the reference remains incomplete at the fixed search budget, so
+  `proven` is false. The production exact-size placement is 18,874,000 bytes
+  in each dialect. Both CI architectures and a local complete corpus run
+  reproduce identical rows. This records current allocation behavior without
+  asserting a newly proven minimum or numerical model acceptance.
 - **The full run.** `make arena.eval.report` is the same evaluation with its
   timings, markdown summary and placements, for a local look.
 

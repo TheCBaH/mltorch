@@ -414,6 +414,438 @@
     },
     {
       "archive": {
+        "name": "tinyclip--image-text-embeddings--reference--forward--fp32--dynamo--static--ckpt-a2a8c6eaa254.tar.gz",
+        "sha256": "dbc401124dcf0b6a23c678685474d43a411348f849c460214de3fc3898350910",
+        "size": 1188767,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/tinyclip--image-text-embeddings--reference--forward--fp32--dynamo--static--ckpt-a2a8c6eaa254.tar.gz"
+      },
+      "artifact_id": "tinyclip/image-text-embeddings/reference/forward/fp32/dynamo/static/ckpt-a2a8c6eaa254",
+      "capture_count": 225,
+      "cases": [
+        "case-00",
+        "case-01"
+      ],
+      "contract_sha256": "e5015c735e3c07c878743b27dfb611409ebe211db8447d7370b872349eaa9526",
+      "graph_sha256": "97666c7ac38b3bb320e57fbe4bfc75a4ed82887e86ed60d25bb28b76bb0b0b0b",
+      "manifest": {
+        "name": "tinyclip--image-text-embeddings--reference--forward--fp32--dynamo--static--ckpt-a2a8c6eaa254.manifest.json",
+        "sha256": "16a0dd3dc7c1fc2f2fa7b67819db34626da8a2180973fbf13e9a7e7802018523",
+        "size": 3049,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/tinyclip--image-text-embeddings--reference--forward--fp32--dynamo--static--ckpt-a2a8c6eaa254.manifest.json"
+      },
+      "map_member": "models/safetensors.v2.json",
+      "map_sha256": "50297d9a973c3b17aa06ea486e3ad91abf0c5b6f78fca6128913d722f2b6dbb4",
+      "map_sources": {
+        "checkpoint": {
+          "files": [
+            {
+              "name": "model.safetensors",
+              "repo_id": "wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M",
+              "revision": "a2a8c6eaa2549ad66eb7c31b85022bf58273a26c",
+              "sha256": "9339ee3d736344d0ddcaa6c03edc9f89688f08caaea5401220885233da726fcc",
+              "size": 93812468,
+              "url": "https://huggingface.co/wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M/resolve/a2a8c6eaa2549ad66eb7c31b85022bf58273a26c/model.safetensors"
+            }
+          ]
+        }
+      },
+      "released_sources": [],
+      "role": "both towers and the similarity logits",
+      "weight_source": {
+        "config_sha256": "c586d856dbd5589b67525db9e791ee0917402405672c7773aead373efb7d7bca",
+        "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
+        "files": {
+          "model.safetensors": {
+            "sha256": "9339ee3d736344d0ddcaa6c03edc9f89688f08caaea5401220885233da726fcc",
+            "size": 93812468
+          }
+        },
+        "kind": "checkpoint",
+        "pinned_config_match": true,
+        "repo": "wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M",
+        "revision": "a2a8c6eaa2549ad66eb7c31b85022bf58273a26c"
+      }
+    },
+    {
+      "archive": {
+        "name": "t5-small--text-encoder-decoder--reference--decode--fp32--dynamo--static-h4--ckpt-df1b051c4962.tar.gz",
+        "sha256": "615bdff58be56a4d530ac91f24d665e9e7e651002581ab16ba8e93a3787c3952",
+        "size": 2220720,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/t5-small--text-encoder-decoder--reference--decode--fp32--dynamo--static-h4--ckpt-df1b051c4962.tar.gz"
+      },
+      "artifact_id": "t5-small/text-encoder-decoder/reference/decode/fp32/dynamo/static-h4/ckpt-df1b051c4962",
+      "capture_count": 160,
+      "cases": [
+        "case-00",
+        "case-01"
+      ],
+      "contract_sha256": "a591236ce54d7e2e79ab882c8c9f929d8eaa08c48aeb6cd8bd22f42817c506ff",
+      "graph_sha256": "59ff470280e0772b0c7a42fbc52a1f39846979c92bc410741a127f4d4f531309",
+      "manifest": {
+        "name": "t5-small--text-encoder-decoder--reference--decode--fp32--dynamo--static-h4--ckpt-df1b051c4962.manifest.json",
+        "sha256": "3df288832898affadfe37e87c82965c91cc62167661334ba0a226c1833e5e5ec",
+        "size": 3035,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/t5-small--text-encoder-decoder--reference--decode--fp32--dynamo--static-h4--ckpt-df1b051c4962.manifest.json"
+      },
+      "map_member": "models/safetensors.v2.json",
+      "map_sha256": "83ac4124d2674591ec4a35c89bb8785081f90684f5d151f9dda775c06d150bd2",
+      "map_sources": {
+        "checkpoint": {
+          "files": [
+            {
+              "name": "model.safetensors",
+              "repo_id": "google-t5/t5-small",
+              "revision": "df1b051c49625cf57a3d0d8d3863ed4d13564fe4",
+              "sha256": "bd944e5f1b3ad9b70dd9d00010a517059e19265671076b8b0a4a58d9491842bc",
+              "size": 242043056,
+              "url": "https://huggingface.co/google-t5/t5-small/resolve/df1b051c49625cf57a3d0d8d3863ed4d13564fe4/model.safetensors"
+            }
+          ]
+        }
+      },
+      "released_sources": [],
+      "role": "encoder-decoder decode at history 4",
+      "weight_source": {
+        "config_sha256": "530e25060e3a8d5f7b0fcf53bfea9f3601165161f3b1914676e98d97cf07bcf1",
+        "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
+        "files": {
+          "model.safetensors": {
+            "sha256": "bd944e5f1b3ad9b70dd9d00010a517059e19265671076b8b0a4a58d9491842bc",
+            "size": 242043056
+          }
+        },
+        "kind": "checkpoint",
+        "pinned_config_match": true,
+        "repo": "google-t5/t5-small",
+        "revision": "df1b051c49625cf57a3d0d8d3863ed4d13564fe4"
+      }
+    },
+    {
+      "archive": {
+        "name": "t5-small--text-encoder-decoder--reference--encoder--fp32--dynamo--static--ckpt-df1b051c4962.tar.gz",
+        "sha256": "a363aef4dbaecaec13ec5b82ba075bd1eefb4c920f2f11170d283b1954669b38",
+        "size": 94946,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/t5-small--text-encoder-decoder--reference--encoder--fp32--dynamo--static--ckpt-df1b051c4962.tar.gz"
+      },
+      "artifact_id": "t5-small/text-encoder-decoder/reference/encoder/fp32/dynamo/static/ckpt-df1b051c4962",
+      "capture_count": 52,
+      "cases": [
+        "case-00",
+        "case-01"
+      ],
+      "contract_sha256": "a35bb60890cb5d0aacdb9e69f2dd2342efc57192632546dee92f5ba29e745c29",
+      "graph_sha256": "1eb48d51fe948adb560757d81942f5174d73f361a0d438225c45384bf26f97ea",
+      "manifest": {
+        "name": "t5-small--text-encoder-decoder--reference--encoder--fp32--dynamo--static--ckpt-df1b051c4962.manifest.json",
+        "sha256": "a4bedfcf6afd29bb7789cd038cb2a86e1eef2677188fd4caa967ff97b42f623c",
+        "size": 3020,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/t5-small--text-encoder-decoder--reference--encoder--fp32--dynamo--static--ckpt-df1b051c4962.manifest.json"
+      },
+      "map_member": "models/safetensors.v2.json",
+      "map_sha256": "a88121ae6603f68fb8bff84bac74559609a8f5e3aec69ee1bd078edbaedb1f8c",
+      "map_sources": {
+        "checkpoint": {
+          "files": [
+            {
+              "name": "model.safetensors",
+              "repo_id": "google-t5/t5-small",
+              "revision": "df1b051c49625cf57a3d0d8d3863ed4d13564fe4",
+              "sha256": "bd944e5f1b3ad9b70dd9d00010a517059e19265671076b8b0a4a58d9491842bc",
+              "size": 242043056,
+              "url": "https://huggingface.co/google-t5/t5-small/resolve/df1b051c49625cf57a3d0d8d3863ed4d13564fe4/model.safetensors"
+            }
+          ]
+        }
+      },
+      "released_sources": [],
+      "role": "encoder",
+      "weight_source": {
+        "config_sha256": "530e25060e3a8d5f7b0fcf53bfea9f3601165161f3b1914676e98d97cf07bcf1",
+        "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
+        "files": {
+          "model.safetensors": {
+            "sha256": "bd944e5f1b3ad9b70dd9d00010a517059e19265671076b8b0a4a58d9491842bc",
+            "size": 242043056
+          }
+        },
+        "kind": "checkpoint",
+        "pinned_config_match": true,
+        "repo": "google-t5/t5-small",
+        "revision": "df1b051c49625cf57a3d0d8d3863ed4d13564fe4"
+      }
+    },
+    {
+      "archive": {
+        "name": "t5-small--text-encoder-decoder--reference--forward--fp32--dynamo--static--ckpt-df1b051c4962.tar.gz",
+        "sha256": "b775baf54043ade637583c32b5d845410ae59cbc0dcf78d09da8441160198c83",
+        "size": 953880,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/t5-small--text-encoder-decoder--reference--forward--fp32--dynamo--static--ckpt-df1b051c4962.tar.gz"
+      },
+      "artifact_id": "t5-small/text-encoder-decoder/reference/forward/fp32/dynamo/static/ckpt-df1b051c4962",
+      "capture_count": 137,
+      "cases": [
+        "case-00",
+        "case-01"
+      ],
+      "contract_sha256": "5e17471f0d440413190641a17cada0b83d9c821b2177967d1263b0c9f8f4148f",
+      "graph_sha256": "47fba85e0ced30d41b93c194c9553ac87ca663d02059cc8754aeda6503f19411",
+      "manifest": {
+        "name": "t5-small--text-encoder-decoder--reference--forward--fp32--dynamo--static--ckpt-df1b051c4962.manifest.json",
+        "sha256": "50a7080b39bfbebf848639d8be60402ec35274b764034edeb1d25418a746a6cf",
+        "size": 3025,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/t5-small--text-encoder-decoder--reference--forward--fp32--dynamo--static--ckpt-df1b051c4962.manifest.json"
+      },
+      "map_member": "models/safetensors.v2.json",
+      "map_sha256": "09622b5df13babe4f5cd957889eda7dc5bc36abec6a579049df1d588d24c170a",
+      "map_sources": {
+        "checkpoint": {
+          "files": [
+            {
+              "name": "model.safetensors",
+              "repo_id": "google-t5/t5-small",
+              "revision": "df1b051c49625cf57a3d0d8d3863ed4d13564fe4",
+              "sha256": "bd944e5f1b3ad9b70dd9d00010a517059e19265671076b8b0a4a58d9491842bc",
+              "size": 242043056,
+              "url": "https://huggingface.co/google-t5/t5-small/resolve/df1b051c49625cf57a3d0d8d3863ed4d13564fe4/model.safetensors"
+            }
+          ]
+        }
+      },
+      "released_sources": [],
+      "role": "encoder-decoder forward",
+      "weight_source": {
+        "config_sha256": "530e25060e3a8d5f7b0fcf53bfea9f3601165161f3b1914676e98d97cf07bcf1",
+        "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
+        "files": {
+          "model.safetensors": {
+            "sha256": "bd944e5f1b3ad9b70dd9d00010a517059e19265671076b8b0a4a58d9491842bc",
+            "size": 242043056
+          }
+        },
+        "kind": "checkpoint",
+        "pinned_config_match": true,
+        "repo": "google-t5/t5-small",
+        "revision": "df1b051c49625cf57a3d0d8d3863ed4d13564fe4"
+      }
+    },
+    {
+      "archive": {
+        "name": "t5-small--text-encoder-decoder--reference--prefill--fp32--dynamo--static--ckpt-df1b051c4962.tar.gz",
+        "sha256": "37b9afb442480f3c52be2cd0e19ee04c08169a35023a381eedd8509fff10e36d",
+        "size": 1925086,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/t5-small--text-encoder-decoder--reference--prefill--fp32--dynamo--static--ckpt-df1b051c4962.tar.gz"
+      },
+      "artifact_id": "t5-small/text-encoder-decoder/reference/prefill/fp32/dynamo/static/ckpt-df1b051c4962",
+      "capture_count": 160,
+      "cases": [
+        "case-00",
+        "case-01"
+      ],
+      "contract_sha256": "1eb33d83950fee186084ca70a1b26902338f3c3b931c9e9b70a58200e893ab99",
+      "graph_sha256": "7899985c3d4ef62d3241cdba534999592996eaa713abe9e7ffd339f6e03869f2",
+      "manifest": {
+        "name": "t5-small--text-encoder-decoder--reference--prefill--fp32--dynamo--static--ckpt-df1b051c4962.manifest.json",
+        "sha256": "18c8bb8e6b68c5f98686dd8868682f24417e13c8d781783d0b73b3efe9a47a3d",
+        "size": 3031,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/t5-small--text-encoder-decoder--reference--prefill--fp32--dynamo--static--ckpt-df1b051c4962.manifest.json"
+      },
+      "map_member": "models/safetensors.v2.json",
+      "map_sha256": "9b3dd8c0469ed7ab737f72043ad24cc753efe8e800a356a000cbd2163e580ade",
+      "map_sources": {
+        "checkpoint": {
+          "files": [
+            {
+              "name": "model.safetensors",
+              "repo_id": "google-t5/t5-small",
+              "revision": "df1b051c49625cf57a3d0d8d3863ed4d13564fe4",
+              "sha256": "bd944e5f1b3ad9b70dd9d00010a517059e19265671076b8b0a4a58d9491842bc",
+              "size": 242043056,
+              "url": "https://huggingface.co/google-t5/t5-small/resolve/df1b051c49625cf57a3d0d8d3863ed4d13564fe4/model.safetensors"
+            }
+          ]
+        }
+      },
+      "released_sources": [],
+      "role": "encoder-decoder prefill, self/cross K/V",
+      "weight_source": {
+        "config_sha256": "530e25060e3a8d5f7b0fcf53bfea9f3601165161f3b1914676e98d97cf07bcf1",
+        "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
+        "files": {
+          "model.safetensors": {
+            "sha256": "bd944e5f1b3ad9b70dd9d00010a517059e19265671076b8b0a4a58d9491842bc",
+            "size": 242043056
+          }
+        },
+        "kind": "checkpoint",
+        "pinned_config_match": true,
+        "repo": "google-t5/t5-small",
+        "revision": "df1b051c49625cf57a3d0d8d3863ed4d13564fe4"
+      }
+    },
+    {
+      "archive": {
+        "name": "time-series-small--time-series--reference--forward--fp32--dynamo--static--ckpt-2a40ad41f6ff.tar.gz",
+        "sha256": "9d752ff97d5edfd65eb505596ee425bddbe32341b8f112dc6ecc6f40a61f0050",
+        "size": 42375,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/time-series-small--time-series--reference--forward--fp32--dynamo--static--ckpt-2a40ad41f6ff.tar.gz"
+      },
+      "artifact_id": "time-series-small/time-series/reference/forward/fp32/dynamo/static/ckpt-2a40ad41f6ff",
+      "capture_count": 96,
+      "cases": [
+        "case-00",
+        "case-01"
+      ],
+      "contract_sha256": "6b765574d1ae14b7201ffd50bb915b8a22e6729fb88531acd177ebbf35b1630f",
+      "graph_sha256": "0ecb0f245d98839f260c58c45bd8ad7eecb150c0a990f1562ac489881e19becd",
+      "manifest": {
+        "name": "time-series-small--time-series--reference--forward--fp32--dynamo--static--ckpt-2a40ad41f6ff.manifest.json",
+        "sha256": "160b16bb887f135866b87cec9f050449cfa8405a9d88e18828c24d52e25069d1",
+        "size": 3049,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/time-series-small--time-series--reference--forward--fp32--dynamo--static--ckpt-2a40ad41f6ff.manifest.json"
+      },
+      "map_member": "models/safetensors.v2.json",
+      "map_sha256": "64b397da4673b98ca59d1872515aa143d833fb9b995e4fe096aec0ac852a0dd5",
+      "map_sources": {
+        "checkpoint": {
+          "files": [
+            {
+              "name": "model.safetensors",
+              "repo_id": "huggingface/time-series-transformer-tourism-monthly",
+              "revision": "2a40ad41f6ffe61e7bef6099b08c6c2fce36ac35",
+              "sha256": "c887afd2e56856b968d39ace57d520cbefb17762036956bba83d78000401afe1",
+              "size": 132652,
+              "url": "https://huggingface.co/huggingface/time-series-transformer-tourism-monthly/resolve/2a40ad41f6ffe61e7bef6099b08c6c2fce36ac35/model.safetensors"
+            }
+          ]
+        }
+      },
+      "released_sources": [],
+      "role": "time series",
+      "weight_source": {
+        "config_sha256": "39d19e705b63258265d07723b83ce9ca3e08ca8feec87afae144686f149e11d8",
+        "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
+        "files": {
+          "model.safetensors": {
+            "sha256": "c887afd2e56856b968d39ace57d520cbefb17762036956bba83d78000401afe1",
+            "size": 132652
+          }
+        },
+        "kind": "checkpoint",
+        "pinned_config_match": true,
+        "repo": "huggingface/time-series-transformer-tourism-monthly",
+        "revision": "2a40ad41f6ffe61e7bef6099b08c6c2fce36ac35"
+      }
+    },
+    {
+      "archive": {
+        "name": "t5-small--text-encoder-decoder--reference--decode--fp32--dynamo--static-h8--ckpt-df1b051c4962.tar.gz",
+        "sha256": "38cd40e576acb9a7fab1dae3a0bede1533c4ac4784d5ef544ed7f897ff764227",
+        "size": 2545170,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/t5-small--text-encoder-decoder--reference--decode--fp32--dynamo--static-h8--ckpt-df1b051c4962.tar.gz"
+      },
+      "artifact_id": "t5-small/text-encoder-decoder/reference/decode/fp32/dynamo/static-h8/ckpt-df1b051c4962",
+      "capture_count": 160,
+      "cases": [
+        "case-00",
+        "case-01"
+      ],
+      "contract_sha256": "ca2fb3d0cc50ad91fceaedeb8fa03f1a97adb41c2132482a87dbadd8a7d5510d",
+      "graph_sha256": "21a98229b64bc7acda4f0a6a8f2f42bcf54a36d2ff242453cb8eec3920f82023",
+      "manifest": {
+        "name": "t5-small--text-encoder-decoder--reference--decode--fp32--dynamo--static-h8--ckpt-df1b051c4962.manifest.json",
+        "sha256": "aeca2743e32d53afd4fc6e36a2312d6f7ab60e0cbb3f0ce9f4b1bbb1b16af231",
+        "size": 3035,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/t5-small--text-encoder-decoder--reference--decode--fp32--dynamo--static-h8--ckpt-df1b051c4962.manifest.json"
+      },
+      "map_member": "models/safetensors.v2.json",
+      "map_sha256": "68617e61e06915fcd76c2185c0fa837d1d4cfe48b3862cbbb114a6067bb7c70d",
+      "map_sources": {
+        "checkpoint": {
+          "files": [
+            {
+              "name": "model.safetensors",
+              "repo_id": "google-t5/t5-small",
+              "revision": "df1b051c49625cf57a3d0d8d3863ed4d13564fe4",
+              "sha256": "bd944e5f1b3ad9b70dd9d00010a517059e19265671076b8b0a4a58d9491842bc",
+              "size": 242043056,
+              "url": "https://huggingface.co/google-t5/t5-small/resolve/df1b051c49625cf57a3d0d8d3863ed4d13564fe4/model.safetensors"
+            }
+          ]
+        }
+      },
+      "released_sources": [],
+      "role": "encoder-decoder decode at history 8",
+      "weight_source": {
+        "config_sha256": "530e25060e3a8d5f7b0fcf53bfea9f3601165161f3b1914676e98d97cf07bcf1",
+        "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
+        "files": {
+          "model.safetensors": {
+            "sha256": "bd944e5f1b3ad9b70dd9d00010a517059e19265671076b8b0a4a58d9491842bc",
+            "size": 242043056
+          }
+        },
+        "kind": "checkpoint",
+        "pinned_config_match": true,
+        "repo": "google-t5/t5-small",
+        "revision": "df1b051c49625cf57a3d0d8d3863ed4d13564fe4"
+      }
+    },
+    {
+      "archive": {
+        "name": "wav2vec2-base--audio-ctc--reference--forward--fp32--dynamo--static--ckpt-22aad52d435e.tar.gz",
+        "sha256": "c5978d849d864a956dbbaa058b488009cff139bdca8e02461d4a518eedb387c6",
+        "size": 67916,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/wav2vec2-base--audio-ctc--reference--forward--fp32--dynamo--static--ckpt-22aad52d435e.tar.gz"
+      },
+      "artifact_id": "wav2vec2-base/audio-ctc/reference/forward/fp32/dynamo/static/ckpt-22aad52d435e",
+      "capture_count": 214,
+      "cases": [
+        "case-00",
+        "case-01"
+      ],
+      "contract_sha256": "ad322a75288cb90e73ba2fc3d96666bb0c045d098dbe9aaacfadd86d4e0a5022",
+      "graph_sha256": "6a2c41cfc19b4e736cbf39c907ac28defc05d0288cb8103e981eb28b07550092",
+      "manifest": {
+        "name": "wav2vec2-base--audio-ctc--reference--forward--fp32--dynamo--static--ckpt-22aad52d435e.manifest.json",
+        "sha256": "3dc134eb595a8c2dc5c13788b950b857f09e7204de69cdd264b18dbd4c493421",
+        "size": 3017,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/wav2vec2-base--audio-ctc--reference--forward--fp32--dynamo--static--ckpt-22aad52d435e.manifest.json"
+      },
+      "map_member": "models/safetensors.v2.json",
+      "map_sha256": "b49c6af88fb64c71a4ec53b22d9b2160579b5f6013db726f80177ae22efcbfa6",
+      "map_sources": {
+        "checkpoint": {
+          "files": [
+            {
+              "name": "model.safetensors",
+              "repo_id": "facebook/wav2vec2-base-960h",
+              "revision": "22aad52d435eb6dbaf354bdad9b0da84ce7d6156",
+              "sha256": "8aa76ab2243c81747a1f832954586bc566090c83a0ac167df6f31f0fa917d74a",
+              "size": 377607901,
+              "url": "https://huggingface.co/facebook/wav2vec2-base-960h/resolve/22aad52d435eb6dbaf354bdad9b0da84ce7d6156/model.safetensors"
+            }
+          ]
+        }
+      },
+      "released_sources": [],
+      "role": "audio CTC",
+      "weight_source": {
+        "config_sha256": "d3ec255c063d9f95057b553b19c20135b259875834a4fe9deb218a6be25b4cf3",
+        "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
+        "files": {
+          "model.safetensors": {
+            "sha256": "8aa76ab2243c81747a1f832954586bc566090c83a0ac167df6f31f0fa917d74a",
+            "size": 377607901
+          }
+        },
+        "kind": "checkpoint",
+        "pinned_config_match": true,
+        "repo": "facebook/wav2vec2-base-960h",
+        "revision": "22aad52d435eb6dbaf354bdad9b0da84ce7d6156"
+      }
+    },
+    {
+      "archive": {
         "name": "whisper-tiny--audio-encoder-decoder--reference--encoder--fp32--dynamo--static--ckpt-169d4a4341b3.tar.gz",
         "sha256": "aa81b47d1ca263988a08a549e046fd8d09798ac920c56e2bb52d5e87e19f32f9",
         "size": 6088857,

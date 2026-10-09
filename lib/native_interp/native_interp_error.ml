@@ -89,6 +89,7 @@ type metadata_role =
   | `Embedding_weight
   | `Expand_input
   | `Group_norm_bias
+  | `Group_norm_input
   | `Group_norm_weight
   | `Index_pair_index
   | `Index_pair_self
@@ -133,6 +134,7 @@ type metadata_role =
   | `Unbind_input
   | `Unfold_input
   | `Unsqueeze_input
+  | `Weight_norm_input
   | `Upsample_bicubic2d_input
   | `Upsample_bilinear2d_input
   | `Upsample_nearest2d_input
@@ -510,6 +512,7 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Embedding_weight -> Fmt.string ppf "embedding weight"
   | `Expand_input -> Fmt.string ppf "expand input"
   | `Group_norm_bias -> Fmt.string ppf "group_norm bias"
+  | `Group_norm_input -> Fmt.string ppf "group_norm input"
   | `Group_norm_weight -> Fmt.string ppf "group_norm weight"
   | `Index_pair_index -> Fmt.string ppf "index.Tensor leading index"
   | `Index_pair_self -> Fmt.string ppf "index.Tensor self"
@@ -554,6 +557,7 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Unbind_input -> Fmt.string ppf "unbind input"
   | `Unfold_input -> Fmt.string ppf "unfold input"
   | `Unsqueeze_input -> Fmt.string ppf "unsqueeze input"
+  | `Weight_norm_input -> Fmt.string ppf "_weight_norm input"
   | `Upsample_bicubic2d_input -> Fmt.string ppf "upsample_bicubic2d input"
   | `Upsample_bilinear2d_input -> Fmt.string ppf "upsample_bilinear2d input"
   | `Upsample_nearest2d_input -> Fmt.string ppf "upsample_nearest2d input"

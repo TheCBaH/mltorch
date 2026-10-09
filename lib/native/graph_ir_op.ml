@@ -21,6 +21,7 @@ type op =
   | Adaptive_max_pool2d of Pool.AdaptiveMaxPool2d.t
   | Adaptive_max_pool2d_with_indices of Pool.AdaptiveMaxPool2dWithIndices.t
   | Amax of Reduce.Amax.t
+  | Argmax of Reduce.Argmax.t
   | Avg_pool2d of Pool.AvgPool2d.t
   | Batch_norm of Norm.BatchNorm.t
   | Batch_norm_no_stats of Norm.BatchNormNoStats.t
@@ -45,10 +46,12 @@ type op =
   | Embedding of Embedding.Embedding.t
   | Eq_scalar of Pointwise.Eq_scalar.t
   | Eq_tensor of Pointwise.Eq_tensor.t
+  | Exp of Pointwise.Exp.t
   | Expand of Pointwise.Expand.t
   | Eye of Factory.Eye.t
   | Floor_div_scalar of Pointwise.Floor_div_scalar.t
   | Ge_scalar of Pointwise.Ge_scalar.t
+  | Full_like of Pointwise.Full_like.t
   | Gelu of Pointwise.Gelu.t
   | Group_norm of Norm.GroupNorm.t
   | Gt_scalar of Pointwise.Gt_scalar.t
@@ -64,11 +67,14 @@ type op =
   | Linear of Linear.Linear.t
   | Lstm of Lstm.Lstm.t
   | Lt_scalar of Pointwise.Lt_scalar.t
+  | Log of Pointwise.Log.t
+  | Log1p of Pointwise.Log1p.t
   | Max_dim of Reduce.MaxDim.t
   | Max_pool2d of Pool.MaxPool2d.t
   | Max_pool2d_with_indices of Pool.MaxPool2dWithIndices.t
   | Mean of Reduce.Mean.t
   | Meshgrid of Meshgrid.Meshgrid.t
+  | Min_other of Pointwise.Min_other.t
   | Mul of Pointwise.Mul.t
   | Mul_scalar of Pointwise.Mul_scalar.t
   | Ne_scalar of Pointwise.Ne_scalar.t
@@ -105,7 +111,9 @@ type op =
   | Upsample_bilinear2d of Resize.Bilinear2d.t
   | Upsample_nearest2d of Resize.Nearest2d.t
   | Vector_norm of Reduce.Vector_norm.t
+  | Weight_norm of Weight_norm.Weight_norm.t
   | Where_scalar_other of Pointwise.Where_scalar_other.t
+  | Where_self of Pointwise.Where_self.t
   | Arange of Factory.Arange.t
   | Zeros of Factory.Zeros.t
 

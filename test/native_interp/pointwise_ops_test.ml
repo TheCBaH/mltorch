@@ -223,3 +223,197 @@ let%expect_test "softmax.int accepts dtype=float32 and refuses the rest" =
       malformed PT2 graph: torch.ops.aten.softmax.int: dtype is not supported
     int64
       malformed PT2 graph: torch.ops.aten.softmax.int: dtype is not supported |}]
+
+let%expect_test "argmax and the int32 cast, as TinyCLIP's pooling writes them" =
+  let argmax inputs = node "argmax.default" inputs "y" in
+  dump "argmax dim=-1"
+    (prog [ argmax [ tin "self" "x"; int_in "dim" (-1) ] ] [ 2 ]);
+  dump "argmax dim=0, keepdim"
+    (prog
+       [
+         argmax
+           [
+             tin "self" "x";
+             int_in "dim" 0;
+             {|{"name":"keepdim","arg":{"as_bool":true},"kind":1}|};
+           ];
+       ]
+       [ 1; 3 ]);
+  dump "argmax with no dim (the flattened form)"
+    (prog [ argmax [ tin "self" "x" ] ] []);
+  let to_copy dtype =
+    node "_to_copy.default"
+      [
+        tin "self" "x";
+        jstr {|{"name":"dtype","arg":{"as_scalar_type":%d},"kind":1}|} dtype;
+      ]
+      "y"
+  in
+  dump "to int32" (prog [ to_copy 4 ] [ 2; 3 ]);
+  dump "to int16 is still refused" (prog [ to_copy 3 ] [ 2; 3 ]);
+  [%expect
+    {|
+    argmax dim=-1
+      argmax x=t0 params={axis=C; keepdim=false}
+    argmax dim=0, keepdim
+      argmax x=t0 params={axis=W; keepdim=true}
+    argmax with no dim (the flattened form)
+      malformed PT2 graph: torch.ops.aten.argmax.default: missing argument "dim"
+    to int32
+      to_copy x=t0 target=int
+    to int16 is still refused
+      malformed PT2 graph: torch.ops.aten._to_copy.default: dtype is not supported |}]
+
+let%expect_test
+    "exp, and t as a matrix transpose that is the identity below rank 2" =
+  dump "exp" (prog [ node "exp.default" [ tin "self" "x" ] "y" ] [ 2; 3 ]);
+  dump "t of a [2,3]"
+    (prog [ node "t.default" [ tin "self" "x" ] "y" ] [ 3; 2 ]);
+  [%expect
+    {|
+    exp
+      exp x=t0
+    t of a [2,3]
+      permute x=t0 perm=[W<-C, C<-W] |}]
+
+let%expect_test "the T5 bucket vocabulary lowers to one node each" =
+  let long_meta = 5 in
+  let extra =
+    [
+      ("a", meta ~dtype:long_meta [ 2; 3 ]);
+      ("b", meta ~dtype:long_meta [ 2; 3 ]);
+    ]
+  in
+  let prog nodes out =
+    program ~x_sizes:[ 2; 3 ] ~params:[ "m"; "a"; "b" ]
+      ~extra_tensor_values:
+        ([ ("m", meta ~dtype:12 [ 2; 3 ]); ("y", meta ~dtype:long_meta out) ]
+        @ extra)
+      ~nodes
+      ~graph_outputs:[ as_tensor "y" ]
+      ()
+  in
+  dump "log" (prog [ node "log.default" [ tin "self" "x" ] "y" ] [ 2; 3 ]);
+  dump "min.other on int64"
+    (prog [ node "min.other" [ tin "self" "a"; tin "other" "b" ] "y" ] [ 2; 3 ]);
+  dump "where.self on int64"
+    (prog
+       [
+         node "where.self"
+           [ tin "condition" "m"; tin "self" "a"; tin "other" "b" ]
+           "y";
+       ]
+       [ 2; 3 ]);
+  dump "full_like int64 15"
+    (prog
+       [
+         node "full_like.default"
+           [
+             tin "self" "a";
+             int_in "fill_value" 15;
+             {|{"name":"pin_memory","arg":{"as_bool":false},"kind":1}|};
+           ]
+           "y";
+       ]
+       [ 2; 3 ]);
+  dump "zeros_like"
+    (prog [ node "zeros_like.default" [ tin "self" "a" ] "y" ] [ 2; 3 ]);
+  dump "full_like with an explicit dtype is refused"
+    (prog
+       [
+         node "full_like.default"
+           [
+             tin "self" "a";
+             int_in "fill_value" 1;
+             {|{"name":"dtype","arg":{"as_scalar_type":7},"kind":1}|};
+           ]
+           "y";
+       ]
+       [ 2; 3 ]);
+  [%expect
+    {|
+    log
+      log x=t0
+    min.other on int64
+      min_other a=t2 b=t3
+    where.self on int64
+      where_self condition=t1 x=t2 y=t3
+    full_like int64 15
+      full_like x=t2 value=15
+    zeros_like
+      full_like x=t2 value=0
+    full_like with an explicit dtype is refused
+      malformed PT2 graph: torch.ops.aten.full_like.default: dtype is not supported |}]
+
+let%expect_test "log1p, and squeeze.default drops every extent-1 axis" =
+  dump "log1p" (prog [ node "log1p.default" [ tin "self" "x" ] "y" ] [ 2; 3 ]);
+  let squeeze_prog x_sizes out =
+    program ~x_sizes
+      ~extra_tensor_values:[ ("y", meta out) ]
+      ~nodes:[ node "squeeze.default" [ tin "self" "x" ] "y" ]
+      ~graph_outputs:[ as_tensor "y" ]
+      ()
+  in
+  dump "[1,2,1,3] -> [2,3]" (squeeze_prog [ 1; 2; 1; 3 ] [ 2; 3 ]);
+  dump "[1,1] -> scalar" (squeeze_prog [ 1; 1 ] []);
+  dump "[2,3] unchanged" (squeeze_prog [ 2; 3 ] [ 2; 3 ]);
+  [%expect
+    {|
+    log1p
+      log1p x=t0
+    [1,2,1,3] -> [2,3]
+      reshape x=t0 params={shape=[W=2 C=3]}
+    [1,1] -> scalar
+      reshape x=t0 params={shape=[C=1]}
+    [2,3] unchanged
+      reshape x=t0 params={shape=[W=2 C=3]} |}]
+
+let%expect_test
+    "_weight_norm lowers to one node; group_norm takes a [N, C, L] input" =
+  let prog nodes extra out =
+    program ~x_sizes:[ 2; 3 ] ~params:[ "g" ]
+      ~extra_tensor_values:([ ("g", meta [ 3 ]); ("y", meta out) ] @ extra)
+      ~nodes
+      ~graph_outputs:[ as_tensor "y" ]
+      ()
+  in
+  dump "_weight_norm dim 1"
+    (prog
+       [
+         node "_weight_norm.default"
+           [ tin "v" "x"; tin "g" "g"; int_in "dim" 1 ]
+           "y";
+       ]
+       [] [ 2; 3 ]);
+  let gn =
+    program ~x_sizes:[ 1; 4; 6 ] ~params:[ "w"; "b" ]
+      ~extra_tensor_values:
+        [ ("w", meta [ 4 ]); ("b", meta [ 4 ]); ("y", meta [ 1; 4; 6 ]) ]
+      ~nodes:
+        [
+          node "group_norm.default"
+            [
+              tin "input" "x";
+              int_in "num_groups" 2;
+              tin "weight" "w";
+              tin "bias" "b";
+              float_in "eps" 1e-5;
+            ]
+            "y";
+        ]
+      ~graph_outputs:[ as_tensor "y" ]
+      ()
+  in
+  dump "group_norm on [1, 4, 6]" gn;
+  [%expect
+    {|
+    _weight_norm dim 1
+      weight_norm v=t0 g=t1 params={axis=C}
+    group_norm on [1, 4, 6]
+      permute x=t0 perm=[W<-C, C<-W]
+      group_norm
+        x=t3 <-n0
+        weight=t1
+        bias=t2
+        params={batch=H; channel=C; groups=2; eps=1e-05}
+      permute x=t4 <-n1 perm=[W<-C, C<-W] |}]

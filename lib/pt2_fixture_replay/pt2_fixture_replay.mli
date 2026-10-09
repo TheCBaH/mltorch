@@ -10,11 +10,12 @@
 val backend : string
 (** ["native-direct"]. *)
 
-val backend_of : Direct.dot_accumulation -> string
+val backend_of : ?casts:Direct.float_to_int -> Direct.dot_accumulation -> string
 (** The backend name a report carries for an accumulation policy: {!backend} for
     the default exact binary64 sum, and
-    ["native-direct+binary32-sequential-dots"] for the opt-in binary32 chain. A
-    different policy is a different row. *)
+    ["native-direct+binary32-sequential-dots"] for the opt-in binary32 chain,
+    each with ["+saturating-casts"] appended under the saturating float-to-int
+    cast. A different policy is a different row. *)
 
 val to_logical :
   Tensor.packed ->
@@ -26,6 +27,7 @@ val to_logical :
 
 val replay :
   ?dots:Direct.dot_accumulation ->
+  ?casts:Direct.float_to_int ->
   consumer:string ->
   Pt2_fixture_unix.Fixture.t ->
   (Pt2_fixture.Report.t, [> Pt2_fixture_unix.Fixture.error ]) Err.t

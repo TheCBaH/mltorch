@@ -257,6 +257,20 @@ module Clone = struct
     let pixel x (out : Semantics.position S.index Vec6.t) = S.load x out
   end
 
+  (* Exact int64 counterpart: the same read through [T.i64_load], so an int64
+     tensor is copied without a trip through the float domain. *)
+  module Compute_i64
+      (S : Semantics.SEMANTICS)
+      (T : sig
+        type 'a repr
+
+        val i64_load :
+          S.input -> Semantics.position S.index Vec6.t -> int64 repr
+      end) =
+  struct
+    let pixel x (out : Semantics.position S.index Vec6.t) = T.i64_load x out
+  end
+
   module Walk (L : Walk_core.Limits.S) = struct
     type cfg = { shape : Walk_core.Shape.t }
 
@@ -352,6 +366,22 @@ module Expand = struct
       S.load x
         (Pointwise_binary.broadcast_coord ~index_zero:S.index_zero x_shape out)
   end
+
+  (* Exact int64 counterpart: the same broadcast read through [T.i64_load]. *)
+  module Compute_i64
+      (S : Semantics.SEMANTICS)
+      (T : sig
+        type 'a repr
+
+        val i64_load :
+          S.input -> Semantics.position S.index Vec6.t -> int64 repr
+      end) =
+  struct
+    let pixel ~(x_shape : Vec6.shape) x
+        (out : Semantics.position S.index Vec6.t) =
+      T.i64_load x
+        (Pointwise_binary.broadcast_coord ~index_zero:S.index_zero x_shape out)
+  end
 end
 
 module Sqrt = struct
@@ -397,7 +427,7 @@ end
    representation distinct from float, so both importers reject it rather than
    silently accepting it. *)
 module To_copy = struct
-  type target = Bool | Float | Long
+  type target = Bool | Float | Int | Long
   type t = { target : target; x : Tensor_ref.t }
 
   let name = "To_copy"
@@ -408,14 +438,17 @@ module To_copy = struct
         match s with
         | "bool" -> Bool
         | "float" -> Float
+        | "int" -> Int
         | "long" -> Long
         | _ -> Jsont.Error.msgf Jsont.Meta.none "to_copy_target: unknown %S" s)
-      ~enc:(function Bool -> "bool" | Float -> "float" | Long -> "long")
+      ~enc:(function
+        | Bool -> "bool" | Float -> "float" | Int -> "int" | Long -> "long")
       Jsont.string
 
   let pp_target fmt = function
     | Bool -> Fmt.string fmt "bool"
     | Float -> Fmt.string fmt "float"
+    | Int -> Fmt.string fmt "int"
     | Long -> Fmt.string fmt "long"
 
   let jsont : t Jsont.t =
@@ -446,7 +479,7 @@ module To_copy = struct
       let v = S.load x out in
       match target with
       | Float -> v
-      | Long -> S.trunc v
+      | Int | Long -> S.trunc v
       | Bool ->
           (* [S.eq], not the double-[lt] "nonzero test" this replaced: that
              formula returned false for NaN (neither [lt 0 x] nor [lt x 0]
@@ -603,6 +636,100 @@ module Cos = struct
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel x (out : Semantics.position S.index Vec6.t) = S.cos (S.load x out)
+  end
+end
+
+module Exp = struct
+  type t = { x : Tensor_ref.t }
+
+  let name = "Exp"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        { x = Json_util.req_field ms "x" Tensor_ref.jsont name })
+      ~enc:(fun t ->
+        Json_util.jobj [ ("x", Json_util.enc Tensor_ref.jsont t.x) ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>exp@ x=%a@]" pp_ref t.x
+
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    let pixel x (out : Semantics.position S.index Vec6.t) = S.exp (S.load x out)
+  end
+end
+
+module Log = struct
+  type t = { x : Tensor_ref.t }
+
+  let name = "Log"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        { x = Json_util.req_field ms "x" Tensor_ref.jsont name })
+      ~enc:(fun t ->
+        Json_util.jobj [ ("x", Json_util.enc Tensor_ref.jsont t.x) ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>log@ x=%a@]" pp_ref t.x
+
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    let pixel x (out : Semantics.position S.index Vec6.t) = S.log (S.load x out)
+  end
+end
+
+module Log1p = struct
+  type t = { x : Tensor_ref.t }
+
+  let name = "Log1p"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        { x = Json_util.req_field ms "x" Tensor_ref.jsont name })
+      ~enc:(fun t ->
+        Json_util.jobj [ ("x", Json_util.enc Tensor_ref.jsont t.x) ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>log1p@ x=%a@]" pp_ref t.x
+
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    (* log(1 + x) without losing the low bits of a small x: with u = 1 + x
+       rounded, x * log u / (u - 1) is accurate to the last place (the
+       rounding of u cancels), and u = 1 exactly means x is below half an ulp
+       of 1, where log1p x = x. *)
+    let pixel x (out : Semantics.position S.index Vec6.t) =
+      let v = S.load x out in
+      let u = S.add (S.const 1.) v in
+      S.select
+        (S.eq u (S.const 1.))
+        v
+        (S.select
+           (S.eq u (S.const infinity))
+           u
+           (S.div (S.mul v (S.log u)) (S.sub u (S.const 1.))))
   end
 end
 

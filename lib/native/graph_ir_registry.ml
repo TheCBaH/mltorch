@@ -59,6 +59,12 @@ let op_registry : (module OP) list =
       let project = function Amax t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Reduce.Argmax
+
+      let inject t = Argmax t
+      let project = function Argmax t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Pool.AvgPool2d
 
       let inject t = Avg_pool2d t
@@ -197,6 +203,12 @@ let op_registry : (module OP) list =
       let project = function Eq_tensor t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Pointwise.Exp
+
+      let inject t = Exp t
+      let project = function Exp t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Pointwise.Expand
 
       let inject t = Expand t
@@ -219,6 +231,12 @@ let op_registry : (module OP) list =
 
       let inject t = Ge_scalar t
       let project = function Ge_scalar t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Full_like
+
+      let inject t = Full_like t
+      let project = function Full_like t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pointwise.Gelu
@@ -311,6 +329,18 @@ let op_registry : (module OP) list =
       let project = function Lt_scalar t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Pointwise.Log
+
+      let inject t = Log t
+      let project = function Log t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Log1p
+
+      let inject t = Log1p t
+      let project = function Log1p t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Reduce.MaxDim
 
       let inject t = Max_dim t
@@ -339,6 +369,12 @@ let op_registry : (module OP) list =
 
       let inject t = Meshgrid t
       let project = function Meshgrid t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Min_other
+
+      let inject t = Min_other t
+      let project = function Min_other t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pointwise.Mul
@@ -557,10 +593,22 @@ let op_registry : (module OP) list =
       let project = function Vector_norm t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Weight_norm.Weight_norm
+
+      let inject t = Weight_norm t
+      let project = function Weight_norm t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Pointwise.Where_scalar_other
 
       let inject t = Where_scalar_other t
       let project = function Where_scalar_other t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Where_self
+
+      let inject t = Where_self t
+      let project = function Where_self t -> Some t | _ -> None
     end : OP);
     (module struct
       include Factory.Arange

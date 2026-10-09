@@ -71,18 +71,37 @@ module Repeat = struct
        there -- [Reshape.delinearize]'s per-axis remainder, without
        [Reshape]'s flatten-then-redistribute: each axis keeps its own
        identity, so no cross-axis linearization is needed. *)
+    let coord ~(x_shape : Vec6.shape) (out : Semantics.position S.index Vec6.t)
+        =
+      Vec6.mapi
+        (fun a o ->
+          let ext = Dim_arith.Extent.to_pos (Vec6.get x_shape a) in
+          let o = S.of_index o in
+          let q = S.index_floor_div_pos o ext in
+          S.assume_index (S.index_add o (S.index_scale (-(ext :> int)) q)))
+        out
+
     let pixel ~(x_shape : Vec6.shape) x
         (out : Semantics.position S.index Vec6.t) =
-      let coord =
-        Vec6.mapi
-          (fun a o ->
-            let ext = Dim_arith.Extent.to_pos (Vec6.get x_shape a) in
-            let o = S.of_index o in
-            let q = S.index_floor_div_pos o ext in
-            S.assume_index (S.index_add o (S.index_scale (-(ext :> int)) q)))
-          out
-      in
-      S.load x coord
+      S.load x (coord ~x_shape out)
+  end
+
+  (* Exact int64 counterpart: the same tiled coordinate, read through
+     [T.i64_load]. *)
+  module Compute_i64
+      (S : Semantics.SEMANTICS)
+      (T : sig
+        type 'a repr
+
+        val i64_load :
+          S.input -> Semantics.position S.index Vec6.t -> int64 repr
+      end) =
+  struct
+    module C = Compute (S)
+
+    let pixel ~(x_shape : Vec6.shape) x
+        (out : Semantics.position S.index Vec6.t) =
+      T.i64_load x (C.coord ~x_shape out)
   end
 end
 
@@ -152,15 +171,31 @@ module RepeatInterleave = struct
        by construction, since [output_shape] set that axis's own extent to
        [x_extent * repeats], so [out] there ranges over [0, x_extent *
        repeats) and the quotient stays inside [0, x_extent). *)
+    let coord (p : params) (out : Semantics.position S.index Vec6.t) =
+      Vec6.mapi
+        (fun a o ->
+          if Axis.equal a p.axis then
+            S.assume_index (S.index_floor_div_pos (S.of_index o) p.repeats)
+          else o)
+        out
+
     let pixel (p : params) x (out : Semantics.position S.index Vec6.t) =
-      let coord =
-        Vec6.mapi
-          (fun a o ->
-            if Axis.equal a p.axis then
-              S.assume_index (S.index_floor_div_pos (S.of_index o) p.repeats)
-            else o)
-          out
-      in
-      S.load x coord
+      S.load x (coord p out)
+  end
+
+  (* Exact int64 counterpart, as [Repeat.Compute_i64]. *)
+  module Compute_i64
+      (S : Semantics.SEMANTICS)
+      (T : sig
+        type 'a repr
+
+        val i64_load :
+          S.input -> Semantics.position S.index Vec6.t -> int64 repr
+      end) =
+  struct
+    module C = Compute (S)
+
+    let pixel (p : params) x (out : Semantics.position S.index Vec6.t) =
+      T.i64_load x (C.coord p out)
   end
 end

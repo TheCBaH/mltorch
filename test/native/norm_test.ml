@@ -147,7 +147,8 @@ let%expect_test "Direct: group_norm splits C into two groups, reducing H too" =
   let zeros = Tensor.materialize x_shape (fun _ -> 0.) in
   let p =
     {
-      Norm.GroupNorm.channel = Axis.C;
+      Norm.GroupNorm.batch = Axis.N;
+      channel = Axis.C;
       groups = Op_config.Pos.of_int 2;
       eps = 0.;
     }
@@ -175,7 +176,8 @@ let%expect_test "Direct: group_norm applies weight/bias per channel" =
   let bias = Tensor.materialize x_shape (fun c -> ba.(chan c)) in
   let p =
     {
-      Norm.GroupNorm.channel = Axis.C;
+      Norm.GroupNorm.batch = Axis.N;
+      channel = Axis.C;
       groups = Op_config.Pos.of_int 2;
       eps = 0.;
     }
@@ -192,7 +194,8 @@ let%expect_test "group_norm output_shape: indivisible channel count" =
   let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:5 in
   let p =
     {
-      Norm.GroupNorm.channel = Axis.C;
+      Norm.GroupNorm.batch = Axis.N;
+      channel = Axis.C;
       groups = Op_config.Pos.of_int 2;
       eps = 0.;
     }
