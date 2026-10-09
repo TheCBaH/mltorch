@@ -1,0 +1,263 @@
+{
+  "artifacts": [
+    {
+      "archive": {
+        "name": "mobilevit-xxs--image-classification--reference--forward--fp32--dynamo--static--ckpt-6703997f9e94.tar.gz",
+        "sha256": "fa74a1546893d2de7c479a8b783ac9186d8e1255e7d802092842ec4d34854e6a",
+        "size": 1547967,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/mobilevit-xxs--image-classification--reference--forward--fp32--dynamo--static--ckpt-6703997f9e94.tar.gz"
+      },
+      "artifact_id": "mobilevit-xxs/image-classification/reference/forward/fp32/dynamo/static/ckpt-6703997f9e94",
+      "capture_count": 347,
+      "cases": [
+        "case-00",
+        "case-01"
+      ],
+      "contract_sha256": "15867570edabd0f276a8d938ae175c7709d2d6165785bdfb40fad25f785a0972",
+      "graph_sha256": "7b46299a1d7d23b4d1837bfe3362020518735abeab56065002aa7ef8927fb8be",
+      "manifest": {
+        "name": "mobilevit-xxs--image-classification--reference--forward--fp32--dynamo--static--ckpt-6703997f9e94.manifest.json",
+        "sha256": "e7cd599f6435bfe80c7a5361b4e3368a29991cd79b479dc41cea7dd8777bf512",
+        "size": 3659,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/mobilevit-xxs--image-classification--reference--forward--fp32--dynamo--static--ckpt-6703997f9e94.manifest.json"
+      },
+      "map_member": "models/safetensors.v2.json",
+      "map_sha256": "e7aa1f7c9bf480dab1e3a2eeddb82e49832da830c777c534e74f5729168fdb0e",
+      "map_sources": {
+        "checkpoint": {
+          "files": [
+            {
+              "derived_from": {
+                "file": "pytorch_model.bin",
+                "repo_id": "apple/mobilevit-xx-small",
+                "revision": "6703997f9e940e312a04b8b7c26463d631c0d1f8",
+                "sha256": "9d11a44822385937be46ecfa81757e306e47143323cba5cdc09a3b48966fe22a",
+                "tool": "hf-pt2 convert: torch.load(weights_only) to safetensors, tensor-for-tensor verified"
+              },
+              "name": "mobilevit-xxs--6703997f9e94.model.safetensors",
+              "sha256": "635a7cdd86f6ffd9e6ceb2f0b5b5f1971af129d12cb693ef70fe2ac471ff6399",
+              "size": 5151120,
+              "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/mobilevit-xxs--6703997f9e94.model.safetensors"
+            }
+          ]
+        }
+      },
+      "released_sources": [
+        {
+          "name": "mobilevit-xxs--6703997f9e94.model.safetensors",
+          "sha256": "635a7cdd86f6ffd9e6ceb2f0b5b5f1971af129d12cb693ef70fe2ac471ff6399",
+          "size": 5151120,
+          "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/mobilevit-xxs--6703997f9e94.model.safetensors"
+        }
+      ],
+      "role": "first numerical milestone",
+      "weight_source": {
+        "config_sha256": "6f1b7c93da05058a62efcd10266079bbf1e6b430babd9367c8e20fdb21726f22",
+        "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
+        "files": {
+          "model.safetensors": {
+            "sha256": "635a7cdd86f6ffd9e6ceb2f0b5b5f1971af129d12cb693ef70fe2ac471ff6399",
+            "size": 5151120
+          }
+        },
+        "kind": "checkpoint",
+        "pinned_config_match": true,
+        "repo": "apple/mobilevit-xx-small",
+        "revision": "6703997f9e940e312a04b8b7c26463d631c0d1f8",
+        "upstream_conversion": {
+          "from": "pytorch_model.bin",
+          "source_sha256": "9d11a44822385937be46ecfa81757e306e47143323cba5cdc09a3b48966fe22a",
+          "tool": "hf-pt2 convert: torch.load(weights_only) -> safetensors, tensor-for-tensor verified"
+        }
+      }
+    },
+    {
+      "archive": {
+        "name": "smolvlm-256m--image-text-generation--reference--connector--fp32--dynamo--static--ckpt-7e3e67edbbed.tar.gz",
+        "sha256": "1b97ccaccf1a572aa4dc1585da7fc9589321fb0bae7f5470bf7073cd4a5fe715",
+        "size": 6157343,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/smolvlm-256m--image-text-generation--reference--connector--fp32--dynamo--static--ckpt-7e3e67edbbed.tar.gz"
+      },
+      "artifact_id": "smolvlm-256m/image-text-generation/reference/connector/fp32/dynamo/static/ckpt-7e3e67edbbed",
+      "capture_count": 1,
+      "cases": [
+        "case-00",
+        "case-01"
+      ],
+      "contract_sha256": "23dc0027080dcadab31f99fc0bc4f1ce622ef1761f04a8919c1a06f387bf7e21",
+      "graph_sha256": "41bf5435533e2a76f9e4829794ba4aeca047cc0bc944a9b45bf543cc422be0c3",
+      "manifest": {
+        "name": "smolvlm-256m--image-text-generation--reference--connector--fp32--dynamo--static--ckpt-7e3e67edbbed.manifest.json",
+        "sha256": "69abbe82c84cf8e9cce14768969f5fd261dacae5c31228e2d986486acce0d91d",
+        "size": 3054,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/smolvlm-256m--image-text-generation--reference--connector--fp32--dynamo--static--ckpt-7e3e67edbbed.manifest.json"
+      },
+      "map_member": "models/safetensors.v2.json",
+      "map_sha256": "bb1ee2c0cc5cbfc0d33288d4d112e946f37147e47f048a23be556be4ff691ef7",
+      "map_sources": {
+        "checkpoint": {
+          "files": [
+            {
+              "name": "model.safetensors",
+              "repo_id": "HuggingFaceTB/SmolVLM-256M-Instruct",
+              "revision": "7e3e67edbbed1bf9888184d9df282b700a323964",
+              "sha256": "74dea5904032e5ae99a2e0eef5179e6ac0f1dedc3ab0c7c2a5d4d387c843203e",
+              "size": 513028808,
+              "url": "https://huggingface.co/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/7e3e67edbbed1bf9888184d9df282b700a323964/model.safetensors"
+            }
+          ]
+        }
+      },
+      "released_sources": [],
+      "role": "first numerical milestone",
+      "weight_source": {
+        "config_sha256": "b70fb4bfde88df9eeebc9d8ff523733b8bf70d6c9b06c610325960e06ae9db52",
+        "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
+        "files": {
+          "model.safetensors": {
+            "sha256": "74dea5904032e5ae99a2e0eef5179e6ac0f1dedc3ab0c7c2a5d4d387c843203e",
+            "size": 513028808
+          }
+        },
+        "kind": "checkpoint",
+        "pinned_config_match": true,
+        "repo": "HuggingFaceTB/SmolVLM-256M-Instruct",
+        "revision": "7e3e67edbbed1bf9888184d9df282b700a323964"
+      }
+    },
+    {
+      "archive": {
+        "name": "bert-tiny--text-encoder--reference--forward--fp32--dynamo--static--ckpt-6f75de8b60a9.tar.gz",
+        "sha256": "4c90f5a7aa5b204e90b4668f7de3705841fa6988bf44f65039c8ea0652bf7126",
+        "size": 37234,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/bert-tiny--text-encoder--reference--forward--fp32--dynamo--static--ckpt-6f75de8b60a9.tar.gz"
+      },
+      "artifact_id": "bert-tiny/text-encoder/reference/forward/fp32/dynamo/static/ckpt-6f75de8b60a9",
+      "capture_count": 42,
+      "cases": [
+        "case-00",
+        "case-01"
+      ],
+      "contract_sha256": "dc97f9118352cbe8bc50d85dea0da8463b9aa6ecd09b6ee1ad07f3cbddba18a2",
+      "graph_sha256": "82f8f2e3201f6f005a58b4635fa6cd69c8212fa54c5c16839c8b7083e1e70fc0",
+      "manifest": {
+        "name": "bert-tiny--text-encoder--reference--forward--fp32--dynamo--static--ckpt-6f75de8b60a9.manifest.json",
+        "sha256": "86f82e0e18e88aa98c57c7cad618d9dd2512ab674c18933e8198ad4c4d306ee9",
+        "size": 3616,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/bert-tiny--text-encoder--reference--forward--fp32--dynamo--static--ckpt-6f75de8b60a9.manifest.json"
+      },
+      "map_member": "models/safetensors.v2.json",
+      "map_sha256": "928de050967cad99a7bb79cf04f0a6603af1a90830add2518a39024523237bc4",
+      "map_sources": {
+        "checkpoint": {
+          "files": [
+            {
+              "derived_from": {
+                "file": "pytorch_model.bin",
+                "repo_id": "prajjwal1/bert-tiny",
+                "revision": "6f75de8b60a9f8a2fdf7b69cbd86d9e64bcb3837",
+                "sha256": "dab2c2bddcfb48ea430ef63fd76d46d67d704487844d967256a50dd7d7fd0a66",
+                "tool": "hf-pt2 convert: torch.load(weights_only) to safetensors, tensor-for-tensor verified"
+              },
+              "name": "bert-tiny--6f75de8b60a9.model.safetensors",
+              "sha256": "312b6bf1364262ade43664fb3a0013b0865873dd77391379d2f2b5589eb200e6",
+              "size": 33492752,
+              "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/bert-tiny--6f75de8b60a9.model.safetensors"
+            }
+          ]
+        }
+      },
+      "released_sources": [
+        {
+          "name": "bert-tiny--6f75de8b60a9.model.safetensors",
+          "sha256": "312b6bf1364262ade43664fb3a0013b0865873dd77391379d2f2b5589eb200e6",
+          "size": 33492752,
+          "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/bert-tiny--6f75de8b60a9.model.safetensors"
+        }
+      ],
+      "role": "needs embedding",
+      "weight_source": {
+        "config_sha256": "cf3179684f7c360dd6185962d480e7d426ceb8fe49f5db7b64bdc15dba0b8798",
+        "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
+        "files": {
+          "model.safetensors": {
+            "sha256": "312b6bf1364262ade43664fb3a0013b0865873dd77391379d2f2b5589eb200e6",
+            "size": 33492752
+          }
+        },
+        "kind": "checkpoint",
+        "pinned_config_match": true,
+        "repo": "prajjwal1/bert-tiny",
+        "revision": "6f75de8b60a9f8a2fdf7b69cbd86d9e64bcb3837",
+        "upstream_conversion": {
+          "from": "pytorch_model.bin",
+          "source_sha256": "dab2c2bddcfb48ea430ef63fd76d46d67d704487844d967256a50dd7d7fd0a66",
+          "tool": "hf-pt2 convert: torch.load(weights_only) -> safetensors, tensor-for-tensor verified"
+        }
+      }
+    },
+    {
+      "archive": {
+        "name": "tinyclip--image-text-embeddings--reference--text-encoder--fp32--dynamo--static--ckpt-a2a8c6eaa254.tar.gz",
+        "sha256": "f87d8c4e4aac243337f12a3b914ed75cafc52e96fabc5e60ca096ec902556f07",
+        "size": 25829,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/tinyclip--image-text-embeddings--reference--text-encoder--fp32--dynamo--static--ckpt-a2a8c6eaa254.tar.gz"
+      },
+      "artifact_id": "tinyclip/image-text-embeddings/reference/text-encoder/fp32/dynamo/static/ckpt-a2a8c6eaa254",
+      "capture_count": 55,
+      "cases": [
+        "case-00",
+        "case-01"
+      ],
+      "contract_sha256": "0b66ad8e415429d322a148feb97850f284f8ebe9f41fd51466f0a50a2ed28917",
+      "graph_sha256": "dae02eb821c008fa7585e327dd2ca0fbe5beb35909423cf83dd4ad54d80df556",
+      "manifest": {
+        "name": "tinyclip--image-text-embeddings--reference--text-encoder--fp32--dynamo--static--ckpt-a2a8c6eaa254.manifest.json",
+        "sha256": "8314d1db03900251a5ac0e0554eb9bfce4e6b70ba74087a16e965eadda7c927f",
+        "size": 3050,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/tinyclip--image-text-embeddings--reference--text-encoder--fp32--dynamo--static--ckpt-a2a8c6eaa254.manifest.json"
+      },
+      "map_member": "models/safetensors.v2.json",
+      "map_sha256": "fc476fdc1a1cb29014f2cfd5a7af0e70208cab3828eaa7f3b17ed0c495bbd99f",
+      "map_sources": {
+        "checkpoint": {
+          "files": [
+            {
+              "name": "model.safetensors",
+              "repo_id": "wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M",
+              "revision": "a2a8c6eaa2549ad66eb7c31b85022bf58273a26c",
+              "sha256": "9339ee3d736344d0ddcaa6c03edc9f89688f08caaea5401220885233da726fcc",
+              "size": 93812468,
+              "url": "https://huggingface.co/wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M/resolve/a2a8c6eaa2549ad66eb7c31b85022bf58273a26c/model.safetensors"
+            }
+          ]
+        }
+      },
+      "released_sources": [],
+      "role": "text tower follow-up",
+      "weight_source": {
+        "config_sha256": "c586d856dbd5589b67525db9e791ee0917402405672c7773aead373efb7d7bca",
+        "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
+        "files": {
+          "model.safetensors": {
+            "sha256": "9339ee3d736344d0ddcaa6c03edc9f89688f08caaea5401220885233da726fcc",
+            "size": 93812468
+          }
+        },
+        "kind": "checkpoint",
+        "pinned_config_match": true,
+        "repo": "wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M",
+        "revision": "a2a8c6eaa2549ad66eb7c31b85022bf58273a26c"
+      }
+    }
+  ],
+  "publication": {
+    "sha256": "2b67e6aabe4ceb319af7709a5b1e87656ea501288e10500299320cbe36676b4b",
+    "size": 71174,
+    "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/publication.json"
+  },
+  "release_producer_commit": "003207ae59ed0555599da190d70cc3d2f15ad705",
+  "release_tag": "checkpoint-003207ae59ed",
+  "repository": "TheCBaH/devcontainer.transformers",
+  "schema_version": 1
+}

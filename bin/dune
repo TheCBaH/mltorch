@@ -300,3 +300,51 @@
   unix)
  (build_if %{lib-available:rivet.x86_64})
  (enabled_if false))
+
+; Structural check of extracted checkpoint-map bundles: the v2 map against its
+; graph, configs and captures.json, with no source file read. See
+; lib/pt2_checkpoint_map.
+
+(executable
+ (name transformers_map_check)
+ (modules transformers_map_check)
+ (libraries
+  err_trace
+  fmt
+  jsont
+  jsont.bytesrw
+  pt2
+  pt2_checkpoint_map
+  pt2_checkpoint_map_unix
+  pt2_sha256
+  unix))
+
+; Fetch and open the released checkpoint fixtures a cohort manifest pins. See
+; lib/pt2_fixture_unix. `fetch` goes to the network (curl, HTTPS only);
+; `open` is offline and reads only the cache.
+
+(executable
+ (name transformers_fixture)
+ (modules transformers_fixture)
+ (libraries
+  err_trace
+  fmt
+  pt2
+  pt2_checkpoint_map
+  pt2_fixture
+  pt2_fixture_unix
+  unix))
+
+; Replay a released fixture's reference cases through the Native engine, offline
+; from the cache, and write a versioned report per artifact.
+
+(executable
+ (name transformers_replay)
+ (modules transformers_replay)
+ (libraries
+  err_trace
+  fmt
+  pt2_fixture
+  pt2_fixture_replay
+  pt2_fixture_unix
+  unix))

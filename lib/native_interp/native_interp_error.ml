@@ -154,6 +154,34 @@ type config_fault = Op_config.Bad.fault
    a figure to report. *)
 type unsupported_input = [ `Non_tensor | `Not_exactly_one_user_input of int ]
 
+(* Why a set of named user inputs cannot be bound to a graph. Each is checked
+   before anything is evaluated. *)
+module Dtype_mismatch = struct
+  type t = { name : string; expected : Pt2_dtype.t; got : Pt2_dtype.t }
+end
+
+module Shape_mismatch = struct
+  type t = {
+    name : string;
+    expected : Aten_int.Size.t list;
+    got : Aten_int.Size.t list;
+  }
+end
+
+module Input_binding = struct
+  type t =
+    | Duplicate of string
+    | Dtype_mismatch of Dtype_mismatch.t
+    | Missing of string
+    | Mutation of string
+        (** The signature has an output that is not a user output: the graph
+            mutates a buffer or an input, which a named call cannot express. *)
+    | Shape_mismatch of Shape_mismatch.t
+    | Unexpected of string
+    | Unnamed  (** A user input the graph's provenance gives no source name. *)
+    | Unsupported_dtype of Pt2_dtype.t
+end
+
 type unsupported_option =
   [ `Alpha of float
   | `Approximate of string
@@ -408,6 +436,7 @@ type error =
   [ `Arena of Arena_run.error
   | `Build of Graph_builder.error
   | `Eval of Eval_direct.error
+  | `Input_binding of Input_binding.t
   | `Lens of Pt2_native_graph.lens_error
   | `Materialize of Const_ssa_materialize.error
   | malformed
@@ -718,10 +747,35 @@ let pp_tensor_bridge ppf : [< tensor_bridge ] -> unit = function
         (Pt2_dtype.to_string d)
   | #malformed as e -> pp_malformed ppf e
 
+let pp_input_binding ppf : Input_binding.t -> unit = function
+  | Input_binding.Duplicate name ->
+      Fmt.pf ppf "named input %S is supplied more than once" name
+  | Dtype_mismatch { name; expected; got } ->
+      Fmt.pf ppf "named input %S: graph declares %s, got %s" name
+        (Pt2_dtype.to_string expected)
+        (Pt2_dtype.to_string got)
+  | Missing name -> Fmt.pf ppf "named input %S is not supplied" name
+  | Mutation kind ->
+      Fmt.pf ppf "the signature mutates state (%s); a named call cannot bind it"
+        kind
+  | Shape_mismatch { name; expected; got } ->
+      let ints = Fmt.(brackets (list ~sep:semi int)) in
+      Fmt.pf ppf "named input %S: graph declares shape %a, got %a" name ints
+        (List.map Aten_int.Size.to_int expected)
+        ints
+        (List.map Aten_int.Size.to_int got)
+  | Unexpected name ->
+      Fmt.pf ppf "named input %S is not a user input of the graph" name
+  | Unnamed -> Fmt.string ppf "a user input has no source name"
+  | Unsupported_dtype dtype ->
+      Fmt.pf ppf "named input of dtype %s is not supported"
+        (Pt2_dtype.to_string dtype)
+
 let pp_error ppf : [< error ] -> unit = function
   | `Arena e -> Arena_run.pp_error ppf e
   | `Build e -> Graph_builder.pp_error ppf e
   | `Eval e -> Eval_direct.pp_error ppf e
+  | `Input_binding b -> pp_input_binding ppf b
   | `Lens e -> Pt2_native_graph.pp_lens_error ppf e
   | `Materialize e -> Const_ssa_materialize.pp_error ppf e
   | #malformed as e -> Fmt.pf ppf "malformed PT2 graph: %a" pp_malformed e

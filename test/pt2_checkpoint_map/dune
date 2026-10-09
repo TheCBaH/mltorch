@@ -1,0 +1,20 @@
+; Hermetic tests for lib/pt2_checkpoint_map: a six-capture synthetic graph whose
+; digests were computed independently (Python hashlib), then one corruption per
+; check. Pure, so the suite also runs under js_of_ocaml (@runtest-js).
+;
+; See test/native4d/dune for why [js] carries no `enabled_if`.
+
+(library
+ (name pt2_checkpoint_map_test)
+ (libraries
+  err_trace
+  fmt
+  pt2
+  pt2_checkpoint_map
+  pt2_sha256
+  pytorch_types
+  schema_runtime)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))

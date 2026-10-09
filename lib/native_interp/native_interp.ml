@@ -23,6 +23,9 @@ type config_fault = Native_interp_error.config_fault
 type unsupported_option = Native_interp_error.unsupported_option
 type unsupported_input = Native_interp_error.unsupported_input
 
+module Dtype_mismatch = Native_interp_error.Dtype_mismatch
+module Shape_mismatch = Native_interp_error.Shape_mismatch
+module Input_binding = Native_interp_error.Input_binding
 module Missing_arg = Native_interp_error.Missing_arg
 module Wrong_arg_kind = Native_interp_error.Wrong_arg_kind
 module Unresolved_sym_arg = Native_interp_error.Unresolved_sym_arg
@@ -76,6 +79,8 @@ type schedule = Native_interp_exec.schedule = {
 }
 
 let run = Native_interp_exec.run
+let run_named = Native_interp_exec.run_named
+let named_user_inputs = Native_interp_exec.named_user_inputs
 
 type transformed = Native_interp_exec.transformed =
   | Transformed : {

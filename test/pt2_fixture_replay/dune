@@ -1,0 +1,25 @@
+; End-to-end replay over a synthetic release: a three-input, two-output graph
+; (float, int64 and bool inputs), real torch.save-shaped case files, a real
+; gzip'd tar, and a fake transport. The reference values and the case digests
+; were computed independently in Python. Native only.
+
+(library
+ (name pt2_fixture_replay_test)
+ (libraries
+  err_trace
+  fmt
+  native
+  native_interp
+  pt2
+  pt2_checkpoint_map
+  pt2_fixture
+  pt2_fixture_replay
+  pt2_fixture_test
+  pt2_fixture_unix
+  pt2_fixture_unix_test
+  pt2_sha256
+  zipc
+  unix)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

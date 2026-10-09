@@ -1,4 +1,4 @@
-.PHONY: compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
+.PHONY: transformers.admission transformers.download transformers.open transformers.replay compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean machine.a64.conformance machine.pt2.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
@@ -152,6 +152,46 @@ pt2.json-model-support:
 	@mkdir -p $(dir $(PT2_JSON_MODEL_SUPPORT))
 	opam exec -- dune exec bin/pt2_json_model_support.exe -- \
 		$(PT2_JSON_MODELS_DIR) $(PT2_JSON_MODEL_SUPPORT)
+
+# Graph-only admission over a devcontainer.transformers checkout at the commit
+# pinned in scripts/transformers-admission.sh. Offline: acquiring the checkout
+# and the release fixtures (data/transformers/cohort.json) is separate. Output
+# is local evidence, never committed.
+#   make transformers.admission TRANSFORMERS_SOURCE=/path/to/checkout
+TRANSFORMERS_SOURCE ?=
+TRANSFORMERS_ADMISSION_OUT ?= _build/transformers-admission
+transformers.admission:
+	@test -n "$(TRANSFORMERS_SOURCE)" || { echo "set TRANSFORMERS_SOURCE" >&2; exit 2; }
+	scripts/transformers-admission.sh $(TRANSFORMERS_SOURCE) $(TRANSFORMERS_ADMISSION_OUT)
+
+# The released checkpoint fixtures a cohort manifest pins (data/transformers/
+# cohort.json): every layer -- publication index, manifest, archive, checkpoint
+# sources -- is fetched into a content-addressed cache and verified against its
+# pin. `transformers.download` is the only target that uses the network (curl,
+# HTTPS only); `transformers.open` is offline: it opens each artifact from the
+# cache alone and proves every capture against the map. About 650 MB for the
+# initial cohort. See lib/pt2_fixture_unix.
+#   make transformers.download [TRANSFORMERS_ARTIFACTS="id ..."]
+TRANSFORMERS_COHORT ?= data/transformers/cohort.json
+TRANSFORMERS_CACHE ?= data/transformers-cache
+TRANSFORMERS_ARTIFACTS ?=
+transformers.download:
+	opam exec -- dune exec bin/transformers_fixture.exe -- fetch \
+		$(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) $(TRANSFORMERS_ARTIFACTS)
+
+transformers.open:
+	opam exec -- dune exec bin/transformers_fixture.exe -- open \
+		$(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) $(TRANSFORMERS_ARTIFACTS)
+
+# Offline numerical replay of the cohort's published cases through Native direct
+# execution: every output element against the producer's reference under the
+# producer's tolerances, one versioned JSON report per artifact. Exits nonzero
+# unless every selected artifact passes -- a refusal counts as not passing.
+TRANSFORMERS_REPORTS ?= _build/transformers-reports
+transformers.replay:
+	opam exec -- dune exec bin/transformers_replay.exe -- \
+		$(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) \
+		--report-dir $(TRANSFORMERS_REPORTS) $(TRANSFORMERS_ARTIFACTS)
 
 # The arena allocator evaluation over the same corpus, both normalized
 # dialects: every strategy, its order search, the portfolio and the bounded

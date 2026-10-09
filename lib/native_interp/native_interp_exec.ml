@@ -164,8 +164,131 @@ let eval_in_storage ~layout ?on_storage ?schedule ~hooks ?region_executor
   Option.iter (fun f -> f report) on_storage;
   env
 
-let run ?arena ?layout ?schedule ?on_arena ?on_storage ?hooks ?region_executor
-    ?region_group_executor ?node_executor archive ~input =
+(* The user inputs of a lowered graph, in graph order. *)
+let user_input_ids (graph : Graph_ir.graph) =
+  List.filter
+    (fun id -> Graph_ir.input_kind graph id = Graph_ir.Input.Input)
+    graph.Graph_ir.Graph.inputs
+
+(* Each user input with the source name the exporter gave it -- the keyword a
+   caller binds it by -- and its declared metadata. A user input the
+   provenance cannot name is a defect of the lowering, not of the caller. *)
+let named_user_inputs (lowered : Pt2_native_graph.t) =
+  Err.List.map
+    (fun id ->
+      match
+        Tensor_id.Map.find_opt id lowered.Pt2_native_graph.tensor_origins
+      with
+      | Some (Pt2_native_graph.Source o) ->
+          Err.return (o.Pt2_native_graph.Tensor_origin.ssa_name, id, o.meta)
+      | Some Pt2_native_graph.Derived | None ->
+          Err.fail (`Input_binding Native_interp_error.Input_binding.Unnamed))
+    (user_input_ids lowered.Pt2_native_graph.graph)
+
+let mutation_kind (spec : Pytorch_types.OutputSpec.t) =
+  match spec with
+  | User_output _ -> None
+  | Loss_output _ -> Some "loss output"
+  | Buffer_mutation _ -> Some "buffer mutation"
+  | Gradient_to_parameter _ -> Some "gradient to parameter"
+  | Gradient_to_user_input _ -> Some "gradient to user input"
+  | User_input_mutation _ -> Some "user input mutation"
+  | Token _ -> Some "token"
+  | Parameter_mutation _ -> Some "parameter mutation"
+
+(* The binder behind a named call. Nothing is evaluated until every check has
+   passed: the signature is mutation-free, the names are exactly the graph's
+   user inputs (none missing, none extra, none repeated), and each tensor has
+   the dtype and static shape the graph declares. *)
+let bind_named archive ~inputs lowered =
+  let open Err.Syntax in
+  let module B = Native_interp_error.Input_binding in
+  let fail b = Err.fail (`Input_binding b) in
+  let* () =
+    let program = Pt2_archive.program archive in
+    match
+      List.find_map mutation_kind
+        program.Pytorch_types.ExportedProgram.graph_module.signature
+          .Pytorch_types.GraphSignature.output_specs
+    with
+    | Some kind -> fail (B.Mutation kind)
+    | None -> Err.return ()
+  in
+  let* () =
+    let rec dup seen = function
+      | [] -> Err.return ()
+      | (name, _) :: rest ->
+          if List.mem name seen then fail (B.Duplicate name)
+          else dup (name :: seen) rest
+    in
+    dup [] inputs
+  in
+  let* expected = named_user_inputs lowered in
+  let* () =
+    match
+      List.find_opt
+        (fun (name, _, _) -> not (List.mem_assoc name inputs))
+        expected
+    with
+    | Some (name, _, _) -> fail (B.Missing name)
+    | None -> Err.return ()
+  in
+  let* () =
+    match
+      List.find_opt
+        (fun (name, _) ->
+          not (List.exists (fun (n, _, _) -> String.equal n name) expected))
+        inputs
+    with
+    | Some (name, _) -> fail (B.Unexpected name)
+    | None -> Err.return ()
+  in
+  Err.List.map
+    (fun (name, id, meta) ->
+      let tensor = List.assoc name inputs in
+      let* () =
+        match meta with
+        | None -> Err.return ()
+        | Some (m : Pytorch_types.TensorMeta.t) ->
+            let* () =
+              match Pt2_dtype.of_scalar_type m.dtype with
+              | Ok d when d <> tensor.Pt2_tensor.dtype ->
+                  fail
+                    (B.Dtype_mismatch
+                       {
+                         Native_interp_error.Dtype_mismatch.name;
+                         expected = d;
+                         got = tensor.dtype;
+                       })
+              | Ok _ | Error _ -> Err.return ()
+            in
+            let declared =
+              List.map
+                (function
+                  | Pytorch_types.SymInt.Int i -> Some i
+                  | Pytorch_types.SymInt.Expr _ -> None)
+                m.sizes
+            in
+            if List.exists Option.is_none declared then Err.return ()
+            else
+              let declared = List.map Option.get declared in
+              if declared = tensor.sizes then Err.return ()
+              else
+                fail
+                  (B.Shape_mismatch
+                     {
+                       Native_interp_error.Shape_mismatch.name;
+                       expected = List.map Aten_int.Size.of_int declared;
+                       got = List.map Aten_int.Size.of_int tensor.sizes;
+                     })
+      in
+      let+ packed = tensor_of_pt2 tensor in
+      (id, packed))
+    expected
+
+(* The run itself, over inputs a binder has already produced. *)
+let run_lowered ?arena ?layout ?schedule ?on_arena ?on_storage ?hooks
+    ?region_executor ?region_group_executor ?node_executor archive ~bind =
   let open Err.Syntax in
   let* lowered = lower_archive archive in
   let graph = lowered.Pt2_native_graph.graph in
@@ -182,19 +305,7 @@ let run ?arena ?layout ?schedule ?on_arena ?on_storage ?hooks ?region_executor
           })
       hooks
   in
-  let* input = tensor_of_pt2 input in
-  let user_ids =
-    List.filter
-      (fun id -> Graph_ir.input_kind graph id = Graph_ir.Input.Input)
-      graph.Graph_ir.Graph.inputs
-  in
-  let* inputs =
-    match user_ids with
-    | [ id ] -> Err.return [ (id, input) ]
-    | ids ->
-        Err.fail
-          (`Unsupported_input (`Not_exactly_one_user_input (List.length ids)))
-  in
+  let* inputs = bind lowered in
   let used_constants =
     List.concat_map
       (fun node -> Graph_ir.operands node.Graph_ir.Node.op)
@@ -232,6 +343,25 @@ let run ?arena ?layout ?schedule ?on_arena ?on_storage ?hooks ?region_executor
     (fun id ->
       Tensor_id.Map.find_opt id env |> Err.of_option (`Output_not_evaluated id))
     graph.Graph_ir.Graph.outputs
+
+let run ?arena ?layout ?schedule ?on_arena ?on_storage ?hooks ?region_executor
+    ?region_group_executor ?node_executor archive ~input =
+  let open Err.Syntax in
+  run_lowered ?arena ?layout ?schedule ?on_arena ?on_storage ?hooks
+    ?region_executor ?region_group_executor ?node_executor archive
+    ~bind:(fun lowered ->
+      let* input = tensor_of_pt2 input in
+      match user_input_ids lowered.Pt2_native_graph.graph with
+      | [ id ] -> Err.return [ (id, input) ]
+      | ids ->
+          Err.fail
+            (`Unsupported_input (`Not_exactly_one_user_input (List.length ids))))
+
+let run_named ?arena ?layout ?schedule ?on_arena ?on_storage ?hooks
+    ?region_executor ?region_group_executor ?node_executor archive ~inputs =
+  run_lowered ?arena ?layout ?schedule ?on_arena ?on_storage ?hooks
+    ?region_executor ?region_group_executor ?node_executor archive
+    ~bind:(bind_named archive ~inputs)
 
 (* ---- transforming, and running the result --------------------------------- *)
 

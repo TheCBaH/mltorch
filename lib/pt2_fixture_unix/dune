@@ -1,0 +1,19 @@
+; Native host side of the released-fixture chain: a content-addressed cache of
+; verified files, a transport that fetches into it, a bounded gzip/tar member
+; reader, and the extraction of an archive into a verified bundle directory.
+; Never reached by js_of_ocaml. The tar reader lives here, not in lib/pt2: it
+; exists to unpack one producer's archives safely, not to be a tar library.
+
+(library
+ (name pt2_fixture_unix)
+ (libraries
+  err_trace
+  fmt
+  pt2
+  pt2_checkpoint_map
+  pt2_checkpoint_map_unix
+  pt2_fixture
+  pt2_sha256
+  schema_runtime
+  unix
+  zipc))

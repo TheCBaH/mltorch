@@ -1,0 +1,21 @@
+; The native chain over the synthetic release of test/pt2_fixture: a fake
+; transport serving it, a real temporary cache, real files and mappings.
+; Native only (mmap, rename, directories).
+
+(library
+ (name pt2_fixture_unix_test)
+ (libraries
+  err_trace
+  fmt
+  pt2
+  pt2_checkpoint_map
+  pt2_checkpoint_map_test
+  pt2_fixture
+  pt2_fixture_test
+  pt2_fixture_unix
+  pt2_sha256
+  schema_runtime
+  unix)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
