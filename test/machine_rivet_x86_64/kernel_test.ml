@@ -78,7 +78,7 @@ let%expect_test "GNU assembles what Rivet encodes" =
     {|
     agree (2 segments, 328 bytes, 4 symbols)
     agree (2 segments, 4148 bytes, 4 symbols)
-    agree (2 segments, 938 bytes, 5 symbols) |}]
+    agree (2 segments, 1320 bytes, 5 symbols) |}]
 
 (* A difference between the two is seen: GNU is handed source with one
    instruction changed. *)
@@ -206,7 +206,7 @@ let%expect_test "call-frame information" =
     {|
     ok (1 functions, 64 instructions); ok (2 functions, 75 instructions)
     ok (1 functions, 664 instructions); ok (2 functions, 675 instructions)
-    ok (1 functions, 149 instructions); ok (2 functions, 160 instructions)
+    ok (1 functions, 203 instructions); ok (2 functions, 214 instructions)
     ok (1 functions, 66 instructions); ok (2 functions, 77 instructions) |}]
 
 (* A wrong description is seen: the first stack adjustment says 8 more bytes. *)

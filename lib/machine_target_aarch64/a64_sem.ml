@@ -70,6 +70,11 @@ let addr env base k =
   | Some p -> p
   | None -> env.E.defect Mir_observation.Defect.Bad_access
 
+(* The byte offset of a register-offset access: the 32-bit index sign-extended
+   and scaled by the access size. *)
+let scaled_index env m i =
+  Int64.mul (Int64.of_int32 (Int64.to_int32 (bits env i))) (Msz.bytes m)
+
 let shift_imm sz o x k =
   match (o : Shift.t) with
   | Shift.Lsl -> norm sz (Int64.shift_left x k)
@@ -257,6 +262,13 @@ let exec env op =
       let size = Msz.bytes m in
       (* normal memory permits an unaligned access (DDI 0487 B2.5) *)
       [ b (E.load env (addr env base k) ~bytes:size ~align:1L) ]
+  | Ldr_idx (m, base, i) ->
+      [
+        b
+          (E.load env
+             (addr env base (scaled_index env m i))
+             ~bytes:(Msz.bytes m) ~align:1L);
+      ]
   | Logic (o, sz, x, y) -> [ b (logic o sz (bits env x) (bits env y)) ]
   | Logic_imm (o, sz, x, k) -> [ b (logic o sz (bits env x) k) ]
   | Mov (_, x) -> [ get x ]
@@ -298,6 +310,11 @@ let exec env op =
   | Str (m, base, k, x) ->
       let size = Msz.bytes m in
       E.store env (addr env base k) ~bytes:size ~align:1L (bits env x);
+      []
+  | Str_idx (m, base, i, x) ->
+      E.store env
+        (addr env base (scaled_index env m i))
+        ~bytes:(Msz.bytes m) ~align:1L (bits env x);
       []
   | Str_vec (arr, base, k, x) ->
       let size = lane_bytes (Arr.fsz arr) in

@@ -87,7 +87,7 @@ let%expect_test "an exp kernel's artifact" =
       1x page_offset view0 -> mir_region_0+0
       3x page_offset view1 -> mir_region_1+0
       6x page_offset view1000000 -> mir_region_1000000+0
-      origins: 303, 302 at a CFG site |}]
+      origins: 287, 286 at a CFG site |}]
 
 let%expect_test "what publication refuses" =
   let p = Machine_source_test.Mir_math_test.program Expr.Value.Exp [| 1. |] in

@@ -180,5 +180,45 @@ model's invocations through the route against the per-node reference and, with
 models run bitwise under both allocators with `system_libm`, and their images
 agree with GNU's. Under the default mode all seven run on the owned `exp`.
 
+## Code quality: what the measurements moved
+
+The per-invocation profile of a model (`census --profile=N`) is flat: the cost
+is the inner loops of convolutions and matmuls, so the lever is the code of one
+reduction step. Three changes, each kept because it lowered the warm time with
+the output still bitwise equal to the reference:
+
+- **Floating-point accesses without a register-file move.** A load read only
+  by a bitcast to the float of the same width is selected as a float load that
+  defines the bitcast's value; a store of a bitcast stores the float register.
+  Removes an `fmov` between the general and floating-point files per access.
+- **Block-local common subexpressions** (`Mir_cse`, after address hoisting and
+  narrowing): a pure, unordered instruction that equals an earlier one in its
+  block reads the earlier result, unless another block or a terminator reads the
+  duplicate. Two accesses of one reduction step shared a sign extension and a
+  stride multiply.
+- **Register-offset accesses** (`Ldr_idx`, `Str_idx`): `base + sext(i32) *
+  size` folds the extension, scale and addition into the access.
+  Alone it did not move the time, which is why it is not the first thing to
+  tune; it stays because it shortens the code and GNU encodes it identically.
+
+- **Address terms hoisted to the outermost level where they are invariant, and
+  counters carried as pointers** (`Mir_offsets`): the offset of an access is a
+  sum of coefficients times leaves; each leaf lives at some depth of the loop
+  nest, and the partial sum of the terms up to a depth is added where the next
+  loop is entered, so a term is computed once per iteration of the loop it
+  varies in and not once per iteration of the innermost loop. A loop counter
+  that its one back edge advances by a constant becomes a pointer carried round
+  that loop (a header parameter, started in the preheader, advanced in the back
+  edge's block). The models' inner loops are short or single-trip (a 1x1
+  convolution's window loops), so hoisting only out of the innermost loop made
+  a counter-carried pointer slower than recomputing; the nest-wide form is what
+  paid.
+
+Each has a check that fails without it (a selected-code count in the kernel
+tests, a merged-constants mutation and a doubled pointer advance on the source
+routes). What is left is a materialized constant and two branches per
+iteration; loop rotation is not done. Pointers carried per loop level raise
+register pressure, which the scanned allocation absorbs on these models.
+
 Logical work counters (`Event`) are not executed natively and are not compared.
 x86-64 is not covered here.

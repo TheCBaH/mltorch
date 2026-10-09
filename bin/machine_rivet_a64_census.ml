@@ -87,7 +87,7 @@ let prefix (b : Loop_bundle.t) m ~constants ~count =
 (* The table-bound host: tensors are the context's storage, passed by address.
    The same comparison, with the phases timed apart. *)
 let host_run (b : Loop_bundle.t) ~constants ~allocation ~runtime ~count ~poison
-    ~gnu ~pipeline ~interp ~bench =
+    ~gnu ~pipeline ~interp ~bench ~profile =
   let module H = Machine_rivet_aarch64.Rivet_a64_host in
   let n = List.length b.Loop_bundle.invocations in
   let t0 = Unix.gettimeofday () in
@@ -216,6 +216,41 @@ let host_run (b : Loop_bundle.t) ~constants ~allocation ~runtime ~count ~poison
                     (List.nth times (reps / 2))
                     (List.nth times (reps - 1))
                     reps);
+              (match profile with
+              | None -> ()
+              | Some reps ->
+                  (* the cost of each invocation: the cumulative time of the
+                     first k invocations, differenced, the minimum of [reps] *)
+                  let cumulative k =
+                    List.init reps (fun _ ->
+                        let t0 = Unix.gettimeofday () in
+                        ignore
+                          (H.Context.run_prefix cx
+                             ~inputs:(fun id -> List.assoc_opt id inputs)
+                             ~count:k);
+                        Unix.gettimeofday () -. t0)
+                    |> List.fold_left Float.min Float.infinity
+                  in
+                  let total = cumulative count in
+                  let previous = ref (cumulative 0) in
+                  let costs =
+                    List.init count (fun k ->
+                        let t = cumulative (k + 1) in
+                        let d = t -. !previous in
+                        previous := t;
+                        (k, d *. 1000.))
+                  in
+                  Fmt.pr "  profile: whole schedule %.3f ms@." (total *. 1000.);
+                  List.iteri
+                    (fun rank (k, ms) ->
+                      if rank < 12 then begin
+                        Fmt.pr "    invocation %d: %.3f ms@." k ms;
+                        if rank < 3 then
+                          Fmt.pr "%a@." Loop_pp.program
+                            (List.nth b.Loop_bundle.invocations k)
+                              .Loop_bundle.program
+                      end)
+                    (List.sort (fun (_, a) (_, b) -> compare b a) costs));
               if interp then
                 (* the same planned program on the selected-stage interpreter:
                    what the native code must equal bit for bit *)
@@ -274,6 +309,7 @@ let () =
   and planned = ref None
   and interp = ref false
   and bench = ref None
+  and profile = ref None
   and poison = ref false in
   let args =
     List.filter
@@ -293,6 +329,9 @@ let () =
               Some
                 (if n = "ordered" then Ssa_ir.Ssa_numerics.Simd_fp32_ordered
                  else Ssa_ir.Ssa_numerics.Simd_fp32_relaxed);
+            false
+        | [ "--profile"; n ] ->
+            profile := Some (int_of_string n);
             false
         | [ "--bench"; n ] ->
             bench := Some (int_of_string n);
@@ -347,6 +386,7 @@ let () =
             host_run b ~constants ~allocation:!allocation ~runtime:!runtime
               ~count:(Option.value ~default:n !run)
               ~poison:!poison ~gnu:!gnu ~interp:!interp ~bench:!bench
+              ~profile:!profile
               ~pipeline:
                 (match !planned with
                 | Some numerics ->

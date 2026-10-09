@@ -74,6 +74,37 @@ let%expect_test "an exp kernel through the owned exp, and a refused log" =
     ok [native: agree]
     native: helper log needs the system math library, which the mode forbids |}]
 
+(* The same cases against the source oracle itself, the structured SSA
+   interpreter on the plan, with no machine-level interpreter between. *)
+let%expect_test "native agrees with the source oracle" =
+  let oracle ?mutation kernel ~bind =
+    match Src.case_of_plan (Fusion_plan.default kernel) ~bind with
+    | Error e -> Fmt.pr "%s@." e
+    | Ok case -> Fmt.pr "%s@." (H.oracle ?mutation case)
+  in
+  oracle Loop_programs.kernel ~bind:(data_bind [| -0.; 1.5; nan; 3. |]);
+  oracle Cases.noncommutative ~bind:(data_bind [| 7.; -0.; 1e-40; 3.4e38 |]);
+  oracle Loop_programs.shifted_kernel ~bind:(data_bind [| 0.; 0.; 0.; 0. |]);
+  oracle (Cases.shifted ~dh:1 ~dw:4) ~bind:(data_bind [| 0.; 0.; 0.; 0. |]);
+  let a = operand 3 35 and b = operand 5 21 in
+  oracle (matmul_kernel ~m:5 ~k:7 ~n:3) ~bind:(matmul_bind ~m:5 ~k:7 ~n:3 ~a ~b);
+  oracle
+    (Loop_programs.unary_kernel Expr.Value.Exp)
+    ~bind:(data_bind [| 1.; -87.5; 88.7; -1e30 |]);
+  Fmt.pr "commuted subtraction: ";
+  oracle ~mutation:Machine_rivet_aarch64.Rivet_a64_form.Mutation.Commuted_sub
+    Cases.noncommutative
+    ~bind:(data_bind [| 7.; -0.; 1e-40; 3.4e38 |]);
+  [%expect
+    {|
+    ok [native vs source oracle: agree]
+    ok [native vs source oracle: agree]
+    coord_out_of_range(t0, W) [native vs source oracle: agree]
+    coord_out_of_range(t0, H) [native vs source oracle: agree]
+    ok [native vs source oracle: agree]
+    ok [native vs source oracle: agree]
+    commuted subtraction: ok [native vs source oracle: DISAGREE output t1[0]: 0x1.aaaaaap-1:f32 vs -0x1.aaaaaap-1:f32] |}]
+
 (* Each mapping defect below leaves a program that still assembles, loads and
    runs; only the comparison with the interpreter can tell. *)
 let%expect_test "mapping mutations are detected natively" =
@@ -115,10 +146,63 @@ let%expect_test "GNU assembles what Rivet encodes" =
     ~bind:(data_bind [| 1.; 2.; 3.; 4. |]);
   [%expect
     {|
-    agree (2 segments, 352 bytes, 4 symbols)
-    agree (2 segments, 2800 bytes, 4 symbols)
-    agree (2 segments, 740 bytes, 5 symbols)
-    agree (2 segments, 360 bytes, 5 symbols) |}]
+    agree (2 segments, 256 bytes, 4 symbols)
+    agree (2 segments, 2704 bytes, 4 symbols)
+    agree (2 segments, 824 bytes, 5 symbols)
+    agree (2 segments, 264 bytes, 5 symbols) |}]
+
+(* Selection folds an index extension, scale and addition into the access, and
+   a float load or store into a floating-point access with no move between
+   register files; the kernel still agrees with the interpreter, and GNU
+   assembles what Rivet encodes. *)
+let%expect_test "register-offset and floating-point accesses" =
+  let m, k, n = (5, 7, 3) in
+  let a = operand 3 (m * k) and b = operand 5 (k * n) in
+  let report name kernel bind =
+    match Src.case_of_plan (Fusion_plan.default kernel) ~bind with
+    | Error e -> Fmt.pr "%s@." e
+    | Ok case -> (
+        Fmt.pr "%s: %s@." name (H.compare case);
+        match H.build case ~sites:[||] with
+        | Error e -> Fmt.pr "%s@." e
+        | Ok b -> (
+            match
+              Err.payload
+                (Machine_rivet_aarch64.Rivet_a64_module.of_artifact b.H.artifact)
+            with
+            | Error _ -> Fmt.pr "refused@."
+            | Ok modul ->
+                let text =
+                  Machine_rivet_aarch64_gnu.Gnu_coherence.assembly modul
+                in
+                let count re =
+                  let n = ref 0 and from = ref 0 in
+                  (try
+                     while true do
+                       from := Str.search_forward (Str.regexp re) text !from + 1;
+                       incr n
+                     done
+                   with Not_found -> ());
+                  !n
+                in
+                Fmt.pr
+                  "  register-offset accesses: %b; float loads: %b, moves from \
+                   a general register: %d@."
+                  (count "sxtw #[0-9]\\]" > 0)
+                  (count "ldr s[0-9]" > 0)
+                  (count "fmov s[0-9]+, w")))
+  in
+  report "matmul" (matmul_kernel ~m ~k ~n) (matmul_bind ~m ~k ~n ~a ~b);
+  report "shifted" Loop_programs.shifted_kernel (data_bind [| 0.; 0.; 0.; 0. |]);
+  report "pointwise" Loop_programs.kernel (data_bind [| 1.; 2.; 3.; 4. |]);
+  [%expect
+    {|
+    matmul: ok [native: agree]
+      register-offset accesses: false; float loads: true, moves from a general register: 0
+    shifted: coord_out_of_range(t0, W) [native: agree]
+      register-offset accesses: true; float loads: true, moves from a general register: 0
+    pointwise: ok [native: agree]
+      register-offset accesses: true; float loads: true, moves from a general register: 0 |}]
 
 (* A difference between the two is seen: GNU is handed source with one
    instruction changed. *)
@@ -146,9 +230,9 @@ let%expect_test "a tampered GNU source disagrees" =
     ~bind:(data_bind [| 7.; -0.; 1e-40; 3.4e38 |]);
   [%expect
     {|
-    .text+237: rivet 3a, gnu 2a
+    .text+189: rivet 3a, gnu 2a
     .text+92: rivet c0, gnu 1f
-    reparsed .text+237: typed 3a, text 2a |}]
+    reparsed .text+189: typed 3a, text 2a |}]
 
 (* AAPCS64 around the kernel: the callee-saved registers, FPCR and the stack
    pointer come back as they went in, whichever way the kernel exits, and its
@@ -219,8 +303,8 @@ let%expect_test "large frames, run and encoded" =
     ok [native: agree]
     ok [native: agree]
     ok [native: agree]
-    agree (2 segments, 576 bytes, 4 symbols)
-    agree (2 segments, 576 bytes, 4 symbols)
+    agree (2 segments, 416 bytes, 4 symbols)
+    agree (2 segments, 416 bytes, 4 symbols)
     not built: frame: fn0: a frame beyond the supported code model
     not built: frame: fn0: a frame beyond the supported code model |}]
 
@@ -310,9 +394,9 @@ let%expect_test "vector kernels: the forms they use, and GNU's reading of them"
     ~bind:(bind_data ~shape (vdata 37));
   [%expect
     {|
-    216 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 2456 bytes, 5 symbols)
-    216 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 2456 bytes, 5 symbols)
-    156 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 1444 bytes, 4 symbols) |}]
+    210 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 2404 bytes, 5 symbols)
+    210 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 2404 bytes, 5 symbols)
+    156 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 1324 bytes, 4 symbols) |}]
 
 let%expect_test "contracted vector kernels, natively and with the ABI probe" =
   let relaxed = Ssa_ir.Ssa_numerics.Simd_fp32_relaxed in
@@ -355,9 +439,9 @@ let%expect_test "fmla on the CPU" =
     [ 16; 37 ];
   [%expect
     {|
-    w=16: 308 vector instructions, 4 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 2212 bytes, 4 symbols)
+    w=16: 308 vector instructions, 4 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 2068 bytes, 4 symbols)
     w=16: ok [native: agree]
-    w=37: 308 vector instructions, 4 fmla, 1 fmadd, 0 ld1r; agree (2 segments, 2492 bytes, 4 symbols)
+    w=37: 308 vector instructions, 4 fmla, 1 fmadd, 0 ld1r; agree (2 segments, 2252 bytes, 4 symbols)
     w=37: ok [native: agree] |}]
 
 (* Strided lane expansion: the input read transposed, so a vector of outputs
@@ -395,7 +479,7 @@ let%expect_test "lane gathers and every legal loop vectorized, natively" =
         {|
         ld1 12, st1 0, ins 8, ld1r 4, dup 16
         ok [native: agree]
-        agree (2 segments, 2008 bytes, 4 symbols) |}]
+        agree (2 segments, 1984 bytes, 4 symbols) |}]
 
 (* A call per lane: exp has no vector form, so the lanes go out one at a time,
    with the vector held across each call in a full-width spill. *)
@@ -496,10 +580,10 @@ let%expect_test "call-frame information" =
     ~bind:(data_bind [| -0.; 1.5; nan; 3. |]);
   [%expect
     {|
-    ok (1 functions, 88 instructions); ok (2 functions, 97 instructions)
-    ok (1 functions, 700 instructions); ok (2 functions, 709 instructions)
-    ok (1 functions, 185 instructions); ok (2 functions, 194 instructions)
-    ok (1 functions, 144 instructions); ok (2 functions, 153 instructions) |}]
+    ok (1 functions, 64 instructions); ok (2 functions, 73 instructions)
+    ok (1 functions, 676 instructions); ok (2 functions, 685 instructions)
+    ok (1 functions, 206 instructions); ok (2 functions, 215 instructions)
+    ok (1 functions, 104 instructions); ok (2 functions, 113 instructions) |}]
 
 (* A wrong description is seen: the first stack adjustment says 8 more bytes. *)
 let%expect_test "wrong call-frame information is seen" =
@@ -516,4 +600,4 @@ let%expect_test "wrong call-frame information is seen" =
   | Ok case -> Fmt.pr "%s@." (H.cfi ~tamper case)
   | Error e -> Fmt.pr "%s@." e);
   [%expect
-    {| 4 mrs x17, fpcr: CFA offset 1000, instructions say 176; 4 mrs x17, fpcr: CFA offset 1000, instructions say 176 |}]
+    {| 4 mrs x17, fpcr: CFA offset 1000, instructions say 112; 4 mrs x17, fpcr: CFA offset 1000, instructions say 112 |}]

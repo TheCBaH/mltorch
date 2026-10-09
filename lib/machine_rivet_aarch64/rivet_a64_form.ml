@@ -73,6 +73,7 @@ let form_name : A.t -> string = function
   | A.Ld1_lane _ -> "Ld1_lane"
   | A.Ld1r _ -> "Ld1r"
   | A.Ldr _ -> "Ldr"
+  | A.Ldr_idx _ -> "Ldr_idx"
   | A.Ldr_vec _ -> "Ldr_vec"
   | A.Logic _ -> "Logic"
   | A.Logic_imm _ -> "Logic_imm"
@@ -89,6 +90,7 @@ let form_name : A.t -> string = function
   | A.Shift_imm _ -> "Shift_imm"
   | A.St1_lane _ -> "St1_lane"
   | A.Str _ -> "Str"
+  | A.Str_idx _ -> "Str_idx"
   | A.Str_vec _ -> "Str_vec"
   | A.Sub _ -> "Sub"
   | A.Sub_imm _ -> "Sub_imm"
@@ -174,8 +176,33 @@ let mem env ~base ~offset =
     }
 
 (* A load or store of the access size [m] against [base, #offset]. *)
-let access env ~load (m : A.Msz.t) ~rt ~base ~offset =
-  let mem = mem env ~base ~offset in
+let access ?index env ~load (m : A.Msz.t) ~rt ~base ~offset =
+  let mem =
+    match index with
+    | None -> mem env ~base ~offset
+    | Some index ->
+        (* [base, Wm, sxtw #log2 size]; a byte access has no scale to name *)
+        let amount =
+          match m with
+          | A.Msz.B -> None
+          | A.Msz.H -> Some 1
+          | A.Msz.S | A.Msz.W -> Some 2
+          | A.Msz.D | A.Msz.X -> Some 3
+        in
+        O.Mem
+          {
+            Aarch64.Mem.base = gpr env ~width:64 (loc_view env base);
+            offset =
+              Aarch64.Disp.Reg
+                {
+                  index = gpr env ~width:32 (loc_view env index);
+                  extend = "sxtw";
+                  amount;
+                };
+            writeback = false;
+            pre = true;
+          }
+  in
   let gp ~width = O.Reg (gpr env ~width (loc_view env rt)) in
   let fp ~double = O.Freg (fpr env ~double (loc_view env rt)) in
   let op, reg =
@@ -405,6 +432,8 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       [ ins opcode [ f env fsz (d 0); f env fsz (u 0) ] ]
   | A.Ldr (m, _, k) ->
       [ access env ~load:true m ~rt:(d 0) ~base:(u 0) ~offset:k ]
+  | A.Ldr_idx (m, _, _) ->
+      [ access env ~index:(u 1) ~load:true m ~rt:(d 0) ~base:(u 0) ~offset:0L ]
   | A.Logic (o, sz, _, _) ->
       binary
         (match o with
@@ -475,6 +504,8 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       ]
   | A.Str (m, _, k, _) ->
       [ access env ~load:false m ~rt:(u 1) ~base:(u 0) ~offset:k ]
+  | A.Str_idx (m, _, _, _) ->
+      [ access env ~index:(u 1) ~load:false m ~rt:(u 2) ~base:(u 0) ~offset:0L ]
   | A.Sub (sz, _, _) when mutated Mutation.Commuted_sub ->
       [ ins Op.Sub [ g env sz (d 0); g env sz (u 1); g env sz (u 0) ] ]
   | A.Sub (sz, _, _) -> binary Op.Sub sz

@@ -204,6 +204,9 @@ type t =
   | Ldr of Msz.t * v * int64
       (** [base, #imm]: unsigned, a multiple of the size, at most 4095 of them;
           B and H zero-extend into a W register *)
+  | Ldr_idx of Msz.t * v * v
+      (** [base, Wm, SXTW #log2 size]: the 32-bit index sign-extended and scaled
+          by the access size; B and H zero-extend into a W register *)
   | Ldr_vec of Arr.t * v * int64  (** LDR Qt or Dt, [Xn, #imm] *)
   | Logic of Logic.t * Sz.t * v * v
   | Logic_imm of Logic.t * Sz.t * v * int64  (** a bitmask immediate *)
@@ -222,6 +225,8 @@ type t =
   | Shift_imm of Shift.t * Sz.t * v * int
   | St1_lane of Fsz.t * int * v * v  (** ST1 \{Vt.Ts\}[k], [Xn]: vector, base *)
   | Str of Msz.t * v * int64 * v  (** base, imm, value *)
+  | Str_idx of Msz.t * v * v * v
+      (** [base, Wm, SXTW #log2 size]: base, index, value *)
   | Str_vec of Arr.t * v * int64 * v
       (** STR Qt or Dt, [Xn, #imm]: base, value *)
   | Sub of Sz.t * v * v
@@ -262,6 +267,7 @@ let uses = function
   | Ins_half (a, b)
   | Ins_lane (_, _, a, b)
   | Ld1_lane (_, _, a, b)
+  | Ldr_idx (_, a, b)
   | St1_lane (_, _, a, b)
   | Vfbin (_, _, a, b)
   | Vfcmp (_, _, a, b)
@@ -313,6 +319,7 @@ let uses = function
   | Vfmla (_, a, b, c) ->
       [ a; b; c ]
   | Str (_, base, _, x) | Str_vec (_, base, _, x) -> [ base; x ]
+  | Str_idx (_, base, i, x) -> [ base; i; x ]
 
 let test_uses = function
   | B_cond (_, f) -> [ f ]
@@ -323,8 +330,8 @@ let test_flags_read = function
   | Cbnz _ | Cbz _ -> 0L
 
 let ordered = function
-  | Bl _ | Ld1_lane _ | Ld1r _ | Ldr _ | Ldr_vec _ | St1_lane _ | Str _
-  | Str_vec _ ->
+  | Bl _ | Ld1_lane _ | Ld1r _ | Ldr _ | Ldr_idx _ | Ldr_vec _ | St1_lane _
+  | Str _ | Str_idx _ | Str_vec _ ->
       true
   | _ -> false
 
@@ -404,7 +411,10 @@ let op_features = function
   | Vfbin _ | Vfcmp _ | Vfmla _ | Vfunary _ | Vlogic _ | Vmov _ | Vnot _
   | Vwiden _ ->
       [ Mir_target.Feature.Fp ]
-  | Ldr ((Msz.S | Msz.D), _, _) | Str ((Msz.S | Msz.D), _, _, _) ->
+  | Ldr ((Msz.S | Msz.D), _, _)
+  | Ldr_idx ((Msz.S | Msz.D), _, _)
+  | Str ((Msz.S | Msz.D), _, _, _)
+  | Str_idx ((Msz.S | Msz.D), _, _, _) ->
       [ Mir_target.Feature.Fp ]
   | _ -> []
 
@@ -683,6 +693,19 @@ let typing op =
           | Msz.S -> Mir_type.F32
           | Msz.D -> Mir_type.F64);
         ]
+  | Ldr_idx (m, base, i) ->
+      let* () = need (Mir_type.equal (ty base) Mir_type.Ptr) "ldr base" in
+      let* () = need (Mir_type.equal (ty i) Mir_type.i32) "ldr index" in
+      Ok
+        [
+          (match m with
+          | Msz.B -> Mir_type.i8
+          | Msz.H -> Mir_type.i16
+          | Msz.W -> Mir_type.i32
+          | Msz.X -> Mir_type.i64
+          | Msz.S -> Mir_type.F32
+          | Msz.D -> Mir_type.F64);
+        ]
   | Logic (_, sz, a, b) ->
       let* () =
         need (gpr sz (ty a) && Mir_type.equal (ty a) (ty b)) "logical operands"
@@ -806,6 +829,23 @@ let typing op =
           && Int64.compare (Int64.div k size) 4095L <= 0)
           "str offset"
       in
+      let* () =
+        need
+          (match (m, ty x) with
+          | Msz.B, Mir_type.Int Mir_width.W8
+          | Msz.H, Mir_type.Int Mir_width.W16
+          | Msz.W, Mir_type.Int Mir_width.W32
+          | Msz.X, Mir_type.Int Mir_width.W64
+          | Msz.S, Mir_type.F32
+          | Msz.D, Mir_type.F64 ->
+              true
+          | _ -> false)
+          "str value"
+      in
+      Ok []
+  | Str_idx (m, base, i, x) ->
+      let* () = need (Mir_type.equal (ty base) Mir_type.Ptr) "str base" in
+      let* () = need (Mir_type.equal (ty i) Mir_type.i32) "str index" in
       let* () =
         need
           (match (m, ty x) with
@@ -949,6 +989,8 @@ let pp_op pv fmt op =
       Fmt.pf fmt "ld1 %a.%s[%d], [%a]" pv a (Fsz.name fsz) k pv base
   | Ld1r (arr, base) -> Fmt.pf fmt "ld1r.%s [%a]" (Arr.name arr) pv base
   | Ldr (m, base, k) -> Fmt.pf fmt "ldr.%s [%a, #%Ld]" (Msz.name m) pv base k
+  | Ldr_idx (m, base, i) ->
+      Fmt.pf fmt "ldr.%s [%a, %a, sxtw]" (Msz.name m) pv base pv i
   | Ldr_vec (arr, base, k) ->
       Fmt.pf fmt "ldr.%s [%a, #%Ld]" (Arr.name arr) pv base k
   | Logic (o, sz, a, b) ->
@@ -972,6 +1014,8 @@ let pp_op pv fmt op =
       Fmt.pf fmt "st1 %a.%s[%d], [%a]" pv a (Fsz.name fsz) k pv base
   | Str (m, base, k, x) ->
       Fmt.pf fmt "str.%s %a, [%a, #%Ld]" (Msz.name m) pv x pv base k
+  | Str_idx (m, base, i, x) ->
+      Fmt.pf fmt "str.%s %a, [%a, %a, sxtw]" (Msz.name m) pv x pv base pv i
   | Str_vec (arr, base, k, x) ->
       Fmt.pf fmt "str.%s %a, [%a, #%Ld]" (Arr.name arr) pv x pv base k
   | Sub (sz, a, b) -> Fmt.pf fmt "sub.%s %a" (Sz.name sz) vs [ a; b ]
