@@ -712,7 +712,7 @@ Measured, each row preserved as run (tolerances and references unchanged):
 | SmolLM2 decode, history 4 | case-01: 5 of 49,152 logits over (4.3e-5) | 20 over |
 | SmolLM2 prefill | 174 and 1,880 of 196,608 logits over (max 7.4e-5) | 1,974 and 2,685 over, plus K/V |
 | TinyCLIP text, Whisper prefill | not run (int32 cast; see below) | |
-| Whisper encoder | not finished: over 30 minutes of CPU for two cases | |
+| Whisper-tiny encoder | 16 and 18 of 576,000 elements over | not run |
 
 The reading: the sequential chain reproduces the reference only for the
 connector's gemm. The decode and prefill references run a different kernel
@@ -725,6 +725,9 @@ in the engine. What would close it is a reference computed with a
 higher-precision accumulator, or per-kernel emulation of the producer's gemm
 for each shape class.
 
-Separately, the Whisper encoder is a performance wall: Direct ran 30 minutes of
-CPU without finishing two cases. The graph-level work (a transformed or Kernel
-route) is what S8's route rows are for.
+A note on the Whisper encoder: a replay of it was once left running for over 30
+minutes before being stopped, yet an earlier run of the same artifact had
+finished and written the report above, so its cost is high (a 3,000-frame
+convolution stem and 1,500-position attention in a pure evaluator) rather than
+unbounded. Whisper prefill was not run; the matrix script
+(`scripts/transformers-matrix.py`) states "not run" for it rather than inferring.
