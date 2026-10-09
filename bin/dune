@@ -275,3 +275,24 @@
   ssa_ir
   unix)
  (optional))
+
+; The same for x86-64, run as emulated processes under qemu-user (EMULATION, not
+; an x86-64 CPU). Built only where Rivet is installed; MANUAL, needs the model
+; data and qemu-x86_64.
+
+(executable
+ (name machine_rivet_x64_census)
+ (modules machine_rivet_x64_census)
+ (libraries
+  err_trace
+  fmt
+  loop_ir
+  machine_model
+  machine_rivet_x86_64
+  native
+  native_interp
+  pt2
+  ssa_backends
+  ssa_ir
+  unix)
+ (optional))
