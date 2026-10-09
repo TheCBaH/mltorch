@@ -477,7 +477,7 @@ let sum_keepdims ?(keepdim = true) dims x =
    [op1]'s F32 default: its output genuinely is F32. *)
 let to_copy target x =
   match target with
-  | Pointwise.To_copy.Long ->
+  | Pointwise.To_copy.Int | Pointwise.To_copy.Long ->
       op1 ~fmt:Payload.(Fmt I64) (Op.To_copy { Pointwise.To_copy.target; x })
   | Pointwise.To_copy.Bool ->
       op1 ~fmt:Payload.(Fmt Bool) (Op.To_copy { Pointwise.To_copy.target; x })

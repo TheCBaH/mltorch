@@ -387,6 +387,40 @@ let compute_arms (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
                   ~operand:(fun r -> Tensor_id.Map.find r operand_env)
                   ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
                   ~fill)))
+  (* [To_copy]'s [Int] target (int32): the value is carried in an int64 cell,
+     since the engine has no 32-bit integer edge, and a value outside the int32
+     range is an error raised through the same [Err.or_raise] boundary a bad
+     [Long] cast uses -- never the wrap-around ATen's [static_cast] gives, which
+     this carrier could not reproduce. The Symbolic route does not range-check:
+     it is the same carrier without the guard, so an out-of-range value there is
+     carried, not wrapped. *)
+  | To_copy { Pointwise.To_copy.target = Pointwise.To_copy.Int; x } -> (
+      let x_sig = Tensor_id.Map.find x g.Graph.tensors in
+      let x_t = Tensor_id.Map.find x operand_env in
+      let in_range v =
+        if Int64.compare v (-2147483648L) < 0 || Int64.compare v 2147483647L > 0
+        then
+          Err.or_raise
+            ~pp_error:(fun fmt v ->
+              Fmt.pf fmt "to_copy int32: %Ld is outside [-2^31, 2^31)" v)
+            (Err.fail v)
+        else v
+      in
+      match x_sig.Tensor_sig.fmt with
+      | Payload.Fmt Payload.I64 ->
+          finish dst
+            (Tensor.write_i64 dst (fun coord ->
+                 in_range (Direct.i64_load x_t coord)))
+      | Payload.Fmt Payload.Bool ->
+          finish dst
+            (Tensor.write_i64 dst (fun coord ->
+                 if Direct.bool_load x_t coord then 1L else 0L))
+      | Payload.Fmt Payload.F32 ->
+          let module C = Pointwise.To_copy.Compute_to_long (Direct) (Direct) in
+          finish dst
+            (Tensor.write_i64 dst (fun coord -> in_range (C.pixel x_t coord)))
+      | Payload.Fmt other ->
+          Err.fail (`Unsupported_to_copy_long_source (Payload.Fmt other)))
   (* The reverse direction: [To_copy]'s [Long] target on an F32 operand --
      the real "Float to I64" cast, not merely an explicit-cast architecture
      fix like the [Float] arm above. [Compute(S).pixel]'s [Long] arm is a
@@ -604,6 +638,13 @@ let compute_arms (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
            ~x_shape:(Tensor_id.Map.find x shape_env)
            ~x:(Tensor_id.Map.find x operand_env)
            (C.index_pixel params))
+  | Argmax { Reduce.Argmax.params; x } ->
+      let module C = Reduce.Argmax.Compute (Direct) in
+      finish dst
+        (index_i64 dst
+           ~x_shape:(Tensor_id.Map.find x shape_env)
+           ~x:(Tensor_id.Map.find x operand_env)
+           (C.pixel params))
   | Max_dim { Reduce.MaxDim.params; x }
     when Output_ordinal.equal output Output_ordinal.one ->
       let module C = Reduce.MaxDim.Compute (Direct) in

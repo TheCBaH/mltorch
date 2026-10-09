@@ -10,7 +10,12 @@ open Schema_runtime
 open Native_interp_decode
 open Native_interp_decode_shape
 
-let targets = [ "torch.ops.aten.cumsum.default"; "torch.ops.aten.max.dim" ]
+let targets =
+  [
+    "torch.ops.aten.argmax.default";
+    "torch.ops.aten.cumsum.default";
+    "torch.ops.aten.max.dim";
+  ]
 
 let dispatch ~ctx ~env (node : Node.t) =
   if not (List.mem node.target targets) then None
@@ -34,6 +39,29 @@ let dispatch ~ctx ~env (node : Node.t) =
           both in ordinary PyTorch code) -- so this importer checks liveness
           per output ([ctx.reads], the same mechanism [lstm.input]'s own
           three-output arm uses) rather than assuming deadness. *)
+       (* `argmax(self, int? dim=None, bool keepdim=False)`. Only a given [dim]
+          is covered: [dim=None] flattens the tensor first, an index over the
+          whole thing rather than along one axis, and is refused as a missing
+          required argument. *)
+       | "torch.ops.aten.argmax.default" ->
+           let x_name = tensor_name esc node "self" in
+           let rank =
+             meta_rank (tensor_meta esc graph ~ssa:x_name ~role:`Amax_input)
+           in
+           let axis =
+             match
+               axes_for_rank esc ~tensor:x_name rank
+                 [ Aten_int.Dim.of_int (required_int_arg esc node "dim") ]
+             with
+             | [ axis ] -> axis
+             | _ -> invalid_arg "Native_interp: argmax lost its singleton axis"
+           in
+           let* y =
+             argmax
+               { Reduce.Argmax.axis; keepdim = bool_arg esc node "keepdim" }
+               (get "self")
+           in
+           return [ y ]
        | "torch.ops.aten.max.dim" ->
            let x_name = tensor_name esc node "self" in
            let rank =

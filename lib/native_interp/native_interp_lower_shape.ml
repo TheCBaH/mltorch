@@ -322,6 +322,8 @@ let dispatch ~ctx ~env (node : Node.t) =
                  Pointwise.To_copy.Bool
              | Some (Argument.Scalar_type Pytorch_types.ScalarType.FLOAT) ->
                  Pointwise.To_copy.Float
+             | Some (Argument.Scalar_type Pytorch_types.ScalarType.INT) ->
+                 Pointwise.To_copy.Int
              | Some (Argument.Scalar_type Pytorch_types.ScalarType.LONG) ->
                  Pointwise.To_copy.Long
              | Some _ ->

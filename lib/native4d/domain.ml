@@ -193,6 +193,9 @@ let check_node view (n : node) =
   let node = n.Node.id in
   let unsupported () = Err.fail (`Unsupported_op (node, n.Node.op)) in
   match n.Node.op with
+  (* The int32 cast carries its value in an int64 cell with a range check Direct
+     owns; Native4D has neither. *)
+  | To_copy { target = Pointwise.To_copy.Int; _ } -> unsupported ()
   (* Direct counterparts, or legalizations that constrain nothing here: their
      tensors are covered by the shape rule above. [Adaptive_max_pool2d_with_indices]/
      [Max_pool2d_with_indices] join this bucket now that a real Native4D
@@ -380,8 +383,8 @@ let check_node view (n : node) =
      while an embedding lookup is [index_select] and rejects it. Lowering one
      onto the other would quietly change the failure behavior of the source
      operation, so the node stays outside the dialect. *)
-  | Bitwise_and _ | Embedding _ | Ge_scalar _ | Index_pair _ | Le_tensor _
-  | Lt_scalar _ | New_ones _ | Tanh _ | Where_scalar_other _ ->
+  | Argmax _ | Bitwise_and _ | Embedding _ | Ge_scalar _ | Index_pair _
+  | Le_tensor _ | Lt_scalar _ | New_ones _ | Tanh _ | Where_scalar_other _ ->
       unsupported ()
 
 (* Node predicates FIRST, then the shape rule. The two overlap — a permutation

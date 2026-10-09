@@ -387,3 +387,72 @@ let%expect_test "int64 add_scalar and slice never touch the float domain" =
     + 1: i64 [C=3] {9007199254740994, 6, -6}
     slice [1, 3): i64 [C=2] {5, -7}
     + 0.5 leaves the integer path: f32 [C=3] {9.0072e+15, 5.5, -6.5} |}]
+
+(* --- argmax and the int32 cast: TinyCLIP's last-token pooling --- *)
+
+let argmax_params axis keepdim = { Reduce.Argmax.axis; keepdim }
+
+let%expect_test "argmax: first maximum, NaN wins, keepdim, int64 result" =
+  let shape = s 1 1 1 1 3 4 in
+  let x =
+    floats shape
+      [ 1.; 5.; 5.; 2.; nan; 1.; nan; 0.; -.inf; -.inf; -.inf; -.inf ]
+  in
+  let go axis keepdim =
+    run
+      ~inputs:[ (shape, f32, x) ]
+      (function
+        | [ x ] -> Graph_builder.argmax (argmax_params axis keepdim) x
+        | _ -> assert false)
+  in
+  let show_long label r =
+    Format.printf "%s: %a@." label (pp_result pp_longs) r
+  in
+  (* Rows (W): [1 5 5 2] -> 1 (the first 5); [nan 1 nan 0] -> 2: a NaN is the
+     maximum, but this engine reports the LAST of several (the pooling
+     predicate), where ATen reports the first -- a known difference, pinned
+     here so it cannot change unnoticed; [-inf x4] -> 0 (the first of a tie). *)
+  show_long "along C" (go Axis.C false);
+  show_long "along C, keepdim" (go Axis.C true);
+  (* Columns (W): c0 = [1 nan -inf] -> 1; c1 = [5 1 -inf] -> 0;
+     c2 = [5 nan -inf] -> 1; c3 = [2 0 -inf] -> 0. *)
+  show_long "along W" (go Axis.W false);
+  [%expect
+    {|
+    along C: i64 [C=3] {1, 2, 0}
+    along C, keepdim: i64 [W=3 C=1] {1, 2, 0}
+    along W: i64 [C=4] {1, 0, 1, 0} |}]
+
+let%expect_test "to_copy int32 keeps in-range values and refuses the rest" =
+  let three = s1c 3 in
+  let cast fmt t =
+    run
+      ~inputs:[ (three, fmt, t) ]
+      (function
+        | [ x ] -> Graph_builder.to_copy Pointwise.To_copy.Int x
+        | _ -> assert false)
+  in
+  let show_long label r =
+    Format.printf "%s: %a@." label (pp_result pp_longs) r
+  in
+  show_long "i64 in range"
+    (cast i64 (longs three [ 49407L; -2147483648L; 2147483647L ]));
+  show_long "bool"
+    (cast bool_
+       (Tensor.materialize_bool three (fun c ->
+            Dim.to_int (Vec6.get c Axis.C) <> 1)));
+  show_long "f32 truncates" (cast f32 (floats three [ 2.9; -2.9; 7. ]));
+  let try_cast label fmt t =
+    try show_long label (cast fmt t)
+    with Err.Exn.E e ->
+      Format.printf "%s: raised: %a@." label Err.Exn.pp_kind e
+  in
+  try_cast "i64 one past the top" i64 (longs three [ 0L; 0L; 2147483648L ]);
+  try_cast "i64 one below the bottom" i64 (longs three [ -2147483649L; 0L; 0L ]);
+  [%expect
+    {|
+    i64 in range: i64 [C=3] {49407, -2147483648, 2147483647}
+    bool: i64 [C=3] {1, 0, 1}
+    f32 truncates: i64 [C=3] {2, -2, 7}
+    i64 one past the top: raised: to_copy int32: 2147483648 is outside [-2^31, 2^31)
+    i64 one below the bottom: raised: to_copy int32: -2147483649 is outside [-2^31, 2^31) |}]

@@ -397,7 +397,7 @@ end
    representation distinct from float, so both importers reject it rather than
    silently accepting it. *)
 module To_copy = struct
-  type target = Bool | Float | Long
+  type target = Bool | Float | Int | Long
   type t = { target : target; x : Tensor_ref.t }
 
   let name = "To_copy"
@@ -408,14 +408,17 @@ module To_copy = struct
         match s with
         | "bool" -> Bool
         | "float" -> Float
+        | "int" -> Int
         | "long" -> Long
         | _ -> Jsont.Error.msgf Jsont.Meta.none "to_copy_target: unknown %S" s)
-      ~enc:(function Bool -> "bool" | Float -> "float" | Long -> "long")
+      ~enc:(function
+        | Bool -> "bool" | Float -> "float" | Int -> "int" | Long -> "long")
       Jsont.string
 
   let pp_target fmt = function
     | Bool -> Fmt.string fmt "bool"
     | Float -> Fmt.string fmt "float"
+    | Int -> Fmt.string fmt "int"
     | Long -> Fmt.string fmt "long"
 
   let jsont : t Jsont.t =
@@ -446,7 +449,7 @@ module To_copy = struct
       let v = S.load x out in
       match target with
       | Float -> v
-      | Long -> S.trunc v
+      | Int | Long -> S.trunc v
       | Bool ->
           (* [S.eq], not the double-[lt] "nonzero test" this replaced: that
              formula returned false for NaN (neither [lt 0 x] nor [lt x 0]

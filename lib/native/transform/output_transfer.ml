@@ -111,6 +111,9 @@ let classify (op : op) ~output =
      there is no separate continuous "value" output here to distinguish by
      [output]. *)
   | Index_pair _ | Index_tensor _ -> Discontinuous
+  (* An index of the maximum: the argmax-shaped reasoning [Max_dim]'s index
+     output gets. *)
+  | Argmax _ -> Discontinuous
   (* The same data-dependent gather [Index_tensor] is: which weight row is read
      comes from the indices' content, not the output coordinate. *)
   | Embedding _ -> Discontinuous

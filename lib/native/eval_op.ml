@@ -58,6 +58,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Amax { Reduce.Amax.params; x } ->
         let module C = Reduce.Amax.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
+    | Argmax { Reduce.Argmax.params; x } ->
+        let module C = Reduce.Argmax.Compute (S) in
+        C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
     | Avg_pool2d { Pool.AvgPool2d.params; x } ->
         let module C = Pool.AvgPool2d.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out

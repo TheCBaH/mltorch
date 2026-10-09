@@ -71,14 +71,14 @@ let%expect_test "_to_copy dtype=FLOAT/LONG/BOOL lowers to the matching target" =
       n0: [t1 bool [C=3]] = to_copy x=t0 target=bool
     outputs: [t1 bool [C=3] <-n0] |}]
 
-(* Outside the three-way corpus-evidenced domain: rejected with a typed
+(* Outside the corpus-evidenced domain (bool, float, int32, long): rejected with a typed
    diagnostic, the same [Unsupported_option]/[`Dtype] mechanism
    [zeros.default]/[arange.default] use for their own dtype restriction. *)
 let%expect_test "_to_copy rejects an unsupported dtype" =
-  dump "INT (dtype code 4)" (prog ~dtype:4 ());
+  dump "SHORT (dtype code 3)" (prog ~dtype:3 ());
   [%expect
     {|
-    INT (dtype code 4)
+    SHORT (dtype code 3)
       malformed PT2 graph: torch.ops.aten._to_copy.default: dtype is not supported |}]
 
 (* [non_blocking] is read-and-discarded -- same graph, either spelling, the

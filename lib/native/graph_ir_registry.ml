@@ -59,6 +59,12 @@ let op_registry : (module OP) list =
       let project = function Amax t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Reduce.Argmax
+
+      let inject t = Argmax t
+      let project = function Argmax t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Pool.AvgPool2d
 
       let inject t = Avg_pool2d t

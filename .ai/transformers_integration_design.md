@@ -711,7 +711,8 @@ Measured, each row preserved as run (tolerances and references unchanged):
 | SmolVLM decode, history 71 | 1 of 49,280 logits over (1.4e-5 vs allowance 1.1e-5); all 60 K/V pass | 29 over |
 | SmolLM2 decode, history 4 | case-01: 5 of 49,152 logits over (4.3e-5) | 20 over |
 | SmolLM2 prefill | 174 and 1,880 of 196,608 logits over (max 7.4e-5) | 1,974 and 2,685 over, plus K/V |
-| TinyCLIP text, Whisper prefill | not run (int32 cast; see below) | |
+| TinyCLIP text tower | pass (after `argmax` and the int32 cast, below) | not run |
+| Whisper prefill | not run | |
 | Whisper-tiny encoder | 16 and 18 of 576,000 elements over | not run |
 
 The reading: the sequential chain reproduces the reference only for the
@@ -731,3 +732,21 @@ finished and written the report above, so its cost is high (a 3,000-frame
 convolution stem and 1,500-position attention in a pure evaluator) rather than
 unbounded. Whisper prefill was not run; the matrix script
 (`scripts/transformers-matrix.py`) states "not run" for it rather than inferring.
+
+## 23. Last-token pooling: argmax and the int32 cast
+
+TinyCLIP's text tower pools the hidden state at the end-of-text token:
+`(input_ids.int() == eos).int().argmax(-1)` selects the position, and a
+two-index `index.Tensor` reads it. Two small additions close it, and the tower
+passes both published cases.
+
+`argmax.default` over one axis is its own node (the schema's single int64
+output, no values), sharing the index predicate of `max.dim`. The flattened
+`dim=None` form is refused. A difference from ATen is known and tested: with
+several NaNs in a row the predicate reports the last, ATen's reduction the first.
+
+`_to_copy` to int32 is a `To_copy` target of its own. The engine has no 32-bit
+integer edge, so the value rides in an int64 cell; Direct raises on a value
+outside the int32 range instead of wrapping as ATen's cast does, since the cell
+could not reproduce a wrap. The Symbolic route does not range-check, and
+Native4D refuses the target.

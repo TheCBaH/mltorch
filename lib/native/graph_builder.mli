@@ -77,6 +77,10 @@ val adaptive_max_pool2d_with_indices :
 
 val amax : ?name:string -> Reduce.Amax.params -> tensor_ref -> Tensor_id.t t
 
+(* `argmax.default` over one axis: the int64 index of the maximum, the first on
+   a tie. *)
+val argmax : ?name:string -> Reduce.Argmax.params -> tensor_ref -> Tensor_id.t t
+
 val avg_pool2d :
   ?name:string -> Pool.AvgPool2d.params -> tensor_ref -> Tensor_id.t t
 

@@ -223,3 +223,43 @@ let%expect_test "softmax.int accepts dtype=float32 and refuses the rest" =
       malformed PT2 graph: torch.ops.aten.softmax.int: dtype is not supported
     int64
       malformed PT2 graph: torch.ops.aten.softmax.int: dtype is not supported |}]
+
+let%expect_test "argmax and the int32 cast, as TinyCLIP's pooling writes them" =
+  let argmax inputs = node "argmax.default" inputs "y" in
+  dump "argmax dim=-1"
+    (prog [ argmax [ tin "self" "x"; int_in "dim" (-1) ] ] [ 2 ]);
+  dump "argmax dim=0, keepdim"
+    (prog
+       [
+         argmax
+           [
+             tin "self" "x";
+             int_in "dim" 0;
+             {|{"name":"keepdim","arg":{"as_bool":true},"kind":1}|};
+           ];
+       ]
+       [ 1; 3 ]);
+  dump "argmax with no dim (the flattened form)"
+    (prog [ argmax [ tin "self" "x" ] ] []);
+  let to_copy dtype =
+    node "_to_copy.default"
+      [
+        tin "self" "x";
+        jstr {|{"name":"dtype","arg":{"as_scalar_type":%d},"kind":1}|} dtype;
+      ]
+      "y"
+  in
+  dump "to int32" (prog [ to_copy 4 ] [ 2; 3 ]);
+  dump "to int16 is still refused" (prog [ to_copy 3 ] [ 2; 3 ]);
+  [%expect
+    {|
+    argmax dim=-1
+      argmax x=t0 params={axis=C; keepdim=false}
+    argmax dim=0, keepdim
+      argmax x=t0 params={axis=W; keepdim=true}
+    argmax with no dim (the flattened form)
+      malformed PT2 graph: torch.ops.aten.argmax.default: missing argument "dim"
+    to int32
+      to_copy x=t0 target=int
+    to int16 is still refused
+      malformed PT2 graph: torch.ops.aten._to_copy.default: dtype is not supported |}]

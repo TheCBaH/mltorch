@@ -253,6 +253,13 @@ let adaptive_max_pool2d_with_indices ?name params x =
 let amax ?name params x =
   op1 ?name ~kind:"amax" (Amax { Reduce.Amax.params; x })
 
+(* ATen's argmax returns int64 indices. *)
+let argmax ?name params x =
+  op1 ?name
+    ~fmt:Payload.(Fmt I64)
+    ~kind:"argmax"
+    (Argmax { Reduce.Argmax.params; x })
+
 let avg_pool2d ?name params x =
   op1 ?name ~kind:"avg_pool2d" (Avg_pool2d { Pool.AvgPool2d.params; x })
 
@@ -771,7 +778,7 @@ let to_copy ?name target x =
         ~fmt:Payload.(Fmt Bool)
         ~kind:"to_copy"
         (To_copy { Pointwise.To_copy.target; x })
-  | Pointwise.To_copy.Long ->
+  | Pointwise.To_copy.Int | Pointwise.To_copy.Long ->
       op1 ?name
         ~fmt:Payload.(Fmt I64)
         ~kind:"to_copy"
