@@ -19,6 +19,7 @@
   machine_lower
   machine_model
   machine_rivet_x86_64
+  machine_rivet_x86_64_gnu
   machine_source_test
   machine_target_x86_64
   native

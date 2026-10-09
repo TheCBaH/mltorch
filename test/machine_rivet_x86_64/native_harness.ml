@@ -135,3 +135,27 @@ let compare ?runtime ?features ?pad ?(sites = [||]) (case : Src.Case.t) =
           | Error d ->
               Fmt.str "%s [emulated: DISAGREE %a]" (Src.status_name n)
                 Mir_compare.Difference.pp d))
+
+(* The artifact's typed module, assembled by GNU as and linked by GNU ld at
+   Rivet's addresses, against Rivet's own image. *)
+let gnu ?pad ?tamper_gnu ?tamper_text ?(sites = [||]) (case : Src.Case.t) =
+  match build ?pad case ~sites with
+  | Error e -> "not built: " ^ e
+  | Ok { artifact; _ } -> (
+      let phys = Art.program artifact in
+      let entry =
+        (List.find
+           (fun (f : (_, _) Mir_phys.Func.t) ->
+             Mir_id.Func.equal f.Mir_phys.Func.id phys.Mir_phys.Program.main)
+           phys.Mir_phys.Program.funcs)
+          .Mir_phys.Func.name
+      in
+      match
+        Err.payload (Machine_rivet_x86_64.Rivet_x64_module.of_artifact artifact)
+      with
+      | Error r ->
+          Fmt.str "module: %a" Machine_rivet_x86_64.Rivet_x64_refusal.pp r
+      | Ok m ->
+          Fmt.str "%a" Machine_rivet_x86_64_gnu.Gnu_coherence.Verdict.pp
+            (Machine_rivet_x86_64_gnu.Gnu_coherence.check ?tamper_gnu
+               ?tamper_text ~entry [ m ]))
