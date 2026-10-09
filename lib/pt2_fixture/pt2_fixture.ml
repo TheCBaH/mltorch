@@ -7,6 +7,7 @@ module Compare = Compare
 module Cohort = Cohort
 module Contract = Contract
 module Fault = Fault
+module History = History
 module Logical = Logical
 module Manifest = Manifest
 module Publication = Publication

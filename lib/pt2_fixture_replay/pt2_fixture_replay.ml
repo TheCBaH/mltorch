@@ -324,6 +324,11 @@ let replay ?(dots = Direct.Binary64) ~consumer (f : Pt2_fixture_unix.Fixture.t)
           ("source:" ^ s.pin.name, hex s.pin.sha256))
         f.document.checkpoint_files
   in
+  let scope =
+    match Pt2_fixture.History.of_contract_string contract_text with
+    | Ok (Some h) -> Some (Pt2_fixture.History.scope h)
+    | Ok None | Error _ -> None
+  in
   let normalizations = ref [] in
   let on_empty_caches = describe_empty_caches normalizations in
   let base status refusal cases =
@@ -337,6 +342,7 @@ let replay ?(dots = Direct.Binary64) ~consumer (f : Pt2_fixture_unix.Fixture.t)
       pins;
       refusal;
       rtol = contract.rtol;
+      scope;
       status;
     }
   in

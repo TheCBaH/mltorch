@@ -26,6 +26,9 @@ type t = {
   pins : (string * string) list;
       (** Named digests: graph, contract, map, ... *)
   refusal : string option;
+  scope : string option;
+      (** What the artifact does NOT establish, when it is a snapshot (a
+          static-history decode graph covers one history length only). *)
   rtol : float;
   status : status;
 }

@@ -19,11 +19,12 @@ type t = {
   normalizations : string list;
   pins : (string * string) list;
   refusal : string option;
+  scope : string option;
   rtol : float;
   status : status;
 }
 
-let schema_version = 2
+let schema_version = 3
 
 let case_passed c =
   c.error = None && c.inputs_digest_ok && c.outputs_digest_ok && c.outputs <> []
@@ -106,6 +107,7 @@ let to_string t =
         ("artifact_id", str t.artifact_id);
         ("status", str (status_name t.status));
         ("refusal", match t.refusal with Some r -> str r | None -> J.null ());
+        ("scope", match t.scope with Some r -> str r | None -> J.null ());
         ("backend", str t.backend);
         ("consumer", str t.consumer);
         ("normalizations", J.list (List.map str t.normalizations));

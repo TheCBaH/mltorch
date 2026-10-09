@@ -751,3 +751,19 @@ integer edge, so the value rides in an int64 cell; Direct raises on a value
 outside the int32 range instead of wrapping as ATen's cast does, since the cell
 could not reproduce a wrap. The Symbolic route does not range-check, and
 Native4D refuses the target.
+
+## 24. Generation history: what a snapshot establishes
+
+A decode artifact is exported at one history length (`variant.kind =
+static-history`), and its published case is a single step at that length.
+`Pt2_fixture.History` states the consequence and enforces it. A report for such an
+artifact carries a `scope` sentence (schema 3): a snapshot at history N with the
+artifact's capacity, other histories not covered. A feed at any other history is
+refused, and one beyond the capacity is reported as exceeding it, never padded or
+truncated. A prefill can feed a decode artifact only when its `present_*`
+outputs correspond one to one, in order, with the decode's `past_*` inputs, agree
+on batch, heads and head dimension, and have length equal to the decode's
+history. The released SmolLM2 (4) and SmolVLM (71) prefill/decode pairs meet; no
+chained run has been made, because it would have no producer reference to check
+against and a measured result there would not be a gate. Dynamic-shape contracts
+remain refused outright.
