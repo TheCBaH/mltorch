@@ -105,7 +105,7 @@ let modules ?mutation ?binding ~runtime artifact =
       (render Rivet_a64_refusal.pp)
       (Err.payload (M.of_artifact ?mutation ?binding artifact))
   in
-  let helpers = Rivet_a64_runtime.helpers artifact in
+  let helpers = Rivet_a64_runtime.bound runtime artifact in
   let* host =
     if helpers = [] then Ok []
     else
@@ -114,6 +114,15 @@ let modules ?mutation ?binding ~runtime artifact =
         (Result.map_error
            (render Rivet_a64_refusal.pp)
            (Err.payload (M.helpers ~host_symbol:I.host_symbol helpers)))
+  in
+  let* owned =
+    if Rivet_a64_runtime.carried runtime artifact = [] then Ok []
+    else
+      Result.map
+        (fun m -> [ m ])
+        (Result.map_error
+           (render Rivet_a64_refusal.pp)
+           (Err.payload Rivet_a64_exp.module_))
   in
   let main =
     (List.find
@@ -127,7 +136,7 @@ let modules ?mutation ?binding ~runtime artifact =
     | Some M.Table -> Rivet_a64_table.entry
     | Some M.Image_resident | None -> main
   in
-  Ok (entry, modul :: host)
+  Ok (entry, (modul :: host) @ owned)
 
 (* Typed modules as a loaded image entered at [entry]. *)
 let load ~entry modules =

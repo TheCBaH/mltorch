@@ -10,11 +10,12 @@ module H = Native_harness
 
 let data_bind ?(shape = Loop_fixtures.shape_w 4) data = bind_data ~shape data
 
-let check ?mutation ?frame_mutation ?pad ?probe kernel ~bind =
+let check ?mutation ?runtime ?frame_mutation ?pad ?probe kernel ~bind =
   match Src.case_of_plan (Fusion_plan.default kernel) ~bind with
   | Error e -> Fmt.pr "%s@." e
   | Ok case ->
-      Fmt.pr "%s@." (H.compare ?mutation ?frame_mutation ?pad ?probe case)
+      Fmt.pr "%s@."
+        (H.compare ?mutation ?runtime ?frame_mutation ?pad ?probe case)
 
 let%expect_test "pointwise: signed zero, NaN, binary32 boundaries" =
   check Loop_programs.kernel ~bind:(data_bind [| -0.; 1.5; nan; 3. |]);
@@ -57,6 +58,21 @@ let%expect_test "an exp kernel through its libm helper" =
     (Loop_programs.unary_kernel Expr.Value.Exp)
     ~bind:(data_bind [| 1.; 2.; 3.; 4. |]);
   [%expect {| ok [native: agree] |}]
+
+(* The default mode carries the project's own exp instead of linking one; the
+   other C library helpers stay refused. *)
+let%expect_test "an exp kernel through the owned exp, and a refused log" =
+  let owned = Machine_rivet_aarch64.Rivet_a64_runtime.Dependency_free in
+  check ~runtime:owned
+    (Loop_programs.unary_kernel Expr.Value.Exp)
+    ~bind:(data_bind [| 1.; -87.5; 88.7; -1e30 |]);
+  check ~runtime:owned
+    (Loop_programs.unary_kernel Expr.Value.Log)
+    ~bind:(data_bind [| 1.; 2.; 3.; 4. |]);
+  [%expect
+    {|
+    ok [native: agree]
+    native: helper log needs the system math library, which the mode forbids |}]
 
 (* Each mapping defect below leaves a program that still assembles, loads and
    runs; only the comparison with the interpreter can tell. *)
@@ -462,3 +478,42 @@ let%expect_test "compares and selects on masks, natively" =
     x == 0 ? 0 : 1, w=37: 0 fcmgt, 4 fcmeq, 4 bit; ok [native: agree]
     x < 1 ? x * x : x + 1, w=16: 4 fcmgt, 0 fcmeq, 4 bit; ok [native: agree]
     x < 1 ? x * x : x + 1, w=37: 4 fcmgt, 0 fcmeq, 4 bit; ok [native: agree] |}]
+
+(* Call-frame information describes the code: at every instruction the CFA
+   offset GNU's decoding of .eh_frame gives equals the one the instructions
+   have made. *)
+let%expect_test "call-frame information" =
+  let cfi ?pad kernel ~bind =
+    match Src.case_of_plan (Fusion_plan.default kernel) ~bind with
+    | Error e -> Fmt.pr "%s@." e
+    | Ok case -> Fmt.pr "%s@." (H.cfi ?pad case)
+  in
+  let a = operand 3 35 and b = operand 5 21 in
+  cfi Loop_programs.kernel ~bind:(data_bind [| -0.; 1.5; nan; 3. |]);
+  cfi Loop_programs.shifted_kernel ~bind:(data_bind [| 0.; 0.; 0.; 0. |]);
+  cfi (matmul_kernel ~m:5 ~k:7 ~n:3) ~bind:(matmul_bind ~m:5 ~k:7 ~n:3 ~a ~b);
+  cfi ~pad:40_000L Loop_programs.kernel
+    ~bind:(data_bind [| -0.; 1.5; nan; 3. |]);
+  [%expect
+    {|
+    ok (1 functions, 88 instructions); ok (2 functions, 97 instructions)
+    ok (1 functions, 700 instructions); ok (2 functions, 709 instructions)
+    ok (1 functions, 185 instructions); ok (2 functions, 194 instructions)
+    ok (1 functions, 144 instructions); ok (2 functions, 153 instructions) |}]
+
+(* A wrong description is seen: the first stack adjustment says 8 more bytes. *)
+let%expect_test "wrong call-frame information is seen" =
+  let tamper s =
+    Str.replace_first
+      (Str.regexp "\t.cfi_adjust_cfa_offset\t\\([0-9]+\\)")
+      "\t.cfi_adjust_cfa_offset\t1000" s
+  in
+  (match
+     Src.case_of_plan
+       (Fusion_plan.default Loop_programs.kernel)
+       ~bind:(data_bind [| -0.; 1.5; nan; 3. |])
+   with
+  | Ok case -> Fmt.pr "%s@." (H.cfi ~tamper case)
+  | Error e -> Fmt.pr "%s@." e);
+  [%expect
+    {| 4 mrs x17, fpcr: CFA offset 1000, instructions say 176; 4 mrs x17, fpcr: CFA offset 1000, instructions say 176 |}]

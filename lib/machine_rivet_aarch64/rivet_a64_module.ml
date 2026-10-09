@@ -10,6 +10,7 @@ module Art = Machine_model.Mir_artifact
 module Loc = Mir_phys.Loc
 module R = Rivet_a64_refusal
 module F = Rivet_a64_form
+module Rivet_cfi = Machine_rivet_common.Rivet_cfi
 module N = Asm_core.Normalized_ast
 module D = Asm_core.Directive
 
@@ -86,6 +87,7 @@ let instrs_of_func ?mutation ~table_slot esc relocations
     in
     go blocks
   in
+  let cfi = Rivet_cfi.create ~entry_cfa:0L in
   let entry_jump =
     match blocks with
     | b :: _
@@ -112,33 +114,65 @@ let instrs_of_func ?mutation ~table_slot esc relocations
                   (Hashtbl.find_all relocations (fid, bid, instr)));
           }
         in
-        let body =
-          List.concat_map
-            (fun (i : A64_op.t Mir_phys.Instr.t) ->
-              match i with
-              | Mir_phys.Instr.Exec { instr; uses; defs } -> (
-                  match instr.Mir_instr.op with
-                  | Mir_sel.Op.Machine op ->
-                      F.instructions
-                        (env (Some (Mir_id.Instr.to_int instr.Mir_instr.id)))
-                        op ~uses ~defs
-                  | Mir_sel.Op.Event _ -> []
-                  | Mir_sel.Op.Undef _ -> [])
-              | Mir_phys.Instr.Late { op; uses; defs } ->
-                  F.instructions (env None) op ~uses ~defs
-              | Mir_phys.Instr.Remat { instr; defs } -> (
-                  match instr.Mir_instr.op with
-                  | Mir_sel.Op.Machine op ->
-                      F.instructions
-                        (env (Some (Mir_id.Instr.to_int instr.Mir_instr.id)))
-                        op ~uses:[] ~defs
-                  | Mir_sel.Op.Event _ | Mir_sel.Op.Undef _ -> [])
-              | Mir_phys.Instr.Move { dst; src; _ } ->
-                  F.transfer ?mutation (env None) ~dst ~src
-              | Mir_phys.Instr.Save { dst; src } ->
-                  F.transfer ?mutation ~save:true (env None) ~dst ~src
-              | Mir_phys.Instr.Sp delta -> F.stack_step (env None) delta)
-            b.Mir_phys.Block.body
+        let reg (v : Mir_target.View.t) = v.Mir_target.View.name in
+        let items_of (i : A64_op.t Mir_phys.Instr.t) =
+          List.map insn
+            (match i with
+            | Mir_phys.Instr.Exec { instr; uses; defs } -> (
+                match instr.Mir_instr.op with
+                | Mir_sel.Op.Machine op ->
+                    F.instructions
+                      (env (Some (Mir_id.Instr.to_int instr.Mir_instr.id)))
+                      op ~uses ~defs
+                | Mir_sel.Op.Event _ -> []
+                | Mir_sel.Op.Undef _ -> [])
+            | Mir_phys.Instr.Late { op; uses; defs } ->
+                F.instructions (env None) op ~uses ~defs
+            | Mir_phys.Instr.Remat { instr; defs } -> (
+                match instr.Mir_instr.op with
+                | Mir_sel.Op.Machine op ->
+                    F.instructions
+                      (env (Some (Mir_id.Instr.to_int instr.Mir_instr.id)))
+                      op ~uses:[] ~defs
+                | Mir_sel.Op.Event _ | Mir_sel.Op.Undef _ -> [])
+            | Mir_phys.Instr.Move { dst; src; _ } ->
+                F.transfer ?mutation (env None) ~dst ~src
+            | Mir_phys.Instr.Save { dst; src } ->
+                F.transfer ?mutation ~save:true (env None) ~dst ~src
+            | Mir_phys.Instr.Sp delta -> F.stack_step (env None) delta)
+          @ List.map
+              (fun (c : Rivet_cfi.directive) ->
+                dir
+                  (D.Cfi
+                     {
+                       name = c.Rivet_cfi.name;
+                       argument = c.Rivet_cfi.argument;
+                     }))
+              (Rivet_cfi.after cfi ~reg i)
+        in
+        let returns =
+          match b.Mir_phys.Block.terminator with
+          | Mir_phys.Term.Return _ -> true
+          | _ -> false
+        in
+        let split = Rivet_cfi.epilogue_start b.Mir_phys.Block.body in
+        let before = List.filteri (fun k _ -> k < split) b.Mir_phys.Block.body
+        and epilogue =
+          List.filteri (fun k _ -> k >= split) b.Mir_phys.Block.body
+        in
+        let cfi_state name = dir (D.Cfi { name; argument = "" }) in
+        let saved = Rivet_cfi.cfa cfi in
+        let body_items = List.concat_map items_of before in
+        let epilogue_items =
+          if returns && epilogue <> [] then
+            cfi_state ".cfi_remember_state" :: List.concat_map items_of epilogue
+          else List.concat_map items_of epilogue
+        in
+        let restore_after =
+          if returns && epilogue <> [] then (
+            Rivet_cfi.set_cfa cfi saved;
+            [ cfi_state ".cfi_restore_state" ])
+          else []
         in
         let falls_to t =
           match following with
@@ -164,8 +198,8 @@ let instrs_of_func ?mutation ~table_slot esc relocations
                 ::
                 (if falls_to else_ then [] else [ F.jump (label_of f else_) ])
         in
-        N.Label { name = label_of f b.Mir_phys.Block.id; origin }
-        :: List.map insn (body @ terminator))
+        (N.Label { name = label_of f b.Mir_phys.Block.id; origin } :: body_items)
+        @ epilogue_items @ List.map insn terminator @ restore_after)
       next
 
 (* Where a mutable region's bytes live. *)
@@ -179,6 +213,7 @@ type binding =
 let table_entry ~kernel =
   let open Asm_core in
   let i op ops = insn (F.ins op ops) in
+  let cfi name argument = dir (D.Cfi { name; argument }) in
   let sp =
     Aarch64.Operand.Reg { Aarch64.Reg.num = 31; width = 64; is_sp = true }
   in
@@ -201,15 +236,23 @@ let table_entry ~kernel =
     dir (D.Global { name });
     dir (D.Sym_type { name; kind = D.Function });
     lbl name;
+    cfi ".cfi_startproc" "";
     i Aarch64.Opcode.Sub [ sp; sp; F.imm 32L ];
+    cfi ".cfi_adjust_cfa_offset" "32";
     i Aarch64.Opcode.Str [ x 30; slot 0 ];
+    cfi ".cfi_offset" "x30, -32";
     i Aarch64.Opcode.Str [ x 18; slot 8 ];
+    cfi ".cfi_offset" "x18, -24";
     i Aarch64.Opcode.Mov [ x 18; x 0 ];
     i Aarch64.Opcode.Bl [ Aarch64.Operand.Sym (Expr.Symbol kernel) ];
     i Aarch64.Opcode.Ldr [ x 18; slot 8 ];
+    cfi ".cfi_restore" "x18";
     i Aarch64.Opcode.Ldr [ x 30; slot 0 ];
+    cfi ".cfi_restore" "x30";
     i Aarch64.Opcode.Add [ sp; sp; F.imm 32L ];
+    cfi ".cfi_adjust_cfa_offset" "-32";
     i Aarch64.Opcode.Ret [];
+    cfi ".cfi_endproc" "";
     dir
       (D.Sym_size
          {
@@ -238,9 +281,11 @@ let of_artifact ?mutation ?(binding = Image_resident) artifact =
           dir (D.Global { name });
           dir (D.Sym_type { name; kind = D.Function });
           lbl name;
+          dir (D.Cfi { name = ".cfi_startproc"; argument = "" });
         ]
         @ instrs_of_func ?mutation ~table_slot esc relocations f
         @ [
+            dir (D.Cfi { name = ".cfi_endproc"; argument = "" });
             dir
               (D.Sym_size
                  {

@@ -1,0 +1,7 @@
+; Call-frame information checked against the code it describes: a GNU-assembled
+; object's .eh_frame, decoded by readelf, must give at every instruction the
+; stack-pointer offset the instructions themselves have made by then.
+
+(library
+ (name native_cfi)
+ (libraries fmt str unix))

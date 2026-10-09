@@ -11,6 +11,7 @@ module Loc = Mir_phys.Loc
 module R = Rivet_x64_refusal
 module F = Rivet_x64_form
 module Fam = X86_family_encode
+module Rivet_cfi = Machine_rivet_common.Rivet_cfi
 module Rivet_table = Machine_rivet_common.Rivet_table
 module N = Asm_core.Normalized_ast
 module D = Asm_core.Directive
@@ -103,6 +104,7 @@ let instrs_of_func ~table_slot esc relocations
             (Hashtbl.find_all relocations (fid, bid, instr)));
     }
   in
+  let cfi = Rivet_cfi.create ~entry_cfa:8L in
   let entry_jump =
     match blocks with
     | b :: _
@@ -115,33 +117,65 @@ let instrs_of_func ~table_slot esc relocations
       (fun ((b : (_, _) Mir_phys.Block.t), following) ->
         let bid = Mir_id.Block.to_int b.Mir_phys.Block.id in
         let env = env_at bid in
-        let body =
-          List.concat_map
-            (fun (i : X64_op.t Mir_phys.Instr.t) ->
-              match i with
-              | Mir_phys.Instr.Exec { instr; uses; defs } -> (
-                  match instr.Mir_instr.op with
-                  | Mir_sel.Op.Machine op ->
-                      F.instructions
-                        (env (Some (Mir_id.Instr.to_int instr.Mir_instr.id)))
-                        op ~uses ~defs
-                  | Mir_sel.Op.Event _ -> []
-                  | Mir_sel.Op.Undef _ -> [])
-              | Mir_phys.Instr.Late { op; uses; defs } ->
-                  F.instructions (env None) op ~uses ~defs
-              | Mir_phys.Instr.Remat { instr; defs } -> (
-                  match instr.Mir_instr.op with
-                  | Mir_sel.Op.Machine op ->
-                      F.instructions
-                        (env (Some (Mir_id.Instr.to_int instr.Mir_instr.id)))
-                        op ~uses:[] ~defs
-                  | Mir_sel.Op.Event _ | Mir_sel.Op.Undef _ -> [])
-              | Mir_phys.Instr.Move { dst; src; _ } ->
-                  F.transfer (env None) ~dst ~src
-              | Mir_phys.Instr.Save { dst; src } ->
-                  F.transfer (env None) ~dst ~src
-              | Mir_phys.Instr.Sp delta -> F.stack_step (env None) delta)
-            b.Mir_phys.Block.body
+        let reg (v : Mir_target.View.t) = "%" ^ v.Mir_target.View.name in
+        let items_of (i : X64_op.t Mir_phys.Instr.t) =
+          List.map insn
+            (match i with
+            | Mir_phys.Instr.Exec { instr; uses; defs } -> (
+                match instr.Mir_instr.op with
+                | Mir_sel.Op.Machine op ->
+                    F.instructions
+                      (env (Some (Mir_id.Instr.to_int instr.Mir_instr.id)))
+                      op ~uses ~defs
+                | Mir_sel.Op.Event _ -> []
+                | Mir_sel.Op.Undef _ -> [])
+            | Mir_phys.Instr.Late { op; uses; defs } ->
+                F.instructions (env None) op ~uses ~defs
+            | Mir_phys.Instr.Remat { instr; defs } -> (
+                match instr.Mir_instr.op with
+                | Mir_sel.Op.Machine op ->
+                    F.instructions
+                      (env (Some (Mir_id.Instr.to_int instr.Mir_instr.id)))
+                      op ~uses:[] ~defs
+                | Mir_sel.Op.Event _ | Mir_sel.Op.Undef _ -> [])
+            | Mir_phys.Instr.Move { dst; src; _ } ->
+                F.transfer (env None) ~dst ~src
+            | Mir_phys.Instr.Save { dst; src } ->
+                F.transfer (env None) ~dst ~src
+            | Mir_phys.Instr.Sp delta -> F.stack_step (env None) delta)
+          @ List.map
+              (fun (c : Rivet_cfi.directive) ->
+                dir
+                  (D.Cfi
+                     {
+                       name = c.Rivet_cfi.name;
+                       argument = c.Rivet_cfi.argument;
+                     }))
+              (Rivet_cfi.after cfi ~reg i)
+        in
+        let returns =
+          match b.Mir_phys.Block.terminator with
+          | Mir_phys.Term.Return _ -> true
+          | _ -> false
+        in
+        let split = Rivet_cfi.epilogue_start b.Mir_phys.Block.body in
+        let before, epilogue =
+          ( List.filteri (fun k _ -> k < split) b.Mir_phys.Block.body,
+            List.filteri (fun k _ -> k >= split) b.Mir_phys.Block.body )
+        in
+        let cfi_state name = dir (D.Cfi { name; argument = "" }) in
+        let saved = Rivet_cfi.cfa cfi in
+        let body_items = List.concat_map items_of before in
+        let epilogue_items =
+          if returns && epilogue <> [] then
+            cfi_state ".cfi_remember_state" :: List.concat_map items_of epilogue
+          else List.concat_map items_of epilogue
+        in
+        let restore_after =
+          if returns && epilogue <> [] then (
+            Rivet_cfi.set_cfa cfi saved;
+            [ cfi_state ".cfi_restore_state" ])
+          else []
         in
         let falls_to t =
           match following with
@@ -164,8 +198,8 @@ let instrs_of_func ~table_slot esc relocations
                 (if falls_to else_ then []
                  else [ F.jump env (label_of f else_) ])
         in
-        N.Label { name = label_of f b.Mir_phys.Block.id; origin }
-        :: List.map insn (body @ terminator))
+        (N.Label { name = label_of f b.Mir_phys.Block.id; origin } :: body_items)
+        @ epilogue_items @ List.map insn terminator @ restore_after)
       next
 
 (* Where a mutable region's bytes live. *)
@@ -202,6 +236,7 @@ let table_entry ~entry_mutation ~kernel =
     }
   in
   let i mnemonic ops = insn (F.make env mnemonic ops) in
+  let cfi name argument = dir (D.Cfi { name; argument }) in
   let reg n = Fam.Operand.Reg (F.find env n) in
   let rsp = F.find env "rsp" in
   let slot disp = F.mem_op ~base:rsp ~disp () in
@@ -215,8 +250,12 @@ let table_entry ~entry_mutation ~kernel =
     dir (D.Global { name });
     dir (D.Sym_type { name; kind = D.Function });
     lbl name;
+    cfi ".cfi_startproc" "";
     i "pushq" [ reg "rbp" ];
+    cfi ".cfi_adjust_cfa_offset" "8";
+    cfi ".cfi_offset" "%rbp, -16";
     i "subq" [ F.imm frame; reg "rsp" ];
+    cfi ".cfi_adjust_cfa_offset" (Int64.to_string frame);
     i "stmxcsr" [ slot 0L ];
   ]
   @ (if entry_mutation = Some Entry_mutation.Keep_caller_mxcsr then []
@@ -232,8 +271,12 @@ let table_entry ~entry_mutation ~kernel =
      else [])
   @ [
       i "addq" [ F.imm frame; reg "rsp" ];
+      cfi ".cfi_adjust_cfa_offset" (Int64.to_string (Int64.neg frame));
       i "popq" [ reg "rbp" ];
+      cfi ".cfi_restore" "%rbp";
+      cfi ".cfi_adjust_cfa_offset" "-8";
       i "ret" [];
+      cfi ".cfi_endproc" "";
       dir
         (D.Sym_size
            {
@@ -263,9 +306,11 @@ let of_artifact ?entry_mutation ?(binding = Image_resident) artifact =
           dir (D.Global { name });
           dir (D.Sym_type { name; kind = D.Function });
           lbl name;
+          dir (D.Cfi { name = ".cfi_startproc"; argument = "" });
         ]
         @ instrs_of_func ~table_slot esc relocations f
         @ [
+            dir (D.Cfi { name = ".cfi_endproc"; argument = "" });
             dir
               (D.Sym_size
                  {

@@ -23,6 +23,7 @@
   machine_source_test
   machine_target_x86_64
   native
+  native_cfi
   native_test
   unix
   ssa_bridge_test

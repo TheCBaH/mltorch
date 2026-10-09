@@ -282,10 +282,20 @@ let prepare ?(runtime = Machine_rivet_common.Rivet_runtime.Dependency_free)
       (render Rivet_x64_refusal.pp)
       (Err.payload
          (harness ~probe
-            ~helpers:(Machine_rivet_common.Rivet_runtime.helpers artifact)
+            ~helpers:(Machine_rivet_common.Rivet_runtime.bound runtime artifact)
             lay))
   in
-  let* image = image_of ~entry:"_start" [ modul; host ] in
+  let* owned =
+    match Machine_rivet_common.Rivet_runtime.carried runtime artifact with
+    | [] -> Ok []
+    | _ ->
+        Result.map
+          (fun m -> [ m ])
+          (Result.map_error
+             (render Rivet_x64_refusal.pp)
+             (Err.payload Rivet_x64_exp.module_))
+  in
+  let* image = image_of ~entry:"_start" ([ modul; host ] @ owned) in
   Ok { image; lay; probe }
 
 (* The image with its data block holding the caller's bytes for every bound

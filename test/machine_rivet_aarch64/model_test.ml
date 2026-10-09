@@ -185,13 +185,12 @@ let%expect_test "mapping mutations change a bundle's answer" =
     dropped lo12 (3 invocations): DIFFERS
     commuted sub (3 invocations): DIFFERS |}]
 
-(* The default mode adds no third-party runtime: a kernel whose helper is a C
-   library symbol is refused before anything is loaded. *)
-let%expect_test "dependency-free refuses a libm helper" =
+(* The default mode adds no third-party runtime: exp runs on the project's own
+   code (the kernel tests keep the refusal of the helpers it does not own). *)
+let%expect_test "dependency-free carries its own exp" =
   T.check ~route "softmax over C" (fun () ->
       F.build "softmax"
         Graph_builder.(
           let* x = input ~shape:(F.s 1 1 2 3 4 5) () in
           softmax { Reduce.Softmax.axis = Axis.C } x));
-  [%expect
-    {| softmax over C: refused: invocation 0 (n0): helper exp needs the system math library, which the mode forbids |}]
+  [%expect {| softmax over C (1 invocations): bitwise, bitwise |}]

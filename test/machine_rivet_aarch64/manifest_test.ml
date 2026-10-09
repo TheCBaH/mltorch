@@ -57,6 +57,7 @@ let%expect_test "a manifest names what an image needs" =
     runtime=system_libm
     binding=table
     helpers=exp
+    owned=
     region=mir_region_0,24,16,bound
     region=mir_region_1,24,16,bound
     region=mir_region_200000,8,16,bss
@@ -105,3 +106,31 @@ let%expect_test "a CPU lacking a feature, or unreadable, is refused" =
     an x86 feature: this CPU does not report feature sse2
     unreadable: this CPU's features cannot be read
     this machine, fp and neon: admitted |}]
+
+(* Under the default mode exp is the image's own code: no dependency is
+   declared, and the digest of that code is part of what the key covers. *)
+let%expect_test "an owned helper is carried, not declared" =
+  let softmax runtime =
+    let host =
+      Result.get_ok
+        (H.prepare ~runtime ~pipeline:Ssa_backends.Pipeline.Exact
+           (T.bundle
+              (F.build "softmax"
+                 Graph_builder.(
+                   let* x = input ~shape:(F.s 1 1 1 1 2 3) () in
+                   softmax { Reduce.Softmax.axis = Axis.C } x))))
+    in
+    List.hd (H.manifests host)
+  in
+  let m = softmax Rn.Dependency_free in
+  Fmt.pr "declared: [%s]@." (String.concat "," m.Mf.helpers);
+  Fmt.pr "carried: [%s]@." (String.concat "," (List.map fst m.Mf.owned));
+  Fmt.pr "digest: %d hex digits@." (String.length (snd (List.hd m.Mf.owned)));
+  Fmt.pr "differs from the libm image: %b@."
+    (Mf.key m <> Mf.key (softmax Rn.System_libm));
+  [%expect
+    {|
+    declared: []
+    carried: [exp]
+    digest: 32 hex digits
+    differs from the libm image: true |}]

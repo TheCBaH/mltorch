@@ -134,14 +134,13 @@ let%expect_test "poisoned scratch and the scanned allocation" =
     chain scanned (3 invocations): bitwise, bitwise, bitwise
     softmax scanned (1 invocations): bitwise, bitwise |}]
 
-let%expect_test "dependency-free refuses exp before loading" =
+let%expect_test "dependency-free runs exp on the owned code" =
   check "softmax over C" (fun () ->
       F.build "softmax"
         Graph_builder.(
           let* x = input ~shape:(F.s 1 1 2 3 4 5) () in
           softmax { Reduce.Softmax.axis = Axis.C } x));
-  [%expect
-    {| softmax over C: refused: invocation 0 (n0): helper exp needs the system math library, which the mode forbids |}]
+  [%expect {| softmax over C (1 invocations): bitwise, bitwise |}]
 
 (* Two contexts of one host share the loaded code and nothing else. *)
 let%expect_test "independent contexts, and a comparison that can fail" =
