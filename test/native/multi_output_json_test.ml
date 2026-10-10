@@ -82,7 +82,8 @@ let%expect_test "graph with Group_norm op: encode → decode → pretty-print" =
           let* b = constant ~shape:(s1c 4) ~name:"b" () in
           group_norm ~name:"out"
             {
-              Norm.GroupNorm.channel = Axis.C;
+              Norm.GroupNorm.batch = Axis.N;
+              channel = Axis.C;
               groups = Op_config.Pos.of_int 2;
               eps = 1e-5;
             }
@@ -118,7 +119,8 @@ let%expect_test
           let* x = input ~shape:(s 1 1 1 2 2 4) ~name:"x" () in
           group_norm ~name:"out"
             {
-              Norm.GroupNorm.channel = Axis.C;
+              Norm.GroupNorm.batch = Axis.N;
+              channel = Axis.C;
               groups = Op_config.Pos.of_int 2;
               eps = 1e-5;
             }

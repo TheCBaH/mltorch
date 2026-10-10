@@ -732,3 +732,32 @@ let%expect_test "weight_norm keeps one axis and normalizes over the rest" =
     {|
     norm over W, kept C: f32 [W=2 C=2] {6, 0, 8, 20}
     a g of the wrong extent is refused: incompatible broadcast extents on axis C: 2 vs 3 |}]
+
+(* GroupNorm statistics must be per sample. Two samples of one group, (1, 3) and
+   (100, 300): per-sample each normalizes to (-1, 1); pooled across the batch
+   they would not. The sample axis of an NHWC-laid-out rank-4 tensor is the frame's
+   [D]. *)
+let%expect_test "group_norm normalizes each sample on its own" =
+  let shape = s 1 1 2 1 1 2 in
+  let x = floats shape [ 1.; 3.; 100.; 300. ] in
+  let one = s1c 2 in
+  show "batch of 2, one group"
+    (run
+       ~inputs:
+         [
+           (shape, f32, x);
+           (one, f32, floats one [ 1.; 1. ]);
+           (one, f32, floats one [ 0.; 0. ]);
+         ]
+       (function
+         | [ x; w; b ] ->
+             Graph_builder.group_norm
+               {
+                 Norm.GroupNorm.batch = Axis.D;
+                 channel = Axis.C;
+                 groups = Op_config.Pos.of_int 1;
+                 eps = 0.;
+               }
+               ~x ~weight:w ~bias:b ()
+         | _ -> assert false));
+  [%expect {| batch of 2, one group: f32 [D=2 H=1 W=1 C=2] {-1, 1, -1, 1} |}]

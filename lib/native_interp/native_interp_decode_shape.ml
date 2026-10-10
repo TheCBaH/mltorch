@@ -266,13 +266,16 @@ let group_norm_perms esc graph ~tensor =
     meta_rank (tensor_meta esc graph ~ssa:tensor ~role:`Group_norm_input)
   in
   let r = (rank :> int) in
-  if r = 4 then (perm_nchw_to_nhwc, perm_nhwc_to_nchw)
+  (* ATen's dimension 0 stays where it is in the frame under either layout. *)
+  let batch = List.hd (used_axes_for esc ~tensor rank) in
+  if r = 4 then (perm_nchw_to_nhwc, perm_nhwc_to_nchw, batch)
   else
     let dims l = List.map Aten_int.Dim.of_int l in
     let forward = (0 :: List.init (r - 2) (fun i -> i + 2)) @ [ 1 ] in
     let inverse = [ 0; r - 1 ] @ List.init (r - 2) (fun i -> i + 1) in
     ( native_perm esc ~tensor ~rank (dims forward),
-      native_perm esc ~tensor ~rank (dims inverse) )
+      native_perm esc ~tensor ~rank (dims inverse),
+      batch )
 
 (* Shares [Aten_shape.resolve_view_size] with [Op_bridge] rather than
    re-deriving the [-1] convention: op3-impl.md F1 found this resolver

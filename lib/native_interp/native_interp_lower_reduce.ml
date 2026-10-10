@@ -14,6 +14,7 @@ let targets =
   [
     "torch.ops.aten.argmax.default";
     "torch.ops.aten.cumsum.default";
+    "torch.ops.aten.group_norm.default";
     "torch.ops.aten.max.dim";
   ]
 
@@ -61,6 +62,39 @@ let dispatch ~ctx ~env (node : Node.t) =
                { Reduce.Argmax.axis; keepdim = bool_arg esc node "keepdim" }
                (get "self")
            in
+           return [ y ]
+       (* Group normalization is a statistic over groups of channels, so it
+          lives with the reductions. *)
+       | "torch.ops.aten.group_norm.default" ->
+           let x_name = tensor_name esc node "input" in
+           let to_nhwc, to_nchw, batch =
+             group_norm_perms esc graph ~tensor:x_name
+           in
+           let* x = permute to_nhwc (get "input") in
+           let eps = float_arg esc ~default:1e-05 node "eps" in
+           (* Decoded then discarded, as the bridge and ATen do. *)
+           let (_ : bool) = bool_arg esc ~default:true node "cudnn_enabled" in
+           let groups = int_arg esc node "num_groups" in
+           let groups =
+             pos esc ~op:"group_norm.default" ~param:`Groups groups
+           in
+           let params =
+             { Norm.GroupNorm.batch; channel = Axis.C; groups; eps }
+           in
+           let affine name role =
+             let ssa = optional_tensor_name ~absent_ok:true esc node name in
+             Option.iter
+               (fun ssa -> require_rank esc graph ~ssa ~role ~expected:1)
+               ssa;
+             Option.map (env_find esc env) ssa
+           in
+           let* y =
+             group_norm params ~x
+               ?weight:(affine "weight" `Group_norm_weight)
+               ?bias:(affine "bias" `Group_norm_bias)
+               ()
+           in
+           let* y = permute to_nchw y in
            return [ y ]
        | "torch.ops.aten.max.dim" ->
            let x_name = tensor_name esc node "self" in

@@ -230,6 +230,7 @@ let batch_norm_params (p : Ops4.Batch_norm.params) : Norm.BatchNorm.params =
 
 let group_norm_params (p : Ops4.Group_norm4.params) : Norm.GroupNorm.params =
   {
+    batch = Axis.N;
     channel = Axis4.to_axis p.Ops4.Group_norm4.channel;
     groups = p.Ops4.Group_norm4.groups;
     eps = p.Ops4.Group_norm4.eps;

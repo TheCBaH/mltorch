@@ -32,7 +32,6 @@ let targets =
     "torch.ops.aten.div.Tensor_mode";
     "torch.ops.aten.einsum.default";
     "torch.ops.aten.gelu.default";
-    "torch.ops.aten.group_norm.default";
     "torch.ops.aten.hardsigmoid.default";
     "torch.ops.aten.hardsigmoid_.default";
     "torch.ops.aten.hardswish.default";
@@ -231,33 +230,6 @@ let dispatch ~ctx ~env (node : Node.t) =
          [Op_bridge]'s [group_norm.default] arm: same checks, same node, same
          treatment of the optional operands (NO ones/zeros tensors when
          absent, for the reason the [layer_norm] arm below states). *)
-       | "torch.ops.aten.group_norm.default" ->
-           let x_name = tensor_name esc node "input" in
-           let to_nhwc, to_nchw = group_norm_perms esc graph ~tensor:x_name in
-           let* x = permute to_nhwc (get "input") in
-           let num_groups = int_arg esc node "num_groups" in
-           let eps = float_arg esc ~default:1e-05 node "eps" in
-           (* Decoded then discarded, as the bridge and ATen do. *)
-           let (_ : bool) = bool_arg esc ~default:true node "cudnn_enabled" in
-           let groups =
-             pos esc ~op:"group_norm.default" ~param:`Groups num_groups
-           in
-           let params = { Norm.GroupNorm.channel = Axis.C; groups; eps } in
-           let affine name role =
-             let ssa = optional_tensor_name ~absent_ok:true esc node name in
-             Option.iter
-               (fun ssa -> require_rank esc graph ~ssa ~role ~expected:1)
-               ssa;
-             Option.map (env_find esc env) ssa
-           in
-           let* y =
-             group_norm params ~x
-               ?weight:(affine "weight" `Group_norm_weight)
-               ?bias:(affine "bias" `Group_norm_bias)
-               ()
-           in
-           let* y = permute to_nchw y in
-           return [ y ]
        (* [normalized_shape] is validated against the input, which is the check
          the bridge is missing: it reads only the LENGTH (op_bridge.ml:899) and
          never compares the extents, so a shape that names the wrong axes

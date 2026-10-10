@@ -415,5 +415,5 @@ let%expect_test
         x=t3 <-n0
         weight=t1
         bias=t2
-        params={channel=C; groups=2; eps=1e-05}
+        params={batch=H; channel=C; groups=2; eps=1e-05}
       permute x=t4 <-n1 perm=[W<-C, C<-W] |}]

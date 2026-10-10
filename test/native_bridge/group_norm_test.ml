@@ -333,3 +333,14 @@ let%expect_test "dispatch: max_pool2d dilation is refused, ceil_mode is carried"
     tensor f32 [W=2 C=2] {6, 8, 16, 18}
     error: dilation: expected [h; w] or [v], got [1, 1, 1]
     error: dilation: expected [h; w] or [v], got [1, 1, 1] |}]
+
+(* Statistics are per sample. Two samples of two channels in one group, (1, 3)
+   and (100, 300): each sample has its own mean and spread, so both normalize to
+   (-1, 1). Pooled across the batch the four values would not. *)
+let%expect_test "dispatch: group_norm.default normalizes each sample on its own"
+    =
+  dispatch_print ~target:"torch.ops.aten.group_norm.default"
+    ~bindings:[ ("input", float_tensor [ 2; 2; 1; 1 ] [ 1.; 3.; 100.; 300. ]) ]
+    ~inputs:[ in_tensor "input"; in_int "num_groups" 1; in_float "eps" 0. ]
+    ~noutputs:0;
+  [%expect {| tensor f32 [D=2 H=2 W=1 C=1] {-1, 1, -1, 1} |}]

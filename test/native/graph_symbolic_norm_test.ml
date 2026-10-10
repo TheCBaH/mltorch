@@ -67,7 +67,8 @@ let%expect_test "Symbolic graph: group_norm ground matches Direct" =
           let* x = input ~shape:(s 1 1 1 2 1 4) ~name:"x" () in
           group_norm ~name:"y"
             {
-              Norm.GroupNorm.channel = Axis.C;
+              Norm.GroupNorm.batch = Axis.N;
+              channel = Axis.C;
               groups = Op_config.Pos.of_int 2;
               eps = 0.;
             }
