@@ -110,6 +110,11 @@ make transformers.tasks.generation # bounded SmolLM2 chain, two independent prom
 make transformers.consumer.check # restricted PATH without Python, after build setup
 ```
 
+Model and generation checks also require checkpoint sources already in the
+cache, acquired explicitly with `make transformers.download` (optionally select
+`TRANSFORMERS_ARTIFACTS`). Task fixture acquisition supplies references and
+metadata; it does not download checkpoint weights.
+
 Task runs retain fixture pins, every case outcome and workspace/executable identity
 under `TRANSFORMERS_TASK_REPORTS`. The supported adapter boundaries are ASCII BERT
 WordPiece and the Pillow TinyCLIP/MobileViT PPM recipes. Unicode BERT, torchvision

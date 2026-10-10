@@ -8,7 +8,7 @@ let stop_name = function
   | Lifecycle.Eos -> J.string "eos"
   | Lifecycle.Limit -> J.string "max_new_tokens"
 
-let run config producer bundle =
+let run config cohort producer bundle =
   let* () = Adapter.recipe producer bundle.Reference.Bundle.manifest in
   let* recipe_id = field "recipe_id" bundle.manifest in
   let* () =
@@ -24,8 +24,8 @@ let run config producer bundle =
   let* pc, dc, history =
     Transformers_metadata.Chaining.check p.contract d.contract
   in
-  let* prefill = Pt2_fixture_unix.Fixture.of_bundle config p.bundle in
-  let* decode = Pt2_fixture_unix.Fixture.of_bundle config d.bundle in
+  let* prefill = Demo.execution_fixture config cohort p in
+  let* decode = Demo.execution_fixture config cohort d in
   let* eos =
     path [ "recipe"; "eos_token_ids" ] bundle.manifest
     >>= array >>= Err.List.map integer
@@ -197,8 +197,9 @@ let run config producer bundle =
           in
           active := Some (sequence, id, state, outputs, mask, stop);
           let* report =
-            Acceptance.report ~normalizations:!normalizations artifact id
-              ~atol:contract.atol ~rtol:contract.rtol
+            Acceptance.report ~normalizations:!normalizations
+              ~pins:(Demo.execution_pins fixture)
+              artifact id ~atol:contract.atol ~rtol:contract.rtol
               (input_checks @ position_checks @ output_checks @ host_checks)
           in
           Ok

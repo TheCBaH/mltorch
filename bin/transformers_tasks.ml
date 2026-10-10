@@ -52,10 +52,10 @@ let () =
                         ~root:"modules/devcontainer.transformers"
                     in
                     if mode = "generation" then
-                      T.Generation.run config producer bundle
+                      T.Generation.run config cohort producer bundle
                     else
-                      T.Acceptance.run config producer ~models:(mode = "models")
-                        bundle
+                      T.Acceptance.run config cohort producer
+                        ~models:(mode = "models") bundle
                   else
                     let* cases = member "cases" bundle.manifest >>= array in
                     let+ () =

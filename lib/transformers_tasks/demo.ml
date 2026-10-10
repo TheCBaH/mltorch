@@ -37,6 +37,36 @@ let fixture config cohort id =
   let* entry = entry cohort id in
   U.Fixture.open_ config cohort entry
 
+(* Metadata-only reference bundles omit checkpoint sources. Execution must
+   reopen through the full independently pinned consumer cohort. *)
+let execution_fixture config cohort (reference : Reference.Reference.t) =
+  let* id = field "artifact_id" reference.contract in
+  let* opened = fixture config cohort id in
+  let* actual = U.Bundle.read_member opened.bundle "contract.json" >>= parse in
+  let+ () =
+    equal ~identity:id ~field:"execution contract" actual reference.contract
+  in
+  opened
+
+let execution_pins (fixture : U.Fixture.t) =
+  let hex = Pt2_sha256.Digest.to_hex in
+  let entry = fixture.bundle.entry in
+  [
+    ("archive", hex entry.archive.sha256);
+    ("manifest", hex entry.manifest.sha256);
+    ("graph", hex entry.graph_sha256);
+    ("contract", hex entry.contract_sha256);
+    ("map", hex entry.map_sha256);
+  ]
+  @ List.map
+      (fun (s : Pt2_checkpoint_map.Document.Source.t) ->
+        ("source:" ^ s.pin.name, hex s.pin.sha256))
+      fixture.document.checkpoint_files
+  @ List.map
+      (fun (p : Pt2_checkpoint_map.Document.Pin.t) ->
+        ("graph-owned:" ^ p.name, hex p.sha256))
+      (Option.to_list fixture.document.graph_owned)
+
 let asset config pin_json =
   let* pin = pin_of pin_json in
   let* file =

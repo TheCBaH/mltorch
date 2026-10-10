@@ -14,6 +14,16 @@ ID and complete case list must match the pinned producer inventory. Adapter
 assets are derived from actual pinned tokenizer, processor and configuration
 bytes; a digest merely copied into a manifest is insufficient.
 
+Task references are metadata-only bundles and can omit checkpoint sources.
+Model/generation execution reopens the artifact through the full independently
+pinned consumer cohort and checks the actual execution contract against the
+task reference. Nested model reports retain checkpoint, graph-owned, graph,
+manifest, archive, contract and map digests. A regression demonstrates that the
+metadata-only route fails, while the full route checks bytes, executes complete
+reference cases and reopens offline. Reference acquisition remains separate
+from checkpoint acquisition. The initial CLIP/generation refusals and incomplete
+loading investigation remain retained with their original identities.
+
 `transformers_tasks adapters` compares all constructed model inputs exactly.
 `models` executes only after those comparisons pass and checks every named
 output with the original component tolerances. Reports retain all case failures

@@ -19,8 +19,8 @@ let order expected actual =
       (name, value))
     expected
 
-let report ?(backend = "native-direct") ?(normalizations = []) artifact id ~atol
-    ~rtol outputs =
+let report ?(backend = "native-direct") ?(normalizations = []) ?(pins = [])
+    artifact id ~atol ~rtol outputs =
   let case =
     R.
       {
@@ -41,7 +41,7 @@ let report ?(backend = "native-direct") ?(normalizations = []) artifact id ~atol
         consumer = "see immutable task run";
         backend;
         normalizations;
-        pins = [];
+        pins;
         refusal = None;
         scope =
           Some
@@ -69,7 +69,7 @@ let reference bundle case =
   in
   (artifact, reference)
 
-let case config producer ~models bundle row =
+let case config cohort producer ~models bundle row =
   let* id = field "id" row in
   let* artifact, reference = reference bundle row in
   let* expected = Adapter.role bundle row "inputs" in
@@ -89,9 +89,7 @@ let case config producer ~models bundle row =
           (List.for_all F.Compare.passed input_checks)
           "adapter comparison failed before model execution"
       in
-      let* fixture =
-        Pt2_fixture_unix.Fixture.of_bundle config reference.bundle
-      in
+      let* fixture = Demo.execution_fixture config cohort reference in
       let* contract = text reference.contract >>= F.Contract.of_string in
       let normalizations = ref [] in
       let on_empty_caches r = normalizations := Input.normalizations r in
@@ -103,8 +101,9 @@ let case config producer ~models bundle row =
         Diagnostic.compare ~atol:contract.atol ~rtol:contract.rtol expected
           actual
       in
-      report ~normalizations:!normalizations artifact id ~atol:contract.atol
-        ~rtol:contract.rtol outputs
+      report ~normalizations:!normalizations
+        ~pins:(Demo.execution_pins fixture)
+        artifact id ~atol:contract.atol ~rtol:contract.rtol outputs
   in
   Ok
     (obj
@@ -119,14 +118,14 @@ let case config producer ~models bundle row =
               host/tower boundaries deferred" );
        ])
 
-let run config producer ~models bundle =
+let run config cohort producer ~models bundle =
   let* () = Adapter.recipe producer bundle.Reference.Bundle.manifest in
   let* rows = member "cases" bundle.manifest >>= array in
   let* cases =
     Err.List.map
       (fun row ->
         let* id = field "id" row in
-        match Err.payload (case config producer ~models bundle row) with
+        match Err.payload (case config cohort producer ~models bundle row) with
         | Ok result -> Ok result
         | Error e ->
             Ok
