@@ -1,0 +1,8 @@
+; CLIP's input side for ASCII text and binary PPM images, as a pure library:
+; the BPE tokenizer driven by a tokenizer.json, and the image preprocessing
+; (Pillow's bicubic resize in its fixed-point form, centre crop, normalize).
+; Nothing here reads a file or the network.
+
+(library
+ (name clip_input)
+ (libraries fmt jsont jsont.bytesrw))

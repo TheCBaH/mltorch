@@ -930,3 +930,37 @@ the prefill's noise through the K/V it was fed: float32 noise of the kind sectio
 28 measures, not a different answer. The claim is the token-level one, for this
 model, these two artifacts and native-direct; the loop cannot continue past two
 tokens because no further history is exported.
+
+## 30. TinyCLIP image-text scoring
+
+The second adapter the plan lists is TinyCLIP's normalization and scoring. Its two
+input sides are libraries (`lib/clip_input`), each checked against the reference:
+
+- **Text.** A byte-pair-encoding tokenizer driven by the repository's own
+  `tokenizer.json` (vocabulary, 48,894 ranked merges, the `</w>` suffix), whose
+  digest is pinned. For ASCII text it does what the file's pipeline does: collapse
+  whitespace, lower-case, split by the pattern (the two special tokens, the seven
+  contractions, letter runs, single digits, punctuation runs), merge by lowest rank,
+  add the start and end ids, cut to 16 and pad with the end id. Its ids are
+  identical to the Rust `tokenizers` library's on a corpus of 413 sentences
+  (varied words, capitalization, contractions, digits, punctuation runs, long words
+  and over-length text). Non-ASCII text, control characters and the two special-token
+  spellings are refused.
+- **Image.** A binary PPM, resized so the shorter edge is 224 with Pillow's bicubic
+  arithmetic, centre-cropped, scaled and normalized with the pinned
+  `preprocessor_config.json` values. The resize reproduces Pillow's fixed-point
+  resampler: per-axis coefficients from the filter, normalized, scaled to 22
+  fractional bits and rounded half away from zero, a horizontal pass then a
+  vertical one, each rounded back to eight bits. The uint8 image after the resize is
+  byte-for-byte Pillow's (hermetic tests pin checksums of Pillow's output), and the
+  final float tensor matches `CLIPImageProcessor` (its Pillow backend) to 2.4e-7,
+  one float32 rounding, on nine images from 57x91 to 1000x700 including the
+  identity size.
+
+`transformers_clip_demo score` feeds both to the pinned forward artifact. For a
+synthetic 320x240 scene and five sentences the engine's `logits_per_image` agrees
+with transformers' `CLIPModel` (eager, the pinned weights, torch 2.12.0+cpu) to
+within 1.2e-5 on values of 10 to 19, inside the producer's tolerance for each:
+for example 14.688155 against 14.688149 for `a photo of a cat`, and the sentence
+naming the scene's shapes scores highest. The claim is for this model, ASCII text of
+at most 14 tokens, a PPM image and native-direct with the default numerics.

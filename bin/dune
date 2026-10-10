@@ -383,3 +383,22 @@
   pt2_fixture_replay
   pt2_fixture_unix
   unix))
+
+; A bounded image-text scoring example for TinyCLIP: ASCII text and a PPM image
+; in, the forward artifact's logits_per_image out. See the file's header.
+
+(executable
+ (name transformers_clip_demo)
+ (modules transformers_clip_demo)
+ (libraries
+  clip_input
+  err_trace
+  fmt
+  jsont
+  jsont.bytesrw
+  native
+  native_interp
+  pt2
+  pt2_fixture
+  pt2_fixture_unix
+  pt2_sha256))

@@ -1,0 +1,29 @@
+{
+  "artifact_id": "tinyclip/image-text-embeddings/reference/forward/fp32/dynamo/static/ckpt-a2a8c6eaa254",
+  "config": {
+    "name": "config.json",
+    "sha256": "c586d856dbd5589b67525db9e791ee0917402405672c7773aead373efb7d7bca"
+  },
+  "image": {
+    "crop_size": 224,
+    "image_mean": [0.48145466, 0.4578275, 0.40821073],
+    "image_std": [0.26862954, 0.26130258, 0.27577711],
+    "preprocessor_config": {
+      "name": "preprocessor_config.json",
+      "sha256": "910e70b3956ac9879ebc90b22fb3bc8a75b6a0677814500101a4c072bd7857bd",
+      "url": "https://huggingface.co/wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M/resolve/a2a8c6eaa2549ad66eb7c31b85022bf58273a26c/preprocessor_config.json"
+    },
+    "resample": "bicubic",
+    "shortest_edge": 224
+  },
+  "max_length": 16,
+  "repo": "wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M",
+  "revision": "a2a8c6eaa2549ad66eb7c31b85022bf58273a26c",
+  "schema_version": 1,
+  "tokenizer": {
+    "name": "tokenizer.json",
+    "sha256": "b556ac8c99757ffb677208af34bc8c6721572114111a6e0aaf5fa69ff0b8d842",
+    "size": 2224041,
+    "url": "https://huggingface.co/wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M/resolve/a2a8c6eaa2549ad66eb7c31b85022bf58273a26c/tokenizer.json"
+  }
+}
