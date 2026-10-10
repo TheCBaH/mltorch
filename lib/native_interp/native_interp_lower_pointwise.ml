@@ -25,6 +25,7 @@ let targets =
     "torch.ops.aten.gt.Scalar";
     "torch.ops.aten.le.Tensor";
     "torch.ops.aten.log.default";
+    "torch.ops.aten.log1p.default";
     "torch.ops.aten.lt.Scalar";
     "torch.ops.aten.min.other";
     "torch.ops.aten.ne.Scalar";
@@ -110,6 +111,9 @@ let dispatch ~ctx ~env (node : Node.t) =
            return [ y ]
        | "torch.ops.aten.log.default" ->
            let* y = log (get "self") in
+           return [ y ]
+       | "torch.ops.aten.log1p.default" ->
+           let* y = log1p (get "self") in
            return [ y ]
        | "torch.ops.aten.min.other" ->
            let* y = min_other (get "self") (get "other") in

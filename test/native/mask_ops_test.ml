@@ -619,3 +619,39 @@ let%expect_test "float to int64: checked rejects, saturating follows aarch64" =
     {|
     checked: raised: Float-to-I64 cast of an infinite value
     saturating: i64 [C=6] {2, -2, 9223372036854775807, -9223372036854775808, 0, 9223372036854775807} |}]
+
+let%expect_test "log1p: accurate for a tiny x, and the edges" =
+  let xs = [ 0.; 1e-10; -1e-10; 1.; -1.; -2.; inf; nan; 1e-3 ] in
+  let shape = s1c (List.length xs) in
+  (match
+     run
+       ~inputs:[ (shape, f32, floats shape xs) ]
+       (function [ x ] -> Graph_builder.log1p x | _ -> assert false)
+   with
+  | Error _ -> print_endline "error"
+  | Ok y ->
+      List.iteri
+        (fun i x ->
+          let got = Tensor.read y (Vec6.coord ~n:0 ~t:0 ~d:0 ~h:0 ~w:0 ~c:i) in
+          let x32 = Int32.float_of_bits (Int32.bits_of_float x) in
+          (* [Float.log1p] is the correctly rounded reference. *)
+          let want = Float.log1p x32 in
+          let ok =
+            (Float.is_nan got && Float.is_nan want)
+            || got = want
+            || Float.abs (got -. want) <= 1.2e-7 *. Float.abs want
+          in
+          Format.printf "log1p(%g) = %g %s@." x got
+            (if ok then "ok" else "WRONG"))
+        xs);
+  [%expect
+    {|
+    log1p(0) = 0 ok
+    log1p(1e-10) = 1e-10 ok
+    log1p(-1e-10) = -1e-10 ok
+    log1p(1) = 0.693147 ok
+    log1p(-1) = -inf ok
+    log1p(-2) = nan ok
+    log1p(inf) = inf ok
+    log1p(nan) = nan ok
+    log1p(0.001) = 0.0009995 ok |}]

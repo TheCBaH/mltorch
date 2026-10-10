@@ -663,6 +663,46 @@ module Log = struct
   end
 end
 
+module Log1p = struct
+  type t = { x : Tensor_ref.t }
+
+  let name = "Log1p"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        { x = Json_util.req_field ms "x" Tensor_ref.jsont name })
+      ~enc:(fun t ->
+        Json_util.jobj [ ("x", Json_util.enc Tensor_ref.jsont t.x) ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>log1p@ x=%a@]" pp_ref t.x
+
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    (* log(1 + x) without losing the low bits of a small x: with u = 1 + x
+       rounded, x * log u / (u - 1) is accurate to the last place (the
+       rounding of u cancels), and u = 1 exactly means x is below half an ulp
+       of 1, where log1p x = x. *)
+    let pixel x (out : Semantics.position S.index Vec6.t) =
+      let v = S.load x out in
+      let u = S.add (S.const 1.) v in
+      S.select
+        (S.eq u (S.const 1.))
+        v
+        (S.select
+           (S.eq u (S.const infinity))
+           u
+           (S.div (S.mul v (S.log u)) (S.sub u (S.const 1.))))
+  end
+end
+
 module Sin = struct
   type t = { x : Tensor_ref.t }
 

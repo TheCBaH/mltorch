@@ -505,6 +505,7 @@ let lt_scalar ?name scalar x =
     (Lt_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar })
 
 let log ?name x = op1 ?name ~kind:"log" (Log { Pointwise.Log.x })
+let log1p ?name x = op1 ?name ~kind:"log1p" (Log1p { Pointwise.Log1p.x })
 
 let max_dim ?name params x =
   let op = Max_dim { Reduce.MaxDim.params; x } in

@@ -378,6 +378,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Log.output_shape x_shape) in
       [ out ]
+  | Log1p { Pointwise.Log1p.x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Log1p.output_shape x_shape) in
+      [ out ]
   | Max_dim { Reduce.MaxDim.params; x } ->
       let* x_shape = shape x in
       let+ out = widen (Reduce.MaxDim.output_shape ~x_shape params) in

@@ -383,7 +383,7 @@ let check_node view (n : node) =
      while an embedding lookup is [index_select] and rejects it. Lowering one
      onto the other would quietly change the failure behavior of the source
      operation, so the node stays outside the dialect. *)
-  | Argmax _ | Bitwise_and _ | Embedding _ | Exp _ | Full_like _ | Log _
+  | Argmax _ | Bitwise_and _ | Embedding _ | Exp _ | Full_like _ | Log _ | Log1p _
   | Min_other _ | Where_self _ | Ge_scalar _ | Index_pair _ | Le_tensor _
   | Lt_scalar _ | New_ones _ | Tanh _ | Where_scalar_other _ ->
       unsupported ()

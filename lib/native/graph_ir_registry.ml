@@ -335,6 +335,12 @@ let op_registry : (module OP) list =
       let project = function Log t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Pointwise.Log1p
+
+      let inject t = Log1p t
+      let project = function Log1p t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Reduce.MaxDim
 
       let inject t = Max_dim t

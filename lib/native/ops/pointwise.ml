@@ -28,6 +28,7 @@ module Hardswish = Pointwise_activation.Hardswish
 module Hardtanh = Pointwise_activation.Hardtanh
 module Leaky_relu = Pointwise_activation.Leaky_relu
 module Log = Pointwise_unary.Log
+module Log1p = Pointwise_unary.Log1p
 module Relu = Pointwise_activation.Relu
 module Sigmoid = Pointwise_activation.Sigmoid
 module Silu = Pointwise_activation.Silu

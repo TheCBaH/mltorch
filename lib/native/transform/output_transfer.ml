@@ -167,9 +167,9 @@ let classify (op : op) ~output =
   | Hardswish _ | Hardtanh _ | Layer_norm _ | Leaky_relu _ | Linear _ | Lstm _
   | Max_pool2d _ | Mean _ | Mul _ | Mul_scalar _ | New_ones _ | Pow _ | Relu _
   | Rms_norm _ | Rpow_scalar _ | Rsub_scalar _ | Sdpa _ | Sigmoid _ | Silu _
-  | Exp _ | Full_like _ | Log _ | Sin _ | Softmax _ | Arange _ | Sqrt _ | Sub _
-  | Sum _ | Tanh _ | Upsample_bicubic2d _ | Upsample_bilinear2d _
-  | Vector_norm _ | Zeros _ ->
+  | Exp _ | Full_like _ | Log _ | Log1p _ | Sin _ | Softmax _ | Arange _
+  | Sqrt _ | Sub _ | Sum _ | Tanh _ | Upsample_bicubic2d _
+  | Upsample_bilinear2d _ | Vector_norm _ | Zeros _ ->
       Continuous
 
 (* [Identical] survives everything, evaluation being deterministic. [Equivalent]

@@ -684,6 +684,60 @@
     },
     {
       "archive": {
+        "name": "time-series-small--time-series--reference--forward--fp32--dynamo--static--ckpt-2a40ad41f6ff.tar.gz",
+        "sha256": "9d752ff97d5edfd65eb505596ee425bddbe32341b8f112dc6ecc6f40a61f0050",
+        "size": 42375,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/time-series-small--time-series--reference--forward--fp32--dynamo--static--ckpt-2a40ad41f6ff.tar.gz"
+      },
+      "artifact_id": "time-series-small/time-series/reference/forward/fp32/dynamo/static/ckpt-2a40ad41f6ff",
+      "capture_count": 96,
+      "cases": [
+        "case-00",
+        "case-01"
+      ],
+      "contract_sha256": "6b765574d1ae14b7201ffd50bb915b8a22e6729fb88531acd177ebbf35b1630f",
+      "graph_sha256": "0ecb0f245d98839f260c58c45bd8ad7eecb150c0a990f1562ac489881e19becd",
+      "manifest": {
+        "name": "time-series-small--time-series--reference--forward--fp32--dynamo--static--ckpt-2a40ad41f6ff.manifest.json",
+        "sha256": "160b16bb887f135866b87cec9f050449cfa8405a9d88e18828c24d52e25069d1",
+        "size": 3049,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/time-series-small--time-series--reference--forward--fp32--dynamo--static--ckpt-2a40ad41f6ff.manifest.json"
+      },
+      "map_member": "models/safetensors.v2.json",
+      "map_sha256": "64b397da4673b98ca59d1872515aa143d833fb9b995e4fe096aec0ac852a0dd5",
+      "map_sources": {
+        "checkpoint": {
+          "files": [
+            {
+              "name": "model.safetensors",
+              "repo_id": "huggingface/time-series-transformer-tourism-monthly",
+              "revision": "2a40ad41f6ffe61e7bef6099b08c6c2fce36ac35",
+              "sha256": "c887afd2e56856b968d39ace57d520cbefb17762036956bba83d78000401afe1",
+              "size": 132652,
+              "url": "https://huggingface.co/huggingface/time-series-transformer-tourism-monthly/resolve/2a40ad41f6ffe61e7bef6099b08c6c2fce36ac35/model.safetensors"
+            }
+          ]
+        }
+      },
+      "released_sources": [],
+      "role": "time series",
+      "weight_source": {
+        "config_sha256": "39d19e705b63258265d07723b83ce9ca3e08ca8feec87afae144686f149e11d8",
+        "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
+        "files": {
+          "model.safetensors": {
+            "sha256": "c887afd2e56856b968d39ace57d520cbefb17762036956bba83d78000401afe1",
+            "size": 132652
+          }
+        },
+        "kind": "checkpoint",
+        "pinned_config_match": true,
+        "repo": "huggingface/time-series-transformer-tourism-monthly",
+        "revision": "2a40ad41f6ffe61e7bef6099b08c6c2fce36ac35"
+      }
+    },
+    {
+      "archive": {
         "name": "whisper-tiny--audio-encoder-decoder--reference--encoder--fp32--dynamo--static--ckpt-169d4a4341b3.tar.gz",
         "sha256": "aa81b47d1ca263988a08a549e046fd8d09798ac920c56e2bb52d5e87e19f32f9",
         "size": 6088857,

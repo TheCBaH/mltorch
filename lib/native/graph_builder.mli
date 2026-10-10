@@ -314,6 +314,7 @@ val lstm :
 (* [lt.Scalar(self, other) -> self < other] -- a [Bool] result. *)
 val lt_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
 val log : ?name:string -> tensor_ref -> Tensor_id.t t
+val log1p : ?name:string -> tensor_ref -> Tensor_id.t t
 
 val max_dim :
   ?name:string ->

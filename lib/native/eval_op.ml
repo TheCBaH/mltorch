@@ -256,6 +256,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Log { Pointwise.Log.x } ->
         let module C = Pointwise.Log.Compute (S) in
         C.pixel (operand x) out
+    | Log1p { Pointwise.Log1p.x } ->
+        let module C = Pointwise.Log1p.Compute (S) in
+        C.pixel (operand x) out
     | Max_dim { Reduce.MaxDim.params; x } ->
         let module C = Reduce.MaxDim.Compute (S) in
         let pix =

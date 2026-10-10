@@ -118,6 +118,7 @@ type op =
   | Lstm of Lstm.Lstm.t
   | Lt_scalar of Pointwise.Lt_scalar.t
   | Log of Pointwise.Log.t
+  | Log1p of Pointwise.Log1p.t
   | Max_dim of Reduce.MaxDim.t
   | Max_pool2d of Pool.MaxPool2d.t
   | Max_pool2d_with_indices of Pool.MaxPool2dWithIndices.t

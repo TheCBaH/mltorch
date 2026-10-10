@@ -344,3 +344,26 @@ let%expect_test "the T5 bucket vocabulary lowers to one node each" =
       full_like x=t2 value=0
     full_like with an explicit dtype is refused
       malformed PT2 graph: torch.ops.aten.full_like.default: dtype is not supported |}]
+
+let%expect_test "log1p, and squeeze.default drops every extent-1 axis" =
+  dump "log1p" (prog [ node "log1p.default" [ tin "self" "x" ] "y" ] [ 2; 3 ]);
+  let squeeze_prog x_sizes out =
+    program ~x_sizes
+      ~extra_tensor_values:[ ("y", meta out) ]
+      ~nodes:[ node "squeeze.default" [ tin "self" "x" ] "y" ]
+      ~graph_outputs:[ as_tensor "y" ]
+      ()
+  in
+  dump "[1,2,1,3] -> [2,3]" (squeeze_prog [ 1; 2; 1; 3 ] [ 2; 3 ]);
+  dump "[1,1] -> scalar" (squeeze_prog [ 1; 1 ] []);
+  dump "[2,3] unchanged" (squeeze_prog [ 2; 3 ] [ 2; 3 ]);
+  [%expect
+    {|
+    log1p
+      log1p x=t0
+    [1,2,1,3] -> [2,3]
+      reshape x=t0 params={shape=[W=2 C=3]}
+    [1,1] -> scalar
+      reshape x=t0 params={shape=[C=1]}
+    [2,3] unchanged
+      reshape x=t0 params={shape=[W=2 C=3]} |}]
