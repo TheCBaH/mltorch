@@ -76,3 +76,25 @@ adapter IDs. These commands check cached bundle members and actual processor,
 tokenizer and config bytes without executing producer code or downloading model
 weights. `.generate` variants regenerate the derived files offline. Metadata
 compatibility does not establish numerical or task acceptance.
+
+Replay the selected published cases and verify retained runs offline:
+
+```sh
+make transformers.replay TRANSFORMERS_ARTIFACTS='ARTIFACT_ID'
+make transformers.matrix
+```
+
+Each replay creates a new directory under `TRANSFORMERS_REPORTS` containing a
+content-based run manifest, schema-3 reports and a completion record. The
+manifest pins the consumer workspace, producer inventory, release members,
+reference environment and effective execution policy. Acquisition errors are
+retained too. `TRANSFORMERS_DOTS=binary32-sequential` and
+`TRANSFORMERS_CASTS=saturating` select separate opt-in rows.
+
+The OCaml matrix checks immutable report digests and complete cases/outputs
+against verified cached contracts. It retains failures and conflicts, excludes
+legacy or different-workspace runs as historical, and shows all four policies,
+including “not run.” JSON and Markdown go to `TRANSFORMERS_MATRIX_JSON` and
+`TRANSFORMERS_MATRIX_MARKDOWN`. It exits nonzero for missing, failing, conflicting
+or invalid coverage. A complete matrix is separate from task acceptance and
+does not imply transformed, Kernel or streaming execution.

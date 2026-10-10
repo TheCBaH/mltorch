@@ -1,0 +1,13 @@
+(library
+ (name transformers_reports)
+ (libraries
+  err_trace
+  fmt
+  jsont
+  pt2_checkpoint_map
+  pt2_fixture
+  pt2_fixture_unix
+  pt2_sha256
+  schema_runtime
+  transformers_metadata
+  unix))

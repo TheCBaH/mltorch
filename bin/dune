@@ -360,6 +360,20 @@
   pt2_fixture
   pt2_fixture_replay
   pt2_fixture_unix
+  transformers_metadata
+  transformers_reports
+  unix))
+
+(executable
+ (name transformers_matrix)
+ (modules transformers_matrix)
+ (libraries
+  err_trace
+  fmt
+  transformers_metadata
+  transformers_reports
+  pt2_fixture
+  pt2_fixture_unix
   unix))
 
 ; A bounded raw-input example for the BERT-tiny text encoder: a pinned

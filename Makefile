@@ -203,15 +203,15 @@ transformers.open:
 
 # Offline numerical replay of the cohort's published cases through Native direct
 # execution: every output element against the producer's reference under the
-# producer's tolerances, one versioned JSON report per artifact. Exits nonzero
+# producer's tolerances, immutable manifest and versioned reports per run. Exits nonzero
 # unless every selected artifact passes -- a refusal counts as not passing.
 TRANSFORMERS_REPORTS ?= _build/transformers-reports
 # The opt-in real-fixture gate CI runs: fetch (network) and replay the two
 # small artifacts that pass exactly, so a regression in the loader, the empty-
 # cache rewrite, the mask vocabulary or the embedding gather turns a published
 # case red. Exits nonzero unless both pass. The other cohort rows are measured
-# by `transformers.replay` and are not gates (several fail by small margins on
-# purpose; see the tracker).
+# by `transformers.replay` and have open numerical acceptance failures; see the
+# integration tracker.
 TRANSFORMERS_GATE_ARTIFACTS = \
 	mobilevit-xxs/image-classification/reference/forward/fp32/dynamo/static/ckpt-6703997f9e94 \
 	bert-tiny/text-encoder/reference/forward/fp32/dynamo/static/ckpt-6f75de8b60a9
@@ -249,16 +249,26 @@ transformers.text.demo:
 	@test -n "$(VOCAB)" || { echo "set VOCAB and SENTENCES" >&2; exit 2; }
 	opam exec -- dune exec bin/transformers_text_demo.exe -- $(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) $(TRANSFORMERS_TEXT_ASSETS) $(VOCAB) $(SENTENCES)
 
-# The aggregate matrix over stored replay reports: one row per artifact and
-# backend, "not run" where there is no report. Offline.
+# Verify immutable runs against current source/release contracts. Historical
+# identities never populate current rows; duplicates conflict. JSON + Markdown,
+# all explicit policies, "not run" for missing coverage. Offline.
 #   make transformers.matrix TRANSFORMERS_REPORTS=dir
 transformers.matrix:
-	python3 -I scripts/transformers-matrix.py $(TRANSFORMERS_COHORT) $(TRANSFORMERS_REPORTS)
+	opam exec -- dune exec bin/transformers_matrix.exe -- \
+		"$(TRANSFORMERS_COHORT)" "$(TRANSFORMERS_CACHE)" "$(TRANSFORMERS_REPORTS)" \
+		--source "$(TRANSFORMERS_SOURCE)" --json "$(TRANSFORMERS_MATRIX_JSON)" \
+		--markdown "$(TRANSFORMERS_MATRIX_MARKDOWN)"
+
+TRANSFORMERS_MATRIX_JSON ?= _build/transformers-matrix.json
+TRANSFORMERS_MATRIX_MARKDOWN ?= _build/transformers-matrix.md
+TRANSFORMERS_DOTS ?= exact
+TRANSFORMERS_CASTS ?= checked
 
 transformers.replay:
 	opam exec -- dune exec bin/transformers_replay.exe -- \
-		$(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) \
-		--report-dir $(TRANSFORMERS_REPORTS) $(TRANSFORMERS_ARTIFACTS)
+		"$(TRANSFORMERS_COHORT)" "$(TRANSFORMERS_CACHE)" \
+		--source "$(TRANSFORMERS_SOURCE)" --report-dir "$(TRANSFORMERS_REPORTS)" \
+		--dots "$(TRANSFORMERS_DOTS)" --casts "$(TRANSFORMERS_CASTS)" $(TRANSFORMERS_ARTIFACTS)
 
 # The arena allocator evaluation over the same corpus, both normalized
 # dialects: every strategy, its order search, the portfolio and the bounded
