@@ -50,7 +50,7 @@
           "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/mobilevit-xxs--6703997f9e94.model.safetensors"
         }
       ],
-      "role": "first numerical milestone",
+      "role": "vision replay and bounded image adapter",
       "weight_source": {
         "config_sha256": "6f1b7c93da05058a62efcd10266079bbf1e6b430babd9367c8e20fdb21726f22",
         "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
@@ -109,7 +109,7 @@
         }
       },
       "released_sources": [],
-      "role": "first numerical milestone",
+      "role": "connector: separate default and sequential binary32 policy rows",
       "weight_source": {
         "config_sha256": "b70fb4bfde88df9eeebc9d8ff523733b8bf70d6c9b06c610325960e06ae9db52",
         "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
@@ -175,7 +175,7 @@
           "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/bert-tiny--6f75de8b60a9.model.safetensors"
         }
       ],
-      "role": "needs embedding",
+      "role": "text encoder and bounded ASCII adapter",
       "weight_source": {
         "config_sha256": "cf3179684f7c360dd6185962d480e7d426ceb8fe49f5db7b64bdc15dba0b8798",
         "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
@@ -234,7 +234,7 @@
         }
       },
       "released_sources": [],
-      "role": "text tower follow-up",
+      "role": "CLIP text tower, shares the image tower checkpoint",
       "weight_source": {
         "config_sha256": "c586d856dbd5589b67525db9e791ee0917402405672c7773aead373efb7d7bca",
         "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",

@@ -45,3 +45,56 @@ The viewer's decoding, Native lowering, and verification run client-side in Java
 Model fixtures (`.pt2` exports, images, expected results) are downloaded from release
 assets of [`TheCBaH/devcontainer.pytorch-image-models`](https://github.com/TheCBaH/devcontainer.pytorch-image-models),
 the companion repo that produces them from [`pytorch-image-models`](https://github.com/huggingface/pytorch-image-models).
+
+Transformers graph admission consumes the pinned source submodule:
+
+```sh
+git submodule update --init modules/devcontainer.transformers
+make transformers.admission
+```
+
+Only the top-level producer checkout is needed for its JSON catalogue. Admission
+is offline, verifies the checkout pin and every catalogue file, and needs no
+Python or ML packages after the usual OCaml build setup. Reports are written to
+`_build/transformers-admission/`; set `TRANSFORMERS_ADMISSION_OUT` to retain them
+elsewhere. `TRANSFORMERS_SOURCE` can select an investigation checkout, subject to
+the same pin and integrity checks. These tiny random graphs are separate from
+the released checkpoint cohort. A source pin update must include an inventory
+diff and regenerated admission evidence; release and checkpoint pins are
+independent.
+
+Regenerate or check the selected release metadata and bounded adapter manifests
+with OCaml:
+
+```sh
+make transformers.cohort.fetch transformers.assets.fetch # explicit acquisition
+make transformers.cohort.check transformers.assets.check # offline verification
+```
+
+The selections in `data/transformers/` pin the publication and list artifact and
+adapter IDs. These commands check cached bundle members and actual processor,
+tokenizer and config bytes without executing producer code or downloading model
+weights. `.generate` variants regenerate the derived files offline. Metadata
+compatibility does not establish numerical or task acceptance.
+
+Replay the selected published cases and verify retained runs offline:
+
+```sh
+make transformers.replay TRANSFORMERS_ARTIFACTS='ARTIFACT_ID'
+make transformers.matrix
+```
+
+Each replay creates a new directory under `TRANSFORMERS_REPORTS` containing a
+content-based run manifest, schema-3 reports and a completion record. The
+manifest pins the consumer workspace, producer inventory, release members,
+reference environment and effective execution policy. Acquisition errors are
+retained too. `TRANSFORMERS_DOTS=binary32-sequential` and
+`TRANSFORMERS_CASTS=saturating` select separate opt-in rows.
+
+The OCaml matrix checks immutable report digests and complete cases/outputs
+against verified cached contracts. It retains failures and conflicts, excludes
+legacy or different-workspace runs as historical, and shows all four policies,
+including “not run.” JSON and Markdown go to `TRANSFORMERS_MATRIX_JSON` and
+`TRANSFORMERS_MATRIX_MARKDOWN`. It exits nonzero for missing, failing, conflicting
+or invalid coverage. A complete matrix is separate from task acceptance and
+does not imply transformed, Kernel or streaming execution.

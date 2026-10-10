@@ -1,0 +1,16 @@
+(library
+ (name transformers_metadata)
+ (libraries
+  clip_input
+  err_trace
+  fmt
+  jsont
+  jsont.bytesrw
+  pt2
+  pt2_checkpoint_map
+  pt2_fixture
+  pt2_fixture_unix
+  pt2_sha256
+  schema_runtime
+  unix
+  wordpiece))

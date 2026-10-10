@@ -1,0 +1,21 @@
+(library
+ (name transformers_metadata_test)
+ (libraries
+  clip_input
+  err_trace
+  fmt
+  jsont
+  jsont.bytesrw
+  pt2_checkpoint_map
+  pt2_checkpoint_map_test
+  pt2_fixture
+  pt2_fixture_test
+  pt2_fixture_unix
+  pt2_fixture_unix_test
+  pt2_sha256
+  schema_runtime
+  transformers_metadata
+  unix)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

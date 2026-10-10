@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "adapters": [
+    {
+      "adapter": "bert-wordpiece",
+      "artifact_id": "bert-tiny/text-encoder/reference/forward/fp32/dynamo/static/ckpt-6f75de8b60a9",
+      "output": "text-assets.json"
+    },
+    {
+      "adapter": "tinyclip",
+      "artifact_id": "tinyclip/image-text-embeddings/reference/forward/fp32/dynamo/static/ckpt-a2a8c6eaa254",
+      "output": "clip-assets.json"
+    },
+    {
+      "adapter": "mobilevit",
+      "artifact_id": "mobilevit-xxs/image-classification/reference/forward/fp32/dynamo/static/ckpt-6703997f9e94",
+      "output": "vision-assets.json"
+    }
+  ]
+}

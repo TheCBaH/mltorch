@@ -3,6 +3,7 @@
   "config": {
     "name": "config.json",
     "sha256": "6f1b7c93da05058a62efcd10266079bbf1e6b430babd9367c8e20fdb21726f22",
+    "size": 69975,
     "url": "https://huggingface.co/apple/mobilevit-xx-small/resolve/6703997f9e940e312a04b8b7c26463d631c0d1f8/config.json"
   },
   "image": {
@@ -11,6 +12,7 @@
     "preprocessor_config": {
       "name": "preprocessor_config.json",
       "sha256": "ac69eb9624defabf01056e9dee3c68eb9d5f528a550007033c7574d7179249ec",
+      "size": 187,
       "url": "https://huggingface.co/apple/mobilevit-xx-small/resolve/6703997f9e940e312a04b8b7c26463d631c0d1f8/preprocessor_config.json"
     },
     "resample": "bilinear",
