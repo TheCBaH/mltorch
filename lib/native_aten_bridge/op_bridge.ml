@@ -30,6 +30,7 @@ let dispatchers =
   [
     Op_bridge_attention.dispatch;
     Op_bridge_conv.dispatch;
+    Op_bridge_diff.dispatch;
     Op_bridge_factory.dispatch;
     Op_bridge_linalg.dispatch;
     Op_bridge_norm.dispatch;

@@ -242,7 +242,7 @@
         "route": "Native_interp.run_named",
         "normalization": "empty-cache-opt-in"
       },
-      "reason": "diff.default remains refused; cohort membership does not establish support."
+      "reason": "Native and Kernel admission pass after diff.default support; full forward numerical replay is not remeasured, and earlier encoder mismatches remain open."
     }
   ]
 }

@@ -287,6 +287,12 @@ module Make (S : Semantics.SEMANTICS) = struct
             (output :> int)
         in
         C.pixel ~axis (operand (List.nth tensors (output :> int))) out
+    | Diff { Diff.Diff.params; x; prepend; append } ->
+        let module C = Diff.Diff.Compute (S) in
+        let source r = (shape_of r, operand r) in
+        C.pixel params ~x:(source x)
+          ~prepend:(Option.map source prepend)
+          ~append:(Option.map source append) out
     | Div { Pointwise.Bin.a; b } ->
         let module C = Pointwise.Div.Compute (S) in
         C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)

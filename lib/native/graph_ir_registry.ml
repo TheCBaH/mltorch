@@ -173,6 +173,12 @@ let op_registry : (module OP) list =
       let project = function Cumsum t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Diff.Diff
+
+      let inject t = Diff t
+      let project = function Diff t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Pointwise.Div
 
       let inject t = Div t

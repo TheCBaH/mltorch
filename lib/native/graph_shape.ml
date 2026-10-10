@@ -405,6 +405,18 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
   | Meshgrid { Meshgrid.Meshgrid.tensors } ->
       let* shapes = Err.List.map shape tensors in
       widen (Meshgrid.Meshgrid.output_shapes shapes)
+  | Diff { Diff.Diff.params; x; prepend; append } ->
+      let* x = sig_of x in
+      let optional = function
+        | None -> Err.return None
+        | Some r ->
+            let+ sg = sig_of r in
+            Some sg
+      in
+      let* prepend = optional prepend in
+      let* append = optional append in
+      let+ out = widen (Diff.Diff.output_shape params ~x ~prepend ~append) in
+      [ out ]
   | Div { Pointwise.Bin.a; b } ->
       let* a_shape = shape a in
       let* b_shape = shape b in

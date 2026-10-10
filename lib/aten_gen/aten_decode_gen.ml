@@ -70,7 +70,9 @@ let is_functional_conv_bias (op : A.t) (a : A.Argument.t) =
   && String.equal a.name "bias"
 
 let is_functional_none_default (op : A.t) (a : A.Argument.t) =
-  is_functional_conv_bias op a
+  String.equal op.name.base "diff"
+  && (String.equal a.name "prepend" || String.equal a.name "append")
+  || is_functional_conv_bias op a
   || String.equal op.name.base "scaled_dot_product_attention"
      && String.equal a.name "attn_mask"
 
@@ -204,6 +206,16 @@ let decode_arg ~(op : A.t) ~anchor (a : A.Argument.t) =
         ( [ Printf.sprintf "let* %s = tensors_arg env node %s in" id q ],
           [
             Printf.sprintf "(tensor_carray %s)" id;
+            Printf.sprintf "(List.length %s)" id;
+          ] )
+  | A.Type.List (A.Type.Optional (A.Type.Base A.Base.Tensor), _) ->
+      Some
+        ( [ Printf.sprintf "let* %s = optional_tensors_arg env node %s in" id q ],
+          [
+            Printf.sprintf
+              "(tensor_carray (List.map (Option.value ~default:null_tensor) \
+               %s))"
+              id;
             Printf.sprintf "(List.length %s)" id;
           ] )
   | _ -> None

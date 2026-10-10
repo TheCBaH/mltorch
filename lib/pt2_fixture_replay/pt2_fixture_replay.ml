@@ -167,7 +167,7 @@ let failed_case id error =
     outputs_digest_ok = false;
   }
 
-let run_case ~on_empty_caches ~dots ~casts archive (contract : F.Contract.t)
+let run_case ~execute archive (contract : F.Contract.t)
     (b : Pt2_fixture_unix.Bundle.t) (c : F.Cases.Case.t) =
   let input_names = c.inputs and output_names = c.outputs in
   let path role = Printf.sprintf "cases/%s/%s.pt" c.id role in
@@ -215,14 +215,9 @@ let run_case ~on_empty_caches ~dots ~casts archive (contract : F.Contract.t)
       else
         let outcome =
           try
-            match
-              Err.payload
-                (Native_interp.run_named ~empty_caches:on_empty_caches
-                   ~dot_accumulation:dots ~float_to_int:casts archive
-                   ~inputs:(List.map (fun (n, t, _) -> (n, t)) inputs))
-            with
-            | Ok v -> Ok v
-            | Error e -> Error (Fmt.str "%a" Native_interp.pp_error e)
+            execute archive
+              ~inputs:(List.map (fun (n, t, _) -> (n, t)) inputs)
+              ~outputs:contract.outputs
           with Err.Exn.E e ->
             (* A value-dependent failure the evaluator raises mid-run (a bad
                cast, an out-of-range gather) is an outcome of the run, reported
@@ -256,13 +251,13 @@ let run_case ~on_empty_caches ~dots ~casts archive (contract : F.Contract.t)
         | Ok actual ->
             let results =
               List.map2
-                (fun ((name, _, expected), (spec : F.Contract.Tensor_spec.t))
-                     native ->
-                  match to_logical native ~rank:(List.length spec.shape) with
+                (fun ((name, _, expected), (_spec : F.Contract.Tensor_spec.t))
+                     logical ->
+                  match logical with
                   | Ok actual ->
                       F.Compare.tensor ~atol:contract.atol ~rtol:contract.rtol
                         ~name ~expected ~actual
-                  | Error (`Native_layout why) ->
+                  | Error why ->
                       {
                         F.Compare.elements = F.Logical.numel expected;
                         first = [];
@@ -317,7 +312,7 @@ let describe_empty_caches into (r : Native_interp.Empty_cache_report.t) =
                      cats)))
         r.sources
 
-let replay ?(dots = Direct.Binary64) ?(casts = Direct.Checked) ~consumer
+let replay_with ~backend ~normalizations ~execute ~consumer
     (f : Pt2_fixture_unix.Fixture.t) =
   let b = f.bundle in
   let read name = Pt2_fixture_unix.Bundle.read_member b name in
@@ -345,16 +340,14 @@ let replay ?(dots = Direct.Binary64) ?(casts = Direct.Checked) ~consumer
     | Ok (Some h) -> Some (Pt2_fixture.History.scope h)
     | Ok None | Error _ -> None
   in
-  let normalizations = ref [] in
-  let on_empty_caches = describe_empty_caches normalizations in
   let base status refusal cases =
     {
       Report.artifact_id = contract.artifact_id;
       atol = contract.atol;
-      backend = backend_of ~casts dots;
+      backend;
       cases;
       consumer;
-      normalizations = !normalizations;
+      normalizations = normalizations ();
       pins;
       refusal;
       rtol = contract.rtol;
@@ -369,11 +362,34 @@ let replay ?(dots = Direct.Binary64) ?(casts = Direct.Checked) ~consumer
          [])
   else
     let* results =
-      Err.List.map
-        (run_case ~on_empty_caches ~dots ~casts f.archive contract b)
-        cases.cases
+      Err.List.map (run_case ~execute f.archive contract b) cases.cases
     in
     let cases = List.map fst results in
     match List.find_map snd results with
     | Some why -> Err.return (base Report.Refused (Some why) cases)
     | None -> Err.return (base (Report.status_of_cases cases) None cases)
+
+let replay ?(dots = Direct.Binary64) ?(casts = Direct.Checked) ~consumer f =
+  let normalizations = ref [] in
+  let execute archive ~inputs ~outputs =
+    match
+      Err.payload
+        (Native_interp.run_named
+           ~empty_caches:(describe_empty_caches normalizations)
+           ~dot_accumulation:dots ~float_to_int:casts archive ~inputs)
+    with
+    | Error e -> Error (Fmt.str "%a" Native_interp.pp_error e)
+    | Ok actual ->
+        Ok
+          (List.mapi
+             (fun i native ->
+               match List.nth_opt outputs i with
+               | None -> Error "unexpected graph output"
+               | Some (spec : F.Contract.Tensor_spec.t) ->
+                   to_logical native ~rank:(List.length spec.shape)
+                   |> Result.map_error (fun (`Native_layout why) -> why))
+             actual)
+  in
+  replay_with ~backend:(backend_of ~casts dots)
+    ~normalizations:(fun () -> !normalizations)
+    ~execute ~consumer f

@@ -6,6 +6,10 @@ module Source = Transformers_metadata.Source
 module Policy = struct
   type t = { casts : string; dots : string }
 
+  (* Diagnostic C++ runs live in a separate evidence root. [all] and [of_json]
+     intentionally accept only Native policies for the Native acceptance matrix. *)
+  let aten = { casts = "aten"; dots = "aten" }
+
   let all =
     [
       { casts = "checked"; dots = "exact" };
@@ -15,18 +19,29 @@ module Policy = struct
     ]
 
   let backend t =
-    "native-direct"
-    ^ (if t.dots = "exact" then "" else "+binary32-sequential-dots")
-    ^ if t.casts = "checked" then "" else "+saturating-casts"
+    if t = aten then "aten-cpp"
+    else
+      "native-direct"
+      ^ (if t.dots = "exact" then "" else "+binary32-sequential-dots")
+      ^ if t.casts = "checked" then "" else "+saturating-casts"
 
   let json t =
-    obj
-      [
-        ("casts", J.string t.casts);
-        ("dots", J.string t.dots);
-        ("route", J.string "Native_interp.run_named");
-        ("normalization", J.string "empty-cache-opt-in");
-      ]
+    if t = aten then
+      obj
+        [
+          ("casts", J.string "aten");
+          ("dots", J.string "aten");
+          ("route", J.string "Interp.run_named");
+          ("normalization", J.string "none");
+        ]
+    else
+      obj
+        [
+          ("casts", J.string t.casts);
+          ("dots", J.string t.dots);
+          ("route", J.string "Native_interp.run_named");
+          ("normalization", J.string "empty-cache-opt-in");
+        ]
 
   let of_json value =
     let* casts = field "casts" value in

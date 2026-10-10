@@ -99,6 +99,13 @@ let check_mixed_dtype (gr : graph) op =
       check_scalar_op "addcmul" self;
       check_scalar_op "addcmul" tensor1;
       check_scalar_op "addcmul" tensor2
+  | Diff _ ->
+      let (_ : Vec6.shape list) =
+        Err.or_raise ~pp_error:Graph_shape.pp_error
+          (Graph_shape.output_shape op ~sig_of:(fun r ->
+               Err.return (Tensor_id.Map.find r gr.Graph.tensors)))
+      in
+      ()
   | _ -> ()
 
 (* An exact int64 pixel for an I64-formatted [Factory.Arange] node:
@@ -310,6 +317,22 @@ let process_node ~limits ~fill ~pixel (gr : graph) (env, stages, stages_i64)
         Expr.Builder.run
           (C.pixel ~a_shape:a_sig.Tensor_sig.shape
              ~b_shape:b_sig.Tensor_sig.shape a_sig b_sig Symbolic.out_vec)
+      in
+      let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
+      (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+  | Diff { Diff.Diff.params; x; prepend; append }, [ (_, oid) ]
+    when is_i64 (operand x).Tensor_sig.fmt ->
+      let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+      let module C = Diff.Diff.Compute_i64 (Symbolic) (Symbolic) in
+      let source r =
+        let sg = operand r in
+        (sg.Tensor_sig.shape, sg)
+      in
+      let pixel =
+        Expr.Builder.run
+          (C.pixel params ~x:(source x)
+             ~prepend:(Option.map source prepend)
+             ~append:(Option.map source append) Symbolic.out_vec)
       in
       let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
       (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)

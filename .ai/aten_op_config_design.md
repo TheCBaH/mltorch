@@ -66,7 +66,10 @@ val find : string -> t option
 
 - **No runtime deps** on `aten_schema`, the YAML parser, or codegen libs.
 - **Same curated set** as the CTYpes bindings and dispatch arms — the three
-  artifacts never drift.
+  artifacts never drift for curated operations. The C++ bindings and interpreter
+  also have an explicit checkpoint diagnostic selection. Those extra targets
+  are excluded from Native config/spec/walk generation; they provide independent
+  C++ execution without silently expanding Native operator acceptance.
 - **Float defaults** are preserved as their original YAML strings (e.g. `"0.5"`)
   emitted directly as OCaml float literals so no precision is lost.
 - **`all` / `find`** enable O(n) lookup over ~40 ops (adequate for dispatch).

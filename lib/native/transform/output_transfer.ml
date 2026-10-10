@@ -163,13 +163,14 @@ let classify (op : op) ~output =
   | Adaptive_max_pool2d _ | Amax _ | Avg_pool2d _ | Batch_norm _
   | Batch_norm_no_stats _ | Batched_matmul _ | Bmm _ | Clamp _ | Conv1d _
   | Conv2d _ | Conv2d_padding _ | Conv3d _ | Convolution _ | Cos _ | Cumsum _
-  | Div _ | Div_scalar _ | Eye _ | Gelu _ | Group_norm _ | Hardsigmoid _
-  | Hardswish _ | Hardtanh _ | Layer_norm _ | Leaky_relu _ | Linear _ | Lstm _
-  | Max_pool2d _ | Mean _ | Mul _ | Mul_scalar _ | New_ones _ | Pow _ | Relu _
-  | Rms_norm _ | Rpow_scalar _ | Rsub_scalar _ | Sdpa _ | Sigmoid _ | Silu _
-  | Exp _ | Full_like _ | Log _ | Log1p _ | Weight_norm _ | Sin _ | Softmax _
-  | Arange _ | Sqrt _ | Sub _ | Sum _ | Tanh _ | Upsample_bicubic2d _
-  | Upsample_bilinear2d _ | Vector_norm _ | Zeros _ ->
+  | Diff _ | Div _ | Div_scalar _ | Eye _ | Gelu _ | Group_norm _
+  | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Layer_norm _ | Leaky_relu _
+  | Linear _ | Lstm _ | Max_pool2d _ | Mean _ | Mul _ | Mul_scalar _
+  | New_ones _ | Pow _ | Relu _ | Rms_norm _ | Rpow_scalar _ | Rsub_scalar _
+  | Sdpa _ | Sigmoid _ | Silu _ | Exp _ | Full_like _ | Log _ | Log1p _
+  | Weight_norm _ | Sin _ | Softmax _ | Arange _ | Sqrt _ | Sub _ | Sum _
+  | Tanh _ | Upsample_bicubic2d _ | Upsample_bilinear2d _ | Vector_norm _
+  | Zeros _ ->
       Continuous
 
 (* [Identical] survives everything, evaluation being deterministic. [Equivalent]

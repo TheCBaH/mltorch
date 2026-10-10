@@ -13,8 +13,50 @@ described in `native_graph_design.md`/`native_compute_design.md`.
   - `Pt2_archive.load_weight t name` → `Pt2_tensor.t` (raw, strided).
   - `Pt2_archive.load_pt path` → `Pt2_tensor.t` (a sample input image).
 - `Pt2_aten.to_tensor : Pt2_tensor.t -> Aten_tensor.t` (preserves float32 and
-  int64 storage/layout and hands it to ATen via `of_storage`). Verified
+  int64/bool storage/layout and hands it to ATen via `of_storage`). Verified
   byte/stride-correct against numpy.
+
+## Named checkpoint execution
+
+`Interp.run_named archive ~inputs` binds each user tensor by its serialized SSA
+name, verifies the exact name inventory and static dtype/shape, refuses scalar
+user inputs and mutation output specifications, then returns every tensor graph
+output in graph order. Captured parameters, buffers and constants use the same
+archive loader as the single-output route. The existing `run` remains a
+single-output convenience wrapper. The bridge supports bool inputs as well as
+float32 and int64, including strided storage and zero-element tensors.
+
+The generated decoder now admits explicit BOOL/FLOAT/LONG scalar types and CPU
+device values (no index or index zero). Other devices and unsupported scalar
+types still refuse. The zero-output `_assert_tensor_metadata` debug assertion
+is handled by the driver: it checks supplied sizes, strides, dtype, CPU device
+and strided layout against the live C++ tensor metadata and verifies there are
+no outputs. It performs no tensor arithmetic and is never silently discarded.
+All computational nodes call the existing C++ ATen bindings.
+
+The binding registry also includes 17 checkpoint diagnostic targets covering
+T5 relative positions, causal masks, RoPE, indexing and tensor factories. This
+explicit `checkpoint_selection` augments only the C++ bindings and generated
+interpreter arms. The Native config/spec/walk catalogue keeps its own curated
+selection, so adding a diagnostic binding does not claim a new Native operator
+acceptance gate. Every selected checkpoint graph is inventoried against the
+generated dispatch before replay.
+
+`Tensor?[]` arguments cross as a handle array plus length. Null handles become
+`std::nullopt` entries in a `c10::List<std::optional<at::Tensor>>`, preserving
+axis positions. Both serialized optional lists and all-live tensor lists
+decode through the existing strict optional-list reader. Nullable-list wrappers
+catch C++ exceptions at the C ABI; an invalid index becomes an ATen error/refusal
+instead of escaping into OCaml. The interpreter discovers referenced captured
+tensors inside optional lists as well as ordinary tensor/list arguments.
+
+The checkpoint replay route uses this interpreter over verified fixture
+captures, with an `aten-cpp` report identity. It does not run producer Python,
+use Native outputs as references, or rewrite empty caches. The linked archive
+uses the local PyTorch gitlink, CPU static dispatch, DEFAULT scalar capability,
+native threading and reference GEMM without external BLAS. That build differs
+from the producer's CPU wheel; ATen is an independent local diagnostic and may
+itself differ numerically from the published outputs.
 - Op layer: `module O = Aten_c.Aten_operations`, called on raw tensor handles —
   the same type as `Aten_tensor.t` — e.g. `O.add_Tensor a b (Aten_scalar.Int 1L)`,
   `O.relu g`, `O.convolution ...`. Multi-output ops fill a `tensorsN` struct.

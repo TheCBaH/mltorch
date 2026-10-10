@@ -40,6 +40,7 @@ type op =
   | Convolution of Conv.Convolution.t
   | Cos of Pointwise.Cos.t
   | Cumsum of Reduce.Cumsum.t
+  | Diff of Diff.Diff.t
   | Div of Pointwise.Div.t
   | Div_scalar of Pointwise.Div_scalar.t
   | Discard of { x : tensor_ref }

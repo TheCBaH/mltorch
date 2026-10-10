@@ -46,15 +46,22 @@ Normalized admission is explicitly requested with
 `make transformers.admission.normalized`. It decodes and normalizes the program
 in memory before the same independent Native/Native4D/Kernel session branches;
 source files stay intact and reports retain the normalized source count.
-At the reviewed main pin this measures Native 18/30, Native4D 2/30 and Kernel
-13/30. Strict admission remains 7/30, 2/30 and 5/30. No numerical replay is
-implied. The earlier attempted JSON re-encoding failed because generated codecs
-are decode-only; its failed reports are retained separately from this result.
+With the admitted Diff slice, the reviewed main pin measures Native 19/30,
+Native4D 2/30 and Kernel 14/30. Strict admission measures 8/30, 2/30 and 6/30.
+The earlier 18/2/13 and 7/2/5 measurements preceded Diff support. No numerical
+replay is implied. The earlier attempted JSON re-encoding failed because
+generated codecs are decode-only; its failed reports are retained separately
+from this result.
 
 Transposed convolution is committed at `979de558`, covered by independent
 scatter checks and symbolic-ground/bridge suites. Broad pinned producer
-boundary fixtures remain requested. `diff.default` (Whisper forward) and
-SmolVLM masked-scatter/index-put/bucketize/full routes remain explicit refusals.
+boundary fixtures remain requested. Whisper forward now admits `diff.default`
+and completes Native/Kernel graph admission; full forward numerical replay
+remains unmeasured after this operator change. Native supports order 0/1 on
+same-dtype F32/I64 with prepend/append and nonempty results; see
+[`aten_diff_design.md`](aten_diff_design.md). Higher orders, Bool and mixed
+dtype differences remain explicit refusals. SmolVLM
+masked-scatter/index-put/bucketize/full routes remain explicit refusals.
 Named transformed replay stays deferred: direct results are never transferred
 to that route. Robust immutable numerical identity remains separate from the
 source admission summary's historical dirty-file count.

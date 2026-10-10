@@ -366,6 +366,7 @@
   err_trace
   fmt
   pt2_fixture
+  pt2_fixture_aten_replay
   pt2_fixture_replay
   pt2_fixture_unix
   transformers_metadata

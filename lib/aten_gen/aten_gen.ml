@@ -102,12 +102,33 @@ let generate ?(style = `Function) (op : Aten_func_ast.t) =
                     Printf.sprintf "atc_tensor %s(%s)" c_name
                       (String.concat ", " c_params)
                   in
-                  ( proto,
-                    Printf.sprintf {|%s {
+                  (* Advanced indexing can throw on value-dependent bounds.
+                     New nullable-list bindings must contain that exception at
+                     the C ABI, as list-returning wrappers already do. *)
+                  let guarded =
+                    List.exists
+                      (fun ((a : Aten_func_ast.Argument.t), _) ->
+                        match a.ty with
+                        | List (Optional (Base Tensor), _) -> true
+                        | _ -> false)
+                      margs
+                  in
+                  let source =
+                    if guarded then
+                      Printf.sprintf
+                        {|%s {
+  ATC_TRY(nullptr, {
+    return atc_wrap(%s);
+  })
+}|}
+                        proto call
+                    else
+                      Printf.sprintf {|%s {
   return atc_wrap(%s);
-}|} proto call,
-                    "atc_tensor",
-                    [] )
+}|} proto
+                        call
+                  in
+                  (proto, source, "atc_tensor", [])
               | Aten_c_type.Tensors_ret nret ->
                   let proto =
                     Printf.sprintf "int %s(%s)" c_name

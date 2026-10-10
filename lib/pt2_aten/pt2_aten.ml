@@ -2,7 +2,7 @@
    PyTorch's native (storage, sizes, strides, offset) representation via
    [Aten_tensor.of_storage], so the layout — contiguous weights or channels-last
    inputs — is reproduced faithfully and the strided→dense work is done by ATen,
-   not in OCaml. Float32 and int64 are needed by the current models; extend per
+   not in OCaml. Float32, int64 and bool are needed by the current models; extend per
    dtype as required.
 
    Storage bytes are little-endian and the host is little-endian, so each cell
@@ -10,6 +10,18 @@
 
 let to_tensor (t : Pt2_tensor.t) =
   match t.Pt2_tensor.dtype with
+  | Pt2_dtype.Bool ->
+      let data = t.Pt2_tensor.data in
+      let ba =
+        Bigarray.Array1.create Bigarray.int8_unsigned Bigarray.c_layout
+          (Pt2_storage.length data)
+      in
+      for i = 0 to Bigarray.Array1.dim ba - 1 do
+        ba.{i} <- Char.code data.{i}
+      done;
+      Aten_tensor.of_storage Aten_dtype.bool ba ~sizes:t.Pt2_tensor.sizes
+        ~strides:t.Pt2_tensor.strides
+        ~storage_offset:t.Pt2_tensor.storage_offset
   | Pt2_dtype.Float32 ->
       let data = t.Pt2_tensor.data in
       let n = Pt2_storage.length data / 4 in

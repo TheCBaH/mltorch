@@ -233,6 +233,19 @@ let map_type ~name (ty : Aten_func_ast.Type.t) =
             Printf.sprintf "atc_to_tensor_vector(%s_data, %s_len)" name name;
           ctypes = [ "ptr atc_tensor"; "int" ];
         }
+  | List (Optional (Base Tensor), _) ->
+      Some
+        {
+          c_params =
+            [
+              Printf.sprintf "atc_tensor* %s_data" name;
+              Printf.sprintf "int %s_len" name;
+            ];
+          call_expr =
+            Printf.sprintf "atc_to_optional_tensor_list(%s_data, %s_len)" name
+              name;
+          ctypes = [ "ptr atc_tensor"; "int" ];
+        }
   (* Int[] and SymInt[] both bind to the non-_symint [at::<op>] overload, which
      takes an at::IntArrayRef; pass it as a (data, length) pair. *)
   | List (Base Int, _) | List (Base SymInt, _) ->

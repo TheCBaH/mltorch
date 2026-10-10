@@ -1,0 +1,12 @@
+(library
+ (name pt2_fixture_aten_replay)
+ (libraries
+  aten
+  err_trace
+  fmt
+  interp
+  pt2
+  pt2_checkpoint_map
+  pt2_fixture
+  pt2_fixture_replay
+  pt2_fixture_unix))

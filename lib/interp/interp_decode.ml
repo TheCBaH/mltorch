@@ -403,13 +403,17 @@ let memory_format_opt_arg node name =
   | Some (Argument.None _) | None -> Err.return None
   | Some arg -> wrong_kind name `Memory_format_opt arg
 
-(* ScalarType? / Layout? / Device? optionals. In exported inference graphs these
-   are always omitted (the op's default None), so we decode the absent case only
-   and raise loudly on an unexpected present value rather than guess the export
-   enum -> c10 enum translation. *)
+(* The checkpoint graphs use explicit BOOL/FLOAT/LONG and CPU devices. Translate
+   those exported enums explicitly; other present values remain refusals. *)
 let scalar_type_opt_arg node name =
   match find_arg node name with
   | Some (Argument.None _) | None -> Err.return None
+  | Some (Argument.Scalar_type ScalarType.BOOL) ->
+      Err.return (Some Aten_scalar_type.Bool)
+  | Some (Argument.Scalar_type ScalarType.FLOAT) ->
+      Err.return (Some Aten_scalar_type.Float)
+  | Some (Argument.Scalar_type ScalarType.LONG) ->
+      Err.return (Some Aten_scalar_type.Long)
   | Some (Argument.Scalar_type _) ->
       Err.fail (`Unsupported_scalar_type_arg name)
   | Some arg -> wrong_kind name `Scalar_type_opt arg
@@ -423,6 +427,9 @@ let layout_opt_arg node name =
 let device_opt_arg node name =
   match find_arg node name with
   | Some (Argument.None _) | None -> Err.return None
+  | Some (Argument.Device d)
+    when d.Device.type_ = "cpu" && (d.index = None || d.index = Some 0) ->
+      Err.return (Some Aten_device.cpu)
   | Some (Argument.Device _) -> Err.fail (`Unsupported_device_arg name)
   | Some arg -> wrong_kind name `Device_opt arg
 

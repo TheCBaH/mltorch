@@ -568,6 +568,12 @@ let max_pool2d_with_indices ?name params x =
         ( Err.fail (`Expected_single_output_shape { count = List.length shapes }),
           s )
 
+let diff ?name params x ?prepend ?append () =
+  let* s = get in
+  let sg = Tensor_id.Map.find x s.tensors in
+  op1 ?name ~fmt:sg.Tensor_sig.fmt ~kind:"diff"
+    (Diff { Diff.Diff.params; x; prepend; append })
+
 let div ?name a b = op1 ?name ~kind:"div" (Div { Pointwise.Bin.a; b })
 
 let div_scalar ?name scalar x =

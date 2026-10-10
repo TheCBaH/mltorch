@@ -121,6 +121,7 @@ let lower program =
                form of [index.Tensor] and defers the rest to that family. *)
             Native_interp_lower_index.dispatch;
             Native_interp_lower_compute.dispatch;
+            Native_interp_lower_diff.dispatch;
             Native_interp_lower_embedding.dispatch;
             Native_interp_lower_pointwise.dispatch;
             Native_interp_lower_pool.dispatch;

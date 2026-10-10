@@ -71,3 +71,62 @@ element counts and digest flags. They cover duplicates, mixed consumers,
 legacy reports, incomplete/corrupted runs, exclusive-write refusal and acquisition
 errors. A temporary Git repository proves that identical changed-file counts
 and assume-unchanged flags cannot hide differing source bytes.
+
+## C++ ATen diagnostic route
+
+`transformers_replay --backend aten-cpp` runs `Interp.run_named` through the
+existing C++ bridge over the same pinned graph, verified checkpoint captures,
+case inputs and producer references. The shared replay checks complete case and
+output inventories, logical storage digests, actual output dtype/shape and the
+unchanged contract tolerances. ATen outputs are copied in logical order after
+materializing both strided and nonzero-offset views; int64 values remain exact.
+The diagnostic introduces no Python torch or Transformers runtime.
+
+Its backend is `aten-cpp`, with cast/dot labels `aten`, normalization `none`,
+and route `Interp.run_named`. Native policy flags are rejected for this route.
+Run creation, exclusive report writes, completion digests, executable/source
+identity and before/after context checks are shared with Native replay. Store
+ATen runs in their own evidence root: the Native policy parser and matrix
+deliberately reject this diagnostic policy. A passing local ATen result cannot
+promote a Native row, and a local ATen mismatch cannot alone establish a Native
+implementation error. The local archive's scalar kernels and reference GEMM
+are not the producer wheel's exact CPU implementation.
+
+### Measured checkpoint comparison, 2026-10-10
+
+At consumer `5d89674b937ad77d2af07ce2bc60c1f4f643a03c`, immutable C++ run
+`run-4d0564` executes 11 components, 22 cases and all 526 output comparisons:
+eight components pass, three fail numerically, and none refuse. Run identity
+remains unchanged. Case/reference digests, report/completion digests, complete
+output inventories and exact equality of pins/tolerances against the historical
+Native run are independently checked. The command runs without Python on PATH.
+
+| Component | C++ ATen mismatching elements | Earlier Native default |
+|---|---:|---:|
+| SmolVLM connector | 5 | 2 |
+| Whisper encoder | 27 | 34 |
+| SmolLM prefill | 4074 | 2054 |
+| SmolLM history-4 decode | 0 (pass) | 5 |
+| SmolVLM history-71 decode | 0 (pass) | 1 |
+| T5 encoder, forward, prefill, history-4/history-8 decode | 0 (all five pass) | checked-cast refusal |
+| Whisper forward | 0 (pass) | historical diff admission refusal |
+
+The historical Native measurements are from consumer `f839b698`; these are
+comparisons against the same producer outputs, not a freshly rerun Native
+measurement. SmolLM C++ prefill has 4073 logits mismatches and one K/V mismatch
+(`case-01`, `present_11_value`). The other K/V comparisons pass. Maximum
+absolute errors in the three failed components are respectively
+`2.86102294921875e-4`, `8.296966552734375e-5` and
+`9.775161743164062e-5`. A passing verdict means within the frozen absolute/relative
+tolerances, not bitwise equality. Forward and encoder cases are independent.
+
+Source gitlink remains `b514afb61454fb15fd491826b475a6e3819ad641`, the
+checkpoint publication remains `checkpoint-003207ae59ed`, and the local C++
+PyTorch gitlink is `a3aa2c6ee42a053b5f761f4ff1f47974c39714fb`. The producer
+records `torch 2.12.0+cpu` on aarch64; the consumer also runs on aarch64 but
+its local source version is `2.13.0a0`, with a separate DEFAULT CPU/static
+archive and reference GEMM. Local ATen
+therefore reproduces three failures and resolves the tested decode/cast paths,
+without establishing which individual kernel explains the remaining drift.
+Native acceptance, including a current Native Whisper-forward measurement,
+stays open.

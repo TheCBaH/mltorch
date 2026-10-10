@@ -11,6 +11,19 @@ let gen ?(style = `Function) s =
           Printf.printf "%s\n---\n%s\n" g.Aten_gen.c_source
             g.Aten_gen.ctypes_line)
 
+let%expect_test
+    "nullable tensor list preserves positions and contains C++ errors" =
+  gen "index.Tensor(Tensor self, Tensor?[] indices) -> Tensor";
+  [%expect
+    {|
+    atc_tensor atg_index_Tensor(atc_tensor self, atc_tensor* indices_data, int indices_len) {
+      ATC_TRY(nullptr, {
+        return atc_wrap(at::index(*atc_to_ptr(self), atc_to_optional_tensor_list(indices_data, indices_len)));
+      })
+    }
+    ---
+    let index_Tensor = foreign "atg_index_Tensor" (atc_tensor @-> ptr atc_tensor @-> int @-> returning atc_tensor) |}]
+
 let%expect_test "add.Tensor" =
   gen "add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor";
   [%expect

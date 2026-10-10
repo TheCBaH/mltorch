@@ -452,8 +452,8 @@ let compute_arms (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
       let x_sig = Tensor_id.Map.find x g.Graph.tensors in
       match x_sig.Tensor_sig.fmt with
       | Payload.Fmt Payload.I64 ->
-          (* [Direct]'s own [b] is the abstract predicate of [SEMANTICS]; the
-             typed section's selects and comparisons are on [bool]. *)
+          (* Keep the exact integer value domain explicit. [Direct.b] and
+             the typed section's predicates both use [bool]. *)
           let module T = struct
             type 'a repr = 'a
             type b = bool
@@ -494,6 +494,19 @@ let compute_arms (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
                   ~operand:(fun r -> Tensor_id.Map.find r operand_env)
                   ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
                   ~fill)))
+  | Diff { Diff.Diff.params; x; prepend; append }
+    when match (Tensor_id.Map.find x g.Graph.tensors).Tensor_sig.fmt with
+         | Payload.Fmt Payload.I64 -> true
+         | _ -> false ->
+      let module C = Diff.Diff.Compute_i64 (Direct) (Direct) in
+      let source r =
+        (Tensor_id.Map.find r shape_env, Tensor_id.Map.find r operand_env)
+      in
+      finish dst
+        (Tensor.write_i64 dst (fun out ->
+             C.pixel params ~x:(source x)
+               ~prepend:(Option.map source prepend)
+               ~append:(Option.map source append) out))
   | Sub { Pointwise.Bin.a; b } -> (
       let a_sig = Tensor_id.Map.find a g.Graph.tensors in
       let b_sig = Tensor_id.Map.find b g.Graph.tensors in

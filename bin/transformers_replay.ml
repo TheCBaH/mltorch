@@ -14,7 +14,9 @@ let () =
   let report_dir = ref "_build/transformers-reports"
   and source = ref "modules/devcontainer.transformers"
   and dots = ref Direct.Binary64
-  and casts = ref Direct.Checked in
+  and casts = ref Direct.Checked
+  and aten = ref false
+  and native_policy = ref false in
   let rec flags = function
     | "--report-dir" :: dir :: rest ->
         report_dir := dir;
@@ -22,16 +24,26 @@ let () =
     | "--source" :: dir :: rest ->
         source := dir;
         flags rest
+    | "--backend" :: "aten-cpp" :: rest ->
+        aten := true;
+        flags rest
+    | "--backend" :: "native-direct" :: rest ->
+        aten := false;
+        flags rest
     | "--dots" :: "binary32-sequential" :: rest ->
+        native_policy := true;
         dots := Direct.Binary32_sequential;
         flags rest
     | "--dots" :: "exact" :: rest ->
+        native_policy := true;
         dots := Direct.Binary64;
         flags rest
     | "--casts" :: "saturating" :: rest ->
+        native_policy := true;
         casts := Direct.Saturating;
         flags rest
     | "--casts" :: "checked" :: rest ->
+        native_policy := true;
         casts := Direct.Checked;
         flags rest
     | x :: _ when String.starts_with ~prefix:"--" x ->
@@ -43,6 +55,11 @@ let () =
   in
   let work () =
     let* args = flags (List.tl (Array.to_list Sys.argv)) in
+    let* () =
+      if !aten && !native_policy then
+        invalid "ATen uses its own cast and accumulation semantics"
+      else Ok ()
+    in
     match args with
     | cohort_path :: cache_dir :: ids ->
         let* () = unique ids in
@@ -76,17 +93,19 @@ let () =
         let* identity = capture () in
         let* consumer = path [ "consumer"; "commit" ] identity >>= string in
         let policy =
-          R.Run.Policy.
-            {
-              casts =
-                (match !casts with
-                | Direct.Checked -> "checked"
-                | Direct.Saturating -> "saturating");
-              dots =
-                (match !dots with
-                | Direct.Binary64 -> "exact"
-                | Direct.Binary32_sequential -> "binary32-sequential");
-            }
+          if !aten then R.Run.Policy.aten
+          else
+            R.Run.Policy.
+              {
+                casts =
+                  (match !casts with
+                  | Direct.Checked -> "checked"
+                  | Direct.Saturating -> "saturating");
+                dots =
+                  (match !dots with
+                  | Direct.Binary64 -> "exact"
+                  | Direct.Binary32_sequential -> "binary32-sequential");
+              }
         in
         let expected =
           List.map (R.Expectation.load_or_error config cohort) entries
@@ -100,7 +119,10 @@ let () =
               let t0 = Unix.gettimeofday () in
               let replay =
                 let* f = Fixture.open_ config cohort entry in
-                Pt2_fixture_replay.replay ~dots:!dots ~casts:!casts ~consumer f
+                if !aten then Pt2_fixture_aten_replay.replay ~consumer f
+                else
+                  Pt2_fixture_replay.replay ~dots:!dots ~casts:!casts ~consumer
+                    f
               in
               let* json =
                 match Err.payload replay with
@@ -149,7 +171,8 @@ let () =
         invalid
           "usage: transformers_replay COHORT CACHE [--source DIR] \
            [--report-dir DIR] [--dots exact|binary32-sequential] [--casts \
-           checked|saturating] [ARTIFACT_ID...]"
+           checked|saturating] [--backend native-direct|aten-cpp] \
+           [ARTIFACT_ID...]"
   in
   try
     match Err.payload (work ()) with

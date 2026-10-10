@@ -538,6 +538,16 @@ module Arange : sig
   val pp : Format.formatter -> t -> unit
 end
 
+module Diff : sig
+  type t =
+    | Empty_result
+    | Mixed_dtype of Payload.packed_fmt
+    | Unsupported_dtype of Payload.packed_fmt
+    | Unsupported_order of Aten_int.Size.t
+
+  val pp : t Fmt.t
+end
+
 type t =
   [ `Adaptive_pool of Adaptive_pool.t
   | `Batched_matmul of Batched_matmul.error
@@ -546,6 +556,7 @@ type t =
   | `Clamp of Clamp.error
   | `Concat of Concat.t
   | `Convolution of Convolution.error
+  | `Diff of Diff.t
   | `Embedding of Embedding.error
   | `Group_norm of Group_norm.t
   | `Index_tensor of Index_tensor.t

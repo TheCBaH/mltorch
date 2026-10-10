@@ -35,6 +35,7 @@ let curated_selection =
     op "add_" ~overload:"Tensor";
     op "abs";
     op "detach";
+    op "diff";
     op "embedding";
     op "sub" ~overload:"Tensor";
     op "mul" ~overload:"Tensor";
@@ -155,6 +156,34 @@ let selection =
     (fun a b -> String.compare (selection_key a) (selection_key b))
     curated_selection
 
+(* Additional C++ checkpoint diagnostics. These bindings and interpreter arms
+   do not expand the Native operation config/spec/walk acceptance catalogue. *)
+let checkpoint_selection =
+  [
+    op "__and__" ~overload:"Tensor";
+    op "cos";
+    op "eq" ~overload:"Tensor";
+    op "ge" ~overload:"Scalar";
+    op "gt" ~overload:"Scalar";
+    op "index" ~overload:"Tensor";
+    op "le" ~overload:"Tensor";
+    op "log";
+    op "lt" ~overload:"Scalar";
+    op "min" ~overload:"other";
+    op "ne" ~overload:"Scalar";
+    op "neg";
+    op "new_ones";
+    op "repeat";
+    op "sin";
+    op "where" ~overload:"ScalarOther";
+    op "zeros_like";
+  ]
+
+let binding_selection =
+  List.sort
+    (fun a b -> String.compare (selection_key a) (selection_key b))
+    (curated_selection @ checkpoint_selection)
+
 let die fmt =
   Printf.ksprintf
     (fun s ->
@@ -200,7 +229,7 @@ let style_of (e : Aten_raw.t) =
    (Aten_decode_gen). Ops whose argument/return types the generator cannot
    decode simply produce no arm (Aten_decode_gen.dispatch_arm returns None) and
    fall through to the interpreter's failwith. *)
-let dispatch_ops entries =
+let dispatch_ops ?(selection = selection) entries =
   List.filter_map
     (fun sel ->
       let sg =
@@ -222,7 +251,7 @@ let resolve entries =
           generate_sig ~origin:"schema" ~style:(style_of e) e.func
       | Override { signature; style } ->
           generate_sig ~origin:"override" ~style signature)
-    selection
+    binding_selection
 
 let () =
   if Array.length Sys.argv <> 3 then
@@ -241,7 +270,8 @@ let () =
     | "atg_ops.h" -> Aten_emit.header ops
     | "atg_ops.cpp" -> Aten_emit.source ops
     | "aten_operation_description.ml" -> Aten_emit.ocaml ops
-    | "interp_dispatch.ml" -> Aten_decode_gen.file (dispatch_ops entries)
+    | "interp_dispatch.ml" ->
+        Aten_decode_gen.file (dispatch_ops ~selection:binding_selection entries)
     | "aten_op_config.ml" -> Aten_config_gen.file (dispatch_ops entries)
     | "aten_op_spec.ml" -> Aten_spec_gen.file (dispatch_ops entries)
     | "aten_op_walk.ml" -> Aten_walk_gen.file (dispatch_ops entries)

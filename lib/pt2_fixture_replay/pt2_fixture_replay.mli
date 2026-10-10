@@ -34,3 +34,20 @@ val replay :
 (** [consumer] names the consumer revision and workspace state for the report.
     Errors are those of reading the bundle; everything about the cases is in the
     report. *)
+
+val replay_with :
+  backend:string ->
+  normalizations:(unit -> string list) ->
+  execute:
+    (Pt2_archive.t ->
+    inputs:(string * Pt2_tensor.t) list ->
+    outputs:Pt2_fixture.Contract.Tensor_spec.t list ->
+    ((Pt2_fixture.Logical.t, string) result list, string) result) ->
+  consumer:string ->
+  Pt2_fixture_unix.Fixture.t ->
+  (Pt2_fixture.Report.t, [> Pt2_fixture_unix.Fixture.error ]) Err.t
+(** Shared verified-case replay for an explicitly named execution route. The
+    executor returns every graph output in order, preserving actual dtype and
+    shape. Inner errors describe an unreadable output; outer errors refuse the
+    call. Reference digests, complete output coverage and original tolerances
+    use the same checks as {!replay}. *)

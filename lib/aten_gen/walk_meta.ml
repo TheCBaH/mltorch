@@ -65,6 +65,7 @@ let entries =
     add_tensor;
     add_inplace_tensor;
     mul_tensor;
+    diff;
     div_tensor;
     mul_scalar;
     view_default;

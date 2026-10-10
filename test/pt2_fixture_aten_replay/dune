@@ -1,0 +1,19 @@
+(library
+ (name pt2_fixture_aten_replay_test)
+ (libraries
+  aten
+  err_trace
+  fmt
+  interp
+  pt2
+  pytorch_types
+  schema_runtime
+  pt2_fixture
+  pt2_fixture_aten_replay
+  pt2_fixture_replay_test
+  pt2_fixture_unix
+  pt2_fixture_unix_test
+  transformers_reports)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

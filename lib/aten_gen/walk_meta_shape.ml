@@ -3,6 +3,27 @@
 
 open Walk_meta_entry
 
+(* diff.default: reuse the rank-four shape/dimension space, with every extent
+   >= 2 so first differences stay nonempty. Order and optional-operand cases
+   have independent oracle tests; this walk explores both axis spellings. *)
+let diff =
+  {
+    module_name = "Diff_walk";
+    target = "torch.ops.aten.diff.default";
+    recipe = "Recipe_unbind";
+    initial =
+      "Aten_walk_recipes.Recipe_unbind.{ n = 2; c = 3; h = 4; w = 4; dim = 0 }";
+    axes =
+      "Aten_walk_recipes.Recipe_unbind.axes ~n:[ 2; 3; 4 ] ~c:[ 2; 3; 5 ] ~h:[ \
+       2; 4; 6 ] ~w:[ 2; 5; 7 ] ~dim:Aten_walk_recipes.Recipe_unbind.all_dims";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_unbind.self_shape c) in
+    ( Aten_op_spec.Op_diff.(
+        spec { self; n = 1; dim = Recipe_unbind.dim c;
+               prepend = None; append = None }),
+      pcg )|};
+  }
+
 (* `_to_copy.default`'s default dtype is the Native float identity and its
    non-blocking flag has no value effect.  Vary the tensor shape while holding
    unsupported layout/device/memory-format options absent. *)

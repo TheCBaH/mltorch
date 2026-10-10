@@ -813,6 +813,24 @@ module Resize_bicubic = struct
       Dim.pp in_extent Op_config.Pos.pp out_extent Axis.pp axis aggregate limit
 end
 
+module Diff = struct
+  type t =
+    | Empty_result
+    | Mixed_dtype of Payload.packed_fmt
+    | Unsupported_dtype of Payload.packed_fmt
+    | Unsupported_order of Aten_int.Size.t
+
+  let pp ppf = function
+    | Empty_result -> Fmt.string ppf "diff: empty results are not represented"
+    | Mixed_dtype (Payload.Fmt f) ->
+        Fmt.pf ppf "diff: mixed dtype %s" (Payload.fmt_name f)
+    | Unsupported_dtype (Payload.Fmt f) ->
+        Fmt.pf ppf "diff: unsupported dtype %s" (Payload.fmt_name f)
+    | Unsupported_order n ->
+        Fmt.pf ppf "diff: supported orders are 0 and 1, got %a" Aten_int.Size.pp
+          n
+end
+
 type t =
   [ `Adaptive_pool of Adaptive_pool.t
   | `Batched_matmul of Batched_matmul.error
@@ -821,6 +839,7 @@ type t =
   | `Clamp of Clamp.error
   | `Concat of Concat.t
   | `Convolution of Convolution.error
+  | `Diff of Diff.t
   | `Embedding of Embedding.error
   | `Group_norm of Group_norm.t
   | `Index_tensor of Index_tensor.t
@@ -854,6 +873,7 @@ let pp ppf = function
   | `Clamp e -> Clamp.pp_error ppf e
   | `Concat e -> Concat.pp ppf e
   | `Convolution e -> Convolution.pp_error ppf e
+  | `Diff e -> Diff.pp ppf e
   | `Embedding e -> Embedding.pp_error ppf e
   | `Group_norm e -> Group_norm.pp ppf e
   | `Index_tensor e -> Index_tensor.pp ppf e

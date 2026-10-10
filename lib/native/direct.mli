@@ -4,6 +4,7 @@
 include
   Semantics.SEMANTICS
     with type t = float
+     and type b = bool
      and type 'role index = 'role Dim.t
      and type input = Tensor.packed
 

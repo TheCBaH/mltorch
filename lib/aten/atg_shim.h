@@ -208,6 +208,7 @@ int64_t atc_tensor_list_live_count(void);
 #include <vector>
 
 #include <ATen/core/Tensor.h>
+#include <ATen/core/List.h>
 #include <c10/core/Device.h>
 #include <c10/core/Scalar.h>
 
@@ -276,6 +277,18 @@ inline std::vector<at::Tensor> atc_to_tensor_vector(const atc_tensor* data,
   v.reserve(len);
   for (int i = 0; i < len; ++i) v.push_back(*atc_to_ptr(data[i]));
   return v;
+}
+/* Tensor?[] preserves every absent axis as nullopt; dropping null entries
+   changes advanced-index axis positions. Tensor handles are borrowed here. */
+inline c10::List<std::optional<at::Tensor>> atc_to_optional_tensor_list(
+    const atc_tensor* data, int len) {
+  c10::List<std::optional<at::Tensor>> values;
+  values.reserve(len);
+  for (int i = 0; i < len; ++i) {
+    if (data[i]) values.push_back(*atc_to_ptr(data[i]));
+    else values.push_back(std::nullopt);
+  }
+  return values;
 }
 inline atc_tensor atc_from_ptr(at::Tensor* t) {
   return reinterpret_cast<atc_tensor>(t);

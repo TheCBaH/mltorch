@@ -25,19 +25,33 @@ let tget = Aten_operation_description.tensors_get
 
 type error =
   [ `Aten_runtime_failure of string * int
+  | `Input_metadata of string * string
+  | `Input_names of string list * string list
+  | `Metadata_mismatch of string
   | Interp_decode.error
   | Pt2_archive.error
   | `Topk_read_failed
+  | `Unexpected_graph_input of string
   | `Unexpected_graph_output of string
   | `Unhandled_op of string ]
 
 let pp_error ppf : [< error ] -> unit = function
   | `Aten_runtime_failure (op, st) ->
       Fmt.pf ppf "ATen op %s failed with status %d" op st
+  | `Input_metadata (name, field) ->
+      Fmt.pf ppf "ATen input %s metadata differs: %s" name field
+  | `Input_names (expected, actual) ->
+      Fmt.pf ppf "ATen input names: expected [%s], got [%s]"
+        (String.concat "; " expected)
+        (String.concat "; " actual)
+  | `Metadata_mismatch field ->
+      Fmt.pf ppf "ATen tensor metadata differs: %s" field
   | #Interp_decode.error as e -> Interp_decode.pp_error ppf e
   | #Pt2_archive.error as e -> Pt2_archive.pp_error ppf e
   | `Topk_read_failed ->
       Fmt.string ppf "failed to read topk outputs back from ATen"
+  | `Unexpected_graph_input kind ->
+      Fmt.pf ppf "unsupported graph input: %s" kind
   | `Unexpected_graph_output summary ->
       Fmt.pf ppf "expected a single tensor graph output, got %s" summary
   | `Unhandled_op target -> Fmt.pf ppf "unhandled op %S" target
@@ -56,6 +70,13 @@ let referenced_tensor_names (g : Graph.t) =
           | Argument.Tensor ta -> [ ta.TensorArgument.name ]
           | Argument.Optional_tensor (OptionalTensorArgument.Tensor ta) ->
               [ ta.TensorArgument.name ]
+          | Argument.Optional_tensors tas ->
+              List.filter_map
+                (function
+                  | OptionalTensorArgument.None _ -> None
+                  | OptionalTensorArgument.Tensor ta ->
+                      Some ta.TensorArgument.name)
+                tas
           | Argument.Tensors tas ->
               List.map (fun (ta : TensorArgument.t) -> ta.name) tas
           | _ -> [])
@@ -114,30 +135,142 @@ let load_referenced_params archive (g : Graph.t) (sign : GraphSignature.t) env =
     env
     (referenced_tensor_names g)
 
-let run archive (image : Pt2_tensor.t) =
+(* This zero-output debug assertion is checked against the live C++ tensor's
+   metadata. It is never silently skipped and performs no tensor arithmetic. *)
+let assert_tensor_metadata env node =
+  let* tensor = tensor_arg env node "a" in
+  let check field yes =
+    if yes then Err.return () else Err.fail (`Metadata_mismatch field)
+  in
+  let optional_dims name actual =
+    match find_arg node name with
+    | None | Some (Argument.None _) -> Err.return ()
+    | Some _ ->
+        let* expected = ints_arg node name in
+        check name (expected = Array.to_list actual)
+  in
+  let* () = optional_dims "size" (Aten_tensor.shape tensor) in
+  let* () = optional_dims "stride" (Aten_tensor.strides tensor) in
+  let* () =
+    match find_arg node "dtype" with
+    | None | Some (Argument.None _) -> Err.return ()
+    | Some (Argument.Scalar_type dtype) -> (
+        let expected =
+          match dtype with
+          | ScalarType.BOOL -> Some Aten_scalar_type.Bool
+          | BYTE -> Some Byte
+          | CHAR -> Some Char
+          | DOUBLE -> Some Double
+          | FLOAT -> Some Float
+          | HALF -> Some Half
+          | INT -> Some Int
+          | LONG -> Some Long
+          | SHORT -> Some Short
+          | _ -> None
+        in
+        match expected with
+        | Some dtype -> check "dtype" (dtype = Aten_tensor.scalar_type tensor)
+        | None -> Err.fail (`Unsupported_scalar_type_arg "dtype"))
+    | Some arg -> wrong_kind "dtype" `Scalar_type_opt arg
+  in
+  let* device = device_opt_arg node "device" in
+  let* () = check "device" (device = None || Aten_tensor.is_cpu tensor) in
+  let* () =
+    match find_arg node "layout" with
+    | None | Some (Argument.None _) | Some (Argument.Layout Layout.Strided) ->
+        Err.return ()
+    | Some (Argument.Layout _) -> Err.fail (`Unsupported_layout_arg "layout")
+    | Some arg -> wrong_kind "layout" `Layout_opt arg
+  in
+  let+ () = check "outputs" (node.Node.outputs = []) in
+  env
+
+let run_named archive ~inputs =
   let g, sign = graph_and_signature archive in
-  (* User inputs are bound to the supplied image. *)
+  let* () =
+    if
+      List.for_all
+        (function OutputSpec.User_output _ -> true | _ -> false)
+        sign.GraphSignature.output_specs
+    then Err.return ()
+    else Err.fail (`Unexpected_graph_output "non-user output specification")
+  in
+  let* named =
+    Err.List.map
+      (function
+        | InputSpec.User_input { UserInputSpec.arg = Argument.Tensor ta; _ } ->
+            Err.return (Some ta.TensorArgument.name)
+        | InputSpec.User_input { UserInputSpec.arg; _ } ->
+            Err.fail (`Unexpected_graph_input (argument_kind_name arg))
+        | _ -> Err.return None)
+      sign.GraphSignature.input_specs
+  in
+  let names = List.filter_map Fun.id named in
+  let actual = List.map fst inputs in
+  let* () =
+    if List.sort String.compare names = List.sort String.compare actual then
+      Err.return ()
+    else Err.fail (`Input_names (names, actual))
+  in
+  let* () =
+    Err.List.iter
+      (fun (name, (tensor : Pt2_tensor.t)) ->
+        match String_map.find_opt name g.Graph.tensor_values with
+        | None -> Err.fail (`Input_metadata (name, "missing"))
+        | Some meta ->
+            let check field yes =
+              if yes then Err.return ()
+              else Err.fail (`Input_metadata (name, field))
+            in
+            let* () =
+              check "dtype"
+                (Err.payload (Pt2_dtype.of_scalar_type meta.TensorMeta.dtype)
+                = Ok tensor.dtype)
+            in
+            check "shape"
+              (meta.sizes = List.map (fun n -> SymInt.Int n) tensor.sizes))
+      inputs
+  in
   let env =
     List.fold_left
-      (fun env (spec : InputSpec.t) ->
-        match spec with
-        | InputSpec.User_input { UserInputSpec.arg = Argument.Tensor ta; _ } ->
-            String_map.add ta.TensorArgument.name (Pt2_aten.to_tensor image) env
-        | _ -> env)
-      String_map.empty sign.GraphSignature.input_specs
+      (fun env (name, tensor) ->
+        String_map.add name (Pt2_aten.to_tensor tensor) env)
+      String_map.empty inputs
   in
   let* env = load_referenced_params archive g sign env in
   let* env =
     Err.List.fold_left
       (fun env node ->
-        Interp_dispatch.dispatch env node
+        (if node.Node.target = "torch.ops.aten._assert_tensor_metadata.default"
+         then assert_tensor_metadata env node
+         else Interp_dispatch.dispatch env node)
         |> Err.map_error (fun e -> (e :> error)))
       env g.Graph.nodes
   in
-  match g.Graph.outputs with
-  | [ Argument.Tensor ta ] -> resolve env ta.TensorArgument.name
+  Err.List.map
+    (function
+      | Argument.Tensor ta -> resolve env ta.TensorArgument.name
+      | output ->
+          Err.fail (`Unexpected_graph_output (graph_output_summary [ output ])))
+    g.Graph.outputs
+
+let run archive (image : Pt2_tensor.t) =
+  let _, sign = graph_and_signature archive in
+  let inputs =
+    List.filter_map
+      (function
+        | InputSpec.User_input { UserInputSpec.arg = Argument.Tensor ta; _ } ->
+            Some (ta.TensorArgument.name, image)
+        | _ -> None)
+      sign.GraphSignature.input_specs
+  in
+  let* outputs = run_named archive ~inputs in
+  match outputs with
+  | [ tensor ] -> Err.return tensor
   | outputs ->
-      Err.fail (`Unexpected_graph_output (graph_output_summary outputs))
+      Err.fail
+        (`Unexpected_graph_output
+           (Printf.sprintf "%d outputs" (List.length outputs)))
 
 (* Index of the maximum element of the flattened logits, computed by ATen
    (at::argmax with dim=None) and read back as an int. *)

@@ -172,6 +172,16 @@ val convolution :
 
 val cos : ?name:string -> tensor_ref -> Tensor_id.t t
 val cumsum : ?name:string -> Reduce.Cumsum.params -> tensor_ref -> Tensor_id.t t
+
+val diff :
+  ?name:string ->
+  Diff.Diff.params ->
+  tensor_ref ->
+  ?prepend:tensor_ref ->
+  ?append:tensor_ref ->
+  unit ->
+  Tensor_id.t t
+
 val div : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 val div_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
 
