@@ -402,3 +402,22 @@
   pt2_fixture
   pt2_fixture_unix
   pt2_sha256))
+
+; A bounded image-classification example for MobileViT: a PPM image in, the top
+; ImageNet classes out. See the file's header.
+
+(executable
+ (name transformers_vision_demo)
+ (modules transformers_vision_demo)
+ (libraries
+  clip_input
+  err_trace
+  fmt
+  jsont
+  jsont.bytesrw
+  native
+  native_interp
+  pt2
+  pt2_fixture
+  pt2_fixture_unix
+  pt2_sha256))

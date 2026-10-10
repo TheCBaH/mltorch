@@ -48,6 +48,54 @@ let%expect_test "bicubic resize equals Pillow's, byte for byte" =
     90x160 -> 224x398: equal
     300x200 -> 224x336: equal |}]
 
+(* The same for [Image.BILINEAR], the filter the MobileViT processor uses. *)
+let%expect_test "bilinear resize equals Pillow's, byte for byte" =
+  List.iter
+    (fun (h, w, oh, ow, expected) ->
+      let out =
+        Resample.resize Resample.Bilinear
+          (image h w ((h * 1000) + w))
+          ~width:ow ~height:oh
+      in
+      Printf.printf "%dx%d -> %dx%d: %s\n" h w oh ow
+        (if checksum out = expected && out.width = ow && out.height = oh then
+           "equal"
+         else Printf.sprintf "DIFFERENT (%d)" (checksum out)))
+    [
+      (6, 8, 3, 4, 2654404265);
+      (5, 5, 9, 9, 2090772652);
+      (7, 3, 7, 5, 1764369528);
+      (90, 160, 288, 512, 2959254430);
+      (300, 200, 288, 432, 332737875);
+    ];
+  [%expect
+    {|
+    6x8 -> 3x4: equal
+    5x5 -> 9x9: equal
+    7x3 -> 7x5: equal
+    90x160 -> 288x512: equal
+    300x200 -> 288x432: equal |}]
+
+(* [flip] reverses the channel order before the channels-first layout. *)
+let%expect_test "flip reverses the channels; crop takes the centre" =
+  let img =
+    {
+      Ppm.width = 2;
+      height = 2;
+      rgb = Bytes.of_string "\001\002\003\004\005\006\007\008\009\010\011\012";
+    }
+  in
+  let go flip =
+    Prep.tensor img ~filter:Resample.Bilinear ~resize:2 ~crop:2 ~flip
+      ~mean:[| 0.; 0.; 0. |] ~std:[| 1.; 1.; 1. |]
+    |> Array.map (fun v -> int_of_float ((v *. 255.) +. 0.5))
+  in
+  let show a = String.concat " " (Array.to_list (Array.map string_of_int a)) in
+  Printf.printf "rgb: %s\nbgr: %s\n" (show (go false)) (show (go true));
+  [%expect {|
+    rgb: 1 4 7 10 2 5 8 11 3 6 9 12
+    bgr: 3 6 9 12 2 5 8 11 1 4 7 10 |}]
+
 let%expect_test
     "an unchanged size is not resampled; a constant image stays constant" =
   let img = image 5 7 3 in

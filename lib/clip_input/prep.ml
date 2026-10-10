@@ -9,16 +9,22 @@ let resized_size ~width ~height ~size =
 
 let round32 x = Int32.float_of_bits (Int32.bits_of_float x)
 
-let pixel_values (img : Ppm.t) ~size ~mean ~std =
-  let w, h = resized_size ~width:img.width ~height:img.height ~size in
-  let img = Resample.bicubic img ~width:w ~height:h in
-  let top = (h - size) / 2 and left = (w - size) / 2 in
+let tensor (img : Ppm.t) ~filter ~resize ~crop ~flip ~mean ~std =
+  let w, h = resized_size ~width:img.width ~height:img.height ~size:resize in
+  let img = Resample.resize filter img ~width:w ~height:h in
+  let top = (h - crop) / 2 and left = (w - crop) / 2 in
   Array.init
-    (3 * size * size)
+    (3 * crop * crop)
     (fun i ->
-      let c = i / (size * size) in
-      let y = i / size mod size and x = i mod size in
+      let c = i / (crop * crop) in
+      let y = i / crop mod crop and x = i mod crop in
+      let src_c = if flip then 2 - c else c in
       let v =
-        Char.code (Bytes.get img.rgb (((((top + y) * w) + left + x) * 3) + c))
+        Char.code
+          (Bytes.get img.rgb (((((top + y) * w) + left + x) * 3) + src_c))
       in
       round32 ((round32 (float_of_int v /. 255.) -. mean.(c)) /. std.(c)))
+
+let pixel_values img ~size ~mean ~std =
+  tensor img ~filter:Resample.Bicubic ~resize:size ~crop:size ~flip:false ~mean
+    ~std

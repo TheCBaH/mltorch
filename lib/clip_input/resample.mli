@@ -5,6 +5,11 @@
     two passes and the rounding between them are why a float resize is not the
     same image. *)
 
+type filter = Bicubic | Bilinear
+
+val resize : filter -> Ppm.t -> width:int -> height:int -> Ppm.t
+(** Pillow's [Image.resize] with [Image.BICUBIC] or [Image.BILINEAR]. *)
+
 val bicubic : Ppm.t -> width:int -> height:int -> Ppm.t
 (** The image resized to exactly [width] x [height]; an axis whose size is
     unchanged is not resampled, as in Pillow. *)

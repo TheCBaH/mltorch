@@ -964,3 +964,28 @@ within 1.2e-5 on values of 10 to 19, inside the producer's tolerance for each:
 for example 14.688155 against 14.688149 for `a photo of a cat`, and the sentence
 naming the scene's shapes scores highest. The claim is for this model, ASCII text of
 at most 14 tokens, a PPM image and native-direct with the default numerics.
+
+## 31. MobileViT image classification
+
+The third adapter reuses `lib/clip_input` for a different processor. `Resample`
+takes a filter (`Bicubic` or `Bilinear`, both Pillow's fixed-point arithmetic) and
+`Prep.tensor` takes the resize edge, crop, a channel flip (RGB to BGR) and the
+mean/std, so one library covers CLIP and MobileViT. `transformers_vision_demo
+classify` applies MobileViT-xx-small's pinned `preprocessor_config.json` (bilinear
+resize of the shorter edge to 288, centre crop 256, scale by 1/255, flip to BGR, no
+normalization), runs the pinned forward artifact and prints the top five labels from
+the pinned `config.json` `id2label`. Config and preprocessor digests are checked
+before use.
+
+Evidence (reference: `MobileViTImageProcessor` and `MobileViTForImageClassification`
+on the pinned weights, torch 2.12.0+cpu):
+
+- The pixel tensor equals the processor's exactly (max abs diff 0.0) on a 640x480
+  photograph and a synthetic scene; hermetic tests pin Pillow's bilinear output by
+  checksum and the channel flip.
+- The photograph's top five are tabby cat (9.3318), Egyptian cat, tiger cat, lynx,
+  sleeping bag; logits differ from torch by at most 6.9e-6 (0 of 1,000 over
+  tolerance). The scene differs by at most 2.3e-5 (1 of 1,000 over), top-1 equal.
+
+The claim is for this model, a binary PPM input and native-direct with the default
+numerics. `scripts/transformers-vision-crosscheck.py` is the reference side.
