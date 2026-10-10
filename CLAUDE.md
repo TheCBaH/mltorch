@@ -8,6 +8,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 2. **Simplicity first** — write minimal code solving only the stated problem; no speculative abstractions.
 3. **Surgical changes** — modify only essential code; match existing style.
 4. **Goal-driven** — turn vague requests into verifiable criteria before starting.
+5. **Reduce Python dependencies** — prefer OCaml or existing shell tools for
+   consumer tooling, tests and builds; the target is no Python requirement.
+   Do not introduce a dependency on the Python `torch` library, including for
+   optional tests, diagnostics or reference generation. PyTorch computations
+   belong in producer repositories such as `devcontainer.transformers`; mltorch
+   consumes their pinned, verified artifacts. Running producer Python from a
+   consumer command still introduces a consumer dependency. Track remaining
+   Python uses and their replacement in the integration plan. Upstream ATen
+   `torchgen` is an accepted Python build requirement; do not plan to replace or
+   relocate it. The existing C++ ATen bridge is distinct from Python torch.
 
 ## Conventions
 

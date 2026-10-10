@@ -13,7 +13,12 @@ Consume the exported tensor graphs published by
 `TheCBaH/devcontainer.transformers` through mltorch's existing PT2 and Native
 pipeline. Obtain checkpoint captures from the producer's version-2 map, bind
 named tensor inputs, and compare every named output with published cases.
-The runtime remains OCaml; Transformers and torch are producer dependencies.
+The runtime and consumer tooling target OCaml without Python, with upstream ATen
+code generation retained as an explicit Python build exception. The Python torch
+library is prohibited as a consumer dependency, including optional tests,
+diagnostics and reference generation. Transformers/PyTorch computation belongs
+in producer repositories; mltorch consumes pinned, verified results. Section 34
+defines the producer/consumer handoff and remaining Python removal work.
 
 The first executable milestone is numerical replay of original-size
 MobileViT forward and the SmolVLM connector from verified slim bundles.
@@ -1003,7 +1008,7 @@ pre-existing changed paths. The committed cohort has 20 artifacts; the working
 cohort has 22, adding depth-anything and Whisper forward. Current evidence and
 exact commands are retained in the
 [implementation audit](../ai/transformers_integration_evidence/audit-2026-10-10/README.md).
-The revised plan's C0–C7 stages govern remaining implementation acceptance.
+The revised plan's C0–C8 stages govern remaining implementation acceptance.
 
 ### Source ownership and consumption
 
@@ -1072,7 +1077,7 @@ normalization/history coverage and retained policy-aware reports before closing
 S0/S8. Close stages using their promised gates; diagnoses, source membership and
 pipeline configuration alone are insufficient.
 
-## 32. Transposed convolution and depth estimation
+## 33. Transposed convolution and depth estimation
 
 `aten.conv_transpose2d.input` lowers to the existing `Convolution` op with
 `transposed = true`, as `convolution.default` already did; the importer arm only
@@ -1094,3 +1099,60 @@ the padding sign fails it.
 depth-anything-small `forward` joins the cohort (cohort 20 -> 22 with the Whisper
 forward artifact, which still needs `diff`) and passes both published cases under
 native-direct with the default numerics (675s for the two cases).
+
+## 34. Python reduction and producer-owned reference computation
+
+The user requires reduced Python dependence, ideally none, and no dependency on
+the Python torch library. Upstream ATen `torchgen` and the Python packages it
+needs remain an accepted build exception; do not replace, relocate or remove
+that upstream generation step. The reduction applies to consumer runtime,
+tooling, CI, tests, examples, diagnostics and data/reference regeneration. An
+optional local reference script is still a dependency surface. Existing local torch
+comparisons in sections 28–31 are historical evidence, not an endorsed workflow.
+
+Reference tensors, checkpoint conversion, model execution, tokenizer/processor
+oracle outputs and PyTorch-based diagnostics must be computed in producer
+repositories such as `devcontainer.transformers`, under their own environments
+and CI. Merely moving a script into the submodule and invoking its Python from
+mltorch does not satisfy this boundary. The submodule supplies checked source
+metadata and committed artifacts; producer releases supply larger reference
+payloads. Consumer commands validate and compare those bytes using OCaml.
+
+The producer handoff pins repository/commit, environment/lock, model/config/
+checkpoint/recipe identity, raw input/corpus/image bytes, all named tensor outputs,
+logical dtype/shape/order, tolerances, and file/content digests. Generation cases
+also record masks, positions, state transitions, stop conditions and every K/V
+output. Diagnostic artifacts record CPU/kernel/threading and eager/export route.
+Publish bounded payloads and a manifest that the consumer can independently
+verify through its existing fixture/cache/comparison libraries. New payloads
+extend the versioned contract; do not silently rewrite the existing release.
+
+The consumer reproduces its own inputs/outputs and compares them with that pinned
+evidence. Missing producer evidence remains a tracked coverage gap; no command
+installs torch or regenerates a reference locally as a fallback. Hand-derived
+OCaml checks remain useful alongside independent producer references.
+
+Corrective stage C8 moves the five active `transformers-*-crosscheck.py` reference
+scripts to producer ownership and replaces Python-based admission metadata,
+cohort generation, matrix reporting and WordPiece checks with OCaml consumers.
+The [producer suggestions](../ai/devcontainer_transformers_suggestions.md) link
+published script references and propose a versioned task index plus immutable
+manifest/bundle assets through the existing release publication channel.
+No reference workflow may remain an optional torch-dependent consumer command.
+C3 and C5 require producer-published reference evidence rather than a scratch
+consumer virtual environment. C0/C1/C2/C7 implement their tooling without Python.
+
+Project-wide removable uses include inline-test discovery, WASI toolchain setup
+and Python snippets in cram tests. Inventory and replace these in bounded steps.
+Retain `lib/aten/run_codegen.sh` and the devcontainer Python/typing/YAML packages
+required by upstream code generation. The C++ ATen bridge and upstream `torchgen`
+are distinct from dependence on the installed Python torch library. The project
+retains that explicit code-generation exception and must describe it accurately.
+
+Acceptance includes consumer commands and tests in an environment without Python
+or Python ML packages, with explicit producer-artifact fetching followed by
+offline verification/replay, after any upstream ATen generation/build setup.
+Also cover removable project tooling; leave the accepted ATen generation step
+and its packages intact. Do not claim a completely Python-free clean build.
+A repository check detects torch imports/installations and producer-Python
+invocations in active consumer workflows, preserving historical evidence as data.
