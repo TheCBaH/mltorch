@@ -401,6 +401,17 @@ let ge_scalar ?name scalar x =
     ~kind:"ge_scalar"
     (Ge_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar })
 
+(* A constant with [x]'s shape and element format; an int64 fill that is not a
+   whole number is refused where it is written (see [Eval_direct_compute]). *)
+let full_like ?name value x =
+  let* s = get in
+  let sg = Tensor_id.Map.find x s.tensors in
+  let op = Full_like { Pointwise.Full_like.x; value = f32_scalar value } in
+  match sg.Tensor_sig.fmt with
+  | Payload.Fmt (Payload.I64 | Payload.Bool) ->
+      op1 ?name ~fmt:sg.Tensor_sig.fmt ~kind:"full_like" op
+  | _ -> op1 ?name ~kind:"full_like" op
+
 let hardsigmoid ?name x =
   op1 ?name ~kind:"hardsigmoid" (Hardsigmoid { Pointwise.Hardsigmoid.x })
 
@@ -493,6 +504,8 @@ let lt_scalar ?name scalar x =
     ~kind:"lt_scalar"
     (Lt_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar })
 
+let log ?name x = op1 ?name ~kind:"log" (Log { Pointwise.Log.x })
+
 let max_dim ?name params x =
   let op = Max_dim { Reduce.MaxDim.params; x } in
   let* s = get in
@@ -555,6 +568,17 @@ let meshgrid ?name tensors =
   opN ?name ~kind:"meshgrid" (Meshgrid { Meshgrid.Meshgrid.tensors })
 
 (* Same I64-only threading as [add]; see its comment. *)
+(* Two int64 operands keep their dtype, as [mul] does. *)
+let min_other ?name a b =
+  let* s = get in
+  let a_sig = Tensor_id.Map.find a s.tensors in
+  let b_sig = Tensor_id.Map.find b s.tensors in
+  match (a_sig.Tensor_sig.fmt, b_sig.Tensor_sig.fmt) with
+  | Payload.Fmt Payload.I64, Payload.Fmt Payload.I64 ->
+      op1 ?name ~fmt:a_sig.Tensor_sig.fmt ~kind:"min_other"
+        (Min_other { Pointwise.Bin.a; b })
+  | _ -> op1 ?name ~kind:"min_other" (Min_other { Pointwise.Bin.a; b })
+
 let mul ?name a b =
   let* s = get in
   let a_sig = Tensor_id.Map.find a s.tensors in
@@ -566,9 +590,19 @@ let mul ?name a b =
         (Mul { Pointwise.Bin.a; b })
   | _ -> op1 ?name ~kind:"mul" (Mul { Pointwise.Bin.a; b })
 
+(* An I64 operand times an integral scalar keeps its dtype, as [add_scalar]
+   does (same whole-number bound and same caveat for a float spelling); any
+   other scalar promotes to the default F32. *)
 let mul_scalar ?name scalar x =
-  op1 ?name ~kind:"mul_scalar"
-    (Mul_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar })
+  let* s = get in
+  let sg = Tensor_id.Map.find x s.tensors in
+  let op = Mul_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar } in
+  match sg.Tensor_sig.fmt with
+  | Payload.Fmt Payload.I64
+    when Float.is_integer scalar && Float.abs scalar <= 16777216. ->
+      op1 ?name ~fmt:sg.Tensor_sig.fmt ?quant:sg.Tensor_sig.quant
+        ~kind:"mul_scalar" op
+  | _ -> op1 ?name ~kind:"mul_scalar" op
 
 (* Real ATen's [ne.Scalar] always produces a bool result, so the output is
    unconditionally [Bool] (matching [eq_scalar]/[gt_scalar]'s own convention
@@ -878,3 +912,14 @@ let where_scalar_other ?name ~condition scalar x =
   op1 ?name ~kind:"where_scalar_other"
     (Where_scalar_other
        { Pointwise.Where_scalar_other.condition; scalar = f32_scalar scalar; x })
+
+(* The branches share a format: two int64 tensors give an int64 result. *)
+let where_self ?name ~condition x y =
+  let* s = get in
+  let x_sig = Tensor_id.Map.find x s.tensors in
+  let y_sig = Tensor_id.Map.find y s.tensors in
+  let op = Where_self { Pointwise.Where_self.condition; x; y } in
+  match (x_sig.Tensor_sig.fmt, y_sig.Tensor_sig.fmt) with
+  | Payload.Fmt Payload.I64, Payload.Fmt Payload.I64 ->
+      op1 ?name ~fmt:x_sig.Tensor_sig.fmt ~kind:"where_self" op
+  | _ -> op1 ?name ~kind:"where_self" op

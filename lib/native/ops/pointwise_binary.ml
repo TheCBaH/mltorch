@@ -652,6 +652,30 @@ module Mul_scalar = struct
     let pixel ~scalar x (out : Semantics.position S.index Vec6.t) =
       S.mul (T.i64_to_float (T.i64_load x out)) (S.const scalar)
   end
+
+  (* Exact int64 counterpart for an I64 operand and an integral scalar (ATen's
+     integer-scalar overload keeps the dtype): a wrapping int64 multiply, never
+     a trip through the float domain. The output stays [int64 repr], so the
+     builder threads an I64 output edge; see [Graph_builder.mul_scalar]. The
+     float-scalar form above promotes to float32 instead. *)
+  module Compute_i64_exact
+      (S : Semantics.SEMANTICS)
+      (T : sig
+        type 'a repr
+
+        val i64_load :
+          S.input -> Semantics.position S.index Vec6.t -> int64 repr
+
+        val i64_binary :
+          Expr.Value.i64_binary_op -> int64 repr -> int64 repr -> int64 repr
+
+        val typed_const : 'a Expr.Scalar.t -> 'a -> 'a repr
+      end) =
+  struct
+    let pixel ~scalar x (out : Semantics.position S.index Vec6.t) =
+      T.i64_binary Expr.Value.I64_mul (T.i64_load x out)
+        (T.typed_const Expr.Scalar.I64 (Int64.of_float scalar))
+  end
 end
 
 module Pow = struct

@@ -177,6 +177,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Floor_div_scalar { Pointwise.Scalar_bin.x; scalar } ->
         let module C = Pointwise.Floor_div_scalar.Compute (S) in
         C.pixel ~scalar (operand x) out
+    | Full_like { Pointwise.Full_like.value; _ } ->
+        let module C = Pointwise.Full_like.Compute (S) in
+        C.pixel ~value out
     | Gelu { Pointwise.Gelu.x; approximate } ->
         let module C = Pointwise.Gelu.Compute (S) in
         C.pixel approximate (operand x) out
@@ -250,6 +253,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Lt_scalar { Pointwise.Scalar_bin.x; scalar } ->
         let module C = Pointwise.Lt_scalar.Compute (S) in
         C.pixel ~scalar (operand x) out
+    | Log { Pointwise.Log.x } ->
+        let module C = Pointwise.Log.Compute (S) in
+        C.pixel (operand x) out
     | Max_dim { Reduce.MaxDim.params; x } ->
         let module C = Reduce.MaxDim.Compute (S) in
         let pix =
@@ -289,6 +295,10 @@ module Make (S : Semantics.SEMANTICS) = struct
         let module C = Embedding.Embedding.Compute (S) in
         C.pixel params ~weight_shape:(shape_of weight) ~weight:(operand weight)
           ~indices:(operand indices) out
+    | Min_other { Pointwise.Bin.a; b } ->
+        let module C = Pointwise.Min_other.Compute (S) in
+        C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)
+          (operand b) out
     | Mul { Pointwise.Bin.a; b } ->
         let module C = Pointwise.Mul.Compute (S) in
         C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)
@@ -415,6 +425,10 @@ module Make (S : Semantics.SEMANTICS) = struct
     | New_ones { Factory.New_ones.params } ->
         let module C = Factory.New_ones.Compute (S) in
         C.pixel params
+    | Where_self { Pointwise.Where_self.condition; x; y } ->
+        let module C = Pointwise.Where_self.Compute (S) in
+        C.pixel ~condition_shape:(shape_of condition) ~x_shape:(shape_of x)
+          ~y_shape:(shape_of y) (operand condition) (operand x) (operand y) out
     | Discard _ ->
         invalid_arg
           "Eval_op.pixel: Discard produces no output, so it has no pixel"

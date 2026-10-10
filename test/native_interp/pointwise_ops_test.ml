@@ -275,3 +275,72 @@ let%expect_test
       exp x=t0
     t of a [2,3]
       permute x=t0 perm=[W<-C, C<-W] |}]
+
+let%expect_test "the T5 bucket vocabulary lowers to one node each" =
+  let long_meta = 5 in
+  let extra =
+    [
+      ("a", meta ~dtype:long_meta [ 2; 3 ]);
+      ("b", meta ~dtype:long_meta [ 2; 3 ]);
+    ]
+  in
+  let prog nodes out =
+    program ~x_sizes:[ 2; 3 ] ~params:[ "m"; "a"; "b" ]
+      ~extra_tensor_values:
+        ([ ("m", meta ~dtype:12 [ 2; 3 ]); ("y", meta ~dtype:long_meta out) ]
+        @ extra)
+      ~nodes
+      ~graph_outputs:[ as_tensor "y" ]
+      ()
+  in
+  dump "log" (prog [ node "log.default" [ tin "self" "x" ] "y" ] [ 2; 3 ]);
+  dump "min.other on int64"
+    (prog [ node "min.other" [ tin "self" "a"; tin "other" "b" ] "y" ] [ 2; 3 ]);
+  dump "where.self on int64"
+    (prog
+       [
+         node "where.self"
+           [ tin "condition" "m"; tin "self" "a"; tin "other" "b" ]
+           "y";
+       ]
+       [ 2; 3 ]);
+  dump "full_like int64 15"
+    (prog
+       [
+         node "full_like.default"
+           [
+             tin "self" "a";
+             int_in "fill_value" 15;
+             {|{"name":"pin_memory","arg":{"as_bool":false},"kind":1}|};
+           ]
+           "y";
+       ]
+       [ 2; 3 ]);
+  dump "zeros_like"
+    (prog [ node "zeros_like.default" [ tin "self" "a" ] "y" ] [ 2; 3 ]);
+  dump "full_like with an explicit dtype is refused"
+    (prog
+       [
+         node "full_like.default"
+           [
+             tin "self" "a";
+             int_in "fill_value" 1;
+             {|{"name":"dtype","arg":{"as_scalar_type":7},"kind":1}|};
+           ]
+           "y";
+       ]
+       [ 2; 3 ]);
+  [%expect
+    {|
+    log
+      log x=t0
+    min.other on int64
+      min_other a=t2 b=t3
+    where.self on int64
+      where_self condition=t1 x=t2 y=t3
+    full_like int64 15
+      full_like x=t2 value=15
+    zeros_like
+      full_like x=t2 value=0
+    full_like with an explicit dtype is refused
+      malformed PT2 graph: torch.ops.aten.full_like.default: dtype is not supported |}]

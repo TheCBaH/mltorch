@@ -7,9 +7,14 @@ let backend = "native-direct"
 
 (* The route that was executed, as the report states it: a different
    accumulation policy is a different backend row, never a quiet variant. *)
-let backend_of = function
-  | Direct.Binary64 -> backend
-  | Direct.Binary32_sequential -> backend ^ "+binary32-sequential-dots"
+let backend_of ?(casts = Direct.Checked) dots =
+  (match dots with
+    | Direct.Binary64 -> backend
+    | Direct.Binary32_sequential -> backend ^ "+binary32-sequential-dots")
+  ^
+  match casts with
+  | Direct.Checked -> ""
+  | Direct.Saturating -> "+saturating-casts"
 
 (* --- Native tensor -> Logical ------------------------------------------- *)
 
@@ -162,7 +167,7 @@ let failed_case id error =
     outputs_digest_ok = false;
   }
 
-let run_case ~on_empty_caches ~dots archive (contract : F.Contract.t)
+let run_case ~on_empty_caches ~dots ~casts archive (contract : F.Contract.t)
     (b : Pt2_fixture_unix.Bundle.t) (c : F.Cases.Case.t) =
   let input_names = c.inputs and output_names = c.outputs in
   let path role = Printf.sprintf "cases/%s/%s.pt" c.id role in
@@ -208,16 +213,27 @@ let run_case ~on_empty_caches ~dots archive (contract : F.Contract.t)
             },
             None )
       else
-        match
-          Err.payload
-            (Native_interp.run_named ~empty_caches:on_empty_caches
-               ~dot_accumulation:dots archive
-               ~inputs:(List.map (fun (n, t, _) -> (n, t)) inputs))
-        with
-        | Error e ->
+        let outcome =
+          try
+            match
+              Err.payload
+                (Native_interp.run_named ~empty_caches:on_empty_caches
+                   ~dot_accumulation:dots ~float_to_int:casts archive
+                   ~inputs:(List.map (fun (n, t, _) -> (n, t)) inputs))
+            with
+            | Ok v -> Ok v
+            | Error e -> Error (Fmt.str "%a" Native_interp.pp_error e)
+          with Err.Exn.E e ->
+            (* A value-dependent failure the evaluator raises mid-run (a bad
+               cast, an out-of-range gather) is an outcome of the run, reported
+               the way an outward boundary must: by kind, without the
+               detection stack. *)
+            Error (Fmt.str "raised: %a" Err.Exn.pp_kind e)
+        in
+        match outcome with
+        | Error text ->
             (* The engine refused the graph or the call: a measured outcome of
                the whole artifact, not of this case alone. *)
-            let text = Fmt.str "%a" Native_interp.pp_error e in
             Err.return
               ( {
                   (failed_case c.id text) with
@@ -301,8 +317,8 @@ let describe_empty_caches into (r : Native_interp.Empty_cache_report.t) =
                      cats)))
         r.sources
 
-let replay ?(dots = Direct.Binary64) ~consumer (f : Pt2_fixture_unix.Fixture.t)
-    =
+let replay ?(dots = Direct.Binary64) ?(casts = Direct.Checked) ~consumer
+    (f : Pt2_fixture_unix.Fixture.t) =
   let b = f.bundle in
   let read name = Pt2_fixture_unix.Bundle.read_member b name in
   let* contract_text = read "contract.json" in
@@ -335,7 +351,7 @@ let replay ?(dots = Direct.Binary64) ~consumer (f : Pt2_fixture_unix.Fixture.t)
     {
       Report.artifact_id = contract.artifact_id;
       atol = contract.atol;
-      backend = backend_of dots;
+      backend = backend_of ~casts dots;
       cases;
       consumer;
       normalizations = !normalizations;
@@ -354,7 +370,7 @@ let replay ?(dots = Direct.Binary64) ~consumer (f : Pt2_fixture_unix.Fixture.t)
   else
     let* results =
       Err.List.map
-        (run_case ~on_empty_caches ~dots f.archive contract b)
+        (run_case ~on_empty_caches ~dots ~casts f.archive contract b)
         cases.cases
     in
     let cases = List.map fst results in

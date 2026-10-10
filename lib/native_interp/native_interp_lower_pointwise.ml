@@ -20,16 +20,21 @@ let targets =
     "torch.ops.aten.eq.Scalar";
     "torch.ops.aten.eq.Tensor";
     "torch.ops.aten.exp.default";
+    "torch.ops.aten.full_like.default";
     "torch.ops.aten.ge.Scalar";
     "torch.ops.aten.gt.Scalar";
     "torch.ops.aten.le.Tensor";
+    "torch.ops.aten.log.default";
     "torch.ops.aten.lt.Scalar";
+    "torch.ops.aten.min.other";
     "torch.ops.aten.ne.Scalar";
     "torch.ops.aten.ne.Tensor";
     "torch.ops.aten.new_ones.default";
     "torch.ops.aten.t.default";
     "torch.ops.aten.tanh.default";
     "torch.ops.aten.where.ScalarOther";
+    "torch.ops.aten.where.self";
+    "torch.ops.aten.zeros_like.default";
   ]
 
 let dispatch ~ctx ~env (node : Node.t) =
@@ -54,6 +59,46 @@ let dispatch ~ctx ~env (node : Node.t) =
        | "torch.ops.aten.exp.default" ->
            let* y = exp (get "self") in
            return [ y ]
+       (* `full_like(Tensor self, Scalar fill_value, *, ...)` and
+          `zeros_like(Tensor self, *, ...)`: a constant in [self]'s shape and
+          format. An explicit dtype, layout or non-cpu device would change what
+          is made, so any of them is refused; [zeros_like] is the zero fill. *)
+       | "torch.ops.aten.full_like.default"
+       | "torch.ops.aten.zeros_like.default" ->
+           let optional name =
+             List.find_opt
+               (fun (a : NamedArgument.t) -> a.name = name)
+               node.Node.inputs
+             |> Option.map (fun a -> a.NamedArgument.arg)
+           in
+           List.iter
+             (fun name ->
+               match optional name with
+               | None | Some (Argument.None _) -> ()
+               | Some _ ->
+                   malformed esc
+                     (`Unsupported_option { op = node.target; option = `Dtype }))
+             [ "dtype"; "layout" ];
+           (match optional "device" with
+           | None | Some (Argument.None _) -> ()
+           | Some (Argument.Device { Device.type_ = "cpu"; index = None }) -> ()
+           | Some _ ->
+               malformed esc
+                 (`Wrong_arg_kind
+                    { op = node.target; arg = "device"; expected = `Tensor }));
+           (match optional "pin_memory" with
+           | None | Some (Argument.None _) | Some (Argument.Bool false) -> ()
+           | Some _ ->
+               malformed esc
+                 (`Wrong_arg_kind
+                    { op = node.target; arg = "pin_memory"; expected = `Bool }));
+           let value =
+             if String.equal node.target "torch.ops.aten.zeros_like.default"
+             then 0.
+             else required_scalar_arg esc node "fill_value"
+           in
+           let* y = full_like value (get "self") in
+           return [ y ]
        | "torch.ops.aten.ge.Scalar" ->
            let* y = ge_scalar (scalar ()) (get "self") in
            return [ y ]
@@ -62,6 +107,12 @@ let dispatch ~ctx ~env (node : Node.t) =
            return [ y ]
        | "torch.ops.aten.le.Tensor" ->
            let* y = le_tensor (get "self") (get "other") in
+           return [ y ]
+       | "torch.ops.aten.log.default" ->
+           let* y = log (get "self") in
+           return [ y ]
+       | "torch.ops.aten.min.other" ->
+           let* y = min_other (get "self") (get "other") in
            return [ y ]
        | "torch.ops.aten.lt.Scalar" ->
            let* y = lt_scalar (scalar ()) (get "self") in
@@ -136,6 +187,11 @@ let dispatch ~ctx ~env (node : Node.t) =
            return [ y ]
        | "torch.ops.aten.tanh.default" ->
            let* y = tanh (get "self") in
+           return [ y ]
+       | "torch.ops.aten.where.self" ->
+           let* y =
+             where_self ~condition:(get "condition") (get "self") (get "other")
+           in
            return [ y ]
        | "torch.ops.aten.where.ScalarOther" ->
            let* y =

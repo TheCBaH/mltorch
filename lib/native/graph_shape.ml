@@ -222,6 +222,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Floor_div_scalar.output_shape x_shape) in
       [ out ]
+  | Full_like { Pointwise.Full_like.x; _ } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Full_like.output_shape x_shape) in
+      [ out ]
   | Gelu { Pointwise.Gelu.x; _ } ->
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Gelu.output_shape x_shape) in
@@ -370,6 +374,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Lt_scalar.output_shape x_shape) in
       [ out ]
+  | Log { Pointwise.Log.x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Log.output_shape x_shape) in
+      [ out ]
   | Max_dim { Reduce.MaxDim.params; x } ->
       let* x_shape = shape x in
       let+ out = widen (Reduce.MaxDim.output_shape ~x_shape params) in
@@ -409,6 +417,11 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
         widen
           (Embedding.Embedding.output_shape ~weight_shape ~indices_shape params)
       in
+      [ out ]
+  | Min_other { Pointwise.Bin.a; b } ->
+      let* a_shape = shape a in
+      let* b_shape = shape b in
+      let+ out = widen (Pointwise.Min_other.output_shape a_shape b_shape) in
       [ out ]
   | Mul { Pointwise.Bin.a; b } ->
       let* a_shape = shape a in
@@ -590,6 +603,15 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let+ out =
         widen
           (Pointwise.Where_scalar_other.output_shape condition_shape x_shape)
+      in
+      [ out ]
+  | Where_self { Pointwise.Where_self.condition; x; y } ->
+      let* condition_shape = shape condition in
+      let* x_shape = shape x in
+      let* y_shape = shape y in
+      let+ out =
+        widen
+          (Pointwise.Where_self.output_shape condition_shape x_shape y_shape)
       in
       [ out ]
   | Arange { Factory.Arange.params } ->

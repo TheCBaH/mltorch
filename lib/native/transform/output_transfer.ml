@@ -114,6 +114,9 @@ let classify (op : op) ~output =
   (* An index of the maximum: the argmax-shaped reasoning [Max_dim]'s index
      output gets. *)
   | Argmax _ -> Discontinuous
+  (* A selection on the condition's zero test, and a comparison of two values:
+     both switch on an arbitrarily small change. *)
+  | Min_other _ | Where_self _ -> Discontinuous
   (* The same data-dependent gather [Index_tensor] is: which weight row is read
      comes from the indices' content, not the output coordinate. *)
   | Embedding _ -> Discontinuous
@@ -164,8 +167,9 @@ let classify (op : op) ~output =
   | Hardswish _ | Hardtanh _ | Layer_norm _ | Leaky_relu _ | Linear _ | Lstm _
   | Max_pool2d _ | Mean _ | Mul _ | Mul_scalar _ | New_ones _ | Pow _ | Relu _
   | Rms_norm _ | Rpow_scalar _ | Rsub_scalar _ | Sdpa _ | Sigmoid _ | Silu _
-  | Exp _ | Sin _ | Softmax _ | Arange _ | Sqrt _ | Sub _ | Sum _ | Tanh _
-  | Upsample_bicubic2d _ | Upsample_bilinear2d _ | Vector_norm _ | Zeros _ ->
+  | Exp _ | Full_like _ | Log _ | Sin _ | Softmax _ | Arange _ | Sqrt _ | Sub _
+  | Sum _ | Tanh _ | Upsample_bicubic2d _ | Upsample_bilinear2d _
+  | Vector_norm _ | Zeros _ ->
       Continuous
 
 (* [Identical] survives everything, evaluation being deterministic. [Equivalent]

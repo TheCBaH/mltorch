@@ -219,6 +219,18 @@ let process_node ~limits ~fill ~pixel (gr : graph) (env, stages, stages_i64)
       let pixel = Expr.Builder.run (C.pixel ~scalar x_sig Symbolic.out_vec) in
       let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
       (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+  (* The Symbolic twin of the exact int64 [Mul_scalar], taken when the output
+       edge is I64 (an I64 operand and an integral scalar). *)
+  | Mul_scalar { Pointwise.Scalar_bin.x; scalar }, [ (_, oid) ]
+    when is_i64 (Tensor_id.Map.find oid gr.Graph.tensors).Tensor_sig.fmt ->
+      let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+      let x_sig = operand x in
+      let module C =
+        Pointwise.Mul_scalar.Compute_i64_exact (Symbolic) (Symbolic)
+      in
+      let pixel = Expr.Builder.run (C.pixel ~scalar x_sig Symbolic.out_vec) in
+      let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
+      (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
   (* The Symbolic twin of [Eval_direct]'s dtype-preserving [Slice]: same
        [Compute_i64 (Symbolic) (Symbolic)] shape as [Permute] above. *)
   | Slice { Split.Slice.params; x }, [ (_, oid) ]

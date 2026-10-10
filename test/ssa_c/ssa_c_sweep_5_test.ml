@@ -6,8 +6,8 @@ let%expect_test "C sweep, slice 5 of 8" =
   report ~config:"optimized";
   [%expect
     {|
-    lowered: disagreements 0, agree 108, failed alike 0, refused 0; with binary32 96, vectors 0, fused 0
-    optimized: disagreements 0, agree 108, failed alike 0, refused 0; with binary32 96, vectors 0, fused 0 |}]
+    lowered: disagreements 0, agree 108, failed alike 0, refused 0; with binary32 88, vectors 0, fused 0
+    optimized: disagreements 0, agree 108, failed alike 0, refused 0; with binary32 88, vectors 0, fused 0 |}]
 
 let%expect_test "C sweep of vector and numerical plans, slice 5 of 8" =
   let open Ssa_c_sweep_common in
@@ -25,6 +25,6 @@ let%expect_test "C sweep of vector and numerical plans, slice 5 of 8" =
     ];
   [%expect
     {|
-    strict-vectors: disagreements 0, agree 108, failed alike 0, refused 0; with binary32 88, vectors 18, fused 0
-    ordered-binary32: disagreements 0, agree 108, failed alike 0, refused 0; with binary32 88, vectors 18, fused 0
-    relaxed-binary32: disagreements 0, agree 108, failed alike 0, refused 0; with binary32 88, vectors 18, fused 4 |}]
+    strict-vectors: disagreements 0, agree 108, failed alike 0, refused 0; with binary32 80, vectors 18, fused 0
+    ordered-binary32: disagreements 0, agree 108, failed alike 0, refused 0; with binary32 80, vectors 18, fused 0
+    relaxed-binary32: disagreements 0, agree 108, failed alike 0, refused 0; with binary32 80, vectors 18, fused 4 |}]

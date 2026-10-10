@@ -714,6 +714,7 @@ Measured, each row preserved as run (tolerances and references unchanged):
 | TinyCLIP text tower | pass (after `argmax` and the int32 cast, below) | not run |
 | TinyCLIP forward (both towers + logits) | pass (adds `exp`, `t`) | not run |
 | Whisper prefill | not run | |
+| T5-small encoder, forward, prefill, decode h4 | refused (cast of an infinite value) | not run; **pass** under `+saturating-casts` (see below) |
 | Whisper-tiny encoder | 16 and 18 of 576,000 elements over | not run |
 
 The reading: the sequential chain reproduces the reference only for the
@@ -767,3 +768,31 @@ history. The released SmolLM2 (4) and SmolVLM (71) prefill/decode pairs meet; no
 chained run has been made, because it would have no producer reference to check
 against and a measured result there would not be a gate. Dynamic-shape contracts
 remain refused outright.
+
+## 25. T5's relative-position buckets and the saturating cast
+
+The T5 graphs compute a relative-position bucket in integers: absolute
+distance, a logarithmic bucket for the far ones, a minimum against the last
+bucket, and a `where` choosing between the near and far values. For distance 0
+the far branch is `log 0 = -inf`, cast to int64, and then discarded by the
+`where`. That cast is undefined in C++; aarch64, where the producer ran, saturates
+it (NaN to 0, out of range to the nearest limit). The engine's default cast
+rejects NaN, infinities and out-of-range values, so under it all four static T5
+artifacts are refused with the cast's own message.
+
+The cast is therefore a policy a caller opts into, in the manner of the dot
+accumulation: `Direct.float_to_int`, `Checked` (default) or `Saturating`, scoped
+to the call, named in the report's backend (`native-direct+saturating-casts`) and
+in the report's file name. Under `Saturating` the T5 encoder, forward, prefill and
+decode-at-history-4 artifacts pass both published cases. The graphs only ever use
+the saturated value to be thrown away, which is why the answer does not depend
+on the platform; a graph that used it would.
+
+The integer vocabulary behind it is exact: `min.other` and `where.self` on int64
+compare and select without a float, `full_like` (and `zeros_like`, the same node
+with a zero fill) keeps the format of its operand, and an int64 tensor times a
+whole-number scalar stays int64 (a wrapping product), as `add_scalar` already
+did. A scalar spelled as a whole float takes the same path, which differs from
+ATen only in the dtype tag. The replay boundary also changed: a failure the
+evaluator raises mid-run is now recorded as the artifact's refusal, by kind, rather
+than ending the process.

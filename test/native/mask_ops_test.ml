@@ -468,3 +468,154 @@ let%expect_test "exp: values, the infinities, NaN and float32 overflow" =
      stores as +inf; exp(-100) = 3.7e-44 is a float32 denormal. *)
   [%expect
     {| exp: f32 [C=8] {1, 2.71828, 0.367879, 0, inf, nan, inf, 3.78351e-44} |}]
+
+(* --- the ops T5's relative-position buckets are built from --- *)
+
+let%expect_test "log: values, zero, negative, infinity and NaN" =
+  let xs = [ 1.; 8.; 0.; -1.; inf; nan ] in
+  let shape = s1c (List.length xs) in
+  show "log"
+    (run
+       ~inputs:[ (shape, f32, floats shape xs) ]
+       (function [ x ] -> Graph_builder.log x | _ -> assert false));
+  (* ln 8 = 2.07944; ln 0 = -inf; ln of a negative is NaN. *)
+  [%expect {| log: f32 [C=6] {0, 2.07944, -inf, nan, inf, nan} |}]
+
+let%expect_test "min.other: the lesser, NaN wins, and int64 is exact" =
+  let four = s1c 4 in
+  let a = floats four [ 1.; 5.; nan; 2. ]
+  and b = floats four [ 3.; 2.; 1.; nan ] in
+  show "float"
+    (run
+       ~inputs:[ (four, f32, a); (four, f32, b) ]
+       (function [ a; b ] -> Graph_builder.min_other a b | _ -> assert false));
+  let big = 9007199254740993L in
+  let show_long label r =
+    Format.printf "%s: %a@." label (pp_result pp_longs) r
+  in
+  show_long "int64 past 2^53"
+    (run
+       ~inputs:
+         [
+           (four, i64, longs four [ big; 3L; -5L; 0L ]);
+           (four, i64, longs four [ 9007199254740992L; 4L; -7L; 0L ]);
+         ]
+       (function [ a; b ] -> Graph_builder.min_other a b | _ -> assert false));
+  show "a mixed int64/float pair is refused"
+    (run
+       ~inputs:[ (four, i64, longs four [ 1L; 2L; 3L; 4L ]); (four, f32, b) ]
+       (function [ a; b ] -> Graph_builder.min_other a b | _ -> assert false));
+  [%expect
+    {|
+    float: f32 [C=4] {1, 2, nan, nan}
+    int64 past 2^53: i64 [C=4] {9007199254740992, 3, -7, 0}
+    a mixed int64/float pair is refused: min_other: unsupported mixed dtype, a=i64 b=f32 |}]
+
+let%expect_test "where.self selects between tensors; int64 branches stay exact"
+    =
+  let four = s1c 4 in
+  let cond = floats four [ 1.; 0.; 1.; 0. ] in
+  show "float"
+    (run
+       ~inputs:
+         [
+           (four, bool_, cond);
+           (four, f32, floats four [ 1.; 2.; 3.; 4. ]);
+           (four, f32, floats four [ 10.; 20.; 30.; 40. ]);
+         ]
+       (function
+         | [ c; x; y ] -> Graph_builder.where_self ~condition:c x y
+         | _ -> assert false));
+  let big = 9007199254740993L in
+  let show_long label r =
+    Format.printf "%s: %a@." label (pp_result pp_longs) r
+  in
+  show_long "int64 past 2^53, a rank-0 branch broadcast"
+    (run
+       ~inputs:
+         [
+           (four, bool_, cond);
+           (s1c 1, i64, longs (s1c 1) [ big ]);
+           (four, i64, longs four [ 1L; 2L; 3L; 4L ]);
+         ]
+       (function
+         | [ c; x; y ] -> Graph_builder.where_self ~condition:c x y
+         | _ -> assert false));
+  [%expect
+    {|
+    float: f32 [C=4] {1, 20, 3, 40}
+    int64 past 2^53, a rank-0 branch broadcast: i64 [C=4] {9007199254740993, 2, 9007199254740993, 4} |}]
+
+let%expect_test "full_like keeps the format; a fractional int64 fill is refused"
+    =
+  let three = s1c 3 in
+  let show_long label r =
+    Format.printf "%s: %a@." label (pp_result pp_longs) r
+  in
+  show "float"
+    (run
+       ~inputs:[ (three, f32, floats three [ 1.; 2.; 3. ]) ]
+       (function [ x ] -> Graph_builder.full_like 2.5 x | _ -> assert false));
+  show_long "int64 15"
+    (run
+       ~inputs:[ (three, i64, longs three [ 1L; 2L; 3L ]) ]
+       (function [ x ] -> Graph_builder.full_like 15. x | _ -> assert false));
+  show "bool zeros"
+    (run
+       ~inputs:[ (three, bool_, Tensor.materialize_bool three (fun _ -> true)) ]
+       (function [ x ] -> Graph_builder.full_like 0. x | _ -> assert false));
+  (try
+     show_long "int64 2.5"
+       (run
+          ~inputs:[ (three, i64, longs three [ 1L; 2L; 3L ]) ]
+          (function
+            | [ x ] -> Graph_builder.full_like 2.5 x | _ -> assert false))
+   with Err.Exn.E e ->
+     Format.printf "int64 2.5: raised: %a@." Err.Exn.pp_kind e);
+  [%expect
+    {|
+    float: f32 [C=3] {2.5, 2.5, 2.5}
+    int64 15: i64 [C=3] {15, 15, 15}
+    bool zeros: bool [C=3] {0, 0, 0}
+    int64 2.5: raised: full_like: 2.5 is not a whole number for an int64 tensor |}]
+
+let%expect_test "an int64 times a whole scalar stays int64 and exact" =
+  let three = s1c 3 in
+  let t = longs three [ 4611686018427387905L; 3L; -2L ] in
+  let show_long label r =
+    Format.printf "%s: %a@." label (pp_result pp_longs) r
+  in
+  (* 2^62 + 1 times 2 is 2^63 + 2, which wraps to -2^63 + 2 in int64. *)
+  show_long "* 2"
+    (run
+       ~inputs:[ (three, i64, t) ]
+       (function [ x ] -> Graph_builder.mul_scalar 2. x | _ -> assert false));
+  show "* 0.5 promotes to float"
+    (run
+       ~inputs:[ (three, i64, longs three [ 3L; 4L; -5L ]) ]
+       (function [ x ] -> Graph_builder.mul_scalar 0.5 x | _ -> assert false));
+  [%expect
+    {|
+    * 2: i64 [C=3] {-9223372036854775806, 6, -4}
+    * 0.5 promotes to float: f32 [C=3] {1.5, 2, -2.5} |}]
+
+(* The cast T5's bucket table relies on: log 0 = -inf cast to int64 and then
+   discarded by a where. Checked rejects it; the aarch64 conversion saturates. *)
+let%expect_test "float to int64: checked rejects, saturating follows aarch64" =
+  let xs = [ 2.9; -2.9; inf; -.inf; nan; 1e30 ] in
+  let shape = s1c (List.length xs) in
+  let cast () =
+    run
+      ~inputs:[ (shape, f32, floats shape xs) ]
+      (function
+        | [ x ] -> Graph_builder.to_copy Pointwise.To_copy.Long x
+        | _ -> assert false)
+  in
+  (try Format.printf "checked: %a@." (pp_result pp_longs) (cast ())
+   with Err.Exn.E e -> Format.printf "checked: raised: %a@." Err.Exn.pp_kind e);
+  Format.printf "saturating: %a@." (pp_result pp_longs)
+    (Direct.with_float_to_int Direct.Saturating cast);
+  [%expect
+    {|
+    checked: raised: Float-to-I64 cast of an infinite value
+    saturating: i64 [C=6] {2, -2, 9223372036854775807, -9223372036854775808, 0, 9223372036854775807} |}]

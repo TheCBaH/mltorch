@@ -318,6 +318,23 @@ let admit (g : graph) (op : op) : (unit, [> error ]) Err.t =
       | weight_fmt, indices_fmt ->
           Err.fail (`Unsupported_embedding_dtype { weight_fmt; indices_fmt }))
   | Sub { Pointwise.Bin.a; b } -> check_pair "sub" a b
+  (* Integer and float operands do not mix: the result's dtype would be
+     promoted, which this op does not model. *)
+  | Min_other { Pointwise.Bin.a; b } ->
+      let a_fmt = fmt_of a and b_fmt = fmt_of b in
+      if Bool.equal (is_i64 a_fmt) (is_i64 b_fmt) then Err.return ()
+      else
+        Err.fail
+          (`Unsupported_mixed_dtype { mixed_op = "min_other"; a_fmt; b_fmt })
+  | Where_self { Pointwise.Where_self.condition; x; y } ->
+      let a_fmt = fmt_of x and b_fmt = fmt_of y in
+      if
+        Bool.equal (is_i64 a_fmt) (is_i64 b_fmt)
+        && not (is_i64 (fmt_of condition))
+      then Err.return ()
+      else
+        Err.fail
+          (`Unsupported_mixed_dtype { mixed_op = "where_self"; a_fmt; b_fmt })
   (* The condition is a bool value (see [Bitwise_and]), and [x] a float: an
      integer or bool [x] would promote against the float scalar, which this op
      does not model. *)

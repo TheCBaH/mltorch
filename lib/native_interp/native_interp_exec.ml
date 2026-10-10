@@ -289,7 +289,8 @@ let bind_named archive ~inputs lowered =
 (* The run itself, over inputs a binder has already produced. *)
 let run_lowered ?arena ?layout ?schedule ?on_arena ?on_storage ?hooks
     ?region_executor ?region_group_executor ?node_executor ?empty_caches
-    ?(dot_accumulation = Direct.Binary64) archive ~bind =
+    ?(dot_accumulation = Direct.Binary64) ?(float_to_int = Direct.Checked)
+    archive ~bind =
   let open Err.Syntax in
   let* lowered =
     match empty_caches with
@@ -337,6 +338,7 @@ let run_lowered ?arena ?layout ?schedule ?on_arena ?on_storage ?hooks
   let retain = Release_schedule.Retain.Only Tensor_id.Set.empty in
   let* env =
     Direct.with_dot_accumulation dot_accumulation @@ fun () ->
+    Direct.with_float_to_int float_to_int @@ fun () ->
     match layout with
     | Some layout ->
         eval_in_storage ~layout ?on_storage ?schedule ~hooks:eval_hooks
@@ -370,10 +372,10 @@ let run ?arena ?layout ?schedule ?on_arena ?on_storage ?hooks ?region_executor
 
 let run_named ?arena ?layout ?schedule ?on_arena ?on_storage ?hooks
     ?region_executor ?region_group_executor ?node_executor ?empty_caches
-    ?dot_accumulation archive ~inputs =
+    ?dot_accumulation ?float_to_int archive ~inputs =
   run_lowered ?arena ?layout ?schedule ?on_arena ?on_storage ?hooks
     ?region_executor ?region_group_executor ?node_executor ?empty_caches
-    ?dot_accumulation archive
+    ?dot_accumulation ?float_to_int archive
     ~bind:(bind_named archive ~inputs)
 
 (* ---- transforming, and running the result --------------------------------- *)

@@ -233,6 +233,12 @@ let op_registry : (module OP) list =
       let project = function Ge_scalar t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Pointwise.Full_like
+
+      let inject t = Full_like t
+      let project = function Full_like t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Pointwise.Gelu
 
       let inject t = Gelu t
@@ -323,6 +329,12 @@ let op_registry : (module OP) list =
       let project = function Lt_scalar t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Pointwise.Log
+
+      let inject t = Log t
+      let project = function Log t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Reduce.MaxDim
 
       let inject t = Max_dim t
@@ -351,6 +363,12 @@ let op_registry : (module OP) list =
 
       let inject t = Meshgrid t
       let project = function Meshgrid t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Min_other
+
+      let inject t = Min_other t
+      let project = function Min_other t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pointwise.Mul
@@ -573,6 +591,12 @@ let op_registry : (module OP) list =
 
       let inject t = Where_scalar_other t
       let project = function Where_scalar_other t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Where_self
+
+      let inject t = Where_self t
+      let project = function Where_self t -> Some t | _ -> None
     end : OP);
     (module struct
       include Factory.Arange

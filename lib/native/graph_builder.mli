@@ -243,6 +243,9 @@ val gt_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
 (* [ge.Scalar(self, other) -> self >= other] -- a [Bool] result, as
    [gt_scalar]. *)
 val ge_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
+
+(* A constant with [x]'s shape and element format (float32, int64 or bool). *)
+val full_like : ?name:string -> float -> tensor_ref -> Tensor_id.t t
 val hardsigmoid : ?name:string -> tensor_ref -> Tensor_id.t t
 val hardswish : ?name:string -> tensor_ref -> Tensor_id.t t
 
@@ -310,6 +313,7 @@ val lstm :
 (* max_dim returns two edges: (values, indices). *)
 (* [lt.Scalar(self, other) -> self < other] -- a [Bool] result. *)
 val lt_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
+val log : ?name:string -> tensor_ref -> Tensor_id.t t
 
 val max_dim :
   ?name:string ->
@@ -334,6 +338,9 @@ val mean : ?name:string -> Reduce.Mean.params -> tensor_ref -> Tensor_id.t t
    the SAME order, the same "output count is part of the input signature"
    convention [unbind] follows. *)
 val meshgrid : ?name:string -> tensor_ref list -> Tensor_id.t list t
+
+(* The elementwise minimum (NaN propagates); two int64 operands give int64. *)
+val min_other : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 val mul : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 val mul_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
 
@@ -486,6 +493,15 @@ val vector_norm :
    the scalar elsewhere; the two tensors broadcast. *)
 val where_scalar_other :
   ?name:string -> condition:tensor_ref -> float -> tensor_ref -> Tensor_id.t t
+
+(* `where.self`: the first tensor where the condition holds, the second
+   elsewhere; two int64 branches give int64. *)
+val where_self :
+  ?name:string ->
+  condition:tensor_ref ->
+  tensor_ref ->
+  tensor_ref ->
+  Tensor_id.t t
 
 val arange : ?name:string -> Factory.Arange.params -> Tensor_id.t t
 val zeros : ?name:string -> Factory.Zeros.params -> Tensor_id.t t
