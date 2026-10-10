@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "fixtures": [
+    {
+      "fixture_id": "smollm2-135m/text-decoder/reference/prefill/fp32/dynamo/static/ckpt-12fd25f77366/task/smollm2-static-h4-v1/3f947ad858b848b0ccaaffb85b1417c387229ed5724e656167d200ac55c1c530/generator/b514afb61454fb15fd491826b475a6e3819ad641/request/c564bb4b0d836a759d10626808c6973b722ffa303e9bb2551c0fe87359063c74",
+      "generator": "b514afb61454fb15fd491826b475a6e3819ad641",
+      "index": {
+        "name": "task-fixtures.json",
+        "sha256": "24ef65a59e34cb4371b74da087875e658c7196985b27352e51a00a0c0297e3c9",
+        "size": 15262,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/task-fixtures-b514afb61454-c564bb4b0d83/task-fixtures.json"
+      }
+    }
+  ]
+}

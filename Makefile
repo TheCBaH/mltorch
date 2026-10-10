@@ -163,6 +163,10 @@ TRANSFORMERS_ADMISSION_OUT ?= _build/transformers-admission
 transformers.admission:
 	scripts/transformers-admission.sh "$(TRANSFORMERS_SOURCE)" "$(TRANSFORMERS_ADMISSION_OUT)"
 
+.PHONY: transformers.admission.normalized
+transformers.admission.normalized:
+	scripts/transformers-admission.sh "$(TRANSFORMERS_SOURCE)" "$(TRANSFORMERS_ADMISSION_OUT)-normalized" normalized
+
 # The released checkpoint fixtures a cohort manifest pins (data/transformers/
 # cohort.json): every layer -- publication index, manifest, archive, checkpoint
 # sources -- is fetched into a content-addressed cache and verified against its
@@ -207,9 +211,9 @@ transformers.open:
 # unless every selected artifact passes -- a refusal counts as not passing.
 TRANSFORMERS_REPORTS ?= _build/transformers-reports
 # The opt-in real-fixture gate CI runs: fetch (network) and replay the two
-# small artifacts that pass exactly, so a regression in the loader, the empty-
-# cache rewrite, the mask vocabulary or the embedding gather turns a published
-# case red. Exits nonzero unless both pass. The other cohort rows are measured
+# small artifacts that pass exactly. Neither contains empty captures;
+# normalization/history tests and the opt-in normalized gate provide separate
+# coverage. Exits nonzero unless both pass. The other cohort rows are measured
 # by `transformers.replay` and have open numerical acceptance failures; see the
 # integration tracker.
 TRANSFORMERS_GATE_ARTIFACTS = \
@@ -223,7 +227,7 @@ transformers.gate:
 # Bounded greedy generation over the SmolLM2 prefill and its history-4 decode
 # snapshot (two new tokens from four prompt ids; ~5 minutes under Direct). The
 # fixtures must be in the cache (make transformers.download with both artifact
-# ids); scripts/transformers-generate-crosscheck.py compares it with transformers.
+# ids). Pinned comparisons use transformers.tasks.generation below.
 #   make transformers.generate PROMPT_IDS=504,3575,282,4649
 transformers.generate:
 	@test -n "$(PROMPT_IDS)" || { echo "set PROMPT_IDS (four token ids)" >&2; exit 2; }
@@ -231,20 +235,16 @@ transformers.generate:
 
 # The bounded BERT-tiny text example. VOCAB is the pinned vocab.txt
 # (data/transformers/text-assets.json names its URL and sha256); the tools check
-# its digest before using it. `check` compares lib/wordpiece with an independent
-# implementation on a sentence list (one per line); `demo` tokenizes sentences,
-# runs the verified graph and prints pooled embeddings and cosines. Neither is a
+# its bytes before using it. `check` compares the pinned producer corpus;
+# Unicode refusals cause a nonzero exit. `demo` tokenizes sentences and
+# runs the verified graph to print pooled embeddings. Neither is a
 # task-ready claim: see the header of bin/transformers_text_demo.ml.
-#   make transformers.text.check VOCAB=vocab.txt SENTENCES=sentences.txt
+#   make transformers.tasks.fetch  # explicit acquisition before offline check
+#   make transformers.text.check
 #   make transformers.text.demo VOCAB=vocab.txt SENTENCES="--lines sentences.txt"
 TRANSFORMERS_TEXT_ASSETS ?= data/transformers/text-assets.json
 transformers.text.check:
-	@test -n "$(VOCAB)" -a -n "$(SENTENCES)" || { echo "set VOCAB and SENTENCES" >&2; exit 2; }
-	mkdir -p $(TRANSFORMERS_REPORTS)
-	python3 -I scripts/transformers-wordpiece-check.py $(VOCAB) 16 < $(SENTENCES) > $(TRANSFORMERS_REPORTS)/ids.python.txt
-	opam exec -- dune exec bin/transformers_text_demo.exe -- --ids $(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) $(TRANSFORMERS_TEXT_ASSETS) $(VOCAB) --lines $(SENTENCES) > $(TRANSFORMERS_REPORTS)/ids.ocaml.txt
-	cmp $(TRANSFORMERS_REPORTS)/ids.python.txt $(TRANSFORMERS_REPORTS)/ids.ocaml.txt
-	@echo "tokenizers agree on $$(wc -l < $(TRANSFORMERS_REPORTS)/ids.ocaml.txt) sentences"
+	$(MAKE) transformers.tasks.adapters TRANSFORMERS_TASK_SELECTION=data/transformers/text-selection.json
 
 transformers.text.demo:
 	@test -n "$(VOCAB)" || { echo "set VOCAB and SENTENCES" >&2; exit 2; }
@@ -280,6 +280,32 @@ transformers.diagnostics.fetch transformers.diagnostics.check transformers.diagn
 		$(if $(filter %.compare,$@),diagnostics,$(lastword $(subst ., ,$@))) \
 		"$(TRANSFORMERS_DIAGNOSTIC_SELECTION)" "$(TRANSFORMERS_COHORT)" \
 		"$(TRANSFORMERS_CACHE)" "$(TRANSFORMERS_DIAGNOSTIC_REPORTS)"
+
+.PHONY: transformers.tasks.fetch transformers.tasks.check transformers.tasks.adapters transformers.tasks.models transformers.tasks.generation transformers.consumer.check transformers.gate.normalized transformers.sweep
+TRANSFORMERS_TASK_SELECTION ?= data/transformers/task-selection.json
+TRANSFORMERS_TASK_REPORTS ?= _build/transformers-tasks
+transformers.tasks.fetch transformers.tasks.check transformers.tasks.adapters transformers.tasks.models:
+	opam exec -- dune exec bin/transformers_tasks.exe -- $(lastword $(subst ., ,$@)) \
+		"$(TRANSFORMERS_TASK_SELECTION)" "$(TRANSFORMERS_COHORT)" \
+		"$(TRANSFORMERS_CACHE)" "$(TRANSFORMERS_TASK_REPORTS)"
+
+transformers.tasks.generation:
+	opam exec -- dune exec bin/transformers_tasks.exe -- generation \
+		data/transformers/generation-selection.json "$(TRANSFORMERS_COHORT)" \
+		"$(TRANSFORMERS_CACHE)" "$(TRANSFORMERS_TASK_REPORTS)"
+
+# Run after the accepted upstream ATen generation/build setup.
+transformers.consumer.check:
+	scripts/transformers-consumer-check.sh
+
+# T5 prefill has empty captures and passes only under explicit saturating casts.
+transformers.gate.normalized:
+	$(MAKE) transformers.download TRANSFORMERS_ARTIFACTS=t5-small/text-encoder-decoder/reference/prefill/fp32/dynamo/static/ckpt-df1b051c4962
+	$(MAKE) transformers.replay TRANSFORMERS_ARTIFACTS=t5-small/text-encoder-decoder/reference/prefill/fp32/dynamo/static/ckpt-df1b051c4962 TRANSFORMERS_DOTS=exact TRANSFORMERS_CASTS=saturating
+
+# Manual complete cohort measurement. Numerical failures retain a nonzero exit.
+transformers.sweep:
+	scripts/transformers-sweep.sh "$(TRANSFORMERS_COHORT)" "$(TRANSFORMERS_CACHE)" "$(TRANSFORMERS_REPORTS)" "$(TRANSFORMERS_SOURCE)"
 
 transformers.replay:
 	opam exec -- dune exec bin/transformers_replay.exe -- \
@@ -1133,14 +1159,14 @@ wasm.runtest: wasm.toolchain
 # stock generated C stops at math.h. WASI_SYSROOT is the usr directory holding
 # include/wasm32-wasi and lib/wasm32-wasi: where the Debian packages wasi-libc
 # and libclang-rt-<N>-dev-wasm32 install (WASI_SYSROOT=/usr after an apt
-# install, as CI does), or where scripts/wasi-sysroot-userland.py unpacks them
+# install, as CI does), or where scripts/wasi-sysroot-userland.sh unpacks them
 # without root. A missing library is an error, never a skip.
 WASI_SYSROOT ?= $(CURDIR)/.toolchains/wasi/root/usr
 
 wasm.toolchain:
 	@if [ ! -f "$(WASI_SYSROOT)/include/wasm32-wasi/math.h" ]; then \
 	  echo "wasm toolchain: no wasm32 libc under $(WASI_SYSROOT); unpacking it"; \
-	  python3 scripts/wasi-sysroot-userland.py .toolchains/wasi && \
+	  scripts/wasi-sysroot-userland.sh .toolchains/wasi && \
 	  test -f "$(WASI_SYSROOT)/include/wasm32-wasi/math.h"; \
 	fi
 

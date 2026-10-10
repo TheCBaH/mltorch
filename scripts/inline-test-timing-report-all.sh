@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs inline-test-timing-report.sh over every (inline_tests) library in the
-# project (discovered by inline-test-libraries.py) for one mode: `dune
+# project (discovered by the OCaml metadata tool) for one mode: `dune
 # clean`, one combined `dune build`, then time every partition individually.
 # Clean+build up front keeps build time out of any test's measured time and
 # forces every partition to actually execute.
@@ -24,10 +24,14 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
 triples=()
+opam exec -- dune build bin/inline_test_libraries.exe
+discovery=$(mktemp)
+trap 'rm -f "$discovery"' EXIT
+_build/default/bin/inline_test_libraries.exe > "$discovery"
 while IFS=$'\t' read -r dir lib triple_mode; do
   [[ "$triple_mode" == "$mode" ]] || continue
   triples+=("$dir"$'\t'"$lib")
-done < <(python3 scripts/inline-test-libraries.py)
+done < "$discovery"
 
 (( ${#triples[@]} > 0 )) || {
   echo "inline-test-timing-report-all: no ($mode) inline_tests libraries found" >&2

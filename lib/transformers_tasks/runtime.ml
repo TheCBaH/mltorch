@@ -4,7 +4,7 @@ module J = Jsont.Json
 module R = Transformers_reports
 module Source = Transformers_metadata.Source
 
-let context ~cohort ~selection ~executable =
+let context ?(model_execution = false) ~cohort ~selection ~executable () =
   let* identity =
     R.Identity.capture ~consumer_root:"."
       ~source:"modules/devcontainer.transformers" ~cohort
@@ -21,9 +21,13 @@ let context ~cohort ~selection ~executable =
          ("executable", snd executable);
          ( "route",
            J.string
-             "OCaml verification and Pt2_fixture.Compare.tensor over producer \
-              data" );
-         ("consumer_model_execution", J.bool false);
+             (if model_execution then
+                "native-direct, exact dots, checked casts, explicit \
+                 empty-cache normalization"
+              else
+                "OCaml verification and Pt2_fixture.Compare.tensor over \
+                 producer data") );
+         ("consumer_model_execution", J.bool model_execution);
        ])
 
 type t = {

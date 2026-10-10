@@ -2,15 +2,20 @@
  (name transformers_tasks)
  (libraries
   err_trace
+  clip_input
+  native
+  native_interp
   fmt
   jsont
   jsont.bytesrw
   pt2
   pt2_checkpoint_map
   pt2_fixture
+  pt2_fixture_replay
   pt2_fixture_unix
   pt2_sha256
   schema_runtime
   transformers_metadata
   transformers_reports
+  wordpiece
   unix))

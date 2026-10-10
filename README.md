@@ -51,6 +51,7 @@ Transformers graph admission consumes the pinned source submodule:
 ```sh
 git submodule update --init modules/devcontainer.transformers
 make transformers.admission
+make transformers.admission.normalized # explicit empty-cache normalization
 ```
 
 Only the top-level producer checkout is needed for its JSON catalogue. Admission
@@ -98,3 +99,27 @@ including “not run.” JSON and Markdown go to `TRANSFORMERS_MATRIX_JSON` and
 `TRANSFORMERS_MATRIX_MARKDOWN`. It exits nonzero for missing, failing, conflicting
 or invalid coverage. A complete matrix is separate from task acceptance and
 does not imply transformed, Kernel or streaming execution.
+
+Consume pinned producer task fixtures without Python ML packages:
+
+```sh
+make transformers.tasks.fetch # explicit acquisition of six recipe bundles
+make transformers.tasks.adapters # offline token/pixel comparisons
+make transformers.tasks.models # model outputs after matching inputs
+make transformers.tasks.generation # bounded SmolLM2 chain, two independent prompts
+make transformers.consumer.check # restricted PATH without Python, after build setup
+```
+
+Task runs retain fixture pins, every case outcome and workspace/executable identity
+under `TRANSFORMERS_TASK_REPORTS`. The supported adapter boundaries are ASCII BERT
+WordPiece and the Pillow TinyCLIP/MobileViT PPM recipes. Unicode BERT, torchvision
+recipes, raw-text generation and additional host/tower boundaries remain explicit
+refusals or deferred coverage. Generation consumes published prompt IDs, checks
+all logits and K/V transitions, and stops after the single history-4 decode step.
+No task is promoted by matching token IDs or fixture integrity alone.
+
+`make transformers.sweep` measures all 22 checkpoint components and declared
+opt-in numerical policies separately, then verifies the matrix. Numerical
+failures keep a failing exit status. CI offers this full sweep and the T5
+prefill normalized/saturating-cast gate through manual workflow inputs; local
+results do not establish hosted CI success.

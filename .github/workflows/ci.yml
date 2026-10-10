@@ -4,6 +4,15 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      transformers_full:
+        description: 'Measure the complete Transformers cohort and opt-in policies'
+        type: boolean
+        default: false
+      transformers_normalized:
+        description: 'Run the T5 prefill normalization gate with saturating casts'
+        type: boolean
+        default: false
 
 # One job, run once per (os, suite). Every suite shares the checkout, the
 # devcontainer and the cache-key setup; each suite's own steps are selected by
@@ -284,6 +293,21 @@ jobs:
       if: matrix.suite == 'native-models'
       run: |
         ${{ env.EXEC }} make transformers.gate
+    - name: transformers normalized replay gate
+      if: matrix.suite == 'native-models' && inputs.transformers_normalized
+      run: |
+        ${{ env.EXEC }} make transformers.gate.normalized
+    - name: transformers complete cohort measurement
+      if: matrix.suite == 'native-models' && inputs.transformers_full
+      timeout-minutes: 240
+      run: |
+        ${{ env.EXEC }} make transformers.sweep
+    - name: retain transformers replay reports
+      if: always() && matrix.suite == 'native-models'
+      uses: actions/upload-artifact@v6
+      with:
+        name: transformers-replay-${{ matrix.os }}
+        path: _build/transformers-reports/
     - name: pt2 load test
       if: matrix.suite == 'native-models'
       run: |
@@ -339,13 +363,15 @@ jobs:
     - name: transformers source admission
       if: matrix.suite == 'native-corpus'
       run: |
-        ${{ env.EXEC }} make transformers.admission
+        ${{ env.EXEC }} make transformers.consumer.check
     - name: retain transformers source reports
       if: always() && matrix.suite == 'native-corpus'
       uses: actions/upload-artifact@v4
       with:
         name: transformers-source-${{ matrix.os }}
-        path: _build/transformers-admission/
+        path: |
+          _build/transformers-admission/
+          _build/transformers-admission-normalized/
         if-no-files-found: error
 
     # Payload-free model-support sweep over the ~100 models in the pinned

@@ -1,4 +1,9 @@
 (executable
+ (name inline_test_libraries)
+ (modules inline_test_libraries)
+ (libraries err_trace unix))
+
+(executable
  (name schema_gen)
  (modules schema_gen)
  (libraries err_trace pytorch_schema))
@@ -410,6 +415,8 @@
  (name transformers_text_demo)
  (modules transformers_text_demo)
  (libraries
+  transformers_tasks
+  transformers_metadata
   err_trace
   fmt
   jsont
@@ -436,6 +443,8 @@
   pt2
   pt2_fixture
   pt2_fixture_replay
+  transformers_tasks
+  transformers_metadata
   pt2_fixture_unix
   unix))
 
@@ -446,6 +455,8 @@
  (name transformers_clip_demo)
  (modules transformers_clip_demo)
  (libraries
+  transformers_tasks
+  transformers_metadata
   clip_input
   err_trace
   fmt
@@ -465,6 +476,8 @@
  (name transformers_vision_demo)
  (modules transformers_vision_demo)
  (libraries
+  transformers_tasks
+  transformers_metadata
   clip_input
   err_trace
   fmt

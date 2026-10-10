@@ -5,17 +5,23 @@ open Transformers_metadata.Json_util
 let () =
   let run () =
     match Array.to_list Sys.argv with
-    | [ _; cohort; policies ] ->
+    | ([ _; cohort; policies ] | [ _; cohort; policies; "--rows" ]) as args ->
         let* cohort_bytes = Pt2_fixture_unix.Fetch.read cohort in
         let* json = read policies in
         let+ entries =
           Transformers_reports.Policy_selection.of_json ~cohort_bytes json
         in
-        Fmt.pr
-          "%d explicit component policies, %d required core gates; numerical \
-           results remain separate@."
-          (List.length entries)
-          (List.length (Transformers_reports.Policy_selection.core entries))
+        if List.length args = 4 then
+          List.iter
+            (fun (e : Transformers_reports.Policy_selection.Entry.t) ->
+              Fmt.pr "%s\t%s\t%s@." e.artifact_id e.policy.dots e.policy.casts)
+            entries
+        else
+          Fmt.pr
+            "%d explicit component policies, %d required core gates; numerical \
+             results remain separate@."
+            (List.length entries)
+            (List.length (Transformers_reports.Policy_selection.core entries))
     | _ -> invalid "usage: transformers_policies COHORT POLICY_SELECTION"
   in
   match Err.payload (run ()) with

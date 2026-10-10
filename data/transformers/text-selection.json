@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "fixtures": [
+    {
+      "fixture_id": "bert-tiny/text-encoder/reference/forward/fp32/dynamo/static/ckpt-6f75de8b60a9/task/bert-wordpiece-v1/80a26dfbab996f1bc8e21e8635258e76682c972629375e1c1b0ddc9a7b48a046/generator/b514afb61454fb15fd491826b475a6e3819ad641/request/c564bb4b0d836a759d10626808c6973b722ffa303e9bb2551c0fe87359063c74",
+      "generator": "b514afb61454fb15fd491826b475a6e3819ad641",
+      "index": {
+        "name": "task-fixtures.json",
+        "sha256": "24ef65a59e34cb4371b74da087875e658c7196985b27352e51a00a0c0297e3c9",
+        "size": 15262,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/task-fixtures-b514afb61454-c564bb4b0d83/task-fixtures.json"
+      }
+    }
+  ]
+}

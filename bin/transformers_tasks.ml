@@ -12,7 +12,8 @@ let () =
     match Array.to_list Sys.argv with
     | [
      _;
-     (("fetch" | "check" | "diagnostics") as mode);
+     (("fetch" | "check" | "diagnostics" | "adapters" | "models" | "generation")
+      as mode);
      selection;
      cohort_path;
      cache_path;
@@ -28,8 +29,9 @@ let () =
             cache
         in
         let context () =
-          T.Runtime.context ~cohort:cohort_path ~selection
-            ~executable:Sys.executable_name
+          T.Runtime.context
+            ~model_execution:(mode = "models" || mode = "generation")
+            ~cohort:cohort_path ~selection ~executable:Sys.executable_name ()
         in
         let* initial = context () in
         let* run = T.Runtime.create output initial in
@@ -42,6 +44,18 @@ let () =
                 let* bundle = T.Reference.ensure config cohort request in
                 let* result =
                   if mode = "diagnostics" then T.Diagnostic.run bundle
+                  else if
+                    mode = "adapters" || mode = "models" || mode = "generation"
+                  then
+                    let* producer =
+                      Transformers_metadata.Producer.load ~consumer_root:"."
+                        ~root:"modules/devcontainer.transformers"
+                    in
+                    if mode = "generation" then
+                      T.Generation.run config producer bundle
+                    else
+                      T.Acceptance.run config producer ~models:(mode = "models")
+                        bundle
                   else
                     let* cases = member "cases" bundle.manifest >>= array in
                     let+ () =
@@ -75,6 +89,11 @@ let () =
               let result =
                 match Err.payload result with
                 | Ok result ->
+                    if
+                      (mode = "adapters" || mode = "models"
+                     || mode = "generation")
+                      && not (T.Acceptance.passed result)
+                    then failed := true;
                     Fmt.pr "%s %s@." mode request.fixture_id;
                     result
                 | Error error ->
@@ -98,7 +117,8 @@ let () =
         if !failed then 1 else 0
     | _ ->
         invalid
-          "usage: transformers_tasks (fetch|check|diagnostics) SELECTION \
+          "usage: transformers_tasks \
+           (fetch|check|diagnostics|adapters|models|generation) SELECTION \
            COHORT CACHE OUTPUT_DIR"
   in
   let result =
