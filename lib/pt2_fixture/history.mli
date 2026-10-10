@@ -46,3 +46,10 @@ val chain :
     artifact's [past_*] inputs: the same names in the same order, the same
     batch, heads and head dimension, and a prefill length equal to the decode's
     history. *)
+
+val chain_tensors :
+  prefill:Contract.Tensor_spec.t list ->
+  decode:t ->
+  decode_inputs:Contract.Tensor_spec.t list ->
+  (unit, fault) result
+(** [chain] plus exact dtype compatibility for every state binding. *)
