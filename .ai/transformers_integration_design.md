@@ -894,8 +894,11 @@ does:
 | elements over tolerance, native engine vs published | 174 | 1,880 |
 | worst absolute difference, torch / engine | 2.3e-4 / 7.4e-5 | 9.0e-5 / 5.8e-5 |
 
-BERT-tiny shows the same: torch here differs from the published outputs by about
-3e-6, not bitwise, as the engine does. So the published outputs are not
+SmolLM2 decode at history 4 shows the same, at a smaller scale: torch eager
+(`DynamicCache` rebuilt from the case's past tensors) misses the published logits
+on 0 elements in case 00 and 12 of 49,152 in case 01 (worst 6.9e-5); the engine
+misses 0 and 5 (worst 4.3e-5). BERT-tiny shows the same: torch here differs from
+the published outputs by about 3e-6, not bitwise, as the engine does. So the published outputs are not
 reproducible by torch itself on another machine (different CPU, kernels and
 threading), and a tolerance of 1e-5 absolute on logits of scale ~34 is below that
 noise. The failing rows measure the reference's own irreproducibility, not a
