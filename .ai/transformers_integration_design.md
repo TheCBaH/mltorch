@@ -828,3 +828,34 @@ exists is a chain whose links are each checked as far as this environment allows
 
 So the example demonstrates the path from text to tensors to outputs, and the
 claim stops there.
+
+## 27. T04, investigated: no accumulation policy closes the decode and prefill rows
+
+The question T04 left open was whether the decode and prefill logit mismatches come
+from one kernel whose order could be emulated, as the connector's did. Measured on
+SmolLM2 decode (history 4, case 00), where the last operation is the `lm_head`
+linear (576 inputs, 49,152 outputs): the exact input of that linear (the hidden
+state our engine produces) was combined with the checkpoint's weight under 23
+candidate accumulation orders and compared bit for bit with the producer's logits.
+The orders were the exact binary64 sum, a sequential fused chain, a sequential
+unfused chain, and 2, 4, 8, 16 and 32 interleaved lanes, each fused or unfused and
+reduced sequentially, pairwise or by halving.
+
+No order reproduces the reference. The best is 4 lanes fused with a sequential
+reduction, bit-equal on 7,426 of 49,152 logits; the exact sum is bit-equal on
+6,933. The discrepancy has a different character from the connector's: the largest
+difference is 1.9e-5 on logits up to 33.9 in magnitude, 5.6e-7 of the scale (about
+five float32 ulps of the scale). The hidden state fed to the linear is itself a
+float32 value that has passed through thirty layers on both sides, so it carries
+upstream rounding noise that differs between engines; the final dot therefore cannot
+be isolated by comparing outputs, and a bit-exact match would require every kernel
+of the network (normalizations, softmax, activations, every matrix product) to be
+emulated in the producer's order.
+
+Conclusion for the rows that fail: they fail by float32 inference noise. The
+producer's tolerance of 1e-5 absolute on logits of scale ~34 is about 3e-7 of the
+scale, below the noise of any independent float32 implementation, so the elements
+that exceed it are the few with small magnitude (where the allowance is mostly the
+absolute term). That is a property of the tolerance, not of the engine, and the
+measured numbers above are its evidence. The tolerances and references remain
+unchanged; the rows stay failing, with their counts, in the matrix.
