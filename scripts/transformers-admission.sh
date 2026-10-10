@@ -5,6 +5,7 @@ set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
 producer=${1:-"$root/modules/devcontainer.transformers"}
 out=${2:-"$root/_build/transformers-admission"}
+mode=${3:-strict}
 fail() { echo "transformers admission: $*" >&2; exit 2; }
 pin=$(git -C "$root" ls-files --stage -- modules/devcontainer.transformers |
   awk '$1 == "160000" && $3 == "0" {print $2}')
@@ -29,7 +30,11 @@ cmp -s "$producer/catalogue.json" "$flat/catalogue.pinned" || fail "modified cat
 rm "$flat/catalogue.pinned"
 cd "$root"
 opam exec -- dune exec bin/transformers_source.exe -- inventory "$producer" "$flat" "$out/inventory.json"
-opam exec -- dune exec bin/pt2_json_model_support.exe -- "$flat" "$out/admission.jsonl"
+case "$mode" in
+  strict) opam exec -- dune exec bin/pt2_json_model_support.exe -- "$flat" "$out/admission.jsonl" ;;
+  normalized) opam exec -- dune exec bin/pt2_json_model_support.exe -- "$flat" "$out/admission.jsonl" --normalize-empty-caches ;;
+  *) fail "unknown admission mode: $mode" ;;
+esac
 opam exec -- dune exec bin/transformers_source.exe -- summary \
   "$out/inventory.json" "$out/admission.jsonl" "$out/run.json" "$pin" \
   "$(git rev-parse HEAD)" "$(git status --short | wc -l | tr -d ' ')"

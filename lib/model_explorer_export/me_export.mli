@@ -103,6 +103,16 @@ val session :
     the result is a successful session whose capabilities say what is missing
     and why. Only a [Me_classify.Fatal] row fails. *)
 
+val session_with_empty_caches :
+  empty_caches:(Native_interp.Empty_cache_report.t -> unit) option ->
+  limits:Me_limits.Limits.t ->
+  options:Options.t ->
+  bytes:string ->
+  (Me_session.Session.t, [> error ]) Err.t
+(** Explicit graph-only normalization, retaining the reported empty sources.
+    Archive inputs refuse this route. Source bytes are never rewritten on disk.
+*)
+
 val detail :
   limits:Me_limits.Limits.t ->
   options:Options.t ->

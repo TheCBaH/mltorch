@@ -161,7 +161,8 @@
   jsont
   jsont.bytesrw
   model_explorer
-  model_explorer_export))
+  model_explorer_export
+  native_interp))
 
 (executable
  (name aten_graph_ref)

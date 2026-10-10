@@ -42,6 +42,19 @@ also checks committed task recipes, request, trusted task pin, three schemas
 and protocol documentation and records their hashes in the source identity.
 Source updates do not implicitly change checkpoint or task release selections.
 The CI source gate applies to Dependabot gitlink updates as to other changes.
-Recipe/asset consumption, normalized admission and robust immutable numerical
-run identities remain separate corrective work; the existing report's dirty
-file count is not a content identity.
+Normalized admission is explicitly requested with
+`make transformers.admission.normalized`. It decodes and normalizes the program
+in memory before the same independent Native/Native4D/Kernel session branches;
+source files stay intact and reports retain the normalized source count.
+At the reviewed main pin this measures Native 18/30, Native4D 2/30 and Kernel
+13/30. Strict admission remains 7/30, 2/30 and 5/30. No numerical replay is
+implied. The earlier attempted JSON re-encoding failed because generated codecs
+are decode-only; its failed reports are retained separately from this result.
+
+Transposed convolution is committed at `979de558`, covered by independent
+scatter checks and symbolic-ground/bridge suites. Broad pinned producer
+boundary fixtures remain requested. `diff.default` (Whisper forward) and
+SmolVLM masked-scatter/index-put/bucketize/full routes remain explicit refusals.
+Named transformed replay stays deferred: direct results are never transferred
+to that route. Robust immutable numerical identity remains separate from the
+source admission summary's historical dirty-file count.
