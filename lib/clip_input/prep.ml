@@ -23,7 +23,9 @@ let tensor (img : Ppm.t) ~filter ~resize ~crop ~flip ~mean ~std =
         Char.code
           (Bytes.get img.rgb (((((top + y) * w) + left + x) * 3) + src_c))
       in
-      round32 ((round32 (float_of_int v /. 255.) -. mean.(c)) /. std.(c)))
+      round32
+        (round32 (round32 (float_of_int v /. 255.) -. round32 mean.(c))
+        /. round32 std.(c)))
 
 let pixel_values img ~size ~mean ~std =
   tensor img ~filter:Resample.Bicubic ~resize:size ~crop:size ~flip:false ~mean

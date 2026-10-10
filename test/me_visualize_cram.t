@@ -8,19 +8,7 @@ payloads. MobileNetV2-050 stands in for the retired resnet18 role model here
 see test/native4d_to4d_cram.t).
 
   $ ../bin/native_graph.exe visualize --model "$PT2_DATA/mobilenetv2_050/mobilenetv2_050.pt2" --output session.json
-  $ python3 -c "
-  > import json
-  > s = json.load(open('session.json'))
-  > m = s['model']
-  > print('sourceKind', m['sourceKind'])
-  > print('sha256', m.get('sourceSha256', 'absent'))
-  > graphs = s['graphCollections'][0]['graphs']
-  > primary = lambda x: not x['id'].startswith('expr/')
-  > print('views=%d expressionViews=%d comparisons=%d graphs=%d expressionGraphs=%d' % (
-  >     len([v for v in s['views'] if primary(v)]),
-  >     len([v for v in s['views'] if not primary(v)]), len(s['comparisons']),
-  >     len([g for g in graphs if primary(g)]),
-  >     len([g for g in graphs if not primary(g)])))"
+  $ ./cram_probe.exe source-summary session.json
   sourceKind pt2
   sha256 absent
   views=7 expressionViews=100 comparisons=2 graphs=7 expressionGraphs=100
@@ -35,11 +23,7 @@ carrying Requires_payloads -- which is the one difference from the model.json
 run, and the reason both fixtures exist.
 
   $ ../bin/native_graph.exe visualize --model "$PT2_DATA/mobilenetv2_050/mobilenetv2_050.pt2" --fold --output folded.json
-  $ python3 -c "
-  > import json
-  > c = [c for c in json.load(open('folded.json'))['capabilities']
-  >      if c['key'] == 'feature:fold'][0]
-  > print(c['status']['state'], c['status'].get('reason', ''))"
+  $ ./cram_probe.exe capability-empty feature:fold folded.json
   available 
 
 The canonical pipeline (`lib/native/transform/pipeline.ml`) now runs constant
@@ -54,16 +38,7 @@ declines every node that has no payload -- so before this the archive path was
 running a fold that folded nothing while reporting the capability available.
 
   $ ../bin/native_graph.exe visualize --model "$PT2_DATA/mobilenetv2_050/mobilenetv2_050.pt2" --fold --output n4.json
-  $ python3 -c "
-  > import json
-  > s = json.load(open('n4.json'))
-  > primary = lambda x: not x['id'].startswith('expr/')
-  > print('graphs', [(g['id'], len(g['nodes'])) for g in s['graphCollections'][0]['graphs'] if primary(g)])
-  > print('views', [v['id'] for v in s['views'] if primary(v)])
-  > print('states', [x['id'] for x in s['flow']['states']])
-  > print('transitions', [(t['id'], t['kind']['kind']) for t in s['flow']['transitions']])
-  > print('native4d', [c['status']['state'] for c in s['capabilities']
-  >                    if c['key'] == 'stage:native4d'])"
+  $ ./cram_probe.exe native4d n4.json
   graphs [('pt2/root', 468), ('g/native/000', 731), ('g/native/001', 208), ('g/symbolic/000', 208), ('g/native4d/000', 208), ('g/kernel/000', 208), ('g/flow', 11)]
   views ['v/canonical', 'v/initial', 'v/source', 'v/native4d', 'v/stage_program', 'v/kernel', 'v/flow']
   states ['s/pt2/000', 's/native/000', 's/native/001', 's/native4d/000', 's/symbolic/000', 's/kernel/000']
@@ -75,18 +50,12 @@ The same `session.json`, built without `--fold`, already reports `native4d`
 native4d` is conditional on the graph fitting the four-axis dialect, not on
 whether payloads were preloaded.
 
-  $ python3 -c "
-  > import json
-  > s = json.load(open('session.json'))
-  > c = [c for c in s['capabilities'] if c['key'] == 'stage:native4d'][0]
-  > print(c['status']['state'], c['status'].get('reason'))"
+  $ ./cram_probe.exe capability stage:native4d session.json
   available None
 
 Detection reads the archive's magic bytes, not its extension.
 
   $ cp "$PT2_DATA/mobilenetv2_050/mobilenetv2_050.pt2" mislabelled.json
   $ ../bin/native_graph.exe visualize --model mislabelled.json --output m.json
-  $ python3 -c "
-  > import json
-  > print(json.load(open('m.json'))['model']['sourceKind'])"
+  $ ./cram_probe.exe source-kind m.json
   pt2

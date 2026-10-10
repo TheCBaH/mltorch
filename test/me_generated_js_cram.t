@@ -8,14 +8,7 @@ Off by default: no js/js_truncated/js_unavailable attribute anywhere, and the
 capability reads not_requested.
 
   $ ../bin/native_graph.exe visualize --model model.json --output off.json
-  $ python3 -c "
-  > import json
-  > s = json.load(open('off.json'))
-  > count = sum(1 for g in s['graphCollections'][0]['graphs']
-  >             for n in g['nodes'] for a in (n.get('attrs') or [])
-  >             if a['key'] in ('js', 'js_truncated', 'js_unavailable'))
-  > cap = [c for c in s['capabilities'] if c['key'] == 'feature:generated_js'][0]
-  > print('js attrs', count, cap['status']['state'])"
+  $ ./cram_probe.exe js-off off.json
   js attrs 0 not_requested
 
 A bare --generated-js is the full optimization pipeline, attached to every
@@ -23,15 +16,7 @@ out<i> node of every operator detail graph -- expr/g/native/001/n0's out0
 among them, the first canonical operator.
 
   $ ../bin/native_graph.exe visualize --model model.json --generated-js --output optimized.json
-  $ python3 -c "
-  > import json
-  > s = json.load(open('optimized.json'))
-  > cap = [c for c in s['capabilities'] if c['key'] == 'feature:generated_js'][0]
-  > print(cap['status']['state'], cap['status']['payload']['kind'])
-  > g = {g['id']: g for g in s['graphCollections'][0]['graphs']}['expr/g/native/001/n0']
-  > n = {n['id']: n for n in g['nodes']}['out0']
-  > a = {x['key']: x['value'] for x in n['attrs']}
-  > print('js' in a, 'js_truncated' in a, 'js_unavailable' in a, len(a['js']))"
+  $ ./cram_probe.exe js-present optimized.json
   available present
   True False False 193
 
@@ -39,16 +24,7 @@ among them, the first canonical operator.
 different text from the optimized one above.
 
   $ ../bin/native_graph.exe visualize --model model.json --generated-js=raw --output raw.json
-  $ python3 -c "
-  > import json
-  > def js_of(path):
-  >     s = json.load(open(path))
-  >     g = {g['id']: g for g in s['graphCollections'][0]['graphs']}['expr/g/native/001/n0']
-  >     n = {n['id']: n for n in g['nodes']}['out0']
-  >     return {x['key']: x['value'] for x in n['attrs']}['js']
-  > opt = js_of('optimized.json')
-  > raw = js_of('raw.json')
-  > print('raw len', len(raw), 'differs from optimized', raw != opt)"
+  $ ./cram_probe.exe js-raw optimized.json raw.json
   raw len 485 differs from optimized True
 
 A named subset (here, only unit_loops -- this node is a Permute, simple
@@ -57,17 +33,7 @@ it, so unit_loops alone is what isolates a third, distinct text from the
 other two) is neither the full pipeline's nor the empty one's.
 
   $ ../bin/native_graph.exe visualize --model model.json --generated-js=unit_loops --output custom.json
-  $ python3 -c "
-  > import json
-  > def js_of(path):
-  >     s = json.load(open(path))
-  >     g = {g['id']: g for g in s['graphCollections'][0]['graphs']}['expr/g/native/001/n0']
-  >     n = {n['id']: n for n in g['nodes']}['out0']
-  >     return {x['key']: x['value'] for x in n['attrs']}['js']
-  > opt = js_of('optimized.json')
-  > raw = js_of('raw.json')
-  > custom = js_of('custom.json')
-  > print('custom differs from optimized', custom != opt, 'and from raw', custom != raw)"
+  $ ./cram_probe.exe js-custom optimized.json raw.json custom.json
   custom differs from optimized True and from raw True
 
 An unknown pass name is rejected, not silently ignored. NO_COLOR, for the reason
@@ -87,17 +53,5 @@ session against the flag-off one, with every js/js_truncated/js_unavailable
 attribute stripped out first (and the one capability row's payload, which
 necessarily differs), is empty.
 
-  $ python3 -c "
-  > import json
-  > def strip(doc):
-  >     for g in doc['graphCollections'][0]['graphs']:
-  >         for n in g['nodes']:
-  >             n['attrs'] = [a for a in (n.get('attrs') or [])
-  >                           if a['key'] not in ('js', 'js_truncated', 'js_unavailable')]
-  >     doc['capabilities'] = [c for c in doc['capabilities']
-  >                            if c['key'] != 'feature:generated_js']
-  >     return doc
-  > off = strip(json.load(open('off.json')))
-  > opt = strip(json.load(open('optimized.json')))
-  > print('identical once the js attributes and capability are stripped', off == opt)"
+  $ ./cram_probe.exe js-equality off.json optimized.json
   identical once the js attributes and capability are stripped True

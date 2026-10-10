@@ -55,21 +55,7 @@ lowering, structurally in `native4d/verify_test.ml`'s "gelu tanh" cluster), so
 
   $ for m in mobilenetv2_050 regnetx_002 test_convnext2 efficientnet_b0 fastvit_sa12 csatv2; do
   >   if ../bin/native_graph.exe visualize --model ${m}_model.json --output ${m}-session.json 2>${m}.err; then
-  >     python3 -c "
-  > import json
-  > s = json.load(open('${m}-session.json'))
-  > rows = {c['key']: c['status'] for c in s['capabilities']}
-  > diags = {d['code']: d['message'] for d in s['diagnostics']}
-  > def show(key):
-  >     st = rows[key]
-  >     if st['state'] == 'available':
-  >         print('${m} %s available %s' % (key, st['payload']['kind']))
-  >     else:
-  >         detail = diags.get(st['reason'], '')
-  >         suffix = (': ' + detail) if detail else ''
-  >         print('${m} %s unavailable %s%s' % (key, st['reason'], suffix))
-  > show('stage:initial_native')
-  > show('stage:native4d')"
+  >     ./cram_probe.exe frontier "$m" "${m}-session.json"
   >   else
   >     echo "${m} blocked: $(cat ${m}.err)"
   >   fi

@@ -11,28 +11,13 @@ without being read, which is the opposite of what a golden is for; what is
 pinned here is the shape, the counts, and the COMPLETE capability vector.
 
   $ ../bin/native_graph.exe visualize --model model.json --output session.json
-  $ python3 -c "
-  > import json
-  > s = json.load(open('session.json'))
-  > print('views=%d comparisons=%d capabilities=%d graphs=%d' % (
-  >     len(s['views']), len(s['comparisons']), len(s['capabilities']),
-  >     len(s['graphCollections'][0]['graphs'])))"
+  $ ./cram_probe.exe summary session.json
   views=107 comparisons=2 capabilities=15 graphs=107
 
 The complete capability vector, which is what a drifting downstream row would
 show up in. A test asserting only the interesting key would let the rest move.
 
-  $ python3 -c "
-  > import json
-  > s = json.load(open('session.json'))
-  > for c in s['capabilities']:
-  >     st = c['status']
-  >     detail = st['state']
-  >     if st['state'] == 'available':
-  >         detail += ' ' + st['payload']['kind']
-  >     elif st['state'] == 'unavailable':
-  >         detail += ' ' + st['reason']
-  >     print('%-28s %s' % (c['key'], detail))"
+  $ ./cram_probe.exe caps session.json
   stage:source                 available graph
   stage:initial_native         available graph
   stage:canonical              available graph
@@ -62,21 +47,7 @@ An empty entry list with the fallback OFF would be a third thing entirely: a
 comparison in which nothing corresponds to anything, which the renderer draws as
 every node changed.
 
-  $ python3 -c "
-  > import json
-  > s = json.load(open('session.json'))
-  > g = {g['id']: g for g in s['graphCollections'][0]['graphs']}['pt2/root']
-  > kinds = {}
-  > for n in g['nodes']:
-  >     kinds[n['label'] if n['label'] in ('input','constant','output') else 'op'] = \
-  >         kinds.get(n['label'] if n['label'] in ('input','constant','output') else 'op', 0) + 1
-  > print('source', sorted(kinds.items()))
-  > c = {c['id']: c for c in s['comparisons']}
-  > for i in ('c/import', 'c/canonical'):
-  >     sync = c[i]['sync']
-  >     print(i, 'entries', len(sync['entries']),
-  >           'matchNodeIdFallback', sync['matchNodeIdFallback'],
-  >           'showDiffHighlights', sync['showDiffHighlights'])"
+  $ ./cram_probe.exe source-counts session.json
   source [('constant', 314), ('input', 1), ('op', 152), ('output', 1)]
   c/import entries 152 matchNodeIdFallback False showDiffHighlights False
   c/canonical entries 0 matchNodeIdFallback True showDiffHighlights True
@@ -84,15 +55,7 @@ every node changed.
 Namespaces come off nn_module_stack, one level RELATIVE to its parent -- the
 naive join would repeat the whole dotted path at every depth.
 
-  $ python3 -c "
-  > import json
-  > s = json.load(open('session.json'))
-  > g = {g['id']: g for g in s['graphCollections'][0]['graphs']}['pt2/root']
-  > seen = []
-  > for n in g['nodes']:
-  >     ns = n['namespace']
-  >     if ns and ns not in seen: seen.append(ns)
-  > print(seen[:6])"
+  $ ./cram_probe.exe namespaces session.json
   ['conv_stem', 'bn1', 'bn1/act', 'blocks/0/0/conv_dw', 'blocks/0/0/bn1', 'blocks/0/0/bn1/act']
 
 Native4D is the OTHER conditional row, and mobilenetv2_050's canonical graph
@@ -104,12 +67,7 @@ Requires_payloads and Outside_dialect_domain both remain live capability
 states the matrix admits, for a model whose weights genuinely need folding to
 fit, or don't fit the four-axis dialect at all.
 
-  $ python3 -c "
-  > import json
-  > s = json.load(open('session.json'))
-  > print([d['message'] for d in s['diagnostics'] if d['code'] == 'outside_dialect_domain'])
-  > print('graphs', [g['id'] for g in s['graphCollections'][0]['graphs']])
-  > print('states', [x['id'] for x in s['flow']['states']])"
+  $ ./cram_probe.exe outside session.json
   []
   graphs ['pt2/root', 'g/native/000', 'g/native/001', 'g/symbolic/000', 'g/native4d/000', 'g/kernel/000', 'g/flow', 'expr/g/native/001/n0', 'expr/g/native/001/n415', 'expr/g/native/001/n416', 'expr/g/native/001/n417', 'expr/g/native/001/n418', 'expr/g/native/001/n419', 'expr/g/native/001/n420', 'expr/g/native/001/n421', 'expr/g/native/001/n422', 'expr/g/native/001/n423', 'expr/g/native/001/n424', 'expr/g/native/001/n425', 'expr/g/native/001/n426', 'expr/g/native/001/n427', 'expr/g/native/001/n428', 'expr/g/native/001/n429', 'expr/g/native/001/n430', 'expr/g/native/001/n431', 'expr/g/native/001/n432', 'expr/g/native/001/n433', 'expr/g/native/001/n434', 'expr/g/native/001/n435', 'expr/g/native/001/n436', 'expr/g/native/001/n437', 'expr/g/native/001/n438', 'expr/g/native/001/n439', 'expr/g/native/001/n440', 'expr/g/native/001/n441', 'expr/g/native/001/n442', 'expr/g/native/001/n443', 'expr/g/native/001/n444', 'expr/g/native/001/n445', 'expr/g/native/001/n446', 'expr/g/native/001/n447', 'expr/g/native/001/n448', 'expr/g/native/001/n449', 'expr/g/native/001/n450', 'expr/g/native/001/n451', 'expr/g/native/001/n452', 'expr/g/native/001/n453', 'expr/g/native/001/n454', 'expr/g/native/001/n455', 'expr/g/native/001/n456', 'expr/g/native/001/n457', 'expr/g/native/001/n458', 'expr/g/native/001/n459', 'expr/g/native/001/n460', 'expr/g/native/001/n461', 'expr/g/native/001/n462', 'expr/g/native/001/n463', 'expr/g/native/001/n464', 'expr/g/native/001/n465', 'expr/g/native/001/n466', 'expr/g/native/001/n467', 'expr/g/native/001/n468', 'expr/g/native/001/n469', 'expr/g/native/001/n470', 'expr/g/native/001/n471', 'expr/g/native/001/n472', 'expr/g/native/001/n473', 'expr/g/native/001/n474', 'expr/g/native/001/n475', 'expr/g/native/001/n476', 'expr/g/native/001/n477', 'expr/g/native/001/n478', 'expr/g/native/001/n479', 'expr/g/native/001/n480', 'expr/g/native/001/n481', 'expr/g/native/001/n482', 'expr/g/native/001/n483', 'expr/g/native/001/n484', 'expr/g/native/001/n485', 'expr/g/native/001/n486', 'expr/g/native/001/n487', 'expr/g/native/001/n488', 'expr/g/native/001/n489', 'expr/g/native/001/n490', 'expr/g/native/001/n491', 'expr/g/native/001/n492', 'expr/g/native/001/n493', 'expr/g/native/001/n494', 'expr/g/native/001/n495', 'expr/g/native/001/n496', 'expr/g/native/001/n497', 'expr/g/native/001/n498', 'expr/g/native/001/n499', 'expr/g/native/001/n500', 'expr/g/native/001/n501', 'expr/g/native/001/n502', 'expr/g/native/001/n503', 'expr/g/native/001/n504', 'expr/g/native/001/n505', 'expr/g/native/001/n506', 'expr/g/native/001/n507', 'expr/g/native/001/n508', 'expr/g/native/001/n509', 'expr/g/native/001/n510', 'expr/g/native/001/n511', 'expr/g/native/001/n410', 'expr/g/native/001/n414']
   states ['s/pt2/000', 's/native/000', 's/native/001', 's/native4d/000', 's/symbolic/000', 's/kernel/000']
@@ -124,22 +82,14 @@ a Requires_payloads capability, not a usage error: the browser cannot surface
 one, and the same code path serves both shells.
 
   $ ../bin/native_graph.exe visualize --model model.json --fold --output folded.json
-  $ python3 -c "
-  > import json
-  > s = json.load(open('folded.json'))
-  > c = [c for c in s['capabilities'] if c['key'] == 'feature:fold'][0]
-  > print(c['status']['state'], c['status'].get('reason'))"
+  $ ./cram_probe.exe capability feature:fold folded.json
   unavailable requires_payloads
 
 The flow spine reaches the document, because Transition.comparison exists
 nowhere else and a spine encoded only as a rendered graph leaves every
 transition node resolving to nothing.
 
-  $ python3 -c "
-  > import json
-  > f = json.load(open('session.json'))['flow']
-  > print('states', [s['id'] for s in f['states']])
-  > print('transitions', [(t['id'], t['kind']['kind'], t.get('comparison')) for t in f['transitions']])"
+  $ ./cram_probe.exe transitions session.json
   states ['s/pt2/000', 's/native/000', 's/native/001', 's/native4d/000', 's/symbolic/000', 's/kernel/000']
   transitions [('t/native/000', 'import', 'c/import'), ('t/native/001', 'pack', 'c/canonical'), ('t/native4d/000', 'cross_dialect', None), ('t/symbolic/000', 'adapt', None), ('t/kernel/000', 'adapt', None)]
 
@@ -148,20 +98,7 @@ View.Flow opens it, and feature:flow offers that same graph. Session.validate
 binds all three, so any one of them drifting is a validation failure rather
 than something the browser discovers.
 
-  $ python3 -c "
-  > import json
-  > s = json.load(open('session.json'))
-  > flow = [v for v in s['views'] if v['kind'] == 'flow']
-  > cap = [c for c in s['capabilities'] if c['key'] == 'feature:flow'][0]
-  > g = {x['id']: x for x in s['graphCollections'][0]['graphs']}[s['flow']['graph']]
-  > print('view', [(v['id'], v['graph']) for v in flow])
-  > print('capability', cap['status']['payload']['graph'])
-  > print('nodes', len(g['nodes']), 'states+transitions',
-  >       len(s['flow']['states']) + len(s['flow']['transitions']))
-  > edges = sum(len(n.get('incomingEdges', [])) for n in g['nodes'])
-  > print('edges', edges, '2*transitions', 2 * len(s['flow']['transitions']))
-  > print('every node has one slot',
-  >       all(len(n.get('outputsMetadata', [])) == 1 for n in g['nodes']))"
+  $ ./cram_probe.exe flow session.json
   view [('v/flow', 'g/flow')]
   capability g/flow
   nodes 11 states+transitions 11
@@ -171,9 +108,7 @@ than something the browser discovers.
 v/flow is never the default: the browser stays source-first and the CLI keeps
 canonical Native.
 
-  $ python3 -c "
-  > import json
-  > print(json.load(open('session.json'))['defaultView'])"
+  $ ./cram_probe.exe default-view session.json
   v/canonical
 
 Each state names the stage view it opens, EXPLICITLY. Two stage views may name
@@ -181,13 +116,7 @@ one graph without breaking any rule, so a graph-to-view lookup is ambiguous by
 contract; this pins the pairing the exporter actually emits, and that every
 named view is a declared stage view over that state's own graph.
 
-  $ python3 -c "
-  > import json
-  > s = json.load(open('session.json'))
-  > views = {v['id']: v for v in s['views']}
-  > for st in s['flow']['states']:
-  >     v = views.get(st['view'])
-  >     print(st['id'], '->', st['view'], v['kind'], 'graph-agrees', v['graph'] == st['graph'])"
+  $ ./cram_probe.exe state-views session.json
   s/pt2/000 -> v/source stage:source graph-agrees True
   s/native/000 -> v/initial stage:initial_native graph-agrees True
   s/native/001 -> v/canonical stage:canonical graph-agrees True
@@ -212,17 +141,7 @@ here is that an exhausted budget still reaches the document as its own
 verdict, not silence or an error.
 
   $ ../bin/native_graph.exe visualize --model model.json --verify-symbolic quick --output verified.json
-  $ python3 -c "
-  > import json
-  > s = json.load(open('verified.json'))
-  > for c in s['capabilities']:
-  >     if c['key'] in ('feature:verification', 'feature:pass_audits'):
-  >         p = c['status']['payload']
-  >         if p['kind'] == 'verification_summary':
-  >             print(c['key'], [(b['label'], b['count']) for b in p['verificationSummary']])
-  >         else:
-  >             a = p['passAuditStatus']
-  >             print(c['key'], a['retainedReports'], a['omittedReports'], a['omittedCounts'])"
+  $ ./cram_probe.exe verification verified.json
   feature:verification [('unproved (global verification budget exhausted)', '1'), ('vacuous', '1')]
   feature:pass_audits 0 13 []
 
@@ -240,17 +159,7 @@ the budget survived to reach real batch-norm groups) -- which is itself worth
 pinning: an empty verdict set is still a valid one node/group data set, not a
 missing one.
 
-  $ python3 -c "
-  > import json
-  > s = json.load(open('verified.json'))
-  > d = s['nodeDataSets'][0]
-  > print('nodeData', d['name'], 'over', d['graph'], len(d['results']), 'nodes')
-  > g = {g['id']: g for g in s['graphCollections'][0]['graphs']}['g/native/001']
-  > gna = g['groupNodeAttributes']
-  > print('groups', len(gna))
-  > print('root  ', sorted(gna[''].items()))
-  > bn = sorted(k for k in gna if 'batch_norm' in k)
-  > print('batch_norm groups', len(bn))"
+  $ ./cram_probe.exe node-data verified.json
   nodeData verification over g/native/001 0 nodes
   groups 1
   root   [('unproved (global verification budget exhausted)', '1'), ('vacuous', '1')]
@@ -261,14 +170,7 @@ neither the verification node data nor the group attributes appear. A capability
 nobody asked for was not blocked by anything. Fusion's node data is there either
 way: it is a fact about the kernel, not about a verification run.
 
-  $ python3 -c "
-  > import json
-  > s = json.load(open('session.json'))
-  > print([c['status']['state'] for c in s['capabilities']
-  >        if c['key'] in ('feature:verification', 'feature:pass_audits')])
-  > print('nodeDataSets', [d['name'] for d in s['nodeDataSets']])
-  > g = {g['id']: g for g in s['graphCollections'][0]['graphs']}['g/native/001']
-  > print('groupNodeAttributes', g.get('groupNodeAttributes'))"
+  $ ./cram_probe.exe no-node-data session.json
   ['not_requested', 'not_requested']
   nodeDataSets ['fusion']
   groupNodeAttributes None
@@ -282,20 +184,7 @@ Placement is TWO facts. Which dependency edges are virtual, and which values
 need stores: an externally live producer is both, and one enum per value cannot
 say that. So the edges are the overlay and the values are the node data.
 
-  $ python3 -c "
-  > import json
-  > s = json.load(open('session.json'))
-  > g = {g['id']: g for g in s['graphCollections'][0]['graphs']}['g/kernel/000']
-  > o = g['tasksData']['edgeOverlaysDataListLeftPane'][0]
-  > print('overlay', o['name'], 'over', o['graphName'],
-  >       [(ov['name'], len(ov['edges'])) for ov in o['overlays']])
-  > d = [d for d in s['nodeDataSets'] if d['name'] == 'fusion'][0]
-  > by = {}
-  > for r in d['results']:
-  >     k = r['value']['label'].split(' (')[0]
-  >     by[k] = by.get(k, 0) + 1
-  > print('placement', sorted(by.items()))
-  > print([m['message'] for m in s['diagnostics'] if 'virtual' in m['message']])"
+  $ ./cram_probe.exe fusion session.json
   overlay fusion over g/kernel/000 [('virtual dependencies', 10)]
   placement [('stored', 90), ('virtual', 10)]
   ['10 virtual edges, 89 producers not fused']
@@ -305,13 +194,7 @@ diagnostic per rejection would be seventy on this model alone, against a
 max_diagnostics of 64, which makes it a list the ceiling truncates rather than a
 report. What reaches the diagnostics is one summary.
 
-  $ python3 -c "
-  > import json
-  > s = json.load(open('session.json'))
-  > d = [d for d in s['nodeDataSets'] if d['name'] == 'fusion'][0]
-  > for r in d['results']:
-  >     if '>= 2' in r['value']['label']:
-  >         print(r['nodeId'], r['value']['label']); break"
+  $ ./cram_probe.exe fanout session.json
   v834 stored (t834 has >= 2 uses)
 
 That count is rendered '>= 2' and never as a figure: the planner's counter
@@ -324,10 +207,7 @@ dropping half the document.
 
   $ ../bin/native_graph.exe visualize --model model.json --format collections --output c.json
   warning: --format collections is lossy; comparisons, capabilities and the flow are discarded
-  $ python3 -c "
-  > import json
-  > c = json.load(open('c.json'))
-  > print(type(c).__name__, len(c), c[0]['label'], len(c[0]['graphs']))"
+  $ ./cram_probe.exe collections c.json
   list 1 mltorch:model 107
 
 Format detection is CONTENT, never the extension. The worker also carries a
@@ -373,11 +253,7 @@ for that defect -- stable across an unrelated projection tweak in a way a
 screenshot is not, and it is what a regression would actually trip.
 
   $ ../bin/native_graph.exe visualize --model model.json --output explicit.json
-  $ python3 -c "
-  > import json
-  > g = {g['id']: g for g in json.load(open('explicit.json'))['graphCollections'][0]['graphs']}['pt2/root']
-  > root_constants = [n for n in g['nodes'] if n['id'].startswith('const:') and n['namespace'] == '']
-  > print('root constants', len(root_constants))"
+  $ ./cram_probe.exe constants explicit.json
   root constants 314
 
 --constants grouped moves every one of them into the namespace its consumer
@@ -385,12 +261,7 @@ already has, and mobilenetv2_050 has no constant this projection leaves
 unconsumed, so none remain at root at all.
 
   $ ../bin/native_graph.exe visualize --model model.json --constants grouped --output grouped.json
-  $ python3 -c "
-  > import json
-  > g = {g['id']: g for g in json.load(open('grouped.json'))['graphCollections'][0]['graphs']}['pt2/root']
-  > root_constants = [n for n in g['nodes'] if n['id'].startswith('const:') and n['namespace'] == '']
-  > print('root constants', len(root_constants))
-  > print('op node count unchanged', len(g['nodes']))"
+  $ ./cram_probe.exe grouped-constants grouped.json
   root constants 0
   op node count unchanged 468
 
@@ -401,15 +272,5 @@ asserting it: a stray change to an id, an edge or a non-constant's
 namespace would show up here as a real difference, not as noise from the
 transform itself.
 
-  $ python3 -c "
-  > import json
-  > def strip(doc):
-  >     for g in doc['graphCollections'][0]['graphs']:
-  >         for n in g['nodes']:
-  >             if n['id'].startswith('const:'):
-  >                 n['namespace'] = ''
-  >     return doc
-  > e = strip(json.load(open('explicit.json')))
-  > g = strip(json.load(open('grouped.json')))
-  > print('identical once constant namespaces are ignored', e == g)"
+  $ ./cram_probe.exe constant-equality explicit.json grouped.json
   identical once constant namespaces are ignored True
