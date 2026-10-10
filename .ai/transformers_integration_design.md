@@ -897,7 +897,11 @@ does:
 SmolLM2 decode at history 4 shows the same, at a smaller scale: torch eager
 (`DynamicCache` rebuilt from the case's past tensors) misses the published logits
 on 0 elements in case 00 and 12 of 49,152 in case 01 (worst 6.9e-5); the engine
-misses 0 and 5 (worst 4.3e-5). BERT-tiny shows the same: torch here differs from
+misses 0 and 5 (worst 4.3e-5). The Whisper-tiny encoder is the
+one row where the engine is noticeably noisier: torch eager misses the published
+`encoder_hidden_states` on 3 and 8 of 576,000 elements (worst 7.9e-5), the
+engine on 16 and 18, the same order of magnitude but two to five times as many.
+BERT-tiny shows the same: torch here differs from
 the published outputs by about 3e-6, not bitwise, as the engine does. So the published outputs are not
 reproducible by torch itself on another machine (different CPU, kernels and
 threading), and a tolerance of 1e-5 absolute on logits of scale ~34 is below that
