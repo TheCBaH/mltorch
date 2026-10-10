@@ -35,7 +35,29 @@ Adapter comparisons identify their route as `consumer-adapter`.
 Supported adapters are ASCII BERT WordPiece and Pillow TinyCLIP/MobileViT PPM
 recipes. CLIP normalization rounds the mean/std and subtraction to binary32;
 the producer pixel fixtures exposed the former double-precision subtraction.
-Tokenizer offsets/special-token masks, separate tower/host boundaries, Unicode
+In model mode the supported image recipes also require host boundary checks.
+MobileViT ranks the actual complete logits, compares all top-five IDs and values,
+and checks the producer labels against the pinned config before decoding IDs.
+Nonfinite logits and ties within the top five or at its cutoff refuse rather
+than guessing `topk`'s unspecified tie ordering.
+
+TinyCLIP independently executes both selected towers using the constructed
+inputs. Tower contracts must have the same model/checkpoint/config identity as
+forward, and each execution reopens the full pinned cohort. Each feature tensor
+is compared under its tower's original tolerances and retains its own execution
+pins and normalization provenance. Host normalization and similarity use those
+actual features and a scalar loaded from the verified forward checkpoint capture
+whose origin is `logit_scale`; no host reference value supplies a computation.
+The host route accumulates norm squares and score dots in binary64, rounds the
+norm, division, exponential scale and scaled features to binary32, and retains
+the producer's original host tolerances. All seven host tensors are compared.
+Zero norms, nonfinite values, mismatched widths and nonscalar scale refuse.
+
+Schema-2 task cases list required boundaries and all their reports. A failed,
+omitted or duplicated required host/tower boundary prevents a passing task
+result even when forward and input checks pass. Adapter-only commands explicitly
+defer those executions; bounded generation keeps its separate host checks.
+Tokenizer offsets/special-token masks, image resize/crop intermediates, Unicode
 BERT, torchvision recipes and raw-text generation remain deferred. No result
 promotes the complete published task recipe or general task readiness.
 
