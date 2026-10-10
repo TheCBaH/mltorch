@@ -200,11 +200,19 @@ let row_of_error ~model (e : Me_export.error) =
 
 let read path = In_channel.with_open_bin path In_channel.input_all
 
-let row_of_model models_dir model =
+let row_of_model ~normalize models_dir model =
   let path =
     Filename.concat (Filename.concat models_dir model) "models/model.json"
   in
   let bytes = read path in
+  let sources = ref 0 in
+  let empty_caches =
+    if normalize then
+      Some
+        (fun (r : Native_interp.Empty_cache_report.t) ->
+          sources := List.length r.sources)
+    else None
+  in
   let options =
     {
       Me_export.Options.stages = C.all_stages;
@@ -216,11 +224,28 @@ let row_of_model models_dir model =
       source_sha256 = None;
     }
   in
-  match
-    Me_export.session ~limits:Me_limits.Limits.untrusted ~options ~bytes
-  with
-  | Ok session -> row_of_session ~model session
-  | Error e -> row_of_error ~model (Err.Error.kind e)
+  let row =
+    match
+      Me_export.session_with_empty_caches ~empty_caches
+        ~limits:Me_limits.Limits.untrusted ~options ~bytes
+    with
+    | Ok session -> row_of_session ~model session
+    | Error e -> row_of_error ~model (Err.Error.kind e)
+  in
+  let value = row_json row in
+  if not normalize then value
+  else
+    match value with
+    | Jsont.Object (members, meta) ->
+        Jsont.Object
+          ( members
+            @ [
+                Jsont.Json.mem
+                  (Jsont.Json.name "normalized_empty_sources")
+                  (Jsont.Json.int !sources);
+              ],
+            meta )
+    | _ -> assert false
 
 let model_dirs models_dir =
   Sys.readdir models_dir |> Array.to_list
@@ -238,14 +263,17 @@ let () =
 
 let () =
   match Sys.argv with
-  | [| _; models_dir; output |] ->
-      let rows = List.map (row_of_model models_dir) (model_dirs models_dir) in
+  | [| _; models_dir; output |]
+  | [| _; models_dir; output; "--normalize-empty-caches" |] ->
+      let normalize = Array.length Sys.argv = 4 in
+      let rows =
+        List.map (row_of_model ~normalize models_dir) (model_dirs models_dir)
+      in
       Out_channel.with_open_bin output (fun oc ->
           List.iter
             (fun row ->
               match
-                Jsont_bytesrw.encode_string ~format:Jsont.Minify Jsont.json
-                  (row_json row)
+                Jsont_bytesrw.encode_string ~format:Jsont.Minify Jsont.json row
               with
               | Ok line ->
                   Out_channel.output_string oc line;

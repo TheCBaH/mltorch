@@ -55,7 +55,19 @@ let classify_lowering result =
       | Me_classify.Unavailable reason -> Err.return (Error (reason, detail))
       | Me_classify.Fatal -> Err.fail (`Lowering (Err.Error.kind e)))
 
-let load ~limits ~bytes =
+let load ~empty_caches ~limits ~bytes =
+  let normalize program =
+    match empty_caches with
+    | None -> Err.return program
+    | Some report ->
+        let* program, normalization =
+          wrap
+            (fun e -> `Lowering e)
+            (Native_interp.normalize_empty_caches program)
+        in
+        report normalization;
+        Err.return program
+  in
   let* format = detect ~bytes in
   match format with
   | Pt2_archive ->
@@ -64,6 +76,11 @@ let load ~limits ~bytes =
           (fun e -> `Archive e)
           (Pt2_archive.of_string ~limits:limits.Me_limits.Limits.zip
              ~name:"model.pt2" bytes)
+      in
+      let* () =
+        match empty_caches with
+        | None -> Err.return ()
+        | Some _ -> Err.fail `Unrecognised_format
       in
       let* lowering = classify_lowering (Native_interp.lower_archive archive) in
       Err.return
@@ -76,6 +93,7 @@ let load ~limits ~bytes =
         Jsont_bytesrw.decode_string Pytorch_types.ExportedProgram.jsont bytes
         |> Err.import ~pos:__POS__ (fun e -> `Model_json_decode e)
       in
+      let* program = normalize program in
       let* lowering = classify_lowering (Native_interp.lower program) in
       Err.return (program, lowering, Me_session.Model_summary.Json, None)
 
@@ -88,14 +106,17 @@ let split_at n xs =
   in
   go n [] xs
 
-let session ~limits ~(options : Options.t) ~bytes =
+let session_with_empty_caches ~empty_caches ~limits ~(options : Options.t)
+    ~bytes =
   let* () =
     let n = Int64.of_int (String.length bytes) in
     if Int64.compare n (max_bytes_for ~limits bytes) > 0 then
       Err.fail (`Too_large n)
     else Err.return ()
   in
-  let* program, lowering, source_kind, archive = load ~limits ~bytes in
+  let* program, lowering, source_kind, archive =
+    load ~empty_caches ~limits ~bytes
+  in
   let graph_module = program.Pytorch_types.ExportedProgram.graph_module in
   let pt2_graph = graph_module.Pytorch_types.GraphModule.graph in
   let* source =
@@ -203,6 +224,9 @@ let session ~limits ~(options : Options.t) ~bytes =
       wrap (fun e -> `Detail e) (Me_detail.apply ~key ~limits session detail))
     session details
 
+let session ~limits ~options ~bytes =
+  session_with_empty_caches ~empty_caches:None ~limits ~options ~bytes
+
 (* --- one value's expression ---------------------------------------------- *)
 
 (* A SMALLER pipeline than [session]'s, on purpose. A detail needs the kernel
@@ -220,7 +244,7 @@ let detail ~limits ~(options : Options.t) ~key ~bytes =
       Err.fail (`Too_large n)
     else Err.return ()
   in
-  let* _, lowering, _, archive = load ~limits ~bytes in
+  let* _, lowering, _, archive = load ~empty_caches:None ~limits ~bytes in
   let* lowered =
     match lowering with
     | Ok l -> Err.return l

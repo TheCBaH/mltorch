@@ -43,3 +43,20 @@ val verify_dir :
 
 val read_member :
   ?max_bytes:int -> t -> string -> (string, [> Fault.error ]) Err.t
+
+val verify_inventory :
+  ?hash:Cache.file_hasher ->
+  dir:string ->
+  Pt2_fixture.Manifest.member Schema_runtime.String_map.t ->
+  (unit, [> Fault.error ]) Err.t
+(** The same exact regular-file/digest checks without PT2-specific metadata. The
+    root itself must be a directory, never a symbolic link. *)
+
+val ensure_inventory :
+  config ->
+  Cache.Pin.t ->
+  Pt2_fixture.Manifest.member Schema_runtime.String_map.t ->
+  (string, [> Fault.error ]) Err.t
+(** Acquire a pinned archive and atomically extract its independently trusted
+    inventory, or reverify an existing extraction. Task fixtures share the
+    bounded gzip/tar and cache lifecycle with checkpoint fixtures. *)

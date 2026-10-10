@@ -26,7 +26,14 @@ let rec files_under dir rel =
       | Unix.S_DIR -> files_under dir rel
       | _ -> [ (rel, false) ])
 
-let verify_dir ?(hash = Cache.default_hasher) ~dir (manifest : Manifest.t) =
+let verify_inventory ?(hash = Cache.default_hasher) ~dir inventory =
+  let* () =
+    match Unix.lstat dir with
+    | stat when stat.Unix.st_kind = Unix.S_DIR -> Ok ()
+    | _ -> Err.fail (`File_io (dir, "bundle root is not a directory"))
+    | exception Unix.Unix_error (e, _, _) ->
+        Err.fail (`File_io (dir, Unix.error_message e))
+  in
   match files_under dir "" with
   | exception (Sys_error m | Failure m) -> Err.fail (`File_io (dir, m))
   | exception Unix.Unix_error (e, _, _) ->
@@ -35,8 +42,7 @@ let verify_dir ?(hash = Cache.default_hasher) ~dir (manifest : Manifest.t) =
       let* () =
         Err.List.iter
           (fun (name, regular) ->
-            if regular && String_map.mem name manifest.members then
-              Err.return ()
+            if regular && String_map.mem name inventory then Err.return ()
             else Err.fail (`Member_surplus name))
           found
       in
@@ -55,7 +61,10 @@ let verify_dir ?(hash = Cache.default_hasher) ~dir (manifest : Manifest.t) =
               hash path |> Err.import ~pos:__POS__ (fun e -> `File_io (path, e))
             in
             Pt2_fixture.Check.digest layer actual m.sha256)
-        (String_map.bindings manifest.members)
+        (String_map.bindings inventory)
+
+let verify_dir ?hash ~dir (manifest : Manifest.t) =
+  verify_inventory ?hash ~dir manifest.members
 
 let rec remove_tree path =
   match (Unix.lstat path).Unix.st_kind with
@@ -74,12 +83,12 @@ let write_member dir (m : Targz.member) =
 
 (* Members first, against the manifest, in memory; nothing reaches the disk
    until the whole set is right. *)
-let check_members (manifest : Manifest.t) (members : Targz.member list) =
+let check_members inventory (members : Targz.member list) =
   let listed = List.map (fun (m : Targz.member) -> m.name) members in
   let* () =
     Err.List.iter
       (fun n ->
-        if String_map.mem n manifest.members then Err.return ()
+        if String_map.mem n inventory then Err.return ()
         else Err.fail (`Member_surplus n))
       listed
   in
@@ -88,11 +97,11 @@ let check_members (manifest : Manifest.t) (members : Targz.member list) =
       (fun (n, _) ->
         if List.mem n listed then Err.return ()
         else Err.fail (`Member_missing n))
-      (String_map.bindings manifest.members)
+      (String_map.bindings inventory)
   in
   Err.List.iter
     (fun (m : Targz.member) ->
-      let pin = String_map.find m.name manifest.members in
+      let (pin : Manifest.member) = String_map.find m.name inventory in
       let layer = Pt2_fixture.Fault.Member m.name in
       let* () =
         Pt2_fixture.Check.size layer
@@ -102,15 +111,15 @@ let check_members (manifest : Manifest.t) (members : Targz.member list) =
       Pt2_fixture.Check.digest layer (Pt2_sha256.string m.data) pin.sha256)
     members
 
-let extract (c : config) (archive_pin : Cache.Pin.t) manifest archive_path =
+let extract (c : config) (archive_pin : Cache.Pin.t) inventory archive_path =
   let dest = Cache.bundle_path c.cache archive_pin.sha256 in
   if Sys.file_exists dest then
-    let+ () = verify_dir ?hash:c.hash ~dir:dest manifest in
+    let+ () = verify_inventory ?hash:c.hash ~dir:dest inventory in
     dest
   else
     let* gz = Fetch.read ~max_bytes:0x2000_0000 archive_path in
     let* members = Targz.members ~limits:c.limits gz in
-    let* () = check_members manifest members in
+    let* () = check_members inventory members in
     let tmp =
       Filename.temp_file ~temp_dir:(Cache.temp_dir c.cache) "bundle" ".d"
     in
@@ -127,7 +136,7 @@ let extract (c : config) (archive_pin : Cache.Pin.t) manifest archive_path =
         cleanup ();
         Err.fail (`File_io (tmp, Unix.error_message e))
     | () -> (
-        match verify_dir ?hash:c.hash ~dir:tmp manifest with
+        match verify_inventory ?hash:c.hash ~dir:tmp inventory with
         | Error _ as e ->
             cleanup ();
             e
@@ -138,9 +147,27 @@ let extract (c : config) (archive_pin : Cache.Pin.t) manifest archive_path =
                 cleanup ();
                 (* A concurrent extraction may have won the rename. *)
                 if Sys.file_exists dest then
-                  let+ () = verify_dir ?hash:c.hash ~dir:dest manifest in
+                  let+ () = verify_inventory ?hash:c.hash ~dir:dest inventory in
                   dest
                 else Err.fail (`File_io (dest, Unix.error_message e))))
+
+let ensure_inventory (c : config) archive inventory =
+  let* () =
+    Err.List.iter
+      (fun (name, _) ->
+        if Targz.safe_name name then Ok () else Err.fail (`Member_surplus name))
+      (String_map.bindings inventory)
+  in
+  let existing = Cache.bundle_path c.cache archive.Cache.Pin.sha256 in
+  if Sys.file_exists existing then
+    let+ () = verify_inventory ?hash:c.hash ~dir:existing inventory in
+    existing
+  else
+    let* path =
+      Fetch.ensure ?hash:c.hash ?transport:c.transport
+        ~layer:Pt2_fixture.Fault.Archive c.cache archive
+    in
+    extract c archive inventory path
 
 let ensure (c : config) (cohort : Cohort.t) (want : Cohort.entry) =
   let* pub_path =
@@ -169,7 +196,7 @@ let ensure (c : config) (cohort : Cohort.t) (want : Cohort.entry) =
         Fetch.ensure ?hash:c.hash ?transport:c.transport
           ~layer:Pt2_fixture.Fault.Archive c.cache want.archive
       in
-      extract c want.archive manifest archive_path
+      extract c want.archive manifest.members archive_path
   in
   Err.return { dir; entry = want; manifest }
 

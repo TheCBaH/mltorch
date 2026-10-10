@@ -216,8 +216,9 @@ TRANSFORMERS_GATE_ARTIFACTS = \
 	mobilevit-xxs/image-classification/reference/forward/fp32/dynamo/static/ckpt-6703997f9e94 \
 	bert-tiny/text-encoder/reference/forward/fp32/dynamo/static/ckpt-6f75de8b60a9
 transformers.gate:
+	$(MAKE) transformers.policies.check
 	$(MAKE) transformers.download TRANSFORMERS_ARTIFACTS="$(TRANSFORMERS_GATE_ARTIFACTS)"
-	$(MAKE) transformers.replay TRANSFORMERS_ARTIFACTS="$(TRANSFORMERS_GATE_ARTIFACTS)"
+	$(MAKE) transformers.replay TRANSFORMERS_ARTIFACTS="$(TRANSFORMERS_GATE_ARTIFACTS)" TRANSFORMERS_DOTS=exact TRANSFORMERS_CASTS=checked
 
 # Bounded greedy generation over the SmolLM2 prefill and its history-4 decode
 # snapshot (two new tokens from four prompt ids; ~5 minutes under Direct). The
@@ -263,6 +264,22 @@ TRANSFORMERS_MATRIX_JSON ?= _build/transformers-matrix.json
 TRANSFORMERS_MATRIX_MARKDOWN ?= _build/transformers-matrix.md
 TRANSFORMERS_DOTS ?= exact
 TRANSFORMERS_CASTS ?= checked
+
+# Producer-owned controlled references are pinned data, never Python programs.
+.PHONY: transformers.diagnostics.fetch transformers.diagnostics.check transformers.diagnostics.compare
+.PHONY: transformers.policies.check
+TRANSFORMERS_NUMERICAL_POLICIES ?= data/transformers/numerical-policy.json
+transformers.policies.check:
+	opam exec -- dune exec bin/transformers_policies.exe -- "$(TRANSFORMERS_COHORT)" "$(TRANSFORMERS_NUMERICAL_POLICIES)"
+# Fetch verifies acquisition; check verifies all named tensor bytes offline;
+# compare recomputes producer diagnostic pairs without promoting model replay.
+TRANSFORMERS_DIAGNOSTIC_SELECTION ?= data/transformers/diagnostic-selection.json
+TRANSFORMERS_DIAGNOSTIC_REPORTS ?= _build/transformers-diagnostics
+transformers.diagnostics.fetch transformers.diagnostics.check transformers.diagnostics.compare:
+	opam exec -- dune exec bin/transformers_tasks.exe -- \
+		$(if $(filter %.compare,$@),diagnostics,$(lastword $(subst ., ,$@))) \
+		"$(TRANSFORMERS_DIAGNOSTIC_SELECTION)" "$(TRANSFORMERS_COHORT)" \
+		"$(TRANSFORMERS_CACHE)" "$(TRANSFORMERS_DIAGNOSTIC_REPORTS)"
 
 transformers.replay:
 	opam exec -- dune exec bin/transformers_replay.exe -- \

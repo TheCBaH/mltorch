@@ -1,0 +1,18 @@
+(library
+ (name transformers_tasks_test)
+ (libraries
+  err_trace
+  fmt
+  jsont
+  pt2_fixture
+  pt2_fixture_test
+  pt2_fixture_replay_test
+  pt2_fixture_unix
+  pt2_fixture_unix_test
+  pt2_sha256
+  transformers_metadata
+  transformers_tasks
+  unix)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

@@ -1,0 +1,248 @@
+{
+  "schema_version": 1,
+  "cohort_sha256": "abeff063732620bf2237221265849b4a8ec881aece30ecf7563df8edcf90a4b3",
+  "requirements": [
+    {
+      "artifact_id": "mobilevit-xxs/image-classification/reference/forward/fp32/dynamo/static/ckpt-6703997f9e94",
+      "gate": "core",
+      "policy": {
+        "casts": "checked",
+        "dots": "exact",
+        "route": "Native_interp.run_named",
+        "normalization": "empty-cache-opt-in"
+      },
+      "reason": "Required published-case component gate; task acceptance remains separate."
+    },
+    {
+      "artifact_id": "smolvlm-256m/image-text-generation/reference/connector/fp32/dynamo/static/ckpt-7e3e67edbbed",
+      "gate": "deferred",
+      "policy": {
+        "casts": "checked",
+        "dots": "binary32-sequential",
+        "route": "Native_interp.run_named",
+        "normalization": "empty-cache-opt-in"
+      },
+      "reason": "Sequential-policy published cases pass at C2; default still fails two elements. Optional component policy only."
+    },
+    {
+      "artifact_id": "bert-tiny/text-encoder/reference/forward/fp32/dynamo/static/ckpt-6f75de8b60a9",
+      "gate": "core",
+      "policy": {
+        "casts": "checked",
+        "dots": "exact",
+        "route": "Native_interp.run_named",
+        "normalization": "empty-cache-opt-in"
+      },
+      "reason": "Required published-case component gate; task acceptance remains separate."
+    },
+    {
+      "artifact_id": "tinyclip/image-text-embeddings/reference/text-encoder/fp32/dynamo/static/ckpt-a2a8c6eaa254",
+      "gate": "deferred",
+      "policy": {
+        "casts": "checked",
+        "dots": "exact",
+        "route": "Native_interp.run_named",
+        "normalization": "empty-cache-opt-in"
+      },
+      "reason": "Historical published-case pass requires fresh current-consumer evidence; no task or other-backend promotion."
+    },
+    {
+      "artifact_id": "segformer-b0/semantic-segmentation/reference/forward/fp32/dynamo/static/ckpt-489d5cd81a0b",
+      "gate": "deferred",
+      "policy": {
+        "casts": "checked",
+        "dots": "exact",
+        "route": "Native_interp.run_named",
+        "normalization": "empty-cache-opt-in"
+      },
+      "reason": "Historical published-case pass requires fresh current-consumer evidence; no task or other-backend promotion."
+    },
+    {
+      "artifact_id": "yolos-tiny/object-detection/reference/forward/fp32/dynamo/static/ckpt-95a90f3c189f",
+      "gate": "deferred",
+      "policy": {
+        "casts": "checked",
+        "dots": "exact",
+        "route": "Native_interp.run_named",
+        "normalization": "empty-cache-opt-in"
+      },
+      "reason": "Historical published-case pass requires fresh current-consumer evidence; no task or other-backend promotion."
+    },
+    {
+      "artifact_id": "tinyclip/image-text-embeddings/reference/image-encoder/fp32/dynamo/static/ckpt-a2a8c6eaa254",
+      "gate": "deferred",
+      "policy": {
+        "casts": "checked",
+        "dots": "exact",
+        "route": "Native_interp.run_named",
+        "normalization": "empty-cache-opt-in"
+      },
+      "reason": "Historical published-case pass requires fresh current-consumer evidence; no task or other-backend promotion."
+    },
+    {
+      "artifact_id": "tinyclip/image-text-embeddings/reference/forward/fp32/dynamo/static/ckpt-a2a8c6eaa254",
+      "gate": "deferred",
+      "policy": {
+        "casts": "checked",
+        "dots": "exact",
+        "route": "Native_interp.run_named",
+        "normalization": "empty-cache-opt-in"
+      },
+      "reason": "Historical published-case pass requires fresh current-consumer evidence; no task or other-backend promotion."
+    },
+    {
+      "artifact_id": "t5-small/text-encoder-decoder/reference/decode/fp32/dynamo/static-h4/ckpt-df1b051c4962",
+      "gate": "deferred",
+      "policy": {
+        "casts": "saturating",
+        "dots": "exact",
+        "route": "Native_interp.run_named",
+        "normalization": "empty-cache-opt-in"
+      },
+      "reason": "Explicit saturating casts only: historical passes require fresh current-consumer gates. Default checked-cast refusal stays separate."
+    },
+    {
+      "artifact_id": "t5-small/text-encoder-decoder/reference/encoder/fp32/dynamo/static/ckpt-df1b051c4962",
+      "gate": "deferred",
+      "policy": {
+        "casts": "saturating",
+        "dots": "exact",
+        "route": "Native_interp.run_named",
+        "normalization": "empty-cache-opt-in"
+      },
+      "reason": "Explicit saturating casts only: historical passes require fresh current-consumer gates. Default checked-cast refusal stays separate."
+    },
+    {
+      "artifact_id": "t5-small/text-encoder-decoder/reference/forward/fp32/dynamo/static/ckpt-df1b051c4962",
+      "gate": "deferred",
+      "policy": {
+        "casts": "saturating",
+        "dots": "exact",
+        "route": "Native_interp.run_named",
+        "normalization": "empty-cache-opt-in"
+      },
+      "reason": "Explicit saturating casts only: historical passes require fresh current-consumer gates. Default checked-cast refusal stays separate."
+    },
+    {
+      "artifact_id": "t5-small/text-encoder-decoder/reference/prefill/fp32/dynamo/static/ckpt-df1b051c4962",
+      "gate": "deferred",
+      "policy": {
+        "casts": "saturating",
+        "dots": "exact",
+        "route": "Native_interp.run_named",
+        "normalization": "empty-cache-opt-in"
+      },
+      "reason": "Explicit saturating casts only: historical passes require fresh current-consumer gates. Default checked-cast refusal stays separate."
+    },
+    {
+      "artifact_id": "time-series-small/time-series/reference/forward/fp32/dynamo/static/ckpt-2a40ad41f6ff",
+      "gate": "deferred",
+      "policy": {
+        "casts": "checked",
+        "dots": "exact",
+        "route": "Native_interp.run_named",
+        "normalization": "empty-cache-opt-in"
+      },
+      "reason": "Historical published-case pass requires fresh current-consumer evidence; no task or other-backend promotion."
+    },
+    {
+      "artifact_id": "t5-small/text-encoder-decoder/reference/decode/fp32/dynamo/static-h8/ckpt-df1b051c4962",
+      "gate": "deferred",
+      "policy": {
+        "casts": "saturating",
+        "dots": "exact",
+        "route": "Native_interp.run_named",
+        "normalization": "empty-cache-opt-in"
+      },
+      "reason": "Explicit saturating casts only: historical passes require fresh current-consumer gates. Default checked-cast refusal stays separate."
+    },
+    {
+      "artifact_id": "wav2vec2-base/audio-ctc/reference/forward/fp32/dynamo/static/ckpt-22aad52d435e",
+      "gate": "deferred",
+      "policy": {
+        "casts": "checked",
+        "dots": "exact",
+        "route": "Native_interp.run_named",
+        "normalization": "empty-cache-opt-in"
+      },
+      "reason": "Historical published-case pass requires fresh current-consumer evidence; no task or other-backend promotion."
+    },
+    {
+      "artifact_id": "whisper-tiny/audio-encoder-decoder/reference/encoder/fp32/dynamo/static/ckpt-169d4a4341b3",
+      "gate": "deferred",
+      "policy": {
+        "casts": "checked",
+        "dots": "exact",
+        "route": "Native_interp.run_named",
+        "normalization": "empty-cache-opt-in"
+      },
+      "reason": "Thirty-four recorded default-policy errors; published decode diagnostics do not cover the encoder gap."
+    },
+    {
+      "artifact_id": "whisper-tiny/audio-encoder-decoder/reference/prefill/fp32/dynamo/static/ckpt-169d4a4341b3",
+      "gate": "deferred",
+      "policy": {
+        "casts": "checked",
+        "dots": "exact",
+        "route": "Native_interp.run_named",
+        "normalization": "empty-cache-opt-in"
+      },
+      "reason": "Historical published-case pass requires fresh current-consumer evidence; no task or other-backend promotion."
+    },
+    {
+      "artifact_id": "smollm2-135m/text-decoder/reference/prefill/fp32/dynamo/static/ckpt-12fd25f77366",
+      "gate": "deferred",
+      "policy": {
+        "casts": "checked",
+        "dots": "exact",
+        "route": "Native_interp.run_named",
+        "normalization": "empty-cache-opt-in"
+      },
+      "reason": "Unresolved default-policy logit mismatches. Producer diagnostics do not promote consumer acceptance."
+    },
+    {
+      "artifact_id": "smollm2-135m/text-decoder/reference/decode/fp32/dynamo/static-h4/ckpt-12fd25f77366",
+      "gate": "deferred",
+      "policy": {
+        "casts": "checked",
+        "dots": "exact",
+        "route": "Native_interp.run_named",
+        "normalization": "empty-cache-opt-in"
+      },
+      "reason": "Unresolved default-policy logit mismatches. Producer diagnostics do not promote consumer acceptance."
+    },
+    {
+      "artifact_id": "smolvlm-256m/image-text-generation/reference/decode/fp32/dynamo/static-h71/ckpt-7e3e67edbbed",
+      "gate": "deferred",
+      "policy": {
+        "casts": "checked",
+        "dots": "exact",
+        "route": "Native_interp.run_named",
+        "normalization": "empty-cache-opt-in"
+      },
+      "reason": "Static decode mismatch and incomplete raw multimodal routing; dynamic producer diagnostics are a separate scope."
+    },
+    {
+      "artifact_id": "depth-anything-small/depth-estimation/reference/forward/fp32/dynamo/static/ckpt-5426e4f0f365",
+      "gate": "deferred",
+      "policy": {
+        "casts": "checked",
+        "dots": "exact",
+        "route": "Native_interp.run_named",
+        "normalization": "empty-cache-opt-in"
+      },
+      "reason": "Historical two-case pass requires reviewed transposed-convolution boundary tests and fresh replay."
+    },
+    {
+      "artifact_id": "whisper-tiny/audio-encoder-decoder/reference/forward/fp32/dynamo/static/ckpt-169d4a4341b3",
+      "gate": "deferred",
+      "policy": {
+        "casts": "checked",
+        "dots": "exact",
+        "route": "Native_interp.run_named",
+        "normalization": "empty-cache-opt-in"
+      },
+      "reason": "diff.default remains refused; cohort membership does not establish support."
+    }
+  ]
+}
