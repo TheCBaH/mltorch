@@ -35,6 +35,12 @@ Admission passes after OCaml setup with Python absent from PATH. Upstream ATen
 Python code generation remains the accepted build exception.
 
 Source pin updates must include an inventory diff and regenerated reports.
+The 2026-10-10 update pins `b514afb61454fb15fd491826b475a6e3819ad641`.
+Its tiny catalogue and graph bytes are unchanged; all 22 checkpoint selections
+and three derived adapter manifests still reproduce offline. Producer loading
+also checks committed task recipes, request, trusted task pin, three schemas
+and protocol documentation and records their hashes in the source identity.
+Source updates do not implicitly change checkpoint or task release selections.
 The CI source gate applies to Dependabot gitlink updates as to other changes.
 Recipe/asset consumption, normalized admission and robust immutable numerical
 run identities remain separate corrective work; the existing report's dirty

@@ -113,6 +113,26 @@ let load ~consumer_root ~root =
         "uv.lock";
       ]
     in
+    let* task_files =
+      command root
+        [
+          "ls-tree";
+          "-r";
+          "--name-only";
+          commit;
+          "--";
+          "task-recipes.json";
+          "task-fixture-request.json";
+          "task-fixtures.pin.json";
+          "schemas/task-index.schema.json";
+          "schemas/task-manifest.schema.json";
+          "schemas/task-contract.schema.json";
+          "docs/task-fixtures-v1.md";
+        ]
+    in
+    let files =
+      files @ List.filter (( <> ) "") (String.split_on_char '\n' task_files)
+    in
     let* metadata_files =
       Err.List.map
         (fun file ->
