@@ -908,3 +908,25 @@ threading), and a tolerance of 1e-5 absolute on logits of scale ~34 is below tha
 noise. The failing rows measure the reference's own irreproducibility, not a
 defect of the engine, and they stay recorded as failing with their counts. The
 tolerances and references are unchanged.
+
+## 29. Bounded generation: SmolLM2, prefill then one decode step
+
+The plan's last adapter is bounded generation, and the released graphs bound it
+tightly: SmolLM2 has a prefill over four tokens and a decode snapshot at history 4
+(and 8), nothing at history 5. `bin/transformers_generate_demo` therefore does
+exactly what they establish. `Pt2_fixture.History.chain` first checks that the
+prefill's `present_*` outputs meet the decode's `past_*` inputs (they do: batch,
+heads, head dimension and a length of 4). Then the prefill's last-position logits
+give the first new token, its K/V become the decode artifact's past, and the
+decode step gives the second. The tool takes token ids; tokenization is outside it.
+
+For the prompt `The capital of France` (ids 504, 3575, 282, 4649) the engine
+generates 28 (`,`) and 7042 (` Paris`): `The capital of France, Paris`. The same
+pinned weights under transformers' greedy `generate` in eager mode (torch
+2.12.0+cpu) give the same two tokens. The full logits of the two steps differ
+from torch's by at most 4.0e-5 (prefill; 20 of 49,152 over the producer's
+tolerance) and 7.2e-5 (decode; 495 of 49,152), where the decode step also carries
+the prefill's noise through the K/V it was fed: float32 noise of the kind section
+28 measures, not a different answer. The claim is the token-level one, for this
+model, these two artifacts and native-direct; the loop cannot continue past two
+tokens because no further history is exported.

@@ -366,3 +366,20 @@
   pt2_fixture_unix
   pt2_sha256
   wordpiece))
+
+; A bounded greedy generation over the SmolLM2 prefill and its history-4 decode
+; snapshot. See the file's header for what it establishes.
+
+(executable
+ (name transformers_generate_demo)
+ (modules transformers_generate_demo)
+ (libraries
+  err_trace
+  fmt
+  native
+  native_interp
+  pt2
+  pt2_fixture
+  pt2_fixture_replay
+  pt2_fixture_unix
+  unix))
