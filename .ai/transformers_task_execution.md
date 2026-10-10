@@ -80,5 +80,8 @@ modes and library/runner Wasm or CompCert gates. The timing caller checks
 discovery failure before cleaning/building. A shell WASI helper fetches package
 metadata over HTTPS, validates cached/downloaded package size and SHA-256, and
 extracts without root. Upstream ATen torchgen and its packages remain an accepted
-build exception. Python snippets in project cram tests still require migration;
-these changes establish neither a Python-free clean build nor completed C8.
+build exception. All 87 Python command occurrences in fifteen project cram files
+now use test-only OCaml fixtures/observations with their behavioral assertions
+preserved. Forced migrated suites pass with Python unavailable, including the
+payload-backed cases. The tooling migration is implemented; full numerical/task
+scope and missing diagnostics remain separate. This is not a Python-free clean build.

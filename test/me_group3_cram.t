@@ -22,56 +22,7 @@ shape-domain question instead of the axis-domain one). `dims=(1,2)` stays
 inside the dialect; `dims=(0,1)` names axis `D` and is refused by the axis
 check specifically, not by the shape check.
 
-  $ python3 -c "
-  > import json
-  > def tm(sizes):
-  >     return {'dtype': 7, 'sizes': [{'as_int': s} for s in sizes],
-  >             'requires_grad': False, 'device': {'type': 'cpu'},
-  >             'strides': [{'as_int': 1}], 'storage_offset': {'as_int': 0},
-  >             'layout': 7}
-  > def t(n): return {'as_tensor': {'name': n}}
-  > def arg(name, a): return {'name': name, 'arg': a, 'kind': 1}
-  > def node(target, ins, out):
-  >     return {'target': target, 'inputs': ins, 'outputs': [t(out)], 'metadata': {}}
-  > def w(name, prog): json.dump(prog, open(name + '.json', 'w'))
-  > def program(nodes, tv, params, out):
-  >     specs = [{'user_input': {'arg': t('x')}}] + [
-  >         {'parameter': {'arg': {'name': p}, 'parameter_name': p}} for p in params]
-  >     return {'graph_module': {
-  >               'graph': {'inputs': [t('x')] + [t(p) for p in params],
-  >                         'outputs': [t(out)], 'nodes': nodes,
-  >                         'tensor_values': tv, 'sym_int_values': {},
-  >                         'sym_bool_values': {}, 'is_single_tensor_return': True},
-  >               'signature': {'input_specs': specs,
-  >                             'output_specs': [{'user_output': {'arg': t(out)}}]},
-  >               'module_call_graph': []},
-  >             'opset_version': {'aten': 15}, 'range_constraints': {},
-  >             'schema_version': {'major': 8, 'minor': 5}}
-  > # x [1,4,8,8] (D=1,H=4,W=8,C=8) -sub(broadcast, other=[8])-> y1 [1,4,8,8]
-  > #   -sub(scalar=3)-> y2 [1,4,8,8] -_unsafe_view([-1,32])-> y [8,32]
-  > nodes = [
-  >   node('torch.ops.aten.sub.Tensor',
-  >        [arg('self', t('x')), arg('other', t('other'))], 'y1'),
-  >   node('torch.ops.aten.sub.Tensor',
-  >        [arg('self', t('y1')), arg('other', {'as_int': 3})], 'y2'),
-  >   node('torch.ops.aten._unsafe_view.default',
-  >        [arg('self', t('y2')), arg('size', {'as_ints': [-1, 32]})], 'y'),
-  > ]
-  > tv = {'x': tm([1, 4, 8, 8]), 'other': tm([8]), 'y1': tm([1, 4, 8, 8]),
-  >       'y2': tm([1, 4, 8, 8]), 'y': tm([8, 32])}
-  > w('group3', program(nodes, tv, ['other'], 'y'))
-  > tr_nodes = lambda d0, d1: [node('torch.ops.aten.transpose.int',
-  >     [arg('self', t('x')), arg('dim0', {'as_int': d0}), arg('dim1', {'as_int': d1})], 'y')]
-  > tr_tv = {'x': tm([1, 3, 4, 5]), 'y': tm([1, 4, 3, 5])}
-  > w('group3-transpose', program(tr_nodes(1, 2), tr_tv, [], 'y'))
-  > tr_tv0 = {'x': tm([1, 3, 4, 5]), 'y': tm([3, 1, 4, 5])}
-  > w('group3-transpose-refused', program(tr_nodes(0, 1), tr_tv0, [], 'y'))
-  > # A malformed _unsafe_view target (two -1s, op3-impl.md F1) -- Me_classify
-  > # needs no Group-3 change (it matches #Native_interp.malformed wholesale),
-  > # confirmed below rather than assumed.
-  > bad_nodes = [node('torch.ops.aten._unsafe_view.default',
-  >     [arg('self', t('x')), arg('size', {'as_ints': [-1, -1]})], 'y')]
-  > w('group3-malformed', program(bad_nodes, {'x': tm([1, 4, 8, 8]), 'y': tm([1, 4, 8, 8])}, [], 'y'))"
+  $ ./cram_probe.exe fixture group3
 
 Each model's outcome, and the full capability vector for `group3.json`: every
 stage available, Native4D included -- the accept case op3-impl.md's exit
@@ -96,18 +47,7 @@ accepted a graph it should not have is supposed to do.
   group3-malformed             native_graph: malformed PT2 graph: view size [-1, -1]: view size [-1, -1] has more than one inferred (-1) dimension
 
   $ caps() {
-  >   python3 -c "
-  > import json
-  > s = json.load(open('$1'))
-  > for c in s['capabilities']:
-  >     st = c['status']
-  >     detail = st['state']
-  >     if st['state'] == 'available': detail += ' ' + st['payload']['kind']
-  >     elif st['state'] == 'unavailable': detail += ' ' + st['reason']
-  >     if c['key'] in ('stage:source', 'stage:initial_native', 'stage:native4d'):
-  >         print('%-24s %s' % (c['key'], detail))
-  > for d in s['diagnostics']:
-  >     if d['code'] != 'unsupported_graph_shape': print('  diagnostic:', d['code'], '|', d['message'])"
+  >   ./cram_probe.exe brief "$1"
   > }
   $ caps group3.session.json
   stage:source             available graph
@@ -129,15 +69,7 @@ broadcast operand's own shape, the scalar sub's negated value, and the
 instead of `-3`, or resolved the `-1` from the wrong product would show up
 here.
 
-  $ python3 -c "
-  > import json
-  > s = json.load(open('group3.session.json'))
-  > g = {g['id']: g for g in s['graphCollections'][0]['graphs']}['g/native/000']
-  > for n in g['nodes']:
-  >     attrs = {a['key']: a['value'] for a in n.get('attrs', [])}
-  >     params = attrs.get('params')
-  >     if params is None: continue
-  >     print('%-3s %-8s %s' % (n['id'], n['label'], params))"
+  $ ./cram_probe.exe params 8 group3.session.json
   n0  Sub      sub a=t0 b=t1
   n1  Add_scalar add_scalar x=t2 scalar=-3
   n2  Reshape  reshape x=t3 params={shape=[W=8 C=32]}
@@ -148,17 +80,7 @@ the broadcast sub's output stays at `x`'s shape (leading `D=1` trimmed by
 the `_unsafe_view` target is exactly what `[-1, 32]` resolves to against 256
 elements.
 
-  $ python3 -c "
-  > import json
-  > s = json.load(open('group3.session.json'))
-  > g = {g['id']: g for g in s['graphCollections'][0]['graphs']}['g/native/000']
-  > for n in g['nodes']:
-  >     if n['label'] in ('input', 'constant', 'output'): continue
-  >     shape = ''
-  >     for m in n.get('outputsMetadata', []):
-  >         for a in m.get('attrs', []):
-  >             if a['key'] == 'shape': shape = a['value']
-  >     print('%-3s %-10s %s' % (n['id'], n['label'], shape))"
+  $ ./cram_probe.exe shapes 10 group3.session.json
   n0  Sub        [H=4 W=8 C=8]
   n1  Add_scalar [H=4 W=8 C=8]
   n2  Reshape    [W=8 C=32]
@@ -167,15 +89,7 @@ Stable slot ids and wiring order: `other` is a captured parameter (the
 broadcast weight a real model would serialize this way), so its edge sources
 from a CONSTANT input, not the graph's user input.
 
-  $ python3 -c "
-  > import json
-  > s = json.load(open('group3.session.json'))
-  > g = {g['id']: g for g in s['graphCollections'][0]['graphs']}['g/native/000']
-  > for n in g['nodes']:
-  >     if n['label'] in ('input', 'constant', 'output'): continue
-  >     e = [(x['sourceNodeId'], x['sourceNodeOutputId'], x['targetNodeInputId'])
-  >          for x in n.get('incomingEdges', [])]
-  >     print('%-3s %-10s %s' % (n['id'], n['label'], e))"
+  $ ./cram_probe.exe edges 10 group3.session.json
   n0  Sub        [('in:t0', '0', 't0'), ('const:t1', '0', 't1')]
   n1  Add_scalar [('n0', '0', 't2')]
   n2  Reshape    [('n1', '0', 't3')]
@@ -183,13 +97,5 @@ from a CONSTANT input, not the graph's user input.
 The `transpose.int` permutation itself, for the accepted case: `dims=(1,2)`
 swaps `H` and `W`.
 
-  $ python3 -c "
-  > import json
-  > s = json.load(open('group3-transpose.session.json'))
-  > g = {g['id']: g for g in s['graphCollections'][0]['graphs']}['g/native/000']
-  > for n in g['nodes']:
-  >     attrs = {a['key']: a['value'] for a in n.get('attrs', [])}
-  >     params = attrs.get('params')
-  >     if params is None: continue
-  >     print('%-3s %-8s %s' % (n['id'], n['label'], params))"
+  $ ./cram_probe.exe params 8 group3-transpose.session.json
   n0  Permute  permute x=t0 perm=[H<-W, W<-H]

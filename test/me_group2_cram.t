@@ -12,64 +12,7 @@ Every parameter below is NON-DEFAULT. A round trip over default parameters would
 prove nothing: it cannot distinguish a projection that carries a field from one
 that drops it and re-derives the default.
 
-  $ python3 -c "
-  > import json
-  > def tm(sizes):
-  >     return {'dtype': 7, 'sizes': [{'as_int': s} for s in sizes],
-  >             'requires_grad': False, 'device': {'type': 'cpu'},
-  >             'strides': [{'as_int': 1}], 'storage_offset': {'as_int': 0},
-  >             'layout': 7}
-  > def t(n): return {'as_tensor': {'name': n}}
-  > def arg(name, a): return {'name': name, 'arg': a, 'kind': 1}
-  > def ints(xs): return {'as_ints': xs}
-  > def node(target, ins, out, stack):
-  >     return {'target': target, 'inputs': ins, 'outputs': [t(out)],
-  >             'metadata': {'nn_module_stack': stack}}
-  > # x [1,4,8,8] -conv2d-> [1,8,4,6] -conv2d.padding-> [1,8,4,6]
-  > #   -max_pool2d-> [1,8,2,5] -rms_norm-> [1,8,2,5] -linear-> [1,8,2,3]
-  > shapes = {'x': [1,4,8,8], 'w1': [8,2,3,2], 'b1': [8], 'y1': [1,8,4,6],
-  >           'w2': [8,8,3,3], 'y2': [1,8,4,6], 'y3': [1,8,2,5],
-  >           'w3': [2,5], 'y4': [1,8,2,5], 'w4': [3,5], 'b4': [3],
-  >           'y': [1,8,2,3]}
-  > params = ['w1', 'b1', 'w2', 'w3', 'w4', 'b4']
-  > nodes = [
-  >   node('torch.ops.aten.conv2d.default',
-  >        [arg('input', t('x')), arg('weight', t('w1')), arg('bias', t('b1')),
-  >         arg('stride', ints([2,1])), arg('padding', ints([1,0])),
-  >         arg('dilation', ints([1,2])), arg('groups', {'as_int': 2})],
-  >        'y1', 'L__self__,,M;L__self__conv,conv,C'),
-  >   node('torch.ops.aten.conv2d.padding',
-  >        [arg('input', t('y1')), arg('weight', t('w2')),
-  >         arg('bias', {'as_none': True}), arg('stride', ints([1,1])),
-  >         arg('padding', {'as_string': 'same'}), arg('dilation', ints([1,1])),
-  >         arg('groups', {'as_int': 1})],
-  >        'y2', 'L__self__,,M;L__self__same,same,C'),
-  >   node('torch.ops.aten.max_pool2d.default',
-  >        [arg('self', t('y2')), arg('kernel_size', ints([3,2])),
-  >         arg('stride', ints([2,1])), arg('padding', ints([1,0]))],
-  >        'y3', 'L__self__,,M;L__self__pool,pool,P'),
-  >   node('torch.ops.aten.rms_norm.default',
-  >        [arg('input', t('y3')), arg('normalized_shape', ints([2,5])),
-  >         arg('weight', t('w3')), arg('eps', {'as_float': 1e-05})],
-  >        'y4', 'L__self__,,M;L__self__norm,norm,N'),
-  >   node('torch.ops.aten.linear.default',
-  >        [arg('input', t('y4')), arg('weight', t('w4')), arg('bias', t('b4'))],
-  >        'y', 'L__self__,,M;L__self__fc,fc,L'),
-  > ]
-  > specs = [{'user_input': {'arg': t('x')}}] + [
-  >     {'parameter': {'arg': {'name': p}, 'parameter_name': p}} for p in params]
-  > prog = {'graph_module': {
-  >           'graph': {'inputs': [t('x')] + [t(p) for p in params],
-  >                     'outputs': [t('y')], 'nodes': nodes,
-  >                     'tensor_values': {k: tm(v) for k, v in shapes.items()},
-  >                     'sym_int_values': {}, 'sym_bool_values': {},
-  >                     'is_single_tensor_return': True},
-  >           'signature': {'input_specs': specs,
-  >                         'output_specs': [{'user_output': {'arg': t('y')}}]},
-  >           'module_call_graph': []},
-  >         'opset_version': {'aten': 15}, 'range_constraints': {},
-  >         'schema_version': {'major': 8, 'minor': 5}}
-  > json.dump(prog, open('group2.json', 'w'))"
+  $ ./cram_probe.exe fixture group2
 
   $ ../bin/native_graph.exe visualize --model group2.json --output session.json
 
@@ -79,17 +22,7 @@ payload-free file does not have); the first conv's `groups=2` used to be
 Native4D's own rejection (neither 1 nor depthwise), and now legalizes to
 `GroupedConv2D` (`.ai/native4d_design.md` §7.2/§8).
 
-  $ python3 -c "
-  > import json
-  > s = json.load(open('session.json'))
-  > for c in s['capabilities']:
-  >     st = c['status']
-  >     detail = st['state']
-  >     if st['state'] == 'available':
-  >         detail += ' ' + st['payload']['kind']
-  >     elif st['state'] == 'unavailable':
-  >         detail += ' ' + st['reason']
-  >     print('%-28s %s' % (c['key'], detail))"
+  $ ./cram_probe.exe caps session.json
   stage:source                 available graph
   stage:initial_native         available graph
   stage:canonical              available graph
@@ -109,13 +42,7 @@ Native4D's own rejection (neither 1 nor depthwise), and now legalizes to
 The SOURCE view is the exported program's own graph: one node per serialized
 target, with the namespace taken off nn_module_stack.
 
-  $ python3 -c "
-  > import json
-  > s = json.load(open('session.json'))
-  > g = {g['id']: g for g in s['graphCollections'][0]['graphs']}['pt2/root']
-  > for n in g['nodes']:
-  >     if n['label'] in ('input', 'constant', 'output'): continue
-  >     print('%-44s ns=%-6s in=%d' % (n['label'], n['namespace'], len(n.get('incomingEdges', []))))"
+  $ ./cram_probe.exe source 44 session.json
   torch.ops.aten.conv2d.default                ns=conv   in=3
   torch.ops.aten.conv2d.padding                ns=same   in=2
   torch.ops.aten.max_pool2d.default            ns=pool   in=1
@@ -127,15 +54,7 @@ that matters: a relayout dropped, an H/W pair transposed, a padding mode resolve
 early or a channel count taken from the wrong axis all show up HERE, and in
 neither the capability vector nor any node count.
 
-  $ python3 -c "
-  > import json
-  > s = json.load(open('session.json'))
-  > g = {g['id']: g for g in s['graphCollections'][0]['graphs']}['g/native/000']
-  > for n in g['nodes']:
-  >     attrs = {a['key']: a['value'] for a in n.get('attrs', [])}
-  >     params = attrs.get('params')
-  >     if params is None: continue
-  >     print('%-3s %-16s %s' % (n['id'], n['label'], params))"
+  $ ./cram_probe.exe params 16 session.json
   n0  Permute          permute x=t0 perm=[H<-W, W<-C, C<-H]
   n1  Permute          permute x=t1 perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
   n2  Conv2d           conv2d
@@ -174,17 +93,7 @@ The shape beside it is what a reader checks a parameter against: the conv's
 [H=4 W=6] is stride 2x1 with pad 1x0 and dilation 1x2 over an 8x8 input, and no
 other reading of those arguments produces it.
 
-  $ python3 -c "
-  > import json
-  > s = json.load(open('session.json'))
-  > g = {g['id']: g for g in s['graphCollections'][0]['graphs']}['g/native/000']
-  > for n in g['nodes']:
-  >     if n['label'] in ('input', 'constant', 'output'): continue
-  >     shape = ''
-  >     for m in n.get('outputsMetadata', []):
-  >         for a in m.get('attrs', []):
-  >             if a['key'] == 'shape': shape = a['value']
-  >     print('%-3s %-16s ns=%-6s %s' % (n['id'], n['label'], n['namespace'], shape))"
+  $ ./cram_probe.exe shapes-ns 16 6 session.json
   n0  Permute          ns=torch.ops.aten.conv2d.default#g1 [H=8 W=8 C=4]
   n1  Permute          ns=torch.ops.aten.conv2d.default#g1 [N=8 T=1 D=1 H=3 W=2 C=2]
   n2  Conv2d           ns=torch.ops.aten.conv2d.default#g1 [H=4 W=6 C=8]
@@ -205,15 +114,7 @@ reads, and the input position it feeds. A single-output op makes slot 0 the only
 answer and proves nothing, so what this pins is that the chain is wired in the
 order the serialized graph declared -- conv's bias is operand 2, not operand 1.
 
-  $ python3 -c "
-  > import json
-  > s = json.load(open('session.json'))
-  > g = {g['id']: g for g in s['graphCollections'][0]['graphs']}['g/native/000']
-  > for n in g['nodes']:
-  >     if n['label'] in ('input', 'constant', 'output'): continue
-  >     e = [(x['sourceNodeId'], x['sourceNodeOutputId'], x['targetNodeInputId'])
-  >          for x in n.get('incomingEdges', [])]
-  >     print('%-3s %-16s %s' % (n['id'], n['label'], e))"
+  $ ./cram_probe.exe edges 16 session.json
   n0  Permute          [('in:t0', '0', 't0')]
   n1  Permute          [('const:t1', '0', 't1')]
   n2  Conv2d           [('n0', '0', 't7'), ('n1', '0', 't8'), ('const:t2', '0', 't2')]

@@ -254,14 +254,14 @@
 
 (cram
  (applies_to me_visualize_json_cram)
- (deps %{exe:../bin/native_graph.exe} model.json))
+ (deps %{exe:cram_probe.exe} %{exe:../bin/native_graph.exe} model.json))
 
 ; One kernel value's expression, over the committed mobilenetv2_050 model.json.
 ; UNGATED for the same reason the session cram is.
 
 (cram
  (applies_to me_detail_cram)
- (deps %{exe:../bin/native_graph.exe} model.json))
+ (deps %{exe:cram_probe.exe} %{exe:../bin/native_graph.exe} model.json))
 
 ; --generated-js's three shapes (optimized/raw/custom subset), over the same
 ; committed model.json. The per-output text itself is proven exactly equal to
@@ -272,7 +272,7 @@
 
 (cram
  (applies_to me_generated_js_cram)
- (deps %{exe:../bin/native_graph.exe} model.json))
+ (deps %{exe:cram_probe.exe} %{exe:../bin/native_graph.exe} model.json))
 
 ; The five Group-2 functional overloads, over a graph built in the cram itself.
 ; UNGATED and hand-built for a reason specific to this group: no downloadable
@@ -281,7 +281,7 @@
 
 (cram
  (applies_to me_group2_cram)
- (deps %{exe:../bin/native_graph.exe}))
+ (deps %{exe:cram_probe.exe} %{exe:../bin/native_graph.exe}))
 
 ; op3.md's Group 3: sub.Tensor, _unsafe_view.default and transpose.int, over
 ; graphs built in the cram itself. Same reason as the stanza above: no
@@ -289,7 +289,7 @@
 
 (cram
  (applies_to me_group3_cram)
- (deps %{exe:../bin/native_graph.exe}))
+ (deps %{exe:cram_probe.exe} %{exe:../bin/native_graph.exe}))
 
 ; op5.md's Group 5: silu.default, hardsigmoid.default and hardswish.default,
 ; over a graph built in the cram itself. Same reason as the two stanzas above:
@@ -297,7 +297,7 @@
 
 (cram
  (applies_to me_group5_cram)
- (deps %{exe:../bin/native_graph.exe}))
+ (deps %{exe:cram_probe.exe} %{exe:../bin/native_graph.exe}))
 
 ; op6.md's Group 6: pad.default and slice.Tensor, over a graph built in the cram
 ; itself. Same reason as the three stanzas above: no downloadable model
@@ -305,7 +305,7 @@
 
 (cram
  (applies_to me_group6_cram)
- (deps %{exe:../bin/native_graph.exe}))
+ (deps %{exe:cram_probe.exe} %{exe:../bin/native_graph.exe}))
 
 ; Group 7's two normalization targets. Ungated like the stanzas above, but for a
 ; reason that splits: layer_norm.default reaches no downloadable model, while
@@ -315,7 +315,7 @@
 
 (cram
  (applies_to me_group7_cram)
- (deps %{exe:../bin/native_graph.exe}))
+ (deps %{exe:cram_probe.exe} %{exe:../bin/native_graph.exe}))
 
 ; Group 8 (op8-impl.md commit 5): scaled_dot_product_attention.default.
 ; UNGATED and hand-built, for a stronger reason than the stanzas above -- no
@@ -325,7 +325,7 @@
 
 (cram
  (applies_to me_group8_cram)
- (deps %{exe:../bin/native_graph.exe}))
+ (deps %{exe:cram_probe.exe} %{exe:../bin/native_graph.exe}))
 
 ; The recoverable-failure shape, over graphs built in the cram itself. UNGATED,
 ; and hand-built on purpose: what it exercises is a graph the lowerer rejects,
@@ -333,7 +333,7 @@
 
 (cram
  (applies_to me_visualize_unsupported_cram)
- (deps %{exe:../bin/native_graph.exe}))
+ (deps %{exe:cram_probe.exe} %{exe:../bin/native_graph.exe}))
 
 ; Native lowering of a serialized Tensor[]-returning node. Same shape and same
 ; reason as the stanza above: hand-built, ungated, and driving the lowerer over
@@ -341,7 +341,7 @@
 
 (cram
  (applies_to unbind_native_cram)
- (deps %{exe:../bin/native_graph.exe}))
+ (deps %{exe:cram_probe.exe} %{exe:../bin/native_graph.exe}))
 
 ; Committed, ungated regression: what stage:initial_native/stage:native4d
 ; report for all six tracked release models' payload-free model.json, pinning
@@ -351,6 +351,7 @@
 (cram
  (applies_to me_visualize_frontier_cram)
  (deps
+  %{exe:cram_probe.exe}
   %{exe:../bin/native_graph.exe}
   mobilenetv2_050_model.json
   regnetx_002_model.json
@@ -449,7 +450,10 @@
 
 (cram
  (applies_to const_ssa_mobilenetv1_cram)
- (deps %{exe:../bin/native_graph.exe} mobilenetv1_100_model.json))
+ (deps
+  %{exe:cram_probe.exe}
+  %{exe:../bin/native_graph.exe}
+  mobilenetv1_100_model.json))
 
 ; Gate 8 compares the same frozen Native4D corpus graph through its committed
 ; payload-free source and its release archive, then evaluates its materialized
@@ -458,7 +462,11 @@
 
 (cram
  (applies_to const_ssa_payload_free_cram)
- (deps (universe) %{exe:../bin/native_graph.exe} mobilenetv2_050_model.json)
+ (deps
+  %{exe:cram_probe.exe}
+  (universe)
+  %{exe:../bin/native_graph.exe}
+  mobilenetv2_050_model.json)
  (enabled_if
   (<> %{env:PT2_DATA=} "")))
 
@@ -743,7 +751,7 @@
 
 (cram
  (applies_to me_visualize_cram)
- (deps (universe) %{exe:../bin/native_graph.exe})
+ (deps %{exe:cram_probe.exe} (universe) %{exe:../bin/native_graph.exe})
  (enabled_if
   (<> %{env:PT2_DATA=} "")))
 
@@ -825,3 +833,17 @@
  (deps (universe) %{exe:pt2_safetensors_equal.exe})
  (enabled_if
   (<> %{env:PT2_DATA=} "")))
+
+; Test-only JSON fixture setup and observation, replacing inline Python.
+
+(executable
+ (name cram_probe)
+ (modules
+  cram_probe
+  cram_json
+  cram_program
+  cram_group_fixtures
+  cram_refusal_fixtures
+  cram_probe_graph
+  cram_probe_session)
+ (libraries err_trace fmt jsont transformers_metadata))
