@@ -43,8 +43,11 @@ promotes the complete published task recipe or general task readiness.
 
 Two independent prompts use producer-published IDs. Each prefill's complete
 actual K/V outputs feed its one history-4 decode; no history-five graph exists.
-Input contracts are checked before indexing shapes or executing. The host
-requires identical model, checkpoint/config identity and cache dtype/shape/name
+Input contracts are checked before indexing shapes or executing. The input boundary
+requires positive user-input extents and bounded tensor elements before computing
+contiguous strides. Zero extents cannot mask an overflowing trailing product;
+the regression fails on the former construction and refuses after the correction.
+The host requires identical model, checkpoint/config identity and cache dtype/shape/name
 order across the two components. It compares inputs, derived positions, every
 logit/K/V output, generated token/sequence, history and cache edges. Caller input
 digests must remain unchanged. Fresh immutable state, first-maximum greedy ties,

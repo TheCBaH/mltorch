@@ -8,7 +8,7 @@ let tensor (l : L.t) =
   let* sizes =
     Err.List.map
       (fun n ->
-        if n >= 0L && n <= 1_000_000L then Ok (Int64.to_int n)
+        if n > 0L && n <= 1_000_000L then Ok (Int64.to_int n)
         else invalid "tensor extent exceeds supported bound")
       l.shape
   in

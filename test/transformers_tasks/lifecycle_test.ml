@@ -72,7 +72,9 @@ let%expect_test "input construction refuses malformed extents and byte lengths"
   show (T.Input.i64 [ 1L; 4L ] [ 1L ]);
   show (T.Input.i64 [ -1L ] []);
   show (T.Input.i64 [ 4294967296L; 4294967296L ] []);
+  show (T.Input.i64 [ 0L; 1_000_000L; 1_000_000L; 1_000_000L; 1_000_000L ] []);
   [%expect {|
+    refused
     refused
     refused
     refused |}]
