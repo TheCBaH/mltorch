@@ -63,7 +63,9 @@ runs remain incomplete rather than becoming passing evidence.
 
 CI keeps the BERT/MobileViT checkpoint gate and adds source integrity, strict
 and normalized admission, history/lifecycle tests and a restricted PATH without
-Python after upstream build setup. Manual workflow inputs enable T5 normalized
+Python after upstream build setup. Explicit guards reject an available Python
+executable and dependency-scan failures; negation under shell errexit is not
+used as an assertion. Manual workflow inputs enable T5 normalized
 prefill with saturating casts, and a full 22-component default replay followed
 by separately declared opt-in policy rows. Matrix validation retains numerical
 failures and absent policy coverage. Hosted results require actual hosted runs.

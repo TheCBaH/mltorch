@@ -12,9 +12,12 @@ scan() {
   done
   rg -n '(^|[[:space:]])(import torch|from torch|import transformers|from transformers)|pip.*(torch|transformers)|python[0-9]*.*modules/devcontainer.transformers' "$@"
 }
-if scan; then
+scan_status=0
+scan || scan_status=$?
+if [ "$scan_status" -eq 0 ]; then
   fail 'active consumer ML Python dependency'
 fi
+[ "$scan_status" -eq 1 ] || fail 'cannot scan active consumer paths'
 opam exec -- dune build bin/transformers_source.exe bin/pt2_json_model_support.exe bin/transformers_policies.exe
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT HUP INT TERM
@@ -36,8 +39,7 @@ while IFS= read -r dir; do
 done < "$scratch/paths"
 PATH=$scratch/bin
 export PATH
-! command -v python
-! command -v python3
+if command -v python || command -v python3; then fail 'Python remains available'; fi
 make transformers.policies.check transformers.admission transformers.admission.normalized
 opam exec -- dune runtest --force test/pt2_fixture test/transformers_metadata test/transformers_tasks test/transformers_source.t test/native_interp
 # Optional pinned fixture command runs under the same restricted environment.
