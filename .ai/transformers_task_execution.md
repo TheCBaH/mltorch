@@ -1,6 +1,8 @@
 # Producer task execution and consumer tooling
 
-The source dependency pins producer `b514afb61454fb15fd491826b475a6e3819ad641`.
+The source dependency pins producer `b2b5388869b1436018a09018035937f6f80d4f59`
+after the producer's torch 2.13 migration. Task recipes, assets, schemas and
+trusted task pin are unchanged from the earlier `b514afb` source.
 Checkpoint publication remains at `003207ae59ed`; task selection independently
 pins `task-fixtures-b514afb61454-c564bb4b0d83` and its index bytes. The earlier
 diagnostic release remains a separate selection. No consumer runs producer

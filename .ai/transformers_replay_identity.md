@@ -120,9 +120,10 @@ absolute errors in the three failed components are respectively
 `9.775161743164062e-5`. A passing verdict means within the frozen absolute/relative
 tolerances, not bitwise equality. Forward and encoder cases are independent.
 
-Source gitlink remains `b514afb61454fb15fd491826b475a6e3819ad641`, the
-checkpoint publication remains `checkpoint-003207ae59ed`, and the local C++
-PyTorch gitlink is `a3aa2c6ee42a053b5f761f4ff1f47974c39714fb`. The producer
+This measured run retains source gitlink
+`b514afb61454fb15fd491826b475a6e3819ad641`, checkpoint publication
+`checkpoint-003207ae59ed`, and local C++ PyTorch gitlink
+`a3aa2c6ee42a053b5f761f4ff1f47974c39714fb`. The producer
 records `torch 2.12.0+cpu` on aarch64; the consumer also runs on aarch64 but
 its local source version is `2.13.0a0`, with a separate DEFAULT CPU/static
 archive and reference GEMM. Local ATen
@@ -130,3 +131,8 @@ therefore reproduces three failures and resolves the tested decode/cast paths,
 without establishing which individual kernel explains the remaining drift.
 Native acceptance, including a current Native Whisper-forward measurement,
 stays open.
+
+The subsequent source update to `b2b5388` records producer torch 2.13, but
+does not update these published checkpoint references or rerun the numerical
+comparison. Its source admission evidence is separate; the retained run still
+compares against producer 2.12 tensors.

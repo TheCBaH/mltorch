@@ -41,6 +41,17 @@ and three derived adapter manifests still reproduce offline. Producer loading
 also checks committed task recipes, request, trusted task pin, three schemas
 and protocol documentation and records their hashes in the source identity.
 Source updates do not implicitly change checkpoint or task release selections.
+The subsequent producer migration updates the source pin to
+`b2b5388869b1436018a09018035937f6f80d4f59`, with torch 2.13.0+cpu and
+torchvision 0.28.0+cpu. All 30 graph byte digests change, but their decoded
+programs differ only in `torch_version`; the operation inventory is unchanged.
+Twelve random-model case manifests change input/output hashes. Source admission
+is regenerated with the new digests. Checkpoint maps, task assets, recipes,
+schemas and the trusted task pin are unchanged, so checkpoint and task release
+selections retain their independently pinned reference bytes. Earlier numerical
+measurements keep their original source identity and producer 2.12 references;
+this source update does not establish local C++ kernel equivalence to the
+producer's 2.13 release wheel.
 The CI source gate applies to Dependabot gitlink updates as to other changes.
 Normalized admission is explicitly requested with
 `make transformers.admission.normalized`. It decodes and normalizes the program
