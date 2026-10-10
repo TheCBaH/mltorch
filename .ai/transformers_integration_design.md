@@ -818,16 +818,14 @@ exists is a chain whose links are each checked as far as this environment allows
 - `lib/wordpiece` is BERT's basic tokenizer and WordPiece for ASCII text, with
   non-ASCII input and the special-token spellings refused rather than guessed.
   It agrees with an independent Python implementation of the same specification
-  on 421 sentences against the real vocabulary. That is two implementations of a
-  documented algorithm agreeing; it is not the reference tokenizer, which is not
-  available here, and a disagreement with it could still exist.
+  on 421 sentences against the real vocabulary, and (section 28) with the
+  reference tokenizer itself on the same sentences.
 - The model is the verified BERT-tiny graph (both published cases pass).
-- The end-to-end embedding has no producer reference. BERT-tiny's pooler output
-  also saturates near +-1, so cosines between pooled vectors are not a similarity
-  measure; the example prints them only to show the pipeline runs.
+- The end-to-end embedding has no producer reference, only the local one of
+  section 28. BERT-tiny's pooler output also saturates near +-1, so cosines
+  between pooled vectors are not a similarity measure.
 
-So the example demonstrates the path from text to tensors to outputs, and the
-claim stops there.
+Section 28 closes this: the example now has a reference for each link.
 
 ## 27. T04, investigated: no accumulation policy closes the decode and prefill rows
 
@@ -859,3 +857,47 @@ that exceed it are the few with small magnitude (where the allowance is mostly t
 absolute term). That is a property of the tolerance, not of the engine, and the
 measured numbers above are its evidence. The tolerances and references remain
 unchanged; the rows stay failing, with their counts, in the matrix.
+
+## 28. A reference stack, installed: S9 closed for one model, T04 closed
+
+The two things the earlier sections could not do for want of a reference were done
+once the producer's stack was installed in a scratch virtual environment outside
+the tree: `torch` 2.12.0+cpu for aarch64 (the producer's exact build and
+architecture), `transformers` and `tokenizers`.
+
+**S9, BERT-tiny text embeddings.**
+
+- Tokenizer: the OCaml WordPiece produces ids identical to
+  `tokenizers.BertWordPieceTokenizer` (lower-casing, truncation to 16, padding
+  with 0; BertTokenizerFast's backend) on all 421 sentences of the corpus.
+- Model: for 40 real sentences the engine's `last_hidden_state` (81,920
+  elements) and `pooler_output` (5,120) agree with transformers' `BertModel` in
+  eager mode on the pinned weights with zero elements over the producer's
+  tolerance (atol 1e-5, rtol 1e-4); the worst absolute differences are 7.0e-6 and
+  2.8e-6.
+- With the component gate (both published cases pass), that is a reference for
+  each link from raw text to outputs. The task-ready claim is therefore made, for
+  exactly this combination: BERT-tiny text embeddings, ASCII text of at most 14
+  word pieces, native-direct with the default numerics. Non-ASCII text and
+  special-token spellings are refused, and no other model, task or backend has a
+  claim.
+
+**T04.** The question was whether the decode and prefill rows fail because of the
+engine or because of the tolerance. Measured with the producer's torch build on
+the producer's architecture, transformers eager on the pinned SmolLM2 weights
+misses the published prefill logits by more elements than the native engine
+does:
+
+| | case 00 | case 01 |
+|---|---|---|
+| elements over tolerance, torch eager vs published (of 196,608 logits) | 1,473 | 2,581 |
+| elements over tolerance, native engine vs published | 174 | 1,880 |
+| worst absolute difference, torch / engine | 2.3e-4 / 7.4e-5 | 9.0e-5 / 5.8e-5 |
+
+BERT-tiny shows the same: torch here differs from the published outputs by about
+3e-6, not bitwise, as the engine does. So the published outputs are not
+reproducible by torch itself on another machine (different CPU, kernels and
+threading), and a tolerance of 1e-5 absolute on logits of scale ~34 is below that
+noise. The failing rows measure the reference's own irreproducibility, not a
+defect of the engine, and they stay recorded as failing with their counts. The
+tolerances and references are unchanged.

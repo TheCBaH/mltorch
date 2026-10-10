@@ -7,13 +7,17 @@
    through the verified graph, and the pooled embeddings are compared by cosine
    similarity against the first sentence.
 
-   What is and is not established. The model component passes its published
-   cases (make transformers.gate). The tokenizer follows BERT's documented
-   algorithm on ASCII text and is checked against an independent
-   implementation (scripts/transformers-wordpiece-check.py), not against the
-   reference tokenizer, which is not available here; the published cases hold
-   random token ids, so they cannot vouch for it. The end-to-end embedding has no
-   producer reference. This is a demonstration, not a task-ready claim.
+   What is established. The model component passes its published cases (make
+   transformers.gate). The tokenizer gives ids identical to the Rust `tokenizers`
+   WordPiece (BertTokenizerFast's backend) on 421 sentences against the pinned
+   vocabulary (scripts/transformers-wordpiece-check.py is a second independent
+   implementation, make transformers.text.check compares them), and the pooled
+   and last-hidden outputs for 40 real sentences agree with transformers'
+   BertModel in eager mode on the pinned weights under the producer's tolerances
+   (scripts/transformers-text-crosscheck.py, via --dump). The reference ran on
+   this machine's torch 2.12.0+cpu, not the producer's: see the design record on
+   how far that stack is from the published outputs. Scope: ASCII text, at most
+   14 word pieces, native-direct with the default numerics.
 
    With [--ids] the sentences are only tokenized and their ids printed, one
    line each, for that comparison. *)
@@ -80,6 +84,14 @@ let () =
   let args = List.tl (Array.to_list Sys.argv) in
   let ids_only, args =
     match args with "--ids" :: rest -> (true, rest) | _ -> (false, args)
+  in
+  (* [--dump FILE]: write one JSON line per sentence with the full
+     last_hidden_state and pooler_output, for comparison with a reference
+     (scripts/transformers-text-crosscheck.py). *)
+  let dump, args =
+    match args with
+    | "--dump" :: file :: rest -> (Some file, rest)
+    | _ -> (None, args)
   in
   match args with
   | cohort_path :: cache_dir :: assets_path :: vocab_path :: sentences
@@ -154,7 +166,30 @@ let () =
               match
                 Err.payload (Native_interp.run_named fixture.archive ~inputs)
               with
-              | Ok [ _hidden; pooled ] -> floats pooled ~count:128
+              | Ok [ hidden; pooled ] ->
+                  (match dump with
+                  | Some file ->
+                      Out_channel.with_open_gen [ Open_append; Open_creat ]
+                        0o644 file (fun oc ->
+                          let h =
+                            List.init max_length (fun w ->
+                                List.init 128 (fun c ->
+                                    Tensor.read hidden
+                                      (Vec6.coord ~n:0 ~t:0 ~d:0 ~h:0 ~w ~c)))
+                            |> List.concat
+                          in
+                          let p = floats pooled ~count:128 in
+                          let arr l =
+                            "["
+                            ^ String.concat ","
+                                (List.map (Printf.sprintf "%.9g") l)
+                            ^ "]"
+                          in
+                          output_string oc
+                            (Printf.sprintf "{\"hidden\":%s,\"pooled\":%s}\n"
+                               (arr h) (arr p)))
+                  | None -> ());
+                  floats pooled ~count:128
               | Ok _ -> failwith "unexpected output count"
               | Error e ->
                   Fmt.epr "%a@." Native_interp.pp_error e;
