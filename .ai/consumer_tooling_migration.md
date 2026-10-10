@@ -15,6 +15,11 @@ explicit modes, filters producer/vendored directories and filters Wasm/CompCert
 conditions on both the library and runner. Malformed input or git discovery
 failure stops timing before cleaning/building. The timing shell stores discovery
 output first instead of losing a failing process substitution.
+Before cleaning, timing also obtains Dune's versioned workspace description for
+the discovered runner directories and keeps only enabled local libraries at the
+matching source directory. Dune evaluates architecture and package-availability
+conditions; the metadata reader does not reimplement those conditions. Explicit
+runner modes and the Wasm/CompCert exclusions remain in effect.
 
 WASI userland acquisition uses installed shell/system tools. It fetches Debian
 package metadata and packages over HTTPS, validates filename/suite/architecture,

@@ -26,8 +26,18 @@ cd "$root"
 triples=()
 opam exec -- dune build bin/inline_test_libraries.exe
 discovery=$(mktemp)
-trap 'rm -f "$discovery"' EXIT
+workspace=$(mktemp)
+trap 'rm -f "$discovery" "$workspace"' EXIT
 _build/default/bin/inline_test_libraries.exe > "$discovery"
+# Ask Dune which local libraries are enabled on this host before cleaning.
+# Restrict discovery to runner directories to avoid unrelated producer rules.
+mapfile -t directories < <(cut -f1 "$discovery" | sort -u)
+(( ${#directories[@]} > 0 )) || {
+  echo "inline-test-timing-report-all: no inline_tests libraries found" >&2
+  exit 1
+}
+dune describe workspace --lang 0.1 --format sexp --no-recursive "${directories[@]}" > "$workspace"
+_build/default/bin/inline_test_libraries.exe --workspace "$workspace" > "$discovery"
 while IFS=$'\t' read -r dir lib triple_mode; do
   [[ "$triple_mode" == "$mode" ]] || continue
   triples+=("$dir"$'\t'"$lib")

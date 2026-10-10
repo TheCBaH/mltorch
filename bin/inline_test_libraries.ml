@@ -119,6 +119,39 @@ let read path =
     ~finally:(fun () -> close_in channel)
     (fun () -> really_input_string channel (in_channel_length channel))
 
+(* Dune has already evaluated library enabled_if conditions here, including
+   architecture and package availability. Match source directories as well as
+   names so installed dependencies cannot stand in for disabled local libraries. *)
+let enabled_libraries path =
+  let* tokens = tokenize (read path) in
+  let* forms = parse tokens in
+  match forms with
+  | [ List items ] -> (
+      match field "build_context" items with
+      | Some [ Atom context ] ->
+          let libraries =
+            List.filter_map
+              (function
+                | List [ Atom "library"; List fields ] -> (
+                    match
+                      ( field "name" fields,
+                        field "source_dir" fields,
+                        field "local" fields )
+                    with
+                    | ( Some [ Atom name ],
+                        Some [ Atom dir ],
+                        Some [ Atom "true" ] ) ->
+                        Some (dir, name)
+                    | _ -> None)
+                | _ -> None)
+              items
+          in
+          Ok
+            (fun dir name ->
+              List.mem (Filename.concat context dir, name) libraries)
+      | _ -> bad "workspace description has no build_context")
+  | _ -> bad "invalid workspace description"
+
 let files () =
   let channel =
     Unix.open_process_args_in "git" [| "git"; "ls-files"; "--"; "*dune" |]
@@ -134,11 +167,23 @@ let files () =
   | _ -> bad "git ls-files failed"
 
 let run () =
-  let* paths =
+  let* paths, workspace =
     match Array.to_list Sys.argv with
-    | [ _ ] -> files ()
-    | [ _; "--file"; path ] -> Ok [ path ]
-    | _ -> bad "usage: inline_test_libraries [--file PATH]"
+    | [ _ ] ->
+        let+ paths = files () in
+        (paths, None)
+    | [ _; "--workspace"; workspace ] ->
+        let+ paths = files () in
+        (paths, Some workspace)
+    | [ _; "--file"; path ] -> Ok ([ path ], None)
+    | [ _; "--file"; path; "--workspace"; workspace ] ->
+        Ok ([ path ], Some workspace)
+    | _ -> bad "usage: inline_test_libraries [--file PATH] [--workspace PATH]"
+  in
+  let* enabled =
+    match workspace with
+    | None -> Ok (fun _ _ -> true)
+    | Some path -> enabled_libraries path
   in
   Err.List.iter
     (fun path ->
@@ -153,7 +198,8 @@ let run () =
         let+ rows = runners forms in
         List.iter
           (fun (name, mode) ->
-            Printf.printf "%s\t%s\t%s\n" (Filename.dirname path) name mode)
+            let dir = Filename.dirname path in
+            if enabled dir name then Printf.printf "%s\t%s\t%s\n" dir name mode)
           rows)
     paths
 
