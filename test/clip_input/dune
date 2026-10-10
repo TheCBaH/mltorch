@@ -1,0 +1,6 @@
+(library
+ (name clip_input_test)
+ (libraries clip_input fmt)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

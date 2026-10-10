@@ -1,4 +1,4 @@
-.PHONY: transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open transformers.replay compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
+.PHONY: transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open transformers.replay compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean machine.a64.conformance machine.pt2.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
@@ -200,6 +200,15 @@ TRANSFORMERS_GATE_ARTIFACTS = \
 transformers.gate:
 	$(MAKE) transformers.download TRANSFORMERS_ARTIFACTS="$(TRANSFORMERS_GATE_ARTIFACTS)"
 	$(MAKE) transformers.replay TRANSFORMERS_ARTIFACTS="$(TRANSFORMERS_GATE_ARTIFACTS)"
+
+# Bounded greedy generation over the SmolLM2 prefill and its history-4 decode
+# snapshot (two new tokens from four prompt ids; ~5 minutes under Direct). The
+# fixtures must be in the cache (make transformers.download with both artifact
+# ids); scripts/transformers-generate-crosscheck.py compares it with transformers.
+#   make transformers.generate PROMPT_IDS=504,3575,282,4649
+transformers.generate:
+	@test -n "$(PROMPT_IDS)" || { echo "set PROMPT_IDS (four token ids)" >&2; exit 2; }
+	opam exec -- dune exec bin/transformers_generate_demo.exe -- $(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) $(PROMPT_IDS)
 
 # The bounded BERT-tiny text example. VOCAB is the pinned vocab.txt
 # (data/transformers/text-assets.json names its URL and sha256); the tools check

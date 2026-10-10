@@ -1,0 +1,22 @@
+{
+  "artifact_id": "mobilevit-xxs/image-classification/reference/forward/fp32/dynamo/static/ckpt-6703997f9e94",
+  "config": {
+    "name": "config.json",
+    "sha256": "6f1b7c93da05058a62efcd10266079bbf1e6b430babd9367c8e20fdb21726f22",
+    "url": "https://huggingface.co/apple/mobilevit-xx-small/resolve/6703997f9e940e312a04b8b7c26463d631c0d1f8/config.json"
+  },
+  "image": {
+    "crop_size": 256,
+    "flip_channels": true,
+    "preprocessor_config": {
+      "name": "preprocessor_config.json",
+      "sha256": "ac69eb9624defabf01056e9dee3c68eb9d5f528a550007033c7574d7179249ec",
+      "url": "https://huggingface.co/apple/mobilevit-xx-small/resolve/6703997f9e940e312a04b8b7c26463d631c0d1f8/preprocessor_config.json"
+    },
+    "resample": "bilinear",
+    "shortest_edge": 288
+  },
+  "repo": "apple/mobilevit-xx-small",
+  "revision": "6703997f9e940e312a04b8b7c26463d631c0d1f8",
+  "schema_version": 1
+}

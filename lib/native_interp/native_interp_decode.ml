@@ -619,6 +619,7 @@ let is_nontrivial_node (node : Pytorch_types.Node.t) =
   match node.target with
   | "torch.ops.aten.conv1d.default" | "torch.ops.aten.conv2d.default"
   | "torch.ops.aten.conv2d.padding" | "torch.ops.aten.conv3d.default"
+  | "torch.ops.aten.conv_transpose2d.input"
   | "torch.ops.aten.convolution.default" | "torch.ops.aten.linear.default"
   | "torch.ops.aten._native_batch_norm_legit_no_training.default"
   | "torch.ops.aten.max_pool2d.default" | "torch.ops.aten.avg_pool2d.default"

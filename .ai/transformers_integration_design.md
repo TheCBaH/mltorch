@@ -1,7 +1,9 @@
 # Transformers artifact integration — design
 
-Status (2026-10-09): proposed; assessment and planning are complete, consumer
-implementation has not started. Working stages and evidence live in `ai/`:
+Status (2026-10-10): substantially implemented, with corrective acceptance work
+open. The producer submodule has not been added or consumed. Section 32 is the
+current source-dependency and acceptance policy; earlier measured sections are
+dated observations, not current completion claims. Working stages live in `ai/`:
 [implementation plan](../ai/transformers_integration_implementation_plan.md)
 and [tracker](../ai/transformers_integration_implementation_tracker.md).
 
@@ -20,10 +22,11 @@ as their importer and execution prerequisites become available. The admission
 matrix records remaining failures; this design does not promise that all
 producer artifacts fit Native, Native4D, or Kernel.
 
-Full task execution is a later, explicit milestone. Tokenization,
-preprocessing, embedding normalization, cache routing, sampling and stopping
-belong to host adapters. Dynamic shape specialization, general empty tensors,
-training, quantized checkpoints and a browser inference product are deferred.
+Bounded task adapters now exist; their remaining acceptance gates are recorded
+in section 32. Tokenization, preprocessing, embedding normalization, cache
+routing, sampling and stopping belong to host adapters. General task support,
+dynamic shape specialization, general empty tensors, training, quantized
+checkpoints and a browser inference product are deferred.
 Pure metadata/map logic must remain reachable by JavaScript; initial downloads
 and numerical cohort runs use the Unix host.
 
@@ -70,14 +73,14 @@ Use existing `Pt2_archive.of_parts` and its captured-storage loader seam.
 Keep the v1 `Pt2_safetensors` API and consumers intact. Add a separate v2
 implementation; a valid v2 artifact never falls back to v1 after a failure.
 
-Proposed homes, subject to the repository's normal module-size rules:
+Implemented homes, subject to the repository's normal module-size rules:
 
 | Home | Responsibility |
 |---|---|
 | `lib/pt2_checkpoint_map/` | Pure v2 vocabulary, Jsont codecs, structural checks, origins and capture preparation |
-| `lib/pt2_checkpoint_map_unix/` | Verified local/cache/HTTPS sources, mmap ownership and archive assembly |
+| `lib/pt2_checkpoint_map_unix/` | Verified local source bytes and mmap ownership |
 | `lib/pt2_fixture/` | Pure contract/case validation and logical tensor comparison |
-| `lib/pt2_fixture_unix/` | Extracted fixture reading and structured replay reports |
+| `lib/pt2_fixture_unix/`, `lib/pt2_fixture_replay/` | Verified acquisition/extraction, archive assembly and numerical replay reports |
 | `lib/native_interp/` | Named input binding, constrained empty-value normalization and PT2 operator import |
 | `lib/native/`, bridges and lowerings | Genuine operation semantics and backend-specific admission |
 | `bin/`, `scripts/`, Makefile | Explicit acquisition, graph sweep and replay commands |
@@ -818,16 +821,14 @@ exists is a chain whose links are each checked as far as this environment allows
 - `lib/wordpiece` is BERT's basic tokenizer and WordPiece for ASCII text, with
   non-ASCII input and the special-token spellings refused rather than guessed.
   It agrees with an independent Python implementation of the same specification
-  on 421 sentences against the real vocabulary. That is two implementations of a
-  documented algorithm agreeing; it is not the reference tokenizer, which is not
-  available here, and a disagreement with it could still exist.
+  on 421 sentences against the real vocabulary, and (section 28) with the
+  reference tokenizer itself on the same sentences.
 - The model is the verified BERT-tiny graph (both published cases pass).
-- The end-to-end embedding has no producer reference. BERT-tiny's pooler output
-  also saturates near +-1, so cosines between pooled vectors are not a similarity
-  measure; the example prints them only to show the pipeline runs.
+- The end-to-end embedding has no producer reference, only the local one of
+  section 28. BERT-tiny's pooler output also saturates near +-1, so cosines
+  between pooled vectors are not a similarity measure.
 
-So the example demonstrates the path from text to tensors to outputs, and the
-claim stops there.
+Section 28 closes this: the example now has a reference for each link.
 
 ## 27. T04, investigated: no accumulation policy closes the decode and prefill rows
 
@@ -852,10 +853,244 @@ be isolated by comparing outputs, and a bit-exact match would require every kern
 of the network (normalizations, softmax, activations, every matrix product) to be
 emulated in the producer's order.
 
-Conclusion for the rows that fail: they fail by float32 inference noise. The
-producer's tolerance of 1e-5 absolute on logits of scale ~34 is about 3e-7 of the
-scale, below the noise of any independent float32 implementation, so the elements
-that exceed it are the few with small magnitude (where the allowance is mostly the
-absolute term). That is a property of the tolerance, not of the engine, and the
-measured numbers above are its evidence. The tolerances and references remain
-unchanged; the rows stay failing, with their counts, in the matrix.
+These observations suggest accumulated rounding differences, but do not prove
+that every failure is reference noise or exclude an engine defect. A comparison
+of final logits cannot isolate upstream kernels. The tolerances and references
+remain unchanged; the rows stay failing, with their counts, in the matrix.
+Section 32 supersedes the earlier blanket numerical-issue closure.
+
+## 28. Local reference-stack comparisons (historical diagnostic evidence)
+
+The two things the earlier sections could not do for want of a reference were done
+once a reference stack was installed in a scratch virtual environment outside
+the tree: `torch` 2.12.0+cpu for aarch64, Transformers 5.19.0 and tokenizers
+0.23.3. The reviewed producer source specifies Transformers 5.18.0; this was
+not a reproduction of its complete pinned environment. The release environment
+must be reconstructed from its own provenance before a controlled comparison.
+
+**S9, BERT-tiny text embeddings.**
+
+- Tokenizer: the OCaml WordPiece produces ids identical to
+  `tokenizers.BertWordPieceTokenizer` (lower-casing, truncation to 16, padding
+  with 0; BertTokenizerFast's backend) on all 421 sentences of the corpus.
+- Model: for 40 real sentences the engine's `last_hidden_state` (81,920
+  elements) and `pooler_output` (5,120) agree with transformers' `BertModel` in
+  eager mode on the pinned weights with zero elements over the producer's
+  tolerance (atol 1e-5, rtol 1e-4); the worst absolute differences are 7.0e-6 and
+  2.8e-6.
+- With the component gate (both published cases pass), that is a reference for
+  each link from raw text to outputs. The task-ready claim is therefore made, for
+  exactly this combination: BERT-tiny text embeddings, ASCII text of at most 14
+  word pieces, native-direct with the default numerics. Non-ASCII text and
+  special-token spellings are refused, and no other model, task or backend has a
+  claim.
+
+**T04.** The question was whether the decode and prefill rows fail because of the
+engine or because of the tolerance. Measured with the producer's torch build on
+the producer's architecture, transformers eager on the pinned SmolLM2 weights
+misses the published prefill logits by more elements than the native engine
+does:
+
+| | case 00 | case 01 |
+|---|---|---|
+| elements over tolerance, torch eager vs published (of 196,608 logits) | 1,473 | 2,581 |
+| elements over tolerance, native engine vs published | 174 | 1,880 |
+| worst absolute difference, torch / engine | 2.3e-4 / 7.4e-5 | 9.0e-5 / 5.8e-5 |
+
+SmolLM2 decode at history 4 shows the same, at a smaller scale: torch eager
+(`DynamicCache` rebuilt from the case's past tensors) misses the published logits
+on 0 elements in case 00 and 12 of 49,152 in case 01 (worst 6.9e-5); the engine
+misses 0 and 5 (worst 4.3e-5). The Whisper-tiny encoder is the
+one row where the engine is noticeably noisier: torch eager misses the published
+`encoder_hidden_states` on 3 and 8 of 576,000 elements (worst 7.9e-5), the
+engine on 16 and 18, the same order of magnitude but two to five times as many.
+BERT-tiny shows the same: torch here differs from
+the published outputs by about 3e-6, not bitwise, as the engine does. So the published outputs are not
+reproducible by torch itself on another machine (different CPU, kernels and
+threading), and a tolerance of 1e-5 absolute on logits of scale ~34 is below that
+noise. This is evidence that local torch also differs from published outputs,
+not proof that engine defects are absent. In particular Whisper has additional
+engine mismatches, and SmolVLM decode was not crosschecked. T04 remains open
+for numerical acceptance under section 32; the failing rows and tolerances are
+unchanged.
+
+## 29. Bounded generation: SmolLM2, prefill then one decode step
+
+The plan's last adapter is bounded generation, and the released graphs bound it
+tightly: SmolLM2 has a prefill over four tokens and a decode snapshot at history 4
+(and 8), nothing at history 5. `bin/transformers_generate_demo` therefore does
+exactly what they establish. `Pt2_fixture.History.chain` first checks that the
+prefill's `present_*` outputs meet the decode's `past_*` inputs (they do: batch,
+heads, head dimension and a length of 4). Then the prefill's last-position logits
+give the first new token, its K/V become the decode artifact's past, and the
+decode step gives the second. The tool takes token ids; tokenization is outside it.
+
+For the prompt `The capital of France` (ids 504, 3575, 282, 4649) the engine
+generates 28 (`,`) and 7042 (` Paris`): `The capital of France, Paris`. The same
+pinned weights under transformers' greedy `generate` in eager mode (torch
+2.12.0+cpu) give the same two tokens. The full logits of the two steps differ
+from torch's by at most 4.0e-5 (prefill; 20 of 49,152 over the producer's
+tolerance) and 7.2e-5 (decode; 495 of 49,152), where the decode step also carries
+the prefill's noise through the K/V it was fed: float32 noise of the kind section
+28 measures, not a different answer. The claim is the token-level one, for this
+model, these two artifacts and native-direct; the loop cannot continue past two
+tokens because no further history is exported.
+
+## 30. TinyCLIP image-text scoring
+
+The second adapter the plan lists is TinyCLIP's normalization and scoring. Its two
+input sides are libraries (`lib/clip_input`), each checked against the reference:
+
+- **Text.** A byte-pair-encoding tokenizer driven by the repository's own
+  `tokenizer.json` (vocabulary, 48,894 ranked merges, the `</w>` suffix), whose
+  digest is pinned. For ASCII text it does what the file's pipeline does: collapse
+  whitespace, lower-case, split by the pattern (the two special tokens, the seven
+  contractions, letter runs, single digits, punctuation runs), merge by lowest rank,
+  add the start and end ids, cut to 16 and pad with the end id. Its ids are
+  identical to the Rust `tokenizers` library's on a corpus of 413 sentences
+  (varied words, capitalization, contractions, digits, punctuation runs, long words
+  and over-length text). Non-ASCII text, control characters and the two special-token
+  spellings are refused.
+- **Image.** A binary PPM, resized so the shorter edge is 224 with Pillow's bicubic
+  arithmetic, centre-cropped, scaled and normalized with the pinned
+  `preprocessor_config.json` values. The resize reproduces Pillow's fixed-point
+  resampler: per-axis coefficients from the filter, normalized, scaled to 22
+  fractional bits and rounded half away from zero, a horizontal pass then a
+  vertical one, each rounded back to eight bits. The uint8 image after the resize is
+  byte-for-byte Pillow's (hermetic tests pin checksums of Pillow's output), and the
+  final float tensor matches `CLIPImageProcessor` (its Pillow backend) to 2.4e-7,
+  one float32 rounding, on nine images from 57x91 to 1000x700 including the
+  identity size.
+
+`transformers_clip_demo score` feeds both to the pinned forward artifact. For a
+synthetic 320x240 scene and five sentences the engine's `logits_per_image` agrees
+with transformers' `CLIPModel` (eager, the pinned weights, torch 2.12.0+cpu) to
+within 1.2e-5 on values of 10 to 19, inside the producer's tolerance for each:
+for example 14.688155 against 14.688149 for `a photo of a cat`, and the sentence
+naming the scene's shapes scores highest. The claim is for this model, ASCII text of
+at most 14 tokens, a PPM image and native-direct with the default numerics.
+
+## 31. MobileViT image classification
+
+The third adapter reuses `lib/clip_input` for a different processor. `Resample`
+takes a filter (`Bicubic` or `Bilinear`, both Pillow's fixed-point arithmetic) and
+`Prep.tensor` takes the resize edge, crop, a channel flip (RGB to BGR) and the
+mean/std, so one library covers CLIP and MobileViT. `transformers_vision_demo
+classify` applies MobileViT-xx-small's pinned `preprocessor_config.json` (bilinear
+resize of the shorter edge to 288, centre crop 256, scale by 1/255, flip to BGR, no
+normalization), runs the pinned forward artifact and prints the top five labels from
+the pinned `config.json` `id2label`. The executable checks config bytes; the
+processor recipe is hard-coded and its pinned preprocessor bytes are not checked
+by the executable. Corrective stage C5 closes that discrepancy.
+
+Evidence (reference: `MobileViTImageProcessor` and `MobileViTForImageClassification`
+on the pinned weights, torch 2.12.0+cpu):
+
+- The pixel tensor equals the processor's exactly (max abs diff 0.0) on a 640x480
+  photograph and a synthetic scene; hermetic tests pin Pillow's bilinear output by
+  checksum and the channel flip.
+- The photograph's top five are tabby cat (9.3318), Egyptian cat, tiger cat, lynx,
+  sleeping bag; logits differ from torch by at most 6.9e-6 (0 of 1,000 over
+  tolerance). The scene differs by at most 2.3e-5 (1 of 1,000 over), top-1 equal.
+
+This is a bounded example with one recorded numerical failure, not unconditional
+task acceptance. `scripts/transformers-vision-crosscheck.py` is the reference side.
+
+## 32. Implementation audit and mandatory source integration (2026-10-10)
+
+Audited consumer: `b3b82b7767809060d097843ed42bade6626a0a56` with seven
+pre-existing changed paths. The committed cohort has 20 artifacts; the working
+cohort has 22, adding depth-anything and Whisper forward. Current evidence and
+exact commands are retained in the
+[implementation audit](../ai/transformers_integration_evidence/audit-2026-10-10/README.md).
+The revised plan's C0–C7 stages govern remaining implementation acceptance.
+
+### Source ownership and consumption
+
+The producer is a required Git submodule at `modules/devcontainer.transformers`,
+initially pinned to reviewed `81feca91b3d3ad032cb3c1ef28f4d5e1751c1d55`.
+This is the required design, not an implemented state: no gitlink or
+`.gitmodules` entry exists at audit time. Its omission is an incomplete source
+integration milestone, not an intentional release-only architecture.
+
+The tracked gitlink is the source-pin authority. Admission defaults to that
+checkout and consumes its verified catalogue, graph/config/case inventory.
+Source-dependent cohort/processor checks consume its format and recipe metadata
+where available. Merely adding a gitlink without changing callers does not meet
+this requirement. A clean, initialized matching checkout is required; offline
+operations reject missing, mismatched or modified inputs and do not fetch.
+Do not initialize nested producer dependencies for JSON-only consumption.
+
+Source gitlink, released producer `003207ae59ed0555599da190d70cc3d2f15ad705`,
+publication bytes, checkpoint revisions and release graph/capture pins remain
+independent. The main checkout's tiny random graphs cannot substitute for
+checkpoint release graphs. Pin bumps require inventory/regeneration checks;
+neither upstream `main` nor a fresh release becomes a floating build dependency.
+OCaml fixture replay remains offline and uses verified release assets; it does
+not require importing producer Python or installing torch.
+
+### Current evidence and acceptance boundaries
+
+Fresh catalogue verification passed 210/210 files. Strict source admission is
+7/30 Native, 2/30 Native4D and 5/30 Kernel; this route does not enable empty-cache
+normalization. The initial 2/30 rows above remain historical. Focused loader,
+fixture, tokenizer/preprocessing and Native/importer/bridge suites passed.
+Fresh default-policy release replay passed both MobileViT cases and both BERT
+cases. No fresh full-cohort, JS or hosted CI success is claimed.
+
+Thirty-six historical reports were recovered and retained with original consumer
+identity; their five artifact pins match the working cohort. They are useful
+historical measurements, not a rerun at the audited consumer. Depth-anything's
+two-case pass belongs to a dirty workspace with transposed-convolution changes;
+Whisper forward still refuses `diff.default`. Review/test that work before
+promoting it to completed operator support.
+
+The connector's default-policy failure and decode/prefill/Whisper failures keep
+T04 open. Separate sequential-binary32 and saturating-cast passes keep their
+policy identities. Matching greedy tokens (generation) or top-1 classes
+(MobileViT) does not close full-output comparison failures. BERT and TinyCLIP
+have successful recorded bounded local comparisons, but current repeatable
+task acceptance requires retained inputs, exact assets and reference environments.
+
+### Required corrective behavior
+
+Reports identify consumed source and release inputs, consumer commit and dirty
+content, policy, route and full case set. Matrices validate those identities and
+refuse stale/conflicting or partial evidence instead of choosing the last file.
+Keep separate current and historical matrices and missing-case outcomes.
+
+Processor/tokenizer bytes and supported recipes must agree with cohort identity
+and tensor contracts. History chaining must check dtype and shared checkpoint/
+config identity as well as names/shapes, with checked sizes and explicit reset,
+capacity and stopping behavior. Static history 4 does not establish history 5.
+Named transformed evaluation is still deferred; direct results do not establish
+Native4D/Kernel numerical parity.
+
+The existing native-models CI gate selects BERT/MobileViT and is locally verified.
+It does not exercise empty-cache normalization. Add explicit source integrity,
+normalization/history coverage and retained policy-aware reports before closing
+S0/S8. Close stages using their promised gates; diagnoses, source membership and
+pipeline configuration alone are insufficient.
+
+## 32. Transposed convolution and depth estimation
+
+`aten.conv_transpose2d.input` lowers to the existing `Convolution` op with
+`transposed = true`, as `convolution.default` already did; the importer arm only
+fixes that flag and reads the transposed overload's argument order by name.
+
+The transposed pixel used to sum over every input position and kernel tap and
+select the one that lands on the output (`H * W * Kh * Kw` terms per output
+element), which made the depth-anything neck (a 4x4 stride-4 and a 2x2 stride-2
+upsampling) unusable. It now sums over kernel taps only: for a tap, the input
+position is `(out + pad - dilation * k) / stride`, valid when that division is
+exact and lands inside the input. The quotient is clamped into range and compared
+with the unclamped one through `index_eq` (the `Pad` idiom), so the load stays in
+bounds and one test rejects out-of-range and non-multiple taps alike. Zero terms
+are the only ones dropped, so values are unchanged. A hermetic test compares nine
+configurations (strides above the kernel, padding, dilation, output padding,
+groups) with the scatter definition written independently; a mutant that flips
+the padding sign fails it.
+
+depth-anything-small `forward` joins the cohort (cohort 20 -> 22 with the Whisper
+forward artifact, which still needs `diff`) and passes both published cases under
+native-direct with the default numerics (675s for the two cases).
