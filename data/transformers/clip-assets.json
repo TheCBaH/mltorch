@@ -2,15 +2,26 @@
   "artifact_id": "tinyclip/image-text-embeddings/reference/forward/fp32/dynamo/static/ckpt-a2a8c6eaa254",
   "config": {
     "name": "config.json",
-    "sha256": "c586d856dbd5589b67525db9e791ee0917402405672c7773aead373efb7d7bca"
+    "sha256": "c586d856dbd5589b67525db9e791ee0917402405672c7773aead373efb7d7bca",
+    "size": 4602,
+    "url": "https://huggingface.co/wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M/resolve/a2a8c6eaa2549ad66eb7c31b85022bf58273a26c/config.json"
   },
   "image": {
     "crop_size": 224,
-    "image_mean": [0.48145466, 0.4578275, 0.40821073],
-    "image_std": [0.26862954, 0.26130258, 0.27577711],
+    "image_mean": [
+      0.48145465999999998,
+      0.4578275,
+      0.40821073000000002
+    ],
+    "image_std": [
+      0.26862954,
+      0.26130258000000001,
+      0.27577710999999999
+    ],
     "preprocessor_config": {
       "name": "preprocessor_config.json",
       "sha256": "910e70b3956ac9879ebc90b22fb3bc8a75b6a0677814500101a4c072bd7857bd",
+      "size": 316,
       "url": "https://huggingface.co/wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M/resolve/a2a8c6eaa2549ad66eb7c31b85022bf58273a26c/preprocessor_config.json"
     },
     "resample": "bicubic",

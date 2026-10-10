@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "publication": {
+    "sha256": "2b67e6aabe4ceb319af7709a5b1e87656ea501288e10500299320cbe36676b4b",
+    "size": 71174,
+    "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/publication.json",
+    "name": "publication.json"
+  },
+  "repository": "TheCBaH/devcontainer.transformers",
+  "release_tag": "checkpoint-003207ae59ed",
+  "release_producer_commit": "003207ae59ed0555599da190d70cc3d2f15ad705",
+  "artifacts": [
+    {
+      "artifact_id": "mobilevit-xxs/image-classification/reference/forward/fp32/dynamo/static/ckpt-6703997f9e94",
+      "role": "vision replay and bounded image adapter"
+    },
+    {
+      "artifact_id": "smolvlm-256m/image-text-generation/reference/connector/fp32/dynamo/static/ckpt-7e3e67edbbed",
+      "role": "connector: separate default and sequential binary32 policy rows"
+    },
+    {
+      "artifact_id": "bert-tiny/text-encoder/reference/forward/fp32/dynamo/static/ckpt-6f75de8b60a9",
+      "role": "text encoder and bounded ASCII adapter"
+    },
+    {
+      "artifact_id": "tinyclip/image-text-embeddings/reference/text-encoder/fp32/dynamo/static/ckpt-a2a8c6eaa254",
+      "role": "CLIP text tower, shares the image tower checkpoint"
+    },
+    {
+      "artifact_id": "segformer-b0/semantic-segmentation/reference/forward/fp32/dynamo/static/ckpt-489d5cd81a0b",
+      "role": "second vision family"
+    },
+    {
+      "artifact_id": "yolos-tiny/object-detection/reference/forward/fp32/dynamo/static/ckpt-95a90f3c189f",
+      "role": "detection"
+    },
+    {
+      "artifact_id": "tinyclip/image-text-embeddings/reference/image-encoder/fp32/dynamo/static/ckpt-a2a8c6eaa254",
+      "role": "vision tower, shares the text tower's checkpoint"
+    },
+    {
+      "artifact_id": "tinyclip/image-text-embeddings/reference/forward/fp32/dynamo/static/ckpt-a2a8c6eaa254",
+      "role": "both towers and the similarity logits"
+    },
+    {
+      "artifact_id": "t5-small/text-encoder-decoder/reference/decode/fp32/dynamo/static-h4/ckpt-df1b051c4962",
+      "role": "encoder-decoder decode at history 4"
+    },
+    {
+      "artifact_id": "t5-small/text-encoder-decoder/reference/encoder/fp32/dynamo/static/ckpt-df1b051c4962",
+      "role": "encoder"
+    },
+    {
+      "artifact_id": "t5-small/text-encoder-decoder/reference/forward/fp32/dynamo/static/ckpt-df1b051c4962",
+      "role": "encoder-decoder forward"
+    },
+    {
+      "artifact_id": "t5-small/text-encoder-decoder/reference/prefill/fp32/dynamo/static/ckpt-df1b051c4962",
+      "role": "encoder-decoder prefill, self/cross K/V"
+    },
+    {
+      "artifact_id": "time-series-small/time-series/reference/forward/fp32/dynamo/static/ckpt-2a40ad41f6ff",
+      "role": "time series"
+    },
+    {
+      "artifact_id": "t5-small/text-encoder-decoder/reference/decode/fp32/dynamo/static-h8/ckpt-df1b051c4962",
+      "role": "encoder-decoder decode at history 8"
+    },
+    {
+      "artifact_id": "wav2vec2-base/audio-ctc/reference/forward/fp32/dynamo/static/ckpt-22aad52d435e",
+      "role": "audio CTC"
+    },
+    {
+      "artifact_id": "whisper-tiny/audio-encoder-decoder/reference/encoder/fp32/dynamo/static/ckpt-169d4a4341b3",
+      "role": "audio encoder"
+    },
+    {
+      "artifact_id": "whisper-tiny/audio-encoder-decoder/reference/prefill/fp32/dynamo/static/ckpt-169d4a4341b3",
+      "role": "encoder-decoder prefill, self/cross K/V"
+    },
+    {
+      "artifact_id": "smollm2-135m/text-decoder/reference/prefill/fp32/dynamo/static/ckpt-12fd25f77366",
+      "role": "decoder prefill, K/V cache"
+    },
+    {
+      "artifact_id": "smollm2-135m/text-decoder/reference/decode/fp32/dynamo/static-h4/ckpt-12fd25f77366",
+      "role": "decoder decode at history 4"
+    },
+    {
+      "artifact_id": "smolvlm-256m/image-text-generation/reference/decode/fp32/dynamo/static-h71/ckpt-7e3e67edbbed",
+      "role": "VLM decode at history 71, shares the connector's checkpoint"
+    },
+    {
+      "artifact_id": "depth-anything-small/depth-estimation/reference/forward/fp32/dynamo/static/ckpt-5426e4f0f365",
+      "role": "depth estimation, transposed convolution"
+    },
+    {
+      "artifact_id": "whisper-tiny/audio-encoder-decoder/reference/forward/fp32/dynamo/static/ckpt-169d4a4341b3",
+      "role": "whole encoder-decoder forward, shares the encoder's checkpoint"
+    }
+  ]
+}

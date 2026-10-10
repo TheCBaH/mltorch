@@ -320,7 +320,17 @@
 (executable
  (name transformers_source)
  (modules transformers_source)
- (libraries err_trace fmt jsont jsont.bytesrw pt2_sha256 unix))
+ (libraries err_trace fmt transformers_metadata unix))
+
+(executable
+ (name transformers_cohort)
+ (modules transformers_cohort)
+ (libraries err_trace fmt transformers_metadata pt2_fixture_unix unix))
+
+(executable
+ (name transformers_assets)
+ (modules transformers_assets)
+ (libraries err_trace fmt transformers_metadata pt2_fixture_unix unix))
 
 ; Fetch and open the released checkpoint fixtures a cohort manifest pins. See
 ; lib/pt2_fixture_unix. `fetch` goes to the network (curl, HTTPS only);

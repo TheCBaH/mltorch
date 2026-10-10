@@ -1,4 +1,4 @@
-.PHONY: transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open transformers.replay compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
+.PHONY: transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open transformers.replay compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean machine.a64.conformance machine.pt2.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
@@ -166,14 +166,33 @@ transformers.admission:
 # The released checkpoint fixtures a cohort manifest pins (data/transformers/
 # cohort.json): every layer -- publication index, manifest, archive, checkpoint
 # sources -- is fetched into a content-addressed cache and verified against its
-# pin. `transformers.download` is the only target that uses the network (curl,
-# HTTPS only); `transformers.open` is offline: it opens each artifact from the
-# cache alone and proves every capture against the map. About 650 MB for the
-# initial cohort. See lib/pt2_fixture_unix.
+# pin. `transformers.download` explicitly uses the network (curl, HTTPS only);
+# `transformers.open` opens cached artifacts offline and proves every capture.
+# The 22-entry cohort has ~90 MB of archives and ~1.83 GB of unique checkpoint
+# sources. Metadata-only cohort/asset regeneration below does not fetch weights.
+# See lib/pt2_fixture_unix.
 #   make transformers.download [TRANSFORMERS_ARTIFACTS="id ..."]
 TRANSFORMERS_COHORT ?= data/transformers/cohort.json
 TRANSFORMERS_CACHE ?= data/transformers-cache
 TRANSFORMERS_ARTIFACTS ?=
+TRANSFORMERS_SELECTION ?= data/transformers/selection.json
+TRANSFORMERS_ADAPTER_SELECTION ?= data/transformers/adapter-selection.json
+TRANSFORMERS_METADATA_REPORT ?= _build/transformers-cohort-source-report.json
+TRANSFORMERS_ASSETS_OUT ?= data/transformers
+
+# Offline deterministic generation/check from pinned cached metadata. The fetch
+# variants acquire missing metadata/processor assets explicitly; they never run
+# producer Python or convert tensors. Check compares all derived fields.
+transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch:
+	opam exec -- dune exec bin/transformers_cohort.exe -- $(lastword $(subst ., ,$@)) \
+		"$(TRANSFORMERS_SELECTION)" "$(TRANSFORMERS_SOURCE)" "$(TRANSFORMERS_CACHE)" \
+		"$(TRANSFORMERS_COHORT)" "$(TRANSFORMERS_METADATA_REPORT)"
+
+transformers.assets.check transformers.assets.generate transformers.assets.fetch:
+	opam exec -- dune exec bin/transformers_assets.exe -- $(lastword $(subst ., ,$@)) \
+		"$(TRANSFORMERS_ADAPTER_SELECTION)" "$(TRANSFORMERS_SOURCE)" "$(TRANSFORMERS_CACHE)" \
+		"$(TRANSFORMERS_COHORT)" "$(TRANSFORMERS_ASSETS_OUT)"
+
 transformers.download:
 	opam exec -- dune exec bin/transformers_fixture.exe -- fetch \
 		$(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) $(TRANSFORMERS_ARTIFACTS)

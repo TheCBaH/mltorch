@@ -2,7 +2,9 @@
   "artifact_id": "bert-tiny/text-encoder/reference/forward/fp32/dynamo/static/ckpt-6f75de8b60a9",
   "config": {
     "name": "config.json",
-    "sha256": "cf3179684f7c360dd6185962d480e7d426ceb8fe49f5db7b64bdc15dba0b8798"
+    "sha256": "cf3179684f7c360dd6185962d480e7d426ceb8fe49f5db7b64bdc15dba0b8798",
+    "size": 285,
+    "url": "https://huggingface.co/prajjwal1/bert-tiny/resolve/6f75de8b60a9f8a2fdf7b69cbd86d9e64bcb3837/config.json"
   },
   "do_lower_case": true,
   "max_length": 16,

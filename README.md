@@ -62,3 +62,17 @@ the same pin and integrity checks. These tiny random graphs are separate from
 the released checkpoint cohort. A source pin update must include an inventory
 diff and regenerated admission evidence; release and checkpoint pins are
 independent.
+
+Regenerate or check the selected release metadata and bounded adapter manifests
+with OCaml:
+
+```sh
+make transformers.cohort.fetch transformers.assets.fetch # explicit acquisition
+make transformers.cohort.check transformers.assets.check # offline verification
+```
+
+The selections in `data/transformers/` pin the publication and list artifact and
+adapter IDs. These commands check cached bundle members and actual processor,
+tokenizer and config bytes without executing producer code or downloading model
+weights. `.generate` variants regenerate the derived files offline. Metadata
+compatibility does not establish numerical or task acceptance.
