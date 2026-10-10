@@ -310,7 +310,19 @@ let clamp ?name (params : Pointwise.Clamp.params) x =
          x;
        })
 
-let clone ?name x = op1 ?name ~kind:"clone" (Clone { Pointwise.Clone.x })
+(* Data movement keeps an int64 operand's dtype, so [Eval_direct]'s exact
+   [Compute_i64] dispatch delivers it: [clone], [expand], [repeat] and
+   [repeat_interleave] share this rule with [reshape] and [slice]. *)
+let keep_i64 x ~kind op ?name () =
+  let* s = get in
+  let sg = Tensor_id.Map.find x s.tensors in
+  match sg.Tensor_sig.fmt with
+  | Payload.Fmt Payload.I64 ->
+      op1 ?name ~fmt:sg.Tensor_sig.fmt ?quant:sg.Tensor_sig.quant ~kind op
+  | _ -> op1 ?name ~kind op
+
+let clone ?name x =
+  keep_i64 x ~kind:"clone" (Clone { Pointwise.Clone.x }) ?name ()
 
 let col2im ?name params x =
   op1 ?name ~kind:"col2im" (Col2im { Im2col.Col2im.params; x })
@@ -368,7 +380,7 @@ let eq_tensor ?name a b =
     (Eq_tensor { Pointwise.Bin.a; b })
 
 let expand ?name params x =
-  op1 ?name ~kind:"expand" (Expand { Pointwise.Expand.params; x })
+  keep_i64 x ~kind:"expand" (Expand { Pointwise.Expand.params; x }) ?name ()
 
 let eye ?name params =
   op1 ?name ~fmt:params.Factory.Eye.fmt ~kind:"eye" (Eye { Factory.Eye.params })
@@ -690,11 +702,12 @@ let pow ?name scalar x =
 let relu ?name x = op1 ?name ~kind:"relu" (Relu { Pointwise.Relu.x })
 
 let repeat ?name params x =
-  op1 ?name ~kind:"repeat" (Repeat { Repeat.Repeat.params; x })
+  keep_i64 x ~kind:"repeat" (Repeat { Repeat.Repeat.params; x }) ?name ()
 
 let repeat_interleave ?name params x =
-  op1 ?name ~kind:"repeat_interleave"
+  keep_i64 x ~kind:"repeat_interleave"
     (RepeatInterleave { Repeat.RepeatInterleave.params; x })
+    ?name ()
 
 (* Dtype-preserving for I64 ONLY, not every format, unlike [unbind]/
    [split_with_sizes] below: those route through [Tensor.copy_cells], which

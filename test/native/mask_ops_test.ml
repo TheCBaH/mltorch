@@ -655,3 +655,49 @@ let%expect_test "log1p: accurate for a tiny x, and the edges" =
     log1p(inf) = inf ok
     log1p(nan) = nan ok
     log1p(0.001) = 0.0009995 ok |}]
+
+(* --- exact int64 data movement: clone, expand, repeat, repeat_interleave --- *)
+
+let%expect_test "int64 data movement keeps the dtype and values past 2^53" =
+  let big = 9007199254740993L in
+  let show_long label r =
+    Format.printf "%s: %a@." label (pp_result pp_longs) r
+  in
+  let two = s1c 2 in
+  let t = longs two [ big; -7L ] in
+  show_long "clone"
+    (run
+       ~inputs:[ (two, i64, t) ]
+       (function [ x ] -> Graph_builder.clone x | _ -> assert false));
+  show_long "expand [2] -> [3, 2]"
+    (run
+       ~inputs:[ (two, i64, t) ]
+       (function
+         | [ x ] ->
+             Graph_builder.expand { Pointwise.Expand.size = s 1 1 1 1 3 2 } x
+         | _ -> assert false));
+  show_long "repeat x2"
+    (run
+       ~inputs:[ (two, i64, t) ]
+       (function
+         | [ x ] ->
+             Graph_builder.repeat { Repeat.Repeat.repeats = s 1 1 1 1 1 2 } x
+         | _ -> assert false));
+  show_long "repeat_interleave x2"
+    (run
+       ~inputs:[ (two, i64, t) ]
+       (function
+         | [ x ] ->
+             Graph_builder.repeat_interleave
+               {
+                 Repeat.RepeatInterleave.axis = Axis.C;
+                 repeats = Op_config.Pos.of_int 2;
+               }
+               x
+         | _ -> assert false));
+  [%expect
+    {|
+    clone: i64 [C=2] {9007199254740993, -7}
+    expand [2] -> [3, 2]: i64 [W=3 C=2] {9007199254740993, -7, 9007199254740993, -7, 9007199254740993, -7}
+    repeat x2: i64 [C=4] {9007199254740993, -7, 9007199254740993, -7}
+    repeat_interleave x2: i64 [C=4] {9007199254740993, 9007199254740993, -7, -7} |}]

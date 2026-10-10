@@ -1,0 +1,6 @@
+; BERT's WordPiece tokenizer, ASCII text only, as a pure library: a vocabulary
+; and a sentence in, token ids out. Nothing here reads a file or the network.
+
+(library
+ (name wordpiece)
+ (libraries fmt))

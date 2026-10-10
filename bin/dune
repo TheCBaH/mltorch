@@ -346,3 +346,23 @@
   pt2_fixture_replay
   pt2_fixture_unix
   unix))
+
+; A bounded raw-input example for the BERT-tiny text encoder: a pinned
+; vocabulary, an ASCII tokenizer, the verified graph. See the file's header for
+; what it does and does not establish.
+
+(executable
+ (name transformers_text_demo)
+ (modules transformers_text_demo)
+ (libraries
+  err_trace
+  fmt
+  jsont
+  jsont.bytesrw
+  native
+  native_interp
+  pt2
+  pt2_fixture
+  pt2_fixture_unix
+  pt2_sha256
+  wordpiece))

@@ -231,6 +231,46 @@ let process_node ~limits ~fill ~pixel (gr : graph) (env, stages, stages_i64)
       let pixel = Expr.Builder.run (C.pixel ~scalar x_sig Symbolic.out_vec) in
       let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
       (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+  (* The Symbolic twins of the exact int64 data-movement arms in [Eval_direct]. *)
+  | Clone { Pointwise.Clone.x }, [ (_, oid) ]
+    when is_i64 (operand x).Tensor_sig.fmt ->
+      let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+      let x_sig = operand x in
+      let module C = Pointwise.Clone.Compute_i64 (Symbolic) (Symbolic) in
+      let pixel = Expr.Builder.run (C.pixel x_sig Symbolic.out_vec) in
+      let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
+      (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+  | Expand { Pointwise.Expand.params = _; x }, [ (_, oid) ]
+    when is_i64 (operand x).Tensor_sig.fmt ->
+      let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+      let x_sig = operand x in
+      let module C = Pointwise.Expand.Compute_i64 (Symbolic) (Symbolic) in
+      let pixel =
+        Expr.Builder.run
+          (C.pixel ~x_shape:x_sig.Tensor_sig.shape x_sig Symbolic.out_vec)
+      in
+      let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
+      (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+  | Repeat { Repeat.Repeat.params = _; x }, [ (_, oid) ]
+    when is_i64 (operand x).Tensor_sig.fmt ->
+      let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+      let x_sig = operand x in
+      let module C = Repeat.Repeat.Compute_i64 (Symbolic) (Symbolic) in
+      let pixel =
+        Expr.Builder.run
+          (C.pixel ~x_shape:x_sig.Tensor_sig.shape x_sig Symbolic.out_vec)
+      in
+      let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
+      (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
+  | RepeatInterleave { Repeat.RepeatInterleave.params; x }, [ (_, oid) ]
+    when is_i64 (operand x).Tensor_sig.fmt ->
+      let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+      let x_sig = operand x in
+      let module C = Repeat.RepeatInterleave.Compute_i64 (Symbolic) (Symbolic)
+      in
+      let pixel = Expr.Builder.run (C.pixel params x_sig Symbolic.out_vec) in
+      let st = { Stage_program.Stage_i64.id = oid; sg = out_sig; pixel } in
+      (Tensor_id.Map.add oid out_sig env, stages, st :: stages_i64)
   (* The Symbolic twin of [Eval_direct]'s dtype-preserving [Slice]: same
        [Compute_i64 (Symbolic) (Symbolic)] shape as [Permute] above. *)
   | Slice { Split.Slice.params; x }, [ (_, oid) ]

@@ -713,7 +713,7 @@ Measured, each row preserved as run (tolerances and references unchanged):
 | SmolLM2 prefill | 174 and 1,880 of 196,608 logits over (max 7.4e-5) | 1,974 and 2,685 over, plus K/V |
 | TinyCLIP text tower | pass (after `argmax` and the int32 cast, below) | not run |
 | TinyCLIP forward (both towers + logits) | pass (adds `exp`, `t`) | not run |
-| Whisper prefill | not run | |
+| Whisper-tiny prefill | pass (after exact int64 `repeat`) | not run |
 | T5-small encoder, forward, prefill, decode h4 | refused (cast of an infinite value) | not run; **pass** under `+saturating-casts` (see below) |
 | Whisper-tiny encoder | 16 and 18 of 576,000 elements over | not run |
 
@@ -796,3 +796,35 @@ did. A scalar spelled as a whole float takes the same path, which differs from
 ATen only in the dtype tag. The replay boundary also changed: a failure the
 evaluator raises mid-run is now recorded as the artifact's refusal, by kind, rather
 than ending the process.
+
+## 26. Exact int64 data movement, and a bounded text example
+
+**Data movement keeps an int64 operand exact.** `clone`, `expand`, `repeat` and
+`repeat_interleave` now join `reshape`, `permute`, `slice` and `unbind`: an int64
+input gives an int64 edge and is copied through `Compute_i64`, never the float
+domain. The failure that exposed it was Whisper prefill: a `repeat` of position
+ids gave a float32 edge, and the next integer consumer refused it. With it fixed
+Whisper prefill passes both published cases.
+
+**A bounded text example, deliberately not a task-ready claim.** The plan asks for a
+raw-input example that produces the expected tensors under pinned assets, and
+the release cannot supply the expected tensors: its BERT-tiny cases hold random
+vocabulary ids with a fixed mask, its vision cases one seeded normal stream. What
+exists is a chain whose links are each checked as far as this environment allows.
+
+- The pinned assets are `vocab.txt` at the checkpoint's revision (its sha256 is
+  checked before every use) and `config.json`, whose digest equals the one in the
+  artifact's contract.
+- `lib/wordpiece` is BERT's basic tokenizer and WordPiece for ASCII text, with
+  non-ASCII input and the special-token spellings refused rather than guessed.
+  It agrees with an independent Python implementation of the same specification
+  on 421 sentences against the real vocabulary. That is two implementations of a
+  documented algorithm agreeing; it is not the reference tokenizer, which is not
+  available here, and a disagreement with it could still exist.
+- The model is the verified BERT-tiny graph (both published cases pass).
+- The end-to-end embedding has no producer reference. BERT-tiny's pooler output
+  also saturates near +-1, so cosines between pooled vectors are not a similarity
+  measure; the example prints them only to show the pipeline runs.
+
+So the example demonstrates the path from text to tensors to outputs, and the
+claim stops there.

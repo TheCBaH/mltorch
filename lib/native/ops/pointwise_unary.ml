@@ -257,6 +257,20 @@ module Clone = struct
     let pixel x (out : Semantics.position S.index Vec6.t) = S.load x out
   end
 
+  (* Exact int64 counterpart: the same read through [T.i64_load], so an int64
+     tensor is copied without a trip through the float domain. *)
+  module Compute_i64
+      (S : Semantics.SEMANTICS)
+      (T : sig
+        type 'a repr
+
+        val i64_load :
+          S.input -> Semantics.position S.index Vec6.t -> int64 repr
+      end) =
+  struct
+    let pixel x (out : Semantics.position S.index Vec6.t) = T.i64_load x out
+  end
+
   module Walk (L : Walk_core.Limits.S) = struct
     type cfg = { shape : Walk_core.Shape.t }
 
@@ -350,6 +364,22 @@ module Expand = struct
     let pixel ~(x_shape : Vec6.shape) x
         (out : Semantics.position S.index Vec6.t) =
       S.load x
+        (Pointwise_binary.broadcast_coord ~index_zero:S.index_zero x_shape out)
+  end
+
+  (* Exact int64 counterpart: the same broadcast read through [T.i64_load]. *)
+  module Compute_i64
+      (S : Semantics.SEMANTICS)
+      (T : sig
+        type 'a repr
+
+        val i64_load :
+          S.input -> Semantics.position S.index Vec6.t -> int64 repr
+      end) =
+  struct
+    let pixel ~(x_shape : Vec6.shape) x
+        (out : Semantics.position S.index Vec6.t) =
+      T.i64_load x
         (Pointwise_binary.broadcast_coord ~index_zero:S.index_zero x_shape out)
   end
 end

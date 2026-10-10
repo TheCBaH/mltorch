@@ -1,4 +1,4 @@
-.PHONY: transformers.gate transformers.matrix transformers.admission transformers.download transformers.open transformers.replay compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
+.PHONY: transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open transformers.replay compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean machine.a64.conformance machine.pt2.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
@@ -200,6 +200,27 @@ TRANSFORMERS_GATE_ARTIFACTS = \
 transformers.gate:
 	$(MAKE) transformers.download TRANSFORMERS_ARTIFACTS="$(TRANSFORMERS_GATE_ARTIFACTS)"
 	$(MAKE) transformers.replay TRANSFORMERS_ARTIFACTS="$(TRANSFORMERS_GATE_ARTIFACTS)"
+
+# The bounded BERT-tiny text example. VOCAB is the pinned vocab.txt
+# (data/transformers/text-assets.json names its URL and sha256); the tools check
+# its digest before using it. `check` compares lib/wordpiece with an independent
+# implementation on a sentence list (one per line); `demo` tokenizes sentences,
+# runs the verified graph and prints pooled embeddings and cosines. Neither is a
+# task-ready claim: see the header of bin/transformers_text_demo.ml.
+#   make transformers.text.check VOCAB=vocab.txt SENTENCES=sentences.txt
+#   make transformers.text.demo VOCAB=vocab.txt SENTENCES="--lines sentences.txt"
+TRANSFORMERS_TEXT_ASSETS ?= data/transformers/text-assets.json
+transformers.text.check:
+	@test -n "$(VOCAB)" -a -n "$(SENTENCES)" || { echo "set VOCAB and SENTENCES" >&2; exit 2; }
+	mkdir -p $(TRANSFORMERS_REPORTS)
+	python3 -I scripts/transformers-wordpiece-check.py $(VOCAB) 16 < $(SENTENCES) > $(TRANSFORMERS_REPORTS)/ids.python.txt
+	opam exec -- dune exec bin/transformers_text_demo.exe -- --ids $(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) $(TRANSFORMERS_TEXT_ASSETS) $(VOCAB) --lines $(SENTENCES) > $(TRANSFORMERS_REPORTS)/ids.ocaml.txt
+	cmp $(TRANSFORMERS_REPORTS)/ids.python.txt $(TRANSFORMERS_REPORTS)/ids.ocaml.txt
+	@echo "tokenizers agree on $$(wc -l < $(TRANSFORMERS_REPORTS)/ids.ocaml.txt) sentences"
+
+transformers.text.demo:
+	@test -n "$(VOCAB)" || { echo "set VOCAB and SENTENCES" >&2; exit 2; }
+	opam exec -- dune exec bin/transformers_text_demo.exe -- $(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) $(TRANSFORMERS_TEXT_ASSETS) $(VOCAB) $(SENTENCES)
 
 # The aggregate matrix over stored replay reports: one row per artifact and
 # backend, "not run" where there is no report. Offline.

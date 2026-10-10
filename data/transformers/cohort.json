@@ -738,6 +738,60 @@
     },
     {
       "archive": {
+        "name": "t5-small--text-encoder-decoder--reference--decode--fp32--dynamo--static-h8--ckpt-df1b051c4962.tar.gz",
+        "sha256": "38cd40e576acb9a7fab1dae3a0bede1533c4ac4784d5ef544ed7f897ff764227",
+        "size": 2545170,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/t5-small--text-encoder-decoder--reference--decode--fp32--dynamo--static-h8--ckpt-df1b051c4962.tar.gz"
+      },
+      "artifact_id": "t5-small/text-encoder-decoder/reference/decode/fp32/dynamo/static-h8/ckpt-df1b051c4962",
+      "capture_count": 160,
+      "cases": [
+        "case-00",
+        "case-01"
+      ],
+      "contract_sha256": "ca2fb3d0cc50ad91fceaedeb8fa03f1a97adb41c2132482a87dbadd8a7d5510d",
+      "graph_sha256": "21a98229b64bc7acda4f0a6a8f2f42bcf54a36d2ff242453cb8eec3920f82023",
+      "manifest": {
+        "name": "t5-small--text-encoder-decoder--reference--decode--fp32--dynamo--static-h8--ckpt-df1b051c4962.manifest.json",
+        "sha256": "aeca2743e32d53afd4fc6e36a2312d6f7ab60e0cbb3f0ce9f4b1bbb1b16af231",
+        "size": 3035,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/t5-small--text-encoder-decoder--reference--decode--fp32--dynamo--static-h8--ckpt-df1b051c4962.manifest.json"
+      },
+      "map_member": "models/safetensors.v2.json",
+      "map_sha256": "68617e61e06915fcd76c2185c0fa837d1d4cfe48b3862cbbb114a6067bb7c70d",
+      "map_sources": {
+        "checkpoint": {
+          "files": [
+            {
+              "name": "model.safetensors",
+              "repo_id": "google-t5/t5-small",
+              "revision": "df1b051c49625cf57a3d0d8d3863ed4d13564fe4",
+              "sha256": "bd944e5f1b3ad9b70dd9d00010a517059e19265671076b8b0a4a58d9491842bc",
+              "size": 242043056,
+              "url": "https://huggingface.co/google-t5/t5-small/resolve/df1b051c49625cf57a3d0d8d3863ed4d13564fe4/model.safetensors"
+            }
+          ]
+        }
+      },
+      "released_sources": [],
+      "role": "encoder-decoder decode at history 8",
+      "weight_source": {
+        "config_sha256": "530e25060e3a8d5f7b0fcf53bfea9f3601165161f3b1914676e98d97cf07bcf1",
+        "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
+        "files": {
+          "model.safetensors": {
+            "sha256": "bd944e5f1b3ad9b70dd9d00010a517059e19265671076b8b0a4a58d9491842bc",
+            "size": 242043056
+          }
+        },
+        "kind": "checkpoint",
+        "pinned_config_match": true,
+        "repo": "google-t5/t5-small",
+        "revision": "df1b051c49625cf57a3d0d8d3863ed4d13564fe4"
+      }
+    },
+    {
+      "archive": {
         "name": "whisper-tiny--audio-encoder-decoder--reference--encoder--fp32--dynamo--static--ckpt-169d4a4341b3.tar.gz",
         "sha256": "aa81b47d1ca263988a08a549e046fd8d09798ac920c56e2bb52d5e87e19f32f9",
         "size": 6088857,

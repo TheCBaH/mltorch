@@ -248,6 +248,71 @@ let compute_arms (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
                   ~operand:(fun r -> Tensor_id.Map.find r operand_env)
                   ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
                   ~fill)))
+  (* Data movement over an int64 operand copies exactly: [Clone], [Expand],
+     [Repeat] and [RepeatInterleave] read through [Compute_i64], as [Reshape]
+     and [Slice] do. Any other format keeps the float pixel path. *)
+  | Clone { Pointwise.Clone.x } -> (
+      let x_sig = Tensor_id.Map.find x g.Graph.tensors in
+      match x_sig.Tensor_sig.fmt with
+      | Payload.Fmt Payload.I64 ->
+          let module C = Pointwise.Clone.Compute_i64 (Direct) (Direct) in
+          let x_t = Tensor_id.Map.find x operand_env in
+          finish dst (Tensor.write_i64 dst (fun coord -> C.pixel x_t coord))
+      | _ ->
+          finish dst
+            (Schedule.evaluate_into dst
+               (E.pixel op ~output
+                  ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                  ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                  ~fill)))
+  | Expand { Pointwise.Expand.params = _; x } -> (
+      let x_sig = Tensor_id.Map.find x g.Graph.tensors in
+      match x_sig.Tensor_sig.fmt with
+      | Payload.Fmt Payload.I64 ->
+          let module C = Pointwise.Expand.Compute_i64 (Direct) (Direct) in
+          let x_t = Tensor_id.Map.find x operand_env in
+          let x_shape = Tensor_id.Map.find x shape_env in
+          finish dst
+            (Tensor.write_i64 dst (fun coord -> C.pixel ~x_shape x_t coord))
+      | _ ->
+          finish dst
+            (Schedule.evaluate_into dst
+               (E.pixel op ~output
+                  ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                  ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                  ~fill)))
+  | Repeat { Repeat.Repeat.params = _; x } -> (
+      let x_sig = Tensor_id.Map.find x g.Graph.tensors in
+      match x_sig.Tensor_sig.fmt with
+      | Payload.Fmt Payload.I64 ->
+          let module C = Repeat.Repeat.Compute_i64 (Direct) (Direct) in
+          let x_t = Tensor_id.Map.find x operand_env in
+          let x_shape = Tensor_id.Map.find x shape_env in
+          finish dst
+            (Tensor.write_i64 dst (fun coord -> C.pixel ~x_shape x_t coord))
+      | _ ->
+          finish dst
+            (Schedule.evaluate_into dst
+               (E.pixel op ~output
+                  ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                  ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                  ~fill)))
+  | RepeatInterleave { Repeat.RepeatInterleave.params; x } -> (
+      let x_sig = Tensor_id.Map.find x g.Graph.tensors in
+      match x_sig.Tensor_sig.fmt with
+      | Payload.Fmt Payload.I64 ->
+          let module C = Repeat.RepeatInterleave.Compute_i64 (Direct) (Direct)
+          in
+          let x_t = Tensor_id.Map.find x operand_env in
+          finish dst
+            (Tensor.write_i64 dst (fun coord -> C.pixel params x_t coord))
+      | _ ->
+          finish dst
+            (Schedule.evaluate_into dst
+               (E.pixel op ~output
+                  ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                  ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                  ~fill)))
   (* Dtype-preserving Slice, the same shape as Permute above: an I64 source is
      sliced through [Compute_i64]/[i64_load], exact beyond 2^53; every other
      format keeps the float pixel path. *)
