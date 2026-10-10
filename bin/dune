@@ -376,6 +376,31 @@
   pt2_fixture_unix
   unix))
 
+; Pinned producer-owned task and diagnostic data, verified without Python.
+
+(executable
+ (name transformers_policies)
+ (modules transformers_policies)
+ (libraries
+  err_trace
+  fmt
+  transformers_metadata
+  transformers_reports
+  pt2_fixture_unix))
+
+(executable
+ (name transformers_tasks)
+ (modules transformers_tasks)
+ (libraries
+  err_trace
+  fmt
+  jsont
+  transformers_metadata
+  transformers_tasks
+  pt2_fixture
+  pt2_fixture_unix
+  unix))
+
 ; A bounded raw-input example for the BERT-tiny text encoder: a pinned
 ; vocabulary, an ASCII tokenizer, the verified graph. See the file's header for
 ; what it does and does not establish.

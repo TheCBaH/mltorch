@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "fixtures": [
+    {
+      "fixture_id": "smollm2-135m/text-decoder/reference/prefill/fp32/dynamo/static/ckpt-12fd25f77366/task/smollm2-135m-prefill-diagnostic-v1/9501771afc0d26eb50c546bd9d2839325200fe14d212b8158c47e5a7368f61e2/generator/b6daf1af4152d7d14f0764de1d580dc26aa73d98/request/c564bb4b0d836a759d10626808c6973b722ffa303e9bb2551c0fe87359063c74",
+      "generator": "b6daf1af4152d7d14f0764de1d580dc26aa73d98",
+      "index": {
+        "name": "task-fixtures.json",
+        "sha256": "19649ac9b543aa506302ea6b297f39976d489090f2d9dc9135e56d05bc02ac7a",
+        "size": 15262,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/task-fixtures-b6daf1af4152-c564bb4b0d83/task-fixtures.json"
+      }
+    },
+    {
+      "fixture_id": "smolvlm-256m/image-text-generation/reference/decode/fp32/dynamo/dynamic/ckpt-7e3e67edbbed/task/smolvlm-256m-decode-diagnostic-v1/b949094135f35faef0bda559f4690ee47afe636a7fd33999d9c05609d7a1152a/generator/b6daf1af4152d7d14f0764de1d580dc26aa73d98/request/c564bb4b0d836a759d10626808c6973b722ffa303e9bb2551c0fe87359063c74",
+      "generator": "b6daf1af4152d7d14f0764de1d580dc26aa73d98",
+      "index": {
+        "name": "task-fixtures.json",
+        "sha256": "19649ac9b543aa506302ea6b297f39976d489090f2d9dc9135e56d05bc02ac7a",
+        "size": 15262,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/task-fixtures-b6daf1af4152-c564bb4b0d83/task-fixtures.json"
+      }
+    },
+    {
+      "fixture_id": "whisper-tiny/audio-encoder-decoder/reference/decode/fp32/dynamo/dynamic/ckpt-169d4a4341b3/task/whisper-tiny-decode-diagnostic-v1/c029a54a177e0bdbb447e2b49f0f4f1250c507c5229553417147f159b3c41ec5/generator/b6daf1af4152d7d14f0764de1d580dc26aa73d98/request/c564bb4b0d836a759d10626808c6973b722ffa303e9bb2551c0fe87359063c74",
+      "generator": "b6daf1af4152d7d14f0764de1d580dc26aa73d98",
+      "index": {
+        "name": "task-fixtures.json",
+        "sha256": "19649ac9b543aa506302ea6b297f39976d489090f2d9dc9135e56d05bc02ac7a",
+        "size": 15262,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/task-fixtures-b6daf1af4152-c564bb4b0d83/task-fixtures.json"
+      }
+    }
+  ]
+}
