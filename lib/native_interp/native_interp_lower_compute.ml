@@ -232,11 +232,12 @@ let dispatch ~ctx ~env (node : Node.t) =
          treatment of the optional operands (NO ones/zeros tensors when
          absent, for the reason the [layer_norm] arm below states). *)
        | "torch.ops.aten.group_norm.default" ->
-           let* x = permute perm_nchw_to_nhwc (get "input") in
+           let x_name = tensor_name esc node "input" in
+           let to_nhwc, to_nchw = group_norm_perms esc graph ~tensor:x_name in
+           let* x = permute to_nhwc (get "input") in
            let num_groups = int_arg esc node "num_groups" in
            let eps = float_arg esc ~default:1e-05 node "eps" in
-           (* Decoded, not ignored, then discarded -- matching the bridge and
-             matching ATen: a non-boolean here is a malformed node. *)
+           (* Decoded then discarded, as the bridge and ATen do. *)
            let (_ : bool) = bool_arg esc ~default:true node "cudnn_enabled" in
            let groups =
              pos esc ~op:"group_norm.default" ~param:`Groups num_groups
@@ -255,7 +256,7 @@ let dispatch ~ctx ~env (node : Node.t) =
                ?bias:(affine "bias" `Group_norm_bias)
                ()
            in
-           let* y = permute perm_nhwc_to_nchw y in
+           let* y = permute to_nchw y in
            return [ y ]
        (* [normalized_shape] is validated against the input, which is the check
          the bridge is missing: it reads only the LENGTH (op_bridge.ml:899) and

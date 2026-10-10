@@ -17,6 +17,7 @@ open Native_interp_decode_shape
 let targets =
   [
     "torch.ops.aten.__and__.Tensor";
+    "torch.ops.aten._weight_norm.default";
     "torch.ops.aten.eq.Scalar";
     "torch.ops.aten.eq.Tensor";
     "torch.ops.aten.exp.default";
@@ -50,6 +51,23 @@ let dispatch ~ctx ~env (node : Node.t) =
        match node.target with
        | "torch.ops.aten.__and__.Tensor" ->
            let* y = bitwise_and (get "self") (get "other") in
+           return [ y ]
+       (* `_weight_norm(Tensor v, Tensor g, int dim=0)`: the weight a
+          `weight_norm` parametrization recomputes. [dim] names the one
+          dimension the norm keeps. *)
+       | "torch.ops.aten._weight_norm.default" ->
+           let v_name = tensor_name esc node "v" in
+           let rank =
+             meta_rank
+               (tensor_meta esc graph ~ssa:v_name ~role:`Weight_norm_input)
+           in
+           let d = normalize_dim esc ~rank (dim_arg esc node "dim") in
+           let axis = List.nth (used_axes_for esc ~tensor:v_name rank) d in
+           let* y =
+             weight_norm
+               { Weight_norm.Weight_norm.axis }
+               ~v:(get "v") ~g:(get "g")
+           in
            return [ y ]
        | "torch.ops.aten.eq.Scalar" ->
            let* y = eq_scalar (scalar ()) (get "self") in

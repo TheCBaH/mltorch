@@ -889,7 +889,7 @@ let lower_node ~view acc (n : node) =
      [Softmax]/[Batched_matmul]/[Sdpa]/[Index_tensor]/[Lstm]/[Meshgrid] no
      longer join them: all twelve now have real conversion arms above. *)
   | Argmax _ | Bitwise_and _ | Conv3d _ | Exp _ | Full_like _ | Log _ | Log1p _
-  | Min_other _ | Where_self _ | Discard _ | Embedding _ | Ge_scalar _
-  | Index_pair _ | Le_tensor _ | Lt_scalar _ | New_ones _ | Tanh _ | Unfold _
-  | Where_scalar_other _ ->
+  | Min_other _ | Where_self _ | Weight_norm _ | Discard _ | Embedding _
+  | Ge_scalar _ | Index_pair _ | Le_tensor _ | Lt_scalar _ | New_ones _ | Tanh _
+  | Unfold _ | Where_scalar_other _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))

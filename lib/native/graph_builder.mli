@@ -490,6 +490,15 @@ val upsample_nearest2d :
 val vector_norm :
   ?name:string -> Reduce.Vector_norm.params -> tensor_ref -> Tensor_id.t t
 
+(* `_weight_norm(v, g, dim)`: [v * (g / ||v||)], the norm over every axis but
+   one. *)
+val weight_norm :
+  ?name:string ->
+  Weight_norm.Weight_norm.params ->
+  v:tensor_ref ->
+  g:tensor_ref ->
+  Tensor_id.t t
+
 (* [where.ScalarOther(condition, self, other)]: [x] where [condition] holds,
    the scalar elsewhere; the two tensors broadcast. *)
 val where_scalar_other :

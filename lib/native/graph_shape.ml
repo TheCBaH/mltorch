@@ -601,6 +601,13 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* x_shape = shape x in
       let+ out = widen (Reduce.Vector_norm.output_shape ~x_shape params) in
       [ out ]
+  | Weight_norm { Weight_norm.Weight_norm.params; v; g } ->
+      let* v_shape = shape v in
+      let* g_shape = shape g in
+      let+ out =
+        widen (Weight_norm.Weight_norm.output_shape ~v_shape ~g_shape params)
+      in
+      [ out ]
   | Where_scalar_other { Pointwise.Where_scalar_other.condition; x; _ } ->
       let* condition_shape = shape condition in
       let* x_shape = shape x in

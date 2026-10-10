@@ -593,6 +593,12 @@ let op_registry : (module OP) list =
       let project = function Vector_norm t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Weight_norm.Weight_norm
+
+      let inject t = Weight_norm t
+      let project = function Weight_norm t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Pointwise.Where_scalar_other
 
       let inject t = Where_scalar_other t

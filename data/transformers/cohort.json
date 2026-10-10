@@ -792,6 +792,60 @@
     },
     {
       "archive": {
+        "name": "wav2vec2-base--audio-ctc--reference--forward--fp32--dynamo--static--ckpt-22aad52d435e.tar.gz",
+        "sha256": "c5978d849d864a956dbbaa058b488009cff139bdca8e02461d4a518eedb387c6",
+        "size": 67916,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/wav2vec2-base--audio-ctc--reference--forward--fp32--dynamo--static--ckpt-22aad52d435e.tar.gz"
+      },
+      "artifact_id": "wav2vec2-base/audio-ctc/reference/forward/fp32/dynamo/static/ckpt-22aad52d435e",
+      "capture_count": 214,
+      "cases": [
+        "case-00",
+        "case-01"
+      ],
+      "contract_sha256": "ad322a75288cb90e73ba2fc3d96666bb0c045d098dbe9aaacfadd86d4e0a5022",
+      "graph_sha256": "6a2c41cfc19b4e736cbf39c907ac28defc05d0288cb8103e981eb28b07550092",
+      "manifest": {
+        "name": "wav2vec2-base--audio-ctc--reference--forward--fp32--dynamo--static--ckpt-22aad52d435e.manifest.json",
+        "sha256": "3dc134eb595a8c2dc5c13788b950b857f09e7204de69cdd264b18dbd4c493421",
+        "size": 3017,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/wav2vec2-base--audio-ctc--reference--forward--fp32--dynamo--static--ckpt-22aad52d435e.manifest.json"
+      },
+      "map_member": "models/safetensors.v2.json",
+      "map_sha256": "b49c6af88fb64c71a4ec53b22d9b2160579b5f6013db726f80177ae22efcbfa6",
+      "map_sources": {
+        "checkpoint": {
+          "files": [
+            {
+              "name": "model.safetensors",
+              "repo_id": "facebook/wav2vec2-base-960h",
+              "revision": "22aad52d435eb6dbaf354bdad9b0da84ce7d6156",
+              "sha256": "8aa76ab2243c81747a1f832954586bc566090c83a0ac167df6f31f0fa917d74a",
+              "size": 377607901,
+              "url": "https://huggingface.co/facebook/wav2vec2-base-960h/resolve/22aad52d435eb6dbaf354bdad9b0da84ce7d6156/model.safetensors"
+            }
+          ]
+        }
+      },
+      "released_sources": [],
+      "role": "audio CTC",
+      "weight_source": {
+        "config_sha256": "d3ec255c063d9f95057b553b19c20135b259875834a4fe9deb218a6be25b4cf3",
+        "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
+        "files": {
+          "model.safetensors": {
+            "sha256": "8aa76ab2243c81747a1f832954586bc566090c83a0ac167df6f31f0fa917d74a",
+            "size": 377607901
+          }
+        },
+        "kind": "checkpoint",
+        "pinned_config_match": true,
+        "repo": "facebook/wav2vec2-base-960h",
+        "revision": "22aad52d435eb6dbaf354bdad9b0da84ce7d6156"
+      }
+    },
+    {
+      "archive": {
         "name": "whisper-tiny--audio-encoder-decoder--reference--encoder--fp32--dynamo--static--ckpt-169d4a4341b3.tar.gz",
         "sha256": "aa81b47d1ca263988a08a549e046fd8d09798ac920c56e2bb52d5e87e19f32f9",
         "size": 6088857,

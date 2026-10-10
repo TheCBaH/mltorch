@@ -701,3 +701,34 @@ let%expect_test "int64 data movement keeps the dtype and values past 2^53" =
     expand [2] -> [3, 2]: i64 [W=3 C=2] {9007199254740993, -7, 9007199254740993, -7, 9007199254740993, -7}
     repeat x2: i64 [C=4] {9007199254740993, -7, 9007199254740993, -7}
     repeat_interleave x2: i64 [C=4] {9007199254740993, 9007199254740993, -7, -7} |}]
+
+(* `_weight_norm`: w = v * (g / ||v||), the norm over every axis but one. With
+   v = [[3, 0], [4, 5]] (rows on W, columns on C) and the kept axis C, the column
+   norms are 5 and 5; g = (10, 20) scales them to 2 and 4. *)
+let%expect_test "weight_norm keeps one axis and normalizes over the rest" =
+  let v_shape = s 1 1 1 1 2 2 and g_shape = s1c 2 in
+  let v = floats v_shape [ 3.; 0.; 4.; 5. ] in
+  let g = floats g_shape [ 10.; 20. ] in
+  show "norm over W, kept C"
+    (run
+       ~inputs:[ (v_shape, f32, v); (g_shape, f32, g) ]
+       (function
+         | [ v; g ] ->
+             Graph_builder.weight_norm
+               { Weight_norm.Weight_norm.axis = Axis.C }
+               ~v ~g
+         | _ -> assert false));
+  show "a g of the wrong extent is refused"
+    (run
+       ~inputs:
+         [ (v_shape, f32, v); (s1c 3, f32, floats (s1c 3) [ 1.; 1.; 1. ]) ]
+       (function
+         | [ v; g ] ->
+             Graph_builder.weight_norm
+               { Weight_norm.Weight_norm.axis = Axis.C }
+               ~v ~g
+         | _ -> assert false));
+  [%expect
+    {|
+    norm over W, kept C: f32 [W=2 C=2] {6, 0, 8, 20}
+    a g of the wrong extent is refused: incompatible broadcast extents on axis C: 2 vs 3 |}]

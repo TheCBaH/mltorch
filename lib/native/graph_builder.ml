@@ -920,6 +920,10 @@ let build ?(dtype = f32) ~name:_ ~outputs (m : 'a t) =
             outputs = outputs a;
           }
 
+let weight_norm ?name params ~v ~g =
+  op1 ?name ~kind:"weight_norm"
+    (Weight_norm { Weight_norm.Weight_norm.params; v; g })
+
 (* [where.ScalarOther]: the result takes [x]'s float format, so the default
    F32 edge applies. *)
 let where_scalar_other ?name ~condition scalar x =

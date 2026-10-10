@@ -367,3 +367,53 @@ let%expect_test "log1p, and squeeze.default drops every extent-1 axis" =
       reshape x=t0 params={shape=[C=1]}
     [2,3] unchanged
       reshape x=t0 params={shape=[W=2 C=3]} |}]
+
+let%expect_test
+    "_weight_norm lowers to one node; group_norm takes a [N, C, L] input" =
+  let prog nodes extra out =
+    program ~x_sizes:[ 2; 3 ] ~params:[ "g" ]
+      ~extra_tensor_values:([ ("g", meta [ 3 ]); ("y", meta out) ] @ extra)
+      ~nodes
+      ~graph_outputs:[ as_tensor "y" ]
+      ()
+  in
+  dump "_weight_norm dim 1"
+    (prog
+       [
+         node "_weight_norm.default"
+           [ tin "v" "x"; tin "g" "g"; int_in "dim" 1 ]
+           "y";
+       ]
+       [] [ 2; 3 ]);
+  let gn =
+    program ~x_sizes:[ 1; 4; 6 ] ~params:[ "w"; "b" ]
+      ~extra_tensor_values:
+        [ ("w", meta [ 4 ]); ("b", meta [ 4 ]); ("y", meta [ 1; 4; 6 ]) ]
+      ~nodes:
+        [
+          node "group_norm.default"
+            [
+              tin "input" "x";
+              int_in "num_groups" 2;
+              tin "weight" "w";
+              tin "bias" "b";
+              float_in "eps" 1e-5;
+            ]
+            "y";
+        ]
+      ~graph_outputs:[ as_tensor "y" ]
+      ()
+  in
+  dump "group_norm on [1, 4, 6]" gn;
+  [%expect
+    {|
+    _weight_norm dim 1
+      weight_norm v=t0 g=t1 params={axis=C}
+    group_norm on [1, 4, 6]
+      permute x=t0 perm=[W<-C, C<-W]
+      group_norm
+        x=t3 <-n0
+        weight=t1
+        bias=t2
+        params={channel=C; groups=2; eps=1e-05}
+      permute x=t4 <-n1 perm=[W<-C, C<-W] |}]

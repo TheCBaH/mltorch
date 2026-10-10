@@ -78,6 +78,7 @@ type metadata_role =
   | `Embedding_weight
   | `Expand_input
   | `Group_norm_bias
+  | `Group_norm_input
   | `Group_norm_weight
     (** [layer_norm]'s and [group_norm]'s optional affine operands are read for
         their declared RANK, for the same reason [`Rms_norm_weight] is. Separate
@@ -147,6 +148,7 @@ type metadata_role =
   | `Unbind_input
   | `Unfold_input
   | `Unsqueeze_input
+  | `Weight_norm_input
   | `Upsample_bicubic2d_input
   | `Upsample_bilinear2d_input
   | `Upsample_nearest2d_input

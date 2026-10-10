@@ -160,6 +160,33 @@ let compute_arms (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
                   ~operand:(fun r -> Tensor_id.Map.find r operand_env)
                   ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
                   ~fill)))
+  (* [Weight_norm]: the norm over every axis but [axis] is computed once per
+     position along it, not once per element -- the generic pixel re-sums the
+     whole tensor for each output and is only the definition. Squares are
+     accumulated in binary64 and the quotient taken per element, as that pixel
+     does. *)
+  | Weight_norm { Weight_norm.Weight_norm.params; v; g } ->
+      let v_t = Tensor_id.Map.find v operand_env in
+      let g_t = Tensor_id.Map.find g operand_env in
+      let v_shape = Tensor_id.Map.find v shape_env in
+      let axis = params.Weight_norm.Weight_norm.axis in
+      let extent = (Vec6.get v_shape axis :> int) in
+      let sums = Array.make extent 0. in
+      Vec6.iter v_shape (fun c ->
+          let k = (Vec6.get c axis :> int) in
+          let x = Direct.load v_t c in
+          sums.(k) <- sums.(k) +. (x *. x));
+      finish dst
+        (Tensor.write_float dst (fun coord ->
+             let k = (Vec6.get coord axis :> int) in
+             let g_at =
+               Direct.load g_t
+                 (Vec6.mapi
+                    (fun a i ->
+                      if Axis.equal a axis then i else Direct.index_zero)
+                    coord)
+             in
+             Direct.load v_t coord *. (g_at /. sqrt sums.(k))))
   (* [Full_like] writes its fill in [x]'s own format; an int64 fill must be a
      whole number, never silently truncated. *)
   | Full_like { Pointwise.Full_like.value; _ } -> (

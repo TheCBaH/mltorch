@@ -34,6 +34,7 @@ COHORT = [
     ("t5-small/text-encoder-decoder/reference/prefill/fp32/dynamo/static/ckpt-df1b051c4962", "encoder-decoder prefill, self/cross K/V"),
     ("time-series-small/time-series/reference/forward/fp32/dynamo/static/ckpt-2a40ad41f6ff", "time series"),
     ("t5-small/text-encoder-decoder/reference/decode/fp32/dynamo/static-h8/ckpt-df1b051c4962", "encoder-decoder decode at history 8"),
+    ("wav2vec2-base/audio-ctc/reference/forward/fp32/dynamo/static/ckpt-22aad52d435e", "audio CTC"),
     ("whisper-tiny/audio-encoder-decoder/reference/encoder/fp32/dynamo/static/ckpt-169d4a4341b3", "audio encoder"),
     ("whisper-tiny/audio-encoder-decoder/reference/prefill/fp32/dynamo/static/ckpt-169d4a4341b3", "encoder-decoder prefill, self/cross K/V"),
     ("smollm2-135m/text-decoder/reference/prefill/fp32/dynamo/static/ckpt-12fd25f77366", "decoder prefill, K/V cache"),

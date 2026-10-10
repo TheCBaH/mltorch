@@ -256,6 +256,24 @@ let native_perm esc ~tensor ~(rank : Rank.t) (dims : Aten_int.Dim.t list) =
         (List.nth used i, List.nth used n))
       dims
 
+(* The permutations that move a group-norm input's channel dimension (ATen's
+   dimension 1) onto the frame's innermost axis and back. Rank 4 keeps the
+   NCHW <-> NHWC pair every other NCHW operator uses; any other rank >= 3 moves
+   logical dimension 1 to the end, so a [N, C, L] sequence input (wav2vec2's
+   feature extractor) normalizes over its channels too. *)
+let group_norm_perms esc graph ~tensor =
+  let rank =
+    meta_rank (tensor_meta esc graph ~ssa:tensor ~role:`Group_norm_input)
+  in
+  let r = (rank :> int) in
+  if r = 4 then (perm_nchw_to_nhwc, perm_nhwc_to_nchw)
+  else
+    let dims l = List.map Aten_int.Dim.of_int l in
+    let forward = (0 :: List.init (r - 2) (fun i -> i + 2)) @ [ 1 ] in
+    let inverse = [ 0; r - 1 ] @ List.init (r - 2) (fun i -> i + 1) in
+    ( native_perm esc ~tensor ~rank (dims forward),
+      native_perm esc ~tensor ~rank (dims inverse) )
+
 (* Shares [Aten_shape.resolve_view_size] with [Op_bridge] rather than
    re-deriving the [-1] convention: op3-impl.md F1 found this resolver
    accepted an invalid target silently (two [-1]s, a numel mismatch, a

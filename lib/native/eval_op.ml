@@ -414,6 +414,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Vector_norm { Reduce.Vector_norm.params; x } ->
         let module C = Reduce.Vector_norm.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
+    | Weight_norm { Weight_norm.Weight_norm.params; v; g } ->
+        let module C = Weight_norm.Weight_norm.Compute (S) in
+        C.pixel params ~v_shape:(shape_of v) ~v:(operand v) ~g:(operand g) out
     | Where_scalar_other { Pointwise.Where_scalar_other.condition; scalar; x }
       ->
         let module C = Pointwise.Where_scalar_other.Compute (S) in

@@ -224,6 +224,7 @@ type op =
   | Upsample_bilinear2d of Resize.Bilinear2d.t
   | Upsample_nearest2d of Resize.Nearest2d.t
   | Vector_norm of Reduce.Vector_norm.t
+  | Weight_norm of Weight_norm.Weight_norm.t
   | Where_scalar_other of Pointwise.Where_scalar_other.t
   | Where_self of Pointwise.Where_self.t
   | Arange of Factory.Arange.t
