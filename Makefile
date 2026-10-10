@@ -153,16 +153,15 @@ pt2.json-model-support:
 	opam exec -- dune exec bin/pt2_json_model_support.exe -- \
 		$(PT2_JSON_MODELS_DIR) $(PT2_JSON_MODEL_SUPPORT)
 
-# Graph-only admission over a devcontainer.transformers checkout at the commit
-# pinned in scripts/transformers-admission.sh. Offline: acquiring the checkout
-# and the release fixtures (data/transformers/cohort.json) is separate. Output
-# is local evidence, never committed.
+# Graph-only admission checks the default producer checkout against the gitlink
+# and verifies catalogue member bytes. Initialize only the top-level producer:
+#   git submodule update --init modules/devcontainer.transformers
+# Offline; source graphs and released checkpoint fixtures are separate populations.
 #   make transformers.admission TRANSFORMERS_SOURCE=/path/to/checkout
-TRANSFORMERS_SOURCE ?=
+TRANSFORMERS_SOURCE ?= modules/devcontainer.transformers
 TRANSFORMERS_ADMISSION_OUT ?= _build/transformers-admission
 transformers.admission:
-	@test -n "$(TRANSFORMERS_SOURCE)" || { echo "set TRANSFORMERS_SOURCE" >&2; exit 2; }
-	scripts/transformers-admission.sh $(TRANSFORMERS_SOURCE) $(TRANSFORMERS_ADMISSION_OUT)
+	scripts/transformers-admission.sh "$(TRANSFORMERS_SOURCE)" "$(TRANSFORMERS_ADMISSION_OUT)"
 
 # The released checkpoint fixtures a cohort manifest pins (data/transformers/
 # cohort.json): every layer -- publication index, manifest, archive, checkpoint

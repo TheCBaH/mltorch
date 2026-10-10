@@ -45,3 +45,20 @@ The viewer's decoding, Native lowering, and verification run client-side in Java
 Model fixtures (`.pt2` exports, images, expected results) are downloaded from release
 assets of [`TheCBaH/devcontainer.pytorch-image-models`](https://github.com/TheCBaH/devcontainer.pytorch-image-models),
 the companion repo that produces them from [`pytorch-image-models`](https://github.com/huggingface/pytorch-image-models).
+
+Transformers graph admission consumes the pinned source submodule:
+
+```sh
+git submodule update --init modules/devcontainer.transformers
+make transformers.admission
+```
+
+Only the top-level producer checkout is needed for its JSON catalogue. Admission
+is offline, verifies the checkout pin and every catalogue file, and needs no
+Python or ML packages after the usual OCaml build setup. Reports are written to
+`_build/transformers-admission/`; set `TRANSFORMERS_ADMISSION_OUT` to retain them
+elsewhere. `TRANSFORMERS_SOURCE` can select an investigation checkout, subject to
+the same pin and integrity checks. These tiny random graphs are separate from
+the released checkpoint cohort. A source pin update must include an inventory
+diff and regenerated admission evidence; release and checkpoint pins are
+independent.

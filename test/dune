@@ -214,6 +214,10 @@
 (cram
  (applies_to jsont_explore_cram))
 
+(cram
+ (applies_to transformers_source)
+ (deps ../bin/transformers_source.exe ../scripts/transformers-admission.sh))
+
 ; model.json lives in an excluded git submodule; copy it via a shell rule
 ; (same pattern as data/dune for schema.yaml).
 

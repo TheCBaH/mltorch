@@ -1,51 +1,36 @@
 #!/bin/sh
-# Graph-only admission sweep over a devcontainer.transformers checkout.
-#
-#   scripts/transformers-admission.sh PRODUCER_DIR OUT_DIR
-#
-# PRODUCER_DIR must be at the producer commit pinned in data/transformers.
-# Writes OUT_DIR/admission.jsonl (one row per committed artifact) and
-# OUT_DIR/run.json (pins, consumer commit and workspace state). Offline.
+# Offline graph admission from the consumer's pinned producer gitlink.
+# scripts/transformers-admission.sh [PRODUCER_DIR [OUT_DIR]]
 set -eu
-producer=${1:?producer checkout}
-out=${2:?output directory}
 root=$(cd "$(dirname "$0")/.." && pwd)
-pin=81feca91b3d3ad032cb3c1ef28f4d5e1751c1d55
+producer=${1:-"$root/modules/devcontainer.transformers"}
+out=${2:-"$root/_build/transformers-admission"}
+fail() { echo "transformers admission: $*" >&2; exit 2; }
+pin=$(git -C "$root" ls-files --stage -- modules/devcontainer.transformers |
+  awk '$1 == "160000" && $3 == "0" {print $2}')
+[ -n "$pin" ] || fail "no producer gitlink in consumer index"
+[ -d "$producer" ] || fail "missing checkout; run git submodule update --init modules/devcontainer.transformers"
+producer=$(cd "$producer" && pwd -P)
+top=$(git -C "$producer" rev-parse --show-toplevel 2>/dev/null) ||
+  fail "uninitialized checkout; run git submodule update --init modules/devcontainer.transformers"
+[ "$top" = "$producer" ] || fail "uninitialized checkout; run git submodule update --init modules/devcontainer.transformers"
 have=$(git -C "$producer" rev-parse HEAD)
-if [ "$have" != "$pin" ]; then
-  echo "producer is at $have, expected $pin" >&2
-  exit 1
-fi
+[ "$have" = "$pin" ] || fail "producer is at $have, expected gitlink $pin; run git submodule update --init modules/devcontainer.transformers"
+dirty=$(git -C "$producer" status --porcelain --untracked-files=all)
+[ -z "$dirty" ] || fail "modified producer inputs: $dirty"
 mkdir -p "$out"
+out=$(cd "$out" && pwd -P)
 flat=$(mktemp -d)
-trap 'rm -rf "$flat"' EXIT
-# The tool reads a flat directory of artifacts; nested producer IDs map to
-# '--'-joined names.
-python3 -I - "$producer" "$flat" <<'PY'
-import json, sys
-from pathlib import Path
-source, flat = Path(sys.argv[1]).resolve(), Path(sys.argv[2])
-for row in json.loads((source / 'catalogue.json').read_text())['artifacts']:
-    (flat / row['artifact_id'].replace('/', '--')).symlink_to(
-        source / row['path'], target_is_directory=True)
-PY
+trap 'rm -rf "$flat"' EXIT HUP INT TERM
+# Compare actual catalogue bytes to the pinned tree even with assume-unchanged
+# or skip-worktree. Its member pins then prove the consumed artifact files.
+git -C "$producer" show "$pin:catalogue.json" > "$flat/catalogue.pinned"
+cmp -s "$producer/catalogue.json" "$flat/catalogue.pinned" || fail "modified catalogue bytes"
+rm "$flat/catalogue.pinned"
 cd "$root"
+opam exec -- dune exec bin/transformers_source.exe -- inventory "$producer" "$flat" "$out/inventory.json"
 opam exec -- dune exec bin/pt2_json_model_support.exe -- "$flat" "$out/admission.jsonl"
-rows=$(wc -l <"$out/admission.jsonl")
-python3 -I - "$out/run.json" "$pin" "$(git rev-parse HEAD)" "$rows" "$(git status --short | wc -l)" "$out/admission.jsonl" <<'PY'
-import json, sys, collections
-path, pin, head, rows, dirty, adm = sys.argv[1:7]
-r = [json.loads(l) for l in open(adm)]
-count = lambda k: sum(1 for x in r if x.get(k) is True)
-blockers = collections.Counter(x.get("native4d_blocker") or "ok" for x in r)
-json.dump({
-    "producer_commit": pin, "consumer_commit": head,
-    "consumer_workspace_changes": int(dirty), "rows": int(rows),
-    "native_builds": count("native_builds"),
-    "native4d_converts": count("native4d_converts"),
-    "kernel_converts": count("kernel_converts"),
-    "first_blockers": dict(blockers),
-}, open(path, "w"), indent=2, sort_keys=True)
-open(path, "a").write("\n")
-PY
+opam exec -- dune exec bin/transformers_source.exe -- summary \
+  "$out/inventory.json" "$out/admission.jsonl" "$out/run.json" "$pin" \
+  "$(git rev-parse HEAD)" "$(git status --short | wc -l | tr -d ' ')"
 cat "$out/run.json"

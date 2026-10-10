@@ -336,6 +336,18 @@ jobs:
 
     # {2 native-corpus}
     #
+    - name: transformers source admission
+      if: matrix.suite == 'native-corpus'
+      run: |
+        ${{ env.EXEC }} make transformers.admission
+    - name: retain transformers source reports
+      if: always() && matrix.suite == 'native-corpus'
+      uses: actions/upload-artifact@v4
+      with:
+        name: transformers-source-${{ matrix.os }}
+        path: _build/transformers-admission/
+        if-no-files-found: error
+
     # Payload-free model-support sweep over the ~100 models in the pinned
     # producer submodule (already checked out, no download) -- see
     # bin/pt2_json_model_support.ml. Verified by "verify pristine" below,

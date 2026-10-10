@@ -317,6 +317,11 @@
   pt2_sha256
   unix))
 
+(executable
+ (name transformers_source)
+ (modules transformers_source)
+ (libraries err_trace fmt jsont jsont.bytesrw pt2_sha256 unix))
+
 ; Fetch and open the released checkpoint fixtures a cohort manifest pins. See
 ; lib/pt2_fixture_unix. `fetch` goes to the network (curl, HTTPS only);
 ; `open` is offline and reads only the cache.

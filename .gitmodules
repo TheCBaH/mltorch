@@ -28,3 +28,6 @@
 [submodule "vendored/rivet-compcert"]
 	path = vendored/rivet-compcert
 	url = https://github.com/TheCBaH/rivet-compcert.git
+[submodule "modules/devcontainer.transformers"]
+	path = modules/devcontainer.transformers
+	url = https://github.com/TheCBaH/devcontainer.transformers.git
