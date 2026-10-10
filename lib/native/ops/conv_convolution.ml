@@ -294,13 +294,29 @@ module Convolution = struct
   module Compute (S : Semantics.SEMANTICS) = struct
     module C = Conv2d.Compute (S)
 
-    let projected_pos ~(stride : Op_config.Pos.t) ~(pad : Op_config.Nonneg.t)
-        ~(dilation : Op_config.Pos.t) input_pos kernel_pos =
-      S.index_add
-        (S.index_add
-           (S.index_scale (stride :> int) (S.of_index input_pos))
-           (S.index_scale (dilation :> int) (S.of_index kernel_pos)))
-        (S.index_const (-(pad :> int)))
+    (* The input position that feeds output position [out] through kernel tap
+       [kernel_pos]: [out + pad - dilation * kernel] must be a non-negative
+       multiple of the stride that lands inside the input. The quotient is
+       clamped into range and compared with the unclamped one through
+       [index_eq] (as [Pad] does), so the load stays in bounds and the test
+       rejects out-of-range and non-multiple taps alike. Only the kernel taps
+       are summed, not the input positions. *)
+    let tap ~(stride : Op_config.Pos.t) ~(pad : Op_config.Nonneg.t)
+        ~(dilation : Op_config.Pos.t) ~(in_extent : Dim.extent Dim.t) out_pos
+        kernel_pos =
+      let numerator =
+        S.index_add
+          (S.index_add (S.of_index out_pos) (S.index_const (pad :> int)))
+          (S.index_scale (-(dilation :> int)) (S.of_index kernel_pos))
+      in
+      let quotient = S.index_floor_div_pos numerator stride in
+      let clamped =
+        S.index_min
+          (S.index_max quotient (S.index_const 0))
+          (S.index_add (S.index_extent in_extent) (S.index_const (-1)))
+      in
+      ( S.clamp_low clamped,
+        S.index_eq (S.index_scale (stride :> int) clamped) numerator )
 
     let transposed_pixel (p : params) ~(x_shape : Vec6.shape)
         ~(weight_shape : Vec6.shape) ~x ~weight ~bias out =
@@ -323,47 +339,41 @@ module Convolution = struct
         S.sum ~lo:S.index_zero ~hi:(S.index_extent in_per_group)
           (fun local_ic ->
             S.sum ~lo:S.index_zero
-              ~hi:(S.index_extent (Vec6.get x_shape Axis.H))
-              (fun ih ->
+              ~hi:(S.index_extent (Vec6.get weight_shape Axis.H))
+              (fun kh ->
                 S.sum ~lo:S.index_zero
-                  ~hi:(S.index_extent (Vec6.get x_shape Axis.W))
-                  (fun iw ->
-                    S.sum ~lo:S.index_zero
-                      ~hi:(S.index_extent (Vec6.get weight_shape Axis.H))
-                      (fun kh ->
-                        S.sum ~lo:S.index_zero
-                          ~hi:(S.index_extent (Vec6.get weight_shape Axis.W))
-                          (fun kw ->
-                            let ic =
-                              S.assume_index
-                                (S.index_add
-                                   (S.index_scale (in_per_group :> int) group)
-                                   (S.of_index local_ic))
-                            in
-                            let h_matches =
-                              S.index_eq
-                                (S.of_index (Vec6.get out Axis.H))
-                                (projected_pos ~stride:p.stride.h
-                                   ~pad:p.padding.h ~dilation:p.dilation.h ih kh)
-                            in
-                            let w_matches =
-                              S.index_eq
-                                (S.of_index (Vec6.get out Axis.W))
-                                (projected_pos ~stride:p.stride.w
-                                   ~pad:p.padding.w ~dilation:p.dilation.w iw kw)
-                            in
-                            let product =
-                              S.mul
-                                (S.load x
-                                   (out |> Vec6.set_h ih |> Vec6.set_w iw
-                                  |> Vec6.set_c ic))
-                                (S.load weight
-                                   (Vec6.make ~n:ic ~t:S.index_zero
-                                      ~d:S.index_zero ~h:kh ~w:kw ~c:local_oc))
-                            in
-                            S.select h_matches
-                              (S.select w_matches product (S.const 0.))
-                              (S.const 0.))))))
+                  ~hi:(S.index_extent (Vec6.get weight_shape Axis.W))
+                  (fun kw ->
+                    let ic =
+                      S.assume_index
+                        (S.index_add
+                           (S.index_scale (in_per_group :> int) group)
+                           (S.of_index local_ic))
+                    in
+                    let ih, h_matches =
+                      tap ~stride:p.stride.h ~pad:p.padding.h
+                        ~dilation:p.dilation.h
+                        ~in_extent:(Vec6.get x_shape Axis.H)
+                        (Vec6.get out Axis.H) kh
+                    in
+                    let iw, w_matches =
+                      tap ~stride:p.stride.w ~pad:p.padding.w
+                        ~dilation:p.dilation.w
+                        ~in_extent:(Vec6.get x_shape Axis.W)
+                        (Vec6.get out Axis.W) kw
+                    in
+                    let product =
+                      S.mul
+                        (S.load x
+                           (out |> Vec6.set_h ih |> Vec6.set_w iw
+                          |> Vec6.set_c ic))
+                        (S.load weight
+                           (Vec6.make ~n:ic ~t:S.index_zero ~d:S.index_zero
+                              ~h:kh ~w:kw ~c:local_oc))
+                    in
+                    S.select h_matches
+                      (S.select w_matches product (S.const 0.))
+                      (S.const 0.))))
       in
       S.add acc
         (S.load bias

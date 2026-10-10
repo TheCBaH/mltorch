@@ -208,7 +208,7 @@ let conv2d_padding_params esc (graph : Pytorch_types.Graph.t)
     groups = pos esc ~op ~param:`Groups (int_arg esc ~default:1 node "groups");
   }
 
-let conv_params esc (graph : Pytorch_types.Graph.t)
+let conv_params ?(transposed = false) esc (graph : Pytorch_types.Graph.t)
     (node : Pytorch_types.Node.t) =
   let weight_name = tensor_name esc node "weight" in
   let sizes =
@@ -242,7 +242,7 @@ let conv_params esc (graph : Pytorch_types.Graph.t)
       Conv.Convolution.stride = pos_hw esc ~op ~param:`Stride stride;
       padding = nonneg_hw esc ~op ~param:`Padding padding;
       dilation = pos_hw esc ~op ~param:`Dilation dilation;
-      transposed = bool_arg esc node "transposed";
+      transposed = transposed || bool_arg esc node "transposed";
       output_padding = nonneg_hw esc ~op ~param:`Output_padding output_padding;
       groups = pos esc ~op ~param:`Groups groups;
     },

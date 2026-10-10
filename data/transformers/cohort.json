@@ -1113,6 +1113,114 @@
         "repo": "HuggingFaceTB/SmolVLM-256M-Instruct",
         "revision": "7e3e67edbbed1bf9888184d9df282b700a323964"
       }
+    },
+    {
+      "archive": {
+        "name": "depth-anything-small--depth-estimation--reference--forward--fp32--dynamo--static--ckpt-5426e4f0f365.tar.gz",
+        "sha256": "1e3a144dad4002bf246d6e1f4f3f360439b42864f5ae238c48715aa28895e79d",
+        "size": 1496728,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/depth-anything-small--depth-estimation--reference--forward--fp32--dynamo--static--ckpt-5426e4f0f365.tar.gz"
+      },
+      "artifact_id": "depth-anything-small/depth-estimation/reference/forward/fp32/dynamo/static/ckpt-5426e4f0f365",
+      "capture_count": 288,
+      "cases": [
+        "case-00",
+        "case-01"
+      ],
+      "contract_sha256": "d5181a624dc36e0ad37364f0a74f9013a1a0b92495ed3d410965698f16607347",
+      "graph_sha256": "174a03421cb5b97bd4e87298598b25dcc011f0dead4a921737d838821a919adb",
+      "manifest": {
+        "name": "depth-anything-small--depth-estimation--reference--forward--fp32--dynamo--static--ckpt-5426e4f0f365.manifest.json",
+        "sha256": "5525c8836399f7d4e43bd0247e1e838b6d790322042e6971208fa68846407ef3",
+        "size": 3069,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/depth-anything-small--depth-estimation--reference--forward--fp32--dynamo--static--ckpt-5426e4f0f365.manifest.json"
+      },
+      "map_member": "models/safetensors.v2.json",
+      "map_sha256": "7e0177a40161455c3ce8f9be07a04b009c6fbe9974b4e4d80e1d8bcbf137cc62",
+      "map_sources": {
+        "checkpoint": {
+          "files": [
+            {
+              "name": "model.safetensors",
+              "repo_id": "depth-anything/Depth-Anything-V2-Small-hf",
+              "revision": "5426e4f0f36572d16453bbda7a8389317b1bef99",
+              "sha256": "3152477ce0d8d6978d76b995120de97cb5b928701fd0f817769f59e249a16b70",
+              "size": 99173660,
+              "url": "https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf/resolve/5426e4f0f36572d16453bbda7a8389317b1bef99/model.safetensors"
+            }
+          ]
+        }
+      },
+      "released_sources": [],
+      "role": "depth estimation, transposed convolution",
+      "weight_source": {
+        "config_sha256": "c56698d3643dde1f83ea2212759e6b31a22b8f827246a36dd007ee8a22b3ff75",
+        "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
+        "files": {
+          "model.safetensors": {
+            "sha256": "3152477ce0d8d6978d76b995120de97cb5b928701fd0f817769f59e249a16b70",
+            "size": 99173660
+          }
+        },
+        "kind": "checkpoint",
+        "pinned_config_match": true,
+        "repo": "depth-anything/Depth-Anything-V2-Small-hf",
+        "revision": "5426e4f0f36572d16453bbda7a8389317b1bef99"
+      }
+    },
+    {
+      "archive": {
+        "name": "whisper-tiny--audio-encoder-decoder--reference--forward--fp32--dynamo--static--ckpt-169d4a4341b3.tar.gz",
+        "sha256": "4a2012452ac3a93641e67742e9081e9ed3643d4c1bae6d2eb0feca5533666e79",
+        "size": 3228058,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/whisper-tiny--audio-encoder-decoder--reference--forward--fp32--dynamo--static--ckpt-169d4a4341b3.tar.gz"
+      },
+      "artifact_id": "whisper-tiny/audio-encoder-decoder/reference/forward/fp32/dynamo/static/ckpt-169d4a4341b3",
+      "capture_count": 169,
+      "cases": [
+        "case-00",
+        "case-01"
+      ],
+      "contract_sha256": "0f525d5c6f948312f083fdbab309ef0e533fb79b1b23502f542c634f8f77bca1",
+      "graph_sha256": "16eee13af667e517a143503b50885dc35b5adf7b054ccf6dffd814f7c30c88a4",
+      "manifest": {
+        "name": "whisper-tiny--audio-encoder-decoder--reference--forward--fp32--dynamo--static--ckpt-169d4a4341b3.manifest.json",
+        "sha256": "592f9f2d752f38ef057ecf26470258b5657b328a393b239b0711e56cfbabb9eb",
+        "size": 3039,
+        "url": "https://github.com/TheCBaH/devcontainer.transformers/releases/download/checkpoint-003207ae59ed/whisper-tiny--audio-encoder-decoder--reference--forward--fp32--dynamo--static--ckpt-169d4a4341b3.manifest.json"
+      },
+      "map_member": "models/safetensors.v2.json",
+      "map_sha256": "725976a363ace539ac04e951cce1226fb65848f333640c02d9e75140e85993b2",
+      "map_sources": {
+        "checkpoint": {
+          "files": [
+            {
+              "name": "model.safetensors",
+              "repo_id": "openai/whisper-tiny",
+              "revision": "169d4a4341b33bc18d8881c4b69c2e104e1cc0af",
+              "sha256": "7ebd0e69e78190ffe1438491fa05cc1f5c1aa3a4c4db3bc1723adbb551ea2395",
+              "size": 151061672,
+              "url": "https://huggingface.co/openai/whisper-tiny/resolve/169d4a4341b33bc18d8881c4b69c2e104e1cc0af/model.safetensors"
+            }
+          ]
+        }
+      },
+      "released_sources": [],
+      "role": "whole encoder-decoder forward, shares the encoder's checkpoint",
+      "weight_source": {
+        "config_sha256": "ffdccec4f3211f4c63310f2b7098f309fe70f3952cedc5e4d11e43f5b2379b98",
+        "conversion": "transformers from_pretrained, explicit dtype cast to the artifact dtype",
+        "files": {
+          "model.safetensors": {
+            "sha256": "7ebd0e69e78190ffe1438491fa05cc1f5c1aa3a4c4db3bc1723adbb551ea2395",
+            "size": 151061672
+          }
+        },
+        "kind": "checkpoint",
+        "pinned_config_match": true,
+        "repo": "openai/whisper-tiny",
+        "revision": "169d4a4341b33bc18d8881c4b69c2e104e1cc0af"
+      }
     }
   ],
   "publication": {

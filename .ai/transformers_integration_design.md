@@ -1,7 +1,9 @@
 # Transformers artifact integration — design
 
-Status (2026-10-09): proposed; assessment and planning are complete, consumer
-implementation has not started. Working stages and evidence live in `ai/`:
+Status (2026-10-10): substantially implemented, with corrective acceptance work
+open. The producer submodule has not been added or consumed. Section 32 is the
+current source-dependency and acceptance policy; earlier measured sections are
+dated observations, not current completion claims. Working stages live in `ai/`:
 [implementation plan](../ai/transformers_integration_implementation_plan.md)
 and [tracker](../ai/transformers_integration_implementation_tracker.md).
 
@@ -20,10 +22,11 @@ as their importer and execution prerequisites become available. The admission
 matrix records remaining failures; this design does not promise that all
 producer artifacts fit Native, Native4D, or Kernel.
 
-Full task execution is a later, explicit milestone. Tokenization,
-preprocessing, embedding normalization, cache routing, sampling and stopping
-belong to host adapters. Dynamic shape specialization, general empty tensors,
-training, quantized checkpoints and a browser inference product are deferred.
+Bounded task adapters now exist; their remaining acceptance gates are recorded
+in section 32. Tokenization, preprocessing, embedding normalization, cache
+routing, sampling and stopping belong to host adapters. General task support,
+dynamic shape specialization, general empty tensors, training, quantized
+checkpoints and a browser inference product are deferred.
 Pure metadata/map logic must remain reachable by JavaScript; initial downloads
 and numerical cohort runs use the Unix host.
 
@@ -70,14 +73,14 @@ Use existing `Pt2_archive.of_parts` and its captured-storage loader seam.
 Keep the v1 `Pt2_safetensors` API and consumers intact. Add a separate v2
 implementation; a valid v2 artifact never falls back to v1 after a failure.
 
-Proposed homes, subject to the repository's normal module-size rules:
+Implemented homes, subject to the repository's normal module-size rules:
 
 | Home | Responsibility |
 |---|---|
 | `lib/pt2_checkpoint_map/` | Pure v2 vocabulary, Jsont codecs, structural checks, origins and capture preparation |
-| `lib/pt2_checkpoint_map_unix/` | Verified local/cache/HTTPS sources, mmap ownership and archive assembly |
+| `lib/pt2_checkpoint_map_unix/` | Verified local source bytes and mmap ownership |
 | `lib/pt2_fixture/` | Pure contract/case validation and logical tensor comparison |
-| `lib/pt2_fixture_unix/` | Extracted fixture reading and structured replay reports |
+| `lib/pt2_fixture_unix/`, `lib/pt2_fixture_replay/` | Verified acquisition/extraction, archive assembly and numerical replay reports |
 | `lib/native_interp/` | Named input binding, constrained empty-value normalization and PT2 operator import |
 | `lib/native/`, bridges and lowerings | Genuine operation semantics and backend-specific admission |
 | `bin/`, `scripts/`, Makefile | Explicit acquisition, graph sweep and replay commands |
@@ -850,20 +853,20 @@ be isolated by comparing outputs, and a bit-exact match would require every kern
 of the network (normalizations, softmax, activations, every matrix product) to be
 emulated in the producer's order.
 
-Conclusion for the rows that fail: they fail by float32 inference noise. The
-producer's tolerance of 1e-5 absolute on logits of scale ~34 is about 3e-7 of the
-scale, below the noise of any independent float32 implementation, so the elements
-that exceed it are the few with small magnitude (where the allowance is mostly the
-absolute term). That is a property of the tolerance, not of the engine, and the
-measured numbers above are its evidence. The tolerances and references remain
-unchanged; the rows stay failing, with their counts, in the matrix.
+These observations suggest accumulated rounding differences, but do not prove
+that every failure is reference noise or exclude an engine defect. A comparison
+of final logits cannot isolate upstream kernels. The tolerances and references
+remain unchanged; the rows stay failing, with their counts, in the matrix.
+Section 32 supersedes the earlier blanket numerical-issue closure.
 
-## 28. A reference stack, installed: S9 closed for one model, T04 closed
+## 28. Local reference-stack comparisons (historical diagnostic evidence)
 
 The two things the earlier sections could not do for want of a reference were done
-once the producer's stack was installed in a scratch virtual environment outside
-the tree: `torch` 2.12.0+cpu for aarch64 (the producer's exact build and
-architecture), `transformers` and `tokenizers`.
+once a reference stack was installed in a scratch virtual environment outside
+the tree: `torch` 2.12.0+cpu for aarch64, Transformers 5.19.0 and tokenizers
+0.23.3. The reviewed producer source specifies Transformers 5.18.0; this was
+not a reproduction of its complete pinned environment. The release environment
+must be reconstructed from its own provenance before a controlled comparison.
 
 **S9, BERT-tiny text embeddings.**
 
@@ -905,9 +908,11 @@ BERT-tiny shows the same: torch here differs from
 the published outputs by about 3e-6, not bitwise, as the engine does. So the published outputs are not
 reproducible by torch itself on another machine (different CPU, kernels and
 threading), and a tolerance of 1e-5 absolute on logits of scale ~34 is below that
-noise. The failing rows measure the reference's own irreproducibility, not a
-defect of the engine, and they stay recorded as failing with their counts. The
-tolerances and references are unchanged.
+noise. This is evidence that local torch also differs from published outputs,
+not proof that engine defects are absent. In particular Whisper has additional
+engine mismatches, and SmolVLM decode was not crosschecked. T04 remains open
+for numerical acceptance under section 32; the failing rows and tolerances are
+unchanged.
 
 ## 29. Bounded generation: SmolLM2, prefill then one decode step
 
@@ -974,8 +979,9 @@ mean/std, so one library covers CLIP and MobileViT. `transformers_vision_demo
 classify` applies MobileViT-xx-small's pinned `preprocessor_config.json` (bilinear
 resize of the shorter edge to 288, centre crop 256, scale by 1/255, flip to BGR, no
 normalization), runs the pinned forward artifact and prints the top five labels from
-the pinned `config.json` `id2label`. Config and preprocessor digests are checked
-before use.
+the pinned `config.json` `id2label`. The executable checks config bytes; the
+processor recipe is hard-coded and its pinned preprocessor bytes are not checked
+by the executable. Corrective stage C5 closes that discrepancy.
 
 Evidence (reference: `MobileViTImageProcessor` and `MobileViTForImageClassification`
 on the pinned weights, torch 2.12.0+cpu):
@@ -987,5 +993,104 @@ on the pinned weights, torch 2.12.0+cpu):
   sleeping bag; logits differ from torch by at most 6.9e-6 (0 of 1,000 over
   tolerance). The scene differs by at most 2.3e-5 (1 of 1,000 over), top-1 equal.
 
-The claim is for this model, a binary PPM input and native-direct with the default
-numerics. `scripts/transformers-vision-crosscheck.py` is the reference side.
+This is a bounded example with one recorded numerical failure, not unconditional
+task acceptance. `scripts/transformers-vision-crosscheck.py` is the reference side.
+
+## 32. Implementation audit and mandatory source integration (2026-10-10)
+
+Audited consumer: `b3b82b7767809060d097843ed42bade6626a0a56` with seven
+pre-existing changed paths. The committed cohort has 20 artifacts; the working
+cohort has 22, adding depth-anything and Whisper forward. Current evidence and
+exact commands are retained in the
+[implementation audit](../ai/transformers_integration_evidence/audit-2026-10-10/README.md).
+The revised plan's C0–C7 stages govern remaining implementation acceptance.
+
+### Source ownership and consumption
+
+The producer is a required Git submodule at `modules/devcontainer.transformers`,
+initially pinned to reviewed `81feca91b3d3ad032cb3c1ef28f4d5e1751c1d55`.
+This is the required design, not an implemented state: no gitlink or
+`.gitmodules` entry exists at audit time. Its omission is an incomplete source
+integration milestone, not an intentional release-only architecture.
+
+The tracked gitlink is the source-pin authority. Admission defaults to that
+checkout and consumes its verified catalogue, graph/config/case inventory.
+Source-dependent cohort/processor checks consume its format and recipe metadata
+where available. Merely adding a gitlink without changing callers does not meet
+this requirement. A clean, initialized matching checkout is required; offline
+operations reject missing, mismatched or modified inputs and do not fetch.
+Do not initialize nested producer dependencies for JSON-only consumption.
+
+Source gitlink, released producer `003207ae59ed0555599da190d70cc3d2f15ad705`,
+publication bytes, checkpoint revisions and release graph/capture pins remain
+independent. The main checkout's tiny random graphs cannot substitute for
+checkpoint release graphs. Pin bumps require inventory/regeneration checks;
+neither upstream `main` nor a fresh release becomes a floating build dependency.
+OCaml fixture replay remains offline and uses verified release assets; it does
+not require importing producer Python or installing torch.
+
+### Current evidence and acceptance boundaries
+
+Fresh catalogue verification passed 210/210 files. Strict source admission is
+7/30 Native, 2/30 Native4D and 5/30 Kernel; this route does not enable empty-cache
+normalization. The initial 2/30 rows above remain historical. Focused loader,
+fixture, tokenizer/preprocessing and Native/importer/bridge suites passed.
+Fresh default-policy release replay passed both MobileViT cases and both BERT
+cases. No fresh full-cohort, JS or hosted CI success is claimed.
+
+Thirty-six historical reports were recovered and retained with original consumer
+identity; their five artifact pins match the working cohort. They are useful
+historical measurements, not a rerun at the audited consumer. Depth-anything's
+two-case pass belongs to a dirty workspace with transposed-convolution changes;
+Whisper forward still refuses `diff.default`. Review/test that work before
+promoting it to completed operator support.
+
+The connector's default-policy failure and decode/prefill/Whisper failures keep
+T04 open. Separate sequential-binary32 and saturating-cast passes keep their
+policy identities. Matching greedy tokens (generation) or top-1 classes
+(MobileViT) does not close full-output comparison failures. BERT and TinyCLIP
+have successful recorded bounded local comparisons, but current repeatable
+task acceptance requires retained inputs, exact assets and reference environments.
+
+### Required corrective behavior
+
+Reports identify consumed source and release inputs, consumer commit and dirty
+content, policy, route and full case set. Matrices validate those identities and
+refuse stale/conflicting or partial evidence instead of choosing the last file.
+Keep separate current and historical matrices and missing-case outcomes.
+
+Processor/tokenizer bytes and supported recipes must agree with cohort identity
+and tensor contracts. History chaining must check dtype and shared checkpoint/
+config identity as well as names/shapes, with checked sizes and explicit reset,
+capacity and stopping behavior. Static history 4 does not establish history 5.
+Named transformed evaluation is still deferred; direct results do not establish
+Native4D/Kernel numerical parity.
+
+The existing native-models CI gate selects BERT/MobileViT and is locally verified.
+It does not exercise empty-cache normalization. Add explicit source integrity,
+normalization/history coverage and retained policy-aware reports before closing
+S0/S8. Close stages using their promised gates; diagnoses, source membership and
+pipeline configuration alone are insufficient.
+
+## 32. Transposed convolution and depth estimation
+
+`aten.conv_transpose2d.input` lowers to the existing `Convolution` op with
+`transposed = true`, as `convolution.default` already did; the importer arm only
+fixes that flag and reads the transposed overload's argument order by name.
+
+The transposed pixel used to sum over every input position and kernel tap and
+select the one that lands on the output (`H * W * Kh * Kw` terms per output
+element), which made the depth-anything neck (a 4x4 stride-4 and a 2x2 stride-2
+upsampling) unusable. It now sums over kernel taps only: for a tap, the input
+position is `(out + pad - dilation * k) / stride`, valid when that division is
+exact and lands inside the input. The quotient is clamped into range and compared
+with the unclamped one through `index_eq` (the `Pad` idiom), so the load stays in
+bounds and one test rejects out-of-range and non-multiple taps alike. Zero terms
+are the only ones dropped, so values are unchanged. A hermetic test compares nine
+configurations (strides above the kernel, padding, dilation, output padding,
+groups) with the scatter definition written independently; a mutant that flips
+the padding sign fails it.
+
+depth-anything-small `forward` joins the cohort (cohort 20 -> 22 with the Whisper
+forward artifact, which still needs `diff`) and passes both published cases under
+native-direct with the default numerics (675s for the two cases).

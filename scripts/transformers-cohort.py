@@ -40,6 +40,8 @@ COHORT = [
     ("smollm2-135m/text-decoder/reference/prefill/fp32/dynamo/static/ckpt-12fd25f77366", "decoder prefill, K/V cache"),
     ("smollm2-135m/text-decoder/reference/decode/fp32/dynamo/static-h4/ckpt-12fd25f77366", "decoder decode at history 4"),
     ("smolvlm-256m/image-text-generation/reference/decode/fp32/dynamo/static-h71/ckpt-7e3e67edbbed", "VLM decode at history 71, shares the connector's checkpoint"),
+    ("depth-anything-small/depth-estimation/reference/forward/fp32/dynamo/static/ckpt-5426e4f0f365", "depth estimation, transposed convolution"),
+    ("whisper-tiny/audio-encoder-decoder/reference/forward/fp32/dynamo/static/ckpt-169d4a4341b3", "whole encoder-decoder forward, shares the encoder's checkpoint"),
 ]
 
 
