@@ -222,3 +222,4 @@ lib/ssa_ir/ssa_vectorize.mli	tally	val tally : report -> (string * (int * int64)
 lib/ssa_ir/ssa_opt_contract.mli	tally	val contracted : Ssa_program.t -> int
 lib/ssa_ir/ssa_plan.mli	tally	type t = { numerics : Ssa_numerics.t; precision : Ssa_numerics.Precision.t; program : Ssa_program.t; refusal : Ssa_numerics.Refusal.t option; vectorized : Ssa_vectorize.report; sums : Ssa_vector_sum.report; blocked : int; contracted : int; }
 lib/ssa_ir/ssa_vector_sum.mli	tally	type outcome = | Kept_sequential of Reason.t | Scheduled of { parts : int }
+lib/native_interp/native_interp.mli	wire	type t = { emitted : (int * Graph_ir.Node_id.t list) list; bound : (int * (string * Graph_ir.Tensor_id.t) list) list; sources : (string * Graph_ir.Tensor_id.t) list; } end

@@ -21,18 +21,24 @@ type t = {
   descriptor : Extracted_graph.t;
   inputs : Tensor_ref.t list;  (** Extracted ids, in boundary input order. *)
   outputs : Tensor_ref.t list;  (** Extracted ids, in boundary output order. *)
+  attributes : (Node_ref.t * string) list;
+      (** Per extracted node, the text of everything the dataflow description
+          does not carry (operation parameters, constants); part of the payload
+          digest. *)
 }
 
 val plan :
+  ?node_attributes:(Node_ref.t -> string) ->
   hashers:Inference_compare_codecs.Payload_hasher.Registry.t ->
   algorithm:Id.Digest_algorithm.t ->
   Inference_compare_plan.Graph_index.t ->
   Inference_compare_plan.Partition_check.Boundary.t ->
   (t, Extract_error.t) Err.t
-(** The body is validated by the planner's own graph validator before it is
-    returned. *)
+(** [node_attributes] maps an {e original} node to its attribute text. The body
+    is validated by the planner's own graph validator before it is returned. *)
 
 val extract_all :
+  ?node_attributes:(Side.t -> Node_ref.t -> string) ->
   hashers:Inference_compare_codecs.Payload_hasher.Registry.t ->
   algorithm:Id.Digest_algorithm.t ->
   Inference_compare_plan.Structural.t ->

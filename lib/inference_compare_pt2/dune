@@ -1,0 +1,31 @@
+; The real ATen / Native engine pair for the inference comparison coordinator,
+; over exported .pt2 models: both sides described as ordinary graphs, the
+; import correspondence captured during lowering and exported as a mapping
+; artifact, per-dialect extraction tooling, and ordinary graph runners that
+; execute extracted bodies through the ATen interpreter and the Native direct
+; evaluator. Depends on the C++ ATen bridge (through [interp]); the pure
+; coordinator layers never depend on this library.
+
+(library
+ (name inference_compare_pt2)
+ (libraries
+  aten
+  err_trace
+  fmt
+  inference_compare_codecs
+  inference_compare_core
+  inference_compare_extract
+  inference_compare_plan
+  inference_compare_schema
+  inference_compare_sha256
+  interp
+  jsont
+  native
+  native_interp
+  pt2
+  pt2_aten
+  pt2_checkpoint_map
+  pt2_fixture
+  native_graph
+  pytorch_types
+  schema_runtime))

@@ -10,6 +10,7 @@ type t = {
   descriptor : Extracted_graph.t;
   inputs : Tensor_ref.t list;
   outputs : Tensor_ref.t list;
+  attributes : (Node_ref.t * string) list;
 }
 
 let ( let* ) = Err.bind
@@ -36,6 +37,9 @@ let body_preimage (t : t) =
          Wire.field "tensors"
            (Wire.enc_list (Wire.enc_pair Tensor_ref.encode Tensor_ref.encode))
            t.descriptor.original_to_extracted_tensors;
+         Wire.field "attributes"
+           (Wire.enc_list (Wire.enc_pair Node_ref.encode Wire.enc_string))
+           t.attributes;
        ])
   |> fun s ->
   ignore w;
@@ -50,7 +54,8 @@ let digest_hex ~hashers ~algorithm ~side ~unit preimage =
            ~detail:(Digest (Err.Error.kind e))
            Evidence_failed)
 
-let plan ~hashers ~algorithm idx (b : Plan.Partition_check.Boundary.t) =
+let plan ?(node_attributes = fun (_ : Node_ref.t) -> "") ~hashers ~algorithm idx
+    (b : Plan.Partition_check.Boundary.t) =
   let side = b.side and unit = b.unit in
   let src = (GI.graph idx).key in
   let* component =
@@ -228,6 +233,10 @@ let plan ~hashers ~algorithm idx (b : Plan.Partition_check.Boundary.t) =
         };
       inputs;
       outputs = body.final_outputs;
+      attributes =
+        List.map2
+          (fun orig (n : Node_desc.t) -> (n.node, node_attributes orig))
+          b.nodes body.nodes;
     }
   in
   let* payload_hex =
@@ -255,7 +264,8 @@ let plan ~hashers ~algorithm idx (b : Plan.Partition_check.Boundary.t) =
            ~detail:(Invalid_body (Err.Error.kind e))
            Boundary_mismatch)
 
-let extract_all ~hashers ~algorithm structural =
+let extract_all ?(node_attributes = fun (_ : Side.t) (_ : Node_ref.t) -> "")
+    ~hashers ~algorithm structural =
   let order = Plan.Unit_order.order (Plan.Structural.order structural) in
   let rec go acc = function
     | [] -> Ok (List.rev acc)
@@ -275,7 +285,10 @@ let extract_all ~hashers ~algorithm structural =
               with
               | None -> fail (Extract_error.make ~side ~unit:u Unknown_member)
               | Some b ->
-                  let* e = plan ~hashers ~algorithm idx b in
+                  let* e =
+                    plan ~node_attributes:(node_attributes side) ~hashers
+                      ~algorithm idx b
+                  in
                   sides (e :: acc) more)
         in
         let* acc = sides acc [ Side.Left; Side.Right ] in

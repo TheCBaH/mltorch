@@ -1,0 +1,29 @@
+; Tests for the real ATen / Native engine pair. They need the C++ ATen bridge
+; and downloaded model data (PT2_DATA, as for `make pt2.runtest`).
+
+(executable
+ (name pair_run)
+ (modules pair_run)
+ (libraries
+  inference_compare_pt2
+  inference_compare_test
+  inference_compare_core
+  inference_compare_extract
+  inference_compare_policy
+  inference_compare_metrics
+  inference_compare_codecs
+  pt2
+  err_trace
+  fmt
+  inference_compare_plan
+  inference_compare_schema
+  inference_compare_sha256
+  unix))
+
+; Gated on PT2_DATA like the other real-archive crams (`make pt2.runtest`).
+
+(cram
+ (applies_to pair_cram)
+ (deps (universe) %{exe:pair_run.exe})
+ (enabled_if
+  (<> %{env:PT2_DATA=} "")))

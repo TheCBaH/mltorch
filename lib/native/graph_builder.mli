@@ -14,6 +14,11 @@ val pp_error : Format.formatter -> [< error ] -> unit
 
 type 'a t
 
+(* The node counter as of now. Nodes are numbered in the order they are
+   emitted, so the nodes a builder action appended are exactly those whose
+   numbers lie from the watermark before it up to, but not including, the
+   watermark after it -- every node, relayout and other helpers included. *)
+val watermark : Node_id.Next.t t
 val return : 'a -> 'a t
 val ( let* ) : 'a t -> ('a -> 'b t) -> 'b t
 val ( let+ ) : 'a t -> ('a -> 'b) -> 'b t

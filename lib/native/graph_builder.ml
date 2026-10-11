@@ -79,6 +79,11 @@ let new_edge ?name ?fmt ?quant ~kind:_ shape s =
   in
   (Ok tid, { s with next_tid; tensors = Tensor_id.Map.add tid sg s.tensors })
 
+(* The node counter as of now. Nodes are numbered in the order they are
+   emitted, so the nodes a computation appended are exactly those numbered from
+   the watermark before it up to the watermark after it. *)
+let watermark s = (Ok s.next_nid, s)
+
 let push_node op outputs s =
   let nid, next_nid = Node_id.Next.alloc s.next_nid in
   ( Ok (),
