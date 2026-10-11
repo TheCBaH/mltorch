@@ -64,6 +64,25 @@ let build ctx ~(first : Mapping_artifact.t) ~(second : Mapping_artifact.t)
     in
     go r (R.boundaries r)
   in
+  (* Whether the later map relates [c] to a tensor the first map reaches from a
+     tensor it binds: then a missing route is a gap, not a constant. A tensor
+     related only to ones the first map never binds (a helper edge, a folded
+     value) is the later map's own to pin. *)
+  let has_counterpart c =
+    let reached m =
+      List.exists
+        (fun (r : Tensor_relation.t) ->
+          mem_tensor m r.right_members
+          && List.exists
+               (fun l -> left_binding_where (fun _ -> true) l <> None)
+               r.left_members)
+        first.tensor_relations
+    in
+    List.exists
+      (fun (r : Tensor_relation.t) ->
+        mem_tensor c r.right_members && List.exists reached r.left_members)
+      second.tensor_relations
+  in
   let constants = Hashtbl.create 8 in
   let* per_unit =
     all
@@ -85,8 +104,15 @@ let build ctx ~(first : Mapping_artifact.t) ~(second : Mapping_artifact.t)
               match right_binding cu c with
               | None -> fail (E.Missing_binding c)
               | Some rb -> (
+                  (* Only a route from a tensor the first map binds can carry
+                     a value: one from an internal tensor (a folded value, a
+                     helper) is no route at all. *)
                   let to_c =
-                    List.filter (fun d -> Tensor_ref.equal d.destination c) fwd
+                    List.filter
+                      (fun d ->
+                        Tensor_ref.equal d.destination c
+                        && left_binding cu d.source <> None)
+                      fwd
                   in
                   match
                     match
@@ -118,6 +144,10 @@ let build ctx ~(first : Mapping_artifact.t) ~(second : Mapping_artifact.t)
                               Input_binding.unit = cu.id;
                               from_common = r;
                             })
+                  | None when has_counterpart c ->
+                      (* the later map relates [c] to a tensor of the shared
+                         graph, but no route reaches it: not a constant *)
+                      fail (E.Missing_route { tensor = c; toward = Left })
                   | None ->
                       (* a terminal constant the later map pins itself *)
                       let keys =

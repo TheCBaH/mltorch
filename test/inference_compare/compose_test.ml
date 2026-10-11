@@ -88,3 +88,45 @@ let%expect_test "a folded constant is carried with its pinned payload" =
     initial x
     initial w
     initial k_wf_z |}]
+
+(* A route that packs several source tensors into one is not composed: the
+   direction it would give is refused rather than guessed from the single-source
+   routes. *)
+let%expect_test "a pack route is refused, not composed" =
+  let first = art map_xy in
+  let packed =
+    {
+      first with
+      Mapping_artifact.tensor_relations =
+        List.map
+          (fun (r : Tensor_relation.t) ->
+            match r.left_members with
+            | [ w ] when tlocal w = "w" ->
+                let x =
+                  List.find
+                    (fun m -> tlocal m = "x")
+                    (List.concat_map
+                       (fun (r : Tensor_relation.t) -> r.left_members)
+                       first.tensor_relations)
+                in
+                {
+                  r with
+                  routes =
+                    List.map
+                      (fun (v : Value_route.t) ->
+                        if
+                          Tensor_ref.equal v.destination
+                            (List.hd r.right_members)
+                        then { v with sources = [ w; x ] }
+                        else v)
+                      r.routes;
+                }
+            | _ -> r)
+          first.tensor_relations;
+    }
+  in
+  (match F.compose packed (art map_yz) with
+  | Ok _ -> print_endline "composed"
+  | Error e -> print_endline (err_text e));
+  [%expect
+    {| no route for synthetic/v1@sha256:3333333333333333333333333333333333333333333333333333333333333333:/w_z toward the left side |}]
