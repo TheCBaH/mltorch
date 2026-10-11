@@ -55,3 +55,20 @@ Whisper encoder's additional error. SmolLM2 history-4 decode and Whisper encoder
 still require producer evidence for their exact selected static contracts.
 Keep those acceptance items open; retain prior scratch comparisons as historical
 observations because their Transformers version differed from the release.
+
+## Localizing a divergence: the SmolVLM connector
+
+The connector is a pixel shuffle (eight layout nodes, bitwise equal between ATen
+and Native at zero tolerance) and one bias-free `linear` of 12288-term dots, so
+the shared-frontier pair run (`fixture_pair_run`, ATen against Native, any
+tolerance) names that single unit. Recomputing every output in compensated
+binary64 (`fixture_linear_error`) attributes it: with Hub weights, the producer's
+reference output is **bitwise equal** to Native's binary32 sequential
+accumulation (36864 of 36864 elements, both cases), whereas Native's default
+binary64 sum is the correctly rounded value of every element. The default-policy
+failure is therefore the reference's own accumulation error (rms ~1e-5, up to
+2.7e-4) on cancelling elements (sum|x*w| 120-200 against a result ~0.02) exceeding
+the contract's atol 1e-5 / rtol 1e-4; local ATen lies between the two. This
+explains why the sequential-dot opt-in passes. It does not change the default
+acceptance row: the opt-in stays an explicit policy. Other failing components
+have not been localized this way.

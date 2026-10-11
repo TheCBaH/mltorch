@@ -76,3 +76,39 @@
  (inline_tests)
  (preprocess
   (pps ppx_expect)))
+
+; A released Transformers fixture (not a .pt2) through the same pair and
+; coordinator: ATen and Native on one case, unit by unit. A diagnostic driver;
+; needs a populated fixture cache and Hub cache (make transformers.download).
+
+(executable
+ (name fixture_pair_run)
+ (modules fixture_pair_run)
+ (libraries
+  pair_harness
+  inference_compare_pt2
+  inference_compare_codecs
+  inference_compare_core
+  inference_compare_extract
+  inference_compare_schema
+  inference_compare_sha256
+  native
+  pt2
+  pt2_fixture
+  pt2_fixture_unix
+  err_trace
+  fmt
+  unix))
+
+(executable
+ (name fixture_linear_error)
+ (modules fixture_linear_error)
+ (libraries
+  inference_compare_pt2
+  inference_compare_schema
+  inference_compare_sha256
+  pt2
+  pt2_fixture
+  pt2_fixture_unix
+  err_trace
+  fmt))
