@@ -84,7 +84,7 @@ ATen-to-Native import map; two Native variants cannot yet be paired.
 
 `make model.download.<model>` fetches what a model needs (a timm model's release
 assets and Hub checkpoint, or a fixture and its checkpoint) and prints where its
-graph JSON is; `bin/model_source` resolves the name for both rules.
+graph JSON is; `bin/model_info` (library `lib/model_source`) resolves the name; `fixture_pair_run model` resolves it itself.
 
 For a timm model (`make model.compare.mobilenetv2_050`) no `.pt2` is read: graph and weight
 map from the producer submodule's model directory, weights from the pinned Hub

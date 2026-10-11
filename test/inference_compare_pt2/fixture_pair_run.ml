@@ -3,10 +3,15 @@
    Usage:
      fixture_pair_run fixture COHORT CACHE_DIR ARTIFACT_ID CASE_ID LEFT RIGHT
      fixture_pair_run safetensors MODEL_DIR INPUTS_PT SAMPLE LEFT RIGHT
+     fixture_pair_run model NAME LEFT RIGHT
    The first is a released Transformers fixture; the second a timm model whose
    graph and weight map are a submodule model directory and whose weights are
    the pinned Hub checkpoint (no .pt2), with the release's inputs.pt for the
    sample.
+   The third resolves NAME itself (see [Model_source.resolve]) to one of the two
+   above, from the directories MODELS_DIR (the timm models), COHORT, CACHE_DIR
+   (the fixture cache) and RELEASE_DIR (the timm releases' inputs), and takes
+   SAMPLE or CASE (default 0 and case-00).
    LEFT is [aten] (the import correspondence is ATen to Native); RIGHT is
    [native] (binary64 dots) or [native-sequential] (binary32 sequential dots).
    Exit status: 0 agreement, 1 disagreement, 3 refused or failed, 4 not
@@ -32,6 +37,7 @@ let usage () =
     "usage: fixture_pair_run fixture COHORT CACHE_DIR ARTIFACT_ID CASE_ID LEFT \
      RIGHT\n\
     \       fixture_pair_run safetensors MODEL_DIR INPUTS_PT SAMPLE LEFT RIGHT\n\
+    \       fixture_pair_run model NAME LEFT RIGHT\n\
      engines: LEFT is aten; RIGHT is native or native-sequential";
   exit 2
 
@@ -123,6 +129,30 @@ let load = function
         identity_text,
         sample_input ~inputs:inputs_pt ~index aten )
 
+(* NAME as one of the two sources, from the directories in the environment. *)
+let resolve_model name =
+  let env var default = Option.value (Sys.getenv_opt var) ~default in
+  let dirs =
+    {
+      Model_source.models =
+        env "MODELS_DIR" "modules/devcontainer.pytorch-image-models/models";
+      cohort = env "COHORT" "data/transformers/cohort.json";
+      cache = env "CACHE_DIR" "data/transformers-cache";
+    }
+  in
+  match Model_source.resolve dirs name with
+  | Error m ->
+      prerr_endline m;
+      exit 2
+  | Ok (Timm { name; dir; _ }) ->
+      let release = env "RELEASE_DIR" "data/pt2-functional" in
+      `Safetensors
+        ( dir,
+          Filename.concat (Filename.concat release name) "inputs.pt",
+          int_of_string (env "SAMPLE" "0") )
+  | Ok (Fixture { id; _ }) ->
+      `Fixture (dirs.cohort, dirs.cache, id, env "CASE" "case-00")
+
 (* The operations of a cluster, in graph order: "view, permute, clone". *)
 let operations (g : Graph_desc.t) (c : Cluster.t) =
   let op (n : Node_desc.t) = Id.Operator.to_string n.operator.operation in
@@ -143,6 +173,7 @@ let () =
         (`Fixture (cohort, cache, artifact, case), l, r)
     | [ _; "safetensors"; dir; inputs; sample; l; r ] ->
         (`Safetensors (dir, inputs, int_of_string sample), l, r)
+    | [ _; "model"; name; l; r ] -> (resolve_model name, l, r)
     | _ -> usage ()
   in
   let dots =

@@ -515,13 +515,6 @@
 ; model.* rules.
 
 (executable
- (name model_source)
- (modules model_source)
- (libraries
-  err_trace
-  fmt
-  pt2
-  pt2_fixture
-  pt2_fixture_unix
-  pt2_safetensors_unix
-  pt2_sha256))
+ (name model_info)
+ (modules model_info)
+ (libraries model_source))

@@ -238,7 +238,7 @@ RIGHT ?= native
 SAMPLE ?= 0
 TOL ?= 1e-4
 DONOR ?= left
-MODEL_SOURCE = _build/default/bin/model_source.exe
+MODEL_INFO = _build/default/bin/model_info.exe
 PAIR_RUN = _build/default/test/inference_compare_pt2/fixture_pair_run.exe
 model.compare model.compare.% model.download model.download.%: export HF_HUB_CACHE ?= $(TRANSFORMERS_HF_HUB_CACHE)
 
@@ -251,13 +251,10 @@ model.compare.%:
 model.compare: model.download
 	@test -n "$(MODEL)" || { echo "usage: make model.compare.<model> (or MODEL=<model>)" >&2; exit 2; }
 	@opam exec -- dune build test/inference_compare_pt2/fixture_pair_run.exe
-	@r=$$($(MODEL_SOURCE) resolve $(PT2_JSON_MODELS_DIR) $(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) "$(MODEL)") || exit $$?; set -- $$r; \
-	case "$$1" in \
-	timm) TOL=$(TOL) DONOR=$(DONOR) $(PAIR_RUN) safetensors \
-			"$(PT2_JSON_MODELS_DIR)/$$2" "$(PT2_DIR)/$$2/inputs.pt" $(SAMPLE) $(LEFT) $(RIGHT) ;; \
-	fixture) TOL=$(TOL) DONOR=$(DONOR) $(PAIR_RUN) fixture \
-			"$(TRANSFORMERS_COHORT)" "$(TRANSFORMERS_CACHE)" "$$2" $(CASE) $(LEFT) $(RIGHT) ;; \
-	esac
+	@TOL=$(TOL) DONOR=$(DONOR) SAMPLE=$(SAMPLE) CASE=$(CASE) \
+		MODELS_DIR=$(PT2_JSON_MODELS_DIR) COHORT=$(TRANSFORMERS_COHORT) \
+		CACHE_DIR=$(TRANSFORMERS_CACHE) RELEASE_DIR=$(PT2_DIR) \
+		$(PAIR_RUN) model "$(MODEL)" $(LEFT) $(RIGHT)
 
 # Fetch everything a model needs, wherever it lives: a timm model of the producer
 # submodule gets its release assets (inputs, reference outputs; pt2.download) and its
@@ -271,14 +268,14 @@ model.download.%:
 
 model.download:
 	@test -n "$(MODEL)" || { echo "usage: make model.download.<model> (or MODEL=<model>)" >&2; exit 2; }
-	@opam exec -- dune build bin/model_source.exe
-	@r=$$($(MODEL_SOURCE) resolve $(PT2_JSON_MODELS_DIR) $(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) "$(MODEL)") || exit $$?; set -- $$r; \
+	@opam exec -- dune build bin/model_info.exe
+	@r=$$($(MODEL_INFO) resolve $(PT2_JSON_MODELS_DIR) $(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) "$(MODEL)") || exit $$?; set -- $$r; \
 	case "$$1" in \
 	timm) $(MAKE) --no-print-directory pt2.download PT2_MODEL="$$2" && \
-		$(MODEL_SOURCE) checkpoint "$(PT2_JSON_MODELS_DIR)/$$2" >/dev/null ;; \
+		$(MODEL_INFO) checkpoint "$(PT2_JSON_MODELS_DIR)/$$2" >/dev/null ;; \
 	fixture) $(MAKE) --no-print-directory transformers.download TRANSFORMERS_ARTIFACTS="$$2" ;; \
 	esac || exit $$?; \
-	r=$$($(MODEL_SOURCE) resolve $(PT2_JSON_MODELS_DIR) $(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) "$(MODEL)") || exit $$?; set -- $$r; \
+	r=$$($(MODEL_INFO) resolve $(PT2_JSON_MODELS_DIR) $(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) "$(MODEL)") || exit $$?; set -- $$r; \
 	echo "$$1 $$2: graph $$3"
 
 # Offline numerical replay of the cohort's published cases through Native direct

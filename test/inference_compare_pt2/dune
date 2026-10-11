@@ -85,6 +85,7 @@
  (name fixture_pair_run)
  (modules fixture_pair_run)
  (libraries
+  model_source
   pt2_safetensors_unix
   pair_harness
   inference_compare_pt2
