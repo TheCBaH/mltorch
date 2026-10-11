@@ -28,7 +28,10 @@ type t =
      with type Graph.t = Native_dialect.body
       and type Error.t = error)
 
-let identity ?artifact ?(dots = Direct.Binary64) () : Engine_identity.t =
+(* [config] names the storage and scheduling the evaluator runs under, when it
+   is not the default. *)
+let identity ?artifact ?(dots = Direct.Binary64) ?config () : Engine_identity.t
+    =
   let id mk s =
     match mk s with Ok v -> v | Error _ -> invalid_arg "identity"
   in
@@ -40,10 +43,11 @@ let identity ?artifact ?(dots = Direct.Binary64) () : Engine_identity.t =
         "inference-compare-pt2/native/eval-direct/v1";
     configuration_digest =
       Aten_runner.sha_digest Digest.Configuration.make
-        (match dots with
-        | Direct.Binary64 -> "dot-accumulation=binary64;float-to-int=checked"
-        | Direct.Binary32_sequential ->
-            "dot-accumulation=binary32-sequential;float-to-int=checked");
+        ((match dots with
+           | Direct.Binary64 -> "dot-accumulation=binary64;float-to-int=checked"
+           | Direct.Binary32_sequential ->
+               "dot-accumulation=binary32-sequential;float-to-int=checked")
+        ^ match config with None -> "" | Some c -> ";" ^ c);
     artifact_digest = artifact;
     environment_digest =
       Aten_runner.sha_digest Digest.Environment.make

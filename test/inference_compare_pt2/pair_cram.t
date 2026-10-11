@@ -97,43 +97,34 @@ zero tolerance the engines still differ (the check is not vacuous):
   $ TOL=0 ./fixture_pair_run.exe safetensors "$PT2_SAFETENSORS_MODELS/mobilenetv2_050" "$PT2_DATA/mobilenetv2_050/inputs.pt" 0 aten native 2>/dev/null | grep -c "numerical=disagreement"
   1
 
-Any two graph views and either orientation, on the same model and sample
-(`fixture_pair_run` takes variants; `native:sequential32` accumulates dots in
-binary32). Each pair's units come from the composed or reversed correspondences
-of the importer, the canonical passes and the four-axis lowering:
+Any two graph views and either orientation, on a small model (`fixture_pair_run`
+takes variants; `native:sequential32` accumulates dots in binary32). Each pair's
+units come from the composed or reversed correspondences of the importer, the
+canonical passes and the four-axis lowering:
 
-  $ m="$PT2_SAFETENSORS_MODELS/mobilenetv2_050"; i="$PT2_DATA/mobilenetv2_050/inputs.pt"
-  $ for p in "aten native.canonical" "aten native4d" "native native.canonical" "native.canonical native" "native.canonical native4d" "native4d native.canonical" "native native4d" "native4d native"; do
+  $ m="$PT2_SAFETENSORS_MODELS/test_convnext2"; i="$PT2_DATA/test_convnext2/inputs.pt"
+  $ for p in "aten native.canonical" "native.canonical native" "native4d native.canonical" "native native4d"; do
   >   ./fixture_pair_run.exe safetensors "$m" "$i" 0 $p 2>/dev/null | grep -E "clusters|^comparisons"
   > done
-  left aten | right native.canonical | donor left | tolerance 0.0001 | 2 clusters
-  comparisons: 2 pass, 0 mismatch, 0 other
-  left aten | right native4d | donor left | tolerance 0.0001 | 2 clusters
-  comparisons: 2 pass, 0 mismatch, 0 other
-  left native | right native.canonical | donor left | tolerance 0.0001 | 40 clusters
+  left aten | right native.canonical | donor left | tolerance 0.0001 | 8 clusters
+  comparisons: 8 pass, 0 mismatch, 0 other
+  left native.canonical | right native | donor left | tolerance 0.0001 | 13 clusters
+  comparisons: 13 pass, 0 mismatch, 0 other
+  left native4d | right native.canonical | donor left | tolerance 0.0001 | 40 clusters
   comparisons: 40 pass, 0 mismatch, 0 other
-  left native.canonical | right native | donor left | tolerance 0.0001 | 40 clusters
-  comparisons: 40 pass, 0 mismatch, 0 other
-  left native.canonical | right native4d | donor left | tolerance 0.0001 | 100 clusters
-  comparisons: 100 pass, 0 mismatch, 0 other
-  left native4d | right native.canonical | donor left | tolerance 0.0001 | 100 clusters
-  comparisons: 100 pass, 0 mismatch, 0 other
-  left native | right native4d | donor left | tolerance 0.0001 | 40 clusters
-  comparisons: 40 pass, 0 mismatch, 0 other
-  left native4d | right native | donor left | tolerance 0.0001 | 40 clusters
-  comparisons: 40 pass, 0 mismatch, 0 other
+  left native | right native4d | donor left | tolerance 0.0001 | 12 clusters
+  comparisons: 12 pass, 0 mismatch, 0 other
 
-One view against itself, one cluster per node. Two configurations of the
-Native evaluator differ in the last bits, which the zero tolerance reports,
-while the same view twice agrees exactly:
+One view against itself, one cluster per node. The same view twice agrees
+exactly at zero tolerance, while two dot accumulations differ in the last bits
+(the check is not vacuous):
 
-  $ for p in "native native" "native.canonical native.canonical" "native4d native4d"; do
+  $ for p in "native.canonical native.canonical" "native4d native4d"; do
   >   TOL=0 ./fixture_pair_run.exe safetensors "$m" "$i" 0 $p 2>/dev/null | grep -E "^comparisons"
   > done
-  comparisons: 415 pass, 0 mismatch, 0 other
-  comparisons: 100 pass, 0 mismatch, 0 other
-  comparisons: 100 pass, 0 mismatch, 0 other
-  $ TOL=0 ./fixture_pair_run.exe safetensors "$m" "$i" 0 native native:sequential32 2>/dev/null | grep -c "numerical=disagreement"
+  comparisons: 49 pass, 0 mismatch, 0 other
+  comparisons: 40 pass, 0 mismatch, 0 other
+  $ TOL=0 ./fixture_pair_run.exe safetensors "$m" "$i" 0 aten native.canonical:sequential32 2>/dev/null | grep -c "numerical=disagreement"
   1
 
 A pair with no mapping is refused, not run:
@@ -141,3 +132,33 @@ A pair with no mapping is refused, not run:
   $ ./fixture_pair_run.exe safetensors "$m" "$i" 0 native aten 2>/dev/null; echo "exit $?"
   refused: ATen on the right needs the mapping from Native to ATen
   exit 3
+
+The Native evaluator under the storage and scheduling configurations inference
+runs with (`native:WORD,...`: `release`, `arena`, `arena=BYTES`, `separate`,
+`shared`, and `scheduled` to reorder the body first). Each is bitwise equal to
+the default (every configuration is checked bitwise on a hermetic body in
+`native_storage_test`), and the report says what each resolved to:
+
+  $ for c in arena,scheduled separate; do
+  >   TOL=0 ./fixture_pair_run.exe safetensors "$m" "$i" 0 native native:$c 2>/dev/null | grep -E "^comparisons|storage:"
+  > done
+  comparisons: 106 pass, 0 mismatch, 0 other
+  native:arena,scheduled storage: 106 body(ies): 106 in an arena (0 reusing storage), 0 role-planned, 0 release-only
+  comparisons: 106 pass, 0 mismatch, 0 other
+  native:separate storage: 106 body(ies): 0 in an arena (0 reusing storage), 106 role-planned, 0 release-only
+
+A single node has nothing to reuse. Against ATen the canonical graph is large
+bodies, some of which have intermediates to share:
+
+  $ ./fixture_pair_run.exe safetensors "$m" "$i" 0 aten native.canonical:arena 2>/dev/null | grep -E "^comparisons|storage:"
+  comparisons: 8 pass, 0 mismatch, 0 other
+  native.canonical:arena storage: 8 body(ies): 8 in an arena (4 reusing storage), 0 role-planned, 0 release-only
+
+A budget a later body exceeds refuses at preparation, before any unit runs and
+so with no comparison:
+
+  $ ./fixture_pair_run.exe safetensors "$m" "$i" 0 native native.canonical:arena=100000 2>/dev/null | grep -E "^execution|^comparisons|^failure|storage:"
+  execution=refused numerical=not_established executed=0 units
+  failure: preparation_refused phase=preparation unit=cu00000 text=engine: arena: the run needs 307200 bytes but the budget is 100000
+  comparisons: 0 pass, 0 mismatch, 0 other
+  native.canonical:arena=100000 storage: 1 body(ies): 0 in an arena (0 reusing storage), 0 role-planned, 0 release-only

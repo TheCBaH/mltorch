@@ -20,6 +20,13 @@ let%expect_test "spellings parse and print canonically" =
       "native4d:sequential32";
       "aten:sequential32";
       "native:fast";
+      "native:arena,scheduled";
+      "native:sequential32,arena=4096,scheduled";
+      "native.canonical:separate";
+      "native:scheduled";
+      "native:arena,shared";
+      "native:arena=-1";
+      "native4d:arena";
       "wasm";
     ];
   [%expect
@@ -34,4 +41,11 @@ let%expect_test "spellings parse and print canonically" =
     native4d:sequential32 -> error: variant "native4d:sequential32": no configuration "sequential32"
     aten:sequential32 -> error: variant "aten:sequential32": no configuration "sequential32"
     native:fast -> error: variant "native:fast": no configuration "fast"
+    native:arena,scheduled -> native:arena,scheduled
+    native:sequential32,arena=4096,scheduled -> native:sequential32,arena=4096,scheduled
+    native.canonical:separate -> native.canonical:separate
+    native:scheduled -> error: variant "native:scheduled": scheduled needs release, arena, separate or shared
+    native:arena,shared -> error: variant "native:arena,shared": more than one storage
+    native:arena=-1 -> error: variant "native:arena=-1": no configuration "arena=-1"
+    native4d:arena -> error: variant "native4d:arena": no configuration "arena"
     wasm -> error: unknown variant "wasm" |}]

@@ -27,6 +27,10 @@ type t = {
   right_endpoint : Core.Side_exec.endpoint;
   left_identity : unit -> Engine_identity.t;
   right_identity : unit -> Engine_identity.t;
+  left_notes : unit -> string option;
+  right_notes : unit -> string option;
+      (** What an endpoint resolved for the bodies it prepared (storage and
+          schedule), once the run is over. *)
 }
 
 let ( let* ) = Result.bind
@@ -47,30 +51,53 @@ let attributes = function
   | Native m -> G.attributes_of m
   | Native4d m -> G.attributes_of m
 
-let endpoint (base : Pair.t) (v : Variant.t) model : Core.Side_exec.endpoint =
-  match model with
-  | Aten _ -> Pair.aten_endpoint base
-  | Native m ->
-      Endpoint
-        {
-          runner = Native_direct.create ~dots:v.dots ();
-          build =
-            (fun ex ->
-              Ex.Dialect.realize (module Native_direct.Dialect.Dialect) m ex);
-        }
-  | Native4d m ->
-      Endpoint
-        {
-          runner = Native4d_runner.create ();
-          build =
-            (fun ex ->
-              Ex.Dialect.realize (module Native4d_dialect.Dialect) m ex);
-        }
+(* The configuration the identity names, when it is not the default. *)
+let config_text (v : Variant.t) =
+  if Storage_config.is_default v.storage then None
+  else Some ("storage=" ^ String.concat "," (Storage_config.to_words v.storage))
 
 let identity (v : Variant.t) = function
   | Aten _ -> fun () -> Aten_runner.identity ()
-  | Native _ -> fun () -> Native_runner.identity ~dots:v.dots ()
+  | Native _ ->
+      fun () -> Native_runner.identity ~dots:v.dots ?config:(config_text v) ()
   | Native4d _ -> fun () -> Native4d_runner.identity ()
+
+(* The endpoint of a variant on its graph, and what it will have resolved. *)
+let endpoint (base : Pair.t) (v : Variant.t) model :
+    Core.Side_exec.endpoint * (unit -> string option) =
+  let none () = None in
+  match model with
+  | Aten _ -> (Pair.aten_endpoint base, none)
+  | Native m when Storage_config.is_default v.storage ->
+      ( Endpoint
+          {
+            runner = Native_direct.create ~dots:v.dots ();
+            build =
+              (fun ex ->
+                Ex.Dialect.realize (module Native_direct.Dialect.Dialect) m ex);
+          },
+        none )
+  | Native m ->
+      let notes = Native_storage.Notes.create () in
+      ( Endpoint
+          {
+            runner =
+              Native_storage.create ~dots:v.dots ~config:v.storage ~notes
+                ~identity:(identity v model);
+            build =
+              (fun ex ->
+                Ex.Dialect.realize (module Native_direct.Dialect.Dialect) m ex);
+          },
+        fun () -> Some (Native_storage.Notes.summary notes) )
+  | Native4d m ->
+      ( Endpoint
+          {
+            runner = Native4d_runner.create ();
+            build =
+              (fun ex ->
+                Ex.Dialect.realize (module Native4d_dialect.Dialect) m ex);
+          },
+        none )
 
 let composed (base : Pair.t) first second =
   Compose.compose ~hashers:base.hashers ~algorithm:base.algorithm first second
@@ -185,6 +212,8 @@ let make (base : Pair.t) ~(left : Variant.t) ~(right : Variant.t) :
       Pass_map.pinned_values ~ctx:base.case_ctx ~mapping
         ~known:(List.map fst given) pins
     in
+    let left_endpoint, left_notes = endpoint base left lm in
+    let right_endpoint, right_notes = endpoint base right rm in
     Ok
       {
         mapping;
@@ -196,8 +225,10 @@ let make (base : Pair.t) ~(left : Variant.t) ~(right : Variant.t) :
             match (side : Side.t) with
             | Left -> attributes lm r
             | Right -> attributes rm r);
-        left_endpoint = endpoint base left lm;
-        right_endpoint = endpoint base right rm;
+        left_endpoint;
+        right_endpoint;
         left_identity = identity left lm;
         right_identity = identity right rm;
+        left_notes;
+        right_notes;
       }

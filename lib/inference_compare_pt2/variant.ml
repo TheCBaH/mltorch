@@ -29,34 +29,63 @@ module View = struct
     | _ -> None
 end
 
-type t = { view : View.t; dots : Direct.dot_accumulation }
+type t = {
+  view : View.t;
+  dots : Direct.dot_accumulation;
+  storage : Storage_config.t;
+}
 
-let make ?(dots = Direct.Binary64) view = { view; dots }
+let make ?(dots = Direct.Binary64) ?(storage = Storage_config.default) view =
+  { view; dots; storage }
+
 let sequential32 = "sequential32"
+let ( let* ) = Result.bind
 
-(* [VIEW] or [VIEW:sequential32]; [native-sequential] is the earlier spelling
-   of [native:sequential32]. Only the Native views accumulate dot products. *)
+(* [VIEW], or [VIEW:WORD,WORD...]: [sequential32] for binary32 sequential dots
+   and the storage words of {!Storage_config}; [native-sequential] is the
+   earlier spelling of [native:sequential32]. Only the Native views take
+   configuration: the others have none to give. *)
 let of_string s =
-  let view, config =
+  let view, words =
     match s with
-    | "native-sequential" -> ("native", Some sequential32)
+    | "native-sequential" -> ("native", [ sequential32 ])
     | _ -> (
         match String.index_opt s ':' with
-        | None -> (s, None)
+        | None -> (s, [])
         | Some i ->
             ( String.sub s 0 i,
-              Some (String.sub s (i + 1) (String.length s - i - 1)) ))
+              String.split_on_char ','
+                (String.sub s (i + 1) (String.length s - i - 1)) ))
   in
-  match (View.of_string view, config) with
-  | None, _ -> Error (Printf.sprintf "unknown variant %S" s)
-  | Some view, None -> Ok (make view)
-  | Some ((Native | Native_canonical) as view), Some c
-    when String.equal c sequential32 ->
-      Ok (make ~dots:Direct.Binary32_sequential view)
-  | Some _, Some c ->
-      Error (Printf.sprintf "variant %S: no configuration %S" s c)
+  match View.of_string view with
+  | None -> Error (Printf.sprintf "unknown variant %S" s)
+  | Some view ->
+      let native =
+        match view with View.Native | Native_canonical -> true | _ -> false
+      in
+      let rec go dots storage = function
+        | [] -> Ok (dots, List.rev storage)
+        | w :: rest when native && String.equal w sequential32 ->
+            go Direct.Binary32_sequential storage rest
+        | w :: rest -> (
+            match (native, Storage_config.word_of_string w) with
+            | true, Some word -> go dots (word :: storage) rest
+            | _ -> Error (Printf.sprintf "variant %S: no configuration %S" s w))
+      in
+      let* dots, words = go Direct.Binary64 [] words in
+      let* storage =
+        Storage_config.of_words words
+        |> Result.map_error (Printf.sprintf "variant %S: %s" s)
+      in
+      Ok (make ~dots ~storage view)
 
 let to_string t =
-  match t.dots with
-  | Direct.Binary64 -> View.to_string t.view
-  | Direct.Binary32_sequential -> View.to_string t.view ^ ":" ^ sequential32
+  let words =
+    (match t.dots with
+      | Direct.Binary64 -> []
+      | Direct.Binary32_sequential -> [ sequential32 ])
+    @ Storage_config.to_words t.storage
+  in
+  match words with
+  | [] -> View.to_string t.view
+  | words -> View.to_string t.view ^ ":" ^ String.concat "," words

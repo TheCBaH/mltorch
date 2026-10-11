@@ -295,6 +295,13 @@ let () =
       ~right_graph ~initial:pair.initial ~node_attributes:pair.node_attributes
       ~left_endpoint:pair.left_endpoint ~right_endpoint:pair.right_endpoint
   in
+  List.iter
+    (fun (name, notes) ->
+      Option.iter (Printf.printf "%s storage: %s\n" name) (notes ()))
+    [
+      (P.Variant.to_string left_variant, pair.left_notes);
+      (P.Variant.to_string right_variant, pair.right_notes);
+    ];
   (match Sys.getenv_opt "DUMP" with
   | None -> ()
   | Some dir ->
