@@ -390,6 +390,7 @@ type transformed =
       nodes_before : int;
       audits : Pass.Audit_log.t;
       composed : Map_verify.Report.t option;
+      map_export : Map_export.t;
     }
       -> transformed
 
@@ -529,10 +530,16 @@ let transform_lowered ?(constants = Tensor_id.Map.empty) ?verify ?verify_budget
                     problem = Pass.Verification.Rejected report;
                   }))
   in
+  let map_export =
+    let module Export = Map_export.Make (Native_side) (Native_side) in
+    Export.export composed_map ~src:(Rewrite.snapshot origin)
+      ~dst:(Rewrite.snapshot packed)
+  in
   let+ derived = derivations lens lowered graph in
   Transformed
     {
       composed;
+      map_export;
       constants = Rewrite.constants packed;
       constant_store = Rewrite.constant_store packed;
       derived = List.rev derived;

@@ -769,6 +769,11 @@ type transformed =
              [~verify]'s policy is applied to this report as well as to each
              pass's: composition and terminal packing are the two steps no
              per-pass check covers. *)
+      map_export : Map_export.t;
+          (* the composed origin-to-final map as plain data, in the lowered
+             graph's ids and in [graph]'s: explicit clusters and the implicit
+             identities. What an outside consumer reads without the snapshot
+             machinery. *)
     }
       -> transformed
 
