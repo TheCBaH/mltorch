@@ -30,6 +30,8 @@ end
 type error =
   [ `Gzip of string
   | `File_io of string * string
+  | `Hub of string * Hf_hub.Error.t
+  | `Hub_url_mismatch of string
   | `Limit of Limit_fault.t
   | `Offline of string
   | `Tar of Tar_fault.t

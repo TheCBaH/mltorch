@@ -22,6 +22,8 @@ end
 type error =
   [ `Gzip of string
   | `File_io of string * string
+  | `Hub of string * Hf_hub.Error.t
+  | `Hub_url_mismatch of string
   | `Limit of Limit_fault.t
   | `Offline of string
   | `Tar of Tar_fault.t
@@ -51,6 +53,12 @@ let pp_limit ppf l =
 let pp_error ppf : error -> unit = function
   | `Gzip m -> Fmt.pf ppf "archive is not valid gzip: %s" m
   | `File_io (path, m) -> Fmt.pf ppf "%S: %s" path m
+  | `Hub (name, e) -> Fmt.pf ppf "%S from the Hub: %a" name Hf_hub.Error.pp e
+  | `Hub_url_mismatch name ->
+      Fmt.pf ppf
+        "%S: the pinned URL names the Hub but not this repository, revision \
+         and file"
+        name
   | `Limit { Limit_fault.what; limit; actual } ->
       Fmt.pf ppf "%a is %Ld, over the limit %Ld" pp_limit what actual limit
   | `Offline name ->

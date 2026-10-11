@@ -6,5 +6,6 @@ module Cache = Cache
 module Fault = Fault
 module Fetch = Fetch
 module Fixture = Fixture
+module Hub = Hub
 module Targz = Targz
 module Transport = Transport

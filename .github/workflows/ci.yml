@@ -285,7 +285,29 @@ jobs:
         key: hf-hub-${{ hashFiles('modules/devcontainer.pytorch-image-models/models/mobilenetv2_050/models/safetensors.json', 'modules/devcontainer.pytorch-image-models/models/fastvit_sa12/models/safetensors.json') }}
         restore-keys: |
           hf-hub-
-    # Released Transformers fixtures (data/transformers/cohort.json): the two small
+    # The Hub-hosted checkpoint sources of the transformers gate (20 of 22 cohort
+    # entries are Hub files; the gate's time-series one is), in the same
+    # huggingface_hub-layout directory the targets default to (TRANSFORMERS_HF_HUB_CACHE).
+    # Blobs are content-addressed and revisions are commit pins, so a stale entry is
+    # never wrong, only missing something. The manual complete-cohort run fetches
+    # ~1.8 GB of weights, so it gets its own entry rather than pinning the small one.
+    - name: transformers hub checkpoints cache
+      if: matrix.suite == 'native-models' && !inputs.transformers_full
+      uses: actions/cache@v6
+      with:
+        path: data/hf-hub
+        key: hf-hub-transformers-${{ hashFiles('data/transformers/cohort.json') }}
+        restore-keys: |
+          hf-hub-transformers-
+    - name: transformers hub checkpoints cache (complete cohort)
+      if: matrix.suite == 'native-models' && inputs.transformers_full
+      uses: actions/cache@v6
+      with:
+        path: data/hf-hub
+        key: hf-hub-transformers-full-${{ hashFiles('data/transformers/cohort.json') }}
+        restore-keys: |
+          hf-hub-transformers-full-
+    # Released Transformers fixtures (data/transformers/cohort.json): the three small
     # artifacts that pass exactly, replayed from a content-addressed cache that
     # verifies every layer against its pin. Keyed by the cohort manifest, so a new
     # pin starts a fresh entry.

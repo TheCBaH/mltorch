@@ -185,6 +185,16 @@ TRANSFORMERS_ADAPTER_SELECTION ?= data/transformers/adapter-selection.json
 TRANSFORMERS_METADATA_REPORT ?= _build/transformers-cohort-source-report.json
 TRANSFORMERS_ASSETS_OUT ?= data/transformers
 
+# Checkpoint sources that are files of a Hugging Face Hub repository are read
+# through hf-hub into its huggingface_hub-layout cache, not into
+# TRANSFORMERS_CACHE: 20 of the cohort's 22 entries have such a source (the other two
+# are the producer's own conversions of a pytorch_model.bin, fetched by pinned
+# URL). The directory is shared with the pt2 safetensors targets and
+# with CI; `HF_HUB_CACHE=... make ...` overrides it, `HF_HUB_OFFLINE=1` forbids
+# requests. Repo-relative, so CI caches it with one path.
+TRANSFORMERS_HF_HUB_CACHE ?= $(CURDIR)/data/hf-hub
+transformers.%: export HF_HUB_CACHE ?= $(TRANSFORMERS_HF_HUB_CACHE)
+
 # Offline deterministic generation/check from pinned cached metadata. The fetch
 # variants acquire missing metadata/processor assets explicitly; they never run
 # producer Python or convert tensors. Check compares all derived fields.
@@ -211,15 +221,18 @@ transformers.open:
 # producer's tolerances, immutable manifest and versioned reports per run. Exits nonzero
 # unless every selected artifact passes -- a refusal counts as not passing.
 TRANSFORMERS_REPORTS ?= _build/transformers-reports
-# The opt-in real-fixture gate CI runs: fetch (network) and replay the two
-# small artifacts that pass exactly. Neither contains empty captures;
+# The opt-in real-fixture gate CI runs: fetch (network) and replay the three
+# small artifacts that pass exactly. The first two are converted by the
+# producer (fetched by pinned URL); the time-series one is a Hub file, so the
+# gate also covers the hf-hub cache. The first two contain no empty captures;
 # normalization/history tests and the opt-in normalized gate provide separate
-# coverage. Exits nonzero unless both pass. The other cohort rows are measured
+# coverage. Exits nonzero unless all pass. The other cohort rows are measured
 # by `transformers.replay` and have open numerical acceptance failures; see the
 # Transformers integration design record in .ai/.
 TRANSFORMERS_GATE_ARTIFACTS = \
 	mobilevit-xxs/image-classification/reference/forward/fp32/dynamo/static/ckpt-6703997f9e94 \
-	bert-tiny/text-encoder/reference/forward/fp32/dynamo/static/ckpt-6f75de8b60a9
+	bert-tiny/text-encoder/reference/forward/fp32/dynamo/static/ckpt-6f75de8b60a9 \
+	time-series-small/time-series/reference/forward/fp32/dynamo/static/ckpt-2a40ad41f6ff
 transformers.gate:
 	$(MAKE) transformers.policies.check
 	$(MAKE) transformers.download TRANSFORMERS_ARTIFACTS="$(TRANSFORMERS_GATE_ARTIFACTS)"

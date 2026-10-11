@@ -6,12 +6,14 @@ module String_map = Schema_runtime.String_map
 type config = {
   cache : Cache.t;
   hash : Cache.file_hasher option;
+  hub : Hub.t;
   limits : Targz.limits;
   transport : Transport.t option;
 }
 
-let config ?hash ?(limits = Targz.default_limits) ?transport cache =
-  { cache; hash; limits; transport }
+let config ?hash ?hub ?(limits = Targz.default_limits) ?transport cache =
+  let hub = match hub with Some h -> h | None -> Hub.of_environment () in
+  { cache; hash; hub; limits; transport }
 
 type t = { dir : string; entry : Cohort.entry; manifest : Manifest.t }
 
