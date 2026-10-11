@@ -1,0 +1,18 @@
+; The in-process generated-code routes as engines for the comparison
+; coordinator: the body's Loop IR bundle emitted as C and built with the host
+; compiler, or as WebAssembly and run under node, with the Loop emitter or the
+; structured SSA backend making the kernels. Registered with the variant
+; vocabulary by [register]; a missing compiler or node is a refusal naming it.
+
+(library
+ (name inference_compare_generated)
+ (libraries
+  err_trace
+  fmt
+  inference_compare_pt2
+  inference_compare_schema
+  loop_c_exec
+  loop_ir
+  loop_wasm_exec
+  native
+  ssa_backends))

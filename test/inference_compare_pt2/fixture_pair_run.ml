@@ -15,7 +15,9 @@
    LEFT and RIGHT are variants: a graph view [aten], [native],
    [native.canonical] or [native4d], with [:sequential32] after a Native view
    for binary32 sequential dots ([native-sequential] is the same as
-   [native:sequential32]). ATen can only be on the left.
+   [native:sequential32]). ATen can only be on the left. A Native view also
+   takes a generated-code engine, [loop-c], [ssa-c], [loop-wasm] or [ssa-wasm]
+   (the host C compiler, or node): [native.canonical:loop-c].
    Exit status: 0 agreement, 1 disagreement, 3 refused or failed, 4 not
    established.
    Environment: TOL (default 1e-4), DONOR=left|right, DUMP=dir (write the
@@ -212,6 +214,7 @@ let describe_result (c : Comparison_result.t) =
           s.positive_errors s.negative_errors
 
 let () =
+  Inference_compare_generated.Generated.register ();
   let source, left, right =
     match Array.to_list Sys.argv with
     | [ _; "fixture"; cohort; cache; artifact; case; l; r ] ->

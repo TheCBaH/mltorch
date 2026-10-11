@@ -113,6 +113,7 @@
   pt2_safetensors_unix
   pair_harness
   inference_compare_host
+  inference_compare_generated
   inference_compare_pt2
   inference_compare_codecs
   inference_compare_core

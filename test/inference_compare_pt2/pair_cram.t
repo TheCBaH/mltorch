@@ -171,3 +171,13 @@ the direct run bit for bit (the Native one is checked on a hermetic body in
   $ TOL=0 ./fixture_pair_run.exe safetensors "$m" "$i" 0 native4d native4d:symbolic 2>/dev/null | grep -E "^execution|^comparisons"
   execution=complete numerical=agreement executed=40 units
   comparisons: 40 pass, 0 mismatch, 0 other
+
+The generated-code engines (`VIEW:loop-c`, `ssa-c`, `loop-wasm`, `ssa-wasm`)
+build each cluster's body with the host compiler, or run it as WebAssembly under
+node. C from the Loop emitter against C from the SSA backend agrees bit for bit
+(the Wasm ones need node and run under `make wasm.runtest`, in
+`generated_wasm_test`):
+
+  $ TOL=0 ./fixture_pair_run.exe safetensors "$m" "$i" 0 native.canonical:loop-c native.canonical:ssa-c 2>/dev/null | grep -E "^execution|^comparisons"
+  execution=complete numerical=agreement executed=49 units
+  comparisons: 49 pass, 0 mismatch, 0 other

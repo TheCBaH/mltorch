@@ -230,7 +230,10 @@ transformers.open:
 # variants: a graph view -- aten (the C++ ATen interpreter), native (the lowered
 # graph), native.canonical (after the canonical passes) or native4d (the four-axis
 # graph) -- run by its evaluator; a Native view takes :sequential32 for binary32
-# sequential dots (native:sequential32). Either orientation works between the
+# sequential dots (native:sequential32), a storage or scheduling configuration
+# (native:arena,scheduled), :symbolic for the symbolic evaluator, or a generated-code
+# engine: :loop-c, :ssa-c (the host C compiler), :loop-wasm, :ssa-wasm (node).
+# Either orientation works between the
 # Native views, and one view against itself compares two configurations; ATen is
 # on the left because the importer's correspondence is ATen to Native. TOL is the atol and rtol of the
 # binary32 element comparison. Exit status: 0 agreement, 1 disagreement (make
