@@ -1,0 +1,17 @@
+; Topology-based per-site metric assignment for the inference comparison
+; coordinator: comparison sites, typed selector evaluation with bounded
+; connected-path matching, deterministic rule resolution and sealed per-site
+; policy bindings. Pure: it reads the validated structural plan and the
+; endpoint graph indexes and never runs an engine. Selectors choose a declared
+; policy from structure; they never infer tensor correspondence, numerical
+; influence or a threshold.
+
+(library
+ (name inference_compare_policy)
+ (libraries
+  err_trace
+  fmt
+  inference_compare_codecs
+  inference_compare_metrics
+  inference_compare_plan
+  inference_compare_schema))

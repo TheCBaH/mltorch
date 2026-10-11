@@ -1,0 +1,18 @@
+; Engine bindings for the coordinator. The synthetic dialect and its two
+; ordinary-graph runners come first: exact int64 arithmetic with controllable
+; per-operation deviations, import corruption, preparation and execution
+; failures and output-storage reuse, so every coordinator behaviour can be
+; exercised without a real engine. Real engine bindings live in separate
+; libraries with their own dependencies.
+
+(library
+ (name inference_compare_engines)
+ (libraries
+  err_trace
+  fmt
+  inference_compare_codecs
+  inference_compare_core
+  inference_compare_extract
+  inference_compare_plan
+  inference_compare_schema
+  inference_compare_sha256))

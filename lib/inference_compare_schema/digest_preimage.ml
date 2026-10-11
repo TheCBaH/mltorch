@@ -5,6 +5,7 @@
 type domain =
   | Comparison_policy
   | Contract
+  | Extracted_graph_payload
   | Frontier_mapping
   | Graph
   | Logical_value
@@ -16,6 +17,7 @@ type domain =
 let tag = function
   | Comparison_policy -> "comparison_policy"
   | Contract -> "contract"
+  | Extracted_graph_payload -> "extracted_graph_payload"
   | Frontier_mapping -> "frontier_mapping"
   | Graph -> "graph"
   | Logical_value -> "logical_value"

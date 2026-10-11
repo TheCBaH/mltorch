@@ -1,0 +1,16 @@
+; Ordinary-graph extraction for the inference comparison coordinator: the
+; structural plan that turns one side of a matched unit into a self-contained
+; graph (external operands become inputs, boundary results become outputs, a
+; complete id map), the dialect-tooling interface that realizes that plan in an
+; engine's own graph type, and the reconciliation that proves the realized
+; graph exposes exactly the declared inventory. Dialect tooling is separate
+; from engine execution: nothing here prepares or runs a graph. Pure.
+
+(library
+ (name inference_compare_extract)
+ (libraries
+  err_trace
+  fmt
+  inference_compare_codecs
+  inference_compare_plan
+  inference_compare_schema))
