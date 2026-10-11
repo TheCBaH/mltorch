@@ -13,6 +13,7 @@
   err_trace
   fmt
   inference_compare_codecs
+  inference_compare_compose
   inference_compare_core
   inference_compare_extract
   inference_compare_plan
@@ -21,6 +22,7 @@
   interp
   jsont
   native
+  native4d
   native_interp
   pt2
   pt2_aten
