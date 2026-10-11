@@ -24,6 +24,11 @@ module type GRAPH_RUNNER = sig
     type t
 
     val pp : Format.formatter -> t -> unit
+
+    val is_resource_exhaustion : t -> bool
+    (** Whether the failure was memory or storage exhaustion, which the
+        coordinator reports as such rather than as a transfer or execution
+        failure. *)
   end
 
   val identity : unit -> Engine_identity.t

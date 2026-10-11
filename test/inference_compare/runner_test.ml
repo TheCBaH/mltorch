@@ -242,8 +242,7 @@ let%expect_test "faults: refusal, failing node, corrupted import" =
   Format.printf "failing node: %s (prepared open %d, values live %d)@." failing
     c2.prepared_open c2.values_live;
   let r3, c3 =
-    R.create
-      { (R.default_config "corrupt") with corrupt_imports = [ ("x", 5L) ] }
+    R.create { (R.default_config "corrupt") with corrupt_imports = [ (0, 5L) ] }
   in
   let corrupted = pp_outputs (run_graph r3 u1 x) in
   Format.printf "corrupted import: %s; engine observed %s@." corrupted

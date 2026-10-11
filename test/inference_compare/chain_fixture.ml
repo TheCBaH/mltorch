@@ -74,6 +74,44 @@ let graphs t =
   ( graph left_key t.left_dialect ~rename:false ~op_of:(fun n -> n.op) t,
     graph right_key t.right_dialect ~rename:true ~op_of:(fun n -> n.right_op) t )
 
+(* Deterministic pinned inputs of a synthetic chain: the first source is the
+   user input [1; 2; 3]; the k-th constant is [10k; 20k; 30k]. *)
+let initial_ints (t : t) name =
+  let rec index i = function
+    | [] -> 0
+    | s :: rest -> if s = name then i else index (i + 1) rest
+  in
+  match index 0 t.sources with
+  | 0 -> [ 1L; 2L; 3L ]
+  | k ->
+      let k = Int64.of_int k in
+      [ Int64.mul 10L k; Int64.mul 20L k; Int64.mul 30L k ]
+
+let le_bytes ints =
+  let b = Bytes.create (8 * List.length ints) in
+  List.iteri (fun i v -> Bytes.set_int64_le b (i * 8) v) ints;
+  Bytes.to_string b
+
+let is_i64 (t : t) = Id.Codec.to_string t.spec.dtype.codec = "i64"
+
+let initial_binding (t : t) name =
+  if not (is_i64 t) then P.payload name '7'
+  else
+    let digest =
+      match
+        Inference_compare_codecs.Payload_hasher.digest_string
+          Inference_compare_sha256.registry Inference_compare_sha256.algorithm
+          (le_bytes (initial_ints t name))
+      with
+      | Ok d -> d
+      | Error _ -> failwith "initial digest"
+    in
+    {
+      Initial_binding.key = P.ckey name;
+      payload_id = P.text (Id.Payload.of_string ("case/" ^ name));
+      payload_digest = digest;
+    }
+
 let mapping (t : t) : Mapping_artifact.t =
   let spec = t.spec in
   let l = left_key and r = right_key in
@@ -208,7 +246,7 @@ let mapping (t : t) : Mapping_artifact.t =
                 right = P.tensor r (rn f);
               })
             t.finals;
-        initial_values = List.map (fun s -> P.payload s '7') t.sources;
+        initial_values = List.map (fun s -> initial_binding t s) t.sources;
         input_bindings;
         input_checks;
         output_bindings;
