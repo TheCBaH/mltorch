@@ -48,12 +48,14 @@ let build ~(limits : Resource_limits.t) ~side (g : Graph_desc.t) =
       0 g.nodes
     |> Int64.of_int
   in
-  let* () = check_limit ~limits side Plan_error.Limit.Nodes limits.max_nodes nodes_n in
-  let* () = check_limit ~limits side Plan_error.Limit.Edges limits.max_edges edges_n in
-  let same_graph (k : Graph_key.t) = Graph_key.equal k key in
-  let stale_node r =
-    fail (Plan_error.make ~side ~node:r Stale_graph)
+  let* () =
+    check_limit ~limits side Plan_error.Limit.Nodes limits.max_nodes nodes_n
   in
+  let* () =
+    check_limit ~limits side Plan_error.Limit.Edges limits.max_edges edges_n
+  in
+  let same_graph (k : Graph_key.t) = Graph_key.equal k key in
+  let stale_node r = fail (Plan_error.make ~side ~node:r Stale_graph) in
   let stale_tensor r = fail (Plan_error.make ~side ~tensor:r Stale_graph) in
   let tensor_ok (r : Tensor_ref.t) =
     if same_graph r.graph then Ok () else stale_tensor r
@@ -61,12 +63,12 @@ let build ~(limits : Resource_limits.t) ~side (g : Graph_desc.t) =
   (* Nodes: scope, uniqueness, effects. *)
   let rec index_nodes tbl = function
     | [] -> Ok tbl
-    | (n : Node_desc.t) :: rest ->
+    | (n : Node_desc.t) :: rest -> (
         if not (same_graph n.node.graph) then stale_node n.node
         else if Node_ref.Map.mem n.node tbl then
           fail (Plan_error.make ~side ~node:n.node Duplicate_owner)
-        else (
-          match n.effect with
+        else
+          match n.side_effect with
           | Unsupported _ ->
               fail (Plan_error.make ~side ~node:n.node Unsupported_effect)
           | Metadata_assertion | Pure ->
@@ -80,7 +82,10 @@ let build ~(limits : Resource_limits.t) ~side (g : Graph_desc.t) =
         let* () = tensor_ok s.tensor in
         if Tensor_ref.Map.mem s.tensor tbl then
           fail (Plan_error.make ~side ~tensor:s.tensor Duplicate_owner)
-        else index_sources (Tensor_ref.Map.add s.tensor (Producer.Source s) tbl) rest
+        else
+          index_sources
+            (Tensor_ref.Map.add s.tensor (Producer.Source s) tbl)
+            rest
   in
   let* producers = index_sources Tensor_ref.Map.empty g.sources in
   let rec index_results producers = function
@@ -91,11 +96,16 @@ let build ~(limits : Resource_limits.t) ~side (g : Graph_desc.t) =
           | (t : Tensor_ref.t) :: more ->
               let* () = tensor_ok t in
               if Tensor_ref.Map.mem t producers then
-                fail (Plan_error.make ~side ~node:n.node ~tensor:t Duplicate_owner)
+                fail
+                  (Plan_error.make ~side ~node:n.node ~tensor:t Duplicate_owner)
               else
                 results (i + 1)
                   (Tensor_ref.Map.add t
-                     (Producer.Node { node = n.node; port = port_exn (Output_port.of_index i) })
+                     (Producer.Node
+                        {
+                          node = n.node;
+                          port = port_exn (Output_port.of_index i);
+                        })
                      producers)
                   more
         in
@@ -141,7 +151,8 @@ let build ~(limits : Resource_limits.t) ~side (g : Graph_desc.t) =
             | t :: more ->
                 if Tensor_ref.Map.mem t specs then results more
                 else
-                  fail (Plan_error.make ~side ~node:n.node ~tensor:t Unknown_member)
+                  fail
+                    (Plan_error.make ~side ~node:n.node ~tensor:t Unknown_member)
           in
           let* () = results n.results in
           go rest
@@ -158,9 +169,15 @@ let build ~(limits : Resource_limits.t) ~side (g : Graph_desc.t) =
             | (t : Tensor_ref.t) :: more ->
                 let* () = tensor_ok t in
                 if not (Tensor_ref.Map.mem t producers) then
-                  fail (Plan_error.make ~side ~node:n.node ~tensor:t Unknown_member)
+                  fail
+                    (Plan_error.make ~side ~node:n.node ~tensor:t Unknown_member)
                 else
-                  let use = { Use.node = n.node; port = port_exn (Input_port.of_index i) } in
+                  let use =
+                    {
+                      Use.node = n.node;
+                      port = port_exn (Input_port.of_index i);
+                    }
+                  in
                   operands (i + 1)
                     (Tensor_ref.Map.update t
                        (fun l -> Some (use :: Option.value l ~default:[]))
@@ -175,8 +192,9 @@ let build ~(limits : Resource_limits.t) ~side (g : Graph_desc.t) =
                   if not (same_graph p.graph) then stale_node p
                   else if Node_ref.Map.mem p node_table then ctl more
                   else
-                    fail (Plan_error.make ~side ~node:n.node Unknown_member
-                          |> fun e -> { e with Plan_error.node = Some p })
+                    fail
+                      ( Plan_error.make ~side ~node:n.node Unknown_member
+                      |> fun e -> { e with Plan_error.node = Some p } )
             in
             ctl n.control_predecessors
           in
@@ -194,7 +212,8 @@ let build ~(limits : Resource_limits.t) ~side (g : Graph_desc.t) =
           if Tensor_ref.Map.mem t producers then go (i + 1) rest
           else
             fail
-              (Plan_error.make ~side ~tensor:t ~detail:(Position i) Unknown_member)
+              (Plan_error.make ~side ~tensor:t ~detail:(Position i)
+                 Unknown_member)
     in
     go 0 g.final_outputs
   in
@@ -206,12 +225,16 @@ let build ~(limits : Resource_limits.t) ~side (g : Graph_desc.t) =
         (Plan_error.make ~side
            ~detail:
              (Expected_actual_count
-                { expected = List.length g.final_outputs; actual = List.length flat })
+                {
+                  expected = List.length g.final_outputs;
+                  actual = List.length flat;
+                })
            Output_order_mismatch)
     else
       let rec first i a b =
         match (a, b) with
-        | x :: ar, y :: br -> if Tensor_ref.equal x y then first (i + 1) ar br else i
+        | x :: ar, y :: br ->
+            if Tensor_ref.equal x y then first (i + 1) ar br else i
         | _ -> i
       in
       fail
@@ -224,13 +247,20 @@ let build ~(limits : Resource_limits.t) ~side (g : Graph_desc.t) =
   let succs = ref Node_ref.Map.empty in
   let add_edge a b =
     succs :=
-      Node_ref.Map.update a (fun l -> Some (b :: Option.value l ~default:[])) !succs;
+      Node_ref.Map.update a
+        (fun l -> Some (b :: Option.value l ~default:[]))
+        !succs;
     indegree :=
-      Node_ref.Map.update b (fun d -> Some (1 + Option.value d ~default:0)) !indegree
+      Node_ref.Map.update b
+        (fun d -> Some (1 + Option.value d ~default:0))
+        !indegree
   in
   List.iter
     (fun (n : Node_desc.t) ->
-      indegree := Node_ref.Map.update n.node (fun d -> Some (Option.value d ~default:0)) !indegree;
+      indegree :=
+        Node_ref.Map.update n.node
+          (fun d -> Some (Option.value d ~default:0))
+          !indegree;
       List.iter
         (fun t ->
           match Tensor_ref.Map.find_opt t producers with
@@ -256,7 +286,8 @@ let build ~(limits : Resource_limits.t) ~side (g : Graph_desc.t) =
               indegree := Node_ref.Map.add s d !indegree;
               if d = 0 then s :: q else q)
             []
-            (List.rev (Option.value (Node_ref.Map.find_opt n !succs) ~default:[]))
+            (List.rev
+               (Option.value (Node_ref.Map.find_opt n !succs) ~default:[]))
         in
         kahn (n :: acc) (rest @ List.rev next)
   in

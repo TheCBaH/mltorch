@@ -1,6 +1,6 @@
 module W = Wire
 
-type effect =
+type side_effect =
   | Metadata_assertion
   | Pure
   | Unsupported of Prose.Description.t
@@ -11,12 +11,12 @@ type t = {
   operands : Tensor_ref.t list;
   results : Tensor_ref.t list;
   control_predecessors : Node_ref.t list;
-  effect : effect;
+  side_effect : side_effect;
 }
 
 module Description = W.Text (Prose.Description)
 
-let decode_effect : effect W.decoder =
+let decode_side_effect : side_effect W.decoder =
   W.variant (fun tag o ->
       let ( let* ) = W.( let* ) in
       match tag with
@@ -27,7 +27,7 @@ let decode_effect : effect W.decoder =
           Ok (Unsupported d)
       | tag -> W.unknown_tag ~kind:"effect" tag)
 
-let encode_effect = function
+let encode_side_effect = function
   | Metadata_assertion -> W.tagged "metadata_assertion" []
   | Pure -> W.tagged "pure" []
   | Unsupported d ->
@@ -43,8 +43,9 @@ let decode : t W.decoder =
       let* control_predecessors =
         W.Obj.required o "control_predecessors" (W.list Node_ref.decode)
       in
-      let* effect = W.Obj.required o "effect" decode_effect in
-      Ok { node; operator; operands; results; control_predecessors; effect })
+      let* side_effect = W.Obj.required o "effect" decode_side_effect in
+      Ok
+        { node; operator; operands; results; control_predecessors; side_effect })
 
 let encode n =
   W.obj
@@ -53,7 +54,8 @@ let encode n =
       W.field "operator" Operator_ref.encode n.operator;
       W.field "operands" (W.enc_list Tensor_ref.encode) n.operands;
       W.field "results" (W.enc_list Tensor_ref.encode) n.results;
-      W.field "control_predecessors" (W.enc_list Node_ref.encode)
+      W.field "control_predecessors"
+        (W.enc_list Node_ref.encode)
         n.control_predecessors;
-      W.field "effect" encode_effect n.effect;
+      W.field "effect" encode_side_effect n.side_effect;
     ]

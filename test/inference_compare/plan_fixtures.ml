@@ -38,9 +38,12 @@ let f32 ?(layout = "row_major") shape : Tensor_spec.t =
   }
 
 let operator d o : Operator_ref.t =
-  { dialect = text (Id.Dialect.of_string d); operation = text (Id.Operator.of_string o) }
+  {
+    dialect = text (Id.Dialect.of_string d);
+    operation = text (Id.Operator.of_string o);
+  }
 
-let node_desc ?(effect = Node_desc.Pure) ?(control = []) g name op operands
+let node_desc ?(side_effect = Node_desc.Pure) ?(control = []) g name op operands
     results : Node_desc.t =
   {
     node = node g name;
@@ -48,7 +51,7 @@ let node_desc ?(effect = Node_desc.Pure) ?(control = []) g name op operands
     operands = List.map (tensor g) operands;
     results = List.map (tensor g) results;
     control_predecessors = List.map (node g) control;
-    effect;
+    side_effect;
   }
 
 let source g name role spec : Graph_source.t =
@@ -64,7 +67,10 @@ let graph_desc key nodes sources finals specs : Graph_desc.t =
     sources;
     final_outputs = List.map (tensor key) finals;
     output_tree =
-      Tuple (List.map (fun n -> Graph_desc.Output_tree.Tensor (tensor key n)) finals);
+      Tuple
+        (List.map
+           (fun n -> Graph_desc.Output_tree.Tensor (tensor key n))
+           finals);
     tensor_specs = List.map (fun (n, s) -> (tensor key n, s)) specs;
   }
 
@@ -116,8 +122,7 @@ let recipe ?(lossless = true) id nodes result output_spec : Recipe.t =
 let identity_from_canonical id key spec =
   recipe id [] (Recipe.Canonical (ckey key)) spec
 
-let identity_from_boundary id t spec =
-  recipe id [] (Recipe.Boundary t) spec
+let identity_from_boundary id t spec = recipe id [] (Recipe.Boundary t) spec
 
 let transpose id arg spec : Recipe.t =
   recipe id
@@ -190,9 +195,7 @@ let mapping : Mapping_artifact.t =
         };
       ];
     dispositions =
-      [
-        Internal_helper { node = node r "m1a"; owner_unit = uid "u1" };
-      ];
+      [ Internal_helper { node = node r "m1a"; owner_unit = uid "u1" } ];
     frontier =
       {
         canonical_values =
@@ -215,27 +218,39 @@ let mapping : Mapping_artifact.t =
         initial_values = [ payload "x" '1'; payload "c1" '2'; payload "c2" '3' ];
         input_bindings =
           [
-            binding "u1" Left (tensor l "x") (identity_from_canonical "b1" "x" m23);
-            binding "u1" Left (tensor l "c1") (identity_from_canonical "b2" "c1" m23);
+            binding "u1" Left (tensor l "x")
+              (identity_from_canonical "b1" "x" m23);
+            binding "u1" Left (tensor l "c1")
+              (identity_from_canonical "b2" "c1" m23);
             binding "u1" Right (tensor r "xt")
               (transpose "b3" (Recipe.Canonical (ckey "x")) m32);
-            binding "u1" Right (tensor r "k1") (identity_from_canonical "b4" "c1" m23);
-            binding "u2" Left (tensor l "h") (identity_from_canonical "b5" "h" m23);
-            binding "u2" Left (tensor l "c2") (identity_from_canonical "b6" "c2" m23);
-            binding "u2" Right (tensor r "hr") (identity_from_canonical "b7" "h" m23);
-            binding "u2" Right (tensor r "k2") (identity_from_canonical "b8" "c2" m23);
+            binding "u1" Right (tensor r "k1")
+              (identity_from_canonical "b4" "c1" m23);
+            binding "u2" Left (tensor l "h")
+              (identity_from_canonical "b5" "h" m23);
+            binding "u2" Left (tensor l "c2")
+              (identity_from_canonical "b6" "c2" m23);
+            binding "u2" Right (tensor r "hr")
+              (identity_from_canonical "b7" "h" m23);
+            binding "u2" Right (tensor r "k2")
+              (identity_from_canonical "b8" "c2" m23);
           ];
         input_checks =
           [
             check "u1" Left "x" (identity_from_boundary "k1" (tensor l "x") m23);
-            check "u1" Left "c1" (identity_from_boundary "k2" (tensor l "c1") m23);
+            check "u1" Left "c1"
+              (identity_from_boundary "k2" (tensor l "c1") m23);
             check "u1" Right "x"
               (transpose "k3" (Recipe.Boundary (tensor r "xt")) m23);
-            check "u1" Right "c1" (identity_from_boundary "k4" (tensor r "k1") m23);
+            check "u1" Right "c1"
+              (identity_from_boundary "k4" (tensor r "k1") m23);
             check "u2" Left "h" (identity_from_boundary "k5" (tensor l "h") m23);
-            check "u2" Left "c2" (identity_from_boundary "k6" (tensor l "c2") m23);
-            check "u2" Right "h" (identity_from_boundary "k7" (tensor r "hr") m23);
-            check "u2" Right "c2" (identity_from_boundary "k8" (tensor r "k2") m23);
+            check "u2" Left "c2"
+              (identity_from_boundary "k6" (tensor l "c2") m23);
+            check "u2" Right "h"
+              (identity_from_boundary "k7" (tensor r "hr") m23);
+            check "u2" Right "c2"
+              (identity_from_boundary "k8" (tensor r "k2") m23);
           ];
         output_bindings =
           [
@@ -243,14 +258,16 @@ let mapping : Mapping_artifact.t =
               unit = uid "u1";
               key = ckey "h";
               from_left_outputs = identity_from_boundary "o1" (tensor l "h") m23;
-              from_right_outputs = identity_from_boundary "o2" (tensor r "hr") m23;
+              from_right_outputs =
+                identity_from_boundary "o2" (tensor r "hr") m23;
               comparison_id = comparison "cmp_h";
             };
             {
               unit = uid "u2";
               key = ckey "y";
               from_left_outputs = identity_from_boundary "o3" (tensor l "y") m23;
-              from_right_outputs = identity_from_boundary "o4" (tensor r "yr") m23;
+              from_right_outputs =
+                identity_from_boundary "o4" (tensor r "yr") m23;
               comparison_id = comparison "cmp_y";
             };
           ];
@@ -372,10 +389,14 @@ let cyc_mapping : Mapping_artifact.t =
         initial_values = [ payload "x" '4' ];
         input_bindings =
           [
-            binding "A" Left (tensor l "x") (identity_from_canonical "b1" "x" m23);
-            binding "A" Right (tensor r "r") (identity_from_canonical "b2" "q" m23);
-            binding "B" Left (tensor l "p") (identity_from_canonical "b3" "p" m23);
-            binding "B" Right (tensor r "x") (identity_from_canonical "b4" "x" m23);
+            binding "A" Left (tensor l "x")
+              (identity_from_canonical "b1" "x" m23);
+            binding "A" Right (tensor r "r")
+              (identity_from_canonical "b2" "q" m23);
+            binding "B" Left (tensor l "p")
+              (identity_from_canonical "b3" "p" m23);
+            binding "B" Right (tensor r "x")
+              (identity_from_canonical "b4" "x" m23);
           ];
         input_checks =
           [
@@ -390,14 +411,16 @@ let cyc_mapping : Mapping_artifact.t =
               unit = uid "A";
               key = ckey "p";
               from_left_outputs = identity_from_boundary "o1" (tensor l "p") m23;
-              from_right_outputs = identity_from_boundary "o2" (tensor r "s") m23;
+              from_right_outputs =
+                identity_from_boundary "o2" (tensor r "s") m23;
               comparison_id = comparison "cmp_p";
             };
             {
               unit = uid "B";
               key = ckey "q";
               from_left_outputs = identity_from_boundary "o3" (tensor l "q") m23;
-              from_right_outputs = identity_from_boundary "o4" (tensor r "r") m23;
+              from_right_outputs =
+                identity_from_boundary "o4" (tensor r "r") m23;
               comparison_id = comparison "cmp_q";
             };
           ];

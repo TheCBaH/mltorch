@@ -32,15 +32,20 @@ let tensor_names_of_arg (a : Argument.t) =
   match a with
   | Tensor t -> [ t.TensorArgument.name ]
   | Tensors ts -> List.map (fun (t : TensorArgument.t) -> t.name) ts
-  | Optional_tensor (OptionalTensorArgument.Tensor t) -> [ t.TensorArgument.name ]
+  | Optional_tensor (OptionalTensorArgument.Tensor t) ->
+      [ t.TensorArgument.name ]
   | Optional_tensors ts ->
       List.filter_map
-        (function OptionalTensorArgument.Tensor t -> Some t.TensorArgument.name | _ -> None)
+        (function
+          | OptionalTensorArgument.Tensor t -> Some t.TensorArgument.name
+          | _ -> None)
         ts
   | _ -> []
 
 let operands (n : Node.t) =
-  List.concat_map (fun (na : NamedArgument.t) -> tensor_names_of_arg na.arg) n.inputs
+  List.concat_map
+    (fun (na : NamedArgument.t) -> tensor_names_of_arg na.arg)
+    n.inputs
 
 let results (n : Node.t) = Interp_decode.output_names n
 
@@ -77,11 +82,12 @@ let node_desc ~key ~scope (index, (n : Node.t)) : (Node_desc.t, string) result =
       operands;
       results;
       control_predecessors = [];
-      effect = (if is_assertion n then Metadata_assertion else Pure);
+      side_effect = (if is_assertion n then Metadata_assertion else Pure);
     }
 
-let describe ~key ~scope ~specs ~(nodes : (int * Node.t) list) ~(sources : source list)
-    ~(outputs : string list) : (Graph_desc.t, string) result =
+let describe ~key ~scope ~specs ~(nodes : (int * Node.t) list)
+    ~(sources : source list) ~(outputs : string list) :
+    (Graph_desc.t, string) result =
   let* node_descs = all (node_desc ~key ~scope) nodes in
   let* srcs =
     all
@@ -107,7 +113,9 @@ let describe ~key ~scope ~specs ~(nodes : (int * Node.t) list) ~(sources : sourc
       nodes = node_descs;
       sources = srcs;
       final_outputs;
-      output_tree = Tuple (List.map (fun t -> Graph_desc.Output_tree.Tensor t) final_outputs);
+      output_tree =
+        Tuple
+          (List.map (fun t -> Graph_desc.Output_tree.Tensor t) final_outputs);
       tensor_specs;
     }
 
@@ -121,13 +129,18 @@ let spec_of_meta (m : TensorMeta.t) =
   in
   let* shape =
     all
-      (function SymInt.Int n -> Ok (Int64.of_int n) | _ -> Error "symbolic size")
+      (function
+        | SymInt.Int n -> Ok (Int64.of_int n) | _ -> Error "symbolic size")
       m.sizes
   in
-  match Dtypes.spec ~dtype ~shape with Some s -> Ok s | None -> Error "unsupported element type"
+  match Dtypes.spec ~dtype ~shape with
+  | Some s -> Ok s
+  | None -> Error "unsupported element type"
 
 let fingerprint ~hashers ~algorithm text =
-  match Inference_compare_codecs.Payload_hasher.digest_string hashers algorithm text with
+  match
+    Inference_compare_codecs.Payload_hasher.digest_string hashers algorithm text
+  with
   | Ok d -> Ok (Digest.Payload.hex d)
   | Error _ -> Error "digest backend unavailable"
 
@@ -139,7 +152,9 @@ let of_archive ~hashers ~algorithm ~identity_text archive : (t, string) result =
   let* specs =
     all
       (fun (name, m) ->
-        match spec_of_meta m with Ok s -> Ok (Some (name, s)) | Error _ -> Ok None)
+        match spec_of_meta m with
+        | Ok s -> Ok (Some (name, s))
+        | Error _ -> Ok None)
       (Schema_runtime.String_map.bindings graph.tensor_values)
     |> Result.map (List.filter_map Fun.id)
   in
@@ -208,12 +223,16 @@ let of_file ~hashers ~algorithm path : (t, string) result =
   let* contents =
     match Pt2_archive.read_file path with
     | Ok c -> Ok c
-    | Error e -> Error (Format.asprintf "%s: %a" path Pt2_archive.pp_error (Err.Error.kind e))
+    | Error e ->
+        Error
+          (Format.asprintf "%s: %a" path Pt2_archive.pp_error (Err.Error.kind e))
   in
   let* archive =
     match Pt2_archive.of_string ~name:path contents with
     | Ok a -> Ok a
-    | Error e -> Error (Format.asprintf "%s: %a" path Pt2_archive.pp_error (Err.Error.kind e))
+    | Error e ->
+        Error
+          (Format.asprintf "%s: %a" path Pt2_archive.pp_error (Err.Error.kind e))
   in
   let* identity_text =
     match Pt2_zip.of_string contents with
@@ -229,5 +248,6 @@ let of_file ~hashers ~algorithm path : (t, string) result =
 let attributes_of t (r : Node_ref.t) =
   let s = Id.Node_local.to_string r.local_id in
   match int_of_string_opt (String.sub s 1 (String.length s - 1)) with
-  | Some i when i >= 0 && i < Array.length t.nodes -> node_attributes t.nodes.(i)
+  | Some i when i >= 0 && i < Array.length t.nodes ->
+      node_attributes t.nodes.(i)
   | _ -> ""

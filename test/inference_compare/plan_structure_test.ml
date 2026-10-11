@@ -47,14 +47,15 @@ let%expect_test "the reference plan" =
         (U.lifetimes (Plan.Structural.order p));
       List.iter
         (fun (e : U.Edge.t) ->
-          Format.printf "edge %a -> %a (%s)@." Id.Unit.pp e.from_unit
-            Id.Unit.pp e.to_unit
+          Format.printf "edge %a -> %a (%s)@." Id.Unit.pp e.from_unit Id.Unit.pp
+            e.to_unit
             (match e.reason with
             | Canonical c -> "canonical " ^ Id.Canonical_value.to_string c
             | Data { side; _ } -> "data " ^ Side.to_string side
             | Control { side; _ } -> "control " ^ Side.to_string side))
         (U.edges (Plan.Structural.order p)));
-  [%expect {|
+  [%expect
+    {|
     order: u1 -> u2
     u1 reads=[c1,
     x] writes=[h] inputs=4 checks=4
@@ -93,7 +94,8 @@ let%expect_test "set order does not change the plan" =
   in
   (match
      ( P.plan m,
-       P.plan ~left:(reversed_graph left) ~right:(reversed_graph right) shuffled )
+       P.plan ~left:(reversed_graph left) ~right:(reversed_graph right) shuffled
+     )
    with
   | Ok a, Ok b ->
       Format.printf "same order: %b@."
@@ -112,37 +114,53 @@ let%expect_test "set order does not change the plan" =
               (u.unit, u.canonical_reads, u.canonical_writes))
             (Plan.Structural.units b))
   | Error e, _ | _, Error e -> Format.printf "ERROR %a@." P.pp_error e);
-  [%expect {|
+  [%expect
+    {|
     same order: true
     same mapping preimage: true
     same unit plans: true |}]
 
-let with_units f : Mapping_artifact.t =
-  { m with units = List.map f m.units }
-
+let with_units f : Mapping_artifact.t = { m with units = List.map f m.units }
 let with_frontier f : Mapping_artifact.t = { m with frontier = f m.frontier }
 
 let%expect_test "stale and unknown identities" =
   let other_digest =
     {
       left with
-      key = { left.key with graph_digest = P.(digest_error (Digest.Graph.make sha256 ~hex:(String.make 64 'f'))) };
+      key =
+        {
+          left.key with
+          graph_digest =
+            P.(
+              digest_error (Digest.Graph.make sha256 ~hex:(String.make 64 'f')));
+        };
     }
   in
   P.outcome ~left:other_digest "stale left graph digest" m;
   P.outcome "mapping built for another right graph"
-    { m with right_graph = { r with version = P.(text (Id.Graph_version.of_string "v2")) } };
+    {
+      m with
+      right_graph =
+        { r with version = P.(text (Id.Graph_version.of_string "v2")) };
+    };
   P.outcome "unknown node in a cluster"
     (with_units (fun u ->
          if Id.Unit.to_string u.unit_id = "u1" then
-           { u with left = { u.left with nodes = P.node l "ghost" :: u.left.nodes } }
+           {
+             u with
+             left = { u.left with nodes = P.node l "ghost" :: u.left.nodes };
+           }
          else u));
   P.outcome "cluster from the other graph"
     (with_units (fun u ->
          if Id.Unit.to_string u.unit_id = "u1" then
-           { u with left = { u.left with nodes = P.node r "m2" :: u.left.nodes } }
+           {
+             u with
+             left = { u.left with nodes = P.node r "m2" :: u.left.nodes };
+           }
          else u));
-  [%expect {|
+  [%expect
+    {|
     stale left graph digest: stale_graph side=left
     mapping built for another right graph: stale_graph side=right
     unknown node in a cluster: unknown_member side=left unit=u1 node=aten/v1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:/ghost
@@ -152,7 +170,10 @@ let%expect_test "partition completeness" =
   P.outcome "node owned twice"
     (with_units (fun u ->
          if Id.Unit.to_string u.unit_id = "u2" then
-           { u with left = { u.left with nodes = P.node l "n1" :: u.left.nodes } }
+           {
+             u with
+             left = { u.left with nodes = P.node l "n1" :: u.left.nodes };
+           }
          else u));
   P.outcome "helper omitted from every unit"
     (with_units (fun u ->
@@ -161,7 +182,8 @@ let%expect_test "partition completeness" =
          else u));
   let with_assertion =
     let assertion =
-      P.node_desc ~effect:Metadata_assertion l "assert_shape" "assert" [ "x" ] []
+      P.node_desc ~side_effect:Metadata_assertion l "assert_shape" "assert"
+        [ "x" ] []
     in
     { left with nodes = left.nodes @ [ assertion ] }
   in
@@ -191,8 +213,13 @@ let%expect_test "partition completeness" =
         };
     };
   P.outcome "helper disposition naming the wrong owner"
-    { m with dispositions = [ Internal_helper { node = P.node r "m1a"; owner_unit = uid "u2" } ] };
-  [%expect {|
+    {
+      m with
+      dispositions =
+        [ Internal_helper { node = P.node r "m1a"; owner_unit = uid "u2" } ];
+    };
+  [%expect
+    {|
     node owned twice: duplicate_owner side=left unit=u2 node=aten/v1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:/n1
     helper omitted from every unit: missing_owner side=right node=native/v1@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:/m1a
     assertion owned by no unit: missing_owner side=left node=aten/v1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:/assert_shape
@@ -201,12 +228,10 @@ let%expect_test "partition completeness" =
 
 let%expect_test "unit boundaries are recomputed" =
   let edit_u1 f =
-    with_units (fun u ->
-        if Id.Unit.to_string u.unit_id = "u1" then f u else u)
+    with_units (fun u -> if Id.Unit.to_string u.unit_id = "u1" then f u else u)
   in
   P.outcome "an external operand left out of the inputs"
-    (edit_u1 (fun u ->
-         { u with left = { u.left with inputs = [ t l "x" ] } }));
+    (edit_u1 (fun u -> { u with left = { u.left with inputs = [ t l "x" ] } }));
   P.outcome "an input nothing inside reads"
     (edit_u1 (fun u ->
          { u with left = { u.left with inputs = t l "c2" :: u.left.inputs } }));
@@ -218,7 +243,8 @@ let%expect_test "unit boundaries are recomputed" =
   P.outcome "an output listed twice"
     (edit_u1 (fun u ->
          { u with left = { u.left with outputs = [ t l "h"; t l "h" ] } }));
-  [%expect {|
+  [%expect
+    {|
     an external operand left out of the inputs: boundary_mismatch side=left unit=u1 tensor=aten/v1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:/c1
     an input nothing inside reads: boundary_mismatch side=left unit=u1 tensor=aten/v1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:/c2
     an outgoing value left out: boundary_mismatch side=left unit=u1 tensor=aten/v1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:/h
@@ -226,8 +252,12 @@ let%expect_test "unit boundaries are recomputed" =
     an output listed twice: duplicate_owner side=left unit=u1 tensor=aten/v1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:/h |}]
 
 let%expect_test "correspondence and frontier recipes" =
-  let drop_binding f = with_frontier (fun fr ->
-      { fr with input_bindings = List.filter (fun b -> not (f b)) fr.input_bindings })
+  let drop_binding f =
+    with_frontier (fun fr ->
+        {
+          fr with
+          input_bindings = List.filter (fun b -> not (f b)) fr.input_bindings;
+        })
   in
   P.outcome "residual/constant operand without a binding"
     (drop_binding (fun (b : Input_binding.t) ->
@@ -237,7 +267,8 @@ let%expect_test "correspondence and frontier recipes" =
          {
            fr with
            input_bindings =
-             P.binding "u2" Left (t l "c2") (P.identity_from_canonical "dup" "c2" P.m23)
+             P.binding "u2" Left (t l "c2")
+               (P.identity_from_canonical "dup" "c2" P.m23)
              :: fr.input_bindings;
          }));
   P.outcome "missing reconstruction check"
@@ -261,7 +292,10 @@ let%expect_test "correspondence and frontier recipes" =
              List.map
                (fun (b : Input_binding.t) ->
                  if Tensor_ref.equal b.tensor (t r "xt") then
-                   { b with from_common = P.identity_from_canonical "wrong" "x" P.m23 }
+                   {
+                     b with
+                     from_common = P.identity_from_canonical "wrong" "x" P.m23;
+                   }
                  else b)
                fr.input_bindings;
          }));
@@ -286,7 +320,14 @@ let%expect_test "correspondence and frontier recipes" =
         };
       ]
       (Recipe.Conversion_result n)
-      { P.m23 with dtype = { codec = Inference_compare_codecs.Element_codec.i32; parameters_digest = None } }
+      {
+        P.m23 with
+        dtype =
+          {
+            codec = Inference_compare_codecs.Element_codec.i32;
+            parameters_digest = None;
+          };
+      }
   in
   ignore narrowing;
   P.outcome "both candidates required: right recipe reads a left tensor"
@@ -297,7 +338,11 @@ let%expect_test "correspondence and frontier recipes" =
              List.map
                (fun (b : Output_binding.t) ->
                  if Id.Unit.to_string b.unit = "u1" then
-                   { b with from_right_outputs = P.identity_from_boundary "swap" (t l "h") P.m23 }
+                   {
+                     b with
+                     from_right_outputs =
+                       P.identity_from_boundary "swap" (t l "h") P.m23;
+                   }
                  else b)
                fr.output_bindings;
          }));
@@ -316,7 +361,10 @@ let%expect_test "correspondence and frontier recipes" =
     {
       (with_units (fun u ->
            if Id.Unit.to_string u.unit_id = "u1" then
-             { u with right = { u.right with outputs = [ t r "xr"; t r "hr" ] } }
+             {
+               u with
+               right = { u.right with outputs = [ t r "xr"; t r "hr" ] };
+             }
            else u))
       with
       frontier =
@@ -326,7 +374,11 @@ let%expect_test "correspondence and frontier recipes" =
             List.map
               (fun (b : Output_binding.t) ->
                 if Id.Unit.to_string b.unit = "u1" then
-                  { b with from_right_outputs = P.identity_from_boundary "diag" (t r "xr") P.m23 }
+                  {
+                    b with
+                    from_right_outputs =
+                      P.identity_from_boundary "diag" (t r "xr") P.m23;
+                  }
                 else b)
               m.frontier.output_bindings;
         };
@@ -338,7 +390,8 @@ let%expect_test "correspondence and frontier recipes" =
     (with_frontier (fun fr ->
          {
            fr with
-           canonical_values = { key = P.ckey "z"; spec = P.m23 } :: fr.canonical_values;
+           canonical_values =
+             { key = P.ckey "z"; spec = P.m23 } :: fr.canonical_values;
          }));
   P.outcome "two writers for one value"
     (with_frontier (fun fr ->
@@ -352,7 +405,8 @@ let%expect_test "correspondence and frontier recipes" =
              }
              :: fr.output_bindings;
          }));
-  [%expect {|
+  [%expect
+    {|
     residual/constant operand without a binding: missing_common_input side=left unit=u2 tensor=aten/v1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:/c2
     a second binding for one operand: ambiguous_route side=left unit=u2 tensor=aten/v1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:/c2
     missing reconstruction check: missing_common_input side=right unit=u2 canonical=h
@@ -377,10 +431,19 @@ let%expect_test "ordered final outputs" =
   P.outcome "occurrence omitted"
     (with_frontier (fun fr -> { fr with final_outputs = [] }));
   (* Two outputs, [y] then [h], and the swapped listing. *)
-  let two_left = { left with final_outputs = [ t l "y"; t l "h" ];
-                  output_tree = Tuple [ Tensor (t l "y"); Tensor (t l "h") ] }
-  and two_right = { right with final_outputs = [ t r "yr"; t r "hr" ];
-                   output_tree = Tuple [ Tensor (t r "yr"); Tensor (t r "hr") ] } in
+  let two_left =
+    {
+      left with
+      final_outputs = [ t l "y"; t l "h" ];
+      output_tree = Tuple [ Tensor (t l "y"); Tensor (t l "h") ];
+    }
+  and two_right =
+    {
+      right with
+      final_outputs = [ t r "yr"; t r "hr" ];
+      output_tree = Tuple [ Tensor (t r "yr"); Tensor (t r "hr") ];
+    }
+  in
   let occ s = P.text (Id.Output_occurrence.of_string s) in
   let two key_a key_b =
     with_frontier (fun fr ->
@@ -388,31 +451,61 @@ let%expect_test "ordered final outputs" =
           fr with
           final_outputs =
             [
-              { occurrence = occ "o0"; canonical = P.ckey "y"; left = t l key_a; right = t r (if key_a = "y" then "yr" else "hr") };
-              { occurrence = occ "o1"; canonical = P.ckey "h"; left = t l key_b; right = t r (if key_b = "y" then "yr" else "hr") };
+              {
+                occurrence = occ "o0";
+                canonical = P.ckey "y";
+                left = t l key_a;
+                right = t r (if key_a = "y" then "yr" else "hr");
+              };
+              {
+                occurrence = occ "o1";
+                canonical = P.ckey "h";
+                left = t l key_b;
+                right = t r (if key_b = "y" then "yr" else "hr");
+              };
             ];
         })
   in
   P.outcome ~left:two_left ~right:two_right "two outputs in order" (two "y" "h");
   P.outcome ~left:two_left ~right:two_right "two outputs swapped" (two "h" "y");
   (* The same tensor returned twice keeps both occurrences. *)
-  let dup_left = { left with final_outputs = [ t l "y"; t l "y" ];
-                  output_tree = Tuple [ Tensor (t l "y"); Tensor (t l "y") ] }
-  and dup_right = { right with final_outputs = [ t r "yr"; t r "yr" ];
-                   output_tree = Tuple [ Tensor (t r "yr"); Tensor (t r "yr") ] } in
-  P.outcome ~left:dup_left ~right:dup_right "repeated output, one occurrence listed"
-    m;
+  let dup_left =
+    {
+      left with
+      final_outputs = [ t l "y"; t l "y" ];
+      output_tree = Tuple [ Tensor (t l "y"); Tensor (t l "y") ];
+    }
+  and dup_right =
+    {
+      right with
+      final_outputs = [ t r "yr"; t r "yr" ];
+      output_tree = Tuple [ Tensor (t r "yr"); Tensor (t r "yr") ];
+    }
+  in
+  P.outcome ~left:dup_left ~right:dup_right
+    "repeated output, one occurrence listed" m;
   P.outcome ~left:dup_left ~right:dup_right "repeated output, both listed"
     (with_frontier (fun fr ->
          {
            fr with
            final_outputs =
              [
-               { occurrence = occ "o0"; canonical = P.ckey "y"; left = t l "y"; right = t r "yr" };
-               { occurrence = occ "o1"; canonical = P.ckey "y"; left = t l "y"; right = t r "yr" };
+               {
+                 occurrence = occ "o0";
+                 canonical = P.ckey "y";
+                 left = t l "y";
+                 right = t r "yr";
+               };
+               {
+                 occurrence = occ "o1";
+                 canonical = P.ckey "y";
+                 left = t l "y";
+                 right = t r "yr";
+               };
              ];
          }));
-  [%expect {|
+  [%expect
+    {|
     wrong right tensor at an occurrence: output_order_mismatch side=right tensor=native/v1@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:/hr position=0
     occurrence omitted: output_order_mismatch expected=1 actual=0
     two outputs in order: ok units=[u1 u2]
@@ -432,8 +525,8 @@ let%expect_test "union dependency cycle" =
       | Cycle edges ->
           List.iter
             (fun (c : Plan.Plan_error.Cycle_edge.t) ->
-              Format.printf "  %a -> %a: %s@." Id.Unit.pp c.from_unit
-                Id.Unit.pp c.to_unit
+              Format.printf "  %a -> %a: %s@." Id.Unit.pp c.from_unit Id.Unit.pp
+                c.to_unit
                 (match c.reason with
                 | Data { side; tensor } ->
                     Printf.sprintf "data %s %s" (Side.to_string side)
@@ -443,7 +536,8 @@ let%expect_test "union dependency cycle" =
             edges
       | _ -> Format.printf "no witness@.")
   | Ok _ -> Format.printf "accepted@.");
-  [%expect {|
+  [%expect
+    {|
     opposing endpoint dependencies: unit_cycle unit=A cycle_length=4
       A -> B: canonical p
       A -> B: data left p
@@ -455,7 +549,8 @@ let%expect_test "endpoint graph validity and limits" =
     {
       left with
       nodes =
-        P.node_desc l "n1" "add" [ "x"; "nowhere" ] [ "h" ] :: List.tl left.nodes;
+        P.node_desc l "n1" "add" [ "x"; "nowhere" ] [ "h" ]
+        :: List.tl left.nodes;
     }
   in
   P.outcome ~left:bad_operand "operand with no producer" m;
@@ -468,7 +563,7 @@ let%expect_test "endpoint graph validity and limits" =
             if Id.Node_local.to_string n.node.local_id = "n2" then
               {
                 n with
-                effect =
+                side_effect =
                   Unsupported (P.text (Prose.Description.of_string "rng"));
               }
             else n)
@@ -489,13 +584,16 @@ let%expect_test "endpoint graph validity and limits" =
     }
   in
   P.outcome ~left:self_loop "cycle inside one endpoint" m;
-  let tree_mismatch =
-    { left with output_tree = Tuple [ Tensor (t l "h") ] }
-  in
+  let tree_mismatch = { left with output_tree = Tuple [ Tensor (t l "h") ] } in
   P.outcome ~left:tree_mismatch "output tree disagrees with the outputs" m;
-  P.outcome ~limits:{ P.limits with max_units = 1L } "unit count over the limit" m;
-  P.outcome ~limits:{ P.limits with max_nodes = 2L } "node count over the limit" m;
-  [%expect {|
+  P.outcome
+    ~limits:{ P.limits with max_units = 1L }
+    "unit count over the limit" m;
+  P.outcome
+    ~limits:{ P.limits with max_nodes = 2L }
+    "node count over the limit" m;
+  [%expect
+    {|
     operand with no producer: unknown_member side=left node=aten/v1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:/n1 tensor=aten/v1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:/nowhere
     unsupported effect: unsupported_effect side=left node=aten/v1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:/n2
     cycle inside one endpoint: unit_cycle side=left node_cycle_length=2
@@ -513,28 +611,44 @@ let%expect_test "an operand must be fed by the unit that produces it" =
            input_bindings =
              List.map
                (fun (b : Input_binding.t) ->
-                 if Id.Unit.to_string b.unit = "u2" && b.side = Left
-                    && Tensor_ref.equal b.tensor (t l "h")
+                 if
+                   Id.Unit.to_string b.unit = "u2"
+                   && b.side = Left
+                   && Tensor_ref.equal b.tensor (t l "h")
                  then
-                   { b with from_common = P.identity_from_canonical "stale" "c1" P.m23 }
+                   {
+                     b with
+                     from_common = P.identity_from_canonical "stale" "c1" P.m23;
+                   }
                  else b)
                fr.input_bindings;
            input_checks =
              List.map
                (fun (c : Input_check.t) ->
-                 if Id.Unit.to_string c.unit = "u2" && c.side = Left
-                    && Id.Canonical_value.to_string c.canonical = "h"
+                 if
+                   Id.Unit.to_string c.unit = "u2"
+                   && c.side = Left
+                   && Id.Canonical_value.to_string c.canonical = "h"
                  then
                    P.check "u2" Left "c1"
                      (P.identity_from_boundary "kc1" (t l "h") P.m23)
                  else c)
                fr.input_checks;
          }));
-  [%expect {| operand bound to an unrelated initial value: missing_common_input side=left unit=u2 tensor=aten/v1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:/h |}]
+  [%expect
+    {| operand bound to an unrelated initial value: missing_common_input side=left unit=u2 tensor=aten/v1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:/h |}]
 
-let%expect_test "a lossy common-frontier binding is refused even when declared lossy" =
+let%expect_test
+    "a lossy common-frontier binding is refused even when declared lossy" =
   let i32 =
-    { P.m23 with dtype = { codec = Inference_compare_codecs.Element_codec.i32; parameters_digest = None } }
+    {
+      P.m23 with
+      dtype =
+        {
+          codec = Inference_compare_codecs.Element_codec.i32;
+          parameters_digest = None;
+        };
+    }
   in
   let n = P.node_id "cast" in
   let narrowing =
@@ -566,4 +680,5 @@ let%expect_test "a lossy common-frontier binding is refused even when declared l
                  else b)
                fr.input_bindings;
          }));
-  [%expect {| float constant fed through an integer cast: lossy_common_input side=right unit=u1 tensor=native/v1@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:/k1 recipe_fault=recipe declared lossless but is lossy |}]
+  [%expect
+    {| float constant fed through an integer cast: lossy_common_input side=right unit=u1 tensor=native/v1@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:/k1 recipe_fault=recipe declared lossless but is lossy |}]

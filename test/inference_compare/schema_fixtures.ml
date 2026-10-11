@@ -6,14 +6,12 @@ open Inference_compare_schema
 let ok pp r = Err.or_raise ~pp_error:pp r
 let text r = ok Text_error.pp r
 let digest r = ok Digest_error.pp r
-
 let unit_id s = text (Id.Unit.of_string s)
 let case_id s = text (Id.Case.of_string s)
 let canonical s = text (Id.Canonical_value.of_string s)
 let pair_id s = text (Id.Member_pair.of_string s)
 let comparison s = text (Id.Comparison.of_string s)
 let sha ch = String.make 64 ch
-
 let algorithm = text (Id.Digest_algorithm.of_string "sha256")
 let graph_digest ch = digest (Digest.Graph.make algorithm ~hex:(sha ch))
 let payload_digest ch = digest (Digest.Payload.make algorithm ~hex:(sha ch))
@@ -63,7 +61,7 @@ let node_desc graph name op ~operands ~results : Node_desc.t =
     operands = List.map (tensor graph) operands;
     results = List.map (tensor graph) results;
     control_predecessors = [];
-    effect = Pure;
+    side_effect = Pure;
   }
 
 (* x -> add -> h -> mul -> y, returning [y] twice and [h] once so output
@@ -116,8 +114,7 @@ let recipe id ~result nodes spec : Recipe.t =
 
 let reshape_recipe : Recipe.t =
   let n = text (Id.Conversion_node.of_string "r0") in
-  recipe "from_x"
-    ~result:(Conversion_result n)
+  recipe "from_x" ~result:(Conversion_result n)
     [
       {
         id = n;
@@ -189,8 +186,7 @@ let mapping : Mapping_artifact.t =
       ];
     frontier =
       {
-        canonical_values =
-          [ { key = canonical "x"; spec = f32 [ 2L; 3L ] } ];
+        canonical_values = [ { key = canonical "x"; spec = f32 [ 2L; 3L ] } ];
         final_outputs =
           [
             {
@@ -226,5 +222,6 @@ let mapping : Mapping_artifact.t =
         input_checks = [];
         output_bindings = [];
       };
-    derivation_digest = [ digest (Digest.Derivation.make algorithm ~hex:(sha 'd')) ];
+    derivation_digest =
+      [ digest (Digest.Derivation.make algorithm ~hex:(sha 'd')) ];
   }

@@ -90,7 +90,7 @@ let describe ~(ops : 'op ops) ~key ~scope ~(g : 'op Graph_common.Graph.t)
             operands;
             results;
             control_predecessors = [];
-            effect = Pure;
+            side_effect = Pure;
           })
       nodes
   in
@@ -132,7 +132,8 @@ let describe ~(ops : 'op ops) ~key ~scope ~(g : 'op Graph_common.Graph.t)
       sources;
       final_outputs;
       output_tree =
-        Tuple (List.map (fun t -> Graph_desc.Output_tree.Tensor t) final_outputs);
+        Tuple
+          (List.map (fun t -> Graph_desc.Output_tree.Tensor t) final_outputs);
       tensor_specs;
     }
 
