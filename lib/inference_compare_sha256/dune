@@ -1,0 +1,12 @@
+; The initial payload-digest backend: the repository's pure-OCaml SHA-256
+; registered under the algorithm id [sha256]. A separate library so the codec
+; layer never names a concrete algorithm; the final algorithm and its tuning
+; remain open behind [Payload_hasher.BACKEND].
+
+(library
+ (name inference_compare_sha256)
+ (libraries
+  err_trace
+  inference_compare_codecs
+  inference_compare_schema
+  pt2_sha256))

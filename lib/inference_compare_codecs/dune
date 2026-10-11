@@ -1,0 +1,13 @@
+; Logical tensor payloads and their exact conversions for the inference
+; comparison coordinator: immutable owned blobs with a lease ledger, the
+; streaming payload-digest seam (backends are registered by algorithm id),
+; element codecs, logical values and the conversion-recipe validator and
+; evaluator. Pure: depends on the schema layer, [err_trace] and [fmt] only, so
+; no engine, compiler, Unix or libtorch dependency reaches it. Sizes and
+; element counts are [int64] until bounded by [Sys.max_string_length], so
+; nothing here assumes a 63-bit [int]. See .ai/ (the inference comparison
+; schema layer).
+
+(library
+ (name inference_compare_codecs)
+ (libraries err_trace fmt inference_compare_schema))

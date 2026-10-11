@@ -5,7 +5,13 @@
 
 (library
  (name inference_compare_test)
- (libraries err_trace fmt inference_compare_schema jsont)
+ (libraries
+  err_trace
+  fmt
+  inference_compare_codecs
+  inference_compare_schema
+  inference_compare_sha256
+  jsont)
  (inline_tests)
  (preprocess
   (pps ppx_expect)))

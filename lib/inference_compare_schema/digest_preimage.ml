@@ -7,6 +7,7 @@ type domain =
   | Contract
   | Frontier_mapping
   | Graph
+  | Logical_value
   | Mapping
   | Plan
   | Policy_bindings
@@ -17,6 +18,7 @@ let tag = function
   | Contract -> "contract"
   | Frontier_mapping -> "frontier_mapping"
   | Graph -> "graph"
+  | Logical_value -> "logical_value"
   | Mapping -> "mapping"
   | Plan -> "plan"
   | Policy_bindings -> "policy_bindings"
