@@ -257,7 +257,7 @@ TIMM_CACHE ?= data/timm-cache
 TIMM_MANIFEST ?=
 TIMM_SOURCE_DIR ?=
 TIMM_MODE ?= authoritative
-model.compare model.fetch.timm timm.inputs.verify timm.replay: export TIMM_CACHE TIMM_MANIFEST TIMM_SOURCE_DIR TIMM_MODE
+export TIMM_CACHE TIMM_MANIFEST TIMM_MODE TIMM_SOURCE_DIR
 model.compare model.fetch.timm timm.inputs.verify timm.replay: export TIMM_REPO = $(PT2_REPO)
 model.compare model.fetch.timm timm.inputs.verify timm.replay: export TIMM_RELEASE = $(PT2_RELEASE)
 model.compare model.fetch.timm timm.inputs.verify timm.replay: export MODELS_DIR = $(PT2_JSON_MODELS_DIR)
