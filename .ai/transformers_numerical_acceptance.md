@@ -72,3 +72,11 @@ the contract's atol 1e-5 / rtol 1e-4; local ATen lies between the two. This
 explains why the sequential-dot opt-in passes. It does not change the default
 acceptance row: the opt-in stays an explicit policy. Other failing components
 have not been localized this way.
+
+`make transformers.compare MODEL=<artifact id> [CASE=] [LEFT=aten]
+[RIGHT=native|native-sequential] [TOL=] [DONOR=]` runs that pair over a released
+fixture (fetching it and its Hub checkpoint if absent) and prints each cluster as
+`[k/N]` with its operations on both sides and the verdict. Exit status follows the
+`inference_compare` command (0 agreement, 1 disagreement, 3 refused or failed, 4
+not established). LEFT is ATen because the only supplied correspondence is the
+ATen-to-Native import map; two Native variants cannot yet be paired.

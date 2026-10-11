@@ -1,4 +1,4 @@
-.PHONY: transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
+.PHONY: transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open transformers.compare transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean machine.a64.conformance machine.pt2.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
@@ -215,6 +215,27 @@ transformers.download:
 transformers.open:
 	opam exec -- dune exec bin/transformers_fixture.exe -- open \
 		$(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) $(TRANSFORMERS_ARTIFACTS)
+
+# Compare two engines on one released fixture, cluster by cluster: both run each
+# cluster of the correspondence on the same committed inputs, and every cluster
+# is printed as it is compared ([k/N]: its operations on each side, then the
+# verdict). Fetches the fixture and its Hub checkpoint if they are not cached.
+#   make transformers.compare MODEL=<artifact id> [CASE=case-00]
+#     [LEFT=aten] [RIGHT=native|native-sequential] [TOL=1e-4] [DONOR=left|right]
+# LEFT is aten (the C++ ATen interpreter); RIGHT is the Native evaluator with
+# binary64 dots (native) or binary32 sequential dots (native-sequential). The
+# pairing follows the ATen-to-Native import correspondence, which is why ATen is
+# on the left. TOL is the atol and rtol of the binary32 element comparison.
+CASE ?= case-00
+LEFT ?= aten
+RIGHT ?= native
+TOL ?= 1e-4
+DONOR ?= left
+transformers.compare:
+	@test -n "$(MODEL)" || { echo "set MODEL to a cohort artifact id (see $(TRANSFORMERS_COHORT))" >&2; exit 2; }
+	$(MAKE) --no-print-directory transformers.download TRANSFORMERS_ARTIFACTS="$(MODEL)"
+	TOL=$(TOL) DONOR=$(DONOR) opam exec -- dune exec test/inference_compare_pt2/fixture_pair_run.exe -- \
+		$(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) "$(MODEL)" $(CASE) $(LEFT) $(RIGHT)
 
 # Offline numerical replay of the cohort's published cases through Native direct
 # execution: every output element against the producer's reference under the

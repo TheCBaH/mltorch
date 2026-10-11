@@ -78,14 +78,14 @@ let aten_endpoint t : Core.Side_exec.endpoint =
         (fun ex -> Ex.Dialect.realize (module Aten_dialect.Dialect) t.aten ex);
     }
 
-let native_endpoint t : Core.Side_exec.endpoint =
+let native_endpoint ?dots t : Core.Side_exec.endpoint =
   Endpoint
     {
-      runner = Native_runner.create ();
+      runner = Native_runner.create ?dots ();
       build =
         (fun ex ->
           Ex.Dialect.realize (module Native_dialect.Dialect) t.native ex);
     }
 
 let aten_identity () = Aten_runner.identity ()
-let native_identity () = Native_runner.identity ()
+let native_identity ?dots () = Native_runner.identity ?dots ()
