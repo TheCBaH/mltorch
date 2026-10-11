@@ -20,7 +20,6 @@ type config = {
   run_id : Id.Run.t;
   case_id : Id.Case.t;
   experiment : Experiment.t;
-  bindings : Policy_bindings.t;
   initial : (Id.Canonical_value.t * L.t) list;
   expected_identities : Engine_identity.t option * Engine_identity.t option;
   emit : Event.t -> (unit, string) result;
@@ -59,8 +58,10 @@ let find_exn what = function
   | Some x -> x
   | None -> invalid_arg ("Coordinator: " ^ what)
 
-let run cfg structural (extractions : Ex.Extraction.t list) ~left ~right :
-    result =
+let run cfg (sealed : Sealed_plan.t) ~left ~right : result =
+  let structural = Sealed_plan.structural sealed in
+  let extractions = Sealed_plan.extractions sealed in
+  let bindings = Sealed_plan.bindings sealed in
   let rs =
     RS.create ~run_id:cfg.run_id ~case_id:cfg.case_id
       ~experiment_id:cfg.experiment.experiment_id ~emit:cfg.emit
@@ -140,11 +141,11 @@ let run cfg structural (extractions : Ex.Extraction.t list) ~left ~right :
           (fun (p : Unit_plan.t) ->
             List.for_all
               (fun (b : Output_binding.t) ->
-                F.binding_for cfg.bindings b.comparison_id <> None)
+                F.binding_for bindings b.comparison_id <> None)
               p.output_bindings
             && List.for_all
                  (fun (m : Member_pair.t) ->
-                   F.binding_for cfg.bindings m.comparison_id <> None)
+                   F.binding_for bindings m.comparison_id <> None)
                  p.output_pairs)
           (Plan.Correspondence_check.unit_plans correspondence)
       in
@@ -443,8 +444,8 @@ let run cfg structural (extractions : Ex.Extraction.t list) ~left ~right :
         let* candidate_results =
           map_result
             (fun ((b : Output_binding.t), (lv, _, _), (rv, _, _)) ->
-              F.compare_pair env cfg.bindings ~unit:u
-                ~comparison:b.comparison_id ~left:lv ~right:rv)
+              F.compare_pair env bindings ~unit:u ~comparison:b.comparison_id
+                ~left:lv ~right:rv)
             candidates
         in
         let* pair_results =
@@ -469,8 +470,8 @@ let run cfg structural (extractions : Ex.Extraction.t list) ~left ~right :
               in
               let* lv = convert Left m.left m.left_to_comparison in
               let* rv = convert Right m.right m.right_to_comparison in
-              F.compare_pair env cfg.bindings ~unit:u
-                ~comparison:m.comparison_id ~left:lv ~right:rv)
+              F.compare_pair env bindings ~unit:u ~comparison:m.comparison_id
+                ~left:lv ~right:rv)
             plan.output_pairs
         in
         let results = candidate_results @ pair_results in

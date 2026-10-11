@@ -52,6 +52,7 @@ type t = {
   structural : Plan.Structural.t;
   extractions : Ex.Extraction.t list;
   bindings : Policy_bindings.t;
+  sealed : Core.Sealed_plan.t;
   chain : C.t;
 }
 
@@ -60,7 +61,17 @@ let make ?policy chain =
   let extractions =
     Result.get_ok (Ex.Extraction.extract_all ~hashers ~algorithm structural)
   in
-  { structural; extractions; bindings = sealed structural ?policy (); chain }
+  let bindings = sealed structural ?policy () in
+  let sealed_plan =
+    match
+      Core.Sealed_plan.seal ~hashers ~algorithm structural extractions bindings
+    with
+    | Ok p -> p
+    | Error e ->
+        Format.kasprintf failwith "seal: %a" Core.Sealed_plan.pp_error
+          (Err.Error.kind e)
+  in
+  { structural; extractions; bindings; sealed = sealed_plan; chain }
 
 let endpoint runner source : Core.Side_exec.endpoint =
   let module D =
@@ -143,15 +154,14 @@ let execute t (s : setup) =
           overrides = s.overrides;
           compare_policy_digest = Pol.Seal.placeholder algorithm;
         };
-      bindings = t.bindings;
       initial = Option.value s.initial_override ~default:(initial_values t);
       expected_identities = s.expected_identities;
       emit = s.emit;
     }
   in
   let result =
-    Core.Coordinator.run cfg t.structural t.extractions
-      ~left:(endpoint lrunner ls) ~right:(endpoint rrunner rs)
+    Core.Coordinator.run cfg t.sealed ~left:(endpoint lrunner ls)
+      ~right:(endpoint rrunner rs)
   in
   { result; ctx; left = lc; right = rc }
 

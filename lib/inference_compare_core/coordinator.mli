@@ -27,7 +27,6 @@ type config = {
   run_id : Id.Run.t;
   case_id : Id.Case.t;
   experiment : Experiment.t;
-  bindings : Policy_bindings.t;  (** Sealed; shared by every donor pass. *)
   initial : (Id.Canonical_value.t * Codecs.Logical_value.t) list;
       (** The pinned initial payloads; read, never consumed. *)
   expected_identities : Engine_identity.t option * Engine_identity.t option;
@@ -53,8 +52,9 @@ type result = {
 
 val run :
   config ->
-  Inference_compare_plan.Structural.t ->
-  Inference_compare_extract.Extraction.t list ->
+  Sealed_plan.t ->
   left:Side_exec.endpoint ->
   right:Side_exec.endpoint ->
   result
+(** Runs only a sealed plan: its policy bindings are the ones every donor pass
+    shares. *)
