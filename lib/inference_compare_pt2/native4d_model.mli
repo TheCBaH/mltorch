@@ -21,6 +21,36 @@ type t = {
       (** Canonical Native to Native4D. *)
 }
 
+(** The Native views alone: the lowered and canonical graphs and the pass map
+    between them, which exist for every model Native supports. *)
+module Canonical : sig
+  type four := t
+
+  type t = {
+    n0 : Graph_ir.op Graph_model.t;  (** The lowered Native graph. *)
+    n1 : Graph_ir.op Graph_model.t;  (** After the canonical passes. *)
+    canonical_bytes : Graph_ir.Tensor_id.t -> (string, string) result;
+        (** The exact value of each source of the canonical graph. *)
+    canonicalize : (Pass_map.t, string) result Lazy.t;
+        (** Lowered Native to canonical Native. *)
+    lowering : (four, string) result Lazy.t;
+        (** The four-axis extension, tried only when forced: a graph outside the
+            four-axis domain is its [Error], and never a Native run. *)
+  }
+end
+
+val canonical :
+  hashers:Inference_compare_codecs.Payload_hasher.Registry.t ->
+  algorithm:Id.Digest_algorithm.t ->
+  ctx:Inference_compare_codecs.Logical_value.Context.t ->
+  archive:Pt2_archive.t ->
+  native:Native_model.t ->
+  user_bytes:(string, string) result ->
+  (Canonical.t, string) result
+(** Builds the Native views without the four-axis lowering, so a model Native
+    supports but Native4D refuses still has them. [user_bytes] is read only when
+    a pass map is. *)
+
 val make :
   hashers:Inference_compare_codecs.Payload_hasher.Registry.t ->
   algorithm:Id.Digest_algorithm.t ->

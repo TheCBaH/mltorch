@@ -57,6 +57,15 @@ planner's coarsening of the passes' own correspondence:
   execution=complete numerical=agreement executed=2 units
   comparisons: 2 pass, 0 mismatch, 0 other
 
+The canonical Native graph and its pass map exist without the four-axis
+lowering, which runs only when forced (a model Native4D refuses keeps them):
+
+  $ ./canonical_run.exe "$PT2_DATA/mobilenetv2_050/mobilenetv2_050.pt2" "$PT2_DATA/mobilenetv2_050/inputs.pt" 2>/dev/null
+  canonical: built, lowering forced: false
+  canonicalize map: 40 unit(s)
+  lowering: ok, 100 node(s)
+  lowering forced: true
+
 Not vacuous here either, and each donor's segmented route matches the
 four-axis whole-graph run bitwise:
 

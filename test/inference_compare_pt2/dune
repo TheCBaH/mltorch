@@ -44,9 +44,24 @@
 
 ; Gated on PT2_DATA like the other real-archive crams (`make pt2.runtest`).
 
+(executable
+ (name canonical_run)
+ (modules canonical_run)
+ (libraries
+  inference_compare_pt2
+  inference_compare_schema
+  inference_compare_sha256
+  pt2
+  err_trace
+  fmt))
+
 (cram
  (applies_to pair_cram)
- (deps (universe) %{exe:pair_run.exe} %{exe:fixture_pair_run.exe})
+ (deps
+  (universe)
+  %{exe:pair_run.exe}
+  %{exe:fixture_pair_run.exe}
+  %{exe:canonical_run.exe})
  (enabled_if
   (<> %{env:PT2_DATA=} "")))
 

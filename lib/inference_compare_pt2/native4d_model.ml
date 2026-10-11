@@ -80,11 +80,28 @@ let bytes_of ~graph ~user_bytes ctx (g : _ Graph_common.Graph.t) constants id =
             (Printf.sprintf "no value for the source t%d of the %s graph"
                (Tid.to_int id) graph))
 
+(* The canonical Native graph does not need the four-axis lowering, so a model
+   Native supports but Native4D refuses still has its [n0] and [n1] views and
+   their pass map. The lowering is tried only when [lowering] is forced. *)
+module Canonical = struct
+  type four = t
+
+  type t = {
+    n0 : Graph_ir.op G.t;
+    n1 : Graph_ir.op G.t;
+    canonical_bytes : Tid.t -> (string, string) result;
+    canonicalize : (Pass_map.t, string) result Lazy.t;
+    lowering : (four, string) result Lazy.t;
+        (** The four-axis extension; a graph outside the domain is its [Error],
+            never a fall back to Native. *)
+  }
+end
+
 (* [user_bytes] is the value of the model's one input, which the archive does
    not hold. *)
-let make ~hashers ~algorithm ~(ctx : L.Context.t) ~(archive : Pt2_archive.t)
-    ~(native : Native_model.t) ~(user_bytes : (string, string) result) :
-    (t, string) result =
+let canonical ~hashers ~algorithm ~(ctx : L.Context.t)
+    ~(archive : Pt2_archive.t) ~(native : Native_model.t)
+    ~(user_bytes : (string, string) result) : (Canonical.t, string) result =
   let lowered = native.lowered in
   let* constants0 =
     Native_interp.preload archive lowered
@@ -95,7 +112,7 @@ let make ~hashers ~algorithm ~(ctx : L.Context.t) ~(archive : Pt2_archive.t)
       ~passes:[ Pipeline.canonical ~fold:true ]
   with
   | Error e -> Error (pp_err Native_interp.pp_error e)
-  | Ok (Native_interp.Transformed t) -> (
+  | Ok (Native_interp.Transformed t) ->
       let graph_text g =
         match Jsont_bytesrw.encode_string Graph_ir.graph_jsont g with
         | Ok s -> s
@@ -126,57 +143,69 @@ let make ~hashers ~algorithm ~(ctx : L.Context.t) ~(archive : Pt2_archive.t)
         let* c = Lazy.force constants1 in
         bytes_of ~graph:"canonical" ~user_bytes ctx n1.graph c id
       in
-      match Snapshot.create t.graph with
-      | Error _ -> Error "the canonical graph is not a valid snapshot"
-      | Ok (Snapshot.Pack src) -> (
-          match
-            Native4d.Lower.convert ~constants:t.constants
-              ~constant_store:t.constant_store src
-          with
-          | Error e -> Error (refusal e)
-          | Ok (Native4d.Lower.Pack r) ->
-              let g4 = Native4d.Lower.graph r in
-              let* n4 =
-                G.make ~ops:G.native4d_ops ~hashers ~algorithm
-                  ~version:"native4d"
-                  ~identity_text:
-                    (identity_text (fun f g -> Native4d.Graph.pp_with f g) g4)
-                  g4
-              in
-              let constants4 =
-                lazy
-                  (materialize archive ~constants:r.constants
-                     ~store:r.constant_store)
-              in
-              let n4_bytes id =
-                let* c = Lazy.force constants4 in
-                bytes_of ~graph:"Native4D" ~user_bytes ctx n4.graph c id
-              in
-              let module Export_lower =
-                Map_export.Make (Native_side) (Native4d.Framework.Side4)
-              in
-              let canonicalize =
-                lazy
-                  (Pass_map.make ~name:"c" ~digest
-                     ~src:{ Pass_map.model = n0; bytes = n0_bytes }
-                     ~dst:{ Pass_map.model = n1; bytes = n1_bytes }
-                     ~export:t.map_export)
-              in
-              let lower =
-                let export = Export_lower.export r.map ~src ~dst:r.dst in
-                lazy
-                  (Pass_map.make ~name:"l" ~digest
-                     ~src:{ Pass_map.model = n1; bytes = n1_bytes }
-                     ~dst:{ Pass_map.model = n4; bytes = n4_bytes }
-                     ~export)
-              in
-              Ok
-                {
-                  n0;
-                  n1;
-                  canonical_bytes = n1_bytes;
-                  n4;
-                  constants = constants4;
-                  canonicalize;
-                  lower;
-                }))
+      let canonicalize =
+        lazy
+          (Pass_map.make ~name:"c" ~digest
+             ~src:{ Pass_map.model = n0; bytes = n0_bytes }
+             ~dst:{ Pass_map.model = n1; bytes = n1_bytes }
+             ~export:t.map_export)
+      in
+      let lowering =
+        lazy
+          (match Snapshot.create t.graph with
+          | Error _ -> Error "the canonical graph is not a valid snapshot"
+          | Ok (Snapshot.Pack src) -> (
+              match
+                Native4d.Lower.convert ~constants:t.constants
+                  ~constant_store:t.constant_store src
+              with
+              | Error e -> Error (refusal e)
+              | Ok (Native4d.Lower.Pack r) ->
+                  let g4 = Native4d.Lower.graph r in
+                  let* n4 =
+                    G.make ~ops:G.native4d_ops ~hashers ~algorithm
+                      ~version:"native4d"
+                      ~identity_text:
+                        (identity_text
+                           (fun f g -> Native4d.Graph.pp_with f g)
+                           g4)
+                      g4
+                  in
+                  let constants4 =
+                    lazy
+                      (materialize archive ~constants:r.constants
+                         ~store:r.constant_store)
+                  in
+                  let n4_bytes id =
+                    let* c = Lazy.force constants4 in
+                    bytes_of ~graph:"Native4D" ~user_bytes ctx n4.graph c id
+                  in
+                  let module Export_lower =
+                    Map_export.Make (Native_side) (Native4d.Framework.Side4)
+                  in
+                  let lower =
+                    let export = Export_lower.export r.map ~src ~dst:r.dst in
+                    lazy
+                      (Pass_map.make ~name:"l" ~digest
+                         ~src:{ Pass_map.model = n1; bytes = n1_bytes }
+                         ~dst:{ Pass_map.model = n4; bytes = n4_bytes }
+                         ~export)
+                  in
+                  Ok
+                    {
+                      n0;
+                      n1;
+                      canonical_bytes = n1_bytes;
+                      n4;
+                      constants = constants4;
+                      canonicalize;
+                      lower;
+                    }))
+      in
+      Ok
+        { Canonical.n0; n1; canonical_bytes = n1_bytes; canonicalize; lowering }
+
+let make ~hashers ~algorithm ~ctx ~archive ~native ~user_bytes :
+    (t, string) result =
+  let* c = canonical ~hashers ~algorithm ~ctx ~archive ~native ~user_bytes in
+  Lazy.force c.lowering
