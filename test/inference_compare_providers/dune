@@ -1,0 +1,23 @@
+; Every engine the comparison can be asked for, registered with the variant
+; vocabulary: the generated-code and JavaScript engines always; Rivet and the
+; embedded CompCert where they were built, and a word that refuses naming its
+; prerequisite where they were not. Shared by the pair driver and the coverage
+; manifest so the two cannot disagree about the words.
+
+(library
+ (name inference_compare_providers)
+ (modules providers rivet_register compcert_register)
+ (libraries
+  (select
+   rivet_register.ml
+   from
+   (inference_compare_rivet -> rivet_register.yes.ml)
+   (-> rivet_register.no.ml))
+  (select
+   compcert_register.ml
+   from
+   (inference_compare_compiled -> compcert_register.yes.ml)
+   (-> compcert_register.no.ml))
+  inference_compare_generated
+  inference_compare_js
+  inference_compare_pt2))

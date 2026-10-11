@@ -58,6 +58,9 @@ writes the golden record.
 - A passing local comparison does not bound the end-to-end error: the final
   policies and the frozen reference are separate gates.
 
+The variant words, the registry of engines and the coverage manifest are in the
+variants doc; this one covers the coordinator side.
+
 ## Running it
 
 Each command below is exercised by a cram in `test/inference_compare_pt2`

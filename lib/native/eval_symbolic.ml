@@ -625,7 +625,13 @@ let node_program ?(limits = Kernel.Limits.default) (g : graph) (node : node) :
   let _env, rev_stages, rev_stages_i64 =
     process_node ~limits ~fill ~pixel:E.pixel g (g.Graph.tensors, [], []) node
   in
-  let operand_ids = operands node.Node.op in
+  (* An operand read twice ([Mul x x]) is one input: the program's boundary
+     names each tensor once. *)
+  let operand_ids =
+    List.fold_left
+      (fun acc id -> if List.mem id acc then acc else acc @ [ id ])
+      [] (operands node.Node.op)
+  in
   let inputs =
     List.map (fun id -> (id, Tensor_id.Map.find id g.Graph.tensors)) operand_ids
   in

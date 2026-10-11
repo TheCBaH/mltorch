@@ -109,6 +109,7 @@
  (name fixture_pair_run)
  (modules fixture_pair_run)
  (libraries
+  inference_compare_providers
   model_source
   pt2_safetensors_unix
   pair_harness
@@ -139,3 +140,44 @@
   pt2_fixture_unix
   err_trace
   fmt))
+
+; The Rivet AArch64 routes against the direct evaluator and each other on a
+; real model; they run on the CPU, so they need an AArch64 host.
+
+(cram
+ (applies_to pair_rivet_cram)
+ (deps (universe) %{exe:fixture_pair_run.exe})
+ (enabled_if
+  (and
+   (<> %{env:PT2_DATA=} "")
+   (= %{architecture} arm64)
+   %{lib-available:rivet.aarch64_encode}
+   %{lib-available:rivet.driver_direct})))
+
+; The embedded CompCert as well, built only for MLTORCH_COMPCERT=<isa>.
+
+(cram
+ (applies_to pair_compcert_cram)
+ (deps (universe) %{exe:fixture_pair_run.exe})
+ (enabled_if
+  (and
+   (<> %{env:PT2_DATA=} "")
+   (= %{env:MLTORCH_COMPCERT=none} aarch64)
+   (= %{architecture} arm64)
+   %{lib-available:rivet.aarch64_encode}
+   %{lib-available:rivet.driver_direct})))
+
+; The JavaScript engines on a real model, through the node helper. Needs node and
+; the js_of_ocaml build of the helper, so it is gated on MLTORCH_JS and runs under
+; `make js.compare.runtest`.
+
+(cram
+ (applies_to pair_js_cram)
+ (deps
+  (universe)
+  %{exe:fixture_pair_run.exe}
+  ../../js/jsoo/compare_js_engine/compare_js_engine.bc.js)
+ (enabled_if
+  (and
+   (<> %{env:PT2_DATA=} "")
+   (<> %{env:MLTORCH_JS=} ""))))

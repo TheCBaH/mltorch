@@ -32,7 +32,8 @@ end
 (* How the Native-family views are evaluated: concretely, or by grounding the
    whole-graph symbolic form. *)
 module Evaluator = struct
-  type t = Direct | Symbolic
+  (* [Provider name] is an engine registered by a library above this one. *)
+  type t = Direct | Provider of string | Symbolic
 end
 
 type t = {
@@ -83,9 +84,17 @@ let of_string s =
             | _ -> Error (Printf.sprintf "variant %S: no configuration %S" s w))
       in
       let evaluator, words =
-        if View.rank view > 0 && List.mem symbolic words then
-          (Evaluator.Symbolic, List.filter (fun w -> w <> symbolic) words)
-        else (Evaluator.Direct, words)
+        let provided =
+          if View.rank view = 1 || View.rank view = 2 then
+            List.find_opt (fun w -> Provider.find w <> None) words
+          else None
+        in
+        match provided with
+        | Some w -> (Evaluator.Provider w, List.filter (fun x -> x <> w) words)
+        | None ->
+            if View.rank view > 0 && List.mem symbolic words then
+              (Evaluator.Symbolic, List.filter (fun w -> w <> symbolic) words)
+            else (Evaluator.Direct, words)
       in
       let* dots, words = go Direct.Binary64 [] words in
       let* storage =
@@ -93,15 +102,19 @@ let of_string s =
         |> Result.map_error (Printf.sprintf "variant %S: %s" s)
       in
       if
-        evaluator = Evaluator.Symbolic
+        evaluator <> Evaluator.Direct
         && (dots <> Direct.Binary64 || not (Storage_config.is_default storage))
-      then Error (Printf.sprintf "variant %S: symbolic takes no other word" s)
+      then
+        Error
+          (Printf.sprintf "variant %S: %s takes no other word" s
+             (match evaluator with Evaluator.Provider w -> w | _ -> symbolic))
       else Ok (make ~evaluator ~dots ~storage view)
 
 let to_string t =
   let words =
     (match t.evaluator with
       | Evaluator.Direct -> []
+      | Evaluator.Provider w -> [ w ]
       | Evaluator.Symbolic -> [ symbolic ])
     @ (match t.dots with
       | Direct.Binary64 -> []

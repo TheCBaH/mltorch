@@ -1,0 +1,8 @@
+; The wire protocol between the comparison driver and the JavaScript engine
+; helper that runs under node: framed binary messages carrying a graph and
+; exact tensor bytes. Pure and 32-bit safe, so the same code is linked into the
+; native driver and compiled by js_of_ocaml into the helper.
+
+(library
+ (name inference_compare_js_wire)
+ (libraries err_trace native))

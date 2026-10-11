@@ -1,0 +1,39 @@
+; The coverage manifest: the file, its parser, the check that it covers the whole
+; variant vocabulary (every runtest), and the walker that runs its rows against
+; a real model (make model.compare.coverage).
+
+(library
+ (name inference_compare_coverage)
+ (modules manifest))
+
+(library
+ (name inference_compare_coverage_test)
+ (modules manifest_test)
+ (libraries
+  inference_compare_coverage
+  inference_compare_providers
+  inference_compare_pt2)
+ (inline_tests
+  (deps coverage.manifest))
+ (preprocess
+  (pps ppx_expect)))
+
+(executable
+ (name coverage_walk)
+ (modules coverage_walk)
+ (libraries inference_compare_coverage unix))
+
+; Opt-in: every row on test_convnext2, a few seconds each.
+
+(cram
+ (applies_to coverage_cram)
+ (deps
+  (universe)
+  coverage.manifest
+  %{exe:coverage_walk.exe}
+  %{exe:../inference_compare_pt2/fixture_pair_run.exe}
+  ../../js/jsoo/compare_js_engine/compare_js_engine.bc.js)
+ (enabled_if
+  (and
+   (<> %{env:PT2_DATA=} "")
+   (<> %{env:MLTORCH_COVERAGE=} ""))))

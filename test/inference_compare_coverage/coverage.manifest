@@ -1,0 +1,81 @@
+# The coverage manifest of the inference comparison: every mode the variant
+# vocabulary offers and a representative pair for it, with the result it must
+# give on test_convnext2, sample 0. One row per line:
+#
+#   id | left | right | environment | expect | checks
+#
+# environment: space-separated NAME=VALUE for the run (TOL is the tolerance,
+#   default 1e-4; DONOR=right picks the other donor), or `-`.
+# expect: `agree` (exit 0, no mismatch, a comparison made), `disagree` (exit 1),
+#   `invalid` (exit 2: the pair is not a pair), or `refused TEXT` (exit 3 with
+#   TEXT in the output: nothing executed, the prerequisite named).
+# checks: `;`-separated `+TEXT` (the output has it) or `-TEXT` (it does not),
+#   or `-`.
+#
+# A row whose engine is not built here, or whose prerequisite is missing, is
+# reported pending with the reason, never passed; MLTORCH_COVERAGE_STRICT=1
+# makes pending a failure. `coverage_walk.exe` runs the rows (make
+# model.compare.coverage); manifest_test checks the file itself on every
+# runtest: ids are unique, every variant parses, and every word of the
+# vocabulary appears in some row.
+
+# ---- graph views: each against ATen, adjacent and non-adjacent, both orientations
+aten-native          | aten             | native           | - | agree | +clusters
+aten-canonical       | aten             | native.canonical | - | agree | -
+aten-native4d        | aten             | native4d         | - | agree | -
+native-canonical     | native           | native.canonical | - | agree | +13 clusters
+canonical-native     | native.canonical | native           | - | agree | +13 clusters
+canonical-native4d   | native.canonical | native4d         | - | agree | +40 clusters
+native4d-canonical   | native4d         | native.canonical | - | agree | +40 clusters
+native-native4d      | native           | native4d         | - | agree | -
+native4d-native      | native4d         | native           | - | agree | -
+self-native          | native           | native           | TOL=0 | agree | -
+self-canonical       | native.canonical | native.canonical | TOL=0 | agree | -
+self-native4d        | native4d         | native4d         | TOL=0 | agree | -
+donor-right          | native           | native.canonical | DONOR=right | agree | +donor right
+
+# ---- the direct evaluator's dot policy: within the tolerance, not bitwise
+sequential32         | native | native:sequential32 | - | agree | -
+sequential32-bitwise | native | native:sequential32 | TOL=0 | disagree | +MISMATCH
+
+# ---- storage and scheduling configurations of the Native evaluator
+release              | native | native.canonical:release | - | agree | -
+arena                | aten   | native.canonical:arena | - | agree | +in an arena;-0 in an arena
+arena-reuse          | aten   | native.canonical:arena | - | agree | +reusing storage;-0 reusing storage
+arena-over-budget    | native | native.canonical:arena=100000 | - | refused arena: the run needs | +executed=0 units
+separate             | native | native.canonical:separate | - | agree | -
+shared               | native | native.canonical:shared | - | agree | -
+scheduled            | native | native.canonical:arena,scheduled | - | agree | -
+native4d-arena       | native4d | native4d:arena | - | invalid | +no configuration
+
+# ---- symbolic evaluators
+symbolic-native      | native   | native:symbolic   | TOL=0 | agree | -
+symbolic-native4d    | native4d | native4d:symbolic | TOL=0 | agree | +40 clusters
+
+# ---- generated C (the host C compiler)
+loop-c-vs-native     | native           | native.canonical:loop-c | - | agree | -
+loop-c-vs-ssa-c      | native.canonical:loop-c | native.canonical:ssa-c | TOL=0 | agree | -
+loop-c-donor-right   | native           | native.canonical:ssa-c  | DONOR=right | agree | -
+
+# ---- generated WebAssembly (node)
+loop-wasm-vs-ssa     | native.canonical:loop-wasm | native.canonical:ssa-wasm | TOL=0 | agree | -
+
+# ---- Rivet AArch64
+rivet-vs-native      | native                 | native.canonical:rivet        | TOL=0 | agree | -
+rivet-image-vs-table | native.canonical:rivet | native.canonical:rivet-table  | TOL=0 | agree | -
+rivet-scanned        | native.canonical:rivet-scanned | native.canonical:rivet-table-scanned | TOL=0 | agree | -
+rivet-native4d       | native4d               | native.canonical:rivet-table-scanned | - | agree | +40 clusters
+rivet-native4d-rev   | native.canonical:rivet | native4d | DONOR=right | agree | +40 clusters
+
+# ---- the embedded CompCert
+compcert-vs-native   | native                      | native.canonical:compcert | TOL=0 | agree | -
+compcert-vs-rivet    | native.canonical:compcert   | native.canonical:rivet    | TOL=0 | agree | -
+compcert-native4d    | native4d                    | native.canonical:compcert | - | agree | +40 clusters
+
+# ---- JavaScript (node, through the helper)
+js-loop-vs-ssa       | native.canonical:loop-js | native.canonical:ssa-js | TOL=0 | agree | -
+js-loop-vs-native    | native | native.canonical:loop-js | - | agree | -
+js-loop-bitwise      | native | native.canonical:loop-js | TOL=0 | disagree | +MISMATCH
+js-jsoo-vs-native    | native | native.canonical:jsoo | - | agree | -
+js-jsoo-native4d     | native4d | native.canonical:jsoo | - | agree | +40 clusters
+js-missing-helper    | native | native.canonical:loop-js | MLTORCH_COMPARE_JS=/no/such/helper.js | refused the JavaScript helper | -

@@ -61,3 +61,19 @@ let%expect_test "spellings parse and print canonically" =
     native:symbolic,arena -> error: variant "native:symbolic,arena": symbolic takes no other word
     native:symbolic,sequential32 -> error: variant "native:symbolic,sequential32": symbolic takes no other word
     wasm -> error: unknown variant "wasm" |}]
+
+(* An engine the executable was not built with still parses, and refuses with
+   what it needs, not with "unknown". *)
+let%expect_test "an unbuilt engine word refuses naming its prerequisite" =
+  let module P = Inference_compare_pt2.Provider in
+  P.register_unbuilt ~names:[ "absent" ] "the absent library is not installed";
+  (match V.of_string "native:absent" with
+  | Ok v -> print_endline (V.to_string v)
+  | Error m -> print_endline m);
+  (match P.instantiate "absent" with
+  | Ok _ -> print_endline "instantiated"
+  | Error m -> print_endline m);
+  [%expect
+    {|
+    native:absent
+    absent is not available: the absent library is not installed |}]

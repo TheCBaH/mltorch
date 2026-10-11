@@ -1,0 +1,25 @@
+; The JavaScript engines through the node helper: bitwise the direct evaluator's
+; results on small bodies, exact integer and boolean payloads, the refusals and
+; failures the helper reports, and the helper process's lifetime. Needs node and
+; the js_of_ocaml build of the helper, so it runs under `make js.compare.runtest`
+; with MLTORCH_JS set and never under `make runtest`.
+
+(library
+ (name inference_compare_js_test)
+ (modules js_test)
+ (libraries
+  err_trace
+  fmt
+  inference_compare_js
+  inference_compare_js_wire
+  inference_compare_pt2
+  inference_compare_schema
+  native
+  native_test
+  unix)
+ (inline_tests
+  (enabled_if
+   (<> %{env:MLTORCH_JS=} ""))
+  (deps ../../js/jsoo/compare_js_engine/compare_js_engine.bc.js))
+ (preprocess
+  (pps ppx_expect)))

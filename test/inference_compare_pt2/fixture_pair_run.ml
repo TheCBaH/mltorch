@@ -15,7 +15,15 @@
    LEFT and RIGHT are variants: a graph view [aten], [native],
    [native.canonical] or [native4d], with [:sequential32] after a Native view
    for binary32 sequential dots ([native-sequential] is the same as
-   [native:sequential32]). ATen can only be on the left.
+   [native:sequential32]). ATen can only be on the left. A Native view also
+   takes a generated-code engine, [loop-c], [ssa-c], [loop-wasm] or [ssa-wasm]
+   (the host C compiler, or node): [native.canonical:loop-c]. The optional
+   routes are words too, where the executable was built with them: the Rivet
+   AArch64 image route and table host ([rivet], [rivet-table], each with a
+   [-scanned] allocator) and the embedded CompCert ([compcert]); a word whose
+   engine was not built refuses, naming what is missing. The JavaScript
+   engines ([loop-js], [ssa-js], [jsoo]) run under node in a helper process
+   (js/jsoo/compare_js_engine, or the file MLTORCH_COMPARE_JS names).
    Exit status: 0 agreement, 1 disagreement, 3 refused or failed, 4 not
    established.
    Environment: TOL (default 1e-4), DONOR=left|right, DUMP=dir (write the
@@ -35,13 +43,14 @@ let unwrap = function
   | Error e -> failwith (Fmt.str "%a" U.Fixture.pp_error e)
 
 let usage () =
-  prerr_endline
+  Printf.eprintf
     "usage: fixture_pair_run fixture COHORT CACHE_DIR ARTIFACT_ID CASE_ID LEFT \
      RIGHT\n\
     \       fixture_pair_run safetensors MODEL_DIR INPUTS_PT SAMPLE LEFT RIGHT\n\
     \       fixture_pair_run model NAME LEFT RIGHT\n\
      variants: aten, native, native.canonical, native4d (native views also \
-     VIEW:sequential32)";
+     VIEW:sequential32, or an engine: %s)\n"
+    (String.concat ", " (P.Provider.names ()));
   exit 2
 
 (* The sample of the release's [inputs.pt] the exporter picks, with the batch
@@ -212,6 +221,7 @@ let describe_result (c : Comparison_result.t) =
           s.positive_errors s.negative_errors
 
 let () =
+  Inference_compare_providers.Providers.register_all ();
   let source, left, right =
     match Array.to_list Sys.argv with
     | [ _; "fixture"; cohort; cache; artifact; case; l; r ] ->

@@ -128,3 +128,21 @@ let%expect_test "node_program agrees with run and Eval_direct, every walked op"
     =
   sweep ();
   [%expect {||}]
+
+(* An operand a node reads twice is one input of its program: the boundary
+   names each tensor once, and a program that listed [x] twice for [x * x] was
+   refused as "defined twice". *)
+let%expect_test "a repeated operand is one input" =
+  let g =
+    Graph_fixtures.build "square"
+      Graph_builder.(
+        let* x = input ~shape:(Graph_fixtures.nhwc ~h:2 ~w:2 ~c:3) () in
+        mul x x)
+  in
+  let node = List.hd g.Graph_ir.Graph.nodes in
+  let p = Eval_symbolic.node_program g node in
+  Fmt.pr "operands %d, inputs %d, adapts: %b@."
+    (List.length (Graph_ir.operands node.Graph_ir.Node.op))
+    (List.length p.Stage_program.inputs)
+    (Result.is_ok (Err.payload (Kernel_adapt.of_stage_program p)));
+  [%expect {| operands 2, inputs 1, adapts: true |}]

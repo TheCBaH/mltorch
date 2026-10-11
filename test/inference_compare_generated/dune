@@ -1,0 +1,38 @@
+; The generated-code engines on a small body: bitwise the direct evaluator's
+; results, a rerun on other inputs, and the refusal of a missing prerequisite.
+; The C engines need the host compiler, which a missing one fails (never a
+; skip); the Wasm ones need node and so run under `make wasm.runtest`, with
+; MLTORCH_WASM set, like the other node-backed suites.
+
+(library
+ (name inference_compare_generated_test)
+ (modules generated_body generated_c_test)
+ (libraries
+  err_trace
+  fmt
+  inference_compare_generated
+  inference_compare_pt2
+  inference_compare_schema
+  loop_wasm_exec
+  native
+  native_test)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
+
+(library
+ (name inference_compare_generated_wasm_test)
+ (modules generated_wasm_test)
+ (libraries
+  err_trace
+  fmt
+  inference_compare_generated
+  inference_compare_generated_test
+  inference_compare_pt2
+  native
+  native_test)
+ (inline_tests
+  (enabled_if
+   (<> %{env:MLTORCH_WASM=} "")))
+ (preprocess
+  (pps ppx_expect)))

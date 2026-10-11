@@ -2,9 +2,13 @@
 ; coordinator: an embedded CompCert (C generated from the Loop IR bundle,
 ; compiled in process, assembled and loaded by Rivet) and the direct assembly
 ; route (the bundle's Machine IR selected for AArch64 and assembled by Rivet).
+; The ISA is the one the embedding is built for.
 ; Optional: built only where the embedded CompCert for this host is installed
 ; (make compcert.embed.install; MLTORCH_COMPCERT=aarch64) and Rivet's AArch64
 ; libraries are available. Neither route substitutes a host compiler.
+
+(rule
+ (write-file isa.ml "let name = \"%{env:MLTORCH_COMPCERT=none}\"\n"))
 
 (library
  (name inference_compare_compiled)
@@ -15,12 +19,12 @@
   inference_compare_core
   inference_compare_extract
   inference_compare_pt2
+  inference_compare_rivet
   inference_compare_schema
   loop_c_embed
   loop_c_embed_compcert
   loop_ir
   machine_model
-  machine_rivet_aarch64
   native
   ssa_backends)
  (enabled_if

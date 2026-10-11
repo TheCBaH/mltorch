@@ -1,0 +1,9 @@
+; The wire protocol of the JavaScript engine helper: exact payloads and
+; rejected messages. Pure, so it runs everywhere.
+
+(library
+ (name inference_compare_js_wire_test)
+ (libraries err_trace fmt inference_compare_js_wire native)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

@@ -3,11 +3,16 @@
    that end in the same assembler, image planner and loader (Rivet), so an
    agreement between them does not vouch for those. *)
 
+module Pins = Inference_compare_rivet.Pins
+
 type component = {
   name : string;
   pin : string;  (** The pinned source revision or artifact digest. *)
   routes : [ `Both | `Compcert | `Assembly ];
 }
+
+let of_pin routes (p : Inference_compare_rivet.Compiled_identity.component) =
+  { name = p.name; pin = p.pin; routes }
 
 (* The submodule revisions and CompCert artifacts this build pins; the lock
    file of the CompCert embedding is the source of the artifact digests. *)
@@ -27,21 +32,9 @@ let components =
       pin = "this repository";
       routes = `Compcert;
     };
-    {
-      name = "Machine IR selection, allocation and publication (AArch64)";
-      pin = "this repository";
-      routes = `Assembly;
-    };
-    {
-      name = "Rivet assembler, image planner and native loader";
-      pin = "vendored/rivet@4bd01a7447241f794a55124cc6f67d63b603f8e9";
-      routes = `Both;
-    };
-    {
-      name = "Loop IR bundle schedule and storage plan";
-      pin = "this repository";
-      routes = `Both;
-    };
+    of_pin `Assembly Pins.selection;
+    of_pin `Both Pins.rivet;
+    of_pin `Both Pins.schedule;
   ]
 
 let shared = List.filter (fun c -> c.routes = `Both) components
