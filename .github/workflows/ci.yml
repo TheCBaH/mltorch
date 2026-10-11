@@ -321,6 +321,14 @@ jobs:
       if: matrix.suite == 'native-models'
       run: |
         ${{ env.EXEC }} make transformers.gate
+    # model.compare end to end: a timm model through the Hub cache (mobilenetv2_050, its
+    # checkpoint restored above) and a released Transformers bundle (mobilevit-xxs, from
+    # the fixtures cache the gate above filled), ATen against Native; full agreement or
+    # the step fails.
+    - name: model.compare gate
+      if: matrix.suite == 'native-models'
+      run: |
+        ${{ env.EXEC }} make model.compare.gate
     - name: transformers normalized replay gate
       if: matrix.suite == 'native-models' && inputs.transformers_normalized
       run: |

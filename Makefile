@@ -1,4 +1,4 @@
-.PHONY: transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open model.compare model.download model.fetch.timm model.fetch.fixture transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
+.PHONY: transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open model.compare model.download model.compare.gate model.fetch.timm model.fetch.fixture transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean machine.a64.conformance machine.pt2.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
@@ -283,6 +283,14 @@ model.fetch.timm:
 model.fetch.fixture:
 	$(MAKE) --no-print-directory transformers.download \
 		TRANSFORMERS_ARTIFACTS="$$($(MODEL_INFO) id $(MODEL_INFO_ARGS))"
+
+# The comparison itself, end to end, as CI runs it: one timm model (graph and weight
+# map from the submodule, weights through hf-hub) and one Transformers fixture (a
+# released bundle), each ATen against Native at the default tolerance. A run that is
+# not full agreement (disagreement, refusal, failure) fails the target.
+MODEL_COMPARE_GATE = mobilenetv2_050 mobilevit-xxs
+model.compare.gate:
+	for m in $(MODEL_COMPARE_GATE); do $(MAKE) --no-print-directory model.compare.$$m || exit $$?; done
 
 # Offline numerical replay of the cohort's published cases through Native direct
 # execution: every output element against the producer's reference under the
