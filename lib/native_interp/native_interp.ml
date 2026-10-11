@@ -74,6 +74,10 @@ let pp_tensor_bridge = Native_interp_error.pp_tensor_bridge
 let lower = Native_interp_lower.lower
 let lower_archive = Native_interp_lower.lower_archive
 
+module Capture = Native_interp_lower.Capture
+
+let lower_archive_captured = Native_interp_lower.lower_archive_captured
+
 module Empty_cache_report = Native_interp_empty_cache.Report
 
 let normalize_empty_caches = Native_interp_empty_cache.normalize

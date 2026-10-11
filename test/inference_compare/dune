@@ -14,6 +14,9 @@
   inference_compare_core
   inference_compare_engines
   inference_compare_extract
+  inference_compare_host
+  str
+  unix
   inference_compare_policy
   inference_compare_schema
   inference_compare_sha256

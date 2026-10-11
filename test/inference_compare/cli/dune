@@ -1,0 +1,9 @@
+; End-to-end tests of bin/inference_compare.exe on experiment directories
+; written by fixture_gen.exe from the same synthetic chains the unit tests use.
+
+(executable
+ (name fixture_gen)
+ (libraries inference_compare_schema inference_compare_test))
+
+(cram
+ (deps fixture_gen.exe ../../../bin/inference_compare.exe))

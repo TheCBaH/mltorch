@@ -178,3 +178,8 @@ let canonicalize m =
   }
 
 let preimage m = Digest_preimage.of_json Mapping (encode (canonicalize m))
+
+(* The frontier alone, for its own digest. *)
+let frontier_preimage m =
+  Digest_preimage.of_json Frontier_mapping
+    (Frontier_mapping.encode (canonicalize m).frontier)

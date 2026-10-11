@@ -81,3 +81,29 @@ let encode p =
       W.field "coverage" Coverage.encode p.coverage;
       W.field "plan_digest" Wire_digest.encode_plan p.plan_digest;
     ]
+
+(* Canonical form: the unit order is the schedule and is kept; the keyed tables
+   (comparison policies, consumers) are sorted by identifier. The plan digest
+   is not part of its own preimage. *)
+let preimage p =
+  let sort_by key items =
+    List.stable_sort (fun a b -> String.compare (key a) (key b)) items
+  in
+  let p =
+    {
+      p with
+      comparison_policies =
+        sort_by (fun (c, _) -> Id.Comparison.to_string c) p.comparison_policies;
+      consumers =
+        sort_by (fun (k, _) -> Id.Canonical_value.to_string k) p.consumers;
+    }
+  in
+  let json = encode p in
+  let json =
+    match json with
+    | Jsont.Object (mems, meta) ->
+        Jsont.Object
+          (List.filter (fun ((n, _), _) -> n <> "plan_digest") mems, meta)
+    | j -> j
+  in
+  Digest_preimage.of_json Plan json

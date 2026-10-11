@@ -8,9 +8,10 @@ module H = Codecs.Payload_hasher
 type config = {
   name : string;
   offsets : (string * int64) list;
-  corrupt_imports : (string * int64) list;
+  corrupt_imports : (int * int64) list;
   refuse_ops : string list;
   fail_nodes : string list;
+  fail_imports : int list;
   reuse_output_storage : bool;
   async_polls : int;
 }
@@ -22,6 +23,7 @@ let default_config name =
     corrupt_imports = [];
     refuse_ops = [];
     fail_nodes = [];
+    fail_imports = [];
     reuse_output_storage = false;
     async_polls = 0;
   }
@@ -44,6 +46,7 @@ type error =
   | Input_inventory of string
   | Node_failed of string
   | Refused_operator of string
+  | Resource_exhausted
   | Unsupported_graph of string
   | Value_released
 
@@ -53,6 +56,7 @@ let pp_error ppf = function
   | Input_inventory s -> Fmt.pf ppf "input inventory: %s" s
   | Node_failed n -> Fmt.pf ppf "node %s failed" n
   | Refused_operator o -> Fmt.pf ppf "operator %s refused" o
+  | Resource_exhausted -> Fmt.string ppf "resource exhausted"
   | Unsupported_graph s -> Fmt.pf ppf "unsupported graph: %s" s
   | Value_released -> Fmt.string ppf "value released"
 
@@ -154,6 +158,10 @@ let create (cfg : config) : t * counters =
       type t = error
 
       let pp = pp_error
+
+      let is_resource_exhaustion = function
+        | Resource_exhausted -> true
+        | _ -> false
     end
 
     type compiled_node = { desc : Node_desc.t; op : op; name : string }
@@ -193,9 +201,10 @@ let create (cfg : config) : t * counters =
                      (fun (k, v) -> Printf.sprintf "off:%s=%Ld" k v)
                      cfg.offsets
                @ List.map
-                   (fun (k, v) -> Printf.sprintf "cor:%s=%Ld" k v)
+                   (fun (k, v) -> Printf.sprintf "cor:%d=%Ld" k v)
                    cfg.corrupt_imports
                @ cfg.refuse_ops @ cfg.fail_nodes
+               @ List.map string_of_int cfg.fail_imports
                @ [
                    string_of_bool cfg.reuse_output_storage;
                    string_of_int cfg.async_polls;
@@ -265,13 +274,22 @@ let create (cfg : config) : t * counters =
       if p.closed then fail Closed
       else if not (Tensor_spec.equal spec (L.spec v)) then
         fail (Import_mismatch "spec")
+      else if List.mem counters.imports cfg.fail_imports then
+        fail (Import_mismatch "injected transfer failure")
       else if Id.Codec.to_string spec.dtype.codec <> "i64" then
         fail (Import_mismatch "only i64 tensors")
       else
         let codec = L.codec ctx v in
         let n = L.element_count v in
+        (* A transfer fault: the n-th import of this runner stores a shifted
+           value, so the handle's readback differs from what was sent. *)
+        let delta =
+          Option.value ~default:0L
+            (List.assoc_opt counters.imports cfg.corrupt_imports)
+        in
         let data =
-          Array.init n (fun i -> E.integer_value codec (L.contents v) i)
+          Array.init n (fun i ->
+              Int64.add delta (E.integer_value codec (L.contents v) i))
         in
         counters.imports <- counters.imports + 1;
         counters.values_live <- counters.values_live + 1;
@@ -283,7 +301,10 @@ let create (cfg : config) : t * counters =
         counters.exports <- counters.exports + 1;
         match L.of_integers ctx v.spec (Array.to_list v.data) with
         | Ok x -> Ok x
-        | Error _ -> fail (Import_mismatch "export"))
+        | Error e -> (
+            match Err.Error.kind e with
+            | Codecs.Codec_error.Resource_exceeded _ -> fail Resource_exhausted
+            | _ -> fail (Import_mismatch "export")))
 
     let release_value (v : Value.t) =
       if v.released then
@@ -328,15 +349,9 @@ let create (cfg : config) : t * counters =
                   in
                   if not (Tensor_spec.equal src.spec v.spec) then
                     fail (Input_inventory "input spec")
-                  else
-                    let delta =
-                      Option.value ~default:0L
-                        (List.assoc_opt
-                           (Id.Tensor_local.to_string t.local_id)
-                           cfg.corrupt_imports)
-                    in
-                    Hashtbl.replace env t (Array.map (Int64.add delta) v.data);
-                    go rest
+                  else (
+                    Hashtbl.replace env t (Array.copy v.data);
+                    go rest)
           in
           go inputs
         in

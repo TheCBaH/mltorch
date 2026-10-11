@@ -1,0 +1,24 @@
+; The host layer of the inference comparison coordinator: reading an
+; experiment from disk, assembling the sealed plan, running it with real
+; engine bindings, and writing/reading immutable run evidence (manifest, plan,
+; policy bindings, typed events, summary, retained payloads) with replay.
+; Everything that touches the filesystem lives here; the layers below are pure.
+
+(library
+ (name inference_compare_host)
+ (libraries
+  err_trace
+  fmt
+  inference_compare_codecs
+  inference_compare_core
+  inference_compare_engines
+  inference_compare_extract
+  inference_compare_metrics
+  inference_compare_plan
+  inference_compare_pt2
+  inference_compare_policy
+  inference_compare_schema
+  inference_compare_sha256
+  jsont
+  jsont.bytesrw
+  unix))

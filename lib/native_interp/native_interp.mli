@@ -597,6 +597,25 @@ val pp_tensor_bridge : Format.formatter -> [< tensor_bridge ] -> unit
 val lower : Pytorch_types.ExportedProgram.t -> (Pt2_native_graph.t, error) Err.t
 val lower_archive : Pt2_archive.t -> (Pt2_native_graph.t, error) Err.t
 
+(* Which Native nodes each exporter node produced. [Pt2_native_graph]'s
+   [node_origins] names only the nodes whose outputs the lowering bound to the
+   source node's results; [emitted] is the complete ownership -- every node, in
+   emission order, relayout and other helpers included -- keyed by the node's
+   position in the exporter graph. *)
+module Capture : sig
+  type t = {
+    emitted : (int * Graph_ir.Node_id.t list) list;
+    bound : (int * (string * Graph_ir.Tensor_id.t) list) list;
+        (** The exporter result names each node's lowering bound, with the
+            Native edge each name now denotes. *)
+    sources : (string * Graph_ir.Tensor_id.t) list;
+        (** Graph inputs, parameters, buffers and constants by exporter name. *)
+  }
+end
+
+val lower_archive_captured :
+  Pt2_archive.t -> (Pt2_native_graph.t * Capture.t, error) Err.t
+
 (* The one use of a zero-length tensor the static decode graphs make, resolved
    before {!lower} so Native keeps its positive extents: the initial empty
    key/value cache is lifted as a [Tensor_constant] of shape [[0]], cloned, and

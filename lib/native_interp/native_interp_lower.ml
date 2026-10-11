@@ -9,7 +9,23 @@ module Tensor_id = Graph_ir.Tensor_id
 module Node_id = Graph_ir.Node_id
 open Native_interp_decode
 
-let lower program =
+(* Every Native node each exporter node produced, helpers included, in the
+   order they were emitted. [Pt2_native_graph.node_origins] names only the nodes
+   whose outputs the lowering bound to the source node's results; this is the
+   complete ownership, which a unit-by-unit comparison needs. *)
+module Capture = struct
+  type t = {
+    emitted : (int * Node_id.t list) list;
+    bound : (int * (string * Tensor_id.t) list) list;
+        (** The exporter result names each node's lowering bound, with the
+            Native edge each name now denotes (an aliasing op binds a name to an
+            existing edge). *)
+    sources : (string * Tensor_id.t) list;
+        (** Graph inputs, parameters, buffers and constants by exporter name. *)
+  }
+end
+
+let lower_captured program =
   Err.Escape.with_escape @@ fun esc ->
   Err.Escape.or_throw esc
   @@
@@ -81,6 +97,9 @@ let lower program =
   let tensor_origins = ref Tensor_id.Map.empty in
   let captured_targets = ref Tensor_id.Map.empty in
   let node_outputs = ref [] in
+  let emitted = ref [] in
+  let bound = ref [] in
+  let sources = ref [] in
   let body =
     let open Graph_builder in
     let* env =
@@ -106,6 +125,7 @@ let lower program =
             (fun x ->
               captured_targets := Tensor_id.Map.add id x !captured_targets)
             target;
+          sources := (name, id) :: !sources;
           return (String_map.add name id env))
         (return String_map.empty) source_specs
     in
@@ -175,14 +195,23 @@ let lower program =
                 !tensor_origins)
           names ids;
         node_outputs := (index, ids) :: !node_outputs;
+        bound := (index, List.combine names ids) :: !bound;
         add_env env names ids
       in
-      if is_nontrivial_node node then
-        let* ids = group ~label:node.target (lower_op env node) in
-        return (bind ids)
-      else
-        let* ids = lower_op env node in
-        return (bind ids)
+      let* before = watermark in
+      let* ids =
+        if is_nontrivial_node node then
+          group ~label:node.target (lower_op env node)
+        else lower_op env node
+      in
+      let* after = watermark in
+      emitted :=
+        ( index,
+          List.init
+            ((after :> int) - (before :> int))
+            (fun k -> Node_id.of_int ((before :> int) + k)) )
+        :: !emitted;
+      return (bind ids)
     in
     let* env =
       List.fold_left
@@ -240,6 +269,18 @@ let lower program =
       Pt2_native_graph.make ~graph:native_graph ~tensor_origins:!tensor_origins
         ~node_origins ~captured_targets:!captured_targets
       |> Err.map_error ~pos:__POS__ (fun e -> `Provenance e)
+      |> Result.map (fun sidecar ->
+          ( sidecar,
+            {
+              Capture.emitted = List.rev !emitted;
+              bound = List.rev !bound;
+              sources = List.rev !sources;
+            } ))
+
+let lower program = Result.map fst (lower_captured program)
+
+let lower_archive_captured archive =
+  lower_captured (Pt2_archive.program archive)
 
 let lower_archive archive = lower (Pt2_archive.program archive)
 let tensor_of_pt2 = Native_interp_tensor.tensor_of_pt2

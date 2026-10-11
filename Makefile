@@ -132,7 +132,8 @@ pt2.runtest:
 		test/native_graph_mobilenetv3_small_050_cram.t \
 		test/native_transform_regnetx_002_cram.t test/native_transform_mobilenetv2_050_cram.t \
 		test/native_transform_mobilenetv3_small_050_cram.t \
-		test/native_transform_verify_cram.t test/native4d_to4d_cram.t test/me_visualize_cram.t
+		test/native_transform_verify_cram.t test/native4d_to4d_cram.t test/me_visualize_cram.t \
+		test/inference_compare_pt2
 
 # The payload-free counterpart of test/pt2_model_support_cram.t, over every
 # model.json in the pinned producer submodule -- no download needed, so it

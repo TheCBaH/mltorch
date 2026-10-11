@@ -16,10 +16,12 @@ type config = {
   name : string;
   offsets : (string * int64) list;
       (** Node local id -> added to every element of each of its results. *)
-  corrupt_imports : (string * int64) list;
-      (** Tensor local id -> added to every element on import. *)
+  corrupt_imports : (int * int64) list;
+      (** Zero-based import ordinal -> added to every element on that import, so
+          the handle read back differs from the value sent. *)
   refuse_ops : string list;  (** Operator names refused at preparation. *)
   fail_nodes : string list;  (** Node local ids whose execution fails. *)
+  fail_imports : int list;  (** Zero-based import ordinals that fail. *)
   reuse_output_storage : bool;
   async_polls : int;  (** Completion polls performed before [run] returns. *)
 }
@@ -45,6 +47,7 @@ type error =
   | Input_inventory of string
   | Node_failed of string
   | Refused_operator of string
+  | Resource_exhausted
   | Unsupported_graph of string
   | Value_released
 
