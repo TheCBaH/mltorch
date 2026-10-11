@@ -34,6 +34,7 @@ module P = Inference_compare_pt2
 module Core = Inference_compare_core
 module U = Pt2_fixture_unix
 module Timm = Timm_fixture
+module J = Timm.Json
 module TU = Timm_fixture_unix
 
 let timm_or_raise r = Err.or_raise ~pp_error:Timm.pp_error r
@@ -125,7 +126,8 @@ let load = function
       let evaluation = fixture.evaluation in
       let case =
         timm_or_raise
-          (Err.of_option (`Timm_fixture "case index outside publication")
+          (Err.of_option
+             (`Timm_fixture J.Failure.Case_index_outside_publication)
              (List.nth_opt evaluation.cases sample))
       in
       let archive =
@@ -377,7 +379,7 @@ let () =
         let check =
           Err.List.iter2
             ~unequal_lengths:(fun _ _ ->
-              `Timm_fixture "final output arity differs")
+              `Timm_fixture J.Failure.Final_output_arity_differs)
             (fun binding (_, value) ->
               let module V = Inference_compare_codecs.Logical_value in
               let spec = V.spec value in
@@ -389,7 +391,8 @@ let () =
               let* logical =
                 Pt2_fixture.Logical.of_bytes ~dtype:Pt2_checkpoint_map.Dtype.F32
                   ~shape:spec.logical_shape (V.contents value)
-                |> TU.wrap Pt2_fixture.Logical.pp_error
+                |> TU.wrap J.External.Source.Logical
+                     Pt2_fixture.Logical.pp_error
               in
               let reference =
                 List.assoc binding.Timm.Binding.sample case.Timm.Case.outputs

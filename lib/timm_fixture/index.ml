@@ -42,12 +42,14 @@ let filename s =
 
 let asset j =
   let* name = J.field "filename" j in
-  let* () = if filename name then Ok () else J.bad "invalid asset filename" in
+  let* () =
+    if filename name then Ok () else J.bad J.Failure.Invalid_asset_filename
+  in
   let* pin = pin name j in
   let* format = J.field "format" j in
   let* () =
     if List.mem format [ "json"; "torch.save"; "zip" ] then Ok ()
-    else J.bad "unsupported asset format"
+    else J.bad J.Failure.Unsupported_asset_format
   in
   let* members =
     if format = "zip" then
@@ -75,8 +77,7 @@ let model name j =
   { Model.archive; evaluation; graph; inputs; weight_map }
 
 let asset_of t id =
-  Err.of_option
-    (`Timm_fixture ("unresolved asset " ^ id))
+  Err.of_option (`Timm_fixture (J.Failure.Unresolved_asset id))
     (List.assoc_opt id t.assets)
 
 let of_string text =
@@ -93,11 +94,12 @@ let of_string text =
            (function '0' .. '9' | 'a' .. 'f' -> true | _ -> false)
            commit
     then Ok ()
-    else J.bad "invalid producer commit"
+    else J.bad J.Failure.Invalid_producer_commit
   in
   let* asset_rows = J.member "assets" j >>= J.members in
   let* () =
-    if List.length asset_rows > 2048 then J.bad "too many assets" else Ok ()
+    if List.length asset_rows > 2048 then J.bad J.Failure.Too_many_assets
+    else Ok ()
   in
   let* assets =
     Err.List.map
@@ -109,7 +111,8 @@ let of_string text =
   let* () = J.unique (List.map (fun (_, a) -> a.Asset.pin.name) assets) in
   let* rows = J.member "models" j >>= J.members in
   let* () =
-    if rows = [] || List.length rows > 512 then J.bad "unsupported model count"
+    if rows = [] || List.length rows > 512 then
+      J.bad J.Failure.Unsupported_model_count
     else Ok ()
   in
   let* models =
@@ -121,8 +124,7 @@ let of_string text =
   in
   let document = { assets; commit; models; repo; tag } in
   let lookup id =
-    Err.of_option
-      (`Timm_fixture ("unresolved asset " ^ id))
+    Err.of_option (`Timm_fixture (J.Failure.Unresolved_asset id))
       (List.assoc_opt id assets)
   in
   let* () =
@@ -203,7 +205,7 @@ let of_string text =
           (List.sort String.compare (List.map fst models))
     | "smoke" ->
         if List.for_all (fun (n, _) -> List.mem n names) models then Ok ()
-        else J.bad "smoke model outside release population"
-    | _ -> J.bad "unsupported manifest scope"
+        else J.bad J.Failure.Smoke_model_outside_release_population
+    | _ -> J.bad J.Failure.Unsupported_manifest_scope
   in
   document

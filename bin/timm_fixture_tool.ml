@@ -67,17 +67,19 @@ let replay config bundle =
     (fun case ->
       let* inputs = F.bind_inputs evaluation.contract case bundle.inputs in
       let* actual =
-        Native_interp.run_named archive ~inputs |> U.wrap Native_interp.pp_error
+        Native_interp.run_named archive ~inputs
+        |> U.wrap J.External.Source.Native Native_interp.pp_error
       in
       let* () =
         Err.List.iter2
-          ~unequal_lengths:(fun _ _ -> `Timm_fixture "output arity differs")
+          ~unequal_lengths:(fun _ _ ->
+            `Timm_fixture J.Failure.Output_arity_differs)
           (fun binding native ->
             let* logical =
               Pt2_fixture_replay.to_logical native
                 ~rank:(List.length binding.F.Binding.graph_shape)
               |> Err.import ~pos:__POS__ (fun (`Native_layout why) ->
-                  `Timm_fixture why)
+                  `Native_layout why)
             in
             let reference = List.assoc binding.sample case.F.Case.outputs in
             let tensor =
@@ -125,7 +127,7 @@ let run () =
       let* discovered = discovery () in
       match discovered with
       | U.Discovery.Absent ->
-          J.bad "v2 manifest required for input verification"
+          J.bad J.Failure.V2_manifest_required_for_input_verification
       | V2 index ->
           let* config = config () in
           let+ () =
@@ -164,11 +166,7 @@ let run () =
             else replay config bundle
           in
           0)
-  | _ ->
-      J.bad
-        "usage: timm_fixture_tool \
-         (download|replay|replay-images|verify-inputs) MODEL; verify-patterns \
-         DIRECTORY"
+  | _ -> J.bad J.Failure.Usage
 
 let () =
   let status =

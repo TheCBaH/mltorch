@@ -89,6 +89,57 @@ let () =
   reject (J.parse {|{"nested":{"x":1,"x":2}}|});
   reject (J.shape (parse "[0]"));
   reject (J.shape (parse "[536870913]"));
+  let binding_json ~output ~graph_shape ~sample_shape ~graph_dtype ~sample_dtype
+      ~transform =
+    let side = if output then "output" else "input" in
+    parse
+      (Printf.sprintf
+         {|{"graph_%s":"graph","graph_shape":%s,"graph_dtype":%S,"sample_%s":"sample","sample":{"shape":%s,"dtype":%S,"layout":"row_major"},"transform":%s}|}
+         side graph_shape graph_dtype side sample_shape sample_dtype transform)
+  in
+  let binding_check ~output ~graph_shape ~sample_shape ~graph_dtype
+      ~sample_dtype ~transform =
+    F.Binding.of_json ~output
+      (binding_json ~output ~graph_shape ~sample_shape ~graph_dtype
+         ~sample_dtype ~transform)
+  in
+  let input =
+    binding_check ~output:false ~graph_shape:"[1,2]" ~sample_shape:"[2]"
+      ~transform:{|{"op":"unsqueeze","axis":0}|}
+  in
+  accept (input ~graph_dtype:"float32" ~sample_dtype:"float32");
+  reject (input ~graph_dtype:"float64" ~sample_dtype:"float32");
+  reject (input ~graph_dtype:"float32" ~sample_dtype:"uint8");
+  reject
+    (binding_check ~output:false ~graph_shape:"[1,3]" ~sample_shape:"[2]"
+       ~graph_dtype:"float32" ~sample_dtype:"float32"
+       ~transform:{|{"op":"unsqueeze","axis":0}|});
+  let output =
+    binding_check ~output:true ~graph_dtype:"float32"
+      ~transform:
+        {|[{"op":"select","axis":0,"index":0},{"op":"cast","dtype":"float32"}]|}
+  in
+  accept
+    (output ~graph_shape:"[1,2]" ~sample_shape:"[2]" ~sample_dtype:"float32");
+  reject
+    (output ~graph_shape:"[2,2]" ~sample_shape:"[2]" ~sample_dtype:"float32");
+  reject
+    (output ~graph_shape:"[1,2]" ~sample_shape:"[3]" ~sample_dtype:"float32");
+  reject (output ~graph_shape:"[1,2]" ~sample_shape:"[2]" ~sample_dtype:"uint8");
+  let descriptor_json dtype order shape bytes =
+    parse
+      (Printf.sprintf
+         {|{"bytes":%d,"dtype":%S,"layout":"row_major","sha256":%S,"shape":%s,"byte_order":%S}|}
+         bytes dtype (String.make 64 'a') shape order)
+  in
+  reject (F.Descriptor.of_json (descriptor_json "float32" "big" "[2]" 8));
+  reject (F.Descriptor.of_json (descriptor_json "float64" "little" "[2]" 16));
+  reject
+    (F.Descriptor.of_json
+       (descriptor_json "float32" "little" "[536870912,536870912]" 8));
+  (match Err.payload (J.member "required" (parse "{}")) with
+  | Error (`Timm_fixture (J.Failure.Missing_field "required")) -> incr checks
+  | _ -> assert false);
   reject
     (F.Binding.transform ~output:false (parse {|{"op":"unsqueeze","axis":1}|}));
   reject
@@ -130,7 +181,9 @@ let () =
        stored);
   reject (F.bind_inputs (contract bindings) c [ ("z-key", tensor [ 1.; 2. ]) ]);
   let program =
-    get (Pt2_archive.program_of_json graph |> U.wrap Pt2_archive.pp_error)
+    get
+      (Pt2_archive.program_of_json graph
+      |> U.wrap J.External.Source.Archive Pt2_archive.pp_error)
   in
   let ct = { (contract bindings) with graph_sha256 = digest graph } in
   accept (F.Contract.check_graph ct ~graph_bytes:graph program);
@@ -161,7 +214,7 @@ let () =
   let logical values =
     get
       (Pt2_fixture.Logical.of_pt2 (tensor values)
-      |> U.wrap Pt2_fixture.Logical.pp_error)
+      |> U.wrap J.External.Source.Logical Pt2_fixture.Logical.pp_error)
   in
   accept
     (F.compare_output ct (binding "out" "logits")

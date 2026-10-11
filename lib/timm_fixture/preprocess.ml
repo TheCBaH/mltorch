@@ -59,20 +59,20 @@ module Recipe = struct
       | "border" -> Ok Border
       | "center" -> Ok Center
       | "squash" -> Ok Squash
-      | _ -> J.bad "unsupported crop mode"
+      | _ -> J.bad J.Failure.Unsupported_crop_mode
     in
     let* interpolation =
       J.field "interpolation" j >>= function
       | "bicubic" -> Ok Bicubic
       | "bilinear" -> Ok Bilinear
-      | _ -> J.bad "unsupported interpolation"
+      | _ -> J.bad J.Failure.Unsupported_interpolation
     in
     let* config = J.member "config" j in
     let* dims = J.member "input_size" config >>= J.shape in
     let* height, width =
       match dims with
       | [ 3; h; w ] when h <= 4096 && w <= 4096 && h <= 11184810 / w -> Ok (h, w)
-      | _ -> J.bad "unsupported RGB target dimensions"
+      | _ -> J.bad J.Failure.Unsupported_rgb_target_dimensions
     in
     let* mean = J.member "mean" config >>= numbers in
     let* std = J.member "std" config >>= numbers in
@@ -83,20 +83,20 @@ module Recipe = struct
         && List.for_all (fun x -> Float.is_finite (f32 x)) mean
         && List.for_all (fun x -> f32 x > 0. && Float.is_finite (f32 x)) std
       then Ok ()
-      else J.bad "invalid normalization"
+      else J.bad J.Failure.Invalid_normalization
     in
     let* pct = J.member "crop_pct" config in
     let* pct = match pct with Jsont.Null _ -> Ok 0.875 | _ -> J.number pct in
     let pct = if pct = 0. then 0.875 else pct in
     let* () =
-      if pct <= 0. || pct > 2. then J.bad "unsupported crop percentage"
+      if pct <= 0. || pct > 2. then J.bad J.Failure.Unsupported_crop_percentage
       else Ok ()
     in
     let scale_height = int_of_float (Float.floor (float_of_int height /. pct))
     and scale_width = int_of_float (Float.floor (float_of_int width /. pct)) in
     let* () =
       if min scale_height scale_width < 1 || max scale_height scale_width > 8192
-      then J.bad "resize exceeds dimension limit"
+      then J.bad J.Failure.Resize_exceeds_dimension_limit
       else Ok ()
     in
     let* declared = J.member "scale_size" j >>= J.shape in
@@ -115,7 +115,7 @@ module Recipe = struct
     let* () = J.same "padding fill" declared_fill (Array.to_list fill) in
     let* () =
       if Array.for_all (fun x -> x >= 0 && x <= 255) fill then Ok ()
-      else J.bad "invalid padding pixel"
+      else J.bad J.Failure.Invalid_padding_pixel
     in
     let* () =
       Err.List.iter
@@ -162,19 +162,18 @@ module Image = struct
   let of_tensor (t : Pt2_tensor.t) =
     let* () =
       if t.dtype = Pt2_dtype.UInt8 then Ok ()
-      else J.bad "decoded image is not uint8"
+      else J.bad J.Failure.Decoded_image_is_not_uint8
     in
     let* h, w =
       match t.sizes with
       | [ 3; h; w ]
         when h > 0 && w > 0 && h <= 8192 && w <= 8192 && h <= 44739242 / w ->
           Ok (h, w)
-      | _ -> J.bad "decoded image dimensions exceed limit"
+      | _ -> J.bad J.Failure.Decoded_image_dimensions_exceed_limit
     in
     let+ logical =
       Pt2_fixture.Logical.of_pt2 ~max_bytes:134217728 t
-      |> Err.map_error (fun e ->
-          `Timm_fixture (Fmt.str "%a" Pt2_fixture.Logical.pp_error e))
+      |> J.wrap J.External.Source.Logical Pt2_fixture.Logical.pp_error
     in
     {
       data =
@@ -337,7 +336,7 @@ let run r tensor ~geometry =
   in
   let* () =
     if min rh rw < 1 || max rh rw > 8192 || rh > 44739242 / rw then
-      J.bad "resized image exceeds byte limit"
+      J.bad J.Failure.Resized_image_exceeds_byte_limit
     else Ok ()
   in
   let image = resize r.interpolation image ~height:rh ~width:rw in
@@ -391,7 +390,8 @@ let run r tensor ~geometry =
   let* published = J.array geometry in
   let* () =
     Err.List.iter2
-      ~unequal_lengths:(fun _ _ -> `Timm_fixture "geometry event count differs")
+      ~unequal_lengths:(fun _ _ ->
+        `Timm_fixture J.Failure.Geometry_event_count_differs)
       Event.check events published
   in
   let bytes = Bytes.create (3 * r.height * r.width * 4) in

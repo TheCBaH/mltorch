@@ -27,6 +27,10 @@ Canonical tensor hashes cover logical row-major little-endian bytes, excluding
 unused backing storage. Signed zero matters; nonfinite values are rejected.
 Full outputs use the producer tolerances rather than the rounded top-five JSON.
 
+Validation failures carry closed variants and identifiers; output mismatches
+retain the element index and both values. Imported library errors keep a named
+source, and JSON/native-layout messages remain separate third-party tags.
+
 `TIMM_MODE=authoritative` loads standalone inputs. `TIMM_MODE=images` reconstructs
 them from verified RGB CHW uint8 images and the published preprocessing recipe.
 Every generated input must match its case descriptor before graph execution.

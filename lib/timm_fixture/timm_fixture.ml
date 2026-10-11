@@ -23,7 +23,7 @@ module Descriptor = struct
   let dtype = function
     | "float32" -> Ok Pt2_dtype.Float32
     | "uint8" -> Ok Pt2_dtype.UInt8
-    | _ -> bad "unsupported tensor dtype"
+    | _ -> bad J.Failure.Unsupported_tensor_dtype
 
   let of_json j =
     let* bytes = J.member "bytes" j >>= J.integer in
@@ -35,7 +35,7 @@ module Descriptor = struct
     let* () = J.same "byte order" order "little" in
     let* () =
       if List.mem layout [ "CHW"; "row_major" ] then Ok ()
-      else bad "unsupported layout"
+      else bad J.Failure.Unsupported_layout
     in
     let count =
       List.fold_left
@@ -46,7 +46,7 @@ module Descriptor = struct
       if
         count > 134217728 || bytes > 134217728
         || bytes <> count * Pt2_dtype.element_size dtype
-      then bad "tensor byte count disagrees"
+      then bad J.Failure.Tensor_byte_count_disagrees
       else Ok ()
     in
     Ok { bytes; dtype; layout; sha256; shape }
@@ -56,8 +56,7 @@ module Descriptor = struct
     let* () = J.same "tensor shape" d.shape tensor.sizes in
     let* logical =
       Pt2_fixture.Logical.of_pt2 ~max_bytes:134217728 tensor
-      |> Err.map_error (fun e ->
-          `Timm_fixture (Fmt.str "%a" Pt2_fixture.Logical.pp_error e))
+      |> J.wrap J.External.Source.Logical Pt2_fixture.Logical.pp_error
     in
     let* () =
       J.same "tensor byte count" d.bytes (Pt2_storage.length logical.data)
@@ -70,7 +69,7 @@ module Descriptor = struct
         Ok ()
       else if Float.is_finite (Pt2_fixture.Logical.get_float logical i) then
         finite (i + 1)
-      else bad "nonfinite tensor value"
+      else bad J.Failure.Nonfinite_tensor_value
     in
     finite 0
 end
@@ -93,8 +92,8 @@ module Binding = struct
       match ops with
       | [] -> Ok Identity
       | [ select; cast ] ->
-          let* () = J.fields [ "op"; "axis"; "index" ] select in
-          let* () = J.fields [ "op"; "dtype" ] cast in
+          let* () = J.fields [ "axis"; "index"; "op" ] select in
+          let* () = J.fields [ "dtype"; "op" ] cast in
           let* op = J.field "op" select in
           let* axis = J.member "axis" select >>= J.integer in
           let* index = J.member "index" select >>= J.integer in
@@ -102,8 +101,8 @@ module Binding = struct
           let* dtype = J.field "dtype" cast in
           if (op, axis, index, cop, dtype) = ("select", 0, 0, "cast", "float32")
           then Ok Select_cast
-          else bad "unsupported output transform"
-      | _ -> bad "unsupported output transform"
+          else bad J.Failure.Unsupported_output_transform
+      | _ -> bad J.Failure.Unsupported_output_transform
     else
       let* op = J.field "op" j in
       match op with
@@ -111,10 +110,11 @@ module Binding = struct
           let+ () = J.fields [ "op" ] j in
           Identity
       | "unsqueeze" ->
-          let* () = J.fields [ "op"; "axis" ] j in
+          let* () = J.fields [ "axis"; "op" ] j in
           let* axis = J.member "axis" j >>= J.integer in
-          if axis = 0 then Ok Unsqueeze else bad "unsupported input axis"
-      | _ -> bad "unsupported input transform"
+          if axis = 0 then Ok Unsqueeze
+          else bad J.Failure.Unsupported_input_axis
+      | _ -> bad J.Failure.Unsupported_input_transform
 
   let of_json ~output j =
     let side = if output then "output" else "input" in
@@ -130,7 +130,7 @@ module Binding = struct
     let* sample_layout = J.field "layout" metadata in
     let* () =
       if List.mem sample_layout [ "CHW"; "row_major" ] then Ok ()
-      else bad "unsupported sample layout"
+      else bad J.Failure.Unsupported_sample_layout
     in
     let* transform = J.member "transform" j >>= transform ~output in
     let transformed =
@@ -143,7 +143,7 @@ module Binding = struct
       if transform = Select_cast then
         match graph_shape with
         | 1 :: rest -> J.same "output sample shape" rest sample_shape
-        | _ -> bad "output select requires leading extent 1"
+        | _ -> bad J.Failure.Output_select_requires_leading_extent_1
       else J.same "transformed shape" transformed graph_shape
     in
     Ok { graph; graph_shape; sample; sample_layout; sample_shape; transform }
@@ -160,7 +160,7 @@ module Binding = struct
             sizes = 1 :: tensor.sizes;
             strides = Pt2_tensor.numel tensor :: tensor.strides;
           }
-    | Select_cast -> bad "output transform used for input"
+    | Select_cast -> bad J.Failure.Output_transform_used_for_input
 end
 
 module Reference = struct
@@ -203,7 +203,7 @@ module Case = struct
     let* cases = J.member "cases" j >>= J.array >>= Err.List.map of_json in
     let* () =
       if cases = [] || List.length cases > 512 then
-        bad "case count outside supported limits"
+        bad J.Failure.Case_count_outside_supported_limits
       else Ok ()
     in
     let+ () = J.unique (List.map (fun c -> c.id) cases) in
@@ -248,7 +248,9 @@ module Contract = struct
     let* () =
       Err.List.iter
         (fun bindings ->
-          let* () = if bindings = [] then bad "missing bindings" else Ok () in
+          let* () =
+            if bindings = [] then bad J.Failure.Missing_bindings else Ok ()
+          in
           let* () = J.unique (List.map (fun b -> b.Binding.graph) bindings) in
           J.unique (List.map (fun b -> b.Binding.sample) bindings))
         [ inputs; outputs ]
@@ -273,7 +275,7 @@ module Contract = struct
           let* users = J.path [ "graph"; side ] j >>= J.array in
           Err.List.iter2
             ~unequal_lengths:(fun _ _ ->
-              `Timm_fixture "declared signature arity disagrees")
+              `Timm_fixture J.Failure.Declared_signature_arity_disagrees)
             (fun user b ->
               let* name = J.field "name" user in
               let* dtype = J.field "dtype" user in
@@ -288,7 +290,7 @@ module Contract = struct
     let* atol = J.member "atol" comparison >>= J.number in
     let* rtol = J.member "rtol" comparison >>= J.number in
     let* () =
-      if atol < 0. || rtol < 0. then bad "negative comparison tolerance"
+      if atol < 0. || rtol < 0. then bad J.Failure.Negative_comparison_tolerance
       else Ok ()
     in
     let* finite = J.field "finite" comparison in
@@ -349,7 +351,7 @@ module Contract = struct
     Err.List.iter
       (fun b ->
         let* meta =
-          Err.of_option (`Timm_fixture "missing graph tensor metadata")
+          Err.of_option (`Timm_fixture J.Failure.Missing_graph_tensor_metadata)
             (Schema_runtime.String_map.find_opt b.Binding.graph values)
         in
         let* shape =
@@ -357,7 +359,7 @@ module Contract = struct
             (fun x ->
               Pt2_tensor.int_of_symint x
               |> Err.map_error (fun _ ->
-                  `Timm_fixture "dynamic shape unsupported"))
+                  `Timm_fixture J.Failure.Dynamic_shape_unsupported))
             meta.TensorMeta.sizes
         in
         let* () = J.same "graph tensor shape" shape b.graph_shape in
@@ -377,7 +379,7 @@ let bind_inputs contract case tensors =
       let reference = List.assoc binding.Binding.sample case.inputs in
       let* tensor =
         Err.of_option
-          (`Timm_fixture ("missing tensor key " ^ reference.Reference.key))
+          (`Timm_fixture (J.Failure.Missing_tensor reference.Reference.key))
           (List.assoc_opt reference.key tensors)
       in
       let* () = Descriptor.check reference.descriptor tensor in
@@ -406,8 +408,7 @@ let compare_output contract binding reference actual =
   let* () = J.same "reference output shape" reference.Pt2_tensor.sizes shape in
   let* logical =
     Pt2_fixture.Logical.of_pt2 reference
-    |> Err.map_error (fun e ->
-        `Timm_fixture (Fmt.str "%a" Pt2_fixture.Logical.pp_error e))
+    |> J.wrap J.External.Source.Logical Pt2_fixture.Logical.pp_error
   in
   let rec go i =
     if i = Pt2_tensor.numel reference then Ok ()
@@ -419,7 +420,10 @@ let compare_output contract binding reference actual =
         && Float.abs (a -. r)
            <= contract.Contract.atol +. (contract.rtol *. Float.abs r)
       then go (i + 1)
-      else bad (Printf.sprintf "output element %d: %.9g vs %.9g" i a r)
+      else
+        bad
+          (J.Failure.Output_mismatch
+             { J.Output_mismatch.actual = a; index = i; reference = r })
   in
   go 0
 
@@ -433,8 +437,7 @@ let check_references bindings references tensors =
     (fun b ->
       let r = List.assoc b.Binding.sample references in
       let* t =
-        Err.of_option
-          (`Timm_fixture ("missing tensor key " ^ r.Reference.key))
+        Err.of_option (`Timm_fixture (J.Failure.Missing_tensor r.Reference.key))
           (List.assoc_opt r.key tensors)
       in
       let* () = J.same "reference shape" r.descriptor.shape b.sample_shape in
@@ -502,7 +505,7 @@ module Images = struct
         let* () =
           match d.shape with
           | [ 3; _; _ ] -> Ok ()
-          | _ -> bad "decoded image is not RGB CHW"
+          | _ -> bad J.Failure.Decoded_image_is_not_rgb_chw
         in
         Descriptor.check d (List.assoc key tensors))
       samples

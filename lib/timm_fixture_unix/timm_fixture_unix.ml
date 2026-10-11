@@ -5,17 +5,18 @@ module I = F.Index
 module U = Pt2_fixture_unix
 
 let ( >>= ) = Err.bind
-let wrap pp r = Err.map_error (fun e -> `Timm_fixture (Fmt.str "%a" pp e)) r
+let wrap = J.wrap
 
 let read ?(max_bytes = 8388608) path =
-  U.Fetch.read ~max_bytes path |> wrap U.Fault.pp_error
+  U.Fetch.read ~max_bytes path |> wrap J.External.Source.Cache U.Fault.pp_error
 
 let io path f =
   match f () with
   | value -> Ok value
-  | exception Sys_error why -> J.bad (path ^ ": " ^ why)
+  | exception Sys_error why ->
+      Err.fail (`Timm_fixture_io { J.Io.message = why; path })
   | exception Unix.Unix_error (e, _, _) ->
-      J.bad (path ^ ": " ^ Unix.error_message e)
+      Err.fail (`Timm_fixture_io { J.Io.message = Unix.error_message e; path })
 
 module Discovery = struct
   type t = Absent | V2 of I.t
@@ -26,7 +27,7 @@ module Discovery = struct
     | "200" ->
         let+ index = I.of_string text in
         V2 index
-    | _ -> J.bad ("v2 discovery failed: " ^ status)
+    | _ -> J.bad (J.Failure.Http_status status)
 
   (* Only an HTTP 404 permits legacy fallback. A failed request or invalid
      published document must never turn into an inferred v1 fixture. *)
@@ -68,7 +69,7 @@ module Discovery = struct
         | Unix.WEXITED 0, "200" ->
             let* text = read dest in
             classify ~status text
-        | _ -> J.bad ("v2 discovery failed: " ^ status))
+        | _ -> J.bad (J.Failure.Http_status status))
 
   let local path =
     let* text = read path in
@@ -79,17 +80,17 @@ end
 let limits ~entries ~member ~total =
   Pt2_zip.Limits.create ~max_entries:entries ~max_entry_bytes:member
     ~max_total_bytes:total ~max_path_bytes:256 ~max_path_depth:8
-  |> wrap Pt2_zip.Limits.pp_error
+  |> wrap J.External.Source.Zip_limits Pt2_zip.Limits.pp_error
 
 let tensors path =
   let* limits = limits ~entries:1024 ~member:134217728L ~total:536870912L in
   let* tensors =
     Pt2_archive.load_pt_tensor_map ~limits ~max_bytes:536870912L path
-    |> wrap Pt2_archive.pp_error
+    |> wrap J.External.Source.Archive Pt2_archive.pp_error
   in
   let* () =
     if tensors = [] || List.length tensors > 512 then
-      J.bad "unsupported tensor count"
+      J.bad J.Failure.Unsupported_tensor_count
     else Ok ()
   in
   let* () = J.unique (List.map fst tensors) in
@@ -121,14 +122,18 @@ module Evaluation = struct
     let* profile = limits ~entries:5 ~member:16777216L ~total:16777216L in
     let* bytes = read ~max_bytes:16777216 path in
     let* zip =
-      Pt2_zip.of_string ~limits:profile bytes |> wrap Pt2_zip.pp_error
+      Pt2_zip.of_string ~limits:profile bytes
+      |> wrap J.External.Source.Zip Pt2_zip.pp_error
     in
     let* () =
       J.same "evaluation members"
         (List.sort String.compare (Pt2_zip.entries zip))
         members
     in
-    let member name = Pt2_zip.read_required zip name |> wrap Pt2_zip.pp_error in
+    let member name =
+      Pt2_zip.read_required zip name
+      |> wrap J.External.Source.Zip Pt2_zip.pp_error
+    in
     let* contract = member "contract-v2.json" >>= F.Contract.of_string in
     let* cases = member "cases.json" >>= F.Case.of_string in
     let* preprocessing = member "preprocessing.json" >>= J.parse in
@@ -141,7 +146,7 @@ module Evaluation = struct
     let+ outputs =
       Pt2_archive.pt_tensor_map_of_string ~limits:tensor_limits
         ~name:"outputs.pt" output_bytes
-      |> wrap Pt2_archive.pp_error
+      |> wrap J.External.Source.Archive Pt2_archive.pp_error
     in
     { cases; contract; outputs; preprocessing }
 end
@@ -155,7 +160,9 @@ module Config = struct
   }
 
   let create ?source_dir ?transport ?on_transfer root =
-    let+ cache = U.Cache.create root |> wrap U.Fault.pp_error in
+    let+ cache =
+      U.Cache.create root |> wrap J.External.Source.Cache U.Fault.pp_error
+    in
     { cache; on_transfer; source_dir; transport }
 end
 
@@ -200,7 +207,8 @@ let ensure config ~layer pin =
         result)
       transport
   in
-  U.Fetch.ensure ?transport ~layer config.cache pin |> wrap U.Fault.pp_error
+  U.Fetch.ensure ?transport ~layer config.cache pin
+  |> wrap J.External.Source.Cache U.Fault.pp_error
 
 let asset config index id =
   let* a = I.asset_of index id in
@@ -230,18 +238,19 @@ module Bundle = struct
     let* binding =
       match evaluation.contract.inputs with
       | [ binding ] when binding.sample_layout = "CHW" -> Ok binding
-      | _ -> J.bad "image preprocessing requires one CHW image binding"
+      | _ -> J.bad J.Failure.Image_preprocessing_requires_one_chw_image_binding
     in
     let* inputs =
       Err.List.map
         (fun case ->
           let* image =
             Err.of_option
-              (`Timm_fixture ("missing decoded image " ^ case.F.Case.image))
+              (`Timm_fixture (J.Failure.Missing_decoded_image case.F.Case.image))
               (List.assoc_opt case.image images)
           in
           let* reference =
-            Err.of_option (`Timm_fixture "missing image input reference")
+            Err.of_option
+              (`Timm_fixture J.Failure.Missing_image_input_reference)
               (List.assoc_opt binding.sample case.inputs)
           in
           let* input = F.Preprocess.run recipe image ~geometry:case.geometry in
@@ -254,8 +263,7 @@ module Bundle = struct
 
   let open_ ?(shared = false) config index name =
     let* model =
-      Err.of_option
-        (`Timm_fixture ("unknown current model " ^ name))
+      Err.of_option (`Timm_fixture (J.Failure.Unknown_model name))
         (List.assoc_opt name index.I.models)
     in
     let* eval_asset, path = asset config index model.evaluation in
@@ -265,7 +273,8 @@ module Bundle = struct
     in
     let* graph_bytes = read graph_path in
     let* program =
-      Pt2_archive.program_of_json graph_bytes |> wrap Pt2_archive.pp_error
+      Pt2_archive.program_of_json graph_bytes
+      |> wrap J.External.Source.Archive Pt2_archive.pp_error
     in
     let* () = F.Contract.check_graph evaluation.contract ~graph_bytes program in
     let* () = J.same "contract model" name evaluation.contract.model in
@@ -296,7 +305,8 @@ module Bundle = struct
         bundle.model.graph.sha256
     in
     let* map_pin =
-      Err.of_option (`Timm_fixture "missing weight map") bundle.model.weight_map
+      Err.of_option (`Timm_fixture J.Failure.Missing_weight_map)
+        bundle.model.weight_map
     in
     let* map_bytes =
       read (Filename.concat model_dir "models/safetensors.json")
@@ -313,5 +323,5 @@ module Bundle = struct
     in
     let* _ = ensure config ~layer:Pt2_fixture.Fault.Map map_pin in
     Pt2_safetensors_unix.open_dir model_dir
-    |> wrap Pt2_safetensors_unix.pp_error
+    |> wrap J.External.Source.Checkpoint Pt2_safetensors_unix.pp_error
 end
