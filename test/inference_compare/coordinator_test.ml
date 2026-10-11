@@ -494,3 +494,104 @@ let%expect_test "compile-cache keys track graph and engine identity" =
     stable: true
     other unit differs: true
     other engine configuration differs: true |}]
+
+let describe_snapshot (s : Core.Coordinator.snapshot) =
+  Printf.sprintf "%s %s inputs=%d raw=%d candidates=%d mismatching=%b"
+    (Id.Unit.to_string s.unit)
+    (match s.stage with
+    | Before_commit -> "before_commit"
+    | After_failure -> "after_failure")
+    (List.length s.common_inputs)
+    (List.length s.raw) (List.length s.candidates) s.mismatching
+
+let%expect_test
+    "the retention hook sees every unit's payloads before anything is published"
+    =
+  let seen = ref [] in
+  let retain (s : Core.Coordinator.snapshot) =
+    seen := describe_snapshot s :: !seen;
+    Ok ()
+  in
+  let run = K.execute u1u2 (K.setup ~right:right_deviates ~retain ()) in
+  List.iter print_endline (List.rev !seen);
+  Format.printf "published: %d@." (List.length run.result.executed);
+  List.iter (fun (_, v) -> L.drop v) run.result.finals;
+  [%expect
+    {|
+    U1 before_commit inputs=1 raw=2 candidates=2 mismatching=true
+    U2 before_commit inputs=1 raw=2 candidates=2 mismatching=false
+    published: 2 |}]
+
+let%expect_test
+    "a retention that cannot be met stops the unit; failures retain their \
+     inputs" =
+  let seen = ref [] in
+  let refuse (s : Core.Coordinator.snapshot) =
+    seen := describe_snapshot s :: !seen;
+    match s.stage with
+    | Before_commit -> Error "retention budget exhausted"
+    | After_failure -> Ok ()
+  in
+  let run = K.execute u1u2 (K.setup ~retain:refuse ()) in
+  report "required retention refused" run;
+  List.iter print_endline (List.rev !seen);
+  Format.printf "published: %d, ledger balanced: %b@."
+    (List.length run.result.executed)
+    (Inference_compare_codecs.Owned_blob.Ledger.balanced run.ctx.ledger);
+  seen := [];
+  let failing =
+    K.execute u1u2
+      (K.setup
+         ~left:R.{ (default_config "left") with fail_nodes = [ "n1" ] }
+         ~retain:(fun s ->
+           seen := describe_snapshot s :: !seen;
+           Ok ())
+         ())
+  in
+  ignore failing;
+  List.iter print_endline (List.rev !seen);
+  [%expect
+    {|
+    required retention refused:
+      execution=failed numerical=not_established coverage=complete
+      comparisons:
+      failure: evidence_failed in phase commit
+    U1 before_commit inputs=1 raw=2 candidates=2 mismatching=false
+    U1 after_failure inputs=1 raw=2 candidates=2 mismatching=false
+    published: 0, ledger balanced: true
+    U1 after_failure inputs=1 raw=0 candidates=0 mismatching=false |}]
+
+let%expect_test "one unit replays from retained common inputs" =
+  let ictx = Codec_fixtures.context () in
+  let h = Codec_fixtures.integers ictx C.i64_spec [ 2L; 3L; 4L ] in
+  let run =
+    K.execute u1u2
+      (K.setup
+         ~mode:(Single_unit { unit = P.uid "U2"; inputs = [ (P.ckey "h", h) ] })
+         ())
+  in
+  report "replay of U2" run;
+  Format.printf
+    "  executed: %s; finals: %d; engine prepares %d/%d, runs %d/%d@."
+    (String.concat "," (List.map Id.Unit.to_string run.result.executed))
+    (List.length run.result.finals)
+    run.left.prepares run.right.prepares run.left.runs run.right.runs;
+  Format.printf "  U2 saw: %s@." (pp_list (K.observed run.left));
+  let missing =
+    K.execute u1u2
+      (K.setup ~mode:(Single_unit { unit = P.uid "U2"; inputs = [] }) ())
+  in
+  report "replay without its input" missing;
+  Format.printf "  runs %d/%d@." missing.left.runs missing.right.runs;
+  [%expect
+    {|
+    replay of U2:
+      execution=complete numerical=agreement coverage=complete
+      comparisons: cmp_y=pass
+      executed: U2; finals: 0; engine prepares 1/1, runs 1/1
+      U2 saw: h=[2; 3; 4]
+    replay without its input:
+      execution=refused numerical=not_established coverage=complete
+      comparisons:
+      failure: missing_common_input in phase planning
+      runs 0/0 |}]

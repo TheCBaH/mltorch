@@ -17,6 +17,41 @@
 open Inference_compare_schema
 module Codecs = Inference_compare_codecs
 
+(** What the host may retain about one unit. All values are borrowed: a retainer
+    copies or serializes them before returning. *)
+type stage =
+  | Before_commit
+      (** Everything of the unit exists and has been compared; nothing is
+          published yet. A refusal here fails the unit. *)
+  | After_failure
+      (** The unit stopped; only the parts that existed are present. The result
+          is ignored. *)
+
+type snapshot = {
+  unit : Id.Unit.t;
+  stage : stage;
+  common_inputs :
+    (Id.Canonical_value.t * Id.Value_instance.t * Codecs.Logical_value.t) list;
+      (** The canonical values the unit read, as both engines saw them. *)
+  raw :
+    (Side.t * Tensor_ref.t * Id.Value_instance.t * Codecs.Logical_value.t) list;
+      (** Each side's computed output snapshots, original tensor ids. *)
+  candidates :
+    (Id.Canonical_value.t
+    * Side.t
+    * Id.Value_instance.t
+    * Codecs.Logical_value.t)
+    list;
+  mismatching : bool;  (** Some comparison of the unit was not a pass. *)
+}
+
+type mode =
+  | Full  (** Every unit, from the pinned initial payloads. *)
+  | Single_unit of {
+      unit : Id.Unit.t;
+      inputs : (Id.Canonical_value.t * Codecs.Logical_value.t) list;
+    }  (** Replay one unit from retained common inputs; no final outputs. *)
+
 type config = {
   ctx : Codecs.Logical_value.Context.t;
       (** Its ledger bounds every live payload of the run. *)
@@ -32,6 +67,8 @@ type config = {
   expected_identities : Engine_identity.t option * Engine_identity.t option;
   emit : Event.t -> (unit, string) result;
       (** The event sink. A refused event is a failure of the unit. *)
+  retain : snapshot -> (unit, string) result;
+  mode : mode;
 }
 
 type result = {

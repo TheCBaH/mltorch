@@ -105,11 +105,14 @@ type setup = {
   limit : int64 option;
   expected_identities : Engine_identity.t option * Engine_identity.t option;
   initial_override : (Id.Canonical_value.t * L.t) list option;
+  retain : Core.Coordinator.snapshot -> (unit, string) result;
+  mode : Core.Coordinator.mode;
 }
 
 let setup ?(left = R.default_config "left") ?(right = R.default_config "right")
     ?(donor = Side.Left) ?(overrides = []) ?(emit = fun _ -> Ok ()) ?limit
-    ?(expected_identities = (None, None)) ?initial_override () =
+    ?(expected_identities = (None, None)) ?initial_override
+    ?(retain = fun _ -> Ok ()) ?(mode = Core.Coordinator.Full) () =
   {
     left_cfg = left;
     right_cfg = right;
@@ -119,6 +122,8 @@ let setup ?(left = R.default_config "left") ?(right = R.default_config "right")
     limit;
     expected_identities;
     initial_override;
+    retain;
+    mode;
   }
 
 (* The live blob count of the run's ledger, readable from an event sink. *)
@@ -157,6 +162,8 @@ let execute t (s : setup) =
       initial = Option.value s.initial_override ~default:(initial_values t);
       expected_identities = s.expected_identities;
       emit = s.emit;
+      retain = s.retain;
+      mode = s.mode;
     }
   in
   let result =
