@@ -107,8 +107,18 @@
 
 (executable
  (name fixture_pair_run)
- (modules fixture_pair_run)
+ (modules fixture_pair_run rivet_register compcert_register)
  (libraries
+  (select
+   rivet_register.ml
+   from
+   (inference_compare_rivet -> rivet_register.yes.ml)
+   (-> rivet_register.no.ml))
+  (select
+   compcert_register.ml
+   from
+   (inference_compare_compiled -> compcert_register.yes.ml)
+   (-> compcert_register.no.ml))
   model_source
   pt2_safetensors_unix
   pair_harness
@@ -140,3 +150,29 @@
   pt2_fixture_unix
   err_trace
   fmt))
+
+; The Rivet AArch64 routes against the direct evaluator and each other on a
+; real model; they run on the CPU, so they need an AArch64 host.
+
+(cram
+ (applies_to pair_rivet_cram)
+ (deps (universe) %{exe:fixture_pair_run.exe})
+ (enabled_if
+  (and
+   (<> %{env:PT2_DATA=} "")
+   (= %{architecture} arm64)
+   %{lib-available:rivet.aarch64_encode}
+   %{lib-available:rivet.driver_direct})))
+
+; The embedded CompCert as well, built only for MLTORCH_COMPCERT=<isa>.
+
+(cram
+ (applies_to pair_compcert_cram)
+ (deps (universe) %{exe:fixture_pair_run.exe})
+ (enabled_if
+  (and
+   (<> %{env:PT2_DATA=} "")
+   (= %{env:MLTORCH_COMPCERT=none} aarch64)
+   (= %{architecture} arm64)
+   %{lib-available:rivet.aarch64_encode}
+   %{lib-available:rivet.driver_direct})))

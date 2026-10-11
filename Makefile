@@ -1,4 +1,4 @@
-.PHONY: transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open model.compare model.download model.compare.gate model.fetch.timm model.fetch.fixture transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
+.PHONY: rivet.compare.runtest transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open model.compare model.download model.compare.gate model.fetch.timm model.fetch.fixture transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean machine.a64.conformance machine.pt2.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
@@ -232,7 +232,10 @@ transformers.open:
 # graph) -- run by its evaluator; a Native view takes :sequential32 for binary32
 # sequential dots (native:sequential32), a storage or scheduling configuration
 # (native:arena,scheduled), :symbolic for the symbolic evaluator, or a generated-code
-# engine: :loop-c, :ssa-c (the host C compiler), :loop-wasm, :ssa-wasm (node).
+# engine: :loop-c, :ssa-c (the host C compiler), :loop-wasm, :ssa-wasm (node),
+# :rivet and :rivet-table (Rivet AArch64 image route and table host, each with a
+# -scanned allocator; an AArch64 host) or :compcert (the embedded CompCert, built
+# by MLTORCH_COMPCERT=<isa>); an engine that was not built refuses, exit 3.
 # Either orientation works between the
 # Native views, and one view against itself compares two configurations; ATen is
 # on the left because the importer's correspondence is ATen to Native. TOL is the atol and rtol of the
@@ -1446,7 +1449,12 @@ compcert.embed.runtest: compcert.embed.install
 # run anywhere the embedding is installed; the real-model cram also needs
 # `make pt2.download-cram`. aarch64 hosts only.
 compcert.compare.runtest: compcert.embed.install
-	PT2_DATA=$(abspath $(PT2_DIR)) MLTORCH_COMPCERT=$(COMPCERT_ISA) opam exec -- dune build @test/inference_compare_compiled/runtest @test/inference_compare_compiled/compiled_cram --force
+	PT2_DATA=$(abspath $(PT2_DIR)) PT2_SAFETENSORS_MODELS=$(abspath $(PT2_JSON_MODELS_DIR)) MLTORCH_COMPCERT=$(COMPCERT_ISA) opam exec -- dune build @test/inference_compare_compiled/runtest @test/inference_compare_compiled/compiled_cram @test/inference_compare_pt2/pair_compcert_cram @test/inference_compare_pt2/pair_rivet_cram @test/inference_compare_rivet/runtest --force
+
+# The Rivet AArch64 engines as comparison variants, without CompCert: the engines
+# on a small body, and a real model against the direct evaluator. AArch64 hosts only.
+rivet.compare.runtest: rivet.install
+	PT2_DATA=$(abspath $(PT2_DIR)) PT2_SAFETENSORS_MODELS=$(abspath $(PT2_JSON_MODELS_DIR)) opam exec -- dune build @test/inference_compare_rivet/runtest @test/inference_compare_pt2/pair_rivet_cram --force
 
 # The C backend's differential suites (test/loop_c) run under `runtest` at the
 # production flags. These re-run the same suites at -O0 and under the

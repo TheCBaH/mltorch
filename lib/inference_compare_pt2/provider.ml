@@ -33,3 +33,16 @@ let instantiate name =
       match p.available () with
       | Error m -> Error (Printf.sprintf "%s is not available: %s" name m)
       | Ok () -> p.instantiate ())
+
+(* A word whose engine was not built into this executable: it parses, and
+   refuses naming what is missing. *)
+let register_unbuilt ~names reason =
+  List.iter
+    (fun name ->
+      register
+        {
+          name;
+          available = (fun () -> Error reason);
+          instantiate = (fun () -> Error reason);
+        })
+    names

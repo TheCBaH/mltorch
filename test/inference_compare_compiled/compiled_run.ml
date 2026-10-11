@@ -109,11 +109,14 @@ let () =
           (o, c, e)
       | Right ->
           let p, c =
-            timed (fun () -> get (C.Assembly_engine.compile whole_graph))
+            timed (fun () ->
+                get (Inference_compare_rivet.Image_engine.compile whole_graph))
           in
           let o, e =
             timed (fun () ->
-                get (C.Assembly_engine.execute p whole_graph ~inputs))
+                get
+                  (Inference_compare_rivet.Image_engine.execute p whole_graph
+                     ~inputs))
           in
           (o, c, e)
     in

@@ -90,11 +90,11 @@ let assembly =
         Result.map
           (fun c ->
             p := Some c;
-            fun () -> C.Assembly_engine.release c)
-          (C.Assembly_engine.compile g));
+            fun () -> Inference_compare_rivet.Image_engine.release c)
+          (Inference_compare_rivet.Image_engine.compile g));
     run =
       (fun ~poison:_ g inputs ->
-        C.Assembly_engine.execute (Option.get !p) g ~inputs);
+        Inference_compare_rivet.Image_engine.execute (Option.get !p) g ~inputs);
   }
 
 let%expect_test "repeated calls match the reference, with a poisoned workspace"
@@ -216,7 +216,7 @@ let%expect_test
 (* The assembly route refuses one unit's body; nothing runs in its place. *)
 module Refusing = P.Graph_runner.Make (struct
   type op = Graph_ir.op
-  type compiled = C.Assembly_engine.compiled
+  type compiled = Inference_compare_rivet.Image_engine.compiled
 
   let compile (g : Graph_ir.graph) =
     if
@@ -224,10 +224,10 @@ module Refusing = P.Graph_runner.Make (struct
         (fun (n : Graph_ir.node) -> Graph_ir.op_name n.op = "Relu")
         g.nodes
     then Error "injected: this body is refused"
-    else C.Assembly_engine.compile g
+    else Inference_compare_rivet.Image_engine.compile g
 
-  let execute = C.Assembly_engine.execute
-  let release = C.Assembly_engine.release
+  let execute = Inference_compare_rivet.Image_engine.execute
+  let release = Inference_compare_rivet.Image_engine.release
 end)
 
 let%expect_test "an injected route failure refuses the run, under either donor"
@@ -255,9 +255,9 @@ let%expect_test "an injected route failure refuses the run, under either donor"
    perturbed inputs is reported as a disagreement. *)
 module Deviating = P.Graph_runner.Make (struct
   type op = Graph_ir.op
-  type compiled = C.Assembly_engine.compiled
+  type compiled = Inference_compare_rivet.Image_engine.compiled
 
-  let compile = C.Assembly_engine.compile
+  let compile = Inference_compare_rivet.Image_engine.compile
 
   let execute m g ~inputs =
     let scaled =
@@ -268,9 +268,9 @@ module Deviating = P.Graph_runner.Make (struct
           ))
         inputs
     in
-    C.Assembly_engine.execute m g ~inputs:scaled
+    Inference_compare_rivet.Image_engine.execute m g ~inputs:scaled
 
-  let release = C.Assembly_engine.release
+  let release = Inference_compare_rivet.Image_engine.release
 end)
 
 let%expect_test "a deviating route is a disagreement, not an agreement" =
@@ -287,3 +287,27 @@ let%expect_test "a deviating route is a disagreement, not an agreement" =
       cmp:rv00007 mismatch max_abs=8.6 violations=27
       cmp:rv00008 mismatch max_abs=5.55 violations=27
       cmp:rv00009 mismatch max_abs=3.49 violations=27 |}]
+
+(* ---- the variant words --------------------------------------------------- *)
+
+let%expect_test "the compcert word's runner advertises its own identity" =
+  C.Providers.register ();
+  Inference_compare_rivet.Providers.register ();
+  let identity name =
+    match P.Provider.instantiate name with
+    | Error m -> failwith m
+    | Ok i ->
+        let (module R) = i.runner in
+        Printf.printf "%s: runner = advertised: %b\n" name
+          (R.identity () = i.identity);
+        i.identity
+  in
+  let compcert = identity "compcert" and rivet = identity "rivet" in
+  Printf.printf "route %s, same as rivet: %b\n"
+    (Id.Engine_route.to_string compcert.route)
+    (compcert = rivet);
+  [%expect
+    {|
+    compcert: runner = advertised: true
+    rivet: runner = advertised: true
+    route embedded-compcert-aarch64, same as rivet: false |}]
