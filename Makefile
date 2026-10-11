@@ -248,9 +248,8 @@ MODEL ?=
 model.compare.%:
 	@$(MAKE) --no-print-directory model.compare MODEL="$*"
 
-model.compare:
+model.compare: model.download
 	@test -n "$(MODEL)" || { echo "usage: make model.compare.<model> (or MODEL=<model>)" >&2; exit 2; }
-	@$(MAKE) --no-print-directory model.download MODEL="$(MODEL)" || exit $$?
 	@opam exec -- dune build test/inference_compare_pt2/fixture_pair_run.exe
 	@r=$$($(MODEL_SOURCE) resolve $(PT2_JSON_MODELS_DIR) $(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) "$(MODEL)") || exit $$?; set -- $$r; \
 	case "$$1" in \
