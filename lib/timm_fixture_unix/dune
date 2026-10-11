@@ -1,0 +1,17 @@
+(library
+ (name timm_fixture_unix)
+ (libraries
+  err_trace
+  fmt
+  jsont
+  pt2
+  pt2_checkpoint_map
+  pt2_checkpoint_map_unix
+  pt2_fixture
+  pt2_fixture_unix
+  pt2_safetensors
+  pt2_safetensors_unix
+  pt2_sha256
+  schema_runtime
+  timm_fixture
+  unix))

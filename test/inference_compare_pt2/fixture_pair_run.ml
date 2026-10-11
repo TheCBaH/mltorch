@@ -33,7 +33,11 @@ open Inference_compare_schema
 module P = Inference_compare_pt2
 module Core = Inference_compare_core
 module U = Pt2_fixture_unix
+module Timm = Timm_fixture
+module J = Timm.Json
+module TU = Timm_fixture_unix
 
+let timm_or_raise r = Err.or_raise ~pp_error:Timm.pp_error r
 let hashers = Inference_compare_sha256.registry
 let algorithm = Inference_compare_sha256.algorithm
 let ok = function Ok x -> x | Error m -> failwith m
@@ -41,6 +45,13 @@ let ok = function Ok x -> x | Error m -> failwith m
 let unwrap = function
   | Ok x -> x
   | Error e -> failwith (Fmt.str "%a" U.Fixture.pp_error e)
+
+(* Native4D carries every tensor at its fixed rank, padding with leading ones;
+   dropping them leaves the same elements at the rank the contract declares. *)
+let rec strip_leading_ones ~rank shape =
+  match shape with
+  | 1L :: rest when List.length shape > rank -> strip_leading_ones ~rank rest
+  | _ -> shape
 
 let usage () =
   Printf.eprintf
@@ -114,7 +125,29 @@ let load = function
       ( Printf.sprintf "%s, %s" artifact case,
         fixture.archive,
         identity_text,
-        inputs )
+        inputs,
+        None )
+  | `Timm_v2 (config, index, name, model_dir, sample) ->
+      let shared = Sys.getenv_opt "TIMM_MODE" = Some "images" in
+      let fixture = timm_or_raise (TU.Bundle.open_ ~shared config index name) in
+      let evaluation = fixture.evaluation in
+      let case =
+        timm_or_raise
+          (Err.of_option
+             (`Timm_fixture J.Failure.Case_index_outside_publication)
+             (List.nth_opt evaluation.cases sample))
+      in
+      let archive =
+        timm_or_raise (TU.Bundle.archive config fixture ~model_dir)
+      in
+      let inputs =
+        timm_or_raise (Timm.bind_inputs evaluation.contract case fixture.inputs)
+      in
+      ( Printf.sprintf "%s, %s (v2 verified bindings)" name case.id,
+        archive,
+        fixture.graph_bytes,
+        inputs,
+        Some (evaluation, case) )
   | `Safetensors (model_dir, inputs_pt, index) ->
       let archive =
         match Err.payload (Pt2_safetensors_unix.open_dir model_dir) with
@@ -139,7 +172,8 @@ let load = function
           index,
         archive,
         identity_text,
-        sample_input ~inputs:inputs_pt ~index aten )
+        sample_input ~inputs:inputs_pt ~index aten,
+        None )
 
 (* NAME as one of the two sources, from the directories in the environment. *)
 let resolve_model name =
@@ -156,12 +190,43 @@ let resolve_model name =
   | Error m ->
       prerr_endline m;
       exit 2
-  | Ok (Timm { name; dir; _ }) ->
-      let release = env "RELEASE_DIR" "data/pt2-functional" in
-      `Safetensors
-        ( dir,
-          Filename.concat (Filename.concat release name) "inputs.pt",
-          int_of_string (env "SAMPLE" "0") )
+  | Ok (Timm { name; dir; _ }) -> (
+      let discovered =
+        match Sys.getenv_opt "TIMM_MANIFEST" with
+        | Some path when path <> "" -> TU.Discovery.local path
+        | _ ->
+            TU.Discovery.remote
+              ~url:
+                (env "TIMM_MANIFEST_URL"
+                   (Printf.sprintf
+                      "https://github.com/%s/releases/download/%s/manifest-v2.json"
+                      (env "TIMM_REPO"
+                         "TheCBaH/devcontainer.pytorch-image-models")
+                      (env "TIMM_RELEASE" "v0.0.6")))
+      in
+      match timm_or_raise discovered with
+      | TU.Discovery.V2 index ->
+          let source_dir =
+            match Sys.getenv_opt "TIMM_SOURCE_DIR" with
+            | Some "" -> None
+            | value -> value
+          in
+          let transport =
+            if Sys.getenv_opt "TIMM_OFFLINE" = Some "1" then None
+            else Some U.Transport.curl
+          in
+          let config =
+            timm_or_raise
+              (TU.Config.create ?source_dir ?transport
+                 (env "TIMM_CACHE" "data/timm-cache"))
+          in
+          `Timm_v2 (config, index, name, dir, int_of_string (env "SAMPLE" "0"))
+      | Absent ->
+          let release = env "RELEASE_DIR" "data/pt2-functional" in
+          `Safetensors
+            ( dir,
+              Filename.concat (Filename.concat release name) "inputs.pt",
+              int_of_string (env "SAMPLE" "0") ))
   | Ok (Fixture { id; _ }) ->
       `Fixture (dirs.cohort, dirs.cache, id, env "CASE" "case-00")
 
@@ -245,7 +310,7 @@ let () =
   let tol =
     match Sys.getenv_opt "TOL" with Some s -> float_of_string s | None -> 1e-4
   in
-  let label, archive, identity_text, inputs = load source in
+  let label, archive, identity_text, inputs, reference = load source in
   let aten =
     ok (P.Aten_model.of_archive ~hashers ~algorithm ~identity_text archive)
   in
@@ -312,6 +377,52 @@ let () =
       (P.Variant.to_string left_variant, pair.left_notes);
       (P.Variant.to_string right_variant, pair.right_notes);
     ];
+  let reference_passed =
+    match (reference, r.completion.execution) with
+    | None, _ -> true
+    | Some _, (Failed | Refused | Interrupted) -> false
+    | Some (evaluation, case), Complete -> (
+        let open Err.Syntax in
+        let check =
+          Err.List.iter2
+            ~unequal_lengths:(fun _ _ ->
+              `Timm_fixture J.Failure.Final_output_arity_differs)
+            (fun binding (_, value) ->
+              let module V = Inference_compare_codecs.Logical_value in
+              let spec = V.spec value in
+              let* () =
+                Timm.Json.same "final dtype"
+                  (Id.Codec.to_string spec.dtype.codec)
+                  "f32"
+              in
+              let* logical =
+                Pt2_fixture.Logical.of_bytes ~dtype:Pt2_checkpoint_map.Dtype.F32
+                  ~shape:
+                    (strip_leading_ones
+                       ~rank:(List.length binding.Timm.Binding.graph_shape)
+                       spec.logical_shape)
+                  (V.contents value)
+                |> TU.wrap J.External.Source.Logical
+                     Pt2_fixture.Logical.pp_error
+              in
+              let reference =
+                List.assoc binding.Timm.Binding.sample case.Timm.Case.outputs
+              in
+              let tensor =
+                List.assoc reference.Timm.Reference.key
+                  evaluation.TU.Evaluation.outputs
+              in
+              Timm.compare_output evaluation.contract binding tensor logical)
+            evaluation.contract.outputs r.Core.Coordinator.finals
+        in
+        match Err.export ~pos:__POS__ check with
+        | Ok () ->
+            print_endline "published full outputs: pass";
+            true
+        | Error e ->
+            prerr_endline (Fmt.str "%a" Timm.pp_error e);
+            false)
+  in
   (match Sys.getenv_opt "DUMP" with
   | None -> ()
   | Some dir ->
@@ -324,4 +435,5 @@ let () =
                 (Inference_compare_codecs.Logical_value.contents v)))
         r.Core.Coordinator.finals);
   (* The inference_compare command's codes. *)
-  exit (Inference_compare_host.Pair_run.exit_code r)
+  let code = Inference_compare_host.Pair_run.exit_code r in
+  exit (if code = 0 && not reference_passed then 1 else code)

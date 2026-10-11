@@ -1,0 +1,1 @@
+{"producer_commit":"17db87bc44a695b6c725b5729e2aea1eb1d366a0","producer_repo":"TheCBaH/devcontainer.pytorch-image-models","actions_run":38164099114,"artifact":"preprocessing-fixtures","purpose":"Independent patterned resize, crop/pad and float32 references; no producer runtime is invoked by the consumer."}

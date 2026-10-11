@@ -252,6 +252,15 @@ TOL ?= 1e-4
 DONOR ?= left
 MODEL_INFO = _build/default/bin/model_info.exe
 PAIR_RUN = _build/default/test/inference_compare_pt2/fixture_pair_run.exe
+TIMM_TOOL = _build/default/bin/timm_fixture_tool.exe
+TIMM_CACHE ?= data/timm-cache
+TIMM_MANIFEST ?=
+TIMM_SOURCE_DIR ?=
+TIMM_MODE ?= authoritative
+export TIMM_CACHE TIMM_MANIFEST TIMM_MODE TIMM_SOURCE_DIR
+model.compare model.fetch.timm timm.inputs.verify timm.replay: export TIMM_REPO = $(PT2_REPO)
+model.compare model.fetch.timm timm.inputs.verify timm.replay: export TIMM_RELEASE = $(PT2_RELEASE)
+model.compare model.fetch.timm timm.inputs.verify timm.replay: export MODELS_DIR = $(PT2_JSON_MODELS_DIR)
 model.compare model.compare.% model.download model.download.% model.fetch.timm model.fetch.fixture: export HF_HUB_CACHE ?= $(TRANSFORMERS_HF_HUB_CACHE)
 
 # A target name cannot hold a /, so an artifact id given whole is MODEL=; the
@@ -289,8 +298,22 @@ model.download:
 
 # model.download keys on the model's kind (model_info kind): one rule per kind.
 model.fetch.timm:
-	$(MAKE) --no-print-directory pt2.download PT2_MODEL="$(MODEL)"
-	@$(MODEL_INFO) checkpoint "$(PT2_JSON_MODELS_DIR)/$(MODEL)" >/dev/null
+	@opam exec -- dune build bin/timm_fixture_tool.exe
+	@status=0; $(TIMM_TOOL) download "$(MODEL)" || status=$$?; \
+	case $$status in \
+	  0) ;; \
+	  42) $(MAKE) --no-print-directory pt2.download PT2_MODEL="$(MODEL)" && \
+	      $(MODEL_INFO) checkpoint "$(PT2_JSON_MODELS_DIR)/$(MODEL)" >/dev/null ;; \
+	  *) exit $$status ;; \
+	esac
+
+timm.inputs.verify:
+	@opam exec -- dune build bin/timm_fixture_tool.exe
+	@$(TIMM_TOOL) verify-inputs-all
+
+timm.replay:
+	@opam exec -- dune build bin/timm_fixture_tool.exe
+	@$(TIMM_TOOL) $(if $(filter images,$(TIMM_MODE)),replay-images,replay) "$(MODEL)"
 
 model.fetch.fixture:
 	$(MAKE) --no-print-directory transformers.download \

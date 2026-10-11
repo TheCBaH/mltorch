@@ -1,0 +1,2721 @@
+{
+  "fixtures": [
+    {
+      "cases": [
+        {
+          "geometry": [
+            {
+              "after": [
+                19,
+                11
+              ],
+              "before": [
+                29,
+                17
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                19,
+                17
+              ],
+              "before": [
+                19,
+                11
+              ],
+              "fill": [
+                124,
+                116,
+                104
+              ],
+              "op": "pad",
+              "padding": [
+                3,
+                0,
+                3,
+                0
+              ]
+            },
+            {
+              "after": [
+                17,
+                17
+              ],
+              "before": [
+                19,
+                17
+              ],
+              "box": [
+                1,
+                0,
+                17,
+                17
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "portrait",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3468,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "d196ad1185339c7d9a55c4aa4a3c5e97cb6561f831eb488dc994a2d06b356ff8",
+            "shape": [
+              3,
+              17,
+              17
+            ]
+          }
+        },
+        {
+          "geometry": [
+            {
+              "after": [
+                12,
+                19
+              ],
+              "before": [
+                19,
+                31
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                17,
+                19
+              ],
+              "before": [
+                12,
+                19
+              ],
+              "fill": [
+                124,
+                116,
+                104
+              ],
+              "op": "pad",
+              "padding": [
+                0,
+                2,
+                0,
+                3
+              ]
+            },
+            {
+              "after": [
+                17,
+                17
+              ],
+              "before": [
+                17,
+                19
+              ],
+              "box": [
+                0,
+                1,
+                17,
+                17
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "landscape",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3468,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "4f904c618851e35b6016d3e26d444b0e7a5f2e00a12b5fff8052062f626125cb",
+            "shape": [
+              3,
+              17,
+              17
+            ]
+          }
+        },
+        {
+          "geometry": [
+            {
+              "after": [
+                15,
+                19
+              ],
+              "before": [
+                7,
+                9
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                17,
+                19
+              ],
+              "before": [
+                15,
+                19
+              ],
+              "fill": [
+                124,
+                116,
+                104
+              ],
+              "op": "pad",
+              "padding": [
+                0,
+                1,
+                0,
+                1
+              ]
+            },
+            {
+              "after": [
+                17,
+                17
+              ],
+              "before": [
+                17,
+                19
+              ],
+              "box": [
+                0,
+                1,
+                17,
+                17
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "small",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3468,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "7ea2b3d1ac51b72afa27db538b9188853339baeeb1be5642767f56d0d38c1bf9",
+            "shape": [
+              3,
+              17,
+              17
+            ]
+          }
+        }
+      ],
+      "name": "border-bicubic-17x17",
+      "preprocessing": {
+        "recipe": {
+          "antialias": "PIL_always",
+          "backend": "PIL",
+          "config": {
+            "crop_mode": "border",
+            "crop_pct": 0.875,
+            "input_size": [
+              3,
+              17,
+              17
+            ],
+            "interpolation": "bicubic",
+            "mean": [
+              0.485,
+              0.456,
+              0.406
+            ],
+            "std": [
+              0.229,
+              0.224,
+              0.225
+            ]
+          },
+          "crop_mode_resolved": "border",
+          "crop_rounding": "ties_to_even",
+          "helper_sha256": "e34ea9e7cb1a046f58e49ba836f56161c617dab5c4a5bb05bff39f423a94ceb3",
+          "interpolation": "bicubic",
+          "operations": [
+            "RGB_PIL_reconstruction",
+            "resize_uint8",
+            "center_crop_or_pad_uint8",
+            "CHW_float32",
+            "divide_float32_255",
+            "subtract_float32_mean",
+            "divide_float32_std"
+          ],
+          "padding": "extra_pixel_right_bottom",
+          "padding_fill": [
+            124,
+            116,
+            104
+          ],
+          "pipeline": [
+            "ResizeKeepRatio",
+            "CenterCropOrPad",
+            "MaybeToTensor",
+            "Normalize"
+          ],
+          "platform": {
+            "architecture": "aarch64",
+            "system": "Linux"
+          },
+          "resize_rounding": "ties_to_even",
+          "scale_size": [
+            19,
+            19
+          ],
+          "schema_version": 1,
+          "timm_commit": "e617d170064e1fad8417858abc6a39489746be9b",
+          "versions": {
+            "Pillow": "12.3.0",
+            "timm": "1.0.29",
+            "torch": "2.13.0+cpu",
+            "torchvision": "0.28.0+cpu"
+          }
+        }
+      }
+    },
+    {
+      "cases": [
+        {
+          "geometry": [
+            {
+              "after": [
+                14,
+                8
+              ],
+              "before": [
+                29,
+                17
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                14,
+                21
+              ],
+              "before": [
+                14,
+                8
+              ],
+              "fill": [
+                124,
+                116,
+                104
+              ],
+              "op": "pad",
+              "padding": [
+                6,
+                0,
+                7,
+                0
+              ]
+            },
+            {
+              "after": [
+                13,
+                21
+              ],
+              "before": [
+                14,
+                21
+              ],
+              "box": [
+                0,
+                0,
+                13,
+                21
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "portrait",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3276,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "0171be4ff7b6a90643acc719037167f7e912af2253367aaf5d4979d9b9dc6fcb",
+            "shape": [
+              3,
+              13,
+              21
+            ]
+          }
+        },
+        {
+          "geometry": [
+            {
+              "after": [
+                14,
+                23
+              ],
+              "before": [
+                19,
+                31
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                13,
+                21
+              ],
+              "before": [
+                14,
+                23
+              ],
+              "box": [
+                0,
+                1,
+                13,
+                21
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "landscape",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3276,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "91746f714d21f920946b5a58192f54ca648fcb6f814059fbd180968a31cb6b48",
+            "shape": [
+              3,
+              13,
+              21
+            ]
+          }
+        },
+        {
+          "geometry": [
+            {
+              "after": [
+                14,
+                18
+              ],
+              "before": [
+                7,
+                9
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                14,
+                21
+              ],
+              "before": [
+                14,
+                18
+              ],
+              "fill": [
+                124,
+                116,
+                104
+              ],
+              "op": "pad",
+              "padding": [
+                1,
+                0,
+                2,
+                0
+              ]
+            },
+            {
+              "after": [
+                13,
+                21
+              ],
+              "before": [
+                14,
+                21
+              ],
+              "box": [
+                0,
+                0,
+                13,
+                21
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "small",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3276,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "9b13c98e80325b4959155bc9ffd1bc1842ad8b968d7108c5be52dd3c76592139",
+            "shape": [
+              3,
+              13,
+              21
+            ]
+          }
+        }
+      ],
+      "name": "border-bicubic-13x21",
+      "preprocessing": {
+        "recipe": {
+          "antialias": "PIL_always",
+          "backend": "PIL",
+          "config": {
+            "crop_mode": "border",
+            "crop_pct": 0.875,
+            "input_size": [
+              3,
+              13,
+              21
+            ],
+            "interpolation": "bicubic",
+            "mean": [
+              0.485,
+              0.456,
+              0.406
+            ],
+            "std": [
+              0.229,
+              0.224,
+              0.225
+            ]
+          },
+          "crop_mode_resolved": "border",
+          "crop_rounding": "ties_to_even",
+          "helper_sha256": "e34ea9e7cb1a046f58e49ba836f56161c617dab5c4a5bb05bff39f423a94ceb3",
+          "interpolation": "bicubic",
+          "operations": [
+            "RGB_PIL_reconstruction",
+            "resize_uint8",
+            "center_crop_or_pad_uint8",
+            "CHW_float32",
+            "divide_float32_255",
+            "subtract_float32_mean",
+            "divide_float32_std"
+          ],
+          "padding": "extra_pixel_right_bottom",
+          "padding_fill": [
+            124,
+            116,
+            104
+          ],
+          "pipeline": [
+            "ResizeKeepRatio",
+            "CenterCropOrPad",
+            "MaybeToTensor",
+            "Normalize"
+          ],
+          "platform": {
+            "architecture": "aarch64",
+            "system": "Linux"
+          },
+          "resize_rounding": "ties_to_even",
+          "scale_size": [
+            14,
+            24
+          ],
+          "schema_version": 1,
+          "timm_commit": "e617d170064e1fad8417858abc6a39489746be9b",
+          "versions": {
+            "Pillow": "12.3.0",
+            "timm": "1.0.29",
+            "torch": "2.13.0+cpu",
+            "torchvision": "0.28.0+cpu"
+          }
+        }
+      }
+    },
+    {
+      "cases": [
+        {
+          "geometry": [
+            {
+              "after": [
+                19,
+                11
+              ],
+              "before": [
+                29,
+                17
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                19,
+                17
+              ],
+              "before": [
+                19,
+                11
+              ],
+              "fill": [
+                124,
+                116,
+                104
+              ],
+              "op": "pad",
+              "padding": [
+                3,
+                0,
+                3,
+                0
+              ]
+            },
+            {
+              "after": [
+                17,
+                17
+              ],
+              "before": [
+                19,
+                17
+              ],
+              "box": [
+                1,
+                0,
+                17,
+                17
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "portrait",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3468,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "fd36f5719914c5d6478968f9ac4807ab184c9cbd5de4e219b39191760e2be27d",
+            "shape": [
+              3,
+              17,
+              17
+            ]
+          }
+        },
+        {
+          "geometry": [
+            {
+              "after": [
+                12,
+                19
+              ],
+              "before": [
+                19,
+                31
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                17,
+                19
+              ],
+              "before": [
+                12,
+                19
+              ],
+              "fill": [
+                124,
+                116,
+                104
+              ],
+              "op": "pad",
+              "padding": [
+                0,
+                2,
+                0,
+                3
+              ]
+            },
+            {
+              "after": [
+                17,
+                17
+              ],
+              "before": [
+                17,
+                19
+              ],
+              "box": [
+                0,
+                1,
+                17,
+                17
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "landscape",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3468,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "3881620ecf85142515f3c75f65cbdd99c3cd87ff08b198782203094ccf4ebe38",
+            "shape": [
+              3,
+              17,
+              17
+            ]
+          }
+        },
+        {
+          "geometry": [
+            {
+              "after": [
+                15,
+                19
+              ],
+              "before": [
+                7,
+                9
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                17,
+                19
+              ],
+              "before": [
+                15,
+                19
+              ],
+              "fill": [
+                124,
+                116,
+                104
+              ],
+              "op": "pad",
+              "padding": [
+                0,
+                1,
+                0,
+                1
+              ]
+            },
+            {
+              "after": [
+                17,
+                17
+              ],
+              "before": [
+                17,
+                19
+              ],
+              "box": [
+                0,
+                1,
+                17,
+                17
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "small",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3468,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "17dda79d1660014e2f3f34603cc80c07469f88f9db2c0a5cf8876f524c1b7336",
+            "shape": [
+              3,
+              17,
+              17
+            ]
+          }
+        }
+      ],
+      "name": "border-bilinear-17x17",
+      "preprocessing": {
+        "recipe": {
+          "antialias": "PIL_always",
+          "backend": "PIL",
+          "config": {
+            "crop_mode": "border",
+            "crop_pct": 0.875,
+            "input_size": [
+              3,
+              17,
+              17
+            ],
+            "interpolation": "bilinear",
+            "mean": [
+              0.485,
+              0.456,
+              0.406
+            ],
+            "std": [
+              0.229,
+              0.224,
+              0.225
+            ]
+          },
+          "crop_mode_resolved": "border",
+          "crop_rounding": "ties_to_even",
+          "helper_sha256": "e34ea9e7cb1a046f58e49ba836f56161c617dab5c4a5bb05bff39f423a94ceb3",
+          "interpolation": "bilinear",
+          "operations": [
+            "RGB_PIL_reconstruction",
+            "resize_uint8",
+            "center_crop_or_pad_uint8",
+            "CHW_float32",
+            "divide_float32_255",
+            "subtract_float32_mean",
+            "divide_float32_std"
+          ],
+          "padding": "extra_pixel_right_bottom",
+          "padding_fill": [
+            124,
+            116,
+            104
+          ],
+          "pipeline": [
+            "ResizeKeepRatio",
+            "CenterCropOrPad",
+            "MaybeToTensor",
+            "Normalize"
+          ],
+          "platform": {
+            "architecture": "aarch64",
+            "system": "Linux"
+          },
+          "resize_rounding": "ties_to_even",
+          "scale_size": [
+            19,
+            19
+          ],
+          "schema_version": 1,
+          "timm_commit": "e617d170064e1fad8417858abc6a39489746be9b",
+          "versions": {
+            "Pillow": "12.3.0",
+            "timm": "1.0.29",
+            "torch": "2.13.0+cpu",
+            "torchvision": "0.28.0+cpu"
+          }
+        }
+      }
+    },
+    {
+      "cases": [
+        {
+          "geometry": [
+            {
+              "after": [
+                14,
+                8
+              ],
+              "before": [
+                29,
+                17
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                14,
+                21
+              ],
+              "before": [
+                14,
+                8
+              ],
+              "fill": [
+                124,
+                116,
+                104
+              ],
+              "op": "pad",
+              "padding": [
+                6,
+                0,
+                7,
+                0
+              ]
+            },
+            {
+              "after": [
+                13,
+                21
+              ],
+              "before": [
+                14,
+                21
+              ],
+              "box": [
+                0,
+                0,
+                13,
+                21
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "portrait",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3276,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "b1aa0bcef1b07aed17af7ed588f145da51ed4eb9149789e517b444a668239cbf",
+            "shape": [
+              3,
+              13,
+              21
+            ]
+          }
+        },
+        {
+          "geometry": [
+            {
+              "after": [
+                14,
+                23
+              ],
+              "before": [
+                19,
+                31
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                13,
+                21
+              ],
+              "before": [
+                14,
+                23
+              ],
+              "box": [
+                0,
+                1,
+                13,
+                21
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "landscape",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3276,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "9a99c806c5e12890d8ad28c888970f90414673b51035b6d998ab36182b5e1e95",
+            "shape": [
+              3,
+              13,
+              21
+            ]
+          }
+        },
+        {
+          "geometry": [
+            {
+              "after": [
+                14,
+                18
+              ],
+              "before": [
+                7,
+                9
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                14,
+                21
+              ],
+              "before": [
+                14,
+                18
+              ],
+              "fill": [
+                124,
+                116,
+                104
+              ],
+              "op": "pad",
+              "padding": [
+                1,
+                0,
+                2,
+                0
+              ]
+            },
+            {
+              "after": [
+                13,
+                21
+              ],
+              "before": [
+                14,
+                21
+              ],
+              "box": [
+                0,
+                0,
+                13,
+                21
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "small",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3276,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "407f16c6b1883bf626d8e881d17b6e737f630101fbc59e7af69c904d28634dd2",
+            "shape": [
+              3,
+              13,
+              21
+            ]
+          }
+        }
+      ],
+      "name": "border-bilinear-13x21",
+      "preprocessing": {
+        "recipe": {
+          "antialias": "PIL_always",
+          "backend": "PIL",
+          "config": {
+            "crop_mode": "border",
+            "crop_pct": 0.875,
+            "input_size": [
+              3,
+              13,
+              21
+            ],
+            "interpolation": "bilinear",
+            "mean": [
+              0.485,
+              0.456,
+              0.406
+            ],
+            "std": [
+              0.229,
+              0.224,
+              0.225
+            ]
+          },
+          "crop_mode_resolved": "border",
+          "crop_rounding": "ties_to_even",
+          "helper_sha256": "e34ea9e7cb1a046f58e49ba836f56161c617dab5c4a5bb05bff39f423a94ceb3",
+          "interpolation": "bilinear",
+          "operations": [
+            "RGB_PIL_reconstruction",
+            "resize_uint8",
+            "center_crop_or_pad_uint8",
+            "CHW_float32",
+            "divide_float32_255",
+            "subtract_float32_mean",
+            "divide_float32_std"
+          ],
+          "padding": "extra_pixel_right_bottom",
+          "padding_fill": [
+            124,
+            116,
+            104
+          ],
+          "pipeline": [
+            "ResizeKeepRatio",
+            "CenterCropOrPad",
+            "MaybeToTensor",
+            "Normalize"
+          ],
+          "platform": {
+            "architecture": "aarch64",
+            "system": "Linux"
+          },
+          "resize_rounding": "ties_to_even",
+          "scale_size": [
+            14,
+            24
+          ],
+          "schema_version": 1,
+          "timm_commit": "e617d170064e1fad8417858abc6a39489746be9b",
+          "versions": {
+            "Pillow": "12.3.0",
+            "timm": "1.0.29",
+            "torch": "2.13.0+cpu",
+            "torchvision": "0.28.0+cpu"
+          }
+        }
+      }
+    },
+    {
+      "cases": [
+        {
+          "geometry": [
+            {
+              "after": [
+                32,
+                19
+              ],
+              "before": [
+                29,
+                17
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                17,
+                17
+              ],
+              "before": [
+                32,
+                19
+              ],
+              "box": [
+                8,
+                1,
+                17,
+                17
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "portrait",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3468,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "e193be0716a545d872a038bb8853d8f973f8fdbaf355ea65ba25cd3faeac01d3",
+            "shape": [
+              3,
+              17,
+              17
+            ]
+          }
+        },
+        {
+          "geometry": [
+            {
+              "after": [
+                19,
+                31
+              ],
+              "before": [
+                19,
+                31
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                17,
+                17
+              ],
+              "before": [
+                19,
+                31
+              ],
+              "box": [
+                1,
+                7,
+                17,
+                17
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "landscape",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3468,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "8832163b9f41022b133e29c8942d78b4286429cf6a7e69c1dcbf19766687d37b",
+            "shape": [
+              3,
+              17,
+              17
+            ]
+          }
+        },
+        {
+          "geometry": [
+            {
+              "after": [
+                19,
+                24
+              ],
+              "before": [
+                7,
+                9
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                17,
+                17
+              ],
+              "before": [
+                19,
+                24
+              ],
+              "box": [
+                1,
+                4,
+                17,
+                17
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "small",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3468,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "893be7c98c6e67ef88414fc8aa4add423899f71c7199589bc82b93b69f311291",
+            "shape": [
+              3,
+              17,
+              17
+            ]
+          }
+        }
+      ],
+      "name": "center-bicubic-17x17",
+      "preprocessing": {
+        "recipe": {
+          "antialias": "PIL_always",
+          "backend": "PIL",
+          "config": {
+            "crop_mode": "center",
+            "crop_pct": 0.875,
+            "input_size": [
+              3,
+              17,
+              17
+            ],
+            "interpolation": "bicubic",
+            "mean": [
+              0.485,
+              0.456,
+              0.406
+            ],
+            "std": [
+              0.229,
+              0.224,
+              0.225
+            ]
+          },
+          "crop_mode_resolved": "center",
+          "crop_rounding": "ties_to_even",
+          "helper_sha256": "e34ea9e7cb1a046f58e49ba836f56161c617dab5c4a5bb05bff39f423a94ceb3",
+          "interpolation": "bicubic",
+          "operations": [
+            "RGB_PIL_reconstruction",
+            "resize_uint8",
+            "center_crop_or_pad_uint8",
+            "CHW_float32",
+            "divide_float32_255",
+            "subtract_float32_mean",
+            "divide_float32_std"
+          ],
+          "padding": "extra_pixel_right_bottom",
+          "padding_fill": [
+            0,
+            0,
+            0
+          ],
+          "pipeline": [
+            "Resize",
+            "CenterCrop",
+            "MaybeToTensor",
+            "Normalize"
+          ],
+          "platform": {
+            "architecture": "aarch64",
+            "system": "Linux"
+          },
+          "resize_rounding": "truncate_secondary_dimension",
+          "scale_size": [
+            19,
+            19
+          ],
+          "schema_version": 1,
+          "timm_commit": "e617d170064e1fad8417858abc6a39489746be9b",
+          "versions": {
+            "Pillow": "12.3.0",
+            "timm": "1.0.29",
+            "torch": "2.13.0+cpu",
+            "torchvision": "0.28.0+cpu"
+          }
+        }
+      }
+    },
+    {
+      "cases": [
+        {
+          "geometry": [
+            {
+              "after": [
+                41,
+                24
+              ],
+              "before": [
+                29,
+                17
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                13,
+                21
+              ],
+              "before": [
+                41,
+                24
+              ],
+              "box": [
+                14,
+                2,
+                13,
+                21
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "portrait",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3276,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "f1428eb1c4b8342baa99d23db210b24bb982c3039a126b5c2b48ae00c1c0b969",
+            "shape": [
+              3,
+              13,
+              21
+            ]
+          }
+        },
+        {
+          "geometry": [
+            {
+              "after": [
+                15,
+                24
+              ],
+              "before": [
+                19,
+                31
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                13,
+                21
+              ],
+              "before": [
+                15,
+                24
+              ],
+              "box": [
+                1,
+                2,
+                13,
+                21
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "landscape",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3276,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "56312e6569b4e68f97b217ada065d2e400f757dff25fb88c1e63f799c583c17d",
+            "shape": [
+              3,
+              13,
+              21
+            ]
+          }
+        },
+        {
+          "geometry": [
+            {
+              "after": [
+                19,
+                24
+              ],
+              "before": [
+                7,
+                9
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                13,
+                21
+              ],
+              "before": [
+                19,
+                24
+              ],
+              "box": [
+                3,
+                2,
+                13,
+                21
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "small",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3276,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "0e315141afbe14c6d78f7fe538f023ddc8c9e1f579dffa64590faf1b88f30cf4",
+            "shape": [
+              3,
+              13,
+              21
+            ]
+          }
+        }
+      ],
+      "name": "center-bicubic-13x21",
+      "preprocessing": {
+        "recipe": {
+          "antialias": "PIL_always",
+          "backend": "PIL",
+          "config": {
+            "crop_mode": "center",
+            "crop_pct": 0.875,
+            "input_size": [
+              3,
+              13,
+              21
+            ],
+            "interpolation": "bicubic",
+            "mean": [
+              0.485,
+              0.456,
+              0.406
+            ],
+            "std": [
+              0.229,
+              0.224,
+              0.225
+            ]
+          },
+          "crop_mode_resolved": "center",
+          "crop_rounding": "ties_to_even",
+          "helper_sha256": "e34ea9e7cb1a046f58e49ba836f56161c617dab5c4a5bb05bff39f423a94ceb3",
+          "interpolation": "bilinear",
+          "operations": [
+            "RGB_PIL_reconstruction",
+            "resize_uint8",
+            "center_crop_or_pad_uint8",
+            "CHW_float32",
+            "divide_float32_255",
+            "subtract_float32_mean",
+            "divide_float32_std"
+          ],
+          "padding": "extra_pixel_right_bottom",
+          "padding_fill": [
+            0,
+            0,
+            0
+          ],
+          "pipeline": [
+            "ResizeKeepRatio",
+            "CenterCrop",
+            "MaybeToTensor",
+            "Normalize"
+          ],
+          "platform": {
+            "architecture": "aarch64",
+            "system": "Linux"
+          },
+          "resize_rounding": "ties_to_even",
+          "scale_size": [
+            14,
+            24
+          ],
+          "schema_version": 1,
+          "timm_commit": "e617d170064e1fad8417858abc6a39489746be9b",
+          "versions": {
+            "Pillow": "12.3.0",
+            "timm": "1.0.29",
+            "torch": "2.13.0+cpu",
+            "torchvision": "0.28.0+cpu"
+          }
+        }
+      }
+    },
+    {
+      "cases": [
+        {
+          "geometry": [
+            {
+              "after": [
+                32,
+                19
+              ],
+              "before": [
+                29,
+                17
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                17,
+                17
+              ],
+              "before": [
+                32,
+                19
+              ],
+              "box": [
+                8,
+                1,
+                17,
+                17
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "portrait",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3468,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "1335cba87f207aa61e0479c1f4261aa059429c05ea7ce910985a7ab194e5c2c7",
+            "shape": [
+              3,
+              17,
+              17
+            ]
+          }
+        },
+        {
+          "geometry": [
+            {
+              "after": [
+                19,
+                31
+              ],
+              "before": [
+                19,
+                31
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                17,
+                17
+              ],
+              "before": [
+                19,
+                31
+              ],
+              "box": [
+                1,
+                7,
+                17,
+                17
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "landscape",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3468,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "8832163b9f41022b133e29c8942d78b4286429cf6a7e69c1dcbf19766687d37b",
+            "shape": [
+              3,
+              17,
+              17
+            ]
+          }
+        },
+        {
+          "geometry": [
+            {
+              "after": [
+                19,
+                24
+              ],
+              "before": [
+                7,
+                9
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                17,
+                17
+              ],
+              "before": [
+                19,
+                24
+              ],
+              "box": [
+                1,
+                4,
+                17,
+                17
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "small",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3468,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "8b5dfbcfb8353b2f64af2cab5a1e2635e8f9f1e05a98d9930594b40a204fd606",
+            "shape": [
+              3,
+              17,
+              17
+            ]
+          }
+        }
+      ],
+      "name": "center-bilinear-17x17",
+      "preprocessing": {
+        "recipe": {
+          "antialias": "PIL_always",
+          "backend": "PIL",
+          "config": {
+            "crop_mode": "center",
+            "crop_pct": 0.875,
+            "input_size": [
+              3,
+              17,
+              17
+            ],
+            "interpolation": "bilinear",
+            "mean": [
+              0.485,
+              0.456,
+              0.406
+            ],
+            "std": [
+              0.229,
+              0.224,
+              0.225
+            ]
+          },
+          "crop_mode_resolved": "center",
+          "crop_rounding": "ties_to_even",
+          "helper_sha256": "e34ea9e7cb1a046f58e49ba836f56161c617dab5c4a5bb05bff39f423a94ceb3",
+          "interpolation": "bilinear",
+          "operations": [
+            "RGB_PIL_reconstruction",
+            "resize_uint8",
+            "center_crop_or_pad_uint8",
+            "CHW_float32",
+            "divide_float32_255",
+            "subtract_float32_mean",
+            "divide_float32_std"
+          ],
+          "padding": "extra_pixel_right_bottom",
+          "padding_fill": [
+            0,
+            0,
+            0
+          ],
+          "pipeline": [
+            "Resize",
+            "CenterCrop",
+            "MaybeToTensor",
+            "Normalize"
+          ],
+          "platform": {
+            "architecture": "aarch64",
+            "system": "Linux"
+          },
+          "resize_rounding": "truncate_secondary_dimension",
+          "scale_size": [
+            19,
+            19
+          ],
+          "schema_version": 1,
+          "timm_commit": "e617d170064e1fad8417858abc6a39489746be9b",
+          "versions": {
+            "Pillow": "12.3.0",
+            "timm": "1.0.29",
+            "torch": "2.13.0+cpu",
+            "torchvision": "0.28.0+cpu"
+          }
+        }
+      }
+    },
+    {
+      "cases": [
+        {
+          "geometry": [
+            {
+              "after": [
+                41,
+                24
+              ],
+              "before": [
+                29,
+                17
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                13,
+                21
+              ],
+              "before": [
+                41,
+                24
+              ],
+              "box": [
+                14,
+                2,
+                13,
+                21
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "portrait",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3276,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "f1428eb1c4b8342baa99d23db210b24bb982c3039a126b5c2b48ae00c1c0b969",
+            "shape": [
+              3,
+              13,
+              21
+            ]
+          }
+        },
+        {
+          "geometry": [
+            {
+              "after": [
+                15,
+                24
+              ],
+              "before": [
+                19,
+                31
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                13,
+                21
+              ],
+              "before": [
+                15,
+                24
+              ],
+              "box": [
+                1,
+                2,
+                13,
+                21
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "landscape",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3276,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "56312e6569b4e68f97b217ada065d2e400f757dff25fb88c1e63f799c583c17d",
+            "shape": [
+              3,
+              13,
+              21
+            ]
+          }
+        },
+        {
+          "geometry": [
+            {
+              "after": [
+                19,
+                24
+              ],
+              "before": [
+                7,
+                9
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                13,
+                21
+              ],
+              "before": [
+                19,
+                24
+              ],
+              "box": [
+                3,
+                2,
+                13,
+                21
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "small",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3276,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "0e315141afbe14c6d78f7fe538f023ddc8c9e1f579dffa64590faf1b88f30cf4",
+            "shape": [
+              3,
+              13,
+              21
+            ]
+          }
+        }
+      ],
+      "name": "center-bilinear-13x21",
+      "preprocessing": {
+        "recipe": {
+          "antialias": "PIL_always",
+          "backend": "PIL",
+          "config": {
+            "crop_mode": "center",
+            "crop_pct": 0.875,
+            "input_size": [
+              3,
+              13,
+              21
+            ],
+            "interpolation": "bilinear",
+            "mean": [
+              0.485,
+              0.456,
+              0.406
+            ],
+            "std": [
+              0.229,
+              0.224,
+              0.225
+            ]
+          },
+          "crop_mode_resolved": "center",
+          "crop_rounding": "ties_to_even",
+          "helper_sha256": "e34ea9e7cb1a046f58e49ba836f56161c617dab5c4a5bb05bff39f423a94ceb3",
+          "interpolation": "bilinear",
+          "operations": [
+            "RGB_PIL_reconstruction",
+            "resize_uint8",
+            "center_crop_or_pad_uint8",
+            "CHW_float32",
+            "divide_float32_255",
+            "subtract_float32_mean",
+            "divide_float32_std"
+          ],
+          "padding": "extra_pixel_right_bottom",
+          "padding_fill": [
+            0,
+            0,
+            0
+          ],
+          "pipeline": [
+            "ResizeKeepRatio",
+            "CenterCrop",
+            "MaybeToTensor",
+            "Normalize"
+          ],
+          "platform": {
+            "architecture": "aarch64",
+            "system": "Linux"
+          },
+          "resize_rounding": "ties_to_even",
+          "scale_size": [
+            14,
+            24
+          ],
+          "schema_version": 1,
+          "timm_commit": "e617d170064e1fad8417858abc6a39489746be9b",
+          "versions": {
+            "Pillow": "12.3.0",
+            "timm": "1.0.29",
+            "torch": "2.13.0+cpu",
+            "torchvision": "0.28.0+cpu"
+          }
+        }
+      }
+    },
+    {
+      "cases": [
+        {
+          "geometry": [
+            {
+              "after": [
+                19,
+                19
+              ],
+              "before": [
+                29,
+                17
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                17,
+                17
+              ],
+              "before": [
+                19,
+                19
+              ],
+              "box": [
+                1,
+                1,
+                17,
+                17
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "portrait",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3468,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "76f544dbf9690f9a35c31c2fe0d18ddb672cc28652016a8734eb1a482170712d",
+            "shape": [
+              3,
+              17,
+              17
+            ]
+          }
+        },
+        {
+          "geometry": [
+            {
+              "after": [
+                19,
+                19
+              ],
+              "before": [
+                19,
+                31
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                17,
+                17
+              ],
+              "before": [
+                19,
+                19
+              ],
+              "box": [
+                1,
+                1,
+                17,
+                17
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "landscape",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3468,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "3b6f118118483f4af6e20e05d9223f4975dee425d9862d8ececc7a6542761e78",
+            "shape": [
+              3,
+              17,
+              17
+            ]
+          }
+        },
+        {
+          "geometry": [
+            {
+              "after": [
+                19,
+                19
+              ],
+              "before": [
+                7,
+                9
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                17,
+                17
+              ],
+              "before": [
+                19,
+                19
+              ],
+              "box": [
+                1,
+                1,
+                17,
+                17
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "small",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3468,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "2a3c5bcdfbf71a1e5ede32a2c21941163abe298095cb7617e569dc42b8882524",
+            "shape": [
+              3,
+              17,
+              17
+            ]
+          }
+        }
+      ],
+      "name": "squash-bicubic-17x17",
+      "preprocessing": {
+        "recipe": {
+          "antialias": "PIL_always",
+          "backend": "PIL",
+          "config": {
+            "crop_mode": "squash",
+            "crop_pct": 0.875,
+            "input_size": [
+              3,
+              17,
+              17
+            ],
+            "interpolation": "bicubic",
+            "mean": [
+              0.485,
+              0.456,
+              0.406
+            ],
+            "std": [
+              0.229,
+              0.224,
+              0.225
+            ]
+          },
+          "crop_mode_resolved": "squash",
+          "crop_rounding": "ties_to_even",
+          "helper_sha256": "e34ea9e7cb1a046f58e49ba836f56161c617dab5c4a5bb05bff39f423a94ceb3",
+          "interpolation": "bicubic",
+          "operations": [
+            "RGB_PIL_reconstruction",
+            "resize_uint8",
+            "center_crop_or_pad_uint8",
+            "CHW_float32",
+            "divide_float32_255",
+            "subtract_float32_mean",
+            "divide_float32_std"
+          ],
+          "padding": "extra_pixel_right_bottom",
+          "padding_fill": [
+            0,
+            0,
+            0
+          ],
+          "pipeline": [
+            "Resize",
+            "CenterCrop",
+            "MaybeToTensor",
+            "Normalize"
+          ],
+          "platform": {
+            "architecture": "aarch64",
+            "system": "Linux"
+          },
+          "resize_rounding": "ties_to_even",
+          "scale_size": [
+            19,
+            19
+          ],
+          "schema_version": 1,
+          "timm_commit": "e617d170064e1fad8417858abc6a39489746be9b",
+          "versions": {
+            "Pillow": "12.3.0",
+            "timm": "1.0.29",
+            "torch": "2.13.0+cpu",
+            "torchvision": "0.28.0+cpu"
+          }
+        }
+      }
+    },
+    {
+      "cases": [
+        {
+          "geometry": [
+            {
+              "after": [
+                14,
+                24
+              ],
+              "before": [
+                29,
+                17
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                13,
+                21
+              ],
+              "before": [
+                14,
+                24
+              ],
+              "box": [
+                0,
+                2,
+                13,
+                21
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "portrait",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3276,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "4a9d88f422e758ac67ddff28b4597cdd62d031331b19c3f9a20e89653a236885",
+            "shape": [
+              3,
+              13,
+              21
+            ]
+          }
+        },
+        {
+          "geometry": [
+            {
+              "after": [
+                14,
+                24
+              ],
+              "before": [
+                19,
+                31
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                13,
+                21
+              ],
+              "before": [
+                14,
+                24
+              ],
+              "box": [
+                0,
+                2,
+                13,
+                21
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "landscape",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3276,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "767c06af31c09b77374728a24ccfe5d725cd334fa586e7822a75560c6b1a56f8",
+            "shape": [
+              3,
+              13,
+              21
+            ]
+          }
+        },
+        {
+          "geometry": [
+            {
+              "after": [
+                14,
+                24
+              ],
+              "before": [
+                7,
+                9
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                13,
+                21
+              ],
+              "before": [
+                14,
+                24
+              ],
+              "box": [
+                0,
+                2,
+                13,
+                21
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "small",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3276,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "6f2b60c8f7c798f7fc9d4ac21cf9c08f549fad6f552179989ec1f5295d72b9cc",
+            "shape": [
+              3,
+              13,
+              21
+            ]
+          }
+        }
+      ],
+      "name": "squash-bicubic-13x21",
+      "preprocessing": {
+        "recipe": {
+          "antialias": "PIL_always",
+          "backend": "PIL",
+          "config": {
+            "crop_mode": "squash",
+            "crop_pct": 0.875,
+            "input_size": [
+              3,
+              13,
+              21
+            ],
+            "interpolation": "bicubic",
+            "mean": [
+              0.485,
+              0.456,
+              0.406
+            ],
+            "std": [
+              0.229,
+              0.224,
+              0.225
+            ]
+          },
+          "crop_mode_resolved": "squash",
+          "crop_rounding": "ties_to_even",
+          "helper_sha256": "e34ea9e7cb1a046f58e49ba836f56161c617dab5c4a5bb05bff39f423a94ceb3",
+          "interpolation": "bicubic",
+          "operations": [
+            "RGB_PIL_reconstruction",
+            "resize_uint8",
+            "center_crop_or_pad_uint8",
+            "CHW_float32",
+            "divide_float32_255",
+            "subtract_float32_mean",
+            "divide_float32_std"
+          ],
+          "padding": "extra_pixel_right_bottom",
+          "padding_fill": [
+            0,
+            0,
+            0
+          ],
+          "pipeline": [
+            "Resize",
+            "CenterCrop",
+            "MaybeToTensor",
+            "Normalize"
+          ],
+          "platform": {
+            "architecture": "aarch64",
+            "system": "Linux"
+          },
+          "resize_rounding": "ties_to_even",
+          "scale_size": [
+            14,
+            24
+          ],
+          "schema_version": 1,
+          "timm_commit": "e617d170064e1fad8417858abc6a39489746be9b",
+          "versions": {
+            "Pillow": "12.3.0",
+            "timm": "1.0.29",
+            "torch": "2.13.0+cpu",
+            "torchvision": "0.28.0+cpu"
+          }
+        }
+      }
+    },
+    {
+      "cases": [
+        {
+          "geometry": [
+            {
+              "after": [
+                19,
+                19
+              ],
+              "before": [
+                29,
+                17
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                17,
+                17
+              ],
+              "before": [
+                19,
+                19
+              ],
+              "box": [
+                1,
+                1,
+                17,
+                17
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "portrait",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3468,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "410054d6504c33a1ff1ba56fc55b3945f1e6c739452a289a385e0801cb40c8c9",
+            "shape": [
+              3,
+              17,
+              17
+            ]
+          }
+        },
+        {
+          "geometry": [
+            {
+              "after": [
+                19,
+                19
+              ],
+              "before": [
+                19,
+                31
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                17,
+                17
+              ],
+              "before": [
+                19,
+                19
+              ],
+              "box": [
+                1,
+                1,
+                17,
+                17
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "landscape",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3468,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "ddfdcdb703a7aca4a109ecc98ebf28e66e6620aa00282f16694e094e3a635426",
+            "shape": [
+              3,
+              17,
+              17
+            ]
+          }
+        },
+        {
+          "geometry": [
+            {
+              "after": [
+                19,
+                19
+              ],
+              "before": [
+                7,
+                9
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                17,
+                17
+              ],
+              "before": [
+                19,
+                19
+              ],
+              "box": [
+                1,
+                1,
+                17,
+                17
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "small",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3468,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "f5617b634dc318c0b012ae0442a6d5153829d4833e1aeb6a0d1250f7cadbf13d",
+            "shape": [
+              3,
+              17,
+              17
+            ]
+          }
+        }
+      ],
+      "name": "squash-bilinear-17x17",
+      "preprocessing": {
+        "recipe": {
+          "antialias": "PIL_always",
+          "backend": "PIL",
+          "config": {
+            "crop_mode": "squash",
+            "crop_pct": 0.875,
+            "input_size": [
+              3,
+              17,
+              17
+            ],
+            "interpolation": "bilinear",
+            "mean": [
+              0.485,
+              0.456,
+              0.406
+            ],
+            "std": [
+              0.229,
+              0.224,
+              0.225
+            ]
+          },
+          "crop_mode_resolved": "squash",
+          "crop_rounding": "ties_to_even",
+          "helper_sha256": "e34ea9e7cb1a046f58e49ba836f56161c617dab5c4a5bb05bff39f423a94ceb3",
+          "interpolation": "bilinear",
+          "operations": [
+            "RGB_PIL_reconstruction",
+            "resize_uint8",
+            "center_crop_or_pad_uint8",
+            "CHW_float32",
+            "divide_float32_255",
+            "subtract_float32_mean",
+            "divide_float32_std"
+          ],
+          "padding": "extra_pixel_right_bottom",
+          "padding_fill": [
+            0,
+            0,
+            0
+          ],
+          "pipeline": [
+            "Resize",
+            "CenterCrop",
+            "MaybeToTensor",
+            "Normalize"
+          ],
+          "platform": {
+            "architecture": "aarch64",
+            "system": "Linux"
+          },
+          "resize_rounding": "ties_to_even",
+          "scale_size": [
+            19,
+            19
+          ],
+          "schema_version": 1,
+          "timm_commit": "e617d170064e1fad8417858abc6a39489746be9b",
+          "versions": {
+            "Pillow": "12.3.0",
+            "timm": "1.0.29",
+            "torch": "2.13.0+cpu",
+            "torchvision": "0.28.0+cpu"
+          }
+        }
+      }
+    },
+    {
+      "cases": [
+        {
+          "geometry": [
+            {
+              "after": [
+                14,
+                24
+              ],
+              "before": [
+                29,
+                17
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                13,
+                21
+              ],
+              "before": [
+                14,
+                24
+              ],
+              "box": [
+                0,
+                2,
+                13,
+                21
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "portrait",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3276,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "62eaa19cd82871bcf7ae92aa5a9b120f9862f5caf62a3a926ce3cfe10773845e",
+            "shape": [
+              3,
+              13,
+              21
+            ]
+          }
+        },
+        {
+          "geometry": [
+            {
+              "after": [
+                14,
+                24
+              ],
+              "before": [
+                19,
+                31
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                13,
+                21
+              ],
+              "before": [
+                14,
+                24
+              ],
+              "box": [
+                0,
+                2,
+                13,
+                21
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "landscape",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3276,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "a38f978e8d8a11b13650b71924b0a6c3a495c0696d4898a136e1d04a7714e788",
+            "shape": [
+              3,
+              13,
+              21
+            ]
+          }
+        },
+        {
+          "geometry": [
+            {
+              "after": [
+                14,
+                24
+              ],
+              "before": [
+                7,
+                9
+              ],
+              "op": "resize"
+            },
+            {
+              "after": [
+                13,
+                21
+              ],
+              "before": [
+                14,
+                24
+              ],
+              "box": [
+                0,
+                2,
+                13,
+                21
+              ],
+              "op": "crop"
+            }
+          ],
+          "image": "small",
+          "tensor": {
+            "byte_order": "little",
+            "bytes": 3276,
+            "dtype": "float32",
+            "layout": "CHW",
+            "sha256": "e14accb519c04b3f2e842e3f79bc1e67526703c29a9654de18ea487db5f40f5c",
+            "shape": [
+              3,
+              13,
+              21
+            ]
+          }
+        }
+      ],
+      "name": "squash-bilinear-13x21",
+      "preprocessing": {
+        "recipe": {
+          "antialias": "PIL_always",
+          "backend": "PIL",
+          "config": {
+            "crop_mode": "squash",
+            "crop_pct": 0.875,
+            "input_size": [
+              3,
+              13,
+              21
+            ],
+            "interpolation": "bilinear",
+            "mean": [
+              0.485,
+              0.456,
+              0.406
+            ],
+            "std": [
+              0.229,
+              0.224,
+              0.225
+            ]
+          },
+          "crop_mode_resolved": "squash",
+          "crop_rounding": "ties_to_even",
+          "helper_sha256": "e34ea9e7cb1a046f58e49ba836f56161c617dab5c4a5bb05bff39f423a94ceb3",
+          "interpolation": "bilinear",
+          "operations": [
+            "RGB_PIL_reconstruction",
+            "resize_uint8",
+            "center_crop_or_pad_uint8",
+            "CHW_float32",
+            "divide_float32_255",
+            "subtract_float32_mean",
+            "divide_float32_std"
+          ],
+          "padding": "extra_pixel_right_bottom",
+          "padding_fill": [
+            0,
+            0,
+            0
+          ],
+          "pipeline": [
+            "Resize",
+            "CenterCrop",
+            "MaybeToTensor",
+            "Normalize"
+          ],
+          "platform": {
+            "architecture": "aarch64",
+            "system": "Linux"
+          },
+          "resize_rounding": "ties_to_even",
+          "scale_size": [
+            14,
+            24
+          ],
+          "schema_version": 1,
+          "timm_commit": "e617d170064e1fad8417858abc6a39489746be9b",
+          "versions": {
+            "Pillow": "12.3.0",
+            "timm": "1.0.29",
+            "torch": "2.13.0+cpu",
+            "torchvision": "0.28.0+cpu"
+          }
+        }
+      }
+    }
+  ],
+  "schema_version": 1
+}

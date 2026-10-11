@@ -10,6 +10,7 @@ data/hf-hub/
 data/pt2/
 data/transformers-cache/
 data/pt2-functional/
+data/timm-cache/
 .profile/
 
 # Stage 0A spike: npm's tree, the copied visualizer dist, the generated
