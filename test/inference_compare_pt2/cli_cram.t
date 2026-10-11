@@ -36,3 +36,31 @@ The same model against the four-axis evaluator, after the canonical passes:
   execution=complete numerical=agreement units=7
   $ $IC replay --run ev4/run-r1
   replay full: identical to the record
+
+Two-pass certification of the Native engine against ATen as the reference. The
+segmented ATen run does not reproduce ATen's own complete graph bit for bit, so
+demanding exact partition fidelity stops the workflow at the complete-graph
+stage with no golden; declaring the contract certifies, and the golden is
+qualified as within it:
+
+  $ mkdir cert-exact cert-declared cert-aten
+  $ $IC export-pt2 --model "$M" --inputs "$I" --certify exact --out cert-exact >/dev/null
+  $ $IC certify --workflow cert-exact/validation.json --evidence-root cert-exact/ev
+  not certified: full_graph_confirmation: partition fidelity of the reference engine: output out0 is not bitwise equal
+  [1]
+  $ ls cert-exact/ev/cert-pt2-pair
+  stages
+  $ $IC export-pt2 --model "$M" --inputs "$I" --certify declared --out cert-declared >/dev/null
+  $ $IC certify --workflow cert-declared/validation.json --evidence-root cert-declared/ev
+  certified cert-declared/ev/cert-pt2-pair (within the declared contract)
+  $ ls cert-declared/ev/cert-pt2-pair/golden
+  golden.json
+  output-0.bin
+  outputs.json
+
+With ATen under test the same exact demand fails on the tested engine itself:
+
+  $ $IC export-pt2 --model "$M" --inputs "$I" --certify exact --tested left --out cert-aten >/dev/null
+  $ $IC certify --workflow cert-aten/validation.json --evidence-root cert-aten/ev
+  not certified: full_graph_confirmation: partition fidelity of the tested engine: output out0 is not bitwise equal
+  [1]

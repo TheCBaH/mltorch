@@ -80,9 +80,10 @@ let sample_of ~inputs ~index =
       | None -> Error (Printf.sprintf "%s has no sample %d" inputs index))
 
 type right = Native | Native4d
+type certify = { tested : Side.t; fidelity : Partition_fidelity.t }
 
-let write_experiment ?(right = Native) ~dir ~model ~inputs ~index ~tolerance ()
-    =
+let write_experiment ?(right = Native) ?certify ~dir ~model ~inputs ~index
+    ~tolerance () =
   let model = absolute model in
   let* sample = sample_of ~inputs ~index in
   let* aten = P.Aten_model.of_file ~hashers ~algorithm model in
@@ -95,18 +96,22 @@ let write_experiment ?(right = Native) ~dir ~model ~inputs ~index ~tolerance ()
     | Some s -> Ok s.name
     | None -> Error "the model has no user input"
   in
-  let inputs = [ (input_name, sample) ] in
+  let named_inputs = [ (input_name, sample) ] in
   let* initial, left_graph, right_graph, mapping =
     match right with
     | Native ->
-        let* pair = P.Pair.load ~hashers ~algorithm ~path:model ~inputs in
+        let* pair =
+          P.Pair.load ~hashers ~algorithm ~path:model ~inputs:named_inputs
+        in
         Ok
           ( P.Pair.initial pair,
             P.Pair.left_graph pair,
             P.Pair.right_graph pair,
             P.Pair.mapping pair )
     | Native4d ->
-        let* pair = P.Pair4d.load ~hashers ~algorithm ~path:model ~inputs in
+        let* pair =
+          P.Pair4d.load ~hashers ~algorithm ~path:model ~inputs:named_inputs
+        in
         Ok
           ( P.Pair4d.initial pair,
             P.Pair4d.left_graph pair,
@@ -173,4 +178,80 @@ let write_experiment ?(right = Native) ~dir ~model ~inputs ~index ~tolerance ()
     write (at "selection.json")
       (json (Policy_selection.encode (selection ~tolerance)))
   in
-  write (at "experiment.json") (json (H.Experiment_file.encode experiment))
+  let* () =
+    write (at "experiment.json") (json (H.Experiment_file.encode experiment))
+  in
+  match certify with
+  | None -> Ok ()
+  | Some c ->
+      let policy =
+        match (selection ~tolerance).default with
+        | Some p -> p
+        | None -> invalid_arg "Pt2_export.selection"
+      in
+      let* inputs_text =
+        Result.map_error
+          (fun e -> Format.asprintf "%a" H.File_io.pp_error e)
+          (H.File_io.read inputs)
+      in
+      let* domain_digest =
+        match
+          Codecs.Payload_hasher.digest_string hashers algorithm inputs_text
+        with
+        | Ok d ->
+            text
+              (Digest.Input_domain.make algorithm ~hex:(Digest.Payload.hex d))
+        | Error _ -> Error "digest backend unavailable"
+      in
+      let* description =
+        text (Prose.Description.of_string "the exported sample")
+      in
+      let* finals =
+        Ok
+          (List.map
+             (fun (f : Final_output.t) -> (f.occurrence, policy))
+             mapping.frontier.final_outputs)
+      in
+      let contract : Computation_contract.t =
+        {
+          reference =
+            (match c.tested with
+            | Right -> Left_reference
+            | Left -> Right_reference);
+          input_domain = { description; specification_digest = domain_digest };
+          local_policy_selection = selection ~tolerance;
+          final_policies = finals;
+          allowed_conversion_digest = [];
+          required_full_graph_acceptance = false;
+        }
+      in
+      let* contract_digest =
+        match
+          Codecs.Payload_hasher.digest_string hashers algorithm
+            (Computation_contract.preimage contract)
+        with
+        | Ok d ->
+            text (Digest.Contract.make algorithm ~hex:(Digest.Payload.hex d))
+        | Error _ -> Error "digest backend unavailable"
+      in
+      let* () =
+        write (at "contract.json") (json (Computation_contract.encode contract))
+      in
+      let workflow : H.Workflow_file.t =
+        {
+          experiment = "experiment.json";
+          contract = "contract.json";
+          workflow =
+            {
+              reference_side =
+                (match c.tested with Right -> Left | Left -> Right);
+              tested_side = c.tested;
+              contract_digest;
+              cases = [ case_id ];
+              partition_fidelity = c.fidelity;
+              end_to_end_reference_check = true;
+            };
+          frozen_outputs = [];
+        }
+      in
+      write (at "validation.json") (json (H.Workflow_file.encode workflow))

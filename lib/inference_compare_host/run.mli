@@ -26,8 +26,13 @@ val config :
 val run :
   root:string ->
   ?run_id:Id.Run.t ->
+  ?observe:(Inference_compare_core.Coordinator.snapshot -> unit) ->
+  ?keep_finals:bool ->
   Session.prepared ->
   (outcome, Evidence.error) result
+(** [observe] sees every unit's snapshot (borrowed values: copy what it keeps)
+    before the evidence does. [keep_finals] leaves the result's final outputs to
+    the caller, who must drop them; by default they are released. *)
 
 val exit_code : Inference_compare_core.Coordinator.result -> int
 (** 0 complete agreement; 1 completed numerical disagreement; 2 an invalid map,

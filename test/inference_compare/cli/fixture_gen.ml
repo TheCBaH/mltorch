@@ -1,5 +1,7 @@
 (* fixture_gen DIR SCENARIO [--retention MODE] [--required] [--disk-bytes N]
-   [--retain-unit U] [--donor-right] writes a complete experiment directory. *)
+   [--retain-unit U] [--donor-right] [--certify [--local-none]
+   [--reference-right] [--declared-fidelity] [--end-to-end]
+   [--required-acceptance]] writes a complete experiment directory. *)
 
 module G = Inference_compare_test.Experiment_gen
 
@@ -33,4 +35,17 @@ let () =
         | None -> 1_000_000L);
       retain_unit = opt "--retain-unit" rest;
       donor_right = flag "--donor-right";
+      certify =
+        (if flag "--certify" then
+           Some
+             {
+               local_none = flag "--local-none";
+               reference_right = flag "--reference-right";
+               declared_fidelity = flag "--declared-fidelity";
+               end_to_end = flag "--end-to-end";
+               required_acceptance = flag "--required-acceptance";
+               peers = flag "--peers";
+               unfrozen = flag "--no-frozen";
+             }
+         else None);
     }

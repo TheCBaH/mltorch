@@ -1,13 +1,23 @@
 (** Writing an experiment directory for one exported model and one sample. *)
 
+open Inference_compare_schema
+
 type right =
   | Native  (** The Native direct evaluator. *)
   | Native4d
       (** The four-axis evaluator, after the canonical passes; a model outside
           its domain is an error, never the Native route. *)
 
+type certify = {
+  tested : Side.t;  (** The reference is the other side. *)
+  fidelity : Partition_fidelity.t;
+}
+(** Also write a computation contract and a validation workflow for the two-pass
+    certification: ATen on one side, the [right] engine on the other. *)
+
 val write_experiment :
   ?right:right ->
+  ?certify:certify ->
   dir:string ->
   model:string ->
   inputs:string ->
