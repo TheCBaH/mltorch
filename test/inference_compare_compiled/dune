@@ -15,6 +15,7 @@
   pair_harness
   err_trace
   native
+  unix
   pt2)
  (enabled_if
   (= %{env:MLTORCH_COMPCERT=none} aarch64)))

@@ -7,6 +7,7 @@ type outcome = {
   result : Core.Coordinator.result;
   directory : string;
   finalized : (unit, Evidence.error) result;
+  peak_live_bytes : int64;
 }
 
 let default_run_id (p : Session.prepared) =
@@ -81,7 +82,13 @@ let run ~root ?run_id ?(observe = fun _ -> ()) ?(keep_finals = false)
       in
       let finalized = Evidence.finalize ev result in
       if not keep_finals then List.iter (fun (_, v) -> L.drop v) result.finals;
-      Ok { result; directory = Evidence.directory ev; finalized }
+      Ok
+        {
+          result;
+          directory = Evidence.directory ev;
+          finalized;
+          peak_live_bytes = Codecs.Owned_blob.Ledger.peak_bytes cfg.ctx.ledger;
+        }
 
 let exit_code (r : Core.Coordinator.result) =
   match (r.completion.execution, r.failure) with

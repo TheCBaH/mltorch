@@ -11,6 +11,13 @@ type right =
 type certify = {
   tested : Side.t;  (** The reference is the other side. *)
   fidelity : Partition_fidelity.t;
+  reference_outputs : string option;
+      (** The producer's outputs for the sample (an output map like the inputs):
+          frozen as the reference the complete tested output must match, which
+          makes the full-graph acceptance required. *)
+  final_rtol : float;
+      (** The relative tolerance of the final policies; the absolute one is the
+          experiment's. *)
 }
 (** Also write a computation contract and a validation workflow for the two-pass
     certification: ATen on one side, the [right] engine on the other. *)

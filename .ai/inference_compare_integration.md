@@ -57,3 +57,39 @@ writes the golden record.
   passes is `Within_declared_contract`.
 - A passing local comparison does not bound the end-to-end error: the final
   policies and the frozen reference are separate gates.
+
+## Running it
+
+Each command below is exercised by a cram in `test/inference_compare_pt2`
+(gated on `PT2_DATA`, run by `make pt2.runtest`) or `test/inference_compare/cli`.
+
+```sh
+M=data/pt2-functional/test_convnext2/test_convnext2.pt2
+I=data/pt2-functional/test_convnext2/inputs.pt
+inference_compare export-pt2 --model $M --inputs $I --right native4d --out exp
+inference_compare validate --experiment exp/experiment.json
+inference_compare run --experiment exp/experiment.json --evidence-root ev --run-id r1
+inference_compare replay --run ev/run-r1                      # or --unit UNIT
+inference_compare measure --experiment exp/experiment.json --evidence-root ev2
+
+# two-pass certification against the producer's own outputs
+inference_compare export-pt2 --model $M --inputs $I --certify declared \
+  --reference-outputs data/pt2-functional/test_convnext2/outputs.pt --out cert
+inference_compare certify --workflow cert/validation.json --evidence-root ev3
+
+# embedded CompCert against direct assembly (aarch64 hosts with the embedding)
+make compcert.compare.runtest
+```
+
+Exit codes: 0 agreement or certified, 1 numerical disagreement, 2 invalid
+input, map, policy or contract, 3 refused or failed stage, 4 incomplete.
+
+## Known limits
+
+- `csatv2` stops in the ATen to Native importer (not at Native4D).
+- The compiled routes are verified on aarch64 only; the x86_64 embedding is
+  present but this host cannot run it.
+- Multi-source (pack) routes are not composed.
+- ATen's segmented run is not bitwise ATen's complete graph on
+  `test_convnext2`, so exact partition fidelity is refused for ATen; a declared
+  contract certifies.

@@ -80,7 +80,13 @@ let sample_of ~inputs ~index =
       | None -> Error (Printf.sprintf "%s has no sample %d" inputs index))
 
 type right = Native | Native4d
-type certify = { tested : Side.t; fidelity : Partition_fidelity.t }
+
+type certify = {
+  tested : Side.t;
+  fidelity : Partition_fidelity.t;
+  reference_outputs : string option;
+  final_rtol : float;
+}
 
 let write_experiment ?(right = Native) ?certify ~dir ~model ~inputs ~index
     ~tolerance () =
@@ -206,11 +212,40 @@ let write_experiment ?(right = Native) ?certify ~dir ~model ~inputs ~index
       let* description =
         text (Prose.Description.of_string "the exported sample")
       in
-      let* finals =
-        Ok
-          (List.map
-             (fun (f : Final_output.t) -> (f.occurrence, policy))
-             mapping.frontier.final_outputs)
+      let final_policy : Comparison_policy.t =
+        match policy.element with
+        | Some (Floating f) ->
+            {
+              policy with
+              element = Some (Floating { f with rtol = c.final_rtol });
+            }
+        | _ -> policy
+      in
+      let finals =
+        List.map
+          (fun (f : Final_output.t) -> (f.occurrence, final_policy))
+          mapping.frontier.final_outputs
+      in
+      (* The producer's own outputs for this sample, frozen as the reference
+         the complete tested output must match under the final policy. *)
+      let* frozen =
+        match c.reference_outputs with
+        | None -> Ok []
+        | Some path -> (
+            match mapping.frontier.final_outputs with
+            | [ f ] ->
+                let* t = sample_of ~inputs:path ~index in
+                let* l = P.Case.logical t in
+                let* () = io (H.File_io.mkdir_p (at "frozen")) in
+                let* () = write (at "frozen/out0.bin") (P.Case.to_bytes l) in
+                Ok
+                  [
+                    {
+                      H.Workflow_file.occurrence = f.occurrence;
+                      file = "frozen/out0.bin";
+                    };
+                  ]
+            | _ -> Error "reference outputs need exactly one final output")
       in
       let contract : Computation_contract.t =
         {
@@ -222,7 +257,7 @@ let write_experiment ?(right = Native) ?certify ~dir ~model ~inputs ~index
           local_policy_selection = selection ~tolerance;
           final_policies = finals;
           allowed_conversion_digest = [];
-          required_full_graph_acceptance = false;
+          required_full_graph_acceptance = frozen <> [];
         }
       in
       let* contract_digest =
@@ -251,7 +286,7 @@ let write_experiment ?(right = Native) ?certify ~dir ~model ~inputs ~index
               partition_fidelity = c.fidelity;
               end_to_end_reference_check = true;
             };
-          frozen_outputs = [];
+          frozen_outputs = frozen;
         }
       in
       write (at "validation.json") (json (H.Workflow_file.encode workflow))

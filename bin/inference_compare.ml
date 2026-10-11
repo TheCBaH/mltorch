@@ -1,5 +1,5 @@
-(* The dedicated inference comparison command: certify, export-pt2, plan,
-   replay, run, validate.
+(* The dedicated inference comparison command: certify, export-pt2, measure,
+   plan, replay, run, validate.
    Exit codes: 0 complete agreement; 1 completed numerical disagreement; 2
    invalid input, map or policy; 3 refused or failed preparation, transfer,
    execution or resource limit; 4 incomplete coverage, an agreement that could
@@ -216,6 +216,23 @@ let replay_cmd =
           record.")
     Term.(const run $ run_dir $ unit_arg $ case_arg)
 
+let measure_cmd =
+  let run experiment root =
+    match H.Measure.measure ~root ~experiment with
+    | Ok m ->
+        Format.printf "%a@." H.Measure.pp m;
+        0
+    | Error e ->
+        Format.eprintf "error: %s@." e;
+        3
+  in
+  Cmd.v
+    (Cmd.info "measure"
+       ~doc:
+         "Plan, prepare, run and fully replay the experiment into the evidence \
+          root, and report what each phase cost on this host.")
+    Term.(const run $ experiment_arg $ evidence_root_arg)
+
 let certify_cmd =
   let workflow =
     Arg.(
@@ -322,11 +339,36 @@ let export_pt2_cmd =
       & info [ "tested" ] ~docv:"SIDE"
           ~doc:"With --certify: which side is under test (default right).")
   in
-  let run model inputs index tolerance out right certify tested =
+  let reference_outputs =
+    Arg.(
+      value
+      & opt (some file) None
+      & info [ "reference-outputs" ] ~docv:"FILE"
+          ~doc:
+            "With --certify: the producer's outputs for the same samples \
+             (outputs.pt). The complete tested output must match its sample \
+             under the final policy, which makes the full-graph acceptance a \
+             required gate.")
+  in
+  let final_rtol =
+    Arg.(
+      value & opt float 1e-3
+      & info [ "final-rtol" ] ~docv:"T"
+          ~doc:
+            "With --certify: the relative tolerance of the final policies (the \
+             absolute one is --tolerance).")
+  in
+  let run model inputs index tolerance out right certify tested
+      reference_outputs final_rtol =
     let certify =
       Option.map
         (fun fidelity ->
-          { Inference_compare_pt2_export.Pt2_export.tested; fidelity })
+          {
+            Inference_compare_pt2_export.Pt2_export.tested;
+            fidelity;
+            reference_outputs;
+            final_rtol;
+          })
         certify
     in
     match
@@ -347,7 +389,7 @@ let export_pt2_cmd =
           or Native4D evaluator on one exported model and sample.")
     Term.(
       const run $ model $ inputs $ index $ tolerance $ out $ right $ certify
-      $ tested)
+      $ tested $ reference_outputs $ final_rtol)
 
 let () =
   let info =
@@ -360,6 +402,7 @@ let () =
           [
             certify_cmd;
             export_pt2_cmd;
+            measure_cmd;
             plan_cmd;
             replay_cmd;
             run_cmd;

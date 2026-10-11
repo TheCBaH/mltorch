@@ -8,6 +8,8 @@ type outcome = {
   finalized : (unit, Evidence.error) result;
       (** Whether the completion record was written. When it is an error the
           directory is incomplete and must not be read as a result. *)
+  peak_live_bytes : int64;
+      (** The high-water mark of live payload bytes of the run. *)
 }
 
 val default_run_id : Session.prepared -> Id.Run.t

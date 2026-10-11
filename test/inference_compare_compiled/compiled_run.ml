@@ -94,17 +94,36 @@ let () =
           (id, get (P.Conv.native_of_logical v)))
         whole_graph.inputs
     in
-    let outs =
+    let timed f =
+      let t0 = Unix.gettimeofday () in
+      let r = f () in
+      (r, Unix.gettimeofday () -. t0)
+    in
+    let outs, compile_s, execute_s =
       match donor with
       | Left ->
-          let p = get (C.Compcert_engine.compile whole_graph) in
-          let o = get (C.Compcert_engine.execute p whole_graph ~inputs) in
+          let p, c =
+            timed (fun () -> get (C.Compcert_engine.compile whole_graph))
+          in
+          let o, e =
+            timed (fun () ->
+                get (C.Compcert_engine.execute p whole_graph ~inputs))
+          in
           C.Compcert_engine.release p;
-          o
+          (o, c, e)
       | Right ->
-          let p = get (C.Assembly_engine.compile whole_graph) in
-          get (C.Assembly_engine.execute p whole_graph ~inputs)
+          let p, c =
+            timed (fun () -> get (C.Assembly_engine.compile whole_graph))
+          in
+          let o, e =
+            timed (fun () ->
+                get (C.Assembly_engine.execute p whole_graph ~inputs))
+          in
+          (o, c, e)
     in
+    if Sys.getenv_opt "TIMING" <> None then
+      Printf.eprintf "whole graph: compile %.3fs, execute %.3fs\n" compile_s
+        execute_s;
     let same =
       List.for_all2
         (fun (packed : Tensor.packed) (_, v) ->
