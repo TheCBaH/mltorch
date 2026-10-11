@@ -313,11 +313,5 @@ let () =
               output_string oc
                 (Inference_compare_codecs.Logical_value.contents v)))
         r.Core.Coordinator.finals);
-  (* The inference_compare command's codes: 0 agreement, 1 disagreement,
-     3 a refused or failed run, 4 agreement not established. *)
-  exit
-    (match (r.completion.execution, r.completion.numerical) with
-    | Complete, Agreement -> 0
-    | Complete, Disagreement -> 1
-    | Complete, Not_established -> 4
-    | (Failed | Refused | Interrupted), _ -> 3)
+  (* The inference_compare command's codes. *)
+  exit (Inference_compare_host.Pair_run.exit_code r)
