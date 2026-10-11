@@ -96,3 +96,48 @@ zero tolerance the engines still differ (the check is not vacuous):
   comparisons: 152 pass, 0 mismatch, 0 other
   $ TOL=0 ./fixture_pair_run.exe safetensors "$PT2_SAFETENSORS_MODELS/mobilenetv2_050" "$PT2_DATA/mobilenetv2_050/inputs.pt" 0 aten native 2>/dev/null | grep -c "numerical=disagreement"
   1
+
+Any two graph views and either orientation, on the same model and sample
+(`fixture_pair_run` takes variants; `native:sequential32` accumulates dots in
+binary32). Each pair's units come from the composed or reversed correspondences
+of the importer, the canonical passes and the four-axis lowering:
+
+  $ m="$PT2_SAFETENSORS_MODELS/mobilenetv2_050"; i="$PT2_DATA/mobilenetv2_050/inputs.pt"
+  $ for p in "aten native.canonical" "aten native4d" "native native.canonical" "native.canonical native" "native.canonical native4d" "native4d native.canonical" "native native4d" "native4d native"; do
+  >   ./fixture_pair_run.exe safetensors "$m" "$i" 0 $p 2>/dev/null | grep -E "clusters|^comparisons"
+  > done
+  left aten | right native.canonical | donor left | tolerance 0.0001 | 2 clusters
+  comparisons: 2 pass, 0 mismatch, 0 other
+  left aten | right native4d | donor left | tolerance 0.0001 | 2 clusters
+  comparisons: 2 pass, 0 mismatch, 0 other
+  left native | right native.canonical | donor left | tolerance 0.0001 | 40 clusters
+  comparisons: 40 pass, 0 mismatch, 0 other
+  left native.canonical | right native | donor left | tolerance 0.0001 | 40 clusters
+  comparisons: 40 pass, 0 mismatch, 0 other
+  left native.canonical | right native4d | donor left | tolerance 0.0001 | 100 clusters
+  comparisons: 100 pass, 0 mismatch, 0 other
+  left native4d | right native.canonical | donor left | tolerance 0.0001 | 100 clusters
+  comparisons: 100 pass, 0 mismatch, 0 other
+  left native | right native4d | donor left | tolerance 0.0001 | 40 clusters
+  comparisons: 40 pass, 0 mismatch, 0 other
+  left native4d | right native | donor left | tolerance 0.0001 | 40 clusters
+  comparisons: 40 pass, 0 mismatch, 0 other
+
+One view against itself, one cluster per node. Two configurations of the
+Native evaluator differ in the last bits, which the zero tolerance reports,
+while the same view twice agrees exactly:
+
+  $ for p in "native native" "native.canonical native.canonical" "native4d native4d"; do
+  >   TOL=0 ./fixture_pair_run.exe safetensors "$m" "$i" 0 $p 2>/dev/null | grep -E "^comparisons"
+  > done
+  comparisons: 415 pass, 0 mismatch, 0 other
+  comparisons: 100 pass, 0 mismatch, 0 other
+  comparisons: 100 pass, 0 mismatch, 0 other
+  $ TOL=0 ./fixture_pair_run.exe safetensors "$m" "$i" 0 native native:sequential32 2>/dev/null | grep -c "numerical=disagreement"
+  1
+
+A pair with no mapping is refused, not run:
+
+  $ ./fixture_pair_run.exe safetensors "$m" "$i" 0 native aten 2>/dev/null; echo "exit $?"
+  refused: ATen on the right needs the mapping from Native to ATen
+  exit 3

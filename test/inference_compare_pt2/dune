@@ -75,7 +75,7 @@
 
 (library
  (name inference_compare_pt2_test)
- (modules native_runner_test pass_map_test)
+ (modules native_runner_test pass_map_test variant_test)
  (libraries
   err_trace
   fmt
