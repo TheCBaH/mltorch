@@ -1,0 +1,23 @@
+; The JavaScript engines of the inference comparison, as a helper that node
+; runs: it reads framed requests (lib/inference_compare_js_wire) and prepares and
+; runs a graph body on the Loop IR bundle's generated JavaScript, the SSA
+; backend's, or the Native direct evaluator compiled by js_of_ocaml. js_of_ocaml
+; only, over the ordinary libraries like ssa_js_pt2; the driver in
+; lib/inference_compare_js starts it and supplies the stdin/stdout loop.
+
+(executable
+ (name compare_js_engine)
+ (modes js)
+ (libraries
+  err_trace
+  fmt
+  inference_compare_js_wire
+  js_ast
+  js_of_ocaml
+  jsont
+  jsont.bytesrw
+  loop_bundle_exec
+  loop_ir
+  loop_js_exec
+  native
+  ssa_backends))

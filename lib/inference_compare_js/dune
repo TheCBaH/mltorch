@@ -1,0 +1,22 @@
+; The JavaScript routes as engines for the comparison coordinator, run out of
+; process: node runs a helper (js/jsoo/compare_js_engine) that holds the
+; generated-JavaScript executors and the js_of_ocaml build of the Native
+; evaluator, which only exist under js_of_ocaml. The driver speaks the wire
+; protocol of inference_compare_js_wire over the helper's stdin and stdout.
+; Registered with the variant vocabulary by [register]; a missing node or helper
+; is a refusal naming it, never another engine.
+
+(library
+ (name inference_compare_js)
+ (libraries
+  err_trace
+  fmt
+  inference_compare_js_wire
+  inference_compare_pt2
+  inference_compare_schema
+  jsont
+  jsont.bytesrw
+  loop_c_exec
+  loop_wasm_exec
+  native
+  unix))

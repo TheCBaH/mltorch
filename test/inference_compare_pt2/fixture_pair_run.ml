@@ -21,7 +21,9 @@
    routes are words too, where the executable was built with them: the Rivet
    AArch64 image route and table host ([rivet], [rivet-table], each with a
    [-scanned] allocator) and the embedded CompCert ([compcert]); a word whose
-   engine was not built refuses, naming what is missing.
+   engine was not built refuses, naming what is missing. The JavaScript
+   engines ([loop-js], [ssa-js], [jsoo]) run under node in a helper process
+   (js/jsoo/compare_js_engine, or the file MLTORCH_COMPARE_JS names).
    Exit status: 0 agreement, 1 disagreement, 3 refused or failed, 4 not
    established.
    Environment: TOL (default 1e-4), DONOR=left|right, DUMP=dir (write the
@@ -220,6 +222,7 @@ let describe_result (c : Comparison_result.t) =
 
 let () =
   Inference_compare_generated.Generated.register ();
+  Inference_compare_js.Js_engines.register ();
   Rivet_register.register ();
   Compcert_register.register ();
   let source, left, right =
