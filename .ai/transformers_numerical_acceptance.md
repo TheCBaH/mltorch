@@ -82,6 +82,10 @@ out one, `smolvlm-256m.connector`; fetched with its Hub checkpoint if absent) an
 not established). LEFT is ATen because the only supplied correspondence is the
 ATen-to-Native import map; two Native variants cannot yet be paired.
 
+`make model.download.<model>` fetches what a model needs (a timm model's release
+assets and Hub checkpoint, or a fixture and its checkpoint) and prints where its
+graph JSON is; `bin/model_source` resolves the name for both rules.
+
 For a timm model (`make model.compare.mobilenetv2_050`) no `.pt2` is read: graph and weight
 map from the producer submodule's model directory, weights from the pinned Hub
 checkpoint, inputs from the release's `inputs.pt`. `pair_cram.t` pins that it

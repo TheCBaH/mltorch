@@ -1,4 +1,4 @@
-.PHONY: transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open model.compare transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
+.PHONY: transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open model.compare model.download transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean machine.a64.conformance machine.pt2.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
@@ -238,8 +238,9 @@ RIGHT ?= native
 SAMPLE ?= 0
 TOL ?= 1e-4
 DONOR ?= left
+MODEL_SOURCE = _build/default/bin/model_source.exe
 PAIR_RUN = _build/default/test/inference_compare_pt2/fixture_pair_run.exe
-model.compare model.compare.%: export HF_HUB_CACHE ?= $(TRANSFORMERS_HF_HUB_CACHE)
+model.compare model.compare.% model.download model.download.%: export HF_HUB_CACHE ?= $(TRANSFORMERS_HF_HUB_CACHE)
 
 # A target name cannot hold a /, so an artifact id given whole is MODEL=; the
 # dotted words (smolvlm-256m.connector) work in the target.
@@ -249,17 +250,37 @@ model.compare.%:
 
 model.compare:
 	@test -n "$(MODEL)" || { echo "usage: make model.compare.<model> (or MODEL=<model>)" >&2; exit 2; }
+	@$(MAKE) --no-print-directory model.download MODEL="$(MODEL)" || exit $$?
 	@opam exec -- dune build test/inference_compare_pt2/fixture_pair_run.exe
-	@if [ -d "$(PT2_JSON_MODELS_DIR)/$(MODEL)" ]; then \
-		$(MAKE) --no-print-directory pt2.download PT2_MODEL="$(MODEL)" || exit $$?; \
-		TOL=$(TOL) DONOR=$(DONOR) $(PAIR_RUN) safetensors \
-			"$(PT2_JSON_MODELS_DIR)/$(MODEL)" "$(PT2_DIR)/$(MODEL)/inputs.pt" $(SAMPLE) $(LEFT) $(RIGHT); \
-	else \
-		id=$$($(PAIR_RUN) resolve "$(TRANSFORMERS_COHORT)" "$(MODEL)") || exit $$?; \
-		$(MAKE) --no-print-directory transformers.download TRANSFORMERS_ARTIFACTS="$$id" || exit $$?; \
-		TOL=$(TOL) DONOR=$(DONOR) $(PAIR_RUN) fixture \
-			"$(TRANSFORMERS_COHORT)" "$(TRANSFORMERS_CACHE)" "$$id" $(CASE) $(LEFT) $(RIGHT); \
-	fi
+	@r=$$($(MODEL_SOURCE) resolve $(PT2_JSON_MODELS_DIR) $(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) "$(MODEL)") || exit $$?; set -- $$r; \
+	case "$$1" in \
+	timm) TOL=$(TOL) DONOR=$(DONOR) $(PAIR_RUN) safetensors \
+			"$(PT2_JSON_MODELS_DIR)/$$2" "$(PT2_DIR)/$$2/inputs.pt" $(SAMPLE) $(LEFT) $(RIGHT) ;; \
+	fixture) TOL=$(TOL) DONOR=$(DONOR) $(PAIR_RUN) fixture \
+			"$(TRANSFORMERS_COHORT)" "$(TRANSFORMERS_CACHE)" "$$2" $(CASE) $(LEFT) $(RIGHT) ;; \
+	esac
+
+# Fetch everything a model needs, wherever it lives: a timm model of the producer
+# submodule gets its release assets (inputs, reference outputs; pt2.download) and its
+# pinned Hub checkpoint in HF_HUB_CACHE; a cohort artifact gets its fixture and Hub
+# checkpoint (transformers.download). <model> is as for model.compare. Prints where
+# the model's graph JSON is. HF_HUB_OFFLINE=1 forbids the Hub request.
+#   make model.download.mobilenetv2_050
+#   make model.download.smolvlm-256m.connector
+model.download.%:
+	@$(MAKE) --no-print-directory model.download MODEL="$*"
+
+model.download:
+	@test -n "$(MODEL)" || { echo "usage: make model.download.<model> (or MODEL=<model>)" >&2; exit 2; }
+	@opam exec -- dune build bin/model_source.exe
+	@r=$$($(MODEL_SOURCE) resolve $(PT2_JSON_MODELS_DIR) $(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) "$(MODEL)") || exit $$?; set -- $$r; \
+	case "$$1" in \
+	timm) $(MAKE) --no-print-directory pt2.download PT2_MODEL="$$2" && \
+		$(MODEL_SOURCE) checkpoint "$(PT2_JSON_MODELS_DIR)/$$2" >/dev/null ;; \
+	fixture) $(MAKE) --no-print-directory transformers.download TRANSFORMERS_ARTIFACTS="$$2" ;; \
+	esac || exit $$?; \
+	r=$$($(MODEL_SOURCE) resolve $(PT2_JSON_MODELS_DIR) $(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) "$(MODEL)") || exit $$?; set -- $$r; \
+	echo "$$1 $$2: graph $$3"
 
 # Offline numerical replay of the cohort's published cases through Native direct
 # execution: every output element against the producer's reference under the
