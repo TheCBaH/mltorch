@@ -79,7 +79,7 @@ let create ?artifact ?(dots = Direct.Binary64) () : t =
     end
 
     let fail e = Err.fail ~pp_error e
-    let identity () = identity ?artifact ()
+    let identity () = identity ?artifact ~dots ()
     let prepare body = Ok { Prepared.body; closed = false }
     let close (p : Prepared.t) = p.closed <- true
 
