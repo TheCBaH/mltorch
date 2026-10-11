@@ -17,6 +17,8 @@ type t = {
   canonical_bytes : Tid.t -> (string, string) result;
       (** The exact value of each source of the canonical graph. *)
   n4 : Native4d.Op.t G.t;  (** The four-axis graph. *)
+  n4_bytes : Tid.t -> (string, string) result;
+      (** The exact value of each source of the four-axis graph. *)
   constants : (Tensor.packed Tid.Map.t, string) result Lazy.t;
       (** Every constant the four-axis graph reads, materialized on demand. *)
   canonicalize : (Pass_map.t, string) result Lazy.t;
@@ -24,6 +26,10 @@ type t = {
           every source value, which an endpoint alone does not need. *)
   lower : (Pass_map.t, string) result Lazy.t;
       (** Canonical Native to Native4D. *)
+  canonicalize_reverse : (Pass_map.t, string) result Lazy.t;
+      (** Canonical Native to lowered Native. *)
+  lower_reverse : (Pass_map.t, string) result Lazy.t;
+      (** Native4D to canonical Native. *)
 }
 
 let ( let* ) = Result.bind
@@ -101,8 +107,10 @@ module Canonical = struct
   type t = {
     n0 : Graph_ir.op G.t;
     n1 : Graph_ir.op G.t;
+    n0_bytes : Tid.t -> (string, string) result;
     canonical_bytes : Tid.t -> (string, string) result;
     canonicalize : (Pass_map.t, string) result Lazy.t;
+    canonicalize_reverse : (Pass_map.t, string) result Lazy.t;
     lowering : (four, string) result Lazy.t;
         (** The four-axis extension; a graph outside the domain is its [Error],
             never a fall back to Native. *)
@@ -167,6 +175,13 @@ let canonical ~hashers ~algorithm ~(ctx : L.Context.t)
              ~dst:{ Pass_map.model = n1; bytes = n1_bytes }
              ~export:t.map_export)
       in
+      let canonicalize_reverse =
+        lazy
+          (Pass_map.make ~name:"c" ~digest
+             ~src:{ Pass_map.model = n1; bytes = n1_bytes }
+             ~dst:{ Pass_map.model = n0; bytes = n0_bytes }
+             ~export:(Pass_map.reverse_export t.map_export))
+      in
       let lowering =
         lazy
           (match Snapshot.create t.graph with
@@ -210,19 +225,37 @@ let canonical ~hashers ~algorithm ~(ctx : L.Context.t)
                          ~dst:{ Pass_map.model = n4; bytes = n4_bytes }
                          ~export)
                   in
+                  let lower_reverse =
+                    lazy
+                      (Pass_map.make ~name:"l" ~digest
+                         ~src:{ Pass_map.model = n4; bytes = n4_bytes }
+                         ~dst:{ Pass_map.model = n1; bytes = n1_bytes }
+                         ~export:(Pass_map.reverse_export export))
+                  in
                   Ok
                     {
                       n0;
                       n1;
                       canonical_bytes = n1_bytes;
                       n4;
+                      n4_bytes;
                       constants = constants4;
                       canonicalize;
                       lower;
+                      canonicalize_reverse;
+                      lower_reverse;
                     }))
       in
       Ok
-        { Canonical.n0; n1; canonical_bytes = n1_bytes; canonicalize; lowering }
+        {
+          Canonical.n0;
+          n1;
+          n0_bytes;
+          canonical_bytes = n1_bytes;
+          canonicalize;
+          canonicalize_reverse;
+          lowering;
+        }
 
 let make ~hashers ~algorithm ~ctx ~archive ~native ~source_bytes :
     (t, string) result =

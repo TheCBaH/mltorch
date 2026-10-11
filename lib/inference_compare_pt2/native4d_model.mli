@@ -12,6 +12,8 @@ type t = {
   canonical_bytes : Graph_ir.Tensor_id.t -> (string, string) result;
       (** The exact value of each source of the canonical graph. *)
   n4 : Native4d.Op.t Graph_model.t;  (** The four-axis graph. *)
+  n4_bytes : Graph_ir.Tensor_id.t -> (string, string) result;
+      (** The exact value of each source of the four-axis graph. *)
   constants : (Tensor.packed Graph_ir.Tensor_id.Map.t, string) result Lazy.t;
       (** Every constant the four-axis graph reads, materialized on demand. *)
   canonicalize : (Pass_map.t, string) result Lazy.t;
@@ -19,6 +21,10 @@ type t = {
           every source value, which an endpoint alone does not need. *)
   lower : (Pass_map.t, string) result Lazy.t;
       (** Canonical Native to Native4D. *)
+  canonicalize_reverse : (Pass_map.t, string) result Lazy.t;
+      (** Canonical Native to lowered Native. *)
+  lower_reverse : (Pass_map.t, string) result Lazy.t;
+      (** Native4D to canonical Native. *)
 }
 
 (** The Native views alone: the lowered and canonical graphs and the pass map
@@ -29,10 +35,14 @@ module Canonical : sig
   type t = {
     n0 : Graph_ir.op Graph_model.t;  (** The lowered Native graph. *)
     n1 : Graph_ir.op Graph_model.t;  (** After the canonical passes. *)
+    n0_bytes : Graph_ir.Tensor_id.t -> (string, string) result;
+        (** The exact value of each source of the lowered graph. *)
     canonical_bytes : Graph_ir.Tensor_id.t -> (string, string) result;
         (** The exact value of each source of the canonical graph. *)
     canonicalize : (Pass_map.t, string) result Lazy.t;
         (** Lowered Native to canonical Native. *)
+    canonicalize_reverse : (Pass_map.t, string) result Lazy.t;
+        (** Canonical Native to lowered Native. *)
     lowering : (four, string) result Lazy.t;
         (** The four-axis extension, tried only when forced: a graph outside the
             four-axis domain is its [Error], and never a Native run. *)
