@@ -62,3 +62,35 @@ let%expect_test "a missing prerequisite is a refusal naming it" =
   Loop_wasm_exec.Node.node := saved;
   [%expect
     {| loop-wasm is not available: node: no-such-node: No such file or directory |}]
+
+(* A node that reads one tensor for both operands names it once among its
+   inputs. *)
+let%expect_test "x times x gives the direct evaluator's bits" =
+  let g =
+    Native_test.Pipeline_test.build "square"
+      (let open Graph_builder in
+       let* x =
+         input ~shape:(Native_test.Pipeline_test.nhwc ~h:4 ~w:4 ~c:3) ()
+       in
+       mul x x)
+  in
+  let module C = Generated_body.Check_graph (E.Loop_c) in
+  C.run g;
+  [%expect {|
+    seed 0: true
+    seed 3: true |}]
+
+let%expect_test "x times x through the SSA backend too" =
+  let g =
+    Native_test.Pipeline_test.build "square"
+      (let open Graph_builder in
+       let* x =
+         input ~shape:(Native_test.Pipeline_test.nhwc ~h:4 ~w:4 ~c:3) ()
+       in
+       mul x x)
+  in
+  let module C = Generated_body.Check_graph (E.Ssa_c) in
+  C.run g;
+  [%expect {|
+    seed 0: true
+    seed 3: true |}]

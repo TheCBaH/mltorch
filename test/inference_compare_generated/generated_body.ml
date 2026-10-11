@@ -28,21 +28,29 @@ let direct g inputs =
   | Ok env -> List.map (fun id -> Tid.Map.find id env) g.Graph.outputs
   | Error _ -> failwith "direct"
 
-module Check
+module Check_graph
     (E : Inference_compare_pt2.Graph_runner.ENGINE with type op = Graph_ir.op) =
 struct
-  let run () =
-    match E.compile chain with
+  let run g =
+    match E.compile g with
     | Error m -> print_endline ("refused: " ^ m)
     | Ok c ->
         List.iter
           (fun seed ->
-            let inputs = [ input_of chain seed ] in
-            match E.execute c chain ~inputs with
+            let inputs = [ input_of g seed ] in
+            match E.execute c g ~inputs with
             | Error m -> print_endline ("failed: " ^ m)
             | Ok outs ->
                 Printf.printf "seed %d: %b\n" seed
-                  (List.for_all2 Tensor.equal_bits outs (direct chain inputs)))
+                  (List.for_all2 Tensor.equal_bits outs (direct g inputs)))
           [ 0; 3 ];
         E.release c
+end
+
+module Check
+    (E : Inference_compare_pt2.Graph_runner.ENGINE with type op = Graph_ir.op) =
+struct
+  module G = Check_graph (E)
+
+  let run () = G.run chain
 end

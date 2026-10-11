@@ -150,5 +150,3 @@ for every mode with its expected result on `test_convnext2`: `agree`,
   fixtures.
 - Source-aware experiment export and replay of the new variants: the evidence
   engine specs name aten, native, native4d and synthetic only.
-- Loop IR refuses a node that reads the same tensor twice (`mul x x`), for the C
-  and JavaScript routes alike.
