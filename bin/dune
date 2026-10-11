@@ -509,3 +509,12 @@
   inference_compare_pt2_export
   inference_compare_schema
   jsont))
+
+; Resolves a model name to where its graph JSON lives (a timm model of the
+; producer submodule, or a released Transformers fixture) for the Makefile's
+; model.* rules.
+
+(executable
+ (name model_info)
+ (modules model_info)
+ (libraries model_source))

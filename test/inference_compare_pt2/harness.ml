@@ -12,8 +12,8 @@ module L = Codecs.Logical_value
 let hashers = Inference_compare_sha256.registry
 let algorithm = Inference_compare_sha256.algorithm
 
-let run ~donor ~tol ~mapping ~left_graph ~right_graph ~initial ~node_attributes
-    ~left_endpoint ~right_endpoint =
+let run_with ~(on_event : Event.t -> unit) ~donor ~tol ~mapping ~left_graph
+    ~right_graph ~initial ~node_attributes ~left_endpoint ~right_endpoint =
   let limits =
     {
       Inference_compare_test.Plan_fixtures.limits with
@@ -140,7 +140,10 @@ let run ~donor ~tol ~mapping ~left_graph ~right_graph ~initial ~node_attributes
         };
       initial;
       expected_identities = (None, None);
-      emit = (fun _ -> Ok ());
+      emit =
+        (fun e ->
+          on_event e;
+          Ok ());
       retain = (fun _ -> Ok ());
       mode = Full;
     }
@@ -203,3 +206,5 @@ let run ~donor ~tol ~mapping ~left_graph ~right_graph ~initial ~node_attributes
     r.comparisons;
 
   (r, run_ctx)
+
+let run = run_with ~on_event:(fun _ -> ())

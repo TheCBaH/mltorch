@@ -21,9 +21,8 @@ type t = {
 
 let ( let* ) = Result.bind
 
-let load ~hashers ~algorithm ~path ~(inputs : (string * Pt2_tensor.t) list) :
-    (t, string) result =
-  let* aten = Aten_model.of_file ~hashers ~algorithm path in
+let of_aten ~hashers ~algorithm ~(inputs : (string * Pt2_tensor.t) list)
+    (aten : Aten_model.t) : (t, string) result =
   let* lowered, capture =
     Native_interp.lower_archive_captured aten.archive
     |> Result.map_error (fun e ->
@@ -50,6 +49,10 @@ let load ~hashers ~algorithm ~path ~(inputs : (string * Pt2_tensor.t) list) :
   let* import = Import_map.make ~aten ~native ~payload_digest in
   Ok { aten; native; import; case; case_ctx; hashers; algorithm }
 
+let load ~hashers ~algorithm ~path ~inputs =
+  let* aten = Aten_model.of_file ~hashers ~algorithm path in
+  of_aten ~hashers ~algorithm ~inputs aten
+
 let mapping t = t.import.mapping
 let left_graph t = t.aten.desc
 let right_graph t = t.native.desc
@@ -75,14 +78,14 @@ let aten_endpoint t : Core.Side_exec.endpoint =
         (fun ex -> Ex.Dialect.realize (module Aten_dialect.Dialect) t.aten ex);
     }
 
-let native_endpoint t : Core.Side_exec.endpoint =
+let native_endpoint ?dots t : Core.Side_exec.endpoint =
   Endpoint
     {
-      runner = Native_runner.create ();
+      runner = Native_runner.create ?dots ();
       build =
         (fun ex ->
           Ex.Dialect.realize (module Native_dialect.Dialect) t.native ex);
     }
 
 let aten_identity () = Aten_runner.identity ()
-let native_identity () = Native_runner.identity ()
+let native_identity ?dots () = Native_runner.identity ?dots ()

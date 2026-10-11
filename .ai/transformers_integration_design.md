@@ -119,6 +119,22 @@ tar extraction and rejects duplicate, absolute, escaping and linked members;
 it enforces aggregate and per-member bounds before extraction. Do not add a
 general tar implementation to `lib/pt2` for this integration.
 
+**Checkpoint sources and the Hub cache.** A checkpoint source whose map provenance is
+`Upstream` (the file *is* the Hub file at a commit) and whose pinned URL is exactly
+that repository's Hub resolve URL is fetched by `hf-hub` into its huggingface_hub-layout
+cache (`HF_HUB_CACHE`; the Makefile's transformers targets default it to `data/hf-hub`,
+the directory CI caches), not into the content-addressed fixture cache. Anything else --
+a `Converted` source (the producer's own conversion of a `pytorch_model.bin`, which no
+Hub repository holds), or a non-Hub URL -- keeps the pinned-URL transport. A URL that
+claims the Hub but disagrees with the source's repository, revision or name is a fault,
+not a fallback. The pin stays the authority: size and SHA-256 must equal it (a git-LFS
+etag is the SHA-256, so a cached hit is not rehashed there), and the whole-source check
+before capture preparation is unchanged. Offline means no transport: the Hub environment
+is forced offline too, so a missing file is `Offline`, never a request. Of the 22 cohort
+entries, 20 have a Hub source; `mobilevit-xxs` and `bert-tiny` are converted. The CI gate
+replays both converted entries plus the Hub-hosted `time-series-small`, so it exercises
+both routes.
+
 An artifact may have no `model.pt2`. Slim checkpoint bundles contain graph,
 weight/constant configs, captures, cases and `models/safetensors.v2.json`.
 Tiny random fixtures retain their full program as the weight source. Neither

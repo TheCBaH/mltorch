@@ -55,3 +55,39 @@ Whisper encoder's additional error. SmolLM2 history-4 decode and Whisper encoder
 still require producer evidence for their exact selected static contracts.
 Keep those acceptance items open; retain prior scratch comparisons as historical
 observations because their Transformers version differed from the release.
+
+## Localizing a divergence: the SmolVLM connector
+
+The connector is a pixel shuffle (eight layout nodes, bitwise equal between ATen
+and Native at zero tolerance) and one bias-free `linear` of 12288-term dots, so
+the shared-frontier pair run (`fixture_pair_run`, ATen against Native, any
+tolerance) names that single unit. Recomputing every output in compensated
+binary64 (`fixture_linear_error`) attributes it: with Hub weights, the producer's
+reference output is **bitwise equal** to Native's binary32 sequential
+accumulation (36864 of 36864 elements, both cases), whereas Native's default
+binary64 sum is the correctly rounded value of every element. The default-policy
+failure is therefore the reference's own accumulation error (rms ~1e-5, up to
+2.7e-4) on cancelling elements (sum|x*w| 120-200 against a result ~0.02) exceeding
+the contract's atol 1e-5 / rtol 1e-4; local ATen lies between the two. This
+explains why the sequential-dot opt-in passes. It does not change the default
+acceptance row: the opt-in stays an explicit policy. Other failing components
+have not been localized this way.
+
+`make model.compare.<model> [LEFT=aten] [RIGHT=native|native-sequential] [TOL=]
+[DONOR=] [CASE=] [SAMPLE=]` runs that pair over a model, wherever it lives: a
+released Transformers fixture (an artifact id, or the dotted words that single
+out one, `smolvlm-256m.connector`; fetched with its Hub checkpoint if absent) and prints each cluster as
+`[k/N]` with its operations on both sides and the verdict. Exit status follows the
+`inference_compare` command (0 agreement, 1 disagreement, 3 refused or failed, 4
+not established). LEFT is ATen because the only supplied correspondence is the
+ATen-to-Native import map; two Native variants cannot yet be paired.
+
+`make model.download.<model>` fetches what a model needs (a timm model's release
+assets and Hub checkpoint, or a fixture and its checkpoint) and prints where its
+graph JSON is; `bin/model_info kind|id|json` (library `lib/model_source`) resolves the name, and `model.download` runs `model.fetch.<kind>`; `fixture_pair_run model` resolves it itself.
+
+For a timm model (`make model.compare.mobilenetv2_050`) no `.pt2` is read: graph and weight
+map from the producer submodule's model directory, weights from the pinned Hub
+checkpoint, inputs from the release's `inputs.pt`. `pair_cram.t` pins that it
+gives the `.pt2` run's cluster count and verdict (152 clusters on
+`mobilenetv2_050`) and still disagrees at zero tolerance.

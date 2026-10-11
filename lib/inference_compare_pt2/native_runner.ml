@@ -28,7 +28,7 @@ type t =
      with type Graph.t = Native_dialect.body
       and type Error.t = error)
 
-let identity ?artifact () : Engine_identity.t =
+let identity ?artifact ?(dots = Direct.Binary64) () : Engine_identity.t =
   let id mk s =
     match mk s with Ok v -> v | Error _ -> invalid_arg "identity"
   in
@@ -40,14 +40,17 @@ let identity ?artifact () : Engine_identity.t =
         "inference-compare-pt2/native/eval-direct/v1";
     configuration_digest =
       Aten_runner.sha_digest Digest.Configuration.make
-        "dot-accumulation=binary64;float-to-int=checked";
+        (match dots with
+        | Direct.Binary64 -> "dot-accumulation=binary64;float-to-int=checked"
+        | Direct.Binary32_sequential ->
+            "dot-accumulation=binary32-sequential;float-to-int=checked");
     artifact_digest = artifact;
     environment_digest =
       Aten_runner.sha_digest Digest.Environment.make
         (Sys.os_type ^ ":" ^ string_of_int Sys.word_size);
   }
 
-let create ?artifact () : t =
+let create ?artifact ?(dots = Direct.Binary64) () : t =
   let module R = struct
     module Graph = struct
       type t = Native_dialect.body
@@ -76,7 +79,7 @@ let create ?artifact () : t =
     end
 
     let fail e = Err.fail ~pp_error e
-    let identity () = identity ?artifact ()
+    let identity () = identity ?artifact ~dots ()
     let prepare body = Ok { Prepared.body; closed = false }
     let close (p : Prepared.t) = p.closed <- true
 
@@ -122,7 +125,10 @@ let create ?artifact () : t =
           let inputs =
             List.map (fun (i, (v : Value.t)) -> (Option.get i, v.packed)) bound
           in
-          match Eval_direct.run body.graph ~inputs with
+          match
+            Direct.with_dot_accumulation dots (fun () ->
+                Eval_direct.run body.graph ~inputs)
+          with
           | Error e ->
               fail
                 (Native

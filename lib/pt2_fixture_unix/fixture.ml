@@ -84,18 +84,33 @@ let of_bundle ?limits (c : Bundle.config) (b : Bundle.t) =
         weights;
       }
   in
+  (* A source that is a file of a Hub repository goes through the Hub cache;
+     every other one through the content-addressed cache and the transport. *)
+  let fetch (pin : Map.Document.Pin.t) =
+    Fetch.ensure ?hash:c.hash ?transport:c.transport
+      ~layer:(Pt2_fixture.Fault.Source pin.name) c.cache pin
+  in
   let declared =
     List.map
-      (fun (s : Map.Document.Source.t) -> s.pin)
+      (fun (s : Map.Document.Source.t) -> (s.pin, Some s))
       document.checkpoint_files
-    @ Option.to_list document.graph_owned
+    @ List.map (fun p -> (p, None)) (Option.to_list document.graph_owned)
   in
   let* sources =
     Err.List.map
-      (fun (pin : Map.Document.Pin.t) ->
+      (fun ((pin : Map.Document.Pin.t), source) ->
         let* path =
-          Fetch.ensure ?hash:c.hash ?transport:c.transport
-            ~layer:(Pt2_fixture.Fault.Source pin.name) c.cache pin
+          match source with
+          | None -> fetch pin
+          | Some s -> (
+              let* hubbed =
+                Hub.ensure ?hash:c.hash
+                  ~online:(Option.is_some c.transport)
+                  c.hub s
+              in
+              match hubbed with
+              | Some path -> Err.return path
+              | None -> fetch pin)
         in
         let+ bytes = Pt2_checkpoint_map_unix.map_file path in
         { Map.Prepare.name = pin.name; bytes })

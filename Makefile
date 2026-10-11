@@ -1,4 +1,4 @@
-.PHONY: transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
+.PHONY: transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open model.compare model.download model.compare.gate model.fetch.timm model.fetch.fixture transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean machine.a64.conformance machine.pt2.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
@@ -185,6 +185,16 @@ TRANSFORMERS_ADAPTER_SELECTION ?= data/transformers/adapter-selection.json
 TRANSFORMERS_METADATA_REPORT ?= _build/transformers-cohort-source-report.json
 TRANSFORMERS_ASSETS_OUT ?= data/transformers
 
+# Checkpoint sources that are files of a Hugging Face Hub repository are read
+# through hf-hub into its huggingface_hub-layout cache, not into
+# TRANSFORMERS_CACHE: 20 of the cohort's 22 entries have such a source (the other two
+# are the producer's own conversions of a pytorch_model.bin, fetched by pinned
+# URL). The directory is shared with the pt2 safetensors targets and
+# with CI; `HF_HUB_CACHE=... make ...` overrides it, `HF_HUB_OFFLINE=1` forbids
+# requests. Repo-relative, so CI caches it with one path.
+TRANSFORMERS_HF_HUB_CACHE ?= $(CURDIR)/data/hf-hub
+transformers.%: export HF_HUB_CACHE ?= $(TRANSFORMERS_HF_HUB_CACHE)
+
 # Offline deterministic generation/check from pinned cached metadata. The fetch
 # variants acquire missing metadata/processor assets explicitly; they never run
 # producer Python or convert tensors. Check compares all derived fields.
@@ -206,20 +216,99 @@ transformers.open:
 	opam exec -- dune exec bin/transformers_fixture.exe -- open \
 		$(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) $(TRANSFORMERS_ARTIFACTS)
 
+# Compare two engines on one model, cluster by cluster: both run each cluster of
+# the ATen-to-Native correspondence on the same committed inputs, and every cluster
+# is printed as it is compared ([k/N]: its operations on each side, then the verdict).
+#   make model.compare.<model>   (or: make model.compare MODEL=<model>) [LEFT=aten] [RIGHT=native|native-sequential]
+#     [TOL=1e-4] [DONOR=left|right] [SAMPLE=0] [CASE=case-00]
+# <model> is either a timm model of the producer submodule (mobilenetv2_050): its
+# graph and weight map from the model directory, its weights from the pinned Hub
+# checkpoint (no .pt2 is read), its inputs from the release (SAMPLE picks one); or
+# a cohort artifact id (data/transformers/cohort.json), or a unique prefix of one
+# (smolvlm-256m/image-text-generation/reference/connector), whose fixture and Hub
+# checkpoint are fetched if not cached (CASE picks the case). LEFT is aten (the C++
+# ATen interpreter); RIGHT is the Native evaluator with binary64 dots (native) or
+# binary32 sequential dots (native-sequential). ATen is on the left because the
+# import correspondence is ATen to Native. TOL is the atol and rtol of the
+# binary32 element comparison. Exit status: 0 agreement, 1 disagreement (make
+# reports 2), 3 refused or failed, 4 not established.
+CASE ?= case-00
+LEFT ?= aten
+RIGHT ?= native
+SAMPLE ?= 0
+TOL ?= 1e-4
+DONOR ?= left
+MODEL_INFO = _build/default/bin/model_info.exe
+PAIR_RUN = _build/default/test/inference_compare_pt2/fixture_pair_run.exe
+model.compare model.compare.% model.download model.download.% model.fetch.timm model.fetch.fixture: export HF_HUB_CACHE ?= $(TRANSFORMERS_HF_HUB_CACHE)
+
+# A target name cannot hold a /, so an artifact id given whole is MODEL=; the
+# dotted words (smolvlm-256m.connector) work in the target.
+MODEL ?=
+model.compare.%:
+	@$(MAKE) --no-print-directory model.compare MODEL="$*"
+
+model.compare: model.download
+	@test -n "$(MODEL)" || { echo "usage: make model.compare.<model> (or MODEL=<model>)" >&2; exit 2; }
+	@opam exec -- dune build test/inference_compare_pt2/fixture_pair_run.exe
+	@TOL=$(TOL) DONOR=$(DONOR) SAMPLE=$(SAMPLE) CASE=$(CASE) \
+		MODELS_DIR=$(PT2_JSON_MODELS_DIR) COHORT=$(TRANSFORMERS_COHORT) \
+		CACHE_DIR=$(TRANSFORMERS_CACHE) RELEASE_DIR=$(PT2_DIR) \
+		$(PAIR_RUN) model "$(MODEL)" $(LEFT) $(RIGHT)
+
+# Fetch everything a model needs, wherever it lives: a timm model of the producer
+# submodule gets its release assets (inputs, reference outputs; pt2.download) and its
+# pinned Hub checkpoint in HF_HUB_CACHE; a cohort artifact gets its fixture and Hub
+# checkpoint (transformers.download). <model> is as for model.compare. Prints where
+# the model's graph JSON is. HF_HUB_OFFLINE=1 forbids the Hub request.
+#   make model.download.mobilenetv2_050
+#   make model.download.smolvlm-256m.connector
+model.download.%:
+	@$(MAKE) --no-print-directory model.download MODEL="$*"
+
+MODEL_INFO_ARGS = $(PT2_JSON_MODELS_DIR) $(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) "$(MODEL)"
+
+model.download:
+	@test -n "$(MODEL)" || { echo "usage: make model.download.<model> (or MODEL=<model>)" >&2; exit 2; }
+	@opam exec -- dune build bin/model_info.exe
+	@kind=$$($(MODEL_INFO) kind $(MODEL_INFO_ARGS)) || exit $$?; \
+	$(MAKE) --no-print-directory model.fetch.$$kind MODEL="$(MODEL)" || exit $$?; \
+	echo "$$kind $$($(MODEL_INFO) id $(MODEL_INFO_ARGS)): graph $$($(MODEL_INFO) json $(MODEL_INFO_ARGS))"
+
+# model.download keys on the model's kind (model_info kind): one rule per kind.
+model.fetch.timm:
+	$(MAKE) --no-print-directory pt2.download PT2_MODEL="$(MODEL)"
+	@$(MODEL_INFO) checkpoint "$(PT2_JSON_MODELS_DIR)/$(MODEL)" >/dev/null
+
+model.fetch.fixture:
+	$(MAKE) --no-print-directory transformers.download \
+		TRANSFORMERS_ARTIFACTS="$$($(MODEL_INFO) id $(MODEL_INFO_ARGS))"
+
+# The comparison itself, end to end, as CI runs it: one timm model (graph and weight
+# map from the submodule, weights through hf-hub) and one Transformers fixture (a
+# released bundle), each ATen against Native at the default tolerance. A run that is
+# not full agreement (disagreement, refusal, failure) fails the target.
+MODEL_COMPARE_GATE = mobilenetv2_050 mobilevit-xxs
+model.compare.gate:
+	for m in $(MODEL_COMPARE_GATE); do $(MAKE) --no-print-directory model.compare.$$m || exit $$?; done
+
 # Offline numerical replay of the cohort's published cases through Native direct
 # execution: every output element against the producer's reference under the
 # producer's tolerances, immutable manifest and versioned reports per run. Exits nonzero
 # unless every selected artifact passes -- a refusal counts as not passing.
 TRANSFORMERS_REPORTS ?= _build/transformers-reports
-# The opt-in real-fixture gate CI runs: fetch (network) and replay the two
-# small artifacts that pass exactly. Neither contains empty captures;
+# The opt-in real-fixture gate CI runs: fetch (network) and replay the three
+# small artifacts that pass exactly. The first two are converted by the
+# producer (fetched by pinned URL); the time-series one is a Hub file, so the
+# gate also covers the hf-hub cache. The first two contain no empty captures;
 # normalization/history tests and the opt-in normalized gate provide separate
-# coverage. Exits nonzero unless both pass. The other cohort rows are measured
+# coverage. Exits nonzero unless all pass. The other cohort rows are measured
 # by `transformers.replay` and have open numerical acceptance failures; see the
 # Transformers integration design record in .ai/.
 TRANSFORMERS_GATE_ARTIFACTS = \
 	mobilevit-xxs/image-classification/reference/forward/fp32/dynamo/static/ckpt-6703997f9e94 \
-	bert-tiny/text-encoder/reference/forward/fp32/dynamo/static/ckpt-6f75de8b60a9
+	bert-tiny/text-encoder/reference/forward/fp32/dynamo/static/ckpt-6f75de8b60a9 \
+	time-series-small/time-series/reference/forward/fp32/dynamo/static/ckpt-2a40ad41f6ff
 transformers.gate:
 	$(MAKE) transformers.policies.check
 	$(MAKE) transformers.download TRANSFORMERS_ARTIFACTS="$(TRANSFORMERS_GATE_ARTIFACTS)"

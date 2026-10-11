@@ -1,0 +1,13 @@
+; Where a model comes from: a timm model of the producer submodule or a released
+; Transformers fixture, told apart by name. Native only (the fixture cache and the
+; Hub cache are files).
+
+(library
+ (name model_source)
+ (libraries
+  err_trace
+  fmt
+  pt2_fixture
+  pt2_fixture_unix
+  pt2_safetensors_unix
+  pt2_sha256))

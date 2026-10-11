@@ -9,12 +9,16 @@
 type config = {
   cache : Cache.t;
   hash : Cache.file_hasher option;
+  hub : Hub.t;
+      (** Where Hub-hosted checkpoint sources are cached; offline whenever there
+          is no [transport]. *)
   limits : Targz.limits;
   transport : Transport.t option;  (** [None]: offline. *)
 }
 
 val config :
   ?hash:Cache.file_hasher ->
+  ?hub:Hub.t ->
   ?limits:Targz.limits ->
   ?transport:Transport.t ->
   Cache.t ->
