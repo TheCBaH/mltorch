@@ -518,3 +518,17 @@
  (name model_info)
  (modules model_info)
  (libraries model_source))
+
+(executable
+ (name timm_fixture_tool)
+ (modules timm_fixture_tool)
+ (libraries
+  err_trace
+  fmt
+  native_interp
+  pt2
+  pt2_fixture
+  pt2_fixture_replay
+  pt2_fixture_unix
+  timm_fixture
+  timm_fixture_unix))

@@ -124,6 +124,9 @@
   pt2
   pt2_fixture
   pt2_fixture_unix
+  pt2_checkpoint_map
+  timm_fixture
+  timm_fixture_unix
   err_trace
   fmt
   unix))

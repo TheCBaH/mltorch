@@ -128,3 +128,32 @@ opt-in numerical policies separately, then verifies the matrix. Numerical
 failures keep a failing exit status. CI offers this full sweep and the T5
 prefill normalized/saturating-cast gate through manual workflow inputs; local
 results do not establish hosted CI success.
+
+### Timm v2 evaluation fixtures
+
+`model.download` and `model.compare` probe v2 discovery first. An absent v2
+publication uses the existing v1 release; a corrupt or unsupported v2 fails.
+V2 uses evaluation ZIPs and standalone inputs, with graph JSON and pinned Hub
+weights loaded independently. Inputs bind by the published contract, and final
+outputs are checked against the full reference tensors.
+
+Use `TIMM_MODE=images` to generate inputs in OCaml from shared decoded images.
+Every generated input must match its published hash before execution. The pure
+OCaml patterned regressions run with `dune runtest test/timm_fixture`.
+
+```sh
+make model.compare.mobilenetv2_050 PT2_RELEASE=<v2-release>
+make timm.replay MODEL=mobilenetv2_050 PT2_RELEASE=<v2-release> TIMM_MODE=images
+make timm.inputs.verify PT2_RELEASE=<v2-release>
+```
+
+For an unpublished producer dry run, download its `release-validation` Actions
+artifact and set `TIMM_MANIFEST` to `release/manifest-v2.json` and
+`TIMM_SOURCE_DIR` to that `release` directory. The graph and weight-map pins
+must still match the selected producer checkout. `TIMM_CACHE` selects the
+content-addressed fixture cache; `HF_HUB_CACHE` selects the checkpoint cache.
+With a local manifest and populated caches, `TIMM_OFFLINE=1 HF_HUB_OFFLINE=1`
+runs without downloads. `TIMM_TRANSFER_LOG` records acquired file-body bytes,
+including local artifact copies and excluding cache hits. Checkpoint and
+checkout metadata bytes remain separate costs. See `.ai/` for the contract
+and preprocessing design.
