@@ -166,6 +166,48 @@ let operations (g : Graph_desc.t) (c : Cluster.t) =
   | [] -> "(no nodes)"
   | ops -> String.concat ", " ops
 
+(* One compared output on one line: how many elements differ and by how much.
+   The sign convention is the policy's (right minus left). *)
+let describe_result (c : Comparison_result.t) =
+  let verdict =
+    match c.verdict with
+    | Pass -> "pass"
+    | Mismatch -> "MISMATCH"
+    | Metadata_error -> "METADATA ERROR"
+    | Metric_unavailable -> "METRIC UNAVAILABLE"
+    | Unsupported -> "UNSUPPORTED"
+  in
+  match c.element with
+  | None ->
+      Printf.sprintf "%s: %s" (Id.Comparison.to_string c.comparison_id) verdict
+  | Some e ->
+      let g = function Some v -> Printf.sprintf "%.3g" v | None -> "-" in
+      let scalar : Difference_statistics.scalar -> string = function
+        | Finite_value v -> Printf.sprintf "%.3g" v
+        | Unavailable _ -> "-"
+      in
+      let s = e.statistics in
+      let total = c.elements_checked in
+      if Int64.equal e.bitwise_mismatches 0L then
+        Printf.sprintf "%s: %s, identical (%Ld elements)"
+          (Id.Comparison.to_string c.comparison_id)
+          verdict total
+      else
+        Printf.sprintf
+          "%s: %s, %Ld of %Ld elements differ, %s outside tolerance; max abs \
+           %s, max rel %s; bias %s, MAE %s, RMS %s; signs +%Ld -%Ld"
+          (Id.Comparison.to_string c.comparison_id)
+          verdict e.bitwise_mismatches total
+          (match e.tolerance_violations with
+          | Some v -> Int64.to_string v
+          | None -> "-")
+          (g e.absolute.maximum_finite)
+          (g e.relative.maximum_finite)
+          (scalar s.bias)
+          (scalar s.mean_absolute_error)
+          (scalar s.root_mean_square_error)
+          s.positive_errors s.negative_errors
+
 let () =
   let source, left, right =
     match Array.to_list Sys.argv with
@@ -223,26 +265,9 @@ let () =
         Printf.printf "[%d/%d] %s\n         %s: %s\n         %s: %s\n%!"
           !started total name left l right r
     | Outputs_compared results, _ ->
-        let n v =
-          List.length
-            (List.filter
-               (fun (c : Comparison_result.t) -> c.verdict = v)
-               results)
-        in
-        let worst =
-          List.fold_left
-            (fun acc (c : Comparison_result.t) ->
-              match
-                Option.bind c.element (fun el -> el.absolute.maximum_finite)
-              with
-              | Some v -> Float.max acc v
-              | None -> acc)
-            0.0 results
-        in
-        Printf.printf
-          "         compared %d output(s): %d pass, %d mismatch, max abs %.3g\n\
-           %!"
-          (List.length results) (n Pass) (n Mismatch) worst
+        List.iter
+          (fun c -> Printf.printf "         %s\n%!" (describe_result c))
+          results
     | Failed f, _ ->
         Printf.printf "         FAILED %s\n%!"
           (match Failure.encode_code f.code with
