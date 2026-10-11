@@ -7,6 +7,7 @@ type outcome = {
   result : Core.Coordinator.result;
   directory : string;
   finalized : (unit, Evidence.error) result;
+  peak_live_bytes : int64;
 }
 
 let default_run_id (p : Session.prepared) =
@@ -53,7 +54,8 @@ let config (p : Session.prepared) ~emit ~retain ~mode ~ledger_limit :
     mode;
   }
 
-let run ~root ?run_id (p : Session.prepared) =
+let run ~root ?run_id ?(observe = fun _ -> ()) ?(keep_finals = false)
+    (p : Session.prepared) =
   let run_id = match run_id with Some r -> r | None -> default_run_id p in
   match Evidence.create ~root ~hashers:Session.hashers p ~run_id with
   | Error e -> Error e
@@ -61,7 +63,10 @@ let run ~root ?run_id (p : Session.prepared) =
       let limit = p.validated.loaded.experiment.limits.max_live_bytes in
       let cfg =
         {
-          (config p ~emit:(Evidence.emit ev) ~retain:(Evidence.retain ev)
+          (config p ~emit:(Evidence.emit ev)
+             ~retain:(fun s ->
+               observe s;
+               Evidence.retain ev s)
              ~mode:Full ~ledger_limit:limit)
           with
           run_id;
@@ -76,8 +81,14 @@ let run ~root ?run_id (p : Session.prepared) =
           raise exn
       in
       let finalized = Evidence.finalize ev result in
-      List.iter (fun (_, v) -> L.drop v) result.finals;
-      Ok { result; directory = Evidence.directory ev; finalized }
+      if not keep_finals then List.iter (fun (_, v) -> L.drop v) result.finals;
+      Ok
+        {
+          result;
+          directory = Evidence.directory ev;
+          finalized;
+          peak_live_bytes = Codecs.Owned_blob.Ledger.peak_bytes cfg.ctx.ledger;
+        }
 
 let exit_code (r : Core.Coordinator.result) =
   match (r.completion.execution, r.failure) with

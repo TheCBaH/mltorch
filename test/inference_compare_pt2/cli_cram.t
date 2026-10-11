@@ -36,3 +36,64 @@ The same model against the four-axis evaluator, after the canonical passes:
   execution=complete numerical=agreement units=7
   $ $IC replay --run ev4/run-r1
   replay full: identical to the record
+
+Two-pass certification of the Native engine against ATen as the reference. The
+segmented ATen run does not reproduce ATen's own complete graph bit for bit, so
+demanding exact partition fidelity stops the workflow at the complete-graph
+stage with no golden; declaring the contract certifies, and the golden is
+qualified as within it:
+
+  $ mkdir cert-exact cert-declared cert-aten
+  $ $IC export-pt2 --model "$M" --inputs "$I" --certify exact --out cert-exact >/dev/null
+  $ $IC certify --workflow cert-exact/validation.json --evidence-root cert-exact/ev
+  not certified: full_graph_confirmation: partition fidelity of the reference engine: output out0 is not bitwise equal
+  [1]
+  $ ls cert-exact/ev/cert-pt2-pair
+  stages
+  $ $IC export-pt2 --model "$M" --inputs "$I" --certify declared --out cert-declared >/dev/null
+  $ $IC certify --workflow cert-declared/validation.json --evidence-root cert-declared/ev
+  certified cert-declared/ev/cert-pt2-pair (within the declared contract)
+  $ ls cert-declared/ev/cert-pt2-pair/golden
+  golden.json
+  output-0.bin
+  outputs.json
+
+With ATen under test the same exact demand fails on the tested engine itself:
+
+  $ $IC export-pt2 --model "$M" --inputs "$I" --certify exact --tested left --out cert-aten >/dev/null
+  $ $IC certify --workflow cert-aten/validation.json --evidence-root cert-aten/ev
+  not certified: full_graph_confirmation: partition fidelity of the tested engine: output out0 is not bitwise equal
+  [1]
+
+The pinned diagnostic case: this model and sample, with the producer's own
+outputs for it frozen as the independent reference. The contract then requires
+the complete tested output to match them under the published tolerances
+(atol 1e-4, rtol 1e-3) before a golden exists, for the Native and the Native4D
+engine alike:
+
+  $ O="$PT2_DATA/test_convnext2/outputs.pt"
+  $ mkdir pin-native pin-native4d
+  $ $IC export-pt2 --model "$M" --inputs "$I" --certify declared --reference-outputs "$O" --out pin-native >/dev/null
+  $ $IC certify --workflow pin-native/validation.json --evidence-root pin-native/ev
+  certified pin-native/ev/cert-pt2-pair (within the declared contract)
+  $ $IC export-pt2 --model "$M" --inputs "$I" --right native4d --certify declared --reference-outputs "$O" --out pin-native4d >/dev/null
+  $ $IC certify --workflow pin-native4d/validation.json --evidence-root pin-native4d/ev
+  certified pin-native4d/ev/cert-pt2-pair (within the declared contract)
+
+The acceptance is not vacuous: one frozen logit changed, and the same workflow
+is refused at the end-to-end stage with no golden.
+
+  $ dd if=/dev/zero of=pin-native/frozen/out0.bin bs=4 count=1 conv=notrunc 2>/dev/null
+  $ $IC certify --workflow pin-native/validation.json --evidence-root pin-native/ev2 --id again
+  not certified: required_end_to_end_checks: full-graph acceptance against the frozen reference: output out0 fails its final policy
+  [1]
+  $ ls pin-native/ev2/cert-again
+  stages
+
+Planning, preparing, running and replaying the experiment reports its sizes
+(the times and byte counts vary by host and are not pinned here):
+
+  $ $IC measure --experiment exp/experiment.json --evidence-root meas | grep -E '^(graphs|plan|compared)'
+  graphs: 71/106 nodes, 71/106 tensors (left/right)
+  plan: 71 units, 71 comparison sites, 71 policy bindings, 0 topology rules, 142 extracted graphs
+  compared: 71 comparisons, 2296488 elements

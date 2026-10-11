@@ -81,8 +81,15 @@ let sample_of ~inputs ~index =
 
 type right = Native | Native4d
 
-let write_experiment ?(right = Native) ~dir ~model ~inputs ~index ~tolerance ()
-    =
+type certify = {
+  tested : Side.t;
+  fidelity : Partition_fidelity.t;
+  reference_outputs : string option;
+  final_rtol : float;
+}
+
+let write_experiment ?(right = Native) ?certify ~dir ~model ~inputs ~index
+    ~tolerance () =
   let model = absolute model in
   let* sample = sample_of ~inputs ~index in
   let* aten = P.Aten_model.of_file ~hashers ~algorithm model in
@@ -95,18 +102,22 @@ let write_experiment ?(right = Native) ~dir ~model ~inputs ~index ~tolerance ()
     | Some s -> Ok s.name
     | None -> Error "the model has no user input"
   in
-  let inputs = [ (input_name, sample) ] in
+  let named_inputs = [ (input_name, sample) ] in
   let* initial, left_graph, right_graph, mapping =
     match right with
     | Native ->
-        let* pair = P.Pair.load ~hashers ~algorithm ~path:model ~inputs in
+        let* pair =
+          P.Pair.load ~hashers ~algorithm ~path:model ~inputs:named_inputs
+        in
         Ok
           ( P.Pair.initial pair,
             P.Pair.left_graph pair,
             P.Pair.right_graph pair,
             P.Pair.mapping pair )
     | Native4d ->
-        let* pair = P.Pair4d.load ~hashers ~algorithm ~path:model ~inputs in
+        let* pair =
+          P.Pair4d.load ~hashers ~algorithm ~path:model ~inputs:named_inputs
+        in
         Ok
           ( P.Pair4d.initial pair,
             P.Pair4d.left_graph pair,
@@ -173,4 +184,109 @@ let write_experiment ?(right = Native) ~dir ~model ~inputs ~index ~tolerance ()
     write (at "selection.json")
       (json (Policy_selection.encode (selection ~tolerance)))
   in
-  write (at "experiment.json") (json (H.Experiment_file.encode experiment))
+  let* () =
+    write (at "experiment.json") (json (H.Experiment_file.encode experiment))
+  in
+  match certify with
+  | None -> Ok ()
+  | Some c ->
+      let policy =
+        match (selection ~tolerance).default with
+        | Some p -> p
+        | None -> invalid_arg "Pt2_export.selection"
+      in
+      let* inputs_text =
+        Result.map_error
+          (fun e -> Format.asprintf "%a" H.File_io.pp_error e)
+          (H.File_io.read inputs)
+      in
+      let* domain_digest =
+        match
+          Codecs.Payload_hasher.digest_string hashers algorithm inputs_text
+        with
+        | Ok d ->
+            text
+              (Digest.Input_domain.make algorithm ~hex:(Digest.Payload.hex d))
+        | Error _ -> Error "digest backend unavailable"
+      in
+      let* description =
+        text (Prose.Description.of_string "the exported sample")
+      in
+      let final_policy : Comparison_policy.t =
+        match policy.element with
+        | Some (Floating f) ->
+            {
+              policy with
+              element = Some (Floating { f with rtol = c.final_rtol });
+            }
+        | _ -> policy
+      in
+      let finals =
+        List.map
+          (fun (f : Final_output.t) -> (f.occurrence, final_policy))
+          mapping.frontier.final_outputs
+      in
+      (* The producer's own outputs for this sample, frozen as the reference
+         the complete tested output must match under the final policy. *)
+      let* frozen =
+        match c.reference_outputs with
+        | None -> Ok []
+        | Some path -> (
+            match mapping.frontier.final_outputs with
+            | [ f ] ->
+                let* t = sample_of ~inputs:path ~index in
+                let* l = P.Case.logical t in
+                let* () = io (H.File_io.mkdir_p (at "frozen")) in
+                let* () = write (at "frozen/out0.bin") (P.Case.to_bytes l) in
+                Ok
+                  [
+                    {
+                      H.Workflow_file.occurrence = f.occurrence;
+                      file = "frozen/out0.bin";
+                    };
+                  ]
+            | _ -> Error "reference outputs need exactly one final output")
+      in
+      let contract : Computation_contract.t =
+        {
+          reference =
+            (match c.tested with
+            | Right -> Left_reference
+            | Left -> Right_reference);
+          input_domain = { description; specification_digest = domain_digest };
+          local_policy_selection = selection ~tolerance;
+          final_policies = finals;
+          allowed_conversion_digest = [];
+          required_full_graph_acceptance = frozen <> [];
+        }
+      in
+      let* contract_digest =
+        match
+          Codecs.Payload_hasher.digest_string hashers algorithm
+            (Computation_contract.preimage contract)
+        with
+        | Ok d ->
+            text (Digest.Contract.make algorithm ~hex:(Digest.Payload.hex d))
+        | Error _ -> Error "digest backend unavailable"
+      in
+      let* () =
+        write (at "contract.json") (json (Computation_contract.encode contract))
+      in
+      let workflow : H.Workflow_file.t =
+        {
+          experiment = "experiment.json";
+          contract = "contract.json";
+          workflow =
+            {
+              reference_side =
+                (match c.tested with Right -> Left | Left -> Right);
+              tested_side = c.tested;
+              contract_digest;
+              cases = [ case_id ];
+              partition_fidelity = c.fidelity;
+              end_to_end_reference_check = true;
+            };
+          frozen_outputs = frozen;
+        }
+      in
+      write (at "validation.json") (json (H.Workflow_file.encode workflow))

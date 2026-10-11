@@ -9,6 +9,8 @@ open Inference_compare_schema
 type t = {
   n0 : Graph_ir.op Graph_model.t;  (** The lowered Native graph. *)
   n1 : Graph_ir.op Graph_model.t;  (** After the canonical passes. *)
+  canonical_bytes : Graph_ir.Tensor_id.t -> (string, string) result;
+      (** The exact value of each source of the canonical graph. *)
   n4 : Native4d.Op.t Graph_model.t;  (** The four-axis graph. *)
   constants : (Tensor.packed Graph_ir.Tensor_id.Map.t, string) result Lazy.t;
       (** Every constant the four-axis graph reads, materialized on demand. *)

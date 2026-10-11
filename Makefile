@@ -1,4 +1,4 @@
-.PHONY: transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open transformers.replay compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
+.PHONY: transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean machine.a64.conformance machine.pt2.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
@@ -1343,6 +1343,13 @@ machine.rivet.a64.conformance: rivet.install
 
 compcert.embed.runtest: compcert.embed.install
 	MLTORCH_COMPCERT=$(COMPCERT_ISA) opam exec -- dune build @test/loop_c_embed_compcert/runtest --force
+
+# The embedded CompCert route against the direct assembly route through the
+# comparison coordinator (lib/inference_compare_compiled). The hermetic tests
+# run anywhere the embedding is installed; the real-model cram also needs
+# `make pt2.download-cram`. aarch64 hosts only.
+compcert.compare.runtest: compcert.embed.install
+	PT2_DATA=$(abspath $(PT2_DIR)) MLTORCH_COMPCERT=$(COMPCERT_ISA) opam exec -- dune build @test/inference_compare_compiled/runtest @test/inference_compare_compiled/compiled_cram --force
 
 # The C backend's differential suites (test/loop_c) run under `runtest` at the
 # production flags. These re-run the same suites at -O0 and under the

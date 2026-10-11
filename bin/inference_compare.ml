@@ -1,5 +1,5 @@
-(* The dedicated inference comparison command: export-pt2, plan, replay, run,
-   validate.
+(* The dedicated inference comparison command: certify, export-pt2, measure,
+   plan, replay, run, validate.
    Exit codes: 0 complete agreement; 1 completed numerical disagreement; 2
    invalid input, map or policy; 3 refused or failed preparation, transfer,
    execution or resource limit; 4 incomplete coverage, an agreement that could
@@ -216,6 +216,59 @@ let replay_cmd =
           record.")
     Term.(const run $ run_dir $ unit_arg $ case_arg)
 
+let measure_cmd =
+  let run experiment root =
+    match H.Measure.measure ~root ~experiment with
+    | Ok m ->
+        Format.printf "%a@." H.Measure.pp m;
+        0
+    | Error e ->
+        Format.eprintf "error: %s@." e;
+        3
+  in
+  Cmd.v
+    (Cmd.info "measure"
+       ~doc:
+         "Plan, prepare, run and fully replay the experiment into the evidence \
+          root, and report what each phase cost on this host.")
+    Term.(const run $ experiment_arg $ evidence_root_arg)
+
+let certify_cmd =
+  let workflow =
+    Arg.(
+      required
+      & opt (some file) None
+      & info [ "workflow" ] ~docv:"FILE"
+          ~doc:"The validation workflow (experiment, contract, fidelity).")
+  in
+  let cert_id =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "id" ] ~docv:"ID"
+          ~doc:"Certification identifier (default: the experiment's).")
+  in
+  let run workflow_path root cert_id =
+    match H.Certify.run ~root ?cert_id ~workflow_path () with
+    | Ok c ->
+        Format.printf "certified %s (%s)@." c.directory
+          (match c.record.qualification with
+          | Exact -> "exact"
+          | Within_declared_contract -> "within the declared contract");
+        0
+    | Error f ->
+        Format.eprintf "not certified: %a@." H.Certify.pp_failure f;
+        H.Certify.exit_code f
+  in
+  Cmd.v
+    (Cmd.info "certify"
+       ~doc:
+         "Run the two-pass certification: reference trajectory, tested \
+          trajectory, the tested engine's complete graph and the contract's \
+          end-to-end checks; write an immutable golden record only if every \
+          stage passes.")
+    Term.(const run $ workflow $ evidence_root_arg $ cert_id)
+
 let export_pt2_cmd =
   let model =
     Arg.(
@@ -259,10 +312,68 @@ let export_pt2_cmd =
       & info [ "right" ] ~docv:"ENGINE"
           ~doc:"The engine compared with ATen: native or native4d.")
   in
-  let run model inputs index tolerance out right =
+  let certify =
+    Arg.(
+      value
+      & opt
+          (some
+             (enum
+                [
+                  ("exact", S.Partition_fidelity.Bitwise_required);
+                  ("declared", S.Partition_fidelity.Declared_contract);
+                ]))
+          None
+      & info [ "certify" ] ~docv:"FIDELITY"
+          ~doc:
+            "Also write a contract and validation workflow for the two-pass \
+             certification (ATen is the reference), requiring the tested \
+             engine's segmented run to match its complete graph bitwise \
+             (exact) or within the declared policy (declared).")
+  in
+  let tested =
+    Arg.(
+      value
+      & opt
+          (enum [ ("left", S.Side.Left); ("right", S.Side.Right) ])
+          S.Side.Right
+      & info [ "tested" ] ~docv:"SIDE"
+          ~doc:"With --certify: which side is under test (default right).")
+  in
+  let reference_outputs =
+    Arg.(
+      value
+      & opt (some file) None
+      & info [ "reference-outputs" ] ~docv:"FILE"
+          ~doc:
+            "With --certify: the producer's outputs for the same samples \
+             (outputs.pt). The complete tested output must match its sample \
+             under the final policy, which makes the full-graph acceptance a \
+             required gate.")
+  in
+  let final_rtol =
+    Arg.(
+      value & opt float 1e-3
+      & info [ "final-rtol" ] ~docv:"T"
+          ~doc:
+            "With --certify: the relative tolerance of the final policies (the \
+             absolute one is --tolerance).")
+  in
+  let run model inputs index tolerance out right certify tested
+      reference_outputs final_rtol =
+    let certify =
+      Option.map
+        (fun fidelity ->
+          {
+            Inference_compare_pt2_export.Pt2_export.tested;
+            fidelity;
+            reference_outputs;
+            final_rtol;
+          })
+        certify
+    in
     match
-      Inference_compare_pt2_export.Pt2_export.write_experiment ~right ~dir:out
-        ~model ~inputs ~index ~tolerance ()
+      Inference_compare_pt2_export.Pt2_export.write_experiment ~right ?certify
+        ~dir:out ~model ~inputs ~index ~tolerance ()
     with
     | Ok () ->
         Format.printf "wrote %s@." (Filename.concat out "experiment.json");
@@ -276,7 +387,9 @@ let export_pt2_cmd =
        ~doc:
          "Write an experiment comparing the ATen interpreter with the Native \
           or Native4D evaluator on one exported model and sample.")
-    Term.(const run $ model $ inputs $ index $ tolerance $ out $ right)
+    Term.(
+      const run $ model $ inputs $ index $ tolerance $ out $ right $ certify
+      $ tested $ reference_outputs $ final_rtol)
 
 let () =
   let info =
@@ -286,4 +399,12 @@ let () =
   exit
     (Cmd.eval'
        (Cmd.group info
-          [ export_pt2_cmd; plan_cmd; replay_cmd; run_cmd; validate_cmd ]))
+          [
+            certify_cmd;
+            export_pt2_cmd;
+            measure_cmd;
+            plan_cmd;
+            replay_cmd;
+            run_cmd;
+            validate_cmd;
+          ]))

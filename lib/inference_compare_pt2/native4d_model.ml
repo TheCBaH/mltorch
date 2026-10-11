@@ -14,6 +14,8 @@ module Tid = Graph_ir.Tensor_id
 type t = {
   n0 : Graph_ir.op G.t;  (** The lowered Native graph, as {!Native_model}. *)
   n1 : Graph_ir.op G.t;  (** After the canonical passes. *)
+  canonical_bytes : Tid.t -> (string, string) result;
+      (** The exact value of each source of the canonical graph. *)
   n4 : Native4d.Op.t G.t;  (** The four-axis graph. *)
   constants : (Tensor.packed Tid.Map.t, string) result Lazy.t;
       (** Every constant the four-axis graph reads, materialized on demand. *)
@@ -168,4 +170,13 @@ let make ~hashers ~algorithm ~(ctx : L.Context.t) ~(archive : Pt2_archive.t)
                      ~dst:{ Pass_map.model = n4; bytes = n4_bytes }
                      ~export)
               in
-              Ok { n0; n1; n4; constants = constants4; canonicalize; lower }))
+              Ok
+                {
+                  n0;
+                  n1;
+                  canonical_bytes = n1_bytes;
+                  n4;
+                  constants = constants4;
+                  canonicalize;
+                  lower;
+                }))

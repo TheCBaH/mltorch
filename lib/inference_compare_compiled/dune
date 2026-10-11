@@ -1,0 +1,30 @@
+; The two compiled routes as ordinary graph runners for the comparison
+; coordinator: an embedded CompCert (C generated from the Loop IR bundle,
+; compiled in process, assembled and loaded by Rivet) and the direct assembly
+; route (the bundle's Machine IR selected for AArch64 and assembled by Rivet).
+; Optional: built only where the embedded CompCert for this host is installed
+; (make compcert.embed.install; MLTORCH_COMPCERT=aarch64) and Rivet's AArch64
+; libraries are available. Neither route substitutes a host compiler.
+
+(library
+ (name inference_compare_compiled)
+ (libraries
+  err_trace
+  fmt
+  inference_compare_codecs
+  inference_compare_core
+  inference_compare_extract
+  inference_compare_pt2
+  inference_compare_schema
+  loop_c_embed
+  loop_c_embed_compcert
+  loop_ir
+  machine_model
+  machine_rivet_aarch64
+  native
+  ssa_backends)
+ (enabled_if
+  (and
+   (= %{env:MLTORCH_COMPCERT=none} aarch64)
+   %{lib-available:rivet.aarch64_encode}
+   %{lib-available:rivet.driver_direct})))

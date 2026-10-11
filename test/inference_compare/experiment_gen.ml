@@ -30,12 +30,36 @@ let write path text =
 
 let json j = Wire_text.to_string j ^ "\n"
 
+type certification = {
+  local_none : bool;
+      (** No required element rule on the local comparisons: they cannot fail.
+      *)
+  reference_right : bool;
+  declared_fidelity : bool;
+  end_to_end : bool;
+  required_acceptance : bool;
+  peers : bool;
+  unfrozen : bool;
+}
+
+let default_certification =
+  {
+    local_none = false;
+    reference_right = false;
+    declared_fidelity = false;
+    end_to_end = false;
+    required_acceptance = false;
+    peers = false;
+    unfrozen = false;
+  }
+
 type options = {
   retention : Resource_limits.retention;
   required : bool;
   disk_bytes : int64;
   retain_unit : string option;
   donor_right : bool;
+  certify : certification option;
 }
 
 let default_options =
@@ -45,6 +69,7 @@ let default_options =
     disk_bytes = 1_000_000L;
     retain_unit = None;
     donor_right = false;
+    certify = None;
   }
 
 let generate ~dir ~scenario (o : options) =
@@ -66,8 +91,14 @@ let generate ~dir ~scenario (o : options) =
     | "fail" -> { (default_cfg "right") with fail_nodes = [ "n2_r" ] }
     | _ -> default_cfg "right"
   in
+  let local_policy : Comparison_policy.t =
+    match o.certify with
+    | Some { local_none = true; _ } ->
+        { T.Coord_fixture.exact_policy with element = None }
+    | _ -> T.Coord_fixture.exact_policy
+  in
   let selection : Policy_selection.t =
-    { default = Some T.Coord_fixture.exact_policy; explicit = []; rules = [] }
+    { default = Some local_policy; explicit = []; rules = [] }
   in
   let case =
     List.map
@@ -121,4 +152,67 @@ let generate ~dir ~scenario (o : options) =
     (json (Policy_selection.encode selection));
   write
     (Filename.concat dir "experiment.json")
-    (json (H.Experiment_file.encode experiment))
+    (json (H.Experiment_file.encode experiment));
+  match o.certify with
+  | None -> ()
+  | Some c ->
+      let hashers = Inference_compare_sha256.registry
+      and algorithm = Inference_compare_sha256.algorithm in
+      let digest mk text =
+        match
+          Inference_compare_codecs.Payload_hasher.digest_string hashers
+            algorithm text
+        with
+        | Ok d -> Result.get_ok (mk algorithm ~hex:(Digest.Payload.hex d))
+        | Error _ -> failwith "digest"
+      in
+      let occurrence =
+        T.Plan_fixtures.text (Id.Output_occurrence.of_string "out0")
+      in
+      let contract : Computation_contract.t =
+        {
+          reference =
+            (if c.peers then Peers
+             else if c.reference_right then Right_reference
+             else Left_reference);
+          input_domain =
+            {
+              description =
+                T.Plan_fixtures.text (Prose.Description.of_string "the case");
+              specification_digest = digest Digest.Input_domain.make "case";
+            };
+          local_policy_selection = selection;
+          final_policies = [ (occurrence, T.Coord_fixture.exact_policy) ];
+          allowed_conversion_digest = [];
+          required_full_graph_acceptance = c.required_acceptance;
+        }
+      in
+      write
+        (Filename.concat dir "contract.json")
+        (json (Computation_contract.encode contract));
+      let workflow : H.Workflow_file.t =
+        {
+          experiment = "experiment.json";
+          contract = "contract.json";
+          workflow =
+            {
+              reference_side = (if c.reference_right then Right else Left);
+              tested_side = (if c.reference_right then Left else Right);
+              contract_digest =
+                digest Digest.Contract.make
+                  (Computation_contract.preimage contract);
+              cases = [ T.Plan_fixtures.text (Id.Case.of_string "case0") ];
+              partition_fidelity =
+                (if c.declared_fidelity then Declared_contract
+                 else Bitwise_required);
+              end_to_end_reference_check = c.end_to_end;
+            };
+          frozen_outputs =
+            (if c.required_acceptance && not c.unfrozen then
+               [ { H.Workflow_file.occurrence; file = "frozen.bin" } ]
+             else []);
+        }
+      in
+      write
+        (Filename.concat dir "validation.json")
+        (json (H.Workflow_file.encode workflow))
