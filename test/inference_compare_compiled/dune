@@ -1,0 +1,56 @@
+; The embedded CompCert route against the direct assembly route through the
+; shared coordinator. Optional: needs the embedded CompCert for this host
+; (make compcert.embed.install, MLTORCH_COMPCERT) and downloaded model data
+; (PT2_DATA); a missing prerequisite leaves the gate pending, it does not pass.
+
+(executable
+ (name compiled_run)
+ (modules compiled_run)
+ (libraries
+  inference_compare_compiled
+  inference_compare_pt2
+  inference_compare_schema
+  inference_compare_sha256
+  inference_compare_codecs
+  pair_harness
+  err_trace
+  native
+  pt2)
+ (enabled_if
+  (= %{env:MLTORCH_COMPCERT=none} aarch64)))
+
+; Hermetic tests of the two compiled engines and the pair over small graphs.
+
+(library
+ (name inference_compare_compiled_test)
+ (modules compiled_test)
+ (libraries
+  err_trace
+  fmt
+  inference_compare_codecs
+  inference_compare_compiled
+  inference_compare_core
+  inference_compare_extract
+  inference_compare_pt2
+  inference_compare_schema
+  inference_compare_sha256
+  jsont.bytesrw
+  native
+  native_test
+  pair_harness)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect))
+ (enabled_if
+  (= %{env:MLTORCH_COMPCERT=none} aarch64)))
+
+; Gated on the embedded CompCert and on downloaded model data like the other
+; real-archive crams.
+
+(cram
+ (applies_to compiled_cram)
+ (deps (universe) compiled_run.exe)
+ (enabled_if
+  (and
+   (= %{env:MLTORCH_COMPCERT=none} aarch64)
+   (<> %{env:PT2_DATA=} ""))))

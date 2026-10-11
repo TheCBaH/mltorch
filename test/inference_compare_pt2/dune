@@ -1,10 +1,28 @@
 ; Tests for the real ATen / Native engine pair. They need the C++ ATen bridge
 ; and downloaded model data (PT2_DATA, as for `make pt2.runtest`).
 
+(library
+ (name pair_harness)
+ (modules harness)
+ (libraries
+  inference_compare_test
+  inference_compare_core
+  inference_compare_extract
+  inference_compare_policy
+  inference_compare_metrics
+  inference_compare_codecs
+  err_trace
+  fmt
+  inference_compare_plan
+  inference_compare_schema
+  inference_compare_sha256
+  unix))
+
 (executable
  (name pair_run)
  (modules pair_run)
  (libraries
+  pair_harness
   inference_compare_pt2
   inference_compare_test
   inference_compare_core
