@@ -478,18 +478,23 @@ let%expect_test "registered metrics are pinned and budgeted" =
     over the group budget: resource groups 0/1 min=- max=- violations=- samples=[]
     duplicate registration refused |}]
 
-let%expect_test "group element order is canonical whatever order the axes are listed" =
+let%expect_test
+    "group element order is canonical whatever order the axes are listed" =
   let show name partition =
     match M.Tensor_groups.make ~shape:[ 2L; 2L; 2L ] partition with
-    | Error e -> Format.printf "%s: %a@." name M.Metric_config_error.pp (Err.Error.kind e)
+    | Error e ->
+        Format.printf "%s: %a@." name M.Metric_config_error.pp
+          (Err.Error.kind e)
     | Ok g ->
         Format.printf "%s: %d groups of %d:" name (M.Tensor_groups.groups g)
           (M.Tensor_groups.group_size g);
         for i = 0 to M.Tensor_groups.groups g - 1 do
           Format.printf " (%s)->[%s]"
-            (String.concat "," (List.map Int64.to_string (M.Tensor_groups.coords g i)))
             (String.concat ","
-               (List.map string_of_int (Array.to_list (M.Tensor_groups.indices g i))))
+               (List.map Int64.to_string (M.Tensor_groups.coords g i)))
+            (String.concat ","
+               (List.map string_of_int
+                  (Array.to_list (M.Tensor_groups.indices g i))))
         done;
         Format.printf "@."
   in
@@ -499,9 +504,13 @@ let%expect_test "group element order is canonical whatever order the axes are li
   show "whole tensor" Whole_tensor;
   show "zero extent" Whole_tensor;
   (match M.Tensor_groups.make ~shape:[ 3L; 0L ] (axes [ 1 ]) with
-  | Ok g -> Format.printf "zero extent reduced: %d groups of %d@." (M.Tensor_groups.groups g) (M.Tensor_groups.group_size g)
+  | Ok g ->
+      Format.printf "zero extent reduced: %d groups of %d@."
+        (M.Tensor_groups.groups g)
+        (M.Tensor_groups.group_size g)
   | Error _ -> Format.printf "zero extent reduced: error@.");
-  [%expect {|
+  [%expect
+    {|
     reduce [0;2]: 2 groups of 4: (0)->[0,1,4,5] (1)->[2,3,6,7]
     reduce [2;0]: 2 groups of 4: (0)->[0,1,4,5] (1)->[2,3,6,7]
     reduce [1]: 4 groups of 2: (0,0)->[0,2] (0,1)->[1,3] (1,0)->[4,6] (1,1)->[5,7]
