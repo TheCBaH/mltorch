@@ -72,3 +72,18 @@ Regrouping the three maps gives the same composed meaning, on real passes:
 
   $ ASSOC=1 RIGHT=native4d ./pair_run.exe "$PT2_DATA/test_convnext2/test_convnext2.pt2" "$PT2_DATA/test_convnext2/inputs.pt" 2>/dev/null | head -1
   (ATen.canonicalize).lower vs ATen.(canonicalize.lower): same meaning (493 facts)
+
+The same pair with no .pt2: the graph and weight map are the submodule's model
+directory and the weights the pinned Hub checkpoint (`fixture_pair_run
+safetensors`). The cluster count and the verdict equal the .pt2 run's, and at
+zero tolerance the engines still differ (the check is not vacuous):
+
+  $ ./fixture_pair_run.exe safetensors "$PT2_SAFETENSORS_MODELS/mobilenetv2_050" "$PT2_DATA/mobilenetv2_050/inputs.pt" 0 aten native 2>/dev/null | grep -E "clusters|^execution|^comparisons"
+  left aten | right native | donor left | tolerance 0.0001 | 152 clusters
+  execution=complete numerical=agreement executed=152 units
+  comparisons: 152 pass, 0 mismatch, 0 other
+  $ ./pair_run.exe "$PT2_DATA/mobilenetv2_050/mobilenetv2_050.pt2" "$PT2_DATA/mobilenetv2_050/inputs.pt" 2>/dev/null | grep -E "^execution|^comparisons"
+  execution=complete numerical=agreement executed=152 units
+  comparisons: 152 pass, 0 mismatch, 0 other
+  $ TOL=0 ./fixture_pair_run.exe safetensors "$PT2_SAFETENSORS_MODELS/mobilenetv2_050" "$PT2_DATA/mobilenetv2_050/inputs.pt" 0 aten native 2>/dev/null | grep -c "numerical=disagreement"
+  1

@@ -80,3 +80,10 @@ fixture (fetching it and its Hub checkpoint if absent) and prints each cluster a
 `inference_compare` command (0 agreement, 1 disagreement, 3 refused or failed, 4
 not established). LEFT is ATen because the only supplied correspondence is the
 ATen-to-Native import map; two Native variants cannot yet be paired.
+
+`make pt2.compare [PT2_MODEL=mobilenetv2_050] [SAMPLE=] [LEFT=] [RIGHT=] [TOL=]`
+is the same comparison for a timm model, with no `.pt2` read: graph and weight
+map from the producer submodule's model directory, weights from the pinned Hub
+checkpoint, inputs from the release's `inputs.pt`. `pair_cram.t` pins that it
+gives the `.pt2` run's cluster count and verdict (152 clusters on
+`mobilenetv2_050`) and still disagrees at zero tolerance.

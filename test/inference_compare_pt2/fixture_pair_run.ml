@@ -1,6 +1,12 @@
-(* Run two engines over one released Transformers fixture and case through the
-   shared-frontier coordinator, listing each cluster as it is compared.
-   Usage: fixture_pair_run COHORT CACHE_DIR ARTIFACT_ID CASE_ID LEFT RIGHT
+(* Run two engines over one model and case through the shared-frontier
+   coordinator, listing each cluster as it is compared.
+   Usage:
+     fixture_pair_run fixture COHORT CACHE_DIR ARTIFACT_ID CASE_ID LEFT RIGHT
+     fixture_pair_run safetensors MODEL_DIR INPUTS_PT SAMPLE LEFT RIGHT
+   The first is a released Transformers fixture; the second a timm model whose
+   graph and weight map are a submodule model directory and whose weights are
+   the pinned Hub checkpoint (no .pt2), with the release's inputs.pt for the
+   sample.
    LEFT is [aten] (the import correspondence is ATen to Native); RIGHT is
    [native] (binary64 dots) or [native-sequential] (binary32 sequential dots).
    Exit status: 0 agreement, 1 disagreement, 3 refused or failed, 4 not
@@ -23,9 +29,99 @@ let unwrap = function
 
 let usage () =
   prerr_endline
-    "usage: fixture_pair_run COHORT CACHE_DIR ARTIFACT_ID CASE_ID LEFT RIGHT\n\
+    "usage: fixture_pair_run fixture COHORT CACHE_DIR ARTIFACT_ID CASE_ID LEFT \
+     RIGHT\n\
+    \       fixture_pair_run safetensors MODEL_DIR INPUTS_PT SAMPLE LEFT RIGHT\n\
      engines: LEFT is aten; RIGHT is native or native-sequential";
   exit 2
+
+(* The sample of the release's [inputs.pt] the exporter picks, with the batch
+   axis the model takes (the samples are single images). *)
+let sample_input ~inputs ~index (aten : P.Aten_model.t) =
+  let with_batch (t : Pt2_tensor.t) =
+    let stride = Pt2_tensor.numel t in
+    { t with Pt2_tensor.sizes = 1 :: t.sizes; strides = stride :: t.strides }
+  in
+  match Pt2_archive.load_pt_tensor_map inputs with
+  | Error _ -> failwith (inputs ^ ": unreadable")
+  | Ok samples -> (
+      let name =
+        match
+          List.find_opt
+            (fun (s : P.Aten_model.source) -> s.captured = None)
+            aten.sources
+        with
+        | Some s -> s.name
+        | None -> failwith "the graph has no user input"
+      in
+      match List.nth_opt samples index with
+      | Some (_, t) -> [ (name, with_batch t) ]
+      | None -> failwith (Printf.sprintf "%s has no sample %d" inputs index))
+
+(* Where a model comes from: its label, archive, the text that identifies its
+   graph, and the case's inputs. *)
+let load = function
+  | `Fixture (cohort_path, cache_dir, artifact, case) ->
+      let cohort =
+        unwrap
+          (Err.payload
+             (let open Err.Syntax in
+              let* text = U.Fetch.read cohort_path in
+              Pt2_fixture.Cohort.of_string text))
+      in
+      let entry =
+        match Pt2_fixture.Cohort.find cohort artifact with
+        | Some e -> e
+        | None -> failwith ("unknown artifact " ^ artifact)
+      in
+      let cache = unwrap (Err.payload (U.Cache.create cache_dir)) in
+      let fixture =
+        unwrap
+          (Err.payload (U.Fixture.open_ (U.Bundle.config cache) cohort entry))
+      in
+      let identity_text =
+        unwrap
+          (Err.payload
+             (U.Bundle.read_member fixture.bundle "models/model.json"))
+      in
+      let inputs =
+        match
+          Pt2_archive.load_pt_tensor_map
+            (Filename.concat fixture.bundle.dir
+               (Printf.sprintf "cases/%s/inputs.pt" case))
+        with
+        | Ok l -> l
+        | Error _ -> failwith ("no inputs for " ^ case)
+      in
+      ( Printf.sprintf "%s, %s" artifact case,
+        fixture.archive,
+        identity_text,
+        inputs )
+  | `Safetensors (model_dir, inputs_pt, index) ->
+      let archive =
+        match Err.payload (Pt2_safetensors_unix.open_dir model_dir) with
+        | Ok a -> a
+        | Error e -> failwith (Fmt.str "%a" Pt2_safetensors_unix.pp_error e)
+      in
+      let identity_text =
+        match
+          Err.payload
+            (Pt2_archive.read_file
+               (Filename.concat model_dir "models/model.json"))
+        with
+        | Ok t -> t
+        | Error _ -> failwith (model_dir ^ ": no models/model.json")
+      in
+      (* The user input's name comes from the graph itself. *)
+      let aten =
+        ok (P.Aten_model.of_archive ~hashers ~algorithm ~identity_text archive)
+      in
+      ( Printf.sprintf "%s, sample %d (weights from the Hub checkpoint)"
+          (Filename.basename model_dir)
+          index,
+        archive,
+        identity_text,
+        sample_input ~inputs:inputs_pt ~index aten )
 
 (* The operations of a cluster, in graph order: "view, permute, clone". *)
 let operations (g : Graph_desc.t) (c : Cluster.t) =
@@ -41,9 +137,12 @@ let operations (g : Graph_desc.t) (c : Cluster.t) =
   | ops -> String.concat ", " ops
 
 let () =
-  let cohort_path, cache_dir, artifact, case, left, right =
+  let source, left, right =
     match Array.to_list Sys.argv with
-    | [ _; a; b; c; d; e; f ] -> (a, b, c, d, e, f)
+    | [ _; "fixture"; cohort; cache; artifact; case; l; r ] ->
+        (`Fixture (cohort, cache, artifact, case), l, r)
+    | [ _; "safetensors"; dir; inputs; sample; l; r ] ->
+        (`Safetensors (dir, inputs, int_of_string sample), l, r)
     | _ -> usage ()
   in
   let dots =
@@ -60,39 +159,9 @@ let () =
   let tol =
     match Sys.getenv_opt "TOL" with Some s -> float_of_string s | None -> 1e-4
   in
-  let cohort =
-    unwrap
-      (Err.payload
-         (let open Err.Syntax in
-          let* text = U.Fetch.read cohort_path in
-          Pt2_fixture.Cohort.of_string text))
-  in
-  let entry =
-    match Pt2_fixture.Cohort.find cohort artifact with
-    | Some e -> e
-    | None -> failwith ("unknown artifact " ^ artifact)
-  in
-  let cache = unwrap (Err.payload (U.Cache.create cache_dir)) in
-  let fixture =
-    unwrap (Err.payload (U.Fixture.open_ (U.Bundle.config cache) cohort entry))
-  in
-  let identity_text =
-    unwrap
-      (Err.payload (U.Bundle.read_member fixture.bundle "models/model.json"))
-  in
-  let inputs =
-    match
-      Pt2_archive.load_pt_tensor_map
-        (Filename.concat fixture.bundle.dir
-           (Printf.sprintf "cases/%s/inputs.pt" case))
-    with
-    | Ok l -> l
-    | Error _ -> failwith ("no inputs for " ^ case)
-  in
+  let label, archive, identity_text, inputs = load source in
   let aten =
-    ok
-      (P.Aten_model.of_archive ~hashers ~algorithm ~identity_text
-         fixture.archive)
+    ok (P.Aten_model.of_archive ~hashers ~algorithm ~identity_text archive)
   in
   let pair = ok (P.Pair.of_aten ~hashers ~algorithm ~inputs aten) in
   let mapping = P.Pair.mapping pair in
@@ -106,7 +175,7 @@ let () =
           (operations left_graph u.left, operations right_graph u.right) ))
       mapping.units
   in
-  Printf.printf "%s, %s\n" artifact case;
+  Printf.printf "%s\n" label;
   Printf.printf "left %s | right %s | donor %s | tolerance %g | %d clusters\n%!"
     left right
     (match donor with Left -> "left" | Right -> "right")

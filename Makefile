@@ -15,7 +15,7 @@
 	native-infer-verify-arena.% native-infer-verify-direct \
 	native-infer-verify-direct.% native-transform-verify \
 	native-transform-verify.% precommit profile.landmarks \
-	profile.memtrace pt2.download pt2.download-all pt2.download-cram safetensors.run \
+	profile.memtrace pt2.download pt2.download-all pt2.download-cram pt2.compare safetensors.run \
 	arena.eval arena.eval.report arena.schedule.eval arena.schedule.eval.report pt2.json-model-support pt2.runtest pt2.vars runtest safetensors.browser.runtest spike.runtest \
 	spike.setup tailcall.js-benchmark tailcall.runtest test \
 	verify.pristine visualizer.build visualizer.patch \
@@ -234,7 +234,7 @@ DONOR ?= left
 transformers.compare:
 	@test -n "$(MODEL)" || { echo "set MODEL to a cohort artifact id (see $(TRANSFORMERS_COHORT))" >&2; exit 2; }
 	$(MAKE) --no-print-directory transformers.download TRANSFORMERS_ARTIFACTS="$(MODEL)"
-	TOL=$(TOL) DONOR=$(DONOR) opam exec -- dune exec test/inference_compare_pt2/fixture_pair_run.exe -- \
+	TOL=$(TOL) DONOR=$(DONOR) opam exec -- dune exec test/inference_compare_pt2/fixture_pair_run.exe -- fixture \
 		$(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) "$(MODEL)" $(CASE) $(LEFT) $(RIGHT)
 
 # Offline numerical replay of the cohort's published cases through Native direct
@@ -447,6 +447,17 @@ safetensors.run: pt2.download
 	_build/default/test/interp_run.exe $(PT2_JSON_MODELS_DIR)/$(PT2_MODEL) \
 		$(PT2_MODEL_DIR)/inputs.pt $(PT2_MODEL_DIR)/expected.json \
 		$(PT2_MODEL_DIR)/outputs.pt --strict --safetensors
+
+# The same cluster-by-cluster comparison (see transformers.compare) for a timm model
+# from the producer submodule: graph and weight map from its model directory, weights
+# from the pinned Hub checkpoint through hf-hub (no .pt2 is read), inputs from the
+# release's inputs.pt. Needs the network once, or a warm HF_HUB_CACHE.
+#   make pt2.compare [PT2_MODEL=mobilenetv2_050] [SAMPLE=0] [LEFT=aten]
+#     [RIGHT=native|native-sequential] [TOL=1e-4] [DONOR=left|right]
+SAMPLE ?= 0
+pt2.compare: pt2.download
+	TOL=$(TOL) DONOR=$(DONOR) opam exec -- dune exec test/inference_compare_pt2/fixture_pair_run.exe -- safetensors \
+		$(PT2_JSON_MODELS_DIR)/$(PT2_MODEL) $(PT2_MODEL_DIR)/inputs.pt $(SAMPLE) $(LEFT) $(RIGHT)
 
 # The raw interpreter binary, built once via plain `dune build` (never `dune
 # exec`). inference.% below runs this directly instead, so `make -j` can fan
