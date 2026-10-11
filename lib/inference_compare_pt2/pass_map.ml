@@ -685,3 +685,67 @@ let make (type a b) ~name ~digest ~(src : a side) ~(dst : b side)
           derivation_digest = [];
         };
     }
+
+(* The correspondence of a graph with itself: every node and every tensor is
+   its own cluster. *)
+let identity_export (g : _ Graph_common.Graph.t) : Map_export.t =
+  {
+    nodes =
+      List.map
+        (fun (n : _ Graph_common.Node.t) ->
+          { Map_export.Node_cluster.src = [ n.id ]; dst = [ n.id ] })
+        g.nodes;
+    values =
+      List.map
+        (fun (id, _) ->
+          {
+            Map_export.Value_cluster.src = [ id ];
+            dst = [ id ];
+            claim = Identical;
+          })
+        (Tid.Map.bindings g.tensors);
+  }
+
+(* The same clusters read from the other graph to this one. A claim is
+   symmetric, so only the two sides change places. *)
+let reverse_export (e : Map_export.t) : Map_export.t =
+  {
+    nodes =
+      List.map
+        (fun (c : Map_export.Node_cluster.t) ->
+          { Map_export.Node_cluster.src = c.dst; dst = c.src })
+        e.nodes;
+    values =
+      List.map
+        (fun (c : Map_export.Value_cluster.t) ->
+          { c with Map_export.Value_cluster.src = c.dst; dst = c.src })
+        e.values;
+  }
+
+(* The pinned values of [pins] the mapping's frontier names and [known] does
+   not already hold, as exact logical values. *)
+let pinned_values ~ctx ~(mapping : Mapping_artifact.t) ~known pins =
+  let rec go acc = function
+    | [] -> Ok (List.rev acc)
+    | ((key : Id.Canonical_value.t), read) :: rest -> (
+        match
+          List.find_opt
+            (fun (c : Canonical_spec.t) -> Id.Canonical_value.equal c.key key)
+            mapping.frontier.canonical_values
+        with
+        | None -> go acc rest
+        | Some _
+          when List.exists (fun k -> Id.Canonical_value.equal k key) known ->
+            go acc rest
+        | Some c ->
+            let* bytes = read () in
+            let* v =
+              Inference_compare_codecs.Logical_value.make ctx c.spec bytes
+              |> Result.map_error (fun e ->
+                  Format.asprintf "pinned %s: %a"
+                    (Id.Canonical_value.to_string key)
+                    Inference_compare_codecs.Codec_error.pp (Err.Error.kind e))
+            in
+            go ((key, v) :: acc) rest)
+  in
+  go [] pins
