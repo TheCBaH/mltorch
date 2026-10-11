@@ -417,13 +417,35 @@ let make ~(aten : Aten_model.t) ~(native : Native_model.t)
           | None -> Error ("no Native edge for " ^ k)
         in
         let* nr = native_ref e in
+        let* canonical = aten_spec k in
+        let* nspec = native_spec e in
+        let route dir source destination steps =
+          let* route_id =
+            text (Id.Value_route.of_string (Printf.sprintf "%s:%s" dir k))
+          in
+          Ok
+            {
+              Value_route.route_id;
+              sources = [ source ];
+              destination;
+              steps;
+              claim = Claim.Identical;
+              lossy = false;
+            }
+        in
+        let steps (target : Tensor_spec.t) =
+          if Tensor_spec.equal canonical nspec then []
+          else [ Conversion_step.Reshape target.logical_shape ]
+        in
+        let* forward = route "to-native" a nr (steps nspec) in
+        let* backward = route "from-native" nr a (steps canonical) in
         Ok
           {
             Tensor_relation.relation_id;
             left_members = [ a ];
             right_members = [ nr ];
             member_pairs = [];
-            routes = [];
+            routes = [ forward; backward ];
           })
       keys
   in

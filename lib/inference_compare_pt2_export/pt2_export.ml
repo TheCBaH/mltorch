@@ -79,7 +79,10 @@ let sample_of ~inputs ~index =
       | Some (_, t) -> Ok (with_batch t)
       | None -> Error (Printf.sprintf "%s has no sample %d" inputs index))
 
-let write_experiment ~dir ~model ~inputs ~index ~tolerance =
+type right = Native | Native4d
+
+let write_experiment ?(right = Native) ~dir ~model ~inputs ~index ~tolerance ()
+    =
   let model = absolute model in
   let* sample = sample_of ~inputs ~index in
   let* aten = P.Aten_model.of_file ~hashers ~algorithm model in
@@ -92,8 +95,23 @@ let write_experiment ~dir ~model ~inputs ~index ~tolerance =
     | Some s -> Ok s.name
     | None -> Error "the model has no user input"
   in
-  let* pair =
-    P.Pair.load ~hashers ~algorithm ~path:model ~inputs:[ (input_name, sample) ]
+  let inputs = [ (input_name, sample) ] in
+  let* initial, left_graph, right_graph, mapping =
+    match right with
+    | Native ->
+        let* pair = P.Pair.load ~hashers ~algorithm ~path:model ~inputs in
+        Ok
+          ( P.Pair.initial pair,
+            P.Pair.left_graph pair,
+            P.Pair.right_graph pair,
+            P.Pair.mapping pair )
+    | Native4d ->
+        let* pair = P.Pair4d.load ~hashers ~algorithm ~path:model ~inputs in
+        Ok
+          ( P.Pair4d.initial pair,
+            P.Pair4d.left_graph pair,
+            P.Pair4d.right_graph pair,
+            P.Pair4d.mapping pair )
   in
   let* contents =
     Result.map_error
@@ -113,7 +131,7 @@ let write_experiment ~dir ~model ~inputs ~index ~tolerance =
           in
           go (i + 1) ({ H.Experiment_file.key; payload_id; file } :: acc) rest
     in
-    go 0 [] (P.Pair.initial pair)
+    go 0 [] initial
   in
   let* experiment_id = text (Id.Experiment.of_string "pt2-pair") in
   let* case_id = text (Id.Case.of_string (Printf.sprintf "sample-%d" index)) in
@@ -125,7 +143,13 @@ let write_experiment ~dir ~model ~inputs ~index ~tolerance =
       left =
         { graph = "left.graph.json"; engine = Aten { model; sha256 = pin } };
       right =
-        { graph = "right.graph.json"; engine = Native { model; sha256 = pin } };
+        {
+          graph = "right.graph.json";
+          engine =
+            (match right with
+            | Native -> Native { model; sha256 = pin }
+            | Native4d -> Native4d { model; sha256 = pin });
+        };
       mapping = "mapping.json";
       selection = "selection.json";
       case;
@@ -137,16 +161,13 @@ let write_experiment ~dir ~model ~inputs ~index ~tolerance =
   in
   let at = Filename.concat dir in
   let* () =
-    write (at "left.graph.json")
-      (json (Graph_desc.encode (P.Pair.left_graph pair)))
+    write (at "left.graph.json") (json (Graph_desc.encode left_graph))
   in
   let* () =
-    write (at "right.graph.json")
-      (json (Graph_desc.encode (P.Pair.right_graph pair)))
+    write (at "right.graph.json") (json (Graph_desc.encode right_graph))
   in
   let* () =
-    write (at "mapping.json")
-      (json (Mapping_artifact.encode (P.Pair.mapping pair)))
+    write (at "mapping.json") (json (Mapping_artifact.encode mapping))
   in
   let* () =
     write (at "selection.json")

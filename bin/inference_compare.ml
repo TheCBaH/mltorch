@@ -246,10 +246,23 @@ let export_pt2_cmd =
       & opt (some string) None
       & info [ "out" ] ~docv:"DIR" ~doc:"Directory receiving experiment.json.")
   in
-  let run model inputs index tolerance out =
+  let right =
+    Arg.(
+      value
+      & opt
+          (enum
+             [
+               ("native", Inference_compare_pt2_export.Pt2_export.Native);
+               ("native4d", Inference_compare_pt2_export.Pt2_export.Native4d);
+             ])
+          Inference_compare_pt2_export.Pt2_export.Native
+      & info [ "right" ] ~docv:"ENGINE"
+          ~doc:"The engine compared with ATen: native or native4d.")
+  in
+  let run model inputs index tolerance out right =
     match
-      Inference_compare_pt2_export.Pt2_export.write_experiment ~dir:out ~model
-        ~inputs ~index ~tolerance
+      Inference_compare_pt2_export.Pt2_export.write_experiment ~right ~dir:out
+        ~model ~inputs ~index ~tolerance ()
     with
     | Ok () ->
         Format.printf "wrote %s@." (Filename.concat out "experiment.json");
@@ -262,8 +275,8 @@ let export_pt2_cmd =
     (Cmd.info "export-pt2"
        ~doc:
          "Write an experiment comparing the ATen interpreter with the Native \
-          evaluator on one exported model and sample.")
-    Term.(const run $ model $ inputs $ index $ tolerance $ out)
+          or Native4D evaluator on one exported model and sample.")
+    Term.(const run $ model $ inputs $ index $ tolerance $ out $ right)
 
 let () =
   let info =

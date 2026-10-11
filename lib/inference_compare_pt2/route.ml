@@ -7,7 +7,7 @@ module Codecs = Inference_compare_codecs
 module Core = Inference_compare_core
 module Ex = Inference_compare_extract
 
-type kind = Aten | Native
+type kind = Aten | Native | Native4d
 
 type t = {
   endpoint : Core.Side_exec.endpoint;
@@ -65,7 +65,7 @@ let load kind ~hashers ~algorithm ~path ~pin : (t, string) result =
           graph = aten.key;
           attributes = Aten_model.attributes_of aten;
         }
-  | Native ->
+  | Native | Native4d -> (
       let* lowered, capture =
         Native_interp.lower_archive_captured aten.archive
         |> Result.map_error (fun e ->
@@ -75,17 +75,51 @@ let load kind ~hashers ~algorithm ~path ~pin : (t, string) result =
       let* native =
         Native_model.of_lowered ~hashers ~algorithm lowered capture
       in
-      Ok
-        {
-          endpoint =
-            Endpoint
-              {
-                runner = Native_runner.create ~artifact ();
-                build =
-                  (fun ex ->
-                    Ex.Dialect.realize (module Native_dialect.Dialect) native ex);
-              };
-          identity = Native_runner.identity ~artifact ();
-          graph = native.key;
-          attributes = Native_model.attributes_of native;
-        }
+      match kind with
+      | Native4d ->
+          let ctx =
+            {
+              Codecs.Logical_value.Context.codecs =
+                Codecs.Element_codec.Registry.builtin;
+              hashers;
+              algorithm;
+              ledger = Codecs.Owned_blob.Ledger.create ();
+            }
+          in
+          let* four =
+            Native4d_model.make ~hashers ~algorithm ~ctx ~archive:aten.archive
+              ~native ~user_bytes:(Error "no case")
+          in
+          Ok
+            {
+              endpoint =
+                Endpoint
+                  {
+                    runner = Native4d_runner.create ~artifact ();
+                    build =
+                      (fun ex ->
+                        Ex.Dialect.realize
+                          (module Native4d_dialect.Dialect)
+                          four.n4 ex);
+                  };
+              identity = Native4d_runner.identity ~artifact ();
+              graph = four.n4.key;
+              attributes = Graph_model.attributes_of four.n4;
+            }
+      | _ ->
+          Ok
+            {
+              endpoint =
+                Endpoint
+                  {
+                    runner = Native_runner.create ~artifact ();
+                    build =
+                      (fun ex ->
+                        Ex.Dialect.realize
+                          (module Native_dialect.Dialect)
+                          native ex);
+                  };
+              identity = Native_runner.identity ~artifact ();
+              graph = native.key;
+              attributes = Native_model.attributes_of native;
+            })

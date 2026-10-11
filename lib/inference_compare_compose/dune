@@ -1,0 +1,11 @@
+; Composition of two supplied mapping artifacts (A -> B and B -> C) into one
+; (A -> C): node clusters by connected components, tensor routes by
+; concatenating their conversion steps, and the common-value frontier by
+; threading the first map's left-side recipes through the composed routes.
+; Pure: it reads no graph and runs nothing. The result is a candidate that the
+; planner (Inference_compare_plan.Structural) must still accept; composition
+; never repairs a partition.
+
+(library
+ (name inference_compare_compose)
+ (libraries err_trace fmt inference_compare_codecs inference_compare_schema))

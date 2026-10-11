@@ -10,7 +10,7 @@ module Core = Inference_compare_core
 (* A pinned exported model: the path (relative to the experiment, or absolute)
    and the SHA-256 of the file. *)
 type pt2 = { model : string; sha256 : string }
-type t = Aten of pt2 | Native of pt2 | Synthetic of R.config
+type t = Aten of pt2 | Native of pt2 | Native4d of pt2 | Synthetic of R.config
 
 let decode_pt2 o =
   let ( let* ) = W.( let* ) in
@@ -49,6 +49,9 @@ let decode : t W.decoder =
       | "native" ->
           let* p = decode_pt2 o in
           Ok (Native p)
+      | "native4d" ->
+          let* p = decode_pt2 o in
+          Ok (Native4d p)
       | "synthetic" ->
           let* name = W.Obj.required o "name" W.string in
           let* offsets = W.Obj.required o "offsets" (W.list node_delta) in
@@ -81,6 +84,7 @@ let decode : t W.decoder =
 let encode = function
   | Aten p -> encode_pt2 "aten" p
   | Native p -> encode_pt2 "native" p
+  | Native4d p -> encode_pt2 "native4d" p
   | Synthetic c ->
       W.tagged "synthetic"
         [
@@ -139,6 +143,7 @@ let instantiate (t : t) ~hashers ~algorithm ~base ~(source : Graph_desc.t) :
   match t with
   | Aten p -> pt2 Inference_compare_pt2.Route.Aten p
   | Native p -> pt2 Inference_compare_pt2.Route.Native p
+  | Native4d p -> pt2 Inference_compare_pt2.Route.Native4d p
   | Synthetic cfg ->
       let runner, _ = R.create cfg in
       let module M = (val runner) in

@@ -101,6 +101,7 @@ type transformed = Native_interp_exec.transformed =
       nodes_before : int;
       audits : Pass.Audit_log.t;
       composed : Map_verify.Report.t option;
+      map_export : Map_export.t;
     }
       -> transformed
 

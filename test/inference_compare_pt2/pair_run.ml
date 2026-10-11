@@ -50,14 +50,79 @@ let () =
     | Some s -> s.name
     | None -> failwith "no user input"
   in
-  let pair =
-    match
-      P.Pair.load ~hashers ~algorithm ~path:model
-        ~inputs:[ (input_name, sample) ]
-    with
-    | Ok p -> p
-    | Error m -> failwith ("pair: " ^ m)
+  let four = Sys.getenv_opt "RIGHT" = Some "native4d" in
+  let pair4d = ref None in
+  let mapping, left_graph, right_graph, initial, node_attributes, right_endpoint
+      =
+    if four then (
+      match
+        P.Pair4d.load ~hashers ~algorithm ~path:model
+          ~inputs:[ (input_name, sample) ]
+      with
+      | Error m -> failwith ("pair4d: " ^ m)
+      | Ok p ->
+          pair4d := Some p;
+          ( P.Pair4d.mapping p,
+            P.Pair4d.left_graph p,
+            P.Pair4d.right_graph p,
+            P.Pair4d.initial p,
+            P.Pair4d.node_attributes p,
+            P.Pair4d.native4d_endpoint p ))
+    else
+      match
+        P.Pair.load ~hashers ~algorithm ~path:model
+          ~inputs:[ (input_name, sample) ]
+      with
+      | Error m -> failwith ("pair: " ^ m)
+      | Ok p ->
+          ( P.Pair.mapping p,
+            P.Pair.left_graph p,
+            P.Pair.right_graph p,
+            P.Pair.initial p,
+            P.Pair.node_attributes p,
+            P.Pair.native_endpoint p )
   in
+  let left_endpoint =
+    Core.Side_exec.Endpoint
+      {
+        runner = P.Aten_runner.create ();
+        build =
+          (fun ex ->
+            Ex.Dialect.realize (module P.Aten_dialect.Dialect) aten0 ex);
+      }
+  in
+  if Sys.getenv_opt "DEBUG_INIT" <> None then begin
+    let have =
+      List.map (fun (k, _) -> Id.Canonical_value.to_string k) initial
+    in
+    List.iter
+      (fun (i : Initial_binding.t) ->
+        let k = Id.Canonical_value.to_string i.key in
+        if not (List.mem k have) then Printf.printf "no value for %s\n" k)
+      mapping.frontier.initial_values
+  end;
+  (match (!pair4d, Sys.getenv_opt "ASSOC") with
+  | Some p, Some _ ->
+      (* the composition regrouped: ATen.(canonicalize.lower) against the
+         (ATen.canonicalize).lower the pair itself uses *)
+      let get = function Ok x -> x | Error m -> failwith m in
+      let c = get (Lazy.force p.four.canonicalize)
+      and l = get (Lazy.force p.four.lower) in
+      let compose a b =
+        match
+          Inference_compare_compose.Compose.compose ~hashers ~algorithm a b
+        with
+        | Ok m -> m
+        | Error e ->
+            failwith
+              (Format.asprintf "compose: %a"
+                 (Err.Error.pp_kind Inference_compare_compose.Compose_error.pp)
+                 e)
+      in
+      let alt = compose p.base.import.mapping (compose c.mapping l.mapping) in
+      Inference_compare_test.Compose_cases.same_meaning
+        "(ATen.canonicalize).lower vs ATen.(canonicalize.lower)" mapping alt
+  | _ -> ());
   let limits =
     {
       Inference_compare_test.Plan_fixtures.limits with
@@ -72,9 +137,8 @@ let () =
   let structural =
     match
       Plan.Structural.check ~limits
-        ~options:Inference_compare_test.Plan_fixtures.options
-        ~left:(P.Pair.left_graph pair) ~right:(P.Pair.right_graph pair)
-        (P.Pair.mapping pair)
+        ~options:Inference_compare_test.Plan_fixtures.options ~left:left_graph
+        ~right:right_graph mapping
     with
     | Ok s -> s
     | Error e ->
@@ -85,9 +149,7 @@ let () =
   in
   let extractions =
     match
-      Ex.Extraction.extract_all
-        ~node_attributes:(P.Pair.node_attributes pair)
-        ~hashers ~algorithm structural
+      Ex.Extraction.extract_all ~node_attributes ~hashers ~algorithm structural
     with
     | Ok l -> l
     | Error e ->
@@ -185,7 +247,7 @@ let () =
           overrides = [];
           compare_policy_digest = Pol.Seal.placeholder algorithm;
         };
-      initial = P.Pair.initial pair;
+      initial;
       expected_identities = (None, None);
       emit = (fun _ -> Ok ());
       retain = (fun _ -> Ok ());
@@ -193,9 +255,7 @@ let () =
     }
   in
   let r =
-    Core.Coordinator.run cfg sealed
-      ~left:(P.Pair.aten_endpoint pair)
-      ~right:(P.Pair.native_endpoint pair)
+    Core.Coordinator.run cfg sealed ~left:left_endpoint ~right:right_endpoint
   in
   Printf.eprintf "run took %.1fs\n" (Unix.gettimeofday () -. t0);
   Printf.printf "execution=%s numerical=%s executed=%d units\n"
@@ -268,6 +328,53 @@ let () =
                      | Ok w -> L.contents w
                      | Error m -> m)
                    ts r.finals))
+      | Right when four -> (
+          let p = Option.get !pair4d in
+          let g = p.four.n4.graph in
+          let user =
+            List.find
+              (fun i -> Graph_common.input_kind g i = Graph_common.Input.Input)
+              g.inputs
+          in
+          let v = List.assoc input_name p.base.case.values in
+          let six =
+            match P.Graph_model.spec_of g user with
+            | Error m -> failwith m
+            | Ok sp -> (
+                match L.make run_ctx sp (L.contents v) with
+                | Ok x -> x
+                | Error _ -> failwith "six-axis input")
+          in
+          match P.Conv.native_of_logical six with
+          | Error m -> Error m
+          | Ok packed -> (
+              match
+                Native4d.Eval_direct4.run g
+                  ~constants:
+                    (Graph_ir.Tensor_id.Map.bindings
+                       (Result.get_ok (Lazy.force p.four.constants)))
+                  ~inputs:[ (user, packed) ]
+              with
+              | Error _ -> Error "whole Native4D run failed"
+              | Ok env ->
+                  Ok
+                    (List.map2
+                       (fun id (_, v) ->
+                         let (Tensor.Tensor t as pk) =
+                           Graph_ir.Tensor_id.Map.find id env
+                         in
+                         let shape =
+                           List.map
+                             (fun a -> Int64.of_int (Vec6.get t.shape a :> int))
+                             Axis.all
+                         in
+                         let spec =
+                           { (L.spec v) with Tensor_spec.logical_shape = shape }
+                         in
+                         match P.Conv.logical_of_native run_ctx spec pk with
+                         | Ok w -> L.contents w
+                         | Error m -> m)
+                       g.outputs r.finals)))
       | Right -> (
           match Native_interp.run_named archive ~inputs with
           | Error _ -> Error "whole Native run failed"
@@ -317,3 +424,5 @@ let () =
           (List.length whole)
           (if same then "bitwise equal" else "DIFFER from")
   end
+
+let () = if Sys.getenv_opt "DEBUG_INIT" <> None then ()

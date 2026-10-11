@@ -17,7 +17,11 @@
   fmt
   inference_compare_plan
   inference_compare_schema
+  inference_compare_compose
   inference_compare_sha256
+  native
+  native4d
+  native_interp
   unix))
 
 ; Gated on PT2_DATA like the other real-archive crams (`make pt2.runtest`).
@@ -33,3 +37,24 @@
  (deps (universe) %{exe:../../bin/inference_compare.exe})
  (enabled_if
   (<> %{env:PT2_DATA=} "")))
+
+; Hermetic tests of the pass-map provider; no model data and no engine.
+
+(library
+ (name inference_compare_pt2_test)
+ (modules pass_map_test)
+ (libraries
+  err_trace
+  fmt
+  inference_compare_codecs
+  inference_compare_plan
+  inference_compare_pt2
+  inference_compare_schema
+  inference_compare_sha256
+  jsont.bytesrw
+  native
+  native4d
+  native_test)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
