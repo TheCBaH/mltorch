@@ -1,4 +1,4 @@
-.PHONY: transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open transformers.compare transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
+.PHONY: transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open model.compare transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean machine.a64.conformance machine.pt2.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
@@ -15,7 +15,7 @@
 	native-infer-verify-arena.% native-infer-verify-direct \
 	native-infer-verify-direct.% native-transform-verify \
 	native-transform-verify.% precommit profile.landmarks \
-	profile.memtrace pt2.download pt2.download-all pt2.download-cram pt2.compare safetensors.run \
+	profile.memtrace pt2.download pt2.download-all pt2.download-cram safetensors.run \
 	arena.eval arena.eval.report arena.schedule.eval arena.schedule.eval.report pt2.json-model-support pt2.runtest pt2.vars runtest safetensors.browser.runtest spike.runtest \
 	spike.setup tailcall.js-benchmark tailcall.runtest test \
 	verify.pristine visualizer.build visualizer.patch \
@@ -216,26 +216,50 @@ transformers.open:
 	opam exec -- dune exec bin/transformers_fixture.exe -- open \
 		$(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) $(TRANSFORMERS_ARTIFACTS)
 
-# Compare two engines on one released fixture, cluster by cluster: both run each
-# cluster of the correspondence on the same committed inputs, and every cluster
-# is printed as it is compared ([k/N]: its operations on each side, then the
-# verdict). Fetches the fixture and its Hub checkpoint if they are not cached.
-#   make transformers.compare MODEL=<artifact id> [CASE=case-00]
-#     [LEFT=aten] [RIGHT=native|native-sequential] [TOL=1e-4] [DONOR=left|right]
-# LEFT is aten (the C++ ATen interpreter); RIGHT is the Native evaluator with
-# binary64 dots (native) or binary32 sequential dots (native-sequential). The
-# pairing follows the ATen-to-Native import correspondence, which is why ATen is
-# on the left. TOL is the atol and rtol of the binary32 element comparison.
+# Compare two engines on one model, cluster by cluster: both run each cluster of
+# the ATen-to-Native correspondence on the same committed inputs, and every cluster
+# is printed as it is compared ([k/N]: its operations on each side, then the verdict).
+#   make model.compare.<model>   (or: make model.compare MODEL=<model>) [LEFT=aten] [RIGHT=native|native-sequential]
+#     [TOL=1e-4] [DONOR=left|right] [SAMPLE=0] [CASE=case-00]
+# <model> is either a timm model of the producer submodule (mobilenetv2_050): its
+# graph and weight map from the model directory, its weights from the pinned Hub
+# checkpoint (no .pt2 is read), its inputs from the release (SAMPLE picks one); or
+# a cohort artifact id (data/transformers/cohort.json), or a unique prefix of one
+# (smolvlm-256m/image-text-generation/reference/connector), whose fixture and Hub
+# checkpoint are fetched if not cached (CASE picks the case). LEFT is aten (the C++
+# ATen interpreter); RIGHT is the Native evaluator with binary64 dots (native) or
+# binary32 sequential dots (native-sequential). ATen is on the left because the
+# import correspondence is ATen to Native. TOL is the atol and rtol of the
+# binary32 element comparison. Exit status: 0 agreement, 1 disagreement (make
+# reports 2), 3 refused or failed, 4 not established.
 CASE ?= case-00
 LEFT ?= aten
 RIGHT ?= native
+SAMPLE ?= 0
 TOL ?= 1e-4
 DONOR ?= left
-transformers.compare:
-	@test -n "$(MODEL)" || { echo "set MODEL to a cohort artifact id (see $(TRANSFORMERS_COHORT))" >&2; exit 2; }
-	$(MAKE) --no-print-directory transformers.download TRANSFORMERS_ARTIFACTS="$(MODEL)"
-	TOL=$(TOL) DONOR=$(DONOR) opam exec -- dune exec test/inference_compare_pt2/fixture_pair_run.exe -- fixture \
-		$(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) "$(MODEL)" $(CASE) $(LEFT) $(RIGHT)
+PAIR_RUN = _build/default/test/inference_compare_pt2/fixture_pair_run.exe
+model.compare model.compare.%: export HF_HUB_CACHE ?= $(TRANSFORMERS_HF_HUB_CACHE)
+
+# A target name cannot hold a /, so an artifact id given whole is MODEL=; the
+# dotted words (smolvlm-256m.connector) work in the target.
+MODEL ?=
+model.compare.%:
+	@$(MAKE) --no-print-directory model.compare MODEL="$*"
+
+model.compare:
+	@test -n "$(MODEL)" || { echo "usage: make model.compare.<model> (or MODEL=<model>)" >&2; exit 2; }
+	@opam exec -- dune build test/inference_compare_pt2/fixture_pair_run.exe
+	@if [ -d "$(PT2_JSON_MODELS_DIR)/$(MODEL)" ]; then \
+		$(MAKE) --no-print-directory pt2.download PT2_MODEL="$(MODEL)" || exit $$?; \
+		TOL=$(TOL) DONOR=$(DONOR) $(PAIR_RUN) safetensors \
+			"$(PT2_JSON_MODELS_DIR)/$(MODEL)" "$(PT2_DIR)/$(MODEL)/inputs.pt" $(SAMPLE) $(LEFT) $(RIGHT); \
+	else \
+		id=$$($(PAIR_RUN) resolve "$(TRANSFORMERS_COHORT)" "$(MODEL)") || exit $$?; \
+		$(MAKE) --no-print-directory transformers.download TRANSFORMERS_ARTIFACTS="$$id" || exit $$?; \
+		TOL=$(TOL) DONOR=$(DONOR) $(PAIR_RUN) fixture \
+			"$(TRANSFORMERS_COHORT)" "$(TRANSFORMERS_CACHE)" "$$id" $(CASE) $(LEFT) $(RIGHT); \
+	fi
 
 # Offline numerical replay of the cohort's published cases through Native direct
 # execution: every output element against the producer's reference under the
@@ -447,17 +471,6 @@ safetensors.run: pt2.download
 	_build/default/test/interp_run.exe $(PT2_JSON_MODELS_DIR)/$(PT2_MODEL) \
 		$(PT2_MODEL_DIR)/inputs.pt $(PT2_MODEL_DIR)/expected.json \
 		$(PT2_MODEL_DIR)/outputs.pt --strict --safetensors
-
-# The same cluster-by-cluster comparison (see transformers.compare) for a timm model
-# from the producer submodule: graph and weight map from its model directory, weights
-# from the pinned Hub checkpoint through hf-hub (no .pt2 is read), inputs from the
-# release's inputs.pt. Needs the network once, or a warm HF_HUB_CACHE.
-#   make pt2.compare [PT2_MODEL=mobilenetv2_050] [SAMPLE=0] [LEFT=aten]
-#     [RIGHT=native|native-sequential] [TOL=1e-4] [DONOR=left|right]
-SAMPLE ?= 0
-pt2.compare: pt2.download
-	TOL=$(TOL) DONOR=$(DONOR) opam exec -- dune exec test/inference_compare_pt2/fixture_pair_run.exe -- safetensors \
-		$(PT2_JSON_MODELS_DIR)/$(PT2_MODEL) $(PT2_MODEL_DIR)/inputs.pt $(SAMPLE) $(LEFT) $(RIGHT)
 
 # The raw interpreter binary, built once via plain `dune build` (never `dune
 # exec`). inference.% below runs this directly instead, so `make -j` can fan

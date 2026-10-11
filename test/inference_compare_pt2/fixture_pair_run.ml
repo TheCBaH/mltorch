@@ -3,6 +3,7 @@
    Usage:
      fixture_pair_run fixture COHORT CACHE_DIR ARTIFACT_ID CASE_ID LEFT RIGHT
      fixture_pair_run safetensors MODEL_DIR INPUTS_PT SAMPLE LEFT RIGHT
+     fixture_pair_run resolve COHORT NAME   (print the artifact id NAME stands for)
    The first is a released Transformers fixture; the second a timm model whose
    graph and weight map are a submodule model directory and whose weights are
    the pinned Hub checkpoint (no .pt2), with the release's inputs.pt for the
@@ -13,7 +14,7 @@
    established.
    Environment: TOL (default 1e-4), DONOR=left|right, DUMP=dir (write the
    donor's final outputs). The fixture must already be in the cache and
-   HF_HUB_CACHE must hold its Hub checkpoint: see [make transformers.compare]. *)
+   HF_HUB_CACHE must hold its Hub checkpoint: see [make model.compare.<model>]. *)
 open Inference_compare_schema
 module P = Inference_compare_pt2
 module Core = Inference_compare_core
@@ -136,7 +137,55 @@ let operations (g : Graph_desc.t) (c : Cluster.t) =
   | [] -> "(no nodes)"
   | ops -> String.concat ", " ops
 
+(* The artifact id a name stands for: an exact id, else the one id whose
+   /-separated components include every .- or /-separated word of the name
+   (smolvlm-256m.connector). Prints the id; an unknown or ambiguous name lists
+   what it could be. *)
+let resolve cohort_path name =
+  let cohort =
+    unwrap
+      (Err.payload
+         (let open Err.Syntax in
+          let* text = U.Fetch.read cohort_path in
+          Pt2_fixture.Cohort.of_string text))
+  in
+  let ids =
+    List.map
+      (fun (e : Pt2_fixture.Cohort.entry) -> e.artifact_id)
+      cohort.entries
+  in
+  match
+    if List.mem name ids then [ name ]
+    else
+      let words =
+        String.split_on_char '.' name
+        |> List.concat_map (String.split_on_char '/')
+        |> List.filter (fun w -> w <> "")
+      in
+      List.filter
+        (fun id ->
+          let parts = String.split_on_char '/' id in
+          words <> [] && List.for_all (fun w -> List.mem w parts) words)
+        ids
+  with
+  | [ id ] -> print_endline id
+  | [] ->
+      Printf.eprintf
+        "%s is neither a model of the producer submodule nor a cohort artifact \
+         (%s)\n"
+        name cohort_path;
+      exit 2
+  | many ->
+      Printf.eprintf "%s is ambiguous in %s:\n" name cohort_path;
+      List.iter (Printf.eprintf "  %s\n") many;
+      exit 2
+
 let () =
+  (match Array.to_list Sys.argv with
+  | [ _; "resolve"; cohort; name ] ->
+      resolve cohort name;
+      exit 0
+  | _ -> ());
   let source, left, right =
     match Array.to_list Sys.argv with
     | [ _; "fixture"; cohort; cache; artifact; case; l; r ] ->
