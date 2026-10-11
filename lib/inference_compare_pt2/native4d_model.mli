@@ -39,17 +39,30 @@ module Canonical : sig
   }
 end
 
+val lowered_name :
+  Native_interp.Capture.t -> Graph_ir.Tensor_id.t -> string option
+(** The exporter name of a source of the lowered graph. *)
+
+val through :
+  Map_export.t ->
+  (Graph_ir.Tensor_id.t -> string option) ->
+  Graph_ir.Tensor_id.t ->
+  string option
+(** The exporter name of a source of the graph a map leads to, read off the
+    source value its cluster holds: [through map upstream_name id]. *)
+
 val canonical :
   hashers:Inference_compare_codecs.Payload_hasher.Registry.t ->
   algorithm:Id.Digest_algorithm.t ->
   ctx:Inference_compare_codecs.Logical_value.Context.t ->
   archive:Pt2_archive.t ->
   native:Native_model.t ->
-  user_bytes:(string, string) result ->
+  source_bytes:(string -> (string, string) result) ->
   (Canonical.t, string) result
 (** Builds the Native views without the four-axis lowering, so a model Native
-    supports but Native4D refuses still has them. [user_bytes] is read only when
-    a pass map is. *)
+    supports but Native4D refuses still has them. [source_bytes] is the value of
+    an original source by its exporter name; it is read only when a pass map is.
+*)
 
 val make :
   hashers:Inference_compare_codecs.Payload_hasher.Registry.t ->
@@ -57,10 +70,9 @@ val make :
   ctx:Inference_compare_codecs.Logical_value.Context.t ->
   archive:Pt2_archive.t ->
   native:Native_model.t ->
-  user_bytes:(string, string) result ->
+  source_bytes:(string -> (string, string) result) ->
   (t, string) result
-(** [user_bytes] is the value of the model's one input, which the archive does
-    not hold; it is read only when a pass map is. *)
+(** [source_bytes] as for {!canonical}. *)
 
 val refusal : Native4d.Error.t Err.Error.t -> string
 (** The text of a lowering failure: the graph is outside the domain. *)

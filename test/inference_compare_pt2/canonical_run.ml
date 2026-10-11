@@ -36,15 +36,11 @@ let () =
     get
       (P.Pair.of_aten ~hashers ~algorithm ~inputs:[ (input_name, sample) ] aten)
   in
-  let user_bytes =
-    match List.assoc_opt input_name base.case.bytes with
-    | Some b -> Ok b
-    | None -> Error "no input"
-  in
   let c =
     get
       (P.Native4d_model.canonical ~hashers ~algorithm ~ctx:base.case_ctx
-         ~archive:base.aten.archive ~native:base.native ~user_bytes)
+         ~archive:base.aten.archive ~native:base.native
+         ~source_bytes:(P.Pair.source_bytes base))
   in
   Printf.printf "canonical: built, lowering forced: %b\n"
     (Lazy.is_val c.lowering);

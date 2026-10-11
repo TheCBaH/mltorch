@@ -58,8 +58,25 @@ let materialize archive ~constants ~store =
        constants
        (Constant_store.materialized store))
 
-(* A source is a materialized constant or the model's one user input. *)
-let bytes_of ~graph ~user_bytes ctx (g : _ Graph_common.Graph.t) constants id =
+(* The exporter name of a source of the lowered graph. *)
+let lowered_name (capture : Native_interp.Capture.t) id =
+  List.find_map
+    (fun (name, t) -> if Tid.equal t id then Some name else None)
+    capture.sources
+
+(* The name of a destination source, read off the map that produced it: the
+   name of the source value it is a cluster with. *)
+let through (export : Map_export.t) upstream id =
+  List.find_map
+    (fun (c : Map_export.Value_cluster.t) ->
+      if List.exists (Tid.equal id) c.dst then List.find_map upstream c.src
+      else None)
+    export.values
+
+(* A source is a materialized constant or a case value, found by the exporter
+   name the importer gave its original tensor. *)
+let bytes_of ~graph ~source_bytes ~name_of ctx (g : _ Graph_common.Graph.t)
+    constants id =
   match Tid.Map.find_opt id constants with
   | Some packed ->
       let* spec = G.spec_of g id in
@@ -68,14 +85,9 @@ let bytes_of ~graph ~user_bytes ctx (g : _ Graph_common.Graph.t) constants id =
       L.drop v;
       Ok b
   | None -> (
-      let users =
-        List.filter
-          (fun i -> Graph_common.input_kind g i = Graph_common.Input.Input)
-          g.inputs
-      in
-      match users with
-      | [ u ] when Tid.equal u id -> user_bytes
-      | _ ->
+      match name_of id with
+      | Some name -> source_bytes name
+      | None ->
           Error
             (Printf.sprintf "no value for the source t%d of the %s graph"
                (Tid.to_int id) graph))
@@ -97,11 +109,12 @@ module Canonical = struct
   }
 end
 
-(* [user_bytes] is the value of the model's one input, which the archive does
-   not hold. *)
+(* [source_bytes] is the value of an original source by its exporter name: the
+   case holds the user inputs, which the archive does not. *)
 let canonical ~hashers ~algorithm ~(ctx : L.Context.t)
     ~(archive : Pt2_archive.t) ~(native : Native_model.t)
-    ~(user_bytes : (string, string) result) : (Canonical.t, string) result =
+    ~(source_bytes : string -> (string, string) result) :
+    (Canonical.t, string) result =
   let lowered = native.lowered in
   let* constants0 =
     Native_interp.preload archive lowered
@@ -136,12 +149,16 @@ let canonical ~hashers ~algorithm ~(ctx : L.Context.t)
           (materialize archive ~constants:t.constants ~store:t.constant_store)
       in
       let digest = digest_of ~hashers ~algorithm in
+      let name0 = lowered_name native.capture in
+      let name1 = through t.map_export name0 in
       let n0_bytes =
-        bytes_of ~graph:"lowered" ~user_bytes ctx n0.graph constants0
+        bytes_of ~graph:"lowered" ~source_bytes ~name_of:name0 ctx n0.graph
+          constants0
       in
       let n1_bytes id =
         let* c = Lazy.force constants1 in
-        bytes_of ~graph:"canonical" ~user_bytes ctx n1.graph c id
+        bytes_of ~graph:"canonical" ~source_bytes ~name_of:name1 ctx n1.graph c
+          id
       in
       let canonicalize =
         lazy
@@ -176,15 +193,17 @@ let canonical ~hashers ~algorithm ~(ctx : L.Context.t)
                       (materialize archive ~constants:r.constants
                          ~store:r.constant_store)
                   in
-                  let n4_bytes id =
-                    let* c = Lazy.force constants4 in
-                    bytes_of ~graph:"Native4D" ~user_bytes ctx n4.graph c id
-                  in
                   let module Export_lower =
                     Map_export.Make (Native_side) (Native4d.Framework.Side4)
                   in
+                  let export = Export_lower.export r.map ~src ~dst:r.dst in
+                  let name4 = through export name1 in
+                  let n4_bytes id =
+                    let* c = Lazy.force constants4 in
+                    bytes_of ~graph:"Native4D" ~source_bytes ~name_of:name4 ctx
+                      n4.graph c id
+                  in
                   let lower =
-                    let export = Export_lower.export r.map ~src ~dst:r.dst in
                     lazy
                       (Pass_map.make ~name:"l" ~digest
                          ~src:{ Pass_map.model = n1; bytes = n1_bytes }
@@ -205,7 +224,7 @@ let canonical ~hashers ~algorithm ~(ctx : L.Context.t)
       Ok
         { Canonical.n0; n1; canonical_bytes = n1_bytes; canonicalize; lowering }
 
-let make ~hashers ~algorithm ~ctx ~archive ~native ~user_bytes :
+let make ~hashers ~algorithm ~ctx ~archive ~native ~source_bytes :
     (t, string) result =
-  let* c = canonical ~hashers ~algorithm ~ctx ~archive ~native ~user_bytes in
+  let* c = canonical ~hashers ~algorithm ~ctx ~archive ~native ~source_bytes in
   Lazy.force c.lowering

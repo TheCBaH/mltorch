@@ -48,15 +48,11 @@ let () =
       (P.Pair.load ~hashers ~algorithm ~path:model
          ~inputs:[ (input_name, sample) ])
   in
-  let user_bytes =
-    match List.assoc_opt input_name base.case.bytes with
-    | Some b -> Ok b
-    | None -> Error "no input"
-  in
   let four =
     get
       (P.Native4d_model.make ~hashers ~algorithm ~ctx:base.case_ctx
-         ~archive:base.aten.archive ~native:base.native ~user_bytes)
+         ~archive:base.aten.archive ~native:base.native
+         ~source_bytes:(P.Pair.source_bytes base))
   in
   let pair =
     get

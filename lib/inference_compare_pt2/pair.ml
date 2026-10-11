@@ -53,6 +53,12 @@ let load ~hashers ~algorithm ~path ~inputs =
   let* aten = Aten_model.of_file ~hashers ~algorithm path in
   of_aten ~hashers ~algorithm ~inputs aten
 
+(* The value of an exporter source of the case, by its name. *)
+let source_bytes t name =
+  match List.assoc_opt name t.case.bytes with
+  | Some b -> Ok b
+  | None -> Error ("no value for the source " ^ name)
+
 let mapping t = t.import.mapping
 let left_graph t = t.aten.desc
 let right_graph t = t.native.desc
