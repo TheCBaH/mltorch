@@ -250,3 +250,39 @@ let%expect_test "an injected route failure refuses the run, under either donor"
     execution=refused numerical=not_established executed=0 units
     failure: preparation_refused phase=preparation unit=ru00002 text=engine: injected: this body is refused
     comparisons: 0 pass, 0 mismatch, 0 other |}]
+
+(* The agreement above is not vacuous: an assembly route that computes from
+   perturbed inputs is reported as a disagreement. *)
+module Deviating = P.Graph_runner.Make (struct
+  type op = Graph_ir.op
+  type compiled = C.Assembly_engine.compiled
+
+  let compile = C.Assembly_engine.compile
+
+  let execute m g ~inputs =
+    let scaled =
+      List.map
+        (fun (id, (Tensor.Tensor t as p)) ->
+          ( id,
+            Tensor.materialize t.Tensor.shape (fun c ->
+                1.5 *. Tensor.read p c) ))
+        inputs
+    in
+    C.Assembly_engine.execute m g ~inputs:scaled
+
+  let release = C.Assembly_engine.release
+end)
+
+let%expect_test "a deviating route is a disagreement, not an agreement" =
+  let pair = pair_of (chain ()) in
+  run_pair
+    ~assembly:(fun () ->
+      Deviating.create ~identity:C.Compiled_runners.assembly_identity)
+    ~donor:Side.Left pair;
+  [%expect {|
+    extracted 6 graphs
+    execution=complete numerical=disagreement executed=3 units
+    comparisons: 0 pass, 3 mismatch, 0 other
+      cmp:rv00007 mismatch max_abs=8.6 violations=27
+      cmp:rv00008 mismatch max_abs=5.55 violations=27
+      cmp:rv00009 mismatch max_abs=3.49 violations=27 |}]
