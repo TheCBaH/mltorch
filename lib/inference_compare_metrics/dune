@@ -1,0 +1,10 @@
+; Numerical comparison for the inference comparison coordinator: the element
+; comparator (exactness, tolerance, exceptional values, ULP), stable
+; diagnostic statistics, tensor metric suites over axis groups, distribution
+; metrics, the registered-metric seam and the verdict that joins them. Pure:
+; schema and codec layers only, no engine and no hidden tolerance -- every
+; scale, arithmetic and nonfinite rule comes from the policy.
+
+(library
+ (name inference_compare_metrics)
+ (libraries err_trace fmt inference_compare_codecs inference_compare_schema))
