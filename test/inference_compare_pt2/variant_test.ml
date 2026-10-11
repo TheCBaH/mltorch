@@ -27,6 +27,12 @@ let%expect_test "spellings parse and print canonically" =
       "native:arena,shared";
       "native:arena=-1";
       "native4d:arena";
+      "native:symbolic";
+      "native.canonical:symbolic";
+      "native4d:symbolic";
+      "aten:symbolic";
+      "native:symbolic,arena";
+      "native:symbolic,sequential32";
       "wasm";
     ];
   [%expect
@@ -48,4 +54,10 @@ let%expect_test "spellings parse and print canonically" =
     native:arena,shared -> error: variant "native:arena,shared": more than one storage
     native:arena=-1 -> error: variant "native:arena=-1": no configuration "arena=-1"
     native4d:arena -> error: variant "native4d:arena": no configuration "arena"
+    native:symbolic -> native:symbolic
+    native.canonical:symbolic -> native.canonical:symbolic
+    native4d:symbolic -> native4d:symbolic
+    aten:symbolic -> error: variant "aten:symbolic": no configuration "symbolic"
+    native:symbolic,arena -> error: variant "native:symbolic,arena": symbolic takes no other word
+    native:symbolic,sequential32 -> error: variant "native:symbolic,sequential32": symbolic takes no other word
     wasm -> error: unknown variant "wasm" |}]

@@ -29,22 +29,32 @@ module View = struct
     | _ -> None
 end
 
+(* How the Native-family views are evaluated: concretely, or by grounding the
+   whole-graph symbolic form. *)
+module Evaluator = struct
+  type t = Direct | Symbolic
+end
+
 type t = {
   view : View.t;
+  evaluator : Evaluator.t;
   dots : Direct.dot_accumulation;
   storage : Storage_config.t;
 }
 
-let make ?(dots = Direct.Binary64) ?(storage = Storage_config.default) view =
-  { view; dots; storage }
+let make ?(evaluator = Evaluator.Direct) ?(dots = Direct.Binary64)
+    ?(storage = Storage_config.default) view =
+  { view; evaluator; dots; storage }
 
 let sequential32 = "sequential32"
+let symbolic = "symbolic"
 let ( let* ) = Result.bind
 
-(* [VIEW], or [VIEW:WORD,WORD...]: [sequential32] for binary32 sequential dots
-   and the storage words of {!Storage_config}; [native-sequential] is the
-   earlier spelling of [native:sequential32]. Only the Native views take
-   configuration: the others have none to give. *)
+(* [VIEW], or [VIEW:WORD,WORD...]: [sequential32] for binary32 sequential dots,
+   the storage words of {!Storage_config}, or [symbolic] for the symbolic
+   evaluator, which takes no other word; [native-sequential] is the earlier
+   spelling of [native:sequential32]. Only the Native-family views take
+   configuration, and Native4D only [symbolic]. *)
 let of_string s =
   let view, words =
     match s with
@@ -72,16 +82,28 @@ let of_string s =
             | true, Some word -> go dots (word :: storage) rest
             | _ -> Error (Printf.sprintf "variant %S: no configuration %S" s w))
       in
+      let evaluator, words =
+        if View.rank view > 0 && List.mem symbolic words then
+          (Evaluator.Symbolic, List.filter (fun w -> w <> symbolic) words)
+        else (Evaluator.Direct, words)
+      in
       let* dots, words = go Direct.Binary64 [] words in
       let* storage =
         Storage_config.of_words words
         |> Result.map_error (Printf.sprintf "variant %S: %s" s)
       in
-      Ok (make ~dots ~storage view)
+      if
+        evaluator = Evaluator.Symbolic
+        && (dots <> Direct.Binary64 || not (Storage_config.is_default storage))
+      then Error (Printf.sprintf "variant %S: symbolic takes no other word" s)
+      else Ok (make ~evaluator ~dots ~storage view)
 
 let to_string t =
   let words =
-    (match t.dots with
+    (match t.evaluator with
+      | Evaluator.Direct -> []
+      | Evaluator.Symbolic -> [ symbolic ])
+    @ (match t.dots with
       | Direct.Binary64 -> []
       | Direct.Binary32_sequential -> [ sequential32 ])
     @ Storage_config.to_words t.storage

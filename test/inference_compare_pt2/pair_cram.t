@@ -162,3 +162,12 @@ so with no comparison:
   failure: preparation_refused phase=preparation unit=cu00000 text=engine: arena: the run needs 307200 bytes but the budget is 100000
   comparisons: 0 pass, 0 mismatch, 0 other
   native.canonical:arena=100000 storage: 1 body(ies): 0 in an arena (0 reusing storage), 0 role-planned, 0 release-only
+
+The symbolic evaluators (`VIEW:symbolic`) ground the whole-graph stage program
+instead of running the direct evaluator. On the four-axis graph they agree with
+the direct run bit for bit (the Native one is checked on a hermetic body in
+`symbolic_runner_test`):
+
+  $ TOL=0 ./fixture_pair_run.exe safetensors "$m" "$i" 0 native4d native4d:symbolic 2>/dev/null | grep -E "^execution|^comparisons"
+  execution=complete numerical=agreement executed=40 units
+  comparisons: 40 pass, 0 mismatch, 0 other

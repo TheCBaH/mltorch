@@ -56,19 +56,40 @@ let config_text (v : Variant.t) =
   if Storage_config.is_default v.storage then None
   else Some ("storage=" ^ String.concat "," (Storage_config.to_words v.storage))
 
-let identity (v : Variant.t) = function
-  | Aten _ -> fun () -> Aten_runner.identity ()
-  | Native _ ->
+let identity (v : Variant.t) model =
+  match (v.evaluator, model) with
+  | _, Aten _ -> fun () -> Aten_runner.identity ()
+  | Symbolic, Native _ -> fun () -> Symbolic_runner.native_identity ()
+  | Symbolic, Native4d _ -> fun () -> Symbolic_runner.native4d_identity ()
+  | Direct, Native _ ->
       fun () -> Native_runner.identity ~dots:v.dots ?config:(config_text v) ()
-  | Native4d _ -> fun () -> Native4d_runner.identity ()
+  | Direct, Native4d _ -> fun () -> Native4d_runner.identity ()
 
 (* The endpoint of a variant on its graph, and what it will have resolved. *)
 let endpoint (base : Pair.t) (v : Variant.t) model :
     Core.Side_exec.endpoint * (unit -> string option) =
   let none () = None in
-  match model with
-  | Aten _ -> (Pair.aten_endpoint base, none)
-  | Native m when Storage_config.is_default v.storage ->
+  match (v.evaluator, model) with
+  | _, Aten _ -> (Pair.aten_endpoint base, none)
+  | Symbolic, Native m ->
+      ( Endpoint
+          {
+            runner = Symbolic_runner.create_native ();
+            build =
+              (fun ex ->
+                Ex.Dialect.realize (module Native_direct.Dialect.Dialect) m ex);
+          },
+        none )
+  | Symbolic, Native4d m ->
+      ( Endpoint
+          {
+            runner = Symbolic_runner.create_native4d ();
+            build =
+              (fun ex ->
+                Ex.Dialect.realize (module Native4d_dialect.Dialect) m ex);
+          },
+        none )
+  | Direct, Native m when Storage_config.is_default v.storage ->
       ( Endpoint
           {
             runner = Native_direct.create ~dots:v.dots ();
@@ -77,7 +98,7 @@ let endpoint (base : Pair.t) (v : Variant.t) model :
                 Ex.Dialect.realize (module Native_direct.Dialect.Dialect) m ex);
           },
         none )
-  | Native m ->
+  | Direct, Native m ->
       let notes = Native_storage.Notes.create () in
       ( Endpoint
           {
@@ -89,7 +110,7 @@ let endpoint (base : Pair.t) (v : Variant.t) model :
                 Ex.Dialect.realize (module Native_direct.Dialect.Dialect) m ex);
           },
         fun () -> Some (Native_storage.Notes.summary notes) )
-  | Native4d m ->
+  | Direct, Native4d m ->
       ( Endpoint
           {
             runner = Native4d_runner.create ();
