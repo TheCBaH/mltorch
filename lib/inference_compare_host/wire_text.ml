@@ -1,0 +1,1 @@
+include Inference_compare_schema.Wire_text
