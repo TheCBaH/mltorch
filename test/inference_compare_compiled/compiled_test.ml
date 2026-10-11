@@ -264,8 +264,8 @@ module Deviating = P.Graph_runner.Make (struct
       List.map
         (fun (id, (Tensor.Tensor t as p)) ->
           ( id,
-            Tensor.materialize t.Tensor.shape (fun c ->
-                1.5 *. Tensor.read p c) ))
+            Tensor.materialize t.Tensor.shape (fun c -> 1.5 *. Tensor.read p c)
+          ))
         inputs
     in
     C.Assembly_engine.execute m g ~inputs:scaled
@@ -279,7 +279,8 @@ let%expect_test "a deviating route is a disagreement, not an agreement" =
     ~assembly:(fun () ->
       Deviating.create ~identity:C.Compiled_runners.assembly_identity)
     ~donor:Side.Left pair;
-  [%expect {|
+  [%expect
+    {|
     extracted 6 graphs
     execution=complete numerical=disagreement executed=3 units
     comparisons: 0 pass, 3 mismatch, 0 other
