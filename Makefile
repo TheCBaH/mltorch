@@ -1,4 +1,4 @@
-.PHONY: js.compare.runtest rivet.compare.runtest transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open model.compare model.download model.compare.gate model.fetch.timm model.fetch.fixture transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
+.PHONY: model.compare.coverage js.compare.runtest rivet.compare.runtest transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open model.compare model.download model.compare.gate model.fetch.timm model.fetch.fixture transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean machine.a64.conformance machine.pt2.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
@@ -1453,6 +1453,17 @@ compcert.embed.runtest: compcert.embed.install
 # `make pt2.download-cram`. aarch64 hosts only.
 compcert.compare.runtest: compcert.embed.install
 	PT2_DATA=$(abspath $(PT2_DIR)) PT2_SAFETENSORS_MODELS=$(abspath $(PT2_JSON_MODELS_DIR)) MLTORCH_COMPCERT=$(COMPCERT_ISA) opam exec -- dune build @test/inference_compare_compiled/runtest @test/inference_compare_compiled/compiled_cram @test/inference_compare_pt2/pair_compcert_cram @test/inference_compare_pt2/pair_rivet_cram @test/inference_compare_rivet/runtest --force
+
+# Every row of the coverage manifest (test/inference_compare_coverage) against
+# test_convnext2: each mode of the variant vocabulary and a representative pair, with
+# the result it must give. A row whose engine or prerequisite is missing here is
+# reported pending with the reason, never passed; MLTORCH_COVERAGE_STRICT=1 fails on
+# pending. About four minutes. The Wasm rows need node, the JavaScript rows
+# MLTORCH_COMPARE_JS or the built helper, Rivet an AArch64 host and the CompCert rows
+# MLTORCH_COMPCERT=<isa>.
+model.compare.coverage:
+	opam exec -- dune build test/inference_compare_coverage/coverage_walk.exe test/inference_compare_pt2/fixture_pair_run.exe js/jsoo/compare_js_engine
+	_build/default/test/inference_compare_coverage/coverage_walk.exe test/inference_compare_coverage/coverage.manifest _build/default/test/inference_compare_pt2/fixture_pair_run.exe $(abspath $(PT2_JSON_MODELS_DIR))/test_convnext2 $(abspath $(PT2_DIR))/test_convnext2/inputs.pt
 
 # The JavaScript engines as comparison variants: the engines through the node
 # helper on small bodies and a real model. Needs node and the js_of_ocaml build

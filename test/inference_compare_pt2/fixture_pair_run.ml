@@ -221,10 +221,7 @@ let describe_result (c : Comparison_result.t) =
           s.positive_errors s.negative_errors
 
 let () =
-  Inference_compare_generated.Generated.register ();
-  Inference_compare_js.Js_engines.register ();
-  Rivet_register.register ();
-  Compcert_register.register ();
+  Inference_compare_providers.Providers.register_all ();
   let source, left, right =
     match Array.to_list Sys.argv with
     | [ _; "fixture"; cohort; cache; artifact; case; l; r ] ->

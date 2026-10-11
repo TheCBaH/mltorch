@@ -107,24 +107,13 @@
 
 (executable
  (name fixture_pair_run)
- (modules fixture_pair_run rivet_register compcert_register)
+ (modules fixture_pair_run)
  (libraries
-  (select
-   rivet_register.ml
-   from
-   (inference_compare_rivet -> rivet_register.yes.ml)
-   (-> rivet_register.no.ml))
-  (select
-   compcert_register.ml
-   from
-   (inference_compare_compiled -> compcert_register.yes.ml)
-   (-> compcert_register.no.ml))
+  inference_compare_providers
   model_source
   pt2_safetensors_unix
   pair_harness
   inference_compare_host
-  inference_compare_generated
-  inference_compare_js
   inference_compare_pt2
   inference_compare_codecs
   inference_compare_core
