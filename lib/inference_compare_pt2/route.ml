@@ -88,7 +88,8 @@ let load kind ~hashers ~algorithm ~path ~pin : (t, string) result =
           in
           let* four =
             Native4d_model.make ~hashers ~algorithm ~ctx ~archive:aten.archive
-              ~native ~user_bytes:(Error "no case")
+              ~native ~source_bytes:(fun name ->
+                Error ("no case value for " ^ name))
           in
           Ok
             {

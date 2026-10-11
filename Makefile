@@ -216,20 +216,23 @@ transformers.open:
 	opam exec -- dune exec bin/transformers_fixture.exe -- open \
 		$(TRANSFORMERS_COHORT) $(TRANSFORMERS_CACHE) $(TRANSFORMERS_ARTIFACTS)
 
-# Compare two engines on one model, cluster by cluster: both run each cluster of
-# the ATen-to-Native correspondence on the same committed inputs, and every cluster
+# Compare two variants on one model, cluster by cluster: both run each cluster of
+# the correspondence between them on the same committed inputs, and every cluster
 # is printed as it is compared ([k/N]: its operations on each side, then the verdict).
-#   make model.compare.<model>   (or: make model.compare MODEL=<model>) [LEFT=aten] [RIGHT=native|native-sequential]
+#   make model.compare.<model>   (or: make model.compare MODEL=<model>) [LEFT=aten] [RIGHT=native]
 #     [TOL=1e-4] [DONOR=left|right] [SAMPLE=0] [CASE=case-00]
 # <model> is either a timm model of the producer submodule (mobilenetv2_050): its
 # graph and weight map from the model directory, its weights from the pinned Hub
 # checkpoint (no .pt2 is read), its inputs from the release (SAMPLE picks one); or
 # a cohort artifact id (data/transformers/cohort.json), or a unique prefix of one
 # (smolvlm-256m/image-text-generation/reference/connector), whose fixture and Hub
-# checkpoint are fetched if not cached (CASE picks the case). LEFT is aten (the C++
-# ATen interpreter); RIGHT is the Native evaluator with binary64 dots (native) or
-# binary32 sequential dots (native-sequential). ATen is on the left because the
-# import correspondence is ATen to Native. TOL is the atol and rtol of the
+# checkpoint are fetched if not cached (CASE picks the case). LEFT and RIGHT are
+# variants: a graph view -- aten (the C++ ATen interpreter), native (the lowered
+# graph), native.canonical (after the canonical passes) or native4d (the four-axis
+# graph) -- run by its evaluator; a Native view takes :sequential32 for binary32
+# sequential dots (native:sequential32). Either orientation works between the
+# Native views, and one view against itself compares two configurations; ATen is
+# on the left because the importer's correspondence is ATen to Native. TOL is the atol and rtol of the
 # binary32 element comparison. Exit status: 0 agreement, 1 disagreement (make
 # reports 2), 3 refused or failed, 4 not established.
 CASE ?= case-00
@@ -286,11 +289,13 @@ model.fetch.fixture:
 
 # The comparison itself, end to end, as CI runs it: one timm model (graph and weight
 # map from the submodule, weights through hf-hub) and one Transformers fixture (a
-# released bundle), each ATen against Native at the default tolerance. A run that is
-# not full agreement (disagreement, refusal, failure) fails the target.
+# released bundle), each ATen against Native at the default tolerance, and the timm
+# model's Native graph against its four-axis one. A run that is not full agreement
+# (disagreement, refusal, failure) fails the target.
 MODEL_COMPARE_GATE = mobilenetv2_050 mobilevit-xxs
 model.compare.gate:
 	for m in $(MODEL_COMPARE_GATE); do $(MAKE) --no-print-directory model.compare.$$m || exit $$?; done
+	$(MAKE) --no-print-directory model.compare.mobilenetv2_050 LEFT=native RIGHT=native4d
 
 # Offline numerical replay of the cohort's published cases through Native direct
 # execution: every output element against the producer's reference under the

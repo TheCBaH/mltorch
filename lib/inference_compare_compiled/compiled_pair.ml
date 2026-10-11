@@ -33,24 +33,6 @@ let graph_text g =
   | Ok s -> s
   | Error m -> m
 
-let identity_export (g : Graph_ir.graph) : Map_export.t =
-  {
-    nodes =
-      List.map
-        (fun (n : Graph_ir.node) ->
-          { Map_export.Node_cluster.src = [ n.id ]; dst = [ n.id ] })
-        g.nodes;
-    values =
-      List.map
-        (fun (id, _) ->
-          {
-            Map_export.Value_cluster.src = [ id ];
-            dst = [ id ];
-            claim = Identical;
-          })
-        (Tid.Map.bindings g.tensors);
-  }
-
 (* [bytes] is the exact value of each source of [graph]. *)
 let make ~hashers ~algorithm ~(ctx : L.Context.t) ~(graph : Graph_ir.graph)
     ~(bytes : Tid.t -> (string, string) result) : (t, string) result =
@@ -72,30 +54,10 @@ let make ~hashers ~algorithm ~(ctx : L.Context.t) ~(graph : Graph_ir.graph)
     P.Pass_map.make ~name:"r" ~digest
       ~src:{ P.Pass_map.model = compcert; bytes }
       ~dst:{ P.Pass_map.model = assembly; bytes }
-      ~export:(identity_export graph)
+      ~export:(P.Pass_map.identity_export graph)
   in
   let* initial =
-    let rec go acc = function
-      | [] -> Ok (List.rev acc)
-      | ((key : Id.Canonical_value.t), read) :: rest -> (
-          match
-            List.find_opt
-              (fun (c : Canonical_spec.t) -> Id.Canonical_value.equal c.key key)
-              p.mapping.frontier.canonical_values
-          with
-          | None -> go acc rest
-          | Some c ->
-              let* b = read () in
-              let* v =
-                L.make ctx c.spec b
-                |> Result.map_error (fun e ->
-                    Format.asprintf "%s: %a"
-                      (Id.Canonical_value.to_string key)
-                      Codecs.Codec_error.pp (Err.Error.kind e))
-              in
-              go ((key, v) :: acc) rest)
-    in
-    go [] p.pins
+    P.Pass_map.pinned_values ~ctx ~mapping:p.mapping ~known:[] p.pins
   in
   Ok { compcert; assembly; mapping = p.mapping; initial }
 

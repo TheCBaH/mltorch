@@ -12,8 +12,10 @@
    above, from the directories MODELS_DIR (the timm models), COHORT, CACHE_DIR
    (the fixture cache) and RELEASE_DIR (the timm releases' inputs), and takes
    SAMPLE or CASE (default 0 and case-00).
-   LEFT is [aten] (the import correspondence is ATen to Native); RIGHT is
-   [native] (binary64 dots) or [native-sequential] (binary32 sequential dots).
+   LEFT and RIGHT are variants: a graph view [aten], [native],
+   [native.canonical] or [native4d], with [:sequential32] after a Native view
+   for binary32 sequential dots ([native-sequential] is the same as
+   [native:sequential32]). ATen can only be on the left.
    Exit status: 0 agreement, 1 disagreement, 3 refused or failed, 4 not
    established.
    Environment: TOL (default 1e-4), DONOR=left|right, DUMP=dir (write the
@@ -38,7 +40,8 @@ let usage () =
      RIGHT\n\
     \       fixture_pair_run safetensors MODEL_DIR INPUTS_PT SAMPLE LEFT RIGHT\n\
     \       fixture_pair_run model NAME LEFT RIGHT\n\
-     engines: LEFT is aten; RIGHT is native or native-sequential";
+     variants: aten, native, native.canonical, native4d (native views also \
+     VIEW:sequential32)";
   exit 2
 
 (* The sample of the release's [inputs.pt] the exporter picks, with the batch
@@ -218,14 +221,14 @@ let () =
     | [ _; "model"; name; l; r ] -> (resolve_model name, l, r)
     | _ -> usage ()
   in
-  let dots =
-    match (left, right) with
-    | "aten", "native" -> Direct.Binary64
-    | "aten", "native-sequential" -> Direct.Binary32_sequential
-    | _ ->
-        Printf.eprintf "unsupported engine pair %s / %s\n" left right;
+  let variant s =
+    match P.Variant.of_string s with
+    | Ok v -> v
+    | Error m ->
+        prerr_endline m;
         usage ()
   in
+  let left_variant = variant left and right_variant = variant right in
   let donor : Side.t =
     match Sys.getenv_opt "DONOR" with Some "right" -> Right | _ -> Left
   in
@@ -236,10 +239,17 @@ let () =
   let aten =
     ok (P.Aten_model.of_archive ~hashers ~algorithm ~identity_text archive)
   in
-  let pair = ok (P.Pair.of_aten ~hashers ~algorithm ~inputs aten) in
-  let mapping = P.Pair.mapping pair in
-  let left_graph = P.Pair.left_graph pair
-  and right_graph = P.Pair.right_graph pair in
+  let base = ok (P.Pair.of_aten ~hashers ~algorithm ~inputs aten) in
+  let pair =
+    match P.Variant_pair.make base ~left:left_variant ~right:right_variant with
+    | Ok pair -> pair
+    | Error m ->
+        (* Not a pair this run can build: refused, as a failed run is. *)
+        Printf.printf "refused: %s\n" m;
+        exit 3
+  in
+  let mapping = pair.mapping in
+  let left_graph = pair.left_graph and right_graph = pair.right_graph in
   let total = List.length mapping.units in
   let describe =
     List.map
@@ -250,7 +260,8 @@ let () =
   in
   Printf.printf "%s\n" label;
   Printf.printf "left %s | right %s | donor %s | tolerance %g | %d clusters\n%!"
-    left right
+    (P.Variant.to_string left_variant)
+    (P.Variant.to_string right_variant)
     (match donor with Left -> "left" | Right -> "right")
     tol total;
   let started = ref 0 in
@@ -263,7 +274,11 @@ let () =
           Option.value (List.assoc_opt name describe) ~default:("?", "?")
         in
         Printf.printf "[%d/%d] %s\n         %s: %s\n         %s: %s\n%!"
-          !started total name left l right r
+          !started total name
+          (P.Variant.to_string left_variant)
+          l
+          (P.Variant.to_string right_variant)
+          r
     | Outputs_compared results, _ ->
         List.iter
           (fun c -> Printf.printf "         %s\n%!" (describe_result c))
@@ -277,11 +292,16 @@ let () =
   in
   let r, _ =
     Pair_harness.Harness.run_with ~on_event ~donor ~tol ~mapping ~left_graph
-      ~right_graph ~initial:(P.Pair.initial pair)
-      ~node_attributes:(P.Pair.node_attributes pair)
-      ~left_endpoint:(P.Pair.aten_endpoint pair)
-      ~right_endpoint:(P.Pair.native_endpoint ~dots pair)
+      ~right_graph ~initial:pair.initial ~node_attributes:pair.node_attributes
+      ~left_endpoint:pair.left_endpoint ~right_endpoint:pair.right_endpoint
   in
+  List.iter
+    (fun (name, notes) ->
+      Option.iter (Printf.printf "%s storage: %s\n" name) (notes ()))
+    [
+      (P.Variant.to_string left_variant, pair.left_notes);
+      (P.Variant.to_string right_variant, pair.right_notes);
+    ];
   (match Sys.getenv_opt "DUMP" with
   | None -> ()
   | Some dir ->
@@ -293,11 +313,5 @@ let () =
               output_string oc
                 (Inference_compare_codecs.Logical_value.contents v)))
         r.Core.Coordinator.finals);
-  (* The inference_compare command's codes: 0 agreement, 1 disagreement,
-     3 a refused or failed run, 4 agreement not established. *)
-  exit
-    (match (r.completion.execution, r.completion.numerical) with
-    | Complete, Agreement -> 0
-    | Complete, Disagreement -> 1
-    | Complete, Not_established -> 4
-    | (Failed | Refused | Interrupted), _ -> 3)
+  (* The inference_compare command's codes. *)
+  exit (Inference_compare_host.Pair_run.exit_code r)

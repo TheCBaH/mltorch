@@ -57,6 +57,15 @@ planner's coarsening of the passes' own correspondence:
   execution=complete numerical=agreement executed=2 units
   comparisons: 2 pass, 0 mismatch, 0 other
 
+The canonical Native graph and its pass map exist without the four-axis
+lowering, which runs only when forced (a model Native4D refuses keeps them):
+
+  $ ./canonical_run.exe "$PT2_DATA/mobilenetv2_050/mobilenetv2_050.pt2" "$PT2_DATA/mobilenetv2_050/inputs.pt" 2>/dev/null
+  canonical: built, lowering forced: false
+  canonicalize map: 40 unit(s)
+  lowering: ok, 100 node(s)
+  lowering forced: true
+
 Not vacuous here either, and each donor's segmented route matches the
 four-axis whole-graph run bitwise:
 
@@ -87,3 +96,78 @@ zero tolerance the engines still differ (the check is not vacuous):
   comparisons: 152 pass, 0 mismatch, 0 other
   $ TOL=0 ./fixture_pair_run.exe safetensors "$PT2_SAFETENSORS_MODELS/mobilenetv2_050" "$PT2_DATA/mobilenetv2_050/inputs.pt" 0 aten native 2>/dev/null | grep -c "numerical=disagreement"
   1
+
+Any two graph views and either orientation, on a small model (`fixture_pair_run`
+takes variants; `native:sequential32` accumulates dots in binary32). Each pair's
+units come from the composed or reversed correspondences of the importer, the
+canonical passes and the four-axis lowering:
+
+  $ m="$PT2_SAFETENSORS_MODELS/test_convnext2"; i="$PT2_DATA/test_convnext2/inputs.pt"
+  $ for p in "aten native.canonical" "native.canonical native" "native4d native.canonical" "native native4d"; do
+  >   ./fixture_pair_run.exe safetensors "$m" "$i" 0 $p 2>/dev/null | grep -E "clusters|^comparisons"
+  > done
+  left aten | right native.canonical | donor left | tolerance 0.0001 | 8 clusters
+  comparisons: 8 pass, 0 mismatch, 0 other
+  left native.canonical | right native | donor left | tolerance 0.0001 | 13 clusters
+  comparisons: 13 pass, 0 mismatch, 0 other
+  left native4d | right native.canonical | donor left | tolerance 0.0001 | 40 clusters
+  comparisons: 40 pass, 0 mismatch, 0 other
+  left native | right native4d | donor left | tolerance 0.0001 | 12 clusters
+  comparisons: 12 pass, 0 mismatch, 0 other
+
+One view against itself, one cluster per node. The same view twice agrees
+exactly at zero tolerance, while two dot accumulations differ in the last bits
+(the check is not vacuous):
+
+  $ for p in "native.canonical native.canonical" "native4d native4d"; do
+  >   TOL=0 ./fixture_pair_run.exe safetensors "$m" "$i" 0 $p 2>/dev/null | grep -E "^comparisons"
+  > done
+  comparisons: 49 pass, 0 mismatch, 0 other
+  comparisons: 40 pass, 0 mismatch, 0 other
+  $ TOL=0 ./fixture_pair_run.exe safetensors "$m" "$i" 0 aten native.canonical:sequential32 2>/dev/null | grep -c "numerical=disagreement"
+  1
+
+A pair with no mapping is refused, not run:
+
+  $ ./fixture_pair_run.exe safetensors "$m" "$i" 0 native aten 2>/dev/null; echo "exit $?"
+  refused: ATen on the right needs the mapping from Native to ATen
+  exit 3
+
+The Native evaluator under the storage and scheduling configurations inference
+runs with (`native:WORD,...`: `release`, `arena`, `arena=BYTES`, `separate`,
+`shared`, and `scheduled` to reorder the body first). Each is bitwise equal to
+the default (every configuration is checked bitwise on a hermetic body in
+`native_storage_test`), and the report says what each resolved to:
+
+  $ for c in arena,scheduled separate; do
+  >   TOL=0 ./fixture_pair_run.exe safetensors "$m" "$i" 0 native native:$c 2>/dev/null | grep -E "^comparisons|storage:"
+  > done
+  comparisons: 106 pass, 0 mismatch, 0 other
+  native:arena,scheduled storage: 106 body(ies): 106 in an arena (0 reusing storage), 0 role-planned, 0 release-only
+  comparisons: 106 pass, 0 mismatch, 0 other
+  native:separate storage: 106 body(ies): 0 in an arena (0 reusing storage), 106 role-planned, 0 release-only
+
+A single node has nothing to reuse. Against ATen the canonical graph is large
+bodies, some of which have intermediates to share:
+
+  $ ./fixture_pair_run.exe safetensors "$m" "$i" 0 aten native.canonical:arena 2>/dev/null | grep -E "^comparisons|storage:"
+  comparisons: 8 pass, 0 mismatch, 0 other
+  native.canonical:arena storage: 8 body(ies): 8 in an arena (4 reusing storage), 0 role-planned, 0 release-only
+
+A budget a later body exceeds refuses at preparation, before any unit runs and
+so with no comparison:
+
+  $ ./fixture_pair_run.exe safetensors "$m" "$i" 0 native native.canonical:arena=100000 2>/dev/null | grep -E "^execution|^comparisons|^failure|storage:"
+  execution=refused numerical=not_established executed=0 units
+  failure: preparation_refused phase=preparation unit=cu00000 text=engine: arena: the run needs 307200 bytes but the budget is 100000
+  comparisons: 0 pass, 0 mismatch, 0 other
+  native.canonical:arena=100000 storage: 1 body(ies): 0 in an arena (0 reusing storage), 0 role-planned, 0 release-only
+
+The symbolic evaluators (`VIEW:symbolic`) ground the whole-graph stage program
+instead of running the direct evaluator. On the four-axis graph they agree with
+the direct run bit for bit (the Native one is checked on a hermetic body in
+`symbolic_runner_test`):
+
+  $ TOL=0 ./fixture_pair_run.exe safetensors "$m" "$i" 0 native4d native4d:symbolic 2>/dev/null | grep -E "^execution|^comparisons"
+  execution=complete numerical=agreement executed=40 units
+  comparisons: 40 pass, 0 mismatch, 0 other

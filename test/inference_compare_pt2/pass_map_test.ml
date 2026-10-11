@@ -224,3 +224,53 @@ let%expect_test "a graph outside the four-axis domain is a refusal" =
     {|
     outside the Native4D domain: tensor t0 has extent on T or D: [N=2 T=2 D=2 H=2
                                                                   W=2 C=2] |}]
+
+(* A source is found by the cluster that holds it, not by its place among the
+   inputs, so a graph of several inputs keeps each one's value through the
+   canonical passes and the four-axis lowering. *)
+let two_inputs () =
+  Native_test.Pipeline_test.build "two"
+    (let open Graph_builder in
+     let shape = Native_test.Pipeline_test.nhwc ~h:4 ~w:4 ~c:3 in
+     let* a = input ~shape () in
+     let* b = input ~shape () in
+     let* r = relu b in
+     add a r)
+
+let%expect_test "each input of a several-input graph keeps its name" =
+  let module M = Inference_compare_pt2.Native4d_model in
+  let g = two_inputs () in
+  let named =
+    List.mapi (fun i id -> ((if i = 0 then "a" else "b"), id)) g.inputs
+  in
+  let capture : Native_interp.Capture.t =
+    { emitted = []; bound = []; sources = named }
+  in
+  let name0 = M.lowered_name capture in
+  let _, n1, export = canonicalize g in
+  let name1 = M.through export name0 in
+  let show label name ids =
+    List.iter
+      (fun id ->
+        Printf.printf "%s t%d: %s\n" label (Tid.to_int id)
+          (Option.value ~default:"unnamed" (name id)))
+      ids
+  in
+  show "lowered" name0 g.inputs;
+  show "canonical" name1 n1.graph.inputs;
+  (match Snapshot.create n1.graph with
+  | Error _ -> failwith "snapshot"
+  | Ok (Snapshot.Pack src) -> (
+      match Native4d.Lower.convert src with
+      | Error e -> print_endline (M.refusal e)
+      | Ok (Native4d.Lower.Pack r) ->
+          let name4 = M.through (Export4.export r.map ~src ~dst:r.dst) name1 in
+          show "native4d" name4 (Native4d.Lower.graph r).inputs));
+  [%expect
+    {|
+    lowered t0: a
+    lowered t1: b
+    canonical t0: a
+    canonical t1: b
+    native4d t0: a
+    native4d t1: b |}]

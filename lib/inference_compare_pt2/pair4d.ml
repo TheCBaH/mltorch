@@ -32,21 +32,9 @@ let load ~hashers ~algorithm ~path ~(inputs : (string * Pt2_tensor.t) list) :
     (t, string) result =
   let* base = Pair.load ~hashers ~algorithm ~path ~inputs in
   let native = base.native in
-  let user_bytes =
-    match
-      List.find_opt
-        (fun (s : Aten_model.source) -> s.captured = None)
-        base.aten.sources
-    with
-    | None -> Error "the model has no user input"
-    | Some s -> (
-        match List.assoc_opt s.name base.case.bytes with
-        | Some b -> Ok b
-        | None -> Error ("no value for the input " ^ s.name))
-  in
   let* four =
     Native4d_model.make ~hashers ~algorithm ~ctx:base.case_ctx
-      ~archive:base.aten.archive ~native ~user_bytes
+      ~archive:base.aten.archive ~native ~source_bytes:(Pair.source_bytes base)
   in
   let* canonicalize = Lazy.force four.canonicalize in
   let* lower = Lazy.force four.lower in
