@@ -2,6 +2,7 @@ module W = Wire
 
 type t = {
   canonical_values : Canonical_spec.t list;
+  final_outputs : Final_output.t list;
   initial_values : Initial_binding.t list;
   input_bindings : Input_binding.t list;
   input_checks : Input_check.t list;
@@ -17,6 +18,13 @@ let decode : t W.decoder =
              ~key:(fun (c : Canonical_spec.t) ->
                Id.Canonical_value.to_string c.key)
              (W.list Canonical_spec.decode))
+      in
+      let* final_outputs =
+        W.Obj.required o "final_outputs"
+          (W.unique
+             ~key:(fun (f : Final_output.t) ->
+               Id.Output_occurrence.to_string f.occurrence)
+             (W.list Final_output.decode))
       in
       let* initial_values =
         W.Obj.required o "initial_values"
@@ -37,6 +45,7 @@ let decode : t W.decoder =
       Ok
         {
           canonical_values;
+          final_outputs;
           initial_values;
           input_bindings;
           input_checks;
@@ -49,6 +58,7 @@ let encode f =
       W.field "canonical_values"
         (W.enc_list Canonical_spec.encode)
         f.canonical_values;
+      W.field "final_outputs" (W.enc_list Final_output.encode) f.final_outputs;
       W.field "initial_values"
         (W.enc_list Initial_binding.encode)
         f.initial_values;

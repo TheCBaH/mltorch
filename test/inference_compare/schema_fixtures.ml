@@ -191,6 +191,15 @@ let mapping : Mapping_artifact.t =
       {
         canonical_values =
           [ { key = canonical "x"; spec = f32 [ 2L; 3L ] } ];
+        final_outputs =
+          [
+            {
+              occurrence = text (Id.Output_occurrence.of_string "out0");
+              canonical = canonical "y";
+              left = tensor left_graph "y";
+              right = tensor right_graph "y2";
+            };
+          ];
         initial_values =
           [
             {

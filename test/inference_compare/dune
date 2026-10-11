@@ -9,6 +9,7 @@
   err_trace
   fmt
   inference_compare_codecs
+  inference_compare_plan
   inference_compare_schema
   inference_compare_sha256
   jsont)

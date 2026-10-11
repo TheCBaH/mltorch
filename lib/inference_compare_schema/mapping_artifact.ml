@@ -114,6 +114,8 @@ let canonical_frontier (f : Frontier_mapping.t) =
       sort_by
         (fun (c : Canonical_spec.t) -> Id.Canonical_value.to_string c.key)
         f.canonical_values;
+    (* Occurrence order is the declared final output order: kept. *)
+    final_outputs = f.final_outputs;
     initial_values =
       sort_by
         (fun (b : Initial_binding.t) -> Id.Canonical_value.to_string b.key)

@@ -1,0 +1,11 @@
+; Pure structural validation and deterministic planning for the inference
+; comparison coordinator: endpoint graph indexes, complete-partition and
+; boundary checks, correspondence and recipe checks, the union dependency
+; order and value lifetimes. No engine, compiler, Unix or libtorch dependency:
+; it consumes the schema layer and the codec layer's recipe checker only.
+; Planning performs no inference, so a malformed mapping fails here before any
+; runner exists. See .ai/ (the inference comparison schema layer).
+
+(library
+ (name inference_compare_plan)
+ (libraries err_trace fmt inference_compare_codecs inference_compare_schema))
