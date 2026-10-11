@@ -1,0 +1,34 @@
+; Tests for the inference comparison coordinator, one library per layer so a
+; layer's tests build without the layers above it. `dune runtest
+; test/inference_compare` runs them all; none needs an engine, a compiler or
+; downloaded data.
+
+(library
+ (name inference_compare_test)
+ (libraries
+  err_trace
+  fmt
+  inference_compare_codecs
+  inference_compare_metrics
+  inference_compare_plan
+  inference_compare_schema
+  inference_compare_sha256
+  pt2_checkpoint_map
+  pt2_fixture
+  jsont)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
+
+; Type-level regression tests for the nominal schema types: snippets that MUST
+; NOT compile, each paired with a control that must. Same technique as
+; test/native/error_opacity.t; see that directory's dune for why a toplevel
+; is built rather than pointing ocamlfind at the build tree.
+
+(toplevel
+ (name schema_probe)
+ (libraries inference_compare_schema))
+
+(cram
+ (applies_to type_boundaries)
+ (deps type_boundaries.sh schema_probe.exe))

@@ -1,0 +1,13 @@
+; Schema layer of the inference comparison coordinator: nominal identifiers and
+; digests, graph and mapping descriptions, recipes, policies, contracts and
+; evidence records, each with a strict schema-v1 wire codec. Pure data: it
+; depends on [err_trace], [fmt] and [jsont] (the generic JSON value type only),
+; so `dune build lib/inference_compare_schema` proves that no engine, compiler,
+; Unix or libtorch dependency reaches the schema. See .ai/ (the inference
+; comparison coordinator design).
+;
+; Wrapped (default): consumers see [Inference_compare_schema.Id] and so on.
+
+(library
+ (name inference_compare_schema)
+ (libraries err_trace fmt jsont jsont.bytesrw))
