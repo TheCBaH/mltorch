@@ -13,9 +13,13 @@ type node = {
   right_op : string;
   operands : string list;
   results : string list;
+  assertion : bool;  (** A metadata assertion: no results, no arithmetic. *)
 }
 
 type t = {
+  spec : Tensor_spec.t;
+  left_dialect : string;
+  right_dialect : string;
   nodes : node list;
   sources : string list;  (** The first is the user input, the rest constants. *)
   finals : string list;
@@ -23,17 +27,17 @@ type t = {
   pairs : (string * string) list;  (** (unit, output tensor) declared pairs. *)
 }
 
-let node ?right_op name op operands results =
-  { name; op; right_op = Option.value right_op ~default:op; operands; results }
+let node ?right_op ?(assertion = false) name op operands results =
+  { name; op; right_op = Option.value right_op ~default:op; operands; results; assertion }
 
 let left_key = P.graph_key "aten" 'e'
 let right_key = P.graph_key "native" 'f'
 let rn s = s ^ "_r"
-let spec = P.m23
 
 let op_ref dialect op : Operator_ref.t = P.operator dialect op
 
 let graph key dialect ~rename ~op_of (t : t) : Graph_desc.t =
+  let spec = t.spec in
   let nm n = if rename then rn n else n in
   let produced = List.concat_map (fun n -> n.results) t.nodes in
   let nodes =
@@ -45,7 +49,7 @@ let graph key dialect ~rename ~op_of (t : t) : Graph_desc.t =
           operands = List.map (fun o -> P.tensor key (nm o)) n.operands;
           results = List.map (fun r -> P.tensor key (nm r)) n.results;
           control_predecessors = [];
-          effect = Pure;
+          effect = (if n.assertion then Metadata_assertion else Pure);
         })
       t.nodes
   in
@@ -67,10 +71,11 @@ let graph key dialect ~rename ~op_of (t : t) : Graph_desc.t =
   }
 
 let graphs t =
-  ( graph left_key "aten" ~rename:false ~op_of:(fun n -> n.op) t,
-    graph right_key "native" ~rename:true ~op_of:(fun n -> n.right_op) t )
+  ( graph left_key t.left_dialect ~rename:false ~op_of:(fun n -> n.op) t,
+    graph right_key t.right_dialect ~rename:true ~op_of:(fun n -> n.right_op) t )
 
 let mapping (t : t) : Mapping_artifact.t =
+  let spec = t.spec in
   let l = left_key and r = right_key in
   let produced_in names =
     List.concat_map (fun n -> if List.mem n.name names then n.results else []) t.nodes
@@ -222,6 +227,9 @@ let structural ?(limits = P.limits) (t : t) =
    o -reshape-> r -sum-> t;  m,m -mul-> mm.  Finals: t and mm. *)
 let attention =
   {
+    spec = P.m23;
+    left_dialect = "aten";
+    right_dialect = "native";
     nodes =
       [
         node "n_mm" "matmul" [ "x"; "w" ] [ "m" ] ~right_op:"gemm";
@@ -245,3 +253,33 @@ let attention =
       ];
     pairs = [];
   }
+
+(* Synthetic-dialect graphs over int64 vectors, executable by the synthetic
+   runners. *)
+let i64_spec =
+  {
+    P.m23 with
+    dtype = { codec = Inference_compare_codecs.Element_codec.i64; parameters_digest = None };
+    logical_shape = [ 3L ];
+  }
+
+let synthetic nodes ~sources ~finals ~units =
+  {
+    spec = i64_spec;
+    left_dialect = "synthetic";
+    right_dialect = "synthetic";
+    nodes;
+    sources;
+    finals;
+    units;
+    pairs = [];
+  }
+
+(* The worked U1/U2 example in exact integers: U1 adds 1 on the left and 2 on
+   the right (the right side's deviation is injected by the runner), U2
+   multiplies by 100. *)
+let u1u2 =
+  synthetic
+    [ node "n1" "addc:1" [ "x" ] [ "h" ]; node "n2" "mulc:100" [ "h" ] [ "y" ] ]
+    ~sources:[ "x" ] ~finals:[ "y" ]
+    ~units:[ ("U1", [ "n1" ]); ("U2", [ "n2" ]) ]

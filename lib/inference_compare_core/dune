@@ -1,0 +1,17 @@
+; The coordinator core: the ordinary graph-runner interface the coordinator
+; drives, and (in later stages) the canonical value store, prepared plan and
+; shared-frontier loop. No module here dispatches on an engine name; engines
+; reach it only through GRAPH_RUNNER values. Pure apart from what a runner
+; does.
+
+(library
+ (name inference_compare_core)
+ (libraries
+  err_trace
+  fmt
+  inference_compare_codecs
+  inference_compare_extract
+  inference_compare_metrics
+  inference_compare_plan
+  inference_compare_policy
+  inference_compare_schema))
