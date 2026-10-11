@@ -27,3 +27,9 @@
  (deps (universe) %{exe:pair_run.exe})
  (enabled_if
   (<> %{env:PT2_DATA=} "")))
+
+(cram
+ (applies_to cli_cram)
+ (deps (universe) %{exe:../../bin/inference_compare.exe})
+ (enabled_if
+  (<> %{env:PT2_DATA=} "")))

@@ -1,4 +1,5 @@
-(* The dedicated inference comparison command: validate, plan, run, replay.
+(* The dedicated inference comparison command: export-pt2, plan, replay, run,
+   validate.
    Exit codes: 0 complete agreement; 1 completed numerical disagreement; 2
    invalid input, map or policy; 3 refused or failed preparation, transfer,
    execution or resource limit; 4 incomplete coverage, an agreement that could
@@ -215,10 +216,61 @@ let replay_cmd =
           record.")
     Term.(const run $ run_dir $ unit_arg $ case_arg)
 
+let export_pt2_cmd =
+  let model =
+    Arg.(
+      required
+      & opt (some file) None
+      & info [ "model" ] ~docv:"FILE" ~doc:"The exported .pt2 model.")
+  in
+  let inputs =
+    Arg.(
+      required
+      & opt (some file) None
+      & info [ "inputs" ] ~docv:"FILE" ~doc:"The model's input map (inputs.pt).")
+  in
+  let index =
+    Arg.(
+      value & opt int 0
+      & info [ "sample" ] ~docv:"N" ~doc:"Which sample of the input map.")
+  in
+  let tolerance =
+    Arg.(
+      value & opt float 1e-4
+      & info [ "tolerance" ] ~docv:"T"
+          ~doc:"Absolute and relative tolerance of every binary32 site.")
+  in
+  let out =
+    Arg.(
+      required
+      & opt (some string) None
+      & info [ "out" ] ~docv:"DIR" ~doc:"Directory receiving experiment.json.")
+  in
+  let run model inputs index tolerance out =
+    match
+      Inference_compare_pt2_export.Pt2_export.write_experiment ~dir:out ~model
+        ~inputs ~index ~tolerance
+    with
+    | Ok () ->
+        Format.printf "wrote %s@." (Filename.concat out "experiment.json");
+        0
+    | Error m ->
+        Format.eprintf "error: %s@." m;
+        2
+  in
+  Cmd.v
+    (Cmd.info "export-pt2"
+       ~doc:
+         "Write an experiment comparing the ATen interpreter with the Native \
+          evaluator on one exported model and sample.")
+    Term.(const run $ model $ inputs $ index $ tolerance $ out)
+
 let () =
   let info =
     Cmd.info "inference_compare"
       ~doc:"Shared-frontier comparison of two inference engines."
   in
   exit
-    (Cmd.eval' (Cmd.group info [ validate_cmd; plan_cmd; run_cmd; replay_cmd ]))
+    (Cmd.eval'
+       (Cmd.group info
+          [ export_pt2_cmd; plan_cmd; replay_cmd; run_cmd; validate_cmd ]))

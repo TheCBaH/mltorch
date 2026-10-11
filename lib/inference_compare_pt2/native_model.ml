@@ -152,3 +152,16 @@ let of_lowered ~hashers ~algorithm (lowered : Pt2_native_graph.t) capture : (t, 
    parameter, which the dataflow description does not carry. *)
 let node_attributes (n : Graph_ir.node) =
   match Jsont_bytesrw.encode_string Graph_ir.op_jsont n.op with Ok s -> s | Error m -> m
+
+let attributes_of t (r : Node_ref.t) =
+  let s = Id.Node_local.to_string r.local_id in
+  match int_of_string_opt (String.sub s 1 (String.length s - 1)) with
+  | None -> ""
+  | Some i -> (
+      match
+        List.find_opt
+          (fun (n : Graph_ir.node) -> Graph_ir.Node_id.to_int n.id = i)
+          t.graph.nodes
+      with
+      | Some n -> node_attributes n
+      | None -> "")

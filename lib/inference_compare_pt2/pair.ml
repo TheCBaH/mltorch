@@ -63,23 +63,9 @@ let initial t =
     t.case.values
 
 let node_attributes t side (r : Node_ref.t) =
-  let s = Id.Node_local.to_string r.local_id in
-  match int_of_string_opt (String.sub s 1 (String.length s - 1)) with
-  | None -> ""
-  | Some i -> (
-      match (side : Side.t) with
-      | Left ->
-          if i < Array.length t.aten.nodes then
-            Aten_model.node_attributes t.aten.nodes.(i)
-          else ""
-      | Right -> (
-          match
-            List.find_opt
-              (fun (n : Graph_ir.node) -> Graph_ir.Node_id.to_int n.id = i)
-              t.native.graph.nodes
-          with
-          | Some n -> Native_model.node_attributes n
-          | None -> ""))
+  match (side : Side.t) with
+  | Left -> Aten_model.attributes_of t.aten r
+  | Right -> Native_model.attributes_of t.native r
 
 let aten_endpoint t : Core.Side_exec.endpoint =
   Endpoint

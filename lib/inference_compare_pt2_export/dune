@@ -1,0 +1,18 @@
+; Writes an experiment directory for one exported model and one sample: the
+; two graph descriptions, the importer's mapping, a binary32 tolerance policy,
+; the exact case payloads and the manifest naming both engines. Kept apart
+; from [inference_compare_pt2] because the manifest type belongs to the host,
+; which already depends on it.
+
+(library
+ (name inference_compare_pt2_export)
+ (libraries
+  err_trace
+  fmt
+  inference_compare_codecs
+  inference_compare_host
+  inference_compare_pt2
+  inference_compare_schema
+  inference_compare_sha256
+  pt2
+  unix))

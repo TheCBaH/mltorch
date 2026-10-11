@@ -493,7 +493,8 @@
   pt2_fixture_unix
   pt2_sha256))
 
-; The dedicated inference comparison command (validate, plan, run, replay).
+; The dedicated inference comparison command (export-pt2, plan, replay, run,
+; validate).
 ; See .ai/ (the inference comparison coordinator design) for the contract.
 
 (executable
@@ -505,5 +506,6 @@
   inference_compare_core
   inference_compare_host
   inference_compare_plan
+  inference_compare_pt2_export
   inference_compare_schema
   jsont))

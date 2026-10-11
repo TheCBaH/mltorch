@@ -18,6 +18,7 @@ type error =
   | Structure of Plan.Plan_error.t
   | Extraction of Ex.Extract_error.t
   | Policy of Pol.Policy_error.t
+  | Engine of { side : Side.t; message : string }
   | Sealing of string
   | Unknown_algorithm of Id.Digest_algorithm.t
 
@@ -29,6 +30,7 @@ let pp_error ppf = function
   | Structure e -> Fmt.pf ppf "mapping: %a" Plan.Plan_error.pp e
   | Extraction e -> Fmt.pf ppf "extraction: %a" Ex.Extract_error.pp e
   | Policy e -> Fmt.pf ppf "policy: %a" Pol.Policy_error.pp e
+  | Engine { side; message } -> Fmt.pf ppf "%a engine: %s" Side.pp side message
   | Sealing s -> Fmt.pf ppf "sealing: %s" s
   | Unknown_algorithm a ->
       Fmt.pf ppf "unknown digest algorithm %a" Id.Digest_algorithm.pp a
@@ -225,10 +227,29 @@ type prepared = {
 let prepare (v : validated) =
   let l = v.loaded in
   let algorithm = l.experiment.Experiment_file.digest_algorithm in
+  let source side =
+    Plan.Graph_index.graph
+      (match (side : Side.t) with
+      | Left -> Plan.Structural.left v.structural
+      | Right -> Plan.Structural.right v.structural)
+  in
+  let instance side (e : Experiment_file.endpoint) =
+    Result.map_error
+      (fun message -> Engine { side; message })
+      (Engine_spec.instantiate e.Experiment_file.engine ~hashers ~algorithm
+         ~base:l.dir ~source:(source side))
+  in
+  let* left = instance Left l.experiment.Experiment_file.left in
+  let* right = instance Right l.experiment.Experiment_file.right in
   let* extractions =
     Result.map_error
       (fun e -> Extraction (Err.Error.kind e))
-      (Ex.Extraction.extract_all ~hashers ~algorithm v.structural)
+      (Ex.Extraction.extract_all
+         ~node_attributes:(fun side r ->
+           match (side : Side.t) with
+           | Left -> left.attributes r
+           | Right -> right.attributes r)
+         ~hashers ~algorithm v.structural)
   in
   let* bindings =
     Result.map_error
@@ -245,28 +266,12 @@ let prepare (v : validated) =
       (Core.Sealed_plan.seal ~hashers ~algorithm v.structural extractions
          bindings)
   in
-  let source side =
-    Plan.Graph_index.graph
-      (match (side : Side.t) with
-      | Left -> Plan.Structural.left v.structural
-      | Right -> Plan.Structural.right v.structural)
-  in
-  let left_endpoint, left_identity =
-    Engine_spec.instantiate
-      l.experiment.Experiment_file.left.Experiment_file.engine
-      ~source:(source Left)
-  in
-  let right_endpoint, right_identity =
-    Engine_spec.instantiate
-      l.experiment.Experiment_file.right.Experiment_file.engine
-      ~source:(source Right)
-  in
   Ok
     {
       validated = v;
       sealed;
-      left_endpoint;
-      right_endpoint;
-      left_identity;
-      right_identity;
+      left_endpoint = left.endpoint;
+      right_endpoint = right.endpoint;
+      left_identity = left.identity;
+      right_identity = right.identity;
     }

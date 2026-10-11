@@ -224,3 +224,10 @@ let of_file ~hashers ~algorithm path : (t, string) result =
         | Error _ -> Error "no models/model.json")
   in
   of_archive ~hashers ~algorithm ~identity_text archive
+
+(* The attribute text of the node a reference names ("" for none). *)
+let attributes_of t (r : Node_ref.t) =
+  let s = Id.Node_local.to_string r.local_id in
+  match int_of_string_opt (String.sub s 1 (String.length s - 1)) with
+  | Some i when i >= 0 && i < Array.length t.nodes -> node_attributes t.nodes.(i)
+  | _ -> ""

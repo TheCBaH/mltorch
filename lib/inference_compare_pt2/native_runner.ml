@@ -28,7 +28,7 @@ type t =
      with type Graph.t = Native_dialect.body
       and type Error.t = error)
 
-let identity () : Engine_identity.t =
+let identity ?artifact () : Engine_identity.t =
   let id mk s =
     match mk s with Ok v -> v | Error _ -> invalid_arg "identity"
   in
@@ -41,13 +41,13 @@ let identity () : Engine_identity.t =
     configuration_digest =
       Aten_runner.sha_digest Digest.Configuration.make
         "dot-accumulation=binary64;float-to-int=checked";
-    artifact_digest = None;
+    artifact_digest = artifact;
     environment_digest =
       Aten_runner.sha_digest Digest.Environment.make
         (Sys.os_type ^ ":" ^ string_of_int Sys.word_size);
   }
 
-let create () : t =
+let create ?artifact () : t =
   let module R = struct
     module Graph = struct
       type t = Native_dialect.body
@@ -76,7 +76,7 @@ let create () : t =
     end
 
     let fail e = Err.fail ~pp_error e
-    let identity = identity
+    let identity () = identity ?artifact ()
     let prepare body = Ok { Prepared.body; closed = false }
     let close (p : Prepared.t) = p.closed <- true
 

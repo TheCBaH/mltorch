@@ -7,7 +7,23 @@ module W = Wire
 module R = Inference_compare_engines.Synthetic_runner
 module Core = Inference_compare_core
 
-type t = Synthetic of R.config
+(* A pinned exported model: the path (relative to the experiment, or absolute)
+   and the SHA-256 of the file. *)
+type pt2 = { model : string; sha256 : string }
+type t = Aten of pt2 | Native of pt2 | Synthetic of R.config
+
+let decode_pt2 o =
+  let ( let* ) = W.( let* ) in
+  let* model = W.Obj.required o "model" W.string in
+  let* sha256 = W.Obj.required o "sha256" W.string in
+  Ok { model; sha256 }
+
+let encode_pt2 tag (p : pt2) =
+  W.tagged tag
+    [
+      W.field "model" W.enc_string p.model;
+      W.field "sha256" W.enc_string p.sha256;
+    ]
 
 let node_delta : (string * int64) W.decoder =
   W.record (fun o ->
@@ -27,6 +43,12 @@ let decode : t W.decoder =
   W.variant (fun tag o ->
       let ( let* ) = W.( let* ) in
       match tag with
+      | "aten" ->
+          let* p = decode_pt2 o in
+          Ok (Aten p)
+      | "native" ->
+          let* p = decode_pt2 o in
+          Ok (Native p)
       | "synthetic" ->
           let* name = W.Obj.required o "name" W.string in
           let* offsets = W.Obj.required o "offsets" (W.list node_delta) in
@@ -57,6 +79,8 @@ let decode : t W.decoder =
       | tag -> W.unknown_tag ~kind:"engine" tag)
 
 let encode = function
+  | Aten p -> encode_pt2 "aten" p
+  | Native p -> encode_pt2 "native" p
   | Synthetic c ->
       W.tagged "synthetic"
         [
@@ -84,11 +108,37 @@ let encode = function
           W.field "async_polls" W.enc_int c.async_polls;
         ]
 
-(* The endpoint, the engine's identity, and a thunk reading its live-handle
-   counters (for cleanup assertions in tests and reports). *)
-let instantiate (t : t) ~(source : Graph_desc.t) :
-    Core.Side_exec.endpoint * Engine_identity.t =
+type instance = {
+  endpoint : Core.Side_exec.endpoint;
+  identity : Engine_identity.t;
+  attributes : Node_ref.t -> string;
+      (** The attribute text of an original node, folded into extraction
+          digests; empty for an engine whose graphs carry no attributes. *)
+}
+
+(* The endpoint, the engine's identity and its node attributes. A model-backed
+   engine must be the one the experiment's graph describes. *)
+let instantiate (t : t) ~hashers ~algorithm ~base ~(source : Graph_desc.t) :
+    (instance, string) result =
+  let pt2 kind (p : pt2) =
+    match
+      Inference_compare_pt2.Route.load kind ~hashers ~algorithm
+        ~path:(File_io.resolve ~base p.model)
+        ~pin:p.sha256
+    with
+    | Error _ as e -> e
+    | Ok r when Graph_key.equal r.graph source.key ->
+        Ok
+          {
+            endpoint = r.endpoint;
+            identity = r.identity;
+            attributes = r.attributes;
+          }
+    | Ok _ -> Error (p.model ^ " is not the graph the experiment describes")
+  in
   match t with
+  | Aten p -> pt2 Inference_compare_pt2.Route.Aten p
+  | Native p -> pt2 Inference_compare_pt2.Route.Native p
   | Synthetic cfg ->
       let runner, _ = R.create cfg in
       let module M = (val runner) in
@@ -98,11 +148,18 @@ let instantiate (t : t) ~(source : Graph_desc.t) :
             : Inference_compare_extract.Dialect.S with type graph = Graph_desc.t
              and type body = Graph_desc.t)
       in
-      ( Core.Side_exec.Endpoint
-          {
-            runner;
-            build =
-              (fun ex ->
-                Inference_compare_extract.Dialect.realize (module D) source ex);
-          },
-        identity )
+      Ok
+        {
+          endpoint =
+            Core.Side_exec.Endpoint
+              {
+                runner;
+                build =
+                  (fun ex ->
+                    Inference_compare_extract.Dialect.realize
+                      (module D)
+                      source ex);
+              };
+          identity;
+          attributes = (fun _ -> "");
+        }

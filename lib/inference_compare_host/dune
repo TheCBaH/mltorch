@@ -15,6 +15,7 @@
   inference_compare_extract
   inference_compare_metrics
   inference_compare_plan
+  inference_compare_pt2
   inference_compare_policy
   inference_compare_schema
   inference_compare_sha256

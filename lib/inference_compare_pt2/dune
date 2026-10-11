@@ -4,7 +4,7 @@
 ; artifact, per-dialect extraction tooling, and ordinary graph runners that
 ; execute extracted bodies through the ATen interpreter and the Native direct
 ; evaluator. Depends on the C++ ATen bridge (through [interp]); the pure
-; coordinator layers never depend on this library.
+; coordinator layers never depend on this library (the host layer does).
 
 (library
  (name inference_compare_pt2)
