@@ -84,7 +84,8 @@ let rec gated = function
         in
         loop 0
       in
-      contains "MLTORCH_WASM" || contains "MLTORCH_COMPCERT"
+      contains "MLTORCH_COMPCERT"
+      || contains "MLTORCH_JS" || contains "MLTORCH_WASM"
   | List values -> List.exists gated values
 
 let runners forms =
