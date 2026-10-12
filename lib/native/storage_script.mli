@@ -80,6 +80,10 @@ module Block : sig
   }
 
   val equal : t -> t -> bool
+
+  val reclaimable : t -> bool
+  (** The blocks a run owns and may reclaim: everything but constants and
+      payloads that live outside every arena as the caller's own. *)
 end
 
 module Event : sig

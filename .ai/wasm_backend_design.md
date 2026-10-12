@@ -150,6 +150,11 @@ first, and linear memory bounds are an *additional* net, not the semantic check
 
 ## Whole-model module
 
+A bundle can be built for any dialect (`Loop_bundle.build_with ~dialect`); Native4D
+graphs run here through `loop_wasm_pt2 --dialect=native4d` and `make
+wasm.pt2.native4d.runtest` (and the `.ssa.` variant), with the workspace poisoned. See
+the Native4D design record.
+
 `Loop_bundle_wasm.build` composes a `Loop_bundle.t` the way `Loop_bundle_c`
 does, and shares its planners: `C_payload_layout` (weights, inputs and outputs
 files) and `C_workspace_plan` (arena pools, then a scratch region holding every

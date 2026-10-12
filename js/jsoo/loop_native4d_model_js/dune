@@ -1,0 +1,20 @@
+; jsoo mirror of lib/loop_native4d_model, over the mirror family: loop_ir_js,
+; loop_native4d_js (which supplies the [Native4d] alias, see its dune),
+; native_interp_js. Sources are copied, never forked.
+
+(copy_files
+ (files
+  %{workspace_root}/lib/loop_native4d_model/loop_native4d_model.{ml,mli}))
+
+(library
+ (name loop_native4d_model_js)
+ (wrapped false)
+ (libraries
+  err_trace
+  fmt
+  loop_ir_js
+  loop_native4d_js
+  native_interp_js
+  native_js
+  native4d_js
+  pt2))

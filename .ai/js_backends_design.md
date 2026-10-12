@@ -410,6 +410,15 @@ mirrored library's origin does. An **explicit enumerated file list**
 `expr_internal_mel`'s dune files carry the full explanation and the two lists that must
 stay in sync with `lib/expr_internal`'s module set; no other mirror needs this care.
 
+**The Native4D loop family** adds two unwrapped mirrors, `loop_native4d_js` (over
+`loop_ir_js` + `native4d_js`; it alone defines the local `Native4d` alias for
+`Native4d_js`, since two definitions of one module name cannot link together) and
+`loop_native4d_model_js` (which sees that alias through it). `loop_ir_js` also copies
+`loop_dialect` and lists it in its `Loop_ir` alias shim. The `loop_js_pt2` closure
+(`dune describe workspace js/jsoo/loop_js_pt2 --with-deps`) contains only `_js` mirrors:
+no ordinary `loop_ir`, `native`, `native4d`, `loop_native4d` or `loop_native4d_model`.
+`ssa_js_pt2` is the deliberate exception and links the ordinary libraries.
+
 **Verifying the closure.** The same shape as the `aten`/`ctypes`/`unix` check below, now
 also asserting zero *ordinary* occurrences of the eleven mirrored names:
 

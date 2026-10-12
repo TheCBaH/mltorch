@@ -6,7 +6,12 @@
          [--shadow] [--poison] [--samples=N] [--keep=DIR] [--bench=N]
          [--export=DIR] [--via-c] [--cflags=FLAGS] [--wat=FILE] [--simd] [--simd-forced] [--relaxed-simd]
          [--reference] [--numerics=NAME] [--shadow-numeric] [--atol=X] [--rtol=X]
-         [--ssa=representation|exact|planned]
+         [--ssa=representation|exact|planned] [--dialect=native|native4d]
+
+   [--dialect=native4d] compiles the model after the canonical passes and the
+   four-axis lowering instead of the lowered Native graph, and [--shadow] then
+   compares against [Eval_direct4.run]; a model outside the dialect is a
+   refusal (exit 1), never a Native run.
 
    [--shadow] also runs [Eval_direct.run] (the per-node reference) on the same
    graph, constants and input and requires every graph output to be bitwise
@@ -32,9 +37,8 @@
 open Loop_ir
 
 type eval =
-  [ Native_interp.error
+  [ Loop_native4d_model.error
   | Native_predict.error
-  | Loop_bundle.error
   | Loop_wasm_exec.Host.error
   | Loop_wasm_exec.Via_c.error
   | `Bundle_mismatch of int
@@ -49,9 +53,8 @@ let pp_eval ppf : eval -> unit = function
         "Wasm model: %d cell(s) outside the numerical tolerance" n
   | #Loop_wasm_exec.Host.error as e -> Loop_wasm_exec.Host.pp_error ppf e
   | #Loop_wasm_exec.Via_c.error as e -> Loop_wasm_exec.Via_c.pp_error ppf e
-  | #Loop_bundle.error as e -> Loop_bundle.pp_error ppf e
   | #Native_predict.error as e -> Native_predict.pp_error ppf e
-  | #Native_interp.error as e -> Native_interp.pp_error ppf e
+  | #Loop_native4d_model.error as e -> Loop_native4d_model.pp_error ppf e
 
 let bits t =
   let (Tensor.Tensor tt) = t in
@@ -239,6 +242,9 @@ let c_route ~dir ~flags b ~constants =
           prerr_endline "--export applies to the direct route only");
     }
 
+(* [--dialect=NAME]: which graph the model is compiled from. *)
+let dialect = ref Loop_native4d_model.Dialect.Native
+
 let prepared ~keep ~via_c ~cflags ~wat ~vector ~numerics archive =
   let open Err.Syntax in
   let map e = (e :> eval) in
@@ -246,15 +252,13 @@ let prepared ~keep ~via_c ~cflags ~wat ~vector ~numerics archive =
   | Some c -> Err.return c
   | None ->
       let t0 = now () in
-      let* lowered = Native_interp.lower_archive archive |> Err.map_error map in
-      let g = lowered.Pt2_native_graph.graph in
-      let* constants =
-        Native_interp.preload archive lowered |> Err.map_error map
-      in
-      let* b =
-        Loop_bundle.build ~config:Loop_bundle_wasm.default_config g
+      let* model =
+        Loop_native4d_model.load !dialect
+          ~config:Loop_bundle_wasm.default_config archive
         |> Err.map_error map
       in
+      let b = model.Loop_native4d_model.bundle in
+      let constants = model.Loop_native4d_model.constants in
       Printf.eprintf "loop_wasm_pt2: lower+bundle %.0f ms\n%!" (ms t0);
       let dir =
         match keep with
@@ -266,7 +270,7 @@ let prepared ~keep ~via_c ~cflags ~wat ~vector ~numerics archive =
         if via_c then c_route ~dir ~flags:cflags b ~constants:constants_of
         else direct_route ~dir ~wat ~vector ~numerics b ~constants:constants_of
       in
-      let cached = (g, constants, b, route) in
+      let cached = (model, b, route) in
       cache := Some cached;
       Err.return cached
 
@@ -274,7 +278,7 @@ let infer ~keep ~via_c ~cflags ~wat ~vector ~numerics ~export:export_dir ~shadow
     ~numeric ~poison ~bench:bench_n archive image =
   let open Err.Syntax in
   let map e = (e :> eval) in
-  let* g, constants, b, route =
+  let* model, b, route =
     prepared ~keep ~via_c ~cflags ~wat ~vector ~numerics archive
   in
   let* input = Native_interp.tensor_of_pt2 image |> Err.map_error map in
@@ -298,9 +302,7 @@ let infer ~keep ~via_c ~cflags ~wat ~vector ~numerics ~export:export_dir ~shadow
     else
       let t1 = now () in
       let* reference =
-        Eval_direct.run g
-          ~constants:(Graph_ir.Tensor_id.Map.bindings constants)
-          ~inputs:[ (input_id, input) ]
+        model.Loop_native4d_model.reference [ (input_id, input) ]
         |> Err.map_error map
       in
       let bad =
@@ -308,7 +310,7 @@ let infer ~keep ~via_c ~cflags ~wat ~vector ~numerics ~export:export_dir ~shadow
           (List.filter
              (fun (id, t) ->
                bits t <> bits (Graph_ir.Tensor_id.Map.find id reference))
-             (List.combine g.Graph_ir.Graph.outputs outs))
+             (List.combine b.Loop_bundle.outputs outs))
       in
       Printf.eprintf
         "loop_wasm_pt2: shadow %d/%d outputs differ (reference %.0f ms)\n%!" bad
@@ -321,15 +323,13 @@ let infer ~keep ~via_c ~cflags ~wat ~vector ~numerics ~export:export_dir ~shadow
     | Some (atol, rtol) -> (
         let t1 = now () in
         let* reference =
-          Eval_direct.run g
-            ~constants:(Graph_ir.Tensor_id.Map.bindings constants)
-            ~inputs:[ (input_id, input) ]
+          model.Loop_native4d_model.reference [ (input_id, input) ]
           |> Err.map_error map
         in
         let per_output =
           Loop_numeric_diff.outputs ~atol ~rtol
             ~reference:(fun id -> Graph_ir.Tensor_id.Map.find id reference)
-            (List.combine g.Graph_ir.Graph.outputs outs)
+            (List.combine b.Loop_bundle.outputs outs)
         in
         List.iter
           (fun (id, d) ->
@@ -454,6 +454,18 @@ let () =
            "loop_wasm_pt2: unknown --ssa=%S (representation, exact or planned)\n"
            other;
          exit 2);
+  let dialect_name, argv = valued "--dialect=" argv in
+  (match dialect_name with
+  | None -> ()
+  | Some n -> (
+      match Loop_native4d_model.Dialect.of_name n with
+      | Some d -> dialect := d
+      | None ->
+          Printf.eprintf "loop_wasm_pt2: unknown --dialect=%S (one of %s)\n" n
+            (String.concat ", "
+               (List.map Loop_native4d_model.Dialect.name
+                  Loop_native4d_model.Dialect.all));
+          exit 2));
   let wat, argv = valued "--wat=" argv in
   let cflags, argv = valued "--cflags=" argv in
   let cflags =

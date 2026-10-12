@@ -1360,3 +1360,73 @@ That milestone proves the three uncertain architectural claims:
 
 Only after those hold should the rest of the Native operation matrix and the
 full same-dialect transformation functors be completed.
+
+## 15. Code generation: C, Wasm, JavaScript, SSA
+
+A Native4D graph compiles through the same whole-model backends a Native graph
+does. Nothing below the bundle builder was changed to allow it: everything
+downstream of `Loop_bundle` consumes dialect-neutral values (`Stage_program.t`,
+`Region_program.t`, `Fusion_plan.t`, `Storage_script.t`, `Tensor_sig.t`), and the
+SSA backend lowers a `Fusion_plan.t`, so it comes with the seam.
+
+### The seam
+
+`Loop_bundle.build_with ~dialect` is polymorphic in the operation type. The
+`Loop_dialect.t` record carries the six operation-level entry points the builder
+needs: the one-node symbolic program, the Region program and group constructors,
+the synthetic-operand ids, "is this operation Region-authored", and the storage
+script. `~dialect` is mandatory: a defaulted `?dialect` would fix the operation
+type to Native's. `Loop_bundle.build` stays as the Native wrapper with its
+original error row.
+
+`loop_ir` depends on `native`, never on a further dialect, and its JavaScript
+mirror would otherwise need `native4d_js`. So the Native4D instance lives in
+`lib/loop_native4d`, and `lib/loop_native4d_model` turns an archive into a bundle
+plus the reference evaluator for either dialect, so `--dialect=native4d` means
+one thing in every driver. A bundle's `graph` is the structure with operations
+erased (`unit Graph.t`): consumers read only signatures, inputs and outputs, and
+a driver that needs the operations holds the graph it built from.
+
+### Errors
+
+The dialect's own failures are only the storage script's (`` `Dialect of 'err ``).
+The Region validation the builder runs on what a dialect returns, and the output
+signature lookup, have shared arms (`` `Region_construction ``,
+`` `Missing_signature ``) so no dialect has to inject them. `build` maps them
+back to the `Eval_direct.error` arms it always reported.
+
+### Entry points that were missing
+
+- `Eval_symbolic4.node_program ?limits`: the one-node program, sharing
+  `process_node` with `run`. Its inputs are the node's own deduplicated operands,
+  intermediate edges included, which a slice of the whole-graph program would
+  lose. Caller limits reach the Region constructors.
+- `Eval_storage4.storage_script` (its own module, split from `Eval_direct4` under the file-size cap): the twin of `Eval_direct.storage_script`, agreeing
+  with it event for event on equivalent graphs under every layout and ownership
+  combination and both retention modes. `Storage_script.Block.reclaimable` is the
+  one shared definition of what a run owns.
+
+### Constants
+
+A canonical fold can leave a weight as a deferred Const-SSA export with no
+payload until it is resolved from the archive. `Lower.convert` takes both
+`constants` and `constant_store`; before a bundle is prepared or the reference is
+run, the store is materialized and merged over the plain payloads with the
+destination store's precedence, as `Lower.evaluate` does. One merged map feeds
+both executions. Handing a backend `Lower.constants` alone converts fine and
+fails later on a missing constant.
+
+### Gates
+
+Hermetic, in `test/loop_native4d_{c,wasm,js}`: every dialect operation
+(`Fixtures4.per_op`), the Native multi-node fixtures lowered into the dialect
+(live index outputs, an Lstm group, an Sdpa with its mask omitted, norms,
+softmax), and a deferred-constant convolution; each through the Loop emitter and
+through the SSA `exact` kernels, bitwise against `Eval_direct4.run`.
+
+Whole model, `mobilenetv2_050` only (the one known to convert): the
+`*.native4d.runtest` and `*.native4d.ssa.runtest` targets. The canonical fold
+reduces it from 415 invocations / 123 kernels to 100 / 48. A model outside the
+dialect is a refusal, never a Native run; `loop_js_pt2` accepts `--dialect` only
+with `--bundle` for the same reason. The model has no Region-authored operation,
+so Region coverage rests on the hermetic suites.

@@ -13,6 +13,24 @@ type error = [ `Adapt of Kernel_adapt.error | `Lower of Loop_lower.error ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
+val kernel_of_program :
+  ?limits:Kernel.Limits.t ->
+  Stage_program.t ->
+  oid:Tensor_id.t ->
+  (Kernel.t, Kernel_adapt.error) Err.t
+(** {!kernel} from an already-built one-node program, for a dialect that has its
+    own [node_program] ({!Loop_dialect.t}). This is the one copy of the
+    sibling-i64-stage pruning, so no dialect re-derives it. [oid] is the output
+    edge the kernel is scoped to. *)
+
+val lower_placed_of_program :
+  ?limits:Kernel.Limits.t ->
+  ?passes:Loop_opt.pass list ->
+  Stage_program.t ->
+  oid:Tensor_id.t ->
+  (Fusion_plan.t * Loop_program.t, error) Err.t
+(** {!lower_placed} from an already-built one-node program. *)
+
 val kernel :
   ?limits:Kernel.Limits.t ->
   Graph_ir.graph ->

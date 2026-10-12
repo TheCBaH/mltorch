@@ -85,6 +85,12 @@ module Block = struct
     Alloc_script.Alloc.equal a.alloc b.alloc
     && a.role = b.role
     && Option.equal Arena_id.equal a.arena b.arena
+
+  let reclaimable b =
+    match b.role with
+    | Role.Constant -> false
+    | Role.Input -> Option.is_some b.arena
+    | Role.Intermediate | Role.Output -> true
 end
 
 module Event = struct

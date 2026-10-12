@@ -873,13 +873,13 @@ let released_ids (g : Graph.graph) sched =
         (Release_schedule.after sched node.Graph.Node.id))
     Tensor_id.Set.empty g.Graph.Graph.nodes
 
-let alloc_of (g : Graph.graph) ~released id =
+let alloc_of ?policy (g : Graph.graph) ~released id =
   let open Err.Syntax in
   let* sg =
     Tensor_id.Map.find_opt id g.Graph.Graph.tensors
     |> Err.of_option (`Missing_tensor_sig id)
   in
-  widen (Alloc_script.alloc ~released sg)
+  widen (Alloc_script.alloc ?policy ~released sg)
 
 (* The allocation script [run ?retain] follows, without computing anything:
    [Eval_direct.dry_run]'s contract, over this dialect's own nodes, shapes and

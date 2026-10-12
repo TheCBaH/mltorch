@@ -3,7 +3,7 @@
 
    argv: <model.pt2> <inputs.pt> <expected.json> <outputs.pt>
          [--strict] [--ssa=representation|exact|planned] [--shadow]
-         [--reference] [--samples=N]
+         [--reference] [--samples=N] [--dialect=native|native4d]
 
    [--ssa] picks the pipeline that makes each invocation's kernel ([planned] is
    the scalar binary64 plan: the JavaScript emitter refuses vectors and
@@ -11,16 +11,17 @@
    bundle ([Loop_bundle_exec] with its default kernels, itself checked bitwise
    against [Eval_direct] by loop_js_pt2) and requires every output to be bitwise
    equal; with [--reference] the shadow is [Eval_direct.run] instead, the
-   independent evaluator. Like loop_js_pt2, only the first sample the files hold is run unless
+   independent evaluator ([Eval_direct4.run] under [--dialect=native4d], which
+   compiles the model after the canonical passes and the four-axis lowering; a
+   model outside the dialect is a refusal, never a Native run). Like loop_js_pt2, only the first sample the files hold is run unless
    [--samples] asks for more. *)
 
 open Graph_ir
 open Loop_ir
 
 type eval =
-  [ Native_interp.error
+  [ Loop_native4d_model.error
   | Native_predict.error
-  | Loop_bundle.error
   | Loop_bundle_exec.error
   | `Bundle_mismatch of int ]
 
@@ -28,9 +29,8 @@ let pp_eval ppf : eval -> unit = function
   | `Bundle_mismatch n ->
       Format.fprintf ppf "ssa bundle: %d output(s) differ bitwise from Loop's" n
   | #Loop_bundle_exec.error as e -> Loop_bundle_exec.pp_error ppf e
-  | #Loop_bundle.error as e -> Loop_bundle.pp_error ppf e
   | #Native_predict.error as e -> Native_predict.pp_error ppf e
-  | #Native_interp.error as e -> Native_interp.pp_error ppf e
+  | #Loop_native4d_model.error as e -> Loop_native4d_model.pp_error ppf e
 
 let output_values t =
   let (Tensor.Tensor tt) = t in
@@ -42,19 +42,24 @@ let output_values t =
 (* Lowered, preloaded and prepared once: every sample shares the one graph. *)
 let cache = ref None
 
+(* [--dialect=NAME]: which graph the model is compiled from. *)
+let dialect = ref Loop_native4d_model.Dialect.Native
+
 let prepared ~kernel archive =
   let open Err.Syntax in
   let map e = (e :> eval) in
   match !cache with
   | Some cached -> Err.return (false, cached)
   | None ->
-      let* lowered = Native_interp.lower_archive archive |> Err.map_error map in
-      let g = lowered.Pt2_native_graph.graph in
-      let* constants =
-        Native_interp.preload archive lowered |> Err.map_error map
+      let* model =
+        Loop_native4d_model.load !dialect ~config:Loop_bundle.default_config
+          archive
+        |> Err.map_error map
       in
-      let* b = Loop_bundle.build g |> Err.map_error map in
-      let constants_of id = Tensor_id.Map.find_opt id constants in
+      let b = model.Loop_native4d_model.bundle in
+      let constants_of id =
+        Tensor_id.Map.find_opt id model.Loop_native4d_model.constants
+      in
       let t0 = Sys.time () in
       let* p =
         Loop_bundle_exec.prepare ~kernel b ~constants:constants_of
@@ -64,14 +69,14 @@ let prepared ~kernel archive =
       let* loop =
         Loop_bundle_exec.prepare b ~constants:constants_of |> Err.map_error map
       in
-      let cached = (g, b, p, loop, ssa_ms, constants) in
+      let cached = (model, b, p, loop, ssa_ms) in
       cache := Some cached;
       Err.return (true, cached)
 
 let infer ~kernel ~shadow ~reference archive image =
   let open Err.Syntax in
   let map e = (e :> eval) in
-  let* first, (g, b, p, loop, ssa_ms, constants) = prepared ~kernel archive in
+  let* first, (model, b, p, loop, ssa_ms) = prepared ~kernel archive in
   let* input = Native_interp.tensor_of_pt2 image |> Err.map_error map in
   let input_id = List.hd b.Loop_bundle.inputs in
   let bind id = if Tensor_id.equal id input_id then Some input else None in
@@ -84,16 +89,14 @@ let infer ~kernel ~shadow ~reference archive image =
       (List.length b.Loop_bundle.invocations)
       ssa_ms run_ms;
   let outputs =
-    List.map (fun id -> Tensor_id.Map.find id out) g.Graph.outputs
+    List.map (fun id -> Tensor_id.Map.find id out) b.Loop_bundle.outputs
   in
   let* () =
     if not shadow then Err.return ()
     else
       let* reference =
         if reference then
-          Eval_direct.run g
-            ~constants:(Tensor_id.Map.bindings constants)
-            ~inputs:[ (input_id, input) ]
+          model.Loop_native4d_model.reference [ (input_id, input) ]
           |> Err.map_error map
         else Loop_bundle_exec.run loop ~bind |> Err.map_error map
       in
@@ -103,10 +106,10 @@ let infer ~kernel ~shadow ~reference archive image =
              (fun id ->
                output_values (Tensor_id.Map.find id out)
                <> output_values (Tensor_id.Map.find id reference))
-             g.Graph.outputs)
+             b.Loop_bundle.outputs)
       in
       Printf.eprintf "ssa_js_pt2: shadow %d/%d outputs differ\n%!" bad
-        (List.length g.Graph.outputs);
+        (List.length b.Loop_bundle.outputs);
       if bad = 0 then Err.return () else Err.fail (`Bundle_mismatch bad)
   in
   let* top = Native_predict.top_predictions outputs 5 |> Err.map_error map in
@@ -131,6 +134,18 @@ let () =
   let reference, argv = strip_flag "--reference" argv in
   let samples, argv = strip_valued "--samples=" argv in
   let ssa, argv = strip_valued "--ssa=" argv in
+  let dialect_name, argv = strip_valued "--dialect=" argv in
+  (match dialect_name with
+  | None -> ()
+  | Some n -> (
+      match Loop_native4d_model.Dialect.of_name n with
+      | Some d -> dialect := d
+      | None ->
+          Printf.eprintf "ssa_js_pt2: unknown --dialect=%S (one of %s)\n" n
+            (String.concat ", "
+               (List.map Loop_native4d_model.Dialect.name
+                  Loop_native4d_model.Dialect.all));
+          exit 2));
   let pipeline =
     match ssa with
     | None | Some "exact" -> Ssa_backends.Pipeline.Exact

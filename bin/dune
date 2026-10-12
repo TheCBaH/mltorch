@@ -194,6 +194,7 @@
   infer_report
   loop_c_exec
   loop_ir
+  loop_native4d_model
   native
   native_interp
   native_predict
@@ -210,6 +211,7 @@
   infer_report
   loop_c_exec
   loop_ir
+  loop_native4d_model
   loop_wasm_exec
   native
   native_interp

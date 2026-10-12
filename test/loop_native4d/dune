@@ -1,0 +1,20 @@
+; The bundle builder's error boundary across dialects: what [Loop_bundle.build_with]
+; reports for a Native and for a Native4D graph, and that [Loop_bundle.build]
+; still reports the Native row it always did. Pure OCaml, no execution.
+
+(library
+ (name loop_native4d_boundary_test)
+ (libraries
+  core
+  err_trace
+  fmt
+  loop_ir
+  loop_native4d
+  loop_native4d_common
+  native
+  native4d
+  native4d_test)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))

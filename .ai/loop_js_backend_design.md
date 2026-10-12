@@ -675,6 +675,13 @@ permutes) were never the bottleneck.
 
 ## Whole-model bundle (2026-09-29)
 
+**Dialects.** `Loop_bundle.build_with ~dialect` builds a bundle for any dialect; Native4D
+graphs run through `loop_js_pt2 --bundle --dialect=native4d` (mirror family) and
+`ssa_js_pt2 --dialect=native4d` (ordinary libraries), see the Native4D design record.
+`--dialect=native4d` is refused with the per-node flags, which run Native executors over
+Native graphs and would otherwise silently run the Native path. `make
+loop_js.bundle.pt2.native4d.runtest` / `.ssa.runtest`.
+
 An optional prepared mode that runs a fixed graph as **one** JavaScript entry
 call over arena pools, instead of one `Loop_js_exec` call per node. Default
 execution is unchanged; the bundle is opt-in (`loop_js_pt2 --bundle`).

@@ -28,6 +28,32 @@ type error =
   | `Plan_mismatch of Alloc_script.Position.t
   | `Region_lower of Loop_region_program.error ]
 
+(* The row [build_with] reports for any dialect. The builder owns the Region
+   validation after a dialect hands back a group or program, and the output
+   signature lookup, so those have shared arms; only the storage script's
+   failures are the dialect's own, behind [`Dialect]. *)
+type 'err generic_error =
+  [ Arena_plan.error
+  | Loop_node_program.error
+  | `Dialect of 'err
+  | `Missing_signature of Tensor_id.t
+  | `Plan_mismatch of Alloc_script.Position.t
+  | `Region_construction of Region_computation.error
+  | `Region_lower of Loop_region_program.error ]
+
+let pp_generic_error pp_dialect ppf : [< _ generic_error ] -> unit = function
+  | #Arena_plan.error as e -> Arena_run.pp_error ppf (e :> Arena_run.error)
+  | #Loop_node_program.error as e -> Loop_node_program.pp_error ppf e
+  | `Dialect e -> pp_dialect ppf e
+  | `Missing_signature id ->
+      Format.fprintf ppf "missing shape lookup tensor %a" Tensor_id.pp id
+  | `Plan_mismatch pos ->
+      Format.fprintf ppf
+        "the supplied storage plan's script differs from this graph's at %a"
+        Alloc_script.Position.pp pos
+  | `Region_construction e -> Region_computation.pp_error ppf e
+  | `Region_lower e -> Loop_region_program.pp_error ppf e
+
 let pp_error ppf : [< error ] -> unit = function
   | #Arena_plan.error as e -> Arena_run.pp_error ppf (e :> Arena_run.error)
   | #Eval_direct.error as e -> Eval_direct.pp_error ppf e
@@ -45,8 +71,15 @@ let default_config : S.Config.t =
     inputs = S.Ownership.Copied;
   }
 
+let erase (g : _ Graph.t) : unit Graph.t =
+  {
+    g with
+    Graph.nodes =
+      List.map (fun (n : _ Node.t) -> { n with Node.op = () }) g.Graph.nodes;
+  }
+
 type t = {
-  graph : graph;
+  graph : unit Graph.t;
   config : S.Config.t;
   script : S.t;
   plan : Storage_plan.t;
@@ -69,13 +102,13 @@ type t = {
    second graph walk. An [Alloc] under a [Node] always names one of that
    node's own outputs -- an invariant of the shared fold, not a contingency
    this function checks for. *)
-let schedule_ordinals (g : graph) (events : S.Event.t list) =
+let schedule_ordinals (g : _ Graph.t) (events : S.Event.t list) =
   let by_id =
     List.fold_left
-      (fun m (n : node) -> Node_id.Map.add n.Node.id n m)
+      (fun m (n : _ Node.t) -> Node_id.Map.add n.Node.id n m)
       Node_id.Map.empty g.Graph.nodes
   in
-  let output_of_oid (node : node) oid =
+  let output_of_oid (node : _ Node.t) oid =
     Output_ordinal.indexed node.Node.outputs
     |> List.find (fun (_, o) -> Tensor_id.equal o oid)
     |> fst
@@ -122,11 +155,11 @@ let ids_of_role events role =
    through [edges], never by id: a source keeps its graph id, the output takes
    [oid], and a synthetic default (an omitted Sdpa mask, say) is named by its
    own fresh id and described in [synthetics]. *)
-let region_program ~limits (g : graph) (node : node) ~(outputs : Output.t list)
-    =
+let region_program ~(dialect : (_, _) Loop_dialect.t) ~limits (g : _ Graph.t)
+    (node : _ Node.t) ~(outputs : Output.t list) =
   let open Err.Syntax in
   let op = node.Node.op in
-  let synthetic_ids = Eval_direct.fresh_synthetic_ids g in
+  let synthetic_ids = dialect.Loop_dialect.fresh_synthetic_ids g in
   let filled = ref Tensor_id.Map.empty in
   let fill role value shape =
     let id = List.assoc role synthetic_ids in
@@ -148,8 +181,8 @@ let region_program ~limits (g : graph) (node : node) ~(outputs : Output.t list)
     match Output_ordinal.indexed node.Node.outputs with
     | _ :: _ :: _ ->
         let* group =
-          Region_computation.group ~limits ~op ~operand
-          |> Err.map_error (fun e -> (`Region_construction e :> error))
+          dialect.Loop_dialect.region_group ~limits ~op ~operand
+          |> Err.map_error (fun e -> `Region_construction e)
         in
         let* lowered =
           Region_execution.lower_group ~max_size:limits.Kernel.Limits.max_size
@@ -158,8 +191,7 @@ let region_program ~limits (g : graph) (node : node) ~(outputs : Output.t list)
             ~scan_limits:(Kernel.Limits.scan_limits limits)
             group
           |> Err.map_error (fun e ->
-              (`Region_construction (Region_computation.Invalid_group e)
-                :> error))
+              `Region_construction (Region_computation.Invalid_group e))
         in
         let* plan, ids =
           Loop_region_program.plan_group_sigs ~limits ~sigs:(sigs ())
@@ -169,11 +201,11 @@ let region_program ~limits (g : graph) (node : node) ~(outputs : Output.t list)
                    Region_computation.emitter_of_output o.Output.ordinal)
                  outputs)
             (Region_execution.group lowered)
-          |> Err.map_error (fun e -> (`Region_lower e :> error))
+          |> Err.map_error (fun e -> `Region_lower e)
         in
         let+ program =
           Loop_lower.lower plan
-          |> Err.map_error (fun e -> (`Region_lower (`Lower e) :> error))
+          |> Err.map_error (fun e -> `Region_lower (`Lower e))
         in
         ( plan,
           program,
@@ -187,15 +219,12 @@ let region_program ~limits (g : graph) (node : node) ~(outputs : Output.t list)
         let* out_shape =
           match Tensor_id.Map.find_opt oid g.Graph.tensors with
           | Some sg -> Err.return sg.Tensor_sig.shape
-          | None ->
-              Err.fail
-                (`Missing_tensor
-                   { Eval_direct.context = Eval_direct.Sig_shape; id = oid })
+          | None -> Err.fail (`Missing_signature oid)
         in
         let* program =
-          Region_computation.program ~limits ~op ~output ~output_shape:out_shape
-            ~operand ~fill
-          |> Err.map_error (fun e -> (`Region_construction e :> error))
+          dialect.Loop_dialect.region_program ~limits ~op ~output
+            ~output_shape:out_shape ~operand ~fill
+          |> Err.map_error (fun e -> `Region_construction e)
         in
         let* lowered =
           Region_execution.lower ~max_size:limits.Kernel.Limits.max_size
@@ -204,8 +233,7 @@ let region_program ~limits (g : graph) (node : node) ~(outputs : Output.t list)
             ~scan_limits:(Kernel.Limits.scan_limits limits)
             ~output_shape:out_shape program
           |> Err.map_error (fun e ->
-              (`Region_construction (Region_computation.Invalid_program e)
-                :> error))
+              `Region_construction (Region_computation.Invalid_program e))
         in
         match lowered with
         | Region_execution.Pixel_loop _ -> assert false
@@ -213,11 +241,11 @@ let region_program ~limits (g : graph) (node : node) ~(outputs : Output.t list)
             let* plan =
               Loop_region_program.plan_sigs ~limits ~sigs:(sigs ()) ~out_shape
                 (Region_execution.program l)
-              |> Err.map_error (fun e -> (`Region_lower e :> error))
+              |> Err.map_error (fun e -> `Region_lower e)
             in
             let+ program =
               Loop_lower.lower plan
-              |> Err.map_error (fun e -> (`Region_lower (`Lower e) :> error))
+              |> Err.map_error (fun e -> `Region_lower (`Lower e))
             in
             let out =
               List.find
@@ -248,19 +276,20 @@ let region_program ~limits (g : graph) (node : node) ~(outputs : Output.t list)
   in
   Err.return (plan, program, edges, synthetics)
 
-let build ?(limits = Kernel.Limits.default) ?(config = default_config) ?plan
-    (g : graph) =
+let build_with ~(dialect : (_, _) Loop_dialect.t)
+    ?(limits = Kernel.Limits.default) ?(config = default_config) ?plan
+    (g : _ Graph.t) =
   let open Err.Syntax in
   let* script =
-    Eval_direct.storage_script
+    dialect.Loop_dialect.storage_script
       ~retain:(Release_schedule.Retain.Only Tensor_id.Set.empty) config g
-    |> Err.map_error ~pos:__POS__ (fun e -> (e :> error))
+    |> Err.map_error ~pos:__POS__ (fun e -> `Dialect e)
   in
   let* plan =
     match plan with
     | None ->
         Storage_plan.create ~limits script
-        |> Err.map_error ~pos:__POS__ (fun e -> (e :> error))
+        |> Err.map_error ~pos:__POS__ (fun e -> (e :> _ generic_error))
     | Some supplied -> (
         (* A caller's plan is accepted only if the script it was witnessed
            against is this graph's own, config and alignment policy included. *)
@@ -274,22 +303,22 @@ let build ?(limits = Kernel.Limits.default) ?(config = default_config) ?plan
      one invocation; every other node's outputs are lowered one at a time. *)
   let rec batches = function
     | [] -> []
-    | ((node : node), o) :: rest
-      when Region_computation.is_region_authored node.Node.op ->
+    | ((node : _ Node.t), o) :: rest
+      when dialect.Loop_dialect.is_region_authored node.Node.op ->
         let mine, others =
           List.partition
-            (fun ((n : node), _) -> Node_id.equal n.Node.id node.Node.id)
+            (fun ((n : _ Node.t), _) -> Node_id.equal n.Node.id node.Node.id)
             rest
         in
         (node, o :: List.map snd mine) :: batches others
-    | ((node : node), o) :: rest -> (node, [ o ]) :: batches rest
+    | ((node : _ Node.t), o) :: rest -> (node, [ o ]) :: batches rest
   in
   let+ invocations =
     Err.List.map
-      (fun ((node : node), (outputs : Output.t list)) ->
-        if Region_computation.is_region_authored node.Node.op then
+      (fun ((node : _ Node.t), (outputs : Output.t list)) ->
+        if dialect.Loop_dialect.is_region_authored node.Node.op then
           let+ plan, program, edges, synthetics =
-            region_program ~limits g node ~outputs
+            region_program ~dialect ~limits g node ~outputs
           in
           {
             node = node.Node.id;
@@ -300,10 +329,12 @@ let build ?(limits = Kernel.Limits.default) ?(config = default_config) ?plan
             synthetics;
           }
         else
-          let ({ Output.ordinal = output; _ } : Output.t) = List.hd outputs in
+          let ({ Output.oid; _ } : Output.t) = List.hd outputs in
           let+ plan, program =
-            Loop_node_program.lower_placed ~limits g node ~output
-            |> Err.map_error (fun e -> (e :> error))
+            Loop_node_program.lower_placed_of_program ~limits
+              (dialect.Loop_dialect.node_program ~limits g node)
+              ~oid
+            |> Err.map_error (fun e -> (e :> _ generic_error))
           in
           {
             node = node.Node.id;
@@ -321,7 +352,7 @@ let build ?(limits = Kernel.Limits.default) ?(config = default_config) ?plan
   let inputs = ids_of_role events S.Role.Input in
   let constants = ids_of_role events S.Role.Constant in
   {
-    graph = g;
+    graph = erase g;
     config;
     script;
     plan;
@@ -330,3 +361,17 @@ let build ?(limits = Kernel.Limits.default) ?(config = default_config) ?plan
     outputs = g.Graph.outputs;
     invocations;
   }
+
+(* The Native public contract: [build]'s error row is unchanged, so the generic
+   arms map back to the [Eval_direct.error] ones they replaced. *)
+let build ?limits ?config ?plan (g : graph) : (t, error) Err.t =
+  build_with ~dialect:Loop_dialect.native ?limits ?config ?plan g
+  |> Err.map_error ~pos:__POS__ (function
+    | #Arena_plan.error as e -> (e :> error)
+    | #Loop_node_program.error as e -> (e :> error)
+    | `Dialect e -> (e :> error)
+    | `Missing_signature id ->
+        `Missing_tensor { Eval_direct.context = Eval_direct.Sig_shape; id }
+    | `Plan_mismatch _ as e -> e
+    | `Region_construction _ as e -> e
+    | `Region_lower _ as e -> e)

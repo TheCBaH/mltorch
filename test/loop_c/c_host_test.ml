@@ -92,6 +92,48 @@ let%expect_test "chain: compiled model matches the reference, repeatedly" =
     output t9 identical to the reference: true
     3 invocations, 3 kernels |}]
 
+(* [col2im] tests whether a window position is exact: [raw == stride * (raw /
+   stride)]. At stride 1 that collapses to [raw == raw], which gcc rejects under
+   -Werror (-Wtautological-compare) unless the emitter prints the constant; at
+   stride 2 the comparison is real. Both must compile and agree bitwise. *)
+let col2im_graph ~stride ~out ~w ~c =
+  let window =
+    Im2col.Window.
+      {
+        kernel = Dim.extent 2;
+        dilation = Op_config.Pos.of_int 1;
+        pad = Op_config.Nonneg.of_int 0;
+        stride = Op_config.Pos.of_int stride;
+      }
+  in
+  let params =
+    Im2col.Col2im.
+      {
+        window = Im2col.Params.{ h = window; w = window };
+        output_h = Dim.extent out;
+        output_w = Dim.extent out;
+      }
+  in
+  Native_test.Graph_fixtures.build "col2im"
+    Graph_builder.(
+      let* x = input ~shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w ~c) () in
+      col2im params x)
+
+let%expect_test "col2im: a stride-1 window's tautological test compiles" =
+  with_dir (fun dir ->
+      List.iter
+        (fun g ->
+          let b, constants, p = prepare g dir in
+          check g p b constants ~salt:0 ~poison:true)
+        [
+          col2im_graph ~stride:1 ~out:4 ~w:8 ~c:9;
+          col2im_graph ~stride:2 ~out:4 ~w:8 ~c:4;
+        ]);
+  [%expect
+    {|
+    output t1 identical to the reference: true
+    output t1 identical to the reference: true |}]
+
 (* ---- binary32 kernels under a numerical policy ------------------------------ *)
 
 let wide_chain () =

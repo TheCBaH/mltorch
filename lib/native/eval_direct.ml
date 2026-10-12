@@ -699,14 +699,6 @@ let dry_run ?alignment ?(retain = Release_schedule.Retain.All) (g : graph) =
   in
   List.rev events
 
-(* The blocks a run owns and may reclaim: everything but constants and payloads
-   that live outside every arena as the caller's own. *)
-let reclaimable (b : Storage_script.Block.t) =
-  match b.Storage_script.Block.role with
-  | Storage_script.Role.Constant -> false
-  | Storage_script.Role.Input -> Option.is_some b.Storage_script.Block.arena
-  | Storage_script.Role.Intermediate | Storage_script.Role.Output -> true
-
 let storage_script ?(alignment = Alignment_policy.standard)
     ?(retain = Release_schedule.Retain.All) (config : Storage_script.Config.t)
     (g : graph) =
@@ -748,7 +740,7 @@ let storage_script ?(alignment = Alignment_policy.standard)
   let owned =
     List.fold_left
       (fun m (b : S.Block.t) ->
-        if reclaimable b then
+        if S.Block.reclaimable b then
           Tensor_id.Map.add b.S.Block.alloc.Alloc_script.Alloc.id b m
         else m)
       Tensor_id.Map.empty inputs

@@ -10,6 +10,7 @@
 
    argv: <model.pt2> <inputs.pt> <expected.json> <outputs.pt> [--cram]
          [--strict] [--nodes] [--shadow] [--direct] [--arena] [--bundle] [--baseline] [--warm]
+         [--dialect=native|native4d]
    Same four positional paths as js/run/pt2_run.ml -- deliberately runs only
    the FIRST of the (many) samples they hold ([~max_samples:(Some 1)]),
    never the whole map: see [Infer_report.report]'s own doc for why that
@@ -35,9 +36,8 @@
    as a coverage or ranking failure. *)
 
 type eval =
-  [ Native_interp.error
+  [ Loop_native4d_model.error
   | Native_predict.error
-  | Loop_bundle.error
   | Loop_bundle_exec.error
   | `Bundle_mismatch of int ]
 
@@ -45,9 +45,8 @@ let pp_eval ppf : eval -> unit = function
   | `Bundle_mismatch n ->
       Format.fprintf ppf "bundle: %d output(s) differ bitwise from per-node" n
   | #Loop_bundle_exec.error as e -> Loop_bundle_exec.pp_error ppf e
-  | #Loop_bundle.error as e -> Loop_bundle.pp_error ppf e
   | #Native_predict.error as e -> Native_predict.pp_error ppf e
-  | #Native_interp.error as e -> Native_interp.pp_error ppf e
+  | #Loop_native4d_model.error as e -> Loop_native4d_model.pp_error ppf e
 
 let region_coverage = Loop_region_executor.Coverage.create ()
 let region_executor = Loop_region_executor.make region_coverage
@@ -187,32 +186,37 @@ let output_values t =
    the per-node executors' tables do. [first] marks the call that paid for it. *)
 let bundle_cache = ref None
 
+(* [--dialect=NAME]: which graph the [--bundle] path compiles. Only [--bundle]
+   reads it: the per-node paths run Native graphs through Native executors. *)
+let dialect = ref Loop_native4d_model.Dialect.Native
+
 let prepared_bundle archive =
   let open Err.Syntax in
   let map e = (e :> eval) in
   match !bundle_cache with
   | Some cached -> Err.return (false, cached)
   | None ->
-      let* lowered = Native_interp.lower_archive archive |> Err.map_error map in
-      let g = lowered.Pt2_native_graph.graph in
-      let* constants =
-        Native_interp.preload archive lowered |> Err.map_error map
+      let* model =
+        Loop_native4d_model.load !dialect ~config:Loop_bundle.default_config
+          archive
+        |> Err.map_error map
       in
-      let* b = Loop_bundle.build g |> Err.map_error map in
+      let b = model.Loop_native4d_model.bundle in
       let t0 = Sys.time () in
       let* p =
         Loop_bundle_exec.prepare b ~constants:(fun id ->
-            Graph_ir.Tensor_id.Map.find_opt id constants)
+            Graph_ir.Tensor_id.Map.find_opt id
+              model.Loop_native4d_model.constants)
         |> Err.map_error map
       in
-      let cached = (g, constants, b, p, (Sys.time () -. t0) *. 1000.) in
+      let cached = (model, b, p, (Sys.time () -. t0) *. 1000.) in
       bundle_cache := Some cached;
       Err.return (true, cached)
 
 let infer_bundle ~shadow ~baseline archive image =
   let open Err.Syntax in
   let map e = (e :> eval) in
-  let* first, (g, constants, b, p, prepare_ms) = prepared_bundle archive in
+  let* first, (model, b, p, prepare_ms) = prepared_bundle archive in
   let* input = Native_interp.tensor_of_pt2 image |> Err.map_error map in
   let t1 = Sys.time () in
   let input_id = List.hd b.Loop_bundle.inputs in
@@ -265,43 +269,45 @@ let infer_bundle ~shadow ~baseline archive image =
      then five warm ones, so the two figures differ only in per-node dispatch
      against one entry call. *)
   let* () =
-    if not (baseline && first) then Err.return ()
-    else
-      let node_state = Loop_node_executor.create () in
-      let node_executor = Loop_node_executor.node_executor node_state in
-      let run_once () =
-        let t = Sys.time () in
-        let+ _ =
-          Eval_direct.run ~region_executor ~region_group_executor ~node_executor
-            g
-            ~constants:(Graph_ir.Tensor_id.Map.bindings constants)
-            ~inputs:[ (input_id, input) ]
-          |> Err.map_error map
+    match (baseline && first, model.Loop_native4d_model.native_graph) with
+    | false, _ | true, None ->
+        (* main refuses [--baseline] with another dialect before any run *)
+        Err.return ()
+    | true, Some g ->
+        let constants = model.Loop_native4d_model.constants in
+        let node_state = Loop_node_executor.create () in
+        let node_executor = Loop_node_executor.node_executor node_state in
+        let run_once () =
+          let t = Sys.time () in
+          let+ _ =
+            Eval_direct.run ~region_executor ~region_group_executor
+              ~node_executor g
+              ~constants:(Graph_ir.Tensor_id.Map.bindings constants)
+              ~inputs:[ (input_id, input) ]
+            |> Err.map_error map
+          in
+          (Sys.time () -. t) *. 1000.
         in
-        (Sys.time () -. t) *. 1000.
-      in
-      let* cold = run_once () in
-      let+ warm = Err.List.map (fun _ -> run_once ()) [ 1; 2; 3; 4; 5 ] in
-      Printf.eprintf
-        "loop_js_pt2 per-node baseline (constants passed in): first run %.1f \
-         ms, warm runs ms [%s]\n\
-         %!"
-        cold
-        (String.concat "; "
-           (List.map (Printf.sprintf "%.1f") (List.sort compare warm)))
+        let* cold = run_once () in
+        let+ warm = Err.List.map (fun _ -> run_once ()) [ 1; 2; 3; 4; 5 ] in
+        Printf.eprintf
+          "loop_js_pt2 per-node baseline (constants passed in): first run %.1f \
+           ms, warm runs ms [%s]\n\
+           %!"
+          cold
+          (String.concat "; "
+             (List.map (Printf.sprintf "%.1f") (List.sort compare warm)))
   in
   let outputs =
     List.map
       (fun id -> Graph_ir.Tensor_id.Map.find id out)
-      g.Graph_ir.Graph.outputs
+      b.Loop_bundle.outputs
   in
   let* () =
     if not shadow then Err.return ()
     else
       let* reference =
-        Eval_direct.run g
-          ~constants:(Graph_ir.Tensor_id.Map.bindings constants)
-          ~inputs:[ (input_id, input) ]
+        model.Loop_native4d_model.reference [ (input_id, input) ]
         |> Err.map_error map
       in
       let bad =
@@ -310,10 +316,10 @@ let infer_bundle ~shadow ~baseline archive image =
              (fun id ->
                output_values (Graph_ir.Tensor_id.Map.find id out)
                <> output_values (Graph_ir.Tensor_id.Map.find id reference))
-             g.Graph_ir.Graph.outputs)
+             b.Loop_bundle.outputs)
       in
       Printf.eprintf "loop_js_pt2 bundle: shadow %d/%d outputs differ\n%!" bad
-        (List.length g.Graph_ir.Graph.outputs);
+        (List.length b.Loop_bundle.outputs);
       if bad = 0 then Err.return () else Err.fail (`Bundle_mismatch bad)
   in
   let* top = Native_predict.top_predictions outputs 5 |> Err.map_error map in
@@ -357,6 +363,39 @@ let () =
   let bundle, argv = strip_flag "--bundle" argv in
   let baseline, argv = strip_flag "--baseline" argv in
   let warm, argv = strip_flag "--warm" argv in
+  let dialect_name, argv =
+    let prefix = "--dialect=" in
+    let n = String.length prefix in
+    let is a = String.length a >= n && String.sub a 0 n = prefix in
+    ( Array.fold_left
+        (fun acc a ->
+          if is a then Some (String.sub a n (String.length a - n)) else acc)
+        None argv,
+      Array.of_list (List.filter (fun a -> not (is a)) (Array.to_list argv)) )
+  in
+  (match dialect_name with
+  | None -> ()
+  | Some name -> (
+      match Loop_native4d_model.Dialect.of_name name with
+      | None ->
+          Printf.eprintf "loop_js_pt2: unknown --dialect=%S (one of %s)\n" name
+            (String.concat ", "
+               (List.map Loop_native4d_model.Dialect.name
+                  Loop_native4d_model.Dialect.all));
+          exit 2
+      | Some d ->
+          (* Refused rather than ignored: the per-node paths run Native graphs
+             through Native executors, so a native4d request there would
+             silently run the Native path. *)
+          if
+            d <> Loop_native4d_model.Dialect.Native
+            && ((not bundle) || nodes || direct || arena || baseline || warm)
+          then (
+            prerr_endline
+              "loop_js_pt2: --dialect=native4d applies to --bundle alone (not \
+               with --nodes, --direct, --arena, --baseline or --warm)";
+            exit 2);
+          dialect := d));
   (* [--samples=N]: [--bundle]'s one prepared graph serves N samples (default
      1, as every other mode here). *)
   let samples, argv =

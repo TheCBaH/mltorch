@@ -20,6 +20,13 @@ file, inputs file or workspace. `model_run` does no I/O and no allocation and
 keeps no global state; a failure carries the invocation position, so a shared
 kernel still names which call failed.
 
+**Dialects.** The bundle is built by `Loop_bundle.build_with ~dialect`, so a Native4D
+graph compiles the same way (`--dialect=native4d` on `loop_c_pt2`, `make
+c.pt2.native4d.runtest`, and the `.ssa.` variant); see the Native4D design record. A
+comparison of one integer expression with itself (a stride-1 `col2im` window collapses
+to `raw == raw`) is printed as the constant by both C emitters, since gcc rejects it under
+`-Werror` (`-Wtautological-compare`); a float `x == x` is the NaN test and is kept.
+
 ## Using it
 
 Prerequisites: `gcc` (or another compiler taking the same flags), a 64-bit

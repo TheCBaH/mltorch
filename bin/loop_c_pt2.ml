@@ -6,6 +6,7 @@
          [--shadow] [--poison] [--samples=N] [--keep=DIR] [--cc=CMD]
          [--bench=N] [--reference] [--vector] [--ssa=representation|exact|planned]
          [--numerics=NAME] [--shadow-numeric] [--atol=X] [--rtol=X]
+         [--dialect=native|native4d]
 
    The default is the performance path (numerics simd_fp32_relaxed, vectorized
    for the host). [--reference] selects the binary64 scalar reference path, which
@@ -24,14 +25,18 @@
    |actual - reference| <= atol + rtol * |reference| (--atol, --rtol; 1e-4
    each by default); the coverage line says how many kernels ran in each
    precision. [--keep=DIR] keeps the artifact there. Timings
-   go to stderr. *)
+   go to stderr.
+
+   [--dialect=native4d] compiles the model after the canonical passes and the
+   four-axis lowering instead of the lowered Native graph, and [--shadow] then
+   compares against [Eval_direct4.run]; a model outside the dialect is a
+   refusal (exit 1), never a Native run. *)
 
 open Loop_ir
 
 type eval =
-  [ Native_interp.error
+  [ Loop_native4d_model.error
   | Native_predict.error
-  | Loop_bundle.error
   | Loop_c_exec.Host.error
   | `Bundle_mismatch of int
   | `Numeric_mismatch of int ]
@@ -43,9 +48,8 @@ let pp_eval ppf : eval -> unit = function
   | `Numeric_mismatch n ->
       Format.fprintf ppf "C model: %d cell(s) outside the numerical tolerance" n
   | #Loop_c_exec.Host.error as e -> Loop_c_exec.Host.pp_error ppf e
-  | #Loop_bundle.error as e -> Loop_bundle.pp_error ppf e
   | #Native_predict.error as e -> Native_predict.pp_error ppf e
-  | #Native_interp.error as e -> Native_interp.pp_error ppf e
+  | #Loop_native4d_model.error as e -> Loop_native4d_model.pp_error ppf e
 
 let bits t =
   let (Tensor.Tensor tt) = t in
@@ -80,6 +84,9 @@ let cache = ref None
    (see [Ssa_backends.Pipeline]); the default is the Loop path. *)
 let ssa_pipeline : Ssa_backends.Pipeline.t option ref = ref None
 
+(* [--dialect=NAME]: which graph the model is compiled from. *)
+let dialect = ref Loop_native4d_model.Dialect.Native
+
 let prepared ~keep ~compiler ~vector ~numerics archive =
   let open Err.Syntax in
   let map e = (e :> eval) in
@@ -87,15 +94,13 @@ let prepared ~keep ~compiler ~vector ~numerics archive =
   | Some c -> Err.return c
   | None ->
       let t0 = now () in
-      let* lowered = Native_interp.lower_archive archive |> Err.map_error map in
-      let g = lowered.Pt2_native_graph.graph in
-      let* constants =
-        Native_interp.preload archive lowered |> Err.map_error map
-      in
-      let* b =
-        Loop_bundle.build ~config:Loop_bundle_c.default_config g
+      let* model =
+        Loop_native4d_model.load !dialect ~config:Loop_bundle_c.default_config
+          archive
         |> Err.map_error map
       in
+      let b = model.Loop_native4d_model.bundle in
+      let constants = model.Loop_native4d_model.constants in
       let t1 = now () in
       let dir =
         match keep with
@@ -136,7 +141,7 @@ let prepared ~keep ~compiler ~vector ~numerics archive =
            ~f32_invocations:st.Loop_bundle_c.f32_invocations
            ~invocations:st.Loop_bundle_c.invocations
            ~refusals:st.Loop_bundle_c.fp32_refusals);
-      let cached = (g, constants, b, p) in
+      let cached = (model, b, p) in
       cache := Some cached;
       Err.return cached
 
@@ -184,9 +189,7 @@ let infer ~keep ~compiler ~vector ~numerics ~shadow ~numeric ~poison
     ~bench:bench_n archive image =
   let open Err.Syntax in
   let map e = (e :> eval) in
-  let* g, constants, b, p =
-    prepared ~keep ~compiler ~vector ~numerics archive
-  in
+  let* model, b, p = prepared ~keep ~compiler ~vector ~numerics archive in
   let* input = Native_interp.tensor_of_pt2 image |> Err.map_error map in
   let input_id = List.hd b.Loop_bundle.inputs in
   let t0 = now () in
@@ -205,9 +208,7 @@ let infer ~keep ~compiler ~vector ~numerics ~shadow ~numeric ~poison
     else
       let t1 = now () in
       let* reference =
-        Eval_direct.run g
-          ~constants:(Graph_ir.Tensor_id.Map.bindings constants)
-          ~inputs:[ (input_id, input) ]
+        model.Loop_native4d_model.reference [ (input_id, input) ]
         |> Err.map_error map
       in
       let bad =
@@ -215,7 +216,7 @@ let infer ~keep ~compiler ~vector ~numerics ~shadow ~numeric ~poison
           (List.filter
              (fun (id, t) ->
                bits t <> bits (Graph_ir.Tensor_id.Map.find id reference))
-             (List.combine g.Graph_ir.Graph.outputs outs))
+             (List.combine b.Loop_bundle.outputs outs))
       in
       Printf.eprintf
         "loop_c_pt2: shadow %d/%d outputs differ (reference %.0f ms)\n%!" bad
@@ -228,15 +229,13 @@ let infer ~keep ~compiler ~vector ~numerics ~shadow ~numeric ~poison
     | Some (atol, rtol) -> (
         let t1 = now () in
         let* reference =
-          Eval_direct.run g
-            ~constants:(Graph_ir.Tensor_id.Map.bindings constants)
-            ~inputs:[ (input_id, input) ]
+          model.Loop_native4d_model.reference [ (input_id, input) ]
           |> Err.map_error map
         in
         let per_output =
           Loop_numeric_diff.outputs ~atol ~rtol
             ~reference:(fun id -> Graph_ir.Tensor_id.Map.find id reference)
-            (List.combine g.Graph_ir.Graph.outputs outs)
+            (List.combine b.Loop_bundle.outputs outs)
         in
         List.iter
           (fun (id, d) ->
@@ -337,6 +336,18 @@ let () =
            "loop_c_pt2: unknown --ssa=%S (representation, exact or planned)\n"
            other;
          exit 2);
+  let dialect_name, argv = valued "--dialect=" argv in
+  (match dialect_name with
+  | None -> ()
+  | Some n -> (
+      match Loop_native4d_model.Dialect.of_name n with
+      | Some d -> dialect := d
+      | None ->
+          Printf.eprintf "loop_c_pt2: unknown --dialect=%S (one of %s)\n" n
+            (String.concat ", "
+               (List.map Loop_native4d_model.Dialect.name
+                  Loop_native4d_model.Dialect.all));
+          exit 2));
   let cc, argv = valued "--cc=" argv in
   let compiler =
     Option.map

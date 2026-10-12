@@ -62,13 +62,9 @@ let reachable_i64 (p : Stage_program.t) (oid : Tensor_id.t) =
    program was checked against (a reference oracle, e.g.) builds it through
    this one path rather than re-deriving the pruning above by hand and
    risking the two drifting apart. *)
-let kernel ?(limits = Kernel.Limits.default) (g : Graph_ir.graph)
-    (node : Graph_ir.node) ~(output : Output_ordinal.t) :
+let kernel_of_program ?(limits = Kernel.Limits.default)
+    (program : Stage_program.t) ~(oid : Tensor_id.t) :
     (Kernel.t, Kernel_adapt.error) Err.t =
-  let oid =
-    List.assoc output (Output_ordinal.indexed node.Graph_ir.Node.outputs)
-  in
-  let program = Eval_symbolic.node_program ~limits g node in
   let needed = reachable_i64 program oid in
   let program =
     {
@@ -98,17 +94,35 @@ let kernel ?(limits = Kernel.Limits.default) (g : Graph_ir.graph)
     ~select:(Tensor_id.Set.singleton oid)
     ~outputs:[ oid ] program
 
-let lower_placed ?(limits = Kernel.Limits.default) ?(passes = Loop_opt.passes)
-    (g : Graph_ir.graph) (node : Graph_ir.node) ~(output : Output_ordinal.t) :
-    (Fusion_plan.t * Loop_program.t, error) Err.t =
+let kernel ?(limits = Kernel.Limits.default) (g : Graph_ir.graph)
+    (node : Graph_ir.node) ~(output : Output_ordinal.t) :
+    (Kernel.t, Kernel_adapt.error) Err.t =
+  let oid =
+    List.assoc output (Output_ordinal.indexed node.Graph_ir.Node.outputs)
+  in
+  kernel_of_program ~limits (Eval_symbolic.node_program ~limits g node) ~oid
+
+let lower_placed_of_program ?(limits = Kernel.Limits.default)
+    ?(passes = Loop_opt.passes) (program : Stage_program.t) ~(oid : Tensor_id.t)
+    : (Fusion_plan.t * Loop_program.t, error) Err.t =
   let open Err.Syntax in
   let* kernel =
-    kernel ~limits g node ~output |> Err.map_error (fun e -> `Adapt e)
+    kernel_of_program ~limits program ~oid |> Err.map_error (fun e -> `Adapt e)
   in
   let plan = Fusion_plan.default kernel in
   Loop_lower.lower_unoptimized plan
   |> Err.map (fun p -> (plan, Loop_opt.run ~passes p))
   |> Err.map_error (fun e -> `Lower e)
+
+let lower_placed ?(limits = Kernel.Limits.default) ?(passes = Loop_opt.passes)
+    (g : Graph_ir.graph) (node : Graph_ir.node) ~(output : Output_ordinal.t) :
+    (Fusion_plan.t * Loop_program.t, error) Err.t =
+  let oid =
+    List.assoc output (Output_ordinal.indexed node.Graph_ir.Node.outputs)
+  in
+  lower_placed_of_program ~limits ~passes
+    (Eval_symbolic.node_program ~limits g node)
+    ~oid
 
 let lower ?limits ?passes g node ~output =
   Err.map snd (lower_placed ?limits ?passes g node ~output)

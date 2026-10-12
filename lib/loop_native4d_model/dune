@@ -1,0 +1,19 @@
+; An archive to a runnable model for the whole-model drivers, in either dialect:
+; the Loop bundle, the constants it binds, and the per-edge reference evaluator
+; that dialect's drivers shadow against. Native is the lowered archive as it
+; stands; Native4D is the canonical passes followed by the checked four-axis
+; lowering, and a model outside the dialect is a typed refusal, never a Native
+; run. One definition so `--dialect=native4d` means the same thing in every
+; driver.
+
+(library
+ (name loop_native4d_model)
+ (libraries
+  err_trace
+  fmt
+  loop_ir
+  loop_native4d
+  native
+  native4d
+  native_interp
+  pt2))

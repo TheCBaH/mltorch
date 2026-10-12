@@ -1,0 +1,18 @@
+; The Native4D graphs the C, Wasm and JavaScript bundle suites all run, so the
+; three backends are held to the same cases: every dialect operation
+; (Fixtures4.per_op) plus the multi-node graphs Native lowers into the dialect,
+; which carry the Region-authored operations (an Lstm group, an Sdpa whose mask
+; is omitted so a synthetic default is bound, norms, softmax) the per-op sweep
+; cannot. No execution here; each backend's suite supplies its own.
+
+(library
+ (name loop_native4d_common)
+ (libraries
+  core
+  err_trace
+  fmt
+  loop_ir
+  loop_native4d
+  native
+  native4d
+  native4d_test))

@@ -17,6 +17,7 @@ module Loop_carrier = Loop_carrier
 module Loop_c_failure = Loop_c_failure
 module Loop_check = Loop_check
 module Loop_contract = Loop_contract
+module Loop_dialect = Loop_dialect
 module Loop_expr = Loop_expr
 module Loop_flat = Loop_flat
 module Loop_failure = Loop_failure

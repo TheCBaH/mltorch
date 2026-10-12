@@ -1,4 +1,4 @@
-.PHONY: model.compare.coverage js.compare.runtest rivet.compare.runtest transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open model.compare model.download model.compare.gate model.fetch.timm model.fetch.fixture transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
+.PHONY: model.compare.coverage js.compare.runtest rivet.compare.runtest transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open model.compare model.download model.compare.gate model.fetch.timm model.fetch.fixture transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.native4d.runtest c.pt2.native4d.ssa.runtest c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean machine.a64.conformance machine.pt2.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
@@ -6,7 +6,7 @@
 	inline-timing-report inline-timing-report-js js.build js.runtest \
 	jsoo.build jsoo.inline-runtest jsoo.pt2.download jsoo.pt2.run \
 	jsoo.pt2.runtest jsoo.pt2.vars jsoo.runtest jsoo.safetensors.golden jsoo.safetensors.runtest loop.js.runtest \
-	loop_js.bench loop_js.bundle.pt2.bench loop_js.bundle.pt2.runtest loop_js.bundle.pt2.ssa.runtest loop_js.node.pt2.direct.runtest \
+	loop_js.bench loop_js.bundle.pt2.bench loop_js.bundle.pt2.native4d.runtest loop_js.bundle.pt2.native4d.ssa.runtest loop_js.bundle.pt2.runtest loop_js.bundle.pt2.ssa.runtest loop_js.node.pt2.direct.runtest \
 	loop_js.node.pt2.fast.direct.runtest loop_js.node.pt2.fast.runtest \
 	loop_js.node.pt2.runtest loop_js.pt2.download loop_js.pt2.run \
 	loop_js.pt2.vars melange.build \
@@ -19,7 +19,7 @@
 	arena.eval arena.eval.report arena.schedule.eval arena.schedule.eval.report pt2.json-model-support pt2.runtest pt2.vars runtest safetensors.browser.runtest spike.runtest \
 	spike.setup tailcall.js-benchmark tailcall.runtest test \
 	verify.pristine visualizer.build visualizer.patch \
-	visualizer.submodule wasm.browser.runtest wasm.c.pt2.run wasm.c.pt2.runtest wasm.jsoo.pt2.runtest wasm.jsoo.runtest wasm.pt2.bench wasm.pt2.exe wasm.pt2.perf wasm.pt2.run wasm.pt2.runtest wasm.pt2.ssa.perf wasm.pt2.ssa.runtest wasm.simd.pt2.runtest wasm.runtest wasm.toolchain webapp.bridge-runtest webapp.browser-runtest \
+	visualizer.submodule wasm.browser.runtest wasm.c.pt2.run wasm.c.pt2.runtest wasm.jsoo.pt2.runtest wasm.jsoo.runtest wasm.pt2.bench wasm.pt2.exe wasm.pt2.native4d.runtest wasm.pt2.native4d.ssa.runtest wasm.pt2.perf wasm.pt2.run wasm.pt2.runtest wasm.pt2.ssa.perf wasm.pt2.ssa.runtest wasm.simd.pt2.runtest wasm.runtest wasm.toolchain webapp.bridge-runtest webapp.browser-runtest \
 	webapp.build webapp.npm-install webapp.runtest webapp.serve
 all: build
 
@@ -1144,6 +1144,23 @@ loop_js.bundle.pt2.ssa.runtest: jsoo.pt2.download jsoo.build
 	    --shadow --reference --strict --ssa=$$p || exit 1; \
 	done
 
+# The same two through the Native4D dialect (see c.pt2.native4d.runtest): the
+# model after the canonical passes and the four-axis lowering, every output
+# bitwise equal to Eval_direct4.run's. The Loop runner shadows Eval_direct
+# directly and takes no --reference; the SSA runner's --reference selects that
+# independent evaluator over a Loop-bundle shadow. Neither poisons: the JS
+# executor has no workspace fill.
+loop_js.bundle.pt2.native4d.runtest: jsoo.pt2.download jsoo.build
+	node $(JS_BUILD)/jsoo/loop_js_pt2/loop_js_pt2.bc.js $(JS_PT2_RUN_ARGS) \
+	  --bundle --dialect=native4d --shadow --strict
+
+loop_js.bundle.pt2.native4d.ssa.runtest: jsoo.pt2.download jsoo.build
+	for p in $(SSA_PIPELINES); do \
+	  echo "== $(JS_PT2_MODEL) (native4d, ssa $$p)" && \
+	  node $(JS_BUILD)/jsoo/ssa_js_pt2/ssa_js_pt2.bc.js $(JS_PT2_RUN_ARGS) \
+	    --dialect=native4d --shadow --reference --strict --ssa=$$p || exit 1; \
+	done
+
 # The bundle against the matched per-node baseline (same graph, constants and
 # input, every node its own generated-JS kernel): prepare, cold and warm run
 # times, source size and pool sizes to stderr. Depends on the verification
@@ -1277,7 +1294,7 @@ js.runtest: jsoo.runtest jsoo.inline-runtest melange.runtest loop.js.runtest
 wasm.runtest: wasm.toolchain
 	MLTORCH_WASM=1 MLTORCH_WASI_SYSROOT="$(WASI_SYSROOT)" NO_COLOR=1 opam exec -- dune build --force \
 	  @test/wasm_ir/runtest @test/wasm_ir/runtest-js \
-	  @test/loop_wasm/runtest @test/loop_wasm_vector/runtest \
+	  @test/loop_wasm/runtest @test/loop_wasm_vector/runtest @test/loop_native4d_wasm/runtest \
 	  @test/ssa_projection/wasm/runtest \
 	  @test/loop_ir/runtest-js
 
@@ -1379,6 +1396,18 @@ wasm.pt2.ssa.runtest: wasm.pt2.exe
 	  for p in $(SSA_PIPELINES); do \
 	    (cd $(PT2_DIR)/$$m && echo "== $$m (ssa $$p)" && $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --reference --strict --shadow --poison --samples=1 --ssa=$$p) || exit 1; \
 	  done; \
+	done
+
+# The Native4D dialect through direct Wasm, under node (see
+# c.pt2.native4d.runtest).
+wasm.pt2.native4d.runtest: wasm.pt2.exe
+	$(MAKE) pt2.download PT2_MODEL=$(NATIVE4D_PT2_MODEL) && \
+	(cd $(PT2_DIR)/$(NATIVE4D_PT2_MODEL) && echo "== $(NATIVE4D_PT2_MODEL) (native4d)" && $(CURDIR)/$(WASM_PT2_EXE) $(NATIVE4D_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt --dialect=native4d --reference --strict --shadow --poison --samples=1)
+
+wasm.pt2.native4d.ssa.runtest: wasm.pt2.exe
+	$(MAKE) pt2.download PT2_MODEL=$(NATIVE4D_PT2_MODEL) && \
+	for p in $(SSA_PIPELINES); do \
+	  (cd $(PT2_DIR)/$(NATIVE4D_PT2_MODEL) && echo "== $(NATIVE4D_PT2_MODEL) (native4d, ssa $$p)" && $(CURDIR)/$(WASM_PT2_EXE) $(NATIVE4D_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt --dialect=native4d --reference --strict --shadow --poison --samples=1 --ssa=$$p) || exit 1; \
 	done
 
 wasm.pt2.ssa.perf: wasm.pt2.exe
@@ -1556,6 +1585,25 @@ c.pt2.runtest: c.pt2.exe
 	for m in $(C_PT2_CI_MODELS); do \
 	  $(MAKE) pt2.download PT2_MODEL=$$m && \
 	  (cd $(PT2_DIR)/$$m && echo "== $$m" && $(CURDIR)/$(C_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --reference --strict --shadow --poison --samples=1) || exit 1; \
+	done
+
+# The Native4D dialect: the model after the canonical passes and the four-axis
+# lowering, compiled to a host binary, every output bitwise equal to
+# Eval_direct4.run's with the workspace poisoned. One model: it is the one known
+# to convert, and the hermetic suites (test/loop_native4d_*) carry the breadth,
+# the Region-authored operations included. A model outside the dialect is a
+# refusal, never a Native run.
+NATIVE4D_PT2_MODEL := mobilenetv2_050
+
+c.pt2.native4d.runtest: c.pt2.exe
+	$(MAKE) pt2.download PT2_MODEL=$(NATIVE4D_PT2_MODEL) && \
+	(cd $(PT2_DIR)/$(NATIVE4D_PT2_MODEL) && echo "== $(NATIVE4D_PT2_MODEL) (native4d)" && $(CURDIR)/$(C_PT2_EXE) $(NATIVE4D_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt --dialect=native4d --reference --strict --shadow --poison --samples=1)
+
+# The same through the structured SSA backend (see c.pt2.ssa.runtest).
+c.pt2.native4d.ssa.runtest: c.pt2.exe
+	$(MAKE) pt2.download PT2_MODEL=$(NATIVE4D_PT2_MODEL) && \
+	for p in $(SSA_PIPELINES); do \
+	  (cd $(PT2_DIR)/$(NATIVE4D_PT2_MODEL) && echo "== $(NATIVE4D_PT2_MODEL) (native4d, ssa $$p)" && $(CURDIR)/$(C_PT2_EXE) $(NATIVE4D_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt --dialect=native4d --reference --strict --shadow --poison --samples=1 --ssa=$$p) || exit 1; \
 	done
 
 c.pt2.run: c.pt2.exe

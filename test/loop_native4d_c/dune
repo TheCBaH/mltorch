@@ -1,0 +1,24 @@
+; Native4D graphs through the whole-model C backend: each case's bundle is
+; generated, compiled with the host compiler and run, and every output must
+; equal [Eval_direct4.run] bitwise. The cases are the ones the Wasm and
+; JavaScript suites run (loop_native4d_common). Needs a C compiler (gcc): a
+; missing one is a failure, never a skip. The default and SSA kernel paths run in
+; separate files (C_case holds the shared driver) so each stays under the
+; per-file inline-test time ceiling.
+
+(library
+ (name loop_native4d_c_test)
+ (libraries
+  core
+  err_trace
+  fmt
+  loop_c_exec
+  loop_ir
+  loop_native4d
+  loop_native4d_common
+  native
+  native4d
+  ssa_backends)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

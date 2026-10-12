@@ -34,8 +34,8 @@ let bits (Tensor.Tensor t as packed) =
       acc := Int64.bits_of_float (Tensor.read packed c) :: !acc);
   List.rev !acc
 
-let prefix (b : Loop_bundle.t) m ~constants ~count =
-  let g = b.Loop_bundle.graph in
+let prefix (b : Loop_bundle.t) ~(graph : Graph_ir.graph) m ~constants ~count =
+  let g = graph in
   let inputs =
     List.map
       (fun id ->
@@ -88,8 +88,9 @@ let prefix (b : Loop_bundle.t) m ~constants ~count =
 
 (* The table-bound host: tensors are the context's storage, passed by address.
    The same comparison, with the phases timed apart. *)
-let host_run (b : Loop_bundle.t) ~constants ~allocation ~runtime ~count ~poison
-    ~gnu ~features ~pipeline ~interp ~bench ~profile ~verify =
+let host_run (b : Loop_bundle.t) ~(graph : Graph_ir.graph) ~constants
+    ~allocation ~runtime ~count ~poison ~gnu ~features ~pipeline ~interp ~bench
+    ~profile ~verify =
   let module H = Machine_rivet_x86_64.Rivet_x64_host in
   let n = List.length b.Loop_bundle.invocations in
   let t0 = Unix.gettimeofday () in
@@ -122,7 +123,7 @@ let host_run (b : Loop_bundle.t) ~constants ~allocation ~runtime ~count ~poison
   | Ok host -> (
       Fmt.pr "%d of %d invocations compiled (%.1f s)@." n n
         (Unix.gettimeofday () -. t0);
-      let g = b.Loop_bundle.graph in
+      let g = graph in
       let inputs =
         List.map
           (fun id ->
@@ -390,18 +391,19 @@ let () =
         let* b =
           Loop_bundle.build lowered.Pt2_native_graph.graph |> Err.map_error lift
         in
-        Err.return (b, constants)
+        Err.return (b, constants, lowered.Pt2_native_graph.graph)
       in
       match Err.payload result with
       | Error _ ->
           prerr_endline "census: could not open or lower the archive";
           exit 1
-      | Ok (b, constants) -> (
+      | Ok (b, constants, graph) -> (
           let n = List.length b.Loop_bundle.invocations in
           Fmt.pr "runner: %a@." Machine_rivet_x86_64.Rivet_x64_process.Runner.pp
             Machine_rivet_x86_64.Rivet_x64_process.runner;
           if !table then
-            host_run b ~constants ~allocation:!allocation ~runtime:!runtime
+            host_run b ~graph ~constants ~allocation:!allocation
+              ~runtime:!runtime
               ~count:(Option.value ~default:n !run)
               ~poison:!poison ~gnu:!gnu
               ~features:
@@ -426,7 +428,7 @@ let () =
                   (Filename.basename path) n n
                   (Unix.gettimeofday () -. t0);
                 let count = Option.value ~default:n !run in
-                if count > 0 then prefix b m ~constants ~count
+                if count > 0 then prefix b ~graph m ~constants ~count
             | Error refusals ->
                 let tally = Hashtbl.create 16 in
                 List.iter

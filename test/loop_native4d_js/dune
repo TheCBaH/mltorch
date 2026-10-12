@@ -1,0 +1,24 @@
+; Native4D graphs through the whole-model JavaScript backend, run in-process
+; under node (js_of_ocaml only; `make jsoo.inline-runtest`): each case's
+; bundle is prepared and run, and every output must equal [Eval_direct4.run]
+; bitwise. The cases are the ones the C and Wasm suites run
+; (loop_native4d_common).
+
+(library
+ (name loop_native4d_js_test)
+ (libraries
+  core
+  err_trace
+  fmt
+  js_of_ocaml
+  loop_bundle_exec
+  loop_ir
+  loop_native4d
+  loop_native4d_common
+  native
+  native4d
+  ssa_backends)
+ (inline_tests
+  (modes js))
+ (preprocess
+  (pps ppx_expect)))

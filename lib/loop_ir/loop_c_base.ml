@@ -303,23 +303,33 @@ and big nm : int64 Loop_expr.t -> string = function
       "(" ^ p ^ " ? " ^ a ^ " : " ^ b ^ ")"
   | Loop_expr.Temp (Loop_carrier.Int64, t) -> temp nm t
 
+(* An integer comparison of one expression with itself is a constant. It arises
+   when index arithmetic collapses (a window with stride 1 tests [raw] against
+   [1 * (raw / 1)]), and gcc rejects it under -Werror (-Wtautological-compare).
+   Integer expressions here are pure, so printing the constant is exact (in
+   parentheses, like every predicate: statements write [if PRED {]); a float
+   [x == x] is the NaN test and is left alone. *)
+and int_compare op a b =
+  if String.equal a b then if String.equal op "==" then "(1)" else "(0)"
+  else "(" ^ a ^ " " ^ op ^ " " ^ b ^ ")"
+
 and pred nm : Loop_expr.pred -> string = function
   | Loop_bool.I64_eq (a, b) ->
       let a = big nm a in
       let b = big nm b in
-      "(" ^ a ^ " == " ^ b ^ ")"
+      int_compare "==" a b
   | Loop_bool.I64_lt (a, b) ->
       let a = big nm a in
       let b = big nm b in
-      "(" ^ a ^ " < " ^ b ^ ")"
+      int_compare "<" a b
   | Loop_bool.Index_eq (a, b) ->
       let a = index nm a in
       let b = index nm b in
-      "(" ^ a ^ " == " ^ b ^ ")"
+      int_compare "==" a b
   | Loop_bool.Index_lt (a, b) ->
       let a = index nm a in
       let b = index nm b in
-      "(" ^ a ^ " < " ^ b ^ ")"
+      int_compare "<" a b
   | Loop_bool.Index_overflows i -> (
       match overflow_nodes nm i with
       | [] -> "0"

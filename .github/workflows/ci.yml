@@ -398,6 +398,12 @@ jobs:
       if: matrix.suite == 'native-ssa'
       run: |
         ${{ env.EXEC }} make c.pt2.ssa.perf
+    # The Native4D dialect (mobilenetv2_050): canonical passes and the four-axis
+    # lowering, bitwise against Eval_direct4 with the workspace poisoned.
+    - name: whole-model C backend, Native4D dialect (Loop and SSA kernels)
+      if: matrix.suite == 'native-ssa'
+      run: |
+        ${{ env.EXEC }} make c.pt2.native4d.runtest c.pt2.native4d.ssa.runtest
 
     # {2 native-corpus}
     #
@@ -599,6 +605,10 @@ jobs:
       if: matrix.suite == 'jsoo-models'
       run: |
         ${{ env.EXEC }} make loop_js.bundle.pt2.ssa.runtest
+    - name: jsoo pt2 whole-model bundle, Native4D dialect (Loop and SSA kernels)
+      if: matrix.suite == 'jsoo-models'
+      run: |
+        ${{ env.EXEC }} make loop_js.bundle.pt2.native4d.runtest loop_js.bundle.pt2.native4d.ssa.runtest
     # fastvit_sa12, WITHOUT --shadow: Loop_node_executor's own default
     # (shadow:false) trusts each compiled kernel directly instead of also
     # running the reference interpreter, verified only by --strict's ranking
@@ -689,6 +699,10 @@ jobs:
       if: matrix.suite == 'wasm-ssa'
       run: |
         ${{ env.EXEC }} make WASI_SYSROOT=/usr wasm.pt2.ssa.perf
+    - name: whole-model wasm backend, Native4D dialect (Loop and SSA kernels)
+      if: matrix.suite == 'wasm-ssa'
+      run: |
+        ${{ env.EXEC }} make WASI_SYSROOT=/usr wasm.pt2.native4d.runtest wasm.pt2.native4d.ssa.runtest
 
     # {2 browser}
     #

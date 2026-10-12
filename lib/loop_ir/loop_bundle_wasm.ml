@@ -113,7 +113,7 @@ module Kernels = struct
   let all t = List.rev t.order
 end
 
-let signature (g : graph) id =
+let signature (g : unit Graph.t) id =
   match Tensor_id.Map.find_opt id g.Graph.tensors with
   | Some sg -> Err.return sg
   | None -> Err.fail (`Missing_signature id)

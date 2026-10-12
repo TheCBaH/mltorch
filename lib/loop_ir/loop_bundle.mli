@@ -63,8 +63,29 @@ type error =
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
+type 'err generic_error =
+  [ Arena_plan.error
+  | Loop_node_program.error
+  | `Dialect of 'err
+  | `Missing_signature of Tensor_id.t
+  | `Plan_mismatch of Alloc_script.Position.t
+  | `Region_construction of Region_computation.error
+  | `Region_lower of Loop_region_program.error ]
+(** What {!build_with} reports for any dialect. [`Dialect] carries the dialect's
+    own storage-script failure; the Region validation the builder runs on what a
+    dialect returns, and the output-signature lookup, have shared arms. *)
+
+val pp_generic_error :
+  (Format.formatter -> 'err -> unit) ->
+  Format.formatter ->
+  [< 'err generic_error ] ->
+  unit
+
 type t = {
-  graph : graph;
+  graph : unit Graph.t;
+      (** the graph's structure with its operations erased: bundle consumers
+          read only tensor signatures, inputs and outputs, and a bundle must not
+          name its dialect's operation type *)
   config : Storage_script.Config.t;
   script : Storage_script.t;
   plan : Storage_plan.t;
@@ -75,13 +96,31 @@ type t = {
   invocations : invocation list;  (** schedule order *)
 }
 
+val default_config : Storage_script.Config.t
+(** [Separate] layout with constants and inputs both [Copied]: what {!build}
+    uses when [config] is omitted. *)
+
+val erase : 'op Graph.t -> unit Graph.t
+
+val build_with :
+  dialect:('op, 'err) Loop_dialect.t ->
+  ?limits:Kernel.Limits.t ->
+  ?config:Storage_script.Config.t ->
+  ?plan:Storage_plan.t ->
+  'op Graph.t ->
+  (t, 'err generic_error) Err.t
+(** {!build} for any dialect. [~dialect] is mandatory so the function stays
+    polymorphic in ['op]: a defaulted [?dialect] would fix it to the Native
+    operation type. Arguments are those of {!build}. *)
+
 val build :
   ?limits:Kernel.Limits.t ->
   ?config:Storage_script.Config.t ->
   ?plan:Storage_plan.t ->
   graph ->
   (t, error) Err.t
-(** [config] defaults to [Separate] layout with constants and inputs both
+(** [build_with ~dialect:Loop_dialect.native], with the error row it always had.
+    [config] defaults to [Separate] layout with constants and inputs both
     [Copied] -- the simplest fully-owned corner of the storage contract (no
     caller lifetime obligations to track yet). *)
 

@@ -12,6 +12,7 @@
   loop_ir_js
   native_js
   loop_js_exec_js
+  loop_native4d_model_js
   native_interp_js
   native_predict_js
   pt2))

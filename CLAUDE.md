@@ -331,6 +331,20 @@ make wasm.pt2.ssa.runtest     # the same two through Wasm under node (wasm.pt2.s
 make loop_js.bundle.pt2.ssa.runtest # one model's whole bundle through SSA-made JavaScript, bitwise vs Eval_direct
 ```
 
+The Native4D dialect compiles through the same backends (`mobilenetv2_050`, the model
+known to convert; hermetic breadth is in `test/loop_native4d_{c,wasm,js}`):
+
+```sh
+make c.pt2.native4d.runtest         # canonical passes + four-axis lowering, host binary, bitwise vs Eval_direct4 (+ .ssa.runtest)
+make wasm.pt2.native4d.runtest      # the same through direct Wasm under node (+ .ssa.runtest)
+make loop_js.bundle.pt2.native4d.runtest      # the same through generated JavaScript (+ .ssa.runtest, over ssa_js_pt2)
+```
+
+`--dialect=native|native4d` selects the graph in `loop_c_pt2`, `loop_wasm_pt2`,
+`loop_js_pt2` (`--bundle` only) and `ssa_js_pt2`; a model outside the dialect is a
+refusal, never a Native run. `test/loop_native4d_wasm` runs only under `make wasm.runtest`
+(`MLTORCH_WASM`), and `test/loop_native4d_js` under `make jsoo.inline-runtest`.
+
 ### Binary32 SIMD kernels (C and Wasm)
 
 ```sh
@@ -393,6 +407,8 @@ test/*_cram.t                                      ← cram tests decode real mo
 | `lib/loop_ir/` | `loop_ir` | The Loop IR: a structured loop program lowered from a `Fusion_plan.t`, its reference interpreter, the differential harness against `Kernel_eval`, and the JavaScript emitter. Depends on `native`, never the reverse |
 | `lib/js_ast/` | `js_ast` | A closed subset of ECMAScript as data: identifiers, the AST, typed builders (`Js_build`: `Number`, index and `BigInt` kinds that cannot be mixed), the printer, and a scope checker. Depends on `fmt` only; mirrored into Melange (`js/melange/js_ast`) so its output is diffed across native, jsoo and Melange |
 | `js/loop_js_exec/` | `loop_js_exec` | Runs the JavaScript `Loop_js` emits in-process over the bound tensors' storage, decoding a failure record to the interpreter's row. **js_of_ocaml only**: it links into a `(modes js)` executable or inline-test suite, never a native one; its tests install it as a further `Loop_check` executor. The only library that may name `js_of_ocaml` for this backend |
+| `lib/loop_native4d/` | `loop_native4d` | The Native4D instance of `Loop_ir.Loop_dialect`, so a Native4D graph reaches `Loop_bundle.build_with` (C, Wasm, JavaScript, SSA kernels). A library of its own because `loop_ir` depends on `native`, never on a further dialect |
+| `lib/loop_native4d_model/` | `loop_native4d_model` | An archive as a Loop bundle plus its per-edge reference evaluator, in either dialect (`--dialect=` in the whole-model drivers). Native4D materializes deferred Const-SSA exports from the archive before the bundle and the reference see the constants |
 | `lib/interval_alloc/` | `interval_alloc` | A standalone interval allocator: an alloc/free script in, per-block offsets in one pool out, with its own witness check (`Witness` only comes from `check`) and lower bound. Knows nothing of tensors or Bigarrays; depends on `err_trace` + `fmt` only. `int64` sizes and offsets, so it is js_of_ocaml-safe |
 | `lib/interp/` | `interp` | Walks an `ExportedProgram` graph and dispatches each node to the bound ATen ops |
 

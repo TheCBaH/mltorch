@@ -1,0 +1,18 @@
+; jsoo mirror of lib/loop_native4d, over [loop_ir_js] and [native4d_js]. Sources
+; are copied, never forked.
+;
+; UNWRAPPED, like [loop_ir_js]: the copied source names [Loop_ir] (the shim
+; [loop_ir_js] provides over its flat modules) and [Native4d]. [native4d_js] is
+; wrapped, so it is [Native4d_js]; the local [native4d.ml] aliases it, exactly
+; as js/jsoo/model_explorer_export_js/native4d.ml does. This is the only
+; library of the Native4D loop family that defines [Native4d]:
+; loop_native4d_model_js sees it through this one, since two definitions of one
+; module name cannot link together.
+
+(copy_files
+ (files %{workspace_root}/lib/loop_native4d/loop_native4d.{ml,mli}))
+
+(library
+ (name loop_native4d_js)
+ (wrapped false)
+ (libraries err_trace loop_ir_js native_js native4d_js))

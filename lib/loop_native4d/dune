@@ -1,0 +1,12 @@
+; The Native4D instance of [Loop_ir.Loop_dialect], so a Native4D graph reaches
+; the Loop bundle builders (C, Wasm, JavaScript, and the SSA kernels through
+; the bundle's placed plans).
+;
+; A library of its own because [loop_ir] depends on [native], never on a
+; further dialect: its JavaScript mirror would otherwise need [native4d_js].
+; Everything downstream of the dialect record names no operation type, so this
+; is the only place the two meet. See the Native4D design record in .ai/.
+
+(library
+ (name loop_native4d)
+ (libraries err_trace loop_ir native native4d))

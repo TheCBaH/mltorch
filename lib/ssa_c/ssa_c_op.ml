@@ -420,10 +420,19 @@ let instr cx depth (i : Ssa_instr.t) =
            (n b))
   | Ssa_op.I64_compare (c, a, b) | Ssa_op.Index_compare (c, a, b) ->
       let _, r = first_result cx i in
+      (* One value compared with itself is a constant, and gcc rejects it under
+         -Werror (-Wtautological-compare). It arises when index arithmetic
+         collapses, as in a stride-1 window's exactness test. Integers only: a
+         float [x == x] is the NaN test. *)
       assign cx depth r
-        (Printf.sprintf "(%s %s %s)" (n a)
-           (match c with Ssa_op.Compare.Eq -> "==" | Ssa_op.Compare.Lt -> "<")
-           (n b))
+        (if Ssa_value.equal a b then
+           match c with Ssa_op.Compare.Eq -> "1" | Ssa_op.Compare.Lt -> "0"
+         else
+           Printf.sprintf "(%s %s %s)" (n a)
+             (match c with
+             | Ssa_op.Compare.Eq -> "=="
+             | Ssa_op.Compare.Lt -> "<")
+             (n b))
   | Ssa_op.I64_div (a, b) ->
       let _, r = first_result cx i in
       line cx depth "if (%s == 0) %s" (n b)

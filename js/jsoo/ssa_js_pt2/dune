@@ -16,6 +16,7 @@
   loop_bundle_exec
   loop_ir
   loop_js_exec
+  loop_native4d_model
   native
   native_interp
   native_predict

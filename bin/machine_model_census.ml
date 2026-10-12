@@ -163,7 +163,7 @@ let pressure_summary route reports ~choices =
 
 (* What the invocations run so far executed of their allocation, in total and
    by operation, largest stores and reloads first. *)
-let traffic_summary (b : Loop_bundle.t) m route =
+let traffic_summary ~(graph : Graph_ir.graph) m route =
   let module Tr = Machine_interp.Mir_phys_interp.Traffic in
   let ran =
     List.filter_map
@@ -179,14 +179,10 @@ let traffic_summary (b : Loop_bundle.t) m route =
       List.find_opt
         (fun (n : _ Graph_common.Node.t) ->
           n.Graph_common.Node.id = inv.Loop_bundle.node)
-        b.Loop_bundle.graph.Graph_common.Graph.nodes
+        graph.Graph_common.Graph.nodes
     with
     | Some n ->
-        let s =
-          Fmt.str "%a"
-            (Graph_ir.pp_op b.Loop_bundle.graph)
-            n.Graph_common.Node.op
-        in
+        let s = Fmt.str "%a" (Graph_ir.pp_op graph) n.Graph_common.Node.op in
         List.hd
           (String.split_on_char ' '
              (String.map (function '\n' -> ' ' | c -> c) s))
@@ -232,8 +228,8 @@ let traffic_summary (b : Loop_bundle.t) m route =
   |> List.iter (fun (k, n) -> Fmt.pr "  %s: %Ld (%.1f%%)@." k n (pct n))
 
 (* The first [count] invocations against the reference, tensor by tensor. *)
-let prefix (b : Loop_bundle.t) m ~constants ~count =
-  let g = b.Loop_bundle.graph in
+let prefix (b : Loop_bundle.t) ~(graph : Graph_ir.graph) m ~constants ~count =
+  let g = graph in
   let inputs =
     List.map
       (fun id ->
@@ -341,13 +337,13 @@ let () =
         let* b =
           Loop_bundle.build lowered.Pt2_native_graph.graph |> Err.map_error lift
         in
-        Err.return (b, constants)
+        Err.return (b, constants, lowered.Pt2_native_graph.graph)
       in
       match Err.payload result with
       | Error _ ->
           prerr_endline "census: could not open or lower the archive";
           exit 1
-      | Ok (b, constants) -> (
+      | Ok (b, constants, graph) -> (
           let n = List.length b.Loop_bundle.invocations in
           let route =
             match (!traffic, !pressure) with
@@ -399,10 +395,11 @@ let () =
                          decisions));
               match (!run, !traffic) with
               | None, None -> ()
-              | Some count, None -> prefix b m ~constants ~count
+              | Some count, None -> prefix b ~graph m ~constants ~count
               | count, Some route ->
-                  prefix b m ~constants ~count:(Option.value ~default:n count);
-                  traffic_summary b m route)
+                  prefix b ~graph m ~constants
+                    ~count:(Option.value ~default:n count);
+                  traffic_summary ~graph m route)
           | Error refusals ->
               let tally = Hashtbl.create 16 in
               List.iter
