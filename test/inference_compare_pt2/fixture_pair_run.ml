@@ -202,7 +202,7 @@ let resolve_model name =
                       "https://github.com/%s/releases/download/%s/manifest-v2.json"
                       (env "TIMM_REPO"
                          "TheCBaH/devcontainer.pytorch-image-models")
-                      (env "TIMM_RELEASE" "v0.0.6")))
+                      (env "TIMM_RELEASE" "v0.0.7")))
       in
       match timm_or_raise discovered with
       | TU.Discovery.V2 index ->

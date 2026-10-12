@@ -56,7 +56,7 @@ outside this inference-only boundary.
 ## Functional image-model release contract
 
 Runnable fixtures come from `TheCBaH/devcontainer.pytorch-image-models` at
-`ad250479db4e42f77bad1c84c459c9a2731654a8` / `v0.0.6`. Downloaded assets live
+`1778bb45710d332b21082fa184c724df47d9b284` / `v0.0.7`. Downloaded assets live
 under `data/pt2-functional/<model>/` and contain `<model>.pt2`,
 `preprocessing.json`, `expected.json`, `contract.json`, `inputs.pt`, and
 `outputs.pt`.
