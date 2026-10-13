@@ -31,3 +31,6 @@
 [submodule "modules/devcontainer.transformers"]
 	path = modules/devcontainer.transformers
 	url = https://github.com/TheCBaH/devcontainer.transformers.git
+[submodule "vendored/ocaml-elf"]
+	path = vendored/ocaml-elf
+	url = https://github.com/TheCBaH/ocaml-elf.git

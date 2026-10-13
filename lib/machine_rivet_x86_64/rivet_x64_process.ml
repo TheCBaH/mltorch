@@ -256,7 +256,7 @@ let image_of ~entry modules =
 (* ... and written as a static ELF entered at [entry]. *)
 let elf_of ~entry modules =
   let* image = image_of ~entry modules in
-  Ok (Rivet_x64_elf.write image)
+  Rivet_x64_elf.write image
 
 (* An artifact and its harness laid out once: the code does not change between
    runs, only the bytes of the data block do. *)
@@ -420,7 +420,8 @@ let decode ?(probe = false) lay out =
 (* One run of a prepared process over the caller's bound bytes. *)
 let launch ?timeout (p : prepared) ~bound =
   let* image = with_block p ~bound in
-  let* out = execute ?timeout (Rivet_x64_elf.write image) in
+  let* elf = Rivet_x64_elf.write image in
+  let* out = execute ?timeout elf in
   decode ~probe:p.probe p.lay out
 
 let run ?runtime ?timeout ?probe ?entry_mutation ~bound artifact =
