@@ -345,7 +345,7 @@ jobs:
         ${{ env.EXEC }} make transformers.sweep
     - name: retain transformers replay reports
       if: always() && matrix.suite == 'native-models'
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@v7
       with:
         name: transformers-replay-${{ matrix.os }}
         path: _build/transformers-reports/
@@ -413,7 +413,7 @@ jobs:
         ${{ env.EXEC }} make transformers.consumer.check
     - name: retain transformers source reports
       if: always() && matrix.suite == 'native-corpus'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: transformers-source-${{ matrix.os }}
         path: |
