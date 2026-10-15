@@ -117,14 +117,17 @@ let prelude_in dialect =
         ]
         @ error_record "MODEL_ERROR_WORDS"
         @ fail_set
-    | Loop_c_dialect.Compcert_scalar ->
+    | (Loop_c_dialect.Compcert_ilp32 | Loop_c_dialect.Compcert_scalar) as d ->
+        let wide =
+          if d = Loop_c_dialect.Compcert_ilp32 then "long long" else "long"
+        in
         [
           "typedef signed int int32_t;";
-          "typedef signed long int64_t;";
+          Printf.sprintf "typedef signed %s int64_t;" wide;
           "typedef unsigned char uint8_t;";
           "typedef unsigned short uint16_t;";
           "typedef unsigned int uint32_t;";
-          "typedef unsigned long uint64_t;";
+          Printf.sprintf "typedef unsigned %s uint64_t;" wide;
           "typedef unsigned long size_t;";
           "extern void *memcpy(void *, const void *, size_t);";
           "extern void *memset(void *, int, size_t);";
@@ -345,7 +348,7 @@ let text dialect : Name.t -> string =
           "#include <float.h>\n\
            _Static_assert(FLT_EVAL_METHOD == 0, \"binary32 expressions must \
            not widen\");\n"
-      | Loop_c_dialect.Compcert_scalar -> "")
+      | Loop_c_dialect.Compcert_ilp32 | Loop_c_dialect.Compcert_scalar -> "")
   | Name.Float_max_f32 ->
       Printf.sprintf
         "static inline float float_max_f32(float a, float b) {\n\

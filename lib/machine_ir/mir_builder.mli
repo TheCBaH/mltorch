@@ -66,6 +66,7 @@ val func :
     Raises [Invalid_argument] if a block has no terminator. *)
 
 val program :
+  ?data_model:Mir_layout.Data_model.t ->
   ?regions:Mir_region.t list ->
   ?views:Mir_view.t list ->
   ?helpers:Mir_helper.t list ->

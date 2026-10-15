@@ -235,14 +235,21 @@ let semantic esc (cx : Mir_check.context)
               match cx.Mir_check.view view with
               | Some v when Mir_view.writable v.Mir_view.perm -> ()
               | _ -> reject (P.Permission view))
+          | Mir_op.Ptr_add (_, off) ->
+              if
+                not
+                  (Mir_type.equal off.Mir_value.ty
+                     (Mir_type.Int
+                        (Mir_layout.Data_model.offset_width
+                           cx.Mir_check.data_model)))
+              then reject (P.Offset_width off.Mir_value.id)
           | Mir_op.Addr _ | Mir_op.Bitcast _ | Mir_op.Call _ | Mir_op.Const _
           | Mir_op.Copy _ | Mir_op.Event _ | Mir_op.Fbinary _ | Mir_op.Fcmp _
           | Mir_op.Fconvert _ | Mir_op.Ffma _ | Mir_op.Funary _
           | Mir_op.Iarith _ | Mir_op.Icmp _ | Mir_op.Iext _ | Mir_op.Itrunc _
-          | Mir_op.Narrow _ | Mir_op.Pbinary _ | Mir_op.Pnot _
-          | Mir_op.Ptr_add _ | Mir_op.Select _ | Mir_op.Vconcat _
-          | Mir_op.Vextract _ | Mir_op.Vinsert _ | Mir_op.Vslice _
-          | Mir_op.Vsplat _ ->
+          | Mir_op.Narrow _ | Mir_op.Pbinary _ | Mir_op.Pnot _ | Mir_op.Select _
+          | Mir_op.Vconcat _ | Mir_op.Vextract _ | Mir_op.Vinsert _
+          | Mir_op.Vslice _ | Mir_op.Vsplat _ ->
               ())
         b.Mir_block.body)
     f.Mir_func.blocks

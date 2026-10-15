@@ -17,6 +17,10 @@ module type LOADER = sig
   type loaded
   type error
 
+  val dialect : Loop_c_dialect.t
+  (** The spelling of the C the loader accepts: [Compcert_scalar], or
+      [Compcert_ilp32] where [long] is 32 bits. *)
+
   val pp_error : Format.formatter -> error -> unit
 
   val load : host_symbols:string list -> string -> (loaded, error) result

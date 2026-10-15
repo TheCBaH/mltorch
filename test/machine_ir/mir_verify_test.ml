@@ -278,3 +278,23 @@ let%expect_test "mutated use lists and effects cannot fool the verifier" =
     undefined operand: generic fn0 bb3 i15: %4242 is never defined
     result type: generic fn0 bb3 i13: results do not match the opcode
     read-only store: generic fn0 bb0 i2: an access view0 does not permit |}]
+
+(* A pointer offset is as wide as the data model's pointer. *)
+let%expect_test "offset width follows the data model" =
+  let show label p = Fmt.pr "%s: %s@." label (verdict p) in
+  let ilp32 = Mir_layout.Data_model.Ilp32_le in
+  show "ilp32, i32 offset" (sum_f32 ~data_model:ilp32 ());
+  show "lp64, i64 offset" (sum_f32 ());
+  show "lp64 program, i32 offset"
+    {
+      (sum_f32 ~data_model:ilp32 ()) with
+      Mir_program.data_model = Mir_layout.Data_model.Lp64_le;
+    };
+  show "ilp32 program, i64 offset"
+    { (sum_f32 ()) with Mir_program.data_model = ilp32 };
+  [%expect
+    {|
+    ilp32, i32 offset: ok
+    lp64, i64 offset: ok
+    lp64 program, i32 offset: generic fn0 bb3 i10: offset %20 is not as wide as a pointer
+    ilp32 program, i64 offset: generic fn0 bb3 i11: offset %21 is not as wide as a pointer |}]

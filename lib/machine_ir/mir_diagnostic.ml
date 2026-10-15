@@ -28,6 +28,8 @@ module Problem = struct
     | Missing_block of Mir_id.Block.t
     | Missing_main of Mir_id.Func.t
     | Not_dominated of Mir_id.Value.t
+    | Offset_width of Mir_id.Value.t
+        (** a [ptr.add] offset whose width is not the data model's *)
     | Order_expected
     | Order_unexpected
     | Payload_mismatch of Mir_failure.t
@@ -78,6 +80,8 @@ module Problem = struct
         Fmt.string fmt "an ordered operation without order state"
     | Order_unexpected ->
         Fmt.string fmt "an unordered operation with order state"
+    | Offset_width v ->
+        Fmt.pf fmt "offset %a is not as wide as a pointer" Mir_id.Value.pp v
     | Payload_mismatch f ->
         Fmt.pf fmt "failure %a: payload does not match its schema"
           Mir_failure.pp f

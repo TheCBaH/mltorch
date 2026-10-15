@@ -6,6 +6,7 @@ module type LOADER = sig
   type loaded
   type error
 
+  val dialect : Loop_c_dialect.t
   val pp_error : Format.formatter -> error -> unit
   val load : host_symbols:string list -> string -> (loaded, error) result
 
@@ -130,9 +131,7 @@ module Make (L : LOADER) = struct
     let* c =
       Result.map_error
         (fun e -> `Generate e)
-        (Err.payload
-           (Loop_bundle_c.build ~dialect:Loop_c_dialect.Compcert_scalar
-              ?numerics bundle))
+        (Err.payload (Loop_bundle_c.build ~dialect:L.dialect ?numerics bundle))
     in
     match layout c with
     | None -> Error (`Io "workspace alignment above a page")

@@ -129,10 +129,10 @@ let func t ~id ~name ~entry ~results =
   in
   { Mir_func.id; name; entry = entry.id; results; blocks = entry_block :: rest }
 
-let program ?(regions = []) ?(views = []) ?(helpers = []) ?planning funcs ~main
-    =
+let program ?(data_model = Mir_layout.Data_model.Lp64_le) ?(regions = [])
+    ?(views = []) ?(helpers = []) ?planning funcs ~main =
   {
-    Mir_program.data_model = Mir_layout.Data_model.Lp64_le;
+    Mir_program.data_model;
     regions;
     views;
     helpers;

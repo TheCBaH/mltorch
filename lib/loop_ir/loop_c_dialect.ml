@@ -1,4 +1,4 @@
-type t = Compcert_scalar | Gnu
+type t = Compcert_ilp32 | Compcert_scalar | Gnu
 
 let i64 d n =
   match d with
@@ -12,25 +12,36 @@ let i64 d n =
       else if Int64.compare n 0L < 0 then
         "(-" ^ Int64.to_string (Int64.neg n) ^ "L)"
       else Int64.to_string n ^ "L"
+  | Compcert_ilp32 ->
+      if Int64.equal n Int64.min_int then "(-9223372036854775807LL - 1)"
+      else if Int64.compare n 0L < 0 then
+        "(-" ^ Int64.to_string (Int64.neg n) ^ "LL)"
+      else Int64.to_string n ^ "LL"
 
 let u64 d n =
   match d with
   | Gnu -> Printf.sprintf "UINT64_C(%Ld)" n
   | Compcert_scalar -> Printf.sprintf "%LuUL" n
+  | Compcert_ilp32 -> Printf.sprintf "%LuULL" n
 
-let nan = function Gnu -> "NAN" | Compcert_scalar -> "(0.0 / 0.0)"
-let infinity = function Gnu -> "INFINITY" | Compcert_scalar -> "(1.0 / 0.0)"
+let nan = function
+  | Gnu -> "NAN"
+  | Compcert_ilp32 | Compcert_scalar -> "(0.0 / 0.0)"
+
+let infinity = function
+  | Gnu -> "INFINITY"
+  | Compcert_ilp32 | Compcert_scalar -> "(1.0 / 0.0)"
 
 let signbit d x =
   match d with
   | Gnu -> "signbit(" ^ x ^ ")"
-  | Compcert_scalar ->
+  | Compcert_ilp32 | Compcert_scalar ->
       "(" ^ x ^ " < 0.0 || (" ^ x ^ " == 0.0 && 1.0 / " ^ x ^ " < 0.0))"
 
 let isfinite d x =
   match d with
   | Gnu -> "isfinite(" ^ x ^ ")"
-  | Compcert_scalar -> "(" ^ x ^ " - " ^ x ^ " == 0.0)"
+  | Compcert_ilp32 | Compcert_scalar -> "(" ^ x ^ " - " ^ x ^ " == 0.0)"
 
 let host_symbols =
   [

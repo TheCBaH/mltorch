@@ -11,8 +11,8 @@ let k64 bld blk x = const bld blk (Mir_const.i64 x)
 let k32 bld blk x = const bld blk (Mir_const.i32 x)
 let kf64 bld blk x = const bld blk (Mir_const.f64 x)
 
-let program ?regions ?views ?helpers ?planning f =
-  B.program ?regions ?views ?helpers ?planning [ f ] ~main:fn
+let program ?data_model ?regions ?views ?helpers ?planning f =
+  B.program ?data_model ?regions ?views ?helpers ?planning [ f ] ~main:fn
 
 (* (a, b) <- (b, a) [n] times, from (1, 2): the edge must rebind both at once. *)
 let swap ?(sequential = false) () =
@@ -40,7 +40,7 @@ let swap ?(sequential = false) () =
 (* The sum of [len] binary32 cells at [base], each widened to binary64 and
    added in order; [i < 0 || i >= extent] fails as a coordinate failure on the
    W axis, checked before the load. Iterates [i] from 0 to [len]. *)
-let sum_f32 ?(extent = 0L) ?(source = 7) () =
+let sum_f32 ?data_model ?(extent = 0L) ?(source = 7) () =
   let bld = B.create () in
   let entry = B.new_block bld [ Mir_type.Ptr; i32 ] in
   let header = B.new_block bld [ i32; Mir_type.F64 ] in
@@ -65,12 +65,18 @@ let sum_f32 ?(extent = 0L) ?(source = 7) () =
   let hi = B.emit bld check (Mir_op.Icmp (Mir_op.Icmp.Slt, i, ext)) in
   let ok = B.emit bld check (Mir_op.Pbinary (Mir_op.Pbinary.And, lo, hi)) in
   B.branch check ok (access, []) (invalid, []);
-  let wide =
-    B.emit bld access (Mir_op.Iext (Mir_op.Iext.Sext, Mir_width.W64, i))
-  in
-  let four = k64 bld access 4L in
+  (* the byte offset is as wide as a pointer *)
   let bytes =
-    B.emit bld access (Mir_op.Iarith (Mir_op.Iarith.Mul, wide, four))
+    match data_model with
+    | Some Mir_layout.Data_model.Ilp32_le ->
+        let four = k32 bld access 4L in
+        B.emit bld access (Mir_op.Iarith (Mir_op.Iarith.Mul, i, four))
+    | Some Mir_layout.Data_model.Lp64_le | None ->
+        let wide =
+          B.emit bld access (Mir_op.Iext (Mir_op.Iext.Sext, Mir_width.W64, i))
+        in
+        let four = k64 bld access 4L in
+        B.emit bld access (Mir_op.Iarith (Mir_op.Iarith.Mul, wide, four))
   in
   let addr = B.emit bld access (Mir_op.Ptr_add (base, bytes)) in
   let bits =
@@ -97,7 +103,8 @@ let sum_f32 ?(extent = 0L) ?(source = 7) () =
        })
     [ z64; z64; z64; z64; wi; z64 ];
   B.return exit (B.param exit);
-  program (B.func bld ~id:fn ~name:"sum_f32" ~entry ~results:[ Mir_type.F64 ])
+  program ?data_model
+    (B.func bld ~id:fn ~name:"sum_f32" ~entry ~results:[ Mir_type.F64 ])
 
 (* Checked i64 division: a zero divisor fails first, then [min / -1]. *)
 let div () =

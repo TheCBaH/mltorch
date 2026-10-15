@@ -224,7 +224,8 @@ let kernel ?(dialect = Loop_c_dialect.Gnu) ?vector
   let p = Loop_sum.program p in
   let plan =
     match (dialect, vector) with
-    | Loop_c_dialect.Compcert_scalar, Some _ ->
+    | (Loop_c_dialect.Compcert_ilp32 | Loop_c_dialect.Compcert_scalar), Some _
+      ->
         Error (`Unsupported_dialect "vector form")
     | _ -> (
         match precision with

@@ -10,6 +10,7 @@ module P = Mir_diagnostic.Problem
 type context = {
   signature : Mir_op.Callee.t -> Mir_typing.Signature.t option;
   view : Mir_id.View.t -> Mir_view.t option;
+  data_model : Mir_layout.Data_model.t;
 }
 
 module type STAGE = sig
@@ -55,8 +56,8 @@ let make_reject esc stage ?func ?block ?instr problem =
   Err.Escape.throw esc { D.stage; func; block; instr; problem }
 
 (* The program's declarations: regions, views and helpers. *)
-let objects esc stage (regions : Mir_region.t list) (views : Mir_view.t list)
-    (helpers : Mir_helper.t list) =
+let objects esc stage ~data_model (regions : Mir_region.t list)
+    (views : Mir_view.t list) (helpers : Mir_helper.t list) =
   let reject p = make_reject esc stage p in
   let seen_r = ref Mir_id.Region.Set.empty in
   List.iter
@@ -68,6 +69,9 @@ let objects esc stage (regions : Mir_region.t list) (views : Mir_view.t list)
         Int64.compare r.Mir_region.size 0L >= 0
         && Mir_layout.is_power_of_two r.Mir_region.align
         && Int64.compare r.Mir_region.align Mir_layout.max_align <= 0
+        && Int64.compare r.Mir_region.size
+             (Mir_layout.Data_model.max_object_bytes data_model)
+           <= 0
         &&
         match r.Mir_region.init with
         | Mir_region.Constant s ->
@@ -322,8 +326,8 @@ module Make (S : STAGE) = struct
   let program (p : (S.op, S.term) Mir_program.t) =
     Err.Escape.with_escape @@ fun esc ->
     let reject ?func p = make_reject esc S.stage ?func p in
-    objects esc S.stage p.Mir_program.regions p.Mir_program.views
-      p.Mir_program.helpers;
+    objects esc S.stage ~data_model:p.Mir_program.data_model
+      p.Mir_program.regions p.Mir_program.views p.Mir_program.helpers;
     let seen_f = ref Mir_id.Func.Set.empty in
     List.iter
       (fun (f : (S.op, S.term) Mir_func.t) ->
@@ -354,7 +358,13 @@ module Make (S : STAGE) = struct
               })
             (Mir_program.find_helper p id)
     in
-    let cx = { signature; view = Mir_program.find_view p } in
+    let cx =
+      {
+        signature;
+        view = Mir_program.find_view p;
+        data_model = p.Mir_program.data_model;
+      }
+    in
     let analyses =
       List.map
         (fun (f : (S.op, S.term) Mir_func.t) ->

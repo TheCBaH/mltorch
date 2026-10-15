@@ -6,6 +6,7 @@
 type loaded = Native_exec.loaded
 type error = string
 
+let dialect = Loop_ir.Loop_c_dialect.Compcert_scalar
 let pp_error = Fmt.string
 
 let load ~host_symbols source =

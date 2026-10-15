@@ -3,10 +3,11 @@
     [Compcert_scalar] is self-contained C for an embedded CompCert: no
     preprocessor directive anywhere, the types and libc/libm functions it uses
     declared in the unit's own prelude, the macros ([INT64_C], [NAN],
-    [INFINITY], [signbit]) written out. It has no vector form. Both compute the
-    same bits. *)
+    [INFINITY], [signbit]) written out. It has no vector form. [Compcert_ilp32]
+    is the same for a 32-bit-pointer target, where [long] is 32 bits: [int64_t]
+    is [long long] and its constants end in [LL]. All compute the same bits. *)
 
-type t = Compcert_scalar | Gnu
+type t = Compcert_ilp32 | Compcert_scalar | Gnu
 
 val i64 : t -> int64 -> string
 (** An [int64_t] constant. *)

@@ -3,14 +3,28 @@
    signed 64-bit range is [None], never a wrapped value. A host array index is
    narrowed from these only after a check that it fits. *)
 
-(* The one admitted data model: 64-bit pointers, little-endian, Linux/ELF. A
-   generic program records it without naming an ISA; other pointer widths or
-   byte orders are future, explicit extensions. *)
+(* The admitted data models: little-endian, Linux/ELF, with 64-bit pointers
+   (LP64) or 32-bit pointers (ILP32). A generic program records its model
+   without naming an ISA. The model fixes the pointer's size and the width of
+   the byte offset [ptr.add] takes; other byte orders are future, explicit
+   extensions. Closed, alphabetical. *)
 module Data_model = struct
-  type t = Lp64_le
+  type t = Ilp32_le | Lp64_le
 
-  let pointer_bytes Lp64_le = 8L
-  let name Lp64_le = "lp64-le-elf"
+  let pointer_bytes = function Ilp32_le -> 4L | Lp64_le -> 8L
+
+  (* The integer width of a pointer, and so of a [ptr.add] byte offset. *)
+  let offset_width = function
+    | Ilp32_le -> Mir_width.W32
+    | Lp64_le -> Mir_width.W64
+
+  (* The largest object whose every byte offset is a non-negative signed
+     offset of the pointer's width. *)
+  let max_object_bytes = function
+    | Ilp32_le -> 0x7FFF_FFFFL
+    | Lp64_le -> Int64.max_int
+
+  let name = function Ilp32_le -> "ilp32-le-elf" | Lp64_le -> "lp64-le-elf"
   let equal (a : t) b = a = b
 end
 

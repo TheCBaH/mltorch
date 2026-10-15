@@ -201,7 +201,12 @@ let check ~(signature : Mir_op.Callee.t -> Signature.t option)
       Ok [ a.Mir_value.ty ]
   | Ptr_add (a, b) ->
       let* () = same 0 a Mir_type.Ptr in
-      let* () = same 1 b Mir_type.i64 in
+      (* the offset's width is the data model's, which the verifier checks *)
+      let* () =
+        operand 1 b (function
+          | Mir_type.Int (Mir_width.W32 | Mir_width.W64) -> true
+          | _ -> false)
+      in
       Ok [ Mir_type.Ptr ]
   | Select (p, a, b) ->
       let* () = operand 0 p pred_ty in

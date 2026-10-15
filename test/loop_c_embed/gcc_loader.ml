@@ -3,6 +3,7 @@
 type loaded = { lib : Dl.library; entry : char Ctypes.ptr -> int64 }
 type error = string
 
+let dialect = Loop_ir.Loop_c_dialect.Compcert_scalar
 let pp_error = Fmt.string
 
 let dir =
