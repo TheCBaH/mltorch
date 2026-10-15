@@ -1,0 +1,21 @@
+; RISC-V 32 images from typed Rivet modules, written as static ELF executables
+; with ocaml-elf and run as processes under qemu-riscv32 (no RV32 hardware or
+; loader exists on the host). Built only where the RV32 Rivet encoder is
+; installed.
+
+(library
+ (name machine_rivet_riscv32)
+ (libraries
+  elf
+  err_trace
+  fmt
+  rivet.asm_core
+  rivet.driver_direct
+  rivet.foundation
+  rivet.image
+  rivet.riscv32_encode
+  unix)
+ (enabled_if
+  (and
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

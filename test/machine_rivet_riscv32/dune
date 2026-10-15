@@ -1,0 +1,16 @@
+; Hand-built RV32 images written as ELF and run under qemu-riscv32. Built where
+; the RV32 Rivet encoder is installed; qemu-riscv32 must be on the path.
+
+(library
+ (name machine_rivet_riscv32_test)
+ (libraries
+  err_trace
+  fmt
+  machine_rivet_riscv32
+  rivet.asm_core
+  rivet.foundation
+  rivet.image)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect))
+ (enabled_if %{lib-available:rivet.riscv32_encode}))
