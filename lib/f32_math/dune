@@ -1,0 +1,9 @@
+; The binary32 transcendentals as operation sequences: exp, log, sin, cos and
+; erf written once over an abstract binary32 arithmetic ([Make]), so that the
+; oracle (one instance: [Value]) and every emitter's own instance perform the
+; same operations in the same order. Nothing here names a tensor, a program or
+; a target. No dependency: it is reachable from every backend, js_of_ocaml and
+; Melange included, so no [int] larger than a small constant appears in it.
+
+(library
+ (name f32_math))

@@ -8,8 +8,10 @@ module Name = struct
   type t =
     | Bf16_to_float
     | Coord_failure
+    | Cos_f32
     | Erf
     | Erf_f32
+    | Exp_f32
     | F16_to_float
     | F32_prelude
     | Float_max
@@ -21,6 +23,8 @@ module Name = struct
     | Idx_clamp_low
     | Idx_max
     | Idx_min
+    | Log_f32
+    | Sin_f32
     | Vector_prelude
     | Vector_prelude_f32
     | Vector_prelude_fma_f32
@@ -29,8 +33,10 @@ module Name = struct
     [
       Bf16_to_float;
       Coord_failure;
+      Cos_f32;
       Erf;
       Erf_f32;
+      Exp_f32;
       F16_to_float;
       F32_prelude;
       Float_max;
@@ -42,6 +48,8 @@ module Name = struct
       Idx_clamp_low;
       Idx_max;
       Idx_min;
+      Log_f32;
+      Sin_f32;
       Vector_prelude;
       Vector_prelude_f32;
       Vector_prelude_fma_f32;
@@ -50,8 +58,10 @@ module Name = struct
   let to_string = function
     | Bf16_to_float -> "bf16_to_float"
     | Coord_failure -> "coord_failure"
+    | Cos_f32 -> "cos_f32"
     | Erf -> "erf_approx"
     | Erf_f32 -> "erf_approx_f32"
+    | Exp_f32 -> "exp_f32"
     | F16_to_float -> "f16_to_float"
     | F32_prelude -> "f32_prelude"
     | Float_max -> "float_max"
@@ -63,6 +73,8 @@ module Name = struct
     | Idx_clamp_low -> "idx_clamp_low"
     | Idx_max -> "idx_max"
     | Idx_min -> "idx_min"
+    | Log_f32 -> "log_f32"
+    | Sin_f32 -> "sin_f32"
     | Vector_prelude -> "vector_prelude"
     | Vector_prelude_f32 -> "vector_prelude_f32"
     | Vector_prelude_fma_f32 -> "vector_prelude_fma_f32"
@@ -243,15 +255,53 @@ let vector_prelude_f32 =
         n n n n n;
       lane_fn "sqrt" "sqrtf(a[k])";
       lane_fn "trunc" "truncf(a[k])";
-      lane_fn "cos" "(float)cos((double)a[k])";
-      lane_fn "exp" "(float)exp((double)a[k])";
-      lane_fn "log" "(float)log((double)a[k])";
-      lane_fn "sin" "(float)sin((double)a[k])";
+      lane_fn "cos" "cos_f32(a[k])";
+      lane_fn "exp" "exp_f32(a[k])";
+      lane_fn "log" "log_f32(a[k])";
+      lane_fn "sin" "sin_f32(a[k])";
       lane_fn "erf" "erf_approx_f32(a[k])";
       "";
     ]
 
 let lit = Loop_numerics.f32_literal
+
+(* One binary32 function of {!F32_math} as a C function: every operation of the
+   sequence is one statement over [const float], so each is rounded once to
+   binary32 and nothing fuses (the statements are separate and contraction is
+   off). Constants are hexadecimal float literals, and no non-finite constant
+   appears: the sequences build those by division. *)
+let f32_function name which =
+  let buf = Buffer.create 1024 and n = ref 0 in
+  let bind e =
+    incr n;
+    let v = Printf.sprintf "t%d" !n in
+    Buffer.add_string buf (Printf.sprintf "  const float %s = %s;\n" v e);
+    v
+  in
+  let module O = struct
+    type t = string
+
+    let const x = lit x
+    let add a b = bind (Printf.sprintf "%s + %s" a b)
+    let sub a b = bind (Printf.sprintf "%s - %s" a b)
+    let mul a b = bind (Printf.sprintf "%s * %s" a b)
+    let div a b = bind (Printf.sprintf "%s / %s" a b)
+    let select_lt a b c d = bind (Printf.sprintf "%s < %s ? %s : %s" a b c d)
+    let select_eq a b c d = bind (Printf.sprintf "%s == %s ? %s : %s" a b c d)
+    let share x = x
+  end in
+  let module M = F32_math.Make (O) in
+  let f =
+    match which with
+    | `Cos -> M.cos
+    | `Erf -> M.erf
+    | `Exp -> M.exp
+    | `Log -> M.log
+    | `Sin -> M.sin
+  in
+  let result = f "x" in
+  Printf.sprintf "static inline float %s(float x) {\n%s  return %s;\n}\n" name
+    (Buffer.contents buf) result
 
 let text dialect : Name.t -> string =
   let nan = Loop_c_dialect.nan dialect in
@@ -295,36 +345,11 @@ let text dialect : Name.t -> string =
       \  const double poly = t * (a1 + t * (a2 + t * (a3 + t * (a4 + t * a5))));\n\
       \  return sign * (1.0 - poly * exp(-ax * ax));\n\
        }\n"
-  | Name.Erf_f32 ->
-      (* [Loop_numerics.erf32] transcribed: one rounding per operation (every
-         statement is one float operation, contraction off), and [exp] of the
-         rounded argument rounded once. *)
-      Printf.sprintf
-        "static inline float erf_approx_f32(float x) {\n\
-        \  const float p = %s;\n\
-        \  const float a1 = %s;\n\
-        \  const float a2 = %s;\n\
-        \  const float a3 = %s;\n\
-        \  const float a4 = %s;\n\
-        \  const float a5 = %s;\n\
-        \  const float sign = x < 0.0f ? -1.0f : 1.0f;\n\
-        \  const float ax = fabsf(x);\n\
-        \  const float pa = p * ax;\n\
-        \  const float d = 1.0f + pa;\n\
-        \  const float t = 1.0f / d;\n\
-        \  float q = t * a5;\n\
-        \  q = a4 + q; q = t * q;\n\
-        \  q = a3 + q; q = t * q;\n\
-        \  q = a2 + q; q = t * q;\n\
-        \  q = a1 + q; q = t * q;\n\
-        \  const float sq = ax * ax;\n\
-        \  const float e = (float)exp((double)(-sq));\n\
-        \  const float pe = q * e;\n\
-        \  const float one = 1.0f - pe;\n\
-        \  return sign * one;\n\
-         }\n"
-        (lit 0.3275911) (lit 0.254829592) (lit (-0.284496736)) (lit 1.421413741)
-        (lit (-1.453152027)) (lit 1.061405429)
+  | Name.Cos_f32 -> f32_function "cos_f32" `Cos
+  | Name.Erf_f32 -> f32_function "erf_approx_f32" `Erf
+  | Name.Exp_f32 -> f32_function "exp_f32" `Exp
+  | Name.Log_f32 -> f32_function "log_f32" `Log
+  | Name.Sin_f32 -> f32_function "sin_f32" `Sin
   | Name.F16_to_float ->
       Printf.sprintf
         "static inline double f16_to_float(uint16_t h) {\n\
@@ -356,8 +381,8 @@ let text dialect : Name.t -> string =
         \  if (a == 0.0f && b == 0.0f) return %s ? b : a;\n\
         \  return a > b ? a : b;\n\
          }\n"
-        nan
-        (Loop_c_dialect.signbit dialect "a")
+        (Loop_c_dialect.nan_f32 dialect)
+        (Loop_c_dialect.signbit_f32 dialect "a")
   | Name.Float_max ->
       Printf.sprintf
         "static inline double float_max(double a, double b) {\n\

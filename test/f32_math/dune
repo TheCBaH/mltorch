@@ -1,0 +1,16 @@
+; The binary32 transcendentals against the correctly rounded binary64 libm
+; result, in units in the last place, over a stratified sample of the binary32
+; line. The full 2^32 sweep is the [accuracy] executable.
+
+(library
+ (name f32_math_test)
+ (modules f32_math_test)
+ (libraries f32_math fmt)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
+
+(executable
+ (name accuracy)
+ (modules accuracy)
+ (libraries f32_math))

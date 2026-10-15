@@ -255,8 +255,15 @@ let rec eval : type a. state -> a Loop_expr.t -> a =
   | Loop_expr.Unary (op, a) -> (
       let x = eval st a in
       match (st.precision, op) with
-      | Loop_numerics.Precision.F32, Expr.Value.Erf -> Loop_numerics.erf32 x
-      | _ -> working st (Expr.Value.apply_unary op x))
+      | Loop_numerics.Precision.F32, Expr.Value.Cos -> F32_math.Value.cos x
+      | Loop_numerics.Precision.F32, Expr.Value.Erf -> F32_math.Value.erf x
+      | Loop_numerics.Precision.F32, Expr.Value.Exp -> F32_math.Value.exp x
+      | Loop_numerics.Precision.F32, Expr.Value.Log -> F32_math.Value.log x
+      | Loop_numerics.Precision.F32, Expr.Value.Sin -> F32_math.Value.sin x
+      | ( (Loop_numerics.Precision.F32 | Loop_numerics.Precision.F64),
+          ( Expr.Value.Cos | Expr.Value.Erf | Expr.Value.Exp | Expr.Value.Log
+          | Expr.Value.Sin | Expr.Value.Sqrt | Expr.Value.Trunc ) ) ->
+          working st (Expr.Value.apply_unary op x))
   | Loop_expr.Value_of_index i ->
       let i = idx st i in
       working st

@@ -63,7 +63,7 @@ let%expect_test "binary64 census of the corpus, reference and forced binary32" =
       f32: arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
     transcendentals
       f64: arithmetic 2, conversion 3, helper_call 2, memory_move 1; imports 2
-      f32: arithmetic 0, conversion 4, helper_call 2, memory_move 0; imports 2
+      f32: arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
     int32 source
       f64: arithmetic 1, conversion 3, helper_call 0, memory_move 0; imports 0
       f32: arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
@@ -108,10 +108,40 @@ let%expect_test "binary64 census of the corpus, reference and forced binary32" =
       f32: arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
     erf
       f64: arithmetic 19, conversion 2, helper_call 2, memory_move 26; imports 1
-      f32: arithmetic 0, conversion 2, helper_call 1, memory_move 0; imports 1
+      f32: arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
     log, cos, sqrt
       f64: arithmetic 4, conversion 5, helper_call 2, memory_move 0; imports 2
-      f32: arithmetic 0, conversion 4, helper_call 2, memory_move 0; imports 2
+      f32: arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
     packed float scratch
       f64: arithmetic 3, conversion 3, helper_call 0, memory_move 10; imports 0
+      f32: arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    f32 cos over the ramp
+      f64: arithmetic 2, conversion 2, helper_call 1, memory_move 2; imports 1
+      f32: arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    f32 cos over the spread
+      f64: arithmetic 2, conversion 3, helper_call 1, memory_move 1; imports 1
+      f32: arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    f32 erf over the ramp
+      f64: arithmetic 21, conversion 2, helper_call 2, memory_move 28; imports 1
+      f32: arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    f32 erf over the spread
+      f64: arithmetic 21, conversion 3, helper_call 2, memory_move 27; imports 1
+      f32: arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    f32 exp over the ramp
+      f64: arithmetic 2, conversion 2, helper_call 1, memory_move 2; imports 1
+      f32: arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    f32 exp over the spread
+      f64: arithmetic 2, conversion 3, helper_call 1, memory_move 1; imports 1
+      f32: arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    f32 log over the ramp
+      f64: arithmetic 2, conversion 2, helper_call 1, memory_move 2; imports 1
+      f32: arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    f32 log over the spread
+      f64: arithmetic 2, conversion 3, helper_call 1, memory_move 1; imports 1
+      f32: arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    f32 sin over the ramp
+      f64: arithmetic 2, conversion 2, helper_call 1, memory_move 2; imports 1
+      f32: arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    f32 sin over the spread
+      f64: arithmetic 2, conversion 3, helper_call 1, memory_move 1; imports 1
       f32: arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0 |}]

@@ -96,9 +96,9 @@ val round32_of_i64 : int64 -> float
 (** One rounding from an int64 to binary32, never through binary64 first. *)
 
 val erf32 : float -> float
-(** [Expr.Value]'s erf polynomial with a rounding after every operation and
-    [exp] of the rounded argument rounded once: the sequence the generated C
-    float helper transcribes. *)
+(** {!F32_math.Value.erf}: [Expr.Value]'s erf polynomial with a rounding after
+    every operation, over {!F32_math}'s own binary32 [exp]. The sequence every
+    binary32 engine runs. *)
 
 val f32_literal : float -> string
 (** A C [float] constant (hexadecimal, [f]-suffixed, so nothing promotes through

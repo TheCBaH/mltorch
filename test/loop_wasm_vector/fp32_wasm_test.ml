@@ -86,7 +86,17 @@ let%expect_test "forced binary32 scalar Wasm equals the fp32 oracle" =
     index to float                           equal
     erf                                      equal
     log, cos, sqrt                           equal
-    packed float scratch                     equal |}]
+    packed float scratch                     equal
+    f32 cos over the ramp                    equal
+    f32 cos over the spread                  equal
+    f32 erf over the ramp                    equal
+    f32 erf over the spread                  equal
+    f32 exp over the ramp                    equal
+    f32 exp over the spread                  equal
+    f32 log over the ramp                    equal
+    f32 log over the spread                  equal
+    f32 sin over the ramp                    equal
+    f32 sin over the spread                  equal |}]
 
 let policy ~target ~numerics =
   List.iter
@@ -139,7 +149,17 @@ let%expect_test "Simd_fp32_ordered on SIMD Wasm: f32x4 kernels, bitwise" =
     index to float                           f64 equal
     erf                                      f32 equal    simd128
     log, cos, sqrt                           f32 equal    simd128
-    packed float scratch                     f64 equal |}]
+    packed float scratch                     f64 equal
+    f32 cos over the ramp                    f64 equal
+    f32 cos over the spread                  f64 equal
+    f32 erf over the ramp                    f64 equal
+    f32 erf over the spread                  f64 equal
+    f32 exp over the ramp                    f64 equal
+    f32 exp over the spread                  f64 equal
+    f32 log over the ramp                    f64 equal
+    f32 log over the spread                  f64 equal
+    f32 sin over the ramp                    f64 equal
+    f32 sin over the spread                  f64 equal |}]
 
 let%expect_test "the same with every cost zero" =
   policy
@@ -176,7 +196,17 @@ let%expect_test "the same with every cost zero" =
     index to float                           f64 equal
     erf                                      f32 equal    simd128
     log, cos, sqrt                           f32 equal    simd128
-    packed float scratch                     f64 equal |}]
+    packed float scratch                     f64 equal
+    f32 cos over the ramp                    f64 equal
+    f32 cos over the spread                  f64 equal
+    f32 erf over the ramp                    f64 equal
+    f32 erf over the spread                  f64 equal
+    f32 exp over the ramp                    f64 equal
+    f32 exp over the spread                  f64 equal
+    f32 log over the ramp                    f64 equal
+    f32 log over the spread                  f64 equal
+    f32 sin over the ramp                    f64 equal
+    f32 sin over the spread                  f64 equal |}]
 
 (* ---- relaxed: sums scheduled along their own axis ------------------------- *)
 

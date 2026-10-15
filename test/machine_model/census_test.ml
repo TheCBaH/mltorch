@@ -77,7 +77,7 @@ let%expect_test "baseline census of the fixtures" =
     softmax exact: arithmetic 5, conversion 6, helper_call 2, memory_move 7, helpers [exp]
     softmax simd_fp32_ordered neon128: arithmetic 5, conversion 6, helper_call 2, memory_move 7, helpers [exp]
     softmax simd_fp32_ordered scalar: arithmetic 5, conversion 6, helper_call 2, memory_move 7, helpers [exp]
-    softmax fp32_ordered scalar: arithmetic 0, conversion 17, helper_call 2, memory_move 5, helpers [exp]
+    softmax fp32_ordered scalar: arithmetic 0, conversion 13, helper_call 0, memory_move 5, helpers []
     layer_norm exact: arithmetic 16, conversion 8, helper_call 0, memory_move 14, helpers []
     layer_norm simd_fp32_ordered neon128: arithmetic 16, conversion 8, helper_call 0, memory_move 14, helpers []
     layer_norm simd_fp32_ordered scalar: arithmetic 16, conversion 8, helper_call 0, memory_move 14, helpers []

@@ -49,4 +49,4 @@ let%expect_test "baseline census of CompCert's assembly" =
     chain reference_f64: arithmetic 12, conversion 12, memory_move 7; fadd x6; fcmp x1; fcsel x1; fcvt x12; fdiv x1; fmov x5; fmul x3; fsub x1; ldr x1
     chain fp32_ordered: arithmetic 0, conversion 0, memory_move 1; fcsel x1
     softmax reference_f64: arithmetic 13, conversion 4, memory_move 13; fadd x1; fcmp x8; fcsel x2; fcvt x4; fdiv x2; fmov x2; fsub x2; ldr x6; str x3
-    softmax fp32_ordered: arithmetic 4, conversion 5, memory_move 5; fcmp x3; fcsel x2; fcvt x5; fdiv x1; fmov x1; ldr x1; str x1 |}]
+    softmax fp32_ordered: arithmetic 0, conversion 0, memory_move 88; fcsel x88 |}]

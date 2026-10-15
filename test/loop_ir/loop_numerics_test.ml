@@ -207,9 +207,9 @@ let%expect_test "Fp32_ordered resolves every admitted kernel to binary32" =
     targets;
   [%expect
     {|
-    no target  of 30 programs: fp32_ordered 30, simd_fp32_ordered 0
-    neon128    of 30 programs: fp32_ordered 30, simd_fp32_ordered 21
-    wasm128    of 30 programs: fp32_ordered 30, simd_fp32_ordered 21 |}]
+    no target  of 40 programs: fp32_ordered 40, simd_fp32_ordered 0
+    neon128    of 40 programs: fp32_ordered 40, simd_fp32_ordered 21
+    wasm128    of 40 programs: fp32_ordered 40, simd_fp32_ordered 21 |}]
 
 (* The only refusal today is a dequantizing read, which has no binary32 decode
    until quantization parameters are binary32 operations. The policy that has no

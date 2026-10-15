@@ -161,7 +161,11 @@ let rec half st vc h (e : V.t) : I.t list =
       | Expr.Value.Sin ->
           let callee =
             match (st.f32, op) with
+            | true, Expr.Value.Cos -> R.Callee.Cos_f32
             | true, Expr.Value.Erf -> R.Callee.Erf_f32
+            | true, Expr.Value.Exp -> R.Callee.Exp_f32
+            | true, Expr.Value.Log -> R.Callee.Log_f32
+            | true, Expr.Value.Sin -> R.Callee.Sin_f32
             | _, Expr.Value.Cos -> R.Callee.Cos
             | _, Expr.Value.Erf -> R.Callee.Erf
             | _, Expr.Value.Exp -> R.Callee.Exp
@@ -169,14 +173,8 @@ let rec half st vc h (e : V.t) : I.t list =
             | _ -> R.Callee.Sin
           in
           let s = fresh st Wasm_type.V128 in
-          (* Binary32: the binary64 import on the widened lane, rounded once. *)
-          let wide = st.f32 && callee <> R.Callee.Erf_f32 in
-          let lane k =
-            [ get s; I.Simd_lane (extract st, k) ]
-            @ (if wide then [ n Wasm_op.F64_promote_f32 ] else [])
-            @ [ call st callee ]
-            @ if wide then [ n Wasm_op.F32_demote_f64 ] else []
-          in
+          (* Binary32: the module's own scalar function on each lane. *)
+          let lane k = [ get s; I.Simd_lane (extract st, k); call st callee ] in
           a @ [ set s ] @ gather st (List.init vc.lpr lane))
   | V.Select (m, a, b) ->
       let a = half st vc h a in

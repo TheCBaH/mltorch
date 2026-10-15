@@ -101,9 +101,9 @@ let float_lit ?(dialect = Loop_c_dialect.Gnu) x =
 let lit nm x =
   if nm.f32 then
     match Loop_numerics.f32_literal x with
-    | "NAN" -> Loop_c_dialect.nan nm.dialect
-    | "INFINITY" -> Loop_c_dialect.infinity nm.dialect
-    | "(-INFINITY)" -> "(-" ^ Loop_c_dialect.infinity nm.dialect ^ ")"
+    | "NAN" -> Loop_c_dialect.nan_f32 nm.dialect
+    | "INFINITY" -> Loop_c_dialect.infinity_f32 nm.dialect
+    | "(-INFINITY)" -> "(-" ^ Loop_c_dialect.infinity_f32 nm.dialect ^ ")"
     | s -> s
   else float_lit ~dialect:nm.dialect x
 
@@ -215,17 +215,16 @@ let load_cell nm b addr =
   | ("f32" | "f64" | "i32" | "i64"), false -> "(double)" ^ cell
   | f, _ -> invalid_arg ("Loop_c: no decode for format " ^ f)
 
-(* Binary32: the binary64 helper on the widened argument, rounded once. A
+(* Binary32: the project's own sequences ({!F32_math}), one helper each. A
    square root and a truncation are exact in [float], so they use the float
    function. *)
 let unary_f32 nm (op : Expr.Value.unary_op) a =
-  let wide f = "(float)" ^ f ^ "((double)" ^ a ^ ")" in
   match op with
-  | Expr.Value.Cos -> wide "cos"
+  | Expr.Value.Cos -> call nm R.Name.Cos_f32 [ a ]
   | Expr.Value.Erf -> call nm R.Name.Erf_f32 [ a ]
-  | Expr.Value.Exp -> wide "exp"
-  | Expr.Value.Log -> wide "log"
-  | Expr.Value.Sin -> wide "sin"
+  | Expr.Value.Exp -> call nm R.Name.Exp_f32 [ a ]
+  | Expr.Value.Log -> call nm R.Name.Log_f32 [ a ]
+  | Expr.Value.Sin -> call nm R.Name.Sin_f32 [ a ]
   | Expr.Value.Sqrt -> "sqrtf(" ^ a ^ ")"
   | Expr.Value.Trunc -> "truncf(" ^ a ^ ")"
 

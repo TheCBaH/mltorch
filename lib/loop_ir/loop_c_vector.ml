@@ -76,6 +76,10 @@ let rec vexpr nm vs (e : V.t) : string =
       let a = vexpr nm vs a in
       (match op with
       | Expr.Value.Erf -> use nm (if nm.f32 then R.Name.Erf_f32 else R.Name.Erf)
+      | Expr.Value.Cos when nm.f32 -> use nm R.Name.Cos_f32
+      | Expr.Value.Exp when nm.f32 -> use nm R.Name.Exp_f32
+      | Expr.Value.Log when nm.f32 -> use nm R.Name.Log_f32
+      | Expr.Value.Sin when nm.f32 -> use nm R.Name.Sin_f32
       | _ -> ());
       let name =
         (vkind nm).p
@@ -215,7 +219,7 @@ let vloop nm ~depth ~scalar_stmt (l : V.loop) : string list =
   if nm.f32 then (
     use nm R.Name.Vector_prelude_f32;
     use nm R.Name.Float_max_f32;
-    use nm R.Name.Erf_f32)
+    List.iter (use nm) R.Name.[ Cos_f32; Erf_f32; Exp_f32; Log_f32; Sin_f32 ])
   else (
     use nm R.Name.Vector_prelude;
     use nm R.Name.Float_max;
@@ -275,7 +279,7 @@ let vreduction nm ~depth (r : V.Reduction.t) : string list =
   if nm.f32 then (
     use nm R.Name.Vector_prelude_f32;
     use nm R.Name.Float_max_f32;
-    use nm R.Name.Erf_f32)
+    List.iter (use nm) R.Name.[ Cos_f32; Erf_f32; Exp_f32; Log_f32; Sin_f32 ])
   else (
     use nm R.Name.Vector_prelude;
     use nm R.Name.Float_max;

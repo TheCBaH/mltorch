@@ -17,6 +17,12 @@ val u64 : t -> int64 -> string
 
 val nan : t -> string
 val infinity : t -> string
+val nan_f32 : t -> string
+val infinity_f32 : t -> string
+
+val signbit_f32 : t -> string -> string
+(** The binary32 forms: [f]-suffixed literals, so a [float] operand is never
+    widened by a [double] constant. *)
 
 val signbit : t -> string -> string
 (** [signbit] of a simple expression, which is evaluated more than once. *)

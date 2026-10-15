@@ -33,5 +33,5 @@
 
 (library
  (name loop_ir_js)
- (libraries core err_trace expr_js fmt js_ast native_js wasm_ir)
+ (libraries core err_trace expr_js f32_math fmt js_ast native_js wasm_ir)
  (wrapped false))

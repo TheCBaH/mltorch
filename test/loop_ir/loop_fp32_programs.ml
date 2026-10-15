@@ -55,6 +55,32 @@ let matmul ?row_stride ~m ~k ~n () =
         ];
     ]
 
+(* Each of the five binary32 functions over two argument families of 96
+   values: a ramp through the useful range, and the shared specials scaled by
+   the index so magnitudes spread over many binades (large enough to saturate
+   [exp], past the range where [sin] and [cos] keep their accuracy, and the
+   NaN, infinities and subnormal the specials hold). *)
+let math_spread =
+  let idx = Loop_expr.I64_to_float (Loop_expr.I64_of_index P.i0) in
+  let ramp =
+    P.binary Expr.Value.Mul
+      (P.binary Expr.Value.Sub idx (Loop_expr.Const 40.))
+      (Loop_expr.Const 0.37)
+  in
+  let spread =
+    P.binary Expr.Value.Mul (P.ld P.input P.i0)
+      (P.binary Expr.Value.Mul idx (Loop_expr.Const 0.0937))
+  in
+  List.concat_map
+    (fun (name, op) ->
+      List.map
+        (fun (family, arg) ->
+          ( Printf.sprintf "f32 %s over the %s" name family,
+            P.loop ~n:96 [ P.store_f32 P.output P.i0 (un op arg) ] ))
+        [ ("ramp", ramp); ("spread", spread) ])
+    Expr.Value.
+      [ ("cos", Cos); ("erf", Erf); ("exp", Exp); ("log", Log); ("sin", Sin) ]
+
 (* Programs that exist for binary32 alone: the helpers with a float transcription
    and the packed float scratch. *)
 let extra =
@@ -131,6 +157,7 @@ let extra =
         ] );
     ("packed float scratch", arrays);
   ]
+  @ math_spread
 
 (* A dot product of the first [k] cells of the two inputs, as the lowering shapes
    a sum: the seed, then a loop with its mark and the accumulate. Sums of

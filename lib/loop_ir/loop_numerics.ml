@@ -201,19 +201,7 @@ let round32_of_i64 n =
   in
   round32 (if neg then -.v else v)
 
-let erf32 x =
-  let r = round32 in
-  let p = r 0.3275911 and a1 = r 0.254829592 and a2 = r (-0.284496736) in
-  let a3 = r 1.421413741 and a4 = r (-1.453152027) and a5 = r 1.061405429 in
-  let sign = if x < 0. then -1. else 1. in
-  let ax = Float.abs x in
-  let t = r (1. /. r (1. +. r (p *. ax))) in
-  let up a acc = r (a +. acc) and mul_t x = r (t *. x) in
-  let poly =
-    mul_t (up a1 (mul_t (up a2 (mul_t (up a3 (mul_t (up a4 (mul_t a5))))))))
-  in
-  let e = r (exp (-.r (ax *. ax))) in
-  r (sign *. r (1. -. r (poly *. e)))
+let erf32 = F32_math.Value.erf
 
 (* A C [float] constant reading back to exactly [round32 x]: the host rounds the
    binary64 value, never the decimal text a second time. *)

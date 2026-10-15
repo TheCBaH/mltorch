@@ -32,6 +32,23 @@ let infinity = function
   | Gnu -> "INFINITY"
   | Compcert_ilp32 | Compcert_scalar -> "(1.0 / 0.0)"
 
+(* The binary32 counterparts: [f]-suffixed, so that in CompCert, which does not
+   widen a [float] operand to the literal's precision, nothing is computed in
+   [double]. *)
+let nan_f32 = function
+  | Gnu -> "NAN"
+  | Compcert_ilp32 | Compcert_scalar -> "(0.0f / 0.0f)"
+
+let infinity_f32 = function
+  | Gnu -> "INFINITY"
+  | Compcert_ilp32 | Compcert_scalar -> "(1.0f / 0.0f)"
+
+let signbit_f32 d x =
+  match d with
+  | Gnu -> "signbit(" ^ x ^ ")"
+  | Compcert_ilp32 | Compcert_scalar ->
+      "(" ^ x ^ " < 0.0f || (" ^ x ^ " == 0.0f && 1.0f / " ^ x ^ " < 0.0f))"
+
 let signbit d x =
   match d with
   | Gnu -> "signbit(" ^ x ^ ")"

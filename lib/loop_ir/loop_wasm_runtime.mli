@@ -8,17 +8,20 @@ module Callee : sig
   type t =
     | Ceil_div
     | Cos
+    | Cos_f32  (** {!F32_math.Value.cos}'s sequence, one [f32] operation each *)
     | Erf
-    | Erf_f32
-        (** {!Loop_numerics.erf32} in [f32], one rounding per operation *)
+    | Erf_f32  (** {!F32_math.Value.erf}'s sequence, one [f32] operation each *)
     | Exp
+    | Exp_f32  (** {!F32_math.Value.exp}'s sequence, one [f32] operation each *)
     | F16_to_float
     | Fail_set
     | Fill_f32
     | Floor_div
     | I64_div
     | Log
+    | Log_f32  (** {!F32_math.Value.log}'s sequence, one [f32] operation each *)
     | Sin
+    | Sin_f32  (** {!F32_math.Value.sin}'s sequence, one [f32] operation each *)
 
   val all : t list
 

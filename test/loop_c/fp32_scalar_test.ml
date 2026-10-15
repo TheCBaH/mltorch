@@ -87,7 +87,7 @@ let%expect_test "every admitted vector program: fp32 C equals the fp32 oracle" =
     index value                              equal    no widening
     temporaries                              equal    no widening
     sqrt and trunc                           equal    no widening
-    transcendentals                          equal    double helper
+    transcendentals                          equal    no widening
     int32 source                             equal    no widening
     bool store                               equal    no widening
     nested loops, vector inner               equal    no widening
@@ -103,8 +103,18 @@ let%expect_test "every admitted vector program: fp32 C equals the fp32 oracle" =
     int64 to float, once rounded             equal    no widening
     index to float                           equal    no widening
     erf                                      equal    no widening
-    log, cos, sqrt                           equal    double helper
-    packed float scratch                     equal    no widening |}]
+    log, cos, sqrt                           equal    no widening
+    packed float scratch                     equal    no widening
+    f32 cos over the ramp                    equal    no widening
+    f32 cos over the spread                  equal    no widening
+    f32 erf over the ramp                    equal    no widening
+    f32 erf over the spread                  equal    no widening
+    f32 exp over the ramp                    equal    no widening
+    f32 exp over the spread                  equal    no widening
+    f32 log over the ramp                    equal    no widening
+    f32 log over the spread                  equal    no widening
+    f32 sin over the ramp                    equal    no widening
+    f32 sin over the spread                  equal    no widening |}]
 
 (* ---- the policy: fp32 vector kernels, f64 for the rest --------------------- *)
 
@@ -167,7 +177,17 @@ let%expect_test
     index to float                           f64 equal    no f32 vectors
     erf                                      f32 equal    f32 vectors
     log, cos, sqrt                           f32 equal    f32 vectors
-    packed float scratch                     f64 equal    no f32 vectors |}]
+    packed float scratch                     f64 equal    no f32 vectors
+    f32 cos over the ramp                    f64 equal    no f32 vectors
+    f32 cos over the spread                  f64 equal    no f32 vectors
+    f32 erf over the ramp                    f64 equal    no f32 vectors
+    f32 erf over the spread                  f64 equal    no f32 vectors
+    f32 exp over the ramp                    f64 equal    no f32 vectors
+    f32 exp over the spread                  f64 equal    no f32 vectors
+    f32 log over the ramp                    f64 equal    no f32 vectors
+    f32 log over the spread                  f64 equal    no f32 vectors
+    f32 sin over the ramp                    f64 equal    no f32 vectors
+    f32 sin over the spread                  f64 equal    no f32 vectors |}]
 
 let%expect_test "the same with every cost zero" =
   policy_corpus
@@ -204,7 +224,17 @@ let%expect_test "the same with every cost zero" =
     index to float                           f64 equal    no f32 vectors
     erf                                      f32 equal    f32 vectors
     log, cos, sqrt                           f32 equal    f32 vectors
-    packed float scratch                     f64 equal    no f32 vectors |}]
+    packed float scratch                     f64 equal    no f32 vectors
+    f32 cos over the ramp                    f64 equal    no f32 vectors
+    f32 cos over the spread                  f64 equal    no f32 vectors
+    f32 erf over the ramp                    f64 equal    no f32 vectors
+    f32 erf over the spread                  f64 equal    no f32 vectors
+    f32 exp over the ramp                    f64 equal    no f32 vectors
+    f32 exp over the spread                  f64 equal    no f32 vectors
+    f32 log over the ramp                    f64 equal    no f32 vectors
+    f32 log over the spread                  f64 equal    no f32 vectors
+    f32 sin over the ramp                    f64 equal    no f32 vectors
+    f32 sin over the spread                  f64 equal    no f32 vectors |}]
 
 let%expect_test "inner loops: reductions per lane in binary32" =
   policy_corpus
@@ -241,7 +271,17 @@ let%expect_test "inner loops: reductions per lane in binary32" =
     index to float                           f64 equal    no f32 vectors
     erf                                      f32 equal    f32 vectors
     log, cos, sqrt                           f32 equal    f32 vectors
-    packed float scratch                     f64 equal    no f32 vectors |}]
+    packed float scratch                     f64 equal    no f32 vectors
+    f32 cos over the ramp                    f64 equal    no f32 vectors
+    f32 cos over the spread                  f64 equal    no f32 vectors
+    f32 erf over the ramp                    f64 equal    no f32 vectors
+    f32 erf over the spread                  f64 equal    no f32 vectors
+    f32 exp over the ramp                    f64 equal    no f32 vectors
+    f32 exp over the spread                  f64 equal    no f32 vectors
+    f32 log over the ramp                    f64 equal    no f32 vectors
+    f32 log over the spread                  f64 equal    no f32 vectors
+    f32 sin over the ramp                    f64 equal    no f32 vectors
+    f32 sin over the spread                  f64 equal    no f32 vectors |}]
 
 (* ---- relaxed: sums scheduled along their own axis ------------------------- *)
 
@@ -323,6 +363,16 @@ let%expect_test "Simd_fp32_relaxed: a long sum is scheduled along its own axis"
     erf                                      f32 equal    0 scheduled sum(s)
     log, cos, sqrt                           f32 equal    0 scheduled sum(s), fused
     packed float scratch                     f64 equal    0 scheduled sum(s)
+    f32 cos over the ramp                    f64 equal    0 scheduled sum(s)
+    f32 cos over the spread                  f64 equal    0 scheduled sum(s)
+    f32 erf over the ramp                    f64 equal    0 scheduled sum(s)
+    f32 erf over the spread                  f64 equal    0 scheduled sum(s)
+    f32 exp over the ramp                    f64 equal    0 scheduled sum(s)
+    f32 exp over the spread                  f64 equal    0 scheduled sum(s)
+    f32 log over the ramp                    f64 equal    0 scheduled sum(s)
+    f32 log over the spread                  f64 equal    0 scheduled sum(s)
+    f32 sin over the ramp                    f64 equal    0 scheduled sum(s)
+    f32 sin over the spread                  f64 equal    0 scheduled sum(s)
     dot, 96 terms                            f32 equal    1 scheduled sum(s)
     dot, 83 terms                            f32 equal    1 scheduled sum(s)
     dot, 70 terms                            f32 equal    1 scheduled sum(s)
@@ -512,7 +562,17 @@ let%expect_test "Fp32_ordered, no target: every kernel binary32 and equal" =
     index to float                           f32 equal
     erf                                      f32 equal
     log, cos, sqrt                           f32 equal
-    packed float scratch                     f32 equal |}]
+    packed float scratch                     f32 equal
+    f32 cos over the ramp                    f32 equal
+    f32 cos over the spread                  f32 equal
+    f32 erf over the ramp                    f32 equal
+    f32 erf over the spread                  f32 equal
+    f32 exp over the ramp                    f32 equal
+    f32 exp over the spread                  f32 equal
+    f32 log over the ramp                    f32 equal
+    f32 log over the spread                  f32 equal
+    f32 sin over the ramp                    f32 equal
+    f32 sin over the spread                  f32 equal |}]
 
 let%expect_test "Fp32_ordered, neon128: every kernel binary32 and equal" =
   ordered_corpus ~target:Loop_target.neon128 ();
@@ -547,7 +607,17 @@ let%expect_test "Fp32_ordered, neon128: every kernel binary32 and equal" =
     index to float                           f32 equal
     erf                                      f32 equal
     log, cos, sqrt                           f32 equal
-    packed float scratch                     f32 equal |}]
+    packed float scratch                     f32 equal
+    f32 cos over the ramp                    f32 equal
+    f32 cos over the spread                  f32 equal
+    f32 erf over the ramp                    f32 equal
+    f32 erf over the spread                  f32 equal
+    f32 exp over the ramp                    f32 equal
+    f32 exp over the spread                  f32 equal
+    f32 log over the ramp                    f32 equal
+    f32 log over the spread                  f32 equal
+    f32 sin over the ramp                    f32 equal
+    f32 sin over the spread                  f32 equal |}]
 
 let%expect_test "Fp32_ordered under the CompCert dialect" =
   ordered_corpus ~dialect:Loop_c_dialect.Compcert_scalar ();
@@ -582,4 +652,14 @@ let%expect_test "Fp32_ordered under the CompCert dialect" =
     index to float                           f32 equal
     erf                                      f32 equal
     log, cos, sqrt                           f32 equal
-    packed float scratch                     f32 equal |}]
+    packed float scratch                     f32 equal
+    f32 cos over the ramp                    f32 equal
+    f32 cos over the spread                  f32 equal
+    f32 erf over the ramp                    f32 equal
+    f32 erf over the spread                  f32 equal
+    f32 exp over the ramp                    f32 equal
+    f32 exp over the spread                  f32 equal
+    f32 log over the ramp                    f32 equal
+    f32 log over the spread                  f32 equal
+    f32 sin over the ramp                    f32 equal
+    f32 sin over the spread                  f32 equal |}]

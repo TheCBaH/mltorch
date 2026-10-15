@@ -27,19 +27,16 @@ let float_op ~f32 (op : Expr.Value.binary_op) =
   | true, Expr.Value.Mul -> Wasm_op.F32_mul
   | true, Expr.Value.Sub -> Wasm_op.F32_sub
 
-(* Binary32: the binary64 import on the widened argument, rounded once; a square
-   root and a truncation are exact in [f32]. The argument is on the stack. *)
+(* Binary32: the module's own function ({!F32_math}), no import; a square root
+   and a truncation are exact in [f32]. The argument is on the stack. *)
 let unary st ~f32 (op : Expr.Value.unary_op) =
   if f32 then
-    let wide c =
-      [ n Wasm_op.F64_promote_f32; call st c; n Wasm_op.F32_demote_f64 ]
-    in
     match op with
-    | Expr.Value.Cos -> wide R.Callee.Cos
+    | Expr.Value.Cos -> [ call st R.Callee.Cos_f32 ]
     | Expr.Value.Erf -> [ call st R.Callee.Erf_f32 ]
-    | Expr.Value.Exp -> wide R.Callee.Exp
-    | Expr.Value.Log -> wide R.Callee.Log
-    | Expr.Value.Sin -> wide R.Callee.Sin
+    | Expr.Value.Exp -> [ call st R.Callee.Exp_f32 ]
+    | Expr.Value.Log -> [ call st R.Callee.Log_f32 ]
+    | Expr.Value.Sin -> [ call st R.Callee.Sin_f32 ]
     | Expr.Value.Sqrt -> [ n Wasm_op.F32_sqrt ]
     | Expr.Value.Trunc -> [ n Wasm_op.F32_trunc ]
   else

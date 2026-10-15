@@ -78,7 +78,7 @@ let%expect_test "baseline census of both emitters' bundles" =
     chain ssa simd_fp32_ordered: arithmetic 13, conversion 19, helper_call 0, memory_move 73; imports 0
     softmax loop reference: arithmetic 5, conversion 5, helper_call 2, memory_move 18; imports 1
     softmax loop simd_fp32_ordered: arithmetic 9, conversion 13, helper_call 6, memory_move 30; imports 1
-    softmax loop fp32_ordered: arithmetic 0, conversion 5, helper_call 2, memory_move 1; imports 1
+    softmax loop fp32_ordered: arithmetic 0, conversion 1, helper_call 0, memory_move 1; imports 0
     softmax ssa exact: arithmetic 5, conversion 7, helper_call 2, memory_move 52; imports 1
-    softmax ssa fp32_ordered scalar: arithmetic 0, conversion 18, helper_call 2, memory_move 28; imports 1
+    softmax ssa fp32_ordered scalar: arithmetic 0, conversion 14, helper_call 0, memory_move 28; imports 0
     softmax ssa simd_fp32_ordered: arithmetic 5, conversion 7, helper_call 2, memory_move 52; imports 1 |}]

@@ -5,4 +5,4 @@
 
 (library
  (name machine_lower)
- (libraries core err_trace expr fmt machine_ir ssa_ir))
+ (libraries core err_trace expr f32_math fmt machine_ir ssa_ir))

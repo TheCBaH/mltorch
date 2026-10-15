@@ -85,9 +85,9 @@ val coverage :
     admission refused it, by reason. *)
 
 val erf32 : float -> float
-(** [Expr.Value]'s erf polynomial with a rounding after every operation and
-    [exp] of the rounded argument rounded once: the sequence a binary32 kernel
-    follows. *)
+(** {!F32_math.Value.erf}: [Expr.Value]'s erf polynomial with a rounding after
+    every operation, over {!F32_math}'s own binary32 [exp]. The sequence every
+    binary32 engine runs. *)
 
 val fma32 : float -> float -> float -> float
 (** [fma32 a b c] is binary32 [fmaf a b c] for binary32 operands held in

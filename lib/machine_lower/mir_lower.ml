@@ -281,24 +281,25 @@ let math st fn x =
   | Ok [ r ] -> r
   | _ -> invalid_arg "Mir_lower: a math helper call"
 
-(* A scalar math function of one operand, as the reference computes it: the
-   binary64 helper, with a binary32 operand widened first and the result
-   rounded once. *)
+(* A scalar math function of one operand: a binary32 operand runs the project's
+   binary32 sequence, a binary64 one the binary64 helper. *)
 let math_unary st u x =
-  let fn =
-    match u with
-    | Expr.Value.Cos -> Mir_math.Fn.Cos
-    | Expr.Value.Exp -> Mir_math.Fn.Exp
-    | Expr.Value.Log -> Mir_math.Fn.Log
-    | _ -> Mir_math.Fn.Sin
-  in
   if Mir_type.equal x.Mir_value.ty Mir_type.F32 then
-    emit st
-      (Mir_op.Fconvert
-         ( Mir_op.Fconvert.F64_to_f32,
-           math st fn
-             (emit st (Mir_op.Fconvert (Mir_op.Fconvert.F32_to_f64, x))) ))
-  else math st fn x
+    let module M = (val Mir_lower_f32.f32_math st) in
+    match u with
+    | Expr.Value.Cos -> M.cos x
+    | Expr.Value.Exp -> M.exp x
+    | Expr.Value.Log -> M.log x
+    | _ -> M.sin x
+  else
+    let fn =
+      match u with
+      | Expr.Value.Cos -> Mir_math.Fn.Cos
+      | Expr.Value.Exp -> Mir_math.Fn.Exp
+      | Expr.Value.Log -> Mir_math.Fn.Log
+      | _ -> Mir_math.Fn.Sin
+    in
+    math st fn x
 
 let fbin st o a b = emit st (Mir_op.Fbinary (o, a, b))
 
@@ -315,6 +316,9 @@ let rec erf st x =
       (Mir_op.Fconvert
          ( Mir_op.Fconvert.F64_to_f32,
            erf st (emit st (Mir_op.Fconvert (Mir_op.Fconvert.F32_to_f64, x))) ))
+  else if Mir_type.equal x.Mir_value.ty Mir_type.F32 then
+    let module M = (val Mir_lower_f32.f32_math st) in
+    M.erf x
   else erf_steps st x
 
 and erf_steps st x =

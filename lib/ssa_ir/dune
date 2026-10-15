@@ -9,4 +9,4 @@
 
 (library
  (name ssa_ir)
- (libraries core err_trace expr fmt))
+ (libraries core err_trace expr f32_math fmt))

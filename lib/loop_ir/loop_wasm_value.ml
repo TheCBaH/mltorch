@@ -261,17 +261,14 @@ let rec num st : float Loop_expr.t -> I.t list = function
   | Loop_expr.Unary (op, a) -> (
       let a = num st a in
       if st.f32 then
-        (* Binary32: the binary64 import on the widened argument, rounded once;
-           a square root and a truncation are exact in [f32]. *)
-        let wide c =
-          a @ [ n Wasm_op.F64_promote_f32; call st c; n Wasm_op.F32_demote_f64 ]
-        in
+        (* Binary32: the module's own function ({!F32_math}), no import; a
+           square root and a truncation are exact in [f32]. *)
         match op with
-        | Expr.Value.Cos -> wide R.Callee.Cos
+        | Expr.Value.Cos -> a @ [ call st R.Callee.Cos_f32 ]
         | Expr.Value.Erf -> a @ [ call st R.Callee.Erf_f32 ]
-        | Expr.Value.Exp -> wide R.Callee.Exp
-        | Expr.Value.Log -> wide R.Callee.Log
-        | Expr.Value.Sin -> wide R.Callee.Sin
+        | Expr.Value.Exp -> a @ [ call st R.Callee.Exp_f32 ]
+        | Expr.Value.Log -> a @ [ call st R.Callee.Log_f32 ]
+        | Expr.Value.Sin -> a @ [ call st R.Callee.Sin_f32 ]
         | Expr.Value.Sqrt -> a @ [ n Wasm_op.F32_sqrt ]
         | Expr.Value.Trunc -> a @ [ n Wasm_op.F32_trunc ]
       else

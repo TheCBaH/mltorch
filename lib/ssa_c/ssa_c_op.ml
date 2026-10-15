@@ -16,17 +16,16 @@ let sym : Expr.Value.binary_op -> string = function
   | Expr.Value.Mul -> "*"
   | Expr.Value.Sub -> "-"
 
-(* A binary32 transcendental is the binary64 function on the widened argument,
-   rounded once; a square root and a truncation are exact in [float]. *)
+(* A binary32 transcendental is the project's own sequence ({!F32_math}), one
+   helper each; a square root and a truncation are exact in [float]. *)
 let unary cx ~f32 (op : Expr.Value.unary_op) a =
   if f32 then
-    let wide f = "(float)" ^ f ^ "((double)" ^ a ^ ")" in
     match op with
-    | Expr.Value.Cos -> wide "cos"
+    | Expr.Value.Cos -> call cx R.Name.Cos_f32 [ a ]
     | Expr.Value.Erf -> call cx R.Name.Erf_f32 [ a ]
-    | Expr.Value.Exp -> wide "exp"
-    | Expr.Value.Log -> wide "log"
-    | Expr.Value.Sin -> wide "sin"
+    | Expr.Value.Exp -> call cx R.Name.Exp_f32 [ a ]
+    | Expr.Value.Log -> call cx R.Name.Log_f32 [ a ]
+    | Expr.Value.Sin -> call cx R.Name.Sin_f32 [ a ]
     | Expr.Value.Sqrt -> "sqrtf(" ^ a ^ ")"
     | Expr.Value.Trunc -> "truncf(" ^ a ^ ")"
   else
