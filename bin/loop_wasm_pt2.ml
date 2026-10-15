@@ -170,6 +170,11 @@ let direct_route ~dir ~wat ~vector ~numerics b ~constants =
        ~f32_invocations:st.Loop_bundle_wasm.f32_invocations
        ~invocations:st.Loop_bundle_wasm.invocations
        ~refusals:st.Loop_bundle_wasm.fp32_refusals);
+  (* what the module still computes, converts or moves in binary64, and what
+     it imports: all zero under the Fp32_ordered policy *)
+  Printf.eprintf "loop_wasm_pt2: binary64 census: %s\n%!"
+    (Fmt.str "%a" Wasm_census.pp
+       (Wasm_census.of_module w.Loop_bundle_wasm.module_));
   Printf.printf "module identity %s\n%!"
     (Digest.to_hex w.Loop_bundle_wasm.identity);
   Option.iter

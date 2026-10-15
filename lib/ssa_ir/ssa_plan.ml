@@ -47,6 +47,16 @@ let after ~alias =
 
 let resolve ?target ?(alias = Ssa_effects.Conservative) ~numerics
     (p : Ssa_program.t) =
+  (* [Fp32_ordered] promises no binary64 instruction in the artifact, and the
+     SSA vector forms read their lanes through binary64 registers: until they
+     are binary32-clean the policy plans scalar whatever the target. *)
+  let target =
+    match numerics with
+    | Ssa_numerics.Fp32_ordered -> None
+    | Ssa_numerics.Reference_f64 | Ssa_numerics.Simd_fp32_ordered
+    | Ssa_numerics.Simd_fp32_relaxed ->
+        target
+  in
   let scalar = run ~alias (before ?target ~alias ()) p in
   let f64 refusal =
     match target with
