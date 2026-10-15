@@ -2,12 +2,14 @@
 
 module Name : sig
   type t =
+    | Bf16_to_f32  (** the binary32 value of a [bf16] cell, no binary64 step *)
     | Bf16_to_float
     | Coord_failure
     | Cos_f32  (** {!F32_math.Value.cos}'s sequence in [float] *)
     | Erf
     | Erf_f32  (** {!F32_math.Value.erf}'s sequence in [float] *)
     | Exp_f32  (** {!F32_math.Value.exp}'s sequence in [float] *)
+    | F16_to_f32  (** the binary32 value of an [f16] cell, no binary64 step *)
     | F16_to_float
     | F32_prelude
         (** [FLT_EVAL_METHOD == 0] asserted: what every fp32 kernel needs *)

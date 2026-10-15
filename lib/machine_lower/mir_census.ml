@@ -77,6 +77,8 @@ let decode_slice = function
   | Ssa_op.Decode.F64_to_f64 ->
       Slice.First
   | Ssa_op.Decode.I64 | Ssa_op.Decode.I64_to_f64 -> Slice.Integer
+  | Ssa_op.Decode.Bf16_to_f32 | Ssa_op.Decode.Bool_to_f32
+  | Ssa_op.Decode.F16_to_f32 | Ssa_op.Decode.I32_to_f32
   | Ssa_op.Decode.Bf16_to_f64 | Ssa_op.Decode.Bool_to_f64
   | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.I16_dequant
   | Ssa_op.Decode.I16_dequant32 | Ssa_op.Decode.I32_to_f64
@@ -84,6 +86,11 @@ let decode_slice = function
       Slice.Storage
 
 let decode_expansion = function
+  | Ssa_op.Decode.Bf16_to_f32 -> "load.i16; shl 16; bitcast.f32"
+  | Ssa_op.Decode.Bool_to_f32 -> "load.i8; icmp.ne 0; select 1.0f 0.0f"
+  | Ssa_op.Decode.F16_to_f32 ->
+      "load.i16; binary16 decode by binary32 primitives"
+  | Ssa_op.Decode.I32_to_f32 -> "load.i32; sext; scvt.i64.f32"
   | Ssa_op.Decode.Bf16_to_f64 -> "load.i16; shl 16; bitcast.f32; fext"
   | Ssa_op.Decode.Bool_to_f64 -> "load.i8; icmp.ne 0; select 1.0 0.0"
   | Ssa_op.Decode.F16_to_f64 -> "load.i16; binary16 decode by primitives"

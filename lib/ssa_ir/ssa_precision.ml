@@ -41,12 +41,18 @@ let convert t c (a : Ssa_value.t) into =
    rounded once: the result is binary32 at the load itself. *)
 let exact_decode t = function
   | Ssa_op.Decode.F32_to_f64 when t.exact -> (true, Ssa_op.Decode.F32_exact)
+  | Ssa_op.Decode.Bf16_to_f64 when t.exact -> (true, Ssa_op.Decode.Bf16_to_f32)
+  | Ssa_op.Decode.Bool_to_f64 when t.exact -> (true, Ssa_op.Decode.Bool_to_f32)
+  | Ssa_op.Decode.F16_to_f64 when t.exact -> (true, Ssa_op.Decode.F16_to_f32)
+  | Ssa_op.Decode.I32_to_f64 when t.exact -> (true, Ssa_op.Decode.I32_to_f32)
   | Ssa_op.Decode.I16_dequant -> (true, Ssa_op.Decode.I16_dequant32)
   | Ssa_op.Decode.I8_dequant -> (true, Ssa_op.Decode.I8_dequant32)
-  | ( Ssa_op.Decode.Bf16_to_f64 | Ssa_op.Decode.Bool_to_f64
-    | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.F32_exact
-    | Ssa_op.Decode.F32_to_f64 | Ssa_op.Decode.F64_to_f64
-    | Ssa_op.Decode.I16_dequant32 | Ssa_op.Decode.I32_to_f64 | Ssa_op.Decode.I64
+  | ( Ssa_op.Decode.Bf16_to_f32 | Ssa_op.Decode.Bf16_to_f64
+    | Ssa_op.Decode.Bool_to_f32 | Ssa_op.Decode.Bool_to_f64
+    | Ssa_op.Decode.F16_to_f32 | Ssa_op.Decode.F16_to_f64
+    | Ssa_op.Decode.F32_exact | Ssa_op.Decode.F32_to_f64
+    | Ssa_op.Decode.F64_to_f64 | Ssa_op.Decode.I16_dequant32
+    | Ssa_op.Decode.I32_to_f32 | Ssa_op.Decode.I32_to_f64 | Ssa_op.Decode.I64
     | Ssa_op.Decode.I64_to_f64 | Ssa_op.Decode.I8_dequant32 ) as d ->
       (false, d)
 

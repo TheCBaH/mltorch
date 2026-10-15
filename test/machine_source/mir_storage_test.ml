@@ -218,3 +218,155 @@ let%expect_test "quantized decodes in binary32" =
     i8 per tensor, fractional zero point: ok
     i8 per channel, fractional zero points: ok
     i8 per channel, channel 0 always: ok DISAGREE structured vs generic: output t1[1]: 0x1.8p+7:f32 vs -0x1.6ep+5:f32 |}]
+
+(* Narrow storage under [Fp32_ordered]: the exact form reads a binary16,
+   bfloat16, bool or i32 cell straight to binary32 ([F16_to_f32],
+   [Bf16_to_f32], [Bool_to_f32], [I32_to_f32]), scalar and, for the forced
+   neon128 target, as a vector built lane by lane. Each plan agrees with the
+   SSA interpreter, which agrees with the binary64 decode narrowed once, and
+   its generic Machine IR holds no binary64 instruction (the binary64 decode
+   is a decode and a narrowing: two conversions a read). *)
+let%expect_test "narrow storage read straight to binary32" =
+  let census p =
+    match
+      Err.payload
+        (Machine_lower.Mir_lower.program
+           ~planning:
+             (Some
+                (Machine_ir.Mir_planning.make
+                   ~subject:(Machine_lower.Mir_lower.subject p)
+                   ~policy:"fp32_ordered" ~schedule:"scalar"
+                   ~precision:Machine_ir.Mir_planning.Precision.F32
+                   ~lanes:(Machine_ir.Mir_type.Lanes.of_int 1)
+                   ~fma:Machine_ir.Mir_planning.Fma.Forbidden ~capabilities:[]))
+           p)
+    with
+    | Error _ -> "refused"
+    | Ok l ->
+        let c =
+          Machine_ir.Mir_f64_census.of_program l.Machine_lower.Mir_lower.program
+        in
+        Fmt.str "conversion %d, total %d"
+          (Machine_ir.Mir_f64_census.count c
+             Machine_ir.Mir_f64_census.Role.Conversion)
+          (List.fold_left
+             (fun n r -> n + Machine_ir.Mir_f64_census.count c r)
+             0 Machine_ir.Mir_f64_census.Role.all)
+  in
+  let decodes (p : Ssa_program.t) =
+    let names = ref [] in
+    let rec region (r : Ssa_region.t) = List.iter stmt r.Ssa_region.body
+    and stmt = function
+      | Ssa_stmt.Instr
+          {
+            Ssa_instr.op =
+              ( Ssa_op.Load_in_bounds { decode; _ }
+              | Ssa_op.Load { decode; _ }
+              | Ssa_op.Vec_load { decode; _ } );
+            _;
+          } ->
+          names := Ssa_op.Decode.name decode :: !names
+      | Ssa_stmt.Instr _ -> ()
+      | Ssa_stmt.For { body; _ } | Ssa_stmt.Ordered_sum { body; _ } ->
+          region body
+      | Ssa_stmt.If { then_; else_; _ } ->
+          region then_;
+          region else_
+    in
+    region p.Ssa_program.entry;
+    String.concat "," (List.sort_uniq compare !names)
+  in
+  let all = Array.init 65536 Fun.id in
+  List.iter
+    (fun (label, w, decode, format, cells) ->
+      let p =
+        copy ~w ~decode ~encode:Ssa_op.Encode.F32_round format Ssa_format.F32
+      in
+      let alias = Ssa_effects.Distinct_buffers in
+      let scalar =
+        (Ssa_plan.resolve ~alias ~target:Ssa_target.scalar
+           ~numerics:Ssa_numerics.Fp32_ordered p)
+          .Ssa_plan.program
+      in
+      let vector =
+        match
+          Ssa_plan.fp32_vector ~alias
+            ~target:(Ssa_target.forced Ssa_target.neon128)
+            p
+        with
+        | Ok t -> t.Ssa_plan.program
+        | Error _ -> assert false
+      in
+      let interpreted q =
+        let memory =
+          F.memory
+            [
+              ( 0,
+                match cells with
+                | Ssa_memory.Ints a -> Ssa_memory.Ints (Array.copy a)
+                | Ssa_memory.Floats a -> Ssa_memory.Floats (Array.copy a)
+                | Ssa_memory.Int64s a -> Ssa_memory.Int64s (Array.copy a) );
+              (1, F.floats (Array.make (Int64.to_int w) 0.));
+            ]
+        in
+        F.run q ~memory;
+        F.output_floats memory 1
+      in
+      let reference = interpreted p in
+      List.iter
+        (fun (form, q) ->
+          Fmt.pr "%s %s [%s] %s; = binary64 decode %b: " label form (decodes q)
+            (census q)
+            (Array.for_all2 Core.Float_bits.equal_portable reference
+               (interpreted q));
+          run ~fuel:100_000_000L
+            ~precision:Machine_ir.Mir_planning.Precision.F32 "MIR" q
+            [ (0, cells) ])
+        [ ("binary64 decode", p); ("scalar", scalar); ("vector", vector) ])
+    [
+      ( "f16",
+        65536L,
+        Ssa_op.Decode.F16_to_f64,
+        Ssa_format.F16,
+        Ssa_memory.Ints all );
+      ( "bf16",
+        65536L,
+        Ssa_op.Decode.Bf16_to_f64,
+        Ssa_format.Bf16,
+        Ssa_memory.Ints all );
+      ( "bool",
+        4L,
+        Ssa_op.Decode.Bool_to_f64,
+        Ssa_format.Bool,
+        Ssa_memory.Floats [| 0.; 1.; 1.; 0. |] );
+      ( "i32",
+        32L,
+        Ssa_op.Decode.I32_to_f64,
+        Ssa_format.I32,
+        Ssa_memory.Ints
+          (Array.init 32 (fun k ->
+               [|
+                 0;
+                 -1;
+                 0x7FFF_FFFF;
+                 -0x8000_0000;
+                 16777217;
+                 123;
+                 -16777219;
+                 8388609;
+               |].(k mod 8))) );
+    ];
+  [%expect
+    {|
+    f16 binary64 decode [f16_to_f64] conversion 4, total 10; = binary64 decode true: MIR: ok
+    f16 scalar [f16_to_f32] conversion 0, total 0; = binary64 decode true: MIR: ok
+    f16 vector [f16_to_f32] conversion 0, total 0; = binary64 decode true: MIR: ok
+    bf16 binary64 decode [bf16_to_f64] conversion 2, total 2; = binary64 decode true: MIR: ok
+    bf16 scalar [bf16_to_f32] conversion 0, total 0; = binary64 decode true: MIR: ok
+    bf16 vector [bf16_to_f32] conversion 0, total 0; = binary64 decode true: MIR: ok
+    bool binary64 decode [bool_to_f64] conversion 1, total 4; = binary64 decode true: MIR: ok
+    bool scalar [bool_to_f32] conversion 0, total 0; = binary64 decode true: MIR: ok
+    bool vector [bool_to_f32] conversion 0, total 0; = binary64 decode true: MIR: ok
+    i32 binary64 decode [i32_to_f64] conversion 2, total 2; = binary64 decode true: MIR: ok
+    i32 scalar [i32_to_f32] conversion 0, total 0; = binary64 decode true: MIR: ok
+    i32 vector [i32_to_f32] conversion 0, total 0; = binary64 decode true: MIR: ok |}]

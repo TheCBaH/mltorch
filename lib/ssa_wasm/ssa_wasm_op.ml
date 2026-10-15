@@ -151,6 +151,16 @@ let decode st (b : Ssa_buffer.t) (d : Ssa_op.Decode.t) ~address
     ~(access : Ssa_access.t) =
   let load l = address @ [ I.Load (l, arg (Wasm.Load.natural_align l) 0) ] in
   match d with
+  | Ssa_op.Decode.Bf16_to_f32 ->
+      load Wasm.Load.I32_load16_u
+      @ [ i32 16; n Wasm_op.I32_shl; n Wasm_op.F32_reinterpret_i32 ]
+  | Ssa_op.Decode.Bool_to_f32 ->
+      load Wasm.Load.I32_load8_u
+      @ [ i32 0; n Wasm_op.I32_ne; n Wasm_op.F32_convert_i32_u ]
+  | Ssa_op.Decode.F16_to_f32 ->
+      load Wasm.Load.I32_load16_u @ [ call st R.Callee.F16_to_f32 ]
+  | Ssa_op.Decode.I32_to_f32 ->
+      load Wasm.Load.I32_load @ [ n Wasm_op.F32_convert_i32_s ]
   | Ssa_op.Decode.Bf16_to_f64 ->
       load Wasm.Load.I32_load16_u
       @ [

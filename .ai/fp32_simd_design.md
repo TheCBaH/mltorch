@@ -282,8 +282,12 @@ integer store. And the C dialects spell their NaN, infinity and sign tests with
 because CompCert, unlike gcc with `FLT_EVAL_METHOD`, does not widen a `float`
 operand to meet a `double` literal and would otherwise compute in binary64.
 
-What stays binary64 under the policy: decode of `f64` storage (one rounding),
-and CompCert's register-class choices. With vectors on, the generic Machine IR
+What stays binary64 under the policy: decode of `f64` and `i64` storage (one
+rounding through binary64, the oracle's definition), and CompCert's
+register-class choices. `f16`, `bf16`, `bool` and `i32` cells are read straight
+to binary32 in the SSA backends (`Decode.F16_to_f32`, `Bf16_to_f32`,
+`Bool_to_f32`, `I32_to_f32`: exact, or for `i32` one rounding), scalar or
+vectorized lane by lane. With vectors on, the generic Machine IR
 and the Rivet AArch64 assembly (`machine_model_census --ssa=fp32 --f64`,
 `machine_rivet_a64_census --planned=fp32 --asm`) count zero in every role on
 every CI model. The comparison tool exposes the policy as the

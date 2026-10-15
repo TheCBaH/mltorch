@@ -121,8 +121,10 @@ let load_f64 b buffer ~decode at =
   declared b buffer;
   (match decode with
   | Ssa_op.Decode.I64 -> invalid_arg "Ssa_builder.load_f64: an i64 decode"
-  | Ssa_op.Decode.Bf16_to_f64 | Ssa_op.Decode.Bool_to_f64
-  | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.F32_exact
+  | Ssa_op.Decode.Bf16_to_f32 | Ssa_op.Decode.Bf16_to_f64
+  | Ssa_op.Decode.Bool_to_f32 | Ssa_op.Decode.Bool_to_f64
+  | Ssa_op.Decode.F16_to_f32 | Ssa_op.Decode.F16_to_f64
+  | Ssa_op.Decode.I32_to_f32 | Ssa_op.Decode.F32_exact
   | Ssa_op.Decode.F32_to_f64 | Ssa_op.Decode.F64_to_f64
   | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I16_dequant32
   | Ssa_op.Decode.I32_to_f64 | Ssa_op.Decode.I64_to_f64

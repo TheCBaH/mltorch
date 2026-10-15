@@ -80,8 +80,10 @@ let load st op (e : L.Entry.t) ~at ~steps ~lanes ~decode (d : Ssa_op.Decode.t) =
       emit st (Mir_op.Fconvert (Mir_op.Fconvert.F32_to_f64, v))
   | Ssa_op.Decode.F32_exact -> vload Mir_type.Elem.F32
   | Ssa_op.Decode.F64_to_f64 -> vload Mir_type.Elem.F64
-  | Ssa_op.Decode.Bf16_to_f64 | Ssa_op.Decode.Bool_to_f64
-  | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.I32_to_f64
+  | Ssa_op.Decode.Bf16_to_f32 | Ssa_op.Decode.Bf16_to_f64
+  | Ssa_op.Decode.Bool_to_f32 | Ssa_op.Decode.Bool_to_f64
+  | Ssa_op.Decode.F16_to_f32 | Ssa_op.Decode.F16_to_f64
+  | Ssa_op.Decode.I32_to_f32 | Ssa_op.Decode.I32_to_f64
   | Ssa_op.Decode.I64_to_f64 ->
       by_lanes st op e ~at ~steps ~lanes ~decode d
   | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I16_dequant32 | Ssa_op.Decode.I64

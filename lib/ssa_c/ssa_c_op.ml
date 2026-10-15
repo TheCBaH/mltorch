@@ -79,6 +79,10 @@ let lane_delta (b : Ssa_buffer.t) (steps : int64 Expr.Coord.t) =
 
 let decode_cell cx (d : Ssa_op.Decode.t) cell =
   match d with
+  | Ssa_op.Decode.Bf16_to_f32 -> call cx R.Name.Bf16_to_f32 [ cell ]
+  | Ssa_op.Decode.Bool_to_f32 -> "(" ^ cell ^ " != 0 ? 1.0f : 0.0f)"
+  | Ssa_op.Decode.F16_to_f32 -> call cx R.Name.F16_to_f32 [ cell ]
+  | Ssa_op.Decode.I32_to_f32 -> "(float)" ^ cell
   | Ssa_op.Decode.Bf16_to_f64 -> call cx R.Name.Bf16_to_float [ cell ]
   | Ssa_op.Decode.Bool_to_f64 -> "(" ^ cell ^ " != 0 ? 1.0 : 0.0)"
   | Ssa_op.Decode.F16_to_f64 -> call cx R.Name.F16_to_float [ cell ]

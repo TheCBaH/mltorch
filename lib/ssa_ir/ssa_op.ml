@@ -55,14 +55,18 @@ module Decode = struct
      binary32 cell as the binary32 value it is: what a binary32 kernel uses, so
      no widening and narrowing surrounds the load. *)
   type t =
+    | Bf16_to_f32
     | Bf16_to_f64
+    | Bool_to_f32
     | Bool_to_f64
+    | F16_to_f32
     | F16_to_f64
     | F32_exact
     | F32_to_f64
     | F64_to_f64
     | I16_dequant
     | I16_dequant32
+    | I32_to_f32
     | I32_to_f64
     | I64
     | I64_to_f64
@@ -70,14 +74,18 @@ module Decode = struct
     | I8_dequant32
 
   let name = function
+    | Bf16_to_f32 -> "bf16_to_f32"
     | Bf16_to_f64 -> "bf16_to_f64"
+    | Bool_to_f32 -> "bool_to_f32"
     | Bool_to_f64 -> "bool_to_f64"
+    | F16_to_f32 -> "f16_to_f32"
     | F16_to_f64 -> "f16_to_f64"
     | F32_exact -> "f32_exact"
     | F32_to_f64 -> "f32_to_f64"
     | F64_to_f64 -> "f64_to_f64"
     | I16_dequant -> "i16_dequant"
     | I16_dequant32 -> "i16_dequant32"
+    | I32_to_f32 -> "i32_to_f32"
     | I32_to_f64 -> "i32_to_f64"
     | I64 -> "i64"
     | I64_to_f64 -> "i64_to_f64"
@@ -86,19 +94,21 @@ module Decode = struct
 
   (* The family of buffer a decode reads. *)
   let family = function
-    | Bf16_to_f64 -> Ssa_format.Family.Bf16
-    | Bool_to_f64 -> Ssa_format.Family.Bool
-    | F16_to_f64 -> Ssa_format.Family.F16
+    | Bf16_to_f32 | Bf16_to_f64 -> Ssa_format.Family.Bf16
+    | Bool_to_f32 | Bool_to_f64 -> Ssa_format.Family.Bool
+    | F16_to_f32 | F16_to_f64 -> Ssa_format.Family.F16
     | F32_exact | F32_to_f64 -> Ssa_format.Family.F32
     | F64_to_f64 -> Ssa_format.Family.F64
     | I16_dequant | I16_dequant32 -> Ssa_format.Family.I16
-    | I32_to_f64 -> Ssa_format.Family.I32
+    | I32_to_f32 | I32_to_f64 -> Ssa_format.Family.I32
     | I64 | I64_to_f64 -> Ssa_format.Family.I64
     | I8_dequant | I8_dequant32 -> Ssa_format.Family.I8
 
   let result = function
     | I64 -> Ssa_type.Scalar Ssa_type.I64
-    | F32_exact | I16_dequant32 | I8_dequant32 -> Ssa_type.Scalar Ssa_type.F32
+    | Bf16_to_f32 | Bool_to_f32 | F16_to_f32 | F32_exact | I16_dequant32
+    | I32_to_f32 | I8_dequant32 ->
+        Ssa_type.Scalar Ssa_type.F32
     | Bf16_to_f64 | Bool_to_f64 | F16_to_f64 | F32_to_f64 | F64_to_f64
     | I16_dequant | I32_to_f64 | I64_to_f64 | I8_dequant ->
         Ssa_type.Scalar Ssa_type.F64

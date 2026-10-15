@@ -12,6 +12,7 @@ module Callee = struct
     | Exp
     | Exp_f32
     | Exp_f32x4
+    | F16_to_f32
     | F16_to_float
     | Fail_set
     | Fill_f32
@@ -36,6 +37,7 @@ module Callee = struct
       Exp;
       Exp_f32;
       Exp_f32x4;
+      F16_to_f32;
       F16_to_float;
       Fail_set;
       Fill_f32;
@@ -69,6 +71,7 @@ module Callee = struct
     | Exp -> "exp"
     | Exp_f32 -> "exp_f32"
     | Exp_f32x4 -> "exp_f32x4"
+    | F16_to_f32 -> "f16_to_f32"
     | F16_to_float -> "f16_to_float"
     | Fail_set -> "fail_set"
     | Fill_f32 -> "fill_f32"
@@ -89,15 +92,15 @@ module Callee = struct
     | Log -> Some "log"
     | Sin -> Some "sin"
     | Ceil_div | Cos_f32 | Cos_f32x4 | Erf | Erf_f32 | Erf_f32x4 | Exp_f32
-    | Exp_f32x4 | F16_to_float | Fail_set | Fill_f32 | Floor_div | I64_div
-    | Log_f32 | Log_f32x4 | Sin_f32 | Sin_f32x4 ->
+    | Exp_f32x4 | F16_to_f32 | F16_to_float | Fail_set | Fill_f32 | Floor_div
+    | I64_div | Log_f32 | Log_f32x4 | Sin_f32 | Sin_f32x4 ->
         None
 
   let deps = function
     | Erf -> [ Exp ]
     | Ceil_div | Cos | Cos_f32 | Cos_f32x4 | Erf_f32 | Erf_f32x4 | Exp | Exp_f32
-    | Exp_f32x4 | F16_to_float | Fail_set | Fill_f32 | Floor_div | I64_div | Log
-    | Log_f32 | Log_f32x4 | Sin | Sin_f32 | Sin_f32x4 ->
+    | Exp_f32x4 | F16_to_f32 | F16_to_float | Fail_set | Fill_f32 | Floor_div
+    | I64_div | Log | Log_f32 | Log_f32x4 | Sin | Sin_f32 | Sin_f32x4 ->
         []
 end
 
@@ -243,6 +246,69 @@ let f16_to_float =
               ] );
           get sign;
           I.If (Some wt_f64, [ get m; n Wasm_op.F64_neg ], [ get m ]);
+        ];
+  }
+
+(* The same decode in binary32 throughout: every binary16 value is a binary32
+   value, and each step below is exact ([mant] times a power of two). *)
+let f16_to_f32 =
+  let sign = 1 and exp = 2 and mant = 3 and m = 4 in
+  let field shift mask =
+    [ get 0; i32 shift; n Wasm_op.I32_shr_u; i32 mask; n Wasm_op.I32_and ]
+  in
+  let f32 x = I.F32_const (Int32.bits_of_float x) in
+  {
+    Wasm.Func.type_ = ft [ wt_i32 ] [ wt_f32 ];
+    locals = [ wt_i32; wt_i32; wt_i32; wt_f32 ];
+    body =
+      field 15 1
+      @ [ set sign ]
+      @ field 10 0x1f
+      @ [ set exp ]
+      @ field 0 0x3ff
+      @ [ set mant ]
+      @ [
+          get exp;
+          n Wasm_op.I32_eqz;
+          I.If
+            ( None,
+              [
+                get mant;
+                n Wasm_op.F32_convert_i32_u;
+                f32 (Float.ldexp 1. (-24));
+                n Wasm_op.F32_mul;
+                set m;
+              ],
+              [
+                get exp;
+                i32 0x1f;
+                n Wasm_op.I32_eq;
+                I.If
+                  ( None,
+                    [
+                      get mant;
+                      n Wasm_op.I32_eqz;
+                      I.If
+                        (Some wt_f32, [ f32 Float.infinity ], [ f32 Float.nan ]);
+                      set m;
+                    ],
+                    [
+                      get mant;
+                      i32 0x400;
+                      n Wasm_op.I32_or;
+                      n Wasm_op.F32_convert_i32_u;
+                      get exp;
+                      i32 102;
+                      n Wasm_op.I32_add;
+                      i32 23;
+                      n Wasm_op.I32_shl;
+                      n Wasm_op.F32_reinterpret_i32;
+                      n Wasm_op.F32_mul;
+                      set m;
+                    ] );
+              ] );
+          get sign;
+          I.If (Some wt_f32, [ get m; n Wasm_op.F32_neg ], [ get m ]);
         ];
   }
 
@@ -439,6 +505,7 @@ let body : Callee.t -> Wasm.Func.t option = function
   | Callee.Exp_f32x4 -> Some (f32x4_function `Exp)
   | Callee.Log_f32x4 -> Some (f32x4_function `Log)
   | Callee.Sin_f32x4 -> Some (f32x4_function `Sin)
+  | Callee.F16_to_f32 -> Some f16_to_f32
   | Callee.F16_to_float -> Some f16_to_float
   | Callee.Fail_set -> Some fail_set
   | Callee.Fill_f32 -> Some fill_f32
@@ -456,6 +523,7 @@ let signature : Callee.t -> Wasm.Func_type.t = function
   | Callee.Cos_f32x4 | Callee.Erf_f32x4 | Callee.Exp_f32x4 | Callee.Log_f32x4
   | Callee.Sin_f32x4 ->
       ft [ Wasm_type.V128 ] [ Wasm_type.V128 ]
+  | Callee.F16_to_f32 -> ft [ wt_i32 ] [ wt_f32 ]
   | Callee.F16_to_float -> ft [ wt_i32 ] [ wt_f64 ]
   | Callee.Fail_set -> ft [ wt_i32 ] []
   | Callee.Fill_f32 -> ft [ wt_i32; wt_i32; wt_f32 ] []

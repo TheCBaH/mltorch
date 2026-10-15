@@ -207,15 +207,20 @@ let channel_of st = function
 let read_cell st id (b : Ssa_buffer.t) decode ~at ~channel =
   match (cells st id, decode) with
   | ( Ssa_memory.Floats a,
-      ( Ssa_op.Decode.Bool_to_f64 | Ssa_op.Decode.F32_exact
-      | Ssa_op.Decode.F32_to_f64 | Ssa_op.Decode.F64_to_f64 ) ) ->
+      ( Ssa_op.Decode.Bool_to_f32 | Ssa_op.Decode.Bool_to_f64
+      | Ssa_op.Decode.F32_exact | Ssa_op.Decode.F32_to_f64
+      | Ssa_op.Decode.F64_to_f64 ) ) ->
       F a.(at)
   | Ssa_memory.Int64s a, Ssa_op.Decode.I64 -> I a.(at)
   | Ssa_memory.Int64s a, Ssa_op.Decode.I64_to_f64 -> F (Int64.to_float a.(at))
-  | Ssa_memory.Ints a, Ssa_op.Decode.F16_to_f64 ->
+  | Ssa_memory.Ints a, (Ssa_op.Decode.F16_to_f32 | Ssa_op.Decode.F16_to_f64) ->
+      (* every binary16 value is a binary32 value *)
       F (Ssa_half.f16_to_float a.(at))
-  | Ssa_memory.Ints a, Ssa_op.Decode.Bf16_to_f64 ->
+  | Ssa_memory.Ints a, (Ssa_op.Decode.Bf16_to_f32 | Ssa_op.Decode.Bf16_to_f64)
+    ->
       F (Ssa_half.bf16_to_float a.(at))
+  | Ssa_memory.Ints a, Ssa_op.Decode.I32_to_f32 ->
+      F (Ssa_const.round_f32 (float_of_int a.(at)))
   | Ssa_memory.Ints a, Ssa_op.Decode.I32_to_f64 -> F (float_of_int a.(at))
   | Ssa_memory.Ints a, (Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I8_dequant)
     -> (

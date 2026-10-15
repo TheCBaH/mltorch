@@ -19,6 +19,7 @@ module Callee : sig
     | Exp_f32  (** {!F32_math.Value.exp}'s sequence, one [f32] operation each *)
     | Exp_f32x4
         (** the same sequence on four lanes, one [f32x4] operation each *)
+    | F16_to_f32  (** an [f16] cell's binary32 value, no binary64 step *)
     | F16_to_float
     | Fail_set
     | Fill_f32
