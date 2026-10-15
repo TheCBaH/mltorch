@@ -491,6 +491,20 @@ jobs:
       run: |
         ${{ env.EXEC }} make compcert.embed.runtest
 
+    # The typed Rivet RV32 harness: hand-built images as ELF processes under
+    # qemu-riscv32, on either architecture.
+    - name: typed Rivet RV32 harness
+      if: matrix.suite == 'compcert'
+      run: |
+        ${{ env.EXEC }} make machine.rivet.rv32.runtest
+
+    # The embedded CompCert for riscv32 beside the host's, its output run as an
+    # ELF under qemu-riscv32 and checked bitwise against the reference.
+    - name: loop_c_embed through CompCert riscv32
+      if: matrix.suite == 'compcert'
+      run: |
+        ${{ env.EXEC }} make compcert.rv32.runtest
+
     # The same Rivet, without CompCert: the typed x86-64 route, run on the
     # runner's own CPU (per-form conformance, kernels, the table-bound host).
     - name: typed Rivet x86-64 route

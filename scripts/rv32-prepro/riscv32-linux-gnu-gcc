@@ -1,0 +1,21 @@
+#!/bin/sh
+# The C preprocessor of the riscv32 CompCert configuration (its `prepro`), run by
+# the host gcc. The embedding build preprocesses CompCert's own runtime helper
+# sources (runtime/c/i64_*.c) with this name; their text does not depend on the
+# target's headers, so the host preprocessor gives the same output apart from
+# the path in one line marker. Only preprocessing is supported: compiling,
+# assembling or linking for RISC-V needs a real cross toolchain and is refused.
+preprocess=false
+for a in "$@"; do
+  shift
+  case "$a" in
+    -E) preprocess=true; set -- "$@" "$a" ;;
+    -mabi=*) ;;
+    *) set -- "$@" "$a" ;;
+  esac
+done
+if [ "$preprocess" != true ]; then
+  echo "riscv32-linux-gnu-gcc (preprocessor stand-in): only -E is supported" >&2
+  exit 2
+fi
+exec gcc "$@"

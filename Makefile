@@ -1,4 +1,4 @@
-.PHONY: model.compare.coverage js.compare.runtest rivet.compare.runtest transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open model.compare model.download model.compare.gate model.fetch.timm model.fetch.fixture transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.native4d.runtest c.pt2.native4d.ssa.runtest c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
+.PHONY: machine.rivet.rv32.runtest compcert.rv32.install compcert.rv32.runtest model.compare.coverage js.compare.runtest rivet.compare.runtest transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open model.compare model.download model.compare.gate model.fetch.timm model.fetch.fixture transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.native4d.runtest c.pt2.native4d.ssa.runtest c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean machine.a64.conformance machine.pt2.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
@@ -1495,6 +1495,36 @@ machine.rivet.a64.conformance: rivet.install
 	$(RIVET_CONFORMANCE)
 	set -e; for m in $(MACHINE_A64_MUTATIONS); do $(RIVET_CONFORMANCE) --mutate $$m; done
 	set -e; for m in commuted-sub wrong-lane; do $(RIVET_CONFORMANCE) --map-mutate $$m; done
+
+# Typed Rivet RV32 images written as ELF and run under qemu-riscv32: the mmap
+# harness over hand-built kernels. RV32 cannot run on any host CPU here, so
+# qemu-riscv32 must be on the path; its absence fails the run.
+machine.rivet.rv32.runtest: rivet.install
+	command -v qemu-riscv32
+	opam exec -- dune build @test/machine_rivet_riscv32/runtest --force
+
+# The embedded CompCert for riscv32 beside the host's: its pinned artifacts are
+# fetched, its extraction built and installed as compcert_riscv32_embed, then
+# rivet_compcert is built with both embeddings enabled and installed over the
+# host-only one, so the two link into one program. Building the extraction
+# preprocesses CompCert's runtime helper sources with the configuration's
+# `riscv32-linux-gnu-gcc`; scripts/rv32-prepro stands in for it with the host
+# gcc, so no cross toolchain is installed. RV32 code cannot run on this CPU:
+# qemu-riscv32 runs the ELF the loader writes.
+RIVET_COMPCERT_DIR = vendored/rivet-compcert
+COMPCERT_ISA_GATE = RIVET_COMPCERT_EMBED_$(shell echo $(COMPCERT_ISA) | tr a-z A-Z)=true
+compcert.rv32.install: compcert.embed.install
+	command -v qemu-riscv32
+	cd $(RIVET_COMPCERT_DIR) && scripts/fetch-compcert.sh riscv32 && PATH="$(CURDIR)/scripts/rv32-prepro:$$PATH" scripts/compcert-embed-sync.sh riscv32
+	cd $(RIVET_COMPCERT_DIR)/_compcert/riscv32/embed && opam exec -- dune build --root . @install
+	cd $(RIVET_COMPCERT_DIR)/_compcert/riscv32/embed && sudo env "PATH=$$PATH" "$$(opam exec -- which dune)" install --root . --prefix "$$(opam var prefix)" compcert_riscv32_embed
+	cd $(RIVET_COMPCERT_DIR) && env -u COMPCERT_CONFIG RIVET_NATIVE_EXEC=true RIVET_COMPCERT_EMBED=true $(COMPCERT_ISA_GATE) RIVET_COMPCERT_EMBED_RISCV32=true opam exec -- dune build --root . --only-packages rivet_compcert @install
+	cd $(RIVET_COMPCERT_DIR) && env -u COMPCERT_CONFIG RIVET_NATIVE_EXEC=true RIVET_COMPCERT_EMBED=true $(COMPCERT_ISA_GATE) RIVET_COMPCERT_EMBED_RISCV32=true sudo env "PATH=$$PATH" "$$(opam exec -- which dune)" install --root . --only-packages rivet_compcert --prefix "$$(opam var prefix)" rivet_compcert
+
+# The two CompCerts linked together, and the embedding tests of test/loop_c_embed with
+# the RV32 loader, bitwise equal to the reference.
+compcert.rv32.runtest: compcert.rv32.install
+	opam exec -- dune build @test/compcert_rv32/runtest @test/loop_c_embed_compcert_rv32/runtest --force
 
 compcert.embed.runtest: compcert.embed.install
 	MLTORCH_COMPCERT=$(COMPCERT_ISA) opam exec -- dune build @test/loop_c_embed_compcert/runtest --force

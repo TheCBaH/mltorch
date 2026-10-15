@@ -1,0 +1,18 @@
+; Two CompCert embeddings, the host's (AArch64) and RISC-V 32, linked into one
+; program. Each is an extraction of a different backend, so this is the
+; evidence that their top-level modules do not collide, and that each compiles
+; for its own ISA (coexist.expected). Built only where both are installed.
+
+(test
+ (name coexist)
+ (libraries
+  rivet_compcert.compcert_embed_aarch64
+  rivet_compcert.compcert_embed_riscv32)
+ (build_if
+  (and
+   %{lib-available:rivet_compcert.compcert_embed_aarch64}
+   %{lib-available:rivet_compcert.compcert_embed_riscv32}))
+ (enabled_if
+  (and
+   %{lib-available:rivet_compcert.compcert_embed_aarch64}
+   %{lib-available:rivet_compcert.compcert_embed_riscv32})))
