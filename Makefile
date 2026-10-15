@@ -1527,7 +1527,7 @@ compcert.rv32.runtest: compcert.rv32.install
 	opam exec -- dune build @test/compcert_rv32/runtest @test/loop_c_embed_compcert_rv32/runtest --force
 
 compcert.embed.runtest: compcert.embed.install
-	MLTORCH_COMPCERT=$(COMPCERT_ISA) opam exec -- dune build @test/loop_c_embed_compcert/runtest --force
+	MLTORCH_COMPCERT=$(COMPCERT_ISA) opam exec -- dune build @test/loop_c_embed_compcert/runtest @test/asm_census_compcert/runtest --force
 
 # The embedded CompCert route against the direct assembly route through the
 # comparison coordinator (lib/inference_compare_compiled). The hermetic tests

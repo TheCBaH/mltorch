@@ -99,3 +99,66 @@ let%expect_test "conv, batch norm, relu under the planned policy" =
     {|
     chain (3 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true
     wide chain (3 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true |}]
+
+(* ---- Fp32_ordered through the table binding ---------------------------------- *)
+
+let fp32_ordered = T.fp32_ordered
+
+let table_check ?(allocation = Rt.Allocation.Reference) ?constant name g =
+  let g = g () in
+  let b = T.bundle g in
+  let constant = Option.value constant ~default:T.positive in
+  let constants =
+    List.map
+      (fun id -> (id, constant (T.sig_of g id)))
+      b.Loop_ir.Loop_bundle.constants
+  in
+  match H.prepare ~allocation ~pipeline:fp32_ordered b with
+  | Error rs ->
+      Fmt.pr "%s: refused: %a@." name
+        Fmt.(list ~sep:(any "; ") Mm.Refusal.pp)
+        rs
+  | Ok host -> (
+      match
+        H.Context.create host ~constants:(fun id -> List.assoc_opt id constants)
+      with
+      | Error s -> Fmt.pr "%s: %a@." name Mm.Stop.pp s
+      | Ok cn ->
+          let verdicts =
+            List.init 2 (fun call ->
+                let inputs =
+                  List.mapi
+                    (fun i id ->
+                      (id, T.values ~salt:(call + i) (T.sig_of g id)))
+                    b.Loop_ir.Loop_bundle.inputs
+                in
+                let oracle = T.expected T.Fp32 g b ~constants ~inputs in
+                match
+                  H.Context.run cn ~inputs:(fun id -> List.assoc_opt id inputs)
+                with
+                | Error s -> Fmt.str "%a" Mm.Stop.pp s
+                | Ok outs ->
+                    if
+                      List.for_all2
+                        (fun id t ->
+                          bits_of t = bits_of (Tensor_id.Map.find id oracle))
+                        g.Graph.outputs outs
+                    then "bitwise"
+                    else "DIFFERS")
+          in
+          Fmt.pr "%s (%d invocations): %s@." name (H.invocations host)
+            (String.concat ", " verdicts))
+
+let%expect_test "Fp32_ordered: the table binding is the binary32 oracle" =
+  List.iter
+    (fun allocation ->
+      let n s = Fmt.str "%s %s" s (Rt.Allocation.name allocation) in
+      table_check ~allocation (n "chain") F.chain;
+      table_check ~allocation (n "wide chain") T.wide_chain)
+    Rt.Allocation.[ Reference; Scanned ];
+  [%expect
+    {|
+    chain reference (3 invocations): bitwise, bitwise
+    wide chain reference (3 invocations): bitwise, bitwise
+    chain scanned (3 invocations): bitwise, bitwise
+    wide chain scanned (3 invocations): bitwise, bitwise |}]

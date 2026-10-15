@@ -62,6 +62,10 @@ let%expect_test "baseline census of the fixtures" =
       show
         (name ^ " simd_fp32_ordered scalar")
         (planned Ssa_ir.Ssa_numerics.Simd_fp32_ordered Ssa_ir.Ssa_target.scalar)
+        g;
+      show
+        (name ^ " fp32_ordered scalar")
+        (planned Ssa_ir.Ssa_numerics.Fp32_ordered Ssa_ir.Ssa_target.scalar)
         g)
     fixtures;
   [%expect
@@ -69,9 +73,46 @@ let%expect_test "baseline census of the fixtures" =
     chain exact: arithmetic 13, conversion 18, helper_call 0, memory_move 4, helpers []
     chain simd_fp32_ordered neon128: arithmetic 13, conversion 18, helper_call 0, memory_move 5, helpers []
     chain simd_fp32_ordered scalar: arithmetic 13, conversion 18, helper_call 0, memory_move 5, helpers []
+    chain fp32_ordered scalar: arithmetic 0, conversion 24, helper_call 0, memory_move 0, helpers []
     softmax exact: arithmetic 5, conversion 6, helper_call 2, memory_move 7, helpers [exp]
     softmax simd_fp32_ordered neon128: arithmetic 5, conversion 6, helper_call 2, memory_move 7, helpers [exp]
     softmax simd_fp32_ordered scalar: arithmetic 5, conversion 6, helper_call 2, memory_move 7, helpers [exp]
+    softmax fp32_ordered scalar: arithmetic 0, conversion 17, helper_call 2, memory_move 5, helpers [exp]
     layer_norm exact: arithmetic 16, conversion 8, helper_call 0, memory_move 14, helpers []
     layer_norm simd_fp32_ordered neon128: arithmetic 16, conversion 8, helper_call 0, memory_move 14, helpers []
-    layer_norm simd_fp32_ordered scalar: arithmetic 16, conversion 8, helper_call 0, memory_move 14, helpers [] |}]
+    layer_norm simd_fp32_ordered scalar: arithmetic 16, conversion 8, helper_call 0, memory_move 14, helpers []
+    layer_norm fp32_ordered scalar: arithmetic 0, conversion 22, helper_call 0, memory_move 10, helpers [] |}]
+
+(* Under [Fp32_ordered] every invocation of a multi-kernel bundle is planned
+   binary32, with a vector target or a scalar one; [Simd_fp32_ordered] on the
+   same bundle plans only what it vectorizes. *)
+let%expect_test "every invocation is planned binary32" =
+  let b = bundle (F.chain ()) in
+  List.iter
+    (fun (tname, target) ->
+      List.iter
+        (fun numerics ->
+          let precisions =
+            List.map
+              (fun inv ->
+                match Ssa_backends.plan ~numerics ~target inv with
+                | Ok p ->
+                    Ssa_ir.Ssa_numerics.Precision.name
+                      p.Ssa_ir.Ssa_plan.precision
+                | Error e -> "error: " ^ e)
+              b.Loop_ir.Loop_bundle.invocations
+          in
+          Fmt.pr "%-9s %-18s %s@." tname
+            (Ssa_ir.Ssa_numerics.name numerics)
+            (String.concat " " precisions))
+        Ssa_ir.Ssa_numerics.[ Fp32_ordered; Simd_fp32_ordered ])
+    [
+      ("scalar", Ssa_ir.Ssa_target.scalar);
+      ("neon128", Ssa_ir.Ssa_target.neon128);
+    ];
+  [%expect
+    {|
+    scalar    fp32_ordered       f32 f32 f32
+    scalar    simd_fp32_ordered  f64 f64 f64
+    neon128   fp32_ordered       f32 f32 f32
+    neon128   simd_fp32_ordered  f64 f64 f64 |}]

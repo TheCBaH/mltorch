@@ -4,11 +4,12 @@ module Precision = struct
   let name = function F32 -> "f32" | F64 -> "f64"
 end
 
-type t = Reference_f64 | Simd_fp32_ordered | Simd_fp32_relaxed
+type t = Fp32_ordered | Reference_f64 | Simd_fp32_ordered | Simd_fp32_relaxed
 
-let all = [ Reference_f64; Simd_fp32_ordered; Simd_fp32_relaxed ]
+let all = [ Fp32_ordered; Reference_f64; Simd_fp32_ordered; Simd_fp32_relaxed ]
 
 let name = function
+  | Fp32_ordered -> "fp32_ordered"
   | Reference_f64 -> "reference_f64"
   | Simd_fp32_ordered -> "simd_fp32_ordered"
   | Simd_fp32_relaxed -> "simd_fp32_relaxed"
@@ -16,28 +17,33 @@ let name = function
 let of_name s = List.find_opt (fun p -> String.equal (name p) s) all
 
 let contraction_permitted = function
-  | Reference_f64 | Simd_fp32_ordered -> false
+  | Fp32_ordered | Reference_f64 | Simd_fp32_ordered -> false
   | Simd_fp32_relaxed -> true
 
 let reassociation_permitted = contraction_permitted
 
 let identity p =
-  Printf.sprintf "numerics=%s vectorized=%s other=f64 fma=%s reassociation=%s"
+  Printf.sprintf "numerics=%s vectorized=%s other=%s fma=%s reassociation=%s"
     (name p)
     (Precision.name
        (match p with
        | Reference_f64 -> Precision.F64
-       | Simd_fp32_ordered | Simd_fp32_relaxed -> Precision.F32))
+       | Fp32_ordered | Simd_fp32_ordered | Simd_fp32_relaxed -> Precision.F32))
+    (Precision.name
+       (match p with
+       | Fp32_ordered -> Precision.F32
+       | Reference_f64 | Simd_fp32_ordered | Simd_fp32_relaxed -> Precision.F64))
     (if contraction_permitted p then "permitted" else "none")
     (if reassociation_permitted p then "permitted" else "none")
 
 module Backend = struct
-  type t = C | Interpreter | Javascript | Wasm
+  type t = C | Interpreter | Javascript | Machine | Wasm
 
   let name = function
     | C -> "c"
     | Interpreter -> "interpreter"
     | Javascript -> "javascript"
+    | Machine -> "machine"
     | Wasm -> "wasm"
 end
 
@@ -50,7 +56,8 @@ let pp_unsupported ppf : [< unsupported ] -> unit = function
 
 let check ~backend p =
   match (backend, p) with
-  | _, Reference_f64 | (Backend.C | Backend.Wasm), _ -> Err.return p
+  | _, Reference_f64 | (Backend.C | Backend.Machine | Backend.Wasm), _ ->
+      Err.return p
   | (Backend.Interpreter | Backend.Javascript), _ ->
       Err.fail (`Unsupported_policy (backend, p))
 

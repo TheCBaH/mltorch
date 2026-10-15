@@ -1,11 +1,12 @@
 (** The numerical policy of a generated kernel, kept apart from storage formats
     ({!Ssa_format}) and from the physical target ({!Ssa_target}). Working
     precision is chosen by role: general compute stays binary64, a kernel the
-    vector planner takes runs in binary32. The policy names the permissions; a
-    resolved plan records each kernel's {!Precision}.
+    vector planner takes runs in binary32, and under [Fp32_ordered] every kernel
+    does. The policy names the permissions; a resolved plan records each
+    kernel's {!Precision}.
 
-    These are the same three presets, names and identities the Loop planner
-    uses, restated here because this library sees no Loop type: the bridge suite
+    These are the same presets, names and identities the Loop planner uses,
+    restated here because this library sees no Loop type: the bridge suite
     checks the two agree. *)
 
 module Precision : sig
@@ -15,6 +16,10 @@ module Precision : sig
 end
 
 type t =
+  | Fp32_ordered
+      (** every kernel binary32, each output's operation order unchanged,
+          contraction disabled; vectorization only where that order is kept:
+          bitwise against the binary32 oracle *)
   | Reference_f64
       (** every kernel binary64, no contraction, no reassociation: the default
           everywhere, the oracle and the debugging path *)
@@ -38,7 +43,7 @@ val identity : t -> string
 
 (** The executors that can be asked to run a policy. *)
 module Backend : sig
-  type t = C | Interpreter | Javascript | Wasm
+  type t = C | Interpreter | Javascript | Machine | Wasm
 
   val name : t -> string
 end
@@ -48,9 +53,11 @@ type unsupported = [ `Unsupported_policy of Backend.t * t ]
 val pp_unsupported : Format.formatter -> [< unsupported ] -> unit
 
 val check : backend:Backend.t -> t -> (t, [> unsupported ]) Err.t
-(** [Reference_f64] everywhere; a [Simd_fp32_*] policy only for C and Wasm. *)
+(** [Reference_f64] everywhere; an fp32 policy for C, Wasm and the Machine IR
+    route, not for the interpreter or JavaScript. *)
 
-(** Why a kernel stays binary64 under a [Simd_fp32_*] policy. *)
+(** Why a kernel stays binary64 under an fp32 policy (an error under
+    [Fp32_ordered], which has no binary64 kernels). *)
 module Refusal : sig
   type t =
     | Wide_load of Ssa_id.Buffer.t * Ssa_format.Family.t

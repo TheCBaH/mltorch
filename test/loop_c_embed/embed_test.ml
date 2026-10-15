@@ -154,3 +154,45 @@ let%expect_test "a missing input and a failing invocation are typed" =
   [%expect {|
     missing input t0
     invocation 1, I64 division by zero |}]
+
+(* Under [Fp32_ordered] the loaded unit is binary32 throughout and equals the
+   Loop interpreter at binary32, bit for bit; the binary64 reference differs
+   somewhere, or the oracle would check nothing. *)
+let%expect_test "Fp32_ordered: bitwise the binary32 oracle" =
+  let g, b, constants = setup () in
+  let p =
+    Err.or_raise ~pp_error:Loop_c_embed.pp_error
+      (E.prepare ~numerics:Loop_numerics.Fp32_ordered b)
+  in
+  let ctx = context p ~constants in
+  List.iter
+    (fun salt ->
+      let oracle =
+        Err.or_raise ~pp_error:Loop_bundle_oracle.pp_error
+          (Loop_bundle_oracle.run b ~constants:(Fun.const None)
+             ~inputs:(fun id ->
+               match constants id with
+               | Some t -> Some t
+               | None -> map_of (inputs b ~salt) id))
+      in
+      let reference = reference g b ~constants ~salt in
+      match E.run ctx ~bind:(map_of (inputs b ~salt)) |> Err.payload with
+      | Error e -> Fmt.pr "run failed: %a@." Loop_c_embed.pp_error e
+      | Ok outs ->
+          List.iteri
+            (fun k t ->
+              let id = List.nth g.Graph.outputs k in
+              Fmt.pr
+                "salt %d: equals the oracle %b, equals the f64 reference %b@."
+                salt
+                (bits t = bits (List.nth oracle k))
+                (bits t = bits (Tensor_id.Map.find id reference)))
+            outs)
+    [ 0; 2; 5 ];
+  E.close_context ctx;
+  E.close p;
+  [%expect
+    {|
+    salt 0: equals the oracle true, equals the f64 reference false
+    salt 2: equals the oracle true, equals the f64 reference false
+    salt 5: equals the oracle true, equals the f64 reference false |}]

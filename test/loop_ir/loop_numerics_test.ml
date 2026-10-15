@@ -7,6 +7,7 @@ let%expect_test "policies have distinct identities" =
     Loop_numerics.all;
   [%expect
     {|
+    numerics=fp32_ordered vectorized=f32 other=f32 fma=none reassociation=none
     numerics=reference_f64 vectorized=f64 other=f64 fma=none reassociation=none
     numerics=simd_fp32_ordered vectorized=f32 other=f64 fma=none reassociation=none
     numerics=simd_fp32_relaxed vectorized=f32 other=f64 fma=permitted reassociation=permitted |}];
@@ -19,7 +20,7 @@ let%expect_test "policies have distinct identities" =
     (fun p -> assert (Loop_numerics.of_name (Loop_numerics.name p) = Some p))
     Loop_numerics.all
 
-let%expect_test "only C and Wasm run a fp32 policy" =
+let%expect_test "only C, Machine IR and Wasm run a fp32 policy" =
   List.iter
     (fun backend ->
       List.iter
@@ -31,18 +32,26 @@ let%expect_test "only C and Wasm run a fp32 policy" =
                 (Loop_numerics.name p)
           | Error e -> Fmt.pr "%a@." Loop_numerics.pp_unsupported e)
         Loop_numerics.all)
-    Loop_numerics.Backend.[ C; Interpreter; Javascript; Wasm ];
+    Loop_numerics.Backend.[ C; Interpreter; Javascript; Machine; Wasm ];
   [%expect
     {|
+    c fp32_ordered: ok
     c reference_f64: ok
     c simd_fp32_ordered: ok
     c simd_fp32_relaxed: ok
+    the interpreter backend does not run the fp32_ordered policy
     interpreter reference_f64: ok
     the interpreter backend does not run the simd_fp32_ordered policy
     the interpreter backend does not run the simd_fp32_relaxed policy
+    the javascript backend does not run the fp32_ordered policy
     javascript reference_f64: ok
     the javascript backend does not run the simd_fp32_ordered policy
     the javascript backend does not run the simd_fp32_relaxed policy
+    machine fp32_ordered: ok
+    machine reference_f64: ok
+    machine simd_fp32_ordered: ok
+    machine simd_fp32_relaxed: ok
+    wasm fp32_ordered: ok
     wasm reference_f64: ok
     wasm simd_fp32_ordered: ok
     wasm simd_fp32_relaxed: ok |}]
@@ -146,3 +155,94 @@ let%expect_test "the fp32 oracle differs from binary64 where rounding matters" =
     f64 0x1.55555ap-2 0x1.55555ap+22 0x1.111114p-5
     0x1.ce97dp+64
     same: false |}]
+
+(* ---- Fp32_ordered: every kernel binary32 ----------------------------------- *)
+
+module P = Loop_vector_programs
+
+let program_of_body ~input body =
+  let output = buffer 1 (shape_w 4) f32 Loop_buffer.Output in
+  program ~buffers:[ input; output ]
+    [
+      Loop_stmt.For
+        {
+          var = v 0;
+          lo = Loop_index.Const 0;
+          hi = Loop_index.Const 4;
+          body =
+            [
+              Loop_stmt.Store_flat
+                {
+                  buffer = output;
+                  offset = Loop_index.Var (v 0);
+                  value = Loop_stored.F32 body;
+                };
+            ];
+        };
+    ]
+
+let%expect_test "Fp32_ordered resolves every admitted kernel to binary32" =
+  let targets =
+    [
+      ("no target", None);
+      ("neon128", Some Loop_target.neon128);
+      ("wasm128", Some Loop_target.wasm128);
+    ]
+  in
+  let programs = P.all @ Loop_fp32_programs.extra in
+  List.iter
+    (fun (label, target) ->
+      let f32 numerics =
+        List.length
+          (List.filter
+             (fun (_, p) ->
+               (Loop_plan.resolve ?target ~numerics p).Loop_plan.precision
+               = Loop_numerics.Precision.F32)
+             programs)
+      in
+      Fmt.pr "%-10s of %d programs: fp32_ordered %d, simd_fp32_ordered %d@."
+        label (List.length programs)
+        (f32 Loop_numerics.Fp32_ordered)
+        (f32 Loop_numerics.Simd_fp32_ordered))
+    targets;
+  [%expect
+    {|
+    no target  of 30 programs: fp32_ordered 30, simd_fp32_ordered 0
+    neon128    of 30 programs: fp32_ordered 30, simd_fp32_ordered 21
+    wasm128    of 30 programs: fp32_ordered 30, simd_fp32_ordered 21 |}]
+
+(* The only refusal today is a dequantizing read, which has no binary32 decode
+   until quantization parameters are binary32 operations. The policy that has no
+   binary64 kernels reports it as an error rather than planning a binary64
+   kernel. *)
+let%expect_test "Fp32_ordered reports a refused kernel as an error" =
+  let input =
+    {
+      Loop_buffer.id = tid 0;
+      sg =
+        Tensor_sig.create ~id:(tid 0) ~name:"" ~shape:(shape_w 4)
+          ~fmt:(Payload.Fmt Payload.I8)
+          ~quant:(Quant.per_tensor ~scale:0.25 ~zero_point:2)
+          ();
+      role = Loop_buffer.Input;
+    }
+  in
+  let p =
+    program_of_body ~input (Loop_expr.Load_flat (input, Loop_index.Var (v 0)))
+  in
+  List.iter
+    (fun numerics ->
+      let plan = Loop_plan.resolve ~numerics p in
+      Fmt.pr "%s: %s, %s@."
+        (Loop_numerics.name numerics)
+        (Loop_numerics.Precision.name plan.Loop_plan.precision)
+        (match Loop_plan.admitted plan with
+        | Ok _ -> "admitted"
+        | Error r -> Fmt.str "error: %a" Loop_numerics.Refusal.pp r))
+    Loop_numerics.all;
+  [%expect
+    {|
+    fp32_ordered: f64, error: t0: float read of a i8 payload
+    reference_f64: f64, admitted
+    simd_fp32_ordered: f64, admitted
+    simd_fp32_relaxed: f64, admitted |}]

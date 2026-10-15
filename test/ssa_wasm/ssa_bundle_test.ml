@@ -163,3 +163,99 @@ let%expect_test
     {|
     ordered: 3 of 3 invocations binary32; within 1e-4: true
     relaxed: 3 of 3 invocations binary32; within 1e-4: true |}]
+
+(* ---- Fp32_ordered: both Wasm emitters equal the binary32 oracle -------------- *)
+
+(* The oracle is the Loop interpreter at binary32 over the bundle; the binary64
+   reference is printed beside it, and must differ, or the check would pass on
+   any engine. *)
+let run_f32 ?kernel ~numerics ~constant g =
+  with_dir (fun dir ->
+      let b =
+        Err.or_raise ~pp_error:Loop_bundle.pp_error
+          (Loop_bundle.build ~config:Loop_bundle_wasm.default_config g)
+      in
+      let constants =
+        List.map
+          (fun id -> (id, constant (sig_of_edge b id)))
+          b.Loop_bundle.constants
+      in
+      let p =
+        Err.or_raise ~pp_error:H.pp_error
+          (H.prepare ~numerics ?kernel ~dir b ~constants:(map_of constants))
+      in
+      let inputs =
+        List.map
+          (fun id -> (id, tensor_of ~salt:1 (sig_of_edge b id)))
+          b.Loop_bundle.inputs
+      in
+      let oracle =
+        Err.or_raise ~pp_error:Loop_bundle_oracle.pp_error
+          (Loop_bundle_oracle.run b ~constants:(map_of constants)
+             ~inputs:(map_of inputs))
+      in
+      let reference =
+        Err.or_raise ~pp_error:Eval_direct.pp_error
+          (Eval_direct.run g ~constants ~inputs)
+      in
+      let outs =
+        Err.or_raise ~pp_error:H.pp_error (H.run p ~bind:(map_of inputs))
+      in
+      let st = (H.bundle_wasm p).Loop_bundle_wasm.stats in
+      ( List.for_all2 (fun t o -> bits t = bits o) outs oracle,
+        List.for_all2
+          (fun id t -> bits t = bits (Tensor_id.Map.find id reference))
+          g.Graph.outputs outs,
+        st ))
+
+let%expect_test "Fp32_ordered through both Wasm emitters is the binary32 oracle"
+    =
+  List.iter
+    (fun (name, g) ->
+      let g = g () in
+      let report engine (same_oracle, same_reference, st) =
+        Fmt.pr
+          "%s %s: equals the oracle %b, equals the f64 reference %b (%d of %d \
+           binary32)@."
+          name engine same_oracle same_reference
+          st.Loop_bundle_wasm.f32_invocations st.Loop_bundle_wasm.invocations
+      in
+      report "loop"
+        (run_f32 ~numerics:Loop_numerics.Fp32_ordered ~constant:positive g);
+      report "ssa"
+        (run_f32 ~numerics:Loop_numerics.Fp32_ordered
+           ~kernel:(fun ~table_alloc inv ->
+             Ssa_backends.wasm
+               ~pipeline:
+                 (target ~numerics:Ssa_ir.Ssa_numerics.Fp32_ordered
+                    Ssa_ir.Ssa_target.scalar)
+               ~table_alloc inv)
+           ~constant:positive g))
+    [ ("chain", Native_test.Graph_fixtures.chain); ("wide_chain", wide_chain) ];
+  [%expect
+    {|
+    chain loop: equals the oracle true, equals the f64 reference false (3 of 3 binary32)
+    chain ssa: equals the oracle true, equals the f64 reference false (3 of 3 binary32)
+    wide_chain loop: equals the oracle true, equals the f64 reference false (3 of 3 binary32)
+    wide_chain ssa: equals the oracle true, equals the f64 reference false (3 of 3 binary32) |}]
+
+(* Mutation: one invocation's kernel left binary64 turns the check red. *)
+let%expect_test "a binary64 kernel among binary32 ones is caught" =
+  let g = wide_chain () in
+  let calls = ref 0 in
+  let same_oracle, _, st =
+    run_f32 ~numerics:Loop_numerics.Fp32_ordered
+      ~kernel:(fun ~table_alloc inv ->
+        incr calls;
+        let pipeline =
+          if !calls = 1 then Ssa_backends.Pipeline.Exact
+          else
+            target ~numerics:Ssa_ir.Ssa_numerics.Fp32_ordered
+              Ssa_ir.Ssa_target.scalar
+        in
+        Ssa_backends.wasm ~pipeline ~table_alloc inv)
+      ~constant:positive g
+  in
+  Fmt.pr "equals the oracle %b (%d of %d binary32)@." same_oracle
+    st.Loop_bundle_wasm.f32_invocations st.Loop_bundle_wasm.invocations;
+  [%expect {| equals the oracle false (2 of 3 binary32) |}]

@@ -7,7 +7,10 @@
     refuses) is planned exactly as under [Reference_f64], so it stays under the
     bitwise binary64 shadow. This is the Loop planner's decision restated over
     the SSA program: binary32 is chosen by whether the binary32 target
-    vectorizes at least one loop or schedules at least one sum. *)
+    vectorizes at least one loop or schedules at least one sum. Under
+    [Fp32_ordered] every kernel is binary32 whether or not anything vectorizes,
+    and one {!Ssa_numerics.admit} refuses has no plan: {!admitted} is its error.
+*)
 
 type t = {
   numerics : Ssa_numerics.t;
@@ -39,6 +42,11 @@ val resolve :
     operation, and the clean-up passes. [alias] defaults to the conservative
     policy: a caller that allocates every buffer on its own says
     {!Ssa_effects.Distinct_buffers}. *)
+
+val admitted : t -> (t, Ssa_numerics.Refusal.t) result
+(** [Error] when the plan's policy is [Fp32_ordered] and admission left the
+    kernel binary64: that policy has no binary64 kernels, so the refusal is an
+    error, never a silent fallback. Every other plan is [Ok]. *)
 
 val oracle : t -> Ssa_program.t
 (** The scalar program the plan's kernel is defined to compute: the plan's

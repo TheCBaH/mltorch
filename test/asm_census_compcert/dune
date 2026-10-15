@@ -1,0 +1,22 @@
+; The binary64 census of the assembly an embedded CompCert makes from a whole
+; model's C, under the binary64 reference and under Fp32_ordered, runtime
+; helpers included. Enabled by MLTORCH_COMPCERT=aarch64, as
+; test/loop_c_embed_compcert is.
+
+(library
+ (name asm_census_compcert_test)
+ (libraries
+  asm_census
+  err_trace
+  fmt
+  loop_c_embed
+  loop_c_embed_compcert
+  loop_ir
+  native
+  native_test
+  rivet_compcert.compcert_embed)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect))
+ (enabled_if
+  (= %{env:MLTORCH_COMPCERT=none} aarch64)))

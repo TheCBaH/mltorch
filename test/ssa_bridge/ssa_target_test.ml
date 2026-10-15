@@ -101,6 +101,7 @@ let%expect_test "the numerical policies are the Loop planner's" =
       (Ssa_numerics.Backend.C, Loop_numerics.Backend.C);
       (Ssa_numerics.Backend.Interpreter, Loop_numerics.Backend.Interpreter);
       (Ssa_numerics.Backend.Javascript, Loop_numerics.Backend.Javascript);
+      (Ssa_numerics.Backend.Machine, Loop_numerics.Backend.Machine);
       (Ssa_numerics.Backend.Wasm, Loop_numerics.Backend.Wasm);
     ]
   in

@@ -53,14 +53,18 @@ let prepare pipeline (inv : Loop_ir.Loop_bundle.invocation) =
             ( fst (Ssa_opt.run ~alias ~passes:exact_passes p),
               Loop_ir.Loop_numerics.Precision.F64 )
       | Pipeline.Planned { numerics; target } ->
-          let plan = Ssa_plan.resolve ~target ~alias ~numerics p in
-          Ok
-            ( plan.Ssa_plan.program,
-              match plan.Ssa_plan.precision with
-              | Ssa_numerics.Precision.F32 ->
-                  Loop_ir.Loop_numerics.Precision.F32
-              | Ssa_numerics.Precision.F64 ->
-                  Loop_ir.Loop_numerics.Precision.F64 ))
+          Result.map_error
+            (fun r -> Fmt.str "%a" Ssa_numerics.Refusal.pp r)
+            (Result.map
+               (fun (plan : Ssa_plan.t) ->
+                 ( plan.Ssa_plan.program,
+                   match plan.Ssa_plan.precision with
+                   | Ssa_numerics.Precision.F32 ->
+                       Loop_ir.Loop_numerics.Precision.F32
+                   | Ssa_numerics.Precision.F64 ->
+                       Loop_ir.Loop_numerics.Precision.F64 ))
+               (Ssa_plan.admitted (Ssa_plan.resolve ~target ~alias ~numerics p)))
+      )
 
 let program pipeline inv = Result.map fst (prepare pipeline inv)
 
@@ -73,7 +77,10 @@ let plan ~numerics ~target inv =
   with
   | Error (`Unsupported u) ->
       Error (Fmt.str "%a" Ssa_lower.Ssa_unsupported.pp u)
-  | Ok p -> Ok (Ssa_plan.resolve ~target ~alias ~numerics p)
+  | Ok p ->
+      Result.map_error
+        (fun r -> Fmt.str "%a" Ssa_numerics.Refusal.pp r)
+        (Ssa_plan.admitted (Ssa_plan.resolve ~target ~alias ~numerics p))
 
 let blocked ~group inv =
   Result.map

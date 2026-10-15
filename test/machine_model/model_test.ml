@@ -29,8 +29,29 @@ let sig_of (g : graph) id = Tensor_id.Map.find id g.Graph.tensors
 
 (* One context, [calls] calls with different inputs, each against the
    reference evaluator. *)
-let check ?route ?(pipeline = Ssa_backends.Pipeline.Exact) ?(calls = 2)
-    ?constant ?(input = fun ~salt _ -> values ~salt) name g =
+(* What an engine must equal: the binary64 per-node reference, or, for a
+   binary32 policy, the Loop interpreter at binary32 over the bundle. *)
+type oracle = Reference_f64 | Fp32
+
+let expected oracle (g : graph) (b : Loop_ir.Loop_bundle.t) ~constants ~inputs =
+  match oracle with
+  | Reference_f64 ->
+      Err.or_raise ~pp_error:Eval_direct.pp_error
+        (Eval_direct.run g ~constants ~inputs)
+  | Fp32 ->
+      let outs =
+        Err.or_raise ~pp_error:Loop_ir.Loop_bundle_oracle.pp_error
+          (Loop_ir.Loop_bundle_oracle.run b
+             ~constants:(fun id -> List.assoc_opt id constants)
+             ~inputs:(fun id -> List.assoc_opt id inputs))
+      in
+      List.fold_left2
+        (fun m id t -> Tensor_id.Map.add id t m)
+        Tensor_id.Map.empty g.Graph.outputs outs
+
+let check ?route ?(pipeline = Ssa_backends.Pipeline.Exact)
+    ?(oracle = Reference_f64) ?(calls = 2) ?constant
+    ?(input = fun ~salt _ -> values ~salt) name g =
   let g = g () in
   let b = bundle g in
   let constant = Option.value constant ~default:(values ~salt:3) in
@@ -55,10 +76,7 @@ let check ?route ?(pipeline = Ssa_backends.Pipeline.Exact) ?(calls = 2)
                     (fun i id -> (id, input ~salt:(call + i) i (sig_of g id)))
                     b.Loop_ir.Loop_bundle.inputs
                 in
-                let reference =
-                  Err.or_raise ~pp_error:Eval_direct.pp_error
-                    (Eval_direct.run g ~constants ~inputs)
-                in
+                let reference = expected oracle g b ~constants ~inputs in
                 match
                   M.Context.run cx ~inputs:(fun id -> List.assoc_opt id inputs)
                 with
@@ -296,3 +314,80 @@ let%expect_test "every refusal is reported" =
     invocation 0 (n0): blocking needs the exact pipeline
     invocation 1 (n1): blocking needs the exact pipeline
     invocation 2 (n2): blocking needs the exact pipeline |}]
+
+let fp32_ordered =
+  Ssa_backends.Pipeline.Planned
+    {
+      numerics = Ssa_ir.Ssa_numerics.Fp32_ordered;
+      target = Ssa_ir.Ssa_target.scalar;
+    }
+
+let%expect_test "Fp32_ordered: generic Machine IR is the binary32 oracle" =
+  let run name g =
+    check ~pipeline:fp32_ordered ~oracle:Fp32 ~constant:positive ~calls:3 name g
+  in
+  run "chain" F.chain;
+  run "wide chain" wide_chain;
+  run "layer_norm over W, C" (fun () ->
+      F.build "layer_norm"
+        Graph_builder.(
+          let* x = input ~shape:(F.s 1 1 1 2 4 5) () in
+          layer_norm
+            { Norm.LayerNorm.dims = [ Axis.W; Axis.C ]; eps = 1e-5 }
+            ~x ()));
+  [%expect
+    {|
+    chain (3 invocations): bitwise, bitwise, bitwise
+    wide chain (3 invocations): bitwise, bitwise, bitwise
+    layer_norm over W, C (1 invocations): bitwise, bitwise, bitwise |}]
+
+(* The failing invocation and its row under [Fp32_ordered], beside the binary32
+   oracle's: both name invocation 1 and the offending index. *)
+let%expect_test "Fp32_ordered: a failing gather reports the oracle's row" =
+  let g = gather () in
+  let b = bundle g in
+  let m = Result.get_ok (M.prepare ~pipeline:fp32_ordered b) in
+  let cx = Result.get_ok (M.Context.create m ~constants:(fun _ -> None)) in
+  let self_id, index_id =
+    match b.Loop_ir.Loop_bundle.inputs with
+    | [ s; i ] -> (s, i)
+    | _ -> assert false
+  in
+  let call idx =
+    let inputs =
+      [
+        (self_id, values ~salt:1 (sig_of g self_id));
+        ( index_id,
+          Tensor.materialize_i64 (F.s 1 1 1 1 1 2) (fun c ->
+              List.nth idx (Vec6.get c Axis.C :> int)) );
+      ]
+    in
+    let lookup id = List.assoc_opt id inputs in
+    let oracle =
+      match
+        Err.payload
+          (Loop_ir.Loop_bundle_oracle.run b
+             ~constants:(fun _ -> None)
+             ~inputs:lookup)
+      with
+      | Ok [ t ] -> Ok t
+      | Ok _ -> Error "outputs?"
+      | Error e -> Error (Fmt.str "%a" Loop_ir.Loop_bundle_oracle.pp_error e)
+    in
+    let mir = M.Context.run cx ~inputs:lookup in
+    Fmt.pr "index [%s]: %s | oracle %s@."
+      (String.concat "; " (List.map Int64.to_string idx))
+      (match (mir, oracle) with
+      | Ok [ t ], Ok o -> if bits t = bits o then "bitwise" else "DIFFERS"
+      | Ok _, _ -> "outputs?"
+      | Error s, _ -> Fmt.str "%a" M.Stop.pp s)
+      (match oracle with Ok _ -> "succeeds" | Error e -> "fails: " ^ e)
+  in
+  call [ 2L; -3L ];
+  call [ 0L; 3L ];
+  call [ -4L; 1L ];
+  [%expect
+    {|
+    index [2; -3]: bitwise | oracle succeeds
+    index [0; 3]: invocation 1 (n1): failure gather_index_out_of_range(3:i64, 3:i64) | oracle fails: invocation 1: gather index 3 out of range [-3, 2]
+    index [-4; 1]: invocation 1 (n1): failure gather_index_out_of_range(-4:i64, 3:i64) | oracle fails: invocation 1: gather index -4 out of range [-3, 2] |}]

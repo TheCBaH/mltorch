@@ -2,9 +2,11 @@
     ([Tensor_sig.fmt]) and from the physical target ([Loop_target]).
 
     Working precision is chosen by role: general compute stays binary64, a
-    kernel the performance planner vectorizes computes in binary32. The policy
-    names the permissions; the resolved plan records each kernel's {!Precision}.
-    Only generated C and Wasm accept a [Simd_fp32_*] policy. *)
+    kernel the performance planner vectorizes computes in binary32, and under
+    [Fp32_ordered] every kernel does. The policy names the permissions; the
+    resolved plan records each kernel's {!Precision}. Generated C, Wasm and the
+    Machine IR route accept an fp32 policy; the interpreter and JavaScript do
+    not. *)
 
 (** The working precision of one kernel. *)
 module Precision : sig
@@ -14,6 +16,10 @@ module Precision : sig
 end
 
 type t =
+  | Fp32_ordered
+      (** every kernel binary32, each output's operation order unchanged,
+          contraction disabled; vectorization only where that order is kept:
+          bitwise against the binary32 oracle *)
   | Reference_f64
       (** every kernel binary64, no contraction, no reassociation: the default
           everywhere, the oracle and the debugging path *)
@@ -37,7 +43,7 @@ val identity : t -> string
 
 (** The executors that can be asked to run a policy. *)
 module Backend : sig
-  type t = C | Interpreter | Javascript | Wasm
+  type t = C | Interpreter | Javascript | Machine | Wasm
 
   val name : t -> string
 end
@@ -47,9 +53,11 @@ type unsupported = [ `Unsupported_policy of Backend.t * t ]
 val pp_unsupported : Format.formatter -> [< unsupported ] -> unit
 
 val check : backend:Backend.t -> t -> (t, [> unsupported ]) Err.t
-(** [Reference_f64] everywhere; a [Simd_fp32_*] policy only for C and Wasm. *)
+(** [Reference_f64] everywhere; an fp32 policy for C, Wasm and the Machine IR
+    route, not for the interpreter or JavaScript. *)
 
-(** Why a kernel stays binary64 under a [Simd_fp32_*] policy. *)
+(** Why a kernel stays binary64 under an fp32 policy (an error under
+    [Fp32_ordered], which has no binary64 kernels). *)
 module Refusal : sig
   type t =
     | Wide_load of Tensor_id.t * string

@@ -77,9 +77,28 @@ let resolve ?target ?(alias = Ssa_effects.Conservative) ~numerics
           contracted = 0;
         }
   in
+  let ordered = numerics = Ssa_numerics.Fp32_ordered in
   match (numerics, target) with
-  | Ssa_numerics.Reference_f64, _ | _, None -> f64 None
-  | ( (Ssa_numerics.Simd_fp32_ordered | Ssa_numerics.Simd_fp32_relaxed),
+  | Ssa_numerics.Reference_f64, _ -> f64 None
+  | (Ssa_numerics.Simd_fp32_ordered | Ssa_numerics.Simd_fp32_relaxed), None ->
+      f64 None
+  | Ssa_numerics.Fp32_ordered, None -> (
+      (* every kernel binary32, nothing vectorized *)
+      match Ssa_numerics.admit scalar with
+      | Error r -> f64 (Some r)
+      | Ok () ->
+          {
+            numerics;
+            precision = P.F32;
+            program = run ~alias (after ~alias) (Ssa_precision.to_f32 scalar);
+            refusal = None;
+            vectorized = [];
+            sums = [];
+            blocked = 0;
+            contracted = 0;
+          })
+  | ( ( Ssa_numerics.Fp32_ordered | Ssa_numerics.Simd_fp32_ordered
+      | Ssa_numerics.Simd_fp32_relaxed ),
       Some target ) -> (
       match Ssa_numerics.admit scalar with
       | Error r -> f64 (Some r)
@@ -123,6 +142,26 @@ let resolve ?target ?(alias = Ssa_effects.Conservative) ~numerics
               blocked;
               contracted = Ssa_opt_contract.contracted q;
             }
+          else if ordered then
+            (* no vector loop is taken, and the kernel is binary32 anyway *)
+            {
+              numerics;
+              precision = P.F32;
+              program = run ~alias (after ~alias) q;
+              refusal = None;
+              vectorized;
+              sums = [];
+              blocked = 0;
+              contracted = 0;
+            }
           else f64 None)
+
+let admitted t =
+  match (t.numerics, t.refusal) with
+  | Ssa_numerics.Fp32_ordered, Some r -> Error r
+  | ( ( Ssa_numerics.Fp32_ordered | Ssa_numerics.Reference_f64
+      | Ssa_numerics.Simd_fp32_ordered | Ssa_numerics.Simd_fp32_relaxed ),
+      (Some _ | None) ) ->
+      Ok t
 
 let oracle t = Ssa_vec_expand.program t.program

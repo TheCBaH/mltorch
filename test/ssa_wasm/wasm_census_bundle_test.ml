@@ -46,7 +46,19 @@ let%expect_test "baseline census of both emitters' bundles" =
         (Err.payload
            (Loop_bundle_wasm.build ~vector:Loop_target.wasm128
               ~numerics:Loop_numerics.Simd_fp32_ordered b));
+      show
+        (name ^ " loop fp32_ordered")
+        (Err.payload
+           (Loop_bundle_wasm.build ~numerics:Loop_numerics.Fp32_ordered b));
       show (name ^ " ssa exact") (ssa Ssa_backends.Pipeline.Exact);
+      show
+        (name ^ " ssa fp32_ordered scalar")
+        (ssa
+           (Ssa_backends.Pipeline.Planned
+              {
+                numerics = Ssa_ir.Ssa_numerics.Fp32_ordered;
+                target = Ssa_ir.Ssa_target.scalar;
+              }));
       show
         (name ^ " ssa simd_fp32_ordered")
         (ssa
@@ -60,9 +72,13 @@ let%expect_test "baseline census of both emitters' bundles" =
     {|
     chain loop reference: arithmetic 13, conversion 13, helper_call 0, memory_move 23; imports 0
     chain loop simd_fp32_ordered: arithmetic 26, conversion 31, helper_call 0, memory_move 38; imports 0
+    chain loop fp32_ordered: arithmetic 0, conversion 1, helper_call 0, memory_move 1; imports 0
     chain ssa exact: arithmetic 13, conversion 19, helper_call 0, memory_move 74; imports 0
+    chain ssa fp32_ordered scalar: arithmetic 0, conversion 25, helper_call 0, memory_move 25; imports 0
     chain ssa simd_fp32_ordered: arithmetic 13, conversion 19, helper_call 0, memory_move 73; imports 0
     softmax loop reference: arithmetic 5, conversion 5, helper_call 2, memory_move 18; imports 1
     softmax loop simd_fp32_ordered: arithmetic 9, conversion 13, helper_call 6, memory_move 30; imports 1
+    softmax loop fp32_ordered: arithmetic 0, conversion 5, helper_call 2, memory_move 1; imports 1
     softmax ssa exact: arithmetic 5, conversion 7, helper_call 2, memory_move 52; imports 1
+    softmax ssa fp32_ordered scalar: arithmetic 0, conversion 18, helper_call 2, memory_move 28; imports 1
     softmax ssa simd_fp32_ordered: arithmetic 5, conversion 7, helper_call 2, memory_move 52; imports 1 |}]

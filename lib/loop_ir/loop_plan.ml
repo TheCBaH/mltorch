@@ -21,10 +21,27 @@ let resolve ?target ?fuse_reductions ~numerics p =
     let vector, report = split (plan ?target p) in
     { numerics; precision = P.F64; vector; refusal; report; blocked = 0 }
   in
+  let ordered = numerics = Loop_numerics.Fp32_ordered in
   match (numerics, target) with
-  | Loop_numerics.Reference_f64, _ | _, None -> f64 None
-  | (Loop_numerics.Simd_fp32_ordered | Loop_numerics.Simd_fp32_relaxed), Some t
-    -> (
+  | Loop_numerics.Reference_f64, _ -> f64 None
+  | (Loop_numerics.Simd_fp32_ordered | Loop_numerics.Simd_fp32_relaxed), None ->
+      f64 None
+  | Loop_numerics.Fp32_ordered, None -> (
+      (* every kernel binary32, nothing vectorized *)
+      match Loop_numerics.admit p with
+      | Error r -> f64 (Some r)
+      | Ok () ->
+          {
+            numerics;
+            precision = P.F32;
+            vector = None;
+            refusal = None;
+            report = [];
+            blocked = 0;
+          })
+  | ( ( Loop_numerics.Fp32_ordered | Loop_numerics.Simd_fp32_ordered
+      | Loop_numerics.Simd_fp32_relaxed ),
+      Some t ) -> (
       match Loop_numerics.admit p with
       | Error r -> f64 (Some r)
       | Ok () ->
@@ -58,6 +75,16 @@ let resolve ?target ?fuse_reductions ~numerics p =
               refusal = None;
               report;
               blocked;
+            }
+          else if ordered then
+            (* no vector loop is taken, and the kernel is binary32 anyway *)
+            {
+              numerics;
+              precision = P.F32;
+              vector = Some vp;
+              refusal = None;
+              report;
+              blocked = 0;
             }
           else f64 None)
 
@@ -93,6 +120,14 @@ let force ?target ~precision p =
               report;
               blocked = 0;
             })
+
+let admitted t =
+  match (t.numerics, t.refusal) with
+  | Loop_numerics.Fp32_ordered, Some r -> Error r
+  | ( ( Loop_numerics.Fp32_ordered | Loop_numerics.Reference_f64
+      | Loop_numerics.Simd_fp32_ordered | Loop_numerics.Simd_fp32_relaxed ),
+      (Some _ | None) ) ->
+      Ok t
 
 let oracle t (p : Loop_program.t) =
   match t.vector with

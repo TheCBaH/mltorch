@@ -313,7 +313,10 @@ let kernel_exact ~vector ~numerics ~precision ~mark_base ~table_alloc
   let p = Loop_sum.program p in
   let plan =
     match precision with
-    | None -> Ok (Loop_plan.resolve ?target:vector ~numerics p)
+    | None ->
+        Result.map_error
+          (fun r -> `Unsupported_precision r)
+          (Loop_plan.admitted (Loop_plan.resolve ?target:vector ~numerics p))
     | Some precision ->
         Result.map_error
           (fun r -> `Unsupported_precision r)

@@ -4,7 +4,10 @@
     Under [Reference_f64] every kernel is binary64. Under a [Simd_fp32_*] policy
     a kernel the planner vectorizes in binary32 runs entirely in binary32; one
     it does not (or that {!Loop_numerics.admit} refuses) is planned exactly as
-    under [Reference_f64], so it stays under the bitwise f64 shadow. *)
+    under [Reference_f64], so it stays under the bitwise f64 shadow. Under
+    [Fp32_ordered] every kernel is binary32, vectorized only where the order of
+    each output's operations is kept; one {!Loop_numerics.admit} refuses has no
+    plan: {!admitted} is its error. *)
 
 type t = {
   numerics : Loop_numerics.t;
@@ -27,6 +30,11 @@ val resolve :
   t
 (** [fuse_reductions] is {!Loop_contract.program}'s: off by default, because a
     fused accumulate measured slower than the separate multiply and add. *)
+
+val admitted : t -> (t, Loop_numerics.Refusal.t) result
+(** [Error] when the plan's policy is [Fp32_ordered] and admission left the
+    kernel binary64: that policy has no binary64 kernels, so the refusal is an
+    error, never a silent fallback. Every other plan is [Ok]. *)
 
 val force :
   ?target:Loop_target.t ->

@@ -195,8 +195,8 @@ let run_planned ?(alias = Ssa_effects.Distinct_buffers) ~numerics ~target
             match (resolved.Ssa_plan.precision, numerics) with
             | Ssa_numerics.Precision.F64, _ -> compare ~reference ~ssa:result
             | ( Ssa_numerics.Precision.F32,
-                (Ssa_numerics.Reference_f64 | Ssa_numerics.Simd_fp32_ordered) )
-              -> (
+                ( Ssa_numerics.Fp32_ordered | Ssa_numerics.Reference_f64
+                | Ssa_numerics.Simd_fp32_ordered ) ) -> (
                 match Err.payload (Loop_ir.Loop_lower.lower plan) with
                 | Error (`Unsupported _) ->
                     Disagree

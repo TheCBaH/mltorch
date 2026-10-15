@@ -455,3 +455,131 @@ let%expect_test "row blocking: four rows per iteration, rows left over" =
     4 rows, 16 outputs, k 4            blocked 1; C vs oracle equal; vs unblocked equal
     one row                            blocked 0; C vs oracle equal; vs unblocked equal
     rows overlap (stride 8)            blocked 0; C vs oracle equal; vs unblocked equal |}]
+
+(* ---- Fp32_ordered: every kernel binary32 ----------------------------------- *)
+
+(* Every program, in a dialect and with or without a vector target, is planned
+   binary32 and equals the fp32 oracle bit for bit. *)
+let ordered_corpus ?dialect ?target () =
+  List.iter
+    (fun (name, p) ->
+      let numerics = Loop_numerics.Fp32_ordered in
+      let bind = P.bind in
+      match Loop_plan.admitted (Loop_plan.resolve ?target ~numerics p) with
+      | Error _ -> Fmt.pr "%-40s refused@." name
+      | Ok plan ->
+          let precision = plan.Loop_plan.precision in
+          let oracle = Loop_interp.run ~precision ~outputs:(zeroed p) p ~bind in
+          let c =
+            Loop_c_exec.exec ?dialect ?vector:target ~numerics
+              ~outputs:(zeroed p) p ~bind
+          in
+          Fmt.pr "%-40s %s %s@." name
+            (Loop_numerics.Precision.name precision)
+            (verdict oracle c))
+    (P.all @ extra)
+
+let%expect_test "Fp32_ordered, no target: every kernel binary32 and equal" =
+  ordered_corpus ();
+  [%expect
+    {|
+    double rounding                          f32 equal
+    arith chain                              f32 equal
+    offset view                              f32 equal
+    broadcast and invariant                  f32 equal
+    strided                                  f32 equal
+    maximum                                  f32 equal
+    select and compare                       f32 equal
+    pool_better                              f32 equal
+    not and or                               f32 equal
+    index value                              f32 equal
+    temporaries                              f32 equal
+    sqrt and trunc                           f32 equal
+    transcendentals                          f32 equal
+    int32 source                             f32 equal
+    bool store                               f32 equal
+    nested loops, vector inner               f32 equal
+    matmul: reduction per output             f32 equal
+    reduction with a triangular inner bound  f32 equal
+    uniform index temporary                  f32 equal
+    extents around the width: 3              f32 equal
+    extents around the width: 4              f32 equal
+    extents around the width: 5              f32 equal
+    matvec: 21 outputs, k 4                  f32 equal
+    matmul: 3 rows, 19 outputs, k 4          f32 equal
+    matvec: exactly one vector               f32 equal
+    int64 to float, once rounded             f32 equal
+    index to float                           f32 equal
+    erf                                      f32 equal
+    log, cos, sqrt                           f32 equal
+    packed float scratch                     f32 equal |}]
+
+let%expect_test "Fp32_ordered, neon128: every kernel binary32 and equal" =
+  ordered_corpus ~target:Loop_target.neon128 ();
+  [%expect
+    {|
+    double rounding                          f32 equal
+    arith chain                              f32 equal
+    offset view                              f32 equal
+    broadcast and invariant                  f32 equal
+    strided                                  f32 equal
+    maximum                                  f32 equal
+    select and compare                       f32 equal
+    pool_better                              f32 equal
+    not and or                               f32 equal
+    index value                              f32 equal
+    temporaries                              f32 equal
+    sqrt and trunc                           f32 equal
+    transcendentals                          f32 equal
+    int32 source                             f32 equal
+    bool store                               f32 equal
+    nested loops, vector inner               f32 equal
+    matmul: reduction per output             f32 equal
+    reduction with a triangular inner bound  f32 equal
+    uniform index temporary                  f32 equal
+    extents around the width: 3              f32 equal
+    extents around the width: 4              f32 equal
+    extents around the width: 5              f32 equal
+    matvec: 21 outputs, k 4                  f32 equal
+    matmul: 3 rows, 19 outputs, k 4          f32 equal
+    matvec: exactly one vector               f32 equal
+    int64 to float, once rounded             f32 equal
+    index to float                           f32 equal
+    erf                                      f32 equal
+    log, cos, sqrt                           f32 equal
+    packed float scratch                     f32 equal |}]
+
+let%expect_test "Fp32_ordered under the CompCert dialect" =
+  ordered_corpus ~dialect:Loop_c_dialect.Compcert_scalar ();
+  [%expect
+    {|
+    double rounding                          f32 equal
+    arith chain                              f32 equal
+    offset view                              f32 equal
+    broadcast and invariant                  f32 equal
+    strided                                  f32 equal
+    maximum                                  f32 equal
+    select and compare                       f32 equal
+    pool_better                              f32 equal
+    not and or                               f32 equal
+    index value                              f32 equal
+    temporaries                              f32 equal
+    sqrt and trunc                           f32 equal
+    transcendentals                          f32 equal
+    int32 source                             f32 equal
+    bool store                               f32 equal
+    nested loops, vector inner               f32 equal
+    matmul: reduction per output             f32 equal
+    reduction with a triangular inner bound  f32 equal
+    uniform index temporary                  f32 equal
+    extents around the width: 3              f32 equal
+    extents around the width: 4              f32 equal
+    extents around the width: 5              f32 equal
+    matvec: 21 outputs, k 4                  f32 equal
+    matmul: 3 rows, 19 outputs, k 4          f32 equal
+    matvec: exactly one vector               f32 equal
+    int64 to float, once rounded             f32 equal
+    index to float                           f32 equal
+    erf                                      f32 equal
+    log, cos, sqrt                           f32 equal
+    packed float scratch                     f32 equal |}]

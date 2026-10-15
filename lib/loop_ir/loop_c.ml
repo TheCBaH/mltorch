@@ -230,7 +230,10 @@ let kernel ?(dialect = Loop_c_dialect.Gnu) ?vector
     | _ -> (
         match precision with
         | None ->
-            Ok (Loop_plan.resolve ?target:vector ?fuse_reductions ~numerics p)
+            Result.map_error
+              (fun r -> `Unsupported_precision r)
+              (Loop_plan.admitted
+                 (Loop_plan.resolve ?target:vector ?fuse_reductions ~numerics p))
         | Some precision ->
             Result.map_error
               (fun r -> `Unsupported_precision r)
