@@ -249,6 +249,18 @@ let exec env op =
         E.load env (E.ptr env base) ~bytes:(lane_bytes (Arr.fsz arr)) ~align:1L
       in
       [ vec (Array.make (Arr.lanes arr) x) ]
+  | Ldr_ivec (t, base, k) ->
+      let w = Option.get (A64_op.int_register t) in
+      let size = Mir_width.bytes w in
+      [
+        vec
+          (Array.init
+             (16 / Int64.to_int size)
+             (fun j ->
+               E.load env
+                 (addr env base (Int64.add k (Int64.mul (Int64.of_int j) size)))
+                 ~bytes:size ~align:1L));
+      ]
   | Ldr_vec (arr, base, k) ->
       let size = lane_bytes (Arr.fsz arr) in
       [
@@ -294,6 +306,13 @@ let exec env op =
   | Mul (sz, x, y) -> [ b (norm sz (Int64.mul (bits env x) (bits env y))) ]
   | Scvtf (Fsz.D, x) -> [ b (N.s64_to_f64 (bits env x)) ]
   | Scvtf (Fsz.S, x) -> [ b (N.s64_to_f32 (bits env x)) ]
+  | Scvtf_vec x ->
+      [
+        vec
+          (Array.map
+             (fun l -> N.s64_to_f32 (Mir_width.signed Mir_width.W32 l))
+             (lanes env x));
+      ]
   | Sdiv (sz, x, y) ->
       let n = signed sz (bits env x) and d = signed sz (bits env y) in
       let q =
@@ -380,6 +399,17 @@ let exec env op =
         vec
           (Array.map2 (fun p q -> logic o Sz.X p q) (lanes env x) (lanes env y));
       ]
+  | Vcast (_, x) -> [ vec (lanes env x) ]
+  | Vshift (o, k, x) ->
+      let shift l =
+        match o with
+        | Shift.Lsl -> Mir_width.normalize Mir_width.W32 (Int64.shift_left l k)
+        | Shift.Lsr -> Int64.shift_right_logical l k
+        | Shift.Asr ->
+            Mir_width.normalize Mir_width.W32
+              (Int64.shift_right (Mir_width.signed Mir_width.W32 l) k)
+      in
+      [ vec (Array.map shift (lanes env x)) ]
   | Vnot x ->
       let l = lanes env x in
       let w = if Array.length l = 4 then 0xFFFF_FFFFL else -1L in
@@ -396,6 +426,16 @@ let exec env op =
   | Vwiden x ->
       let l = lanes env x in
       [ vec [| l.(0); l.(1); 0L; 0L |] ]
+  | Xtl_w { signed; from; first; src } ->
+      let l = lanes env src in
+      [
+        vec
+          (Array.init 4 (fun j ->
+               let x = Int64.logand l.(first + j) (Mir_width.mask from) in
+               if signed then
+                 Mir_width.normalize Mir_width.W32 (Mir_width.signed from x)
+               else x));
+      ]
 
 let test env = function
   | B_cond (c, f) -> Cond.holds c (E.flags env f ~mask:(Cond.reads c))

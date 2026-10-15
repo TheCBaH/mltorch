@@ -82,8 +82,9 @@ module Coverage : sig
     | Loop_fp32_ordered of Loop_ir.Loop_target.t
         (** the Loop planner's [Fp32_ordered] decisions *)
     | Narrowed_f32 of Ssa_ir.Ssa_target.t
-        (** {!Ssa_ir.Ssa_plan.vectorize_f32} on the narrowed form (the
-            [Simd_fp32_*] program, before the planner's binary64 fallback) *)
+        (** {!Ssa_ir.Ssa_plan.vectorize_f32} on the narrowed form (the reads
+            widened then narrowed, the form the [Simd_fp32_*] policies used
+            before they moved onto the exact one) *)
 
   val name : column -> string
 

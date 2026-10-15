@@ -347,8 +347,25 @@ census slice that will admit it.
   conversion. A float decode of any other
   storage (`bf16`, `bool`, `f16`, `i32`, `i64`) is likewise a scalar decode
   at each lane's address, inserted a lane at a time into a vector of the
-  decode's result element; a dequantizing decode
-  and an integer vector stay refused. A `vec.splat` of a predicate is a mask.
+  decode's result element, a dequantizing decode included (every lane takes
+  the access's channel, which the vectorizer keeps uniform). A binary32
+  dequantization of contiguous `i8`/`i16` cells whose run fills whole
+  registers is instead an integer `vload`, `iext sext` to `i32` lanes,
+  `fconvert scvt.i32.f32` and the binary32 `(q - z) * s` with `z` and `s`
+  splatted, in the scalar decode's order. `Mir_vsplit` cuts the widening
+  into four-lane `vslice`s of the register; `Mir_vsplit.widening_slices` names
+  the slices only a sign extension reads, which the selectors fuse into it
+  (`Sxtl_w`, `Sext_lanes`) so no sixteen-byte value is ever a narrower
+  register. Contiguous `f16`/`bf16` cells read straight to binary32 the same
+  way, as integer lanes: `iext zext` to `i32`, then (`bf16`) `shl 16` and a
+  bitcast, or (`f16`) `(h << 17) >> 4` as binary32 bits times 2^112 (exact,
+  a subnormal operand included), an infinity or NaN (a product at or above
+  2^16) given the all-ones exponent by `or`, and the sign `or`ed last, every
+  NaN's bits kept. Integer vectors take `iarith` lane by lane (a shift's count
+  a splatted constant, which the verifier requires and
+  `Mir_vsplit.shift_counts` names so a selector shifts by the immediate) and
+  `bitcast` between `i32` and `f32` lanes. Any other integer vector stays
+  refused. A `vec.splat` of a predicate is a mask.
   `vec.iota` is the splat of `f64(base)` plus inserted lane constants (each
   exact below 2^53). The oracle is the plan's own (`Ssa_plan.oracle`: every
   vector spelled out lane by lane, at the plan's precision); binary32 plans

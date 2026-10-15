@@ -76,17 +76,35 @@ let ssa_route name ?engine plan p ~bind =
 
 (* The bytes of a bound binary32 input, packed little-endian in row-major
    order. *)
-let pack (b : Ssa_buffer.t) t =
+let pack (b : Ssa_buffer.t) (Tensor.Tensor tr as t) =
   let shape = Ssa_lower.Ssa_sig.shape b in
   let n =
     Int64.to_int (Option.get (Ssa_buffer.elements b.Ssa_buffer.extents))
   in
-  let bytes = Bytes.make (4 * n) '\000' in
-  Vec6.iter shape (fun c ->
-      Bytes.set_int32_le bytes
-        (4 * (Vec6.offset shape c :> int))
-        (Int32.bits_of_float (Tensor.read t c)));
-  Bytes.to_string bytes
+  (* a quantized or half-precision buffer holds its stored cells,
+     little-endian *)
+  let cells width get =
+    let bytes = Bytes.make (width * n) '\000' in
+    for i = 0 to n - 1 do
+      let x = get i in
+      if width = 1 then Bytes.set_uint8 bytes i (x land 0xFF)
+      else Bytes.set_uint16_le bytes (2 * i) (x land 0xFFFF)
+    done;
+    Bytes.to_string bytes
+  in
+  let data = tr.Tensor.payload.Payload.data in
+  match (b.Ssa_buffer.format, tr.Tensor.payload.Payload.fmt) with
+  | Ssa_format.I8 _, Payload.I8 -> cells 1 (fun i -> data.{i})
+  | Ssa_format.I16 _, Payload.I16 -> cells 2 (fun i -> data.{i})
+  | Ssa_format.F16, Payload.F16 -> cells 2 (fun i -> data.{i})
+  | Ssa_format.Bf16, Payload.BF16 -> cells 2 (fun i -> data.{i})
+  | _ ->
+      let bytes = Bytes.make (4 * n) '\000' in
+      Vec6.iter shape (fun c ->
+          Bytes.set_int32_le bytes
+            (4 * (Vec6.offset shape c :> int))
+            (Int32.bits_of_float (Tensor.read t c)));
+      Bytes.to_string bytes
 
 let mir_outputs memory binding (layout : Mir_layout_map.Entry.t list) =
   List.filter_map

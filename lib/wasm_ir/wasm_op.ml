@@ -30,6 +30,7 @@ type t =
   | F32_trunc
   | F32x4_abs
   | F32x4_add
+  | F32x4_convert_i32x4_s
   | F32x4_demote_f64x2_zero
   | F32x4_div
   | F32x4_eq
@@ -96,6 +97,7 @@ type t =
   | F64x2_sqrt
   | F64x2_sub
   | F64x2_trunc
+  | I16x8_extend_low_i8x16_s
   | I32_add
   | I32_and
   | I32_clz
@@ -129,6 +131,12 @@ type t =
   | I32_trunc_sat_f64_u
   | I32_wrap_i64
   | I32_xor
+  | I32x4_add
+  | I32x4_eq
+  | I32x4_extend_low_i16x8_s
+  | I32x4_extend_low_i16x8_u
+  | I32x4_shl
+  | I32x4_shr_u
   | I32x4_splat
   | I32x4_trunc_sat_f64x2_s_zero
   | I32x4_trunc_sat_f64x2_u_zero
@@ -207,6 +215,7 @@ let all =
     F32_trunc;
     F32x4_abs;
     F32x4_add;
+    F32x4_convert_i32x4_s;
     F32x4_demote_f64x2_zero;
     F32x4_div;
     F32x4_eq;
@@ -273,6 +282,7 @@ let all =
     F64x2_sqrt;
     F64x2_sub;
     F64x2_trunc;
+    I16x8_extend_low_i8x16_s;
     I32_add;
     I32_and;
     I32_clz;
@@ -306,6 +316,12 @@ let all =
     I32_trunc_sat_f64_u;
     I32_wrap_i64;
     I32_xor;
+    I32x4_add;
+    I32x4_eq;
+    I32x4_extend_low_i16x8_s;
+    I32x4_extend_low_i16x8_u;
+    I32x4_shl;
+    I32x4_shr_u;
     I32x4_splat;
     I32x4_trunc_sat_f64x2_s_zero;
     I32x4_trunc_sat_f64x2_u_zero;
@@ -384,6 +400,7 @@ let name = function
   | F32_trunc -> "f32.trunc"
   | F32x4_abs -> "f32x4.abs"
   | F32x4_add -> "f32x4.add"
+  | F32x4_convert_i32x4_s -> "f32x4.convert_i32x4_s"
   | F32x4_demote_f64x2_zero -> "f32x4.demote_f64x2_zero"
   | F32x4_div -> "f32x4.div"
   | F32x4_eq -> "f32x4.eq"
@@ -450,6 +467,7 @@ let name = function
   | F64x2_sqrt -> "f64x2.sqrt"
   | F64x2_sub -> "f64x2.sub"
   | F64x2_trunc -> "f64x2.trunc"
+  | I16x8_extend_low_i8x16_s -> "i16x8.extend_low_i8x16_s"
   | I32_add -> "i32.add"
   | I32_and -> "i32.and"
   | I32_clz -> "i32.clz"
@@ -483,6 +501,12 @@ let name = function
   | I32_trunc_sat_f64_u -> "i32.trunc_sat_f64_u"
   | I32_wrap_i64 -> "i32.wrap_i64"
   | I32_xor -> "i32.xor"
+  | I32x4_add -> "i32x4.add"
+  | I32x4_eq -> "i32x4.eq"
+  | I32x4_extend_low_i16x8_s -> "i32x4.extend_low_i16x8_s"
+  | I32x4_extend_low_i16x8_u -> "i32x4.extend_low_i16x8_u"
+  | I32x4_shl -> "i32x4.shl"
+  | I32x4_shr_u -> "i32x4.shr_u"
   | I32x4_splat -> "i32x4.splat"
   | I32x4_trunc_sat_f64x2_s_zero -> "i32x4.trunc_sat_f64x2_s_zero"
   | I32x4_trunc_sat_f64x2_u_zero -> "i32x4.trunc_sat_f64x2_u_zero"
@@ -560,6 +584,7 @@ let bytes = function
   | F32_trunc -> [ 0x8F ]
   | F32x4_abs -> [ 0xFD; 0xE0; 0x01 ]
   | F32x4_add -> [ 0xFD; 0xE4; 0x01 ]
+  | F32x4_convert_i32x4_s -> [ 0xFD; 0xFA; 0x01 ]
   | F32x4_demote_f64x2_zero -> [ 0xFD; 0x5E ]
   | F32x4_div -> [ 0xFD; 0xE7; 0x01 ]
   | F32x4_eq -> [ 0xFD; 0x41 ]
@@ -626,6 +651,7 @@ let bytes = function
   | F64x2_sqrt -> [ 0xFD; 0xEF; 0x01 ]
   | F64x2_sub -> [ 0xFD; 0xF1; 0x01 ]
   | F64x2_trunc -> [ 0xFD; 0x7A ]
+  | I16x8_extend_low_i8x16_s -> [ 0xFD; 0x87; 0x01 ]
   | I32_add -> [ 0x6A ]
   | I32_and -> [ 0x71 ]
   | I32_clz -> [ 0x67 ]
@@ -659,6 +685,12 @@ let bytes = function
   | I32_trunc_sat_f64_u -> [ 0xFC; 0x03 ]
   | I32_wrap_i64 -> [ 0xA7 ]
   | I32_xor -> [ 0x73 ]
+  | I32x4_add -> [ 0xFD; 0xAE; 0x01 ]
+  | I32x4_eq -> [ 0xFD; 0x37 ]
+  | I32x4_extend_low_i16x8_s -> [ 0xFD; 0xA7; 0x01 ]
+  | I32x4_extend_low_i16x8_u -> [ 0xFD; 0xA9; 0x01 ]
+  | I32x4_shl -> [ 0xFD; 0xAB; 0x01 ]
+  | I32x4_shr_u -> [ 0xFD; 0xAD; 0x01 ]
   | I32x4_splat -> [ 0xFD; 0x11 ]
   | I32x4_trunc_sat_f64x2_s_zero -> [ 0xFD; 0xFC; 0x01 ]
   | I32x4_trunc_sat_f64x2_u_zero -> [ 0xFD; 0xFD; 0x01 ]
@@ -736,6 +768,7 @@ let signature = function
   | F32_trunc -> ([ Wasm_type.F32 ], [ Wasm_type.F32 ])
   | F32x4_abs -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])
   | F32x4_add -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | F32x4_convert_i32x4_s -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])
   | F32x4_demote_f64x2_zero -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])
   | F32x4_div -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
   | F32x4_eq -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
@@ -803,6 +836,7 @@ let signature = function
   | F64x2_sqrt -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])
   | F64x2_sub -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
   | F64x2_trunc -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | I16x8_extend_low_i8x16_s -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])
   | I32_add -> ([ Wasm_type.I32; Wasm_type.I32 ], [ Wasm_type.I32 ])
   | I32_and -> ([ Wasm_type.I32; Wasm_type.I32 ], [ Wasm_type.I32 ])
   | I32_clz -> ([ Wasm_type.I32 ], [ Wasm_type.I32 ])
@@ -836,6 +870,12 @@ let signature = function
   | I32_trunc_sat_f64_u -> ([ Wasm_type.F64 ], [ Wasm_type.I32 ])
   | I32_wrap_i64 -> ([ Wasm_type.I64 ], [ Wasm_type.I32 ])
   | I32_xor -> ([ Wasm_type.I32; Wasm_type.I32 ], [ Wasm_type.I32 ])
+  | I32x4_add -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | I32x4_eq -> ([ Wasm_type.V128; Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | I32x4_extend_low_i16x8_s -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | I32x4_extend_low_i16x8_u -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])
+  | I32x4_shl -> ([ Wasm_type.V128; Wasm_type.I32 ], [ Wasm_type.V128 ])
+  | I32x4_shr_u -> ([ Wasm_type.V128; Wasm_type.I32 ], [ Wasm_type.V128 ])
   | I32x4_splat -> ([ Wasm_type.I32 ], [ Wasm_type.V128 ])
   | I32x4_trunc_sat_f64x2_s_zero -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])
   | I32x4_trunc_sat_f64x2_u_zero -> ([ Wasm_type.V128 ], [ Wasm_type.V128 ])

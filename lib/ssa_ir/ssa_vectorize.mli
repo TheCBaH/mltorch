@@ -37,6 +37,9 @@ module Reason : sig
         (** the loop writes memory and also touches this other buffer, which the
             alias policy does not rule out overlapping *)
     | Carries_values  (** the loop carries more than the effect *)
+    | Channel_varies of Ssa_id.Buffer.t
+        (** a per-channel quantized read whose channel varies across the lanes:
+            its parameters would be a gather *)
     | Element_not_admitted of Ssa_type.scalar
         (** the vector body needs vectors of an element the plan does not admit
         *)

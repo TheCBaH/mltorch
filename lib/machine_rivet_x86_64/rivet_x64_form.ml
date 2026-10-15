@@ -172,6 +172,7 @@ let instructions env (op : X.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
           (match fsz with X.Fsz.D -> "cvtss2sd" | X.Fsz.S -> "cvtsd2ss")
           [ x (u 0); x (d 0) ];
       ]
+  | X.Cvtdq2ps _ -> [ mk "cvtdq2ps" [ x (u 0); x (d 0) ] ]
   | X.Cvtpd2ps _ -> [ mk "cvtpd2ps" [ x (u 0); x (d 0) ] ]
   | X.Cvtps2pd _ -> [ mk "cvtps2pd" [ x (u 0); x (d 0) ] ]
   | X.Cvtsi2s (fsz, _) -> [ mk ("cvtsi2" ^ fs fsz ^ "q") [ gq (u 0); x (d 0) ] ]
@@ -267,7 +268,8 @@ let instructions env (op : X.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       match t with
       | Mir_type.Int Mir_width.W64 -> [ mk "movq" [ imm k; gq (d 0) ] ]
       | _ -> [ mk "movl" [ imm k; gl (d 0) ] ])
-  | X.Movap _ | X.Movap_to_mask _ -> [ mk "movaps" [ x (u 0); x (d 0) ] ]
+  | X.Movap _ | X.Movap_cast _ | X.Movap_to_mask _ ->
+      [ mk "movaps" [ x (u 0); x (d 0) ] ]
   | X.Movlhps _ -> [ mk "movlhps" [ x (u 1); x (d 0) ] ]
   | X.Movq_from_gpr (fsz, _) -> (
       match fsz with
@@ -278,6 +280,38 @@ let instructions env (op : X.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       match fsz with
       | X.Fsz.D -> [ mk "movq" [ x (u 0); gq (d 0) ] ]
       | X.Fsz.S -> [ mk "movd" [ x (u 0); gl (d 0) ] ])
+  | X.Movup_iload (_, a) -> [ mk "movups" [ addr env a uses; x (d 0) ] ]
+  | X.Xt_lanes { signed; from; first; _ } -> (
+      (* the four lanes' dword(s) brought low, each narrow lane interleaved
+         with itself up to a dword, then shifted back down with its sign or
+         with zeros *)
+      let down = if signed then "psrad" else "psrld" in
+      match from with
+      | Mir_width.W8 ->
+          [
+            mk "pshufd" [ imm (Int64.of_int (first / 4)); x (u 0); x (d 0) ];
+            mk "punpcklbw" [ x (d 0); x (d 0) ];
+            mk "punpcklwd" [ x (d 0); x (d 0) ];
+            mk down [ imm 24L; x (d 0) ];
+          ]
+      | Mir_width.W16 ->
+          let k = first / 2 in
+          [
+            mk "pshufd"
+              [ imm (Int64.of_int (k lor ((k + 1) lsl 2))); x (u 0); x (d 0) ];
+            mk "punpcklwd" [ x (d 0); x (d 0) ];
+            mk down [ imm 16L; x (d 0) ];
+          ]
+      | Mir_width.W32 | Mir_width.W64 ->
+          refuse env (R.Form "an extension from a width with no form"))
+  | X.Pshift (o, k, _) ->
+      let name =
+        match o with
+        | X.Shift.Shl -> "pslld"
+        | X.Shift.Shr -> "psrld"
+        | X.Shift.Sar -> "psrad"
+      in
+      [ mk name [ imm (Int64.of_int k); x (d 0) ] ]
   | X.Movup_load (pk, a) ->
       [ mk ("movu" ^ X.Pk.name pk) [ addr env a uses; x (d 0) ] ]
   | X.Movup_store (pk, a, _) ->

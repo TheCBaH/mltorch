@@ -74,8 +74,7 @@ let f32_math_vector st ~lanes : (module F32_fns) =
    in binary64 over the same binary32 parameters. The parameters are per
    tensor, or per channel from the buffer's parameter table at its C
    coordinate. *)
-let dequantize st op (e : L.Entry.t) q ~channel ~f32 =
-  let q = sext st (sext32 st q) in
+let dequant_params st op (e : L.Entry.t) ~channel ~f32 =
   let konst x = const st (if f32 then Mir_const.f32 x else Mir_const.f64 x) in
   let s, z =
     match
@@ -110,6 +109,11 @@ let dequantize st op (e : L.Entry.t) q ~channel ~f32 =
         (load (at 0L), load (at (L.Params.zero_point_offset e)))
     | _ -> unsupported st op
   in
+  (s, z)
+
+let dequantize st op (e : L.Entry.t) q ~channel ~f32 =
+  let q = sext st (sext32 st q) in
+  let s, z = dequant_params st op e ~channel ~f32 in
   let qf =
     emit st
       (Mir_op.Fconvert

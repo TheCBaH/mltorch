@@ -167,9 +167,21 @@ same sequence on the vector (`.4s` arithmetic, `FCMGT`/`FCMEQ` masks, `BIT`).
 Only a binary64 operand still calls `Mir_math` or the owned `exp`. Planned
 `Fp32_ordered` vectors need no form beyond the `Simd_fp32_*` ones: an exact
 binary32 access is `LDR/STR Q`, `LD1R` or `LD1`/`ST1` lanes on `.4s`, with no
-`FCVTL`/`FCVTN`. Integer vector forms (`SXTL`, vector `SCVTF`, `.4h/.8h`) are
-not in the encoder yet, so a quantized or half-precision read stays a scalar
-decode per lane.
+`FCVTL`/`FCVTN`. A contiguous binary32 dequantization of `i8`/`i16` cells reads
+integer lanes: `LDR Q` of sixteen bytes or eight halfwords (`Ldr_ivec`), each
+four-lane slice sign-extended to `.4s` in place (`Sxtl_w`: `SXTL`/`SXTL2`, twice
+from bytes), `SCVTF .4s` (`Scvtf_vec`), then the binary32 subtract and multiply.
+The encoder has no `SXTL`, vector `SCVTF` or `.8h`/`.16b` arrangements, so the
+form layer emits those two forms as their encoded instruction words, a
+four-byte datum in the code (`Rivet_a64_form.items`); GNU assembles the module
+to the same bytes, and the conformance suite runs every word form on the CPU.
+Contiguous `f16`/`bf16` cells read straight to binary32 the same way: `UXTL`
+(`Xtl_w` unsigned), lane shifts `SHL`/`USHR`/`SSHR` (`Vshift`, encoded words
+too), `ORR .16b` on int32 lanes and `MOV .16b` for a vector bitcast (`Vcast`).
+`FCVTL .4s, .4h` is not used: it quiets a signalling NaN, and the binary16
+decode keeps every NaN's bits (sign, all-ones exponent, mantissa shifted), so
+`FCVTL` would differ from the scalar oracle on 1022 encodings. Strided reads stay
+a scalar decode per lane.
 
 ## GNU as an independent encoder
 

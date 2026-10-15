@@ -264,6 +264,17 @@ let program ?mutation ~register_bytes (g : Mir_verify.Generic.t) =
             in
             match i.Mir_instr.op with
             | Mir_op.Copy a -> per_slice (fun j -> Mir_op.Copy (s a).(j))
+            | Mir_op.Bitcast (t, a) ->
+                let _, _, k = shape_of (List.hd i.Mir_instr.results) in
+                let t =
+                  match t with
+                  | Mir_type.Vec (e, _) ->
+                      Mir_type.Vec (e, Mir_type.Lanes.of_int k)
+                  | t -> t
+                in
+                per_slice (fun j -> Mir_op.Bitcast (t, (s a).(j)))
+            | Mir_op.Iarith (o, a, b) ->
+                per_slice (fun j -> Mir_op.Iarith (o, (s a).(j), (s b).(j)))
             | Mir_op.Fbinary (o, a, b) ->
                 per_slice (fun j -> Mir_op.Fbinary (o, (s a).(j), (s b).(j)))
             | Mir_op.Ffma (a, b, c) ->
@@ -311,6 +322,32 @@ let program ?mutation ~register_bytes (g : Mir_verify.Generic.t) =
                       in
                       emit i [ r ] (Mir_op.Vconcat converted))
                     dst
+            | Mir_op.Iext (k, w, a) ->
+                (* a lane widening: each result slice takes its lanes from a
+                   slice of the narrower source register *)
+                let src = s a in
+                let sty, _, sk = shape a.Mir_value.ty in
+                let _, _, dk =
+                  shape (List.hd i.Mir_instr.results).Mir_value.ty
+                in
+                let elem = function
+                  | Mir_type.Vec (e, _) -> e
+                  | _ -> invalid_arg "Mir_vsplit"
+                in
+                if sk = dk then per_slice (fun j -> Mir_op.Iext (k, w, src.(j)))
+                else
+                  Array.iteri
+                    (fun j r ->
+                      let part =
+                        value i
+                          (Mir_type.Vec (elem sty, Mir_type.Lanes.of_int dk))
+                          (Mir_op.Vslice
+                             ( Mir_type.Lane.of_int (j * dk mod sk),
+                               Mir_type.Lanes.of_int dk,
+                               src.(j * dk / sk) ))
+                      in
+                      emit i [ r ] (Mir_op.Iext (k, w, part)))
+                    (result ())
             | Mir_op.Vextract (lane, a) ->
                 let _, _, k = shape a.Mir_value.ty in
                 let l = Mir_type.Lane.to_int lane in
@@ -414,3 +451,95 @@ let program ?mutation ~register_bytes (g : Mir_verify.Generic.t) =
   match Err.payload (Mir_verify.generic split) with
   | Ok g -> g
   | Error d -> invalid_arg (Fmt.str "Mir_vsplit: %a" Mir_diagnostic.pp d)
+
+let int_register (t : Mir_type.t) =
+  match t with
+  | Mir_type.Vec (Mir_type.Elem.Int Mir_width.W8, n) ->
+      Mir_type.Lanes.to_int n = 16
+  | Mir_type.Vec (Mir_type.Elem.Int Mir_width.W16, n) ->
+      Mir_type.Lanes.to_int n = 8
+  | _ -> false
+
+(* The slices this pass makes of an [i8x16] or [i16x8] register to widen it:
+   four lanes, read only by extensions to int32. A selector makes each
+   extension from the whole register and leaves the slice unmade: the key is
+   the slice, the value its first lane and the register. *)
+let widening_slices (f : (Mir_op.t, Mir_terminator.t) Mir_func.t) =
+  let key (v : Mir_value.t) = Mir_id.Value.to_int v.Mir_value.id in
+  let readers = Hashtbl.create 64 in
+  List.iter
+    (fun (b : (Mir_op.t, Mir_terminator.t) Mir_block.t) ->
+      List.iter
+        (fun (i : Mir_op.t Mir_instr.t) ->
+          List.iter
+            (fun v -> Hashtbl.add readers (key v) i.Mir_instr.op)
+            (Mir_op.operands i.Mir_instr.op))
+        b.Mir_block.body;
+      List.iter
+        (fun v -> Hashtbl.add readers (key v) (Mir_op.Copy v))
+        (Mir_terminator.operands b.Mir_block.terminator))
+    f.Mir_func.blocks;
+  let slices = Hashtbl.create 16 in
+  List.iter
+    (fun (b : (Mir_op.t, Mir_terminator.t) Mir_block.t) ->
+      List.iter
+        (fun (i : Mir_op.t Mir_instr.t) ->
+          match (i.Mir_instr.op, i.Mir_instr.results) with
+          | Mir_op.Vslice (first, count, a), [ r ]
+            when int_register a.Mir_value.ty
+                 && Mir_type.Lanes.to_int count = 4
+                 && List.for_all
+                      (function
+                        | Mir_op.Iext (_, Mir_width.W32, _) -> true | _ -> false)
+                      (Hashtbl.find_all readers (key r)) ->
+              Hashtbl.replace slices (key r) (Mir_type.Lane.to_int first, a)
+          | _ -> ())
+        b.Mir_block.body)
+    f.Mir_func.blocks;
+  slices
+
+(* The integer vector splats of a constant read only as shift counts: a
+   selector shifts by the constant itself and leaves the splat unmade. The key
+   is the splat, the value the count. *)
+let shift_counts (f : (Mir_op.t, Mir_terminator.t) Mir_func.t) =
+  let key (v : Mir_value.t) = Mir_id.Value.to_int v.Mir_value.id in
+  let consts = Hashtbl.create 64 and counts = Hashtbl.create 16 in
+  let other = Hashtbl.create 64 in
+  List.iter
+    (fun (b : (Mir_op.t, Mir_terminator.t) Mir_block.t) ->
+      List.iter
+        (fun (i : Mir_op.t Mir_instr.t) ->
+          (match (i.Mir_instr.op, i.Mir_instr.results) with
+          | Mir_op.Const c, [ r ] ->
+              Hashtbl.replace consts (key r) c.Mir_const.bits
+          | _ -> ());
+          match i.Mir_instr.op with
+          | Mir_op.Iarith (o, a, c) when Mir_op.Iarith.is_shift o ->
+              ignore c;
+              Hashtbl.replace other (key a) ()
+          | op ->
+              List.iter
+                (fun v -> Hashtbl.replace other (key v) ())
+                (Mir_op.operands op))
+        b.Mir_block.body;
+      List.iter
+        (fun v -> Hashtbl.replace other (key v) ())
+        (Mir_terminator.operands b.Mir_block.terminator))
+    f.Mir_func.blocks;
+  List.iter
+    (fun (b : (Mir_op.t, Mir_terminator.t) Mir_block.t) ->
+      List.iter
+        (fun (i : Mir_op.t Mir_instr.t) ->
+          match (i.Mir_instr.op, i.Mir_instr.results) with
+          | Mir_op.Vsplat (_, x), [ r ]
+            when (match r.Mir_value.ty with
+                   | Mir_type.Vec (Mir_type.Elem.Int _, _) -> true
+                   | _ -> false)
+                 && not (Hashtbl.mem other (key r)) -> (
+              match Hashtbl.find_opt consts (key x) with
+              | Some c -> Hashtbl.replace counts (key r) c
+              | None -> ())
+          | _ -> ())
+        b.Mir_block.body)
+    f.Mir_func.blocks;
+  counts

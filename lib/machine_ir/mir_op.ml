@@ -30,11 +30,12 @@ end
 
 module Fconvert = struct
   (* Numeric conversions, each one rounding to nearest-even where inexact. *)
-  type t = F32_to_f64 | F64_to_f32 | S64_to_f32 | S64_to_f64
+  type t = F32_to_f64 | F64_to_f32 | S32_to_f32 | S64_to_f32 | S64_to_f64
 
   let name = function
     | F32_to_f64 -> "fext.f32.f64"
     | F64_to_f32 -> "fround.f64.f32"
+    | S32_to_f32 -> "scvt.i32.f32"
     | S64_to_f32 -> "scvt.i64.f32"
     | S64_to_f64 -> "scvt.i64.f64"
 end

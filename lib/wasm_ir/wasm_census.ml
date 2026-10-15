@@ -70,7 +70,10 @@ let role_of_op : Wasm_op.t -> Role.t option = function
   | Wasm_op.I64x2_shr_s | Wasm_op.I64x2_shr_u | Wasm_op.I64x2_splat
   | Wasm_op.I64x2_sub | Wasm_op.V128_and | Wasm_op.V128_andnot
   | Wasm_op.V128_any_true | Wasm_op.V128_bitselect | Wasm_op.V128_not
-  | Wasm_op.V128_or | Wasm_op.V128_xor ->
+  | Wasm_op.V128_or | Wasm_op.V128_xor | Wasm_op.F32x4_convert_i32x4_s
+  | Wasm_op.I16x8_extend_low_i8x16_s | Wasm_op.I32x4_add | Wasm_op.I32x4_eq
+  | Wasm_op.I32x4_extend_low_i16x8_s | Wasm_op.I32x4_extend_low_i16x8_u
+  | Wasm_op.I32x4_shl | Wasm_op.I32x4_shr_u ->
       None
 
 module String_map = Map.Make (String)

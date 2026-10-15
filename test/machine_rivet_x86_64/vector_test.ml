@@ -192,3 +192,63 @@ let%expect_test "Fp32_ordered packed SSE2" =
     3x5x17: ok [process: agree]
     5x7x33: ok [process: agree]
     transposed read: ok [process: agree] |}]
+
+(* Binary32 dequantization as integer lanes in SSE2: contiguous i8 and i16
+   cells loaded a register at a time (MOVUPS), sign-extended to int32 by
+   PSHUFD, PUNPCKLBW/PUNPCKLWD and PSRAD, converted by CVTDQ2PS, then the
+   binary32 subtract and multiply; as processes against the interpreter. *)
+let%expect_test "binary32 dequantization as SSE2 integer lanes" =
+  let f32 x = fst (Quant.round_scale x) in
+  List.iter
+    (fun (name, fmt, quant, n) ->
+      let cells =
+        Array.init n (fun i -> Int64.of_int ((i * 37 mod 256) - 128))
+      in
+      let kernel = Loop_programs.format_kernel ~fmt ~quant n in
+      let bind id =
+        if Tensor_id.equal id (Loop_fixtures.tid 0) then
+          Some (Loop_programs.raw_tensor fmt ~quant n cells)
+        else None
+      in
+      Fmt.pr "%s: " name;
+      show ~numerics:Ssa_ir.Ssa_numerics.Fp32_ordered kernel ~bind)
+    [
+      ( "i8 per tensor, 32 lanes",
+        Payload.Fmt Payload.I8,
+        Quant.per_tensor ~scale:(f32 0.37) ~zero_point:(-3.),
+        32 );
+      ( "i8 per tensor, 37 lanes",
+        Payload.Fmt Payload.I8,
+        Quant.per_tensor ~scale:(f32 0.05) ~zero_point:1.25,
+        37 );
+      ( "i16 per tensor, 32 lanes",
+        Payload.Fmt Payload.I16,
+        Quant.per_tensor ~scale:(f32 1e-3) ~zero_point:7.,
+        32 );
+    ];
+  [%expect
+    {|
+    i8 per tensor, 32 lanes: ok [process: agree]
+    i8 per tensor, 37 lanes: ok [process: agree]
+    i16 per tensor, 32 lanes: ok [process: agree] |}]
+
+(* Binary16 and bfloat16 cells read straight to binary32 as SSE2 integer
+   lanes (PUNPCKLWD, PSLLD/PSRLD, MULPS by 2^112, the infinity and NaN fix-up,
+   the sign), every encoding, as processes against the interpreter. *)
+let%expect_test "binary16 and bfloat16 as SSE2 integer lanes" =
+  List.iter
+    (fun (name, fmt) ->
+      let n = 65536 in
+      let cells = Array.init n Int64.of_int in
+      let kernel = Loop_programs.format_kernel ~fmt n in
+      let bind id =
+        if Tensor_id.equal id (Loop_fixtures.tid 0) then
+          Some (Loop_programs.raw_tensor fmt n cells)
+        else None
+      in
+      Fmt.pr "%s: " name;
+      show ~numerics:Ssa_ir.Ssa_numerics.Fp32_ordered kernel ~bind)
+    [ ("f16", Payload.Fmt Payload.F16); ("bf16", Payload.Fmt Payload.BF16) ];
+  [%expect {|
+    f16: ok [process: agree]
+    bf16: ok [process: agree] |}]

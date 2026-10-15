@@ -56,8 +56,8 @@ val vectorize_f32 :
     pre-vector passes, admission, {!Ssa_precision.to_f32} (with [exact] as
     there) and the vectorizer against the binary32 target with [elements] as
     {!Ssa_vectorize.program} takes them, with its decisions. [exact:false] is
-    the [Simd_fp32_*] form. For a census of what each form vectorizes;
-    {!resolve} is the plan. *)
+    the narrowed form (each read widened, then narrowed lane by lane). For a
+    census of what each form vectorizes; {!resolve} is the plan. *)
 
 val fp32_vector :
   ?alias:Ssa_effects.policy ->

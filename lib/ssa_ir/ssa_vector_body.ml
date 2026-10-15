@@ -11,6 +11,7 @@ module Reason = struct
     | No_vector_form of Ssa_op.t
     | Aliasing of Ssa_id.Buffer.t
     | Carries_values
+    | Channel_varies of Ssa_id.Buffer.t
     | Element_not_admitted of Ssa_type.scalar
     | Inner_loops_declined
     | Non_affine_access
@@ -27,6 +28,7 @@ module Reason = struct
     | No_vector_form op -> "no_vector_form:" ^ Ssa_op.name op
     | Aliasing _ -> "aliasing"
     | Carries_values -> "carries_values"
+    | Channel_varies _ -> "channel_varies"
     | Element_not_admitted e -> "element_not_admitted:" ^ Ssa_type.scalar_name e
     | Inner_loops_declined -> "inner_loops_declined"
     | Non_affine_access -> "non_affine_access"
@@ -142,11 +144,10 @@ let classify_instr kinds (i : Ssa_instr.t) =
             set kinds (result ()) Uni
           else (
             (match decode with
-            | Ssa_op.Decode.I64 | Ssa_op.Decode.I16_dequant32
-            | Ssa_op.Decode.I8_dequant32 ->
-                (* an integer, or a dequantization in binary32: no vector
-                   form *)
+            | Ssa_op.Decode.I64 ->
+                (* an integer: no vector form *)
                 refuse (Reason.No_vector_form op)
+            | Ssa_op.Decode.I16_dequant32 | Ssa_op.Decode.I8_dequant32 -> ()
             | Ssa_op.Decode.Bf16_to_f64 | Ssa_op.Decode.Bool_to_f64
             | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.F32_exact
             | Ssa_op.Decode.F32_to_f64 | Ssa_op.Decode.F64_to_f64
@@ -475,6 +476,14 @@ let emit_instr cx (i : Ssa_instr.t) =
           | Ssa_op.Load_in_bounds { buffer; at = Ssa_access.Coord at; decode }
             ->
               let steps = steps_of cx at in
+              (* a per-channel dequantization takes one channel's parameters:
+                 every lane must read the same channel *)
+              (match Ssa_program.find_buffer cx.program buffer with
+              | Some b
+                when Ssa_format.per_channel b.Ssa_buffer.format
+                     && not (Int64.equal steps.Expr.Coord.c 0L) ->
+                  refuse (Reason.Channel_varies buffer)
+              | Some _ | None -> ());
               let r = define (vector_type cx (Ssa_op.Decode.result decode)) in
               Hashtbl.replace cx.vmap (result.Ssa_value.id :> int) r;
               count cx (load_op cx buffer steps decode);

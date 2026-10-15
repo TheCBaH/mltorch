@@ -77,7 +77,38 @@ let lane_delta (b : Ssa_buffer.t) (steps : int64 Expr.Coord.t) =
     steps;
   !delta
 
-let decode_cell cx (d : Ssa_op.Decode.t) cell =
+(* A binary32 constant as a C [float] literal: exact, nothing widens. *)
+let f32_lit x = "(" ^ Printf.sprintf "%hf" x ^ ")"
+
+(* A dequantization's scale and zero point as C expressions in the working
+   precision ([f32]): per tensor the literals; per channel the [channel]
+   entries of the buffer's tables, file-scope constants (every parameter is a
+   binary32 value, so a [float] table holds it exactly). *)
+let quant_params cx (b : Ssa_buffer.t) ~f32 ~channel =
+  let lit = if f32 then f32_lit else fun x -> float_lit x in
+  match (Ssa_format.quant b.Ssa_buffer.format, channel) with
+  | Some (Ssa_format.Per_tensor { scale; zero_point }), _ ->
+      (lit scale, lit zero_point)
+  | Some (Ssa_format.Per_channel { scale; zero_point }), Some c ->
+      let table what a =
+        let t =
+          Printf.sprintf "ssa_%s%s_b%d" what
+            (if f32 then "32" else "64")
+            (b.Ssa_buffer.id :> int)
+        in
+        vector_helper cx t
+          (Printf.sprintf "static const %s %s[%d] = { %s };"
+             (if f32 then "float" else "double")
+             t (Array.length a)
+             (String.concat ", " (Array.to_list (Array.map lit a))));
+        Printf.sprintf "%s[%s]" t c
+      in
+      (table "scale" scale, table "zero" zero_point)
+  | Some (Ssa_format.Per_channel _), None ->
+      invalid_arg "Ssa_c: a per-channel dequantization with no channel"
+  | None, _ -> invalid_arg "Ssa_c: a dequantizing load of an unquantized buffer"
+
+let decode_cell ?channel cx (b : Ssa_buffer.t) (d : Ssa_op.Decode.t) cell =
   match d with
   | Ssa_op.Decode.Bf16_to_f32 -> call cx R.Name.Bf16_to_f32 [ cell ]
   | Ssa_op.Decode.Bool_to_f32 -> "(" ^ cell ^ " != 0 ? 1.0f : 0.0f)"
@@ -91,9 +122,15 @@ let decode_cell cx (d : Ssa_op.Decode.t) cell =
   | Ssa_op.Decode.I64_to_f64 ->
       "(double)" ^ cell
   | Ssa_op.Decode.F64_to_f64 | Ssa_op.Decode.I64 -> cell
-  | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I16_dequant32
-  | Ssa_op.Decode.I8_dequant | Ssa_op.Decode.I8_dequant32 ->
-      invalid_arg "Ssa_c: a dequantizing load reached the emitter"
+  | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I8_dequant ->
+      (* [q] to float, minus the zero point, times the scale, each rounded
+         once in binary64 *)
+      let scale, zero_point = quant_params cx b ~f32:false ~channel in
+      Printf.sprintf "(((double)%s - %s) * %s)" cell zero_point scale
+  | Ssa_op.Decode.I16_dequant32 | Ssa_op.Decode.I8_dequant32 ->
+      (* the same in binary32: [q] exact, each operation one rounding *)
+      let scale, zero_point = quant_params cx b ~f32:true ~channel in
+      Printf.sprintf "(((float)%s - %s) * %s)" cell zero_point scale
 
 let encode_value (e : Ssa_op.Encode.t) v =
   match e with
@@ -494,7 +531,12 @@ let instr cx depth (i : Ssa_instr.t) =
       let cell =
         Printf.sprintf "%s[%s]" (buffer_name cx buffer) (access_offset cx b at)
       in
-      assign cx depth r (decode_cell cx decode cell)
+      let channel =
+        match at with
+        | Ssa_access.Coord c -> Some (name cx c.Expr.Coord.c)
+        | Ssa_access.Flat _ -> None
+      in
+      assign cx depth r (decode_cell ?channel cx b decode cell)
   | Ssa_op.Local_alloc { slots; var } ->
       let res, r = first_result cx i in
       Hashtbl.replace cx.locals (res.Ssa_value.id :> int) (slots, var);
@@ -610,10 +652,38 @@ let instr cx depth (i : Ssa_instr.t) =
       | (Ssa_op.Decode.F32_exact | Ssa_op.Decode.F64_to_f64), true ->
           line cx (depth + 1) "memcpy(&%s, &%s[%s], sizeof %s);" r
             (buffer_name cx buffer) o r
+      | (Ssa_op.Decode.I16_dequant32 | Ssa_op.Decode.I8_dequant32), true ->
+          (* the integer lanes copied whole, converted exactly, then the
+             binary32 subtract and multiply over every lane *)
+          (* every lane's channel is the first's: the vectorizer keeps a
+             per-channel read's channel uniform *)
+          let scale, zero_point =
+            quant_params cx b ~f32:true
+              ~channel:(Some (name cx at.Expr.Coord.c))
+          in
+          let q =
+            match decode with
+            | Ssa_op.Decode.I8_dequant32 -> ("int8_t", 1)
+            | _ -> ("int16_t", 2)
+          in
+          line cx (depth + 1)
+            "typedef %s ssa_q __attribute__((vector_size(%d))); ssa_q q;"
+            (fst q)
+            (snd q * count);
+          line cx (depth + 1) "memcpy(&q, &%s[%s], sizeof q);"
+            (buffer_name cx buffer) o;
+          line cx (depth + 1) "%s = (__builtin_convertvector(q, %s) - %s) * %s;"
+            r
+            (vtype cx res.Ssa_value.ty)
+            zero_point scale
       | _ ->
           for k = 0 to count - 1 do
             line cx (depth + 1) "%s[%d] = %s;" r k
-              (decode_cell cx decode (cell k))
+              (decode_cell
+                 ~channel:
+                   (Printf.sprintf "(%s + %Ld)" (name cx at.Expr.Coord.c)
+                      (Int64.mul (Int64.of_int k) steps.Expr.Coord.c))
+                 cx b decode (cell k))
           done);
       line cx depth "}"
   | Ssa_op.Vec_store { buffer; at; steps; encode; value; lanes } ->

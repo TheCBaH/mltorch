@@ -370,3 +370,173 @@ let%expect_test "narrow storage read straight to binary32" =
     i32 binary64 decode [i32_to_f64] conversion 2, total 2; = binary64 decode true: MIR: ok
     i32 scalar [i32_to_f32] conversion 0, total 0; = binary64 decode true: MIR: ok
     i32 vector [i32_to_f32] conversion 0, total 0; = binary64 decode true: MIR: ok |}]
+
+(* Quantized reads as vectors under [Fp32_ordered] (forced neon128): per tensor,
+   and per channel with the channel outer so every vector reads one channel's
+   parameters; per channel with the lanes along C stays scalar
+   ([channel_varies]). Each plan agrees with the SSA interpreter and with the
+   scalar plan, and holds no binary64 instruction. *)
+let%expect_test "dequantization as vectors" =
+  let w0 = 32L and c0 = 3L in
+  (* out[w, c] <- in[w, c], with the loop over [w] inside the loop over [c]
+     when [c_outer] *)
+  let copy ?(w = w0) ?(c = c0) ~c_outer format =
+    F.build
+      ~buffers:
+        [
+          buffer 0 ~w ~c format Ssa_buffer.Input;
+          buffer 1 ~w ~c Ssa_format.F32 Ssa_buffer.Output;
+        ]
+      (fun bld ->
+        let ( >> ) () hi body =
+          B.for_ bld ~lo:(B.index bld 0L) ~hi:(B.index bld hi) ~init:B.Nil
+            (fun bld x B.Nil ->
+              body bld x;
+              B.Nil)
+        in
+        let cell bld ~x ~k =
+          let d =
+            match format with
+            | Ssa_format.I8 _ -> Ssa_op.Decode.I8_dequant
+            | _ -> Ssa_op.Decode.I16_dequant
+          in
+          let v = B.load_f64 bld (F.buf 0) ~decode:d (at bld ~w:x ~c:k) in
+          B.store_f64 bld (F.buf 1) ~encode:Ssa_op.Encode.F32_round
+            (at bld ~w:x ~c:k) v
+        in
+        let B.Nil =
+          if c_outer then
+            ( >> ) () c (fun bld k ->
+                let B.Nil =
+                  B.for_ bld ~lo:(B.index bld 0L) ~hi:(B.index bld w)
+                    ~init:B.Nil (fun bld x B.Nil ->
+                      cell bld ~x ~k;
+                      B.Nil)
+                in
+                ())
+          else
+            ( >> ) () w (fun bld x ->
+                let B.Nil =
+                  B.for_ bld ~lo:(B.index bld 0L) ~hi:(B.index bld c)
+                    ~init:B.Nil (fun bld k B.Nil ->
+                      cell bld ~x ~k;
+                      B.Nil)
+                in
+                ())
+        in
+        ())
+  in
+  let census q =
+    match
+      Err.payload
+        (Machine_lower.Mir_lower.program
+           ~planning:
+             (Some
+                (Machine_ir.Mir_planning.make
+                   ~subject:(Machine_lower.Mir_lower.subject q)
+                   ~policy:"fp32_ordered" ~schedule:"scalar"
+                   ~precision:Machine_ir.Mir_planning.Precision.F32
+                   ~lanes:(Machine_ir.Mir_type.Lanes.of_int 1)
+                   ~fma:Machine_ir.Mir_planning.Fma.Forbidden ~capabilities:[]))
+           q)
+    with
+    | Error _ -> -1
+    | Ok l ->
+        let cs =
+          Machine_ir.Mir_f64_census.of_program l.Machine_lower.Mir_lower.program
+        in
+        List.fold_left
+          (fun n r -> n + Machine_ir.Mir_f64_census.count cs r)
+          0 Machine_ir.Mir_f64_census.Role.all
+  in
+  let cells n =
+    Ssa_memory.Ints (Array.init n (fun i -> (i * 37 mod 256) - 128))
+  in
+  let interpreted n q =
+    let memory = F.memory [ (0, cells n); (1, F.floats (Array.make n 0.)) ] in
+    F.run q ~memory;
+    F.output_floats memory 1
+  in
+  let quant scale zero_point =
+    Ssa_format.Per_tensor { scale = f32 scale; zero_point }
+  in
+  List.iter
+    (fun (label, format, c_outer, (w, c)) ->
+      let p = copy ~w ~c ~c_outer format in
+      let n = Int64.to_int (Int64.mul w c) in
+      let alias = Ssa_effects.Distinct_buffers in
+      let scalar =
+        (Ssa_plan.resolve ~alias ~target:Ssa_target.scalar
+           ~numerics:Ssa_numerics.Fp32_ordered p)
+          .Ssa_plan.program
+      in
+      match
+        Ssa_plan.fp32_vector ~alias
+          ~target:(Ssa_target.forced Ssa_target.neon128)
+          p
+      with
+      | Error _ -> Fmt.pr "%s: not admitted@." label
+      | Ok plan ->
+          Fmt.pr "%s: %a; binary64 %d; = scalar %b; " label
+            Fmt.(
+              list ~sep:(any ", ") (fun ppf (k, (n, _)) -> pf ppf "%s %d" k n))
+            (Ssa_vectorize.tally plan.Ssa_plan.vectorized)
+            (census plan.Ssa_plan.program)
+            (Array.for_all2 Core.Float_bits.equal_portable
+               (interpreted n scalar)
+               (interpreted n plan.Ssa_plan.program));
+          run ~precision:Machine_ir.Mir_planning.Precision.F32 "MIR"
+            plan.Ssa_plan.program
+            [ (0, cells n) ])
+    [
+      ( "i8 per tensor, integer zero point",
+        Ssa_format.I8 (quant 0.37 (-3.)),
+        false,
+        (w0, c0) );
+      ( "i8 per tensor, fractional zero point",
+        Ssa_format.I8 (quant 0.05 1.25),
+        false,
+        (w0, c0) );
+      ("i16 per tensor", Ssa_format.I16 (quant 1e-3 7.), false, (w0, c0));
+      ( "i8 per tensor, contiguous lanes along C",
+        Ssa_format.I8 (quant 0.37 (-3.)),
+        false,
+        (3L, 32L) );
+      ( "i8 per tensor, contiguous, fractional zero point",
+        Ssa_format.I8 (quant 0.05 1.25),
+        false,
+        (3L, 32L) );
+      ( "i16 per tensor, contiguous lanes along C",
+        Ssa_format.I16 (quant 1e-3 7.),
+        false,
+        (3L, 32L) );
+      ( "i8 per channel, channel outer",
+        Ssa_format.I8
+          (Ssa_format.Per_channel
+             {
+               scale = [| 0.5; -2.; f32 1e-2 |];
+               zero_point = [| 0.; 5.; -9.5 |];
+             }),
+        true,
+        (w0, c0) );
+      ( "i8 per channel, lanes along C",
+        Ssa_format.I8
+          (Ssa_format.Per_channel
+             {
+               scale =
+                 Array.init 32 (fun k -> f32 (0.01 *. float_of_int (k + 1)));
+               zero_point = Array.init 32 (fun k -> float_of_int (k - 16) /. 4.);
+             }),
+        false,
+        (3L, 32L) );
+    ];
+  [%expect
+    {|
+    i8 per tensor, integer zero point: too_short 1, vectorized 1; binary64 0; = scalar true; MIR: ok
+    i8 per tensor, fractional zero point: too_short 1, vectorized 1; binary64 0; = scalar true; MIR: ok
+    i16 per tensor: too_short 1, vectorized 1; binary64 0; = scalar true; MIR: ok
+    i8 per tensor, contiguous lanes along C: vectorized 1; binary64 0; = scalar true; MIR: ok
+    i8 per tensor, contiguous, fractional zero point: vectorized 1; binary64 0; = scalar true; MIR: ok
+    i16 per tensor, contiguous lanes along C: vectorized 1; binary64 0; = scalar true; MIR: ok
+    i8 per channel, channel outer: vectorized 1; binary64 0; = scalar true; MIR: ok
+    i8 per channel, lanes along C: channel_varies 1, too_short 1; binary64 0; = scalar true; MIR: ok |}]

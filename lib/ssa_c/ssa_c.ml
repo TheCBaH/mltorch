@@ -191,7 +191,7 @@ let kernel ?buffers ?sites ~name:fname (p : Ssa_program.t) =
     let params =
       List.map
         (fun (b : Ssa_buffer.t) ->
-          let t = cell_type b.Ssa_buffer.id b.Ssa_buffer.format in
+          let t = cell_type b.Ssa_buffer.format in
           Printf.sprintf "%s%s *%s"
             (match b.Ssa_buffer.role with
             | Ssa_buffer.Input -> "const "
@@ -268,8 +268,7 @@ let kernel ?buffers ?sites ~name:fname (p : Ssa_program.t) =
             refusal = None;
             buffer_types =
               List.map
-                (fun (b : Ssa_buffer.t) ->
-                  cell_type b.Ssa_buffer.id b.Ssa_buffer.format)
+                (fun (b : Ssa_buffer.t) -> cell_type b.Ssa_buffer.format)
                 buffers;
           },
           match sites with

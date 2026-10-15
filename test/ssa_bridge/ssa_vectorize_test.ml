@@ -494,8 +494,9 @@ let%expect_test "binary32 vector loops on special values" =
     inner reduction        neon128  vector loops 1; vector=true oracle=true; wide false
     inner reduction        wasm128  vector loops 1; vector=true oracle=true; wide false |}]
 
-(* The IR-level census sees the binary64 vectors of a narrowed plan: what a
-   binary32 vector plan must never hold. *)
+(* The IR-level census sees the binary64 vectors of the narrowed form (a read
+   widened, then narrowed lane by lane): what a binary32 vector plan must never
+   hold. *)
 let%expect_test "wide values of a narrowed vector plan" =
   let p =
     loop ~trips:16 (fun bld w ->
@@ -513,13 +514,23 @@ let%expect_test "wide values of a narrowed vector plan" =
       (Ssa_numerics.wide_values q.Ssa_plan.program)
   in
   let narrowed =
-    Ssa_plan.resolve ~alias ~target ~numerics:Ssa_numerics.Simd_fp32_ordered p
+    match Ssa_plan.vectorize_f32 ~alias ~target ~exact:false p with
+    | Ok (q, _) -> q
+    | Error _ -> assert false
   in
-  Fmt.pr "simd_fp32_ordered: %a@." Ssa_numerics.pp_wide (vectors narrowed);
+  Fmt.pr "narrowed form: %a@." Ssa_numerics.pp_wide
+    (List.filter
+       (fun ((v : Ssa_value.t), _) ->
+         match v.Ssa_value.ty with
+         | Ssa_type.Vec _ -> true
+         | Ssa_type.Effect | Ssa_type.Local | Ssa_type.Mask _
+         | Ssa_type.Scalar _ ->
+             false)
+       (Ssa_numerics.wide_values narrowed));
   (match Ssa_plan.fp32_vector ~alias ~target p with
   | Ok q -> Fmt.pr "fp32 vector: [%a]@." Ssa_numerics.pp_wide (vectors q)
   | Error _ -> assert false);
   [%expect
     {|
-    simd_fp32_ordered: v20 : vec<x16,f64> = vec.load, v24 : vec<x16,f64> = lanes.convert.f32_to_f64
+    narrowed form: v20 : vec<x16,f64> = vec.load, v24 : vec<x16,f64> = lanes.convert.f32_to_f64
     fp32 vector: [] |}]

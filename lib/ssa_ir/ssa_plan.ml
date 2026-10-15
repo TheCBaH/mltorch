@@ -140,7 +140,9 @@ let reference ~alias ~numerics ~refusal ?target (p : Ssa_program.t) =
         contracted = 0;
       }
 
-(* The [Simd_fp32_*] plan: narrow, then vectorize; binary32 only when a loop
+(* The [Simd_fp32_*] plan: the exact binary32 form vectorized, every element
+   admitted (a kernel that does not vectorize is planned binary64, so its
+   reads stay binary64 decodes); binary32 only when a loop
    vectorizes or a sum is scheduled, else the binary64 plan. *)
 let simd_fp32 ~alias ~numerics ~target (p : Ssa_program.t) =
   let scalar = run ~alias (before ~target ~alias ()) p in
@@ -148,7 +150,7 @@ let simd_fp32 ~alias ~numerics ~target (p : Ssa_program.t) =
   | Error r -> reference ~alias ~numerics ~refusal:(Some r) ~target p
   | Ok () ->
       let f32_target = Ssa_target.f32 target in
-      let narrowed = Ssa_precision.to_f32 scalar in
+      let narrowed = Ssa_precision.to_f32 ~exact:true scalar in
       let q, vectorized =
         Ssa_vectorize.program ~alias ~target:f32_target narrowed
       in

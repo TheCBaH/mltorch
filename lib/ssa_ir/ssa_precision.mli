@@ -24,5 +24,6 @@ val to_f32 : ?exact:bool -> Ssa_program.t -> Ssa_program.t
     [exact] (default [false]) reads a binary32 cell with
     {!Ssa_op.Decode.F32_exact} and stores a binary32 value with
     {!Ssa_op.Encode.F32_exact}, so a kernel has no widening and narrowing around
-    its accesses, scalar or vectorized afterwards: the [Fp32_ordered] form.
-    Without it a read widens and narrows, the [Simd_fp32_*] form. *)
+    its accesses, scalar or vectorized afterwards: the form every binary32 plan
+    uses. Without it a read widens and narrows (the narrowed form, kept for a
+    census). *)

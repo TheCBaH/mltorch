@@ -4,10 +4,9 @@ open Ssa_bridge_test.Ssa_fixtures
 (* M11.2: planned binary32 vector kernels selected as Advanced SIMD forms,
    their selected run against the generic route and the plan's oracle. *)
 
-let show ?mutation ?(target = Ssa_ir.Ssa_target.neon128) kernel ~bind =
-  Fmt.pr "%s@."
-    (A64_harness.planned ?mutation ~target
-       ~numerics:Ssa_ir.Ssa_numerics.Simd_fp32_ordered kernel ~bind)
+let show ?mutation ?(target = Ssa_ir.Ssa_target.neon128)
+    ?(numerics = Ssa_ir.Ssa_numerics.Simd_fp32_ordered) kernel ~bind =
+  Fmt.pr "%s@." (A64_harness.planned ?mutation ~target ~numerics kernel ~bind)
 
 let data n = Array.init n (fun i -> (float_of_int (i * 7 mod 11) -. 5.) /. 4.)
 let x = Loop_fixtures.load_t0
@@ -84,15 +83,22 @@ let%expect_test "vector selection mutations are caught" =
     (fun (name, kernel, bind) ->
       Fmt.pr "%s: " name;
       show ~target kernel ~bind;
+      (* the binary32 plans read and write binary32 vectors directly; the
+         narrowing of two binary64 halves is a binary64 plan's binary32
+         store *)
       List.iter
-        (fun (m, mutation) ->
+        (fun (m, mutation, numerics) ->
           Fmt.pr "  %s: " m;
-          show ~target ~mutation kernel ~bind)
+          show ~target ~mutation ~numerics kernel ~bind)
         Machine_target_aarch64.A64_select.Mutation.
           [
-            ("contiguous lanes", Contiguous_lanes);
-            ("contract", Contract);
-            ("dropped half", Dropped_half);
+            ( "contiguous lanes",
+              Contiguous_lanes,
+              Ssa_ir.Ssa_numerics.Simd_fp32_ordered );
+            ("contract", Contract, Ssa_ir.Ssa_numerics.Simd_fp32_ordered);
+            ( "dropped half, binary64 plan",
+              Dropped_half,
+              Ssa_ir.Ssa_numerics.Reference_f64 );
           ])
     cases;
   [%expect
@@ -100,15 +106,15 @@ let%expect_test "vector selection mutations are caught" =
     x * x + x: ok
       contiguous lanes: ok
       contract: ok
-      dropped half: ok DISAGREE generic vs aarch64: output t1[2]: -0x1p-2:f32 vs 0x0p+0:f32; oracle vs aarch64: output t1[2]: -0x1p-2:f32 vs 0x0p+0:f32
+      dropped half, binary64 plan: ok DISAGREE generic vs aarch64: output t1[2]: -0x1p-2:f32 vs 0x0p+0:f32; oracle vs aarch64: output t1[2]: -0x1p-2:f32 vs 0x0p+0:f32
     matmul 3x5x17: ok
       contiguous lanes: ok
       contract: ok DISAGREE generic vs aarch64: output t2[33]: -0x1.29e508p+1:f32 vs -0x1.29e5p+1:f32; oracle vs aarch64: output t2[33]: -0x1.29e508p+1:f32 vs -0x1.29e5p+1:f32
-      dropped half: ok DISAGREE generic vs aarch64: output t2[2]: -0x1.29e4f8p+3:f32 vs 0x0p+0:f32; oracle vs aarch64: output t2[2]: -0x1.29e4f8p+3:f32 vs 0x0p+0:f32
+      dropped half, binary64 plan: ok
     transposed, every legal loop vectorized: ok
       contiguous lanes: ok DISAGREE generic vs aarch64: output t1[1]: 0x1p+0:f32 vs 0x1p-1:f32; oracle vs aarch64: output t1[1]: 0x1p+0:f32 vs 0x1p-1:f32
       contract: ok
-      dropped half: ok DISAGREE generic vs aarch64: output t1[2]: 0x1p-1:f32 vs 0x0p+0:f32; oracle vs aarch64: output t1[2]: 0x1p-1:f32 vs 0x0p+0:f32 |}]
+      dropped half, binary64 plan: ok DISAGREE generic vs aarch64: output t1[2]: 0x1p-1:f32 vs 0x0p+0:f32; oracle vs aarch64: output t1[2]: 0x1p-1:f32 vs 0x0p+0:f32 |}]
 
 (* Masks: a vector compare makes a Q register of all-ones and all-zero lanes,
    a select chooses bit by bit, and a NaN is false for every ordered compare. *)
@@ -169,3 +175,66 @@ let%expect_test "mask selection mutations are caught" =
     x < 0 ? -x : x / 3: ok
       arms exchanged: ok DISAGREE generic vs aarch64: output t1[1]: 0x1.555556p-3:f32 vs -0x1p-1:f32; oracle vs aarch64: output t1[1]: 0x1.555556p-3:f32 vs -0x1p-1:f32
       less-than unswapped: ok DISAGREE generic vs aarch64: output t1[1]: 0x1.555556p-3:f32 vs -0x1p-1:f32; oracle vs aarch64: output t1[1]: 0x1.555556p-3:f32 vs -0x1p-1:f32 |}]
+
+(* Binary32 dequantization as integer lanes, selected: the integer register
+   loads, the sign extensions from it and the int32 conversion, against the
+   generic route and the plan's oracle. *)
+let%expect_test "binary32 dequantization as integer lanes, selected" =
+  let f32 x = fst (Quant.round_scale x) in
+  List.iter
+    (fun (name, fmt, quant, n) ->
+      let cells =
+        Array.init n (fun i -> Int64.of_int ((i * 37 mod 256) - 128))
+      in
+      let bind id =
+        if Tensor_id.equal id (Loop_fixtures.tid 0) then
+          Some (Loop_programs.raw_tensor fmt ~quant n cells)
+        else None
+      in
+      Fmt.pr "%s: %s@." name
+        (A64_harness.planned ~target:Ssa_ir.Ssa_target.neon128
+           ~numerics:Ssa_ir.Ssa_numerics.Fp32_ordered
+           (Loop_programs.format_kernel ~fmt ~quant n)
+           ~bind))
+    [
+      ( "i8 per tensor, 32 lanes",
+        Payload.Fmt Payload.I8,
+        Quant.per_tensor ~scale:(f32 0.37) ~zero_point:(-3.),
+        32 );
+      ( "i8 per tensor, 37 lanes",
+        Payload.Fmt Payload.I8,
+        Quant.per_tensor ~scale:(f32 0.05) ~zero_point:1.25,
+        37 );
+      ( "i16 per tensor, 32 lanes",
+        Payload.Fmt Payload.I16,
+        Quant.per_tensor ~scale:(f32 1e-3) ~zero_point:7.,
+        32 );
+    ];
+  [%expect
+    {|
+    i8 per tensor, 32 lanes: ok
+    i8 per tensor, 37 lanes: ok
+    i16 per tensor, 32 lanes: ok |}]
+
+(* Binary16 and bfloat16 as integer lanes, selected: every encoding through
+   the zero extensions, lane shifts and bitwise forms, against the generic
+   route and the plan's oracle. *)
+let%expect_test "binary16 and bfloat16 as integer lanes, selected" =
+  List.iter
+    (fun (name, fmt) ->
+      let n = 65536 in
+      let cells = Array.init n Int64.of_int in
+      let bind id =
+        if Tensor_id.equal id (Loop_fixtures.tid 0) then
+          Some (Loop_programs.raw_tensor fmt n cells)
+        else None
+      in
+      Fmt.pr "%s: %s@." name
+        (A64_harness.planned ~target:Ssa_ir.Ssa_target.neon128
+           ~numerics:Ssa_ir.Ssa_numerics.Fp32_ordered
+           (Loop_programs.format_kernel ~fmt n)
+           ~bind))
+    [ ("f16", Payload.Fmt Payload.F16); ("bf16", Payload.Fmt Payload.BF16) ];
+  [%expect {|
+    f16: ok
+    bf16: ok |}]

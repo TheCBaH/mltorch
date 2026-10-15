@@ -642,9 +642,14 @@ let rec instr st (i : Ssa_instr.t) =
   | Ssa_op.Vec_iota { base; step; lanes } ->
       result (Mir_lower_vector.iota st ~base:(v base) ~step ~lanes)
   | Ssa_op.Vec_load { buffer; at; steps; decode = d; lanes } ->
+      (* a lane-by-lane decode: a dequantization takes the access's channel,
+         the same in every lane (the vectorizer refuses one that varies) *)
+      let e = entry_of st buffer in
+      let channel = value st at.Expr.Coord.c in
       result
-        (Mir_lower_vector.load st op (entry_of st buffer) ~at ~steps ~lanes
-           ~decode:(fun addr d -> Mir_lower_cell.decode st op addr d)
+        (Mir_lower_vector.load st op e ~at ~steps ~lanes ~channel:(Some channel)
+           ~decode:(fun addr d ->
+             Mir_lower_cell.decode ~entry:e ~channel st op addr d)
            d)
   | Ssa_op.Vec_splat { element; lanes } ->
       result

@@ -229,8 +229,10 @@ its own name becomes its interface and hides its siblings (the lowering is
   load's is its decode's result), and `?elements` names the elements a vector
   body may hold: a loop whose vector form needs another stays scalar with
   `Element_not_admitted` (masks are always admitted). Exact binary32 reads and
-  writes (`F32_exact`) vectorize like any other access; an integer or binary32
-  dequantizing read does not. The vector program is checked against the
+  writes (`F32_exact`) vectorize like any other access, and so does a
+  dequantizing read, except a per-channel one whose channel varies across the
+  lanes (`Channel_varies`: its parameters would be a gather); an integer read
+  does not. The vector program is checked against the
   reference, the scalar program and its scalar-lane expansion, and the sweep
   runs it for the cost model's target and for every legal loop.
 - **Scheduled sums** (`Ssa_vector_sum`, relaxed policy only). A sum no enclosing
@@ -348,8 +350,14 @@ GCC/Clang generic vectors of the logical width (a power of two) with masks as
 exact binary32 one) and any other stride goes lane by lane, and the operations C has no vector form for run lane by
 lane through the scalar helper. Checked operations are explicit `if` + record at
 their own site, with the operands the interpreter reports. Precision and
-contraction are never decided here. Quantized buffers are a typed refusal; a
-buffer no operation touches is no argument (the caller validates its binding).
+contraction are never decided here. A buffer no operation touches is no
+argument (the caller validates its binding).
+An `i8`/`i16` buffer is `int8_t`/`int16_t` and its dequantization the explicit
+operations (in binary32 with `float` literals); a contiguous binary32
+dequantizing vector read is one copy of the integer lanes and a
+`__builtin_convertvector`. A per-channel buffer's parameters are file-scope
+`static const` tables (`float` for a binary32 decode: every parameter is a
+binary32 value), indexed by each lane's C coordinate.
 Checks against the reference: the op sweep lowered and optimized, plans for every
 policy on neon (against the structured interpreter on the same program),
 hand-built control flow and every failure row, the vector surface, and mutations
@@ -394,8 +402,13 @@ stores a demote plus a 64-bit lane store; any other stride goes lane by lane.
 A vector load builds the registers of its result's element: an exact binary32
 read (`F32_exact`) is one `v128.load` (align 4) per four lanes when contiguous
 and `v128.load32_splat` when every lane reads one cell, an exact binary32 store
-one `v128.store` per register when contiguous; otherwise lane by lane through
-the scalar decode or encode. The binary64 forms are unchanged byte for byte.
+one `v128.store` per register when contiguous; a contiguous binary32 read of
+narrow storage widens integer lanes: a per-tensor `i8`/`i16` dequantization is
+the `extend_low` chain, `f32x4.convert_i32x4_s`, then the binary32 subtract
+and multiply (each rounding once, as the scalar decode); `bf16` a zero-extend
+and a shift; `f16` the integer-lane decode (rebias, infinity/NaN, subnormal as
+mantissa times 2^-24, the sign last). Otherwise lane by lane through the
+scalar decode or encode. The binary64 forms are unchanged byte for byte.
 `Float_fma` is the one relaxed-SIMD `f32x4.relaxed_madd`, only where the plan was
 made for relaxed SIMD; a scalar fused operation and a binary64 one are refused.
 Checks: the op sweep lowered and optimized, planned programs for strict vectors,

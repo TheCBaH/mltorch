@@ -45,21 +45,21 @@ let%expect_test "pointwise: lanes, tails and special values" =
   [%expect
     {|
     x / 3 - 1.5, w=1: ok (f64, 0 vector operations)
-    x / 3 - 1.5, w=16: ok (f32, 10 vector operations)
-    x / 3 - 1.5, w=17: ok (f32, 10 vector operations)
-    x / 3 - 1.5, w=37: ok (f32, 10 vector operations)
+    x / 3 - 1.5, w=16: ok (f32, 6 vector operations)
+    x / 3 - 1.5, w=17: ok (f32, 6 vector operations)
+    x / 3 - 1.5, w=37: ok (f32, 6 vector operations)
     sqrt x, w=1: ok (f64, 0 vector operations)
-    sqrt x, w=16: ok (f32, 7 vector operations)
-    sqrt x, w=17: ok (f32, 7 vector operations)
-    sqrt x, w=37: ok (f32, 7 vector operations)
+    sqrt x, w=16: ok (f32, 3 vector operations)
+    sqrt x, w=17: ok (f32, 3 vector operations)
+    sqrt x, w=37: ok (f32, 3 vector operations)
     x * x + x, w=1: ok (f64, 0 vector operations)
-    x * x + x, w=16: ok (f32, 14 vector operations)
-    x * x + x, w=17: ok (f32, 14 vector operations)
-    x * x + x, w=37: ok (f32, 14 vector operations)
+    x * x + x, w=16: ok (f32, 6 vector operations)
+    x * x + x, w=17: ok (f32, 6 vector operations)
+    x * x + x, w=37: ok (f32, 6 vector operations)
     exp x, w=1: ok (f64, 0 vector operations)
-    exp x, w=16: ok (f32, 206 vector operations)
-    exp x, w=17: ok (f32, 206 vector operations)
-    exp x, w=37: ok (f32, 206 vector operations) |}]
+    exp x, w=16: ok (f32, 202 vector operations)
+    exp x, w=17: ok (f32, 202 vector operations)
+    exp x, w=37: ok (f32, 202 vector operations) |}]
 
 let matmul (m, k, n) =
   let a = operand 3 (m * k) and b = operand 5 (k * n) in
@@ -71,9 +71,9 @@ let%expect_test "matmul: vector sums, odd extents" =
   [%expect
     {|
     1x1x1: ok (f64, 0 vector operations)
-    2x3x16: ok (f32, 19 vector operations)
-    3x5x17: ok (f32, 10 vector operations)
-    5x7x33: ok (f32, 10 vector operations) |}]
+    2x3x16: ok (f32, 11 vector operations)
+    3x5x17: ok (f32, 6 vector operations)
+    5x7x33: ok (f32, 6 vector operations) |}]
 
 let%expect_test "another target's lane count" =
   List.iter
@@ -95,7 +95,7 @@ let%expect_test "a lane stride doubled is caught" =
     (matmul_kernel ~m ~k ~n)
     ~bind:(matmul_bind ~m ~k ~n ~a ~b);
   [%expect
-    {| defect(bad_access) (f32, 10 vector operations) DISAGREE oracle vs generic: inconclusive: success vs defect(bad_access); oracle vs split: inconclusive: success vs defect(bad_access) |}]
+    {| defect(bad_access) (f32, 6 vector operations) DISAGREE oracle vs generic: inconclusive: success vs defect(bad_access); oracle vs split: inconclusive: success vs defect(bad_access) |}]
 
 let%expect_test "the relaxed policy's plan" =
   List.iter
@@ -108,8 +108,8 @@ let%expect_test "the relaxed policy's plan" =
     [ (2, 3, 16); (3, 9, 17) ];
   [%expect
     {|
-    2x3x16: ok (f32, 19 vector operations)
-    3x9x17: ok (f32, 10 vector operations) |}]
+    2x3x16: ok (f32, 11 vector operations)
+    3x9x17: ok (f32, 6 vector operations) |}]
 
 let%expect_test "16-byte slices: swapped or stale slices are caught" =
   let m, k, n = (3, 5, 17) in
@@ -121,5 +121,5 @@ let%expect_test "16-byte slices: swapped or stale slices are caught" =
     Machine_ir.Mir_vsplit.Mutation.[ Stale_slice; Swapped_slices ];
   [%expect
     {|
-    ok (f32, 10 vector operations) DISAGREE oracle vs split: output t2[12]: -0x1.6ffcb8p+3:f32 vs -0x1.eaa644p+1:f32
-    ok (f32, 10 vector operations) DISAGREE oracle vs split: output t2[0]: -0x1.eaa644p+1:f32 vs -0x1.55b3d2p+2:f32 |}]
+    ok (f32, 6 vector operations) DISAGREE oracle vs split: output t2[12]: -0x1.6ffcb8p+3:f32 vs -0x1.eaa644p+1:f32
+    ok (f32, 6 vector operations) DISAGREE oracle vs split: output t2[0]: -0x1.eaa644p+1:f32 vs -0x1.55b3d2p+2:f32 |}]

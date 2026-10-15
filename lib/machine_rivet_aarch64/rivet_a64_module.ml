@@ -21,6 +21,23 @@ let label_of (f : (_, _) Mir_phys.Func.t) b =
 
 let insn i = N.Instruction { insn = i; origin }
 let dir directive = N.Directive { directive; origin }
+
+(* An encoded word stands in the code as a four-byte datum. *)
+let item = function
+  | Rivet_a64_form.Insn i -> insn i
+  | Rivet_a64_form.Word w ->
+      dir
+        (D.Data
+           {
+             width = 4;
+             values =
+               [
+                 Asm_core.Expr.Const
+                   (Foundation.Bigint.of_int64
+                      (Int64.logand (Int64.of_int32 w) 0xFFFF_FFFFL));
+               ];
+           })
+
 let lbl name = N.Label { name; origin }
 let section name perms ~nobits = dir (D.Section { name; perms; nobits })
 let const_expr n = Asm_core.Expr.Const (Foundation.Bigint.of_int64 n)
@@ -116,30 +133,35 @@ let instrs_of_func ?mutation ~table_slot esc relocations
         in
         let reg (v : Mir_target.View.t) = v.Mir_target.View.name in
         let items_of (i : A64_op.t Mir_phys.Instr.t) =
-          List.map insn
+          List.map item
             (match i with
             | Mir_phys.Instr.Exec { instr; uses; defs } -> (
                 match instr.Mir_instr.op with
                 | Mir_sel.Op.Machine op ->
-                    F.instructions
+                    F.items
                       (env (Some (Mir_id.Instr.to_int instr.Mir_instr.id)))
                       op ~uses ~defs
                 | Mir_sel.Op.Event _ -> []
                 | Mir_sel.Op.Undef _ -> [])
             | Mir_phys.Instr.Late { op; uses; defs } ->
-                F.instructions (env None) op ~uses ~defs
+                F.items (env None) op ~uses ~defs
             | Mir_phys.Instr.Remat { instr; defs } -> (
                 match instr.Mir_instr.op with
                 | Mir_sel.Op.Machine op ->
-                    F.instructions
+                    F.items
                       (env (Some (Mir_id.Instr.to_int instr.Mir_instr.id)))
                       op ~uses:[] ~defs
                 | Mir_sel.Op.Event _ | Mir_sel.Op.Undef _ -> [])
             | Mir_phys.Instr.Move { dst; src; _ } ->
-                F.transfer ?mutation (env None) ~dst ~src
+                List.map
+                  (fun i -> F.Insn i)
+                  (F.transfer ?mutation (env None) ~dst ~src)
             | Mir_phys.Instr.Save { dst; src } ->
-                F.transfer ?mutation ~save:true (env None) ~dst ~src
-            | Mir_phys.Instr.Sp delta -> F.stack_step (env None) delta)
+                List.map
+                  (fun i -> F.Insn i)
+                  (F.transfer ?mutation ~save:true (env None) ~dst ~src)
+            | Mir_phys.Instr.Sp delta ->
+                List.map (fun i -> F.Insn i) (F.stack_step (env None) delta))
           @ List.map
               (fun (c : Rivet_cfi.directive) ->
                 dir

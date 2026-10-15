@@ -274,7 +274,12 @@ binary32 vectors: a loop whose vector form would hold any other element (a
 `bf16`, `f16`, `bool`, `i32`, `i64` or `f64` decode, a binary64 iota) stays
 scalar with `Element_not_admitted`, never vectorized with conversions. The
 backends load and store binary32 vectors directly (`v128.load`/`store` and
-`load32_splat` in SSA Wasm; `vload`/`vstore` of `F32` in Machine IR). A scratch
+`load32_splat` in SSA Wasm; `vload`/`vstore` of `F32` in Machine IR). The SSA
+planner's `Simd_fp32_*` kernels use the exact form too (every element
+admitted, since a kernel those policies leave binary64 is planned binary64
+anyway): their values are those of the widening form bit for bit, with fewer
+instructions; the widening vector forms remain for binary64 vectors over
+binary32 storage. A scratch
 cell is read at the type it was written at (`Ssa_op.Cell`): a binary32 value
 occupies the low four bytes of its eight-byte slot, and zeroing a slot is an
 integer store. And the C dialects spell their NaN, infinity and sign tests with
@@ -287,7 +292,14 @@ rounding through binary64, the oracle's definition), and CompCert's
 register-class choices. `f16`, `bf16`, `bool` and `i32` cells are read straight
 to binary32 in the SSA backends (`Decode.F16_to_f32`, `Bf16_to_f32`,
 `Bool_to_f32`, `I32_to_f32`: exact, or for `i32` one rounding), scalar or
-vectorized lane by lane. With vectors on, the generic Machine IR
+vectorized. A binary32 dequantizing read vectorizes too (per tensor, or per
+channel with one channel per vector), in Wasm, C and Machine IR through integer
+lanes (on AArch64 `SXTL`/`SCVTF`, on x86-64 SSE2 unpacks, `PSRAD` and
+`CVTDQ2PS`) when the cells are contiguous and fill whole registers, and
+elsewhere lane by lane. Contiguous `f16`/`bf16` reads are integer lanes in
+every vector backend (Wasm, Machine IR on AArch64 and x86-64), never
+`FCVTL`/F16C: a native half conversion quiets a signalling NaN, which the
+binary16 decode keeps. With vectors on, the generic Machine IR
 and the Rivet AArch64 assembly (`machine_model_census --ssa=fp32 --f64`,
 `machine_rivet_a64_census --planned=fp32 --asm`) count zero in every role on
 every CI model. The comparison tool exposes the policy as the

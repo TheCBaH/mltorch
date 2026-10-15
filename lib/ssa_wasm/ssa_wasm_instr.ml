@@ -662,10 +662,15 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
             (List.init count (fun _ -> r element @ [ vn (splat_op e) ])))
   | Ssa_op.Vec_load { buffer; at; steps; decode = d; lanes } ->
       let b = find_buffer st buffer in
-      if Ssa_format.per_channel b.Ssa_buffer.format then
+      (* a per-channel dequantization reads lane 0's channel for every lane *)
+      if
+        Ssa_format.per_channel b.Ssa_buffer.format
+        && not (Int64.equal steps.Expr.Coord.c 0L)
+      then
         refuse
           (`Unsupported_operation
-             "a vector load of a per-channel quantized buffer");
+             "a vector load across the channels of a per-channel quantized \
+              buffer");
       let res = first_result i in
       let delta = lane_delta b steps in
       let o = fresh st Wasm_type.I32 in
@@ -704,12 +709,93 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
                       (gather Ssa_type.F64 [ lane (2 * i); lane ((2 * i) + 1) ]))
         | Ssa_type.F32 ->
             let per = lanes_per_register Ssa_type.F32 in
+            let splat_i32 k = [ i32 k; vn Wasm_op.I32x4_splat ] in
+            let splat_f32 x = [ f32 x; vn Wasm_op.F32x4_splat ] in
+            (* four narrow cells widened to i32 lanes *)
+            let narrow load extend first =
+              cell_address st b (element first)
+              @ [ I.Simd_load (load, arg 0 0) ]
+              @ List.map vn extend
+            in
             List.init (count / per) (fun i ->
-                match (d, delta) with
-                | Ssa_op.Decode.F32_exact, 1L ->
+                match (d, delta, Ssa_format.quant b.Ssa_buffer.format) with
+                | ( (Ssa_op.Decode.I8_dequant32 | Ssa_op.Decode.I16_dequant32),
+                    1L,
+                    Some (Ssa_format.Per_tensor { scale; zero_point }) ) ->
+                    (* [q] exact in binary32, minus the zero point, times the
+                       scale: each rounded once, as the scalar decode *)
+                    (match d with
+                      | Ssa_op.Decode.I8_dequant32 ->
+                          narrow Wasm.Simd_load.Load32_zero
+                            [
+                              Wasm_op.I16x8_extend_low_i8x16_s;
+                              Wasm_op.I32x4_extend_low_i16x8_s;
+                            ]
+                            (per * i)
+                      | _ ->
+                          narrow Wasm.Simd_load.Load64_zero
+                            [ Wasm_op.I32x4_extend_low_i16x8_s ]
+                            (per * i))
+                    @ [ vn Wasm_op.F32x4_convert_i32x4_s ]
+                    @ splat_f32 zero_point
+                    @ [ vn Wasm_op.F32x4_sub ]
+                    @ splat_f32 scale
+                    @ [ vn Wasm_op.F32x4_mul ]
+                | Ssa_op.Decode.Bf16_to_f32, 1L, _ ->
+                    (* the high half of each binary32 *)
+                    narrow Wasm.Simd_load.Load64_zero
+                      [ Wasm_op.I32x4_extend_low_i16x8_u ]
+                      (per * i)
+                    @ [ i32 16; vn Wasm_op.I32x4_shl ]
+                | Ssa_op.Decode.F16_to_f32, 1L, _ ->
+                    (* binary16 by integer lanes: a normal value rebiased, an
+                       infinity or NaN with the binary32 exponent, a
+                       subnormal its mantissa times 2^-24; the sign last *)
+                    let h = fresh st Wasm_type.V128
+                    and e = fresh st Wasm_type.V128
+                    and m = fresh st Wasm_type.V128
+                    and sign = fresh st Wasm_type.V128 in
+                    narrow Wasm.Simd_load.Load64_zero
+                      [ Wasm_op.I32x4_extend_low_i16x8_u ]
+                      (per * i)
+                    @ [ set h ]
+                    @ [ get h; i32 15; vn Wasm_op.I32x4_shr_u; i32 31 ]
+                    @ [ vn Wasm_op.I32x4_shl; set sign ]
+                    @ [ get h; i32 10; vn Wasm_op.I32x4_shr_u ]
+                    @ splat_i32 0x1f
+                    @ [ vn Wasm_op.V128_and; set e ]
+                    @ [ get h ]
+                    @ splat_i32 0x3ff
+                    @ [ vn Wasm_op.V128_and; set m ]
+                    (* subnormal or zero *)
+                    @ [ get m; vn Wasm_op.F32x4_convert_i32x4_s ]
+                    @ splat_f32 (Float.ldexp 1. (-24))
+                    @ [ vn Wasm_op.F32x4_mul; get sign; vn Wasm_op.V128_or ]
+                    (* infinity or NaN *)
+                    @ [ get sign ]
+                    @ splat_i32 0x7f80_0000
+                    @ [
+                        vn Wasm_op.V128_or; get m; i32 13; vn Wasm_op.I32x4_shl;
+                      ]
+                    @ [ vn Wasm_op.V128_or ]
+                    (* normal *)
+                    @ [ get sign; get e ]
+                    @ splat_i32 112
+                    @ [ vn Wasm_op.I32x4_add; i32 23; vn Wasm_op.I32x4_shl ]
+                    @ [
+                        vn Wasm_op.V128_or; get m; i32 13; vn Wasm_op.I32x4_shl;
+                      ]
+                    @ [ vn Wasm_op.V128_or ]
+                    @ [ get e ]
+                    @ splat_i32 0x1f
+                    @ [ vn Wasm_op.I32x4_eq; vn Wasm_op.V128_bitselect ]
+                    @ [ get e ]
+                    @ splat_i32 0
+                    @ [ vn Wasm_op.I32x4_eq; vn Wasm_op.V128_bitselect ]
+                | Ssa_op.Decode.F32_exact, 1L, _ ->
                     cell_address st b (element (per * i))
                     @ [ I.Simd_load (Wasm.Simd_load.Load, arg 2 0) ]
-                | Ssa_op.Decode.F32_exact, 0L ->
+                | Ssa_op.Decode.F32_exact, 0L, _ ->
                     cell_address st b (element 0)
                     @ [ I.Simd_load (Wasm.Simd_load.Load32_splat, arg 2 0) ]
                 | _ ->

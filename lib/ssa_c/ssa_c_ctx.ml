@@ -8,12 +8,9 @@ open Ssa_ir
 
 module R = Loop_ir.Loop_c_runtime
 
-type error =
-  [ `Unsupported_format of Ssa_id.Buffer.t * string | `Unsupported_lanes of int ]
+type error = [ `Unsupported_lanes of int ]
 
 let pp_error ppf : [< error ] -> unit = function
-  | `Unsupported_format (b, f) ->
-      Fmt.pf ppf "%a: format %s has no C implementation" Ssa_id.Buffer.pp b f
   | `Unsupported_lanes n ->
       Fmt.pf ppf "a %d-lane vector is not a power of two" n
 
@@ -190,8 +187,8 @@ let find_buffer cx id =
   | Some b -> b
   | None -> invalid_arg "Ssa_c: an undeclared buffer"
 
-(* The storage cell of a format, or a typed refusal. *)
-let cell_type id (f : Ssa_format.t) =
+(* The storage cell of a format. *)
+let cell_type (f : Ssa_format.t) =
   match f with
   | Ssa_format.Bf16 | Ssa_format.F16 -> "uint16_t"
   | Ssa_format.Bool -> "uint8_t"
@@ -199,8 +196,8 @@ let cell_type id (f : Ssa_format.t) =
   | Ssa_format.F64 -> "double"
   | Ssa_format.I32 -> "int32_t"
   | Ssa_format.I64 -> "int64_t"
-  | Ssa_format.I16 _ | Ssa_format.I8 _ ->
-      raise (Refused (`Unsupported_format (id, Ssa_format.name f)))
+  | Ssa_format.I16 _ -> "int16_t"
+  | Ssa_format.I8 _ -> "int8_t"
 
 let i64_lit = Loop_ir.Loop_c_base.i64_lit
 let float_lit = Loop_ir.Loop_c_base.float_lit

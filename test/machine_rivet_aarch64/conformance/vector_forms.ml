@@ -13,6 +13,7 @@ type kind =
   | M of Arr.t  (** the mask a compare of this arrangement makes *)
   | Sc of Fsz.t  (** a scalar FP register *)
   | Gp of Sz.t  (** a general register *)
+  | I of Mir_width.t * int  (** a vector register of this many integer lanes *)
 
 type t = {
   name : string;
@@ -31,6 +32,7 @@ let ty_of = function
   | Sc Fsz.S -> Mir_type.F32
   | Gp Sz.X -> Mir_type.i64
   | Gp Sz.W -> Mir_type.i32
+  | I (w, n) -> Mir_type.Vec (Mir_type.Elem.Int w, Mir_type.Lanes.of_int n)
 
 let form ?(mem = false) ?tied name inputs result make =
   { name; inputs; result; mem; tied; make }
@@ -113,7 +115,81 @@ let forms =
           (fun vs _ -> Ins_half (u 0 vs, u 1 vs));
         form "vwiden" [ V Arr.S2 ] (Some (V Arr.S4)) (fun vs _ ->
             Vwiden (u 0 vs));
+        (* integer lanes: encoded words (SXTL/SXTL2, SCVTF .4s) and LDR Q *)
+        form "scvtf.4s"
+          [ I (Mir_width.W32, 4) ]
+          (Some (V Arr.S4))
+          (fun vs _ -> Scvtf_vec (u 0 vs));
       ];
+      (* SXTL/UXTL from each four-lane slice of a byte or halfword register *)
+      List.concat_map
+        (fun (signed, (w, n), firsts) ->
+          List.map
+            (fun first ->
+              form
+                (Printf.sprintf "%cxtl.4s.%s[%d]"
+                   (if signed then 's' else 'u')
+                   (Mir_width.name w) first)
+                [ I (w, n) ]
+                (Some (I (Mir_width.W32, 4)))
+                (fun vs _ -> Xtl_w { signed; from = w; first; src = u 0 vs }))
+            firsts)
+        (List.concat_map
+           (fun signed ->
+             [
+               (signed, (Mir_width.W8, 16), [ 0; 4; 8; 12 ]);
+               (signed, (Mir_width.W16, 8), [ 0; 4 ]);
+             ])
+           [ true; false ]);
+      (* SHL, USHR and SSHR on int32 lanes, at the edges and the amounts the
+         binary16 decode uses *)
+      List.concat_map
+        (fun (o, ks) ->
+          List.map
+            (fun k ->
+              form
+                (Printf.sprintf "%s.4s#%d" (Shift.name o) k)
+                [ I (Mir_width.W32, 4) ]
+                (Some (I (Mir_width.W32, 4)))
+                (fun vs _ -> Vshift (o, k, u 0 vs)))
+            ks)
+        [
+          (Shift.Lsl, [ 0; 1; 13; 16; 17; 31 ]);
+          (Shift.Lsr, [ 1; 4; 15; 31; 32 ]);
+          (Shift.Asr, [ 1; 16; 31; 32 ]);
+        ];
+      [
+        form "mov.16b.int32x4-to-4s"
+          [ I (Mir_width.W32, 4) ]
+          (Some (V Arr.S4))
+          (fun vs _ -> Vcast (Arr.ty Arr.S4, u 0 vs));
+        form "mov.16b.4s-to-int32x4" [ V Arr.S4 ]
+          (Some (I (Mir_width.W32, 4)))
+          (fun vs _ -> Vcast (A64_op.int32x4, u 0 vs));
+      ];
+      List.map
+        (fun (o, n) ->
+          form
+            (Printf.sprintf "%s.16b.int32x4" n)
+            [ I (Mir_width.W32, 4); I (Mir_width.W32, 4) ]
+            (Some (I (Mir_width.W32, 4)))
+            (fun vs _ -> Vlogic (o, u 0 vs, u 1 vs)))
+        [ (Logic.And, "and"); (Logic.Orr, "orr"); (Logic.Eor, "eor") ];
+      List.concat_map
+        (fun (w, n) ->
+          List.map
+            (fun k ->
+              form ~mem:true
+                (Printf.sprintf "ldr.q.%s#%Ld" (Mir_width.name w) k)
+                []
+                (Some (I (w, n)))
+                (fun _ base ->
+                  Ldr_ivec
+                    ( Mir_type.Vec (Mir_type.Elem.Int w, Mir_type.Lanes.of_int n),
+                      base,
+                      k )))
+            [ 0L; 16L ])
+        [ (Mir_width.W8, 16); (Mir_width.W16, 8) ];
       List.concat_map
         (fun fsz ->
           let full = if fsz = Fsz.D then Arr.D2 else Arr.S4 in

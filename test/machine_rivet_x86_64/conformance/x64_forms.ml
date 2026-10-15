@@ -345,29 +345,95 @@ let all : t list =
               [ Val Mir_type.i32 ]
               (fun vs -> Trunc_zx (w, nth vs 0)))
           Mir_width.[ W8; W16 ];
-        [
-          form "movl.trunc" [ Val Mir_type.i64 ] (fun vs -> Trunc32 (nth vs 0));
-          form "movl.zx" [ Val Mir_type.i32 ] (fun vs -> Movzx32 (nth vs 0));
-          form "movslq" [ Val Mir_type.i32 ] (fun vs -> Movsxd (nth vs 0));
-          form "cqo;idivq" [ Val Mir_type.i64; Val Mir_type.i64 ] (fun vs ->
-              Cqo_idiv (nth vs 0, nth vs 1));
-          form "cvtpd2ps" [ Val (Pk.ty Pk.Pd) ] (fun vs -> Cvtpd2ps (nth vs 0));
-          form "cvtps2pd" [ Val half_ty ] (fun vs -> Cvtps2pd (nth vs 0));
-          form "movlhps"
-            [ Val (Pk.ty Pk.Ps); Val half_ty ]
-            (fun vs -> Movlhps (nth vs 0, nth vs 1));
-          form "movq.low" [ Val (Pk.ty Pk.Ps) ] (fun vs -> Movq_low (nth vs 0));
-          form "movq.widen" [ Val half_ty ] (fun vs -> Movq_widen (nth vs 0));
-          form "pshufd.half"
-            [ Val (Pk.ty Pk.Ps) ]
-            (fun vs -> Pshufd_half (nth vs 0));
-          form "leaq" [ Base ] (fun vs -> Lea (nth vs 0, 24L));
-          form "leaq-8" [ Base ] (fun vs -> Lea (nth vs 0, -8L));
-          form "addq ptr" [ Base; Val Mir_type.i64 ] (fun vs ->
-              Alu (Alu.Add, Sz.Q, nth vs 0, nth vs 1));
-          form "subq ptr" [ Base; Val Mir_type.i64 ] (fun vs ->
-              Alu (Alu.Sub, Sz.Q, nth vs 0, nth vs 1));
-        ];
+        (* integer lanes: the register loads and the sign extensions from
+           them *)
+        List.concat_map
+          (fun w ->
+            let t =
+              Mir_type.Vec
+                ( Mir_type.Elem.Int w,
+                  Mir_type.Lanes.of_int (128 / Mir_width.bits w) )
+            in
+            List.map
+              (fun (an, roles, addr) ->
+                form
+                  (Printf.sprintf "movups iload.%s %s" (Mir_width.name w) an)
+                  roles
+                  (fun vs -> Movup_iload (t, addr vs)))
+              addrs
+            @ List.concat_map
+                (fun signed ->
+                  List.map
+                    (fun first ->
+                      form
+                        (Printf.sprintf "%cext.4s.%s[%d]"
+                           (if signed then 's' else 'z')
+                           (Mir_width.name w) first)
+                        [ Val t ]
+                        (fun vs ->
+                          Xt_lanes { signed; from = w; first; src = nth vs 0 }))
+                    (List.init (32 / Mir_width.bits w) (fun k -> 4 * k)))
+                [ true; false ])
+          Mir_width.[ W8; W16 ]
+        (* lane shifts, bitwise forms and casts on int32 lanes *)
+        @ List.concat_map
+            (fun (o, ks) ->
+              List.map
+                (fun k ->
+                  form
+                    (Printf.sprintf "p%s.4s#%d" (Shift.name o) k)
+                    [ Val X64_op.int32x4 ]
+                    (fun vs -> Pshift (o, k, nth vs 0)))
+                ks)
+            [
+              (Shift.Shl, [ 0; 1; 13; 16; 17; 31 ]);
+              (Shift.Shr, [ 1; 4; 15; 31 ]);
+              (Shift.Sar, [ 1; 16; 31 ]);
+            ]
+        @ List.map
+            (fun o ->
+              form
+                (Printf.sprintf "%ss.int32x4" (Flogic.name o))
+                [ Val X64_op.int32x4; Val X64_op.int32x4 ]
+                (fun vs -> Plogic (o, Pk.Ps, nth vs 0, nth vs 1)))
+            Flogic.[ And; Or; Xor ]
+        @ [
+            form "movaps.cast.int32x4"
+              [ Val (Pk.ty Pk.Ps) ]
+              (fun vs -> Movap_cast (X64_op.int32x4, nth vs 0));
+            form "movaps.cast.ps" [ Val X64_op.int32x4 ] (fun vs ->
+                Movap_cast (Pk.ty Pk.Ps, nth vs 0));
+          ]
+        @ [
+            form "movl.trunc" [ Val Mir_type.i64 ] (fun vs ->
+                Trunc32 (nth vs 0));
+            form "movl.zx" [ Val Mir_type.i32 ] (fun vs -> Movzx32 (nth vs 0));
+            form "movslq" [ Val Mir_type.i32 ] (fun vs -> Movsxd (nth vs 0));
+            form "cqo;idivq" [ Val Mir_type.i64; Val Mir_type.i64 ] (fun vs ->
+                Cqo_idiv (nth vs 0, nth vs 1));
+            form "cvtpd2ps"
+              [ Val (Pk.ty Pk.Pd) ]
+              (fun vs -> Cvtpd2ps (nth vs 0));
+            form "cvtps2pd" [ Val half_ty ] (fun vs -> Cvtps2pd (nth vs 0));
+            form "cvtdq2ps" [ Val X64_op.int32x4 ] (fun vs ->
+                Cvtdq2ps (nth vs 0));
+            form "movlhps"
+              [ Val (Pk.ty Pk.Ps); Val half_ty ]
+              (fun vs -> Movlhps (nth vs 0, nth vs 1));
+            form "movq.low"
+              [ Val (Pk.ty Pk.Ps) ]
+              (fun vs -> Movq_low (nth vs 0));
+            form "movq.widen" [ Val half_ty ] (fun vs -> Movq_widen (nth vs 0));
+            form "pshufd.half"
+              [ Val (Pk.ty Pk.Ps) ]
+              (fun vs -> Pshufd_half (nth vs 0));
+            form "leaq" [ Base ] (fun vs -> Lea (nth vs 0, 24L));
+            form "leaq-8" [ Base ] (fun vs -> Lea (nth vs 0, -8L));
+            form "addq ptr" [ Base; Val Mir_type.i64 ] (fun vs ->
+                Alu (Alu.Add, Sz.Q, nth vs 0, nth vs 1));
+            form "subq ptr" [ Base; Val Mir_type.i64 ] (fun vs ->
+                Alu (Alu.Sub, Sz.Q, nth vs 0, nth vs 1));
+          ];
         List.map
           (fun k ->
             form (Printf.sprintf "movabs $%Ld" k) [] (fun _ ->

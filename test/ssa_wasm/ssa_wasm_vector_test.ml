@@ -751,3 +751,158 @@ let%expect_test "narrow storage read straight to binary32 under node" =
     bool vector: = interpreter true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
     i32 scalar: = interpreter true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
     i32 vector: = interpreter true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0 |}]
+
+(* Quantized reads as vectors under [Fp32_ordered] (forced wasm128), under
+   node: per tensor with the lanes along C (contiguous: the widening chain,
+   [f32x4.convert_i32x4_s], then the binary32 subtract and multiply) and along
+   W (lane by lane), per channel with every vector in one channel. Each equals
+   the interpreter, and the module holds no binary64 instruction. *)
+let%expect_test "dequantization as vectors under node" =
+  let f32 x = fst (Quant.round_scale x) in
+  let quant_case ~label ~w ~c ~c_outer ~format ~quant =
+    let n = w * c in
+    let cells = Array.init n (fun i -> (i * 37 mod 256) - 128) in
+    let bufs =
+      [
+        {
+          Ssa_buffer.id = buf 0;
+          extents =
+            Expr.Coord.make ~n:1L ~t:1L ~d:1L ~h:1L ~w:(Int64.of_int w)
+              ~c:(Int64.of_int c);
+          format;
+          role = Ssa_buffer.Input;
+        };
+        {
+          Ssa_buffer.id = buf 1;
+          extents =
+            Expr.Coord.make ~n:1L ~t:1L ~d:1L ~h:1L ~w:(Int64.of_int w)
+              ~c:(Int64.of_int c);
+          format = Ssa_format.F32;
+          role = Ssa_buffer.Output;
+        };
+      ]
+    in
+    let decode =
+      match format with
+      | Ssa_format.I8 _ -> Ssa_op.Decode.I8_dequant
+      | _ -> Ssa_op.Decode.I16_dequant
+    in
+    let coord bld x k =
+      let z = idx bld 0 in
+      Ssa_builder.Coord (Expr.Coord.make ~n:z ~t:z ~d:z ~h:z ~w:x ~c:k)
+    in
+    let body bld x k =
+      let v = B.load_f64 bld (buf 0) ~decode (coord bld x k) in
+      B.store_f64 bld (buf 1) ~encode:Ssa_op.Encode.F32_round (coord bld x k) v
+    in
+    let loop bld hi f =
+      let B.Nil =
+        B.for_ bld ~lo:(idx bld 0) ~hi:(idx bld hi) ~init:B.Nil
+          (fun bld i B.Nil ->
+            f bld i;
+            B.Nil)
+      in
+      ()
+    in
+    let p =
+      build ~buffers:bufs (fun bld ->
+          if c_outer then
+            loop bld c (fun bld k -> loop bld w (fun bld x -> body bld x k))
+          else loop bld w (fun bld x -> loop bld c (fun bld k -> body bld x k)))
+    in
+    let reference =
+      let memory =
+        memory
+          [
+            (0, Ssa_memory.Ints (Array.copy cells));
+            (1, floats (Array.make n 0.));
+          ]
+      in
+      run p ~memory;
+      output_floats memory 1
+    in
+    match
+      Ssa_plan.fp32_vector ~alias:Ssa_effects.Distinct_buffers
+        ~target:(Ssa_target.forced Ssa_target.wasm128)
+        p
+    with
+    | Error _ -> Fmt.pr "%s: not admitted@." label
+    | Ok plan -> (
+        let q = plan.Ssa_plan.program in
+        match Ssa_wasm.lower q with
+        | Error e -> Fmt.pr "%s: %a@." label Ssa_wasm.pp_error e
+        | Ok lowered -> (
+            let loop_p =
+              Lf.program
+                ~buffers:
+                  (List.map Ssa_bridge.Loop_of_ssa.loop_buffer
+                     (Ssa_wasm.arguments q))
+                []
+            in
+            let pfmt =
+              match format with
+              | Ssa_format.I8 _ -> Payload.Fmt Payload.I8
+              | _ -> Payload.Fmt Payload.I16
+            in
+            let bind id =
+              if Tensor_id.equal id (Lf.tid 0) then
+                Some
+                  (Loop_ir_test.Loop_programs.raw_tensor pfmt ~quant
+                     ~shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w ~c)
+                     n
+                     (Array.map Int64.of_int cells))
+              else None
+            in
+            match
+              Err.payload (Loop_wasm_exec.exec_module ~lowered loop_p ~bind)
+            with
+            | Error e -> Fmt.pr "%s: %a@." label Loop_wasm_exec.pp_error e
+            | Ok out ->
+                let t = Tensor_id.Map.find (Lf.tid 1) out in
+                let shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w ~c in
+                let got = Array.make n 0. in
+                Vec6.iter shape (fun co ->
+                    got.((Vec6.offset shape co :> int)) <- Tensor.read t co);
+                Fmt.pr "%s: %a; = interpreter %b; %a@." label
+                  Fmt.(
+                    list ~sep:(any ", ") (fun ppf (k, (n, _)) ->
+                        pf ppf "%s %d" k n))
+                  (Ssa_vectorize.tally plan.Ssa_plan.vectorized)
+                  (Array.for_all2 Core.Float_bits.equal_portable reference got)
+                  Wasm_census.pp
+                  (Wasm_census.of_module lowered.Loop_ir.Loop_wasm.module_)))
+  in
+  let per_tensor scale zero_point =
+    ( Ssa_format.Per_tensor { scale = f32 scale; zero_point },
+      Quant.per_tensor ~scale:(f32 scale) ~zero_point )
+  in
+  List.iter
+    (fun (label, w, c, c_outer, (sq, q), bits) ->
+      quant_case ~label ~w ~c ~c_outer
+        ~format:(if bits = 8 then Ssa_format.I8 sq else Ssa_format.I16 sq)
+        ~quant:q)
+    [
+      ("i8 per tensor along C", 3, 32, false, per_tensor 0.37 (-3.), 8);
+      ( "i8 per tensor along C, fractional zp",
+        3,
+        32,
+        false,
+        per_tensor 0.05 1.25,
+        8 );
+      ("i16 per tensor along C", 3, 32, false, per_tensor 1e-3 7., 16);
+      ("i8 per tensor along W", 32, 3, true, per_tensor 0.37 (-3.), 8);
+    ];
+  let scale = [| f32 0.5; f32 (-2.); f32 1e-2 |]
+  and zero_point = [| 0.; 5.; -9.5 |] in
+  quant_case ~label:"i8 per channel, channel outer" ~w:32 ~c:3 ~c_outer:true
+    ~format:(Ssa_format.I8 (Ssa_format.Per_channel { scale; zero_point }))
+    ~quant:
+      (Err.or_raise ~pp_error:Quant.pp_error
+         (Quant.per_channel ~scale ~zero_point));
+  [%expect
+    {|
+    i8 per tensor along C: vectorized 1; = interpreter true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    i8 per tensor along C, fractional zp: vectorized 1; = interpreter true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    i16 per tensor along C: vectorized 1; = interpreter true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    i8 per tensor along W: vectorized 1; = interpreter true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    i8 per channel, channel outer: vectorized 1; = interpreter true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0 |}]

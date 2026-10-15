@@ -215,6 +215,49 @@ let exec env op =
       ]
   | Cvtpd2ps x ->
       [ vec (Array.map (fun l -> N.round32 (N.f64 l)) (lanes env x)) ]
+  | Cvtdq2ps x ->
+      [
+        vec
+          (Array.map
+             (fun l -> N.s64_to_f32 (Mir_width.signed Mir_width.W32 l))
+             (lanes env x));
+      ]
+  | Movup_iload (t, a) ->
+      let w = Option.get (X64_op.int_register t) in
+      let size = Mir_width.bytes w in
+      [
+        vec
+          (Array.init
+             (16 / Int64.to_int size)
+             (fun j ->
+               match
+                 Mir_memory.offset_by (address env a)
+                   (Int64.mul (Int64.of_int j) size)
+               with
+               | Some p -> E.load env p ~bytes:size ~align:1L
+               | None -> env.E.defect Mir_observation.Defect.Bad_access));
+      ]
+  | Xt_lanes { signed; from; first; src } ->
+      let l = lanes env src in
+      [
+        vec
+          (Array.init 4 (fun j ->
+               let x = Int64.logand l.(first + j) (Mir_width.mask from) in
+               if signed then
+                 Mir_width.normalize Mir_width.W32 (Mir_width.signed from x)
+               else x));
+      ]
+  | Pshift (o, k, x) ->
+      let shift l =
+        match o with
+        | Shift.Shl -> Mir_width.normalize Mir_width.W32 (Int64.shift_left l k)
+        | Shift.Shr -> Int64.shift_right_logical l k
+        | Shift.Sar ->
+            Mir_width.normalize Mir_width.W32
+              (Int64.shift_right (Mir_width.signed Mir_width.W32 l) k)
+      in
+      [ vec (Array.map shift (lanes env x)) ]
+  | Movap_cast (_, x) -> [ vec (lanes env x) ]
   | Cvtps2pd x ->
       [ vec (Array.map (fun l -> N.of_f64 (N.f32 l)) (lanes env x)) ]
   | Flogic (o, fsz, x, y) ->

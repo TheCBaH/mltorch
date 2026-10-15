@@ -106,7 +106,14 @@ compare takes a mask-typed copy of its first operand (`Movap_to_mask`). Still
 refused: half-width compares, and any vector the split leaves in a shape that is
 not four binary32 or two binary64 lanes. Planned `Fp32_ordered` vectors use
 these forms unchanged (`MOVUPS`, a broadcast load, per-lane strided access, no
-`CVTPS2PD`); their binary32 transcendentals are the vector sequence. A process
+`CVTPS2PD`); their binary32 transcendentals are the vector sequence. A
+contiguous `i8`/`i16` dequantization loads its integer lanes with `MOVUPS`
+(`Movup_iload`), sign-extends each four-lane slice in SSE2 (`Sext_lanes`:
+`PSHUFD` the slice down, `PUNPCKLBW`/`PUNPCKLWD` the register onto itself, then
+`PSRAD` by 24 or 16) and converts with `CVTDQ2PS`. A zero extension
+(`Xt_lanes` unsigned) shifts down with `PSRLD`. The `f16`/`bf16` decodes add
+`PSLLD`/`PSRLD`/`PSRAD` by an immediate (`Pshift`, tied), `ANDPS`/`ORPS`/`XORPS`
+on int32 lanes and `MOVAPS` as a vector bitcast (`Movap_cast`). A process
 returns x86's default NaN (sign set) where the binary32 oracle and AArch64
 return a positive one, so checks over NaN-producing inputs compare NaNs as
 NaNs (payloads are not modelled).

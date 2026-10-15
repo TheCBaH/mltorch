@@ -186,6 +186,8 @@ type t =
   | Cmps of Cmp_pred.t * Fsz.t * v * v
   | Cqo_idiv of v * v  (** CQO then IDIV: rdx:rax / divisor *)
   | Cvt of Fsz.t * v  (** CVTSS2SD or CVTSD2SS, to the given precision *)
+  | Cvtdq2ps of v
+      (** CVTDQ2PS: four int32 lanes to binary32, one rounding each *)
   | Cvtpd2ps of v  (** CVTPD2PS: two binary64 lanes to a low binary32 half *)
   | Cvtps2pd of v  (** CVTPS2PD: a low binary32 half to two binary64 lanes *)
   | Cvtsi2s of Fsz.t * v  (** from a 64-bit integer *)
@@ -203,6 +205,8 @@ type t =
   | Mov of Sz.t * v
   | Mov_imm of Mir_type.t * int64  (** MOV r32, imm32 or MOVABS r64, imm64 *)
   | Movap of v  (** MOVAPS/MOVAPD register copy *)
+  | Movap_cast of Mir_type.t * v
+      (** the same, the copy at another lane type ([int32x4] and PS) *)
   | Movap_to_mask of Pk.t * v  (** the same, the copy typed as a mask *)
   | Movlhps of v * v
       (** MOVLHPS: the half as the upper 64 bits, tied to the vector *)
@@ -210,6 +214,8 @@ type t =
   | Movq_low of v  (** MOVQ xmm, xmm: a PS vector's low half, upper zero *)
   | Movq_to_gpr of Fsz.t * v
   | Movq_widen of v  (** MOVQ xmm, xmm: a half as a PS vector, upper zero *)
+  | Movup_iload of Mir_type.t * Addr.t
+      (** MOVUPS from memory: a register of integer lanes ([i8x16], [i16x8]) *)
   | Movup_load of Pk.t * Addr.t  (** MOVUPS/MOVUPD from memory *)
   | Movup_store of Pk.t * Addr.t * v  (** MOVUPS/MOVUPD to memory *)
   | Movsxd of v
@@ -235,6 +241,8 @@ type t =
   | Pshufd_splat of Pk.t * v  (** PSHUFD 0x00 or 0x44: a scalar to every lane *)
   | Pshufd_splat_mask of Pk.t * v
       (** the same, the scalar's bits taken as a lane of a mask *)
+  | Pshift of Shift.t * int * v
+      (** PSLLD, PSRLD or PSRAD (immediate) on four int32 lanes *)
   | Psqrt of Pk.t * v  (** SQRTPS/SQRTPD *)
   | Round_trunc of Fsz.t * v  (** ROUNDSD/ROUNDSS with immediate 3 *)
   | Setcc_zx of Cond.t * v
@@ -247,6 +255,10 @@ type t =
   | Trunc_zx of Mir_width.t * v
       (** MOVZX r32 from the low byte or word of an r32 *)
   | Ucomis of Fsz.t * v * v
+  | Xt_lanes of { signed : bool; from : Mir_width.t; first : int; src : v }
+      (** lanes [first .. first + 3] of an [i8x16] or [i16x8] register extended
+          to four int32 lanes: PSHUFD to bring them low, the PUNPCKL interleaves
+          of the result with itself, then PSRAD or PSRLD (SSE2) *)
 
 type test = Jcc of Cond.t * v
 
@@ -272,6 +284,10 @@ let uses = function
   | Cvt (_, a)
   | Cvtpd2ps a
   | Cvtps2pd a
+  | Cvtdq2ps a
+  | Xt_lanes { src = a; _ }
+  | Pshift (_, _, a)
+  | Movap_cast (_, a)
   | Cvtsi2s (_, a)
   | Cvtts2si (_, a)
   | Ext { src = a; _ }
@@ -303,21 +319,23 @@ let uses = function
   | Cmov (_, _, f, a, b) -> [ f; a; b ]
   | Fmadd231 (_, a, b, c) | Pfmadd231 (_, a, b, c) -> [ a; b; c ]
   | Lea_view _ | Mov_imm _ | Pones _ -> []
-  | Load (_, addr) | Movup_load (_, addr) -> Addr.uses addr
+  | Load (_, addr) | Movup_load (_, addr) | Movup_iload (_, addr) ->
+      Addr.uses addr
   | Movup_store (_, addr, x) | Store (_, addr, x) -> Addr.uses addr @ [ x ]
 
 let test_uses = function Jcc (_, f) -> [ f ]
 let test_flags_read = function Jcc (c, _) -> Cond.reads c
 
 let ordered = function
-  | Call _ | Load _ | Movup_load _ | Movup_store _ | Store _ -> true
+  | Call _ | Load _ | Movup_iload _ | Movup_load _ | Movup_store _ | Store _ ->
+      true
   | _ -> false
 
 let tied0 = [ Mir_target.Constraint.Tied { result = 0; use = 0 } ]
 
 let constraints = function
   | Alu _ | Alu_imm _ | Cmps _ | Fbin _ | Flogic _ | Imul _ | Movlhps _ | Neg _
-  | Pbin _ | Pcmp _ | Plogic _ | Pshuf _ | Shift_imm _ ->
+  | Pbin _ | Pcmp _ | Plogic _ | Pshift _ | Pshuf _ | Shift_imm _ ->
       tied0
   | Cmov _ | Fmadd231 _ | Pfmadd231 _ ->
       [ Mir_target.Constraint.Tied { result = 0; use = 2 } ]
@@ -392,7 +410,7 @@ let flags_read = function
 let result_write = function
   | Cmps _ | Cvt _ | Cvtsi2s _ | Fbin _ | Fmadd231 _ | Round_trunc _ | Sqrt _ ->
       Mir_target.Write.Merge
-  | Flogic _ | Movap _ | Pshufd_half _ | Pshufd_lane _ ->
+  | Flogic _ | Movap _ | Movap_cast _ | Pshufd_half _ | Pshufd_lane _ ->
       Mir_target.Write.Undefined_upper
   | _ -> Mir_target.Write.Zero_upper
 
@@ -405,12 +423,12 @@ let unit_bits = function
 let op_features = function
   | Fmadd231 _ | Pfmadd231 _ -> [ Mir_target.Feature.Fma ]
   | Round_trunc _ -> [ Mir_target.Feature.Sse41 ]
-  | Cmps _ | Cvt _ | Cvtpd2ps _ | Cvtps2pd _ | Cvtsi2s _ | Cvtts2si _ | Fbin _
-  | Flogic _ | Movap _ | Movap_to_mask _ | Movlhps _ | Movq_from_gpr _
-  | Movq_low _ | Movq_to_gpr _ | Movq_widen _ | Movup_load _ | Movup_store _
-  | Pbin _ | Pcmp _ | Plogic _ | Pones _ | Pshuf _ | Pshufd_half _
-  | Pshufd_lane _ | Pshufd_splat _ | Pshufd_splat_mask _ | Psqrt _ | Sqrt _
-  | Ucomis _ ->
+  | Cmps _ | Cvt _ | Cvtdq2ps _ | Cvtpd2ps _ | Cvtps2pd _ | Cvtsi2s _
+  | Cvtts2si _ | Fbin _ | Movup_iload _ | Flogic _ | Movap _ | Movap_cast _
+  | Movap_to_mask _ | Movlhps _ | Movq_from_gpr _ | Movq_low _ | Movq_to_gpr _
+  | Movq_widen _ | Movup_load _ | Movup_store _ | Pbin _ | Pcmp _ | Plogic _
+  | Pones _ | Pshuf _ | Pshufd_half _ | Pshufd_lane _ | Pshufd_splat _
+  | Pshufd_splat_mask _ | Pshift _ | Psqrt _ | Sqrt _ | Ucomis _ | Xt_lanes _ ->
       [ Mir_target.Feature.Sse2 ]
   | Load ((Msz.S | Msz.D), _) | Store ((Msz.S | Msz.D), _, _) ->
       [ Mir_target.Feature.Sse2 ]
@@ -449,6 +467,22 @@ let fpr fsz (t : Mir_type.t) =
 
 let fty = function Fsz.D -> Mir_type.F64 | Fsz.S -> Mir_type.F32
 let is_pk pk t = Mir_type.equal t (Pk.ty pk)
+
+(* The integer lane width of a register-wide integer vector: [i8x16] or
+   [i16x8]. *)
+let int_register (t : Mir_type.t) =
+  match t with
+  | Mir_type.Vec (Mir_type.Elem.Int Mir_width.W8, n)
+    when Mir_type.Lanes.to_int n = 16 ->
+      Some Mir_width.W8
+  | Mir_type.Vec (Mir_type.Elem.Int Mir_width.W16, n)
+    when Mir_type.Lanes.to_int n = 8 ->
+      Some Mir_width.W16
+  | _ -> None
+
+let int32x4 =
+  Mir_type.Vec (Mir_type.Elem.Int Mir_width.W32, Mir_type.Lanes.of_int 4)
+
 let is_mask pk t = Mir_type.equal t (Pk.mask_ty pk)
 let is_lanes pk t = is_pk pk t || is_mask pk t
 let is_half t = Mir_type.equal t half_ty
@@ -548,6 +582,37 @@ let typing op =
   | Cvtps2pd a ->
       let* () = need (is_half (ty a)) "cvtps2pd operand" in
       Ok [ Pk.ty Pk.Pd ]
+  | Cvtdq2ps a ->
+      let* () = need (Mir_type.equal (ty a) int32x4) "cvtdq2ps operand" in
+      Ok [ Pk.ty Pk.Ps ]
+  | Movup_iload (t, a) ->
+      let* () = addr_ok a in
+      let* () = need (Option.is_some (int_register t)) "integer register" in
+      Ok [ t ]
+  | Xt_lanes { signed = _; from; first; src } ->
+      let* () =
+        need
+          (match (int_register (ty src), from) with
+          | Some Mir_width.W8, Mir_width.W8 -> List.mem first [ 0; 4; 8; 12 ]
+          | Some Mir_width.W16, Mir_width.W16 -> List.mem first [ 0; 4 ]
+          | _ -> false)
+          "extended lanes"
+      in
+      Ok [ int32x4 ]
+  | Pshift (o, k, a) ->
+      let* () = need (Mir_type.equal (ty a) int32x4) "shifted lanes" in
+      let* () =
+        need
+          (match o with
+          | Shift.Shl -> k >= 0 && k < 32
+          | Shift.Sar | Shift.Shr -> k >= 1 && k < 32)
+          "lane shift amount"
+      in
+      Ok [ int32x4 ]
+  | Movap_cast (t, a) ->
+      let q x = Mir_type.equal x int32x4 || is_pk Pk.Ps x in
+      let* () = need (q t && q (ty a)) "an XMM register's lanes" in
+      Ok [ t ]
   | Cvtsi2s (fsz, a) ->
       let* () = need (Mir_type.equal (ty a) Mir_type.i64) "cvtsi2s operand" in
       Ok [ fty fsz ]
@@ -650,9 +715,8 @@ let typing op =
       let* () = need (is_mask pk (ty a) && is_pk pk (ty b)) "packed operands" in
       Ok [ Pk.mask_ty pk ]
   | Plogic (_, pk, a, b) ->
-      let* () =
-        need (is_lanes pk (ty a) && is_lanes pk (ty b)) "packed operands"
-      in
+      let lanes t = is_lanes pk t || (pk = Pk.Ps && Mir_type.equal t int32x4) in
+      let* () = need (lanes (ty a) && lanes (ty b)) "packed operands" in
       Ok [ ty a ]
   | Pones pk -> Ok [ Pk.mask_ty pk ]
   | Pshuf (pk, k, a, b) ->
@@ -768,6 +832,14 @@ let pp_op pv fmt op =
   | Cvt (fsz, a) -> Fmt.pf fmt "cvt.%s %a" (Fsz.name fsz) pv a
   | Cvtpd2ps a -> Fmt.pf fmt "cvtpd2ps %a" pv a
   | Cvtps2pd a -> Fmt.pf fmt "cvtps2pd %a" pv a
+  | Cvtdq2ps a -> Fmt.pf fmt "cvtdq2ps %a" pv a
+  | Movup_iload (t, a) -> Fmt.pf fmt "movups %a %a" Mir_type.pp t (pp_addr pv) a
+  | Xt_lanes { signed; from; first; src } ->
+      Fmt.pf fmt "%cext.4s.%s[%d] %a"
+        (if signed then 's' else 'z')
+        (Mir_width.name from) first pv src
+  | Pshift (o, k, a) -> Fmt.pf fmt "p%s.4s %a, #%d" (Shift.name o) pv a k
+  | Movap_cast (t, a) -> Fmt.pf fmt "movap.%a %a" Mir_type.pp t pv a
   | Cvtsi2s (fsz, a) -> Fmt.pf fmt "cvtsi2%sq %a" (Fsz.name fsz) pv a
   | Cvtts2si (fsz, a) -> Fmt.pf fmt "cvtt%s2siq %a" (Fsz.name fsz) pv a
   | Fbin (o, fsz, a, b) ->

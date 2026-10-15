@@ -31,6 +31,9 @@ let of_op : Wasm_op.t -> t option = function
   | Wasm_op.F64x2_ne | Wasm_op.F64x2_nearest | Wasm_op.F64x2_neg
   | Wasm_op.F64x2_promote_low_f32x4 | Wasm_op.F64x2_splat | Wasm_op.F64x2_sqrt
   | Wasm_op.F64x2_sub | Wasm_op.F64x2_trunc | Wasm_op.I32x4_splat
+  | Wasm_op.F32x4_convert_i32x4_s | Wasm_op.I16x8_extend_low_i8x16_s
+  | Wasm_op.I32x4_add | Wasm_op.I32x4_eq | Wasm_op.I32x4_extend_low_i16x8_s
+  | Wasm_op.I32x4_extend_low_i16x8_u | Wasm_op.I32x4_shl | Wasm_op.I32x4_shr_u
   | Wasm_op.I32x4_trunc_sat_f64x2_s_zero | Wasm_op.I32x4_trunc_sat_f64x2_u_zero
   | Wasm_op.I64x2_add | Wasm_op.I64x2_eq | Wasm_op.I64x2_ge_s
   | Wasm_op.I64x2_gt_s | Wasm_op.I64x2_le_s | Wasm_op.I64x2_lt_s

@@ -57,6 +57,12 @@ type st = {
   unlisted : Mir_failure.Unlisted.t;
   fallible : Mir_op.Callee.t -> bool;
   features : Mir_target.Feature.t list;
+  int_slices : (int, int * Mir_value.t) Hashtbl.t;
+      (** four lanes of an integer register read only by extensions to int32
+          ({!Mir_vsplit.widening_slices}) *)
+  shift_counts : (int, int64) Hashtbl.t;
+      (** an integer splat read only as a lane shift count: the count
+          ({!Mir_vsplit.shift_counts}) *)
 }
 
 let refuse st r = Err.Escape.throw st.esc r
@@ -414,6 +420,68 @@ let vector st (i : Mir_op.t Mir_instr.t) =
       def (Movlhps (low, b))
   | Mir_op.Vextract (lane, a) ->
       def (Pshufd_lane (Pk.fsz (pk a), Mir_type.Lane.to_int lane, a))
+  | Mir_op.Vload { Mir_op.Vaccess.addr; stride; elem = Mir_type.Elem.Int w; _ }
+    -> (
+      (* a whole register of integer lanes, contiguous *)
+      match X64_op.int_register (r ()).Mir_value.ty with
+      | Some _ when Int64.equal stride (Mir_width.bytes w) ->
+          push st ?order:i.Mir_instr.order
+            [ r () ]
+            (Mir_sel.Op.Machine
+               (Movup_iload ((r ()).Mir_value.ty, address st addr)))
+      | _ -> refuse st (Refusal.Width (r ()).Mir_value.ty))
+  | Mir_op.Vslice (_, _, _)
+    when Hashtbl.mem st.int_slices (Mir_id.Value.to_int (r ()).Mir_value.id) ->
+      (* made by the sign extensions that read it *)
+      ()
+  | Mir_op.Iext (k, Mir_width.W32, s)
+    when Hashtbl.mem st.int_slices (Mir_id.Value.to_int s.Mir_value.id) ->
+      let first, src =
+        Hashtbl.find st.int_slices (Mir_id.Value.to_int s.Mir_value.id)
+      in
+      def
+        (Xt_lanes
+           {
+             signed = k = Mir_op.Iext.Sext;
+             from = Option.get (X64_op.int_register src.Mir_value.ty);
+             first;
+             src;
+           })
+  | Mir_op.Vsplat _
+    when Hashtbl.mem st.shift_counts (Mir_id.Value.to_int (r ()).Mir_value.id)
+    ->
+      (* the count of the shifts that read it *)
+      ()
+  | Mir_op.Iarith (o, a, c)
+    when Mir_op.Iarith.is_shift o
+         && Mir_type.equal a.Mir_value.ty X64_op.int32x4
+         && Hashtbl.mem st.shift_counts (Mir_id.Value.to_int c.Mir_value.id)
+    -> (
+      let k =
+        Int64.to_int
+          (Hashtbl.find st.shift_counts (Mir_id.Value.to_int c.Mir_value.id))
+      in
+      match o with
+      | Mir_op.Iarith.Shl -> def (Pshift (Shift.Shl, k, a))
+      | _ when k = 0 -> def (Movap_cast (X64_op.int32x4, a))
+      | Mir_op.Iarith.Shr_s -> def (Pshift (Shift.Sar, k, a))
+      | _ -> def (Pshift (Shift.Shr, k, a)))
+  | Mir_op.Iarith
+      (((Mir_op.Iarith.And | Mir_op.Iarith.Or | Mir_op.Iarith.Xor) as o), a, b)
+    when Mir_type.equal a.Mir_value.ty X64_op.int32x4 ->
+      let o =
+        match o with
+        | Mir_op.Iarith.And -> Flogic.And
+        | Mir_op.Iarith.Or -> Flogic.Or
+        | _ -> Flogic.Xor
+      in
+      def (Plogic (o, Pk.Ps, a, b))
+  | Mir_op.Bitcast (t, a)
+    when match t with Mir_type.Vec _ -> true | _ -> false ->
+      def (Movap_cast (t, a))
+  | Mir_op.Fconvert (Mir_op.Fconvert.S32_to_f32, a)
+    when Mir_type.equal a.Mir_value.ty X64_op.int32x4 ->
+      def (Cvtdq2ps a)
   | Mir_op.Vload { Mir_op.Vaccess.addr; stride; _ } ->
       let p = pk (r ()) in
       let fsz = Pk.fsz p in
@@ -576,7 +644,10 @@ let instr st (i : Mir_op.t Mir_instr.t) =
           | Mir_op.Fconvert.F32_to_f64 -> Cvt (Fsz.D, a)
           | Mir_op.Fconvert.F64_to_f32 -> Cvt (Fsz.S, a)
           | Mir_op.Fconvert.S64_to_f32 -> Cvtsi2s (Fsz.S, a)
-          | Mir_op.Fconvert.S64_to_f64 -> Cvtsi2s (Fsz.D, a))
+          | Mir_op.Fconvert.S64_to_f64 -> Cvtsi2s (Fsz.D, a)
+          | Mir_op.Fconvert.S32_to_f32 ->
+              (* no scalar int32 conversion is lowered *)
+              refuse st (Refusal.Operation (Mir_op.name i.Mir_instr.op)))
     | Mir_op.Ffma (a, b, c) ->
         (* SSE2 has no fused multiply-add: never a rounded multiply then add *)
         need_feature st Mir_target.Feature.Fma;
@@ -724,6 +795,14 @@ let scalar st vs =
   List.iter
     (fun (v : Mir_value.t) ->
       match v.Mir_value.ty with
+      | Mir_type.Vec (Mir_type.Elem.Int _, _)
+        when Option.is_some (X64_op.int_register v.Mir_value.ty)
+             || Mir_type.equal v.Mir_value.ty X64_op.int32x4
+             || Hashtbl.mem st.int_slices (Mir_id.Value.to_int v.Mir_value.id)
+        ->
+          (* a register of integer lanes, or four of its lanes a sign
+             extension reads in place *)
+          ()
       | Mir_type.Mask _ | Mir_type.Vec _ -> ignore (pk_of st v.Mir_value.ty)
       | _ -> ())
     vs
@@ -805,6 +884,8 @@ let program ?mutation ?(sites = [||]) ?(unlisted = Mir_failure.Unlisted.Refused)
             sites;
             unlisted;
             fallible;
+            int_slices = Mir_vsplit.widening_slices f;
+            shift_counts = Mir_vsplit.shift_counts f;
             features;
           }
         in
