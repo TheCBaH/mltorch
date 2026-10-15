@@ -1,0 +1,9 @@
+; A census of the binary64 instructions in assembly text, by role: what a
+; binary32 artifact built by CompCert (or any gas-syntax producer) still
+; computes, converts or moves in binary64. Pure text in, counts out, for
+; AArch64 and x86-64. An unknown floating-point mnemonic is an error, so a
+; table that drifts from a producer fails loudly instead of undercounting.
+
+(library
+ (name asm_census)
+ (libraries err_trace fmt))

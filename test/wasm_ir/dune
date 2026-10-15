@@ -4,7 +4,7 @@
 
 (library
  (name wasm_ir_test)
- (modules wasm_ir_test)
+ (modules wasm_ir_test wasm_census_test)
  (libraries err_trace fmt wasm_ir)
  (inline_tests
   (modes best js))

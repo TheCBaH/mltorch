@@ -1,0 +1,9 @@
+; The assembly census over CompCert's own output for a small unit (committed as
+; text, so no compiler is needed) and hand-written listings with known counts.
+
+(library
+ (name asm_census_test)
+ (libraries asm_census err_trace fmt)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
