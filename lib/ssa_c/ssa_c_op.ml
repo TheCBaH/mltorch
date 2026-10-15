@@ -87,7 +87,8 @@ let decode_cell cx (d : Ssa_op.Decode.t) cell =
   | Ssa_op.Decode.I64_to_f64 ->
       "(double)" ^ cell
   | Ssa_op.Decode.F64_to_f64 | Ssa_op.Decode.I64 -> cell
-  | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I8_dequant ->
+  | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I16_dequant32
+  | Ssa_op.Decode.I8_dequant | Ssa_op.Decode.I8_dequant32 ->
       invalid_arg "Ssa_c: a dequantizing load reached the emitter"
 
 let encode_value (e : Ssa_op.Encode.t) v =

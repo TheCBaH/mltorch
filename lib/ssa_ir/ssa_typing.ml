@@ -218,7 +218,9 @@ let rec result_types : Ssa_op.t -> (Ssa_type.t list, error) result = function
       let* () = steps_in_domain steps in
       match decode with
       | Ssa_op.Decode.I64 -> Error I64_vector
-      | Ssa_op.Decode.F32_exact -> Ok [ Ssa_type.Vec (Ssa_type.F32, lanes) ]
+      | Ssa_op.Decode.F32_exact | Ssa_op.Decode.I16_dequant32
+      | Ssa_op.Decode.I8_dequant32 ->
+          Ok [ Ssa_type.Vec (Ssa_type.F32, lanes) ]
       | Ssa_op.Decode.Bf16_to_f64 | Ssa_op.Decode.Bool_to_f64
       | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.F32_to_f64
       | Ssa_op.Decode.F64_to_f64 | Ssa_op.Decode.I16_dequant

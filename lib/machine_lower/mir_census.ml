@@ -79,7 +79,8 @@ let decode_slice = function
   | Ssa_op.Decode.I64 | Ssa_op.Decode.I64_to_f64 -> Slice.Integer
   | Ssa_op.Decode.Bf16_to_f64 | Ssa_op.Decode.Bool_to_f64
   | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.I16_dequant
-  | Ssa_op.Decode.I32_to_f64 | Ssa_op.Decode.I8_dequant ->
+  | Ssa_op.Decode.I16_dequant32 | Ssa_op.Decode.I32_to_f64
+  | Ssa_op.Decode.I8_dequant | Ssa_op.Decode.I8_dequant32 ->
       Slice.Storage
 
 let decode_expansion = function
@@ -90,12 +91,20 @@ let decode_expansion = function
   | Ssa_op.Decode.F32_to_f64 -> "load.i32; bitcast.f32; fext.f32.f64"
   | Ssa_op.Decode.F64_to_f64 -> "load.i64; bitcast.f64"
   | Ssa_op.Decode.I16_dequant ->
-      "load.i16; sext; sub zero_point; scvt; fmul scale (channel from C)"
+      "load.i16; sext; scvt.i64.f64; fsub zero_point; fmul scale (channel from \
+       C)"
+  | Ssa_op.Decode.I16_dequant32 ->
+      "load.i16; sext; scvt.i64.f32; fsub zero_point; fmul scale (channel from \
+       C)"
   | Ssa_op.Decode.I32_to_f64 -> "load.i32; sext; scvt.i64.f64"
   | Ssa_op.Decode.I64 -> "load.i64"
   | Ssa_op.Decode.I64_to_f64 -> "load.i64; scvt.i64.f64"
   | Ssa_op.Decode.I8_dequant ->
-      "load.i8; sext; sub zero_point; scvt; fmul scale (channel from C)"
+      "load.i8; sext; scvt.i64.f64; fsub zero_point; fmul scale (channel from \
+       C)"
+  | Ssa_op.Decode.I8_dequant32 ->
+      "load.i8; sext; scvt.i64.f32; fsub zero_point; fmul scale (channel from \
+       C)"
 
 let encode_slice = function
   | Ssa_op.Encode.F32_exact | Ssa_op.Encode.F32_round | Ssa_op.Encode.I64 ->

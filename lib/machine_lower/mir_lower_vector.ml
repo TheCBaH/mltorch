@@ -75,8 +75,9 @@ let load st op (e : L.Entry.t) ~at ~steps ~lanes ~decode (d : Ssa_op.Decode.t) =
   | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.I32_to_f64
   | Ssa_op.Decode.I64_to_f64 ->
       by_lanes st op e ~at ~steps ~lanes ~decode d
-  | Ssa_op.Decode.F32_exact | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I64
-  | Ssa_op.Decode.I8_dequant ->
+  | Ssa_op.Decode.F32_exact | Ssa_op.Decode.I16_dequant
+  | Ssa_op.Decode.I16_dequant32 | Ssa_op.Decode.I64 | Ssa_op.Decode.I8_dequant
+  | Ssa_op.Decode.I8_dequant32 ->
       unsupported st op
 
 let store st op (e : L.Entry.t) ~at ~steps ~lanes (enc : Ssa_op.Encode.t) v =

@@ -36,14 +36,18 @@ let convert t c (a : Ssa_value.t) into =
   (r, instr ~results:[ r ] (Ssa_op.Convert (c, a)))
 
 (* A binary32 cell decoded to binary64 is, after narrowing, read as binary32
-   directly. *)
+   directly (in a program that stays scalar), and a dequantizing read is the
+   binary32 operations over binary32 parameters, never the binary64 expression
+   rounded once: the result is binary32 at the load itself. *)
 let exact_decode t = function
   | Ssa_op.Decode.F32_to_f64 when t.exact -> (true, Ssa_op.Decode.F32_exact)
+  | Ssa_op.Decode.I16_dequant -> (true, Ssa_op.Decode.I16_dequant32)
+  | Ssa_op.Decode.I8_dequant -> (true, Ssa_op.Decode.I8_dequant32)
   | ( Ssa_op.Decode.Bf16_to_f64 | Ssa_op.Decode.Bool_to_f64
     | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.F32_exact
     | Ssa_op.Decode.F32_to_f64 | Ssa_op.Decode.F64_to_f64
-    | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I32_to_f64 | Ssa_op.Decode.I64
-    | Ssa_op.Decode.I64_to_f64 | Ssa_op.Decode.I8_dequant ) as d ->
+    | Ssa_op.Decode.I16_dequant32 | Ssa_op.Decode.I32_to_f64 | Ssa_op.Decode.I64
+    | Ssa_op.Decode.I64_to_f64 | Ssa_op.Decode.I8_dequant32 ) as d ->
       (false, d)
 
 let rec stmt t : Ssa_region.t Ssa_stmt.t -> Ssa_region.t Ssa_stmt.t list =

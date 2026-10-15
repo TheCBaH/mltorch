@@ -274,8 +274,14 @@ let rec eval : type a. state -> a Loop_expr.t -> a =
 
 and read st b c : float =
   st.counters.loads <- st.counters.loads + 1;
-  working st
-    (Tensor.read_at_raw (buffer_tensor st b) (fun a -> Expr.Coord.get c a))
+  match st.precision with
+  | Loop_numerics.Precision.F32 ->
+      (* a quantized cell dequantizes with binary32 operations; every other
+         format is a value binary32 holds or rounds once *)
+      round_f32
+        (Tensor.read_at_raw32 (buffer_tensor st b) (fun a -> Expr.Coord.get c a))
+  | Loop_numerics.Precision.F64 ->
+      Tensor.read_at_raw (buffer_tensor st b) (fun a -> Expr.Coord.get c a)
 
 and read_i64 st b c : int64 =
   st.counters.loads <- st.counters.loads + 1;

@@ -140,7 +140,8 @@ let classify_instr kinds (i : Ssa_instr.t) =
             set kinds (result ()) Uni
           else (
             (match decode with
-            | Ssa_op.Decode.I64 | Ssa_op.Decode.F32_exact ->
+            | Ssa_op.Decode.I64 | Ssa_op.Decode.F32_exact
+            | Ssa_op.Decode.I16_dequant32 | Ssa_op.Decode.I8_dequant32 ->
                 (* a scalar kernel's binary32 cell: no vector form *)
                 refuse (Reason.No_vector_form op)
             | Ssa_op.Decode.Bf16_to_f64 | Ssa_op.Decode.Bool_to_f64
@@ -380,8 +381,9 @@ let load_op cx buffer steps decode =
       | Ssa_op.Decode.Bf16_to_f64 | Ssa_op.Decode.Bool_to_f64
       | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.F32_exact
       | Ssa_op.Decode.F32_to_f64 | Ssa_op.Decode.F64_to_f64
-      | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I64 | Ssa_op.Decode.I64_to_f64
-      | Ssa_op.Decode.I8_dequant ->
+      | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I16_dequant32
+      | Ssa_op.Decode.I8_dequant32 | Ssa_op.Decode.I64
+      | Ssa_op.Decode.I64_to_f64 | Ssa_op.Decode.I8_dequant ->
           Ssa_target.Op.Contiguous_load)
 
 let store_op cx buffer steps encode =

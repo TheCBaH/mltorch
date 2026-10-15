@@ -295,6 +295,19 @@ let channel_tables (b : Loop_buffer.t) =
       | Some k -> Some (List.init k (fun c -> Quant.params q ~c:(Dim.index c))))
   | _ -> None
 
+let f32_bytes xs =
+  let buf = Buffer.create 64 in
+  List.iter
+    (fun x ->
+      let bits = Int32.bits_of_float x in
+      for k = 0 to 3 do
+        Buffer.add_char buf
+          (Char.chr
+             (Int32.to_int (Int32.shift_right_logical bits (8 * k)) land 0xFF))
+      done)
+    xs;
+  Buffer.contents buf
+
 let f64_bytes xs =
   let buf = Buffer.create 64 in
   List.iter
@@ -358,14 +371,18 @@ let kernel_exact ~vector ~numerics ~precision ~mark_base ~table_alloc
               next_site = 0;
             }
           in
-          (* Per-channel parameters, once, as constant [f64] arrays. *)
+          (* Per-channel parameters, once, as constant arrays of the kernel's
+             working type: [f32] under a binary32 plan, [f64] otherwise. *)
+          let table_bytes = if st.f32 then f32_bytes else f64_bytes in
           let data =
             List.concat_map
               (fun (b : Loop_buffer.t) ->
                 match channel_tables b with
                 | None -> []
                 | Some params ->
-                    let bytes = 8 * List.length params in
+                    let bytes =
+                      (if st.f32 then 4 else 8) * List.length params
+                    in
                     let scales = table_alloc ~bytes in
                     let zeros = table_alloc ~bytes in
                     Hashtbl.replace st.tables
@@ -374,13 +391,11 @@ let kernel_exact ~vector ~numerics ~precision ~mark_base ~table_alloc
                     [
                       {
                         Wasm.Data.offset = scales;
-                        bytes = f64_bytes (List.map fst params);
+                        bytes = table_bytes (List.map fst params);
                       };
                       {
                         Wasm.Data.offset = zeros;
-                        bytes =
-                          f64_bytes
-                            (List.map (fun (_, z) -> float_of_int z) params);
+                        bytes = table_bytes (List.map snd params);
                       };
                     ])
               p.Loop_program.buffers

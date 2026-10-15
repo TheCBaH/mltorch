@@ -157,17 +157,20 @@ let load_cell st (b : Loop_buffer.t) addr =
         if f = "i8" then Wasm.Load.I32_load8_s else Wasm.Load.I32_load16_s
       in
       let q = quant_of b in
+      (* [q] to float, minus the zero point, times the scale, each operation
+         rounded once, in the working precision ([Quant.dequantize32] at
+         binary32). *)
+      let fop op32 op64 = n (if st.f32 then op32 else op64) in
+      let convert = fop Wasm_op.F32_convert_i32_s Wasm_op.F64_convert_i32_s in
+      let sub = fop Wasm_op.F32_sub Wasm_op.F64_sub in
+      let mul = fop Wasm_op.F32_mul Wasm_op.F64_mul in
+      let konst x =
+        if st.f32 then I.F32_const (Int32.bits_of_float x) else f64 x
+      in
       match Quant.channel_count q with
       | None ->
           let scale, zero = Quant.params q ~c:(Dim.index 0) in
-          [ f64 scale ]
-          @ load l
-          @ [
-              n Wasm_op.F64_convert_i32_s;
-              f64 (float_of_int zero);
-              n Wasm_op.F64_sub;
-              n Wasm_op.F64_mul;
-            ]
+          load l @ [ convert; konst zero; sub; konst scale; mul ]
       | Some _ ->
           let c =
             match addr with
@@ -182,16 +185,14 @@ let load_cell st (b : Loop_buffer.t) addr =
             [ i32 base ]
             @ index st (Expr.Coord.get c Expr.Axis.C)
             @ [
-                i32 3;
+                i32 (if st.f32 then 2 else 3);
                 n Wasm_op.I32_shl;
                 n Wasm_op.I32_add;
-                I.Load (Wasm.Load.F64_load, arg 3 0);
+                (if st.f32 then I.Load (Wasm.Load.F32_load, arg 2 0)
+                 else I.Load (Wasm.Load.F64_load, arg 3 0));
               ]
           in
-          table scales @ load l
-          @ [ n Wasm_op.F64_convert_i32_s ]
-          @ table zeros
-          @ [ n Wasm_op.F64_sub; n Wasm_op.F64_mul ])
+          load l @ [ convert ] @ table zeros @ [ sub ] @ table scales @ [ mul ])
   | f -> invalid_arg ("Loop_wasm: no decode for format " ^ f)
 
 let load_i64 st b addr =

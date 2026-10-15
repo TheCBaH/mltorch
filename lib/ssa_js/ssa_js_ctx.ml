@@ -187,12 +187,13 @@ let decode cx (b : Ssa_buffer.t) (d : Ssa_op.Decode.t) ~(at : Ssa_access.t) cell
       cell
   | Ssa_op.Decode.I64 -> cell
   | Ssa_op.Decode.I64_to_f64 -> number_of cell
-  | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I8_dequant -> (
+  | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I16_dequant32
+  | Ssa_op.Decode.I8_dequant | Ssa_op.Decode.I8_dequant32 -> (
       match Ssa_format.quant b.Ssa_buffer.format with
       | None ->
           invalid_arg "Ssa_js: a dequantizing load of an unquantized buffer"
       | Some (Ssa_format.Per_tensor { scale; zero_point }) ->
-          bin A.Mul (num scale) (bin A.Sub cell (lit zero_point))
+          bin A.Mul (num scale) (bin A.Sub cell (num zero_point))
       | Some (Ssa_format.Per_channel { scale; zero_point }) ->
           let bid = b.Ssa_buffer.id in
           if
@@ -212,11 +213,7 @@ let decode cx (b : Ssa_buffer.t) (d : Ssa_op.Decode.t) ~(at : Ssa_access.t) cell
                       A.Array (Array.to_list (Array.map num scale)) );
                   A.Stmt.Const
                     ( quant_zeros cx bid,
-                      A.Array
-                        (Array.to_list
-                           (Array.map
-                              (fun z -> num (float_of_int z))
-                              zero_point)) );
+                      A.Array (Array.to_list (Array.map num zero_point)) );
                 ];
           let channel =
             match at with

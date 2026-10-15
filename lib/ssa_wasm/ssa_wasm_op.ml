@@ -173,23 +173,37 @@ let decode st (b : Ssa_buffer.t) (d : Ssa_op.Decode.t) ~address
   | Ssa_op.Decode.I64 -> load Wasm.Load.I64_load
   | Ssa_op.Decode.I64_to_f64 ->
       load Wasm.Load.I64_load @ [ n Wasm_op.F64_convert_i64_s ]
-  | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I8_dequant -> (
+  | ( Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I16_dequant32
+    | Ssa_op.Decode.I8_dequant | Ssa_op.Decode.I8_dequant32 ) as d -> (
+      let narrow =
+        match d with
+        | Ssa_op.Decode.I16_dequant32 | Ssa_op.Decode.I8_dequant32 -> true
+        | _ -> false
+      in
       let l =
-        if d = Ssa_op.Decode.I8_dequant then Wasm.Load.I32_load8_s
-        else Wasm.Load.I32_load16_s
+        match d with
+        | Ssa_op.Decode.I8_dequant | Ssa_op.Decode.I8_dequant32 ->
+            Wasm.Load.I32_load8_s
+        | _ -> Wasm.Load.I32_load16_s
+      in
+      (* [q] to float, minus the zero point, times the scale, each rounded
+         once, in binary32 ([narrow]) or in binary64 over the same
+         parameters *)
+      let convert =
+        n
+          (if narrow then Wasm_op.F32_convert_i32_s
+           else Wasm_op.F64_convert_i32_s)
+      in
+      let sub = n (if narrow then Wasm_op.F32_sub else Wasm_op.F64_sub) in
+      let mul = n (if narrow then Wasm_op.F32_mul else Wasm_op.F64_mul) in
+      let konst x =
+        if narrow then I.F32_const (Int32.bits_of_float x) else f64 x
       in
       match Ssa_format.quant b.Ssa_buffer.format with
       | None ->
           invalid_arg "Ssa_wasm: a dequantizing load of an unquantized buffer"
       | Some (Ssa_format.Per_tensor { scale; zero_point }) ->
-          [ f64 scale ]
-          @ load l
-          @ [
-              n Wasm_op.F64_convert_i32_s;
-              f64 (float_of_int zero_point);
-              n Wasm_op.F64_sub;
-              n Wasm_op.F64_mul;
-            ]
+          load l @ [ convert; konst zero_point; sub; konst scale; mul ]
       | Some (Ssa_format.Per_channel _) ->
           let c =
             match access with
@@ -202,16 +216,14 @@ let decode st (b : Ssa_buffer.t) (d : Ssa_op.Decode.t) ~address
             [ i32 base ]
             @ read st c
             @ [
-                i32 3;
+                i32 (if narrow then 2 else 3);
                 n Wasm_op.I32_shl;
                 n Wasm_op.I32_add;
-                I.Load (Wasm.Load.F64_load, arg 3 0);
+                (if narrow then I.Load (Wasm.Load.F32_load, arg 2 0)
+                 else I.Load (Wasm.Load.F64_load, arg 3 0));
               ]
           in
-          table scales @ load l
-          @ [ n Wasm_op.F64_convert_i32_s ]
-          @ table zeros
-          @ [ n Wasm_op.F64_sub; n Wasm_op.F64_mul ])
+          load l @ [ convert ] @ table zeros @ [ sub ] @ table scales @ [ mul ])
 
 let encode_store (e : Ssa_op.Encode.t) =
   match e with

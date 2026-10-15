@@ -100,47 +100,6 @@ let f16_decode st h =
     (select st (icmp st Mir_op.Icmp.Eq e (i32 0x1FL)) special normal)
 
 let zext32 st v = emit st (Mir_op.Iext (Mir_op.Iext.Zext, Mir_width.W32, v))
-let sext32 st v = emit st (Mir_op.Iext (Mir_op.Iext.Sext, Mir_width.W32, v))
-
-(* [scale * (q - zero_point)], the parameters per tensor, or per channel from
-   the buffer's parameter table at its C coordinate. *)
-let dequantize st op (e : L.Entry.t) q ~channel =
-  let q = sext st (sext32 st q) in
-  let s, z =
-    match
-      ( Ssa_format.quant e.L.Entry.buffer.Ssa_buffer.format,
-        L.Params.view e,
-        channel )
-    with
-    | Some (Ssa_format.Per_tensor { scale; zero_point }), _, _ ->
-        (f64k st scale, i64k st (Int64.of_int zero_point))
-    | Some (Ssa_format.Per_channel _), Some table, Some c ->
-        let base = emit st (Mir_op.Addr table) in
-        let c = if mutated st Mutation.Channel_zero then i32k st 0L else c in
-        let off =
-          emit st (Mir_op.Iarith (Mir_op.Iarith.Mul, sext st c, i64k st 8L))
-        in
-        let at k =
-          emit st
-            (Mir_op.Ptr_add
-               ( base,
-                 emit st (Mir_op.Iarith (Mir_op.Iarith.Add, off, i64k st k)) ))
-        in
-        let load a =
-          emit st
-            (Mir_op.Load
-               { Mir_op.Access.width = Mir_width.W64; addr = a; align = 8L })
-        in
-        let scale = emit st (Mir_op.Bitcast (Mir_type.F64, load (at 0L))) in
-        (scale, load (at (L.Params.zero_point_offset e)))
-    | _ -> unsupported st op
-  in
-  let diff = emit st (Mir_op.Iarith (Mir_op.Iarith.Sub, q, z)) in
-  emit st
-    (Mir_op.Fbinary
-       ( Mir_op.Fbinary.Mul,
-         s,
-         emit st (Mir_op.Fconvert (Mir_op.Fconvert.S64_to_f64, diff)) ))
 
 let decode ?entry ?channel st op addr (d : Ssa_op.Decode.t) =
   with_role st Mir_origin.Role.Decode;
@@ -170,16 +129,23 @@ let decode ?entry ?channel st op addr (d : Ssa_op.Decode.t) =
       emit st
         (Mir_op.Fconvert
            (Mir_op.Fconvert.S64_to_f64, sext st (load Mir_width.W32 4L)))
-  | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I8_dequant -> (
+  | ( Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I16_dequant32
+    | Ssa_op.Decode.I8_dequant | Ssa_op.Decode.I8_dequant32 ) as d -> (
       match entry with
       | None -> unsupported st op
       | Some e ->
+          let f32 =
+            match d with
+            | Ssa_op.Decode.I16_dequant32 | Ssa_op.Decode.I8_dequant32 -> true
+            | _ -> false
+          in
           let q =
             match d with
-            | Ssa_op.Decode.I8_dequant -> load Mir_width.W8 1L
+            | Ssa_op.Decode.I8_dequant | Ssa_op.Decode.I8_dequant32 ->
+                load Mir_width.W8 1L
             | _ -> load Mir_width.W16 2L
           in
-          dequantize st op e q ~channel)
+          Mir_lower_f32.dequantize st op e q ~channel ~f32)
   | Ssa_op.Decode.F32_exact ->
       emit st (Mir_op.Bitcast (Mir_type.F32, load Mir_width.W32 4L))
   | Ssa_op.Decode.F32_to_f64 ->

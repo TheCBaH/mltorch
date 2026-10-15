@@ -83,8 +83,8 @@ let find entries id =
     entries
 
 (* A per-channel quantized buffer's parameter table: a constant region of the
-   scales (binary64 bits) then the zero points (i64), eight bytes per channel
-   each, read through a view of its own. *)
+   scales then the zero points, each a binary32 (four bytes per channel each:
+   both parameters are binary32 values), read through a view of its own. *)
 module Params = struct
   let base = 100_000
 
@@ -100,18 +100,20 @@ module Params = struct
       (Ssa_format.channels e.Entry.buffer.Ssa_buffer.format)
 
   (* the byte offset of channel parameters: scales first, zero points after *)
-  let zero_point_offset e = Int64.mul 8L (Int64.of_int (channels e))
+  let zero_point_offset e = Int64.mul 4L (Int64.of_int (channels e))
 
   let bytes (e : Entry.t) =
     match Ssa_format.quant e.Entry.buffer.Ssa_buffer.format with
     | Some (Ssa_format.Per_channel { scale; zero_point }) ->
-        let b = Bytes.create (16 * Array.length scale) in
+        let b = Bytes.create (8 * Array.length scale) in
         Array.iteri
-          (fun i s -> Bytes.set_int64_le b (8 * i) (Int64.bits_of_float s))
+          (fun i s -> Bytes.set_int32_le b (4 * i) (Int32.bits_of_float s))
           scale;
         Array.iteri
           (fun i z ->
-            Bytes.set_int64_le b (8 * (Array.length scale + i)) (Int64.of_int z))
+            Bytes.set_int32_le b
+              (4 * (Array.length scale + i))
+              (Int32.bits_of_float z))
           zero_point;
         Some (Bytes.to_string b)
     | Some (Ssa_format.Per_tensor _) | None -> None

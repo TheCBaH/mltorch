@@ -53,8 +53,8 @@ let copy ~w ?(c = 1L) ~decode ~encode in_format out_format =
       in
       ())
 
-let run ?mutation ?fuel label p inputs =
-  let r = Mir_source.check_program ?mutation ?fuel p ~inputs in
+let run ?mutation ?fuel ?precision label p inputs =
+  let r = Mir_source.check_program ?mutation ?fuel ?precision p ~inputs in
   (* every cell's value would be noise: the status, then any disagreement *)
   let status =
     match String.index_opt r ' ' with Some i -> String.sub r 0 i | None -> r
@@ -100,9 +100,14 @@ let%expect_test "bool loads and stores, i32 widening" =
     f32 -> bool: ok
     i32 -> f32: ok |}]
 
+(* A producer's double, rounded once at the boundary into the format. *)
+let f32 x = fst (Quant.round_scale x)
+
 let%expect_test "quantized decodes" =
   let i8_all = Array.init 256 (fun i -> i - 128) in
-  let per_tensor = Ssa_format.Per_tensor { scale = 0.37; zero_point = -3 } in
+  let per_tensor =
+    Ssa_format.Per_tensor { scale = f32 0.37; zero_point = -3. }
+  in
   run "i8 per tensor, all values"
     (copy ~w:256L ~decode:Ssa_op.Decode.I8_dequant
        ~encode:Ssa_op.Encode.F32_round (Ssa_format.I8 per_tensor) Ssa_format.F32)
@@ -110,12 +115,13 @@ let%expect_test "quantized decodes" =
   run "i16 per tensor"
     (copy ~w:6L ~decode:Ssa_op.Decode.I16_dequant
        ~encode:Ssa_op.Encode.F32_round
-       (Ssa_format.I16 (Ssa_format.Per_tensor { scale = 1e-3; zero_point = 7 }))
+       (Ssa_format.I16
+          (Ssa_format.Per_tensor { scale = f32 1e-3; zero_point = 7. }))
        Ssa_format.F32)
     [ (0, Ssa_memory.Ints [| -32768; -1; 0; 1; 7; 32767 |]) ];
   let per_channel =
     Ssa_format.Per_channel
-      { scale = [| 0.5; -2.; 1e-2 |]; zero_point = [| 0; 5; -9 |] }
+      { scale = [| 0.5; -2.; f32 1e-2 |]; zero_point = [| 0.; 5.; -9. |] }
   in
   let p =
     copy ~w:4L ~c:3L ~decode:Ssa_op.Decode.I8_dequant
@@ -140,7 +146,7 @@ let%expect_test "quantized decodes" =
    lowering. *)
 let%expect_test "per-channel decode through a flat access" =
   let per_channel =
-    Ssa_format.Per_channel { scale = [| 0.5; -2. |]; zero_point = [| 0; 5 |] }
+    Ssa_format.Per_channel { scale = [| 0.5; -2. |]; zero_point = [| 0.; 5. |] }
   in
   match
     F.build
@@ -163,3 +169,52 @@ let%expect_test "per-channel decode through a flat access" =
       Fmt.pr "rejected: %a@." Err.Exn.pp_kind e;
       [%expect
         {| rejected: r0, stmt1: b0 is per-channel quantized and takes no flat access |}]
+
+(* The binary32 dequantization through the generic route: [q] to float, minus
+   the zero point, times the scale, each operation in binary32, against the SSA
+   interpreter's [Ssa_format.dequantize32]. Fractional zero points, and a case
+   whose difference needs more than 24 bits. *)
+let%expect_test "quantized decodes in binary32" =
+  let f32_run label p inputs =
+    run ~precision:Machine_ir.Mir_planning.Precision.F32 label p inputs
+  in
+  let i16_all = Array.init 65536 (fun i -> i - 32768) in
+  f32_run "i16 per tensor, tiny zero point, all values"
+    (copy ~w:65536L ~decode:Ssa_op.Decode.I16_dequant32
+       ~encode:Ssa_op.Encode.F32_exact
+       (Ssa_format.I16
+          (Ssa_format.Per_tensor { scale = f32 0.25; zero_point = f32 0.001 }))
+       Ssa_format.F32)
+    [ (0, Ssa_memory.Ints i16_all) ];
+  f32_run "i8 per tensor, fractional zero point"
+    (copy ~w:256L ~decode:Ssa_op.Decode.I8_dequant32
+       ~encode:Ssa_op.Encode.F32_exact
+       (Ssa_format.I8
+          (Ssa_format.Per_tensor { scale = f32 0.37; zero_point = 2.5 }))
+       Ssa_format.F32)
+    [ (0, Ssa_memory.Ints (Array.init 256 (fun i -> i - 128))) ];
+  let per_channel =
+    Ssa_format.Per_channel
+      {
+        scale = [| 0.5; -2.; f32 1e-2 |];
+        zero_point = [| 0.5; 5.; f32 (-9.25) |];
+      }
+  in
+  let p =
+    copy ~w:4L ~c:3L ~decode:Ssa_op.Decode.I8_dequant32
+      ~encode:Ssa_op.Encode.F32_exact (Ssa_format.I8 per_channel) Ssa_format.F32
+  in
+  let cells =
+    Ssa_memory.Ints (Array.init 12 (fun i -> (i * 37 mod 256) - 128))
+  in
+  f32_run "i8 per channel, fractional zero points" p [ (0, cells) ];
+  run ~precision:Machine_ir.Mir_planning.Precision.F32
+    ~mutation:Machine_lower.Mir_lower.Mutation.Channel_zero
+    "i8 per channel, channel 0 always" p
+    [ (0, cells) ];
+  [%expect
+    {|
+    i16 per tensor, tiny zero point, all values: ok
+    i8 per tensor, fractional zero point: ok
+    i8 per channel, fractional zero points: ok
+    i8 per channel, channel 0 always: ok DISAGREE structured vs generic: output t1[1]: 0x1.8p+7:f32 vs -0x1.6ep+5:f32 |}]

@@ -124,8 +124,9 @@ let load_f64 b buffer ~decode at =
   | Ssa_op.Decode.Bf16_to_f64 | Ssa_op.Decode.Bool_to_f64
   | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.F32_exact
   | Ssa_op.Decode.F32_to_f64 | Ssa_op.Decode.F64_to_f64
-  | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I32_to_f64
-  | Ssa_op.Decode.I64_to_f64 | Ssa_op.Decode.I8_dequant ->
+  | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I16_dequant32
+  | Ssa_op.Decode.I32_to_f64 | Ssa_op.Decode.I64_to_f64
+  | Ssa_op.Decode.I8_dequant | Ssa_op.Decode.I8_dequant32 ->
       ());
   one b (Ssa_op.Load { buffer; at = access at; decode })
 

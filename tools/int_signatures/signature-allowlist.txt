@@ -86,12 +86,10 @@ lib/core/geometry.mli	defn	val to_int : t -> int
 lib/native/op_config.mli	defn	type fault = [ `Negative of int | `Not_positive of int ]
 lib/native/op_config.mli	defn	val pos : op:string -> param:param -> int -> (Pos.t, t) result
 lib/native/op_config.mli	defn	val nonneg : op:string -> param:param -> int -> (Nonneg.t, t) result end
-lib/native/quant.mli	arity	type error = [ `Quant_array_lengths of int * int ]
-lib/native/quant.mli	quantum	val per_tensor : scale:float -> zero_point:int -> t
-lib/native/quant.mli	quantum	val per_channel : scale:float array -> zero_point:int array -> (t, error) Err.t
+lib/native/quant.mli	arity	type error = [ `Quant_array_lengths of int * int | `Quant_not_binary32 of [ `Scale | `Zero_point ] * float ]
 lib/native/quant.mli	tally	val channel_count : t -> int option
-lib/native/quant.mli	quantum	val params : t -> c:Dim.index Dim.t -> float * int
 lib/native/quant.mli	quantum	val dequantize : t -> c:Dim.index Dim.t -> q:int -> float
+lib/native/quant.mli	quantum	val dequantize32 : t -> c:Dim.index Dim.t -> q:int -> float
 lib/native/quant.mli	quantum	val quantize : t -> c:Dim.index Dim.t -> qmin:int -> qmax:int -> float -> int
 lib/native/rank.mli	defn	type t = private int
 lib/native/rank.mli	defn	val of_int : int -> t

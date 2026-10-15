@@ -424,7 +424,7 @@ let%expect_test
 let%expect_test "quantized unbind and split next to arena-backed edges" =
   let shape = Vec6.shape ~n:2 ~t:1 ~d:1 ~h:1 ~w:1 ~c:3 in
   let sizes = [ Dim.extent 1; Dim.extent 2 ] in
-  let q = Quant.per_tensor ~scale:0.25 ~zero_point:2 in
+  let q = Quant.per_tensor ~scale:0.25 ~zero_point:2. in
   let g =
     Graph_fixtures.buildn "quantized_beside_f32"
       Graph_builder.(

@@ -62,10 +62,12 @@ module Decode = struct
     | F32_to_f64
     | F64_to_f64
     | I16_dequant
+    | I16_dequant32
     | I32_to_f64
     | I64
     | I64_to_f64
     | I8_dequant
+    | I8_dequant32
 
   let name = function
     | Bf16_to_f64 -> "bf16_to_f64"
@@ -75,10 +77,12 @@ module Decode = struct
     | F32_to_f64 -> "f32_to_f64"
     | F64_to_f64 -> "f64_to_f64"
     | I16_dequant -> "i16_dequant"
+    | I16_dequant32 -> "i16_dequant32"
     | I32_to_f64 -> "i32_to_f64"
     | I64 -> "i64"
     | I64_to_f64 -> "i64_to_f64"
     | I8_dequant -> "i8_dequant"
+    | I8_dequant32 -> "i8_dequant32"
 
   (* The family of buffer a decode reads. *)
   let family = function
@@ -87,14 +91,14 @@ module Decode = struct
     | F16_to_f64 -> Ssa_format.Family.F16
     | F32_exact | F32_to_f64 -> Ssa_format.Family.F32
     | F64_to_f64 -> Ssa_format.Family.F64
-    | I16_dequant -> Ssa_format.Family.I16
+    | I16_dequant | I16_dequant32 -> Ssa_format.Family.I16
     | I32_to_f64 -> Ssa_format.Family.I32
     | I64 | I64_to_f64 -> Ssa_format.Family.I64
-    | I8_dequant -> Ssa_format.Family.I8
+    | I8_dequant | I8_dequant32 -> Ssa_format.Family.I8
 
   let result = function
     | I64 -> Ssa_type.Scalar Ssa_type.I64
-    | F32_exact -> Ssa_type.Scalar Ssa_type.F32
+    | F32_exact | I16_dequant32 | I8_dequant32 -> Ssa_type.Scalar Ssa_type.F32
     | Bf16_to_f64 | Bool_to_f64 | F16_to_f64 | F32_to_f64 | F64_to_f64
     | I16_dequant | I32_to_f64 | I64_to_f64 | I8_dequant ->
         Ssa_type.Scalar Ssa_type.F64

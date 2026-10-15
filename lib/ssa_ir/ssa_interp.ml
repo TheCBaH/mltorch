@@ -222,6 +222,11 @@ let read_cell st id (b : Ssa_buffer.t) decode ~at ~channel =
       match Ssa_format.quant b.Ssa_buffer.format with
       | Some q -> F (Ssa_format.dequantize q ~channel ~cell:a.(at))
       | None -> invalid_arg "Ssa_interp: dequantizing an unquantized buffer")
+  | Ssa_memory.Ints a, (Ssa_op.Decode.I16_dequant32 | Ssa_op.Decode.I8_dequant32)
+    -> (
+      match Ssa_format.quant b.Ssa_buffer.format with
+      | Some q -> F (Ssa_format.dequantize32 q ~channel ~cell:a.(at))
+      | None -> invalid_arg "Ssa_interp: dequantizing an unquantized buffer")
   | (Ssa_memory.Floats _ | Ssa_memory.Int64s _ | Ssa_memory.Ints _), _ ->
       invalid_arg "Ssa_interp: decode does not match the cells"
 

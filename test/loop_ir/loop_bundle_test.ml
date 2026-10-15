@@ -415,7 +415,7 @@ let%expect_test "supplied plan: accepted when equal, refused on any difference"
    time and never by aliasing it into a pool. *)
 let%expect_test "quantized edges are refused at preparation" =
   let shape = Vec6.shape ~n:2 ~t:1 ~d:1 ~h:1 ~w:1 ~c:3 in
-  let q = Quant.per_tensor ~scale:0.25 ~zero_point:2 in
+  let q = Quant.per_tensor ~scale:0.25 ~zero_point:2. in
   let g =
     Native_test.Graph_fixtures.buildn "quantized_unbind"
       Graph_builder.(
