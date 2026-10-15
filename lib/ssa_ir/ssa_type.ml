@@ -34,6 +34,16 @@ type t =
   | Scalar of scalar
   | Vec of scalar * Lanes.t
 
+(* The width of one lane in bits, which decides how many lanes one register
+   holds. A predicate is a single truth value: as a vector it is a mask, whose
+   lanes take the width of the values it compares. *)
+let bits = function
+  | F32 -> 32
+  | F64 -> 64
+  | I64 -> 64
+  | Index -> 32
+  | Pred -> 1
+
 let scalar_name = function
   | F32 -> "f32"
   | F64 -> "f64"

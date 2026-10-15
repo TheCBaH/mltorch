@@ -220,7 +220,12 @@ its own name becomes its interface and hides its siblings (the lowering is
   inner bound, a store every lane would write, a loop that carries values, a
   buffer the loop writes and reads at different coordinates, an unproved
   overlap of buffers (unless the caller states them distinct), too few trips,
-  and a body the target prices out. The vector program is checked against the
+  and a body the target prices out. A vector's element is its scalar's (a
+  load's is its decode's result), and `?elements` names the elements a vector
+  body may hold: a loop whose vector form needs another stays scalar with
+  `Element_not_admitted` (masks are always admitted). Exact binary32 reads and
+  writes (`F32_exact`) vectorize like any other access; an integer or binary32
+  dequantizing read does not. The vector program is checked against the
   reference, the scalar program and its scalar-lane expansion, and the sweep
   runs it for the cost model's target and for every legal loop.
 - **Scheduled sums** (`Ssa_vector_sum`, relaxed policy only). A sum no enclosing
@@ -247,9 +252,25 @@ its own name becomes its interface and hides its siblings (the lowering is
   the scheduler's own accumulate and break the schedule definition. The plan
   records the precision, the program, the vectorized and scheduled counts and the
   contracted count, and `Ssa_plan.oracle` is the independent evaluation.
+  `Ssa_plan.vectorize_f32` is the binary32 vector program a plan starts from
+  (narrowed or exact form), for coverage: `Ssa_backends.Coverage` tallies it
+  per bundle beside the Loop planner's decisions (`make ssa.vector.census`).
+  `Ssa_plan.fp32_vector` is the `Fp32_ordered` vector plan: the exact form
+  vectorized with only `F32` vectors admitted, then rows and clean-up; a kernel
+  with no vector loop is the scalar `Fp32_ordered` plan. It asserts
+  `Ssa_numerics.wide_values` (every binary64 value by defining op, the IR-level
+  census) holds no vector. The binary32 vector sweep runs every walked plan
+  through it for neon128 and wasm128, priced and forced, bitwise against its
+  oracle, the Loop binary32 interpreter and the scalar `Fp32_ordered` plan.
   `Ssa_check.run_planned` compares the plan with its own oracle bitwise, then,
   for an ordered policy, with the Loop binary32 interpreter, and for a relaxed
-  one with the binary64 reference within 1e-4.
+  one with the binary64 reference within 1e-4. Both references are an
+  `Ssa_check.Reference.t`, run when a verdict first needs one, so the sweep's
+  five resolutions of a kernel plan share them; a vector plan structurally equal
+  to the agreeing scalar plan takes the scalar verdict, and the scalar comparison
+  runs only where it does not follow from both plans agreeing with one
+  reference. Most walked kernels keep no vector loop, which is what makes this
+  the difference between one run of each program and five.
 - **Row blocking** (`Ssa_opt_rows`, after vectorization, factor `Ssa_target.row_block`).
   A loop over rows around a vector loop that holds one ordered sum and its stores
   runs a block of rows per iteration: the rows' sums share one loop with an

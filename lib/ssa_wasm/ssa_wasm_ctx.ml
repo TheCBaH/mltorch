@@ -112,8 +112,7 @@ let is_erased (v : Ssa_value.t) = Ssa_type.equal v.Ssa_value.ty Ssa_type.Effect
 (* ---- types ---------------------------------------------------------------------- *)
 
 let lanes_per_register : Ssa_type.scalar -> int = function
-  | Ssa_type.F32 -> 4
-  | Ssa_type.F64 -> 2
+  | (Ssa_type.F32 | Ssa_type.F64) as e -> 128 / Ssa_type.bits e
   | Ssa_type.I64 | Ssa_type.Index | Ssa_type.Pred ->
       invalid_arg "Ssa_wasm: a vector of a non-float"
 

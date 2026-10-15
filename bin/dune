@@ -240,6 +240,14 @@
   ssa_backends
   unix))
 
+; What the binary32 vector planners (SSA narrowed and exact, Loop) take of a
+; downloaded model. MANUAL: `make ssa.vector.census`, never in runtest.
+
+(executable
+ (name ssa_vector_census)
+ (modules ssa_vector_census)
+ (libraries err_trace fmt loop_ir native native_interp pt2 ssa_backends))
+
 (executable
  (name loop_vector_census)
  (modules loop_vector_census)

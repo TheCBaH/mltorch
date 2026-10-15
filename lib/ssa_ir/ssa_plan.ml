@@ -45,6 +45,69 @@ let after ~alias =
     Ssa_opt.simplify;
   ]
 
+let vectorize_f32 ?(alias = Ssa_effects.Conservative) ?elements ~target ~exact
+    (p : Ssa_program.t) =
+  let scalar = run ~alias (before ~target ~alias ()) p in
+  Result.map
+    (fun () ->
+      Ssa_vectorize.program ~alias ?elements ~target:(Ssa_target.f32 target)
+        (Ssa_precision.to_f32 ~exact scalar))
+    (Ssa_numerics.admit scalar)
+
+(* Every kernel binary32 and nothing vectorized: the scalar program, its cells
+   read and written as binary32. *)
+let fp32_scalar ~alias ~vectorized scalar =
+  {
+    numerics = Ssa_numerics.Fp32_ordered;
+    precision = P.F32;
+    program =
+      run ~alias (after ~alias) (Ssa_precision.to_f32 ~exact:true scalar);
+    refusal = None;
+    vectorized;
+    sums = [];
+    blocked = 0;
+    contracted = 0;
+  }
+
+let fp32_vector ?(alias = Ssa_effects.Conservative) ~target (p : Ssa_program.t)
+    =
+  Result.map
+    (fun (q, vectorized) ->
+      if count_vector_loops vectorized = 0 then
+        fp32_scalar ~alias ~vectorized (run ~alias (before ~alias ()) p)
+      else
+        let q, blocked =
+          Ssa_opt_rows.program
+            ~rows:(Ssa_target.f32 target).Ssa_target.row_block ~policy:alias q
+        in
+        let q = run ~alias (after ~alias) q in
+        (match
+           List.filter
+             (fun ((v : Ssa_value.t), _) ->
+               match v.Ssa_value.ty with
+               | Ssa_type.Vec _ -> true
+               | Ssa_type.Effect | Ssa_type.Local | Ssa_type.Mask _
+               | Ssa_type.Scalar _ ->
+                   false)
+             (Ssa_numerics.wide_values q)
+         with
+        | [] -> ()
+        | wide ->
+            invalid_arg
+              (Fmt.str "Ssa_plan: a binary32 vector plan holds %a"
+                 Ssa_numerics.pp_wide wide));
+        {
+          numerics = Ssa_numerics.Fp32_ordered;
+          precision = P.F32;
+          program = q;
+          refusal = None;
+          vectorized;
+          sums = [];
+          blocked;
+          contracted = 0;
+        })
+    (vectorize_f32 ~alias ~elements:[ Ssa_type.F32 ] ~target ~exact:true p)
+
 let resolve ?target ?(alias = Ssa_effects.Conservative) ~numerics
     (p : Ssa_program.t) =
   (* [Fp32_ordered] promises no binary64 instruction in the artifact, and the
@@ -96,19 +159,7 @@ let resolve ?target ?(alias = Ssa_effects.Conservative) ~numerics
       (* every kernel binary32, nothing vectorized *)
       match Ssa_numerics.admit scalar with
       | Error r -> f64 (Some r)
-      | Ok () ->
-          {
-            numerics;
-            precision = P.F32;
-            program =
-              run ~alias (after ~alias)
-                (Ssa_precision.to_f32 ~exact:true scalar);
-            refusal = None;
-            vectorized = [];
-            sums = [];
-            blocked = 0;
-            contracted = 0;
-          })
+      | Ok () -> fp32_scalar ~alias ~vectorized:[] scalar)
   | ( ( Ssa_numerics.Fp32_ordered | Ssa_numerics.Simd_fp32_ordered
       | Ssa_numerics.Simd_fp32_relaxed ),
       Some target ) -> (

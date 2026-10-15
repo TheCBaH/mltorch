@@ -339,3 +339,187 @@ let%expect_test "more refusals" =
     scalar: varying_bounds
     scalar: carries_values
     scalar: inner_loops_declined |}]
+
+(* Element admission: a binary32 plan admits only binary32 vectors. The
+   narrowed form reads its binary32 cells through binary64 lanes and narrows
+   them lane by lane, so admitting only [F32] keeps it scalar and names the
+   element; with every element admitted it vectorizes. The exact form reads
+   its cells as binary32. *)
+let%expect_test "a binary32 plan admits only binary32 vectors" =
+  let d ?elements p =
+    let _, report =
+      Ssa_vectorize.program ~alias ?elements ~target:(Ssa_target.f32 target) p
+    in
+    List.iter
+      (fun (dd : Ssa_vectorize.Decision.t) ->
+        match dd.Ssa_vectorize.Decision.outcome with
+        | Ssa_vectorize.Decision.Vectorized ->
+            Fmt.pr "vectorized (%Ld trips)@." dd.Ssa_vectorize.Decision.trips
+        | Ssa_vectorize.Decision.Kept_scalar r ->
+            Fmt.pr "scalar: %a@." Ssa_vectorize.Reason.pp r)
+      report
+  in
+  let scale bld w =
+    store_at bld 1 w
+      (B.f64_binary bld Expr.Value.Mul (load_at bld 0 w) (B.f64 bld 2.))
+  in
+  let narrowed = Ssa_precision.to_f32 (prepared (loop ~trips:16 scale)) in
+  let exact =
+    Ssa_precision.to_f32 ~exact:true (prepared (loop ~trips:16 scale))
+  in
+  d narrowed;
+  d ~elements:[ Ssa_type.F32 ] narrowed;
+  d ~elements:[ Ssa_type.F32 ] exact;
+  [%expect
+    {|
+    vectorized (16 trips)
+    scalar: element_not_admitted:f64
+    vectorized (16 trips) |}]
+
+(* The binary32 vector plan ({!Ssa_plan.fp32_vector}): every loop the forced
+   target can take, run on NaN, signed zeros, binary32 subnormals and
+   infinities. The vector program, its lane-by-lane oracle and the scalar
+   [Fp32_ordered] plan of the same program agree bit for bit, and the plan
+   holds no binary64 vector. *)
+let%expect_test "binary32 vector loops on special values" =
+  let specials =
+    Array.map Ssa_const.round_f32
+      [|
+        Float.nan;
+        -0.;
+        0.;
+        Float.infinity;
+        Float.neg_infinity;
+        1e-40;
+        -1.4e-45;
+        3.4e38;
+        -3.4e38;
+        1.;
+        -1.;
+        0.375;
+        -2.5;
+        1e-38;
+        65504.;
+        -7.;
+      |]
+  in
+  let fp32_cases name p =
+    let plan target =
+      match
+        Ssa_plan.fp32_vector ~alias ~target:(Ssa_target.forced target) p
+      with
+      | Ok t -> t
+      | Error _ -> assert false
+    in
+    let scalar =
+      Ssa_plan.resolve ~alias ~target:Ssa_target.scalar
+        ~numerics:Ssa_numerics.Fp32_ordered p
+    in
+    let reference = run_cells scalar.Ssa_plan.program specials in
+    List.iter
+      (fun target ->
+        let v = plan target in
+        let wide =
+          List.exists
+            (fun ((x : Ssa_value.t), _) ->
+              match x.Ssa_value.ty with
+              | Ssa_type.Vec _ -> true
+              | Ssa_type.Effect | Ssa_type.Local | Ssa_type.Mask _
+              | Ssa_type.Scalar _ ->
+                  false)
+            (Ssa_numerics.wide_values v.Ssa_plan.program)
+        in
+        Fmt.pr "%-22s %-8s vector loops %d; vector=%b oracle=%b; wide %b@." name
+          target.Ssa_target.name
+          (List.length
+             (List.filter
+                (fun (d : Ssa_vectorize.Decision.t) ->
+                  d.Ssa_vectorize.Decision.outcome
+                  = Ssa_vectorize.Decision.Vectorized)
+                v.Ssa_plan.vectorized))
+          (same_cells reference (run_cells v.Ssa_plan.program specials))
+          (same_cells reference (run_cells (Ssa_plan.oracle v) specials))
+          wide)
+      [ Ssa_target.neon128; Ssa_target.wasm128 ]
+  in
+  let scale = B.f64_binary in
+  fp32_cases "contiguous"
+    (loop ~trips:16 (fun bld w ->
+         store_at bld 1 w
+           (scale bld Expr.Value.Mul (load_at bld 0 w) (B.f64 bld 2.))));
+  fp32_cases "reversed read"
+    (loop ~trips:16 (fun bld w ->
+         let r = B.index_add bld (idx bld 15) (B.index_scale bld (-1L) w) in
+         store_at bld 1 w (load_at bld 0 r)));
+  fp32_cases "mask and select"
+    (loop ~trips:16 (fun bld w ->
+         let x = load_at bld 0 w in
+         let neg = B.float_compare bld Ssa_op.Compare.Lt x (B.f64 bld 0.) in
+         store_at bld 1 w (B.select bld neg (B.f64 bld 0.) x)));
+  fp32_cases "broadcast read"
+    (loop ~trips:16 (fun bld w ->
+         store_at bld 1 w
+           (scale bld Expr.Value.Add (load_at bld 0 w)
+              (load_at bld 0 (idx bld 3)))));
+  fp32_cases "max, sqrt, exp, div"
+    (loop ~trips:16 (fun bld w ->
+         let x = load_at bld 0 w in
+         let m = B.f64_max bld x (B.f64 bld (-1.)) in
+         let e = B.f64_unary bld Expr.Value.Exp m in
+         let s = B.f64_unary bld Expr.Value.Sqrt e in
+         store_at bld 1 w (scale bld Expr.Value.Div s (B.f64 bld 3.))));
+  fp32_cases "inner reduction"
+    (loop ~trips:16 (fun bld w ->
+         let sum =
+           B.ordered_sum bld ~lo:(idx bld 0) ~hi:(idx bld 4)
+             ~seed:(B.f64 bld 0.) (fun bld k ->
+               B.mark bld Ssa_mark.Reduction;
+               scale bld Expr.Value.Mul
+                 (load_at bld 0 (B.index_add bld (B.index_scale bld 0L w) k))
+                 (load_at bld 0 w))
+         in
+         store_at bld 1 w sum));
+  [%expect
+    {|
+    contiguous             neon128  vector loops 1; vector=true oracle=true; wide false
+    contiguous             wasm128  vector loops 1; vector=true oracle=true; wide false
+    reversed read          neon128  vector loops 1; vector=true oracle=true; wide false
+    reversed read          wasm128  vector loops 1; vector=true oracle=true; wide false
+    mask and select        neon128  vector loops 1; vector=true oracle=true; wide false
+    mask and select        wasm128  vector loops 1; vector=true oracle=true; wide false
+    broadcast read         neon128  vector loops 1; vector=true oracle=true; wide false
+    broadcast read         wasm128  vector loops 1; vector=true oracle=true; wide false
+    max, sqrt, exp, div    neon128  vector loops 1; vector=true oracle=true; wide false
+    max, sqrt, exp, div    wasm128  vector loops 1; vector=true oracle=true; wide false
+    inner reduction        neon128  vector loops 1; vector=true oracle=true; wide false
+    inner reduction        wasm128  vector loops 1; vector=true oracle=true; wide false |}]
+
+(* The IR-level census sees the binary64 vectors of a narrowed plan: what a
+   binary32 vector plan must never hold. *)
+let%expect_test "wide values of a narrowed vector plan" =
+  let p =
+    loop ~trips:16 (fun bld w ->
+        store_at bld 1 w
+          (B.f64_binary bld Expr.Value.Mul (load_at bld 0 w) (B.f64 bld 2.)))
+  in
+  let vectors (q : Ssa_plan.t) =
+    List.filter
+      (fun ((v : Ssa_value.t), _) ->
+        match v.Ssa_value.ty with
+        | Ssa_type.Vec _ -> true
+        | Ssa_type.Effect | Ssa_type.Local | Ssa_type.Mask _ | Ssa_type.Scalar _
+          ->
+            false)
+      (Ssa_numerics.wide_values q.Ssa_plan.program)
+  in
+  let narrowed =
+    Ssa_plan.resolve ~alias ~target ~numerics:Ssa_numerics.Simd_fp32_ordered p
+  in
+  Fmt.pr "simd_fp32_ordered: %a@." Ssa_numerics.pp_wide (vectors narrowed);
+  (match Ssa_plan.fp32_vector ~alias ~target p with
+  | Ok q -> Fmt.pr "fp32 vector: [%a]@." Ssa_numerics.pp_wide (vectors q)
+  | Error _ -> assert false);
+  [%expect
+    {|
+    simd_fp32_ordered: v20 : vec<x16,f64> = vec.load, v24 : vec<x16,f64> = lanes.convert.f32_to_f64
+    fp32 vector: [] |}]

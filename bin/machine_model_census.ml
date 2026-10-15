@@ -33,11 +33,13 @@
    pairs.
 
    [--ssa=fp32_ordered] plans every invocation under the Fp32_ordered policy
-   (scalar target), and [--f64] reports, over the generic programs, the
+   (scalar target), [--ssa=simd_fp32_ordered] under Simd_fp32_ordered with
+   the neon128 target (vectors on), and [--f64] reports, over the generic programs, the
    binary64 instructions by role (arithmetic, conversion, helper call, move):
    what the policy takes out of a model.
 
-   argv: <model.pt2> [--ssa=exact|representation|fp32_ordered] [--f64] [--run=K]
+   argv: <model.pt2>
+   [--ssa=exact|representation|fp32_ordered|simd_fp32_ordered] [--f64] [--run=K]
    [--measure=aarch64|x86_64] [--pressure=aarch64|x86_64]
    [--blocking=feedback] [--traffic=aarch64|x86_64] *)
 
@@ -305,6 +307,14 @@ let () =
                 {
                   numerics = Ssa_ir.Ssa_numerics.Fp32_ordered;
                   target = Ssa_ir.Ssa_target.scalar;
+                };
+            false
+        | [ "--ssa"; "simd_fp32_ordered" ] ->
+            pipeline :=
+              Ssa_backends.Pipeline.Planned
+                {
+                  numerics = Ssa_ir.Ssa_numerics.Simd_fp32_ordered;
+                  target = Ssa_ir.Ssa_target.neon128;
                 };
             false
         | [ "--f64" ] ->

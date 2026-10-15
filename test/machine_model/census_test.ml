@@ -116,3 +116,39 @@ let%expect_test "every invocation is planned binary32" =
     scalar    simd_fp32_ordered  f64 f64 f64
     neon128   fp32_ordered       f32 f32 f32
     neon128   simd_fp32_ordered  f64 f64 f64 |}]
+
+(* The vector coverage census ([Ssa_backends.Coverage], what
+   [bin/ssa_vector_census] prints per model) on fixture bundles wide enough to
+   vectorize: loops and innermost iterations per outcome. *)
+let%expect_test "vector coverage of the fixtures" =
+  let wide () =
+    F.build "wide"
+      Graph_builder.(
+        let* x = input ~shape:(F.s 1 1 1 4 4 32) () in
+        let* y = relu x in
+        softmax { Reduce.Softmax.axis = Axis.C } y)
+  in
+  List.iter
+    (fun (name, g) ->
+      List.iter
+        (fun (c, t, refused) ->
+          Fmt.pr "%s %s (%d refused): %a@." name
+            (Ssa_backends.Coverage.name c)
+            refused Ssa_backends.Coverage.pp_tally t)
+        (Ssa_backends.Coverage.bundle Ssa_backends.Coverage.columns
+           (bundle (g ()))))
+    [ ("chain", F.chain); ("wide", wide) ];
+  [%expect
+    {|
+    chain ssa narrowed neon128 (0 refused): too_short 9/117
+    chain ssa exact neon128 (0 refused): too_short 9/117
+    chain loop fp32_ordered neon128 (0 refused): too_short 8/453, vectorized 1/27
+    chain ssa narrowed wasm128 (0 refused): too_short 9/117
+    chain ssa exact wasm128 (0 refused): too_short 9/117
+    chain loop fp32_ordered wasm128 (0 refused): too_short 8/453, vectorized 1/27
+    wide ssa narrowed neon128 (0 refused): carries_values 1/0, no_vector_form:local.read 1/512, too_short 2/20, vectorized 1/512
+    wide ssa exact neon128 (0 refused): carries_values 1/0, no_vector_form:local.read 1/512, too_short 2/20, vectorized 1/512
+    wide loop fp32_ordered neon128 (0 refused): loop_carried 2/1024, vectorized 2/1024
+    wide ssa narrowed wasm128 (0 refused): carries_values 1/0, no_vector_form:local.read 1/512, too_short 2/20, vectorized 1/512
+    wide ssa exact wasm128 (0 refused): carries_values 1/0, no_vector_form:local.read 1/512, too_short 2/20, vectorized 1/512
+    wide loop fp32_ordered wasm128 (0 refused): loop_carried 2/1024, vectorized 2/1024 |}]

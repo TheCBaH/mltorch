@@ -13,6 +13,9 @@ module Precision : sig
   type t = F32 | F64
 
   val name : t -> string
+
+  val scalar : t -> Ssa_type.scalar
+  (** The scalar type a value of this working precision has. *)
 end
 
 type t =
@@ -71,6 +74,13 @@ val admit : Ssa_program.t -> (unit, Refusal.t) result
 (** Whether the whole program can run in binary32: every float read has a decode
     to a value binary32 holds or rounds once ([f32], [f16], [bf16], [bool],
     [f64], [i32], [i64]). The first refusal in program order. *)
+
+val wide_values : Ssa_program.t -> (Ssa_value.t * Ssa_op.t) list
+(** Every binary64 value an instruction of the program defines, a scalar [f64]
+    or a vector of [f64], with the operation that defines it, in program order:
+    the IR-level census. A binary32 vector plan holds no binary64 vector. *)
+
+val pp_wide : Format.formatter -> (Ssa_value.t * Ssa_op.t) list -> unit
 
 val coverage :
   numerics:t ->

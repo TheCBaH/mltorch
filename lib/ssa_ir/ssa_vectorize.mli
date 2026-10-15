@@ -37,6 +37,9 @@ module Reason : sig
         (** the loop writes memory and also touches this other buffer, which the
             alias policy does not rule out overlapping *)
     | Carries_values  (** the loop carries more than the effect *)
+    | Element_not_admitted of Ssa_type.scalar
+        (** the vector body needs vectors of an element the plan does not admit
+        *)
     | Inner_loops_declined  (** the target keeps loops out of vector bodies *)
     | Non_affine_access
         (** an index varies with the iteration other than by a literal stride *)
@@ -78,6 +81,7 @@ type report = Decision.t list
 
 val program :
   ?alias:Ssa_effects.policy ->
+  ?elements:Ssa_type.scalar list ->
   target:Ssa_target.t ->
   Ssa_program.t ->
   Ssa_program.t * report
@@ -85,9 +89,12 @@ val program :
     loop stays scalar around it, and a loop whose own iterations are independent
     takes its inner loops with it. [alias] defaults to the conservative policy:
     a caller that allocates every buffer on its own says
-    {!Ssa_effects.Distinct_buffers}. The result verifies. The target's [lanes]
-    is the logical width, and the program's own floating-point precision is
-    kept. *)
+    {!Ssa_effects.Distinct_buffers}. [elements] (default: every element) are the
+    vector elements a vector body may hold; a loop whose vector form needs
+    another is kept scalar with {!Reason.Element_not_admitted}, and masks are
+    always admitted. A vector load's element is its decode's result. The result
+    verifies. The target's [lanes] is the logical width, and the program's own
+    floating-point precision is kept. *)
 
 val tally : report -> (string * (int * int64)) list
 (** Per outcome name ([vectorized] or a reason's name): how many loops, and how

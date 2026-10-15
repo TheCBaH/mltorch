@@ -100,11 +100,8 @@ type t = {
 
 (* The lanes of one register in the working precision, and how many registers a
    logical vector spans. *)
-let elem_bits = function
-  | Ssa_numerics.Precision.F32 -> 32
-  | Ssa_numerics.Precision.F64 -> 64
-
-let reg_lanes ~precision bits = bits / elem_bits precision
+let reg_lanes ~precision bits =
+  bits / Ssa_type.bits (Ssa_numerics.Precision.scalar precision)
 
 (* What one lane costs scalar, in units of one binary64 add. A conversion
    narrows and widens (two instructions); a division or square root is slower

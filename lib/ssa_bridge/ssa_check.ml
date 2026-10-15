@@ -174,15 +174,45 @@ let within_tolerance ~atol ~rtol reference ssa =
       | None -> Agree)
   | _ -> compare_results (Err.payload reference) (Err.payload ssa)
 
-let run_planned ?(alias = Ssa_effects.Distinct_buffers) ~numerics ~target
-    (plan : Fusion_plan.t) ~bind =
+module Reference = struct
+  type t = {
+    binary64 : (Tensor.packed Tensor_id.Map.t, Kernel_eval.error) Err.t Lazy.t;
+    binary32 :
+      (Tensor.packed Tensor_id.Map.t, Kernel_eval.error) Err.t option Lazy.t;
+  }
+
+  let make (plan : Fusion_plan.t) ~bind =
+    {
+      binary64 = lazy (Kernel_eval.run_plan plan ~bind);
+      binary32 =
+        lazy
+          (match Err.payload (Loop_ir.Loop_lower.lower plan) with
+          | Error (`Unsupported _) -> None
+          | Ok loop ->
+              Some
+                (Err.map_error
+                   (fun (e : Loop_ir.Loop_interp.error) ->
+                     (e :> Kernel_eval.error))
+                   (Loop_ir.Loop_interp.run
+                      ~precision:Loop_ir.Loop_numerics.Precision.F32 loop ~bind)));
+    }
+end
+
+let run_planned ?(alias = Ssa_effects.Distinct_buffers) ?resolve ?reference
+    ~numerics ~target (plan : Fusion_plan.t) ~bind =
   match Err.payload (Ssa_lower.Ssa_lower_plan.lower plan) with
   | Error (`Unsupported u) -> (Refused u, None)
   | Ok program ->
-      let resolved = Ssa_plan.resolve ~target ~alias ~numerics program in
+      let resolved =
+        match resolve with
+        | Some f -> f ~alias program
+        | None -> Ssa_plan.resolve ~target ~alias ~numerics program
+      in
       let exec p = Ssa_lower.Ssa_exec.run plan p ~bind in
       let result = exec resolved.Ssa_plan.program in
-      let reference = Kernel_eval.run_plan plan ~bind in
+      let reference =
+        match reference with Some r -> r | None -> Reference.make plan ~bind
+      in
       (* the plan against its own oracle, bit for bit *)
       let own =
         compare_results
@@ -193,26 +223,20 @@ let run_planned ?(alias = Ssa_effects.Distinct_buffers) ~numerics ~target
         match own with
         | Agree | Agree_on_failure _ -> (
             match (resolved.Ssa_plan.precision, numerics) with
-            | Ssa_numerics.Precision.F64, _ -> compare ~reference ~ssa:result
+            | Ssa_numerics.Precision.F64, _ ->
+                compare ~reference:(Lazy.force reference.binary64) ~ssa:result
             | ( Ssa_numerics.Precision.F32,
                 ( Ssa_numerics.Fp32_ordered | Ssa_numerics.Reference_f64
                 | Ssa_numerics.Simd_fp32_ordered ) ) -> (
-                match Err.payload (Loop_ir.Loop_lower.lower plan) with
-                | Error (`Unsupported _) ->
+                match Lazy.force reference.binary32 with
+                | None ->
                     Disagree
                       (Disagreement.Reference_only_failed "loop_unsupported")
-                | Ok loop ->
-                    let f32 =
-                      Err.map_error
-                        (fun (e : Loop_ir.Loop_interp.error) ->
-                          (e :> Kernel_eval.error))
-                        (Loop_ir.Loop_interp.run
-                           ~precision:Loop_ir.Loop_numerics.Precision.F32 loop
-                           ~bind)
-                    in
-                    compare ~reference:f32 ~ssa:result)
+                | Some f32 -> compare ~reference:f32 ~ssa:result)
             | Ssa_numerics.Precision.F32, Ssa_numerics.Simd_fp32_relaxed ->
-                within_tolerance ~atol:1e-4 ~rtol:1e-4 reference result)
+                within_tolerance ~atol:1e-4 ~rtol:1e-4
+                  (Lazy.force reference.binary64)
+                  result)
         | Disagree _ | Not_admitted _ | Refused _ -> own
       in
       (verdict, Some resolved)

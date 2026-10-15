@@ -44,6 +44,31 @@ val resolve :
     policy: a caller that allocates every buffer on its own says
     {!Ssa_effects.Distinct_buffers}. *)
 
+val vectorize_f32 :
+  ?alias:Ssa_effects.policy ->
+  ?elements:Ssa_type.scalar list ->
+  target:Ssa_target.t ->
+  exact:bool ->
+  Ssa_program.t ->
+  (Ssa_program.t * Ssa_vectorize.report, Ssa_numerics.Refusal.t) result
+(** The binary32 vector program a plan starts from, before any later pass: the
+    pre-vector passes, admission, {!Ssa_precision.to_f32} (with [exact] as
+    there) and the vectorizer against the binary32 target with [elements] as
+    {!Ssa_vectorize.program} takes them, with its decisions. [exact:false] is
+    the [Simd_fp32_*] form. For a census of what each form vectorizes;
+    {!resolve} is the plan. *)
+
+val fp32_vector :
+  ?alias:Ssa_effects.policy ->
+  target:Ssa_target.t ->
+  Ssa_program.t ->
+  (t, Ssa_numerics.Refusal.t) result
+(** The [Fp32_ordered] vector plan: the exact binary32 form vectorized with only
+    binary32 vectors admitted, then the row blocking and the clean-up passes. A
+    kernel with no vector loop is the scalar [Fp32_ordered] plan. The plan holds
+    no binary64 vector ({!Ssa_numerics.wide_values}): [Invalid_argument] if it
+    would. [Error] when admission refuses. *)
+
 val admitted : t -> (t, Ssa_numerics.Refusal.t) result
 (** [Error] when the plan's policy is [Fp32_ordered] and admission left the
     kernel binary64: that policy has no binary64 kernels, so the refusal is an

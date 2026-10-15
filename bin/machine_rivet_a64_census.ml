@@ -10,8 +10,11 @@
    image) and running (copying storage into the images, the calls, copying
    back). The run is dominated by the copy and the reference, not the kernels.
 
+   [--planned=fp32] plans Fp32_ordered for neon128 (vectors where the policy
+   keeps them), [--planned=fp32s] the same policy scalar.
+
    argv: <model.pt2> [--run=K] (K = 0: compile only) [--allocation=reference|scanned]
-   [--gnu] [--table [--poison] [--planned=ordered|relaxed]] [--runtime=dependency_free|system_libm] (default dependency_free: a kernel
+   [--gnu] [--table [--poison] [--planned=fp32|fp32s|ordered|relaxed]] [--runtime=dependency_free|system_libm] (default dependency_free: a kernel
    calling a C library math helper is refused and tallied) *)
 
 open Loop_ir
@@ -324,11 +327,20 @@ let () =
         | [ "--allocation"; "scanned" ] ->
             allocation := Rt.Allocation.Scanned;
             false
-        | [ "--planned"; (("ordered" | "relaxed") as n) ] ->
+        | [ "--planned"; (("fp32" | "fp32s" | "ordered" | "relaxed") as n) ] ->
             planned :=
               Some
-                (if n = "ordered" then Ssa_ir.Ssa_numerics.Simd_fp32_ordered
-                 else Ssa_ir.Ssa_numerics.Simd_fp32_relaxed);
+                (match n with
+                | "fp32" ->
+                    (Ssa_ir.Ssa_numerics.Fp32_ordered, Ssa_ir.Ssa_target.neon128)
+                | "fp32s" ->
+                    (Ssa_ir.Ssa_numerics.Fp32_ordered, Ssa_ir.Ssa_target.scalar)
+                | "ordered" ->
+                    ( Ssa_ir.Ssa_numerics.Simd_fp32_ordered,
+                      Ssa_ir.Ssa_target.neon128 )
+                | _ ->
+                    ( Ssa_ir.Ssa_numerics.Simd_fp32_relaxed,
+                      Ssa_ir.Ssa_target.neon128 ));
             false
         | [ "--profile"; n ] ->
             profile := Some (int_of_string n);
@@ -390,9 +402,8 @@ let () =
               ~profile:!profile
               ~pipeline:
                 (match !planned with
-                | Some numerics ->
-                    Ssa_backends.Pipeline.Planned
-                      { numerics; target = Ssa_ir.Ssa_target.neon128 }
+                | Some (numerics, target) ->
+                    Ssa_backends.Pipeline.Planned { numerics; target }
                 | None -> Ssa_backends.Pipeline.Exact)
           else
             let t0 = Unix.gettimeofday () in
@@ -433,5 +444,6 @@ let () =
       prerr_endline
         "usage: machine_rivet_a64_census <model.pt2> [--run=K] \
          [--allocation=reference|scanned] [--gnu] [--table [--poison] \
-         [--planned=ordered|relaxed]] [--runtime=dependency_free|system_libm]";
+         [--planned=fp32|fp32s|ordered|relaxed]] \
+         [--runtime=dependency_free|system_libm]";
       exit 2

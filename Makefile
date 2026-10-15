@@ -1,6 +1,6 @@
 .PHONY: machine.rivet.rv32.runtest compcert.rv32.install compcert.rv32.runtest model.compare.coverage js.compare.runtest rivet.compare.runtest transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open model.compare model.download model.compare.gate model.fetch.timm model.fetch.fixture transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.native4d.runtest c.pt2.native4d.ssa.runtest c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
-	check.file-size check.int-signatures check.whitespace clean fp32.pt2.runtest machine.a64.conformance machine.pt2.census \
+	check.file-size check.int-signatures check.whitespace clean fp32.pt2.runtest machine.a64.conformance machine.pt2.census ssa.vector.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
 	expr_probe.deep-runtest expr_probe.runtest format fp32.bench fp32.bench.wasm inference inference-runa \
 	inline-timing-report inline-timing-report-js js.build js.runtest \
@@ -1620,6 +1620,16 @@ machine.pt2.census:
 	for m in $(C_PT2_CI_MODELS); do \
 	  $(MAKE) pt2.download PT2_MODEL=$$m && \
 	  _build/default/bin/machine_model_census.exe $(PT2_DIR)/$$m/$$m.pt2 || exit 1; \
+	done
+
+# What the binary32 vector planners take of each model: the SSA vectorizer
+# on the narrowed and the exact binary32 form, and the Loop planner under
+# Fp32_ordered, for neon128 and wasm128. Planning only; needs the model data.
+ssa.vector.census:
+	opam exec -- dune build bin/ssa_vector_census.exe
+	for m in $(PT2_MODELS_ALL); do \
+	  $(MAKE) pt2.download PT2_MODEL=$$m && \
+	  _build/default/bin/ssa_vector_census.exe $(PT2_DIR)/$$m/$$m.pt2 || exit 1; \
 	done
 
 c.runtest.all: c.runtest.o0 c.runtest.san
