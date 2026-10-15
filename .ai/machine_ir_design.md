@@ -332,10 +332,14 @@ census slice that will admit it.
   operations proper are `vsplat`, `vextract`, `vinsert`, and `vload`/`vstore`
   of `lanes` elements at `addr + k * stride` bytes (stride the element size:
   contiguous; 0: a broadcast), every lane accessed. A `Lanewise` lifts only
-  operations whose scalar expansion is itself lanewise; a lifted
-  transcendental (`exp`, `log`, `sin`, `cos`) or `erf` has no vector form and
-  is expanded a lane at a time: the lane extracted, the scalar function (a
-  helper call) applied, the result inserted into the vector the lanes build.
+  operations whose scalar expansion is itself lanewise; a lifted binary32
+  transcendental (`exp`, `log`, `sin`, `cos`, `erf`) is the `F32_math`
+  sequence on the vector itself (`Mir_lower_f32.f32_math_vector`: a constant
+  splat to the lanes, every operation lanewise, a select on the lanewise
+  mask), so each lane is exactly the scalar sequence; a binary64 one has no
+  vector form and is expanded a lane at a time: the lane extracted, the scalar
+  function (a helper call) applied, the result inserted into the vector the
+  lanes build.
   A vector access's stride is its steps' row-major element offset times the
   element size; its decode or encode is a lanewise conversion, and binary32
   and binary64 storage are loaded as vectors. An exact binary32 access

@@ -411,8 +411,13 @@ let lanewise_op (op : Ssa_op.t) =
   | Ssa_op.Float_unary
       ( ( Expr.Value.Cos | Expr.Value.Erf | Expr.Value.Exp | Expr.Value.Log
         | Expr.Value.Sin ),
-        _ ) ->
-      Some Ssa_target.Op.Transcendental
+        a ) -> (
+      (* binary32: the backends' vector instance of the sequence; binary64:
+         a call per lane *)
+      match a.Ssa_value.ty with
+      | Ssa_type.Scalar Ssa_type.F32 ->
+          Some Ssa_target.Op.Transcendental_sequence
+      | _ -> Some Ssa_target.Op.Transcendental)
   | Ssa_op.Float_compare _ | Ssa_op.Pool_better _ ->
       Some Ssa_target.Op.Value_compare
   | Ssa_op.Pred_not _ | Ssa_op.Pred_or _ -> Some Ssa_target.Op.Logic

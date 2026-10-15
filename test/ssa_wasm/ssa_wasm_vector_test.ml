@@ -517,3 +517,107 @@ let%expect_test "binary32 vector plans under node" =
     matmul 4x5x32    forced  vector loops 1; = oracle true; = scalar true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
     matmul 3x7x19    priced  vector loops 1; = oracle true; = scalar true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
     matmul 3x7x19    forced  vector loops 1; = oracle true; = scalar true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0 |}]
+
+(* The five binary32 transcendentals as [f32x4] sequences (the module's own
+   four-lane functions), over the {!F32_math} sample set: every cell equal to
+   {!F32_math.Value} (a NaN to any NaN: payloads are the engine's). *)
+let%expect_test "binary32 transcendentals as f32x4 sequences under node" =
+  let n = 256 in
+  let samples =
+    Array.init n (fun k ->
+        if k < Array.length specials32 then specials32.(k)
+        else
+          let x =
+            Int32.float_of_bits
+              (Int64.to_int32 (Int64.mul (Int64.of_int k) 16777259L))
+          in
+          if Float.is_finite x then x else 0.75)
+  in
+  let bufs =
+    [
+      row (Int64.of_int n) Ssa_format.F32 Ssa_buffer.Input 0;
+      row (Int64.of_int n) Ssa_format.F32 Ssa_buffer.Output 1;
+    ]
+  in
+  List.iter
+    (fun (name, op, value) ->
+      let p =
+        build ~buffers:bufs (fun bld ->
+            let B.Nil =
+              B.for_ bld ~lo:(idx bld 0) ~hi:(idx bld n) ~init:B.Nil
+                (fun bld w B.Nil ->
+                  st bld w (B.f64_unary bld op (ld bld w));
+                  B.Nil)
+            in
+            ())
+      in
+      match
+        Ssa_plan.fp32_vector ~alias:Ssa_effects.Distinct_buffers
+          ~target:(Ssa_target.forced Ssa_target.wasm128)
+          p
+      with
+      | Error _ -> Fmt.pr "%s: not admitted@." name
+      | Ok plan -> (
+          match Ssa_wasm.lower plan.Ssa_plan.program with
+          | Error e -> Fmt.pr "%s: %a@." name Ssa_wasm.pp_error e
+          | Ok lowered -> (
+              let loop =
+                Lf.program
+                  ~buffers:
+                    (List.map Ssa_bridge.Loop_of_ssa.loop_buffer
+                       (Ssa_wasm.arguments plan.Ssa_plan.program))
+                  []
+              in
+              let shape = Lf.shape_w n in
+              let bind id =
+                if Tensor_id.equal id (Lf.tid 0) then
+                  Some
+                    (Lf.f32_tensor shape (fun c ->
+                         samples.((Vec6.offset shape c :> int))))
+                else None
+              in
+              (* the four-lane function is in the module *)
+              let vector_calls =
+                let text =
+                  Wasm_wat.to_string lowered.Loop_ir.Loop_wasm.module_
+                in
+                let k = "(param v128) (result v128)" in
+                let rec has i =
+                  i + String.length k <= String.length text
+                  && (String.sub text i (String.length k) = k || has (i + 1))
+                in
+                if has 0 then "a (v128) -> v128 function"
+                else "no vector function"
+              in
+              match
+                Err.payload (Loop_wasm_exec.exec_module ~lowered loop ~bind)
+              with
+              | Error e -> Fmt.pr "%s: %a@." name Loop_wasm_exec.pp_error e
+              | Ok out ->
+                  let t = Tensor_id.Map.find (Lf.tid 1) out in
+                  let got = Lf.cells t n in
+                  let differ =
+                    List.length
+                      (List.filteri
+                         (fun k y ->
+                           not
+                             (Core.Float_bits.equal_portable y
+                                (value samples.(k))))
+                         got)
+                  in
+                  Fmt.pr "%s: %d of %d cells differ from F32_math; %s@." name
+                    differ n vector_calls)))
+    [
+      ("exp", Expr.Value.Exp, F32_math.Value.exp);
+      ("log", Expr.Value.Log, F32_math.Value.log);
+      ("sin", Expr.Value.Sin, F32_math.Value.sin);
+      ("cos", Expr.Value.Cos, F32_math.Value.cos);
+      ("erf", Expr.Value.Erf, F32_math.Value.erf);
+    ];
+  [%expect
+    {|
+    exp: 0 of 256 cells differ from F32_math; a (v128) -> v128 function
+    log: 0 of 256 cells differ from F32_math; a (v128) -> v128 function
+    sin: 0 of 256 cells differ from F32_math; a (v128) -> v128 function
+    cos: 0 of 256 cells differ from F32_math; a (v128) -> v128 function
+    erf: 0 of 256 cells differ from F32_math; a (v128) -> v128 function |}]

@@ -102,6 +102,19 @@ let lanewise st (inner : Ssa_op.t) (res : Ssa_value.t) =
                    src a i;
                    vn (if f32 then Wasm_op.F32x4_trunc else Wasm_op.F64x2_trunc);
                  ]))
+      | ( Expr.Value.Cos | Expr.Value.Erf | Expr.Value.Exp | Expr.Value.Log
+        | Expr.Value.Sin ) as op
+        when f32 ->
+          (* the module's own four-lane sequence, once per register *)
+          let callee =
+            match op with
+            | Expr.Value.Cos -> R.Callee.Cos_f32x4
+            | Expr.Value.Erf -> R.Callee.Erf_f32x4
+            | Expr.Value.Exp -> R.Callee.Exp_f32x4
+            | Expr.Value.Log -> R.Callee.Log_f32x4
+            | _ -> R.Callee.Sin_f32x4
+          in
+          set_chunks st res (chunks_of a (fun i -> [ src a i; call st callee ]))
       | Expr.Value.Cos | Expr.Value.Erf | Expr.Value.Exp | Expr.Value.Log
       | Expr.Value.Sin ->
           (* no vector instruction: each lane runs the scalar callee *)

@@ -105,7 +105,8 @@ let%expect_test "conv, batch norm, relu under the planned policy" =
 let fp32_ordered = T.fp32_ordered
 
 let table_check ?(allocation = Rt.Allocation.Reference)
-    ?(pipeline = fp32_ordered) ?constant name g =
+    ?(pipeline = fp32_ordered) ?constant ?(calls = 2)
+    ?(input = fun ~salt _ sg -> T.values ~salt sg) name g =
   let g = g () in
   let b = T.bundle g in
   let constant = Option.value constant ~default:T.positive in
@@ -126,11 +127,10 @@ let table_check ?(allocation = Rt.Allocation.Reference)
       | Error s -> Fmt.pr "%s: %a@." name Mm.Stop.pp s
       | Ok cn ->
           let verdicts =
-            List.init 2 (fun call ->
+            List.init calls (fun call ->
                 let inputs =
                   List.mapi
-                    (fun i id ->
-                      (id, T.values ~salt:(call + i) (T.sig_of g id)))
+                    (fun i id -> (id, input ~salt:(call + i) i (T.sig_of g id)))
                     b.Loop_ir.Loop_bundle.inputs
                 in
                 let oracle = T.expected T.Fp32 g b ~constants ~inputs in
@@ -196,3 +196,29 @@ let%expect_test "Fp32_ordered vectors on this CPU" =
     image conv, batch norm, relu to C=32 (3 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true
     table reference conv, batch norm, relu to C=32 (3 invocations): bitwise, bitwise
     table scanned conv, batch norm, relu to C=32 (3 invocations): bitwise, bitwise |}]
+
+(* The binary32 transcendentals as NEON vector sequences, over the F32_math
+   sample set, against the binary32 oracle. *)
+let%expect_test "binary32 transcendentals as NEON vectors" =
+  List.iter
+    (fun (name, g) ->
+      List.iter
+        (fun allocation ->
+          table_check ~allocation ~pipeline:T.fp32_vector_forced ~calls:1
+            ~input:T.sample_input
+            (Fmt.str "%s %s" name (Rt.Allocation.name allocation))
+            g)
+        Rt.Allocation.[ Reference; Scanned ])
+    T.transcendental_fixtures;
+  [%expect
+    {|
+    exp reference (1 invocations): bitwise
+    exp scanned (1 invocations): bitwise
+    log reference (1 invocations): bitwise
+    log scanned (1 invocations): bitwise
+    sin reference (1 invocations): bitwise
+    sin scanned (1 invocations): bitwise
+    cos reference (1 invocations): bitwise
+    cos scanned (1 invocations): bitwise
+    gelu (erf) reference (1 invocations): bitwise
+    gelu (erf) scanned (1 invocations): bitwise |}]

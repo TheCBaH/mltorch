@@ -83,3 +83,21 @@ let%expect_test "Fp32_ordered vectors: whole bundles as processes" =
     softmax over H, W=32 scanned (1 invocations): bitwise, bitwise
     layer_norm over H, W=32 scanned (1 invocations): bitwise, bitwise
     conv, batch norm, relu to C=32 scanned (3 invocations): bitwise, bitwise |}]
+
+(* The binary32 transcendentals as SSE2 packed sequences, over the F32_math
+   sample set, as processes against the binary32 oracle. A NaN compares equal
+   to any NaN: x86-64 makes its default NaN with the sign set, where the oracle
+   and AArch64 clear it, and payloads are not modelled. *)
+let%expect_test "binary32 transcendentals as SSE2 vectors" =
+  List.iter
+    (fun (name, g) ->
+      T.check ~route ~pipeline:T.fp32_vector_forced ~oracle:T.Fp32 ~calls:1
+        ~same:T.same_portable ~input:T.sample_input name g)
+    T.transcendental_fixtures;
+  [%expect
+    {|
+    exp (1 invocations): bitwise
+    log (1 invocations): bitwise
+    sin (1 invocations): bitwise
+    cos (1 invocations): bitwise
+    gelu (erf) (1 invocations): bitwise |}]

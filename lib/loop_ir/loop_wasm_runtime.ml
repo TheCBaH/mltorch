@@ -5,10 +5,13 @@ module Callee = struct
     | Ceil_div
     | Cos
     | Cos_f32
+    | Cos_f32x4
     | Erf
     | Erf_f32
+    | Erf_f32x4
     | Exp
     | Exp_f32
+    | Exp_f32x4
     | F16_to_float
     | Fail_set
     | Fill_f32
@@ -16,18 +19,23 @@ module Callee = struct
     | I64_div
     | Log
     | Log_f32
+    | Log_f32x4
     | Sin
     | Sin_f32
+    | Sin_f32x4
 
   let all =
     [
       Ceil_div;
       Cos;
       Cos_f32;
+      Cos_f32x4;
       Erf;
       Erf_f32;
+      Erf_f32x4;
       Exp;
       Exp_f32;
+      Exp_f32x4;
       F16_to_float;
       Fail_set;
       Fill_f32;
@@ -35,8 +43,10 @@ module Callee = struct
       I64_div;
       Log;
       Log_f32;
+      Log_f32x4;
       Sin;
       Sin_f32;
+      Sin_f32x4;
     ]
 
   let index c =
@@ -52,10 +62,13 @@ module Callee = struct
     | Ceil_div -> "ceil_div"
     | Cos -> "cos"
     | Cos_f32 -> "cos_f32"
+    | Cos_f32x4 -> "cos_f32x4"
     | Erf -> "erf"
     | Erf_f32 -> "erf_f32"
+    | Erf_f32x4 -> "erf_f32x4"
     | Exp -> "exp"
     | Exp_f32 -> "exp_f32"
+    | Exp_f32x4 -> "exp_f32x4"
     | F16_to_float -> "f16_to_float"
     | Fail_set -> "fail_set"
     | Fill_f32 -> "fill_f32"
@@ -63,8 +76,10 @@ module Callee = struct
     | I64_div -> "i64_div"
     | Log -> "log"
     | Log_f32 -> "log_f32"
+    | Log_f32x4 -> "log_f32x4"
     | Sin -> "sin"
     | Sin_f32 -> "sin_f32"
+    | Sin_f32x4 -> "sin_f32x4"
 
   (* The host's [Math] function a callee is bound to, for the four that are
      imports; every other callee is a function defined in the module. *)
@@ -73,15 +88,16 @@ module Callee = struct
     | Exp -> Some "exp"
     | Log -> Some "log"
     | Sin -> Some "sin"
-    | Ceil_div | Cos_f32 | Erf | Erf_f32 | Exp_f32 | F16_to_float | Fail_set
-    | Fill_f32 | Floor_div | I64_div | Log_f32 | Sin_f32 ->
+    | Ceil_div | Cos_f32 | Cos_f32x4 | Erf | Erf_f32 | Erf_f32x4 | Exp_f32
+    | Exp_f32x4 | F16_to_float | Fail_set | Fill_f32 | Floor_div | I64_div
+    | Log_f32 | Log_f32x4 | Sin_f32 | Sin_f32x4 ->
         None
 
   let deps = function
     | Erf -> [ Exp ]
-    | Ceil_div | Cos | Cos_f32 | Erf_f32 | Exp | Exp_f32 | F16_to_float
-    | Fail_set | Fill_f32 | Floor_div | I64_div | Log | Log_f32 | Sin | Sin_f32
-      ->
+    | Ceil_div | Cos | Cos_f32 | Cos_f32x4 | Erf_f32 | Erf_f32x4 | Exp | Exp_f32
+    | Exp_f32x4 | F16_to_float | Fail_set | Fill_f32 | Floor_div | I64_div | Log
+    | Log_f32 | Log_f32x4 | Sin | Sin_f32 | Sin_f32x4 ->
         []
 end
 
@@ -319,6 +335,60 @@ let f32_function which =
     body = List.rev !code;
   }
 
+(* The same function on four binary32 lanes at once: every operation one
+   [f32x4] instruction kept in a [v128] local of its own, a constant the
+   splat of the binary32 constant, a select a [v128.bitselect] on the
+   lanewise comparison's mask. Each lane computes exactly {!f32_function}'s
+   sequence. *)
+let f32x4_function which =
+  let code = ref [] and locals = ref [] and next = ref 1 in
+  let emit l = code := List.rev_append l !code in
+  let module O = struct
+    type t = L of int | K of float
+
+    let push = function
+      | L i -> [ get i ]
+      | K x -> [ I.F32_const (Int32.bits_of_float x); n Wasm_op.F32x4_splat ]
+
+    let bind instrs =
+      let i = !next in
+      incr next;
+      locals := Wasm_type.V128 :: !locals;
+      emit (instrs @ [ set i ]);
+      L i
+
+    let const x = K (Loop_numerics.round32 x)
+    let bin op a b = bind (push a @ push b @ [ n op ])
+    let add = bin Wasm_op.F32x4_add
+    let sub = bin Wasm_op.F32x4_sub
+    let mul = bin Wasm_op.F32x4_mul
+    let div = bin Wasm_op.F32x4_div
+
+    let select op a b c d =
+      bind
+        (push c @ push d @ push a @ push b @ [ n op; n Wasm_op.V128_bitselect ])
+
+    let select_lt = select Wasm_op.F32x4_lt
+    let select_eq = select Wasm_op.F32x4_eq
+    let share x = x
+  end in
+  let module M = F32_math.Make (O) in
+  let f =
+    match which with
+    | `Cos -> M.cos
+    | `Erf -> M.erf
+    | `Exp -> M.exp
+    | `Log -> M.log
+    | `Sin -> M.sin
+  in
+  let result = f (O.L 0) in
+  emit (O.push result);
+  {
+    Wasm.Func.type_ = ft [ Wasm_type.V128 ] [ Wasm_type.V128 ];
+    locals = List.rev !locals;
+    body = List.rev !code;
+  }
+
 (* [fill_f32 ptr count value]: [count] binary32 cells set to [value], for a
    synthetic operand the graph does not supply. The caller passes the binary32
    value, so nothing here is binary64. *)
@@ -364,6 +434,11 @@ let body : Callee.t -> Wasm.Func.t option = function
   | Callee.Exp_f32 -> Some (f32_function `Exp)
   | Callee.Log_f32 -> Some (f32_function `Log)
   | Callee.Sin_f32 -> Some (f32_function `Sin)
+  | Callee.Cos_f32x4 -> Some (f32x4_function `Cos)
+  | Callee.Erf_f32x4 -> Some (f32x4_function `Erf)
+  | Callee.Exp_f32x4 -> Some (f32x4_function `Exp)
+  | Callee.Log_f32x4 -> Some (f32x4_function `Log)
+  | Callee.Sin_f32x4 -> Some (f32x4_function `Sin)
   | Callee.F16_to_float -> Some f16_to_float
   | Callee.Fail_set -> Some fail_set
   | Callee.Fill_f32 -> Some fill_f32
@@ -378,6 +453,9 @@ let signature : Callee.t -> Wasm.Func_type.t = function
   | Callee.Cos_f32 | Callee.Erf_f32 | Callee.Exp_f32 | Callee.Log_f32
   | Callee.Sin_f32 ->
       ft [ wt_f32 ] [ wt_f32 ]
+  | Callee.Cos_f32x4 | Callee.Erf_f32x4 | Callee.Exp_f32x4 | Callee.Log_f32x4
+  | Callee.Sin_f32x4 ->
+      ft [ Wasm_type.V128 ] [ Wasm_type.V128 ]
   | Callee.F16_to_float -> ft [ wt_i32 ] [ wt_f64 ]
   | Callee.Fail_set -> ft [ wt_i32 ] []
   | Callee.Fill_f32 -> ft [ wt_i32; wt_i32; wt_f32 ] []

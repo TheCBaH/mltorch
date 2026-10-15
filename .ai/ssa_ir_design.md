@@ -204,7 +204,12 @@ its own name becomes its interface and hides its siblings (the lowering is
   binary32 operand is the binary64 function rounded once (`erf` is `erf32`) and
   `Float_fma` is `fmaf`. The binary32 sweep (every walked plan against the Loop
   interpreter at binary32) agrees bitwise.
-- **Targets.** `Ssa_target` is the Loop target description as data: legality
+- **Targets.** A binary32 transcendental in a vector body is priced as
+  `Transcendental_sequence` (native: the backends' vector instance of the
+  sequence, one scalar call's price per register); a binary64 one stays
+  `Transcendental` (expanded). The row exists in `Loop_target` too, identical,
+  and the Loop vectorizer never counts it, so its decisions do not move.
+  `Ssa_target` is the Loop target description as data: legality
   (native or expanded per operation) kept apart from cost, per precision, with
   the logical width a `Lanes` value; `forced` zeroes every price so a test takes
   every legal loop.

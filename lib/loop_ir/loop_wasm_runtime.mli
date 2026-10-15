@@ -9,10 +9,16 @@ module Callee : sig
     | Ceil_div
     | Cos
     | Cos_f32  (** {!F32_math.Value.cos}'s sequence, one [f32] operation each *)
+    | Cos_f32x4
+        (** the same sequence on four lanes, one [f32x4] operation each *)
     | Erf
     | Erf_f32  (** {!F32_math.Value.erf}'s sequence, one [f32] operation each *)
+    | Erf_f32x4
+        (** the same sequence on four lanes, one [f32x4] operation each *)
     | Exp
     | Exp_f32  (** {!F32_math.Value.exp}'s sequence, one [f32] operation each *)
+    | Exp_f32x4
+        (** the same sequence on four lanes, one [f32x4] operation each *)
     | F16_to_float
     | Fail_set
     | Fill_f32
@@ -20,8 +26,12 @@ module Callee : sig
     | I64_div
     | Log
     | Log_f32  (** {!F32_math.Value.log}'s sequence, one [f32] operation each *)
+    | Log_f32x4
+        (** the same sequence on four lanes, one [f32x4] operation each *)
     | Sin
     | Sin_f32  (** {!F32_math.Value.sin}'s sequence, one [f32] operation each *)
+    | Sin_f32x4
+        (** the same sequence on four lanes, one [f32x4] operation each *)
 
   val all : t list
 

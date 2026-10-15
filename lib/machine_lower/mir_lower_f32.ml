@@ -41,6 +41,34 @@ let f32_math st : (module F32_fns) =
   end in
   (module F32_math.Make (O) : F32_fns)
 
+(* The same sequences on a binary32 vector of [lanes]: a constant is the
+   binary32 constant splat to the lanes, every operation lanewise and a select
+   on the lanewise comparison's mask. Each lane computes exactly the scalar
+   sequence, so the vector is the scalar function lane by lane. *)
+let f32_math_vector st ~lanes : (module F32_fns) =
+  let module O = struct
+    type t = Mir_value.t
+
+    let const x =
+      emit st
+        (Mir_op.Vsplat (lanes, const st (Mir_const.f32 (Ssa_const.round_f32 x))))
+
+    let bin o a b = emit st (Mir_op.Fbinary (o, a, b))
+    let add = bin Mir_op.Fbinary.Add
+    let sub = bin Mir_op.Fbinary.Sub
+    let mul = bin Mir_op.Fbinary.Mul
+    let div = bin Mir_op.Fbinary.Div
+
+    let select_lt a b c d =
+      select st (emit st (Mir_op.Fcmp (Mir_op.Fcmp.Lt, a, b))) c d
+
+    let select_eq a b c d =
+      select st (emit st (Mir_op.Fcmp (Mir_op.Fcmp.Eq, a, b))) c d
+
+    let share x = x
+  end in
+  (module F32_math.Make (O) : F32_fns)
+
 (* [scale * (q - zero_point)] as the explicit operations: [q] to float, minus
    the zero point, times the scale, each rounded once, in binary32 ([f32]) or
    in binary64 over the same binary32 parameters. The parameters are per

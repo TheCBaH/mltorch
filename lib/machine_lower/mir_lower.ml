@@ -726,12 +726,29 @@ let rec instr st (i : Ssa_instr.t) =
       | Ssa_op.Float_unary
           ( ((Expr.Value.Cos | Expr.Value.Exp | Expr.Value.Log | Expr.Value.Sin)
              as u),
-            a ) ->
-          (* a call has no vector form: one per lane, in lane order, the
-             results put back into a vector *)
-          result (lanewise st (v a) (math_unary st u))
-      | Ssa_op.Float_unary (Expr.Value.Erf, a) ->
-          result (lanewise st (v a) (erf st))
+            a ) -> (
+          match (v a).Mir_value.ty with
+          | Mir_type.Vec (Mir_type.Elem.F32, lanes) ->
+              (* the binary32 sequence on the vector itself *)
+              let module M = (val Mir_lower_f32.f32_math_vector st ~lanes) in
+              let x = v a in
+              result
+                (match u with
+                | Expr.Value.Cos -> M.cos x
+                | Expr.Value.Exp -> M.exp x
+                | Expr.Value.Log -> M.log x
+                | _ -> M.sin x)
+          | _ ->
+              (* a call has no vector form: one per lane, in lane order, the
+                 results put back into a vector *)
+              result (lanewise st (v a) (math_unary st u)))
+      | Ssa_op.Float_unary (Expr.Value.Erf, a) -> (
+          match (v a).Mir_value.ty with
+          | Mir_type.Vec (Mir_type.Elem.F32, lanes)
+            when not (mutated st Mutation.Erf_single_rounding) ->
+              let module M = (val Mir_lower_f32.f32_math_vector st ~lanes) in
+              result (M.erf (v a))
+          | _ -> result (lanewise st (v a) (erf st)))
       | _ ->
           if Mir_lower_vector.liftable inner then instr st { i with op = inner }
           else unsupported st op)
