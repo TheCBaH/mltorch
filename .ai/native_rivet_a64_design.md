@@ -162,8 +162,14 @@ The binary32 functions are not helpers at all: under the planned `Fp32_ordered`
 pipeline `Mir_lower` expands `exp`, `log`, `sin`, `cos` and `erf` at an `f32`
 operand inline as generic binary32 instructions (`F32_math` instantiated over
 the Machine IR builder), so every target gets them with no leaf and no call, and
-`Dependency_free` carries them as plain code. Only a binary64 operand still
-calls `Mir_math` or the owned `exp`.
+`Dependency_free` carries them as plain code; at a binary32 vector they are the
+same sequence on the vector (`.4s` arithmetic, `FCMGT`/`FCMEQ` masks, `BIT`).
+Only a binary64 operand still calls `Mir_math` or the owned `exp`. Planned
+`Fp32_ordered` vectors need no form beyond the `Simd_fp32_*` ones: an exact
+binary32 access is `LDR/STR Q`, `LD1R` or `LD1`/`ST1` lanes on `.4s`, with no
+`FCVTL`/`FCVTN`. Integer vector forms (`SXTL`, vector `SCVTF`, `.4h/.8h`) are
+not in the encoder yet, so a quantized or half-precision read stays a scalar
+decode per lane.
 
 ## GNU as an independent encoder
 

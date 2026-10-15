@@ -6,10 +6,9 @@ open Loop_ir_test
 open Ssa_bridge_test.Ssa_fixtures
 module H = Native_harness
 
-let show ?(target = Ssa_ir.Ssa_target.neon128) kernel ~bind =
-  Fmt.pr "%s@."
-    (H.planned ~target ~numerics:Ssa_ir.Ssa_numerics.Simd_fp32_ordered kernel
-       ~bind)
+let show ?(target = Ssa_ir.Ssa_target.neon128)
+    ?(numerics = Ssa_ir.Ssa_numerics.Simd_fp32_ordered) kernel ~bind =
+  Fmt.pr "%s@." (H.planned ~target ~numerics kernel ~bind)
 
 let data n = Array.init n (fun i -> (float_of_int (i * 7 mod 11) -. 5.) /. 4.)
 let x = Loop_fixtures.load_t0
@@ -138,4 +137,58 @@ let%expect_test "masks and strided access as processes" =
     x < 0 ? -x : x / 3, w=37: ok [process: agree]
     x == 0 ? 0 : 1, w=16: ok [process: agree]
     x == 0 ? 0 : 1, w=37: ok [process: agree]
+    transposed read: ok [process: agree] |}]
+
+(* The same kernels under [Fp32_ordered]: vectorized on the exact binary32
+   form, packed SSE2 with no widening, as processes against the interpreter. *)
+let%expect_test "Fp32_ordered packed SSE2" =
+  let numerics = Ssa_ir.Ssa_numerics.Fp32_ordered in
+  List.iter
+    (fun (name, body) ->
+      List.iter
+        (fun n ->
+          Fmt.pr "%s, w=%d: " name n;
+          let d = data n in
+          d.(0) <- Float.nan;
+          d.(1) <- -0.;
+          d.(2) <- 3.4e38;
+          d.(3) <- 1e-40;
+          let shape = Loop_fixtures.shape_w n in
+          show ~numerics
+            (Loop_fixtures.pixel_kernel ~shape body)
+            ~bind:(bind_data ~shape d))
+        [ 16; 37 ])
+    [
+      ("x / 3 - 1.5", Expr.Value.(sub (div x (const 3.)) (const 1.5)));
+      ("sqrt x", Expr.Value.sqrt x);
+      ( "x < 0 ? -x : x / 3",
+        Expr.Value.(
+          select
+            (Expr.Bool.value_lt x (const 0.))
+            (sub (const 0.) x)
+            (div x (const 3.))) );
+    ];
+  List.iter
+    (fun (m, k, n) ->
+      let a = operand 3 (m * k) and b = operand 5 (k * n) in
+      Fmt.pr "%dx%dx%d: " m k n;
+      show ~numerics (matmul_kernel ~m ~k ~n) ~bind:(matmul_bind ~m ~k ~n ~a ~b))
+    [ (2, 3, 16); (3, 5, 17); (5, 7, 33) ];
+  let square = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:17 ~w:17 ~c:1 in
+  Fmt.pr "transposed read: ";
+  show ~numerics
+    ~target:(Ssa_ir.Ssa_target.forced Ssa_ir.Ssa_target.neon128)
+    (Loop_fixtures.pixel_kernel ~shape:square transposed)
+    ~bind:(bind_data ~shape:square (data (17 * 17)));
+  [%expect
+    {|
+    x / 3 - 1.5, w=16: ok [process: agree]
+    x / 3 - 1.5, w=37: ok [process: agree]
+    sqrt x, w=16: ok [process: agree]
+    sqrt x, w=37: ok [process: agree]
+    x < 0 ? -x : x / 3, w=16: ok [process: agree]
+    x < 0 ? -x : x / 3, w=37: ok [process: agree]
+    2x3x16: ok [process: agree]
+    3x5x17: ok [process: agree]
+    5x7x33: ok [process: agree]
     transposed read: ok [process: agree] |}]

@@ -108,119 +108,105 @@ let fp32_vector ?(alias = Ssa_effects.Conservative) ~target (p : Ssa_program.t)
         })
     (vectorize_f32 ~alias ~elements:[ Ssa_type.F32 ] ~target ~exact:true p)
 
+(* The binary64 plan: every kernel under [Reference_f64], or one an fp32 policy
+   leaves binary64, with the target's binary64 vectors when there is one. *)
+let reference ~alias ~numerics ~refusal ?target (p : Ssa_program.t) =
+  let scalar = run ~alias (before ?target ~alias ()) p in
+  match target with
+  | None ->
+      {
+        numerics;
+        precision = P.F64;
+        program = run ~alias (after ~alias) scalar;
+        refusal;
+        vectorized = [];
+        sums = [];
+        blocked = 0;
+        contracted = 0;
+      }
+  | Some target ->
+      let q, vectorized = Ssa_vectorize.program ~alias ~target scalar in
+      let q, blocked =
+        Ssa_opt_rows.program ~rows:target.Ssa_target.row_block ~policy:alias q
+      in
+      {
+        numerics;
+        precision = P.F64;
+        program = run ~alias (after ~alias) q;
+        refusal;
+        vectorized;
+        sums = [];
+        blocked;
+        contracted = 0;
+      }
+
+(* The [Simd_fp32_*] plan: narrow, then vectorize; binary32 only when a loop
+   vectorizes or a sum is scheduled, else the binary64 plan. *)
+let simd_fp32 ~alias ~numerics ~target (p : Ssa_program.t) =
+  let scalar = run ~alias (before ~target ~alias ()) p in
+  match Ssa_numerics.admit scalar with
+  | Error r -> reference ~alias ~numerics ~refusal:(Some r) ~target p
+  | Ok () ->
+      let f32_target = Ssa_target.f32 target in
+      let narrowed = Ssa_precision.to_f32 scalar in
+      let q, vectorized =
+        Ssa_vectorize.program ~alias ~target:f32_target narrowed
+      in
+      (* Contraction first, so a scheduled sum's own accumulate, which a fused
+         operation would change, is never a candidate: fusing it is a separate
+         permission the default plan does not take. *)
+      let q =
+        if
+          Ssa_numerics.contraction_permitted numerics
+          && (f32_target.Ssa_target.fma || f32_target.Ssa_target.relaxed_madd)
+        then
+          (* a relaxed multiply-add is vector-only: no scalar form *)
+          fst (Ssa_opt_contract.pass ~scalar:f32_target.Ssa_target.fma q)
+        else q
+      in
+      let q, sums =
+        if Ssa_numerics.reassociation_permitted numerics then
+          Ssa_vector_sum.program ~target:f32_target q
+        else (q, [])
+      in
+      if count_vector_loops vectorized > 0 || scheduled sums then
+        let q, blocked =
+          Ssa_opt_rows.program ~rows:f32_target.Ssa_target.row_block
+            ~policy:alias q
+        in
+        let q = run ~alias (after ~alias) q in
+        {
+          numerics;
+          precision = P.F32;
+          program = q;
+          refusal = None;
+          vectorized;
+          sums;
+          blocked;
+          contracted = Ssa_opt_contract.contracted q;
+        }
+      else reference ~alias ~numerics ~refusal:None ~target p
+
 let resolve ?target ?(alias = Ssa_effects.Conservative) ~numerics
     (p : Ssa_program.t) =
-  (* [Fp32_ordered] promises no binary64 instruction in the artifact, and the
-     SSA vector forms read their lanes through binary64 registers: until they
-     are binary32-clean the policy plans scalar whatever the target. *)
-  let target =
-    match numerics with
-    | Ssa_numerics.Fp32_ordered -> None
-    | Ssa_numerics.Reference_f64 | Ssa_numerics.Simd_fp32_ordered
-    | Ssa_numerics.Simd_fp32_relaxed ->
-        target
-  in
-  let scalar = run ~alias (before ?target ~alias ()) p in
-  let f64 refusal =
-    match target with
-    | None ->
-        {
-          numerics;
-          precision = P.F64;
-          program = run ~alias (after ~alias) scalar;
-          refusal;
-          vectorized = [];
-          sums = [];
-          blocked = 0;
-          contracted = 0;
-        }
-    | Some target ->
-        let q, vectorized = Ssa_vectorize.program ~alias ~target scalar in
-        let q, blocked =
-          Ssa_opt_rows.program ~rows:target.Ssa_target.row_block ~policy:alias q
-        in
-        {
-          numerics;
-          precision = P.F64;
-          program = run ~alias (after ~alias) q;
-          refusal;
-          vectorized;
-          sums = [];
-          blocked;
-          contracted = 0;
-        }
-  in
-  let ordered = numerics = Ssa_numerics.Fp32_ordered in
   match (numerics, target) with
-  | Ssa_numerics.Reference_f64, _ -> f64 None
+  | Ssa_numerics.Reference_f64, _ ->
+      reference ~alias ~numerics ~refusal:None ?target p
   | (Ssa_numerics.Simd_fp32_ordered | Ssa_numerics.Simd_fp32_relaxed), None ->
-      f64 None
+      reference ~alias ~numerics ~refusal:None p
+  | ( (Ssa_numerics.Simd_fp32_ordered | Ssa_numerics.Simd_fp32_relaxed),
+      Some target ) ->
+      simd_fp32 ~alias ~numerics ~target p
   | Ssa_numerics.Fp32_ordered, None -> (
       (* every kernel binary32, nothing vectorized *)
+      let scalar = run ~alias (before ~alias ()) p in
       match Ssa_numerics.admit scalar with
-      | Error r -> f64 (Some r)
+      | Error r -> reference ~alias ~numerics ~refusal:(Some r) p
       | Ok () -> fp32_scalar ~alias ~vectorized:[] scalar)
-  | ( ( Ssa_numerics.Fp32_ordered | Ssa_numerics.Simd_fp32_ordered
-      | Ssa_numerics.Simd_fp32_relaxed ),
-      Some target ) -> (
-      match Ssa_numerics.admit scalar with
-      | Error r -> f64 (Some r)
-      | Ok () ->
-          let f32_target = Ssa_target.f32 target in
-          let narrowed = Ssa_precision.to_f32 scalar in
-          let q, vectorized =
-            Ssa_vectorize.program ~alias ~target:f32_target narrowed
-          in
-          (* Contraction first, so a scheduled sum's own accumulate, which a
-             fused operation would change, is never a candidate: fusing it is a
-             separate permission the default plan does not take. *)
-          let q =
-            if
-              Ssa_numerics.contraction_permitted numerics
-              && (f32_target.Ssa_target.fma
-                || f32_target.Ssa_target.relaxed_madd)
-            then
-              (* a relaxed multiply-add is vector-only: no scalar form *)
-              fst (Ssa_opt_contract.pass ~scalar:f32_target.Ssa_target.fma q)
-            else q
-          in
-          let q, sums =
-            if Ssa_numerics.reassociation_permitted numerics then
-              Ssa_vector_sum.program ~target:f32_target q
-            else (q, [])
-          in
-          if count_vector_loops vectorized > 0 || scheduled sums then
-            let q, blocked =
-              Ssa_opt_rows.program ~rows:f32_target.Ssa_target.row_block
-                ~policy:alias q
-            in
-            let q = run ~alias (after ~alias) q in
-            {
-              numerics;
-              precision = P.F32;
-              program = q;
-              refusal = None;
-              vectorized;
-              sums;
-              blocked;
-              contracted = Ssa_opt_contract.contracted q;
-            }
-          else if ordered then
-            (* no vector loop is taken, and the kernel is binary32 anyway: the
-               scalar program again, its cells read and written as binary32 *)
-            {
-              numerics;
-              precision = P.F32;
-              program =
-                run ~alias (after ~alias)
-                  (Ssa_precision.to_f32 ~exact:true scalar);
-              refusal = None;
-              vectorized;
-              sums = [];
-              blocked = 0;
-              contracted = 0;
-            }
-          else f64 None)
+  | Ssa_numerics.Fp32_ordered, Some target -> (
+      match fp32_vector ~alias ~target p with
+      | Ok t -> t
+      | Error r -> reference ~alias ~numerics ~refusal:(Some r) p)
 
 let admitted t =
   match (t.numerics, t.refusal) with

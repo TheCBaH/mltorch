@@ -1,8 +1,9 @@
 (* The vector operations of a planned SSA program as generic Machine IR
    vectors: a lane access is one strided access whose byte stride is the
    steps' row-major element offset, and its decode or encode is a lanewise
-   conversion. Only the binary32 and binary64 storage of the vector slice is
-   admitted; any other decode or encode is a typed refusal. *)
+   conversion, or none for an exact binary32 access. Only the binary32 and
+   binary64 storage of the vector slice is admitted; any other decode or
+   encode is a typed refusal. *)
 
 open Ssa_ir
 open Machine_ir
@@ -35,11 +36,18 @@ let vaccess st op (e : L.Entry.t) at steps lanes elem =
     align = Mir_type.Elem.bytes elem;
   }
 
+(* The vector element a decode produces: its scalar result's. *)
+let result_elem st op (d : Ssa_op.Decode.t) =
+  match Ssa_op.Decode.result d with
+  | Ssa_type.Scalar Ssa_type.F32 -> Mir_type.Elem.F32
+  | Ssa_type.Scalar Ssa_type.F64 -> Mir_type.Elem.F64
+  | _ -> unsupported st op
+
 (* A decode with no vector load, one lane at a time: each lane's scalar decode at
    its own address, put into the vector the lanes build up. [decode] is the
    scalar decode of an address. *)
 let by_lanes st op (e : L.Entry.t) ~at ~steps ~lanes ~decode d =
-  let acc = vaccess st op e at steps lanes Mir_type.Elem.F64 in
+  let acc = vaccess st op e at steps lanes (result_elem st op d) in
   let n = Mir_type.Lanes.to_int acc.Mir_op.Vaccess.lanes in
   let lane k =
     let addr =
@@ -70,14 +78,14 @@ let load st op (e : L.Entry.t) ~at ~steps ~lanes ~decode (d : Ssa_op.Decode.t) =
   | Ssa_op.Decode.F32_to_f64 ->
       let v = vload Mir_type.Elem.F32 in
       emit st (Mir_op.Fconvert (Mir_op.Fconvert.F32_to_f64, v))
+  | Ssa_op.Decode.F32_exact -> vload Mir_type.Elem.F32
   | Ssa_op.Decode.F64_to_f64 -> vload Mir_type.Elem.F64
   | Ssa_op.Decode.Bf16_to_f64 | Ssa_op.Decode.Bool_to_f64
   | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.I32_to_f64
   | Ssa_op.Decode.I64_to_f64 ->
       by_lanes st op e ~at ~steps ~lanes ~decode d
-  | Ssa_op.Decode.F32_exact | Ssa_op.Decode.I16_dequant
-  | Ssa_op.Decode.I16_dequant32 | Ssa_op.Decode.I64 | Ssa_op.Decode.I8_dequant
-  | Ssa_op.Decode.I8_dequant32 ->
+  | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I16_dequant32 | Ssa_op.Decode.I64
+  | Ssa_op.Decode.I8_dequant | Ssa_op.Decode.I8_dequant32 ->
       unsupported st op
 
 let store st op (e : L.Entry.t) ~at ~steps ~lanes (enc : Ssa_op.Encode.t) v =
@@ -87,8 +95,11 @@ let store st op (e : L.Entry.t) ~at ~steps ~lanes (enc : Ssa_op.Encode.t) v =
       with_role st Mir_origin.Role.Encode;
       let r = emit st (Mir_op.Fconvert (Mir_op.Fconvert.F64_to_f32, v)) in
       emit_unit st (Mir_op.Vstore (acc, r))
-  | Ssa_op.Encode.Bool_nonzero | Ssa_op.Encode.F32_exact | Ssa_op.Encode.I64 ->
-      unsupported st op
+  | Ssa_op.Encode.F32_exact ->
+      let acc = vaccess st op e at steps lanes Mir_type.Elem.F32 in
+      with_role st Mir_origin.Role.Encode;
+      emit_unit st (Mir_op.Vstore (acc, v))
+  | Ssa_op.Encode.Bool_nonzero | Ssa_op.Encode.I64 -> unsupported st op
 
 (* Lane [k] is binary64 [base + k * step]: [base] an index and [k * step]
    below 2^37, so both and their sum are exact in binary64. *)

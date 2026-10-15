@@ -268,8 +268,13 @@ encoding (`Wasm_census`, with its imports). Under the policy:
 
 Three mechanisms make that so. A binary32 cell is read and written as binary32
 (`Decode.F32_exact`, `Encode.F32_exact`), not widened and narrowed around the
-access; this is used by a kernel that stays scalar, since the vector forms of
-the exact accesses are not emitted and the vectorizer refuses them. A scratch
+access, by a scalar and a vectorized kernel alike. With a vector target the
+SSA planner vectorizes the exact form (`Ssa_plan.fp32_vector`) and admits only
+binary32 vectors: a loop whose vector form would hold any other element (a
+`bf16`, `f16`, `bool`, `i32`, `i64` or `f64` decode, a binary64 iota) stays
+scalar with `Element_not_admitted`, never vectorized with conversions. The
+backends load and store binary32 vectors directly (`v128.load`/`store` and
+`load32_splat` in SSA Wasm; `vload`/`vstore` of `F32` in Machine IR). A scratch
 cell is read at the type it was written at (`Ssa_op.Cell`): a binary32 value
 occupies the low four bytes of its eight-byte slot, and zeroing a slot is an
 integer store. And the C dialects spell their NaN, infinity and sign tests with
@@ -277,9 +282,11 @@ integer store. And the C dialects spell their NaN, infinity and sign tests with
 because CompCert, unlike gcc with `FLT_EVAL_METHOD`, does not widen a `float`
 operand to meet a `double` literal and would otherwise compute in binary64.
 
-What stays binary64 under the policy: a vectorized kernel (it keeps the
-widening form of the cell accesses), decode of `f64` storage (one rounding), and
-CompCert's register-class choices. The comparison tool exposes the policy as the
+What stays binary64 under the policy: decode of `f64` storage (one rounding),
+and CompCert's register-class choices. With vectors on, the generic Machine IR
+and the Rivet AArch64 assembly (`machine_model_census --ssa=fp32 --f64`,
+`machine_rivet_a64_census --planned=fp32 --asm`) count zero in every role on
+every CI model. The comparison tool exposes the policy as the
 `fp32` word (`loop-c,fp32`), and two fp32 engines are compared exactly by
 default.
 

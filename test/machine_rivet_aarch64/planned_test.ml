@@ -104,7 +104,8 @@ let%expect_test "conv, batch norm, relu under the planned policy" =
 
 let fp32_ordered = T.fp32_ordered
 
-let table_check ?(allocation = Rt.Allocation.Reference) ?constant name g =
+let table_check ?(allocation = Rt.Allocation.Reference)
+    ?(pipeline = fp32_ordered) ?constant name g =
   let g = g () in
   let b = T.bundle g in
   let constant = Option.value constant ~default:T.positive in
@@ -113,7 +114,7 @@ let table_check ?(allocation = Rt.Allocation.Reference) ?constant name g =
       (fun id -> (id, constant (T.sig_of g id)))
       b.Loop_ir.Loop_bundle.constants
   in
-  match H.prepare ~allocation ~pipeline:fp32_ordered b with
+  match H.prepare ~allocation ~pipeline b with
   | Error rs ->
       Fmt.pr "%s: refused: %a@." name
         Fmt.(list ~sep:(any "; ") Mm.Refusal.pp)
@@ -162,3 +163,36 @@ let%expect_test "Fp32_ordered: the table binding is the binary32 oracle" =
     wide chain reference (3 invocations): bitwise, bitwise
     chain scanned (3 invocations): bitwise, bitwise
     wide chain scanned (3 invocations): bitwise, bitwise |}]
+
+(* ---- Fp32_ordered with vectors -------------------------------------------------
+
+   The policy planned for neon128, so loops vectorize on the exact binary32
+   form: the image route against the selected-stage interpreter, the table
+   route against the binary32 oracle, both allocators. *)
+
+let%expect_test "Fp32_ordered vectors on this CPU" =
+  List.iter
+    (fun (name, g) ->
+      check ~numerics:Ssa_ir.Ssa_numerics.Fp32_ordered ~constant:T.positive
+        ("image " ^ name) g;
+      List.iter
+        (fun allocation ->
+          table_check ~allocation ~pipeline:T.fp32_vector
+            (Fmt.str "table %s %s" (Rt.Allocation.name allocation) name)
+            g)
+        Rt.Allocation.[ Reference; Scanned ])
+    T.vector_fixtures;
+  [%expect
+    {|
+    image relu then add over C=32 (2 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true
+    table reference relu then add over C=32 (2 invocations): bitwise, bitwise
+    table scanned relu then add over C=32 (2 invocations): bitwise, bitwise
+    image softmax over H, W=32 (1 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true
+    table reference softmax over H, W=32 (1 invocations): bitwise, bitwise
+    table scanned softmax over H, W=32 (1 invocations): bitwise, bitwise
+    image layer_norm over H, W=32 (1 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true
+    table reference layer_norm over H, W=32 (1 invocations): bitwise, bitwise
+    table scanned layer_norm over H, W=32 (1 invocations): bitwise, bitwise
+    image conv, batch norm, relu to C=32 (3 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true
+    table reference conv, batch norm, relu to C=32 (3 invocations): bitwise, bitwise
+    table scanned conv, batch norm, relu to C=32 (3 invocations): bitwise, bitwise |}]

@@ -111,3 +111,9 @@ let planned ~numerics ~target p =
 (* Strict vectorization at binary64 for a target. *)
 let vectorized ~target p =
   planned ~numerics:Ssa_numerics.Reference_f64 ~target p
+
+(* The Fp32_ordered vector plan for a target ({!Ssa_plan.fp32_vector}). *)
+let fp32_vector ~target p =
+  match Ssa_plan.fp32_vector ~alias ~target p with
+  | Ok t -> t.Ssa_plan.program
+  | Error r -> Fmt.invalid_arg "not admitted: %a" Ssa_numerics.Refusal.pp r

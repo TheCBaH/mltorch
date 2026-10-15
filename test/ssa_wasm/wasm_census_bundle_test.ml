@@ -114,9 +114,32 @@ let%expect_test "Fp32_ordered Wasm modules are free of binary64" =
                             target = Ssa_ir.Ssa_target.scalar;
                           })
                      ~table_alloc inv)
+                 b)));
+      Fmt.pr "%s ssa vectors: %s@." name
+        (verdict
+           (Err.payload
+              (Loop_bundle_wasm.build
+                 ~kernel:(fun ~table_alloc inv ->
+                   Ssa_backends.wasm
+                     ~pipeline:
+                       (Ssa_backends.Pipeline.Planned
+                          {
+                            numerics = Ssa_ir.Ssa_numerics.Fp32_ordered;
+                            target = Ssa_ir.Ssa_target.wasm128;
+                          })
+                     ~table_alloc inv)
                  b))))
     [
       ("chain", Native_test.Graph_fixtures.chain);
+      ( "relu then add over C=32",
+        fun () ->
+          Native_test.Graph_fixtures.build "pointwise"
+            Graph_builder.(
+              let* x =
+                input ~shape:(Native_test.Graph_fixtures.s 1 1 1 2 3 32) ()
+              in
+              let* y = relu x in
+              add y x) );
       ( "softmax",
         fun () ->
           Native_test.Graph_fixtures.build "softmax"
@@ -130,5 +153,10 @@ let%expect_test "Fp32_ordered Wasm modules are free of binary64" =
     {|
     chain loop: free
     chain ssa: free
+    chain ssa vectors: free
+    relu then add over C=32 loop: free
+    relu then add over C=32 ssa: free
+    relu then add over C=32 ssa vectors: free
     softmax loop: free
-    softmax ssa: free |}]
+    softmax ssa: free
+    softmax ssa vectors: free |}]

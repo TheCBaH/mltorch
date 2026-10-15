@@ -11,7 +11,7 @@
    and only it is timed meaningfully: the first is dominated by the processes.
 
    argv: <model.pt2> [--run=K] (K = 0: compile only) [--allocation=reference|scanned]
-   [--gnu] [--fma] [--table [--poison] [--planned=ordered|relaxed]
+   [--gnu] [--fma] [--planned=fp32|fp32s|ordered|relaxed] [--table [--poison]
    [--against-interp] [--bench=N] [--profile=N] [--no-reference]] [--runtime=dependency_free|system_libm] (default
    dependency_free: a kernel calling a C library math helper other than the
    project's own is refused and tallied) *)
@@ -335,11 +335,20 @@ let () =
         | [ "--allocation"; "scanned" ] ->
             allocation := Rt.Allocation.Scanned;
             false
-        | [ "--planned"; (("ordered" | "relaxed") as n) ] ->
+        | [ "--planned"; (("fp32" | "fp32s" | "ordered" | "relaxed") as n) ] ->
             planned :=
               Some
-                (if n = "ordered" then Ssa_ir.Ssa_numerics.Simd_fp32_ordered
-                 else Ssa_ir.Ssa_numerics.Simd_fp32_relaxed);
+                (match n with
+                | "fp32" ->
+                    (Ssa_ir.Ssa_numerics.Fp32_ordered, Ssa_ir.Ssa_target.neon128)
+                | "fp32s" ->
+                    (Ssa_ir.Ssa_numerics.Fp32_ordered, Ssa_ir.Ssa_target.scalar)
+                | "ordered" ->
+                    ( Ssa_ir.Ssa_numerics.Simd_fp32_ordered,
+                      Ssa_ir.Ssa_target.neon128 )
+                | _ ->
+                    ( Ssa_ir.Ssa_numerics.Simd_fp32_relaxed,
+                      Ssa_ir.Ssa_target.neon128 ));
             false
         | [ "--profile"; n ] ->
             profile := Some (int_of_string n);
@@ -399,6 +408,12 @@ let () =
           exit 1
       | Ok (b, constants, graph) -> (
           let n = List.length b.Loop_bundle.invocations in
+          let pipeline =
+            match !planned with
+            | Some (numerics, target) ->
+                Ssa_backends.Pipeline.Planned { numerics; target }
+            | None -> Ssa_backends.Pipeline.Exact
+          in
           Fmt.pr "runner: %a@." Machine_rivet_x86_64.Rivet_x64_process.Runner.pp
             Machine_rivet_x86_64.Rivet_x64_process.runner;
           if !table then
@@ -410,18 +425,13 @@ let () =
                 (if !fma then Some Machine_ir.Mir_target.Feature.[ Sse2; Fma ]
                  else None)
               ~verify:!verify ~interp:!interp ~bench:!bench ~profile:!profile
-              ~pipeline:
-                (match !planned with
-                | Some numerics ->
-                    Ssa_backends.Pipeline.Planned
-                      { numerics; target = Ssa_ir.Ssa_target.neon128 }
-                | None -> Ssa_backends.Pipeline.Exact)
+              ~pipeline
           else
             let t0 = Unix.gettimeofday () in
             match
               M.prepare
                 ~route:(Rt.route ~allocation:!allocation ~runtime:!runtime ())
-                ~pipeline:Ssa_backends.Pipeline.Exact b
+                ~pipeline b
             with
             | Ok m ->
                 Fmt.pr "%s: %d of %d invocations compiled (%.1f s)@."
@@ -452,6 +462,6 @@ let () =
       prerr_endline
         "usage: machine_rivet_x64_census <model.pt2> [--run=K] \
          [--allocation=reference|scanned] [--gnu] [--fma] [--no-reference] \
-         [--table [--poison] [--planned=ordered|relaxed]] \
+         [--planned=fp32|fp32s|ordered|relaxed] [--table [--poison]] \
          [--runtime=dependency_free|system_libm]";
       exit 2

@@ -230,14 +230,40 @@ let%expect_test "Fp32_ordered through both Wasm emitters is the binary32 oracle"
                  (target ~numerics:Ssa_ir.Ssa_numerics.Fp32_ordered
                     Ssa_ir.Ssa_target.scalar)
                ~table_alloc inv)
+           ~constant:positive g);
+      report "ssa vectors"
+        (run_f32 ~numerics:Loop_numerics.Fp32_ordered
+           ~kernel:(fun ~table_alloc inv ->
+             Ssa_backends.wasm
+               ~pipeline:
+                 (target ~numerics:Ssa_ir.Ssa_numerics.Fp32_ordered
+                    Ssa_ir.Ssa_target.wasm128)
+               ~table_alloc inv)
            ~constant:positive g))
-    [ ("chain", Native_test.Graph_fixtures.chain); ("wide_chain", wide_chain) ];
+    [
+      ("chain", Native_test.Graph_fixtures.chain);
+      ("wide_chain", wide_chain);
+      ( "relu then add over C=32",
+        fun () ->
+          Native_test.Graph_fixtures.build "pointwise"
+            Graph_builder.(
+              let* x =
+                input ~shape:(Native_test.Graph_fixtures.s 1 1 1 2 3 32) ()
+              in
+              let* y = relu x in
+              add y x) );
+    ];
   [%expect
     {|
     chain loop: equals the oracle true, equals the f64 reference false (3 of 3 binary32)
     chain ssa: equals the oracle true, equals the f64 reference false (3 of 3 binary32)
+    chain ssa vectors: equals the oracle true, equals the f64 reference false (3 of 3 binary32)
     wide_chain loop: equals the oracle true, equals the f64 reference false (3 of 3 binary32)
-    wide_chain ssa: equals the oracle true, equals the f64 reference false (3 of 3 binary32) |}]
+    wide_chain ssa: equals the oracle true, equals the f64 reference false (3 of 3 binary32)
+    wide_chain ssa vectors: equals the oracle true, equals the f64 reference false (3 of 3 binary32)
+    relu then add over C=32 loop: equals the oracle true, equals the f64 reference true (2 of 2 binary32)
+    relu then add over C=32 ssa: equals the oracle true, equals the f64 reference true (2 of 2 binary32)
+    relu then add over C=32 ssa vectors: equals the oracle true, equals the f64 reference true (2 of 2 binary32) |}]
 
 (* Mutation: one invocation's kernel left binary64 turns the check red. *)
 let%expect_test "a binary64 kernel among binary32 ones is caught" =

@@ -1,6 +1,6 @@
 .PHONY: machine.rivet.rv32.runtest compcert.rv32.install compcert.rv32.runtest model.compare.coverage js.compare.runtest rivet.compare.runtest transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open model.compare model.download model.compare.gate model.fetch.timm model.fetch.fixture transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.native4d.runtest c.pt2.native4d.ssa.runtest c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
-	check.file-size check.int-signatures check.whitespace clean fp32.pt2.runtest machine.a64.conformance machine.pt2.census ssa.vector.census \
+	check.file-size check.int-signatures check.whitespace clean fp32.pt2.runtest fp32.pt2.census machine.a64.conformance machine.pt2.census ssa.vector.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
 	expr_probe.deep-runtest expr_probe.runtest format fp32.bench fp32.bench.wasm inference inference-runa \
 	inline-timing-report inline-timing-report-js js.build js.runtest \
@@ -1407,8 +1407,13 @@ wasm.pt2.ssa.runtest: wasm.pt2.exe
 # full reference graph each.
 FP32_COMPARE_MODELS ?= $(PT2_MODELS_CRAM)
 FP32_PAIRS = loop-c-fp32:ssa-c-fp32 loop-c-fp32:loop-wasm-fp32 \
-	loop-wasm-fp32:ssa-wasm-fp32 loop-c-fp32:rivet-fp32 \
-	rivet-fp32:rivet-table-fp32 rivet-scanned-fp32:rivet-table-scanned-fp32
+	loop-wasm-fp32:ssa-wasm-fp32
+# The Rivet AArch64 engines refuse on any other host.
+ifeq ($(shell uname -m),aarch64)
+FP32_PAIRS += loop-c-fp32:rivet-fp32 \
+	rivet-fp32:rivet-table-fp32 rivet-scanned-fp32:rivet-table-scanned-fp32 \
+	rivet-fp32:rivet-fp32s
+endif
 fp32.pt2.runtest: c.pt2.exe wasm.pt2.exe
 	for m in $(PT2_MODELS_CRAM) csatv2; do \
 	  $(MAKE) pt2.download PT2_MODEL=$$m && \
@@ -1427,6 +1432,26 @@ fp32.pt2.runtest: c.pt2.exe wasm.pt2.exe
 	      || { cat /tmp/fp32_pair.log; exit 1; }; \
 	    grep -E "^left |^comparisons:" /tmp/fp32_pair.log; \
 	  done; \
+	done
+
+# The binary64 census of every CI model under Fp32_ordered with vectors on:
+# the SSA Wasm module (instructions and imports), the generic Machine IR and
+# the Rivet AArch64 assembly must each be zero in every role. Lowering and
+# planning only, plus one quick node run per model for the module.
+FP32_CENSUS_ZERO_WASM = arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+FP32_CENSUS_ZERO_MIR = arithmetic 0, conversion 0, helper_call 0, memory_move 0; helpers []
+FP32_CENSUS_ZERO_ASM = arithmetic 0, conversion 0, memory_move 0
+fp32.pt2.census: wasm.pt2.exe
+	opam exec -- dune build bin/machine_model_census.exe bin/machine_rivet_a64_census.exe
+	for m in $(PT2_MODELS_CRAM) csatv2; do \
+	  $(MAKE) pt2.download PT2_MODEL=$$m && \
+	  echo "== $$m" && \
+	  (cd $(PT2_DIR)/$$m && $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --numerics=fp32_ordered --ssa=planned --samples=1 2>&1) \
+	    | grep "binary64 census" | tee /dev/stderr | grep -qF "$(FP32_CENSUS_ZERO_WASM)" || exit 1; \
+	  _build/default/bin/machine_model_census.exe $(PT2_DIR)/$$m/$$m.pt2 --ssa=fp32 --f64 \
+	    | grep "binary64 instructions" | tee /dev/stderr | grep -qF "$(FP32_CENSUS_ZERO_MIR)" || exit 1; \
+	  _build/default/bin/machine_rivet_a64_census.exe $(PT2_DIR)/$$m/$$m.pt2 --planned=fp32 --asm --run=0 \
+	    | grep "binary64 assembly" | tee /dev/stderr | grep -qF "$(FP32_CENSUS_ZERO_ASM)" || exit 1; \
 	done
 
 # The Native4D dialect through direct Wasm, under node (see

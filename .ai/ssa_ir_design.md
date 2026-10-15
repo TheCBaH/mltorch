@@ -255,7 +255,8 @@ its own name becomes its interface and hides its siblings (the lowering is
   `Ssa_plan.vectorize_f32` is the binary32 vector program a plan starts from
   (narrowed or exact form), for coverage: `Ssa_backends.Coverage` tallies it
   per bundle beside the Loop planner's decisions (`make ssa.vector.census`).
-  `Ssa_plan.fp32_vector` is the `Fp32_ordered` vector plan: the exact form
+  Under `Fp32_ordered` with a target, `resolve` is `Ssa_plan.fp32_vector`,
+  the `Fp32_ordered` vector plan: the exact form
   vectorized with only `F32` vectors admitted, then rows and clean-up; a kernel
   with no vector loop is the scalar `Fp32_ordered` plan. It asserts
   `Ssa_numerics.wide_values` (every binary64 value by defining op, the IR-level
@@ -337,8 +338,9 @@ iteration's transfer goes through temporaries unless a parameter is yielded to
 itself. Types are the program's: binary32 values are `float` (the translation
 unit asserts `FLT_EVAL_METHOD == 0`), `Float_fma` is `fma`/`fmaf`, vectors are
 GCC/Clang generic vectors of the logical width (a power of two) with masks as
-64-bit-lane vectors, a contiguous full-lane access is one `memcpy` and any other
-stride goes lane by lane, and the operations C has no vector form for run lane by
+64-bit-lane vectors, a contiguous full-lane access is one `memcpy` (with a
+`__builtin_convertvector` for a widening read or a rounding write; none for an
+exact binary32 one) and any other stride goes lane by lane, and the operations C has no vector form for run lane by
 lane through the scalar helper. Checked operations are explicit `if` + record at
 their own site, with the operands the interpreter reports. Precision and
 contraction are never decided here. Quantized buffers are a typed refusal; a
@@ -384,10 +386,16 @@ is simultaneous with no temporary; an induction counter that could wrap an `i32`
 (its last increment leaves the index domain) is a typed refusal. Contiguous
 `f32` to `f64` vector loads are `v128.load64_zero` plus a promote, `f64` to `f32`
 stores a demote plus a 64-bit lane store; any other stride goes lane by lane.
+A vector load builds the registers of its result's element: an exact binary32
+read (`F32_exact`) is one `v128.load` (align 4) per four lanes when contiguous
+and `v128.load32_splat` when every lane reads one cell, an exact binary32 store
+one `v128.store` per register when contiguous; otherwise lane by lane through
+the scalar decode or encode. The binary64 forms are unchanged byte for byte.
 `Float_fma` is the one relaxed-SIMD `f32x4.relaxed_madd`, only where the plan was
 made for relaxed SIMD; a scalar fused operation and a binary64 one are refused.
 Checks: the op sweep lowered and optimized, planned programs for strict vectors,
-ordered binary32 (standard SIMD) and relaxed binary32 (relaxed SIMD) against the
+ordered binary32 (standard SIMD), relaxed binary32 (relaxed SIMD) and the
+`Fp32_ordered` vector plan (`Ssa_plan.fp32_vector`) against the
 structured interpreter, hand-built control flow and every failure row, the vector
 surface, and mutations of addressing, checks, transfers, selects, lanes and
 accumulation.

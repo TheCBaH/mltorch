@@ -10,8 +10,9 @@
     vectorizes at least one loop or schedules at least one sum. Under
     [Fp32_ordered] every kernel is binary32 whether or not anything vectorizes,
     and one {!Ssa_numerics.admit} refuses has no plan: {!admitted} is its error.
-    [Fp32_ordered] plans scalar whatever the target: the SSA vector forms widen
-    their lanes through binary64, which the policy promises not to contain. *)
+    With a target, [Fp32_ordered] is {!fp32_vector}: loops vectorize on the
+    exact binary32 form, holding binary32 vectors only, and every other loop
+    stays the exact scalar form. *)
 
 type t = {
   numerics : Ssa_numerics.t;

@@ -338,9 +338,12 @@ census slice that will admit it.
   helper call) applied, the result inserted into the vector the lanes build.
   A vector access's stride is its steps' row-major element offset times the
   element size; its decode or encode is a lanewise conversion, and binary32
-  and binary64 storage are loaded as vectors. A float decode of any other
+  and binary64 storage are loaded as vectors. An exact binary32 access
+  (`F32_exact`, the `Fp32_ordered` form) is a binary32 `vload`/`vstore` with no
+  conversion. A float decode of any other
   storage (`bf16`, `bool`, `f16`, `i32`, `i64`) is likewise a scalar decode
-  at each lane's address, inserted a lane at a time; a dequantizing decode
+  at each lane's address, inserted a lane at a time into a vector of the
+  decode's result element; a dequantizing decode
   and an integer vector stay refused. A `vec.splat` of a predicate is a mask.
   `vec.iota` is the splat of `f64(base)` plus inserted lane constants (each
   exact below 2^53). The oracle is the plan's own (`Ssa_plan.oracle`: every

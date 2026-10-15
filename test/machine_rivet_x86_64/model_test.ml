@@ -57,3 +57,29 @@ let%expect_test "Fp32_ordered: whole bundles as processes equal the oracle" =
 let%expect_test "Fp32_ordered is not the binary64 reference" =
   T.check ~route ~pipeline:T.fp32_ordered ~constant:T.positive "chain" F.chain;
   [%expect {| chain (3 invocations): DIFFERS, DIFFERS |}]
+
+(* The policy planned for neon128's 128-bit description, so loops vectorize on
+   the exact binary32 form as SSE2 packed singles: whole bundles as processes,
+   both allocators, bitwise the binary32 oracle. *)
+let%expect_test "Fp32_ordered vectors: whole bundles as processes" =
+  List.iter
+    (fun allocation ->
+      let route = Rt.route ~allocation () in
+      List.iter
+        (fun (name, g) ->
+          T.check ~route ~pipeline:T.fp32_vector ~oracle:T.Fp32
+            ~constant:T.positive
+            (Fmt.str "%s %s" name (Rt.Allocation.name allocation))
+            g)
+        T.vector_fixtures)
+    Rt.Allocation.[ Reference; Scanned ];
+  [%expect
+    {|
+    relu then add over C=32 reference (2 invocations): bitwise, bitwise
+    softmax over H, W=32 reference (1 invocations): bitwise, bitwise
+    layer_norm over H, W=32 reference (1 invocations): bitwise, bitwise
+    conv, batch norm, relu to C=32 reference (3 invocations): bitwise, bitwise
+    relu then add over C=32 scanned (2 invocations): bitwise, bitwise
+    softmax over H, W=32 scanned (1 invocations): bitwise, bitwise
+    layer_norm over H, W=32 scanned (1 invocations): bitwise, bitwise
+    conv, batch norm, relu to C=32 scanned (3 invocations): bitwise, bitwise |}]

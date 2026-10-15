@@ -50,15 +50,22 @@ let make ?(evaluator = Evaluator.Direct) ?(dots = Direct.Binary64)
 let sequential32 = "sequential32"
 let symbolic = "symbolic"
 
-(* The numerics word of the compiled engines. An engine registers one provider
-   for each numerics it runs, under the engine word and this suffix:
-   [loop-c,fp32] is the provider [loop-c-fp32]. *)
+(* The numerics words of the compiled engines. An engine registers one provider
+   for each numerics it runs, under the engine word and the word as a suffix:
+   [loop-c,fp32] is the provider [loop-c-fp32]. [fp32] is the engine's binary32
+   configuration as deployed (vectors where it has them); [fp32s] the same
+   policy kept scalar, for an engine that has both. *)
 let fp32 = "fp32"
-let fp32_suffix = "-" ^ fp32
+let fp32s = "fp32s"
+let numerics_words = [ fp32; fp32s ]
 
 let is_fp32_engine w =
-  let n = String.length w and k = String.length fp32_suffix in
-  n > k && String.equal (String.sub w (n - k) k) fp32_suffix
+  List.exists
+    (fun word ->
+      let suffix = "-" ^ word in
+      let n = String.length w and k = String.length suffix in
+      n > k && String.equal (String.sub w (n - k) k) suffix)
+    numerics_words
 
 let ( let* ) = Result.bind
 
@@ -94,29 +101,32 @@ let of_string s =
             | true, Some word -> go dots (word :: storage) rest
             | _ -> Error (Printf.sprintf "variant %S: no configuration %S" s w))
       in
-      let* words, fp32_requested =
-        if List.mem fp32 words then
-          if
-            (View.rank view = 1 || View.rank view = 2)
-            && List.exists (fun w -> Provider.find w <> None) words
-          then Ok (List.filter (fun w -> w <> fp32) words, true)
-          else
-            Error (Printf.sprintf "variant %S: %s needs an engine word" s fp32)
-        else Ok (words, false)
+      let* words, numerics_requested =
+        match List.find_opt (fun w -> List.mem w numerics_words) words with
+        | None -> Ok (words, None)
+        | Some word ->
+            if
+              (View.rank view = 1 || View.rank view = 2)
+              && List.exists (fun w -> Provider.find w <> None) words
+            then Ok (List.filter (fun w -> w <> word) words, Some word)
+            else
+              Error
+                (Printf.sprintf "variant %S: %s needs an engine word" s word)
       in
       let* words =
-        if not fp32_requested then Ok words
-        else
-          match List.find_opt (fun w -> Provider.find w <> None) words with
-          | None -> Ok words
-          | Some w ->
-              let w32 = w ^ fp32_suffix in
-              if Provider.find w32 <> None then
-                Ok (List.map (fun x -> if x = w then w32 else x) words)
-              else
-                Error
-                  (Printf.sprintf "variant %S: engine %S has no %s numerics" s w
-                     fp32)
+        match numerics_requested with
+        | None -> Ok words
+        | Some word -> (
+            match List.find_opt (fun w -> Provider.find w <> None) words with
+            | None -> Ok words
+            | Some w ->
+                let w32 = w ^ "-" ^ word in
+                if Provider.find w32 <> None then
+                  Ok (List.map (fun x -> if x = w then w32 else x) words)
+                else
+                  Error
+                    (Printf.sprintf "variant %S: engine %S has no %s numerics" s
+                       w word))
       in
       let evaluator, words =
         let provided =

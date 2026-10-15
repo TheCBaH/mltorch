@@ -104,7 +104,12 @@ alone (the scalar is splatted, then lanes are picked from it and the vector;
 `INSERTPS` would need SSE4.1). A tie needs equal types, so the destructive
 compare takes a mask-typed copy of its first operand (`Movap_to_mask`). Still
 refused: half-width compares, and any vector the split leaves in a shape that is
-not four binary32 or two binary64 lanes.
+not four binary32 or two binary64 lanes. Planned `Fp32_ordered` vectors use
+these forms unchanged (`MOVUPS`, a broadcast load, per-lane strided access, no
+`CVTPS2PD`); their binary32 transcendentals are the vector sequence. A process
+returns x86's default NaN (sign set) where the binary32 oracle and AArch64
+return a positive one, so checks over NaN-producing inputs compare NaNs as
+NaNs (payloads are not modelled).
 
 ## Host
 

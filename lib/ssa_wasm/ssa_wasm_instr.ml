@@ -665,26 +665,46 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
           n Wasm_op.I32_add;
         ]
       in
+      let lane k =
+        decode st b d
+          ~address:(cell_address st b (element k))
+          ~access:(Ssa_access.Coord at)
+      in
+      (* registers of the result's element: a fast form for the access where
+         one exists, else lane by lane *)
       let chunks =
-        List.init (count / 2) (fun i ->
-            match (d, Int64.equal delta 1L) with
-            | Ssa_op.Decode.F32_to_f64, true ->
-                cell_address st b (element (2 * i))
-                @ [
-                    I.Simd_load (Wasm.Simd_load.Load64_zero, arg 2 0);
-                    vn Wasm_op.F64x2_promote_low_f32x4;
-                  ]
-            | Ssa_op.Decode.F64_to_f64, true ->
-                cell_address st b (element (2 * i))
-                @ [ I.Simd_load (Wasm.Simd_load.Load, arg 3 0) ]
-            | _ ->
-                let lane k =
-                  decode st b d
-                    ~address:(cell_address st b (element k))
-                    ~access:(Ssa_access.Coord at)
-                in
-                List.hd
-                  (gather Ssa_type.F64 [ lane (2 * i); lane ((2 * i) + 1) ]))
+        match elem_of res with
+        | Ssa_type.F64 ->
+            List.init (count / 2) (fun i ->
+                match (d, Int64.equal delta 1L) with
+                | Ssa_op.Decode.F32_to_f64, true ->
+                    cell_address st b (element (2 * i))
+                    @ [
+                        I.Simd_load (Wasm.Simd_load.Load64_zero, arg 2 0);
+                        vn Wasm_op.F64x2_promote_low_f32x4;
+                      ]
+                | Ssa_op.Decode.F64_to_f64, true ->
+                    cell_address st b (element (2 * i))
+                    @ [ I.Simd_load (Wasm.Simd_load.Load, arg 3 0) ]
+                | _ ->
+                    List.hd
+                      (gather Ssa_type.F64 [ lane (2 * i); lane ((2 * i) + 1) ]))
+        | Ssa_type.F32 ->
+            let per = lanes_per_register Ssa_type.F32 in
+            List.init (count / per) (fun i ->
+                match (d, delta) with
+                | Ssa_op.Decode.F32_exact, 1L ->
+                    cell_address st b (element (per * i))
+                    @ [ I.Simd_load (Wasm.Simd_load.Load, arg 2 0) ]
+                | Ssa_op.Decode.F32_exact, 0L ->
+                    cell_address st b (element 0)
+                    @ [ I.Simd_load (Wasm.Simd_load.Load32_splat, arg 2 0) ]
+                | _ ->
+                    List.hd
+                      (gather Ssa_type.F32
+                         (List.init per (fun j -> lane ((per * i) + j)))))
+        | Ssa_type.I64 | Ssa_type.Index | Ssa_type.Pred ->
+            refuse (`Unsupported_operation "a vector load of a non-float")
       in
       start @ set_chunks st res chunks
   | Ssa_op.Vec_store { buffer; at; steps; encode; value; lanes } -> (
@@ -704,6 +724,16 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
       @ [ set o ]
       @
       match (encode, Int64.equal delta 1L, elem_of value) with
+      | Ssa_op.Encode.F32_exact, true, Ssa_type.F32 ->
+          List.concat
+            (List.init
+               (count / per_register value)
+               (fun i ->
+                 cell_address st b (element (per_register value * i))
+                 @ [
+                     get regs.(i);
+                     I.Simd_store (Wasm.Simd_store.Store, arg 2 0, 0);
+                   ]))
       | Ssa_op.Encode.F32_round, true, Ssa_type.F64 ->
           List.concat
             (List.init (count / 2) (fun i ->

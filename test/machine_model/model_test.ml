@@ -391,3 +391,136 @@ let%expect_test "Fp32_ordered: a failing gather reports the oracle's row" =
     index [2; -3]: bitwise | oracle succeeds
     index [0; 3]: invocation 1 (n1): failure gather_index_out_of_range(3:i64, 3:i64) | oracle fails: invocation 1: gather index 3 out of range [-3, 2]
     index [-4; 1]: invocation 1 (n1): failure gather_index_out_of_range(-4:i64, 3:i64) | oracle fails: invocation 1: gather index -4 out of range [-3, 2] |}]
+
+(* ---- Fp32_ordered with vectors ------------------------------------------------
+
+   The same policy planned for neon128: loops vectorize on the exact binary32
+   form. Bundles wide enough for sixteen binary32 lanes, on the generic
+   interpreter and on both targets' scanned programs in the physical
+   interpreter, each bitwise the binary32 oracle; the vector loops the plans
+   hold, and the binary64 census of the generic programs, which must be zero
+   in every role. The softmax and layer_norm kernels hold a local array per
+   output, which has no vector form: they stay scalar, under every policy. *)
+
+let fp32_vector =
+  Ssa_backends.Pipeline.Planned
+    {
+      numerics = Ssa_ir.Ssa_numerics.Fp32_ordered;
+      target = Ssa_ir.Ssa_target.neon128;
+    }
+
+let vector_fixtures =
+  [
+    ( "relu then add over C=32",
+      fun () ->
+        F.build "pointwise"
+          Graph_builder.(
+            let* x = input ~shape:(F.s 1 1 1 2 3 32) () in
+            let* y = relu x in
+            add y x) );
+    ( "softmax over H, W=32",
+      fun () ->
+        F.build "softmax"
+          Graph_builder.(
+            let* x = input ~shape:(F.s 1 1 1 5 32 3) () in
+            softmax { Reduce.Softmax.axis = Axis.H } x) );
+    ( "layer_norm over H, W=32",
+      fun () ->
+        F.build "layer_norm"
+          Graph_builder.(
+            let* x = input ~shape:(F.s 1 1 1 5 3 32) () in
+            layer_norm { Norm.LayerNorm.dims = [ Axis.H ]; eps = 1e-5 } ~x ())
+    );
+    ( "conv, batch norm, relu to C=32",
+      fun () ->
+        F.build "wide_conv"
+          Graph_builder.(
+            let* x = input ~shape:(F.nhwc ~h:4 ~w:4 ~c:4) () in
+            let* w =
+              constant
+                ~shape:(F.weight_shape ~out_channels:32 ~in_channels:4)
+                ()
+            in
+            let* bias = constant ~shape:(F.s1c 32) () in
+            let* gamma = constant ~shape:(F.s1c 32) () in
+            let* beta = constant ~shape:(F.s1c 32) () in
+            let* mean = constant ~shape:(F.s1c 32) () in
+            let* var = constant ~shape:(F.s1c 32) () in
+            let* y =
+              conv2d (F.conv_params ~in_channels:4) ~x ~weight:w ~bias ()
+            in
+            let* n =
+              batch_norm F.bn_params ~x:y ~weight:gamma ~bias:beta
+                ~running_mean:mean ~running_var:var ()
+            in
+            relu n) );
+  ]
+
+let vector_loops b =
+  List.fold_left
+    (fun n inv ->
+      match
+        Ssa_backends.plan ~numerics:Ssa_ir.Ssa_numerics.Fp32_ordered
+          ~target:Ssa_ir.Ssa_target.neon128 inv
+      with
+      | Ok p ->
+          n
+          + List.length
+              (List.filter
+                 (fun (d : Ssa_ir.Ssa_vectorize.Decision.t) ->
+                   d.Ssa_ir.Ssa_vectorize.Decision.outcome
+                   = Ssa_ir.Ssa_vectorize.Decision.Vectorized)
+                 p.Ssa_ir.Ssa_plan.vectorized)
+      | Error _ -> n)
+    0 b.Loop_ir.Loop_bundle.invocations
+
+let%expect_test "Fp32_ordered vectors: Machine IR is the binary32 oracle" =
+  List.iter
+    (fun (name, g) ->
+      let b = bundle (g ()) in
+      let census =
+        match M.prepare ~pipeline:fp32_vector b with
+        | Error _ -> "refused"
+        | Ok m ->
+            let cs =
+              List.map Machine_ir.Mir_f64_census.of_program (M.generic m)
+            in
+            String.concat ", "
+              (List.map
+                 (fun r ->
+                   Fmt.str "%s %d"
+                     (Machine_ir.Mir_f64_census.Role.name r)
+                     (List.fold_left
+                        (fun n c -> n + Machine_ir.Mir_f64_census.count c r)
+                        0 cs))
+                 Machine_ir.Mir_f64_census.Role.all)
+      in
+      Fmt.pr "%s: %d vector loops; binary64 %s@." name (vector_loops b) census;
+      List.iter
+        (fun (rname, route) ->
+          check ?route ~pipeline:fp32_vector ~oracle:Fp32 ~constant:positive
+            ("  " ^ rname) g)
+        [
+          ("generic", None);
+          ("aarch64 scanned", Some (M.Route.Aarch64 M.Stage.Scanned));
+          ("x86_64 scanned", Some (M.Route.X86_64 M.Stage.Scanned));
+        ])
+    vector_fixtures;
+  [%expect
+    {|
+    relu then add over C=32: 2 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (2 invocations): bitwise, bitwise
+      aarch64 scanned (2 invocations): bitwise, bitwise
+      x86_64 scanned (2 invocations): bitwise, bitwise
+    softmax over H, W=32: 0 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (1 invocations): bitwise, bitwise
+      aarch64 scanned (1 invocations): bitwise, bitwise
+      x86_64 scanned (1 invocations): bitwise, bitwise
+    layer_norm over H, W=32: 0 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (1 invocations): bitwise, bitwise
+      aarch64 scanned (1 invocations): bitwise, bitwise
+      x86_64 scanned (1 invocations): bitwise, bitwise
+    conv, batch norm, relu to C=32: 3 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (3 invocations): bitwise, bitwise
+      aarch64 scanned (3 invocations): bitwise, bitwise
+      x86_64 scanned (3 invocations): bitwise, bitwise |}]

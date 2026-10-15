@@ -278,6 +278,7 @@
  (name machine_rivet_a64_census)
  (modules machine_rivet_a64_census)
  (libraries
+  asm_census
   err_trace
   fmt
   loop_ir

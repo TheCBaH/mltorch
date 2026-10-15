@@ -11,10 +11,12 @@
    back). The run is dominated by the copy and the reference, not the kernels.
 
    [--planned=fp32] plans Fp32_ordered for neon128 (vectors where the policy
-   keeps them), [--planned=fp32s] the same policy scalar.
+   keeps them), [--planned=fp32s] the same policy scalar, on either route.
+   [--asm] counts the binary64 instructions of every module Rivet lowers, by
+   role, from Rivet's own GNU printing of it.
 
    argv: <model.pt2> [--run=K] (K = 0: compile only) [--allocation=reference|scanned]
-   [--gnu] [--table [--poison] [--planned=fp32|fp32s|ordered|relaxed]] [--runtime=dependency_free|system_libm] (default dependency_free: a kernel
+   [--gnu] [--asm] [--planned=fp32|fp32s|ordered|relaxed] [--table [--poison]] [--runtime=dependency_free|system_libm] (default dependency_free: a kernel
    calling a C library math helper is refused and tallied) *)
 
 open Loop_ir
@@ -28,6 +30,61 @@ let gnu_check ~entry modules =
   match G.check ~entry modules with
   | G.Verdict.Agree _ -> Ok ()
   | v -> Error (Fmt.str "gnu: %a" G.Verdict.pp v)
+
+(* The binary64 census of every module Rivet lowers, summed over the
+   invocations: what still runs on a double register. *)
+let asm_roles = Hashtbl.create 4
+let asm_mnemonics = Hashtbl.create 16
+
+let asm_check ~entry:_ modules =
+  let add t k n =
+    Hashtbl.replace t k (n + Option.value ~default:0 (Hashtbl.find_opt t k))
+  in
+  List.fold_left
+    (fun acc m ->
+      match acc with
+      | Error _ -> acc
+      | Ok () -> (
+          match
+            Err.payload
+              (Asm_census.of_text Asm_census.Isa.Aarch64
+                 (Machine_rivet_aarch64_gnu.Gnu_coherence.assembly m))
+          with
+          | Ok c ->
+              List.iter
+                (fun r -> add asm_roles r (Asm_census.count c r))
+                Asm_census.Role.all;
+              List.iter
+                (fun (k, n) -> add asm_mnemonics k n)
+                (Asm_census.mnemonics c);
+              Ok ()
+          | Error e ->
+              Error (Fmt.str "assembly census: %a" Asm_census.pp_error e)))
+    (Ok ()) modules
+
+let pp_asm_census ppf () =
+  Fmt.pf ppf "binary64 assembly: %s%s"
+    (String.concat ", "
+       (List.map
+          (fun r ->
+            Fmt.str "%s %d" (Asm_census.Role.name r)
+              (Option.value ~default:0 (Hashtbl.find_opt asm_roles r)))
+          Asm_census.Role.all))
+    (String.concat ""
+       (List.map
+          (fun (k, n) -> Fmt.str "; %s x%d" k n)
+          (List.sort compare (List.of_seq (Hashtbl.to_seq asm_mnemonics)))))
+
+let checks ~gnu ~asm =
+  match (gnu, asm) with
+  | false, false -> None
+  | true, false -> Some gnu_check
+  | false, true -> Some asm_check
+  | true, true ->
+      Some
+        (fun ~entry modules ->
+          Result.bind (gnu_check ~entry modules) (fun () ->
+              asm_check ~entry modules))
 
 let bits (Tensor.Tensor t as packed) =
   let acc = ref [] in
@@ -90,14 +147,13 @@ let prefix (b : Loop_bundle.t) ~(graph : Graph_ir.graph) m ~constants ~count =
 (* The table-bound host: tensors are the context's storage, passed by address.
    The same comparison, with the phases timed apart. *)
 let host_run (b : Loop_bundle.t) ~(graph : Graph_ir.graph) ~constants
-    ~allocation ~runtime ~count ~poison ~gnu ~pipeline ~interp ~bench ~profile =
+    ~allocation ~runtime ~count ~poison ~gnu ~asm ~pipeline ~interp ~bench
+    ~profile =
   let module H = Machine_rivet_aarch64.Rivet_a64_host in
   let n = List.length b.Loop_bundle.invocations in
   let t0 = Unix.gettimeofday () in
   match
-    H.prepare
-      ?check:(if gnu then Some gnu_check else None)
-      ~allocation ~runtime ~pipeline b
+    H.prepare ?check:(checks ~gnu ~asm) ~allocation ~runtime ~pipeline b
   with
   | Error refusals ->
       let tally = Hashtbl.create 16 in
@@ -119,10 +175,12 @@ let host_run (b : Loop_bundle.t) ~(graph : Graph_ir.graph) ~constants
            (List.of_seq (Hashtbl.to_seq tally)))
   | Ok _ when count = 0 ->
       Fmt.pr "%d of %d invocations compiled (%.1f s)@." n n
-        (Unix.gettimeofday () -. t0)
+        (Unix.gettimeofday () -. t0);
+      if asm then Fmt.pr "%a@." pp_asm_census ()
   | Ok host -> (
       Fmt.pr "%d of %d invocations compiled (%.1f s)@." n n
         (Unix.gettimeofday () -. t0);
+      if asm then Fmt.pr "%a@." pp_asm_census ();
       let g = graph in
       let inputs =
         List.map
@@ -308,6 +366,7 @@ let () =
   and allocation = ref Rt.Allocation.Reference
   and runtime = ref Machine_rivet_aarch64.Rivet_a64_runtime.Dependency_free
   and gnu = ref false
+  and asm = ref false
   and table = ref false
   and planned = ref None
   and interp = ref false
@@ -360,6 +419,9 @@ let () =
         | [ "--gnu" ] ->
             gnu := true;
             false
+        | [ "--asm" ] ->
+            asm := true;
+            false
         | [ "--runtime"; "dependency_free" ] ->
             runtime := Machine_rivet_aarch64.Rivet_a64_runtime.Dependency_free;
             false
@@ -394,31 +456,33 @@ let () =
           exit 1
       | Ok (b, constants, graph) -> (
           let n = List.length b.Loop_bundle.invocations in
+          let pipeline =
+            match !planned with
+            | Some (numerics, target) ->
+                Ssa_backends.Pipeline.Planned { numerics; target }
+            | None -> Ssa_backends.Pipeline.Exact
+          in
           if !table then
             host_run b ~graph ~constants ~allocation:!allocation
               ~runtime:!runtime
               ~count:(Option.value ~default:n !run)
-              ~poison:!poison ~gnu:!gnu ~interp:!interp ~bench:!bench
-              ~profile:!profile
-              ~pipeline:
-                (match !planned with
-                | Some (numerics, target) ->
-                    Ssa_backends.Pipeline.Planned { numerics; target }
-                | None -> Ssa_backends.Pipeline.Exact)
+              ~poison:!poison ~gnu:!gnu ~asm:!asm ~interp:!interp ~bench:!bench
+              ~profile:!profile ~pipeline
           else
             let t0 = Unix.gettimeofday () in
             match
               M.prepare
                 ~route:
                   (Rt.route
-                     ?check:(if !gnu then Some gnu_check else None)
+                     ?check:(checks ~gnu:!gnu ~asm:!asm)
                      ~allocation:!allocation ~runtime:!runtime ())
-                ~pipeline:Ssa_backends.Pipeline.Exact b
+                ~pipeline b
             with
             | Ok m ->
                 Fmt.pr "%s: %d of %d invocations compiled (%.1f s)@."
                   (Filename.basename path) n n
                   (Unix.gettimeofday () -. t0);
+                if !asm then Fmt.pr "%a@." pp_asm_census ();
                 let count = Option.value ~default:n !run in
                 if count > 0 then prefix b ~graph m ~constants ~count
             | Error refusals ->

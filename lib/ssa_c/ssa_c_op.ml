@@ -603,7 +603,7 @@ let instr cx depth (i : Ssa_instr.t) =
             (buffer_name cx buffer) o;
           line cx (depth + 1) "%s = __builtin_convertvector(s, %s);" r
             (vtype cx res.Ssa_value.ty)
-      | Ssa_op.Decode.F64_to_f64, true ->
+      | (Ssa_op.Decode.F32_exact | Ssa_op.Decode.F64_to_f64), true ->
           line cx (depth + 1) "memcpy(&%s, &%s[%s], sizeof %s);" r
             (buffer_name cx buffer) o r
       | _ ->
@@ -626,6 +626,9 @@ let instr cx depth (i : Ssa_instr.t) =
             (n value) st;
           line cx (depth + 1) "memcpy(&%s[%s], &s, sizeof s);"
             (buffer_name cx buffer) o
+      | Ssa_op.Encode.F32_exact, true ->
+          line cx (depth + 1) "memcpy(&%s[%s], &%s, sizeof %s);"
+            (buffer_name cx buffer) o (n value) (n value)
       | _ ->
           for k = 0 to count - 1 do
             line cx (depth + 1) "%s[%s + %Ld] = %s;" (buffer_name cx buffer) o

@@ -94,3 +94,9 @@ fp32-rivet-image-table | native.canonical:rivet-fp32 | native.canonical:rivet-ta
 fp32-rivet-scanned     | native.canonical:rivet-scanned-fp32 | native.canonical:rivet-table-scanned-fp32 | - | agree | -
 fp32-compcert-vs-rivet | native.canonical:compcert-fp32 | native.canonical:rivet-fp32 | - | agree | -
 fp32-compcert-vs-c     | native.canonical:compcert-fp32 | native.canonical:loop-c-fp32 | - | agree | -
+# Rivet's fp32 is vectorized (neon128); fp32s is the same policy scalar, so the
+# vector path is checked against the scalar one exactly.
+fp32-rivet-vector-scalar | native.canonical:rivet-fp32 | native.canonical:rivet-fp32s | - | agree | -
+fp32s-rivet-word       | native.canonical:rivet,fp32s | native.canonical:loop-c-fp32 | - | agree | -
+fp32s-rivet-scanned    | native.canonical:rivet-scanned-fp32s | native.canonical:rivet-table-fp32s | - | agree | -
+fp32s-rivet-table-scanned | native.canonical:rivet-table-scanned-fp32s | native.canonical:rivet-table-scanned-fp32 | - | agree | -
