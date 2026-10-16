@@ -177,27 +177,27 @@ let harness ?(abi = Abi.Table) ~entry lay =
 
 let base = 0x10000L
 
-let elf_of ~entry modules =
+let elf_of ?profile ~entry modules =
   let render e = Fmt.str "%a" Rv32_image.Error.pp e in
-  match Err.payload (Rv32_image.plan ~entry modules) with
+  match Err.payload (Rv32_image.plan ?profile ~entry modules) with
   | Error e -> Error (render e)
   | Ok laid -> (
       match Err.payload (Rv32_image.bind ~base laid) with
       | Error e -> Error (render e)
-      | Ok image -> Rv32_elf.write image)
+      | Ok image -> Rv32_elf.write ?profile image)
 
 (* An image and its harness, built once: the code does not change between
-   runs. *)
-type prepared = { elf : string; lay : layout }
+   runs. The profile it was built for picks the emulator's CPU. *)
+type prepared = { elf : string; lay : layout; profile : Rv32_profile.t }
 
-let prepare ?abi ~entry ~kernel slots =
+let prepare ?(profile = Rv32_profile.default) ?abi ~entry ~kernel slots =
   let lay = layout slots in
   match harness ?abi ~entry lay with
   | Error what -> Error (Fmt.str "the harness has no form for %s" what)
   | Ok h -> (
-      match elf_of ~entry:"_start" (h :: kernel) with
+      match elf_of ~profile ~entry:"_start" (h :: kernel) with
       | Error e -> Error e
-      | Ok elf -> Ok { elf; lay })
+      | Ok elf -> Ok { elf; lay; profile })
 
 type outcome = { status : int32; outputs : (int * string) list }
 
@@ -231,7 +231,9 @@ let run ?timeout (p : prepared) ~bound =
       Out_channel.with_open_bin out_path (fun oc ->
           output_string oc (fill p.lay.out_size (fun s -> s.placement = Out)));
       let* r =
-        Rv32_process.execute ?timeout ~args:[ in_path; out_path ] p.elf
+        Rv32_process.execute ?timeout
+          ?cpu:(Rv32_profile.qemu_cpu p.profile)
+          ~args:[ in_path; out_path ] p.elf
       in
       let* () =
         if r.Rv32_process.exit_code = 0 then Ok ()

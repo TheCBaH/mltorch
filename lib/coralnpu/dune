@@ -1,0 +1,8 @@
+; The Coral NPU emulator release as data: its manifest decoded and checked
+; (configuration IDs recomputed, artifact hashes verified) and the runnable
+; simulator profiles built from it. No unix: files are read through the stdlib.
+
+(library
+ (name coralnpu)
+ (wrapped false)
+ (libraries err_trace fmt jsont jsont.bytesrw pt2_sha256))

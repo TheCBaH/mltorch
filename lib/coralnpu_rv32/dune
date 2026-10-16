@@ -1,0 +1,21 @@
+; Coral guest images from typed Rivet modules: the runtime around a kernel, the
+; ELF the simulators load and the process that runs them. Built only where the
+; RV32 Rivet encoder is installed.
+
+(library
+ (name coralnpu_rv32)
+ (wrapped false)
+ (libraries
+  coralnpu
+  elf
+  err_trace
+  fmt
+  machine_rivet_riscv32
+  rivet.asm_core
+  rivet.foundation
+  rivet.image
+  unix)
+ (enabled_if
+  (and
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

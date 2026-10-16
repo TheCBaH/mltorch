@@ -16,11 +16,15 @@ type laid_out = Image.laid_out
 
 let render e = Foundation.Diag.render e
 
-let plan ~entry modules : (laid_out, Error.t) Err.t =
+(* Typed modules lowered under [profile]'s feature set, so a form the profile
+   excludes (a D instruction under the default) is refused here. *)
+let plan ?(profile = Rv32_profile.default) ~entry modules :
+    (laid_out, Error.t) Err.t =
+  let state = Rv32_profile.state profile in
   let rec lower acc = function
     | [] -> Ok (List.rev acc)
     | m :: rest -> (
-        match P.lower ~state:Riscv32_encode.default_state m with
+        match P.lower ~state m with
         | Ok l -> lower (l :: acc) rest
         | Error e -> Err.fail (`Rivet_lower (render e)))
   in

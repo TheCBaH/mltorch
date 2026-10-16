@@ -1,12 +1,25 @@
 (* The few C library functions a freestanding RV32 process needs, as one typed
-   module in the ilp32d calling convention. There is no libc in the process, so
-   a function not here stays undefined and the image is refused when a unit
-   references it. *)
+   module in the profile's calling convention. There is no libc in the process,
+   so a function not here stays undefined and the image is refused when a unit
+   references it. The binary64 functions exist only under the binary64
+   profile. *)
 
 open Rv32_asm
 
-let names =
-  [ "fabs"; "fabsf"; "fma"; "fmaf"; "memcpy"; "memset"; "sqrt"; "sqrtf" ]
+let names : Rv32_profile.t -> string list = function
+  | Rv32imafd_ilp32d ->
+      [
+        "fabs";
+        "fabsf";
+        "fma";
+        "fmaf";
+        "memcpy";
+        "memset";
+        "sqrt";
+        "sqrtf";
+        "truncf";
+      ]
+  | Rv32imf_ilp32f -> [ "fabsf"; "fmaf"; "memcpy"; "memset"; "sqrtf"; "truncf" ]
 
 let fn name body =
   [ align 4; global name; label name ] @ body @ [ insn "ret" [] ]
@@ -42,12 +55,39 @@ let memset =
       label "memset_done";
     ]
 
-let module_ () =
+(* [truncf(x)]: a binary32 of magnitude 2^23 or more is already an integer, and
+   a NaN or an infinity is returned as it came, so only a smaller magnitude is
+   converted to an integer toward zero and back. The copy of [x]'s sign keeps
+   the sign of a zero result ([truncf(-0.5)] is [-0.0]). *)
+let truncf () =
+  fn "truncf"
+    [
+      insn "fabs.s" [ reg "ft0"; f 0 ];
+      insn "lui" [ reg "t0"; imm 0x4b000 ];
+      insn "fmv.w.x" [ reg "ft1"; reg "t0" ];
+      insn "flt.s" [ reg "t1"; reg "ft0"; reg "ft1" ];
+      insn "beqz" [ reg "t1"; sym "truncf_done" ];
+      insn "fcvt.w.s" [ reg "t0"; f 0; sym "rtz" ];
+      insn "fcvt.s.w" [ reg "ft0"; reg "t0" ];
+      insn "fsgnj.s" [ f 0; reg "ft0"; f 0 ];
+      label "truncf_done";
+    ]
+
+let binary32 () =
+  fn "fabsf" [ insn "fabs.s" [ f 0; f 0 ] ]
+  @ fn "fmaf" [ insn "fmadd.s" [ f 0; f 0; f 1; f 2 ] ]
+  @ fn "sqrtf" [ insn "fsqrt.s" [ f 0; f 0 ] ]
+  @ truncf ()
+
+let binary64 () =
+  fn "fabs" [ insn "fabs.d" [ f 0; f 0 ] ]
+  @ fn "fma" [ insn "fmadd.d" [ f 0; f 0; f 1; f 2 ] ]
+  @ fn "sqrt" [ insn "fsqrt.d" [ f 0; f 0 ] ]
+
+let module_ ?(profile = Rv32_profile.default) () =
   module_ "libc" (fun () ->
-      [ text ] @ memcpy @ memset
-      @ fn "fabs" [ insn "fabs.d" [ f 0; f 0 ] ]
-      @ fn "fabsf" [ insn "fabs.s" [ f 0; f 0 ] ]
-      @ fn "fma" [ insn "fmadd.d" [ f 0; f 0; f 1; f 2 ] ]
-      @ fn "fmaf" [ insn "fmadd.s" [ f 0; f 0; f 1; f 2 ] ]
-      @ fn "sqrt" [ insn "fsqrt.d" [ f 0; f 0 ] ]
-      @ fn "sqrtf" [ insn "fsqrt.s" [ f 0; f 0 ] ])
+      [ text ] @ memcpy @ memset @ binary32 ()
+      @
+      match profile with
+      | Rv32_profile.Rv32imafd_ilp32d -> binary64 ()
+      | Rv32imf_ilp32f -> [])

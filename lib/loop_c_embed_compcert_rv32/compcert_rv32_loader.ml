@@ -17,6 +17,10 @@ type loaded = {
 type error = string
 
 let dialect = Loop_ir.Loop_c_dialect.Compcert_ilp32
+
+(* The embedded CompCert targets ilp32d and moves binary32 values with D
+   instructions, so its processes keep the binary64 profile. *)
+let profile = Machine_rivet_riscv32.Rv32_profile.Rv32imafd_ilp32d
 let pp_error = Fmt.string
 let ( let* ) = Result.bind
 let render pp e = Fmt.str "%a" pp e
@@ -55,7 +59,7 @@ let load ~host_symbols:_ source =
   let* libc =
     Result.bind
       (Result.map_error (Fmt.str "no form for %s")
-         (Machine_rivet_riscv32.Rv32_libc.module_ ()))
+         (Machine_rivet_riscv32.Rv32_libc.module_ ~profile ()))
       lower_typed
   in
   Ok { lowered = libc :: List.rev lowered; elf = None }
@@ -82,8 +86,8 @@ let prepared l size =
       let* image =
         Result.map_error render_i (Err.payload (I.bind ~base:H.base laid))
       in
-      let* elf = Machine_rivet_riscv32.Rv32_elf.write image in
-      let p = { H.elf; lay } in
+      let* elf = Machine_rivet_riscv32.Rv32_elf.write ~profile image in
+      let p = { H.elf; lay; profile } in
       l.elf <- Some (size, "", p);
       Ok p
 

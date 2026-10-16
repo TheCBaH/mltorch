@@ -1,0 +1,28 @@
+; The real emulators release: CORALNPU_DATA names the extracted archive root,
+; set by `make coralnpu.runtest`, which fails without the download.
+
+(executable
+ (name coral_manifest_check)
+ (modules coral_manifest_check)
+ (libraries coralnpu err_trace fmt))
+
+; Typed kernels on the simulators; built where the RV32 Rivet encoder is
+; (optional: skipped when coralnpu_rv32 is not available).
+
+(executable
+ (name coral_kernels)
+ (modules coral_kernels)
+ (optional)
+ (libraries coralnpu coralnpu_rv32 err_trace fmt machine_rivet_riscv32))
+
+(cram
+ (applies_to kernels)
+ (deps %{exe:coral_kernels.exe} (universe))
+ (enabled_if
+  (<> %{env:CORALNPU_DATA=} "")))
+
+(cram
+ (applies_to manifest)
+ (deps %{exe:coral_manifest_check.exe} (universe))
+ (enabled_if
+  (<> %{env:CORALNPU_DATA=} "")))

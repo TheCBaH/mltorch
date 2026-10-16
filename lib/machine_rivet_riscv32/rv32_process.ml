@@ -7,8 +7,9 @@ type outcome = { exit_code : int; stdout : string }
 
 let qemu = "qemu-riscv32"
 
-(* Runs [elf] with [args], returning its exit code and standard output. *)
-let execute ?(timeout = 120) ?(args = []) elf =
+(* Runs [elf] with [args], returning its exit code and standard output. [cpu]
+   is qemu's [-cpu], when the default is not the one wanted. *)
+let execute ?(timeout = 120) ?cpu ?(args = []) elf =
   let path = Filename.temp_file "mltorch_rv32_" ".elf" in
   let out = Filename.temp_file "mltorch_rv32_" ".out" in
   Fun.protect
@@ -26,7 +27,10 @@ let execute ?(timeout = 120) ?(args = []) elf =
       let fd = Unix.openfile out [ Unix.O_WRONLY; Unix.O_TRUNC ] 0o600 in
       let devnull = Unix.openfile "/dev/null" [ Unix.O_RDONLY ] 0 in
       let command =
-        Array.of_list ([ "timeout"; string_of_int timeout; qemu; path ] @ args)
+        Array.of_list
+          ([ "timeout"; string_of_int timeout; qemu ]
+          @ (match cpu with None -> [] | Some c -> [ "-cpu"; c ])
+          @ (path :: args))
       in
       match Unix.create_process "timeout" command devnull fd Unix.stderr with
       | exception Unix.Unix_error (e, _, _) ->
