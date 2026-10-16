@@ -73,15 +73,15 @@ let%expect_test "baseline census of the fixtures" =
     chain exact: arithmetic 13, conversion 18, helper_call 0, memory_move 4, helpers []
     chain simd_fp32_ordered neon128: arithmetic 13, conversion 18, helper_call 0, memory_move 5, helpers []
     chain simd_fp32_ordered scalar: arithmetic 13, conversion 18, helper_call 0, memory_move 5, helpers []
-    chain fp32_ordered scalar: arithmetic 0, conversion 24, helper_call 0, memory_move 0, helpers []
+    chain fp32_ordered scalar: arithmetic 0, conversion 0, helper_call 0, memory_move 0, helpers []
     softmax exact: arithmetic 5, conversion 6, helper_call 2, memory_move 7, helpers [exp]
     softmax simd_fp32_ordered neon128: arithmetic 5, conversion 6, helper_call 2, memory_move 7, helpers [exp]
     softmax simd_fp32_ordered scalar: arithmetic 5, conversion 6, helper_call 2, memory_move 7, helpers [exp]
-    softmax fp32_ordered scalar: arithmetic 0, conversion 13, helper_call 0, memory_move 5, helpers []
+    softmax fp32_ordered scalar: arithmetic 0, conversion 0, helper_call 0, memory_move 0, helpers []
     layer_norm exact: arithmetic 16, conversion 8, helper_call 0, memory_move 14, helpers []
     layer_norm simd_fp32_ordered neon128: arithmetic 16, conversion 8, helper_call 0, memory_move 14, helpers []
     layer_norm simd_fp32_ordered scalar: arithmetic 16, conversion 8, helper_call 0, memory_move 14, helpers []
-    layer_norm fp32_ordered scalar: arithmetic 0, conversion 22, helper_call 0, memory_move 10, helpers [] |}]
+    layer_norm fp32_ordered scalar: arithmetic 0, conversion 0, helper_call 0, memory_move 0, helpers [] |}]
 
 (* Under [Fp32_ordered] every invocation of a multi-kernel bundle is planned
    binary32, with a vector target or a scalar one; [Simd_fp32_ordered] on the

@@ -319,12 +319,13 @@ let f32_function which =
     body = List.rev !code;
   }
 
-(* [fill_f32 ptr count value]: [count] binary32 cells set to [value] rounded to
-   binary32, for a synthetic operand the graph does not supply. *)
+(* [fill_f32 ptr count value]: [count] binary32 cells set to [value], for a
+   synthetic operand the graph does not supply. The caller passes the binary32
+   value, so nothing here is binary64. *)
 let fill_f32 =
   let c = 3 in
   {
-    Wasm.Func.type_ = ft [ wt_i32; wt_i32; wt_f64 ] [];
+    Wasm.Func.type_ = ft [ wt_i32; wt_i32; wt_f32 ] [];
     locals = [ wt_i32 ];
     body =
       [
@@ -344,7 +345,6 @@ let fill_f32 =
                     n Wasm_op.I32_shl;
                     n Wasm_op.I32_add;
                     get 2;
-                    n Wasm_op.F32_demote_f64;
                     I.Store (Wasm.Store.F32_store, arg2 0);
                     get c;
                     i32 1;
@@ -380,5 +380,5 @@ let signature : Callee.t -> Wasm.Func_type.t = function
       ft [ wt_f32 ] [ wt_f32 ]
   | Callee.F16_to_float -> ft [ wt_i32 ] [ wt_f64 ]
   | Callee.Fail_set -> ft [ wt_i32 ] []
-  | Callee.Fill_f32 -> ft [ wt_i32; wt_i32; wt_f64 ] []
+  | Callee.Fill_f32 -> ft [ wt_i32; wt_i32; wt_f32 ] []
   | Callee.I64_div -> ft [ wt_i64; wt_i64 ] [ wt_i64 ]

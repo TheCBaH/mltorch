@@ -207,8 +207,8 @@ let channel_of st = function
 let read_cell st id (b : Ssa_buffer.t) decode ~at ~channel =
   match (cells st id, decode) with
   | ( Ssa_memory.Floats a,
-      ( Ssa_op.Decode.Bool_to_f64 | Ssa_op.Decode.F32_to_f64
-      | Ssa_op.Decode.F64_to_f64 ) ) ->
+      ( Ssa_op.Decode.Bool_to_f64 | Ssa_op.Decode.F32_exact
+      | Ssa_op.Decode.F32_to_f64 | Ssa_op.Decode.F64_to_f64 ) ) ->
       F a.(at)
   | Ssa_memory.Int64s a, Ssa_op.Decode.I64 -> I a.(at)
   | Ssa_memory.Int64s a, Ssa_op.Decode.I64_to_f64 -> F (Int64.to_float a.(at))
@@ -229,7 +229,9 @@ let write_cell st id encode ~at (value : v) =
   match (cells st id, encode, value) with
   | Ssa_memory.Floats a, Ssa_op.Encode.Bool_nonzero, F x ->
       a.(at) <- (if x <> 0. then 1. else 0.)
-  | Ssa_memory.Floats a, Ssa_op.Encode.F32_round, F x ->
+  | ( Ssa_memory.Floats a,
+      (Ssa_op.Encode.F32_exact | Ssa_op.Encode.F32_round),
+      F x ) ->
       a.(at) <- Ssa_const.round_f32 x
   | Ssa_memory.Int64s a, Ssa_op.Encode.I64, I x -> a.(at) <- x
   | _ -> invalid_arg "Ssa_interp: encode does not match the cells"
@@ -306,7 +308,7 @@ let exec_op st (i : Ssa_instr.t) =
       | Ssa_op.Local_alloc { slots; var } ->
           let n = Int64.to_int slots in
           put (L { cells = Array.make n 0.; written = Array.make n false; var })
-      | Ssa_op.Local_read { local; at } ->
+      | Ssa_op.Local_read { local; at; cell = _ } ->
           let l = local_of st local in
           let at = int_of st at in
           let n = Array.length l.cells in

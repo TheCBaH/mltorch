@@ -122,10 +122,10 @@ let load_f64 b buffer ~decode at =
   (match decode with
   | Ssa_op.Decode.I64 -> invalid_arg "Ssa_builder.load_f64: an i64 decode"
   | Ssa_op.Decode.Bf16_to_f64 | Ssa_op.Decode.Bool_to_f64
-  | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.F32_to_f64
-  | Ssa_op.Decode.F64_to_f64 | Ssa_op.Decode.I16_dequant
-  | Ssa_op.Decode.I32_to_f64 | Ssa_op.Decode.I64_to_f64
-  | Ssa_op.Decode.I8_dequant ->
+  | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.F32_exact
+  | Ssa_op.Decode.F32_to_f64 | Ssa_op.Decode.F64_to_f64
+  | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I32_to_f64
+  | Ssa_op.Decode.I64_to_f64 | Ssa_op.Decode.I8_dequant ->
       ());
   one b (Ssa_op.Load { buffer; at = access at; decode })
 
@@ -139,7 +139,9 @@ let store b buffer ~encode at value =
 
 let store_f64 b buffer ~encode at value =
   (match encode with
-  | Ssa_op.Encode.Bool_nonzero | Ssa_op.Encode.F32_round -> ()
+  | Ssa_op.Encode.Bool_nonzero | Ssa_op.Encode.F32_exact
+  | Ssa_op.Encode.F32_round ->
+      ()
   | Ssa_op.Encode.I64 -> invalid_arg "Ssa_builder.store_f64: an i64 encode");
   store b buffer ~encode at value
 
@@ -148,7 +150,9 @@ let store_i64 b buffer at value =
 
 let mark b m = ignore (instr b (Ssa_op.Mark m))
 let local_alloc ?var b ~slots = one b (Ssa_op.Local_alloc { slots; var })
-let local_read b local at = one b (Ssa_op.Local_read { local; at })
+
+let local_read b local at =
+  one b (Ssa_op.Local_read { local; at; cell = Ssa_op.Cell.F64 })
 
 let local_write b local at value =
   ignore (instr b (Ssa_op.Local_write { local; at; value }))

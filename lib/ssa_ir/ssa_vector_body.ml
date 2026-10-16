@@ -140,7 +140,9 @@ let classify_instr kinds (i : Ssa_instr.t) =
             set kinds (result ()) Uni
           else (
             (match decode with
-            | Ssa_op.Decode.I64 -> refuse (Reason.No_vector_form op)
+            | Ssa_op.Decode.I64 | Ssa_op.Decode.F32_exact ->
+                (* a scalar kernel's binary32 cell: no vector form *)
+                refuse (Reason.No_vector_form op)
             | Ssa_op.Decode.Bf16_to_f64 | Ssa_op.Decode.Bool_to_f64
             | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.F32_to_f64
             | Ssa_op.Decode.F64_to_f64 | Ssa_op.Decode.I16_dequant
@@ -148,6 +150,8 @@ let classify_instr kinds (i : Ssa_instr.t) =
             | Ssa_op.Decode.I8_dequant ->
                 ());
             set kinds (result ()) Vec))
+  | Ssa_op.Store { encode = Ssa_op.Encode.F32_exact; _ } ->
+      refuse (Reason.No_vector_form op)
   | Ssa_op.Mark _ | Ssa_op.Store _ -> ()
   | Ssa_op.Check_access _ | Ssa_op.Check_gather _ | Ssa_op.Check_local _
   | Ssa_op.Check_scan _ | Ssa_op.Float_to_i64 _ | Ssa_op.I64_div _
@@ -374,15 +378,16 @@ let load_op cx buffer steps decode =
       match decode with
       | Ssa_op.Decode.I32_to_f64 -> Ssa_target.Op.Convert_i32_load
       | Ssa_op.Decode.Bf16_to_f64 | Ssa_op.Decode.Bool_to_f64
-      | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.F32_to_f64
-      | Ssa_op.Decode.F64_to_f64 | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I64
-      | Ssa_op.Decode.I64_to_f64 | Ssa_op.Decode.I8_dequant ->
+      | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.F32_exact
+      | Ssa_op.Decode.F32_to_f64 | Ssa_op.Decode.F64_to_f64
+      | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I64 | Ssa_op.Decode.I64_to_f64
+      | Ssa_op.Decode.I8_dequant ->
           Ssa_target.Op.Contiguous_load)
 
 let store_op cx buffer steps encode =
   match encode with
   | Ssa_op.Encode.Bool_nonzero -> Ssa_target.Op.Bool_store
-  | Ssa_op.Encode.F32_round | Ssa_op.Encode.I64 -> (
+  | Ssa_op.Encode.F32_exact | Ssa_op.Encode.F32_round | Ssa_op.Encode.I64 -> (
       match access_class cx buffer steps with
       | `Contiguous -> Ssa_target.Op.Contiguous_store
       | `Broadcast | `Strided -> Ssa_target.Op.Strided_store)

@@ -80,9 +80,9 @@ let admit (p : Ssa_program.t) =
         raise
           (Refused (Refusal.Wide_load (buffer, Ssa_op.Decode.family decode)))
     | Ssa_op.Decode.Bf16_to_f64 | Ssa_op.Decode.Bool_to_f64
-    | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.F32_to_f64
-    | Ssa_op.Decode.F64_to_f64 | Ssa_op.Decode.I32_to_f64 | Ssa_op.Decode.I64
-    | Ssa_op.Decode.I64_to_f64 ->
+    | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.F32_exact
+    | Ssa_op.Decode.F32_to_f64 | Ssa_op.Decode.F64_to_f64
+    | Ssa_op.Decode.I32_to_f64 | Ssa_op.Decode.I64 | Ssa_op.Decode.I64_to_f64 ->
         ()
   in
   let rec region (r : Ssa_region.t) = List.iter stmt r.Ssa_region.body

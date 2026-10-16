@@ -164,6 +164,7 @@ let decode st (b : Ssa_buffer.t) (d : Ssa_op.Decode.t) ~address
       @ [ i32 0; n Wasm_op.I32_ne; n Wasm_op.F64_convert_i32_u ]
   | Ssa_op.Decode.F16_to_f64 ->
       load Wasm.Load.I32_load16_u @ [ call st R.Callee.F16_to_float ]
+  | Ssa_op.Decode.F32_exact -> load Wasm.Load.F32_load
   | Ssa_op.Decode.F32_to_f64 ->
       load Wasm.Load.F32_load @ [ n Wasm_op.F64_promote_f32 ]
   | Ssa_op.Decode.F64_to_f64 -> load Wasm.Load.F64_load
@@ -216,6 +217,7 @@ let encode_store (e : Ssa_op.Encode.t) =
   match e with
   | Ssa_op.Encode.Bool_nonzero ->
       [ f64 0.; n Wasm_op.F64_ne; I.Store (Wasm.Store.I32_store8, arg 0 0) ]
+  | Ssa_op.Encode.F32_exact -> [ I.Store (Wasm.Store.F32_store, arg 2 0) ]
   | Ssa_op.Encode.F32_round ->
       [ n Wasm_op.F32_demote_f64; I.Store (Wasm.Store.F32_store, arg 2 0) ]
   | Ssa_op.Encode.I64 -> [ I.Store (Wasm.Store.I64_store, arg 3 0) ]

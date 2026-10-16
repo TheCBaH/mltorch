@@ -470,8 +470,10 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
                         i32 3;
                         n Wasm_op.I32_shl;
                         n Wasm_op.I32_add;
-                        f64 0.;
-                        I.Store (Wasm.Store.F64_store, arg 3 0);
+                        (* zero bytes, written as an integer: a cell is f32 or
+                           f64 only once something writes it *)
+                        I.I64_const 0L;
+                        I.Store (Wasm.Store.I64_store, arg 3 0);
                         get c;
                         i32 1;
                         n Wasm_op.I32_add;
@@ -480,7 +482,7 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
                       ] );
                 ] );
           ]
-  | Ssa_op.Local_read { local; at } ->
+  | Ssa_op.Local_read { local; at; cell } ->
       let check =
         match Hashtbl.find_opt st.locals (local.Ssa_value.id :> int) with
         | Some (slots, Some lv) ->
@@ -504,10 +506,17 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
       in
       check
       @ one
-          (local_address st local at @ [ I.Load (Wasm.Load.F64_load, arg 3 0) ])
+          (local_address st local at
+          @
+          match cell with
+          | Ssa_op.Cell.F64 -> [ I.Load (Wasm.Load.F64_load, arg 3 0) ]
+          | Ssa_op.Cell.F32 -> [ I.Load (Wasm.Load.F32_load, arg 2 0) ])
   | Ssa_op.Local_write { local; at; value } ->
       local_address st local at @ r value
-      @ [ I.Store (Wasm.Store.F64_store, arg 3 0) ]
+      @ [
+          (if is_f32 value then I.Store (Wasm.Store.F32_store, arg 2 0)
+           else I.Store (Wasm.Store.F64_store, arg 3 0));
+        ]
   | Ssa_op.Meter_charge | Ssa_op.Meter_release _ | Ssa_op.Meter_reserve _
   | Ssa_op.Meter_reset ->
       meter_check st ~limits op

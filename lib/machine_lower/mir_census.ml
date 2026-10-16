@@ -73,7 +73,9 @@ let coord_guard =
     "coord_out_of_range"
 
 let decode_slice = function
-  | Ssa_op.Decode.F32_to_f64 | Ssa_op.Decode.F64_to_f64 -> Slice.First
+  | Ssa_op.Decode.F32_exact | Ssa_op.Decode.F32_to_f64
+  | Ssa_op.Decode.F64_to_f64 ->
+      Slice.First
   | Ssa_op.Decode.I64 | Ssa_op.Decode.I64_to_f64 -> Slice.Integer
   | Ssa_op.Decode.Bf16_to_f64 | Ssa_op.Decode.Bool_to_f64
   | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.I16_dequant
@@ -84,6 +86,7 @@ let decode_expansion = function
   | Ssa_op.Decode.Bf16_to_f64 -> "load.i16; shl 16; bitcast.f32; fext"
   | Ssa_op.Decode.Bool_to_f64 -> "load.i8; icmp.ne 0; select 1.0 0.0"
   | Ssa_op.Decode.F16_to_f64 -> "load.i16; binary16 decode by primitives"
+  | Ssa_op.Decode.F32_exact -> "load.i32; bitcast.f32"
   | Ssa_op.Decode.F32_to_f64 -> "load.i32; bitcast.f32; fext.f32.f64"
   | Ssa_op.Decode.F64_to_f64 -> "load.i64; bitcast.f64"
   | Ssa_op.Decode.I16_dequant ->
@@ -95,11 +98,13 @@ let decode_expansion = function
       "load.i8; sext; sub zero_point; scvt; fmul scale (channel from C)"
 
 let encode_slice = function
-  | Ssa_op.Encode.F32_round | Ssa_op.Encode.I64 -> Slice.First
+  | Ssa_op.Encode.F32_exact | Ssa_op.Encode.F32_round | Ssa_op.Encode.I64 ->
+      Slice.First
   | Ssa_op.Encode.Bool_nonzero -> Slice.Storage
 
 let encode_expansion = function
   | Ssa_op.Encode.Bool_nonzero -> "fcmp.oeq 0.0; select 0 1; store.i8"
+  | Ssa_op.Encode.F32_exact -> "bitcast.i32; store.i32"
   | Ssa_op.Encode.F32_round -> "fround.f64.f32; bitcast.i32; store.i32"
   | Ssa_op.Encode.I64 -> "store.i64"
 

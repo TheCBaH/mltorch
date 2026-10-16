@@ -180,6 +180,8 @@ let decode ?entry ?channel st op addr (d : Ssa_op.Decode.t) =
             | _ -> load Mir_width.W16 2L
           in
           dequantize st op e q ~channel)
+  | Ssa_op.Decode.F32_exact ->
+      emit st (Mir_op.Bitcast (Mir_type.F32, load Mir_width.W32 4L))
   | Ssa_op.Decode.F32_to_f64 ->
       let bits = load Mir_width.W32 4L in
       let f = emit st (Mir_op.Bitcast (Mir_type.F32, bits)) in
@@ -197,6 +199,8 @@ let encode st addr (enc : Ssa_op.Encode.t) v =
     emit_unit st (Mir_op.Store ({ Mir_op.Access.width; addr; align }, x))
   in
   match enc with
+  | Ssa_op.Encode.F32_exact ->
+      store Mir_width.W32 4L (emit st (Mir_op.Bitcast (Mir_type.i32, v)))
   | Ssa_op.Encode.F32_round ->
       let r = emit st (Mir_op.Fconvert (Mir_op.Fconvert.F64_to_f32, v)) in
       store Mir_width.W32 4L (emit st (Mir_op.Bitcast (Mir_type.i32, r)))
@@ -675,7 +679,7 @@ let rec instr st (i : Ssa_instr.t) =
       if not (mutated st Mutation.Stale_local) then
         emit_unit st (Mir_op.Undef view.Mir_view.id);
       result (emit st (Mir_op.Addr view.Mir_view.id))
-  | Ssa_op.Local_read { local; at } ->
+  | Ssa_op.Local_read { local; at; cell = width } ->
       let o = local_object st local and x = v at in
       (* outside a named variable's object is its unbound-local failure;
          outside an anonymous one is a defect the byte range check reports *)
@@ -687,12 +691,27 @@ let rec instr st (i : Ssa_instr.t) =
       | None -> ());
       let a = cell st (v local) x in
       with_role st Mir_origin.Role.Compute;
-      result (emit st (Mir_op.Bitcast (Mir_type.F64, load64 st a)))
+      result
+        (match width with
+        | Ssa_op.Cell.F64 ->
+            emit st (Mir_op.Bitcast (Mir_type.F64, load64 st a))
+        | Ssa_op.Cell.F32 ->
+            let bits =
+              emit st
+                (Mir_op.Load
+                   { Mir_op.Access.width = Mir_width.W32; addr = a; align = 4L })
+            in
+            emit st (Mir_op.Bitcast (Mir_type.F32, bits)))
   | Ssa_op.Local_write { local; at; value = x } ->
       ignore (local_object st local);
       let a = cell st (v local) (v at) in
       with_role st Mir_origin.Role.Compute;
-      store64 st a (emit st (Mir_op.Bitcast (Mir_type.i64, v x)))
+      if Mir_type.equal (v x).Mir_value.ty Mir_type.F32 then
+        emit_unit st
+          (Mir_op.Store
+             ( { Mir_op.Access.width = Mir_width.W32; addr = a; align = 4L },
+               emit st (Mir_op.Bitcast (Mir_type.i32, v x)) ))
+      else store64 st a (emit st (Mir_op.Bitcast (Mir_type.i64, v x)))
   | Ssa_op.Meter_charge ->
       if mutated st Mutation.Charge_after_body then
         st.deferred_charges <- st.deferred_charges + 1

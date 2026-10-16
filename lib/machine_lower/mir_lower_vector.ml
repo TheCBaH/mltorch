@@ -75,7 +75,8 @@ let load st op (e : L.Entry.t) ~at ~steps ~lanes ~decode (d : Ssa_op.Decode.t) =
   | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.I32_to_f64
   | Ssa_op.Decode.I64_to_f64 ->
       by_lanes st op e ~at ~steps ~lanes ~decode d
-  | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I64 | Ssa_op.Decode.I8_dequant ->
+  | Ssa_op.Decode.F32_exact | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I64
+  | Ssa_op.Decode.I8_dequant ->
       unsupported st op
 
 let store st op (e : L.Entry.t) ~at ~steps ~lanes (enc : Ssa_op.Encode.t) v =
@@ -85,7 +86,8 @@ let store st op (e : L.Entry.t) ~at ~steps ~lanes (enc : Ssa_op.Encode.t) v =
       with_role st Mir_origin.Role.Encode;
       let r = emit st (Mir_op.Fconvert (Mir_op.Fconvert.F64_to_f32, v)) in
       emit_unit st (Mir_op.Vstore (acc, r))
-  | Ssa_op.Encode.Bool_nonzero | Ssa_op.Encode.I64 -> unsupported st op
+  | Ssa_op.Encode.Bool_nonzero | Ssa_op.Encode.F32_exact | Ssa_op.Encode.I64 ->
+      unsupported st op
 
 (* Lane [k] is binary64 [base + k * step]: [base] an index and [k * step]
    below 2^37, so both and their sum are exact in binary64. *)

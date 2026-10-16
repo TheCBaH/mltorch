@@ -166,7 +166,7 @@ let convert (p : Ssa_program.t) =
           Loop_stmt.Alloc
             (array r, Slot.count_of_extent (Slot.extent (int_of slots)));
         ]
-    | Ssa_op.Local_read { local; at } ->
+    | Ssa_op.Local_read { local; at; cell = _ } ->
         let r = result () in
         let guard =
           match Hashtbl.find_opt locals (local.Ssa_value.id :> int) with
@@ -460,7 +460,8 @@ let convert (p : Ssa_program.t) =
         let stored =
           match encode with
           | Ssa_op.Encode.Bool_nonzero -> Loop_stored.Bool (fx value)
-          | Ssa_op.Encode.F32_round -> Loop_stored.F32 (fx value)
+          | Ssa_op.Encode.F32_exact | Ssa_op.Encode.F32_round ->
+              Loop_stored.F32 (fx value)
           | Ssa_op.Encode.I64 -> Loop_stored.I64 (ex value)
         in
         match access at with

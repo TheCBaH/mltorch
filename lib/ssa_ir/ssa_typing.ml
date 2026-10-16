@@ -218,6 +218,7 @@ let rec result_types : Ssa_op.t -> (Ssa_type.t list, error) result = function
       let* () = steps_in_domain steps in
       match decode with
       | Ssa_op.Decode.I64 -> Error I64_vector
+      | Ssa_op.Decode.F32_exact -> Ok [ Ssa_type.Vec (Ssa_type.F32, lanes) ]
       | Ssa_op.Decode.Bf16_to_f64 | Ssa_op.Decode.Bool_to_f64
       | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.F32_to_f64
       | Ssa_op.Decode.F64_to_f64 | Ssa_op.Decode.I16_dequant
@@ -230,6 +231,13 @@ let rec result_types : Ssa_op.t -> (Ssa_type.t list, error) result = function
       let* () = steps_in_domain steps in
       match encode with
       | Ssa_op.Encode.I64 -> Error I64_vector
+      | Ssa_op.Encode.F32_exact ->
+          let* () =
+            expect (Position.of_int 6)
+              (Ssa_type.Vec (Ssa_type.F32, lanes))
+              value
+          in
+          Ok []
       | Ssa_op.Encode.Bool_nonzero | Ssa_op.Encode.F32_round ->
           let* () =
             expect (Position.of_int 6)
@@ -252,14 +260,23 @@ let rec result_types : Ssa_op.t -> (Ssa_type.t list, error) result = function
   | Ssa_op.Local_alloc { slots; _ } ->
       let* () = positive_divisor slots in
       Ok [ Ssa_type.Local ]
-  | Ssa_op.Local_read { local; at } ->
+  | Ssa_op.Local_read { local; at; cell } ->
       let* () = expect (Position.of_int 0) Ssa_type.Local local in
       let* () = expect (Position.of_int 1) index at in
-      Ok [ f64 ]
+      Ok
+        [
+          (match cell with
+          | Ssa_op.Cell.F32 -> Ssa_type.Scalar Ssa_type.F32
+          | Ssa_op.Cell.F64 -> f64);
+        ]
   | Ssa_op.Local_write { local; at; value } ->
       let* () = expect (Position.of_int 0) Ssa_type.Local local in
       let* () = expect (Position.of_int 1) index at in
-      let* () = expect (Position.of_int 2) f64 value in
+      let* () =
+        if Ssa_type.equal value.Ssa_value.ty (Ssa_type.Scalar Ssa_type.F32) then
+          Ok ()
+        else expect (Position.of_int 2) f64 value
+      in
       Ok []
   | Ssa_op.Meter_charge | Ssa_op.Meter_reset -> Ok []
   | Ssa_op.Meter_release width | Ssa_op.Meter_reserve width ->

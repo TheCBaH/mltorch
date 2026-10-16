@@ -82,6 +82,7 @@ let decode_cell cx (d : Ssa_op.Decode.t) cell =
   | Ssa_op.Decode.Bf16_to_f64 -> call cx R.Name.Bf16_to_float [ cell ]
   | Ssa_op.Decode.Bool_to_f64 -> "(" ^ cell ^ " != 0 ? 1.0 : 0.0)"
   | Ssa_op.Decode.F16_to_f64 -> call cx R.Name.F16_to_float [ cell ]
+  | Ssa_op.Decode.F32_exact -> cell
   | Ssa_op.Decode.F32_to_f64 | Ssa_op.Decode.I32_to_f64
   | Ssa_op.Decode.I64_to_f64 ->
       "(double)" ^ cell
@@ -92,6 +93,7 @@ let decode_cell cx (d : Ssa_op.Decode.t) cell =
 let encode_value (e : Ssa_op.Encode.t) v =
   match e with
   | Ssa_op.Encode.Bool_nonzero -> "(" ^ v ^ " != 0.0 ? 1 : 0)"
+  | Ssa_op.Encode.F32_exact -> v
   | Ssa_op.Encode.F32_round -> "(float)" ^ v
   | Ssa_op.Encode.I64 -> v
 
@@ -495,7 +497,7 @@ let instr cx depth (i : Ssa_instr.t) =
       cx.local_doubles <- Int64.add off slots;
       line cx depth "%s = local + %Ld;" r off;
       line cx depth "memset(%s, 0, %Ld * sizeof(double));" r slots
-  | Ssa_op.Local_read { local; at } ->
+  | Ssa_op.Local_read { local; at; cell } -> (
       let _, r = first_result cx i in
       (* outside the object fails as unbound when it names a variable; with no
          variable it is a defect of the program, never a row *)
@@ -514,9 +516,18 @@ let instr cx depth (i : Ssa_instr.t) =
             (i64_lit slots)
             (fail F.Kind.Unbound_local [ string_of_int s ])
       | Some (_, None) | None -> ());
-      assign cx depth r (Printf.sprintf "%s[%s]" (n local) (n at))
+      match cell with
+      | Ssa_op.Cell.F64 ->
+          assign cx depth r (Printf.sprintf "%s[%s]" (n local) (n at))
+      | Ssa_op.Cell.F32 ->
+          (* the low four bytes of the eight-byte slot *)
+          line cx depth "memcpy(&%s, &%s[%s], sizeof %s);" r (n local) (n at) r)
   | Ssa_op.Local_write { local; at; value } ->
-      line cx depth "%s[%s] = %s;" (n local) (n at) (n value)
+      if Ssa_type.equal value.Ssa_value.ty (Ssa_type.Scalar Ssa_type.F32) then (
+        line cx depth "{ const float ssa_cell = %s;" (n value);
+        line cx (depth + 1) "memcpy(&%s[%s], &ssa_cell, sizeof ssa_cell); }"
+          (n local) (n at))
+      else line cx depth "%s[%s] = %s;" (n local) (n at) (n value)
   | Ssa_op.Meter_charge ->
       invalid_arg "Ssa_c.instr: meters are emitted by the kernel"
   | Ssa_op.Meter_release _ | Ssa_op.Meter_reserve _ | Ssa_op.Meter_reset ->

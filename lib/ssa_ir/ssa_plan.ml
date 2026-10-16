@@ -90,7 +90,9 @@ let resolve ?target ?(alias = Ssa_effects.Conservative) ~numerics
           {
             numerics;
             precision = P.F32;
-            program = run ~alias (after ~alias) (Ssa_precision.to_f32 scalar);
+            program =
+              run ~alias (after ~alias)
+                (Ssa_precision.to_f32 ~exact:true scalar);
             refusal = None;
             vectorized = [];
             sums = [];
@@ -143,11 +145,14 @@ let resolve ?target ?(alias = Ssa_effects.Conservative) ~numerics
               contracted = Ssa_opt_contract.contracted q;
             }
           else if ordered then
-            (* no vector loop is taken, and the kernel is binary32 anyway *)
+            (* no vector loop is taken, and the kernel is binary32 anyway: the
+               scalar program again, its cells read and written as binary32 *)
             {
               numerics;
               precision = P.F32;
-              program = run ~alias (after ~alias) q;
+              program =
+                run ~alias (after ~alias)
+                  (Ssa_precision.to_f32 ~exact:true scalar);
               refusal = None;
               vectorized;
               sums = [];

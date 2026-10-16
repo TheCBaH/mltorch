@@ -80,8 +80,11 @@ let rec op st (o : Ssa_op.t) =
         (match var with
         | Some v -> Fmt.str " as %a" Expr.Local_var.pp v
         | None -> "")
-  | Ssa_op.Local_read { local; at } ->
-      Fmt.str "local.read %s[%s]" (name st local) (name st at)
+  | Ssa_op.Local_read { local; at; cell } ->
+      (* a binary64 cell is the unmarked form, so a program's text is its own *)
+      Fmt.str "local.read%s %s[%s]"
+        (match cell with Ssa_op.Cell.F64 -> "" | Ssa_op.Cell.F32 -> ".f32")
+        (name st local) (name st at)
   | Ssa_op.Local_write { local; at; value } ->
       Fmt.str "local.write %s[%s], %s" (name st local) (name st at)
         (name st value)

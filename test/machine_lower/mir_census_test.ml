@@ -102,7 +102,7 @@ let representatives =
       decodes
   @ [
       Ssa_op.Local_alloc { slots = 4L; var = Some var };
-      Ssa_op.Local_read { local = l; at = ix };
+      Ssa_op.Local_read { local = l; at = ix; cell = Ssa_op.Cell.F64 };
       Ssa_op.Local_write { local = l; at = ix; value = f };
       Ssa_op.Mark Ssa_mark.Reduction;
       Ssa_op.Mark_lanes { mark = Ssa_mark.Reduction; lanes };

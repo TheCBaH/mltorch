@@ -182,8 +182,8 @@ let decode cx (b : Ssa_buffer.t) (d : Ssa_op.Decode.t) ~(at : Ssa_access.t) cell
   | Ssa_op.Decode.Bool_to_f64 ->
       A.Cond (bin A.Ne_strict cell (num 0.), num 1., num 0.)
   | Ssa_op.Decode.F16_to_f64 -> runtime R.Name.F16_to_float [ cell ]
-  | Ssa_op.Decode.F32_to_f64 | Ssa_op.Decode.F64_to_f64
-  | Ssa_op.Decode.I32_to_f64 ->
+  | Ssa_op.Decode.F32_exact | Ssa_op.Decode.F32_to_f64
+  | Ssa_op.Decode.F64_to_f64 | Ssa_op.Decode.I32_to_f64 ->
       cell
   | Ssa_op.Decode.I64 -> cell
   | Ssa_op.Decode.I64_to_f64 -> number_of cell

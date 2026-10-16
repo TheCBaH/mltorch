@@ -251,7 +251,7 @@ let instr cx ~(limits : Expr.Scan_limits.t) (i : Ssa_instr.t) : A.Stmt.t list =
       in
       Hashtbl.replace cx.locals (r.Ssa_value.id :> int) (slots, lv);
       stmts
-  | Ssa_op.Local_read { local; at } ->
+  | Ssa_op.Local_read { local; at; cell = _ } ->
       let check =
         match Hashtbl.find_opt cx.locals (local.Ssa_value.id :> int) with
         | Some (slots, Some lv) ->
@@ -322,7 +322,9 @@ let instr cx ~(limits : Expr.Scan_limits.t) (i : Ssa_instr.t) : A.Stmt.t list =
         match encode with
         | Ssa_op.Encode.Bool_nonzero ->
             A.Cond (bin A.Ne_strict (v value) (num 0.), num 1., num 0.)
-        | Ssa_op.Encode.F32_round | Ssa_op.Encode.I64 -> v value
+        | Ssa_op.Encode.F32_exact | Ssa_op.Encode.F32_round | Ssa_op.Encode.I64
+          ->
+            v value
       in
       [
         A.Stmt.Assign
