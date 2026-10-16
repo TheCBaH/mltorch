@@ -49,6 +49,17 @@ let make ?(evaluator = Evaluator.Direct) ?(dots = Direct.Binary64)
 
 let sequential32 = "sequential32"
 let symbolic = "symbolic"
+
+(* The numerics word of the compiled engines. An engine registers one provider
+   for each numerics it runs, under the engine word and this suffix:
+   [loop-c,fp32] is the provider [loop-c-fp32]. *)
+let fp32 = "fp32"
+let fp32_suffix = "-" ^ fp32
+
+let is_fp32_engine w =
+  let n = String.length w and k = String.length fp32_suffix in
+  n > k && String.equal (String.sub w (n - k) k) fp32_suffix
+
 let ( let* ) = Result.bind
 
 (* [VIEW], or [VIEW:WORD,WORD...]: [sequential32] for binary32 sequential dots,
@@ -83,6 +94,30 @@ let of_string s =
             | true, Some word -> go dots (word :: storage) rest
             | _ -> Error (Printf.sprintf "variant %S: no configuration %S" s w))
       in
+      let* words, fp32_requested =
+        if List.mem fp32 words then
+          if
+            (View.rank view = 1 || View.rank view = 2)
+            && List.exists (fun w -> Provider.find w <> None) words
+          then Ok (List.filter (fun w -> w <> fp32) words, true)
+          else
+            Error (Printf.sprintf "variant %S: %s needs an engine word" s fp32)
+        else Ok (words, false)
+      in
+      let* words =
+        if not fp32_requested then Ok words
+        else
+          match List.find_opt (fun w -> Provider.find w <> None) words with
+          | None -> Ok words
+          | Some w ->
+              let w32 = w ^ fp32_suffix in
+              if Provider.find w32 <> None then
+                Ok (List.map (fun x -> if x = w then w32 else x) words)
+              else
+                Error
+                  (Printf.sprintf "variant %S: engine %S has no %s numerics" s w
+                     fp32)
+      in
       let evaluator, words =
         let provided =
           if View.rank view = 1 || View.rank view = 2 then
@@ -109,6 +144,14 @@ let of_string s =
           (Printf.sprintf "variant %S: %s takes no other word" s
              (match evaluator with Evaluator.Provider w -> w | _ -> symbolic))
       else Ok (make ~evaluator ~dots ~storage view)
+
+(* Whether the configuration runs every kernel in binary32 under the
+   [Fp32_ordered] policy: two such variants are bitwise equal by the policy's
+   contract, so a pair of them is compared exactly unless asked otherwise. *)
+let is_fp32 t =
+  match t.evaluator with
+  | Evaluator.Provider w -> is_fp32_engine w
+  | Evaluator.Direct | Evaluator.Symbolic -> false
 
 let to_string t =
   let words =

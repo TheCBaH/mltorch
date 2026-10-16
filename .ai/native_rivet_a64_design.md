@@ -158,6 +158,13 @@ the host process. The manifest lists the declared helpers and, separately, the
 helpers the image carries with a digest of that code. The shared design of the
 owned `exp` is in the x86-64 record.
 
+The binary32 functions are not helpers at all: under the planned `Fp32_ordered`
+pipeline `Mir_lower` expands `exp`, `log`, `sin`, `cos` and `erf` at an `f32`
+operand inline as generic binary32 instructions (`F32_math` instantiated over
+the Machine IR builder), so every target gets them with no leaf and no call, and
+`Dependency_free` carries them as plain code. Only a binary64 operand still
+calls `Mir_math` or the owned `exp`.
+
 ## GNU as an independent encoder
 
 `lib/machine_rivet_aarch64_gnu` prints the same `Normalized_ast` module with

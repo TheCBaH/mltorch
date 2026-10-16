@@ -17,6 +17,7 @@ composition: `aten` 0, `native` 1, `native.canonical` 2, `native4d` 3.
 | `release`, `arena`, `arena=BYTES`, `separate`, `shared`, `scheduled` | native, native.canonical | storage and scheduling configurations of the Native evaluator over the same graph; `scheduled` needs a storage word; one storage word only |
 | `symbolic` | native, native.canonical, native4d | the symbolic evaluator, grounded from the coordinator's bindings; takes no other word |
 | `loop-c`, `ssa-c`, `loop-wasm`, `ssa-wasm` | native, native.canonical | generated C (host compiler) or Wasm (node); Loop emitter or SSA backend; takes no other word |
+| `fp32` | with an engine word below | the engine's binary32 numerics (`Fp32_ordered`: every kernel binary32): `loop-c,fp32` is the provider `loop-c-fp32`; offered by `loop-c`, `ssa-c`, `loop-wasm`, `ssa-wasm`, `rivet*` and `compcert`. Two fp32 engines are compared exactly unless `TOL` is set |
 | `rivet`, `rivet-table` (each with `-scanned`) | native, native.canonical | Rivet AArch64: the image route, or the table host, with the reference or the scanned allocator |
 | `compcert` | native, native.canonical | the embedded CompCert, assembled and loaded by Rivet |
 | `loop-js`, `ssa-js`, `jsoo` | native, native.canonical | generated JavaScript, or the Native evaluator compiled by js_of_ocaml, run by node in a helper process |
@@ -136,9 +137,9 @@ for every mode with its expected result on `test_convnext2`: `agree`,
   backends take Native operations only (`Loop_bundle.build` takes the Native
   graph); the cross-dialect pair `native4d` against a compiled Native view
   works. Native4D storage and scheduling words refuse.
-- `system_libm` runtime, the SIMD and binary32 numerics policies, and the
-  planned SSA pipeline: only the reference binary64 numerics and the exact SSA
-  pipeline are exposed for the generated engines.
+- `system_libm` runtime, the `Simd_fp32_*` policies and the vectorized planned
+  SSA pipelines: the generated engines expose the reference binary64 numerics
+  with the exact SSA pipeline, and `fp32` (`Fp32_ordered`, scalar planned).
 - Loop and SSA interpreters and Machine IR stages as engines; C-generated Wasm
   (`--via-c`); GNU assembly coherence checks.
 - Whole-graph calibration (segmented against whole run) for the variants: the

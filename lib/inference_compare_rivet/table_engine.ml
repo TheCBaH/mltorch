@@ -12,7 +12,15 @@ module type CONFIG = sig
   val runtime : Machine_rivet_aarch64.Rivet_a64_runtime.t
 end
 
-module Make (X : CONFIG) = struct
+module type PIPELINE_CONFIG = sig
+  include CONFIG
+
+  val pipeline : Ssa_backends.Pipeline.t
+  (** the kernels' pipeline: [Exact] by default, or the planned scalar
+      [Fp32_ordered] one *)
+end
+
+module Make_pipeline (X : PIPELINE_CONFIG) = struct
   type op = Graph_ir.op
   type compiled = H.t
 
@@ -24,7 +32,7 @@ module Make (X : CONFIG) = struct
     | Ok bundle -> (
         match
           H.prepare ~allocation:X.allocation ~runtime:X.runtime
-            ~pipeline:Ssa_backends.Pipeline.Exact bundle
+            ~pipeline:X.pipeline bundle
         with
         | Ok h -> Ok h
         | Error refusals ->
@@ -43,3 +51,9 @@ module Make (X : CONFIG) = struct
 
   let release (_ : H.t) = ()
 end
+
+module Make (X : CONFIG) = Make_pipeline (struct
+  include X
+
+  let pipeline = Ssa_backends.Pipeline.Exact
+end)

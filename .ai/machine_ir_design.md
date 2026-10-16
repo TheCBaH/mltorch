@@ -280,7 +280,9 @@ census slice that will admit it.
   rejects a per-channel buffer through one, so the lowering's own refusal is
   only a backstop.
 - **Locals and the meter** (the M4.3 slice): each `local.alloc` site owns a
-  scratch region (`Mir_layout_map.Scratch`, eight bytes per binary64 cell,
+  scratch region (`Mir_layout_map.Scratch`, eight bytes per cell — a binary64
+  value fills it, a binary32 value (`Ssa_op.Cell.F32`, read at the type it was
+  written at) the low four bytes with no widening,
   checked arithmetic, all sites together bounded by `local_limit`), and every
   run of the site begins with `undef view` — the generic op that makes a
   view's bytes undefined again — before `addr view` gives the local's
@@ -314,8 +316,10 @@ census slice that will admit it.
   no helper, but the reference's Abramowitz-Stegun formula expanded into
   primitives (an exact absolute value by masking the sign bit, `fdiv`, the
   Horner chain in the reference's association) with one `exp` call; at
-  binary32 every step is a binary32 operation and `exp` runs between a
-  widening and one rounding, matching `Ssa_numerics.erf32`. A program
+  binary32 every step is a binary32 operation and, since the owned binary32
+  `exp`, no widening or call appears: `erf` and `exp`, `log`, `sin`, `cos` at an
+  `f32` operand are inline generic binary32 instructions (`F32_math`),
+  matching `Ssa_numerics.erf32`. A program
   declares exactly the helpers it calls. A flat `check_access` lowers to
   nothing (it has no source failure).
 - Vectors (M11.1). A planned program's logical vectors stay logical: a

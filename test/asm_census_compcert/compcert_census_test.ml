@@ -50,3 +50,23 @@ let%expect_test "baseline census of CompCert's assembly" =
     chain fp32_ordered: arithmetic 0, conversion 0, memory_move 1; fcsel x1
     softmax reference_f64: arithmetic 13, conversion 4, memory_move 13; fadd x1; fcmp x8; fcsel x2; fcvt x4; fdiv x2; fmov x2; fsub x2; ldr x6; str x3
     softmax fp32_ordered: arithmetic 0, conversion 0, memory_move 88; fcsel x88 |}]
+
+(* The check can fail: a [(double)] cast injected into one kernel's C is seen.
+   The same product of two binary32 values, once in binary32 and once through
+   binary64, compiled by CompCert and counted. *)
+let%expect_test "an injected double cast is caught by the census" =
+  let unit_of body =
+    Printf.sprintf "float product(float a, float b) { %s }\n" body
+  in
+  let asm body =
+    match T.compile_to_asm ~name:"mutation.c" (unit_of body) with
+    | Ok s -> s
+    | Error e -> Fmt.failwith "%a" Compcert_embed.pp_error e
+  in
+  Fmt.pr "binary32:  %s@." (census (asm "return a * b;"));
+  Fmt.pr "injected:  %s@."
+    (census (asm "return (float)((double)a * (double)b);"));
+  [%expect
+    {|
+    binary32:  arithmetic 0, conversion 0, memory_move 0
+    injected:  arithmetic 1, conversion 3, memory_move 0; fcvt x3; fmul x1 |}]

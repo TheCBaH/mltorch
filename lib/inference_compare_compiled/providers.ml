@@ -17,4 +17,20 @@ let provider : P.Provider.t =
         Ok { P.Provider.runner = Compiled_runners.compcert (); identity = id });
   }
 
-let register () = P.Provider.register provider
+let provider_fp32 : P.Provider.t =
+  {
+    name = "compcert-fp32";
+    available;
+    instantiate =
+      (fun () ->
+        let id = Compiled_runners.compcert_fp32_identity () in
+        Ok
+          {
+            P.Provider.runner = Compiled_runners.compcert_fp32 ();
+            identity = id;
+          });
+  }
+
+let register () =
+  P.Provider.register provider;
+  P.Provider.register provider_fp32

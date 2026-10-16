@@ -398,6 +398,14 @@ jobs:
       if: matrix.suite == 'native-ssa'
       run: |
         ${{ env.EXEC }} make c.pt2.ssa.perf
+    # Every kernel binary32 (Fp32_ordered): each model through generated C and
+    # Wasm, Loop and SSA kernels, within the frozen tolerance of the reference,
+    # and every pair of fp32 engines exactly equal unit by unit.
+    - name: whole-model binary32 policy across engines (all downloaded models)
+      if: matrix.suite == 'native-ssa'
+      run: |
+        ${{ env.EXEC }} make fp32.pt2.runtest
+
     # The Native4D dialect (mobilenetv2_050): canonical passes and the four-axis
     # lowering, bitwise against Eval_direct4 with the workspace poisoned.
     - name: whole-model C backend, Native4D dialect (Loop and SSA kernels)

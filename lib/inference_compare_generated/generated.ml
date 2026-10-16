@@ -45,6 +45,21 @@ let banner argv =
 
 let ssa_pipeline = Ssa_backends.Pipeline.Exact
 
+(* The numerics of an engine: the binary64 reference, or [Fp32_ordered], under
+   which every kernel is binary32 and the SSA kernels are the planned scalar
+   ones. *)
+let ssa_pipeline_of = function
+  | Loop_ir.Loop_numerics.Fp32_ordered ->
+      Ssa_backends.Pipeline.Planned
+        {
+          numerics = Ssa_ir.Ssa_numerics.Fp32_ordered;
+          target = Ssa_ir.Ssa_target.scalar;
+        }
+  | Loop_ir.Loop_numerics.Reference_f64
+  | Loop_ir.Loop_numerics.Simd_fp32_ordered
+  | Loop_ir.Loop_numerics.Simd_fp32_relaxed ->
+      ssa_pipeline
+
 module type BACKEND = sig
   type prepared
 
@@ -80,6 +95,7 @@ let bind inputs id = List.assoc_opt id inputs
 
 module C (X : sig
   val pipeline : Ssa_backends.Pipeline.t option
+  val numerics : Loop_ir.Loop_numerics.t
 end) =
 Engine (struct
   module H = Loop_c_exec.Host
@@ -98,7 +114,9 @@ Engine (struct
             X.pipeline
         in
         match
-          Err.payload (H.prepare ?kernel ~dir bundle ~constants:no_constants)
+          Err.payload
+            (H.prepare ~numerics:X.numerics ?kernel ~dir bundle
+               ~constants:no_constants)
         with
         | Ok p -> Ok p
         | Error e -> Error (text H.pp_error e))
@@ -111,6 +129,7 @@ end)
 
 module Wasm (X : sig
   val pipeline : Ssa_backends.Pipeline.t option
+  val numerics : Loop_ir.Loop_numerics.t
 end) =
 Engine (struct
   module H = Loop_wasm_exec.Host
@@ -131,7 +150,9 @@ Engine (struct
             X.pipeline
         in
         match
-          Err.payload (H.prepare ?kernel ~dir bundle ~constants:no_constants)
+          Err.payload
+            (H.prepare ~numerics:X.numerics ?kernel ~dir bundle
+               ~constants:no_constants)
         with
         | Ok p -> Ok p
         | Error e -> Error (text H.pp_error e))
@@ -142,20 +163,47 @@ Engine (struct
     | Error e -> Error (text H.pp_error e)
 end)
 
+let reference = Loop_ir.Loop_numerics.Reference_f64
+let fp32 = Loop_ir.Loop_numerics.Fp32_ordered
+
 module Loop_c = C (struct
   let pipeline = None
+  let numerics = reference
 end)
 
 module Ssa_c = C (struct
   let pipeline = Some ssa_pipeline
+  let numerics = reference
 end)
 
 module Loop_wasm = Wasm (struct
   let pipeline = None
+  let numerics = reference
 end)
 
 module Ssa_wasm = Wasm (struct
   let pipeline = Some ssa_pipeline
+  let numerics = reference
+end)
+
+module Loop_c_fp32 = C (struct
+  let pipeline = None
+  let numerics = fp32
+end)
+
+module Ssa_c_fp32 = C (struct
+  let pipeline = Some (ssa_pipeline_of fp32)
+  let numerics = fp32
+end)
+
+module Loop_wasm_fp32 = Wasm (struct
+  let pipeline = None
+  let numerics = fp32
+end)
+
+module Ssa_wasm_fp32 = Wasm (struct
+  let pipeline = Some (ssa_pipeline_of fp32)
+  let numerics = fp32
 end)
 
 let compiler = List.hd Loop_c_exec.Host.default_compiler
@@ -174,9 +222,7 @@ let pipeline_name = function
   | None -> "loop"
   | Some p -> "ssa-" ^ Ssa_backends.Pipeline.name p
 
-let numerics = Loop_ir.Loop_numerics.(identity Reference_f64)
-
-let c_instance ~engine ~pipeline create () =
+let c_instance ?(numerics = reference) ~engine ~pipeline create () =
   let ( let* ) = Result.bind in
   let* version = banner [ compiler; "--version" ] in
   let id =
@@ -186,13 +232,13 @@ let c_instance ~engine ~pipeline create () =
            [
              "compiler=" ^ String.concat " " Loop_c_exec.Host.default_compiler;
              "kernels=" ^ pipeline_name pipeline;
-             "numerics=" ^ numerics;
+             "numerics=" ^ Loop_ir.Loop_numerics.identity numerics;
            ])
       ~environment:(String.concat ":" [ Sys.os_type; version ])
   in
   Ok { P.Provider.runner = create ~identity:(fun () -> id); identity = id }
 
-let wasm_instance ~engine ~pipeline create () =
+let wasm_instance ?(numerics = reference) ~engine ~pipeline create () =
   let ( let* ) = Result.bind in
   let command = node_command () in
   let* version = banner (command @ [ "--version" ]) in
@@ -203,7 +249,7 @@ let wasm_instance ~engine ~pipeline create () =
            [
              "node=" ^ String.concat " " command;
              "kernels=" ^ pipeline_name pipeline;
-             "numerics=" ^ numerics;
+             "numerics=" ^ Loop_ir.Loop_numerics.identity numerics;
            ])
       ~environment:(String.concat ":" [ Sys.os_type; version ])
   in
@@ -213,6 +259,10 @@ module Loop_c_runner = P.Graph_runner.Make (Loop_c)
 module Ssa_c_runner = P.Graph_runner.Make (Ssa_c)
 module Loop_wasm_runner = P.Graph_runner.Make (Loop_wasm)
 module Ssa_wasm_runner = P.Graph_runner.Make (Ssa_wasm)
+module Loop_c_fp32_runner = P.Graph_runner.Make (Loop_c_fp32)
+module Ssa_c_fp32_runner = P.Graph_runner.Make (Ssa_c_fp32)
+module Loop_wasm_fp32_runner = P.Graph_runner.Make (Loop_wasm_fp32)
+module Ssa_wasm_fp32_runner = P.Graph_runner.Make (Ssa_wasm_fp32)
 
 let providers : P.Provider.t list =
   [
@@ -241,6 +291,36 @@ let providers : P.Provider.t list =
       instantiate =
         wasm_instance ~engine:"ssa-wasm" ~pipeline:(Some ssa_pipeline)
           Ssa_wasm_runner.create;
+    };
+    {
+      name = "loop-c-fp32";
+      available = c_available;
+      instantiate =
+        c_instance ~numerics:fp32 ~engine:"loop-c-fp32" ~pipeline:None
+          Loop_c_fp32_runner.create;
+    };
+    {
+      name = "loop-wasm-fp32";
+      available = wasm_available;
+      instantiate =
+        wasm_instance ~numerics:fp32 ~engine:"loop-wasm-fp32" ~pipeline:None
+          Loop_wasm_fp32_runner.create;
+    };
+    {
+      name = "ssa-c-fp32";
+      available = c_available;
+      instantiate =
+        c_instance ~numerics:fp32 ~engine:"ssa-c-fp32"
+          ~pipeline:(Some (ssa_pipeline_of fp32))
+          Ssa_c_fp32_runner.create;
+    };
+    {
+      name = "ssa-wasm-fp32";
+      available = wasm_available;
+      instantiate =
+        wasm_instance ~numerics:fp32 ~engine:"ssa-wasm-fp32"
+          ~pipeline:(Some (ssa_pipeline_of fp32))
+          Ssa_wasm_fp32_runner.create;
     };
   ]
 

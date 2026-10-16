@@ -77,3 +77,35 @@ let%expect_test "an unbuilt engine word refuses naming its prerequisite" =
     {|
     native:absent
     absent is not available: the absent library is not installed |}]
+
+(* The numerics word picks the engine's [-fp32] provider; an engine without one,
+   and a word with no engine, refuse naming what is missing. *)
+let%expect_test "the fp32 numerics word" =
+  let module P = Inference_compare_pt2.Provider in
+  P.register_unbuilt ~names:[ "eng"; "eng-fp32"; "lonely" ] "not installed";
+  List.iter
+    (fun s ->
+      match V.of_string s with
+      | Ok v ->
+          Printf.printf "%s -> %s (fp32 %b)\n" s (V.to_string v) (V.is_fp32 v)
+      | Error m -> Printf.printf "%s -> error: %s\n" s m)
+    [
+      "native:eng,fp32";
+      "native.canonical:fp32,eng";
+      "native:eng-fp32";
+      "native:eng";
+      "native:lonely,fp32";
+      "native:fp32";
+      "native:sequential32,fp32";
+      "aten:eng,fp32";
+    ];
+  [%expect
+    {|
+    native:eng,fp32 -> native:eng-fp32 (fp32 true)
+    native.canonical:fp32,eng -> native.canonical:eng-fp32 (fp32 true)
+    native:eng-fp32 -> native:eng-fp32 (fp32 true)
+    native:eng -> native:eng (fp32 false)
+    native:lonely,fp32 -> error: variant "native:lonely,fp32": engine "lonely" has no fp32 numerics
+    native:fp32 -> error: variant "native:fp32": fp32 needs an engine word
+    native:sequential32,fp32 -> error: variant "native:sequential32,fp32": fp32 needs an engine word
+    aten:eng,fp32 -> error: variant "aten:eng,fp32": fp32 needs an engine word |}]

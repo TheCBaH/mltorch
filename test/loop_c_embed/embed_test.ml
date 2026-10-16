@@ -196,3 +196,62 @@ let%expect_test "Fp32_ordered: bitwise the binary32 oracle" =
     salt 0: equals the oracle true, equals the f64 reference false
     salt 2: equals the oracle true, equals the f64 reference false
     salt 5: equals the oracle true, equals the f64 reference false |}]
+
+(* The Region-authored nodes (scratch cells, a scan, the meter) under
+   [Fp32_ordered], bitwise the binary32 oracle: through gcc here and through the
+   embedded CompCert in test/loop_c_embed_compcert (this file is copied there,
+   and into the riscv32 suite, whose branch fixup refuses sdpa's kernel: out of
+   range, so sdpa is covered by the Rivet and gcc suites instead). *)
+let%expect_test "Fp32_ordered: Region nodes equal the oracle" =
+  let module F = Native_test.Graph_fixtures in
+  List.iter
+    (fun (name, g) ->
+      let g = g () in
+      let b =
+        Err.or_raise ~pp_error:Loop_bundle.pp_error
+          (Loop_bundle.build ~config:Loop_bundle_c.default_config g)
+      in
+      let constants =
+        map_of
+          (List.map
+             (fun id -> (id, tensor_of ~salt:3 (sig_of_edge b id)))
+             b.Loop_bundle.constants)
+      in
+      let p =
+        Err.or_raise ~pp_error:Loop_c_embed.pp_error
+          (E.prepare ~numerics:Loop_numerics.Fp32_ordered b)
+      in
+      let ctx = context p ~constants in
+      let inputs = inputs b ~salt:1 in
+      let oracle =
+        Err.or_raise ~pp_error:Loop_bundle_oracle.pp_error
+          (Loop_bundle_oracle.run b ~constants ~inputs:(fun id ->
+               List.assoc_opt id inputs))
+      in
+      (match E.run ctx ~bind:(map_of inputs) |> Err.payload with
+      | Error e -> Fmt.pr "%s: run failed: %a@." name Loop_c_embed.pp_error e
+      | Ok outs ->
+          Fmt.pr "%s: equals the oracle %b@." name
+            (List.for_all2 (fun t o -> bits t = bits o) outs oracle));
+      E.close_context ctx;
+      E.close p)
+    [
+      ( "softmax",
+        fun () ->
+          F.build "softmax"
+            Graph_builder.(
+              let* x = input ~shape:(F.s 1 1 2 3 4 5) () in
+              softmax { Reduce.Softmax.axis = Axis.C } x) );
+      ( "layer_norm",
+        fun () ->
+          F.build "layer_norm"
+            Graph_builder.(
+              let* x = input ~shape:(F.s 1 1 1 2 4 5) () in
+              layer_norm
+                { Norm.LayerNorm.dims = [ Axis.W; Axis.C ]; eps = 1e-5 }
+                ~x ()) );
+    ];
+  [%expect
+    {|
+    softmax: equals the oracle true
+    layer_norm: equals the oracle true |}]

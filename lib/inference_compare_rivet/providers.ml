@@ -42,25 +42,65 @@ module Table_scanned = Table_engine.Make (struct
   let runtime = Rn.Dependency_free
 end)
 
+(* The same four routes with every kernel binary32: the planned scalar
+   [Fp32_ordered] pipeline in place of the exact binary64 one. *)
+let fp32_pipeline =
+  Ssa_backends.Pipeline.Planned
+    {
+      numerics = Ssa_ir.Ssa_numerics.Fp32_ordered;
+      target = Ssa_ir.Ssa_target.scalar;
+    }
+
+module Image_fp32 = Image_engine.Make_pipeline (struct
+  let allocation = Rt.Allocation.Reference
+  let runtime = Rn.Dependency_free
+  let pipeline = fp32_pipeline
+end)
+
+module Image_scanned_fp32 = Image_engine.Make_pipeline (struct
+  let allocation = Rt.Allocation.Scanned
+  let runtime = Rn.Dependency_free
+  let pipeline = fp32_pipeline
+end)
+
+module Table_fp32 = Table_engine.Make_pipeline (struct
+  let allocation = Rt.Allocation.Reference
+  let runtime = Rn.Dependency_free
+  let pipeline = fp32_pipeline
+end)
+
+module Table_scanned_fp32 = Table_engine.Make_pipeline (struct
+  let allocation = Rt.Allocation.Scanned
+  let runtime = Rn.Dependency_free
+  let pipeline = fp32_pipeline
+end)
+
 module Runners = struct
+  module Image_fp32 = P.Graph_runner.Make (Image_fp32)
+  module Image_scanned_fp32 = P.Graph_runner.Make (Image_scanned_fp32)
+  module Table_fp32 = P.Graph_runner.Make (Table_fp32)
+  module Table_scanned_fp32 = P.Graph_runner.Make (Table_scanned_fp32)
   module Image_default = P.Graph_runner.Make (Image_default)
   module Image_scanned = P.Graph_runner.Make (Image_scanned)
   module Table_default = P.Graph_runner.Make (Table_default)
   module Table_scanned = P.Graph_runner.Make (Table_scanned)
 end
 
-let identity ~name ~mechanism ~allocation ~runtime features =
+let identity ?(pipeline = Ssa_backends.Pipeline.Exact) ~name ~mechanism
+    ~allocation ~runtime features =
   Compiled_identity.make ~engine:name
     ~route:(Printf.sprintf "rivet-%s-%s" (mechanism_name mechanism) isa)
     ~configuration:
       (String.concat "; "
          [
-           "scalar binary64";
+           (match pipeline with
+           | Ssa_backends.Pipeline.Exact -> "scalar binary64"
+           | _ -> "scalar binary32 (fp32_ordered)");
            "isa=" ^ isa;
            "mechanism=" ^ mechanism_name mechanism;
            "allocation=" ^ Rt.Allocation.name allocation;
            "runtime=" ^ Rn.name runtime;
-           "pipeline=" ^ Ssa_backends.Pipeline.name Ssa_backends.Pipeline.Exact;
+           "pipeline=" ^ Ssa_backends.Pipeline.name pipeline;
          ])
     ~environment:
       (String.concat ":"
@@ -69,7 +109,8 @@ let identity ~name ~mechanism ~allocation ~runtime features =
       (Pins.rivet :: Pins.schedule
       :: (match mechanism with Image | Table -> [ Pins.selection ]))
 
-let provider ~name ~mechanism ~allocation ~runtime create : P.Provider.t =
+let provider ?pipeline ~name ~mechanism ~allocation ~runtime create :
+    P.Provider.t =
   {
     name;
     available;
@@ -77,7 +118,9 @@ let provider ~name ~mechanism ~allocation ~runtime create : P.Provider.t =
       (fun () ->
         Result.map
           (fun features ->
-            let id = identity ~name ~mechanism ~allocation ~runtime features in
+            let id =
+              identity ?pipeline ~name ~mechanism ~allocation ~runtime features
+            in
             {
               P.Provider.runner = create ~identity:(fun () -> id);
               identity = id;
@@ -98,6 +141,18 @@ let providers : P.Provider.t list =
     provider ~name:"rivet-table-scanned" ~mechanism:Table
       ~allocation:Rt.Allocation.Scanned ~runtime:Rn.Dependency_free
       Runners.Table_scanned.create;
+    provider ~pipeline:fp32_pipeline ~name:"rivet-fp32" ~mechanism:Image
+      ~allocation:Rt.Allocation.Reference ~runtime:Rn.Dependency_free
+      Runners.Image_fp32.create;
+    provider ~pipeline:fp32_pipeline ~name:"rivet-scanned-fp32" ~mechanism:Image
+      ~allocation:Rt.Allocation.Scanned ~runtime:Rn.Dependency_free
+      Runners.Image_scanned_fp32.create;
+    provider ~pipeline:fp32_pipeline ~name:"rivet-table-fp32" ~mechanism:Table
+      ~allocation:Rt.Allocation.Reference ~runtime:Rn.Dependency_free
+      Runners.Table_fp32.create;
+    provider ~pipeline:fp32_pipeline ~name:"rivet-table-scanned-fp32"
+      ~mechanism:Table ~allocation:Rt.Allocation.Scanned
+      ~runtime:Rn.Dependency_free Runners.Table_scanned_fp32.create;
   ]
 
 let register () = List.iter P.Provider.register providers
