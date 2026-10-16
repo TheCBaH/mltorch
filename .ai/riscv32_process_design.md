@@ -8,8 +8,8 @@ flow, not an RV32 core's timing or memory ordering.
 ## The process
 
 `lib/machine_rivet_riscv32` builds the process from typed Rivet modules, with no
-assembly text on the way, and writes it with `ocaml-elf` (`Elf.Exec`, the
-`rv32imafd`/`ilp32d` profile):
+assembly text on the way, and writes it with `ocaml-elf` (`Elf.Exec`), for one
+`Rv32_profile`:
 
 ```text
 typed modules (kernel, libc subset, harness)  -> Rv32_image   Pipeline_direct plan, bind at 0x10000
@@ -30,6 +30,30 @@ the output). The system calls are raw RV32 Linux (openat 56, mmap2 222, exit_gro
 generated C declares (`memcpy`, `memset`, `fabs`, `fma`, `sqrt` and their
 binary32 forms). A unit that references another function is refused when the
 image is planned, never silently stubbed.
+
+## Profiles: binary32 by default, no D instruction
+
+`Rv32_profile.t` is the one choice the assembler's feature set, the ELF flags,
+`Rv32_libc` and qemu's CPU are read from, so they cannot disagree:
+
+| Profile | Rivet features | ELF ABI | `Rv32_libc` | qemu |
+|---|---|---|---|---|
+| `Rv32imf_ilp32f` (default) | `-d` | ILP32F, `rv32imf` | `memcpy`, `memset`, `fabsf`, `fmaf`, `sqrtf` | `-cpu rv32,d=false` |
+| `Rv32imafd_ilp32d` | all | ILP32D, `rv32imafd` | the above plus `fabs`, `fma`, `sqrt` | default |
+
+The default targets an RV32 core without the D extension (Coral NPU's are
+RV32IMF). Rivet's RISC-V `d` component owns every form that reads or writes a
+binary64 value, so under `-d` a D instruction in a typed module is refused when
+the module is lowered, naming each form; qemu with D disabled is the second,
+independent check, turning one that reached execution any other way into
+SIGILL. Each was shown to fail alone: without `-d` a binary64 kernel dies in
+qemu; with neither, it runs and the test's expectation breaks.
+
+The embedded-CompCert loader keeps `Rv32imafd_ilp32d`: CompCert's riscv32
+target is ilp32d and moves binary32 values with `fmv.d`, spills FP callee-save
+registers with `fld`/`fsd` and expands aligned copies through them, so its
+binary32 programs still contain D instructions. Its units are lowered by
+rivet-compcert, outside the profile's feature set.
 
 Rivet's `li` covers only a signed 12-bit constant or one with the low 12 bits
 zero, so `Rv32_asm.load_imm` expands any other constant to `lui` + `addi`.
@@ -80,3 +104,6 @@ below 2 GiB. Nothing lowers to it yet; Machine IR is still produced in LP64.
 - The comparison-tool variant word for the CompCert RV32 engine, and its
   coverage-manifest row.
 - `exp`, `log`, `sin`, `cos`, `ldexp`, `trunc`: not in `Rv32_libc`.
+- A D-free CompCert route: the binary32 C still uses binary64 helpers (the f16
+  and bf16 decoders, int64-to-float conversion), and the embedded CompCert
+  needs an F-only target before its processes can take the default profile.

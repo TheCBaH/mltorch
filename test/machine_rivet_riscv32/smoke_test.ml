@@ -22,7 +22,11 @@ let run status =
       match Rv32_harness.elf_of ~entry:"_start" [ m ] with
       | Error e -> Fmt.pr "elf: %s@." e
       | Ok elf -> (
-          match Rv32_process.execute elf with
+          match
+            Rv32_process.execute
+              ?cpu:(Rv32_profile.qemu_cpu Rv32_profile.default)
+              elf
+          with
           | Error e -> Fmt.pr "run: %s@." e
           | Ok { Rv32_process.exit_code; _ } -> Fmt.pr "exit %d@." exit_code))
 

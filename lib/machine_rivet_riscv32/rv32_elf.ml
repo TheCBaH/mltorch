@@ -1,5 +1,5 @@
 (* A bound image as a static RV32 ELF executable, built by [Elf.Exec]: one
-   PT_LOAD per segment, no section headers. Nothing is linked: Rivet has already
+   PT_LOAD per segment, no section headers, flagged with the profile's ABI. Nothing is linked: Rivet has already
    placed every byte. *)
 
 let perms (p : Asm_core.Perms.t) =
@@ -37,7 +37,8 @@ let segment i (s : Image.segment) : Elf.Exec.segment =
   in
   { Elf.Exec.perms = perms s.Image.perms; paddr = None; sections = data @ bss }
 
-let write (image : Image.t) : (string, string) result =
+let write ?(profile = Rv32_profile.default) (image : Image.t) :
+    (string, string) result =
   match image.Image.entry with
   | None -> Error "image has no entry"
   | Some entry ->
@@ -49,7 +50,7 @@ let write (image : Image.t) : (string, string) result =
       in
       let spec =
         {
-          Elf.Exec.target = Elf.Target.riscv Elf.Riscv.rv32imafd_ilp32d;
+          Elf.Exec.target = Elf.Target.riscv (Rv32_profile.elf_abi profile);
           entry;
           segments = List.mapi segment segments;
           headers = Elf.Exec.Unmapped;
