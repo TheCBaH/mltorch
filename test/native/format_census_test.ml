@@ -90,7 +90,7 @@ let%expect_test "format, quantization and shape mismatches are each caught" =
        (fun sg ->
          {
            sg with
-           Tensor_sig.quant = Some (Quant.per_tensor ~scale:0.5 ~zero_point:0);
+           Tensor_sig.quant = Some (Quant.per_tensor ~scale:0.5 ~zero_point:0.);
          })
        g);
   show "shape"

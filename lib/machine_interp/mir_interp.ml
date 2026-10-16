@@ -362,7 +362,10 @@ and exec st ~depth frame (i : Mir_op.t Mir_instr.t) =
       match Binding.view st.binding st.program view with
       | Some p -> put (Mir_datum.Ptr p)
       | None -> defect st frame D.Invalid_program)
-  | Mir_op.Bitcast (_, a) -> put (Mir_datum.Bits (b a))
+  | Mir_op.Bitcast (_, a) -> (
+      match get st frame a with
+      | Mir_datum.Lanes l -> put (Mir_datum.Lanes l)
+      | _ -> put (Mir_datum.Bits (b a)))
   | Mir_op.Call (callee, args) -> (
       let args = List.map (get st frame) args in
       match callee with
@@ -422,6 +425,8 @@ and exec st ~depth frame (i : Mir_op.t Mir_instr.t) =
             match c with
             | Mir_op.Fconvert.F32_to_f64 -> Mir_numeric.of_f64 (decode ty x)
             | Mir_op.Fconvert.F64_to_f32 -> Mir_numeric.round32 (decode ty x)
+            | Mir_op.Fconvert.S32_to_f32 ->
+                Mir_numeric.s64_to_f32 (Mir_width.signed Mir_width.W32 x)
             | Mir_op.Fconvert.S64_to_f32 -> Mir_numeric.s64_to_f32 x
             | Mir_op.Fconvert.S64_to_f64 -> Mir_numeric.s64_to_f64 x)
         | _ -> invalid_arg "Mir_interp")
@@ -444,28 +449,38 @@ and exec st ~depth frame (i : Mir_op.t Mir_instr.t) =
         | [ x ] -> float_result ty (Mir_numeric.float_unary u (decode ty x))
         | _ -> invalid_arg "Mir_interp")
   | Mir_op.Iarith (o, x, y) ->
-      let w = width_of st frame x in
-      let c = b y in
-      if
-        Mir_op.Iarith.is_shift o
-        && (Int64.compare c 0L < 0
-           || Int64.compare c (Int64.of_int (Mir_width.bits w)) >= 0)
-      then defect st frame D.Domain;
-      put (Mir_datum.Bits (Mir_numeric.int_binary o w (b x) c))
+      let w =
+        match x.Mir_value.ty with
+        | Mir_type.Vec (Mir_type.Elem.Int w, _) -> w
+        | _ -> width_of st frame x
+      in
+      let arith a c =
+        if
+          Mir_op.Iarith.is_shift o
+          && (Int64.compare c 0L < 0
+             || Int64.compare c (Int64.of_int (Mir_width.bits w)) >= 0)
+        then defect st frame D.Domain;
+        Mir_numeric.int_binary o w a c
+      in
+      lanewise [ x; y ] (two arith)
   | Mir_op.Icmp (c, x, y) ->
       put (pred (Mir_numeric.int_compare c (width_of st frame x) (b x) (b y)))
   | Mir_op.Idiv (o, x, y) -> (
       match Mir_numeric.int_div o (width_of st frame x) (b x) (b y) with
       | Some r -> put (Mir_datum.Bits r)
       | None -> defect st frame D.Domain)
-  | Mir_op.Iext (k, w, a) ->
-      let w0 = width_of st frame a in
-      put
-        (Mir_datum.Bits
-           (match k with
-           | Mir_op.Iext.Sext ->
-               Mir_width.normalize w (Mir_width.signed w0 (b a))
-           | Mir_op.Iext.Zext -> b a))
+  | Mir_op.Iext (k, w, a) -> (
+      let ext w0 x =
+        match k with
+        | Mir_op.Iext.Sext -> Mir_width.normalize w (Mir_width.signed w0 x)
+        | Mir_op.Iext.Zext -> x
+      in
+      match a.Mir_value.ty with
+      | Mir_type.Vec (Mir_type.Elem.Int w0, _) ->
+          lanewise [ a ] (function
+            | [ x ] -> ext w0 x
+            | _ -> invalid_arg "Mir_interp")
+      | _ -> put (Mir_datum.Bits (ext (width_of st frame a) (b a))))
   | Mir_op.Itrunc (w, a) -> put (Mir_datum.Bits (Mir_width.normalize w (b a)))
   | Mir_op.Load { Mir_op.Access.width; addr; align } -> (
       match

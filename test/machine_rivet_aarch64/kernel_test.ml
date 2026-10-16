@@ -394,9 +394,9 @@ let%expect_test "vector kernels: the forms they use, and GNU's reading of them"
     ~bind:(bind_data ~shape (vdata 37));
   [%expect
     {|
-    210 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 2404 bytes, 5 symbols)
-    210 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 2404 bytes, 5 symbols)
-    156 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 1324 bytes, 4 symbols) |}]
+    82 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 1508 bytes, 5 symbols)
+    82 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 1508 bytes, 5 symbols)
+    28 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 476 bytes, 4 symbols) |}]
 
 let%expect_test "contracted vector kernels, natively and with the ABI probe" =
   let relaxed = Ssa_ir.Ssa_numerics.Simd_fp32_relaxed in
@@ -439,9 +439,9 @@ let%expect_test "fmla on the CPU" =
     [ 16; 37 ];
   [%expect
     {|
-    w=16: 308 vector instructions, 4 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 2068 bytes, 4 symbols)
+    w=16: 52 vector instructions, 4 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 468 bytes, 4 symbols)
     w=16: ok [native: agree]
-    w=37: 308 vector instructions, 4 fmla, 1 fmadd, 0 ld1r; agree (2 segments, 2252 bytes, 4 symbols)
+    w=37: 52 vector instructions, 4 fmla, 1 fmadd, 0 ld1r; agree (2 segments, 604 bytes, 4 symbols)
     w=37: ok [native: agree] |}]
 
 (* Strided lane expansion: the input read transposed, so a vector of outputs
@@ -477,9 +477,9 @@ let%expect_test "lane gathers and every legal loop vectorized, natively" =
       Fmt.pr "%s@." (H.gnu case);
       [%expect
         {|
-        ld1 12, st1 0, ins 8, ld1r 4, dup 16
+        ld1 12, st1 0, ins 0, ld1r 4, dup 0
         ok [native: agree]
-        agree (2 segments, 1984 bytes, 4 symbols) |}]
+        agree (2 segments, 1136 bytes, 4 symbols) |}]
 
 (* A call per lane: exp has no vector form, so the lanes go out one at a time,
    with the vector held across each call in a full-width spill. *)
@@ -601,3 +601,74 @@ let%expect_test "wrong call-frame information is seen" =
   | Error e -> Fmt.pr "%s@." e);
   [%expect
     {| 4 mrs x17, fpcr: CFA offset 1000, instructions say 112; 4 mrs x17, fpcr: CFA offset 1000, instructions say 112 |}]
+
+(* Binary32 dequantization as integer lanes on NEON: contiguous i8 and i16
+   cells loaded a Q register at a time, sign-extended to int32 by SXTL/SXTL2
+   (encoded words), converted by SCVTF .4s, then the binary32 subtract and
+   multiply. On the CPU against the physical interpreter, after the selected
+   program agrees with the plan; and GNU assembles the same bytes. *)
+let%expect_test "binary32 dequantization as integer lanes, natively" =
+  let f32 x = fst (Quant.round_scale x) in
+  List.iter
+    (fun (name, fmt, quant, n) ->
+      let cells =
+        Array.init n (fun i -> Int64.of_int ((i * 37 mod 256) - 128))
+      in
+      let kernel = Loop_programs.format_kernel ~fmt ~quant n in
+      let bind id =
+        if Tensor_id.equal id (Loop_fixtures.tid 0) then
+          Some (Loop_programs.raw_tensor fmt ~quant n cells)
+        else None
+      in
+      Fmt.pr "%s: " name;
+      planned ~numerics:Ssa_ir.Ssa_numerics.Fp32_ordered kernel ~bind;
+      Fmt.pr "  ";
+      vector_gnu ~numerics:Ssa_ir.Ssa_numerics.Fp32_ordered kernel ~bind)
+    [
+      ( "i8 per tensor, 32 lanes",
+        Payload.Fmt Payload.I8,
+        Quant.per_tensor ~scale:(f32 0.37) ~zero_point:(-3.),
+        32 );
+      ( "i8 per tensor, 37 lanes",
+        Payload.Fmt Payload.I8,
+        Quant.per_tensor ~scale:(f32 0.05) ~zero_point:1.25,
+        37 );
+      ( "i16 per tensor, 32 lanes",
+        Payload.Fmt Payload.I16,
+        Quant.per_tensor ~scale:(f32 1e-3) ~zero_point:7.,
+        32 );
+    ];
+  [%expect
+    {|
+    i8 per tensor, 32 lanes: ok [native: agree]
+      62 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 584 bytes, 4 symbols)
+    i8 per tensor, 37 lanes: ok [native: agree]
+      62 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 828 bytes, 4 symbols)
+    i16 per tensor, 32 lanes: ok [native: agree]
+      64 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 580 bytes, 4 symbols) |}]
+
+(* Binary16 and bfloat16 cells read straight to binary32 as integer lanes on
+   NEON (UXTL, SHL/USHR, FMUL by 2^112, the infinity and NaN fix-up, the sign),
+   every encoding, on the CPU against the physical interpreter. *)
+let%expect_test "binary16 and bfloat16 as integer lanes, natively" =
+  List.iter
+    (fun (name, fmt) ->
+      let n = 65536 in
+      let cells = Array.init n Int64.of_int in
+      let kernel = Loop_programs.format_kernel ~fmt n in
+      let bind id =
+        if Tensor_id.equal id (Loop_fixtures.tid 0) then
+          Some (Loop_programs.raw_tensor fmt n cells)
+        else None
+      in
+      Fmt.pr "%s: " name;
+      planned ~numerics:Ssa_ir.Ssa_numerics.Fp32_ordered kernel ~bind;
+      Fmt.pr "  ";
+      vector_gnu ~numerics:Ssa_ir.Ssa_numerics.Fp32_ordered kernel ~bind)
+    [ ("f16", Payload.Fmt Payload.F16); ("bf16", Payload.Fmt Payload.BF16) ];
+  [%expect
+    {|
+    f16: ok [native: agree]
+      205 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 1204 bytes, 4 symbols)
+    bf16: ok [native: agree]
+      40 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 424 bytes, 4 symbols) |}]

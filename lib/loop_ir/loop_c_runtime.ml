@@ -6,12 +6,14 @@
 
 module Name = struct
   type t =
+    | Bf16_to_f32
     | Bf16_to_float
     | Coord_failure
     | Cos_f32
     | Erf
     | Erf_f32
     | Exp_f32
+    | F16_to_f32
     | F16_to_float
     | F32_prelude
     | Float_max
@@ -31,12 +33,14 @@ module Name = struct
 
   let all =
     [
+      Bf16_to_f32;
       Bf16_to_float;
       Coord_failure;
       Cos_f32;
       Erf;
       Erf_f32;
       Exp_f32;
+      F16_to_f32;
       F16_to_float;
       F32_prelude;
       Float_max;
@@ -56,12 +60,14 @@ module Name = struct
     ]
 
   let to_string = function
+    | Bf16_to_f32 -> "bf16_to_f32"
     | Bf16_to_float -> "bf16_to_float"
     | Coord_failure -> "coord_failure"
     | Cos_f32 -> "cos_f32"
     | Erf -> "erf_approx"
     | Erf_f32 -> "erf_approx_f32"
     | Exp_f32 -> "exp_f32"
+    | F16_to_f32 -> "f16_to_f32"
     | F16_to_float -> "f16_to_float"
     | F32_prelude -> "f32_prelude"
     | Float_max -> "float_max"
@@ -306,6 +312,37 @@ let f32_function name which =
 let text dialect : Name.t -> string =
   let nan = Loop_c_dialect.nan dialect in
   function
+  | Name.Bf16_to_f32 ->
+      (* the high half of a binary32: no binary64 step *)
+      "static inline float bf16_to_f32(uint16_t h) {\n\
+      \  uint32_t b = (uint32_t)h << 16;\n\
+      \  float f;\n\
+      \  memcpy(&f, &b, sizeof f);\n\
+      \  return f;\n\
+       }\n"
+  | Name.F16_to_f32 ->
+      (* every binary16 value is a binary32 value: a normal one is its bits
+         rebiased, a subnormal one its mantissa times 2^-24 (both exact) *)
+      Printf.sprintf
+        "static inline float f16_to_f32(uint16_t h) {\n\
+        \  const uint32_t sign = (uint32_t)(h >> 15) << 31;\n\
+        \  const uint32_t exp16 = (h >> 10) & 0x1fu;\n\
+        \  const uint32_t mant = h & 0x3ffu;\n\
+        \  if (exp16 == 0) {\n\
+        \    const float m = (float)mant * 0x1p-24f;\n\
+        \    return sign ? -m : m;\n\
+        \  }\n\
+        \  if (exp16 == 0x1f) {\n\
+        \    const float m = mant == 0 ? %s : %s;\n\
+        \    return sign ? -m : m;\n\
+        \  }\n\
+        \  const uint32_t b = sign | ((exp16 + 112u) << 23) | (mant << 13);\n\
+        \  float f;\n\
+        \  memcpy(&f, &b, sizeof f);\n\
+        \  return f;\n\
+         }\n"
+        (Loop_c_dialect.infinity_f32 dialect)
+        (Loop_c_dialect.nan_f32 dialect)
   | Name.Bf16_to_float ->
       "static inline double bf16_to_float(uint16_t h) {\n\
       \  uint32_t b = (uint32_t)h << 16;\n\

@@ -74,6 +74,7 @@ let form_name : A.t -> string = function
   | A.Ld1r _ -> "Ld1r"
   | A.Ldr _ -> "Ldr"
   | A.Ldr_idx _ -> "Ldr_idx"
+  | A.Ldr_ivec _ -> "Ldr_ivec"
   | A.Ldr_vec _ -> "Ldr_vec"
   | A.Logic _ -> "Logic"
   | A.Logic_imm _ -> "Logic_imm"
@@ -86,6 +87,7 @@ let form_name : A.t -> string = function
   | A.Msub _ -> "Msub"
   | A.Mul _ -> "Mul"
   | A.Scvtf _ -> "Scvtf"
+  | A.Scvtf_vec _ -> "Scvtf_vec"
   | A.Sdiv _ -> "Sdiv"
   | A.Shift_imm _ -> "Shift_imm"
   | A.St1_lane _ -> "St1_lane"
@@ -98,6 +100,7 @@ let form_name : A.t -> string = function
   | A.Trunc _ -> "Trunc"
   | A.Uxtw _ -> "Uxtw"
   | A.Vbit _ -> "Vbit"
+  | A.Vcast _ -> "Vcast"
   | A.Vfbin _ -> "Vfbin"
   | A.Vfcmp _ -> "Vfcmp"
   | A.Vfmla _ -> "Vfmla"
@@ -105,8 +108,10 @@ let form_name : A.t -> string = function
   | A.Vlogic _ -> "Vlogic"
   | A.Vmov _ -> "Vmov"
   | A.Vnot _ -> "Vnot"
+  | A.Vshift _ -> "Vshift"
   | A.Vwiden _ -> "Vwiden"
   | A.Wtrunc _ -> "Wtrunc"
+  | A.Xtl_w _ -> "Xtl_w"
 
 (* {1 Registers} *)
 
@@ -496,6 +501,9 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       ]
   | A.Mul (sz, _, _) -> binary Op.Mul sz
   | A.Scvtf (fsz, _) -> [ ins Op.Scvtf [ f env fsz (d 0); g env A.Sz.X (u 0) ] ]
+  | A.Scvtf_vec _ | A.Vshift _ | A.Xtl_w _ ->
+      (* encoded words: see [items] *)
+      refuse env (R.Location (form_name op ^ " is an encoded-word form"))
   | A.Sdiv (sz, _, _) -> binary Op.Sdiv sz
   | A.Shift_imm (o, sz, _, k) ->
       let bits = width_bits sz in
@@ -606,6 +614,8 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
             mem env ~base:(u 1) ~offset:0L;
           ];
       ]
+  | A.Ldr_ivec (_, _, k) ->
+      [ vector_access env ~load:true A.Arr.S4 ~rt:(d 0) ~base:(u 0) ~offset:k ]
   | A.Ldr_vec (arr, _, k) ->
       [ vector_access env ~load:true arr ~rt:(d 0) ~base:(u 0) ~offset:k ]
   | A.Str_vec (arr, _, k, _) ->
@@ -672,6 +682,11 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       let b16 = Aarch64_encode.Varr.B16 in
       [
         ins Op.Not [ O.Vec (vnum env (d 0), b16); O.Vec (vnum env (u 0), b16) ];
+      ]
+  | A.Vcast _ ->
+      let b16 = Aarch64_encode.Varr.B16 in
+      [
+        ins Op.Mov [ O.Vec (vnum env (d 0), b16); O.Vec (vnum env (u 0), b16) ];
       ]
   | A.Vmov (arr, _) ->
       let a =
@@ -800,3 +815,58 @@ let branch env (test : A.test) ~(uses : Loc.t list) ~label ~inverted : I.t =
 
 let jump label = ins Op.B [ sym label ]
 let ret = ins Op.Ret []
+
+(* A baseline Advanced SIMD form the Rivet encoder does not spell, as its
+   encoded words (DDI 0487: SSHLL or USHLL with a zero shift is SXTL or UXTL;
+   SCVTF (vector, integer); SHL, USHR and SSHR (immediate)), in place of typed
+   instructions. The conformance suite runs each
+   on the CPU against [A64_sem]. *)
+type item = Insn of I.t | Word of int32
+
+(* SXTL or UXTL Vd.Ta, Vn.Tb: [u] zero-extending, [q] the upper half of the
+   source (SXTL2), [immhb] the source element size (8: bytes to halfwords, 16:
+   halfwords to words). *)
+let xtl ~u ~q ~immhb ~rn ~rd =
+  Int32.of_int
+    ((q lsl 30) lor (u lsl 29) lor (0b011110 lsl 23) lor (immhb lsl 16)
+   lor (0b101001 lsl 10) lor (rn lsl 5) lor rd)
+
+let words env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) =
+  let u k = vnum env (nth env "use" uses k)
+  and d k = vnum env (nth env "def" defs k) in
+  match op with
+  | A.Scvtf_vec _ ->
+      (* SCVTF Vd.4S, Vn.4S *)
+      Some [ Int32.of_int (0x4E21D800 lor (u 0 lsl 5) lor d 0) ]
+  | A.Vshift (o, k, _) ->
+      (* Q = 1, .4s: immh:immb is 32 + k for SHL, 64 - k for a right shift *)
+      let base, immhb =
+        match o with
+        | A.Shift.Lsl -> (0x4F005400, 32 + k)
+        | A.Shift.Lsr -> (0x6F000400, 64 - k)
+        | A.Shift.Asr -> (0x4F000400, 64 - k)
+      in
+      Some [ Int32.of_int (base lor (immhb lsl 16) lor (u 0 lsl 5) lor d 0) ]
+  | A.Xtl_w { signed; from = Mir_width.W8; first; _ } ->
+      (* bytes to halfwords (the half holding the four lanes), then the
+         halfwords' half to words, in the destination *)
+      let u' = if signed then 0 else 1 in
+      Some
+        [
+          xtl ~u:u' ~q:(first / 8) ~immhb:8 ~rn:(u 0) ~rd:(d 0);
+          xtl ~u:u' ~q:(first / 4 mod 2) ~immhb:16 ~rn:(d 0) ~rd:(d 0);
+        ]
+  | A.Xtl_w { signed; from = Mir_width.W16; first; _ } ->
+      Some
+        [
+          xtl
+            ~u:(if signed then 0 else 1)
+            ~q:(first / 4) ~immhb:16 ~rn:(u 0) ~rd:(d 0);
+        ]
+  | A.Xtl_w _ -> refuse env (R.Location "XTL from a width with no form")
+  | _ -> None
+
+let items env (op : A.t) ~uses ~defs =
+  match words env op ~uses ~defs with
+  | Some ws -> List.map (fun w -> Word w) ws
+  | None -> List.map (fun i -> Insn i) (instructions env op ~uses ~defs)

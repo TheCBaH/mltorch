@@ -367,4 +367,21 @@ default. Under a `Simd_fp32_*` policy a vectorized kernel uses `f32` locals and
 `f32x4` registers (four per sixteen-lane vector), and `f32x4.relaxed_madd` when
 the plan was made for `Loop_target.wasm128_relaxed` and the engine validates the
 `relaxed-simd` probe. The manifest names the policy and the working precisions.
-See the fp32 design record in this directory.
+See the fp32 design record in this directory. The Wasm IR's integer SIMD
+subset is what narrow storage needs as binary32 lanes: `i16x8` and `i32x4`
+`extend_low` (signed and unsigned), `i32x4.add`/`eq`/`shl`/`shr_u`,
+`f32x4.convert_i32x4_s`; `test/wasm_ir/ops.t` checks each against a JS
+reference under node.
+
+Under `Fp32_ordered` every kernel is binary32 and the module carries its own
+`exp_f32`, `log_f32`, `sin_f32`, `cos_f32` and `erf_f32` (the `F32_math`
+sequences, one `f32` instruction per operation, each result in a local of its
+own), so a binary32 module imports nothing from `math`: the Wasm/native libm
+disagreement the older records describe does not apply to it. A binary32
+vector calls the four-lane form of the same sequence once per register
+(`exp_f32x4` and the others: `(v128) -> v128`, one `f32x4` instruction per
+operation, a constant an `f32x4.splat`, a select a `v128.bitselect` on the
+lanewise mask); a binary64 vector lane calls the scalar function. `fill_f32` takes an `f32`, a scratch slot is zeroed
+by an integer store and a binary32 scratch cell is the low half of its slot, so
+`Wasm_census` finds no `f64` instruction of any role in the module (the "free"
+gate in `test/ssa_wasm`).

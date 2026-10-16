@@ -46,7 +46,9 @@ let pp_types = Fmt.list ~sep:(Fmt.any ", ") Ssa_type.pp
 
 let pp_problem fmt = function
   | Buffer_declaration b ->
-      Fmt.pf fmt "buffer %a is declared twice, or with extents no index holds"
+      Fmt.pf fmt
+        "buffer %a is declared twice, or with extents no index holds, or with \
+         a quantization parameter that is not a binary32 value"
         Ssa_id.Buffer.pp b
   | Buffer_format { buffer; accessed; declared } ->
       Fmt.pf fmt "%a is declared %s but accessed as %s" Ssa_id.Buffer.pp buffer
@@ -393,7 +395,8 @@ let check_buffers ctx scope =
       if
         Ssa_id.Buffer.Set.mem b.Ssa_buffer.id !seen
         || Ssa_buffer.elements b.Ssa_buffer.extents = None
-        || not channels_match
+        || (not channels_match)
+        || not (Ssa_format.params_binary32 b.Ssa_buffer.format)
       then fail ctx scope (Buffer_declaration b.Ssa_buffer.id);
       seen := Ssa_id.Buffer.Set.add b.Ssa_buffer.id !seen)
     ctx.program.Ssa_program.buffers

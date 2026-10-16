@@ -104,6 +104,19 @@ let rand_f32 st =
 
 let pick l k = List.nth l (k mod List.length l)
 
+(* Integer lanes of width [w] packed into a register image, lane [j] at
+   [j * bits]. *)
+let pack_int w (l : int64 array) =
+  let bits = Mir_width.bits w in
+  let lo = ref 0L and hi = ref 0L in
+  Array.iteri
+    (fun j x ->
+      let x = Int64.logand x (Mir_width.mask w) and pos = j * bits in
+      if pos < 64 then lo := Int64.logor !lo (Int64.shift_left x pos)
+      else hi := Int64.logor !hi (Int64.shift_left x (pos - 64)))
+    l;
+  (!lo, !hi)
+
 (* The lane element a vector type's lanes hold. *)
 let lane_ty (t : Mir_type.t) =
   match t with
@@ -166,6 +179,18 @@ let rec operand st (ty : Mir_type.t) k =
         lo = pack lanes.(0) lanes.(1);
         hi = (if n = 4 then pack lanes.(2) lanes.(3) else rand64 st);
       }
+  | Mir_type.Vec (Mir_type.Elem.Int w, n) ->
+      (* integer lanes: the extremes and zero, or random bits *)
+      let n = Mir_type.Lanes.to_int n and m = Mir_width.mask w in
+      let half = Int64.shift_right_logical m 1 in
+      let lanes =
+        Array.init n (fun j ->
+            match k with
+            | Some k -> pick [ 0L; 1L; m; half; Int64.succ half ] (k + (j * 3))
+            | None -> Int64.logand (rand64 st) m)
+      in
+      let lo, hi = pack_int w lanes in
+      { datum = Mir_datum.Lanes lanes; lo; hi }
   | _ -> invalid_arg "X64_model.operand"
 
 (* ---- the interpreter side ----------------------------------------------------- *)
@@ -305,6 +330,7 @@ let pack_lanes (t : Mir_type.t) (l : int64 array) =
   | Mir_type.Vec (Mir_type.Elem.F64, _) ->
       (l.(0), if Array.length l > 1 then l.(1) else 0L)
   | Mir_type.Mask n when Mir_type.Lanes.to_int n = 2 -> (l.(0), l.(1))
+  | Mir_type.Vec (Mir_type.Elem.Int w, _) -> pack_int w l
   | _ ->
       let g j = if j < Array.length l then l.(j) else 0L in
       let pack a b =

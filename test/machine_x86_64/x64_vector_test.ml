@@ -172,3 +172,66 @@ let%expect_test "reference allocation and frames: XMM registers, 16-byte slots"
     matmul: ok
     x * x + x: ok
     matmul: ok |}]
+
+(* Binary32 dequantization as integer lanes, selected: the integer register
+   loads, the sign extensions from it and the int32 conversion, against the
+   generic route and the plan's oracle. *)
+let%expect_test "binary32 dequantization as integer lanes, selected" =
+  let f32 x = fst (Quant.round_scale x) in
+  List.iter
+    (fun (name, fmt, quant, n) ->
+      let cells =
+        Array.init n (fun i -> Int64.of_int ((i * 37 mod 256) - 128))
+      in
+      let bind id =
+        if Tensor_id.equal id (Loop_fixtures.tid 0) then
+          Some (Loop_programs.raw_tensor fmt ~quant n cells)
+        else None
+      in
+      Fmt.pr "%s: %s@." name
+        (X64_harness.planned ~target:Ssa_ir.Ssa_target.neon128
+           ~numerics:Ssa_ir.Ssa_numerics.Fp32_ordered
+           (Loop_programs.format_kernel ~fmt ~quant n)
+           ~bind))
+    [
+      ( "i8 per tensor, 32 lanes",
+        Payload.Fmt Payload.I8,
+        Quant.per_tensor ~scale:(f32 0.37) ~zero_point:(-3.),
+        32 );
+      ( "i8 per tensor, 37 lanes",
+        Payload.Fmt Payload.I8,
+        Quant.per_tensor ~scale:(f32 0.05) ~zero_point:1.25,
+        37 );
+      ( "i16 per tensor, 32 lanes",
+        Payload.Fmt Payload.I16,
+        Quant.per_tensor ~scale:(f32 1e-3) ~zero_point:7.,
+        32 );
+    ];
+  [%expect
+    {|
+    i8 per tensor, 32 lanes: ok
+    i8 per tensor, 37 lanes: ok
+    i16 per tensor, 32 lanes: ok |}]
+
+(* Binary16 and bfloat16 as integer lanes, selected: every encoding through
+   the zero extensions, lane shifts and bitwise forms, against the generic
+   route and the plan's oracle. *)
+let%expect_test "binary16 and bfloat16 as integer lanes, selected" =
+  List.iter
+    (fun (name, fmt) ->
+      let n = 65536 in
+      let cells = Array.init n Int64.of_int in
+      let bind id =
+        if Tensor_id.equal id (Loop_fixtures.tid 0) then
+          Some (Loop_programs.raw_tensor fmt n cells)
+        else None
+      in
+      Fmt.pr "%s: %s@." name
+        (X64_harness.planned ~target:Ssa_ir.Ssa_target.neon128
+           ~numerics:Ssa_ir.Ssa_numerics.Fp32_ordered
+           (Loop_programs.format_kernel ~fmt n)
+           ~bind))
+    [ ("f16", Payload.Fmt Payload.F16); ("bf16", Payload.Fmt Payload.BF16) ];
+  [%expect {|
+    f16: ok
+    bf16: ok |}]

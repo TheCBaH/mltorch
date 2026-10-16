@@ -217,7 +217,7 @@ let%expect_test "Kernel: a stored value must be f32 and unquantized" =
 let%expect_test "Kernel: quantization must match the format and the C extent" =
   let q n =
     Err.or_raise ~pp_error:Quant.pp_error
-      (Quant.per_channel ~scale:(Array.make n 0.5) ~zero_point:(Array.make n 0))
+      (Quant.per_channel ~scale:(Array.make n 0.5) ~zero_point:(Array.make n 0.))
   in
   let i8 = Payload.Fmt Payload.I8 in
   let case name inp =

@@ -1,4 +1,5 @@
 type t = {
+  exact : bool;
   env : (int, Ssa_value.t) Hashtbl.t;
   mutable next_value : Ssa_id.Value.Next.t;
 }
@@ -33,6 +34,27 @@ let instr ?token ~results op =
 let convert t c (a : Ssa_value.t) into =
   let r = fresh t into in
   (r, instr ~results:[ r ] (Ssa_op.Convert (c, a)))
+
+(* A binary32 cell decoded to binary64 is, after narrowing, read as binary32
+   directly (in a program that stays scalar), and a dequantizing read is the
+   binary32 operations over binary32 parameters, never the binary64 expression
+   rounded once: the result is binary32 at the load itself. *)
+let exact_decode t = function
+  | Ssa_op.Decode.F32_to_f64 when t.exact -> (true, Ssa_op.Decode.F32_exact)
+  | Ssa_op.Decode.Bf16_to_f64 when t.exact -> (true, Ssa_op.Decode.Bf16_to_f32)
+  | Ssa_op.Decode.Bool_to_f64 when t.exact -> (true, Ssa_op.Decode.Bool_to_f32)
+  | Ssa_op.Decode.F16_to_f64 when t.exact -> (true, Ssa_op.Decode.F16_to_f32)
+  | Ssa_op.Decode.I32_to_f64 when t.exact -> (true, Ssa_op.Decode.I32_to_f32)
+  | Ssa_op.Decode.I16_dequant -> (true, Ssa_op.Decode.I16_dequant32)
+  | Ssa_op.Decode.I8_dequant -> (true, Ssa_op.Decode.I8_dequant32)
+  | ( Ssa_op.Decode.Bf16_to_f32 | Ssa_op.Decode.Bf16_to_f64
+    | Ssa_op.Decode.Bool_to_f32 | Ssa_op.Decode.Bool_to_f64
+    | Ssa_op.Decode.F16_to_f32 | Ssa_op.Decode.F16_to_f64
+    | Ssa_op.Decode.F32_exact | Ssa_op.Decode.F32_to_f64
+    | Ssa_op.Decode.F64_to_f64 | Ssa_op.Decode.I16_dequant32
+    | Ssa_op.Decode.I32_to_f32 | Ssa_op.Decode.I32_to_f64 | Ssa_op.Decode.I64
+    | Ssa_op.Decode.I64_to_f64 | Ssa_op.Decode.I8_dequant32 ) as d ->
+      (false, d)
 
 let rec stmt t : Ssa_region.t Ssa_stmt.t -> Ssa_region.t Ssa_stmt.t list =
   function
@@ -73,9 +95,13 @@ and instr_ t (i : Ssa_instr.t) =
     [ instr ?token ~results (Ssa_op.map_operands (get t) op) ]
   in
   let results () = List.map (define t) i.Ssa_instr.results in
-  let narrowed_load make =
-    (* the load keeps its binary64 decode; its value is narrowed once *)
+  let narrowed_load ?(exact = false) make =
+    (* a binary32 cell is read as binary32 directly; any other decode stays
+       binary64 and its value is narrowed once *)
     match i.Ssa_instr.results with
+    | [ value; chain ] when exact && Ssa_type.equal value.Ssa_value.ty f64 ->
+        let narrow = define t value in
+        [ instr ?token ~results:[ narrow; chain ] (make ()) ]
     | [ value; chain ] when Ssa_type.equal value.Ssa_value.ty f64 ->
         let wide = fresh t f64 in
         let narrow, narrow_i = convert t Ssa_op.Convert.F64_to_f32 wide f32 in
@@ -123,16 +149,32 @@ and instr_ t (i : Ssa_instr.t) =
         instr ~results:i.Ssa_instr.results ?token (Ssa_op.Float_to_i64 wide);
       ]
   | Ssa_op.Load { buffer; at; decode } ->
-      narrowed_load (fun () ->
+      let exact, decode = exact_decode t decode in
+      narrowed_load ~exact (fun () ->
           Ssa_op.map_operands (get t) (Ssa_op.Load { buffer; at; decode }))
   | Ssa_op.Load_in_bounds { buffer; at; decode } ->
-      narrowed_load (fun () ->
+      let exact, decode = exact_decode t decode in
+      narrowed_load ~exact (fun () ->
           Ssa_op.map_operands (get t)
             (Ssa_op.Load_in_bounds { buffer; at; decode }))
   | Ssa_op.Store { buffer; at; encode; value } -> (
       match encode with
       | Ssa_op.Encode.I64 -> keep i.Ssa_instr.op i.Ssa_instr.results
-      | Ssa_op.Encode.Bool_nonzero | Ssa_op.Encode.F32_round ->
+      | (Ssa_op.Encode.F32_exact | Ssa_op.Encode.F32_round) as e
+        when t.exact || e = Ssa_op.Encode.F32_exact ->
+          (* the value is binary32 here: stored as it is, no widening *)
+          [
+            instr ?token ~results:i.Ssa_instr.results
+              (Ssa_op.Store
+                 {
+                   buffer;
+                   at = Ssa_access.map (get t) at;
+                   encode = Ssa_op.Encode.F32_exact;
+                   value = get t value;
+                 });
+          ]
+      | Ssa_op.Encode.Bool_nonzero | Ssa_op.Encode.F32_exact
+      | Ssa_op.Encode.F32_round ->
           let wide, wide_i = widened value in
           [
             wide_i;
@@ -145,6 +187,13 @@ and instr_ t (i : Ssa_instr.t) =
                    value = wide;
                  });
           ])
+  | Ssa_op.Local_write { local; at; value } when t.exact ->
+      (* a binary32 value in the low half of its slot, no widening *)
+      [
+        instr ?token ~results:i.Ssa_instr.results
+          (Ssa_op.Local_write
+             { local = get t local; at = get t at; value = get t value });
+      ]
   | Ssa_op.Local_write { local; at; value } ->
       let wide, wide_i = widened value in
       [
@@ -153,14 +202,23 @@ and instr_ t (i : Ssa_instr.t) =
           (Ssa_op.Local_write
              { local = get t local; at = get t at; value = wide });
       ]
-  | Ssa_op.Local_read { local; at } ->
+  | Ssa_op.Local_read { local; at; cell = _ } when t.exact ->
+      let chain = List.nth i.Ssa_instr.results 1 in
+      let narrow = define t (List.hd i.Ssa_instr.results) in
+      [
+        instr ?token ~results:[ narrow; chain ]
+          (Ssa_op.Local_read
+             { local = get t local; at = get t at; cell = Ssa_op.Cell.F32 });
+      ]
+  | Ssa_op.Local_read { local; at; cell = _ } ->
       let wide = fresh t f64 in
       let chain = List.nth i.Ssa_instr.results 1 in
       let narrow, narrow_i = convert t Ssa_op.Convert.F64_to_f32 wide f32 in
       set t (List.hd i.Ssa_instr.results) narrow;
       [
         instr ?token ~results:[ wide; chain ]
-          (Ssa_op.Local_read { local = get t local; at = get t at });
+          (Ssa_op.Local_read
+             { local = get t local; at = get t at; cell = Ssa_op.Cell.F64 });
         narrow_i;
       ]
   | Ssa_op.Lanewise _ | Ssa_op.Mark_lanes _ | Ssa_op.Vec_extract _
@@ -182,7 +240,7 @@ and instr_ t (i : Ssa_instr.t) =
     | Ssa_op.Pred_or _ | Ssa_op.Select _ ) as op ->
       keep op (results ())
 
-let to_f32 (p : Ssa_program.t) =
+let to_f32 ?(exact = false) (p : Ssa_program.t) =
   (match Err.payload (Ssa_verify.check p) with
   | Ok () -> ()
   | Error e -> invalid_arg (Fmt.str "Ssa_precision: %a" Ssa_verify.pp_error e));
@@ -190,7 +248,9 @@ let to_f32 (p : Ssa_program.t) =
   | Ok () -> ()
   | Error r ->
       invalid_arg (Fmt.str "Ssa_precision: %a" Ssa_numerics.Refusal.pp r));
-  let t = { env = Hashtbl.create 64; next_value = p.Ssa_program.next_value } in
+  let t =
+    { exact; env = Hashtbl.create 64; next_value = p.Ssa_program.next_value }
+  in
   let entry =
     region t p.Ssa_program.entry ~params:p.Ssa_program.entry.Ssa_region.params
   in

@@ -280,7 +280,9 @@ census slice that will admit it.
   rejects a per-channel buffer through one, so the lowering's own refusal is
   only a backstop.
 - **Locals and the meter** (the M4.3 slice): each `local.alloc` site owns a
-  scratch region (`Mir_layout_map.Scratch`, eight bytes per binary64 cell,
+  scratch region (`Mir_layout_map.Scratch`, eight bytes per cell — a binary64
+  value fills it, a binary32 value (`Ssa_op.Cell.F32`, read at the type it was
+  written at) the low four bytes with no widening,
   checked arithmetic, all sites together bounded by `local_limit`), and every
   run of the site begins with `undef view` — the generic op that makes a
   view's bytes undefined again — before `addr view` gives the local's
@@ -314,8 +316,10 @@ census slice that will admit it.
   no helper, but the reference's Abramowitz-Stegun formula expanded into
   primitives (an exact absolute value by masking the sign bit, `fdiv`, the
   Horner chain in the reference's association) with one `exp` call; at
-  binary32 every step is a binary32 operation and `exp` runs between a
-  widening and one rounding, matching `Ssa_numerics.erf32`. A program
+  binary32 every step is a binary32 operation and, since the owned binary32
+  `exp`, no widening or call appears: `erf` and `exp`, `log`, `sin`, `cos` at an
+  `f32` operand are inline generic binary32 instructions (`F32_math`),
+  matching `Ssa_numerics.erf32`. A program
   declares exactly the helpers it calls. A flat `check_access` lowers to
   nothing (it has no source failure).
 - Vectors (M11.1). A planned program's logical vectors stay logical: a
@@ -328,16 +332,40 @@ census slice that will admit it.
   operations proper are `vsplat`, `vextract`, `vinsert`, and `vload`/`vstore`
   of `lanes` elements at `addr + k * stride` bytes (stride the element size:
   contiguous; 0: a broadcast), every lane accessed. A `Lanewise` lifts only
-  operations whose scalar expansion is itself lanewise; a lifted
-  transcendental (`exp`, `log`, `sin`, `cos`) or `erf` has no vector form and
-  is expanded a lane at a time: the lane extracted, the scalar function (a
-  helper call) applied, the result inserted into the vector the lanes build.
+  operations whose scalar expansion is itself lanewise; a lifted binary32
+  transcendental (`exp`, `log`, `sin`, `cos`, `erf`) is the `F32_math`
+  sequence on the vector itself (`Mir_lower_f32.f32_math_vector`: a constant
+  splat to the lanes, every operation lanewise, a select on the lanewise
+  mask), so each lane is exactly the scalar sequence; a binary64 one has no
+  vector form and is expanded a lane at a time: the lane extracted, the scalar
+  function (a helper call) applied, the result inserted into the vector the
+  lanes build.
   A vector access's stride is its steps' row-major element offset times the
   element size; its decode or encode is a lanewise conversion, and binary32
-  and binary64 storage are loaded as vectors. A float decode of any other
+  and binary64 storage are loaded as vectors. An exact binary32 access
+  (`F32_exact`, the `Fp32_ordered` form) is a binary32 `vload`/`vstore` with no
+  conversion. A float decode of any other
   storage (`bf16`, `bool`, `f16`, `i32`, `i64`) is likewise a scalar decode
-  at each lane's address, inserted a lane at a time; a dequantizing decode
-  and an integer vector stay refused. A `vec.splat` of a predicate is a mask.
+  at each lane's address, inserted a lane at a time into a vector of the
+  decode's result element, a dequantizing decode included (every lane takes
+  the access's channel, which the vectorizer keeps uniform). A binary32
+  dequantization of contiguous `i8`/`i16` cells whose run fills whole
+  registers is instead an integer `vload`, `iext sext` to `i32` lanes,
+  `fconvert scvt.i32.f32` and the binary32 `(q - z) * s` with `z` and `s`
+  splatted, in the scalar decode's order. `Mir_vsplit` cuts the widening
+  into four-lane `vslice`s of the register; `Mir_vsplit.widening_slices` names
+  the slices only a sign extension reads, which the selectors fuse into it
+  (`Sxtl_w`, `Sext_lanes`) so no sixteen-byte value is ever a narrower
+  register. Contiguous `f16`/`bf16` cells read straight to binary32 the same
+  way, as integer lanes: `iext zext` to `i32`, then (`bf16`) `shl 16` and a
+  bitcast, or (`f16`) `(h << 17) >> 4` as binary32 bits times 2^112 (exact,
+  a subnormal operand included), an infinity or NaN (a product at or above
+  2^16) given the all-ones exponent by `or`, and the sign `or`ed last, every
+  NaN's bits kept. Integer vectors take `iarith` lane by lane (a shift's count
+  a splatted constant, which the verifier requires and
+  `Mir_vsplit.shift_counts` names so a selector shifts by the immediate) and
+  `bitcast` between `i32` and `f32` lanes. Any other integer vector stays
+  refused. A `vec.splat` of a predicate is a mask.
   `vec.iota` is the splat of `f64(base)` plus inserted lane constants (each
   exact below 2^53). The oracle is the plan's own (`Ssa_plan.oracle`: every
   vector spelled out lane by lane, at the plan's precision); binary32 plans

@@ -207,20 +207,30 @@ let channel_of st = function
 let read_cell st id (b : Ssa_buffer.t) decode ~at ~channel =
   match (cells st id, decode) with
   | ( Ssa_memory.Floats a,
-      ( Ssa_op.Decode.Bool_to_f64 | Ssa_op.Decode.F32_to_f64
+      ( Ssa_op.Decode.Bool_to_f32 | Ssa_op.Decode.Bool_to_f64
+      | Ssa_op.Decode.F32_exact | Ssa_op.Decode.F32_to_f64
       | Ssa_op.Decode.F64_to_f64 ) ) ->
       F a.(at)
   | Ssa_memory.Int64s a, Ssa_op.Decode.I64 -> I a.(at)
   | Ssa_memory.Int64s a, Ssa_op.Decode.I64_to_f64 -> F (Int64.to_float a.(at))
-  | Ssa_memory.Ints a, Ssa_op.Decode.F16_to_f64 ->
+  | Ssa_memory.Ints a, (Ssa_op.Decode.F16_to_f32 | Ssa_op.Decode.F16_to_f64) ->
+      (* every binary16 value is a binary32 value *)
       F (Ssa_half.f16_to_float a.(at))
-  | Ssa_memory.Ints a, Ssa_op.Decode.Bf16_to_f64 ->
+  | Ssa_memory.Ints a, (Ssa_op.Decode.Bf16_to_f32 | Ssa_op.Decode.Bf16_to_f64)
+    ->
       F (Ssa_half.bf16_to_float a.(at))
+  | Ssa_memory.Ints a, Ssa_op.Decode.I32_to_f32 ->
+      F (Ssa_const.round_f32 (float_of_int a.(at)))
   | Ssa_memory.Ints a, Ssa_op.Decode.I32_to_f64 -> F (float_of_int a.(at))
   | Ssa_memory.Ints a, (Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I8_dequant)
     -> (
       match Ssa_format.quant b.Ssa_buffer.format with
       | Some q -> F (Ssa_format.dequantize q ~channel ~cell:a.(at))
+      | None -> invalid_arg "Ssa_interp: dequantizing an unquantized buffer")
+  | Ssa_memory.Ints a, (Ssa_op.Decode.I16_dequant32 | Ssa_op.Decode.I8_dequant32)
+    -> (
+      match Ssa_format.quant b.Ssa_buffer.format with
+      | Some q -> F (Ssa_format.dequantize32 q ~channel ~cell:a.(at))
       | None -> invalid_arg "Ssa_interp: dequantizing an unquantized buffer")
   | (Ssa_memory.Floats _ | Ssa_memory.Int64s _ | Ssa_memory.Ints _), _ ->
       invalid_arg "Ssa_interp: decode does not match the cells"
@@ -229,7 +239,9 @@ let write_cell st id encode ~at (value : v) =
   match (cells st id, encode, value) with
   | Ssa_memory.Floats a, Ssa_op.Encode.Bool_nonzero, F x ->
       a.(at) <- (if x <> 0. then 1. else 0.)
-  | Ssa_memory.Floats a, Ssa_op.Encode.F32_round, F x ->
+  | ( Ssa_memory.Floats a,
+      (Ssa_op.Encode.F32_exact | Ssa_op.Encode.F32_round),
+      F x ) ->
       a.(at) <- Ssa_const.round_f32 x
   | Ssa_memory.Int64s a, Ssa_op.Encode.I64, I x -> a.(at) <- x
   | _ -> invalid_arg "Ssa_interp: encode does not match the cells"
@@ -306,7 +318,7 @@ let exec_op st (i : Ssa_instr.t) =
       | Ssa_op.Local_alloc { slots; var } ->
           let n = Int64.to_int slots in
           put (L { cells = Array.make n 0.; written = Array.make n false; var })
-      | Ssa_op.Local_read { local; at } ->
+      | Ssa_op.Local_read { local; at; cell = _ } ->
           let l = local_of st local in
           let at = int_of st at in
           let n = Array.length l.cells in

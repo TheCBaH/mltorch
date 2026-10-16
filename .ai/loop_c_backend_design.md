@@ -187,3 +187,14 @@ The numeric contract above (binary64 carriers, `Round_f32` as a cast pair) is th
 sixteen-lane `v16sf` vectors, `fmaf` multiply-adds, local arrays packed two to a
 scratch double); every other kernel is emitted exactly as before. See the fp32
 design record in this directory, and `loop_c_pt2 --numerics`.
+
+Under `Fp32_ordered` every kernel is emitted in `float`. `exp`, `log`, `sin`,
+`cos` and `erf` are not libm calls: each is a `static inline float` helper
+(`exp_f32`, ...) whose body is the `F32_math` sequence printed by a text
+instance, one `const float` statement per operation (so each rounds once and
+nothing fuses), and the vector prelude's `lane_fn`s call the same helpers. The
+CompCert dialects spell binary32 NaN, infinity and the sign test with
+`f`-suffixed literals (`nan_f32`, `infinity_f32`, `signbit_f32`): CompCert does
+not widen a `float` operand to meet a `double` literal, so an unsuffixed one
+would compute in binary64. The assembly census (`Asm_census`) over CompCert's
+output is what shows it.

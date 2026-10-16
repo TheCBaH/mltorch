@@ -90,6 +90,19 @@ let get_float : type e b q.
   | I8 -> (
       match p.quant with Quant qz -> Quant.dequantize qz ~c ~q:p.data.{i})
 
+(* [get_float] at binary32: a quantized cell is {!Quant.dequantize32}'s explicit
+   binary32 operations, every other format the value [get_float] gives (each of
+   which a binary32 working type holds or rounds once). *)
+let get_float32 : type e b q.
+    (e, b, q) payload -> c:Dim.index Dim.t -> i:int -> float =
+ fun p ~c ~i ->
+  match p.fmt with
+  | I16 -> (
+      match p.quant with Quant qz -> Quant.dequantize32 qz ~c ~q:p.data.{i})
+  | I8 -> (
+      match p.quant with Quant qz -> Quant.dequantize32 qz ~c ~q:p.data.{i})
+  | _ -> get_float p ~c ~i
+
 (* Encode a float into storage cell [i] (round/quantise per format). *)
 let set_float : type e b q.
     (e, b, q) payload -> c:Dim.index Dim.t -> i:int -> float -> unit =

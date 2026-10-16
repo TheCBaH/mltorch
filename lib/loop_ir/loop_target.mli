@@ -36,6 +36,10 @@ module Op : sig
     | Sub
     | Mul
     | Transcendental  (** [exp], [log], [sin], [cos], [erf] *)
+    | Transcendental_sequence
+        (** a binary32 [exp], [log], [sin], [cos] or [erf] as the target's own
+            vector sequence: what a backend with a vector instance of
+            {!F32_math} emits *)
     | Value_compare  (** [Value_eq], [Value_lt], [Pool_better] *)
 
   val all : t list

@@ -11,6 +11,8 @@ module Reason = struct
     | No_vector_form of Ssa_op.t
     | Aliasing of Ssa_id.Buffer.t
     | Carries_values
+    | Channel_varies of Ssa_id.Buffer.t
+    | Element_not_admitted of Ssa_type.scalar
     | Inner_loops_declined
     | Non_affine_access
     | Non_constant_bounds
@@ -26,6 +28,8 @@ module Reason = struct
     | No_vector_form op -> "no_vector_form:" ^ Ssa_op.name op
     | Aliasing _ -> "aliasing"
     | Carries_values -> "carries_values"
+    | Channel_varies _ -> "channel_varies"
+    | Element_not_admitted e -> "element_not_admitted:" ^ Ssa_type.scalar_name e
     | Inner_loops_declined -> "inner_loops_declined"
     | Non_affine_access -> "non_affine_access"
     | Non_constant_bounds -> "non_constant_bounds"
@@ -140,12 +144,17 @@ let classify_instr kinds (i : Ssa_instr.t) =
             set kinds (result ()) Uni
           else (
             (match decode with
-            | Ssa_op.Decode.I64 -> refuse (Reason.No_vector_form op)
+            | Ssa_op.Decode.I64 ->
+                (* an integer: no vector form *)
+                refuse (Reason.No_vector_form op)
+            | Ssa_op.Decode.I16_dequant32 | Ssa_op.Decode.I8_dequant32 -> ()
             | Ssa_op.Decode.Bf16_to_f64 | Ssa_op.Decode.Bool_to_f64
-            | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.F32_to_f64
-            | Ssa_op.Decode.F64_to_f64 | Ssa_op.Decode.I16_dequant
-            | Ssa_op.Decode.I32_to_f64 | Ssa_op.Decode.I64_to_f64
-            | Ssa_op.Decode.I8_dequant ->
+            | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.F32_exact
+            | Ssa_op.Decode.F32_to_f64 | Ssa_op.Decode.F64_to_f64
+            | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I32_to_f64
+            | Ssa_op.Decode.I64_to_f64 | Ssa_op.Decode.I8_dequant
+            | Ssa_op.Decode.Bf16_to_f32 | Ssa_op.Decode.Bool_to_f32
+            | Ssa_op.Decode.F16_to_f32 | Ssa_op.Decode.I32_to_f32 ->
                 ());
             set kinds (result ()) Vec))
   | Ssa_op.Mark _ | Ssa_op.Store _ -> ()
@@ -372,17 +381,22 @@ let load_op cx buffer steps decode =
   | `Strided -> Ssa_target.Op.Strided_load
   | `Contiguous -> (
       match decode with
-      | Ssa_op.Decode.I32_to_f64 -> Ssa_target.Op.Convert_i32_load
-      | Ssa_op.Decode.Bf16_to_f64 | Ssa_op.Decode.Bool_to_f64
-      | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.F32_to_f64
-      | Ssa_op.Decode.F64_to_f64 | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I64
-      | Ssa_op.Decode.I64_to_f64 | Ssa_op.Decode.I8_dequant ->
+      | Ssa_op.Decode.I32_to_f32 | Ssa_op.Decode.I32_to_f64 ->
+          Ssa_target.Op.Convert_i32_load
+      | Ssa_op.Decode.Bf16_to_f32 | Ssa_op.Decode.Bool_to_f32
+      | Ssa_op.Decode.F16_to_f32 | Ssa_op.Decode.Bf16_to_f64
+      | Ssa_op.Decode.Bool_to_f64 | Ssa_op.Decode.F16_to_f64
+      | Ssa_op.Decode.F32_exact | Ssa_op.Decode.F32_to_f64
+      | Ssa_op.Decode.F64_to_f64 | Ssa_op.Decode.I16_dequant
+      | Ssa_op.Decode.I16_dequant32 | Ssa_op.Decode.I8_dequant32
+      | Ssa_op.Decode.I64 | Ssa_op.Decode.I64_to_f64 | Ssa_op.Decode.I8_dequant
+        ->
           Ssa_target.Op.Contiguous_load)
 
 let store_op cx buffer steps encode =
   match encode with
   | Ssa_op.Encode.Bool_nonzero -> Ssa_target.Op.Bool_store
-  | Ssa_op.Encode.F32_round | Ssa_op.Encode.I64 -> (
+  | Ssa_op.Encode.F32_exact | Ssa_op.Encode.F32_round | Ssa_op.Encode.I64 -> (
       match access_class cx buffer steps with
       | `Contiguous -> Ssa_target.Op.Contiguous_store
       | `Broadcast | `Strided -> Ssa_target.Op.Strided_store)
@@ -403,8 +417,13 @@ let lanewise_op (op : Ssa_op.t) =
   | Ssa_op.Float_unary
       ( ( Expr.Value.Cos | Expr.Value.Erf | Expr.Value.Exp | Expr.Value.Log
         | Expr.Value.Sin ),
-        _ ) ->
-      Some Ssa_target.Op.Transcendental
+        a ) -> (
+      (* binary32: the backends' vector instance of the sequence; binary64:
+         a call per lane *)
+      match a.Ssa_value.ty with
+      | Ssa_type.Scalar Ssa_type.F32 ->
+          Some Ssa_target.Op.Transcendental_sequence
+      | _ -> Some Ssa_target.Op.Transcendental)
   | Ssa_op.Float_compare _ | Ssa_op.Pool_better _ ->
       Some Ssa_target.Op.Value_compare
   | Ssa_op.Pred_not _ | Ssa_op.Pred_or _ -> Some Ssa_target.Op.Logic
@@ -457,7 +476,15 @@ let emit_instr cx (i : Ssa_instr.t) =
           | Ssa_op.Load_in_bounds { buffer; at = Ssa_access.Coord at; decode }
             ->
               let steps = steps_of cx at in
-              let r = define (Ssa_type.Vec (Ssa_type.F64, cx.lanes)) in
+              (* a per-channel dequantization takes one channel's parameters:
+                 every lane must read the same channel *)
+              (match Ssa_program.find_buffer cx.program buffer with
+              | Some b
+                when Ssa_format.per_channel b.Ssa_buffer.format
+                     && not (Int64.equal steps.Expr.Coord.c 0L) ->
+                  refuse (Reason.Channel_varies buffer)
+              | Some _ | None -> ());
+              let r = define (vector_type cx (Ssa_op.Decode.result decode)) in
               Hashtbl.replace cx.vmap (result.Ssa_value.id :> int) r;
               count cx (load_op cx buffer steps decode);
               finish ?token:i.Ssa_instr.token
@@ -565,6 +592,34 @@ let rec emit_stmt cx : Ssa_region.t Ssa_stmt.t -> unit = function
              results;
              body = { f.body with Ssa_region.body; yields };
            })
+
+(* Every vector element of an emitted body is one the plan admits: a loop whose
+   vector form needs any other stays scalar. A mask's lanes take the width of
+   what it compares, so a mask is never refused on its own. *)
+let check_elements elements (body : Ssa_region.t Ssa_stmt.t list) =
+  let value (v : Ssa_value.t) =
+    match v.Ssa_value.ty with
+    | Ssa_type.Vec (e, _) ->
+        if not (List.mem e elements) then refuse (Reason.Element_not_admitted e)
+    | Ssa_type.Effect | Ssa_type.Local | Ssa_type.Mask _ | Ssa_type.Scalar _ ->
+        ()
+  in
+  let rec stmts l = List.iter stmt l
+  and region (r : Ssa_region.t) =
+    List.iter value r.Ssa_region.params;
+    stmts r.Ssa_region.body
+  and stmt : Ssa_region.t Ssa_stmt.t -> unit = function
+    | Ssa_stmt.Instr i -> List.iter value i.Ssa_instr.results
+    | Ssa_stmt.For { body; results; _ }
+    | Ssa_stmt.Ordered_sum { body; results; _ } ->
+        region body;
+        List.iter value results
+    | Ssa_stmt.If { then_; else_; results; _ } ->
+        region then_;
+        region else_;
+        List.iter value results
+  in
+  stmts body
 
 (* ---- the facts about a program every attempt starts from ---------------------- *)
 

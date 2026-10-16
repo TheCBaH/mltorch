@@ -32,7 +32,15 @@
    instructions by origin role and the most executed role and mnemonic
    pairs.
 
-   argv: <model.pt2> [--ssa=exact|representation] [--run=K]
+   [--ssa=fp32_ordered] plans every invocation under the Fp32_ordered policy
+   (scalar target), [--ssa=fp32] under the same policy with the neon128 target
+   (its vector loops), [--ssa=simd_fp32_ordered] under Simd_fp32_ordered with
+   the neon128 target (vectors on), and [--f64] reports, over the generic programs, the
+   binary64 instructions by role (arithmetic, conversion, helper call, move):
+   what the policy takes out of a model.
+
+   argv: <model.pt2>
+   [--ssa=exact|representation|fp32_ordered|fp32|simd_fp32_ordered] [--f64] [--run=K]
    [--measure=aarch64|x86_64] [--pressure=aarch64|x86_64]
    [--blocking=feedback] [--traffic=aarch64|x86_64] *)
 
@@ -285,6 +293,7 @@ let () =
   let pressure = ref None in
   let feedback = ref false in
   let traffic = ref None in
+  let f64 = ref false in
   let args =
     List.filter
       (fun a ->
@@ -292,6 +301,33 @@ let () =
         | [ "--ssa"; "exact" ] -> false
         | [ "--ssa"; "representation" ] ->
             pipeline := Ssa_backends.Pipeline.Representation;
+            false
+        | [ "--ssa"; "fp32_ordered" ] ->
+            pipeline :=
+              Ssa_backends.Pipeline.Planned
+                {
+                  numerics = Ssa_ir.Ssa_numerics.Fp32_ordered;
+                  target = Ssa_ir.Ssa_target.scalar;
+                };
+            false
+        | [ "--ssa"; "fp32" ] ->
+            pipeline :=
+              Ssa_backends.Pipeline.Planned
+                {
+                  numerics = Ssa_ir.Ssa_numerics.Fp32_ordered;
+                  target = Ssa_ir.Ssa_target.neon128;
+                };
+            false
+        | [ "--ssa"; "simd_fp32_ordered" ] ->
+            pipeline :=
+              Ssa_backends.Pipeline.Planned
+                {
+                  numerics = Ssa_ir.Ssa_numerics.Simd_fp32_ordered;
+                  target = Ssa_ir.Ssa_target.neon128;
+                };
+            false
+        | [ "--f64" ] ->
+            f64 := true;
             false
         | [ "--run"; k ] ->
             run := Some (int_of_string k);
@@ -361,6 +397,32 @@ let () =
           | Ok m -> (
               Fmt.pr "%s: %d of %d invocations admitted@."
                 (Filename.basename path) n n;
+              (if !f64 then
+                 let cs =
+                   List.map Machine_ir.Mir_f64_census.of_program (M.generic m)
+                 in
+                 let total role =
+                   List.fold_left
+                     (fun s c -> s + Machine_ir.Mir_f64_census.count c role)
+                     0 cs
+                 in
+                 let helpers =
+                   List.sort_uniq String.compare
+                     (List.concat_map
+                        (fun c ->
+                          List.map fst (Machine_ir.Mir_f64_census.helpers c))
+                        cs)
+                 in
+                 Fmt.pr "binary64 instructions (%s): %s; helpers [%s]@."
+                   (Ssa_backends.Pipeline.name !pipeline)
+                   (String.concat ", "
+                      (List.map
+                         (fun r ->
+                           Fmt.str "%s %d"
+                             (Machine_ir.Mir_f64_census.Role.name r)
+                             (total r))
+                         Machine_ir.Mir_f64_census.Role.all))
+                   (String.concat " " helpers));
               (match !measure with
               | None -> ()
               | Some route -> stages b ~pipeline:!pipeline ~constants route);

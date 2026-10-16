@@ -41,7 +41,7 @@ mutate "bounds check signed" \
 mutate "Float_max as min" \
   'else Wasm_op.F64_max' 'else Wasm_op.F64_min'
 mutate "quantization zero point off by one" \
-  'f64 (float_of_int zero);' 'f64 (float_of_int (zero + 1));'
+  'convert; konst zero; sub;' 'convert; konst (zero +. 1.); sub;'
 mutate "Pool_better wins ties (greater-or-equal)" \
   'else (Wasm_op.F64_gt, Wasm_op.F64_ne)' 'else (Wasm_op.F64_ge, Wasm_op.F64_ne)'
 mutate "I64 add lowered as sub" \

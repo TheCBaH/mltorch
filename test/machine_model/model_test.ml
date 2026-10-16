@@ -49,9 +49,18 @@ let expected oracle (g : graph) (b : Loop_ir.Loop_bundle.t) ~constants ~inputs =
         (fun m id t -> Tensor_id.Map.add id t m)
         Tensor_id.Map.empty g.Graph.outputs outs
 
+(* Two tensors cell for cell, a NaN equal to any NaN: for a host whose
+   default NaN differs in sign from the oracle's. *)
+let same_portable a b =
+  List.for_all2
+    (fun x y ->
+      Core.Float_bits.equal_portable (Int64.float_of_bits x)
+        (Int64.float_of_bits y))
+    (bits a) (bits b)
+
 let check ?route ?(pipeline = Ssa_backends.Pipeline.Exact)
-    ?(oracle = Reference_f64) ?(calls = 2) ?constant
-    ?(input = fun ~salt _ -> values ~salt) name g =
+    ?(oracle = Reference_f64) ?(same = fun a b -> bits a = bits b) ?(calls = 2)
+    ?constant ?(input = fun ~salt _ -> values ~salt) name g =
   let g = g () in
   let b = bundle g in
   let constant = Option.value constant ~default:(values ~salt:3) in
@@ -84,8 +93,7 @@ let check ?route ?(pipeline = Ssa_backends.Pipeline.Exact)
                 | Ok outs ->
                     if
                       List.for_all2
-                        (fun id t ->
-                          bits t = bits (Tensor_id.Map.find id reference))
+                        (fun id t -> same t (Tensor_id.Map.find id reference))
                         g.Graph.outputs outs
                     then "bitwise"
                     else "DIFFERS")
@@ -391,3 +399,244 @@ let%expect_test "Fp32_ordered: a failing gather reports the oracle's row" =
     index [2; -3]: bitwise | oracle succeeds
     index [0; 3]: invocation 1 (n1): failure gather_index_out_of_range(3:i64, 3:i64) | oracle fails: invocation 1: gather index 3 out of range [-3, 2]
     index [-4; 1]: invocation 1 (n1): failure gather_index_out_of_range(-4:i64, 3:i64) | oracle fails: invocation 1: gather index -4 out of range [-3, 2] |}]
+
+(* ---- Fp32_ordered with vectors ------------------------------------------------
+
+   The same policy planned for neon128: loops vectorize on the exact binary32
+   form. Bundles wide enough for sixteen binary32 lanes, on the generic
+   interpreter and on both targets' scanned programs in the physical
+   interpreter, each bitwise the binary32 oracle; the vector loops the plans
+   hold, and the binary64 census of the generic programs, which must be zero
+   in every role. The softmax and layer_norm kernels hold a local array per
+   output, which has no vector form: they stay scalar, under every policy. *)
+
+let fp32_vector =
+  Ssa_backends.Pipeline.Planned
+    {
+      numerics = Ssa_ir.Ssa_numerics.Fp32_ordered;
+      target = Ssa_ir.Ssa_target.neon128;
+    }
+
+let vector_fixtures =
+  [
+    ( "relu then add over C=32",
+      fun () ->
+        F.build "pointwise"
+          Graph_builder.(
+            let* x = input ~shape:(F.s 1 1 1 2 3 32) () in
+            let* y = relu x in
+            add y x) );
+    ( "softmax over H, W=32",
+      fun () ->
+        F.build "softmax"
+          Graph_builder.(
+            let* x = input ~shape:(F.s 1 1 1 5 32 3) () in
+            softmax { Reduce.Softmax.axis = Axis.H } x) );
+    ( "layer_norm over H, W=32",
+      fun () ->
+        F.build "layer_norm"
+          Graph_builder.(
+            let* x = input ~shape:(F.s 1 1 1 5 3 32) () in
+            layer_norm { Norm.LayerNorm.dims = [ Axis.H ]; eps = 1e-5 } ~x ())
+    );
+    ( "conv, batch norm, relu to C=32",
+      fun () ->
+        F.build "wide_conv"
+          Graph_builder.(
+            let* x = input ~shape:(F.nhwc ~h:4 ~w:4 ~c:4) () in
+            let* w =
+              constant
+                ~shape:(F.weight_shape ~out_channels:32 ~in_channels:4)
+                ()
+            in
+            let* bias = constant ~shape:(F.s1c 32) () in
+            let* gamma = constant ~shape:(F.s1c 32) () in
+            let* beta = constant ~shape:(F.s1c 32) () in
+            let* mean = constant ~shape:(F.s1c 32) () in
+            let* var = constant ~shape:(F.s1c 32) () in
+            let* y =
+              conv2d (F.conv_params ~in_channels:4) ~x ~weight:w ~bias ()
+            in
+            let* n =
+              batch_norm F.bn_params ~x:y ~weight:gamma ~bias:beta
+                ~running_mean:mean ~running_var:var ()
+            in
+            relu n) );
+  ]
+
+let vector_loops b =
+  List.fold_left
+    (fun n inv ->
+      match
+        Ssa_backends.plan ~numerics:Ssa_ir.Ssa_numerics.Fp32_ordered
+          ~target:Ssa_ir.Ssa_target.neon128 inv
+      with
+      | Ok p ->
+          n
+          + List.length
+              (List.filter
+                 (fun (d : Ssa_ir.Ssa_vectorize.Decision.t) ->
+                   d.Ssa_ir.Ssa_vectorize.Decision.outcome
+                   = Ssa_ir.Ssa_vectorize.Decision.Vectorized)
+                 p.Ssa_ir.Ssa_plan.vectorized)
+      | Error _ -> n)
+    0 b.Loop_ir.Loop_bundle.invocations
+
+let%expect_test "Fp32_ordered vectors: Machine IR is the binary32 oracle" =
+  List.iter
+    (fun (name, g) ->
+      let b = bundle (g ()) in
+      let census =
+        match M.prepare ~pipeline:fp32_vector b with
+        | Error _ -> "refused"
+        | Ok m ->
+            let cs =
+              List.map Machine_ir.Mir_f64_census.of_program (M.generic m)
+            in
+            String.concat ", "
+              (List.map
+                 (fun r ->
+                   Fmt.str "%s %d"
+                     (Machine_ir.Mir_f64_census.Role.name r)
+                     (List.fold_left
+                        (fun n c -> n + Machine_ir.Mir_f64_census.count c r)
+                        0 cs))
+                 Machine_ir.Mir_f64_census.Role.all)
+      in
+      Fmt.pr "%s: %d vector loops; binary64 %s@." name (vector_loops b) census;
+      List.iter
+        (fun (rname, route) ->
+          check ?route ~pipeline:fp32_vector ~oracle:Fp32 ~constant:positive
+            ("  " ^ rname) g)
+        [
+          ("generic", None);
+          ("aarch64 scanned", Some (M.Route.Aarch64 M.Stage.Scanned));
+          ("x86_64 scanned", Some (M.Route.X86_64 M.Stage.Scanned));
+        ])
+    vector_fixtures;
+  [%expect
+    {|
+    relu then add over C=32: 2 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (2 invocations): bitwise, bitwise
+      aarch64 scanned (2 invocations): bitwise, bitwise
+      x86_64 scanned (2 invocations): bitwise, bitwise
+    softmax over H, W=32: 0 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (1 invocations): bitwise, bitwise
+      aarch64 scanned (1 invocations): bitwise, bitwise
+      x86_64 scanned (1 invocations): bitwise, bitwise
+    layer_norm over H, W=32: 0 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (1 invocations): bitwise, bitwise
+      aarch64 scanned (1 invocations): bitwise, bitwise
+      x86_64 scanned (1 invocations): bitwise, bitwise
+    conv, batch norm, relu to C=32: 3 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (3 invocations): bitwise, bitwise
+      aarch64 scanned (3 invocations): bitwise, bitwise
+      x86_64 scanned (3 invocations): bitwise, bitwise |}]
+
+(* ---- binary32 transcendentals as vectors -------------------------------------
+
+   [exp], [log], [sin], [cos] and [erf] (through the exact GELU) over the
+   {!F32_math} sample set: the special values, then a stratified sample of the
+   binary32 line. Planned for the forced neon128 target, so every loop takes
+   its vector form and the sequence runs as one vector instance; each lane must
+   equal the binary32 oracle (the Loop interpreter at binary32, whose functions
+   are {!F32_math.Value}). *)
+
+let fp32_vector_forced =
+  Ssa_backends.Pipeline.Planned
+    {
+      numerics = Ssa_ir.Ssa_numerics.Fp32_ordered;
+      target = Ssa_ir.Ssa_target.forced Ssa_ir.Ssa_target.neon128;
+    }
+
+let f32_math_samples =
+  let specials =
+    [|
+      0.;
+      -0.;
+      1.;
+      -1.;
+      Float.infinity;
+      Float.neg_infinity;
+      Float.nan;
+      1e-45;
+      -1e-45;
+      3e38;
+      -3e38;
+      88.7;
+      89.;
+      -103.9;
+      -104.5;
+      0.5;
+      -0.5;
+      2.5;
+      1e-38;
+      100.;
+      -100.;
+      8191.;
+      3.14159265;
+      -1.5707963;
+    |]
+  in
+  Array.init 256 (fun k ->
+      if k < Array.length specials then F32_math.round32 specials.(k)
+      else
+        (* every (2^32 / 232)-th bit pattern, the finite ones *)
+        let bits =
+          Int64.mul (Int64.of_int (k - Array.length specials)) 18512790L
+        in
+        let x = Int32.float_of_bits (Int64.to_int32 bits) in
+        if Float.is_finite x then x else 0.75)
+
+let sample_input ~salt:_ _ (sg : Tensor_sig.t) =
+  Tensor.materialize sg.Tensor_sig.shape (fun c ->
+      f32_math_samples.((Vec6.offset sg.Tensor_sig.shape c :> int) mod 256))
+
+let transcendental_fixtures =
+  let unary name f () =
+    F.build name
+      Graph_builder.(
+        let* x = input ~shape:(F.s 1 1 1 1 4 64) () in
+        f x)
+  in
+  [
+    ("exp", unary "exp" (fun x -> Graph_builder.exp x));
+    ("log", unary "log" (fun x -> Graph_builder.log x));
+    ("sin", unary "sin" (fun x -> Graph_builder.sin x));
+    ("cos", unary "cos" (fun x -> Graph_builder.cos x));
+    ( "gelu (erf)",
+      unary "gelu" (fun x -> Graph_builder.gelu Pointwise.Gelu.Exact x) );
+  ]
+
+let%expect_test "binary32 transcendentals as Machine IR vectors" =
+  List.iter
+    (fun (name, g) ->
+      List.iter
+        (fun (rname, route) ->
+          check ?route ~pipeline:fp32_vector_forced ~oracle:Fp32 ~calls:1
+            ~input:sample_input
+            (Fmt.str "%s %s" name rname)
+            g)
+        [
+          ("generic", None);
+          ("aarch64 scanned", Some (M.Route.Aarch64 M.Stage.Scanned));
+          ("x86_64 scanned", Some (M.Route.X86_64 M.Stage.Scanned));
+        ])
+    transcendental_fixtures;
+  [%expect
+    {|
+    exp generic (1 invocations): bitwise
+    exp aarch64 scanned (1 invocations): bitwise
+    exp x86_64 scanned (1 invocations): bitwise
+    log generic (1 invocations): bitwise
+    log aarch64 scanned (1 invocations): bitwise
+    log x86_64 scanned (1 invocations): bitwise
+    sin generic (1 invocations): bitwise
+    sin aarch64 scanned (1 invocations): bitwise
+    sin x86_64 scanned (1 invocations): bitwise
+    cos generic (1 invocations): bitwise
+    cos aarch64 scanned (1 invocations): bitwise
+    cos x86_64 scanned (1 invocations): bitwise
+    gelu (erf) generic (1 invocations): bitwise
+    gelu (erf) aarch64 scanned (1 invocations): bitwise
+    gelu (erf) x86_64 scanned (1 invocations): bitwise |}]

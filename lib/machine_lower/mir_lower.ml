@@ -49,164 +49,6 @@ let summary ?target ?fma (plan : Ssa_plan.t) =
     ~policy:(Ssa_numerics.identity plan.Ssa_plan.numerics)
     ~schedule ~precision ~lanes ~fma ~capabilities
 
-(* binary16 bits (in an i32) to binary64 by primitives: a normal or an
-   infinity/NaN by its binary32 bit pattern, a subnormal or zero as its
-   significand times 2^-24, the sign applied last. *)
-let f16_decode st h =
-  let i32 x = i32k st x in
-  let iar o a b = emit st (Mir_op.Iarith (o, a, b)) in
-  let s = iar Mir_op.Iarith.Shr_u h (i32 15L) in
-  let e =
-    iar Mir_op.Iarith.And (iar Mir_op.Iarith.Shr_u h (i32 10L)) (i32 0x1FL)
-  in
-  let m = iar Mir_op.Iarith.And h (i32 0x3FFL) in
-  let sign = iar Mir_op.Iarith.Shl s (i32 31L) in
-  let mant = iar Mir_op.Iarith.Shl m (i32 13L) in
-  let f32_of bits =
-    emit st
-      (Mir_op.Fconvert
-         ( Mir_op.Fconvert.F32_to_f64,
-           emit st (Mir_op.Bitcast (Mir_type.F32, bits)) ))
-  in
-  let normal =
-    f32_of
-      (iar Mir_op.Iarith.Or sign
-         (iar Mir_op.Iarith.Or
-            (iar Mir_op.Iarith.Shl
-               (iar Mir_op.Iarith.Add e (i32 112L))
-               (i32 23L))
-            mant))
-  in
-  let special =
-    f32_of
-      (iar Mir_op.Iarith.Or sign (iar Mir_op.Iarith.Or (i32 0x7F80_0000L) mant))
-  in
-  let tiny =
-    emit st
-      (Mir_op.Fbinary
-         ( Mir_op.Fbinary.Mul,
-           emit st (Mir_op.Fconvert (Mir_op.Fconvert.S64_to_f64, sext st m)),
-           f64k st (Float.ldexp 1. (-24)) ))
-  in
-  let tiny =
-    select st
-      (icmp st Mir_op.Icmp.Eq s (i32 0L))
-      tiny
-      (emit st (Mir_op.Funary (Mir_op.Funary.Neg, tiny)))
-  in
-  select st
-    (icmp st Mir_op.Icmp.Eq e (i32 0L))
-    tiny
-    (select st (icmp st Mir_op.Icmp.Eq e (i32 0x1FL)) special normal)
-
-let zext32 st v = emit st (Mir_op.Iext (Mir_op.Iext.Zext, Mir_width.W32, v))
-let sext32 st v = emit st (Mir_op.Iext (Mir_op.Iext.Sext, Mir_width.W32, v))
-
-(* [scale * (q - zero_point)], the parameters per tensor, or per channel from
-   the buffer's parameter table at its C coordinate. *)
-let dequantize st op (e : L.Entry.t) q ~channel =
-  let q = sext st (sext32 st q) in
-  let s, z =
-    match
-      ( Ssa_format.quant e.L.Entry.buffer.Ssa_buffer.format,
-        L.Params.view e,
-        channel )
-    with
-    | Some (Ssa_format.Per_tensor { scale; zero_point }), _, _ ->
-        (f64k st scale, i64k st (Int64.of_int zero_point))
-    | Some (Ssa_format.Per_channel _), Some table, Some c ->
-        let base = emit st (Mir_op.Addr table) in
-        let c = if mutated st Mutation.Channel_zero then i32k st 0L else c in
-        let off =
-          emit st (Mir_op.Iarith (Mir_op.Iarith.Mul, sext st c, i64k st 8L))
-        in
-        let at k =
-          emit st
-            (Mir_op.Ptr_add
-               ( base,
-                 emit st (Mir_op.Iarith (Mir_op.Iarith.Add, off, i64k st k)) ))
-        in
-        let load a =
-          emit st
-            (Mir_op.Load
-               { Mir_op.Access.width = Mir_width.W64; addr = a; align = 8L })
-        in
-        let scale = emit st (Mir_op.Bitcast (Mir_type.F64, load (at 0L))) in
-        (scale, load (at (L.Params.zero_point_offset e)))
-    | _ -> unsupported st op
-  in
-  let diff = emit st (Mir_op.Iarith (Mir_op.Iarith.Sub, q, z)) in
-  emit st
-    (Mir_op.Fbinary
-       ( Mir_op.Fbinary.Mul,
-         s,
-         emit st (Mir_op.Fconvert (Mir_op.Fconvert.S64_to_f64, diff)) ))
-
-let decode ?entry ?channel st op addr (d : Ssa_op.Decode.t) =
-  with_role st Mir_origin.Role.Decode;
-  let load width align =
-    emit st (Mir_op.Load { Mir_op.Access.width; addr; align })
-  in
-  match d with
-  | Ssa_op.Decode.Bf16_to_f64 ->
-      (* the high half of a binary32 *)
-      let bits =
-        emit st
-          (Mir_op.Iarith
-             (Mir_op.Iarith.Shl, zext32 st (load Mir_width.W16 2L), i32k st 16L))
-      in
-      emit st
-        (Mir_op.Fconvert
-           ( Mir_op.Fconvert.F32_to_f64,
-             emit st (Mir_op.Bitcast (Mir_type.F32, bits)) ))
-  | Ssa_op.Decode.Bool_to_f64 ->
-      let b = zext32 st (load Mir_width.W8 1L) in
-      select st
-        (icmp st Mir_op.Icmp.Ne b (i32k st 0L))
-        (f64k st 1.) (f64k st 0.)
-  | Ssa_op.Decode.F16_to_f64 ->
-      f16_decode st (zext32 st (load Mir_width.W16 2L))
-  | Ssa_op.Decode.I32_to_f64 ->
-      emit st
-        (Mir_op.Fconvert
-           (Mir_op.Fconvert.S64_to_f64, sext st (load Mir_width.W32 4L)))
-  | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I8_dequant -> (
-      match entry with
-      | None -> unsupported st op
-      | Some e ->
-          let q =
-            match d with
-            | Ssa_op.Decode.I8_dequant -> load Mir_width.W8 1L
-            | _ -> load Mir_width.W16 2L
-          in
-          dequantize st op e q ~channel)
-  | Ssa_op.Decode.F32_to_f64 ->
-      let bits = load Mir_width.W32 4L in
-      let f = emit st (Mir_op.Bitcast (Mir_type.F32, bits)) in
-      emit st (Mir_op.Fconvert (Mir_op.Fconvert.F32_to_f64, f))
-  | Ssa_op.Decode.F64_to_f64 ->
-      emit st (Mir_op.Bitcast (Mir_type.F64, load Mir_width.W64 8L))
-  | Ssa_op.Decode.I64 -> load Mir_width.W64 8L
-  | Ssa_op.Decode.I64_to_f64 ->
-      emit st
-        (Mir_op.Fconvert (Mir_op.Fconvert.S64_to_f64, load Mir_width.W64 8L))
-
-let encode st addr (enc : Ssa_op.Encode.t) v =
-  with_role st Mir_origin.Role.Encode;
-  let store width align x =
-    emit_unit st (Mir_op.Store ({ Mir_op.Access.width; addr; align }, x))
-  in
-  match enc with
-  | Ssa_op.Encode.F32_round ->
-      let r = emit st (Mir_op.Fconvert (Mir_op.Fconvert.F64_to_f32, v)) in
-      store Mir_width.W32 4L (emit st (Mir_op.Bitcast (Mir_type.i32, r)))
-  | Ssa_op.Encode.I64 -> store Mir_width.W64 8L v
-  | Ssa_op.Encode.Bool_nonzero ->
-      (* [v <> 0.]: a NaN stores 1 *)
-      let zero = emit st (Mir_op.Fcmp (Mir_op.Fcmp.Eq, v, f64k st 0.)) in
-      let b = select st zero (i32k st 0L) (i32k st 1L) in
-      store Mir_width.W8 1L (emit st (Mir_op.Itrunc (Mir_width.W8, b)))
-
 (* [0 <= x < extent] for an index [x], in i64 so any extent compares. *)
 let within st x extent =
   let x = sext st x in
@@ -616,7 +458,9 @@ let rec instr st (i : Ssa_instr.t) =
         | Ssa_access.Flat _ -> None
       in
       if mutated st Mutation.Eager_load then (
-        let x = decode ~entry:e ?channel st op (address st e at) d in
+        let x =
+          Mir_lower_cell.decode ~entry:e ?channel st op (address st e at) d
+        in
         (match at with
         | Ssa_access.Coord c -> coord_guards st e c
         | Ssa_access.Flat _ -> ());
@@ -625,7 +469,8 @@ let rec instr st (i : Ssa_instr.t) =
         (match at with
         | Ssa_access.Coord c -> coord_guards st e c
         | Ssa_access.Flat _ -> ());
-        result (decode ~entry:e ?channel st op (address st e at) d))
+        result
+          (Mir_lower_cell.decode ~entry:e ?channel st op (address st e at) d))
   | Ssa_op.Load_in_bounds { buffer; at; decode = d } ->
       let e = entry_of st buffer in
       let channel =
@@ -633,7 +478,7 @@ let rec instr st (i : Ssa_instr.t) =
         | Ssa_access.Coord c -> Some (value st c.Expr.Coord.c)
         | Ssa_access.Flat _ -> None
       in
-      result (decode ~entry:e ?channel st op (address st e at) d)
+      result (Mir_lower_cell.decode ~entry:e ?channel st op (address st e at) d)
   | Ssa_op.Check_local { var; at; extent } ->
       with_role st Mir_origin.Role.Guard;
       guard st
@@ -675,7 +520,7 @@ let rec instr st (i : Ssa_instr.t) =
       if not (mutated st Mutation.Stale_local) then
         emit_unit st (Mir_op.Undef view.Mir_view.id);
       result (emit st (Mir_op.Addr view.Mir_view.id))
-  | Ssa_op.Local_read { local; at } ->
+  | Ssa_op.Local_read { local; at; cell = width } ->
       let o = local_object st local and x = v at in
       (* outside a named variable's object is its unbound-local failure;
          outside an anonymous one is a defect the byte range check reports *)
@@ -687,12 +532,27 @@ let rec instr st (i : Ssa_instr.t) =
       | None -> ());
       let a = cell st (v local) x in
       with_role st Mir_origin.Role.Compute;
-      result (emit st (Mir_op.Bitcast (Mir_type.F64, load64 st a)))
+      result
+        (match width with
+        | Ssa_op.Cell.F64 ->
+            emit st (Mir_op.Bitcast (Mir_type.F64, load64 st a))
+        | Ssa_op.Cell.F32 ->
+            let bits =
+              emit st
+                (Mir_op.Load
+                   { Mir_op.Access.width = Mir_width.W32; addr = a; align = 4L })
+            in
+            emit st (Mir_op.Bitcast (Mir_type.F32, bits)))
   | Ssa_op.Local_write { local; at; value = x } ->
       ignore (local_object st local);
       let a = cell st (v local) (v at) in
       with_role st Mir_origin.Role.Compute;
-      store64 st a (emit st (Mir_op.Bitcast (Mir_type.i64, v x)))
+      if Mir_type.equal (v x).Mir_value.ty Mir_type.F32 then
+        emit_unit st
+          (Mir_op.Store
+             ( { Mir_op.Access.width = Mir_width.W32; addr = a; align = 4L },
+               emit st (Mir_op.Bitcast (Mir_type.i32, v x)) ))
+      else store64 st a (emit st (Mir_op.Bitcast (Mir_type.i64, v x)))
   | Ssa_op.Meter_charge ->
       if mutated st Mutation.Charge_after_body then
         st.deferred_charges <- st.deferred_charges + 1
@@ -734,19 +594,36 @@ let rec instr st (i : Ssa_instr.t) =
   | Ssa_op.Select (p, a, b) -> result (select st (v p) (v a) (v b))
   | Ssa_op.Store { buffer; at; encode = enc; value = x } ->
       let e = entry_of st buffer in
-      encode st (address st e at) enc (v x)
+      Mir_lower_cell.encode st (address st e at) enc (v x)
   | Ssa_op.Lanewise inner -> (
       (* the scalar expansion, on vector operands *)
       match inner with
       | Ssa_op.Float_unary
           ( ((Expr.Value.Cos | Expr.Value.Exp | Expr.Value.Log | Expr.Value.Sin)
              as u),
-            a ) ->
-          (* a call has no vector form: one per lane, in lane order, the
-             results put back into a vector *)
-          result (lanewise st (v a) (math_unary st u))
-      | Ssa_op.Float_unary (Expr.Value.Erf, a) ->
-          result (lanewise st (v a) (erf st))
+            a ) -> (
+          match (v a).Mir_value.ty with
+          | Mir_type.Vec (Mir_type.Elem.F32, lanes) ->
+              (* the binary32 sequence on the vector itself *)
+              let module M = (val Mir_lower_f32.f32_math_vector st ~lanes) in
+              let x = v a in
+              result
+                (match u with
+                | Expr.Value.Cos -> M.cos x
+                | Expr.Value.Exp -> M.exp x
+                | Expr.Value.Log -> M.log x
+                | _ -> M.sin x)
+          | _ ->
+              (* a call has no vector form: one per lane, in lane order, the
+                 results put back into a vector *)
+              result (lanewise st (v a) (math_unary st u)))
+      | Ssa_op.Float_unary (Expr.Value.Erf, a) -> (
+          match (v a).Mir_value.ty with
+          | Mir_type.Vec (Mir_type.Elem.F32, lanes)
+            when not (mutated st Mutation.Erf_single_rounding) ->
+              let module M = (val Mir_lower_f32.f32_math_vector st ~lanes) in
+              result (M.erf (v a))
+          | _ -> result (lanewise st (v a) (erf st)))
       | _ ->
           if Mir_lower_vector.liftable inner then instr st { i with op = inner }
           else unsupported st op)
@@ -765,9 +642,14 @@ let rec instr st (i : Ssa_instr.t) =
   | Ssa_op.Vec_iota { base; step; lanes } ->
       result (Mir_lower_vector.iota st ~base:(v base) ~step ~lanes)
   | Ssa_op.Vec_load { buffer; at; steps; decode = d; lanes } ->
+      (* a lane-by-lane decode: a dequantization takes the access's channel,
+         the same in every lane (the vectorizer refuses one that varies) *)
+      let e = entry_of st buffer in
+      let channel = value st at.Expr.Coord.c in
       result
-        (Mir_lower_vector.load st op (entry_of st buffer) ~at ~steps ~lanes
-           ~decode:(fun addr d -> decode st op addr d)
+        (Mir_lower_vector.load st op e ~at ~steps ~lanes ~channel:(Some channel)
+           ~decode:(fun addr d ->
+             Mir_lower_cell.decode ~entry:e ~channel st op addr d)
            d)
   | Ssa_op.Vec_splat { element; lanes } ->
       result

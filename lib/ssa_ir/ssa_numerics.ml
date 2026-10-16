@@ -2,6 +2,7 @@ module Precision = struct
   type t = F32 | F64
 
   let name = function F32 -> "f32" | F64 -> "f64"
+  let scalar = function F32 -> Ssa_type.F32 | F64 -> Ssa_type.F64
 end
 
 type t = Fp32_ordered | Reference_f64 | Simd_fp32_ordered | Simd_fp32_relaxed
@@ -70,38 +71,43 @@ module Refusal = struct
           (Ssa_format.Family.name f)
 end
 
-(* The first refusal in program order: a dequantizing read has no binary32
-   decode. Every other float read is one rounding of an exactly known value. *)
-let admit (p : Ssa_program.t) =
-  let exception Refused of Refusal.t in
-  let refuse buffer decode =
-    match decode with
-    | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I8_dequant ->
-        raise
-          (Refused (Refusal.Wide_load (buffer, Ssa_op.Decode.family decode)))
-    | Ssa_op.Decode.Bf16_to_f64 | Ssa_op.Decode.Bool_to_f64
-    | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.F32_to_f64
-    | Ssa_op.Decode.F64_to_f64 | Ssa_op.Decode.I32_to_f64 | Ssa_op.Decode.I64
-    | Ssa_op.Decode.I64_to_f64 ->
-        ()
+(* Nothing is refused today: every float read is one rounding of an exactly
+   known value ([f16], [bf16], [bool], [f32], [f64], [i32], [i64]) or the
+   explicit operations of a dequantization over binary32 parameters ([i8],
+   [i16]: [q] to float, minus the zero point, times the scale, each rounded
+   once). The walk and the refusal type stay for a payload that has no binary32
+   decode: it would be refused here, and every consumer already reports it. *)
+let admit (_ : Ssa_program.t) : (unit, Refusal.t) result = Ok ()
+
+let wide_values (p : Ssa_program.t) =
+  let out = ref [] in
+  let wide (v : Ssa_value.t) =
+    match v.Ssa_value.ty with
+    | Ssa_type.Scalar Ssa_type.F64 | Ssa_type.Vec (Ssa_type.F64, _) -> true
+    | Ssa_type.Effect | Ssa_type.Local | Ssa_type.Mask _ | Ssa_type.Scalar _
+    | Ssa_type.Vec _ ->
+        false
   in
   let rec region (r : Ssa_region.t) = List.iter stmt r.Ssa_region.body
   and stmt : Ssa_region.t Ssa_stmt.t -> unit = function
-    | Ssa_stmt.Instr i -> (
-        match i.Ssa_instr.op with
-        | Ssa_op.Load { buffer; decode; _ }
-        | Ssa_op.Load_in_bounds { buffer; decode; _ }
-        | Ssa_op.Vec_load { buffer; decode; _ } ->
-            refuse buffer decode
-        | _ -> ())
+    | Ssa_stmt.Instr i ->
+        List.iter
+          (fun v -> if wide v then out := (v, i.Ssa_instr.op) :: !out)
+          i.Ssa_instr.results
     | Ssa_stmt.For { body; _ } | Ssa_stmt.Ordered_sum { body; _ } -> region body
     | Ssa_stmt.If { then_; else_; _ } ->
         region then_;
         region else_
   in
-  match region p.Ssa_program.entry with
-  | () -> Ok ()
-  | exception Refused r -> Error r
+  region p.Ssa_program.entry;
+  List.rev !out
+
+let pp_wide ppf l =
+  Fmt.(list ~sep:(any ", "))
+    (fun ppf ((v : Ssa_value.t), op) ->
+      Fmt.pf ppf "%a : %a = %s" Ssa_id.Value.pp v.Ssa_value.id Ssa_type.pp
+        v.Ssa_value.ty (Ssa_op.name op))
+    ppf l
 
 let coverage ~numerics ~f32_kernels ~kernels ~f32_invocations ~invocations
     ~refusals =

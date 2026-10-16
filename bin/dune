@@ -240,6 +240,14 @@
   ssa_backends
   unix))
 
+; What the binary32 vector planners (SSA narrowed and exact, Loop) take of a
+; downloaded model. MANUAL: `make ssa.vector.census`, never in runtest.
+
+(executable
+ (name ssa_vector_census)
+ (modules ssa_vector_census)
+ (libraries err_trace fmt loop_ir native native_interp pt2 ssa_backends))
+
 (executable
  (name loop_vector_census)
  (modules loop_vector_census)
@@ -270,6 +278,7 @@
  (name machine_rivet_a64_census)
  (modules machine_rivet_a64_census)
  (libraries
+  asm_census
   err_trace
   fmt
   loop_ir
@@ -534,3 +543,25 @@
   pt2_fixture_unix
   timm_fixture
   timm_fixture_unix))
+
+; The binary64 census of a whole model's C as the embedded CompCert makes it:
+; every instruction of the generated unit (and of the runtime helpers it links)
+; that touches a double-precision register, by role. Built only where the
+; embedding for this host's ISA is (MLTORCH_COMPCERT=aarch64).
+
+(executable
+ (name asm_census_pt2)
+ (modules asm_census_pt2)
+ (libraries
+  asm_census
+  err_trace
+  fmt
+  loop_c_embed
+  loop_c_embed_compcert
+  loop_ir
+  native
+  native_interp
+  pt2
+  rivet_compcert.compcert_embed)
+ (enabled_if
+  (= %{env:MLTORCH_COMPCERT=none} aarch64)))

@@ -28,6 +28,27 @@ module Loc = Mir_phys.Loc
 let origin = Foundation.Origin.synthesized ~pass:"rivet_conformance" ()
 let ins op ops = { Aarch64.Instruction.op; ops }
 let item i = N.Instruction { insn = i; origin }
+
+(* A form's items: an encoded word is a four-byte datum in the code. *)
+let form_item = function
+  | Form_map.Insn i -> item i
+  | Form_map.Word w ->
+      N.Directive
+        {
+          directive =
+            D.Data
+              {
+                width = 4;
+                values =
+                  [
+                    Asm_core.Expr.Const
+                      (Foundation.Bigint.of_int64
+                         (Int64.logand (Int64.of_int32 w) 0xFFFF_FFFFL));
+                  ];
+              };
+          origin;
+        }
+
 let reg n = O.Reg { Aarch64.Reg.num = n; width = 64; is_sp = false }
 let freg n = O.Freg { Aarch64.Freg.num = n; double = true }
 let qreg n = O.Qreg n
@@ -234,10 +255,12 @@ let lane_width = function
   | VF.V a -> ( match a with Arr.S2 | Arr.S4 -> 32 | Arr.D2 -> 64)
   | VF.M a -> ( match a with Arr.D2 -> 64 | _ -> 32)
   | VF.Sc _ | VF.Gp _ -> 64
+  | VF.I (w, _) -> Mir_width.bits w
 
 let lane_count = function
   | VF.V a | VF.M a -> Arr.lanes a
   | VF.Sc _ | VF.Gp _ -> 1
+  | VF.I (_, n) -> n
 
 let unpack_lanes kind lo hi =
   let w = lane_width kind and n = lane_count kind in
@@ -265,7 +288,7 @@ let pack_lanes kind (l : int64 array) =
 let vloc_of_kind kind n =
   match kind with
   | VF.V Arr.S2 -> Loc.Reg (A64_reg.d n)
-  | VF.V _ | VF.M _ -> Loc.Reg (A64_reg.q n)
+  | VF.V _ | VF.M _ | VF.I _ -> Loc.Reg (A64_reg.q n)
   | VF.Sc Fsz.D -> Loc.Reg (A64_reg.d n)
   | VF.Sc Fsz.S -> Loc.Reg (A64_reg.s n)
   | VF.Gp Sz.X -> Loc.Reg (A64_reg.x n)
@@ -343,8 +366,9 @@ let vec_probe ?mutation (f : VF.t) =
         N.Directive { directive = D.Global { name = "probe" }; origin };
         N.Label { name = "probe"; origin };
       ]
-      @ List.map item
-          (prologue @ Form_map.instructions env op ~uses ~defs @ move @ epilogue);
+      @ List.map item prologue
+      @ List.map form_item (Form_map.items env op ~uses ~defs)
+      @ List.map item (move @ epilogue);
   }
 
 let nan_lane kind x =
@@ -355,7 +379,7 @@ let nan_lane kind x =
       | _ -> Float.is_nan (Int32.float_of_bits (Int64.to_int32 x)))
   | VF.Sc Fsz.D -> Float.is_nan (Int64.float_of_bits x)
   | VF.Sc Fsz.S -> Float.is_nan (Int32.float_of_bits (Int64.to_int32 x))
-  | VF.M _ | VF.Gp _ -> false
+  | VF.M _ | VF.Gp _ | VF.I _ -> false
 
 let run_vector_forms map_mutation =
   let st = Random.State.make [| A64_model.seed + 1 |] in
@@ -383,6 +407,20 @@ let run_vector_forms map_mutation =
         List.nth gpr_boundary (Random.State.int st (List.length gpr_boundary))
     | VF.Gp Sz.W ->
         Int64.logand (Random.State.int64 st Int64.max_int) 0xFFFF_FFFFL
+    | VF.I (w, _) ->
+        (* the extremes and zero half the time *)
+        let m = Mir_width.mask w in
+        if Random.State.bool st then
+          List.nth
+            [
+              0L;
+              1L;
+              m;
+              Int64.shift_right_logical m 1;
+              Int64.succ (Int64.shift_right_logical m 1);
+            ]
+            (Random.State.int st 5)
+        else Int64.logand (Random.State.int64 st Int64.max_int) m
   in
   let input_words kind =
     match kind with

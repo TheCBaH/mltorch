@@ -102,7 +102,7 @@ let representatives =
       decodes
   @ [
       Ssa_op.Local_alloc { slots = 4L; var = Some var };
-      Ssa_op.Local_read { local = l; at = ix };
+      Ssa_op.Local_read { local = l; at = ix; cell = Ssa_op.Cell.F64 };
       Ssa_op.Local_write { local = l; at = ix; value = f };
       Ssa_op.Mark Ssa_mark.Reduction;
       Ssa_op.Mark_lanes { mark = Ssa_mark.Reduction; lanes };
@@ -263,11 +263,11 @@ let%expect_test "support matrix" =
         flat offset outside the buffer -> defect (invariant)
     load.in_bounds         M3    primitive    reads  byte offset; load.i64; bitcast.f64
         coordinate outside (proof; byte range checked) -> defect (invariant)
-    load.coord             M4.2  primitive    reads  axis guards; row-major byte offset; load.i16; sext; sub zero_point; scvt; fmul scale (channel from C)
+    load.coord             M4.2  primitive    reads  axis guards; row-major byte offset; load.i16; sext; scvt.i64.f64; fsub zero_point; fmul scale (channel from C)
         coordinate outside its axis, first axis in N T D H W C order -> failure coord_out_of_range (block split)
-    load.flat              M4.2  primitive    reads  byte offset; load.i16; sext; sub zero_point; scvt; fmul scale (channel from C)
+    load.flat              M4.2  primitive    reads  byte offset; load.i16; sext; scvt.i64.f64; fsub zero_point; fmul scale (channel from C)
         flat offset outside the buffer -> defect (invariant)
-    load.in_bounds         M4.2  primitive    reads  byte offset; load.i16; sext; sub zero_point; scvt; fmul scale (channel from C)
+    load.in_bounds         M4.2  primitive    reads  byte offset; load.i16; sext; scvt.i64.f64; fsub zero_point; fmul scale (channel from C)
         coordinate outside (proof; byte range checked) -> defect (invariant)
     load.coord             M4.2  primitive    reads  axis guards; row-major byte offset; load.i32; sext; scvt.i64.f64
         coordinate outside its axis, first axis in N T D H W C order -> failure coord_out_of_range (block split)
@@ -287,11 +287,11 @@ let%expect_test "support matrix" =
         flat offset outside the buffer -> defect (invariant)
     load.in_bounds         M4.1  primitive    reads  byte offset; load.i64; scvt.i64.f64
         coordinate outside (proof; byte range checked) -> defect (invariant)
-    load.coord             M4.2  primitive    reads  axis guards; row-major byte offset; load.i8; sext; sub zero_point; scvt; fmul scale (channel from C)
+    load.coord             M4.2  primitive    reads  axis guards; row-major byte offset; load.i8; sext; scvt.i64.f64; fsub zero_point; fmul scale (channel from C)
         coordinate outside its axis, first axis in N T D H W C order -> failure coord_out_of_range (block split)
-    load.flat              M4.2  primitive    reads  byte offset; load.i8; sext; sub zero_point; scvt; fmul scale (channel from C)
+    load.flat              M4.2  primitive    reads  byte offset; load.i8; sext; scvt.i64.f64; fsub zero_point; fmul scale (channel from C)
         flat offset outside the buffer -> defect (invariant)
-    load.in_bounds         M4.2  primitive    reads  byte offset; load.i8; sext; sub zero_point; scvt; fmul scale (channel from C)
+    load.in_bounds         M4.2  primitive    reads  byte offset; load.i8; sext; scvt.i64.f64; fsub zero_point; fmul scale (channel from C)
         coordinate outside (proof; byte range checked) -> defect (invariant)
     local.alloc            M4.3  primitive    local  per-site scratch region; undef; addr
     local.read             M4.3  primitive    local  bounds guard when named; load.i64; bitcast

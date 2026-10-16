@@ -411,3 +411,38 @@ let%expect_test "row blocking on SIMD Wasm" =
     4 rows, 16 outputs, k 4      blocked 1 (default 0); Wasm vs oracle equal; vs unblocked equal
     one row                      blocked 0 (default 0); Wasm vs oracle equal; vs unblocked equal
     rows overlap (stride 8)      blocked 0 (default 0); Wasm vs oracle equal; vs unblocked equal |}]
+
+(* The check can fail: a sum reordered by the relaxed policy is not the ordered
+   binary32 answer, and the bitwise comparison with the sequential oracle sees
+   it, on data whose partial sums round differently in a different order. *)
+let%expect_test "a reordered sum is caught by the bitwise check" =
+  let bind id =
+    if
+      Tensor_id.equal id (Loop_fixtures.tid 0)
+      || Tensor_id.equal id (Loop_fixtures.tid 2)
+    then
+      Some
+        (Loop_fixtures.f32_tensor (Loop_fixtures.shape_w P.big) (fun c ->
+             let i = (Vec6.offset (Loop_fixtures.shape_w P.big) c :> int) in
+             (0.1 *. float_of_int (i * 7919 mod 997)) +. 1e-3))
+    else None
+  in
+  List.iter
+    (fun (name, p) ->
+      let sequential =
+        Loop_interp.run ~precision:Loop_numerics.Precision.F32
+          ~outputs:(zeroed p) p ~bind
+      in
+      let w =
+        Loop_wasm_exec.exec ~vector:Loop_target.wasm128
+          ~numerics:Loop_numerics.Simd_fp32_relaxed ~outputs:(zeroed p) p ~bind
+      in
+      Fmt.pr "%-20s relaxed vs the sequential sum: %s@." name
+        (verdict sequential w))
+    Loop_fp32_programs.dots;
+  [%expect
+    {|
+    dot, 96 terms        relaxed vs the sequential sum: DIFFERS
+    dot, 83 terms        relaxed vs the sequential sum: DIFFERS
+    dot, 70 terms        relaxed vs the sequential sum: DIFFERS
+    dot, 64 terms        relaxed vs the sequential sum: DIFFERS |}]

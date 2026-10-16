@@ -18,6 +18,14 @@ Working precision is chosen by role.
   *own* oracle bit for bit is, and matching the reference within a frozen
   tolerance.
 
+- **Every kernel binary32 (`Fp32_ordered`)**: a fourth policy, opt-in, under which
+  no kernel is left in binary64. Each output's operation order is the scalar
+  program's, contraction is off, and vectorization happens only where that order
+  is kept. Its oracle is `Loop_bundle_oracle.run` (the Loop interpreter at
+  binary32 over a bundle), and every engine that runs it — gcc C, the embedded
+  CompCert, Rivet AArch64, Wasm, generic Machine IR — is bitwise equal to it. The
+  rest of this record's "other kernels stay binary64" does not apply to it.
+
 Precision and schedule are separate axes. A kernel is *ordered* (each output's
 operation sequence unchanged) or *relaxed* (reordered sums, fused multiply-add).
 Memory safety, exact integer and index arithmetic, shapes, ownership, declared
@@ -33,9 +41,13 @@ recurrence is not a sum and is never reordered.
 | `Reference_f64` | f64 | f64 | source order | no |
 | `Simd_fp32_ordered` | f32 | f64 | each output's source order | no |
 | `Simd_fp32_relaxed` | f32 | f64 | scheduled along their own axis | where the target has it |
+| `Fp32_ordered` | f32 | f32 | each output's source order | no |
 
-Only generated C and Wasm accept a `Simd_fp32_*` policy (`Loop_numerics.check`
-is a typed refusal elsewhere). `Loop_plan.resolve` makes the per-kernel decision:
+Generated C, Wasm and the Machine IR route accept an fp32 policy
+(`Loop_numerics.check` is a typed refusal for the interpreter and JavaScript).
+Under `Fp32_ordered` `Loop_plan.resolve` and `Ssa_plan.resolve` make every kernel
+binary32 whether or not anything vectorizes, and a kernel admission refuses is a
+typed error (`Loop_plan.admitted`), never a binary64 kernel. `Loop_plan.resolve` makes the per-kernel decision:
 a kernel is binary32 iff the f32 target vectorizes at least one loop (or
 schedules one sum) in it and `Loop_numerics.admit` admits it; otherwise it is
 planned and emitted exactly as under `Reference_f64`. The policy and the
@@ -53,9 +65,19 @@ float once. Nothing in the CI models is refused.
 rounds once to binary32 (`+ - * /` and `sqrt` of binary32 operands are then
 correctly rounded: binary64 has more than `2p+2` bits). Constants are pre-rounded;
 conversions from int64 go through `Loop_numerics.round32_of_i64` (a sticky bit
-keeps a single rounding); transcendentals are the binary64 function on the
-widened argument rounded once; `Erf` is `erf32`, the polynomial with a rounding
-per operation. A fused multiply-add is `Loop_numerics.fma32` (exact product,
+keeps a single rounding); `exp`, `log`, `sin`, `cos` and `erf` are the project's
+own sequences of binary32 operations (`lib/f32_math`, specified once over an
+abstract arithmetic so the oracle and every engine instantiate the same
+operations): Cephes single-precision polynomials with staged range reduction
+by comparisons against powers of two, `trunc` by add and subtract of 2^23, and
+no bit reinterpretation, libm call or non-finite constant anywhere. `exp` is
+within 1 ulp of the correctly rounded libm result over every finite binary32
+input; `log` and `cos` (to 8192) and `sin` (to 100) within 1 ulp on the sampled
+ranges, `sin` within 8 ulp to 8192 and degrading beyond. The bounds are frozen
+in `test/f32_math`. This meaning applies to every binary32 kernel, the
+`Simd_fp32_*` ones included: the earlier `(float)exp((double)x)` is gone. A
+binary32 kernel therefore calls no libm function, and a Wasm module built from
+one imports nothing. A fused multiply-add is `Loop_numerics.fma32` (exact product,
 TwoSum, round to odd), checked bit for bit against the host's `fmaf` over a
 large generated sample that includes constructed double-rounding cases and shown
 able to fail (the `round32 (Float.fma ..)` shortcut differs on the same sample).
@@ -227,6 +249,62 @@ next lever (not done: it touches every vector helper and operator).
 selects the binary64 scalar reference, `--numerics=NAME` any policy,
 `--shadow-numeric` the tolerance check, `--row-block=N` the rows per blocked iteration, and `--shadow` (bitwise) is refused for a
 binary32 policy.
+
+## Binary32 end to end (`Fp32_ordered`)
+
+What the policy removes from the instruction stream is measured, not assumed:
+three censuses count binary64 instructions by role (arithmetic, conversion,
+move, helper call) for a verified generic Machine IR program
+(`Machine_ir.Mir_f64_census`), assembly text (`Asm_census`, AArch64 and x86-64;
+an unknown floating-point mnemonic is an error) and a Wasm module before
+encoding (`Wasm_census`, with its imports). Under the policy:
+
+- a generic Machine IR program from the Loop-made or SSA-made kernels of chain,
+  softmax and layer_norm holds no binary64 instruction;
+- both Wasm emitters' modules hold none and import nothing;
+- CompCert's assembly for the same bundles has no binary64 arithmetic or
+  conversion; its remaining `fcsel d` select moves are CompCert's own choice of
+  register class, a width effect.
+
+Three mechanisms make that so. A binary32 cell is read and written as binary32
+(`Decode.F32_exact`, `Encode.F32_exact`), not widened and narrowed around the
+access, by a scalar and a vectorized kernel alike. With a vector target the
+SSA planner vectorizes the exact form (`Ssa_plan.fp32_vector`) and admits only
+binary32 vectors: a loop whose vector form would hold any other element (a
+`bf16`, `f16`, `bool`, `i32`, `i64` or `f64` decode, a binary64 iota) stays
+scalar with `Element_not_admitted`, never vectorized with conversions. The
+backends load and store binary32 vectors directly (`v128.load`/`store` and
+`load32_splat` in SSA Wasm; `vload`/`vstore` of `F32` in Machine IR). The SSA
+planner's `Simd_fp32_*` kernels use the exact form too (every element
+admitted, since a kernel those policies leave binary64 is planned binary64
+anyway): their values are those of the widening form bit for bit, with fewer
+instructions; the widening vector forms remain for binary64 vectors over
+binary32 storage. A scratch
+cell is read at the type it was written at (`Ssa_op.Cell`): a binary32 value
+occupies the low four bytes of its eight-byte slot, and zeroing a slot is an
+integer store. And the C dialects spell their NaN, infinity and sign tests with
+`f`-suffixed literals for binary32 (`Loop_c_dialect.nan_f32`, `signbit_f32`),
+because CompCert, unlike gcc with `FLT_EVAL_METHOD`, does not widen a `float`
+operand to meet a `double` literal and would otherwise compute in binary64.
+
+What stays binary64 under the policy: decode of `f64` and `i64` storage (one
+rounding through binary64, the oracle's definition), and CompCert's
+register-class choices. `f16`, `bf16`, `bool` and `i32` cells are read straight
+to binary32 in the SSA backends (`Decode.F16_to_f32`, `Bf16_to_f32`,
+`Bool_to_f32`, `I32_to_f32`: exact, or for `i32` one rounding), scalar or
+vectorized. A binary32 dequantizing read vectorizes too (per tensor, or per
+channel with one channel per vector), in Wasm, C and Machine IR through integer
+lanes (on AArch64 `SXTL`/`SCVTF`, on x86-64 SSE2 unpacks, `PSRAD` and
+`CVTDQ2PS`) when the cells are contiguous and fill whole registers, and
+elsewhere lane by lane. Contiguous `f16`/`bf16` reads are integer lanes in
+every vector backend (Wasm, Machine IR on AArch64 and x86-64), never
+`FCVTL`/F16C: a native half conversion quiets a signalling NaN, which the
+binary16 decode keeps. With vectors on, the generic Machine IR
+and the Rivet AArch64 assembly (`machine_model_census --ssa=fp32 --f64`,
+`machine_rivet_a64_census --planned=fp32 --asm`) count zero in every role on
+every CI model. The comparison tool exposes the policy as the
+`fp32` word (`loop-c,fp32`), and two fp32 engines are compared exactly by
+default.
 
 ## Limits
 

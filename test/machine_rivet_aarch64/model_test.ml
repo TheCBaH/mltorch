@@ -228,3 +228,18 @@ let%expect_test "Fp32_ordered: the image route, both allocators" =
 let%expect_test "Fp32_ordered is not the binary64 reference" =
   T.check ~route ~pipeline:T.fp32_ordered ~constant:T.positive "chain" F.chain;
   [%expect {| chain (3 invocations): DIFFERS, DIFFERS |}]
+
+(* The same defects under the binary32 policy, against the binary32 oracle: the
+   spill and the page mutations change the answer, so the policy's engines are
+   as sensitive as the binary64 ones. *)
+let%expect_test "Fp32_ordered: mapping mutations change the answer" =
+  let module Mu = Machine_rivet_aarch64.Rivet_a64_form.Mutation in
+  List.iter
+    (fun (name, mutation) ->
+      T.check ~route:(Rt.route ~mutation ()) ~pipeline:T.fp32_ordered
+        ~oracle:T.Fp32 ~constant:T.positive ~calls:1 name F.chain)
+    [ ("dropped lo12", Mu.Dropped_lo12); ("commuted sub", Mu.Commuted_sub) ];
+  [%expect
+    {|
+    dropped lo12 (3 invocations): DIFFERS
+    commuted sub (3 invocations): DIFFERS |}]

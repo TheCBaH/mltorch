@@ -20,7 +20,7 @@ open Ssa_vector_body
 (* ---- one loop ------------------------------------------------------------------ *)
 
 (* Attempts one loop whose body holds no vector loop. *)
-let attempt ~policy ~(target : Ssa_target.t) info t
+let attempt ~policy ~elements ~(target : Ssa_target.t) info t
     (s : Ssa_region.t Ssa_stmt.t) =
   match s with
   | Ssa_stmt.For f -> (
@@ -71,6 +71,7 @@ let attempt ~policy ~(target : Ssa_target.t) info t
                 List.iter (emit_stmt cx) f.body.Ssa_region.body)
           in
           ops := cx.ops;
+          check_elements elements body;
           if not (Ssa_target.profitable target cx.ops) then
             refuse Reason.Unprofitable;
           (* the full groups, then the original loop for what is left *)
@@ -143,13 +144,18 @@ let attempt ~policy ~(target : Ssa_target.t) info t
   | Ssa_stmt.Instr _ | Ssa_stmt.If _ | Ssa_stmt.Ordered_sum _ ->
       invalid_arg "Ssa_vectorize.attempt: not a loop"
 
-let program ?(alias = Ssa_effects.Conservative) ~target (p : Ssa_program.t) =
+let every_element = Ssa_type.[ F32; F64; I64; Index; Pred ]
+
+let program ?(alias = Ssa_effects.Conservative) ?(elements = every_element)
+    ~target (p : Ssa_program.t) =
   let info = survey p in
   let decisions = ref [] in
   let rule t (s : Ssa_region.t Ssa_stmt.t) =
     match s with
     | Ssa_stmt.For { body; _ } when not (has_vector body) ->
-        let stmts, decision = attempt ~policy:alias ~target info t s in
+        let stmts, decision =
+          attempt ~policy:alias ~elements ~target info t s
+        in
         decisions := decision :: !decisions;
         stmts
     | Ssa_stmt.For _ | Ssa_stmt.If _ | Ssa_stmt.Instr _ | Ssa_stmt.Ordered_sum _

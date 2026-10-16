@@ -287,3 +287,622 @@ let%expect_test "lane-wise functions, fused multiply-add and binary32 vectors" =
     ok | 1.22474 nan 1.80278 0 1.22474 nan 1.80278 0 | Wasm agrees with the interpreter: true | optimized Wasm agrees: true
     ok | 1 -2 3 0 1 -2 3 0 | Wasm agrees with the interpreter: true | optimized Wasm agrees: true
     ok | 0 0 0 0 7.6 13.1 22.85 0.1 | Wasm agrees with the interpreter: true | optimized Wasm agrees: true |}]
+
+(* ---- the binary32 vector plan under node ----------------------------------------
+
+   Programs wide enough for sixteen binary32 lanes, planned by
+   {!Ssa_plan.fp32_vector} for wasm128 (priced and forced), emitted and run
+   under node on inputs that hold NaN, signed zeros, binary32 subnormals and
+   infinities. The vector module, the plan's lane-by-lane oracle in the
+   interpreter and the scalar [Fp32_ordered] module agree bit for bit, and
+   the vector module holds no binary64 instruction and no import. *)
+
+let specials32 =
+  Array.map Ssa_const.round_f32
+    [|
+      Float.nan;
+      -0.;
+      0.;
+      Float.infinity;
+      Float.neg_infinity;
+      1e-40;
+      -1.4e-45;
+      3.4e38;
+      -3.4e38;
+      1.;
+      -1.;
+      0.375;
+      -2.5;
+      1e-38;
+      65504.;
+      -7.;
+    |]
+
+let input_cell k =
+  if k mod 3 = 0 then specials32.(k / 3 mod 16)
+  else Ssa_const.round_f32 (float_of_int ((k mod 23) - 11) *. 0.3125)
+
+let cell_count (b : Ssa_buffer.t) =
+  List.fold_left
+    (fun n e -> n * Int64.to_int e)
+    1
+    (Expr.Coord.to_list b.Ssa_buffer.extents)
+
+let shape_of (b : Ssa_buffer.t) =
+  let e = Expr.Coord.map Int64.to_int b.Ssa_buffer.extents in
+  Vec6.shape ~n:e.Expr.Coord.n ~t:e.Expr.Coord.t ~d:e.Expr.Coord.d
+    ~h:e.Expr.Coord.h ~w:e.Expr.Coord.w ~c:e.Expr.Coord.c
+
+let inputs (p : Ssa_program.t) =
+  List.filter
+    (fun (b : Ssa_buffer.t) -> b.Ssa_buffer.role = Ssa_buffer.Input)
+    p.Ssa_program.buffers
+
+let outputs (p : Ssa_program.t) =
+  List.filter
+    (fun (b : Ssa_buffer.t) -> b.Ssa_buffer.role = Ssa_buffer.Output)
+    p.Ssa_program.buffers
+
+(* Every output cell, in buffer then cell order. *)
+let interpreted (p : Ssa_program.t) =
+  let memory =
+    Ssa_id.Buffer.Map.of_seq
+      (List.to_seq
+         (List.map
+            (fun (b : Ssa_buffer.t) ->
+              ( b.Ssa_buffer.id,
+                floats
+                  (Array.init (cell_count b) (fun k ->
+                       if b.Ssa_buffer.role = Ssa_buffer.Input then input_cell k
+                       else 0.)) ))
+            p.Ssa_program.buffers))
+  in
+  match run_result p ~memory with
+  | Error e -> Error (Fmt.str "%a" Ssa_interp.pp_error e)
+  | Ok () ->
+      Ok
+        (List.concat_map
+           (fun (b : Ssa_buffer.t) ->
+             match Ssa_memory.find memory b.Ssa_buffer.id with
+             | Some (Ssa_memory.Floats a) -> Array.to_list a
+             | _ -> [])
+           (outputs p))
+
+let in_wasm (p : Ssa_program.t) =
+  match Ssa_wasm.lower p with
+  | Error e -> (Error (Fmt.str "%a" Ssa_wasm.pp_error e), None)
+  | Ok lowered -> (
+      let loop =
+        Lf.program
+          ~buffers:
+            (List.map Ssa_bridge.Loop_of_ssa.loop_buffer (Ssa_wasm.arguments p))
+          []
+      in
+      let tid (b : Ssa_buffer.t) =
+        Lf.tid (Ssa_id.Buffer.to_int b.Ssa_buffer.id)
+      in
+      let bind id =
+        List.find_map
+          (fun (b : Ssa_buffer.t) ->
+            if Tensor_id.equal id (tid b) then
+              let shape = shape_of b in
+              Some
+                (Lf.f32_tensor shape (fun c ->
+                     input_cell (Vec6.offset shape c :> int)))
+            else None)
+          (inputs p)
+      in
+      let census =
+        Some (Wasm_census.of_module lowered.Loop_ir.Loop_wasm.module_)
+      in
+      match Err.payload (Loop_wasm_exec.exec_module ~lowered loop ~bind) with
+      | Error e -> (Error (Fmt.str "%a" Loop_wasm_exec.pp_error e), census)
+      | Ok out ->
+          ( Ok
+              (List.concat_map
+                 (fun (b : Ssa_buffer.t) ->
+                   let t = Tensor_id.Map.find (tid b) out in
+                   let shape = shape_of b in
+                   let acc = ref [] in
+                   Vec6.iter shape (fun c -> acc := Tensor.read t c :: !acc);
+                   List.rev !acc)
+                 (outputs p)),
+            census ))
+
+let same_floats a b =
+  match (a, b) with
+  | Ok x, Ok y ->
+      List.length x = List.length y
+      && List.for_all2 Core.Float_bits.equal_portable x y
+  | Error x, Error y -> String.equal x y
+  | _ -> false
+
+let fp32_wasm name p =
+  let scalar =
+    (Ssa_plan.resolve ~alias:Ssa_effects.Distinct_buffers
+       ~target:Ssa_target.scalar ~numerics:Ssa_numerics.Fp32_ordered p)
+      .Ssa_plan.program
+  in
+  let scalar_wasm, _ = in_wasm scalar in
+  List.iter
+    (fun (tname, target) ->
+      match
+        Ssa_plan.fp32_vector ~alias:Ssa_effects.Distinct_buffers ~target p
+      with
+      | Error _ -> Fmt.pr "%s %s: not admitted@." name tname
+      | Ok plan ->
+          let vector, census = in_wasm plan.Ssa_plan.program in
+          let loops =
+            List.length
+              (List.filter
+                 (fun (d : Ssa_vectorize.Decision.t) ->
+                   d.Ssa_vectorize.Decision.outcome
+                   = Ssa_vectorize.Decision.Vectorized)
+                 plan.Ssa_plan.vectorized)
+          in
+          Fmt.pr "%-16s %-7s vector loops %d; = oracle %b; = scalar %b; %a@."
+            name tname loops
+            (same_floats vector (interpreted (Ssa_plan.oracle plan)))
+            (same_floats vector scalar_wasm)
+            Fmt.(option ~none:(any "no module") Wasm_census.pp)
+            census)
+    [
+      ("priced", Ssa_target.wasm128);
+      ("forced", Ssa_target.forced Ssa_target.wasm128);
+    ]
+
+let wide_bufs =
+  [
+    row 32L Ssa_format.F32 Ssa_buffer.Input 0;
+    row 32L Ssa_format.F32 Ssa_buffer.Output 1;
+  ]
+
+let wide_loop body =
+  build ~buffers:wide_bufs (fun bld ->
+      let B.Nil =
+        B.for_ bld ~lo:(idx bld 0) ~hi:(idx bld 32) ~init:B.Nil
+          (fun bld w B.Nil ->
+            body bld w;
+            B.Nil)
+      in
+      ())
+
+let ld bld w =
+  B.load_f64 bld (buf 0) ~decode:Ssa_op.Decode.F32_to_f64
+    (at bld ~h:(idx bld 0) ~w)
+
+let st bld w x =
+  B.store_f64 bld (buf 1) ~encode:Ssa_op.Encode.F32_round
+    (at bld ~h:(idx bld 0) ~w)
+    x
+
+let%expect_test "binary32 vector plans under node" =
+  let f = B.f64_binary in
+  fp32_wasm "contiguous"
+    (wide_loop (fun bld w ->
+         st bld w (f bld Expr.Value.Mul (ld bld w) (B.f64 bld 2.))));
+  fp32_wasm "reversed read"
+    (wide_loop (fun bld w ->
+         st bld w
+           (ld bld (B.index_add bld (idx bld 31) (B.index_scale bld (-1L) w)))));
+  fp32_wasm "broadcast read"
+    (wide_loop (fun bld w ->
+         st bld w (f bld Expr.Value.Add (ld bld w) (ld bld (idx bld 5)))));
+  fp32_wasm "mask and select"
+    (wide_loop (fun bld w ->
+         let x = ld bld w in
+         let neg = B.float_compare bld Ssa_op.Compare.Lt x (B.f64 bld 0.) in
+         st bld w (B.select bld neg (B.f64 bld 0.) x)));
+  fp32_wasm "max sqrt exp div"
+    (wide_loop (fun bld w ->
+         let m = B.f64_max bld (ld bld w) (B.f64 bld (-1.)) in
+         let e = B.f64_unary bld Expr.Value.Exp m in
+         let s = B.f64_unary bld Expr.Value.Sqrt e in
+         st bld w (f bld Expr.Value.Div s (B.f64 bld 3.))));
+  fp32_wasm "matmul 4x5x32" (matmul ~m:4 ~k:5 ~n:32);
+  fp32_wasm "matmul 3x7x19" (matmul ~m:3 ~k:7 ~n:19);
+  [%expect
+    {|
+    contiguous       priced  vector loops 1; = oracle true; = scalar true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    contiguous       forced  vector loops 1; = oracle true; = scalar true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    reversed read    priced  vector loops 0; = oracle true; = scalar true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    reversed read    forced  vector loops 1; = oracle true; = scalar true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    broadcast read   priced  vector loops 1; = oracle true; = scalar true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    broadcast read   forced  vector loops 1; = oracle true; = scalar true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    mask and select  priced  vector loops 1; = oracle true; = scalar true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    mask and select  forced  vector loops 1; = oracle true; = scalar true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    max sqrt exp div priced  vector loops 1; = oracle true; = scalar true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    max sqrt exp div forced  vector loops 1; = oracle true; = scalar true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    matmul 4x5x32    priced  vector loops 1; = oracle true; = scalar true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    matmul 4x5x32    forced  vector loops 1; = oracle true; = scalar true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    matmul 3x7x19    priced  vector loops 1; = oracle true; = scalar true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    matmul 3x7x19    forced  vector loops 1; = oracle true; = scalar true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0 |}]
+
+(* The five binary32 transcendentals as [f32x4] sequences (the module's own
+   four-lane functions), over the {!F32_math} sample set: every cell equal to
+   {!F32_math.Value} (a NaN to any NaN: payloads are the engine's). *)
+let%expect_test "binary32 transcendentals as f32x4 sequences under node" =
+  let n = 256 in
+  let samples =
+    Array.init n (fun k ->
+        if k < Array.length specials32 then specials32.(k)
+        else
+          let x =
+            Int32.float_of_bits
+              (Int64.to_int32 (Int64.mul (Int64.of_int k) 16777259L))
+          in
+          if Float.is_finite x then x else 0.75)
+  in
+  let bufs =
+    [
+      row (Int64.of_int n) Ssa_format.F32 Ssa_buffer.Input 0;
+      row (Int64.of_int n) Ssa_format.F32 Ssa_buffer.Output 1;
+    ]
+  in
+  List.iter
+    (fun (name, op, value) ->
+      let p =
+        build ~buffers:bufs (fun bld ->
+            let B.Nil =
+              B.for_ bld ~lo:(idx bld 0) ~hi:(idx bld n) ~init:B.Nil
+                (fun bld w B.Nil ->
+                  st bld w (B.f64_unary bld op (ld bld w));
+                  B.Nil)
+            in
+            ())
+      in
+      match
+        Ssa_plan.fp32_vector ~alias:Ssa_effects.Distinct_buffers
+          ~target:(Ssa_target.forced Ssa_target.wasm128)
+          p
+      with
+      | Error _ -> Fmt.pr "%s: not admitted@." name
+      | Ok plan -> (
+          match Ssa_wasm.lower plan.Ssa_plan.program with
+          | Error e -> Fmt.pr "%s: %a@." name Ssa_wasm.pp_error e
+          | Ok lowered -> (
+              let loop =
+                Lf.program
+                  ~buffers:
+                    (List.map Ssa_bridge.Loop_of_ssa.loop_buffer
+                       (Ssa_wasm.arguments plan.Ssa_plan.program))
+                  []
+              in
+              let shape = Lf.shape_w n in
+              let bind id =
+                if Tensor_id.equal id (Lf.tid 0) then
+                  Some
+                    (Lf.f32_tensor shape (fun c ->
+                         samples.((Vec6.offset shape c :> int))))
+                else None
+              in
+              (* the four-lane function is in the module *)
+              let vector_calls =
+                let text =
+                  Wasm_wat.to_string lowered.Loop_ir.Loop_wasm.module_
+                in
+                let k = "(param v128) (result v128)" in
+                let rec has i =
+                  i + String.length k <= String.length text
+                  && (String.sub text i (String.length k) = k || has (i + 1))
+                in
+                if has 0 then "a (v128) -> v128 function"
+                else "no vector function"
+              in
+              match
+                Err.payload (Loop_wasm_exec.exec_module ~lowered loop ~bind)
+              with
+              | Error e -> Fmt.pr "%s: %a@." name Loop_wasm_exec.pp_error e
+              | Ok out ->
+                  let t = Tensor_id.Map.find (Lf.tid 1) out in
+                  let got = Lf.cells t n in
+                  let differ =
+                    List.length
+                      (List.filteri
+                         (fun k y ->
+                           not
+                             (Core.Float_bits.equal_portable y
+                                (value samples.(k))))
+                         got)
+                  in
+                  Fmt.pr "%s: %d of %d cells differ from F32_math; %s@." name
+                    differ n vector_calls)))
+    [
+      ("exp", Expr.Value.Exp, F32_math.Value.exp);
+      ("log", Expr.Value.Log, F32_math.Value.log);
+      ("sin", Expr.Value.Sin, F32_math.Value.sin);
+      ("cos", Expr.Value.Cos, F32_math.Value.cos);
+      ("erf", Expr.Value.Erf, F32_math.Value.erf);
+    ];
+  [%expect
+    {|
+    exp: 0 of 256 cells differ from F32_math; a (v128) -> v128 function
+    log: 0 of 256 cells differ from F32_math; a (v128) -> v128 function
+    sin: 0 of 256 cells differ from F32_math; a (v128) -> v128 function
+    cos: 0 of 256 cells differ from F32_math; a (v128) -> v128 function
+    erf: 0 of 256 cells differ from F32_math; a (v128) -> v128 function |}]
+
+(* Narrow storage read straight to binary32 under [Fp32_ordered], scalar and
+   vectorized (forced wasm128): every 16th binary16 and bfloat16 encoding,
+   bools and int32s, under node against the interpreter of the binary64-decode
+   program, with the module's binary64 census. *)
+let%expect_test "narrow storage read straight to binary32 under node" =
+  let n = 4096 in
+  let cases =
+    [
+      ( "f16",
+        Ssa_op.Decode.F16_to_f64,
+        Ssa_format.F16,
+        Payload.Fmt Payload.F16,
+        fun k -> k * 16 );
+      ( "bf16",
+        Ssa_op.Decode.Bf16_to_f64,
+        Ssa_format.Bf16,
+        Payload.Fmt Payload.BF16,
+        fun k -> k * 16 );
+      ( "bool",
+        Ssa_op.Decode.Bool_to_f64,
+        Ssa_format.Bool,
+        Payload.Fmt Payload.Bool,
+        fun k -> k mod 2 );
+      ( "i32",
+        Ssa_op.Decode.I32_to_f64,
+        Ssa_format.I32,
+        Payload.Fmt Payload.I32,
+        fun k ->
+          [| 0; -1; 0x7FFF_FFFF; -0x8000_0000; 16777217; 123; -16777219 |].(k
+                                                                            mod 7)
+          + if k mod 7 >= 4 then k else 0 );
+    ]
+  in
+  List.iter
+    (fun (name, decode, format, pfmt, cell) ->
+      let bufs =
+        [
+          row (Int64.of_int n) format Ssa_buffer.Input 0;
+          row (Int64.of_int n) Ssa_format.F32 Ssa_buffer.Output 1;
+        ]
+      in
+      let p =
+        build ~buffers:bufs (fun bld ->
+            let B.Nil =
+              B.for_ bld ~lo:(idx bld 0) ~hi:(idx bld n) ~init:B.Nil
+                (fun bld w B.Nil ->
+                  let v =
+                    B.load_f64 bld (buf 0) ~decode (at bld ~h:(idx bld 0) ~w)
+                  in
+                  st bld w v;
+                  B.Nil)
+            in
+            ())
+      in
+      let reference =
+        let memory =
+          memory
+            [
+              ( 0,
+                match format with
+                | Ssa_format.Bool ->
+                    floats (Array.init n (fun k -> float_of_int (cell k)))
+                | _ -> Ssa_memory.Ints (Array.init n cell) );
+              (1, floats (Array.make n 0.));
+            ]
+        in
+        run p ~memory;
+        output_floats memory 1
+      in
+      let alias = Ssa_effects.Distinct_buffers in
+      List.iter
+        (fun (form, q) ->
+          match Ssa_wasm.lower q with
+          | Error e -> Fmt.pr "%s %s: %a@." name form Ssa_wasm.pp_error e
+          | Ok lowered -> (
+              let loop =
+                Lf.program
+                  ~buffers:
+                    (List.map Ssa_bridge.Loop_of_ssa.loop_buffer
+                       (Ssa_wasm.arguments q))
+                  []
+              in
+              let bind id =
+                if Tensor_id.equal id (Lf.tid 0) then
+                  Some
+                    (Loop_ir_test.Loop_programs.raw_tensor pfmt
+                       ~shape:(Lf.shape_w n) n
+                       (Array.init n (fun k -> Int64.of_int (cell k))))
+                else None
+              in
+              match
+                Err.payload (Loop_wasm_exec.exec_module ~lowered loop ~bind)
+              with
+              | Error e ->
+                  Fmt.pr "%s %s: %a@." name form Loop_wasm_exec.pp_error e
+              | Ok out ->
+                  let got =
+                    Array.of_list
+                      (Lf.cells (Tensor_id.Map.find (Lf.tid 1) out) n)
+                  in
+                  Fmt.pr "%s %s: = interpreter %b; %a@." name form
+                    (Array.for_all2 Core.Float_bits.equal_portable reference got)
+                    Wasm_census.pp
+                    (Wasm_census.of_module lowered.Loop_ir.Loop_wasm.module_)))
+        [
+          ( "scalar",
+            (Ssa_plan.resolve ~alias ~target:Ssa_target.scalar
+               ~numerics:Ssa_numerics.Fp32_ordered p)
+              .Ssa_plan.program );
+          ( "vector",
+            match
+              Ssa_plan.fp32_vector ~alias
+                ~target:(Ssa_target.forced Ssa_target.wasm128)
+                p
+            with
+            | Ok t -> t.Ssa_plan.program
+            | Error _ -> assert false );
+        ])
+    cases;
+  [%expect
+    {|
+    f16 scalar: = interpreter true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    f16 vector: = interpreter true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    bf16 scalar: = interpreter true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    bf16 vector: = interpreter true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    bool scalar: = interpreter true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    bool vector: = interpreter true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    i32 scalar: = interpreter true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    i32 vector: = interpreter true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0 |}]
+
+(* Quantized reads as vectors under [Fp32_ordered] (forced wasm128), under
+   node: per tensor with the lanes along C (contiguous: the widening chain,
+   [f32x4.convert_i32x4_s], then the binary32 subtract and multiply) and along
+   W (lane by lane), per channel with every vector in one channel. Each equals
+   the interpreter, and the module holds no binary64 instruction. *)
+let%expect_test "dequantization as vectors under node" =
+  let f32 x = fst (Quant.round_scale x) in
+  let quant_case ~label ~w ~c ~c_outer ~format ~quant =
+    let n = w * c in
+    let cells = Array.init n (fun i -> (i * 37 mod 256) - 128) in
+    let bufs =
+      [
+        {
+          Ssa_buffer.id = buf 0;
+          extents =
+            Expr.Coord.make ~n:1L ~t:1L ~d:1L ~h:1L ~w:(Int64.of_int w)
+              ~c:(Int64.of_int c);
+          format;
+          role = Ssa_buffer.Input;
+        };
+        {
+          Ssa_buffer.id = buf 1;
+          extents =
+            Expr.Coord.make ~n:1L ~t:1L ~d:1L ~h:1L ~w:(Int64.of_int w)
+              ~c:(Int64.of_int c);
+          format = Ssa_format.F32;
+          role = Ssa_buffer.Output;
+        };
+      ]
+    in
+    let decode =
+      match format with
+      | Ssa_format.I8 _ -> Ssa_op.Decode.I8_dequant
+      | _ -> Ssa_op.Decode.I16_dequant
+    in
+    let coord bld x k =
+      let z = idx bld 0 in
+      Ssa_builder.Coord (Expr.Coord.make ~n:z ~t:z ~d:z ~h:z ~w:x ~c:k)
+    in
+    let body bld x k =
+      let v = B.load_f64 bld (buf 0) ~decode (coord bld x k) in
+      B.store_f64 bld (buf 1) ~encode:Ssa_op.Encode.F32_round (coord bld x k) v
+    in
+    let loop bld hi f =
+      let B.Nil =
+        B.for_ bld ~lo:(idx bld 0) ~hi:(idx bld hi) ~init:B.Nil
+          (fun bld i B.Nil ->
+            f bld i;
+            B.Nil)
+      in
+      ()
+    in
+    let p =
+      build ~buffers:bufs (fun bld ->
+          if c_outer then
+            loop bld c (fun bld k -> loop bld w (fun bld x -> body bld x k))
+          else loop bld w (fun bld x -> loop bld c (fun bld k -> body bld x k)))
+    in
+    let reference =
+      let memory =
+        memory
+          [
+            (0, Ssa_memory.Ints (Array.copy cells));
+            (1, floats (Array.make n 0.));
+          ]
+      in
+      run p ~memory;
+      output_floats memory 1
+    in
+    match
+      Ssa_plan.fp32_vector ~alias:Ssa_effects.Distinct_buffers
+        ~target:(Ssa_target.forced Ssa_target.wasm128)
+        p
+    with
+    | Error _ -> Fmt.pr "%s: not admitted@." label
+    | Ok plan -> (
+        let q = plan.Ssa_plan.program in
+        match Ssa_wasm.lower q with
+        | Error e -> Fmt.pr "%s: %a@." label Ssa_wasm.pp_error e
+        | Ok lowered -> (
+            let loop_p =
+              Lf.program
+                ~buffers:
+                  (List.map Ssa_bridge.Loop_of_ssa.loop_buffer
+                     (Ssa_wasm.arguments q))
+                []
+            in
+            let pfmt =
+              match format with
+              | Ssa_format.I8 _ -> Payload.Fmt Payload.I8
+              | _ -> Payload.Fmt Payload.I16
+            in
+            let bind id =
+              if Tensor_id.equal id (Lf.tid 0) then
+                Some
+                  (Loop_ir_test.Loop_programs.raw_tensor pfmt ~quant
+                     ~shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w ~c)
+                     n
+                     (Array.map Int64.of_int cells))
+              else None
+            in
+            match
+              Err.payload (Loop_wasm_exec.exec_module ~lowered loop_p ~bind)
+            with
+            | Error e -> Fmt.pr "%s: %a@." label Loop_wasm_exec.pp_error e
+            | Ok out ->
+                let t = Tensor_id.Map.find (Lf.tid 1) out in
+                let shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w ~c in
+                let got = Array.make n 0. in
+                Vec6.iter shape (fun co ->
+                    got.((Vec6.offset shape co :> int)) <- Tensor.read t co);
+                Fmt.pr "%s: %a; = interpreter %b; %a@." label
+                  Fmt.(
+                    list ~sep:(any ", ") (fun ppf (k, (n, _)) ->
+                        pf ppf "%s %d" k n))
+                  (Ssa_vectorize.tally plan.Ssa_plan.vectorized)
+                  (Array.for_all2 Core.Float_bits.equal_portable reference got)
+                  Wasm_census.pp
+                  (Wasm_census.of_module lowered.Loop_ir.Loop_wasm.module_)))
+  in
+  let per_tensor scale zero_point =
+    ( Ssa_format.Per_tensor { scale = f32 scale; zero_point },
+      Quant.per_tensor ~scale:(f32 scale) ~zero_point )
+  in
+  List.iter
+    (fun (label, w, c, c_outer, (sq, q), bits) ->
+      quant_case ~label ~w ~c ~c_outer
+        ~format:(if bits = 8 then Ssa_format.I8 sq else Ssa_format.I16 sq)
+        ~quant:q)
+    [
+      ("i8 per tensor along C", 3, 32, false, per_tensor 0.37 (-3.), 8);
+      ( "i8 per tensor along C, fractional zp",
+        3,
+        32,
+        false,
+        per_tensor 0.05 1.25,
+        8 );
+      ("i16 per tensor along C", 3, 32, false, per_tensor 1e-3 7., 16);
+      ("i8 per tensor along W", 32, 3, true, per_tensor 0.37 (-3.), 8);
+    ];
+  let scale = [| f32 0.5; f32 (-2.); f32 1e-2 |]
+  and zero_point = [| 0.; 5.; -9.5 |] in
+  quant_case ~label:"i8 per channel, channel outer" ~w:32 ~c:3 ~c_outer:true
+    ~format:(Ssa_format.I8 (Ssa_format.Per_channel { scale; zero_point }))
+    ~quant:
+      (Err.or_raise ~pp_error:Quant.pp_error
+         (Quant.per_channel ~scale ~zero_point));
+  [%expect
+    {|
+    i8 per tensor along C: vectorized 1; = interpreter true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    i8 per tensor along C, fractional zp: vectorized 1; = interpreter true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    i16 per tensor along C: vectorized 1; = interpreter true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    i8 per tensor along W: vectorized 1; = interpreter true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    i8 per channel, channel outer: vectorized 1; = interpreter true; arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0 |}]

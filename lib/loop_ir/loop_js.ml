@@ -192,7 +192,7 @@ let load_cell nm (b : Loop_buffer.t) addr =
       | None ->
           let scale, zero = Quant.params q ~c:(Dim.index 0) in
           B.Num.mul (B.Num.const scale)
-            (B.Num.sub (cells ()) (B.Num.const (float_of_int zero)))
+            (B.Num.sub (cells ()) (B.Num.const zero))
       | Some _ ->
           let c =
             match addr with
@@ -638,9 +638,7 @@ let to_ast (p : Loop_program.t) =
                        (List.map (fun (s, _) -> B.Num.const s) params));
                   B.Stmt.const_arr (quant_zeros nm b)
                     (B.Arr.literal
-                       (List.map
-                          (fun (_, z) -> B.Num.const (float_of_int z))
-                          params));
+                       (List.map (fun (_, z) -> B.Num.const z) params));
                 ])
         | _ -> [])
       p.Loop_program.buffers

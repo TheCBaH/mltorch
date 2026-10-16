@@ -168,7 +168,7 @@ let%expect_test "a dead output occupies its node only" =
 
 let%expect_test "a quantized edge stays outside the arena" =
   let released = [ 1; 2 ] in
-  let q = Quant.per_tensor ~scale:0.5 ~zero_point:0 in
+  let q = Quant.per_tensor ~scale:0.5 ~zero_point:0. in
   show
     (create
        [

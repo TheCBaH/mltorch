@@ -24,8 +24,13 @@ let%expect_test "Wasm sweep of vector and numerical plans, slice 17 of 73" =
       ("ordered-binary32", Ssa_ir.Ssa_numerics.Simd_fp32_ordered, wasm128, false);
       ("relaxed-binary32", Ssa_ir.Ssa_numerics.Simd_fp32_relaxed, relaxed, true);
     ];
+  sweep ~engine:Interpreter ~config:"fp32-vectors"
+    ~prepare:(fp32_vector ~target:wasm128)
+    ~shard:17 ~shards:73 ();
+  report ~config:"fp32-vectors";
   [%expect
     {|
     strict-vectors: disagreements 0, agree 12, failed alike 0, refused 0; with vectors 12, relaxed 0
     ordered-binary32: disagreements 0, agree 12, failed alike 0, refused 0; with vectors 12, relaxed 0
-    relaxed-binary32: disagreements 0, agree 12, failed alike 0, refused 0; with vectors 12, relaxed 0 |}]
+    relaxed-binary32: disagreements 0, agree 12, failed alike 0, refused 0; with vectors 12, relaxed 0
+    fp32-vectors: disagreements 0, agree 12, failed alike 0, refused 0; with vectors 0, relaxed 0 |}]

@@ -69,3 +69,43 @@ val js :
   Loop_ir.Loop_bundle.invocation ->
   (Js_ast.Program.t, string) result
 (** For {!Loop_ir.Loop_bundle_js.build}'s [kernel]. *)
+
+(** What the vectorizer takes of a bundle under each binary32 form: the census a
+    binary32 vector plan is measured against. *)
+module Coverage : sig
+  type column =
+    | Exact_f32 of Ssa_ir.Ssa_target.t
+        (** {!Ssa_ir.Ssa_plan.vectorize_f32} on the exact form with only
+            binary32 vectors admitted ([Fp32_ordered]'s plan). Its tally also
+            counts, under {!blocked_by_exact_access}, the loops the narrowed
+            form vectorizes and this one keeps scalar at a binary32 access *)
+    | Loop_fp32_ordered of Loop_ir.Loop_target.t
+        (** the Loop planner's [Fp32_ordered] decisions *)
+    | Narrowed_f32 of Ssa_ir.Ssa_target.t
+        (** {!Ssa_ir.Ssa_plan.vectorize_f32} on the narrowed form (the reads
+            widened then narrowed, the form the [Simd_fp32_*] policies used
+            before they moved onto the exact one) *)
+
+  val name : column -> string
+
+  val columns : column list
+  (** Every column for [neon128] and [wasm128]. *)
+
+  type tally = (string * (int * int64)) list
+  (** As {!Ssa_ir.Ssa_vectorize.tally}: per outcome name, loops and work. *)
+
+  val blocked_by_exact_access : string
+
+  val iotas_key : string
+  (** In a [Narrowed_f32] tally: how many [Vec_iota] instructions the vector
+      program holds (an index turned into a float per lane). *)
+
+  val tally : column -> Loop_ir.Loop_bundle.invocation -> (tally, string) result
+
+  val bundle :
+    column list -> Loop_ir.Loop_bundle.t -> (column * tally * int) list
+  (** Every invocation's tally summed per column, with how many invocations the
+      SSA path refused. *)
+
+  val pp_tally : Format.formatter -> tally -> unit
+end

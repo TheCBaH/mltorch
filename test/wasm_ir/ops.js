@@ -170,7 +170,7 @@ const ref = {
 
 let cases = 0, bad = 0;
 const names = Object.keys(ex).filter((n) => typeof ex[n] === "function").sort();
-const SIMD = /^(f64x2|f32x4|i32x4|i64x2|v128)\./;
+const SIMD = /^(f64x2|f32x4|i16x8|i32x4|i64x2|v128)\./;
 const missing = Object.keys(ref).filter((n) => !(n in ex));
 const unknown = names.filter((n) => !(n in ref) && !SIMD.test(n));
 for (const n of [...missing.map((m) => "missing " + m), ...unknown.map((m) => "unreferenced " + m)]) { console.log(n); bad++; }
@@ -302,6 +302,31 @@ for (const [name, [kinds, f, skip]] of Object.entries(ref)) {
       const k = BigInt(n & 63);
       check("i64x2." + op, [x, n], getU64(D), [BigInt.asUintN(64, f(x[0], k)), BigInt.asUintN(64, f(x[1], k))]);
     }
+  // i32x4 lanes and the widening of narrow lanes
+  const i32quads = i32s.map((_, k) => [0, 1, 2, 3].map((j) => i32s[(k + 3 * j) % i32s.length]));
+  for (let k = 0; k < i32quads.length; k++) {
+    const x = i32quads[k], y = i32quads[(k * 5 + 2) % i32quads.length];
+    setI32(A, x); setI32(B, y);
+    ex["i32x4.add"](A, B, D); check("i32x4.add", [x, y], getI32(D), x.map((v, j) => (v + y[j]) | 0));
+    ex["i32x4.eq"](A, B, D); check("i32x4.eq", [x, y], getI32(D), x.map((v, j) => (v === y[j] ? -1 : 0)));
+    ex["i32x4.eq"](A, A, D); check("i32x4.eq", [x, x], getI32(D), [-1, -1, -1, -1]);
+    for (const n of [0, 1, 13, 31, 32, 33]) {
+      ex["i32x4.shl"](A, n, D); check("i32x4.shl", [x, n], getI32(D), x.map((v) => v << (n & 31)));
+      ex["i32x4.shr_u"](A, n, D); check("i32x4.shr_u", [x, n], getI32(D), x.map((v) => (v >>> (n & 31)) | 0));
+    }
+    ex["f32x4.convert_i32x4_s"](A, D); check("f32x4.convert_i32x4_s", [x], getF32(D), x.map((v) => Math.fround(v)));
+  }
+  const bytes = [0, 1, 0x7f, 0x80, 0xff, 0x55, 0xaa, 0x3c, 0xc3, 0x01, 0xfe, 0x40, 0x81, 0x7e, 0x10, 0xef];
+  for (let k = 0; k < 16; k++) {
+    const x = bytes.map((_, j) => bytes[(j + k) % 16]);
+    x.forEach((v, j) => dv.setUint8(A + j, v));
+    ex["i16x8.extend_low_i8x16_s"](A, D);
+    check("i16x8.extend_low_i8x16_s", [x], [0, 1, 2, 3, 4, 5, 6, 7].map((j) => dv.getInt16(D + 2 * j, true)), x.slice(0, 8).map((v) => (v << 24) >> 24));
+    ex["i32x4.extend_low_i16x8_s"](A, D);
+    check("i32x4.extend_low_i16x8_s", [x], getI32(D), [0, 1, 2, 3].map((j) => dv.getInt16(A + 2 * j, true)));
+    ex["i32x4.extend_low_i16x8_u"](A, D);
+    check("i32x4.extend_low_i16x8_u", [x], getI32(D), [0, 1, 2, 3].map((j) => dv.getUint16(A + 2 * j, true)));
+  }
 }
 console.log(`${names.length} ops, ${bad} failures`);
 process.exit(bad ? 1 : 0);

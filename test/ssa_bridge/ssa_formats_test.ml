@@ -17,10 +17,16 @@ let show name ~fmt ?quant cells =
 
 let fmt f = Payload.Fmt f
 let bits = Int64.bits_of_float
-let per_tensor scale zero_point = Quant.per_tensor ~scale ~zero_point
+
+(* A producer's double, rounded once at the boundary into [Quant]. *)
+let f32 x = fst (Quant.round_scale x)
+
+let per_tensor scale zero_point =
+  Quant.per_tensor ~scale:(f32 scale) ~zero_point
 
 let per_channel scale zero_point =
-  Err.or_raise ~pp_error:Quant.pp_error (Quant.per_channel ~scale ~zero_point)
+  Err.or_raise ~pp_error:Quant.pp_error
+    (Quant.per_channel ~scale:(Array.map f32 scale) ~zero_point)
 
 let%expect_test
     "half and bfloat16 decode, including subnormals, infinities and NaN" =
@@ -37,15 +43,15 @@ let%expect_test
 
 let%expect_test
     "quantized cells are scale * (q - zero point), per tensor and per channel" =
-  show "i8 per tensor" ~fmt:(fmt Payload.I8) ~quant:(per_tensor 0.1 (-3))
+  show "i8 per tensor" ~fmt:(fmt Payload.I8) ~quant:(per_tensor 0.1 (-3.))
     [| -128L; 127L; 0L; -3L |];
   show "i8 per channel, last channel" ~fmt:(fmt Payload.I8)
-    ~quant:(per_channel [| 0.5; 0.25; 2.; 0.1 |] [| 0; 1; -2; 5 |])
+    ~quant:(per_channel [| 0.5; 0.25; 2.; 0.1 |] [| 0.; 1.; -2.; 5. |])
     [| -128L; 127L; 3L; -4L |];
-  show "i16 per tensor" ~fmt:(fmt Payload.I16) ~quant:(per_tensor 0.001 7)
+  show "i16 per tensor" ~fmt:(fmt Payload.I16) ~quant:(per_tensor 0.001 7.)
     [| -32768L; 32767L; 0L; 1L |];
   show "i16 per channel" ~fmt:(fmt Payload.I16)
-    ~quant:(per_channel [| 1e-3; 2e-3; 3e-3; 4e-3 |] [| 0; -7; 7; 32767 |])
+    ~quant:(per_channel [| 1e-3; 2e-3; 3e-3; 4e-3 |] [| 0.; -7.; 7.; 32767. |])
     [| -32768L; 32767L; 5L; -5L |];
   [%expect
     {|

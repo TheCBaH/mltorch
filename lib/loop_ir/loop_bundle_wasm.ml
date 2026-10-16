@@ -160,7 +160,7 @@ let invocation ws ~position ~kernel (inv : Loop_bundle.invocation)
                   p
                   @ [
                       count;
-                      I.F64_const (Int64.bits_of_float v);
+                      I.F32_const (Int32.bits_of_float v);
                       R.call R.Callee.Fill_f32;
                     ]
             in

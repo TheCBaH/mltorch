@@ -203,8 +203,18 @@ let semantic esc (cx : Mir_check.context)
           in
           match i.Mir_instr.op with
           | Mir_op.Iarith (op, x, count) when Mir_op.Iarith.is_shift op -> (
-              match (x.Mir_value.ty, const_bits a count) with
-              | Mir_type.Int w, Some c
+              (* a vector's count is a constant splatted to every lane *)
+              let w, c =
+                match x.Mir_value.ty with
+                | Mir_type.Int w -> (Some w, const_bits a count)
+                | Mir_type.Vec (Mir_type.Elem.Int w, _) -> (
+                    match def_op a count with
+                    | Some (Mir_op.Vsplat (_, k)) -> (Some w, const_bits a k)
+                    | _ -> (Some w, None))
+                | _ -> (None, None)
+              in
+              match (w, c) with
+              | Some w, Some c
                 when Int64.compare c 0L >= 0
                      && Int64.compare c (Int64.of_int (Mir_width.bits w)) < 0 ->
                   ()

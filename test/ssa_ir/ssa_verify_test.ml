@@ -339,7 +339,7 @@ let%expect_test "a per-channel buffer takes coordinate accesses only" =
   let per_channel =
     Ssa_format.I8
       (Ssa_format.Per_channel
-         { scale = [| 0.5; 0.25 |]; zero_point = [| 0; 1 |] })
+         { scale = [| 0.5; 0.25 |]; zero_point = [| 0.; 1. |] })
   in
   let declare channels =
     {
@@ -378,7 +378,7 @@ let%expect_test "a per-channel buffer takes coordinate accesses only" =
     {|
     r0, stmt1: b0 is per-channel quantized and takes no flat access
     ok
-    r0, stmt0: buffer b0 is declared twice, or with extents no index holds |}]
+    r0, stmt0: buffer b0 is declared twice, or with extents no index holds, or with a quantization parameter that is not a binary32 value |}]
 
 (* ---- proofs ------------------------------------------------------------------ *)
 

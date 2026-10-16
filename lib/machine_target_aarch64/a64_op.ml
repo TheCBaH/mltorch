@@ -207,6 +207,8 @@ type t =
   | Ldr_idx of Msz.t * v * v
       (** [base, Wm, SXTW #log2 size]: the 32-bit index sign-extended and scaled
           by the access size; B and H zero-extend into a W register *)
+  | Ldr_ivec of Mir_type.t * v * int64
+      (** LDR Qt, [Xn, #imm]: a register of integer lanes ([i8x16], [i16x8]) *)
   | Ldr_vec of Arr.t * v * int64  (** LDR Qt or Dt, [Xn, #imm] *)
   | Logic of Logic.t * Sz.t * v * v
   | Logic_imm of Logic.t * Sz.t * v * int64  (** a bitmask immediate *)
@@ -221,6 +223,8 @@ type t =
   | Msub of Sz.t * v * v * v  (** [c - a * b] *)
   | Mul of Sz.t * v * v
   | Scvtf of Fsz.t * v  (** from X, one rounding *)
+  | Scvtf_vec of v
+      (** SCVTF Vd.4S, Vn.4S: four int32 lanes to binary32, one rounding each *)
   | Sdiv of Sz.t * v * v  (** truncating; [x / 0 = 0], [min / -1 = min] *)
   | Shift_imm of Shift.t * Sz.t * v * int
   | St1_lane of Fsz.t * int * v * v  (** ST1 \{Vt.Ts\}[k], [Xn]: vector, base *)
@@ -239,6 +243,9 @@ type t =
       (** BIT Vd.16b, Vn.16b, Vm.16b over [else; then; mask]: bit by bit, [then]
           where the mask is set and [else] elsewhere; the result takes [else]'s
           register (tied) *)
+  | Vcast of Mir_type.t * v
+      (** MOV Vd.16B, Vn.16B: a Q register's bits at another lane type
+          ([int32x4] and [.4s]) *)
   | Vfbin of Fop.t * Arr.t * v * v
   | Vfcmp of Vcmp.t * Arr.t * v * v
       (** FCMEQ/FCMGE/FCMGT Vd.T, Vn.T, Vm.T: a lane all ones where the compare
@@ -249,9 +256,15 @@ type t =
   | Vfunary of Funary.t * Arr.t * v
   | Vmov of Arr.t * v  (** MOV Vd, Vn: the whole vector *)
   | Vnot of v  (** NOT Vd.16b, Vn.16b (MVN): a mask's complement *)
+  | Vshift of Shift.t * int * v
+      (** SHL, USHR or SSHR (immediate) on four int32 lanes *)
   | Vwiden of v
       (** FMOV Dd, Dn: a 2S vector as the lower half of a 4S, upper half zero *)
   | Wtrunc of v  (** W from the low half of an X *)
+  | Xtl_w of { signed : bool; from : Mir_width.t; first : int; src : v }
+      (** lanes [first .. first + 3] of an [i8x16] or [i16x8] register extended
+          to four int32 lanes: SXTL or UXTL (2) to [.8h] (from bytes), then to
+          [.4s] *)
 
 type test = B_cond of Cond.t * v | Cbnz of Sz.t * v | Cbz of Sz.t * v
 
@@ -292,6 +305,7 @@ let uses = function
   | Funary (_, _, a)
   | Ldr (_, a, _)
   | Ld1r (_, a)
+  | Ldr_ivec (_, a, _)
   | Ldr_vec (_, a, _)
   | Logic_imm (_, _, a, _)
   | Mov (_, a)
@@ -299,14 +313,18 @@ let uses = function
   | Mrs_fpcr a
   | Msr_fpcr a
   | Scvtf (_, a)
+  | Scvtf_vec a
   | Shift_imm (_, _, a, _)
   | Sub_imm (_, a, _)
   | Sxtw a
   | Trunc (_, a)
   | Uxtw a
   | Vfunary (_, _, a)
+  | Vcast (_, a)
   | Vmov (_, a)
   | Vnot a
+  | Vshift (_, _, a)
+  | Xtl_w { src = a; _ }
   | Vwiden a
   | Wtrunc a ->
       [ a ]
@@ -330,8 +348,8 @@ let test_flags_read = function
   | Cbnz _ | Cbz _ -> 0L
 
 let ordered = function
-  | Bl _ | Ld1_lane _ | Ld1r _ | Ldr _ | Ldr_idx _ | Ldr_vec _ | St1_lane _
-  | Str _ | Str_idx _ | Str_vec _ ->
+  | Bl _ | Ld1_lane _ | Ld1r _ | Ldr _ | Ldr_idx _ | Ldr_ivec _ | Ldr_vec _
+  | St1_lane _ | Str _ | Str_idx _ | Str_vec _ ->
       true
   | _ -> false
 
@@ -407,9 +425,9 @@ let op_features = function
   | Dup_elem _ | Dup_half _ | Dup_lane _ | Dup_mask _ | Fbin _ | Fcmp _
   | Fcsel _ | Fcvt _ | Fcvtl _ | Fcvtn _ | Fcvtzs _ | Fmadd _ | Fmov _
   | Fmov_from_gpr _ | Fmov_to_gpr _ | Funary _ | Ins_half _ | Ins_lane _
-  | Ld1_lane _ | Ld1r _ | Ldr_vec _ | Scvtf _ | St1_lane _ | Str_vec _ | Vbit _
-  | Vfbin _ | Vfcmp _ | Vfmla _ | Vfunary _ | Vlogic _ | Vmov _ | Vnot _
-  | Vwiden _ ->
+  | Ld1_lane _ | Ld1r _ | Ldr_ivec _ | Ldr_vec _ | Scvtf _ | Scvtf_vec _
+  | St1_lane _ | Str_vec _ | Vbit _ | Vcast _ | Vfbin _ | Vfcmp _ | Vfmla _
+  | Vfunary _ | Vlogic _ | Vmov _ | Vnot _ | Vshift _ | Vwiden _ | Xtl_w _ ->
       [ Mir_target.Feature.Fp ]
   | Ldr ((Msz.S | Msz.D), _, _)
   | Ldr_idx ((Msz.S | Msz.D), _, _)
@@ -495,6 +513,21 @@ let is_mask arr (t : Mir_type.t) =
   match Arr.mask_ty arr with Some m -> Mir_type.equal t m | None -> false
 
 let lane_ok fsz k = k >= 0 && k < Arr.lanes (full fsz)
+
+(* The integer lane width of a register-wide integer vector: [i8x16] or
+   [i16x8]. *)
+let int_register (t : Mir_type.t) =
+  match t with
+  | Mir_type.Vec (Mir_type.Elem.Int Mir_width.W8, n)
+    when Mir_type.Lanes.to_int n = 16 ->
+      Some Mir_width.W8
+  | Mir_type.Vec (Mir_type.Elem.Int Mir_width.W16, n)
+    when Mir_type.Lanes.to_int n = 8 ->
+      Some Mir_width.W16
+  | _ -> None
+
+let int32x4 =
+  Mir_type.Vec (Mir_type.Elem.Int Mir_width.W32, Mir_type.Lanes.of_int 4)
 
 (* A vector register's offset: a multiple of its size, at most 4095 of them. *)
 let vec_offset arr k =
@@ -669,6 +702,11 @@ let typing op =
   | Ld1r (arr, base) ->
       let* () = need (Mir_type.equal (ty base) Mir_type.Ptr) "ld1r base" in
       Ok [ Arr.ty arr ]
+  | Ldr_ivec (t, base, k) ->
+      let* () = need (Mir_type.equal (ty base) Mir_type.Ptr) "ldr base" in
+      let* () = need (vec_offset Arr.S4 k) "ldr offset" in
+      let* () = need (Option.is_some (int_register t)) "integer register" in
+      Ok [ t ]
   | Ldr_vec (arr, base, k) ->
       let* () = need (Mir_type.equal (ty base) Mir_type.Ptr) "ldr base" in
       let* () = need (vec_offset arr k) "ldr offset" in
@@ -801,6 +839,9 @@ let typing op =
   | Scvtf (fsz, a) ->
       let* () = need (Mir_type.equal (ty a) Mir_type.i64) "scvtf source" in
       Ok [ fty fsz ]
+  | Scvtf_vec a ->
+      let* () = need (Mir_type.equal (ty a) int32x4) "scvtf source lanes" in
+      Ok [ Arr.ty Arr.S4 ]
   | Shift_imm (_, sz, a, k) ->
       let* () = need (arith sz (ty a)) "shift operand" in
       let* () = need (k >= 0 && k < Sz.bits sz) "shift amount" in
@@ -916,10 +957,25 @@ let typing op =
   | Vlogic (_, a, b) ->
       let* () =
         need
-          (Option.is_some (Arr.of_mask (ty a)) && Mir_type.equal (ty a) (ty b))
-          "mask operands"
+          ((Option.is_some (Arr.of_mask (ty a)) || Mir_type.equal (ty a) int32x4)
+          && Mir_type.equal (ty a) (ty b))
+          "mask or int32 lane operands"
       in
       Ok [ ty a ]
+  | Vcast (t, a) ->
+      let q x = Mir_type.equal x int32x4 || is_arr Arr.S4 x in
+      let* () = need (q t && q (ty a)) "a Q register's lanes" in
+      Ok [ t ]
+  | Vshift (o, k, a) ->
+      let* () = need (Mir_type.equal (ty a) int32x4) "shifted lanes" in
+      let* () =
+        need
+          (match o with
+          | Shift.Lsl -> k >= 0 && k < 32
+          | Shift.Asr | Shift.Lsr -> k >= 1 && k <= 32)
+          "lane shift amount"
+      in
+      Ok [ int32x4 ]
   | Vnot a ->
       let* () = need (Option.is_some (Arr.of_mask (ty a))) "mask operand" in
       Ok [ ty a ]
@@ -932,6 +988,16 @@ let typing op =
   | Wtrunc a ->
       let* () = need (Mir_type.equal (ty a) Mir_type.i64) "truncate source" in
       Ok [ Mir_type.i32 ]
+  | Xtl_w { signed = _; from; first; src } ->
+      let* () =
+        need
+          (match (int_register (ty src), from) with
+          | Some Mir_width.W8, Mir_width.W8 -> List.mem first [ 0; 4; 8; 12 ]
+          | Some Mir_width.W16, Mir_width.W16 -> List.mem first [ 0; 4 ]
+          | _ -> false)
+          "extended lanes"
+      in
+      Ok [ int32x4 ]
 
 let test_typing = function
   | B_cond (_, f) ->
@@ -991,6 +1057,8 @@ let pp_op pv fmt op =
   | Ldr (m, base, k) -> Fmt.pf fmt "ldr.%s [%a, #%Ld]" (Msz.name m) pv base k
   | Ldr_idx (m, base, i) ->
       Fmt.pf fmt "ldr.%s [%a, %a, sxtw]" (Msz.name m) pv base pv i
+  | Ldr_ivec (t, base, k) ->
+      Fmt.pf fmt "ldr.q %a [%a, #%Ld]" Mir_type.pp t pv base k
   | Ldr_vec (arr, base, k) ->
       Fmt.pf fmt "ldr.%s [%a, #%Ld]" (Arr.name arr) pv base k
   | Logic (o, sz, a, b) ->
@@ -1007,6 +1075,7 @@ let pp_op pv fmt op =
   | Msub (sz, a, b, c) -> Fmt.pf fmt "msub.%s %a" (Sz.name sz) vs [ a; b; c ]
   | Mul (sz, a, b) -> Fmt.pf fmt "mul.%s %a" (Sz.name sz) vs [ a; b ]
   | Scvtf (fsz, a) -> Fmt.pf fmt "scvtf.%s.x %a" (Fsz.name fsz) pv a
+  | Scvtf_vec a -> Fmt.pf fmt "scvtf.4s %a" pv a
   | Sdiv (sz, a, b) -> Fmt.pf fmt "sdiv.%s %a" (Sz.name sz) vs [ a; b ]
   | Shift_imm (o, sz, a, k) ->
       Fmt.pf fmt "%s.%s %a, #%d" (Shift.name o) (Sz.name sz) pv a k
@@ -1038,6 +1107,12 @@ let pp_op pv fmt op =
       Fmt.pf fmt "fmla.%s %a" (Arr.name arr) vs [ a; b; c ]
   | Vfunary (u, arr, a) ->
       Fmt.pf fmt "%s.%s %a" (Funary.name u) (Arr.name arr) pv a
+  | Vcast (t, a) -> Fmt.pf fmt "mov.16b.%a %a" Mir_type.pp t pv a
+  | Vshift (o, k, a) -> Fmt.pf fmt "%s.4s %a, #%d" (Shift.name o) pv a k
+  | Xtl_w { signed; from; first; src } ->
+      Fmt.pf fmt "%cxtl.4s.%s[%d] %a"
+        (if signed then 's' else 'u')
+        (Mir_width.name from) first pv src
   | Vmov (arr, a) -> Fmt.pf fmt "mov.%s %a" (Arr.name arr) pv a
   | Vwiden a -> Fmt.pf fmt "fmov.d %a" pv a
   | Wtrunc a -> Fmt.pf fmt "mov.w.x %a" pv a

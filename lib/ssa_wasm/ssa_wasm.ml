@@ -162,6 +162,43 @@ let arguments (p : Ssa_program.t) =
     (fun (b : Ssa_buffer.t) -> Ssa_id.Buffer.Set.mem b.Ssa_buffer.id !seen)
     p.Ssa_program.buffers
 
+(* The buffers a program reads with a binary32 dequantization: their per-channel
+   tables are [f32] arrays, the others' [f64]. *)
+let dequantized32 (p : Ssa_program.t) =
+  let seen = ref Ssa_id.Buffer.Set.empty in
+  let rec region (r : Ssa_region.t) = List.iter stmt r.Ssa_region.body
+  and stmt = function
+    | Ssa_stmt.Instr i -> (
+        match i.Ssa_instr.op with
+        | Ssa_op.Load { buffer; decode; _ }
+        | Ssa_op.Load_in_bounds { buffer; decode; _ }
+        | Ssa_op.Vec_load { buffer; decode; _ } -> (
+            match decode with
+            | Ssa_op.Decode.I16_dequant32 | Ssa_op.Decode.I8_dequant32 ->
+                seen := Ssa_id.Buffer.Set.add buffer !seen
+            | _ -> ())
+        | _ -> ())
+    | Ssa_stmt.For { body; _ } | Ssa_stmt.Ordered_sum { body; _ } -> region body
+    | Ssa_stmt.If { then_; else_; _ } ->
+        region then_;
+        region else_
+  in
+  region p.Ssa_program.entry;
+  !seen
+
+let f32_bytes xs =
+  let buf = Buffer.create 64 in
+  List.iter
+    (fun x ->
+      let bits = Int32.bits_of_float x in
+      for k = 0 to 3 do
+        Buffer.add_char buf
+          (Char.chr
+             (Int32.to_int (Int32.shift_right_logical bits (8 * k)) land 0xFF))
+      done)
+    xs;
+  Buffer.contents buf
+
 let f64_bytes xs =
   let buf = Buffer.create 64 in
   List.iter
@@ -205,27 +242,29 @@ let kernel ?buffers ?sites ~relaxed_madd ~table_alloc (p : Ssa_program.t) =
     }
   in
   match
-    (* per-channel parameters, once, as constant [f64] arrays *)
+    (* per-channel parameters, once, as constant arrays: [f32] for a buffer
+       read with a binary32 dequantization, [f64] otherwise *)
+    let wide32 = dequantized32 p in
     let data =
       List.concat_map
         (fun (b : Ssa_buffer.t) ->
           match b.Ssa_buffer.format with
           | Ssa_format.I8 (Ssa_format.Per_channel { scale; zero_point })
           | Ssa_format.I16 (Ssa_format.Per_channel { scale; zero_point }) ->
-              let bytes = 8 * Array.length scale in
+              let narrow = Ssa_id.Buffer.Set.mem b.Ssa_buffer.id wide32 in
+              let bytes = (if narrow then 4 else 8) * Array.length scale in
+              let table = if narrow then f32_bytes else f64_bytes in
               let scales = table_alloc ~bytes in
               let zeros = table_alloc ~bytes in
               Hashtbl.replace st.tables (b.Ssa_buffer.id :> int) (scales, zeros);
               [
                 {
                   Wasm.Data.offset = scales;
-                  bytes = f64_bytes (Array.to_list scale);
+                  bytes = table (Array.to_list scale);
                 };
                 {
                   Wasm.Data.offset = zeros;
-                  bytes =
-                    f64_bytes
-                      (Array.to_list (Array.map float_of_int zero_point));
+                  bytes = table (Array.to_list zero_point);
                 };
               ]
           | _ -> [])

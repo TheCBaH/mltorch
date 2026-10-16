@@ -53,7 +53,7 @@ let%expect_test "writers refuse a destination of another format" =
     bool into f32: destination format f32 cannot take bool writes |}]
 
 let%expect_test "create_of_sig builds what the signature declares" =
-  let q = Quant.per_tensor ~scale:0.5 ~zero_point:3 in
+  let q = Quant.per_tensor ~scale:0.5 ~zero_point:3. in
   let describe sg =
     match Err.payload (Tensor.create_of_sig sg) with
     | Ok (Tensor.Tensor t) ->
@@ -167,7 +167,7 @@ let%expect_test "default executors hand back the destination" =
 
 let quantized_tensor fmt shape cell =
   let n = (Vec6.numel shape :> int) in
-  let q = Quant.per_tensor ~scale:0.25 ~zero_point:2 in
+  let q = Quant.per_tensor ~scale:0.25 ~zero_point:2. in
   match fmt with
   | `I8 ->
       let data = Bigarray.(Array1.create int8_signed c_layout n) in
@@ -289,7 +289,7 @@ let%expect_test "quantized unbind and split_with_sizes copy raw cells and quant"
 let%expect_test "a storage copy refuses a destination of another quantization" =
   let shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:2 in
   let src = quantized_tensor `I8 shape (fun i -> i) in
-  let other_q = Quant.per_tensor ~scale:1. ~zero_point:0 in
+  let other_q = Quant.per_tensor ~scale:1. ~zero_point:0. in
   let dst_q = create (sig_ ~quant:other_q 0 shape (Payload.Fmt Payload.I8)) in
   let dst_f = create (sig_ 1 shape (Payload.Fmt Payload.I16 |> fun _ -> f32)) in
   let copy dst =

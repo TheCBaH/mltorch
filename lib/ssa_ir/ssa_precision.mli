@@ -11,13 +11,19 @@
       index is a single rounding to binary32, never through binary64.
     - A checked float-to-int64 conversion and a store widen their operand first,
       which is exact. A scratch cell is widened on write and narrowed on read.
-    - A square root, truncation, [exp], [log], [sin], [cos] is the binary64
-      function of the widened argument rounded once; [erf] is
-      {!Ssa_numerics.erf32}.
+    - A square root and a truncation are exact in binary32; [exp], [log], [sin],
+      [cos] and [erf] are the sequences of {!F32_math}.
 
     A program that already holds vectors is refused: precision is chosen first,
     then the planner vectorizes at that precision. *)
 
-val to_f32 : Ssa_program.t -> Ssa_program.t
+val to_f32 : ?exact:bool -> Ssa_program.t -> Ssa_program.t
 (** The program must verify and hold no vector operation, and
-    {!Ssa_numerics.admit} must accept it; [Invalid_argument] otherwise. *)
+    {!Ssa_numerics.admit} must accept it; [Invalid_argument] otherwise.
+
+    [exact] (default [false]) reads a binary32 cell with
+    {!Ssa_op.Decode.F32_exact} and stores a binary32 value with
+    {!Ssa_op.Encode.F32_exact}, so a kernel has no widening and narrowing around
+    its accesses, scalar or vectorized afterwards: the form every binary32 plan
+    uses. Without it a read widens and narrows (the narrowed form, kept for a
+    census). *)

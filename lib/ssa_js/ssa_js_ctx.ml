@@ -178,21 +178,25 @@ let quant_zeros cx bid = id ("b" ^ string_of_int (buffer_index cx bid) ^ "_zero"
 let decode cx (b : Ssa_buffer.t) (d : Ssa_op.Decode.t) ~(at : Ssa_access.t) cell
     =
   match d with
-  | Ssa_op.Decode.Bf16_to_f64 -> runtime R.Name.Bf16_to_float [ cell ]
-  | Ssa_op.Decode.Bool_to_f64 ->
+  | Ssa_op.Decode.Bf16_to_f32 | Ssa_op.Decode.Bf16_to_f64 ->
+      runtime R.Name.Bf16_to_float [ cell ]
+  | Ssa_op.Decode.Bool_to_f32 | Ssa_op.Decode.Bool_to_f64 ->
       A.Cond (bin A.Ne_strict cell (num 0.), num 1., num 0.)
-  | Ssa_op.Decode.F16_to_f64 -> runtime R.Name.F16_to_float [ cell ]
-  | Ssa_op.Decode.F32_to_f64 | Ssa_op.Decode.F64_to_f64
-  | Ssa_op.Decode.I32_to_f64 ->
+  | Ssa_op.Decode.F16_to_f32 | Ssa_op.Decode.F16_to_f64 ->
+      runtime R.Name.F16_to_float [ cell ]
+  | Ssa_op.Decode.F32_exact | Ssa_op.Decode.F32_to_f64
+  | Ssa_op.Decode.F64_to_f64 | Ssa_op.Decode.I32_to_f64
+  | Ssa_op.Decode.I32_to_f32 ->
       cell
   | Ssa_op.Decode.I64 -> cell
   | Ssa_op.Decode.I64_to_f64 -> number_of cell
-  | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I8_dequant -> (
+  | Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I16_dequant32
+  | Ssa_op.Decode.I8_dequant | Ssa_op.Decode.I8_dequant32 -> (
       match Ssa_format.quant b.Ssa_buffer.format with
       | None ->
           invalid_arg "Ssa_js: a dequantizing load of an unquantized buffer"
       | Some (Ssa_format.Per_tensor { scale; zero_point }) ->
-          bin A.Mul (num scale) (bin A.Sub cell (lit zero_point))
+          bin A.Mul (num scale) (bin A.Sub cell (num zero_point))
       | Some (Ssa_format.Per_channel { scale; zero_point }) ->
           let bid = b.Ssa_buffer.id in
           if
@@ -212,11 +216,7 @@ let decode cx (b : Ssa_buffer.t) (d : Ssa_op.Decode.t) ~(at : Ssa_access.t) cell
                       A.Array (Array.to_list (Array.map num scale)) );
                   A.Stmt.Const
                     ( quant_zeros cx bid,
-                      A.Array
-                        (Array.to_list
-                           (Array.map
-                              (fun z -> num (float_of_int z))
-                              zero_point)) );
+                      A.Array (Array.to_list (Array.map num zero_point)) );
                 ];
           let channel =
             match at with

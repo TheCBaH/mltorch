@@ -76,8 +76,10 @@ end
    float and an index converted to a float are all admitted: each is one rounding
    to binary32 of an exactly known value, in the oracle, in C and in Wasm alike
    (a [float] cast; [f32.convert_i64_s] and [f32.demote_f64] of an exact widening
-   in Wasm, never an int64 through binary64 first). What stays refused is a
-   payload with no binary32 decode. *)
+   in Wasm, never an int64 through binary64 first). A quantized [i8] or [i16]
+   read is the explicit operations over binary32 parameters ([q] to float, minus
+   the zero point, times the scale, each rounded once). What stays refused is a
+   payload with no binary32 decode: none today. *)
 exception Refused of Refusal.t
 
 let fmt_name (b : Loop_buffer.t) =
@@ -86,7 +88,7 @@ let fmt_name (b : Loop_buffer.t) =
 
 let check_load (b : Loop_buffer.t) =
   match fmt_name b with
-  | "bf16" | "bool" | "f16" | "f32" | "f64" | "i32" | "i64" -> ()
+  | "bf16" | "bool" | "f16" | "f32" | "f64" | "i16" | "i32" | "i64" | "i8" -> ()
   | f -> raise (Refused (Refusal.Wide_load (b.Loop_buffer.id, f)))
 
 let rec expr : type a. a Loop_expr.t -> unit = function

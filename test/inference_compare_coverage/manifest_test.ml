@@ -6,6 +6,8 @@ let views = [ "aten"; "native"; "native.canonical"; "native4d" ]
 
 let configurations =
   [
+    "fp32";
+    "fp32s";
     "sequential32";
     "release";
     "arena";
@@ -86,7 +88,7 @@ let%expect_test "a missing row is found" =
           | Error m -> failwith m)));
   [%expect
     {|
-    22 words uncovered; rivet among them: true
+    37 words uncovered; rivet among them: true
     unknown: [fast] |}]
 
 let%expect_test "a malformed manifest is rejected, naming the line" =

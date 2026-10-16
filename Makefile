@@ -1,6 +1,6 @@
 .PHONY: machine.rivet.rv32.runtest compcert.rv32.install compcert.rv32.runtest model.compare.coverage js.compare.runtest rivet.compare.runtest transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open model.compare model.download model.compare.gate model.fetch.timm model.fetch.fixture transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.native4d.runtest c.pt2.native4d.ssa.runtest c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
-	check.file-size check.int-signatures check.whitespace clean machine.a64.conformance machine.pt2.census \
+	check.file-size check.int-signatures check.whitespace clean fp32.pt2.runtest fp32.pt2.census machine.a64.conformance machine.pt2.census ssa.vector.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
 	expr_probe.deep-runtest expr_probe.runtest format fp32.bench fp32.bench.wasm inference inference-runa \
 	inline-timing-report inline-timing-report-js js.build js.runtest \
@@ -242,13 +242,14 @@ transformers.open:
 # Either orientation works between the
 # Native views, and one view against itself compares two configurations; ATen is
 # on the left because the importer's correspondence is ATen to Native. TOL is the atol and rtol of the
-# binary32 element comparison. Exit status: 0 agreement, 1 disagreement (make
+# binary32 element comparison (default 1e-4; exact between two :fp32 engines). Exit status: 0 agreement, 1 disagreement (make
 # reports 2), 3 refused or failed, 4 not established.
 CASE ?= case-00
 LEFT ?= aten
 RIGHT ?= native
 SAMPLE ?= 0
-TOL ?= 1e-4
+# Unset: the pair run chooses -- exact between two fp32 engines, 1e-4 otherwise.
+TOL ?=
 DONOR ?= left
 MODEL_INFO = _build/default/bin/model_info.exe
 PAIR_RUN = _build/default/test/inference_compare_pt2/fixture_pair_run.exe
@@ -272,7 +273,7 @@ model.compare.%:
 model.compare: model.download
 	@test -n "$(MODEL)" || { echo "usage: make model.compare.<model> (or MODEL=<model>)" >&2; exit 2; }
 	@opam exec -- dune build test/inference_compare_pt2/fixture_pair_run.exe
-	@TOL=$(TOL) DONOR=$(DONOR) SAMPLE=$(SAMPLE) CASE=$(CASE) \
+	@$(if $(TOL),TOL=$(TOL)) DONOR=$(DONOR) SAMPLE=$(SAMPLE) CASE=$(CASE) \
 		MODELS_DIR=$(PT2_JSON_MODELS_DIR) COHORT=$(TRANSFORMERS_COHORT) \
 		CACHE_DIR=$(TRANSFORMERS_CACHE) RELEASE_DIR=$(PT2_DIR) \
 		$(PAIR_RUN) model "$(MODEL)" $(LEFT) $(RIGHT)
@@ -1398,6 +1399,61 @@ wasm.pt2.ssa.runtest: wasm.pt2.exe
 	  done; \
 	done
 
+# Binary32 for every kernel (the Fp32_ordered policy): each CI model through
+# generated C and Wasm, Loop and SSA kernels, within the frozen tolerance of the
+# binary64 reference (--shadow-numeric, 1e-4), then every pair of fp32 engines
+# exactly equal, unit by unit (the comparison tool's default between two fp32
+# engines is exact). FP32_COMPARE_MODELS narrows the exact pairs, which run a
+# full reference graph each.
+FP32_COMPARE_MODELS ?= $(PT2_MODELS_CRAM)
+FP32_PAIRS = loop-c-fp32:ssa-c-fp32 loop-c-fp32:loop-wasm-fp32 \
+	loop-wasm-fp32:ssa-wasm-fp32
+# The Rivet AArch64 engines refuse on any other host.
+ifeq ($(shell uname -m),aarch64)
+FP32_PAIRS += loop-c-fp32:rivet-fp32 \
+	rivet-fp32:rivet-table-fp32 rivet-scanned-fp32:rivet-table-scanned-fp32 \
+	rivet-fp32:rivet-fp32s
+endif
+fp32.pt2.runtest: c.pt2.exe wasm.pt2.exe
+	for m in $(PT2_MODELS_CRAM) csatv2; do \
+	  $(MAKE) pt2.download PT2_MODEL=$$m && \
+	  for exe in $(CURDIR)/$(C_PT2_EXE) $(CURDIR)/$(WASM_PT2_EXE); do \
+	    for ssa in "" "--ssa=planned"; do \
+	      (cd $(PT2_DIR)/$$m && echo "== $$m: $$(basename $$exe) $$ssa" && \
+	       $$exe $$m.pt2 inputs.pt expected.json outputs.pt --strict --numerics=fp32_ordered --shadow-numeric --poison --samples=1 $$ssa) || exit 1; \
+	    done; \
+	  done; \
+	done
+	for m in $(FP32_COMPARE_MODELS); do \
+	  for p in $(FP32_PAIRS); do \
+	    l=$${p%%:*}; r=$${p##*:}; \
+	    echo "== $$m: $$l | $$r (exact)"; \
+	    $(MAKE) --no-print-directory model.compare MODEL=$$m LEFT=native.canonical:$$l RIGHT=native.canonical:$$r > /tmp/fp32_pair.log 2>&1 \
+	      || { cat /tmp/fp32_pair.log; exit 1; }; \
+	    grep -E "^left |^comparisons:" /tmp/fp32_pair.log; \
+	  done; \
+	done
+
+# The binary64 census of every CI model under Fp32_ordered with vectors on:
+# the SSA Wasm module (instructions and imports), the generic Machine IR and
+# the Rivet AArch64 assembly must each be zero in every role. Lowering and
+# planning only, plus one quick node run per model for the module.
+FP32_CENSUS_ZERO_WASM = arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+FP32_CENSUS_ZERO_MIR = arithmetic 0, conversion 0, helper_call 0, memory_move 0; helpers []
+FP32_CENSUS_ZERO_ASM = arithmetic 0, conversion 0, memory_move 0
+fp32.pt2.census: wasm.pt2.exe
+	opam exec -- dune build bin/machine_model_census.exe bin/machine_rivet_a64_census.exe
+	for m in $(PT2_MODELS_CRAM) csatv2; do \
+	  $(MAKE) pt2.download PT2_MODEL=$$m && \
+	  echo "== $$m" && \
+	  (cd $(PT2_DIR)/$$m && $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --numerics=fp32_ordered --ssa=planned --samples=1 2>&1) \
+	    | grep "binary64 census" | tee /dev/stderr | grep -qF "$(FP32_CENSUS_ZERO_WASM)" || exit 1; \
+	  _build/default/bin/machine_model_census.exe $(PT2_DIR)/$$m/$$m.pt2 --ssa=fp32 --f64 \
+	    | grep "binary64 instructions" | tee /dev/stderr | grep -qF "$(FP32_CENSUS_ZERO_MIR)" || exit 1; \
+	  _build/default/bin/machine_rivet_a64_census.exe $(PT2_DIR)/$$m/$$m.pt2 --planned=fp32 --asm --run=0 \
+	    | grep "binary64 assembly" | tee /dev/stderr | grep -qF "$(FP32_CENSUS_ZERO_ASM)" || exit 1; \
+	done
+
 # The Native4D dialect through direct Wasm, under node (see
 # c.pt2.native4d.runtest).
 wasm.pt2.native4d.runtest: wasm.pt2.exe
@@ -1589,6 +1645,16 @@ machine.pt2.census:
 	for m in $(C_PT2_CI_MODELS); do \
 	  $(MAKE) pt2.download PT2_MODEL=$$m && \
 	  _build/default/bin/machine_model_census.exe $(PT2_DIR)/$$m/$$m.pt2 || exit 1; \
+	done
+
+# What the binary32 vector planners take of each model: the SSA vectorizer
+# on the narrowed and the exact binary32 form, and the Loop planner under
+# Fp32_ordered, for neon128 and wasm128. Planning only; needs the model data.
+ssa.vector.census:
+	opam exec -- dune build bin/ssa_vector_census.exe
+	for m in $(PT2_MODELS_ALL); do \
+	  $(MAKE) pt2.download PT2_MODEL=$$m && \
+	  _build/default/bin/ssa_vector_census.exe $(PT2_DIR)/$$m/$$m.pt2 || exit 1; \
 	done
 
 c.runtest.all: c.runtest.o0 c.runtest.san

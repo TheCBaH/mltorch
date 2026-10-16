@@ -26,6 +26,16 @@ let read (Tensor t) (coord : Vec6.coord) =
   let i = (Vec6.offset t.shape coord :> int) in
   Payload.get_float t.payload ~c:(channel coord) ~i
 
+(* [read] for a binary32 working type: a quantized cell dequantizes with
+   binary32 operations ({!Payload.get_float32}). *)
+let read32 (Tensor t) (coord : Vec6.coord) =
+  if not (Vec6.in_bounds t.shape coord) then
+    invalid_arg
+      (Format.asprintf "Tensor.read32: coord %a out of bounds for shape %a"
+         Vec6.pp_coord coord Vec6.pp_shape t.shape);
+  let i = (Vec6.offset t.shape coord :> int) in
+  Payload.get_float32 t.payload ~c:(channel coord) ~i
+
 (* Strict read at 6 explicit indices, one per axis — the primitive ops reach
    through the semantics' [load6], which makes this the innermost
    per-element path for every real op (millions of calls per real
@@ -69,6 +79,12 @@ let read_at packed (idx : Axis.t -> Dim.index Dim.t) =
    the hot path [read_at] is optimized for. *)
 let read_at_raw packed (idx : Axis.t -> int) =
   read packed
+    (Vec6.coord ~n:(idx N) ~t:(idx T) ~d:(idx D) ~h:(idx H) ~w:(idx W)
+       ~c:(idx C))
+
+(* [read_at_raw] at binary32 (see {!read32}). *)
+let read_at_raw32 packed (idx : Axis.t -> int) =
+  read32 packed
     (Vec6.coord ~n:(idx N) ~t:(idx T) ~d:(idx D) ~h:(idx H) ~w:(idx W)
        ~c:(idx C))
 

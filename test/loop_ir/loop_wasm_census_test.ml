@@ -145,3 +145,49 @@ let%expect_test "binary64 census of the corpus, reference and forced binary32" =
     f32 sin over the spread
       f64: arithmetic 2, conversion 3, helper_call 1, memory_move 1; imports 1
       f32: arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0 |}]
+
+(* The check can fail: one [f64] promotion injected into a binary32 kernel's
+   emitted body is counted, as a conversion, and a binary32 module with an
+   [f64.add] is counted as arithmetic. *)
+let%expect_test "an injected f64 operation is caught by the census" =
+  let _, p = List.hd Loop_vector_programs.all in
+  let m =
+    match
+      Err.payload (Loop_wasm.lower ~precision:Loop_numerics.Precision.F32 p)
+    with
+    | Ok l -> l.Loop_wasm.module_
+    | Error e -> Fmt.failwith "%a" Loop_wasm.pp_error e
+  in
+  Fmt.pr "emitted:  %a@." Wasm_census.pp (Wasm_census.of_module m);
+  let inject extra =
+    {
+      m with
+      Wasm.Module.funcs =
+        List.map
+          (fun (f : Wasm.Func.t) ->
+            { f with Wasm.Func.body = f.Wasm.Func.body @ extra })
+          m.Wasm.Module.funcs;
+    }
+  in
+  Fmt.pr "promote:  %a@." Wasm_census.pp
+    (Wasm_census.of_module
+       (inject
+          [
+            Wasm.Instr.F32_const 0l;
+            Wasm.Instr.Numeric Wasm_op.F64_promote_f32;
+            Wasm.Instr.Drop;
+          ]));
+  Fmt.pr "f64 add:  %a@." Wasm_census.pp
+    (Wasm_census.of_module
+       (inject
+          [
+            Wasm.Instr.F64_const 0L;
+            Wasm.Instr.F64_const 0L;
+            Wasm.Instr.Numeric Wasm_op.F64_add;
+            Wasm.Instr.Drop;
+          ]));
+  [%expect
+    {|
+    emitted:  arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
+    promote:  arithmetic 0, conversion 1, helper_call 0, memory_move 0; imports 0
+    f64 add:  arithmetic 1, conversion 0, helper_call 0, memory_move 2; imports 0 |}]

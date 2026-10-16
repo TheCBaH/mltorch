@@ -23,6 +23,15 @@ module Convert = struct
     | Index_to_i64 -> "index_to_i64"
 end
 
+module Cell = struct
+  (* The working type of a scratch cell: every cell is one eight-byte slot, and
+     a binary32 value occupies its low four bytes. A cell is read at the type
+     it was written at. *)
+  type t = F32 | F64
+
+  let name = function F32 -> "f32" | F64 -> "f64"
+end
+
 module Compare = struct
   (* Ordered comparisons. A float comparison with a NaN is false, and signed
      zeros are equal. *)
@@ -42,45 +51,64 @@ end
 module Decode = struct
   (* A load's decode: a stored cell to the working type it produces. A
      quantized cell is [scale * (q - zero_point)] with the buffer's parameters,
-     the channel taken from the access's C coordinate. *)
+     the channel taken from the access's C coordinate. [F32_exact] reads a
+     binary32 cell as the binary32 value it is: what a binary32 kernel uses, so
+     no widening and narrowing surrounds the load. *)
   type t =
+    | Bf16_to_f32
     | Bf16_to_f64
+    | Bool_to_f32
     | Bool_to_f64
+    | F16_to_f32
     | F16_to_f64
+    | F32_exact
     | F32_to_f64
     | F64_to_f64
     | I16_dequant
+    | I16_dequant32
+    | I32_to_f32
     | I32_to_f64
     | I64
     | I64_to_f64
     | I8_dequant
+    | I8_dequant32
 
   let name = function
+    | Bf16_to_f32 -> "bf16_to_f32"
     | Bf16_to_f64 -> "bf16_to_f64"
+    | Bool_to_f32 -> "bool_to_f32"
     | Bool_to_f64 -> "bool_to_f64"
+    | F16_to_f32 -> "f16_to_f32"
     | F16_to_f64 -> "f16_to_f64"
+    | F32_exact -> "f32_exact"
     | F32_to_f64 -> "f32_to_f64"
     | F64_to_f64 -> "f64_to_f64"
     | I16_dequant -> "i16_dequant"
+    | I16_dequant32 -> "i16_dequant32"
+    | I32_to_f32 -> "i32_to_f32"
     | I32_to_f64 -> "i32_to_f64"
     | I64 -> "i64"
     | I64_to_f64 -> "i64_to_f64"
     | I8_dequant -> "i8_dequant"
+    | I8_dequant32 -> "i8_dequant32"
 
   (* The family of buffer a decode reads. *)
   let family = function
-    | Bf16_to_f64 -> Ssa_format.Family.Bf16
-    | Bool_to_f64 -> Ssa_format.Family.Bool
-    | F16_to_f64 -> Ssa_format.Family.F16
-    | F32_to_f64 -> Ssa_format.Family.F32
+    | Bf16_to_f32 | Bf16_to_f64 -> Ssa_format.Family.Bf16
+    | Bool_to_f32 | Bool_to_f64 -> Ssa_format.Family.Bool
+    | F16_to_f32 | F16_to_f64 -> Ssa_format.Family.F16
+    | F32_exact | F32_to_f64 -> Ssa_format.Family.F32
     | F64_to_f64 -> Ssa_format.Family.F64
-    | I16_dequant -> Ssa_format.Family.I16
-    | I32_to_f64 -> Ssa_format.Family.I32
+    | I16_dequant | I16_dequant32 -> Ssa_format.Family.I16
+    | I32_to_f32 | I32_to_f64 -> Ssa_format.Family.I32
     | I64 | I64_to_f64 -> Ssa_format.Family.I64
-    | I8_dequant -> Ssa_format.Family.I8
+    | I8_dequant | I8_dequant32 -> Ssa_format.Family.I8
 
   let result = function
     | I64 -> Ssa_type.Scalar Ssa_type.I64
+    | Bf16_to_f32 | Bool_to_f32 | F16_to_f32 | F32_exact | I16_dequant32
+    | I32_to_f32 | I8_dequant32 ->
+        Ssa_type.Scalar Ssa_type.F32
     | Bf16_to_f64 | Bool_to_f64 | F16_to_f64 | F32_to_f64 | F64_to_f64
     | I16_dequant | I32_to_f64 | I64_to_f64 | I8_dequant ->
         Ssa_type.Scalar Ssa_type.F64
@@ -100,20 +128,23 @@ end
 
 module Encode = struct
   (* A store's encode: a working value to a stored cell. [Bool_nonzero] writes
-     [v <> 0.] as a canonical 0/1 byte; [F32_round] rounds to binary32. *)
-  type t = Bool_nonzero | F32_round | I64
+     [v <> 0.] as a canonical 0/1 byte; [F32_round] rounds to binary32;
+     [F32_exact] stores a binary32 value as it is. *)
+  type t = Bool_nonzero | F32_exact | F32_round | I64
 
   let name = function
     | Bool_nonzero -> "bool_nonzero"
+    | F32_exact -> "f32_exact"
     | F32_round -> "f32_round"
     | I64 -> "i64"
 
   let family = function
     | Bool_nonzero -> Ssa_format.Family.Bool
-    | F32_round -> Ssa_format.Family.F32
+    | F32_exact | F32_round -> Ssa_format.Family.F32
     | I64 -> Ssa_format.Family.I64
 
   let operand = function
+    | F32_exact -> Ssa_type.Scalar Ssa_type.F32
     | Bool_nonzero | F32_round -> Ssa_type.Scalar Ssa_type.F64
     | I64 -> Ssa_type.Scalar Ssa_type.I64
 end
@@ -197,9 +228,10 @@ type t =
   | Local_alloc of { slots : int64; var : Expr.Local_var.t option }
       (** A fresh scratch object of [slots] binary64 cells, every cell unset. A
           read of an unset cell is a defect, never an undefined value. *)
-  | Local_read of { local : Ssa_value.t; at : Ssa_value.t }
+  | Local_read of { local : Ssa_value.t; at : Ssa_value.t; cell : Cell.t }
       (** Outside the object fails as an unbound local when the object names a
-          variable, and is a defect when it does not. *)
+          variable, and is a defect when it does not. [cell] is the type the
+          cell was written at, and the type of the result. *)
   | Local_write of {
       local : Ssa_value.t;
       at : Ssa_value.t;
@@ -320,7 +352,7 @@ let rec operands = function
   | Pred_or (a, b) ->
       [ a; b ]
   | Check_scan { row; lane; _ } -> [ row; lane ]
-  | Local_read { local; at } -> [ local; at ]
+  | Local_read { local; at; _ } -> [ local; at ]
   | Local_write { local; at; value } -> [ local; at; value ]
   | Select (p, a, b) -> [ p; a; b ]
   | Store { at; value; _ } -> Ssa_access.operands at @ [ value ]
@@ -345,10 +377,10 @@ let rec map_operands f = function
       let row = f row in
       let lane = f lane in
       Check_scan { var; row; lane; row_extent; lane_extent }
-  | Local_read { local; at } ->
+  | Local_read { local; at; cell } ->
       let local = f local in
       let at = f at in
-      Local_read { local; at }
+      Local_read { local; at; cell }
   | Local_write { local; at; value } ->
       let local = f local in
       let at = f at in

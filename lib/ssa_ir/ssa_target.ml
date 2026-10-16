@@ -27,6 +27,7 @@ module Op = struct
     | Sub
     | Mul
     | Transcendental
+    | Transcendental_sequence
     | Value_compare
 
   let all =
@@ -53,6 +54,7 @@ module Op = struct
       Sub;
       Mul;
       Transcendental;
+      Transcendental_sequence;
       Value_compare;
     ]
 
@@ -79,6 +81,7 @@ module Op = struct
     | Sub -> "sub"
     | Mul -> "mul"
     | Transcendental -> "transcendental"
+    | Transcendental_sequence -> "transcendental_sequence"
     | Value_compare -> "value_compare"
 end
 
@@ -100,11 +103,8 @@ type t = {
 
 (* The lanes of one register in the working precision, and how many registers a
    logical vector spans. *)
-let elem_bits = function
-  | Ssa_numerics.Precision.F32 -> 32
-  | Ssa_numerics.Precision.F64 -> 64
-
-let reg_lanes ~precision bits = bits / elem_bits precision
+let reg_lanes ~precision bits =
+  bits / Ssa_type.bits (Ssa_numerics.Precision.scalar precision)
 
 (* What one lane costs scalar, in units of one binary64 add. A conversion
    narrows and widens (two instructions); a division or square root is slower
@@ -127,7 +127,7 @@ let scalar_cost ~precision = function
   | Op.Strided_load ->
       1.
   | Op.Contiguous_store | Op.Strided_store -> 1.
-  | Op.Transcendental -> 8.
+  | Op.Transcendental | Op.Transcendental_sequence -> 8.
 
 (* Extract a lane, operate on it, put the result back: the overhead an expanded
    lane pays on top of its scalar operation. *)
@@ -203,6 +203,9 @@ let native_cost ~vector_bits ~precision ~lanes op =
   | Op.Contiguous_load | Op.Convert_i32_load | Op.Contiguous_store ->
       convert *. regs
   | Op.Broadcast_load | Op.Splat | Op.Index_value -> regs +. 1.
+  | Op.Transcendental_sequence ->
+      (* the binary32 sequence once per register, at a scalar call's price *)
+      8. *. regs
   | Op.Bool_store | Op.Strided_load | Op.Strided_store | Op.Transcendental ->
       (* never native *)
       scalar_cost ~precision op

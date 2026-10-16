@@ -158,6 +158,31 @@ the host process. The manifest lists the declared helpers and, separately, the
 helpers the image carries with a digest of that code. The shared design of the
 owned `exp` is in the x86-64 record.
 
+The binary32 functions are not helpers at all: under the planned `Fp32_ordered`
+pipeline `Mir_lower` expands `exp`, `log`, `sin`, `cos` and `erf` at an `f32`
+operand inline as generic binary32 instructions (`F32_math` instantiated over
+the Machine IR builder), so every target gets them with no leaf and no call, and
+`Dependency_free` carries them as plain code; at a binary32 vector they are the
+same sequence on the vector (`.4s` arithmetic, `FCMGT`/`FCMEQ` masks, `BIT`).
+Only a binary64 operand still calls `Mir_math` or the owned `exp`. Planned
+`Fp32_ordered` vectors need no form beyond the `Simd_fp32_*` ones: an exact
+binary32 access is `LDR/STR Q`, `LD1R` or `LD1`/`ST1` lanes on `.4s`, with no
+`FCVTL`/`FCVTN`. A contiguous binary32 dequantization of `i8`/`i16` cells reads
+integer lanes: `LDR Q` of sixteen bytes or eight halfwords (`Ldr_ivec`), each
+four-lane slice sign-extended to `.4s` in place (`Sxtl_w`: `SXTL`/`SXTL2`, twice
+from bytes), `SCVTF .4s` (`Scvtf_vec`), then the binary32 subtract and multiply.
+The encoder has no `SXTL`, vector `SCVTF` or `.8h`/`.16b` arrangements, so the
+form layer emits those two forms as their encoded instruction words, a
+four-byte datum in the code (`Rivet_a64_form.items`); GNU assembles the module
+to the same bytes, and the conformance suite runs every word form on the CPU.
+Contiguous `f16`/`bf16` cells read straight to binary32 the same way: `UXTL`
+(`Xtl_w` unsigned), lane shifts `SHL`/`USHR`/`SSHR` (`Vshift`, encoded words
+too), `ORR .16b` on int32 lanes and `MOV .16b` for a vector bitcast (`Vcast`).
+`FCVTL .4s, .4h` is not used: it quiets a signalling NaN, and the binary16
+decode keeps every NaN's bits (sign, all-ones exponent, mantissa shifted), so
+`FCVTL` would differ from the scalar oracle on 1022 encodings. Strided reads stay
+a scalar decode per lane.
+
 ## GNU as an independent encoder
 
 `lib/machine_rivet_aarch64_gnu` prints the same `Normalized_ast` module with

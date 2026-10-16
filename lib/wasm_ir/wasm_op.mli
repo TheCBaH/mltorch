@@ -31,6 +31,7 @@ type t =
   | F32_trunc
   | F32x4_abs
   | F32x4_add
+  | F32x4_convert_i32x4_s
   | F32x4_demote_f64x2_zero
   | F32x4_div
   | F32x4_eq
@@ -99,6 +100,7 @@ type t =
   | F64x2_sqrt
   | F64x2_sub
   | F64x2_trunc
+  | I16x8_extend_low_i8x16_s
   | I32_add
   | I32_and
   | I32_clz
@@ -132,6 +134,12 @@ type t =
   | I32_trunc_sat_f64_u
   | I32_wrap_i64
   | I32_xor
+  | I32x4_add
+  | I32x4_eq
+  | I32x4_extend_low_i16x8_s
+  | I32x4_extend_low_i16x8_u
+  | I32x4_shl
+  | I32x4_shr_u
   | I32x4_splat
   | I32x4_trunc_sat_f64x2_s_zero
   | I32x4_trunc_sat_f64x2_u_zero

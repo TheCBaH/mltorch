@@ -284,3 +284,534 @@ let%expect_test "lane-wise functions, fused multiply-add and binary32 vectors" =
     ok | 1.22474 nan 1.80278 0 1.22474 nan 1.80278 0 | C agrees with the interpreter: true | optimized C agrees: true
     ok | 1 -2 3 0 1 -2 3 0 | C agrees with the interpreter: true | optimized C agrees: true
     ok | 7.6 13.1 22.85 0.1 7.6 13.1 22.85 0.1 | C agrees with the interpreter: true | optimized C agrees: true |}]
+
+(* ---- the binary32 vector plan under gcc -----------------------------------------
+
+   Programs wide enough for sixteen binary32 lanes, planned by
+   {!Ssa_plan.fp32_vector} for neon128 (priced and forced), emitted as C and
+   run on inputs that hold NaN, signed zeros, binary32 subnormals and
+   infinities. The vector kernel, the plan's lane-by-lane oracle in the
+   interpreter and the scalar [Fp32_ordered] kernel agree bit for bit; a
+   contiguous binary32 access is one whole-register copy. *)
+
+let specials32 =
+  Array.map Ssa_const.round_f32
+    [|
+      Float.nan;
+      -0.;
+      0.;
+      Float.infinity;
+      Float.neg_infinity;
+      1e-40;
+      -1.4e-45;
+      3.4e38;
+      -3.4e38;
+      1.;
+      -1.;
+      0.375;
+      -2.5;
+      1e-38;
+      65504.;
+      -7.;
+    |]
+
+let input_cell k =
+  if k mod 3 = 0 then specials32.(k / 3 mod 16)
+  else Ssa_const.round_f32 (float_of_int ((k mod 23) - 11) *. 0.3125)
+
+let cell_count (b : Ssa_buffer.t) =
+  List.fold_left
+    (fun n e -> n * Int64.to_int e)
+    1
+    (Expr.Coord.to_list b.Ssa_buffer.extents)
+
+let shape_of (b : Ssa_buffer.t) =
+  let e = Expr.Coord.map Int64.to_int b.Ssa_buffer.extents in
+  Vec6.shape ~n:e.Expr.Coord.n ~t:e.Expr.Coord.t ~d:e.Expr.Coord.d
+    ~h:e.Expr.Coord.h ~w:e.Expr.Coord.w ~c:e.Expr.Coord.c
+
+let inputs (p : Ssa_program.t) =
+  List.filter
+    (fun (b : Ssa_buffer.t) -> b.Ssa_buffer.role = Ssa_buffer.Input)
+    p.Ssa_program.buffers
+
+let outputs (p : Ssa_program.t) =
+  List.filter
+    (fun (b : Ssa_buffer.t) -> b.Ssa_buffer.role = Ssa_buffer.Output)
+    p.Ssa_program.buffers
+
+(* Every output cell, in buffer then cell order. *)
+let interpreted (p : Ssa_program.t) =
+  let memory =
+    Ssa_id.Buffer.Map.of_seq
+      (List.to_seq
+         (List.map
+            (fun (b : Ssa_buffer.t) ->
+              ( b.Ssa_buffer.id,
+                floats
+                  (Array.init (cell_count b) (fun k ->
+                       if b.Ssa_buffer.role = Ssa_buffer.Input then input_cell k
+                       else 0.)) ))
+            p.Ssa_program.buffers))
+  in
+  match run_result p ~memory with
+  | Error e -> Error (Fmt.str "%a" Ssa_interp.pp_error e)
+  | Ok () ->
+      Ok
+        (List.concat_map
+           (fun (b : Ssa_buffer.t) ->
+             match Ssa_memory.find memory b.Ssa_buffer.id with
+             | Some (Ssa_memory.Floats a) -> Array.to_list a
+             | _ -> [])
+           (outputs p))
+
+let in_c (p : Ssa_program.t) =
+  match Ssa_c.kernel ~name:Loop_c_exec.kernel_name p with
+  | Error e -> (Error (Fmt.str "%a" Ssa_c.pp_error e), 0)
+  | Ok (kernel, sites) -> (
+      let loop =
+        Lf.program
+          ~buffers:
+            (List.map Ssa_bridge.Loop_of_ssa.loop_buffer (Ssa_c.arguments p))
+          []
+      in
+      let tid (b : Ssa_buffer.t) =
+        Lf.tid (Ssa_id.Buffer.to_int b.Ssa_buffer.id)
+      in
+      let bind id =
+        List.find_map
+          (fun (b : Ssa_buffer.t) ->
+            if Tensor_id.equal id (tid b) then
+              let shape = shape_of b in
+              Some
+                (Lf.f32_tensor shape (fun c ->
+                     input_cell (Vec6.offset shape c :> int)))
+            else None)
+          (inputs p)
+      in
+      (* the whole-register copies the kernel makes *)
+      let copies =
+        List.length
+          (String.split_on_char '\n' kernel.Loop_ir.Loop_c.source
+          |> List.filter (fun l ->
+              let k = "memcpy" in
+              let n = String.length k in
+              let rec has i =
+                i + n <= String.length l && (String.sub l i n = k || has (i + 1))
+              in
+              has 0))
+      in
+      match Err.payload (Loop_c_exec.exec_kernel ~kernel ~sites loop ~bind) with
+      | Error e -> (Error (Fmt.str "%a" Loop_c_exec.pp_error e), copies)
+      | Ok out ->
+          ( Ok
+              (List.concat_map
+                 (fun (b : Ssa_buffer.t) ->
+                   let t = Tensor_id.Map.find (tid b) out in
+                   let shape = shape_of b in
+                   let acc = ref [] in
+                   Vec6.iter shape (fun c -> acc := Tensor.read t c :: !acc);
+                   List.rev !acc)
+                 (outputs p)),
+            copies ))
+
+let same_floats a b =
+  match (a, b) with
+  | Ok x, Ok y ->
+      List.length x = List.length y
+      && List.for_all2 Core.Float_bits.equal_portable x y
+  | Error x, Error y -> String.equal x y
+  | _ -> false
+
+let fp32_c name p =
+  let scalar =
+    (Ssa_plan.resolve ~alias:Ssa_effects.Distinct_buffers
+       ~target:Ssa_target.scalar ~numerics:Ssa_numerics.Fp32_ordered p)
+      .Ssa_plan.program
+  in
+  let scalar_c, _ = in_c scalar in
+  List.iter
+    (fun (tname, target) ->
+      match
+        Ssa_plan.fp32_vector ~alias:Ssa_effects.Distinct_buffers ~target p
+      with
+      | Error _ -> Fmt.pr "%s %s: not admitted@." name tname
+      | Ok plan ->
+          let vector, copies = in_c plan.Ssa_plan.program in
+          let loops =
+            List.length
+              (List.filter
+                 (fun (d : Ssa_vectorize.Decision.t) ->
+                   d.Ssa_vectorize.Decision.outcome
+                   = Ssa_vectorize.Decision.Vectorized)
+                 plan.Ssa_plan.vectorized)
+          in
+          Fmt.pr
+            "%-16s %-7s vector loops %d; = oracle %b; = scalar %b; %d copies@."
+            name tname loops
+            (same_floats vector (interpreted (Ssa_plan.oracle plan)))
+            (same_floats vector scalar_c)
+            copies)
+    [
+      ("priced", Ssa_target.neon128);
+      ("forced", Ssa_target.forced Ssa_target.neon128);
+    ]
+
+let wide_bufs =
+  [
+    row 32L Ssa_format.F32 Ssa_buffer.Input 0;
+    row 32L Ssa_format.F32 Ssa_buffer.Output 1;
+  ]
+
+let wide_loop body =
+  build ~buffers:wide_bufs (fun bld ->
+      let B.Nil =
+        B.for_ bld ~lo:(idx bld 0) ~hi:(idx bld 32) ~init:B.Nil
+          (fun bld w B.Nil ->
+            body bld w;
+            B.Nil)
+      in
+      ())
+
+let ld bld w =
+  B.load_f64 bld (buf 0) ~decode:Ssa_op.Decode.F32_to_f64
+    (at bld ~h:(idx bld 0) ~w)
+
+let st bld w x =
+  B.store_f64 bld (buf 1) ~encode:Ssa_op.Encode.F32_round
+    (at bld ~h:(idx bld 0) ~w)
+    x
+
+let%expect_test "binary32 vector plans under gcc" =
+  let f = B.f64_binary in
+  fp32_c "contiguous"
+    (wide_loop (fun bld w ->
+         st bld w (f bld Expr.Value.Mul (ld bld w) (B.f64 bld 2.))));
+  fp32_c "reversed read"
+    (wide_loop (fun bld w ->
+         st bld w
+           (ld bld (B.index_add bld (idx bld 31) (B.index_scale bld (-1L) w)))));
+  fp32_c "broadcast read"
+    (wide_loop (fun bld w ->
+         st bld w (f bld Expr.Value.Add (ld bld w) (ld bld (idx bld 5)))));
+  fp32_c "mask and select"
+    (wide_loop (fun bld w ->
+         let x = ld bld w in
+         let neg = B.float_compare bld Ssa_op.Compare.Lt x (B.f64 bld 0.) in
+         st bld w (B.select bld neg (B.f64 bld 0.) x)));
+  fp32_c "max sqrt exp div"
+    (wide_loop (fun bld w ->
+         let m = B.f64_max bld (ld bld w) (B.f64 bld (-1.)) in
+         let e = B.f64_unary bld Expr.Value.Exp m in
+         let s = B.f64_unary bld Expr.Value.Sqrt e in
+         st bld w (f bld Expr.Value.Div s (B.f64 bld 3.))));
+  fp32_c "matmul 4x5x32" (matmul ~m:4 ~k:5 ~n:32);
+  fp32_c "matmul 3x7x19" (matmul ~m:3 ~k:7 ~n:19);
+  [%expect
+    {|
+    contiguous       priced  vector loops 1; = oracle true; = scalar true; 2 copies
+    contiguous       forced  vector loops 1; = oracle true; = scalar true; 2 copies
+    reversed read    priced  vector loops 0; = oracle true; = scalar true; 0 copies
+    reversed read    forced  vector loops 1; = oracle true; = scalar true; 1 copies
+    broadcast read   priced  vector loops 1; = oracle true; = scalar true; 2 copies
+    broadcast read   forced  vector loops 1; = oracle true; = scalar true; 2 copies
+    mask and select  priced  vector loops 1; = oracle true; = scalar true; 2 copies
+    mask and select  forced  vector loops 1; = oracle true; = scalar true; 2 copies
+    max sqrt exp div priced  vector loops 1; = oracle true; = scalar true; 2 copies
+    max sqrt exp div forced  vector loops 1; = oracle true; = scalar true; 2 copies
+    matmul 4x5x32    priced  vector loops 1; = oracle true; = scalar true; 4 copies
+    matmul 4x5x32    forced  vector loops 1; = oracle true; = scalar true; 4 copies
+    matmul 3x7x19    priced  vector loops 1; = oracle true; = scalar true; 2 copies
+    matmul 3x7x19    forced  vector loops 1; = oracle true; = scalar true; 2 copies |}]
+
+(* Narrow storage read straight to binary32 under [Fp32_ordered], scalar and
+   vectorized (forced neon128): every 16th binary16 and bfloat16 encoding,
+   bools and int32s, as generated C against the interpreter of the
+   binary64-decode program. *)
+let%expect_test "narrow storage read straight to binary32 under gcc" =
+  let n = 4096 in
+  let cases =
+    [
+      ( "f16",
+        Ssa_op.Decode.F16_to_f64,
+        Ssa_format.F16,
+        Payload.Fmt Payload.F16,
+        fun k -> k * 16 );
+      ( "bf16",
+        Ssa_op.Decode.Bf16_to_f64,
+        Ssa_format.Bf16,
+        Payload.Fmt Payload.BF16,
+        fun k -> k * 16 );
+      ( "bool",
+        Ssa_op.Decode.Bool_to_f64,
+        Ssa_format.Bool,
+        Payload.Fmt Payload.Bool,
+        fun k -> k mod 2 );
+      ( "i32",
+        Ssa_op.Decode.I32_to_f64,
+        Ssa_format.I32,
+        Payload.Fmt Payload.I32,
+        fun k ->
+          [| 0; -1; 0x7FFF_FFFF; -0x8000_0000; 16777217; 123; -16777219 |].(k
+                                                                            mod 7)
+          + if k mod 7 >= 4 then k else 0 );
+    ]
+  in
+  List.iter
+    (fun (name, decode, format, pfmt, cell) ->
+      let bufs =
+        [
+          row (Int64.of_int n) format Ssa_buffer.Input 0;
+          row (Int64.of_int n) Ssa_format.F32 Ssa_buffer.Output 1;
+        ]
+      in
+      let p =
+        build ~buffers:bufs (fun bld ->
+            let B.Nil =
+              B.for_ bld ~lo:(idx bld 0) ~hi:(idx bld n) ~init:B.Nil
+                (fun bld w B.Nil ->
+                  let v =
+                    B.load_f64 bld (buf 0) ~decode (at bld ~h:(idx bld 0) ~w)
+                  in
+                  st bld w v;
+                  B.Nil)
+            in
+            ())
+      in
+      let reference =
+        let memory =
+          memory
+            [
+              ( 0,
+                match format with
+                | Ssa_format.Bool ->
+                    floats (Array.init n (fun k -> float_of_int (cell k)))
+                | _ -> Ssa_memory.Ints (Array.init n cell) );
+              (1, floats (Array.make n 0.));
+            ]
+        in
+        run p ~memory;
+        output_floats memory 1
+      in
+      let alias = Ssa_effects.Distinct_buffers in
+      List.iter
+        (fun (form, q) ->
+          match Ssa_c.kernel ~name:Loop_c_exec.kernel_name q with
+          | Error e -> Fmt.pr "%s %s: %a@." name form Ssa_c.pp_error e
+          | Ok (kernel, sites) -> (
+              let loop =
+                Lf.program
+                  ~buffers:
+                    (List.map Ssa_bridge.Loop_of_ssa.loop_buffer
+                       (Ssa_c.arguments q))
+                  []
+              in
+              let bind id =
+                if Tensor_id.equal id (Lf.tid 0) then
+                  Some
+                    (Loop_ir_test.Loop_programs.raw_tensor pfmt
+                       ~shape:(Lf.shape_w n) n
+                       (Array.init n (fun k -> Int64.of_int (cell k))))
+                else None
+              in
+              match
+                Err.payload (Loop_c_exec.exec_kernel ~kernel ~sites loop ~bind)
+              with
+              | Error e -> Fmt.pr "%s %s: %a@." name form Loop_c_exec.pp_error e
+              | Ok out ->
+                  let got =
+                    Array.of_list
+                      (Lf.cells (Tensor_id.Map.find (Lf.tid 1) out) n)
+                  in
+                  Fmt.pr "%s %s: = interpreter %b@." name form
+                    (Array.for_all2 Core.Float_bits.equal_portable reference got)
+              ))
+        [
+          ( "scalar",
+            (Ssa_plan.resolve ~alias ~target:Ssa_target.scalar
+               ~numerics:Ssa_numerics.Fp32_ordered p)
+              .Ssa_plan.program );
+          ( "vector",
+            match
+              Ssa_plan.fp32_vector ~alias
+                ~target:(Ssa_target.forced Ssa_target.neon128)
+                p
+            with
+            | Ok t -> t.Ssa_plan.program
+            | Error _ -> assert false );
+        ])
+    cases;
+  [%expect
+    {|
+    f16 scalar: = interpreter true
+    f16 vector: = interpreter true
+    bf16 scalar: = interpreter true
+    bf16 vector: = interpreter true
+    bool scalar: = interpreter true
+    bool vector: = interpreter true
+    i32 scalar: = interpreter true
+    i32 vector: = interpreter true |}]
+
+(* Quantized reads as vectors under [Fp32_ordered] (forced neon128), as C: per
+   tensor with the lanes along C (contiguous: one copy of the integer lanes,
+   [__builtin_convertvector], the binary32 subtract and multiply) and along W
+   (lane by lane), scalar and vector, each equal to the interpreter; per
+   channel through file-scope parameter tables indexed by each lane's C
+   coordinate. *)
+let%expect_test "dequantization as vectors under gcc" =
+  let f32 x = fst (Quant.round_scale x) in
+  let quant_case ~label ~w ~c ~c_outer ~format ~quant =
+    let n = w * c in
+    let cells = Array.init n (fun i -> (i * 37 mod 256) - 128) in
+    let bufs =
+      [
+        {
+          Ssa_buffer.id = buf 0;
+          extents =
+            Expr.Coord.make ~n:1L ~t:1L ~d:1L ~h:1L ~w:(Int64.of_int w)
+              ~c:(Int64.of_int c);
+          format;
+          role = Ssa_buffer.Input;
+        };
+        {
+          Ssa_buffer.id = buf 1;
+          extents =
+            Expr.Coord.make ~n:1L ~t:1L ~d:1L ~h:1L ~w:(Int64.of_int w)
+              ~c:(Int64.of_int c);
+          format = Ssa_format.F32;
+          role = Ssa_buffer.Output;
+        };
+      ]
+    in
+    let decode =
+      match format with
+      | Ssa_format.I8 _ -> Ssa_op.Decode.I8_dequant
+      | _ -> Ssa_op.Decode.I16_dequant
+    in
+    let coord bld x k =
+      let z = idx bld 0 in
+      Ssa_builder.Coord (Expr.Coord.make ~n:z ~t:z ~d:z ~h:z ~w:x ~c:k)
+    in
+    let body bld x k =
+      let v = B.load_f64 bld (buf 0) ~decode (coord bld x k) in
+      B.store_f64 bld (buf 1) ~encode:Ssa_op.Encode.F32_round (coord bld x k) v
+    in
+    let loop bld hi f =
+      let B.Nil =
+        B.for_ bld ~lo:(idx bld 0) ~hi:(idx bld hi) ~init:B.Nil
+          (fun bld i B.Nil ->
+            f bld i;
+            B.Nil)
+      in
+      ()
+    in
+    let p =
+      build ~buffers:bufs (fun bld ->
+          if c_outer then
+            loop bld c (fun bld k -> loop bld w (fun bld x -> body bld x k))
+          else loop bld w (fun bld x -> loop bld c (fun bld k -> body bld x k)))
+    in
+    let reference =
+      let memory =
+        memory
+          [
+            (0, Ssa_memory.Ints (Array.copy cells));
+            (1, floats (Array.make n 0.));
+          ]
+      in
+      run p ~memory;
+      output_floats memory 1
+    in
+    match
+      Ssa_plan.fp32_vector ~alias:Ssa_effects.Distinct_buffers
+        ~target:(Ssa_target.forced Ssa_target.neon128)
+        p
+    with
+    | Error _ -> Fmt.pr "%s: not admitted@." label
+    | Ok plan -> (
+        let q = plan.Ssa_plan.program in
+        match Ssa_c.kernel ~name:Loop_c_exec.kernel_name q with
+        | Error e -> Fmt.pr "%s: %a@." label Ssa_c.pp_error e
+        | Ok (kernel, sites) -> (
+            let loop_p =
+              Lf.program
+                ~buffers:
+                  (List.map Ssa_bridge.Loop_of_ssa.loop_buffer
+                     (Ssa_c.arguments q))
+                []
+            in
+            let pfmt =
+              match format with
+              | Ssa_format.I8 _ -> Payload.Fmt Payload.I8
+              | _ -> Payload.Fmt Payload.I16
+            in
+            let bind id =
+              if Tensor_id.equal id (Lf.tid 0) then
+                Some
+                  (Loop_ir_test.Loop_programs.raw_tensor pfmt ~quant
+                     ~shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w ~c)
+                     n
+                     (Array.map Int64.of_int cells))
+              else None
+            in
+            match
+              Err.payload (Loop_c_exec.exec_kernel ~kernel ~sites loop_p ~bind)
+            with
+            | Error e -> Fmt.pr "%s: %a@." label Loop_c_exec.pp_error e
+            | Ok out ->
+                let t = Tensor_id.Map.find (Lf.tid 1) out in
+                let shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w ~c in
+                let got = Array.make n 0. in
+                Vec6.iter shape (fun co ->
+                    got.((Vec6.offset shape co :> int)) <- Tensor.read t co);
+                Fmt.pr "%s: %a; = interpreter %b@." label
+                  Fmt.(
+                    list ~sep:(any ", ") (fun ppf (k, (n, _)) ->
+                        pf ppf "%s %d" k n))
+                  (Ssa_vectorize.tally plan.Ssa_plan.vectorized)
+                  (Array.for_all2 Core.Float_bits.equal_portable reference got))
+        )
+  in
+  let per_tensor scale zero_point =
+    ( Ssa_format.Per_tensor { scale = f32 scale; zero_point },
+      Quant.per_tensor ~scale:(f32 scale) ~zero_point )
+  in
+  List.iter
+    (fun (label, w, c, c_outer, (sq, q), bits) ->
+      quant_case ~label ~w ~c ~c_outer
+        ~format:(if bits = 8 then Ssa_format.I8 sq else Ssa_format.I16 sq)
+        ~quant:q)
+    [
+      ("i8 per tensor along C", 3, 32, false, per_tensor 0.37 (-3.), 8);
+      ( "i8 per tensor along C, fractional zp",
+        3,
+        32,
+        false,
+        per_tensor 0.05 1.25,
+        8 );
+      ("i16 per tensor along C", 3, 32, false, per_tensor 1e-3 7., 16);
+      ("i8 per tensor along W", 32, 3, true, per_tensor 0.37 (-3.), 8);
+    ];
+  let scale = [| f32 0.5; f32 (-2.); f32 1e-2 |]
+  and zero_point = [| 0.; 5.; -9.5 |] in
+  quant_case ~label:"i8 per channel, channel outer" ~w:32 ~c:3 ~c_outer:true
+    ~format:(Ssa_format.I8 (Ssa_format.Per_channel { scale; zero_point }))
+    ~quant:
+      (Err.or_raise ~pp_error:Quant.pp_error
+         (Quant.per_channel ~scale ~zero_point));
+  let scale = [| f32 1e-3; f32 0.25; f32 (-7e-4) |]
+  and zero_point = [| 0.75; -3.; 11.5 |] in
+  quant_case ~label:"i16 per channel, fractional zp, channel outer" ~w:32 ~c:3
+    ~c_outer:true
+    ~format:(Ssa_format.I16 (Ssa_format.Per_channel { scale; zero_point }))
+    ~quant:
+      (Err.or_raise ~pp_error:Quant.pp_error
+         (Quant.per_channel ~scale ~zero_point));
+  [%expect
+    {|
+    i8 per tensor along C: vectorized 1; = interpreter true
+    i8 per tensor along C, fractional zp: vectorized 1; = interpreter true
+    i16 per tensor along C: vectorized 1; = interpreter true
+    i8 per tensor along W: vectorized 1; = interpreter true
+    i8 per channel, channel outer: vectorized 1; = interpreter true
+    i16 per channel, fractional zp, channel outer: vectorized 1; = interpreter true |}]

@@ -251,9 +251,14 @@ let exact_decode name ~fmt ?quant cells =
   { name; program; inputs = [ (0, Cells { fmt; quant; cells }) ] }
 
 let bool_and_format_cases =
-  let per_tensor scale zero_point = Quant.per_tensor ~scale ~zero_point in
+  (* A producer's double, rounded once at the boundary into [Quant]. *)
+  let f32 x = fst (Quant.round_scale x) in
+  let per_tensor scale zero_point =
+    Quant.per_tensor ~scale:(f32 scale) ~zero_point
+  in
   let per_channel scale zero_point =
-    Err.or_raise ~pp_error:Quant.pp_error (Quant.per_channel ~scale ~zero_point)
+    Err.or_raise ~pp_error:Quant.pp_error
+      (Quant.per_channel ~scale:(Array.map f32 scale) ~zero_point)
   in
   [
     kernel "bool_f32"
@@ -276,20 +281,22 @@ let bool_and_format_cases =
     format_case "format_bf16" ~fmt:(fmt_of_tag Payload.BF16)
       [| 0x3f80L; 0x0001L; 0x7f80L; 0xffc0L |];
     format_case "format_i8_per_tensor" ~fmt:(fmt_of_tag Payload.I8)
-      ~quant:(per_tensor 0.1 (-3)) [| -128L; 127L; 0L; -3L |];
+      ~quant:(per_tensor 0.1 (-3.)) [| -128L; 127L; 0L; -3L |];
     format_case "format_i8_per_channel" ~fmt:(fmt_of_tag Payload.I8)
-      ~quant:(per_channel [| 0.5; 0.25; 2.; 0.1 |] [| 0; 1; -2; 5 |])
+      ~quant:(per_channel [| 0.5; 0.25; 2.; 0.1 |] [| 0.; 1.; -2.; 5. |])
       [| -128L; 127L; 3L; -4L |];
     format_case "format_i16_per_tensor" ~fmt:(fmt_of_tag Payload.I16)
-      ~quant:(per_tensor 0.001 7)
+      ~quant:(per_tensor 0.001 7.)
       [| -32768L; 32767L; 0L; 1L |];
     format_case "format_i16_per_channel" ~fmt:(fmt_of_tag Payload.I16)
-      ~quant:(per_channel [| 1e-3; 2e-3; 3e-3; 4e-3 |] [| 0; -7; 7; 32767 |])
+      ~quant:
+        (per_channel [| 1e-3; 2e-3; 3e-3; 4e-3 |] [| 0.; -7.; 7.; 32767. |])
       [| -32768L; 32767L; 5L; -5L |];
     exact_decode "exact_i8_per_tensor" ~fmt:(fmt_of_tag Payload.I8)
-      ~quant:(per_tensor 0.1 3) [| -128L; 127L; 4L; 5L |];
+      ~quant:(per_tensor 0.1 3.) [| -128L; 127L; 4L; 5L |];
     exact_decode "exact_i16_per_channel" ~fmt:(fmt_of_tag Payload.I16)
-      ~quant:(per_channel [| 0.1; 0.3; 0.7; 1e-3 |] [| 3; -7; 32767; -32768 |])
+      ~quant:
+        (per_channel [| 0.1; 0.3; 0.7; 1e-3 |] [| 3.; -7.; 32767.; -32768. |])
       [| 32767L; -32768L; 12345L; 5L |];
     exact_decode "exact_f16" ~fmt:(fmt_of_tag Payload.F16)
       [| 0x0001L; 0x03ffL; 0x3555L; 0x7bffL |];

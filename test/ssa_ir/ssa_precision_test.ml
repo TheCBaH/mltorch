@@ -108,7 +108,7 @@ let%expect_test "a checked float-to-int64 conversion widens its operand" =
     verifies: true
     2718 |}]
 
-let%expect_test "vectors and unadmitted payloads are refused" =
+let%expect_test "vectors are refused and a quantized payload is admitted" =
   let refuse f =
     try
       ignore (f ());
@@ -126,7 +126,7 @@ let%expect_test "vectors and unadmitted payloads are refused" =
         {
           (buffer 0 ~h:1L ~w:8L
              (Ssa_format.I8
-                (Ssa_format.Per_tensor { scale = 0.5; zero_point = 0 }))
+                (Ssa_format.Per_tensor { scale = 0.5; zero_point = 0. }))
              Ssa_buffer.Input)
           with
           Ssa_buffer.id = buf 0;
@@ -142,4 +142,4 @@ let%expect_test "vectors and unadmitted payloads are refused" =
   [%expect
     {|
     Ssa_precision: choose the precision before vectorizing
-    Ssa_precision: b0: float read of a i8 payload |}]
+    accepted |}]

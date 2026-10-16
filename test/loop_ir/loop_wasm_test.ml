@@ -211,10 +211,10 @@ let%expect_test "whole-model modules are identical natively and under jsoo" =
     ];
   [%expect
     {|
-    chain        3 invocations, 3 kernels, 1108 bytes, md5 667fe40e9c184d345d40b327fffe9a54, memory 1408 bytes
-    residual     3 invocations, 2 kernels, 626 bytes, md5 51e1a375a140fca7361504e60a36ac1d, memory 640 bytes
-    layer_norm   2 invocations, 2 kernels, 1072 bytes, md5 542288b5f71f06882795734961cd2d45, memory 1024 bytes
-    sdpa         2 invocations, 2 kernels, 1368 bytes, md5 60281ccfd7da69ce62fe1954cdb78dbb, memory 2048 bytes |}]
+    chain        3 invocations, 3 kernels, 1107 bytes, md5 a5696bb45b21242e51fa882c020c3276, memory 1408 bytes
+    residual     3 invocations, 2 kernels, 625 bytes, md5 650930ad4ee907f1681499f672eadb34, memory 640 bytes
+    layer_norm   2 invocations, 2 kernels, 1063 bytes, md5 c9b446f2ad46324fe67cf6356e56ef1a, memory 1024 bytes
+    sdpa         2 invocations, 2 kernels, 1363 bytes, md5 7ed05371ce34b7a05309b737df7c1355, memory 2048 bytes |}]
 
 let%expect_test "an unsupported storage configuration is refused, not degraded"
     =

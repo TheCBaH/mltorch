@@ -211,18 +211,17 @@ let%expect_test "Fp32_ordered resolves every admitted kernel to binary32" =
     neon128    of 40 programs: fp32_ordered 40, simd_fp32_ordered 21
     wasm128    of 40 programs: fp32_ordered 40, simd_fp32_ordered 21 |}]
 
-(* The only refusal today is a dequantizing read, which has no binary32 decode
-   until quantization parameters are binary32 operations. The policy that has no
-   binary64 kernels reports it as an error rather than planning a binary64
-   kernel. *)
-let%expect_test "Fp32_ordered reports a refused kernel as an error" =
+(* A dequantizing read was the one refusal: its decode was defined in binary64
+   only. With binary32 parameters it is explicit binary32 operations, so every
+   policy admits it and [Fp32_ordered] plans it binary32. *)
+let%expect_test "Fp32_ordered admits a dequantizing read" =
   let input =
     {
       Loop_buffer.id = tid 0;
       sg =
         Tensor_sig.create ~id:(tid 0) ~name:"" ~shape:(shape_w 4)
           ~fmt:(Payload.Fmt Payload.I8)
-          ~quant:(Quant.per_tensor ~scale:0.25 ~zero_point:2)
+          ~quant:(Quant.per_tensor ~scale:0.25 ~zero_point:2.)
           ();
       role = Loop_buffer.Input;
     }
@@ -242,7 +241,7 @@ let%expect_test "Fp32_ordered reports a refused kernel as an error" =
     Loop_numerics.all;
   [%expect
     {|
-    fp32_ordered: f64, error: t0: float read of a i8 payload
+    fp32_ordered: f32, admitted
     reference_f64: f64, admitted
     simd_fp32_ordered: f64, admitted
     simd_fp32_relaxed: f64, admitted |}]

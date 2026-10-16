@@ -98,6 +98,12 @@ let check ~(signature : Mir_op.Callee.t -> Signature.t option)
         | Mir_type.Int Mir_width.W64, Mir_type.F64
         | Mir_type.F64, Mir_type.Int Mir_width.W64 ->
             true
+        | ( Mir_type.Vec (Mir_type.Elem.Int Mir_width.W32, n),
+            Mir_type.Vec (Mir_type.Elem.F32, m) )
+        | ( Mir_type.Vec (Mir_type.Elem.F32, n),
+            Mir_type.Vec (Mir_type.Elem.Int Mir_width.W32, m) ) ->
+            (* lane by lane *)
+            Mir_type.Lanes.to_int n = Mir_type.Lanes.to_int m
         | _ -> false
       in
       let* () = immediate pair Immediate.Bitcast_pair in
@@ -139,12 +145,14 @@ let check ~(signature : Mir_op.Callee.t -> Signature.t option)
         match c with
         | Fconvert.F32_to_f64 -> (Mir_type.F32, Mir_type.F64)
         | Fconvert.F64_to_f32 -> (Mir_type.F64, Mir_type.F32)
+        | Fconvert.S32_to_f32 -> (Mir_type.Int Mir_width.W32, Mir_type.F32)
         | Fconvert.S64_to_f32 -> (Mir_type.i64, Mir_type.F32)
         | Fconvert.S64_to_f64 -> (Mir_type.i64, Mir_type.F64)
       in
-      (* the precision conversions also lane by lane *)
+      (* the precision conversions and the int32 one also lane by lane *)
       match (c, a.Mir_value.ty) with
-      | (Fconvert.F32_to_f64 | Fconvert.F64_to_f32), Mir_type.Vec (e, n) ->
+      | ( (Fconvert.F32_to_f64 | Fconvert.F64_to_f32 | Fconvert.S32_to_f32),
+          Mir_type.Vec (e, n) ) ->
           let* () =
             operand 0 a (fun _ -> Mir_type.equal (Mir_type.of_elem e) src)
           in
@@ -163,7 +171,18 @@ let check ~(signature : Mir_op.Callee.t -> Signature.t option)
   | Funary (_, a) ->
       let* () = operand 0 a float_ty in
       Ok [ a.Mir_value.ty ]
-  | Iarith (_, a, b) | Idiv (_, a, b) ->
+  | Iarith (_, a, b) -> (
+      match a.Mir_value.ty with
+      | Mir_type.Vec (Mir_type.Elem.Int _, _) ->
+          (* lane by lane on an integer vector, the count of a shift a
+             vector too *)
+          let* () = same 1 b a.Mir_value.ty in
+          Ok [ a.Mir_value.ty ]
+      | _ ->
+          let* () = operand 0 a int_ty in
+          let* () = same 1 b a.Mir_value.ty in
+          Ok [ a.Mir_value.ty ])
+  | Idiv (_, a, b) ->
       let* () = operand 0 a int_ty in
       let* () = same 1 b a.Mir_value.ty in
       Ok [ a.Mir_value.ty ]
@@ -172,11 +191,18 @@ let check ~(signature : Mir_op.Callee.t -> Signature.t option)
       let* () = same 1 b a.Mir_value.ty in
       Ok [ Mir_type.Pred ]
   | Iext (_, w, a) -> (
-      let* () = operand 0 a int_ty in
-      match width_of a.Mir_value.ty with
-      | Some w0 when Mir_width.bits w0 < Mir_width.bits w ->
-          Ok [ Mir_type.Int w ]
-      | _ -> Error (Error.Bad_immediate Immediate.Width_order))
+      match a.Mir_value.ty with
+      | Mir_type.Vec (Mir_type.Elem.Int w0, n) ->
+          (* lane by lane on an integer vector *)
+          if Mir_width.bits w0 < Mir_width.bits w then
+            Ok [ Mir_type.Vec (Mir_type.Elem.Int w, n) ]
+          else Error (Error.Bad_immediate Immediate.Width_order)
+      | _ -> (
+          let* () = operand 0 a int_ty in
+          match width_of a.Mir_value.ty with
+          | Some w0 when Mir_width.bits w0 < Mir_width.bits w ->
+              Ok [ Mir_type.Int w ]
+          | _ -> Error (Error.Bad_immediate Immediate.Width_order)))
   | Itrunc (w, a) | Narrow (w, a) -> (
       let* () = operand 0 a int_ty in
       match width_of a.Mir_value.ty with

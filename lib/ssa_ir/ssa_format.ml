@@ -3,10 +3,11 @@
    store names the encode it applies. A quantized format carries its parameters
    as data, so a decode needs nothing the buffer's declaration does not hold. *)
 
-(* [real = scale * (q - zero_point)], per tensor or per channel along C. *)
+(* [real = scale * (q - zero_point)], per tensor or per channel along C. Both
+   parameters are binary32 values held as floats. *)
 type quant =
-  | Per_channel of { scale : float array; zero_point : int array }
-  | Per_tensor of { scale : float; zero_point : int }
+  | Per_channel of { scale : float array; zero_point : float array }
+  | Per_tensor of { scale : float; zero_point : float }
 
 type t =
   | Bf16
@@ -63,6 +64,23 @@ let channels = function
       Some (Array.length scale)
   | _ -> None
 
+(* Whether every quantization parameter is a binary32 value: the invariant
+   [Quant.t] establishes, which a dequantization's explicit operations rely on
+   (a scale or zero point held in binary64 would be rounded differently by each
+   engine's parameter table). *)
+let params_binary32 t =
+  let ok x =
+    Float.is_finite x
+    && Core.Float_bits.equal_exact
+         (Int32.float_of_bits (Int32.bits_of_float x))
+         x
+  in
+  match quant t with
+  | None -> true
+  | Some (Per_tensor { scale; zero_point }) -> ok scale && ok zero_point
+  | Some (Per_channel { scale; zero_point }) ->
+      Array.for_all ok scale && Array.for_all ok zero_point
+
 (* Whether a format's cells are floats, integers or int64s in the interpreter. *)
 type cells = Float_cells | Int_cells | Int64_cells
 
@@ -79,4 +97,16 @@ let dequantize q ~channel ~cell =
     | Per_channel { scale; zero_point } ->
         (scale.(channel), zero_point.(channel))
   in
-  scale *. float_of_int (cell - zero_point)
+  scale *. (float_of_int cell -. zero_point)
+
+(* The binary32 meaning: [q] to float, minus the zero point, times the scale,
+   each operation rounded once to binary32. *)
+let dequantize32 q ~channel ~cell =
+  let scale, zero_point =
+    match q with
+    | Per_tensor { scale; zero_point } -> (scale, zero_point)
+    | Per_channel { scale; zero_point } ->
+        (scale.(channel), zero_point.(channel))
+  in
+  let r = Ssa_const.round_f32 in
+  r (r (float_of_int cell -. zero_point) *. scale)

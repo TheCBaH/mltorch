@@ -307,8 +307,15 @@ let () =
   let donor : Side.t =
     match Sys.getenv_opt "DONOR" with Some "right" -> Right | _ -> Left
   in
+  (* Between two binary32 (fp32) engines the contract is bitwise equality, so
+     the default is exact; against a binary64 variant it is the frozen 1e-4. *)
   let tol =
-    match Sys.getenv_opt "TOL" with Some s -> float_of_string s | None -> 1e-4
+    match Sys.getenv_opt "TOL" with
+    | Some s -> float_of_string s
+    | None ->
+        if P.Variant.is_fp32 left_variant && P.Variant.is_fp32 right_variant
+        then 0.
+        else 1e-4
   in
   let label, archive, identity_text, inputs, reference = load source in
   let aten =

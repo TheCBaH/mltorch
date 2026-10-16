@@ -79,3 +79,24 @@ js-loop-bitwise      | native | native.canonical:loop-js | TOL=0 | disagree | +M
 js-jsoo-vs-native    | native | native.canonical:jsoo | - | agree | -
 js-jsoo-native4d     | native4d | native.canonical:jsoo | - | agree | +40 clusters
 js-missing-helper    | native | native.canonical:loop-js | MLTORCH_COMPARE_JS=/no/such/helper.js | refused the JavaScript helper | -
+
+# ---- binary32 numerics (Fp32_ordered): every kernel binary32. Two fp32 engines
+# are bitwise equal (the default tolerance between them is exact); an fp32 engine
+# against its binary64 twin is within the tolerance and, asked for exactness,
+# differs.
+fp32-loop-c-vs-f64     | native.canonical:loop-c | native.canonical:loop-c,fp32 | - | agree | -
+fp32-loop-c-not-exact  | native.canonical:loop-c | native.canonical:loop-c,fp32 | TOL=0 | disagree | +MISMATCH
+fp32-loop-vs-ssa-c     | native.canonical:loop-c-fp32 | native.canonical:ssa-c-fp32 | - | agree | -
+fp32-c-vs-wasm         | native.canonical:loop-c-fp32 | native.canonical:loop-wasm-fp32 | - | agree | -
+fp32-wasm-loop-vs-ssa  | native.canonical:loop-wasm-fp32 | native.canonical:ssa-wasm-fp32 | - | agree | -
+fp32-rivet-vs-c        | native.canonical:loop-c-fp32 | native.canonical:rivet-fp32 | - | agree | -
+fp32-rivet-image-table | native.canonical:rivet-fp32 | native.canonical:rivet-table-fp32 | - | agree | -
+fp32-rivet-scanned     | native.canonical:rivet-scanned-fp32 | native.canonical:rivet-table-scanned-fp32 | - | agree | -
+fp32-compcert-vs-rivet | native.canonical:compcert-fp32 | native.canonical:rivet-fp32 | - | agree | -
+fp32-compcert-vs-c     | native.canonical:compcert-fp32 | native.canonical:loop-c-fp32 | - | agree | -
+# Rivet's fp32 is vectorized (neon128); fp32s is the same policy scalar, so the
+# vector path is checked against the scalar one exactly.
+fp32-rivet-vector-scalar | native.canonical:rivet-fp32 | native.canonical:rivet-fp32s | - | agree | -
+fp32s-rivet-word       | native.canonical:rivet,fp32s | native.canonical:loop-c-fp32 | - | agree | -
+fp32s-rivet-scanned    | native.canonical:rivet-scanned-fp32s | native.canonical:rivet-table-fp32s | - | agree | -
+fp32s-rivet-table-scanned | native.canonical:rivet-table-scanned-fp32s | native.canonical:rivet-table-scanned-fp32 | - | agree | -

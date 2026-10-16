@@ -151,8 +151,9 @@ let cases =
     format "i8 per channel" ~fmt:(Payload.Fmt Payload.I8)
       ~quant:
         (Err.or_raise ~pp_error:Quant.pp_error
-           (Quant.per_channel ~scale:[| 0.5; 0.25; 2.; 0.1 |]
-              ~zero_point:[| 0; 1; -2; 5 |]))
+           (Quant.per_channel
+              ~scale:[| 0.5; 0.25; 2.; fst (Quant.round_scale 0.1) |]
+              ~zero_point:[| 0.; 1.; -2.; 5. |]))
       [| -128L; 127L; 3L; -4L |];
     format "i64 read as a float" ~fmt:(Payload.Fmt Payload.I64)
       [|

@@ -78,8 +78,8 @@ end
 
 `delta` answers "what about things that *can* be negative": those — `delta`,
 quant `zero_point`, and the stored quantised values themselves — stay signed
-(`zero_point` and quanta are plain `int`, not `Dim` types; they are domain data,
-not sizes/positions).
+(`zero_point` is a binary32 value held as a `float`, and quanta are plain `int`,
+not `Dim` types; they are domain data, not sizes/positions).
 
 **The purpose is domain separation, not validation.** A size and a coordinate are
 both non-negative ints and would pass any range check; the roles exist so the two
@@ -476,6 +476,35 @@ integer-accumulator path (int8×int8 → int32 accumulate, then a single
 fixed-point requantize) is a Phase-4 option; it surfaces in the symbolic IR as a
 **dequant∘quant pair that the codegen can fold/elide across fused ops**, so the
 substrate above is forward-compatible with it without changing these types.
+
+### Binary32 parameters and the binary32 dequantization
+
+Both parameters of a `Quant.t` are binary32 values (`round32 x = x`, held as
+`float`): the constructors reject anything else with a typed error
+(`Quant_not_binary32`), `Quant.round_scale` is the one place a producer's
+binary64 scale is rounded, once, at the boundary (the model-JSON decoder reads
+both parameters through the binary32 codec), and an SSA buffer declaration whose
+parameters are not binary32 fails verification. Zero points are therefore not
+integers in general, though a producer's always are.
+
+A dequantization is three operations in a fixed order: `q` to float (exact,
+`|q| < 2^15`), minus the zero point, times the scale. `Quant.dequantize` runs
+them in binary64 over the binary32 parameters (the reference); `Quant.dequantize32`
+rounds each once to binary32, and is what every binary32 engine runs
+(`Decode.I8_dequant32`/`I16_dequant32`, whose result is `f32`; the binary64
+decodes stay). The two agree whenever the zero point is an integer and the
+product needs at most 24 bits, and differ when `q - zero_point` needs more bits
+(a small fractional zero point against a large `q`): that is the case the
+fixtures keep. `Loop_numerics.admit` therefore refuses nothing: the one refusal
+this record used to carry (a dequantizing read had no binary32 decode) is gone.
+Per-channel tables are `f32` in Machine IR (`Mir_layout_map.Params`: scales then
+zero points, four bytes each) and in the Wasm emitters under a binary32 kernel.
+
+`Quant.quantize` is `round (x / scale + zero_point)`, half to even, clamped to
+`[qmin, qmax]` in float before the integer conversion: an infinity or a value
+out of range saturates and a NaN is the level the zero point names (clamped),
+never an unspecified `int_of_float`. No kernel quantizes (a store to a quantized
+buffer is refused), so this is the reference's materialization only.
 
 ## 4. Dynamic shapes (PyTorch `SymInt`)
 
