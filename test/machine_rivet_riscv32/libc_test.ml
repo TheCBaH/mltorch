@@ -112,7 +112,8 @@ let%expect_test "truncf at the boundaries" =
           Fmt.pr "%08lx -> %08lx%s@." x y
             (if same y (host x) then "" else Fmt.str " (host %08lx)" (host x)))
         boundary got);
-  [%expect {|
+  [%expect
+    {|
     00000000 -> 00000000
     80000000 -> 80000000
     00000001 -> 00000000
