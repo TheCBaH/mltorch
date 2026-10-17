@@ -21,10 +21,10 @@ let components =
     {
       name = "CompCert (embedded, aarch64: export and asm artifacts)";
       pin =
-        "v0.0.3-dev \
+        "v3.17-4 \
          export-aarch64=dbaaa50cf72045398922c21b00fcb7c1cd3f737e9966514edf7935ebc573dc56 \
          asm-aarch64=1dd93f7528b49cf19bb5e38e97ba70dee541ceb403e60453d4e96811fcca2729 \
-         (vendored/rivet-compcert@8e38a956f37161d3a17c320c1a22fb0cd5a380cd)";
+         (vendored/rivet-compcert@fccfeaad9bf2489e47da26608d64b412741c838b)";
       routes = `Compcert;
     };
     {
