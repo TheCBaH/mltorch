@@ -5,7 +5,8 @@
 ; is bitwise equal to the reference. Enabled by MLTORCH_COMPCERT, which
 ; make compcert.embed.runtest sets.
 
-(copy_files ../loop_c_embed/{embed_test,c_host_fixtures}.ml)
+(copy_files
+ ../loop_c_embed/{embed_common,embed_test,embed_fp32_test,c_host_fixtures}.ml)
 
 (library
  (name loop_c_embed_compcert_test)

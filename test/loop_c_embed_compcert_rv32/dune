@@ -6,7 +6,8 @@
 ; Built where the riscv32 embedding is installed; qemu-riscv32 must be on the
 ; path.
 
-(copy_files ../loop_c_embed/{embed_test,c_host_fixtures}.ml)
+(copy_files
+ ../loop_c_embed/{embed_common,embed_test,embed_fp32_test,c_host_fixtures}.ml)
 
 (library
  (name loop_c_embed_compcert_rv32_test)
