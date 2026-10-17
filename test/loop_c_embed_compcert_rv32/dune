@@ -3,8 +3,8 @@
 ; by the embedded riscv32 CompCert, assembled by Rivet and run as an ELF under
 ; qemu-riscv32, reading and writing its region through a mapped file, is bitwise
 ; equal to the reference. Their committed expect output must hold unchanged.
-; Built where the riscv32 embedding is installed; qemu-riscv32 must be on the
-; path.
+; Built where both riscv32 embeddings are installed (the loader library holds
+; both); qemu-riscv32 must be on the path.
 
 (copy_files
  ../loop_c_embed/{embed_common,embed_test,embed_fp32_test,c_host_fixtures}.ml)
@@ -28,4 +28,5 @@
  (enabled_if
   (and
    %{lib-available:rivet_compcert.compcert_embed_riscv32}
+   %{lib-available:rivet_compcert.compcert_embed_riscv32_fp32}
    %{lib-available:rivet.riscv32_encode})))

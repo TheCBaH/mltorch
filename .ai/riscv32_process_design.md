@@ -1,6 +1,6 @@
 # RISC-V 32 processes under qemu-riscv32
 
-Status: **the embedded-CompCert route runs**. The Rivet Machine IR route does not
+Status: **the embedded-CompCert route runs**, D-free for binary32 programs. The Rivet Machine IR route does not
 exist yet (see "Not done"). RV32 code cannot run on the host CPU, so every run is a
 static ELF executed by `qemu-riscv32`; it checks instruction bytes and control
 flow, not an RV32 core's timing or memory ordering.
@@ -55,18 +55,22 @@ result keeps it; larger values, infinities and NaNs come back unchanged. Its
 test compares it bitwise with the host's `Float.trunc` at the binary32
 boundaries and over a seeded sweep, under `d=false`.
 
-The embedded-CompCert loader keeps `Rv32imafd_ilp32d`: CompCert's riscv32
-target is ilp32d and moves binary32 values with `fmv.d`, spills FP callee-save
+The embedded-CompCert loader has one instance per CompCert profile, each paired
+with the `Rv32_profile` its code needs. `Ilp32d` is CompCert's riscv32 target,
+which is ilp32d and moves binary32 values with `fmv.d`, spills FP callee-save
 registers with `fld`/`fsd` and expands aligned copies through them, so its
-binary32 programs still contain D instructions. Its units are lowered by
-rivet-compcert, outside the profile's feature set.
+binary32 programs still contain D instructions: it keeps `Rv32imafd_ilp32d`.
+`Ilp32f` is CompCert's F-only profile (`riscv32_fp32`, `rv32imf`/ILP32F), on
+`Rv32imf_ilp32f`. Both lower CompCert's assembly through Rivet's text pipeline
+from the profile's state, so under `Ilp32f` a D instruction is refused at
+lowering (`fmv.d requires feature d`) before qemu would trap on it.
 
 Rivet's `li` covers only a signed 12-bit constant or one with the low 12 bits
 zero, so `Rv32_asm.load_imm` expands any other constant to `lui` + `addi`.
 
 ## CompCert on RV32
 
-`Loop_c_embed.Make` takes a LOADER, now with a `dialect`. `Compcert_ilp32` is the
+`Loop_c_embed.Make` takes a LOADER, with a `dialect`. `Compcert_ilp32` is the
 `Compcert_scalar` C for a target whose `long` is 32 bits: `int64_t` is `long long`
 and constants end in `LL`. `lib/loop_c_embed_compcert_rv32` is the loader: the
 unit is compiled by the embedded riscv32 CompCert, the runtime helpers CompCert
@@ -76,24 +80,29 @@ whole region as the shared output file, runs the ELF and reads the file back. Th
 model reads its weights and inputs from, and writes its outputs into, that mapping.
 
 The riscv32 and host extractions are separate libraries with module names that do
-not collide, so they link into one program (`test/compcert_rv32`). The riscv32
-variant is built beside the host one (`make compcert.rv32.install`). Building
-the extraction preprocesses CompCert's own runtime helper sources
-(`runtime/c/i64_*.c`, which use `#include` and macros; the generated model C
-never needs a preprocessor) with the configuration's `riscv32-linux-gnu-gcc`.
-`scripts/rv32-prepro` stands in for that name with the host `gcc -E` and refuses
-anything but preprocessing, so no RV32 cross toolchain is installed. The helpers'
+not collide, so they link into one program (`test/compcert_rv32`). Both riscv32
+variants are built beside the host one (`make compcert.rv32.install`). Building
+an extraction preprocesses CompCert's own runtime helper sources
+(`runtime/c/i64_*.c`, which use `#include` and macros, and the F-only profile's
+`riscv-fp32.c` conversions; the generated model C never needs a preprocessor)
+with the configuration's `riscv32-linux-gnu-gcc`. `scripts/rv32-prepro` stands
+in for that name with the host `gcc -E`, dropping the RISC-V `-march`/`-mabi`
+flags the host compiler rejects, and refuses anything but preprocessing, so no
+RV32 cross toolchain is installed. The helpers'
 text does not depend on the target's headers: the generated runtime data is
 identical to the cross compiler's apart from the path in one line marker. A
 producer that shipped the helpers already preprocessed would remove the step.
 
 ## Evidence
 
-`test/loop_c_embed_compcert_rv32` runs the tests of `test/loop_c_embed` unchanged:
-the chain graph through CompCert, Rivet and qemu is bitwise equal to the
-reference evaluator, the unit is reused across contexts, and a failing
+`test/loop_c_embed_compcert_rv32` runs the tests of `test/loop_c_embed` unchanged
+with `Ilp32d`: the chain graph through CompCert, Rivet and qemu is bitwise equal
+to the reference evaluator, the unit is reused across contexts, and a failing
 invocation is decoded from the failure record. The check was seen to fail with
-`memcpy` made a no-op.
+`memcpy` made a no-op. `test/loop_c_embed_compcert_rv32_fp32` runs their binary32
+half (`embed_fp32_test.ml`: the binary32 oracle, Region nodes, the failure
+record under `Fp32_ordered`) with `Ilp32f` under `-cpu rv32,d=false`; pointed at
+the ilp32d embedding instead, it fails at lowering on CompCert's `fmv.d`.
 
 ## Data model
 
@@ -110,6 +119,7 @@ below 2 GiB. Nothing lowers to it yet; Machine IR is still produced in LP64.
 - The comparison-tool variant word for the CompCert RV32 engine, and its
   coverage-manifest row.
 - `exp`, `log`, `sin`, `cos`, `ldexp`, `trunc`: not in `Rv32_libc`.
-- A D-free CompCert route: the binary32 C still uses binary64 helpers (the f16
-  and bf16 decoders, int64-to-float conversion), and the embedded CompCert
-  needs an F-only target before its processes can take the default profile.
+- Binary32 Loop C still uses binary64 helpers for the f16 and bf16 decoders and
+  int64-to-float conversion, which the F-only CompCert refuses (binary64
+  arithmetic) or cannot link (its runtime has no `__compcert_i64_stof`); the
+  graphs the F-only suite runs need neither.

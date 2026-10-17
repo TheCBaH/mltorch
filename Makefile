@@ -1559,28 +1559,35 @@ machine.rivet.rv32.runtest: rivet.install
 	command -v qemu-riscv32
 	opam exec -- dune build @test/machine_rivet_riscv32/runtest --force
 
-# The embedded CompCert for riscv32 beside the host's: its pinned artifacts are
-# fetched, its extraction built and installed as compcert_riscv32_embed, then
-# rivet_compcert is built with both embeddings enabled and installed over the
-# host-only one, so the two link into one program. Building the extraction
+# The embedded CompCerts for riscv32 beside the host's: the ilp32d profile
+# (riscv32) and the F-only one (riscv32_fp32, rv32imf/ILP32F). Each one's pinned
+# artifacts are fetched, its extraction built and installed as
+# compcert_<variant>_embed, then rivet_compcert is built with every embedding
+# enabled and installed over the host-only one, so they link into one program.
+# Building the extraction
 # preprocesses CompCert's runtime helper sources with the configuration's
 # `riscv32-linux-gnu-gcc`; scripts/rv32-prepro stands in for it with the host
 # gcc, so no cross toolchain is installed. RV32 code cannot run on this CPU:
 # qemu-riscv32 runs the ELF the loader writes.
 RIVET_COMPCERT_DIR = vendored/rivet-compcert
 COMPCERT_ISA_GATE = RIVET_COMPCERT_EMBED_$(shell echo $(COMPCERT_ISA) | tr a-z A-Z)=true
+COMPCERT_RV32_VARIANTS = riscv32 riscv32_fp32
+COMPCERT_RV32_GATES = RIVET_COMPCERT_EMBED_RISCV32=true RIVET_COMPCERT_EMBED_RISCV32_FP32=true
 compcert.rv32.install: compcert.embed.install
 	command -v qemu-riscv32
-	cd $(RIVET_COMPCERT_DIR) && scripts/fetch-compcert.sh riscv32 && PATH="$(CURDIR)/scripts/rv32-prepro:$$PATH" scripts/compcert-embed-sync.sh riscv32
-	cd $(RIVET_COMPCERT_DIR)/_compcert/riscv32/embed && opam exec -- dune build --root . @install
-	cd $(RIVET_COMPCERT_DIR)/_compcert/riscv32/embed && sudo env "PATH=$$PATH" "$$(opam exec -- which dune)" install --root . --prefix "$$(opam var prefix)" compcert_riscv32_embed
-	cd $(RIVET_COMPCERT_DIR) && env -u COMPCERT_CONFIG RIVET_NATIVE_EXEC=true RIVET_COMPCERT_EMBED=true $(COMPCERT_ISA_GATE) RIVET_COMPCERT_EMBED_RISCV32=true opam exec -- dune build --root . --only-packages rivet_compcert @install
-	cd $(RIVET_COMPCERT_DIR) && env -u COMPCERT_CONFIG RIVET_NATIVE_EXEC=true RIVET_COMPCERT_EMBED=true $(COMPCERT_ISA_GATE) RIVET_COMPCERT_EMBED_RISCV32=true sudo env "PATH=$$PATH" "$$(opam exec -- which dune)" install --root . --only-packages rivet_compcert --prefix "$$(opam var prefix)" rivet_compcert
+	set -e; for v in $(COMPCERT_RV32_VARIANTS); do \
+	  (cd $(RIVET_COMPCERT_DIR) && scripts/fetch-compcert.sh $$v && PATH="$(CURDIR)/scripts/rv32-prepro:$$PATH" scripts/compcert-embed-sync.sh $$v); \
+	  (cd $(RIVET_COMPCERT_DIR)/_compcert/$$v/embed && opam exec -- dune build --root . @install); \
+	  (cd $(RIVET_COMPCERT_DIR)/_compcert/$$v/embed && sudo env "PATH=$$PATH" "$$(opam exec -- which dune)" install --root . --prefix "$$(opam var prefix)" compcert_$${v}_embed); \
+	done
+	cd $(RIVET_COMPCERT_DIR) && env -u COMPCERT_CONFIG RIVET_NATIVE_EXEC=true RIVET_COMPCERT_EMBED=true $(COMPCERT_ISA_GATE) $(COMPCERT_RV32_GATES) opam exec -- dune build --root . --only-packages rivet_compcert @install
+	cd $(RIVET_COMPCERT_DIR) && env -u COMPCERT_CONFIG RIVET_NATIVE_EXEC=true RIVET_COMPCERT_EMBED=true $(COMPCERT_ISA_GATE) $(COMPCERT_RV32_GATES) sudo env "PATH=$$PATH" "$$(opam exec -- which dune)" install --root . --only-packages rivet_compcert --prefix "$$(opam var prefix)" rivet_compcert
 
-# The two CompCerts linked together, and the embedding tests of test/loop_c_embed with
-# the RV32 loader, bitwise equal to the reference.
+# The CompCerts linked together, the embedding tests of test/loop_c_embed with the
+# ilp32d RV32 loader, bitwise equal to the reference, and their binary32 half with
+# the F-only loader under qemu with D disabled.
 compcert.rv32.runtest: compcert.rv32.install
-	opam exec -- dune build @test/compcert_rv32/runtest @test/loop_c_embed_compcert_rv32/runtest --force
+	opam exec -- dune build @test/compcert_rv32/runtest @test/loop_c_embed_compcert_rv32/runtest @test/loop_c_embed_compcert_rv32_fp32/runtest --force
 
 # The Coral NPU emulators release (devcontainer.coralnpu), pinned per host
 # architecture in coralnpu.lock and extracted under data/coralnpu/<tag>/.
