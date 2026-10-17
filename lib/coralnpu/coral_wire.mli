@@ -11,14 +11,15 @@
 
     [digest] is the layout's ({!Coral_layout.t}); [mcycle] and [minstret] are
     the counters' deltas across the entry call ([u64]); the rest are [u32]. The
-    payloads are the [In] slots' bytes, and the [Out] slots', in slot order.
-    Simulators print their own text around the guest's, so the host looks for
-    the first frame magic and keeps what surrounds it. *)
+    payloads are the read slots' bytes ([In], [In_out]), and the written slots'
+    ([In_out], [Out]), in slot order. Simulators print their own text around the
+    guest's, so the host looks for the first frame magic and keeps what
+    surrounds it. *)
 
 val version : int32
 
 val input : digest:int32 -> string -> string
-(** The stream for one run, around the concatenated [In] slots. *)
+(** The stream for one run, around the concatenated read slots. *)
 
 module Frame : sig
   type t =

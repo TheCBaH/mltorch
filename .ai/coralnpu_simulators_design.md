@@ -65,8 +65,9 @@ Any region not shown to work is treated as unreachable, never as allowed.
 
 ## Layout (`Coral_layout`)
 
-Pure: segments (size, alignment, executable) and slots (`In`/`Out`/`Scratch`)
-in, addresses out.
+Pure: segments (size, alignment, executable) and slots in, addresses out. A
+slot is `In` (read from the input frame), `In_out` (read, then written to the
+result), `Out` (zeroed, then written) or `Scratch` (zeroed).
 
 - Executable segments go to ITCM. There is no spill to external memory: a
   program larger than ITCM is `Over_capacity`.
@@ -95,7 +96,8 @@ trap:   "CNPUTRP1" version mcause mepc mtval "CNPUEND1"
 ```
 
 `mcycle`/`minstret` are `u64` deltas across the entry call. The other fields
-are `u32`. Payloads are the `In` and `Out` slots' bytes, in slot order. A
+are `u32`. Payloads are the read slots' bytes (`In`, `In_out`) and the
+written slots' (`In_out`, `Out`), in slot order. A
 trap frame carries no digest, because a trap may come before the input is
 read.
 
@@ -128,11 +130,12 @@ following, in order:
 2. Zeroes `Out` and `Scratch` slots, as the QEMU harness's files and bss are.
 3. Reads the input header, refusing a wrong magic, version, digest or length
    before any slot is touched.
-4. Reads each `In` slot, directly or in staging-sized chunks copied by word.
+4. Reads each `In` and `In_out` slot, directly or in staging-sized chunks
+   copied by word.
 5. Calls the entry (slot table or first slot, as `Rv32_harness.Abi`) between
    two reads of `mcycle` and `minstret`. Each counter is read high/low/high
    and retried on a carry.
-6. Writes the result frame.
+6. Writes the result frame, with each `In_out` and `Out` slot.
 7. Exits through HTIF with 0, then `mpause` forever.
 
 HTIF calls follow the simulators' proxy-kernel packet (eight `u64`, address
@@ -190,5 +193,7 @@ scratch slot) on `core-mini-axi`, `core-mini-highmem-axi` and `mpact-v2`.
   (`Cycle_limit`), wrong digest (`Input_refused`), missing simulator.
 - **Store-fault `mtval`:** for the ITCM store at `0x100`, RTL reports
   `0x10` and MPACT `0x100`.
+- **In place:** the same negation in one `In_out` slot, at both sizes, staged
+  in and out on `core-mini-axi` and MPACT; bitwise, `minstret` 72 and 98328.
 - **Mutation:** shortening a staged chunk's copy by one word makes the
   staged profiles fail at element 1023, the last word of the first chunk.

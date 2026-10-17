@@ -143,7 +143,7 @@ let payload (image : Coral_image.t) ~bound =
   let b = Buffer.create 4096 in
   List.iteri
     (fun k (s : Coral_layout.Placed_slot.t) ->
-      if s.slot.placement = In then (
+      if Coral_layout.Placement.read s.slot.placement then (
         let size = Int64.to_int s.slot.size in
         let bytes = Option.value (bound k) ~default:"" in
         let n = min size (String.length bytes) in
@@ -152,13 +152,13 @@ let payload (image : Coral_image.t) ~bound =
     image.layout.slots;
   Buffer.contents b
 
-(* The result payload cut back into [Out] slots, by slot index. *)
+(* The result payload cut back into the written slots, by slot index. *)
 let outputs (image : Coral_image.t) data =
   let at = ref 0 in
   List.concat
     (List.mapi
        (fun k (s : Coral_layout.Placed_slot.t) ->
-         if s.slot.placement = Out then (
+         if Coral_layout.Placement.written s.slot.placement then (
            let size = Int64.to_int s.slot.size in
            let bytes = String.sub data !at size in
            at := !at + size;
@@ -209,7 +209,9 @@ let run ?(deadline = 120.) ?(flags = []) ~dir (image : Coral_image.t) ~bound =
         let payload_size =
           List.fold_left
             (fun n (s : Coral_layout.Placed_slot.t) ->
-              if s.slot.placement = Out then Int64.add n s.slot.size else n)
+              if Coral_layout.Placement.written s.slot.placement then
+                Int64.add n s.slot.size
+              else n)
             0L image.layout.slots
         in
         let limit = Int64.to_int payload_size + output_slack in

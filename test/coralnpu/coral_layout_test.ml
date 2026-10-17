@@ -62,6 +62,41 @@ let%expect_test "a small image: every slot in DTCM" =
     slot out   0x00011340 64 dtcm
     slot scratch 0x00011380 128 dtcm |}]
 
+(* An [In_out] slot is placed like any other; the runtime reads it before the
+   entry and writes it after. *)
+let%expect_test "an in-out slot" =
+  show rtl small L.Placement.[ slot In_out 64L ];
+  show rtl small L.Placement.[ slot In_out 100_000L ];
+  List.iter
+    (fun p ->
+      Fmt.pr "%s read %b written %b@." (L.Placement.to_string p)
+        (L.Placement.read p) (L.Placement.written p))
+    L.Placement.[ In; In_out; Out; Scratch ];
+  [%expect
+    {|
+    digest 34ed77ec
+    text       0x00000000
+    data       0x00010000
+    htif       0x00010140
+    packet     0x00010240
+    staging    0x00010280
+    trap       0x00011280
+    stack top  0x00018000
+    slot in-out 0x00011300 64 dtcm
+    digest 995a7a5f
+    text       0x00000000
+    data       0x00010000
+    htif       0x00010140
+    packet     0x00010240
+    staging    0x00010280
+    trap       0x00011280
+    stack top  0x00018000
+    slot in-out 0x20000000 100000 testbench-ram staged
+    in read true written false
+    in-out read true written true
+    out read false written true
+    scratch read false written false |}]
+
 let%expect_test "a slot too large for DTCM goes to RAM, staged" =
   let slots = L.Placement.[ slot In 100_000L; slot Out 64L ] in
   show rtl small slots;

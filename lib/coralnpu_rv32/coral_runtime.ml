@@ -297,7 +297,7 @@ let store_string ~at off s =
 let size_of slots p =
   List.fold_left
     (fun n (s : Coral_layout.Placed_slot.t) ->
-      if s.slot.placement = p then Int64.add n s.slot.size else n)
+      if p s.slot.placement then Int64.add n s.slot.size else n)
     0L slots
 
 let table_label = "coral_slot_table"
@@ -307,12 +307,14 @@ let items (l : Coral_layout.t) ~abi ~entry () =
   let version = Int64.of_int32 Coral_wire.version in
   let ins =
     List.filter
-      (fun (s : Coral_layout.Placed_slot.t) -> s.slot.placement = In)
+      (fun (s : Coral_layout.Placed_slot.t) ->
+        Coral_layout.Placement.read s.slot.placement)
       l.slots
   in
   let outs =
     List.filter
-      (fun (s : Coral_layout.Placed_slot.t) -> s.slot.placement = Out)
+      (fun (s : Coral_layout.Placed_slot.t) ->
+        Coral_layout.Placement.written s.slot.placement)
       l.slots
   in
   let start =
@@ -330,7 +332,7 @@ let items (l : Coral_layout.t) ~abi ~entry () =
         (fun (s : Coral_layout.Placed_slot.t) ->
           match s.slot.placement with
           | Out | Scratch -> zero_fill ~at:s.address ~size:s.slot.size
-          | In -> [])
+          | In | In_out -> [])
         l.slots
     (* The header: magic, version, digest, length. *)
     @ read_into ~dst:l.staging ~len:20L
@@ -339,7 +341,9 @@ let items (l : Coral_layout.t) ~abi ~entry () =
     @ expect_word ~at:"s6" 4 (word magic_in 4) Magic
     @ expect_word ~at:"s6" 8 version Version
     @ expect_word ~at:"s6" 12 (Int64.of_int32 l.digest) Digest
-    @ expect_word ~at:"s6" 16 (size_of l.slots In) Length
+    @ expect_word ~at:"s6" 16
+        (size_of l.slots Coral_layout.Placement.read)
+        Length
     @ List.concat_map (slot_io l ~reading:true) ins
     @ read_into ~dst:l.staging ~len:8L
     @ addr "s6" l.staging
@@ -364,7 +368,7 @@ let items (l : Coral_layout.t) ~abi ~entry () =
     @ store_const ~at:"s6" 8 version
     @ store_const ~at:"s6" 12 (Int64.of_int32 l.digest)
     @ [ insn "sw" [ reg "s1"; mem "s6" 16 ] ]
-    @ store_const ~at:"s6" 36 (size_of l.slots Out)
+    @ store_const ~at:"s6" 36 (size_of l.slots Coral_layout.Placement.written)
     @ write_from ~src:l.staging ~len:40L
     @ List.concat_map (slot_io l ~reading:false) outs
     @ addr "s6" l.staging

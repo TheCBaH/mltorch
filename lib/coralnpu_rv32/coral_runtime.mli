@@ -3,10 +3,10 @@
 
     In order: the stack, [mtvec], [mstatus.FS] and a clear [fcsr]; [Out] and
     [Scratch] slots zeroed; the input stream's header checked (magic, version,
-    layout digest, length) and each [In] slot read, directly or through the
-    staging buffer; the entry called between two reads of [mcycle] and
-    [minstret]; the result frame written, [Out] slots directly or staged; an
-    HTIF exit of 0, then [mpause] forever.
+    layout digest, length) and each read slot ([In], [In_out]) read, directly or
+    through the staging buffer; the entry called between two reads of [mcycle]
+    and [minstret]; the result frame written, the written slots ([In_out],
+    [Out]) directly or staged; an HTIF exit of 0, then [mpause] forever.
 
     A trap writes a trap frame and exits with 1. An input stream the guest
     refuses is reported the same way, with [mcause] {!refused} and the reason in

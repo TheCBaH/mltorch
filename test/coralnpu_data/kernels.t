@@ -14,6 +14,18 @@ then guests that fail one way each.
   mpact-v2 8: status 7, negated, minstret 133, mcycle counted
   mpact-v2 16384 floats: extmem(staged) extmem(staged) extmem(staged)
   mpact-v2 16384: status 7, negated, minstret 213021, mcycle counted
+  core-mini-axi 8 floats in place: dtcm
+  core-mini-axi 8 in place: status 7, negated, minstret 72, mcycle counted
+  core-mini-axi 16384 floats in place: testbench-ram(staged)
+  core-mini-axi 16384 in place: status 7, negated, minstret 98328, mcycle counted
+  core-mini-highmem-axi 8 floats in place: dtcm
+  core-mini-highmem-axi 8 in place: status 7, negated, minstret 72, mcycle counted
+  core-mini-highmem-axi 16384 floats in place: dtcm
+  core-mini-highmem-axi 16384 in place: status 7, negated, minstret 98328, mcycle counted
+  mpact-v2 8 floats in place: dtcm
+  mpact-v2 8 in place: status 7, negated, minstret 72, mcycle counted
+  mpact-v2 16384 floats in place: extmem(staged)
+  mpact-v2 16384 in place: status 7, negated, minstret 98328, mcycle counted
   core-mini-axi illegal instruction: guest trap: mcause 2 mepc 0x000005e0 mtval 0x00000000
   core-mini-axi store to ITCM: guest trap: mcause 7 mepc 0x000005e0 mtval 0x00000010
   core-mini-axi spin: deadline passed

@@ -32,7 +32,8 @@ type outcome = {
   argv : string list;  (** As run, the image path included. *)
   mcycle : int64;
   minstret : int64;
-  outputs : (int * string) list;  (** Each [Out] slot's bytes, by index. *)
+  outputs : (int * string) list;
+      (** Each written slot's bytes ([In_out], [Out]), by index. *)
   status : int32;  (** The entry's return value. *)
   text : string;  (** The simulator's own output around the frame. *)
   wall : float;  (** Seconds. *)
@@ -45,6 +46,6 @@ val run :
   Coral_image.t ->
   bound:(int -> string option) ->
   (outcome, Run_error.t) Err.t
-(** [dir] is the archive root. [bound k] is [In] slot [k]'s bytes, cut or
+(** [dir] is the archive root. [bound k] is read slot [k]'s bytes, cut or
     zero-padded to its size. [deadline] is in seconds (default 120); [flags] go
     after the simulator's path ([--cycles=N] on RTL). *)

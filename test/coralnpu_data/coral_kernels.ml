@@ -1,7 +1,7 @@
 (* Typed kernels on the real simulators: binary32 negation through a scratch
    slot, small (every slot in DTCM) and large (64 KiB slots, staged through
-   testbench RAM where DTCM is too small), and guests built to fail one way
-   each. Prints one line per run; exits 0, a wrong answer is a changed line. *)
+   testbench RAM where DTCM is too small), the same in place in one [In_out]
+   slot, and guests built to fail one way each. Prints one line per run; exits 0, a wrong answer is a changed line. *)
 
 open Machine_rivet_riscv32
 open Rv32_asm
@@ -50,6 +50,25 @@ let kernel ?body count =
          @ work
          @ [ insn "li" [ reg "a0"; imm 7 ]; insn "ret" [] ]))
 
+(* [mir_entry(region)]: the region's [count] floats negated in place; returns
+   7. *)
+let in_place count =
+  or_exit Fmt.string
+    (module_ "kernel" (fun () ->
+         [ text; align 4; global "mir_entry"; label "mir_entry" ]
+         @ load_imm "t2" count
+         @ [
+             label "negate";
+             insn "flw" [ reg "ft0"; mem "a0" 0 ];
+             insn "fneg.s" [ reg "ft0"; reg "ft0" ];
+             insn "fsw" [ reg "ft0"; mem "a0" 0 ];
+             insn "addi" [ reg "a0"; reg "a0"; imm 4 ];
+             insn "addi" [ reg "t2"; reg "t2"; imm (-1) ];
+             insn "bnez" [ reg "t2"; sym "negate" ];
+             insn "li" [ reg "a0"; imm 7 ];
+             insn "ret" [];
+           ]))
+
 let slots count =
   let size = Int64.of_int (4 * count) in
   L.Placement.
@@ -85,6 +104,19 @@ let image ?body p count =
           ~kernel:[ kernel ?body count ]
           (slots count)))
 
+let in_place_image p count =
+  or_exit Coral_image.pp_error
+    (Err.payload
+       (Coral_image.build ~abi:Slot0 p ~entry:"mir_entry"
+          ~kernel:[ in_place count ]
+          [
+            {
+              L.Slot.align = 8L;
+              placement = In_out;
+              size = Int64.of_int (4 * count);
+            };
+          ]))
+
 let placement (i : Coral_image.t) =
   String.concat " "
     (List.map
@@ -92,7 +124,8 @@ let placement (i : Coral_image.t) =
          s.region ^ if s.htif_reachable then "" else "(staged)")
        i.layout.slots)
 
-let run ?deadline ?flags ?(dir = dir) label (i : Coral_image.t) count =
+let run ?deadline ?flags ?(dir = dir) ?(out = 2) label (i : Coral_image.t) count
+    =
   match
     Err.payload
       (Coral_run.run ?deadline ?flags ~dir i ~bound:(fun k ->
@@ -100,7 +133,7 @@ let run ?deadline ?flags ?(dir = dir) label (i : Coral_image.t) count =
   with
   | Ok o ->
       Fmt.pr "%s: status %ld, %s, minstret %Ld, mcycle %s@." label o.status
-        (check count (List.assoc 2 o.outputs))
+        (check count (List.assoc out o.outputs))
         o.minstret
         (if o.mcycle > 0L then "counted" else "0")
   | Error e -> Fmt.pr "%s: %a@." label Coral_run.Run_error.pp e
@@ -114,6 +147,16 @@ let () =
           let i = image p count in
           Fmt.pr "%s %d floats: %s@." name count (placement i);
           run (Printf.sprintf "%s %d" name count) i count)
+        [ 8; 16384 ])
+    Coral_profile.baseline;
+  List.iter
+    (fun name ->
+      let p = profile name in
+      List.iter
+        (fun count ->
+          let i = in_place_image p count in
+          Fmt.pr "%s %d floats in place: %s@." name count (placement i);
+          run ~out:0 (Printf.sprintf "%s %d in place" name count) i count)
         [ 8; 16384 ])
     Coral_profile.baseline;
   (* One way to fail each, on one MPACT and one RTL profile. *)

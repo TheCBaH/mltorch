@@ -5,9 +5,16 @@ module Segment = struct
 end
 
 module Placement = struct
-  type t = In | Out | Scratch
+  type t = In | In_out | Out | Scratch
 
-  let to_string = function In -> "in" | Out -> "out" | Scratch -> "scratch"
+  let to_string = function
+    | In -> "in"
+    | In_out -> "in-out"
+    | Out -> "out"
+    | Scratch -> "scratch"
+
+  let read = function In | In_out -> true | Out | Scratch -> false
+  let written = function In_out | Out -> true | In | Scratch -> false
 end
 
 module Slot = struct

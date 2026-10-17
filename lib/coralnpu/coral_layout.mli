@@ -19,7 +19,19 @@ module Segment : sig
 end
 
 module Placement : sig
-  type t = In | Out | Scratch
+  type t =
+    | In  (** Read from the input frame before the entry. *)
+    | In_out  (** Read before the entry and written to the result after. *)
+    | Out  (** Zeroed before the entry, written to the result after. *)
+    | Scratch  (** Zeroed before the entry. *)
+
+  val to_string : t -> string
+
+  val read : t -> bool
+  (** Filled from the input frame: [In], [In_out]. *)
+
+  val written : t -> bool
+  (** Part of the result frame: [In_out], [Out]. *)
 end
 
 module Slot : sig
