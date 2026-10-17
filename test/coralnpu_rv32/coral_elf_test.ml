@@ -143,3 +143,56 @@ let%expect_test "a segment outside the loadable regions" =
     {|
     tiny-mpact: written
     tiny-rtl: segment .data (16 bytes at 0x20000000) is outside every loadable region |}]
+
+(* The runtime around a kernel: the layout settles, and a slot too large for
+   DTCM is staged. *)
+let%expect_test "an image with the runtime" =
+  let kernel =
+    match
+      module_ "kernel" (fun () ->
+          [
+            text;
+            align 4;
+            global "mir_entry";
+            label "mir_entry";
+            insn "li" [ reg "a0"; imm 7 ];
+            insn "ret" [];
+          ])
+    with
+    | Ok m -> m
+    | Error what -> failwith what
+  in
+  let slot placement size = { Coral_layout.Slot.align = 8L; placement; size } in
+  List.iter
+    (fun slots ->
+      match
+        Err.payload
+          (Coral_image.build (profile "tiny-rtl") ~entry:"mir_entry"
+             ~kernel:[ kernel ] slots)
+      with
+      | Ok i -> Fmt.pr "%a@." Coral_layout.pp i.layout
+      | Error e -> Fmt.pr "error: %a@." Coral_image.pp_error e)
+    Coral_layout.Placement.
+      [ [ slot In 64L; slot Out 64L ]; [ slot In 100_000L; slot Out 64L ] ];
+  [%expect
+    {|
+    digest 86773afe
+    .text      0x00000000
+    .data      0x00010000
+    htif       0x00010040
+    packet     0x00010140
+    staging    0x00010180
+    trap       0x00011180
+    stack top  0x00018000
+    slot in    0x00011200 64 dtcm
+    slot out   0x00011240 64 dtcm
+    digest 74381a6d
+    .text      0x00000000
+    .data      0x00010000
+    htif       0x00010040
+    packet     0x00010140
+    staging    0x00010180
+    trap       0x00011180
+    stack top  0x00018000
+    slot in    0x20000000 100000 testbench-ram staged
+    slot out   0x00011200 64 dtcm |}]

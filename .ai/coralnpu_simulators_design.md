@@ -5,8 +5,8 @@ mltorch runs RV32 guest images on the Coral NPU simulators published by
 Verilator RTL CoreMini testbenches (cycles). The guest ISA is RV32IMF with no
 D extension, the default RV32 profile of `riscv32_process_design.md`. This
 record grows with the route; today it covers the release pin, the manifest
-decoder, the simulator profiles, the memory layout, the wire protocol and the
-ELF.
+decoder, the simulator profiles, the memory layout, the wire protocol, the
+ELF, the guest runtime and the runner.
 
 ## The release pin
 
@@ -118,3 +118,77 @@ symbols; `_start` marks the entry. The ABI is ILP32F with arch
 `rv32i2p1_m2p0_f2p2_zicsr2p0_zifencei2p0`, without RVC. Both simulators load
 such an image; binutils' `readelf` reads its flags, symbols and attributes
 as written.
+
+## Guest runtime (`Coral_runtime`)
+
+The runtime is a typed Rivet module generated per layout. `_start` does the
+following, in order:
+
+1. Sets `sp`, `mtvec`, `mstatus.FS` = Initial and `fcsr` = 0.
+2. Zeroes `Out` and `Scratch` slots, as the QEMU harness's files and bss are.
+3. Reads the input header, refusing a wrong magic, version, digest or length
+   before any slot is touched.
+4. Reads each `In` slot, directly or in staging-sized chunks copied by word.
+5. Calls the entry (slot table or first slot, as `Rv32_harness.Abi`) between
+   two reads of `mcycle` and `minstret`. Each counter is read high/low/high
+   and retried on a carry.
+6. Writes the result frame.
+7. Exits through HTIF with 0, then `mpause` forever.
+
+HTIF calls follow the simulators' proxy-kernel packet (eight `u64`, address
+in `tohost`, `tohost_ready` = 1, poll `fromhost`/`fromhost_ready`).
+
+A transfer loops on short counts. A count of zero or less, or one above what
+was asked, ends it: an input stream that ends early is a refusal. A failed
+write exits 2, since there is nothing left to report on.
+
+The trap handler uses no stack. It writes a trap frame from the trap scratch
+and exits 1. An input refusal is the same frame with `mcause` `0xFFFF_FFFF`
+and the reason in `mepc`. No `ecall` is ever emitted.
+
+Every address and constant is loaded by a `lui`/`addi` pair, so the module's
+size does not depend on the layout. `Coral_image` iterates
+runtime → plan → layout, starting from "nothing staged", until the layout
+repeats. DTCM placement does not depend on code size, so this settles on the
+second round.
+
+Labels are generated fresh per use. A builder that reuses one item list
+twice gives two loops one label. Rivet accepts that today and resolves a
+reference to one of them: the runtime's second write loop once ran the
+first's code and flooded stdout.
+
+## Runner (`Coral_run`)
+
+The runner writes the ELF to a fresh directory and spawns the simulator as a
+session leader. One `select` loop feeds stdin while draining stdout and
+stderr. When the deadline passes, or stdout exceeds the frame plus 4 MiB, it
+kills the whole process group.
+
+The frame decides the outcome, never the exit status: MPACT exits 0 after any
+run, and the RTL testbench folds guest codes to 1. Rows, closed:
+
+- `Cycle_limit`: the testbench printed "loop limit" and then hung, so the
+  deadline ended the run.
+- `Guest_trap`: `mcause`, `mepc`, `mtval`.
+- `Input_refused`.
+- `Malformed_output`.
+- `Output_limit`.
+- `Simulator_crashed`: no frame and a failed process.
+- `Simulator_missing`.
+- `Timeout`.
+
+`make coralnpu.runtest` runs typed binary32 kernels (negate through a
+scratch slot) on `core-mini-axi`, `core-mini-highmem-axi` and `mpact-v2`.
+
+- **Sizes:** eight floats, with every slot in DTCM; and 64 KiB slots, which
+  are staged through testbench RAM on `core-mini-axi` and through `extmem` on
+  MPACT, and sit in DTCM on highmem. Results are bitwise.
+- **Counters:** `minstret` is equal on all three, 133 and 213021 for the two
+  sizes. `mcycle` counts on both simulators.
+- **Purpose-built guests**, one row each: illegal instruction (`mcause` 2),
+  store to ITCM (`mcause` 7), spin (`Timeout`), RTL `--cycles`
+  (`Cycle_limit`), wrong digest (`Input_refused`), missing simulator.
+- **Store-fault `mtval`:** for the ITCM store at `0x100`, RTL reports
+  `0x10` and MPACT `0x100`.
+- **Mutation:** shortening a staged chunk's copy by one word makes the
+  staged profiles fail at element 1023, the last word of the first chunk.
