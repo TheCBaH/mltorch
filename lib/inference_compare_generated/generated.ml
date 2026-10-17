@@ -328,6 +328,7 @@ let register () = List.iter P.Provider.register providers
 
 module Engines = struct
   module Loop_c = Loop_c
+  module Loop_c_fp32 = Loop_c_fp32
   module Loop_wasm = Loop_wasm
   module Ssa_c = Ssa_c
   module Ssa_wasm = Ssa_wasm

@@ -1,0 +1,28 @@
+; The Coral engines against loop-c-fp32, bit for bit, over the chain fixture as
+; an extracted body, on mpact-v2 and core-mini-highmem-axi. Enabled by
+; CORALNPU_DATA (the extracted emulators archive), which make
+; coralnpu.compcert.runtest sets.
+
+(library
+ (name inference_compare_rv32_coral_test)
+ (libraries
+  fmt
+  inference_compare_generated
+  inference_compare_pt2
+  inference_compare_rv32
+  loop_c_embed_compcert_coral
+  loop_ir
+  native
+  native_test)
+ (inline_tests
+  (deps
+   (env_var CORALNPU_DATA)))
+ (preprocess
+  (pps ppx_expect))
+ (enabled_if
+  (and
+   (<> %{env:CORALNPU_DATA=} "")
+   %{lib-available:rivet_compcert.compcert_embed_riscv32}
+   %{lib-available:rivet_compcert.compcert_embed_riscv32_fp32}
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

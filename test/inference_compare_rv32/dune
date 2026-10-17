@@ -1,0 +1,30 @@
+; The embedded riscv32 CompCert as comparison engines, over small graphs: the
+; qemu engines bitwise equal to the host C engines of the same numerics, the
+; Coral words' refusals, and the Coral identity. Built where the riscv32
+; embeddings are installed; qemu-riscv32 must be on the path.
+
+(library
+ (name inference_compare_rv32_test)
+ (libraries
+  coralnpu
+  err_trace
+  fmt
+  inference_compare_generated
+  inference_compare_pt2
+  inference_compare_rv32
+  inference_compare_schema
+  loop_c_embed_compcert_rv32
+  loop_ir
+  native
+  native_test
+  unix)
+ (inline_tests
+  (deps ../coralnpu/fragment.json))
+ (preprocess
+  (pps ppx_expect))
+ (enabled_if
+  (and
+   %{lib-available:rivet_compcert.compcert_embed_riscv32}
+   %{lib-available:rivet_compcert.compcert_embed_riscv32_fp32}
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))
