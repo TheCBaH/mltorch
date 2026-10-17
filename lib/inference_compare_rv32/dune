@@ -1,0 +1,26 @@
+; The embedded CompCert for riscv32 as engines for the comparison coordinator:
+; under qemu-riscv32 (compcert-rv32-fp32, with D disabled) and on the Coral NPU
+; simulators (compcert-coral-<configuration>-fp32). Binary64 requests refuse.
+; Built where the F32 ABI extraction and RV32 Rivet encoder are installed.
+
+(library
+ (name inference_compare_rv32)
+ (libraries
+  coralnpu
+  err_trace
+  fmt
+  inference_compare_pt2
+  inference_compare_schema
+  inference_compare_sha256
+  loop_c_embed
+  loop_c_embed_compcert_coral
+  loop_c_embed_compcert_rv32
+  loop_c_exec
+  loop_ir
+  machine_rivet_riscv32
+  native)
+ (enabled_if
+  (and
+   %{lib-available:rivet_compcert.compcert_embed_riscv32_fp32}
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

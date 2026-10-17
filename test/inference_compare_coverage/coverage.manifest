@@ -72,6 +72,20 @@ compcert-vs-native   | native                      | native.canonical:compcert |
 compcert-vs-rivet    | native.canonical:compcert   | native.canonical:rivet    | TOL=0 | agree | -
 compcert-native4d    | native4d                    | native.canonical:compcert | - | agree | +40 clusters
 
+# ---- the F32 ABI riscv32 CompCert extraction: under qemu-riscv32 with D
+# disabled and on the Coral NPU simulators (CORALNPU_DATA). Requests without
+# fp32 refuse; no ordinary D-ABI CompCert extraction is used for RISC-V.
+# Whole models run on MPACT (about a minute here); the highmem RTL testbench
+# runs about 2e5 cycles a second, so its word is exercised by the hermetic
+# bundles (make coralnpu.compcert.runtest), and here only by its refusals.
+rv32-fp32-vs-c         | native.canonical:compcert-rv32-fp32 | native.canonical:loop-c-fp32 | - | agree | +49 units
+rv32-fp32-word         | native.canonical:compcert-rv32,fp32 | native.canonical:loop-c-fp32 | - | agree | -
+rv32-vs-native         | native | native.canonical:compcert-rv32 | - | refused uses only the F32 ABI | -
+coral-mpact-vs-c       | native.canonical:compcert-coral-mpact-v2-fp32 | native.canonical:loop-c-fp32 | - | agree | +49 units
+coral-mpact-binary64   | native | native.canonical:compcert-coral-mpact-v2 | - | refused no D extension | -
+coral-highmem-binary64 | native | native.canonical:compcert-coral-core-mini-highmem-axi | - | refused no D extension | -
+coral-highmem-missing  | native | native.canonical:compcert-coral-core-mini-highmem-axi-fp32 | CORALNPU_DATA=/no/such/archive | refused is not available | -
+
 # ---- JavaScript (node, through the helper)
 js-loop-vs-ssa       | native.canonical:loop-js | native.canonical:ssa-js | TOL=0 | agree | -
 js-loop-vs-native    | native | native.canonical:loop-js | - | agree | -

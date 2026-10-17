@@ -11,6 +11,9 @@ module Name : sig
     | Exp_f32  (** {!F32_math.Value.exp}'s sequence in [float] *)
     | F16_to_f32  (** the binary32 value of an [f16] cell, no binary64 step *)
     | F16_to_float
+    | F32_from_i64
+        (** an [int64_t] to [float], rounded to nearest even, in integer
+            arithmetic *)
     | F32_prelude
         (** [FLT_EVAL_METHOD == 0] asserted: what every fp32 kernel needs *)
     | Float_max
@@ -19,6 +22,10 @@ module Name : sig
     | I64_div
     | I64_from_float
     | I64_from_float_failure
+    | I64_from_f32
+        (** {!I64_from_float} of a [float], without binary64 or the compiler's
+            conversion *)
+    | I64_from_f32_failure  (** {!I64_from_float_failure} of a [float] *)
     | Idx_clamp_low
     | Idx_max
     | Idx_min

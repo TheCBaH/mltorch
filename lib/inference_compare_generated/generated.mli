@@ -14,6 +14,10 @@ module Engines : sig
   module Loop_c :
     Inference_compare_pt2.Graph_runner.ENGINE with type op = Graph_ir.op
 
+  module Loop_c_fp32 :
+    Inference_compare_pt2.Graph_runner.ENGINE with type op = Graph_ir.op
+  (** [loop-c-fp32]: the Loop emitter under [Fp32_ordered]. *)
+
   module Loop_wasm :
     Inference_compare_pt2.Graph_runner.ENGINE with type op = Graph_ir.op
 

@@ -1,0 +1,35 @@
+; The binary32 embedding tests of test/loop_c_embed with the Coral loader on
+; the mpact-v2 simulator: the model compiled by the embedded F-only CompCert,
+; built into a Coral guest image around its region and run there, is bitwise
+; equal to the binary32 oracle. Their committed expect output must hold
+; unchanged. Enabled by CORALNPU_DATA (the extracted emulators archive), which
+; make coralnpu.compcert.runtest sets, where the riscv32 embeddings are
+; installed.
+
+(copy_files
+ ../../loop_c_embed/{embed_common,embed_fp32_test,c_host_fixtures}.ml)
+
+(library
+ (name loop_c_embed_compcert_coral_mpact_v2_test)
+ (libraries
+  core
+  err_trace
+  fmt
+  loop_c_embed
+  loop_c_embed_compcert_coral
+  loop_c_exec
+  loop_ir
+  native
+  native_test
+  unix)
+ (inline_tests
+  (deps
+   (env_var CORALNPU_DATA)))
+ (preprocess
+  (pps ppx_expect))
+ (enabled_if
+  (and
+   (<> %{env:CORALNPU_DATA=} "")
+   %{lib-available:rivet_compcert.compcert_embed_riscv32_fp32}
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

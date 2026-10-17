@@ -87,7 +87,7 @@ jobs:
         # pytorch third_party, ccache). models: the PT2_MODELS_CRAM zips plus
         # csatv2 under the shared build cache key.
         - {suite: browser, submodules: true}
-        - {suite: compcert, submodules: true}
+        - {suite: compcert, submodules: true, native: true}
         - {suite: jsoo, submodules: true}
         - {suite: jsoo-models, submodules: true}
         - {suite: melange, submodules: false, post_create: 'false'}

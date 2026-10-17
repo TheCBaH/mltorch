@@ -55,6 +55,12 @@ let signbit d x =
   | Compcert_ilp32 | Compcert_scalar ->
       "(" ^ x ^ " < 0.0 || (" ^ x ^ " == 0.0 && 1.0 / " ^ x ^ " < 0.0))"
 
+(* [Compcert_ilp32] targets RV32, whose F-only profile has no binary64
+   arithmetic and no conversion between 64-bit integers and [float]. *)
+let binary32_only = function
+  | Compcert_ilp32 -> true
+  | Compcert_scalar | Gnu -> false
+
 let isfinite d x =
   match d with
   | Gnu -> "isfinite(" ^ x ^ ")"

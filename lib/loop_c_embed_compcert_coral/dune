@@ -1,0 +1,22 @@
+; The Loop_c_embed LOADER for the Coral NPU simulators: the unit compiled by the
+; embedded F-only riscv32 CompCert, as for the RV32 loader, then built into a
+; Coral guest image around the caller's region and run on one simulator
+; configuration per call. Built where the riscv32 embeddings and the RV32 Rivet
+; encoder are installed.
+
+(library
+ (name loop_c_embed_compcert_coral)
+ (libraries
+  coralnpu
+  coralnpu_rv32
+  err_trace
+  fmt
+  loop_c_embed
+  loop_c_embed_compcert_rv32
+  loop_ir
+  machine_rivet_riscv32)
+ (enabled_if
+  (and
+   %{lib-available:rivet_compcert.compcert_embed_riscv32_fp32}
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

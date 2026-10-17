@@ -1,0 +1,30 @@
+; The binary32 embedding tests of test/loop_c_embed with the F-only RISC-V 32
+; loader: the model compiled by the embedded CompCert's F-only riscv32 profile,
+; assembled by Rivet without its d component and run under qemu-riscv32 with D
+; disabled, is bitwise equal to the binary32 oracle. Their committed expect
+; output must hold unchanged. Built where the F32 ABI extraction is installed;
+; qemu-riscv32 must be on the path.
+
+(copy_files
+ ../loop_c_embed/{embed_common,embed_fp32_test,c_host_fixtures}.ml)
+
+(library
+ (name loop_c_embed_compcert_rv32_fp32_test)
+ (libraries
+  core
+  err_trace
+  fmt
+  loop_c_embed
+  loop_c_embed_compcert_rv32
+  loop_c_exec
+  loop_ir
+  native
+  native_test
+  unix)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect))
+ (enabled_if
+  (and
+   %{lib-available:rivet_compcert.compcert_embed_riscv32_fp32}
+   %{lib-available:rivet.riscv32_encode})))

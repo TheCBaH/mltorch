@@ -17,10 +17,12 @@ composition: `aten` 0, `native` 1, `native.canonical` 2, `native4d` 3.
 | `release`, `arena`, `arena=BYTES`, `separate`, `shared`, `scheduled` | native, native.canonical | storage and scheduling configurations of the Native evaluator over the same graph; `scheduled` needs a storage word; one storage word only |
 | `symbolic` | native, native.canonical, native4d | the symbolic evaluator, grounded from the coordinator's bindings; takes no other word |
 | `loop-c`, `ssa-c`, `loop-wasm`, `ssa-wasm` | native, native.canonical | generated C (host compiler) or Wasm (node); Loop emitter or SSA backend; takes no other word |
-| `fp32` | with an engine word below | the engine's binary32 numerics (`Fp32_ordered`: every kernel binary32): `loop-c,fp32` is the provider `loop-c-fp32`; offered by `loop-c`, `ssa-c`, `loop-wasm`, `ssa-wasm`, `rivet*` and `compcert`. Two fp32 engines are compared exactly unless `TOL` is set. For `rivet*` it is the configuration as deployed: planned for neon128, binary32 vector loops where the policy keeps each output's order |
+| `fp32` | with an engine word below | the engine's binary32 numerics (`Fp32_ordered`: every kernel binary32): `loop-c,fp32` is the provider `loop-c-fp32`; offered by `loop-c`, `ssa-c`, `loop-wasm`, `ssa-wasm`, `rivet*`, `compcert`, `compcert-rv32` and `compcert-coral-*`. Two fp32 engines are compared exactly unless `TOL` is set. For `rivet*` it is the configuration as deployed: planned for neon128, binary32 vector loops where the policy keeps each output's order |
 | `fp32s` | with a `rivet*` engine word | the same policy scalar (`rivet,fp32s` is `rivet-fp32s`), so `rivet-fp32` against `rivet-fp32s` checks the vector path against the scalar one exactly |
 | `rivet`, `rivet-table` (each with `-scanned`) | native, native.canonical | Rivet AArch64: the image route, or the table host, with the reference or the scanned allocator |
 | `compcert` | native, native.canonical | the embedded CompCert, assembled and loaded by Rivet |
+| `compcert-rv32` | native, native.canonical | the embedded F32 ABI riscv32 CompCert under qemu-riscv32 with D disabled; requires `fp32`, otherwise refuses before compilation |
+| `compcert-coral-mpact-v2`, `compcert-coral-core-mini-highmem-axi` | native, native.canonical | the embedded F-only riscv32 CompCert on a Coral NPU simulator configuration (the archive `CORALNPU_DATA` names); `fp32` only, the word alone refuses (no D extension) |
 | `loop-js`, `ssa-js`, `jsoo` | native, native.canonical | generated JavaScript, or the Native evaluator compiled by js_of_ocaml, run by node in a helper process |
 
 An engine word is registered at run time, so the vocabulary is what the
@@ -35,7 +37,8 @@ and never replaced by another engine. A combination a view cannot carry
 mapping construction, and `Provider`, the registry of engine words. Libraries
 above it register providers: `inference_compare_generated` (C, Wasm),
 `inference_compare_rivet` (image route, table host), `inference_compare_compiled`
-(CompCert), `inference_compare_js` (JavaScript). Rivet is its own library, so a
+(CompCert), `inference_compare_rv32` (riscv32 CompCert under qemu and on the
+Coral simulators), `inference_compare_js` (JavaScript). Rivet is its own library, so a
 Rivet-only install selects it without CompCert; CompCert needs the embedding for
 the host ISA (`MLTORCH_COMPCERT`). `lib/inference_compare_host` holds the
 production runner (`Pair_run`); the test directory `inference_compare_providers`
@@ -128,6 +131,15 @@ for every mode with its expected result on `test_convnext2`: `agree`,
 - `MLTORCH_WASM` (`make wasm.runtest`): Wasm engines.
 - `make js.compare.runtest` (`MLTORCH_JS`): JavaScript engines and cram.
 - `make rivet.compare.runtest`, `make compcert.compare.runtest`: AArch64 hosts.
+- `make compcert.rv32.runtest`: the qemu engines against the host C engines,
+  bitwise, and the Coral words' refusals and identity;
+  `make coralnpu.compcert.runtest` the Coral engines against `loop-c-fp32`.
+  A Coral identity names the configuration ID, the simulator's SHA-256, its
+  command and the call deadline. Whole `test_convnext2` agrees on MPACT; the
+  highmem RTL testbench (about 2e5 cycles a second) is too slow for a whole
+  model, so its manifest rows are refusals and the hermetic bundles cover it.
+  `compcert-rv32` without `fp32` refuses before compilation: the RISC-V
+  CompCert integration uses only the F32 ABI extraction.
 - `make model.compare.coverage`: the whole manifest, about four minutes.
 
 ## Not covered, and why

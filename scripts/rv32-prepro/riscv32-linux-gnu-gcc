@@ -3,14 +3,17 @@
 # the host gcc. The embedding build preprocesses CompCert's own runtime helper
 # sources (runtime/c/i64_*.c) with this name; their text does not depend on the
 # target's headers, so the host preprocessor gives the same output apart from
-# the path in one line marker. Only preprocessing is supported: compiling,
-# assembling or linking for RISC-V needs a real cross toolchain and is refused.
+# the path in one line marker. The RISC-V -march and -mabi flags of the
+# configuration's prepro_options are dropped: the host compiler rejects them,
+# and preprocessing these sources does not depend on them. Only preprocessing
+# is supported: compiling, assembling or linking for RISC-V needs a real cross
+# toolchain and is refused.
 preprocess=false
 for a in "$@"; do
   shift
   case "$a" in
     -E) preprocess=true; set -- "$@" "$a" ;;
-    -mabi=*) ;;
+    -mabi=*|-march=*) ;;
     *) set -- "$@" "$a" ;;
   esac
 done
