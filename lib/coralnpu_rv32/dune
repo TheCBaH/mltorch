@@ -1,0 +1,11 @@
+; Coral guest images from typed Rivet modules: the ELF the simulators load.
+; Built only where the RV32 Rivet encoder is installed.
+
+(library
+ (name coralnpu_rv32)
+ (wrapped false)
+ (libraries coralnpu elf err_trace fmt rivet.asm_core rivet.image)
+ (enabled_if
+  (and
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

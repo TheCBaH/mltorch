@@ -5,7 +5,8 @@ mltorch runs RV32 guest images on the Coral NPU simulators published by
 Verilator RTL CoreMini testbenches (cycles). The guest ISA is RV32IMF with no
 D extension, the default RV32 profile of `riscv32_process_design.md`. This
 record grows with the route; today it covers the release pin, the manifest
-decoder and the simulator profiles.
+decoder, the simulator profiles, the memory layout, the wire protocol and the
+ELF.
 
 ## The release pin
 
@@ -61,3 +62,59 @@ Two facts per region are mltorch's, because the manifest leaves them unknown
 | `htif_reachable` (an HTIF buffer may lie there) | DTCM | DTCM: the HTIF initiator reaches only the core's AXI slave; a read into testbench RAM fails, a write from it aborts the simulator |
 
 Any region not shown to work is treated as unreachable, never as allowed.
+
+## Layout (`Coral_layout`)
+
+Pure: segments (size, alignment, executable) and slots (`In`/`Out`/`Scratch`)
+in, addresses out.
+
+- Executable segments go to ITCM. There is no spill to external memory: a
+  program larger than ITCM is `Over_capacity`.
+- DTCM from its base: data segments, the HTIF block (`tohost`, `fromhost`,
+  `tohost_ready`, `fromhost_ready`, 64 bytes apart), the HTIF packet, the
+  staging buffer (4 KiB by default), the trap scratch, then slots. The stack
+  (4 KiB by default) takes the top.
+- A slot that does not fit in DTCM goes to the profile's writable RAM region,
+  and is staged there when that region is not `htif_reachable`. A slot is
+  never split.
+
+The digest is 32 bits of SHA-256 over the configuration ID and every address
+and size the layout assigns. It travels in both directions, so a guest built
+for one layout cannot answer a host expecting another. A size change that
+moves no address leaves the digest unchanged.
+
+## Wire protocol (`Coral_wire`)
+
+The guest reads one stream on stdin and writes one frame on stdout, both
+through HTIF. Fields are little-endian; `u32` is `int32`, `u64` is `int64`.
+
+```text
+input:  "CNPUIN01" version digest length payload "CNPUEND1"
+result: "CNPUOUT1" version digest status mcycle minstret length payload "CNPUEND1"
+trap:   "CNPUTRP1" version mcause mepc mtval "CNPUEND1"
+```
+
+`mcycle`/`minstret` are `u64` deltas across the entry call. The other fields
+are `u32`. Payloads are the `In` and `Out` slots' bytes, in slot order. A
+trap frame carries no digest, because a trap may come before the input is
+read.
+
+Simulators print their own text around the guest's, and MPACT has printed
+its banner after guest bytes. The host takes the first frame magic and keeps
+the text around it. Every way the frame can break is its own `Malformed`
+row, never a wrong answer: no frame, truncated, bad trailer, version,
+digest, payload size.
+
+## ELF (`Coral_elf`)
+
+The ELF has one PT_LOAD per memory region, holding that region's sections in
+address order. The layout packs DTCM, so data and the HTIF block share a
+page, which separate PT_LOADs could not. Every byte is explicit, zero-filled
+tails included, because the RTL testbench loads by copying file bytes. A
+segment outside a `loadable` region is refused before anything is built.
+
+`.htif` is 256 zero bytes at the layout's address, under the four HTIF
+symbols; `_start` marks the entry. The ABI is ILP32F with arch
+`rv32i2p1_m2p0_f2p2_zicsr2p0_zifencei2p0`, without RVC. Both simulators load
+such an image; binutils' `readelf` reads its flags, symbols and attributes
+as written.

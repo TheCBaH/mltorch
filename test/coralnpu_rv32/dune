@@ -1,0 +1,21 @@
+; Coral ELF images from hand-built typed modules, decoded back with ocaml-elf.
+; Built where the RV32 Rivet encoder is installed; needs no simulator.
+
+(library
+ (name coralnpu_rv32_test)
+ (libraries
+  coralnpu
+  coralnpu_rv32
+  elf
+  err_trace
+  fmt
+  machine_rivet_riscv32
+  rivet.image)
+ (inline_tests
+  (deps ../coralnpu/fragment.json))
+ (preprocess
+  (pps ppx_expect))
+ (enabled_if
+  (and
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

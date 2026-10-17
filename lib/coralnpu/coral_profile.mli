@@ -15,6 +15,9 @@
 module Role : sig
   (** The manifest's region [type]. *)
   type t = Csr | Dtcm | Itcm | Mmio | Ram
+
+  val to_string : t -> string
+  (** The manifest's spelling. *)
 end
 
 module Simulator : sig
