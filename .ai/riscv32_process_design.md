@@ -38,7 +38,7 @@ image is planned, never silently stubbed.
 
 | Profile | Rivet features | ELF ABI | `Rv32_libc` | qemu |
 |---|---|---|---|---|
-| `Rv32imf_ilp32f` (default) | `-d` | ILP32F, `rv32imf` | `memcpy`, `memset`, `fabsf`, `fmaf`, `sqrtf` | `-cpu rv32,d=false` |
+| `Rv32imf_ilp32f` (default) | `-d` | ILP32F, `rv32imf` | `memcpy`, `memset`, `fabsf`, `fmaf`, `sqrtf`, `truncf` | `-cpu rv32,d=false` |
 | `Rv32imafd_ilp32d` | all | ILP32D, `rv32imafd` | the above plus `fabs`, `fma`, `sqrt` | default |
 
 The default targets an RV32 core without the D extension (Coral NPU's are
@@ -48,6 +48,12 @@ the module is lowered, naming each form; qemu with D disabled is the second,
 independent check, turning one that reached execution any other way into
 SIGILL. Each was shown to fail alone: without `-d` a binary64 kernel dies in
 qemu; with neither, it runs and the test's expectation breaks.
+
+`truncf` converts toward zero only below 2^23 in magnitude (where a binary32
+can have a fraction) and copies the input's sign onto the result, so a zero
+result keeps it; larger values, infinities and NaNs come back unchanged. Its
+test compares it bitwise with the host's `Float.trunc` at the binary32
+boundaries and over a seeded sweep, under `d=false`.
 
 The embedded-CompCert loader keeps `Rv32imafd_ilp32d`: CompCert's riscv32
 target is ilp32d and moves binary32 values with `fmv.d`, spills FP callee-save

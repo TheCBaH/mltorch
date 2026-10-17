@@ -8,8 +8,18 @@ open Rv32_asm
 
 let names : Rv32_profile.t -> string list = function
   | Rv32imafd_ilp32d ->
-      [ "fabs"; "fabsf"; "fma"; "fmaf"; "memcpy"; "memset"; "sqrt"; "sqrtf" ]
-  | Rv32imf_ilp32f -> [ "fabsf"; "fmaf"; "memcpy"; "memset"; "sqrtf" ]
+      [
+        "fabs";
+        "fabsf";
+        "fma";
+        "fmaf";
+        "memcpy";
+        "memset";
+        "sqrt";
+        "sqrtf";
+        "truncf";
+      ]
+  | Rv32imf_ilp32f -> [ "fabsf"; "fmaf"; "memcpy"; "memset"; "sqrtf"; "truncf" ]
 
 let fn name body =
   [ align 4; global name; label name ] @ body @ [ insn "ret" [] ]
@@ -45,10 +55,29 @@ let memset =
       label "memset_done";
     ]
 
+(* [truncf(x)]: a binary32 of magnitude 2^23 or more is already an integer, and
+   a NaN or an infinity is returned as it came, so only a smaller magnitude is
+   converted to an integer toward zero and back. The copy of [x]'s sign keeps
+   the sign of a zero result ([truncf(-0.5)] is [-0.0]). *)
+let truncf () =
+  fn "truncf"
+    [
+      insn "fabs.s" [ reg "ft0"; f 0 ];
+      insn "lui" [ reg "t0"; imm 0x4b000 ];
+      insn "fmv.w.x" [ reg "ft1"; reg "t0" ];
+      insn "flt.s" [ reg "t1"; reg "ft0"; reg "ft1" ];
+      insn "beqz" [ reg "t1"; sym "truncf_done" ];
+      insn "fcvt.w.s" [ reg "t0"; f 0; sym "rtz" ];
+      insn "fcvt.s.w" [ reg "ft0"; reg "t0" ];
+      insn "fsgnj.s" [ f 0; reg "ft0"; f 0 ];
+      label "truncf_done";
+    ]
+
 let binary32 () =
   fn "fabsf" [ insn "fabs.s" [ f 0; f 0 ] ]
   @ fn "fmaf" [ insn "fmadd.s" [ f 0; f 0; f 1; f 2 ] ]
   @ fn "sqrtf" [ insn "fsqrt.s" [ f 0; f 0 ] ]
+  @ truncf ()
 
 let binary64 () =
   fn "fabs" [ insn "fabs.d" [ f 0; f 0 ] ]
