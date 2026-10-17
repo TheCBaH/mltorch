@@ -1,0 +1,12 @@
+; The manifest decoder and profiles on a small hand-made manifest whose
+; configuration IDs were computed by the producer's rule, so the canonical JSON
+; (escapes, non-ASCII names, member order) is checked against it without the
+; release.
+
+(library
+ (name coralnpu_test)
+ (libraries coralnpu err_trace fmt jsont jsont.bytesrw)
+ (inline_tests
+  (deps fragment.json))
+ (preprocess
+  (pps ppx_expect)))

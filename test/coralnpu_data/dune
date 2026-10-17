@@ -1,0 +1,12 @@
+; The real emulators release: CORALNPU_DATA names the extracted archive root,
+; set by `make coralnpu.runtest`, which fails without the download.
+
+(executable
+ (name coral_manifest_check)
+ (libraries coralnpu err_trace fmt))
+
+(cram
+ (applies_to manifest)
+ (deps %{exe:coral_manifest_check.exe} (universe))
+ (enabled_if
+  (<> %{env:CORALNPU_DATA=} "")))

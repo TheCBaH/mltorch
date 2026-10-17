@@ -1,0 +1,190 @@
+{
+ "schema_version": "1.0",
+ "archive": {
+  "name": "tiny-archive"
+ },
+ "artifacts": [
+  {
+   "path": "bin/mpact",
+   "configuration_id": "coralnpu:tiny-mpact:ba3bab005bb827732a7a",
+   "sha256": "4a3d42d2296e0b595bf044fddb674572d14f531cda62401edb5948b815371f58",
+   "launch": {
+    "command": [
+     "bin/mpact",
+     "--semihost_htif",
+     "--exit_on_ebreak",
+     "<elf>"
+    ]
+   }
+  },
+  {
+   "path": "bin/rtl",
+   "configuration_id": "coralnpu:tiny-rtl:3b3475e7a285b4c6eaaf",
+   "sha256": "50d2f6599ee68748044579342c58e92b6f7232c1784821eb9566c2f7991a98aa",
+   "launch": {
+    "command": [
+     "bin/rtl",
+     "--binary=<elf>"
+    ]
+   }
+  },
+  {
+   "path": "lib/libx.so",
+   "configuration_id": null,
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "launch": {
+    "command": []
+   }
+  }
+ ],
+ "configurations": [
+  {
+   "id": "coralnpu:tiny-mpact:ba3bab005bb827732a7a",
+   "name": "tiny-mpact",
+   "description": "MPACT — \"quoted\", back\\slash, tab\t, \u0001 control, café",
+   "simulation": {
+    "backend": "mpact",
+    "interface": "standalone-cli",
+    "clock": {
+     "configured_frequency_mhz": null
+    }
+   },
+   "isa": {
+    "xlen": 32,
+    "extensions": [
+     "f",
+     "i",
+     "m",
+     "zicsr"
+    ],
+    "Zeta": [],
+    "é": -7
+   },
+   "memory_regions": [
+    {
+     "name": "itcm",
+     "type": "itcm",
+     "base_address": 0,
+     "size_bytes": 8192,
+     "access": {
+      "dma": false,
+      "guest_load": true,
+      "guest_store": false,
+      "host_load": true,
+      "instruction_fetch": true
+     }
+    },
+    {
+     "name": "dtcm",
+     "type": "dtcm",
+     "base_address": 65536,
+     "size_bytes": 32768,
+     "access": {
+      "dma": false,
+      "guest_load": true,
+      "guest_store": true,
+      "host_load": true,
+      "instruction_fetch": false
+     }
+    },
+    {
+     "name": "extmem",
+     "type": "ram",
+     "base_address": 536870912,
+     "size_bytes": 4194304,
+     "access": {
+      "dma": false,
+      "guest_load": true,
+      "guest_store": true,
+      "host_load": true,
+      "instruction_fetch": false
+     }
+    }
+   ]
+  },
+  {
+   "id": "coralnpu:tiny-rtl:3b3475e7a285b4c6eaaf",
+   "name": "tiny-rtl",
+   "description": "RTL",
+   "simulation": {
+    "backend": "verilator",
+    "interface": "standalone-cli"
+   },
+   "isa": {
+    "xlen": 32,
+    "extensions": [
+     "f",
+     "i",
+     "m"
+    ]
+   },
+   "memory_regions": [
+    {
+     "name": "itcm",
+     "type": "itcm",
+     "base_address": 0,
+     "size_bytes": 8192,
+     "access": {
+      "dma": false,
+      "guest_load": true,
+      "guest_store": false,
+      "host_load": true,
+      "instruction_fetch": true
+     }
+    },
+    {
+     "name": "dtcm",
+     "type": "dtcm",
+     "base_address": 65536,
+     "size_bytes": 32768,
+     "access": {
+      "dma": false,
+      "guest_load": true,
+      "guest_store": true,
+      "host_load": true,
+      "instruction_fetch": null
+     }
+    },
+    {
+     "name": "core-csr",
+     "type": "csr",
+     "base_address": 196608,
+     "size_bytes": 4096,
+     "access": {
+      "dma": false,
+      "guest_load": null,
+      "guest_store": null,
+      "host_load": true,
+      "instruction_fetch": false
+     }
+    },
+    {
+     "name": "testbench-ram",
+     "type": "ram",
+     "base_address": 536870912,
+     "size_bytes": 4194304,
+     "access": {
+      "dma": false,
+      "guest_load": true,
+      "guest_store": true,
+      "host_load": null,
+      "instruction_fetch": null
+     }
+    },
+    {
+     "name": "uart",
+     "type": "mmio",
+     "base_address": 1409286144,
+     "size_bytes": 4,
+     "access": {
+      "dma": false,
+      "guest_load": false,
+      "guest_store": true,
+      "host_load": false,
+      "instruction_fetch": false
+     }
+    }
+   ]
+  }
+ ]
+}

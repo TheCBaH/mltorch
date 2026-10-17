@@ -1582,6 +1582,25 @@ compcert.rv32.install: compcert.embed.install
 compcert.rv32.runtest: compcert.rv32.install
 	opam exec -- dune build @test/compcert_rv32/runtest @test/loop_c_embed_compcert_rv32/runtest --force
 
+# The Coral NPU emulators release (devcontainer.coralnpu), pinned per host
+# architecture in coralnpu.lock and extracted under data/coralnpu/<tag>/.
+# coralnpu.runtest decodes its manifest (every configuration ID recomputed) and
+# verifies the baseline simulators' hashes; it fails, never skips, without the
+# download.
+.PHONY: coralnpu.download coralnpu.runtest
+CORALNPU_DIR := data/coralnpu
+CORALNPU_ARCH := $(shell uname -m | sed -e 's/^amd64$$/x86_64/' -e 's/^arm64$$/aarch64/')
+CORALNPU_DATA = $(abspath $(CORALNPU_DIR)/$(shell sed -n 's/^tag //p' coralnpu.lock)/coralnpu-emulators-linux-$(CORALNPU_ARCH))
+coralnpu.download:
+	scripts/coralnpu-download.sh coralnpu.lock $(CORALNPU_DIR)
+
+coralnpu.runtest:
+	@test -f $(CORALNPU_DATA)/hardware-configurations.json || { \
+		echo "coralnpu.runtest: missing $(CORALNPU_DATA) -- run 'make coralnpu.download' first" >&2; \
+		exit 1; \
+	}
+	CORALNPU_DATA=$(CORALNPU_DATA) opam exec -- dune build @test/coralnpu_data/runtest --force
+
 compcert.embed.runtest: compcert.embed.install
 	MLTORCH_COMPCERT=$(COMPCERT_ISA) opam exec -- dune build @test/loop_c_embed_compcert/runtest @test/asm_census_compcert/runtest --force
 

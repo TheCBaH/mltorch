@@ -8,6 +8,7 @@ _build/
 AGENTS.md
 data/hf-hub/
 data/pt2/
+data/coralnpu/
 data/transformers-cache/
 data/pt2-functional/
 data/timm-cache/
