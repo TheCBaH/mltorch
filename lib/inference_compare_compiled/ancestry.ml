@@ -24,7 +24,7 @@ let components =
         "v3.17-4 \
          export-aarch64=dbaaa50cf72045398922c21b00fcb7c1cd3f737e9966514edf7935ebc573dc56 \
          asm-aarch64=1dd93f7528b49cf19bb5e38e97ba70dee541ceb403e60453d4e96811fcca2729 \
-         (vendored/rivet-compcert@fccfeaad9bf2489e47da26608d64b412741c838b)";
+         (vendored/rivet-compcert@a6445fe0c6540a1f78af4c25b0e9a03c4fb7d9c8)";
       routes = `Compcert;
     };
     {

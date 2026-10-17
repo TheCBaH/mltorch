@@ -22,7 +22,7 @@ let pins =
       "CompCert riscv32 and riscv32_fp32 = v3.17-4 \
        export-riscv32=f7a943ce3eee7381e98ac2c33ce662f22055a3ed13fd59ba70ce7590e87a22ff \
        export-riscv32_fp32=22e0345ee536d135a90bcae4e5c0d1b8b9ded4f5a947ff57f85bdc25abb4b771 \
-       (vendored/rivet-compcert@fccfeaad9bf2489e47da26608d64b412741c838b)";
+       (vendored/rivet-compcert@a6445fe0c6540a1f78af4c25b0e9a03c4fb7d9c8)";
       "Rivet assembler and image planner = \
        vendored/rivet@4a0ba8d9c6bfdb979e80246c12e3d34629e2af83";
       "Loop IR bundle to C (Compcert_ilp32 dialect) = this repository";
