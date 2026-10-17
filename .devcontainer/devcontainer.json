@@ -33,13 +33,15 @@
         // err_trace and err_trace-melange are pinned to the upstream main branch
         // (not on opam yet), as the rivet devcontainer does; err_trace-melange
         // needs melange, so it is listed after it.
+        // Rivet's build and test dependencies are included here too; ocamlformat
+        // matches the version pinned by vendored/rivet/.ocamlformat.
         // Deliberately floating: ctypes, ctypes-foreign, landmarks,
         // landmarks-ppx, memtrace, utop, yaml, zipc -- none is part of the JS
         // build or that solve. See .ai/js_backends_design.md.
         "ghcr.io/thecbah/ocaml-features/ocaml:1": {
             "version": "4.14.3",
-            "packages": "bytesrw#0.4.1 cmdliner#2.1.1 ctypes ctypes-foreign fmt#0.11.0 js_of_ocaml#6.4.1 js_of_ocaml-compiler#6.4.1 js_of_ocaml-ppx#6.4.1 jsont#0.4.0 landmarks landmarks-ppx melange#5.1.0-414 err_trace#git+https://github.com/TheCBaH/err_trace#main err_trace-melange#git+https://github.com/TheCBaH/err_trace#main memtrace menhir ppx_expect#v0.16.2 utop yaml zipc",
-            "system-packages": "pkg-config"
+            "packages": "bos bytesrw#0.4.1 cmdliner#2.1.1 ctypes ctypes-foreign digestif fmt#0.11.0 fpath js_of_ocaml#6.4.1 js_of_ocaml-compiler#6.4.1 js_of_ocaml-ppx#6.4.1 jsont#0.4.0 landmarks landmarks-ppx melange#5.1.0-414 err_trace#git+https://github.com/TheCBaH/err_trace#main err_trace-melange#git+https://github.com/TheCBaH/err_trace#main memtrace menhir mtime ocamlformat#0.28.1 ppx_expect#v0.16.2 qcheck utop yaml zarith zipc",
+            "system-packages": "libgmp-dev pkg-config"
         },
         // Node/npm run the js_of_ocaml, melange and browser gates. Exact Debian
         // package pins keep a developer rebuild and CI on one runtime too.
@@ -58,7 +60,7 @@
     "remoteUser": "vscode",
     "postCreateCommand": {
         "submodules": "git submodule update --init --depth 1",
-        "opam": "sudo sh -ceux \"chown -R $(id -u):$(id -g) ${OPAMROOT}/log\""
+        "opam": "sudo .devcontainer/fix-opam-owner.sh $(id -u) $(id -g)"
     },
     "waitFor": "postCreateCommand"
 }
