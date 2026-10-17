@@ -1,2 +1,2 @@
 aarch64: 	mov	x15, sp
-riscv32: 	mv	x30, x2
+riscv32_fp32: 	mv	x30, x2

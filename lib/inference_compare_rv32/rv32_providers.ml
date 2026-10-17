@@ -1,7 +1,6 @@
-(* The embedded riscv32 CompCert as variant words. Under qemu-riscv32:
-   [compcert-rv32] is CompCert's ilp32d profile on qemu's default CPU (the
-   reference binary64 numerics), [compcert-rv32-fp32] its F-only profile with D
-   disabled. On the Coral NPU simulators, one word per configuration, binary32
+(* The F-only riscv32 CompCert extraction as variant words. Under qemu-riscv32,
+   [compcert-rv32-fp32] uses the F32 ABI with D disabled; [compcert-rv32]
+   refuses binary64. On the Coral NPU simulators, one word per configuration, binary32
    only: [compcert-coral-<configuration>-fp32]; the word without [fp32] refuses,
    since the Coral cores have no D extension. A Coral word needs the extracted
    emulators archive, named by CORALNPU_DATA; its identity names the
@@ -19,8 +18,7 @@ let id mk s = match mk s with Ok v -> v | Error _ -> invalid_arg "identity"
 let pins =
   String.concat "\n"
     [
-      "CompCert riscv32 and riscv32_fp32 = v3.17-4 \
-       export-riscv32=f7a943ce3eee7381e98ac2c33ce662f22055a3ed13fd59ba70ce7590e87a22ff \
+      "CompCert riscv32_fp32 = v3.17-4 \
        export-riscv32_fp32=22e0345ee536d135a90bcae4e5c0d1b8b9ded4f5a947ff57f85bdc25abb4b771 \
        (vendored/rivet-compcert@a6445fe0c6540a1f78af4c25b0e9a03c4fb7d9c8)";
       "Rivet assembler and image planner = \
@@ -54,7 +52,6 @@ let identity ?artifact ~engine ~route ~configuration ~environment () :
   }
 
 let fp32 = Loop_ir.Loop_numerics.Fp32_ordered
-let reference = Loop_ir.Loop_numerics.Reference_f64
 let host = Sys.os_type ^ ":" ^ string_of_int Sys.word_size
 
 (* {1 qemu-riscv32} *)
@@ -72,6 +69,14 @@ let qemu_banner () =
   | Ok _ | Error _ -> Error (qemu ^ " --version failed (is it on the PATH?)")
 
 let qemu_available () = Result.map ignore (qemu_banner ())
+
+let qemu_binary64 =
+  let reason = "the RISC-V CompCert route uses only the F32 ABI; add fp32" in
+  {
+    P.Provider.name = "compcert-rv32";
+    available = (fun () -> Error reason);
+    instantiate = (fun () -> Error reason);
+  }
 
 let qemu_provider ~name ~numerics ~profile (module L : Loop_c_embed.LOADER) :
     P.Provider.t =
@@ -194,9 +199,7 @@ let coral_binary64 c =
 
 let providers () =
   [
-    qemu_provider ~name:"compcert-rv32" ~numerics:reference
-      ~profile:Profile.Rv32imafd_ilp32d
-      (module Q.Ilp32d);
+    qemu_binary64;
     qemu_provider ~name:"compcert-rv32-fp32" ~numerics:fp32
       ~profile:Profile.Rv32imf_ilp32f
       (module Q.Ilp32f);

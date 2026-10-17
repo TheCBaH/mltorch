@@ -1,8 +1,8 @@
-; The Loop_c_embed LOADERs for RISC-V 32: the unit is compiled in process by an
-; embedded CompCert for riscv32 (the ilp32d profile or the F-only one),
+; The Loop_c_embed LOADER for RISC-V 32: the unit is compiled in process by the
+; F32 ABI CompCert extraction for riscv32,
 ; assembled by Rivet with a freestanding libc subset and a harness, and written
-; as an ELF that qemu-riscv32 runs. It is enabled wherever both riscv32
-; embeddings and the RV32 Rivet encoder are installed, beside whatever
+; as an ELF that qemu-riscv32 runs with D disabled. It is enabled wherever the
+; F32 ABI extraction and RV32 Rivet encoder are installed, beside whatever
 ; MLTORCH_COMPCERT selects for the host: the CompCert extractions are separate
 ; libraries and link into one program.
 
@@ -14,13 +14,11 @@
   loop_ir
   machine_rivet_riscv32
   rivet_compcert.compcert_embed
-  rivet_compcert.compcert_embed_riscv32
   rivet_compcert.compcert_embed_riscv32_fp32
   rivet.driver
   rivet.riscv32
   unix)
  (enabled_if
   (and
-   %{lib-available:rivet_compcert.compcert_embed_riscv32}
    %{lib-available:rivet_compcert.compcert_embed_riscv32_fp32}
    %{lib-available:rivet.riscv32_encode})))

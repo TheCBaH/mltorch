@@ -57,31 +57,33 @@ module Rv32_fp32 =
       let numerics = Loop_ir.Loop_numerics.Fp32_ordered
     end)
 
-module Rv32 =
-  Inference_compare_rv32.Rv32_engine.Make
-    (Q.Ilp32d)
-    (struct
-      let numerics = Loop_ir.Loop_numerics.Reference_f64
-    end)
-
-let%expect_test "the qemu engines equal the host C engines bit for bit" =
+let%expect_test "the F-only qemu engine equals the host binary32 C engine" =
   compare "compcert-rv32-fp32 vs loop-c-fp32"
     (module Rv32_fp32)
     (module Gen.Loop_c_fp32);
-  compare "compcert-rv32 vs loop-c" (module Rv32) (module Gen.Loop_c);
   [%expect
     {|
     compcert-rv32-fp32 vs loop-c-fp32, salt 0: bitwise
     compcert-rv32-fp32 vs loop-c-fp32, salt 1: bitwise
-    compcert-rv32-fp32 vs loop-c-fp32, salt 2: bitwise
-    compcert-rv32 vs loop-c, salt 0: bitwise
-    compcert-rv32 vs loop-c, salt 1: bitwise
-    compcert-rv32 vs loop-c, salt 2: bitwise |}]
+    compcert-rv32-fp32 vs loop-c-fp32, salt 2: bitwise |}]
 
 let provider name =
   List.find
     (fun (p : Inference_compare_pt2.Provider.t) -> p.name = name)
     (V.providers ())
+
+let%expect_test "the RISC-V binary64 word refuses before compiling" =
+  let p = provider "compcert-rv32" in
+  (match p.available () with
+  | Error m -> Printf.printf "available: %s\n" m
+  | Ok () -> print_endline "unexpectedly available");
+  (match p.instantiate () with
+  | Error m -> Printf.printf "instantiate: %s\n" m
+  | Ok _ -> print_endline "unexpectedly instantiated");
+  [%expect
+    {|
+    available: the RISC-V CompCert route uses only the F32 ABI; add fp32
+    instantiate: the RISC-V CompCert route uses only the F32 ABI; add fp32 |}]
 
 let%expect_test "the Coral words refuse binary64 and a missing archive" =
   let show name =

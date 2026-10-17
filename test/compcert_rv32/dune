@@ -7,12 +7,12 @@
  (name coexist)
  (libraries
   rivet_compcert.compcert_embed_aarch64
-  rivet_compcert.compcert_embed_riscv32)
+  rivet_compcert.compcert_embed_riscv32_fp32)
  (build_if
   (and
    %{lib-available:rivet_compcert.compcert_embed_aarch64}
-   %{lib-available:rivet_compcert.compcert_embed_riscv32}))
+   %{lib-available:rivet_compcert.compcert_embed_riscv32_fp32}))
  (enabled_if
   (and
    %{lib-available:rivet_compcert.compcert_embed_aarch64}
-   %{lib-available:rivet_compcert.compcert_embed_riscv32})))
+   %{lib-available:rivet_compcert.compcert_embed_riscv32_fp32})))

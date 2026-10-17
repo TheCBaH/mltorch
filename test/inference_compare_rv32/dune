@@ -24,7 +24,6 @@
   (pps ppx_expect))
  (enabled_if
   (and
-   %{lib-available:rivet_compcert.compcert_embed_riscv32}
    %{lib-available:rivet_compcert.compcert_embed_riscv32_fp32}
    %{lib-available:rivet.riscv32_encode}
    %{lib-available:rivet.driver_direct})))

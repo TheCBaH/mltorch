@@ -2,7 +2,7 @@
 ; loader: the model compiled by the embedded CompCert's F-only riscv32 profile,
 ; assembled by Rivet without its d component and run under qemu-riscv32 with D
 ; disabled, is bitwise equal to the binary32 oracle. Their committed expect
-; output must hold unchanged. Built where both riscv32 embeddings are installed;
+; output must hold unchanged. Built where the F32 ABI extraction is installed;
 ; qemu-riscv32 must be on the path.
 
 (copy_files
@@ -26,6 +26,5 @@
   (pps ppx_expect))
  (enabled_if
   (and
-   %{lib-available:rivet_compcert.compcert_embed_riscv32}
    %{lib-available:rivet_compcert.compcert_embed_riscv32_fp32}
    %{lib-available:rivet.riscv32_encode})))

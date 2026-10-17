@@ -202,8 +202,9 @@ scratch slot) on `core-mini-axi`, `core-mini-highmem-axi` and `mpact-v2`.
 
 `Compcert_coral_loader.Make` is a `Loop_c_embed` LOADER for one archive
 directory and configuration. The unit is compiled and lowered once by the
-F-only RV32 loader (`Compcert_rv32_loader.Ilp32f`: CompCert's F-only riscv32
-profile, its runtime helpers and the binary32 `Rv32_libc`, all lowered with
+F-only RV32 loader (`Compcert_rv32_loader.Ilp32f`: the separate
+`Compcert_embed_riscv32_fp32` extraction, its runtime helpers and the binary32
+`Rv32_libc`, all lowered with
 Rivet's `d` component disabled). A call builds the guest image around the
 caller's region as one `In_out` slot, whose address the entry gets
 (`Abi.Slot0`), and runs it; the image is kept for the next call of the same

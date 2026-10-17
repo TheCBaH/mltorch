@@ -1,35 +1,21 @@
-(* The LOADER of Loop_c_embed over an embedded CompCert for riscv32. The unit is
+(* The LOADER of Loop_c_embed over the F-only CompCert extraction for riscv32. The unit is
    compiled to assembly and lowered once; a call maps the caller's region as the
    shared output file of an RV32 process, so the model reads its weights and
    inputs from the mapping and writes its outputs into it, and the file is read
    back. No libc is in the process: the functions of {!Rv32_libc} are linked,
    and a unit that references another is refused when the image is planned.
 
-   One instance per CompCert profile, each paired with the {!Rv32_profile} its
-   code needs: [Ilp32d] is CompCert's riscv32 target, which moves binary32
-   values with D instructions; [Ilp32f] its F-only profile, whose assembly is
-   lowered with Rivet's [d] component disabled and run with D disabled. *)
+   The F32 ABI extraction is paired with {!Rv32_profile.Rv32imf_ilp32f}: its assembly
+   is lowered with Rivet's [d] component disabled and run with D disabled. *)
 
 module H = Machine_rivet_riscv32.Rv32_harness
 module I = Machine_rivet_riscv32.Rv32_image
 module Rv32_profile = Machine_rivet_riscv32.Rv32_profile
 module TP = Driver.Pipeline.Make (Riscv32)
 
-(* The part of a Compcert_embed instance the loader uses. *)
-module type EMBED = sig
-  val compile_to_asm :
-    ?name:string -> string -> (string, Compcert_embed.error) result
+module Ilp32f = struct
+  module R = Compcert_embed_riscv32_fp32
 
-  val with_runtime :
-    (string * string) list ->
-    ((string * string) list, Compcert_embed.error) result
-end
-
-module type PROFILE = sig
-  val profile : Rv32_profile.t
-end
-
-module Make (R : EMBED) (P : PROFILE) = struct
   type loaded = {
     lowered : Riscv32_encode.fixup_kind Asm_core.Lowered_ast.module_ list;
     mutable elf : (int * H.prepared) option;  (** by region size *)
@@ -38,7 +24,7 @@ module Make (R : EMBED) (P : PROFILE) = struct
   type error = string
 
   let dialect = Loop_ir.Loop_c_dialect.Compcert_ilp32
-  let profile = P.profile
+  let profile = Rv32_profile.Rv32imf_ilp32f
   let pp_error = Fmt.string
   let ( let* ) = Result.bind
   let render pp e = Fmt.str "%a" pp e
@@ -133,17 +119,3 @@ module Make (R : EMBED) (P : PROFILE) = struct
 
   let close (_ : loaded) = ()
 end
-
-module Ilp32d =
-  Make
-    (Compcert_embed_riscv32)
-    (struct
-      let profile = Rv32_profile.Rv32imafd_ilp32d
-    end)
-
-module Ilp32f =
-  Make
-    (Compcert_embed_riscv32_fp32)
-    (struct
-      let profile = Rv32_profile.Rv32imf_ilp32f
-    end)

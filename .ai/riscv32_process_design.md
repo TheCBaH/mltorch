@@ -55,15 +55,19 @@ result keeps it; larger values, infinities and NaNs come back unchanged. Its
 test compares it bitwise with the host's `Float.trunc` at the binary32
 boundaries and over a seeded sweep, under `d=false`.
 
-The embedded-CompCert loader has one instance per CompCert profile, each paired
-with the `Rv32_profile` its code needs. `Ilp32d` is CompCert's riscv32 target,
-which is ilp32d and moves binary32 values with `fmv.d`, spills FP callee-save
-registers with `fld`/`fsd` and expands aligned copies through them, so its
-binary32 programs still contain D instructions: it keeps `Rv32imafd_ilp32d`.
-`Ilp32f` is CompCert's F-only profile (`riscv32_fp32`, `rv32imf`/ILP32F), on
-`Rv32imf_ilp32f`. Both lower CompCert's assembly through Rivet's text pipeline
-from the profile's state, so under `Ilp32f` a D instruction is refused at
-lowering (`fmv.d requires feature d`) before qemu would trap on it.
+The embedded-CompCert loader uses only `Compcert_embed_riscv32_fp32`, the
+separate extraction for the F32 ABI, through `Compcert_rv32_loader.Ilp32f` on
+`Rv32imf_ilp32f`. Neither its build dependencies nor `make compcert.rv32.install`
+select the ordinary `Compcert_embed_riscv32` extraction. That ordinary D-ABI
+backend can emit `fmv.d` and `fld`/`fsd` even for binary32 source; those
+observations do not describe the F32 ABI extraction. Assembly from the F32
+extraction and its runtime is lowered through Rivet's text pipeline with D
+disabled, then QEMU executes with `d=false`.
+
+RISC-V comparison execution requires `Fp32_ordered` (`compcert-rv32,fp32` or
+`compcert-rv32-fp32`); the binary64 `compcert-rv32` word refuses before compiling.
+The optional D profile of the typed assembly harness remains useful for
+negative ISA tests; it does not select a CompCert extraction.
 
 Rivet's `li` covers only a signed 12-bit constant or one with the low 12 bits
 zero, so `Rv32_asm.load_imm` expands any other constant to `lui` + `addi`.
@@ -97,8 +101,8 @@ rounding ties up, or shifting by one bit, fails it. Through it
 disabled and on MPACT.
 
 The riscv32 and host extractions are separate libraries with module names that do
-not collide, so they link into one program (`test/compcert_rv32`). Both riscv32
-variants are built beside the host one (`make compcert.rv32.install`). Building
+not collide, so they link into one program (`test/compcert_rv32`). The F32 ABI riscv32
+variant is built beside the host one (`make compcert.rv32.install`). Building
 an extraction preprocesses CompCert's own runtime helper sources
 (`runtime/c/i64_*.c`, which use `#include` and macros, and the F-only profile's
 `riscv-fp32.c` conversions; the generated model C never needs a preprocessor)
@@ -112,14 +116,12 @@ producer that shipped the helpers already preprocessed would remove the step.
 
 ## Evidence
 
-`test/loop_c_embed_compcert_rv32` runs the tests of `test/loop_c_embed` unchanged
-with `Ilp32d`: the chain graph through CompCert, Rivet and qemu is bitwise equal
-to the reference evaluator, the unit is reused across contexts, and a failing
-invocation is decoded from the failure record. The check was seen to fail with
-`memcpy` made a no-op. `test/loop_c_embed_compcert_rv32_fp32` runs their binary32
-half (`embed_fp32_test.ml`: the binary32 oracle, Region nodes, the failure
-record under `Fp32_ordered`) with `Ilp32f` under `-cpu rv32,d=false`; pointed at
-the ilp32d embedding instead, it fails at lowering on CompCert's `fmv.d`.
+`test/loop_c_embed_compcert_rv32_fp32` runs the binary32 embedding tests
+(`embed_fp32_test.ml`: the binary32 oracle, Region nodes and the failure record)
+with `Ilp32f` under `-cpu rv32,d=false`. Pointing that loader at the ordinary
+D-ABI extraction instead was seen to fail at lowering on `fmv.d`. The legacy
+D-ABI embedding suite has been removed; RISC-V CompCert execution uses the F32
+ABI exclusively. `test/compcert_rv32` links that extraction with the host's.
 
 ## Data model
 
