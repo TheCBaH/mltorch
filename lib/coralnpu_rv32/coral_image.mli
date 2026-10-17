@@ -20,10 +20,13 @@ val pp_error : error Fmt.t
 val build :
   ?params:Coral_layout.Params.t ->
   ?abi:Machine_rivet_riscv32.Rv32_harness.Abi.t ->
+  ?lowered:Riscv32_encode.fixup_kind Asm_core.Lowered_ast.module_ list ->
   Coral_profile.t ->
   entry:string ->
   kernel:Riscv32_encode.Instruction.t Asm_core.Normalized_ast.module_ list ->
   Coral_layout.Slot.t list ->
   (t, [> error ]) Err.t
-(** [abi] defaults to [Table]. [kernel] holds every module the entry needs, the
-    C library included. *)
+(** [abi] defaults to [Table]. [kernel] and [lowered] together hold every module
+    the entry needs, the C library included; [lowered] are modules already
+    lowered under {!Machine_rivet_riscv32.Rv32_profile.default} (CompCert's
+    assembly, through Rivet's text pipeline). *)

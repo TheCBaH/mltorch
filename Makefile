@@ -1608,6 +1608,17 @@ coralnpu.runtest:
 	}
 	CORALNPU_DATA=$(CORALNPU_DATA) opam exec -- dune build @test/coralnpu_data/runtest --force
 
+# The binary32 embedding tests of test/loop_c_embed through the F-only CompCert
+# on the Coral simulators (mpact-v2, core-mini-highmem-axi), bitwise equal to the
+# binary32 oracle. Needs the download and both riscv32 embeddings.
+.PHONY: coralnpu.compcert.runtest
+coralnpu.compcert.runtest: compcert.rv32.install
+	@test -f $(CORALNPU_DATA)/hardware-configurations.json || { \
+		echo "coralnpu.compcert.runtest: missing $(CORALNPU_DATA) -- run 'make coralnpu.download' first" >&2; \
+		exit 1; \
+	}
+	CORALNPU_DATA=$(CORALNPU_DATA) opam exec -- dune build @test/loop_c_embed_compcert_coral/runtest --force
+
 compcert.embed.runtest: compcert.embed.install
 	MLTORCH_COMPCERT=$(COMPCERT_ISA) opam exec -- dune build @test/loop_c_embed_compcert/runtest @test/asm_census_compcert/runtest --force
 

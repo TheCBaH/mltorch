@@ -6,7 +6,7 @@ Verilator RTL CoreMini testbenches (cycles). The guest ISA is RV32IMF with no
 D extension, the default RV32 profile of `riscv32_process_design.md`. This
 record grows with the route; today it covers the release pin, the manifest
 decoder, the simulator profiles, the memory layout, the wire protocol, the
-ELF, the guest runtime and the runner.
+ELF, the guest runtime, the runner and the CompCert loader.
 
 ## The release pin
 
@@ -197,3 +197,23 @@ scratch slot) on `core-mini-axi`, `core-mini-highmem-axi` and `mpact-v2`.
   in and out on `core-mini-axi` and MPACT; bitwise, `minstret` 72 and 98328.
 - **Mutation:** shortening a staged chunk's copy by one word makes the
   staged profiles fail at element 1023, the last word of the first chunk.
+
+## CompCert loader (`lib/loop_c_embed_compcert_coral`)
+
+`Compcert_coral_loader.Make` is a `Loop_c_embed` LOADER for one archive
+directory and configuration. The unit is compiled and lowered once by the
+F-only RV32 loader (`Compcert_rv32_loader.Ilp32f`: CompCert's F-only riscv32
+profile, its runtime helpers and the binary32 `Rv32_libc`, all lowered with
+Rivet's `d` component disabled). A call builds the guest image around the
+caller's region as one `In_out` slot, whose address the entry gets
+(`Abi.Slot0`), and runs it; the image is kept for the next call of the same
+region size. `Coral_image.build ~lowered` takes the already-lowered modules
+beside the typed runtime.
+
+`make coralnpu.compcert.runtest` runs the binary32 half of `test/loop_c_embed`
+(`embed_fp32_test.ml`: the chain graph, a conv/batch-norm/relu bundle, against
+the binary32 oracle at three salts; the failure record; softmax and
+layer_norm) on `mpact-v2` and `core-mini-highmem-axi`, with the expect output
+unchanged. One call of the chain is 25438 instructions on both, 22941 RTL
+cycles. Dropping the region's copy-back, or making `memcpy` a no-op, fails
+the suite on the simulator.
