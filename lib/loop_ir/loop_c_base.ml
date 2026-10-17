@@ -109,6 +109,10 @@ let lit nm x =
 
 let float_type nm = if nm.f32 then "float" else "double"
 
+(* A binary32 kernel in a dialect that may take no binary64 step and has no
+   64-bit integer conversion of [float] ({!Loop_c_dialect.binary32_only}). *)
+let f_only nm = nm.f32 && Loop_c_dialect.binary32_only nm.dialect
+
 let rec index nm : Loop_index.t -> string = function
   | Loop_index.Add (a, b) ->
       let a = index nm a in
@@ -204,6 +208,9 @@ let addr_offset nm b = function At c -> offset nm b c | Flat i -> index nm i
 let load_cell nm b addr =
   let cell = buffer nm b ^ "[" ^ addr_offset nm b addr ^ "]" in
   match (fmt_of b, nm.f32) with
+  | "bf16", true when f_only nm -> call nm R.Name.Bf16_to_f32 [ cell ]
+  | "f16", true when f_only nm -> call nm R.Name.F16_to_f32 [ cell ]
+  | "i64", true when f_only nm -> call nm R.Name.F32_from_i64 [ cell ]
   | "bf16", false -> call nm R.Name.Bf16_to_float [ cell ]
   | "bf16", true -> "(float)" ^ call nm R.Name.Bf16_to_float [ cell ]
   | "bool", false -> "(" ^ cell ^ " != 0 ? 1.0 : 0.0)"
@@ -264,6 +271,8 @@ let rec num nm : float Loop_expr.t -> string = function
       call nm
         (if nm.f32 then R.Name.Float_max_f32 else R.Name.Float_max)
         [ a; b ]
+  | Loop_expr.I64_to_float a when f_only nm ->
+      call nm R.Name.F32_from_i64 [ big nm a ]
   | Loop_expr.I64_to_float a -> "((" ^ float_type nm ^ ")" ^ big nm a ^ ")"
   | Loop_expr.Load (b, c) -> load_cell nm b (At c)
   | Loop_expr.Load_flat (b, i) -> load_cell nm b (Flat i)
@@ -276,9 +285,13 @@ let rec num nm : float Loop_expr.t -> string = function
       "(" ^ p ^ " ? " ^ a ^ " : " ^ b ^ ")"
   | Loop_expr.Temp (Loop_carrier.Float, t) -> temp nm t
   | Loop_expr.Unary (op, a) -> unary_c nm op (num nm a)
+  | Loop_expr.Value_of_index i when f_only nm ->
+      call nm R.Name.F32_from_i64 [ index nm i ]
   | Loop_expr.Value_of_index i -> "((" ^ float_type nm ^ ")" ^ index nm i ^ ")"
 
 and big nm : int64 Loop_expr.t -> string = function
+  | Loop_expr.Float_to_i64 a when f_only nm ->
+      call nm R.Name.I64_from_f32 [ num nm a ]
   | Loop_expr.Float_to_i64 a -> call nm R.Name.I64_from_float [ num nm a ]
   | Loop_expr.I64_binary (op, a, b) -> (
       let a = big nm a in
@@ -418,7 +431,10 @@ let failure nm ~site : Loop_failure.t -> string = function
       fail_record F.Kind.I64_division_overflow []
   | Loop_failure.I64_from_float { value } ->
       "return "
-      ^ call nm R.Name.I64_from_float_failure [ "err"; num nm value ]
+      ^ call nm
+          (if f_only nm then R.Name.I64_from_f32_failure
+           else R.Name.I64_from_float_failure)
+          [ "err"; num nm value ]
       ^ ";"
   | Loop_failure.Index_overflow _ ->
       invalid_arg "Loop_c.failure: an index overflow is written per node"

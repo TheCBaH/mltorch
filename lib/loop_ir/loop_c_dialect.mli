@@ -27,6 +27,13 @@ val signbit_f32 : t -> string -> string
 val signbit : t -> string -> string
 (** [signbit] of a simple expression, which is evaluated more than once. *)
 
+val binary32_only : t -> bool
+(** Whether a binary32 kernel in this dialect must take no binary64 step and
+    convert between 64-bit integers and [float] without the compiler's
+    conversion: [Compcert_ilp32], whose F-only riscv32 profile has neither. Its
+    f16 and bf16 decoders and those conversions are the binary32 helpers then;
+    every dialect computes the same bits. *)
+
 val isfinite : t -> string -> string
 (** [isfinite] of a simple expression, which is evaluated more than once. *)
 

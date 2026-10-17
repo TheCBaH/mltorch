@@ -79,6 +79,23 @@ planned together with the typed harness and libc, and a call writes the caller's
 whole region as the shared output file, runs the ELF and reads the file back. The
 model reads its weights and inputs from, and writes its outputs into, that mapping.
 
+Binary32 Loop C in the `Compcert_ilp32` dialect takes no binary64 step
+(`Loop_c_dialect.binary32_only`): the F-only CompCert refuses binary64
+arithmetic, compiles a 64-bit integer to `float` as a call to
+`__compcert_i64_stof` that its runtime lacks, and refuses `float` to a 64-bit
+integer. So under `Fp32_ordered` that dialect decodes f16 and bf16 with
+`f16_to_f32`/`bf16_to_f32`, converts an `int64_t` to `float` with
+`f32_from_i64` (round to nearest even in integer arithmetic; within 32 bits the
+target's own conversion) and back with `i64_from_f32` (and
+`i64_from_f32_failure`, whose record holds the value widened to binary64, as
+before). Every dialect computes the same bits; only this one's text changes.
+`test/loop_c/binary32_only_test.ml` checks the helpers against the host's
+conversions and the binary64 helpers: every f16 and bf16 pattern, and the
+int64 and float boundaries plus a seeded sweep (about 400k values each);
+rounding ties up, or shifting by one bit, fails it. Through it
+`test_convnext2`'s 49 units equal `loop-c-fp32` bitwise under qemu with D
+disabled and on MPACT.
+
 The riscv32 and host extractions are separate libraries with module names that do
 not collide, so they link into one program (`test/compcert_rv32`). Both riscv32
 variants are built beside the host one (`make compcert.rv32.install`). Building
@@ -119,7 +136,3 @@ below 2 GiB. Nothing lowers to it yet; Machine IR is still produced in LP64.
 - The comparison-tool variant word for the CompCert RV32 engine, and its
   coverage-manifest row.
 - `exp`, `log`, `sin`, `cos`, `ldexp`, `trunc`: not in `Rv32_libc`.
-- Binary32 Loop C still uses binary64 helpers for the f16 and bf16 decoders and
-  int64-to-float conversion, which the F-only CompCert refuses (binary64
-  arithmetic) or cannot link (its runtime has no `__compcert_i64_stof`); the
-  graphs the F-only suite runs need neither.

@@ -15,6 +15,7 @@ module Name = struct
     | Exp_f32
     | F16_to_f32
     | F16_to_float
+    | F32_from_i64
     | F32_prelude
     | Float_max
     | Float_max_f32
@@ -22,6 +23,8 @@ module Name = struct
     | I64_div
     | I64_from_float
     | I64_from_float_failure
+    | I64_from_f32
+    | I64_from_f32_failure
     | Idx_clamp_low
     | Idx_max
     | Idx_min
@@ -42,6 +45,7 @@ module Name = struct
       Exp_f32;
       F16_to_f32;
       F16_to_float;
+      F32_from_i64;
       F32_prelude;
       Float_max;
       Float_max_f32;
@@ -49,6 +53,8 @@ module Name = struct
       I64_div;
       I64_from_float;
       I64_from_float_failure;
+      I64_from_f32;
+      I64_from_f32_failure;
       Idx_clamp_low;
       Idx_max;
       Idx_min;
@@ -69,6 +75,7 @@ module Name = struct
     | Exp_f32 -> "exp_f32"
     | F16_to_f32 -> "f16_to_f32"
     | F16_to_float -> "f16_to_float"
+    | F32_from_i64 -> "f32_from_i64"
     | F32_prelude -> "f32_prelude"
     | Float_max -> "float_max"
     | Float_max_f32 -> "float_max_f32"
@@ -76,6 +83,8 @@ module Name = struct
     | I64_div -> "i64_div"
     | I64_from_float -> "i64_from_float"
     | I64_from_float_failure -> "i64_from_float_failure"
+    | I64_from_f32 -> "i64_from_f32"
+    | I64_from_f32_failure -> "i64_from_f32_failure"
     | Idx_clamp_low -> "idx_clamp_low"
     | Idx_max -> "idx_max"
     | Idx_min -> "idx_min"
@@ -401,6 +410,29 @@ let text dialect : Name.t -> string =
          }\n"
         (Loop_c_dialect.infinity dialect)
         nan
+  | Name.F32_from_i64 ->
+      (* Round to nearest even in integer arithmetic: within 32 bits the
+         target's own conversion, otherwise the top 24 significant bits rounded
+         and scaled by an exact power of two. *)
+      Printf.sprintf
+        "static inline float f32_from_i64(int64_t v) {\n\
+        \  if (v >= -%s && v < %s) return (float)(int32_t)v;\n\
+        \  const uint64_t m = v < 0 ? (uint64_t)0 - (uint64_t)v : (uint64_t)v;\n\
+        \  int s = 0;\n\
+        \  while ((m >> s) >= ((uint64_t)1 << 24)) s++;\n\
+        \  uint64_t q = m >> s;\n\
+        \  const uint64_t r = m & (((uint64_t)1 << s) - 1);\n\
+        \  const uint64_t half = (uint64_t)1 << (s - 1);\n\
+        \  if (r > half || (r == half && (q & 1))) q++;\n\
+        \  if (q == ((uint64_t)1 << 24)) { q >>= 1; s++; }\n\
+        \  const uint32_t b = (uint32_t)(127 + s) << 23;\n\
+        \  float scale;\n\
+        \  memcpy(&scale, &b, sizeof scale);\n\
+        \  const float f = (float)(int32_t)q * scale;\n\
+        \  return v < 0 ? -f : f;\n\
+         }\n"
+        (Loop_c_dialect.i64 dialect 2147483648L)
+        (Loop_c_dialect.i64 dialect 2147483648L)
   | Name.F32_prelude -> (
       (* Every float expression of an fp32 kernel is evaluated in binary32:
          refuse a host that widens (x87), and never let a literal promote.
@@ -461,6 +493,39 @@ let text dialect : Name.t -> string =
          }\n"
         (kind_index Loop_js_failure.Kind.I64_from_float_nan)
         (Loop_c_dialect.isfinite dialect "x")
+        (kind_index Loop_js_failure.Kind.I64_from_float_infinite)
+        (kind_index Loop_js_failure.Kind.I64_from_float_out_of_range)
+  | Name.I64_from_f32 ->
+      (* Truncation toward zero, total like {!I64_from_float}: within 32 bits
+         the target's own conversion, otherwise the significand shifted (the
+         value is an integer from 2^23 up). *)
+      "static inline int64_t i64_from_f32(float x) {\n\
+      \  if (!(x >= -9223372036854775808.0f && x < 9223372036854775808.0f)) \
+       return 0;\n\
+      \  if (x > -2147483648.0f && x < 2147483648.0f) return \
+       (int64_t)(int32_t)x;\n\
+      \  uint32_t b;\n\
+      \  memcpy(&b, &x, sizeof b);\n\
+      \  const int e = (int)((b >> 23) & 0xffu) - 127;\n\
+      \  const uint64_t m = (uint64_t)((b & 0x7fffffu) | 0x800000u) << (e - 23);\n\
+      \  return (b >> 31) ? (int64_t)((uint64_t)0 - m) : (int64_t)m;\n\
+       }\n"
+  | Name.I64_from_f32_failure ->
+      (* The record holds the value as binary64, as {!I64_from_float_failure}'s
+         does: widening a [float] is exact. *)
+      Printf.sprintf
+        "static inline int i64_from_f32_failure(struct model_error *e, float \
+         x) {\n\
+        \  if (x != x) return fail_set(e, %d);\n\
+        \  if (x == %s || x == -%s) return fail_set(e, %d);\n\
+        \  fail_set(e, %d);\n\
+        \  const double d = x;\n\
+        \  memcpy(&e->v[0], &d, sizeof d);\n\
+        \  return 1;\n\
+         }\n"
+        (kind_index Loop_js_failure.Kind.I64_from_float_nan)
+        (Loop_c_dialect.infinity_f32 dialect)
+        (Loop_c_dialect.infinity_f32 dialect)
         (kind_index Loop_js_failure.Kind.I64_from_float_infinite)
         (kind_index Loop_js_failure.Kind.I64_from_float_out_of_range)
   | Name.Idx_clamp_low ->
