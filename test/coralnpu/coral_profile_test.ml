@@ -59,7 +59,8 @@ let%expect_test "canonical JSON: sorted code points, Python's escapes" =
   (match Err.payload (Coral_json.to_string body) with
   | Ok s -> print_endline s
   | Error e -> Fmt.pr "%a@." Coral_json.pp_error e);
-  [%expect {| {"description":"MPACT — \"quoted\", back\\slash, tab\t, \u0001 control, café","isa":{"Zeta":[],"extensions":["f","i","m","zicsr"],"xlen":32,"é":-7},"memory_regions":[{"access":{"dma":false,"guest_load":true,"guest_store":false,"host_load":true,"instruction_fetch":true},"base_address":0,"name":"itcm","size_bytes":8192,"type":"itcm"},{"access":{"dma":false,"guest_load":true,"guest_store":true,"host_load":true,"instruction_fetch":false},"base_address":65536,"name":"dtcm","size_bytes":32768,"type":"dtcm"},{"access":{"dma":false,"guest_load":true,"guest_store":true,"host_load":true,"instruction_fetch":false},"base_address":536870912,"name":"extmem","size_bytes":4194304,"type":"ram"}],"name":"tiny-mpact","simulation":{"backend":"mpact","clock":{"configured_frequency_mhz":null},"interface":"standalone-cli"}} |}]
+  [%expect
+    {| {"description":"MPACT — \"quoted\", back\\slash, tab\t, \u0001 control, café","isa":{"Zeta":[],"extensions":["f","i","m","zicsr"],"xlen":32,"é":-7},"memory_regions":[{"access":{"dma":false,"guest_load":true,"guest_store":false,"host_load":true,"instruction_fetch":true},"base_address":0,"name":"itcm","size_bytes":8192,"type":"itcm"},{"access":{"dma":false,"guest_load":true,"guest_store":true,"host_load":true,"instruction_fetch":false},"base_address":65536,"name":"dtcm","size_bytes":32768,"type":"dtcm"},{"access":{"dma":false,"guest_load":true,"guest_store":true,"host_load":true,"instruction_fetch":false},"base_address":536870912,"name":"extmem","size_bytes":4194304,"type":"ram"}],"name":"tiny-mpact","simulation":{"backend":"mpact","clock":{"configured_frequency_mhz":null},"interface":"standalone-cli"}} |}]
 
 (* One byte of a record changes its ID, so the declared one no longer holds. *)
 let%expect_test "a changed record is refused" =
@@ -126,7 +127,8 @@ let%expect_test "refusals" =
   show Coral_profile.pp
     (Err.payload
        (Coral_profile.of_manifest { m with artifacts = [] } "tiny-rtl"));
-  [%expect {|
+  [%expect
+    {|
     error: no configuration named "tiny-absent"
     error: unsupported manifest schema_version "2.0"
     error: unknown simulation backend "gem5"
