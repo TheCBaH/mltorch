@@ -1,7 +1,8 @@
 (* Typed kernels on the real simulators: binary32 negation through a scratch
-   slot, small (every slot in DTCM) and large (64 KiB slots, staged through
-   testbench RAM where DTCM is too small), the same in place in one [In_out]
-   slot, and guests built to fail one way each. Prints one line per run; exits 0, a wrong answer is a changed line. *)
+   slot, small (every slot in DTCM) and large (64 KiB slots, in the external
+   RAM where DTCM is too small, and staged through DTCM when that RAM is marked
+   unreachable by HTIF), the same in place in one [In_out] slot, and guests
+   built to fail one way each. Prints one line per run; exits 0, a wrong answer is a changed line. *)
 
 open Machine_rivet_riscv32
 open Rv32_asm
@@ -117,6 +118,16 @@ let in_place_image p count =
             };
           ]))
 
+let unreachable_ram (p : Coral_profile.t) =
+  {
+    p with
+    regions =
+      List.map
+        (fun (r : Coral_profile.Region.t) ->
+          if r.role = Ram then { r with htif_reachable = false } else r)
+        p.regions;
+  }
+
 let placement (i : Coral_image.t) =
   String.concat " "
     (List.map
@@ -159,6 +170,19 @@ let () =
           run ~out:0 (Printf.sprintf "%s %d in place" name count) i count)
         [ 8; 16384 ])
     Coral_profile.baseline;
+  (* The staged path, for an external RAM HTIF cannot reach: the same RAM
+     marked unreachable. *)
+  List.iter
+    (fun name ->
+      let p = unreachable_ram (profile name) in
+      let i = image p 16384 in
+      Fmt.pr "%s 16384 floats, RAM unreachable: %s@." name (placement i);
+      run (name ^ " 16384 staged") i 16384;
+      let i = in_place_image p 16384 in
+      Fmt.pr "%s 16384 floats in place, RAM unreachable: %s@." name
+        (placement i);
+      run ~out:0 (name ^ " 16384 in place staged") i 16384)
+    [ "core-mini-axi"; "mpact-v2" ];
   (* One way to fail each, on one MPACT and one RTL profile. *)
   List.iter
     (fun name ->
@@ -170,8 +194,8 @@ let () =
         (image ~body:[ label "spin"; insn "j" [ sym "spin" ] ] p 8)
         8)
     [ "core-mini-axi"; "mpact-v2" ];
-  (* The testbench's own limit: it reports it and keeps waiting (a producer
-     defect), so the deadline ends the run and the text names the cause. *)
+  (* The testbench's own limit: it reports it and exits, well before the
+     deadline. *)
   run ~deadline:10. ~flags:[ "--cycles=20000" ] "core-mini-axi cycle limit"
     (image
        ~body:[ label "spin"; insn "j" [ sym "spin" ] ]

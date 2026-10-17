@@ -85,24 +85,22 @@ let pp_error ppf : error -> unit = function
 let baseline = [ "core-mini-axi"; "core-mini-highmem-axi"; "mpact-v2" ]
 let manifest_file = "hardware-configurations.json"
 
-(* The two facts of the interface comment, by simulator and role. *)
-let loadable (s : Simulator.t) (r : Role.t) =
-  match (s, r) with
-  | Mpact, (Dtcm | Itcm | Ram) | Rtl, (Dtcm | Itcm) -> true
-  | (Mpact | Rtl), (Csr | Mmio) | Rtl, Ram -> false
+(* The two facts of the interface comment, by role. *)
+let memory (r : Role.t) =
+  match r with Dtcm | Itcm | Ram -> true | Csr | Mmio -> false
 
-let htif_reachable (_ : Simulator.t) (r : Role.t) =
-  match r with Dtcm -> true | Csr | Itcm | Mmio | Ram -> false
+let htif_reachable (r : Role.t) =
+  match r with Dtcm | Ram -> true | Csr | Itcm | Mmio -> false
 
-let region simulator (r : Coral_manifest.Region.t) =
+let region (r : Coral_manifest.Region.t) =
   match Role.of_kind r.kind with
   | None -> Err.fail (`Unknown_region_kind r.kind)
   | Some role ->
       Err.return
         {
           Region.base = r.base_address;
-          htif_reachable = htif_reachable simulator role;
-          loadable = loadable simulator role;
+          htif_reachable = htif_reachable role;
+          loadable = memory role && r.access.host_load = Some true;
           name = r.name;
           role;
           size = r.size_bytes;
@@ -125,7 +123,7 @@ let of_manifest (m : Coral_manifest.t) name =
       m.artifacts
     |> Err.of_option (`No_artifact c.id)
   in
-  let* regions = Err.List.map (region simulator) c.regions in
+  let* regions = Err.List.map region c.regions in
   Err.return
     {
       artifact = a.path;

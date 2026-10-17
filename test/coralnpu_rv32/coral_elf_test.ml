@@ -118,8 +118,8 @@ let%expect_test "an image per profile" =
     fromhost_ready  0x00010100 size 8
     _start          0x00000000 size 0 |}]
 
-(* A layout that put data in RAM: refused on RTL, whose testbench cannot load
-   it, and accepted on MPACT. *)
+(* A layout that put data in RAM: refused on the RTL profile, whose manifest
+   leaves its RAM's host_load unknown, and accepted on MPACT. *)
 let%expect_test "a segment outside the loadable regions" =
   let to_ram (l : Coral_layout.t) =
     {
@@ -145,7 +145,7 @@ let%expect_test "a segment outside the loadable regions" =
     tiny-rtl: segment .data (16 bytes at 0x20000000) is outside every loadable region |}]
 
 (* The runtime around a kernel: the layout settles, and a slot too large for
-   DTCM is staged. *)
+   DTCM goes to RAM. *)
 let%expect_test "an image with the runtime" =
   let kernel =
     match
@@ -194,5 +194,5 @@ let%expect_test "an image with the runtime" =
     staging    0x00010180
     trap       0x00011180
     stack top  0x00018000
-    slot in    0x20000000 100000 testbench-ram staged
+    slot in    0x20000000 100000 testbench-ram
     slot out   0x00011200 64 dtcm |}]

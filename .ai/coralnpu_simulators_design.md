@@ -53,15 +53,21 @@ in pure OCaml. The baseline profiles are `core-mini-axi`,
 `core-mini-highmem-axi` and `mpact-v2`; any configuration with a known
 backend and known region types decodes.
 
-Two facts per region are mltorch's, because the manifest leaves them unknown
-(`null`) and guest runs settled them:
+Two facts per region decide where an image may put things:
 
-| Fact | MPACT | RTL |
-|---|---|---|
-| `loadable` (an ELF PT_LOAD may lie there) | ITCM, DTCM, RAM | ITCM, DTCM only: the testbench loads through the core's AXI slave and aborts on a segment in its RAM |
-| `htif_reachable` (an HTIF buffer may lie there) | DTCM | DTCM: the HTIF initiator reaches only the core's AXI slave; a read into testbench RAM fails, a write from it aborts the simulator |
+- `loadable` (an ELF PT_LOAD may lie there) is the manifest's `host_load` of a
+  memory region (ITCM, DTCM, RAM). Unknown (`null`) counts as no. A CSR or
+  MMIO block is never loadable, even with `host_load` true: v0.0.2 marked the
+  RTL core CSRs so, for the host's run control.
+- `htif_reachable` (an HTIF buffer may lie there) is mltorch's, because the
+  manifest does not record it. Guest runs settled it: DTCM and the external
+  RAM, on both simulators.
 
-Any region not shown to work is treated as unreachable, never as allowed.
+Since release v0.0.3 both hold for the RTL testbench RAM. In v0.0.2 the
+testbench loaded ELF segments and served HTIF through the core's AXI slave,
+which reaches only the TCMs: a segment in its RAM aborted the loader, an HTIF
+read into that RAM failed, and a write from it aborted the simulator. Any
+region not shown to work is treated as unreachable, never as allowed.
 
 ## Layout (`Coral_layout`)
 
@@ -76,8 +82,9 @@ result), `Out` (zeroed, then written) or `Scratch` (zeroed).
   staging buffer (4 KiB by default), the trap scratch, then slots. The stack
   (4 KiB by default) takes the top.
 - A slot that does not fit in DTCM goes to the profile's writable RAM region,
-  and is staged there when that region is not `htif_reachable`. A slot is
-  never split.
+  and is staged there when that region is not `htif_reachable`. No baseline
+  profile stages since v0.0.3; the kernel tests keep the path covered by
+  marking the RAM unreachable. A slot is never split.
 
 The digest is 32 bits of SHA-256 over the configuration ID and every address
 and size the layout assigns. It travels in both directions, so a guest built
@@ -167,11 +174,14 @@ session leader. One `select` loop feeds stdin while draining stdout and
 stderr. When the deadline passes, or stdout exceeds the frame plus 4 MiB, it
 kills the whole process group.
 
-The frame decides the outcome, never the exit status: MPACT exits 0 after any
-run, and the RTL testbench folds guest codes to 1. Rows, closed:
+The frame decides the outcome, never the exit status. Since v0.0.3 the status
+carries the low eight bits of the guest's exit code, but the simulators' own
+statuses (124 at the RTL cycle limit, 125 on a fault halt, 126 on a loader
+failure) can equal a guest code. The RTL also still reports 0 when `mpause`
+follows the HTIF exit at once, as this runtime's does. Rows, closed:
 
-- `Cycle_limit`: the testbench printed "loop limit" and then hung, so the
-  deadline ended the run.
+- `Cycle_limit`: the testbench printed "loop limit" (and, since v0.0.3, exits
+  124 there; v0.0.2 hung until the deadline).
 - `Guest_trap`: `mcause`, `mepc`, `mtval`.
 - `Input_refused`.
 - `Malformed_output`.
@@ -184,17 +194,19 @@ run, and the RTL testbench folds guest codes to 1. Rows, closed:
 scratch slot) on `core-mini-axi`, `core-mini-highmem-axi` and `mpact-v2`.
 
 - **Sizes:** eight floats, with every slot in DTCM; and 64 KiB slots, which
-  are staged through testbench RAM on `core-mini-axi` and through `extmem` on
-  MPACT, and sit in DTCM on highmem. Results are bitwise.
+  sit in testbench RAM on `core-mini-axi` and in `extmem` on MPACT, read and
+  written there by HTIF, and in DTCM on highmem. The 64 KiB runs repeat on
+  `core-mini-axi` and MPACT with the RAM marked unreachable, so the slots are
+  staged. Results are bitwise.
 - **Counters:** `minstret` is equal on all three, 133 and 213021 for the two
   sizes. `mcycle` counts on both simulators.
 - **Purpose-built guests**, one row each: illegal instruction (`mcause` 2),
   store to ITCM (`mcause` 7), spin (`Timeout`), RTL `--cycles`
   (`Cycle_limit`), wrong digest (`Input_refused`), missing simulator.
-- **Store-fault `mtval`:** for the ITCM store at `0x100`, RTL reports
-  `0x10` and MPACT `0x100`.
-- **In place:** the same negation in one `In_out` slot, at both sizes, staged
-  in and out on `core-mini-axi` and MPACT; bitwise, `minstret` 72 and 98328.
+- **Store-fault `mtval`:** for the ITCM store at `0x100`, both report
+  `0x100` (v0.0.2's RTL reported `0x10`).
+- **In place:** the same negation in one `In_out` slot, at both sizes, and
+  staged on `core-mini-axi` and MPACT; bitwise, `minstret` 72 and 98328.
 - **Mutation:** shortening a staged chunk's copy by one word makes the
   staged profiles fail at element 1023, the last word of the first chunk.
 

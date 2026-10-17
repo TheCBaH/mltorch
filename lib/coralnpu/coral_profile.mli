@@ -1,16 +1,12 @@
 (** A runnable Coral simulator: one manifest configuration, the artifact that
     simulates it, and what a guest image may do with each memory region.
 
-    Two facts per region are mltorch's, not the manifest's, because the manifest
-    leaves them unknown and running guests settled them:
-    - [loadable]: an ELF PT_LOAD may lie there. MPACT's loader writes segments
-      into any mapped memory; the RTL testbench loads through the core's AXI
-      slave, which reaches the TCMs only, and aborts on a segment in its RAM.
-    - [htif_reachable]: an HTIF [read]/[write] buffer may lie there. On RTL the
-      HTIF initiator also reaches only the core's AXI slave: a read into the
-      testbench RAM fails and a write from it aborts the simulator. DTCM works
-      on both simulators; every other region is treated as unreachable until a
-      run shows otherwise. *)
+    [loadable] (an ELF PT_LOAD may lie there) is the manifest's [host_load] of a
+    memory (TCM or RAM); unknown counts as no, and a CSR or MMIO block the host
+    may write is never loadable. [htif_reachable] (an HTIF [read]/[write] buffer
+    may lie there) is mltorch's, because the manifest does not record it and
+    running guests settled it: DTCM and the external RAM on both simulators;
+    every other region is treated as unreachable until a run shows otherwise. *)
 
 module Role : sig
   (** The manifest's region [type]. *)

@@ -3,9 +3,11 @@
     while stdout and stderr drain, under a wall-clock deadline that kills the
     whole process group.
 
-    The frame decides the outcome, not the exit status: MPACT exits 0 after any
-    run and the RTL testbench folds guest codes to 1, so a result frame is
-    success whatever the status, and its absence is an error even with 0. *)
+    The frame decides the outcome, not the exit status: the status carries only
+    the low eight bits of the guest's exit code, and the simulators' own
+    statuses (124 at the RTL cycle limit, 125 on a fault halt) can equal a guest
+    code, so a result frame is success whatever the status, and its absence is
+    an error even with 0. *)
 
 module Trap : sig
   type t = { mcause : int32; mepc : int32; mtval : int32 }
@@ -13,7 +15,8 @@ end
 
 module Run_error : sig
   type t =
-    | Cycle_limit  (** The RTL testbench reported its loop limit. *)
+    | Cycle_limit
+        (** The RTL testbench reported its loop limit (and exited, 124). *)
     | Guest_trap of Trap.t
     | Input_refused of Coral_runtime.Refusal.t
     | Malformed_output of { malformed : Coral_wire.Malformed.t; tail : string }

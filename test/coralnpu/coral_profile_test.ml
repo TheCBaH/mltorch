@@ -33,13 +33,13 @@ let%expect_test "the fragment's IDs recompute, and each profile" =
     f,i,m,zicsr
     itcm           itcm 0x00000000     8192 loadable
     dtcm           dtcm 0x00010000    32768 writable loadable htif
-    extmem         ram  0x20000000  4194304 writable loadable
+    extmem         ram  0x20000000  4194304 writable loadable htif
     tiny-rtl rtl coralnpu:tiny-rtl:3b3475e7a285b4c6eaaf
     f,i,m
     itcm           itcm 0x00000000     8192 loadable
     dtcm           dtcm 0x00010000    32768 writable loadable htif
     core-csr       csr  0x00030000     4096
-    testbench-ram  ram  0x20000000  4194304 writable
+    testbench-ram  ram  0x20000000  4194304 writable htif
     uart           mmio 0x54000000        4 writable |}]
 
 (* The record without its [id], exactly as the producer's [json.dumps] wrote

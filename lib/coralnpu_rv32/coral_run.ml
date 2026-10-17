@@ -250,11 +250,9 @@ let run ?(deadline = 120.) ?(flags = []) ~dir (image : Coral_image.t) ~bound =
               | Some r -> Err.fail (Run_error.Input_refused r)
               | None ->
                   Err.fail (Run_error.Guest_trap { Trap.mcause; mepc; mtval }))
-          | Error _ when timed_out ->
-              Err.fail
-                (if contains out loop_limit || contains err loop_limit then
-                   Run_error.Cycle_limit
-                 else Timeout)
+          | Error _ when contains out loop_limit || contains err loop_limit ->
+              Err.fail Run_error.Cycle_limit
+          | Error _ when timed_out -> Err.fail Run_error.Timeout
           | Error Coral_wire.Malformed.No_frame when status <> Unix.WEXITED 0 ->
               Err.fail
                 (Run_error.Simulator_crashed

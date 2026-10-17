@@ -91,17 +91,28 @@ let%expect_test "an in-out slot" =
     staging    0x00010280
     trap       0x00011280
     stack top  0x00018000
-    slot in-out 0x20000000 100000 testbench-ram staged
+    slot in-out 0x20000000 100000 testbench-ram
     in read true written false
     in-out read true written true
     out read false written true
     scratch read false written false |}]
 
-let%expect_test "a slot too large for DTCM goes to RAM, staged" =
+let%expect_test
+    "a slot too large for DTCM goes to RAM, staged where HTIF cannot reach it" =
   let slots = L.Placement.[ slot In 100_000L; slot Out 64L ] in
   show rtl small slots;
   show mpact small slots;
   show highmem small slots;
+  show
+    {
+      rtl with
+      regions =
+        List.map
+          (fun (r : Coral_profile.Region.t) ->
+            if r.role = Ram then { r with htif_reachable = false } else r)
+          rtl.regions;
+    }
+    small slots;
   [%expect
     {|
     digest e3bf944a
@@ -112,7 +123,7 @@ let%expect_test "a slot too large for DTCM goes to RAM, staged" =
     staging    0x00010280
     trap       0x00011280
     stack top  0x00018000
-    slot in    0x20000000 100000 testbench-ram staged
+    slot in    0x20000000 100000 testbench-ram
     slot out   0x00011300 64 dtcm
     digest 4c2dc642
     text       0x00000000
@@ -122,7 +133,7 @@ let%expect_test "a slot too large for DTCM goes to RAM, staged" =
     staging    0x00010280
     trap       0x00011280
     stack top  0x00018000
-    slot in    0x20000000 100000 extmem staged
+    slot in    0x20000000 100000 extmem
     slot out   0x00011300 64 dtcm
     digest c0749e18
     text       0x00000000
@@ -133,7 +144,17 @@ let%expect_test "a slot too large for DTCM goes to RAM, staged" =
     trap       0x00101280
     stack top  0x00200000
     slot in    0x00101300 100000 dtcm
-    slot out   0x001199a0 64 dtcm |}]
+    slot out   0x001199a0 64 dtcm
+    digest e3bf944a
+    text       0x00000000
+    data       0x00010000
+    htif       0x00010140
+    packet     0x00010240
+    staging    0x00010280
+    trap       0x00011280
+    stack top  0x00018000
+    slot in    0x20000000 100000 testbench-ram staged
+    slot out   0x00011300 64 dtcm |}]
 
 let%expect_test "over capacity" =
   show rtl [ code 9000L ] slots_small;
