@@ -302,7 +302,7 @@ let size_of slots p =
 
 let table_label = "coral_slot_table"
 
-let items (l : Coral_layout.t) ~abi ~entry () =
+let items ?(vector = false) (l : Coral_layout.t) ~abi ~entry () =
   next_label := 0;
   let version = Int64.of_int32 Coral_wire.version in
   let ins =
@@ -324,7 +324,9 @@ let items (l : Coral_layout.t) ~abi ~entry () =
         insn "la" [ reg "t0"; sym trap_label ];
         insn "csrw" [ imm mtvec; reg "t0" ];
       ]
-    @ addr "t0" 0x2000L
+    (* FS (and, for vector code, VS) Initial: F and V instructions trap while
+       their state is Off *)
+    @ addr "t0" (if vector then 0x2200L else 0x2000L)
     @ [
         insn "csrs" [ imm mstatus; reg "t0" ]; insn "csrwi" [ imm fcsr; imm 0 ];
       ]
@@ -435,4 +437,5 @@ let items (l : Coral_layout.t) ~abi ~entry () =
   in
   start @ write_failed @ refusals @ report @ trap @ sys l @ table
 
-let module_ l ~abi ~entry = module_ "coral_runtime" (items l ~abi ~entry)
+let module_ ?vector l ~abi ~entry =
+  module_ "coral_runtime" (items ?vector l ~abi ~entry)

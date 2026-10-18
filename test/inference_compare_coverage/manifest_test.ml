@@ -88,7 +88,7 @@ let%expect_test "a missing row is found" =
           | Error m -> failwith m)));
   [%expect
     {|
-    43 words uncovered; rivet among them: true
+    45 words uncovered; rivet among them: true
     unknown: [fast] |}]
 
 let%expect_test "a malformed manifest is rejected, naming the line" =

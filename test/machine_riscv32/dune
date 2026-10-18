@@ -1,0 +1,29 @@
+; RV32 selected and allocated Machine IR, interpreted on any host: binary32
+; kernels and integer programs generic-vs-selected (C3), reference allocation
+; with the checker (C4), realized frames (C5), and the target's mutations.
+; Execution under qemu-riscv32 is test/machine_rivet_riscv32's.
+
+(library
+ (name machine_riscv32_test)
+ (libraries
+  core
+  err_trace
+  expr
+  fmt
+  loop_ir_test
+  machine_aarch64_test
+  machine_alloc
+  machine_alloc_test
+  machine_check
+  machine_interp
+  machine_ir
+  machine_lower
+  machine_source_test
+  machine_target_riscv32
+  native
+  ssa_bridge_test
+  ssa_ir
+  ssa_ir_test)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

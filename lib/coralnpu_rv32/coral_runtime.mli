@@ -30,8 +30,10 @@ val entry_symbol : string
 (** [_start]. *)
 
 val module_ :
+  ?vector:bool ->
   Coral_layout.t ->
   abi:Machine_rivet_riscv32.Rv32_harness.Abi.t ->
   entry:string ->
   (Riscv32_encode.Instruction.t Asm_core.Normalized_ast.module_, string) result
-(** [Error] names a form Rivet refused. *)
+(** [Error] names a form Rivet refused. [vector] (default false) also enables
+    the vector unit (mstatus.VS), for a kernel with Zve32f forms. *)

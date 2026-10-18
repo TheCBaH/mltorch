@@ -10,7 +10,8 @@ module Feature = Machine_ir.Mir_target.Feature
 let flag = function
   | Feature.Fp -> Some "fp"
   | Feature.Neon -> Some "asimd"
-  | Feature.Avx | Feature.Avx2 | Feature.Fma | Feature.Sse2 | Feature.Sse41 ->
+  | Feature.Avx | Feature.Avx2 | Feature.Fma | Feature.Sse2 | Feature.Sse41
+  | Feature.Zve32f ->
       None
 
 let features_line path =

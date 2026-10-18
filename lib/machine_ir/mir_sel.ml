@@ -67,6 +67,10 @@ module type TARGET = sig
   val unit_bits : Mir_target.Bank.t -> int
   (** the width of a register unit of a bank *)
 
+  val shape : Mir_type.t -> (Mir_target.Bank.t * int) option
+  (** the bank and width a value of this type occupies, if any register holds it
+  *)
+
   val result_write : op -> Mir_target.Write.t
   (** how writing the form's register result affects the rest of its unit *)
 

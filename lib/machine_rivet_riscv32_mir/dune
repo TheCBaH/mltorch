@@ -1,0 +1,25 @@
+; RV32 physical programs as typed Rivet modules, and the route that runs a
+; model's invocations as static ELF processes under qemu-riscv32: a published
+; [Mir_artifact] becomes a [Normalized_ast.module_] of RV32 instructions with
+; no assembly text on the way, planned with the process harness. Built only
+; where the RV32 Rivet encoder is installed.
+
+(library
+ (name machine_rivet_riscv32_mir)
+ (libraries
+  err_trace
+  fmt
+  machine_alloc
+  machine_interp
+  machine_ir
+  machine_model
+  machine_rivet_common
+  machine_rivet_riscv32
+  machine_target_riscv32
+  rivet.asm_core
+  rivet.foundation
+  rivet.riscv32_encode)
+ (enabled_if
+  (and
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

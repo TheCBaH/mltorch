@@ -76,4 +76,5 @@ let allocatable = function
         X64_reg.rax; X64_reg.rsi; X64_reg.rdi; 8; 9; X64_reg.rbx; 12; 13; 14; 15;
       ]
   | Mir_target.Bank.Fpr -> List.init 12 Fun.id @ [ 14; 15 ]
-  | Mir_target.Bank.Control | Mir_target.Bank.Flags -> []
+  | Mir_target.Bank.Control | Mir_target.Bank.Flags | Mir_target.Bank.Vector ->
+      []

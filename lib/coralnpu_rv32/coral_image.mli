@@ -21,6 +21,7 @@ val build :
   ?params:Coral_layout.Params.t ->
   ?abi:Machine_rivet_riscv32.Rv32_harness.Abi.t ->
   ?lowered:Riscv32_encode.fixup_kind Asm_core.Lowered_ast.module_ list ->
+  ?rv32_profile:Machine_rivet_riscv32.Rv32_profile.t ->
   Coral_profile.t ->
   entry:string ->
   kernel:Riscv32_encode.Instruction.t Asm_core.Normalized_ast.module_ list ->

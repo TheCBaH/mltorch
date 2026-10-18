@@ -89,7 +89,13 @@ operations, element types and shapes the target can express (with expansion
 into scalar lanes when it cannot). Cost: relative per-operation and per-memory-
 access costs, so a profitable plan is chosen without making an unprofitable
 legal one illegal. Portable `wasm128` is described first; an installed native
-target (the host's 128-bit AArch64 NEON) second.
+target (the host's 128-bit AArch64 NEON) second. `zve32f128` is RISC-V's embedded
+vector profile with binary32 elements (Zve32f) at VLEN 128, Coral NPU's vector
+core: sixteen binary32 lanes, strided accesses native (one `vlse32.v` or
+`vsse32.v`, priced at twice a contiguous access), a guaranteed fused
+multiply-add, and no binary64 elements, so at binary64 every operation is
+expanded and the cost model vectorizes nothing. Its numbers are neon128's
+binary32 ones, unmeasured: qemu's timing says nothing about an RV32 core.
 
 ## Measured baselines (compiler vectorization)
 
@@ -206,6 +212,15 @@ scalar C on mobilenetv2_050; first run (cold, includes V8 tier-up) falls from
   already wins (52.0 vs 88.2 ms), so the scratch, prep and cache-identity costs
   are not paid. Revisit only if a model shows gather-bound loops.
 - Relaxed SIMD, FMA and F32 arithmetic stay out of scope (strict only).
+- RV32 Zve32f (binary32 only, under the binary32 policies): the RV32 Machine IR
+  target selects the plan's four-lane slices as RVV forms at SEW 32, LMUL 1, vl
+  4, verified under qemu at VLEN 128 to 1024 (see the RV32 process record); a
+  core below VLEN 128 is refused at process start. Measured on Coral's RTL vector core
+  (VLEN 128, see the Coral simulators record): 3.98x on a pointwise bundle,
+  8.09x on convolution, batch norm and relu, at neon128's binary32 cost
+  numbers; the measurement endorses the planning decisions as they are. LMUL
+  groups (one instruction for sixteen lanes) stay unimplemented until a
+  larger corpus is measured.
 
 ## Binary32 kernels (pointer)
 

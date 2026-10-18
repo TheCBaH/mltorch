@@ -6,6 +6,11 @@ type op = t
 
 let abi = A64_reg.abi
 let flags_view = A64_reg.nzcv
+
+let shape =
+  Machine_ir.Mir_target.lp64_shape
+    ~flags_bits:A64_reg.nzcv.Machine_ir.Mir_target.View.bits
+
 let stack_pointer = A64_reg.sp
 let call_push = 0L
 let link = Some (A64_reg.x 30)

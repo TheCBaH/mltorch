@@ -145,3 +145,24 @@ let%expect_test "the Coral identity follows the artifact and the command" =
     another artifact: configuration false, artifact true
     another command: configuration true, artifact false
     the same profile: configuration false, artifact false |}]
+
+let%expect_test "the RV32 Machine IR engine equals the binary32 C engines" =
+  compare "rivet-rv32-fp32 vs loop-c-fp32"
+    (module Inference_compare_rv32.Mir_rv32_engine)
+    (module Gen.Loop_c_fp32);
+  compare "rivet-rv32-fp32 vs compcert-rv32-fp32"
+    (module Inference_compare_rv32.Mir_rv32_engine)
+    (module Rv32_fp32);
+  let p = provider "rivet-rv32" in
+  (match p.available () with
+  | Error m -> Printf.printf "rivet-rv32: %s\n" m
+  | Ok () -> print_endline "unexpectedly available");
+  [%expect
+    {|
+    rivet-rv32-fp32 vs loop-c-fp32, salt 0: bitwise
+    rivet-rv32-fp32 vs loop-c-fp32, salt 1: bitwise
+    rivet-rv32-fp32 vs loop-c-fp32, salt 2: bitwise
+    rivet-rv32-fp32 vs compcert-rv32-fp32, salt 0: bitwise
+    rivet-rv32-fp32 vs compcert-rv32-fp32, salt 1: bitwise
+    rivet-rv32-fp32 vs compcert-rv32-fp32, salt 2: bitwise
+    rivet-rv32: the RV32 Machine IR route has no D extension; add fp32 |}]

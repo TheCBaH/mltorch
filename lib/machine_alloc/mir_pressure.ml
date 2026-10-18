@@ -106,7 +106,10 @@ module Make (T : Mir_sel.TARGET) = struct
         List.iter
           (fun (i : Lv.Interval.t) ->
             match V.shape i.Lv.Interval.value.Mir_value.ty with
-            | Some (((Mir_target.Bank.Fpr | Mir_target.Bank.Gpr) as bank), _) ->
+            | Some
+                ( (( Mir_target.Bank.Fpr | Mir_target.Bank.Gpr
+                   | Mir_target.Bank.Vector ) as bank),
+                  _ ) ->
                 let l =
                   Option.value ~default:[] (Hashtbl.find_opt events bank)
                 in

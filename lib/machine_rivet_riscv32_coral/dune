@@ -1,0 +1,24 @@
+; The RV32 Machine IR route on the Coral NPU simulators: each invocation's
+; published artifact, emitted by the qemu route's own module writer, built into
+; a Coral guest image (the table of region addresses its entry takes, the
+; vector unit enabled for Zve32f code) and run by the configuration's simulator.
+; Built only where the RV32 Rivet encoder is installed; a run needs the
+; extracted emulators archive.
+
+(library
+ (name machine_rivet_riscv32_coral)
+ (libraries
+  coralnpu
+  coralnpu_rv32
+  err_trace
+  fmt
+  machine_interp
+  machine_ir
+  machine_model
+  machine_rivet_common
+  machine_rivet_riscv32
+  machine_rivet_riscv32_mir)
+ (enabled_if
+  (and
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

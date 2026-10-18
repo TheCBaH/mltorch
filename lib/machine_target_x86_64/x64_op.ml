@@ -419,6 +419,7 @@ let unit_bits = function
   | Mir_target.Bank.Flags -> 6
   | Mir_target.Bank.Fpr -> 128
   | Mir_target.Bank.Gpr -> 64
+  | Mir_target.Bank.Vector -> 128
 
 let op_features = function
   | Fmadd231 _ | Pfmadd231 _ -> [ Mir_target.Feature.Fma ]

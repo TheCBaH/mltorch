@@ -230,3 +230,22 @@ layer_norm) on `mpact-v2` and `core-mini-highmem-axi`, with the expect output
 unchanged. One call of the chain is 25438 instructions on both, 22941 RTL
 cycles. Dropping the region's copy-back, or making `memcpy` a no-op, fails
 the suite on the simulator.
+
+## The RV32 Machine IR route (`lib/machine_rivet_riscv32_coral`)
+
+An invocation published on the RV32 qemu route (selected onto ILP32, linear
+scan, frames, its module from the same writer) is built into a guest image
+whose runtime calls `mir_entry` with the table of region addresses — the
+`Table` ABI — so one artifact runs under qemu and on a Coral core unchanged.
+A bound region is an `In_out` slot, the failure record `Out`, every other
+region `Scratch`. An artifact with Zve32f forms is lowered under the vector
+profile, its runtime also sets `mstatus.VS` to Initial (the privileged spec
+requires it before any vector instruction; neither MPACT nor the RTL core
+traps when it is Off, so no run shows it), and a configuration whose
+extensions lack `zve32f` (`mpact-v2`) refuses it before running.
+`make coralnpu.rv32.runtest`: the binary32 bundles are bitwise equal to the
+binary32 oracle on `mpact-v2` (scalar), `mpact-m3` (scalar and Zve32f) and the
+RTL vector core `rvv-core-mini-highmem-axi`, where the cycles were measured:
+Zve32f takes relu-then-add from 7572 to 1901 cycles (3.98x) and
+conv-batch-norm-relu from 192313 to 23786 (8.09x); softmax and layer_norm hold
+local arrays, have no vector loops, and cost the same.

@@ -98,6 +98,11 @@ val neon128 : t
 (** AArch64 NEON, the installed native target: 128-bit registers, two binary64
     lanes each, four logical lanes. *)
 
+val zve32f128 : t
+(** RISC-V Zve32f at VLEN 128 (Coral NPU's vector core): binary32 lanes only,
+    sixteen logical lanes, strided accesses native, no binary64 vectors. Its
+    costs are unmeasured. *)
+
 val scalar : t
 (** A target with no vector unit: every operation [Expanded] at the scalar cost,
     so nothing is ever profitable. The control for the cost model. *)

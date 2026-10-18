@@ -15,29 +15,7 @@ module Loc = Mir_phys.Loc
 
 module Make (T : Mir_sel.TARGET) = struct
   (* The bank and width a value of this type occupies. *)
-  let shape (ty : Mir_type.t) =
-    match ty with
-    | Mir_type.Int Mir_width.W64 | Mir_type.Ptr -> Some (Mir_target.Bank.Gpr, 64)
-    | Mir_type.Int (Mir_width.W8 | Mir_width.W16 | Mir_width.W32)
-    | Mir_type.Pred ->
-        Some (Mir_target.Bank.Gpr, 32)
-    | Mir_type.F64 -> Some (Mir_target.Bank.Fpr, 64)
-    | Mir_type.F32 -> Some (Mir_target.Bank.Fpr, 32)
-    | Mir_type.Flags ->
-        Some (Mir_target.Bank.Flags, T.flags_view.Mir_target.View.bits)
-    | Mir_type.Vec (e, n) -> (
-        (* a register-wide slice or its half *)
-        match
-          Int64.to_int (Mir_type.Elem.bytes e) * 8 * Mir_type.Lanes.to_int n
-        with
-        | (64 | 128) as bits -> Some (Mir_target.Bank.Fpr, bits)
-        | _ -> None)
-    | Mir_type.Mask n -> (
-        (* a register-wide mask: four binary32 lanes or two binary64 *)
-        match Mir_type.Lanes.to_int n with
-        | 2 | 4 -> Some (Mir_target.Bank.Fpr, 128)
-        | _ -> None)
-    | Mir_type.Order -> None
+  let shape = T.shape
 
   let in_memory bits (l : Loc.t) =
     match l with

@@ -89,8 +89,7 @@ let qemu_provider ~name ~numerics ~profile (module L : Loop_c_embed.LOADER) :
                (L)
                (struct
                  let numerics = numerics
-               end))
-        in
+               end)) in
         let identity =
           identity ~engine:name ~route:"embedded-compcert-riscv32-qemu"
             ~configuration:
@@ -174,8 +173,7 @@ let coral_provider c : P.Provider.t =
                    (L)
                    (struct
                      let numerics = fp32
-                   end))
-            in
+                   end)) in
             let identity = coral_identity ~dir p in
             {
               P.Provider.runner = R.create ~identity:(fun () -> identity);
@@ -197,9 +195,53 @@ let coral_binary64 c =
     instantiate = (fun () -> Error reason);
   }
 
+(* {1 The Machine IR route} *)
+
+module Mir_runner = P.Graph_runner.Make (Mir_rv32_engine)
+
+let rivet_binary64 =
+  let reason = "the RV32 Machine IR route has no D extension; add fp32" in
+  {
+    P.Provider.name = "rivet-rv32";
+    available = (fun () -> Error reason);
+    instantiate = (fun () -> Error reason);
+  }
+
+let rivet_provider : P.Provider.t =
+  let instantiate () =
+    Result.map
+      (fun banner ->
+        let identity =
+          identity ~engine:"rivet-rv32-fp32" ~route:"rivet-riscv32-qemu"
+            ~configuration:
+              (String.concat "; "
+                 [
+                   "numerics=" ^ Loop_ir.Loop_numerics.identity fp32;
+                   "pipeline="
+                   ^ Ssa_backends.Pipeline.name Mir_rv32_engine.pipeline;
+                   "allocation=scanned";
+                   "profile=" ^ Profile.name Profile.Rv32imf_ilp32f;
+                   "qemu-cpu="
+                   ^ Option.value
+                       (Profile.qemu_cpu Profile.Rv32imf_ilp32f)
+                       ~default:"default";
+                 ])
+            ~environment:(host ^ ":" ^ banner)
+            ()
+        in
+        {
+          P.Provider.runner = Mir_runner.create ~identity:(fun () -> identity);
+          identity;
+        })
+      (qemu_banner ())
+  in
+  { name = "rivet-rv32-fp32"; available = qemu_available; instantiate }
+
 let providers () =
   [
     qemu_binary64;
+    rivet_binary64;
+    rivet_provider;
     qemu_provider ~name:"compcert-rv32-fp32" ~numerics:fp32
       ~profile:Profile.Rv32imf_ilp32f
       (module Q.Ilp32f);

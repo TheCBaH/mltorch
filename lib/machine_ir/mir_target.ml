@@ -16,6 +16,7 @@ module Feature = struct
     | Neon  (** AArch64 Advanced SIMD *)
     | Sse2  (** the x86-64 baseline *)
     | Sse41
+    | Zve32f  (** RISC-V embedded vectors, binary32 elements *)
 
   let name = function
     | Avx -> "avx"
@@ -25,18 +26,20 @@ module Feature = struct
     | Neon -> "neon"
     | Sse2 -> "sse2"
     | Sse41 -> "sse4.1"
+    | Zve32f -> "zve32f"
 end
 
 (* A register bank: storage of one kind. Views of one bank overlap; banks do
    not. *)
 module Bank = struct
-  type t = Control | Flags | Fpr | Gpr
+  type t = Control | Flags | Fpr | Gpr | Vector
 
   let name = function
     | Control -> "control"
     | Flags -> "flags"
     | Fpr -> "fpr"
     | Gpr -> "gpr"
+    | Vector -> "vector"
 end
 
 (* A physical register view: [bits] bits of a register unit starting at bit
@@ -68,6 +71,32 @@ module Write = struct
             whole-register bitwise or copy form): nothing may rely on them *)
     | Zero_upper  (** every bit above the view becomes zero *)
 end
+
+(* The register shape of each type on a 64-bit target whose vectors share the
+   floating-point bank (AArch64, x86-64): a pointer or i64 a 64-bit general
+   register, a narrower integer or predicate its 32-bit view, a float its
+   precision's view, a vector a register-wide slice or its half, a mask a whole
+   register of four binary32 or two binary64 lanes. *)
+let lp64_shape ~flags_bits (ty : Mir_type.t) =
+  match ty with
+  | Mir_type.Int Mir_width.W64 | Mir_type.Ptr -> Some (Bank.Gpr, 64)
+  | Mir_type.Int (Mir_width.W8 | Mir_width.W16 | Mir_width.W32) | Mir_type.Pred
+    ->
+      Some (Bank.Gpr, 32)
+  | Mir_type.F64 -> Some (Bank.Fpr, 64)
+  | Mir_type.F32 -> Some (Bank.Fpr, 32)
+  | Mir_type.Flags -> Some (Bank.Flags, flags_bits)
+  | Mir_type.Vec (e, n) -> (
+      match
+        Int64.to_int (Mir_type.Elem.bytes e) * 8 * Mir_type.Lanes.to_int n
+      with
+      | (64 | 128) as bits -> Some (Bank.Fpr, bits)
+      | _ -> None)
+  | Mir_type.Mask n -> (
+      match Mir_type.Lanes.to_int n with
+      | 2 | 4 -> Some (Bank.Fpr, 128)
+      | _ -> None)
+  | Mir_type.Order -> None
 
 (* A register-allocation constraint on an instruction's operands, by position
    among its value uses or results. *)

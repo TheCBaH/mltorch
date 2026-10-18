@@ -11,7 +11,7 @@ let flag = function
   | Feature.Avx -> Some "avx"
   | Feature.Avx2 -> Some "avx2"
   | Feature.Fma -> Some "fma"
-  | Feature.Fp | Feature.Neon -> None
+  | Feature.Fp | Feature.Neon | Feature.Zve32f -> None
   | Feature.Sse2 -> Some "sse2"
   | Feature.Sse41 -> Some "sse4_1"
 

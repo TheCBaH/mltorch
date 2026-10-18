@@ -8,5 +8,7 @@ let register () =
         "compcert-coral-mpact-v2-fp32";
         "compcert-rv32";
         "compcert-rv32-fp32";
+        "rivet-rv32";
+        "rivet-rv32-fp32";
       ]
     "the embedded riscv32 CompCert is not built (make compcert.rv32.install)"

@@ -15,10 +15,15 @@ let positive (sg : Tensor_sig.t) =
       +. 0.05
          *. float_of_int ((Vec6.offset sg.Tensor_sig.shape c :> int) mod 11))
 
+(* A NaN's sign is the host's: [0/0] is negative on x86-64 and positive on
+   AArch64, while the RV32 targets produce the canonical positive NaN. Compare
+   every NaN as one value. *)
 let bits (Tensor.Tensor t as packed) =
   let acc = ref [] in
   Vec6.iter t.Tensor.shape (fun c ->
-      acc := Int64.bits_of_float (Tensor.read packed c) :: !acc);
+      let x = Tensor.read packed c in
+      acc :=
+        Int64.bits_of_float (if Float.is_nan x then Float.nan else x) :: !acc);
   List.rev !acc
 
 let bundle g =

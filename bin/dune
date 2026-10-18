@@ -318,6 +318,32 @@
  (build_if %{lib-available:rivet.x86_64})
  (enabled_if false))
 
+; The same for RV32IMF: every invocation a static ELF process under
+; qemu-riscv32, binary32 throughout, its outputs bitwise against the binary32
+; oracle. Built only where the RV32 Rivet encoder is installed; MANUAL, needs
+; the model data.
+
+(test
+ (name machine_rivet_rv32_census)
+ (modules machine_rivet_rv32_census)
+ (libraries
+  core
+  err_trace
+  fmt
+  loop_ir
+  machine_ir
+  machine_model
+  machine_rivet_riscv32_mir
+  machine_target_riscv32
+  native
+  native_interp
+  pt2
+  ssa_backends
+  ssa_ir
+  unix)
+ (build_if %{lib-available:rivet.riscv32_encode})
+ (enabled_if false))
+
 ; Structural check of extracted checkpoint-map bundles: the v2 map against its
 ; graph, configs and captures.json, with no source file read. See
 ; lib/pt2_checkpoint_map.

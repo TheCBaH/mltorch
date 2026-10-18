@@ -66,4 +66,5 @@ let allocatable = function
   | Mir_target.Bank.Fpr ->
       A64_reg.range 0 7 @ A64_reg.range 16 19 @ A64_reg.range 22 31
       @ A64_reg.range 8 15
-  | Mir_target.Bank.Control | Mir_target.Bank.Flags -> []
+  | Mir_target.Bank.Control | Mir_target.Bank.Flags | Mir_target.Bank.Vector ->
+      []

@@ -35,13 +35,15 @@ type layout = {
 let status_bytes = 16
 
 (* Failure exits of [_start], distinct from any status a test kernel returns by
-   being above it. *)
+   being above it. Under the vector profile, 105 is a core whose vector
+   registers are narrower than the 128 bits the code assumes. *)
 module Exit = struct
   let arguments = 100
   let open_in = 101
   let map_in = 102
   let open_out = 103
   let map_out = 104
+  let vlen = 105
 end
 
 let layout slots =
@@ -112,7 +114,7 @@ let map ~path ~len ~flags ~prot ~into ~open_code ~map_code ~name =
 let at base off =
   load_imm "t1" off @ [ insn "add" [ reg "t1"; reg base; reg "t1" ] ]
 
-let harness ?(abi = Abi.Table) ~entry lay =
+let harness ?(abi = Abi.Table) ?(min_vlenb = 0) ~entry lay =
   let has p = List.exists (fun (s, _) -> s.placement = p) lay.slots in
   let items () =
     let start =
@@ -129,6 +131,16 @@ let harness ?(abi = Abi.Table) ~entry lay =
         insn "lw" [ reg "s2"; mem "sp" 8 ];
         insn "lw" [ reg "s3"; mem "sp" 12 ];
       ]
+      @ (if min_vlenb = 0 then []
+         else
+           (* the vector registers' bytes, vlenb (CSR 0xc22): code that
+              assumes VLEN 128 must not run on a smaller one *)
+           [
+             insn "csrr" [ reg "t0"; imm 0xc22 ];
+             insn "li" [ reg "t1"; imm min_vlenb ];
+             insn "li" [ reg "a0"; imm Exit.vlen ];
+             insn "bltu" [ reg "t0"; reg "t1"; sym "harness_exit" ];
+           ])
       @ (if has Placement.In then
            map ~path:"s2" ~len:lay.in_size ~flags:2 ~prot:3 ~into:"s4"
              ~open_code:Exit.open_in ~map_code:Exit.map_in ~name:"in"
@@ -192,7 +204,10 @@ type prepared = { elf : string; lay : layout; profile : Rv32_profile.t }
 
 let prepare ?(profile = Rv32_profile.default) ?abi ~entry ~kernel slots =
   let lay = layout slots in
-  match harness ?abi ~entry lay with
+  let min_vlenb =
+    match profile with Rv32_profile.Rv32imf_zve32f_ilp32f -> 16 | _ -> 0
+  in
+  match harness ?abi ~min_vlenb ~entry lay with
   | Error what -> Error (Fmt.str "the harness has no form for %s" what)
   | Ok h -> (
       match elf_of ~profile ~entry:"_start" (h :: kernel) with
@@ -202,8 +217,9 @@ let prepare ?(profile = Rv32_profile.default) ?abi ~entry ~kernel slots =
 type outcome = { status : int32; outputs : (int * string) list }
 
 (* One run: [bound k] is slot [k]'s initial bytes. The result holds every
-   [Out] slot's bytes by index. *)
-let run ?timeout (p : prepared) ~bound =
+   [Out] slot's bytes by index. [cpu] replaces the profile's qemu CPU (another
+   VLEN, another tail policy). *)
+let run ?timeout ?cpu (p : prepared) ~bound =
   let ( let* ) = Result.bind in
   let tmp suffix = Filename.temp_file "mltorch_rv32_" suffix in
   let in_path = tmp ".in" and out_path = tmp ".out" in
@@ -232,7 +248,10 @@ let run ?timeout (p : prepared) ~bound =
           output_string oc (fill p.lay.out_size (fun s -> s.placement = Out)));
       let* r =
         Rv32_process.execute ?timeout
-          ?cpu:(Rv32_profile.qemu_cpu p.profile)
+          ?cpu:
+            (match cpu with
+            | Some _ -> cpu
+            | None -> Rv32_profile.qemu_cpu p.profile)
           ~args:[ in_path; out_path ] p.elf
       in
       let* () =

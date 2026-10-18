@@ -1,4 +1,4 @@
-.PHONY: machine.rivet.rv32.runtest compcert.rv32.install compcert.rv32.runtest model.compare.coverage js.compare.runtest rivet.compare.runtest transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open model.compare model.download model.compare.gate model.fetch.timm model.fetch.fixture transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.native4d.runtest c.pt2.native4d.ssa.runtest c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
+.PHONY: machine.rivet.rv32.runtest rv32.pt2.runtest coralnpu.rv32.runtest compcert.rv32.install compcert.rv32.runtest model.compare.coverage js.compare.runtest rivet.compare.runtest transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open model.compare model.download model.compare.gate model.fetch.timm model.fetch.fixture transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.native4d.runtest c.pt2.native4d.ssa.runtest c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean fp32.pt2.runtest fp32.pt2.census machine.a64.conformance machine.pt2.census ssa.vector.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
@@ -1553,11 +1553,29 @@ machine.rivet.a64.conformance: rivet.install
 	set -e; for m in commuted-sub wrong-lane; do $(RIVET_CONFORMANCE) --map-mutate $$m; done
 
 # Typed Rivet RV32 images written as ELF and run under qemu-riscv32: the mmap
-# harness over hand-built kernels. RV32 cannot run on any host CPU here, so
+# harness over hand-built kernels, and the RV32 Machine IR route (source
+# kernels, i64 programs and binary32 bundles, each a process). RV32 cannot run on any host CPU here, so
 # qemu-riscv32 must be on the path; its absence fails the run.
 machine.rivet.rv32.runtest: rivet.install
 	command -v qemu-riscv32
-	opam exec -- dune build @test/machine_rivet_riscv32/runtest --force
+	opam exec -- dune build @test/machine_rivet_riscv32/runtest @test/machine_rivet_riscv32_mir/runtest --force
+
+# The RV32 Machine IR route on real models (MANUAL, needs `make
+# pt2.download` for each): every invocation an ELF process under qemu-riscv32,
+# the scalar binary32 plan and the Zve32f one at VLEN 128 and 1024, each
+# model's output bitwise against the binary32 oracle. The oracle dominates:
+# about a minute for mobilenetv2_050, fourteen for fastvit_sa12.
+RV32_PT2_MODELS ?= 1000 1000PT2_MODELS_FIXTURES)
+RV32_CENSUS = _build/default/bin/machine_rivet_rv32_census.exe
+rv32.pt2.runtest:
+	command -v qemu-riscv32
+	opam exec -- dune build bin/machine_rivet_rv32_census.exe
+	set -e; for m in 1000 1000RV32_PT2_MODELS); do \
+	  test -f 1000 1000PT2_DIR)//.pt2 || { echo "rv32.pt2.runtest: missing 1000 1000PT2_DIR)//.pt2" >&2; exit 1; }; \
+	  1000 1000RV32_CENSUS) 1000 1000PT2_DIR)//.pt2; \
+	  1000 1000RV32_CENSUS) 1000 1000PT2_DIR)//.pt2 --planned=zve32f --vlen=128; \
+	  1000 1000RV32_CENSUS) 1000 1000PT2_DIR)//.pt2 --planned=zve32f --vlen=1024; \
+	done
 
 # The F32 ABI CompCert extraction for riscv32 beside the host's
 # (riscv32_fp32, rv32imf/ILP32F). Its pinned artifacts are fetched, its
@@ -1611,6 +1629,16 @@ coralnpu.runtest:
 # binary32 oracle, and the Coral comparison engines bitwise equal to loop-c-fp32.
 # Needs the download and both riscv32 embeddings.
 .PHONY: coralnpu.compcert.runtest
+# The RV32 Machine IR route on the Coral simulators: hermetic binary32
+# bundles on MPACT (mpact-v2 scalar, mpact-m3 scalar and Zve32f) and on the RTL
+# vector core (rvv-core-mini-highmem-axi), with its cycle counts.
+coralnpu.rv32.runtest:
+	@test -f $(CORALNPU_DATA)/hardware-configurations.json || { \
+		echo "coralnpu.rv32.runtest: missing $(CORALNPU_DATA) -- run 'make coralnpu.download' first" >&2; \
+		exit 1; \
+	}
+	CORALNPU_DATA=$(CORALNPU_DATA) opam exec -- dune build @test/machine_rivet_riscv32_coral/runtest --force
+
 coralnpu.compcert.runtest: compcert.rv32.install
 	@test -f $(CORALNPU_DATA)/hardware-configurations.json || { \
 		echo "coralnpu.compcert.runtest: missing $(CORALNPU_DATA) -- run 'make coralnpu.download' first" >&2; \

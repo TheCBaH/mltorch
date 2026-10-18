@@ -1,0 +1,11 @@
+; RV32IMF for Machine IR: register views and the ILP32F contract, the admitted
+; selected forms with their semantics and constraints, and selection from
+; generic Machine IR. A generic program's pointers become 32-bit registers and
+; its i64 values pairs of them. Interpretable on any host; execution is under
+; qemu-riscv32 through lib/machine_rivet_riscv32. Semantics cite the RISC-V
+; unprivileged ISA, never assembler acceptance. See the Machine IR design in
+; .ai/.
+
+(library
+ (name machine_target_riscv32)
+ (libraries core err_trace expr fmt machine_interp machine_ir))

@@ -246,6 +246,50 @@ let neon128 =
       native_cost ~vector_bits ~precision ~lanes op)
     Loop_numerics.Precision.F64
 
+(* RISC-V's embedded vector profile with binary32 elements (Zve32f) at VLEN
+   128, as on Coral NPU: four binary32 lanes a register, sixteen logical lanes.
+   A strided access is one instruction ([vlse32.v], [vsse32.v]), priced at
+   twice a contiguous one; a fused multiply-add is guaranteed ([vfmacc]).
+   There are no binary64 vector elements, so at binary64 every operation is
+   expanded and nothing vectorizes. Not measured: qemu's timing means nothing
+   for an RV32 core, so the planning numbers are neon128's binary32 ones until
+   the Coral NPU simulators measure them. *)
+let zve32f128 =
+  let vector_bits = 128 in
+  let native = function
+    | Op.Bool_store | Op.Transcendental -> false
+    | _ -> true
+  in
+  let native_cost ~precision ~lanes op =
+    match op with
+    | Op.Strided_load | Op.Strided_store ->
+        2. *. float_of_int (lanes / reg_lanes ~precision vector_bits)
+    | op -> native_cost ~vector_bits ~precision ~lanes op
+  in
+  let rec binary32_only (t : t) =
+    match t.precision with
+    | Loop_numerics.Precision.F32 ->
+        { t with at = (fun p -> binary32_only (t.at p)) }
+    | Loop_numerics.Precision.F64 ->
+        {
+          t with
+          inner_loops = false;
+          support = (fun _ -> Expanded);
+          cost =
+            (fun op ->
+              float_of_int t.lanes
+              *. (scalar_cost ~precision:t.precision op +. expansion_overhead));
+          at = (fun p -> binary32_only (t.at p));
+        }
+  in
+  binary32_only
+    (make
+       ~inner_loops:(function
+         | Loop_numerics.Precision.F32 -> true
+         | Loop_numerics.Precision.F64 -> false)
+       ~fma:true ~row_block:2 ~name:"zve32f128" ~vector_bits ~f64_lanes:4
+       ~f32_lanes:16 ~native ~native_cost Loop_numerics.Precision.F64)
+
 let rec scalar =
   {
     name = "scalar";
@@ -279,7 +323,7 @@ let rec with_row_block row_block t =
   { t with row_block; at = (fun p -> with_row_block row_block (t.at p)) }
 
 let f32 t = t.at Loop_numerics.Precision.F32
-let all = [ neon128; scalar; wasm128; wasm128_relaxed ]
+let all = [ neon128; scalar; wasm128; wasm128_relaxed; zve32f128 ]
 
 let profitable t body =
   let vector =

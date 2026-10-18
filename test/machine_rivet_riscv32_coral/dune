@@ -1,0 +1,25 @@
+; The RV32 Machine IR route on Coral's MPACT simulators: hermetic binary32
+; bundles, scalar and Zve32f, bitwise against the binary32 oracle, and the
+; refusal of vector code on a configuration without Zve32f. Enabled by
+; CORALNPU_DATA (the extracted emulators archive; make coralnpu.rv32.runtest
+; sets it).
+
+(library
+ (name machine_rivet_riscv32_coral_test)
+ (libraries
+  fmt
+  machine_model
+  machine_model_test
+  machine_rivet_riscv32_coral
+  ssa_backends
+  ssa_ir)
+ (inline_tests
+  (deps
+   (env_var CORALNPU_DATA)))
+ (preprocess
+  (pps ppx_expect))
+ (enabled_if
+  (and
+   (<> %{env:CORALNPU_DATA=} "")
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

@@ -22,6 +22,7 @@ instruction patterns. CompCert remains a separate C backend.
 | `lib/machine_lower` | Census; verified CFG SSA -> generic Machine IR | `machine_ir`, `ssa_ir` |
 | `lib/machine_target_aarch64` | AArch64 views and AAPCS64, admitted forms and semantics, selection, allocation registers | `machine_ir`, `machine_interp` |
 | `lib/machine_target_x86_64` | x86-64 views and System V, admitted SSE2/GPR forms (SSE4.1, FMA3 under features), selection, allocation registers | `machine_ir`, `machine_interp` |
+| `lib/machine_target_riscv32` | RV32IMF views and ILP32F, admitted forms and semantics, selection of LP64 generic programs onto ILP32 (i64 as word pairs), allocation registers | `machine_ir`, `machine_interp` |
 | `lib/machine_alloc` | Liveness and intervals, physical parallel copies, the reference allocator, frame realization | `machine_ir` |
 | `lib/machine_check` | The independent symbolic allocation checker | `machine_ir` only — never the allocator |
 | `lib/machine_model` | Whole bundles through Machine IR on every route: per-invocation lowering, contexts with persistent tensor storage, published artifacts | `machine_lower`, `machine_interp`, `ssa_backends`, `loop_ir`, `native` |
@@ -31,6 +32,7 @@ instruction patterns. CompCert remains a separate C backend.
 | `test/machine_a64_native` | Native per-form conformance executable (C3n), `make machine.a64.conformance` | `machine_target_aarch64`, `unix`, gcc on an AArch64 host |
 | `test/machine_alloc` | Allocation, checking, physical interpretation (C4), frames (C5), mutations, liveness | the above |
 | `test/machine_x86_64` | x86-64 forms, negatives, C3/C4/C5 interpreted on any host, mutations | the above |
+| `test/machine_riscv32` | RV32 binary32 kernels and i64 pair programs, C3/C4/C5 interpreted on any host, mutations | the above |
 | `test/machine_model`, `bin/machine_model_census` | Bundles against the per-node reference; the cohort census and real-weight prefixes (`make machine.pt2.census`) | the above, `native_test`, downloaded models for the census |
 
 `expr` supplies only neutral language identities (axes, sources, local
@@ -488,7 +490,11 @@ assembler and interpreter capability stay separate properties.
 `Mir_sel.TARGET` is what a target supplies: its closed opcode and branch-test
 families, per-form features, uses, typing, order, constraints, result write
 rule, implicit clobbers, whether it changes condition state, the condition bits
-it defines and reads. `Mir_sel.Make` instantiates the selected container (the
+it defines and reads, and the register shape (bank and width) of each value
+type — `Mir_target.lp64_shape` for the 64-bit targets, whose vectors share the
+floating-point bank; the physical verifier, the allocators and the checker read
+it from the target, and the physical interpreter takes a pointer's width from
+the program's data model. `Mir_sel.Make` instantiates the selected container (the
 generic `Mir_block`/`Mir_func`/`Mir_program` over `Op.t = Event | Machine of
 target op | Undef` — the two target-neutral instructions emit no code; `undef`
 stays through allocation, where it has no locations, so every stage's
@@ -631,6 +637,82 @@ insert, so one is a splat of the scalar and two `shufps/pd` picking lanes from
 it and from the vector; a strided access is one scalar access per lane, a
 load joined by those inserts. A tie needs equal types, so the destructive
 compare takes a mask-typed copy of its first operand.
+
+## RV32
+
+`lib/machine_target_riscv32` is RV32IMF (the RISC-V unprivileged ISA,
+20240411) under ILP32F: every register is one 32-bit view of its unit, there is
+no binary64, and RISC-V has no condition register (a compare writes a general
+register, a branch compares registers; the target's `flags` view is written by
+no form). The generic program stays LP64 — `machine_lower` is unchanged — and
+**selection realizes it on ILP32**: the selected program's data model is
+`Ilp32_le`, a pointer is one register, and a `ptr.add`'s i64 offset contributes
+its low word (a pointer plus a word wraps modulo 2^32, which is the signed
+offset for every address inside an object below 2 GiB, the data model's
+limit). Every other i64 value is a pair of i32 values, named for the whole
+function before any block is selected so a use finds them in any block order:
+an extension's low half is its operand, a copy shares its operand's halves, a
+32-bit truncation or narrowing reads the low half directly. i64 operations are
+sequences on the halves (carry and borrow by `sltu`, a product's high word by
+`mulhu` and two cross products, compares decided by the high words, constant
+shifts across the halves), and a half nothing reads is pruned. A pair known to
+be a sign-extended word (an extension, a small constant) compares and converts
+as the word, and divides as one by a constant other than -1; any other i64
+division and an i64 call argument are typed refusals. A full i64 converts to
+binary32 with one rounding in word arithmetic: the magnitude's top 32 bits
+(the high word shifted up by its leading zeros, found by a branch-free binary
+search, filled from the low word) with every lower bit folded into a sticky
+bit seven places below binary32's rounding position, `fcvt.s.wu`, then an
+exact scale by 2^s and the sign (dropping the sticky bit is caught on the
+ties). The failure record's 64-bit words are stored as
+pairs (`sw.pair`). A generic program is not rewritten into 32-bit form: the
+split lives in selection so the failure payload, block parameters and edges
+need no new generic convention, and C3 (selected against generic) is the
+evidence.
+
+IEEE maximum is `fmax.s` (maximumNumber) with the operands' sum where either
+is a NaN; truncation is a round trip through `fcvt.w.s` (toward zero) below
+2^23 in magnitude, the sign restored by `fsgnj.s`, else the operand; a select
+is a branch around a move (no conditional move without Zicond). The semantics
+model the canonical NaN 0x7fc00000. A frame offset encodes up to 4094 (the
+emitter adds 2047 in the reserved scratch t6 above 2047); a large one's
+address is a wide add (`lui`, `addi`, `add`). s11 is reserved for the table of
+region addresses, t6 for frame scratch. Evidence (`test/machine_riscv32`):
+binary32 kernels (pointwise, failures, matmul, max pool) and i64 pair
+arithmetic at the half boundaries agree with the generic route and the oracle
+selected, allocated and realized; contraction, maximumNumber for maximum, an
+unguarded truncation, a dropped carry, low words compared signed, a missing
+record word and pruning a terminator's values are each caught.
+
+**Vectors (Zve32f).** The vector forms are their own family (`Rv32_vop`, inside
+`Rv32_op.Vec`): RVV 1.0 under one configuration — SEW 32, LMUL 1, vl 4, tail
+and mask agnostic — so a slice is four binary32 or int32 lanes of a register
+whatever VLEN beyond 128 the core has, and selection runs after `Mir_vsplit`
+at 16 bytes, as on the 128-bit targets. A mask is four lanes of all ones or
+zeros, as on NEON: RVV's own masks (a bit a lane, always in v0) exist only
+inside a form's sequence (a compare's bits made lanes with `vmerge.vim`, a
+select's lanes made bits with `vmsne.vi`), so v0 is reserved scratch like t6
+and the allocator never sees a fixed mask register. Vector registers are their
+own bank (`Mir_target.Bank.Vector`), all caller-saved, and linear scan scans
+that bank too. The vector configuration is emission state, not a register: the
+module writer puts `vsetivli zero, 4, e32, m1, ta, ma` before the first vector
+item of a block and after a call, and a lane insert (a tail-undisturbed
+`vslideup.vi` at vl k+1) restores it. A spill moves sixteen bytes with
+`vse32.v`/`vle32.v` through t6 — a whole-register move would write VLEN/8. IEEE
+maximum, truncation and the unordered compare are the scalar sequences on
+lanes; a broadcast is a scalar load and a splat; any other stride is
+`vlse32.v`/`vsse32.v` with the stride in a register. The integer-lane decodes
+(dequantization of i8 and i16, binary16 and bfloat16) load a whole register
+of narrow lanes under their own width (`vle8.v`, `vle16.v`, the configuration
+restored after) and extend each four-lane slice the decode reads
+(`Mir_vsplit.widening_slices`) by a slide into v0 at that width and
+`vsext`/`vzext` (a result sharing no register with its source, as RVV
+requires of a widening); lane shifts by the splatted counts
+(`Mir_vsplit.shift_counts`) are `vsll.vi`/`vsrl.vi`/`vsra.vi`. Other integer
+lane arithmetic and a vector through a slice or join are refused. Evidence:
+planned binary32 pointwise, mask and matmul kernels agree selected, allocated
+and realized (`test/machine_riscv32/rv32_vector_test.ml`, which also counts the
+vector forms), and under qemu (see the RV32 process record).
 
 ## Allocated stage, checking and reference allocation
 

@@ -366,7 +366,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
             ~prefer:(fun (v : Mir_value.t) ->
               Hashtbl.find_opt prefer (Mir_id.Value.to_int v.Mir_value.id))
             (List.filter (fun p -> bank_of p = bank) pieces))
-        [ Mir_target.Bank.Fpr; Mir_target.Bank.Gpr ]
+        [ Mir_target.Bank.Fpr; Mir_target.Bank.Gpr; Mir_target.Bank.Vector ]
     in
     (* each value's pieces, by start *)
     let by_value = Hashtbl.create 64 in

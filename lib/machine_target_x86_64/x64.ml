@@ -6,6 +6,11 @@ type op = t
 
 let abi = X64_reg.abi
 let flags_view = X64_reg.rflags
+
+let shape =
+  Machine_ir.Mir_target.lp64_shape
+    ~flags_bits:X64_reg.rflags.Machine_ir.Mir_target.View.bits
+
 let stack_pointer = X64_reg.q X64_reg.rsp
 let call_push = 8L
 let link = None

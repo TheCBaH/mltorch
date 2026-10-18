@@ -22,6 +22,7 @@
   machine_model
   machine_source_test
   machine_target_aarch64
+  machine_target_riscv32
   machine_target_x86_64
   native
   native_test

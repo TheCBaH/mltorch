@@ -376,6 +376,7 @@ let unit_bits = function
   | Mir_target.Bank.Flags -> 4
   | Mir_target.Bank.Fpr -> 128
   | Mir_target.Bank.Gpr -> 64
+  | Mir_target.Bank.Vector -> 128
 
 (* A call leaves undefined every bit AAPCS64 does not preserve: x0-x18, the
    link register, v0-v7 and v16-v31 whole, the upper 64 bits of v8-v15, and

@@ -192,6 +192,11 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
   let run ?(fuel = 10_000_000L) ?(max_depth = 64) ?(models = [])
       ?(realized = false) ?(seed = fun (_ : regs) -> ())
       (p : (T.op, T.test) Mir_phys.Program.t) memory binding ~args =
+    (* a pointer's bytes in memory and bits in a register *)
+    let pointer_bytes =
+      Mir_layout.Data_model.pointer_bytes p.Mir_phys.Program.data_model
+    in
+    let pointer_bits = Int64.to_int pointer_bytes * 8 in
     let events = Array.make 6 0L in
     let steps = ref 0L and fuel = ref fuel in
     let traffic = ref Traffic.zero in
@@ -229,8 +234,8 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
             else Some v)
           tbl
       in
-      hit pointers 8L;
-      hit saved 8L
+      hit pointers pointer_bytes;
+      hit saved pointer_bytes
     in
     let activations = ref 0L in
     let result =
@@ -316,7 +321,7 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
               | Some (Cond { bits = b; defined }) ->
                   Mir_datum.Flags { bits = b; defined }
               | Some (Pointer q) ->
-                  if bits = 64 then Mir_datum.Ptr q
+                  if bits = pointer_bits then Mir_datum.Ptr q
                   else defect D.Invalid_program
               | Some (Data { lo; valid_lo; _ }) ->
                   let m = mask bits in
@@ -333,7 +338,7 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
           | Mir_datum.Flags { bits = b; defined } ->
               Hashtbl.replace regs.units key (Cond { bits = b; defined })
           | Mir_datum.Ptr q ->
-              if bits <> 64 then defect D.Invalid_program;
+              if bits <> pointer_bits then defect D.Invalid_program;
               Hashtbl.replace regs.units key (Pointer q)
           | Mir_datum.Order -> defect D.Invalid_program
           | Mir_datum.Lanes l when bits > 64 ->
@@ -454,7 +459,8 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
               let q = frame_pointer base offset bytes in
               let addr = Mir_memory.address memory q in
               match Hashtbl.find_opt pointers addr with
-              | Some ptr when Int64.equal bytes 8L -> Mir_datum.Ptr ptr
+              | Some ptr when Int64.equal bytes pointer_bytes ->
+                  Mir_datum.Ptr ptr
               | _ -> (
                   match Mir_memory.load memory q ~bytes ~align:1L with
                   | Ok x -> Mir_datum.Bits x
@@ -497,7 +503,8 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
                 match d with
                 | Mir_datum.Bits x -> x
                 | Mir_datum.Ptr ptr ->
-                    if not (Int64.equal bytes 8L) then defect D.Invalid_program;
+                    if not (Int64.equal bytes pointer_bytes) then
+                      defect D.Invalid_program;
                     Hashtbl.replace pointers addr ptr;
                     Mir_memory.address memory ptr
                 | Mir_datum.Flags _ | Mir_datum.Lanes _ | Mir_datum.Order ->
@@ -667,7 +674,11 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
           match (realized, T.link) with
           | true, Some l ->
               activations := Int64.succ !activations;
-              let t = Int64.logor 0x5245_7400_0000_0000L !activations in
+              let t =
+                Int64.logand
+                  (Int64.logor 0x5245_7400_0000_0000L !activations)
+                  (mask l.Mir_target.View.bits)
+              in
               write_view l Mir_target.Write.Zero_upper (Mir_datum.Bits t);
               Some (l, t)
           | _ -> None
@@ -793,7 +804,9 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
               | Some (l, t) -> (
                   match Hashtbl.find_opt regs.units (unit_key l) with
                   | Some (Data { lo; valid_lo; _ })
-                    when Int64.equal valid_lo (-1L) && Int64.equal lo t ->
+                    when Int64.equal valid_lo
+                           (mask (min 64 (T.unit_bits l.Mir_target.View.bank)))
+                         && Int64.equal lo t ->
                       ()
                   | _ -> defect D.Return_address)
               | None -> ());
