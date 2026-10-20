@@ -281,7 +281,7 @@ let update allowlist root dirs =
             remaining := rest;
             (f, c, d)
         | None -> (f, "UNCLASSIFIED", d))
-      (List.map (fun (f, _, d) -> (f, (), d)) (current root dirs))
+      (current root dirs)
   in
   List.iter print_endline comments;
   Printf.printf "@todo-domain-ceiling %d\n"

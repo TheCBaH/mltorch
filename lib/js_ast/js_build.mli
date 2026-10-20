@@ -8,7 +8,7 @@ type num
 (** A JS [Number] working value: binary64. *)
 
 type idx
-(** A JS [Number] holding an index proven to lie in [[-2^31, 2^31)]. Only these
+(** A JS [Number] holding an index proven to lie in \[-2^31, 2^31). Only these
     go in an array subscript, and no operation on them prints a bitwise
     operator. *)
 

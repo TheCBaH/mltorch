@@ -442,35 +442,33 @@ let op_features = function
 let bitmask_immediate ~bits v =
   let mask = if bits = 64 then -1L else Int64.pred (Int64.shift_left 1L bits) in
   let v = Int64.logand v mask in
-  if Int64.equal v 0L || Int64.equal v mask then false
-  else
-    let rec period e =
-      if e >= bits then bits
-      else
-        let m = Int64.pred (Int64.shift_left 1L e) in
-        let p = Int64.logand v m in
-        let rec same k =
-          k >= bits
-          || Int64.equal (Int64.logand (Int64.shift_right_logical v k) m) p
-             && same (k + e)
-        in
-        if same e then e else period (2 * e)
-    in
-    let e = period 2 in
-    let m = if e = 64 then -1L else Int64.pred (Int64.shift_left 1L e) in
-    let p = Int64.logand v m in
-    let rot =
-      Int64.logand
-        (Int64.logor
-           (Int64.shift_right_logical p 1)
-           (Int64.shift_left p (e - 1)))
-        m
-    in
-    let rec popcount x n =
-      if Int64.equal x 0L then n
-      else popcount (Int64.logand x (Int64.pred x)) (n + 1)
-    in
-    popcount (Int64.logxor p rot) 0 = 2
+  (not (Int64.equal v 0L || Int64.equal v mask))
+  &&
+  let rec period e =
+    if e >= bits then bits
+    else
+      let m = Int64.pred (Int64.shift_left 1L e) in
+      let p = Int64.logand v m in
+      let rec same k =
+        k >= bits
+        || Int64.equal (Int64.logand (Int64.shift_right_logical v k) m) p
+           && same (k + e)
+      in
+      if same e then e else period (2 * e)
+  in
+  let e = period 2 in
+  let m = if e = 64 then -1L else Int64.pred (Int64.shift_left 1L e) in
+  let p = Int64.logand v m in
+  let rot =
+    Int64.logand
+      (Int64.logor (Int64.shift_right_logical p 1) (Int64.shift_left p (e - 1)))
+      m
+  in
+  let rec popcount x n =
+    if Int64.equal x 0L then n
+    else popcount (Int64.logand x (Int64.pred x)) (n + 1)
+  in
+  popcount (Int64.logxor p rot) 0 = 2
 
 let imm12 x =
   (Int64.compare x 0L >= 0 && Int64.compare x 4095L <= 0)

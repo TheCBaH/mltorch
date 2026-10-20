@@ -138,10 +138,9 @@ let missing_reload =
         Mir_phys.Block.body =
           List.filter
             (fun i ->
-              if (not !dropped) && is_reload i then (
-                dropped := true;
-                false)
-              else true)
+              let drop = (not !dropped) && is_reload i in
+              if drop then dropped := true;
+              not drop)
             b.Mir_phys.Block.body;
       })
 

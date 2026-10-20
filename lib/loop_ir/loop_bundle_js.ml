@@ -264,10 +264,10 @@ let dedup_stmts stmts =
   List.filter
     (fun s ->
       let text = Js_print.stmts [ s ] in
-      if Hashtbl.mem seen text then false
-      else (
-        Hashtbl.add seen text ();
-        true))
+      (not (Hashtbl.mem seen text))
+      &&
+      (Hashtbl.add seen text ();
+       true))
     stmts
 
 let build ?kernel (b : Loop_bundle.t) : (t, error) Err.t =

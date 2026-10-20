@@ -66,8 +66,9 @@ let on_cycle (f : (_, _) Mir_phys.Func.t) =
     let rec go = function
       | [] -> false
       | b :: rest ->
-          if Mir_id.Block.equal b id then true
-          else if Hashtbl.mem seen (Mir_id.Block.to_int b) then go rest
+          Mir_id.Block.equal b id
+          ||
+          if Hashtbl.mem seen (Mir_id.Block.to_int b) then go rest
           else (
             Hashtbl.replace seen (Mir_id.Block.to_int b) ();
             go (succs b @ rest))

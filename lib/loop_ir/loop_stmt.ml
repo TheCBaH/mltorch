@@ -34,11 +34,12 @@ type t =
           (** the value whose lowering produced it; [None] for a sum recovered
               from an optimized program ({!Loop_sum.recover}) *)
     }
-      (** A sum kept as one operation until the performance planner has seen
-          it: the ordered left fold [acc <- seed; for var in [lo, hi): body;
-          acc <- acc + term], with one [Reduction] mark per iteration. Only the
-          planner and {!Loop_sum} read it; every other consumer is handed
-          {!Loop_sum.expand}'s program, which is the loop it stands for. *)
+      (** A sum kept as one operation until the performance planner has seen it:
+          the ordered left fold
+          [acc <- seed; for var in \[lo, hi): body; acc <- acc + term], with one
+          [Reduction] mark per iteration. Only the planner and {!Loop_sum} read
+          it; every other consumer is handed {!Loop_sum.expand}'s program, which
+          is the loop it stands for. *)
   | Release_scan_state of int
       (** Gives back the [2 * width] live state a [Reserve_scan_state] took. *)
   | Reserve_scan_state of int

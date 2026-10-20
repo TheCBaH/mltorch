@@ -18,34 +18,29 @@ let selected_of_case (case : Machine_source_test.Mir_source.Case.t) =
 let brute (f : (_, _) Mir_func.t) (v : Mir_value.t) b =
   let seen = Hashtbl.create 16 in
   let rec reach id =
-    if Hashtbl.mem seen (Mir_id.Block.to_int id) then false
-    else (
-      Hashtbl.replace seen (Mir_id.Block.to_int id) ();
-      let blk = Option.get (Mir_func.find_block f id) in
-      if
-        List.exists (Mir_value.equal v) blk.Mir_block.params
-        && not (Mir_id.Block.equal id b)
-      then false
-      else
-        let rec scan = function
-          | [] ->
-              List.exists (Mir_value.equal v)
-                (S.Stage.term_values blk.Mir_block.terminator)
-              || List.exists
-                   (fun (e : Mir_edge.t) ->
-                     List.exists (Mir_value.equal v) e.Mir_edge.args
-                     || reach e.Mir_edge.target)
-                   (Mir_sel.Terminator.edges blk.Mir_block.terminator)
-          | (i : _ Mir_instr.t) :: rest ->
-              if
-                List.exists (Mir_value.equal v)
-                  (S.Stage.operands i.Mir_instr.op)
-              then true
-              else if List.exists (Mir_value.equal v) i.Mir_instr.results then
-                false
-              else scan rest
-        in
-        scan blk.Mir_block.body)
+    (not (Hashtbl.mem seen (Mir_id.Block.to_int id)))
+    &&
+    (Hashtbl.replace seen (Mir_id.Block.to_int id) ();
+     let blk = Option.get (Mir_func.find_block f id) in
+     (not
+        (List.exists (Mir_value.equal v) blk.Mir_block.params
+        && not (Mir_id.Block.equal id b)))
+     &&
+     let rec scan = function
+       | [] ->
+           List.exists (Mir_value.equal v)
+             (S.Stage.term_values blk.Mir_block.terminator)
+           || List.exists
+                (fun (e : Mir_edge.t) ->
+                  List.exists (Mir_value.equal v) e.Mir_edge.args
+                  || reach e.Mir_edge.target)
+                (Mir_sel.Terminator.edges blk.Mir_block.terminator)
+       | (i : _ Mir_instr.t) :: rest ->
+           List.exists (Mir_value.equal v) (S.Stage.operands i.Mir_instr.op)
+           || (not (List.exists (Mir_value.equal v) i.Mir_instr.results))
+              && scan rest
+     in
+     scan blk.Mir_block.body)
   in
   let blk = Option.get (Mir_func.find_block f b) in
   (not (List.exists (Mir_value.equal v) blk.Mir_block.params)) && reach b

@@ -52,11 +52,10 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
      below allocates graph nodes. *)
   let emitted = ref 0 in
   let charge () =
-    if !emitted >= limits.Me_limits.Limits.max_detail_nodes then false
-    else begin
-      incr emitted;
-      true
-    end
+    !emitted < limits.Me_limits.Limits.max_detail_nodes
+    &&
+    (incr emitted;
+     true)
   in
   let rec measure_index : type r. r Expr.Index.t -> bool = function
     | Expr.Index.Add (a, b) | Expr.Index.Max (a, b) | Expr.Index.Min (a, b) ->

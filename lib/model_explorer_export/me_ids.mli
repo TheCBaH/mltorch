@@ -28,17 +28,17 @@ val pp_error : Format.formatter -> [< error ] -> unit
 (** {1 The one encoder} *)
 
 val component : string -> (string, [> error ]) Err.t
-(** Percent-encodes [%] and each of [/], [;], [\], [#], [:] — the characters
-    the renderer's own grammar reads — in a single pass, which is injective
-    because [%] is encoded alongside the rest rather than after them.
+(** Percent-encodes [%] and each of [/], [;], [#], [:] and the backslash — the
+    characters the renderer's own grammar reads — in a single pass, which is
+    injective because [%] is encoded alongside the rest rather than after them.
 
     Control bytes ([< 0x20], [0x7F]) are REJECTED, not passed through: they
     would survive percent-encoding into an id the renderer displays verbatim,
     and there is no correct rendering of them.
 
-    A [result], where the plan's sketch had [string -> string]: a signature
-    that cannot express its own rejection is not a contract. No length rule
-    here — the caller knows which of the two ceilings the assembled id meets. *)
+    A [result], where the plan's sketch had [string -> string]: a signature that
+    cannot express its own rejection is not a contract. No length rule here —
+    the caller knows which of the two ceilings the assembled id meets. *)
 
 (** {1 The layer vocabulary}
 

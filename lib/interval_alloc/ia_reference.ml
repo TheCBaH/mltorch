@@ -96,23 +96,23 @@ let feasible (limits : Limits.t) (work : Work.t) (script : _ Script.t) ~ceiling
        when that cannot fit, or when it reaches [source], which closes a cycle
        through the new edge. An offset past [int64] does not fit either. *)
     let raise_to ~source x v =
-      if Byte_offset.compare v lb.(x) <= 0 then true
-      else if x = source then false
-      else
-        match
-          Result.bind
-            (Byte_offset.align_up v alignments.(x))
-            (fun o ->
-              Result.map (fun hi -> (o, hi)) (Byte_offset.advance o sizes.(x)))
-        with
-        | Ok (o, hi)
-          when Byte_size.compare (Byte_offset.to_size hi) ceiling <= 0 ->
-            Stack.push (Offset (x, lb.(x), ends.(x))) trail;
-            lb.(x) <- o;
-            ends.(x) <- hi;
-            Queue.add x queue;
-            true
-        | Ok _ | Error _ -> false
+      Byte_offset.compare v lb.(x) <= 0
+      || x <> source
+         &&
+         match
+           Result.bind
+             (Byte_offset.align_up v alignments.(x))
+             (fun o ->
+               Result.map (fun hi -> (o, hi)) (Byte_offset.advance o sizes.(x)))
+         with
+         | Ok (o, hi)
+           when Byte_size.compare (Byte_offset.to_size hi) ceiling <= 0 ->
+             Stack.push (Offset (x, lb.(x), ends.(x))) trail;
+             lb.(x) <- o;
+             ends.(x) <- hi;
+             Queue.add x queue;
+             true
+         | Ok _ | Error _ -> false
     in
     (* [u] below [v], then longest paths to a fixpoint. *)
     let add_edge u v =
@@ -123,9 +123,8 @@ let feasible (limits : Limits.t) (work : Work.t) (script : _ Script.t) ~ceiling
         match Queue.take_opt queue with
         | None -> true
         | Some x ->
-            if List.for_all (fun y -> raise_to ~source:u y ends.(x)) succ.(x)
-            then drain ()
-            else false
+            List.for_all (fun y -> raise_to ~source:u y ends.(x)) succ.(x)
+            && drain ()
       in
       raise_to ~source:u v ends.(u) && drain ()
     in

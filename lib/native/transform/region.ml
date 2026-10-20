@@ -51,8 +51,9 @@ module Make (D : Dialect.S) = struct
     let rec walk visited = function
       | [] -> true
       | (n : node) :: rest ->
-          if claimed n.Node.id then false
-          else if Node_id.Set.mem n.Node.id visited then walk visited rest
+          (not (claimed n.Node.id))
+          &&
+          if Node_id.Set.mem n.Node.id visited then walk visited rest
           else
             let visited = Node_id.Set.add n.Node.id visited in
             let next =

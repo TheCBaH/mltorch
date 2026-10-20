@@ -225,7 +225,7 @@ module type S = sig
       i64_hi : Role.Delta.t Index.t;
       i64_body : int64 Value.t;
     }
-    (** The int64 carrier's reduction over [i64_lo..i64_hi) of an int64 body:
+    (** The int64 carrier's reduction over \[i64_lo..i64_hi) of an int64 body:
         [Sum] is exact modular two's-complement (empty range [0L]);
         [Max]/[Argmax_value] the signed maximum (empty range [Int64.min_int]);
         [Argmax_index] the first maximum's position as an exact int64. *)
@@ -342,7 +342,7 @@ module type S = sig
         the reverse direction below is the one that can fail. *)
 
     val float_to_i64 : float t -> int64 t
-    (** Truncating (toward zero) within [-2^63, 2^63); NaN, infinities and
+    (** Truncating (toward zero) within \[-2^63, 2^63); NaN, infinities and
         out-of-range values are the structured errors below, never a
         host-dependent or silently clamped result. *)
 

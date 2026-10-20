@@ -30,6 +30,6 @@ type 'region t =
       results : Ssa_value.t list;
       body : 'region;
     }
-      (** The left fold [acc <- seed; for var in [lo, hi): acc <- acc + term],
+      (** The left fold [acc <- seed; for var in \[lo, hi): acc <- acc + term],
           its body yielding [term; effect]; results are [sum; effect]. An empty
           range returns the seed with no term evaluated. *)

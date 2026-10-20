@@ -157,7 +157,7 @@ type t =
       (** A gather's raw index must lie in [-extent, extent - 1], checked in the
           int64 domain before it is normalized and narrowed. *)
   | Check_local of { var : Expr.Local_var.t; at : Ssa_value.t; extent : int64 }
-      (** A read position must lie in [0, extent) of the local variable it
+      (** A read position must lie in \[0, extent) of the local variable it
           names; outside it fails as the reference's unbound local does. *)
   | Check_scan of {
       var : Expr.Local_var.t option;
@@ -181,7 +181,7 @@ type t =
       (** [Expr.Max_op.Float_max]: [Float.max], with its NaN and signed-zero
           behavior. *)
   | Float_to_i64 of Ssa_value.t
-      (** Checked: NaN, an infinity or a value outside [-2^63, 2^63) fails. *)
+      (** Checked: NaN, an infinity or a value outside \[-2^63, 2^63) fails. *)
   | Float_unary of Expr.Value.unary_op * Ssa_value.t
   | I64_arith of I64_op.t * Ssa_value.t * Ssa_value.t
   | I64_compare of Compare.t * Ssa_value.t * Ssa_value.t

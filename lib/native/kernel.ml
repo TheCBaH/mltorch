@@ -438,26 +438,26 @@ let over_limit limit l =
      cells is more than a negative count. Every production caller passes a
      validated positive [Limits] field, but the helper is public and its
      contract has to hold on its own terms rather than on its callers'. *)
-  if limit < 0 then true
-  else
-    let rec go n = function
-      | [] -> false
-      | _ :: tl -> if n >= limit then true else go (n + 1) tl
-    in
-    go 0 l
+  limit < 0
+  ||
+  let rec go n = function
+    | [] -> false
+    | _ :: tl -> n >= limit || go (n + 1) tl
+  in
+  go 0 l
 
 (* Continue counting a second list against the capacity the first left, so the
    two are bounded together without adding them. *)
 let over_limit_2 limit a b =
-  if limit < 0 then true
-  else
-    let rec go n = function
-      | [] -> (n, false)
-      | _ :: tl -> if n >= limit then (n, true) else go (n + 1) tl
-    in
-    match go 0 a with
-    | _, true -> true
-    | n, false -> ( match go n b with _, over -> over)
+  limit < 0
+  ||
+  let rec go n = function
+    | [] -> (n, false)
+    | _ :: tl -> if n >= limit then (n, true) else go (n + 1) tl
+  in
+  match go 0 a with
+  | _, true -> true
+  | n, false -> ( match go n b with _, over -> over)
 
 (* [values_i64]'s own admission: no [Region_group.Ref], no dependency-depth/
    reachability participation (see [Value_i64.t]'s doc). Format/quantization

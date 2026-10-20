@@ -73,7 +73,7 @@ let inventory manifest =
   let* rows = member "members" manifest >>= members in
   let* () =
     require
-      (List.length rows > 0 && List.length rows <= 4096)
+      (rows <> [] && List.compare_length_with rows 4096 <= 0)
       "task member count"
   in
   let* rows =

@@ -10,9 +10,9 @@
     lowering finished.
 
     A bounds check a clamped window loop's own bounds imply
-    ([for k in [max (0, -base), min (K, n - base)) ... base + k in [0, n)]) is
-    proven relationally, from facts [d * k >= a] / [d * k <= a] its bounds
-    give, and an unflattened coordinate's [x - d * floor (x / d)] through
+    ([for k in \[max (0, -base), min (K, n - base)) ... base + k in \[0, n)]) is
+    proven relationally, from facts [d * k >= a] / [d * k <= a] its bounds give,
+    and an unflattened coordinate's [x - d * floor (x / d)] through
     [Loop_linear.range]. *)
 
 val run : Loop_program.t -> Loop_program.t

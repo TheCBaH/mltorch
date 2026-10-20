@@ -40,15 +40,11 @@ let tensor (l : L.t) =
   let* dtype =
     Err.of_option (`Metadata_invalid "unsupported input dtype") dtype
   in
-  let rec strides = function
-    | [] -> []
-    | _ :: rest -> List.fold_left ( * ) 1 rest :: strides rest
-  in
   Ok
     {
       Pt2_tensor.dtype;
       sizes;
-      strides = strides sizes;
+      strides = Pt2_tensor.contiguous_strides sizes;
       storage_offset = 0;
       data = l.data;
     }

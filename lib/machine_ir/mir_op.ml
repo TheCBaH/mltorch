@@ -141,8 +141,8 @@ type t =
   | Ffma of Mir_value.t * Mir_value.t * Mir_value.t
       (** [a * b + c] with one rounding, always *)
   | Fto_sint of Mir_value.t
-      (** f64 to i64, truncating; defined only on finite values in
-          [-2^63, 2^63) *)
+      (** f64 to i64, truncating; defined only on finite values in \[-2^63,
+          2^63) *)
   | Funary of Funary.t * Mir_value.t
   | Iarith of Iarith.t * Mir_value.t * Mir_value.t
   | Icmp of Icmp.t * Mir_value.t * Mir_value.t

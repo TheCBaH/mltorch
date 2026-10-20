@@ -280,10 +280,11 @@ let selected t (s : Core.Coordinator.snapshot) =
           List.exists (Id.Unit.equal s.unit)
             t.prepared.validated.loaded.experiment.retain_units
       | First_mismatch ->
-          if s.mismatching && not t.first_mismatch_done then (
-            t.first_mismatch_done <- true;
-            true)
-          else false)
+          s.mismatching
+          && (not t.first_mismatch_done)
+          &&
+          (t.first_mismatch_done <- true;
+           true))
 
 let store_payload t (v : L.t) =
   let bytes = L.contents v in

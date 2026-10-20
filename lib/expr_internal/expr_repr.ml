@@ -48,13 +48,13 @@ type _ value =
   | Const : float -> float value
   | Float_to_i64 : float value -> int64 value
       (** Truncating, per the design's "Float to I64" policy: finite values in
-          [-2^63, 2^63) truncate toward zero; NaN, infinities and
-          out-of-range values are structured errors ([Value.i64_of_float]),
-          never a wrapped/clamped result. Unlike [I64_to_float], the operand
-          is the UNBOUNDED [float value] language (it can embed a [Load],
-          [Reduce], [Scan_at] -- anything), so evaluating this needs the full
-          environment-carrying evaluator for its child, not a closed
-          standalone function. *)
+          \[-2^63, 2^63) truncate toward zero; NaN, infinities and out-of-range
+          values are structured errors ([Value.i64_of_float]), never a
+          wrapped/clamped result. Unlike [I64_to_float], the operand is the
+          UNBOUNDED [float value] language (it can embed a [Load], [Reduce],
+          [Scan_at] -- anything), so evaluating this needs the full
+          environment-carrying evaluator for its child, not a closed standalone
+          function. *)
   | I64_binary : i64_binary_op * int64 value * int64 value -> int64 value
   | I64_const : int64 -> int64 value
   | I64_load : Source.t * Role.Position.t Index.t Coord.t -> int64 value
@@ -78,7 +78,7 @@ type _ value =
           binary64), this conversion is total and lossless -- every
           [int]-represented index, on any backend width, fits in [int64]. *)
   | I64_sum : i64_reduction -> int64 value
-      (** Typed reduction over [i64_lo..i64_hi) of [i64_body], per [i64_kind]:
+      (** Typed reduction over \[i64_lo..i64_hi) of [i64_body], per [i64_kind]:
           [Sum] accumulates in int64 with the same modular two's-complement
           policy as [I64_binary] (exact, never a float; empty range [0L]);
           [Max]/[Argmax_value] is the signed maximum (empty range

@@ -260,10 +260,10 @@ let host_run (b : Loop_bundle.t) ~(graph : Graph_ir.graph) ~constants
                               .Loop_bundle.program
                       end)
                     (List.sort (fun (_, a) (_, b) -> compare b a) costs));
-              if interp then
-                (* the same planned program on the selected-stage interpreter:
+              (* the same planned program on the selected-stage interpreter:
                    what the native code must equal bit for bit *)
-                begin match
+              if interp then begin
+                match
                   M.prepare
                     ~route:
                       (M.Route.X86_64
@@ -304,7 +304,7 @@ let host_run (b : Loop_bundle.t) ~(graph : Graph_ir.graph) ~constants
                                tensors, %d differ (%.1f s)@."
                               (List.length written) (List.length differ)
                               (Unix.gettimeofday () -. t0)))
-                end;
+              end;
               List.iter
                 (fun id -> Fmt.pr "  differs: %a@." Graph_ir.Tensor_id.pp id)
                 differing))

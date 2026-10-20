@@ -288,10 +288,10 @@ let plan (k : Kernel.t) =
     List.filter
       (fun (id, _) ->
         let k = Tensor_id.to_int id in
-        if Hashtbl.mem seen k then false
-        else (
-          Hashtbl.add seen k ();
-          true))
+        (not (Hashtbl.mem seen k))
+        &&
+        (Hashtbl.add seen k ();
+         true))
       (virt @ rej)
     |> (let ordinal = ordinals k in
         List.sort (fun (a, _) (b, _) -> compare (ordinal a) (ordinal b)))

@@ -395,14 +395,14 @@ let compare_floats ~max_samples (policy : Comparison_policy.t) codec left right
             let zero_sign_differs =
               a = 0.0 && b = 0.0 && not (Int64.equal abits bbits)
             in
-            if zero_sign_differs && p.signed_zero = Distinct then false
-            else if a = b then true
-            else
-              let r = F.round p.arithmetic in
-              let atol = r p.atol and rtol = r p.rtol in
-              let d = r (Float.abs (a -. b)) in
-              let s = F.scale_of p.scale a b in
-              d <= r (atol +. r (rtol *. r s)))
+            (not (zero_sign_differs && p.signed_zero = Distinct))
+            && (a = b
+               ||
+               let r = F.round p.arithmetic in
+               let atol = r p.atol and rtol = r p.rtol in
+               let d = r (Float.abs (a -. b)) in
+               let s = F.scale_of p.scale a b in
+               d <= r (atol +. r (rtol *. r s))))
   in
   for i = 0 to n - 1 do
     let abits = E.bits codec lc i and bbits = E.bits codec rc i in

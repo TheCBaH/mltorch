@@ -10,11 +10,8 @@ type ('elt, 'ba, 'q) fmt =
       (int, Bigarray.int16_unsigned_elt, [ `Real ]) fmt (* bfloat16, raw bits *)
   | Bool : (int, Bigarray.int8_unsigned_elt, [ `Real ]) fmt
     (* unquantized; canonical storage is 0 or 1, nonzero reads true *)
-  | F16 :
-      ( int,
-        Bigarray.int16_unsigned_elt,
-        [ `Real ] )
-      fmt (* IEEE half, raw bits *)
+  | F16 : (int, Bigarray.int16_unsigned_elt, [ `Real ]) fmt
+    (* IEEE half, raw bits *)
   | F32 : (float, Bigarray.float32_elt, [ `Real ]) fmt
   | F64 : (float, Bigarray.float64_elt, [ `Real ]) fmt
   | I16 : (int, Bigarray.int16_signed_elt, [ `Quant ]) fmt

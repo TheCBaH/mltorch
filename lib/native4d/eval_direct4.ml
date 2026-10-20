@@ -835,8 +835,7 @@ let eval_node ?region_counters ~limits ~synthetic_ids ~sched (g : Graph.graph)
             | Op.Adaptive_max_pool2d_with_indices
                 { Pool.AdaptiveMaxPool2dWithIndices.params; x }
               when Output_ordinal.equal output Output_ordinal.one ->
-                let module C = Pool.AdaptiveMaxPool2dWithIndices.Compute (Direct)
-                in
+                let module C = Pool.AdaptiveMaxPool2dWithIndices.Compute (Direct) in
                 let x_shape = Tensor_id.Map.find x shape_env
                 and x = Tensor_id.Map.find x operand_env in
                 Err.return

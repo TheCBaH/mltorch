@@ -54,15 +54,16 @@ let empty name elements verdict =
   }
 
 let float_close ~single ~atol ~rtol a b =
-  if a = b then true
-  else if Float.is_nan a || Float.is_nan b then false
-  else if Float.abs a = infinity || Float.abs b = infinity then false
-  else if single then
-    let atol = r32 atol and rtol = r32 rtol in
-    let diff = r32 (Float.abs (a -. b)) in
-    let tol = r32 (atol +. r32 (rtol *. r32 (Float.abs b))) in
-    diff <= tol
-  else Float.abs (a -. b) <= atol +. (rtol *. Float.abs b)
+  a = b
+  || (not (Float.is_nan a || Float.is_nan b))
+     && (not (Float.abs a = infinity || Float.abs b = infinity))
+     &&
+     if single then
+       let atol = r32 atol and rtol = r32 rtol in
+       let diff = r32 (Float.abs (a -. b)) in
+       let tol = r32 (atol +. r32 (rtol *. r32 (Float.abs b))) in
+       diff <= tol
+     else Float.abs (a -. b) <= atol +. (rtol *. Float.abs b)
 
 let tensor ~atol ~rtol ~name ~(expected : Logical.t) ~(actual : Logical.t) =
   let elements = Logical.numel expected in

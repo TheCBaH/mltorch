@@ -68,10 +68,9 @@ let valued prefix argv =
   let rest =
     List.filter
       (fun a ->
-        if String.length a > n && String.sub a 0 n = prefix then (
-          v := Some (String.sub a n (String.length a - n));
-          false)
-        else true)
+        let matches = String.length a > n && String.sub a 0 n = prefix in
+        if matches then v := Some (String.sub a n (String.length a - n));
+        not matches)
       (Array.to_list argv)
   in
   (!v, Array.of_list rest)

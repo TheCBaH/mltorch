@@ -107,10 +107,9 @@ let rec dead_code (blocks : (Mir_op.t, Mir_terminator.t) Mir_block.t list) =
           Mir_block.body =
             List.filter
               (fun i ->
-                if dead i then (
-                  removed := true;
-                  false)
-                else true)
+                let is_dead = dead i in
+                if is_dead then removed := true;
+                not is_dead)
               b.Mir_block.body;
         })
       blocks

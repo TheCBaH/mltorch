@@ -292,7 +292,7 @@ let find_at view (p : node) =
           in
           let k_extent = extent po sa in
           let outputs =
-            List.map
+            List.concat_map
               (fun (c : node) ->
                 match c.Node.op with
                 | Unbind _ ->
@@ -303,7 +303,6 @@ let find_at view (p : node) =
                       c.Node.outputs
                 | _ -> [])
               consumers
-            |> List.concat
           in
           let* outs =
             List.fold_left

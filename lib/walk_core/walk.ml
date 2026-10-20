@@ -128,16 +128,16 @@ let run (type s) (module M : Op with type subject = s)
   let initial = M.cascade M.initial in
   Format.fprintf ppf "step 0: %a@." M.pp initial;
   let ok, pcg = run_step initial pcg in
-  if not ok then false
-  else
-    let rec loop i cfg pcg =
-      if i > steps then true
-      else
-        let axis, pcg = pick pcg M.axes in
-        let cfg, pcg = axis.mutate pcg cfg in
-        let cfg = M.cascade cfg in
-        Format.fprintf ppf "step %d [%s]: %a@." i axis.name M.pp cfg;
-        let ok, pcg = run_step cfg pcg in
-        if ok then loop (i + 1) cfg pcg else false
-    in
-    loop 1 initial pcg
+  ok
+  &&
+  let rec loop i cfg pcg =
+    i > steps
+    ||
+    let axis, pcg = pick pcg M.axes in
+    let cfg, pcg = axis.mutate pcg cfg in
+    let cfg = M.cascade cfg in
+    Format.fprintf ppf "step %d [%s]: %a@." i axis.name M.pp cfg;
+    let ok, pcg = run_step cfg pcg in
+    ok && loop (i + 1) cfg pcg
+  in
+  loop 1 initial pcg
