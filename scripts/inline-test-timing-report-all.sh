@@ -66,6 +66,19 @@ done
 echo "inline-test-timing-report-all: building ${#triples[@]} ($mode) libraries" >&2
 dune build --root . "${targets[@]}"
 
+# Building the runner does not copy an `(inline_tests (deps ...))` file into
+# _build, and the partitions below run the runner directly, so a library that
+# opens one at load time (test/coralnpu's fragment.json) dies before its first
+# test. Dune materializes those deps only as part of the runtest alias. A test
+# failure here is the timing loop's to report, not this build's.
+aliases=()
+for triple in "${triples[@]}"; do
+  IFS=$'\t' read -r dir lib <<< "$triple"
+  aliases+=("@$dir/runtest-$lib")
+done
+echo "inline-test-timing-report-all: materializing inline-test deps" >&2
+dune build --root . "${aliases[@]}" || true
+
 combined="_build/inline_timing_report.$mode.tsv"
 mkdir -p "$(dirname "$combined")"
 : > "$combined"
