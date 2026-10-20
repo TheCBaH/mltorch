@@ -1,6 +1,6 @@
 .PHONY: machine.rivet.rv32.runtest rv32.pt2.runtest coralnpu.rv32.runtest compcert.rv32.install compcert.rv32.runtest model.compare.coverage js.compare.runtest rivet.compare.runtest transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open model.compare model.download model.compare.gate model.fetch.timm model.fetch.fixture transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.native4d.runtest c.pt2.native4d.ssa.runtest c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
-	check.file-size check.int-signatures check.whitespace clean fp32.pt2.runtest fp32.pt2.census machine.a64.conformance machine.pt2.census ssa.vector.census \
+	check.file-size check.int-signatures check.whitespace clean lint.zanuda lint.zanuda.list fp32.pt2.runtest fp32.pt2.census machine.a64.conformance machine.pt2.census ssa.vector.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
 	expr_probe.deep-runtest expr_probe.runtest format fp32.bench fp32.bench.wasm inference inference-runa \
 	inline-timing-report inline-timing-report-js js.build js.runtest \
@@ -761,6 +761,32 @@ check.int-signatures:
 # this inline; named here so [precommit] can depend on it directly too.
 check.whitespace:
 	git diff --check HEAD
+
+# Zanuda lint report (SARIF), run on the built .cmt files. Reports only; it
+# exits 0 on findings. .zanuda disables teaching-oriented lints, and
+# mutually_rec_types, which runs out of memory on this tree. Vendored and
+# scratch trees are dropped from the report. @check refreshes the typed
+# annotations for native executables too: the default build can leave old
+# bytecode .cmt files behind, making findings refer to outdated code.
+# Zanuda starts with `dune describe workspace`, which evaluates every dune
+# file, unlike a build. CI checks out no nested submodules, so opickle's test
+# glob over its cpython/serde-pickle data would name a missing directory and
+# fail the whole run; an empty directory satisfies it. Zanuda's stderr is long
+# on success (one line per source it finds no .cmt for), so it goes to a file
+# that is shown only when zanuda fails.
+ZANUDA ?= zanuda
+ZANUDA_SARIF ?= _build/zanuda.sarif
+lint.zanuda: build
+	opam exec -- dune build @check
+	mkdir -p vendored/opickle/modules/serde-pickle/test/data
+	opam exec -- $(ZANUDA) -dir . -osarif $(ZANUDA_SARIF).all >/dev/null 2>$(ZANUDA_SARIF:.sarif=.err) \
+	  || { cat $(ZANUDA_SARIF:.sarif=.err); exit 1; }
+	jq '.runs[0].results |= map(select(.locations[0].physicalLocation.artifactLocation.uri | test("^(vendored|modules|experiments|ai|_ai_)/") | not))' $(ZANUDA_SARIF).all > $(ZANUDA_SARIF)
+	@jq -r '.runs[0].results | group_by(.ruleId) | .[] | "\(length)\t\(.[0].ruleId)"' $(ZANUDA_SARIF)
+
+# The same report as file:line: rule: message, one finding per line.
+lint.zanuda.list: lint.zanuda
+	jq -r '.runs[0].results[] | "\(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine): \(.ruleId): \(.message.text | split("\n")[0])"' $(ZANUDA_SARIF) > $(ZANUDA_SARIF:.sarif=.txt)
 
 verify.pristine:
 	@git_status=$$(git status --porcelain); \

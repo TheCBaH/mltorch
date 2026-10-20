@@ -1,0 +1,12 @@
+-no-eta_reduction
+-no-exc_failwith
+-no-format_module_usage
+-no-mutability_check
+-no-mutually_rec_types
+-no-propose_function
+-no-record_punning
+-no-top_file_license
+-no-tuple_matching
+-no-use_guard_instead_of_if
+-no-use_match_instead_of_equality
+-no-wrong_ignoring

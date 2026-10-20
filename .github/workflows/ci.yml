@@ -246,6 +246,22 @@ jobs:
       if: matrix.suite == 'native-test'
       run: |
         ${{ env.EXEC }} make format
+    # Report only: findings never fail the job yet.
+    - name: zanuda lint
+      if: matrix.suite == 'native-test'
+      continue-on-error: true
+      run: |
+        ${{ env.EXEC }} make lint.zanuda.list
+    - name: zanuda lint results
+      if: matrix.suite == 'native-test'
+      uses: actions/upload-artifact@v7
+      with:
+        name: zanuda-${{ runner.arch }}
+        path: |
+          _build/zanuda.err
+          _build/zanuda.sarif
+          _build/zanuda.txt
+        if-no-files-found: ignore
     - name: verify pristine
       if: matrix.suite == 'native-test'
       run: |
