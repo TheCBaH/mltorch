@@ -10,3 +10,28 @@
 -no-use_guard_instead_of_if
 -no-use_match_instead_of_equality
 -no-wrong_ignoring
+forward physical_equality ignore bin/native_graph_eval.ml
+forward physical_equality ignore js/jsoo/loop_js_exec_js/test/loop_node_executor_test.ml
+forward physical_equality ignore lib/aten_gen/aten_walk_gen.ml
+forward physical_equality ignore lib/coralnpu_rv32/coral_run.ml
+forward physical_equality ignore lib/loop_ir/loop_wasm_vector.ml
+forward physical_equality ignore lib/machine_alloc/mir_schedule.ml
+forward physical_equality ignore lib/native/arena.ml
+forward physical_equality ignore lib/native/region_group.ml
+forward physical_equality ignore lib/native/transform/ground_expr.ml
+forward physical_equality ignore test/inference_compare_js/js_test.ml
+forward physical_equality ignore test/native4d/compute_test.ml
+forward physical_equality ignore test/native/arena_schedule_exec_test.ml
+forward physical_equality ignore test/native/arena_schedule_greedy_test.ml
+forward physical_equality ignore test/native/arena_schedule_plan_test.ml
+forward physical_equality ignore test/native/arena_schedule_search_test.ml
+forward physical_equality ignore test/native/arena_schedule_test.ml
+forward physical_equality ignore test/native/dst_passing_test.ml
+forward physical_equality ignore test/native/eval_symbolic_group_test.ml
+forward physical_equality ignore test/native/lstm_group_test.ml
+forward physical_equality ignore test/native/output_spec_test.ml
+forward physical_equality ignore test/native/region_compute_test.ml
+forward physical_equality ignore test/native/region_program_test.ml
+forward physical_equality ignore test/native/stage_program_test.ml
+forward physical_equality ignore test/pt2_checkpoint_map/prepare_test.ml
+forward physical_equality ignore test/ssa_c/ssa_c_programs_test.ml

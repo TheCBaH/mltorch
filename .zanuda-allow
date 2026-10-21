@@ -1,0 +1,22 @@
+# Zanuda findings accepted per file: "<rule> <path>", sorted. Zanuda has no
+# in-source suppression, so lint.zanuda drops exactly these pairs; a pair that
+# no longer matches a finding is reported as stale. A new file is not covered.
+#
+# forbid_many_nested_if_expressions: flat `else if` chains the lint counts as
+# nesting, and index arithmetic whose branches are the case analysis.
+forbid_many_nested_if_expressions js/loop_bundle_exec/test/loop_bundle_exec_test.ml
+forbid_many_nested_if_expressions lib/expr_internal/builder.ml
+forbid_many_nested_if_expressions lib/expr_internal/checked.ml
+forbid_many_nested_if_expressions lib/inference_compare_engines/synthetic_runner.ml
+forbid_many_nested_if_expressions lib/inference_compare_plan/correspondence_check.ml
+forbid_many_nested_if_expressions lib/inference_compare_plan/partition_check.ml
+forbid_many_nested_if_expressions lib/inference_compare_schema/text_value.ml
+forbid_many_nested_if_expressions lib/loop_ir/loop_numeric_diff.ml
+forbid_many_nested_if_expressions lib/loop_ir/loop_pp.ml
+forbid_many_nested_if_expressions lib/machine_ir/mir_exp.ml
+forbid_many_nested_if_expressions lib/native/ops/pointwise_binary.ml
+forbid_many_nested_if_expressions lib/native/transform/const_ssa_symbolic.ml
+forbid_many_nested_if_expressions lib/native/transform/pass.ml
+forbid_many_nested_if_expressions lib/pt2_fixture_unix/targz.ml
+forbid_many_nested_if_expressions test/native/region_compute_test.ml
+forbid_many_nested_if_expressions tools/int_signatures/int_signatures.ml
