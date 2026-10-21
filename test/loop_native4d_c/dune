@@ -3,8 +3,9 @@
 ; equal [Eval_direct4.run] bitwise. The cases are the ones the Wasm and
 ; JavaScript suites run (loop_native4d_common). Needs a C compiler (gcc): a
 ; missing one is a failure, never a skip. The default and SSA kernel paths run in
-; separate files (C_case holds the shared driver) so each stays under the
-; per-file inline-test time ceiling.
+; separate files, and each splits the per-operation cases from the lowered
+; graphs (C_case holds the shared driver), so each stays under the per-file
+; inline-test time ceiling.
 
 (library
  (name loop_native4d_c_test)
