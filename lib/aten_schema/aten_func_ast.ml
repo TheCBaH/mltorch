@@ -77,22 +77,22 @@ end
 
 module Default = struct
   type t =
+    | Absent
     | Bool of bool
     | Float of string (* preserved as-is to keep exact representation *)
     | Ident of string (* bare identifier, e.g. contiguous_format, Mean *)
     | Int of int
     | IntList of int list
-    | None
     | Str of string
 
   let to_string = function
+    | Absent -> "None"
     | Bool false -> "False"
     | Bool true -> "True"
     | Float s -> s
     | Ident s -> s
     | Int n -> string_of_int n
     | IntList ns -> "[" ^ String.concat "," (List.map string_of_int ns) ^ "]"
-    | None -> "None"
     | Str s -> Printf.sprintf "%S" s
 
   let pp fmt t = Format.pp_print_string fmt (to_string t)

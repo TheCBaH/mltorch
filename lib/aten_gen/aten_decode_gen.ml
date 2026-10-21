@@ -101,7 +101,7 @@ let decode_arg ~(op : A.t) ~anchor (a : A.Argument.t) =
         | Some like ->
             let decode =
               match a.default with
-              | Some A.Default.None when is_functional_none_default op a ->
+              | Some A.Default.Absent when is_functional_none_default op a ->
                   "tensor_arg_opt"
               | _ -> "tensor_or_scalar_arg"
             in
@@ -117,7 +117,7 @@ let decode_arg ~(op : A.t) ~anchor (a : A.Argument.t) =
   | A.Type.Optional (A.Type.Base A.Base.Tensor) ->
       let decode =
         match a.default with
-        | Some A.Default.None when is_functional_none_default op a ->
+        | Some A.Default.Absent when is_functional_none_default op a ->
             "tensor_arg_opt"
         | _ -> "tensor_arg"
       in

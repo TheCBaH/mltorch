@@ -90,7 +90,7 @@ let i64_lt_expr =
 
 let traced_run ~env ~expr =
   reset_trace ();
-  (try ignore (Eval.value env ~output:origin expr) with _ -> ());
+  ignore (Eval.value env ~output:origin expr);
   trace_str ()
 
 let check () =

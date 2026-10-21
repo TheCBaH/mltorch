@@ -73,7 +73,7 @@ let default_options =
   }
 
 let generate ~dir ~scenario (o : options) =
-  (try Unix.mkdir dir 0o755 with _ -> ());
+  (try Unix.mkdir dir 0o755 with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
   let chain =
     match scenario with
     | "unmapped" ->

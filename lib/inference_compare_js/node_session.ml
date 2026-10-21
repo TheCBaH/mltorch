@@ -63,7 +63,8 @@ let tail path =
       String.trim s
 
 let start ~node ~helper =
-  (try Sys.set_signal Sys.sigpipe Sys.Signal_ignore with _ -> ());
+  (try Sys.set_signal Sys.sigpipe Sys.Signal_ignore
+   with Invalid_argument _ -> ());
   let log = Filename.temp_file "compare_js" ".log" in
   match node with
   | [] -> Error "no node command"
@@ -100,10 +101,10 @@ let status_text = function
 let close t =
   if not t.closed then (
     t.closed <- true;
-    (try close_out t.to_child with _ -> ());
-    (try close_in t.from_child with _ -> ());
-    (try ignore (Unix.waitpid [] t.pid) with _ -> ());
-    try Sys.remove t.log with _ -> ())
+    (try close_out t.to_child with Sys_error _ -> ());
+    (try close_in t.from_child with Sys_error _ -> ());
+    (try ignore (Unix.waitpid [] t.pid) with Unix.Unix_error _ -> ());
+    try Sys.remove t.log with Sys_error _ -> ())
 
 (* The helper stopped answering: what node printed and how it ended. *)
 let died t why =

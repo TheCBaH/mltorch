@@ -53,6 +53,7 @@ let litf s = if String.length s > 0 && s.[0] = '-' then "(" ^ s ^ ")" else s
    as their original YAML string so no precision is lost in the generated source. *)
 let default_expr (d : Aten_func_ast.Default.t) =
   match d with
+  | Absent -> "D_none"
   | Bool b -> Printf.sprintf "D_bool %b" b
   | Float s -> Printf.sprintf "D_float %s" (litf s)
   | Ident s -> Printf.sprintf "D_ident %S" s
@@ -62,7 +63,6 @@ let default_expr (d : Aten_func_ast.Default.t) =
   | IntList ns ->
       Printf.sprintf "D_ints [ %s ]"
         (String.concat "; " (List.map string_of_int ns))
-  | None -> "D_none"
   | Str s -> Printf.sprintf "D_str %S" s
 
 (* Emit one param record, or None if the argument type is unsupported. *)

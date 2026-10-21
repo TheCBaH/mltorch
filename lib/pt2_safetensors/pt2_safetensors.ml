@@ -180,10 +180,10 @@ let check_graph_tensor name (meta : Pytorch_types.TensorMeta.t)
   (* [is_contiguous] folds the sizes with an overflow check that raises for a
      tensor no buffer could hold; that is a layout the checkpoint cannot match
      either, so it reports as one. *)
-  match Pt2_tensor.is_contiguous graph with
-  | true -> Err.return ()
-  | false -> mismatch Graph_layout
-  | exception Invalid_argument _ -> mismatch Graph_layout
+  let contiguous =
+    try Pt2_tensor.is_contiguous graph with Invalid_argument _ -> false
+  in
+  if contiguous then Err.return () else mismatch Graph_layout
 
 let check_graph ~(map : Checkpoint_map.t) ~weights ~constants :
     (unit, [> error ]) Err.t =

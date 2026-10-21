@@ -190,7 +190,7 @@ default_val:
   | n=INT_LIT                         { Default.Int n }
   | LBRACKET RBRACKET                 { Default.IntList [] }
   | LBRACKET ns=int_list RBRACKET     { Default.IntList ns }
-  | NONE                              { Default.None }
+  | NONE                              { Default.Absent }
   | s=STR_LIT                         { Default.Str s }
 ;
 

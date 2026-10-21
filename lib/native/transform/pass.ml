@@ -422,18 +422,21 @@ module Make (S : Side.S) = struct
        missing signature), or it can succeed and the policy reject what it found.
        Both carry the pass name, since the point of verifying per step is to say
        WHICH rewrite is at fault. *)
-    type problem = Error of Map_verify.error | Rejected of Map_verify.Report.t
+    type problem =
+      | Rejected of Map_verify.Report.t
+      | Verifier_error of Map_verify.error
+
     type t = { pass : string; problem : problem }
 
     let pp fmt t =
       match t.problem with
-      | Error e ->
-          Fmt.pf fmt "@[<h>pass %s: verifier failed: %a@]" t.pass
-            Map_verify.pp_error e
       | Rejected report ->
           Fmt.pf fmt "@[<v 2>pass %s rejected: %s@,%a@]" t.pass
             (Map_verify.Report.summary report)
             Map_verify.Report.pp_verdicts report
+      | Verifier_error e ->
+          Fmt.pf fmt "@[<h>pass %s: verifier failed: %a@]" t.pass
+            Map_verify.pp_error e
   end
 
   (* The row WIDENS. It is closed, so without these two a [let*] over
@@ -641,7 +644,7 @@ module Make (S : Side.S) = struct
               (`Verification
                  {
                    Verification.pass = name;
-                   problem = Verification.Error (Err.Error.kind e);
+                   problem = Verification.Verifier_error (Err.Error.kind e);
                  })
         | Ok report ->
             if Map_verify.Policy.accepts policy report then

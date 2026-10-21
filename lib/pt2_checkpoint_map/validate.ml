@@ -150,11 +150,11 @@ let check_capture (g : graph) (doc : Document.t) ~inventory (target, kind) =
   in
   (* [is_contiguous] folds the sizes with an overflow check that raises for a
      tensor no buffer could hold; that is a layout nothing can match either. *)
+  let contiguous =
+    try Pt2_tensor.is_contiguous tensor with Invalid_argument _ -> false
+  in
   let* () =
-    match Pt2_tensor.is_contiguous tensor with
-    | true -> Err.return ()
-    | false -> Err.fail (`Graph_layout target)
-    | exception Invalid_argument _ -> Err.fail (`Graph_layout target)
+    if contiguous then Err.return () else Err.fail (`Graph_layout target)
   in
   if Pt2_sha256.Digest.equal cap.value_sha256 entry.sha256 then Err.return ()
   else

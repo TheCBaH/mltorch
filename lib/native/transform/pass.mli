@@ -172,7 +172,10 @@ module Make (S : Side.S) : sig
     (* A verifier that errors and a verifier whose report the policy rejects are
        different failures, and both name the pass, since verifying per step exists
        to say WHICH rewrite is at fault. *)
-    type problem = Error of Map_verify.error | Rejected of Map_verify.Report.t
+    type problem =
+      | Rejected of Map_verify.Report.t
+      | Verifier_error of Map_verify.error
+
     type t = { pass : string; problem : problem }
 
     val pp : Format.formatter -> t -> unit

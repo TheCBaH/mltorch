@@ -41,7 +41,7 @@ let%expect_test "default vocabulary renders every constructor" =
       Default.Ident "contiguous_format";
       Default.Int 3;
       Default.IntList [ 1; 2 ];
-      Default.None;
+      Default.Absent;
       Default.Str "quoted";
     ];
   [%expect
