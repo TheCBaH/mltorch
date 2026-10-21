@@ -189,11 +189,21 @@ let () =
       let p = profile name in
       let fails what body = run (name ^ " " ^ what) (image ~body p 8) 8 in
       fails "illegal instruction" [ words [ 0 ] ];
-      fails "store to ITCM" [ insn "sw" [ reg "zero"; mem "zero" 0x100 ] ];
-      run ~deadline:5. (name ^ " spin")
-        (image ~body:[ label "spin"; insn "j" [ sym "spin" ] ] p 8)
-        8)
+      fails "store to ITCM" [ insn "sw" [ reg "zero"; mem "zero" 0x100 ] ])
     [ "core-mini-axi"; "mpact-v2" ];
+  run ~deadline:5. "core-mini-axi spin"
+    (image
+       ~body:[ label "spin"; insn "j" [ sym "spin" ] ]
+       (profile "core-mini-axi") 8)
+    8;
+  (* MPACT's launch command bounds its instruction steps (the manifest's
+     [--max_instructions]), so a spin there stops at that limit, not the
+     deadline. *)
+  run ~deadline:60. "mpact-v2 instruction limit"
+    (image
+       ~body:[ label "spin"; insn "j" [ sym "spin" ] ]
+       (profile "mpact-v2") 8)
+    8;
   (* The testbench's own limit: it reports it and exits, well before the
      deadline. *)
   run ~deadline:10. ~flags:[ "--cycles=20000" ] "core-mini-axi cycle limit"

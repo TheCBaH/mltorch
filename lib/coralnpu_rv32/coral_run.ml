@@ -7,6 +7,7 @@ module Run_error = struct
     | Cycle_limit
     | Guest_trap of Trap.t
     | Input_refused of Coral_runtime.Refusal.t
+    | Instruction_limit
     | Malformed_output of { malformed : Coral_wire.Malformed.t; tail : string }
     | Output_limit of int64
     | Simulator_crashed of { status : string; tail : string }
@@ -21,6 +22,8 @@ module Run_error = struct
     | Input_refused r ->
         Fmt.pf ppf "the guest refused its input: %s"
           (Coral_runtime.Refusal.to_string r)
+    | Instruction_limit ->
+        Fmt.string ppf "the simulator reached its instruction limit"
     | Malformed_output { malformed; tail } ->
         Fmt.pf ppf "malformed output (%a); simulator said: %S"
           Coral_wire.Malformed.pp malformed tail
@@ -166,7 +169,9 @@ let outputs (image : Coral_image.t) data =
          else [])
        image.layout.slots)
 
+(* The RTL testbench's cycle limit and MPACT's [--max_instructions] stop. *)
 let loop_limit = "loop limit"
+let instruction_limit = "Stop reason: instruction_limit"
 
 (* Simulator text allowed beyond the frame before a run counts as a flood. *)
 let output_slack = 4 * 1024 * 1024
@@ -252,6 +257,10 @@ let run ?(deadline = 120.) ?(flags = []) ~dir (image : Coral_image.t) ~bound =
                   Err.fail (Run_error.Guest_trap { Trap.mcause; mepc; mtval }))
           | Error _ when contains out loop_limit || contains err loop_limit ->
               Err.fail Run_error.Cycle_limit
+          | Error _
+            when contains out instruction_limit
+                 || contains err instruction_limit ->
+              Err.fail Run_error.Instruction_limit
           | Error _ when timed_out -> Err.fail Run_error.Timeout
           | Error Coral_wire.Malformed.No_frame when status <> Unix.WEXITED 0 ->
               Err.fail

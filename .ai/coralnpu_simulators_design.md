@@ -176,14 +176,19 @@ kills the whole process group.
 
 The frame decides the outcome, never the exit status. Since v0.0.3 the status
 carries the low eight bits of the guest's exit code, but the simulators' own
-statuses (124 at the RTL cycle limit, 125 on a fault halt, 126 on a loader
-failure) can equal a guest code. The RTL also still reports 0 when `mpause`
-follows the HTIF exit at once, as this runtime's does. Rows, closed:
+statuses (124 at the RTL cycle limit and at MPACT's instruction limit, 125 on
+a fault halt, 126 on a loader failure) can equal a guest code. The RTL also
+still reports 0 when `mpause` follows the HTIF exit at once, as this runtime's
+does. Rows, closed:
 
 - `Cycle_limit`: the testbench printed "loop limit" (and, since v0.0.3, exits
   124 there; v0.0.2 hung until the deadline).
 - `Guest_trap`: `mcause`, `mepc`, `mtval`.
 - `Input_refused`.
+- `Instruction_limit`: MPACT printed "Stop reason: instruction_limit" (and
+  exits 124). Since v0.0.4 the manifest's MPACT launch command carries
+  `--max_instructions=100000000`, so a guest that never exits stops there, not
+  at the deadline.
 - `Malformed_output`.
 - `Output_limit`.
 - `Simulator_crashed`: no frame and a failed process.
@@ -201,8 +206,9 @@ scratch slot) on `core-mini-axi`, `core-mini-highmem-axi` and `mpact-v2`.
 - **Counters:** `minstret` is equal on all three, 133 and 213021 for the two
   sizes. `mcycle` counts on both simulators.
 - **Purpose-built guests**, one row each: illegal instruction (`mcause` 2),
-  store to ITCM (`mcause` 7), spin (`Timeout`), RTL `--cycles`
-  (`Cycle_limit`), wrong digest (`Input_refused`), missing simulator.
+  store to ITCM (`mcause` 7), an RTL spin (`Timeout`), an MPACT spin
+  (`Instruction_limit`), RTL `--cycles` (`Cycle_limit`), wrong digest
+  (`Input_refused`), missing simulator.
 - **Store-fault `mtval`:** for the ITCM store at `0x100`, both report
   `0x100` (v0.0.2's RTL reported `0x10`).
 - **In place:** the same negation in one `In_out` slot, at both sizes, and
@@ -245,7 +251,7 @@ traps when it is Off, so no run shows it), and a configuration whose
 extensions lack `zve32f` (`mpact-v2`) refuses it before running.
 `make coralnpu.rv32.runtest`: the binary32 bundles are bitwise equal to the
 binary32 oracle on `mpact-v2` (scalar), `mpact-m3` (scalar and Zve32f) and the
-RTL vector core `rvv-core-mini-highmem-axi`, where the cycles were measured:
-Zve32f takes relu-then-add from 7572 to 1901 cycles (3.98x) and
-conv-batch-norm-relu from 192313 to 23786 (8.09x); softmax and layer_norm hold
+RTL vector core `rvv-core-mini-highmem-axi`, where the cycles were measured
+(v0.0.4): Zve32f takes relu-then-add from 7572 to 1909 cycles (3.97x) and
+conv-batch-norm-relu from 192316 to 23807 (8.08x); softmax and layer_norm hold
 local arrays, have no vector loops, and cost the same.

@@ -46,7 +46,7 @@ let%expect_test "scalar and Zve32f on the RTL vector core" =
     {|
     relu then add over C=32, scalar (2 invocations): bitwise
     relu then add over C=32, zve32f128 (2 invocations): bitwise
-      cycles 7572 -> 1901 (3.98x), instructions 4627 -> 1432 (3.23x)
+      cycles 7572 -> 1909 (3.97x), instructions 4627 -> 1432 (3.23x)
     softmax over H, W=32, scalar (1 invocations): bitwise
     softmax over H, W=32, zve32f128 (1 invocations): bitwise
       cycles 495736 -> 495736 (1.00x), instructions 237748 -> 237748 (1.00x)
@@ -55,4 +55,4 @@ let%expect_test "scalar and Zve32f on the RTL vector core" =
       cycles 84070 -> 84070 (1.00x), instructions 46208 -> 46208 (1.00x)
     conv, batch norm, relu to C=32, scalar (3 invocations): bitwise
     conv, batch norm, relu to C=32, zve32f128 (3 invocations): bitwise
-      cycles 192313 -> 23786 (8.09x), instructions 139487 -> 20566 (6.78x) |}]
+      cycles 192316 -> 23807 (8.08x), instructions 139487 -> 20566 (6.78x) |}]

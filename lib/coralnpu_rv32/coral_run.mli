@@ -19,6 +19,8 @@ module Run_error : sig
         (** The RTL testbench reported its loop limit (and exited, 124). *)
     | Guest_trap of Trap.t
     | Input_refused of Coral_runtime.Refusal.t
+    | Instruction_limit
+        (** MPACT stopped at its [--max_instructions] (and exited, 124). *)
     | Malformed_output of { malformed : Coral_wire.Malformed.t; tail : string }
     | Output_limit of int64
         (** More output than the frame and 4 MiB of text: the process was
