@@ -1,7 +1,12 @@
 open Err.Syntax
 module Rv32_image = Machine_rivet_riscv32.Rv32_image
 
-type t = { elf : string; layout : Coral_layout.t; profile : Coral_profile.t }
+type t = {
+  elf : string;
+  image : Image.t;
+  layout : Coral_layout.t;
+  profile : Coral_profile.t;
+}
 
 type error =
   [ Coral_layout.error
@@ -55,7 +60,8 @@ let segments laid =
 let build ?params ?(abi = Machine_rivet_riscv32.Rv32_harness.Abi.Table) ?lowered
     ?rv32_profile profile ~entry ~kernel slots =
   let vector =
-    rv32_profile = Some Machine_rivet_riscv32.Rv32_profile.Rv32imf_zve32f_ilp32f
+    Option.fold ~none:false ~some:Machine_rivet_riscv32.Rv32_profile.vector
+      rv32_profile
   in
   let plan l =
     let* runtime =
@@ -82,4 +88,4 @@ let build ?params ?(abi = Machine_rivet_riscv32.Rv32_harness.Abi.Table) ?lowered
     | Error e -> Err.fail (`Rivet_bind (Foundation.Diag.render e))
   in
   let* elf = Coral_elf.write profile layout image in
-  Err.return { elf; layout; profile }
+  Err.return { elf; image; layout; profile }

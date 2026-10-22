@@ -5,6 +5,13 @@ module Sew = struct
   type t = E8 | E16 | E32
 
   let bits = function E8 -> 8 | E16 -> 16 | E32 -> 32
+
+  let of_bits = function
+    | 8 -> Some E8
+    | 16 -> Some E16
+    | 32 -> Some E32
+    | _ -> None
+
   let pp ppf s = Fmt.pf ppf "e%d" (bits s)
 end
 
@@ -12,6 +19,14 @@ module Lmul = struct
   type t = M1 | M2 | M4 | M8
 
   let factor = function M1 -> 1 | M2 -> 2 | M4 -> 4 | M8 -> 8
+
+  let of_factor = function
+    | 1 -> Some M1
+    | 2 -> Some M2
+    | 4 -> Some M4
+    | 8 -> Some M8
+    | _ -> None
+
   let pp ppf l = Fmt.pf ppf "m%d" (factor l)
 end
 

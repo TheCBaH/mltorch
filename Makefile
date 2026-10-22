@@ -1586,12 +1586,13 @@ machine.rivet.a64.conformance: rivet.install
 
 # Typed Rivet RV32 images written as ELF and run under qemu-riscv32: the mmap
 # harness over hand-built kernels, and the RV32 Machine IR route (source
-# kernels, i64 programs and binary32 bundles, each a process) and the typed
-# kernel AST. RV32 cannot run on any host CPU here, so qemu-riscv32 must be on
-# the path; its absence fails the run.
+# kernels, i64 programs and binary32 bundles, each a process), the typed kernel
+# AST and the Coral peak kernels' bytes pinned without the Coral data. RV32
+# cannot run on any host CPU here, so qemu-riscv32 must be on the path; its
+# absence fails the run.
 machine.rivet.rv32.runtest: rivet.install
 	command -v qemu-riscv32
-	opam exec -- dune build @test/machine_rivet_riscv32/runtest @test/machine_rivet_riscv32_mir/runtest @test/rv32_kernel/runtest --force
+	opam exec -- dune build @test/machine_rivet_riscv32/runtest @test/machine_rivet_riscv32_mir/runtest @test/coralnpu_peak/baseline/runtest @test/rv32_kernel/runtest --force
 
 # The RV32 Machine IR route on real models (MANUAL, needs `make
 # pt2.download` for each): every invocation an ELF process under qemu-riscv32,
@@ -1678,6 +1679,18 @@ coralnpu.compcert.runtest: compcert.rv32.install
 		exit 1; \
 	}
 	CORALNPU_DATA=$(CORALNPU_DATA) opam exec -- dune build @test/loop_c_embed_compcert_coral/runtest @test/inference_compare_rv32/coral/runtest --force
+
+# Peak arithmetic throughput of the RTL vector core (rvv-core-mini-axi): typed
+# RVV kernels, elementwise per data type and matrix multiplies, run with their
+# waveforms traced and measured by coralview (a devcontainer package). Needs
+# the download.
+.PHONY: coralnpu.peak.runtest
+coralnpu.peak.runtest:
+	@test -f $(CORALNPU_DATA)/hardware-configurations.json || { \
+		echo "coralnpu.peak.runtest: missing $(CORALNPU_DATA) -- run 'make coralnpu.download' first" >&2; \
+		exit 1; \
+	}
+	CORALNPU_DATA=$(CORALNPU_DATA) opam exec -- dune build @test/coralnpu_peak/runtest --force
 
 compcert.embed.runtest: compcert.embed.install
 	MLTORCH_COMPCERT=$(COMPCERT_ISA) opam exec -- dune build @test/loop_c_embed_compcert/runtest @test/asm_census_compcert/runtest --force

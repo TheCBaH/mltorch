@@ -1,0 +1,15 @@
+; The peak kernels as a library, so the Rivet-only byte baseline and the RTL
+; driver build the same modules.
+
+(library
+ (name peak_kernels)
+ (wrapped false)
+ (libraries
+  coralnpu
+  machine_rivet_riscv32
+  rivet.asm_core
+  rivet.riscv32_encode)
+ (enabled_if
+  (and
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

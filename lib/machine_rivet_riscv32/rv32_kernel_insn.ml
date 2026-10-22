@@ -14,6 +14,8 @@ module Imm = Rv32_kernel_imm
 module Vv_op = struct
   type t = Vadd | Vfadd | Vfmacc | Vfmul | Vfwmaccbf16 | Vmacc | Vmul | Vwmacc
 
+  let all = [ Vadd; Vfadd; Vfmacc; Vfmul; Vfwmaccbf16; Vmacc; Vmul; Vwmacc ]
+
   let mnemonic = function
     | Vadd -> "vadd.vv"
     | Vfadd -> "vfadd.vv"
@@ -23,6 +25,8 @@ module Vv_op = struct
     | Vmacc -> "vmacc.vv"
     | Vmul -> "vmul.vv"
     | Vwmacc -> "vwmacc.vv"
+
+  let of_mnemonic m = List.find_opt (fun op -> String.equal (mnemonic op) m) all
 end
 
 module Constant_range = struct
@@ -30,6 +34,26 @@ module Constant_range = struct
   type t = { value : int }
 
   let pp ppf { value } = Fmt.pf ppf "%d is not a 32-bit constant" value
+end
+
+(* A register of any class, as the effects of an instruction name it. A vector
+   register stands for the base of its group: the extent depends on the active
+   [vtype], which an instruction does not carry. *)
+module Reg_ref = struct
+  (* Alphabetical. *)
+  type t = Fpr of Fpr.t | Gpr of Gpr.t | Vreg of Vreg.t
+
+  let equal a b =
+    match (a, b) with
+    | Fpr a, Fpr b -> Fpr.equal a b
+    | Gpr a, Gpr b -> Gpr.equal a b
+    | Vreg a, Vreg b -> Vreg.equal a b
+    | (Fpr _ | Gpr _ | Vreg _), _ -> false
+
+  let pp ppf = function
+    | Fpr r -> Fpr.pp ppf r
+    | Gpr r -> Gpr.pp ppf r
+    | Vreg r -> Vreg.pp ppf r
 end
 
 type t =
@@ -168,3 +192,59 @@ let targets = function
   | Sw _ | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _ | Vmacc_vx _ | Vmv_v_i _
   | Vmv_v_x _ | Vse _ | Vsetvli _ | Vv _ | Vwmacc_vx _ ->
       []
+
+(* The registers [i] reads, in operand order. [zero] is a constant, not a
+   dependency, so it is left out. An accumulating instruction reads its
+   accumulator. *)
+let reads i =
+  let gprs rs =
+    List.filter_map
+      (fun r -> if Gpr.equal r Gpr.zero then None else Some (Reg_ref.Gpr r))
+      rs
+  in
+  let vregs rs = List.map (fun r -> Reg_ref.Vreg r) rs in
+  match i with
+  | Add { lhs; rhs; _ } -> gprs [ lhs; rhs ]
+  | Addi { src; _ } | Mv { src; _ } | Srli { src; _ } -> gprs [ src ]
+  | Bnez { src; _ } -> gprs [ src ]
+  | Flh { base; _ } | Flw { base; _ } | Lw { base; _ } | Vle { base; _ } ->
+      gprs [ base ]
+  | Li _ | Lui _ | Ret | Vmv_v_i _ -> []
+  | Sw { src; base; _ } -> gprs [ src; base ]
+  | Vfmacc_vf { acc; scalar; src } | Vfwmaccbf16_vf { acc; scalar; src } ->
+      vregs [ acc ] @ [ Reg_ref.Fpr scalar ] @ vregs [ src ]
+  | Vmacc_vx { acc; scalar; src } | Vwmacc_vx { acc; scalar; src } ->
+      vregs [ acc ] @ gprs [ scalar ] @ vregs [ src ]
+  | Vmv_v_x { src; _ } -> gprs [ src ]
+  | Vse { src; base; _ } -> vregs [ src ] @ gprs [ base ]
+  | Vsetvli { avl = Reg r; _ } -> gprs [ r ]
+  | Vsetvli { avl = Vlmax _; _ } -> []
+  | Vv { op; dst; a; b } -> (
+      match op with
+      | Vfmacc | Vfwmaccbf16 | Vmacc | Vwmacc -> vregs [ dst; a; b ]
+      | Vadd | Vfadd | Vfmul | Vmul -> vregs [ a; b ])
+
+(* The registers [i] writes. [zero] is never written. [vsetvli] sets [vl], which
+   is not a register, and writes a register only for a VLMAX request. *)
+let writes i =
+  let gpr r = if Gpr.equal r Gpr.zero then [] else [ Reg_ref.Gpr r ] in
+  match i with
+  | Add { dst; _ }
+  | Addi { dst; _ }
+  | Li { dst; _ }
+  | Lui { dst; _ }
+  | Lw { dst; _ }
+  | Mv { dst; _ }
+  | Srli { dst; _ } ->
+      gpr dst
+  | Flh { dst; _ } | Flw { dst; _ } -> [ Reg_ref.Fpr dst ]
+  | Bnez _ | Ret | Sw _ | Vse _ -> []
+  | Vfmacc_vf { acc; _ }
+  | Vfwmaccbf16_vf { acc; _ }
+  | Vmacc_vx { acc; _ }
+  | Vwmacc_vx { acc; _ } ->
+      [ Reg_ref.Vreg acc ]
+  | Vle { dst; _ } | Vmv_v_i { dst; _ } | Vmv_v_x { dst; _ } | Vv { dst; _ } ->
+      [ Reg_ref.Vreg dst ]
+  | Vsetvli { avl = Reg _; _ } -> []
+  | Vsetvli { avl = Vlmax { vl }; _ } -> gpr vl

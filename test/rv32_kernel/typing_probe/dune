@@ -3,7 +3,7 @@
 
 (toplevel
  (name rv32_kernel_probe)
- (libraries machine_rivet_riscv32))
+ (libraries machine_rivet_riscv32 peak_kernels))
 
 (cram
  (applies_to typing)

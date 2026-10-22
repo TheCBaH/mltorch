@@ -1,0 +1,22 @@
+; The peak kernels' encoded bytes, entry and exports, pinned without the Coral
+; data: Rivet alone plans and binds them, so CI (which has Rivet but not the
+; emulators) catches a change of bytes. peak.t additionally runs them on the
+; RTL core.
+
+(library
+ (name peak_baseline_test)
+ (libraries
+  err_trace
+  fmt
+  machine_rivet_riscv32
+  peak_kernels
+  rivet.asm_core
+  rivet.image
+  rivet.riscv32_encode)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect))
+ (enabled_if
+  (and
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

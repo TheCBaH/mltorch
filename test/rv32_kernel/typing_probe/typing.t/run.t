@@ -36,3 +36,14 @@ A register number only through the checked constructor.
   register is not an int: rejected
   $ check "register index is an int" "(Gpr.index Gpr.a0 : int)"
   register index is an int: COMPILES
+
+The GEMM generator shared by the integer and floating-point kernels takes its
+scalar registers as a type parameter: the class of a register must agree with
+the instructions that use it.
+
+  $ check "integer registers beside flw" "Peak_kernels.Gemm.Scalar_ops.{ float with cur = (Gpr.a4, Gpr.a5, Gpr.a6) }"
+  integer registers beside flw: rejected
+  $ check "float registers beside flw" "Peak_kernels.Gemm.Scalar_ops.{ float with cur = (Fpr.fa1, Fpr.fa2, Fpr.fa3) }"
+  float registers beside flw: COMPILES
+  $ check "float registers beside lw" "Peak_kernels.Gemm.Scalar_ops.{ int with next = (Fpr.ft1, Fpr.ft2, Fpr.ft3) }"
+  float registers beside lw: rejected

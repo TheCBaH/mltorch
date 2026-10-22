@@ -6,7 +6,8 @@ Verilator RTL CoreMini testbenches (cycles). The guest ISA is RV32IMF with no
 D extension, the default RV32 profile of `riscv32_process_design.md`. This
 record grows with the route; today it covers the release pin, the manifest
 decoder, the simulator profiles, the memory layout, the wire protocol, the
-ELF, the guest runtime, the runner and the CompCert loader.
+ELF, the guest runtime, the runner, the CompCert loader, the RV32 Machine IR
+route and the peak-throughput suite.
 
 ## The release pin
 
@@ -255,3 +256,82 @@ RTL vector core `rvv-core-mini-highmem-axi`, where the cycles were measured
 (v0.0.4): Zve32f takes relu-then-add from 7572 to 1909 cycles (3.97x) and
 conv-batch-norm-relu from 192316 to 23807 (8.08x); softmax and layer_norm hold
 local arrays, have no vector loops, and cost the same.
+
+## Peak throughput (`test/coralnpu_peak`)
+
+`make coralnpu.peak.runtest` measures the RTL vector core (`rvv-core-mini-axi`)
+at its arithmetic ceilings. Every kernel is built from typed instructions (the
+typed RV32 kernel AST: registers, immediates and instructions as data, validated
+once, lowered to a Rivet module; never assembly text) under the BF16 vector
+profile, built by `Coral_image` like any other guest. An expect suite pins each
+kernel's encoded bytes, entry and exports with Rivet alone, so CI, which lacks
+these emulators, still catches a change; this suite runs the kernels. Its loop sits between the exported labels `peak_body` and
+`peak_body_end`. `Coral_image.t` carries the bound image, so the cram prints the
+loop as coralview's own decoder reads those bytes. The run passes
+`--trace_file` (v0.0.4), and `coralview ops` reads the waveform back: ops per
+cycle over the trace, in bursts, and the best 256-cycle window. The host checks
+the kernel's `Out` slot against bytes it computed, so a wrong kernel fails before
+any rate is read (a swapped accumulator in INT16 and a short FP32
+multiply-add loop each turn the suite red).
+
+The ceiling is 2 x 128 / SEW operations a cycle per kind of unit, twice that
+for multiply-adds, and a widening instruction is limited by its destination's
+SEW. One instruction repeated at LMUL=4 (two units, four uops) reaches it for
+every type: INT8/16/32 add and multiply, their multiply-adds and the widening
+ones, FP32 add, multiply and FMA, BF16 into FP32. At LMUL=1 an FP32 FMA reaches
+8.6 of 16, because the scalar core passes about one vector instruction a cycle.
+
+Matrix multiplies, RVV only (no Zvt), keep two or three rows of C in LMUL=8
+accumulators, stream B a row at a time and take A's values as scalars
+(`.vx`, `.vf`). Over the multiply's burst (best window in brackets):
+
+| C = A x B | ops/cycle | ceiling | bound by |
+|---|---|---|---|
+| INT16 = INT8 x INT8 | 31.3 (32.5) | 32 | the multiply-add units |
+| INT32 = INT16 x INT16 | 15.7 (16.25) | 16 | the multiply-add units |
+| FP32 = BF16 x BF16 | 12.6 (13.0) | 16 | loads: about 15 cycles a k step against 12 |
+| INT32 = INT32 x INT32 | 9.9 (10.25) | 16 | loads: about 19 cycles a k step against 12 |
+| FP32 = FP32 x FP32 | 9.9 (10.25) | 16 | as INT32 |
+
+The load unit takes about 2 + n cycles for a vector of n 16-byte beats and 3
+for any scalar load. Integer A values pack two or four to a word, unpacked by
+`srli`, so the widening kernels stay ahead of their multiply-adds. A 32-bit or
+BF16 value takes a scalar load of its own. A scalar load issued after a vector
+load waits for it, so each k step's scalar loads come first. Taking A through
+`vfmv.f.s` or `fmv.h.x` instead is slower: those issue from scalar lane 0 with
+the `.vf` forms and saturate it.
+
+The default width of C is the lanes of one vector (64 for INT8, 32 for the rest).
+`gemm_<type>_w<N>` sets another. A narrower W runs one tile with `vl` = W: the
+instructions and cycles do not change, so the rate falls in proportion (INT8 at
+W = 48: 23.5, three quarters of 31.3). A wider W must be a multiple of the lanes
+and runs one pass over all blocks of rows per column tile (tiles outermost, so
+moving between blocks costs what it does with one tile), rewinding A between
+passes. The instructions scale with W and the rate stays within 0.5% of the
+default's (INT8 at W = 128: 31.2). That is a counting effect, not a tile cost: a
+burst leaves out its first block's ramp, so a burst of n blocks takes about
+1960 n - 42 cycles in BF16, and a W = 64 run (3 blocks x 2 tiles) is within 18
+cycles of the same kernel at W = 32 with 6 blocks. Strides come from W.
+
+A block's end overlaps the next block's start: B's first row is loaded before
+the stores, since the accumulators it does not touch and v0 is free once the
+loop exits (A's first values are already loaded by the loop's last step). That
+shortens every block transition, default kernels included (INT8 31.2 -> 31.3,
+BF16 12.57 -> 12.63). The INT32 and FP32 kernels reuse v0 for every row and keep
+the plain order.
+
+Tried and dropped, INT8: rotating the accumulators through v8, v16 and v24 (a
+period-three super-block with a copy of the loop per phase and a peeled first
+trip) so one row's store overlaps the next block's multiply-adds. The output
+was right at every width, but six blocks took 6303-6323 cycles against 6289 for
+the plain kernel. A block transition costs about 24 cycles of idle multiply-add
+unit either way: removing the stores altogether saves only 14 of the plain
+kernel's 30 overhead cycles, and the rotation splits that gap in two. A C-row
+store keeps the load/store unit for about 10 cycles, and with only two B
+buffers (v0, v4) the next B row, which the multiply-adds wait for, queues behind
+it wherever it sits, so each store costs about 15 idle cycles. Fewer idle cycles
+need a third B buffer, which no register group is left for. Two smaller ideas
+did not help either: zeroing each accumulator right after its store, and
+dropping the `vsetvli`s around a block (the kernel's own `vse16.v` already
+stores 64 halfwords at e8/m4, but zeroing the whole accumulator needs the wide
+type once `vl` is below the lanes).

@@ -1,0 +1,32 @@
+; Peak arithmetic throughput of the RVV core: typed Rivet kernels built into
+; Coral guest images, run traced on the RTL simulator and measured by the
+; installed coralview (a devcontainer package) from the waveform. Enabled by
+; CORALNPU_DATA (the extracted emulators archive; make coralnpu.peak.runtest sets
+; it after installing coralview), where the RV32 Rivet encoder is installed.
+
+(executable
+ (name coral_peak)
+ (enabled_if
+  (<> %{env:CORALNPU_DATA=} ""))
+ (libraries
+  coralnpu
+  coralnpu_rv32
+  coralview
+  peak_kernels
+  err_trace
+  fmt
+  machine_rivet_riscv32
+  rivet.asm_core
+  rivet.image
+  rivet.riscv32_encode))
+
+(cram
+ (applies_to peak)
+ (deps
+  %{exe:coral_peak.exe}
+  %{bin:coralview}
+  (env_var CORALNPU_DATA))
+ (enabled_if
+  (and
+   (<> %{env:CORALNPU_DATA=} "")
+   %{bin-available:coralview})))

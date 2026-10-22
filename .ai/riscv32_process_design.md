@@ -75,7 +75,8 @@ the BF16 part of upstream Coral NPU's `-march`
 `flh`, `fsh` and the half-word moves, so the core's missing Zfhmin stays off and
 its conversions (`fcvt.s.h`, `fcvt.h.s`) are refused. The emulator release's
 manifest lists no Zvfbfwma for the RVV cores, though their RTL runs
-`vfwmaccbf16`.
+`vfwmaccbf16` (the peak suite's BF16 GEMM). The peak suite builds every kernel
+under it (see the Coral simulators record).
 
 The text pipeline (`Riscv32`) and the encoder (`Riscv32_encode`) each have a
 state; `Rv32_profile.config` is the one feature set both are made from.

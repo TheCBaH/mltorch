@@ -6,7 +6,14 @@
     staging until the layout repeats; DTCM placement does not depend on code
     size, so this settles on the second round. *)
 
-type t = { elf : string; layout : Coral_layout.t; profile : Coral_profile.t }
+type t = {
+  elf : string;
+  image : Image.t;
+      (** The bound image the ELF was written from: its segments and exported
+          symbols at their addresses. *)
+  layout : Coral_layout.t;
+  profile : Coral_profile.t;
+}
 
 type error =
   [ Coral_layout.error

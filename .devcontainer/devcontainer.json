@@ -35,12 +35,17 @@
         // needs melange, so it is listed after it.
         // Rivet's build and test dependencies are included here too; ocamlformat
         // matches the version pinned by vendored/rivet/.ocamlformat.
+        // coralview (with hwfrp, from the same source tarball: a git pin would
+        // check out its vendored submodules) measures the Coral NPU peak suite;
+        // its pin-depends bring its waveform readers, err_trace and a Rivet,
+        // which make rivet.install later moves to vendored/rivet. zipc is
+        // pinned past 0.2.0, whose zlib inflate fails every FST block.
         // Deliberately floating: ctypes, ctypes-foreign, landmarks,
-        // landmarks-ppx, memtrace, utop, yaml, zipc -- none is part of the JS
+        // landmarks-ppx, memtrace, utop, yaml -- none is part of the JS
         // build or that solve. See .ai/js_backends_design.md.
         "ghcr.io/thecbah/ocaml-features/ocaml:1": {
             "version": "4.14.3",
-            "packages": "bos bytesrw#0.4.1 cmdliner#2.1.1 ctypes ctypes-foreign digestif fmt#0.11.0 fpath js_of_ocaml#6.4.1 js_of_ocaml-compiler#6.4.1 js_of_ocaml-ppx#6.4.1 jsont#0.4.0 landmarks landmarks-ppx melange#5.1.0-414 err_trace#git+https://github.com/TheCBaH/err_trace#main err_trace-melange#git+https://github.com/TheCBaH/err_trace#main memtrace menhir mtime ocamlformat#0.28.1 ppx_expect#v0.16.2 qcheck utop yaml zanuda#git+https://github.com/Kakadu/zanuda#master zarith zipc",
+            "packages": "bos bytesrw#0.4.1 cmdliner#2.1.1 coralview#https://github.com/TheCBaH/coralview/archive/4983774bea9cbc5dd0fb1efdd1c403b46e9f02c2.tar.gz ctypes ctypes-foreign digestif fmt#0.11.0 fpath hwfrp#https://github.com/TheCBaH/coralview/archive/4983774bea9cbc5dd0fb1efdd1c403b46e9f02c2.tar.gz js_of_ocaml#6.4.1 js_of_ocaml-compiler#6.4.1 js_of_ocaml-ppx#6.4.1 jsont#0.4.0 landmarks landmarks-ppx melange#5.1.0-414 err_trace#git+https://github.com/TheCBaH/err_trace#main err_trace-melange#git+https://github.com/TheCBaH/err_trace#main memtrace menhir mtime ocamlformat#0.28.1 ppx_expect#v0.16.2 qcheck utop yaml zanuda#git+https://github.com/Kakadu/zanuda#master zarith zipc#git+https://github.com/dbuenzli/zipc.git#076e6168a222dfe46b7ba598dc87a9a2e58b2569",
             "system-packages": "libgmp-dev pkg-config"
         },
         // Node/npm run the js_of_ocaml, melange and browser gates. Exact Debian
