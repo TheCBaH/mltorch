@@ -1,9 +1,10 @@
 module Class = struct
-  type t = Fpr | Gpr | Vreg
+  type t = Fpr | Gpr | Mtreg | Vreg
 
   let pp ppf = function
     | Fpr -> Fmt.string ppf "floating-point"
     | Gpr -> Fmt.string ppf "integer"
+    | Mtreg -> Fmt.string ppf "matrix tile"
     | Vreg -> Fmt.string ppf "vector"
 end
 
@@ -277,4 +278,27 @@ module Vreg = struct
   let v29 = 29
   let v30 = 30
   let v31 = 31
+end
+
+(* Coral NPU's Zvt tile registers, [mt0] to [mt15]: not a Rivet register class,
+   since the encoder spells them as indexed names. *)
+module Mtreg = struct
+  type t = int
+
+  let count = 16
+  let all = List.init count Fun.id
+  let compare = Int.compare
+  let equal = Int.equal
+  let index r = r
+
+  let of_index index =
+    if index >= 0 && index < count then Ok index
+    else
+      Err.fail (`Register_index { Register_index.class_ = Class.Mtreg; index })
+
+  let pp ppf r = Fmt.pf ppf "mt%d" r
+  let mt0 = 0
+  let mt4 = 4
+  let mt8 = 8
+  let mt12 = 12
 end

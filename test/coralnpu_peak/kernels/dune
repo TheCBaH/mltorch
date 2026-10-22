@@ -8,7 +8,8 @@
   coralnpu
   machine_rivet_riscv32
   rivet.asm_core
-  rivet.riscv32_encode)
+  rivet.riscv32_encode
+  coral-isa)
  (enabled_if
   (and
    %{lib-available:rivet.riscv32_encode}

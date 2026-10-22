@@ -6,8 +6,30 @@
 
 module Gpr = Rv32_kernel_reg.Gpr
 module Fpr = Rv32_kernel_reg.Fpr
+module Mtreg = Rv32_kernel_reg.Mtreg
 module Vreg = Rv32_kernel_reg.Vreg
 module Imm = Rv32_kernel_imm
+
+(* Coral NPU's Zvt tile multiplies, [op acc, a, b]: the tile [acc] of [tm] rows
+   and [vl] columns accumulates [a]^T [b] over [tk] slices of A and B. [Vtfmm]
+   is FP32 (BF16 with the [Vtfmm_alt] form), [Vtmms] signed INT8 A, [Vtmmu]
+   unsigned. *)
+module Tile_op = struct
+  type t = Vtfmm | Vtfmm_alt | Vtmms | Vtmmu
+
+  let all = [ Vtfmm; Vtfmm_alt; Vtmms; Vtmmu ]
+
+  let mnemonic = function
+    | Vtfmm -> "vtfmm.tvv"
+    | Vtfmm_alt -> "vtfmm.alt.tvv"
+    | Vtmms -> "vtmms.tvv"
+    | Vtmmu -> "vtmmu.tvv"
+
+  let of_mnemonic m = List.find_opt (fun op -> String.equal (mnemonic op) m) all
+end
+
+(* The Rivet vendor feature that holds the Zvt forms. *)
+let zvt_feature = "xcoralzvt"
 
 (* Vector-vector operations, [op.vv dst, a, b] with [a] and [b] in assembly
    order. *)
@@ -41,18 +63,20 @@ end
    [vtype], which an instruction does not carry. *)
 module Reg_ref = struct
   (* Alphabetical. *)
-  type t = Fpr of Fpr.t | Gpr of Gpr.t | Vreg of Vreg.t
+  type t = Fpr of Fpr.t | Gpr of Gpr.t | Mtreg of Mtreg.t | Vreg of Vreg.t
 
   let equal a b =
     match (a, b) with
     | Fpr a, Fpr b -> Fpr.equal a b
     | Gpr a, Gpr b -> Gpr.equal a b
+    | Mtreg a, Mtreg b -> Mtreg.equal a b
     | Vreg a, Vreg b -> Vreg.equal a b
-    | (Fpr _ | Gpr _ | Vreg _), _ -> false
+    | (Fpr _ | Gpr _ | Mtreg _ | Vreg _), _ -> false
 
   let pp ppf = function
     | Fpr r -> Fpr.pp ppf r
     | Gpr r -> Gpr.pp ppf r
+    | Mtreg r -> Mtreg.pp ppf r
     | Vreg r -> Vreg.pp ppf r
 end
 
@@ -65,6 +89,11 @@ type t =
   | Li of { dst : Gpr.t; imm : Imm.Li.t }
   | Lui of { dst : Gpr.t; imm : Imm.U20.t }
   | Lw of { dst : Gpr.t; base : Gpr.t; offset : Imm.Imm12.t }
+  | Msetmtype of { dst : Gpr.t; mtype : Gpr.t; vtype : Gpr.t }
+      (** Zvt: [mtype] and, as [vsetvl] would, [vtype] from registers; [vl]
+          becomes 0. *)
+  | Msettn of { dst : Gpr.t; avl : Gpr.t }
+      (** Zvt: [vl], the tile's columns, from [avl], clamped as [vsetvl]. *)
   | Mv of { dst : Gpr.t; src : Gpr.t }
   | Ret
   | Srli of { dst : Gpr.t; src : Gpr.t; shamt : Imm.Shamt.t }
@@ -77,8 +106,21 @@ type t =
   | Vmv_v_x of { dst : Vreg.t; src : Gpr.t }
   | Vse of { eew : Rv32_kernel_vtype.Sew.t; src : Vreg.t; base : Gpr.t }
   | Vsetvli of { avl : Rv32_kernel_vtype.Avl.t; vtype : Rv32_kernel_vtype.t }
+  | Vtmm of { op : Tile_op.t; acc : Mtreg.t; a : Vreg.t; b : Vreg.t }
+  | Vtse of { eew : Rv32_kernel_vtype.Sew.t; slice : Gpr.t; base : Gpr.t }
+      (** Zvt: one row or column of a tile, chosen by [slice] (tile, direction
+          and index), stored at [base]. *)
+  | Vtzero of { dst : Mtreg.t }
   | Vv of { op : Vv_op.t; dst : Vreg.t; a : Vreg.t; b : Vreg.t }
   | Vwmacc_vx of { acc : Vreg.t; scalar : Gpr.t; src : Vreg.t }
+
+(* The Rivet vendor feature [i] needs beyond the standard ones, if any. *)
+let extension = function
+  | Msetmtype _ | Msettn _ | Vtmm _ | Vtse _ | Vtzero _ -> Some zvt_feature
+  | Add _ | Addi _ | Bnez _ | Flh _ | Flw _ | Li _ | Lui _ | Lw _ | Mv _ | Ret
+  | Srli _ | Sw _ | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _ | Vmacc_vx _
+  | Vmv_v_i _ | Vmv_v_x _ | Vse _ | Vsetvli _ | Vv _ | Vwmacc_vx _ ->
+      None
 
 (* The one exhaustive spelling of each mnemonic; the printer and the lowering
    both read it. *)
@@ -91,6 +133,8 @@ let mnemonic = function
   | Li _ -> "li"
   | Lui _ -> "lui"
   | Lw _ -> "lw"
+  | Msetmtype _ -> "msetmtype"
+  | Msettn _ -> "msettn"
   | Mv _ -> "mv"
   | Ret -> "ret"
   | Srli _ -> "srli"
@@ -103,6 +147,9 @@ let mnemonic = function
   | Vmv_v_x _ -> "vmv.v.x"
   | Vse { eew; _ } -> Fmt.str "vse%d.v" (Rv32_kernel_vtype.Sew.bits eew)
   | Vsetvli _ -> "vsetvli"
+  | Vtmm { op; _ } -> Tile_op.mnemonic op
+  | Vtse { eew; _ } -> Fmt.str "vtse%d" (Rv32_kernel_vtype.Sew.bits eew)
+  | Vtzero _ -> "vtzero"
   | Vv { op; _ } -> Vv_op.mnemonic op
   | Vwmacc_vx _ -> "vwmacc.vx"
 
@@ -124,6 +171,9 @@ let pp ppf i =
   | Lui { dst; imm } -> Fmt.pf ppf "%s %a, %a" m Gpr.pp dst Imm.U20.pp imm
   | Lw { dst; base; offset } ->
       Fmt.pf ppf "%s %a, %a" m Gpr.pp dst pp_mem (offset, base)
+  | Msetmtype { dst; mtype; vtype } ->
+      Fmt.pf ppf "%s %a, %a, %a" m Gpr.pp dst Gpr.pp mtype Gpr.pp vtype
+  | Msettn { dst; avl } -> Fmt.pf ppf "%s %a, %a" m Gpr.pp dst Gpr.pp avl
   | Mv { dst; src } -> Fmt.pf ppf "%s %a, %a" m Gpr.pp dst Gpr.pp src
   | Ret -> Fmt.string ppf m
   | Srli { dst; src; shamt } ->
@@ -145,6 +195,11 @@ let pp ppf i =
       in
       Fmt.pf ppf "%s %a, %a, %a" m Gpr.pp rd Gpr.pp rs1 Rv32_kernel_vtype.pp
         vtype
+  | Vtmm { acc; a; b; _ } ->
+      Fmt.pf ppf "%s %a, %a, %a" m Mtreg.pp acc Vreg.pp a Vreg.pp b
+  | Vtse { slice; base; _ } ->
+      Fmt.pf ppf "%s %a, (%a)" m Gpr.pp slice Gpr.pp base
+  | Vtzero { dst } -> Fmt.pf ppf "%s %a" m Mtreg.pp dst
   | Vv { dst; a; b; _ } ->
       Fmt.pf ppf "%s %a, %a, %a" m Vreg.pp dst Vreg.pp a Vreg.pp b
 
@@ -181,16 +236,18 @@ let out_of_range i =
   | Lui { imm; _ } -> check (module Imm.U20) imm
   | Srli { shamt; _ } -> check (module Imm.Shamt) shamt
   | Vmv_v_i { imm; _ } -> check (module Imm.Simm5) imm
-  | Add _ | Bnez _ | Mv _ | Ret | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _
-  | Vmacc_vx _ | Vmv_v_x _ | Vse _ | Vsetvli _ | Vv _ | Vwmacc_vx _ ->
+  | Add _ | Bnez _ | Msetmtype _ | Msettn _ | Mv _ | Ret | Vfmacc_vf _
+  | Vfwmaccbf16_vf _ | Vle _ | Vmacc_vx _ | Vmv_v_x _ | Vse _ | Vsetvli _
+  | Vtmm _ | Vtse _ | Vtzero _ | Vv _ | Vwmacc_vx _ ->
       []
 
 (* The labels [i] branches to. *)
 let targets = function
   | Bnez { target; _ } -> [ target ]
-  | Add _ | Addi _ | Flh _ | Flw _ | Li _ | Lui _ | Lw _ | Mv _ | Ret | Srli _
-  | Sw _ | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _ | Vmacc_vx _ | Vmv_v_i _
-  | Vmv_v_x _ | Vse _ | Vsetvli _ | Vv _ | Vwmacc_vx _ ->
+  | Add _ | Addi _ | Flh _ | Flw _ | Li _ | Lui _ | Lw _ | Msetmtype _
+  | Msettn _ | Mv _ | Ret | Srli _ | Sw _ | Vfmacc_vf _ | Vfwmaccbf16_vf _
+  | Vle _ | Vmacc_vx _ | Vmv_v_i _ | Vmv_v_x _ | Vse _ | Vsetvli _ | Vtmm _
+  | Vtse _ | Vtzero _ | Vv _ | Vwmacc_vx _ ->
       []
 
 (* The registers [i] reads, in operand order. [zero] is a constant, not a
@@ -209,7 +266,9 @@ let reads i =
   | Bnez { src; _ } -> gprs [ src ]
   | Flh { base; _ } | Flw { base; _ } | Lw { base; _ } | Vle { base; _ } ->
       gprs [ base ]
-  | Li _ | Lui _ | Ret | Vmv_v_i _ -> []
+  | Li _ | Lui _ | Ret | Vmv_v_i _ | Vtzero _ -> []
+  | Msetmtype { mtype; vtype; _ } -> gprs [ mtype; vtype ]
+  | Msettn { avl; _ } -> gprs [ avl ]
   | Sw { src; base; _ } -> gprs [ src; base ]
   | Vfmacc_vf { acc; scalar; src } | Vfwmaccbf16_vf { acc; scalar; src } ->
       vregs [ acc ] @ [ Reg_ref.Fpr scalar ] @ vregs [ src ]
@@ -219,6 +278,8 @@ let reads i =
   | Vse { src; base; _ } -> vregs [ src ] @ gprs [ base ]
   | Vsetvli { avl = Reg r; _ } -> gprs [ r ]
   | Vsetvli { avl = Vlmax _; _ } -> []
+  | Vtmm { acc; a; b; _ } -> [ Reg_ref.Mtreg acc ] @ vregs [ a; b ]
+  | Vtse { slice; base; _ } -> gprs [ slice; base ]
   | Vv { op; dst; a; b } -> (
       match op with
       | Vfmacc | Vfwmaccbf16 | Vmacc | Vwmacc -> vregs [ dst; a; b ]
@@ -234,11 +295,14 @@ let writes i =
   | Li { dst; _ }
   | Lui { dst; _ }
   | Lw { dst; _ }
+  | Msetmtype { dst; _ }
+  | Msettn { dst; _ }
   | Mv { dst; _ }
   | Srli { dst; _ } ->
       gpr dst
   | Flh { dst; _ } | Flw { dst; _ } -> [ Reg_ref.Fpr dst ]
-  | Bnez _ | Ret | Sw _ | Vse _ -> []
+  | Bnez _ | Ret | Sw _ | Vse _ | Vtse _ -> []
+  | Vtmm { acc = dst; _ } | Vtzero { dst } -> [ Reg_ref.Mtreg dst ]
   | Vfmacc_vf { acc; _ }
   | Vfwmaccbf16_vf { acc; _ }
   | Vmacc_vx { acc; _ }

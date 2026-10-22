@@ -29,6 +29,7 @@ val build :
   ?abi:Machine_rivet_riscv32.Rv32_harness.Abi.t ->
   ?lowered:Riscv32_encode.fixup_kind Asm_core.Lowered_ast.module_ list ->
   ?rv32_profile:Machine_rivet_riscv32.Rv32_profile.t ->
+  ?matrix:bool ->
   Coral_profile.t ->
   entry:string ->
   kernel:Riscv32_encode.Instruction.t Asm_core.Normalized_ast.module_ list ->
@@ -37,4 +38,5 @@ val build :
 (** [abi] defaults to [Table]. [kernel] and [lowered] together hold every module
     the entry needs, the C library included; [lowered] are modules already
     lowered under {!Machine_rivet_riscv32.Rv32_profile.default} (CompCert's
-    assembly, through Rivet's text pipeline). *)
+    assembly, through Rivet's text pipeline). [matrix] (default false) enables
+    the matrix unit for a kernel with Zvt forms. *)

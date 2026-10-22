@@ -14,6 +14,7 @@
   rivet.foundation
   rivet.image
   rivet.riscv32_encode
+  rivet.riscv_family_encode
   rivet.target_features
   unix)
  (enabled_if

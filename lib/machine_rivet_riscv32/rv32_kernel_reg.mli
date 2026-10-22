@@ -6,7 +6,7 @@
 
 module Class : sig
   (** Alphabetical. *)
-  type t = Fpr | Gpr | Vreg
+  type t = Fpr | Gpr | Mtreg | Vreg
 
   val pp : t Fmt.t
 end
@@ -147,4 +147,30 @@ module Vreg : sig
   val v29 : t
   val v30 : t
   val v31 : t
+end
+
+(** Coral NPU's Zvt matrix tile registers, [mt0] to [mt15], each 16 rows of 16
+    bytes. A 32-bit accumulator tile of 16 x 16 elements spans four of them, so
+    [mt0], [mt4], [mt8] and [mt12] name the four independent ones. *)
+module Mtreg : sig
+  type t
+
+  val all : t list
+  (** In number order. *)
+
+  val compare : t -> t -> int
+  val equal : t -> t -> bool
+
+  val index : t -> int
+  (** The tile number, 0 to 15. *)
+
+  val of_index : int -> (t, [> `Register_index of Register_index.t ]) Err.t
+
+  val pp : t Fmt.t
+  (** [mt0] to [mt15]: Rivet's spelling of the operand. *)
+
+  val mt0 : t
+  val mt4 : t
+  val mt8 : t
+  val mt12 : t
 end

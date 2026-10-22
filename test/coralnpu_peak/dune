@@ -1,4 +1,5 @@
-; Peak arithmetic throughput of the RVV core: typed Rivet kernels built into
+; Peak arithmetic throughput of the RVV core and the VME core's matrix engine:
+; typed Rivet kernels (Zvt through coral-isa's Rivet extension) built into
 ; Coral guest images, run traced on the RTL simulator and measured by the
 ; installed coralview (a devcontainer package) from the waveform. Enabled by
 ; CORALNPU_DATA (the extracted emulators archive; make coralnpu.peak.runtest sets
@@ -11,7 +12,7 @@
  (libraries
   coralnpu
   coralnpu_rv32
-  coralview
+  coral-isa
   peak_kernels
   err_trace
   fmt

@@ -99,7 +99,7 @@ let%expect_test "each variant lowers to the form Rv32_asm makes" =
     (fun (typed, expected) ->
       let items = [ Item.label (Label.named "loop"); Item.insn typed ] in
       match lower items with
-      | Error (`Rivet_form f) -> Fmt.pr "REFUSED: %a@." Lower.Rivet_form.pp f
+      | Error e -> Fmt.pr "REFUSED: %a@." Lower.pp_error e
       | Ok m -> (
           match m.Asm_core.Normalized_ast.items with
           | [ _; got ] ->
@@ -123,10 +123,10 @@ let%expect_test "a profile refusal is the item's, with Rivet's feature kind" =
        (Item.note "bf16 step" :: bf16)
    with
   | Ok _ -> Fmt.pr "lowered@."
-  | Error (`Rivet_form f) -> Fmt.pr "%a@." Lower.Rivet_form.pp f);
+  | Error e -> Fmt.pr "%a@." Lower.pp_error e);
   (match lower bf16 with
   | Ok _ -> Fmt.pr "lowered under the BF16 profile@."
-  | Error (`Rivet_form f) -> Fmt.pr "%a@." Lower.Rivet_form.pp f);
+  | Error e -> Fmt.pr "%a@." Lower.pp_error e);
   [%expect
     {|
     item 1 (bf16 step): vfwmaccbf16.vf requires feature zvfbfwma, which is not enabled
@@ -149,7 +149,7 @@ let%expect_test "the error's detection origin is Rivet's, not the adapter's" =
 
 let plan items =
   match lower items with
-  | Error (`Rivet_form f) -> Fmt.pr "lower: %a@." Lower.Rivet_form.pp f
+  | Error e -> Fmt.pr "lower: %a@." Lower.pp_error e
   | Ok m -> (
       match
         Err.payload (Rv32_image.plan ~profile:lower_profile ~entry:"e" [ m ])

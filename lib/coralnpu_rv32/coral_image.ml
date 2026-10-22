@@ -58,14 +58,14 @@ let segments laid =
     (Image.plan_of laid).segments
 
 let build ?params ?(abi = Machine_rivet_riscv32.Rv32_harness.Abi.Table) ?lowered
-    ?rv32_profile profile ~entry ~kernel slots =
+    ?rv32_profile ?matrix profile ~entry ~kernel slots =
   let vector =
     Option.fold ~none:false ~some:Machine_rivet_riscv32.Rv32_profile.vector
       rv32_profile
   in
   let plan l =
     let* runtime =
-      Coral_runtime.module_ ~vector l ~abi ~entry
+      Coral_runtime.module_ ~vector ?matrix l ~abi ~entry
       |> Result.map_error (fun what -> `Runtime_form what)
       |> Err.import ~pos:__POS__ Fun.id
     in

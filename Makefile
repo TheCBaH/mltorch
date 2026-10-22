@@ -1680,8 +1680,9 @@ coralnpu.compcert.runtest: compcert.rv32.install
 	}
 	CORALNPU_DATA=$(CORALNPU_DATA) opam exec -- dune build @test/loop_c_embed_compcert_coral/runtest @test/inference_compare_rv32/coral/runtest --force
 
-# Peak arithmetic throughput of the RTL vector core (rvv-core-mini-axi): typed
-# RVV kernels, elementwise per data type and matrix multiplies, run with their
+# Peak arithmetic throughput of the RTL vector core (rvv-core-mini-axi) and the
+# VME core's matrix engine (vme-core-mini-axi): typed RVV kernels, elementwise
+# per data type and matrix multiplies, and Zvt tile multiplies, run with their
 # waveforms traced and measured by coralview (a devcontainer package). Needs
 # the download.
 .PHONY: coralnpu.peak.runtest

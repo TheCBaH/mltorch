@@ -1,9 +1,9 @@
-Peak arithmetic throughput of the RVV core (rvv-core-mini-axi), measured by coralview's `ops` on
-waveforms of the RTL simulator. Each kernel is a typed Rivet module, built into a Coral guest
+Peak arithmetic throughput of the RVV core (rvv-core-mini-axi) and of the matrix engine of the
+VME core (vme-core-mini-axi), measured by coralview's `ops` on waveforms of the RTL simulator. Each kernel is a typed Rivet module, built into a Coral guest
 image around the runtime; `coral_peak.exe` prints its timed loop as coralview decodes the
 image's bytes, runs it with the waveform traced, and checks its output slot against the host's.
 The runtime's input transfer and result frame are in the trace too, outside every burst.
-The same 31 cases are pinned byte for byte, without the Coral data, by baseline/peak_baseline.ml;
+The same 47 cases are pinned byte for byte, without the Coral data, by baseline/peak_baseline.ml;
 keep the two lists in step.
 
 Each elementwise kernel repeats one instruction on independent accumulators, so no uop waits
@@ -661,3 +661,266 @@ shape line, the result and the rates are shown:
   $ coralview ops --platform rvv-core-mini-axi --peak-window 256 gemm_bf16_w64.fst | grep -E 'bursts over|^ops/cycle:'
   147456 ops (147456 floating point) in 1 bursts over 11736 cycles (69.9% of the trace)
   ops/cycle: 8.787 over the trace, 12.564 in bursts, peak 13.000 over 256 cycles to cycle 4601
+
+Zvt tile multiplies on the VME core's matrix engine, one instruction repeated on the four
+independent 32-bit accumulator tiles (mt0, mt4, mt8, mt12, each 16 x 16 elements over four tile
+registers), A and B held in vector registers. An instruction is 16 x 16 x tk multiply-adds,
+tk = 1 for FP32, 2 for BF16 and 4 for INT8. The PE array (64 PEs, each four INT8, two BF16 or
+one FP32 product a cycle) serves a 16 x 16 tile in four steps, so a tile multiply issues every
+4 cycles at best, whatever its type: the ceiling is 128 x tk operations a cycle, 128 for FP32,
+256 for BF16 and 512 for INT8, eight times the vector unit's INT8 multiply-add. Every kernel
+reaches it over its best window; `coralview tiles` shows the tile register file's 16 write
+ports (64 results a cycle) busy throughout the burst. The INT8 A is all ones: -1 to vtmms, 255
+to vtmmu.
+
+The VME simulator drains a kernel's last tile stores in a varying number of cycles, up to
+three more from one run to the next, so the kernel's cycles and the trace's length are masked
+below; the bursts end before the stores, and their rates do not vary.
+
+  $ ./coral_peak.exe tile_f32 tile vtfmm.tvv | sed -E 's/[0-9]+ cycles in the kernel/N cycles in the kernel/'
+  64 iterations of:
+    +00  vtfmm.tvv mt0, v8, v16
+    +04  vtfmm.tvv mt4, v8, v16
+    +08  vtfmm.tvv mt8, v8, v16
+    +0c  vtfmm.tvv mt12, v8, v16
+    +10  addi x11, x11, -1
+    +14  bne x11, x0, -20
+  vme-core-mini-axi: output as expected, N cycles in the kernel
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tile_f32.fst | grep -v '^root' | sed -E 's/ \([0-9.]+% of the trace\)//; s/^ops\/cycle: [0-9.]+ over the trace, /ops\/cycle: /'
+    unit   instructions     elements          ops
+    alu               2           32            0
+    vme             260        65600       131072
+    vmelsu           64         1024            0
+  131072 ops (131072 floating point) in 1 bursts over 1031 cycles
+  ops/cycle: 127.131 in bursts, peak 128.000 over 256 cycles to cycle 4075
+  bursts:
+         first       last   cycles   instrs        ops ops/cycle
+          3805       4835     1031      256     131072   127.131
+
+  $ ./coral_peak.exe tile_bf16 tile vtfmm.alt.tvv | sed -E 's/[0-9]+ cycles in the kernel/N cycles in the kernel/'
+  64 iterations of:
+    +00  vtfmm.alt.tvv mt0, v8, v16
+    +04  vtfmm.alt.tvv mt4, v8, v16
+    +08  vtfmm.alt.tvv mt8, v8, v16
+    +0c  vtfmm.alt.tvv mt12, v8, v16
+    +10  addi x11, x11, -1
+    +14  bne x11, x0, -20
+  vme-core-mini-axi: output as expected, N cycles in the kernel
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tile_bf16.fst | grep -v '^root' | sed -E 's/ \([0-9.]+% of the trace\)//; s/^ops\/cycle: [0-9.]+ over the trace, /ops\/cycle: /'
+    unit   instructions     elements          ops
+    alu               4           64            0
+    vme             260       131136       262144
+    vmelsu           64         1024            0
+  262144 ops (262144 floating point) in 1 bursts over 1031 cycles
+  ops/cycle: 254.262 in bursts, peak 256.000 over 256 cycles to cycle 4078
+  bursts:
+         first       last   cycles   instrs        ops ops/cycle
+          3808       4838     1031      256     262144   254.262
+
+  $ ./coral_peak.exe tile_i8u tile vtmmu.tvv | sed -E 's/[0-9]+ cycles in the kernel/N cycles in the kernel/'
+  64 iterations of:
+    +00  vtmmu.tvv mt0, v8, v16
+    +04  vtmmu.tvv mt4, v8, v16
+    +08  vtmmu.tvv mt8, v8, v16
+    +0c  vtmmu.tvv mt12, v8, v16
+    +10  addi x11, x11, -1
+    +14  bne x11, x0, -20
+  vme-core-mini-axi: output as expected, N cycles in the kernel
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tile_i8u.fst | grep -v '^root' | sed -E 's/ \([0-9.]+% of the trace\)//; s/^ops\/cycle: [0-9.]+ over the trace, /ops\/cycle: /'
+    unit   instructions     elements          ops
+    alu               8          128            0
+    vme             260       262208       524288
+    vmelsu           64         1024            0
+  524288 ops (0 floating point) in 1 bursts over 1032 cycles
+  ops/cycle: 508.031 in bursts, peak 512.000 over 256 cycles to cycle 4082
+  bursts:
+         first       last   cycles   instrs        ops ops/cycle
+          3811       4842     1032      256     524288   508.031
+
+  $ ./coral_peak.exe tile_i8s tile vtmms.tvv | sed -E 's/[0-9]+ cycles in the kernel/N cycles in the kernel/'
+  64 iterations of:
+    +00  vtmms.tvv mt0, v8, v16
+    +04  vtmms.tvv mt4, v8, v16
+    +08  vtmms.tvv mt8, v8, v16
+    +0c  vtmms.tvv mt12, v8, v16
+    +10  addi x11, x11, -1
+    +14  bne x11, x0, -20
+  vme-core-mini-axi: output as expected, N cycles in the kernel
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tile_i8s.fst | grep -v '^root' | sed -E 's/ \([0-9.]+% of the trace\)//; s/^ops\/cycle: [0-9.]+ over the trace, /ops\/cycle: /'
+    unit   instructions     elements          ops
+    alu               8          128            0
+    vme             260       262208       524288
+    vmelsu           64         1024            0
+  524288 ops (0 floating point) in 1 bursts over 1032 cycles
+  ops/cycle: 508.031 in bursts, peak 512.000 over 256 cycles to cycle 4082
+  bursts:
+         first       last   cycles   instrs        ops ops/cycle
+          3811       4842     1032      256     524288   508.031
+
+Matrix multiplies through Zvt: C = A x B in 16 x 16 tiles, M up to 16 as one row of tiles that
+many rows deep, a multiple of 32 as blocks of two full rows, W in passes of two tile columns, the
+last as wide as what is left of W. A pass keeps its tiles in the four accumulators, and each
+loaded slice of A or B serves every tile of its row or column. The tile multiplies are given the
+real rows (tm) and columns (tn), so `ops` counts what a partial tile computes. A and B are packed
+per tile, k-major, zero beyond M and W; a k step of two tiles is 128 contiguous bytes, taken by
+two `vle32.v` of 64 (at the tile configuration's SEW a 32-bit element spans four registers, so a
+load fills both tiles' interleaved slices without a change of `vtype`); one tile's slices load
+one at a time at their own width. The next step's operands load into a second buffer while the
+tile multiplies read the first. INT8 is signed on both sides (vtmms with `altfmt`) and
+accumulates into INT32, where the RVV kernel accumulates into INT16; these inputs give the same
+values in either.
+
+The engine's own shape, two full tile rows by two full tile columns: a k step is four 64-byte
+loads, about 6 cycles each, against 16 cycles of tile multiplies, so the load unit sets the pace
+at 16 / 24 of the ceiling, about 341, 171 and 85 operations a cycle for INT8, BF16 and FP32,
+whatever the type. Each kernel has 32 k steps a block and fits DTCM: with B in testbench RAM,
+its loads took three times as long.
+
+  $ ./coral_peak.exe tgemm_i8 | sed -E 's/[0-9]+ cycles in the kernel/N cycles in the kernel/'
+  C[64x32] int32 = A[64x128] int8 x B[128x32] int8, tiles 16 deep, 2 columns (the last 16 wide) in 1 pass; inner loop:
+    +00  vle32.v v0, 0(x11)
+    +04  addi x11, x11, 64
+    +08  vle32.v v4, 0(x11)
+    +0c  addi x11, x11, 64
+    +10  vle32.v v24, 0(x12)
+    +14  addi x12, x12, 64
+    +18  vle32.v v28, 0(x12)
+    +1c  addi x12, x12, 64
+    +20  vtmms.tvv mt0, v8, v16
+    +24  vtmms.tvv mt8, v9, v16
+    +28  vtmms.tvv mt4, v8, v17
+    +2c  vtmms.tvv mt12, v9, v17
+    +30  vle32.v v8, 0(x11)
+    +34  addi x11, x11, 64
+    +38  vle32.v v12, 0(x11)
+    +3c  addi x11, x11, 64
+    +40  vle32.v v16, 0(x12)
+    +44  addi x12, x12, 64
+    +48  vle32.v v20, 0(x12)
+    +4c  addi x12, x12, 64
+    +50  vtmms.tvv mt0, v0, v24
+    +54  vtmms.tvv mt8, v1, v24
+    +58  vtmms.tvv mt4, v0, v25
+    +5c  vtmms.tvv mt12, v1, v25
+    +60  addi x16, x16, -1
+    +64  bne x16, x0, -100
+  vme-core-mini-axi: output as expected, N cycles in the kernel
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tgemm_i8.fst | grep -E 'bursts over|^ops/cycle:' | sed -E 's/ \([0-9.]+% of the trace\)//; s/^ops\/cycle: [0-9.]+ over the trace, /ops\/cycle: /'
+  524288 ops (0 floating point) in 2 bursts over 1510 cycles
+  ops/cycle: 347.211 in bursts, peak 352.000 over 256 cycles to cycle 8509
+
+  $ ./coral_peak.exe tgemm_bf16 | grep -v '^  +' | sed -E 's/[0-9]+ cycles in the kernel/N cycles in the kernel/'
+  C[64x32] fp32 = A[64x64] bf16 x B[64x32] bf16, tiles 16 deep, 2 columns (the last 16 wide) in 1 pass; inner loop:
+  vme-core-mini-axi: output as expected, N cycles in the kernel
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tgemm_bf16.fst | grep -E 'bursts over|^ops/cycle:' | sed -E 's/ \([0-9.]+% of the trace\)//; s/^ops\/cycle: [0-9.]+ over the trace, /ops\/cycle: /'
+  262144 ops (262144 floating point) in 2 bursts over 1510 cycles
+  ops/cycle: 173.605 in bursts, peak 176.000 over 256 cycles to cycle 8509
+
+  $ ./coral_peak.exe tgemm_f32 | grep -v '^  +' | sed -E 's/[0-9]+ cycles in the kernel/N cycles in the kernel/'
+  C[64x32] fp32 = A[64x32] fp32 x B[32x32] fp32, tiles 16 deep, 2 columns (the last 16 wide) in 1 pass; inner loop:
+  vme-core-mini-axi: output as expected, N cycles in the kernel
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tgemm_f32.fst | grep -E 'bursts over|^ops/cycle:' | sed -E 's/ \([0-9.]+% of the trace\)//; s/^ops\/cycle: [0-9.]+ over the trace, /ops\/cycle: /'
+  131072 ops (131072 floating point) in 2 bursts over 1510 cycles
+  ops/cycle: 86.803 in bursts, peak 88.000 over 256 cycles to cycle 8509
+
+The RVV kernels' shapes, the same A, B and C as `gemm_<type>[_w<N>]`: M is 8 (INT8) or 9, so
+one row of tiles 8 or 9 deep. A step is two tile multiplies, half or less of each tile's rows
+used, for one tile of A (loaded a slice at a time) and two of B. INT8 at 4 x 3 + 2 x 6 = 24
+cycles a step makes 2 x 8 x 16 x 4 x 2 operations, 85 a cycle; BF16 at 2 x 4 + 12 = 20 cycles,
+58; FP32 at 6 + 12 = 18, 32. Against the RVV kernels' 31.3, 12.6 and 9.9: 2.5, 4.6 and 3.3
+times. W = 24 leaves the second tile column half used (tn = 8), at the same cycles; W = 48
+gives the INT8 kernel a pass of one column, a step at the same loads but half the tiles; a
+wider W adds passes, each with its own start.
+
+  $ ./coral_peak.exe tgemm_i8_rvv | sed -E 's/[0-9]+ cycles in the kernel/N cycles in the kernel/'
+  C[8x64] int32 = A[8x128] int8 x B[128x64] int8, tiles 8 deep, 4 columns (the last 16 wide) in 2 passes; inner loop:
+    +00  vle8.v v0, 0(x11)
+    +04  addi x11, x11, 16
+    +08  vle8.v v2, 0(x11)
+    +0c  addi x11, x11, 16
+    +10  vle8.v v4, 0(x11)
+    +14  addi x11, x11, 16
+    +18  vle8.v v6, 0(x11)
+    +1c  addi x11, x11, 16
+    +20  vle32.v v24, 0(x12)
+    +24  addi x12, x12, 64
+    +28  vle32.v v28, 0(x12)
+    +2c  addi x12, x12, 64
+    +30  vtmms.tvv mt0, v8, v16
+    +34  vtmms.tvv mt4, v8, v17
+    +38  vle8.v v8, 0(x11)
+    +3c  addi x11, x11, 16
+    +40  vle8.v v10, 0(x11)
+    +44  addi x11, x11, 16
+    +48  vle8.v v12, 0(x11)
+    +4c  addi x11, x11, 16
+    +50  vle8.v v14, 0(x11)
+    +54  addi x11, x11, 16
+    +58  vle32.v v16, 0(x12)
+    +5c  addi x12, x12, 64
+    +60  vle32.v v20, 0(x12)
+    +64  addi x12, x12, 64
+    +68  vtmms.tvv mt0, v0, v24
+    +6c  vtmms.tvv mt4, v0, v25
+    +70  addi x16, x16, -1
+    +74  bne x16, x0, -116
+  vme-core-mini-axi: output as expected, N cycles in the kernel
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tgemm_i8_rvv.fst | grep -E 'bursts over|^ops/cycle:' | sed -E 's/ \([0-9.]+% of the trace\)//; s/^ops\/cycle: [0-9.]+ over the trace, /ops\/cycle: /'
+  131072 ops (0 floating point) in 1 bursts over 1646 cycles
+  ops/cycle: 79.631 in bursts, peak 88.000 over 256 cycles to cycle 3754
+
+  $ ./coral_peak.exe tgemm_i8_rvv_w48 | grep -v '^  +' | sed -E 's/[0-9]+ cycles in the kernel/N cycles in the kernel/'
+  C[8x48] int32 = A[8x128] int8 x B[128x48] int8, tiles 8 deep, 3 columns (the last 16 wide) in 2 passes; inner loop:
+  vme-core-mini-axi: output as expected, N cycles in the kernel
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tgemm_i8_rvv_w48.fst | grep -E 'bursts over|^ops/cycle:' | sed -E 's/ \([0-9.]+% of the trace\)//; s/^ops\/cycle: [0-9.]+ over the trace, /ops\/cycle: /'
+  98304 ops (0 floating point) in 1 bursts over 1648 cycles
+  ops/cycle: 59.650 in bursts, peak 88.000 over 256 cycles to cycle 3201
+
+  $ ./coral_peak.exe tgemm_i8_rvv_w128 | grep -v '^  +' | sed -E 's/[0-9]+ cycles in the kernel/N cycles in the kernel/'
+  C[8x128] int32 = A[8x128] int8 x B[128x128] int8, tiles 8 deep, 8 columns (the last 16 wide) in 4 passes; inner loop:
+  vme-core-mini-axi: output as expected, N cycles in the kernel
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tgemm_i8_rvv_w128.fst | grep -E 'bursts over|^ops/cycle:' | sed -E 's/ \([0-9.]+% of the trace\)//; s/^ops\/cycle: [0-9.]+ over the trace, /ops\/cycle: /'
+  262144 ops (0 floating point) in 1 bursts over 3446 cycles
+  ops/cycle: 76.072 in bursts, peak 88.000 over 256 cycles to cycle 6031
+
+  $ ./coral_peak.exe tgemm_bf16_rvv | grep -v '^  +' | sed -E 's/[0-9]+ cycles in the kernel/N cycles in the kernel/'
+  C[9x32] fp32 = A[9x128] bf16 x B[128x32] bf16, tiles 9 deep, 2 columns (the last 16 wide) in 1 pass; inner loop:
+  vme-core-mini-axi: output as expected, N cycles in the kernel
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tgemm_bf16_rvv.fst | grep -E 'bursts over|^ops/cycle:' | sed -E 's/ \([0-9.]+% of the trace\)//; s/^ops\/cycle: [0-9.]+ over the trace, /ops\/cycle: /'
+  73728 ops (73728 floating point) in 1 bursts over 1262 cycles
+  ops/cycle: 58.422 in bursts, peak 58.500 over 256 cycles to cycle 3197
+
+  $ ./coral_peak.exe tgemm_bf16_rvv_w24 | grep -v '^  +' | sed -E 's/[0-9]+ cycles in the kernel/N cycles in the kernel/'
+  C[9x24] fp32 = A[9x128] bf16 x B[128x24] bf16, tiles 9 deep, 2 columns (the last 8 wide) in 1 pass; inner loop:
+  vme-core-mini-axi: output as expected, N cycles in the kernel
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tgemm_bf16_rvv_w24.fst | grep -E 'bursts over|^ops/cycle:' | sed -E 's/ \([0-9.]+% of the trace\)//; s/^ops\/cycle: [0-9.]+ over the trace, /ops\/cycle: /'
+  55296 ops (55296 floating point) in 1 bursts over 1262 cycles
+  ops/cycle: 43.816 in bursts, peak 43.875 over 256 cycles to cycle 2985
+
+  $ ./coral_peak.exe tgemm_bf16_rvv_w64 | grep -v '^  +' | sed -E 's/[0-9]+ cycles in the kernel/N cycles in the kernel/'
+  C[9x64] fp32 = A[9x128] bf16 x B[128x64] bf16, tiles 9 deep, 4 columns (the last 16 wide) in 2 passes; inner loop:
+  vme-core-mini-axi: output as expected, N cycles in the kernel
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tgemm_bf16_rvv_w64.fst | grep -E 'bursts over|^ops/cycle:' | sed -E 's/ \([0-9.]+% of the trace\)//; s/^ops\/cycle: [0-9.]+ over the trace, /ops\/cycle: /'
+  147456 ops (147456 floating point) in 1 bursts over 2682 cycles
+  ops/cycle: 54.980 in bursts, peak 58.500 over 256 cycles to cycle 4771
+
+  $ ./coral_peak.exe tgemm_f32_rvv | grep -v '^  +' | sed -E 's/[0-9]+ cycles in the kernel/N cycles in the kernel/'
+  C[9x32] fp32 = A[9x64] fp32 x B[64x32] fp32, tiles 9 deep, 2 columns (the last 16 wide) in 1 pass; inner loop:
+  vme-core-mini-axi: output as expected, N cycles in the kernel
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tgemm_f32_rvv.fst | grep -E 'bursts over|^ops/cycle:' | sed -E 's/ \([0-9.]+% of the trace\)//; s/^ops\/cycle: [0-9.]+ over the trace, /ops\/cycle: /'
+  36864 ops (36864 floating point) in 1 bursts over 1136 cycles
+  ops/cycle: 32.451 in bursts, peak 33.750 over 256 cycles to cycle 3203
+
+  $ ./coral_peak.exe tgemm_f32_rvv_w24 | grep -v '^  +' | sed -E 's/[0-9]+ cycles in the kernel/N cycles in the kernel/'
+  C[9x24] fp32 = A[9x64] fp32 x B[64x24] fp32, tiles 9 deep, 2 columns (the last 8 wide) in 1 pass; inner loop:
+  vme-core-mini-axi: output as expected, N cycles in the kernel
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tgemm_f32_rvv_w24.fst | grep -E 'bursts over|^ops/cycle:' | sed -E 's/ \([0-9.]+% of the trace\)//; s/^ops\/cycle: [0-9.]+ over the trace, /ops\/cycle: /'
+  27648 ops (27648 floating point) in 1 bursts over 1136 cycles
+  ops/cycle: 24.338 in bursts, peak 25.312 over 256 cycles to cycle 2991
+
+  $ ./coral_peak.exe tgemm_f32_rvv_w64 | grep -v '^  +' | sed -E 's/[0-9]+ cycles in the kernel/N cycles in the kernel/'
+  C[9x64] fp32 = A[9x64] fp32 x B[64x64] fp32, tiles 9 deep, 4 columns (the last 16 wide) in 2 passes; inner loop:
+  vme-core-mini-axi: output as expected, N cycles in the kernel
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tgemm_f32_rvv_w64.fst | grep -E 'bursts over|^ops/cycle:' | sed -E 's/ \([0-9.]+% of the trace\)//; s/^ops\/cycle: [0-9.]+ over the trace, /ops\/cycle: /'
+  73728 ops (73728 floating point) in 1 bursts over 2426 cycles
+  ops/cycle: 30.391 in bursts, peak 33.750 over 256 cycles to cycle 4773

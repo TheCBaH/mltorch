@@ -89,7 +89,23 @@ let%expect_test "a callee-saved register a kernel writes is stored and restored"
     gemm_f32_w24: [s0 s1]
     gemm_f32_w64: [s0 s1 s2 s3]
     gemm_bf16_w24: [s0 s1]
-    gemm_bf16_w64: [s0 s1 s2 s3] |}]
+    gemm_bf16_w64: [s0 s1 s2 s3]
+    tile_f32: []
+    tile_bf16: []
+    tile_i8u: []
+    tile_i8s: []
+    tgemm_i8: []
+    tgemm_bf16: []
+    tgemm_f32: []
+    tgemm_i8_rvv: []
+    tgemm_i8_rvv_w48: []
+    tgemm_i8_rvv_w128: []
+    tgemm_bf16_rvv: []
+    tgemm_bf16_rvv_w24: []
+    tgemm_bf16_rvv_w64: []
+    tgemm_f32_rvv: []
+    tgemm_f32_rvv_w24: []
+    tgemm_f32_rvv_w64: [] |}]
 
 let%expect_test "a VLMAX request is visible as a write to its register" =
   let vlmax =
@@ -116,7 +132,7 @@ let%expect_test "a VLMAX request is visible as a write to its register" =
          | Insn.Vsetvli _ as i ->
              not (List.exists (Insn.Reg_ref.equal (Gpr Gpr.t0)) (Insn.writes i))
          | _ -> true)
-       (insns (Peak.Gemm "i16")));
+       (insns (Peak.Gemm (I16, None))));
   [%expect
     {|
     t0

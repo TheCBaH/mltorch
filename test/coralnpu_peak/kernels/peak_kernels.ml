@@ -66,13 +66,21 @@ let pp_error ppf : error -> unit = function
 (* The one place a typed error becomes a string, for the command line. *)
 let to_cli r = Result.map_error (Fmt.str "%a" pp_error) (Err.export r)
 
-(* A kernel's items made into a module under [profile]: finalized, then lowered. *)
-let typed_module ~name items profile =
+(* Coral NPU's Zvt matrix instructions, from coralview's Rivet table of them:
+   one encoder, made once. *)
+let zvt =
+  Result.map
+    (Lower.Extension.make ~feature:Insn.zvt_feature)
+    (Coral_isa.Coral_zvt.definition ())
+
+(* A kernel's items made into a module under [profile]: finalized, then lowered
+   with the Zvt extension. *)
+let typed_module ~name ~extensions items profile =
   let widen_kernel (e : Kernel.error) : error = (e :> error) in
   let widen_lower (e : Lower.error) : error = (e :> error) in
   Err.bind
     (Err.map_error widen_kernel (Kernel.finalize ~name items))
-    (fun k -> Err.map_error widen_lower (Lower.module_ ~profile k))
+    (fun k -> Err.map_error widen_lower (Lower.module_ ~extensions ~profile k))
 
 type 'item module_ = 'item Asm_core.Normalized_ast.module_
 
@@ -84,13 +92,16 @@ type t = {
   inputs : string list;
   expected : string;
   shape : string;  (** One line naming the computation. *)
+  matrix : bool;
+      (** Zvt instructions: the matrix core runs it, with the matrix unit on. *)
 }
 
 (* The kernel as a module under [profile]. *)
 let build t profile : (Riscv32_encode.Instruction.t module_, string) result =
-  to_cli
-    (Err.bind (t.items ()) (fun items ->
-         typed_module ~name:"peak" items profile))
+  Result.bind zvt (fun zvt ->
+      to_cli
+        (Err.bind (t.items ()) (fun items ->
+             typed_module ~name:"peak" ~extensions:[ zvt ] items profile)))
 
 let slot placement size =
   { L.Slot.align = 64L; placement; size = Int64.of_int size }
@@ -274,6 +285,7 @@ let elementwise ~sew ~lmul op =
           inputs = [];
           expected = Bytes.to_string expected;
           shape = Printf.sprintf "%d iterations of:" iterations;
+          matrix = false;
         }
   | _ -> Error (Printf.sprintf "%s has no kernel at e%d,m%d" name sew lmul)
 
@@ -287,6 +299,22 @@ let elementwise ~sew ~lmul op =
    of A, so both slots carry that much padding. *)
 
 module Gemm = struct
+  (* The input types of the RVV kernels. Alphabetical. *)
+  module Input = struct
+    type t = Bf16 | F32 | I16 | I32 | I8
+
+    let all = [ Bf16; F32; I16; I32; I8 ]
+
+    let name = function
+      | Bf16 -> "bf16"
+      | F32 -> "f32"
+      | I16 -> "i16"
+      | I32 -> "i32"
+      | I8 -> "i8"
+
+    let of_name n = List.find_opt (fun t -> String.equal (name t) n) all
+  end
+
   type shape = {
     rows : int;  (** R *)
     width : int;  (** W *)
@@ -734,48 +762,44 @@ module Gemm = struct
            loop:"
           m s.width (Elem.name s.dst) m s.depth (Elem.name s.src) s.depth
           s.width (Elem.name s.src) s.rows;
+      matrix = false;
     }
 end
 
-(* [gemm "i8"], or with a width [gemm "i8_w48"]: narrower than a vector holds
-   leaves it partly idle, a multiple of it runs the rows once per column tile. *)
-let gemm name =
+(* Each RVV kernel's shape, with [width] if given, and its items. *)
+let gemm_kernel ?width (input : Gemm.Input.t) =
   let open Gemm in
-  let kernel, width =
-    match String.split_on_char '_' name with
-    | [ kernel ] -> (kernel, None)
-    | [ kernel; w ] when String.length w > 1 && w.[0] = 'w' ->
-        (kernel, Some (int_of_string (String.sub w 1 (String.length w - 1))))
-    | _ -> invalid_arg ("Peak_kernels.gemm: no kernel for " ^ name)
-  in
   let shape ~rows ~width:lanes ~depth ~blocks ~src ~dst ~sa ~sb () =
     let width = Option.value width ~default:lanes in
     { rows; width; depth; blocks; src; dst; sa; sb }
   in
-  match kernel with
-  | "bf16" ->
-      make
-        (shape ~rows:3 ~width:32 ~depth:128 ~blocks:3 ~src:Bf16 ~dst:F32 ~sa:1
-           ~sb:1 ())
-        bf16
-  | "f32" ->
-      make
-        (shape ~rows:3 ~width:32 ~depth:64 ~blocks:3 ~src:F32 ~dst:F32 ~sa:1
-           ~sb:1 ())
-        (word Scalar_ops.float)
-  | "i8" ->
-      make
-        (shape ~rows:2 ~width:64 ~depth:128 ~blocks:4 ~src:I8 ~dst:I16 ~sa:1
-           ~sb:1 ())
-        i8
-  | "i16" ->
-      make
-        (shape ~rows:3 ~width:32 ~depth:128 ~blocks:3 ~src:I16 ~dst:I32 ~sa:37
-           ~sb:53 ())
-        i16
-  | "i32" ->
-      make
-        (shape ~rows:3 ~width:32 ~depth:64 ~blocks:3 ~src:I32 ~dst:I32 ~sa:1009
-           ~sb:997 ())
-        (word Scalar_ops.int)
-  | _ -> invalid_arg ("Peak_kernels.gemm: no kernel for " ^ name)
+  match input with
+  | Bf16 ->
+      ( shape ~rows:3 ~width:32 ~depth:128 ~blocks:3 ~src:Bf16 ~dst:F32 ~sa:1
+          ~sb:1 (),
+        bf16 )
+  | F32 ->
+      ( shape ~rows:3 ~width:32 ~depth:64 ~blocks:3 ~src:F32 ~dst:F32 ~sa:1
+          ~sb:1 (),
+        word Scalar_ops.float )
+  | I8 ->
+      ( shape ~rows:2 ~width:64 ~depth:128 ~blocks:4 ~src:I8 ~dst:I16 ~sa:1
+          ~sb:1 (),
+        i8 )
+  | I16 ->
+      ( shape ~rows:3 ~width:32 ~depth:128 ~blocks:3 ~src:I16 ~dst:I32 ~sa:37
+          ~sb:53 (),
+        i16 )
+  | I32 ->
+      ( shape ~rows:3 ~width:32 ~depth:64 ~blocks:3 ~src:I32 ~dst:I32 ~sa:1009
+          ~sb:997 (),
+        word Scalar_ops.int )
+
+(* The shape of [gemm ?width input], which the Zvt kernels can take too. *)
+let gemm_shape ?width input = fst (gemm_kernel ?width input)
+
+(* [gemm I8], or with a width [gemm ~width:48 I8]: narrower than a vector holds
+   leaves it partly idle, a multiple of it runs the rows once per column tile. *)
+let gemm ?width input =
+  let s, items = gemm_kernel ?width input in
+  Gemm.make s items

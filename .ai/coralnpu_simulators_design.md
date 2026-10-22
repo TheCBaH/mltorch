@@ -260,14 +260,16 @@ local arrays, have no vector loops, and cost the same.
 ## Peak throughput (`test/coralnpu_peak`)
 
 `make coralnpu.peak.runtest` measures the RTL vector core (`rvv-core-mini-axi`)
-at its arithmetic ceilings. Every kernel is built from typed instructions (the
+and the VME core's matrix engine (`vme-core-mini-axi`) at their arithmetic
+ceilings. Every kernel is built from typed instructions (the
 typed RV32 kernel AST: registers, immediates and instructions as data, validated
 once, lowered to a Rivet module; never assembly text) under the BF16 vector
 profile, built by `Coral_image` like any other guest. An expect suite pins each
 kernel's encoded bytes, entry and exports with Rivet alone, so CI, which lacks
 these emulators, still catches a change; this suite runs the kernels. Its loop sits between the exported labels `peak_body` and
 `peak_body_end`. `Coral_image.t` carries the bound image, so the cram prints the
-loop as coralview's own decoder reads those bytes. The run passes
+loop as coralview's own decoder (`coral-isa`'s, which knows Zvt) reads those
+bytes. The run passes
 `--trace_file` (v0.0.4), and `coralview ops` reads the waveform back: ops per
 cycle over the trace, in bursts, and the best 256-cycle window. The host checks
 the kernel's `Out` slot against bytes it computed, so a wrong kernel fails before
@@ -280,6 +282,99 @@ SEW. One instruction repeated at LMUL=4 (two units, four uops) reaches it for
 every type: INT8/16/32 add and multiply, their multiply-adds and the widening
 ones, FP32 add, multiply and FMA, BF16 into FP32. At LMUL=1 an FP32 FMA reaches
 8.6 of 16, because the scalar core passes about one vector instruction a cycle.
+
+### Zvt tile multiplies
+
+coralview's `coral-isa` package is Coral's Zvt as a Rivet vendor extension: the
+rows of MPACT's decoder table, validated by Rivet under the feature
+`xcoralzvt`. The kernel AST has typed forms for the part the suite uses
+(`msetmtype`, `msettn`, `vtzero`, `vtse<N>`, and the tile multiplies `vtfmm`,
+`vtfmm.alt`, `vtmmu`, `vtmms` over a tile-register class `mt0`-`mt15`), and the
+lowering takes extensions as values (`Rv32_kernel_lower.Extension`), so
+`machine_rivet_riscv32` needs Rivet only. An extension instruction cannot go
+through the standard encoder, whose types are another functor instance's, so it
+is encoded alone by an encoder over the standard rows and the extension's, then
+placed as a word; Zvt has no fixups. Its configuration is the profile's
+features plus the extension's own, and the lowering refuses one that would
+bring anything else: Rivet enables a feature's requirements, so `xcoralzvt`
+would otherwise switch `zve32x` on under a scalar profile. The expect suite
+checks each form against Coral's words (`matrix.elf` and the VME tests). The
+runtime sets `mstatus.MS` to Initial for such a kernel (`Coral_image.build
+~matrix`), as it does `VS` for vector code.
+
+Each Zvt kernel repeats one tile multiply on the four independent 32-bit
+accumulator tiles `mt0`, `mt4`, `mt8`, `mt12` (16 x 16 elements, four tile
+registers each), with A and B in vector registers at the configuration the
+RTL needs: INT8 e8 m1, `tk` = 4; BF16 e16 m2 with `altfmt` (bit 8 of `vtype`,
+which only `msetmtype` can set), `tk` = 2; FP32 e32 m4, `tk` = 1. A's `tk`
+slices are a slice every two register groups from v8, B's from v16.
+
+The PE array at VLEN 128 has 64 PEs (4 blocks of 2 x 8), each taking four
+INT8, two BF16 or one FP32 product a cycle, and serves a 16 x 16 tile in four
+steps; so a tile multiply issues every 4 cycles at best whatever the type, and
+the ceiling is 2 x 16 x 16 x `tk` / 4 = 128 x `tk` operations a cycle. Each
+kernel reaches it over its best 256-cycle window (burst rate in brackets): FP32
+128 (127.1), BF16 256 (254.3), INT8 512 (508.0) signed or unsigned, eight times
+the vector unit's INT8 multiply-add. In the trace, the 64 results a cycle are the
+tile register file's 16 write ports of 16 bytes (4 blocks of 4 ports), all of
+them busy in 1022 of the burst's 1026 write cycles. Independent tiles are not
+needed for it: one tile updated back to back also reached 512 for INT8, so the
+array forwards its own accumulation without a bubble. The four tiles keep the
+kernel the shape of the elementwise ones. Nothing streams from memory here;
+these are the engine's ceilings, not a GEMM's.
+
+### Zvt matrix multiplies
+
+`tgemm_<type>` computes C = A x B for INT8, BF16 and FP32 in 16 x 16 tiles: M
+up to 16 is one row of tiles `tm` = M deep, a multiple of 32 blocks of two full
+rows; W runs in passes of two tile columns, the last `tn` = what is left of W
+wide. A pass keeps its tiles in the four accumulators, each loaded slice of A
+or B serving every tile of its row or column; with four 32-bit tiles, two by
+two is the arrangement that loads least per tile multiply. The tile multiplies
+get the real `tm` and `tn`, so `ops` counts what a partial tile computes. A and
+B are packed per tile, k-major, zero beyond M and W. A k step (the `tk` values a
+tile multiply reduces) of two tiles is 128 contiguous bytes, taken by two
+`vle32.v` of 64: at the tile configuration's SEW a 32-bit element spans four
+registers (EMUL 4), so one load fills both tiles' slices, which interleave (the
+second tile's start one register group past the first's), and `vtype` never
+changes, which only `msetmtype` could do without losing `mtype`. One tile's
+slices load one at a time at their own width. The next step loads into a
+second buffer while the tile multiplies read the first. INT8 is signed on both
+sides, `vtmms` with `altfmt`, which makes B signed too; without it B is
+unsigned. It accumulates into INT32 where the RVV kernel uses INT16; these
+inputs give the same values in either.
+
+The loads set the pace. At the engine's own shape (C 64 x 32, two full tile
+rows by two full columns) a k step is four 64-byte loads, about 6 cycles each,
+against 16 cycles of tile multiplies: about 24 cycles a step whatever the type,
+2/3 of the engine's ceiling. Over the bursts: INT8 347 (best window 352), BF16
+174 (176), FP32 87 (88). Each has 32 k steps a block and keeps A, B and C in
+DTCM: with B in testbench RAM (BF16 at K = 128, FP32 at K = 64), each of its
+loads took about 18 cycles instead of 6 and halved the rate.
+
+At the RVV kernels' shapes (`tgemm_<type>_rvv[_w<N>]`, the same A, B and C as
+`gemm_<type>[_w<N>]`, from the same table) M is 8 or 9: one row of tiles, a
+step two tile multiplies half used or less, for one tile of A and two of B.
+INT8 takes 4 x 3 + 2 x 6 = 24 cycles a step for 2 x 8 x 16 x 4 multiply-adds,
+85 operations a cycle at best (best window 88, burst 79.6 with the second
+pass's start); BF16 2 x 4 + 12 = 20 cycles, 58 (58.4); FP32 6 + 12 = 18, 32
+(32.5). That is 2.5, 4.6 and 3.3 times the RVV kernels on the same problem,
+against 11, 14 and 9 at the engine's shape: a small M costs the engine most of
+its advantage, since it keeps the loads and leaves the tiles' rows empty.
+W = 24 leaves the second tile column half used at the same cycles (BF16 43.8,
+FP32 24.3, against RVV's 9.5 and 7.4); W = 48 gives INT8 a pass of one column,
+whose steps load as much for half the tiles (59.7 over the burst); a wider W
+adds passes, each with its own start (INT8 W = 128 76.1, BF16 and FP32 W = 64
+55.0 and 30.4). A single row of tiles would load less per tile multiply four
+columns a pass, one tile of A for four of B, but four columns of B do not leave
+registers for a second buffer.
+
+The VME simulator is not cycle-deterministic: the same image's last tile stores
+drain in up to three more cycles from one run to the next, which moves the
+kernel's `mcycle` and the trace's length, never the bursts before them. The
+cram masks those two for the VME cases; the RVV core has not varied.
+
+### RVV matrix multiplies
 
 Matrix multiplies, RVV only (no Zvt), keep two or three rows of C in LMUL=8
 accumulators, stream B a row at a time and take A's values as scalars

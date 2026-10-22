@@ -1,13 +1,16 @@
 (* [coral_peak.exe NAME [VTYPE INSTRUCTION]]: builds a peak-throughput kernel
-   ({!Peak_kernels}: [gemm_<type>] or [gemm_<type>_w<N>], or INSTRUCTION repeated at VTYPE such as
-   [e8,m4]) into a Coral guest image, prints its timed loop as coralview decodes
+   ({!Peak_kernels}: [gemm_<type>] or [gemm_<type>_w<N>], INSTRUCTION repeated at VTYPE such as
+   [e8,m4], a Zvt tile multiply with VTYPE [tile], or a Zvt matrix multiply
+   [tgemm_<type>]) into a Coral guest image, prints its timed loop as coralview decodes
    the image's bytes, writes NAME.elf, runs it on the RTL vector core with its
    waveform traced to NAME.fst, and checks the kernel's output slot. Exits 1 on
    a wrong output or a failed run. CORALNPU_DATA names the emulators archive. *)
 
 module K = Peak_kernels
 
-let configuration = "rvv-core-mini-axi"
+(* The RTL vector core, or the one with the matrix engine for Zvt kernels. *)
+let configuration (k : K.t) =
+  if k.K.matrix then "vme-core-mini-axi" else "rvv-core-mini-axi"
 
 let or_exit pp = function
   | Ok v -> v
@@ -15,28 +18,65 @@ let or_exit pp = function
       Fmt.epr "%a@." pp e;
       exit 1
 
+(* [name] past [prefix], if it starts so. *)
+let after prefix name =
+  let n = String.length prefix in
+  if String.length name > n && String.sub name 0 n = prefix then
+    Some (String.sub name n (String.length name - n))
+  else None
+
 let kernel name args =
-  if String.length name > 5 && String.sub name 0 5 = "gemm_" then
-    K.gemm (String.sub name 5 (String.length name - 5))
-  else
-    match args with
-    | [ vtype; instr ] -> (
-        match String.split_on_char ',' vtype with
-        | [ e; m ] when e.[0] = 'e' && m.[0] = 'm' ->
-            let op =
-              match K.Vv_op.of_mnemonic instr with
-              | Some op -> op
-              | None ->
-                  invalid_arg ("coral_peak: no vector-vector form " ^ instr)
-            in
-            or_exit Fmt.string
-              (K.elementwise
-                 ~sew:(int_of_string (String.sub e 1 (String.length e - 1)))
-                 ~lmul:(int_of_string (String.sub m 1 (String.length m - 1)))
-                 op)
-        | _ -> invalid_arg ("coral_peak: VTYPE is eN,mN, not " ^ vtype))
-    | _ ->
-        invalid_arg "coral_peak: NAME VTYPE INSTRUCTION, or gemm_<type>[_w<N>]"
+  match (after "gemm_" name, after "tgemm_" name, args) with
+  | Some g, _, _ -> (
+      let input, width =
+        match String.split_on_char '_' g with
+        | [ t ] -> (t, None)
+        | [ t; w ] when String.length w > 1 && w.[0] = 'w' ->
+            (t, Some (int_of_string (String.sub w 1 (String.length w - 1))))
+        | _ -> invalid_arg ("coral_peak: no matrix multiply for " ^ g)
+      in
+      match K.Gemm.Input.of_name input with
+      | Some input -> K.gemm ?width input
+      | None -> invalid_arg ("coral_peak: no matrix multiply for " ^ g))
+  | _, Some t, _ -> (
+      let input, geometry =
+        match String.split_on_char '_' t with
+        | [ t ] -> (t, Peak_zvt.Tile_gemm.Geometry.Engine)
+        | [ t; "rvv" ] -> (t, Rvv { width = None })
+        | [ t; "rvv"; w ] when String.length w > 1 && w.[0] = 'w' ->
+            ( t,
+              Rvv
+                {
+                  width =
+                    Some (int_of_string (String.sub w 1 (String.length w - 1)));
+                } )
+        | _ -> invalid_arg ("coral_peak: no Zvt matrix multiply for " ^ t)
+      in
+      match Peak_zvt.Tile_gemm.Input.of_name input with
+      | Some input -> Peak_zvt.tile_gemm ~geometry input
+      | None -> invalid_arg ("coral_peak: no Zvt matrix multiply for " ^ t))
+  | _, _, [ "tile"; instr ] -> (
+      match K.Insn.Tile_op.of_mnemonic instr with
+      | Some op -> Peak_zvt.tile op
+      | None -> invalid_arg ("coral_peak: no tile multiply " ^ instr))
+  | _, _, [ vtype; instr ] -> (
+      match String.split_on_char ',' vtype with
+      | [ e; m ] when e.[0] = 'e' && m.[0] = 'm' ->
+          let op =
+            match K.Vv_op.of_mnemonic instr with
+            | Some op -> op
+            | None -> invalid_arg ("coral_peak: no vector-vector form " ^ instr)
+          in
+          or_exit Fmt.string
+            (K.elementwise
+               ~sew:(int_of_string (String.sub e 1 (String.length e - 1)))
+               ~lmul:(int_of_string (String.sub m 1 (String.length m - 1)))
+               op)
+      | _ -> invalid_arg ("coral_peak: VTYPE is eN,mN, not " ^ vtype))
+  | _ ->
+      invalid_arg
+        "coral_peak: NAME VTYPE INSTRUCTION, NAME tile INSTRUCTION, \
+         gemm_<type>[_w<N>] or tgemm_<type>"
 
 (* The words from [peak_body] to [peak_body_end], as coralview disassembles
    them, at their offsets from [peak_body]. *)
@@ -56,14 +96,14 @@ let print_body (image : Image.t) =
                 (Int64.of_int (String.length s.Image.bytes)))
       image.Image.segments
   in
-  let d = or_exit Fmt.string (Coralview.Rivet_decode.create ()) in
+  let d = or_exit Fmt.string (Coral_isa.Rivet_decode.create ()) in
   let base = Int64.to_int (Int64.sub first s.Image.address) in
   for k = 0 to (Int64.to_int (Int64.sub last first) / 4) - 1 do
     let word =
       Int32.to_int (String.get_int32_le s.Image.bytes (base + (4 * k)))
       land 0xFFFF_FFFF
     in
-    Fmt.pr "  +%02x  %s@." (4 * k) (Coralview.Rivet_decode.disasm d word)
+    Fmt.pr "  +%02x  %s@." (4 * k) (Coral_isa.Rivet_decode.disasm d word)
   done
 
 let () =
@@ -76,14 +116,14 @@ let () =
   let k = kernel name args in
   let profile =
     or_exit Coral_profile.pp_error
-      (Err.payload (Coral_profile.load ~dir configuration))
+      (Err.payload (Coral_profile.load ~dir (configuration k)))
   in
   let m = or_exit Fmt.string (K.build k K.rv32_profile) in
   let image =
     or_exit Coral_image.pp_error
       (Err.payload
-         (Coral_image.build ~rv32_profile:K.rv32_profile profile ~entry:K.entry
-            ~kernel:[ m ] k.K.slots))
+         (Coral_image.build ~rv32_profile:K.rv32_profile ~matrix:k.K.matrix
+            profile ~entry:K.entry ~kernel:[ m ] k.K.slots))
   in
   Fmt.pr "%s@." k.K.shape;
   print_body image.Coral_image.image;
@@ -109,5 +149,5 @@ let () =
     Fmt.pr "%s: the output differs from the expected one at byte %d@." name
       (miss 0);
     exit 1);
-  Fmt.pr "%s: output as expected, %Ld cycles in the kernel@." configuration
+  Fmt.pr "%s: output as expected, %Ld cycles in the kernel@." (configuration k)
     outcome.Coral_run.mcycle

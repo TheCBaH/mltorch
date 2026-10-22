@@ -1,6 +1,6 @@
 (* One line per peak kernel: every segment's size and MD5, the entry and every
    export as an offset from the fixed bind base. The cases are peak.t's, which
-   lists the same 31; keep the two in step. [listing] prints a kernel's
+   lists the same 47; keep the two in step. [listing] prints a kernel's
    instructions for investigating a difference (dune top
    test/coralnpu_peak/baseline). *)
 
@@ -9,8 +9,14 @@ module Rv32_image = Machine_rivet_riscv32.Rv32_image
 
 let base = 0x10000L
 
-(* [name vtype instruction], or [gemm_...] with no operands. *)
-type case = Elementwise of string * int * int * string | Gemm of string
+(* [name vtype instruction], [name tile instruction], or a matrix multiply
+   ([gemm_...] through RVV, [tgemm_...] through Zvt) with no operands. *)
+type case =
+  | Elementwise of string * int * int * string
+  | Gemm of K.Gemm.Input.t * int option
+      (** and its width, if not the default *)
+  | Tile of string * string
+  | Tile_gemm of Peak_zvt.Tile_gemm.Input.t * Peak_zvt.Tile_gemm.Geometry.t
 
 let elementwise name sew lmul instr = Elementwise (name, sew, lmul, instr)
 
@@ -32,24 +38,52 @@ let cases =
     elementwise "f32macc" 32 4 "vfmacc.vv";
     elementwise "bf16wmacc" 16 2 "vfwmaccbf16.vv";
     elementwise "f32macc_m1" 32 1 "vfmacc.vv";
-    Gemm "i8";
-    Gemm "i16";
-    Gemm "i32";
-    Gemm "f32";
-    Gemm "bf16";
-    Gemm "i8_w48";
-    Gemm "i8_w128";
-    Gemm "i16_w24";
-    Gemm "i16_w64";
-    Gemm "i32_w24";
-    Gemm "i32_w64";
-    Gemm "f32_w24";
-    Gemm "f32_w64";
-    Gemm "bf16_w24";
-    Gemm "bf16_w64";
+    Gemm (I8, None);
+    Gemm (I16, None);
+    Gemm (I32, None);
+    Gemm (F32, None);
+    Gemm (Bf16, None);
+    Gemm (I8, Some 48);
+    Gemm (I8, Some 128);
+    Gemm (I16, Some 24);
+    Gemm (I16, Some 64);
+    Gemm (I32, Some 24);
+    Gemm (I32, Some 64);
+    Gemm (F32, Some 24);
+    Gemm (F32, Some 64);
+    Gemm (Bf16, Some 24);
+    Gemm (Bf16, Some 64);
+    Tile ("tile_f32", "vtfmm.tvv");
+    Tile ("tile_bf16", "vtfmm.alt.tvv");
+    Tile ("tile_i8u", "vtmmu.tvv");
+    Tile ("tile_i8s", "vtmms.tvv");
+    Tile_gemm (I8, Engine);
+    Tile_gemm (Bf16, Engine);
+    Tile_gemm (F32, Engine);
+    Tile_gemm (I8, Rvv { width = None });
+    Tile_gemm (I8, Rvv { width = Some 48 });
+    Tile_gemm (I8, Rvv { width = Some 128 });
+    Tile_gemm (Bf16, Rvv { width = None });
+    Tile_gemm (Bf16, Rvv { width = Some 24 });
+    Tile_gemm (Bf16, Rvv { width = Some 64 });
+    Tile_gemm (F32, Rvv { width = None });
+    Tile_gemm (F32, Rvv { width = Some 24 });
+    Tile_gemm (F32, Rvv { width = Some 64 });
   ]
 
-let name = function Elementwise (n, _, _, _) -> n | Gemm g -> "gemm_" ^ g
+let name = function
+  | Elementwise (n, _, _, _) | Tile (n, _) -> n
+  | Gemm (g, w) ->
+      "gemm_" ^ K.Gemm.Input.name g
+      ^ Option.fold ~none:"" ~some:(Printf.sprintf "_w%d") w
+  | Tile_gemm (t, g) -> (
+      "tgemm_"
+      ^ Peak_zvt.Tile_gemm.Input.name t
+      ^
+      match g with
+      | Engine -> ""
+      | Rvv { width } ->
+          "_rvv" ^ Option.fold ~none:"" ~some:(Printf.sprintf "_w%d") width)
 
 let kernel = function
   | Elementwise (_, sew, lmul, instr) -> (
@@ -59,7 +93,12 @@ let kernel = function
           match K.elementwise ~sew ~lmul op with
           | Ok k -> k
           | Error e -> failwith e))
-  | Gemm g -> K.gemm g
+  | Gemm (g, width) -> K.gemm ?width g
+  | Tile (_, instr) -> (
+      match K.Insn.Tile_op.of_mnemonic instr with
+      | None -> failwith ("no tile multiply " ^ instr)
+      | Some op -> Peak_zvt.tile op)
+  | Tile_gemm (t, geometry) -> Peak_zvt.tile_gemm ~geometry t
 
 let module_ k =
   match K.build k K.rv32_profile with Ok m -> m | Error e -> failwith e
@@ -151,4 +190,20 @@ let%expect_test "peak kernels encode to the pinned bytes" =
     gemm_f32_w24 seg=[.text:196:acc17754aa524d2c01b8925e86b75036] entry=+0x0 exports=[peak_body=+0x44; peak_body_end=+0x90; peak_entry=+0x0]
     gemm_f32_w64 seg=[.text:256:7bfdc92c39c30a7ac30234199d3baa6f] entry=+0x0 exports=[peak_body=+0x54; peak_body_end=+0xa0; peak_entry=+0x0]
     gemm_bf16_w24 seg=[.text:232:0a9561c4b270c5e8d3b4849a8828fc52] entry=+0x0 exports=[peak_body=+0x54; peak_body_end=+0xa0; peak_entry=+0x0]
-    gemm_bf16_w64 seg=[.text:292:285ea3a671907e8d84adaf342d0c6b5d] entry=+0x0 exports=[peak_body=+0x64; peak_body_end=+0xb0; peak_entry=+0x0] |}]
+    gemm_bf16_w64 seg=[.text:292:285ea3a671907e8d84adaf342d0c6b5d] entry=+0x0 exports=[peak_body=+0x64; peak_body_end=+0xb0; peak_entry=+0x0]
+    tile_f32 seg=[.text:232:cac82aa07b9354433daea8da1b48d060] entry=+0x0 exports=[peak_body=+0x40; peak_body_end=+0x58; peak_entry=+0x0]
+    tile_bf16 seg=[.text:248:264a6ec96527d668427a8c89e39fe685] entry=+0x0 exports=[peak_body=+0x50; peak_body_end=+0x68; peak_entry=+0x0]
+    tile_i8u seg=[.text:256:2291f3145973912ef38aadada49fd4f1] entry=+0x0 exports=[peak_body=+0x58; peak_body_end=+0x70; peak_entry=+0x0]
+    tile_i8s seg=[.text:256:aa949c45e67ea9c4bc80e5a24ae952c0] entry=+0x0 exports=[peak_body=+0x58; peak_body_end=+0x70; peak_entry=+0x0]
+    tgemm_i8 seg=[.text:416:b6e9d30b7adf7d50f01775844f1b308a] entry=+0x0 exports=[peak_body=+0x68; peak_body_end=+0xd0; peak_entry=+0x0]
+    tgemm_bf16 seg=[.text:416:34479ad8fdcdc6ca4162dc748f065d13] entry=+0x0 exports=[peak_body=+0x68; peak_body_end=+0xd0; peak_entry=+0x0]
+    tgemm_f32 seg=[.text:416:e0e87e76a5d04dc17d00c5908c785f65] entry=+0x0 exports=[peak_body=+0x68; peak_body_end=+0xd0; peak_entry=+0x0]
+    tgemm_i8_rvv seg=[.text:676:021651b235c1c655fdfff32a5dce2879] entry=+0x0 exports=[peak_body=+0x70; peak_body_end=+0xe8; peak_entry=+0x0]
+    tgemm_i8_rvv_w48 seg=[.text:680:86e7387b5bf69b7ae927c5992a72d581] entry=+0x0 exports=[peak_body=+0x70; peak_body_end=+0xe8; peak_entry=+0x0]
+    tgemm_i8_rvv_w128 seg=[.text:1300:56e47cdafbf553b1da41830cfb8596e7] entry=+0x0 exports=[peak_body=+0x70; peak_body_end=+0xe8; peak_entry=+0x0]
+    tgemm_bf16_rvv seg=[.text:312:20eaae44738b18daa884a1b7affc1518] entry=+0x0 exports=[peak_body=+0x60; peak_body_end=+0xb8; peak_entry=+0x0]
+    tgemm_bf16_rvv_w24 seg=[.text:344:48361291331dc61a5c2f415eca910c97] entry=+0x0 exports=[peak_body=+0x64; peak_body_end=+0xcc; peak_entry=+0x0]
+    tgemm_bf16_rvv_w64 seg=[.text:576:6f3dcc4bfdfab2ebcc10c3856690d1ee] entry=+0x0 exports=[peak_body=+0x60; peak_body_end=+0xb8; peak_entry=+0x0]
+    tgemm_f32_rvv seg=[.text:288:8a422e6f8b78cb509895d8cd1f9ef302] entry=+0x0 exports=[peak_body=+0x58; peak_body_end=+0xa0; peak_entry=+0x0]
+    tgemm_f32_rvv_w24 seg=[.text:320:f9d446cef23757f071b675ef22f0b64d] entry=+0x0 exports=[peak_body=+0x5c; peak_body_end=+0xb4; peak_entry=+0x0]
+    tgemm_f32_rvv_w64 seg=[.text:528:f02ac613bcee0c7cd080adafbf8e3a1f] entry=+0x0 exports=[peak_body=+0x58; peak_body_end=+0xa0; peak_entry=+0x0] |}]
