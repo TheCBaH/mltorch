@@ -204,9 +204,7 @@ type prepared = { elf : string; lay : layout; profile : Rv32_profile.t }
 
 let prepare ?(profile = Rv32_profile.default) ?abi ~entry ~kernel slots =
   let lay = layout slots in
-  let min_vlenb =
-    match profile with Rv32_profile.Rv32imf_zve32f_ilp32f -> 16 | _ -> 0
-  in
+  let min_vlenb = if Rv32_profile.vector profile then 16 else 0 in
   match harness ?abi ~min_vlenb ~entry lay with
   | Error what -> Error (Fmt.str "the harness has no form for %s" what)
   | Ok h -> (

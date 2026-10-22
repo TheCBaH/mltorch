@@ -1586,11 +1586,12 @@ machine.rivet.a64.conformance: rivet.install
 
 # Typed Rivet RV32 images written as ELF and run under qemu-riscv32: the mmap
 # harness over hand-built kernels, and the RV32 Machine IR route (source
-# kernels, i64 programs and binary32 bundles, each a process). RV32 cannot run on any host CPU here, so
-# qemu-riscv32 must be on the path; its absence fails the run.
+# kernels, i64 programs and binary32 bundles, each a process) and the typed
+# kernel AST. RV32 cannot run on any host CPU here, so qemu-riscv32 must be on
+# the path; its absence fails the run.
 machine.rivet.rv32.runtest: rivet.install
 	command -v qemu-riscv32
-	opam exec -- dune build @test/machine_rivet_riscv32/runtest @test/machine_rivet_riscv32_mir/runtest --force
+	opam exec -- dune build @test/machine_rivet_riscv32/runtest @test/machine_rivet_riscv32_mir/runtest @test/rv32_kernel/runtest --force
 
 # The RV32 Machine IR route on real models (MANUAL, needs `make
 # pt2.download` for each): every invocation an ELF process under qemu-riscv32,

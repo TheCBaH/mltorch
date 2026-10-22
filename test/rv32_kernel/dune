@@ -1,0 +1,21 @@
+; The typed RV32 kernel AST: registers, immediates, instructions, finalization
+; and lowering through Rivet. Built where the RV32 Rivet encoder is installed;
+; no emulator is needed (peak.t runs the kernels).
+
+(library
+ (name rv32_kernel_test)
+ (libraries
+  err_trace
+  fmt
+  machine_rivet_riscv32
+  rivet.asm_core
+  rivet.foundation
+  rivet.image
+  rivet.riscv32_encode)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect))
+ (enabled_if
+  (and
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

@@ -19,7 +19,7 @@ let names : Rv32_profile.t -> string list = function
         "sqrtf";
         "truncf";
       ]
-  | Rv32imf_ilp32f | Rv32imf_zve32f_ilp32f ->
+  | Rv32imf_ilp32f | Rv32imf_zve32f_ilp32f | Rv32imf_zve32f_zvfbfwma_ilp32f ->
       [ "fabsf"; "fmaf"; "memcpy"; "memset"; "sqrtf"; "truncf" ]
 
 let fn name body =
@@ -91,4 +91,6 @@ let module_ ?(profile = Rv32_profile.default) () =
       @
       match profile with
       | Rv32_profile.Rv32imafd_ilp32d -> binary64 ()
-      | Rv32imf_ilp32f | Rv32imf_zve32f_ilp32f -> [])
+      | Rv32imf_ilp32f | Rv32imf_zve32f_ilp32f | Rv32imf_zve32f_zvfbfwma_ilp32f
+        ->
+          [])

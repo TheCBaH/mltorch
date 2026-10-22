@@ -40,11 +40,16 @@ image is planned, never silently stubbed.
 |---|---|---|---|---|
 | `Rv32imf_ilp32f` (default) | `none,+m,+f` | ILP32F, `rv32imf` | `memcpy`, `memset`, `fabsf`, `fmaf`, `sqrtf`, `truncf` | `-cpu rv32,d=false` |
 | `Rv32imf_zve32f_ilp32f` | `none,+m,+f,+zve32f` | ILP32F, `rv32imf_zve32f` | as the default | `-cpu rv32,d=false,zve32f=true,vlen=128,elen=32` |
+| `Rv32imf_zve32f_zvfbfwma_ilp32f` | `none,+m,+f,+zve32f,+zfbfmin,+zvfbfwma` | ILP32F, `rv32imf_zfbfmin_zve32f_zvfbfwma` | as the default | the vector one plus `zfbfmin`, `zvfbfmin`, `zvfbfwma` |
 | `Rv32imafd_ilp32d` | `none,+m,+a,+f,+d` | ILP32D, `rv32imafd` | the above plus `fabs`, `fma`, `sqrt` | default |
 
 Every feature set starts from `none`: Rivet's default configuration enables
 every component it has (C, B, the vector profiles and more), which no profile
-claims, and its requirements close each set (F brings Zicsr, Zve32f Zve32x).
+claims, and its requirements close each set (F brings Zicsr, Zve32f Zve32x,
+Zvfbfwma Zvfbfmin). The ELF ISA string is Rivet's `Riscv_isa.to_string` of that
+set under the 20191213 unprivileged specification, the edition GNU as and LLVM
+default to (`rv32i2p1_m2p0_f2p2_zicsr2p0_zmmul1p0` for the default), so it
+names exactly what the assembler admits; Rivet pins its output against LLVM 19.
 
 The default targets an RV32 core without the D extension (Coral NPU's are
 RV32IMF). Rivet's RISC-V `d` component owns every form that reads or writes a
@@ -56,14 +61,21 @@ qemu; with neither, it runs and the test's expectation breaks.
 
 The vector profile is Coral NPU's vector core: Zve32f (binary32 elements, no
 binary64 vector forms) at VLEN 128. Rivet's `zve32x`, `zve32f` and `zve64x`
-components own the vector forms, so the other two profiles refuse a vector
+components own the vector forms, so the two scalar profiles refuse a vector
 instruction when it is lowered, and qemu without Zve32f turns one into SIGILL
 (`test/machine_rivet_riscv32/vector_test.ml`; enabling `zve32f` in the default
 profile turns that test red through qemu). The same test runs one
 `vsetvli`-strip-mined image at VLEN 128, 256 and 1024, LMUL 1 and 8, with
-qemu's `rvv_ta_all_1s`, which fills tail elements with ones. The ISA string
-follows binutils' implications (Zve32x, Zvl32b, Zicsr) but has not been
-compared with an assembler's output.
+qemu's `rvv_ta_all_1s`, which fills tail elements with ones.
+
+The BF16 vector profile adds what the same core runs for BF16: Zvfbfwma's
+widening multiply-add (`vfwmaccbf16`) and the Zfbfmin and Zvfbfmin it requires,
+the BF16 part of upstream Coral NPU's `-march`
+(`rv32imf_zve32f_zicsr_zifencei_zbb_zfbfmin_zvfbfmin_zvfbfwma`). Zfbfmin brings
+`flh`, `fsh` and the half-word moves, so the core's missing Zfhmin stays off and
+its conversions (`fcvt.s.h`, `fcvt.h.s`) are refused. The emulator release's
+manifest lists no Zvfbfwma for the RVV cores, though their RTL runs
+`vfwmaccbf16`.
 
 The text pipeline (`Riscv32`) and the encoder (`Riscv32_encode`) each have a
 state; `Rv32_profile.config` is the one feature set both are made from.

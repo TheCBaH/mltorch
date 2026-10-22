@@ -119,11 +119,11 @@ let%expect_test "profiles without a vector extension refuse it" =
   run Rv32_profile.Rv32imafd_ilp32d (doubled "m1");
   [%expect
     {|
-    rv32imf-ilp32f: <synthesized by riscv32>: error[riscv32.feature]: vsetvli requires feature zve32x, which is not enabled
-    <synthesized by riscv32>: error[riscv32.feature]: vle32.v requires feature zve32x, which is not enabled
-    <synthesized by riscv32>: error[riscv32.feature]: vfmul.vf requires feature zve32f, which is not enabled
-    <synthesized by riscv32>: error[riscv32.feature]: vse32.v requires feature zve32x, which is not enabled
-    rv32imafd-ilp32d: <synthesized by riscv32>: error[riscv32.feature]: vsetvli requires feature zve32x, which is not enabled
-    <synthesized by riscv32>: error[riscv32.feature]: vle32.v requires feature zve32x, which is not enabled
-    <synthesized by riscv32>: error[riscv32.feature]: vfmul.vf requires feature zve32f, which is not enabled
-    <synthesized by riscv32>: error[riscv32.feature]: vse32.v requires feature zve32x, which is not enabled |}]
+    rv32imf-ilp32f: <synthesized by riscv32 from <synthesized by machine_rivet_riscv32>>: error[riscv32.feature]: vsetvli requires feature zve32x, which is not enabled
+    <synthesized by riscv32 from <synthesized by machine_rivet_riscv32>>: error[riscv32.feature]: vle32.v requires feature zve32x, which is not enabled
+    <synthesized by riscv32 from <synthesized by machine_rivet_riscv32>>: error[riscv32.feature]: vfmul.vf requires feature zve32f, which is not enabled
+    <synthesized by riscv32 from <synthesized by machine_rivet_riscv32>>: error[riscv32.feature]: vse32.v requires feature zve32x, which is not enabled
+    rv32imafd-ilp32d: <synthesized by riscv32 from <synthesized by machine_rivet_riscv32>>: error[riscv32.feature]: vsetvli requires feature zve32x, which is not enabled
+    <synthesized by riscv32 from <synthesized by machine_rivet_riscv32>>: error[riscv32.feature]: vle32.v requires feature zve32x, which is not enabled
+    <synthesized by riscv32 from <synthesized by machine_rivet_riscv32>>: error[riscv32.feature]: vfmul.vf requires feature zve32f, which is not enabled
+    <synthesized by riscv32 from <synthesized by machine_rivet_riscv32>>: error[riscv32.feature]: vse32.v requires feature zve32x, which is not enabled |}]

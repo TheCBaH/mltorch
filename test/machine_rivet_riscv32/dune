@@ -4,12 +4,14 @@
 (library
  (name machine_rivet_riscv32_test)
  (libraries
+  elf
   err_trace
   fmt
   machine_rivet_riscv32
   rivet.asm_core
   rivet.foundation
-  rivet.image)
+  rivet.image
+  rivet.target_features)
  (inline_tests)
  (preprocess
   (pps ppx_expect))

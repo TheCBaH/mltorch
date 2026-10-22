@@ -107,11 +107,11 @@ let%expect_test "binary64 only under the binary64 profile" =
     ~negate:true ();
   [%expect
     {|
-    prepare: <synthesized by riscv32>: error[riscv32.feature]: fld requires feature d, which is not enabled
-    <synthesized by riscv32>: error[riscv32.feature]: fneg.d requires feature d, which is not enabled
-    <synthesized by riscv32>: error[riscv32.feature]: fsd requires feature d, which is not enabled
-    <synthesized by riscv32>: error[riscv32.feature]: fld requires feature d, which is not enabled
-    <synthesized by riscv32>: error[riscv32.feature]: fsd requires feature d, which is not enabled
+    prepare: <synthesized by riscv32 from <synthesized by machine_rivet_riscv32>>: error[riscv32.feature]: fld requires feature d, which is not enabled
+    <synthesized by riscv32 from <synthesized by machine_rivet_riscv32>>: error[riscv32.feature]: fneg.d requires feature d, which is not enabled
+    <synthesized by riscv32 from <synthesized by machine_rivet_riscv32>>: error[riscv32.feature]: fsd requires feature d, which is not enabled
+    <synthesized by riscv32 from <synthesized by machine_rivet_riscv32>>: error[riscv32.feature]: fld requires feature d, which is not enabled
+    <synthesized by riscv32 from <synthesized by machine_rivet_riscv32>>: error[riscv32.feature]: fsd requires feature d, which is not enabled
     status 7
     slot 2: -0.5 -1 -1.5 -2 -2.5 -3 -3.5 -4 |}]
 

@@ -1,0 +1,14 @@
+; Compile-fail fixtures: what the type checker must reject. Same technique as
+; test/native/error_opacity.t, with every negative case beside a control.
+
+(toplevel
+ (name rv32_kernel_probe)
+ (libraries machine_rivet_riscv32))
+
+(cram
+ (applies_to typing)
+ (deps typing.sh rv32_kernel_probe.exe)
+ (enabled_if
+  (and
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))
