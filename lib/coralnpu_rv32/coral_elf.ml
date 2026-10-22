@@ -44,6 +44,46 @@ let home (p : Coral_profile.t) ~name ~address ~size =
 
 let htif_names = [ "tohost"; "fromhost"; "tohost_ready"; "fromhost_ready" ]
 
+(* The RTL simulators fill unloaded TCM with different bytes on every run, and
+   the core fetches up to 76 bytes past the last instruction: a stray word
+   there that predecodes as a jump costs a mispredicted fetch, 3 cycles. So
+   every PT_LOAD spans [fill_align]-aligned bounds, with at least
+   [fill_margin] bytes of zeros past its last section, within its region. *)
+let fill_align = 128L
+let fill_margin = 128L
+let align_down a = Int64.logand a (Int64.neg fill_align)
+let align_up a = align_down (Int64.add a (Int64.pred fill_align))
+
+let section_size (s : Elf.Exec.section) =
+  match s.content with Bytes b -> Int64.of_int (String.length b) | Zero n -> n
+
+(* [sections], in address order, between the zero sections that fill them out
+   to [r]'s aligned bounds. *)
+let fill (r : Coral_profile.Region.t) sections =
+  let zeros name addr size =
+    if size <= 0L then []
+    else
+      [
+        {
+          Elf.Exec.name = name ^ r.name;
+          addr;
+          align = 1L;
+          content = Bytes (String.make (Int64.to_int size) '\000');
+        };
+      ]
+  in
+  match (sections, List.rev sections) with
+  | (first : Elf.Exec.section) :: _, (last : Elf.Exec.section) :: _ ->
+      let lo = max r.base (align_down first.addr) in
+      let stop = Int64.add last.addr (section_size last) in
+      let hi =
+        min (Int64.add r.base r.size) (align_up (Int64.add stop fill_margin))
+      in
+      zeros ".fill_head." lo (Int64.sub first.addr lo)
+      @ sections
+      @ zeros ".fill." stop (Int64.sub hi stop)
+  | _ -> sections
+
 let write (p : Coral_profile.t) (l : Coral_layout.t) (image : Image.t) =
   let* entry = Err.of_option `No_entry image.entry in
   let image_sections =
@@ -74,12 +114,7 @@ let write (p : Coral_profile.t) (l : Coral_layout.t) (image : Image.t) =
   let* placed =
     Err.List.map
       (fun ((perms : Asm_core.Perms.t), (s : Elf.Exec.section)) ->
-        let size =
-          match s.content with
-          | Bytes b -> Int64.of_int (String.length b)
-          | Zero n -> n
-        in
-        let* r = home p ~name:s.name ~address:s.addr ~size in
+        let* r = home p ~name:s.name ~address:s.addr ~size:(section_size s) in
         Err.return (r.Coral_profile.Region.name, perms, s))
       (image_sections @ [ htif ])
   in
@@ -100,10 +135,11 @@ let write (p : Coral_profile.t) (l : Coral_layout.t) (image : Image.t) =
                   };
                 paddr = None;
                 sections =
-                  List.sort
-                    (fun (a : Elf.Exec.section) b ->
-                      Int64.compare a.addr b.addr)
-                    (List.map (fun (_, _, s) -> s) mine);
+                  fill r
+                    (List.sort
+                       (fun (a : Elf.Exec.section) b ->
+                         Int64.compare a.addr b.addr)
+                       (List.map (fun (_, _, s) -> s) mine));
               })
       p.regions
   in

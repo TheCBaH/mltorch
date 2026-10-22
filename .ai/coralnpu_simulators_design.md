@@ -120,8 +120,12 @@ digest, payload size.
 The ELF has one PT_LOAD per memory region, holding that region's sections in
 address order. The layout packs DTCM, so data and the HTIF block share a
 page, which separate PT_LOADs could not. Every byte is explicit, zero-filled
-tails included, because the RTL testbench loads by copying file bytes. A
-segment outside a `loadable` region is refused before anything is built.
+tails included, because the RTL testbench loads by copying file bytes. Zero
+sections (`.fill_head.<region>`, `.fill.<region>`) stretch each PT_LOAD to
+128-byte bounds with at least 128 bytes of zeros past its end, within its
+region, so the core never fetches TCM the run left random (see the peak
+suite's notes on run-to-run variation). A segment outside a `loadable` region
+is refused before anything is built.
 
 `.htif` is 256 zero bytes at the layout's address, under the four HTIF
 symbols; `_start` marks the entry. The ABI is ILP32F with arch
@@ -369,10 +373,16 @@ adds passes, each with its own start (INT8 W = 128 76.1, BF16 and FP32 W = 64
 columns a pass, one tile of A for four of B, but four columns of B do not leave
 registers for a second buffer.
 
-The VME simulator is not cycle-deterministic: the same image's last tile stores
-drain in up to three more cycles from one run to the next, which moves the
-kernel's `mcycle` and the trace's length, never the bursts before them. The
-cram masks those two for the VME cases; the RVV core has not varied.
+The RTL simulators fill TCM the ELF does not load with different bytes on
+every run, and the core fetches up to 76 bytes past the last instruction. A
+stray word there that predecodes as a jump (a `jal` after the final `ret`)
+sends a fetch to a garbage address, which fails with DECERR and costs 3 cycles:
+the same image took 84070 or 84073 cycles on the RVV core and 1473 or 1476 on
+the VME. `Coral_elf` therefore zero-fills each PT_LOAD to 128-byte bounds, at
+least 128 bytes past its end, and every core's `mcycle` repeats exactly. The
+traces still differ from run to run: a load returns its whole 16-byte DTCM row,
+and the row's unwritten bytes (stack, past an output) are random, with no
+effect on timing.
 
 ### RVV matrix multiplies
 

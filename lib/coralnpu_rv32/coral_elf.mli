@@ -4,8 +4,11 @@
     order: the layout packs DTCM, so its data segments and the HTIF block can
     share a page, which separate PT_LOADs could not. Every byte is explicit,
     zero-filled tails included, because the RTL testbench loads by copying the
-    file's bytes. A segment outside a [loadable] region is refused before any
-    ELF is built.
+    file's bytes. Zero sections ([.fill_head.<region>], [.fill.<region>])
+    stretch each PT_LOAD to 128-byte bounds with at least 128 bytes of zeros
+    past its end, within its region: the RTL simulators fill unloaded TCM
+    differently on every run, and the core fetches past the last instruction. A
+    segment outside a [loadable] region is refused before any ELF is built.
 
     The HTIF block is a [.htif] section of zeros at the layout's address, with
     the simulators' four symbols over it, plus [_start] at the entry. The ABI is

@@ -101,8 +101,8 @@ let%expect_test "an image per profile" =
     {|
     -- tiny-mpact
     entry 0x0 flags 0x2
-    LOAD vaddr 0x00000000 filesz 4 memsz 4 flags 5
-    LOAD vaddr 0x00010000 filesz 320 memsz 320 flags 6
+    LOAD vaddr 0x00000000 filesz 256 memsz 256 flags 5
+    LOAD vaddr 0x00010000 filesz 512 memsz 512 flags 6
     tohost          0x00010040 size 8
     fromhost        0x00010080 size 8
     tohost_ready    0x000100c0 size 8
@@ -110,8 +110,8 @@ let%expect_test "an image per profile" =
     _start          0x00000000 size 0
     -- tiny-rtl
     entry 0x0 flags 0x2
-    LOAD vaddr 0x00000000 filesz 4 memsz 4 flags 5
-    LOAD vaddr 0x00010000 filesz 320 memsz 320 flags 6
+    LOAD vaddr 0x00000000 filesz 256 memsz 256 flags 5
+    LOAD vaddr 0x00010000 filesz 512 memsz 512 flags 6
     tohost          0x00010040 size 8
     fromhost        0x00010080 size 8
     tohost_ready    0x000100c0 size 8
