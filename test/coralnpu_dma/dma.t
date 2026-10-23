@@ -114,7 +114,7 @@ slowed at all, but the DMA's writes into DTCM wait: it advances at about 70%
 of its own rate until the core stops.
 
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-normal overlap alu 8192 1800 overlap sram-read 8192 80 overlap dtcm-read 8192 360 overlap dtcm-write 8192 360
-  overlap alu 8192 x1800: work 7211 alone, 7221 beside the DMA; DMA 7219 alone, 7245 in all; 100% of the shorter hidden
+  overlap alu 8192 x1800: work 5413 alone, 5426 beside the DMA; DMA 7219 alone, 7214 in all; 100% of the shorter hidden
   overlap sram-read 8192 x80: work 6732 alone, 6749 beside the DMA; DMA 7219 alone, 7221 in all; 100% of the shorter hidden
   overlap dtcm-read 8192 x360: work 7212 alone, 7229 beside the DMA; DMA 7219 alone, 9381 in all; 70% of the shorter hidden
   overlap dtcm-write 8192 x360: work 7896 alone, 7910 beside the DMA; DMA 7219 alone, 10093 in all; 70% of the shorter hidden
