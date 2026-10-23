@@ -66,17 +66,19 @@ let case s =
 let params = { Coral_layout.Params.stack = 2048L; staging = 0L }
 
 (* Builds and runs one kernel: its timings slot's bytes, or exit 1. *)
-let execute dir p ~name ~items ~slots ~inputs ~timings ~dst ~expected =
+let execute ?(matrix = false) dir p ~name ~items ~slots ~inputs ~timings ~dst
+    ~expected =
+  let extensions = if matrix then [ or_exit Fmt.string K.zvt ] else [] in
   let m =
     or_exit Fmt.string
       (K.to_cli
          (Err.bind (items ()) (fun items ->
-              K.typed_module ~name:"dma" ~extensions:[] items K.rv32_profile)))
+              K.typed_module ~name:"dma" ~extensions items K.rv32_profile)))
   in
   let image =
     or_exit Coral_image.pp_error
       (Err.payload
-         (Coral_image.build ~params ~rv32_profile:K.rv32_profile p
+         (Coral_image.build ~params ~rv32_profile:K.rv32_profile ~matrix p
             ~entry:K.entry ~kernel:[ m ] slots))
   in
   let inputs =
@@ -95,12 +97,12 @@ let execute dir p ~name ~items ~slots ~inputs ~timings ~dst ~expected =
       if not (Coral_soc_run.matches o dst expected) then (
         Fmt.pr "%s: the destination is wrong@." name;
         exit 1);
-      List.assoc timings o.read_back
+      (List.assoc timings o.read_back, o)
 
 let word t k = Int32.to_int (String.get_int32_le t (4 * k))
 
 let copy dir p (s : C.sweep) =
-  let t =
+  let t, _ =
     execute dir p ~name:(C.name s) ~items:(C.items s) ~slots:(C.slots s)
       ~inputs:(C.inputs p s) ~timings:C.timings_slot ~dst:C.dst_slot
       ~expected:(C.expected s)
@@ -130,7 +132,7 @@ let overlap dir p work length trips =
         ];
     }
   in
-  let t =
+  let t, _ =
     execute dir p ~name:(O.name s) ~items:(O.items s) ~slots:(O.slots s)
       ~inputs:(O.inputs p s) ~timings:O.timings_slot ~dst:O.dst_slot
       ~expected:(O.expected s)
@@ -145,6 +147,21 @@ let overlap dir p work length trips =
     *. float_of_int (work_alone + dma_alone - dma_both)
     /. float_of_int (min work_alone dma_alone))
 
+module G = Dma_gemm
+
+let gemm dir p (g : G.t) =
+  let t, (o : Coral_soc_run.outcome) =
+    execute ~matrix:(G.Engine.matrix g.engine) dir p ~name:(G.name g)
+      ~items:(G.items g) ~slots:(G.slots g) ~inputs:(G.inputs p g)
+      ~timings:G.Slot.timings ~dst:G.Slot.c ~expected:(G.expected g)
+  in
+  Fmt.pr
+    "%s: C as expected, %Ld cycles, %.1f ops/cycle; %d waiting for B and the \
+     first block, %d for the rest@."
+    (G.name g) o.mcycle
+    (float_of_int (G.ops g) /. Int64.to_float o.mcycle)
+    (word t 1) (word t 0)
+
 let () =
   let dir = Sys.argv.(1) in
   let p =
@@ -152,6 +169,22 @@ let () =
       (Err.payload (Coral_profile.load ~dir Sys.argv.(2)))
   in
   let rec sweeps = function
+    | "gemm" :: engine :: blocks :: width :: depth :: rest ->
+        let engine =
+          match engine with
+          | "rvv-i8" -> G.Engine.Rvv_i8
+          | "zvt-f32" -> Zvt_f32
+          | "zvt-i8" -> Zvt_i8
+          | e -> invalid_arg ("dma_bench: no matrix multiply " ^ e)
+        in
+        gemm dir p
+          {
+            G.blocks = int_of_string blocks;
+            depth = int_of_string depth;
+            engine;
+            width = int_of_string width;
+          };
+        sweeps rest
     | "overlap" :: w :: length :: trips :: rest ->
         overlap dir p (work w) (int_of_string length) (int_of_string trips);
         sweeps rest

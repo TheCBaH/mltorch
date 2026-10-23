@@ -536,3 +536,36 @@ streams DTCM at its full rate (RVV loads or stores), the core is not slowed,
 but the DMA's writes into DTCM lose arbitration and it advances at about 70% of
 its rate until the core stops. A kernel paced by its DTCM loads therefore gets
 about 0.8 B/cycle of DMA in the background, not 1.14.
+
+### Matrix multiplies fed by the DMA (`test/coralnpu_dma/gemm.t`)
+
+`Dma_gemm` computes C[M x W] = A[M x K] B[K x W] with A, B and C in SRAM. B is
+resident: a prologue chain copies it into DTCM once. A streams a block of rows
+at a time into a two-block ring in DTCM, and C's rows are staged in a second
+ring and copied out. Step i computes block i while one chain writes out block
+i - 1's rows and fetches block i + 1; the chain starts before the block (after
+a `fence`, since it may copy rows just stored) and is waited for after it. A
+start while the engine is busy is ignored, so the wait is what keeps a chain
+from being dropped: removing it fails the DMA-bound cases (the compute-bound
+RVV one hides it), and swapping the ring halves fails every case. Each matrix
+crosses the bus once, the least any order moves. The block is the peak
+kernels' own (`Peak_zvt.Tile_gemm.block_items` was split out of its kernel,
+with the peak bytes unchanged), packed as they pack it, and C is checked
+against the host's product.
+
+| Engine, SoC | M x W x K | ops/cycle | DMA wait (prologue / rest) |
+|---|---|---|---|
+| RVV INT8 -> INT16, 32 KiB DTCM | 256 x 64 x 256 | 29.0 | 14818 / 2804 of 289036 |
+| Zvt INT8 -> INT32, 32 KiB DTCM | 128 x 32 x 128 | 31.0 | 7202 / 21516 of 33774 |
+| Zvt INT8 -> INT32, 1 MiB DTCM | 256 x 128 x 512 | 107.5 | 71714 / 128048 of 312122 |
+| Zvt FP32, 1 MiB DTCM | 256 x 128 x 256 | 32.8 | 143394 / 158050 of 512108 |
+
+RVV hides the DMA entirely: past the prologue it runs at 30.6, the peak suite's
+DTCM-resident 31.3. Zvt consumes operands so much faster that the DMA sets its
+pace: a DMA-bound kernel takes at least the bytes moved over about 1.1 B/cycle,
+A (M K s), B (K W s) and C (M W c) for s-byte inputs and c-byte results, so its
+rate is at most 2 / (s/W + s/M + c/K) times that. On the 32 KiB SoC the panels
+stay too small and Zvt INT8 does no better than RVV; with 1 MiB, B's panel and
+the rings grow and INT8 reaches 3.4 times RVV (the 320 KiB moved at 1.03
+B/cycle). FP32 moves four bytes an element and is held to a third of its
+engine's rate.

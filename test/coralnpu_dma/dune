@@ -16,7 +16,7 @@
   machine_rivet_riscv32))
 
 (cram
- (applies_to dma)
+ (applies_to dma gemm)
  (deps %{exe:dma_bench.exe} (universe))
  (enabled_if
   (<> %{env:CORALNPU_SUBSYSTEM_DATA=} "")))

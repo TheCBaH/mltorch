@@ -310,14 +310,21 @@ module Tile_gemm = struct
     in
     Ok (List.concat per_column)
 
-  let items p () =
+  (* Bytes of A's block of rows, and of a row of C. *)
+  let a_block p =
+    p.s.depth / p.t.tk * p.tile_rows * tile * p.t.tk * Elem.bytes p.s.src
+
+  let c_row p = p.s.width * Elem.bytes p.s.dst
+
+  (* One block of rows: every pass over A's block at [a3] and B at [a7], C's
+     rows stored from [a4], [c_row p] apart; [a3] and [a4] are left as they
+     were. Writes [a1], [a2], [a6], [t1]-[t5]. *)
+  let block_items p =
     let open Err.Syntax in
     let open Gpr in
     let src = Elem.bytes p.s.src and dst = Elem.bytes p.s.dst in
     let k_steps = p.s.depth / p.t.tk in
-    let a_block = k_steps * p.tile_rows * tile * p.t.tk * src in
-    let c_row = p.s.width * dst in
-    let block = Label.named "peak_block" in
+    let c_row = c_row p in
     let* config =
       Tile.configure
         ~mtype:((p.tm lsl 10) lor (p.t.tk lsl 5) lor p.t.mtwiden)
@@ -389,12 +396,19 @@ module Tile_gemm = struct
             @ first_a @ first_b @ body @ moves @ List.concat stores))
         (List.mapi (fun k cols -> (k, cols)) (passes p))
     in
-    let* next_a = Insn.load_imm t2 a_block in
-    let* next_c = Insn.load_imm t2 (2 * tile * c_row) in
+    Ok (List.concat pass_items)
+
+  let items p () =
+    let open Err.Syntax in
+    let open Gpr in
+    let block = Label.named "peak_block" in
+    let* blocks = block_items p in
+    let* next_a = Insn.load_imm t2 (a_block p) in
+    let* next_c = Insn.load_imm t2 (2 * tile * c_row p) in
     Ok
       (start_items
       @ [ lw a3 a0 0; lw a7 a0 4; lw a4 a0 8; li a5 p.blocks; Item.label block ]
-      @ List.concat pass_items @ List.map Item.insn next_a
+      @ blocks @ List.map Item.insn next_a
       @ [ add a3 a3 t2 ]
       @ List.map Item.insn next_c
       @ [ add a4 a4 t2 ]
