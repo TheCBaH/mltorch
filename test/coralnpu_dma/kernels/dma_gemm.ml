@@ -51,7 +51,38 @@ module Engine = struct
   let matrix = function Rvv_i8 -> false | Zvt_f32 | Zvt_i8 -> true
 end
 
-type t = { blocks : int; depth : int; engine : Engine.t; width : int }
+(* Who copies C's rows out to SRAM. Alphabetical. *)
+module Out = struct
+  type t =
+    | Core  (** the block's own stores, straight to SRAM: no C ring *)
+    | Dma  (** staged in the C ring, copied by the next step's chain *)
+
+  let name = function Core -> "c-by-core" | Dma -> "c-by-dma"
+end
+
+(* Who copies B into DTCM in the prologue. Alphabetical. *)
+module Prologue = struct
+  type t =
+    | Dma  (** the prologue chain, with the core waiting *)
+    | Shared
+        (** the chain takes a quarter of B, the core's RVV copy the rest beside
+            it: the core copies 2.4 bytes a cycle, the DMA 0.8 while the core
+            writes DTCM *)
+
+  let name = function Dma -> "b-by-dma" | Shared -> "b-shared"
+end
+
+(* The bytes an RVV copy moves a trip: two e8 m8 groups. *)
+let core_trip = 256
+
+type t = {
+  blocks : int;
+  depth : int;
+  engine : Engine.t;
+  out : Out.t;
+  prologue : Prologue.t;
+  width : int;
+}
 
 let rows t = Engine.rows t.engine
 
@@ -125,7 +156,7 @@ let slots t =
   check t;
   let _, b = packed t in
   let b_size = String.length b in
-  let steps = 4 * (t.blocks + 3) in
+  let steps = 4 * (t.blocks + 4) in
   let chains = D.Descriptor.size * ((2 * t.blocks) + 2) in
   L.Placement.
     [
@@ -137,7 +168,8 @@ let slots t =
         (Int64.of_int (b_size + b_pad t));
       L.Slot.make ~home:Dtcm ~align:64L Scratch
         (Int64.of_int ((2 * a_block t) + a_pad t));
-      L.Slot.make ~home:Dtcm ~align:64L Scratch (Int64.of_int (2 * c_block t));
+      L.Slot.make ~home:Dtcm ~align:64L Scratch
+        (Int64.of_int (match t.out with Dma -> 2 * c_block t | Core -> 16));
       L.Slot.make ~home:Dtcm ~align:16L In (Int64.of_int steps);
       L.Slot.make ~home:Ram ~align:32L In (Int64.of_int chains);
       L.Slot.make ~home:Dtcm ~align:16L Out 16L;
@@ -176,15 +208,27 @@ let inputs p t (l : L.t) =
       ~dst:(off c (i * c_block t))
       (Int64.of_int (c_block t))
   in
+  (* The core's share of B, from its start, in whole 256-byte trips. *)
+  let b_size = String.length b_bytes in
+  let by_core =
+    match t.prologue with
+    | Dma -> 0
+    | Shared -> b_size * 3 / 4 / core_trip * core_trip
+  in
   let pre =
-    pieces ~src:b ~dst:(address Slot.b_dtcm) (String.length b_bytes)
+    (if by_core < b_size then
+       pieces ~src:(off b by_core)
+         ~dst:(off (address Slot.b_dtcm) by_core)
+         (b_size - by_core)
+     else [])
     @ [ a_in 0 ]
   in
+  let by_dma = match t.out with Dma -> true | Core -> false in
   let per i =
-    (if i > 0 then [ c_out (i - 1) ] else [])
+    (if i > 0 && by_dma then [ c_out (i - 1) ] else [])
     @ if i + 1 < t.blocks then [ a_in (i + 1) ] else []
   in
-  let post = [ c_out (t.blocks - 1) ] in
+  let post = if by_dma then [ c_out (t.blocks - 1) ] else [] in
   let chains = (pre :: List.init t.blocks per) @ [ post ] in
   let open Err.Syntax in
   let* placed, _ =
@@ -207,7 +251,10 @@ let inputs p t (l : L.t) =
       "";
       "";
       "";
-      Dma_copy.words (t.blocks :: List.map (fun (a, _) -> Int64.to_int a) placed);
+      Dma_copy.words
+        (match List.map (fun (a, _) -> Int64.to_int a) placed with
+        | pre :: rest -> t.blocks :: pre :: by_core :: rest
+        | [] -> assert false);
       String.concat "" (List.map snd placed);
     ]
 
@@ -245,6 +292,34 @@ let wait ~into ~skip ~poll =
     sub Gpr.t3 Gpr.t3 Gpr.t2;
     add into into Gpr.t3;
     Item.label skip;
+  ]
+
+(* The core's share of B, [bytes_at] bytes into the steps ([s2]), copied by
+   RVV from the table's slot at [src] to [dst], 256 bytes a trip, while the
+   prologue chain runs. Writes [a1], [a5], [t6]. *)
+let core_copy ~src ~dst ~bytes_at =
+  let open Gpr in
+  let trip = Label.named "b_trip" and none = Label.named "b_none" in
+  let e8 = Vtype.Sew.E8 in
+  [
+    lw t6 s2 bytes_at;
+    beqz t6 none;
+    lw a1 a0 src;
+    mv a5 dst;
+    srli t6 t6 8;
+    vset_item 8 8;
+    Item.label trip;
+    vle e8 Vreg.v0 a1;
+    addi a1 a1 128;
+    vle e8 Vreg.v8 a1;
+    addi a1 a1 128;
+    vse e8 Vreg.v0 a5;
+    addi a5 a5 128;
+    vse e8 Vreg.v8 a5;
+    addi a5 a5 128;
+    addi t6 t6 (-1);
+    bnez t6 trip;
+    Item.label none;
   ]
 
 (* The peak kernel's INT8 block: A from [a1], B from [s1], C's two rows to
@@ -317,6 +392,7 @@ let items t () =
   let* dma = Insn.load_imm s3 (Int64.to_int D.base) in
   let* to_odd_a = G.add_imm a_at (a_block t) in
   let* to_odd_c = G.add_imm c_at (c_block t) in
+  let* next_c = G.add_imm s5 (c_block t) in
   let* body =
     match t.engine with
     | Rvv_i8 -> Ok (rvv_i8_block t)
@@ -330,19 +406,20 @@ let items t () =
         lw s1 a0 (4 * Slot.b_dtcm);
         lw s2 a0 (4 * Slot.steps);
         lw s4 a0 (4 * Slot.a_ring);
-        lw s5 a0 (4 * Slot.c_ring);
+        lw s5 a0 (4 * match t.out with Dma -> Slot.c_ring | Core -> Slot.c);
         lw s8 a0 (4 * Slot.timings);
         mv a7 s1;
       ]
     @ List.map Item.insn dma
     @ [ li s7 0; lw s9 s2 4 ]
     @ start ~skip:(label "pre_started")
+    @ core_copy ~src:(4 * Slot.b) ~dst:s1 ~bytes_at:8
     @ wait ~into:s7 ~skip:(label "pre_waited") ~poll:(label "pre_poll")
     @ [
         sw s7 s8 4;
         li s7 0;
         lw s0 s2 0;
-        addi s2 s2 8;
+        addi s2 s2 12;
         li s6 0;
         Item.label block;
         lw s9 s2 0;
@@ -350,9 +427,12 @@ let items t () =
       ]
     @ start ~skip:(label "started")
     @ [ mv a_at s4; mv c_at s5; beqz s6 even ]
-    @ to_odd_a @ to_odd_c
+    @ to_odd_a
+    @ (match t.out with Dma -> to_odd_c | Core -> [])
     @ [ Item.label even ]
     @ body
+    (* With the core's stores, C's cursor moves on a block in SRAM. *)
+    @ (match t.out with Dma -> [] | Core -> next_c)
     @ wait ~into:s7 ~skip:(label "waited") ~poll:(label "poll")
     @ [ li t2 1; sub s6 t2 s6; addi s0 s0 (-1); bnez s0 block; lw s9 s2 0 ]
     @ start ~skip:(label "post_started")
@@ -364,6 +444,7 @@ let items t () =
 let ops t = 2 * rows t * t.blocks * t.width * t.depth
 
 let name t =
-  Printf.sprintf "%s resident-b M=%d N=%d K=%d" (Engine.name t.engine)
+  Printf.sprintf "%s resident-b %s %s M=%d N=%d K=%d" (Engine.name t.engine)
+    (Prologue.name t.prologue) (Out.name t.out)
     (rows t * t.blocks)
     t.width t.depth

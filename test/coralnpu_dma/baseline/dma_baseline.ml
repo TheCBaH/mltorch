@@ -35,8 +35,14 @@ module G = Dma_gemm
 
 let gemms =
   List.map
-    (fun (engine, width, depth) -> { G.blocks = 4; depth; engine; width })
-    G.Engine.[ (Rvv_i8, 64, 256); (Zvt_f32, 128, 256); (Zvt_i8, 128, 512) ]
+    (fun (engine, prologue, out, width, depth) ->
+      { G.blocks = 4; depth; engine; out; prologue; width })
+    G.
+      [
+        (Engine.Rvv_i8, Prologue.Shared, Out.Dma, 64, 256);
+        (Zvt_f32, Dma, Dma, 128, 256);
+        (Zvt_i8, Shared, Core, 128, 512);
+      ]
 
 let kernels =
   List.map (fun s -> (C.name s, C.items s, false)) copies
@@ -94,9 +100,9 @@ let%expect_test "DMA kernels encode to the pinned bytes" =
     overlap dtcm-read 8192: .text:168:a7a6a95e02dfdcdf28beeea65928d94a
     overlap dtcm-write 8192: .text:168:04f1f8e12b37ae7cbb3ab79cfa6f126c
     overlap sram-read 8192: .text:168:a7a6a95e02dfdcdf28beeea65928d94a
-    rvv i8 resident-b M=8 N=64 K=256: .text:528:326c6bc99af94830285908da5695d510
-    zvt f32 resident-b M=128 N=128 K=256: .text:1836:abe8be4b43e6409b9227aa1521f0c4d7
-    zvt i8 resident-b M=128 N=128 K=512: .text:1836:4febd282fb5c4371d7bc7aa1800e11a9 |}]
+    rvv i8 resident-b b-shared c-by-dma M=8 N=64 K=256: .text:592:b77dfabaf020f406c16459c3b038fec9
+    zvt f32 resident-b b-by-dma c-by-dma M=128 N=128 K=256: .text:1900:d9dadb60efc3b2ede4a596b51737e85c
+    zvt i8 resident-b b-shared c-by-core M=128 N=128 K=512: .text:1900:328a3232d14d2eb9d0403e828b0315c0 |}]
 
 let callee_saved = Gpr.[ s0; s1; s2; s3; s4; s5; s6; s7; s8; s9; s10; s11 ]
 
@@ -148,6 +154,6 @@ let%expect_test "a callee-saved register a kernel writes is stored and restored"
     overlap dtcm-read 8192: caller-saved only
     overlap dtcm-write 8192: caller-saved only
     overlap sram-read 8192: caller-saved only
-    rvv i8 resident-b M=8 N=64 K=256: saves s0 s1 s2 s3 s4 s5 s6 s7 s8 s9
-    zvt f32 resident-b M=128 N=128 K=256: saves s0 s1 s2 s3 s4 s5 s6 s7 s8 s9
-    zvt i8 resident-b M=128 N=128 K=512: saves s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 |}]
+    rvv i8 resident-b b-shared c-by-dma M=8 N=64 K=256: saves s0 s1 s2 s3 s4 s5 s6 s7 s8 s9
+    zvt f32 resident-b b-by-dma c-by-dma M=128 N=128 K=256: saves s0 s1 s2 s3 s4 s5 s6 s7 s8 s9
+    zvt i8 resident-b b-shared c-by-core M=128 N=128 K=512: saves s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 |}]

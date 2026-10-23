@@ -169,7 +169,19 @@ let () =
       (Err.payload (Coral_profile.load ~dir Sys.argv.(2)))
   in
   let rec sweeps = function
-    | "gemm" :: engine :: blocks :: width :: depth :: rest ->
+    | "gemm" :: engine :: prologue :: out :: blocks :: width :: depth :: rest ->
+        let prologue =
+          match prologue with
+          | "b-by-dma" -> G.Prologue.Dma
+          | "b-shared" -> Shared
+          | o -> invalid_arg ("dma_bench: no prologue " ^ o)
+        in
+        let out =
+          match out with
+          | "c-by-core" -> G.Out.Core
+          | "c-by-dma" -> Dma
+          | o -> invalid_arg ("dma_bench: no way out " ^ o)
+        in
         let engine =
           match engine with
           | "rvv-i8" -> G.Engine.Rvv_i8
@@ -182,6 +194,8 @@ let () =
             G.blocks = int_of_string blocks;
             depth = int_of_string depth;
             engine;
+            out;
+            prologue;
             width = int_of_string width;
           };
         sweeps rest
