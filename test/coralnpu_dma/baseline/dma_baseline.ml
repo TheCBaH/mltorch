@@ -218,6 +218,8 @@ let%expect_test "the model against runs it was not fitted to" =
         (Rvv_bf16, Shared, Dma, 64, 32, 256, 258608);
         (Rvv_f32, Shared, Dma, 64, 32, 128, 168368);
         (Zvt_i8, Shared, Core, 16, 256, 1024, 1097986);
+        (Zvt_i8, Shared, Dma, 16, 512, 1024, 1961336);
+        (Zvt_i8, Shared, Core, 16, 512, 1024, 2173969);
       ];
   [%expect
     {|
@@ -226,7 +228,9 @@ let%expect_test "the model against runs it was not fitted to" =
     zvt f32 resident-b b-shared c-by-core M=256 N=128 K=512: model 681773, measured 655368 (+4%)
     rvv bf16 resident-b b-shared c-by-dma M=192 N=32 K=256: model 262388, measured 258608 (+1%)
     rvv f32 resident-b b-shared c-by-dma M=192 N=32 K=128: model 171603, measured 168368 (+2%)
-    zvt i8 resident-b b-shared c-by-core M=512 N=256 K=1024: model 1092949, measured 1097986 (-0%) |}]
+    zvt i8 resident-b b-shared c-by-core M=512 N=256 K=1024: model 1092949, measured 1097986 (-0%)
+    zvt i8 resident-b b-shared c-by-dma M=512 N=512 K=1024: model 2025066, measured 1961336 (+3%)
+    zvt i8 resident-b b-shared c-by-core M=512 N=512 K=1024: model 2158595, measured 2173969 (-1%) |}]
 
 (* DTCM for the kernel's slots: the SoC's, less the stack (2 KiB), the
    mailbox and the alignment the layout gives them. *)

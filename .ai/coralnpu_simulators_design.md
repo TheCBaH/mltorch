@@ -605,6 +605,9 @@ prologue and C by the DMA, as measured; on 1 MiB, Zvt with the shared
 prologue and C by the core up to W = 256. Its pick for 512 x 256 x 1024 INT8,
 measured afterwards, took 1097986 cycles against 1092949 predicted: 244.5
 operations a cycle, 70% of the engine's DTCM-resident burst with A, B and C in
-SRAM. A C row of 2048 bytes or more needs its tile stores' stride in a
+SRAM. At W = 512 it predicts the core's stores of C would bound the block
+and picks C by the DMA instead: measured, 1961336 cycles (273.7 operations a
+cycle, 79% of the burst) against 2173969 with C by the core, the model 3%
+and 1% off. A C row of 2048 bytes or more needs its tile stores' stride in a
 register, and a block that wide is more than a branch reaches, so the step
 loop closes with a `j`.
