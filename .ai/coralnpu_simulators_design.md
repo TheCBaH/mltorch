@@ -583,3 +583,28 @@ core's stores of C the bound instead (190.4; with C by the DMA, 154.9). FP32
 moves four bytes an input element and is held near 50 whatever moves them.
 INT8 at K = 1024 and FP32 at K = 256 take the same cycles: the same bytes, the
 same tile multiplies (an INT8 one reduces four k values, an FP32 one one).
+
+RVV BF16 -> FP32 and FP32 (three rows of 32 lanes a block, the peak kernels'
+blocks) run at 12.2 and 9.3 on the 32 KiB vector SoC, 97% and 94% of their
+DTCM-resident 12.6 and 9.9. The control is the peak kernel itself at the same
+shape with A, B and C left in SRAM for the core's own loads and stores: RVV
+INT8 9.9, BF16 4.4, FP32 3.0, so the DMA-fed kernels are about three times
+faster; Zvt INT8 80.5 and FP32 21.6 on 1 MiB, 2.3 times slower than fed. On
+the 32 KiB SoC, Zvt INT8 at 128 x 32 x 128 reads SRAM in place as fast as the
+DMA feeds it (57.4 against 56.1): there the DMA gains nothing.
+
+`Dma_model` predicts a variant's cycles from the measured rates alone: the DMA
+at 16/14 B/cycle, 0.8 beside the core's DTCM streaming and 1.03 beside its
+copy, 57 cycles a start; the core's copy at 2.42 and its stores of C to SRAM at
+2.34; each engine's DTCM-resident burst; 50 cycles a step. A step overlaps the
+block's multiplies (contended) and its stores of C (not) with the chain; the
+rest of the chain moves at the full rate. It is within 0 to +4% of every run
+in the crams and of five runs it was not fitted to, and `Dma_model.variants`
+ranks the variants that fit a DTCM budget: on 32 KiB, RVV with the shared
+prologue and C by the DMA, as measured; on 1 MiB, Zvt with the shared
+prologue and C by the core up to W = 256. Its pick for 512 x 256 x 1024 INT8,
+measured afterwards, took 1097986 cycles against 1092949 predicted: 244.5
+operations a cycle, 70% of the engine's DTCM-resident burst with A, B and C in
+SRAM. A C row of 2048 bytes or more needs its tile stores' stride in a
+register, and a block that wide is more than a branch reaches, so the step
+loop closes with a `j`.

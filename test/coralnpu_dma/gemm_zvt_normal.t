@@ -14,6 +14,12 @@ and INT8 with everything moved by the DMA does no better than RVV; letting the
 core write C helps a little.
 
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-normal gemm zvt-i8 b-by-dma c-by-dma 4 32 128
-  zvt i8 resident-b b-by-dma c-by-dma M=128 N=32 K=128: C as expected, 33768 cycles, 31.1 ops/cycle; 7188 waiting for B and the first block, 21516 for the rest
+  zvt i8 resident-b b-by-dma c-by-dma M=128 N=32 K=128: C as expected, 33771 cycles, 31.0 ops/cycle; 7188 waiting for B and the first block, 21516 for the rest
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-normal gemm zvt-i8 b-shared c-by-core 4 32 128
-  zvt i8 resident-b b-shared c-by-core M=128 N=32 K=128: C as expected, 18702 cycles, 56.1 ops/cycle; 3339 waiting for B and the first block, 4200 for the rest
+  zvt i8 resident-b b-shared c-by-core M=128 N=32 K=128: C as expected, 18705 cycles, 56.1 ops/cycle; 3339 waiting for B and the first block, 4200 for the rest
+
+The control, A, B and C left in SRAM, no DMA: at this size the core's own
+loads from SRAM keep up with what the DMA delivers, and the DMA gains nothing.
+
+  $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-normal direct zvt-i8 4 32 128
+  zvt i8 M=128 N=32 K=128, operands in SRAM, no DMA: C as expected, 18283 cycles, 57.4 ops/cycle

@@ -39,7 +39,9 @@ let gemms =
       { G.blocks = 4; depth; engine; out; prologue; width })
     G.
       [
-        (Engine.Rvv_i8, Prologue.Shared, Out.Dma, 64, 256);
+        (Engine.Rvv_bf16, Prologue.Shared, Out.Dma, 32, 256);
+        (Rvv_f32, Shared, Dma, 32, 128);
+        (Rvv_i8, Shared, Dma, 64, 256);
         (Zvt_f32, Dma, Dma, 128, 256);
         (Zvt_i8, Shared, Core, 128, 512);
       ]
@@ -100,9 +102,11 @@ let%expect_test "DMA kernels encode to the pinned bytes" =
     overlap dtcm-read 8192: .text:168:a7a6a95e02dfdcdf28beeea65928d94a
     overlap dtcm-write 8192: .text:168:04f1f8e12b37ae7cbb3ab79cfa6f126c
     overlap sram-read 8192: .text:168:a7a6a95e02dfdcdf28beeea65928d94a
-    rvv i8 resident-b b-shared c-by-dma M=8 N=64 K=256: .text:592:b77dfabaf020f406c16459c3b038fec9
-    zvt f32 resident-b b-by-dma c-by-dma M=128 N=128 K=256: .text:1900:d9dadb60efc3b2ede4a596b51737e85c
-    zvt i8 resident-b b-shared c-by-core M=128 N=128 K=512: .text:1900:328a3232d14d2eb9d0403e828b0315c0 |}]
+    rvv bf16 resident-b b-shared c-by-dma M=12 N=32 K=256: .text:588:5ac9afdaa4a10555aa91a48eea6361ff
+    rvv f32 resident-b b-shared c-by-dma M=12 N=32 K=128: .text:568:6473902c495e3cfc005a8b2242a6f115
+    rvv i8 resident-b b-shared c-by-dma M=8 N=64 K=256: .text:596:10fa5423f03383c538390e5968808180
+    zvt f32 resident-b b-by-dma c-by-dma M=128 N=128 K=256: .text:1904:e5c6f4942aa85d0635daa41231903ff7
+    zvt i8 resident-b b-shared c-by-core M=128 N=128 K=512: .text:1904:dbb507fa9936cdec417882cf1f191556 |}]
 
 let callee_saved = Gpr.[ s0; s1; s2; s3; s4; s5; s6; s7; s8; s9; s10; s11 ]
 
@@ -154,6 +158,126 @@ let%expect_test "a callee-saved register a kernel writes is stored and restored"
     overlap dtcm-read 8192: caller-saved only
     overlap dtcm-write 8192: caller-saved only
     overlap sram-read 8192: caller-saved only
+    rvv bf16 resident-b b-shared c-by-dma M=12 N=32 K=256: saves s0 s1 s2 s3 s4 s5 s6 s7 s8 s9
+    rvv f32 resident-b b-shared c-by-dma M=12 N=32 K=128: saves s0 s1 s2 s3 s4 s5 s6 s7 s8 s9
     rvv i8 resident-b b-shared c-by-dma M=8 N=64 K=256: saves s0 s1 s2 s3 s4 s5 s6 s7 s8 s9
     zvt f32 resident-b b-by-dma c-by-dma M=128 N=128 K=256: saves s0 s1 s2 s3 s4 s5 s6 s7 s8 s9
     zvt i8 resident-b b-shared c-by-core M=128 N=128 K=512: saves s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 |}]
+
+(* The model against the cycles the gemm crams measured. *)
+module M = Dma_model
+
+let%expect_test "the model against the measured runs" =
+  List.iter
+    (fun (engine, prologue, out, blocks, width, depth, measured) ->
+      let t = { G.blocks; depth; engine; out; prologue; width } in
+      let p = M.predict t in
+      Fmt.pr "%s: model %.0f, measured %d (%+.0f%%)@." (G.name t) p measured
+        (100. *. (p -. float_of_int measured) /. float_of_int measured))
+    G.
+      [
+        (Engine.Rvv_i8, Prologue.Dma, Out.Dma, 128, 64, 256, 289157);
+        (Rvv_i8, Shared, Dma, 128, 64, 256, 279456);
+        (Rvv_i8, Shared, Core, 128, 64, 256, 289387);
+        (Zvt_i8, Dma, Dma, 4, 32, 128, 33771);
+        (Zvt_i8, Shared, Core, 4, 32, 128, 18705);
+        (Zvt_i8, Dma, Dma, 8, 128, 512, 312123);
+        (Zvt_i8, Dma, Core, 8, 128, 512, 225176);
+        (Zvt_i8, Shared, Core, 8, 128, 512, 183697);
+        (Zvt_i8, Shared, Core, 8, 128, 1024, 331417);
+        (Zvt_f32, Dma, Dma, 8, 128, 256, 512109);
+        (Zvt_f32, Shared, Core, 8, 128, 256, 331417);
+      ];
+  [%expect
+    {|
+    rvv i8 resident-b b-by-dma c-by-dma M=256 N=64 K=256: model 296825, measured 289157 (+3%)
+    rvv i8 resident-b b-shared c-by-dma M=256 N=64 K=256: model 287118, measured 279456 (+3%)
+    rvv i8 resident-b b-shared c-by-core M=256 N=64 K=256: model 300784, measured 289387 (+4%)
+    zvt i8 resident-b b-by-dma c-by-dma M=128 N=32 K=128: model 33704, measured 33771 (-0%)
+    zvt i8 resident-b b-shared c-by-core M=128 N=32 K=128: model 18970, measured 18705 (+1%)
+    zvt i8 resident-b b-by-dma c-by-dma M=256 N=128 K=512: model 316683, measured 312123 (+1%)
+    zvt i8 resident-b b-by-dma c-by-core M=256 N=128 K=512: model 225193, measured 225176 (+0%)
+    zvt i8 resident-b b-shared c-by-core M=256 N=128 K=512: model 184190, measured 183697 (+0%)
+    zvt i8 resident-b b-shared c-by-core M=256 N=128 K=1024: model 344815, measured 331417 (+4%)
+    zvt f32 resident-b b-by-dma c-by-dma M=256 N=128 K=256: model 520284, measured 512109 (+2%)
+    zvt f32 resident-b b-shared c-by-core M=256 N=128 K=256: model 344815, measured 331417 (+4%) |}]
+
+(* Runs measured once, outside the crams and not used to set the rates. *)
+let%expect_test "the model against runs it was not fitted to" =
+  List.iter
+    (fun (engine, prologue, out, blocks, width, depth, measured) ->
+      let t = { G.blocks; depth; engine; out; prologue; width } in
+      let p = M.predict t in
+      Fmt.pr "%s: model %.0f, measured %d (%+.0f%%)@." (G.name t) p measured
+        (100. *. (p -. float_of_int measured) /. float_of_int measured))
+    G.
+      [
+        (Engine.Zvt_i8, Prologue.Shared, Out.Core, 8, 256, 512, 352458);
+        (Zvt_i8, Shared, Dma, 8, 256, 512, 433341);
+        (Zvt_f32, Shared, Core, 8, 128, 512, 655368);
+        (Rvv_bf16, Shared, Dma, 64, 32, 256, 258608);
+        (Rvv_f32, Shared, Dma, 64, 32, 128, 168368);
+        (Zvt_i8, Shared, Core, 16, 256, 1024, 1097986);
+      ];
+  [%expect
+    {|
+    zvt i8 resident-b b-shared c-by-core M=256 N=256 K=512: model 353189, measured 352458 (+0%)
+    zvt i8 resident-b b-shared c-by-dma M=256 N=256 K=512: model 438280, measured 433341 (+1%)
+    zvt f32 resident-b b-shared c-by-core M=256 N=128 K=512: model 681773, measured 655368 (+4%)
+    rvv bf16 resident-b b-shared c-by-dma M=192 N=32 K=256: model 262388, measured 258608 (+1%)
+    rvv f32 resident-b b-shared c-by-dma M=192 N=32 K=128: model 171603, measured 168368 (+2%)
+    zvt i8 resident-b b-shared c-by-core M=512 N=256 K=1024: model 1092949, measured 1097986 (-0%) |}]
+
+(* DTCM for the kernel's slots: the SoC's, less the stack (2 KiB), the
+   mailbox and the alignment the layout gives them. *)
+let normal = (32 * 1024) - 3072
+let highmem = (1024 * 1024) - 3072
+
+let%expect_test "the fastest variants of a problem, by the model" =
+  List.iter
+    (fun (soc, budget, engines, m, width, depth) ->
+      Fmt.pr "%s, %d x %d x %d:@." soc m width depth;
+      List.concat_map
+        (fun engine -> M.variants ~budget ~engine ~m ~width ~depth)
+        engines
+      |> List.sort (fun (x, _) (y, _) -> Float.compare x y)
+      |> List.iteri (fun k (cycles, t) ->
+          if k < 3 then
+            Fmt.pr "  %.0f cycles, %.1f ops/cycle: %s@." cycles
+              (float_of_int (G.ops t) /. cycles)
+              (G.name t)))
+    G.Engine.
+      [
+        ("32 KiB DTCM", normal, [ Rvv_i8; Zvt_i8 ], 256, 64, 256);
+        ("32 KiB DTCM", normal, [ Zvt_i8 ], 512, 32, 128);
+        ("1 MiB DTCM", highmem, [ Rvv_i8; Zvt_i8 ], 512, 64, 1024);
+        ("1 MiB DTCM", highmem, [ Zvt_i8 ], 512, 256, 1024);
+        ("1 MiB DTCM", highmem, [ Zvt_i8 ], 512, 512, 1024);
+        ("1 MiB DTCM", highmem, [ Zvt_f32 ], 512, 256, 512);
+      ];
+  [%expect
+    {|
+    32 KiB DTCM, 256 x 64 x 256:
+      287118 cycles, 29.2 ops/cycle: rvv i8 resident-b b-shared c-by-dma M=256 N=64 K=256
+      296825 cycles, 28.3 ops/cycle: rvv i8 resident-b b-by-dma c-by-dma M=256 N=64 K=256
+      300784 cycles, 27.9 ops/cycle: rvv i8 resident-b b-shared c-by-core M=256 N=64 K=256
+    32 KiB DTCM, 512 x 32 x 128:
+      65980 cycles, 63.6 ops/cycle: zvt i8 resident-b b-shared c-by-core M=512 N=32 K=128
+      68543 cycles, 61.2 ops/cycle: zvt i8 resident-b b-by-dma c-by-core M=512 N=32 K=128
+      121159 cycles, 34.6 ops/cycle: zvt i8 resident-b b-shared c-by-dma M=512 N=32 K=128
+    1 MiB DTCM, 512 x 64 x 1024:
+      546749 cycles, 122.7 ops/cycle: zvt i8 resident-b b-shared c-by-core M=512 N=64 K=1024
+      587751 cycles, 114.2 ops/cycle: zvt i8 resident-b b-by-dma c-by-core M=512 N=64 K=1024
+      650882 cycles, 103.1 ops/cycle: zvt i8 resident-b b-shared c-by-dma M=512 N=64 K=1024
+    1 MiB DTCM, 512 x 256 x 1024:
+      1092949 cycles, 245.6 ops/cycle: zvt i8 resident-b b-shared c-by-core M=512 N=256 K=1024
+      1226946 cycles, 218.8 ops/cycle: zvt i8 resident-b b-shared c-by-dma M=512 N=256 K=1024
+      1256958 cycles, 213.6 ops/cycle: zvt i8 resident-b b-by-dma c-by-core M=512 N=256 K=1024
+    1 MiB DTCM, 512 x 512 x 1024:
+      2025066 cycles, 265.1 ops/cycle: zvt i8 resident-b b-shared c-by-dma M=512 N=512 K=1024
+      2158595 cycles, 248.7 ops/cycle: zvt i8 resident-b b-shared c-by-core M=512 N=512 K=1024
+      2350004 cycles, 228.5 ops/cycle: zvt i8 resident-b b-by-dma c-by-dma M=512 N=512 K=1024
+    1 MiB DTCM, 512 x 256 x 512:
+      1960131 cycles, 68.5 ops/cycle: zvt f32 resident-b b-shared c-by-core M=512 N=256 K=512
+      2021986 cycles, 66.4 ops/cycle: zvt f32 resident-b b-shared c-by-dma M=512 N=256 K=512
+      2288150 cycles, 58.7 ops/cycle: zvt f32 resident-b b-by-dma c-by-core M=512 N=256 K=512 |}]

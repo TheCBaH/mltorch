@@ -15,8 +15,15 @@ core's own stores of C to SRAM cost more than the DMA's copy of them, so for
 RVV C is best left to the DMA.
 
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-normal gemm rvv-i8 b-by-dma c-by-dma 128 64 256
-  rvv i8 resident-b b-by-dma c-by-dma M=256 N=64 K=256: C as expected, 289030 cycles, 29.0 ops/cycle; 14804 waiting for B and the first block, 2804 for the rest
+  rvv i8 resident-b b-by-dma c-by-dma M=256 N=64 K=256: C as expected, 289157 cycles, 29.0 ops/cycle; 14804 waiting for B and the first block, 2804 for the rest
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-normal gemm rvv-i8 b-shared c-by-dma 128 64 256
-  rvv i8 resident-b b-shared c-by-dma M=256 N=64 K=256: C as expected, 279329 cycles, 30.0 ops/cycle; 35 waiting for B and the first block, 2804 for the rest
+  rvv i8 resident-b b-shared c-by-dma M=256 N=64 K=256: C as expected, 279456 cycles, 30.0 ops/cycle; 35 waiting for B and the first block, 2804 for the rest
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-normal gemm rvv-i8 b-shared c-by-core 128 64 256
-  rvv i8 resident-b b-shared c-by-core M=256 N=64 K=256: C as expected, 289260 cycles, 29.0 ops/cycle; 35 waiting for B and the first block, 2540 for the rest
+  rvv i8 resident-b b-shared c-by-core M=256 N=64 K=256: C as expected, 289387 cycles, 29.0 ops/cycle; 35 waiting for B and the first block, 2540 for the rest
+
+The control: the peak kernel itself at the same shape, A, B and C left in SRAM
+for the core's loads and stores, no DMA. Each B row then costs an SRAM load
+in every block's inner loop, and the DMA-fed kernel is three times faster.
+
+  $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-normal direct rvv-i8 128 64 256
+  rvv i8 M=256 N=64 K=256, operands in SRAM, no DMA: C as expected, 851543 cycles, 9.9 ops/cycle

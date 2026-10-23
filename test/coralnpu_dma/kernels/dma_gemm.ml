@@ -38,17 +38,31 @@ end
 (* What computes a block. Alphabetical. *)
 module Engine = struct
   type t =
+    | Rvv_bf16  (** BF16 x BF16 -> FP32, [vfwmaccbf16.vf]: three rows, W = 32 *)
+    | Rvv_f32  (** FP32 [vfmacc.vf]: three rows, W = 32 *)
     | Rvv_i8  (** INT8 x INT8 -> INT16, [vwmacc.vx]: two rows, W = 64 *)
     | Zvt_f32  (** FP32 [vtfmm]: 32 rows, W a multiple of 32 *)
     | Zvt_i8  (** signed INT8 -> INT32 [vtmms]: 32 rows, W a multiple of 32 *)
 
   let name = function
+    | Rvv_bf16 -> "rvv bf16"
+    | Rvv_f32 -> "rvv f32"
     | Rvv_i8 -> "rvv i8"
     | Zvt_f32 -> "zvt f32"
     | Zvt_i8 -> "zvt i8"
 
-  let rows = function Rvv_i8 -> 2 | Zvt_f32 | Zvt_i8 -> 32
-  let matrix = function Rvv_i8 -> false | Zvt_f32 | Zvt_i8 -> true
+  let rows = function
+    | Rvv_bf16 | Rvv_f32 -> 3
+    | Rvv_i8 -> 2
+    | Zvt_f32 | Zvt_i8 -> 32
+
+  let matrix = function
+    | Rvv_bf16 | Rvv_f32 | Rvv_i8 -> false
+    | Zvt_f32 | Zvt_i8 -> true
+
+  let rvv = function
+    | Rvv_bf16 | Rvv_f32 | Rvv_i8 -> true
+    | Zvt_f32 | Zvt_i8 -> false
 end
 
 (* Who copies C's rows out to SRAM. Alphabetical. *)
@@ -89,7 +103,9 @@ let rows t = Engine.rows t.engine
 let shape t =
   let src, dst =
     match t.engine with
-    | Rvv_i8 -> (Elem.I8, Elem.I16)
+    | Rvv_bf16 -> (Elem.Bf16, Elem.F32)
+    | Rvv_f32 -> (F32, F32)
+    | Rvv_i8 -> (I8, I16)
     | Zvt_f32 -> (F32, F32)
     | Zvt_i8 -> (I8, I32)
   in
@@ -109,12 +125,15 @@ let plan t =
   let s = shape t in
   let s = { s with rows = s.rows * s.blocks; blocks = 1 } in
   match t.engine with
-  | Rvv_i8 -> invalid_arg "Dma_gemm.plan: not a Zvt engine"
+  | Rvv_bf16 | Rvv_f32 | Rvv_i8 -> invalid_arg "Dma_gemm.plan: not Zvt"
   | Zvt_f32 -> T.plan Vtfmm (Peak_zvt.Tile.shape Vtfmm) s
   | Zvt_i8 -> T.plan Vtmms { (Peak_zvt.Tile.shape Vtmms) with vtype = 0x1C0 } s
 
 let check t =
   match t.engine with
+  | Rvv_bf16 | Rvv_f32 ->
+      if t.width <> 32 || t.depth mod 2 <> 0 then
+        invalid_arg "Dma_gemm: RVV BF16 and FP32 take W = 32 and K even"
   | Rvv_i8 ->
       if t.width <> 64 || t.depth mod 4 <> 0 then
         invalid_arg "Dma_gemm: RVV INT8 takes W = 64 and K a multiple of 4"
@@ -122,22 +141,23 @@ let check t =
       if t.width mod 32 <> 0 then
         invalid_arg "Dma_gemm: Zvt takes W a multiple of 32"
 
+let b_row t = t.width * Elem.bytes (shape t).src
 let c_row t = t.width * Elem.bytes (shape t).dst
 let c_block t = rows t * c_row t
 
 let a_block t =
   match t.engine with
-  | Rvv_i8 -> rows t * t.depth
+  | Rvv_bf16 | Rvv_f32 | Rvv_i8 -> rows t * t.depth * Elem.bytes (shape t).src
   | Zvt_f32 | Zvt_i8 -> T.a_block (plan t)
 
 (* A and B as the block packs them, without padding. *)
 let packed t =
   match t.engine with
-  | Rvv_i8 -> (
+  | Rvv_bf16 | Rvv_f32 | Rvv_i8 -> (
       match G.inputs (shape t) with
       | [ a; b ] ->
           ( String.sub a 0 (t.blocks * a_block t),
-            String.sub b 0 (t.depth * t.width) )
+            String.sub b 0 (t.depth * b_row t) )
       | _ -> assert false)
   | Zvt_f32 | Zvt_i8 -> (
       match T.inputs (plan t) with
@@ -147,10 +167,8 @@ let packed t =
       | _ -> assert false)
 
 (* How far past A's block and B's end the loops read ahead. *)
-let a_pad t = match t.engine with Rvv_i8 -> 64 | Zvt_f32 | Zvt_i8 -> 128
-
-let b_pad t =
-  match t.engine with Rvv_i8 -> 2 * t.width | Zvt_f32 | Zvt_i8 -> 128
+let a_pad t = if Engine.rvv t.engine then 64 else 128
+let b_pad t = if Engine.rvv t.engine then 2 * b_row t else 128
 
 let slots t =
   check t;
@@ -379,6 +397,90 @@ let rvv_i8_block t =
       vse E16 v24 a6;
     ]
 
+(* The peak kernel's BF16 block: three rows of 32 FP32 lanes, A by [flh] a k
+   step ahead from [a1], B rows alternating between v0 and v4, C to [a6].
+   Writes [a0]-[a3], [a6], [t0], [fa0]-[fa5]. *)
+let rvv_bf16_block t =
+  let open Gpr in
+  let open Reg.Fpr in
+  let v0 = Vreg.v0 and v4 = Vreg.v4 and v8 = Vreg.v8 in
+  let v16 = Vreg.v16 and v24 = Vreg.v24 in
+  let mac acc scalar src = Item.insn (Vfwmaccbf16_vf { acc; scalar; src }) in
+  let rows2 = 2 * b_row t in
+  [
+    li t0 t.width;
+    mv a2 s1;
+    addi a3 a2 (b_row t);
+    li a0 (t.depth / 2);
+    vset_item ~avl:t0 16 4;
+    vle E16 v0 a2;
+    flh fa0 a1 0;
+    flh fa1 a1 2;
+    flh fa2 a1 4;
+    vset_item ~avl:t0 32 8;
+    vmv_v_i v8;
+    vmv_v_i v16;
+    vmv_v_i v24;
+    vset_item ~avl:t0 16 4;
+  ]
+  @ body_items
+      [
+        flh fa3 a1 6;
+        flh fa4 a1 8;
+        flh fa5 a1 10;
+        vle E16 v4 a3;
+        mac v8 fa0 v0;
+        mac v16 fa1 v0;
+        mac v24 fa2 v0;
+        addi a1 a1 12;
+        flh fa0 a1 0;
+        flh fa1 a1 2;
+        flh fa2 a1 4;
+        addi a2 a2 rows2;
+        vle E16 v0 a2;
+        mac v8 fa3 v4;
+        mac v16 fa4 v4;
+        mac v24 fa5 v4;
+        addi a3 a3 rows2;
+        addi a0 a0 (-1);
+        bnez a0 body_label;
+      ]
+  @ [ vset_item ~avl:t0 32 8 ]
+  @ List.concat_map
+      (fun v -> [ vse E32 v a6; addi a6 a6 (c_row t) ])
+      [ v8; v16; v24 ]
+
+(* The peak kernel's FP32 block: three rows of 32 lanes, A by [flw] a k step
+   ahead from [a1], B rows into v0, C to [a6]. Writes [a0]-[a2], [a6], [t0],
+   [fa4]-[fa6], [ft1]-[ft3]. *)
+let rvv_f32_block t =
+  let open Gpr in
+  let open Reg.Fpr in
+  let v0 = Vreg.v0 and v8 = Vreg.v8 and v16 = Vreg.v16 and v24 = Vreg.v24 in
+  let mac acc scalar src = Item.insn (Vfmacc_vf { acc; scalar; src }) in
+  let loads (r0, r1, r2) off =
+    [ flw r0 a1 off; flw r1 a1 (off + 4); flw r2 a1 (off + 8) ]
+  in
+  let macs (r0, r1, r2) = [ mac v8 r0 v0; mac v16 r1 v0; mac v24 r2 v0 ] in
+  let cur = (fa4, fa5, fa6) and next = (ft1, ft2, ft3) in
+  [
+    li t0 t.width; vset_item ~avl:t0 32 8; vmv_v_i v8; vmv_v_i v16; vmv_v_i v24;
+  ]
+  @ [ mv a2 s1; li a0 (t.depth / 2) ]
+  @ loads cur 0
+  @ body_items
+      (loads next 12
+      @ [ vle E32 v0 a2 ]
+      @ macs cur
+      @ [ addi a2 a2 (b_row t); addi a1 a1 24 ]
+      @ loads cur 0
+      @ [ vle E32 v0 a2 ]
+      @ macs next
+      @ [ addi a2 a2 (b_row t); addi a0 a0 (-1); bnez a0 body_label ])
+  @ List.concat_map
+      (fun v -> [ vse E32 v a6; addi a6 a6 (c_row t) ])
+      [ v8; v16; v24 ]
+
 let items t () =
   let open Err.Syntax in
   let open Gpr in
@@ -386,15 +488,15 @@ let items t () =
   let block = Label.named "block" and even = Label.named "even" in
   let label n = Label.named n in
   (* The registers a block reads its halves of the rings from. *)
-  let a_at, c_at =
-    match t.engine with Rvv_i8 -> (a1, a6) | Zvt_f32 | Zvt_i8 -> (a3, a4)
-  in
+  let a_at, c_at = if Engine.rvv t.engine then (a1, a6) else (a3, a4) in
   let* dma = Insn.load_imm s3 (Int64.to_int D.base) in
   let* to_odd_a = G.add_imm a_at (a_block t) in
   let* to_odd_c = G.add_imm c_at (c_block t) in
   let* next_c = G.add_imm s5 (c_block t) in
   let* body =
     match t.engine with
+    | Rvv_bf16 -> Ok (rvv_bf16_block t)
+    | Rvv_f32 -> Ok (rvv_f32_block t)
     | Rvv_i8 -> Ok (rvv_i8_block t)
     | Zvt_f32 | Zvt_i8 -> T.block_items (plan t)
   in
@@ -434,7 +536,16 @@ let items t () =
     (* With the core's stores, C's cursor moves on a block in SRAM. *)
     @ (match t.out with Dma -> [] | Core -> next_c)
     @ wait ~into:s7 ~skip:(label "waited") ~poll:(label "poll")
-    @ [ li t2 1; sub s6 t2 s6; addi s0 s0 (-1); bnez s0 block; lw s9 s2 0 ]
+    @ [
+        li t2 1;
+        sub s6 t2 s6;
+        addi s0 s0 (-1);
+        (* A wide block is more than a branch reaches. *)
+        beqz s0 (label "blocks_done");
+        Item.insn (J { target = block });
+        Item.label (label "blocks_done");
+        lw s9 s2 0;
+      ]
     @ start ~skip:(label "post_started")
     @ wait ~into:s7 ~skip:(label "post_waited") ~poll:(label "post_poll")
     @ [ sw s7 s8 0 ]
@@ -448,3 +559,21 @@ let name t =
     (Prologue.name t.prologue) (Out.name t.out)
     (rows t * t.blocks)
     t.width t.depth
+
+(* {1 The control: no DMA}
+
+   The peak kernel itself at the same shape, with A, B and C left in SRAM: the
+   core's loads and stores reach them there directly. *)
+let direct t =
+  check t;
+  let k =
+    match t.engine with
+    | Rvv_bf16 -> G.make (shape t) G.bf16
+    | Rvv_f32 -> G.make (shape t) (G.word G.Scalar_ops.float)
+    | Rvv_i8 -> G.make (shape t) G.i8
+    | Zvt_f32 | Zvt_i8 -> T.make (plan t)
+  in
+  {
+    k with
+    slots = List.map (fun (s : L.Slot.t) -> { s with home = Ram }) k.slots;
+  }

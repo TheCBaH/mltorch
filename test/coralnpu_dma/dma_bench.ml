@@ -65,6 +65,10 @@ let case s =
 
 let params = { Coral_layout.Params.stack = 2048L; staging = 0L }
 
+(* Wall-clock seconds a run may take: the largest multiplies are millions of
+   cycles, which the SoC simulator runs at a few thousand a second. *)
+let deadline = 3600.
+
 (* Builds and runs one kernel: its timings slot's bytes, or exit 1. *)
 let execute ?(matrix = false) dir p ~name ~items ~slots ~inputs ~timings ~dst
     ~expected =
@@ -87,7 +91,8 @@ let execute ?(matrix = false) dir p ~name ~items ~slots ~inputs ~timings ~dst
   in
   match
     Err.payload
-      (Coral_soc_run.run ~read_back:[ timings ] ~dir image ~bound:(fun k ->
+      (Coral_soc_run.run ~deadline ~read_back:(Option.to_list timings) ~dir
+         image ~bound:(fun k ->
            if k < Array.length inputs then Some inputs.(k) else None))
   with
   | Error e ->
@@ -97,14 +102,14 @@ let execute ?(matrix = false) dir p ~name ~items ~slots ~inputs ~timings ~dst
       if not (Coral_soc_run.matches o dst expected) then (
         Fmt.pr "%s: the destination is wrong@." name;
         exit 1);
-      (List.assoc timings o.read_back, o)
+      (Option.fold ~none:"" ~some:(fun k -> List.assoc k o.read_back) timings, o)
 
 let word t k = Int32.to_int (String.get_int32_le t (4 * k))
 
 let copy dir p (s : C.sweep) =
   let t, _ =
     execute dir p ~name:(C.name s) ~items:(C.items s) ~slots:(C.slots s)
-      ~inputs:(C.inputs p s) ~timings:C.timings_slot ~dst:C.dst_slot
+      ~inputs:(C.inputs p s) ~timings:(Some C.timings_slot) ~dst:C.dst_slot
       ~expected:(C.expected s)
   in
   List.iteri
@@ -134,7 +139,7 @@ let overlap dir p work length trips =
   in
   let t, _ =
     execute dir p ~name:(O.name s) ~items:(O.items s) ~slots:(O.slots s)
-      ~inputs:(O.inputs p s) ~timings:O.timings_slot ~dst:O.dst_slot
+      ~inputs:(O.inputs p s) ~timings:(Some O.timings_slot) ~dst:O.dst_slot
       ~expected:(O.expected s)
   in
   let work_alone = word t 0 and dma_alone = word t 4 in
@@ -149,11 +154,19 @@ let overlap dir p work length trips =
 
 module G = Dma_gemm
 
+let gemm_engine = function
+  | "rvv-bf16" -> G.Engine.Rvv_bf16
+  | "rvv-f32" -> Rvv_f32
+  | "rvv-i8" -> Rvv_i8
+  | "zvt-f32" -> Zvt_f32
+  | "zvt-i8" -> Zvt_i8
+  | e -> invalid_arg ("dma_bench: no matrix multiply " ^ e)
+
 let gemm dir p (g : G.t) =
   let t, (o : Coral_soc_run.outcome) =
     execute ~matrix:(G.Engine.matrix g.engine) dir p ~name:(G.name g)
       ~items:(G.items g) ~slots:(G.slots g) ~inputs:(G.inputs p g)
-      ~timings:G.Slot.timings ~dst:G.Slot.c ~expected:(G.expected g)
+      ~timings:(Some G.Slot.timings) ~dst:G.Slot.c ~expected:(G.expected g)
   in
   Fmt.pr
     "%s: C as expected, %Ld cycles, %.1f ops/cycle; %d waiting for B and the \
@@ -162,6 +175,26 @@ let gemm dir p (g : G.t) =
     (float_of_int (G.ops g) /. Int64.to_float o.mcycle)
     (word t 1) (word t 0)
 
+(* The same multiply with A, B and C read in place from SRAM. *)
+let direct dir p (g : G.t) =
+  let k = G.direct g in
+  let inputs = k.K.inputs in
+  let out = List.length k.slots - 1 in
+  let _, (o : Coral_soc_run.outcome) =
+    execute ~matrix:k.matrix dir p
+      ~name:(G.name g ^ " direct")
+      ~items:k.items ~slots:k.slots
+      ~inputs:(fun _ -> Ok inputs)
+      ~timings:None ~dst:out ~expected:k.expected
+  in
+  Fmt.pr
+    "%s M=%d N=%d K=%d, operands in SRAM, no DMA: C as expected, %Ld cycles, \
+     %.1f ops/cycle@."
+    (G.Engine.name g.engine)
+    (G.rows g * g.blocks)
+    g.width g.depth o.mcycle
+    (float_of_int (G.ops g) /. Int64.to_float o.mcycle)
+
 let () =
   let dir = Sys.argv.(1) in
   let p =
@@ -169,6 +202,17 @@ let () =
       (Err.payload (Coral_profile.load ~dir Sys.argv.(2)))
   in
   let rec sweeps = function
+    | "direct" :: engine :: blocks :: width :: depth :: rest ->
+        direct dir p
+          {
+            G.blocks = int_of_string blocks;
+            depth = int_of_string depth;
+            engine = gemm_engine engine;
+            out = Dma;
+            prologue = Dma;
+            width = int_of_string width;
+          };
+        sweeps rest
     | "gemm" :: engine :: prologue :: out :: blocks :: width :: depth :: rest ->
         let prologue =
           match prologue with
@@ -182,13 +226,7 @@ let () =
           | "c-by-dma" -> Dma
           | o -> invalid_arg ("dma_bench: no way out " ^ o)
         in
-        let engine =
-          match engine with
-          | "rvv-i8" -> G.Engine.Rvv_i8
-          | "zvt-f32" -> Zvt_f32
-          | "zvt-i8" -> Zvt_i8
-          | e -> invalid_arg ("dma_bench: no matrix multiply " ^ e)
-        in
+        let engine = gemm_engine engine in
         gemm dir p
           {
             G.blocks = int_of_string blocks;

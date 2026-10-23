@@ -13,6 +13,11 @@ result, so the same moves serve a quarter of INT8's operations and the engine
 waits for the bus whatever does the moving.
 
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-highmem gemm zvt-f32 b-by-dma c-by-dma 8 128 256
-  zvt f32 resident-b b-by-dma c-by-dma M=256 N=128 K=256: C as expected, 512102 cycles, 32.8 ops/cycle; 143380 waiting for B and the first block, 158050 for the rest
+  zvt f32 resident-b b-by-dma c-by-dma M=256 N=128 K=256: C as expected, 512109 cycles, 32.8 ops/cycle; 143380 waiting for B and the first block, 158050 for the rest
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-highmem gemm zvt-f32 b-shared c-by-core 8 128 256
-  zvt f32 resident-b b-shared c-by-core M=256 N=128 K=256: C as expected, 331410 cycles, 50.6 ops/cycle; 19747 waiting for B and the first block, 19992 for the rest
+  zvt f32 resident-b b-shared c-by-core M=256 N=128 K=256: C as expected, 331417 cycles, 50.6 ops/cycle; 19747 waiting for B and the first block, 19992 for the rest
+
+The control, A, B and C left in SRAM, no DMA.
+
+  $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-highmem direct zvt-f32 8 128 256
+  zvt f32 M=256 N=128 K=256, operands in SRAM, no DMA: C as expected, 777279 cycles, 21.6 ops/cycle

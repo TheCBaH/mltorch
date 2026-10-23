@@ -15,10 +15,16 @@ longest wait; then each block costs about what the DMA takes for A and the
 core for the tiles and C's stores, and a deeper K gives each byte more work.
 
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-highmem gemm zvt-i8 b-by-dma c-by-dma 8 128 512
-  zvt i8 resident-b b-by-dma c-by-dma M=256 N=128 K=512: C as expected, 312116 cycles, 107.5 ops/cycle; 71700 waiting for B and the first block, 128048 for the rest
+  zvt i8 resident-b b-by-dma c-by-dma M=256 N=128 K=512: C as expected, 312123 cycles, 107.5 ops/cycle; 71700 waiting for B and the first block, 128048 for the rest
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-highmem gemm zvt-i8 b-by-dma c-by-core 8 128 512
-  zvt i8 resident-b b-by-dma c-by-core M=256 N=128 K=512: C as expected, 225169 cycles, 149.0 ops/cycle; 71700 waiting for B and the first block, 784 for the rest
+  zvt i8 resident-b b-by-dma c-by-core M=256 N=128 K=512: C as expected, 225176 cycles, 149.0 ops/cycle; 71700 waiting for B and the first block, 784 for the rest
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-highmem gemm zvt-i8 b-shared c-by-core 8 128 512
-  zvt i8 resident-b b-shared c-by-core M=256 N=128 K=512: C as expected, 183690 cycles, 182.7 ops/cycle; 9891 waiting for B and the first block, 784 for the rest
+  zvt i8 resident-b b-shared c-by-core M=256 N=128 K=512: C as expected, 183697 cycles, 182.7 ops/cycle; 9891 waiting for B and the first block, 784 for the rest
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-highmem gemm zvt-i8 b-shared c-by-core 8 128 1024
-  zvt i8 resident-b b-shared c-by-core M=256 N=128 K=1024: C as expected, 331410 cycles, 202.5 ops/cycle; 19747 waiting for B and the first block, 19992 for the rest
+  zvt i8 resident-b b-shared c-by-core M=256 N=128 K=1024: C as expected, 331417 cycles, 202.5 ops/cycle; 19747 waiting for B and the first block, 19992 for the rest
+
+The control, A, B and C left in SRAM, no DMA: the core's loads of every slice
+from SRAM, at about three bytes a cycle, against DTCM's twelve.
+
+  $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-highmem direct zvt-i8 8 128 512
+  zvt i8 M=256 N=128 K=512, operands in SRAM, no DMA: C as expected, 416831 cycles, 80.5 ops/cycle
