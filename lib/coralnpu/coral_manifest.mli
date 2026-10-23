@@ -33,6 +33,8 @@ module Configuration : sig
     backend : string;  (** [simulation.backend]: [mpact], [verilator]. *)
     extensions : string list;  (** [isa.extensions], lower case. *)
     id : string;
+    interface : string;
+        (** [simulation.interface]: [standalone-cli], [subsystem-cli]. *)
     name : string;
     regions : Region.t list;
   }

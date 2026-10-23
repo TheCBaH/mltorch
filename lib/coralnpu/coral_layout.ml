@@ -17,8 +17,22 @@ module Placement = struct
   let written = function In_out | Out -> true | In | Scratch -> false
 end
 
+module Home = struct
+  type t = Any | Dtcm | Ram
+
+  let to_string = function Any -> "any" | Dtcm -> "dtcm" | Ram -> "ram"
+end
+
 module Slot = struct
-  type t = { align : int64; placement : Placement.t; size : int64 }
+  type t = {
+    align : int64;
+    home : Home.t;
+    placement : Placement.t;
+    size : int64;
+  }
+
+  let make ?(home = Home.Any) ~align placement size =
+    { align; home; placement; size }
 end
 
 module Params = struct
@@ -159,7 +173,7 @@ let place ?(params = Params.default) (p : Coral_profile.t) segments slots =
   let* slots, _, _ =
     Err.List.fold_left
       (fun (acc, d, ext) (s : Slot.t) ->
-        if fits d ~align:s.align ~size:s.size then
+        let in_dtcm () =
           let* address, d = take d ~align:s.align ~size:s.size in
           Err.return
             ( {
@@ -171,7 +185,7 @@ let place ?(params = Params.default) (p : Coral_profile.t) segments slots =
               :: acc,
               d,
               ext )
-        else
+        and in_ram () =
           let* r = ram in
           let e = Option.value ext ~default:(cursor r) in
           let* address, e = take e ~align:s.align ~size:s.size in
@@ -184,7 +198,13 @@ let place ?(params = Params.default) (p : Coral_profile.t) segments slots =
               }
               :: acc,
               d,
-              Some e ))
+              Some e )
+        in
+        match s.home with
+        | Any ->
+            if fits d ~align:s.align ~size:s.size then in_dtcm () else in_ram ()
+        | Dtcm -> in_dtcm ()
+        | Ram -> in_ram ())
       ([], d, None) slots
   in
   let l =

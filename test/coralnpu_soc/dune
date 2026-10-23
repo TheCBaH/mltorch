@@ -1,0 +1,15 @@
+; The full-subsystem simulators (chip_verilator, with SRAM and the DMA
+; engine): CORALNPU_SUBSYSTEM_DATA names the extracted archive root, set by
+; `make coralnpu.soc.runtest`, which fails without the download.
+
+(executable
+ (name soc_kernels)
+ (modules soc_kernels)
+ (optional)
+ (libraries coralnpu coralnpu_rv32 err_trace fmt machine_rivet_riscv32))
+
+(cram
+ (applies_to soc)
+ (deps %{exe:soc_kernels.exe} (universe))
+ (enabled_if
+  (<> %{env:CORALNPU_SUBSYSTEM_DATA=} "")))

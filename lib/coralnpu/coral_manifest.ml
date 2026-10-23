@@ -44,13 +44,16 @@ module Configuration = struct
     backend : string;
     extensions : string list;
     id : string;
+    interface : string;
     name : string;
     regions : Region.t list;
   }
 
   let simulation =
-    Jsont.Object.map ~kind:"Simulation" Fun.id
+    Jsont.Object.map ~kind:"Simulation" (fun backend interface ->
+        (backend, interface))
     |> Jsont.Object.mem "backend" Jsont.string
+    |> Jsont.Object.mem "interface" Jsont.string
     |> Jsont.Object.finish
 
   let isa =
@@ -60,8 +63,8 @@ module Configuration = struct
 
   let jsont =
     Jsont.Object.map ~kind:"Configuration"
-      (fun backend extensions id name regions ->
-        { backend; extensions; id; name; regions })
+      (fun (backend, interface) extensions id name regions ->
+        { backend; extensions; id; interface; name; regions })
     |> Jsont.Object.mem "simulation" simulation
     |> Jsont.Object.mem "isa" isa
     |> Jsont.Object.mem "id" Jsont.string

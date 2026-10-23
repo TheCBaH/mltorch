@@ -44,6 +44,7 @@ module Make (C : CONFIG) = struct
         let slot =
           {
             Coral_layout.Slot.align = 64L;
+            home = Any;
             placement = In_out;
             size = Int64.of_int size;
           }

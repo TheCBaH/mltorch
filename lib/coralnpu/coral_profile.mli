@@ -6,23 +6,30 @@
     may write is never loadable. [htif_reachable] (an HTIF [read]/[write] buffer
     may lie there) is mltorch's, because the manifest does not record it and
     running guests settled it: DTCM and the external RAM on both simulators;
-    every other region is treated as unreachable until a run shows otherwise. *)
+    every other region is treated as unreachable until a run shows otherwise.
+    The subsystem has no HTIF, so no region of it is. *)
 
 module Role : sig
   (** The manifest's region [type]. *)
-  type t = Csr | Dtcm | Itcm | Mmio | Ram
+  type t = Csr | Ddr | Dtcm | Itcm | Mmio | Ram | Rom
 
   val to_string : t -> string
   (** The manifest's spelling. *)
 end
 
 module Simulator : sig
-  type t = Mpact | Rtl  (** Manifest backends [mpact] and [verilator]. *)
+  type t =
+    | Mpact  (** Backend [mpact]. *)
+    | Rtl  (** Backend [verilator], a standalone core testbench. *)
+    | Subsystem
+        (** Backend [verilator] with interface [subsystem-cli]: the full SoC
+            ([chip_verilator]), started over its SPI bridge, with no HTIF. *)
 end
 
 module Region : sig
   type t = {
     base : int64;
+    dma_reachable : bool;  (** The manifest says the DMA engine reaches it. *)
     htif_reachable : bool;
     loadable : bool;
     name : string;

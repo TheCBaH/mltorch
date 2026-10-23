@@ -34,6 +34,7 @@ let slots ~record artifact =
     (fun (s : Table.slot) ->
       {
         Coral_layout.Slot.align = Int64.max 16L s.Table.align;
+        home = Any;
         placement =
           (match s.Table.section with
           | Art.Section.Bound -> Coral_layout.Placement.In_out

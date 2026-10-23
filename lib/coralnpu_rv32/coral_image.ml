@@ -13,6 +13,7 @@ type error =
   | Coral_elf.error
   | Rv32_image.Error.t
   | `Layout_unsettled
+  | `Mailbox_full of int
   | `Runtime_form of string ]
 
 let pp_error ppf : error -> unit = function
@@ -21,6 +22,9 @@ let pp_error ppf : error -> unit = function
   | #Rv32_image.Error.t as e -> Rv32_image.Error.pp ppf e
   | `Layout_unsettled ->
       Fmt.string ppf "the layout did not settle within four rounds"
+  | `Mailbox_full n ->
+      Fmt.pf ppf "%d written slots, but the mailbox holds %d hashes" n
+        Coral_mailbox.max_hashes
   | `Runtime_form what -> Fmt.pf ppf "the runtime has no form for %s" what
 
 (* Every slot at address 0, read directly: the first round's guess. *)
@@ -63,9 +67,22 @@ let build ?params ?(abi = Machine_rivet_riscv32.Rv32_harness.Abi.Table) ?lowered
     Option.fold ~none:false ~some:Machine_rivet_riscv32.Rv32_profile.vector
       rv32_profile
   in
+  let mailbox = profile.Coral_profile.simulator = Subsystem in
+  let written =
+    List.length
+      (List.filter
+         (fun (s : Coral_layout.Slot.t) ->
+           Coral_layout.Placement.written s.placement)
+         slots)
+  in
+  let* () =
+    if mailbox && written > Coral_mailbox.max_hashes then
+      Err.fail (`Mailbox_full written)
+    else Err.return ()
+  in
   let plan l =
     let* runtime =
-      Coral_runtime.module_ ~vector ?matrix l ~abi ~entry
+      Coral_runtime.module_ ~vector ?matrix ~mailbox l ~abi ~entry
       |> Result.map_error (fun what -> `Runtime_form what)
       |> Err.import ~pos:__POS__ Fun.id
     in

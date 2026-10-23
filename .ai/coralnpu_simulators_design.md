@@ -7,7 +7,7 @@ D extension, the default RV32 profile of `riscv32_process_design.md`. This
 record grows with the route; today it covers the release pin, the manifest
 decoder, the simulator profiles, the memory layout, the wire protocol, the
 ELF, the guest runtime, the runner, the CompCert loader, the RV32 Machine IR
-route and the peak-throughput suite.
+route, the peak-throughput suite and the full subsystem.
 
 ## The release pin
 
@@ -440,3 +440,45 @@ did not help either: zeroing each accumulator right after its store, and
 dropping the `vsetvli`s around a block (the kernel's own `vse16.v` already
 stores 64 halfwords at e8/m4, but zeroing the whole accumulator needs the wide
 type once `vl` is below the lanes).
+
+## The subsystem (`Coral_soc_run`)
+
+The release's subsystem archive, pinned in the same lock file (`make
+coralnpu.subsystem.download`, `CORALNPU_SUBSYSTEM_DATA`), packages
+`Vchip_{vector,matrix}_{normal,highmem}`: the reference SoC around the same
+cores, with 4 MiB of RTL SRAM at `0x2000_0000`, a ROM, peripherals and the DMA
+engine. Its manifest decodes like the emulators': interface `subsystem-cli`
+makes the `Subsystem` simulator, ROM and DDR are regions that are never
+loadable (the DDR aperture has nothing behind it), and each region's
+`dma_reachable` is the manifest's `access.dma`. A slot's `Home` (`Any`, `Dtcm`,
+`Ram`) overrides first fit, so a kernel can keep an operand in SRAM while DTCM
+has room, or be refused rather than moved out of DTCM.
+
+There is no HTIF. The simulator backdoor-loads the ELF (`--load_elf`), then
+waits on a TCP port (`SPI_DPI_PORT`) for a host to start the core through the
+SoC's SPI-to-TileLink bridge: the PC to the core CSR base + 4, then 1 and 0 to
+the base (clock gate, reset). The release does that with a Python loader;
+`Coral_spi` is the same protocol in OCaml. A read of several beats puts a
+framing byte between them, which the release's loader never meets because it
+reads one beat at a time, so `Coral_spi` does too. The simulator never exits;
+the host kills its process group.
+
+The bridge moves about a kilobyte a second, so no slot bytes cross it. Every
+slot is a section of the ELF (read slots with the caller's bytes, the others
+zero), and the guest's runtime (`Coral_runtime.module_ ~mailbox:true`) neither
+reads nor zeroes them. After the timed call it writes a 256-byte record
+(`Coral_mailbox`) where the HTIF block would be: magic, layout digest, status,
+`mcycle` and `minstret`, a hash of each written slot, and last a done word. The
+host polls the done word's beat and reads the record. A trap leaves a trap
+record the same way. The hash is FNV-1a over 32-bit words with a fold, `h xor
+(h lsr 15)`, after each multiply: without it a word's top bit never reaches the
+others, and the suite's own check (an output hashed against the kernel's input,
+eight floats negated) passed, because the sign flips cancel in pairs.
+
+`make coralnpu.soc.runtest` negates binary32 floats on all four variants, with
+the slots in DTCM and in SRAM, then fails one way each: illegal instruction
+(`mcause` 2), a store to ITCM (7, `mtval` 0x100), a spin (`Timeout`), a wrong
+digest, a missing simulator, and an output hashed against the wrong bytes.
+Cycles repeat exactly from run to run: eight floats take 201 cycles in DTCM and
+321 in SRAM, 4096 in SRAM 139313. The simulator runs about 20 000 cycles a
+second on the aarch64 devcontainer, which bounds every workload it measures.

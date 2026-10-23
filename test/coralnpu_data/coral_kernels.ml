@@ -74,9 +74,9 @@ let slots count =
   let size = Int64.of_int (4 * count) in
   L.Placement.
     [
-      { L.Slot.align = 8L; placement = In; size };
-      { L.Slot.align = 8L; placement = Scratch; size };
-      { L.Slot.align = 8L; placement = Out; size };
+      { L.Slot.align = 8L; home = Any; placement = In; size };
+      { L.Slot.align = 8L; home = Any; placement = Scratch; size };
+      { L.Slot.align = 8L; home = Any; placement = Out; size };
     ]
 
 let input count =
@@ -113,6 +113,7 @@ let in_place_image p count =
           [
             {
               L.Slot.align = 8L;
+              home = Any;
               placement = In_out;
               size = Int64.of_int (4 * count);
             };

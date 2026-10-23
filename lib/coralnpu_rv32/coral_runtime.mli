@@ -32,10 +32,18 @@ val entry_symbol : string
 val module_ :
   ?vector:bool ->
   ?matrix:bool ->
+  ?mailbox:bool ->
   Coral_layout.t ->
   abi:Machine_rivet_riscv32.Rv32_harness.Abi.t ->
   entry:string ->
   (Riscv32_encode.Instruction.t Asm_core.Normalized_ast.module_, string) result
 (** [Error] names a form Rivet refused. [vector] (default false) also enables
     the vector unit (mstatus.VS), for a kernel with Zve32f forms; [matrix]
-    (default false) the matrix unit (mstatus.MS), for one with Zvt forms. *)
+    (default false) the matrix unit (mstatus.MS), for one with Zvt forms.
+
+    [mailbox] (default false) builds the subsystem's runtime instead, which has
+    no HTIF: every slot's bytes are loaded with the ELF, so nothing is read or
+    zeroed; after the timed call the result, then a hash of each written slot,
+    then the done word go to the mailbox ({!Coral_mailbox}) at the layout's HTIF
+    address, and the core spins. A trap writes a trap record there the same way.
+*)

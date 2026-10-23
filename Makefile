@@ -1651,6 +1651,24 @@ CORALNPU_DATA = $(abspath $(CORALNPU_DIR)/$(shell sed -n 's/^tag //p' coralnpu.l
 coralnpu.download:
 	scripts/coralnpu-download.sh coralnpu.lock $(CORALNPU_DIR)
 
+# The full-subsystem archive of the same release (chip_verilator SoC: SRAM,
+# DMA engine), for the DMA suites; pinned in the same lock file.
+.PHONY: coralnpu.subsystem.download
+CORALNPU_SUBSYSTEM_DATA = $(abspath $(CORALNPU_DIR)/$(shell sed -n 's/^tag //p' coralnpu.lock)/coralnpu-subsystem-linux-$(CORALNPU_ARCH))
+coralnpu.subsystem.download:
+	scripts/coralnpu-download.sh coralnpu.lock $(CORALNPU_DIR) subsystem
+
+# Typed kernels on the four subsystem simulators through the mailbox runtime
+# (started over the SPI bridge, results checked by guest-computed hashes).
+# Needs the subsystem download; fails, never skips, without it.
+.PHONY: coralnpu.soc.runtest
+coralnpu.soc.runtest:
+	@test -f $(CORALNPU_SUBSYSTEM_DATA)/hardware-configurations.json || { \
+		echo "coralnpu.soc.runtest: missing $(CORALNPU_SUBSYSTEM_DATA) -- run 'make coralnpu.subsystem.download' first" >&2; \
+		exit 1; \
+	}
+	CORALNPU_SUBSYSTEM_DATA=$(CORALNPU_SUBSYSTEM_DATA) opam exec -- dune build @test/coralnpu_soc/runtest --force
+
 coralnpu.runtest:
 	@test -f $(CORALNPU_DATA)/hardware-configurations.json || { \
 		echo "coralnpu.runtest: missing $(CORALNPU_DATA) -- run 'make coralnpu.download' first" >&2; \
