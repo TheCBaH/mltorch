@@ -29,10 +29,17 @@ end
 val entry_symbol : string
 (** [_start]. *)
 
+module Uart : sig
+  type t = { base : int64; clock_table : int64 }
+  (** An OpenTitan UART and the SoC's clock table, whose main frequency sets its
+      baud rate. *)
+end
+
 val module_ :
   ?vector:bool ->
   ?matrix:bool ->
   ?mailbox:bool ->
+  ?uart:Uart.t ->
   Coral_layout.t ->
   abi:Machine_rivet_riscv32.Rv32_harness.Abi.t ->
   entry:string ->
@@ -46,4 +53,6 @@ val module_ :
     zeroed; after the timed call the result, then a hash of each written slot,
     then the done word go to the mailbox ({!Coral_mailbox}) at the layout's HTIF
     address, and the core spins. A trap writes a trap record there the same way.
-*)
+    With [uart], the done word is followed by one byte on that UART at 115200
+    baud: the host waits for it in the simulator's log of the UART, which reads
+    nothing over the bus. *)

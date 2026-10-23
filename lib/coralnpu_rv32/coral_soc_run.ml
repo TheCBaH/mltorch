@@ -242,11 +242,17 @@ let run ?(deadline = 600.) ?(read_back = []) ~dir (image : Coral_image.t) ~bound
                       Coral_spi.idle spi 20;
                       Coral_spi.start spi ~csr ~pc;
                       let t0 = Unix.gettimeofday () in
+                      (* The guest's byte on UART1, which the simulator logs
+                         here; then the done word, over the bridge once. *)
+                      let uart = Filename.concat work "uart1.log" in
                       let rec wait () =
                         if
-                          Coral_mailbox.is_done
-                            (Coral_spi.read spi done_line ~beats:1)
-                            done_at
+                          (match Unix.stat uart with
+                            | { Unix.st_size; _ } -> st_size > 0
+                            | exception Unix.Unix_error _ -> false)
+                          && Coral_mailbox.is_done
+                               (Coral_spi.read spi done_line ~beats:1)
+                               done_at
                         then `Done (Unix.gettimeofday () -. t0)
                         else if not (alive ()) then `Crashed
                         else if Unix.gettimeofday () > stop then `Timeout

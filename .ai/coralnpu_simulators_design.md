@@ -468,9 +468,14 @@ slot is a section of the ELF (read slots with the caller's bytes, the others
 zero), and the guest's runtime (`Coral_runtime.module_ ~mailbox:true`) neither
 reads nor zeroes them. After the timed call it writes a 256-byte record
 (`Coral_mailbox`) where the HTIF block would be: magic, layout digest, status,
-`mcycle` and `minstret`, a hash of each written slot, and last a done word. The
-host polls the done word's beat and reads the record. A trap leaves a trap
-record the same way. The hash is FNV-1a over 32-bit words with a fold, `h xor
+`mcycle` and `minstret`, a hash of each written slot, and last a done word,
+then sends one byte on UART1 (its baud set from the clock table). The host
+waits for that byte in the simulator's UART log, then reads the record. A trap
+leaves a trap record the same way. Polling the done word over the bridge
+instead made DMA-heavy runs vary by a beat (14 cycles) from run to run: each
+bridge read takes the DTCM device port the DMA writes through, at a wall-clock
+moment the run cannot repeat. Watching the log reads nothing over the bus, and
+the counts repeat, even with several runs at once. The hash is FNV-1a over 32-bit words with a fold, `h xor
 (h lsr 15)`, after each multiply: without it a word's top bit never reaches the
 others, and the suite's own check (an output hashed against the kernel's input,
 eight floats negated) passed, because the sign flips cancel in pairs.
@@ -479,8 +484,8 @@ eight floats negated) passed, because the sign flips cancel in pairs.
 the slots in DTCM and in SRAM, then fails one way each: illegal instruction
 (`mcause` 2), a store to ITCM (7, `mtval` 0x100), a spin (`Timeout`), a wrong
 digest, a missing simulator, and an output hashed against the wrong bytes.
-Cycles repeat exactly from run to run: eight floats take 201 cycles in DTCM and
-321 in SRAM, 4096 in SRAM 139313. The simulator runs about 20 000 cycles a
+Cycles repeat exactly from run to run: eight floats take 202 cycles in DTCM and
+322 in SRAM, 4096 in SRAM 139314. The simulator runs about 20 000 cycles a
 second on the aarch64 devcontainer, which bounds every workload it measures.
 
 The peak suite's kernels, unchanged and with everything in DTCM, take the

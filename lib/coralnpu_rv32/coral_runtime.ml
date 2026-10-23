@@ -484,14 +484,43 @@ let hash_slot (s : Coral_layout.Placed_slot.t) ~off =
     ]
 
 (* The done word at [s6], after every other store; then spin. *)
-let mailbox_done () =
+module Uart = struct
+  type t = { base : int64; clock_table : int64 }
+end
+
+(* The UART's [NCO] for 115200 baud is 115200 x 2^20 / f, which is this over
+   the clock table's main frequency in MHz. *)
+let nco_mhz = 120795
+
+(* The done word at [s6], after every other store; then, if there is a UART,
+   one byte on it, which the host sees in the simulator's log of it without
+   touching the bus: polling the mailbox over the SPI bridge takes the DTCM
+   port the DMA writes through, at times the run cannot repeat. Then spin. *)
+let mailbox_done ?uart () =
   let spin = fresh "spin" in
   [ insn "fence" [ sym "rw"; sym "rw" ] ]
   @ store_const ~at:"s6" Coral_mailbox.done_offset
       (Int64.of_int32 Coral_mailbox.done_word)
+  @ (match uart with
+    | None -> []
+    | Some (u : Uart.t) ->
+        addr "t0" u.clock_table
+        @ [ insn "lw" [ reg "t1"; mem "t0" 4 ] ]
+        @ addr "t2" (Int64.of_int nco_mhz)
+        @ [
+            insn "divu" [ reg "t2"; reg "t2"; reg "t1" ];
+            insn "slli" [ reg "t2"; reg "t2"; imm 16 ];
+            insn "ori" [ reg "t2"; reg "t2"; imm 3 ];
+          ]
+        @ addr "t0" u.base
+        @ [
+            insn "sw" [ reg "t2"; mem "t0" 0x10 ];
+            insn "li" [ reg "t3"; imm (Char.code '\n') ];
+            insn "sw" [ reg "t3"; mem "t0" 0x1C ];
+          ])
   @ [ label spin; insn "j" [ sym spin ] ]
 
-let mailbox_items ~vector ~matrix (l : Coral_layout.t) ~abi ~entry () =
+let mailbox_items ?uart ~vector ~matrix (l : Coral_layout.t) ~abi ~entry () =
   next_label := 0;
   let outs =
     List.filter
@@ -535,7 +564,7 @@ let mailbox_items ~vector ~matrix (l : Coral_layout.t) ~abi ~entry () =
         (List.mapi
            (fun k s -> hash_slot s ~off:(Coral_mailbox.hashes_offset + (4 * k)))
            outs)
-    @ mailbox_done ()
+    @ mailbox_done ?uart ()
   in
   let trap =
     [
@@ -552,7 +581,7 @@ let mailbox_items ~vector ~matrix (l : Coral_layout.t) ~abi ~entry () =
         insn "sw" [ reg "a5"; mem "s6" 16 ];
         insn "sw" [ reg "a6"; mem "s6" 20 ];
       ]
-    @ mailbox_done ()
+    @ mailbox_done ?uart ()
   in
   let table =
     [ data; align 4; label table_label ]
@@ -569,8 +598,8 @@ let mailbox_items ~vector ~matrix (l : Coral_layout.t) ~abi ~entry () =
   in
   start @ trap @ table
 
-let module_ ?(vector = false) ?(matrix = false) ?(mailbox = false) l ~abi ~entry
-    =
+let module_ ?(vector = false) ?(matrix = false) ?(mailbox = false) ?uart l ~abi
+    ~entry =
   module_ "coral_runtime"
-    (if mailbox then mailbox_items ~vector ~matrix l ~abi ~entry
+    (if mailbox then mailbox_items ?uart ~vector ~matrix l ~abi ~entry
      else items ~vector ~matrix l ~abi ~entry)
