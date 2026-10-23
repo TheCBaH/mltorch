@@ -1,0 +1,20 @@
+; The DMA suite's kernels pinned without the Coral data: their encoded bytes,
+; and the registers they write (caller-saved only, since they keep no frame).
+; dma.t runs them on the subsystem.
+
+(library
+ (name dma_baseline_test)
+ (libraries
+  dma_kernels
+  err_trace
+  fmt
+  machine_rivet_riscv32
+  peak_kernels
+  rivet.image)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect))
+ (enabled_if
+  (and
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

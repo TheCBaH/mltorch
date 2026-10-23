@@ -51,6 +51,14 @@ module Vv_op = struct
   let of_mnemonic m = List.find_opt (fun op -> String.equal (mnemonic op) m) all
 end
 
+(* The CSRs a kernel reads. Alphabetical. *)
+module Csr = struct
+  type t = Mcycle
+
+  let number = function Mcycle -> 0xB00
+  let pp ppf = function Mcycle -> Fmt.string ppf "mcycle"
+end
+
 module Constant_range = struct
   (* A word that fits neither a signed nor an unsigned 32 bits, as written. *)
   type t = { value : int }
@@ -83,7 +91,13 @@ end
 type t =
   | Add of { dst : Gpr.t; lhs : Gpr.t; rhs : Gpr.t }
   | Addi of { dst : Gpr.t; src : Gpr.t; imm : Imm.Imm12.t }
+  | Andi of { dst : Gpr.t; src : Gpr.t; imm : Imm.Imm12.t }
+  | Beqz of { src : Gpr.t; target : Rv32_kernel_label.t }
   | Bnez of { src : Gpr.t; target : Rv32_kernel_label.t }
+  | Csrr of { dst : Gpr.t; csr : Csr.t }
+  | Fence
+      (** [fence rw, rw]: every earlier load and store before any later one,
+          device accesses included. *)
   | Flh of { dst : Fpr.t; base : Gpr.t; offset : Imm.Imm12.t }
   | Flw of { dst : Fpr.t; base : Gpr.t; offset : Imm.Imm12.t }
   | Li of { dst : Gpr.t; imm : Imm.Li.t }
@@ -97,6 +111,7 @@ type t =
   | Mv of { dst : Gpr.t; src : Gpr.t }
   | Ret
   | Srli of { dst : Gpr.t; src : Gpr.t; shamt : Imm.Shamt.t }
+  | Sub of { dst : Gpr.t; lhs : Gpr.t; rhs : Gpr.t }
   | Sw of { src : Gpr.t; base : Gpr.t; offset : Imm.Imm12.t }
   | Vfmacc_vf of { acc : Vreg.t; scalar : Fpr.t; src : Vreg.t }
   | Vfwmaccbf16_vf of { acc : Vreg.t; scalar : Fpr.t; src : Vreg.t }
@@ -117,9 +132,10 @@ type t =
 (* The Rivet vendor feature [i] needs beyond the standard ones, if any. *)
 let extension = function
   | Msetmtype _ | Msettn _ | Vtmm _ | Vtse _ | Vtzero _ -> Some zvt_feature
-  | Add _ | Addi _ | Bnez _ | Flh _ | Flw _ | Li _ | Lui _ | Lw _ | Mv _ | Ret
-  | Srli _ | Sw _ | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _ | Vmacc_vx _
-  | Vmv_v_i _ | Vmv_v_x _ | Vse _ | Vsetvli _ | Vv _ | Vwmacc_vx _ ->
+  | Add _ | Addi _ | Andi _ | Beqz _ | Bnez _ | Csrr _ | Fence | Flh _ | Flw _
+  | Li _ | Lui _ | Lw _ | Mv _ | Ret | Srli _ | Sub _ | Sw _ | Vfmacc_vf _
+  | Vfwmaccbf16_vf _ | Vle _ | Vmacc_vx _ | Vmv_v_i _ | Vmv_v_x _ | Vse _
+  | Vsetvli _ | Vv _ | Vwmacc_vx _ ->
       None
 
 (* The one exhaustive spelling of each mnemonic; the printer and the lowering
@@ -127,7 +143,11 @@ let extension = function
 let mnemonic = function
   | Add _ -> "add"
   | Addi _ -> "addi"
+  | Andi _ -> "andi"
+  | Beqz _ -> "beqz"
   | Bnez _ -> "bnez"
+  | Csrr _ -> "csrr"
+  | Fence -> "fence"
   | Flh _ -> "flh"
   | Flw _ -> "flw"
   | Li _ -> "li"
@@ -138,6 +158,7 @@ let mnemonic = function
   | Mv _ -> "mv"
   | Ret -> "ret"
   | Srli _ -> "srli"
+  | Sub _ -> "sub"
   | Sw _ -> "sw"
   | Vfmacc_vf _ -> "vfmacc.vf"
   | Vfwmaccbf16_vf _ -> "vfwmaccbf16.vf"
@@ -159,12 +180,14 @@ let pp ppf i =
     Fmt.pf ppf "%a(%a)" Imm.Imm12.pp offset Gpr.pp base
   in
   match i with
-  | Add { dst; lhs; rhs } ->
+  | Add { dst; lhs; rhs } | Sub { dst; lhs; rhs } ->
       Fmt.pf ppf "%s %a, %a, %a" m Gpr.pp dst Gpr.pp lhs Gpr.pp rhs
-  | Addi { dst; src; imm } ->
+  | Addi { dst; src; imm } | Andi { dst; src; imm } ->
       Fmt.pf ppf "%s %a, %a, %a" m Gpr.pp dst Gpr.pp src Imm.Imm12.pp imm
-  | Bnez { src; target } ->
+  | Beqz { src; target } | Bnez { src; target } ->
       Fmt.pf ppf "%s %a, %a" m Gpr.pp src Rv32_kernel_label.pp target
+  | Csrr { dst; csr } -> Fmt.pf ppf "%s %a, %a" m Gpr.pp dst Csr.pp csr
+  | Fence -> Fmt.pf ppf "%s rw, rw" m
   | Flh { dst; base; offset } | Flw { dst; base; offset } ->
       Fmt.pf ppf "%s %a, %a" m Fpr.pp dst pp_mem (offset, base)
   | Li { dst; imm } -> Fmt.pf ppf "%s %a, %a" m Gpr.pp dst Imm.Li.pp imm
@@ -228,7 +251,7 @@ let out_of_range i =
     if M.in_range x then [] else [ M.range x ]
   in
   match i with
-  | Addi { imm; _ } -> check (module Imm.Imm12) imm
+  | Addi { imm; _ } | Andi { imm; _ } -> check (module Imm.Imm12) imm
   | Flh { offset; _ } | Flw { offset; _ } | Lw { offset; _ } | Sw { offset; _ }
     ->
       check (module Imm.Imm12) offset
@@ -236,18 +259,19 @@ let out_of_range i =
   | Lui { imm; _ } -> check (module Imm.U20) imm
   | Srli { shamt; _ } -> check (module Imm.Shamt) shamt
   | Vmv_v_i { imm; _ } -> check (module Imm.Simm5) imm
-  | Add _ | Bnez _ | Msetmtype _ | Msettn _ | Mv _ | Ret | Vfmacc_vf _
-  | Vfwmaccbf16_vf _ | Vle _ | Vmacc_vx _ | Vmv_v_x _ | Vse _ | Vsetvli _
-  | Vtmm _ | Vtse _ | Vtzero _ | Vv _ | Vwmacc_vx _ ->
+  | Add _ | Beqz _ | Bnez _ | Csrr _ | Fence | Msetmtype _ | Msettn _ | Mv _
+  | Ret | Sub _ | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _ | Vmacc_vx _
+  | Vmv_v_x _ | Vse _ | Vsetvli _ | Vtmm _ | Vtse _ | Vtzero _ | Vv _
+  | Vwmacc_vx _ ->
       []
 
 (* The labels [i] branches to. *)
 let targets = function
-  | Bnez { target; _ } -> [ target ]
-  | Add _ | Addi _ | Flh _ | Flw _ | Li _ | Lui _ | Lw _ | Msetmtype _
-  | Msettn _ | Mv _ | Ret | Srli _ | Sw _ | Vfmacc_vf _ | Vfwmaccbf16_vf _
-  | Vle _ | Vmacc_vx _ | Vmv_v_i _ | Vmv_v_x _ | Vse _ | Vsetvli _ | Vtmm _
-  | Vtse _ | Vtzero _ | Vv _ | Vwmacc_vx _ ->
+  | Beqz { target; _ } | Bnez { target; _ } -> [ target ]
+  | Add _ | Addi _ | Andi _ | Csrr _ | Fence | Flh _ | Flw _ | Li _ | Lui _
+  | Lw _ | Msetmtype _ | Msettn _ | Mv _ | Ret | Srli _ | Sub _ | Sw _
+  | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _ | Vmacc_vx _ | Vmv_v_i _ | Vmv_v_x _
+  | Vse _ | Vsetvli _ | Vtmm _ | Vtse _ | Vtzero _ | Vv _ | Vwmacc_vx _ ->
       []
 
 (* The registers [i] reads, in operand order. [zero] is a constant, not a
@@ -261,9 +285,11 @@ let reads i =
   in
   let vregs rs = List.map (fun r -> Reg_ref.Vreg r) rs in
   match i with
-  | Add { lhs; rhs; _ } -> gprs [ lhs; rhs ]
-  | Addi { src; _ } | Mv { src; _ } | Srli { src; _ } -> gprs [ src ]
-  | Bnez { src; _ } -> gprs [ src ]
+  | Add { lhs; rhs; _ } | Sub { lhs; rhs; _ } -> gprs [ lhs; rhs ]
+  | Addi { src; _ } | Andi { src; _ } | Mv { src; _ } | Srli { src; _ } ->
+      gprs [ src ]
+  | Beqz { src; _ } | Bnez { src; _ } -> gprs [ src ]
+  | Csrr _ | Fence -> []
   | Flh { base; _ } | Flw { base; _ } | Lw { base; _ } | Vle { base; _ } ->
       gprs [ base ]
   | Li _ | Lui _ | Ret | Vmv_v_i _ | Vtzero _ -> []
@@ -292,16 +318,19 @@ let writes i =
   match i with
   | Add { dst; _ }
   | Addi { dst; _ }
+  | Andi { dst; _ }
+  | Csrr { dst; _ }
   | Li { dst; _ }
   | Lui { dst; _ }
   | Lw { dst; _ }
   | Msetmtype { dst; _ }
   | Msettn { dst; _ }
   | Mv { dst; _ }
-  | Srli { dst; _ } ->
+  | Srli { dst; _ }
+  | Sub { dst; _ } ->
       gpr dst
   | Flh { dst; _ } | Flw { dst; _ } -> [ Reg_ref.Fpr dst ]
-  | Bnez _ | Ret | Sw _ | Vse _ | Vtse _ -> []
+  | Beqz _ | Bnez _ | Fence | Ret | Sw _ | Vse _ | Vtse _ -> []
   | Vtmm { acc = dst; _ } | Vtzero { dst } -> [ Reg_ref.Mtreg dst ]
   | Vfmacc_vf { acc; _ }
   | Vfwmaccbf16_vf { acc; _ }

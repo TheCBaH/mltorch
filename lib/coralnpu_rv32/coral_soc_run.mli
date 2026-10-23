@@ -14,6 +14,8 @@ module Run_error : sig
     | Guest_trap of Coral_run.Trap.t
     | Mailbox_malformed of Coral_mailbox.Malformed.t
     | No_core_csr  (** The profile has no core CSR region to start through. *)
+    | Read_back_mismatch of int
+        (** A slot's bytes from the bridge do not match the guest's hash. *)
     | Simulator_crashed of { status : string; tail : string }
         (** The process ended before the mailbox was done. *)
     | Simulator_missing of string
@@ -29,6 +31,8 @@ type outcome = {
       (** Each written slot's {!Coral_mailbox.hash}, by slot index. *)
   mcycle : int64;
   minstret : int64;
+  read_back : (int * string) list;
+      (** The bytes of each slot asked for by [read_back], by slot index. *)
   status : int32;  (** The entry's return value. *)
   text : string;  (** The simulator's own output. *)
   wall : float;  (** Seconds from the core's start to the done word. *)
@@ -36,13 +40,16 @@ type outcome = {
 
 val run :
   ?deadline:float ->
+  ?read_back:int list ->
   dir:string ->
   Coral_image.t ->
   bound:(int -> string option) ->
   (outcome, Run_error.t) Err.t
 (** [dir] is the subsystem archive root. [bound k] is read slot [k]'s bytes, cut
     or zero-padded to its size. [deadline] is in seconds (default 600), from the
-    launch. *)
+    launch. [read_back] (default none) are written slots read over the bridge
+    after the guest is done, at about a kilobyte a second, for results a hash
+    cannot carry, such as timings; each must still match its hash. *)
 
 val matches : outcome -> int -> string -> bool
 (** [matches o k bytes]: written slot [k] hashed as [bytes] do. *)

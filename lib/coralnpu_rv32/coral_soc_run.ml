@@ -4,6 +4,7 @@ module Run_error = struct
     | Guest_trap of Coral_run.Trap.t
     | Mailbox_malformed of Coral_mailbox.Malformed.t
     | No_core_csr
+    | Read_back_mismatch of int
     | Simulator_crashed of { status : string; tail : string }
     | Simulator_missing of string
     | Spi_failed of string
@@ -18,6 +19,8 @@ module Run_error = struct
     | Mailbox_malformed m ->
         Fmt.pf ppf "malformed mailbox (%a)" Coral_mailbox.pp_malformed m
     | No_core_csr -> Fmt.string ppf "the profile has no core CSR region"
+    | Read_back_mismatch k ->
+        Fmt.pf ppf "slot %d read back over the bridge differs from its hash" k
     | Simulator_crashed { status; tail } ->
         Fmt.pf ppf "the simulator %s before the guest was done; it said: %S"
           status tail
@@ -31,6 +34,7 @@ type outcome = {
   hashes : (int * int32) list;
   mcycle : int64;
   minstret : int64;
+  read_back : (int * string) list;
   status : int32;
   text : string;
   wall : float;
@@ -126,7 +130,16 @@ let describe = function
 (* Polling interval for the simulator's log and the mailbox. *)
 let poll = 0.05
 
-let run ?(deadline = 600.) ~dir (image : Coral_image.t) ~bound =
+(* A slot's bytes over the bridge, in whole beats. *)
+let fetch spi (s : Coral_layout.Placed_slot.t) =
+  let lo = Int64.logand s.address (Int64.lognot 15L) in
+  let skip = Int64.to_int (Int64.sub s.address lo) in
+  let size = Int64.to_int s.slot.size in
+  let bytes = Coral_spi.read spi lo ~beats:((skip + size + 15) / 16) in
+  String.sub bytes skip size
+
+let run ?(deadline = 600.) ?(read_back = []) ~dir (image : Coral_image.t) ~bound
+    =
   let open Err.Syntax in
   let dir =
     if Filename.is_relative dir then Filename.concat (Sys.getcwd ()) dir
@@ -243,10 +256,17 @@ let run ?(deadline = 600.) ~dir (image : Coral_image.t) ~bound =
                       in
                       match wait () with
                       | `Done wall ->
+                          let record =
+                            Coral_spi.read spi mailbox
+                              ~beats:(Coral_mailbox.size / 16)
+                          in
                           `Done
                             ( wall,
-                              Coral_spi.read spi mailbox
-                                ~beats:(Coral_mailbox.size / 16) )
+                              record,
+                              List.map
+                                (fun k ->
+                                  (k, fetch spi (List.nth image.layout.slots k)))
+                                read_back )
                       | (`Crashed | `Timeout) as other -> other
                     with
                     | exception Coral_spi.Failed why ->
@@ -254,7 +274,7 @@ let run ?(deadline = 600.) ~dir (image : Coral_image.t) ~bound =
                         else crashed ()
                     | `Crashed -> crashed ()
                     | `Timeout -> Err.fail Run_error.Timeout
-                    | `Done (wall, record) -> (
+                    | `Done (wall, record, fetched) -> (
                         let text = read_file log in
                         match Coral_mailbox.decode record with
                         | Error m -> Err.fail (Run_error.Mailbox_malformed m)
@@ -262,7 +282,7 @@ let run ?(deadline = 600.) ~dir (image : Coral_image.t) ~bound =
                             Err.fail
                               (Run_error.Guest_trap
                                  { Coral_run.Trap.mcause; mepc; mtval })
-                        | Ok (Result r) ->
+                        | Ok (Result r) -> (
                             if r.digest <> image.layout.digest then
                               Err.fail (Run_error.Digest_mismatch r.digest)
                             else
@@ -291,13 +311,23 @@ let run ?(deadline = 600.) ~dir (image : Coral_image.t) ~bound =
                                          else [])
                                        image.layout.slots)
                                 in
-                                Err.return
+                                let o =
                                   {
                                     argv;
                                     hashes = List.combine indices r.hashes;
                                     mcycle = r.mcycle;
                                     minstret = r.minstret;
+                                    read_back = fetched;
                                     status = r.status;
                                     text;
                                     wall;
-                                  }))))
+                                  }
+                                in
+                                match
+                                  List.find_opt
+                                    (fun (k, bytes) -> not (matches o k bytes))
+                                    fetched
+                                with
+                                | Some (k, _) ->
+                                    Err.fail (Run_error.Read_back_mismatch k)
+                                | None -> Err.return o)))))

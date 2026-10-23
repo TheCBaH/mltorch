@@ -491,3 +491,43 @@ GEMMs for INT8 and FP32. So the peak rates are the subsystem's compute
 ceilings. Zvt BF16 (`vtfmm.alt`) is wrong there, although the manifest lists
 BF16 among the matrix formats: the subsystem's matrix build lacks the engine's
 BF16 option, which the standalone VME build enables.
+
+### Raw transfer speed and the DMA (`test/coralnpu_dma`)
+
+`Coral_dma` is the engine as data: its registers, and descriptor chains the
+host builds for the layout and loads with the image (an `In` slot in SRAM), so
+the guest's whole driver is two stores and a poll of `STATUS.done`, which a
+start clears. Descriptors are checked before loading: a length of one to 16 MiB
+- 1 bytes in whole beats, both ends beat-aligned and each within one region the
+manifest marks `dma`. The kernel DSL gained `andi`, `beqz`, `csrr mcycle`,
+`fence` and `sub` for it.
+
+`make coralnpu.dma.runtest` times each transfer inside its kernel (mcycle
+around it; the DMA from the descriptor address written to `done` seen), the
+timings read back over the bridge (`Coral_soc_run.run ~read_back`) and the
+destination checked by hash. Shortening a chain's last descriptor by a beat
+turns it red. All four subsystem variants give the same cycles. In bytes a
+cycle, at sizes where the start no longer counts:
+
+| Path | DMA, 16-byte beats | RVV copy, e8 m8 | scalar copy |
+|---|---|---|---|
+| SRAM -> DTCM | 1.14 | 2.42 | 0.44 |
+| DTCM -> SRAM | 1.14 | 2.12 | 0.40 |
+| SRAM -> SRAM | 1.77 | 1.39 | 0.29 |
+| DTCM -> DTCM | 0.84 | 6.15 | 0.80 |
+
+The DMA starts in about 57 cycles and then moves one beat at a time, read then
+written: about 14 cycles a beat between SRAM and DTCM, 9 SRAM to SRAM, 19 DTCM
+to DTCM. A narrower beat takes as long, so only 16-byte beats are worth using.
+Each further descriptor of a chain costs about 8 cycles, so a chain of
+row-sized pieces keeps most of the rate (64-byte pieces: 0.99 B/cycle). The
+core's RVV loads read SRAM at 3.0 B/cycle and DTCM at 12.6; its copy needs
+LMUL 8 to reach 2.4 (1.45 at m1). So the DMA is the slower mover: its use is
+that it runs beside the core.
+
+Beside the core, an 8 KiB SRAM-to-DTCM chain against as many cycles of work:
+ALU work, or the core reading SRAM, leaves both at full speed. While the core
+streams DTCM at its full rate (RVV loads or stores), the core is not slowed,
+but the DMA's writes into DTCM lose arbitration and it advances at about 70% of
+its rate until the core stops. A kernel paced by its DTCM loads therefore gets
+about 0.8 B/cycle of DMA in the background, not 1.14.

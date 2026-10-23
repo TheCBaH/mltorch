@@ -1,0 +1,22 @@
+; Raw transfer speed on the subsystem simulators: the DMA engine against the
+; core's loads and stores (dma.t). CORALNPU_SUBSYSTEM_DATA names the extracted
+; subsystem archive root, set by `make coralnpu.dma.runtest`.
+
+(executable
+ (name dma_bench)
+ (modules dma_bench)
+ (optional)
+ (libraries
+  coralnpu
+  coralnpu_rv32
+  dma_kernels
+  peak_kernels
+  err_trace
+  fmt
+  machine_rivet_riscv32))
+
+(cram
+ (applies_to dma)
+ (deps %{exe:dma_bench.exe} (universe))
+ (enabled_if
+  (<> %{env:CORALNPU_SUBSYSTEM_DATA=} "")))
