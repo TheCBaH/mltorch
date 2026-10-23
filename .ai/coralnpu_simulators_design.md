@@ -482,3 +482,12 @@ digest, a missing simulator, and an output hashed against the wrong bytes.
 Cycles repeat exactly from run to run: eight floats take 201 cycles in DTCM and
 321 in SRAM, 4096 in SRAM 139313. The simulator runs about 20 000 cycles a
 second on the aarch64 devcontainer, which bounds every workload it measures.
+
+The peak suite's kernels, unchanged and with everything in DTCM, take the
+standalone cores' cycles on the subsystem's normal-TCM cores, within four
+cycles of code placement (`test/coralnpu_soc/peak.t`): RVV GEMMs for INT8,
+FP32 and BF16 on both the vector and the matrix SoC, Zvt tile multiplies and
+GEMMs for INT8 and FP32. So the peak rates are the subsystem's compute
+ceilings. Zvt BF16 (`vtfmm.alt`) is wrong there, although the manifest lists
+BF16 among the matrix formats: the subsystem's matrix build lacks the engine's
+BF16 option, which the standalone VME build enables.

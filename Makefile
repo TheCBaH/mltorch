@@ -1659,8 +1659,9 @@ coralnpu.subsystem.download:
 	scripts/coralnpu-download.sh coralnpu.lock $(CORALNPU_DIR) subsystem
 
 # Typed kernels on the four subsystem simulators through the mailbox runtime
-# (started over the SPI bridge, results checked by guest-computed hashes).
-# Needs the subsystem download; fails, never skips, without it.
+# (started over the SPI bridge, results checked by guest-computed hashes), and
+# the peak suite's kernels rerun there with everything in DTCM. Needs the
+# subsystem download; fails, never skips, without it.
 .PHONY: coralnpu.soc.runtest
 coralnpu.soc.runtest:
 	@test -f $(CORALNPU_SUBSYSTEM_DATA)/hardware-configurations.json || { \

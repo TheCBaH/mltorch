@@ -13,3 +13,24 @@
  (deps %{exe:soc_kernels.exe} (universe))
  (enabled_if
   (<> %{env:CORALNPU_SUBSYSTEM_DATA=} "")))
+
+; The peak suite's kernels, unchanged, on the subsystem: does the SoC's core
+; take the standalone core's cycles with everything in DTCM?
+
+(executable
+ (name soc_peak)
+ (modules soc_peak)
+ (optional)
+ (libraries
+  coralnpu
+  coralnpu_rv32
+  peak_kernels
+  err_trace
+  fmt
+  machine_rivet_riscv32))
+
+(cram
+ (applies_to peak)
+ (deps %{exe:soc_peak.exe} (universe))
+ (enabled_if
+  (<> %{env:CORALNPU_SUBSYSTEM_DATA=} "")))
