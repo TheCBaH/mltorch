@@ -92,6 +92,7 @@ let operands ~spelling : Insn.t -> Operand.t list = function
       [ gpr src; sym (spelling target) ]
   | Csrr { dst; csr } -> [ gpr dst; imm (Insn.Csr.number csr) ]
   | Fence -> [ sym "rw"; sym "rw" ]
+  | J { target } -> [ sym (spelling target) ]
   | Flh { dst; base; offset } | Flw { dst; base; offset } ->
       [ fpr dst; mem base (Imm.Imm12.to_int offset) ]
   | Li { dst; imm = i } -> [ gpr dst; imm (Imm.Li.to_int i) ]

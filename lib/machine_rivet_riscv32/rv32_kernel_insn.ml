@@ -99,6 +99,8 @@ type t =
       (** [fence rw, rw]: every earlier load and store before any later one,
           device accesses included. *)
   | Flh of { dst : Fpr.t; base : Gpr.t; offset : Imm.Imm12.t }
+  | J of { target : Rv32_kernel_label.t }
+      (** [jal zero]: a reach of 1 MiB, where a branch has 4 KiB. *)
   | Flw of { dst : Fpr.t; base : Gpr.t; offset : Imm.Imm12.t }
   | Li of { dst : Gpr.t; imm : Imm.Li.t }
   | Lui of { dst : Gpr.t; imm : Imm.U20.t }
@@ -133,7 +135,7 @@ type t =
 let extension = function
   | Msetmtype _ | Msettn _ | Vtmm _ | Vtse _ | Vtzero _ -> Some zvt_feature
   | Add _ | Addi _ | Andi _ | Beqz _ | Bnez _ | Csrr _ | Fence | Flh _ | Flw _
-  | Li _ | Lui _ | Lw _ | Mv _ | Ret | Srli _ | Sub _ | Sw _ | Vfmacc_vf _
+  | J _ | Li _ | Lui _ | Lw _ | Mv _ | Ret | Srli _ | Sub _ | Sw _ | Vfmacc_vf _
   | Vfwmaccbf16_vf _ | Vle _ | Vmacc_vx _ | Vmv_v_i _ | Vmv_v_x _ | Vse _
   | Vsetvli _ | Vv _ | Vwmacc_vx _ ->
       None
@@ -150,6 +152,7 @@ let mnemonic = function
   | Fence -> "fence"
   | Flh _ -> "flh"
   | Flw _ -> "flw"
+  | J _ -> "j"
   | Li _ -> "li"
   | Lui _ -> "lui"
   | Lw _ -> "lw"
@@ -187,6 +190,7 @@ let pp ppf i =
   | Beqz { src; target } | Bnez { src; target } ->
       Fmt.pf ppf "%s %a, %a" m Gpr.pp src Rv32_kernel_label.pp target
   | Csrr { dst; csr } -> Fmt.pf ppf "%s %a, %a" m Gpr.pp dst Csr.pp csr
+  | J { target } -> Fmt.pf ppf "%s %a" m Rv32_kernel_label.pp target
   | Fence -> Fmt.pf ppf "%s rw, rw" m
   | Flh { dst; base; offset } | Flw { dst; base; offset } ->
       Fmt.pf ppf "%s %a, %a" m Fpr.pp dst pp_mem (offset, base)
@@ -259,15 +263,15 @@ let out_of_range i =
   | Lui { imm; _ } -> check (module Imm.U20) imm
   | Srli { shamt; _ } -> check (module Imm.Shamt) shamt
   | Vmv_v_i { imm; _ } -> check (module Imm.Simm5) imm
-  | Add _ | Beqz _ | Bnez _ | Csrr _ | Fence | Msetmtype _ | Msettn _ | Mv _
-  | Ret | Sub _ | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _ | Vmacc_vx _
+  | Add _ | Beqz _ | Bnez _ | Csrr _ | Fence | J _ | Msetmtype _ | Msettn _
+  | Mv _ | Ret | Sub _ | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _ | Vmacc_vx _
   | Vmv_v_x _ | Vse _ | Vsetvli _ | Vtmm _ | Vtse _ | Vtzero _ | Vv _
   | Vwmacc_vx _ ->
       []
 
 (* The labels [i] branches to. *)
 let targets = function
-  | Beqz { target; _ } | Bnez { target; _ } -> [ target ]
+  | Beqz { target; _ } | Bnez { target; _ } | J { target } -> [ target ]
   | Add _ | Addi _ | Andi _ | Csrr _ | Fence | Flh _ | Flw _ | Li _ | Lui _
   | Lw _ | Msetmtype _ | Msettn _ | Mv _ | Ret | Srli _ | Sub _ | Sw _
   | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _ | Vmacc_vx _ | Vmv_v_i _ | Vmv_v_x _
@@ -289,7 +293,7 @@ let reads i =
   | Addi { src; _ } | Andi { src; _ } | Mv { src; _ } | Srli { src; _ } ->
       gprs [ src ]
   | Beqz { src; _ } | Bnez { src; _ } -> gprs [ src ]
-  | Csrr _ | Fence -> []
+  | Csrr _ | Fence | J _ -> []
   | Flh { base; _ } | Flw { base; _ } | Lw { base; _ } | Vle { base; _ } ->
       gprs [ base ]
   | Li _ | Lui _ | Ret | Vmv_v_i _ | Vtzero _ -> []
@@ -330,7 +334,7 @@ let writes i =
   | Sub { dst; _ } ->
       gpr dst
   | Flh { dst; _ } | Flw { dst; _ } -> [ Reg_ref.Fpr dst ]
-  | Beqz _ | Bnez _ | Fence | Ret | Sw _ | Vse _ | Vtse _ -> []
+  | Beqz _ | Bnez _ | Fence | J _ | Ret | Sw _ | Vse _ | Vtse _ -> []
   | Vtmm { acc = dst; _ } | Vtzero { dst } -> [ Reg_ref.Mtreg dst ]
   | Vfmacc_vf { acc; _ }
   | Vfwmaccbf16_vf { acc; _ }
