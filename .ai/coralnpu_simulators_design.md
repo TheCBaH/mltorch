@@ -494,10 +494,12 @@ cycles of code placement (`test/coralnpu_soc/peak.t`): RVV GEMMs for INT8,
 FP32 and BF16 on both the vector and the matrix SoC, Zvt tile multiplies and
 GEMMs for INT8 and FP32. So the peak rates are the subsystem's compute
 ceilings. Zvt BF16 (`vtfmm.alt`) is wrong there, although the manifest lists
-BF16 among the matrix formats. The cause is unknown: both builds' manifests
-list BF16 matrix support with the same generator options. `tile_bf16` takes
-639 cycles against the standalone 1470, under the 1024 its 256 tile multiplies
-need at one per 4 cycles, so the multiplies do not occupy the PE array.
+BF16 among the matrix formats: the engine's BF16 tile multiplies need the
+build define `-DZVTBF16FMM_ON`, which the producer adds in a wrapper patch
+later than v0.0.4 (whose provenance ends at patch 0024). A define is not a
+generator option, so the manifest does not show it. Consistently,
+`tile_bf16` takes 639 cycles against the standalone 1470, under the 1024 its
+256 tile multiplies need at one per 4 cycles: they never occupy the PE array.
 
 ### Raw transfer speed and the DMA (`test/coralnpu_dma`)
 
