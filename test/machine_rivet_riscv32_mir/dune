@@ -10,6 +10,7 @@
   fmt
   loop_ir
   loop_ir_test
+  machine_alloc
   machine_aarch64_test
   machine_interp
   machine_ir

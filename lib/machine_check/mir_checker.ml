@@ -61,11 +61,13 @@ module Make (T : Mir_sel.TARGET) = struct
      realized frame bytes by their offset from the entry stack pointer. *)
   type key = Frame of int64 | Slot of int | Unit of int
 
-  (* What a location holds: a virtual value written at a width (bits), or,
-     for a register, an address — the entry stack pointer plus [k]. *)
+  (* What a location holds: a virtual value written at a width (bits) over
+     [units] consecutive register units from its key (1 but for a register
+     group), or, for a register, an address — the entry stack pointer plus
+     [k]. *)
   type holder =
     | Address of int64
-    | Value of { value : Mir_value.t; width : int64 }
+    | Value of { value : Mir_value.t; width : int64; units : int }
 
   module K = Map.Make (struct
     type t = key
@@ -73,8 +75,29 @@ module Make (T : Mir_sel.TARGET) = struct
     let compare = compare
   end)
 
+  (* A view's key: its unit, or a group's base unit, where the group's holder
+     is kept. *)
   let unit_of (v : Mir_target.View.t) =
     Unit (Mir_id.Unit.to_int v.Mir_target.View.unit)
+
+  let span_units (v : Mir_target.View.t) =
+    Mir_target.Span.count v.Mir_target.View.span
+
+  (* Forgets every register holder that covers unit [u]: its own, and a
+     group's based below it. *)
+  let kill_unit st u =
+    K.filter
+      (fun key h ->
+        match (key, h) with
+        | Unit j, Value { units; _ } -> not (j <= u && u < j + units)
+        | Unit j, Address _ -> j <> u
+        | _ -> true)
+      st
+
+  let kill_members st (v : Mir_target.View.t) =
+    List.fold_left
+      (fun st u -> kill_unit st (Mir_id.Unit.to_int u))
+      st (Mir_target.View.units v)
 
   (* A location's key; frame memory resolves through its base register's
      address holder, and is unknown when the base holds no address. *)
@@ -113,6 +136,7 @@ module Make (T : Mir_sel.TARGET) = struct
           st
     | Loc.Mem _, _ ->
         K.filter (fun key _ -> match key with Frame _ -> false | _ -> true) st
+    | Loc.Reg v, _ -> kill_members st v
     | _, Some k -> K.remove k st
     | _, None -> st
 
@@ -122,10 +146,20 @@ module Make (T : Mir_sel.TARGET) = struct
     let k = unit_of v in
     match K.find_opt k st with
     | Some (Value h)
-      when Int64.compare (Int64.of_int v.Mir_target.View.lo) h.width >= 0 ->
+      when v.Mir_target.View.span = Mir_target.Span.One
+           && h.units = 1
+           && Int64.compare (Int64.of_int v.Mir_target.View.lo) h.width >= 0
+           && not
+                (K.exists
+                   (fun key h ->
+                     match (key, h) with
+                     | Unit j, Value { units; _ } ->
+                         let u = Mir_id.Unit.to_int v.Mir_target.View.unit in
+                         j < u && u < j + units
+                     | _ -> false)
+                   st) ->
         st
-    | Some _ -> K.remove k st
-    | None -> st
+    | Some _ | None -> kill_members st v
 
   let forget_value st (v : Mir_value.t) =
     K.filter
@@ -137,7 +171,9 @@ module Make (T : Mir_sel.TARGET) = struct
 
   let set st l v =
     match key_of st l with
-    | Some k -> K.add k (Value { value = v; width = width_of l }) (kill st l)
+    | Some k ->
+        let units = match l with Loc.Reg r -> span_units r | _ -> 1 in
+        K.add k (Value { value = v; width = width_of l; units }) (kill st l)
     | None -> kill st l
 
   let meet a b =

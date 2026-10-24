@@ -1,6 +1,8 @@
 (* Selection of register-wide vector operations as Zve32f forms. By now every
-   vector is a four-lane slice ({!Mir_vsplit} at 16 bytes): binary32 or int32
-   lanes, or a mask of four. IEEE maximum, truncation and the unordered
+   vector is a slice of the register width ({!Mir_vsplit}): four binary32 or
+   int32 lanes, or a mask of four, at 16 bytes; sixteen at 64 (a group of
+   four registers), where a lane insert or extract, an extension and a narrow
+   integer load are refused. IEEE maximum, truncation and the unordered
    compare are the scalar sequences on lanes; a broadcast is a scalar load and
    a splat; an access at any other stride is [vlse32.v] or [vsse32.v] with the
    stride in a register. Integer lane arithmetic, other lane widths, and a
@@ -14,21 +16,30 @@ module V = Rv32_vop
 let vec st ?result ty op = emit st ?result ty (Rv32_op.Vec op)
 let f32x4 = V.f32x4
 let mask4 = V.mask4
-let cmp st ?result c a b = vec st ?result mask4 (V.Vfcmp (c, a, b))
+
+(* The lanes of a vector operand. *)
+let lanes_of (v : Mir_value.t) =
+  match V.lanes_of v.Mir_value.ty with
+  | Some n -> n
+  | None -> invalid_arg "Rv32_select_vec: a vector operand's lanes"
+
+let cmp st ?result c (a : Mir_value.t) b =
+  vec st ?result (Mir_type.Mask (lanes_of a)) (V.Vfcmp (c, a, b))
 
 (* where neither lane operand is a NaN *)
 let ordered st a b =
-  vec st mask4
+  vec st
+    (Mir_type.Mask (lanes_of a))
     (V.Vlogic
        ( Rv32_kind.Logic.And,
          cmp st Rv32_kind.Fcmp.Eq a a,
          cmp st Rv32_kind.Fcmp.Eq b b ))
 
-let splat_f32 st bits =
+let splat_f32 st n bits =
   let f =
     emit st Mir_type.F32 (Rv32_op.Fmv_w_x (materialize st Mir_type.i32 bits))
   in
-  vec st f32x4 (V.Vfmv_v_f f)
+  vec st (V.f32v n) (V.Vfmv_v_f (V.f32v n, f))
 
 let vector st (i : Mir_op.t Mir_instr.t) =
   let r () =
@@ -74,8 +85,8 @@ let vector st (i : Mir_op.t Mir_instr.t) =
   | Mir_op.Vsplat _ when Option.is_some (shift_count (r ())) ->
       (* the count of the shifts that read it *)
       ()
-  | Mir_op.Iarith (o, a, c)
-    when Mir_op.Iarith.is_shift o && Mir_type.equal (ty a) V.i32x4 -> (
+  | Mir_op.Iarith (o, a, c) when Mir_op.Iarith.is_shift o && V.is_i32v (ty a)
+    -> (
       match shift_count c with
       | None -> unsupported ()
       | Some k -> (
@@ -87,7 +98,7 @@ let vector st (i : Mir_op.t Mir_instr.t) =
           | _ -> def (V.Vshift (Rv32_kind.Shift.Srl, k, u a))))
   | Mir_op.Iarith
       (((Mir_op.Iarith.And | Mir_op.Iarith.Or | Mir_op.Iarith.Xor) as o), a, b)
-    when Mir_type.equal (ty a) V.i32x4 ->
+    when V.is_i32v (ty a) ->
       def
         (V.Vlogic
            ( (match o with
@@ -107,8 +118,8 @@ let vector st (i : Mir_op.t Mir_instr.t) =
           def (V.Vfbin (Rv32_kind.Fop.Max, a, b))
       | Mir_op.Fbinary.Max ->
           (* maximumNumber, with the operands' sum where either is a NaN *)
-          let m = vec st f32x4 (V.Vfbin (Rv32_kind.Fop.Max, a, b)) in
-          let nan = vec st f32x4 (V.Vfbin (Rv32_kind.Fop.Add, a, b)) in
+          let m = vec st (ty a) (V.Vfbin (Rv32_kind.Fop.Max, a, b)) in
+          let nan = vec st (ty a) (V.Vfbin (Rv32_kind.Fop.Add, a, b)) in
           def (V.Vmerge (nan, m, ordered st a b))
       | Mir_op.Fbinary.Mul -> def (V.Vfbin (Rv32_kind.Fop.Mul, a, b))
       | Mir_op.Fbinary.Sub -> def (V.Vfbin (Rv32_kind.Fop.Sub, a, b)))
@@ -129,18 +140,20 @@ let vector st (i : Mir_op.t Mir_instr.t) =
       | Mir_op.Funary.Trunc ->
           (* below 2^23 in magnitude through int32 lanes and back, the sign
              restored; else the lane itself *)
+          let n = lanes_of a in
           let t =
-            vec st f32x4
+            vec st (ty a)
               (V.Vsgnj
                  ( Rv32_kind.Sgnj.J,
-                   vec st f32x4 (V.Vfcvt_f_x (vec st V.i32x4 (V.Vfcvt_x_f a))),
+                   vec st (ty a)
+                     (V.Vfcvt_f_x (vec st (V.i32v n) (V.Vfcvt_x_f a))),
                    a ))
           in
           if mutated st Mutation.Unguarded_trunc then def (V.Vmv t)
           else
-            let mag = vec st f32x4 (V.Vsgnj (Rv32_kind.Sgnj.Jx, a, a)) in
+            let mag = vec st (ty a) (V.Vsgnj (Rv32_kind.Sgnj.Jx, a, a)) in
             let small =
-              cmp st Rv32_kind.Fcmp.Lt mag (splat_f32 st 0x4B00_0000L)
+              cmp st Rv32_kind.Fcmp.Lt mag (splat_f32 st n 0x4B00_0000L)
             in
             def (V.Vmerge (a, t, small)))
   | Mir_op.Pbinary (o, a, b) ->
@@ -162,7 +175,7 @@ let vector st (i : Mir_op.t Mir_instr.t) =
       def (V.Vinsert (Mir_type.Lane.to_int lane, u a, u x))
   | Mir_op.Vsplat (_, x) -> (
       match ty x with
-      | Mir_type.F32 -> def (V.Vfmv_v_f (u x))
+      | Mir_type.F32 -> def (V.Vfmv_v_f (ty (r ()), u x))
       | Mir_type.Int Mir_width.W32 -> def (V.Vmv_v_x (ty (r ()), u x))
       | Mir_type.Pred ->
           (* 0 or 1 as 0 or all ones, then to every lane *)
@@ -194,7 +207,7 @@ let vector st (i : Mir_op.t Mir_instr.t) =
       | 0L, Mir_type.Elem.F32 ->
           let f = fresh st Mir_type.F32 in
           push st ?order [ f ] (Mir_sel.Op.Machine (Rv32_op.Flw (addr, 0L)));
-          def (V.Vfmv_v_f f)
+          def (V.Vfmv_v_f (t, f))
       | 0L, Mir_type.Elem.Int Mir_width.W32 ->
           let w = fresh st Mir_type.i32 in
           push st ?order [ w ]

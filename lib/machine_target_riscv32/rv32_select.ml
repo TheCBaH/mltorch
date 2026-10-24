@@ -412,11 +412,11 @@ let features funcs =
   in
   if vector then [ Mir_target.Feature.Zve32f ] else []
 
-let program ?mutation ?(sites = [||]) ?(unlisted = Mir_failure.Unlisted.Refused)
-    (g : Mir_verify.Generic.t) =
+let program ?mutation ?(register_bytes = 16L) ?(sites = [||])
+    ?(unlisted = Mir_failure.Unlisted.Refused) (g : Mir_verify.Generic.t) =
   Err.Escape.with_escape @@ fun esc ->
   let g =
-    match Err.payload (Mir_vsplit.program ~register_bytes:16L g) with
+    match Err.payload (Mir_vsplit.program ~register_bytes g) with
     | Ok g -> g
     | Error r -> Err.Escape.throw esc (Refusal.Vector r)
   in

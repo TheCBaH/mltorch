@@ -16,13 +16,14 @@ let config =
   }
 
 let measure ?(numerics = Ssa_ir.Ssa_numerics.Fp32_ordered) ?(oracle = T.Fp32)
-    target name g =
+    ?registers target name g =
   let cycles = ref 0L and retired = ref 0L in
   let on_run (o : C.Run.t) =
     cycles := Int64.add !cycles o.C.Run.mcycle;
     retired := Int64.add !retired o.C.Run.minstret
   in
-  T.check ~route:(C.route ~on_run config)
+  T.check
+    ~route:(C.route ?registers ~on_run config)
     ~pipeline:(Ssa_backends.Pipeline.Planned { numerics; target })
     ~oracle ~constant:T.positive ~calls:1 name g;
   (!cycles, !retired)
@@ -44,7 +45,7 @@ let%expect_test "scalar and Zve32f on the RTL vector core" =
     {|
     relu then add over C=32, scalar (2 invocations): bitwise
     relu then add over C=32, zve32f128 (2 invocations): bitwise
-      cycles 7572 -> 1909 (3.97x), instructions 4627 -> 1432 (3.23x)
+      cycles 7572 -> 1915 (3.95x), instructions 4627 -> 1432 (3.23x)
     softmax over H, W=32, scalar (1 invocations): bitwise
     softmax over H, W=32, zve32f128 (1 invocations): bitwise
       cycles 495736 -> 495736 (1.00x), instructions 237748 -> 237748 (1.00x)
@@ -53,7 +54,7 @@ let%expect_test "scalar and Zve32f on the RTL vector core" =
       cycles 84070 -> 84070 (1.00x), instructions 46208 -> 46208 (1.00x)
     conv, batch norm, relu to C=32, scalar (3 invocations): bitwise
     conv, batch norm, relu to C=32, zve32f128 (3 invocations): bitwise
-      cycles 192313 -> 23807 (8.08x), instructions 139487 -> 20566 (6.78x) |}]
+      cycles 192313 -> 23903 (8.05x), instructions 139487 -> 20566 (6.78x) |}]
 
 (* The matrix products on the same core: whole-invocation cycles, and the
    rate in operations a cycle (a multiply-add is two) against the peak
@@ -90,10 +91,10 @@ let%expect_test "matrix products on the RTL vector core" =
       cycles 141784 -> 81254 (1.74x), instructions 65773 -> 45457 (1.45x); 0.180 -> 0.315 ops/cycle
     bmm 1x9x32 k64, scalar (1 invocations): bitwise
     bmm 1x9x32 k64, zve32f128 (1 invocations): bitwise
-      cycles 200460 -> 27550 (7.28x), instructions 94319 -> 25723 (3.67x); 0.184 -> 1.338 ops/cycle
+      cycles 200460 -> 27045 (7.41x), instructions 94319 -> 25723 (3.67x); 0.184 -> 1.363 ops/cycle
     bmm 3x7x29 k63, scalar (1 invocations): bitwise
     bmm 3x7x29 k63, zve32f128 (1 invocations): bitwise
-      cycles 428682 -> 239345 (1.79x), instructions 204858 -> 134687 (1.52x); 0.179 -> 0.321 ops/cycle |}]
+      cycles 428682 -> 239324 (1.79x), instructions 204858 -> 134687 (1.52x); 0.179 -> 0.321 ops/cycle |}]
 
 (* The contracted policy's fused accumulation ([vfmacc.vv]) against the
    ordered Zve32f plan on the same core: bitwise against each policy's own
@@ -127,7 +128,79 @@ let%expect_test "matrix products: contracted against ordered Zve32f" =
       cycles 81254 -> 56355 (1.44x); 0.315 -> 0.454 ops/cycle
     bmm 1x9x32 k64, ordered (1 invocations): bitwise
     bmm 1x9x32 k64, contracted (1 invocations): bitwise
-      cycles 27550 -> 24212 (1.14x); 1.338 -> 1.523 ops/cycle
+      cycles 27045 -> 24211 (1.12x); 1.363 -> 1.523 ops/cycle
     bmm 3x7x29 k63, ordered (1 invocations): bitwise
     bmm 3x7x29 k63, contracted (1 invocations): bitwise
-      cycles 239345 -> 159944 (1.50x); 0.321 -> 0.480 ops/cycle |}]
+      cycles 239324 -> 159944 (1.50x); 0.321 -> 0.480 ops/cycle |}]
+
+(* Sixteen-lane vectors in groups of four registers (LMUL 4) against one
+   register of four lanes, the same Zve32f plan: bitwise against the oracle,
+   and the cycles each takes. *)
+let%expect_test "register groups against single registers" =
+  let grouped = Machine_rivet_riscv32_mir.Rv32_mir_route.Registers.Grouped in
+  List.iter
+    (fun (numerics, oracle, pname) ->
+      List.iter
+        (fun (name, g) ->
+          let name = Fmt.str "%s, %s" name pname in
+          let sc, _ =
+            measure ~numerics ~oracle Ssa_ir.Ssa_target.zve32f128
+              (name ^ ", m1") g
+          in
+          let gc, _ =
+            measure ~numerics ~oracle ~registers:grouped
+              Ssa_ir.Ssa_target.zve32f128 (name ^ ", m4") g
+          in
+          Fmt.pr "  cycles %Ld -> %Ld (%.2fx)@." sc gc
+            (Int64.to_float sc /. Int64.to_float gc))
+        (List.hd T.vector_fixtures
+        :: List.nth T.vector_fixtures 3
+        :: T.contraction_fixtures))
+    [
+      (Ssa_ir.Ssa_numerics.Fp32_ordered, T.Fp32, "ordered");
+      (Ssa_ir.Ssa_numerics.Fp32_contracted, T.Fp32_contracted, "contracted");
+    ];
+  [%expect
+    {|
+    relu then add over C=32, ordered, m1 (2 invocations): bitwise
+    relu then add over C=32, ordered, m4 (2 invocations): bitwise
+      cycles 1915 -> 1152 (1.66x)
+    conv, batch norm, relu to C=32, ordered, m1 (3 invocations): bitwise
+    conv, batch norm, relu to C=32, ordered, m4 (3 invocations): bitwise
+      cycles 23903 -> 20966 (1.14x)
+    linear 9x32 k64, ordered, m1 (1 invocations): bitwise
+    linear 9x32 k64, ordered, m4 (1 invocations): bitwise
+      cycles 38509 -> 31685 (1.22x)
+    linear 9x32 k64 bias, ordered, m1 (1 invocations): bitwise
+    linear 9x32 k64 bias, ordered, m4 (1 invocations): bitwise
+      cycles 38773 -> 25290 (1.53x)
+    linear 7x29 k63 bias, ordered, m1 (1 invocations): bitwise
+    linear 7x29 k63 bias, ordered, m4 (1 invocations): bitwise
+      cycles 81254 -> 76071 (1.07x)
+    bmm 1x9x32 k64, ordered, m1 (1 invocations): bitwise
+    bmm 1x9x32 k64, ordered, m4 (1 invocations): bitwise
+      cycles 27045 -> 16285 (1.66x)
+    bmm 3x7x29 k63, ordered, m1 (1 invocations): bitwise
+    bmm 3x7x29 k63, ordered, m4 (1 invocations): bitwise
+      cycles 239324 -> 223919 (1.07x)
+    relu then add over C=32, contracted, m1 (2 invocations): bitwise
+    relu then add over C=32, contracted, m4 (2 invocations): bitwise
+      cycles 1915 -> 1152 (1.66x)
+    conv, batch norm, relu to C=32, contracted, m1 (3 invocations): bitwise
+    conv, batch norm, relu to C=32, contracted, m4 (3 invocations): bitwise
+      cycles 22055 -> 19865 (1.11x)
+    linear 9x32 k64, contracted, m1 (1 invocations): bitwise
+    linear 9x32 k64, contracted, m4 (1 invocations): bitwise
+      cycles 34910 -> 38079 (0.92x)
+    linear 9x32 k64 bias, contracted, m1 (1 invocations): bitwise
+    linear 9x32 k64 bias, contracted, m4 (1 invocations): bitwise
+      cycles 35185 -> 31644 (1.11x)
+    linear 7x29 k63 bias, contracted, m1 (1 invocations): bitwise
+    linear 7x29 k63 bias, contracted, m4 (1 invocations): bitwise
+      cycles 56355 -> 51774 (1.09x)
+    bmm 1x9x32 k64, contracted, m1 (1 invocations): bitwise
+    bmm 1x9x32 k64, contracted, m4 (1 invocations): bitwise
+      cycles 24211 -> 18333 (1.32x)
+    bmm 3x7x29 k63, contracted, m1 (1 invocations): bitwise
+    bmm 3x7x29 k63, contracted, m4 (1 invocations): bitwise
+      cycles 159944 -> 148382 (1.08x) |}]

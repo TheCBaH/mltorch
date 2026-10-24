@@ -11,7 +11,7 @@ let planned target =
   Ssa_backends.Pipeline.Planned
     { numerics = Ssa_ir.Ssa_numerics.Fp32_ordered; target }
 
-let census pipeline g =
+let census ?registers pipeline g =
   let b = T.bundle (g ()) in
   match M.prepare ~pipeline b with
   | Error _ -> Error "refused"
@@ -20,8 +20,8 @@ let census pipeline g =
         (fun acc inv g ->
           Result.bind acc (fun (acc : C.Census.t) ->
               Result.bind
-                (R.publish ~allocation:R.Allocation.Scanned ~sites:(M.sites inv)
-                   g)
+                (R.publish ?registers ~allocation:R.Allocation.Scanned
+                   ~sites:(M.sites inv) g)
                 (fun published ->
                   match Err.payload (C.of_artifact published.R.artifact) with
                   | Error r ->
@@ -45,6 +45,7 @@ let census pipeline g =
                             acc.instructions + c.instructions;
                           vector;
                           configurations = acc.configurations + c.configurations;
+                          grouped = acc.grouped + c.grouped;
                           spills = acc.spills + c.spills;
                           reloads = acc.reloads + c.reloads;
                           remats = acc.remats + c.remats;
@@ -56,6 +57,7 @@ let census pipeline g =
              C.Census.instructions = 0;
              vector = [];
              configurations = 0;
+             grouped = 0;
              spills = 0;
              reloads = 0;
              remats = 0;
@@ -172,3 +174,78 @@ let%expect_test "vfmacc by policy" =
     linear 7x29 k63 bias: fp32_ordered 0, fp32_contracted 4
     bmm 1x9x32 k64: fp32_ordered 0, fp32_contracted 12
     bmm 3x7x29 k63: fp32_ordered 0, fp32_contracted 4 |}]
+
+(* The same plans with sixteen-lane vectors in groups of four registers: the
+   LMUL 4 configurations, group copies ([vmv4r.v]) and the group spills five
+   groups force on the conv chain. *)
+let%expect_test "forms with register groups" =
+  List.iter
+    (fun (name, g) ->
+      match
+        census ~registers:R.Registers.Grouped
+          (planned Ssa_ir.Ssa_target.zve32f128)
+          g
+      with
+      | Error e -> Fmt.pr "%s: %s@." name e
+      | Ok c -> Fmt.pr "@[<v 2>%s:@,%a@]@." name C.Census.pp c)
+    (T.vector_fixtures @ T.contraction_fixtures);
+  [%expect
+    {|
+    relu then add over C=32:
+      instructions 151, configurations 3 (m4 3), spills 0, reloads 0, remats 0, frame 64 bytes, helper calls 0
+      vector vfadd.vv 1, vfmv.v.f 1, vle32.v 4, vmerge.vim 1, vmerge.vvm 1, vmflt.vv 1, vmsne.vi 1, vmv.v.i 1, vse32.v 2
+    softmax over H, W=32:
+      instructions 840, configurations 0, spills 0, reloads 0, remats 0, frame 64 bytes, helper calls 0
+      vector none
+    layer_norm over H, W=32:
+      instructions 602, configurations 0, spills 0, reloads 0, remats 0, frame 64 bytes, helper calls 0
+      vector none
+    conv, batch norm, relu to C=32:
+      instructions 583, configurations 19 (m4 19), spills 16, reloads 16, remats 6, frame 336 bytes, helper calls 0
+      vector vfadd.vv 14, vfdiv.vv 1, vfmul.vv 5, vfmv.v.f 7, vfsqrt.v 1, vfsub.vv 1, vle32.v 18, vlse32.v 3, vmerge.vim 1, vmerge.vvm 1, vmflt.vv 1, vmsne.vi 1, vmv.v.i 1, vmv4r.v 16, vse32.v 13
+    linear 9x32 k64:
+      instructions 162, configurations 5 (m4 5), spills 1, reloads 1, remats 0, frame 112 bytes, helper calls 0
+      vector vfadd.vv 6, vfmul.vv 3, vfmv.v.f 4, vle32.v 1, vlse32.v 3, vmv4r.v 4, vse32.v 4
+    linear 9x32 k64 bias:
+      instructions 182, configurations 6 (m4 6), spills 1, reloads 1, remats 0, frame 112 bytes, helper calls 0
+      vector vfadd.vv 6, vfmul.vv 3, vfmv.v.f 4, vle32.v 4, vlse32.v 3, vmv4r.v 4, vse32.v 4
+    linear 7x29 k63 bias:
+      instructions 217, configurations 3 (m4 3), spills 0, reloads 0, remats 0, frame 64 bytes, helper calls 0
+      vector vfadd.vv 2, vfmul.vv 1, vfmv.v.f 2, vle32.v 1, vlse32.v 1, vmv4r.v 1, vse32.v 1
+    bmm 1x9x32 k64:
+      instructions 162, configurations 6 (m4 6), spills 1, reloads 1, remats 0, frame 112 bytes, helper calls 0
+      vector vfadd.vv 3, vfmul.vv 3, vfmv.v.f 4, vle32.v 4, vmv4r.v 4, vse32.v 4
+    bmm 3x7x29 k63:
+      instructions 213, configurations 3 (m4 3), spills 0, reloads 0, remats 0, frame 80 bytes, helper calls 0
+      vector vfadd.vv 1, vfmul.vv 1, vfmv.v.f 2, vle32.v 1, vmv4r.v 1, vse32.v 1 |}]
+
+(* Where a block's items get a configuration: before the first that needs
+   one, wherever the need changes, and again after a call; under the stale
+   mutation only before the first. *)
+let%expect_test "configuration settings" =
+  let module V = Machine_rivet_riscv32_mir.Rv32_mir_form.Vconfig in
+  let show ?mutation items =
+    Fmt.pr "%s@."
+      (String.concat " "
+         (List.map
+            (function Some V.M1 -> "m1" | Some V.M4 -> "m4" | None -> "-")
+            (Machine_rivet_riscv32_mir.Rv32_mir_module.configurations ?mutation
+               items)))
+  in
+  let items =
+    [
+      (None, false);
+      (Some V.M4, false);
+      (Some V.M4, false);
+      (Some V.M1, false);
+      (None, true);
+      (Some V.M1, false);
+      (Some V.M4, false);
+    ]
+  in
+  show items;
+  show ~mutation:Machine_rivet_riscv32_mir.Rv32_mir_form.Mutation.Stale_vtype
+    items;
+  [%expect {|
+    - m4 - m1 - m1 m4
+    - m4 - - - - - |}]

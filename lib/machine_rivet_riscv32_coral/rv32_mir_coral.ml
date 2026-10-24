@@ -201,8 +201,11 @@ let run_once ?(on_run = fun _ -> ()) ?route_mutation ?budget (c : Config.t)
   in
   Ok status
 
-let exec_of ?mutation ?route_mutation ?on_run ?home ?budget c ~sites g =
-  let* published = Q.publish ~allocation:Q.Allocation.Scanned ~sites g in
+let exec_of ?mutation ?route_mutation ?registers ?on_run ?home ?budget c ~sites
+    g =
+  let* published =
+    Q.publish ?registers ~allocation:Q.Allocation.Scanned ~sites g
+  in
   let* image = image ?mutation ?home c published in
   let phys = Art.program published.Q.artifact in
   let run ?fuel:_ memory binding ~invocation:_ =
@@ -232,11 +235,13 @@ let exec_of ?mutation ?route_mutation ?on_run ?home ?budget c ~sites g =
 (* [on_run] sees what every run measured. [home] places each slot (default
    [Any]); [budget] bounds the subsystem's read-back bytes (default
    {!read_back_budget}). *)
-let route ?mutation ?route_mutation ?on_run ?home ?budget (c : Config.t) =
+let route ?mutation ?route_mutation ?registers ?on_run ?home ?budget
+    (c : Config.t) =
   Route.Route.Custom
     {
       Route.Custom.name = "riscv32 coral " ^ c.Config.configuration;
       exec =
         (fun ~sites g ->
-          exec_of ?mutation ?route_mutation ?on_run ?home ?budget c ~sites g);
+          exec_of ?mutation ?route_mutation ?registers ?on_run ?home ?budget c
+            ~sites g);
     }

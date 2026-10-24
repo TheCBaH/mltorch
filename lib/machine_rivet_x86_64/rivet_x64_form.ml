@@ -62,8 +62,10 @@ let find env name =
   | Some r -> r
   | None -> refuse env (R.Register name)
 
+(* x86-64 has no register groups *)
 let view env = function
-  | Loc.Reg v -> v
+  | Loc.Reg v when v.Mir_target.View.span = Mir_target.Span.One -> v
+  | Loc.Reg v -> refuse env (R.Register v.Mir_target.View.name)
   | Loc.Slot _ -> refuse env (R.Location "a frame slot")
   | Loc.Mem _ -> refuse env (R.Location "memory")
 

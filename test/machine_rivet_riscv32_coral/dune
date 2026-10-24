@@ -11,6 +11,7 @@
   machine_model
   machine_model_test
   machine_rivet_riscv32_coral
+  machine_rivet_riscv32_mir
   ssa_backends
   ssa_ir)
  (inline_tests

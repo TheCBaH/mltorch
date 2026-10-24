@@ -53,6 +53,7 @@ let gpr bits k =
     V.name = (if bits = 64 then names64.(k) else names32.(k));
     bank = Mir_target.Bank.Gpr;
     unit = Mir_id.Unit.of_int k;
+    span = Mir_target.Span.One;
     lo = 0;
     bits;
   }
@@ -67,6 +68,7 @@ let xmm_view bits k =
         (match bits with 128 -> "" | 64 -> ".d" | _ -> ".s");
     bank = Mir_target.Bank.Fpr;
     unit = Mir_id.Unit.of_int (16 + k);
+    span = Mir_target.Span.One;
     lo = 0;
     bits;
   }
@@ -80,6 +82,7 @@ let rflags =
     V.name = "rflags";
     bank = Mir_target.Bank.Flags;
     unit = Mir_id.Unit.of_int 32;
+    span = Mir_target.Span.One;
     lo = 0;
     bits = 6;
   }
@@ -89,6 +92,7 @@ let mxcsr =
     V.name = "mxcsr";
     bank = Mir_target.Bank.Control;
     unit = Mir_id.Unit.of_int 33;
+    span = Mir_target.Span.One;
     lo = 0;
     bits = 32;
   }

@@ -1,10 +1,13 @@
 (* The admitted Zve32f vector forms (the RISC-V V extension, 1.0) over virtual
-   values, every one under the vector configuration the emitter establishes
-   — SEW 32, LMUL 1, vl 4, tail and mask agnostic — so a vector is four
-   binary32 or int32 lanes of a register, whatever VLEN beyond 128 the core
-   has. A mask is four lanes of all ones or all zeros, as a compare leaves
+   values, each under the vector configuration its lanes need, which the
+   emitter establishes — SEW 32, tail and mask agnostic, LMUL 1 and vl 4 for
+   four lanes, LMUL 4 and vl 16 for sixteen — so a vector is four binary32 or
+   int32 lanes of a register, or sixteen of an aligned group of four, whatever
+   VLEN beyond 128 the core has. A lane insert or extract, an extension and a
+   narrow integer load exist at four lanes only. A mask is four lanes of all ones or all zeros, as a compare leaves
    them; RVV's own masks (one bit a lane, always in v0) exist only inside a
-   form's sequence, which uses the reserved v0 in passing. A strided access's
+   form's sequence, which uses v0 in passing (and so clobbers it and admits no
+   operand there, [Rv32_op.vector_scratch]). A strided access's
    stride is a register; a load or store takes its address whole. Every
    consumer matches this type exhaustively and alphabetically. *)
 
@@ -35,7 +38,8 @@ type t =
           accumulator *)
   | Vfmv_f_s of int * v
       (** sequence: [vslidedown.vi] into v0 then [vfmv.f.s]: a lane *)
-  | Vfmv_v_f of v  (** [vfmv.v.f]: a binary32 to every lane *)
+  | Vfmv_v_f of Mir_type.t * v
+      (** [vfmv.v.f]: a binary32 to every lane of a vector of that type *)
   | Vfsqrt of v
   | Vinsert of int * v * v
       (** sequence: the vector with one lane replaced by the binary32, through
@@ -70,7 +74,7 @@ let uses = function
   | Vfcvt_f_x a
   | Vfcvt_x_f a
   | Vfmv_f_s (_, a)
-  | Vfmv_v_f a
+  | Vfmv_v_f (_, a)
   | Vfsqrt a
   | Vle32 (_, a)
   | Vmv a
@@ -94,6 +98,30 @@ let f32x4 = Mir_type.Vec (Mir_type.Elem.F32, lanes4)
 let i32x4 = Mir_type.Vec (Mir_type.Elem.Int Mir_width.W32, lanes4)
 let mask4 = Mir_type.Mask lanes4
 
+(* The lane counts a form may have: one register, or a group of four. *)
+let lane_counts = [ 4; 16 ]
+let counted n = List.mem (Mir_type.Lanes.to_int n) lane_counts
+let f32v n = Mir_type.Vec (Mir_type.Elem.F32, n)
+let i32v n = Mir_type.Vec (Mir_type.Elem.Int Mir_width.W32, n)
+
+(* The lanes of a binary32, int32 or mask vector a form admits. *)
+let lanes_of = function
+  | Mir_type.Vec ((Mir_type.Elem.F32 | Mir_type.Elem.Int Mir_width.W32), n)
+  | Mir_type.Mask n
+    when counted n ->
+      Some n
+  | _ -> None
+
+let is_f32v t =
+  match t with Mir_type.Vec (Mir_type.Elem.F32, n) -> counted n | _ -> false
+
+let is_i32v t =
+  match t with
+  | Mir_type.Vec (Mir_type.Elem.Int Mir_width.W32, n) -> counted n
+  | _ -> false
+
+let is_mask t = match t with Mir_type.Mask n -> counted n | _ -> false
+
 (* A whole register of i8 or i16 lanes. *)
 let int_register = function
   | Mir_width.W8 ->
@@ -110,11 +138,16 @@ let need ok why = if ok then Ok () else Error why
 let lane_ok k = k >= 0 && k < 4
 
 let typing op =
-  let f32v a = is (ty a) f32x4 in
+  let fv a = is_f32v (ty a) in
+  let same a b = is (ty a) (ty b) in
   match op with
   | Vcast (t, a) ->
-      let q x = is x f32x4 || is x i32x4 in
-      let* () = need (q t && q (ty a)) "a register's lanes" in
+      let q x = is_f32v x || is_i32v x in
+      let* () =
+        need
+          (q t && q (ty a) && lanes_of t = lanes_of (ty a))
+          "a register's lanes"
+      in
       Ok [ t ]
   | Vext { from; first; src; _ } ->
       let* () =
@@ -128,37 +161,39 @@ let typing op =
       in
       Ok [ i32x4 ]
   | Vfbin (_, a, b) | Vsgnj (_, a, b) ->
-      let* () = need (f32v a && f32v b) "vector operands" in
-      Ok [ f32x4 ]
+      let* () = need (fv a && same a b) "vector operands" in
+      Ok [ ty a ]
   | Vfcmp (_, a, b) ->
-      let* () = need (f32v a && f32v b) "vector compare operands" in
-      Ok [ mask4 ]
+      let* () = need (fv a && same a b) "vector compare operands" in
+      Ok [ Mir_type.Mask (Option.get (lanes_of (ty a))) ]
   | Vfcvt_f_x a ->
-      let* () = need (is (ty a) i32x4) "int32 lanes" in
-      Ok [ f32x4 ]
+      let* () = need (is_i32v (ty a)) "int32 lanes" in
+      Ok [ f32v (Option.get (lanes_of (ty a))) ]
   | Vfcvt_x_f a ->
-      let* () = need (f32v a) "binary32 lanes" in
-      Ok [ i32x4 ]
+      let* () = need (fv a) "binary32 lanes" in
+      Ok [ i32v (Option.get (lanes_of (ty a))) ]
   | Vfmacc (acc, a, b) ->
-      let* () = need (f32v acc && f32v a && f32v b) "vfmacc operands" in
-      Ok [ f32x4 ]
+      let* () = need (fv acc && same acc a && same acc b) "vfmacc operands" in
+      Ok [ ty acc ]
   | Vfmv_f_s (k, a) ->
-      let* () = need (lane_ok k && f32v a) "lane extract" in
+      let* () = need (lane_ok k && is (ty a) f32x4) "lane extract" in
       Ok [ Mir_type.F32 ]
-  | Vfmv_v_f a ->
-      let* () = need (is (ty a) Mir_type.F32) "splat source" in
-      Ok [ f32x4 ]
+  | Vfmv_v_f (t, a) ->
+      let* () = need (is (ty a) Mir_type.F32 && is_f32v t) "splat source" in
+      Ok [ t ]
   | Vfsqrt a ->
-      let* () = need (f32v a) "vector operand" in
-      Ok [ f32x4 ]
+      let* () = need (fv a) "vector operand" in
+      Ok [ ty a ]
   | Vinsert (k, a, x) ->
       let* () =
-        need (lane_ok k && f32v a && is (ty x) Mir_type.F32) "lane insert"
+        need
+          (lane_ok k && is (ty a) f32x4 && is (ty x) Mir_type.F32)
+          "lane insert"
       in
       Ok [ f32x4 ]
   | Vle32 (t, base) ->
       let* () = need (is (ty base) Mir_type.Ptr) "vle32 address" in
-      let* () = need (is t f32x4 || is t i32x4) "vle32 lanes" in
+      let* () = need (is_f32v t || is_i32v t) "vle32 lanes" in
       Ok [ t ]
   | Vle_int (w, base) ->
       let* () = need (is (ty base) Mir_type.Ptr) "vle address" in
@@ -167,52 +202,53 @@ let typing op =
   | Vlogic (_, a, b) ->
       let* () =
         need
-          ((is (ty a) mask4 || is (ty a) i32x4) && is (ty a) (ty b))
+          ((is_mask (ty a) || is_i32v (ty a)) && same a b)
           "mask or int32 lane operands"
       in
       Ok [ ty a ]
   | Vlse32 (t, base, stride) ->
       let* () = need (is (ty base) Mir_type.Ptr) "vlse32 address" in
       let* () = need (is (ty stride) Mir_type.i32) "vlse32 stride" in
-      let* () = need (is t f32x4 || is t i32x4) "vlse32 lanes" in
+      let* () = need (is_f32v t || is_i32v t) "vlse32 lanes" in
       Ok [ t ]
   | Vmerge (other, a, m) ->
-      let* () = need (is (ty m) mask4) "merge mask" in
+      let* () =
+        need (is_mask (ty m) && lanes_of (ty m) = lanes_of (ty a)) "merge mask"
+      in
       let* () =
         need
-          ((f32v a || is (ty a) i32x4 || is (ty a) mask4)
-          && is (ty a) (ty other))
+          ((fv a || is_i32v (ty a) || is_mask (ty a)) && same a other)
           "merge operands"
       in
       Ok [ ty a ]
   | Vmv a ->
       let* () =
-        need (f32v a || is (ty a) i32x4 || is (ty a) mask4) "vector operand"
+        need (fv a || is_i32v (ty a) || is_mask (ty a)) "vector operand"
       in
       Ok [ ty a ]
   | Vmv_v_x (t, a) ->
       let* () = need (is (ty a) Mir_type.i32) "splat source" in
-      let* () = need (is t i32x4 || is t mask4) "splat lanes" in
+      let* () = need (is_i32v t || is_mask t) "splat lanes" in
       Ok [ t ]
   | Vnot a ->
-      let* () = need (is (ty a) mask4) "mask operand" in
-      Ok [ mask4 ]
+      let* () = need (is_mask (ty a)) "mask operand" in
+      Ok [ ty a ]
   | Vshift (o, k, a) ->
-      let* () = need (is (ty a) i32x4) "shifted lanes" in
+      let* () = need (is_i32v (ty a)) "shifted lanes" in
       let* () =
         need
           (k >= 0 && k < 32 && (k > 0 || o = Rv32_kind.Shift.Sll))
           "lane shift amount"
       in
-      Ok [ i32x4 ]
+      Ok [ ty a ]
   | Vse32 (base, x) ->
       let* () = need (is (ty base) Mir_type.Ptr) "vse32 address" in
-      let* () = need (f32v x || is (ty x) i32x4) "vse32 value" in
+      let* () = need (fv x || is_i32v (ty x)) "vse32 value" in
       Ok []
   | Vsse32 (base, stride, x) ->
       let* () = need (is (ty base) Mir_type.Ptr) "vsse32 address" in
       let* () = need (is (ty stride) Mir_type.i32) "vsse32 stride" in
-      let* () = need (f32v x || is (ty x) i32x4) "vsse32 value" in
+      let* () = need (fv x || is_i32v (ty x)) "vsse32 value" in
       Ok []
 
 let pp pv fmt op =
@@ -229,7 +265,7 @@ let pp pv fmt op =
   | Vfcvt_x_f a -> Fmt.pf fmt "vfcvt.rtz.x.f.v %a" pv a
   | Vfmacc (acc, a, b) -> Fmt.pf fmt "vfmacc.vv %a" vs [ acc; a; b ]
   | Vfmv_f_s (k, a) -> Fmt.pf fmt "vfmv.f.s %a[%d]" pv a k
-  | Vfmv_v_f a -> Fmt.pf fmt "vfmv.v.f %a" pv a
+  | Vfmv_v_f (t, a) -> Fmt.pf fmt "vfmv.v.f.%a %a" Mir_type.pp t pv a
   | Vfsqrt a -> Fmt.pf fmt "vfsqrt.v %a" pv a
   | Vinsert (k, a, x) -> Fmt.pf fmt "vinsert %a[%d], %a" pv a k pv x
   | Vle32 (t, base) -> Fmt.pf fmt "vle32.v.%a (%a)" Mir_type.pp t pv base

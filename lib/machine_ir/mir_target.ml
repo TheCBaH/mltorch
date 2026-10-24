@@ -42,24 +42,61 @@ module Bank = struct
     | Vector -> "vector"
 end
 
+(* How many consecutive units of its bank a view covers: RVV's integer
+   register-group multipliers. Numeric order, not alphabetical: it is the
+   order of [vtype.vlmul]'s encodings 0-3 and of increasing size. *)
+module Span = struct
+  type t = One | Two | Four | Eight
+
+  let count = function One -> 1 | Two -> 2 | Four -> 4 | Eight -> 8
+  let name = function One -> "m1" | Two -> "m2" | Four -> "m4" | Eight -> "m8"
+end
+
 (* A physical register view: [bits] bits of a register unit starting at bit
-   [lo]. W0 and X0 are two views of one unit; S0, D0 and Q0 of another. *)
+   [lo]. W0 and X0 are two views of one unit; S0, D0 and Q0 of another. A view
+   whose [span] is not [One] is a register group: [unit] is its lowest member,
+   the members are the [Span.count] consecutive units from it, and it covers
+   each of them whole ([lo = 0], [bits] the members' bits). Which base
+   registers may start a group is the target's rule, checked where it builds
+   the view. *)
 module View = struct
   type t = {
     name : string;
     bank : Bank.t;
     unit : Mir_id.Unit.t;
+    span : Span.t;
     lo : int;
     bits : int;
   }
 
   let equal (a : t) b = a = b
 
-  (* Whether two views share any bit. *)
+  (* The member units, lowest first. *)
+  let units v =
+    let rec go u k =
+      if k = 0 then [] else u :: go (Mir_id.Unit.succ u) (k - 1)
+    in
+    go v.unit (Span.count v.span)
+
+  (* Whether two views share any bit: a common unit, and, between two
+     single-unit views, intersecting bit ranges (a group covers its members
+     whole). *)
   let overlap a b =
+    match (a.span, b.span) with
+    | Span.One, Span.One ->
+        Mir_id.Unit.equal a.unit b.unit
+        && a.lo < b.lo + b.bits
+        && b.lo < a.lo + a.bits
+    | _ ->
+        let bu = units b in
+        List.exists (fun u -> List.exists (Mir_id.Unit.equal u) bu) (units a)
+
+  (* The same register: base, span and bit range alike. What a tied operand
+     must be, which a shared unit alone does not make (v4 is not the v4m4
+     group). *)
+  let same_register a b =
     Mir_id.Unit.equal a.unit b.unit
-    && a.lo < b.lo + b.bits
-    && b.lo < a.lo + a.bits
+    && a.span = b.span && a.lo = b.lo && a.bits = b.bits
 end
 
 (* How writing a destination view affects the rest of its unit. *)
@@ -107,6 +144,10 @@ module Constraint = struct
             location with a use *)
     | Fixed_result of { result : int; view : View.t }
     | Fixed_use of { use : int; view : View.t }
+    | Scratch of View.t
+        (** the form's own sequence overwrites the view while it reads its uses
+            and writes its results: no use or result may share it. The view is
+            among the form's clobbers too. *)
     | Tied of { result : int; use : int }
         (** a destructive form: result [k] occupies use [j]'s location; the
             virtual values stay distinct *)

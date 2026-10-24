@@ -136,9 +136,24 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
 
   let scan st ~bank ~fixed ~depth ~starts ~split_cost ~loops ~uses_of ~prefer
       (pieces : Piece.t list) =
-    let pool = R.allocatable bank in
+    let bank_pool = R.allocatable bank in
     let view_of (p : Piece.t) k =
       R.view bank ~bits:(snd (shape p.Piece.value)) k
+    in
+    (* the registers [p] may take: any of the bank's, or, for a value wider
+       than a unit (a register group of [c] units), a base that is a
+       multiple of [c] whose [c] registers are all allocatable *)
+    let candidates (p : Piece.t) =
+      let c = snd (shape p.Piece.value) / T.unit_bits bank in
+      if c <= 1 then bank_pool
+      else
+        List.filter
+          (fun k ->
+            k mod c = 0
+            && List.for_all
+                 (fun i -> List.mem (k + i) bank_pool)
+                 (List.init c Fun.id))
+          bank_pool
     in
     let weight u = 10. ** float_of_int (depth u) in
     (* how soon [p] is read from [pos], per loop weight: its next use, or —
@@ -231,15 +246,23 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
           in
           active := act @ act2;
           inactive := inact @ inact2;
+          let pool = candidates cur in
+          (* whether [p]'s register meets [cur]'s at [k]: by overlap, so a
+             group and its members interfere *)
+          let occupies (p : Piece.t) k =
+            match reg_of p with
+            | Some j -> Mir_target.View.overlap (view_of p j) (view_of cur k)
+            | None -> false
+          in
           let free_until k =
-            if List.exists (fun p -> reg_of p = Some k) !active then pos
+            if List.exists (fun p -> occupies p k) !active then pos
             else
               let i =
                 if mutated st Mutation.Hole then None
                 else
                   List.fold_left
                     (fun acc p ->
-                      if reg_of p = Some k then
+                      if occupies p k then
                         match Piece.intersection cur p ~from:pos with
                         | Some x -> (
                             match acc with
@@ -311,7 +334,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                   List.filter_map
                     (fun p ->
                       if
-                        reg_of p = Some k
+                        occupies p k
                         && (Piece.covers p pos
                            || Option.is_some
                                 (Piece.intersection cur p ~from:pos))
@@ -322,8 +345,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                 let needed =
                   List.exists
                     (fun p ->
-                      reg_of p = Some k
-                      && Piece.covers p pos
+                      occupies p k && Piece.covers p pos
                       && must p ~at:(split_for pos))
                     !active
                 in
@@ -400,7 +422,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                       | None -> ()
                   in
                   List.iter
-                    (fun p -> if reg_of p = Some k then evict p)
+                    (fun p -> if occupies p k then evict p)
                     (!active @ !inactive);
                   (* still blocked later by a fixed interval: split before it;
                      taken only for a need: split after it *)

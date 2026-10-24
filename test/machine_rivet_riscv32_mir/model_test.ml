@@ -200,3 +200,85 @@ let%expect_test "matrix products under qemu, ordered and contracted" =
     bmm 3x7x29 k63, contracted scalar (1 invocations): bitwise
     bmm 3x7x29 k63, contracted zve32f128 vlen 128 (1 invocations): bitwise
     bmm 3x7x29 k63, contracted zve32f128 vlen 1024 (1 invocations): bitwise |}]
+
+(* Sixteen-lane vectors in groups of four registers (LMUL 4) under qemu at
+   VLEN 128 and 1024, ordered and contracted, then three defects the runs
+   must catch: a group copy that moves its first register alone, and a group
+   spilled into half its bytes (the physical verifier refuses it). *)
+let%expect_test "register groups under qemu" =
+  let planned numerics =
+    Ssa_backends.Pipeline.Planned
+      { numerics; target = Ssa_ir.Ssa_target.zve32f128 }
+  in
+  let grouped ?mutation ?scan_mutation vlen =
+    R.route ?mutation ?scan_mutation ~registers:R.Registers.Grouped
+      ~cpu:(cpu vlen) ()
+  in
+  List.iter
+    (fun vlen ->
+      List.iter
+        (fun (name, g) ->
+          T.check ~route:(grouped vlen)
+            ~pipeline:(planned Ssa_ir.Ssa_numerics.Fp32_ordered)
+            ~oracle:T.Fp32 ~constant:T.positive ~calls:1
+            (Fmt.str "vlen %d, %s" vlen name)
+            g;
+          T.check ~route:(grouped vlen)
+            ~pipeline:(planned Ssa_ir.Ssa_numerics.Fp32_contracted)
+            ~oracle:T.Fp32_contracted ~same:T.same_portable
+            ~input:T.adversarial_input
+            ~constant:(fun sg -> T.adversarial ~salt:3 sg)
+            ~calls:1
+            (Fmt.str "vlen %d, %s, contracted" vlen name)
+            g)
+        (List.hd T.vector_fixtures
+        :: List.nth T.vector_fixtures 3
+        :: T.contraction_fixtures))
+    [ 128; 1024 ];
+  let conv = snd (List.nth T.vector_fixtures 3) in
+  List.iter
+    (fun (name, route) ->
+      T.check ~route
+        ~pipeline:(planned Ssa_ir.Ssa_numerics.Fp32_ordered)
+        ~oracle:T.Fp32 ~constant:T.positive ~calls:1 name conv)
+    [
+      ( "group copy first",
+        grouped
+          ~mutation:
+            Machine_rivet_riscv32_mir.Rv32_mir_form.Mutation.Group_copy_first
+          128 );
+      ( "half spill",
+        grouped ~scan_mutation:Machine_alloc.Mir_scan.Mutation.Half_spill 128 );
+    ];
+  [%expect
+    {|
+    vlen 128, relu then add over C=32 (2 invocations): bitwise
+    vlen 128, relu then add over C=32, contracted (2 invocations): bitwise
+    vlen 128, conv, batch norm, relu to C=32 (3 invocations): bitwise
+    vlen 128, conv, batch norm, relu to C=32, contracted (3 invocations): bitwise
+    vlen 128, linear 9x32 k64 (1 invocations): bitwise
+    vlen 128, linear 9x32 k64, contracted (1 invocations): bitwise
+    vlen 128, linear 9x32 k64 bias (1 invocations): bitwise
+    vlen 128, linear 9x32 k64 bias, contracted (1 invocations): bitwise
+    vlen 128, linear 7x29 k63 bias (1 invocations): bitwise
+    vlen 128, linear 7x29 k63 bias, contracted (1 invocations): bitwise
+    vlen 128, bmm 1x9x32 k64 (1 invocations): bitwise
+    vlen 128, bmm 1x9x32 k64, contracted (1 invocations): bitwise
+    vlen 128, bmm 3x7x29 k63 (1 invocations): bitwise
+    vlen 128, bmm 3x7x29 k63, contracted (1 invocations): bitwise
+    vlen 1024, relu then add over C=32 (2 invocations): bitwise
+    vlen 1024, relu then add over C=32, contracted (2 invocations): bitwise
+    vlen 1024, conv, batch norm, relu to C=32 (3 invocations): bitwise
+    vlen 1024, conv, batch norm, relu to C=32, contracted (3 invocations): bitwise
+    vlen 1024, linear 9x32 k64 (1 invocations): bitwise
+    vlen 1024, linear 9x32 k64, contracted (1 invocations): bitwise
+    vlen 1024, linear 9x32 k64 bias (1 invocations): bitwise
+    vlen 1024, linear 9x32 k64 bias, contracted (1 invocations): bitwise
+    vlen 1024, linear 7x29 k63 bias (1 invocations): bitwise
+    vlen 1024, linear 7x29 k63 bias, contracted (1 invocations): bitwise
+    vlen 1024, bmm 1x9x32 k64 (1 invocations): bitwise
+    vlen 1024, bmm 1x9x32 k64, contracted (1 invocations): bitwise
+    vlen 1024, bmm 3x7x29 k63 (1 invocations): bitwise
+    vlen 1024, bmm 3x7x29 k63, contracted (1 invocations): bitwise
+    group copy first (3 invocations): DIFFERS
+    half spill: refused: invocation 0 (n0): publish: physical verifier: allocated fn0 bb18: target constraint: a location that does not fit its value |}]

@@ -182,6 +182,10 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                 | Mir_target.Constraint.Fixed_use { view; _ } ->
                     fixed :=
                       { Fixed.view; lo = p; hi = p + 1; own = [] } :: !fixed
+                | Mir_target.Constraint.Scratch view ->
+                    (* neither a use (at [p]) nor a result (at [p + 1]) *)
+                    fixed :=
+                      { Fixed.view; lo = p; hi = p + 2; own = [] } :: !fixed
                 | Mir_target.Constraint.Fixed_result { result; view } ->
                     (* only its own result is written there *)
                     fixed :=

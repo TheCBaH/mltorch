@@ -81,11 +81,18 @@ module Make (T : Mir_sel.TARGET) (F : FRAME with type op = T.op) = struct
         body_instrs
       @ List.map snd f.Mir_phys.Func.params
     in
+    (* any write that shares a unit with [v]: a group writes every member *)
     let writes_unit (v : Mir_target.View.t) =
+      let whole =
+        {
+          v with
+          Mir_target.View.lo = 0;
+          bits = T.unit_bits v.Mir_target.View.bank;
+        }
+      in
       List.exists
         (function
-          | Loc.Reg w ->
-              Mir_id.Unit.equal w.Mir_target.View.unit v.Mir_target.View.unit
+          | Loc.Reg w -> Mir_target.View.overlap w whole
           | Loc.Slot _ | Loc.Mem _ -> false)
         written
     in
@@ -189,6 +196,7 @@ module Make (T : Mir_sel.TARGET) (F : FRAME with type op = T.op) = struct
               F.scratch with
               Mir_target.View.name = "x9";
               unit = Mir_id.Unit.of_int 9;
+              span = Mir_target.Span.One;
             }
           else F.scratch
         in

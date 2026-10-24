@@ -7,11 +7,12 @@
     sequence on the halves; a half nothing reads is pruned. Each other generic
     value keeps its id and type; temporaries are fresh. A generic [fail] becomes
     stores of the model failure record into a runtime view and a status return
-    of 1; a return gains a zero status. Vectors are cut into four-lane slices
-    ({!Mir_vsplit}) and selected as Zve32f forms; a full i64 converts to
-    binary32 with one rounding in word arithmetic. Binary64, an i64 division
-    whose operands are not sign-extended words by a constant, and an i64 call
-    argument are typed refusals. *)
+    of 1; a return gains a zero status. Vectors are cut into slices of
+    [register_bytes] ({!Mir_vsplit}; default 16, four lanes, or 64, sixteen
+    lanes in a group of four registers) and selected as Zve32f forms; a full i64
+    converts to binary32 with one rounding in word arithmetic. Binary64, an i64
+    division whose operands are not sign-extended words by a constant, and an
+    i64 call argument are typed refusals. *)
 
 open Machine_ir
 
@@ -54,6 +55,7 @@ type result = {
 
 val program :
   ?mutation:Mutation.t ->
+  ?register_bytes:int64 ->
   ?sites:Mir_failure.Site_entry.t array ->
   ?unlisted:Mir_failure.Unlisted.t ->
   Mir_verify.Generic.t ->

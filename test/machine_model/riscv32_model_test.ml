@@ -194,7 +194,8 @@ let%expect_test "contracted matrix products on RV32" =
           ("zve32f128", Ssa_ir.Ssa_target.zve32f128);
         ])
     (T.contraction_fixtures @ [ List.nth T.vector_fixtures 3 ]);
-  [%expect {|
+  [%expect
+    {|
     linear 9x32 k64, scalar (1 invocations): bitwise, bitwise
     linear 9x32 k64, zve32f128 (1 invocations): bitwise, bitwise
     linear 9x32 k64 bias, scalar (1 invocations): bitwise, bitwise
@@ -207,3 +208,65 @@ let%expect_test "contracted matrix products on RV32" =
     bmm 3x7x29 k63, zve32f128 (1 invocations): bitwise, bitwise
     conv, batch norm, relu to C=32, scalar (3 invocations): bitwise, bitwise
     conv, batch norm, relu to C=32, zve32f128 (3 invocations): bitwise, bitwise |}]
+
+(* Sixteen-lane vectors in groups of four registers, selected and scanned,
+   on the physical interpreter and checker; the reference allocator refuses
+   them. *)
+let%expect_test "register groups on RV32" =
+  let planned numerics =
+    Ssa_backends.Pipeline.Planned
+      { numerics; target = Ssa_ir.Ssa_target.zve32f128 }
+  in
+  List.iter
+    (fun (name, g) ->
+      List.iter
+        (fun (sname, stage) ->
+          T.check ~route:(M.Route.Riscv32_grouped stage)
+            ~pipeline:(planned Ssa_ir.Ssa_numerics.Fp32_ordered)
+            ~oracle:T.Fp32 ~constant:T.positive ~calls:1
+            (Fmt.str "%s, %s" name sname)
+            g)
+        [ ("selected", M.Stage.Selected); ("scanned", M.Stage.Scanned) ];
+      T.check ~route:(M.Route.Riscv32_grouped M.Stage.Scanned)
+        ~pipeline:(planned Ssa_ir.Ssa_numerics.Fp32_contracted)
+        ~oracle:T.Fp32_contracted ~same:T.same_portable
+        ~input:T.adversarial_input
+        ~constant:(fun sg -> T.adversarial ~salt:3 sg)
+        ~calls:1
+        (Fmt.str "%s, scanned, contracted" name)
+        g)
+    (T.vector_fixtures @ T.contraction_fixtures);
+  T.check ~route:(M.Route.Riscv32_grouped M.Stage.Realized)
+    ~pipeline:(planned Ssa_ir.Ssa_numerics.Fp32_ordered)
+    ~oracle:T.Fp32 ~calls:1 "reference allocation"
+    (List.hd T.vector_fixtures |> snd);
+  [%expect
+    {|
+    relu then add over C=32, selected (2 invocations): bitwise
+    relu then add over C=32, scanned (2 invocations): bitwise
+    relu then add over C=32, scanned, contracted (2 invocations): bitwise
+    softmax over H, W=32, selected (1 invocations): bitwise
+    softmax over H, W=32, scanned (1 invocations): bitwise
+    softmax over H, W=32, scanned, contracted (1 invocations): bitwise
+    layer_norm over H, W=32, selected (1 invocations): bitwise
+    layer_norm over H, W=32, scanned (1 invocations): bitwise
+    layer_norm over H, W=32, scanned, contracted (1 invocations): bitwise
+    conv, batch norm, relu to C=32, selected (3 invocations): bitwise
+    conv, batch norm, relu to C=32, scanned (3 invocations): bitwise
+    conv, batch norm, relu to C=32, scanned, contracted (3 invocations): bitwise
+    linear 9x32 k64, selected (1 invocations): bitwise
+    linear 9x32 k64, scanned (1 invocations): bitwise
+    linear 9x32 k64, scanned, contracted (1 invocations): bitwise
+    linear 9x32 k64 bias, selected (1 invocations): bitwise
+    linear 9x32 k64 bias, scanned (1 invocations): bitwise
+    linear 9x32 k64 bias, scanned, contracted (1 invocations): bitwise
+    linear 7x29 k63 bias, selected (1 invocations): bitwise
+    linear 7x29 k63 bias, scanned (1 invocations): bitwise
+    linear 7x29 k63 bias, scanned, contracted (1 invocations): bitwise
+    bmm 1x9x32 k64, selected (1 invocations): bitwise
+    bmm 1x9x32 k64, scanned (1 invocations): bitwise
+    bmm 1x9x32 k64, scanned, contracted (1 invocations): bitwise
+    bmm 3x7x29 k63, selected (1 invocations): bitwise
+    bmm 3x7x29 k63, scanned (1 invocations): bitwise
+    bmm 3x7x29 k63, scanned, contracted (1 invocations): bitwise
+    reference allocation: refused: invocation 0 (n0): the reference allocator does not allocate register groups (realized); invocation 1 (n1): the reference allocator does not allocate register groups (realized) |}]

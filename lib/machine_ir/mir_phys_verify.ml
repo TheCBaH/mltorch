@@ -227,6 +227,14 @@ module Make (T : Mir_sel.TARGET) = struct
                                 then
                                   reject ~block ~instr:instr_id
                                     "a fixed result elsewhere"
+                            | Mir_target.Constraint.Scratch view ->
+                                if
+                                  List.exists
+                                    (Loc.overlap (Loc.Reg view))
+                                    (uses @ defs)
+                                then
+                                  reject ~block ~instr:instr_id
+                                    "an operand in the form's scratch register"
                             | Mir_target.Constraint.Fixed_use { use; view } ->
                                 if
                                   not
@@ -240,8 +248,7 @@ module Make (T : Mir_sel.TARGET) = struct
                                   (List.nth defs result, List.nth uses use)
                                 with
                                 | Loc.Reg d, Loc.Reg u
-                                  when Mir_id.Unit.equal d.Mir_target.View.unit
-                                         u.Mir_target.View.unit ->
+                                  when Mir_target.View.same_register d u ->
                                     ()
                                 | _ ->
                                     reject ~block ~instr:instr_id

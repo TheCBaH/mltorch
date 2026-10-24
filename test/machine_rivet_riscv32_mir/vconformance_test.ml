@@ -118,7 +118,7 @@ let fop =
         (Vo.Vfcvt_x_f (vf 0))
         [ Vr 1 ] [ Vr 4 ] float_singles;
       inst "vfmv.v.f"
-        (Vo.Vfmv_v_f (fv 0))
+        (Vo.Vfmv_v_f (Vo.f32x4, fv 0))
         [ Fr 11 ] [ Vr 4 ] (C.singles C.floats);
       inst "vmv.v.x"
         (Vo.Vmv_v_x (Vo.i32x4, gv 0))

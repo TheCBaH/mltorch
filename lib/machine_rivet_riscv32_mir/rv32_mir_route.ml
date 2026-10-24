@@ -12,6 +12,10 @@ open Machine_interp
 open Machine_target_riscv32
 module A = Machine_alloc.Mir_ref_alloc.Make (Rv32) (Rv32_regs)
 module Ls = Machine_alloc.Mir_linear_scan.Make (Rv32) (Rv32_regs)
+
+module Ls_grouped =
+  Machine_alloc.Mir_linear_scan.Make (Rv32) (Rv32_regs.Grouped)
+
 module Sch = Machine_alloc.Mir_schedule.Make (Rv32)
 module Fr = Machine_alloc.Mir_frame.Make (Rv32) (Rv32_frame)
 module Pub = Machine_model.Mir_artifact.Make (Rv32)
@@ -32,13 +36,24 @@ module Allocation = struct
   let name = function Reference -> "reference" | Scanned -> "scanned"
 end
 
+(* How wide a vector register the selection uses: one register of four
+   binary32 lanes, or an aligned group of four registers of sixteen (LMUL 4),
+   which only the scanned allocator places. *)
+module Registers = struct
+  type t = Grouped | Single
+
+  let name = function Grouped -> "grouped" | Single -> "single"
+  let bytes = function Grouped -> 64L | Single -> 16L
+end
+
 type published = {
   artifact : (Rv32_op.t, Rv32_op.test) Art.t;
   record : Mir_id.Region.t;
 }
 
 (* Selection, allocation, frame realization and publication. *)
-let publish ?select_mutation ~allocation ~sites (g : Mir_verify.Generic.t) =
+let publish ?select_mutation ?scan_mutation ?(registers = Registers.Single)
+    ~allocation ~sites (g : Mir_verify.Generic.t) =
   let* planning =
     Option.to_result ~none:"a generic program with no planning summary"
       (Mir_verify.Generic.program g).Mir_program.planning
@@ -47,21 +62,28 @@ let publish ?select_mutation ~allocation ~sites (g : Mir_verify.Generic.t) =
     Result.map_error
       (Fmt.str "%a" Rv32_select.Refusal.pp)
       (Err.payload
-         (Rv32_select.program ?mutation:select_mutation ~sites
-            ~unlisted:Mir_failure.Unlisted.Unreachable g))
+         (Rv32_select.program ?mutation:select_mutation
+            ~register_bytes:(Registers.bytes registers)
+            ~sites ~unlisted:Mir_failure.Unlisted.Unreachable g))
   in
   let* v, phys =
-    match allocation with
-    | Allocation.Reference ->
+    match (allocation, registers) with
+    | Allocation.Reference, Registers.Grouped ->
+        Error "the reference allocator does not allocate register groups"
+    | Allocation.Reference, Registers.Single ->
         Ok (res.Rv32_select.selected, A.allocate res.Rv32_select.selected)
-    | Allocation.Scanned ->
+    | Allocation.Scanned, _ ->
         let* s =
           Result.map_error
             (Fmt.str "schedule: %a" Machine_alloc.Mir_schedule.Refusal.pp)
             (Sch.schedule Machine_alloc.Mir_schedule.Policy.Sink
                res.Rv32_select.selected)
         in
-        Ok (s, Ls.allocate s)
+        Ok
+          ( s,
+            match registers with
+            | Registers.Grouped -> Ls_grouped.allocate ?mutation:scan_mutation s
+            | Registers.Single -> Ls.allocate ?mutation:scan_mutation s )
   in
   let* real =
     Result.map_error
@@ -177,9 +199,11 @@ let run_once ?cpu (prepared : H.prepared) ~published memory binding =
   in
   Ok outcome.H.status
 
-let exec_of ?mutation ?select_mutation ?cpu ~allocation ~sites
-    (g : Mir_verify.Generic.t) =
-  let* published = publish ?select_mutation ~allocation ~sites g in
+let exec_of ?mutation ?select_mutation ?scan_mutation ?registers ?cpu
+    ~allocation ~sites (g : Mir_verify.Generic.t) =
+  let* published =
+    publish ?select_mutation ?scan_mutation ?registers ~allocation ~sites g
+  in
   let* prepared = prepare ?mutation published in
   let phys = Art.program published.artifact in
   let run ?fuel:_ memory binding ~invocation:_ =
@@ -204,12 +228,18 @@ let exec_of ?mutation ?select_mutation ?cpu ~allocation ~sites
       traffic = (fun () -> None);
     }
 
-let route ?mutation ?select_mutation ?cpu ?(allocation = Allocation.Scanned) ()
-    =
+let route ?mutation ?select_mutation ?scan_mutation ?registers ?cpu
+    ?(allocation = Allocation.Scanned) () =
   Route.Route.Custom
     {
-      Route.Custom.name = Fmt.str "riscv32 qemu %s" (Allocation.name allocation);
+      Route.Custom.name =
+        Fmt.str "riscv32 qemu %s%s"
+          (Allocation.name allocation)
+          (match registers with
+          | Some Registers.Grouped -> " grouped"
+          | Some Registers.Single | None -> "");
       exec =
         (fun ~sites g ->
-          exec_of ?mutation ?select_mutation ?cpu ~allocation ~sites g);
+          exec_of ?mutation ?select_mutation ?scan_mutation ?registers ?cpu
+            ~allocation ~sites g);
     }

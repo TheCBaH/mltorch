@@ -13,6 +13,9 @@ let view bank ~bits k =
   | Mir_target.Bank.Gpr, 32 -> Rv32_reg.x k
   | Mir_target.Bank.Fpr, 32 -> Rv32_reg.f k
   | Mir_target.Bank.Vector, 128 -> Rv32_reg.v k
+  | Mir_target.Bank.Vector, 512 ->
+      Err.or_raise ~pp_error:Rv32_reg.pp_group_error
+        (Rv32_reg.group Mir_target.Span.Four k)
   | Mir_target.Bank.Flags, _ -> Rv32_reg.flags
   | _ -> invalid_arg "Rv32_regs: no view of that shape"
 
@@ -58,5 +61,41 @@ let allocatable = function
   | Mir_target.Bank.Fpr ->
       Rv32_reg.range 10 17 @ [ 0; 1; 2; 3; 6; 7 ] @ Rv32_reg.range 28 31
       @ [ 8; 9 ] @ Rv32_reg.range 18 27
-  | Mir_target.Bank.Vector -> [ 1; 2; 3; 4 ] @ Rv32_reg.range 7 31
+  | Mir_target.Bank.Vector ->
+      (* v0 first, like any register: the forms that need it in passing admit
+         no operand there, so the allocator moves around them *)
+      [ 0; 1; 2; 3; 4 ] @ Rv32_reg.range 7 31
   | Mir_target.Bank.Control | Mir_target.Bank.Flags -> []
+
+(* The pool of the grouped (LMUL 4) vector choice: sixteen-lane values in
+   aligned groups of four as well as four-lane ones in single registers. A
+   group's copy and cycle scratch are groups too, v24-v27 and v28-v31, so
+   nothing is allocated there; the single-register scratch stays v5 and v6.
+   A group may start at v0, v8, v12, v16 or v20, the bases whose members are
+   all allocatable. *)
+module Grouped = struct
+  let view = view
+  let use_scratch = use_scratch
+  let result_scratch = result_scratch
+
+  let group k =
+    Err.or_raise ~pp_error:Rv32_reg.pp_group_error
+      (Rv32_reg.group Mir_target.Span.Four k)
+
+  let copy_scratch bank ~bits =
+    match (bank, bits) with
+    | Mir_target.Bank.Vector, 512 -> group 24
+    | _ -> copy_scratch bank ~bits
+
+  let cycle_scratch bank ~bits =
+    match (bank, bits) with
+    | Mir_target.Bank.Vector, 512 -> group 28
+    | _ -> cycle_scratch bank ~bits
+
+  let args = args
+  let results = results
+
+  let allocatable = function
+    | Mir_target.Bank.Vector -> [ 0; 1; 2; 3; 4 ] @ Rv32_reg.range 7 23
+    | b -> allocatable b
+end

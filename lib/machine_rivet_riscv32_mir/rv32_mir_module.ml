@@ -98,25 +98,8 @@ let render items =
           A.insn mnemonic (List.map A.reg regs @ [ A.sym label ]))
     items
 
-(* Whether an instruction is a vector form or moves a vector register, and
-   whether it is a call (which leaves the vector configuration undefined). *)
-let vector (i : Rv32_op.t Mir_phys.Instr.t) =
-  let vreg (l : Mir_phys.Loc.t) =
-    match l with
-    | Mir_phys.Loc.Reg v -> v.Mir_target.View.bank = Mir_target.Bank.Vector
-    | _ -> false
-  in
-  match i with
-  | Mir_phys.Instr.Exec
-      { instr = { Mir_instr.op = Mir_sel.Op.Machine (Rv32_op.Vec _); _ }; _ }
-  | Mir_phys.Instr.Remat
-      { instr = { Mir_instr.op = Mir_sel.Op.Machine (Rv32_op.Vec _); _ }; _ }
-  | Mir_phys.Instr.Late { op = Rv32_op.Vec _; _ } ->
-      true
-  | Mir_phys.Instr.Move { dst; src; _ } | Mir_phys.Instr.Save { dst; src } ->
-      vreg dst || vreg src
-  | _ -> false
-
+(* Whether an instruction is a call, which leaves the vector configuration
+   undefined. *)
 let calls (i : Rv32_op.t Mir_phys.Instr.t) =
   match i with
   | Mir_phys.Instr.Exec
@@ -124,6 +107,31 @@ let calls (i : Rv32_op.t Mir_phys.Instr.t) =
     ->
       true
   | _ -> false
+
+(* Where a block's items need a [vsetivli]: for each item's configuration
+   requirement and whether it is a call, the configuration to establish just
+   before it. The configuration is unknown at the block's start and after a
+   call; an item needing one that is not known to hold establishes it (every
+   form that changes it on its way restores LMUL 1, its own requirement). *)
+let configurations ?mutation (items : (F.Vconfig.t option * bool) list) =
+  let state = ref None and set_once = ref false in
+  List.map
+    (fun (requirement, call) ->
+      let set =
+        match requirement with
+        | Some c when !state <> Some c ->
+            if mutation = Some F.Mutation.Unset_vtype then None
+            else if mutation = Some F.Mutation.Stale_vtype && !set_once then
+              None
+            else (
+              state := Some c;
+              set_once := true;
+              Some c)
+        | Some _ | None -> None
+      in
+      if call then state := None;
+      set)
+    items
 
 let func_items env relocations (f : (Rv32_op.t, Rv32_op.test) Mir_phys.Func.t) =
   let outer = env in
@@ -206,23 +214,20 @@ let func_items env relocations (f : (Rv32_op.t, Rv32_op.test) Mir_phys.Func.t) =
                 (if falls_to else_ then []
                  else [ F.i "j" [ A.sym (label_of f else_) ] ])
         in
-        (* the vector configuration is unknown at a block's start and after a
-           call; the first vector item after either establishes it *)
-        let configured = ref false in
+        let body = b.Mir_phys.Block.body in
+        let settings =
+          configurations ?mutation:outer.F.mutation
+            (List.map (fun i -> (F.requirement i, calls i)) body)
+        in
         let body =
-          List.concat_map
-            (fun i ->
-              let items = of_instr i in
-              let set =
-                if vector i && not !configured then (
-                  configured := not (F.mutated outer F.Mutation.Unset_vtype);
-                  if F.mutated outer F.Mutation.Unset_vtype then []
-                  else [ F.vsetivli () ])
-                else []
-              in
-              if calls i then configured := false;
-              set @ items)
-            b.Mir_phys.Block.body
+          List.concat
+            (List.map2
+               (fun i set ->
+                 (match set with
+                   | Some c -> [ F.vsetivli ~config:c () ]
+                   | None -> [])
+                 @ of_instr i)
+               body settings)
         in
         (Item.Label (label_of f b.Mir_phys.Block.id) :: body) @ terminator)
       (pairs blocks)

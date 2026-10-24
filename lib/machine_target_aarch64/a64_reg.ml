@@ -16,6 +16,7 @@ let x k =
     V.name = Printf.sprintf "x%d" k;
     bank = Mir_target.Bank.Gpr;
     unit = gpr_unit k;
+    span = Mir_target.Span.One;
     lo = 0;
     bits = 64;
   }
@@ -25,6 +26,7 @@ let w k =
     V.name = Printf.sprintf "w%d" k;
     bank = Mir_target.Bank.Gpr;
     unit = gpr_unit k;
+    span = Mir_target.Span.One;
     lo = 0;
     bits = 32;
   }
@@ -34,6 +36,7 @@ let q k =
     V.name = Printf.sprintf "q%d" k;
     bank = Mir_target.Bank.Fpr;
     unit = fpr_unit k;
+    span = Mir_target.Span.One;
     lo = 0;
     bits = 128;
   }
@@ -43,6 +46,7 @@ let d k =
     V.name = Printf.sprintf "d%d" k;
     bank = Mir_target.Bank.Fpr;
     unit = fpr_unit k;
+    span = Mir_target.Span.One;
     lo = 0;
     bits = 64;
   }
@@ -52,6 +56,7 @@ let s k =
     V.name = Printf.sprintf "s%d" k;
     bank = Mir_target.Bank.Fpr;
     unit = fpr_unit k;
+    span = Mir_target.Span.One;
     lo = 0;
     bits = 32;
   }
@@ -61,6 +66,7 @@ let nzcv =
     V.name = "nzcv";
     bank = Mir_target.Bank.Flags;
     unit = nzcv_unit;
+    span = Mir_target.Span.One;
     lo = 0;
     bits = 4;
   }
@@ -70,6 +76,7 @@ let sp =
     V.name = "sp";
     bank = Mir_target.Bank.Gpr;
     unit = Mir_id.Unit.of_int 65;
+    span = Mir_target.Span.One;
     lo = 0;
     bits = 64;
   }
@@ -80,6 +87,7 @@ let fpcr =
     V.name = "fpcr";
     bank = Mir_target.Bank.Control;
     unit = Mir_id.Unit.of_int 66;
+    span = Mir_target.Span.One;
     lo = 0;
     bits = 64;
   }

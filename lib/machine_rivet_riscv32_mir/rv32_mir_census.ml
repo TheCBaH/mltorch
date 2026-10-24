@@ -16,6 +16,7 @@ module Census = struct
         (** vector instructions other than configurations, by mnemonic,
             alphabetical *)
     configurations : int;
+    grouped : int;  (** of them, LMUL 4 *)
     spills : int;  (** moves to frame memory *)
     reloads : int;  (** moves from frame memory *)
     remats : int;
@@ -25,11 +26,12 @@ module Census = struct
 
   let pp fmt t =
     Fmt.pf fmt
-      "@[<v>instructions %d, configurations %d, spills %d, reloads %d, remats \
-       %d, frame %Ld bytes, helper calls %d@,\
+      "@[<v>instructions %d, configurations %d%s, spills %d, reloads %d, \
+       remats %d, frame %Ld bytes, helper calls %d@,\
        vector %a@]"
-      t.instructions t.configurations t.spills t.reloads t.remats t.frame_bytes
-      t.helper_calls
+      t.instructions t.configurations
+      (if t.grouped > 0 then Printf.sprintf " (m4 %d)" t.grouped else "")
+      t.spills t.reloads t.remats t.frame_bytes t.helper_calls
       Fmt.(
         list ~sep:(any ", ") (fun fmt (m, n) -> Fmt.pf fmt "%s %d" m n)
         |> fun pp fmt -> function
@@ -99,6 +101,23 @@ let of_artifact artifact =
         (fun (a, _) (b, _) -> String.compare a b)
         (List.of_seq (Hashtbl.to_seq tally));
     configurations = List.length (List.filter configuration mnemonics);
+    grouped =
+      List.fold_left
+        (fun n (f : (_, _) Mir_phys.Func.t) ->
+          List.fold_left
+            (fun n (b : (_, _) Mir_phys.Block.t) ->
+              n
+              + List.length
+                  (List.filter
+                     (( = ) (Some Rv32_mir_form.Vconfig.M4))
+                     (Rv32_mir_module.configurations
+                        (List.map
+                           (fun i ->
+                             ( Rv32_mir_form.requirement i,
+                               Rv32_mir_module.calls i ))
+                           b.Mir_phys.Block.body))))
+            n f.Mir_phys.Func.blocks)
+        0 program.Mir_phys.Program.funcs;
     spills =
       count (function
         | Mir_phys.Instr.Move { dst; _ } -> in_memory dst

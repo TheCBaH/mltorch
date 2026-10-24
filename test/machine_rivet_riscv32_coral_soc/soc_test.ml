@@ -49,7 +49,7 @@ let%expect_test "Zve32f bundles on the subsystem and standalone" =
     {|
     relu then add over C=32, subsystem (2 invocations): bitwise
     relu then add over C=32, standalone (2 invocations): bitwise
-      cycles 1910 on the subsystem, 1909 standalone (+1)
+      cycles 1916 on the subsystem, 1915 standalone (+1)
     softmax over H, W=32, subsystem (1 invocations): bitwise
     softmax over H, W=32, standalone (1 invocations): bitwise
       cycles 495832 on the subsystem, 495736 standalone (+96)
@@ -58,7 +58,7 @@ let%expect_test "Zve32f bundles on the subsystem and standalone" =
       cycles 84166 on the subsystem, 84070 standalone (+96)
     conv, batch norm, relu to C=32, subsystem (3 invocations): bitwise
     conv, batch norm, relu to C=32, standalone (3 invocations): bitwise
-      cycles 23831 on the subsystem, 23807 standalone (+24) |}]
+      cycles 23825 on the subsystem, 23903 standalone (-78) |}]
 
 (* Outputs stored under the wrong slot are caught by the oracle; a read-back
    larger than the budget is refused before any byte crosses the bridge. *)
@@ -91,7 +91,7 @@ let%expect_test "tensors in SRAM" =
     {|
     relu then add over C=32, DTCM (2 invocations): bitwise
     relu then add over C=32, SRAM (2 invocations): bitwise
-      cycles 1910 in DTCM, 2778 in SRAM
+      cycles 1916 in DTCM, 2778 in SRAM
     conv, batch norm, relu to C=32, DTCM (3 invocations): bitwise
     conv, batch norm, relu to C=32, SRAM (3 invocations): bitwise
-      cycles 23831 in DTCM, 45698 in SRAM |}]
+      cycles 23825 in DTCM, 45692 in SRAM |}]

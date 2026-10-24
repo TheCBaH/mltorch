@@ -154,6 +154,12 @@ let lanewise env f a = vec (Array.map f (lanes env a))
 let lanewise2 env f a b = vec (Array.map2 f (lanes env a) (lanes env b))
 let ones = 0xFFFF_FFFFL
 
+(* The lane count of a vector type a form names. *)
+let count_of t =
+  match Rv32_vop.lanes_of t with
+  | Some n -> Mir_type.Lanes.to_int n
+  | None -> invalid_arg "Rv32_sem: a form's lane type"
+
 let vexec env (op : Rv32_vop.t) =
   let module V = Rv32_vop in
   match op with
@@ -207,17 +213,23 @@ let vexec env (op : Rv32_vop.t) =
   | V.Vfcvt_x_f a -> [ lanewise env (fun x -> fcvt_w_s (N.f32 x)) a ]
   | V.Vfmacc (acc, a, b) ->
       let c = lanes env acc and x = lanes env a and y = lanes env b in
-      [ vec (Array.init 4 (fun k -> fbits (N.fma32 x.(k) y.(k) c.(k)))) ]
+      [
+        vec
+          (Array.init (Array.length c) (fun k ->
+               fbits (N.fma32 x.(k) y.(k) c.(k))));
+      ]
   | V.Vfmv_f_s (k, a) -> [ b (lanes env a).(k) ]
-  | V.Vfmv_v_f a -> [ vec (Array.make 4 (m32 (bits env a))) ]
+  | V.Vfmv_v_f (t, a) -> [ vec (Array.make (count_of t) (m32 (bits env a))) ]
   | V.Vfsqrt a -> [ lanewise env (fun x -> fres (Float.sqrt (N.f32 x))) a ]
   | V.Vinsert (k, a, x) ->
       let l = Array.copy (lanes env a) in
       l.(k) <- m32 (bits env x);
       [ vec l ]
-  | V.Vle32 (_, base) ->
+  | V.Vle32 (t, base) ->
       [
-        vec (Array.init 4 (fun k -> load env base (Int64.of_int (4 * k)) Msz.W));
+        vec
+          (Array.init (count_of t) (fun k ->
+               load env base (Int64.of_int (4 * k)) Msz.W));
       ]
   | V.Vlogic (o, a, c) ->
       [
@@ -229,21 +241,21 @@ let vexec env (op : Rv32_vop.t) =
             | Rv32_kind.Logic.Xor -> Int64.logxor x y)
           a c;
       ]
-  | V.Vlse32 (_, base, stride) ->
+  | V.Vlse32 (t, base, stride) ->
       let s = s32 (bits env stride) in
       [
         vec
-          (Array.init 4 (fun k ->
+          (Array.init (count_of t) (fun k ->
                load env base (Int64.mul (Int64.of_int k) s) Msz.W));
       ]
   | V.Vmerge (other, a, m) ->
       let e = lanes env other and t = lanes env a and mk = lanes env m in
       [
         vec
-          (Array.init 4 (fun k ->
+          (Array.init (Array.length t) (fun k ->
                if Int64.equal mk.(k) 0L then e.(k) else t.(k)));
       ]
-  | V.Vmv_v_x (_, a) -> [ vec (Array.make 4 (m32 (bits env a))) ]
+  | V.Vmv_v_x (t, a) -> [ vec (Array.make (count_of t) (m32 (bits env a))) ]
   | V.Vnot a -> [ lanewise env (fun x -> Int64.logxor x ones) a ]
   | V.Vse32 (base, x) ->
       Array.iteri

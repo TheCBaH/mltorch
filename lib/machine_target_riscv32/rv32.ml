@@ -35,6 +35,14 @@ let shape (ty : Machine_ir.Mir_type.t) =
     when Machine_ir.Mir_type.Lanes.to_int n = 4 ->
       Some (Machine_ir.Mir_target.Bank.Vector, 128)
   | Machine_ir.Mir_type.Vec
+      ( ( Machine_ir.Mir_type.Elem.F32
+        | Machine_ir.Mir_type.Elem.Int Machine_ir.Mir_width.W32 ),
+        n )
+  | Machine_ir.Mir_type.Mask n
+    when Machine_ir.Mir_type.Lanes.to_int n = 16 ->
+      (* a group of four registers: [Rv32_regs.Grouped] allocates them *)
+      Some (Machine_ir.Mir_target.Bank.Vector, 512)
+  | Machine_ir.Mir_type.Vec
       (Machine_ir.Mir_type.Elem.Int Machine_ir.Mir_width.W8, n)
     when Machine_ir.Mir_type.Lanes.to_int n = 16 ->
       Some (Machine_ir.Mir_target.Bank.Vector, 128)

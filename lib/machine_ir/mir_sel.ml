@@ -217,6 +217,7 @@ module Make (T : TARGET) = struct
                     | Mir_target.Constraint.Fixed_use { use; _ } ->
                         if use < 0 || use >= n_uses then
                           reject ~instr "constraint names no use"
+                    | Mir_target.Constraint.Scratch _ -> ()
                     | Mir_target.Constraint.Tied { result; use } ->
                         if
                           result < 0 || result >= n_res || use < 0
@@ -284,7 +285,9 @@ module Make (T : TARGET) = struct
           && T.clobbers o = []
           && List.for_all
                (function
-                 | Mir_target.Constraint.Tied _ -> true
+                 | Mir_target.Constraint.Scratch _
+                 | Mir_target.Constraint.Tied _ ->
+                     true
                  | Mir_target.Constraint.Early_clobber _
                  | Mir_target.Constraint.Fixed_result _
                  | Mir_target.Constraint.Fixed_use _ ->

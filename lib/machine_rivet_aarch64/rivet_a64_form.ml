@@ -122,6 +122,9 @@ let width_bits = function A.Sz.W -> 32 | A.Sz.X -> 64
    unit is register 31 with the stack-pointer meaning; no other view is 31. *)
 let gpr env ~width (v : Mir_target.View.t) =
   let unit = Mir_id.Unit.to_int v.Mir_target.View.unit in
+  (* AArch64 has no register groups *)
+  if v.Mir_target.View.span <> Mir_target.Span.One then
+    refuse env (R.Register v.Mir_target.View.name);
   match v.Mir_target.View.bank with
   | Mir_target.Bank.Gpr when unit = sp_unit ->
       { Aarch64_encode.Reg.num = 31; width; is_sp = true }
@@ -131,6 +134,8 @@ let gpr env ~width (v : Mir_target.View.t) =
 
 let fpr env ~double (v : Mir_target.View.t) =
   let unit = Mir_id.Unit.to_int v.Mir_target.View.unit in
+  if v.Mir_target.View.span <> Mir_target.Span.One then
+    refuse env (R.Register v.Mir_target.View.name);
   match v.Mir_target.View.bank with
   | Mir_target.Bank.Fpr when unit >= 32 && unit <= 63 ->
       { Aarch64_encode.Freg.num = unit - 32; double }

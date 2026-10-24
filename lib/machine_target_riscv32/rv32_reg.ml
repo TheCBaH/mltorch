@@ -89,6 +89,7 @@ let x k =
     V.name = gpr_names.(k);
     bank = Mir_target.Bank.Gpr;
     unit = gpr_unit k;
+    span = Mir_target.Span.One;
     lo = 0;
     bits = 32;
   }
@@ -98,6 +99,7 @@ let f k =
     V.name = fpr_names.(k);
     bank = Mir_target.Bank.Fpr;
     unit = fpr_unit k;
+    span = Mir_target.Span.One;
     lo = 0;
     bits = 32;
   }
@@ -123,16 +125,19 @@ let flags =
     V.name = "flags";
     bank = Mir_target.Bank.Flags;
     unit = Mir_id.Unit.of_int 64;
+    span = Mir_target.Span.One;
     lo = 0;
     bits = 1;
   }
 
 (* The vector registers v0-v31 (Zve32f), each one unit of VLEN bits, modelled
    at VLEN 128: a binary32 vector's four lanes, an int32 vector's, or a mask
-   of four all-ones or all-zero lanes. v0 is reserved: an RVV mask operand is
-   always v0, so a form's own sequence uses it in passing (a compare's bits
-   before they become lanes, a slide's temporary) and no value lives there.
-   Every vector register is caller-saved (the psABI preserves none). *)
+   of four all-ones or all-zero lanes. An RVV mask operand is always v0, so the
+   forms whose sequence needs one (a compare's bits before they become lanes,
+   a slide's temporary) use v0 in passing: they clobber it and admit no
+   operand there ([Rv32_op.clobbers], [Rv32_op.constraints]). Otherwise v0
+   holds values like any other. Every vector register is caller-saved (the
+   psABI preserves none). *)
 let vector_unit k = Mir_id.Unit.of_int (65 + k)
 
 let v k =
@@ -140,13 +145,34 @@ let v k =
     V.name = Printf.sprintf "v%d" k;
     bank = Mir_target.Bank.Vector;
     unit = vector_unit k;
+    span = Mir_target.Span.One;
     lo = 0;
     bits = 128;
   }
 
+(* The register group of [span] based at register [k] (RVV requires the base
+   to be a multiple of the group's size), named by its base, as the emitted
+   instructions name it; the configuration says the size. *)
+let group span k =
+  if k < 0 || k >= 32 || k mod Mir_target.Span.count span <> 0 then
+    Err.fail (`Unaligned_group (span, k))
+  else
+    Err.return
+      {
+        V.name = Printf.sprintf "v%d" k;
+        bank = Mir_target.Bank.Vector;
+        unit = vector_unit k;
+        span;
+        lo = 0;
+        bits = 128 * Mir_target.Span.count span;
+      }
+
+let pp_group_error ppf (`Unaligned_group (span, k)) =
+  Fmt.pf ppf "no %s register group at v%d" (Mir_target.Span.name span) k
+
 let vector_scratch = v 0
 let range a b = List.init (b - a + 1) (fun i -> a + i)
-let reserved = [ zero; ra; sp; gp; tp; scratch; table; vector_scratch ]
+let reserved = [ zero; ra; sp; gp; tp; scratch; table ]
 
 let abi =
   {

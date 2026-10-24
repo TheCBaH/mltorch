@@ -65,6 +65,9 @@ module Route = struct
     | Custom of Custom.t
     | Generic
     | Riscv32 of Stage.t
+    | Riscv32_grouped of Stage.t
+        (** sixteen-lane vectors in groups of four registers (LMUL 4); only the
+            scanned allocator places them *)
     | X86_64 of Stage.t
 
   let name = function
@@ -72,6 +75,7 @@ module Route = struct
     | Custom c -> c.Custom.name
     | Generic -> "generic"
     | Riscv32 s -> "riscv32 " ^ Stage.name s
+    | Riscv32_grouped s -> "riscv32 grouped " ^ Stage.name s
     | X86_64 s -> "x86_64 " ^ Stage.name s
 end
 
@@ -361,6 +365,25 @@ module Rv32_route =
       let record r = r.Machine_target_riscv32.Rv32_select.record
     end)
 
+module Rv32_grouped_route =
+  Target
+    (Machine_target_riscv32.Rv32)
+    (Machine_target_riscv32.Rv32_regs.Grouped)
+    (Machine_target_riscv32.Rv32_frame)
+    (struct
+      type result = Machine_target_riscv32.Rv32_select.result
+
+      let select ~sites g =
+        Result.map_error
+          (Fmt.str "%a" Machine_target_riscv32.Rv32_select.Refusal.pp)
+          (Err.payload
+             (Machine_target_riscv32.Rv32_select.program ~register_bytes:64L
+                ~sites ~unlisted:Mir_failure.Unlisted.Unreachable g))
+
+      let selected r = r.Machine_target_riscv32.Rv32_select.selected
+      let record r = r.Machine_target_riscv32.Rv32_select.record
+    end)
+
 (* A target route's stage timings for one kernel; the generic route has no
    back end. *)
 let measure route ~now ~sites g =
@@ -369,6 +392,7 @@ let measure route ~now ~sites g =
   | Route.Custom _ -> Error "a custom route has no back end to measure"
   | Route.Generic -> Error "the generic route has no back end to measure"
   | Route.Riscv32 _ -> Rv32_route.measure ~now ~sites g
+  | Route.Riscv32_grouped _ -> Rv32_grouped_route.measure ~now ~sites g
   | Route.X86_64 _ -> X64_route.measure ~now ~sites g
 
 (* A target route's pressure for one kernel, whatever its stage. *)
@@ -378,6 +402,7 @@ let pressure route ~sites g =
   | Route.Custom _ -> Error "a custom route has no registers"
   | Route.Generic -> Error "the generic route has no registers"
   | Route.Riscv32 _ -> Rv32_route.pressure ~sites g
+  | Route.Riscv32_grouped _ -> Rv32_grouped_route.pressure ~sites g
   | Route.X86_64 _ -> X64_route.pressure ~sites g
 
 let exec route ~sites g =
@@ -386,4 +411,10 @@ let exec route ~sites g =
   | Route.Custom c -> c.Custom.exec ~sites g
   | Route.Generic -> Ok (generic g)
   | Route.Riscv32 stage -> Rv32_route.exec stage ~sites g
+  | Route.Riscv32_grouped ((Stage.Allocated | Stage.Realized) as s) ->
+      Error
+        (Fmt.str
+           "the reference allocator does not allocate register groups (%s)"
+           (Stage.name s))
+  | Route.Riscv32_grouped stage -> Rv32_grouped_route.exec stage ~sites g
   | Route.X86_64 stage -> X64_route.exec stage ~sites g

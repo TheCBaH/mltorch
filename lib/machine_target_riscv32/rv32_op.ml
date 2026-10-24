@@ -192,6 +192,22 @@ let ordered = function
   | Vec x -> Rv32_vop.ordered x
   | _ -> false
 
+(* The forms whose sequence writes v0 on its way (see [Rv32_mir_form]): a
+   compare's mask, a slide's temporary, the scalar a lane insert slides up. *)
+let vector_scratch (x : Rv32_vop.t) =
+  match x with
+  | Rv32_vop.Vext { first; _ } when first <> 0 -> [ Rv32_reg.vector_scratch ]
+  | Rv32_vop.Vfcmp _ | Rv32_vop.Vinsert _ | Rv32_vop.Vmerge _ ->
+      [ Rv32_reg.vector_scratch ]
+  | Rv32_vop.Vfmv_f_s (k, _) when k <> 0 -> [ Rv32_reg.vector_scratch ]
+  | Rv32_vop.Vcast _ | Rv32_vop.Vext _ | Rv32_vop.Vfbin _ | Rv32_vop.Vfcvt_f_x _
+  | Rv32_vop.Vfcvt_x_f _ | Rv32_vop.Vfmacc _ | Rv32_vop.Vfmv_f_s _
+  | Rv32_vop.Vfmv_v_f _ | Rv32_vop.Vfsqrt _ | Rv32_vop.Vle32 _
+  | Rv32_vop.Vle_int _ | Rv32_vop.Vlogic _ | Rv32_vop.Vlse32 _ | Rv32_vop.Vmv _
+  | Rv32_vop.Vmv_v_x _ | Rv32_vop.Vnot _ | Rv32_vop.Vse32 _ | Rv32_vop.Vshift _
+  | Rv32_vop.Vsgnj _ | Rv32_vop.Vsse32 _ ->
+      []
+
 (* Integers and pointers take the next of a0-a7, floats the next of fa0-fa7;
    the status follows the results in the integer sequence. *)
 let sequence tys =
@@ -216,7 +232,9 @@ let constraints = function
             Mir_target.Constraint.Fixed_result { result; view })
           (sequence (results @ [ Mir_type.i32 ]))
   | Add_wide _ -> [ Mir_target.Constraint.Early_clobber 0 ]
-  | Vec x -> Rv32_vop.constraints x
+  | Vec x ->
+      Rv32_vop.constraints x
+      @ List.map (fun v -> Mir_target.Constraint.Scratch v) (vector_scratch x)
   | _ -> []
 
 (* Every register is one 32-bit view of its unit. *)
@@ -230,16 +248,18 @@ let unit_bits = function
   | Mir_target.Bank.Vector -> 128
 
 (* A call leaves undefined every register the psABI does not preserve: ra,
-   t0-t6, a0-a7, ft0-ft11, fa0-fa7 and every vector register (v0 is
-   reserved, so no value is there to lose). *)
+   t0-t6, a0-a7, ft0-ft11, fa0-fa7 and every vector register. *)
 let call_clobbers =
   List.map Rv32_reg.x
     ([ 1; 5; 6; 7 ] @ Rv32_reg.range 10 17 @ Rv32_reg.range 28 31)
   @ List.map Rv32_reg.f
       (Rv32_reg.range 0 7 @ Rv32_reg.range 10 17 @ Rv32_reg.range 28 31)
-  @ List.map Rv32_reg.v (Rv32_reg.range 1 31)
+  @ List.map Rv32_reg.v (Rv32_reg.range 0 31)
 
-let clobbers = function Call _ -> call_clobbers | _ -> []
+let clobbers = function
+  | Call _ -> call_clobbers
+  | Vec x -> vector_scratch x
+  | _ -> []
 
 let references = function
   | Call { callee; _ } -> [ Mir_target.Reference.Call callee ]

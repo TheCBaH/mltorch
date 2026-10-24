@@ -18,8 +18,14 @@ module Mutation = struct
   type t =
     | Branch_sense  (** a fall-through branch tested with the taken sense *)
     | Commuted_sub  (** a binary32 subtraction's operands swapped *)
+    | Group_copy_first
+        (** a register group's copy moving its first register alone *)
     | Shifted_slot  (** a region's base read from the next slot of the table *)
     | Select_arms  (** a select's two arms exchanged *)
+    | Stale_vtype
+        (** a block's vector configuration set once, before its first vector
+            item, and never changed: a later form of the other width runs under
+            it *)
     | Unset_vtype
         (** no [vsetivli] before the vector forms: they run under whatever
             configuration the process starts with *)
@@ -142,19 +148,50 @@ let fmove rd s =
 
 (* {1 Vectors}
 
-   Every vector form runs under SEW 32, LMUL 1, vl 4, tail and mask agnostic,
-   which the module writer establishes ({!vsetivli}) before the first vector
-   item of a block and after a call. A form needing another configuration
-   (the tail-undisturbed slide of a lane insert) restores it. *)
+   A vector form runs under SEW 32, tail and mask agnostic, with LMUL 1 and vl
+   4 for four lanes or LMUL 4 and vl 16 for sixteen ({!Vconfig}): the module
+   writer establishes the configuration ({!vsetivli}) where an item needs one
+   that is not known to hold. A form needing another configuration on its way
+   (the tail-undisturbed slide of a lane insert) restores LMUL 1. *)
 
-let vsetivli ?(vl = 4) ?(tail = "ta") () =
+module Vconfig = struct
+  type t = M1  (** LMUL 1, vl 4 *) | M4  (** LMUL 4, vl 16 *)
+end
+
+let vsetivli ?(config = Vconfig.M1) ?vl ?(tail = "ta") () =
+  let vl, lmul =
+    match config with
+    | Vconfig.M1 -> (Option.value vl ~default:4, "m1")
+    | Vconfig.M4 -> (Option.value vl ~default:16, "m4")
+  in
   i "vsetivli"
-    [ A.reg "zero"; A.imm vl; A.sym "e32"; A.sym "m1"; A.sym tail; A.sym "ma" ]
+    [ A.reg "zero"; A.imm vl; A.sym "e32"; A.sym lmul; A.sym tail; A.sym "ma" ]
+
+(* The configuration a vector form runs under: LMUL 4 when any of its vector
+   values has sixteen lanes. *)
+let form_config (op : Rv32_vop.t) =
+  let sixteen (t : Mir_type.t) =
+    match Rv32_vop.lanes_of t with
+    | Some n -> Mir_type.Lanes.to_int n = 16
+    | None -> false
+  in
+  let tys =
+    List.map (fun (v : Mir_value.t) -> v.Mir_value.ty) (Rv32_vop.uses op)
+    @ match Rv32_vop.typing op with Ok ts -> ts | Error _ -> []
+  in
+  if List.exists sixteen tys then Vconfig.M4 else Vconfig.M1
 
 let v0 = Rv32_reg.vector_scratch.Mir_target.View.name
 
 let vmove rd s =
   if String.equal rd s then [] else [ i "vmv.v.v" [ A.reg rd; A.reg s ] ]
+
+(* a group's copy: whole registers, under any configuration *)
+let gmove4 env rd s =
+  if String.equal rd s then []
+  else if mutated env Mutation.Group_copy_first then
+    [ i "vmv1r.v" [ A.reg rd; A.reg s ] ]
+  else [ i "vmv4r.v" [ A.reg rd; A.reg s ] ]
 
 let vitems env (op : Rv32_vop.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
     Item.t list =
@@ -163,7 +200,11 @@ let vitems env (op : Rv32_vop.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
   let ru k = A.reg (u k) and rd k = A.reg (d k) in
   let module V = Rv32_vop in
   match op with
-  | V.Vcast _ | V.Vmv _ -> vmove (d 0) (u 0)
+  | V.Vcast _ | V.Vmv _ -> (
+      match nth env "def" defs 0 with
+      | Loc.Reg { Mir_target.View.span = Mir_target.Span.Four; _ } ->
+          gmove4 env (d 0) (u 0)
+      | _ -> vmove (d 0) (u 0))
   | V.Vext { signed; from; first; _ } ->
       let ext =
         Printf.sprintf "v%cext.vf%d"
@@ -346,8 +387,19 @@ let transfer env ~(dst : Loc.t) ~(src : Loc.t) : Item.t list =
     v.Mir_target.View.bank = Mir_target.Bank.Fpr
   in
   match (dst, src) with
+  | Loc.Reg d, Loc.Reg s
+    when d.Mir_target.View.bank = Mir_target.Bank.Vector
+         && d.Mir_target.View.span = Mir_target.Span.Four ->
+      gmove4 env d.Mir_target.View.name s.Mir_target.View.name
   | Loc.Reg d, Loc.Reg s when d.Mir_target.View.bank = Mir_target.Bank.Vector ->
       vmove d.Mir_target.View.name s.Mir_target.View.name
+  | Loc.Reg d, Loc.Mem { base; offset; bytes = 64L } ->
+      (* a group's sixteen lanes, under LMUL 4 *)
+      address ~base offset
+      @ [ i "vle32.v" [ A.reg d.Mir_target.View.name; A.mem scratch 0 ] ]
+  | Loc.Mem { base; offset; bytes = 64L }, Loc.Reg s ->
+      address ~base offset
+      @ [ i "vse32.v" [ A.reg s.Mir_target.View.name; A.mem scratch 0 ] ]
   | Loc.Reg d, Loc.Reg s ->
       if fp d then fmove d.Mir_target.View.name s.Mir_target.View.name
       else gmove d.Mir_target.View.name s.Mir_target.View.name
@@ -406,3 +458,34 @@ let invert_mnemonic = function
   | "beqz" -> "bnez"
   | "bnez" -> "beqz"
   | m -> invalid_arg ("Rv32_mir_form.invert_mnemonic: " ^ m)
+
+(* The vector configuration an instruction needs: its form's, a copy's or a
+   spill's by its width ([None]: none, or no vector at all). A group's
+   register copy is whole registers and needs none. *)
+let requirement (instr : Rv32_op.t Mir_phys.Instr.t) =
+  let vreg (l : Loc.t) =
+    match l with
+    | Loc.Reg v -> v.Mir_target.View.bank = Mir_target.Bank.Vector
+    | _ -> false
+  in
+  let group (l : Loc.t) =
+    match l with
+    | Loc.Reg v -> v.Mir_target.View.span = Mir_target.Span.Four
+    | _ -> false
+  in
+  match instr with
+  | Mir_phys.Instr.Exec
+      { instr = { Mir_instr.op = Mir_sel.Op.Machine (O.Vec x); _ }; _ }
+  | Mir_phys.Instr.Remat
+      { instr = { Mir_instr.op = Mir_sel.Op.Machine (O.Vec x); _ }; _ }
+  | Mir_phys.Instr.Late { op = O.Vec x; _ } -> (
+      match x with
+      | (Rv32_vop.Vcast _ | Rv32_vop.Vmv _) when form_config x = Vconfig.M4 ->
+          None
+      | _ -> Some (form_config x))
+  | Mir_phys.Instr.Move { dst; src; _ } | Mir_phys.Instr.Save { dst; src } ->
+      if group dst && group src then None
+      else if group dst || group src then Some Vconfig.M4
+      else if vreg dst || vreg src then Some Vconfig.M1
+      else None
+  | _ -> None

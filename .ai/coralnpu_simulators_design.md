@@ -257,8 +257,8 @@ extensions lack `zve32f` (`mpact-v2`) refuses it before running.
 `make coralnpu.rv32.runtest`: the binary32 bundles are bitwise equal to the
 binary32 oracle on `mpact-v2` (scalar), `mpact-m3` (scalar and Zve32f) and the
 RTL vector core `rvv-core-mini-highmem-axi`, where the cycles were measured
-(v0.0.4): Zve32f takes relu-then-add from 7572 to 1909 cycles (3.97x) and
-conv-batch-norm-relu from 192316 to 23807 (8.08x); softmax and layer_norm hold
+(v0.0.4): Zve32f takes relu-then-add from 7572 to 1915 cycles (3.95x) and
+conv-batch-norm-relu from 192313 to 23903 (8.05x); softmax and layer_norm hold
 local arrays, have no vector loops, and cost the same.
 
 The configuration's simulator picks the runner: a standalone core takes the
@@ -274,11 +274,11 @@ practice only the outputs and the failure record cross the bridge. A slot's
 `Home` comes from the route's `home` argument (default `Any`, first fit).
 `make coralnpu.soc.rv32.runtest` (both archives): the bundles on
 `subsystem-vector-normal`, Zve32f, bitwise, beside the standalone
-`rvv-core-mini-axi`. The cycles differ by +1 (relu-then-add, 1910), +24 (conv
-chain, 23831) and +96 (softmax and layer_norm, 495832 and 84166): within
-0.11%, but not the peak suite's four cycles, and the cause (placement of the
+`rvv-core-mini-axi`. The cycles differ by +1 (relu-then-add, 1916), -78 (conv
+chain, 23825) and +96 (softmax and layer_norm, 495832 and 84166): within
+0.33%, but not the peak suite's four cycles, and the cause (placement of the
 two runtimes' code is the suspect) is not established. With the tensors
-pinned to SRAM (`Home.Ram`) the same bundles take 2778 and 45698 cycles,
+pinned to SRAM (`Home.Ram`) the same bundles take 2778 and 45692 cycles,
 1.45x and 1.92x. Storing the outputs under the wrong slot is caught by the
 oracle, and a 16-byte budget is refused.
 
