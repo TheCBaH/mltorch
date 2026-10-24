@@ -142,11 +142,13 @@ let profile artifact =
   else Profile.Rv32imf_ilp32f
 
 (* The generated functions' modules: [other]'s realization where it has one
-   (a matrix engine's, say), else the RVV one. *)
-let helper_modules ?kernel_mutation ?(stage = fun _ -> None)
+   (a matrix engine's, say), else the RVV one, under [plan]'s checked
+   transfer plan for it, if any (one call per function, in the order the
+   artifact lists them). *)
+let helper_modules ?kernel_mutation ?(plan = fun _ -> Ok None)
     ?(other = fun _ -> None) artifact =
-  List.fold_right
-    (fun d acc ->
+  List.fold_left
+    (fun acc d ->
       let* acc = acc in
       let* m =
         Result.map_error
@@ -154,11 +156,12 @@ let helper_modules ?kernel_mutation ?(stage = fun _ -> None)
           (match other d with
           | Some m -> m
           | None ->
+              let* plan = plan d in
               Coralnpu_kernels.Rvv_contraction.module_ ?mutation:kernel_mutation
-                ?stage:(stage d) d)
+                ?plan d)
       in
-      Ok (m :: acc))
-    (generated artifact) (Ok [])
+      Ok (acc @ [ m ]))
+    (Ok []) (generated artifact)
 
 (* The artifact as a process image: its module and the harness, planned
    under its profile. *)

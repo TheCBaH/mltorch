@@ -1,0 +1,28 @@
+; The transfer model against the subsystem: every candidate plan of 16 matrix
+; products measured beside its prediction. About five hours; MANUAL, by
+; make coralnpu.transfer.runtest, which sets CORALNPU_SUBSYSTEM_DATA and
+; CORALNPU_DATA.
+
+(library
+ (name machine_rivet_riscv32_coral_transfer_test)
+ (libraries
+  coral_transfer
+  fmt
+  machine_model
+  machine_model_test
+  machine_rivet_common
+  machine_rivet_riscv32_coral
+  ssa_backends
+  ssa_ir)
+ (inline_tests
+  (deps
+   (env_var CORALNPU_DATA)
+   (env_var CORALNPU_SUBSYSTEM_DATA)))
+ (preprocess
+  (pps ppx_expect))
+ (enabled_if
+  (and
+   (<> %{env:CORALNPU_DATA=} "")
+   (<> %{env:CORALNPU_SUBSYSTEM_DATA=} "")
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

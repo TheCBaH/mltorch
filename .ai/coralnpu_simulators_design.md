@@ -610,6 +610,8 @@ prologue included:
 | Zvt INT8 -> INT32, 1 MiB | 256 x 128 x 512 | 107.5 | c-by-core | 182.7 |
 | Zvt INT8 -> INT32, 1 MiB | 256 x 128 x 1024 | | c-by-core | 202.5 |
 | Zvt FP32, 1 MiB | 256 x 128 x 256 | 32.8 | c-by-core | 50.6 |
+| Zvt BF16 -> FP32, 1 MiB | 256 x 128 x 256 | 53.8 | c-by-core | 91.3 |
+| Zvt BF16 -> FP32, 1 MiB | 256 x 256 x 512 | | c-by-core | 112.8 |
 
 RVV hides the DMA entirely and runs at 96% of the peak suite's DTCM-resident
 31.3; its stores of C to SRAM cost more than the DMA's copy, so C stays with
@@ -626,6 +628,17 @@ core's stores of C the bound instead (190.4; with C by the DMA, 154.9). FP32
 moves four bytes an input element and is held near 50 whatever moves them.
 INT8 at K = 1024 and FP32 at K = 256 take the same cycles: the same bytes, the
 same tile multiplies (an INT8 one reduces four k values, an FP32 one one).
+
+Zvt BF16 (`vtfmm.alt`, two k values a tile multiply), possible on the
+subsystem since v0.0.5 (`gemm_zvt_bf16.t`), is measured against its own peak:
+`dma_bench peak` runs the same kernel with A, B and C all in DTCM, which the
+1 MiB SoC holds. At 256 x 128 x 256 the peak is 149.7 ops/cycle (FP32's 79.8,
+the peak suite's tgemm_bf16 bursts 173.6); in SRAM without the DMA 40.2.
+The DMA-fed multiply takes INT8's cycles at K = 512 exactly (312123 by the
+DMA alone, 183697 with B shared and C by the core): the same bytes, so the
+bus bounds it, at 91.3, 61% of the peak and 2.3 times the SRAM control. At
+256 x 256 x 512 it reaches 112.8, 71% of the 159.5 peak and 2.6 times the
+control's 43.2.
 
 RVV BF16 -> FP32 and FP32 (three rows of 32 lanes a block, the peak kernels'
 blocks) run at 12.2 and 9.3 on the 32 KiB vector SoC, 97% and 94% of their
@@ -667,7 +680,10 @@ limits; each is the same step pipeline with another piece streamed:
   INT8, N = 20 takes 1047424 cycles (256.3 ops/cycle) against 1097986 with
   the core storing all of C. At W = 512 the model's pick, N = 8, gained
   nothing (1971328 against 1961336 with C by the DMA): there the core's stores
-  and the DMA contend for SRAM, which the model does not price (it is 5% low).
+  and the DMA contend for SRAM. The model now prices it (`store_contention`):
+  the core's stores slow by 0.65 times the share of C the chain carries beside
+  them, fitted to that run (5% low before, 0% after); the N = 20 run at W = 256,
+  not fitted, moves from 3% low to 2% high, and no other run changes.
 - **Resident A** (`resident-a/P`): A stays in DTCM; B streams by panels of P
   columns, packed so a panel is one descriptor, and a step runs every block of
   A against its panel. C's rows, a panel wide, go out by the core's stores at

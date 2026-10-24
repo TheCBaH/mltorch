@@ -402,3 +402,235 @@ stride mutation caught; on the VME core RTL against the loops, bmm 3x7x29
 K=63 12.1x (ordered) and 13.0x (contracted), linear 9x32 K=64 12.2x and
 14.5x, bitwise. No model in the census has bfloat16 tensors, and none is
 quantized, so INT8 (6.4) has no consumer yet and waits for one.
+
+## A whole model on the RTL (stage 7)
+
+`bin/machine_rivet_coral_model` (manual, built where the RV32 encoder is)
+runs every invocation of a `.pt2` as one image on a Coral configuration,
+tensors in the configuration's RAM, outputs bitwise against the binary32
+oracle, cycles per invocation. test_convnext2 is the downloaded model whose
+tensors fit; on `rvv-core-mini-highmem-axi` (Fp32_ordered, Zve32f,
+`--contractions`) its 106 invocations take 285.8 M cycles, bitwise, in 3.7
+hours of simulation; the loops-only run did not finish in four hours. The 9
+products (37.0 M multiply-adds) take 85.1 M cycles, 30%: 0.87 ops/cycle,
+against 4-7.5 for the same functions over DTCM, so operand placement, not
+the kernel, bounds them there (the DMA staging of stage 5 is the subsystem's
+answer; this core has no DMA). The other 70% is invocations with no
+product: the depthwise 7x7 convolutions, the norms and GELU. The next gain
+is there, not in more matrix-engine work; tile residency across operations
+and epilogue fusion wait until a product dominates a profile.
+
+## Prepacked weights (stage 5.3)
+
+A Linear's (or a 1x1 convolution's) weight is B with strided columns: each
+`vlse32.v`/`vlse16.v` element is its own access, which is why a linear runs
+at half a bmm's rate. `Ssa_prepack` rewrites, after planning, every
+`Contract` whose B is a bundle constant with strided columns to read a new
+input buffer, B packed as [batches, k, n] with contiguous columns (one
+batch when B's batch stride is 0), and drops the source buffer when nothing
+else reads it, so the weight is not bound twice. `Mir_model.prepare
+~prepack` (default off) names each packed copy an edge past every edge of
+the bundle, one per source and packing whatever buffer ids the kernels
+used, and `Context.create` builds it once from the source constant's bytes,
+before any invocation; the planning summary is taken over the packed
+program, whose digest it binds. The packing is keyed by source edge,
+format, batches, k, n and the source strides; the target (Zve32f) and
+numerics are the model's, so they need no key of their own. A wrong
+packing order goes red on the interpreters (`prepacked weights`). Evidence,
+all bitwise: qemu over binary32, bfloat16 and 1x1-convolution weights; the
+VME core, contracted (RVV function), linear 9x32 K=64 9281 -> 4961 cycles
+(1.87x), tails 1.58x, bfloat16 1.73x; the subsystem with tensors in SRAM
+under the staging rule (which, B now contiguous, stages only A) 18912 ->
+13242 (1.43x) and 1.29x, so 36505 -> 13242 (2.76x) against reading the
+strided weight in place. Activations are not packed: an input B (a bmm's)
+stays as it is.
+
+Staging is bounded by DTCM. A staged panel is `.bss` of the function, which
+the image places in DTCM, so an operand larger than DTCM would make the
+image fail. The Coral image therefore gives all of its generated functions
+five eighths of the DTCM for panels (the stack, the staging area and the
+program's data keep the rest), shared in the order the image builds them,
+and `Rvv_contraction.within` cuts each function's staging to what fits, B
+before A; with the budget lifted, a Linear of 200 rows at K=64 makes the
+image refuse (55360 bytes of DTCM needed, 28608 available).
+
+A is then streamed rather than copied whenever its rows are contiguous
+(`Stage.Mode.Streamed`): blocks of rows through two DTCM halves, the chain
+of block j + 1 started once block j has arrived and before block j's
+product, into the half block j - 1 used, so the copy runs beside the
+product. The loop order becomes blocks, column tiles, row groups; B, copied
+once, is read from DTCM by every block. A block is the fewest rows, a
+multiple of a k step's rows, whose bytes are whole beats, times as many as
+the halves hold. The ring has two obligations, each a mutation the
+subsystem catches: wait for a block before reading it (`No_ring_wait`) and
+fetch into the other half (`Aliased_ring`). The ring's source is a buffer
+base, which every Coral layout aligns; a misaligned one or a chain error
+executes `unimp`. `in_sram` now also copies a contiguous B that more than 16
+rows reuse. On `subsystem-vector-normal`, operands in SRAM, the weight
+prepacked: linear 192x32 K=128 554842 -> 226815 cycles (2.45x), 2.83 -> 6.93
+ops/cycle, against the DMA suite's hand-built resident-B kernel at 9.3
+(which packs A for its block and copies C out by the DMA; the generated
+function stores C from the core); linear 200x16 K=64 457172 -> 148565
+(3.08x). With A streamed the staged copy is no longer the only chain, so
+the copy-not-waited check runs over a staging of B alone.
+
+The RVV function reads a row group's A values through one pointer and
+immediate offsets when the last row's offset fits a load's 12 bits (rows of
+at most 1023 bytes for three rows), saving two `addi` a k step. The figures
+above predate it; after it, on the VME core: bmm 1x9x32 K=64 4874 -> 4678
+cycles (7.88 ops/cycle), linear 9x32 K=64 prepacked 4961 -> 4765, bfloat16
+linear contracted 12738 -> 11226 (16.4x the loops); on the subsystem the
+streamed 192x32 K=128 226815 -> 218311 (7.20 ops/cycle). Products bound by
+SRAM move by a cycle. What is left against the suite's 9.3 is mostly the
+vector unit's own rate at m8 (three `vfmacc.vf` a k step) and C's stores to
+SRAM, which the suite's kernel hands to the DMA.
+
+## Transfer plans and their model (stage 5.1, 5.4)
+
+Staging is a plan, not a rule inside the generator. `lib/coral_transfer`
+(pure: no Rivet, no simulator) holds `Transfer_plan.t`: A in place, copied
+whole into a DTCM panel, or streamed by blocks of rows through the ring; B
+in place or copied. `check ~budget d` is the only way to a `Witness.t`: it
+refuses a copy past one DMA transfer, a streamed A whose rows are not
+contiguous, a block that is not a positive multiple of the fewest rows whose
+bytes are whole beats (and of a k step's rows), and panels past the DTCM
+given (`Refusal`, typed). `Rvv_contraction.module_ ?plan` takes only a
+witness, and refuses one checked for another descriptor. The Coral image asks
+its `transfer` chooser for each generated function's plan within what the
+functions before it left of the five-eighths budget, checks it, and makes a
+refusal an error rather than a silent fallback. `candidates` offers every
+plan worth ranking (B in place or copied; A in place, copied, or streamed by
+the largest block the rest holds), the in-place one always among them.
+
+`Transfer_model.predict` times a plan on the subsystem and `choose` takes the
+cheapest candidate, replacing the old staging rule. Each k step of a row
+group costs the longer of its vector work (per row, a fixed part and a part
+per four lanes) and its loads (A's values, B's row by beats when contiguous
+or by elements when gathered, each rate by where the operand is), since the
+two overlap, plus the step's scalar instructions; each group stores C by
+beats; copies run by the DMA alone first; a streamed A's later blocks move
+beside the block before, costing what it does not hide and, when the product
+reads B from SRAM, a contention per byte (the SRAM term stage 5.1 asked for).
+The structure came from the measurements, each fix forced by a residual: a
+strided B copied to DTCM still gathers there (`b_element_dtcm`); A's SRAM
+latency hides behind a longer ordered step and does not behind a short tail
+tile, which an additive model cannot say and a `max` can; B and C cost by
+beats, so a 8-lane tail tile is not priced as a full one. The rates are
+fitted by Nelder-Mead on relative error to 85 plans of 16 shapes
+(`test/machine_rivet_riscv32_coral_transfer`, five hours, `make
+coralnpu.transfer.runtest`, manual), the DMA's own rate and start held at the
+DMA suite's.
+
+The model's own error is not what stage 5.4 bounds (see below), but for the
+record: the worst plan is off by 8.8% in the fit, 9.5% against the function
+after its k loop was pipelined (the rates were fitted before; a refit does no
+better); left out a shape at a time it is 6.1% at the median shape
+and 19.1% at the worst, an ordered shape (five of the sixteen are ordered,
+too few to pin their rates down). Two earlier held-out sets were spent on
+finding the structure, which is why the final figure is a cross-validation
+rather than a fresh set. As a chooser it does what it is for: under the
+fitted rates it picks the measured best plan on all sixteen shapes (in the
+fit; on the two held-out sets, before they joined it, the best or within
+5.7% of it).
+
+The evidence stage 5.4 asks for is the DMA suite's committed rates
+reproduced through the generated path, and it is a kernel-to-kernel
+comparison: `kernel_test.ml` (beside the subsystem suite) calls the
+generated function alone, A, B and C in SRAM, from a caller handed the slot
+table, at the suite's resident-B shape (M=192, W=32, K=128, binary32,
+fused). Under the plan the model chooses (B copied by the DMA, A streamed by
+three rows, C stored by the core) it takes 186304 cycles, 8.44 ops/cycle,
+bitwise; the suite's kernel at the same geometry (`gemm_rvv_float.t`, B by
+the DMA alone, C by the core) takes 186003, 8.5: within 0.2%. Both in place
+it takes 526546 cycles, 2.99, against the suite's direct 527868, 3.0. The
+suite's faster variants (B shared with the core's copy, C out by the DMA:
+9.0 and 9.3) are geometries the generator does not produce. The earlier
+figure of 7.2 ops/cycle was a whole program's, which also copies C out of
+the contraction's scratch buffer. Reaching it took the k loop pipelined as
+the peak kernels' is: k steps in pairs, the next step's A values loading
+into a second register set (fa3-fa5) while the current step's multiply-adds
+run, A's pointers advanced once a pair, the last one or two steps peeled so
+that no load reads past A's last step.
+
+## Integer contractions (stage 6.4)
+
+`Contraction.Element.I8 { a; b }` names 8-bit operands, each signed or not;
+C is a 32-bit signed integer and the sum exact, so the numerical requirement
+does not apply and any order computes it. `make` refuses a k at which the
+largest products' sum could pass 2^31 - 1 (`Overflow`: 131071 signed by
+signed is the last k accepted). The selection sends an integer product to the
+matrix engine when the core has one (`integer_on_matrix`): unlike binary32
+and bfloat16, nothing in the engine's rounding stands in the way.
+
+The RVV function loads A's value with `lb`/`lbu` into an integer register
+(t1, t2, s4, free when the group's rows share t0, which an integer A with rows
+under 1 KiB always does), B's row with `vle8.v`/`vlse8.v` into v6, the top
+quarter of v0's group, widens it with `vsext.vf4`/`vzext.vf4` and adds with
+`vmacc.vx` into 32-bit accumulators: no INT16 intermediate, so no bound is
+needed beyond `make`'s. The Zvt function multiplies four k steps a tile
+multiply at e8 m1, their slices two registers apart, zero past k, with
+`vtmms` for a signed A and `vtmmu` for an unsigned one, `altfmt` for a signed
+B, and stores the 32-bit accumulators under the binary32 configuration.
+
+No recognized loop nest is an integer product, and no downloaded model is
+quantized, so the functions are reached directly: a caller module hands them
+A, B and C from the slot table (`int8_test.ml` beside the qemu and the Coral
+suites). Under qemu all 32 cases are exact (four sign pairings, B contiguous
+and strided, two shapes with tails, VLEN 128 and 1024) and A's row stride
+mutation is caught; swapping sign and zero extension turns all 32 red. On
+the RTL both functions are exact for every pairing (`vtmmu` with `altfmt`
+included): at 32x32 K=64 the vector unit takes 12855 cycles (10.2 ops/cycle)
+and the matrix engine 5907 (22.2), at 19x29 K=61 8.8 against 16.2.
+
+## The DMA suite's kernels in the libraries (stages 4.1, 5.1)
+
+The peak suite's GEMM and tile kernels and the DMA suite's RVV block emitters
+moved into `lib/coralnpu_kernels` (`Peak_kernels`, `Dma_block`; no coral-isa:
+the harness's `build_with ~extensions` takes the Zvt encoder from its caller)
+and `lib/coralnpu_kernels_zvt` (`Peak_zvt`, with the encoder and `build`); the
+DMA-fed multiplies and their model followed (`Dma_gemm`, `Dma_model` in the
+Zvt library, since they emit tile kernels), their geometry types as pure data
+in `lib/coral_transfer` (`Dma_geometry`). The suites re-export every module
+under its old name, so their byte baselines are unchanged. `Dma_model` gained
+what stage 5.1 asked of it: `variants` returns a typed refusal (`Rows`,
+`Nothing_fits` with the least DTCM any variant needs) where it returned `[]`;
+`~a_row_major` ranks the row-major geometry where resident B's applies, as an
+activation arrives; and the core's stores of C contend with a chain carrying
+C's other rows (`store_contention`, above). It is within 0-5% of every
+measured run but split K's small RVV steps (+6%), as before. The modules keep
+`int` extents and no interface: every caller is a suite whose byte baseline
+pins their code.
+
+## The suite's resident-B geometries, generated (stages 5.2, 5.4)
+
+Stage 5.4 asks the generated path to reproduce the suite's committed rates
+within `Dma_model`'s recorded error (0-5%) for every geometry the model
+picks. For the binary32 resident-B shape on the 32 KiB SoC the model picks B
+shared and C out by the DMA, so the plan gained both. `B.Shared`: the chain
+copies B's head while the core copies the rest, three quarters in 256-byte
+trips of two e8 m8 groups, as the suite's `b-shared` prologue. `Out.Dma`
+(with A streamed, C's rows contiguous and all of C whole beats, else a typed
+refusal): a ring half holds a block's A and then its C, the core stores the
+block's C into its half, and the chain started before block j's product
+also carries block j - 1's C out of the other half (a second descriptor,
+from the second block on); a last chain carries the last two blocks' C out.
+The model prices the shared copy and C's DTCM stores from the suite's rates
+(the core's copy 2.42 B/cycle, the DMA 1.03 beside it; a DTCM store a beat a
+cycle, unmeasured) and picks, at 192x32 K=128, A streamed by three rows, B
+shared, C by the DMA, the suite's pick.
+
+`kernel_test.ml` runs every candidate there, bitwise, and catches two new
+defects (the core's share of B not copied; C carried out of the half being
+computed). Against the suite at the same geometry: B shared, C by the DMA
+170634 cycles against 168368 (1.3%); B shared, C by the core 177041 against
+175628 (0.8%); B by the DMA, C by the DMA 179896 against 178743 (0.6%); B by
+the DMA, C by the core 186304 against 186003 (0.2%). Both in place, 2.99
+ops/cycle against the direct control's 3.0.
+
+## What is left open
+
+The suite's geometries beyond resident B (B by column panels with A
+resident, split K) are not generated: a contraction whose B does not fit
+DTCM is read in place. The bfloat16 matrix-engine path waits for a numerical
+requirement that rounds two k steps at once. Integer operators wait for a
+quantized model to recognize.

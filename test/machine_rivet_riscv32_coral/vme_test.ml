@@ -70,7 +70,7 @@ let%expect_test "matrix products on the matrix engine and the vector unit" =
     linear 7x29 k63 bias, contracted (vector unit) (1 invocations): bitwise
     bmm 1x9x32 k64, vector unit (1 invocations): bitwise
     bmm 1x9x32 k64, matrix engine (1 invocations): bitwise
-      cycles 8261 -> 3497 (2.36x); 4.462 -> 10.542 ops/cycle
+      cycles 8288 -> 3497 (2.37x); 4.448 -> 10.542 ops/cycle
     bmm 1x9x32 k64, contracted (vector unit) (1 invocations): bitwise
     bmm 3x7x29 k63, vector unit (1 invocations): bitwise
     bmm 3x7x29 k63, matrix engine (1 invocations): bitwise
@@ -112,11 +112,11 @@ let%expect_test "1x1 convolutions on the matrix engine" =
     conv1x1 3x5 c19 to 29, loops (1 invocations): bitwise
     conv1x1 3x5 c19 to 29, vector unit (1 invocations): bitwise
     conv1x1 3x5 c19 to 29, matrix engine (1 invocations): bitwise
-      cycles 238307 / 11664 / 7262; 0.069 / 1.417 / 2.276 ops/cycle
+      cycles 238307 / 11663 / 7262; 0.069 / 1.417 / 2.276 ops/cycle
     conv1x1 7x7 c32 to 48, loops (1 invocations): bitwise
     conv1x1 7x7 c32 to 48, vector unit (1 invocations): bitwise
     conv1x1 7x7 c32 to 48, matrix engine (1 invocations): bitwise
-      cycles 426616 / 67686 / 26195; 0.353 / 2.224 / 5.746 ops/cycle |}]
+      cycles 426616 / 65550 / 26195; 0.353 / 2.296 / 5.746 ops/cycle |}]
 
 (* bfloat16 products on the same core: the selection sends them to the
    vector unit (the engine's build multiplies no bfloat16), against the
@@ -157,16 +157,61 @@ let%expect_test "bfloat16 products on the vector unit" =
     (List.filter
        (fun (n, _) -> n <> "linear bf16 7x29 k63 bias")
        T.bf16_fixtures);
-  [%expect {|
+  [%expect
+    {|
     bmm bf16 3x7x29 k63, ordered, loops (1 invocations): bitwise
     bmm bf16 3x7x29 k63, ordered, vector unit (1 invocations): bitwise
-      cycles 321662 -> 26628 (12.08x)
+      cycles 321662 -> 25971 (12.39x)
     bmm bf16 3x7x29 k63, contracted, loops (1 invocations): bitwise
     bmm bf16 3x7x29 k63, contracted, vector unit (1 invocations): bitwise
-      cycles 272711 -> 21045 (12.96x)
+      cycles 272711 -> 18354 (14.86x)
     linear bf16 9x32 k64, ordered, loops (1 invocations): bitwise
     linear bf16 9x32 k64, ordered, vector unit (1 invocations): bitwise
       cycles 188190 -> 15466 (12.17x)
     linear bf16 9x32 k64, contracted, loops (1 invocations): bitwise
     linear bf16 9x32 k64, contracted, vector unit (1 invocations): bitwise
-      cycles 184078 -> 12738 (14.45x) |}]
+      cycles 184078 -> 11130 (16.54x) |}]
+
+(* Prepacked weights on the vector unit (the contracted policy, so the RVV
+   function): B's rows contiguous instead of strided, against the unpacked
+   function, bitwise both. *)
+let%expect_test "prepacked weights on the vector unit" =
+  let run ~prepack name g =
+    let cycles = ref 0L in
+    let on_run (o : C.Run.t) = cycles := Int64.add !cycles o.C.Run.mcycle in
+    T.check ~route:(C.route ~on_run config) ~contractions:true ~prepack
+      ~pipeline:
+        (Ssa_backends.Pipeline.Planned
+           {
+             numerics = Ssa_ir.Ssa_numerics.Fp32_contracted;
+             target = Ssa_ir.Ssa_target.zve32f128;
+           })
+      ~oracle:T.Fp32_contracted ~same:T.same_portable
+      ~input:(fun ~salt id sg ->
+        T.in_format sg (T.adversarial_input ~salt id sg))
+      ~constant:(fun sg -> T.in_format sg (T.adversarial ~salt:3 sg))
+      ~calls:1 name g;
+    !cycles
+  in
+  List.iter
+    (fun (name, g) ->
+      let s = run ~prepack:false (name ^ ", strided") g in
+      let p = run ~prepack:true (name ^ ", packed") g in
+      Fmt.pr "  cycles %Ld -> %Ld (%.2fx)@." s p
+        (Int64.to_float s /. Int64.to_float p))
+    (List.filter
+       (fun (n, _) ->
+         List.mem n
+           [ "linear 9x32 k64"; "linear 7x29 k63 bias"; "linear bf16 9x32 k64" ])
+       (T.contraction_fixtures @ T.bf16_fixtures));
+  [%expect
+    {|
+    linear 9x32 k64, strided (1 invocations): bitwise
+    linear 9x32 k64, packed (1 invocations, 1 packed): bitwise
+      cycles 9280 -> 4687 (1.98x)
+    linear 7x29 k63 bias, strided (1 invocations): bitwise
+    linear 7x29 k63 bias, packed (1 invocations, 1 packed): bitwise
+      cycles 10034 -> 6214 (1.61x)
+    linear bf16 9x32 k64, strided (1 invocations): bitwise
+    linear bf16 9x32 k64, packed (1 invocations, 1 packed): bitwise
+      cycles 11130 -> 6351 (1.75x) |}]

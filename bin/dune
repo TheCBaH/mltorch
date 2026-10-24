@@ -345,6 +345,32 @@
  (build_if %{lib-available:rivet.riscv32_encode})
  (enabled_if false))
 
+; A model on a Coral NPU simulator: every invocation an image with its
+; tensors in RAM, its matrix products optionally generated helper calls, its
+; outputs bitwise against the binary32 oracle and its cycles reported. MANUAL,
+; needs the model data and an extracted emulators archive.
+
+(test
+ (name machine_rivet_coral_model)
+ (modules machine_rivet_coral_model)
+ (libraries
+  coralnpu
+  core
+  err_trace
+  fmt
+  loop_ir
+  machine_model
+  machine_rivet_common
+  machine_rivet_riscv32_coral
+  native
+  native_interp
+  pt2
+  ssa_backends
+  ssa_ir
+  unix)
+ (build_if %{lib-available:rivet.riscv32_encode})
+ (enabled_if false))
+
 ; Structural check of extracted checkpoint-map bundles: the v2 map against its
 ; graph, configs and captures.json, with no source file read. See
 ; lib/pt2_checkpoint_map.

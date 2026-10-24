@@ -4,12 +4,7 @@
 (library
  (name peak_kernels)
  (wrapped false)
- (libraries
-  coralnpu
-  machine_rivet_riscv32
-  rivet.asm_core
-  rivet.riscv32_encode
-  coral-isa)
+ (libraries coralnpu_kernels coralnpu_kernels_zvt)
  (enabled_if
   (and
    %{lib-available:rivet.riscv32_encode}

@@ -1,12 +1,17 @@
 ; Generated Coral microkernels on the matrix engine (Zvt, through coral-isa's
 ; Rivet extension): a contraction descriptor as one function of 16x16 tile
-; multiplies. Built only where the RV32 Rivet encoder is installed.
+; multiplies; and the peak suite's tile kernels (Peak_zvt) and the DMA suite's
+; fed multiplies and their model (Dma_gemm, Dma_model), re-exported by the
+; suites. Built only where the RV32 Rivet encoder is installed.
 
 (library
  (name coralnpu_kernels_zvt)
  (libraries
   coral-isa
   contraction
+  coral_transfer
+  coralnpu
+  coralnpu_kernels
   err_trace
   fmt
   machine_rivet_riscv32

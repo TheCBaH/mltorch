@@ -6,6 +6,8 @@
  (wrapped false)
  (libraries
   coralnpu
+  coralnpu_kernels
+  coralnpu_kernels_zvt
   peak_kernels
   machine_rivet_riscv32
   rivet.asm_core

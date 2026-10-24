@@ -1,0 +1,8 @@
+; Where a generated contraction reads its operands on a Coral core with a DMA
+; engine: the transfer plan (each operand in place, copied whole into DTCM, or
+; streamed through a ring), its check into the witness the emitter consumes,
+; and the timing model that ranks the plans. Pure: no Rivet, no simulator.
+
+(library
+ (name coral_transfer)
+ (libraries contraction fmt))

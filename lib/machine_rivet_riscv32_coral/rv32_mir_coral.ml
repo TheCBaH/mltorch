@@ -71,7 +71,7 @@ let slots ?(home = fun _ -> Coral_layout.Home.Any) ~record artifact =
     (Machine_rivet_riscv32_mir.Rv32_mir_module.slots artifact)
 
 let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
-    ?stage (c : Config.t) ({ Q.artifact; record } : Q.published) =
+    ?transfer (c : Config.t) ({ Q.artifact; record } : Q.published) =
   let render pp r = Result.map_error (Fmt.str "%a" pp) (Err.payload r) in
   let* profile =
     render Coral_profile.pp_error
@@ -112,7 +112,37 @@ let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
            d)
     else None
   in
-  let* helpers = Q.helper_modules ?kernel_mutation ?stage ~other artifact in
+  (* every panel and ring lives in DTCM: the image's functions share five
+     eighths of it, so the stack, the staging area and the program's own
+     data keep the rest; each asks [transfer] for its plan within what the
+     ones before it left, and a plan that does not check is an error *)
+  let plan =
+    Option.map
+      (fun choose ->
+        let left =
+          ref
+            (List.fold_left
+               (fun n (r : Coral_profile.Region.t) ->
+                 match r.Coral_profile.Region.role with
+                 | Coral_profile.Role.Dtcm ->
+                     n
+                     + Int64.to_int
+                         (Int64.div
+                            (Int64.mul r.Coral_profile.Region.size 5L)
+                            8L)
+                 | _ -> n)
+               0 profile.Coral_profile.regions)
+        in
+        fun d ->
+          let module T = Coral_transfer.Transfer_plan in
+          match T.check ~budget:!left d (choose ~budget:!left d) with
+          | Ok w ->
+              left := !left - T.Witness.bytes w;
+              Ok (Some w)
+          | Error r -> Error (Fmt.str "transfer plan: %a" T.Refusal.pp r))
+      transfer
+  in
+  let* helpers = Q.helper_modules ?kernel_mutation ?plan ~other artifact in
   render Coral_image.pp_error
     (Coral_image.build ~rv32_profile
        ~matrix:(List.exists on_engine (Q.generated artifact))
@@ -225,12 +255,12 @@ let run_once ?(on_run = fun _ -> ()) ?route_mutation ?budget (c : Config.t)
   Ok status
 
 let exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
-    ?engine_mutation ?stage ?on_run ?home ?budget c ~sites g =
+    ?engine_mutation ?transfer ?on_run ?home ?budget c ~sites g =
   let* published =
     Q.publish ?registers ~allocation:Q.Allocation.Scanned ~sites g
   in
   let* image =
-    image ?mutation ?kernel_mutation ?home ?engine ?engine_mutation ?stage c
+    image ?mutation ?kernel_mutation ?home ?engine ?engine_mutation ?transfer c
       published
   in
   let phys = Art.program published.Q.artifact in
@@ -262,12 +292,12 @@ let exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
    [Any]); [budget] bounds the subsystem's read-back bytes (default
    {!read_back_budget}). *)
 let route ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
-    ?engine_mutation ?stage ?on_run ?home ?budget (c : Config.t) =
+    ?engine_mutation ?transfer ?on_run ?home ?budget (c : Config.t) =
   Route.Route.Custom
     {
       Route.Custom.name = "riscv32 coral " ^ c.Config.configuration;
       exec =
         (fun ~sites g ->
           exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
-            ?engine_mutation ?stage ?on_run ?home ?budget c ~sites g);
+            ?engine_mutation ?transfer ?on_run ?home ?budget c ~sites g);
     }

@@ -5,17 +5,30 @@
     stride is an [int64]. The descriptor holds no buffer: the operation that
     carries it names A, B and C, and C is disjoint from both. *)
 
-(** The element format of A and B; C is binary32 and every sum is accumulated in
-    binary32. *)
+(** An integer element's signedness. *)
+module Sign : sig
+  type t = Signed | Unsigned
+end
+
+(** The element format of A and B. A floating format's C is binary32 and every
+    sum is accumulated in binary32 under the numerical requirement; an integer
+    format's C is a 32-bit signed integer and every sum is exact (so any order
+    computes it, and the requirement does not apply). *)
 module Element : sig
   type t =
     | Bf16  (** bfloat16, each element widened exactly to binary32 *)
     | F32  (** binary32 *)
+    | I8 of { a : Sign.t; b : Sign.t }
+        (** 8-bit integers, each operand signed or not *)
 
   val name : t -> string
+  (** [bf16], [f32], or [i8] and a letter an operand ([s], [u]). *)
 
   val bytes : t -> int64
-  (** One element's bytes: 2 or 4. *)
+  (** One element's bytes: 1, 2 or 4. *)
+
+  val integer : t -> bool
+  val all : t list
 end
 
 (** What each output starts from. *)
@@ -69,6 +82,8 @@ module Invalid : sig
   type t =
     | Extent of { name : string; value : int64 }
         (** a batch, row or column extent below 1, or [k] below 0 *)
+    | Overflow of { k : int64 }
+        (** an integer [k] at which the largest products' sum passes 2^31 - 1 *)
     | Stride of { name : string; value : int64 }  (** a negative stride *)
 end
 
@@ -114,14 +129,16 @@ val eval :
   unit
 (** The reference: every output in batch, row, column order, each its own sum
     under [numerics]; [a], [b] read an element at an offset from their base
-    (binary32 values, a bfloat16 one widened), [c] reads the seed when it is
-    [Tensor], [write] stores the result. *)
+    (binary32 values, a bfloat16 one widened, an integer one exactly), [c] reads
+    the seed when it is [Tensor], [write] stores the result: an integer sum is
+    exact and the requirement does not apply. *)
 
 (** Which unit realizes a contraction, from the descriptor and what the core
     has. The rules, in order: the matrix engine for an [Ordered] binary32
     product when the core has one ([vtfmm] rounds each product, so it cannot
     compute a fused chain; its bfloat16 form adds two k steps' products to the
-    accumulator with one rounding, which neither requirement is); else the
+    accumulator with one rounding, which neither requirement is); the matrix
+    engine for an integer product, whose exact sum any order computes; else the
     vector unit when the core has one; else none, and the product stays in the
     planned loops. *)
 module Select : sig
@@ -138,6 +155,7 @@ module Select : sig
           (** the core has the matrix engine, but the operands are bfloat16 *)
       | Fused_off_matrix
           (** the core has the matrix engine, but the product is fused *)
+      | Integer_on_matrix  (** an exact integer sum: any order is the same *)
       | No_vector_unit
       | Ordered_on_matrix
       | Vector_unit  (** the core has no matrix engine *)

@@ -538,6 +538,9 @@ let exec_op st (i : Ssa_instr.t) =
               match desc.Contraction.format with
               | Contraction.Element.Bf16 -> Ssa_op.Decode.Bf16_to_f32
               | Contraction.Element.F32 -> Ssa_op.Decode.F32_exact
+              | Contraction.Element.I8 _ ->
+                  (* no recognized loop nest is an integer product *)
+                  invalid_arg "Ssa_interp: an integer contraction"
           in
           let read id off =
             match

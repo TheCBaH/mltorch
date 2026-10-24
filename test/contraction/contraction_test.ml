@@ -96,12 +96,22 @@ let%expect_test "refusals" =
   show (make ~k:(-1L) ());
   show (make ~a:{ s with C.Operand.k = -4L } ());
   show (make ~k:0L ());
+  (* an integer k at which 128 x 128 products could pass 2^31 - 1 *)
+  let i8 k =
+    C.make ~batch:1L ~m:1L ~n:1L ~k ~a:s ~b:s ~c:o
+      ~format:(C.Element.I8 { a = C.Sign.Signed; b = C.Sign.Signed })
+      ~seed:C.Seed.Zero ~numerics:C.Numerics.Ordered
+  in
+  show (i8 131071L);
+  show (i8 131072L);
   [%expect
     {|
     contraction extent m = 0
     contraction extent k = -1
     contraction stride a.k = -4
-    accepted |}]
+    accepted
+    accepted
+    contraction k = 131072, past an exact 32-bit integer sum |}]
 
 let%expect_test "a descriptor's name round-trips" =
   match
@@ -123,9 +133,19 @@ let%expect_test "a descriptor's name round-trips" =
                 ~b:t.C.b ~c:t.C.c ~format:C.Element.Bf16 ~seed:t.C.seed
                 ~numerics:t.C.numerics))
       in
+      let i8 =
+        Result.get_ok
+          (Err.payload
+             (C.make ~batch:t.C.batch ~m:t.C.m ~n:t.C.n ~k:t.C.k ~a:t.C.a
+                ~b:t.C.b ~c:t.C.c
+                ~format:
+                  (C.Element.I8 { a = C.Sign.Unsigned; b = C.Sign.Signed })
+                ~seed:t.C.seed ~numerics:t.C.numerics))
+      in
       let trips t =
         Option.map C.name (C.of_name (C.name t)) = Some (C.name t)
       in
+      Fmt.pr "%s: %b@." (C.name i8) (trips i8);
       Fmt.pr "%s@.round trip: %b, %b; garbage: %b@." (C.name bf16) (trips t)
         (trips bf16)
         (C.of_name "contract.f32.b1" = None);
@@ -133,6 +153,7 @@ let%expect_test "a descriptor's name round-trips" =
         {|
         contract.f32.b3.m7.n29.k63.a441_63_1.b1827_1_29.c203_29_1.zero.fused_sequential
         mlt_contract_2ec0b43f4257b217
+        contract.i8us.b3.m7.n29.k63.a441_63_1.b1827_1_29.c203_29_1.zero.fused_sequential: true
         contract.bf16.b3.m7.n29.k63.a441_63_1.b1827_1_29.c203_29_1.zero.fused_sequential
         round trip: true, true; garbage: true |}]
 
@@ -163,7 +184,11 @@ let%expect_test "which unit realizes a contraction" =
                 (Contraction.Select.Reason.name r))
             [ C.Numerics.Ordered; C.Numerics.Fused_sequential ])
         [ (true, true); (true, false); (false, true); (false, false) ])
-    [ C.Element.Bf16; C.Element.F32 ];
+    [
+      C.Element.Bf16;
+      C.Element.F32;
+      C.Element.I8 { a = C.Sign.Signed; b = C.Sign.Unsigned };
+    ];
   [%expect
     {|
     bf16, matrix true, vector true, ordered: rvv (format_off_matrix)
@@ -181,4 +206,12 @@ let%expect_test "which unit realizes a contraction" =
     f32, matrix false, vector true, ordered: rvv (vector_unit)
     f32, matrix false, vector true, fused_sequential: rvv (vector_unit)
     f32, matrix false, vector false, ordered: loops (no_vector_unit)
-    f32, matrix false, vector false, fused_sequential: loops (no_vector_unit) |}]
+    f32, matrix false, vector false, fused_sequential: loops (no_vector_unit)
+    i8su, matrix true, vector true, ordered: zvt (integer_on_matrix)
+    i8su, matrix true, vector true, fused_sequential: zvt (integer_on_matrix)
+    i8su, matrix true, vector false, ordered: zvt (integer_on_matrix)
+    i8su, matrix true, vector false, fused_sequential: zvt (integer_on_matrix)
+    i8su, matrix false, vector true, ordered: rvv (vector_unit)
+    i8su, matrix false, vector true, fused_sequential: rvv (vector_unit)
+    i8su, matrix false, vector false, ordered: loops (no_vector_unit)
+    i8su, matrix false, vector false, fused_sequential: loops (no_vector_unit) |}]

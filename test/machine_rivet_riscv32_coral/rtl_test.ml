@@ -235,16 +235,16 @@ let%expect_test "generated contractions against planned loops" =
     {|
     linear 9x32 k64, loops (1 invocations): bitwise
     linear 9x32 k64, generated (1 invocations): bitwise
-      cycles 34910 -> 9281 (3.76x); 1.056 -> 3.972 ops/cycle
+      cycles 34910 -> 9280 (3.76x); 1.056 -> 3.972 ops/cycle
     linear 9x32 k64 bias, loops (1 invocations): bitwise
     linear 9x32 k64 bias, generated (1 invocations): bitwise
-      cycles 35185 -> 9607 (3.66x); 1.048 -> 3.837 ops/cycle
+      cycles 35185 -> 9606 (3.66x); 1.048 -> 3.838 ops/cycle
     linear 7x29 k63 bias, loops (1 invocations): bitwise
     linear 7x29 k63 bias, generated (1 invocations): bitwise
-      cycles 56355 -> 10035 (5.62x); 0.454 -> 2.549 ops/cycle
+      cycles 56355 -> 10034 (5.62x); 0.454 -> 2.549 ops/cycle
     bmm 1x9x32 k64, loops (1 invocations): bitwise
     bmm 1x9x32 k64, generated (1 invocations): bitwise
-      cycles 24211 -> 4874 (4.97x); 1.523 -> 7.563 ops/cycle
+      cycles 24211 -> 4600 (5.26x); 1.523 -> 8.014 ops/cycle
     bmm 3x7x29 k63, loops (1 invocations): bitwise
     bmm 3x7x29 k63, generated (1 invocations): bitwise
-      cycles 159944 -> 15651 (10.22x); 0.480 -> 4.903 ops/cycle |}]
+      cycles 159944 -> 15204 (10.52x); 0.480 -> 5.047 ops/cycle |}]

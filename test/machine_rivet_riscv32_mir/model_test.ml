@@ -377,7 +377,8 @@ let%expect_test "generated bfloat16 and 1x1 convolution contractions under qemu"
     "bfloat16, A row stride" Ssa_ir.Ssa_numerics.Fp32_contracted
     T.Fp32_contracted
     (List.assoc "linear bf16 7x29 k63 bias" T.bf16_fixtures);
-  [%expect {|
+  [%expect
+    {|
     bmm bf16 3x7x29 k63, ordered (1 invocations): bitwise
     bmm bf16 3x7x29 k63, contracted (1 invocations): bitwise
     linear bf16 9x32 k64, ordered (1 invocations): bitwise
@@ -389,3 +390,40 @@ let%expect_test "generated bfloat16 and 1x1 convolution contractions under qemu"
     conv1x1 3x5 c1 to 4, ordered (1 invocations): bitwise
     conv1x1 3x5 c1 to 4, contracted (1 invocations): bitwise
     bfloat16, A row stride (1 invocations): DIFFERS |}]
+
+(* Prepacked weights through the generated functions under qemu: a Linear's
+   and a 1x1 convolution's weight read as packed copies with contiguous
+   columns, binary32 and bfloat16, bitwise call after call. *)
+let%expect_test "generated contractions over prepacked weights under qemu" =
+  List.iter
+    (fun (name, g) ->
+      T.check
+        ~route:(R.route ~cpu:(cpu 128) ())
+        ~contractions:true ~prepack:true
+        ~pipeline:
+          (Ssa_backends.Pipeline.Planned
+             {
+               numerics = Ssa_ir.Ssa_numerics.Fp32_contracted;
+               target = Ssa_ir.Ssa_target.zve32f128;
+             })
+        ~oracle:T.Fp32_contracted ~same:T.same_portable
+        ~input:(fun ~salt id sg ->
+          T.in_format sg (T.adversarial_input ~salt id sg))
+        ~constant:(fun sg -> T.in_format sg (T.adversarial ~salt:3 sg))
+        ~calls:2 name g)
+    (List.filter
+       (fun (n, _) ->
+         List.mem n
+           [
+             "linear 9x32 k64";
+             "linear 7x29 k63 bias";
+             "linear bf16 7x29 k63 bias";
+             "conv1x1 3x5 c19 to 29";
+           ])
+       (T.contraction_fixtures @ T.bf16_fixtures @ T.pointwise_fixtures));
+  [%expect
+    {|
+    linear 9x32 k64 (1 invocations, 1 packed): bitwise, bitwise
+    linear 7x29 k63 bias (1 invocations, 1 packed): bitwise, bitwise
+    linear bf16 7x29 k63 bias (1 invocations, 1 packed): bitwise, bitwise
+    conv1x1 3x5 c19 to 29 (1 invocations, 1 packed): bitwise, bitwise |}]

@@ -106,12 +106,12 @@ let%expect_test "contractions over SRAM, staged by DMA" =
     | Machine_model.Mir_artifact.Section.Bound -> Coral_layout.Home.Ram
     | _ -> Coral_layout.Home.Any
   in
-  let rule d = Some (Coralnpu_kernels.Rvv_contraction.in_sram d) in
-  let run ?stage ?kernel_mutation name g =
+  let rule ~budget d = Coral_transfer.Transfer_model.choose ~budget d in
+  let run ?transfer ?kernel_mutation name g =
     let cycles = ref 0L in
     let on_run (o : C.Run.t) = cycles := Int64.add !cycles o.C.Run.mcycle in
     T.check
-      ~route:(C.route ?stage ?kernel_mutation ~home ~on_run subsystem)
+      ~route:(C.route ?transfer ?kernel_mutation ~home ~on_run subsystem)
       ~contractions:true
       ~pipeline:
         (Ssa_backends.Pipeline.Planned
@@ -125,7 +125,7 @@ let%expect_test "contractions over SRAM, staged by DMA" =
   List.iter
     (fun (name, g) ->
       let direct = run (name ^ ", in SRAM") g in
-      let staged = run ~stage:rule (name ^ ", staged") g in
+      let staged = run ~transfer:rule (name ^ ", staged") g in
       Fmt.pr "  cycles %Ld -> %Ld (%.2fx)@." direct staged
         (Int64.to_float direct /. Int64.to_float staged))
     (List.filter
@@ -133,19 +133,169 @@ let%expect_test "contractions over SRAM, staged by DMA" =
          List.mem n
            [ "linear 9x32 k64"; "linear 7x29 k63 bias"; "bmm 1x9x32 k64" ])
        T.contraction_fixtures);
+  (* B's copy the only chain, so nothing else waits for it *)
   ignore
-    (run ~stage:rule
+    (run
+       ~transfer:(fun ~budget:_ _ ->
+         {
+           Coral_transfer.Transfer_plan.a =
+             Coral_transfer.Transfer_plan.A.In_place;
+           b = Coral_transfer.Transfer_plan.B.Copied;
+           out = Coral_transfer.Transfer_plan.Out.Core;
+         })
        ~kernel_mutation:Coralnpu_kernels.Rvv_contraction.Mutation.No_wait
        "staging not waited for"
        (List.assoc "linear 9x32 k64" T.contraction_fixtures));
-  [%expect {|
+  [%expect
+    {|
     linear 9x32 k64, in SRAM (1 invocations): bitwise
     linear 9x32 k64, staged (1 invocations): bitwise
-      cycles 36505 -> 18912 (1.93x)
+      cycles 36504 -> 13719 (2.66x)
     linear 7x29 k63 bias, in SRAM (1 invocations): bitwise
     linear 7x29 k63 bias, staged (1 invocations): bitwise
-      cycles 34417 -> 18785 (1.83x)
+      cycles 34416 -> 14671 (2.35x)
     bmm 1x9x32 k64, in SRAM (1 invocations): bitwise
     bmm 1x9x32 k64, staged (1 invocations): bitwise
-      cycles 13376 -> 13153 (1.02x)
+      cycles 13376 -> 9848 (1.36x)
     staging not waited for (1 invocations): DIFFERS |}]
+
+(* Prepacked weights over SRAM: a Linear's packed weight streams contiguous
+   rows, so the staging rule copies only A; against the strided weight
+   staged, bitwise both. *)
+let%expect_test "prepacked weights over SRAM" =
+  let home (s : Machine_rivet_common.Rivet_table.slot) =
+    match s.Machine_rivet_common.Rivet_table.section with
+    | Machine_model.Mir_artifact.Section.Bound -> Coral_layout.Home.Ram
+    | _ -> Coral_layout.Home.Any
+  in
+  let rule ~budget d = Coral_transfer.Transfer_model.choose ~budget d in
+  let run ~prepack name g =
+    let cycles = ref 0L in
+    let on_run (o : C.Run.t) = cycles := Int64.add !cycles o.C.Run.mcycle in
+    T.check
+      ~route:(C.route ~transfer:rule ~home ~on_run subsystem)
+      ~contractions:true ~prepack
+      ~pipeline:
+        (Ssa_backends.Pipeline.Planned
+           {
+             numerics = Ssa_ir.Ssa_numerics.Fp32_contracted;
+             target = Ssa_ir.Ssa_target.zve32f128;
+           })
+      ~oracle:T.Fp32_contracted ~constant:T.positive ~calls:1 name g;
+    !cycles
+  in
+  List.iter
+    (fun (name, g) ->
+      let s = run ~prepack:false (name ^ ", staged") g in
+      let p = run ~prepack:true (name ^ ", packed") g in
+      Fmt.pr "  cycles %Ld -> %Ld (%.2fx)@." s p
+        (Int64.to_float s /. Int64.to_float p))
+    (List.filter
+       (fun (n, _) -> List.mem n [ "linear 9x32 k64"; "linear 7x29 k63 bias" ])
+       T.contraction_fixtures);
+  [%expect
+    {|
+    linear 9x32 k64, staged (1 invocations): bitwise
+    linear 9x32 k64, packed (1 invocations, 1 packed): bitwise
+      cycles 13719 -> 9936 (1.38x)
+    linear 7x29 k63 bias, staged (1 invocations): bitwise
+    linear 7x29 k63 bias, packed (1 invocations, 1 packed): bitwise
+      cycles 14671 -> 10954 (1.34x) |}]
+
+(* Staging within DTCM: a Linear whose A (200 rows of 64) is larger than the
+   five eighths of the 32 KiB DTCM its functions share stages B and streams
+   A through a ring of what is left; bitwise, against reading both in
+   place. *)
+let%expect_test "staging within DTCM" =
+  let home (s : Machine_rivet_common.Rivet_table.slot) =
+    match s.Machine_rivet_common.Rivet_table.section with
+    | Machine_model.Mir_artifact.Section.Bound -> Coral_layout.Home.Ram
+    | _ -> Coral_layout.Home.Any
+  in
+  let run ?transfer name g =
+    let cycles = ref 0L in
+    let on_run (o : C.Run.t) = cycles := Int64.add !cycles o.C.Run.mcycle in
+    T.check
+      ~route:(C.route ?transfer ~home ~on_run subsystem)
+      ~contractions:true
+      ~pipeline:
+        (Ssa_backends.Pipeline.Planned
+           {
+             numerics = Ssa_ir.Ssa_numerics.Fp32_contracted;
+             target = Ssa_ir.Ssa_target.zve32f128;
+           })
+      ~oracle:T.Fp32_contracted ~constant:T.positive ~calls:1 name g;
+    !cycles
+  in
+  let g = T.linear_fixture ~m:200 ~n:16 ~k:64 ~bias:false in
+  let direct = run "linear 200x16 k64, in SRAM" g in
+  let staged =
+    run
+      ~transfer:(fun ~budget d ->
+        Coral_transfer.Transfer_model.choose ~budget d)
+      "linear 200x16 k64, staged within DTCM" g
+  in
+  Fmt.pr "  cycles %Ld -> %Ld (%.2fx)@." direct staged
+    (Int64.to_float direct /. Int64.to_float staged);
+  [%expect
+    {|
+    linear 200x16 k64, in SRAM (1 invocations): bitwise
+    linear 200x16 k64, staged within DTCM (1 invocations): bitwise
+      cycles 457171 -> 143062 (3.20x) |}]
+
+(* A streamed through the DTCM ring, block j + 1's chain beside block j's
+   product: a Linear of 192 rows over a packed weight (so B streams
+   contiguous rows from SRAM and A gets the DTCM), against A in place;
+   then the ring's two obligations, each defect caught. *)
+let%expect_test "A streamed through a DTCM ring" =
+  let home (s : Machine_rivet_common.Rivet_table.slot) =
+    match s.Machine_rivet_common.Rivet_table.section with
+    | Machine_model.Mir_artifact.Section.Bound -> Coral_layout.Home.Ram
+    | _ -> Coral_layout.Home.Any
+  in
+  let run ?transfer ?kernel_mutation name g =
+    let cycles = ref 0L in
+    let on_run (o : C.Run.t) = cycles := Int64.add !cycles o.C.Run.mcycle in
+    T.check
+      ~route:
+        (C.route ?transfer ?kernel_mutation ~home ~on_run ~budget:32768L
+           subsystem)
+      ~contractions:true ~prepack:true
+      ~pipeline:
+        (Ssa_backends.Pipeline.Planned
+           {
+             numerics = Ssa_ir.Ssa_numerics.Fp32_contracted;
+             target = Ssa_ir.Ssa_target.zve32f128;
+           })
+      ~oracle:T.Fp32_contracted ~constant:T.positive ~calls:1 name g;
+    !cycles
+  in
+  (* B copied, A streamed by the largest block the rest holds *)
+  let rule ~budget d =
+    let module P = Coral_transfer.Transfer_plan in
+    List.find
+      (fun (p : P.t) ->
+        match (p.P.a, p.P.b) with
+        | P.A.Streamed _, P.B.Copied -> true
+        | _ -> false)
+      (P.candidates ~budget d)
+  in
+  let g = T.linear_fixture ~m:192 ~n:32 ~k:128 ~bias:false in
+  let direct = run "linear 192x32 k128, in SRAM" g in
+  let streamed = run ~transfer:rule "linear 192x32 k128, A streamed" g in
+  Fmt.pr "  cycles %Ld -> %Ld (%.2fx); %.2f -> %.2f ops/cycle@." direct streamed
+    (Int64.to_float direct /. Int64.to_float streamed)
+    (2. *. 192. *. 32. *. 128. /. Int64.to_float direct)
+    (2. *. 192. *. 32. *. 128. /. Int64.to_float streamed);
+  List.iter
+    (fun (mname, kernel_mutation) ->
+      ignore (run ~transfer:rule ~kernel_mutation mname g))
+    Coralnpu_kernels.Rvv_contraction.Mutation.
+      [ ("no wait for a block", No_ring_wait); ("aliased ring", Aliased_ring) ];
+  [%expect
+    {|
+    linear 192x32 k128, in SRAM (1 invocations, 1 packed): bitwise
+    linear 192x32 k128, A streamed (1 invocations, 1 packed): bitwise
+      cycles 554841 -> 214599 (2.59x); 2.83 -> 7.33 ops/cycle
+    no wait for a block (1 invocations, 1 packed): DIFFERS
+    aliased ring (1 invocations, 1 packed): DIFFERS |}]

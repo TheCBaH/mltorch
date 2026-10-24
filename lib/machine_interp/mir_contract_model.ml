@@ -32,17 +32,52 @@ let model (h : Mir_helper.t) =
                   | Error _ ->
                       invalid_arg "Mir_contract_model: an unreadable element"
                 in
-                let operand =
-                  read ~bytes:(Contraction.Element.bytes d.Contraction.format)
+                (* an 8-bit integer as itself, its sign extended or not; C
+                   then a 32-bit integer *)
+                let int8 sign p off =
+                  match
+                    Mir_memory.load memory (at ~bytes:1L p off) ~bytes:1L
+                      ~align:1L
+                  with
+                  | Ok bits ->
+                      let v = Int64.to_int bits land 0xFF in
+                      float_of_int
+                        (match sign with
+                        | Contraction.Sign.Signed when v >= 128 -> v - 256
+                        | Contraction.Sign.Signed | Contraction.Sign.Unsigned ->
+                            v)
+                  | Error _ ->
+                      invalid_arg "Mir_contract_model: an unreadable element"
                 in
-                Contraction.eval d ~a:(operand a) ~b:(operand b)
-                  ~c:(read ~bytes:4L c) ~write:(fun off x ->
+                let operand_a, operand_b, read_c, bits_of =
+                  match d.Contraction.format with
+                  | Contraction.Element.I8 { a = sa; b = sb } ->
+                      ( int8 sa,
+                        int8 sb,
+                        (fun p off ->
+                          match
+                            Mir_memory.load memory (at ~bytes:4L p off)
+                              ~bytes:4L ~align:4L
+                          with
+                          | Ok bits -> Int32.to_float (Int64.to_int32 bits)
+                          | Error _ ->
+                              invalid_arg
+                                "Mir_contract_model: an unreadable element"),
+                        fun x -> Int32.of_float x )
+                  | Contraction.Element.Bf16 | Contraction.Element.F32 ->
+                      let r =
+                        read
+                          ~bytes:
+                            (Contraction.Element.bytes d.Contraction.format)
+                      in
+                      (r, r, read ~bytes:4L, Int32.bits_of_float)
+                in
+                Contraction.eval d ~a:(operand_a a) ~b:(operand_b b)
+                  ~c:(read_c c) ~write:(fun off x ->
                     match
                       Mir_memory.store memory (at ~bytes:4L c off) ~bytes:4L
                         ~align:4L
-                        (Int64.logand
-                           (Int64.of_int32 (Int32.bits_of_float x))
-                           0xFFFF_FFFFL)
+                        (Int64.logand (Int64.of_int32 (bits_of x)) 0xFFFF_FFFFL)
                     with
                     | Ok () -> ()
                     | Error _ ->

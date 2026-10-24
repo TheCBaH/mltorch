@@ -579,7 +579,8 @@ let%expect_test "bfloat16 matrix products" =
           ("contracted", Ssa_ir.Ssa_numerics.Fp32_contracted, Fp32_contracted);
         ])
     bf16_fixtures;
-  [%expect {|
+  [%expect
+    {|
     bmm bf16 3x7x29 k63 0: contract bf16 batch=3 m=7 n=29 k=63 a=(441,63,1) b=(1827,1,29) c=(203,29,1) seed=zero ordered
     bmm bf16 3x7x29 k63, ordered, generic (1 invocations): bitwise
     bmm bf16 3x7x29 k63, ordered, riscv32 scanned (1 invocations): bitwise
@@ -595,3 +596,62 @@ let%expect_test "bfloat16 matrix products" =
     linear bf16 7x29 k63 bias, ordered, riscv32 scanned (1 invocations): bitwise
     linear bf16 7x29 k63 bias, contracted, generic (1 invocations): bitwise
     linear bf16 7x29 k63 bias, contracted, riscv32 scanned (1 invocations): bitwise |}]
+
+(* Prepacked weights: a Linear's weight, B with strided columns, read as a
+   packed copy the context builds once; a Bmm's B is an input and stays.
+   Bitwise under both policies, call after call (the packed copy is built
+   once and read by every call). *)
+let%expect_test "prepacked weights" =
+  List.iter
+    (fun (name, g) ->
+      List.iter
+        (fun (pname, numerics, oracle) ->
+          List.iter
+            (fun (rname, route) ->
+              check ?route ~contractions:true ~prepack:true
+                ~pipeline:
+                  (Ssa_backends.Pipeline.Planned
+                     { numerics; target = Ssa_ir.Ssa_target.zve32f128 })
+                ~oracle ~same:same_portable
+                ~input:(fun ~salt id sg ->
+                  in_format sg (adversarial_input ~salt id sg))
+                ~constant:(fun sg -> in_format sg (adversarial ~salt:3 sg))
+                ~calls:2
+                (Fmt.str "%s, %s, %s" name pname rname)
+                g)
+            [
+              ("generic", None);
+              ("riscv32 scanned", Some (M.Route.Riscv32 M.Stage.Scanned));
+            ])
+        [
+          ("ordered", Ssa_ir.Ssa_numerics.Fp32_ordered, Fp32);
+          ("contracted", Ssa_ir.Ssa_numerics.Fp32_contracted, Fp32_contracted);
+        ])
+    (List.filter
+       (fun (n, _) ->
+         List.mem n
+           [
+             "linear 7x29 k63 bias";
+             "bmm 3x7x29 k63";
+             "linear bf16 7x29 k63 bias";
+             "conv1x1 3x5 c19 to 29";
+           ])
+       (contraction_fixtures @ bf16_fixtures @ pointwise_fixtures));
+  [%expect
+    {|
+    linear 7x29 k63 bias, ordered, generic (1 invocations, 1 packed): bitwise, bitwise
+    linear 7x29 k63 bias, ordered, riscv32 scanned (1 invocations, 1 packed): bitwise, bitwise
+    linear 7x29 k63 bias, contracted, generic (1 invocations, 1 packed): bitwise, bitwise
+    linear 7x29 k63 bias, contracted, riscv32 scanned (1 invocations, 1 packed): bitwise, bitwise
+    bmm 3x7x29 k63, ordered, generic (1 invocations, 0 packed): bitwise, bitwise
+    bmm 3x7x29 k63, ordered, riscv32 scanned (1 invocations, 0 packed): bitwise, bitwise
+    bmm 3x7x29 k63, contracted, generic (1 invocations, 0 packed): bitwise, bitwise
+    bmm 3x7x29 k63, contracted, riscv32 scanned (1 invocations, 0 packed): bitwise, bitwise
+    linear bf16 7x29 k63 bias, ordered, generic (1 invocations, 1 packed): bitwise, bitwise
+    linear bf16 7x29 k63 bias, ordered, riscv32 scanned (1 invocations, 1 packed): bitwise, bitwise
+    linear bf16 7x29 k63 bias, contracted, generic (1 invocations, 1 packed): bitwise, bitwise
+    linear bf16 7x29 k63 bias, contracted, riscv32 scanned (1 invocations, 1 packed): bitwise, bitwise
+    conv1x1 3x5 c19 to 29, ordered, generic (1 invocations, 1 packed): bitwise, bitwise
+    conv1x1 3x5 c19 to 29, ordered, riscv32 scanned (1 invocations, 1 packed): bitwise, bitwise
+    conv1x1 3x5 c19 to 29, contracted, generic (1 invocations, 1 packed): bitwise, bitwise
+    conv1x1 3x5 c19 to 29, contracted, riscv32 scanned (1 invocations, 1 packed): bitwise, bitwise |}]

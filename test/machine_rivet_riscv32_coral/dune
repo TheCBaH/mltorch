@@ -7,10 +7,14 @@
 (library
  (name machine_rivet_riscv32_coral_test)
  (libraries
+  contraction
+  coralnpu
+  coralnpu_kernels
   coralnpu_kernels_zvt
   fmt
   machine_model
   machine_model_test
+  machine_rivet_riscv32
   machine_rivet_riscv32_coral
   machine_rivet_riscv32_mir
   ssa_backends

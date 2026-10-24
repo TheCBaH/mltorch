@@ -11,7 +11,9 @@
      DMA-fed matrix multiply, B resident without a GEOMETRY ([resident-a/N],
      [row-major-a] or [split-k/N]);
    - [direct ENGINE BLOCKS W K]: the same multiply with its operands in SRAM,
-     no DMA.
+     no DMA;
+   - [peak ENGINE BLOCKS W K]: the same with every operand in DTCM, the peak
+     the DMA-fed multiply is measured against.
 
    Exits 1 when a destination differs from what the transfers must leave. *)
 
@@ -180,6 +182,7 @@ let gemm_engine = function
   | "rvv-bf16" -> G.Engine.Rvv_bf16
   | "rvv-f32" -> Rvv_f32
   | "rvv-i8" -> Rvv_i8
+  | "zvt-bf16" -> Zvt_bf16
   | "zvt-f32" -> Zvt_f32
   | "zvt-i8" -> Zvt_i8
   | e -> invalid_arg ("dma_bench: no matrix multiply " ^ e)
@@ -202,24 +205,27 @@ let gemm dir p (g : G.t) =
     | Split_k _ -> "B's first chunk and the first block")
     (word t 0)
 
-(* The same multiply with A, B and C read in place from SRAM. *)
-let direct dir p (g : G.t) =
-  let k = G.direct g in
+(* The same multiply with A, B and C read in place from SRAM, or with all
+   three in DTCM: the peak it is measured against. *)
+let direct ?(peak = false) dir p (g : G.t) =
+  let k = if peak then G.peak g else G.direct g in
   let inputs = k.K.inputs in
   let out = List.length k.slots - 1 in
   let _, (o : Coral_soc_run.outcome) =
     execute ~matrix:k.matrix dir p
-      ~name:(G.name g ^ " direct")
+      ~name:(G.name g ^ if peak then " peak" else " direct")
       ~items:k.items ~slots:k.slots
       ~inputs:(fun _ -> Ok inputs)
       ~timings:None ~dst:out ~expected:k.expected
   in
   Fmt.pr
-    "%s M=%d N=%d K=%d, operands in SRAM, no DMA: C as expected, %Ld cycles, \
+    "%s M=%d N=%d K=%d, operands in %s, no DMA: C as expected, %Ld cycles, \
      %.1f ops/cycle@."
     (G.Engine.name g.engine)
     (G.rows g * g.blocks)
-    g.width g.depth o.mcycle
+    g.width g.depth
+    (if peak then "DTCM" else "SRAM")
+    o.mcycle
     (float_of_int (G.ops g) /. Int64.to_float o.mcycle)
 
 let gemm_prologue = function
@@ -260,7 +266,8 @@ let () =
       (Err.payload (Coral_profile.load ~dir Sys.argv.(2)))
   in
   let rec sweeps = function
-    | "direct" :: engine :: blocks :: width :: depth :: rest ->
+    | (("direct" | "peak") as mode)
+      :: engine :: blocks :: width :: depth :: rest ->
         let engine = gemm_engine engine and width = int_of_string width in
         (* An RVV block's lanes are a panel of a wider W. *)
         let geometry =
@@ -268,7 +275,7 @@ let () =
           | Some panel when panel < width -> G.Geometry.Resident_a { panel }
           | Some _ | None -> Resident_b
         in
-        direct dir p
+        direct ~peak:(mode = "peak") dir p
           {
             G.blocks = int_of_string blocks;
             depth = int_of_string depth;

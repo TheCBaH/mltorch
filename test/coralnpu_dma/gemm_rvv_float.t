@@ -18,5 +18,12 @@ about three times the same kernels with every operand left in SRAM.
   rvv bf16 M=192 N=32 K=256, operands in SRAM, no DMA: C as expected, 715813 cycles, 4.4 ops/cycle
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-vector-normal gemm rvv-f32 b-shared c-by-dma 64 32 128
   rvv f32 resident-b b-shared c-by-dma M=192 N=32 K=128: C as expected, 168368 cycles, 9.3 ops/cycle; 259 waiting for B and the first block, 1636 for the rest
+The geometry the generated functions use (B copied by the DMA alone, A
+streamed, C stored by the core; test/machine_rivet_riscv32_coral_soc's
+kernel_test.ml calls one at this shape and must stay within 5% of it):
+
+  $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-vector-normal gemm rvv-f32 b-by-dma c-by-core 64 32 128
+  rvv f32 resident-b b-by-dma c-by-core M=192 N=32 K=128: C as expected, 186003 cycles, 8.5 ops/cycle; 15700 waiting for B and the first block, 1260 for the rest
+
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-vector-normal direct rvv-f32 64 32 128
   rvv f32 M=192 N=32 K=128, operands in SRAM, no DMA: C as expected, 527868 cycles, 3.0 ops/cycle

@@ -1,8 +1,33 @@
-module Element = struct
-  type t = Bf16 | F32
+module Sign = struct
+  type t = Signed | Unsigned
 
-  let name = function Bf16 -> "bf16" | F32 -> "f32"
-  let bytes = function Bf16 -> 2L | F32 -> 4L
+  let letter = function Signed -> "s" | Unsigned -> "u"
+end
+
+module Element = struct
+  type t = Bf16 | F32 | I8 of { a : Sign.t; b : Sign.t }
+
+  let name = function
+    | Bf16 -> "bf16"
+    | F32 -> "f32"
+    | I8 { a; b } -> "i8" ^ Sign.letter a ^ Sign.letter b
+
+  let bytes = function Bf16 -> 2L | F32 -> 4L | I8 _ -> 1L
+  let integer = function I8 _ -> true | Bf16 | F32 -> false
+
+  let all =
+    [ Bf16; F32 ]
+    @ List.concat_map
+        (fun a ->
+          List.map (fun b -> I8 { a; b }) [ Sign.Signed; Sign.Unsigned ])
+        [ Sign.Signed; Sign.Unsigned ]
+
+  (* The largest product's magnitude of two elements. *)
+  let largest_product = function
+    | I8 { a; b } ->
+        let m = function Sign.Signed -> 128L | Sign.Unsigned -> 255L in
+        Some (Int64.mul (m a) (m b))
+    | Bf16 | F32 -> None
 end
 
 module Seed = struct
@@ -43,6 +68,7 @@ type t = {
 module Invalid = struct
   type t =
     | Extent of { name : string; value : int64 }
+    | Overflow of { k : int64 }
     | Stride of { name : string; value : int64 }
 end
 
@@ -70,6 +96,13 @@ let make ~batch ~m ~n ~k ~a ~b ~c ~format ~seed ~numerics =
   let* () = stride "c.batch" c.Output.batch in
   let* () = stride "c.row" c.Output.row in
   let* () = stride "c.col" c.Output.col in
+  (* an integer sum stays exact in its 32-bit accumulator *)
+  let* () =
+    match Element.largest_product format with
+    | Some p when Int64.compare (Int64.mul k p) 0x7FFF_FFFFL > 0 ->
+        Err.fail (`Invalid_contraction (Invalid.Overflow { k }))
+    | Some _ | None -> Err.return ()
+  in
   Err.return { batch; m; n; k; a; b; c; format; seed; numerics }
 
 let pp ppf t =
@@ -85,6 +118,8 @@ let pp_error ppf (`Invalid_contraction i) =
   match i with
   | Invalid.Extent { name; value } ->
       Fmt.pf ppf "contraction extent %s = %Ld" name value
+  | Invalid.Overflow { k } ->
+      Fmt.pf ppf "contraction k = %Ld, past an exact 32-bit integer sum" k
   | Invalid.Stride { name; value } ->
       Fmt.pf ppf "contraction stride %s = %Ld" name value
 
@@ -119,9 +154,7 @@ let of_name s =
   match String.split_on_char '.' s with
   | [ "contract"; format; b; m; n; k; a; bb; c; seed; numerics ] -> (
       match
-        ( List.find_opt
-            (fun x -> Element.name x = format)
-            [ Element.Bf16; Element.F32 ],
+        ( List.find_opt (fun x -> Element.name x = format) Element.all,
           int_of 'b' b,
           int_of 'm' m,
           int_of 'n' n,
@@ -188,9 +221,13 @@ let eval t ~a ~b ~c ~write =
                      + (kk * t.b.Operand.k))
                   in
                   acc :=
-                    match t.numerics with
-                    | Numerics.Fused_sequential -> F32_math.fma32 x y !acc
-                    | Numerics.Ordered -> round32 (!acc +. round32 (x *. y)));
+                    if Element.integer t.format then
+                      (* exact: [make] bounds the sum within 32 bits *)
+                      !acc +. (x *. y)
+                    else
+                      match t.numerics with
+                      | Numerics.Fused_sequential -> F32_math.fma32 x y !acc
+                      | Numerics.Ordered -> round32 (!acc +. round32 (x *. y)));
               write at !acc)))
 
 module Select = struct
@@ -204,6 +241,7 @@ module Select = struct
     type t =
       | Format_off_matrix
       | Fused_off_matrix
+      | Integer_on_matrix
       | No_vector_unit
       | Ordered_on_matrix
       | Vector_unit
@@ -211,6 +249,7 @@ module Select = struct
     let name = function
       | Format_off_matrix -> "format_off_matrix"
       | Fused_off_matrix -> "fused_off_matrix"
+      | Integer_on_matrix -> "integer_on_matrix"
       | No_vector_unit -> "no_vector_unit"
       | Ordered_on_matrix -> "ordered_on_matrix"
       | Vector_unit -> "vector_unit"
@@ -224,6 +263,7 @@ module Select = struct
     match (c.matrix, d.format, d.numerics, c.vector) with
     | true, Element.F32, Numerics.Ordered, _ ->
         (Engine.Zvt, Reason.Ordered_on_matrix)
+    | true, Element.I8 _, _, _ -> (Engine.Zvt, Reason.Integer_on_matrix)
     | _, _, _, false -> (Engine.Loops, Reason.No_vector_unit)
     | true, Element.Bf16, _, true -> (Engine.Rvv, Reason.Format_off_matrix)
     | true, Element.F32, Numerics.Fused_sequential, true ->

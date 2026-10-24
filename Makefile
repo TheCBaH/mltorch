@@ -1719,6 +1719,22 @@ coralnpu.soc.rv32.runtest:
 	}
 	CORALNPU_DATA=$(CORALNPU_DATA) CORALNPU_SUBSYSTEM_DATA=$(CORALNPU_SUBSYSTEM_DATA) opam exec -- dune build @test/machine_rivet_riscv32_coral_soc/runtest --force
 
+# The transfer model against the subsystem: every candidate transfer plan of 16
+# matrix products measured beside its prediction, and the plan chosen against
+# the measured best. About five hours; manual, in no CI job. Needs both
+# downloads.
+.PHONY: coralnpu.transfer.runtest
+coralnpu.transfer.runtest:
+	@test -f $(CORALNPU_SUBSYSTEM_DATA)/hardware-configurations.json || { \
+		echo "coralnpu.transfer.runtest: missing $(CORALNPU_SUBSYSTEM_DATA) -- run 'make coralnpu.subsystem.download' first" >&2; \
+		exit 1; \
+	}
+	@test -f $(CORALNPU_DATA)/hardware-configurations.json || { \
+		echo "coralnpu.transfer.runtest: missing $(CORALNPU_DATA) -- run 'make coralnpu.download' first" >&2; \
+		exit 1; \
+	}
+	CORALNPU_DATA=$(CORALNPU_DATA) CORALNPU_SUBSYSTEM_DATA=$(CORALNPU_SUBSYSTEM_DATA) opam exec -- dune build @test/machine_rivet_riscv32_coral_transfer/runtest --force
+
 # How the matrix engine's binary32 tile multiply rounds (vtfmm, tk = 1), on the
 # VME core. Seconds.
 .PHONY: coralnpu.zvt.numerics.runtest

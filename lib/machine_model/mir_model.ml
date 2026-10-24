@@ -57,9 +57,28 @@ module Kernel = struct
   }
 end
 
+(* A constant packed for a contraction ({!Ssa_ir.Ssa_prepack}): the edge its
+   packed copy binds, made from the source constant's edge once, when a
+   context is created. *)
+module Packed = struct
+  type t = {
+    id : Tensor_id.t;
+    source : Tensor_id.t;
+    pack : Ssa_ir.Ssa_prepack.Pack.t;
+  }
+
+  (* The packing a kernel's region needs, before the model names its edge. *)
+  type pending = {
+    region : Mir_id.Region.t;
+    of_edge : Tensor_id.t;
+    spec : Ssa_ir.Ssa_prepack.Pack.t;
+  }
+end
+
 type t = {
   bundle : Loop_ir.Loop_bundle.t;
   kernels : Kernel.t list;
+  packed : Packed.t list;
   sigs : Tensor_sig.t Tensor_id.Map.t;  (** every edge a buffer binds *)
 }
 
@@ -72,7 +91,7 @@ let planning ~group p =
 
 (* The lowered program of an invocation under a blocking policy, and the
    decision feedback made. *)
-let source ?contractions ~route ~blocking ~pipeline
+let source ?contractions ?(constant = fun _ -> false) ~route ~blocking ~pipeline
     (inv : Loop_ir.Loop_bundle.invocation) =
   let ( let* ) = Result.bind in
   let lower ~group p =
@@ -100,15 +119,17 @@ let source ?contractions ~route ~blocking ~pipeline
           (fun s -> Reason.Source s)
           (Ssa_backends.plan ?contractions ~numerics ~target inv)
       in
+      let program, packs =
+        Ssa_ir.Ssa_prepack.program ~constant plan.Ssa_ir.Ssa_plan.program
+      in
+      let plan = { plan with Ssa_ir.Ssa_plan.program } in
       let* l =
         Result.map_error
           (fun r -> Reason.Lowering r)
           (Err.payload
-             (Ml.program
-                ~planning:(Some (Ml.summary ~target plan))
-                plan.Ssa_ir.Ssa_plan.program))
+             (Ml.program ~planning:(Some (Ml.summary ~target plan)) program))
       in
-      Ok (l, None)
+      Ok (l, None, packs)
   | Ssa_backends.Pipeline.Planned _, _ ->
       Error (Reason.Source "blocking needs the exact pipeline")
   | ( Ssa_backends.Pipeline.Representation,
@@ -122,17 +143,17 @@ let source ?contractions ~route ~blocking ~pipeline
           (Ssa_backends.program pipeline inv)
       in
       let* l = lower ~group:1 p in
-      Ok (l, None)
+      Ok (l, None, [])
   | Ssa_backends.Pipeline.Exact, Mir_blocking.Policy.Group g -> (
       let* q = blocked g in
       match q with
       | Some q ->
           let* l = lower ~group:g q in
-          Ok (l, None)
+          Ok (l, None, [])
       | None ->
           let* p = exact () in
           let* l = lower ~group:1 p in
-          Ok (l, None))
+          Ok (l, None, []))
   | Ssa_backends.Pipeline.Exact, Mir_blocking.Policy.Feedback ->
       let* p = exact () in
       let* others =
@@ -162,13 +183,30 @@ let source ?contractions ~route ~blocking ~pipeline
              lowered)
       in
       let* l = List.assoc decision.Mir_blocking.Decision.chosen lowered in
-      Ok (l, Some decision)
+      Ok (l, Some decision, [])
 
-let kernel ?contractions ~route ~blocking ~pipeline
-    (inv : Loop_ir.Loop_bundle.invocation) =
-  match source ?contractions ~route ~blocking ~pipeline inv with
+let kernel ?contractions ?(prepack = false) ~constants ~route ~blocking
+    ~pipeline (inv : Loop_ir.Loop_bundle.invocation) =
+  (* the edge an SSA buffer binds: the Loop buffer of its id, positionally *)
+  let edge_of (id : Ssa_ir.Ssa_id.Buffer.t) =
+    List.find_map
+      (fun ((b : Loop_ir.Loop_buffer.t), edge) ->
+        if Tensor_id.to_int b.Loop_ir.Loop_buffer.id = (id :> int) then
+          Some edge
+        else None)
+      (List.combine inv.Loop_ir.Loop_bundle.program.Loop_ir.Loop_program.buffers
+         inv.Loop_ir.Loop_bundle.edges)
+  in
+  let constant id =
+    prepack
+    &&
+    match edge_of id with
+    | Some e -> Tensor_id.Set.mem e constants
+    | None -> false
+  in
+  match source ?contractions ~constant ~route ~blocking ~pipeline inv with
   | Error r -> Error r
-  | Ok (lowered, decision) -> (
+  | Ok (lowered, decision, packs) -> (
       match
         Mir_model_route.exec route ~sites:(sites inv) lowered.Ml.program
       with
@@ -194,27 +232,44 @@ let kernel ?contractions ~route ~blocking ~pipeline
                  inv.Loop_ir.Loop_bundle.edges)
           in
           Ok
-            {
-              Kernel.invocation = inv;
-              lowered;
-              exec;
-              edges =
-                List.map
-                  (fun ((e : L.Entry.t), edge) -> (e.L.Entry.region, edge))
-                  bound;
-              outputs =
-                List.filter_map
-                  (fun ((e : L.Entry.t), _) ->
-                    match e.L.Entry.buffer.Ssa_ir.Ssa_buffer.role with
-                    | Ssa_ir.Ssa_buffer.Output -> Some e.L.Entry.region
-                    | Ssa_ir.Ssa_buffer.Input | Ssa_ir.Ssa_buffer.Scratch ->
-                        None)
-                  bound;
-              blocking = decision;
-            })
+            ( {
+                Kernel.invocation = inv;
+                lowered;
+                exec;
+                edges =
+                  List.map
+                    (fun ((e : L.Entry.t), edge) -> (e.L.Entry.region, edge))
+                    bound;
+                outputs =
+                  List.filter_map
+                    (fun ((e : L.Entry.t), _) ->
+                      match e.L.Entry.buffer.Ssa_ir.Ssa_buffer.role with
+                      | Ssa_ir.Ssa_buffer.Output -> Some e.L.Entry.region
+                      | Ssa_ir.Ssa_buffer.Input | Ssa_ir.Ssa_buffer.Scratch ->
+                          None)
+                    bound;
+                blocking = decision;
+              },
+              List.filter_map
+                (fun (q : Ssa_ir.Ssa_prepack.Pack.t) ->
+                  match
+                    ( List.find_opt
+                        (fun (e : L.Entry.t) ->
+                          Ssa_ir.Ssa_id.Buffer.equal
+                            e.L.Entry.buffer.Ssa_ir.Ssa_buffer.id
+                            q.Ssa_ir.Ssa_prepack.Pack.target)
+                        lowered.Ml.layout,
+                      edge_of q.Ssa_ir.Ssa_prepack.Pack.source )
+                  with
+                  | Some e, Some of_edge ->
+                      Some
+                        { Packed.region = e.L.Entry.region; of_edge; spec = q }
+                  | _ -> None)
+                packs ))
 
 let prepare ?(route = Route.Generic) ?(blocking = Mir_blocking.Policy.Unblocked)
-    ?contractions ~pipeline (b : Loop_ir.Loop_bundle.t) =
+    ?contractions ?prepack ~pipeline (b : Loop_ir.Loop_bundle.t) =
+  let constants = Tensor_id.Set.of_list b.Loop_ir.Loop_bundle.constants in
   let results =
     List.mapi
       (fun k (inv : Loop_ir.Loop_bundle.invocation) ->
@@ -225,7 +280,8 @@ let prepare ?(route = Route.Generic) ?(blocking = Mir_blocking.Policy.Unblocked)
               node = inv.Loop_ir.Loop_bundle.node;
               reason;
             })
-          (kernel ?contractions ~route ~blocking ~pipeline inv))
+          (kernel ?contractions ?prepack ~constants ~route ~blocking ~pipeline
+             inv))
       b.Loop_ir.Loop_bundle.invocations
   in
   match
@@ -233,7 +289,62 @@ let prepare ?(route = Route.Generic) ?(blocking = Mir_blocking.Policy.Unblocked)
   with
   | _ :: _ as refusals -> Error refusals
   | [] ->
-      let kernels = List.map Result.get_ok results in
+      (* each packed copy an edge past every edge the bundle names, one per
+         source and packing *)
+      let next =
+        ref
+          (1
+          + List.fold_left
+              (fun m (inv : Loop_ir.Loop_bundle.invocation) ->
+                List.fold_left
+                  (fun m e -> max m (Tensor_id.to_int e))
+                  m inv.Loop_ir.Loop_bundle.edges)
+              (List.fold_left
+                 (fun m e -> max m (Tensor_id.to_int e))
+                 0
+                 (b.Loop_ir.Loop_bundle.constants @ b.Loop_ir.Loop_bundle.inputs))
+              b.Loop_ir.Loop_bundle.invocations)
+      in
+      let packed = ref [] in
+      let id_of (p : Packed.pending) =
+        let module P = Ssa_ir.Ssa_prepack.Pack in
+        (* the same packing of the same constant, whatever buffer ids the
+           kernels gave it *)
+        let same (q : Packed.t) =
+          Tensor_id.equal q.Packed.source p.Packed.of_edge
+          && {
+               q.Packed.pack with
+               P.source = p.Packed.spec.P.source;
+               target = p.Packed.spec.P.target;
+             }
+             = p.Packed.spec
+        in
+        match List.find_opt same !packed with
+        | Some q -> q.Packed.id
+        | None ->
+            let id = Tensor_id.of_int !next in
+            incr next;
+            packed :=
+              !packed
+              @ [
+                  { Packed.id; source = p.Packed.of_edge; pack = p.Packed.spec };
+                ];
+            id
+      in
+      let kernels =
+        List.map
+          (fun r ->
+            let (k : Kernel.t), pending = Result.get_ok r in
+            {
+              k with
+              Kernel.edges =
+                k.Kernel.edges
+                @ List.map
+                    (fun (p : Packed.pending) -> (p.Packed.region, id_of p))
+                    pending;
+            })
+          results
+      in
       let sigs =
         List.fold_left
           (fun m (inv : Loop_ir.Loop_bundle.invocation) ->
@@ -244,9 +355,10 @@ let prepare ?(route = Route.Generic) ?(blocking = Mir_blocking.Policy.Unblocked)
               inv.Loop_ir.Loop_bundle.edges)
           Tensor_id.Map.empty b.Loop_ir.Loop_bundle.invocations
       in
-      Ok { bundle = b; kernels; sigs }
+      Ok { bundle = b; kernels; packed = !packed; sigs }
 
 let invocations t = List.length t.kernels
+let packed t = List.length t.packed
 
 module Kernel_view = struct
   type t = {
@@ -367,6 +479,35 @@ module Context = struct
     in
     let b = model.bundle in
     let* () = write_all cx b.Loop_ir.Loop_bundle.constants constants in
+    (* each packed copy from its source's bytes *)
+    let* () =
+      List.fold_left
+        (fun acc (q : Packed.t) ->
+          let* () = acc in
+          match constants q.Packed.source with
+          | None -> Error (Stop.Missing q.Packed.source)
+          | Some tensor ->
+              let module P = Ssa_ir.Ssa_prepack.Pack in
+              let src = Mir_tensor_bytes.to_string tensor in
+              let spec = q.Packed.pack in
+              let size =
+                Int64.to_int (Contraction.Element.bytes spec.P.format)
+              in
+              let n = Int64.to_int (P.elements spec) in
+              let out = Bytes.create (n * size) in
+              for e = 0 to n - 1 do
+                Bytes.blit_string src
+                  (size * Int64.to_int (P.source_offset spec (Int64.of_int e)))
+                  out (e * size) size
+              done;
+              let* key =
+                instance cx q.Packed.id ~size:(Int64.of_int (n * size))
+              in
+              Mir_memory.write_string cx.memory key ~offset:0L
+                (Bytes.to_string out);
+              Ok ())
+        (Ok ()) model.packed
+    in
     (* a Region node's omitted operand: a constant-filled tensor *)
     let* () =
       List.fold_left

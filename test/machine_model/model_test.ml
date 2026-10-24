@@ -67,9 +67,10 @@ let same_portable a b =
         (Int64.float_of_bits y))
     (bits a) (bits b)
 
-let check ?route ?contractions ?(pipeline = Ssa_backends.Pipeline.Exact)
-    ?(oracle = Reference_f64) ?(same = fun a b -> bits a = bits b) ?(calls = 2)
-    ?constant ?(input = fun ~salt _ -> values ~salt) name g =
+let check ?route ?contractions ?prepack
+    ?(pipeline = Ssa_backends.Pipeline.Exact) ?(oracle = Reference_f64)
+    ?(same = fun a b -> bits a = bits b) ?(calls = 2) ?constant
+    ?(input = fun ~salt _ -> values ~salt) name g =
   let g = g () in
   let b = bundle g in
   let constant = Option.value constant ~default:(values ~salt:3) in
@@ -78,7 +79,7 @@ let check ?route ?contractions ?(pipeline = Ssa_backends.Pipeline.Exact)
       (fun id -> (id, constant (sig_of g id)))
       b.Loop_ir.Loop_bundle.constants
   in
-  match M.prepare ?route ?contractions ~pipeline b with
+  match M.prepare ?route ?contractions ?prepack ~pipeline b with
   | Error rs ->
       Fmt.pr "%s: refused: %a@." name Fmt.(list ~sep:(any "; ") M.Refusal.pp) rs
   | Ok m -> (
@@ -107,7 +108,10 @@ let check ?route ?contractions ?(pipeline = Ssa_backends.Pipeline.Exact)
                     then "bitwise"
                     else "DIFFERS")
           in
-          Fmt.pr "%s (%d invocations): %s@." name (M.invocations m)
+          Fmt.pr "%s (%d invocations%s): %s@." name (M.invocations m)
+            (match prepack with
+            | Some true -> Fmt.str ", %d packed" (M.packed m)
+            | Some false | None -> "")
             (String.concat ", " verdicts))
 
 let wide_chain () =

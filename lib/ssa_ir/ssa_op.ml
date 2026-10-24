@@ -598,3 +598,4 @@ let contract_operands (d : Contraction.t) =
   match d.Contraction.format with
   | Contraction.Element.Bf16 -> Ssa_format.Family.Bf16
   | Contraction.Element.F32 -> Ssa_format.Family.F32
+  | Contraction.Element.I8 _ -> Ssa_format.Family.I8

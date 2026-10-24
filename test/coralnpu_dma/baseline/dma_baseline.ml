@@ -254,7 +254,7 @@ let%expect_test "the model against the measured runs" =
     zvt i8 resident-b b-shared c-by-core M=256 N=128 K=1024: model 344815, measured 331417 (+4%)
     zvt f32 resident-b b-by-dma c-by-dma M=256 N=128 K=256: model 520227, measured 512109 (+2%)
     zvt f32 resident-b b-shared c-by-core M=256 N=128 K=256: model 344815, measured 331417 (+4%)
-    zvt i8 resident-b b-shared c-split-20 M=512 N=256 K=1024: model 1018883, measured 1047424 (-3%)
+    zvt i8 resident-b b-shared c-split-20 M=512 N=256 K=1024: model 1064018, measured 1047424 (+2%)
     rvv i8 resident-a/64 a-shared c-by-dma M=32 N=512 K=128: model 146539, measured 148370 (-1%)
     rvv i8 resident-a/64 a-shared c-by-core M=32 N=512 K=128: model 156653, measured 154678 (+1%)
     rvv bf16 resident-a/32 a-shared c-by-dma M=24 N=1024 K=128: model 512608, measured 518720 (-1%)
@@ -305,7 +305,7 @@ let%expect_test "the model against runs it was not fitted to" =
     zvt i8 resident-b b-shared c-by-core M=512 N=256 K=1024: model 1092094, measured 1097986 (-1%)
     zvt i8 resident-b b-shared c-by-dma M=512 N=512 K=1024: model 2024895, measured 1961336 (+3%)
     zvt i8 resident-b b-shared c-by-core M=512 N=512 K=1024: model 2157683, measured 2173969 (-1%)
-    zvt i8 resident-b b-shared c-split-8 M=512 N=512 K=1024: model 1864665, measured 1971328 (-5%)
+    zvt i8 resident-b b-shared c-split-8 M=512 N=512 K=1024: model 1971228, measured 1971328 (-0%)
     zvt i8 resident-a/64 a-shared c-by-core M=32 N=1024 K=128: model 129227, measured 126832 (+2%)
     zvt i8 resident-a/32 a-shared c-by-dma M=128 N=1024 K=1024: model 1678436, measured 1621126 (+4%)
     zvt i8 split-k/1024 b-shared c-by-dma M=256 N=256 K=4096: model 3979023, measured 3914286 (+2%) |}]
@@ -320,7 +320,12 @@ let%expect_test "the fastest variants of a problem, by the model" =
     (fun (soc, budget, engines, m, width, depth) ->
       Fmt.pr "%s, %d x %d x %d:@." soc m width depth;
       List.concat_map
-        (fun engine -> M.variants ~budget ~engine ~m ~width ~depth)
+        (fun engine ->
+          match M.variants ~budget ~engine ~m ~width ~depth () with
+          | Ok v -> v
+          | Error r ->
+              Fmt.pr "  %s: %a@." (G.Engine.name engine) M.Refusal.pp r;
+              [])
         engines
       |> List.sort (fun (x, _) (y, _) -> Float.compare x y)
       |> List.iteri (fun k (cycles, t) ->
@@ -356,23 +361,23 @@ let%expect_test "the fastest variants of a problem, by the model" =
     32 KiB DTCM, 512 x 32 x 128:
       65980 cycles, 63.6 ops/cycle: zvt i8 resident-b b-shared c-by-core M=512 N=32 K=128
       68543 cycles, 61.2 ops/cycle: zvt i8 resident-b b-by-dma c-by-core M=512 N=32 K=128
-      72539 cycles, 57.8 ops/cycle: zvt i8 resident-b b-shared c-split-28 M=512 N=32 K=128
+      72674 cycles, 57.7 ops/cycle: zvt i8 resident-b b-shared c-split-28 M=512 N=32 K=128
     1 MiB DTCM, 512 x 64 x 1024:
       411886 cycles, 162.9 ops/cycle: zvt i8 resident-a/32 a-shared c-by-core M=512 N=64 K=1024
       417361 cycles, 160.8 ops/cycle: zvt i8 resident-a/32 a-shared c-by-dma M=512 N=64 K=1024
       437484 cycles, 153.4 ops/cycle: zvt i8 resident-a/64 a-shared c-by-core M=512 N=64 K=1024
     1 MiB DTCM, 512 x 256 x 1024:
-      1018883 cycles, 263.5 ops/cycle: zvt i8 resident-b b-shared c-split-20 M=512 N=256 K=1024
-      1025795 cycles, 261.7 ops/cycle: zvt i8 resident-b b-shared c-split-16 M=512 N=256 K=1024
-      1043305 cycles, 257.3 ops/cycle: zvt i8 resident-b b-shared c-split-24 M=512 N=256 K=1024
+      1048399 cycles, 256.0 ops/cycle: zvt i8 resident-b b-shared c-split-16 M=512 N=256 K=1024
+      1064018 cycles, 252.3 ops/cycle: zvt i8 resident-b b-shared c-split-20 M=512 N=256 K=1024
+      1075910 cycles, 249.5 ops/cycle: zvt i8 resident-b b-shared c-split-24 M=512 N=256 K=1024
     1 MiB DTCM, 512 x 512 x 1024:
-      1864665 cycles, 287.9 ops/cycle: zvt i8 resident-b b-shared c-split-8 M=512 N=512 K=1024
-      1913511 cycles, 280.6 ops/cycle: zvt i8 resident-b b-shared c-split-12 M=512 N=512 K=1024
-      1924377 cycles, 279.0 ops/cycle: zvt i8 resident-b b-shared c-split-4 M=512 N=512 K=1024
+      1933611 cycles, 277.7 ops/cycle: zvt i8 resident-b b-shared c-split-4 M=512 N=512 K=1024
+      1971228 cycles, 272.4 ops/cycle: zvt i8 resident-b b-shared c-split-8 M=512 N=512 K=1024
+      2024895 cycles, 265.1 ops/cycle: zvt i8 resident-b b-shared c-by-dma M=512 N=512 K=1024
     1 MiB DTCM, 512 x 256 x 512:
-      1861642 cycles, 72.1 ops/cycle: zvt f32 resident-b b-shared c-split-16 M=512 N=256 K=512
-      1871094 cycles, 71.7 ops/cycle: zvt f32 resident-b b-shared c-split-12 M=512 N=256 K=512
-      1886065 cycles, 71.2 ops/cycle: zvt f32 resident-b b-shared c-split-20 M=512 N=256 K=512
+      1894707 cycles, 70.8 ops/cycle: zvt f32 resident-b b-shared c-split-12 M=512 N=256 K=512
+      1915581 cycles, 70.1 ops/cycle: zvt f32 resident-b b-shared c-split-16 M=512 N=256 K=512
+      1928014 cycles, 69.6 ops/cycle: zvt f32 resident-b b-shared c-split-8 M=512 N=256 K=512
     32 KiB DTCM, 32 x 512 x 128:
       65980 cycles, 63.6 ops/cycle: zvt i8 resident-a/32 a-shared c-by-core M=32 N=512 K=128
       67403 cycles, 62.2 ops/cycle: zvt i8 resident-a/64 a-shared c-by-core M=32 N=512 K=128
@@ -382,6 +387,7 @@ let%expect_test "the fastest variants of a problem, by the model" =
       129227 cycles, 64.9 ops/cycle: zvt i8 resident-a/64 a-shared c-by-core M=32 N=1024 K=128
       131223 cycles, 63.9 ops/cycle: zvt i8 resident-a/32 a-by-dma c-by-core M=32 N=1024 K=128
     32 KiB DTCM, 24 x 1024 x 128:
+      rvv f32: no variant fits 29696 bytes of DTCM; the least needs 45552
       512608 cycles, 12.3 ops/cycle: rvv bf16 resident-a/32 a-shared c-by-dma M=24 N=1024 K=128
       516452 cycles, 12.2 ops/cycle: rvv bf16 resident-a/32 a-by-dma c-by-dma M=24 N=1024 K=128
       551689 cycles, 11.4 ops/cycle: rvv bf16 resident-a/32 a-shared c-by-core M=24 N=1024 K=128
@@ -413,3 +419,41 @@ let%expect_test "the fastest variants of a problem, by the model" =
       1959276 cycles, 274.0 ops/cycle: zvt i8 resident-a/32 a-shared c-by-core M=256 N=512 K=2048
       2016220 cycles, 266.3 ops/cycle: zvt i8 resident-a/64 a-shared c-by-core M=256 N=512 K=2048
       2052472 cycles, 261.6 ops/cycle: zvt i8 resident-a/32 a-shared c-by-dma M=256 N=512 K=2048 |}]
+
+(* A row-major A, as an activation arrives: the model ranks the row-major
+   geometry where resident B's applies (the measured 256 x 128 x 512 Zvt INT8
+   run: 328054 cycles, model 329427), and refuses where nothing does. *)
+let%expect_test "the fastest variants with A row-major, by the model" =
+  List.iter
+    (fun (soc, budget, engine, m, width, depth) ->
+      Fmt.pr "%s, %s %d x %d x %d:@." soc (G.Engine.name engine) m width depth;
+      match
+        M.variants ~a_row_major:true ~budget ~engine ~m ~width ~depth ()
+      with
+      | Error r -> Fmt.pr "  %a@." M.Refusal.pp r
+      | Ok v ->
+          List.iteri
+            (fun k (cycles, t) ->
+              if k < 3 then
+                Fmt.pr "  %.0f cycles, %.1f ops/cycle: %s@." cycles
+                  (float_of_int (G.ops t) /. cycles)
+                  (G.name t))
+            v)
+    G.Engine.
+      [
+        ("1 MiB DTCM", highmem, Zvt_i8, 256, 128, 512);
+        ("32 KiB DTCM", normal, Rvv_f32, 192, 32, 128);
+        ("32 KiB DTCM", normal, Zvt_i8, 100, 32, 128);
+      ];
+  [%expect
+    {|
+    1 MiB DTCM, zvt i8 256 x 128 x 512:
+      329427 cycles, 101.9 ops/cycle: zvt i8 row-major-a b-shared c-by-core M=256 N=128 K=512
+      332984 cycles, 100.8 ops/cycle: zvt i8 row-major-a b-shared c-by-dma M=256 N=128 K=512
+      370429 cycles, 90.6 ops/cycle: zvt i8 row-major-a b-by-dma c-by-core M=256 N=128 K=512
+    32 KiB DTCM, rvv f32 192 x 32 x 128:
+      188435 cycles, 8.3 ops/cycle: rvv f32 row-major-a b-shared c-by-dma M=192 N=32 K=128
+      198544 cycles, 7.9 ops/cycle: rvv f32 row-major-a b-shared c-by-core M=192 N=32 K=128
+      198685 cycles, 7.9 ops/cycle: rvv f32 row-major-a b-by-dma c-by-dma M=192 N=32 K=128
+    32 KiB DTCM, zvt i8 100 x 32 x 128:
+      M = 100 is not a multiple of the block's 32 rows |}]
