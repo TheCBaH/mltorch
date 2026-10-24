@@ -49,7 +49,10 @@ let%expect_test "an exp kernel's artifact" =
           | Art.Symbol.External_function f ->
               Fmt.pr "  %s: external %s@." s.Art.Symbol.name f
           | Art.Symbol.Function f ->
-              Fmt.pr "  %s: function %a@." s.Art.Symbol.name Mir_id.Func.pp f)
+              Fmt.pr "  %s: function %a@." s.Art.Symbol.name Mir_id.Func.pp f
+          | Art.Symbol.Generated_function d ->
+              Fmt.pr "  %s: generated %s@." s.Art.Symbol.name
+                (Contraction.name d))
         (Art.symbols a);
       (* each distinct relocation, with how often it occurs *)
       let tally = Hashtbl.create 8 in

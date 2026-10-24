@@ -67,7 +67,8 @@ let%expect_test "register groups on MPACT" =
         (Fmt.str "mpact-m3, grouped, %s" name)
         g)
     (T.vector_fixtures @ T.contraction_fixtures);
-  [%expect {|
+  [%expect
+    {|
     mpact-m3, grouped, relu then add over C=32 (2 invocations): bitwise
     mpact-m3, grouped, softmax over H, W=32 (1 invocations): bitwise
     mpact-m3, grouped, layer_norm over H, W=32 (1 invocations): bitwise

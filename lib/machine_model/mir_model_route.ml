@@ -94,7 +94,11 @@ let regions_program (p : (_, _) Mir_phys.Program.t) =
     revision = Mir_id.Revision.of_int 0;
   }
 
-let models = Mir_math_model.all
+(* The helper models a program's interpreters run: the math helpers, and one
+   per contraction it declares. *)
+let models_of (g : Mir_verify.Generic.t) =
+  Mir_math_model.all
+  @ Mir_contract_model.models (Mir_verify.Generic.program g).Mir_program.helpers
 
 (* Seconds spent in each back-end stage of one kernel, and what its published
    artifact holds; the clock is the caller's. *)
@@ -117,7 +121,8 @@ let generic (g : Mir_verify.Generic.t) =
     run =
       (fun ?fuel memory binding ~invocation ->
         match
-          (Mir_interp.run ?fuel ~invocation ~models g memory binding ~args:[])
+          (Mir_interp.run ?fuel ~invocation ~models:(models_of g) g memory
+             binding ~args:[])
             .Mir_interp.outcome
         with
         | Mir_interp.Outcome.Success _ -> Mir_observation.Status.Success
@@ -242,7 +247,8 @@ struct
         run =
           (fun ?fuel memory binding ~invocation:_ ->
             status memory binding
-              (I.run ?fuel ~models v memory binding ~args:[]).I.outcome);
+              (I.run ?fuel ~models:(models_of g) v memory binding ~args:[])
+                .I.outcome);
         artifact = None;
         traffic = (fun () -> None);
       }
@@ -278,8 +284,8 @@ struct
                 run =
                   (fun ?fuel memory binding ~invocation:_ ->
                     let r =
-                      P.run ?fuel ~models ~realized:true phys memory binding
-                        ~args:[]
+                      P.run ?fuel ~models:(models_of g) ~realized:true phys
+                        memory binding ~args:[]
                     in
                     traffic := Mir_phys_interp.Traffic.add !traffic r.P.traffic;
                     status memory binding r.P.outcome);
@@ -304,7 +310,8 @@ struct
                     run =
                       (fun ?fuel memory binding ~invocation:_ ->
                         let r =
-                          P.run ?fuel ~models phys memory binding ~args:[]
+                          P.run ?fuel ~models:(models_of g) phys memory binding
+                            ~args:[]
                         in
                         traffic :=
                           Mir_phys_interp.Traffic.add !traffic r.P.traffic;

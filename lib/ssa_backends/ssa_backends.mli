@@ -34,6 +34,7 @@ val program :
 (** The program an invocation is emitted from. *)
 
 val plan :
+  ?contractions:bool ->
   numerics:Ssa_ir.Ssa_numerics.t ->
   target:Ssa_ir.Ssa_target.t ->
   Loop_ir.Loop_bundle.invocation ->

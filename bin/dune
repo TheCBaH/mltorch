@@ -327,6 +327,7 @@
  (name machine_rivet_rv32_census)
  (modules machine_rivet_rv32_census)
  (libraries
+  contraction
   core
   err_trace
   fmt

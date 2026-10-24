@@ -67,7 +67,7 @@ let same_portable a b =
         (Int64.float_of_bits y))
     (bits a) (bits b)
 
-let check ?route ?(pipeline = Ssa_backends.Pipeline.Exact)
+let check ?route ?contractions ?(pipeline = Ssa_backends.Pipeline.Exact)
     ?(oracle = Reference_f64) ?(same = fun a b -> bits a = bits b) ?(calls = 2)
     ?constant ?(input = fun ~salt _ -> values ~salt) name g =
   let g = g () in
@@ -78,7 +78,7 @@ let check ?route ?(pipeline = Ssa_backends.Pipeline.Exact)
       (fun id -> (id, constant (sig_of g id)))
       b.Loop_ir.Loop_bundle.constants
   in
-  match M.prepare ?route ~pipeline b with
+  match M.prepare ?route ?contractions ~pipeline b with
   | Error rs ->
       Fmt.pr "%s: refused: %a@." name Fmt.(list ~sep:(any "; ") M.Refusal.pp) rs
   | Ok m -> (

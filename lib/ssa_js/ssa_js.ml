@@ -51,6 +51,7 @@ let instr cx ~(limits : Expr.Scan_limits.t) (i : Ssa_instr.t) : A.Stmt.t list =
   let set e = assign cx (first_result i) e in
   match op with
   | Ssa_op.Mark _ | Ssa_op.Mark_lanes _ -> []
+  | Ssa_op.Contract _ -> refuse "a contraction"
   | Ssa_op.Check_access { buffer; at } -> (
       let b = find_buffer cx buffer in
       match at with

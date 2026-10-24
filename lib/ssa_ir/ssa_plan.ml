@@ -45,23 +45,37 @@ let after ~alias =
     Ssa_opt.simplify;
   ]
 
-let vectorize_f32 ?(alias = Ssa_effects.Conservative) ?elements ~target ~exact
-    (p : Ssa_program.t) =
+(* Each recognized matrix product as one [Contract], when asked: on the
+   narrowed scalar form, before vectorization reshapes its loops. *)
+let contract_with numerics q =
+  match numerics with
+  | Some n -> fst (Ssa_contract.program ~numerics:n q)
+  | None -> q
+
+let vectorize_f32 ?(alias = Ssa_effects.Conservative) ?contract ?elements
+    ~target ~exact (p : Ssa_program.t) =
   let scalar = run ~alias (before ~target ~alias ()) p in
   Result.map
     (fun () ->
       Ssa_vectorize.program ~alias ?elements ~target:(Ssa_target.f32 target)
-        (Ssa_precision.to_f32 ~exact scalar))
+        (contract_with contract (Ssa_precision.to_f32 ~exact scalar)))
     (Ssa_numerics.admit scalar)
+
+(* The scalar binary32 form a plan starts from: the passes every plan runs
+   first, then the exact narrowing. Where a matrix product is still one
+   ordered sum inside its loops. *)
+let binary32_scalar ?(alias = Ssa_effects.Conservative) (p : Ssa_program.t) =
+  Ssa_precision.to_f32 ~exact:true (run ~alias (before ~alias ()) p)
 
 (* Every kernel binary32 and nothing vectorized: the scalar program, its cells
    read and written as binary32. *)
-let fp32_scalar ~alias ~vectorized scalar =
+let fp32_scalar ?contract ~alias ~vectorized scalar =
   {
     numerics = Ssa_numerics.Fp32_ordered;
     precision = P.F32;
     program =
-      run ~alias (after ~alias) (Ssa_precision.to_f32 ~exact:true scalar);
+      run ~alias (after ~alias)
+        (contract_with contract (Ssa_precision.to_f32 ~exact:true scalar));
     refusal = None;
     vectorized;
     sums = [];
@@ -69,12 +83,13 @@ let fp32_scalar ~alias ~vectorized scalar =
     contracted = 0;
   }
 
-let fp32_vector ?(alias = Ssa_effects.Conservative) ~target (p : Ssa_program.t)
-    =
+let fp32_vector ?(alias = Ssa_effects.Conservative) ?contract ~target
+    (p : Ssa_program.t) =
   Result.map
     (fun (q, vectorized) ->
       if count_vector_loops vectorized = 0 then
-        fp32_scalar ~alias ~vectorized (run ~alias (before ~alias ()) p)
+        fp32_scalar ?contract ~alias ~vectorized
+          (run ~alias (before ~alias ()) p)
       else
         let q, blocked =
           Ssa_opt_rows.program
@@ -106,7 +121,8 @@ let fp32_vector ?(alias = Ssa_effects.Conservative) ~target (p : Ssa_program.t)
           blocked;
           contracted = 0;
         })
-    (vectorize_f32 ~alias ~elements:[ Ssa_type.F32 ] ~target ~exact:true p)
+    (vectorize_f32 ~alias ?contract ~elements:[ Ssa_type.F32 ] ~target
+       ~exact:true p)
 
 (* The binary64 plan: every kernel under [Reference_f64], or one an fp32 policy
    leaves binary64, with the target's binary64 vectors when there is one. *)
@@ -189,8 +205,20 @@ let simd_fp32 ~alias ~numerics ~target (p : Ssa_program.t) =
         }
       else reference ~alias ~numerics ~refusal:None ~target p
 
-let resolve ?target ?(alias = Ssa_effects.Conservative) ~numerics
-    (p : Ssa_program.t) =
+let resolve ?target ?(alias = Ssa_effects.Conservative) ?(contractions = false)
+    ~numerics (p : Ssa_program.t) =
+  (* the requirement a recognized product carries under this policy *)
+  let contract =
+    if not contractions then None
+    else
+      match numerics with
+      | Ssa_numerics.Fp32_contracted ->
+          Some Contraction.Numerics.Fused_sequential
+      | Ssa_numerics.Fp32_ordered -> Some Contraction.Numerics.Ordered
+      | Ssa_numerics.Reference_f64 | Ssa_numerics.Simd_fp32_ordered
+      | Ssa_numerics.Simd_fp32_relaxed ->
+          None
+  in
   match (numerics, target) with
   | Ssa_numerics.Reference_f64, _ ->
       reference ~alias ~numerics ~refusal:None ?target p
@@ -206,9 +234,11 @@ let resolve ?target ?(alias = Ssa_effects.Conservative) ~numerics
       let scalar = run ~alias (before ~alias ()) p in
       match Ssa_numerics.admit scalar with
       | Error r -> reference ~alias ~numerics ~refusal:(Some r) p
-      | Ok () -> { (fp32_scalar ~alias ~vectorized:[] scalar) with numerics })
+      | Ok () ->
+          { (fp32_scalar ?contract ~alias ~vectorized:[] scalar) with numerics }
+      )
   | (Ssa_numerics.Fp32_contracted | Ssa_numerics.Fp32_ordered), Some target -> (
-      match fp32_vector ~alias ~target p with
+      match fp32_vector ~alias ?contract ~target p with
       | Ok t -> { t with numerics }
       | Error r -> reference ~alias ~numerics ~refusal:(Some r) p)
 

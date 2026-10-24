@@ -8,11 +8,12 @@ open Ssa_ir
 
 module R = Loop_ir.Loop_c_runtime
 
-type error = [ `Unsupported_lanes of int ]
+type error = [ `Unsupported_lanes of int | `Unsupported_operation of string ]
 
 let pp_error ppf : [< error ] -> unit = function
   | `Unsupported_lanes n ->
       Fmt.pf ppf "a %d-lane vector is not a power of two" n
+  | `Unsupported_operation what -> Fmt.pf ppf "C has no form for %s" what
 
 exception Refused of error
 

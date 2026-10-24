@@ -7,6 +7,8 @@
 (library
  (name machine_rivet_riscv32_mir)
  (libraries
+  contraction
+  coralnpu_kernels
   err_trace
   fmt
   machine_alloc

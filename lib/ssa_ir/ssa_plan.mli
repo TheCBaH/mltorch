@@ -34,6 +34,7 @@ type t = {
 val resolve :
   ?target:Ssa_target.t ->
   ?alias:Ssa_effects.policy ->
+  ?contractions:bool ->
   numerics:Ssa_numerics.t ->
   Ssa_program.t ->
   t
@@ -43,10 +44,14 @@ val resolve :
     contraction where the policy permits it and the target has a fused
     operation, and the clean-up passes. [alias] defaults to the conservative
     policy: a caller that allocates every buffer on its own says
-    {!Ssa_effects.Distinct_buffers}. *)
+    {!Ssa_effects.Distinct_buffers}. With [contractions] (default [false]) a
+    binary32 plan ([Fp32_ordered], [Fp32_contracted]) makes each matrix product
+    {!Ssa_contract} recognizes one [Contract], ordered or fused as the policy
+    is, before it vectorizes; only the Machine IR route realizes one. *)
 
 val vectorize_f32 :
   ?alias:Ssa_effects.policy ->
+  ?contract:Contraction.Numerics.t ->
   ?elements:Ssa_type.scalar list ->
   target:Ssa_target.t ->
   exact:bool ->
@@ -61,6 +66,7 @@ val vectorize_f32 :
 
 val fp32_vector :
   ?alias:Ssa_effects.policy ->
+  ?contract:Contraction.Numerics.t ->
   target:Ssa_target.t ->
   Ssa_program.t ->
   (t, Ssa_numerics.Refusal.t) result
@@ -69,6 +75,12 @@ val fp32_vector :
     kernel with no vector loop is the scalar [Fp32_ordered] plan. The plan holds
     no binary64 vector ({!Ssa_numerics.wide_values}): [Invalid_argument] if it
     would. [Error] when admission refuses. *)
+
+val binary32_scalar :
+  ?alias:Ssa_effects.policy -> Ssa_program.t -> Ssa_program.t
+(** The scalar binary32 form a plan starts from (the passes every plan runs
+    first, then the exact narrowing): where a matrix product is still one
+    ordered sum inside its loops ({!Ssa_contract}). *)
 
 val admitted : t -> (t, Ssa_numerics.Refusal.t) result
 (** [Error] when the plan's policy is [Fp32_ordered] and admission left the

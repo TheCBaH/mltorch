@@ -529,6 +529,21 @@ let exec_op st (i : Ssa_instr.t) =
           let at = element st b at ~checked:false in
           st.counters.Counters.stores <- st.counters.Counters.stores + 1;
           write_cell st id encode ~at (get st value)
+      | Ssa_op.Contract { desc; a; b; c } ->
+          (* the reference evaluator over the cells, binary32 as they are *)
+          let read id off =
+            match
+              read_cell st id (buffer st id) Ssa_op.Decode.F32_exact
+                ~at:(Int64.to_int off) ~channel:0
+            with
+            | F x -> x
+            | E | I _ | L _ | M _ | P _ | V _ ->
+                invalid_arg "Ssa_interp: a contraction operand"
+          in
+          Contraction.eval desc ~a:(read a) ~b:(read b) ~c:(read c)
+            ~write:(fun off x ->
+              write_cell st c Ssa_op.Encode.F32_exact ~at:(Int64.to_int off)
+                (F x))
       | Ssa_op.Const _ | Ssa_op.Convert _ | Ssa_op.Float_binary _
       | Ssa_op.Float_compare _ | Ssa_op.Float_fma _ | Ssa_op.Float_max _
       | Ssa_op.Float_unary _ | Ssa_op.I64_arith _ | Ssa_op.I64_compare _

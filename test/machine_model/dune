@@ -6,6 +6,7 @@
 (library
  (name machine_model_test)
  (libraries
+  contraction
   core
   err_trace
   expr
@@ -28,7 +29,11 @@
   native_test
   ssa_backends
   ssa_bridge_test
-  ssa_ir)
+  ssa_c
+  ssa_ir
+  ssa_js
+  ssa_lower
+  ssa_wasm)
  (inline_tests)
  (preprocess
   (pps ppx_expect)))

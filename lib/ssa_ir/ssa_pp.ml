@@ -150,6 +150,9 @@ let rec op st (o : Ssa_op.t) =
   | Ssa_op.Pred_or (x, y) -> Fmt.str "pred.or %s, %s" (name st x) (name st y)
   | Ssa_op.Select (p, x, y) ->
       Fmt.str "select %s, %s, %s" (name st p) (name st x) (name st y)
+  | Ssa_op.Contract { desc; a; b; c } ->
+      Fmt.str "%a a=%a b=%a c=%a" Contraction.pp desc Ssa_id.Buffer.pp a
+        Ssa_id.Buffer.pp b Ssa_id.Buffer.pp c
   | Ssa_op.Store { buffer; at; encode; value } ->
       Fmt.str "store.%s %a%s, %s"
         (Ssa_op.Encode.name encode)

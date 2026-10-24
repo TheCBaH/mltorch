@@ -385,7 +385,7 @@ let rec result_types : Ssa_op.t -> (Ssa_type.t list, error) result = function
   | Ssa_op.Load { at; decode; _ } | Ssa_op.Load_in_bounds { at; decode; _ } ->
       let* () = expect_all ~first:0 index (Ssa_access.operands at) in
       Ok [ Ssa_op.Decode.result decode ]
-  | Ssa_op.Mark _ -> Ok []
+  | Ssa_op.Contract _ | Ssa_op.Mark _ -> Ok []
   | Ssa_op.Store { at; encode; value; _ } ->
       let coords = Ssa_access.operands at in
       let* () = expect_all ~first:0 index coords in

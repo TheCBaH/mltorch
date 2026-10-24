@@ -8,4 +8,4 @@
 
 (library
  (name machine_ir)
- (libraries core err_trace expr fmt))
+ (libraries contraction core err_trace expr fmt))

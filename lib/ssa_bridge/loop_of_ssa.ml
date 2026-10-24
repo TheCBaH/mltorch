@@ -473,6 +473,10 @@ let convert (p : Ssa_program.t) =
         invalid_arg
           "Loop_of_ssa: a fused multiply-add depends on the plan's precision \
            and has no Loop form"
+    | Ssa_op.Contract _ ->
+        invalid_arg
+          "Loop_of_ssa: a contraction has no Loop form; only the Machine IR \
+           route realizes one"
     | Ssa_op.Lanewise _ | Ssa_op.Mark_lanes _ | Ssa_op.Vec_extract _
     | Ssa_op.Vec_insert _ | Ssa_op.Vec_iota _ | Ssa_op.Vec_load _
     | Ssa_op.Vec_splat _ | Ssa_op.Vec_store _ ->

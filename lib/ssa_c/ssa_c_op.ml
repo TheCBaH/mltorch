@@ -344,6 +344,8 @@ let instr cx depth (i : Ssa_instr.t) =
   let no_result () = () in
   match op with
   | Ssa_op.Mark _ | Ssa_op.Mark_lanes _ -> no_result ()
+  | Ssa_op.Contract _ ->
+      raise (Ssa_c_ctx.Refused (`Unsupported_operation "a contraction"))
   | Ssa_op.Check_access { buffer; at } -> (
       let b = find_buffer cx buffer in
       match at with

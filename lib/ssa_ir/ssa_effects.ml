@@ -56,6 +56,12 @@ let of_op (op : Ssa_op.t) =
   | Ssa_op.Store { buffer; _ } ->
       { empty with writes = Ssa_id.Buffer.Set.singleton buffer }
   | Ssa_op.Check_access { buffer; _ } -> read buffer ~fails:true
+  | Ssa_op.Contract { a; b; c; _ } ->
+      {
+        empty with
+        reads = Ssa_id.Buffer.Set.of_list [ a; b ];
+        writes = Ssa_id.Buffer.Set.singleton c;
+      }
   | Ssa_op.Check_gather _ | Ssa_op.Check_local _ | Ssa_op.Check_scan _
   | Ssa_op.Float_to_i64 _ | Ssa_op.I64_div _ | Ssa_op.Index_add _
   | Ssa_op.Index_of_i64 _ | Ssa_op.Index_scale _ ->

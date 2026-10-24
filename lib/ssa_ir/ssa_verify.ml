@@ -234,6 +234,12 @@ let instr ctx scope ~live (i : Ssa_instr.t) =
       check_vector_access ctx scope buffer
         ~family:(Ssa_op.Encode.family encode)
         ~writes:true
+  | Ssa_op.Contract { a; b; c; _ } ->
+      check_vector_access ctx scope a ~family:Ssa_format.Family.F32
+        ~writes:false;
+      check_vector_access ctx scope b ~family:Ssa_format.Family.F32
+        ~writes:false;
+      check_vector_access ctx scope c ~family:Ssa_format.Family.F32 ~writes:true
   | Ssa_op.Check_gather _ | Ssa_op.Check_local _ | Ssa_op.Check_scan _
   | Ssa_op.Const _ | Ssa_op.Convert _ | Ssa_op.Index_add_in_domain _
   | Ssa_op.Index_scale_in_domain _ | Ssa_op.Local_alloc _ | Ssa_op.Local_read _
@@ -429,6 +435,47 @@ let check_proofs ctx scope =
                 if not (Ssa_range.in_bounds ranges b at) then
                   fail ctx scope (Unproven In_bounds)
             | None -> fail ctx scope (Buffer_unknown buffer))
+        | Ssa_op.Contract { desc; a; b; c } ->
+            (* every element each operand names lies inside its buffer *)
+            let last count stride =
+              Int64.mul (Int64.max 0L (Int64.pred count)) stride
+            in
+            let d = desc in
+            let ka = Int64.max 1L d.Contraction.k in
+            let reach id top =
+              match Ssa_program.find_buffer p id with
+              | Some bf -> (
+                  match Ssa_buffer.elements bf.Ssa_buffer.extents with
+                  | Some n when Int64.compare top n < 0 -> ()
+                  | Some _ | None -> fail ctx scope (Unproven In_bounds))
+              | None -> fail ctx scope (Buffer_unknown id)
+            in
+            reach a
+              (List.fold_left Int64.add 0L
+                 [
+                   last d.Contraction.batch
+                     d.Contraction.a.Contraction.Operand.batch;
+                   last d.Contraction.m
+                     d.Contraction.a.Contraction.Operand.outer;
+                   last ka d.Contraction.a.Contraction.Operand.k;
+                 ]);
+            reach b
+              (List.fold_left Int64.add 0L
+                 [
+                   last d.Contraction.batch
+                     d.Contraction.b.Contraction.Operand.batch;
+                   last d.Contraction.n
+                     d.Contraction.b.Contraction.Operand.outer;
+                   last ka d.Contraction.b.Contraction.Operand.k;
+                 ]);
+            reach c
+              (List.fold_left Int64.add 0L
+                 [
+                   last d.Contraction.batch
+                     d.Contraction.c.Contraction.Output.batch;
+                   last d.Contraction.m d.Contraction.c.Contraction.Output.row;
+                   last d.Contraction.n d.Contraction.c.Contraction.Output.col;
+                 ])
         | Ssa_op.Vec_load { buffer; at; steps; lanes; _ }
         | Ssa_op.Vec_store { buffer; at; steps; lanes; _ } -> (
             match Ssa_program.find_buffer p buffer with

@@ -175,3 +175,82 @@ with v24-v31 held as group scratch only five groups are allocatable, and the
 kernel spills two groups and copies five inside its loop, where LMUL 1 spills
 nothing. Freeing that scratch (a frame slot for the cycle scratch, say) is the
 next lever.
+
+## Contractions
+
+`lib/contraction` describes a matrix product as data: batch, M, N, K
+(`int64`), each operand's element strides from its first cell (A: batch,
+row, k; B: batch, column, k; C: batch, row, column), the element format
+(binary32 only so far), the seed (`Zero` or the output's own value) and the
+numerical requirement: `Ordered` (product and sum each rounded, k ascending)
+or `Fused_sequential` (`fmaf` per step, k ascending). `Contraction.eval` is the
+reference for both; it has no SSA, Rivet or tensor dependency.
+
+`Ssa_contract` recognizes products in the scalar binary32 form a plan starts
+from (`Ssa_plan.binary32_scalar`: the common passes, guards proved away, then
+the exact narrowing), before vectorization and blocking reshape the loops: an
+ordered sum from 0 to a constant, seeded with +0, whose body multiplies one
+in-bounds binary32 load of A by one of B, each indexed by zeros, the sum's
+variable and the variables of the enclosing unit-step loops. A variable on A
+only is the row, on B only the column, on both the batch (at most one each);
+strides come from the buffers' row-major extents. Every other ordered sum is
+refused with a reason (`not_product` for softmax and norms, `bounds` for a
+convolution's window), and `--contractions` in the RV32 census binary lists
+both per model.
+
+The rewrite (`Ssa_contract.program`) puts each product into a fresh binary32
+scratch buffer `[1, 1, 1, batch, m, n]` through one `Ssa_op.Contract`, placed
+just before the outermost loop its variables belong to and threaded on that
+loop's effect, and replaces the sum by an in-bounds load of the scratch;
+whatever the loops did with the sum (a bias, the store) stays. The SSA
+verifier checks the operands' formats and that every element a descriptor
+names lies inside its buffer; the SSA interpreters run it through
+`Contraction.eval`. On the matrix-product fixtures the rewritten programs are
+bitwise the originals under `Ordered` on both interpreters, and under
+`Fused_sequential` equal the contracted oracle; a transposed A, a K one short
+and the wrong requirement are caught. The C, Wasm and JavaScript emitters
+refuse a `Contract`, and so does the Machine IR lowering until the helper
+call exists.
+
+## Contractions as helper calls
+
+With `Mir_model.prepare ~contractions:true` (`Ssa_plan.resolve
+~contractions`), a binary32 plan rewrites each recognized product into a
+`Contract` on the narrowed scalar form, before vectorization: ordered under
+`Fp32_ordered`, `Fused_sequential` under `Fp32_contracted`. Everything else
+in the kernel (a bias, the store) is planned as before, vectorized where it
+was.
+
+`Mir_lower` lowers a `Contract` to a call of a helper `Mir_contract`
+declares: its name is the descriptor (`Contraction.name`, from which every
+consumer rebuilds it), its arguments the addresses of A, B and C, no result,
+`Reads_writes`, version 1, ids from 16. The interpreters' model
+(`Mir_contract_model`) runs `Contraction.eval` on the cells the pointers
+address, so the generic and physical routes need nothing else. The artifact
+binds such a helper to a `Generated_function` symbol
+(`Contraction.symbol`, a digest of the name); the RV32 qemu and Coral routes
+generate it (`lib/coralnpu_kernels`, `Rvv_contraction`) and link it beside
+the program's module, and an artifact that calls one takes the vector
+profile. AArch64 and x86-64 have no generator.
+
+The generated function (ILP32F; `a0`-`a2` the operand addresses, `0` in
+`a0`) is specialized to its descriptor: batch, then 32-column tiles under
+e32 m8 (the last one narrower), then row groups, each output's sum k
+ascending from +0. Fused: three rows in v8, v16, v24 with `vfmacc.vf`;
+ordered: two rows with `vfmul.vf` into v24 then `vfadd.vv`. Per k step the
+rows' A values load by `flw` before B's row (`vle32.v` contiguous, else
+`vlse32.v`); C stores by `vse32.v`/`vsse32.v`. It saves `s0`-`s3`, uses only
+caller-saved registers otherwise, and leaves the vector configuration
+undefined, which the module writer already assumes after a call. A seed from
+the output is refused (the rewrite never makes one). Under qemu at VLEN 128
+and 1024 every matrix-product fixture is bitwise against its policy's
+oracle; A's row stride off by one element and a last tile one lane short are
+caught.
+
+On the RTL vector core (`rtl_test.ml`, v0.0.4), under `Fp32_contracted`,
+the generated functions against the planned Zve32f loops: linear 9x32 K=64
+34910 -> 9281 cycles (3.76x, 3.97 operations a cycle), with bias 3.66x,
+linear 7x29 K=63 5.62x (2.55), bmm 9x32 K=64 4.97x (7.56), bmm 3x7x29 K=63
+10.22x (4.90). The peak suite's FP32 burst at C[9,32], K=64 is 9.9; Linear's
+B is the weight [N, K], read by `vlse32.v` at a stride of K, which is what
+holds it at four. Packing B (stage 5's prepacked weights) is the lever.

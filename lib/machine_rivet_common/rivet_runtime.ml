@@ -19,7 +19,9 @@ let helpers artifact =
     (fun (s : Art.Symbol.t) ->
       match s.Art.Symbol.kind with
       | Art.Symbol.External_function f -> Some f
-      | Art.Symbol.Data _ | Art.Symbol.Function _ -> None)
+      | Art.Symbol.Data _ | Art.Symbol.Function _
+      | Art.Symbol.Generated_function _ ->
+          None)
     (Art.symbols artifact)
 
 (* The helpers the project implements itself ({!Machine_ir.Mir_exp}). *)

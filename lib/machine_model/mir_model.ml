@@ -72,7 +72,8 @@ let planning ~group p =
 
 (* The lowered program of an invocation under a blocking policy, and the
    decision feedback made. *)
-let source ~route ~blocking ~pipeline (inv : Loop_ir.Loop_bundle.invocation) =
+let source ?contractions ~route ~blocking ~pipeline
+    (inv : Loop_ir.Loop_bundle.invocation) =
   let ( let* ) = Result.bind in
   let lower ~group p =
     Result.map_error
@@ -97,7 +98,7 @@ let source ~route ~blocking ~pipeline (inv : Loop_ir.Loop_bundle.invocation) =
       let* plan =
         Result.map_error
           (fun s -> Reason.Source s)
-          (Ssa_backends.plan ~numerics ~target inv)
+          (Ssa_backends.plan ?contractions ~numerics ~target inv)
       in
       let* l =
         Result.map_error
@@ -163,8 +164,9 @@ let source ~route ~blocking ~pipeline (inv : Loop_ir.Loop_bundle.invocation) =
       let* l = List.assoc decision.Mir_blocking.Decision.chosen lowered in
       Ok (l, Some decision)
 
-let kernel ~route ~blocking ~pipeline (inv : Loop_ir.Loop_bundle.invocation) =
-  match source ~route ~blocking ~pipeline inv with
+let kernel ?contractions ~route ~blocking ~pipeline
+    (inv : Loop_ir.Loop_bundle.invocation) =
+  match source ?contractions ~route ~blocking ~pipeline inv with
   | Error r -> Error r
   | Ok (lowered, decision) -> (
       match
@@ -212,7 +214,7 @@ let kernel ~route ~blocking ~pipeline (inv : Loop_ir.Loop_bundle.invocation) =
             })
 
 let prepare ?(route = Route.Generic) ?(blocking = Mir_blocking.Policy.Unblocked)
-    ~pipeline (b : Loop_ir.Loop_bundle.t) =
+    ?contractions ~pipeline (b : Loop_ir.Loop_bundle.t) =
   let results =
     List.mapi
       (fun k (inv : Loop_ir.Loop_bundle.invocation) ->
@@ -223,7 +225,7 @@ let prepare ?(route = Route.Generic) ?(blocking = Mir_blocking.Policy.Unblocked)
               node = inv.Loop_ir.Loop_bundle.node;
               reason;
             })
-          (kernel ~route ~blocking ~pipeline inv))
+          (kernel ?contractions ~route ~blocking ~pipeline inv))
       b.Loop_ir.Loop_bundle.invocations
   in
   match

@@ -1,0 +1,8 @@
+; A matrix product as data: extents, strides, formats, seed and numerical
+; requirement, with a reference evaluator per requirement. Pure: no Rivet, no
+; SSA, no tensor type, so a recognizer, the SSA interpreter and a helper model
+; can all share it.
+
+(library
+ (name contraction)
+ (libraries err_trace f32_math fmt))

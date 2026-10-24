@@ -119,24 +119,51 @@ let harness_slots ~record artifact =
       })
     (Rv32_mir_module.slots artifact)
 
-(* The profile an artifact needs: the vector one when it uses Zve32f forms,
-   else the default. Rivet's feature set and qemu's CPU follow it. *)
+(* The contractions an artifact calls, each a function generated beside it. *)
+let generated artifact =
+  List.filter_map
+    (fun (s : Art.Symbol.t) ->
+      match s.Art.Symbol.kind with
+      | Art.Symbol.Generated_function d -> Some d
+      | Art.Symbol.Data _ | Art.Symbol.External_function _
+      | Art.Symbol.Function _ ->
+          None)
+    (Art.symbols artifact)
+
+(* The profile an artifact needs: the vector one when it uses Zve32f forms or
+   calls a generated contraction (an RVV function), else the default. Rivet's
+   feature set and qemu's CPU follow it. *)
 let profile artifact =
   if
     List.mem Mir_target.Feature.Zve32f
       (Art.identity artifact).Art.Identity.features
+    || generated artifact <> []
   then Profile.Rv32imf_zve32f_ilp32f
   else Profile.Rv32imf_ilp32f
 
+(* The generated functions' modules. *)
+let helper_modules ?kernel_mutation artifact =
+  List.fold_right
+    (fun d acc ->
+      let* acc = acc in
+      let* m =
+        Result.map_error
+          (fun why -> Fmt.str "contraction %s: %s" (Contraction.name d) why)
+          (Coralnpu_kernels.Rvv_contraction.module_ ?mutation:kernel_mutation d)
+      in
+      Ok (m :: acc))
+    (generated artifact) (Ok [])
+
 (* The artifact as a process image: its module and the harness, planned
    under its profile. *)
-let prepare ?mutation { artifact; record } =
+let prepare ?mutation ?kernel_mutation { artifact; record } =
   let* m =
     Result.map_error
       (Fmt.str "%a" Rv32_mir_form.Refusal.pp)
       (Err.payload (Rv32_mir_module.of_artifact ?mutation artifact))
   in
-  H.prepare ~profile:(profile artifact) ~entry:Table.entry ~kernel:[ m ]
+  let* helpers = helper_modules ?kernel_mutation artifact in
+  H.prepare ~profile:(profile artifact) ~entry:Table.entry ~kernel:(m :: helpers)
     (harness_slots ~record artifact)
 
 let regions_program (p : (_, _) Mir_phys.Program.t) =
@@ -199,12 +226,12 @@ let run_once ?cpu (prepared : H.prepared) ~published memory binding =
   in
   Ok outcome.H.status
 
-let exec_of ?mutation ?select_mutation ?scan_mutation ?registers ?cpu
-    ~allocation ~sites (g : Mir_verify.Generic.t) =
+let exec_of ?mutation ?kernel_mutation ?select_mutation ?scan_mutation
+    ?registers ?cpu ~allocation ~sites (g : Mir_verify.Generic.t) =
   let* published =
     publish ?select_mutation ?scan_mutation ?registers ~allocation ~sites g
   in
-  let* prepared = prepare ?mutation published in
+  let* prepared = prepare ?mutation ?kernel_mutation published in
   let phys = Art.program published.artifact in
   let run ?fuel:_ memory binding ~invocation:_ =
     match run_once ?cpu prepared ~published memory binding with
@@ -228,8 +255,8 @@ let exec_of ?mutation ?select_mutation ?scan_mutation ?registers ?cpu
       traffic = (fun () -> None);
     }
 
-let route ?mutation ?select_mutation ?scan_mutation ?registers ?cpu
-    ?(allocation = Allocation.Scanned) () =
+let route ?mutation ?kernel_mutation ?select_mutation ?scan_mutation ?registers
+    ?cpu ?(allocation = Allocation.Scanned) () =
   Route.Route.Custom
     {
       Route.Custom.name =
@@ -240,6 +267,6 @@ let route ?mutation ?select_mutation ?scan_mutation ?registers ?cpu
           | Some Registers.Single | None -> "");
       exec =
         (fun ~sites g ->
-          exec_of ?mutation ?select_mutation ?scan_mutation ?registers ?cpu
-            ~allocation ~sites g);
+          exec_of ?mutation ?kernel_mutation ?select_mutation ?scan_mutation
+            ?registers ?cpu ~allocation ~sites g);
     }

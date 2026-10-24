@@ -1,0 +1,11 @@
+; Generated Coral microkernels: a contraction descriptor realized as one RVV
+; function, for the RV32 Machine IR route to link beside a model's module.
+; Built only where the RV32 Rivet encoder is installed.
+
+(library
+ (name coralnpu_kernels)
+ (libraries contraction err_trace fmt machine_rivet_riscv32 rivet.asm_core)
+ (enabled_if
+  (and
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

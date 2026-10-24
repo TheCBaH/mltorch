@@ -7,12 +7,16 @@
    invocation, and every graph output is compared with the binary32 oracle
    (the Loop interpreter at binary32 over the bundle), bit for bit.
 
+   [--contractions] lists the matrix products the contraction recognizer
+   finds in each invocation's scalar binary32 form, with a tally of why it
+   refuses every other ordered sum, and stops there.
+
    [--planned=zve32f] plans for Zve32f at VLEN 128 instead of the scalar
    target, so vector loops run as RVV forms; [--vlen=N] runs the processes at
    that VLEN, tail and masked-off elements filled with ones.
 
    argv: <model.pt2> [--run=0] (compile only) [--allocation=reference|scanned]
-   [--planned=zve32f] [--vlen=N] *)
+   [--planned=zve32f] [--vlen=N] [--contractions] *)
 
 open Loop_ir
 module M = Machine_model.Mir_model
@@ -67,6 +71,32 @@ let vector_census m =
     (M.generic m);
   Fmt.pr "selected forms: %d, of which vector %d@." !all !vec
 
+(* The contraction census: each found product, then the refusals by reason. *)
+let contractions (b : Loop_bundle.t) =
+  let tally = Hashtbl.create 8 and found = ref 0 in
+  List.iteri
+    (fun i inv ->
+      match Ssa_backends.program Ssa_backends.Pipeline.Exact inv with
+      | Error e -> Fmt.pr "invocation %d: %s@." i e
+      | Ok p ->
+          List.iter
+            (function
+              | Ssa_ir.Ssa_contract.Outcome.Found f ->
+                  incr found;
+                  Fmt.pr "invocation %d: %a@." i Contraction.pp
+                    f.Ssa_ir.Ssa_contract.Found.desc
+              | Ssa_ir.Ssa_contract.Outcome.Refused r ->
+                  let k = Ssa_ir.Ssa_contract.Refusal.name r in
+                  Hashtbl.replace tally k
+                    (1 + Option.value ~default:0 (Hashtbl.find_opt tally k)))
+            (Ssa_ir.Ssa_contract.census ~numerics:Contraction.Numerics.Ordered
+               (Ssa_ir.Ssa_plan.binary32_scalar p)))
+    b.Loop_bundle.invocations;
+  Fmt.pr "contractions found: %d@." !found;
+  List.iter
+    (fun (k, n) -> Fmt.pr "  refused %4d  %s@." n k)
+    (List.sort compare (List.of_seq (Hashtbl.to_seq tally)))
+
 let run_model (b : Loop_bundle.t) ~(graph : Graph_ir.graph) m ~constants =
   let inputs =
     List.map
@@ -115,7 +145,8 @@ let () =
   let run = ref true
   and allocation = ref Rt.Allocation.Scanned
   and target = ref Ssa_ir.Ssa_target.scalar
-  and cpu = ref None in
+  and cpu = ref None
+  and census = ref false in
   let args =
     List.filter
       (fun a ->
@@ -129,6 +160,9 @@ let () =
                 (Fmt.str
                    "rv32,d=false,zve32f=true,vlen=%s,elen=32,rvv_ta_all_1s=true,rvv_ma_all_1s=true"
                    n);
+            false
+        | [ "--contractions" ] ->
+            census := true;
             false
         | [ "--run"; "0" ] ->
             run := false;
@@ -165,6 +199,7 @@ let () =
       | Error _ ->
           prerr_endline "census: could not open or lower the archive";
           exit 1
+      | Ok (b, _, _) when !census -> contractions b
       | Ok (b, constants, graph) -> (
           let n = List.length b.Loop_bundle.invocations in
           let pipeline =
@@ -206,5 +241,6 @@ let () =
   | _ ->
       prerr_endline
         "usage: machine_rivet_rv32_census <model.pt2> [--run=0] \
-         [--allocation=reference|scanned] [--planned=zve32f] [--vlen=N]";
+         [--allocation=reference|scanned] [--planned=zve32f] [--vlen=N] \
+         [--contractions]";
       exit 2

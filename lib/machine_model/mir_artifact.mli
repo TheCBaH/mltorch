@@ -32,6 +32,9 @@ module Symbol : sig
     | External_function of string
         (** a helper's native binding: the C library symbol it links *)
     | Function of Mir_id.Func.t  (** defined by the artifact's text *)
+    | Generated_function of Contraction.t
+        (** a helper the realization generates beside the program, under the
+            descriptor's {!Contraction.symbol} *)
 
   type t = { name : string; kind : kind }
 end

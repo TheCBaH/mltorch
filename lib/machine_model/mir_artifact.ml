@@ -16,6 +16,10 @@ module Symbol = struct
       }
     | External_function of string
     | Function of Mir_id.Func.t
+    | Generated_function of Contraction.t
+        (** a helper the realization generates beside the program: the
+            contraction it computes, under the descriptor's
+            {!Contraction.symbol} *)
 
   type t = { name : string; kind : kind }
 end
@@ -62,7 +66,9 @@ let pp_summary fmt t =
     count (fun (y : Symbol.t) ->
         match y.Symbol.kind with
         | Symbol.Data { section; _ } -> Section.name section = Section.name s
-        | Symbol.External_function _ | Symbol.Function _ -> false)
+        | Symbol.External_function _ | Symbol.Function _
+        | Symbol.Generated_function _ ->
+            false)
   in
   Fmt.pf fmt
     "%s (%s %s) features [%s], %a; symbols: %d bound, %d bss, %d rodata, %d \
@@ -93,17 +99,23 @@ let pp_summary fmt t =
 let region_symbol r = Fmt.str "mir_region_%d" (Mir_id.Region.to_int r)
 let func_symbol (f : (_, _) Mir_phys.Func.t) = f.Mir_phys.Func.name
 
-(* A helper's native binding: only the named math helpers have one. *)
+(* A helper's native binding: a named math helper's library function, or a
+   contraction's generated one. *)
 let binding (h : Mir_helper.t) =
-  List.find_map
-    (fun fn ->
-      let d = Mir_math.descriptor fn in
-      if
-        String.equal d.Mir_helper.name h.Mir_helper.name
-        && d.Mir_helper.version = h.Mir_helper.version
-      then Some (Mir_math.libm_symbol fn)
-      else None)
-    Mir_math.Fn.all
+  match Mir_contract.of_helper h with
+  | Some d -> Some (Contraction.symbol d, Symbol.Generated_function d)
+  | None ->
+      List.find_map
+        (fun fn ->
+          let d = Mir_math.descriptor fn in
+          if
+            String.equal d.Mir_helper.name h.Mir_helper.name
+            && d.Mir_helper.version = h.Mir_helper.version
+          then
+            let s = Mir_math.libm_symbol fn in
+            Some (s, Symbol.External_function s)
+          else None)
+        Mir_math.Fn.all
 
 module Make (T : Mir_sel.TARGET) = struct
   module S = Mir_sel.Make (T)
@@ -142,7 +154,7 @@ module Make (T : Mir_sel.TARGET) = struct
         (fun (h : Mir_helper.t) acc ->
           let* acc = acc in
           match binding h with
-          | Some s -> Ok ((h, s) :: acc)
+          | Some (s, kind) -> Ok ((h, s, kind) :: acc)
           | None ->
               Error
                 (Fmt.str "helper %s (version %d) has no native binding"
@@ -179,9 +191,7 @@ module Make (T : Mir_sel.TARGET) = struct
         p.Mir_phys.Program.funcs
     in
     let externals =
-      List.map
-        (fun (_, s) -> { Symbol.name = s; kind = Symbol.External_function s })
-        helpers
+      List.map (fun (_, s, kind) -> { Symbol.name = s; kind }) helpers
     in
     let view_target v =
       match
@@ -216,11 +226,11 @@ module Make (T : Mir_sel.TARGET) = struct
       | Mir_op.Callee.Helper id -> (
           match
             List.find_opt
-              (fun ((h : Mir_helper.t), _) ->
+              (fun ((h : Mir_helper.t), _, _) ->
                 Mir_id.Helper.equal h.Mir_helper.id id)
               helpers
           with
-          | Some (_, s) -> Ok s
+          | Some (_, s, _) -> Ok s
           | None ->
               Error (Fmt.str "a call to the undeclared %a" Mir_id.Helper.pp id))
     in
@@ -303,7 +313,7 @@ module Make (T : Mir_sel.TARGET) = struct
             source = T.source;
             features = p.Mir_phys.Program.features;
             planning;
-            helpers = List.map fst helpers;
+            helpers = List.map (fun (h, _, _) -> h) helpers;
           };
         symbols = data @ functions @ externals;
         relocations;

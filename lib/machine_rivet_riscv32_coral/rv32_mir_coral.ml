@@ -92,8 +92,10 @@ let image ?mutation ?home (c : Config.t) ({ Q.artifact; record } : Q.published)
     render Machine_rivet_riscv32_mir.Rv32_mir_form.Refusal.pp
       (Machine_rivet_riscv32_mir.Rv32_mir_module.of_artifact ?mutation artifact)
   in
+  let* helpers = Q.helper_modules artifact in
   render Coral_image.pp_error
-    (Coral_image.build ~rv32_profile profile ~entry:Table.entry ~kernel:[ m ]
+    (Coral_image.build ~rv32_profile profile ~entry:Table.entry
+       ~kernel:(m :: helpers)
        (slots ?home ~record artifact))
 
 (* The run on the configuration's simulator: each written slot's bytes, by

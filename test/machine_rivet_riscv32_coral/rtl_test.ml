@@ -204,3 +204,46 @@ let%expect_test "register groups against single registers" =
     bmm 3x7x29 k63, contracted, m1 (1 invocations): bitwise
     bmm 3x7x29 k63, contracted, m4 (1 invocations): bitwise
       cycles 159944 -> 148382 (1.08x) |}]
+
+(* The matrix products as generated RVV functions against the planned
+   Zve32f loops, both under the contracted policy: bitwise against its
+   oracle, and the cycles each takes. *)
+let%expect_test "generated contractions against planned loops" =
+  List.iter
+    (fun (name, g) ->
+      let numerics = Ssa_ir.Ssa_numerics.Fp32_contracted
+      and oracle = T.Fp32_contracted in
+      let lc, _ =
+        measure ~numerics ~oracle Ssa_ir.Ssa_target.zve32f128 (name ^ ", loops")
+          g
+      in
+      let cycles = ref 0L in
+      let on_run (o : C.Run.t) = cycles := Int64.add !cycles o.C.Run.mcycle in
+      T.check ~route:(C.route ~on_run config) ~contractions:true
+        ~pipeline:
+          (Ssa_backends.Pipeline.Planned
+             { numerics; target = Ssa_ir.Ssa_target.zve32f128 })
+        ~oracle ~constant:T.positive ~calls:1 (name ^ ", generated") g;
+      let rate c =
+        2. *. float_of_int (T.contraction_macs g) /. Int64.to_float c
+      in
+      Fmt.pr "  cycles %Ld -> %Ld (%.2fx); %.3f -> %.3f ops/cycle@." lc !cycles
+        (Int64.to_float lc /. Int64.to_float !cycles)
+        (rate lc) (rate !cycles))
+    T.contraction_fixtures;
+  [%expect {|
+    linear 9x32 k64, loops (1 invocations): bitwise
+    linear 9x32 k64, generated (1 invocations): bitwise
+      cycles 34910 -> 9281 (3.76x); 1.056 -> 3.972 ops/cycle
+    linear 9x32 k64 bias, loops (1 invocations): bitwise
+    linear 9x32 k64 bias, generated (1 invocations): bitwise
+      cycles 35185 -> 9607 (3.66x); 1.048 -> 3.837 ops/cycle
+    linear 7x29 k63 bias, loops (1 invocations): bitwise
+    linear 7x29 k63 bias, generated (1 invocations): bitwise
+      cycles 56355 -> 10035 (5.62x); 0.454 -> 2.549 ops/cycle
+    bmm 1x9x32 k64, loops (1 invocations): bitwise
+    bmm 1x9x32 k64, generated (1 invocations): bitwise
+      cycles 24211 -> 4874 (4.97x); 1.523 -> 7.563 ops/cycle
+    bmm 3x7x29 k63, loops (1 invocations): bitwise
+    bmm 3x7x29 k63, generated (1 invocations): bitwise
+      cycles 159944 -> 15651 (10.22x); 0.480 -> 4.903 ops/cycle |}]

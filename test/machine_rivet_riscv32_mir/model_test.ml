@@ -282,3 +282,63 @@ let%expect_test "register groups under qemu" =
     vlen 1024, bmm 3x7x29 k63, contracted (1 invocations): bitwise
     group copy first (3 invocations): DIFFERS
     half spill: refused: invocation 0 (n0): publish: physical verifier: allocated fn0 bb18: target constraint: a location that does not fit its value |}]
+
+(* Contractions as generated RVV functions linked beside each module, under
+   qemu at VLEN 128 and 1024, ordered and fused; then two kernel defects the
+   runs must catch: A's rows one element apart too far, the last column tile
+   one lane short. *)
+let%expect_test "generated contractions under qemu" =
+  let planned numerics =
+    Ssa_backends.Pipeline.Planned
+      { numerics; target = Ssa_ir.Ssa_target.zve32f128 }
+  in
+  let run ?kernel_mutation ~vlen name numerics oracle g =
+    T.check
+      ~route:(R.route ?kernel_mutation ~cpu:(cpu vlen) ())
+      ~contractions:true ~pipeline:(planned numerics) ~oracle
+      ~same:T.same_portable ~input:T.adversarial_input
+      ~constant:(fun sg -> T.adversarial ~salt:3 sg)
+      ~calls:1 name g
+  in
+  List.iter
+    (fun vlen ->
+      List.iter
+        (fun (name, g) ->
+          run ~vlen
+            (Fmt.str "vlen %d, %s, ordered" vlen name)
+            Ssa_ir.Ssa_numerics.Fp32_ordered T.Fp32 g;
+          run ~vlen
+            (Fmt.str "vlen %d, %s, contracted" vlen name)
+            Ssa_ir.Ssa_numerics.Fp32_contracted T.Fp32_contracted g)
+        T.contraction_fixtures)
+    [ 128; 1024 ];
+  let tails = List.assoc "linear 7x29 k63 bias" T.contraction_fixtures in
+  List.iter
+    (fun (name, kernel_mutation) ->
+      run ~kernel_mutation ~vlen:128 name Ssa_ir.Ssa_numerics.Fp32_contracted
+        T.Fp32_contracted tails)
+    Coralnpu_kernels.Rvv_contraction.Mutation.
+      [ ("A row stride", A_row_stride); ("tail vl", Tail_vl) ];
+  [%expect {|
+    vlen 128, linear 9x32 k64, ordered (1 invocations): bitwise
+    vlen 128, linear 9x32 k64, contracted (1 invocations): bitwise
+    vlen 128, linear 9x32 k64 bias, ordered (1 invocations): bitwise
+    vlen 128, linear 9x32 k64 bias, contracted (1 invocations): bitwise
+    vlen 128, linear 7x29 k63 bias, ordered (1 invocations): bitwise
+    vlen 128, linear 7x29 k63 bias, contracted (1 invocations): bitwise
+    vlen 128, bmm 1x9x32 k64, ordered (1 invocations): bitwise
+    vlen 128, bmm 1x9x32 k64, contracted (1 invocations): bitwise
+    vlen 128, bmm 3x7x29 k63, ordered (1 invocations): bitwise
+    vlen 128, bmm 3x7x29 k63, contracted (1 invocations): bitwise
+    vlen 1024, linear 9x32 k64, ordered (1 invocations): bitwise
+    vlen 1024, linear 9x32 k64, contracted (1 invocations): bitwise
+    vlen 1024, linear 9x32 k64 bias, ordered (1 invocations): bitwise
+    vlen 1024, linear 9x32 k64 bias, contracted (1 invocations): bitwise
+    vlen 1024, linear 7x29 k63 bias, ordered (1 invocations): bitwise
+    vlen 1024, linear 7x29 k63 bias, contracted (1 invocations): bitwise
+    vlen 1024, bmm 1x9x32 k64, ordered (1 invocations): bitwise
+    vlen 1024, bmm 1x9x32 k64, contracted (1 invocations): bitwise
+    vlen 1024, bmm 3x7x29 k63, ordered (1 invocations): bitwise
+    vlen 1024, bmm 3x7x29 k63, contracted (1 invocations): bitwise
+    A row stride (1 invocations): DIFFERS
+    tail vl (1 invocations): DIFFERS |}]

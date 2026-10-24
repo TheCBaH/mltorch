@@ -249,6 +249,38 @@ let rec instr st (i : Ssa_instr.t) =
   in
   with_role st Mir_origin.Role.Compute;
   match op with
+  | Ssa_op.Contract { desc; a; b; c } -> (
+      (* a call to the descriptor's helper with each operand's address *)
+      let same d = String.equal (Contraction.name d) (Contraction.name desc) in
+      let rec find k = function
+        | [] -> None
+        | d :: rest -> if same d then Some k else find (k + 1) rest
+      in
+      let index =
+        match find 0 st.contracts with
+        | Some k -> k
+        | None ->
+            st.contracts <- st.contracts @ [ desc ];
+            List.length st.contracts - 1
+      in
+      let h = Mir_contract.descriptor ~index desc in
+      let addr id = emit st (Mir_op.Addr (entry_of st id).L.Entry.view) in
+      let args = [ addr a; addr b; addr c ] in
+      let signature = function
+        | Mir_op.Callee.Helper _ ->
+            Some
+              {
+                Mir_typing.Signature.params = h.Mir_helper.params;
+                results = [];
+              }
+        | Mir_op.Callee.Func _ -> None
+      in
+      match
+        B.op ~origin:st.origin st.bld st.cur ~signature
+          (Mir_op.Call (Mir_op.Callee.Helper h.Mir_helper.id, args))
+      with
+      | Ok [] -> ()
+      | _ -> invalid_arg "Mir_lower: a contraction helper call")
   | Ssa_op.Check_access { buffer; at = Ssa_access.Coord c } ->
       coord_guards st (entry_of st buffer) c
   | Ssa_op.Const c ->
@@ -803,6 +835,7 @@ let program ?mutation ~planning (p : Ssa_program.t) =
       limits = p.Ssa_program.scan_limits;
       deferred_charges = 0;
       helpers = [];
+      contracts = [];
       cur = entry;
       origin = Mir_origin.unknown;
       mutation;
@@ -861,7 +894,10 @@ let program ?mutation ~planning (p : Ssa_program.t) =
            (fun fn ->
              if List.mem fn st.helpers then Some (Mir_math.descriptor fn)
              else None)
-           Mir_math.Fn.all)
+           Mir_math.Fn.all
+        @ List.mapi
+            (fun index d -> Mir_contract.descriptor ~index d)
+            st.contracts)
       ~planning [ f ] ~main:fn
   in
   match Err.payload (Mir_verify.generic mir) with

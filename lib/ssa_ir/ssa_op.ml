@@ -170,6 +170,16 @@ type t =
           wins a simultaneous failure. [var] names a materialized trace, [None]
           an inline scan. *)
   | Const of Ssa_const.t
+  | Contract of {
+      desc : Contraction.t;
+      a : Ssa_id.Buffer.t;
+      b : Ssa_id.Buffer.t;
+      c : Ssa_id.Buffer.t;
+    }
+      (** The matrix product [desc] reading A and B and writing C, element
+          offsets from each buffer's first cell ({!Contraction.eval}). C is
+          disjoint from A and B. Only a pass that recognized the loops it
+          replaces introduces one ({!Ssa_contract}). *)
   | Convert of Convert.t * Ssa_value.t
   | Float_binary of Expr.Value.binary_op * Ssa_value.t * Ssa_value.t
   | Float_compare of Compare.t * Ssa_value.t * Ssa_value.t
@@ -310,7 +320,7 @@ let rec effectful = function
   | Index_scale_in_domain _ | Pool_better _ | Pred_not _ | Pred_or _ | Select _
   | Vec_extract _ | Vec_insert _ | Vec_iota _ | Vec_splat _ ->
       false
-  | Check_access _ | Check_gather _ | Check_local _ | Check_scan _
+  | Check_access _ | Check_gather _ | Check_local _ | Check_scan _ | Contract _
   | Float_to_i64 _ | I64_div _ | Index_add _ | Index_of_i64 _ | Index_scale _
   | Load _ | Load_in_bounds _ | Local_alloc _ | Local_read _ | Local_write _
   | Mark _ | Mark_lanes _ | Meter_charge | Meter_release _ | Meter_reserve _
@@ -319,7 +329,7 @@ let rec effectful = function
 
 let rec operands = function
   | Lanewise op -> operands op
-  | Const _ | Local_alloc _ | Mark _ | Mark_lanes _ | Meter_charge
+  | Const _ | Contract _ | Local_alloc _ | Mark _ | Mark_lanes _ | Meter_charge
   | Meter_release _ | Meter_reserve _ | Meter_reset ->
       []
   | Check_access { at; _ } | Load { at; _ } | Load_in_bounds { at; _ } ->
@@ -366,8 +376,8 @@ let rec operands = function
 
 let rec map_operands f = function
   | Lanewise op -> Lanewise (map_operands f op)
-  | ( Const _ | Local_alloc _ | Mark _ | Mark_lanes _ | Meter_charge
-    | Meter_release _ | Meter_reserve _ | Meter_reset ) as op ->
+  | ( Const _ | Contract _ | Local_alloc _ | Mark _ | Mark_lanes _
+    | Meter_charge | Meter_release _ | Meter_reserve _ | Meter_reset ) as op ->
       op
   | Check_access { buffer; at } ->
       Check_access { buffer; at = Ssa_access.map f at }
@@ -500,6 +510,7 @@ let rec name = function
   | Check_local _ -> "check_local"
   | Check_scan _ -> "check_scan"
   | Const _ -> "const"
+  | Contract _ -> "contract"
   | Convert (c, _) -> "convert." ^ Convert.name c
   | Float_binary (op, _, _) -> "float." ^ binary_name op
   | Float_compare (c, _, _) -> "float.compare." ^ Compare.name c

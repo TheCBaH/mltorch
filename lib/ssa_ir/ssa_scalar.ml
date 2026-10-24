@@ -136,13 +136,14 @@ let eval ?(fused = true) (op : Ssa_op.t) ~(result : Ssa_type.t)
       Some (P (x || y))
   | Ssa_op.Select (p, a, b) -> Some (get (if bool p then a else b))
   | Ssa_op.Check_access _ | Ssa_op.Check_gather _ | Ssa_op.Check_local _
-  | Ssa_op.Check_scan _ | Ssa_op.Float_to_i64 _ | Ssa_op.I64_div _
-  | Ssa_op.Index_add _ | Ssa_op.Index_add_in_domain _ | Ssa_op.Index_of_i64 _
-  | Ssa_op.Index_scale _ | Ssa_op.Index_scale_in_domain _ | Ssa_op.Load _
-  | Ssa_op.Load_in_bounds _ | Ssa_op.Local_alloc _ | Ssa_op.Local_read _
-  | Ssa_op.Lanewise _ | Ssa_op.Local_write _ | Ssa_op.Mark _
-  | Ssa_op.Mark_lanes _ | Ssa_op.Meter_charge | Ssa_op.Meter_release _
-  | Ssa_op.Meter_reserve _ | Ssa_op.Meter_reset | Ssa_op.Store _
-  | Ssa_op.Vec_extract _ | Ssa_op.Vec_insert _ | Ssa_op.Vec_iota _
-  | Ssa_op.Vec_load _ | Ssa_op.Vec_splat _ | Ssa_op.Vec_store _ ->
+  | Ssa_op.Check_scan _ | Ssa_op.Contract _ | Ssa_op.Float_to_i64 _
+  | Ssa_op.I64_div _ | Ssa_op.Index_add _ | Ssa_op.Index_add_in_domain _
+  | Ssa_op.Index_of_i64 _ | Ssa_op.Index_scale _
+  | Ssa_op.Index_scale_in_domain _ | Ssa_op.Load _ | Ssa_op.Load_in_bounds _
+  | Ssa_op.Local_alloc _ | Ssa_op.Local_read _ | Ssa_op.Lanewise _
+  | Ssa_op.Local_write _ | Ssa_op.Mark _ | Ssa_op.Mark_lanes _
+  | Ssa_op.Meter_charge | Ssa_op.Meter_release _ | Ssa_op.Meter_reserve _
+  | Ssa_op.Meter_reset | Ssa_op.Store _ | Ssa_op.Vec_extract _
+  | Ssa_op.Vec_insert _ | Ssa_op.Vec_iota _ | Ssa_op.Vec_load _
+  | Ssa_op.Vec_splat _ | Ssa_op.Vec_store _ ->
       None
