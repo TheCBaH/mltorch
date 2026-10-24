@@ -1671,8 +1671,9 @@ coralnpu.soc.runtest:
 	CORALNPU_SUBSYSTEM_DATA=$(CORALNPU_SUBSYSTEM_DATA) opam exec -- dune build @test/coralnpu_soc/runtest --force
 
 # Raw transfer speed on the subsystem: the DMA engine against the core's own
-# RVV and scalar copies, and the DMA beside the core's work. Needs the
-# subsystem download.
+# RVV and scalar copies, the DMA beside the core's work, and matrix multiplies
+# fed from SRAM by DMA (RVV and Zvt). About ten minutes. Needs the subsystem
+# download.
 .PHONY: coralnpu.dma.runtest
 coralnpu.dma.runtest:
 	@test -f $(CORALNPU_SUBSYSTEM_DATA)/hardware-configurations.json || { \

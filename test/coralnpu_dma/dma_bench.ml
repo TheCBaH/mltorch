@@ -6,7 +6,12 @@
      [sram-dtcm dma16 4096/256] for a chain of 256-byte descriptors: each
      case's cycles and bytes a cycle;
    - [overlap WORK LENGTH TRIPS] ({!Dma_overlap}): the workload alone, a
-     LENGTH-byte SRAM-to-DTCM chain alone, then both at once.
+     LENGTH-byte SRAM-to-DTCM chain alone, then both at once;
+   - [gemm ENGINE [GEOMETRY] PROLOGUE OUT BLOCKS W K] ({!Dma_gemm}): a
+     DMA-fed matrix multiply, B resident without a GEOMETRY ([resident-a/N],
+     [row-major-a] or [split-k/N]);
+   - [direct ENGINE BLOCKS W K]: the same multiply with its operands in SRAM,
+     no DMA.
 
    Exits 1 when a destination differs from what the transfers must leave. *)
 
@@ -65,18 +70,24 @@ let case s =
 
 let params = { Coral_layout.Params.stack = 2048L; staging = 0L }
 
+(* Wall-clock seconds a run may take: the largest multiplies are millions of
+   cycles, which the SoC simulator runs at a few thousand a second. *)
+let deadline = 3600.
+
 (* Builds and runs one kernel: its timings slot's bytes, or exit 1. *)
-let execute dir p ~name ~items ~slots ~inputs ~timings ~dst ~expected =
+let execute ?(matrix = false) dir p ~name ~items ~slots ~inputs ~timings ~dst
+    ~expected =
+  let extensions = if matrix then [ or_exit Fmt.string K.zvt ] else [] in
   let m =
     or_exit Fmt.string
       (K.to_cli
          (Err.bind (items ()) (fun items ->
-              K.typed_module ~name:"dma" ~extensions:[] items K.rv32_profile)))
+              K.typed_module ~name:"dma" ~extensions items K.rv32_profile)))
   in
   let image =
     or_exit Coral_image.pp_error
       (Err.payload
-         (Coral_image.build ~params ~rv32_profile:K.rv32_profile p
+         (Coral_image.build ~params ~rv32_profile:K.rv32_profile ~matrix p
             ~entry:K.entry ~kernel:[ m ] slots))
   in
   let inputs =
@@ -85,7 +96,8 @@ let execute dir p ~name ~items ~slots ~inputs ~timings ~dst ~expected =
   in
   match
     Err.payload
-      (Coral_soc_run.run ~read_back:[ timings ] ~dir image ~bound:(fun k ->
+      (Coral_soc_run.run ~deadline ~read_back:(Option.to_list timings) ~dir
+         image ~bound:(fun k ->
            if k < Array.length inputs then Some inputs.(k) else None))
   with
   | Error e ->
@@ -95,14 +107,14 @@ let execute dir p ~name ~items ~slots ~inputs ~timings ~dst ~expected =
       if not (Coral_soc_run.matches o dst expected) then (
         Fmt.pr "%s: the destination is wrong@." name;
         exit 1);
-      List.assoc timings o.read_back
+      (Option.fold ~none:"" ~some:(fun k -> List.assoc k o.read_back) timings, o)
 
 let word t k = Int32.to_int (String.get_int32_le t (4 * k))
 
 let copy dir p (s : C.sweep) =
-  let t =
+  let t, _ =
     execute dir p ~name:(C.name s) ~items:(C.items s) ~slots:(C.slots s)
-      ~inputs:(C.inputs p s) ~timings:C.timings_slot ~dst:C.dst_slot
+      ~inputs:(C.inputs p s) ~timings:(Some C.timings_slot) ~dst:C.dst_slot
       ~expected:(C.expected s)
   in
   List.iteri
@@ -130,9 +142,9 @@ let overlap dir p work length trips =
         ];
     }
   in
-  let t =
+  let t, _ =
     execute dir p ~name:(O.name s) ~items:(O.items s) ~slots:(O.slots s)
-      ~inputs:(O.inputs p s) ~timings:O.timings_slot ~dst:O.dst_slot
+      ~inputs:(O.inputs p s) ~timings:(Some O.timings_slot) ~dst:O.dst_slot
       ~expected:(O.expected s)
   in
   let work_alone = word t 0 and dma_alone = word t 4 in
@@ -145,6 +157,85 @@ let overlap dir p work length trips =
     *. float_of_int (work_alone + dma_alone - dma_both)
     /. float_of_int (min work_alone dma_alone))
 
+module G = Dma_gemm
+
+let gemm_engine = function
+  | "rvv-bf16" -> G.Engine.Rvv_bf16
+  | "rvv-f32" -> Rvv_f32
+  | "rvv-i8" -> Rvv_i8
+  | "zvt-f32" -> Zvt_f32
+  | "zvt-i8" -> Zvt_i8
+  | e -> invalid_arg ("dma_bench: no matrix multiply " ^ e)
+
+let gemm dir p (g : G.t) =
+  let t, (o : Coral_soc_run.outcome) =
+    execute ~matrix:(G.Engine.matrix g.engine) dir p ~name:(G.name g)
+      ~items:(G.items g) ~slots:(G.slots g) ~inputs:(G.inputs p g)
+      ~timings:(Some G.Slot.timings) ~dst:G.Slot.c ~expected:(G.expected g)
+  in
+  Fmt.pr
+    "%s: C as expected, %Ld cycles, %.1f ops/cycle; %d waiting for %s, %d for \
+     the rest@."
+    (G.name g) o.mcycle
+    (float_of_int (G.ops g) /. Int64.to_float o.mcycle)
+    (word t 1)
+    (match g.geometry with
+    | Resident_a _ -> "A and the first panel"
+    | Resident_b | Row_major_a -> "B and the first block"
+    | Split_k _ -> "B's first chunk and the first block")
+    (word t 0)
+
+(* The same multiply with A, B and C read in place from SRAM. *)
+let direct dir p (g : G.t) =
+  let k = G.direct g in
+  let inputs = k.K.inputs in
+  let out = List.length k.slots - 1 in
+  let _, (o : Coral_soc_run.outcome) =
+    execute ~matrix:k.matrix dir p
+      ~name:(G.name g ^ " direct")
+      ~items:k.items ~slots:k.slots
+      ~inputs:(fun _ -> Ok inputs)
+      ~timings:None ~dst:out ~expected:k.expected
+  in
+  Fmt.pr
+    "%s M=%d N=%d K=%d, operands in SRAM, no DMA: C as expected, %Ld cycles, \
+     %.1f ops/cycle@."
+    (G.Engine.name g.engine)
+    (G.rows g * g.blocks)
+    g.width g.depth o.mcycle
+    (float_of_int (G.ops g) /. Int64.to_float o.mcycle)
+
+let gemm_prologue = function
+  | "a-by-dma" | "b-by-dma" -> G.Prologue.Dma
+  | "a-shared" | "b-shared" -> Shared
+  | o -> invalid_arg ("dma_bench: no prologue " ^ o)
+
+let gemm_out = function
+  | "c-by-core" -> G.Out.Core
+  | "c-by-dma" -> Dma
+  | o -> (
+      try Scanf.sscanf o "c-split-%d%!" (fun n -> G.Out.Split n)
+      with Scanf.Scan_failure _ | End_of_file | Failure _ ->
+        invalid_arg ("dma_bench: no way out " ^ o))
+
+(* [resident-a/PANEL], [row-major-a] or [split-k/CHUNK], or resident B when
+   the prologue comes first. *)
+let gemm_geometry rest =
+  let after prefix g =
+    let n = String.length prefix in
+    if String.starts_with ~prefix g then
+      Some (int_of_string (String.sub g n (String.length g - n)))
+    else None
+  in
+  match rest with
+  | g :: rest' -> (
+      match (after "resident-a/" g, after "split-k/" g) with
+      | Some panel, _ -> (G.Geometry.Resident_a { panel }, rest')
+      | _, Some chunk -> (Split_k { chunk }, rest')
+      | None, None when g = "row-major-a" -> (Row_major_a, rest')
+      | None, None -> (Resident_b, rest))
+  | [] -> (Resident_b, rest)
+
 let () =
   let dir = Sys.argv.(1) in
   let p =
@@ -152,6 +243,42 @@ let () =
       (Err.payload (Coral_profile.load ~dir Sys.argv.(2)))
   in
   let rec sweeps = function
+    | "direct" :: engine :: blocks :: width :: depth :: rest ->
+        let engine = gemm_engine engine and width = int_of_string width in
+        (* An RVV block's lanes are a panel of a wider W. *)
+        let geometry =
+          match G.Engine.lanes engine with
+          | Some panel when panel < width -> G.Geometry.Resident_a { panel }
+          | Some _ | None -> Resident_b
+        in
+        direct dir p
+          {
+            G.blocks = int_of_string blocks;
+            depth = int_of_string depth;
+            engine;
+            geometry;
+            out = Dma;
+            prologue = Dma;
+            width;
+          };
+        sweeps rest
+    | "gemm" :: engine :: rest -> (
+        match gemm_geometry rest with
+        | geometry, prologue :: out :: blocks :: width :: depth :: rest ->
+            gemm dir p
+              {
+                G.blocks = int_of_string blocks;
+                depth = int_of_string depth;
+                engine = gemm_engine engine;
+                geometry;
+                out = gemm_out out;
+                prologue = gemm_prologue prologue;
+                width = int_of_string width;
+              };
+            sweeps rest
+        | _ ->
+            invalid_arg
+              "dma_bench: gemm ENGINE [GEOMETRY] PROLOGUE OUT BLOCKS W K")
     | "overlap" :: w :: length :: trips :: rest ->
         overlap dir p (work w) (int_of_string length) (int_of_string trips);
         sweeps rest
