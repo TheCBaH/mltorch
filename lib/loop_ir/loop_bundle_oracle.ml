@@ -9,8 +9,8 @@ let pp_error ppf : [< error ] -> unit = function
 let synthetic_tensor (s : Loop_bundle.synthetic) =
   Tensor.materialize s.Loop_bundle.shape (fun _ -> s.Loop_bundle.value)
 
-let run ?(precision = Loop_numerics.Precision.F32) (b : Loop_bundle.t)
-    ~constants ~inputs =
+let run ?(precision = Loop_numerics.Precision.F32) ?accumulate
+    (b : Loop_bundle.t) ~constants ~inputs =
   let ( let* ) = Result.bind in
   let env = ref Tensor_id.Map.empty in
   let lookup id =
@@ -55,7 +55,16 @@ let run ?(precision = Loop_numerics.Precision.F32) (b : Loop_bundle.t)
         (Ok []) bound
     in
     let bind id = List.assoc_opt id bound in
-    let program = Loop_sum.program inv.Loop_bundle.program in
+    let program =
+      match accumulate with
+      | None | Some Loop_sum.Accumulate.Add ->
+          Loop_sum.program inv.Loop_bundle.program
+      | Some Loop_sum.Accumulate.Fuse_products ->
+          (* a bundle's sums are already expanded: recovered first, so each
+             is fused as the structured sum it was *)
+          Loop_sum.program ?accumulate
+            (Loop_sum.recover inv.Loop_bundle.program)
+    in
     match Err.payload (Loop_interp.run ~precision program ~bind) with
     | Error e -> Error (`Failed (position, e))
     | Ok outs ->

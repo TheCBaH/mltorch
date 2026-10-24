@@ -47,6 +47,10 @@ end
 val round32 : float -> float
 (** The binary32 value nearest [x], as a binary64. *)
 
+val fma32 : float -> float -> float -> float
+(** [fmaf a b c] for binary32 [a], [b], [c]: [a * b + c] rounded once to the
+    nearest binary32 (ties to even), as a binary64. *)
+
 (** The instance over binary64 numbers that each operation rounds to binary32:
     the oracle's meaning of the five functions. Arguments need not be binary32
     values; they are rounded first. *)

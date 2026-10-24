@@ -45,10 +45,16 @@ let banner argv =
 
 let ssa_pipeline = Ssa_backends.Pipeline.Exact
 
-(* The numerics of an engine: the binary64 reference, or [Fp32_ordered], under
-   which every kernel is binary32 and the SSA kernels are the planned scalar
-   ones. *)
+(* The numerics of an engine: the binary64 reference, or a binary32 policy
+   ([Fp32_contracted], [Fp32_ordered]), under which every kernel is binary32
+   and the SSA kernels are the planned scalar ones. *)
 let ssa_pipeline_of = function
+  | Loop_ir.Loop_numerics.Fp32_contracted ->
+      Ssa_backends.Pipeline.Planned
+        {
+          numerics = Ssa_ir.Ssa_numerics.Fp32_contracted;
+          target = Ssa_ir.Ssa_target.scalar;
+        }
   | Loop_ir.Loop_numerics.Fp32_ordered ->
       Ssa_backends.Pipeline.Planned
         {

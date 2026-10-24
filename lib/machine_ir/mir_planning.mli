@@ -15,6 +15,10 @@ end
 (** What a [Float_fma] in the planned program may mean. *)
 module Fma : sig
   type t =
+    | Dots
+        (** only an ordered sum's single-product term fused into its
+            accumulator, in source order, by the lowering itself: one rounding a
+            step, compared bitwise *)
     | Exact
         (** contraction permitted and planned against a guaranteed fused
             operation: one rounding, compared bitwise *)

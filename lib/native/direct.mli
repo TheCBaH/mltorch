@@ -10,8 +10,8 @@ include
 
 (** How {!dot} accumulates. [Binary64] (the default) sums the exact products in
     binary64, so one rounding to binary32 happens on store.
-    [Binary32_sequential] rounds to binary32 after each fused multiply-add of a
-    sequential chain, which reproduces a reference that accumulates in binary32
+    [Binary32_sequential] is a sequential chain of binary32 fused multiply-adds,
+    each rounded once, which reproduces a reference that accumulates in binary32
     -- and with it that reference's rounding noise. *)
 type dot_accumulation = Binary64 | Binary32_sequential
 

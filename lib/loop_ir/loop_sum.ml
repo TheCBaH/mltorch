@@ -1,6 +1,20 @@
-let rec expand (s : Loop_stmt.t) : Loop_stmt.t list =
+module Accumulate = struct
+  type t = Add | Fuse_products
+end
+
+let rec expand ?(accumulate = Accumulate.Add) (s : Loop_stmt.t) :
+    Loop_stmt.t list =
+  let block = block ~accumulate in
   match s with
   | Loop_stmt.Reduce_sum { var; lo; hi; acc; seed; body; term; at = _ } ->
+      let step =
+        let acc = Loop_expr.Temp (Loop_carrier.Float, acc) in
+        match (accumulate, term) with
+        | Accumulate.Fuse_products, Loop_expr.Binary (Expr.Value.Mul, x, y) ->
+            Loop_expr.Fma (x, y, acc)
+        | (Accumulate.Add | Accumulate.Fuse_products), _ ->
+            Loop_expr.Binary (Expr.Value.Add, acc, term)
+      in
       [
         Loop_stmt.Assign (Loop_carrier.Float, acc, Loop_expr.Const seed);
         Loop_stmt.For
@@ -10,24 +24,17 @@ let rec expand (s : Loop_stmt.t) : Loop_stmt.t list =
             hi;
             body =
               (Loop_stmt.Mark Loop_mark.Reduction :: block body)
-              @ [
-                  Loop_stmt.Assign
-                    ( Loop_carrier.Float,
-                      acc,
-                      Loop_expr.Binary
-                        ( Expr.Value.Add,
-                          Loop_expr.Temp (Loop_carrier.Float, acc),
-                          term ) );
-                ];
+              @ [ Loop_stmt.Assign (Loop_carrier.Float, acc, step) ];
           };
       ]
   | Loop_stmt.For f -> [ Loop_stmt.For { f with body = block f.body } ]
   | Loop_stmt.If (p, yes, no) -> [ Loop_stmt.If (p, block yes, block no) ]
   | s -> [ s ]
 
-and block l = List.concat_map expand l
+and block ?accumulate l = List.concat_map (expand ?accumulate) l
 
-let program (p : Loop_program.t) = { p with Loop_program.body = block p.body }
+let program ?accumulate (p : Loop_program.t) =
+  { p with Loop_program.body = block ?accumulate p.body }
 
 let rec count_stmt acc (s : Loop_stmt.t) =
   match s with

@@ -14,3 +14,15 @@
  (name accuracy)
  (modules accuracy)
  (libraries f32_math))
+
+; [fma32] against an independent midpoint oracle, natively and under
+; js_of_ocaml (the @runtest-js alias): the bits must not depend on the backend.
+
+(library
+ (name f32_fma_test)
+ (modules fma32_test)
+ (libraries f32_math fmt)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))

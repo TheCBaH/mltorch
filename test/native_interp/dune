@@ -9,6 +9,7 @@
  (libraries
   core
   err_trace
+  f32_math
   fmt
   jsont
   jsont.bytesrw

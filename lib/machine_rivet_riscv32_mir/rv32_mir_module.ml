@@ -274,8 +274,9 @@ let data_items (s : Art.Symbol.t) =
 (* The artifact's slots, the table its entry receives. *)
 let slots artifact = Table.of_artifact artifact
 
-let of_artifact ?mutation artifact =
-  Err.Escape.with_escape @@ fun esc ->
+(* Every function's items, laid out, under one escape: what [of_artifact]
+   renders and what a census counts. *)
+let laid_out ?mutation esc artifact =
   let program = Art.program artifact in
   List.iter
     (fun (s : Art.Symbol.t) ->
@@ -299,12 +300,18 @@ let of_artifact ?mutation artifact =
           Printf.sprintf ".Lsel%d" !labels);
     }
   in
-  let laid =
-    List.map
-      (fun (f : (Rv32_op.t, Rv32_op.test) Mir_phys.Func.t) ->
-        (f.Mir_phys.Func.name, lay_out (func_items env relocations f)))
-      program.Mir_phys.Program.funcs
-  in
+  List.map
+    (fun (f : (Rv32_op.t, Rv32_op.test) Mir_phys.Func.t) ->
+      (f.Mir_phys.Func.name, lay_out (func_items env relocations f)))
+    program.Mir_phys.Program.funcs
+
+let function_items ?mutation artifact =
+  Err.Escape.with_escape @@ fun esc -> laid_out ?mutation esc artifact
+
+let of_artifact ?mutation artifact =
+  Err.Escape.with_escape @@ fun esc ->
+  let program = Art.program artifact in
+  let laid = laid_out ?mutation esc artifact in
   (* rendering makes the typed instructions, so a form Rivet refuses is
      caught by [module_] *)
   let text () =

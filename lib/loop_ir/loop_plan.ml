@@ -21,12 +21,20 @@ let resolve ?target ?fuse_reductions ~numerics p =
     let vector, report = split (plan ?target p) in
     { numerics; precision = P.F64; vector; refusal; report; blocked = 0 }
   in
-  let ordered = numerics = Loop_numerics.Fp32_ordered in
+  (* [Fp32_contracted] is planned as [Fp32_ordered]: only the Machine IR route
+     fuses its sums, and the Loop backends refuse it ([Loop_numerics.check]) *)
+  let ordered =
+    match numerics with
+    | Loop_numerics.Fp32_contracted | Loop_numerics.Fp32_ordered -> true
+    | Loop_numerics.Reference_f64 | Loop_numerics.Simd_fp32_ordered
+    | Loop_numerics.Simd_fp32_relaxed ->
+        false
+  in
   match (numerics, target) with
   | Loop_numerics.Reference_f64, _ -> f64 None
   | (Loop_numerics.Simd_fp32_ordered | Loop_numerics.Simd_fp32_relaxed), None ->
       f64 None
-  | Loop_numerics.Fp32_ordered, None -> (
+  | (Loop_numerics.Fp32_contracted | Loop_numerics.Fp32_ordered), None -> (
       (* every kernel binary32, nothing vectorized *)
       match Loop_numerics.admit p with
       | Error r -> f64 (Some r)
@@ -39,8 +47,8 @@ let resolve ?target ?fuse_reductions ~numerics p =
             report = [];
             blocked = 0;
           })
-  | ( ( Loop_numerics.Fp32_ordered | Loop_numerics.Simd_fp32_ordered
-      | Loop_numerics.Simd_fp32_relaxed ),
+  | ( ( Loop_numerics.Fp32_contracted | Loop_numerics.Fp32_ordered
+      | Loop_numerics.Simd_fp32_ordered | Loop_numerics.Simd_fp32_relaxed ),
       Some t ) -> (
       match Loop_numerics.admit p with
       | Error r -> f64 (Some r)
@@ -123,9 +131,11 @@ let force ?target ~precision p =
 
 let admitted t =
   match (t.numerics, t.refusal) with
-  | Loop_numerics.Fp32_ordered, Some r -> Error r
-  | ( ( Loop_numerics.Fp32_ordered | Loop_numerics.Reference_f64
-      | Loop_numerics.Simd_fp32_ordered | Loop_numerics.Simd_fp32_relaxed ),
+  | (Loop_numerics.Fp32_contracted | Loop_numerics.Fp32_ordered), Some r ->
+      Error r
+  | ( ( Loop_numerics.Fp32_contracted | Loop_numerics.Fp32_ordered
+      | Loop_numerics.Reference_f64 | Loop_numerics.Simd_fp32_ordered
+      | Loop_numerics.Simd_fp32_relaxed ),
       (Some _ | None) ) ->
       Ok t
 

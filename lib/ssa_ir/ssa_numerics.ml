@@ -5,11 +5,24 @@ module Precision = struct
   let scalar = function F32 -> Ssa_type.F32 | F64 -> Ssa_type.F64
 end
 
-type t = Fp32_ordered | Reference_f64 | Simd_fp32_ordered | Simd_fp32_relaxed
+type t =
+  | Fp32_contracted
+  | Fp32_ordered
+  | Reference_f64
+  | Simd_fp32_ordered
+  | Simd_fp32_relaxed
 
-let all = [ Fp32_ordered; Reference_f64; Simd_fp32_ordered; Simd_fp32_relaxed ]
+let all =
+  [
+    Fp32_contracted;
+    Fp32_ordered;
+    Reference_f64;
+    Simd_fp32_ordered;
+    Simd_fp32_relaxed;
+  ]
 
 let name = function
+  | Fp32_contracted -> "fp32_contracted"
   | Fp32_ordered -> "fp32_ordered"
   | Reference_f64 -> "reference_f64"
   | Simd_fp32_ordered -> "simd_fp32_ordered"
@@ -17,11 +30,25 @@ let name = function
 
 let of_name s = List.find_opt (fun p -> String.equal (name p) s) all
 
-let contraction_permitted = function
-  | Fp32_ordered | Reference_f64 | Simd_fp32_ordered -> false
-  | Simd_fp32_relaxed -> true
+module Contraction = struct
+  type t = Dots | Everywhere | Forbidden
 
-let reassociation_permitted = contraction_permitted
+  let name = function
+    | Dots -> "dots"
+    | Everywhere -> "permitted"
+    | Forbidden -> "none"
+end
+
+let contraction = function
+  | Fp32_contracted -> Contraction.Dots
+  | Fp32_ordered | Reference_f64 | Simd_fp32_ordered -> Contraction.Forbidden
+  | Simd_fp32_relaxed -> Contraction.Everywhere
+
+let contraction_permitted p = contraction p = Contraction.Everywhere
+
+let reassociation_permitted = function
+  | Fp32_contracted | Fp32_ordered | Reference_f64 | Simd_fp32_ordered -> false
+  | Simd_fp32_relaxed -> true
 
 let identity p =
   Printf.sprintf "numerics=%s vectorized=%s other=%s fma=%s reassociation=%s"
@@ -29,12 +56,14 @@ let identity p =
     (Precision.name
        (match p with
        | Reference_f64 -> Precision.F64
-       | Fp32_ordered | Simd_fp32_ordered | Simd_fp32_relaxed -> Precision.F32))
+       | Fp32_contracted | Fp32_ordered | Simd_fp32_ordered | Simd_fp32_relaxed
+         ->
+           Precision.F32))
     (Precision.name
        (match p with
-       | Fp32_ordered -> Precision.F32
+       | Fp32_contracted | Fp32_ordered -> Precision.F32
        | Reference_f64 | Simd_fp32_ordered | Simd_fp32_relaxed -> Precision.F64))
-    (if contraction_permitted p then "permitted" else "none")
+    (Contraction.name (contraction p))
     (if reassociation_permitted p then "permitted" else "none")
 
 module Backend = struct
@@ -57,8 +86,10 @@ let pp_unsupported ppf : [< unsupported ] -> unit = function
 
 let check ~backend p =
   match (backend, p) with
-  | _, Reference_f64 | (Backend.C | Backend.Machine | Backend.Wasm), _ ->
-      Err.return p
+  | _, Reference_f64 | Backend.Machine, _ -> Err.return p
+  | (Backend.C | Backend.Wasm), Fp32_contracted ->
+      Err.fail (`Unsupported_policy (backend, p))
+  | (Backend.C | Backend.Wasm), _ -> Err.return p
   | (Backend.Interpreter | Backend.Javascript), _ ->
       Err.fail (`Unsupported_policy (backend, p))
 
@@ -119,33 +150,7 @@ let coverage ~numerics ~f32_kernels ~kernels ~f32_invocations ~invocations
           (fun (r, n) -> Format.asprintf "; %d binary64: %a" n Refusal.pp r)
           refusals))
 
-let round32 = Ssa_const.round_f32
 let erf32 = F32_math.Value.erf
 
-(* The product of two binary32 values is exact in binary64 (48 bits). Its sum
-   with [c] is split exactly by TwoSum into [s + e]; rounding [s + e] straight
-   to binary32 is correct only if [s] carries a sticky bit, so when [e] is
-   nonzero [s] is first replaced by the neighbouring binary64 whose last
-   mantissa bit is odd (round to odd): binary64 has more than [2 * 24 + 2] bits,
-   so that second rounding never changes the answer. Nonfinite operands fall
-   back to ordinary arithmetic, which is already IEEE for them. *)
-let fma32 a b c =
-  let finite x = Float.is_finite x in
-  if not (finite a && finite b && finite c) then round32 ((a *. b) +. c)
-  else
-    let p = a *. b in
-    let s = p +. c in
-    let bb = s -. p in
-    let e = p -. (s -. bb) +. (c -. bb) in
-    if e = 0. then round32 s
-    else
-      let bits = Int64.bits_of_float s in
-      let odd =
-        if Int64.logand bits 1L = 1L then s
-        else
-          let toward_larger_magnitude = e > 0. = (s > 0.) in
-          Int64.float_of_bits
-            (if toward_larger_magnitude then Int64.succ bits
-             else Int64.pred bits)
-      in
-      round32 odd
+(* Binary32 [fmaf], one rounding: the shared implementation. *)
+let fma32 = F32_math.fma32

@@ -58,6 +58,7 @@
   core
   err_trace
   expr_js
+  f32_math
   fmt
   interval_alloc
   jsont

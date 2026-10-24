@@ -13,17 +13,19 @@ type result = {
 let subject p = Digest.to_hex (Digest.string (Ssa_pp.to_string p))
 
 let summary ?target ?fma (plan : Ssa_plan.t) =
-  let contraction = Ssa_numerics.contraction_permitted plan.Ssa_plan.numerics in
   let fma =
-    match fma with
-    | Some f -> f
-    | None -> (
+    match (fma, Ssa_numerics.contraction plan.Ssa_plan.numerics) with
+    | Some f, _ -> f
+    | None, Ssa_numerics.Contraction.Dots ->
+        (* the lowering fuses the sums itself, on any target *)
+        Mir_planning.Fma.Dots
+    | None, Ssa_numerics.Contraction.Everywhere -> (
         match target with
-        | Some (t : Ssa_target.t) when contraction && t.Ssa_target.fma ->
+        | Some (t : Ssa_target.t) when t.Ssa_target.fma ->
             Mir_planning.Fma.Exact
-        | Some t when contraction && t.Ssa_target.relaxed_madd ->
-            Mir_planning.Fma.Relaxed_madd
+        | Some t when t.Ssa_target.relaxed_madd -> Mir_planning.Fma.Relaxed_madd
         | Some _ | None -> Mir_planning.Fma.Forbidden)
+    | None, Ssa_numerics.Contraction.Forbidden -> Mir_planning.Fma.Forbidden
   in
   let precision =
     match plan.Ssa_plan.precision with
@@ -40,9 +42,10 @@ let summary ?target ?fma (plan : Ssa_plan.t) =
           Mir_planning.Capability.Vector_bits
             (Int64.of_int t.Ssa_target.vector_bits)
           ::
-          (if fma = Mir_planning.Fma.Exact then
-             [ Mir_planning.Capability.Fused_multiply_add ]
-           else []) )
+          (match fma with
+          | Mir_planning.Fma.Dots | Mir_planning.Fma.Exact ->
+              [ Mir_planning.Capability.Fused_multiply_add ]
+          | Mir_planning.Fma.Forbidden | Mir_planning.Fma.Relaxed_madd -> []) )
   in
   Mir_planning.make
     ~subject:(subject plan.Ssa_plan.program)
@@ -755,8 +758,16 @@ let program ?mutation ~planning (p : Ssa_program.t) =
   (match Err.payload (Ssa_verify.check p) with
   | Error (`Invalid_program d) -> refuse (Refusal.Invalid_program d)
   | Ok () -> ());
+  (* a summary that fuses dots: the loops' accumulations here, the ordered
+     sums' as they are lowered *)
+  let fused, accumulate =
+    match planning with
+    | Some { Mir_planning.fma = Mir_planning.Fma.Dots; _ } ->
+        (Ssa_fuse_dots.program p, Ssa_cfg_lower.Accumulate.Fuse_products)
+    | Some _ | None -> (p, Ssa_cfg_lower.Accumulate.Add)
+  in
   let cfg =
-    match Ssa_cfg_lower.program p with
+    match Ssa_cfg_lower.program ~accumulate fused with
     | Ok c -> c
     | Error e -> refuse (Refusal.Cfg e)
   in

@@ -35,24 +35,28 @@ let sig_of (g : graph) id = Tensor_id.Map.find id g.Graph.tensors
 (* One context, [calls] calls with different inputs, each against the
    reference evaluator. *)
 (* What an engine must equal: the binary64 per-node reference, or, for a
-   binary32 policy, the Loop interpreter at binary32 over the bundle. *)
-type oracle = Reference_f64 | Fp32
+   binary32 policy, the Loop interpreter at binary32 over the bundle, its
+   single-product sums fused for [Fp32_contracted]. *)
+type oracle = Fp32 | Fp32_contracted | Reference_f64
 
 let expected oracle (g : graph) (b : Loop_ir.Loop_bundle.t) ~constants ~inputs =
+  let loop accumulate =
+    let outs =
+      Err.or_raise ~pp_error:Loop_ir.Loop_bundle_oracle.pp_error
+        (Loop_ir.Loop_bundle_oracle.run ~accumulate b
+           ~constants:(fun id -> List.assoc_opt id constants)
+           ~inputs:(fun id -> List.assoc_opt id inputs))
+    in
+    List.fold_left2
+      (fun m id t -> Tensor_id.Map.add id t m)
+      Tensor_id.Map.empty g.Graph.outputs outs
+  in
   match oracle with
+  | Fp32 -> loop Loop_ir.Loop_sum.Accumulate.Add
+  | Fp32_contracted -> loop Loop_ir.Loop_sum.Accumulate.Fuse_products
   | Reference_f64 ->
       Err.or_raise ~pp_error:Eval_direct.pp_error
         (Eval_direct.run g ~constants ~inputs)
-  | Fp32 ->
-      let outs =
-        Err.or_raise ~pp_error:Loop_ir.Loop_bundle_oracle.pp_error
-          (Loop_ir.Loop_bundle_oracle.run b
-             ~constants:(fun id -> List.assoc_opt id constants)
-             ~inputs:(fun id -> List.assoc_opt id inputs))
-      in
-      List.fold_left2
-        (fun m id t -> Tensor_id.Map.add id t m)
-        Tensor_id.Map.empty g.Graph.outputs outs
 
 (* Two tensors cell for cell, a NaN equal to any NaN: for a host whose
    default NaN differs in sign from the oracle's. *)
@@ -537,6 +541,71 @@ let%expect_test "Fp32_ordered vectors: Machine IR is the binary32 oracle" =
       generic (3 invocations): bitwise, bitwise
       aarch64 scanned (3 invocations): bitwise, bitwise
       x86_64 scanned (3 invocations): bitwise, bitwise |}]
+
+(* ---- matrix products ---------------------------------------------------------
+
+   [Linear] and [Bmm] at the Coral peak RVV FP32 kernel's shape (C[9,32],
+   K=64) and with M/N/K tails (M=7, N=29, K=63), with and without a bias, at
+   batch 1 and 3. An empty K has no fixture: an extent is at least 1
+   ([Dim.extent]), so no graph names one. *)
+
+let linear_fixture ~m ~n ~k ~bias () =
+  F.build "linear"
+    Graph_builder.(
+      let* x = input ~shape:(F.s 1 1 1 1 m k) () in
+      let* weight = constant ~shape:(F.s n 1 1 1 1 k) () in
+      let params = { Linear.Linear.in_features = Dim.extent k } in
+      if bias then
+        let* b = constant ~shape:(F.s1c n) () in
+        linear params ~x ~weight ~bias:b ()
+      else linear params ~x ~weight ())
+
+let bmm_fixture ~batch ~m ~n ~k () =
+  F.build "bmm"
+    Graph_builder.(
+      let* a = input ~shape:(F.s 1 1 1 batch m k) () in
+      let* b = input ~shape:(F.s 1 1 1 batch k n) () in
+      bmm a b)
+
+let contraction_fixtures =
+  [
+    ("linear 9x32 k64", linear_fixture ~m:9 ~n:32 ~k:64 ~bias:false);
+    ("linear 9x32 k64 bias", linear_fixture ~m:9 ~n:32 ~k:64 ~bias:true);
+    ("linear 7x29 k63 bias", linear_fixture ~m:7 ~n:29 ~k:63 ~bias:true);
+    ("bmm 1x9x32 k64", bmm_fixture ~batch:1 ~m:9 ~n:32 ~k:64);
+    ("bmm 3x7x29 k63", bmm_fixture ~batch:3 ~m:7 ~n:29 ~k:63);
+  ]
+
+(* A matrix-product fixture's multiply-adds: its output's cells times the
+   contraction extent, its first input's C. *)
+let contraction_macs g =
+  let g = g () in
+  let b = bundle g in
+  let shape id = (sig_of g id).Tensor_sig.shape in
+  (Vec6.numel (shape (List.hd g.Graph.outputs)) :> int)
+  * (Vec6.get (shape (List.hd b.Loop_ir.Loop_bundle.inputs)) Axis.C :> int)
+
+(* Binary32 values whose sums round, cancel, overflow and underflow: mostly
+   inexact fractions of varied magnitude, with cancelling pairs, values whose
+   products are near the binary32 maximum, subnormals and, with [nonfinite],
+   infinities and NaN. Deterministic in the cell and [salt]. *)
+let adversarial ?(nonfinite = true) ~salt (sg : Tensor_sig.t) =
+  Tensor.materialize sg.Tensor_sig.shape (fun c ->
+      let k = (Vec6.offset sg.Tensor_sig.shape c :> int) + (salt * 7919) in
+      let h = k * 2654435761 land 0x3fffffff in
+      F32_math.round32
+        (match (h mod 1021, h mod 61) with
+        | 0, _ when nonfinite -> Float.infinity
+        | 1, _ when nonfinite -> Float.nan
+        | _, 0 -> 1.5e19
+        | _, 1 -> -1.7e19
+        | _, 2 -> 1e8
+        | _, 3 -> -1e8
+        | _, 4 -> 1e-40
+        | _, 5 -> -3e-39
+        | _, r -> float_of_int ((h / 61 mod 2001) - 1000) /. float_of_int (r + 3)))
+
+let adversarial_input ~salt _ sg = adversarial ~salt sg
 
 (* ---- binary32 transcendentals as vectors -------------------------------------
 

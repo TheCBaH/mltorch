@@ -6,14 +6,16 @@ module Precision = struct
 end
 
 module Fma = struct
-  type t = Exact | Forbidden | Relaxed_madd
+  type t = Dots | Exact | Forbidden | Relaxed_madd
 
   let name = function
+    | Dots -> "dots"
     | Exact -> "exact"
     | Forbidden -> "forbidden"
     | Relaxed_madd -> "relaxed_madd"
 
   let of_name = function
+    | "dots" -> Some Dots
     | "exact" -> Some Exact
     | "forbidden" -> Some Forbidden
     | "relaxed_madd" -> Some Relaxed_madd

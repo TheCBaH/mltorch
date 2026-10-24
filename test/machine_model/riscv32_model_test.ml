@@ -143,3 +143,67 @@ let%expect_test "vector loops by target and policy" =
     softmax over H, W=32: fp32 neon128 0, zve32f128 0, zve32f128 forced 0; reference_f64 zve32f128 0
     layer_norm over H, W=32: fp32 neon128 0, zve32f128 0, zve32f128 forced 0; reference_f64 zve32f128 0
     conv, batch norm, relu to C=32: fp32 neon128 3, zve32f128 3, zve32f128 forced 3; reference_f64 zve32f128 0 |}]
+
+let%expect_test "matrix products on RV32" =
+  List.iter
+    (fun (name, g) ->
+      List.iter
+        (fun (iname, input, constant) ->
+          T.check ~route:(M.Route.Riscv32 M.Stage.Scanned) ~pipeline:fp32_scalar
+            ~oracle:T.Fp32 ~input ~constant
+            (Fmt.str "%s, %s" name iname)
+            g)
+        [
+          ("values", (fun ~salt _ -> T.values ~salt), T.values ~salt:3);
+          ( "adversarial",
+            T.adversarial_input,
+            fun sg -> T.adversarial ~salt:3 sg );
+        ])
+    T.contraction_fixtures;
+  [%expect
+    {|
+    linear 9x32 k64, values (1 invocations): bitwise, bitwise
+    linear 9x32 k64, adversarial (1 invocations): bitwise, bitwise
+    linear 9x32 k64 bias, values (1 invocations): bitwise, bitwise
+    linear 9x32 k64 bias, adversarial (1 invocations): bitwise, bitwise
+    linear 7x29 k63 bias, values (1 invocations): bitwise, bitwise
+    linear 7x29 k63 bias, adversarial (1 invocations): bitwise, bitwise
+    bmm 1x9x32 k64, values (1 invocations): bitwise, bitwise
+    bmm 1x9x32 k64, adversarial (1 invocations): bitwise, bitwise
+    bmm 3x7x29 k63, values (1 invocations): bitwise, bitwise
+    bmm 3x7x29 k63, adversarial (1 invocations): bitwise, bitwise |}]
+
+(* [Fp32_contracted] on RV32, scalar ([fmadd.s]) and Zve32f ([vfmacc.vv]),
+   against the contracted oracle. *)
+let%expect_test "contracted matrix products on RV32" =
+  List.iter
+    (fun (name, g) ->
+      List.iter
+        (fun (tname, target) ->
+          T.check ~route:(M.Route.Riscv32 M.Stage.Scanned)
+            ~pipeline:
+              (Ssa_backends.Pipeline.Planned
+                 { numerics = Ssa_ir.Ssa_numerics.Fp32_contracted; target })
+            ~oracle:T.Fp32_contracted ~same:T.same_portable
+            ~input:T.adversarial_input
+            ~constant:(fun sg -> T.adversarial ~salt:3 sg)
+            (Fmt.str "%s, %s" name tname)
+            g)
+        [
+          ("scalar", Ssa_ir.Ssa_target.scalar);
+          ("zve32f128", Ssa_ir.Ssa_target.zve32f128);
+        ])
+    (T.contraction_fixtures @ [ List.nth T.vector_fixtures 3 ]);
+  [%expect {|
+    linear 9x32 k64, scalar (1 invocations): bitwise, bitwise
+    linear 9x32 k64, zve32f128 (1 invocations): bitwise, bitwise
+    linear 9x32 k64 bias, scalar (1 invocations): bitwise, bitwise
+    linear 9x32 k64 bias, zve32f128 (1 invocations): bitwise, bitwise
+    linear 7x29 k63 bias, scalar (1 invocations): bitwise, bitwise
+    linear 7x29 k63 bias, zve32f128 (1 invocations): bitwise, bitwise
+    bmm 1x9x32 k64, scalar (1 invocations): bitwise, bitwise
+    bmm 1x9x32 k64, zve32f128 (1 invocations): bitwise, bitwise
+    bmm 3x7x29 k63, scalar (1 invocations): bitwise, bitwise
+    bmm 3x7x29 k63, zve32f128 (1 invocations): bitwise, bitwise
+    conv, batch norm, relu to C=32, scalar (3 invocations): bitwise, bitwise
+    conv, batch norm, relu to C=32, zve32f128 (3 invocations): bitwise, bitwise |}]

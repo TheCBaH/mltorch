@@ -167,15 +167,11 @@ let with_dot_accumulation policy f =
   dot_accumulation := policy;
   Fun.protect ~finally:(fun () -> dot_accumulation := before) f
 
-(* Round to the nearest binary32 (ties to even), as the hardware's result. *)
-let round32 x = Int32.float_of_bits (Int32.bits_of_float x)
-
 (* [Binary64]: exactly [sum] of the products (a product of two binary32 values
    is exact in binary64), so the default changes no result. [Binary32_sequential]:
-   [acc = fma(a k, b k, acc)] rounded to binary32 at every step, [k] ascending
-   -- the chain a binary32 reference accumulates. [Float.fma] is exact up to one
-   rounding to binary64, so a result can differ from a hardware binary32 fma
-   only where that binary64 rounding lands on a binary32 midpoint. *)
+   [acc = fmaf(a k, b k, acc)] at every step, [k] ascending, each step rounded
+   once to binary32 ({!F32_math.fma32}) -- the chain a binary32 reference
+   accumulates, and the one a vector [vfmacc] chain computes. *)
 let dot ~(lo : Semantics.position index) ~(hi : Semantics.delta index)
     ~(a : Semantics.position index -> t) ~(b : Semantics.position index -> t) =
   match !dot_accumulation with
@@ -188,7 +184,7 @@ let dot ~(lo : Semantics.position index) ~(hi : Semantics.delta index)
   | Binary32_sequential ->
       let rec loop (i : Semantics.position index) acc =
         if (i :> int) >= (hi :> int) then acc
-        else loop (Dim.succ i) (round32 (Float.fma (a i) (b i) acc))
+        else loop (Dim.succ i) (F32_math.fma32 (a i) (b i) acc)
       in
       loop lo 0.
 

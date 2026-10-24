@@ -20,5 +20,18 @@ type error =
 
 val pp_error : Format.formatter -> error -> unit
 
-val program : Ssa_program.t -> (Ssa_cfg.t, error) result
-(** The program must verify; the result verifies by {!Ssa_cfg_verify}. *)
+(** How an ordered sum's back edge takes its term. *)
+module Accumulate : sig
+  type t =
+    | Add  (** [acc + term]: the structured sum's own meaning *)
+    | Fuse_products
+        (** a term the body defines as one product [x * y] (scalar or lanewise)
+            becomes [fma (x, y, acc)], one rounding a step in source order; any
+            other term is added. The product itself stays, for its other uses.
+            The [Fp32_contracted] policy's sums. *)
+end
+
+val program :
+  ?accumulate:Accumulate.t -> Ssa_program.t -> (Ssa_cfg.t, error) result
+(** The program must verify; the result verifies by {!Ssa_cfg_verify}.
+    [accumulate] defaults to [Add]. *)

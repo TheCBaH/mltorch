@@ -16,6 +16,12 @@ module Precision : sig
 end
 
 type t =
+  | Fp32_contracted
+      (** every kernel binary32, as [Fp32_ordered], except that an ordered sum
+          whose term is one product accumulates it with a fused multiply-add, in
+          source order from the seed: [acc <- fma (x, y, acc)], each step
+          rounded once. Nothing else is fused and no sum is reordered. Only the
+          Machine IR route runs it. *)
   | Fp32_ordered
       (** every kernel binary32, each output's operation order unchanged,
           contraction disabled; vectorization only where that order is kept:
@@ -33,7 +39,25 @@ type t =
 val all : t list
 val name : t -> string
 val of_name : string -> t option
+
+(** Which multiply-adds a policy may fuse. *)
+module Contraction : sig
+  type t =
+    | Dots
+        (** only an ordered sum's single-product term into its accumulator, in
+            source order *)
+    | Everywhere  (** any multiply feeding an add, where the plan records it *)
+    | Forbidden
+
+  val name : t -> string
+  (** As the policy's identity spells it: [dots], [permitted], [none]. *)
+end
+
+val contraction : t -> Contraction.t
+
 val contraction_permitted : t -> bool
+(** [contraction p = Everywhere]: a multiply feeding any add may fuse. *)
+
 val reassociation_permitted : t -> bool
 
 val identity : t -> string
@@ -54,7 +78,8 @@ val pp_unsupported : Format.formatter -> [< unsupported ] -> unit
 
 val check : backend:Backend.t -> t -> (t, [> unsupported ]) Err.t
 (** [Reference_f64] everywhere; an fp32 policy for C, Wasm and the Machine IR
-    route, not for the interpreter or JavaScript. *)
+    route, not for the interpreter or JavaScript; [Fp32_contracted] for the
+    Machine IR route alone, the one that fuses its sums. *)
 
 (** Why a kernel stays binary64 under an fp32 policy (an error under
     [Fp32_ordered], which has no binary64 kernels). *)

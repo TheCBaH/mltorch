@@ -17,9 +17,11 @@ val pp_error : Format.formatter -> [< error ] -> unit
 
 val run :
   ?precision:Loop_numerics.Precision.t ->
+  ?accumulate:Loop_sum.Accumulate.t ->
   Loop_bundle.t ->
   constants:(Tensor_id.t -> Tensor.packed option) ->
   inputs:(Tensor_id.t -> Tensor.packed option) ->
   (Tensor.packed list, [> error ]) Err.t
-(** The graph outputs, in graph output order. [precision] defaults to binary32.
-*)
+(** The graph outputs, in graph output order. [precision] defaults to binary32,
+    [accumulate] to {!Loop_sum.Accumulate.Add}; [Fuse_products] is the oracle of
+    the [Fp32_contracted] policy. *)

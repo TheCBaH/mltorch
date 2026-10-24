@@ -8,14 +8,24 @@
     failures and mark counts, and a consumer that does not know the node loses
     nothing by being handed the expansion. *)
 
-val expand : Loop_stmt.t -> Loop_stmt.t list
+(** How an expanded sum's accumulator takes its term. *)
+module Accumulate : sig
+  type t =
+    | Add  (** [acc <- acc + term]: the structured sum's own meaning *)
+    | Fuse_products
+        (** a term that is one product [x * y] as [acc <- fma (x, y, acc)], each
+            step rounded once (under binary32, [fmaf]); any other term added:
+            the sums of the [Fp32_contracted] policy *)
+end
+
+val expand : ?accumulate:Accumulate.t -> Loop_stmt.t -> Loop_stmt.t list
 (** The statements a statement stands for, nested sums included: a [Reduce_sum]
     becomes its seed assignment and loop; any other statement is itself with its
-    nested blocks expanded. *)
+    nested blocks expanded. [accumulate] defaults to [Add]. *)
 
-val block : Loop_stmt.t list -> Loop_stmt.t list
+val block : ?accumulate:Accumulate.t -> Loop_stmt.t list -> Loop_stmt.t list
 
-val program : Loop_program.t -> Loop_program.t
+val program : ?accumulate:Accumulate.t -> Loop_program.t -> Loop_program.t
 (** {!expand} over every statement of a program. *)
 
 val recover_block : Loop_stmt.t list -> Loop_stmt.t list

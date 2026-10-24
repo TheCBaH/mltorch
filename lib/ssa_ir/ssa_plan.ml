@@ -199,22 +199,26 @@ let resolve ?target ?(alias = Ssa_effects.Conservative) ~numerics
   | ( (Ssa_numerics.Simd_fp32_ordered | Ssa_numerics.Simd_fp32_relaxed),
       Some target ) ->
       simd_fp32 ~alias ~numerics ~target p
-  | Ssa_numerics.Fp32_ordered, None -> (
-      (* every kernel binary32, nothing vectorized *)
+  | (Ssa_numerics.Fp32_contracted | Ssa_numerics.Fp32_ordered), None -> (
+      (* every kernel binary32, nothing vectorized; a contracted plan is the
+         ordered one, its sums fused only when the Machine IR lowering forms
+         their accumulations *)
       let scalar = run ~alias (before ~alias ()) p in
       match Ssa_numerics.admit scalar with
       | Error r -> reference ~alias ~numerics ~refusal:(Some r) p
-      | Ok () -> fp32_scalar ~alias ~vectorized:[] scalar)
-  | Ssa_numerics.Fp32_ordered, Some target -> (
+      | Ok () -> { (fp32_scalar ~alias ~vectorized:[] scalar) with numerics })
+  | (Ssa_numerics.Fp32_contracted | Ssa_numerics.Fp32_ordered), Some target -> (
       match fp32_vector ~alias ~target p with
-      | Ok t -> t
+      | Ok t -> { t with numerics }
       | Error r -> reference ~alias ~numerics ~refusal:(Some r) p)
 
 let admitted t =
   match (t.numerics, t.refusal) with
-  | Ssa_numerics.Fp32_ordered, Some r -> Error r
-  | ( ( Ssa_numerics.Fp32_ordered | Ssa_numerics.Reference_f64
-      | Ssa_numerics.Simd_fp32_ordered | Ssa_numerics.Simd_fp32_relaxed ),
+  | (Ssa_numerics.Fp32_contracted | Ssa_numerics.Fp32_ordered), Some r ->
+      Error r
+  | ( ( Ssa_numerics.Fp32_contracted | Ssa_numerics.Fp32_ordered
+      | Ssa_numerics.Reference_f64 | Ssa_numerics.Simd_fp32_ordered
+      | Ssa_numerics.Simd_fp32_relaxed ),
       (Some _ | None) ) ->
       Ok t
 

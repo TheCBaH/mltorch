@@ -7,6 +7,7 @@ let%expect_test "policies have distinct identities" =
     Loop_numerics.all;
   [%expect
     {|
+    numerics=fp32_contracted vectorized=f32 other=f32 fma=dots reassociation=none
     numerics=fp32_ordered vectorized=f32 other=f32 fma=none reassociation=none
     numerics=reference_f64 vectorized=f64 other=f64 fma=none reassociation=none
     numerics=simd_fp32_ordered vectorized=f32 other=f64 fma=none reassociation=none
@@ -35,22 +36,27 @@ let%expect_test "only C, Machine IR and Wasm run a fp32 policy" =
     Loop_numerics.Backend.[ C; Interpreter; Javascript; Machine; Wasm ];
   [%expect
     {|
+    the c backend does not run the fp32_contracted policy
     c fp32_ordered: ok
     c reference_f64: ok
     c simd_fp32_ordered: ok
     c simd_fp32_relaxed: ok
+    the interpreter backend does not run the fp32_contracted policy
     the interpreter backend does not run the fp32_ordered policy
     interpreter reference_f64: ok
     the interpreter backend does not run the simd_fp32_ordered policy
     the interpreter backend does not run the simd_fp32_relaxed policy
+    the javascript backend does not run the fp32_contracted policy
     the javascript backend does not run the fp32_ordered policy
     javascript reference_f64: ok
     the javascript backend does not run the simd_fp32_ordered policy
     the javascript backend does not run the simd_fp32_relaxed policy
+    machine fp32_contracted: ok
     machine fp32_ordered: ok
     machine reference_f64: ok
     machine simd_fp32_ordered: ok
     machine simd_fp32_relaxed: ok
+    the wasm backend does not run the fp32_contracted policy
     wasm fp32_ordered: ok
     wasm reference_f64: ok
     wasm simd_fp32_ordered: ok
@@ -241,6 +247,7 @@ let%expect_test "Fp32_ordered admits a dequantizing read" =
     Loop_numerics.all;
   [%expect
     {|
+    fp32_contracted: f32, admitted
     fp32_ordered: f32, admitted
     reference_f64: f64, admitted
     simd_fp32_ordered: f64, admitted

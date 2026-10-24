@@ -1,5 +1,34 @@
 let round32 x = Int32.float_of_bits (Int32.bits_of_float x)
 
+(* The product of two binary32 values is exact in binary64 (48 bits). Its sum
+   with [c] is split exactly by TwoSum into [s + e]; rounding [s + e] straight
+   to binary32 is correct only if [s] carries a sticky bit, so when [e] is
+   nonzero [s] is first replaced by the neighbouring binary64 whose last
+   mantissa bit is odd (round to odd): binary64 has more than [2 * 24 + 2]
+   bits, so that second rounding never changes the answer. Nonfinite operands
+   fall back to ordinary arithmetic, which is already IEEE for them. Only
+   [Int64] bit operations, so js_of_ocaml computes the same bits. *)
+let fma32 a b c =
+  let finite x = Float.is_finite x in
+  if not (finite a && finite b && finite c) then round32 ((a *. b) +. c)
+  else
+    let p = a *. b in
+    let s = p +. c in
+    let bb = s -. p in
+    let e = p -. (s -. bb) +. (c -. bb) in
+    if e = 0. then round32 s
+    else
+      let bits = Int64.bits_of_float s in
+      let odd =
+        if Int64.logand bits 1L = 1L then s
+        else
+          let toward_larger_magnitude = e > 0. = (s > 0.) in
+          Int64.float_of_bits
+            (if toward_larger_magnitude then Int64.succ bits
+             else Int64.pred bits)
+      in
+      round32 odd
+
 module type OPS = sig
   type t
 

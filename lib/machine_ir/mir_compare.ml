@@ -188,7 +188,8 @@ let cell_of (o : Mir_observation.t) source i =
 let relaxed_external ~(planning : Mir_planning.t) ~(fused : Mir_observation.t)
     ~(unfused : Mir_observation.t) ~(external_ : Mir_observation.t) =
   match planning.Mir_planning.fma with
-  | Mir_planning.Fma.Exact | Mir_planning.Fma.Forbidden ->
+  | Mir_planning.Fma.Dots | Mir_planning.Fma.Exact | Mir_planning.Fma.Forbidden
+    ->
       observations ~expected:fused ~actual:external_ ()
   | Mir_planning.Fma.Relaxed_madd ->
       let cell source i a b =

@@ -27,6 +27,7 @@
   core
   err_trace
   expr
+  f32_math
   fmt
   interval_alloc
   jsont
@@ -43,6 +44,7 @@
   core
   err_trace
   expr
+  f32_math
   fmt
   interval_alloc
   jsont

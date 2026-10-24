@@ -70,10 +70,11 @@ let exact_rounded x w =
     x;
   r32 (!hi +. !lo)
 
-(* What a binary32 sequential fused-multiply-add chain gives. *)
+(* What a binary32 sequential fused-multiply-add chain gives: each step
+   rounded once ([F32_math.fma32], checked against its own oracle there). *)
 let sequential_fma x w =
   let acc = ref 0. in
-  Array.iteri (fun j xj -> acc := r32 (Float.fma xj w.(j) !acc)) x;
+  Array.iteri (fun j xj -> acc := F32_math.fma32 xj w.(j) !acc) x;
   !acc
 
 let%expect_test
@@ -209,3 +210,18 @@ let%expect_test "with_dot_accumulation restores the policy, even on a raise" =
     default: 1.000000238
     chain:   1
     after a raise: 1.000000238 |}]
+
+(* Each step of the chain is rounded once. [1 + (2^-24 + 2^-57)] rounds in
+   binary64 onto the binary32 midpoint between 1 and [1 + 2^-23]; rounded
+   again it ties to 1. One rounding gives [1 + 2^-23]. *)
+let%expect_test "the binary32-sequential chain rounds each step once" =
+  let u = ldexp 1. (-11) in
+  let a = [| 1.; 1. +. u |]
+  and b = [| 1.; ldexp 1. (-24) *. (1. -. u +. (u *. u)) |] in
+  let chain () =
+    Direct.dot ~lo:Direct.index_zero ~hi:(Direct.index_const 2)
+      ~a:(fun k -> a.((k :> int)))
+      ~b:(fun k -> b.((k :> int)))
+  in
+  Fmt.pr "%h@." (Direct.with_dot_accumulation Direct.Binary32_sequential chain);
+  [%expect {| 0x1.000002p+0 |}]

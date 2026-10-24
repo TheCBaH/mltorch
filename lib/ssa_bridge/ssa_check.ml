@@ -226,8 +226,11 @@ let run_planned ?(alias = Ssa_effects.Distinct_buffers) ?resolve ?reference
             | Ssa_numerics.Precision.F64, _ ->
                 compare ~reference:(Lazy.force reference.binary64) ~ssa:result
             | ( Ssa_numerics.Precision.F32,
-                ( Ssa_numerics.Fp32_ordered | Ssa_numerics.Reference_f64
-                | Ssa_numerics.Simd_fp32_ordered ) ) -> (
+                (* a contracted plan is the ordered one until the Machine IR
+                   lowering fuses its sums, which no executor here does *)
+                ( Ssa_numerics.Fp32_contracted | Ssa_numerics.Fp32_ordered
+                | Ssa_numerics.Reference_f64 | Ssa_numerics.Simd_fp32_ordered )
+              ) -> (
                 match Lazy.force reference.binary32 with
                 | None ->
                     Disagree

@@ -8,6 +8,10 @@ let pp_error fmt = function
 
 exception Refused of error
 
+module Accumulate = struct
+  type t = Add | Fuse_products
+end
+
 type builder = {
   mutable next_value : Ssa_id.Value.Next.t;
   mutable next_block : Ssa_id.Block.Next.t;
@@ -18,6 +22,7 @@ type builder = {
   mutable params : Ssa_value.t list;
   mutable body : Ssa_instr.t list;
   ranges : Ssa_range.t;
+  accumulate : Accumulate.t;
 }
 
 let fresh_value b ty =
@@ -143,8 +148,28 @@ and stmt b : Ssa_region.t Ssa_stmt.t -> unit = function
         | _ -> invalid_arg "Ssa_cfg_lower: an ordered sum's yields"
       in
       (* the same left fold the structured form defines: a binary32 add rounds
-         once, a vector adds lane by lane *)
-      let add = Ssa_op.Float_binary (Expr.Value.Add, acc, term) in
+         once, a vector adds lane by lane; under [Fuse_products] a term the body
+         makes as one product is fused into the accumulator instead *)
+      let product =
+        List.find_map
+          (function
+            | Ssa_stmt.Instr { Ssa_instr.results = [ r ]; op; _ }
+              when Ssa_id.Value.equal r.Ssa_value.id term.Ssa_value.id -> (
+                match op with
+                | Ssa_op.Float_binary (Expr.Value.Mul, x, y)
+                | Ssa_op.Lanewise (Ssa_op.Float_binary (Expr.Value.Mul, x, y))
+                  ->
+                    Some (x, y)
+                | _ -> None)
+            | _ -> None)
+          body.Ssa_region.body
+      in
+      let add =
+        match (b.accumulate, product) with
+        | Accumulate.Fuse_products, Some (x, y) -> Ssa_op.Float_fma (x, y, acc)
+        | (Accumulate.Add | Accumulate.Fuse_products), _ ->
+            Ssa_op.Float_binary (Expr.Value.Add, acc, term)
+      in
       let sum =
         match seed.Ssa_value.ty with
         | Ssa_type.Vec _ | Ssa_type.Mask _ ->
@@ -157,7 +182,7 @@ and stmt b : Ssa_region.t Ssa_stmt.t -> unit = function
         (Ssa_cfg_terminator.Jump (edge header [ next; sum; effect_out ]))
         ~next:exit ~params:results
 
-let program (p : Ssa_program.t) =
+let program ?(accumulate = Accumulate.Add) (p : Ssa_program.t) =
   let entry = p.Ssa_program.entry in
   let first = Ssa_id.Block.Next.first in
   let id, next_block = Ssa_id.Block.Next.alloc first in
@@ -170,6 +195,7 @@ let program (p : Ssa_program.t) =
       params = entry.Ssa_region.params;
       body = [];
       ranges = Ssa_range.analyze p;
+      accumulate;
     }
   in
   match

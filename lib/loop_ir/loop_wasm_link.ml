@@ -82,8 +82,7 @@ let numerics_line ~numerics ~precisions =
         | true, false -> "f32"
         | false, _ -> "f64")
         (if f32 then "exact" else "round-and-widen")
-        (if Loop_numerics.contraction_permitted numerics then "permitted"
-         else "none")
+        (Loop_numerics.Contraction.name (Loop_numerics.contraction numerics))
         (if Loop_numerics.reassociation_permitted numerics then "permitted"
          else "none")
 
