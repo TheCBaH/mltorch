@@ -7,7 +7,7 @@ D extension, the default RV32 profile of `riscv32_process_design.md`. This
 record grows with the route; today it covers the release pin, the manifest
 decoder, the simulator profiles, the memory layout, the wire protocol, the
 ELF, the guest runtime, the runner, the CompCert loader, the RV32 Machine IR
-route and the peak-throughput suite.
+route, the peak-throughput suite and the full subsystem.
 
 ## The release pin
 
@@ -263,6 +263,9 @@ local arrays, have no vector loops, and cost the same.
 
 ## Peak throughput (`test/coralnpu_peak`)
 
+The compiler gaps and proposed route from these goalposts to generated RVV
+groups and Zvt contractions are recorded in `coralnpu_codegen_design.md`.
+
 `make coralnpu.peak.runtest` measures the RTL vector core (`rvv-core-mini-axi`)
 and the VME core's matrix engine (`vme-core-mini-axi`) at their arithmetic
 ceilings. Every kernel is built from typed instructions (the
@@ -440,3 +443,244 @@ did not help either: zeroing each accumulator right after its store, and
 dropping the `vsetvli`s around a block (the kernel's own `vse16.v` already
 stores 64 halfwords at e8/m4, but zeroing the whole accumulator needs the wide
 type once `vl` is below the lanes).
+
+## The subsystem (`Coral_soc_run`)
+
+The release's subsystem archive, pinned in the same lock file (`make
+coralnpu.subsystem.download`, `CORALNPU_SUBSYSTEM_DATA`), packages
+`Vchip_{vector,matrix}_{normal,highmem}`: the reference SoC around the same
+cores, with 4 MiB of RTL SRAM at `0x2000_0000`, a ROM, peripherals and the DMA
+engine. Its manifest decodes like the emulators': interface `subsystem-cli`
+makes the `Subsystem` simulator, ROM and DDR are regions that are never
+loadable (the DDR aperture has nothing behind it), and each region's
+`dma_reachable` is the manifest's `access.dma`. A slot's `Home` (`Any`, `Dtcm`,
+`Ram`) overrides first fit, so a kernel can keep an operand in SRAM while DTCM
+has room, or be refused rather than moved out of DTCM.
+
+There is no HTIF. The simulator backdoor-loads the ELF (`--load_elf`), then
+waits on a TCP port (`SPI_DPI_PORT`) for a host to start the core through the
+SoC's SPI-to-TileLink bridge: the PC to the core CSR base + 4, then 1 and 0 to
+the base (clock gate, reset). The release does that with a Python loader;
+`Coral_spi` is the same protocol in OCaml. A read of several beats puts a
+framing byte between them, which the release's loader never meets because it
+reads one beat at a time, so `Coral_spi` does too. The simulator never exits;
+the host kills its process group.
+
+The bridge moves about a kilobyte a second, so no slot bytes cross it. Every
+slot is a section of the ELF (read slots with the caller's bytes, the others
+zero), and the guest's runtime (`Coral_runtime.module_ ~mailbox:true`) neither
+reads nor zeroes them. After the timed call it writes a 256-byte record
+(`Coral_mailbox`) where the HTIF block would be: magic, layout digest, status,
+`mcycle` and `minstret`, a hash of each written slot, and last a done word,
+then sends one byte on UART1 (its baud set from the clock table). The host
+waits for that byte in the simulator's UART log, then reads the record. A trap
+leaves a trap record the same way. Polling the done word over the bridge
+instead made DMA-heavy runs vary by a beat (14 cycles) from run to run: each
+bridge read takes the DTCM device port the DMA writes through, at a wall-clock
+moment the run cannot repeat. Watching the log reads nothing over the bus, and
+the counts repeat, even with several runs at once. The hash is FNV-1a over 32-bit words with a fold, `h xor
+(h lsr 15)`, after each multiply: without it a word's top bit never reaches the
+others, and the suite's own check (an output hashed against the kernel's input,
+eight floats negated) passed, because the sign flips cancel in pairs.
+
+`make coralnpu.soc.runtest` negates binary32 floats on all four variants, with
+the slots in DTCM and in SRAM, then fails one way each: illegal instruction
+(`mcause` 2), a store to ITCM (7, `mtval` 0x100), a spin (`Timeout`), a wrong
+digest, a missing simulator, and an output hashed against the wrong bytes.
+Cycles repeat exactly from run to run: eight floats take 202 cycles in DTCM and
+322 in SRAM, 4096 in SRAM 139314. The simulator runs about 20 000 cycles a
+second on the aarch64 devcontainer, which bounds every workload it measures.
+
+The peak suite's kernels, unchanged and with everything in DTCM, take the
+standalone cores' cycles on the subsystem's normal-TCM cores, within four
+cycles of code placement (`test/coralnpu_soc/peak.t`): RVV GEMMs for INT8,
+FP32 and BF16 on both the vector and the matrix SoC, Zvt tile multiplies and
+GEMMs for INT8 and FP32. So the peak rates are the subsystem's compute
+ceilings. Zvt BF16 (`vtfmm.alt`) is wrong there, although the manifest lists
+BF16 among the matrix formats: the engine's BF16 tile multiplies need the
+build define `-DZVTBF16FMM_ON`, which the producer adds in a wrapper patch
+later than v0.0.4 (whose provenance ends at patch 0024). A define is not a
+generator option, so the manifest does not show it. Consistently,
+`tile_bf16` takes 639 cycles against the standalone 1470, under the 1024 its
+256 tile multiplies need at one per 4 cycles: they never occupy the PE array.
+
+### Raw transfer speed and the DMA (`test/coralnpu_dma`)
+
+`Coral_dma` is the engine as data: its registers, and descriptor chains the
+host builds for the layout and loads with the image (an `In` slot in SRAM), so
+the guest's whole driver is two stores and a poll of `STATUS.done`, which a
+start clears. Descriptors are checked before loading: a length of one to 16 MiB
+- 1 bytes in whole beats, both ends beat-aligned and each within one region the
+manifest marks `dma`. The kernel DSL gained `andi`, `beqz`, `csrr mcycle`,
+`fence` and `sub` for it.
+
+`make coralnpu.dma.runtest` times each transfer inside its kernel (mcycle
+around it; the DMA from the descriptor address written to `done` seen), the
+timings read back over the bridge (`Coral_soc_run.run ~read_back`) and the
+destination checked by hash. Shortening a chain's last descriptor by a beat
+turns it red. All four subsystem variants give the same cycles. In bytes a
+cycle, at sizes where the start no longer counts:
+
+| Path | DMA, 16-byte beats | RVV copy, e8 m8 | scalar copy |
+|---|---|---|---|
+| SRAM -> DTCM | 1.14 | 2.42 | 0.44 |
+| DTCM -> SRAM | 1.14 | 2.12 | 0.40 |
+| SRAM -> SRAM | 1.77 | 1.39 | 0.29 |
+| DTCM -> DTCM | 0.84 | 6.15 | 0.80 |
+
+The DMA starts in about 57 cycles and then moves one beat at a time, read then
+written: about 14 cycles a beat between SRAM and DTCM, 9 SRAM to SRAM, 19 DTCM
+to DTCM. A narrower beat takes as long, so only 16-byte beats are worth using.
+Each further descriptor of a chain costs about 8 cycles, so a chain of
+row-sized pieces keeps most of the rate (64-byte pieces: 0.99 B/cycle). The
+core's RVV loads read SRAM at 3.0 B/cycle and DTCM at 12.6; its copy needs
+LMUL 8 to reach 2.4 (1.45 at m1). So the DMA is the slower mover: its use is
+that it runs beside the core.
+
+Beside the core, an 8 KiB SRAM-to-DTCM chain against as many cycles of work:
+ALU work, or the core reading SRAM, leaves both at full speed. While the core
+streams DTCM at its full rate (RVV loads or stores), the core is not slowed,
+but the DMA's writes into DTCM lose arbitration and it advances at about 70% of
+its rate until the core stops. A kernel paced by its DTCM loads therefore gets
+about 0.8 B/cycle of DMA in the background, not 1.14.
+
+Descriptor polling (`Coral_dma.Poll`, `poll_en`): the engine reads the polled
+word before every beat and waits until `word land mask = value`, as upstream's
+DMA document says. A one-beat descriptor on a flag is a gate: the chain stays
+on it (`CUR_DESC`) until the core writes the flag, then runs on about as fast
+as a fresh start. Polling every beat costs about 4 cycles a beat on an SRAM
+word and 9 on a DTCM one, so it is for pacing peripherals, not memory copies.
+A DMA spinning on a flag, in SRAM or DTCM, costs the core's DTCM stream 1%.
+A flag-and-token handshake (51 cycles to the token seen) is slower than
+starting a one-beat chain and polling `STATUS` (35), so the matrix multiplies
+keep a chain a step started by the core: gating would save nothing.
+
+### Matrix multiplies fed by the DMA (`test/coralnpu_dma/gemm_*.t`)
+
+`Dma_gemm` computes C[M x W] = A[M x K] B[K x W] with A, B and C in SRAM. B is
+resident in DTCM, copied in a prologue. A streams a block of rows at a time
+into a two-block ring in DTCM. Step i computes block i while one chain fetches
+block i + 1 (and, with `c-by-dma`, writes out block i - 1's rows from a second
+ring); the chain starts before the block (after a `fence`, since it may copy
+rows just stored) and is waited for after it. A start while the engine is busy
+is ignored, so the wait is what keeps a chain from being dropped: removing it
+fails the DMA-bound cases (the compute-bound RVV one hides it), and swapping
+the ring halves fails every case. Each matrix crosses the bus once, the least
+any order moves. The block is the peak kernels' own
+(`Peak_zvt.Tile_gemm.block_items` was split out of its kernel, the peak bytes
+unchanged), packed as they pack it, and C is checked against the host's
+product.
+
+Two choices of mover, since the core copies faster than the DMA and is idle
+while it waits: B's prologue by the DMA alone (`b-by-dma`), or a quarter by the
+DMA and the rest by the core's RVV copy beside it (`b-shared`, 2.4 and 0.8
+B/cycle); C's rows by the DMA (`c-by-dma`) or by the block's own stores
+straight to SRAM (`c-by-core`, no C ring). All cycles are the whole call's,
+prologue included:
+
+| Engine, SoC | M x W x K | b-by-dma c-by-dma | b-shared, best C | ops/cycle |
+|---|---|---|---|---|
+| RVV INT8 -> INT16, 32 KiB | 256 x 64 x 256 | 29.0 | c-by-dma | 30.0 |
+| Zvt INT8 -> INT32, 32 KiB | 128 x 32 x 128 | 31.1 | c-by-core | 56.1 |
+| Zvt INT8 -> INT32, 1 MiB | 256 x 128 x 512 | 107.5 | c-by-core | 182.7 |
+| Zvt INT8 -> INT32, 1 MiB | 256 x 128 x 1024 | | c-by-core | 202.5 |
+| Zvt FP32, 1 MiB | 256 x 128 x 256 | 32.8 | c-by-core | 50.6 |
+
+RVV hides the DMA entirely and runs at 96% of the peak suite's DTCM-resident
+31.3; its stores of C to SRAM cost more than the DMA's copy, so C stays with
+the DMA. Zvt consumes operands four to eight times faster, so the movers set
+its pace. With the DMA alone a kernel takes at least the bytes moved over
+about 1.1 B/cycle, A (M K s), B (K W s) and C (M W c) for s-byte inputs and
+c-byte results, so its rate is at most 2 / (s/W + s/M + c/K) times that: Zvt
+INT8 no better than RVV on 32 KiB, 107.5 on 1 MiB (the 320 KiB moved at 1.03
+B/cycle). With the core writing C and sharing B, a block costs about what the
+DMA takes for its A and the core for its tile multiplies and C's stores, and
+INT8 reaches 202.5 with K = 1024: 58% of the engine's DTCM-resident burst with
+every operand in SRAM, 6.7 times RVV. Widening W to 256 at K = 512 makes the
+core's stores of C the bound instead (190.4; with C by the DMA, 154.9). FP32
+moves four bytes an input element and is held near 50 whatever moves them.
+INT8 at K = 1024 and FP32 at K = 256 take the same cycles: the same bytes, the
+same tile multiplies (an INT8 one reduces four k values, an FP32 one one).
+
+RVV BF16 -> FP32 and FP32 (three rows of 32 lanes a block, the peak kernels'
+blocks) run at 12.2 and 9.3 on the 32 KiB vector SoC, 97% and 94% of their
+DTCM-resident 12.6 and 9.9. The control is the peak kernel itself at the same
+shape with A, B and C left in SRAM for the core's own loads and stores: RVV
+INT8 9.9, BF16 4.4, FP32 3.0, so the DMA-fed kernels are about three times
+faster; Zvt INT8 80.5 and FP32 21.6 on 1 MiB, 2.3 times slower than fed. On
+the 32 KiB SoC, Zvt INT8 at 128 x 32 x 128 reads SRAM in place as fast as the
+DMA feeds it (57.4 against 56.1): there the DMA gains nothing.
+
+`Dma_model` predicts a variant's cycles from the measured rates alone: the DMA
+at 16/14 B/cycle, 0.8 beside the core's DTCM streaming and 1.03 beside its
+copy, 57 cycles a start; the core's copy at 2.42 and its stores of C to SRAM at
+2.34; each engine's DTCM-resident burst; 50 cycles a step. A step overlaps the
+block's multiplies (contended) and its stores of C (not) with the chain, the
+chain's start included; the rest of the chain moves at the full rate. It is
+within 0 to +4% of every run in the crams and of five runs it was not fitted
+to, and `Dma_model.variants`
+ranks the variants that fit a DTCM budget: on 32 KiB, RVV with the shared
+prologue and C by the DMA, as measured; on 1 MiB, Zvt with the shared
+prologue and C by the core up to W = 256. Its pick for 512 x 256 x 1024 INT8,
+measured afterwards, took 1097986 cycles against 1092949 predicted: 244.5
+operations a cycle, 70% of the engine's DTCM-resident burst with A, B and C in
+SRAM. At W = 512 it predicts the core's stores of C would bound the block
+and picks C by the DMA instead: measured, 1961336 cycles (273.7 operations a
+cycle, 79% of the burst) against 2173969 with C by the core, the model 3%
+and 1% off. A C row of 2048 bytes or more needs its tile stores' stride in a
+register, and a block that wide is more than a branch reaches, so the step
+loop closes with a `j`.
+
+### Geometries (`Dma_gemm.Geometry`, `Dma_gemm.Out.Split`)
+
+Resident B needs B in DTCM, and A packed. Four further shapes lift those
+limits; each is the same step pipeline with another piece streamed:
+
+- **C split by rows** (`c-split-N`, Zvt): a block's first N of 32 rows go
+  straight to SRAM by the core's tile stores, the rest to the C ring for the
+  next chain (`Peak_zvt.Tile_gemm.block_items ~split`). At 512 x 256 x 1024
+  INT8, N = 20 takes 1047424 cycles (256.3 ops/cycle) against 1097986 with
+  the core storing all of C. At W = 512 the model's pick, N = 8, gained
+  nothing (1971328 against 1961336 with C by the DMA): there the core's stores
+  and the DMA contend for SRAM, which the model does not price (it is 5% low).
+- **Resident A** (`resident-a/P`): A stays in DTCM; B streams by panels of P
+  columns, packed so a panel is one descriptor, and a step runs every block of
+  A against its panel. C's rows, a panel wide, go out by the core's stores at
+  the full row stride, or from the C ring a descriptor a row (8 cycles each,
+  now in the model). It is how RVV, whose block is one vector wide, reaches W
+  past 64: RVV INT8 at 32 x 512 x 128 on 32 KiB runs at 28.3 (B is 64 KiB),
+  the direct control 9.7; RVV BF16 at 24 x 1024 x 128, 12.1. Zvt INT8 at 128 x
+  1024 x 1024 on 1 MiB, with a 1 MiB B, runs at 233.0.
+- **Split K** (`split-k/C`): B in chunks of C rows, two in DTCM; the next
+  chunk arrives a share a step beside the current chunk's steps, so no step
+  waits for a whole chunk. A streams a block of a chunk's columns a step, and
+  each block's partial sums come back from SRAM through the C ring before its
+  step (from a zero slot for the first chunk) and go out after it: the
+  ring's half is refilled after it is emptied, in the same chain, which needs
+  two blocks or more. The RVV block starts its accumulators by vector loads,
+  the Zvt one by tile loads (`vtle32`, `Peak_zvt.Tile.load`, `block_items
+  ~accumulate`). RVV INT8 at 128 x 64 x 1024 on 32 KiB runs at 28.7, 92% of the
+  DTCM-resident rate, with B twice the DTCM; Zvt INT8 at 256 x 32 x 1024 on 32
+  KiB, 22.6, bound by the DMA carrying four-byte partial sums both ways; Zvt
+  INT8 at 256 x 256 x 4096 on 1 MiB, where A and B are 1 MiB each, 137.2 with
+  chunks of 1024.
+- **Row-major A** (`row-major-a`): A as an activation arrives. A block's rows
+  are contiguous, so one descriptor still brings them; the core packs them in
+  DTCM (a vector load and a strided `vsse` a row, VLMAX elements a trip)
+  before the block. A strided store writes an element a beat, several when
+  they share one: RVV INT8's 2-byte stride packs 4.4 elements a cycle (5% on
+  the step, 294312 cycles against 279456), Zvt's 32-byte one 0.9 (328054
+  against 183697). For Zvt, A is worth packing where it is produced.
+
+`vtle32` is `vtse32` with the load opcode, from MPACT's decoder row in
+coral-isa; `vsse` goes through the standard encoder. Both are checked on the
+SoC by the results. Mutating each mechanism turns its case red: the C split's
+descriptor covering the core's rows, resident A's panel halves collapsed,
+split K without its partial sums or writing the next chunk into the current
+one, the packing's stride. The model now overlaps a chain's start with the
+step's work, which brought the RVV runs from +3-4% to 0%; it is within 5% of
+every new run, cram or not, but split K's small RVV steps (+6%).
+`Dma_model.variants` adds the geometries. It picks resident A where B does
+not fit, and (unmeasured) at 512 x 64 x 1024 where it does, since the larger
+operand then arrives at the core's copy rate in the prologue; split K where
+neither operand fits.
