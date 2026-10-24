@@ -87,6 +87,8 @@ let samples =
         },
       insn "vsetvli"
         [ reg "t0"; reg "zero"; sym "e8"; sym "m2"; sym "ta"; sym "ma" ] );
+    ( Vsse { eew = Vtype.Sew.E8; src = Vreg.v0; base = Gpr.a5; stride = Gpr.t6 },
+      insn "vsse8.v" [ reg "v0"; mem "a5" 0; reg "t6" ] );
     ( Vv { op = Insn.Vv_op.Vadd; dst = Vreg.v16; a = Vreg.v8; b = Vreg.v12 },
       insn "vadd.vv" [ reg "v16"; reg "v8"; reg "v12" ] );
     ( Vwmacc_vx { acc = Vreg.v16; scalar = Gpr.t4; src = Vreg.v4 },
@@ -119,7 +121,7 @@ let%expect_test "each variant lowers to the form Rv32_asm makes" =
           | _ -> Fmt.pr "unexpected module shape@."))
     samples;
   Fmt.pr "%d variants compared@." (List.length samples);
-  [%expect {| 29 variants compared |}]
+  [%expect {| 30 variants compared |}]
 
 let bf16 =
   [

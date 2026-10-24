@@ -48,6 +48,9 @@ let%expect_test "each Zvt form encodes to Coral's word" =
       (Insn.Msettn { dst = Gpr.a1; avl = Gpr.a2 }, 0x840675d7L);
       (Insn.Vtzero { dst = Mtreg.mt0 }, 0x43e06057L);
       (Insn.Vtse { eew = E32; slice = Gpr.a2; base = Gpr.sp }, 0x52c17027L);
+      (* MPACT's decoder row for vtle32 (coral-isa's table), vtse32's with the
+         load opcode *)
+      (Insn.Vtle { eew = E32; slice = Gpr.a2; base = Gpr.sp }, 0x52c17007L);
       ( Insn.Vtmm { op = Vtmms; acc = Mtreg.mt0; a = Vreg.v8; b = Vreg.v16 },
         0xf28800f7L );
       ( Insn.Vtmm { op = Vtmmu; acc = mt4; a = Vreg.v8; b = Vreg.v16 },
@@ -63,6 +66,7 @@ let%expect_test "each Zvt form encodes to Coral's word" =
     840675d7 = msettn a1, a2
     43e06057 = vtzero mt0
     52c17027 = vtse32 a2, (sp)
+    52c17007 = vtle32 a2, (sp)
     f28800f7 = vtmms.tvv mt0, v8, v16
     f2880477 = vtmmu.tvv mt4, v8, v16
     f2881077 = vtfmm.tvv mt0, v8, v16

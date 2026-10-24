@@ -123,6 +123,15 @@ type t =
   | Vmv_v_x of { dst : Vreg.t; src : Gpr.t }
   | Vse of { eew : Rv32_kernel_vtype.Sew.t; src : Vreg.t; base : Gpr.t }
   | Vsetvli of { avl : Rv32_kernel_vtype.Avl.t; vtype : Rv32_kernel_vtype.t }
+  | Vsse of {
+      eew : Rv32_kernel_vtype.Sew.t;
+      src : Vreg.t;
+      base : Gpr.t;
+      stride : Gpr.t;
+    }  (** [stride] bytes from an element's address to the next *)
+  | Vtle of { eew : Rv32_kernel_vtype.Sew.t; slice : Gpr.t; base : Gpr.t }
+      (** Zvt: one row or column of a tile, chosen by [slice] as for [vtse],
+          loaded from [base]. *)
   | Vtmm of { op : Tile_op.t; acc : Mtreg.t; a : Vreg.t; b : Vreg.t }
   | Vtse of { eew : Rv32_kernel_vtype.Sew.t; slice : Gpr.t; base : Gpr.t }
       (** Zvt: one row or column of a tile, chosen by [slice] (tile, direction
@@ -133,11 +142,12 @@ type t =
 
 (* The Rivet vendor feature [i] needs beyond the standard ones, if any. *)
 let extension = function
-  | Msetmtype _ | Msettn _ | Vtmm _ | Vtse _ | Vtzero _ -> Some zvt_feature
+  | Msetmtype _ | Msettn _ | Vtle _ | Vtmm _ | Vtse _ | Vtzero _ ->
+      Some zvt_feature
   | Add _ | Addi _ | Andi _ | Beqz _ | Bnez _ | Csrr _ | Fence | Flh _ | Flw _
   | J _ | Li _ | Lui _ | Lw _ | Mv _ | Ret | Srli _ | Sub _ | Sw _ | Vfmacc_vf _
   | Vfwmaccbf16_vf _ | Vle _ | Vmacc_vx _ | Vmv_v_i _ | Vmv_v_x _ | Vse _
-  | Vsetvli _ | Vv _ | Vwmacc_vx _ ->
+  | Vsetvli _ | Vsse _ | Vv _ | Vwmacc_vx _ ->
       None
 
 (* The one exhaustive spelling of each mnemonic; the printer and the lowering
@@ -171,7 +181,9 @@ let mnemonic = function
   | Vmv_v_x _ -> "vmv.v.x"
   | Vse { eew; _ } -> Fmt.str "vse%d.v" (Rv32_kernel_vtype.Sew.bits eew)
   | Vsetvli _ -> "vsetvli"
+  | Vsse { eew; _ } -> Fmt.str "vsse%d.v" (Rv32_kernel_vtype.Sew.bits eew)
   | Vtmm { op; _ } -> Tile_op.mnemonic op
+  | Vtle { eew; _ } -> Fmt.str "vtle%d" (Rv32_kernel_vtype.Sew.bits eew)
   | Vtse { eew; _ } -> Fmt.str "vtse%d" (Rv32_kernel_vtype.Sew.bits eew)
   | Vtzero _ -> "vtzero"
   | Vv { op; _ } -> Vv_op.mnemonic op
@@ -216,6 +228,8 @@ let pp ppf i =
       Fmt.pf ppf "%s %a, %a" m Vreg.pp dst Imm.Simm5.pp imm
   | Vmv_v_x { dst; src } -> Fmt.pf ppf "%s %a, %a" m Vreg.pp dst Gpr.pp src
   | Vse { src; base; _ } -> Fmt.pf ppf "%s %a, (%a)" m Vreg.pp src Gpr.pp base
+  | Vsse { src; base; stride; _ } ->
+      Fmt.pf ppf "%s %a, (%a), %a" m Vreg.pp src Gpr.pp base Gpr.pp stride
   | Vsetvli { avl; vtype } ->
       let rd, rs1 =
         match avl with Reg r -> (Gpr.zero, r) | Vlmax { vl } -> (vl, Gpr.zero)
@@ -224,7 +238,7 @@ let pp ppf i =
         vtype
   | Vtmm { acc; a; b; _ } ->
       Fmt.pf ppf "%s %a, %a, %a" m Mtreg.pp acc Vreg.pp a Vreg.pp b
-  | Vtse { slice; base; _ } ->
+  | Vtle { slice; base; _ } | Vtse { slice; base; _ } ->
       Fmt.pf ppf "%s %a, (%a)" m Gpr.pp slice Gpr.pp base
   | Vtzero { dst } -> Fmt.pf ppf "%s %a" m Mtreg.pp dst
   | Vv { dst; a; b; _ } ->
@@ -265,8 +279,8 @@ let out_of_range i =
   | Vmv_v_i { imm; _ } -> check (module Imm.Simm5) imm
   | Add _ | Beqz _ | Bnez _ | Csrr _ | Fence | J _ | Msetmtype _ | Msettn _
   | Mv _ | Ret | Sub _ | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _ | Vmacc_vx _
-  | Vmv_v_x _ | Vse _ | Vsetvli _ | Vtmm _ | Vtse _ | Vtzero _ | Vv _
-  | Vwmacc_vx _ ->
+  | Vmv_v_x _ | Vse _ | Vsetvli _ | Vsse _ | Vtle _ | Vtmm _ | Vtse _ | Vtzero _
+  | Vv _ | Vwmacc_vx _ ->
       []
 
 (* The labels [i] branches to. *)
@@ -275,7 +289,8 @@ let targets = function
   | Add _ | Addi _ | Andi _ | Csrr _ | Fence | Flh _ | Flw _ | Li _ | Lui _
   | Lw _ | Msetmtype _ | Msettn _ | Mv _ | Ret | Srli _ | Sub _ | Sw _
   | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _ | Vmacc_vx _ | Vmv_v_i _ | Vmv_v_x _
-  | Vse _ | Vsetvli _ | Vtmm _ | Vtse _ | Vtzero _ | Vv _ | Vwmacc_vx _ ->
+  | Vse _ | Vsetvli _ | Vsse _ | Vtle _ | Vtmm _ | Vtse _ | Vtzero _ | Vv _
+  | Vwmacc_vx _ ->
       []
 
 (* The registers [i] reads, in operand order. [zero] is a constant, not a
@@ -306,10 +321,11 @@ let reads i =
       vregs [ acc ] @ gprs [ scalar ] @ vregs [ src ]
   | Vmv_v_x { src; _ } -> gprs [ src ]
   | Vse { src; base; _ } -> vregs [ src ] @ gprs [ base ]
+  | Vsse { src; base; stride; _ } -> vregs [ src ] @ gprs [ base; stride ]
   | Vsetvli { avl = Reg r; _ } -> gprs [ r ]
   | Vsetvli { avl = Vlmax _; _ } -> []
   | Vtmm { acc; a; b; _ } -> [ Reg_ref.Mtreg acc ] @ vregs [ a; b ]
-  | Vtse { slice; base; _ } -> gprs [ slice; base ]
+  | Vtle { slice; base; _ } | Vtse { slice; base; _ } -> gprs [ slice; base ]
   | Vv { op; dst; a; b } -> (
       match op with
       | Vfmacc | Vfwmaccbf16 | Vmacc | Vwmacc -> vregs [ dst; a; b ]
@@ -334,7 +350,10 @@ let writes i =
   | Sub { dst; _ } ->
       gpr dst
   | Flh { dst; _ } | Flw { dst; _ } -> [ Reg_ref.Fpr dst ]
-  | Beqz _ | Bnez _ | Fence | J _ | Ret | Sw _ | Vse _ | Vtse _ -> []
+  (* The tile [vtle] writes is chosen at run time, by [slice]. *)
+  | Beqz _ | Bnez _ | Fence | J _ | Ret | Sw _ | Vse _ | Vsse _ | Vtle _
+  | Vtse _ ->
+      []
   | Vtmm { acc = dst; _ } | Vtzero { dst } -> [ Reg_ref.Mtreg dst ]
   | Vfmacc_vf { acc; _ }
   | Vfwmaccbf16_vf { acc; _ }
