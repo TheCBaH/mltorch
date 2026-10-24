@@ -98,11 +98,11 @@ module Tile = struct
   (* The first [rows] rows of tile [mt] to [base], [stride] bytes apart, [vl]
      elements each, which leaves [base] past the last row: a slice is the tile
      number at bit 27 and the row below it. A stride too far for an [addi]
-     goes through [t2]. *)
-  let store ~base ~stride ~rows k mt =
+     goes through [t2]. [from] rows are skipped first. *)
+  let store ?(from = 0) ~base ~stride ~rows k mt =
     let open Err.Syntax in
     let row = Label.named (Printf.sprintf "peak_store%d" k) in
-    let* slice = Insn.load_imm Gpr.t3 (Reg.Mtreg.index mt lsl 27) in
+    let* slice = Insn.load_imm Gpr.t3 ((Reg.Mtreg.index mt lsl 27) + from) in
     let* set_stride, step =
       if Imm.Imm12.(in_range (of_int stride)) then Ok ([], addi base base stride)
       else
@@ -116,6 +116,31 @@ module Tile = struct
           li Gpr.t4 rows;
           Item.label row;
           Item.insn (Vtse { eew = Vtype.Sew.E32; slice = Gpr.t3; base });
+          step;
+          addi Gpr.t3 Gpr.t3 1;
+          addi Gpr.t4 Gpr.t4 (-1);
+          bnez Gpr.t4 row;
+        ])
+
+  (* Rows [from, from + rows) of tile [mt] loaded from [base], as {!store}
+     stores them. *)
+  let load ~from ~base ~stride ~rows k mt =
+    let open Err.Syntax in
+    let row = Label.named (Printf.sprintf "peak_load%d" k) in
+    let* slice = Insn.load_imm Gpr.t3 ((Reg.Mtreg.index mt lsl 27) + from) in
+    let* set_stride, step =
+      if Imm.Imm12.(in_range (of_int stride)) then Ok ([], addi base base stride)
+      else
+        Result.map
+          (fun set -> (List.map Item.insn set, add base base Gpr.t2))
+          (Insn.load_imm Gpr.t2 stride)
+    in
+    Ok
+      (List.map Item.insn slice @ set_stride
+      @ [
+          li Gpr.t4 rows;
+          Item.label row;
+          Item.insn (Vtle { eew = Vtype.Sew.E32; slice = Gpr.t3; base });
           step;
           addi Gpr.t3 Gpr.t3 1;
           addi Gpr.t4 Gpr.t4 (-1);
@@ -326,13 +351,16 @@ module Tile_gemm = struct
 
   (* One block of rows: every pass over A's block at [a3] and B at [a7], C's
      rows stored from [a4], [c_row p] apart; [a3] and [a4] are left as they
-     were. Writes [a1], [a2], [a6], [t1]-[t5]. *)
-  let block_items p =
+     were. Writes [a1], [a2], [a6], [t1]-[t5]. With [split] = [(n, ring)], a
+     block's first [n] rows go to [a4] and the rest to [ring], at the same
+     offsets; [c_row] overrides the bytes from a row of C to the next. With
+     [accumulate], each pass's accumulators start from C at [a4], not zero. *)
+  let block_items ?split ?c_row:row ?(accumulate = false) p =
     let open Err.Syntax in
     let open Gpr in
     let src = Elem.bytes p.s.src and dst = Elem.bytes p.s.dst in
     let k_steps = p.s.depth / p.t.tk in
-    let c_row = c_row p in
+    let c_row = Option.value row ~default:(c_row p) in
     let* config =
       Tile.configure
         ~mtype:((p.tm lsl 10) lor (p.t.tk lsl 5) lor p.t.mtwiden)
@@ -342,7 +370,7 @@ module Tile_gemm = struct
       Tile.configure ~mtype:(Tile.mtype ~tk:1 ~mtwiden:1) ~vtype:0xD2
     in
     let partial = if p.last < tile then [ li t1 p.last ] else [] in
-    let stores_seen = ref 0 in
+    let stores_seen = ref 0 and loads_seen = ref 0 in
     let* pass_items =
       Err.List.map
         (fun (index, cols) ->
@@ -362,26 +390,68 @@ module Tile_gemm = struct
           let* current = multiplies p cols ~a:8 ~b:16 in
           let* next = multiplies p cols ~a:0 ~b:24 in
           let* b_at = Insn.load_imm t2 b_offset in
+          (* Rows [from, from + rows) of a tile to or from [base]'s C. *)
+          let part ?(load = false) (r, k, c) ~base ~from ~rows =
+            if rows = 0 then Ok []
+            else
+              let* at =
+                Insn.load_imm t5
+                  ((((r * tile) + from) * c_row) + (c * tile * dst))
+              in
+              let seen = if load then loads_seen else stores_seen in
+              let k' = !seen in
+              incr seen;
+              let* move =
+                if load then
+                  Tile.load ~from ~base:t5 ~stride:c_row ~rows k'
+                    (accumulator r k)
+                else
+                  Tile.store ~from ~base:t5 ~stride:c_row ~rows k'
+                    (accumulator r k)
+              in
+              Ok (List.map Item.insn at @ [ add t5 t5 base ] @ move)
+          in
+          let narrow c =
+            if c = p.columns - 1 && p.last < tile then
+              [ li t1 p.last; Item.insn (Msettn { dst = zero; avl = t1 }) ]
+            else []
+          in
+          let* starts =
+            if accumulate then
+              let* loads =
+                Err.List.map
+                  (fun (r, k, c) ->
+                    let* load =
+                      part ~load:true (r, k, c) ~base:a4 ~from:0 ~rows:p.tm
+                    in
+                    Ok (narrow c @ load))
+                  tiles
+              in
+              Ok (moves @ List.concat loads @ config @ partial)
+            else
+              Ok
+                (config @ partial
+                @ List.map
+                    (fun (r, k, _) ->
+                      Item.insn (Vtzero { dst = accumulator r k }))
+                    tiles)
+          in
           let* stores =
             Err.List.map
               (fun (r, k, c) ->
-                let* at =
-                  Insn.load_imm t5 ((r * tile * c_row) + (c * tile * dst))
+                let first =
+                  match split with
+                  | None -> p.tm
+                  | Some (n, _) -> max 0 (min p.tm (n - (r * tile)))
                 in
-                let k' = !stores_seen in
-                incr stores_seen;
-                let* store =
-                  Tile.store ~base:t5 ~stride:c_row ~rows:p.tm k'
-                    (accumulator r k)
+                let* core = part (r, k, c) ~base:a4 ~from:0 ~rows:first in
+                let* rest =
+                  match split with
+                  | None -> Ok []
+                  | Some (_, ring) ->
+                      part (r, k, c) ~base:ring ~from:first ~rows:(p.tm - first)
                 in
-                let narrow =
-                  if c = p.columns - 1 && p.last < tile then
-                    [
-                      li t1 p.last; Item.insn (Msettn { dst = zero; avl = t1 });
-                    ]
-                  else []
-                in
-                Ok (narrow @ List.map Item.insn at @ [ add t5 t5 a4 ] @ store))
+                Ok (narrow c @ core @ rest))
               tiles
           in
           let loop =
@@ -395,11 +465,7 @@ module Tile_gemm = struct
               (Item.label l :: loop) @ [ bnez a6 l ]
           in
           Ok
-            (config @ partial
-            @ List.map
-                (fun (r, k, _) -> Item.insn (Vtzero { dst = accumulator r k }))
-                tiles
-            @ List.map Item.insn b_at
+            (starts @ List.map Item.insn b_at
             @ [ mv a1 a3; add a2 a7 t2; li a6 (k_steps / 2) ]
             @ first_a @ first_b @ body @ moves @ List.concat stores))
         (List.mapi (fun k cols -> (k, cols)) (passes p))
