@@ -118,3 +118,23 @@ of its own rate until the core stops.
   overlap sram-read 8192 x80: work 6732 alone, 6749 beside the DMA; DMA 7219 alone, 7221 in all; 100% of the shorter hidden
   overlap dtcm-read 8192 x360: work 7212 alone, 7229 beside the DMA; DMA 7219 alone, 9381 in all; 70% of the shorter hidden
   overlap dtcm-write 8192 x360: work 7896 alone, 7910 beside the DMA; DMA 7219 alone, 10093 in all; 70% of the shorter hidden
+
+Descriptor polling: with poll_en the engine reads a word before every beat and
+waits until it matches. A one-beat descriptor polling a flag holds the chain
+(CUR_DESC stays on it through the delay) and lets it go about as fast as a
+fresh start once the core writes the flag. Polling every beat costs about 4
+cycles a beat on an SRAM word, 9 on a DTCM one. While the DMA spins on a flag,
+in SRAM or DTCM, the core's DTCM stream loses 1%. A handshake through a flag
+and a token written back (51 cycles) is slower than starting a one-beat chain
+and polling STATUS (35), so a step's chain is best started by the core.
+
+  $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-normal poll
+  copy alone: stream 27, flag to done 3577, CUR_DESC 20000000, STATUS 2
+  gated copy, released after a delay: stream 27, flag to done 3636, CUR_DESC 20000020, STATUS 2
+  copy, every beat polling SRAM: stream 27, flag to done 4599, CUR_DESC 20000060, STATUS 2
+  copy, every beat polling DTCM: stream 27, flag to done 5873, CUR_DESC 20000080, STATUS 2
+  core stream alone: stream 1292, flag to done 21, CUR_DESC 20000080, STATUS 1
+  core stream, the DMA polling an SRAM flag: stream 1309, flag to done 3636, CUR_DESC 200000a0, STATUS 2
+  core stream, the DMA polling a DTCM flag: stream 1309, flag to done 3631, CUR_DESC 200000e0, STATUS 2
+  handshake: flag in SRAM, token back in DTCM: stream 27, flag to done 51, CUR_DESC 20000120, STATUS 2
+  start and STATUS poll of a 16-byte copy: stream 27, flag to done 35, CUR_DESC 20000160, STATUS 2

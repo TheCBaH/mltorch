@@ -541,6 +541,17 @@ but the DMA's writes into DTCM lose arbitration and it advances at about 70% of
 its rate until the core stops. A kernel paced by its DTCM loads therefore gets
 about 0.8 B/cycle of DMA in the background, not 1.14.
 
+Descriptor polling (`Coral_dma.Poll`, `poll_en`): the engine reads the polled
+word before every beat and waits until `word land mask = value`, as upstream's
+DMA document says. A one-beat descriptor on a flag is a gate: the chain stays
+on it (`CUR_DESC`) until the core writes the flag, then runs on about as fast
+as a fresh start. Polling every beat costs about 4 cycles a beat on an SRAM
+word and 9 on a DTCM one, so it is for pacing peripherals, not memory copies.
+A DMA spinning on a flag, in SRAM or DTCM, costs the core's DTCM stream 1%.
+A flag-and-token handshake (51 cycles to the token seen) is slower than
+starting a one-beat chain and polling `STATUS` (35), so the matrix multiplies
+keep a chain a step started by the core: gating would save nothing.
+
 ### Matrix multiplies fed by the DMA (`test/coralnpu_dma/gemm_*.t`)
 
 `Dma_gemm` computes C[M x W] = A[M x K] B[K x W] with A, B and C in SRAM. B is

@@ -157,6 +157,23 @@ let overlap dir p work length trips =
     *. float_of_int (work_alone + dma_alone - dma_both)
     /. float_of_int (min work_alone dma_alone))
 
+(* The DMA's descriptor polling, case by case ({!Dma_poll}). *)
+let poll dir p =
+  let t, _ =
+    execute dir p ~name:Dma_poll.name ~items:Dma_poll.items
+      ~slots:Dma_poll.slots ~inputs:(Dma_poll.inputs p)
+      ~timings:(Some Dma_poll.timings_slot) ~dst:Dma_poll.dst_slot
+      ~expected:Dma_poll.expected
+  in
+  List.iteri
+    (fun k (c : Dma_poll.Case.t) ->
+      Fmt.pr "%s: stream %d, flag to done %d, CUR_DESC %08x, STATUS %x@." c.name
+        (word t (4 * k))
+        (word t ((4 * k) + 1))
+        (word t ((4 * k) + 2))
+        (word t ((4 * k) + 3)))
+    Dma_poll.cases
+
 module G = Dma_gemm
 
 let gemm_engine = function
@@ -279,6 +296,9 @@ let () =
         | _ ->
             invalid_arg
               "dma_bench: gemm ENGINE [GEOMETRY] PROLOGUE OUT BLOCKS W K")
+    | "poll" :: rest ->
+        poll dir p;
+        sweeps rest
     | "overlap" :: w :: length :: trips :: rest ->
         overlap dir p (work w) (int_of_string length) (int_of_string trips);
         sweeps rest

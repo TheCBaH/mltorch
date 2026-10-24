@@ -35,12 +35,20 @@ module Beat : sig
   val of_bytes : int -> t option
 end
 
+module Poll : sig
+  type t = { address : int64; mask : int32; value : int32 }
+  (** Before each data beat the engine reads the 32-bit word at [address] and
+      waits until [word land mask = value]: on a one-beat descriptor, a gate
+      that holds the rest of the chain until the core writes the word. *)
+end
+
 module Descriptor : sig
   type t = {
     beat : Beat.t;
     dst : int64;
     dst_fixed : bool;  (** The destination does not advance: a FIFO. *)
     length : int64;  (** Bytes, a multiple of the beat. *)
+    poll : Poll.t option;
     src : int64;
     src_fixed : bool;
   }
@@ -48,13 +56,15 @@ module Descriptor : sig
   val size : int
   (** 32 bytes, which is also the alignment. *)
 
-  val copy : ?beat:Beat.t -> src:int64 -> dst:int64 -> int64 -> t
-  (** Memory to memory, both advancing; [beat] defaults to [B16]. *)
+  val copy :
+    ?beat:Beat.t -> ?poll:Poll.t -> src:int64 -> dst:int64 -> int64 -> t
+  (** Memory to memory, both advancing; [beat] defaults to [B16], no polling by
+      default. *)
 end
 
 val len_flags : Descriptor.t -> int32
-(** Length in bits 23:0, beat log2 in 26:24, [src_fixed] 27, [dst_fixed] 28;
-    polling (29) is never set. *)
+(** Length in bits 23:0, beat log2 in 26:24, [src_fixed] 27, [dst_fixed] 28,
+    [poll] 29. *)
 
 module Misaligned : sig
   type t = { address : int64; alignment : int }
@@ -75,7 +85,8 @@ val pp_error : error Fmt.t
 
 val check : Coral_profile.t -> Descriptor.t -> (unit, [> error ]) Err.t
 (** Lengths, beat alignment of both addresses, and both ranges each within one
-    [dma_reachable] region. *)
+    [dma_reachable] region; a polled word, 4-byte aligned, nonzero and
+    reachable. *)
 
 val chain :
   Coral_profile.t -> at:int64 -> Descriptor.t list -> (string, [> error ]) Err.t
