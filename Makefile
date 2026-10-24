@@ -1670,6 +1670,17 @@ coralnpu.soc.runtest:
 	}
 	CORALNPU_SUBSYSTEM_DATA=$(CORALNPU_SUBSYSTEM_DATA) opam exec -- dune build @test/coralnpu_soc/runtest --force
 
+# Raw transfer speed on the subsystem: the DMA engine against the core's own
+# RVV and scalar copies, and the DMA beside the core's work. Needs the
+# subsystem download.
+.PHONY: coralnpu.dma.runtest
+coralnpu.dma.runtest:
+	@test -f $(CORALNPU_SUBSYSTEM_DATA)/hardware-configurations.json || { \
+		echo "coralnpu.dma.runtest: missing $(CORALNPU_SUBSYSTEM_DATA) -- run 'make coralnpu.subsystem.download' first" >&2; \
+		exit 1; \
+	}
+	CORALNPU_SUBSYSTEM_DATA=$(CORALNPU_SUBSYSTEM_DATA) opam exec -- dune build @test/coralnpu_dma/runtest --force
+
 coralnpu.runtest:
 	@test -f $(CORALNPU_DATA)/hardware-configurations.json || { \
 		echo "coralnpu.runtest: missing $(CORALNPU_DATA) -- run 'make coralnpu.download' first" >&2; \

@@ -32,8 +32,15 @@ let samples =
       insn "add" [ reg "a0"; reg "a1"; reg "t3" ] );
     ( Addi { dst = Gpr.a1; src = Gpr.a1; imm = imm12 (-1) },
       insn "addi" [ reg "a1"; reg "a1"; imm (-1) ] );
+    ( Andi { dst = Gpr.t1; src = Gpr.t0; imm = imm12 2 },
+      insn "andi" [ reg "t1"; reg "t0"; imm 2 ] );
+    ( Beqz { src = Gpr.t1; target = loop },
+      insn "beqz" [ reg "t1"; sym ".Lk_loop" ] );
     ( Bnez { src = Gpr.a1; target = loop },
       insn "bnez" [ reg "a1"; sym ".Lk_loop" ] );
+    ( Csrr { dst = Gpr.t2; csr = Insn.Csr.Mcycle },
+      insn "csrr" [ reg "t2"; imm 0xB00 ] );
+    (Fence, insn "fence" [ sym "rw"; sym "rw" ]);
     ( Flh { dst = Fpr.fa0; base = Gpr.a1; offset = imm12 2 },
       insn "flh" [ reg "fa0"; mem "a1" 2 ] );
     ( Flw { dst = Fpr.fa4; base = Gpr.a1; offset = imm12 8 },
@@ -47,6 +54,8 @@ let samples =
     (Ret, insn "ret" []);
     ( Srli { dst = Gpr.t3; src = Gpr.a4; shamt = Imm.Shamt.of_int 8 },
       insn "srli" [ reg "t3"; reg "a4"; imm 8 ] );
+    ( Sub { dst = Gpr.t3; lhs = Gpr.t3; rhs = Gpr.t2 },
+      insn "sub" [ reg "t3"; reg "t3"; reg "t2" ] );
     ( Sw { src = Gpr.s0; base = Gpr.sp; offset = imm12 0 },
       insn "sw" [ reg "s0"; mem "sp" 0 ] );
     ( Vfmacc_vf { acc = Vreg.v8; scalar = Fpr.fa4; src = Vreg.v0 },
@@ -109,7 +118,7 @@ let%expect_test "each variant lowers to the form Rv32_asm makes" =
           | _ -> Fmt.pr "unexpected module shape@."))
     samples;
   Fmt.pr "%d variants compared@." (List.length samples);
-  [%expect {| 23 variants compared |}]
+  [%expect {| 28 variants compared |}]
 
 let bf16 =
   [

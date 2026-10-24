@@ -84,9 +84,14 @@ let mtreg r = sym (Fmt.str "%a" Mtreg.pp r)
 
 (* The operands in assembly order. *)
 let operands ~spelling : Insn.t -> Operand.t list = function
-  | Add { dst; lhs; rhs } -> [ gpr dst; gpr lhs; gpr rhs ]
-  | Addi { dst; src; imm = i } -> [ gpr dst; gpr src; imm (Imm.Imm12.to_int i) ]
-  | Bnez { src; target } -> [ gpr src; sym (spelling target) ]
+  | Add { dst; lhs; rhs } | Sub { dst; lhs; rhs } ->
+      [ gpr dst; gpr lhs; gpr rhs ]
+  | Addi { dst; src; imm = i } | Andi { dst; src; imm = i } ->
+      [ gpr dst; gpr src; imm (Imm.Imm12.to_int i) ]
+  | Beqz { src; target } | Bnez { src; target } ->
+      [ gpr src; sym (spelling target) ]
+  | Csrr { dst; csr } -> [ gpr dst; imm (Insn.Csr.number csr) ]
+  | Fence -> [ sym "rw"; sym "rw" ]
   | Flh { dst; base; offset } | Flw { dst; base; offset } ->
       [ fpr dst; mem base (Imm.Imm12.to_int offset) ]
   | Li { dst; imm = i } -> [ gpr dst; imm (Imm.Li.to_int i) ]
