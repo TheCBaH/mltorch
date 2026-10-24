@@ -32,20 +32,25 @@ module Beat = struct
     | _ -> None
 end
 
+module Poll = struct
+  type t = { address : int64; mask : int32; value : int32 }
+end
+
 module Descriptor = struct
   type t = {
     beat : Beat.t;
     dst : int64;
     dst_fixed : bool;
     length : int64;
+    poll : Poll.t option;
     src : int64;
     src_fixed : bool;
   }
 
   let size = 32
 
-  let copy ?(beat = Beat.B16) ~src ~dst length =
-    { beat; dst; dst_fixed = false; length; src; src_fixed = false }
+  let copy ?(beat = Beat.B16) ?poll ~src ~dst length =
+    { beat; dst; dst_fixed = false; length; poll; src; src_fixed = false }
 end
 
 let max_length = 0xFF_FFFFL
@@ -55,7 +60,8 @@ let len_flags (d : Descriptor.t) =
   Int32.of_int
     (Int64.to_int d.length
     lor (Beat.log2 d.beat lsl 24)
-    lor bit d.src_fixed 27 lor bit d.dst_fixed 28)
+    lor bit d.src_fixed 27 lor bit d.dst_fixed 28
+    lor bit (Option.is_some d.poll) 29)
 
 module Misaligned = struct
   type t = { address : int64; alignment : int }
@@ -105,7 +111,14 @@ let check p (d : Descriptor.t) =
   let* () = aligned d.dst beat in
   let span fixed = if fixed then Int64.of_int beat else d.length in
   let* () = reachable p ~address:d.src ~length:(span d.src_fixed) in
-  reachable p ~address:d.dst ~length:(span d.dst_fixed)
+  let* () = reachable p ~address:d.dst ~length:(span d.dst_fixed) in
+  match d.poll with
+  | None -> Err.return ()
+  | Some { Poll.address; _ } ->
+      let* () = aligned address 4 in
+      if address = 0L then
+        Err.fail (`Dma_unreachable { Unreachable.address; length = 4L })
+      else reachable p ~address ~length:4L
 
 let chain p ~at descriptors =
   let n = List.length descriptors in
@@ -129,6 +142,12 @@ let chain p ~at descriptors =
         Bytes.set_int32_le b (o + 4) (Int64.to_int32 d.dst);
         Bytes.set_int32_le b (o + 8) (len_flags d);
         Bytes.set_int32_le b (o + 12) next;
+        Option.iter
+          (fun { Poll.address; mask; value } ->
+            Bytes.set_int32_le b (o + 16) (Int64.to_int32 address);
+            Bytes.set_int32_le b (o + 20) mask;
+            Bytes.set_int32_le b (o + 24) value)
+          d.poll;
         Err.return ())
       (List.mapi (fun k d -> (k, d)) descriptors)
   in

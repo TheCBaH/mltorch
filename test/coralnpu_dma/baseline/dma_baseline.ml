@@ -60,6 +60,7 @@ let gemms =
 let kernels =
   List.map (fun s -> (C.name s, C.items s, false)) copies
   @ List.map (fun s -> (O.name s, O.items s, false)) overlaps
+  @ [ (Dma_poll.name, Dma_poll.items, false) ]
   @ List.map (fun g -> (G.name g, G.items g, G.Engine.matrix g.engine)) gemms
 
 let items f =
@@ -113,6 +114,7 @@ let%expect_test "DMA kernels encode to the pinned bytes" =
     overlap dtcm-read 8192: .text:168:a7a6a95e02dfdcdf28beeea65928d94a
     overlap dtcm-write 8192: .text:168:04f1f8e12b37ae7cbb3ab79cfa6f126c
     overlap sram-read 8192: .text:168:a7a6a95e02dfdcdf28beeea65928d94a
+    poll: .text:240:44a056f0d0efd4c9fbc0b823f47b758b
     rvv bf16 resident-b b-shared c-by-dma M=12 N=32 K=256: .text:588:5ac9afdaa4a10555aa91a48eea6361ff
     rvv f32 resident-b b-shared c-by-dma M=12 N=32 K=128: .text:568:6473902c495e3cfc005a8b2242a6f115
     rvv i8 resident-b b-shared c-by-dma M=8 N=64 K=256: .text:596:10fa5423f03383c538390e5968808180
@@ -180,6 +182,7 @@ let%expect_test "a callee-saved register a kernel writes is stored and restored"
     overlap dtcm-read 8192: caller-saved only
     overlap dtcm-write 8192: caller-saved only
     overlap sram-read 8192: caller-saved only
+    poll: caller-saved only
     rvv bf16 resident-b b-shared c-by-dma M=12 N=32 K=256: saves s0 s1 s2 s3 s4 s5 s6 s7 s8 s9
     rvv f32 resident-b b-shared c-by-dma M=12 N=32 K=128: saves s0 s1 s2 s3 s4 s5 s6 s7 s8 s9
     rvv i8 resident-b b-shared c-by-dma M=8 N=64 K=256: saves s0 s1 s2 s3 s4 s5 s6 s7 s8 s9

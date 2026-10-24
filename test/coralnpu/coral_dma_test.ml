@@ -41,12 +41,40 @@ let%expect_test "len_flags" =
       D.Descriptor.copy ~beat:B4 ~src:0L ~dst:0L 0xFF_FFFCL;
       { (D.Descriptor.copy ~beat:B1 ~src:0L ~dst:0L 3L) with dst_fixed = true };
       { (D.Descriptor.copy ~beat:B2 ~src:0L ~dst:0L 2L) with src_fixed = true };
+      D.Descriptor.copy
+        ~poll:{ address = 0x2000_0000L; mask = 1l; value = 1l }
+        ~src:0L ~dst:0L 16L;
     ];
-  [%expect {|
+  [%expect
+    {|
     04000040
     02fffffc
     10000003
-    09000002 |}]
+    09000002
+    24000010 |}]
+
+let%expect_test "a gate: one polled beat, then the copy it holds back" =
+  show
+    (D.chain profile ~at:0x2000_1000L
+       [
+         D.Descriptor.copy
+           ~poll:{ address = 0x2000_0040L; mask = 0xFFl; value = 3l }
+           ~src:0x2000_0000L ~dst:0x2000_0010L 16L;
+         D.Descriptor.copy ~src:0x2000_0000L ~dst:0x0001_0000L 4096L;
+       ]);
+  show
+    (D.chain profile ~at:0x2000_1000L
+       [
+         D.Descriptor.copy
+           ~poll:{ address = 0x2000_0042L; mask = 1l; value = 1l }
+           ~src:0x2000_0000L ~dst:0x2000_0010L 16L;
+       ]);
+  [%expect
+    {|
+    20000000 20000010 24000010 20001020 20000040 000000ff 00000003 00000000
+    20000000 00010000 04001000 00000000 00000000 00000000 00000000
+    00000000
+    error: DMA address 0x20000042 is not 4-byte aligned |}]
 
 let%expect_test "a chain of two, SRAM to DTCM and back" =
   show
