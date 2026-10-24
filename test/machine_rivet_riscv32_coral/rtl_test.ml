@@ -18,9 +18,9 @@ let config =
 let measure ?(numerics = Ssa_ir.Ssa_numerics.Fp32_ordered) ?(oracle = T.Fp32)
     target name g =
   let cycles = ref 0L and retired = ref 0L in
-  let on_run (o : Coral_run.outcome) =
-    cycles := Int64.add !cycles o.Coral_run.mcycle;
-    retired := Int64.add !retired o.Coral_run.minstret
+  let on_run (o : C.Run.t) =
+    cycles := Int64.add !cycles o.C.Run.mcycle;
+    retired := Int64.add !retired o.C.Run.minstret
   in
   T.check ~route:(C.route ~on_run config)
     ~pipeline:(Ssa_backends.Pipeline.Planned { numerics; target })

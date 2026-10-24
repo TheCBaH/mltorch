@@ -25,5 +25,5 @@ that fail one way each.
   illegal instruction: guest trap: mcause 2, mepc 0x00000220, mtval 0x00000000
   store to ITCM: guest trap: mcause 7, mepc 0x00000220, mtval 0x00000100
   spin: the guest was not done by the deadline
-  wrong digest: the guest reports layout digest 864aff34, not the image's
+  wrong digest: the guest reports layout digest 1a07a561, not the image's
   missing simulator: no simulator at /nonexistent/bin/Vchip_vector_normal

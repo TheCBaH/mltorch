@@ -261,6 +261,27 @@ RTL vector core `rvv-core-mini-highmem-axi`, where the cycles were measured
 conv-batch-norm-relu from 192316 to 23807 (8.08x); softmax and layer_norm hold
 local arrays, have no vector loops, and cost the same.
 
+The configuration's simulator picks the runner: a standalone core takes the
+bound bytes in its input frame and returns the written slots in its result
+frame (`Coral_run`); the subsystem takes them in the ELF and returns them over
+the SPI bridge (`Coral_soc_run`). At about a kilobyte a second the bridge
+bounds what a model run may read back, so the route asks for every written
+slot with `skip_unchanged` (a slot whose guest hash still matches its
+starting bytes is reported from those bytes, not read) and a byte budget
+(`Rv32_mir_coral.read_back_budget`, 16 KiB, about sixteen seconds); above it
+the run fails with `Read_back_over_budget` before any byte is read. In
+practice only the outputs and the failure record cross the bridge. A slot's
+`Home` comes from the route's `home` argument (default `Any`, first fit).
+`make coralnpu.soc.rv32.runtest` (both archives): the bundles on
+`subsystem-vector-normal`, Zve32f, bitwise, beside the standalone
+`rvv-core-mini-axi`. The cycles differ by +1 (relu-then-add, 1910), +24 (conv
+chain, 23831) and +96 (softmax and layer_norm, 495832 and 84166): within
+0.11%, but not the peak suite's four cycles, and the cause (placement of the
+two runtimes' code is the suspect) is not established. With the tensors
+pinned to SRAM (`Home.Ram`) the same bundles take 2778 and 45698 cycles,
+1.45x and 1.92x. Storing the outputs under the wrong slot is caught by the
+oracle, and a 16-byte budget is refused.
+
 ## Peak throughput (`test/coralnpu_peak`)
 
 The compiler gaps and proposed route from these goalposts to generated RVV
@@ -495,14 +516,18 @@ The peak suite's kernels, unchanged and with everything in DTCM, take the
 standalone cores' cycles on the subsystem's normal-TCM cores, within four
 cycles of code placement (`test/coralnpu_soc/peak.t`): RVV GEMMs for INT8,
 FP32 and BF16 on both the vector and the matrix SoC, Zvt tile multiplies and
-GEMMs for INT8 and FP32. So the peak rates are the subsystem's compute
-ceilings. Zvt BF16 (`vtfmm.alt`) is wrong there, although the manifest lists
-BF16 among the matrix formats: the engine's BF16 tile multiplies need the
-build define `-DZVTBF16FMM_ON`, which the producer adds in a wrapper patch
-later than v0.0.4 (whose provenance ends at patch 0024). A define is not a
-generator option, so the manifest does not show it. Consistently,
-`tile_bf16` takes 639 cycles against the standalone 1470, under the 1024 its
-256 tile multiplies need at one per 4 cycles: they never occupy the PE array.
+GEMMs for INT8, FP32 and, since v0.0.5, BF16. So the peak rates are the
+subsystem's compute ceilings. In v0.0.4 Zvt BF16 (`vtfmm.alt`) was wrong
+there although the manifest listed BF16 among the matrix formats: the
+engine's BF16 tile multiplies need the build define `-DZVTBF16FMM_ON`, which
+the standalone VME build set and the subsystem's matrix variants did not (a
+define is not a generator option, so the manifest could not show it);
+`tile_bf16` took 639 cycles against the standalone 1470, under the 1024 its
+256 tile multiplies need at one per 4 cycles. v0.0.5 sets the define for the
+subsystem: `tile_bf16` takes 1470 cycles and `tgemm_bf16` 2439 (standalone
+2440), both as expected. The pin moved to v0.0.5 with every other Coral
+suite's cycles unchanged; only the configuration IDs and the layout digest
+moved.
 
 ### Raw transfer speed and the DMA (`test/coralnpu_dma`)
 

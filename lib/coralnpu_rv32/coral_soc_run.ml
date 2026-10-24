@@ -1,3 +1,7 @@
+module Over_budget = struct
+  type t = { bytes : int64; budget : int64 }
+end
+
 module Run_error = struct
   type t =
     | Digest_mismatch of int32
@@ -5,6 +9,7 @@ module Run_error = struct
     | Mailbox_malformed of Coral_mailbox.Malformed.t
     | No_core_csr
     | Read_back_mismatch of int
+    | Read_back_over_budget of Over_budget.t
     | Simulator_crashed of { status : string; tail : string }
     | Simulator_missing of string
     | Spi_failed of string
@@ -21,6 +26,10 @@ module Run_error = struct
     | No_core_csr -> Fmt.string ppf "the profile has no core CSR region"
     | Read_back_mismatch k ->
         Fmt.pf ppf "slot %d read back over the bridge differs from its hash" k
+    | Read_back_over_budget { Over_budget.bytes; budget } ->
+        Fmt.pf ppf
+          "%Ld bytes to read back over the bridge, more than the budget of %Ld"
+          bytes budget
     | Simulator_crashed { status; tail } ->
         Fmt.pf ppf "the simulator %s before the guest was done; it said: %S"
           status tail
@@ -138,9 +147,31 @@ let fetch spi (s : Coral_layout.Placed_slot.t) =
   let bytes = Coral_spi.read spi lo ~beats:((skip + size + 15) / 16) in
   String.sub bytes skip size
 
-let run ?(deadline = 600.) ?(read_back = []) ~dir (image : Coral_image.t) ~bound
-    =
+let run ?(deadline = 600.) ?(read_back = []) ?(skip_unchanged = false) ?budget
+    ~dir (image : Coral_image.t) ~bound =
   let open Err.Syntax in
+  let initial =
+    Array.of_list (List.map (fun (_, _, b) -> b) (contents image ~bound))
+  in
+  let written_indices =
+    List.concat
+      (List.mapi
+         (fun k (s : Coral_layout.Placed_slot.t) ->
+           if Coral_layout.Placement.written s.slot.placement then [ k ] else [])
+         image.layout.slots)
+  in
+  (* Whether the record says slot [k] still holds the bytes it started with:
+     then those bytes are its result, checked by its hash, and the bridge
+     need not carry them. *)
+  let unchanged record k =
+    skip_unchanged
+    &&
+    match Coral_mailbox.decode record with
+    | Ok (Result r) when List.length r.hashes = List.length written_indices ->
+        List.assoc_opt k (List.combine written_indices r.hashes)
+        = Some (Coral_mailbox.hash initial.(k))
+    | Ok _ | Error _ -> false
+  in
   let dir =
     if Filename.is_relative dir then Filename.concat (Sys.getcwd ()) dir
     else dir
@@ -266,19 +297,48 @@ let run ?(deadline = 600.) ?(read_back = []) ~dir (image : Coral_image.t) ~bound
                             Coral_spi.read spi mailbox
                               ~beats:(Coral_mailbox.size / 16)
                           in
-                          `Done
-                            ( wall,
-                              record,
-                              List.map
-                                (fun k ->
-                                  (k, fetch spi (List.nth image.layout.slots k)))
-                                read_back )
+                          let fetched =
+                            List.filter
+                              (fun k -> not (unchanged record k))
+                              read_back
+                          in
+                          let bytes =
+                            List.fold_left
+                              (fun n k ->
+                                Int64.add n
+                                  (List.nth image.layout.slots k).slot.size)
+                              0L fetched
+                          in
+                          if
+                            match budget with
+                            | Some b -> Int64.compare bytes b > 0
+                            | None -> false
+                          then
+                            `Over_budget
+                              {
+                                Over_budget.bytes;
+                                budget = Option.value budget ~default:0L;
+                              }
+                          else
+                            `Done
+                              ( wall,
+                                record,
+                                List.map
+                                  (fun k ->
+                                    ( k,
+                                      if List.mem k fetched then
+                                        fetch spi
+                                          (List.nth image.layout.slots k)
+                                      else initial.(k) ))
+                                  read_back )
                       | (`Crashed | `Timeout) as other -> other
                     with
                     | exception Coral_spi.Failed why ->
                         if alive () then Err.fail (Run_error.Spi_failed why)
                         else crashed ()
                     | `Crashed -> crashed ()
+                    | `Over_budget o ->
+                        Err.fail (Run_error.Read_back_over_budget o)
                     | `Timeout -> Err.fail Run_error.Timeout
                     | `Done (wall, record, fetched) -> (
                         let text = read_file log in
@@ -305,18 +365,7 @@ let run ?(deadline = 600.) ?(read_back = []) ~dir (image : Coral_image.t) ~bound
                                   (Run_error.Mailbox_malformed
                                      (Hash_count (List.length r.hashes)))
                               else
-                                let indices =
-                                  List.concat
-                                    (List.mapi
-                                       (fun k (s : Coral_layout.Placed_slot.t)
-                                          ->
-                                         if
-                                           Coral_layout.Placement.written
-                                             s.slot.placement
-                                         then [ k ]
-                                         else [])
-                                       image.layout.slots)
-                                in
+                                let indices = written_indices in
                                 let o =
                                   {
                                     argv;

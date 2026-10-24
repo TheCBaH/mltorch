@@ -1,0 +1,28 @@
+; The RV32 Machine IR route on the Coral subsystem simulator: the hermetic
+; binary32 bundles bitwise against the binary32 oracle, their cycles against
+; the standalone core of the same configuration, and two route defects that
+; must be caught. Enabled by CORALNPU_SUBSYSTEM_DATA and CORALNPU_DATA (the two
+; extracted archives; make coralnpu.soc.rv32.runtest sets both).
+
+(library
+ (name machine_rivet_riscv32_coral_soc_test)
+ (libraries
+  fmt
+  machine_model
+  machine_model_test
+  machine_rivet_common
+  machine_rivet_riscv32_coral
+  ssa_backends
+  ssa_ir)
+ (inline_tests
+  (deps
+   (env_var CORALNPU_DATA)
+   (env_var CORALNPU_SUBSYSTEM_DATA)))
+ (preprocess
+  (pps ppx_expect))
+ (enabled_if
+  (and
+   (<> %{env:CORALNPU_DATA=} "")
+   (<> %{env:CORALNPU_SUBSYSTEM_DATA=} "")
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

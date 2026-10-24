@@ -1704,6 +1704,21 @@ coralnpu.rv32.runtest:
 	}
 	CORALNPU_DATA=$(CORALNPU_DATA) opam exec -- dune build @test/machine_rivet_riscv32_coral/runtest --force
 
+# The RV32 Machine IR route on the subsystem: the hermetic bundles bitwise on
+# subsystem-vector-normal and on the standalone rvv-core-mini-axi, cycles side
+# by side, and two route defects caught. A few minutes. Needs both downloads.
+.PHONY: coralnpu.soc.rv32.runtest
+coralnpu.soc.rv32.runtest:
+	@test -f $(CORALNPU_SUBSYSTEM_DATA)/hardware-configurations.json || { \
+		echo "coralnpu.soc.rv32.runtest: missing $(CORALNPU_SUBSYSTEM_DATA) -- run 'make coralnpu.subsystem.download' first" >&2; \
+		exit 1; \
+	}
+	@test -f $(CORALNPU_DATA)/hardware-configurations.json || { \
+		echo "coralnpu.soc.rv32.runtest: missing $(CORALNPU_DATA) -- run 'make coralnpu.download' first" >&2; \
+		exit 1; \
+	}
+	CORALNPU_DATA=$(CORALNPU_DATA) CORALNPU_SUBSYSTEM_DATA=$(CORALNPU_SUBSYSTEM_DATA) opam exec -- dune build @test/machine_rivet_riscv32_coral_soc/runtest --force
+
 coralnpu.compcert.runtest: compcert.rv32.install
 	@test -f $(CORALNPU_DATA)/hardware-configurations.json || { \
 		echo "coralnpu.compcert.runtest: missing $(CORALNPU_DATA) -- run 'make coralnpu.download' first" >&2; \
