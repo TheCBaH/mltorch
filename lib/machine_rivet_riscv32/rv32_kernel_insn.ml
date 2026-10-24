@@ -118,6 +118,12 @@ type t =
   | Vfmacc_vf of { acc : Vreg.t; scalar : Fpr.t; src : Vreg.t }
   | Vfwmaccbf16_vf of { acc : Vreg.t; scalar : Fpr.t; src : Vreg.t }
   | Vle of { eew : Rv32_kernel_vtype.Sew.t; dst : Vreg.t; base : Gpr.t }
+  | Vlse of {
+      eew : Rv32_kernel_vtype.Sew.t;
+      dst : Vreg.t;
+      base : Gpr.t;
+      stride : Gpr.t;
+    }  (** [stride] bytes from an element's address to the next *)
   | Vmacc_vx of { acc : Vreg.t; scalar : Gpr.t; src : Vreg.t }
   | Vmv_v_i of { dst : Vreg.t; imm : Imm.Simm5.t }
   | Vmv_v_x of { dst : Vreg.t; src : Gpr.t }
@@ -146,8 +152,8 @@ let extension = function
       Some zvt_feature
   | Add _ | Addi _ | Andi _ | Beqz _ | Bnez _ | Csrr _ | Fence | Flh _ | Flw _
   | J _ | Li _ | Lui _ | Lw _ | Mv _ | Ret | Srli _ | Sub _ | Sw _ | Vfmacc_vf _
-  | Vfwmaccbf16_vf _ | Vle _ | Vmacc_vx _ | Vmv_v_i _ | Vmv_v_x _ | Vse _
-  | Vsetvli _ | Vsse _ | Vv _ | Vwmacc_vx _ ->
+  | Vfwmaccbf16_vf _ | Vle _ | Vlse _ | Vmacc_vx _ | Vmv_v_i _ | Vmv_v_x _
+  | Vse _ | Vsetvli _ | Vsse _ | Vv _ | Vwmacc_vx _ ->
       None
 
 (* The one exhaustive spelling of each mnemonic; the printer and the lowering
@@ -176,6 +182,7 @@ let mnemonic = function
   | Vfmacc_vf _ -> "vfmacc.vf"
   | Vfwmaccbf16_vf _ -> "vfwmaccbf16.vf"
   | Vle { eew; _ } -> Fmt.str "vle%d.v" (Rv32_kernel_vtype.Sew.bits eew)
+  | Vlse { eew; _ } -> Fmt.str "vlse%d.v" (Rv32_kernel_vtype.Sew.bits eew)
   | Vmacc_vx _ -> "vmacc.vx"
   | Vmv_v_i _ -> "vmv.v.i"
   | Vmv_v_x _ -> "vmv.v.x"
@@ -222,6 +229,8 @@ let pp ppf i =
   | Vfmacc_vf { acc; scalar; src } | Vfwmaccbf16_vf { acc; scalar; src } ->
       Fmt.pf ppf "%s %a, %a, %a" m Vreg.pp acc Fpr.pp scalar Vreg.pp src
   | Vle { dst; base; _ } -> Fmt.pf ppf "%s %a, (%a)" m Vreg.pp dst Gpr.pp base
+  | Vlse { dst; base; stride; _ } ->
+      Fmt.pf ppf "%s %a, (%a), %a" m Vreg.pp dst Gpr.pp base Gpr.pp stride
   | Vmacc_vx { acc; scalar; src } | Vwmacc_vx { acc; scalar; src } ->
       Fmt.pf ppf "%s %a, %a, %a" m Vreg.pp acc Gpr.pp scalar Vreg.pp src
   | Vmv_v_i { dst; imm } ->
@@ -278,9 +287,9 @@ let out_of_range i =
   | Srli { shamt; _ } -> check (module Imm.Shamt) shamt
   | Vmv_v_i { imm; _ } -> check (module Imm.Simm5) imm
   | Add _ | Beqz _ | Bnez _ | Csrr _ | Fence | J _ | Msetmtype _ | Msettn _
-  | Mv _ | Ret | Sub _ | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _ | Vmacc_vx _
-  | Vmv_v_x _ | Vse _ | Vsetvli _ | Vsse _ | Vtle _ | Vtmm _ | Vtse _ | Vtzero _
-  | Vv _ | Vwmacc_vx _ ->
+  | Mv _ | Ret | Sub _ | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _ | Vlse _
+  | Vmacc_vx _ | Vmv_v_x _ | Vse _ | Vsetvli _ | Vsse _ | Vtle _ | Vtmm _
+  | Vtse _ | Vtzero _ | Vv _ | Vwmacc_vx _ ->
       []
 
 (* The labels [i] branches to. *)
@@ -288,9 +297,9 @@ let targets = function
   | Beqz { target; _ } | Bnez { target; _ } | J { target } -> [ target ]
   | Add _ | Addi _ | Andi _ | Csrr _ | Fence | Flh _ | Flw _ | Li _ | Lui _
   | Lw _ | Msetmtype _ | Msettn _ | Mv _ | Ret | Srli _ | Sub _ | Sw _
-  | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _ | Vmacc_vx _ | Vmv_v_i _ | Vmv_v_x _
-  | Vse _ | Vsetvli _ | Vsse _ | Vtle _ | Vtmm _ | Vtse _ | Vtzero _ | Vv _
-  | Vwmacc_vx _ ->
+  | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _ | Vlse _ | Vmacc_vx _ | Vmv_v_i _
+  | Vmv_v_x _ | Vse _ | Vsetvli _ | Vsse _ | Vtle _ | Vtmm _ | Vtse _ | Vtzero _
+  | Vv _ | Vwmacc_vx _ ->
       []
 
 (* The registers [i] reads, in operand order. [zero] is a constant, not a
@@ -322,6 +331,7 @@ let reads i =
   | Vmv_v_x { src; _ } -> gprs [ src ]
   | Vse { src; base; _ } -> vregs [ src ] @ gprs [ base ]
   | Vsse { src; base; stride; _ } -> vregs [ src ] @ gprs [ base; stride ]
+  | Vlse { base; stride; _ } -> gprs [ base; stride ]
   | Vsetvli { avl = Reg r; _ } -> gprs [ r ]
   | Vsetvli { avl = Vlmax _; _ } -> []
   | Vtmm { acc; a; b; _ } -> [ Reg_ref.Mtreg acc ] @ vregs [ a; b ]
@@ -360,7 +370,11 @@ let writes i =
   | Vmacc_vx { acc; _ }
   | Vwmacc_vx { acc; _ } ->
       [ Reg_ref.Vreg acc ]
-  | Vle { dst; _ } | Vmv_v_i { dst; _ } | Vmv_v_x { dst; _ } | Vv { dst; _ } ->
+  | Vle { dst; _ }
+  | Vlse { dst; _ }
+  | Vmv_v_i { dst; _ }
+  | Vmv_v_x { dst; _ }
+  | Vv { dst; _ } ->
       [ Reg_ref.Vreg dst ]
   | Vsetvli { avl = Reg _; _ } -> []
   | Vsetvli { avl = Vlmax { vl }; _ } -> gpr vl

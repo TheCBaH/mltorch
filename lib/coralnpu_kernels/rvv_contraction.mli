@@ -11,21 +11,38 @@
     (two rows, the product in v24). Each k step loads the rows' A values with
     [flw] before B's row ([vle32.v] when B's columns are contiguous, else
     [vlse32.v]). It saves and restores [s0]-[s3] and leaves the vector
-    configuration undefined. *)
+    configuration undefined.
+
+    With [stage] (default [false]: the subsystem, operands in SRAM) the function
+    first copies A and B into its own DTCM panels (a [.bss] of their spans) by
+    one DMA chain it builds from its arguments, starts and waits for, then
+    computes from the panels; an operand not 16-byte aligned or a chain ending
+    in error leaves it reading the operands in place. *)
 
 (** Fault injection for the evidence suite: each is one deliberate kernel defect
     a run must detect. No consumer passes one. *)
 module Mutation : sig
   type t =
     | A_row_stride  (** A's rows one element further apart than they are *)
+    | No_wait  (** the staging chain started and not waited for *)
     | Tail_vl  (** the last column tile one lane short *)
 end
+
+(** Which operands to copy into the function's own DTCM panels first. *)
+module Stage : sig
+  type t = { a : bool; b : bool }
+end
+
+val in_sram : Contraction.t -> Stage.t
+(** The staging the subsystem measurements support for operands in SRAM: A
+    always, B only when its columns are strided. *)
 
 val symbol : Contraction.t -> string
 (** {!Contraction.symbol}. *)
 
 val module_ :
   ?mutation:Mutation.t ->
+  ?stage:Stage.t ->
   Contraction.t ->
   (Riscv32_encode.Instruction.t Asm_core.Normalized_ast.module_, string) result
 (** The function under {!symbol}, or why it cannot be made (a seed the kernel

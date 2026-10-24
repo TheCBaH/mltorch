@@ -116,10 +116,69 @@ let%expect_test "a descriptor's name round-trips" =
   | Error e -> Fmt.pr "%a@." C.pp_error e
   | Ok t ->
       Fmt.pr "%s@.%s@." (C.name t) (C.symbol t);
-      Fmt.pr "round trip: %b; garbage: %b@."
-        (Option.map C.name (C.of_name (C.name t)) = Some (C.name t))
+      let bf16 =
+        Result.get_ok
+          (Err.payload
+             (C.make ~batch:t.C.batch ~m:t.C.m ~n:t.C.n ~k:t.C.k ~a:t.C.a
+                ~b:t.C.b ~c:t.C.c ~format:C.Element.Bf16 ~seed:t.C.seed
+                ~numerics:t.C.numerics))
+      in
+      let trips t =
+        Option.map C.name (C.of_name (C.name t)) = Some (C.name t)
+      in
+      Fmt.pr "%s@.round trip: %b, %b; garbage: %b@." (C.name bf16) (trips t)
+        (trips bf16)
         (C.of_name "contract.f32.b1" = None);
-      [%expect {|
+      [%expect
+        {|
         contract.f32.b3.m7.n29.k63.a441_63_1.b1827_1_29.c203_29_1.zero.fused_sequential
         mlt_contract_2ec0b43f4257b217
-        round trip: true; garbage: true |}]
+        contract.bf16.b3.m7.n29.k63.a441_63_1.b1827_1_29.c203_29_1.zero.fused_sequential
+        round trip: true, true; garbage: true |}]
+
+let%expect_test "which unit realizes a contraction" =
+  let d ?(format = C.Element.F32) numerics =
+    Result.get_ok
+      (Err.payload
+         (C.make ~batch:1L ~m:2L ~n:2L ~k:3L
+            ~a:{ C.Operand.batch = 6L; outer = 3L; k = 1L }
+            ~b:{ C.Operand.batch = 6L; outer = 1L; k = 2L }
+            ~c:{ C.Output.batch = 4L; row = 2L; col = 1L }
+            ~format ~seed:C.Seed.Zero ~numerics))
+  in
+  List.iter
+    (fun format ->
+      List.iter
+        (fun (matrix, vector) ->
+          List.iter
+            (fun numerics ->
+              let e, r =
+                Contraction.Select.choose
+                  { Contraction.Select.Capabilities.matrix; vector }
+                  (d ~format numerics)
+              in
+              Fmt.pr "%s, matrix %b, vector %b, %s: %s (%s)@."
+                (C.Element.name format) matrix vector (C.Numerics.name numerics)
+                (Contraction.Select.Engine.name e)
+                (Contraction.Select.Reason.name r))
+            [ C.Numerics.Ordered; C.Numerics.Fused_sequential ])
+        [ (true, true); (true, false); (false, true); (false, false) ])
+    [ C.Element.Bf16; C.Element.F32 ];
+  [%expect
+    {|
+    bf16, matrix true, vector true, ordered: rvv (format_off_matrix)
+    bf16, matrix true, vector true, fused_sequential: rvv (format_off_matrix)
+    bf16, matrix true, vector false, ordered: loops (no_vector_unit)
+    bf16, matrix true, vector false, fused_sequential: loops (no_vector_unit)
+    bf16, matrix false, vector true, ordered: rvv (vector_unit)
+    bf16, matrix false, vector true, fused_sequential: rvv (vector_unit)
+    bf16, matrix false, vector false, ordered: loops (no_vector_unit)
+    bf16, matrix false, vector false, fused_sequential: loops (no_vector_unit)
+    f32, matrix true, vector true, ordered: zvt (ordered_on_matrix)
+    f32, matrix true, vector true, fused_sequential: rvv (fused_off_matrix)
+    f32, matrix true, vector false, ordered: zvt (ordered_on_matrix)
+    f32, matrix true, vector false, fused_sequential: loops (no_vector_unit)
+    f32, matrix false, vector true, ordered: rvv (vector_unit)
+    f32, matrix false, vector true, fused_sequential: rvv (vector_unit)
+    f32, matrix false, vector false, ordered: loops (no_vector_unit)
+    f32, matrix false, vector false, fused_sequential: loops (no_vector_unit) |}]

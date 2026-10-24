@@ -114,6 +114,7 @@ let operands ~spelling : Insn.t -> Operand.t list = function
   | Vmv_v_x { dst; src } -> [ vreg dst; gpr src ]
   | Vse { src; base; _ } -> [ vreg src; mem base 0 ]
   | Vsse { src; base; stride; _ } -> [ vreg src; mem base 0; gpr stride ]
+  | Vlse { dst; base; stride; _ } -> [ vreg dst; mem base 0; gpr stride ]
   | Vsetvli { avl; vtype } ->
       let rd, rs1 =
         match avl with Reg r -> (Gpr.zero, r) | Vlmax { vl } -> (vl, Gpr.zero)

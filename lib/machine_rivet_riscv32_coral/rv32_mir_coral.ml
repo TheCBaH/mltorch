@@ -70,8 +70,8 @@ let slots ?(home = fun _ -> Coral_layout.Home.Any) ~record artifact =
       })
     (Machine_rivet_riscv32_mir.Rv32_mir_module.slots artifact)
 
-let image ?mutation ?home (c : Config.t) ({ Q.artifact; record } : Q.published)
-    =
+let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
+    ?stage (c : Config.t) ({ Q.artifact; record } : Q.published) =
   let render pp r = Result.map_error (Fmt.str "%a" pp) (Err.payload r) in
   let* profile =
     render Coral_profile.pp_error
@@ -92,10 +92,31 @@ let image ?mutation ?home (c : Config.t) ({ Q.artifact; record } : Q.published)
     render Machine_rivet_riscv32_mir.Rv32_mir_form.Refusal.pp
       (Machine_rivet_riscv32_mir.Rv32_mir_module.of_artifact ?mutation artifact)
   in
-  let* helpers = Q.helper_modules artifact in
+  (* on a configuration with the matrix engine, an ordered contraction runs
+     there; every other one on the vector unit *)
+  let capabilities =
+    {
+      Contraction.Select.Capabilities.matrix =
+        engine && List.mem "zvt" profile.Coral_profile.extensions;
+      vector = List.mem "zve32f" profile.Coral_profile.extensions;
+    }
+  in
+  let on_engine d =
+    fst (Contraction.Select.choose capabilities d)
+    = Contraction.Select.Engine.Zvt
+  in
+  let other d =
+    if on_engine d then
+      Some
+        (Coralnpu_kernels_zvt.Zvt_contraction.module_ ?mutation:engine_mutation
+           d)
+    else None
+  in
+  let* helpers = Q.helper_modules ?kernel_mutation ?stage ~other artifact in
   render Coral_image.pp_error
-    (Coral_image.build ~rv32_profile profile ~entry:Table.entry
-       ~kernel:(m :: helpers)
+    (Coral_image.build ~rv32_profile
+       ~matrix:(List.exists on_engine (Q.generated artifact))
+       profile ~entry:Table.entry ~kernel:(m :: helpers)
        (slots ?home ~record artifact))
 
 (* The run on the configuration's simulator: each written slot's bytes, by
@@ -203,12 +224,15 @@ let run_once ?(on_run = fun _ -> ()) ?route_mutation ?budget (c : Config.t)
   in
   Ok status
 
-let exec_of ?mutation ?route_mutation ?registers ?on_run ?home ?budget c ~sites
-    g =
+let exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
+    ?engine_mutation ?stage ?on_run ?home ?budget c ~sites g =
   let* published =
     Q.publish ?registers ~allocation:Q.Allocation.Scanned ~sites g
   in
-  let* image = image ?mutation ?home c published in
+  let* image =
+    image ?mutation ?kernel_mutation ?home ?engine ?engine_mutation ?stage c
+      published
+  in
   let phys = Art.program published.Q.artifact in
   let run ?fuel:_ memory binding ~invocation:_ =
     match
@@ -237,13 +261,13 @@ let exec_of ?mutation ?route_mutation ?registers ?on_run ?home ?budget c ~sites
 (* [on_run] sees what every run measured. [home] places each slot (default
    [Any]); [budget] bounds the subsystem's read-back bytes (default
    {!read_back_budget}). *)
-let route ?mutation ?route_mutation ?registers ?on_run ?home ?budget
-    (c : Config.t) =
+let route ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
+    ?engine_mutation ?stage ?on_run ?home ?budget (c : Config.t) =
   Route.Route.Custom
     {
       Route.Custom.name = "riscv32 coral " ^ c.Config.configuration;
       exec =
         (fun ~sites g ->
-          exec_of ?mutation ?route_mutation ?registers ?on_run ?home ?budget c
-            ~sites g);
+          exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
+            ?engine_mutation ?stage ?on_run ?home ?budget c ~sites g);
     }

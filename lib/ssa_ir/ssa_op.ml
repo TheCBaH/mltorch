@@ -177,9 +177,10 @@ type t =
       c : Ssa_id.Buffer.t;
     }
       (** The matrix product [desc] reading A and B and writing C, element
-          offsets from each buffer's first cell ({!Contraction.eval}). C is
-          disjoint from A and B. Only a pass that recognized the loops it
-          replaces introduces one ({!Ssa_contract}). *)
+          offsets from each buffer's first cell ({!Contraction.eval}); A and B
+          of [desc]'s format ({!contract_operands}), C binary32. C is disjoint
+          from A and B. Only a pass that recognized the loops it replaces
+          introduces one ({!Ssa_contract}). *)
   | Convert of Convert.t * Ssa_value.t
   | Float_binary of Expr.Value.binary_op * Ssa_value.t * Ssa_value.t
   | Float_compare of Compare.t * Ssa_value.t * Ssa_value.t
@@ -591,3 +592,9 @@ let key op =
     | _ -> ""
   in
   String.concat " " ((name op ^ "[" ^ attrs ^ "]") :: List.map id (operands op))
+
+(* The format family a contraction's A and B are read as; C is binary32. *)
+let contract_operands (d : Contraction.t) =
+  match d.Contraction.format with
+  | Contraction.Element.Bf16 -> Ssa_format.Family.Bf16
+  | Contraction.Element.F32 -> Ssa_format.Family.F32

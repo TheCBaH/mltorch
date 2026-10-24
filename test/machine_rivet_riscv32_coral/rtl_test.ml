@@ -231,7 +231,8 @@ let%expect_test "generated contractions against planned loops" =
         (Int64.to_float lc /. Int64.to_float !cycles)
         (rate lc) (rate !cycles))
     T.contraction_fixtures;
-  [%expect {|
+  [%expect
+    {|
     linear 9x32 k64, loops (1 invocations): bitwise
     linear 9x32 k64, generated (1 invocations): bitwise
       cycles 34910 -> 9281 (3.76x); 1.056 -> 3.972 ops/cycle

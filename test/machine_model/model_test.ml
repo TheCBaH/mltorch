@@ -560,6 +560,57 @@ let linear_fixture ~m ~n ~k ~bias () =
         linear params ~x ~weight ~bias:b ()
       else linear params ~x ~weight ())
 
+(* [linear_fixture] with its input and weight bfloat16, [bmm_fixture] with
+   both inputs. *)
+let linear_bf16_fixture ~m ~n ~k ~bias () =
+  let bf16 = Payload.Fmt Payload.BF16 in
+  F.build "linear_bf16"
+    Graph_builder.(
+      let* x = input ~shape:(F.s 1 1 1 1 m k) ~fmt:bf16 () in
+      let* weight = constant ~shape:(F.s n 1 1 1 1 k) ~fmt:bf16 () in
+      let params = { Linear.Linear.in_features = Dim.extent k } in
+      if bias then
+        let* b = constant ~shape:(F.s1c n) () in
+        linear params ~x ~weight ~bias:b ()
+      else linear params ~x ~weight ())
+
+(* [t]'s values stored in [sg]'s format: bfloat16 (each value rounded to
+   it) for a bfloat16 tensor, else [t] itself. *)
+let in_format (sg : Tensor_sig.t) t =
+  match sg.Tensor_sig.fmt with
+  | Payload.Fmt Payload.BF16 ->
+      let shape = sg.Tensor_sig.shape in
+      let data =
+        Bigarray.(
+          Array1.create int16_unsigned c_layout (Vec6.numel shape :> int))
+      in
+      Vec6.iter shape (fun c ->
+          data.{(Vec6.offset shape c :> int)} <-
+            Half.Bf16.of_float (Tensor.read t c));
+      Tensor.Tensor
+        {
+          shape;
+          payload =
+            { Payload.fmt = Payload.BF16; quant = Payload.No_quant; data };
+        }
+  | Payload.Fmt _ -> t
+
+let bmm_bf16_fixture ~batch ~m ~n ~k () =
+  let bf16 = Payload.Fmt Payload.BF16 in
+  F.build "bmm_bf16"
+    Graph_builder.(
+      let* a = input ~shape:(F.s 1 1 1 batch m k) ~fmt:bf16 () in
+      let* b = input ~shape:(F.s 1 1 1 batch k n) ~fmt:bf16 () in
+      bmm a b)
+
+let bf16_fixtures =
+  [
+    ("bmm bf16 3x7x29 k63", bmm_bf16_fixture ~batch:3 ~m:7 ~n:29 ~k:63);
+    ("linear bf16 9x32 k64", linear_bf16_fixture ~m:9 ~n:32 ~k:64 ~bias:false);
+    ( "linear bf16 7x29 k63 bias",
+      linear_bf16_fixture ~m:7 ~n:29 ~k:63 ~bias:true );
+  ]
+
 let bmm_fixture ~batch ~m ~n ~k () =
   F.build "bmm"
     Graph_builder.(
@@ -574,6 +625,38 @@ let contraction_fixtures =
     ("linear 7x29 k63 bias", linear_fixture ~m:7 ~n:29 ~k:63 ~bias:true);
     ("bmm 1x9x32 k64", bmm_fixture ~batch:1 ~m:9 ~n:32 ~k:64);
     ("bmm 3x7x29 k63", bmm_fixture ~batch:3 ~m:7 ~n:29 ~k:63);
+  ]
+
+(* A 1x1 convolution over an [h] x [w] image of [cin] channels to [cout]: a
+   matrix product whose rows are two loops (with [cin] 1, a sum over a
+   single index); a [pad] or [stride] other than 0
+   or 1 makes windows the recognizer must refuse. *)
+let pointwise_fixture ~pad ~stride ~h ~w ~cin ~cout () =
+  let axis = F.conv_axis ~kernel:1 ~stride ~pad in
+  F.build "pointwise"
+    Graph_builder.(
+      let* x = input ~shape:(F.nhwc ~h ~w ~c:cin) () in
+      let* weight = constant ~shape:(F.s cout 1 1 1 1 cin) () in
+      let* bias = constant ~shape:(F.s1c cout) () in
+      conv2d
+        {
+          Conv.Conv2d.h = axis;
+          w = axis;
+          in_channels = Dim.extent cin;
+          groups = Op_config.Pos.of_int 1;
+        }
+        ~x ~weight ~bias ())
+
+let pointwise_fixtures =
+  [
+    ( "conv1x1 3x5 c19 to 29",
+      pointwise_fixture ~pad:0 ~stride:1 ~h:3 ~w:5 ~cin:19 ~cout:29 );
+    ( "conv1x1 3x5 c1 to 4",
+      pointwise_fixture ~pad:0 ~stride:1 ~h:3 ~w:5 ~cin:1 ~cout:4 );
+    ( "conv1x1 2x2 c8 to 4 pad 1",
+      pointwise_fixture ~pad:1 ~stride:1 ~h:2 ~w:2 ~cin:8 ~cout:4 );
+    ( "conv1x1 4x4 c8 to 4 stride 2",
+      pointwise_fixture ~pad:0 ~stride:2 ~h:4 ~w:4 ~cin:8 ~cout:4 );
   ]
 
 (* A matrix-product fixture's multiply-adds: its output's cells times the

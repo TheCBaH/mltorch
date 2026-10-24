@@ -530,11 +530,19 @@ let exec_op st (i : Ssa_instr.t) =
           st.counters.Counters.stores <- st.counters.Counters.stores + 1;
           write_cell st id encode ~at (get st value)
       | Ssa_op.Contract { desc; a; b; c } ->
-          (* the reference evaluator over the cells, binary32 as they are *)
+          (* the reference evaluator over the cells, binary32 as they are or
+             bfloat16 widened; C is binary32 *)
+          let decode id =
+            if Ssa_id.Buffer.equal id c then Ssa_op.Decode.F32_exact
+            else
+              match desc.Contraction.format with
+              | Contraction.Element.Bf16 -> Ssa_op.Decode.Bf16_to_f32
+              | Contraction.Element.F32 -> Ssa_op.Decode.F32_exact
+          in
           let read id off =
             match
-              read_cell st id (buffer st id) Ssa_op.Decode.F32_exact
-                ~at:(Int64.to_int off) ~channel:0
+              read_cell st id (buffer st id) (decode id) ~at:(Int64.to_int off)
+                ~channel:0
             with
             | F x -> x
             | E | I _ | L _ | M _ | P _ | V _ ->

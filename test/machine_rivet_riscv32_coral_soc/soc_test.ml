@@ -95,3 +95,57 @@ let%expect_test "tensors in SRAM" =
     conv, batch norm, relu to C=32, DTCM (3 invocations): bitwise
     conv, batch norm, relu to C=32, SRAM (3 invocations): bitwise
       cycles 23825 in DTCM, 45692 in SRAM |}]
+
+(* Matrix products as generated functions with their tensors in SRAM: read
+   in place, or with the operands the staging rule picks copied into the
+   function's own DTCM panels by one DMA chain first; bitwise both, with the
+   cycles each takes. Then a staging chain not waited for must be caught. *)
+let%expect_test "contractions over SRAM, staged by DMA" =
+  let home (s : Machine_rivet_common.Rivet_table.slot) =
+    match s.Machine_rivet_common.Rivet_table.section with
+    | Machine_model.Mir_artifact.Section.Bound -> Coral_layout.Home.Ram
+    | _ -> Coral_layout.Home.Any
+  in
+  let rule d = Some (Coralnpu_kernels.Rvv_contraction.in_sram d) in
+  let run ?stage ?kernel_mutation name g =
+    let cycles = ref 0L in
+    let on_run (o : C.Run.t) = cycles := Int64.add !cycles o.C.Run.mcycle in
+    T.check
+      ~route:(C.route ?stage ?kernel_mutation ~home ~on_run subsystem)
+      ~contractions:true
+      ~pipeline:
+        (Ssa_backends.Pipeline.Planned
+           {
+             numerics = Ssa_ir.Ssa_numerics.Fp32_contracted;
+             target = Ssa_ir.Ssa_target.zve32f128;
+           })
+      ~oracle:T.Fp32_contracted ~constant:T.positive ~calls:1 name g;
+    !cycles
+  in
+  List.iter
+    (fun (name, g) ->
+      let direct = run (name ^ ", in SRAM") g in
+      let staged = run ~stage:rule (name ^ ", staged") g in
+      Fmt.pr "  cycles %Ld -> %Ld (%.2fx)@." direct staged
+        (Int64.to_float direct /. Int64.to_float staged))
+    (List.filter
+       (fun (n, _) ->
+         List.mem n
+           [ "linear 9x32 k64"; "linear 7x29 k63 bias"; "bmm 1x9x32 k64" ])
+       T.contraction_fixtures);
+  ignore
+    (run ~stage:rule
+       ~kernel_mutation:Coralnpu_kernels.Rvv_contraction.Mutation.No_wait
+       "staging not waited for"
+       (List.assoc "linear 9x32 k64" T.contraction_fixtures));
+  [%expect {|
+    linear 9x32 k64, in SRAM (1 invocations): bitwise
+    linear 9x32 k64, staged (1 invocations): bitwise
+      cycles 36505 -> 18912 (1.93x)
+    linear 7x29 k63 bias, in SRAM (1 invocations): bitwise
+    linear 7x29 k63 bias, staged (1 invocations): bitwise
+      cycles 34417 -> 18785 (1.83x)
+    bmm 1x9x32 k64, in SRAM (1 invocations): bitwise
+    bmm 1x9x32 k64, staged (1 invocations): bitwise
+      cycles 13376 -> 13153 (1.02x)
+    staging not waited for (1 invocations): DIFFERS |}]

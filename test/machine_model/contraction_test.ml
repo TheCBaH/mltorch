@@ -220,9 +220,9 @@ let%expect_test "contractions found in the fixtures" =
     softmax over H, W=32 0: refused not_product
     layer_norm over H, W=32 0: refused not_product
     layer_norm over H, W=32 0: refused not_product
-    conv, batch norm, relu to C=32 0: refused not_product
     conv, batch norm, relu to C=32 0: refused bounds
-    conv, batch norm, relu to C=32 0: refused bounds |}]
+    conv, batch norm, relu to C=32 0: refused not_product
+    conv, batch norm, relu to C=32 0: refused not_product |}]
 
 (* ---- the contraction rewrite ---------------------------------------------- *)
 
@@ -468,3 +468,130 @@ let%expect_test "contractions as helper calls on the interpreters" =
     bmm 3x7x29 k63, contracted, generic (1 invocations): bitwise
     bmm 3x7x29 k63, contracted, riscv32 selected (1 invocations): bitwise
     bmm 3x7x29 k63, contracted, riscv32 scanned (1 invocations): bitwise |}]
+
+(* 1x1 convolutions: an unpadded, unit-stride one is found as an ordered
+   product of flattened rows (its window sums hold one product each, so even
+   the contracted policy rounds every product) and runs as a helper call,
+   bitwise against its oracle; a padded or strided one is refused. *)
+let%expect_test "1x1 convolutions as matrix products" =
+  List.iter
+    (fun (name, g) ->
+      let b = bundle (g ()) in
+      List.iteri
+        (fun i inv ->
+          match Ssa_backends.program Ssa_backends.Pipeline.Exact inv with
+          | Error e -> Fmt.pr "%s %d: %s@." name i e
+          | Ok p ->
+              List.iter
+                (function
+                  | Ssa_ir.Ssa_contract.Outcome.Found f ->
+                      Fmt.pr "%s %d: %a@." name i Contraction.pp
+                        f.Ssa_ir.Ssa_contract.Found.desc
+                  | Ssa_ir.Ssa_contract.Outcome.Refused r ->
+                      Fmt.pr "%s %d: refused %s@." name i
+                        (Ssa_ir.Ssa_contract.Refusal.name r))
+                (Ssa_ir.Ssa_contract.census
+                   ~numerics:Contraction.Numerics.Fused_sequential
+                   (Ssa_ir.Ssa_plan.binary32_scalar p)))
+        b.Loop_ir.Loop_bundle.invocations;
+      List.iter
+        (fun (rname, route) ->
+          check ?route ~contractions:true
+            ~pipeline:
+              (Ssa_backends.Pipeline.Planned
+                 {
+                   numerics = Ssa_ir.Ssa_numerics.Fp32_contracted;
+                   target = Ssa_ir.Ssa_target.zve32f128;
+                 })
+            ~oracle:Fp32_contracted ~same:same_portable ~input:adversarial_input
+            ~constant:(fun sg -> adversarial ~salt:3 sg)
+            ~calls:1
+            (Fmt.str "%s, %s" name rname)
+            g)
+        [
+          ("generic", None);
+          ("riscv32 scanned", Some (M.Route.Riscv32 M.Stage.Scanned));
+        ])
+    pointwise_fixtures;
+  [%expect
+    {|
+    conv1x1 3x5 c19 to 29 0: contract f32 batch=1 m=15 n=29 k=19 a=(0,19,1) b=(0,19,1) c=(435,29,1) seed=zero ordered
+    conv1x1 3x5 c19 to 29, generic (1 invocations): bitwise
+    conv1x1 3x5 c19 to 29, riscv32 scanned (1 invocations): bitwise
+    conv1x1 3x5 c1 to 4 0: contract f32 batch=1 m=15 n=4 k=1 a=(0,1,1) b=(0,1,1) c=(60,4,1) seed=zero ordered
+    conv1x1 3x5 c1 to 4, generic (1 invocations): bitwise
+    conv1x1 3x5 c1 to 4, riscv32 scanned (1 invocations): bitwise
+    conv1x1 2x2 c8 to 4 pad 1 0: refused bounds
+    conv1x1 2x2 c8 to 4 pad 1 0: refused bounds
+    conv1x1 2x2 c8 to 4 pad 1 0: refused bounds
+    conv1x1 2x2 c8 to 4 pad 1, generic (1 invocations): bitwise
+    conv1x1 2x2 c8 to 4 pad 1, riscv32 scanned (1 invocations): bitwise
+    conv1x1 4x4 c8 to 4 stride 2 0: refused non_affine
+    conv1x1 4x4 c8 to 4 stride 2 0: refused non_affine
+    conv1x1 4x4 c8 to 4 stride 2 0: refused non_affine
+    conv1x1 4x4 c8 to 4 stride 2, generic (1 invocations): bitwise
+    conv1x1 4x4 c8 to 4 stride 2, riscv32 scanned (1 invocations): bitwise |}]
+
+(* Matrix products of bfloat16 operands: found with their format, and run as
+   helper calls under both binary32 policies, bitwise against their oracles. *)
+let%expect_test "bfloat16 matrix products" =
+  List.iter
+    (fun (name, g) ->
+      let b = bundle (g ()) in
+      List.iteri
+        (fun i inv ->
+          match Ssa_backends.program Ssa_backends.Pipeline.Exact inv with
+          | Error e -> Fmt.pr "%s %d: %s@." name i e
+          | Ok p ->
+              List.iter
+                (function
+                  | Ssa_ir.Ssa_contract.Outcome.Found f ->
+                      Fmt.pr "%s %d: %a@." name i Contraction.pp
+                        f.Ssa_ir.Ssa_contract.Found.desc
+                  | Ssa_ir.Ssa_contract.Outcome.Refused r ->
+                      Fmt.pr "%s %d: refused %s@." name i
+                        (Ssa_ir.Ssa_contract.Refusal.name r))
+                (Ssa_ir.Ssa_contract.census
+                   ~numerics:Contraction.Numerics.Ordered
+                   (Ssa_ir.Ssa_plan.binary32_scalar p)))
+        b.Loop_ir.Loop_bundle.invocations;
+      List.iter
+        (fun (pname, numerics, oracle) ->
+          List.iter
+            (fun (rname, route) ->
+              check ?route ~contractions:true
+                ~pipeline:
+                  (Ssa_backends.Pipeline.Planned
+                     { numerics; target = Ssa_ir.Ssa_target.zve32f128 })
+                ~oracle ~same:same_portable
+                ~input:(fun ~salt id sg ->
+                  in_format sg (adversarial_input ~salt id sg))
+                ~constant:(fun sg -> in_format sg (adversarial ~salt:3 sg))
+                ~calls:1
+                (Fmt.str "%s, %s, %s" name pname rname)
+                g)
+            [
+              ("generic", None);
+              ("riscv32 scanned", Some (M.Route.Riscv32 M.Stage.Scanned));
+            ])
+        [
+          ("ordered", Ssa_ir.Ssa_numerics.Fp32_ordered, Fp32);
+          ("contracted", Ssa_ir.Ssa_numerics.Fp32_contracted, Fp32_contracted);
+        ])
+    bf16_fixtures;
+  [%expect {|
+    bmm bf16 3x7x29 k63 0: contract bf16 batch=3 m=7 n=29 k=63 a=(441,63,1) b=(1827,1,29) c=(203,29,1) seed=zero ordered
+    bmm bf16 3x7x29 k63, ordered, generic (1 invocations): bitwise
+    bmm bf16 3x7x29 k63, ordered, riscv32 scanned (1 invocations): bitwise
+    bmm bf16 3x7x29 k63, contracted, generic (1 invocations): bitwise
+    bmm bf16 3x7x29 k63, contracted, riscv32 scanned (1 invocations): bitwise
+    linear bf16 9x32 k64 0: contract bf16 batch=1 m=9 n=32 k=64 a=(0,64,1) b=(0,64,1) c=(288,32,1) seed=zero ordered
+    linear bf16 9x32 k64, ordered, generic (1 invocations): bitwise
+    linear bf16 9x32 k64, ordered, riscv32 scanned (1 invocations): bitwise
+    linear bf16 9x32 k64, contracted, generic (1 invocations): bitwise
+    linear bf16 9x32 k64, contracted, riscv32 scanned (1 invocations): bitwise
+    linear bf16 7x29 k63 bias 0: contract bf16 batch=1 m=7 n=29 k=63 a=(0,63,1) b=(0,63,1) c=(203,29,1) seed=zero ordered
+    linear bf16 7x29 k63 bias, ordered, generic (1 invocations): bitwise
+    linear bf16 7x29 k63 bias, ordered, riscv32 scanned (1 invocations): bitwise
+    linear bf16 7x29 k63 bias, contracted, generic (1 invocations): bitwise
+    linear bf16 7x29 k63 bias, contracted, riscv32 scanned (1 invocations): bitwise |}]

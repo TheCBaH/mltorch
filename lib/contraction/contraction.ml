@@ -1,7 +1,8 @@
 module Element = struct
-  type t = F32
+  type t = Bf16 | F32
 
-  let name = function F32 -> "f32"
+  let name = function Bf16 -> "bf16" | F32 -> "f32"
+  let bytes = function Bf16 -> 2L | F32 -> 4L
 end
 
 module Seed = struct
@@ -116,9 +117,12 @@ let of_name s =
       | _ -> None
   in
   match String.split_on_char '.' s with
-  | [ "contract"; "f32"; b; m; n; k; a; bb; c; seed; numerics ] -> (
+  | [ "contract"; format; b; m; n; k; a; bb; c; seed; numerics ] -> (
       match
-        ( int_of 'b' b,
+        ( List.find_opt
+            (fun x -> Element.name x = format)
+            [ Element.Bf16; Element.F32 ],
+          int_of 'b' b,
           int_of 'm' m,
           int_of 'n' n,
           int_of 'k' k,
@@ -130,7 +134,8 @@ let of_name s =
             (fun x -> Numerics.name x = numerics)
             [ Numerics.Fused_sequential; Numerics.Ordered ] )
       with
-      | ( Some batch,
+      | ( Some format,
+          Some batch,
           Some m,
           Some n,
           Some k,
@@ -145,7 +150,7 @@ let of_name s =
                   ~a:{ Operand.batch = a0; outer = a1; k = a2 }
                   ~b:{ Operand.batch = b0; outer = b1; k = b2 }
                   ~c:{ Output.batch = c0; row = c1; col = c2 }
-                  ~format:Element.F32 ~seed ~numerics))
+                  ~format ~seed ~numerics))
       | _ -> None)
   | _ -> None
 
@@ -187,3 +192,41 @@ let eval t ~a ~b ~c ~write =
                     | Numerics.Fused_sequential -> F32_math.fma32 x y !acc
                     | Numerics.Ordered -> round32 (!acc +. round32 (x *. y)));
               write at !acc)))
+
+module Select = struct
+  module Engine = struct
+    type t = Loops | Rvv | Zvt
+
+    let name = function Loops -> "loops" | Rvv -> "rvv" | Zvt -> "zvt"
+  end
+
+  module Reason = struct
+    type t =
+      | Format_off_matrix
+      | Fused_off_matrix
+      | No_vector_unit
+      | Ordered_on_matrix
+      | Vector_unit
+
+    let name = function
+      | Format_off_matrix -> "format_off_matrix"
+      | Fused_off_matrix -> "fused_off_matrix"
+      | No_vector_unit -> "no_vector_unit"
+      | Ordered_on_matrix -> "ordered_on_matrix"
+      | Vector_unit -> "vector_unit"
+  end
+
+  module Capabilities = struct
+    type t = { matrix : bool; vector : bool }
+  end
+
+  let choose (c : Capabilities.t) (d : t) =
+    match (c.matrix, d.format, d.numerics, c.vector) with
+    | true, Element.F32, Numerics.Ordered, _ ->
+        (Engine.Zvt, Reason.Ordered_on_matrix)
+    | _, _, _, false -> (Engine.Loops, Reason.No_vector_unit)
+    | true, Element.Bf16, _, true -> (Engine.Rvv, Reason.Format_off_matrix)
+    | true, Element.F32, Numerics.Fused_sequential, true ->
+        (Engine.Rvv, Reason.Fused_off_matrix)
+    | false, _, _, true -> (Engine.Rvv, Reason.Vector_unit)
+end

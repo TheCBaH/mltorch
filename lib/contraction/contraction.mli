@@ -5,11 +5,17 @@
     stride is an [int64]. The descriptor holds no buffer: the operation that
     carries it names A, B and C, and C is disjoint from both. *)
 
-(** The element format of A and B, and of C. *)
+(** The element format of A and B; C is binary32 and every sum is accumulated in
+    binary32. *)
 module Element : sig
-  type t = F32  (** binary32, accumulated in binary32 *)
+  type t =
+    | Bf16  (** bfloat16, each element widened exactly to binary32 *)
+    | F32  (** binary32 *)
 
   val name : t -> string
+
+  val bytes : t -> int64
+  (** One element's bytes: 2 or 4. *)
 end
 
 (** What each output starts from. *)
@@ -108,5 +114,40 @@ val eval :
   unit
 (** The reference: every output in batch, row, column order, each its own sum
     under [numerics]; [a], [b] read an element at an offset from their base
-    (binary32 values), [c] reads the seed when it is [Tensor], [write] stores
-    the result. *)
+    (binary32 values, a bfloat16 one widened), [c] reads the seed when it is
+    [Tensor], [write] stores the result. *)
+
+(** Which unit realizes a contraction, from the descriptor and what the core
+    has. The rules, in order: the matrix engine for an [Ordered] binary32
+    product when the core has one ([vtfmm] rounds each product, so it cannot
+    compute a fused chain; its bfloat16 form adds two k steps' products to the
+    accumulator with one rounding, which neither requirement is); else the
+    vector unit when the core has one; else none, and the product stays in the
+    planned loops. *)
+module Select : sig
+  module Engine : sig
+    type t = Loops | Rvv | Zvt
+
+    val name : t -> string
+  end
+
+  (** Why the engine was chosen. *)
+  module Reason : sig
+    type t =
+      | Format_off_matrix
+          (** the core has the matrix engine, but the operands are bfloat16 *)
+      | Fused_off_matrix
+          (** the core has the matrix engine, but the product is fused *)
+      | No_vector_unit
+      | Ordered_on_matrix
+      | Vector_unit  (** the core has no matrix engine *)
+
+    val name : t -> string
+  end
+
+  module Capabilities : sig
+    type t = { matrix : bool; vector : bool }
+  end
+
+  val choose : Capabilities.t -> t -> Engine.t * Reason.t
+end

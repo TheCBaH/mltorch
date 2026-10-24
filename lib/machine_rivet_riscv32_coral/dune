@@ -9,6 +9,8 @@
  (name machine_rivet_riscv32_coral)
  (libraries
   coralnpu
+  contraction
+  coralnpu_kernels_zvt
   coralnpu_rv32
   err_trace
   fmt

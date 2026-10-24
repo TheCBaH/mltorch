@@ -319,7 +319,8 @@ let%expect_test "generated contractions under qemu" =
         T.Fp32_contracted tails)
     Coralnpu_kernels.Rvv_contraction.Mutation.
       [ ("A row stride", A_row_stride); ("tail vl", Tail_vl) ];
-  [%expect {|
+  [%expect
+    {|
     vlen 128, linear 9x32 k64, ordered (1 invocations): bitwise
     vlen 128, linear 9x32 k64, contracted (1 invocations): bitwise
     vlen 128, linear 9x32 k64 bias, ordered (1 invocations): bitwise
@@ -342,3 +343,49 @@ let%expect_test "generated contractions under qemu" =
     vlen 1024, bmm 3x7x29 k63, contracted (1 invocations): bitwise
     A row stride (1 invocations): DIFFERS
     tail vl (1 invocations): DIFFERS |}]
+
+(* The generated functions over bfloat16 operands and over 1x1 convolutions'
+   flattened rows, under qemu at VLEN 128, ordered and contracted; then A's
+   rows one element too far apart over bfloat16, which the runs must catch. *)
+let%expect_test "generated bfloat16 and 1x1 convolution contractions under qemu"
+    =
+  let planned numerics =
+    Ssa_backends.Pipeline.Planned
+      { numerics; target = Ssa_ir.Ssa_target.zve32f128 }
+  in
+  let run ?kernel_mutation name numerics oracle g =
+    T.check
+      ~route:(R.route ?kernel_mutation ~cpu:(cpu 128) ())
+      ~contractions:true ~pipeline:(planned numerics) ~oracle
+      ~same:T.same_portable
+      ~input:(fun ~salt id sg ->
+        T.in_format sg (T.adversarial_input ~salt id sg))
+      ~constant:(fun sg -> T.in_format sg (T.adversarial ~salt:3 sg))
+      ~calls:1 name g
+  in
+  List.iter
+    (fun (name, g) ->
+      run (name ^ ", ordered") Ssa_ir.Ssa_numerics.Fp32_ordered T.Fp32 g;
+      run (name ^ ", contracted") Ssa_ir.Ssa_numerics.Fp32_contracted
+        T.Fp32_contracted g)
+    (T.bf16_fixtures
+    @ List.filter
+        (fun (n, _) ->
+          List.mem n [ "conv1x1 3x5 c19 to 29"; "conv1x1 3x5 c1 to 4" ])
+        T.pointwise_fixtures);
+  run ~kernel_mutation:Coralnpu_kernels.Rvv_contraction.Mutation.A_row_stride
+    "bfloat16, A row stride" Ssa_ir.Ssa_numerics.Fp32_contracted
+    T.Fp32_contracted
+    (List.assoc "linear bf16 7x29 k63 bias" T.bf16_fixtures);
+  [%expect {|
+    bmm bf16 3x7x29 k63, ordered (1 invocations): bitwise
+    bmm bf16 3x7x29 k63, contracted (1 invocations): bitwise
+    linear bf16 9x32 k64, ordered (1 invocations): bitwise
+    linear bf16 9x32 k64, contracted (1 invocations): bitwise
+    linear bf16 7x29 k63 bias, ordered (1 invocations): bitwise
+    linear bf16 7x29 k63 bias, contracted (1 invocations): bitwise
+    conv1x1 3x5 c19 to 29, ordered (1 invocations): bitwise
+    conv1x1 3x5 c19 to 29, contracted (1 invocations): bitwise
+    conv1x1 3x5 c1 to 4, ordered (1 invocations): bitwise
+    conv1x1 3x5 c1 to 4, contracted (1 invocations): bitwise
+    bfloat16, A row stride (1 invocations): DIFFERS |}]

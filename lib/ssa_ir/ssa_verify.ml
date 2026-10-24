@@ -234,11 +234,10 @@ let instr ctx scope ~live (i : Ssa_instr.t) =
       check_vector_access ctx scope buffer
         ~family:(Ssa_op.Encode.family encode)
         ~writes:true
-  | Ssa_op.Contract { a; b; c; _ } ->
-      check_vector_access ctx scope a ~family:Ssa_format.Family.F32
-        ~writes:false;
-      check_vector_access ctx scope b ~family:Ssa_format.Family.F32
-        ~writes:false;
+  | Ssa_op.Contract { desc; a; b; c } ->
+      let family = Ssa_op.contract_operands desc in
+      check_vector_access ctx scope a ~family ~writes:false;
+      check_vector_access ctx scope b ~family ~writes:false;
       check_vector_access ctx scope c ~family:Ssa_format.Family.F32 ~writes:true
   | Ssa_op.Check_gather _ | Ssa_op.Check_local _ | Ssa_op.Check_scan _
   | Ssa_op.Const _ | Ssa_op.Convert _ | Ssa_op.Index_add_in_domain _

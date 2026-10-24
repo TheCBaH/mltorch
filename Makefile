@@ -1719,6 +1719,16 @@ coralnpu.soc.rv32.runtest:
 	}
 	CORALNPU_DATA=$(CORALNPU_DATA) CORALNPU_SUBSYSTEM_DATA=$(CORALNPU_SUBSYSTEM_DATA) opam exec -- dune build @test/machine_rivet_riscv32_coral_soc/runtest --force
 
+# How the matrix engine's binary32 tile multiply rounds (vtfmm, tk = 1), on the
+# VME core. Seconds.
+.PHONY: coralnpu.zvt.numerics.runtest
+coralnpu.zvt.numerics.runtest:
+	@test -f $(CORALNPU_DATA)/hardware-configurations.json || { \
+		echo "coralnpu.zvt.numerics.runtest: missing $(CORALNPU_DATA) -- run 'make coralnpu.download' first" >&2; \
+		exit 1; \
+	}
+	CORALNPU_DATA=$(CORALNPU_DATA) opam exec -- dune build @test/coralnpu_zvt_numerics/runtest --force
+
 coralnpu.compcert.runtest: compcert.rv32.install
 	@test -f $(CORALNPU_DATA)/hardware-configurations.json || { \
 		echo "coralnpu.compcert.runtest: missing $(CORALNPU_DATA) -- run 'make coralnpu.download' first" >&2; \

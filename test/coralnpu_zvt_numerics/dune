@@ -1,0 +1,24 @@
+; How the matrix engine's binary32 tile multiply rounds: two vtfmm steps on
+; loaded data, on the VME core, against the fused and the separately rounded
+; accumulations. Enabled by CORALNPU_DATA (make coralnpu.zvt.numerics.runtest).
+
+(library
+ (name coralnpu_zvt_numerics_test)
+ (libraries
+  coralnpu
+  coralnpu_rv32
+  err_trace
+  f32_math
+  fmt
+  machine_rivet_riscv32
+  peak_kernels)
+ (inline_tests
+  (deps
+   (env_var CORALNPU_DATA)))
+ (preprocess
+  (pps ppx_expect))
+ (enabled_if
+  (and
+   (<> %{env:CORALNPU_DATA=} "")
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

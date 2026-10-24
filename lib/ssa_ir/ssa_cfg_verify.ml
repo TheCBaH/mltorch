@@ -154,11 +154,10 @@ let check_buffers ctx block (op : Ssa_op.t) =
       check_access ctx block buffer
         ~family:(Ssa_op.Encode.family encode)
         ~writes:true ~flat:false
-  | Ssa_op.Contract { a; b; c; _ } ->
-      check_access ctx block a ~family:Ssa_format.Family.F32 ~writes:false
-        ~flat:true;
-      check_access ctx block b ~family:Ssa_format.Family.F32 ~writes:false
-        ~flat:true;
+  | Ssa_op.Contract { desc; a; b; c } ->
+      let family = Ssa_op.contract_operands desc in
+      check_access ctx block a ~family ~writes:false ~flat:true;
+      check_access ctx block b ~family ~writes:false ~flat:true;
       check_access ctx block c ~family:Ssa_format.Family.F32 ~writes:true
         ~flat:true
   | Ssa_op.Check_gather _ | Ssa_op.Check_local _ | Ssa_op.Check_scan _

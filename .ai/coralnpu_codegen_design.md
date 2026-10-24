@@ -254,3 +254,151 @@ linear 7x29 K=63 5.62x (2.55), bmm 9x32 K=64 4.97x (7.56), bmm 3x7x29 K=63
 10.22x (4.90). The peak suite's FP32 burst at C[9,32], K=64 is 9.9; Linear's
 B is the weight [N, K], read by `vlse32.v` at a stride of K, which is what
 holds it at four. Packing B (stage 5's prepacked weights) is the lever.
+
+### The matrix engine's binary32 rounding
+
+`make coralnpu.zvt.numerics.runtest` (`test/coralnpu_zvt_numerics`, the VME
+core, v0.0.4) runs two `vtfmm.tvv` steps of tk = 1 into one 16x16 binary32
+tile from zero and compares every element with a fused step
+(`fmaf (a2, b2, c)`) and a separately rounded one (`c + round (a2 b2)`), with
+elements built to tell them apart. No element matches the fused step alone;
+73 match only the separate one and the rest both, with the tile's rows
+indexed by A's elements. A subnormal product survives (no flush to zero).
+So a k-ordered chain of `vtfmm` steps is the `Ordered` requirement, bitwise,
+and never `Fused_sequential`: Zvt can realize an `Fp32_ordered` contraction,
+not an `Fp32_contracted` one. NaN propagation was not probed.
+
+### On the matrix engine
+
+On a Coral configuration whose extensions list `zvt` (the VME core), the
+Coral route realizes an `Ordered` contraction with
+`lib/coralnpu_kernels_zvt` (`Zvt_contraction`, through coral-isa's Rivet
+extension; the qemu route never depends on it) and builds the image with the
+matrix unit on; `Fused_sequential` ones stay on the vector unit, since the
+engine rounds each product. The function computes each 16x16 block of C in
+tile `mt0` from zero: per k step `msettn tm` and A's column slice
+(`vle32.v`, or `vlse32.v` at A's row stride; the kernel DSL gained `Vlse`),
+`msettn tn` and B's row slice, one `vtfmm.tvv`; then the block's `tm` rows go
+to C by `vtse32`. A partial block narrows `tm` (in `mtype`) and `tn`; no
+operand is packed or padded, since each slice loads only its own elements.
+It refuses non-contiguous C columns and more than 256 output tiles.
+
+On the VME core (`vme_test.ml`, v0.0.4), `Fp32_ordered`, against the vector
+unit's function on the same core, bitwise both: linear 9x32 K=64 13694 ->
+4870 cycles (2.81x, 7.57 operations a cycle), with bias 2.70x, linear tails
+1.98x, bmm 9x32 K=64 2.36x (10.54), bmm tails 2.21x. A partial last tile
+written 16 columns wide and A and B exchanged in the tile multiply are
+caught. One accumulator tile and unpacked strided slices leave the engine
+far below its 86.8 operations a cycle at the engine shape: four tiles and
+packed panels are the next levers.
+
+### Which unit
+
+`Contraction.Select.choose` decides from the core's capabilities (matrix
+engine, vector unit) and the descriptor, with the reason as data: the matrix
+engine for an `Ordered` product on a core that has it, else the vector unit,
+else the planned loops. The Coral route asks it per generated function. The
+loops choice is not yet acted on: contractions are rewritten at planning,
+which does not know the core, so on a core without Zve32f the vector
+function is refused at admission rather than replaced.
+
+## Operands in SRAM: staging by DMA
+
+On the subsystem the tensors of a large model live in SRAM. Read in place,
+the generated functions slow down 2.7-3.9x against DTCM (linear 9x32 K=64
+9281 -> 36505 cycles, bmm 9x32 K=64 4872 -> 13376). The first transfer
+schedule is the simplest: resident operands. With `Rvv_contraction ~stage`
+the function owns DTCM panels (a `.bss` of each staged operand's span, which
+the Coral image places in DTCM), writes one 16-byte-beat descriptor per
+staged operand from its own arguments, fences, starts the chain, polls
+`STATUS` until done or error and then computes from the panels; an operand
+not 16-byte aligned or a chain ending in error leaves the operands in place.
+The DMA registers are restated in the generator, which stays clear of the
+simulator libraries.
+
+What to stage was measured (`subsystem-vector-normal`, v0.0.4): staging A
+saves little (it is read by scalar loads either way); staging B halves a
+Linear (its weight's columns are strided, each `vlse32.v` element its own
+SRAM access) and costs 8% on a Bmm, whose contiguous rows stream from SRAM
+faster than the DMA's 1.14 bytes a cycle copies them. `in_sram` encodes that:
+A always, B when strided. With it (`soc_test.ml`): linear 36505 -> 18912
+(1.93x), linear tails 34417 -> 18785 (1.83x), bmm 13376 -> 13153 (1.02x),
+bitwise; a chain started and not waited for is caught. The Coral route takes
+the staging per descriptor (`~stage`); nothing chooses it from the slots'
+homes yet. Overlapping transfer with compute (resident A with streamed B
+panels, split K) is the next schedule; the copy now runs alone.
+
+## Model census (stage 7)
+
+`machine_rivet_rv32_census <model.pt2> --contractions` over the downloaded
+models (`data/pt2-functional`): every CNN yields one product, its classifier
+(mobilenetv2_050 m=1 n=1000 k=1280; efficientnet_b0, mobilenetv3_small_050,
+regnetx_002, test_convnext2 likewise), and refuses its convolutions
+(`bounds`: 106 in mobilenetv2_050). fastvit_sa12 adds its attention-free
+MLP Linears (m=49, n=512/1536, k=512); csatv2 yields 87, among them
+k=1 outer products and m=1/n=1 vector products. A convolution sums Cin
+outermost, then kh and kw over clamped window bounds: not one chain unless
+the window is 1x1, where each inner sum holds one product (exactly its
+rounded value) and the outer one adds them in Cin order. A 1x1 convolution
+is therefore an `Ordered` product even under `Fp32_contracted`; its rows
+are two loops (h, w), which flatten when they cover their extents.
+
+The recognizer now takes that form. Bounds and indices are known through
+`Ssa_range` as well as constants; a term that is itself a sum over [0, 1)
+from +0 is walked into (index additions of a proven zero stand for their
+other operand), and its presence makes the product `Ordered` whatever the
+policy: the inner sum rounds its one product, and +0 plus a product is the
+product (a -0 product becomes +0 in both forms, and an accumulator from +0
+never becomes -0). Two row variables flatten when the outer one's A stride
+is the inner one's extent times its own; the scratch is then
+[1, 1, batch, h, w, n], the same bytes. A sum's own index or a loop's is
+kept as an axis even when its range is one value, else a k=1 product loses
+its k axis (`conv1x1 3x5 c1 to 4` is the regression). A padded or strided
+1x1 window is refused (`bounds`, `non_affine`). Found products: csatv2 118,
+efficientnet_b0 65, mobilenetv3_small_050 42, mobilenetv2_050 35,
+fastvit_sa12 35, regnetx_002 27, test_convnext2 9. On the VME core
+(`vme_test.ml`, contracted policy, so ordered products on the engine): a
+1x1 convolution 7x7 C 32 -> 48 runs 426616 cycles as loops, 67686 as the
+RVV function, 26195 on the matrix engine (5.75 ops/cycle; 16.3x the loops,
+2.58x the RVV function), bitwise all three.
+
+## bfloat16 operands (stage 6.1-6.2)
+
+`Contraction.Element` gains `Bf16`: A and B are bfloat16, widened exactly
+to binary32; C stays binary32 and every sum is accumulated there, under
+either numerical requirement unchanged (a product of two bfloat16 values is
+exact in binary32 except where it overflows or leaves the normal range, so
+`Ordered` and `Fused_sequential` still differ only in those cases and both
+stay specified). The recognizer accepts two `Bf16_to_f32` loads as it
+accepts two `F32_exact` ones and refuses a mix (`format`); the SSA
+interpreter, the verifiers (`Ssa_op.contract_operands`) and the helper
+model read the operands at their format.
+
+The RVV function widens without Zvfbfwma, so it needs no capability the
+manifest does not state (Q4 stays open, and `vfwmaccbf16` would fuse a
+product the ordered requirement rounds): A's scalar is `lhu`, `slli 16`,
+`fmv.w.x`; B's row is `vle16.v`/`vlse16.v` into v4 (EMUL 4 under the
+tile's e32 m8, the high half of v0's group, where a widening may overlap its
+source), then `vzext.vf2 v0, v4` and `vsll.vi v0, v0, 16`. The rest of the
+function is the binary32 one; `s4` is saved only for bfloat16, so the
+binary32 kernels are unchanged byte for byte. The selection sends a
+bfloat16 product to the vector unit even on a core with the matrix engine
+(`format_off_matrix`, and the Zvt generator refuses one). The reason is
+numerical, measured on the VME core with the v0.0.5 release
+(`zvt_numerics_test.ml`, `vtfmm.alt bfloat16 accumulation`): at tk = 2 the
+engine adds both k steps' products to the accumulator with one rounding.
+From an accumulator of 1, two products of 2^-24 reach 1 + 2^-23 (each
+requirement ties twice back to 1), and 2^-24 with 2^-48 passes the midpoint
+(each requirement, and summing the pair first, stays at 1); every random
+element agrees with all four candidates. Neither `Ordered` nor
+`Fused_sequential` rounds two steps at once, so a bfloat16 product on the
+engine would need a third requirement of its own. The tile's slices are
+2 x LMUL groups apart (four registers at e16 m2), as the peak kernels place
+them; a probe with them two apart reads the wrong pairs and matched the
+sequential candidates on the uniform elements only, so a probe needs
+non-uniform elements to show its layout is right. Evidence: qemu at VLEN 128 over bmm and linear
+fixtures (contiguous and strided B), both policies, bitwise, with A's row
+stride mutation caught; on the VME core RTL against the loops, bmm 3x7x29
+K=63 12.1x (ordered) and 13.0x (contracted), linear 9x32 K=64 12.2x and
+14.5x, bitwise. No model in the census has bfloat16 tensors, and none is
+quantized, so INT8 (6.4) has no consumer yet and waits for one.
