@@ -4,8 +4,10 @@ match the standalone core's within a few cycles of code placement, so the
 peak suite's rates stand for the subsystem's cores.
 
 BF16 matrix multiplies (vtfmm.alt) give wrong results here, though the
-manifest lists BF16 among the matrix formats: the subsystem's matrix build
-does not enable the engine's BF16 path. RVV's BF16 widening multiply-add works.
+manifest lists BF16 among the matrix formats, as the standalone VME build's
+does; the cause is unknown. tile_bf16 is faster than its 256 tile multiplies
+can be, so they do not reach the PE array. RVV's BF16 widening multiply-add
+works.
 
   $ ./soc_peak.exe "$CORALNPU_SUBSYSTEM_DATA"
   subsystem-vector-normal gemm_bf16: as expected, 5953 cycles (standalone 5953)
