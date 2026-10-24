@@ -92,6 +92,7 @@ let operands ~spelling : Insn.t -> Operand.t list = function
       [ gpr src; sym (spelling target) ]
   | Csrr { dst; csr } -> [ gpr dst; imm (Insn.Csr.number csr) ]
   | Fence -> [ sym "rw"; sym "rw" ]
+  | J { target } -> [ sym (spelling target) ]
   | Flh { dst; base; offset } | Flw { dst; base; offset } ->
       [ fpr dst; mem base (Imm.Imm12.to_int offset) ]
   | Li { dst; imm = i } -> [ gpr dst; imm (Imm.Li.to_int i) ]
@@ -112,6 +113,7 @@ let operands ~spelling : Insn.t -> Operand.t list = function
   | Vmv_v_i { dst; imm = i } -> [ vreg dst; imm (Imm.Simm5.to_int i) ]
   | Vmv_v_x { dst; src } -> [ vreg dst; gpr src ]
   | Vse { src; base; _ } -> [ vreg src; mem base 0 ]
+  | Vsse { src; base; stride; _ } -> [ vreg src; mem base 0; gpr stride ]
   | Vsetvli { avl; vtype } ->
       let rd, rs1 =
         match avl with Reg r -> (Gpr.zero, r) | Vlmax { vl } -> (vl, Gpr.zero)
@@ -126,7 +128,8 @@ let operands ~spelling : Insn.t -> Operand.t list = function
         word (Vtype.Policy.pp ~prefix:"m") vtype.Vtype.mask;
       ]
   | Vtmm { acc; a; b; _ } -> [ mtreg acc; vreg a; vreg b ]
-  | Vtse { slice; base; _ } -> [ gpr slice; mem base 0 ]
+  | Vtle { slice; base; _ } | Vtse { slice; base; _ } ->
+      [ gpr slice; mem base 0 ]
   | Vtzero { dst } -> [ mtreg dst ]
   | Vv { dst; a; b; _ } -> [ vreg dst; vreg a; vreg b ]
 

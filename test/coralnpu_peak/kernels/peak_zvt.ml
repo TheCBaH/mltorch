@@ -97,18 +97,26 @@ module Tile = struct
 
   (* The first [rows] rows of tile [mt] to [base], [stride] bytes apart, [vl]
      elements each, which leaves [base] past the last row: a slice is the tile
-     number at bit 27 and the row below it. *)
+     number at bit 27 and the row below it. A stride too far for an [addi]
+     goes through [t2]. *)
   let store ~base ~stride ~rows k mt =
     let open Err.Syntax in
     let row = Label.named (Printf.sprintf "peak_store%d" k) in
     let* slice = Insn.load_imm Gpr.t3 (Reg.Mtreg.index mt lsl 27) in
+    let* set_stride, step =
+      if Imm.Imm12.(in_range (of_int stride)) then Ok ([], addi base base stride)
+      else
+        Result.map
+          (fun set -> (List.map Item.insn set, add base base Gpr.t2))
+          (Insn.load_imm Gpr.t2 stride)
+    in
     Ok
-      (List.map Item.insn slice
+      (List.map Item.insn slice @ set_stride
       @ [
           li Gpr.t4 rows;
           Item.label row;
           Item.insn (Vtse { eew = Vtype.Sew.E32; slice = Gpr.t3; base });
-          addi base base stride;
+          step;
           addi Gpr.t3 Gpr.t3 1;
           addi Gpr.t4 Gpr.t4 (-1);
           bnez Gpr.t4 row;
