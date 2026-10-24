@@ -87,7 +87,8 @@ let dump elf =
         (or_fail Elf.Decode.pp_error (Err.payload (Elf.Decode.symbols d s)))
 
 let slots =
-  Coral_layout.(Placement.[ { Slot.align = 8L; placement = In; size = 64L } ])
+  Coral_layout.(
+    Placement.[ { Slot.align = 8L; home = Any; placement = In; size = 64L } ])
 
 let%expect_test "an image per profile" =
   List.iter
@@ -162,7 +163,9 @@ let%expect_test "an image with the runtime" =
     | Ok m -> m
     | Error what -> failwith what
   in
-  let slot placement size = { Coral_layout.Slot.align = 8L; placement; size } in
+  let slot placement size =
+    { Coral_layout.Slot.align = 8L; home = Any; placement; size }
+  in
   List.iter
     (fun slots ->
       match

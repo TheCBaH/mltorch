@@ -1,16 +1,25 @@
 #!/usr/bin/env bash
-# Fetch, verify and extract this host's Coral NPU emulators archive pinned in a
-# lock file. Invoked by `make coralnpu.download`; prints the extracted archive
-# root, which is what CORALNPU_DATA names.
+# Fetch, verify and extract one of this host's Coral NPU archives pinned in a
+# lock file: the emulators (`make coralnpu.download`) or the full subsystem
+# (`make coralnpu.subsystem.download`). Prints the extracted archive root,
+# which is what CORALNPU_DATA (or CORALNPU_SUBSYSTEM_DATA) names.
 #
-# Usage: coralnpu-download.sh <coralnpu.lock> <data-dir>
+# Usage: coralnpu-download.sh <coralnpu.lock> <data-dir> [emulators|subsystem]
 set -euo pipefail
 
 lock=$1
 data_dir=$2
+kind=${3:-emulators}
+case $kind in
+emulators | subsystem) ;;
+*)
+	echo "coralnpu.download: unknown archive $kind" >&2
+	exit 2
+	;;
+esac
 
 arch=$(uname -m | sed -e 's/^amd64$/x86_64/' -e 's/^arm64$/aarch64/')
-name=coralnpu-emulators-linux-$arch
+name=coralnpu-$kind-linux-$arch
 tag=$(sed -n 's/^tag //p' "$lock")
 repo=$(sed -n 's/^repo //p' "$lock")
 sum=$(grep "  $name.tar.gz\$" "$lock" || true)

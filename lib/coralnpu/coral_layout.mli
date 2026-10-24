@@ -6,8 +6,8 @@
       block (four 8-byte words, each on its own 64 bytes), the HTIF packet
       (eight 8-byte words), the staging buffer, the trap scratch, then slots.
       The stack takes the top of DTCM.
-    - A slot that does not fit in DTCM goes to the profile's writable RAM
-      region. A slot is never split.
+    - A slot goes where its {!Home.t} says. An [Any] slot that does not fit in
+      DTCM goes to the profile's writable RAM region. A slot is never split.
 
     The digest is 32 bits of a SHA-256 over the configuration ID and every
     address and size, so a host and a guest built for different layouts cannot
@@ -34,8 +34,25 @@ module Placement : sig
   (** Part of the result frame: [In_out], [Out]. *)
 end
 
+module Home : sig
+  type t =
+    | Any  (** DTCM if it fits there, else the writable RAM. *)
+    | Dtcm  (** DTCM, or refused as over capacity. *)
+    | Ram  (** The writable RAM region, even when DTCM has room. *)
+
+  val to_string : t -> string
+end
+
 module Slot : sig
-  type t = { align : int64; placement : Placement.t; size : int64 }
+  type t = {
+    align : int64;
+    home : Home.t;
+    placement : Placement.t;
+    size : int64;
+  }
+
+  val make : ?home:Home.t -> align:int64 -> Placement.t -> int64 -> t
+  (** [home] defaults to [Any]. *)
 end
 
 module Params : sig

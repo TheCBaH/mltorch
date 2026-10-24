@@ -1,38 +1,47 @@
 open Err.Syntax
 
 module Role = struct
-  type t = Csr | Dtcm | Itcm | Mmio | Ram
+  type t = Csr | Ddr | Dtcm | Itcm | Mmio | Ram | Rom
 
   let of_kind = function
     | "csr" -> Some Csr
+    | "ddr" -> Some Ddr
     | "dtcm" -> Some Dtcm
     | "itcm" -> Some Itcm
     | "mmio" -> Some Mmio
     | "ram" -> Some Ram
+    | "rom" -> Some Rom
     | _ -> None
 
   let to_string = function
     | Csr -> "csr"
+    | Ddr -> "ddr"
     | Dtcm -> "dtcm"
     | Itcm -> "itcm"
     | Mmio -> "mmio"
     | Ram -> "ram"
+    | Rom -> "rom"
 end
 
 module Simulator = struct
-  type t = Mpact | Rtl
+  type t = Mpact | Rtl | Subsystem
 
-  let of_backend = function
+  let of_backend ~interface = function
     | "mpact" -> Some Mpact
+    | "verilator" when String.equal interface "subsystem-cli" -> Some Subsystem
     | "verilator" -> Some Rtl
     | _ -> None
 
-  let to_string = function Mpact -> "mpact" | Rtl -> "rtl"
+  let to_string = function
+    | Mpact -> "mpact"
+    | Rtl -> "rtl"
+    | Subsystem -> "subsystem"
 end
 
 module Region = struct
   type t = {
     base : int64;
+    dma_reachable : bool;
     htif_reachable : bool;
     loadable : bool;
     name : string;
@@ -85,21 +94,27 @@ let pp_error ppf : error -> unit = function
 let baseline = [ "core-mini-axi"; "core-mini-highmem-axi"; "mpact-v2" ]
 let manifest_file = "hardware-configurations.json"
 
-(* The two facts of the interface comment, by role. *)
+(* The two facts of the interface comment, by role. A ROM holds the boot image
+   it was built with, and the subsystem's DDR is an aperture with no memory
+   behind it: neither is loadable. *)
 let memory (r : Role.t) =
-  match r with Dtcm | Itcm | Ram -> true | Csr | Mmio -> false
+  match r with Dtcm | Itcm | Ram -> true | Csr | Ddr | Mmio | Rom -> false
 
-let htif_reachable (r : Role.t) =
-  match r with Dtcm | Ram -> true | Csr | Itcm | Mmio -> false
+(* The subsystem has no HTIF at all. *)
+let htif_reachable (s : Simulator.t) (r : Role.t) =
+  match (s, r) with
+  | (Mpact | Rtl), (Dtcm | Ram) -> true
+  | (Mpact | Rtl), (Csr | Ddr | Itcm | Mmio | Rom) | Subsystem, _ -> false
 
-let region (r : Coral_manifest.Region.t) =
+let region simulator (r : Coral_manifest.Region.t) =
   match Role.of_kind r.kind with
   | None -> Err.fail (`Unknown_region_kind r.kind)
   | Some role ->
       Err.return
         {
           Region.base = r.base_address;
-          htif_reachable = htif_reachable role;
+          dma_reachable = r.access.dma = Some true;
+          htif_reachable = htif_reachable simulator role;
           loadable = memory role && r.access.host_load = Some true;
           name = r.name;
           role;
@@ -115,7 +130,8 @@ let of_manifest (m : Coral_manifest.t) name =
     |> Err.of_option (`Unknown_configuration name)
   in
   let* simulator =
-    Simulator.of_backend c.backend |> Err.of_option (`Unknown_backend c.backend)
+    Simulator.of_backend ~interface:c.interface c.backend
+    |> Err.of_option (`Unknown_backend c.backend)
   in
   let* (a : Coral_manifest.Artifact.t) =
     List.find_opt
@@ -123,7 +139,7 @@ let of_manifest (m : Coral_manifest.t) name =
       m.artifacts
     |> Err.of_option (`No_artifact c.id)
   in
-  let* regions = Err.List.map region c.regions in
+  let* regions = Err.List.map (region simulator) c.regions in
   Err.return
     {
       artifact = a.path;
@@ -193,11 +209,12 @@ let argv ~dir ~elf p =
   | _ :: args -> Filename.concat dir p.artifact :: List.map (fill elf) args
 
 let pp_region ppf (r : Region.t) =
-  Fmt.pf ppf "%-14s %-4s 0x%08Lx %8Ld%s%s%s" r.name (Role.to_string r.role)
+  Fmt.pf ppf "%-14s %-4s 0x%08Lx %8Ld%s%s%s%s" r.name (Role.to_string r.role)
     r.base r.size
     (if r.writable then " writable" else "")
     (if r.loadable then " loadable" else "")
     (if r.htif_reachable then " htif" else "")
+    (if r.dma_reachable then " dma" else "")
 
 let pp ppf p =
   Fmt.pf ppf "@[<v>%s %s %s@,%s@,%a@]" p.name

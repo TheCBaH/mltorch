@@ -20,6 +20,9 @@ type error =
   | Coral_elf.error
   | Machine_rivet_riscv32.Rv32_image.Error.t
   | `Layout_unsettled  (** No fixed point within four rounds. *)
+  | `Mailbox_full of int
+    (** A subsystem image with more written slots than the mailbox holds hashes.
+    *)
   | `Runtime_form of string  (** A form Rivet refused in the runtime. *) ]
 
 val pp_error : error Fmt.t
@@ -39,4 +42,6 @@ val build :
     the entry needs, the C library included; [lowered] are modules already
     lowered under {!Machine_rivet_riscv32.Rv32_profile.default} (CompCert's
     assembly, through Rivet's text pipeline). [matrix] (default false) enables
-    the matrix unit for a kernel with Zvt forms. *)
+    the matrix unit for a kernel with Zvt forms. A [Subsystem] profile gets the
+    mailbox runtime ({!Coral_runtime.module_}), and its ELF holds no slot bytes
+    until {!Coral_soc_run} writes them in. *)

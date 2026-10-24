@@ -104,7 +104,7 @@ let build t profile : (Riscv32_encode.Instruction.t module_, string) result =
              typed_module ~name:"peak" ~extensions:[ zvt ] items profile)))
 
 let slot placement size =
-  { L.Slot.align = 64L; placement; size = Int64.of_int size }
+  { L.Slot.align = 64L; home = Any; placement; size = Int64.of_int size }
 
 (* {1 One instruction}
 

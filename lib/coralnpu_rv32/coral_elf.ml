@@ -84,7 +84,8 @@ let fill (r : Coral_profile.Region.t) sections =
       @ zeros ".fill." stop (Int64.sub hi stop)
   | _ -> sections
 
-let write (p : Coral_profile.t) (l : Coral_layout.t) (image : Image.t) =
+let write ?(contents = []) (p : Coral_profile.t) (l : Coral_layout.t)
+    (image : Image.t) =
   let* entry = Err.of_option `No_entry image.entry in
   let image_sections =
     List.filter_map
@@ -116,7 +117,12 @@ let write (p : Coral_profile.t) (l : Coral_layout.t) (image : Image.t) =
       (fun ((perms : Asm_core.Perms.t), (s : Elf.Exec.section)) ->
         let* r = home p ~name:s.name ~address:s.addr ~size:(section_size s) in
         Err.return (r.Coral_profile.Region.name, perms, s))
-      (image_sections @ [ htif ])
+      (image_sections @ [ htif ]
+      @ List.map
+          (fun (name, addr, bytes) ->
+            ( Asm_core.Perms.rw,
+              { Elf.Exec.name; addr; align = 1L; content = Bytes bytes } ))
+          contents)
   in
   let segments =
     List.filter_map

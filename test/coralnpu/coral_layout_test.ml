@@ -25,7 +25,7 @@ let highmem =
           match r.role with
           | Itcm -> { r with size = 0x100000L }
           | Dtcm -> { r with base = 0x100000L; size = 0x100000L }
-          | Csr | Mmio | Ram -> r)
+          | Csr | Ddr | Mmio | Ram | Rom -> r)
         rtl.regions;
   }
 
@@ -36,7 +36,7 @@ let code size = { L.Segment.align = 4L; executable = true; name = "text"; size }
 let data size =
   { L.Segment.align = 8L; executable = false; name = "data"; size }
 
-let slot placement size = { L.Slot.align = 8L; placement; size }
+let slot placement size = { L.Slot.align = 8L; home = Any; placement; size }
 
 let show p segments slots =
   match Err.payload (L.place p segments slots) with
@@ -214,3 +214,25 @@ let%expect_test "the digest follows the assignment" =
     slot order       differs
     other profile    differs
     staging 8 KiB    differs |}]
+
+(* A slot's home overrides first fit: a [Ram] slot leaves DTCM room unused, a
+   [Dtcm] slot is refused rather than moved to RAM. *)
+let%expect_test "slot homes" =
+  let at home placement size = { (slot placement size) with home } in
+  show rtl small
+    L.Placement.[ at Ram In 64L; at Dtcm Out 64L; slot Scratch 64L ];
+  show rtl small L.Placement.[ at Dtcm Out 100_000L ];
+  [%expect
+    {|
+    digest c3ec372b
+    text       0x00000000
+    data       0x00010000
+    htif       0x00010140
+    packet     0x00010240
+    staging    0x00010280
+    trap       0x00011280
+    stack top  0x00018000
+    slot in    0x20000000 64 testbench-ram
+    slot out   0x00011300 64 dtcm
+    slot scratch 0x00011340 64 dtcm
+    error: dtcm: 100000 bytes needed, 23808 available |}]

@@ -441,5 +441,165 @@ let items ?(vector = false) ?(matrix = false) (l : Coral_layout.t) ~abi ~entry
   in
   start @ write_failed @ refusals @ report @ trap @ sys l @ table
 
-let module_ ?vector ?matrix l ~abi ~entry =
-  module_ "coral_runtime" (items ?vector ?matrix l ~abi ~entry)
+(* {1 The subsystem's runtime}
+
+   No HTIF: every slot's bytes are in the ELF, and the result goes to the
+   mailbox ({!Coral_mailbox}) at the layout's HTIF address, the done word
+   last, for the host to read over the SPI bridge. Then a spin, since nothing
+   stops the simulator but the host. *)
+
+let mailbox_trap_label = "coral_mailbox_trap"
+
+(* The folded FNV-1a of a written slot into the mailbox at [s6 + off], as
+   {!Coral_mailbox.hash}: words, then the tail bytes one by one. Clobbers
+   [t0]-[t6]. *)
+let hash_slot (s : Coral_layout.Placed_slot.t) ~off =
+  let words_ = fresh "hash_w"
+  and bytes = fresh "hash_b"
+  and fin = fresh "hash_done" in
+  let step load width =
+    [
+      load;
+      insn "xor" [ reg "t5"; reg "t5"; reg "t3" ];
+      insn "mul" [ reg "t5"; reg "t5"; reg "t6" ];
+      insn "srli" [ reg "t4"; reg "t5"; imm 15 ];
+      insn "xor" [ reg "t5"; reg "t5"; reg "t4" ];
+      insn "addi" [ reg "t0"; reg "t0"; imm width ];
+      insn "addi" [ reg "t2"; reg "t2"; imm (-1) ];
+    ]
+  in
+  addr "t0" s.address
+  @ addr "t2" (Int64.div s.slot.size 4L)
+  @ addr "t5" 0x811C_9DC5L @ addr "t6" 0x0100_0193L
+  @ [ label words_; insn "beqz" [ reg "t2"; sym bytes ] ]
+  @ step (insn "lw" [ reg "t3"; mem "t0" 0 ]) 4
+  @ [ insn "j" [ sym words_ ]; label bytes ]
+  @ addr "t2" (Int64.rem s.slot.size 4L)
+  @ [ label (bytes ^ "_loop"); insn "beqz" [ reg "t2"; sym fin ] ]
+  @ step (insn "lbu" [ reg "t3"; mem "t0" 0 ]) 1
+  @ [
+      insn "j" [ sym (bytes ^ "_loop") ];
+      label fin;
+      insn "sw" [ reg "t5"; mem "s6" off ];
+    ]
+
+(* The done word at [s6], after every other store; then spin. *)
+module Uart = struct
+  type t = { base : int64; clock_table : int64 }
+end
+
+(* The UART's [NCO] for 115200 baud is 115200 x 2^20 / f, which is this over
+   the clock table's main frequency in MHz. *)
+let nco_mhz = 120795
+
+(* The done word at [s6], after every other store; then, if there is a UART,
+   one byte on it, which the host sees in the simulator's log of it without
+   touching the bus: polling the mailbox over the SPI bridge takes the DTCM
+   port the DMA writes through, at times the run cannot repeat. Then spin. *)
+let mailbox_done ?uart () =
+  let spin = fresh "spin" in
+  [ insn "fence" [ sym "rw"; sym "rw" ] ]
+  @ store_const ~at:"s6" Coral_mailbox.done_offset
+      (Int64.of_int32 Coral_mailbox.done_word)
+  @ (match uart with
+    | None -> []
+    | Some (u : Uart.t) ->
+        addr "t0" u.clock_table
+        @ [ insn "lw" [ reg "t1"; mem "t0" 4 ] ]
+        @ addr "t2" (Int64.of_int nco_mhz)
+        @ [
+            insn "divu" [ reg "t2"; reg "t2"; reg "t1" ];
+            insn "slli" [ reg "t2"; reg "t2"; imm 16 ];
+            insn "ori" [ reg "t2"; reg "t2"; imm 3 ];
+          ]
+        @ addr "t0" u.base
+        @ [
+            insn "sw" [ reg "t2"; mem "t0" 0x10 ];
+            insn "li" [ reg "t3"; imm (Char.code '\n') ];
+            insn "sw" [ reg "t3"; mem "t0" 0x1C ];
+          ])
+  @ [ label spin; insn "j" [ sym spin ] ]
+
+let mailbox_items ?uart ~vector ~matrix (l : Coral_layout.t) ~abi ~entry () =
+  next_label := 0;
+  let outs =
+    List.filter
+      (fun (s : Coral_layout.Placed_slot.t) ->
+        Coral_layout.Placement.written s.slot.placement)
+      l.slots
+  in
+  let start =
+    [ text; align 4; global entry_symbol; label entry_symbol ]
+    @ addr "sp" l.stack_top
+    @ [
+        insn "la" [ reg "t0"; sym mailbox_trap_label ];
+        insn "csrw" [ imm mtvec; reg "t0" ];
+      ]
+    @ addr "t0"
+        (Int64.logor
+           (if vector then 0x2200L else 0x2000L)
+           (if matrix then 0x2000_0000L else 0L))
+    @ [
+        insn "csrs" [ imm mstatus; reg "t0" ]; insn "csrwi" [ imm fcsr; imm 0 ];
+      ]
+    @ read_counter ~lo:mcycle ~hi:mcycleh ~rl:"s2" ~rh:"s3"
+    @ read_counter ~lo:minstret ~hi:minstreth ~rl:"s4" ~rh:"s5"
+    @ (match (abi : Abi.t) with
+      | Table -> [ insn "la" [ reg "a0"; sym table_label ] ]
+      | Slot0 -> (
+          match l.slots with
+          | s :: _ -> addr "a0" s.address
+          | [] -> [ insn "li" [ reg "a0"; imm 0 ] ]))
+    @ [ insn "call" [ sym entry ]; insn "mv" [ reg "s1"; reg "a0" ] ]
+    @ addr "s6" l.htif
+    @ read_counter ~lo:mcycle ~hi:mcycleh ~rl:"t0" ~rh:"t1"
+    @ store_delta ~sl:"s2" ~sh:"s3" ~off:16
+    @ read_counter ~lo:minstret ~hi:minstreth ~rl:"t0" ~rh:"t1"
+    @ store_delta ~sl:"s4" ~sh:"s5" ~off:24
+    @ store_string ~at:"s6" 0 Coral_mailbox.magic_result
+    @ store_const ~at:"s6" 8 (Int64.of_int32 l.digest)
+    @ [ insn "sw" [ reg "s1"; mem "s6" 12 ] ]
+    @ store_const ~at:"s6" 32 (Int64.of_int (List.length outs))
+    @ List.concat
+        (List.mapi
+           (fun k s -> hash_slot s ~off:(Coral_mailbox.hashes_offset + (4 * k)))
+           outs)
+    @ mailbox_done ?uart ()
+  in
+  let trap =
+    [
+      align 4;
+      label mailbox_trap_label;
+      insn "csrr" [ reg "a4"; imm mcause ];
+      insn "csrr" [ reg "a5"; imm mepc ];
+      insn "csrr" [ reg "a6"; imm mtval ];
+    ]
+    @ addr "s6" l.htif
+    @ store_string ~at:"s6" 0 Coral_mailbox.magic_trap
+    @ [
+        insn "sw" [ reg "a4"; mem "s6" 12 ];
+        insn "sw" [ reg "a5"; mem "s6" 16 ];
+        insn "sw" [ reg "a6"; mem "s6" 20 ];
+      ]
+    @ mailbox_done ?uart ()
+  in
+  let table =
+    [ data; align 4; label table_label ]
+    @
+    match l.slots with
+    | [] -> [ zero 4 ]
+    | slots ->
+        [
+          words
+            (List.map
+               (fun (s : Coral_layout.Placed_slot.t) -> Int64.to_int s.address)
+               slots);
+        ]
+  in
+  start @ trap @ table
+
+let module_ ?(vector = false) ?(matrix = false) ?(mailbox = false) ?uart l ~abi
+    ~entry =
+  module_ "coral_runtime"
+    (if mailbox then mailbox_items ?uart ~vector ~matrix l ~abi ~entry
+     else items ~vector ~matrix l ~abi ~entry)

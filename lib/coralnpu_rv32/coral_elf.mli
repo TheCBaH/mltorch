@@ -27,4 +27,12 @@ type error =
 val pp_error : error Fmt.t
 
 val write :
-  Coral_profile.t -> Coral_layout.t -> Image.t -> (string, [> error ]) Err.t
+  ?contents:(string * int64 * string) list ->
+  Coral_profile.t ->
+  Coral_layout.t ->
+  Image.t ->
+  (string, [> error ]) Err.t
+(** [contents] are further sections, [(name, address, bytes)], loaded with the
+    image: the subsystem's slots, whose bytes no HTIF call can carry. Each goes
+    into its region's PT_LOAD like the image's own; one outside every loadable
+    region is refused. *)
