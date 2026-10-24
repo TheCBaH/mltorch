@@ -22,7 +22,10 @@
   gemm_rvv_float
   gemm_zvt_normal
   gemm_zvt_i8
-  gemm_zvt_f32)
+  gemm_zvt_f32
+  gemm_resident_a
+  gemm_row_major_a
+  gemm_split_k)
  (deps %{exe:dma_bench.exe} (universe))
  (enabled_if
   (<> %{env:CORALNPU_SUBSYSTEM_DATA=} "")))

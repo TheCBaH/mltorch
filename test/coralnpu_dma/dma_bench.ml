@@ -6,7 +6,12 @@
      [sram-dtcm dma16 4096/256] for a chain of 256-byte descriptors: each
      case's cycles and bytes a cycle;
    - [overlap WORK LENGTH TRIPS] ({!Dma_overlap}): the workload alone, a
-     LENGTH-byte SRAM-to-DTCM chain alone, then both at once.
+     LENGTH-byte SRAM-to-DTCM chain alone, then both at once;
+   - [gemm ENGINE [GEOMETRY] PROLOGUE OUT BLOCKS W K] ({!Dma_gemm}): a
+     DMA-fed matrix multiply, B resident without a GEOMETRY ([resident-a/N],
+     [row-major-a] or [split-k/N]);
+   - [direct ENGINE BLOCKS W K]: the same multiply with its operands in SRAM,
+     no DMA.
 
    Exits 1 when a destination differs from what the transfers must leave. *)
 
@@ -169,11 +174,16 @@ let gemm dir p (g : G.t) =
       ~timings:(Some G.Slot.timings) ~dst:G.Slot.c ~expected:(G.expected g)
   in
   Fmt.pr
-    "%s: C as expected, %Ld cycles, %.1f ops/cycle; %d waiting for B and the \
-     first block, %d for the rest@."
+    "%s: C as expected, %Ld cycles, %.1f ops/cycle; %d waiting for %s, %d for \
+     the rest@."
     (G.name g) o.mcycle
     (float_of_int (G.ops g) /. Int64.to_float o.mcycle)
-    (word t 1) (word t 0)
+    (word t 1)
+    (match g.geometry with
+    | Resident_a _ -> "A and the first panel"
+    | Resident_b | Row_major_a -> "B and the first block"
+    | Split_k _ -> "B's first chunk and the first block")
+    (word t 0)
 
 (* The same multiply with A, B and C read in place from SRAM. *)
 let direct dir p (g : G.t) =
@@ -195,6 +205,37 @@ let direct dir p (g : G.t) =
     g.width g.depth o.mcycle
     (float_of_int (G.ops g) /. Int64.to_float o.mcycle)
 
+let gemm_prologue = function
+  | "a-by-dma" | "b-by-dma" -> G.Prologue.Dma
+  | "a-shared" | "b-shared" -> Shared
+  | o -> invalid_arg ("dma_bench: no prologue " ^ o)
+
+let gemm_out = function
+  | "c-by-core" -> G.Out.Core
+  | "c-by-dma" -> Dma
+  | o -> (
+      try Scanf.sscanf o "c-split-%d%!" (fun n -> G.Out.Split n)
+      with Scanf.Scan_failure _ | End_of_file | Failure _ ->
+        invalid_arg ("dma_bench: no way out " ^ o))
+
+(* [resident-a/PANEL], [row-major-a] or [split-k/CHUNK], or resident B when
+   the prologue comes first. *)
+let gemm_geometry rest =
+  let after prefix g =
+    let n = String.length prefix in
+    if String.starts_with ~prefix g then
+      Some (int_of_string (String.sub g n (String.length g - n)))
+    else None
+  in
+  match rest with
+  | g :: rest' -> (
+      match (after "resident-a/" g, after "split-k/" g) with
+      | Some panel, _ -> (G.Geometry.Resident_a { panel }, rest')
+      | _, Some chunk -> (Split_k { chunk }, rest')
+      | None, None when g = "row-major-a" -> (Row_major_a, rest')
+      | None, None -> (Resident_b, rest))
+  | [] -> (Resident_b, rest)
+
 let () =
   let dir = Sys.argv.(1) in
   let p =
@@ -203,40 +244,41 @@ let () =
   in
   let rec sweeps = function
     | "direct" :: engine :: blocks :: width :: depth :: rest ->
+        let engine = gemm_engine engine and width = int_of_string width in
+        (* An RVV block's lanes are a panel of a wider W. *)
+        let geometry =
+          match G.Engine.lanes engine with
+          | Some panel when panel < width -> G.Geometry.Resident_a { panel }
+          | Some _ | None -> Resident_b
+        in
         direct dir p
           {
             G.blocks = int_of_string blocks;
             depth = int_of_string depth;
-            engine = gemm_engine engine;
+            engine;
+            geometry;
             out = Dma;
             prologue = Dma;
-            width = int_of_string width;
+            width;
           };
         sweeps rest
-    | "gemm" :: engine :: prologue :: out :: blocks :: width :: depth :: rest ->
-        let prologue =
-          match prologue with
-          | "b-by-dma" -> G.Prologue.Dma
-          | "b-shared" -> Shared
-          | o -> invalid_arg ("dma_bench: no prologue " ^ o)
-        in
-        let out =
-          match out with
-          | "c-by-core" -> G.Out.Core
-          | "c-by-dma" -> Dma
-          | o -> invalid_arg ("dma_bench: no way out " ^ o)
-        in
-        let engine = gemm_engine engine in
-        gemm dir p
-          {
-            G.blocks = int_of_string blocks;
-            depth = int_of_string depth;
-            engine;
-            out;
-            prologue;
-            width = int_of_string width;
-          };
-        sweeps rest
+    | "gemm" :: engine :: rest -> (
+        match gemm_geometry rest with
+        | geometry, prologue :: out :: blocks :: width :: depth :: rest ->
+            gemm dir p
+              {
+                G.blocks = int_of_string blocks;
+                depth = int_of_string depth;
+                engine = gemm_engine engine;
+                geometry;
+                out = gemm_out out;
+                prologue = gemm_prologue prologue;
+                width = int_of_string width;
+              };
+            sweeps rest
+        | _ ->
+            invalid_arg
+              "dma_bench: gemm ENGINE [GEOMETRY] PROLOGUE OUT BLOCKS W K")
     | "overlap" :: w :: length :: trips :: rest ->
         overlap dir p (work w) (int_of_string length) (int_of_string trips);
         sweeps rest

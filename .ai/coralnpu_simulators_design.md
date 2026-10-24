@@ -597,9 +597,10 @@ DMA feeds it (57.4 against 56.1): there the DMA gains nothing.
 at 16/14 B/cycle, 0.8 beside the core's DTCM streaming and 1.03 beside its
 copy, 57 cycles a start; the core's copy at 2.42 and its stores of C to SRAM at
 2.34; each engine's DTCM-resident burst; 50 cycles a step. A step overlaps the
-block's multiplies (contended) and its stores of C (not) with the chain; the
-rest of the chain moves at the full rate. It is within 0 to +4% of every run
-in the crams and of five runs it was not fitted to, and `Dma_model.variants`
+block's multiplies (contended) and its stores of C (not) with the chain, the
+chain's start included; the rest of the chain moves at the full rate. It is
+within 0 to +4% of every run in the crams and of five runs it was not fitted
+to, and `Dma_model.variants`
 ranks the variants that fit a DTCM budget: on 32 KiB, RVV with the shared
 prologue and C by the DMA, as measured; on 1 MiB, Zvt with the shared
 prologue and C by the core up to W = 256. Its pick for 512 x 256 x 1024 INT8,
@@ -611,3 +612,57 @@ cycle, 79% of the burst) against 2173969 with C by the core, the model 3%
 and 1% off. A C row of 2048 bytes or more needs its tile stores' stride in a
 register, and a block that wide is more than a branch reaches, so the step
 loop closes with a `j`.
+
+### Geometries (`Dma_gemm.Geometry`, `Dma_gemm.Out.Split`)
+
+Resident B needs B in DTCM, and A packed. Four further shapes lift those
+limits; each is the same step pipeline with another piece streamed:
+
+- **C split by rows** (`c-split-N`, Zvt): a block's first N of 32 rows go
+  straight to SRAM by the core's tile stores, the rest to the C ring for the
+  next chain (`Peak_zvt.Tile_gemm.block_items ~split`). At 512 x 256 x 1024
+  INT8, N = 20 takes 1047424 cycles (256.3 ops/cycle) against 1097986 with
+  the core storing all of C. At W = 512 the model's pick, N = 8, gained
+  nothing (1971328 against 1961336 with C by the DMA): there the core's stores
+  and the DMA contend for SRAM, which the model does not price (it is 5% low).
+- **Resident A** (`resident-a/P`): A stays in DTCM; B streams by panels of P
+  columns, packed so a panel is one descriptor, and a step runs every block of
+  A against its panel. C's rows, a panel wide, go out by the core's stores at
+  the full row stride, or from the C ring a descriptor a row (8 cycles each,
+  now in the model). It is how RVV, whose block is one vector wide, reaches W
+  past 64: RVV INT8 at 32 x 512 x 128 on 32 KiB runs at 28.3 (B is 64 KiB),
+  the direct control 9.7; RVV BF16 at 24 x 1024 x 128, 12.1. Zvt INT8 at 128 x
+  1024 x 1024 on 1 MiB, with a 1 MiB B, runs at 233.0.
+- **Split K** (`split-k/C`): B in chunks of C rows, two in DTCM; the next
+  chunk arrives a share a step beside the current chunk's steps, so no step
+  waits for a whole chunk. A streams a block of a chunk's columns a step, and
+  each block's partial sums come back from SRAM through the C ring before its
+  step (from a zero slot for the first chunk) and go out after it: the
+  ring's half is refilled after it is emptied, in the same chain, which needs
+  two blocks or more. The RVV block starts its accumulators by vector loads,
+  the Zvt one by tile loads (`vtle32`, `Peak_zvt.Tile.load`, `block_items
+  ~accumulate`). RVV INT8 at 128 x 64 x 1024 on 32 KiB runs at 28.7, 92% of the
+  DTCM-resident rate, with B twice the DTCM; Zvt INT8 at 256 x 32 x 1024 on 32
+  KiB, 22.6, bound by the DMA carrying four-byte partial sums both ways; Zvt
+  INT8 at 256 x 256 x 4096 on 1 MiB, where A and B are 1 MiB each, 137.2 with
+  chunks of 1024.
+- **Row-major A** (`row-major-a`): A as an activation arrives. A block's rows
+  are contiguous, so one descriptor still brings them; the core packs them in
+  DTCM (a vector load and a strided `vsse` a row, VLMAX elements a trip)
+  before the block. A strided store writes an element a beat, several when
+  they share one: RVV INT8's 2-byte stride packs 4.4 elements a cycle (5% on
+  the step, 294312 cycles against 279456), Zvt's 32-byte one 0.9 (328054
+  against 183697). For Zvt, A is worth packing where it is produced.
+
+`vtle32` is `vtse32` with the load opcode, from MPACT's decoder row in
+coral-isa; `vsse` goes through the standard encoder. Both are checked on the
+SoC by the results. Mutating each mechanism turns its case red: the C split's
+descriptor covering the core's rows, resident A's panel halves collapsed,
+split K without its partial sums or writing the next chunk into the current
+one, the packing's stride. The model now overlaps a chain's start with the
+step's work, which brought the RVV runs from +3-4% to 0%; it is within 5% of
+every new run, cram or not, but split K's small RVV steps (+6%).
+`Dma_model.variants` adds the geometries. It picks resident A where B does
+not fit, and (unmeasured) at 512 x 64 x 1024 where it does, since the larger
+operand then arrives at the core's copy rate in the prologue; split K where
+neither operand fits.

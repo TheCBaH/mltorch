@@ -1,22 +1,27 @@
 (* Matrix multiplies far larger than DTCM, A, B and C in SRAM, fed by the DMA:
    C[M x W] = A[M x K] B[K x W], through RVV or the Zvt matrix engine.
 
-   B is resident: a prologue chain copies it into DTCM once. A streams by
-   blocks of rows, each block into one half of a two-block ring in DTCM, and
-   C's rows are staged in a second ring and copied out. Step i computes block
-   i while one chain writes out block i - 1's rows and fetches block i + 1:
-   the chain is started before the block and waited for after it, so the DMA
-   costs only what the block does not hide. Each matrix crosses the bus once,
-   which is the least any order moves. The host builds every chain for the
-   layout. A block is the peak kernels' own: two rows of 64 lanes for RVV
+   One operand is resident: a prologue chain copies it into DTCM once. The
+   other streams, a piece a step into one half of a two-piece ring in DTCM,
+   and C's rows are staged in a second ring and copied out. Step i computes
+   piece i while one chain writes out step i - 1's rows and fetches piece i +
+   1: the chain is started before the step and waited for after it, so the
+   DMA costs only what the step does not hide. Each matrix crosses the bus
+   once, which is the least any order moves. The host builds every chain for
+   the layout. A block is the peak kernels' own: two rows of 64 lanes for RVV
    ({!Peak_kernels.Gemm}), two rows of 16 x 16 tiles for Zvt
    ({!Peak_zvt.Tile_gemm}), packed as they pack it.
 
-   The table holds, in order: A, C and B in SRAM; B's copy, the A ring and the
-   C ring in DTCM; the steps (the block count, the prologue chain, one chain
-   per block, the epilogue chain; 0 for none); the chains (SRAM); and the
-   timings (DTCM): the cycles spent waiting for the DMA after the blocks and
-   the epilogue, and the cycles of the prologue, for B and A's first block. *)
+   With B resident, a piece is a block of A's rows and a step one block. With
+   A resident, a piece is a panel of B's columns, packed contiguous, and a
+   step every block of rows against it, C's rows a panel wide.
+
+   The table holds, in order: the streamed operand, C and the resident one in
+   SRAM; the resident's copy, the ring and the C ring in DTCM; the steps (the
+   step count, the prologue chain, one chain per step, the epilogue chain; 0
+   for none); the chains (SRAM); and the timings (DTCM): the cycles spent
+   waiting for the DMA after the steps and the epilogue, and the cycles of the
+   prologue, for the resident operand and the first piece. *)
 
 open Peak_kernels
 module D = Coral_dma
@@ -24,15 +29,19 @@ module G = Gemm
 module T = Peak_zvt.Tile_gemm
 
 module Slot = struct
-  let a = 0
+  let streamed = 0
   let c = 1
-  let b = 2
-  let b_dtcm = 3
-  let a_ring = 4
+  let resident = 2
+  let resident_dtcm = 3
+  let ring = 4
   let c_ring = 5
   let steps = 6
   let chains = 7
   let timings = 8
+
+  (* The geometry's own: split K's zeros, row-major A's packed block. *)
+  let zeros = 9
+  let packed = 9
 end
 
 (* What computes a block. Alphabetical. *)
@@ -63,6 +72,13 @@ module Engine = struct
   let rvv = function
     | Rvv_bf16 | Rvv_f32 | Rvv_i8 -> true
     | Zvt_f32 | Zvt_i8 -> false
+
+  (* The columns an RVV block computes, one vector's lanes; a Zvt block's are
+     any multiple of 32. *)
+  let lanes = function
+    | Rvv_bf16 | Rvv_f32 -> Some 32
+    | Rvv_i8 -> Some 64
+    | Zvt_f32 | Zvt_i8 -> None
 end
 
 (* Who copies C's rows out to SRAM. Alphabetical. *)
@@ -70,20 +86,53 @@ module Out = struct
   type t =
     | Core  (** the block's own stores, straight to SRAM: no C ring *)
     | Dma  (** staged in the C ring, copied by the next step's chain *)
+    | Split of int
+        (** Zvt: the block's first [n] rows by its own stores, the rest by the
+            DMA, through the C ring *)
 
-  let name = function Core -> "c-by-core" | Dma -> "c-by-dma"
+  let name = function
+    | Core -> "c-by-core"
+    | Dma -> "c-by-dma"
+    | Split n -> Printf.sprintf "c-split-%d" n
+
+  (* The rows of a block the core stores, of [rows]. *)
+  let by_core ~rows = function Core -> rows | Dma -> 0 | Split n -> n
 end
 
-(* Who copies B into DTCM in the prologue. Alphabetical. *)
+(* Who copies the resident operand into DTCM in the prologue. Alphabetical. *)
 module Prologue = struct
   type t =
     | Dma  (** the prologue chain, with the core waiting *)
     | Shared
-        (** the chain takes a quarter of B, the core's RVV copy the rest beside
-            it: the core copies 2.4 bytes a cycle, the DMA 0.8 while the core
-            writes DTCM *)
+        (** the chain takes a quarter, the core's RVV copy the rest beside it:
+            the core copies 2.4 bytes a cycle, the DMA 0.8 while the core writes
+            DTCM *)
 
-  let name = function Dma -> "b-by-dma" | Shared -> "b-shared"
+  let name ~operand = function
+    | Dma -> operand ^ "-by-dma"
+    | Shared -> operand ^ "-shared"
+end
+
+(* Which operand stays in DTCM. Alphabetical. *)
+module Geometry = struct
+  type t =
+    | Resident_a of { panel : int }
+        (** A, with B streamed by panels of [panel] columns: for W too wide for
+            DTCM *)
+    | Resident_b  (** B, with A streamed by blocks of rows *)
+    | Row_major_a
+        (** as resident B, with A row-major in SRAM as an activation is: each
+            block's rows arrive as they are and the core packs them in DTCM *)
+    | Split_k of { chunk : int }
+        (** B by chunks of [chunk] rows, for K too deep for DTCM: the next chunk
+            arrives beside the current one's steps, A streams by blocks of a
+            chunk's columns, and C's partial sums go out and come back *)
+
+  let name = function
+    | Resident_a { panel } -> Printf.sprintf "resident-a/%d" panel
+    | Resident_b -> "resident-b"
+    | Row_major_a -> "row-major-a"
+    | Split_k { chunk } -> Printf.sprintf "split-k/%d" chunk
 end
 
 (* The bytes an RVV copy moves a trip: two e8 m8 groups. *)
@@ -93,12 +142,33 @@ type t = {
   blocks : int;
   depth : int;
   engine : Engine.t;
+  geometry : Geometry.t;
   out : Out.t;
   prologue : Prologue.t;
   width : int;
 }
 
 let rows t = Engine.rows t.engine
+
+(* The columns a block computes. *)
+let lanes t =
+  match t.geometry with
+  | Resident_a { panel } -> panel
+  | Resident_b | Row_major_a | Split_k _ -> t.width
+
+(* The depth a block reduces over. *)
+let block_depth t =
+  match t.geometry with
+  | Split_k { chunk } -> chunk
+  | Resident_a _ | Resident_b | Row_major_a -> t.depth
+
+let chunks t = t.depth / block_depth t
+
+let steps t =
+  match t.geometry with
+  | Resident_a { panel } -> t.width / panel
+  | Resident_b | Row_major_a -> t.blocks
+  | Split_k _ -> chunks t * t.blocks
 
 let shape t =
   let src, dst =
@@ -129,69 +199,204 @@ let plan t =
   | Zvt_f32 -> T.plan Vtfmm (Peak_zvt.Tile.shape Vtfmm) s
   | Zvt_i8 -> T.plan Vtmms { (Peak_zvt.Tile.shape Vtmms) with vtype = 0x1C0 } s
 
-let check t =
-  match t.engine with
-  | Rvv_bf16 | Rvv_f32 ->
-      if t.width <> 32 || t.depth mod 2 <> 0 then
-        invalid_arg "Dma_gemm: RVV BF16 and FP32 take W = 32 and K even"
-  | Rvv_i8 ->
-      if t.width <> 64 || t.depth mod 4 <> 0 then
-        invalid_arg "Dma_gemm: RVV INT8 takes W = 64 and K a multiple of 4"
-  | Zvt_f32 | Zvt_i8 ->
-      if t.width mod 32 <> 0 then
-        invalid_arg "Dma_gemm: Zvt takes W a multiple of 32"
+(* The plan of one block's columns and depth. *)
+let block_plan t = plan { t with width = lanes t; depth = block_depth t }
 
-let b_row t = t.width * Elem.bytes (shape t).src
+let check t =
+  (match t.engine with
+  | Rvv_bf16 | Rvv_f32 ->
+      if lanes t <> 32 || block_depth t mod 2 <> 0 then
+        invalid_arg "Dma_gemm: RVV BF16 and FP32 take 32 lanes and K even"
+  | Rvv_i8 ->
+      if lanes t <> 64 || block_depth t mod 4 <> 0 then
+        invalid_arg "Dma_gemm: RVV INT8 takes 64 lanes and K a multiple of 4"
+  | Zvt_f32 | Zvt_i8 ->
+      if lanes t mod 32 <> 0 then
+        invalid_arg "Dma_gemm: Zvt takes lanes a multiple of 32");
+  if t.width mod lanes t <> 0 then
+    invalid_arg "Dma_gemm: W is not a multiple of the panel";
+  match (t.out, t.geometry) with
+  | Split n, (Resident_b | Row_major_a)
+    when (not (Engine.matrix t.engine)) || n <= 0 || n >= rows t ->
+      invalid_arg "Dma_gemm: a split of C is Zvt's, within a block"
+  | Split _, (Resident_a _ | Split_k _) ->
+      invalid_arg "Dma_gemm: a split of C is resident B's"
+  | Core, Split_k _ ->
+      invalid_arg "Dma_gemm: split K's partial sums go by the DMA"
+  (* A block's partial sums go out in the chain after its step, and come back
+     in the chain before its next: a step apart only with two blocks. *)
+  | Dma, Split_k { chunk } when t.depth mod chunk <> 0 || t.blocks < 2 ->
+      invalid_arg "Dma_gemm: split K takes chunks of K, and two blocks"
+  | (Core | Dma | Split _), (Resident_a _ | Resident_b | Row_major_a | Split_k _)
+    ->
+      ()
+
+(* Bytes from a row of B to the next in DTCM, and of C in SRAM. *)
+let b_row t = lanes t * Elem.bytes (shape t).src
 let c_row t = t.width * Elem.bytes (shape t).dst
 let c_block t = rows t * c_row t
+
+(* Bytes from a row of C to the next where the block stores it: a panel's
+   staging in the C ring is its own width. *)
+let c_stride t =
+  match (t.geometry, t.out) with
+  | Resident_a _, Dma -> lanes t * Elem.bytes (shape t).dst
+  | Resident_a _, (Core | Split _) | (Resident_b | Row_major_a | Split_k _), _
+    ->
+      c_row t
+
+(* Bytes of C a step leaves: a block's rows, or every row a panel wide. *)
+let c_step t =
+  match t.geometry with
+  | Resident_a _ -> rows t * t.blocks * lanes t * Elem.bytes (shape t).dst
+  | Resident_b | Row_major_a | Split_k _ -> c_block t
 
 let a_block t =
   match t.engine with
   | Rvv_bf16 | Rvv_f32 | Rvv_i8 -> rows t * t.depth * Elem.bytes (shape t).src
   | Zvt_f32 | Zvt_i8 -> T.a_block (plan t)
 
-(* A and B as the block packs them, without padding. *)
+(* B's columns by panels, each K rows of [lanes] contiguous: for RVV, whose B
+   is otherwise row-major. *)
+let panels t =
+  let s = shape t and n = lanes t in
+  let e = Elem.bytes s.src in
+  let b = Bytes.make (t.depth * t.width * e) '\000' in
+  for j = 0 to (t.width / n) - 1 do
+    for k = 0 to t.depth - 1 do
+      for c = 0 to n - 1 do
+        Elem.set s.src b
+          (((((j * t.depth) + k) * n) + c) * e)
+          (G.b s k ((j * n) + c))
+      done
+    done
+  done;
+  Bytes.to_string b
+
+(* Zvt's B by chunks of K, each packed as for that depth: a pass's rows of the
+   chunk, pass by pass. RVV's row-major B is by chunks already. *)
+let by_chunks t b =
+  let e = Elem.bytes (shape t).src and chunk = block_depth t in
+  let pass = t.depth * 2 * T.tile * e and part = chunk * 2 * T.tile * e in
+  String.concat ""
+    (List.concat
+       (List.init (chunks t) (fun c ->
+            List.init
+              (String.length b / pass)
+              (fun p -> String.sub b ((p * pass) + (c * part)) part))))
+
+(* A row-major, M x K, as the host has it. *)
+let row_major t =
+  let s = shape t in
+  let e = Elem.bytes s.src and m = rows t * t.blocks in
+  let a = Bytes.make (m * t.depth * e) '\000' in
+  for i = 0 to m - 1 do
+    for k = 0 to t.depth - 1 do
+      Elem.set s.src a (((i * t.depth) + k) * e) (G.a s i k)
+    done
+  done;
+  Bytes.to_string a
+
+(* A and B as the block packs them, without padding; A row-major for
+   [Row_major_a]. Zvt's B is already by panels of two tile columns. *)
 let packed t =
+  let a_of a =
+    match t.geometry with
+    | Row_major_a -> row_major t
+    | Resident_a _ | Resident_b | Split_k _ ->
+        String.sub a 0 (t.blocks * a_block t)
+  in
   match t.engine with
   | Rvv_bf16 | Rvv_f32 | Rvv_i8 -> (
       match G.inputs (shape t) with
       | [ a; b ] ->
-          ( String.sub a 0 (t.blocks * a_block t),
-            String.sub b 0 (t.depth * b_row t) )
+          ( a_of a,
+            match t.geometry with
+            | Resident_a _ -> panels t
+            | Resident_b | Row_major_a | Split_k _ ->
+                String.sub b 0 (t.depth * b_row t) )
       | _ -> assert false)
   | Zvt_f32 | Zvt_i8 -> (
       match T.inputs (plan t) with
-      | [ a; b ] ->
-          ( String.sub a 0 (t.blocks * a_block t),
-            String.sub b 0 (String.length b - 128) )
+      | [ a; b ] -> (
+          let b = String.sub b 0 (String.length b - 128) in
+          ( a_of a,
+            match t.geometry with
+            | Split_k _ -> by_chunks t b
+            | Resident_a _ | Resident_b | Row_major_a -> b ))
       | _ -> assert false)
 
 (* How far past A's block and B's end the loops read ahead. *)
 let a_pad t = if Engine.rvv t.engine then 64 else 128
 let b_pad t = if Engine.rvv t.engine then 2 * b_row t else 128
 
+(* Bytes of the streamed operand a step: a block of A's rows, or a panel of
+   B's columns. *)
+let piece t =
+  match t.geometry with
+  | Resident_a _ -> t.depth * b_row t
+  | Resident_b | Row_major_a -> a_block t
+  | Split_k { chunk } -> a_block t / t.depth * chunk
+
+(* Bytes of B's chunk. *)
+let chunk_bytes t = block_depth t * b_row t
+
+(* The descriptors that copy a step's C out. *)
+let c_descriptors t =
+  match (t.geometry, t.out) with
+  | _, Core -> 0
+  | Resident_a _, (Dma | Split _) -> rows t * t.blocks
+  | (Resident_b | Row_major_a | Split_k _), (Dma | Split _) -> 1
+
 let slots t =
   check t;
-  let _, b = packed t in
-  let b_size = String.length b in
-  let steps = 4 * (t.blocks + 4) in
-  let chains = D.Descriptor.size * ((2 * t.blocks) + 2) in
+  let a, b = packed t in
+  let a_size = String.length a and b_size = String.length b in
+  let table = 4 * (steps t + 4) in
+  let chains =
+    D.Descriptor.size
+    *
+    match t.geometry with
+    | Resident_a _ -> (t.width / lanes t * (1 + c_descriptors t)) + 3
+    | Resident_b | Row_major_a -> (2 * t.blocks) + 2
+    | Split_k _ -> (4 * steps t) + 4
+  in
+  (* With K split, B's copy is two chunks. *)
+  let streamed, resident, resident_dtcm, ring_pad =
+    match t.geometry with
+    | Resident_a _ -> (b_size, a_size, a_size + a_pad t, b_pad t)
+    | Resident_b | Row_major_a ->
+        (a_size + a_pad t, b_size, b_size + b_pad t, a_pad t)
+    | Split_k _ ->
+        (a_size + a_pad t, b_size, (2 * chunk_bytes t) + b_pad t, a_pad t)
+  in
   L.Placement.
     [
-      L.Slot.make ~home:Ram ~align:64L In
-        (Int64.of_int ((t.blocks * a_block t) + a_pad t));
+      L.Slot.make ~home:Ram ~align:64L In (Int64.of_int streamed);
       L.Slot.make ~home:Ram ~align:64L Out (Int64.of_int (t.blocks * c_block t));
-      L.Slot.make ~home:Ram ~align:64L In (Int64.of_int b_size);
+      L.Slot.make ~home:Ram ~align:64L In (Int64.of_int resident);
+      L.Slot.make ~home:Dtcm ~align:64L Scratch (Int64.of_int resident_dtcm);
       L.Slot.make ~home:Dtcm ~align:64L Scratch
-        (Int64.of_int (b_size + b_pad t));
+        (Int64.of_int ((2 * piece t) + ring_pad));
       L.Slot.make ~home:Dtcm ~align:64L Scratch
-        (Int64.of_int ((2 * a_block t) + a_pad t));
-      L.Slot.make ~home:Dtcm ~align:64L Scratch
-        (Int64.of_int (match t.out with Dma -> 2 * c_block t | Core -> 16));
-      L.Slot.make ~home:Dtcm ~align:16L In (Int64.of_int steps);
+        (Int64.of_int
+           (match t.out with Dma | Split _ -> 2 * c_step t | Core -> 16));
+      L.Slot.make ~home:Dtcm ~align:16L In (Int64.of_int table);
       L.Slot.make ~home:Ram ~align:32L In (Int64.of_int chains);
       L.Slot.make ~home:Dtcm ~align:16L Out 16L;
     ]
+  (* With K split, the zeros the first chunk's partial sums start from. *)
+  @
+  match t.geometry with
+  | Split_k _ ->
+      [ L.Slot.make ~home:Ram ~align:64L In (Int64.of_int (c_block t)) ]
+  (* With A row-major, the block packed from its rows. *)
+  | Row_major_a ->
+      [
+        L.Slot.make ~home:Dtcm ~align:64L Scratch
+          (Int64.of_int (a_block t + a_pad t));
+      ]
+  | Resident_a _ | Resident_b -> []
 
 let expected t =
   G.product { (shape t) with rows = rows t * t.blocks; blocks = 1 }
@@ -206,48 +411,124 @@ let pieces ~src ~dst n =
       D.Descriptor.copy ~src:(Int64.add src off) ~dst:(Int64.add dst off)
         (Int64.of_int (min max (n - (k * max)))))
 
-(* The chains for a layout: the prologue (B, then block 0), one per block
-   (block i - 1's rows out, block i + 1 in), the epilogue (the last rows out). *)
+(* The chains for a layout: the prologue (the resident operand, then piece
+   0), one per step (step i - 1's rows out, piece i + 1 in), the epilogue
+   (the last rows out). *)
 let inputs p t (l : L.t) =
   let address k = (List.nth l.slots k).L.Placed_slot.address in
   let off a n = Int64.add a (Int64.of_int n) in
-  let a = address Slot.a and c = address Slot.c and b = address Slot.b in
-  let ring = address Slot.a_ring and c_ring = address Slot.c_ring in
+  let streamed = address Slot.streamed and c = address Slot.c in
+  let ring = address Slot.ring and c_ring = address Slot.c_ring in
   let a_bytes, b_bytes = packed t in
-  let a_in i =
-    D.Descriptor.copy
-      ~src:(off a (i * a_block t))
-      ~dst:(off ring (i mod 2 * a_block t))
-      (Int64.of_int (a_block t))
+  let resident_bytes, streamed_bytes =
+    match t.geometry with
+    | Resident_a _ -> (a_bytes, b_bytes)
+    | Resident_b | Row_major_a | Split_k _ -> (b_bytes, a_bytes)
   in
+  (* With K split, step i is block [i mod blocks] of chunk [i / blocks]. *)
+  let block i = i mod t.blocks and chunk i = i / t.blocks in
+  let piece_in i =
+    D.Descriptor.copy
+      ~src:
+        (off streamed
+           (match t.geometry with
+           | Resident_a _ | Resident_b | Row_major_a -> i * piece t
+           | Split_k _ -> (block i * a_block t) + (chunk i * piece t)))
+      ~dst:(off ring (i mod 2 * piece t))
+      (Int64.of_int (piece t))
+  in
+  (* The rows the core does not store itself; a panel's, a row at a time. *)
+  let skip = Out.by_core ~rows:(rows t) t.out * c_row t in
   let c_out i =
-    D.Descriptor.copy
-      ~src:(off c_ring (i mod 2 * c_block t))
-      ~dst:(off c (i * c_block t))
-      (Int64.of_int (c_block t))
+    match t.geometry with
+    | Resident_b | Row_major_a ->
+        [
+          D.Descriptor.copy
+            ~src:(off c_ring ((i mod 2 * c_block t) + skip))
+            ~dst:(off c ((i * c_block t) + skip))
+            (Int64.of_int (c_block t - skip));
+        ]
+    | Resident_a _ ->
+        List.init
+          (rows t * t.blocks)
+          (fun r ->
+            D.Descriptor.copy
+              ~src:(off c_ring ((i mod 2 * c_step t) + (r * c_stride t)))
+              ~dst:(off c ((r * c_row t) + (i * c_stride t)))
+              (Int64.of_int (c_stride t)))
+    | Split_k _ ->
+        [
+          D.Descriptor.copy
+            ~src:(off c_ring (i mod 2 * c_block t))
+            ~dst:(off c (block i * c_block t))
+            (Int64.of_int (c_block t));
+        ]
   in
-  (* The core's share of B, from its start, in whole 256-byte trips. *)
-  let b_size = String.length b_bytes in
+  (* With K split, a block's partial sums back in, from zero for the first
+     chunk; and step i's share of the next chunk of B, whole beats. *)
+  let c_in i =
+    match t.geometry with
+    | Resident_a _ | Resident_b | Row_major_a -> []
+    | Split_k _ ->
+        [
+          D.Descriptor.copy
+            ~src:
+              (if chunk i = 0 then address Slot.zeros
+               else off c (block i * c_block t))
+            ~dst:(off c_ring (i mod 2 * c_block t))
+            (Int64.of_int (c_block t));
+        ]
+  in
+  let b_share i =
+    match t.geometry with
+    | Resident_a _ | Resident_b | Row_major_a -> []
+    | Split_k _ ->
+        let n = chunk_bytes t in
+        let share = (((n + t.blocks - 1) / t.blocks) + 15) land lnot 15 in
+        let from = block i * share in
+        if chunk i + 1 < chunks t && from < n then
+          [
+            D.Descriptor.copy
+              ~src:(off (address Slot.resident) (((chunk i + 1) * n) + from))
+              ~dst:
+                (off
+                   (address Slot.resident_dtcm)
+                   (((chunk i + 1) mod 2 * n) + from))
+              (Int64.of_int (min share (n - from)));
+          ]
+        else []
+  in
+  (* The core's share of the resident operand, from its start, in whole
+     256-byte trips. *)
+  let size =
+    match t.geometry with
+    | Split_k _ -> chunk_bytes t
+    | Resident_a _ | Resident_b | Row_major_a -> String.length resident_bytes
+  in
   let by_core =
     match t.prologue with
     | Dma -> 0
-    | Shared -> b_size * 3 / 4 / core_trip * core_trip
+    | Shared -> size * 3 / 4 / core_trip * core_trip
   in
   let pre =
-    (if by_core < b_size then
-       pieces ~src:(off b by_core)
-         ~dst:(off (address Slot.b_dtcm) by_core)
-         (b_size - by_core)
+    (if by_core < size then
+       pieces
+         ~src:(off (address Slot.resident) by_core)
+         ~dst:(off (address Slot.resident_dtcm) by_core)
+         (size - by_core)
      else [])
-    @ [ a_in 0 ]
+    @ [ piece_in 0 ]
+    @ c_in 0
   in
-  let by_dma = match t.out with Dma -> true | Core -> false in
+  let n = steps t in
+  let by_dma = c_descriptors t > 0 in
   let per i =
-    (if i > 0 && by_dma then [ c_out (i - 1) ] else [])
-    @ if i + 1 < t.blocks then [ a_in (i + 1) ] else []
+    (if i > 0 && by_dma then c_out (i - 1) else [])
+    @ (if i + 1 < n then piece_in (i + 1) :: c_in (i + 1) else [])
+    @ b_share i
   in
-  let post = if by_dma then [ c_out (t.blocks - 1) ] else [] in
-  let chains = (pre :: List.init t.blocks per) @ [ post ] in
+  let post = if by_dma then c_out (n - 1) else [] in
+  let chains = (pre :: List.init n per) @ [ post ] in
   let open Err.Syntax in
   let* placed, _ =
     Err.List.fold_left
@@ -262,19 +543,23 @@ let inputs p t (l : L.t) =
   in
   let placed = List.rev placed in
   Err.return
-    [
-      a_bytes;
-      "";
-      b_bytes;
-      "";
-      "";
-      "";
-      Dma_copy.words
-        (match List.map (fun (a, _) -> Int64.to_int a) placed with
-        | pre :: rest -> t.blocks :: pre :: by_core :: rest
-        | [] -> assert false);
-      String.concat "" (List.map snd placed);
-    ]
+    ([
+       streamed_bytes;
+       "";
+       resident_bytes;
+       "";
+       "";
+       "";
+       Dma_copy.words
+         (match List.map (fun (a, _) -> Int64.to_int a) placed with
+         | pre :: rest -> n :: pre :: by_core :: rest
+         | [] -> assert false);
+       String.concat "" (List.map snd placed);
+     ]
+    @
+    match t.geometry with
+    | Split_k _ -> [ ""; String.make (c_block t) '\000' ]
+    | Resident_a _ | Resident_b | Row_major_a -> [])
 
 (* {1 The kernel} *)
 
@@ -283,7 +568,19 @@ let beqz = Dma_copy.beqz
 let fence = Dma_copy.fence
 let mcycle = Dma_copy.mcycle
 let sub = Dma_copy.sub
-let saved = Gpr.[ s0; s1; s2; s3; s4; s5; s6; s7; s8; s9 ]
+
+(* [s10] holds the C ring when the core stores a share of C's rows; with A
+   resident, [s10] is C's cursor and [s11] counts the step's blocks; with K
+   split, [s10] is the chunk of B and [s11] counts the chunk's blocks left. *)
+let saved t =
+  Gpr.[ s0; s1; s2; s3; s4; s5; s6; s7; s8; s9 ]
+  @
+  match (t.geometry, t.out) with
+  | (Resident_a _ | Split_k _), _ -> [ Gpr.s10; Gpr.s11 ]
+  | Resident_b, Split _ -> [ Gpr.s10 ]
+  | Resident_b, (Core | Dma) -> []
+  | Row_major_a, Split _ -> [ Gpr.s10; Gpr.s11 ]
+  | Row_major_a, (Core | Dma) -> [ Gpr.s11 ]
 
 (* The chain at [s9] started, unless it is 0. Every earlier store is made
    visible first: the chain may copy out rows just stored. *)
@@ -340,147 +637,6 @@ let core_copy ~src ~dst ~bytes_at =
     Item.label none;
   ]
 
-(* The peak kernel's INT8 block: A from [a1], B from [s1], C's two rows to
-   [a6]. Writes [a0]-[a6], [t0], [t3]-[t5]. *)
-let rvv_i8_block t =
-  let open Gpr in
-  let v0 = Vreg.v0 and v4 = Vreg.v4 and v16 = Vreg.v16 and v24 = Vreg.v24 in
-  let mac acc scalar src = Item.insn (Vwmacc_vx { acc; scalar; src }) in
-  let b_row = t.width and rows2 = 2 * t.width in
-  [
-    li t0 t.width;
-    mv a2 s1;
-    addi a3 a2 b_row;
-    li a0 (t.depth / 4);
-    vset_item ~avl:t0 8 4;
-    vle E8 v0 a2;
-    lw a4 a1 0;
-    vset_item ~avl:t0 16 8;
-    vmv_v_i v16;
-    vmv_v_i v24;
-    vset_item ~avl:t0 8 4;
-  ]
-  @ body_items
-      [
-        lw a5 a1 4;
-        vle E8 v4 a3;
-        srli t3 a4 8;
-        mac v16 a4 v0;
-        mac v24 t3 v0;
-        addi a2 a2 rows2;
-        vle E8 v0 a2;
-        srli t4 a4 16;
-        srli t5 a4 24;
-        mac v16 t4 v4;
-        mac v24 t5 v4;
-        addi a3 a3 rows2;
-        vle E8 v4 a3;
-        srli t3 a5 8;
-        mac v16 a5 v0;
-        mac v24 t3 v0;
-        addi a2 a2 rows2;
-        addi a1 a1 8;
-        lw a4 a1 0;
-        vle E8 v0 a2;
-        srli t4 a5 16;
-        srli t5 a5 24;
-        mac v16 t4 v4;
-        mac v24 t5 v4;
-        addi a3 a3 rows2;
-        addi a0 a0 (-1);
-        bnez a0 body_label;
-      ]
-  @ [
-      vset_item ~avl:t0 16 8;
-      vse E16 v16 a6;
-      addi a6 a6 (c_row t);
-      vse E16 v24 a6;
-    ]
-
-(* The peak kernel's BF16 block: three rows of 32 FP32 lanes, A by [flh] a k
-   step ahead from [a1], B rows alternating between v0 and v4, C to [a6].
-   Writes [a0]-[a3], [a6], [t0], [fa0]-[fa5]. *)
-let rvv_bf16_block t =
-  let open Gpr in
-  let open Reg.Fpr in
-  let v0 = Vreg.v0 and v4 = Vreg.v4 and v8 = Vreg.v8 in
-  let v16 = Vreg.v16 and v24 = Vreg.v24 in
-  let mac acc scalar src = Item.insn (Vfwmaccbf16_vf { acc; scalar; src }) in
-  let rows2 = 2 * b_row t in
-  [
-    li t0 t.width;
-    mv a2 s1;
-    addi a3 a2 (b_row t);
-    li a0 (t.depth / 2);
-    vset_item ~avl:t0 16 4;
-    vle E16 v0 a2;
-    flh fa0 a1 0;
-    flh fa1 a1 2;
-    flh fa2 a1 4;
-    vset_item ~avl:t0 32 8;
-    vmv_v_i v8;
-    vmv_v_i v16;
-    vmv_v_i v24;
-    vset_item ~avl:t0 16 4;
-  ]
-  @ body_items
-      [
-        flh fa3 a1 6;
-        flh fa4 a1 8;
-        flh fa5 a1 10;
-        vle E16 v4 a3;
-        mac v8 fa0 v0;
-        mac v16 fa1 v0;
-        mac v24 fa2 v0;
-        addi a1 a1 12;
-        flh fa0 a1 0;
-        flh fa1 a1 2;
-        flh fa2 a1 4;
-        addi a2 a2 rows2;
-        vle E16 v0 a2;
-        mac v8 fa3 v4;
-        mac v16 fa4 v4;
-        mac v24 fa5 v4;
-        addi a3 a3 rows2;
-        addi a0 a0 (-1);
-        bnez a0 body_label;
-      ]
-  @ [ vset_item ~avl:t0 32 8 ]
-  @ List.concat_map
-      (fun v -> [ vse E32 v a6; addi a6 a6 (c_row t) ])
-      [ v8; v16; v24 ]
-
-(* The peak kernel's FP32 block: three rows of 32 lanes, A by [flw] a k step
-   ahead from [a1], B rows into v0, C to [a6]. Writes [a0]-[a2], [a6], [t0],
-   [fa4]-[fa6], [ft1]-[ft3]. *)
-let rvv_f32_block t =
-  let open Gpr in
-  let open Reg.Fpr in
-  let v0 = Vreg.v0 and v8 = Vreg.v8 and v16 = Vreg.v16 and v24 = Vreg.v24 in
-  let mac acc scalar src = Item.insn (Vfmacc_vf { acc; scalar; src }) in
-  let loads (r0, r1, r2) off =
-    [ flw r0 a1 off; flw r1 a1 (off + 4); flw r2 a1 (off + 8) ]
-  in
-  let macs (r0, r1, r2) = [ mac v8 r0 v0; mac v16 r1 v0; mac v24 r2 v0 ] in
-  let cur = (fa4, fa5, fa6) and next = (ft1, ft2, ft3) in
-  [
-    li t0 t.width; vset_item ~avl:t0 32 8; vmv_v_i v8; vmv_v_i v16; vmv_v_i v24;
-  ]
-  @ [ mv a2 s1; li a0 (t.depth / 2) ]
-  @ loads cur 0
-  @ body_items
-      (loads next 12
-      @ [ vle E32 v0 a2 ]
-      @ macs cur
-      @ [ addi a2 a2 (b_row t); addi a1 a1 24 ]
-      @ loads cur 0
-      @ [ vle E32 v0 a2 ]
-      @ macs next
-      @ [ addi a2 a2 (b_row t); addi a0 a0 (-1); bnez a0 body_label ])
-  @ List.concat_map
-      (fun v -> [ vse E32 v a6; addi a6 a6 (c_row t) ])
-      [ v8; v16; v24 ]
-
 let items t () =
   let open Err.Syntax in
   let open Gpr in
@@ -490,33 +646,142 @@ let items t () =
   (* The registers a block reads its halves of the rings from. *)
   let a_at, c_at = if Engine.rvv t.engine then (a1, a6) else (a3, a4) in
   let* dma = Insn.load_imm s3 (Int64.to_int D.base) in
-  let* to_odd_a = G.add_imm a_at (a_block t) in
+  let* to_odd_a = G.add_imm a_at (piece t) in
   let* to_odd_c = G.add_imm c_at (c_block t) in
   let* next_c = G.add_imm s5 (c_block t) in
+  let* to_odd_ring = G.add_imm a5 (c_block t) in
+  let b =
+    match t.geometry with
+    | Resident_a _ -> a7
+    | Resident_b | Row_major_a -> s1
+    | Split_k _ -> s10
+  in
+  let c_row = c_stride t in
+  let accumulate =
+    match t.geometry with
+    | Split_k _ -> true
+    | Resident_a _ | Resident_b | Row_major_a -> false
+  in
+  let block_shape =
+    {
+      Dma_block.Shape.accumulate;
+      b;
+      b_row = b_row t;
+      c_row;
+      depth = block_depth t;
+      lanes = lanes t;
+    }
+  in
   let* body =
     match t.engine with
-    | Rvv_bf16 -> Ok (rvv_bf16_block t)
-    | Rvv_f32 -> Ok (rvv_f32_block t)
-    | Rvv_i8 -> Ok (rvv_i8_block t)
-    | Zvt_f32 | Zvt_i8 -> T.block_items (plan t)
+    | Rvv_bf16 -> Ok (Dma_block.bf16 block_shape)
+    | Rvv_f32 -> Ok (Dma_block.f32 block_shape)
+    | Rvv_i8 -> Ok (Dma_block.i8 block_shape)
+    | Zvt_f32 | Zvt_i8 -> (
+        match t.out with
+        | Split n -> T.block_items ~split:(n, a5) (block_plan t)
+        | Core | Dma -> T.block_items ~c_row ~accumulate (block_plan t))
+  in
+  let* step =
+    match t.geometry with
+    | (Resident_b | Row_major_a) as g ->
+        let* repack =
+          match g with
+          | Row_major_a ->
+              Dma_block.repack ~bytes:(Elem.bytes (shape t).src) ~rows:(rows t)
+                ~depth:t.depth ~src:a_at
+          | Resident_a _ | Resident_b | Split_k _ -> Ok []
+        in
+        Ok
+          ([ mv a_at s4; mv c_at s5 ]
+          @ (match t.out with Split _ -> [ mv a5 s10 ] | Core | Dma -> [])
+          @ [ beqz s6 even ]
+          @ to_odd_a
+          @ (match t.out with
+            | Dma -> to_odd_c
+            | Split _ -> to_odd_ring
+            | Core -> [])
+          @ [ Item.label even ]
+          @ repack @ body
+          (* With the core's stores, C's cursor moves on a block in SRAM. *)
+          @ match t.out with Dma -> [] | Core | Split _ -> next_c)
+    | Resident_a _ ->
+        (* Every block of A against the panel at [a7], C's rows from [s10]:
+           in the C ring's half, or a panel's columns on in SRAM. *)
+        let inner = label "inner" in
+        let* to_odd_b = G.add_imm a7 (piece t) in
+        let* to_odd_c = G.add_imm s10 (c_step t) in
+        let* next_a =
+          if Engine.rvv t.engine then Ok [] else G.add_imm a_at (a_block t)
+        in
+        let* next_rows = G.add_imm s10 (rows t * c_row) in
+        let* next_panel = G.add_imm s5 (lanes t * Elem.bytes (shape t).dst) in
+        Ok
+          ([ mv a7 s4; mv s10 s5; beqz s6 even ]
+          @ to_odd_b
+          @ (match t.out with Dma | Split _ -> to_odd_c | Core -> [])
+          @ [ Item.label even; mv a_at s1; li s11 t.blocks; Item.label inner ]
+          @ [ mv c_at s10 ]
+          @ body @ next_a @ next_rows
+          @ [
+              addi s11 s11 (-1);
+              beqz s11 (label "inner_done");
+              Item.insn (J { target = inner });
+              Item.label (label "inner_done");
+            ]
+          @ match t.out with Dma | Split _ -> [] | Core -> next_panel)
+    | Split_k _ ->
+        (* A block against the chunk of B at [s10], its partial sums in the C
+           ring's half; after a chunk's last block, [s10] to the other chunk,
+           [t6]. *)
+        Ok
+          ([ mv a_at s4; mv c_at s5 ]
+          @ (if Engine.matrix t.engine then [ mv a7 s10 ] else [])
+          @ [ beqz s6 even ]
+          @ to_odd_a @ to_odd_c
+          @ [ Item.label even ]
+          @ body
+          @ [
+              addi s11 s11 (-1);
+              bnez s11 (label "same_chunk");
+              li s11 t.blocks;
+              add t2 s1 t6;
+              sub s10 t2 s10;
+              Item.label (label "same_chunk");
+            ])
+  in
+  let* chunk_setup =
+    match t.geometry with
+    | Split_k _ ->
+        let* other = G.add_imm t6 (chunk_bytes t) in
+        Ok ([ mv s10 s1; li s11 t.blocks; mv t6 s1 ] @ other)
+    | Resident_a _ | Resident_b | Row_major_a -> Ok []
   in
   Ok
     (start_items
     @ [ addi sp sp (-48) ]
-    @ List.mapi (fun k r -> sw r sp (4 * k)) saved
+    @ List.mapi (fun k r -> sw r sp (4 * k)) (saved t)
     @ [
-        lw s1 a0 (4 * Slot.b_dtcm);
+        lw s1 a0 (4 * Slot.resident_dtcm);
         lw s2 a0 (4 * Slot.steps);
-        lw s4 a0 (4 * Slot.a_ring);
-        lw s5 a0 (4 * match t.out with Dma -> Slot.c_ring | Core -> Slot.c);
+        lw s4 a0 (4 * Slot.ring);
+        lw s5 a0
+          (4 * match t.out with Dma -> Slot.c_ring | Core | Split _ -> Slot.c);
         lw s8 a0 (4 * Slot.timings);
         mv a7 s1;
       ]
+    @ (match t.out with
+      | Split _ -> [ lw s10 a0 (4 * Slot.c_ring) ]
+      | Core | Dma -> [])
+    @ (match t.geometry with
+      | Row_major_a -> [ lw s11 a0 (4 * Slot.packed) ]
+      | Resident_a _ | Resident_b | Split_k _ -> [])
     @ List.map Item.insn dma
     @ [ li s7 0; lw s9 s2 4 ]
     @ start ~skip:(label "pre_started")
-    @ core_copy ~src:(4 * Slot.b) ~dst:s1 ~bytes_at:8
+    @ core_copy ~src:(4 * Slot.resident) ~dst:s1 ~bytes_at:8
     @ wait ~into:s7 ~skip:(label "pre_waited") ~poll:(label "pre_poll")
+    @ chunk_setup
     @ [
         sw s7 s8 4;
         li s7 0;
@@ -528,13 +793,7 @@ let items t () =
         addi s2 s2 4;
       ]
     @ start ~skip:(label "started")
-    @ [ mv a_at s4; mv c_at s5; beqz s6 even ]
-    @ to_odd_a
-    @ (match t.out with Dma -> to_odd_c | Core -> [])
-    @ [ Item.label even ]
-    @ body
-    (* With the core's stores, C's cursor moves on a block in SRAM. *)
-    @ (match t.out with Dma -> [] | Core -> next_c)
+    @ step
     @ wait ~into:s7 ~skip:(label "waited") ~poll:(label "poll")
     @ [
         li t2 1;
@@ -549,14 +808,21 @@ let items t () =
     @ start ~skip:(label "post_started")
     @ wait ~into:s7 ~skip:(label "post_waited") ~poll:(label "post_poll")
     @ [ sw s7 s8 0 ]
-    @ List.mapi (fun k r -> lw r sp (4 * k)) saved
+    @ List.mapi (fun k r -> lw r sp (4 * k)) (saved t)
     @ [ addi sp sp 48; li a0 0; Item.insn Ret ])
 
 let ops t = 2 * rows t * t.blocks * t.width * t.depth
 
 let name t =
-  Printf.sprintf "%s resident-b %s %s M=%d N=%d K=%d" (Engine.name t.engine)
-    (Prologue.name t.prologue) (Out.name t.out)
+  let operand =
+    match t.geometry with
+    | Resident_a _ -> "a"
+    | Resident_b | Row_major_a | Split_k _ -> "b"
+  in
+  Printf.sprintf "%s %s %s %s M=%d N=%d K=%d" (Engine.name t.engine)
+    (Geometry.name t.geometry)
+    (Prologue.name ~operand t.prologue)
+    (Out.name t.out)
     (rows t * t.blocks)
     t.width t.depth
 

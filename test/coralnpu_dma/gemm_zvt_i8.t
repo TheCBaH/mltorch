@@ -23,6 +23,14 @@ core for the tiles and C's stores, and a deeper K gives each byte more work.
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-highmem gemm zvt-i8 b-shared c-by-core 8 128 1024
   zvt i8 resident-b b-shared c-by-core M=256 N=128 K=1024: C as expected, 331417 cycles, 202.5 ops/cycle; 19747 waiting for B and the first block, 19992 for the rest
 
+Splitting C's rows: the core stores the first 20 of each block's 32 straight
+to SRAM, and the DMA copies the other 12 from the C ring, so neither stream
+waits on the other. At N = 256 that is 256 ops a cycle, against 244.5 with the
+core storing all of C.
+
+  $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-highmem gemm zvt-i8 b-shared c-split-20 16 256 1024
+  zvt i8 resident-b b-shared c-split-20 M=512 N=256 K=1024: C as expected, 1047424 cycles, 256.3 ops/cycle; 10787 waiting for B and the first block, 11284 for the rest
+
 The control, A, B and C left in SRAM, no DMA: the core's loads of every slice
 from SRAM, at about three bytes a cycle, against DTCM's twelve.
 
