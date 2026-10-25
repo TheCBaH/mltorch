@@ -76,6 +76,7 @@ let group_rows (d : C.t) =
     match d.C.numerics with
     | C.Numerics.Fused_sequential -> 3
     | C.Numerics.Ordered -> 2
+    | C.Numerics.Paired -> 16
 
 let row_bytes (d : C.t) = Int64.to_int d.C.k * size d
 let rec gcd a b = if b = 0 then a else gcd b (a mod b)

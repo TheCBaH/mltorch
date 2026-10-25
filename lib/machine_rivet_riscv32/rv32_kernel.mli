@@ -41,6 +41,8 @@ module Invalid : sig
         name : string;
         at : Rv32_kernel_item.At.t option;  (** [None] for the kernel's name. *)
       }
+    | Negative_zero of { at : Rv32_kernel_item.At.t; length : int }
+        (** A zero fill of a negative length. *)
     | Unresolved_label of {
         label : Rv32_kernel_label.t;
         at : Rv32_kernel_item.At.t;

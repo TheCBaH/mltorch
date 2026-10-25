@@ -22,6 +22,7 @@ module Invalid = struct
     | Export_undefined of { name : string; label : Label.t; at : At.t }
     | Immediate_range of { at : At.t; range : Rv32_kernel_imm.Imm_range.t }
     | Invalid_name of { kind : Name_kind.t; name : string; at : At.t option }
+    | Negative_zero of { at : At.t; length : int }
     | Unresolved_label of { label : Label.t; at : At.t }
     | Vsetvli_keeps_vl of { at : At.t }
 
@@ -33,6 +34,7 @@ module Invalid = struct
     | Export_twice { second = at; _ }
     | Export_undefined { at; _ }
     | Immediate_range { at; _ }
+    | Negative_zero { at; _ }
     | Unresolved_label { at; _ }
     | Vsetvli_keeps_vl { at } ->
         Some at
@@ -56,6 +58,8 @@ module Invalid = struct
           at name Label.pp label
     | Immediate_range { at; range } ->
         Fmt.pf ppf "%a: %a" At.pp at Rv32_kernel_imm.Imm_range.pp range
+    | Negative_zero { at; length } ->
+        Fmt.pf ppf "%a: a zero fill of %d bytes" At.pp at length
     | Invalid_name { kind; name; at } ->
         Fmt.pf ppf "%a%a name %S is not [A-Za-z_][A-Za-z0-9_]*"
           Fmt.(option (fun ppf at -> pf ppf "%a: " At.pp at))
@@ -212,6 +216,8 @@ let bad_forms located =
       | Item.Align boundary
         when boundary < 1 || boundary land (boundary - 1) <> 0 ->
           [ Invalid.Alignment { at; boundary } ]
+      | Item.Zero length when length < 0 ->
+          [ Invalid.Negative_zero { at; length } ]
       | Item.Insn i -> (
           List.map
             (fun range -> Invalid.Immediate_range { at; range })

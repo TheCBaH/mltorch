@@ -37,11 +37,12 @@ module Seed = struct
 end
 
 module Numerics = struct
-  type t = Fused_sequential | Ordered
+  type t = Fused_sequential | Ordered | Paired
 
   let name = function
     | Fused_sequential -> "fused_sequential"
     | Ordered -> "ordered"
+    | Paired -> "paired"
 end
 
 module Operand = struct
@@ -69,6 +70,7 @@ module Invalid = struct
   type t =
     | Extent of { name : string; value : int64 }
     | Overflow of { k : int64 }
+    | Paired_format of Element.t
     | Stride of { name : string; value : int64 }
 end
 
@@ -96,6 +98,12 @@ let make ~batch ~m ~n ~k ~a ~b ~c ~format ~seed ~numerics =
   let* () = stride "c.batch" c.Output.batch in
   let* () = stride "c.row" c.Output.row in
   let* () = stride "c.col" c.Output.col in
+  let* () =
+    match (numerics, format) with
+    | Numerics.Paired, (Element.F32 | Element.I8 _) ->
+        Err.fail (`Invalid_contraction (Invalid.Paired_format format))
+    | _ -> Err.return ()
+  in
   (* an integer sum stays exact in its 32-bit accumulator *)
   let* () =
     match Element.largest_product format with
@@ -120,6 +128,9 @@ let pp_error ppf (`Invalid_contraction i) =
       Fmt.pf ppf "contraction extent %s = %Ld" name value
   | Invalid.Overflow { k } ->
       Fmt.pf ppf "contraction k = %Ld, past an exact 32-bit integer sum" k
+  | Invalid.Paired_format f ->
+      Fmt.pf ppf "contraction summing two k steps first over %s operands"
+        (Element.name f)
   | Invalid.Stride { name; value } ->
       Fmt.pf ppf "contraction stride %s = %Ld" name value
 
@@ -165,7 +176,7 @@ let of_name s =
           List.find_opt (fun x -> Seed.name x = seed) [ Seed.Tensor; Seed.Zero ],
           List.find_opt
             (fun x -> Numerics.name x = numerics)
-            [ Numerics.Fused_sequential; Numerics.Ordered ] )
+            [ Numerics.Fused_sequential; Numerics.Ordered; Numerics.Paired ] )
       with
       | ( Some format,
           Some batch,
@@ -190,6 +201,20 @@ let of_name s =
 let symbol t =
   "mlt_contract_" ^ String.sub (Digest.to_hex (Digest.string (name t))) 0 16
 
+let transpose t =
+  {
+    t with
+    m = t.n;
+    n = t.m;
+    a = t.b;
+    b = t.a;
+    c = { t.c with Output.row = t.c.Output.col; col = t.c.Output.row };
+    format =
+      (match t.format with
+      | Element.I8 { a; b } -> Element.I8 { a = b; b = a }
+      | (Element.Bf16 | Element.F32) as f -> f);
+  }
+
 let macs t = Int64.mul (Int64.mul t.batch t.m) (Int64.mul t.n t.k)
 let round32 = F32_math.round32
 
@@ -210,24 +235,49 @@ let eval t ~a ~b ~c ~write =
               let acc =
                 ref (match t.seed with Seed.Zero -> 0. | Seed.Tensor -> c at)
               in
-              each 0L t.k (fun kk ->
-                  let x =
-                    a
-                      ((bb * t.a.Operand.batch) + (i * t.a.Operand.outer)
-                     + (kk * t.a.Operand.k))
-                  and y =
-                    b
-                      ((bb * t.b.Operand.batch) + (j * t.b.Operand.outer)
-                     + (kk * t.b.Operand.k))
-                  in
-                  acc :=
-                    if Element.integer t.format then
-                      (* exact: [make] bounds the sum within 32 bits *)
-                      !acc +. (x *. y)
-                    else
-                      match t.numerics with
-                      | Numerics.Fused_sequential -> F32_math.fma32 x y !acc
-                      | Numerics.Ordered -> round32 (!acc +. round32 (x *. y)));
+              let operands kk =
+                ( a
+                    ((bb * t.a.Operand.batch) + (i * t.a.Operand.outer)
+                   + (kk * t.a.Operand.k)),
+                  b
+                    ((bb * t.b.Operand.batch) + (j * t.b.Operand.outer)
+                   + (kk * t.b.Operand.k)) )
+              in
+              let product kk =
+                let x, y = operands kk in
+                x *. y
+              in
+              let step =
+                match t.numerics with
+                | Numerics.Paired -> 2L
+                | Numerics.Fused_sequential | Numerics.Ordered -> 1L
+              in
+              let rec steps kk =
+                if Int64.compare kk t.k < 0 then (
+                  let x, y = operands kk in
+                  (acc :=
+                     if Element.integer t.format then
+                       (* exact: [make] bounds the sum within 32 bits *)
+                       !acc +. (x *. y)
+                     else
+                       match t.numerics with
+                       | Numerics.Fused_sequential -> F32_math.fma32 x y !acc
+                       | Numerics.Ordered -> round32 (!acc +. round32 (x *. y))
+                       | Numerics.Paired ->
+                           (* a bfloat16 product is exact in binary64; the pair's
+                              sum is rounded to odd, then added to the
+                              accumulator to nearest; the last step of an odd
+                              [k] has one product *)
+                           let next = Int64.succ kk in
+                           let pair =
+                             F32_math.add_odd32 (x *. y)
+                               (if Int64.compare next t.k < 0 then product next
+                                else 0.)
+                           in
+                           round32 (!acc +. pair));
+                  steps (Int64.add kk step))
+              in
+              steps 0L;
               write at !acc)))
 
 module Select = struct
@@ -244,6 +294,8 @@ module Select = struct
       | Integer_on_matrix
       | No_vector_unit
       | Ordered_on_matrix
+      | Paired_needs_matrix
+      | Paired_on_matrix
       | Vector_unit
 
     let name = function
@@ -252,6 +304,8 @@ module Select = struct
       | Integer_on_matrix -> "integer_on_matrix"
       | No_vector_unit -> "no_vector_unit"
       | Ordered_on_matrix -> "ordered_on_matrix"
+      | Paired_needs_matrix -> "paired_needs_matrix"
+      | Paired_on_matrix -> "paired_on_matrix"
       | Vector_unit -> "vector_unit"
   end
 
@@ -261,6 +315,8 @@ module Select = struct
 
   let choose (c : Capabilities.t) (d : t) =
     match (c.matrix, d.format, d.numerics, c.vector) with
+    | true, _, Numerics.Paired, _ -> (Engine.Zvt, Reason.Paired_on_matrix)
+    | false, _, Numerics.Paired, _ -> (Engine.Loops, Reason.Paired_needs_matrix)
     | true, Element.F32, Numerics.Ordered, _ ->
         (Engine.Zvt, Reason.Ordered_on_matrix)
     | true, Element.I8 _, _, _ -> (Engine.Zvt, Reason.Integer_on_matrix)

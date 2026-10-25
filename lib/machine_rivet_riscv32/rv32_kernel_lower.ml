@@ -93,6 +93,7 @@ let operands ~spelling : Insn.t -> Operand.t list = function
   | Csrr { dst; csr } -> [ gpr dst; imm (Insn.Csr.number csr) ]
   | Fence -> [ sym "rw"; sym "rw" ]
   | J { target } -> [ sym (spelling target) ]
+  | La { dst; target } -> [ gpr dst; sym (spelling target) ]
   | Flh { dst; base; offset } | Flw { dst; base; offset } ->
       [ fpr dst; mem base (Imm.Imm12.to_int offset) ]
   | Li { dst; imm = i } -> [ gpr dst; imm (Imm.Li.to_int i) ]
@@ -112,6 +113,8 @@ let operands ~spelling : Insn.t -> Operand.t list = function
       [ vreg acc; gpr scalar; vreg src ]
   | Vmv_v_i { dst; imm = i } -> [ vreg dst; imm (Imm.Simm5.to_int i) ]
   | Vmv_v_x { dst; src } -> [ vreg dst; gpr src ]
+  | Vnsrl_wi { dst; src; shamt } ->
+      [ vreg dst; vreg src; imm (Imm.Shamt.to_int shamt) ]
   | Vse { src; base; _ } -> [ vreg src; mem base 0 ]
   | Vsse { src; base; stride; _ } -> [ vreg src; mem base 0; gpr stride ]
   | Vlse { dst; base; stride; _ } -> [ vreg dst; mem base 0; gpr stride ]
@@ -280,6 +283,14 @@ let module_ ?(extensions = []) ~profile kernel =
     let next items = Ok (index + 1, note', items @ rev) in
     match item with
     | Item.Align boundary -> next [ directive (D.Align { boundary }) ]
+    | Bss ->
+        next
+          [
+            directive
+              (D.Section
+                 { name = ".bss"; perms = Asm_core.Perms.rw; nobits = true });
+          ]
+    | Zero length -> next [ directive (D.Zero { length }) ]
     | Export { name; _ } -> next [ directive (D.Global { name }) ]
     | Label l -> next [ N.Label { name = spelling l; origin } ]
     | Note _ -> next []

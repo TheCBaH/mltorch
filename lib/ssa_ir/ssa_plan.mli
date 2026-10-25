@@ -35,6 +35,7 @@ val resolve :
   ?target:Ssa_target.t ->
   ?alias:Ssa_effects.policy ->
   ?contractions:bool ->
+  ?bf16_pairs:bool ->
   numerics:Ssa_numerics.t ->
   Ssa_program.t ->
   t
@@ -47,11 +48,16 @@ val resolve :
     {!Ssa_effects.Distinct_buffers}. With [contractions] (default [false]) a
     binary32 plan ([Fp32_ordered], [Fp32_contracted]) makes each matrix product
     {!Ssa_contract} recognizes one [Contract], ordered or fused as the policy
-    is, before it vectorizes; only the Machine IR route realizes one. *)
+    is, before it vectorizes; only the Machine IR route realizes one. With
+    [bf16_pairs] (default [false], and only with [contractions]) a product of
+    bfloat16 operands is instead [Paired], the rounding of a matrix engine that
+    sums two k steps before it adds them: a relaxation the policy does not
+    otherwise grant, so the result differs from the binary32 oracle. *)
 
 val vectorize_f32 :
   ?alias:Ssa_effects.policy ->
   ?contract:Contraction.Numerics.t ->
+  ?bf16:Contraction.Numerics.t ->
   ?elements:Ssa_type.scalar list ->
   target:Ssa_target.t ->
   exact:bool ->
@@ -67,6 +73,7 @@ val vectorize_f32 :
 val fp32_vector :
   ?alias:Ssa_effects.policy ->
   ?contract:Contraction.Numerics.t ->
+  ?bf16:Contraction.Numerics.t ->
   target:Ssa_target.t ->
   Ssa_program.t ->
   (t, Ssa_numerics.Refusal.t) result

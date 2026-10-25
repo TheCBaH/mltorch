@@ -99,9 +99,9 @@ module Tile = struct
      elements each, which leaves [base] past the last row: a slice is the tile
      number at bit 27 and the row below it. A stride too far for an [addi]
      goes through [t2]. [from] rows are skipped first. *)
-  let store ?(from = 0) ~base ~stride ~rows k mt =
+  let store ?(prefix = "peak") ?(from = 0) ~base ~stride ~rows k mt =
     let open Err.Syntax in
-    let row = Label.named (Printf.sprintf "peak_store%d" k) in
+    let row = Label.named (Printf.sprintf "%s_store%d" prefix k) in
     let* slice = Insn.load_imm Gpr.t3 ((Reg.Mtreg.index mt lsl 27) + from) in
     let* set_stride, step =
       if Imm.Imm12.(in_range (of_int stride)) then Ok ([], addi base base stride)
@@ -124,9 +124,9 @@ module Tile = struct
 
   (* Rows [from, from + rows) of tile [mt] loaded from [base], as {!store}
      stores them. *)
-  let load ~from ~base ~stride ~rows k mt =
+  let load ?(prefix = "peak") ~from ~base ~stride ~rows k mt =
     let open Err.Syntax in
-    let row = Label.named (Printf.sprintf "peak_load%d" k) in
+    let row = Label.named (Printf.sprintf "%s_load%d" prefix k) in
     let* slice = Insn.load_imm Gpr.t3 ((Reg.Mtreg.index mt lsl 27) + from) in
     let* set_stride, step =
       if Imm.Imm12.(in_range (of_int stride)) then Ok ([], addi base base stride)
@@ -296,11 +296,17 @@ module Tile_gemm = struct
 
   (* One k step of [n] tiles' slices into the buffer at [base] from [ptr]:
      both tiles' in two 64-byte loads, one tile's a slice at a time. *)
-  let loads p ~n ~base ptr =
+  let loads ?pitch p ~n ~base ptr =
     let open Err.Syntax in
     let e = Elem.bytes p.s.src in
     let load eew v =
-      [ vle eew v ptr; addi ptr ptr (if n = 2 then 64 else tile * e) ]
+      [
+        vle eew v ptr;
+        addi ptr ptr
+          (match pitch with
+          | Some x -> x
+          | None -> if n = 2 then 64 else tile * e);
+      ]
     in
     let regs =
       if n = 2 then [ base; base + 4 ]
@@ -354,8 +360,14 @@ module Tile_gemm = struct
      were. Writes [a1], [a2], [a6], [t1]-[t5]. With [split] = [(n, ring)], a
      block's first [n] rows go to [a4] and the rest to [ring], at the same
      offsets; [c_row] overrides the bytes from a row of C to the next. With
-     [accumulate], each pass's accumulators start from C at [a4], not zero. *)
-  let block_items ?split ?c_row:row ?(accumulate = false) p =
+     [accumulate], each pass's accumulators start from C at [a4], not zero.
+     [prefix] names the labels (the default keeps the peak suite's exported
+     body); [a_pitch] and [b_pitch] are the bytes from one k row of A or B to
+     the next, 64 packed (32 for a single tile), and [b_pass] the bytes from a
+     pass's B to the next, so that operands k-major in memory are read in
+     place. *)
+  let block_items ?(prefix = "peak") ?a_pitch ?b_pitch ?b_pass ?split ?c_row:row
+      ?(accumulate = false) p =
     let open Err.Syntax in
     let open Gpr in
     let src = Elem.bytes p.s.src and dst = Elem.bytes p.s.dst in
@@ -375,7 +387,11 @@ module Tile_gemm = struct
       Err.List.map
         (fun (index, cols) ->
           let n = List.length cols in
-          let b_offset = index * 2 * k_steps * tile * p.t.tk * src in
+          let b_offset =
+            match b_pass with
+            | Some bytes -> index * bytes
+            | None -> index * 2 * k_steps * tile * p.t.tk * src
+          in
           (* column by column, so a partial last column's [tn] comes last *)
           let tiles =
             List.concat
@@ -383,10 +399,10 @@ module Tile_gemm = struct
                  (fun k c -> List.init p.tile_rows (fun r -> (r, k, c)))
                  cols)
           in
-          let* first_a = loads p ~n:p.tile_rows ~base:8 a1 in
-          let* first_b = loads p ~n ~base:16 a2 in
-          let* second_a = loads p ~n:p.tile_rows ~base:0 a1 in
-          let* second_b = loads p ~n ~base:24 a2 in
+          let* first_a = loads ?pitch:a_pitch p ~n:p.tile_rows ~base:8 a1 in
+          let* first_b = loads ?pitch:b_pitch p ~n ~base:16 a2 in
+          let* second_a = loads ?pitch:a_pitch p ~n:p.tile_rows ~base:0 a1 in
+          let* second_b = loads ?pitch:b_pitch p ~n ~base:24 a2 in
           let* current = multiplies p cols ~a:8 ~b:16 in
           let* next = multiplies p cols ~a:0 ~b:24 in
           let* b_at = Insn.load_imm t2 b_offset in
@@ -403,10 +419,10 @@ module Tile_gemm = struct
               incr seen;
               let* move =
                 if load then
-                  Tile.load ~from ~base:t5 ~stride:c_row ~rows k'
+                  Tile.load ~prefix ~from ~base:t5 ~stride:c_row ~rows k'
                     (accumulator r k)
                 else
-                  Tile.store ~from ~base:t5 ~stride:c_row ~rows k'
+                  Tile.store ~prefix ~from ~base:t5 ~stride:c_row ~rows k'
                     (accumulator r k)
               in
               Ok (List.map Item.insn at @ [ add t5 t5 base ] @ move)
@@ -459,9 +475,10 @@ module Tile_gemm = struct
             @ [ addi a6 a6 (-1) ]
           in
           let body =
-            if index = 0 then body_items (loop @ [ bnez a6 body_label ])
+            if index = 0 && prefix = "peak" then
+              body_items (loop @ [ bnez a6 body_label ])
             else
-              let l = Label.named (Printf.sprintf "peak_pass%d" index) in
+              let l = Label.named (Printf.sprintf "%s_pass%d" prefix index) in
               (Item.label l :: loop) @ [ bnez a6 l ]
           in
           Ok

@@ -37,7 +37,17 @@ let sig_of (g : graph) id = Tensor_id.Map.find id g.Graph.tensors
 (* What an engine must equal: the binary64 per-node reference, or, for a
    binary32 policy, the Loop interpreter at binary32 over the bundle, its
    single-product sums fused for [Fp32_contracted]. *)
-type oracle = Fp32 | Fp32_contracted | Reference_f64
+type oracle =
+  | Custom of
+      (graph ->
+      (Tensor_id.t * Tensor.packed) list ->
+      (Tensor_id.t * Tensor.packed) list ->
+      Tensor.packed Tensor_id.Map.t)
+      (** the answer from the constants and the inputs, by a caller's own rule:
+          one the Loop interpreter has no accumulation for *)
+  | Fp32
+  | Fp32_contracted
+  | Reference_f64
 
 let expected oracle (g : graph) (b : Loop_ir.Loop_bundle.t) ~constants ~inputs =
   let loop accumulate =
@@ -52,6 +62,7 @@ let expected oracle (g : graph) (b : Loop_ir.Loop_bundle.t) ~constants ~inputs =
       Tensor_id.Map.empty g.Graph.outputs outs
   in
   match oracle with
+  | Custom f -> f g constants inputs
   | Fp32 -> loop Loop_ir.Loop_sum.Accumulate.Add
   | Fp32_contracted -> loop Loop_ir.Loop_sum.Accumulate.Fuse_products
   | Reference_f64 ->
@@ -67,7 +78,7 @@ let same_portable a b =
         (Int64.float_of_bits y))
     (bits a) (bits b)
 
-let check ?route ?contractions ?prepack
+let check ?route ?contractions ?bf16_pairs ?prepack
     ?(pipeline = Ssa_backends.Pipeline.Exact) ?(oracle = Reference_f64)
     ?(same = fun a b -> bits a = bits b) ?(calls = 2) ?constant
     ?(input = fun ~salt _ -> values ~salt) name g =
@@ -79,7 +90,7 @@ let check ?route ?contractions ?prepack
       (fun id -> (id, constant (sig_of g id)))
       b.Loop_ir.Loop_bundle.constants
   in
-  match M.prepare ?route ?contractions ?prepack ~pipeline b with
+  match M.prepare ?route ?contractions ?bf16_pairs ?prepack ~pipeline b with
   | Error rs ->
       Fmt.pr "%s: refused: %a@." name Fmt.(list ~sep:(any "; ") M.Refusal.pp) rs
   | Ok m -> (

@@ -194,6 +194,8 @@ let items ?mutation ?plan (d : C.t) () =
   (match d.C.seed with
   | C.Seed.Zero -> ()
   | C.Seed.Tensor -> refuse "a contraction seeded from its output");
+  if d.C.numerics = C.Numerics.Paired then
+    refuse "the paired requirement: only the matrix engine rounds pairs";
   let n = Int64.to_int d.C.n and m = Int64.to_int d.C.m in
   let k = Int64.to_int d.C.k and batch = Int64.to_int d.C.batch in
   let fused = d.C.numerics = C.Numerics.Fused_sequential in

@@ -118,7 +118,7 @@ let strides (e : int64 Expr.Coord.t) =
   in
   go es
 
-let recognize ~numerics ~consts ~ranges ~buffer ~(loops : loop list)
+let recognize ~numerics ?bf16 ~consts ~ranges ~buffer ~(loops : loop list)
     ~nest_stores (lo, hi, seed, results, (body : Ssa_region.t)) =
   (* a value the program or its range analysis fixes *)
   let known (v : Ssa_value.t) =
@@ -316,7 +316,13 @@ let recognize ~numerics ~consts ~ranges ~buffer ~(loops : loop list)
     | _ -> refuse Refusal.Shape
   in
   let n = extent cvar and nb = extent bvar in
-  let numerics = if !nested then Contraction.Numerics.Ordered else numerics in
+  let numerics =
+    if !nested then Contraction.Numerics.Ordered
+    else
+      match (format, bf16) with
+      | Contraction.Element.Bf16, Some n -> n
+      | _ -> numerics
+  in
   let desc =
     match
       Err.payload
@@ -360,7 +366,7 @@ let recognize ~numerics ~consts ~ranges ~buffer ~(loops : loop list)
   }
 
 (* Every ordered sum of the program in program order, found or refused. *)
-let census ~numerics (p : Ssa_program.t) =
+let census ~numerics ?bf16 (p : Ssa_program.t) =
   let consts = constants p in
   let ranges = Ssa_range.analyze p in
   let buffer = Ssa_program.find_buffer p in
@@ -387,7 +393,7 @@ let census ~numerics (p : Ssa_program.t) =
           match nest with Some st -> st | None -> stored [ s ]
         in
         match
-          recognize ~numerics ~consts ~ranges ~buffer ~loops ~nest_stores
+          recognize ~numerics ?bf16 ~consts ~ranges ~buffer ~loops ~nest_stores
             (lo, hi, seed, results, body)
         with
         | f -> out := Outcome.Found f :: !out
@@ -408,11 +414,11 @@ let census ~numerics (p : Ssa_program.t) =
    scratch at its batch, row and column. Whatever the loops did with the sum
    (a bias, the store) stays. *)
 
-let program ~numerics (p : Ssa_program.t) =
+let program ~numerics ?bf16 (p : Ssa_program.t) =
   let found =
     List.filter_map
       (function Outcome.Found f -> Some f | Outcome.Refused _ -> None)
-      (census ~numerics p)
+      (census ~numerics ?bf16 p)
   in
   if found = [] then (p, [])
   else

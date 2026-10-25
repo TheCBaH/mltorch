@@ -276,9 +276,10 @@ let map_contracts f (p : Ssa_ir.Ssa_program.t) =
 
 let remake ?(k = fun x -> x) ?(transpose = false) ?numerics (d : Contraction.t)
     =
+  let transposed = transpose in
   let open Contraction in
   let a =
-    if transpose then
+    if transposed then
       { d.a with Operand.outer = d.a.Operand.k; k = d.a.Operand.outer }
     else d.a
   in

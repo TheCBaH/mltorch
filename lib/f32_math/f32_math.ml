@@ -29,6 +29,44 @@ let fma32 a b c =
       in
       round32 odd
 
+(* [x + y] rounded to odd in binary64: the exact sum's neighbour whose last
+   mantissa bit is odd when it is not representable, so a further rounding to
+   fewer than 51 bits sees the sticky bit. *)
+let add_to_odd x y =
+  let s = x +. y in
+  let bb = s -. x in
+  let e = x -. (s -. bb) +. (y -. bb) in
+  if e = 0. || not (Float.is_finite s) then s
+  else
+    let bits = Int64.bits_of_float s in
+    if Int64.logand bits 1L = 1L then s
+    else
+      let toward_larger_magnitude = e > 0. = (s > 0.) in
+      Int64.float_of_bits
+        (if toward_larger_magnitude then Int64.succ bits else Int64.pred bits)
+
+(* [x] rounded to odd in binary32: itself if a binary32, else the neighbour
+   toward zero when its last bit is odd, else the one away. [x] carries the
+   sticky bit of an exact sum that binary64 rounded to odd, so it is
+   binary32 only when that sum was. *)
+let to_odd32 x =
+  let r = round32 x in
+  if r = x || not (Float.is_finite r) then r
+  else
+    let toward_zero =
+      if Float.abs r > Float.abs x then Int32.pred (Int32.bits_of_float r)
+      else Int32.bits_of_float r
+    in
+    Int32.float_of_bits
+      (if Int32.logand toward_zero 1l = 1l then toward_zero
+       else Int32.succ toward_zero)
+
+(* [a + b] rounded to odd in binary32; [add_to_odd] keeps the sticky bit of
+   the exact sum for that one rounding. *)
+let add_odd32 a b =
+  if not (Float.is_finite a && Float.is_finite b) then round32 (a +. b)
+  else to_odd32 (add_to_odd a b)
+
 module type OPS = sig
   type t
 

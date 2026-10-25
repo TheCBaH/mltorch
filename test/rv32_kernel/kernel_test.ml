@@ -142,3 +142,27 @@ let%expect_test "an alignment is a positive power of two" =
     item 0: alignment 3 is not a positive power of two
     item 0: alignment 0 is not a positive power of two
     item 0: alignment -4 is not a positive power of two |}]
+
+let%expect_test
+    "a zero fill is not negative, and a label address needs its label" =
+  List.iter (fun n -> finalize [ Item.bss; Item.zero n ]) [ 0; 4096; -1 ];
+  finalize
+    [
+      Item.text;
+      Item.insn (Insn.La { dst = Gpr.s8; target = Label.named "nowhere" });
+    ];
+  finalize
+    [
+      Item.text;
+      Item.insn (Insn.La { dst = Gpr.s8; target = loop });
+      Item.bss;
+      Item.label loop;
+      Item.zero 16;
+    ];
+  [%expect
+    {|
+    ok: 2 items
+    ok: 2 items
+    item 1: a zero fill of -1 bytes
+    item 1: label nowhere is never defined
+    ok: 5 items |}]

@@ -35,6 +35,7 @@ val program :
 
 val plan :
   ?contractions:bool ->
+  ?bf16_pairs:bool ->
   numerics:Ssa_ir.Ssa_numerics.t ->
   target:Ssa_ir.Ssa_target.t ->
   Loop_ir.Loop_bundle.invocation ->

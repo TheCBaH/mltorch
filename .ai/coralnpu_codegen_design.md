@@ -627,10 +627,171 @@ computed). Against the suite at the same geometry: B shared, C by the DMA
 the DMA, C by the core 186304 against 186003 (0.2%). Both in place, 2.99
 ops/cycle against the direct control's 3.0.
 
+## The matrix engine's bfloat16 pair (numerics `Paired`)
+
+The earlier probe showed `vtfmm.alt` at tk = 2 agrees with neither ordered nor
+fused rounding, and four hand-picked candidates could not tell what it does
+instead. Random bfloat16 data over wide exponents on the VME RTL (v0.0.5) can:
+a tile multiply from a zero accumulator rounds the two products' sum **to
+odd** in binary32 (truncated, last bit set when anything was cut off), and
+with a nonzero accumulator that pair sum is then added to it **to nearest**:
+`acc <- RNE (acc + RTO (p0 + p1))`, each product exact. At exponent spread 12 a single
+rounding of the three terms to nearest (what the probe's cases allowed) is
+wrong on 213 of 1024 cells at k = 4, and rounding the pair to nearest on 307
+at k = 2; the rule above is bitwise on all 1024 at both, and on 32x32 k64
+and 19x29 k61 with partial tiles. A result does not depend on its neighbours
+(a cell run alone gives the same bits). Found by sweeping `1 + small` with the
+small product's depth and bits known: the added bit below the result's last
+set it however far down, and the bits above were truncated.
+
+`Contraction.Numerics.Paired` names it (bfloat16 operands only; a last odd
+step adds one product), `F32_math.add_odd32` computes the pair sum (checked
+against exact integer arithmetic over 400,000 pairs, 143,346 of which
+rounding to nearest gets wrong), and `Select` sends it to the matrix engine,
+or to the planned loops on a core without one (the vector unit has no way to
+round to odd). `Zvt_contraction` emits it: e16 m2 with `altfmt`, two k steps a
+multiply, slices four registers apart, a last odd step's second slice zeroed.
+`bf16_pair_test.ml` runs it on the RTL against the reference, with the
+partial-tile and swapped-operand defects caught. No policy produces `Paired`
+from a model yet: ordered and contracted are the only source policies, so a
+recognized bfloat16 product stays on the vector unit until a policy grants it.
+
+## The matrix engine's bfloat16 function at block rate (`Zvt_packed_contraction`)
+
+`Zvt_contraction` loads two slices of A and two of B for every tile multiply,
+one tile at a time: 16.6 ops/cycle at 64x64 K=128 with A row-major, 30 with A
+transposed, against a 150 peak, issue- and load-bound. `Zvt_packed_contraction`
+instead reuses the suite's `Tile_gemm.block_items`: two tile rows by two tile
+columns, the next step's slices loading while the multiplies read the current
+ones, so a multiply costs about one load. Those blocks read A and B packed per
+tile, k-major, the two tiles of a row or column side by side; the function
+packs them itself, B once a batch and A a block of 32 rows at a time (a tail
+in blocks of at most 16, k taken to a multiple of four with zero steps, which
+add nothing to a pair), into `.bss` panels of its own. The ABI is the other
+functions': three addresses, one symbol.
+
+Where the time goes is measured by skipping one phase at a time (32x32 K=64, 4770 cycles: packing A 2620, packing B 830, the blocks
+1200 against 873 at peak). Packing A from a row-major matrix is a strided
+load, and none of Zvt's 22 instructions transposes. Read with coralview on the
+VME RTL (`commits`, `memory` over a `--trace_file` run), a strided
+load is one 4-byte TCM read a cycle, a request per element, and the next k
+step re-reads the same words: 41 cycles for 32 elements of `vlse16`, 64 times
+for 2616 of 4770 cycles. Where two k steps share a word (rows a whole number
+of words apart, k adjacent) one `vlse32` brings both, and two `vnsrl.wi` (0
+and 16) split them into the two slices: 45 cycles for two k steps, packing
+A in 1680 cycles, 32x32 K=64 from 3933 to 3003 cycles (43.6 ops/cycle). That
+is the LSU's one request a cycle; going lower means overlapping the packing
+with the multiplies. Rows an odd number of elements long are not word
+aligned and keep the slow path (14-18 ops/cycle at K=61 and 33). An operand whose k rows are contiguous runs of the
+tile's indices is not packed at all: the blocks' loads advance by the row
+pitch instead of 64 bytes (`block_items ~a_pitch ~b_pitch ~b_pass`), so B as it
+is, and A when it is kept transposed, are read in place. That needs k a
+multiple of four (a zero step is not in the operand) and leaves the blocks
+reading a few k rows past its end. With both in place and the operands in
+DTCM the function runs at 99.8 ops/cycle (32x32 K=64) and 104.5 (32x64), the
+suite's best DMA-fed BF16 rates (91-113), bitwise against the paired
+reference; with A row-major and packed, 33 at 32x32 K=64. Operands in
+SRAM cost the core a read each (coralview `axi`: the load unit issues one
+16-byte read at a time, one every 4 cycles, 4 bytes a cycle, with no
+overlap with the multiplies), so 32x32 K=64 with A in SRAM runs at 62
+ops/cycle, A and B 45, with C stored to SRAM too 33.5; 192x32 and 192x64 at
+K=128 with everything in SRAM 42.8. Staging them is bounded by the DMA's
+1.14 bytes a cycle (the core's copy 2.42): an A block streamed by the DMA
+is slower than the core reading it in place unless N is above about 90, and
+C stored by the core costs 4 bytes a cycle, a fifth of the block at K=64.
+The bound a staging could reach is B resident in DTCM with A and C in SRAM:
+57.5 ops/cycle at 192x64 K=128 before the copy of B (about 51 with it), 1.2x
+the in-place rate, so a ring composition for this function is not built. What is built
+is the copy: `module_ ~stage_b:true` copies a B read in place, rows and pitch
+as they are, into a panel of the function's own by the core (6.3 bytes a
+cycle, 649 cycles for 4 KB), for a B in SRAM reused by more than one block of
+A. Bitwise on the RTL with everything in SRAM: 192x32 and 192x64 at K=128
+42.8 -> 52.0 and 42.9 -> 52.1 ops/cycle (1.2x, as bounded); one block (32x32
+K=64) loses, 33.5 -> 28.7, so the caller grants it only past one block.
+A kept transposed through a model removes the packing: the layer computes the
+product with its operands swapped, C^T = B^T A^T, so its output is the next
+layer's k-major A. `Contraction.transpose` is that swap (the operands, M and N,
+and C's strides exchanged; every numerics is symmetric in a product's
+operands, so the bits written are the same), and the function accepts a C
+stored transposed by running the swapped descriptor: bitwise on the RTL at
+the same 99.8 and 104.5 ops/cycle as the plain layout, and 43.6 with the
+row-major operand packed word-wise on either side. Which layers store their
+output transposed is a layout decision for the graph, not for this function.
+
+The typed kernel DSL gained the data this needed: `Item.bss`, `Item.zero`
+(refused when negative) and `Insn.La` of a label, so a function declares its
+own panels and takes their addresses (a workspace pointer argument was tried
+first and dropped: it gave the function an ABI the RVV helper does not have).
+`block_items` takes a label prefix so a function may hold several, and
+defaults reproduce the suite's bytes.
+
+### Granting `Paired` from a model
+
+`Paired` is a relaxation (the result differs from the binary32 oracle), so a
+policy grants it, not the recognizer: `Ssa_plan.resolve ~bf16_pairs:true`
+(with `~contractions`, through `Ssa_backends.plan` and `Mir_model.prepare`)
+makes each bfloat16 product the recognizer finds `Paired`; every other
+product keeps the requirement of its policy. It is a flag beside
+`contractions`, not a new `Ssa_numerics` preset: the presets are shared with
+the Loop planner, whose interpreter has no pair accumulation, so the
+comparison oracle of a granted run is the descriptor's `Contraction.eval`
+(`Model_test.Custom`). Without a matrix engine the product falls back to the
+loops, ordered, which is not the pair rounding: the grant means the matrix
+engine's rounding where the engine runs the product.
+
+The Coral image prefers `Zvt_packed_contraction` to the per-tile function
+when every operand it packs goes by words (`fast`) and its `.bss` panels
+fit what the earlier functions left of the DTCM's five eighths; an operand
+read in place is read past its end, so every slot gets `overread` bytes more
+room. On the VME RTL, bitwise against the reference over a model's own
+operands: linear bf16 9x32 K=64 in 4236 cycles against 11130 for the same
+product rounded step by step (granting nothing differs from the pair
+reference, the control), 64x64 K=64 37784 against 58773 for the per-tile
+function; bmm 3x7x29 K=63, with odd rows, stays on the per-tile function.
+
+Packing A cannot be overlapped with the tile multiplies in this block loop.
+The loop's double-buffered slices take all 32 vector registers (A at v8/v12
+and v0/v4, B at v16/v20 and v24/v28, each a group of four), so the packing's
+vectors have nowhere to live; doing it on the scalar core instead costs two
+instructions an element, 4100 cycles a block against the vector path's 1680.
+The vector path is itself near the load unit's bound (32 requests and the
+stores of an iteration in 45 cycles; software pipelining could take 8-10%
+off). Nor does re-blocking help: every element of A and B is packed once
+whichever operand plays which role, so the cost per multiply-add is fixed by
+N, and packing (0.8 cycle an element) bounds a product with N under about 50
+no matter how the work is ordered. What removes it is a k-major A, which is
+the graph's layout decision.
+
+The image does grant the copy. It cannot tell which slot a call's B is (the
+call's arguments are addresses computed in the program), so the function
+checks at run time: `Stage.Outside {base; bytes}` copies a B read in place into
+the panel unless its address lies in the DTCM (a subtract and a shift, four
+cycles when it does). The image passes the profile's DTCM region for a product
+that is `reuses_b` (B read in place, more than one 32-row block of A) and
+whose panel fits what the DTCM budget has left; otherwise B is read where it
+is. On the RTL, 96x32 K=64 with A and B in SRAM: 11507 -> 10588 cycles; with
+both in the DTCM 6776 -> 6780, so the check costs nothing it would not save;
+a bmm of 64x32 K=64 from a model is bitwise. Only a bmm's B is read in place
+(a Linear's weight is packed), so the grant is for attention-shaped products.
+
+A model-level profile (coralview `profile` over a `--trace_file` run of the
+64x64 K=64 product) shows the work around the function: the runtime zeroing
+the image's `.bss` (the panels included) a word at a time, B packed from SRAM
+at 4.4 cycles an element (a strided word load is 140 cycles for 32 rows
+there, 45 in DTCM), and the epilogue the contraction rewrite leaves, `out =
+scratch + 0.0` over the whole result. The epilogue looks removable (a sum
+seeded with positive zero is never negative zero, so the add changes no
+value, and the contraction could write the output itself), and it is not: the
+output slot is in SRAM and the matrix engine's strided tile stores there cost
+more than the streaming copy from a DTCM scratch (9x32 K=64 4236 -> 5561
+cycles, 64x64 37784 -> 51198, the ordered contraction 9280 -> 10605), so the
+scratch stays.
+
 ## What is left open
 
 The suite's geometries beyond resident B (B by column panels with A
 resident, split K) are not generated: a contraction whose B does not fit
-DTCM is read in place. The bfloat16 matrix-engine path waits for a numerical
-requirement that rounds two k steps at once. Integer operators wait for a
+DTCM is read in place. The matrix engine's bfloat16 multiply is generated for
+operands already in memory but not yet with the DMA schedules, which are the
+vector unit's, and no policy yet grants `Paired`. Integer operators wait for a
 quantized model to recognize.

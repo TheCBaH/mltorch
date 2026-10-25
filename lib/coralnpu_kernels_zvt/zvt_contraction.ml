@@ -41,28 +41,33 @@ let msettn n =
   li Gpr.t3 n @ [ insn (Insn.Msettn { dst = Gpr.zero; avl = Gpr.t3 }) ]
 
 let items ?mutation (d : C.t) =
-  (match (d.C.numerics, d.C.seed) with
-  | C.Numerics.Ordered, C.Seed.Zero -> ()
-  | C.Numerics.Fused_sequential, _ ->
+  (match (d.C.numerics, d.C.format, d.C.seed) with
+  | C.Numerics.Fused_sequential, _, _ ->
       refuse "the fused requirement: the engine rounds each product"
-  | _, C.Seed.Tensor -> refuse "a contraction seeded from its output");
+  | C.Numerics.Ordered, C.Element.Bf16, _ ->
+      refuse "bfloat16 ordered: the engine sums two k steps first"
+  | _, _, C.Seed.Tensor -> refuse "a contraction seeded from its output"
+  | (C.Numerics.Ordered | C.Numerics.Paired), _, C.Seed.Zero -> ());
   (* an integer product: [vtmms] for a signed A, [vtmmu] for an unsigned one,
      [altfmt] for a signed B; four k steps a tile multiply at e8 m1, their
-     slices two registers apart, into 32-bit accumulators *)
+     slices two registers apart, into 32-bit accumulators. A bfloat16 one is
+     [vtfmm.alt]: two k steps at e16 m2 with [altfmt], their slices four
+     registers apart, each tile multiply adding the sum of both
+     products, rounded to odd, to the accumulator *)
   let int8 =
     match d.C.format with
-    | C.Element.F32 -> None
+    | C.Element.F32 | C.Element.Bf16 -> None
     | C.Element.I8 { a; b } ->
         Some
           ( (match a with
             | C.Sign.Signed -> Insn.Tile_op.Vtmms
             | C.Sign.Unsigned -> Insn.Tile_op.Vtmmu),
             match b with C.Sign.Signed -> 0x1C0 | C.Sign.Unsigned -> 0xC0 )
-    | C.Element.Bf16 ->
-        refuse "bfloat16 operands: the engine rounds two k steps at once"
   in
+  let bf16 = d.C.format = C.Element.Bf16 in
   let size = C.Element.bytes d.C.format in
-  let tk = if Option.is_some int8 then 4 else 1 in
+  let tk = if Option.is_some int8 then 4 else if bf16 then 2 else 1 in
+  let slice_gap = if bf16 then 4 else 2 in
   if bytes d.C.c.C.Output.col <> 4 then refuse "C's columns not contiguous";
   let m = Int64.to_int d.C.m and n = Int64.to_int d.C.n in
   let k = Int64.to_int d.C.k and batch = Int64.to_int d.C.batch in
@@ -80,13 +85,17 @@ let items ?mutation (d : C.t) =
     incr labels;
     Label.named (Printf.sprintf "zvt_c%d" !labels)
   in
-  let eew = if Option.is_some int8 then Vtype.Sew.E8 else Vtype.Sew.E32 in
+  let eew =
+    if Option.is_some int8 then Vtype.Sew.E8
+    else if bf16 then Vtype.Sew.E16
+    else Vtype.Sew.E32
+  in
   let load dst ptr stride_bytes stride_reg =
     if stride_bytes = Int64.to_int size then
       insn (Insn.Vle { eew; dst; base = ptr })
     else insn (Insn.Vlse { eew; dst; base = ptr; stride = stride_reg })
   in
-  let slice base j = ok (Reg.Vreg.of_index (base + (2 * j))) in
+  let slice base j = ok (Reg.Vreg.of_index (base + (slice_gap * j))) in
   (* one block of C: rows [i0, i0 + tm), columns [j0, j0 + tn), batch [bb] *)
   let block bb i0 tm j0 tn =
     let a_at = (bb * bytes ~size d.C.a.C.Operand.batch) + (i0 * a_outer) in
@@ -106,6 +115,7 @@ let items ?mutation (d : C.t) =
     let compute_config =
       match int8 with
       | Some (_, vtype) -> set ~tk:4 ~widen:3 ~vtype
+      | None when bf16 -> set ~tk:2 ~widen:2 ~vtype:0x1C9
       | None -> set ~tk:1 ~widen:1 ~vtype:0xD2
     in
     let configure =
@@ -137,7 +147,10 @@ let items ?mutation (d : C.t) =
              else (v8, v16)
            in
            let op =
-             match int8 with Some (op, _) -> op | None -> Insn.Tile_op.Vtfmm
+             match int8 with
+             | Some (op, _) -> op
+             | None when bf16 -> Insn.Tile_op.Vtfmm_alt
+             | None -> Insn.Tile_op.Vtfmm
            in
            insn (Insn.Vtmm { op; acc = mt0; a; b }));
         ]
@@ -170,7 +183,8 @@ let items ?mutation (d : C.t) =
     in
     (* the 32-bit accumulators stored under the binary32 configuration *)
     let stores =
-      (if Option.is_some int8 then set ~tk:1 ~widen:1 ~vtype:0xD2 else [])
+      (if Option.is_some int8 || bf16 then set ~tk:1 ~widen:1 ~vtype:0xD2
+       else [])
       @ msettn tn
       @ add_from Gpr.t4 Gpr.a2 c_at
       @ List.concat

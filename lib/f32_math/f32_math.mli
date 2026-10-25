@@ -51,6 +51,12 @@ val fma32 : float -> float -> float -> float
 (** [fmaf a b c] for binary32 [a], [b], [c]: [a * b + c] rounded once to the
     nearest binary32 (ties to even), as a binary64. *)
 
+val add_odd32 : float -> float -> float
+(** [add_odd32 a b] is [a + b] rounded to odd in binary32, as a binary64: the
+    exact sum when binary32 holds it, else the neighbour toward zero or away
+    from it whose last bit is odd. The matrix engine's bfloat16 pair: [a], [b]
+    are products of two bfloat16 values each, exact in binary64. *)
+
 (** The instance over binary64 numbers that each operation rounds to binary32:
     the oracle's meaning of the five functions. Arguments need not be binary32
     values; they are rounded first. *)

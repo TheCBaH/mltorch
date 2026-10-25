@@ -101,6 +101,8 @@ type t =
   | Flh of { dst : Fpr.t; base : Gpr.t; offset : Imm.Imm12.t }
   | J of { target : Rv32_kernel_label.t }
       (** [jal zero]: a reach of 1 MiB, where a branch has 4 KiB. *)
+  | La of { dst : Gpr.t; target : Rv32_kernel_label.t }
+      (** [la]: the address of a label, a data label included. *)
   | Flw of { dst : Fpr.t; base : Gpr.t; offset : Imm.Imm12.t }
   | Li of { dst : Gpr.t; imm : Imm.Li.t }
   | Lui of { dst : Gpr.t; imm : Imm.U20.t }
@@ -127,6 +129,10 @@ type t =
   | Vmacc_vx of { acc : Vreg.t; scalar : Gpr.t; src : Vreg.t }
   | Vmv_v_i of { dst : Vreg.t; imm : Imm.Simm5.t }
   | Vmv_v_x of { dst : Vreg.t; src : Gpr.t }
+  | Vnsrl_wi of { dst : Vreg.t; src : Vreg.t; shamt : Imm.Shamt.t }
+      (** [vnsrl.wi]: each element of [src], twice as wide as [dst]'s, shifted
+          right and its low half kept: 0 for the low halves of pairs, 16 of
+          32-bit pairs for the high ones. *)
   | Vse of { eew : Rv32_kernel_vtype.Sew.t; src : Vreg.t; base : Gpr.t }
   | Vsetvli of { avl : Rv32_kernel_vtype.Avl.t; vtype : Rv32_kernel_vtype.t }
   | Vsse of {
@@ -151,9 +157,9 @@ let extension = function
   | Msetmtype _ | Msettn _ | Vtle _ | Vtmm _ | Vtse _ | Vtzero _ ->
       Some zvt_feature
   | Add _ | Addi _ | Andi _ | Beqz _ | Bnez _ | Csrr _ | Fence | Flh _ | Flw _
-  | J _ | Li _ | Lui _ | Lw _ | Mv _ | Ret | Srli _ | Sub _ | Sw _ | Vfmacc_vf _
-  | Vfwmaccbf16_vf _ | Vle _ | Vlse _ | Vmacc_vx _ | Vmv_v_i _ | Vmv_v_x _
-  | Vse _ | Vsetvli _ | Vsse _ | Vv _ | Vwmacc_vx _ ->
+  | J _ | La _ | Li _ | Lui _ | Lw _ | Mv _ | Ret | Srli _ | Sub _ | Sw _
+  | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _ | Vlse _ | Vmacc_vx _ | Vmv_v_i _
+  | Vmv_v_x _ | Vnsrl_wi _ | Vse _ | Vsetvli _ | Vsse _ | Vv _ | Vwmacc_vx _ ->
       None
 
 (* The one exhaustive spelling of each mnemonic; the printer and the lowering
@@ -169,6 +175,7 @@ let mnemonic = function
   | Flh _ -> "flh"
   | Flw _ -> "flw"
   | J _ -> "j"
+  | La _ -> "la"
   | Li _ -> "li"
   | Lui _ -> "lui"
   | Lw _ -> "lw"
@@ -186,6 +193,7 @@ let mnemonic = function
   | Vmacc_vx _ -> "vmacc.vx"
   | Vmv_v_i _ -> "vmv.v.i"
   | Vmv_v_x _ -> "vmv.v.x"
+  | Vnsrl_wi _ -> "vnsrl.wi"
   | Vse { eew; _ } -> Fmt.str "vse%d.v" (Rv32_kernel_vtype.Sew.bits eew)
   | Vsetvli _ -> "vsetvli"
   | Vsse { eew; _ } -> Fmt.str "vsse%d.v" (Rv32_kernel_vtype.Sew.bits eew)
@@ -210,6 +218,8 @@ let pp ppf i =
       Fmt.pf ppf "%s %a, %a" m Gpr.pp src Rv32_kernel_label.pp target
   | Csrr { dst; csr } -> Fmt.pf ppf "%s %a, %a" m Gpr.pp dst Csr.pp csr
   | J { target } -> Fmt.pf ppf "%s %a" m Rv32_kernel_label.pp target
+  | La { dst; target } ->
+      Fmt.pf ppf "%s %a, %a" m Gpr.pp dst Rv32_kernel_label.pp target
   | Fence -> Fmt.pf ppf "%s rw, rw" m
   | Flh { dst; base; offset } | Flw { dst; base; offset } ->
       Fmt.pf ppf "%s %a, %a" m Fpr.pp dst pp_mem (offset, base)
@@ -236,6 +246,8 @@ let pp ppf i =
   | Vmv_v_i { dst; imm } ->
       Fmt.pf ppf "%s %a, %a" m Vreg.pp dst Imm.Simm5.pp imm
   | Vmv_v_x { dst; src } -> Fmt.pf ppf "%s %a, %a" m Vreg.pp dst Gpr.pp src
+  | Vnsrl_wi { dst; src; shamt } ->
+      Fmt.pf ppf "%s %a, %a, %a" m Vreg.pp dst Vreg.pp src Imm.Shamt.pp shamt
   | Vse { src; base; _ } -> Fmt.pf ppf "%s %a, (%a)" m Vreg.pp src Gpr.pp base
   | Vsse { src; base; stride; _ } ->
       Fmt.pf ppf "%s %a, (%a), %a" m Vreg.pp src Gpr.pp base Gpr.pp stride
@@ -284,22 +296,23 @@ let out_of_range i =
       check (module Imm.Imm12) offset
   | Li { imm; _ } -> check (module Imm.Li) imm
   | Lui { imm; _ } -> check (module Imm.U20) imm
-  | Srli { shamt; _ } -> check (module Imm.Shamt) shamt
+  | Srli { shamt; _ } | Vnsrl_wi { shamt; _ } -> check (module Imm.Shamt) shamt
   | Vmv_v_i { imm; _ } -> check (module Imm.Simm5) imm
-  | Add _ | Beqz _ | Bnez _ | Csrr _ | Fence | J _ | Msetmtype _ | Msettn _
-  | Mv _ | Ret | Sub _ | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _ | Vlse _
-  | Vmacc_vx _ | Vmv_v_x _ | Vse _ | Vsetvli _ | Vsse _ | Vtle _ | Vtmm _
-  | Vtse _ | Vtzero _ | Vv _ | Vwmacc_vx _ ->
+  | Add _ | Beqz _ | Bnez _ | Csrr _ | Fence | J _ | La _ | Msetmtype _
+  | Msettn _ | Mv _ | Ret | Sub _ | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _
+  | Vlse _ | Vmacc_vx _ | Vmv_v_x _ | Vse _ | Vsetvli _ | Vsse _ | Vtle _
+  | Vtmm _ | Vtse _ | Vtzero _ | Vv _ | Vwmacc_vx _ ->
       []
 
 (* The labels [i] branches to. *)
 let targets = function
-  | Beqz { target; _ } | Bnez { target; _ } | J { target } -> [ target ]
+  | Beqz { target; _ } | Bnez { target; _ } | J { target } | La { target; _ } ->
+      [ target ]
   | Add _ | Addi _ | Andi _ | Csrr _ | Fence | Flh _ | Flw _ | Li _ | Lui _
   | Lw _ | Msetmtype _ | Msettn _ | Mv _ | Ret | Srli _ | Sub _ | Sw _
   | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _ | Vlse _ | Vmacc_vx _ | Vmv_v_i _
-  | Vmv_v_x _ | Vse _ | Vsetvli _ | Vsse _ | Vtle _ | Vtmm _ | Vtse _ | Vtzero _
-  | Vv _ | Vwmacc_vx _ ->
+  | Vmv_v_x _ | Vnsrl_wi _ | Vse _ | Vsetvli _ | Vsse _ | Vtle _ | Vtmm _
+  | Vtse _ | Vtzero _ | Vv _ | Vwmacc_vx _ ->
       []
 
 (* The registers [i] reads, in operand order. [zero] is a constant, not a
@@ -317,7 +330,7 @@ let reads i =
   | Addi { src; _ } | Andi { src; _ } | Mv { src; _ } | Srli { src; _ } ->
       gprs [ src ]
   | Beqz { src; _ } | Bnez { src; _ } -> gprs [ src ]
-  | Csrr _ | Fence | J _ -> []
+  | Csrr _ | Fence | J _ | La _ -> []
   | Flh { base; _ } | Flw { base; _ } | Lw { base; _ } | Vle { base; _ } ->
       gprs [ base ]
   | Li _ | Lui _ | Ret | Vmv_v_i _ | Vtzero _ -> []
@@ -329,6 +342,7 @@ let reads i =
   | Vmacc_vx { acc; scalar; src } | Vwmacc_vx { acc; scalar; src } ->
       vregs [ acc ] @ gprs [ scalar ] @ vregs [ src ]
   | Vmv_v_x { src; _ } -> gprs [ src ]
+  | Vnsrl_wi { src; _ } -> vregs [ src ]
   | Vse { src; base; _ } -> vregs [ src ] @ gprs [ base ]
   | Vsse { src; base; stride; _ } -> vregs [ src ] @ gprs [ base; stride ]
   | Vlse { base; stride; _ } -> gprs [ base; stride ]
@@ -350,6 +364,7 @@ let writes i =
   | Addi { dst; _ }
   | Andi { dst; _ }
   | Csrr { dst; _ }
+  | La { dst; _ }
   | Li { dst; _ }
   | Lui { dst; _ }
   | Lw { dst; _ }
@@ -374,6 +389,7 @@ let writes i =
   | Vlse { dst; _ }
   | Vmv_v_i { dst; _ }
   | Vmv_v_x { dst; _ }
+  | Vnsrl_wi { dst; _ }
   | Vv { dst; _ } ->
       [ Reg_ref.Vreg dst ]
   | Vsetvli { avl = Reg _; _ } -> []

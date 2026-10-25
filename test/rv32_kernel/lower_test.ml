@@ -42,6 +42,7 @@ let samples =
       insn "csrr" [ reg "t2"; imm 0xB00 ] );
     (Fence, insn "fence" [ sym "rw"; sym "rw" ]);
     (J { target = loop }, insn "j" [ sym ".Lk_loop" ]);
+    (La { dst = Gpr.s8; target = loop }, insn "la" [ reg "s8"; sym ".Lk_loop" ]);
     ( Flh { dst = Fpr.fa0; base = Gpr.a1; offset = imm12 2 },
       insn "flh" [ reg "fa0"; mem "a1" 2 ] );
     ( Flw { dst = Fpr.fa4; base = Gpr.a1; offset = imm12 8 },
@@ -71,6 +72,8 @@ let samples =
       insn "vmv.v.i" [ reg "v16"; imm 0 ] );
     ( Vmv_v_x { dst = Vreg.v8; src = Gpr.t1 },
       insn "vmv.v.x" [ reg "v8"; reg "t1" ] );
+    ( Vnsrl_wi { dst = Vreg.v4; src = Vreg.v8; shamt = Imm.Shamt.of_int 16 },
+      insn "vnsrl.wi" [ reg "v4"; reg "v8"; imm 16 ] );
     ( Vse { eew = Vtype.Sew.E32; src = Vreg.v16; base = Gpr.a7 },
       insn "vse32.v" [ reg "v16"; mem "a7" 0 ] );
     ( Vsetvli
@@ -121,7 +124,7 @@ let%expect_test "each variant lowers to the form Rv32_asm makes" =
           | _ -> Fmt.pr "unexpected module shape@."))
     samples;
   Fmt.pr "%d variants compared@." (List.length samples);
-  [%expect {| 30 variants compared |}]
+  [%expect {| 32 variants compared |}]
 
 let bf16 =
   [
@@ -213,3 +216,38 @@ let%expect_test "what only the image planner sees" =
     {|
     bound
     bind: <synthesized by image>: error[riscv32.fixup]: branch immediate is out of range |}]
+
+(* A data section of the kernel's own: a zero-filled [.bss] panel, and the
+   address of its label. *)
+let%expect_test "a bss panel and its address lower to directives" =
+  let panel = Label.named "panel" in
+  (match
+     lower
+       [
+         Item.text;
+         Item.insn (La { dst = Gpr.s8; target = panel });
+         Item.insn Ret;
+         Item.bss;
+         Item.align 64;
+         Item.label panel;
+         Item.zero 4096;
+       ]
+   with
+  | Error e -> Fmt.pr "REFUSED: %a@." Lower.pp_error e
+  | Ok m ->
+      List.iter
+        (function
+          | Asm_core.Normalized_ast.Directive { directive; _ } ->
+              Fmt.pr "directive %a@." Asm_core.Directive.pp directive
+          | Label { name; _ } -> Fmt.pr "label %s@." name
+          | Instruction _ -> Fmt.pr "instruction@.")
+        m.Asm_core.Normalized_ast.items);
+  [%expect
+    {|
+    directive section .text r-x
+    instruction
+    instruction
+    directive section .bss rw- nobits
+    directive align 64
+    label .Lk_panel
+    directive zero 4096 |}]

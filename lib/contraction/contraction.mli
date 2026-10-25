@@ -49,6 +49,13 @@ module Numerics : sig
     | Ordered
         (** [acc <- acc + a * b] with the product and the sum each rounded, k
             ascending from the seed *)
+    | Paired
+        (** bfloat16 operands only: k ascending two steps at a time,
+            [acc <- acc + (a0 * b0 + a1 * b1)] where the pair's sum of exact
+            products is rounded to odd in binary32 (truncated, its last bit set
+            when anything was cut off) and then added to nearest; a last odd
+            step adds one product. The matrix engine's bfloat16 tile multiply,
+            as measured on its RTL *)
 
   val name : t -> string
 end
@@ -84,6 +91,8 @@ module Invalid : sig
         (** a batch, row or column extent below 1, or [k] below 0 *)
     | Overflow of { k : int64 }
         (** an integer [k] at which the largest products' sum passes 2^31 - 1 *)
+    | Paired_format of Element.t
+        (** [Paired] numerics over operands that are not bfloat16 *)
     | Stride of { name : string; value : int64 }  (** a negative stride *)
 end
 
@@ -117,6 +126,14 @@ val symbol : t -> string
 (** An assembler symbol unique to the descriptor: [mlt_contract_] and a digest
     of {!name}. *)
 
+val transpose : t -> t
+(** [C^T = B^T A^T]: the same products with the operands exchanged, M and N
+    exchanged and C's row and column strides exchanged, so that each output
+    writes where the original's did. A product's operands commute under every
+    numerics, so evaluating the result with A and B exchanged writes the same
+    bits at the same offsets: a contraction whose C is stored transposed (its
+    rows one element apart) is the swapped one with C's columns contiguous. *)
+
 val macs : t -> int64
 (** [batch * m * n * k]. *)
 
@@ -134,13 +151,14 @@ val eval :
     exact and the requirement does not apply. *)
 
 (** Which unit realizes a contraction, from the descriptor and what the core
-    has. The rules, in order: the matrix engine for an [Ordered] binary32
-    product when the core has one ([vtfmm] rounds each product, so it cannot
-    compute a fused chain; its bfloat16 form adds two k steps' products to the
-    accumulator with one rounding, which neither requirement is); the matrix
-    engine for an integer product, whose exact sum any order computes; else the
-    vector unit when the core has one; else none, and the product stays in the
-    planned loops. *)
+    has. The rules, in order: the matrix engine for a [Paired] product, which
+    only it computes (none without it: the product stays in the planned loops);
+    the matrix engine for an [Ordered] binary32 product when the core has one
+    ([vtfmm] rounds each product, so it cannot compute a fused chain; a bfloat16
+    product under either requirement stays on the vector unit, the engine's form
+    summing two k steps first); the matrix engine for an integer product, whose
+    exact sum any order computes; else the vector unit when the core has one;
+    else none, and the product stays in the planned loops. *)
 module Select : sig
   module Engine : sig
     type t = Loops | Rvv | Zvt
@@ -158,6 +176,10 @@ module Select : sig
       | Integer_on_matrix  (** an exact integer sum: any order is the same *)
       | No_vector_unit
       | Ordered_on_matrix
+      | Paired_needs_matrix
+          (** the product rounds pairs, and the core has no matrix engine *)
+      | Paired_on_matrix
+          (** the engine's bfloat16 tile multiply sums two k steps first *)
       | Vector_unit  (** the core has no matrix engine *)
 
     val name : t -> string

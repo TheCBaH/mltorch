@@ -85,6 +85,8 @@ let k_step (r : Rates.t) (d : C.t) (p : P.t) ~a_sram ~rows ~lanes =
         r.Rates.vector_row_fused +. (lane_beats *. r.Rates.vector_fused)
     | C.Numerics.Ordered ->
         r.Rates.vector_row_ordered +. (lane_beats *. r.Rates.vector_ordered)
+    | C.Numerics.Paired ->
+        invalid_arg "Transfer_model: a paired product runs on the matrix engine"
   in
   let a =
     f rows

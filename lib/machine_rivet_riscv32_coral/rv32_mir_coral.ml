@@ -54,7 +54,8 @@ end
    time. *)
 let read_back_budget = 16384L
 
-let slots ?(home = fun _ -> Coral_layout.Home.Any) ~record artifact =
+let slots ?(home = fun _ -> Coral_layout.Home.Any) ?(slack = 0L) ~record
+    artifact =
   List.map
     (fun (s : Table.slot) ->
       {
@@ -66,7 +67,7 @@ let slots ?(home = fun _ -> Coral_layout.Home.Any) ~record artifact =
           | _ when Mir_id.Region.equal s.Table.region record ->
               Coral_layout.Placement.Out
           | _ -> Coral_layout.Placement.Scratch);
-        size = s.Table.size;
+        size = Int64.add s.Table.size slack;
       })
     (Machine_rivet_riscv32_mir.Rv32_mir_module.slots artifact)
 
@@ -105,41 +106,78 @@ let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
     fst (Contraction.Select.choose capabilities d)
     = Contraction.Select.Engine.Zvt
   in
-  let other d =
-    if on_engine d then
-      Some
-        (Coralnpu_kernels_zvt.Zvt_contraction.module_ ?mutation:engine_mutation
-           d)
-    else None
-  in
   (* every panel and ring lives in DTCM: the image's functions share five
      eighths of it, so the stack, the staging area and the program's own
-     data keep the rest; each asks [transfer] for its plan within what the
-     ones before it left, and a plan that does not check is an error *)
+     data keep the rest; each takes what the ones before it left *)
+  let left =
+    ref
+      (List.fold_left
+         (fun n (r : Coral_profile.Region.t) ->
+           match r.Coral_profile.Region.role with
+           | Coral_profile.Role.Dtcm ->
+               n
+               + Int64.to_int
+                   (Int64.div (Int64.mul r.Coral_profile.Region.size 5L) 8L)
+           | _ -> n)
+         0 profile.Coral_profile.regions)
+  in
+  (* an operand a packed function reads in place is read past its end: every
+     slot gets that much more room *)
+  let slack = ref 0 in
+  let dtcm =
+    List.find_map
+      (fun (r : Coral_profile.Region.t) ->
+        match r.Coral_profile.Region.role with
+        | Coral_profile.Role.Dtcm ->
+            Some
+              ( Int64.to_int r.Coral_profile.Region.base,
+                Int64.to_int r.Coral_profile.Region.size )
+        | _ -> None)
+      profile.Coral_profile.regions
+  in
+  let other d =
+    if on_engine d then
+      let module Z = Coralnpu_kernels_zvt in
+      let module P = Z.Zvt_packed_contraction in
+      (* a B read in place that several blocks read is copied into the DTCM
+         unless it already lies there *)
+      let stage_b =
+        match dtcm with
+        | Some (base, bytes) when P.reuses_b d ->
+            Some (P.Stage.Outside { base; bytes })
+        | _ -> None
+      in
+      let fitting stage_b =
+        match P.panel_bytes ?stage_b d with
+        | Ok bytes when bytes <= !left && P.fast d -> Some (stage_b, bytes)
+        | _ -> None
+      in
+      match
+        match fitting stage_b with Some _ as f -> f | None -> fitting None
+      with
+      | Some (stage_b, bytes) -> (
+          match P.module_ ?stage_b d with
+          | Ok _ as m ->
+              left := !left - bytes;
+              slack := max !slack (P.overread d);
+              Some m
+          | Error _ ->
+              Some (Z.Zvt_contraction.module_ ?mutation:engine_mutation d))
+      | None -> Some (Z.Zvt_contraction.module_ ?mutation:engine_mutation d)
+    else None
+  in
+  (* each function asks [transfer] for its plan within what is left, and a
+     plan that does not check is an error *)
   let plan =
     Option.map
       (fun choose ->
-        let left =
-          ref
-            (List.fold_left
-               (fun n (r : Coral_profile.Region.t) ->
-                 match r.Coral_profile.Region.role with
-                 | Coral_profile.Role.Dtcm ->
-                     n
-                     + Int64.to_int
-                         (Int64.div
-                            (Int64.mul r.Coral_profile.Region.size 5L)
-                            8L)
-                 | _ -> n)
-               0 profile.Coral_profile.regions)
-        in
         fun d ->
-          let module T = Coral_transfer.Transfer_plan in
-          match T.check ~budget:!left d (choose ~budget:!left d) with
-          | Ok w ->
-              left := !left - T.Witness.bytes w;
-              Ok (Some w)
-          | Error r -> Error (Fmt.str "transfer plan: %a" T.Refusal.pp r))
+         let module T = Coral_transfer.Transfer_plan in
+         match T.check ~budget:!left d (choose ~budget:!left d) with
+         | Ok w ->
+             left := !left - T.Witness.bytes w;
+             Ok (Some w)
+         | Error r -> Error (Fmt.str "transfer plan: %a" T.Refusal.pp r))
       transfer
   in
   let* helpers = Q.helper_modules ?kernel_mutation ?plan ~other artifact in
@@ -147,7 +185,7 @@ let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
     (Coral_image.build ~rv32_profile
        ~matrix:(List.exists on_engine (Q.generated artifact))
        profile ~entry:Table.entry ~kernel:(m :: helpers)
-       (slots ?home ~record artifact))
+       (slots ?home ~slack:(Int64.of_int !slack) ~record artifact))
 
 (* The run on the configuration's simulator: each written slot's bytes, by
    index, the status and what was measured. *)

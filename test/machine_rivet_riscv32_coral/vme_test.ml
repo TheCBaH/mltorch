@@ -215,3 +215,104 @@ let%expect_test "prepacked weights on the vector unit" =
     linear bf16 9x32 k64, strided (1 invocations): bitwise
     linear bf16 9x32 k64, packed (1 invocations, 1 packed): bitwise
       cycles 11130 -> 6351 (1.75x) |}]
+
+(* bfloat16 products granted the engine's pair rounding ([bf16_pairs]): the
+   matrix engine's function against the descriptor's [Paired] reference over
+   the model's own operands, which the Loop interpreter has no accumulation
+   for. *)
+let%expect_test "bfloat16 pairs from a model on the matrix engine" =
+  let module K = Contraction in
+  let flat (Tensor.Tensor t as p) =
+    let a = Array.make (Vec6.numel t.Tensor.shape :> int) 0. in
+    Vec6.iter t.Tensor.shape (fun c ->
+        a.((Vec6.offset t.Tensor.shape c :> int)) <- Tensor.read p c);
+    a
+  in
+  let paired ~batch ~m ~n ~k ~b_outer ~b_k ~b_batch ~a_of ~b_of =
+    T.Custom
+      (fun (g : Graph_ir.graph) constants inputs ->
+        let d =
+          Result.get_ok
+            (Err.payload
+               (K.make ~batch ~m ~n ~k
+                  ~a:{ K.Operand.batch = Int64.mul m k; outer = k; k = 1L }
+                  ~b:{ K.Operand.batch = b_batch; outer = b_outer; k = b_k }
+                  ~c:{ K.Output.batch = Int64.mul m n; row = n; col = 1L }
+                  ~format:K.Element.Bf16 ~seed:K.Seed.Zero
+                  ~numerics:K.Numerics.Paired))
+        in
+        let a = flat (a_of constants inputs)
+        and b = flat (b_of constants inputs) in
+        let out =
+          Array.make (Int64.to_int (Int64.mul batch (Int64.mul m n))) 0.
+        in
+        K.eval d
+          ~a:(fun o -> a.(Int64.to_int o))
+          ~b:(fun o -> b.(Int64.to_int o))
+          ~c:(fun _ -> 0.)
+          ~write:(fun o x -> out.(Int64.to_int o) <- x);
+        let id = List.hd g.Graph_ir.Graph.outputs in
+        let shape = (T.sig_of g id).Tensor_sig.shape in
+        Tensor_id.Map.singleton id
+          (Tensor.materialize shape (fun c ->
+               out.((Vec6.offset shape c :> int)))))
+  in
+  let nth l i = snd (List.nth l i) in
+  let run ?(pairs = true) name g oracle =
+    let cycles = ref 0L in
+    let on_run (o : C.Run.t) = cycles := Int64.add !cycles o.C.Run.mcycle in
+    T.check ~route:(C.route ~on_run config) ~contractions:true ~bf16_pairs:pairs
+      ~pipeline:
+        (Ssa_backends.Pipeline.Planned
+           {
+             numerics = Ssa_ir.Ssa_numerics.Fp32_contracted;
+             target = Ssa_ir.Ssa_target.zve32f128;
+           })
+      ~oracle ~same:T.same_portable
+      ~input:(fun ~salt id sg ->
+        T.in_format sg (T.adversarial_input ~salt id sg))
+      ~constant:(fun sg -> T.in_format sg (T.adversarial ~salt:3 sg))
+      ~calls:1 name g;
+    Fmt.pr "  cycles %Ld@." !cycles
+  in
+  run "linear bf16 9x32 k64, paired"
+    (T.linear_bf16_fixture ~m:9 ~n:32 ~k:64 ~bias:false)
+    (paired ~batch:1L ~m:9L ~n:32L ~k:64L ~b_outer:64L ~b_k:1L ~b_batch:0L
+       ~a_of:(fun _ i -> nth i 0)
+       ~b_of:(fun c _ -> nth c 0));
+  run "linear bf16 64x64 k64, paired"
+    (T.linear_bf16_fixture ~m:64 ~n:64 ~k:64 ~bias:false)
+    (paired ~batch:1L ~m:64L ~n:64L ~k:64L ~b_outer:64L ~b_k:1L ~b_batch:0L
+       ~a_of:(fun _ i -> nth i 0)
+       ~b_of:(fun c _ -> nth c 0));
+  run "bmm bf16 1x64x32 k64, paired"
+    (T.bmm_bf16_fixture ~batch:1 ~m:64 ~n:32 ~k:64)
+    (paired ~batch:1L ~m:64L ~n:32L ~k:64L ~b_outer:1L ~b_k:32L
+       ~b_batch:(Int64.of_int (64 * 32))
+       ~a_of:(fun _ i -> nth i 0)
+       ~b_of:(fun _ i -> nth i 1));
+  run "bmm bf16 3x7x29 k63, paired"
+    (T.bmm_bf16_fixture ~batch:3 ~m:7 ~n:29 ~k:63)
+    (paired ~batch:3L ~m:7L ~n:29L ~k:63L ~b_outer:1L ~b_k:29L
+       ~b_batch:(Int64.of_int (63 * 29))
+       ~a_of:(fun _ i -> nth i 0)
+       ~b_of:(fun _ i -> nth i 1));
+  (* the pair rounding is the policy's grant: without it the same product runs
+     rounded step by step on the vector unit, which the reference refuses *)
+  run ~pairs:false "linear bf16 9x32 k64, not granted"
+    (T.linear_bf16_fixture ~m:9 ~n:32 ~k:64 ~bias:false)
+    (paired ~batch:1L ~m:9L ~n:32L ~k:64L ~b_outer:64L ~b_k:1L ~b_batch:0L
+       ~a_of:(fun _ i -> nth i 0)
+       ~b_of:(fun c _ -> nth c 0));
+  [%expect
+    {|
+    linear bf16 9x32 k64, paired (1 invocations): bitwise
+      cycles 4241
+    linear bf16 64x64 k64, paired (1 invocations): bitwise
+      cycles 37789
+    bmm bf16 1x64x32 k64, paired (1 invocations): bitwise
+      cycles 16141
+    bmm bf16 3x7x29 k63, paired (1 invocations): bitwise
+      cycles 10418
+    linear bf16 9x32 k64, not granted (1 invocations): DIFFERS
+      cycles 11130 |}]

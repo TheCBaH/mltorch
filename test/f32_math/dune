@@ -26,3 +26,13 @@
   (modes best js))
  (preprocess
   (pps ppx_expect)))
+
+; [add_odd32] against exact integer arithmetic (zarith), native only.
+
+(library
+ (name f32_add_odd_test)
+ (modules add_odd_test)
+ (libraries f32_math fmt zarith)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
