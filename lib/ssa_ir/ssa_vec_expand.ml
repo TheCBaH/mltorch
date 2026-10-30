@@ -187,7 +187,7 @@ let expand_instr t (i : Ssa_instr.t) : Ssa_region.t Ssa_stmt.t list =
     | Ssa_op.Mark _ | Ssa_op.Meter_charge | Ssa_op.Meter_release _
     | Ssa_op.Meter_reserve _ | Ssa_op.Meter_reset | Ssa_op.Pool_better _
     | Ssa_op.Pred_not _ | Ssa_op.Pred_or _ | Ssa_op.Select _ | Ssa_op.Store _
-    | Ssa_op.Contract _ ) as op ->
+    | Ssa_op.Contract _ | Ssa_op.Attend _ ) as op ->
       [
         Ssa_stmt.Instr
           { i with Ssa_instr.op = Ssa_op.map_operands (resolve t) op; token };

@@ -41,6 +41,8 @@ type result = {
   outputs : string list;  (** each output slot's bytes, in order *)
   cycles : int64;
   retired : int64;
+  segments : (string * int) list;
+      (** each segment's bytes, zero fill included *)
 }
 
 (* [inputs] are the bytes of each read-only slot; [outputs] the sizes of the
@@ -101,6 +103,11 @@ let run ?(sram = false) ?(pad = 0) ?(fill = '\000') ?args
         List.mapi (fun k _ -> List.assoc (n_in + k) o.Coral_run.outputs) outputs;
       cycles = o.Coral_run.mcycle;
       retired = o.Coral_run.minstret;
+      segments =
+        List.map
+          (fun (g : Image.segment) ->
+            (g.Image.name, String.length g.Image.bytes + g.Image.zero_fill))
+          image.Coral_image.image.Image.segments;
     }
 
 let f32_bytes xs =

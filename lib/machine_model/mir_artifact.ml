@@ -16,6 +16,9 @@ module Symbol = struct
       }
     | External_function of string
     | Function of Mir_id.Func.t
+    | Generated_attention of Attention_block.t
+        (** a helper the realization generates beside the program, under the
+            descriptor's {!Attention_block.symbol} *)
     | Generated_function of Contraction.t
         (** a helper the realization generates beside the program: the
             contraction it computes, under the descriptor's
@@ -67,7 +70,7 @@ let pp_summary fmt t =
         match y.Symbol.kind with
         | Symbol.Data { section; _ } -> Section.name section = Section.name s
         | Symbol.External_function _ | Symbol.Function _
-        | Symbol.Generated_function _ ->
+        | Symbol.Generated_attention _ | Symbol.Generated_function _ ->
             false)
   in
   Fmt.pf fmt
@@ -102,9 +105,10 @@ let func_symbol (f : (_, _) Mir_phys.Func.t) = f.Mir_phys.Func.name
 (* A helper's native binding: a named math helper's library function, or a
    contraction's generated one. *)
 let binding (h : Mir_helper.t) =
-  match Mir_contract.of_helper h with
-  | Some d -> Some (Contraction.symbol d, Symbol.Generated_function d)
-  | None ->
+  match (Mir_contract.of_helper h, Mir_attention.of_helper h) with
+  | Some d, _ -> Some (Contraction.symbol d, Symbol.Generated_function d)
+  | None, Some a -> Some (Attention_block.symbol a, Symbol.Generated_attention a)
+  | None, None ->
       List.find_map
         (fun fn ->
           let d = Mir_math.descriptor fn in

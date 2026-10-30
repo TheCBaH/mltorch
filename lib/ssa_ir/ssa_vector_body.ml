@@ -159,14 +159,14 @@ let classify_instr kinds (i : Ssa_instr.t) =
             set kinds (result ()) Vec))
   | Ssa_op.Mark _ | Ssa_op.Store _ -> ()
   | Ssa_op.Check_access _ | Ssa_op.Check_gather _ | Ssa_op.Check_local _
-  | Ssa_op.Check_scan _ | Ssa_op.Contract _ | Ssa_op.Float_to_i64 _
-  | Ssa_op.I64_div _ | Ssa_op.Index_add _ | Ssa_op.Index_of_i64 _
-  | Ssa_op.Index_scale _ | Ssa_op.Lanewise _ | Ssa_op.Load _
-  | Ssa_op.Local_alloc _ | Ssa_op.Local_read _ | Ssa_op.Local_write _
-  | Ssa_op.Mark_lanes _ | Ssa_op.Meter_charge | Ssa_op.Meter_release _
-  | Ssa_op.Meter_reserve _ | Ssa_op.Meter_reset | Ssa_op.Vec_extract _
-  | Ssa_op.Vec_insert _ | Ssa_op.Vec_iota _ | Ssa_op.Vec_load _
-  | Ssa_op.Vec_splat _ | Ssa_op.Vec_store _ ->
+  | Ssa_op.Attend _ | Ssa_op.Check_scan _ | Ssa_op.Contract _
+  | Ssa_op.Float_to_i64 _ | Ssa_op.I64_div _ | Ssa_op.Index_add _
+  | Ssa_op.Index_of_i64 _ | Ssa_op.Index_scale _ | Ssa_op.Lanewise _
+  | Ssa_op.Load _ | Ssa_op.Local_alloc _ | Ssa_op.Local_read _
+  | Ssa_op.Local_write _ | Ssa_op.Mark_lanes _ | Ssa_op.Meter_charge
+  | Ssa_op.Meter_release _ | Ssa_op.Meter_reserve _ | Ssa_op.Meter_reset
+  | Ssa_op.Vec_extract _ | Ssa_op.Vec_insert _ | Ssa_op.Vec_iota _
+  | Ssa_op.Vec_load _ | Ssa_op.Vec_splat _ | Ssa_op.Vec_store _ ->
       refuse (Reason.No_vector_form op)
 
 (* The kind of a carried value: a vector once anything that can reach it is one.

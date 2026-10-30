@@ -225,12 +225,12 @@ and instr_ t (i : Ssa_instr.t) =
   | Ssa_op.Vec_insert _ | Ssa_op.Vec_iota _ | Ssa_op.Vec_load _
   | Ssa_op.Vec_splat _ | Ssa_op.Vec_store _ ->
       invalid_arg "Ssa_precision: choose the precision before vectorizing"
-  | ( Ssa_op.Check_access _ | Ssa_op.Check_gather _ | Ssa_op.Check_local _
-    | Ssa_op.Check_scan _ | Ssa_op.Const _ | Ssa_op.Contract _
-    | Ssa_op.Convert _ | Ssa_op.Float_binary _ | Ssa_op.Float_compare _
-    | Ssa_op.Float_fma _ | Ssa_op.Float_max _ | Ssa_op.Float_unary _
-    | Ssa_op.I64_arith _ | Ssa_op.I64_compare _ | Ssa_op.I64_div _
-    | Ssa_op.Index_add _ | Ssa_op.Index_add_in_domain _
+  | ( Ssa_op.Attend _ | Ssa_op.Check_access _ | Ssa_op.Check_gather _
+    | Ssa_op.Check_local _ | Ssa_op.Check_scan _ | Ssa_op.Const _
+    | Ssa_op.Contract _ | Ssa_op.Convert _ | Ssa_op.Float_binary _
+    | Ssa_op.Float_compare _ | Ssa_op.Float_fma _ | Ssa_op.Float_max _
+    | Ssa_op.Float_unary _ | Ssa_op.I64_arith _ | Ssa_op.I64_compare _
+    | Ssa_op.I64_div _ | Ssa_op.Index_add _ | Ssa_op.Index_add_in_domain _
     | Ssa_op.Index_ceil_div _ | Ssa_op.Index_clamp_low _
     | Ssa_op.Index_compare _ | Ssa_op.Index_floor_div _ | Ssa_op.Index_max _
     | Ssa_op.Index_min _ | Ssa_op.Index_of_i64 _ | Ssa_op.Index_scale _

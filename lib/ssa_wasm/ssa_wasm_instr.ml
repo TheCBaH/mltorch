@@ -241,6 +241,7 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
   let one instrs = set_one st (first_result i) instrs in
   match op with
   | Ssa_op.Mark _ | Ssa_op.Mark_lanes _ -> []
+  | Ssa_op.Attend _ -> refuse (`Unsupported_operation "an attention")
   | Ssa_op.Contract _ -> refuse (`Unsupported_operation "a contraction")
   | Ssa_op.Check_access { buffer; at } -> (
       let b = find_buffer st buffer in

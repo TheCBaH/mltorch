@@ -150,6 +150,20 @@ module Encode = struct
 end
 
 type t =
+  | Attend of {
+      desc : Attention_block.t;
+      q : Ssa_id.Buffer.t;
+      k : Ssa_id.Buffer.t;
+      v : Ssa_id.Buffer.t;
+      mask : Ssa_id.Buffer.t option;
+      o : Ssa_id.Buffer.t;
+    }
+      (** Scaled dot-product attention [desc] reading Q, K, V (bfloat16) and the
+          mask (binary32, present when [desc] has one) and writing O (binary32),
+          element offsets from each buffer's first cell
+          ({!Attention_block.eval}). Q, K and V may be one buffer; O is disjoint
+          from every input. Only the selection of a granted attention introduces
+          one. *)
   | Check_access of { buffer : Ssa_id.Buffer.t; at : Ssa_access.t }
       (** The bounds check a coordinate load performs, with no read: fails with
           the first axis outside, in axis order. *)
@@ -321,17 +335,17 @@ let rec effectful = function
   | Index_scale_in_domain _ | Pool_better _ | Pred_not _ | Pred_or _ | Select _
   | Vec_extract _ | Vec_insert _ | Vec_iota _ | Vec_splat _ ->
       false
-  | Check_access _ | Check_gather _ | Check_local _ | Check_scan _ | Contract _
-  | Float_to_i64 _ | I64_div _ | Index_add _ | Index_of_i64 _ | Index_scale _
-  | Load _ | Load_in_bounds _ | Local_alloc _ | Local_read _ | Local_write _
-  | Mark _ | Mark_lanes _ | Meter_charge | Meter_release _ | Meter_reserve _
-  | Meter_reset | Store _ | Vec_load _ | Vec_store _ ->
+  | Attend _ | Check_access _ | Check_gather _ | Check_local _ | Check_scan _
+  | Contract _ | Float_to_i64 _ | I64_div _ | Index_add _ | Index_of_i64 _
+  | Index_scale _ | Load _ | Load_in_bounds _ | Local_alloc _ | Local_read _
+  | Local_write _ | Mark _ | Mark_lanes _ | Meter_charge | Meter_release _
+  | Meter_reserve _ | Meter_reset | Store _ | Vec_load _ | Vec_store _ ->
       true
 
 let rec operands = function
   | Lanewise op -> operands op
-  | Const _ | Contract _ | Local_alloc _ | Mark _ | Mark_lanes _ | Meter_charge
-  | Meter_release _ | Meter_reserve _ | Meter_reset ->
+  | Attend _ | Const _ | Contract _ | Local_alloc _ | Mark _ | Mark_lanes _
+  | Meter_charge | Meter_release _ | Meter_reserve _ | Meter_reset ->
       []
   | Check_access { at; _ } | Load { at; _ } | Load_in_bounds { at; _ } ->
       Ssa_access.operands at
@@ -377,7 +391,7 @@ let rec operands = function
 
 let rec map_operands f = function
   | Lanewise op -> Lanewise (map_operands f op)
-  | ( Const _ | Contract _ | Local_alloc _ | Mark _ | Mark_lanes _
+  | ( Attend _ | Const _ | Contract _ | Local_alloc _ | Mark _ | Mark_lanes _
     | Meter_charge | Meter_release _ | Meter_reserve _ | Meter_reset ) as op ->
       op
   | Check_access { buffer; at } ->
@@ -506,6 +520,7 @@ let unary_name = function
 
 let rec name = function
   | Lanewise op -> "lanes." ^ name op
+  | Attend _ -> "attend"
   | Check_access _ -> "check_access"
   | Check_gather _ -> "check_gather"
   | Check_local _ -> "check_local"

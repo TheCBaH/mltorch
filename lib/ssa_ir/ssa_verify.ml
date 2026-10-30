@@ -12,6 +12,7 @@ type site = { region : Ssa_id.Region.t; statement : Statement.t }
 type claim = Add_in_domain | In_bounds | Lanes_in_bounds | Scale_in_domain
 
 type problem =
+  | Buffer_aliased of Ssa_id.Buffer.t
   | Buffer_declaration of Ssa_id.Buffer.t
   | Buffer_format of {
       buffer : Ssa_id.Buffer.t;
@@ -54,6 +55,9 @@ let pp_problem fmt = function
       Fmt.pf fmt "%a is declared %s but accessed as %s" Ssa_id.Buffer.pp buffer
         (Ssa_format.name declared)
         (Ssa_format.Family.name accessed)
+  | Buffer_aliased b ->
+      Fmt.pf fmt "%a is written by an attention that also reads it"
+        Ssa_id.Buffer.pp b
   | Buffer_not_stored b ->
       Fmt.pf fmt "%a is an input and is never written" Ssa_id.Buffer.pp b
   | Buffer_unknown b -> Fmt.pf fmt "%a is not declared" Ssa_id.Buffer.pp b
@@ -234,6 +238,22 @@ let instr ctx scope ~live (i : Ssa_instr.t) =
       check_vector_access ctx scope buffer
         ~family:(Ssa_op.Encode.family encode)
         ~writes:true
+  | Ssa_op.Attend { q; k; v; mask; o; _ } ->
+      List.iter
+        (fun id ->
+          check_vector_access ctx scope id ~family:Ssa_format.Family.Bf16
+            ~writes:false)
+        [ q; k; v ];
+      Option.iter
+        (fun m ->
+          check_vector_access ctx scope m ~family:Ssa_format.Family.F32
+            ~writes:false)
+        mask;
+      check_vector_access ctx scope o ~family:Ssa_format.Family.F32 ~writes:true;
+      if
+        List.exists (Ssa_id.Buffer.equal o)
+          ([ q; k; v ] @ Option.fold ~none:[] ~some:(fun m -> [ m ]) mask)
+      then fail ctx scope (Buffer_aliased o)
   | Ssa_op.Contract { desc; a; b; c } ->
       let family = Ssa_op.contract_operands desc in
       check_vector_access ctx scope a ~family ~writes:false;
@@ -434,6 +454,36 @@ let check_proofs ctx scope =
                 if not (Ssa_range.in_bounds ranges b at) then
                   fail ctx scope (Unproven In_bounds)
             | None -> fail ctx scope (Buffer_unknown buffer))
+        | Ssa_op.Attend { desc = d; q; k; v; mask; o } -> (
+            (* every element each operand names lies inside its buffer *)
+            let last count stride =
+              Int64.mul (Int64.max 0L (Int64.pred count)) stride
+            in
+            let reach id top =
+              match Ssa_program.find_buffer p id with
+              | Some bf -> (
+                  match Ssa_buffer.elements bf.Ssa_buffer.extents with
+                  | Some n when Int64.compare top n < 0 -> ()
+                  | Some _ | None -> fail ctx scope (Unproven In_bounds))
+              | None -> fail ctx scope (Buffer_unknown id)
+            in
+            let top (s : Attention_block.Strides.t) ~rows ~cols =
+              List.fold_left Int64.add 0L
+                [
+                  last d.Attention_block.batch s.Attention_block.Strides.batch;
+                  last d.Attention_block.heads s.Attention_block.Strides.head;
+                  last rows s.Attention_block.Strides.row;
+                  last cols s.Attention_block.Strides.col;
+                ]
+            in
+            let open Attention_block in
+            reach q (top d.q ~rows:d.tq ~cols:d.d);
+            reach k (top d.k ~rows:d.tk ~cols:d.d);
+            reach v (top d.v ~rows:d.tk ~cols:d.d);
+            reach o (top d.o ~rows:d.tq ~cols:d.d);
+            match (mask, d.mask) with
+            | Some m, Some s -> reach m (top s ~rows:d.tq ~cols:d.tk)
+            | _ -> ())
         | Ssa_op.Contract { desc; a; b; c } ->
             (* every element each operand names lies inside its buffer *)
             let last count stride =

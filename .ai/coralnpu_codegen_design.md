@@ -645,7 +645,8 @@ small product's depth and bits known: the added bit below the result's last
 set it however far down, and the bits above were truncated.
 
 `Contraction.Numerics.Paired` names it (bfloat16 operands only; a last odd
-step adds one product), `F32_math.add_odd32` computes the pair sum (checked
+step adds one product; a zero sum is +0, the engine's adder never gives -0,
+measured with seeds and products of both signs), `F32_math.add_odd32` computes the pair sum (checked
 against exact integer arithmetic over 400,000 pairs, 143,346 of which
 rounding to nearest gets wrong), and `Select` sends it to the matrix engine,
 or to the planned loops on a core without one (the vector unit has no way to
@@ -786,6 +787,54 @@ output slot is in SRAM and the matrix engine's strided tile stores there cost
 more than the streaming copy from a DTCM scratch (9x32 K=64 4236 -> 5561
 cycles, 64x64 37784 -> 51198, the ordered contraction 9280 -> 10605), so the
 scratch stays.
+
+## Fused streaming attention (`Zvt_sdpa`)
+
+The generated `Sdpa` is refused on the VME core (its one kernel exceeds the 8 KiB
+instruction memory by a few hundred bytes), and its per-op composition (a paired
+scores product, scale, softmax, a binary32 context product) takes 4.2 M cycles at
+64x64 d64, 97% of it the generated softmax at 1,023 cycles an element. `Zvt_sdpa`
+is one function per `Attention_block` descriptor (contract: the attention design
+record, section on the bfloat16 streaming grant) that takes 386 k cycles there.
+
+Layout. Q is taken 16 queries at a time (`Bq` is fixed at 16: a 16-lane row is
+one LMUL 4 vector, and `Bq` changes no bit). Q, K and V rows are always staged
+dense into one buffer in the DTCM before they are packed or read in place: the
+staging makes the pack independent of the operand strides, gives V's block its
+zero rows past the valid keys and readable bytes past its end (a V in the DTCM
+needs both as much as one in SRAM), and is 4% of the run. A ragged block
+pre-zeroes its panel and packs with a run-time `vl`. The scores block writes
+`z` rows of 16 f32 into the tile; pass 2 overwrites them in ascending row order
+with the bfloat16 `P^T` rows (row r of P lies in z rows at most r/2); the
+context block reads that tile and the staged V in place and accumulates into
+`O_acc` from its loaded tiles. `m`, `m'`, `l`, `a`, `s` and the masked `m'` are
+one 16-lane array each in `.bss`, so the `exp` code exists once per use.
+Budget at d 64, `block_keys` 32: tile 2,048, `O_acc` 4,096, Q panel 2,176, K
+panel 4,224, staging 4,736, arrays 384 = 17,664 of the 20,480-byte allowance;
+`.text` 7,484 of 8,192 bytes with the runtime. `.bss` is explicit zero bytes in
+the ELF and costs no run time; the runtime zeroes only output and scratch slots
+(six instructions a word).
+
+Cost at 64x64 d64, by leaving a phase out: exp pass 291 k (75%), scores 32 k,
+context 29 k, normalize 18 k, the rest 16 k. `F32_math.exp` emitted over vector
+registers in construction order needs 7 register groups (29 in a depth-first
+walk), so it runs at LMUL 4 at 65.8 cycles an element; at LMUL 1 it is 189, slower
+than the generated scalar exp (148). The softmax is exp-bound; the levers not
+taken are `.vf` operand forms (the constants are rebuilt with `li` + `vmv.v.x` at
+each use) and one shared copy of the code.
+
+Two softmax identities keep a register group free: `p`'s select on `z = -inf` is
+`exp (z - ms)` with `ms = m'` and 0 where `m' = -inf`; `a`'s select on
+`m' = -inf` is `exp (m_eff - mn_eff)` with both 0 there. Each equals the
+oracle's select bit for bit.
+
+Route. `Ssa_op.Attend` (Q, K, V, optional mask, O) is interpreted by
+`Attention_block.eval`, refused by the C, Wasm, JavaScript and Loop backends,
+lowered to the helper call `attend.<descriptor>` (`Mir_attention`, ids from
+1024), and bound in the artifact as `Generated_attention`. The Coral image gives
+the function what the contractions before it left of the DTCM allowance;
+`Mir_model.prepare ?attention` substitutes the SSA program of a selected node.
+The function's argument order is Q, K, V, O, then the mask.
 
 ## What is left open
 

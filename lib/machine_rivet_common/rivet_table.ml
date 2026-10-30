@@ -27,7 +27,7 @@ let of_artifact artifact =
               Some { symbol = s.Art.Symbol.name; region; size; align; section }
           | Art.Section.Rodata _ -> None)
       | Art.Symbol.External_function _ | Art.Symbol.Function _
-      | Art.Symbol.Generated_function _ ->
+      | Art.Symbol.Generated_attention _ | Art.Symbol.Generated_function _ ->
           None)
     (Art.symbols artifact)
   |> List.sort (fun a b ->

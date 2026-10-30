@@ -9,4 +9,4 @@
 
 (library
  (name ssa_ir)
- (libraries contraction core err_trace expr f32_math fmt))
+ (libraries attention_block contraction core err_trace expr f32_math fmt))

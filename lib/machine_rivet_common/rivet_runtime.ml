@@ -20,7 +20,7 @@ let helpers artifact =
       match s.Art.Symbol.kind with
       | Art.Symbol.External_function f -> Some f
       | Art.Symbol.Data _ | Art.Symbol.Function _
-      | Art.Symbol.Generated_function _ ->
+      | Art.Symbol.Generated_attention _ | Art.Symbol.Generated_function _ ->
           None)
     (Art.symbols artifact)
 

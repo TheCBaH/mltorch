@@ -56,6 +56,14 @@ let of_op (op : Ssa_op.t) =
   | Ssa_op.Store { buffer; _ } ->
       { empty with writes = Ssa_id.Buffer.Set.singleton buffer }
   | Ssa_op.Check_access { buffer; _ } -> read buffer ~fails:true
+  | Ssa_op.Attend { q; k; v; mask; o; _ } ->
+      {
+        empty with
+        reads =
+          Ssa_id.Buffer.Set.of_list
+            ([ q; k; v ] @ Option.fold ~none:[] ~some:(fun m -> [ m ]) mask);
+        writes = Ssa_id.Buffer.Set.singleton o;
+      }
   | Ssa_op.Contract { a; b; c; _ } ->
       {
         empty with

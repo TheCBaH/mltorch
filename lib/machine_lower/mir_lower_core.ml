@@ -87,6 +87,8 @@ type st = {
   limits : Expr.Scan_limits.t;
   mutable deferred_charges : int;  (** under [Charge_after_body] only *)
   mutable helpers : Mir_math.Fn.t list;  (** the math helpers called *)
+  mutable attentions : Attention_block.t list;
+      (** the attentions called, in first-call order, as helpers *)
   mutable contracts : Contraction.t list;
       (** the contractions called, in first-call order, as helpers *)
   mutable cur : B.block;

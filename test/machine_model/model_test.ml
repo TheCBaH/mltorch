@@ -1,6 +1,8 @@
 open Graph_ir
 module F = Native_test.Graph_fixtures
 module M = Machine_model.Mir_model
+module Attention_site = Machine_model.Attention_site
+module Sdpa_select = Machine_model.Sdpa_select
 
 (* Values that vary in sign and size, so a max, a denominator and a mask all
    matter; [salt] makes a different call's inputs differ. *)
@@ -78,7 +80,7 @@ let same_portable a b =
         (Int64.float_of_bits y))
     (bits a) (bits b)
 
-let check ?route ?contractions ?bf16_pairs ?prepack
+let check ?route ?contractions ?bf16_pairs ?attention ?prepack
     ?(pipeline = Ssa_backends.Pipeline.Exact) ?(oracle = Reference_f64)
     ?(same = fun a b -> bits a = bits b) ?(calls = 2) ?constant
     ?(input = fun ~salt _ -> values ~salt) name g =
@@ -90,7 +92,9 @@ let check ?route ?contractions ?bf16_pairs ?prepack
       (fun id -> (id, constant (sig_of g id)))
       b.Loop_ir.Loop_bundle.constants
   in
-  match M.prepare ?route ?contractions ?bf16_pairs ?prepack ~pipeline b with
+  match
+    M.prepare ?route ?contractions ?bf16_pairs ?attention ?prepack ~pipeline b
+  with
   | Error rs ->
       Fmt.pr "%s: refused: %a@." name Fmt.(list ~sep:(any "; ") M.Refusal.pp) rs
   | Ok m -> (

@@ -5,11 +5,15 @@ module Ml = Machine_lower.Mir_lower
 module L = Machine_lower.Mir_layout_map
 
 module Reason = struct
-  type t = Lowering of Ml.Refusal.t | Route of string | Source of string
+  type t =
+    | Attention of string
+    | Lowering of Ml.Refusal.t
+    | Route of string
+    | Source of string
 
   let pp fmt = function
     | Lowering r -> Ml.Refusal.pp fmt r
-    | Route s | Source s -> Fmt.string fmt s
+    | Attention s | Route s | Source s -> Fmt.string fmt s
 end
 
 module Route = Mir_model_route.Route
@@ -91,9 +95,25 @@ let planning ~group p =
 
 (* The lowered program of an invocation under a blocking policy, and the
    decision feedback made. *)
-let source ?contractions ?bf16_pairs ?(constant = fun _ -> false) ~route
-    ~blocking ~pipeline (inv : Loop_ir.Loop_bundle.invocation) =
+let source ?contractions ?bf16_pairs ?attention ?(constant = fun _ -> false)
+    ~route ~blocking ~pipeline (inv : Loop_ir.Loop_bundle.invocation) =
   let ( let* ) = Result.bind in
+  (* the invocation's program with its body one attention, where the node is
+     selected as one *)
+  let attend p =
+    match attention with
+    | None -> Ok p
+    | Some (site : Attention_site.t) ->
+        let* b =
+          Result.map_error
+            (fun u ->
+              Reason.Attention (Fmt.str "%a" Attention_site.Unbound.pp u))
+            (Attention_site.buffers site inv)
+        in
+        Result.map_error
+          (fun s -> Reason.Attention s)
+          (Attention_site.program site b p)
+  in
   let lower ~group p =
     Result.map_error
       (fun r -> Reason.Lowering r)
@@ -119,9 +139,8 @@ let source ?contractions ?bf16_pairs ?(constant = fun _ -> false) ~route
           (fun s -> Reason.Source s)
           (Ssa_backends.plan ?contractions ?bf16_pairs ~numerics ~target inv)
       in
-      let program, packs =
-        Ssa_ir.Ssa_prepack.program ~constant plan.Ssa_ir.Ssa_plan.program
-      in
+      let* attended = attend plan.Ssa_ir.Ssa_plan.program in
+      let program, packs = Ssa_ir.Ssa_prepack.program ~constant attended in
       let plan = { plan with Ssa_ir.Ssa_plan.program } in
       let* l =
         Result.map_error
@@ -142,6 +161,7 @@ let source ?contractions ?bf16_pairs ?(constant = fun _ -> false) ~route
           (fun s -> Reason.Source s)
           (Ssa_backends.program pipeline inv)
       in
+      let* p = attend p in
       let* l = lower ~group:1 p in
       Ok (l, None, [])
   | Ssa_backends.Pipeline.Exact, Mir_blocking.Policy.Group g -> (
@@ -185,8 +205,8 @@ let source ?contractions ?bf16_pairs ?(constant = fun _ -> false) ~route
       let* l = List.assoc decision.Mir_blocking.Decision.chosen lowered in
       Ok (l, Some decision, [])
 
-let kernel ?contractions ?bf16_pairs ?(prepack = false) ~constants ~route
-    ~blocking ~pipeline (inv : Loop_ir.Loop_bundle.invocation) =
+let kernel ?contractions ?bf16_pairs ?attention ?(prepack = false) ~constants
+    ~route ~blocking ~pipeline (inv : Loop_ir.Loop_bundle.invocation) =
   (* the edge an SSA buffer binds: the Loop buffer of its id, positionally *)
   let edge_of (id : Ssa_ir.Ssa_id.Buffer.t) =
     List.find_map
@@ -205,7 +225,10 @@ let kernel ?contractions ?bf16_pairs ?(prepack = false) ~constants ~route
     | None -> false
   in
   match
-    source ?contractions ?bf16_pairs ~constant ~route ~blocking ~pipeline inv
+    source ?contractions ?bf16_pairs
+      ?attention:
+        (Option.bind attention (fun f -> f inv.Loop_ir.Loop_bundle.node))
+      ~constant ~route ~blocking ~pipeline inv
   with
   | Error r -> Error r
   | Ok (lowered, decision, packs) -> (
@@ -270,7 +293,8 @@ let kernel ?contractions ?bf16_pairs ?(prepack = false) ~constants ~route
                 packs ))
 
 let prepare ?(route = Route.Generic) ?(blocking = Mir_blocking.Policy.Unblocked)
-    ?contractions ?bf16_pairs ?prepack ~pipeline (b : Loop_ir.Loop_bundle.t) =
+    ?contractions ?bf16_pairs ?attention ?prepack ~pipeline
+    (b : Loop_ir.Loop_bundle.t) =
   let constants = Tensor_id.Set.of_list b.Loop_ir.Loop_bundle.constants in
   let results =
     List.mapi
@@ -282,8 +306,8 @@ let prepare ?(route = Route.Generic) ?(blocking = Mir_blocking.Policy.Unblocked)
               node = inv.Loop_ir.Loop_bundle.node;
               reason;
             })
-          (kernel ?contractions ?bf16_pairs ?prepack ~constants ~route ~blocking
-             ~pipeline inv))
+          (kernel ?contractions ?bf16_pairs ?attention ?prepack ~constants
+             ~route ~blocking ~pipeline inv))
       b.Loop_ir.Loop_bundle.invocations
   in
   match

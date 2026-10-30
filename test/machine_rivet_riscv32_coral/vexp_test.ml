@@ -148,7 +148,7 @@ let%expect_test "exp over vector registers on the core" =
                   ()
               with
               | Error e -> Fmt.pr "lmul %d: %s@." lmul e
-              | Ok { outputs = out :: _; cycles; retired } ->
+              | Ok { outputs = out :: _; cycles; retired; _ } ->
                   let got = H.f32_array out in
                   let wrong = ref 0 in
                   Array.iteri

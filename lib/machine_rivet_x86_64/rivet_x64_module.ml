@@ -62,7 +62,7 @@ let data_items (s : Art.Symbol.t) =
               ]
             @ footer)
   | Art.Symbol.External_function _ | Art.Symbol.Function _
-  | Art.Symbol.Generated_function _ ->
+  | Art.Symbol.Generated_attention _ | Art.Symbol.Generated_function _ ->
       None
 
 (* {1 Text} *)

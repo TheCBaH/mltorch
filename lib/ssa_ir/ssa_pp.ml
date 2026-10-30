@@ -150,6 +150,11 @@ let rec op st (o : Ssa_op.t) =
   | Ssa_op.Pred_or (x, y) -> Fmt.str "pred.or %s, %s" (name st x) (name st y)
   | Ssa_op.Select (p, x, y) ->
       Fmt.str "select %s, %s, %s" (name st p) (name st x) (name st y)
+  | Ssa_op.Attend { desc; q; k; v; mask; o } ->
+      Fmt.str "%a q=%a k=%a v=%a mask=%a o=%a" Attention_block.pp desc
+        Ssa_id.Buffer.pp q Ssa_id.Buffer.pp k Ssa_id.Buffer.pp v
+        Fmt.(option ~none:(any "none") Ssa_id.Buffer.pp)
+        mask Ssa_id.Buffer.pp o
   | Ssa_op.Contract { desc; a; b; c } ->
       Fmt.str "%a a=%a b=%a c=%a" Contraction.pp desc Ssa_id.Buffer.pp a
         Ssa_id.Buffer.pp b Ssa_id.Buffer.pp c

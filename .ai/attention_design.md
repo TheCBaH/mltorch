@@ -466,3 +466,40 @@ evaluation-depth ceiling (`kernel_reason: over_limit`, the same ceiling
 several other large corpus models hit). `native_builds` 89→90,
 `native4d_converts` 57→58; `kernel_converts`/all-three-stages unchanged
 (64/44).
+
+## 13. The bfloat16 streaming grant (`bf16_attention`)
+
+A retained `Sdpa` whose Q, K and V are bfloat16 may be computed on the Coral
+matrix engine by one fused function that never holds the scores or the
+probabilities whole. That is a **granted numerics**, a flag beside the numerics
+policy like `bf16_pairs` — never a substitute for the binary32 op above, whose
+split-square-root scale and whole-row softmax it does not reproduce. The
+contract is `Attention_block.eval`, per query column, over key blocks of
+`block_keys` (part of the arithmetic: 32 by default, at most 16 or 32 in the
+function), every operation unfused and every NaN the canonical NaN:
+
+- scores `S = Paired(K Q^T)` from +0; `z = RN(RN(S * scale) + mask)` with the
+  scale one binary32 constant (`1 / sqrt d` rounded, or the explicit value);
+- `m' = max(m, colmax z)` with RISC-V `fmax` (a NaN is dropped), `m = -inf`
+  to start; `a = exp(m - m')`, 1 where `m' = -inf`; `p = exp(z - m')`, +0
+  where `z = -inf`; `exp` is `F32_math.exp` operation by operation;
+- `l = RN(RN(l * a) + s)` with `s` the block's `p` summed in key order;
+- the **unnormalized** `p` rounded to bfloat16 (nearest even on the high half);
+  the context is the seeded paired product `Paired(P V; seed = RN(a * O))`,
+  over all `block_keys` keys of the block (the padded keys read +0, which the
+  engine's zero-sum rule makes bit-neutral); `O = O / l`, +0 where `l = +0`.
+
+Rounding the normalized probability instead, or adding the block's product to
+the accumulator after computing it from zero, gives different bits (the
+known-answer tests pin 1.0 against 1.001953125 and 524288 against 524288.0625).
+A column holding a NaN score outputs NaN in every feature. The engine never
+produces negative zero (its adder returns +0 for a zero sum, measured on the
+RTL), which `Contraction.Numerics.Paired` records.
+
+Selection (`Sdpa_select`) takes a node only with the grant, a matrix engine,
+bfloat16 Q, K, V, a binary32 mask, `N = T = 1`, an even head dimension at most
+64, a supported block and a padded-work ratio (fixed 16-query by `block_keys`
+blocks) of at most 2; every other node keeps the generated path with a typed
+reason. The selection carries each role's tensor identity (`Attention_site`),
+because a bundle keeps neither the operation nor its operand order: roles are
+resolved through the invocation's edges, never by buffer position.

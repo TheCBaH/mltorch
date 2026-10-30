@@ -529,6 +529,25 @@ let exec_op st (i : Ssa_instr.t) =
           let at = element st b at ~checked:false in
           st.counters.Counters.stores <- st.counters.Counters.stores + 1;
           write_cell st id encode ~at (get st value)
+      | Ssa_op.Attend { desc; q; k; v; mask; o } ->
+          (* the reference over the cells: Q, K, V bfloat16 widened, the mask
+             and O binary32 *)
+          let read decode id off =
+            match
+              read_cell st id (buffer st id) decode ~at:(Int64.to_int off)
+                ~channel:0
+            with
+            | F x -> x
+            | E | I _ | L _ | M _ | P _ | V _ ->
+                invalid_arg "Ssa_interp: an attention operand"
+          in
+          let bf16 = read Ssa_op.Decode.Bf16_to_f32
+          and f32 = read Ssa_op.Decode.F32_exact in
+          Attention_block.eval desc ~q:(bf16 q) ~k:(bf16 k) ~v:(bf16 v)
+            ~mask:(match mask with Some m -> f32 m | None -> fun _ -> 0.)
+            ~write:(fun off x ->
+              write_cell st o Ssa_op.Encode.F32_exact ~at:(Int64.to_int off)
+                (F x))
       | Ssa_op.Contract { desc; a; b; c } ->
           (* the reference evaluator over the cells, binary32 as they are or
              bfloat16 widened; C is binary32 *)

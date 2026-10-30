@@ -7,8 +7,10 @@
 (library
  (name coralnpu_kernels_zvt)
  (libraries
+  attention_block
   coral-isa
   contraction
+  f32_math
   coral_transfer
   coralnpu
   coralnpu_kernels

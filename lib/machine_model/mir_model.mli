@@ -18,6 +18,9 @@ open Machine_ir
 (** Why an invocation has no Machine IR kernel. *)
 module Reason : sig
   type t =
+    | Attention of string
+        (** the selected attention's roles bind no buffer, or its program does
+            not take one effect *)
     | Lowering of Machine_lower.Mir_lower.Refusal.t
     | Route of string
         (** the route's selection refusal, or its allocation's rejection *)
@@ -51,6 +54,7 @@ val prepare :
   ?blocking:Mir_blocking.Policy.t ->
   ?contractions:bool ->
   ?bf16_pairs:bool ->
+  ?attention:(Node_id.t -> Attention_site.t option) ->
   ?prepack:bool ->
   pipeline:Ssa_backends.Pipeline.t ->
   Loop_ir.Loop_bundle.t ->
@@ -68,7 +72,11 @@ val prepare :
     comparison oracle is the plan's, not the binary64 reference; a vector form
     the target does not admit is a refusal. [blocking] ([Unblocked] by default)
     needs the [Exact] pipeline; [Feedback] measures through the route's target,
-    and on the generic route, which has none, stays unblocked. *)
+    and on the generic route, which has none, stays unblocked. [attention] names
+    the nodes computed as one fused attention: each such node's invocation is
+    its program replaced by one {!Ssa_ir.Ssa_op.Attend} over the buffers its
+    roles bind (unblocked pipelines only); a role no buffer binds is a refusal.
+*)
 
 val invocations : t -> int
 (** How many invocations the schedule holds. *)

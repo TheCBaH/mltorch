@@ -38,6 +38,7 @@ let samples =
       insn "beqz" [ reg "t1"; sym ".Lk_loop" ] );
     ( Bnez { src = Gpr.a1; target = loop },
       insn "bnez" [ reg "a1"; sym ".Lk_loop" ] );
+    (Call { target = loop }, insn "jal" [ reg "ra"; sym ".Lk_loop" ]);
     ( Csrr { dst = Gpr.t2; csr = Insn.Csr.Mcycle },
       insn "csrr" [ reg "t2"; imm 0xB00 ] );
     (Fence, insn "fence" [ sym "rw"; sym "rw" ]);
@@ -140,7 +141,7 @@ let%expect_test "each variant lowers to the form Rv32_asm makes" =
           | _ -> Fmt.pr "unexpected module shape@."))
     samples;
   Fmt.pr "%d variants compared@." (List.length samples);
-  [%expect {| 40 variants compared |}]
+  [%expect {| 41 variants compared |}]
 
 let bf16 =
   [

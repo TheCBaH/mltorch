@@ -50,6 +50,9 @@ let%expect_test "an exp kernel's artifact" =
               Fmt.pr "  %s: external %s@." s.Art.Symbol.name f
           | Art.Symbol.Function f ->
               Fmt.pr "  %s: function %a@." s.Art.Symbol.name Mir_id.Func.pp f
+          | Art.Symbol.Generated_attention d ->
+              Fmt.pr "  %s: generated %s@." s.Art.Symbol.name
+                (Attention_block.name d)
           | Art.Symbol.Generated_function d ->
               Fmt.pr "  %s: generated %s@." s.Art.Symbol.name
                 (Contraction.name d))

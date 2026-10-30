@@ -1,6 +1,7 @@
 type problem =
   | Block_defined_twice
   | Branch_condition of Ssa_type.t
+  | Buffer_aliased of Ssa_id.Buffer.t
   | Buffer_format of {
       buffer : Ssa_id.Buffer.t;
       accessed : Ssa_format.Family.t;
@@ -41,6 +42,9 @@ let pp_problem fmt = function
       Fmt.pf fmt "%a is declared %s but accessed as %s" Ssa_id.Buffer.pp buffer
         (Ssa_format.name declared)
         (Ssa_format.Family.name accessed)
+  | Buffer_aliased b ->
+      Fmt.pf fmt "%a is written by an attention that also reads it"
+        Ssa_id.Buffer.pp b
   | Buffer_not_stored b ->
       Fmt.pf fmt "%a is an input and is never written" Ssa_id.Buffer.pp b
   | Buffer_unknown b -> Fmt.pf fmt "%a is not declared" Ssa_id.Buffer.pp b
@@ -154,6 +158,23 @@ let check_buffers ctx block (op : Ssa_op.t) =
       check_access ctx block buffer
         ~family:(Ssa_op.Encode.family encode)
         ~writes:true ~flat:false
+  | Ssa_op.Attend { q; k; v; mask; o; _ } ->
+      List.iter
+        (fun id ->
+          check_access ctx block id ~family:Ssa_format.Family.Bf16 ~writes:false
+            ~flat:true)
+        [ q; k; v ];
+      Option.iter
+        (fun m ->
+          check_access ctx block m ~family:Ssa_format.Family.F32 ~writes:false
+            ~flat:true)
+        mask;
+      check_access ctx block o ~family:Ssa_format.Family.F32 ~writes:true
+        ~flat:true;
+      if
+        List.exists (Ssa_id.Buffer.equal o)
+          ([ q; k; v ] @ Option.fold ~none:[] ~some:(fun m -> [ m ]) mask)
+      then fail ctx block (Buffer_aliased o)
   | Ssa_op.Contract { desc; a; b; c } ->
       let family = Ssa_op.contract_operands desc in
       check_access ctx block a ~family ~writes:false ~flat:true;

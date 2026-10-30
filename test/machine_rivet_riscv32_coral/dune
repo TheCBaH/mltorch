@@ -17,6 +17,7 @@
   machine_rivet_riscv32
   machine_rivet_riscv32_coral
   machine_rivet_riscv32_mir
+  rivet.image
   ssa_backends
   ssa_ir)
  (inline_tests

@@ -126,7 +126,18 @@ let generated artifact =
       match s.Art.Symbol.kind with
       | Art.Symbol.Generated_function d -> Some d
       | Art.Symbol.Data _ | Art.Symbol.External_function _
-      | Art.Symbol.Function _ ->
+      | Art.Symbol.Function _ | Art.Symbol.Generated_attention _ ->
+          None)
+    (Art.symbols artifact)
+
+(* The attentions an artifact calls, each a function generated beside it. *)
+let attentions artifact =
+  List.filter_map
+    (fun (s : Art.Symbol.t) ->
+      match s.Art.Symbol.kind with
+      | Art.Symbol.Generated_attention d -> Some d
+      | Art.Symbol.Data _ | Art.Symbol.External_function _
+      | Art.Symbol.Function _ | Art.Symbol.Generated_function _ ->
           None)
     (Art.symbols artifact)
 
@@ -138,6 +149,7 @@ let profile artifact =
     List.mem Mir_target.Feature.Zve32f
       (Art.identity artifact).Art.Identity.features
     || generated artifact <> []
+    || attentions artifact <> []
   then Profile.Rv32imf_zve32f_ilp32f
   else Profile.Rv32imf_ilp32f
 
@@ -146,22 +158,39 @@ let profile artifact =
    transfer plan for it, if any (one call per function, in the order the
    artifact lists them). *)
 let helper_modules ?kernel_mutation ?(plan = fun _ -> Ok None)
-    ?(other = fun _ -> None) artifact =
-  List.fold_left
-    (fun acc d ->
-      let* acc = acc in
-      let* m =
-        Result.map_error
-          (fun why -> Fmt.str "contraction %s: %s" (Contraction.name d) why)
-          (match other d with
-          | Some m -> m
-          | None ->
-              let* plan = plan d in
-              Coralnpu_kernels.Rvv_contraction.module_ ?mutation:kernel_mutation
-                ?plan d)
-      in
-      Ok (acc @ [ m ]))
-    (Ok []) (generated artifact)
+    ?(other = fun _ -> None)
+    ?(attention =
+      fun _ -> Error "an attention has no realization on this route") artifact =
+  let* attended =
+    List.fold_left
+      (fun acc d ->
+        let* acc = acc in
+        let* m =
+          Result.map_error
+            (fun why -> Fmt.str "attention %s: %s" (Attention_block.name d) why)
+            (attention d)
+        in
+        Ok (acc @ [ m ]))
+      (Ok []) (attentions artifact)
+  in
+  let* contracted =
+    List.fold_left
+      (fun acc d ->
+        let* acc = acc in
+        let* m =
+          Result.map_error
+            (fun why -> Fmt.str "contraction %s: %s" (Contraction.name d) why)
+            (match other d with
+            | Some m -> m
+            | None ->
+                let* plan = plan d in
+                Coralnpu_kernels.Rvv_contraction.module_
+                  ?mutation:kernel_mutation ?plan d)
+        in
+        Ok (acc @ [ m ]))
+      (Ok []) (generated artifact)
+  in
+  Ok (contracted @ attended)
 
 (* The artifact as a process image: its module and the harness, planned
    under its profile. *)

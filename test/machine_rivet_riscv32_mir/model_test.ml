@@ -427,3 +427,30 @@ let%expect_test "generated contractions over prepacked weights under qemu" =
     linear 7x29 k63 bias (1 invocations, 1 packed): bitwise, bitwise
     linear bf16 7x29 k63 bias (1 invocations, 1 packed): bitwise, bitwise
     conv1x1 3x5 c19 to 29 (1 invocations, 1 packed): bitwise, bitwise |}]
+
+(* A selected attention has no realization under qemu: the generated function
+   is the matrix engine's, so the route refuses the node rather than running
+   anything else. *)
+let%expect_test "an attention under qemu is refused" =
+  let module B = Machine_model_test.Attention_binding_test in
+  let g = T.sdpa_bf16_fixture ~tq:16 ~tk:32 ~d:32 () in
+  let node = B.sdpa_node g in
+  let site =
+    Result.get_ok
+      (Machine_model.Sdpa_select.choose
+         ~grant:(Some Machine_model.Sdpa_select.Grant.default) B.engine g node)
+  in
+  T.check
+    ~route:(R.route ~cpu:(cpu 128) ())
+    ~attention:(fun id ->
+      if Graph_ir.Node_id.equal id node then Some site else None)
+    ~pipeline:
+      (Ssa_backends.Pipeline.Planned
+         {
+           numerics = Ssa_ir.Ssa_numerics.Fp32_ordered;
+           target = Ssa_ir.Ssa_target.zve32f128;
+         })
+    ~oracle:T.Fp32 ~calls:1 "sdpa bf16 16x32 d32"
+    (fun () -> g);
+  [%expect
+    {| sdpa bf16 16x32 d32: refused: invocation 0 (n0): attention attend.b1.h1.q16.k32.d32.sq0_0_32_1.sk0_0_32_1.sv0_0_32_1.so0_0_32_1.nomask.x3e3504f3.n32: an attention has no realization on this route |}]

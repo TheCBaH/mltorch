@@ -18,6 +18,8 @@ type site = { region : Ssa_id.Region.t; statement : Statement.t }
 type claim = Add_in_domain | In_bounds | Lanes_in_bounds | Scale_in_domain
 
 type problem =
+  | Buffer_aliased of Ssa_id.Buffer.t
+      (** An attention that writes a buffer it reads. *)
   | Buffer_declaration of Ssa_id.Buffer.t
       (** Duplicate id, a non-positive extent, more elements than an index
           holds, or per-channel parameters for a different number of channels

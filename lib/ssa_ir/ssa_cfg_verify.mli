@@ -17,6 +17,8 @@
 type problem =
   | Block_defined_twice
   | Branch_condition of Ssa_type.t
+  | Buffer_aliased of Ssa_id.Buffer.t
+      (** An attention that writes a buffer it reads. *)
   | Buffer_format of {
       buffer : Ssa_id.Buffer.t;
       accessed : Ssa_format.Family.t;

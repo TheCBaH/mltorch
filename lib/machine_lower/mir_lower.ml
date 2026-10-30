@@ -249,6 +249,44 @@ let rec instr st (i : Ssa_instr.t) =
   in
   with_role st Mir_origin.Role.Compute;
   match op with
+  | Ssa_op.Attend { desc; q; k; v; mask; o } -> (
+      (* a call to the descriptor's helper with each operand's address: Q, K,
+         V, O, then the mask when there is one *)
+      let same d =
+        String.equal (Attention_block.name d) (Attention_block.name desc)
+      in
+      let rec find n = function
+        | [] -> None
+        | d :: rest -> if same d then Some n else find (n + 1) rest
+      in
+      let index =
+        match find 0 st.attentions with
+        | Some n -> n
+        | None ->
+            st.attentions <- st.attentions @ [ desc ];
+            List.length st.attentions - 1
+      in
+      let h = Mir_attention.descriptor ~index desc in
+      let addr id = emit st (Mir_op.Addr (entry_of st id).L.Entry.view) in
+      let args =
+        List.map addr
+          ([ q; k; v; o ] @ Option.fold ~none:[] ~some:(fun m -> [ m ]) mask)
+      in
+      let signature = function
+        | Mir_op.Callee.Helper _ ->
+            Some
+              {
+                Mir_typing.Signature.params = h.Mir_helper.params;
+                results = [];
+              }
+        | Mir_op.Callee.Func _ -> None
+      in
+      match
+        B.op ~origin:st.origin st.bld st.cur ~signature
+          (Mir_op.Call (Mir_op.Callee.Helper h.Mir_helper.id, args))
+      with
+      | Ok [] -> ()
+      | _ -> invalid_arg "Mir_lower: an attention helper call")
   | Ssa_op.Contract { desc; a; b; c } -> (
       (* a call to the descriptor's helper with each operand's address *)
       let same d = String.equal (Contraction.name d) (Contraction.name desc) in
@@ -835,6 +873,7 @@ let program ?mutation ~planning (p : Ssa_program.t) =
       limits = p.Ssa_program.scan_limits;
       deferred_charges = 0;
       helpers = [];
+      attentions = [];
       contracts = [];
       cur = entry;
       origin = Mir_origin.unknown;
@@ -897,7 +936,10 @@ let program ?mutation ~planning (p : Ssa_program.t) =
            Mir_math.Fn.all
         @ List.mapi
             (fun index d -> Mir_contract.descriptor ~index d)
-            st.contracts)
+            st.contracts
+        @ List.mapi
+            (fun index d -> Mir_attention.descriptor ~index d)
+            st.attentions)
       ~planning [ f ] ~main:fn
   in
   match Err.payload (Mir_verify.generic mir) with

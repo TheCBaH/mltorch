@@ -324,6 +324,9 @@ let rec op_row (op : Ssa_op.t) =
         ~conditions:[ defect "a lane outside the buffer (proof)" ]
         ~observable:Observable.Reads
   | Ssa_op.Vec_splat _ -> row "vec.splat" Slice.Vectors "splat"
+  | Ssa_op.Attend _ ->
+      row "attend" Slice.Helpers "an attention helper call"
+        ~observable:Observable.Writes
   | Ssa_op.Contract _ ->
       row "contract" Slice.Helpers "a contraction helper call"
         ~observable:Observable.Writes

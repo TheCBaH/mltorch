@@ -180,10 +180,31 @@ let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
          | Error r -> Error (Fmt.str "transfer plan: %a" T.Refusal.pp r))
       transfer
   in
-  let* helpers = Q.helper_modules ?kernel_mutation ?plan ~other artifact in
+  (* an attention is the fused function on the matrix engine, within what the
+     functions before it left *)
+  let attention d =
+    if not capabilities.Contraction.Select.Capabilities.matrix then
+      Error "the core has no matrix engine"
+    else
+      match Coralnpu_kernels_zvt.Zvt_sdpa.panel_bytes d with
+      | Error why -> Error why
+      | Ok bytes when bytes > !left ->
+          Error (Fmt.str "the panels need %d bytes, %d available" bytes !left)
+      | Ok bytes -> (
+          match Coralnpu_kernels_zvt.Zvt_sdpa.module_ d with
+          | Ok _ as m ->
+              left := !left - bytes;
+              m
+          | Error _ as e -> e)
+  in
+  let* helpers =
+    Q.helper_modules ?kernel_mutation ?plan ~other ~attention artifact
+  in
   render Coral_image.pp_error
     (Coral_image.build ~rv32_profile
-       ~matrix:(List.exists on_engine (Q.generated artifact))
+       ~matrix:
+         (List.exists on_engine (Q.generated artifact)
+         || Q.attentions artifact <> [])
        profile ~entry:Table.entry ~kernel:(m :: helpers)
        (slots ?home ~slack:(Int64.of_int !slack) ~record artifact))
 

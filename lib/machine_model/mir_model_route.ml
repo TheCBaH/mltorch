@@ -99,6 +99,8 @@ let regions_program (p : (_, _) Mir_phys.Program.t) =
 let models_of (g : Mir_verify.Generic.t) =
   Mir_math_model.all
   @ Mir_contract_model.models (Mir_verify.Generic.program g).Mir_program.helpers
+  @ Mir_attention_model.models
+      (Mir_verify.Generic.program g).Mir_program.helpers
 
 (* Seconds spent in each back-end stage of one kernel, and what its published
    artifact holds; the clock is the caller's. *)

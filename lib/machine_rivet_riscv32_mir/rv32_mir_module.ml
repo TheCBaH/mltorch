@@ -274,7 +274,9 @@ let data_items (s : Art.Symbol.t) =
              });
       ]
   | Art.Symbol.Data _ | Art.Symbol.Function _ -> []
-  | Art.Symbol.External_function _ | Art.Symbol.Generated_function _ -> []
+  | Art.Symbol.External_function _ | Art.Symbol.Generated_attention _
+  | Art.Symbol.Generated_function _ ->
+      []
 
 (* The artifact's slots, the table its entry receives. *)
 let slots artifact = Table.of_artifact artifact

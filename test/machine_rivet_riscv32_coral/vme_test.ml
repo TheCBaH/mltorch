@@ -6,6 +6,7 @@
    engine-kernel defects the runs must catch. *)
 
 module T = Machine_model_test.Model_test
+module B = Machine_model_test.Attention_binding_test
 module C = Machine_rivet_riscv32_coral.Rv32_mir_coral
 module Z = Coralnpu_kernels_zvt.Zvt_contraction
 
@@ -505,3 +506,77 @@ let%expect_test "generated exp and softmax cycles per element" =
       cycles 4190117, 1023.0 per element
     softmax over W 64x64, forced vector (1 invocations): bitwise
       cycles 4190117, 1023.0 per element |}]
+
+(* A granted [Sdpa] on the VME core: the node is one call of the fused
+   function, bitwise against the granted streaming reference, with the cycles
+   of the whole run (the generated path is refused at the instruction memory);
+   an f32 node and a node whose operands are not bfloat16 stay on the generated
+   path, with the reason. *)
+let%expect_test "a granted attention runs as the fused function" =
+  let module S = Machine_model.Sdpa_select in
+  let grant = Some S.Grant.default in
+  let cycles = ref 0L in
+  let on_run (o : C.Run.t) = cycles := Int64.add !cycles o.C.Run.mcycle in
+  List.iter
+    (fun (name, g) ->
+      let graph = g () in
+      let node = B.sdpa_node graph in
+      match S.choose ~grant B.engine graph node with
+      | Error r -> Fmt.pr "%s: not selected: %a@." name S.Reason.pp r
+      | Ok site ->
+          cycles := 0L;
+          T.check ~route:(C.route ~on_run config)
+            ~attention:(fun id ->
+              if Graph_ir.Node_id.equal id node then Some site else None)
+            ~pipeline:
+              (Ssa_backends.Pipeline.Planned
+                 {
+                   numerics = Ssa_ir.Ssa_numerics.Fp32_ordered;
+                   target = Ssa_ir.Ssa_target.zve32f128;
+                 })
+            ~oracle:(B.attention_oracle site) ~same:T.same_portable ~calls:1
+            ~input:(fun ~salt i sg ->
+              T.in_format sg
+                (if i = 3 then
+                   Tensor.materialize sg.Tensor_sig.shape (fun c ->
+                       let n = (Vec6.offset sg.Tensor_sig.shape c :> int) in
+                       if (n + salt) mod 7 = 0 then neg_infinity
+                       else float_of_int (n mod 5) /. 4.)
+                 else T.values ~salt:(salt + (3 * i)) sg))
+            name g;
+          Fmt.pr "  cycles %Ld@." !cycles)
+    T.sdpa_bf16_fixtures;
+  (* an f32 attention is not selected and stays refused at the instruction
+     memory; a granted flag with a non-bfloat16 operand falls back *)
+  let f32 () =
+    T.F.build "sdpa_f32"
+      Graph_builder.(
+        let* q = input ~shape:(T.F.s 1 1 1 1 32 32) () in
+        let* k = input ~shape:(T.F.s 1 1 1 1 32 32) () in
+        let* v = input ~shape:(T.F.s 1 1 1 1 32 32) () in
+        sdpa
+          { Attention.Sdpa.scale = Attention.Sdpa.Scale.Default }
+          ~query:q ~key:k ~value:v ())
+  in
+  let graph = f32 () in
+  (match S.choose ~grant B.engine graph (B.sdpa_node graph) with
+  | Error r -> Fmt.pr "f32 32x32: not selected: %a@." S.Reason.pp r
+  | Ok _ -> Fmt.pr "f32 32x32: selected@.");
+  T.check ~route:(C.route config)
+    ~pipeline:
+      (Ssa_backends.Pipeline.Planned
+         {
+           numerics = Ssa_ir.Ssa_numerics.Fp32_ordered;
+           target = Ssa_ir.Ssa_target.zve32f128;
+         })
+    ~oracle:T.Fp32 ~same:T.same_portable ~calls:1 "f32 32x32, generated" f32;
+  [%expect
+    {|
+    sdpa bf16 32x32 d32 (1 invocations): bitwise
+      cycles 87669
+    sdpa bf16 64x64 d64 (1 invocations): bitwise
+      cycles 386501
+    sdpa bf16 9x29 d64 masked (1 invocations): bitwise
+      cycles 45247
+    f32 32x32: not selected: the query is not bfloat16
+    f32 32x32, generated: refused: invocation 0 (n0): itcm: 8244 bytes needed, 8192 available |}]

@@ -117,6 +117,8 @@ type t =
   | Andi of { dst : Gpr.t; src : Gpr.t; imm : Imm.Imm12.t }
   | Beqz of { src : Gpr.t; target : Rv32_kernel_label.t }
   | Bnez of { src : Gpr.t; target : Rv32_kernel_label.t }
+  | Call of { target : Rv32_kernel_label.t }
+      (** [jal ra]: a call within the module, a reach of 1 MiB. *)
   | Csrr of { dst : Gpr.t; csr : Csr.t }
   | Fence
       (** [fence rw, rw]: every earlier load and store before any later one,
@@ -186,9 +188,9 @@ type t =
 let extension = function
   | Msetmtype _ | Msettn _ | Vtle _ | Vtmm _ | Vtse _ | Vtzero _ ->
       Some zvt_feature
-  | Add _ | Addi _ | Andi _ | Beqz _ | Bnez _ | Csrr _ | Fence | Flh _ | Flw _
-  | J _ | La _ | Li _ | Lui _ | Lw _ | Mv _ | Ret | Srli _ | Sub _ | Sw _
-  | Valu _ | Vand_vi _ | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _ | Vlse _
+  | Add _ | Addi _ | Andi _ | Beqz _ | Bnez _ | Call _ | Csrr _ | Fence | Flh _
+  | Flw _ | J _ | La _ | Li _ | Lui _ | Lw _ | Mv _ | Ret | Srli _ | Sub _
+  | Sw _ | Valu _ | Vand_vi _ | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _ | Vlse _
   | Vmacc_vx _ | Vmcmp _ | Vmerge_vvm _ | Vmv_v_i _ | Vmv_v_x _ | Vnsrl_wi _
   | Vse _ | Vsetvli _ | Vsrl_vi _ | Vsse _ | Vv _ | Vwmacc_vx _ ->
       None
@@ -201,6 +203,7 @@ let mnemonic = function
   | Andi _ -> "andi"
   | Beqz _ -> "beqz"
   | Bnez _ -> "bnez"
+  | Call _ -> "jal"
   | Csrr _ -> "csrr"
   | Fence -> "fence"
   | Flh _ -> "flh"
@@ -252,6 +255,7 @@ let pp ppf i =
       Fmt.pf ppf "%s %a, %a, %a" m Gpr.pp dst Gpr.pp src Imm.Imm12.pp imm
   | Beqz { src; target } | Bnez { src; target } ->
       Fmt.pf ppf "%s %a, %a" m Gpr.pp src Rv32_kernel_label.pp target
+  | Call { target } -> Fmt.pf ppf "%s ra, %a" m Rv32_kernel_label.pp target
   | Csrr { dst; csr } -> Fmt.pf ppf "%s %a, %a" m Gpr.pp dst Csr.pp csr
   | J { target } -> Fmt.pf ppf "%s %a" m Rv32_kernel_label.pp target
   | La { dst; target } ->
@@ -342,7 +346,7 @@ let out_of_range i =
   | Srli { shamt; _ } | Vnsrl_wi { shamt; _ } | Vsrl_vi { shamt; _ } ->
       check (module Imm.Shamt) shamt
   | Vand_vi { imm; _ } | Vmv_v_i { imm; _ } -> check (module Imm.Simm5) imm
-  | Add _ | Beqz _ | Bnez _ | Csrr _ | Fence | J _ | La _ | Msetmtype _
+  | Add _ | Beqz _ | Bnez _ | Call _ | Csrr _ | Fence | J _ | La _ | Msetmtype _
   | Msettn _ | Mv _ | Ret | Sub _ | Valu _ | Vfmacc_vf _ | Vfwmaccbf16_vf _
   | Vle _ | Vlse _ | Vmacc_vx _ | Vmcmp _ | Vmerge_vvm _ | Vmv_v_x _ | Vse _
   | Vsetvli _ | Vsse _ | Vtle _ | Vtmm _ | Vtse _ | Vtzero _ | Vv _
@@ -351,7 +355,11 @@ let out_of_range i =
 
 (* The labels [i] branches to. *)
 let targets = function
-  | Beqz { target; _ } | Bnez { target; _ } | J { target } | La { target; _ } ->
+  | Beqz { target; _ }
+  | Bnez { target; _ }
+  | Call { target }
+  | J { target }
+  | La { target; _ } ->
       [ target ]
   | Add _ | Addi _ | Andi _ | Csrr _ | Fence | Flh _ | Flw _ | Li _ | Lui _
   | Lw _ | Msetmtype _ | Msettn _ | Mv _ | Ret | Srli _ | Sub _ | Sw _ | Valu _
@@ -376,7 +384,7 @@ let reads i =
   | Addi { src; _ } | Andi { src; _ } | Mv { src; _ } | Srli { src; _ } ->
       gprs [ src ]
   | Beqz { src; _ } | Bnez { src; _ } -> gprs [ src ]
-  | Csrr _ | Fence | J _ | La _ -> []
+  | Call _ | Csrr _ | Fence | J _ | La _ -> []
   | Flh { base; _ } | Flw { base; _ } | Lw { base; _ } | Vle { base; _ } ->
       gprs [ base ]
   | Li _ | Lui _ | Ret | Vmv_v_i _ | Vtzero _ -> []
@@ -423,6 +431,7 @@ let writes i =
   | Srli { dst; _ }
   | Sub { dst; _ } ->
       gpr dst
+  | Call _ -> gpr Gpr.ra
   | Flh { dst; _ } | Flw { dst; _ } -> [ Reg_ref.Fpr dst ]
   (* The tile [vtle] writes is chosen at run time, by [slice]. *)
   | Beqz _ | Bnez _ | Fence | J _ | Ret | Sw _ | Vse _ | Vsse _ | Vtle _
