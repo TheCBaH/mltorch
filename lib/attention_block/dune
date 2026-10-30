@@ -1,0 +1,10 @@
+; Scaled dot-product attention over bfloat16 operands as data: extents,
+; strides, the binary32 scale and the key block, with the streaming
+; reference the matrix engine's fused kernel is granted against. Pure: no
+; Rivet, no SSA, no tensor type, so the SSA interpreter, a helper model and
+; the model test's oracle share one definition. js_of_ocaml-safe: every
+; extent and stride is an [int64].
+
+(library
+ (name attention_block)
+ (libraries contraction err_trace f32_math fmt))

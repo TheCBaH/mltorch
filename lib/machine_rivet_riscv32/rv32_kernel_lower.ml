@@ -106,14 +106,20 @@ let operands ~spelling : Insn.t -> Operand.t list = function
   | Srli { dst; src; shamt } ->
       [ gpr dst; gpr src; imm (Imm.Shamt.to_int shamt) ]
   | Sw { src; base; offset } -> [ gpr src; mem base (Imm.Imm12.to_int offset) ]
+  | Valu { dst; a; b; _ } | Vmcmp { dst; a; b; _ } ->
+      [ vreg dst; vreg a; vreg b ]
+  | Vand_vi { dst; src; imm = i } ->
+      [ vreg dst; vreg src; imm (Imm.Simm5.to_int i) ]
   | Vfmacc_vf { acc; scalar; src } | Vfwmaccbf16_vf { acc; scalar; src } ->
       [ vreg acc; fpr scalar; vreg src ]
   | Vle { dst; base; _ } -> [ vreg dst; mem base 0 ]
   | Vmacc_vx { acc; scalar; src } | Vwmacc_vx { acc; scalar; src } ->
       [ vreg acc; gpr scalar; vreg src ]
+  | Vmerge_vvm { dst; otherwise; chosen } ->
+      [ vreg dst; vreg otherwise; vreg chosen; vreg Vreg.v0 ]
   | Vmv_v_i { dst; imm = i } -> [ vreg dst; imm (Imm.Simm5.to_int i) ]
   | Vmv_v_x { dst; src } -> [ vreg dst; gpr src ]
-  | Vnsrl_wi { dst; src; shamt } ->
+  | Vnsrl_wi { dst; src; shamt } | Vsrl_vi { dst; src; shamt } ->
       [ vreg dst; vreg src; imm (Imm.Shamt.to_int shamt) ]
   | Vse { src; base; _ } -> [ vreg src; mem base 0 ]
   | Vsse { src; base; stride; _ } -> [ vreg src; mem base 0; gpr stride ]

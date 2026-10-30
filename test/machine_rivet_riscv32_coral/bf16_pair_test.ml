@@ -66,7 +66,7 @@ let bytes_of seed count ~spread =
 (* A as [m, k] rows, or transposed ([k, m] rows, a row's indices contiguous);
    B as [k, n] rows *)
 let descriptor ?(numerics = C.Numerics.Paired) ?(a_transposed = false)
-    ?(c_transposed = false) ~m ~n ~k () =
+    ?(c_transposed = false) ?(seeded = false) ~m ~n ~k () =
   Result.get_ok
     (Err.payload
        (C.make ~batch:1L ~m ~n ~k
@@ -77,9 +77,11 @@ let descriptor ?(numerics = C.Numerics.Paired) ?(a_transposed = false)
           ~c:
             (if c_transposed then { C.Output.batch = 0L; row = 1L; col = m }
              else { C.Output.batch = 0L; row = n; col = 1L })
-          ~format:C.Element.Bf16 ~seed:C.Seed.Zero ~numerics))
+          ~format:C.Element.Bf16
+          ~seed:(if seeded then C.Seed.Tensor else C.Seed.Zero)
+          ~numerics))
 
-let reference d a b =
+let reference ?(seed = "") d a b =
   let m = Int64.to_int d.C.m and n = Int64.to_int d.C.n in
   let read s off =
     Int32.float_of_bits
@@ -88,9 +90,11 @@ let reference d a b =
          16)
   in
   let out = Bytes.make (4 * m * n) '\000' in
-  C.eval d ~a:(read a) ~b:(read b)
-    ~c:(fun _ -> 0.)
-    ~write:(fun off x ->
+  let seed_at off =
+    if seed = "" then 0.
+    else Int32.float_of_bits (String.get_int32_le seed (4 * Int64.to_int off))
+  in
+  C.eval d ~a:(read a) ~b:(read b) ~c:seed_at ~write:(fun off x ->
       Bytes.set_int32_le out (4 * Int64.to_int off) (Int32.bits_of_float x));
   Bytes.to_string out
 
@@ -110,16 +114,21 @@ module Engine = struct
 end
 
 type result = {
+  actual : string;  (** C's bytes *)
   wrong : int;  (** elements not bitwise equal to the reference *)
   nearest : int;  (** elements the reference gives differently to nearest *)
   cycles : int64;
 }
 
-let run ?(sram = false) ?(engine = Engine.plain) ~spread d =
+let run ?(sram = false) ?(engine = Engine.plain) ?operands ?seed ~spread d =
   let m = Int64.to_int d.C.m and n = Int64.to_int d.C.n in
   let k = Int64.to_int d.C.k in
-  let a = bytes_of 1 (m * k) ~spread and b = bytes_of 2 (n * k) ~spread in
-  let expected = reference d a b in
+  let a, b =
+    match operands with
+    | Some ab -> ab
+    | None -> (bytes_of 1 (m * k) ~spread, bytes_of 2 (n * k) ~spread)
+  in
+  let expected = reference ?seed d a b in
   (* an operand read in place is read a few k rows past its end *)
   let pad =
     match engine with
@@ -133,7 +142,7 @@ let run ?(sram = false) ?(engine = Engine.plain) ~spread d =
             (C.make ~batch:d.C.batch ~m:d.C.m ~n:d.C.n ~k:d.C.k ~a:d.C.a
                ~b:d.C.b ~c:d.C.c ~format:d.C.format ~seed:d.C.seed
                ~numerics:C.Numerics.Ordered)))
-      a b
+      ?seed a b
   in
   let differing xs ys =
     List.length
@@ -190,7 +199,9 @@ let run ?(sram = false) ?(engine = Engine.plain) ~spread d =
             [
               slot L.Placement.In ((2 * m * k) + pad);
               slot L.Placement.In ((2 * n * k) + pad);
-              slot L.Placement.Out (4 * m * n);
+              slot
+                (if seed = None then L.Placement.Out else L.Placement.In_out)
+                (4 * m * n);
             ]))
   in
   let* o =
@@ -201,19 +212,21 @@ let run ?(sram = false) ?(engine = Engine.plain) ~spread d =
             ~bound:(function
            | 0 -> Some a
            | 1 -> Some b
+           | 2 -> seed
            | _ -> None)))
   in
   let actual = List.assoc 2 o.Coral_run.outputs in
   Ok
     {
+      actual;
       wrong = differing actual expected;
       nearest = differing expected ordered;
       cycles = o.Coral_run.mcycle;
     }
 
-let show ?sram ?engine ~what d =
+let show ?sram ?engine ?seed ~what d =
   let m = d.C.m and n = d.C.n and k = d.C.k in
-  match run ?sram ?engine ~spread:12 d with
+  match run ?sram ?engine ?seed ~spread:12 d with
   | Ok r ->
       Fmt.pr
         "%Ldx%Ld k%Ld %s: %s (%d of %Ld differ from every step rounded to \
@@ -346,3 +359,123 @@ let%expect_test "B staged where it is outside the DTCM" =
     96x32 k64 in SRAM, staged outside: bitwise (2261 of 3072 differ from every step rounded to nearest), 10588 cycles, 37.1 ops/cycle
     96x32 k64 in DTCM, in place: bitwise (2261 of 3072 differ from every step rounded to nearest), 6776 cycles, 58.0 ops/cycle
     96x32 k64 in DTCM, staged outside: bitwise (2261 of 3072 differ from every step rounded to nearest), 6780 cycles, 58.0 ops/cycle |}]
+
+(* binary32 words of random sign, mantissa and an exponent within [spread] of 1 *)
+let f32_bytes seed count ~spread =
+  let b = Bytes.create (4 * count) in
+  for e = 0 to count - 1 do
+    let h = mix seed e in
+    let sign = h land 1 and man = (h lsr 1) land 0x7FFFFF in
+    let ex = 127 - spread + ((h lsr 24) mod ((2 * spread) + 1)) in
+    Bytes.set_int32_le b (4 * e)
+      (Int32.of_int ((sign lsl 31) lor (ex lsl 23) lor man))
+  done;
+  Bytes.to_string b
+
+let f32_word x =
+  let b = Bytes.create 4 in
+  Bytes.set_int32_le b 0 (Int32.bits_of_float x);
+  Bytes.to_string b
+
+(* C is the seed: each block's accumulators start from C's tiles and the sums
+   continue from there, bitwise against the descriptor's [Paired] reference
+   from a random seed. A k the depth padding changes is refused. *)
+let%expect_test "the packed function seeded from C" =
+  let seeded ?a_transposed ?c_transposed ~m ~n ~k () =
+    let d = descriptor ?a_transposed ?c_transposed ~seeded:true ~m ~n ~k () in
+    let seed = f32_bytes 3 (Int64.to_int (Int64.mul d.C.m d.C.n)) ~spread:12 in
+    (d, seed)
+  in
+  List.iter
+    (fun (what, a_transposed, c_transposed, (m, n, k)) ->
+      let d, seed = seeded ~a_transposed ~c_transposed ~m ~n ~k () in
+      show ~engine:Engine.packed ~seed ~what d)
+    [
+      ("seeded, A row-major", false, false, (32L, 32L, 64L));
+      ("seeded, the context shape, A in place", true, false, (16L, 64L, 32L));
+      ("seeded, partial tiles", false, false, (19L, 29L, 60L));
+      ("seeded, a three-step tail", false, false, (70L, 40L, 63L));
+      ("seeded, C transposed, A in place", true, true, (32L, 64L, 64L));
+      ("seeded, k = 61", false, false, (19L, 29L, 61L));
+      ("seeded, k = 62", false, false, (19L, 29L, 62L));
+    ];
+  [%expect
+    {|
+    32x32 k64 seeded, A row-major: bitwise (742 of 1024 differ from every step rounded to nearest), 3393 cycles, 38.6 ops/cycle
+    16x64 k32 seeded, the context shape, A in place: bitwise (677 of 1024 differ from every step rounded to nearest), 1599 cycles, 41.0 ops/cycle
+    19x29 k60 seeded, partial tiles: bitwise (411 of 551 differ from every step rounded to nearest), 3496 cycles, 18.9 ops/cycle
+    70x40 k63 seeded, a three-step tail: bitwise (2006 of 2800 differ from every step rounded to nearest), 19845 cycles, 17.8 ops/cycle
+    32x64 k64 seeded, C transposed, A in place: bitwise (1471 of 2048 differ from every step rounded to nearest), 3283 cycles, 79.8 ops/cycle
+    19x29 k61 seeded, k = 61: a seeded k that the depth padding changes
+    19x29 k62 seeded, k = 62: a seeded k that the depth padding changes |}]
+
+(* The seed is not "compute the product, then add it": 2^25 plus two pairs of
+   two ones is 2^25 when each pair is added to the running sum (2^25 + 2 ties
+   to even), and 2^25 + 4 when the four ones are summed first. *)
+let%expect_test "a seed is continued, not added after" =
+  let ones count = String.concat "" (List.init count (fun _ -> "\x80\x3f")) in
+  let d = descriptor ~a_transposed:true ~seeded:true ~m:16L ~n:16L ~k:4L () in
+  let seed = String.concat "" (List.init 256 (fun _ -> f32_word 33554432.)) in
+  (match
+     run ~engine:Engine.packed ~operands:(ones 64, ones 64) ~seed ~spread:0 d
+   with
+  | Ok r ->
+      Fmt.pr "%s: first word %ld, %d differ@."
+        (if r.wrong = 0 then "bitwise" else "DIFFERS")
+        (String.get_int32_le r.actual 0)
+        r.wrong
+  | Error e -> Fmt.pr "%s@." e);
+  Fmt.pr "2^25 = %ld, 2^25 + 4 = %ld@."
+    (Int32.bits_of_float 33554432.)
+    (Int32.bits_of_float 33554436.);
+  (match
+     run
+       ~engine:
+         (Engine.Packed (Some Z.Zvt_packed_contraction.Mutation.Seed_ignored))
+       ~operands:(ones 64, ones 64)
+       ~seed ~spread:0 d
+   with
+  | Ok r ->
+      Fmt.pr "seed ignored: %s@." (if r.wrong = 0 then "bitwise" else "DIFFERS")
+  | Error e -> Fmt.pr "%s@." e);
+  [%expect
+    {|
+    bitwise: first word 1275068416, 0 differ
+    2^25 = 1275068416, 2^25 + 4 = 1275068417
+    seed ignored: DIFFERS |}]
+
+(* The pair rule was fitted on random data, where a sum is never zero. Every
+   combination of signed zeros as the four products of a column's two pairs,
+   against seeds of negative zero (even rows) and positive zero (odd rows):
+   bitwise against [Paired], which follows the IEEE rules for a zero sum. *)
+let%expect_test "signed zeros through the engine's pair" =
+  let m = 16 and n = 16 and k = 4 in
+  let d = descriptor ~a_transposed:true ~seeded:true ~m:16L ~n:16L ~k:4L () in
+  let a = String.concat "" (List.init (m * k) (fun _ -> "\x80\x3f")) in
+  let b =
+    let buf = Bytes.create (2 * k * n) in
+    for kk = 0 to k - 1 do
+      for j = 0 to n - 1 do
+        Bytes.set_uint16_le buf
+          (2 * ((kk * n) + j))
+          (if (j lsr kk) land 1 = 1 then 0x8000 else 0)
+      done
+    done;
+    Bytes.to_string buf
+  in
+  let seed =
+    String.concat ""
+      (List.init (m * n) (fun e ->
+           f32_word (if e / n land 1 = 0 then -0. else 0.)))
+  in
+  (match run ~engine:Engine.packed ~operands:(a, b) ~seed ~spread:0 d with
+  | Ok r ->
+      let negative = ref 0 in
+      for e = 0 to (m * n) - 1 do
+        if String.get_int32_le r.actual (4 * e) = 0x80000000l then incr negative
+      done;
+      Fmt.pr "%s, %d of %d results negative zero@."
+        (if r.wrong = 0 then "bitwise" else Fmt.str "DIFFERS in %d" r.wrong)
+        !negative (m * n)
+  | Error e -> Fmt.pr "%s@." e);
+  [%expect {| bitwise, 0 of 256 results negative zero |}]

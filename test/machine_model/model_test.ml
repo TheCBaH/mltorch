@@ -618,6 +618,23 @@ let bmm_bf16_fixture ~batch ~m ~n ~k () =
       let* b = input ~shape:(F.s 1 1 1 batch k n) ~fmt:bf16 () in
       bmm a b)
 
+(* [Sdpa] over bfloat16 Q, K, V (default scale), with a binary32 mask of
+   [mask] = [(rows, cols)] when given: [rows] and [cols] are each [tq] / [tk]
+   or 1 (a broadcast axis). *)
+let sdpa_bf16_fixture ~tq ~tk ~d ?mask () =
+  let bf16 = Payload.Fmt Payload.BF16 in
+  F.build "sdpa_bf16"
+    Graph_builder.(
+      let* q = input ~shape:(F.s 1 1 1 1 tq d) ~fmt:bf16 () in
+      let* k = input ~shape:(F.s 1 1 1 1 tk d) ~fmt:bf16 () in
+      let* v = input ~shape:(F.s 1 1 1 1 tk d) ~fmt:bf16 () in
+      let params = { Attention.Sdpa.scale = Attention.Sdpa.Scale.Default } in
+      match mask with
+      | None -> sdpa params ~query:q ~key:k ~value:v ()
+      | Some (rows, cols) ->
+          let* m = input ~shape:(F.s 1 1 1 1 rows cols) () in
+          sdpa params ~query:q ~key:k ~value:v ~mask:m ())
+
 let bf16_fixtures =
   [
     ("bmm bf16 3x7x29 k63", bmm_bf16_fixture ~batch:3 ~m:7 ~n:29 ~k:63);
@@ -812,3 +829,80 @@ let%expect_test "binary32 transcendentals as Machine IR vectors" =
     gelu (erf) generic (1 invocations): bitwise
     gelu (erf) aarch64 scanned (1 invocations): bitwise
     gelu (erf) x86_64 scanned (1 invocations): bitwise |}]
+
+let sdpa_bf16_fixtures =
+  [
+    ("sdpa bf16 32x32 d32", sdpa_bf16_fixture ~tq:32 ~tk:32 ~d:32 ?mask:None);
+    ("sdpa bf16 64x64 d64", sdpa_bf16_fixture ~tq:64 ~tk:64 ~d:64 ?mask:None);
+    ( "sdpa bf16 9x29 d64 masked",
+      sdpa_bf16_fixture ~tq:9 ~tk:29 ~d:64 ~mask:(9, 29) );
+  ]
+
+(* The per-op composition of an [Sdpa]: scores [bmm (Q, K^T)] over bfloat16
+   operands (the first product, [K^T] given as an input), the scale, a
+   binary32 softmax down the keys, and [bmm (P, V)] with [V] widened exactly
+   (the second product reads binary32 operands: the engine multiplies no mixed
+   pair). It prices today's route at sizes where every invocation fits the
+   core; it is not the streaming kernel's arithmetic. *)
+let sdpa_composition_bf16_fixture ~tq ~tk ~d () =
+  let bf16 = Payload.Fmt Payload.BF16 in
+  F.build "sdpa_composition_bf16"
+    Graph_builder.(
+      let* q = input ~shape:(F.s 1 1 1 1 tq d) ~fmt:bf16 () in
+      let* kt = input ~shape:(F.s 1 1 1 1 d tk) ~fmt:bf16 () in
+      let* v = input ~shape:(F.s 1 1 1 1 tk d) ~fmt:bf16 () in
+      let* s = bmm q kt in
+      let* z = mul_scalar (1. /. Stdlib.sqrt (float_of_int d)) s in
+      let* p = softmax { Reduce.Softmax.axis = Axis.C } z in
+      let* vf = to_copy Pointwise.To_copy.Float v in
+      bmm p vf)
+
+(* The composition's second half alone: binary32 scores in, the context out. *)
+let sdpa_composition_tail_fixture ~tq ~tk ~d () =
+  let bf16 = Payload.Fmt Payload.BF16 in
+  F.build "sdpa_composition_tail"
+    Graph_builder.(
+      let* s = input ~shape:(F.s 1 1 1 1 tq tk) () in
+      let* v = input ~shape:(F.s 1 1 1 1 tk d) ~fmt:bf16 () in
+      let* z = mul_scalar (1. /. Stdlib.sqrt (float_of_int d)) s in
+      let* p = softmax { Reduce.Softmax.axis = Axis.C } z in
+      let* vf = to_copy Pointwise.To_copy.Float v in
+      bmm p vf)
+
+(* bfloat16 Q, K, V widen on load: the binary64 reference and the binary32
+   Loop oracle both run on the fixtures the streaming kernel will take, and
+   agree to binary32 accuracy. *)
+let%expect_test "bfloat16 Sdpa: the reference and the binary32 oracle run" =
+  List.iter
+    (fun (name, g) ->
+      let g = g () in
+      let b = bundle g in
+      let inputs =
+        List.mapi
+          (fun i id ->
+            let sg = sig_of g id in
+            ( id,
+              in_format sg
+                ( adversarial_input ~salt:i i sg |> fun t ->
+                  if i = 3 then t else values ~salt:i sg ) ))
+          b.Loop_ir.Loop_bundle.inputs
+      in
+      let run oracle =
+        expected oracle g b ~constants:[] ~inputs |> fun m ->
+        List.concat_map
+          (fun id ->
+            List.map Int64.float_of_bits (bits (Tensor_id.Map.find id m)))
+          g.Graph.outputs
+      in
+      let r = run Reference_f64 and f = run Fp32 in
+      let worst =
+        List.fold_left2 (fun w x y -> Float.max w (Float.abs (x -. y))) 0. r f
+      in
+      Fmt.pr "%s: %d cells, reference vs binary32 oracle within 1e-5: %b@." name
+        (List.length r) (worst < 1e-5))
+    sdpa_bf16_fixtures;
+  [%expect
+    {|
+    sdpa bf16 32x32 d32: 1024 cells, reference vs binary32 oracle within 1e-5: true
+    sdpa bf16 64x64 d64: 4096 cells, reference vs binary32 oracle within 1e-5: true
+    sdpa bf16 9x29 d64 masked: 576 cells, reference vs binary32 oracle within 1e-5: true |}]

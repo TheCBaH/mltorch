@@ -11,7 +11,7 @@ module P = Peak_zvt
 module K = Coralnpu_kernels.Peak_kernels
 
 module Mutation = struct
-  type t = A_pitch | Short_copy | Short_k
+  type t = A_pitch | Seed_ignored | Short_copy | Short_k
 end
 
 module Stage = struct
@@ -79,14 +79,20 @@ let normal d = if swapped d then C.transpose d else d
 
 let geometry (d : C.t) =
   let d = normal d in
-  (match (d.C.format, d.C.numerics, d.C.seed) with
-  | C.Element.Bf16, C.Numerics.Paired, C.Seed.Zero -> ()
-  | _ -> refuse "not a paired bfloat16 contraction from zero");
+  (match (d.C.format, d.C.numerics) with
+  | C.Element.Bf16, C.Numerics.Paired -> ()
+  | _ -> refuse "not a paired bfloat16 contraction");
   if not (Int64.equal d.C.c.C.Output.col 1L) then
     refuse "neither of C's strides is one element";
   let m = Int64.to_int d.C.m and n = Int64.to_int d.C.n in
   let k = Int64.to_int d.C.k in
   if k < 1 then refuse "an empty k";
+  (* the depth padding adds a pair of zero products that the reference does
+     not, and a seed of negative zero turns into positive zero by it *)
+  (match d.C.seed with
+  | C.Seed.Tensor when k mod 4 = 1 || k mod 4 = 2 ->
+      refuse "a seeded k that the depth padding changes"
+  | C.Seed.Tensor | C.Seed.Zero -> ());
   if m > 0x1_0000 || n > 0x1_0000 || k > 0x1_0000 then
     refuse "an extent past 2^16";
   let depth = (k + 3) / 4 * 4 in
@@ -358,8 +364,13 @@ let items ?mutation ?stage_b (d0 : C.t) =
     and b_pitch =
       if b_ip then Some (2 * Int64.to_int d.C.b.C.Operand.k) else None
     and b_pass = if b_ip then Some 64 else None in
+    let accumulate =
+      d.C.seed = C.Seed.Tensor && mutation <> Some Mutation.Seed_ignored
+    in
     let blocks =
-      ok (P.Tile_gemm.block_items ~prefix ?a_pitch ?b_pitch ?b_pass ~c_row p)
+      ok
+        (P.Tile_gemm.block_items ~prefix ?a_pitch ?b_pitch ?b_pass ~c_row
+           ~accumulate p)
     in
     (if a_ip then [ insn (Insn.Mv { dst = Gpr.a3; src = Gpr.s6 }) ]
      else [ la Gpr.a3 panel_a ])
@@ -472,20 +483,4 @@ let module_ ?mutation ?stage_b d =
   match items ?mutation ?stage_b d with
   | exception Refused why -> Error why
   | exception Invalid_argument why -> Error why
-  | items -> (
-      match P.zvt with
-      | Error _ -> Error "no Zvt encoder"
-      | Ok ext -> (
-          match
-            Err.payload (R.Rv32_kernel.finalize ~name:(C.symbol d) items)
-          with
-          | Error e -> Error (Fmt.str "%a" R.Rv32_kernel.pp_error e)
-          | Ok k -> (
-              match
-                Err.payload
-                  (R.Rv32_kernel_lower.module_ ~extensions:[ ext ]
-                     ~profile:R.Rv32_profile.Rv32imf_zve32f_ilp32f k)
-              with
-              | Ok m -> Ok m
-              | Error e -> Error (Fmt.str "%a" R.Rv32_kernel_lower.pp_error e)))
-      )
+  | items -> Kernel_module.of_items ~name:(C.symbol d) items

@@ -22,13 +22,21 @@
     or rows one element apart: with rows, the contraction is run as its
     {!Contraction.transpose}, the operands exchanged, which makes B's role the
     transposed one and a k-major result the next layer's A. It refuses another
-    numerics or format. *)
+    numerics or format.
+
+    C is the seed when the descriptor says so: each block's accumulators start
+    from C's tiles (read before they are written, as the suite's split K does)
+    and the sums continue from there. A seeded descriptor whose k the depth
+    padding changes (k mod 4 of 1 or 2) is refused: the extra zero pair would
+    turn a seed of negative zero into positive zero, which the reference does
+    not. *)
 
 (** Fault injection for the evidence suite: each is one deliberate defect a run
     must detect. No consumer passes one. *)
 module Mutation : sig
   type t =
     | A_pitch  (** A's rows one element further apart than they are *)
+    | Seed_ignored  (** the accumulators start from zero, not from C *)
     | Short_copy  (** the staged B's copy 64 elements short *)
     | Short_k  (** the last k step of A and B not packed *)
 end

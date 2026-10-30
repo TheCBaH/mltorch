@@ -1,0 +1,6 @@
+(library
+ (name attention_block_test)
+ (libraries attention_block contraction err_trace f32_math fmt native)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

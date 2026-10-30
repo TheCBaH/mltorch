@@ -54,7 +54,9 @@ module Numerics : sig
             [acc <- acc + (a0 * b0 + a1 * b1)] where the pair's sum of exact
             products is rounded to odd in binary32 (truncated, its last bit set
             when anything was cut off) and then added to nearest; a last odd
-            step adds one product. The matrix engine's bfloat16 tile multiply,
+            step adds one product. A sum that is zero is positive zero, so a
+            result is never negative zero: a seed of negative zero survives only
+            a sum it does not meet. The matrix engine's bfloat16 tile multiply,
             as measured on its RTL *)
 
   val name : t -> string

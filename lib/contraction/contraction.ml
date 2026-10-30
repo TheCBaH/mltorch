@@ -274,7 +274,11 @@ let eval t ~a ~b ~c ~write =
                                (if Int64.compare next t.k < 0 then product next
                                 else 0.)
                            in
-                           round32 (!acc +. pair));
+                           let sum = round32 (!acc +. pair) in
+                           (* the engine's adder never gives negative zero:
+                              a zero sum is positive (measured on the RTL
+                              with seeds and products of both signs) *)
+                           if sum = 0. then 0. else sum);
                   steps (Int64.add kk step))
               in
               steps 0L;

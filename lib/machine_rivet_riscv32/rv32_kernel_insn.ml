@@ -51,6 +51,29 @@ module Vv_op = struct
   let of_mnemonic m = List.find_opt (fun op -> String.equal (mnemonic op) m) all
 end
 
+(* Vector-vector floating-point operations that read both operands and write a
+   fresh result: no accumulator, no widening. [op.vv dst, a, b] computes [a op
+   b] with [a] the first source in assembly order ([vs2]). Alphabetical. *)
+module Alu_op = struct
+  type t = Vfdiv | Vfmax | Vfsub
+
+  let all = [ Vfdiv; Vfmax; Vfsub ]
+
+  let mnemonic = function
+    | Vfdiv -> "vfdiv.vv"
+    | Vfmax -> "vfmax.vv"
+    | Vfsub -> "vfsub.vv"
+end
+
+(* The comparisons that write a mask: [vmf<cmp>.vv dst, a, b] sets element [i]
+   of [dst] when [a[i] <cmp> b[i]], false for a NaN. Alphabetical. *)
+module Cmp = struct
+  type t = Feq | Flt
+
+  let all = [ Feq; Flt ]
+  let mnemonic = function Feq -> "vmfeq.vv" | Flt -> "vmflt.vv"
+end
+
 (* The CSRs a kernel reads. Alphabetical. *)
 module Csr = struct
   type t = Mcycle
@@ -117,6 +140,8 @@ type t =
   | Srli of { dst : Gpr.t; src : Gpr.t; shamt : Imm.Shamt.t }
   | Sub of { dst : Gpr.t; lhs : Gpr.t; rhs : Gpr.t }
   | Sw of { src : Gpr.t; base : Gpr.t; offset : Imm.Imm12.t }
+  | Valu of { op : Alu_op.t; dst : Vreg.t; a : Vreg.t; b : Vreg.t }
+  | Vand_vi of { dst : Vreg.t; src : Vreg.t; imm : Imm.Simm5.t }
   | Vfmacc_vf of { acc : Vreg.t; scalar : Fpr.t; src : Vreg.t }
   | Vfwmaccbf16_vf of { acc : Vreg.t; scalar : Fpr.t; src : Vreg.t }
   | Vle of { eew : Rv32_kernel_vtype.Sew.t; dst : Vreg.t; base : Gpr.t }
@@ -127,6 +152,10 @@ type t =
       stride : Gpr.t;
     }  (** [stride] bytes from an element's address to the next *)
   | Vmacc_vx of { acc : Vreg.t; scalar : Gpr.t; src : Vreg.t }
+  | Vmcmp of { cmp : Cmp.t; dst : Vreg.t; a : Vreg.t; b : Vreg.t }
+  | Vmerge_vvm of { dst : Vreg.t; otherwise : Vreg.t; chosen : Vreg.t }
+      (** [vmerge.vvm dst, otherwise, chosen, v0]: element [i] is [chosen[i]]
+          where bit [i] of [v0] is set, else [otherwise[i]]. *)
   | Vmv_v_i of { dst : Vreg.t; imm : Imm.Simm5.t }
   | Vmv_v_x of { dst : Vreg.t; src : Gpr.t }
   | Vnsrl_wi of { dst : Vreg.t; src : Vreg.t; shamt : Imm.Shamt.t }
@@ -141,6 +170,7 @@ type t =
       base : Gpr.t;
       stride : Gpr.t;
     }  (** [stride] bytes from an element's address to the next *)
+  | Vsrl_vi of { dst : Vreg.t; src : Vreg.t; shamt : Imm.Shamt.t }
   | Vtle of { eew : Rv32_kernel_vtype.Sew.t; slice : Gpr.t; base : Gpr.t }
       (** Zvt: one row or column of a tile, chosen by [slice] as for [vtse],
           loaded from [base]. *)
@@ -158,8 +188,9 @@ let extension = function
       Some zvt_feature
   | Add _ | Addi _ | Andi _ | Beqz _ | Bnez _ | Csrr _ | Fence | Flh _ | Flw _
   | J _ | La _ | Li _ | Lui _ | Lw _ | Mv _ | Ret | Srli _ | Sub _ | Sw _
-  | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _ | Vlse _ | Vmacc_vx _ | Vmv_v_i _
-  | Vmv_v_x _ | Vnsrl_wi _ | Vse _ | Vsetvli _ | Vsse _ | Vv _ | Vwmacc_vx _ ->
+  | Valu _ | Vand_vi _ | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _ | Vlse _
+  | Vmacc_vx _ | Vmcmp _ | Vmerge_vvm _ | Vmv_v_i _ | Vmv_v_x _ | Vnsrl_wi _
+  | Vse _ | Vsetvli _ | Vsrl_vi _ | Vsse _ | Vv _ | Vwmacc_vx _ ->
       None
 
 (* The one exhaustive spelling of each mnemonic; the printer and the lowering
@@ -186,16 +217,21 @@ let mnemonic = function
   | Srli _ -> "srli"
   | Sub _ -> "sub"
   | Sw _ -> "sw"
+  | Valu { op; _ } -> Alu_op.mnemonic op
+  | Vand_vi _ -> "vand.vi"
   | Vfmacc_vf _ -> "vfmacc.vf"
   | Vfwmaccbf16_vf _ -> "vfwmaccbf16.vf"
   | Vle { eew; _ } -> Fmt.str "vle%d.v" (Rv32_kernel_vtype.Sew.bits eew)
   | Vlse { eew; _ } -> Fmt.str "vlse%d.v" (Rv32_kernel_vtype.Sew.bits eew)
   | Vmacc_vx _ -> "vmacc.vx"
+  | Vmcmp { cmp; _ } -> Cmp.mnemonic cmp
+  | Vmerge_vvm _ -> "vmerge.vvm"
   | Vmv_v_i _ -> "vmv.v.i"
   | Vmv_v_x _ -> "vmv.v.x"
   | Vnsrl_wi _ -> "vnsrl.wi"
   | Vse { eew; _ } -> Fmt.str "vse%d.v" (Rv32_kernel_vtype.Sew.bits eew)
   | Vsetvli _ -> "vsetvli"
+  | Vsrl_vi _ -> "vsrl.vi"
   | Vsse { eew; _ } -> Fmt.str "vsse%d.v" (Rv32_kernel_vtype.Sew.bits eew)
   | Vtmm { op; _ } -> Tile_op.mnemonic op
   | Vtle { eew; _ } -> Fmt.str "vtle%d" (Rv32_kernel_vtype.Sew.bits eew)
@@ -236,6 +272,10 @@ let pp ppf i =
       Fmt.pf ppf "%s %a, %a, %a" m Gpr.pp dst Gpr.pp src Imm.Shamt.pp shamt
   | Sw { src; base; offset } ->
       Fmt.pf ppf "%s %a, %a" m Gpr.pp src pp_mem (offset, base)
+  | Valu { dst; a; b; _ } | Vmcmp { dst; a; b; _ } ->
+      Fmt.pf ppf "%s %a, %a, %a" m Vreg.pp dst Vreg.pp a Vreg.pp b
+  | Vand_vi { dst; src; imm } ->
+      Fmt.pf ppf "%s %a, %a, %a" m Vreg.pp dst Vreg.pp src Imm.Simm5.pp imm
   | Vfmacc_vf { acc; scalar; src } | Vfwmaccbf16_vf { acc; scalar; src } ->
       Fmt.pf ppf "%s %a, %a, %a" m Vreg.pp acc Fpr.pp scalar Vreg.pp src
   | Vle { dst; base; _ } -> Fmt.pf ppf "%s %a, (%a)" m Vreg.pp dst Gpr.pp base
@@ -243,10 +283,13 @@ let pp ppf i =
       Fmt.pf ppf "%s %a, (%a), %a" m Vreg.pp dst Gpr.pp base Gpr.pp stride
   | Vmacc_vx { acc; scalar; src } | Vwmacc_vx { acc; scalar; src } ->
       Fmt.pf ppf "%s %a, %a, %a" m Vreg.pp acc Gpr.pp scalar Vreg.pp src
+  | Vmerge_vvm { dst; otherwise; chosen } ->
+      Fmt.pf ppf "%s %a, %a, %a, v0" m Vreg.pp dst Vreg.pp otherwise Vreg.pp
+        chosen
   | Vmv_v_i { dst; imm } ->
       Fmt.pf ppf "%s %a, %a" m Vreg.pp dst Imm.Simm5.pp imm
   | Vmv_v_x { dst; src } -> Fmt.pf ppf "%s %a, %a" m Vreg.pp dst Gpr.pp src
-  | Vnsrl_wi { dst; src; shamt } ->
+  | Vnsrl_wi { dst; src; shamt } | Vsrl_vi { dst; src; shamt } ->
       Fmt.pf ppf "%s %a, %a, %a" m Vreg.pp dst Vreg.pp src Imm.Shamt.pp shamt
   | Vse { src; base; _ } -> Fmt.pf ppf "%s %a, (%a)" m Vreg.pp src Gpr.pp base
   | Vsse { src; base; stride; _ } ->
@@ -296,12 +339,14 @@ let out_of_range i =
       check (module Imm.Imm12) offset
   | Li { imm; _ } -> check (module Imm.Li) imm
   | Lui { imm; _ } -> check (module Imm.U20) imm
-  | Srli { shamt; _ } | Vnsrl_wi { shamt; _ } -> check (module Imm.Shamt) shamt
-  | Vmv_v_i { imm; _ } -> check (module Imm.Simm5) imm
+  | Srli { shamt; _ } | Vnsrl_wi { shamt; _ } | Vsrl_vi { shamt; _ } ->
+      check (module Imm.Shamt) shamt
+  | Vand_vi { imm; _ } | Vmv_v_i { imm; _ } -> check (module Imm.Simm5) imm
   | Add _ | Beqz _ | Bnez _ | Csrr _ | Fence | J _ | La _ | Msetmtype _
-  | Msettn _ | Mv _ | Ret | Sub _ | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _
-  | Vlse _ | Vmacc_vx _ | Vmv_v_x _ | Vse _ | Vsetvli _ | Vsse _ | Vtle _
-  | Vtmm _ | Vtse _ | Vtzero _ | Vv _ | Vwmacc_vx _ ->
+  | Msettn _ | Mv _ | Ret | Sub _ | Valu _ | Vfmacc_vf _ | Vfwmaccbf16_vf _
+  | Vle _ | Vlse _ | Vmacc_vx _ | Vmcmp _ | Vmerge_vvm _ | Vmv_v_x _ | Vse _
+  | Vsetvli _ | Vsse _ | Vtle _ | Vtmm _ | Vtse _ | Vtzero _ | Vv _
+  | Vwmacc_vx _ ->
       []
 
 (* The labels [i] branches to. *)
@@ -309,10 +354,11 @@ let targets = function
   | Beqz { target; _ } | Bnez { target; _ } | J { target } | La { target; _ } ->
       [ target ]
   | Add _ | Addi _ | Andi _ | Csrr _ | Fence | Flh _ | Flw _ | Li _ | Lui _
-  | Lw _ | Msetmtype _ | Msettn _ | Mv _ | Ret | Srli _ | Sub _ | Sw _
-  | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _ | Vlse _ | Vmacc_vx _ | Vmv_v_i _
-  | Vmv_v_x _ | Vnsrl_wi _ | Vse _ | Vsetvli _ | Vsse _ | Vtle _ | Vtmm _
-  | Vtse _ | Vtzero _ | Vv _ | Vwmacc_vx _ ->
+  | Lw _ | Msetmtype _ | Msettn _ | Mv _ | Ret | Srli _ | Sub _ | Sw _ | Valu _
+  | Vand_vi _ | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _ | Vlse _ | Vmacc_vx _
+  | Vmcmp _ | Vmerge_vvm _ | Vmv_v_i _ | Vmv_v_x _ | Vnsrl_wi _ | Vse _
+  | Vsetvli _ | Vsrl_vi _ | Vsse _ | Vtle _ | Vtmm _ | Vtse _ | Vtzero _ | Vv _
+  | Vwmacc_vx _ ->
       []
 
 (* The registers [i] reads, in operand order. [zero] is a constant, not a
@@ -341,6 +387,9 @@ let reads i =
       vregs [ acc ] @ [ Reg_ref.Fpr scalar ] @ vregs [ src ]
   | Vmacc_vx { acc; scalar; src } | Vwmacc_vx { acc; scalar; src } ->
       vregs [ acc ] @ gprs [ scalar ] @ vregs [ src ]
+  | Valu { a; b; _ } | Vmcmp { a; b; _ } -> vregs [ a; b ]
+  | Vand_vi { src; _ } | Vsrl_vi { src; _ } -> vregs [ src ]
+  | Vmerge_vvm { otherwise; chosen; _ } -> vregs [ otherwise; chosen; Vreg.v0 ]
   | Vmv_v_x { src; _ } -> gprs [ src ]
   | Vnsrl_wi { src; _ } -> vregs [ src ]
   | Vse { src; base; _ } -> vregs [ src ] @ gprs [ base ]
@@ -385,11 +434,16 @@ let writes i =
   | Vmacc_vx { acc; _ }
   | Vwmacc_vx { acc; _ } ->
       [ Reg_ref.Vreg acc ]
+  | Valu { dst; _ }
+  | Vand_vi { dst; _ }
   | Vle { dst; _ }
   | Vlse { dst; _ }
+  | Vmcmp { dst; _ }
+  | Vmerge_vvm { dst; _ }
   | Vmv_v_i { dst; _ }
   | Vmv_v_x { dst; _ }
   | Vnsrl_wi { dst; _ }
+  | Vsrl_vi { dst; _ }
   | Vv { dst; _ } ->
       [ Reg_ref.Vreg dst ]
   | Vsetvli { avl = Reg _; _ } -> []

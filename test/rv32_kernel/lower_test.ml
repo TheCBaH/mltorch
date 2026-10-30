@@ -60,6 +60,14 @@ let samples =
       insn "sub" [ reg "t3"; reg "t3"; reg "t2" ] );
     ( Sw { src = Gpr.s0; base = Gpr.sp; offset = imm12 0 },
       insn "sw" [ reg "s0"; mem "sp" 0 ] );
+    ( Valu { op = Insn.Alu_op.Vfdiv; dst = Vreg.v4; a = Vreg.v8; b = Vreg.v12 },
+      insn "vfdiv.vv" [ reg "v4"; reg "v8"; reg "v12" ] );
+    ( Valu { op = Insn.Alu_op.Vfmax; dst = Vreg.v4; a = Vreg.v8; b = Vreg.v12 },
+      insn "vfmax.vv" [ reg "v4"; reg "v8"; reg "v12" ] );
+    ( Valu { op = Insn.Alu_op.Vfsub; dst = Vreg.v4; a = Vreg.v8; b = Vreg.v12 },
+      insn "vfsub.vv" [ reg "v4"; reg "v8"; reg "v12" ] );
+    ( Vand_vi { dst = Vreg.v4; src = Vreg.v8; imm = Imm.Simm5.of_int 1 },
+      insn "vand.vi" [ reg "v4"; reg "v8"; imm 1 ] );
     ( Vfmacc_vf { acc = Vreg.v8; scalar = Fpr.fa4; src = Vreg.v0 },
       insn "vfmacc.vf" [ reg "v8"; reg "fa4"; reg "v0" ] );
     ( Vfwmaccbf16_vf { acc = Vreg.v8; scalar = Fpr.fa0; src = Vreg.v0 },
@@ -68,6 +76,12 @@ let samples =
       insn "vle16.v" [ reg "v4"; mem "a3" 0 ] );
     ( Vmacc_vx { acc = Vreg.v8; scalar = Gpr.a4; src = Vreg.v0 },
       insn "vmacc.vx" [ reg "v8"; reg "a4"; reg "v0" ] );
+    ( Vmcmp { cmp = Insn.Cmp.Feq; dst = Vreg.v0; a = Vreg.v8; b = Vreg.v12 },
+      insn "vmfeq.vv" [ reg "v0"; reg "v8"; reg "v12" ] );
+    ( Vmcmp { cmp = Insn.Cmp.Flt; dst = Vreg.v0; a = Vreg.v8; b = Vreg.v12 },
+      insn "vmflt.vv" [ reg "v0"; reg "v8"; reg "v12" ] );
+    ( Vmerge_vvm { dst = Vreg.v4; otherwise = Vreg.v8; chosen = Vreg.v12 },
+      insn "vmerge.vvm" [ reg "v4"; reg "v8"; reg "v12"; reg "v0" ] );
     ( Vmv_v_i { dst = Vreg.v16; imm = Imm.Simm5.zero },
       insn "vmv.v.i" [ reg "v16"; imm 0 ] );
     ( Vmv_v_x { dst = Vreg.v8; src = Gpr.t1 },
@@ -92,6 +106,8 @@ let samples =
         [ reg "t0"; reg "zero"; sym "e8"; sym "m2"; sym "ta"; sym "ma" ] );
     ( Vsse { eew = Vtype.Sew.E8; src = Vreg.v0; base = Gpr.a5; stride = Gpr.t6 },
       insn "vsse8.v" [ reg "v0"; mem "a5" 0; reg "t6" ] );
+    ( Vsrl_vi { dst = Vreg.v4; src = Vreg.v8; shamt = Imm.Shamt.of_int 16 },
+      insn "vsrl.vi" [ reg "v4"; reg "v8"; imm 16 ] );
     ( Vv { op = Insn.Vv_op.Vadd; dst = Vreg.v16; a = Vreg.v8; b = Vreg.v12 },
       insn "vadd.vv" [ reg "v16"; reg "v8"; reg "v12" ] );
     ( Vwmacc_vx { acc = Vreg.v16; scalar = Gpr.t4; src = Vreg.v4 },
@@ -124,7 +140,7 @@ let%expect_test "each variant lowers to the form Rv32_asm makes" =
           | _ -> Fmt.pr "unexpected module shape@."))
     samples;
   Fmt.pr "%d variants compared@." (List.length samples);
-  [%expect {| 32 variants compared |}]
+  [%expect {| 40 variants compared |}]
 
 let bf16 =
   [
