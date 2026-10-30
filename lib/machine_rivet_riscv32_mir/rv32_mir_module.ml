@@ -89,13 +89,15 @@ let lay_out items =
          | it -> [ it ])
        items)
 
-let render items =
-  List.map
+(* [globals]: labels also exported, for code linked apart from this module. *)
+let render ?(globals = []) items =
+  List.concat_map
     (function
-      | Item.Label l -> A.label l
-      | Item.Insn { mnemonic; ops } -> A.insn mnemonic ops
+      | Item.Label l ->
+          (if List.mem l globals then [ A.global l ] else []) @ [ A.label l ]
+      | Item.Insn { mnemonic; ops } -> [ A.insn mnemonic ops ]
       | Item.Branch { mnemonic; regs; label } ->
-          A.insn mnemonic (List.map A.reg regs @ [ A.sym label ]))
+          [ A.insn mnemonic (List.map A.reg regs @ [ A.sym label ]) ])
     items
 
 (* Whether an instruction is a call, which leaves the vector configuration
@@ -309,22 +311,38 @@ let laid_out ?mutation esc artifact =
   in
   List.map
     (fun (f : (Rv32_op.t, Rv32_op.test) Mir_phys.Func.t) ->
-      (f.Mir_phys.Func.name, lay_out (func_items env relocations f)))
+      (f, lay_out (func_items env relocations f)))
     program.Mir_phys.Program.funcs
 
-let function_items ?mutation artifact =
+let functions ?mutation artifact =
   Err.Escape.with_escape @@ fun esc -> laid_out ?mutation esc artifact
 
-let of_artifact ?mutation artifact =
+let function_items ?mutation artifact =
+  Err.map
+    (List.map (fun ((f : (_, _) Mir_phys.Func.t), items) ->
+         (f.Mir_phys.Func.name, items)))
+    (functions ?mutation artifact)
+
+(* [transform] rewrites each function's laid-out items (the outlining of
+   regions into overlays) and [globals] then lists the labels it asks to export. *)
+let of_artifact ?mutation ?(transform = fun _ items -> items)
+    ?(globals = fun () -> []) artifact =
   Err.Escape.with_escape @@ fun esc ->
   let program = Art.program artifact in
-  let laid = laid_out ?mutation esc artifact in
+  let laid =
+    List.map
+      (fun ((f : (_, _) Mir_phys.Func.t), items) ->
+        (f.Mir_phys.Func.name, transform f items))
+      (laid_out ?mutation esc artifact)
+  in
+  let globals = globals () in
   (* rendering makes the typed instructions, so a form Rivet refuses is
      caught by [module_] *)
   let text () =
     List.concat_map
       (fun (name, items) ->
-        [ A.text; A.align 4; A.global name; A.label name ] @ render items)
+        [ A.text; A.align 4; A.global name; A.label name ]
+        @ render ~globals items)
       laid
   in
   let main =

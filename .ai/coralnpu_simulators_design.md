@@ -77,7 +77,20 @@ slot is `In` (read from the input frame), `In_out` (read, then written to the
 result), `Out` (zeroed, then written) or `Scratch` (zeroed).
 
 - Executable segments go to ITCM. There is no spill to external memory: a
-  program larger than ITCM is `Over_capacity`.
+  program larger than ITCM is `Over_capacity`. On the subsystem, which has the
+  DMA, code can be overlaid: `Coral_image.build ~overlays` links each overlay
+  for one shared ITCM slot, adds a stub per entry symbol and a resident manager
+  (the stub loads the overlay when it is not the resident one, zeroes its bss,
+  `fence.i`, then jumps in), and keeps the overlays' bytes in RAM. The model
+  route uses it for one case: a kernel that overflows the ITCM (none of the
+  tested kernels does on the subsystem; the route's `itcm` option caps it to
+  show the path) has two single-entry runs of blocks moved out
+  (`Rv32_mir_outline`). The function
+  jumps to the stub instead of calling it, so no return address is involved;
+  the manager's scratch registers (`t0`-`t6`) are saved below the stack
+  pointer by the jump and restored by the overlay. Two regions only save what
+  the smaller one takes, and each switch between them is a DMA reload (about
+  1 byte a cycle), so the regions chosen should not alternate in a hot loop.
 - DTCM from its base: data segments, the HTIF block (`tohost`, `fromhost`,
   `tohost_ready`, `fromhost_ready`, 64 bytes apart), the HTIF packet, the
   staging buffer (4 KiB by default), the trap scratch, then slots. The stack

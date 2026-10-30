@@ -72,11 +72,31 @@ let slots ?(home = fun _ -> Coral_layout.Home.Any) ?(slack = 0L) ~record
     (Machine_rivet_riscv32_mir.Rv32_mir_module.slots artifact)
 
 let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
-    ?transfer (c : Config.t) ({ Q.artifact; record } : Q.published) =
+    ?transfer ?itcm (c : Config.t) ({ Q.artifact; record } : Q.published) =
   let render pp r = Result.map_error (Fmt.str "%a" pp) (Err.payload r) in
   let* profile =
     render Coral_profile.pp_error
       (Coral_profile.load ~dir:c.Config.dir c.Config.configuration)
+  in
+  (* a core with less instruction memory than the configuration's *)
+  let profile =
+    match itcm with
+    | None -> profile
+    | Some bytes ->
+        {
+          profile with
+          Coral_profile.regions =
+            List.map
+              (fun (r : Coral_profile.Region.t) ->
+                if r.Coral_profile.Region.role = Coral_profile.Role.Itcm then
+                  {
+                    r with
+                    Coral_profile.Region.size =
+                      Int64.min r.Coral_profile.Region.size bytes;
+                  }
+                else r)
+              profile.Coral_profile.regions;
+        }
   in
   let rv32_profile = Q.profile artifact in
   let* () =
@@ -200,13 +220,57 @@ let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
   let* helpers =
     Q.helper_modules ?kernel_mutation ?plan ~other ~attention artifact
   in
-  render Coral_image.pp_error
-    (Coral_image.build ~rv32_profile
-       ~matrix:
-         (List.exists on_engine (Q.generated artifact)
-         || Q.attentions artifact <> [])
-       profile ~entry:Table.entry ~kernel:(m :: helpers)
-       (slots ?home ~slack:(Int64.of_int !slack) ~record artifact))
+  let build ?overlays ?(rv32_profile = rv32_profile) m =
+    Coral_image.build ?overlays ~rv32_profile
+      ~matrix:
+        (List.exists on_engine (Q.generated artifact)
+        || Q.attentions artifact <> [])
+      profile ~entry:Table.entry ~kernel:(m :: helpers)
+      (slots ?home ~slack:(Int64.of_int !slack) ~record artifact)
+  in
+  let first = build m in
+  (* a kernel past the instruction memory runs as overlays when the core has
+     the DMA that loads them: two of its regions move out of the image *)
+  let outlined () =
+    let module O = Machine_rivet_riscv32_mir.Rv32_mir_outline in
+    match O.of_artifact ?mutation artifact with
+    | Ok (m, (_ :: _ as overlays))
+      when Profile.vector rv32_profile
+           || List.mem "zve32f" profile.Coral_profile.extensions -> (
+        let modules =
+          List.map (fun (o : O.outlined) -> (o, O.module_ o)) overlays
+        in
+        match List.find_opt (fun (_, r) -> Result.is_error r) modules with
+        | Some _ -> None
+        | None ->
+            Some
+              (build
+                 ~rv32_profile:
+                   (* the manager's [fence.i] is Zifencei, which the scalar
+                      profile leaves out and the vector ones enable *)
+                   (if Profile.vector rv32_profile then rv32_profile
+                    else Profile.Rv32imf_zve32f_ilp32f)
+                 ~overlays:
+                   (List.map
+                      (fun ((o : O.outlined), r) ->
+                        {
+                          Coral_overlay.Overlay.name = o.entry;
+                          entry = o.entry;
+                          modules = [ Result.get_ok r ];
+                        })
+                      modules)
+                 m))
+    | Ok _ | Error _ -> None
+  in
+  let retried =
+    match Err.payload first with
+    | Error (`Over_capacity { Coral_layout.Over_capacity.region = "itcm"; _ })
+      when profile.Coral_profile.simulator = Coral_profile.Simulator.Subsystem
+      ->
+        outlined ()
+    | _ -> None
+  in
+  render Coral_image.pp_error (Option.value retried ~default:first)
 
 (* The run on the configuration's simulator: each written slot's bytes, by
    index, the status and what was measured. *)
@@ -291,7 +355,9 @@ let run_once ?(on_run = fun _ -> ()) ?route_mutation ?budget (c : Config.t)
   in
   let bound = Array.of_list (List.rev bound) in
   let* outputs, status, measured =
-    simulate ?budget c image ~bound:(fun k -> bound.(k))
+    simulate ?budget c image ~bound:(fun k ->
+        (* the slots an image adds for its overlays are not the table's *)
+        if k < Array.length bound then bound.(k) else None)
   in
   on_run measured;
   let outputs =
@@ -314,13 +380,13 @@ let run_once ?(on_run = fun _ -> ()) ?route_mutation ?budget (c : Config.t)
   Ok status
 
 let exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
-    ?engine_mutation ?transfer ?on_run ?home ?budget c ~sites g =
+    ?engine_mutation ?transfer ?itcm ?on_run ?home ?budget c ~sites g =
   let* published =
     Q.publish ?registers ~allocation:Q.Allocation.Scanned ~sites g
   in
   let* image =
-    image ?mutation ?kernel_mutation ?home ?engine ?engine_mutation ?transfer c
-      published
+    image ?mutation ?kernel_mutation ?home ?engine ?engine_mutation ?transfer
+      ?itcm c published
   in
   let phys = Art.program published.Q.artifact in
   let run ?fuel:_ memory binding ~invocation:_ =
@@ -349,14 +415,16 @@ let exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
 
 (* [on_run] sees what every run measured. [home] places each slot (default
    [Any]); [budget] bounds the subsystem's read-back bytes (default
-   {!read_back_budget}). *)
+   {!read_back_budget}); [itcm] caps the instruction memory the image may use,
+   as on a smaller core (the subsystem then loads the kernel's overflow as
+   overlays). *)
 let route ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
-    ?engine_mutation ?transfer ?on_run ?home ?budget (c : Config.t) =
+    ?engine_mutation ?transfer ?itcm ?on_run ?home ?budget (c : Config.t) =
   Route.Route.Custom
     {
       Route.Custom.name = "riscv32 coral " ^ c.Config.configuration;
       exec =
         (fun ~sites g ->
           exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
-            ?engine_mutation ?transfer ?on_run ?home ?budget c ~sites g);
+            ?engine_mutation ?transfer ?itcm ?on_run ?home ?budget c ~sites g);
     }
