@@ -4,7 +4,10 @@
    [tgemm_<type>]) into a Coral guest image, prints its timed loop as coralview decodes
    the image's bytes, writes NAME.elf, runs it on the RTL vector core with its
    waveform traced to NAME.fst, and checks the kernel's output slot. Exits 1 on
-   a wrong output or a failed run. CORALNPU_DATA names the emulators archive. *)
+   a wrong output or a failed run. CORALNPU_DATA names the emulators archive.
+   The simulator records only the signals of the selection manifest
+   CONFIGURATION.plan/select in the working directory, which [coralview plan]
+   wrote. *)
 
 module K = Peak_kernels
 
@@ -130,12 +133,20 @@ let () =
   Out_channel.with_open_bin (name ^ ".elf") (fun oc ->
       output_string oc image.Coral_image.elf);
   let trace = Filename.concat (Sys.getcwd ()) (name ^ ".fst") in
+  let select =
+    Filename.concat (Sys.getcwd ()) (configuration k ^ ".plan/select")
+  in
   let inputs = Array.of_list k.K.inputs in
   let outcome =
     or_exit Coral_run.Run_error.pp
       (Err.payload
          (Coral_run.run
-            ~flags:[ "--cycles=2000000"; "--trace_file=" ^ trace ]
+            ~flags:
+              [
+                "--cycles=2000000";
+                "--trace_file=" ^ trace;
+                "--trace_select=" ^ select;
+              ]
             ~dir image
             ~bound:(fun i ->
               if i < Array.length inputs then Some inputs.(i) else None)))

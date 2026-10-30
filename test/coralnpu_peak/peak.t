@@ -19,6 +19,17 @@ exceed the ceiling by the part of one instruction its last cycles have not yet e
 INT8: 32 operations a cycle, 64 for an 8-bit (modular) multiply-add, 32 for one widening to 16
 bits.
 
+The simulator records only the signals `ops` reads, not the whole design: `coralview plan` takes
+the simulator build's catalog of traceable signals and writes the selection manifest the
+simulator is run with (`--trace_select`) and the plan `ops` checks the trace against (`--plan`).
+
+  $ coralview plan --platform rvv-core-mini-axi --model ops --producer rvv_core_mini_axi_sim \
+  >   --catalog "$CORALNPU_DATA/catalogs/rvv_core_mini_axi_sim.catalog.fst" -o rvv-core-mini-axi.plan
+  16 signals, 152 names selected, for ops
+  $ coralview plan --platform vme-core-mini-axi --model ops --producer vme_core_mini_axi_sim \
+  >   --catalog "$CORALNPU_DATA/catalogs/vme_core_mini_axi_sim.catalog.fst" -o vme-core-mini-axi.plan
+  16 signals, 152 names selected, for ops
+
   $ ./coral_peak.exe i8add e8,m4 vadd.vv
   64 iterations of:
     +00  vadd.vv v16, v8, v12
@@ -28,7 +39,7 @@ bits.
     +10  addi x11, x11, -1
     +14  bne x11, x0, -20
   rvv-core-mini-axi: output as expected, 592 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 i8add.fst
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan i8add.fst
   root VRvvCoreMiniAxi.core.RvvCoreMiniAxi: 1981 cycles, 266 vector instructions dispatched (0 not decoded)
     unit   instructions     elements          ops
     alu             262        16768        16384
@@ -48,7 +59,7 @@ bits.
     +10  addi x11, x11, -1
     +14  bne x11, x0, -20
   rvv-core-mini-axi: output as expected, 592 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 i8mul.fst
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan i8mul.fst
   root VRvvCoreMiniAxi.core.RvvCoreMiniAxi: 1981 cycles, 266 vector instructions dispatched (0 not decoded)
     unit   instructions     elements          ops
     alu               6          384            0
@@ -69,7 +80,7 @@ bits.
     +10  addi x11, x11, -1
     +14  bne x11, x0, -20
   rvv-core-mini-axi: output as expected, 595 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 i8macc.fst
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan i8macc.fst
   root VRvvCoreMiniAxi.core.RvvCoreMiniAxi: 1984 cycles, 266 vector instructions dispatched (0 not decoded)
     unit   instructions     elements          ops
     alu               6          384            0
@@ -90,7 +101,7 @@ bits.
     +10  addi x11, x11, -1
     +14  bne x11, x0, -20
   rvv-core-mini-axi: output as expected, 594 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 i8wmacc.fst
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan i8wmacc.fst
   root VRvvCoreMiniAxi.core.RvvCoreMiniAxi: 1983 cycles, 266 vector instructions dispatched (0 not decoded)
     unit   instructions     elements          ops
     alu               6          192            0
@@ -113,7 +124,7 @@ INT16: 16, 32 for a multiply-add, 16 widening to 32 bits.
     +10  addi x11, x11, -1
     +14  bne x11, x0, -20
   rvv-core-mini-axi: output as expected, 592 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 i16add.fst
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan i16add.fst
   root VRvvCoreMiniAxi.core.RvvCoreMiniAxi: 1981 cycles, 266 vector instructions dispatched (0 not decoded)
     unit   instructions     elements          ops
     alu             262         8384         8192
@@ -133,7 +144,7 @@ INT16: 16, 32 for a multiply-add, 16 widening to 32 bits.
     +10  addi x11, x11, -1
     +14  bne x11, x0, -20
   rvv-core-mini-axi: output as expected, 592 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 i16mul.fst
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan i16mul.fst
   root VRvvCoreMiniAxi.core.RvvCoreMiniAxi: 1981 cycles, 266 vector instructions dispatched (0 not decoded)
     unit   instructions     elements          ops
     alu               6          192            0
@@ -154,7 +165,7 @@ INT16: 16, 32 for a multiply-add, 16 widening to 32 bits.
     +10  addi x11, x11, -1
     +14  bne x11, x0, -20
   rvv-core-mini-axi: output as expected, 595 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 i16macc.fst
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan i16macc.fst
   root VRvvCoreMiniAxi.core.RvvCoreMiniAxi: 1984 cycles, 266 vector instructions dispatched (0 not decoded)
     unit   instructions     elements          ops
     alu               6          192            0
@@ -175,7 +186,7 @@ INT16: 16, 32 for a multiply-add, 16 widening to 32 bits.
     +10  addi x11, x11, -1
     +14  bne x11, x0, -20
   rvv-core-mini-axi: output as expected, 594 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 i16wmacc.fst
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan i16wmacc.fst
   root VRvvCoreMiniAxi.core.RvvCoreMiniAxi: 1983 cycles, 266 vector instructions dispatched (0 not decoded)
     unit   instructions     elements          ops
     alu               6           96            0
@@ -198,7 +209,7 @@ INT32: 8, 16 for a multiply-add.
     +10  addi x11, x11, -1
     +14  bne x11, x0, -20
   rvv-core-mini-axi: output as expected, 592 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 i32add.fst
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan i32add.fst
   root VRvvCoreMiniAxi.core.RvvCoreMiniAxi: 1981 cycles, 266 vector instructions dispatched (0 not decoded)
     unit   instructions     elements          ops
     alu             262         4192         4096
@@ -218,7 +229,7 @@ INT32: 8, 16 for a multiply-add.
     +10  addi x11, x11, -1
     +14  bne x11, x0, -20
   rvv-core-mini-axi: output as expected, 592 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 i32mul.fst
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan i32mul.fst
   root VRvvCoreMiniAxi.core.RvvCoreMiniAxi: 1981 cycles, 266 vector instructions dispatched (0 not decoded)
     unit   instructions     elements          ops
     alu               6           96            0
@@ -239,7 +250,7 @@ INT32: 8, 16 for a multiply-add.
     +10  addi x11, x11, -1
     +14  bne x11, x0, -20
   rvv-core-mini-axi: output as expected, 595 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 i32macc.fst
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan i32macc.fst
   root VRvvCoreMiniAxi.core.RvvCoreMiniAxi: 1984 cycles, 266 vector instructions dispatched (0 not decoded)
     unit   instructions     elements          ops
     alu               6           96            0
@@ -262,7 +273,7 @@ FP32: 8, 16 for a fused multiply-add.
     +10  addi x11, x11, -1
     +14  bne x11, x0, -20
   rvv-core-mini-axi: output as expected, 594 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 f32add.fst
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan f32add.fst
   root VRvvCoreMiniAxi.core.RvvCoreMiniAxi: 1983 cycles, 266 vector instructions dispatched (0 not decoded)
     unit   instructions     elements          ops
     alu               6           96            0
@@ -283,7 +294,7 @@ FP32: 8, 16 for a fused multiply-add.
     +10  addi x11, x11, -1
     +14  bne x11, x0, -20
   rvv-core-mini-axi: output as expected, 594 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 f32mul.fst
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan f32mul.fst
   root VRvvCoreMiniAxi.core.RvvCoreMiniAxi: 1983 cycles, 266 vector instructions dispatched (0 not decoded)
     unit   instructions     elements          ops
     alu               6           96            0
@@ -304,7 +315,7 @@ FP32: 8, 16 for a fused multiply-add.
     +10  addi x11, x11, -1
     +14  bne x11, x0, -20
   rvv-core-mini-axi: output as expected, 595 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 f32macc.fst
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan f32macc.fst
   root VRvvCoreMiniAxi.core.RvvCoreMiniAxi: 1984 cycles, 266 vector instructions dispatched (0 not decoded)
     unit   instructions     elements          ops
     alu               6           96            0
@@ -327,7 +338,7 @@ BF16 into FP32 accumulators: 16, as FP32, since the destination's width sets the
     +10  addi x11, x11, -1
     +14  bne x11, x0, -20
   rvv-core-mini-axi: output as expected, 594 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 bf16wmacc.fst
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan bf16wmacc.fst
   root VRvvCoreMiniAxi.core.RvvCoreMiniAxi: 1983 cycles, 266 vector instructions dispatched (0 not decoded)
     unit   instructions     elements          ops
     alu               6           96            0
@@ -363,7 +374,7 @@ cycle, so the same FP32 multiply-add on sixteen accumulators stays near half its
     +40  addi x11, x11, -1
     +44  bne x11, x0, -68
   rvv-core-mini-axi: output as expected, 1085 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 f32macc_m1.fst
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan f32macc_m1.fst
   root VRvvCoreMiniAxi.core.RvvCoreMiniAxi: 2506 cycles, 1058 vector instructions dispatched (0 not decoded)
     unit   instructions     elements          ops
     alu              18           72            0
@@ -414,7 +425,7 @@ Integer A values pack several to a word, so one `lw` serves two k steps (INT8) o
     +64  addi x10, x10, -1
     +68  bne x10, x0, -104
   rvv-core-mini-axi: output as expected, 4283 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 gemm_i8.fst
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan gemm_i8.fst
   root VRvvCoreMiniAxi.core.RvvCoreMiniAxi: 7400 cycles, 1557 vector instructions dispatched (0 not decoded)
     unit   instructions     elements          ops
     alu               8          512            0
@@ -464,7 +475,7 @@ Integer A values pack several to a word, so one `lw` serves two k steps (INT8) o
     +84  addi x10, x10, -1
     +88  bne x10, x0, -136
   rvv-core-mini-axi: output as expected, 4806 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 gemm_i16.fst
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan gemm_i16.fst
   root VRvvCoreMiniAxi.core.RvvCoreMiniAxi: 8152 cycles, 1558 vector instructions dispatched (0 not decoded)
     unit   instructions     elements          ops
     alu               9          288            0
@@ -502,7 +513,7 @@ FP32 near 16 x 12 / 19 = 10:
     +44  addi x10, x10, -1
     +48  bne x10, x0, -72
   rvv-core-mini-axi: output as expected, 3857 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 gemm_i32.fst
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan gemm_i32.fst
   root VRvvCoreMiniAxi.core.RvvCoreMiniAxi: 7187 cycles, 786 vector instructions dispatched (0 not decoded)
     unit   instructions     elements          ops
     alu               9          288            0
@@ -536,7 +547,7 @@ FP32 near 16 x 12 / 19 = 10:
     +44  addi x10, x10, -1
     +48  bne x10, x0, -72
   rvv-core-mini-axi: output as expected, 3861 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 gemm_f32.fst
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan gemm_f32.fst
   root VRvvCoreMiniAxi.core.RvvCoreMiniAxi: 7191 cycles, 786 vector instructions dispatched (0 not decoded)
     unit   instructions     elements          ops
     alu               9          288            0
@@ -573,7 +584,7 @@ loads each of A's BF16 values (Zfbfmin provides it):
     +44  addi x10, x10, -1
     +48  bne x10, x0, -72
   rvv-core-mini-axi: output as expected, 5953 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 gemm_bf16.fst
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan gemm_bf16.fst
   root VRvvCoreMiniAxi.core.RvvCoreMiniAxi: 9283 cycles, 1558 vector instructions dispatched (0 not decoded)
     unit   instructions     elements          ops
     alu               9          288            0
@@ -595,70 +606,70 @@ shape line, the result and the rates are shown:
   $ ./coral_peak.exe gemm_i8_w48 | grep -v '^  +'
   C[8x48] int16 = A[8x128] int8 x B[128x48] int8, 2 rows at a time; inner loop:
   rvv-core-mini-axi: output as expected, 4283 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 gemm_i8_w48.fst | grep -E 'bursts over|^ops/cycle:'
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan gemm_i8_w48.fst | grep -E 'bursts over|^ops/cycle:'
   98304 ops (0 floating point) in 1 bursts over 4181 cycles (59.6% of the trace)
   ops/cycle: 14.017 over the trace, 23.512 in bursts, peak 24.375 over 256 cycles to cycle 2515
 
   $ ./coral_peak.exe gemm_i8_w128 | grep -v '^  +'
   C[8x128] int16 = A[8x128] int8 x B[128x128] int8, 2 rows at a time; inner loop:
   rvv-core-mini-axi: output as expected, 8516 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 gemm_i8_w128.fst | grep -E 'bursts over|^ops/cycle:'
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan gemm_i8_w128.fst | grep -E 'bursts over|^ops/cycle:'
   262144 ops (0 floating point) in 1 bursts over 8406 cycles (63.8% of the trace)
   ops/cycle: 19.883 over the trace, 31.185 in bursts, peak 32.500 over 256 cycles to cycle 4353
 
   $ ./coral_peak.exe gemm_i16_w24 | grep -v '^  +'
   C[9x24] int32 = A[9x128] int16 x B[128x24] int16, 3 rows at a time; inner loop:
   rvv-core-mini-axi: output as expected, 4806 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 gemm_i16_w24.fst | grep -E 'bursts over|^ops/cycle:'
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan gemm_i16_w24.fst | grep -E 'bursts over|^ops/cycle:'
   55296 ops (0 floating point) in 1 bursts over 4685 cycles (60.5% of the trace)
   ops/cycle: 7.143 over the trace, 11.803 in bursts, peak 12.188 over 256 cycles to cycle 2719
 
   $ ./coral_peak.exe gemm_i16_w64 | grep -v '^  +'
   C[9x64] int32 = A[9x128] int16 x B[128x64] int16, 3 rows at a time; inner loop:
   rvv-core-mini-axi: output as expected, 9565 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 gemm_i16_w64.fst | grep -E 'bursts over|^ops/cycle:'
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan gemm_i16_w64.fst | grep -E 'bursts over|^ops/cycle:'
   147456 ops (0 floating point) in 1 bursts over 9436 cycles (64.9% of the trace)
   ops/cycle: 10.140 over the trace, 15.627 in bursts, peak 16.250 over 256 cycles to cycle 4648
 
   $ ./coral_peak.exe gemm_i32_w24 | grep -v '^  +'
   C[9x24] int32 = A[9x64] int32 x B[64x24] int32, 3 rows at a time; inner loop:
   rvv-core-mini-axi: output as expected, 3857 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 gemm_i32_w24.fst | grep -E 'bursts over|^ops/cycle:'
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan gemm_i32_w24.fst | grep -E 'bursts over|^ops/cycle:'
   27648 ops (0 floating point) in 1 bursts over 3740 cycles (55.3% of the trace)
   ops/cycle: 4.088 over the trace, 7.393 in bursts, peak 7.688 over 256 cycles to cycle 2701
 
   $ ./coral_peak.exe gemm_i32_w64 | grep -v '^  +'
   C[9x64] int32 = A[9x64] int32 x B[64x64] int32, 3 rows at a time; inner loop:
   rvv-core-mini-axi: output as expected, 7666 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 gemm_i32_w64.fst | grep -E 'bursts over|^ops/cycle:'
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan gemm_i32_w64.fst | grep -E 'bursts over|^ops/cycle:'
   73728 ops (0 floating point) in 1 bursts over 7541 cycles (59.6% of the trace)
   ops/cycle: 5.827 over the trace, 9.777 in bursts, peak 10.250 over 256 cycles to cycle 4656
 
   $ ./coral_peak.exe gemm_f32_w24 | grep -v '^  +'
   C[9x24] fp32 = A[9x64] fp32 x B[64x24] fp32, 3 rows at a time; inner loop:
   rvv-core-mini-axi: output as expected, 3861 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 gemm_f32_w24.fst | grep -E 'bursts over|^ops/cycle:'
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan gemm_f32_w24.fst | grep -E 'bursts over|^ops/cycle:'
   27648 ops (27648 floating point) in 1 bursts over 3742 cycles (55.3% of the trace)
   ops/cycle: 4.086 over the trace, 7.389 in bursts, peak 7.688 over 256 cycles to cycle 2702
 
   $ ./coral_peak.exe gemm_f32_w64 | grep -v '^  +'
   C[9x64] fp32 = A[9x64] fp32 x B[64x64] fp32, 3 rows at a time; inner loop:
   rvv-core-mini-axi: output as expected, 7674 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 gemm_f32_w64.fst | grep -E 'bursts over|^ops/cycle:'
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan gemm_f32_w64.fst | grep -E 'bursts over|^ops/cycle:'
   73728 ops (73728 floating point) in 1 bursts over 7547 cycles (59.6% of the trace)
   ops/cycle: 5.823 over the trace, 9.769 in bursts, peak 10.250 over 256 cycles to cycle 4657
 
   $ ./coral_peak.exe gemm_bf16_w24 | grep -v '^  +'
   C[9x24] fp32 = A[9x128] bf16 x B[128x24] bf16, 3 rows at a time; inner loop:
   rvv-core-mini-axi: output as expected, 5953 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 gemm_bf16_w24.fst | grep -E 'bursts over|^ops/cycle:'
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan gemm_bf16_w24.fst | grep -E 'bursts over|^ops/cycle:'
   55296 ops (55296 floating point) in 1 bursts over 5838 cycles (65.8% of the trace)
   ops/cycle: 6.233 over the trace, 9.472 in bursts, peak 9.750 over 256 cycles to cycle 2710
 
   $ ./coral_peak.exe gemm_bf16_w64 | grep -v '^  +'
   C[9x64] fp32 = A[9x128] bf16 x B[128x64] bf16, 3 rows at a time; inner loop:
   rvv-core-mini-axi: output as expected, 11859 cycles in the kernel
-  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 gemm_bf16_w64.fst | grep -E 'bursts over|^ops/cycle:'
+  $ coralview ops --platform rvv-core-mini-axi --peak-window 256 --plan rvv-core-mini-axi.plan/plan gemm_bf16_w64.fst | grep -E 'bursts over|^ops/cycle:'
   147456 ops (147456 floating point) in 1 bursts over 11736 cycles (69.7% of the trace)
   ops/cycle: 8.758 over the trace, 12.564 in bursts, peak 13.000 over 256 cycles to cycle 4655
 
@@ -682,7 +693,7 @@ to vtmmu.
     +10  addi x11, x11, -1
     +14  bne x11, x0, -20
   vme-core-mini-axi: output as expected, 1469 cycles in the kernel
-  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tile_f32.fst | grep -v '^root'
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 --plan vme-core-mini-axi.plan/plan tile_f32.fst | grep -v '^root'
     unit   instructions     elements          ops
     alu               2           32            0
     vme             260        65600       131072
@@ -702,7 +713,7 @@ to vtmmu.
     +10  addi x11, x11, -1
     +14  bne x11, x0, -20
   vme-core-mini-axi: output as expected, 1470 cycles in the kernel
-  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tile_bf16.fst | grep -v '^root'
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 --plan vme-core-mini-axi.plan/plan tile_bf16.fst | grep -v '^root'
     unit   instructions     elements          ops
     alu               4           64            0
     vme             260       131136       262144
@@ -722,7 +733,7 @@ to vtmmu.
     +10  addi x11, x11, -1
     +14  bne x11, x0, -20
   vme-core-mini-axi: output as expected, 1473 cycles in the kernel
-  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tile_i8u.fst | grep -v '^root'
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 --plan vme-core-mini-axi.plan/plan tile_i8u.fst | grep -v '^root'
     unit   instructions     elements          ops
     alu               8          128            0
     vme             260       262208       524288
@@ -742,7 +753,7 @@ to vtmmu.
     +10  addi x11, x11, -1
     +14  bne x11, x0, -20
   vme-core-mini-axi: output as expected, 1473 cycles in the kernel
-  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tile_i8s.fst | grep -v '^root'
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 --plan vme-core-mini-axi.plan/plan tile_i8s.fst | grep -v '^root'
     unit   instructions     elements          ops
     alu               8          128            0
     vme             260       262208       524288
@@ -801,21 +812,21 @@ its loads took three times as long.
     +60  addi x16, x16, -1
     +64  bne x16, x0, -100
   vme-core-mini-axi: output as expected, 2440 cycles in the kernel
-  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tgemm_i8.fst | grep -E 'bursts over|^ops/cycle:'
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 --plan vme-core-mini-axi.plan/plan tgemm_i8.fst | grep -E 'bursts over|^ops/cycle:'
   524288 ops (0 floating point) in 2 bursts over 1510 cycles (12.8% of the trace)
   ops/cycle: 44.394 over the trace, 347.211 in bursts, peak 352.000 over 256 cycles to cycle 8563
 
   $ ./coral_peak.exe tgemm_bf16 | grep -v '^  +'
   C[64x32] fp32 = A[64x64] bf16 x B[64x32] bf16, tiles 16 deep, 2 columns (the last 16 wide) in 1 pass; inner loop:
   vme-core-mini-axi: output as expected, 2440 cycles in the kernel
-  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tgemm_bf16.fst | grep -E 'bursts over|^ops/cycle:'
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 --plan vme-core-mini-axi.plan/plan tgemm_bf16.fst | grep -E 'bursts over|^ops/cycle:'
   262144 ops (262144 floating point) in 2 bursts over 1510 cycles (12.8% of the trace)
   ops/cycle: 22.197 over the trace, 173.605 in bursts, peak 176.000 over 256 cycles to cycle 8563
 
   $ ./coral_peak.exe tgemm_f32 | grep -v '^  +'
   C[64x32] fp32 = A[64x32] fp32 x B[32x32] fp32, tiles 16 deep, 2 columns (the last 16 wide) in 1 pass; inner loop:
   vme-core-mini-axi: output as expected, 2440 cycles in the kernel
-  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tgemm_f32.fst | grep -E 'bursts over|^ops/cycle:'
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 --plan vme-core-mini-axi.plan/plan tgemm_f32.fst | grep -E 'bursts over|^ops/cycle:'
   131072 ops (131072 floating point) in 2 bursts over 1510 cycles (12.8% of the trace)
   ops/cycle: 11.098 over the trace, 86.803 in bursts, peak 88.000 over 256 cycles to cycle 8563
 
@@ -861,62 +872,62 @@ wider W adds passes, each with its own start.
     +70  addi x16, x16, -1
     +74  bne x16, x0, -116
   vme-core-mini-axi: output as expected, 1847 cycles in the kernel
-  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tgemm_i8_rvv.fst | grep -E 'bursts over|^ops/cycle:'
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 --plan vme-core-mini-axi.plan/plan tgemm_i8_rvv.fst | grep -E 'bursts over|^ops/cycle:'
   131072 ops (0 floating point) in 1 bursts over 1646 cycles (27.6% of the trace)
   ops/cycle: 21.974 over the trace, 79.631 in bursts, peak 88.000 over 256 cycles to cycle 3808
 
   $ ./coral_peak.exe tgemm_i8_rvv_w48 | grep -v '^  +'
   C[8x48] int32 = A[8x128] int8 x B[128x48] int8, tiles 8 deep, 3 columns (the last 16 wide) in 2 passes; inner loop:
   vme-core-mini-axi: output as expected, 1799 cycles in the kernel
-  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tgemm_i8_rvv_w48.fst | grep -E 'bursts over|^ops/cycle:'
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 --plan vme-core-mini-axi.plan/plan tgemm_i8_rvv_w48.fst | grep -E 'bursts over|^ops/cycle:'
   98304 ops (0 floating point) in 1 bursts over 1648 cycles (30.9% of the trace)
   ops/cycle: 18.461 over the trace, 59.650 in bursts, peak 88.000 over 256 cycles to cycle 3255
 
   $ ./coral_peak.exe tgemm_i8_rvv_w128 | grep -v '^  +'
   C[8x128] int32 = A[8x128] int8 x B[128x128] int8, tiles 8 deep, 8 columns (the last 16 wide) in 4 passes; inner loop:
   vme-core-mini-axi: output as expected, 3647 cycles in the kernel
-  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tgemm_i8_rvv_w128.fst | grep -E 'bursts over|^ops/cycle:'
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 --plan vme-core-mini-axi.plan/plan tgemm_i8_rvv_w128.fst | grep -E 'bursts over|^ops/cycle:'
   262144 ops (0 floating point) in 1 bursts over 3446 cycles (33.8% of the trace)
   ops/cycle: 25.708 over the trace, 76.072 in bursts, peak 88.000 over 256 cycles to cycle 6071
 
   $ ./coral_peak.exe tgemm_bf16_rvv | grep -v '^  +'
   C[9x32] fp32 = A[9x128] bf16 x B[128x32] bf16, tiles 9 deep, 2 columns (the last 16 wide) in 1 pass; inner loop:
   vme-core-mini-axi: output as expected, 1466 cycles in the kernel
-  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tgemm_bf16_rvv.fst | grep -E 'bursts over|^ops/cycle:'
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 --plan vme-core-mini-axi.plan/plan tgemm_bf16_rvv.fst | grep -E 'bursts over|^ops/cycle:'
   73728 ops (73728 floating point) in 1 bursts over 1262 cycles (25.5% of the trace)
   ops/cycle: 14.880 over the trace, 58.422 in bursts, peak 58.500 over 256 cycles to cycle 3249
 
   $ ./coral_peak.exe tgemm_bf16_rvv_w24 | grep -v '^  +'
   C[9x24] fp32 = A[9x128] bf16 x B[128x24] bf16, tiles 9 deep, 2 columns (the last 8 wide) in 1 pass; inner loop:
   vme-core-mini-axi: output as expected, 1457 cycles in the kernel
-  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tgemm_bf16_rvv_w24.fst | grep -E 'bursts over|^ops/cycle:'
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 --plan vme-core-mini-axi.plan/plan tgemm_bf16_rvv_w24.fst | grep -E 'bursts over|^ops/cycle:'
   55296 ops (55296 floating point) in 1 bursts over 1262 cycles (26.8% of the trace)
   ops/cycle: 11.755 over the trace, 43.816 in bursts, peak 43.875 over 256 cycles to cycle 3033
 
   $ ./coral_peak.exe tgemm_bf16_rvv_w64 | grep -v '^  +'
   C[9x64] fp32 = A[9x128] bf16 x B[128x64] bf16, tiles 9 deep, 4 columns (the last 16 wide) in 2 passes; inner loop:
   vme-core-mini-axi: output as expected, 2887 cycles in the kernel
-  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tgemm_bf16_rvv_w64.fst | grep -E 'bursts over|^ops/cycle:'
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 --plan vme-core-mini-axi.plan/plan tgemm_bf16_rvv_w64.fst | grep -E 'bursts over|^ops/cycle:'
   147456 ops (147456 floating point) in 1 bursts over 2682 cycles (33.3% of the trace)
   ops/cycle: 18.313 over the trace, 54.980 in bursts, peak 58.500 over 256 cycles to cycle 4821
 
   $ ./coral_peak.exe tgemm_f32_rvv | grep -v '^  +'
   C[9x32] fp32 = A[9x64] fp32 x B[64x32] fp32, tiles 9 deep, 2 columns (the last 16 wide) in 1 pass; inner loop:
   vme-core-mini-axi: output as expected, 1337 cycles in the kernel
-  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tgemm_f32_rvv.fst | grep -E 'bursts over|^ops/cycle:'
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 --plan vme-core-mini-axi.plan/plan tgemm_f32_rvv.fst | grep -E 'bursts over|^ops/cycle:'
   36864 ops (36864 floating point) in 1 bursts over 1136 cycles (23.5% of the trace)
   ops/cycle: 7.639 over the trace, 32.451 in bursts, peak 33.750 over 256 cycles to cycle 3257
 
   $ ./coral_peak.exe tgemm_f32_rvv_w24 | grep -v '^  +'
   C[9x24] fp32 = A[9x64] fp32 x B[64x24] fp32, tiles 9 deep, 2 columns (the last 8 wide) in 1 pass; inner loop:
   vme-core-mini-axi: output as expected, 1328 cycles in the kernel
-  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tgemm_f32_rvv_w24.fst | grep -E 'bursts over|^ops/cycle:'
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 --plan vme-core-mini-axi.plan/plan tgemm_f32_rvv_w24.fst | grep -E 'bursts over|^ops/cycle:'
   27648 ops (27648 floating point) in 1 bursts over 1136 cycles (24.8% of the trace)
   ops/cycle: 6.043 over the trace, 24.338 in bursts, peak 25.312 over 256 cycles to cycle 3041
 
   $ ./coral_peak.exe tgemm_f32_rvv_w64 | grep -v '^  +'
   C[9x64] fp32 = A[9x64] fp32 x B[64x64] fp32, tiles 9 deep, 4 columns (the last 16 wide) in 2 passes; inner loop:
   vme-core-mini-axi: output as expected, 2627 cycles in the kernel
-  $ coralview ops --platform vme-core-mini-axi --peak-window 256 tgemm_f32_rvv_w64.fst | grep -E 'bursts over|^ops/cycle:'
+  $ coralview ops --platform vme-core-mini-axi --peak-window 256 --plan vme-core-mini-axi.plan/plan tgemm_f32_rvv_w64.fst | grep -E 'bursts over|^ops/cycle:'
   73728 ops (73728 floating point) in 1 bursts over 2426 cycles (31.2% of the trace)
   ops/cycle: 9.481 over the trace, 30.391 in bursts, peak 33.750 over 256 cycles to cycle 4813

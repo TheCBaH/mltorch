@@ -317,6 +317,23 @@ the kernel's `Out` slot against bytes it computed, so a wrong kernel fails befor
 any rate is read (a swapped accumulator in INT16 and a short FP32
 multiply-add loop each turn the suite red).
 
+Since v0.0.6 the run records only what `ops` reads: `coralview plan` takes the
+simulator build's catalog (`catalogs/` in the archive) and writes a selection
+manifest for `--trace_select` and a plan for `ops --plan`, which checks the
+trace against it. Measured on the RVV highmem simulator running
+`rvv_matmul_int8` (1.16M cycles): 51.6 s untraced, 94.6 s with a full FST
+(273 MB), 83.0 s with the selection (152 names, 1.35 MB); `ops` output is
+identical and the simulator's memory falls from 121 MB to 24 MB. Selection
+therefore saves space and memory, not much time: the model is still evaluated
+in full. The subsystem simulators (`Vchip_*`) take no `--trace_select` and
+ship no catalog, so the DMA bench traces stay whole.
+
+Streaming without a file exists only for the scalar core: `core_mini_axi_vcd_sim
+--trace_fd=3`, read by `coralview <model> --exec 'SIM ... --trace_fd=3' -`
+(optionally with a plan), is bitwise equal to the saved trace. No RVV, VME or
+subsystem VCD simulator exists, and FST cannot be written to a pipe, so the
+RVV `ops` and `vectors` analyses still read a file.
+
 The ceiling is 2 x 128 / SEW operations a cycle per kind of unit, twice that
 for multiply-adds, and a widening instruction is limited by its destination's
 SEW. One instruction repeated at LMUL=4 (two units, four uops) reaches it for
