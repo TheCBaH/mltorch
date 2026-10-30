@@ -42,7 +42,9 @@ let samples =
     ( Csrr { dst = Gpr.t2; csr = Insn.Csr.Mcycle },
       insn "csrr" [ reg "t2"; imm 0xB00 ] );
     (Fence, insn "fence" [ sym "rw"; sym "rw" ]);
+    (Fence_i, insn "fence.i" []);
     (J { target = loop }, insn "j" [ sym ".Lk_loop" ]);
+    (Jalr { base = Gpr.t4 }, insn "jalr" [ reg "ra"; mem "t4" 0 ]);
     (La { dst = Gpr.s8; target = loop }, insn "la" [ reg "s8"; sym ".Lk_loop" ]);
     ( Flh { dst = Fpr.fa0; base = Gpr.a1; offset = imm12 2 },
       insn "flh" [ reg "fa0"; mem "a1" 2 ] );
@@ -141,7 +143,7 @@ let%expect_test "each variant lowers to the form Rv32_asm makes" =
           | _ -> Fmt.pr "unexpected module shape@."))
     samples;
   Fmt.pr "%d variants compared@." (List.length samples);
-  [%expect {| 41 variants compared |}]
+  [%expect {| 43 variants compared |}]
 
 let bf16 =
   [

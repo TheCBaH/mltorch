@@ -5,6 +5,8 @@
    - [PATH ENGINE SIZES] ({!Dma_copy}), e.g. [sram-dtcm dma16 16,64,4096], or
      [sram-dtcm dma16 4096/256] for a chain of 256-byte descriptors: each
      case's cycles and bytes a cycle;
+   - [overlay] ({!Dma_overlay}): code streamed into an instruction-memory slot
+     and run, three overlays of different sizes, then the first again;
    - [overlap WORK LENGTH TRIPS] ({!Dma_overlap}): the workload alone, a
      LENGTH-byte SRAM-to-DTCM chain alone, then both at once;
    - [gemm ENGINE [GEOMETRY] PROLOGUE OUT BLOCKS W K] ({!Dma_gemm}): a
@@ -72,6 +74,11 @@ let case s =
 
 let params = { Coral_layout.Params.stack = 2048L; staging = 0L }
 
+(* [DMA_BENCH_TRACE=FILE] writes the simulator's waveform of the last run to
+   FILE, for [coralview dma --platform=CONFIGURATION FILE]. Tracing slows a run
+   several times over. *)
+let trace = Sys.getenv_opt "DMA_BENCH_TRACE"
+
 (* Wall-clock seconds a run may take: the largest multiplies are millions of
    cycles, which the SoC simulator runs at a few thousand a second. *)
 let deadline = 3600.
@@ -98,8 +105,8 @@ let execute ?(matrix = false) dir p ~name ~items ~slots ~inputs ~timings ~dst
   in
   match
     Err.payload
-      (Coral_soc_run.run ~deadline ~read_back:(Option.to_list timings) ~dir
-         image ~bound:(fun k ->
+      (Coral_soc_run.run ~deadline ?trace ~read_back:(Option.to_list timings)
+         ~dir image ~bound:(fun k ->
            if k < Array.length inputs then Some inputs.(k) else None))
   with
   | Error e ->
@@ -175,6 +182,162 @@ let poll dir p =
         (word t ((4 * k) + 2))
         (word t ((4 * k) + 3)))
     Dma_poll.cases
+
+let pp_overlay_error ppf = function
+  | `Typed e -> K.pp_error ppf e
+  | #Coral_overlay.error as e -> Coral_overlay.pp_error ppf e
+  | #Coral_dma.error as e -> Coral_dma.pp_error ppf e
+
+(* Each overlay linked on its own at the slot, as [Coral_overlay] does. *)
+let link_overlays ~at =
+  Err.List.map
+    (fun (name, items) ->
+      let open Err.Syntax in
+      let* m =
+        Err.map_error
+          (fun e -> `Typed e)
+          (K.typed_module ~name ~extensions:[] items K.rv32_profile)
+      in
+      let* l =
+        Coral_overlay.link ~rv32_profile:K.rv32_profile ~slot_base:at
+          ~slot_size:(Int64.of_int Dma_overlay.slot_bytes)
+          ~data_base:0L ~data_size:0L
+          { Coral_overlay.Overlay.name; entry = name; modules = [ m ] }
+      in
+      Err.return l.Coral_overlay.Linked.text)
+    Dma_overlay.overlays
+
+(* The four loads' chains, and the images the chains copy from. *)
+let overlay_inputs p ~at (l : Coral_layout.t) =
+  let open Err.Syntax in
+  let module V = Dma_overlay in
+  let address k = (List.nth l.slots k).Coral_layout.Placed_slot.address in
+  let* images = link_overlays ~at in
+  let sizes = List.map String.length images in
+  let offsets =
+    List.rev
+      (snd
+         (List.fold_left
+            (fun (at, acc) size -> (at + size, at :: acc))
+            (0, []) sizes))
+  in
+  let load k =
+    Coral_dma.Descriptor.copy
+      ~src:(Int64.add (address 1) (Int64.of_int (List.nth offsets k)))
+      ~dst:at
+      (Int64.of_int (List.nth sizes k))
+  in
+  let* chains =
+    Err.List.map
+      (fun (k, k') ->
+        Coral_dma.chain p
+          ~at:
+            (Int64.add (address 0)
+               (Int64.of_int (k * Coral_dma.Descriptor.size)))
+          [ load k' ])
+      (List.mapi (fun k k' -> (k, k')) [ 0; 1; 2; 0 ])
+  in
+  Ok (images, [ String.concat "" chains; String.concat "" images; "" ])
+
+(* Code streamed into an ITCM slot and run ({!Dma_overlay}). The loader is
+   built first: the overlays are linked at the slot's address. *)
+let overlay dir p =
+  let module V = Dma_overlay in
+  let m =
+    or_exit Fmt.string
+      (K.to_cli
+         (Err.bind (V.items ()) (fun items ->
+              K.typed_module ~name:"dma" ~extensions:[] items K.rv32_profile)))
+  in
+  let image =
+    or_exit Coral_image.pp_error
+      (Err.payload
+         (Coral_image.build ~params ~rv32_profile:K.rv32_profile p
+            ~entry:K.entry ~kernel:[ m ] V.slots))
+  in
+  let at = List.assoc "ovl_slot" image.Coral_image.image.Image.exports in
+  let images, inputs =
+    or_exit pp_overlay_error
+      (Err.payload (overlay_inputs p ~at image.Coral_image.layout))
+  in
+  Fmt.pr "overlay: slot 0x%Lx, %d bytes; images %s bytes@." at V.slot_bytes
+    (String.concat ", "
+       (List.map (fun i -> string_of_int (String.length i)) images));
+  let inputs = Array.of_list inputs in
+  match
+    Err.payload
+      (Coral_soc_run.run ~deadline ?trace ~read_back:[ V.results_slot ] ~dir
+         image ~bound:(fun k ->
+           if k < Array.length inputs then Some inputs.(k) else None))
+  with
+  | Error e ->
+      Fmt.pr "overlay: %a@." Coral_soc_run.Run_error.pp e;
+      exit 1
+  | Ok o ->
+      let t = List.assoc V.results_slot o.read_back in
+      List.iteri
+        (fun k (name, want) ->
+          let a0 = word t (3 * k) and status = word t ((3 * k) + 1) in
+          Fmt.pr "load %d (%s): %d, load %d cycles%s@." k name a0
+            (word t ((3 * k) + 2))
+            (if a0 = want && status = Coral_dma.status_done then ""
+             else Printf.sprintf ", WRONG (want %d, status %x)" want status))
+        (List.combine V.loads V.expected_a0);
+      if
+        List.exists2
+          (fun k want -> word t (3 * k) <> want)
+          (List.init V.n Fun.id) V.expected_a0
+      then exit 1
+
+(* The overlays reached through their stubs ({!Dma_overlay.Calls}): the image
+   builder adds the slot, the manager and the SRAM blob. *)
+let overlay_calls dir p =
+  let module V = Dma_overlay in
+  let rv32_profile = K.rv32_profile in
+  let overlays =
+    List.map
+      (fun (name, items) ->
+        let m =
+          or_exit Fmt.string
+            (K.to_cli (K.typed_module ~name ~extensions:[] items rv32_profile))
+        in
+        { Coral_overlay.Overlay.name; entry = name; modules = [ m ] })
+      V.Calls.overlays
+    @ [
+        {
+          Coral_overlay.Overlay.name = "ovl_e";
+          entry = "ovl_e";
+          modules = [ or_exit Fmt.string (V.Calls.overlay_e ()) ];
+        };
+      ]
+  in
+  let caller = or_exit Fmt.string (V.Calls.module_ ()) in
+  let image =
+    or_exit Coral_image.pp_error
+      (Err.payload
+         (Coral_image.build ~overlays ~params ~rv32_profile p ~entry:K.entry
+            ~kernel:[ caller ] V.Calls.slots))
+  in
+  match
+    Err.payload
+      (Coral_soc_run.run ~deadline ?trace ~read_back:[ V.Calls.results_slot ]
+         ~dir image ~bound:(fun _ -> None))
+  with
+  | Error e ->
+      Fmt.pr "overlay calls: %a@." Coral_soc_run.Run_error.pp e;
+      exit 1
+  | Ok o ->
+      let t = List.assoc V.Calls.results_slot o.read_back in
+      let wrong = ref false in
+      List.iteri
+        (fun k (name, want) ->
+          let a0 = word t (2 * k) in
+          if a0 <> want then wrong := true;
+          Fmt.pr "call %d (%s): %d, %d cycles%s@." k name a0
+            (word t ((2 * k) + 1))
+            (if a0 = want then "" else Printf.sprintf ", WRONG (want %d)" want))
+        (List.combine V.Calls.names V.Calls.expected_a0);
+      if !wrong then exit 1
 
 module G = Dma_gemm
 
@@ -303,6 +466,12 @@ let () =
         | _ ->
             invalid_arg
               "dma_bench: gemm ENGINE [GEOMETRY] PROLOGUE OUT BLOCKS W K")
+    | "overlay" :: rest ->
+        overlay dir p;
+        sweeps rest
+    | "overlay-calls" :: rest ->
+        overlay_calls dir p;
+        sweeps rest
     | "poll" :: rest ->
         poll dir p;
         sweeps rest

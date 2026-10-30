@@ -22,7 +22,7 @@ let%expect_test "profile features and ELF ISA strings" =
       rv32i2p1_m2p0_a2p1_f2p2_d2p2_zicsr2p0_zmmul1p0
     rv32imf-ilp32f: f,m,zicsr,zmmul
       rv32i2p1_m2p0_f2p2_zicsr2p0_zmmul1p0
-    rv32imf_zve32f-ilp32f: f,m,zicsr,zmmul,zve32f,zve32x
-      rv32i2p1_m2p0_f2p2_zicsr2p0_zmmul1p0_zve32f1p0_zve32x1p0_zvl32b1p0
-    rv32imf_zve32f_zvfbfwma-ilp32f: f,m,zfbfmin,zicsr,zmmul,zve32f,zve32x,zvfbfmin,zvfbfwma
-      rv32i2p1_m2p0_f2p2_zicsr2p0_zmmul1p0_zfbfmin1p0_zve32f1p0_zve32x1p0_zvfbfmin1p0_zvfbfwma1p0_zvl32b1p0 |}]
+    rv32imf_zve32f-ilp32f: f,m,zicsr,zifencei,zmmul,zve32f,zve32x
+      rv32i2p1_m2p0_f2p2_zicsr2p0_zifencei2p0_zmmul1p0_zve32f1p0_zve32x1p0_zvl32b1p0
+    rv32imf_zve32f_zvfbfwma-ilp32f: f,m,zfbfmin,zicsr,zifencei,zmmul,zve32f,zve32x,zvfbfmin,zvfbfwma
+      rv32i2p1_m2p0_f2p2_zicsr2p0_zifencei2p0_zmmul1p0_zfbfmin1p0_zve32f1p0_zve32x1p0_zvfbfmin1p0_zvfbfwma1p0_zvl32b1p0 |}]

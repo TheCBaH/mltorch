@@ -90,10 +90,12 @@ let operands ~spelling : Insn.t -> Operand.t list = function
       [ gpr dst; gpr src; imm (Imm.Imm12.to_int i) ]
   | Beqz { src; target } | Bnez { src; target } ->
       [ gpr src; sym (spelling target) ]
+  | Call { target } -> [ gpr Gpr.ra; sym (spelling target) ]
   | Csrr { dst; csr } -> [ gpr dst; imm (Insn.Csr.number csr) ]
   | Fence -> [ sym "rw"; sym "rw" ]
-  | Call { target } -> [ gpr Gpr.ra; sym (spelling target) ]
+  | Fence_i -> []
   | J { target } -> [ sym (spelling target) ]
+  | Jalr { base } -> [ gpr Gpr.ra; mem base 0 ]
   | La { dst; target } -> [ gpr dst; sym (spelling target) ]
   | Flh { dst; base; offset } | Flw { dst; base; offset } ->
       [ fpr dst; mem base (Imm.Imm12.to_int offset) ]

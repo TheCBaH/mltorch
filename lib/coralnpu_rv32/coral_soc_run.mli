@@ -49,6 +49,7 @@ type outcome = {
 
 val run :
   ?deadline:float ->
+  ?trace:string ->
   ?read_back:int list ->
   ?skip_unchanged:bool ->
   ?budget:int64 ->
@@ -58,13 +59,16 @@ val run :
   (outcome, Run_error.t) Err.t
 (** [dir] is the subsystem archive root. [bound k] is read slot [k]'s bytes, cut
     or zero-padded to its size. [deadline] is in seconds (default 600), from the
-    launch. [read_back] (default none) are written slots read over the bridge
-    after the guest is done, at about a kilobyte a second, for results a hash
-    cannot carry, such as timings; each must still match its hash. With
-    [skip_unchanged] (default [false]) a [read_back] slot whose hash says it
-    still holds its starting bytes (its [bound] bytes, or zeros) is not read:
-    those bytes are reported. [budget] (default none) bounds the bytes read
-    back; above it the run fails with [Read_back_over_budget]. *)
+    launch. [trace] is a file for the simulator's FST waveform: the run then
+    ends the simulator with SIGINT, once the bridge is closed, and waits for it
+    to write the trace out before killing it. [read_back] (default none) are
+    written slots read over the bridge after the guest is done, at about a
+    kilobyte a second, for results a hash cannot carry, such as timings; each
+    must still match its hash. With [skip_unchanged] (default [false]) a
+    [read_back] slot whose hash says it still holds its starting bytes (its
+    [bound] bytes, or zeros) is not read: those bytes are reported. [budget]
+    (default none) bounds the bytes read back; above it the run fails with
+    [Read_back_over_budget]. *)
 
 val matches : outcome -> int -> string -> bool
 (** [matches o k bytes]: written slot [k] hashed as [bytes] do. *)

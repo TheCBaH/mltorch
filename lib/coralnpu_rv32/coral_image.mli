@@ -13,21 +13,29 @@ type t = {
           symbols at their addresses. *)
   layout : Coral_layout.t;
   profile : Coral_profile.t;
+  internal : (int * string) list;
+      (** The bytes of the slots the builder added for {!build}'s overlays, by
+          slot index; a run writes them as it does a caller's [In] slots. *)
 }
 
 type error =
   [ Coral_layout.error
+  | Coral_dma.error
   | Coral_elf.error
-  | Machine_rivet_riscv32.Rv32_image.Error.t
+  | Coral_overlay.error
   | `Layout_unsettled  (** No fixed point within four rounds. *)
   | `Mailbox_full of int
     (** A subsystem image with more written slots than the mailbox holds hashes.
     *)
+  | `Overlay_needs_dma
+    (** Overlays are loaded by the DMA engine, which only a subsystem profile
+        has. *)
   | `Runtime_form of string  (** A form Rivet refused in the runtime. *) ]
 
 val pp_error : error Fmt.t
 
 val build :
+  ?overlays:Coral_overlay.Overlay.t list ->
   ?params:Coral_layout.Params.t ->
   ?abi:Machine_rivet_riscv32.Rv32_harness.Abi.t ->
   ?lowered:Riscv32_encode.fixup_kind Asm_core.Lowered_ast.module_ list ->

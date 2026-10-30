@@ -19,8 +19,8 @@ let render e = Foundation.Diag.render e
 (* Typed modules lowered under [profile]'s feature set, so a form the profile
    excludes (a D instruction under the default) is refused here, planned with
    [lowered]: modules the caller lowered itself, under the same profile. *)
-let plan ?(profile = Rv32_profile.default) ?(lowered = []) ~entry modules :
-    (laid_out, Error.t) Err.t =
+let plan ?(profile = Rv32_profile.default) ?(lowered = []) ?externs ~entry
+    modules : (laid_out, Error.t) Err.t =
   let state = Rv32_profile.state profile in
   let rec lower acc = function
     | [] -> Ok (List.rev acc)
@@ -33,8 +33,8 @@ let plan ?(profile = Rv32_profile.default) ?(lowered = []) ~entry modules :
       let lowered = typed @ lowered in
       match
         match lowered with
-        | [ one ] -> P.plan ~entry one
-        | many -> P.plan_many ~entry many
+        | [ one ] -> P.plan ~entry ?externs one
+        | many -> P.plan_many ~entry ?externs many
       with
       | Ok laid -> Err.return laid
       | Error e -> Err.fail (`Rivet_plan (render e)))

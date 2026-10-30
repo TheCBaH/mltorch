@@ -26,7 +26,8 @@
   gemm_zvt_bf16
   gemm_resident_a
   gemm_row_major_a
-  gemm_split_k)
+  gemm_split_k
+  overlay)
  (deps %{exe:dma_bench.exe} (universe))
  (enabled_if
   (<> %{env:CORALNPU_SUBSYSTEM_DATA=} "")))

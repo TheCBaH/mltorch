@@ -65,7 +65,9 @@ let contents (image : Coral_image.t) ~bound =
       let size = Int64.to_int s.slot.size in
       let bytes =
         if Coral_layout.Placement.read s.slot.placement then
-          Option.value (bound k) ~default:""
+          match bound k with
+          | Some bytes -> bytes
+          | None -> Option.value (List.assoc_opt k image.internal) ~default:""
         else ""
       in
       let n = min size (String.length bytes) in
@@ -88,6 +90,8 @@ let read_file path =
   try In_channel.with_open_bin path In_channel.input_all
   with Sys_error _ -> ""
 
+(* Seconds a simulator gets to write its trace after SIGINT. *)
+let trace_grace = 20.
 let tail_bytes = 4096
 
 let tail s =
@@ -147,8 +151,8 @@ let fetch spi (s : Coral_layout.Placed_slot.t) =
   let bytes = Coral_spi.read spi lo ~beats:((skip + size + 15) / 16) in
   String.sub bytes skip size
 
-let run ?(deadline = 600.) ?(read_back = []) ?(skip_unchanged = false) ?budget
-    ~dir (image : Coral_image.t) ~bound =
+let run ?(deadline = 600.) ?trace ?(read_back = []) ?(skip_unchanged = false)
+    ?budget ~dir (image : Coral_image.t) ~bound =
   let open Err.Syntax in
   let initial =
     Array.of_list (List.map (fun (_, _, b) -> b) (contents image ~bound))
@@ -175,6 +179,13 @@ let run ?(deadline = 600.) ?(read_back = []) ?(skip_unchanged = false) ?budget
   let dir =
     if Filename.is_relative dir then Filename.concat (Sys.getcwd ()) dir
     else dir
+  in
+  (* The simulator runs in a directory of its own. *)
+  let trace =
+    Option.map
+      (fun t ->
+        if Filename.is_relative t then Filename.concat (Sys.getcwd ()) t else t)
+      trace
   in
   let* csr =
     List.find_map
@@ -206,7 +217,10 @@ let run ?(deadline = 600.) ?(read_back = []) ?(skip_unchanged = false) ?budget
           in
           if Sys.file_exists camera then
             Unix.symlink camera (Filename.concat work camera_image);
-          let argv = Coral_profile.argv ~dir ~elf image.profile in
+          let argv =
+            Coral_profile.argv ~dir ~elf image.profile
+            @ Option.fold ~none:[] ~some:(fun t -> [ "--trace=" ^ t ]) trace
+          in
           let program = List.hd argv in
           if not (Sys.file_exists program) then
             Err.fail (Run_error.Simulator_missing program)
@@ -242,6 +256,16 @@ let run ?(deadline = 600.) ?(read_back = []) ?(skip_unchanged = false) ?budget
             in
             Fun.protect
               ~finally:(fun () ->
+                (* A trace is written out only when the simulator exits by
+                   itself, which it does on SIGINT once the bridge is closed. *)
+                (if trace <> None then
+                   try
+                     Unix.kill (-pid) Sys.sigint;
+                     let give_up = Unix.gettimeofday () +. trace_grace in
+                     while alive () && Unix.gettimeofday () < give_up do
+                       Unix.sleepf poll
+                     done
+                   with Unix.Unix_error _ -> ());
                 (try Unix.kill (-pid) Sys.sigkill with Unix.Unix_error _ -> ());
                 if !exited = None then
                   try ignore (Unix.waitpid [] pid)

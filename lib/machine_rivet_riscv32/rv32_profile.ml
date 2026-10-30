@@ -11,6 +11,8 @@
    elements, as on Coral NPU's vector core (VLEN 128).
    [Rv32imf_zve32f_zvfbfwma_ilp32f] adds BF16 to it: Zfbfmin's scalar loads and
    conversions and Zvfbfwma's widening multiply-add, which that core also runs.
+   Both vector profiles enable Zifencei, which Coral's ELF already advertises:
+   a code overlay loaded by DMA needs [fence.i] before it runs.
    [Rv32imafd_ilp32d] is the binary64 profile, for code that computes in
    [double]. *)
 
@@ -43,12 +45,14 @@ let features : t -> Target_config.spec =
   | Rv32imafd_ilp32d ->
       [ None_; Enable "m"; Enable "a"; Enable "f"; Enable "d" ]
   | Rv32imf_ilp32f -> [ None_; Enable "m"; Enable "f" ]
-  | Rv32imf_zve32f_ilp32f -> [ None_; Enable "m"; Enable "f"; Enable "zve32f" ]
+  | Rv32imf_zve32f_ilp32f ->
+      [ None_; Enable "m"; Enable "f"; Enable "zifencei"; Enable "zve32f" ]
   | Rv32imf_zve32f_zvfbfwma_ilp32f ->
       [
         None_;
         Enable "m";
         Enable "f";
+        Enable "zifencei";
         Enable "zve32f";
         Enable "zfbfmin";
         Enable "zvfbfwma";

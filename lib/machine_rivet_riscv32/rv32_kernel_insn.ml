@@ -123,9 +123,15 @@ type t =
   | Fence
       (** [fence rw, rw]: every earlier load and store before any later one,
           device accesses included. *)
+  | Fence_i
+      (** [fence.i] (Zifencei): later instruction fetches see every earlier
+          store, as after code is written into the instruction memory. *)
   | Flh of { dst : Fpr.t; base : Gpr.t; offset : Imm.Imm12.t }
   | J of { target : Rv32_kernel_label.t }
       (** [jal zero]: a reach of 1 MiB, where a branch has 4 KiB. *)
+  | Jalr of { base : Gpr.t }
+      (** [jalr ra, 0(base)]: a call through a register, as into code that is
+          loaded at run time. *)
   | La of { dst : Gpr.t; target : Rv32_kernel_label.t }
       (** [la]: the address of a label, a data label included. *)
   | Flw of { dst : Fpr.t; base : Gpr.t; offset : Imm.Imm12.t }
@@ -188,11 +194,12 @@ type t =
 let extension = function
   | Msetmtype _ | Msettn _ | Vtle _ | Vtmm _ | Vtse _ | Vtzero _ ->
       Some zvt_feature
-  | Add _ | Addi _ | Andi _ | Beqz _ | Bnez _ | Call _ | Csrr _ | Fence | Flh _
-  | Flw _ | J _ | La _ | Li _ | Lui _ | Lw _ | Mv _ | Ret | Srli _ | Sub _
-  | Sw _ | Valu _ | Vand_vi _ | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _ | Vlse _
-  | Vmacc_vx _ | Vmcmp _ | Vmerge_vvm _ | Vmv_v_i _ | Vmv_v_x _ | Vnsrl_wi _
-  | Vse _ | Vsetvli _ | Vsrl_vi _ | Vsse _ | Vv _ | Vwmacc_vx _ ->
+  | Add _ | Addi _ | Andi _ | Beqz _ | Bnez _ | Call _ | Csrr _ | Fence
+  | Fence_i | Flh _ | Flw _ | J _ | Jalr _ | La _ | Li _ | Lui _ | Lw _ | Mv _
+  | Ret | Srli _ | Sub _ | Sw _ | Valu _ | Vand_vi _ | Vfmacc_vf _
+  | Vfwmaccbf16_vf _ | Vle _ | Vlse _ | Vmacc_vx _ | Vmcmp _ | Vmerge_vvm _
+  | Vmv_v_i _ | Vmv_v_x _ | Vnsrl_wi _ | Vse _ | Vsetvli _ | Vsrl_vi _ | Vsse _
+  | Vv _ | Vwmacc_vx _ ->
       None
 
 (* The one exhaustive spelling of each mnemonic; the printer and the lowering
@@ -206,9 +213,11 @@ let mnemonic = function
   | Call _ -> "jal"
   | Csrr _ -> "csrr"
   | Fence -> "fence"
+  | Fence_i -> "fence.i"
   | Flh _ -> "flh"
   | Flw _ -> "flw"
   | J _ -> "j"
+  | Jalr _ -> "jalr"
   | La _ -> "la"
   | Li _ -> "li"
   | Lui _ -> "lui"
@@ -258,9 +267,11 @@ let pp ppf i =
   | Call { target } -> Fmt.pf ppf "%s ra, %a" m Rv32_kernel_label.pp target
   | Csrr { dst; csr } -> Fmt.pf ppf "%s %a, %a" m Gpr.pp dst Csr.pp csr
   | J { target } -> Fmt.pf ppf "%s %a" m Rv32_kernel_label.pp target
+  | Jalr { base } -> Fmt.pf ppf "%s ra, 0(%a)" m Gpr.pp base
   | La { dst; target } ->
       Fmt.pf ppf "%s %a, %a" m Gpr.pp dst Rv32_kernel_label.pp target
   | Fence -> Fmt.pf ppf "%s rw, rw" m
+  | Fence_i -> Fmt.string ppf m
   | Flh { dst; base; offset } | Flw { dst; base; offset } ->
       Fmt.pf ppf "%s %a, %a" m Fpr.pp dst pp_mem (offset, base)
   | Li { dst; imm } -> Fmt.pf ppf "%s %a, %a" m Gpr.pp dst Imm.Li.pp imm
@@ -346,11 +357,11 @@ let out_of_range i =
   | Srli { shamt; _ } | Vnsrl_wi { shamt; _ } | Vsrl_vi { shamt; _ } ->
       check (module Imm.Shamt) shamt
   | Vand_vi { imm; _ } | Vmv_v_i { imm; _ } -> check (module Imm.Simm5) imm
-  | Add _ | Beqz _ | Bnez _ | Call _ | Csrr _ | Fence | J _ | La _ | Msetmtype _
-  | Msettn _ | Mv _ | Ret | Sub _ | Valu _ | Vfmacc_vf _ | Vfwmaccbf16_vf _
-  | Vle _ | Vlse _ | Vmacc_vx _ | Vmcmp _ | Vmerge_vvm _ | Vmv_v_x _ | Vse _
-  | Vsetvli _ | Vsse _ | Vtle _ | Vtmm _ | Vtse _ | Vtzero _ | Vv _
-  | Vwmacc_vx _ ->
+  | Add _ | Beqz _ | Bnez _ | Call _ | Csrr _ | Fence | Fence_i | J _ | Jalr _
+  | La _ | Msetmtype _ | Msettn _ | Mv _ | Ret | Sub _ | Valu _ | Vfmacc_vf _
+  | Vfwmaccbf16_vf _ | Vle _ | Vlse _ | Vmacc_vx _ | Vmcmp _ | Vmerge_vvm _
+  | Vmv_v_x _ | Vse _ | Vsetvli _ | Vsse _ | Vtle _ | Vtmm _ | Vtse _ | Vtzero _
+  | Vv _ | Vwmacc_vx _ ->
       []
 
 (* The labels [i] branches to. *)
@@ -361,12 +372,12 @@ let targets = function
   | J { target }
   | La { target; _ } ->
       [ target ]
-  | Add _ | Addi _ | Andi _ | Csrr _ | Fence | Flh _ | Flw _ | Li _ | Lui _
-  | Lw _ | Msetmtype _ | Msettn _ | Mv _ | Ret | Srli _ | Sub _ | Sw _ | Valu _
-  | Vand_vi _ | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _ | Vlse _ | Vmacc_vx _
-  | Vmcmp _ | Vmerge_vvm _ | Vmv_v_i _ | Vmv_v_x _ | Vnsrl_wi _ | Vse _
-  | Vsetvli _ | Vsrl_vi _ | Vsse _ | Vtle _ | Vtmm _ | Vtse _ | Vtzero _ | Vv _
-  | Vwmacc_vx _ ->
+  | Add _ | Addi _ | Andi _ | Csrr _ | Fence | Fence_i | Flh _ | Flw _ | Jalr _
+  | Li _ | Lui _ | Lw _ | Msetmtype _ | Msettn _ | Mv _ | Ret | Srli _ | Sub _
+  | Sw _ | Valu _ | Vand_vi _ | Vfmacc_vf _ | Vfwmaccbf16_vf _ | Vle _ | Vlse _
+  | Vmacc_vx _ | Vmcmp _ | Vmerge_vvm _ | Vmv_v_i _ | Vmv_v_x _ | Vnsrl_wi _
+  | Vse _ | Vsetvli _ | Vsrl_vi _ | Vsse _ | Vtle _ | Vtmm _ | Vtse _ | Vtzero _
+  | Vv _ | Vwmacc_vx _ ->
       []
 
 (* The registers [i] reads, in operand order. [zero] is a constant, not a
@@ -384,7 +395,8 @@ let reads i =
   | Addi { src; _ } | Andi { src; _ } | Mv { src; _ } | Srli { src; _ } ->
       gprs [ src ]
   | Beqz { src; _ } | Bnez { src; _ } -> gprs [ src ]
-  | Call _ | Csrr _ | Fence | J _ | La _ -> []
+  | Call _ | Csrr _ | Fence | Fence_i | J _ | La _ -> []
+  | Jalr { base } -> gprs [ base ]
   | Flh { base; _ } | Flw { base; _ } | Lw { base; _ } | Vle { base; _ } ->
       gprs [ base ]
   | Li _ | Lui _ | Ret | Vmv_v_i _ | Vtzero _ -> []
@@ -431,11 +443,11 @@ let writes i =
   | Srli { dst; _ }
   | Sub { dst; _ } ->
       gpr dst
-  | Call _ -> gpr Gpr.ra
+  | Call _ | Jalr _ -> gpr Gpr.ra
   | Flh { dst; _ } | Flw { dst; _ } -> [ Reg_ref.Fpr dst ]
   (* The tile [vtle] writes is chosen at run time, by [slice]. *)
-  | Beqz _ | Bnez _ | Fence | J _ | Ret | Sw _ | Vse _ | Vsse _ | Vtle _
-  | Vtse _ ->
+  | Beqz _ | Bnez _ | Fence | Fence_i | J _ | Ret | Sw _ | Vse _ | Vsse _
+  | Vtle _ | Vtse _ ->
       []
   | Vtmm { acc = dst; _ } | Vtzero { dst } -> [ Reg_ref.Mtreg dst ]
   | Vfmacc_vf { acc; _ }
