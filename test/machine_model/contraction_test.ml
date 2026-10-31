@@ -149,37 +149,37 @@ let%expect_test "matrix products: the contracted policy is its oracle" =
     {|
     linear 9x32 k64, scalar, generic (1 invocations): bitwise, bitwise
     linear 9x32 k64, scalar, aarch64 (1 invocations): bitwise, bitwise
-    linear 9x32 k64, scalar, x86_64: refused: invocation 0 (n0): needs fma, which the program's features do not include
+    linear 9x32 k64, scalar, x86_64 (1 invocations): bitwise, bitwise
     linear 9x32 k64, neon128, generic (1 invocations): bitwise, bitwise
     linear 9x32 k64, neon128, aarch64 (1 invocations): bitwise, bitwise
     linear 9x32 k64, neon128, x86_64: refused: invocation 0 (n0): needs fma, which the program's features do not include
     linear 9x32 k64 bias, scalar, generic (1 invocations): bitwise, bitwise
     linear 9x32 k64 bias, scalar, aarch64 (1 invocations): bitwise, bitwise
-    linear 9x32 k64 bias, scalar, x86_64: refused: invocation 0 (n0): needs fma, which the program's features do not include
+    linear 9x32 k64 bias, scalar, x86_64 (1 invocations): bitwise, bitwise
     linear 9x32 k64 bias, neon128, generic (1 invocations): bitwise, bitwise
     linear 9x32 k64 bias, neon128, aarch64 (1 invocations): bitwise, bitwise
     linear 9x32 k64 bias, neon128, x86_64: refused: invocation 0 (n0): needs fma, which the program's features do not include
     linear 7x29 k63 bias, scalar, generic (1 invocations): bitwise, bitwise
     linear 7x29 k63 bias, scalar, aarch64 (1 invocations): bitwise, bitwise
-    linear 7x29 k63 bias, scalar, x86_64: refused: invocation 0 (n0): needs fma, which the program's features do not include
+    linear 7x29 k63 bias, scalar, x86_64 (1 invocations): bitwise, bitwise
     linear 7x29 k63 bias, neon128, generic (1 invocations): bitwise, bitwise
     linear 7x29 k63 bias, neon128, aarch64 (1 invocations): bitwise, bitwise
     linear 7x29 k63 bias, neon128, x86_64: refused: invocation 0 (n0): needs fma, which the program's features do not include
     bmm 1x9x32 k64, scalar, generic (1 invocations): bitwise, bitwise
     bmm 1x9x32 k64, scalar, aarch64 (1 invocations): bitwise, bitwise
-    bmm 1x9x32 k64, scalar, x86_64: refused: invocation 0 (n0): needs fma, which the program's features do not include
+    bmm 1x9x32 k64, scalar, x86_64 (1 invocations): bitwise, bitwise
     bmm 1x9x32 k64, neon128, generic (1 invocations): bitwise, bitwise
     bmm 1x9x32 k64, neon128, aarch64 (1 invocations): bitwise, bitwise
     bmm 1x9x32 k64, neon128, x86_64: refused: invocation 0 (n0): needs fma, which the program's features do not include
     bmm 3x7x29 k63, scalar, generic (1 invocations): bitwise, bitwise
     bmm 3x7x29 k63, scalar, aarch64 (1 invocations): bitwise, bitwise
-    bmm 3x7x29 k63, scalar, x86_64: refused: invocation 0 (n0): needs fma, which the program's features do not include
+    bmm 3x7x29 k63, scalar, x86_64 (1 invocations): bitwise, bitwise
     bmm 3x7x29 k63, neon128, generic (1 invocations): bitwise, bitwise
     bmm 3x7x29 k63, neon128, aarch64 (1 invocations): bitwise, bitwise
     bmm 3x7x29 k63, neon128, x86_64: refused: invocation 0 (n0): needs fma, which the program's features do not include
     conv, batch norm, relu to C=32, scalar, generic (3 invocations): bitwise, bitwise
     conv, batch norm, relu to C=32, scalar, aarch64 (3 invocations): bitwise, bitwise
-    conv, batch norm, relu to C=32, scalar, x86_64: refused: invocation 0 (n0): needs fma, which the program's features do not include
+    conv, batch norm, relu to C=32, scalar, x86_64 (3 invocations): bitwise, bitwise
     conv, batch norm, relu to C=32, neon128, generic (3 invocations): bitwise, bitwise
     conv, batch norm, relu to C=32, neon128, aarch64 (3 invocations): bitwise, bitwise
     conv, batch norm, relu to C=32, neon128, x86_64: refused: invocation 0 (n0): needs fma, which the program's features do not include |}]

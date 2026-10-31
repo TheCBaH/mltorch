@@ -91,10 +91,10 @@ let%expect_test "a binary32 attention through every route is the reference" =
     f32_ordered, 5x20 d6 masked, x86_64 (1 invocations): bitwise
     f32_fused, 9x29 d8, generic (1 invocations): bitwise
     f32_fused, 9x29 d8, aarch64 (1 invocations): bitwise
-    f32_fused, 9x29 d8, x86_64: refused: invocation 0 (n0): needs fma, which the program's features do not include
+    f32_fused, 9x29 d8, x86_64 (1 invocations): bitwise
     f32_fused, 5x20 d6 masked, generic (1 invocations): bitwise
     f32_fused, 5x20 d6 masked, aarch64 (1 invocations): bitwise
-    f32_fused, 5x20 d6 masked, x86_64: refused: invocation 0 (n0): needs fma, which the program's features do not include |}]
+    f32_fused, 5x20 d6 masked, x86_64 (1 invocations): bitwise |}]
 
 (* A binary32 grant over bfloat16 operands is not selected; a selected one is
    refused on a pipeline that computes in binary64, where its expansion would be

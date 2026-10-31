@@ -517,8 +517,8 @@ the plan narrows the loops with everything else: `Ssa_expand_attend`, then
 where the expansion would be another arithmetic, and the plan's contraction must
 match the descriptor: `F32_fused` needs a plan that contracts dots only
 (`Fp32_contracted`), `F32_ordered` one that does not contract. A fused attention
-is bitwise on the generic and AArch64 routes; x86-64 refuses it where its
-feature set has no FMA. The result equals
+is bitwise on the generic, AArch64 and x86-64 routes; x86-64 without the FMA
+feature runs each fused step as the exact `Mir_soft_fma` sequence. The result equals
 `Attention_block.eval` on the generic, AArch64 and x86-64 routes.
 
 Selection (`Sdpa_select`) takes a node only with the grant, a matrix engine,

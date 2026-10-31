@@ -869,6 +869,12 @@ let program ?mutation ?(sites = [||]) ?(unlisted = Mir_failure.Unlisted.Refused)
     | Ok g -> g
     | Error r -> Err.Escape.throw esc (Refusal.Vector r)
   in
+  (* a binary32 fused multiply-add without the FMA feature is the exact
+     sequence of operations, bit-equal to the instruction it stands for *)
+  let g =
+    if List.mem Mir_target.Feature.Fma features then g
+    else Mir_soft_fma.program g
+  in
   let p =
     Mir_verify.Generic.program (Mir_narrow.program (Mir_offsets.program g))
   in
