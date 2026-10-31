@@ -7,6 +7,7 @@
 module Roles : sig
   type t = {
     x : Tensor_id.t;
+    residual : Tensor_id.t option;
     norm_weight : Tensor_id.t option;
     norm_bias : Tensor_id.t option;
     wq : Tensor_id.t;

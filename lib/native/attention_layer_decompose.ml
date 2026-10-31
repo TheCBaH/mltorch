@@ -23,7 +23,7 @@ let swap_h_w : Permute.Permute.perm =
 
 let decompose (t : L.t) : Tensor_id.t Graph_builder.t =
   let* x_shape = shape_of t.L.x in
-  let b = Dim.to_int (Vec6.get x_shape Axis.D)
+  let b = L.sequences x_shape
   and l = Dim.to_int (Vec6.get x_shape Axis.W)
   and e = Dim.to_int (Vec6.get x_shape Axis.C) in
   let heads = Op_config.Pos.to_int t.L.params.L.heads in
@@ -100,14 +100,10 @@ let decompose (t : L.t) : Tensor_id.t Graph_builder.t =
       { Attention.Sdpa.scale = t.L.params.L.scale }
       ~query:q ~key:k ~value:v ?mask:t.L.mask ()
   in
-  (* [1,1,B,heads,L,d] -> [1,1,B,L,heads,d] -> [1,1,B,1,L,E] *)
+  (* [1,1,B,heads,L,d] -> [1,1,B,L,heads,d] -> [x]'s own shape *)
   let* a = permute swap_h_w a in
-  let* a =
-    reshape
-      { Reshape.Reshape.shape = Vec6.shape ~n:1 ~t:1 ~d:b ~h:1 ~w:l ~c:e }
-      a
-  in
+  let* a = reshape { Reshape.Reshape.shape = x_shape } a in
   let* o = project a t.L.o in
   let* o = match t.L.layer_scale with Some g -> mul o g | None -> return o in
-  let* r = add t.L.x o in
+  let* r = add (Option.value t.L.residual ~default:t.L.x) o in
   match placed L.Placement.Post with Some n -> norm r n | None -> return r

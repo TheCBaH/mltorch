@@ -12,6 +12,7 @@
   contraction
   core
   err_trace
+  f32_math
   fmt
   loop_ir
   machine_alloc

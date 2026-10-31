@@ -106,9 +106,11 @@ type metadata_role =
   | `Lstm_input
   | `Lstm_weight_hh
   | `Lstm_weight_ih
+  | `Masked_fill_input
   | `Matmul_other
   | `Matmul_self
   | `Mean_input
+  | `Mul_operand
   | `Pad_input
   | `Permute_input
   | `Repeat_input
@@ -529,9 +531,11 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Lstm_input -> Fmt.string ppf "lstm input"
   | `Lstm_weight_hh -> Fmt.string ppf "lstm weight_hh"
   | `Lstm_weight_ih -> Fmt.string ppf "lstm weight_ih"
+  | `Masked_fill_input -> Fmt.string ppf "masked_fill input"
   | `Matmul_other -> Fmt.string ppf "matmul other"
   | `Matmul_self -> Fmt.string ppf "matmul self"
   | `Mean_input -> Fmt.string ppf "mean input"
+  | `Mul_operand -> Fmt.string ppf "mul operand"
   | `Pad_input -> Fmt.string ppf "pad input"
   | `Permute_input -> Fmt.string ppf "permute input"
   | `Repeat_input -> Fmt.string ppf "repeat input"

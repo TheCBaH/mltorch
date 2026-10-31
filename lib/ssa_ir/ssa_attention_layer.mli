@@ -21,6 +21,7 @@
 module Buffers : sig
   type t = {
     x : Ssa_id.Buffer.t;
+    residual : Ssa_id.Buffer.t option;
     norm_weight : Ssa_id.Buffer.t option;
     norm_bias : Ssa_id.Buffer.t option;
     wq : Ssa_id.Buffer.t;

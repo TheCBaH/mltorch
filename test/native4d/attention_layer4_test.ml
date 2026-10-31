@@ -18,6 +18,7 @@ let%expect_test "Native4D refuses an attention layer" =
     domain: node n0: no legalization for
               attention_layer
                 x=t0
+                residual=none
                 norm=none
                 q=(t1, t2)
                 k=(t3, t4)
@@ -30,6 +31,7 @@ let%expect_test "Native4D refuses an attention layer" =
     lowered                    node n0: no legalization for
       attention_layer
         x=t0
+        residual=none
         norm=none
         q=(t1, t2)
         k=(t3, t4)

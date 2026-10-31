@@ -215,6 +215,12 @@ let op_registry : (module OP) list =
       let project = function Eq_tensor t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Pointwise.Erf
+
+      let inject t = Erf t
+      let project = function Erf t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Pointwise.Exp
 
       let inject t = Exp t

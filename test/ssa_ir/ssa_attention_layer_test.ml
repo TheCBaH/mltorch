@@ -225,6 +225,7 @@ let roles operands =
   let opt id = if has id then Some (F.buf id) else None in
   {
     Ssa_attention_layer.Buffers.x = F.buf Id.x;
+    residual = None;
     norm_weight = opt Id.norm_weight;
     norm_bias = opt Id.norm_bias;
     wq = F.buf Id.wq;
@@ -256,6 +257,7 @@ let reference (t : L.t) operands =
   L.eval t
     {
       L.Readers.x = read Id.x;
+      residual = read Id.x;
       norm_weight = read Id.norm_weight;
       norm_bias = read Id.norm_bias;
       wq = read Id.wq;

@@ -58,6 +58,7 @@ let layer_oracle (site : Layer_site.t) =
       AL.eval site.Layer_site.block
         {
           AL.Readers.x = reader (Some r.Layer_site.Roles.x);
+          residual = reader r.Layer_site.Roles.residual;
           norm_weight = reader r.Layer_site.Roles.norm_weight;
           norm_bias = reader r.Layer_site.Roles.norm_bias;
           wq = reader (Some r.Layer_site.Roles.wq);
@@ -94,6 +95,8 @@ let configs =
     ( "pre layer, all flags, masked",
       LF.with_norm L.Norm.Kind.Layer L.Placement.Pre
         { (LF.all_flags base) with LF.Config.mask = true } );
+    ( "all flags, a residual of its own",
+      { (LF.all_flags base) with LF.Config.residual = true } );
     ( "post rms, rope",
       LF.with_norm L.Norm.Kind.Rms L.Placement.Post
         { (LF.all_flags base) with LF.Config.rope = LF.Rope_form.Shared } );
@@ -147,6 +150,9 @@ let%expect_test "a granted layer through every route is its descriptor" =
     f32_ordered, pre layer, all flags, masked, generic (1 invocations): bitwise
     f32_ordered, pre layer, all flags, masked, aarch64 (1 invocations): bitwise
     f32_ordered, pre layer, all flags, masked, x86_64 (1 invocations): bitwise
+    f32_ordered, all flags, a residual of its own, generic (1 invocations): bitwise
+    f32_ordered, all flags, a residual of its own, aarch64 (1 invocations): bitwise
+    f32_ordered, all flags, a residual of its own, x86_64 (1 invocations): bitwise
     f32_ordered, post rms, rope, generic (1 invocations): bitwise
     f32_ordered, post rms, rope, aarch64 (1 invocations): bitwise
     f32_ordered, post rms, rope, x86_64 (1 invocations): bitwise
@@ -156,6 +162,9 @@ let%expect_test "a granted layer through every route is its descriptor" =
     f32_fused, pre layer, all flags, masked, generic (1 invocations): bitwise
     f32_fused, pre layer, all flags, masked, aarch64 (1 invocations): bitwise
     f32_fused, pre layer, all flags, masked, x86_64 (1 invocations): bitwise
+    f32_fused, all flags, a residual of its own, generic (1 invocations): bitwise
+    f32_fused, all flags, a residual of its own, aarch64 (1 invocations): bitwise
+    f32_fused, all flags, a residual of its own, x86_64 (1 invocations): bitwise
     f32_fused, post rms, rope, generic (1 invocations): bitwise
     f32_fused, post rms, rope, aarch64 (1 invocations): bitwise
     f32_fused, post rms, rope, x86_64 (1 invocations): bitwise |}]
@@ -201,12 +210,16 @@ let%expect_test "a granted layer is within tolerance of the node's reference" =
     f32_ordered, bare (1 invocations): bitwise
     f32_ordered, pre layer, all flags, masked: largest deviation 9.5e-07
     f32_ordered, pre layer, all flags, masked (1 invocations): bitwise
+    f32_ordered, all flags, a residual of its own: largest deviation 6.0e-07
+    f32_ordered, all flags, a residual of its own (1 invocations): bitwise
     f32_ordered, post rms, rope: largest deviation 4.8e-07
     f32_ordered, post rms, rope (1 invocations): bitwise
     f32_fused, bare: largest deviation 1.2e-07
     f32_fused, bare (1 invocations): bitwise
     f32_fused, pre layer, all flags, masked: largest deviation 9.5e-07
     f32_fused, pre layer, all flags, masked (1 invocations): bitwise
+    f32_fused, all flags, a residual of its own: largest deviation 4.8e-07
+    f32_fused, all flags, a residual of its own (1 invocations): bitwise
     f32_fused, post rms, rope: largest deviation 4.8e-07
     f32_fused, post rms, rope (1 invocations): bitwise |}]
 

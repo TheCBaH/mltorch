@@ -28,7 +28,9 @@ let targets =
     "torch.ops.aten.log.default";
     "torch.ops.aten.log1p.default";
     "torch.ops.aten.lt.Scalar";
+    "torch.ops.aten.masked_fill.Scalar";
     "torch.ops.aten.min.other";
+    "torch.ops.aten.mul.Tensor";
     "torch.ops.aten.ne.Scalar";
     "torch.ops.aten.ne.Tensor";
     "torch.ops.aten.new_ones.default";
@@ -139,6 +141,55 @@ let dispatch ~ctx ~env (node : Node.t) =
        | "torch.ops.aten.lt.Scalar" ->
            let* y = lt_scalar (scalar ()) (get "self") in
            return [ y ]
+       (* `masked_fill.Scalar(self, mask, value)`: [value] where [mask]
+          holds, [self] elsewhere -- [where.ScalarOther] over the negated
+          mask. Its result is binary32, so only a binary32 [self] keeps its
+          dtype; any other is refused. *)
+       | "torch.ops.aten.masked_fill.Scalar" ->
+           let x_name = tensor_name esc node "self" in
+           (match
+              (tensor_meta esc graph ~ssa:x_name ~role:`Masked_fill_input)
+                .TensorMeta.dtype
+            with
+           | Pytorch_types.ScalarType.FLOAT -> ()
+           | _ ->
+               malformed esc
+                 (`Unsupported_option { op = node.target; option = `Dtype }));
+           let value = required_scalar_arg esc node "value" in
+           let* keep = bitwise_not (get "mask") in
+           let* y = where_scalar_other ~condition:keep value (get "self") in
+           return [ y ]
+       (* An int64 tensor times a binary32 one is binary32 in ATen: the int64
+          operand is cast first ([to_copy] to [Float], the conversion ATen's
+          promotion makes), as esm2 multiplies its embeddings by the int64
+          attention mask. *)
+       | "torch.ops.aten.mul.Tensor" -> (
+           match
+             Native_interp_lower_context.tensor_or_scalar ctx env node "other"
+           with
+           | `Tensor other ->
+               let dtype name =
+                 (tensor_meta esc graph
+                    ~ssa:(tensor_name esc node name)
+                    ~role:`Mul_operand)
+                   .TensorMeta.dtype
+               in
+               let float x = to_copy Pointwise.To_copy.Float x in
+               let* a, b =
+                 match (dtype "self", dtype "other") with
+                 | ScalarType.FLOAT, ScalarType.LONG ->
+                     let* b = float other in
+                     return (get "self", b)
+                 | ScalarType.LONG, ScalarType.FLOAT ->
+                     let* a = float (get "self") in
+                     return (a, other)
+                 | _ -> return (get "self", other)
+               in
+               let* y = mul a b in
+               return [ y ]
+           | `Scalar s ->
+               let* y = mul_scalar s (get "self") in
+               return [ y ])
        | "torch.ops.aten.ne.Scalar" ->
            let* y = ne_scalar (scalar ()) (get "self") in
            return [ y ]

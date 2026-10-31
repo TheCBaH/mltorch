@@ -890,8 +890,9 @@ let lower_node ~view acc (n : node) =
      longer join them: all twelve now have real conversion arms above.
      [Attention_layer] is a rewrite-only node of the granted compute path;
      the dialect has no counterpart for it. *)
-  | Argmax _ | Attention_layer _ | Bitwise_and _ | Conv3d _ | Diff _ | Exp _
-  | Full_like _ | Log _ | Log1p _ | Min_other _ | Where_self _ | Weight_norm _
-  | Discard _ | Embedding _ | Ge_scalar _ | Index_pair _ | Le_tensor _
-  | Lt_scalar _ | New_ones _ | Tanh _ | Unfold _ | Where_scalar_other _ ->
+  | Argmax _ | Attention_layer _ | Bitwise_and _ | Conv3d _ | Diff _ | Erf _
+  | Exp _ | Full_like _ | Log _ | Log1p _ | Min_other _ | Where_self _
+  | Weight_norm _ | Discard _ | Embedding _ | Ge_scalar _ | Index_pair _
+  | Le_tensor _ | Lt_scalar _ | New_ones _ | Tanh _ | Unfold _
+  | Where_scalar_other _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))

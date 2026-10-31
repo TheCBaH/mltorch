@@ -12,6 +12,7 @@ open Ssa_expand_util
 module Buffers = struct
   type t = {
     x : Ssa_id.Buffer.t;
+    residual : Ssa_id.Buffer.t option;
     norm_weight : Ssa_id.Buffer.t option;
     norm_bias : Ssa_id.Buffer.t option;
     wq : Ssa_id.Buffer.t;
@@ -219,7 +220,11 @@ let body b (t : L.t) (bf : Buffers.t) ~scratch =
         | Some g -> binary b Expr.Value.Mul x (load b g c)
         | None -> x
       in
-      store b dst at (binary b Expr.Value.Add x (load b bf.Buffers.x at)));
+      let residual =
+        if f.L.Flags.residual then need "residual" bf.Buffers.residual
+        else bf.Buffers.x
+      in
+      store b dst at (binary b Expr.Value.Add x (load b residual at)));
   match (t.L.norm, r) with
   | Some n, Some r ->
       let weight, bias = norm_operands n.L.Norm.block in

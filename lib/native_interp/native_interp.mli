@@ -103,9 +103,11 @@ type metadata_role =
   | `Lstm_input
   | `Lstm_weight_hh
   | `Lstm_weight_ih
+  | `Masked_fill_input
   | `Matmul_other
   | `Matmul_self
   | `Mean_input
+  | `Mul_operand
   | `Pad_input
   | `Permute_input
   | `Repeat_input

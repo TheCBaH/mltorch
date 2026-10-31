@@ -33,6 +33,8 @@ module Flags = struct
     v_bias : bool;
     o_bias : bool;
     layer_scale : bool;
+    residual : bool;
+        (** the output adds a residual operand of its own, not [x] *)
   }
 
   let none =
@@ -42,6 +44,7 @@ module Flags = struct
       v_bias = false;
       o_bias = false;
       layer_scale = false;
+      residual = false;
     }
 
   let all =
@@ -51,6 +54,7 @@ module Flags = struct
       v_bias = true;
       o_bias = true;
       layer_scale = true;
+      residual = false;
     }
 end
 
@@ -194,7 +198,8 @@ let pp_flags ppf (f : Flags.t) =
     ppf
     (on "q_bias" f.Flags.q_bias @ on "k_bias" f.Flags.k_bias
    @ on "v_bias" f.Flags.v_bias @ on "o_bias" f.Flags.o_bias
-    @ on "layer_scale" f.Flags.layer_scale)
+    @ on "layer_scale" f.Flags.layer_scale
+    @ on "residual" f.Flags.residual)
 
 let pp ppf t =
   Fmt.pf ppf
@@ -234,6 +239,7 @@ let name t =
     let on c b = if b then c else "" in
     on "q" f.Flags.q_bias ^ on "k" f.Flags.k_bias ^ on "v" f.Flags.v_bias
     ^ on "o" f.Flags.o_bias ^ on "g" f.Flags.layer_scale
+    ^ on "r" f.Flags.residual
   in
   let norm =
     match t.norm with
@@ -322,9 +328,9 @@ let of_name s =
     Option.bind (tagged "f" field) (fun text ->
         let has c = String.contains text c in
         if
-          String.for_all (fun c -> String.contains "qkvog" c) text
+          String.for_all (fun c -> String.contains "qkvogr" c) text
           && String.length text
-             = List.length (List.filter has [ 'q'; 'k'; 'v'; 'o'; 'g' ])
+             = List.length (List.filter has [ 'q'; 'k'; 'v'; 'o'; 'g'; 'r' ])
         then
           Some
             {
@@ -333,6 +339,7 @@ let of_name s =
               v_bias = has 'v';
               o_bias = has 'o';
               layer_scale = has 'g';
+              residual = has 'r';
             }
         else None)
   in
@@ -393,6 +400,7 @@ let symbol t =
 module Readers = struct
   type t = {
     x : int64 -> float;
+    residual : int64 -> float;
     norm_weight : int64 -> float;
     norm_bias : int64 -> float;
     wq : int64 -> float;
@@ -502,7 +510,11 @@ let eval t (rd : Readers.t) ~write =
             r32 (v *. rd.Readers.gamma (Int64.of_int (i mod e)))
           else v
         in
-        r32 (v +. x.(i)))
+        r32
+          (v
+          +.
+          if f.Flags.residual then rd.Readers.residual (Int64.of_int i)
+          else x.(i)))
       o
   in
   match post with

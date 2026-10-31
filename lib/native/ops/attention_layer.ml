@@ -17,7 +17,8 @@
    invocation, one selection site and one arena-invisible set of interiors.
 
    Axes: [x] is [1,1,B,1,L,E] (sequences on D, tokens on W, features on C,
-   Linear's and Sdpa's axes); each weight [E,1,1,1,1,E] (Linear's [Out,..,In]);
+   Linear's and Sdpa's axes), or [1,1,1,B,L,E] (sequences on H, as a vision
+   encoder's patches arrive: the same row-major data); each weight [E,1,1,1,1,E] (Linear's [Out,..,In]);
    each bias, [layer_scale] and the norm's affine operands [1,1,1,1,1,E];
    [cos]/[sin] [1,1,B|1,1,L,d], d = E / heads; the mask Sdpa's additive f32
    broadcast set against the [1,1,B,heads,L,L] scores. The output is [x]'s. *)
@@ -147,6 +148,8 @@ module Attention_layer = struct
     o : Projection.t;
     params : params;
     q : Projection.t;
+    residual : Tensor_ref.t option;
+        (** what the output adds to; [x] itself when absent *)
     rope : Rope.t option;
     v : Projection.t;
     x : Tensor_ref.t;
@@ -167,6 +170,7 @@ module Attention_layer = struct
           o = get "o" Projection.jsont;
           params = get "params" params_jsont;
           q = get "q" Projection.jsont;
+          residual = Json_util.opt_field ms "residual" Tensor_ref.jsont;
           rope = Json_util.opt_field ms "rope" Rope.jsont;
           v = get "v" Projection.jsont;
           x = get "x" Tensor_ref.jsont;
@@ -187,6 +191,7 @@ module Attention_layer = struct
               ("params", Json_util.enc params_jsont t.params);
               ("q", Json_util.enc Projection.jsont t.q);
             ]
+          @ opt "residual" Tensor_ref.jsont t.residual
           @ opt "rope" Rope.jsont t.rope
           @ [ ("v", Json_util.enc Projection.jsont t.v); ("x", ref_ t.x) ]))
       Jsont.json
@@ -194,7 +199,8 @@ module Attention_layer = struct
   (* In reading order: the input, the norm's affine operands, each projection,
      the layer scale, the rotary tables, the mask. *)
   let operands (t : t) =
-    (t.x :: (match t.norm with None -> [] | Some n -> Norm.operands n))
+    (t.x :: Option.to_list t.residual)
+    @ (match t.norm with None -> [] | Some n -> Norm.operands n)
     @ Projection.operands t.q @ Projection.operands t.k
     @ Projection.operands t.v @ Projection.operands t.o
     @ Option.to_list t.layer_scale
@@ -210,6 +216,7 @@ module Attention_layer = struct
       norm = Option.map (Norm.map f) t.norm;
       o = Projection.map f t.o;
       q = Projection.map f t.q;
+      residual = Option.map f t.residual;
       rope =
         Option.map
           (fun r -> { Rope.cos = f r.Rope.cos; sin = f r.Rope.sin })
@@ -225,9 +232,9 @@ module Attention_layer = struct
         p.Projection.bias
     in
     Fmt.pf fmt
-      "@[<hv 2>attention_layer@ x=%a@ norm=%a@ q=%a@ k=%a@ v=%a@ o=%a@ \
-       layer_scale=%a@ rope=%a@ mask=%a@ params=%a@]"
-      pp_ref t.x
+      "@[<hv 2>attention_layer@ x=%a@ residual=%a@ norm=%a@ q=%a@ k=%a@ v=%a@ \
+       o=%a@ layer_scale=%a@ rope=%a@ mask=%a@ params=%a@]"
+      pp_ref t.x opt t.residual
       (Fmt.option ~none:(Fmt.any "none") (fun fmt (n : Norm.t) ->
            Fmt.pf fmt "@[<h>%s/%s(eps=%a, weight=%a, bias=%a)@]"
              (Norm.Kind.name n.Norm.kind)
@@ -238,11 +245,14 @@ module Attention_layer = struct
            Fmt.pf fmt "@[<h>(%a, %a)@]" pp_ref r.Rope.cos pp_ref r.Rope.sin))
       t.rope opt t.mask pp_params t.params
 
+  (* The sequences: on D, or on H when D is 1 (a vision encoder's patches);
+     the row-major data is the same either way. *)
+  let sequences (x_shape : Vec6.shape) =
+    Dim.to_int (Vec6.get x_shape Axis.D) * Dim.to_int (Vec6.get x_shape Axis.H)
+
   (* The head-split shape a query, key or value takes: [1,1,B,heads,L,d]. *)
   let head_shape ~(x_shape : Vec6.shape) ~heads ~d =
-    Vec6.shape ~n:1 ~t:1
-      ~d:(Dim.to_int (Vec6.get x_shape Axis.D))
-      ~h:heads
+    Vec6.shape ~n:1 ~t:1 ~d:(sequences x_shape) ~h:heads
       ~w:(Dim.to_int (Vec6.get x_shape Axis.W))
       ~c:d
 
@@ -253,7 +263,8 @@ module Attention_layer = struct
   let output_shape (t : t) ~(shape_of : Tensor_ref.t -> Vec6.shape) =
     let open Err.Syntax in
     let x_shape = shape_of t.x in
-    let b = Dim.to_int (Vec6.get x_shape Axis.D)
+    let b = sequences x_shape
+    and on_h = Dim.to_int (Vec6.get x_shape Axis.D) = 1
     and l = Dim.to_int (Vec6.get x_shape Axis.W)
     and e = Vec6.get x_shape Axis.C in
     let ei = Dim.to_int e in
@@ -273,7 +284,12 @@ module Attention_layer = struct
              })
     in
     let module R = Shape_error.Attention_layer_role in
-    let* () = expect R.X (Vec6.shape ~n:1 ~t:1 ~d:b ~h:1 ~w:l ~c:ei) x_shape in
+    let* () =
+      expect R.X
+        (if on_h then Vec6.shape ~n:1 ~t:1 ~d:1 ~h:b ~w:l ~c:ei
+         else Vec6.shape ~n:1 ~t:1 ~d:b ~h:1 ~w:l ~c:ei)
+        x_shape
+    in
     let heads = Op_config.Pos.to_int t.params.heads in
     let* () =
       if ei mod heads <> 0 then
@@ -301,6 +317,7 @@ module Attention_layer = struct
           let* () = opt R.Norm_weight vector n.Norm.weight in
           opt R.Norm_bias vector n.Norm.bias
     in
+    let* () = opt R.Residual x_shape t.residual in
     let* () = proj ~w:R.Q_weight ~b:R.Q_bias t.q in
     let* () = proj ~w:R.K_weight ~b:R.K_bias t.k in
     let* () = proj ~w:R.V_weight ~b:R.V_bias t.v in

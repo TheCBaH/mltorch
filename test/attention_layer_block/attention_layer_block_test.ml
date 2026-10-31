@@ -207,6 +207,7 @@ let layer_eval (t : L.t) (o : operands) ~d ~tokens =
   L.eval t
     {
       L.Readers.x = at o.x;
+      residual = at o.x;
       norm_weight = at o.nw;
       norm_bias = at o.nb;
       wq = at o.w.(0);

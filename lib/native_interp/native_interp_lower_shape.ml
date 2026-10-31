@@ -361,8 +361,8 @@ let dispatch ~ctx ~env (node : Node.t) =
          [Pointwise.To_copy] node [_to_copy.default] above builds -- the
          target comes from [other]'s own DECLARED metadata dtype rather
          than an explicit scalar argument (there is none), restricted to
-         the same three-way domain [_to_copy.default]'s own [Some _] arm
-         rejects outside of. *)
+         the same domain [_to_copy.default]'s own [Some _] arm rejects
+         outside of. *)
        | "torch.ops.aten.type_as.default" ->
            let other_name = tensor_name esc node "other" in
            let target =
@@ -372,6 +372,7 @@ let dispatch ~ctx ~env (node : Node.t) =
              with
              | ScalarType.BOOL -> Pointwise.To_copy.Bool
              | ScalarType.FLOAT -> Pointwise.To_copy.Float
+             | ScalarType.INT -> Pointwise.To_copy.Int
              | ScalarType.LONG -> Pointwise.To_copy.Long
              | _ ->
                  malformed esc

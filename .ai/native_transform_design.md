@@ -1588,6 +1588,94 @@ Idempotence is the property that makes "canonical" mean anything, and
 `pipeline_test.ml` asserts it as "the second run produces an empty map" — the
 same signal `Pass.fixpoint` uses to detect convergence — on both branches.
 
+### 12j. Fusing an attention layer (granted, off by default)
+
+Status: **implemented** — `passes/fuse_attention_layer.ml`, tests in
+`test/native/fuse_attention_layer_test.ml`. In no pipeline: a caller that
+grants the layer runs it.
+
+The pass is `Attention_layer_decompose.decompose`'s inverse. Anchored on the
+layer's output it walks upstream — an optional Post norm over C, the residual
+`add` (either operand order), an optional layer-scale `mul`, the output Linear,
+the head merge (`permute` swapping H and W, `reshape`), the Sdpa, and per
+projection the head split and Linear, with Q and K optionally rotated
+(rotate-half: two slices that halve C, `mul_scalar (-1)`, a concat on C, two
+products, a sum) — and replaces the whole region with one `Attention_layer`
+node whose output keeps the anchor's id under an `Identical` claim: the node's
+reference *is* that subgraph. Every interior must be consumed inside the match
+and not be a graph output; the three projections must read one source, which
+is the residual's `x` (through a Pre norm read by those three alone); a mask
+must be binary32; Q and K must share their rotation tables; the node's own
+shape rule must accept the result. A sum read only by a norm over C is left to
+the match anchored on that norm, so a Post layer is taken whole. Anything else
+leaves the graph unchanged.
+
+The core may also be the Hugging Face eager spelling — `matmul(Q, K^T)` (K
+transposed by a W/C permute), a `mul_scalar c` or `div_scalar c`, an optional
+mask `add`, `softmax` over C, `matmul(P, V)`. It becomes the same node with an
+explicit scale (`c`, or `RN(1/c)` for a divide: one multiply by a binary32
+constant after the product), which is not that subgraph's arithmetic: the
+node's Sdpa splits the scale's square root and a reciprocal rounds. So the
+node defines a **fresh** output the consumers are rewired to, claimed
+`Equivalent` for a multiply (equal in exact arithmetic) and `Approximate` for
+a divide; the tests hold it within 1e-5.
+
+Exporters' `clone`s (dropout at inference, contiguous copies) are the
+identity and are consumed wherever the walk passes one. A query multiplied by
+a constant before its rotation (esm2, whose scores are then multiplied by
+1.0) has that constant moved after the product, D13's normalization. The
+sequences may lie on D or, as a vision encoder's patches do, on H.
+
+On real exports (`test/attention_layer_models/fuse_model.exe COHORT CACHE
+ARTIFACT_ID`, offline over the transformers fixture cache; the driver runs
+`Dce` first, which removes the `discard` sinks `_assert_tensor_metadata`
+lowers to, since they would read as second consumers): bert-tiny's two
+Post-LayerNorm layers fuse (108 nodes to 61; outputs within 4.8e-7 of the
+original under `Eval_direct`), and with both layers granted at
+`F32_ordered` the whole model runs on the generic Machine IR route within
+2.4e-6 of the original's binary64 reference; mobilevit-xxs's nine Pre-norm
+layers (`div 4` scale, patches on H) fuse (618 to 429 nodes; logits within
+3.1e-5). A granted layer takes an importer's binary64 eps (bert's 1e-12) at
+its nearest binary32.
+
+fastvit's layer is matched in its own frame: anchored on the NCHW residual
+`add`, through the layer scale's `mul`, the views back from tokens, the output
+Linear, the merge, the Sdpa, and an `unbind` of one fused qkv Linear (no
+bias, reshaped `[L, 3, heads, d]` and permuted). Its residual is the
+BatchNorm's input, not the tensor the projections read, so the node takes it
+as its `residual` operand. The rewrite inserts what gives the node
+token-frame operands — the qkv weight sliced into three along N, the residual
+and gamma viewed as tokens — and views the node's output back in the NCHW
+frame under the anchor's id. All of that moves values without arithmetic and
+each projection's sum is the fused one's, so the claim is `Identical`:
+fastvit_sa12's two layers fuse (712 to 704 nodes) with its logits bit for bit
+the original's (a swapped Q/K slice turns that into 1.3).
+
+With the layers granted at binary32, mobilevit-xxs runs whole on the generic
+Machine IR route within 4.3e-4 of its binary64 reference (nine layers,
+27 min on the interpreter). time-series-small's encoder and decoder
+self-attentions fuse (4 of its 6 attentions; 293 to 207 nodes; within 2.4e-7)
+and run granted within 7.2e-7; its two cross-attentions read Q and K/V from
+different tensors, which the node does not cover. yolos-tiny (a Pre-norm ViT)
+fuses all 12 layers (450 to 198 nodes; within 4.6e-5) and
+depth-anything-small (DINOv2, with layer scale) all 12 (643 to 379 nodes;
+within 4.8e-7). (The fixture opener needs `HF_HUB_CACHE=data/hf-hub`.)
+
+The producer's `tiny` exports carry no weights (they are random at export),
+so given such a model directory the driver fills every captured tensor
+deterministically (floats within +-1, integers zero) and compares the
+rewritten graph with the original on the same weights. Its inputs go by the
+exporter's name: a mask all true, token types alternating, other ids varying,
+so the attended rows differ — with ids tied to the mask every attended value
+row was the same, and a scale dropped from the rewrite went unseen.
+esm2-8m (Pre-LayerNorm, RoPE, pre-scaled Q, an additive mask) fuses both
+layers (204 to 98 nodes; within 6.0e-7, and 0.19 when the moved pre-scale is
+dropped) and runs granted within 3.3e-6 of binary64; vit-base fuses both
+(95 to 49; within 2.4e-7, 5.1e-3 with the eager scale dropped; granted within
+9.6e-7). Lowering esm2 needed `erf` (its exact GELU written out),
+`masked_fill.Scalar`, `type_as` to int32 and an int64 mask times a binary32
+tensor, which ATen promotes by casting the mask.
+
 ## 13. Tests
 
 `test/native/` is `ppx_expect` inline tests in the `native_test` library. New tests

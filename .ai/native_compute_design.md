@@ -472,6 +472,12 @@ approximation's numerical accuracy — that proof is
 activation fixture and a boundary fixture (large ±magnitude, signed zero,
 near-zero) against real ATen.
 
+`Erf` (`aten.erf.default`, esm2's exact GELU written out) is the same
+primitive as a node of its own: `Pointwise.Erf`'s `Compute.pixel` is one
+`S.erf`, so it carries the approximation's contract — within ~1.5e-7 of the
+true function, `1e-9` at zero and blind to the sign of zero
+(`test/native/mask_ops_test.ml`). Native4D refuses it, as it does `Exp`.
+
 `Tanh` (`approximate="tanh"`) is PyTorch's tanh approximation:
 `gelu(x) = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))`. Unlike
 `erf`, `tanh` costs no new `SEMANTICS` primitive: it is

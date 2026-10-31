@@ -60,6 +60,8 @@ module Flags : sig
     v_bias : bool;
     o_bias : bool;
     layer_scale : bool;
+    residual : bool;
+        (** the output adds a residual operand of its own, not [x] *)
   }
 
   val none : t
@@ -132,6 +134,7 @@ val symbol : t -> string
 module Readers : sig
   type t = {
     x : int64 -> float;
+    residual : int64 -> float;
     norm_weight : int64 -> float;
     norm_bias : int64 -> float;
     wq : int64 -> float;
@@ -158,7 +161,9 @@ val eval : t -> Readers.t -> write:(int64 -> float -> unit) -> unit
     q    = RN(Contract(u, W_q) + b_q)          and k, v alike
     q, k = RN(RN(z * cos) + RN(r * sin))       r = RN(z' * -1) or z', exact
     a    = attend(q, k, v, mask)               Attention_block.eval
-    r    = RN(RN(RN(Contract(a, W_o) + b_o) * gamma) + x)
+    r    = RN(RN(RN(Contract(a, W_o) + b_o) * gamma) + x)   (+ the residual
+                                                           operand instead
+                                                           of x, flagged)
     y    = N(r) (Post) or r
     v}
 

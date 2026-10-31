@@ -1,0 +1,24 @@
+; The attention-layer rewrite on real exported encoders: a model directory
+; (model.json and its pinned safetensors map) lowered to Native, rewritten,
+; and evaluated before and after. Gated on downloaded data, so a driver
+; rather than a runtest.
+
+(executable
+ (name fuse_model)
+ (libraries
+  core
+  err_trace
+  fmt
+  attention_block
+  contraction
+  loop_ir
+  machine_model
+  native
+  native_interp
+  pt2
+  pt2_fixture
+  pt2_fixture_unix
+  pytorch_types
+  schema_runtime
+  ssa_backends
+  ssa_ir))

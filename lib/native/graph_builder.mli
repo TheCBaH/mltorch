@@ -231,6 +231,9 @@ val eq_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
    unconditionally declared here (see .ml). *)
 val eq_tensor : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 
+(* The Gauss error function, elementwise. *)
+val erf : ?name:string -> tensor_ref -> Tensor_id.t t
+
 (* Broadcasts [x] to [params.size]. [Graph_shape] rejects a target that is not
    broadcast-compatible with [x]'s own shape (see [Pointwise.Expand.output_shape]). *)
 val exp : ?name:string -> tensor_ref -> Tensor_id.t t

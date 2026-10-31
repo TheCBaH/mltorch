@@ -137,6 +137,7 @@ module Attention_layer_role = struct
     | O_weight
     | Q_bias
     | Q_weight
+    | Residual
     | Sin
     | V_bias
     | V_weight
@@ -153,6 +154,7 @@ module Attention_layer_role = struct
     | O_weight -> "output weight"
     | Q_bias -> "query bias"
     | Q_weight -> "query weight"
+    | Residual -> "residual"
     | Sin -> "sin"
     | V_bias -> "value bias"
     | V_weight -> "value weight"

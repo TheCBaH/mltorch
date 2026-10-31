@@ -3,6 +3,7 @@ open Ssa_ir
 module Roles = struct
   type t = {
     x : Tensor_id.t;
+    residual : Tensor_id.t option;
     norm_weight : Tensor_id.t option;
     norm_bias : Tensor_id.t option;
     wq : Tensor_id.t;
@@ -51,6 +52,7 @@ let buffers (t : t) (inv : Loop_ir.Loop_bundle.invocation) =
   in
   let r = t.roles in
   let* x = one "input" r.Roles.x in
+  let* residual = opt "residual" r.Roles.residual in
   let* norm_weight = opt "norm weight" r.Roles.norm_weight in
   let* norm_bias = opt "norm bias" r.Roles.norm_bias in
   let* wq = one "query weight" r.Roles.wq in
@@ -71,6 +73,7 @@ let buffers (t : t) (inv : Loop_ir.Loop_bundle.invocation) =
       Ok
         {
           Ssa_attention_layer.Buffers.x;
+          residual;
           norm_weight;
           norm_bias;
           wq;

@@ -85,6 +85,7 @@ module Attention_layer_role : sig
     | O_weight
     | Q_bias
     | Q_weight
+    | Residual
     | Sin
     | V_bias
     | V_weight

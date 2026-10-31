@@ -66,6 +66,7 @@ let choose ~grant (caps : Contraction.Select.Capabilities.t) (g : graph) id =
   let roles =
     {
       Layer_site.Roles.x = l.L.x;
+      residual = l.L.residual;
       norm_weight = Option.bind l.L.norm (fun n -> n.L.Norm.weight);
       norm_bias = Option.bind l.L.norm (fun n -> n.L.Norm.bias);
       wq = l.L.q.L.Projection.weight;
@@ -87,6 +88,7 @@ let choose ~grant (caps : Contraction.Select.Capabilities.t) (g : graph) id =
   let named =
     [
       ("input", Some r.Layer_site.Roles.x);
+      ("residual", r.Layer_site.Roles.residual);
       ("norm weight", r.Layer_site.Roles.norm_weight);
       ("norm bias", r.Layer_site.Roles.norm_bias);
       ("query weight", Some r.Layer_site.Roles.wq);
@@ -125,7 +127,7 @@ let choose ~grant (caps : Contraction.Select.Capabilities.t) (g : graph) id =
     | Some _ | None -> Ok ()
   in
   let xs = (sig_of l.L.x).Tensor_sig.shape in
-  let batch = extent xs Axis.D
+  let batch = extent xs Axis.D * extent xs Axis.H
   and tokens = extent xs Axis.W
   and width = extent xs Axis.C in
   let heads = Op_config.Pos.to_int l.L.params.L.heads in
@@ -171,7 +173,9 @@ let choose ~grant (caps : Contraction.Select.Capabilities.t) (g : graph) id =
             (match n.L.Norm.placement with
             | L.Placement.Post -> AL.Placement.Post
             | L.Placement.Pre -> AL.Placement.Pre);
-          eps = n.L.Norm.eps;
+          (* the descriptor computes in binary32: an importer's binary64 eps
+             (bert's 1e-12) is taken at its nearest binary32 *)
+          eps = F32_math.round32 n.L.Norm.eps;
           weight = Option.is_some n.L.Norm.weight;
           bias = Option.is_some n.L.Norm.bias;
         })
@@ -184,6 +188,7 @@ let choose ~grant (caps : Contraction.Select.Capabilities.t) (g : graph) id =
       v_bias = Option.is_some r.Layer_site.Roles.bv;
       o_bias = Option.is_some r.Layer_site.Roles.bo;
       layer_scale = Option.is_some r.Layer_site.Roles.gamma;
+      residual = Option.is_some r.Layer_site.Roles.residual;
     }
   in
   let bk = grant.Sdpa_select.Grant.block_keys in

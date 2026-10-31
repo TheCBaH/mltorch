@@ -417,3 +417,130 @@ let%expect_test
         bias=t2
         params={batch=H; channel=C; groups=2; eps=1e-05}
       permute x=t4 <-n1 perm=[W<-C, C<-W] |}]
+
+(* esm2's vocabulary: [erf] (its exact GELU written out), [masked_fill] of a
+   binary32 tensor, [type_as] an int32 tensor, and an int64 mask times a
+   binary32 tensor, which ATen promotes by casting the mask. *)
+let%expect_test "erf, masked_fill, type_as int32, and an int64 x binary32 mul" =
+  let prog ?(y = meta [ 2; 3 ]) nodes =
+    program ~x_sizes:[ 2; 3 ] ~params:[ "m"; "a"; "i" ]
+      ~extra_tensor_values:
+        [
+          ("m", meta ~dtype:12 [ 2; 3 ]);
+          ("a", meta ~dtype:5 [ 2; 3 ]);
+          ("i", meta ~dtype:4 [ 2; 3 ]);
+          ("y", y);
+        ]
+      ~nodes
+      ~graph_outputs:[ as_tensor "y" ]
+      ()
+  in
+  dump "erf" (prog [ node "erf.default" [ tin "self" "x" ] "y" ]);
+  dump "masked_fill.Scalar"
+    (prog
+       [
+         node "masked_fill.Scalar"
+           [ tin "self" "x"; tin "mask" "m"; float_in "value" 0. ]
+           "y";
+       ]);
+  dump "masked_fill.Scalar of an int64 tensor is refused"
+    (prog
+       ~y:(meta ~dtype:5 [ 2; 3 ])
+       [
+         node "masked_fill.Scalar"
+           [ tin "self" "a"; tin "mask" "m"; float_in "value" 0. ]
+           "y";
+       ]);
+  dump "type_as an int32 tensor"
+    (prog
+       ~y:(meta ~dtype:4 [ 2; 3 ])
+       [ node "type_as.default" [ tin "self" "a"; tin "other" "i" ] "y" ]);
+  dump "mul binary32 by int64"
+    (prog [ node "mul.Tensor" [ tin "self" "x"; tin "other" "a" ] "y" ]);
+  dump "mul int64 by binary32"
+    (prog [ node "mul.Tensor" [ tin "self" "a"; tin "other" "x" ] "y" ]);
+  [%expect
+    {|
+    erf
+      erf x=t0
+    masked_fill.Scalar
+      bitwise_not x=t1
+      where_scalar_other condition=t4 <-n0 x=t0 scalar=0
+    masked_fill.Scalar of an int64 tensor is refused
+      malformed PT2 graph: torch.ops.aten.masked_fill.Scalar: dtype is not supported
+    type_as an int32 tensor
+      to_copy x=t2 target=int
+    mul binary32 by int64
+      to_copy x=t2 target=float
+      mul a=t0 b=t4 <-n0
+    mul int64 by binary32
+      to_copy x=t2 target=float
+      mul a=t4 <-n0 b=t0 |}]
+
+(* The values: [masked_fill] writes [value] where the mask holds and keeps
+   [self] elsewhere; the promoted [mul] multiplies by the int64 values. *)
+let%expect_test "masked_fill and the promoted mul, evaluated" =
+  let prog target inputs =
+    program ~x_sizes:[ 2; 3 ] ~params:[ "m"; "a" ]
+      ~extra_tensor_values:
+        [
+          ("m", meta ~dtype:12 [ 2; 3 ]);
+          ("a", meta ~dtype:5 [ 2; 3 ]);
+          ("y", meta [ 2; 3 ]);
+        ]
+      ~nodes:[ node target inputs "y" ]
+      ~graph_outputs:[ as_tensor "y" ]
+      ()
+  in
+  let eval label json =
+    match lower json with
+    | Error e ->
+        Format.printf "%s: %a@." label Native_interp.pp_error (Err.Error.kind e)
+    | Ok l -> (
+        let g = l.Pt2_native_graph.graph in
+        let value id =
+          let sg = Tensor_id.Map.find id g.Graph_ir.Graph.tensors in
+          let shape = sg.Tensor_sig.shape in
+          let flat c = (Vec6.offset shape c :> int) in
+          match sg.Tensor_sig.fmt with
+          | Payload.Fmt Payload.Bool ->
+              Tensor.materialize_bool shape (fun c -> flat c mod 2 = 0)
+          | Payload.Fmt Payload.I64 ->
+              Tensor.materialize_i64 shape (fun c -> Int64.of_int (flat c - 2))
+          | _ -> Tensor.materialize shape (fun c -> float_of_int (flat c + 1))
+        in
+        let bound =
+          List.map (fun id -> (id, value id)) g.Graph_ir.Graph.inputs
+        in
+        let inputs, constants =
+          List.partition
+            (fun (id, _) -> Graph_ir.input_kind g id = Graph_common.Input.Input)
+            bound
+        in
+        match Eval_direct.run g ~inputs ~constants with
+        | Error e ->
+            Format.printf "%s: %a@." label Eval_direct.pp_error
+              (Err.Error.kind e)
+        | Ok env ->
+            let y = Tensor_id.Map.find (List.hd g.Graph_ir.Graph.outputs) env in
+            let out = ref [] in
+            Vec6.iter (Tensor.packed_shape y) (fun c ->
+                out := Tensor.read y c :: !out);
+            Format.printf "%s: %a@." label
+              Fmt.(list ~sep:sp float)
+              (List.rev !out))
+  in
+  (* x = 1 .. 6, m true at even offsets, a = -2 .. 3 *)
+  eval "masked_fill(x, m, -7)"
+    (prog "masked_fill.Scalar"
+       [ tin "self" "x"; tin "mask" "m"; float_in "value" (-7.) ]);
+  eval "x * a" (prog "mul.Tensor" [ tin "self" "x"; tin "other" "a" ]);
+  eval "a * x" (prog "mul.Tensor" [ tin "self" "a"; tin "other" "x" ]);
+  [%expect
+    {|
+    masked_fill(x, m, -7): -7 2 -7 4 -7
+    6
+    x * a: -2 -2 0 4 10
+    18
+    a * x: -2 -2 0 4 10
+    18 |}]

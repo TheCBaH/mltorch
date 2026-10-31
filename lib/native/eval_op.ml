@@ -169,6 +169,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Cumsum { Reduce.Cumsum.params; x } ->
         let module C = Reduce.Cumsum.Compute (S) in
         C.pixel params ~x:(operand x) out
+    | Erf { Pointwise.Erf.x } ->
+        let module C = Pointwise.Erf.Compute (S) in
+        C.pixel (operand x) out
     | Exp { Pointwise.Exp.x } ->
         let module C = Pointwise.Exp.Compute (S) in
         C.pixel (operand x) out

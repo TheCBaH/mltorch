@@ -767,3 +767,42 @@ let%expect_test "group_norm normalizes each sample on its own" =
                ~x ~weight:w ~bias:b ()
          | _ -> assert false));
   [%expect {| batch of 2, one group: f32 [D=2 H=1 W=1 C=2] {-1, 1, -1, 1} |}]
+
+(* [erf] against the host's [Float.erf] on binary32 inputs. The reference is
+   [Expr]'s Abramowitz-Stegun 7.1.26 polynomial, the one the exact [Gelu]
+   uses: within 1.5e-7 absolute (plus binary32 rounding), so not exact at 0
+   and blind to the sign of zero; odd, saturating at +-1, NaN through. *)
+let%expect_test "erf: values, saturation, NaN and signed zero" =
+  let xs = [ 0.; -0.; 0.5; -0.5; 1e-8; 2.; -2.; 6.; nan; inf; -.inf ] in
+  let n = List.length xs in
+  let shape = s1c n in
+  match
+    run
+      ~inputs:[ (shape, f32, floats shape xs) ]
+      (function [ x ] -> Graph_builder.erf x | _ -> assert false)
+  with
+  | Error _ -> print_endline "error"
+  | Ok y ->
+      List.iteri
+        (fun i x ->
+          let got = Tensor.read y (Vec6.coord ~n:0 ~t:0 ~d:0 ~h:0 ~w:0 ~c:i) in
+          let want = Float.erf (Int32.float_of_bits (Int32.bits_of_float x)) in
+          let ok =
+            (Float.is_nan got && Float.is_nan want)
+            || Float.abs (got -. want) <= 2e-7
+          in
+          Format.printf "erf(%g) = %g %s@." x got (if ok then "ok" else "WRONG"))
+        xs;
+      [%expect
+        {|
+        erf(0) = 1e-09 ok
+        erf(-0) = 1e-09 ok
+        erf(0.5) = 0.5205 ok
+        erf(-0.5) = -0.5205 ok
+        erf(1e-08) = 1.22839e-08 ok
+        erf(2) = 0.995322 ok
+        erf(-2) = -0.995322 ok
+        erf(6) = 1 ok
+        erf(nan) = nan ok
+        erf(inf) = 1 ok
+        erf(-inf) = -1 ok |}]

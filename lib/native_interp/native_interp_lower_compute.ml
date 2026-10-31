@@ -32,6 +32,7 @@ let targets =
     "torch.ops.aten.div.Tensor";
     "torch.ops.aten.div.Tensor_mode";
     "torch.ops.aten.einsum.default";
+    "torch.ops.aten.erf.default";
     "torch.ops.aten.gelu.default";
     "torch.ops.aten.hardsigmoid.default";
     "torch.ops.aten.hardsigmoid_.default";
@@ -46,7 +47,6 @@ let targets =
     "torch.ops.aten.matmul.default";
     "torch.ops.aten.mean.dim";
     "torch.ops.aten.mul.Scalar";
-    "torch.ops.aten.mul.Tensor";
     "torch.ops.aten.native_layer_norm.default";
     "torch.ops.aten.neg.default";
     "torch.ops.aten.pow.Scalar";
@@ -608,6 +608,9 @@ let dispatch ~ctx ~env (node : Node.t) =
        | "torch.ops.aten.cos.default" ->
            let* y = cos (get "self") in
            return [ y ]
+       | "torch.ops.aten.erf.default" ->
+           let* y = erf (get "self") in
+           return [ y ]
        | "torch.ops.aten.div.Tensor" -> (
            match tensor_or_scalar "other" with
            | `Tensor other ->
@@ -714,14 +717,6 @@ let dispatch ~ctx ~env (node : Node.t) =
            let s = required_scalar_arg esc node "other" in
            let* y = mul_scalar s (get "self") in
            return [ y ]
-       | "torch.ops.aten.mul.Tensor" -> (
-           match tensor_or_scalar "other" with
-           | `Tensor other ->
-               let* y = mul (get "self") other in
-               return [ y ]
-           | `Scalar s ->
-               let* y = mul_scalar s (get "self") in
-               return [ y ])
        (* [-x] legalizes to [x * -1]: exact IEEE negation, so this is
          bit-identical to a genuine negate. No dedicated node -- the same
          reasoning [sub.Tensor]'s scalar form takes for [add_scalar]. *)

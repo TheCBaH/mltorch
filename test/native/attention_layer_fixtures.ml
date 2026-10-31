@@ -12,6 +12,24 @@ module Rope_form = struct
   type t = Batched | No_rope | Shared
 end
 
+(* How the decomposition spells the attention: an Sdpa node, or the eager
+   [matmul] / scale / mask [add] / [softmax] / [matmul] of a Hugging Face
+   encoder, its scale a multiply or a divide, or (esm2) the query multiplied
+   by it before the rotation and the scores by one. Alphabetical. *)
+module Core_form = struct
+  type t = Eager_div | Eager_mul | Eager_prescaled | Sdpa
+end
+
+(* Spellings the node cannot stand for, for the rewrite's negative cases.
+   Alphabetical. *)
+module Variant = struct
+  type t =
+    | Bool_mask
+        (** the eager scores kept where a boolean input holds, -inf elsewhere
+            ([masked_fill] by [where]), not an additive mask *)
+    | Partial_rope  (** rotate-half over the first half of each head only *)
+end
+
 module Config = struct
   type t = {
     batch : int;
@@ -31,6 +49,7 @@ module Config = struct
     scale : Attention.Sdpa.Scale.t;
     bf16_weights : bool;
         (** the four projection weights bfloat16 (a bfloat16 layer's) *)
+    residual : bool;  (** the output adds an input of its own, not [x] *)
   }
 end
 
@@ -52,6 +71,7 @@ let small =
     mask = false;
     scale = Attention.Sdpa.Scale.Default;
     bf16_weights = false;
+    residual = false;
   }
 
 let all_flags (c : Config.t) =
@@ -78,6 +98,7 @@ let s n t d h w c = Vec6.shape ~n ~t ~d ~h ~w ~c
 module Operands = struct
   type t = {
     x : Tensor_id.t;
+    residual : Tensor_id.t option;
     norm_weight : Tensor_id.t option;
     norm_bias : Tensor_id.t option;
     wq : Tensor_id.t;
@@ -114,6 +135,7 @@ let operands (c : Config.t) =
     else input ~shape:weight ()
   in
   let* x = input ~shape:(s 1 1 b 1 l e) () in
+  let* residual = opt c.Config.residual (s 1 1 b 1 l e) in
   let* norm_weight =
     opt (c.Config.norm <> None && c.Config.norm_weight) vector
   in
@@ -136,6 +158,7 @@ let operands (c : Config.t) =
   let+ mask = opt c.Config.mask (s 1 1 b 1 l l) in
   {
     Operands.x;
+    residual;
     norm_weight;
     norm_bias;
     wq;
@@ -156,6 +179,7 @@ let payload (c : Config.t) (o : Operands.t) : L.t =
   let proj weight bias = { L.Projection.weight; bias } in
   {
     L.k = proj o.Operands.wk o.Operands.bk;
+    residual = o.Operands.residual;
     layer_scale = o.Operands.gamma;
     mask = o.Operands.mask;
     norm =
@@ -195,12 +219,13 @@ let node (c : Config.t) =
 let swap_hw = Axis.[ (N, N); (T, T); (D, D); (H, W); (W, H); (C, C) ]
 
 (* The decomposed layer as an importer spells it, written independently. *)
-let decomposed (c : Config.t) =
+let decomposed ?(core = Core_form.Sdpa) ?variant (c : Config.t) =
   build "attention_layer_decomposed"
     Graph_builder.(
       let* o = operands c in
       let b = c.Config.batch and l = c.Config.tokens and e = c.Config.width in
       let h = c.Config.heads and d = d_of c in
+      let scores_shape = s 1 1 b 1 l l in
       let eps = Json_util.f32_to_f32 1e-5 in
       let norm kind u =
         match kind with
@@ -222,27 +247,37 @@ let decomposed (c : Config.t) =
         let* z = reshape { Reshape.Reshape.shape = s 1 1 b l h d } z in
         permute swap_hw z
       in
+      let slice_c a n z' =
+        slice
+          {
+            Split.Slice.axis = Axis.C;
+            start = Dim.fence a;
+            stop = Dim.fence (a + n);
+            step = Op_config.Pos.of_int 1;
+          }
+          z'
+      in
+      let rotate_half ~width z cos sin =
+        let half = width / 2 in
+        let* x1 = slice_c 0 half z in
+        let* x2 = slice_c half half z in
+        let* neg = mul_scalar (-1.) x2 in
+        let* rotated = concat { Concat.Concat.axis = Axis.C } [ neg; x1 ] in
+        let* a = mul z cos in
+        let* r = mul rotated sin in
+        add a r
+      in
       let rope z =
-        match (o.Operands.cos, o.Operands.sin) with
-        | Some cos, Some sin ->
-            let half = d / 2 in
-            let slice_ a z' =
-              slice
-                {
-                  Split.Slice.axis = Axis.C;
-                  start = Dim.fence a;
-                  stop = Dim.fence (a + half);
-                  step = Op_config.Pos.of_int 1;
-                }
-                z'
-            in
-            let* x1 = slice_ 0 z in
-            let* x2 = slice_ half z in
-            let* neg = mul_scalar (-1.) x2 in
-            let* rotated = concat { Concat.Concat.axis = Axis.C } [ neg; x1 ] in
-            let* a = mul z cos in
-            let* r = mul rotated sin in
-            add a r
+        match (o.Operands.cos, o.Operands.sin, variant) with
+        | Some cos, Some sin, Some Variant.Partial_rope ->
+            let r = d / 2 in
+            let* zr = slice_c 0 r z in
+            let* zp = slice_c r (d - r) z in
+            let* cr = slice_c 0 r cos in
+            let* sr = slice_c 0 r sin in
+            let* rotated = rotate_half ~width:r zr cr sr in
+            concat { Concat.Concat.axis = Axis.C } [ rotated; zp ]
+        | Some cos, Some sin, _ -> rotate_half ~width:d z cos sin
         | _ -> return z
       in
       let* u =
@@ -252,6 +287,12 @@ let decomposed (c : Config.t) =
       in
       let* q = linear_ ~weight:o.Operands.wq ?bias:o.Operands.bq u in
       let* q = heads q in
+      let* q =
+        match core with
+        | Core_form.Eager_prescaled ->
+            mul_scalar (1. /. Float.sqrt (float_of_int d)) q
+        | Core_form.Eager_div | Core_form.Eager_mul | Core_form.Sdpa -> return q
+      in
       let* q = rope q in
       let* k = linear_ ~weight:o.Operands.wk ?bias:o.Operands.bk u in
       let* k = heads k in
@@ -259,9 +300,38 @@ let decomposed (c : Config.t) =
       let* v = linear_ ~weight:o.Operands.wv ?bias:o.Operands.bv u in
       let* v = heads v in
       let* a =
-        sdpa
-          { Attention.Sdpa.scale = c.Config.scale }
-          ~query:q ~key:k ~value:v ?mask:o.Operands.mask ()
+        match core with
+        | Core_form.Sdpa ->
+            sdpa
+              { Attention.Sdpa.scale = c.Config.scale }
+              ~query:q ~key:k ~value:v ?mask:o.Operands.mask ()
+        | Core_form.Eager_div | Core_form.Eager_mul | Core_form.Eager_prescaled
+          ->
+            let swap_wc =
+              Axis.[ (N, N); (T, T); (D, D); (H, H); (W, C); (C, W) ]
+            in
+            let* kt = permute swap_wc k in
+            let* s = batched_matmul q kt in
+            let root = Float.sqrt (float_of_int d) in
+            let* s =
+              match core with
+              | Core_form.Eager_div -> div_scalar root s
+              | Core_form.Eager_prescaled -> mul_scalar 1. s
+              | Core_form.Eager_mul | Core_form.Sdpa ->
+                  mul_scalar (1. /. root) s
+            in
+            let* s =
+              match (o.Operands.mask, variant) with
+              | _, Some Variant.Bool_mask ->
+                  let* m =
+                    input ~shape:scores_shape ~fmt:(Payload.Fmt Payload.Bool) ()
+                  in
+                  where_scalar_other ~condition:m Float.neg_infinity s
+              | Some m, _ -> add s m
+              | None, _ -> return s
+            in
+            let* p = softmax { Reduce.Softmax.axis = Axis.C } s in
+            batched_matmul p v
       in
       let* a = permute swap_hw a in
       let* a = reshape { Reshape.Reshape.shape = s 1 1 b 1 l e } a in
@@ -269,7 +339,7 @@ let decomposed (c : Config.t) =
       let* y =
         match o.Operands.gamma with Some g -> mul y g | None -> return y
       in
-      let* r = add o.Operands.x y in
+      let* r = add (Option.value o.Operands.residual ~default:o.Operands.x) y in
       match c.Config.norm with
       | Some (kind, L.Placement.Post) -> norm kind r
       | _ -> return r)

@@ -47,6 +47,7 @@ let%expect_test "the node prints and round-trips through JSON" =
     {|
     attention_layer
       x=t0
+      residual=none
       norm=layer/pre(eps=1e-05, weight=t1, bias=t2)
       q=(t3, t4)
       k=(t5, t6)
@@ -113,7 +114,7 @@ let%expect_test "operand shapes the node refuses" =
                                                                        W=5 C=4], got
     [D=3 H=1 W=5 C=4]
     a mask over seven keys: sdpa: mask extent on C must be 5 (the score extent) or 1, got 7
-    an input with heads on H: attention_layer input shape must be [D=2 H=1 W=5
+    an input with heads on H: attention_layer input shape must be [D=4 H=1 W=5
                                                                    C=8], got
     [D=2 H=2 W=5 C=8] |}]
 
@@ -140,6 +141,8 @@ let configs =
     ( "pre layer without affine, explicit scale",
       F.with_norm ~weight:false ~bias:false L.Norm.Kind.Layer L.Placement.Pre
         { base with F.Config.scale = Attention.Sdpa.Scale.Explicit 0.125 } );
+    ( "no norm, all flags, a residual of its own",
+      { (F.all_flags base) with F.Config.residual = true } );
     ( "one head of 12, 7 tokens, all flags, rope",
       {
         (F.all_flags base) with
@@ -173,4 +176,5 @@ let%expect_test "the node equals its decomposition, bit for bit" =
     pre rms, shared rope: bitwise (29 nodes decomposed, 80 of 80 finite)
     post rms w-less, batched rope, masked: bitwise (30 nodes decomposed, 80 of 80 finite)
     pre layer without affine, explicit scale: bitwise (15 nodes decomposed, 80 of 80 finite)
+    no norm, all flags, a residual of its own: bitwise (15 nodes decomposed, 80 of 80 finite)
     one head of 12, 7 tokens, all flags, rope: bitwise (29 nodes decomposed, 168 of 168 finite) |}]

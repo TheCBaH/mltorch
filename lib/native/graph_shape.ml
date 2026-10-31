@@ -222,6 +222,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* b_shape = shape b in
       let+ out = widen (Pointwise.Eq_tensor.output_shape a_shape b_shape) in
       [ out ]
+  | Erf { Pointwise.Erf.x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Erf.output_shape x_shape) in
+      [ out ]
   | Exp { Pointwise.Exp.x } ->
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Exp.output_shape x_shape) in
