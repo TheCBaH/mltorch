@@ -1588,6 +1588,35 @@ Idempotence is the property that makes "canonical" mean anything, and
 `pipeline_test.ml` asserts it as "the second run produces an empty map" — the
 same signal `Pass.fixpoint` uses to detect convergence — on both branches.
 
+### 12j. Fusing an attention layer (granted, off by default)
+
+Status: **implemented** — `passes/fuse_attention_layer.ml`, tests in
+`test/native/fuse_attention_layer_test.ml`. In no pipeline: a caller that
+grants the layer runs it.
+
+The pass is `Attention_layer_decompose.decompose`'s inverse. Anchored on the
+layer's output it walks upstream — an optional Post norm over C, the residual
+`add` (either operand order), an optional layer-scale `mul`, the output Linear,
+the head merge (`permute` swapping H and W, `reshape`), the Sdpa, and per
+projection the head split and Linear, with Q and K optionally rotated
+(rotate-half: two slices that halve C, `mul_scalar (-1)`, a concat on C, two
+products, a sum) — and replaces the whole region with one `Attention_layer`
+node whose output keeps the anchor's id under an `Identical` claim: the node's
+reference *is* that subgraph. Every interior must be consumed inside the match
+and not be a graph output; the three projections must read one source, which
+is the residual's `x` (through a Pre norm read by those three alone); a mask
+must be binary32; Q and K must share their rotation tables; the node's own
+shape rule must accept the result. A sum read only by a norm over C is left to
+the match anchored on that norm, so a Post layer is taken whole. Anything else
+leaves the graph unchanged.
+
+Not yet matched: fastvit's fused-qkv form (a constant weight sliced three
+ways, `unbind`, the `clone` and transposes of its NCHW frame) and the Hugging
+Face eager form (`matmul`, `mul`/`div` scale, `add` mask, `softmax`, `matmul`
+in place of Sdpa, whose scale forms D13 normalizes to one multiply by a
+binary32 constant, within tolerance rather than bitwise). Both are further
+patterns over the same builder of the node.
+
 ## 13. Tests
 
 `test/native/` is `ppx_expect` inline tests in the `native_test` library. New tests
