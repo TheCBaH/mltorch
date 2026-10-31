@@ -108,6 +108,18 @@ its own name becomes its interface and hides its siblings (the lowering is
 
 ## Analyses and passes
 
+- **`Ssa_expand_attend`** replaces each `Attend` whose precision is binary32
+  (`Attention_block.Precision`) with the loops of `Attention_block.eval`: per
+  batch and head the keys in blocks, each block's scores and context as one
+  `Contract` over dense scratch copies of Q, K and V (a `Contract` addresses
+  whole buffers and has no base offset, so a block is staged), and the running
+  maximum, sum and accumulator updated per query between them. The expansion is
+  built once with `Ssa_builder` as a small program over the attention's buffers
+  plus eight declared scratch buffers, then cloned in place of the `Attend`.
+  The arithmetic is binary64 until `Ssa_precision.to_f32`; narrowed and
+  interpreted it equals `Attention_block.eval` bit for bit. A bfloat16 attention
+  is untouched: only the Machine IR route realizes it. No emitter needs an
+  `Attend` for binary32; each needs `Contract`.
 - `Ssa_uses` records definitions, uses and the region tree of one revision and
   answers lexical dominance; it is bound to its revision. `Ssa_range` derives
   integer ranges (a missing fact is the whole domain, `Empty` is an unreachable
