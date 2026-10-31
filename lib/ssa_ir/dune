@@ -11,6 +11,7 @@
  (name ssa_ir)
  (libraries
   attention_block
+  attention_layer_block
   contraction
   core
   err_trace

@@ -139,6 +139,12 @@ its own name becomes its interface and hides its siblings (the lowering is
   compute it too. No other site is fused: the plan contracts dots only, so
   `* w + b` stays two roundings. A bfloat16 descriptor has no loops (no store
   rounds to bfloat16).
+- **`Ssa_attention_layer`** builds a granted attention layer
+  (`Attention_layer_block`) as a sequence of existing operations over its
+  buffers and declared scratch (norm output, Q, K, V, attention output, output
+  projection, residual): `Ssa_norm`'s loops, `Contract`s with bias loops, the
+  rotation loops, one `Attend` (which `Ssa_expand_attend` then expands for
+  binary32), the epilogue loop and a Post norm. No new operation.
 - `Ssa_uses` records definitions, uses and the region tree of one revision and
   answers lexical dominance; it is bound to its revision. `Ssa_range` derives
   integer ranges (a missing fact is the whole domain, `Empty` is an unreachable

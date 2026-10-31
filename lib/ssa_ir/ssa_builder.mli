@@ -192,6 +192,18 @@ val contract :
 (** The matrix product [desc] ({!Ssa_op.Contract}), reading A and B and writing
     C, which must be disjoint from both. *)
 
+val attend :
+  t ->
+  Attention_block.t ->
+  q:Ssa_id.Buffer.t ->
+  k:Ssa_id.Buffer.t ->
+  v:Ssa_id.Buffer.t ->
+  mask:Ssa_id.Buffer.t option ->
+  o:Ssa_id.Buffer.t ->
+  unit
+(** The attention [desc] ({!Ssa_op.Attend}), reading Q, K, V and the mask and
+    writing O, which must be disjoint from all of them. *)
+
 (** {1 Scratch locals and the scan meter} *)
 
 val local_alloc :

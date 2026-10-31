@@ -158,6 +158,10 @@ let contract bld desc ~a ~b ~c =
   List.iter (declared bld) [ a; b; c ];
   ignore (instr bld (Ssa_op.Contract { desc; a; b; c }))
 
+let attend bld desc ~q ~k ~v ~mask ~o =
+  List.iter (declared bld) ([ q; k; v; o ] @ Option.to_list mask);
+  ignore (instr bld (Ssa_op.Attend { desc; q; k; v; mask; o }))
+
 let local_alloc ?var b ~slots = one b (Ssa_op.Local_alloc { slots; var })
 
 let local_read b local at =

@@ -1,0 +1,9 @@
+; A full encoder attention layer as data: normalization, the four projections,
+; rotary embedding, attention, layer scale and residual, each part one of the
+; existing descriptors derived from the layer's extents, with the reference
+; that composes their oracles. Pure: no SSA, no tensor type. js_of_ocaml-safe:
+; every extent and stride is an [int64].
+
+(library
+ (name attention_layer_block)
+ (libraries attention_block contraction err_trace f32_math fmt norm_block))

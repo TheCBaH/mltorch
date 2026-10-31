@@ -547,3 +547,38 @@ of its steps one `fmaf`, `F32_ordered` rounds the product and the sum;
 contraction site is pinned, not assumed: the ordered loops under the
 `Fp32_contracted` lowering equal the fused descriptor, and fusing any further
 site (`* w + b`) in the descriptor turns that test red.
+
+**The layer descriptor** (`Attention_layer_block`) is `y = x + gamma * (A(N(x))
+W_o^T + b_o)` (Pre), `N(x + gamma * (A(x) W_o^T + b_o))` (Post) or neither, with
+`A(u)` the attention over `R(u W_q^T + b_q)`, `R(u W_k^T + b_k)`, `u W_v^T +
+b_v`, and `R` the optional rotate-half RoPE over the full head dimension
+(`cat(-z[d/2:], z[:d/2])`, `cos` / `sin` shared by every head, by strides).
+`make` derives every part from the layer's extents (one `Contraction` per
+projection, dense row-major, Linear's weight convention; one `Attention_block`
+whose strides read head `h` at `h * d` of each `width`-wide row, so head split
+and merge are strides) and the norm over the layer's rows, so a caller cannot
+build inconsistent parts. Every bias and `gamma` is optional; the residual is
+not. One precision for the whole layer: the plan's contraction policy is
+program-wide. Rounding points of `eval`:
+
+| step | `F32_fused` / `F32_ordered` | `Bf16_paired` |
+|---|---|---|
+| norm output (Pre), or `x` with no Pre norm | binary32 | bfloat16 (a Paired operand) |
+| `q, k, v = RN(Contract + b)` | binary32 | Paired over bfloat16 weights, `+ b` binary32 |
+| rotation `RN(RN(z * cos) + RN(r * sin))`, `r = RN(z' * -1)` exact | binary32, no site fused under either plan | binary32, then q, k, v rounded to bfloat16 |
+| attention output | binary32 | bfloat16 |
+| `RN(RN(RN(Contract + b_o) * gamma) + x)` | binary32 | binary32 |
+| Post norm output | binary32 | binary32 (`F32_ordered`: it is the layer's output) |
+
+The SSA form (`Ssa_attention_layer`) is a sequence of existing operations, no
+operation of its own: norm loops, three `Contract`s each with a bias loop, the
+rotation (each pair of half-row features read before either is written, so no
+copy), one `Attend` over head-strided scratch, the output `Contract` with one
+epilogue loop, a Post norm. No backend realizes the layer whole (on Coral the
+weights are megabytes against the helper's DTCM allowance), so a dedicated
+operation would be expanded by every consumer at once. Narrowed, with its
+`Attend` expanded, it equals `eval` bit for bit on the interpreter, C, Wasm and
+JavaScript at both binary32 precisions; `eval` itself equals its parts composed
+in another layout (a norm per row, a projection per sequence, an attention per
+head over copied dense operands). A bfloat16 layer has no SSA body yet: no
+store rounds to bfloat16.
