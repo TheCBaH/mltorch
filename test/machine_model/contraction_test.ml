@@ -414,8 +414,8 @@ let%expect_test "a contraction is refused where it has no form" =
   [%expect
     {|
     c: accepted; fused accepted
-    wasm: accepted; fused a fused contraction has no WebAssembly form
-    js: accepted; fused a fused contraction has no JavaScript form
+    wasm: accepted; fused accepted
+    js: accepted; fused accepted
     machine: accepted |}]
 
 (* With contractions, each matrix product of a binary32 plan is one helper

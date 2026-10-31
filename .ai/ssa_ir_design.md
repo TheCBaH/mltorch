@@ -389,9 +389,13 @@ of addressing, checks, transfers, masks and fused operations.
 
 ## Direct JavaScript consumer
 
-A `Contract` is a loop nest over the typed arrays, binary32 `Ordered` only:
-JavaScript forms no fused multiply-add, so `Fused_sequential`, `Paired` and any
-other format are refused. A binary32 `exp` is the runtime's `exp_f32`, the
+A `Contract` is a loop nest over the typed arrays, binary32 only: `Ordered` is a
+rounded product then a rounded sum, and `Fused_sequential` (like a scalar binary32
+`Float_fma`) calls the runtime's `fma_f32`. JavaScript has no fused multiply-add,
+so that helper is `F32_math.fma32`: the exact binary64 product, a TwoSum split,
+and one `Math.fround` after the sum is made odd when the split leaves a remainder;
+the odd step reads the sum's bits through a `Float64Array`/`BigInt64Array` pair on
+one buffer. `Paired`, other formats and a binary64 `Float_fma` are refused. A binary32 `exp` is the runtime's `exp_f32`, the
 `F32_math` sequence one `Math.fround` operation at a time, so it is bit-equal to
 the interpreter, C and WebAssembly; `Math.exp` serves only binary64. (The Loop
 IR's own JavaScript emitter still calls `Math.exp` for a binary32 `exp`.)
@@ -407,17 +411,22 @@ A loop runs a trip counter, `iv = lo + k * step`, so any step and the empty rang
 need no special case, and an index that came from `ceil`/`floor` is normalised
 (`+ 0`) before it becomes a float because it can be `-0`. Checked operations
 return their record at their own site. Refused, typed, not emitted: vectors and
-masks, fused multiply-add, binary32 `erf` and an int64 to binary32 conversion
-(each would lose its single rounding in a `Number`). Checks: the op sweep lowered
+masks, a binary64 fused multiply-add, binary32 `erf` and an int64 to binary32
+conversion (each would lose its single rounding in a `Number`). Checks: the op sweep lowered
 and optimized under node, hand-built control flow, every failure row, int64
 wrap, `-0`, binary32 rounding and a stride that does not divide its range, and
 mutations of each.
 
 ## Direct WebAssembly consumer
 
-A `Contract` is a loop nest over `i32` element offsets, binary32 `Ordered` only:
-WebAssembly has no scalar fused multiply-add, so `Fused_sequential`, `Paired`
-and any other format are refused rather than computed with other rounding.
+A `Contract` is a loop nest over `i32` element offsets, binary32 only: `Ordered`
+is a rounded product then a rounded sum, and `Fused_sequential` (like a scalar
+binary32 `Float_fma`) calls the module's own `fma_f32`, since WebAssembly has no
+scalar fused multiply-add. It is `F32_math.fma32` without a branch: every step is
+evaluated and `select` picks (the exact binary64 product, a TwoSum split, the sum
+made odd through `i64.reinterpret_f64` when the split leaves a remainder, one
+`f32.demote_f64`). `Paired`, other formats and a binary64 `Float_fma` are refused
+rather than computed with other rounding.
 
 `Ssa_wasm` (library `lib/ssa_wasm`) emits one exported `loop_kernel` over linear
 memory straight from a structured program, producing the same `Loop_wasm.kernel`

@@ -8,6 +8,7 @@ module Name = struct
     | Exp_f32
     | F16_to_float
     | Float_max
+    | Fma_f32
     | I64_from_float_failure
     | Pool_better
 
@@ -19,6 +20,7 @@ module Name = struct
       Exp_f32;
       F16_to_float;
       Float_max;
+      Fma_f32;
       I64_from_float_failure;
       Pool_better;
     ]
@@ -30,6 +32,7 @@ module Name = struct
     | Exp_f32 -> "exp_f32"
     | F16_to_float -> "f16_to_float"
     | Float_max -> "float_max"
+    | Fma_f32 -> "fma_f32"
     | I64_from_float_failure -> "i64_from_float_failure"
     | Pool_better -> "pool_better"
 end
@@ -167,6 +170,46 @@ let exp_f32_body =
       (List.rev !statements @ [ Stmt.return_ (expr result) ]);
   ]
 
+(* [F32_math.fma32] for binary32 operands held as [Number]s: [a * b] is exact
+   in binary64, TwoSum splits [p + c] into [s + e], and a nonzero [e] makes [s]
+   odd (round to odd) before the one [Math.fround]. A nonfinite operand makes
+   [e] a NaN, which returns the rounded [s]. The odd step reads [s]'s bits
+   through one shared eight-byte scratch, as an int64. *)
+let fma_f32_body =
+  let a = num_var "a" and b = num_var "b" and c = num_var "c" in
+  let p = num_var "p" and s = num_var "s" and bb = num_var "bb" in
+  let e = num_var "e" in
+  let words = Arr.big (id "fma_f32_bits")
+  and view = Arr.num (id "fma_f32_view") in
+  let bits = Big.var (id "bits") in
+  let zero = Num.const 0. in
+  let step =
+    select (Num.gt e zero)
+      (select (Num.gt s zero) (Big.const 1L) (Big.const (-1L)))
+      (select (Num.gt s zero) (Big.const (-1L)) (Big.const 1L))
+  in
+  [
+    Stmt.const_arr (id "fma_f32_bits") (Arr.new_big64 1);
+    Stmt.const_arr (id "fma_f32_view") (Arr.view_float64 words);
+    fn Name.Fma_f32 [ "a"; "b"; "c" ]
+      [
+        Stmt.const_num (id "p") (Num.mul a b);
+        Stmt.const_num (id "s") (Num.add p c);
+        Stmt.const_num (id "bb") (Num.sub s p);
+        Stmt.const_num (id "e")
+          (Num.add (Num.sub p (Num.sub s bb)) (Num.sub c bb));
+        Stmt.if_
+          (Pred.or_ (Num.ne e e) (Num.eq e zero))
+          [ Stmt.return_ (expr (Num.fround s)) ]
+          [];
+        store view (Idx.const 0) s;
+        Stmt.const_big (id "bits") (load words (Idx.const 0));
+        Stmt.if_ (Big.is_odd bits) [ Stmt.return_ (expr (Num.fround s)) ] [];
+        store words (Idx.const 0) (Big.add_wrap bits step);
+        Stmt.return_ (expr (Num.fround (load view (Idx.const 0))));
+      ];
+  ]
+
 (* [Half.Bf16.to_float]: bfloat16 is the high half of a binary32 pattern. The
    shared scratch pair reinterprets the 32 bits without allocating; [bits << 16]
    is negative when the sign bit is set, and a [Uint32Array] store wraps it back
@@ -262,6 +305,12 @@ let helper n =
   | Name.Exp_f32 -> one exp_f32_body
   | Name.F16_to_float -> one f16_body
   | Name.Float_max -> one float_max_body
+  | Name.Fma_f32 ->
+      {
+        Helper.name = n;
+        defines = [ id "fma_f32_bits"; id "fma_f32_view"; name n ];
+        body = fma_f32_body;
+      }
   | Name.I64_from_float_failure -> one i64_from_float_failure_body
   | Name.Pool_better -> one pool_better_body
 
@@ -286,6 +335,7 @@ let coord_failure ~buffer ~extents ~coord =
 let erf x = call Name.Erf [ expr x ]
 let f16_to_float b = call Name.F16_to_float [ expr b ]
 let float_max a b = call Name.Float_max [ expr a; expr b ]
+let fma_f32 a b c = call Name.Fma_f32 [ expr a; expr b; expr c ]
 
 let i64_from_float_failure x =
   expr (call Name.I64_from_float_failure [ expr x ])

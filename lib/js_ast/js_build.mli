@@ -122,6 +122,10 @@ module Big : sig
   (** The caller emits the zero and [min / -1] guards first. *)
 
   val eq : big t -> big t -> bool_ t
+
+  val is_odd : big t -> bool_ t
+  (** [(b & 1n) === 1n]: the one bitwise operator on a [BigInt] *)
+
   val lt : big t -> big t -> bool_ t
   val mul_wrap : big t -> big t -> big t
   val of_idx : idx t -> big t
@@ -167,10 +171,17 @@ module Arr : sig
   val literal : 'k t list -> 'k arr t
   (** An array literal, e.g. a per-channel quantization table. *)
 
+  val new_big64 : int -> big arr t
+  (** [new BigInt64Array(n)] *)
+
   val new_float64 : int -> num arr t
   val new_uint32 : int -> bits32 arr t
   val num : Js_ident.t -> num arr t
   val uint32 : Js_ident.t -> bits32 arr t
+
+  val view_float64 : big arr t -> num arr t
+  (** [new Float64Array(a.buffer)]: the same eight bytes as a binary64 and as an
+      int64, in the host's one byte order. *)
 
   val view_float32 : bits32 arr t -> num arr t
   (** [new Float32Array(a.buffer)]: reinterprets the same bytes. *)
@@ -189,6 +200,7 @@ module Stmt : sig
   val assign_idx : Js_ident.t -> idx t -> Js_ast.stmt
   val assign_num : Js_ident.t -> num t -> Js_ast.stmt
   val const_arr : Js_ident.t -> 'k arr t -> Js_ast.stmt
+  val const_big : Js_ident.t -> big t -> Js_ast.stmt
   val const_bits : Js_ident.t -> bits16 t -> Js_ast.stmt
   val const_idx : Js_ident.t -> idx t -> Js_ast.stmt
   val const_num : Js_ident.t -> num t -> Js_ast.stmt

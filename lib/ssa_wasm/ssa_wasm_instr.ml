@@ -236,17 +236,16 @@ let meter_check st ~limits (op : Ssa_op.t) =
   | _ -> invalid_arg "Ssa_wasm.meter_check"
 
 (* A binary32 contraction as its own loop nest over three buffers, in [i32]
-   element offsets: the sum rounded after each product, as [Ordered] says. A
-   fused step has no scalar form in WebAssembly. *)
+   element offsets: the sum rounded after each product, as [Ordered] says, or
+   each step one exact fused multiply-add, as [Fused_sequential] says: the
+   module's own [Fma_f32], since WebAssembly has no scalar one. *)
 let contract st (d : Contraction.t) ~a ~b ~c =
   (match d.Contraction.format with
   | Contraction.Element.F32 -> ()
   | Contraction.Element.Bf16 | Contraction.Element.I8 _ ->
       refuse (`Unsupported_operation "a contraction over other than binary32"));
   (match d.Contraction.numerics with
-  | Contraction.Numerics.Ordered -> ()
-  | Contraction.Numerics.Fused_sequential ->
-      refuse (`Unsupported_operation "a fused contraction")
+  | Contraction.Numerics.Ordered | Contraction.Numerics.Fused_sequential -> ()
   | Contraction.Numerics.Paired ->
       refuse (`Unsupported_operation "a paired contraction"));
   let narrow what x =
@@ -330,9 +329,14 @@ let contract st (d : Contraction.t) ~a ~b ~c =
           (seed
           @ [ set acc ]
           @ loop step d.Contraction.k
-              ([ get acc ]
-              @ load ba a_at @ load bb b_at
-              @ [ n Wasm_op.F32_mul; n Wasm_op.F32_add; set acc ])
+              (match d.Contraction.numerics with
+              | Contraction.Numerics.Fused_sequential ->
+                  load ba a_at @ load bb b_at
+                  @ [ get acc; call st R.Callee.Fma_f32; set acc ]
+              | Contraction.Numerics.Ordered | Contraction.Numerics.Paired ->
+                  [ get acc ]
+                  @ load ba a_at @ load bb b_at
+                  @ [ n Wasm_op.F32_mul; n Wasm_op.F32_add; set acc ])
           @ cell_address st bc c_at
           @ [ get acc; I.Store (Wasm.Store.F32_store, arg 2 0) ])))
 
@@ -450,8 +454,10 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
   | Ssa_op.Float_compare (c, a, b) ->
       let ty = if is_f32 a then `F32 else `F64 in
       one (r a @ r b @ [ n (compare_op ~ty c) ])
-  | Ssa_op.Float_fma _ ->
-      refuse (`Unsupported_operation "a scalar fused multiply-add")
+  | Ssa_op.Float_fma (a, b, c) ->
+      if is_f32 (first_result i) then
+        one (r a @ r b @ r c @ [ call st R.Callee.Fma_f32 ])
+      else refuse (`Unsupported_operation "a binary64 fused multiply-add")
   | Ssa_op.Float_max (a, b) ->
       one
         (r a @ r b
