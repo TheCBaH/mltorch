@@ -55,6 +55,7 @@ val prepare :
   ?contractions:bool ->
   ?bf16_pairs:bool ->
   ?attention:(Node_id.t -> Attention_site.t option) ->
+  ?layer:(Node_id.t -> Layer_site.t option) ->
   ?prepack:bool ->
   pipeline:Ssa_backends.Pipeline.t ->
   Loop_ir.Loop_bundle.t ->
@@ -76,7 +77,10 @@ val prepare :
     the nodes computed as one fused attention: each such node's invocation is
     its program replaced by one {!Ssa_ir.Ssa_op.Attend} over the buffers its
     roles bind (unblocked pipelines only); a role no buffer binds is a refusal.
-*)
+    [layer] names the nodes computed as one granted attention layer
+    ({!Layer_site}), whose bundle was built granting them: each such node's
+    invocation is the layer's sequence over its roles' buffers, expanded and
+    checked against the plan exactly as a binary32 attention is. *)
 
 val invocations : t -> int
 (** How many invocations the schedule holds. *)

@@ -605,3 +605,20 @@ design, because sequencing the decomposition's per-node programs into one Loop
 program (option (a)) needs a composition of Region-lowered programs and their
 placed kernels that neither Loop IR nor `Fusion_plan` has. Ungranted, an
 attention layer runs on `Eval_direct` alone.
+
+**Selection and the host routes.** `Layer_select.choose` takes the grant
+`Sdpa_select` takes (key block, precision), binary32 operands and a binary32
+precision, and derives the descriptor from the node's shapes; its reasons wrap
+`Sdpa_select.Reason` where they mean the same (`Attention r`), plus
+`Not_attention_layer` and `Precision` (a bfloat16 layer has no body yet).
+`Layer_site` carries each role's tensor id, resolved through the invocation's
+edges, and replaces the invocation's body with the layer's sequence over them.
+`Mir_model` takes it as `?layer` beside `?attention`; internally both are one
+site variant, so the binary32 expansion before the plan (`Ssa_expand_attend`,
+`Ssa_expand_contract`) and the plan checks (binary32 precision; `F32_fused`
+needs a plan contracting dots only, `F32_ordered` one that does not contract)
+are one code path. The bundle must be built granting the node
+(`Loop_bundle.build ~granted`). A granted layer equals `eval` bit for bit on
+the generic, AArch64 and x86-64 (soft-FMA) routes and natively on AArch64, and
+is within 1e-4 of the node's binary64 reference (measured 1e-7 to 1e-6 on the
+small fixtures).

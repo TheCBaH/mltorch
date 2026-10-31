@@ -93,34 +93,54 @@ let planning ~group p =
     ~precision:Mir_planning.Precision.F64 ~lanes:(Mir_type.Lanes.of_int 1)
     ~fma:Mir_planning.Fma.Forbidden ~capabilities:[]
 
+(* A node computed whole under a grant: one attention, or one attention layer.
+   Both replace the invocation's body over the buffers their roles bind, and a
+   binary32 one is expanded before the plan and checked against it the same
+   way. *)
+module Site = struct
+  type t = Attention of Attention_site.t | Layer of Layer_site.t
+
+  let precision = function
+    | Attention s -> s.Attention_site.block.Attention_block.precision
+    | Layer s -> s.Layer_site.block.Attention_layer_block.precision
+
+  let noun = function
+    | Attention _ -> "attention"
+    | Layer _ -> "attention layer"
+
+  let unbound u = Fmt.str "%a" Attention_site.Unbound.pp u
+
+  (* the program with its body the site's computation *)
+  let replace inv p = function
+    | Attention site ->
+        Result.bind
+          (Result.map_error unbound (Attention_site.buffers site inv))
+          (fun b -> Attention_site.program site b p)
+    | Layer site ->
+        Result.bind
+          (Result.map_error unbound (Layer_site.buffers site inv))
+          (fun b -> Layer_site.program site b p)
+end
+
 (* The lowered program of an invocation under a blocking policy, and the
    decision feedback made. *)
-let source ?contractions ?bf16_pairs ?attention ?(constant = fun _ -> false)
-    ~route ~blocking ~pipeline (inv : Loop_ir.Loop_bundle.invocation) =
+let source ?contractions ?bf16_pairs ?site ?(constant = fun _ -> false) ~route
+    ~blocking ~pipeline (inv : Loop_ir.Loop_bundle.invocation) =
   let ( let* ) = Result.bind in
+  let noun = match site with Some s -> Site.noun s | None -> "attention" in
   (* the invocation's program with its body one attention, where the node is
      selected as one *)
   let binary32_attention =
-    match attention with
-    | Some (site : Attention_site.t) ->
-        site.Attention_site.block.Attention_block.precision
-        <> Attention_block.Precision.Bf16_paired
+    match site with
+    | Some s -> Site.precision s <> Attention_block.Precision.Bf16_paired
     | None -> false
   in
-  (* the program with its body one [Attend] over the site's buffers *)
+  (* the program with its body the site's, over its roles' buffers *)
   let attend_site p =
-    match attention with
+    match site with
     | None -> Ok p
-    | Some (site : Attention_site.t) ->
-        let* b =
-          Result.map_error
-            (fun u ->
-              Reason.Attention (Fmt.str "%a" Attention_site.Unbound.pp u))
-            (Attention_site.buffers site inv)
-        in
-        Result.map_error
-          (fun s -> Reason.Attention s)
-          (Attention_site.program site b p)
+    | Some s ->
+        Result.map_error (fun r -> Reason.Attention r) (Site.replace inv p s)
   in
   (* a binary32 attention is expanded before the plan, at its precision, so
      only a planned binary32 pipeline takes one *)
@@ -128,7 +148,7 @@ let source ?contractions ?bf16_pairs ?attention ?(constant = fun _ -> false)
     if binary32_attention then
       Error
         (Reason.Attention
-           "a binary32 attention needs a planned binary32 pipeline")
+           (Fmt.str "a binary32 %s needs a planned binary32 pipeline" noun))
     else attend_site p
   in
   let lower ~group p =
@@ -170,11 +190,10 @@ let source ?contractions ?bf16_pairs ?attention ?(constant = fun _ -> false)
              ~numerics ~target inv)
       in
       let* () =
-        match attention with
+        match site with
         | Some site when binary32_attention ->
             let fused =
-              site.Attention_site.block.Attention_block.precision
-              = Attention_block.Precision.F32_fused
+              Site.precision site = Attention_block.Precision.F32_fused
             in
             if
               plan.Ssa_ir.Ssa_plan.precision
@@ -182,8 +201,10 @@ let source ?contractions ?bf16_pairs ?attention ?(constant = fun _ -> false)
             then
               Error
                 (Reason.Attention
-                   "a binary32 attention needs a binary32 plan; the plan \
-                    computes in binary64")
+                   (Fmt.str
+                      "a binary32 %s needs a binary32 plan; the plan computes \
+                       in binary64"
+                      noun))
             else if
               Ssa_ir.Ssa_numerics.contraction plan.Ssa_ir.Ssa_plan.numerics
               <>
@@ -193,11 +214,15 @@ let source ?contractions ?bf16_pairs ?attention ?(constant = fun _ -> false)
               Error
                 (Reason.Attention
                    (if fused then
-                      "a fused binary32 attention needs a plan that contracts \
-                       dots only"
+                      Fmt.str
+                        "a fused binary32 %s needs a plan that contracts dots \
+                         only"
+                        noun
                     else
-                      "an ordered binary32 attention needs a plan that does \
-                       not contract"))
+                      Fmt.str
+                        "an ordered binary32 %s needs a plan that does not \
+                         contract"
+                        noun))
             else Ok ()
         | _ -> Ok ()
       in
@@ -270,8 +295,9 @@ let source ?contractions ?bf16_pairs ?attention ?(constant = fun _ -> false)
       let* l = List.assoc decision.Mir_blocking.Decision.chosen lowered in
       Ok (l, Some decision, [])
 
-let kernel ?contractions ?bf16_pairs ?attention ?(prepack = false) ~constants
-    ~route ~blocking ~pipeline (inv : Loop_ir.Loop_bundle.invocation) =
+let kernel ?contractions ?bf16_pairs ?attention ?layer ?(prepack = false)
+    ~constants ~route ~blocking ~pipeline (inv : Loop_ir.Loop_bundle.invocation)
+    =
   (* the edge an SSA buffer binds: the Loop buffer of its id, positionally *)
   let edge_of (id : Ssa_ir.Ssa_id.Buffer.t) =
     List.find_map
@@ -290,10 +316,17 @@ let kernel ?contractions ?bf16_pairs ?attention ?(prepack = false) ~constants
     | None -> false
   in
   match
-    source ?contractions ?bf16_pairs
-      ?attention:
-        (Option.bind attention (fun f -> f inv.Loop_ir.Loop_bundle.node))
-      ~constant ~route ~blocking ~pipeline inv
+    let node = inv.Loop_ir.Loop_bundle.node in
+    let site =
+      match Option.bind attention (fun f -> f node) with
+      | Some a -> Some (Site.Attention a)
+      | None ->
+          Option.map
+            (fun l -> Site.Layer l)
+            (Option.bind layer (fun f -> f node))
+    in
+    source ?contractions ?bf16_pairs ?site ~constant ~route ~blocking ~pipeline
+      inv
   with
   | Error r -> Error r
   | Ok (lowered, decision, packs) -> (
@@ -358,7 +391,7 @@ let kernel ?contractions ?bf16_pairs ?attention ?(prepack = false) ~constants
                 packs ))
 
 let prepare ?(route = Route.Generic) ?(blocking = Mir_blocking.Policy.Unblocked)
-    ?contractions ?bf16_pairs ?attention ?prepack ~pipeline
+    ?contractions ?bf16_pairs ?attention ?layer ?prepack ~pipeline
     (b : Loop_ir.Loop_bundle.t) =
   let constants = Tensor_id.Set.of_list b.Loop_ir.Loop_bundle.constants in
   let results =
@@ -371,8 +404,8 @@ let prepare ?(route = Route.Generic) ?(blocking = Mir_blocking.Policy.Unblocked)
               node = inv.Loop_ir.Loop_bundle.node;
               reason;
             })
-          (kernel ?contractions ?bf16_pairs ?attention ?prepack ~constants
-             ~route ~blocking ~pipeline inv))
+          (kernel ?contractions ?bf16_pairs ?attention ?layer ?prepack
+             ~constants ~route ~blocking ~pipeline inv))
       b.Loop_ir.Loop_bundle.invocations
   in
   match
