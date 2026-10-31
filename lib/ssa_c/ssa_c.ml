@@ -62,6 +62,10 @@ let arguments (p : Ssa_program.t) =
         | Ssa_op.Vec_load { buffer; _ }
         | Ssa_op.Vec_store { buffer; _ } ->
             note buffer
+        | Ssa_op.Contract { a; b; c; _ } ->
+            note a;
+            note b;
+            note c
         | _ -> ())
     | Ssa_stmt.For { body; _ } | Ssa_stmt.Ordered_sum { body; _ } -> region body
     | Ssa_stmt.If { then_; else_; _ } ->

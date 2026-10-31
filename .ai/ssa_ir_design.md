@@ -362,7 +362,10 @@ GCC/Clang generic vectors of the logical width (a power of two) with masks as
 exact binary32 one) and any other stride goes lane by lane, and the operations C has no vector form for run lane by
 lane through the scalar helper. Checked operations are explicit `if` + record at
 their own site, with the operands the interpreter reports. Precision and
-contraction are never decided here. A buffer no operation touches is no
+contraction are never decided here. A `Contract` is the descriptor's own loop
+nest over its three buffers, binary32 only: `Ordered` is a rounded product then a
+rounded sum, `Fused_sequential` is `fmaf`, and any other format or `Paired`
+refuses (the host compiles with `-ffp-contract=off`, which `Ordered` relies on). A buffer no operation touches is no
 argument (the caller validates its binding).
 An `i8`/`i16` buffer is `int8_t`/`int16_t` and its dequantization the explicit
 operations (in binary32 with `float` literals); a contiguous binary32

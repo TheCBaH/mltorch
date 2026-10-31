@@ -346,8 +346,68 @@ let instr cx depth (i : Ssa_instr.t) =
   | Ssa_op.Mark _ | Ssa_op.Mark_lanes _ -> no_result ()
   | Ssa_op.Attend _ ->
       raise (Ssa_c_ctx.Refused (`Unsupported_operation "an attention"))
-  | Ssa_op.Contract _ ->
-      raise (Ssa_c_ctx.Refused (`Unsupported_operation "a contraction"))
+  | Ssa_op.Contract { desc = d; a; b; c } ->
+      (* the descriptor's own loop nest over the three buffers: binary32 only,
+         each step as the numerics says (the host compiles with
+         [-ffp-contract=off], so [Ordered] stays two roundings) *)
+      let refuse what =
+        raise (Ssa_c_ctx.Refused (`Unsupported_operation what))
+      in
+      (match d.Contraction.format with
+      | Contraction.Element.F32 -> ()
+      | Contraction.Element.Bf16 | Contraction.Element.I8 _ ->
+          refuse "a contraction over other than binary32");
+      let step =
+        match d.Contraction.numerics with
+        | Contraction.Numerics.Ordered ->
+            fun x y ->
+              ("float ct_p = " ^ x ^ " * " ^ y ^ ";", "acc = acc + ct_p;")
+        | Contraction.Numerics.Fused_sequential ->
+            fun x y -> ("", "acc = fmaf(" ^ x ^ ", " ^ y ^ ", acc);")
+        | Contraction.Numerics.Paired -> refuse "a paired contraction"
+      in
+      let ao = d.Contraction.a and bo = d.Contraction.b in
+      let co = d.Contraction.c in
+      let pa = buffer_name cx a
+      and pb = buffer_name cx b
+      and pc = buffer_name cx c in
+      let cell =
+        Printf.sprintf "%s[ct_b * %s + ct_i * %s + ct_j * %s]" pc
+          (i64_lit co.Contraction.Output.batch)
+          (i64_lit co.Contraction.Output.row)
+          (i64_lit co.Contraction.Output.col)
+      in
+      let x =
+        Printf.sprintf "%s[ct_b * %s + ct_i * %s + ct_k * %s]" pa
+          (i64_lit ao.Contraction.Operand.batch)
+          (i64_lit ao.Contraction.Operand.outer)
+          (i64_lit ao.Contraction.Operand.k)
+      and y =
+        Printf.sprintf "%s[ct_b * %s + ct_j * %s + ct_k * %s]" pb
+          (i64_lit bo.Contraction.Operand.batch)
+          (i64_lit bo.Contraction.Operand.outer)
+          (i64_lit bo.Contraction.Operand.k)
+      in
+      let product, accumulate = step x y in
+      let loop var extent =
+        Printf.sprintf "for (int64_t %s = 0; %s < %s; %s++)" var var
+          (i64_lit extent) var
+      in
+      line cx depth "{";
+      line cx (depth + 1) "%s" (loop "ct_b" d.Contraction.batch);
+      line cx (depth + 2) "%s" (loop "ct_i" d.Contraction.m);
+      line cx (depth + 3) "%s {" (loop "ct_j" d.Contraction.n);
+      line cx (depth + 4) "float acc = %s;"
+        (match d.Contraction.seed with
+        | Contraction.Seed.Zero -> "0.0f"
+        | Contraction.Seed.Tensor -> cell);
+      line cx (depth + 4) "%s {" (loop "ct_k" d.Contraction.k);
+      if product <> "" then line cx (depth + 5) "%s" product;
+      line cx (depth + 5) "%s" accumulate;
+      line cx (depth + 4) "}";
+      line cx (depth + 4) "%s = acc;" cell;
+      line cx (depth + 3) "}";
+      line cx depth "}"
   | Ssa_op.Check_access { buffer; at } -> (
       let b = find_buffer cx buffer in
       match at with
