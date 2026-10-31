@@ -34,10 +34,10 @@ then guests that fail one way each.
   mpact-v2 16384 staged: status 7, negated, minstret 213021, mcycle counted
   mpact-v2 16384 floats in place, RAM unreachable: extmem(staged)
   mpact-v2 16384 in place staged: status 7, negated, minstret 98328, mcycle counted
-  core-mini-axi illegal instruction: guest trap: mcause 2 mepc 0x000005e0 mtval 0x00000000
-  core-mini-axi store to ITCM: guest trap: mcause 7 mepc 0x000005e0 mtval 0x00000100
-  mpact-v2 illegal instruction: guest trap: mcause 2 mepc 0x000005e0 mtval 0x00000000
-  mpact-v2 store to ITCM: guest trap: mcause 7 mepc 0x000005e0 mtval 0x00000100
+  core-mini-axi illegal instruction: guest trap: mcause 2 mepc 0x0000049c mtval 0x00000000
+  core-mini-axi store to ITCM: guest trap: mcause 7 mepc 0x0000049c mtval 0x00000100
+  mpact-v2 illegal instruction: guest trap: mcause 2 mepc 0x0000049c mtval 0x00000000
+  mpact-v2 store to ITCM: guest trap: mcause 7 mepc 0x0000049c mtval 0x00000100
   core-mini-axi spin: deadline passed
   mpact-v2 instruction limit: the simulator reached its instruction limit
   core-mini-axi cycle limit: the simulator reached its cycle limit

@@ -47,7 +47,21 @@ module Configuration = struct
     interface : string;
     name : string;
     regions : Region.t list;
+    verilator_options : string list;
   }
+
+  (* [provenance.build_parameters.verilator_options], empty when absent (an
+     MPACT configuration has none) *)
+  let provenance =
+    let build =
+      Jsont.Object.map ~kind:"Build_parameters" Fun.id
+      |> Jsont.Object.mem "verilator_options" ~dec_absent:[]
+           (Jsont.list Jsont.string)
+      |> Jsont.Object.skip_unknown |> Jsont.Object.finish
+    in
+    Jsont.Object.map ~kind:"Provenance" Fun.id
+    |> Jsont.Object.mem "build_parameters" ~dec_absent:[] build
+    |> Jsont.Object.skip_unknown |> Jsont.Object.finish
 
   let simulation =
     Jsont.Object.map ~kind:"Simulation" (fun backend interface ->
@@ -63,13 +77,14 @@ module Configuration = struct
 
   let jsont =
     Jsont.Object.map ~kind:"Configuration"
-      (fun (backend, interface) extensions id name regions ->
-        { backend; extensions; id; interface; name; regions })
+      (fun (backend, interface) extensions id name regions verilator_options ->
+        { backend; extensions; id; interface; name; regions; verilator_options })
     |> Jsont.Object.mem "simulation" simulation
     |> Jsont.Object.mem "isa" isa
     |> Jsont.Object.mem "id" Jsont.string
     |> Jsont.Object.mem "name" Jsont.string
     |> Jsont.Object.mem "memory_regions" (Jsont.list Region.jsont)
+    |> Jsont.Object.mem "provenance" ~dec_absent:[] provenance
     |> Jsont.Object.finish
 end
 

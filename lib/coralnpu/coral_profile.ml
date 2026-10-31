@@ -60,6 +60,7 @@ type t = {
   name : string;
   regions : Region.t list;
   simulator : Simulator.t;
+  threads : int;
 }
 
 module Artifact_digest = struct
@@ -122,6 +123,18 @@ let region simulator (r : Coral_manifest.Region.t) =
           writable = r.access.guest_store = Some true;
         }
 
+(* [--threads N] as one option or two *)
+let threads options =
+  let rec go = function
+    | "--threads" :: n :: _ when int_of_string_opt n <> None -> int_of_string n
+    | o :: rest -> (
+        match String.split_on_char ' ' o with
+        | [ "--threads"; n ] when int_of_string_opt n <> None -> int_of_string n
+        | _ -> go rest)
+    | [] -> 1
+  in
+  max 1 (go options)
+
 let of_manifest (m : Coral_manifest.t) name =
   let* (c : Coral_manifest.Configuration.t) =
     List.find_opt
@@ -133,11 +146,24 @@ let of_manifest (m : Coral_manifest.t) name =
     Simulator.of_backend ~interface:c.interface c.backend
     |> Err.of_option (`Unknown_backend c.backend)
   in
+  (* A configuration may ship two Verilator builds: one with waveform and
+     instruction tracing, and one without ([*_fast_sim], from v0.0.7), which
+     every general-purpose run takes. Chosen by name, not by the manifest's
+     order. *)
+  let fast (a : Coral_manifest.Artifact.t) =
+    String.ends_with ~suffix:"_fast_sim" a.path
+  in
   let* (a : Coral_manifest.Artifact.t) =
-    List.find_opt
-      (fun (a : Coral_manifest.Artifact.t) -> a.configuration_id = Some c.id)
-      m.artifacts
-    |> Err.of_option (`No_artifact c.id)
+    match
+      List.filter
+        (fun (a : Coral_manifest.Artifact.t) -> a.configuration_id = Some c.id)
+        m.artifacts
+    with
+    | [] -> Err.fail (`No_artifact c.id)
+    | own -> (
+        match List.find_opt fast own with
+        | Some a -> Err.return a
+        | None -> Err.return (List.hd own))
   in
   let* regions = Err.List.map (region simulator) c.regions in
   Err.return
@@ -150,6 +176,7 @@ let of_manifest (m : Coral_manifest.t) name =
       name;
       regions;
       simulator;
+      threads = threads c.verilator_options;
     }
 
 let read_failure path = function
@@ -217,9 +244,10 @@ let pp_region ppf (r : Region.t) =
     (if r.dma_reachable then " dma" else "")
 
 let pp ppf p =
-  Fmt.pf ppf "@[<v>%s %s %s@,%s@,%a@]" p.name
+  Fmt.pf ppf "@[<v>%s %s %s%s@,%s@,%a@]" p.name
     (Simulator.to_string p.simulator)
     p.configuration_id
+    (if p.threads > 1 then Printf.sprintf " threads %d" p.threads else "")
     (String.concat "," p.extensions)
     Fmt.(list pp_region)
     p.regions

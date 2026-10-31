@@ -243,9 +243,9 @@ let%expect_test "bfloat16 pairs on the matrix engine" =
     [ (32L, 32L, 64L); (19L, 29L, 61L); (16L, 16L, 1L) ];
   [%expect
     {|
-    32x32 k64 plain: bitwise (734 of 1024 differ from every step rounded to nearest), 6169 cycles, 21.2 ops/cycle
-    19x29 k61 plain: bitwise (398 of 551 differ from every step rounded to nearest), 4451 cycles, 15.1 ops/cycle
-    16x16 k1 plain: bitwise (0 of 256 differ from every step rounded to nearest), 196 cycles, 2.6 ops/cycle |}]
+    32x32 k64 plain: bitwise (734 of 1024 differ from every step rounded to nearest), 6196 cycles, 21.2 ops/cycle
+    19x29 k61 plain: bitwise (398 of 551 differ from every step rounded to nearest), 4466 cycles, 15.1 ops/cycle
+    16x16 k1 plain: bitwise (0 of 256 differ from every step rounded to nearest), 211 cycles, 2.4 ops/cycle |}]
 
 (* The packed function over A row-major (packed by strided loads, the slow
    case) and transposed (read in place, with k a multiple of four), partial
@@ -285,12 +285,12 @@ let%expect_test "the packed function" =
     40x32 k62 packed, A row-major: bitwise (925 of 1280 differ from every step rounded to nearest), 5243 cycles, 30.3 ops/cycle
     32x32 k64 packed, A in place: bitwise (747 of 1024 differ from every step rounded to nearest), 1318 cycles, 99.4 ops/cycle
     32x64 k64 packed, A in place: bitwise (1481 of 2048 differ from every step rounded to nearest), 2514 cycles, 104.3 ops/cycle
-    70x40 k32 packed, A in place: bitwise (1889 of 2800 differ from every step rounded to nearest), 3603 cycles, 49.7 ops/cycle
+    70x40 k32 packed, A in place: bitwise (1889 of 2800 differ from every step rounded to nearest), 3604 cycles, 49.7 ops/cycle
     32x32 k64 packed, C transposed, A in place: bitwise (747 of 1024 differ from every step rounded to nearest), 1318 cycles, 99.4 ops/cycle
     32x64 k64 packed, C transposed, A in place: bitwise (1481 of 2048 differ from every step rounded to nearest), 2514 cycles, 104.3 ops/cycle
-    70x40 k32 packed, C transposed, A in place: bitwise (1889 of 2800 differ from every step rounded to nearest), 3674 cycles, 48.8 ops/cycle
+    70x40 k32 packed, C transposed, A in place: bitwise (1889 of 2800 differ from every step rounded to nearest), 3677 cycles, 48.7 ops/cycle
     32x32 k64 packed, C transposed, A row-major: bitwise (734 of 1024 differ from every step rounded to nearest), 3009 cycles, 43.6 ops/cycle
-    19x29 k61 packed, C transposed, A in place: bitwise (410 of 551 differ from every step rounded to nearest), 3933 cycles, 17.1 ops/cycle |}]
+    19x29 k61 packed, C transposed, A in place: bitwise (410 of 551 differ from every step rounded to nearest), 3932 cycles, 17.1 ops/cycle |}]
 
 (* Each mutant is a defect a run must detect: a partial last column tile
    written whole, A's slices where B's go, A's rows an element too far apart
@@ -358,7 +358,7 @@ let%expect_test "B staged where it is outside the DTCM" =
     96x32 k64 in SRAM, in place: bitwise (2261 of 3072 differ from every step rounded to nearest), 11507 cycles, 34.2 ops/cycle
     96x32 k64 in SRAM, staged outside: bitwise (2261 of 3072 differ from every step rounded to nearest), 10588 cycles, 37.1 ops/cycle
     96x32 k64 in DTCM, in place: bitwise (2261 of 3072 differ from every step rounded to nearest), 6776 cycles, 58.0 ops/cycle
-    96x32 k64 in DTCM, staged outside: bitwise (2261 of 3072 differ from every step rounded to nearest), 6780 cycles, 58.0 ops/cycle |}]
+    96x32 k64 in DTCM, staged outside: bitwise (2261 of 3072 differ from every step rounded to nearest), 6781 cycles, 58.0 ops/cycle |}]
 
 (* binary32 words of random sign, mantissa and an exponent within [spread] of 1 *)
 let f32_bytes seed count ~spread =
@@ -401,11 +401,11 @@ let%expect_test "the packed function seeded from C" =
     ];
   [%expect
     {|
-    32x32 k64 seeded, A row-major: bitwise (742 of 1024 differ from every step rounded to nearest), 3393 cycles, 38.6 ops/cycle
-    16x64 k32 seeded, the context shape, A in place: bitwise (677 of 1024 differ from every step rounded to nearest), 1599 cycles, 41.0 ops/cycle
-    19x29 k60 seeded, partial tiles: bitwise (411 of 551 differ from every step rounded to nearest), 3496 cycles, 18.9 ops/cycle
-    70x40 k63 seeded, a three-step tail: bitwise (2006 of 2800 differ from every step rounded to nearest), 19845 cycles, 17.8 ops/cycle
-    32x64 k64 seeded, C transposed, A in place: bitwise (1471 of 2048 differ from every step rounded to nearest), 3283 cycles, 79.8 ops/cycle
+    32x32 k64 seeded, A row-major: bitwise (742 of 1024 differ from every step rounded to nearest), 3394 cycles, 38.6 ops/cycle
+    16x64 k32 seeded, the context shape, A in place: bitwise (677 of 1024 differ from every step rounded to nearest), 1600 cycles, 41.0 ops/cycle
+    19x29 k60 seeded, partial tiles: bitwise (411 of 551 differ from every step rounded to nearest), 3497 cycles, 18.9 ops/cycle
+    70x40 k63 seeded, a three-step tail: bitwise (2006 of 2800 differ from every step rounded to nearest), 19846 cycles, 17.8 ops/cycle
+    32x64 k64 seeded, C transposed, A in place: bitwise (1471 of 2048 differ from every step rounded to nearest), 3284 cycles, 79.8 ops/cycle
     19x29 k61 seeded, k = 61: a seeded k that the depth padding changes
     19x29 k62 seeded, k = 62: a seeded k that the depth padding changes |}]
 

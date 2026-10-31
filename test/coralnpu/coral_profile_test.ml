@@ -204,3 +204,29 @@ let%expect_test "artifacts are verified, and the launch command filled" =
     tiny-rtl: $DIR/bin/rtl --binary=guest.elf
     tiny-rtl: error: $DIR/bin/rtl: sha256 is 392b80b122693bd8908315e46f5a81d94847cfaaf1733d1a5c68332f8d76e077, the manifest pins 50d2f6599ee68748044579342c58e92b6f7232c1784821eb9566c2f7991a98aa
     tiny-rtl: error: $DIR/bin/rtl: No such file or directory |}]
+
+(* A configuration with two Verilator builds, the one without tracing listed
+   second: the profile takes it by its name, whatever the manifest's order. *)
+let%expect_test "the build without tracing is the profile's" =
+  let fast =
+    edit ~from:"\"path\": \"lib/libx.so\""
+      ~into:
+        ("\"path\": \"bin/rtl_fast_sim\", \"configuration_id\": \
+          \"coralnpu:tiny-rtl:3b3475e7a285b4c6eaaf\", \"sha256\": \""
+       ^ String.make 64 '0'
+       ^ "\", \"launch\": {\"command\": [\"bin/rtl_fast_sim\", \
+          \"--binary=<elf>\"]}}, {\"path\": \"lib/libx.so\"")
+  in
+  List.iter
+    (fun (name, text) ->
+      match profile text "tiny-rtl" with
+      | Ok p ->
+          Fmt.pr "%s: %s, %a@." name p.Coral_profile.artifact
+            Fmt.(list ~sep:(any " ") string)
+            p.Coral_profile.command
+      | Error e -> Fmt.pr "%s: error: %a@." name Coral_profile.pp_error e)
+    [ ("one build", fragment); ("two builds", fast) ];
+  [%expect
+    {|
+    one build: bin/rtl, bin/rtl --binary=<elf>
+    two builds: bin/rtl_fast_sim, bin/rtl_fast_sim --binary=<elf> |}]

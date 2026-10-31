@@ -1,7 +1,10 @@
-(* A granted bfloat16 attention layer on the Coral subsystem: with its
-   kernel regions outlined as overlays the DMA loads, the image is still past
-   the 8 KiB ITCM, because the fused attention function stays resident. The
-   refusal pins the sizes until helper modules can be overlays too. *)
+(* A granted bfloat16 attention layer on the Coral subsystem: one node, its
+   projections the matrix engine's paired products and its attention the fused
+   function, bitwise against [Attention_layer_block.eval] at [Bf16_paired],
+   with the cycles of the run. Its code is past the 8 KiB instruction memory
+   resident, so the route loads the attention function and the kernel's other
+   regions as overlays the DMA brings into one slot; every tensor is in SRAM,
+   the DTCM holding the function's panels. *)
 
 module T = Machine_model_test.Model_test
 module AT = Machine_model_test.Attention_layer_test
@@ -20,12 +23,9 @@ let config =
     flags = [ "--cycles=500000000" ];
   }
 
-(* every bound tensor in SRAM, the rest first fit *)
-let home (s : Machine_rivet_common.Rivet_table.slot) =
-  match s.Machine_rivet_common.Rivet_table.section with
-  | Machine_model.Mir_artifact.Section.Bound -> Coral_layout.Home.Ram
-  | _ -> Coral_layout.Home.Any
-
+(* every tensor slot in SRAM, its scratch included: the DTCM holds the
+   attention function's panels *)
+let home (_ : Machine_rivet_common.Rivet_table.slot) = Coral_layout.Home.Ram
 let engine = { Contraction.Select.Capabilities.matrix = true; vector = true }
 
 let grant =
@@ -68,18 +68,23 @@ let run name c =
         (fun () -> g);
       Fmt.pr "  cycles %Ld@." !cycles
 
-let%expect_test
-    "a granted bfloat16 layer is past the instruction memory, even outlined" =
+let%expect_test "a granted bfloat16 layer runs on the subsystem" =
   run "no norm, all flags" base;
+  run "pre layer, all flags"
+    (LF.with_norm L.Norm.Kind.Layer L.Placement.Pre base);
+  run "post rms, rope"
+    (LF.with_norm L.Norm.Kind.Rms L.Placement.Post
+       { base with LF.Config.rope = LF.Rope_form.Shared });
   run "pre layer, all flags, rope"
     (LF.with_norm L.Norm.Kind.Layer L.Placement.Pre
        { base with LF.Config.rope = LF.Rope_form.Shared });
-  run "post rms" (LF.with_norm L.Norm.Kind.Rms L.Placement.Post base);
   [%expect
     {|
-    no norm, all flags: refused: invocation 0 (n0): itcm: 8592 bytes needed, 8192 available
-      cycles 0
-    pre layer, all flags, rope: refused: invocation 0 (n0): itcm: 9648 bytes needed, 8192 available
-      cycles 0
-    post rms: refused: invocation 0 (n0): itcm: 8944 bytes needed, 8192 available
-      cycles 0 |}]
+    no norm, all flags (1 invocations): bitwise
+      cycles 370918
+    pre layer, all flags (1 invocations): bitwise
+      cycles 486787
+    post rms, rope (1 invocations): bitwise
+      cycles 537840
+    pre layer, all flags, rope (1 invocations): bitwise
+      cycles 561331 |}]

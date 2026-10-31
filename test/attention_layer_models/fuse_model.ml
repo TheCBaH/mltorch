@@ -51,6 +51,31 @@ let layers (g : Graph_ir.graph) =
    binary32 ([F32_ordered]) and run through the generic Machine IR route under
    the planned binary32 pipeline: its outputs against the original graph's
    binary64 reference. *)
+(* With [FUSE_MODEL_CORAL] naming a Coral configuration (its data under
+   [CORALNPU_SUBSYSTEM_DATA], else [CORALNPU_DATA]), the same granted run on
+   that configuration's simulator instead: every tensor homed in RAM, the
+   contractions on the matrix engine, each invocation its own image. *)
+let coral () =
+  match Sys.getenv_opt "FUSE_MODEL_CORAL" with
+  | None -> (None, Ssa_ir.Ssa_target.scalar, false)
+  | Some configuration ->
+      let dir =
+        match Sys.getenv_opt "CORALNPU_SUBSYSTEM_DATA" with
+        | Some d -> d
+        | None -> Sys.getenv "CORALNPU_DATA"
+      in
+      let module C = Machine_rivet_riscv32_coral.Rv32_mir_coral in
+      let cycles = ref 0L in
+      at_exit (fun () -> Fmt.pr "  coral: %Ld cycles@." !cycles);
+      ( Some
+          (C.route ~budget:1_048_576L
+             ~home:(fun _ -> Coral_layout.Home.Ram)
+             ~on_run:(fun (o : C.Run.t) ->
+               cycles := Int64.add !cycles o.C.Run.mcycle)
+             { C.Config.dir; configuration; deadline = 86400.; flags = [] }),
+        Ssa_ir.Ssa_target.zve32f128,
+        true )
+
 let route g ~inputs ~constants ~reference ~outputs =
   let module M = Machine_model.Mir_model in
   let module LS = Machine_model.Layer_select in
@@ -61,8 +86,9 @@ let route g ~inputs ~constants ~reference ~outputs =
         precision = Attention_block.Precision.F32_ordered;
       }
   in
+  let coral_route, target, on_coral = coral () in
   let caps =
-    { Contraction.Select.Capabilities.matrix = false; vector = false }
+    { Contraction.Select.Capabilities.matrix = on_coral; vector = on_coral }
   in
   let sites =
     List.filter_map
@@ -85,12 +111,11 @@ let route g ~inputs ~constants ~reference ~outputs =
   in
   let pipeline =
     Ssa_backends.Pipeline.Planned
-      {
-        numerics = Ssa_ir.Ssa_numerics.Fp32_ordered;
-        target = Ssa_ir.Ssa_target.scalar;
-      }
+      { numerics = Ssa_ir.Ssa_numerics.Fp32_ordered; target }
   in
-  match M.prepare ~layer ~pipeline bundle with
+  match
+    M.prepare ?route:coral_route ~contractions:on_coral ~layer ~pipeline bundle
+  with
   | Error rs ->
       Fmt.pr "  route refused: %a@." Fmt.(list ~sep:(any "; ") M.Refusal.pp) rs
   | Ok m -> (
@@ -268,7 +293,10 @@ let () =
     or_die Eval_direct.pp_error (Eval_direct.run g ~constants ~inputs)
   in
   let before = run g and after = run fused in
-  if Sys.getenv_opt "FUSE_MODEL_ROUTE" <> None then
+  if
+    Sys.getenv_opt "FUSE_MODEL_ROUTE" <> None
+    || Sys.getenv_opt "FUSE_MODEL_CORAL" <> None
+  then
     route fused ~inputs ~constants ~reference:before
       ~outputs:g.Graph_ir.Graph.outputs;
   List.iter2

@@ -48,6 +48,9 @@ type t = {
   name : string;
   regions : Region.t list;
   simulator : Simulator.t;
+  threads : int;
+      (** The CPUs one run of the simulator keeps busy: its Verilator build's
+          [--threads], else 1. A count of host CPUs. *)
 }
 
 module Artifact_digest : sig
@@ -77,7 +80,8 @@ val manifest_file : string
 (** [hardware-configurations.json], at the archive root. *)
 
 val of_manifest : Coral_manifest.t -> string -> (t, [> error ]) Err.t
-(** The profile of the named configuration. *)
+(** The profile of the named configuration. Of several artifacts for it, the
+    Verilator build without tracing ([*_fast_sim]) when there is one. *)
 
 val verify : dir:string -> t -> (unit, [> error ]) Err.t
 (** Checks the artifact under the archive root [dir] against its SHA-256. *)

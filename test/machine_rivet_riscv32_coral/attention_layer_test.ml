@@ -1,9 +1,9 @@
 (* A granted bfloat16 attention layer on the VME core: selected, lowered to
-   RV32 code, and refused at the instruction memory: resident, its image is
-   past the 8 KiB ITCM (the fused attention function is most of it). The
-   refusal pins the sizes until the helper can be loaded as an overlay; a run
-   would then be bitwise against [Attention_layer_block.eval] at
-   [Bf16_paired], with its cycles. *)
+   RV32 code and run, against [Attention_layer_block.eval] bit for bit. The
+   core has no DMA, so nothing can be loaded on demand and the whole image
+   must be resident in the 8 KiB ITCM, which every one of these fits since the
+   runtime walks its slots from tables. The subsystem suite runs them with
+   their code as overlays. *)
 
 module T = Machine_model_test.Model_test
 module AT = Machine_model_test.Attention_layer_test
@@ -63,8 +63,16 @@ let run name c =
         (fun () -> g);
       Fmt.pr "  cycles %Ld@." !cycles
 
-let%expect_test
-    "a granted bfloat16 layer is past the VME core's instruction memory" =
+let%expect_test "a granted bfloat16 layer on the VME core, resident" =
+  run "bare: no norm, bias or layer scale"
+    {
+      base with
+      LF.Config.q_bias = false;
+      k_bias = false;
+      v_bias = false;
+      o_bias = false;
+      layer_scale = false;
+    };
   run "no norm, all flags" base;
   run "pre layer, all flags, rope"
     (LF.with_norm L.Norm.Kind.Layer L.Placement.Pre
@@ -72,9 +80,52 @@ let%expect_test
   run "post rms" (LF.with_norm L.Norm.Kind.Rms L.Placement.Post base);
   [%expect
     {|
-    no norm, all flags: refused: invocation 0 (n0): itcm: 9964 bytes needed, 8192 available
-      cycles 0
-    pre layer, all flags, rope: refused: invocation 0 (n0): itcm: 11240 bytes needed, 8192 available
-      cycles 0
-    post rms: refused: invocation 0 (n0): itcm: 10384 bytes needed, 8192 available
-      cycles 0 |}]
+    bare: no norm, bias or layer scale (1 invocations): bitwise
+      cycles 260314
+    no norm, all flags (1 invocations): bitwise
+      cycles 323334
+    pre layer, all flags, rope (1 invocations): bitwise
+      cycles 436619
+    post rms (1 invocations): bitwise
+      cycles 373465 |}]
+
+(* The baseline the fused layer is measured against: the same layers
+   decomposed, each node generated at binary32 on the core (no grant; the
+   contractions on the matrix engine), against the binary32 bundle oracle. *)
+let%expect_test "the decomposed layer, node by node, on the VME core" =
+  List.iter
+    (fun (name, c) ->
+      let c = { c with LF.Config.bf16_weights = false } in
+      let cycles = ref [] in
+      let on_run (o : C.Run.t) = cycles := o.C.Run.mcycle :: !cycles in
+      T.check ~route:(C.route ~on_run config) ~contractions:true
+        ~pipeline:
+          (Ssa_backends.Pipeline.Planned
+             {
+               numerics = Ssa_ir.Ssa_numerics.Fp32_ordered;
+               target = Ssa_ir.Ssa_target.zve32f128;
+             })
+        ~oracle:T.Fp32 ~same:T.same_portable ~calls:1 name
+        (fun () -> LF.decomposed c);
+      Fmt.pr "  cycles %Ld = %a@."
+        (List.fold_left Int64.add 0L !cycles)
+        Fmt.(list ~sep:(any " + ") int64)
+        (List.rev !cycles))
+    [
+      ( "bare",
+        {
+          base with
+          LF.Config.q_bias = false;
+          k_bias = false;
+          v_bias = false;
+          o_bias = false;
+          layer_scale = false;
+        } );
+      ("no norm, all flags", base);
+    ];
+  [%expect
+    {|
+    bare (14 invocations): bitwise
+      cycles 2812666 = 14824 + 173202 + 2598 + 14824 + 173202 + 2598 + 14824 + 173202 + 2598 + 1982630 + 2911 + 237302 + 14824 + 3127
+    no norm, all flags (15 invocations): bitwise
+      cycles 2821597 = 16159 + 173202 + 2598 + 16159 + 173202 + 2598 + 16159 + 173202 + 2598 + 1982524 + 2911 + 237302 + 16159 + 3697 + 3127 |}]

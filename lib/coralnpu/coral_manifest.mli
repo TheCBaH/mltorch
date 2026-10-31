@@ -37,6 +37,9 @@ module Configuration : sig
         (** [simulation.interface]: [standalone-cli], [subsystem-cli]. *)
     name : string;
     regions : Region.t list;
+    verilator_options : string list;
+        (** [provenance.build_parameters.verilator_options], empty when absent:
+            [--threads N] is how many threads the simulator runs. *)
   }
 end
 

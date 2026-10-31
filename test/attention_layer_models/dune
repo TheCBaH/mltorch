@@ -11,6 +11,8 @@
   fmt
   attention_block
   contraction
+  coralnpu
+  machine_rivet_riscv32_coral
   loop_ir
   machine_model
   native

@@ -528,8 +528,12 @@ better); left out a shape at a time it is 6.1% at the median shape
 and 19.1% at the worst, an ordered shape (five of the sixteen are ordered,
 too few to pin their rates down). Two earlier held-out sets were spent on
 finding the structure, which is why the final figure is a cross-validation
-rather than a fresh set. As a chooser it does what it is for: under the
-fitted rates it picks the measured best plan on all sixteen shapes (in the
+rather than a fresh set. Since the plans gained B shared and C by the DMA
+(the overlay work) the suite measures 169 plans with the same rates, not
+refit: the worst is off by 19.2%, and the chooser misses the measured best
+on two of the sixteen shapes, by 9.0% and 10.1% — a refit is owed. Before
+that, as a chooser it did what it is for: under the
+fitted rates it picked the measured best plan on all sixteen shapes (in the
 fit; on the two held-out sets, before they joined it, the best or within
 5.7% of it).
 
@@ -790,8 +794,10 @@ scratch stays.
 
 ## Fused streaming attention (`Zvt_sdpa`)
 
-The generated `Sdpa` is refused on the VME core (its one kernel exceeds the 8 KiB
-instruction memory by a few hundred bytes), and its per-op composition (a paired
+The generated `Sdpa` used to be refused on the VME core (its one kernel
+exceeded the 8 KiB instruction memory by a few hundred bytes); with the
+runtime's per-slot transfers as calls it fits and runs bitwise, too slowly at
+64x64 d64 for the simulator's deadline. Its per-op composition (a paired
 scores product, scale, softmax, a binary32 context product) takes 4.2 M cycles at
 64x64 d64, 97% of it the generated softmax at 1,023 cycles an element. `Zvt_sdpa`
 is one function per `Attention_block` descriptor (contract: the attention design
@@ -811,9 +817,28 @@ context block reads that tile and the staged V in place and accumulates into
 one 16-lane array each in `.bss`, so the `exp` code exists once per use.
 Budget at d 64, `block_keys` 32: tile 2,048, `O_acc` 4,096, Q panel 2,176, K
 panel 4,224, staging 4,736, arrays 384 = 17,664 of the 20,480-byte allowance;
-`.text` 7,484 of 8,192 bytes with the runtime. `.bss` is explicit zero bytes in
-the ELF and costs no run time; the runtime zeroes only output and scratch slots
-(six instructions a word).
+`.text` 7,484 of 8,192 bytes with the runtime (before the runtime's per-slot
+work became calls). `.bss` is explicit zero bytes in the ELF and costs no run
+time; the runtime zeroes only output and scratch slots (six instructions a
+word).
+
+The HTIF runtime (VME and the other non-subsystem cores) emits each slot's
+work once as a subroutine — zero fill, direct read and write, staged read and
+write — and walks the slots from three data tables (reads and writes as
+address, length and a staged flag; zero fills as address and length), one
+loop each with the cursor in `s0` and the count in `s1`, so its code no
+longer grows with the slots. The staged copies call the direct transfers and
+one shared copy loop; the refusals share one tail and every exit one HTIF
+exit sequence. The calls that reach `sys` keep their return address in
+`s11`, the staged ones in `s5` (free while the slot loops run). Only the
+subroutines some slot needs are emitted. The kernel's
+cycles are measured around the kernel call alone, so they move only by the
+code's new placement (a cycle or so). The attention layer's runtime was 2,748
+bytes of a bare layer's 8,740 when every slot had its own transfer loop; with
+the tables it was 1,376 bytes at fastvit's shape, before the copy and exit
+were shared, whose image went from
+55,280 bytes (before the contraction loop) to under the 8 KiB, and the Pre
+LayerNorm with RoPE layer from 10,824 bytes to under it.
 
 Cost at 64x64 d64, by leaving a phase out: exp pass 291 k (75%), scores 32 k,
 context 29 k, normalize 18 k, the rest 16 k. `F32_math.exp` emitted over vector
@@ -849,8 +874,23 @@ quantized model to recognize.
 
 A granted bfloat16 `Attention_layer` is one invocation whose body holds paired
 products, one `attend.<descriptor>` call and generated loops (norm, bias,
-rotation, bfloat16 copies, epilogue). Its image is past the 8 KiB ITCM even
-with the kernel's regions outlined on the subsystem (8,592 to 9,648 bytes at
-L 16, E 64, two heads of 32), because the attention helper stays resident;
-the route refuses it with the `itcm` overrun. The open step is loading helper
-modules, not only kernel regions, as overlays.
+rotation, bfloat16 copies, epilogue). Resident its image is past the 8 KiB
+ITCM, so on the subsystem the route's ITCM retry makes **each attention
+function an overlay of its own**, reached through the manager's stub that
+bears its symbol, beside the kernel's outlined regions. Two rules make that
+work: an overlay cannot call another (one slot), so a kernel region that
+names an attention symbol stays resident (`Rv32_mir_outline ~avoid`); and
+since the slot is already as large as the attention function, the outliner
+takes every disjoint region that fits it, scoring each larger slot size by
+what it moves out less what it grows (`Rv32_mir_outline.fill`) instead of the
+two largest. At L 16, E 64, two heads of 32 the layer then runs bitwise in
+370,918 to 561,331 cycles with its tensors in SRAM. The plain matrix-engine contraction function (`Zvt_contraction`) used to
+unroll every 16 x 16 output tile, so its code grew with rows times columns of
+tiles: 49,168 bytes for one 49 x 512 x 512 product, past the ITCM by itself.
+Each row of tiles now runs its full column tiles as one loop (B and C
+advanced in `s3`/`s4`, the count in `s5`, saved with `s1`/`s2`), the partial
+tile after it, so the code grows with the rows of tiles alone; the results
+are unchanged, bit for bit, and a looped row costs about 0.5% more cycles
+(13694 -> 4895 against 4870 for a 9 x 32 x 64 Linear on the engine). With it
+fastvit's attention layer shape (49 tokens, 512 features, 16 heads) runs on
+the subsystem bitwise in 47,930,016 cycles.

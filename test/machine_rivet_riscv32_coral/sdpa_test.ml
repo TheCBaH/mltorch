@@ -292,7 +292,7 @@ let%expect_test "a negative-zero seed meets a short last block" =
       Array.init tk (fun r -> if r < 32 then 0. else 200.) )
   in
   show "tk 34" ~inputs t;
-  [%expect {| tk 34: bitwise, 60283 cycles |}]
+  [%expect {| tk 34: bitwise, 59339 cycles |}]
 
 (* The function's size, the largest tile function's and the image's, against the
    instruction memory's 8 KiB *)
@@ -304,8 +304,8 @@ let%expect_test "code size" =
   | Error e -> Fmt.pr "%s@." e);
   [%expect
     {|
-    .text: 6128 bytes
-    .data: 20 bytes
+    .text: 5672 bytes
+    .data: 88 bytes
     .bss: 17664 bytes |}]
 
 let%expect_test "code size at d 96" =
@@ -316,8 +316,8 @@ let%expect_test "code size at d 96" =
   | Error e -> Fmt.pr "%s@." e);
   [%expect
     {|
-    .text: 6620 bytes
-    .data: 20 bytes
+    .text: 6164 bytes
+    .data: 88 bytes
     .bss: 17920 bytes |}]
 
 let%expect_test "what d 96 and 130 need" =
@@ -468,8 +468,8 @@ let%expect_test "d 128" =
     {|
     d 128 bk 16: 23296
     d 128 bk 8: 21632
-    .text: 7036 bytes
-    .data: 20 bytes
+    .text: 6580 bytes
+    .data: 88 bytes
     .bss: 23296 bytes
     41x61 d128 bk16 dense: bitwise, 386836 cycles
     16x32 d128 bk16: bitwise, 72966 cycles

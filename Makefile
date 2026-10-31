@@ -1723,6 +1723,21 @@ coralnpu.soc.rv32.runtest:
 # matrix products measured beside its prediction, and the plan chosen against
 # the measured best. About five hours; manual, in no CI job. Needs both
 # downloads.
+# fastvit_sa12's attention layer shape as one granted bfloat16 node on the VME
+# core and the subsystem: about three hours of RTL simulation, so manual and
+# in no runtest alias. Needs both downloads.
+.PHONY: coralnpu.fastvit.run
+coralnpu.fastvit.run:
+	@test -f $(CORALNPU_SUBSYSTEM_DATA)/hardware-configurations.json || { \
+		echo "coralnpu.fastvit.run: missing $(CORALNPU_SUBSYSTEM_DATA) -- run 'make coralnpu.subsystem.download' first" >&2; \
+		exit 1; \
+	}
+	@test -f $(CORALNPU_DATA)/hardware-configurations.json || { \
+		echo "coralnpu.fastvit.run: missing $(CORALNPU_DATA) -- run 'make coralnpu.download' first" >&2; \
+		exit 1; \
+	}
+	MLTORCH_CORAL_FASTVIT=1 CORALNPU_DATA=$(CORALNPU_DATA) CORALNPU_SUBSYSTEM_DATA=$(CORALNPU_SUBSYSTEM_DATA) opam exec -- dune build @test/machine_rivet_riscv32_coral_fastvit/runtest --force
+
 .PHONY: coralnpu.transfer.runtest
 coralnpu.transfer.runtest:
 	@test -f $(CORALNPU_SUBSYSTEM_DATA)/hardware-configurations.json || { \

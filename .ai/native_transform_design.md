@@ -1651,7 +1651,9 @@ each projection's sum is the fused one's, so the claim is `Identical`:
 fastvit_sa12's two layers fuse (712 to 704 nodes) with its logits bit for bit
 the original's (a swapped Q/K slice turns that into 1.3).
 
-With the layers granted at binary32, mobilevit-xxs runs whole on the generic
+Granted at binary32, fastvit_sa12 runs whole on the generic Machine IR route
+within 7.4e-6 of its binary64 reference (two layers, 139 min on the
+interpreter). With the layers granted at binary32, mobilevit-xxs runs whole on the generic
 Machine IR route within 4.3e-4 of its binary64 reference (nine layers,
 27 min on the interpreter). time-series-small's encoder and decoder
 self-attentions fuse (4 of its 6 attentions; 293 to 207 nodes; within 2.4e-7)
@@ -1675,6 +1677,18 @@ dropped) and runs granted within 3.3e-6 of binary64; vit-base fuses both
 9.6e-7). Lowering esm2 needed `erf` (its exact GELU written out),
 `masked_fill.Scalar`, `type_as` to int32 and an int64 mask times a binary32
 tensor, which ATen promotes by casting the mask.
+
+With `FUSE_MODEL_CORAL` naming a Coral configuration the driver runs the
+granted model on that simulator instead (binary32 grant, tensors in RAM,
+contractions on the matrix engine). No HF model gets there yet, for reasons
+outside the layer: vit-base's exported all-true mask is an `arange`/`ge` chain
+in int64 (`Fold_const` leaves zero-operand nodes alone), and esm2's and
+bert-tiny's position and mask arithmetic is int64 too, which the RV32 route
+evaluates in binary64, a type the core has no register for; bert-tiny's
+15.6 MB embedding table is past the 4 MiB SRAM besides. The fused layer
+invocations themselves lower and fit (vit-base on `subsystem-matrix-highmem`;
+the 8 KiB-ITCM subsystem needs 10,528 bytes for its binary32 layer, which has
+no attention function to move out as an overlay).
 
 ## 13. Tests
 

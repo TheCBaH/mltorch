@@ -45,16 +45,16 @@ let%expect_test "scalar and Zve32f on the RTL vector core" =
     {|
     relu then add over C=32, scalar (2 invocations): bitwise
     relu then add over C=32, zve32f128 (2 invocations): bitwise
-      cycles 7572 -> 1915 (3.95x), instructions 4627 -> 1432 (3.23x)
+      cycles 7569 -> 1916 (3.95x), instructions 4627 -> 1432 (3.23x)
     softmax over H, W=32, scalar (1 invocations): bitwise
     softmax over H, W=32, zve32f128 (1 invocations): bitwise
       cycles 495736 -> 495736 (1.00x), instructions 237748 -> 237748 (1.00x)
     layer_norm over H, W=32, scalar (1 invocations): bitwise
     layer_norm over H, W=32, zve32f128 (1 invocations): bitwise
-      cycles 84070 -> 84070 (1.00x), instructions 46208 -> 46208 (1.00x)
+      cycles 84166 -> 84166 (1.00x), instructions 46208 -> 46208 (1.00x)
     conv, batch norm, relu to C=32, scalar (3 invocations): bitwise
     conv, batch norm, relu to C=32, zve32f128 (3 invocations): bitwise
-      cycles 192313 -> 23903 (8.05x), instructions 139487 -> 20566 (6.78x) |}]
+      cycles 192021 -> 23801 (8.07x), instructions 139487 -> 20566 (6.78x) |}]
 
 (* The matrix products on the same core: whole-invocation cycles, and the
    rate in operations a cycle (a multiply-add is two) against the peak
@@ -82,19 +82,19 @@ let%expect_test "matrix products on the RTL vector core" =
     {|
     linear 9x32 k64, scalar (1 invocations): bitwise
     linear 9x32 k64, zve32f128 (1 invocations): bitwise
-      cycles 196231 -> 38509 (5.10x), instructions 89873 -> 31021 (2.90x); 0.188 -> 0.957 ops/cycle
+      cycles 196311 -> 38508 (5.10x), instructions 89873 -> 31021 (2.90x); 0.188 -> 0.957 ops/cycle
     linear 9x32 k64 bias, scalar (1 invocations): bitwise
     linear 9x32 k64 bias, zve32f128 (1 invocations): bitwise
-      cycles 199053 -> 38773 (5.13x), instructions 91103 -> 31162 (2.92x); 0.185 -> 0.951 ops/cycle
+      cycles 199197 -> 38774 (5.14x), instructions 91103 -> 31162 (2.92x); 0.185 -> 0.951 ops/cycle
     linear 7x29 k63 bias, scalar (1 invocations): bitwise
     linear 7x29 k63 bias, zve32f128 (1 invocations): bitwise
-      cycles 141784 -> 81254 (1.74x), instructions 65773 -> 45457 (1.45x); 0.180 -> 0.315 ops/cycle
+      cycles 141777 -> 81303 (1.74x), instructions 65773 -> 45457 (1.45x); 0.180 -> 0.315 ops/cycle
     bmm 1x9x32 k64, scalar (1 invocations): bitwise
     bmm 1x9x32 k64, zve32f128 (1 invocations): bitwise
-      cycles 200460 -> 27045 (7.41x), instructions 94319 -> 25723 (3.67x); 0.184 -> 1.363 ops/cycle
+      cycles 200460 -> 27043 (7.41x), instructions 94319 -> 25723 (3.67x); 0.184 -> 1.363 ops/cycle
     bmm 3x7x29 k63, scalar (1 invocations): bitwise
     bmm 3x7x29 k63, zve32f128 (1 invocations): bitwise
-      cycles 428682 -> 239324 (1.79x), instructions 204858 -> 134687 (1.52x); 0.179 -> 0.321 ops/cycle |}]
+      cycles 428490 -> 239216 (1.79x), instructions 204858 -> 134687 (1.52x); 0.179 -> 0.321 ops/cycle |}]
 
 (* The contracted policy's fused accumulation ([vfmacc.vv]) against the
    ordered Zve32f plan on the same core: bitwise against each policy's own
@@ -119,19 +119,19 @@ let%expect_test "matrix products: contracted against ordered Zve32f" =
     {|
     linear 9x32 k64, ordered (1 invocations): bitwise
     linear 9x32 k64, contracted (1 invocations): bitwise
-      cycles 38509 -> 34910 (1.10x); 0.957 -> 1.056 ops/cycle
+      cycles 38508 -> 34909 (1.10x); 0.957 -> 1.056 ops/cycle
     linear 9x32 k64 bias, ordered (1 invocations): bitwise
     linear 9x32 k64 bias, contracted (1 invocations): bitwise
-      cycles 38773 -> 35185 (1.10x); 0.951 -> 1.048 ops/cycle
+      cycles 38774 -> 35186 (1.10x); 0.951 -> 1.048 ops/cycle
     linear 7x29 k63 bias, ordered (1 invocations): bitwise
     linear 7x29 k63 bias, contracted (1 invocations): bitwise
-      cycles 81254 -> 56355 (1.44x); 0.315 -> 0.454 ops/cycle
+      cycles 81303 -> 56362 (1.44x); 0.315 -> 0.454 ops/cycle
     bmm 1x9x32 k64, ordered (1 invocations): bitwise
     bmm 1x9x32 k64, contracted (1 invocations): bitwise
-      cycles 27045 -> 24211 (1.12x); 1.363 -> 1.523 ops/cycle
+      cycles 27043 -> 24209 (1.12x); 1.363 -> 1.523 ops/cycle
     bmm 3x7x29 k63, ordered (1 invocations): bitwise
     bmm 3x7x29 k63, contracted (1 invocations): bitwise
-      cycles 239324 -> 159944 (1.50x); 0.321 -> 0.480 ops/cycle |}]
+      cycles 239216 -> 161201 (1.48x); 0.321 -> 0.476 ops/cycle |}]
 
 (* Sixteen-lane vectors in groups of four registers (LMUL 4) against one
    register of four lanes, the same Zve32f plan: bitwise against the oracle,
@@ -164,46 +164,46 @@ let%expect_test "register groups against single registers" =
     {|
     relu then add over C=32, ordered, m1 (2 invocations): bitwise
     relu then add over C=32, ordered, m4 (2 invocations): bitwise
-      cycles 1915 -> 1152 (1.66x)
+      cycles 1916 -> 1150 (1.67x)
     conv, batch norm, relu to C=32, ordered, m1 (3 invocations): bitwise
     conv, batch norm, relu to C=32, ordered, m4 (3 invocations): bitwise
-      cycles 23903 -> 20966 (1.14x)
+      cycles 23801 -> 20993 (1.13x)
     linear 9x32 k64, ordered, m1 (1 invocations): bitwise
     linear 9x32 k64, ordered, m4 (1 invocations): bitwise
-      cycles 38509 -> 31685 (1.22x)
+      cycles 38508 -> 31684 (1.22x)
     linear 9x32 k64 bias, ordered, m1 (1 invocations): bitwise
     linear 9x32 k64 bias, ordered, m4 (1 invocations): bitwise
-      cycles 38773 -> 25290 (1.53x)
+      cycles 38774 -> 25290 (1.53x)
     linear 7x29 k63 bias, ordered, m1 (1 invocations): bitwise
     linear 7x29 k63 bias, ordered, m4 (1 invocations): bitwise
-      cycles 81254 -> 76071 (1.07x)
+      cycles 81303 -> 76078 (1.07x)
     bmm 1x9x32 k64, ordered, m1 (1 invocations): bitwise
     bmm 1x9x32 k64, ordered, m4 (1 invocations): bitwise
-      cycles 27045 -> 16285 (1.66x)
+      cycles 27043 -> 16285 (1.66x)
     bmm 3x7x29 k63, ordered, m1 (1 invocations): bitwise
     bmm 3x7x29 k63, ordered, m4 (1 invocations): bitwise
-      cycles 239324 -> 223919 (1.07x)
+      cycles 239216 -> 223916 (1.07x)
     relu then add over C=32, contracted, m1 (2 invocations): bitwise
     relu then add over C=32, contracted, m4 (2 invocations): bitwise
-      cycles 1915 -> 1152 (1.66x)
+      cycles 1916 -> 1150 (1.67x)
     conv, batch norm, relu to C=32, contracted, m1 (3 invocations): bitwise
     conv, batch norm, relu to C=32, contracted, m4 (3 invocations): bitwise
-      cycles 22055 -> 19865 (1.11x)
+      cycles 21977 -> 19886 (1.11x)
     linear 9x32 k64, contracted, m1 (1 invocations): bitwise
     linear 9x32 k64, contracted, m4 (1 invocations): bitwise
-      cycles 34910 -> 38079 (0.92x)
+      cycles 34909 -> 38078 (0.92x)
     linear 9x32 k64 bias, contracted, m1 (1 invocations): bitwise
     linear 9x32 k64 bias, contracted, m4 (1 invocations): bitwise
-      cycles 35185 -> 31644 (1.11x)
+      cycles 35186 -> 31636 (1.11x)
     linear 7x29 k63 bias, contracted, m1 (1 invocations): bitwise
     linear 7x29 k63 bias, contracted, m4 (1 invocations): bitwise
-      cycles 56355 -> 51774 (1.09x)
+      cycles 56362 -> 51823 (1.09x)
     bmm 1x9x32 k64, contracted, m1 (1 invocations): bitwise
     bmm 1x9x32 k64, contracted, m4 (1 invocations): bitwise
-      cycles 24211 -> 18333 (1.32x)
+      cycles 24209 -> 18333 (1.32x)
     bmm 3x7x29 k63, contracted, m1 (1 invocations): bitwise
     bmm 3x7x29 k63, contracted, m4 (1 invocations): bitwise
-      cycles 159944 -> 148382 (1.08x) |}]
+      cycles 161201 -> 148442 (1.09x) |}]
 
 (* The matrix products as generated RVV functions against the planned
    Zve32f loops, both under the contracted policy: bitwise against its
@@ -235,16 +235,16 @@ let%expect_test "generated contractions against planned loops" =
     {|
     linear 9x32 k64, loops (1 invocations): bitwise
     linear 9x32 k64, generated (1 invocations): bitwise
-      cycles 34910 -> 9280 (3.76x); 1.056 -> 3.972 ops/cycle
+      cycles 34909 -> 9280 (3.76x); 1.056 -> 3.972 ops/cycle
     linear 9x32 k64 bias, loops (1 invocations): bitwise
     linear 9x32 k64 bias, generated (1 invocations): bitwise
-      cycles 35185 -> 9606 (3.66x); 1.048 -> 3.838 ops/cycle
+      cycles 35186 -> 9605 (3.66x); 1.048 -> 3.838 ops/cycle
     linear 7x29 k63 bias, loops (1 invocations): bitwise
     linear 7x29 k63 bias, generated (1 invocations): bitwise
-      cycles 56355 -> 10034 (5.62x); 0.454 -> 2.549 ops/cycle
+      cycles 56362 -> 10033 (5.62x); 0.454 -> 2.549 ops/cycle
     bmm 1x9x32 k64, loops (1 invocations): bitwise
     bmm 1x9x32 k64, generated (1 invocations): bitwise
-      cycles 24211 -> 4600 (5.26x); 1.523 -> 8.014 ops/cycle
+      cycles 24209 -> 4599 (5.26x); 1.523 -> 8.016 ops/cycle
     bmm 3x7x29 k63, loops (1 invocations): bitwise
     bmm 3x7x29 k63, generated (1 invocations): bitwise
-      cycles 159944 -> 15204 (10.52x); 0.480 -> 5.047 ops/cycle |}]
+      cycles 161201 -> 15203 (10.60x); 0.476 -> 5.047 ops/cycle |}]

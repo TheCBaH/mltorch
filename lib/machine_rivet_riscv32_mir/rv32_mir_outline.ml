@@ -81,7 +81,19 @@ type candidate = { first : int; last : int; size : int; depth : int }
 let defined run =
   List.filter_map (function Item.Label l -> Some l | _ -> None) run
 
-let candidates t =
+(* Whether a run names one of [names]: a call of it, or its address. *)
+let mentions names run =
+  List.exists
+    (function
+      | Item.Insn { ops; _ } ->
+          List.exists
+            (function
+              | Op.Sym (Asm_core.Expr.Symbol n) -> List.mem n names | _ -> false)
+            ops
+      | Item.Branch _ | Item.Label _ -> false)
+    run
+
+let candidates ?(avoid = []) t =
   let n = Array.length t.labels in
   let entry =
     Hashtbl.find t.index (Mir_id.Block.to_int t.func.Mir_phys.Func.entry)
@@ -138,7 +150,7 @@ let candidates t =
                  | _ -> false)
                run)
         in
-        if escapes then
+        if escapes && not (mentions avoid run) then
           found :=
             {
               first;
@@ -281,11 +293,49 @@ let best_pair cands =
     None cands
   |> Option.map snd
 
-let of_artifact ?mutation ?(choose = best_pair) artifact =
+(* Disjoint regions for a slot an overlay of [slot] bytes already needs: for
+   each slot size from [slot] up to the largest candidate, the disjoint regions
+   that fit it, largest first, scored by what they move out less what the slot
+   grows by; the best of them. *)
+let fill ~slot cands =
+  let disjoint a b = a.last < b.first || b.last < a.first in
+  let take limit =
+    List.fold_left
+      (fun taken c ->
+        if c.size <= limit && List.for_all (disjoint c) taken then c :: taken
+        else taken)
+      []
+      (List.sort (fun a b -> compare b.size a.size) cands)
+  in
+  let sizes =
+    List.sort_uniq compare
+      (slot
+      :: List.filter_map
+           (fun c -> if c.size > slot then Some c.size else None)
+           cands)
+  in
+  let score limit taken =
+    List.fold_left (fun n c -> n + c.size) 0 taken - (limit - slot)
+  in
+  match
+    List.fold_left
+      (fun best limit ->
+        let taken = take limit in
+        let v = score limit taken in
+        match best with
+        | Some (v', _) when v' >= v -> best
+        | _ -> if taken = [] then best else Some (v, taken))
+      None sizes
+  with
+  | None -> None
+  | Some (_, taken) ->
+      Some (List.sort (fun a b -> compare a.first b.first) taken)
+
+let of_artifact ?mutation ?(choose = best_pair) ?avoid artifact =
   let overlays = ref [] and globals = ref [] in
   let transform (f : func) items =
     let t = layout f items in
-    match choose (candidates t) with
+    match choose (candidates ?avoid t) with
     | None | Some [] -> items
     | Some chosen ->
         let resident, ovls, exports =

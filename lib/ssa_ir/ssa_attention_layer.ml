@@ -132,21 +132,37 @@ let body b (t : L.t) (bf : Buffers.t) ~scratch =
         u
     | _, None -> bf.Buffers.x
   in
-  let project desc ~a:src ~w ~c:out ~bias =
-    B.contract b desc ~a:src ~b:w ~c:out;
-    match bias with
-    | None -> ()
-    | Some bias ->
-        cells (fun b at c ->
-            store b out at
-              (binary b Expr.Value.Add (load b out at) (load b bias c)))
+  B.contract b t.L.q ~a:src ~b:bf.Buffers.wq ~c:q;
+  B.contract b t.L.k ~a:src ~b:bf.Buffers.wk ~c:k;
+  B.contract b t.L.v ~a:src ~b:bf.Buffers.wv ~c:v;
+  let rope = t.L.rope <> None in
+  (* one loop over the three projections: each its bias added, and for a
+     bfloat16 layer rounded into the attention's operand, unless a rotation
+     comes first (which rounds Q and K itself) *)
+  let projections =
+    [
+      (q, opt f.L.Flags.q_bias "q bias" bf.Buffers.bq, qb, not rope);
+      (k, opt f.L.Flags.k_bias "k bias" bf.Buffers.bk, kb, not rope);
+      (v, opt f.L.Flags.v_bias "v bias" bf.Buffers.bv, vb, true);
+    ]
   in
-  project t.L.q ~a:src ~w:bf.Buffers.wq ~c:q
-    ~bias:(opt f.L.Flags.q_bias "q bias" bf.Buffers.bq);
-  project t.L.k ~a:src ~w:bf.Buffers.wk ~c:k
-    ~bias:(opt f.L.Flags.k_bias "k bias" bf.Buffers.bk);
-  project t.L.v ~a:src ~w:bf.Buffers.wv ~c:v
-    ~bias:(opt f.L.Flags.v_bias "v bias" bf.Buffers.bv);
+  let work =
+    List.filter
+      (fun (_, bias, _, last) -> bias <> None || (bf16 t && last))
+      projections
+  in
+  if work <> [] then
+    cells (fun b at c ->
+        List.iter
+          (fun (z, bias, zb, last) ->
+            let x = load b z at in
+            let x =
+              match bias with
+              | Some bias -> binary b Expr.Value.Add x (load b bias c)
+              | None -> x
+            in
+            if bf16 t && last then store_bf16 b zb at x else store b z at x)
+          work);
   (match t.L.rope with
   | None -> ()
   | Some rs ->
@@ -154,54 +170,55 @@ let body b (t : L.t) (bf : Buffers.t) ~scratch =
       let d = t.L.d in
       let half = Int64.div d 2L in
       let minus_one = B.f64 b (-1.) in
-      let rotate z =
-        loop b t.L.batch (fun b bb ->
-            loop b t.L.tokens (fun b tok ->
-                loop b t.L.heads (fun b h ->
-                    loop b half (fun b ff ->
-                        let lo =
-                          offset b
-                            [
-                              (Int64.mul t.L.tokens e, bb);
-                              (e, tok);
-                              (d, h);
-                              (1L, ff);
-                            ]
+      (* Q and K in one nest, each pair of half-row features read before
+         either is written; a bfloat16 layer writes its operand copies *)
+      loop b t.L.batch (fun b bb ->
+          loop b t.L.tokens (fun b tok ->
+              loop b t.L.heads (fun b h ->
+                  loop b half (fun b ff ->
+                      let lo =
+                        offset b
+                          [
+                            (Int64.mul t.L.tokens e, bb);
+                            (e, tok);
+                            (d, h);
+                            (1L, ff);
+                          ]
+                      in
+                      let hi = B.index_add b lo (B.index b half) in
+                      let table buf ~upper =
+                        let feature =
+                          if upper then B.index_add b ff (B.index b half)
+                          else ff
                         in
-                        let hi = B.index_add b lo (B.index b half) in
-                        let table buf ~upper =
-                          let feature =
-                            if upper then B.index_add b ff (B.index b half)
-                            else ff
+                        load b buf
+                          (offset b
+                             [
+                               (rs.L.Rope.batch, bb);
+                               (rs.L.Rope.row, tok);
+                               (rs.L.Rope.col, feature);
+                             ])
+                      in
+                      List.iter
+                        (fun (z, zb) ->
+                          let x0 = load b z lo and x1 = load b z hi in
+                          let rotated x partner ~upper =
+                            binary b Expr.Value.Add
+                              (binary b Expr.Value.Mul x (table cos ~upper))
+                              (binary b Expr.Value.Mul partner
+                                 (table sin ~upper))
                           in
-                          load b buf
-                            (offset b
-                               [
-                                 (rs.L.Rope.batch, bb);
-                                 (rs.L.Rope.row, tok);
-                                 (rs.L.Rope.col, feature);
-                               ])
-                        in
-                        let x0 = load b z lo and x1 = load b z hi in
-                        let rotated x partner ~upper =
-                          binary b Expr.Value.Add
-                            (binary b Expr.Value.Mul x (table cos ~upper))
-                            (binary b Expr.Value.Mul partner (table sin ~upper))
-                        in
-                        let y0 =
-                          rotated x0
-                            (binary b Expr.Value.Mul x1 minus_one)
-                            ~upper:false
-                        and y1 = rotated x1 x0 ~upper:true in
-                        store b z lo y0;
-                        store b z hi y1))))
-      in
-      rotate q;
-      rotate k);
-  if bf16 t then (
-    to_bf16 ~src:q ~dst:qb;
-    to_bf16 ~src:k ~dst:kb;
-    to_bf16 ~src:v ~dst:vb);
+                          let y0 =
+                            rotated x0
+                              (binary b Expr.Value.Mul x1 minus_one)
+                              ~upper:false
+                          and y1 = rotated x1 x0 ~upper:true in
+                          let put =
+                            if bf16 t then store_bf16 b zb else store b z
+                          in
+                          put lo y0;
+                          put hi y1)
+                        [ (q, qb); (k, kb) ])))));
   B.attend b t.L.attend ~q:qb ~k:kb ~v:vb ~mask:bf.Buffers.mask ~o:a;
   if bf16 t then to_bf16 ~src:a ~dst:ab;
   B.contract b t.L.o ~a:ab ~b:bf.Buffers.wo ~c:o;

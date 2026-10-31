@@ -1,0 +1,32 @@
+; fastvit_sa12's attention layer shape (49 tokens of 512 features, 16 heads of
+; 32) as one granted bfloat16 node on the Coral RTL simulators: the VME core
+; with the code resident, and the subsystem with it as overlays. About an hour
+; and two hours of simulation, so outside every runtest alias: enabled only by
+; MLTORCH_CORAL_FASTVIT beside both archives (make coralnpu.fastvit.run).
+
+(library
+ (name machine_rivet_riscv32_coral_fastvit_test)
+ (libraries
+  contraction
+  coralnpu
+  fmt
+  machine_model
+  machine_model_test
+  machine_rivet_common
+  machine_rivet_riscv32_coral
+  ssa_backends
+  ssa_ir)
+ (inline_tests
+  (deps
+   (env_var CORALNPU_DATA)
+   (env_var CORALNPU_SUBSYSTEM_DATA)
+   (env_var MLTORCH_CORAL_FASTVIT)))
+ (preprocess
+  (pps ppx_expect))
+ (enabled_if
+  (and
+   (<> %{env:MLTORCH_CORAL_FASTVIT=} "")
+   (<> %{env:CORALNPU_DATA=} "")
+   (<> %{env:CORALNPU_SUBSYSTEM_DATA=} "")
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

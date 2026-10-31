@@ -50,7 +50,12 @@ non-ASCII names, escapes and mixed-case keys; dropping the member sort or the
 `Coral_profile.t` is one configuration plus the artifact that simulates it:
 the simulator (`Mpact` | `Rtl`), the extension list, the regions, and the
 launch command with its `<elf>` hole. `load` verifies the artifact's SHA-256
-in pure OCaml. The baseline profiles are `core-mini-axi`,
+in pure OCaml. From v0.0.7 a standalone RTL configuration ships two Verilator
+builds: one with waveform and instruction tracing (`*_sim`), and one without
+(`*_fast_sim`). A profile takes the build without tracing whenever the
+manifest lists one, by its name rather than the manifest's order, so every
+general-purpose run uses it; the tracing build is for runs that ask for a
+waveform or an instruction trace. The baseline profiles are `core-mini-axi`,
 `core-mini-highmem-axi` and `mpact-v2`; any configuration with a known
 backend and known region types decodes.
 

@@ -202,6 +202,9 @@ let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
   in
   (* an attention is the fused function on the matrix engine, within what the
      functions before it left *)
+  (* each attention function built, by its entry symbol: on the subsystem one
+     that does not fit beside the kernel runs as an overlay too *)
+  let attended = ref [] in
   let attention d =
     if not capabilities.Contraction.Select.Capabilities.matrix then
       Error "the core has no matrix engine"
@@ -212,20 +215,21 @@ let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
           Error (Fmt.str "the panels need %d bytes, %d available" bytes !left)
       | Ok bytes -> (
           match Coralnpu_kernels_zvt.Zvt_sdpa.module_ d with
-          | Ok _ as m ->
+          | Ok md as m ->
               left := !left - bytes;
+              attended := (Attention_block.symbol d, md) :: !attended;
               m
           | Error _ as e -> e)
   in
   let* helpers =
     Q.helper_modules ?kernel_mutation ?plan ~other ~attention artifact
   in
-  let build ?overlays ?(rv32_profile = rv32_profile) m =
+  let build ?overlays ?(resident = helpers) ?(rv32_profile = rv32_profile) m =
     Coral_image.build ?overlays ~rv32_profile
       ~matrix:
         (List.exists on_engine (Q.generated artifact)
         || Q.attentions artifact <> [])
-      profile ~entry:Table.entry ~kernel:(m :: helpers)
+      profile ~entry:Table.entry ~kernel:(m :: resident)
       (slots ?home ~slack:(Int64.of_int !slack) ~record artifact)
   in
   let first = build m in
@@ -233,34 +237,78 @@ let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
      the DMA that loads them: two of its regions move out of the image *)
   let outlined () =
     let module O = Machine_rivet_riscv32_mir.Rv32_mir_outline in
-    match O.of_artifact ?mutation artifact with
-    | Ok (m, (_ :: _ as overlays))
-      when Profile.vector rv32_profile
-           || List.mem "zve32f" profile.Coral_profile.extensions -> (
-        let modules =
-          List.map (fun (o : O.outlined) -> (o, O.module_ o)) overlays
-        in
-        match List.find_opt (fun (_, r) -> Result.is_error r) modules with
-        | Some _ -> None
-        | None ->
-            Some
-              (build
-                 ~rv32_profile:
-                   (* the manager's [fence.i] is Zifencei, which the scalar
-                      profile leaves out and the vector ones enable *)
-                   (if Profile.vector rv32_profile then rv32_profile
-                    else Profile.Rv32imf_zve32f_ilp32f)
-                 ~overlays:
-                   (List.map
-                      (fun ((o : O.outlined), r) ->
-                        {
-                          Coral_overlay.Overlay.name = o.entry;
-                          entry = o.entry;
-                          modules = [ Result.get_ok r ];
-                        })
-                      modules)
-                 m))
-    | Ok _ | Error _ -> None
+    let vector =
+      Profile.vector rv32_profile
+      || List.mem "zve32f" profile.Coral_profile.extensions
+    in
+    (* the attention functions leave the resident image as overlays of their
+       own, each reached through the stub that bears its symbol *)
+    let attentions =
+      List.map
+        (fun (symbol, md) ->
+          {
+            Coral_overlay.Overlay.name = symbol;
+            entry = symbol;
+            modules = [ md ];
+          })
+        !attended
+    in
+    let resident =
+      List.filter
+        (fun h -> not (List.exists (fun (_, md) -> md == h) !attended))
+        helpers
+    in
+    (* beside the attentions, the slot is at least the largest of them: every
+       kernel region that fits it and calls no attention moves out too *)
+    let outline =
+      match attentions with
+      | [] -> O.of_artifact ?mutation artifact
+      | _ ->
+          let text (o : Coral_overlay.Overlay.t) =
+            match
+              Err.payload
+                (Coral_overlay.link ~rv32_profile:Profile.Rv32imf_zve32f_ilp32f
+                   ~slot_base:0L ~slot_size:0x1000000L ~data_base:0x1000000L
+                   ~data_size:0x1000000L o)
+            with
+            | Ok l -> String.length l.Coral_overlay.Linked.text
+            | Error _ -> 0
+          in
+          let slot = List.fold_left (fun n o -> max n (text o)) 0 attentions in
+          O.of_artifact ?mutation ~avoid:(List.map fst !attended)
+            ~choose:(O.fill ~slot) artifact
+    in
+    let regions, m =
+      match outline with
+      | Ok (m', (_ :: _ as overlays)) ->
+          let modules =
+            List.map (fun (o : O.outlined) -> (o, O.module_ o)) overlays
+          in
+          if List.exists (fun (_, r) -> Result.is_error r) modules then ([], m)
+          else
+            ( List.map
+                (fun ((o : O.outlined), r) ->
+                  {
+                    Coral_overlay.Overlay.name = o.entry;
+                    entry = o.entry;
+                    modules = [ Result.get_ok r ];
+                  })
+                modules,
+              m' )
+      | Ok _ | Error _ -> ([], m)
+    in
+    match regions @ attentions with
+    | [] -> None
+    | overlays when vector ->
+        Some
+          (build
+             ~rv32_profile:
+               (* the manager's [fence.i] is Zifencei, which the scalar
+                  profile leaves out and the vector ones enable *)
+               (if Profile.vector rv32_profile then rv32_profile
+                else Profile.Rv32imf_zve32f_ilp32f)
+             ~overlays ~resident m)
+    | _ -> None
   in
   let retried =
     match Err.payload first with

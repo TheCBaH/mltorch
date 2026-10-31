@@ -151,8 +151,8 @@ let fetch spi (s : Coral_layout.Placed_slot.t) =
   let bytes = Coral_spi.read spi lo ~beats:((skip + size + 15) / 16) in
   String.sub bytes skip size
 
-let run ?(deadline = 600.) ?trace ?(read_back = []) ?(skip_unchanged = false)
-    ?budget ~dir (image : Coral_image.t) ~bound =
+let run_held ?(deadline = 600.) ?trace ?(read_back = [])
+    ?(skip_unchanged = false) ?budget ~dir (image : Coral_image.t) ~bound =
   let open Err.Syntax in
   let initial =
     Array.of_list (List.map (fun (_, _, b) -> b) (contents image ~bound))
@@ -204,7 +204,11 @@ let run ?(deadline = 600.) ?trace ?(read_back = []) ?(skip_unchanged = false)
       (* The image was built from this layout, so its sections were placed. *)
       Fmt.invalid_arg "Coral_soc_run: %a" Coral_elf.pp_error e
   | Ok elf_bytes ->
-      let work = Filename.temp_file "mltorch_coral_soc_" "" in
+      let work =
+        Filename.temp_file
+          (Printf.sprintf "mltorch_coral_soc_%d_" (Unix.getpid ()))
+          ""
+      in
       Sys.remove work;
       Sys.mkdir work 0o700;
       Fun.protect
@@ -410,3 +414,11 @@ let run ?(deadline = 600.) ?trace ?(read_back = []) ?(skip_unchanged = false)
                                 | Some (k, _) ->
                                     Err.fail (Run_error.Read_back_mismatch k)
                                 | None -> Err.return o)))))
+
+(* the whole run, simulator and bridge, holds the CPUs its threads keep busy *)
+let run ?deadline ?trace ?read_back ?skip_unchanged ?budget ~dir
+    (image : Coral_image.t) ~bound =
+  Coral_cpus.with_cpus image.Coral_image.profile.Coral_profile.threads
+    (fun () ->
+      run_held ?deadline ?trace ?read_back ?skip_unchanged ?budget ~dir image
+        ~bound)

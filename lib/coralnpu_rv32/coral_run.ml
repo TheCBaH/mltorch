@@ -56,8 +56,13 @@ let describe = function
   | Unix.WSIGNALED n -> Printf.sprintf "was killed by signal %d" n
   | Unix.WSTOPPED n -> Printf.sprintf "stopped on signal %d" n
 
+(* the process id in the name: forked runners share their random state, so
+   two would otherwise draw the same name and race between its removal and the
+   [mkdir] *)
 let fresh_dir () =
-  let d = Filename.temp_file "mltorch_coral_" "" in
+  let d =
+    Filename.temp_file (Printf.sprintf "mltorch_coral_%d_" (Unix.getpid ())) ""
+  in
   Sys.remove d;
   Sys.mkdir d 0o700;
   d
@@ -220,11 +225,14 @@ let run ?(deadline = 120.) ?(flags = []) ~dir (image : Coral_image.t) ~bound =
             0L image.layout.slots
         in
         let limit = Int64.to_int payload_size + output_slack in
-        let t0 = Unix.gettimeofday () in
+        let t0 = ref 0. in
         let status, timed_out, flooded, out, err =
-          spawn ~cwd:work ~deadline ~limit argv input
+          Coral_cpus.with_cpus image.Coral_image.profile.Coral_profile.threads
+            (fun () ->
+              t0 := Unix.gettimeofday ();
+              spawn ~cwd:work ~deadline ~limit argv input)
         in
-        let wall = Unix.gettimeofday () -. t0 in
+        let wall = Unix.gettimeofday () -. !t0 in
         if flooded then Err.fail (Run_error.Output_limit (Int64.of_int limit))
         else
           match

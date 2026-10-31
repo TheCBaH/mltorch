@@ -156,13 +156,8 @@ let transfer ~n ~fd ~on_end =
     label fin;
   ]
 
-let read_into ~dst ~len =
-  addr "s6" dst @ addr "s7" len
-  @ transfer ~n:63 ~fd:0 ~on_end:(refuse_label Refusal.End_of_input)
-
 (* A write that cannot complete leaves nothing to report on: exit 2. *)
 let write_from_regs () = transfer ~n:64 ~fd:1 ~on_end:"coral_write_failed"
-let write_from ~src ~len = addr "s6" src @ addr "s7" len @ write_from_regs ()
 
 (* [t2] bytes from [t1] to [t0]: words, then the tail bytes. All three are
    advanced; [t3], [t4] clobbered. Every caller's addresses are word-aligned. *)
@@ -191,37 +186,35 @@ let copy () =
     label fin;
   ]
 
-(* [size] bytes at [at] set to zero, by words then bytes. *)
-let zero_fill ~at ~size =
+(* [t2] bytes at [t0] set to zero, by words then bytes. *)
+let zero_body () =
   let words_ = fresh "zero_w"
   and bytes = fresh "zero_b"
   and fin = fresh "zero_done" in
-  addr "t0" at @ addr "t2" size
-  @ [
-      label words_;
-      insn "li" [ reg "t3"; imm 4 ];
-      insn "bltu" [ reg "t2"; reg "t3"; sym bytes ];
-      insn "sw" [ reg "zero"; mem "t0" 0 ];
-      insn "addi" [ reg "t0"; reg "t0"; imm 4 ];
-      insn "addi" [ reg "t2"; reg "t2"; imm (-4) ];
-      insn "j" [ sym words_ ];
-      label bytes;
-      insn "beqz" [ reg "t2"; sym fin ];
-      insn "sb" [ reg "zero"; mem "t0" 0 ];
-      insn "addi" [ reg "t0"; reg "t0"; imm 1 ];
-      insn "addi" [ reg "t2"; reg "t2"; imm (-1) ];
-      insn "j" [ sym bytes ];
-      label fin;
-    ]
+  [
+    label words_;
+    insn "li" [ reg "t3"; imm 4 ];
+    insn "bltu" [ reg "t2"; reg "t3"; sym bytes ];
+    insn "sw" [ reg "zero"; mem "t0" 0 ];
+    insn "addi" [ reg "t0"; reg "t0"; imm 4 ];
+    insn "addi" [ reg "t2"; reg "t2"; imm (-4) ];
+    insn "j" [ sym words_ ];
+    label bytes;
+    insn "beqz" [ reg "t2"; sym fin ];
+    insn "sb" [ reg "zero"; mem "t0" 0 ];
+    insn "addi" [ reg "t0"; reg "t0"; imm 1 ];
+    insn "addi" [ reg "t2"; reg "t2"; imm (-1) ];
+    insn "j" [ sym bytes ];
+    label fin;
+  ]
 
 (* A slot through the staging buffer, chunk by chunk: [s8] the slot cursor,
    [s9] the bytes left, [s10] this chunk. *)
-let staged (l : Coral_layout.t) (s : Coral_layout.Placed_slot.t) ~reading =
+let staged_body (l : Coral_layout.t) ~reading =
   let again = fresh "stage"
   and fin = fresh "stage_done"
   and full = fresh "stage_full" in
-  addr "s8" s.address @ addr "s9" s.slot.size
-  @ [ label again; insn "beqz" [ reg "s9"; sym fin ] ]
+  [ label again; insn "beqz" [ reg "s9"; sym fin ] ]
   @ addr "s10" l.staging_size
   @ [
       insn "bgeu" [ reg "s9"; reg "s10"; sym full ];
@@ -230,18 +223,21 @@ let staged (l : Coral_layout.t) (s : Coral_layout.Placed_slot.t) ~reading =
     ]
   @ (if reading then
        addr "s6" l.staging
-       @ [ insn "mv" [ reg "s7"; reg "s10" ] ]
-       @ transfer ~n:63 ~fd:0 ~on_end:(refuse_label Refusal.End_of_input)
+       @ [ insn "mv" [ reg "s7"; reg "s10" ]; insn "call" [ sym "coral_read" ] ]
        @ [ insn "mv" [ reg "t0"; reg "s8" ] ]
        @ addr "t1" l.staging
-       @ [ insn "mv" [ reg "t2"; reg "s10" ] ]
-       @ copy ()
+       @ [ insn "mv" [ reg "t2"; reg "s10" ]; insn "call" [ sym "coral_copy" ] ]
      else
        addr "t0" l.staging
-       @ [ insn "mv" [ reg "t1"; reg "s8" ]; insn "mv" [ reg "t2"; reg "s10" ] ]
-       @ copy () @ addr "s6" l.staging
-       @ [ insn "mv" [ reg "s7"; reg "s10" ] ]
-       @ write_from_regs ())
+       @ [
+           insn "mv" [ reg "t1"; reg "s8" ];
+           insn "mv" [ reg "t2"; reg "s10" ];
+           insn "call" [ sym "coral_copy" ];
+         ]
+       @ addr "s6" l.staging
+       @ [
+           insn "mv" [ reg "s7"; reg "s10" ]; insn "call" [ sym "coral_write" ];
+         ])
   @ [
       insn "add" [ reg "s8"; reg "s8"; reg "s10" ];
       insn "sub" [ reg "s9"; reg "s9"; reg "s10" ];
@@ -249,11 +245,111 @@ let staged (l : Coral_layout.t) (s : Coral_layout.Placed_slot.t) ~reading =
       label fin;
     ]
 
-let slot_io l (s : Coral_layout.Placed_slot.t) ~reading =
-  if s.htif_reachable then
-    if reading then read_into ~dst:s.address ~len:s.slot.size
-    else write_from ~src:s.address ~len:s.slot.size
-  else staged l s ~reading
+(* The per-slot work runs in subroutines emitted once, so the runtime grows
+   by a call per slot, not by a transfer loop: [s6]/[s7] (address, length)
+   for a direct read or write, [s8]/[s9] for a staged one, [t0]/[t2] for a
+   zero fill. The ones that call [sys] keep their return address in [s11],
+   which nothing else in the runtime uses. *)
+let zero_label = "coral_zero"
+let exit_label = "coral_exit"
+let read_label = "coral_read"
+let write_label = "coral_write"
+let stage_in_label = "coral_stage_in"
+let stage_out_label = "coral_stage_out"
+let call l = [ insn "call" [ sym l ] ]
+let read_call ~dst ~len = addr "s6" dst @ addr "s7" len @ call read_label
+let write_call ~src ~len = addr "s6" src @ addr "s7" len @ call write_label
+
+(* The slots themselves are data: a table of (address, length, staged) words
+   per direction and of (address, length) for the zero fills, walked by one
+   loop each with the cursor in [s0] and the count in [s1], which no
+   subroutine touches ([s1] holds the result only after these loops have
+   run). *)
+let read_table = "coral_read_slots"
+let write_table = "coral_write_slots"
+let zero_table = "coral_zero_slots"
+
+let slot_loop ~table ~count ~staged ~reading =
+  if count = 0 then []
+  else
+    let again = fresh "slots"
+    and direct = fresh "slot_direct"
+    and next = fresh "slot_next" in
+    [ insn "la" [ reg "s0"; sym table ]; insn "li" [ reg "s1"; imm count ] ]
+    @ [
+        label again;
+        insn "lw" [ reg "s6"; mem "s0" 0 ];
+        insn "lw" [ reg "s7"; mem "s0" 4 ];
+      ]
+    @ (if staged then
+         [
+           insn "lw" [ reg "t0"; mem "s0" 8 ];
+           insn "beqz" [ reg "t0"; sym direct ];
+           insn "mv" [ reg "s8"; reg "s6" ];
+           insn "mv" [ reg "s9"; reg "s7" ];
+         ]
+         @ call (if reading then stage_in_label else stage_out_label)
+         @ [ insn "j" [ sym next ]; label direct ]
+       else [])
+    @ call (if reading then read_label else write_label)
+    @ [
+        label next;
+        insn "addi" [ reg "s0"; reg "s0"; imm 12 ];
+        insn "addi" [ reg "s1"; reg "s1"; imm (-1) ];
+        insn "bnez" [ reg "s1"; sym again ];
+      ]
+
+let zero_loop ~count =
+  if count = 0 then []
+  else
+    let again = fresh "zeros" in
+    [
+      insn "la" [ reg "s0"; sym zero_table ]; insn "li" [ reg "s1"; imm count ];
+    ]
+    @ [
+        label again;
+        insn "lw" [ reg "t0"; mem "s0" 0 ];
+        insn "lw" [ reg "t2"; mem "s0" 4 ];
+      ]
+    @ call zero_label
+    @ [
+        insn "addi" [ reg "s0"; reg "s0"; imm 8 ];
+        insn "addi" [ reg "s1"; reg "s1"; imm (-1) ];
+        insn "bnez" [ reg "s1"; sym again ];
+      ]
+
+let slot_words (slots : Coral_layout.Placed_slot.t list) ~staged =
+  List.concat_map
+    (fun (s : Coral_layout.Placed_slot.t) ->
+      [ Int64.to_int s.address; Int64.to_int s.slot.size ]
+      @ if staged then [ (if s.htif_reachable then 0 else 1) ] else [])
+    slots
+
+(* A staged copy calls the direct read or write for each chunk, so it keeps
+   its own return address in [s5], free while the slot loops run (the
+   counters are read after the inputs and stored before the outputs). *)
+let subroutine ?(save = "s11") name body =
+  [ align 4; label name; insn "mv" [ reg save; reg "ra" ] ]
+  @ body
+  @ [ insn "jr" [ reg save ] ]
+
+(* Only the subroutines some call reaches. *)
+let subroutines l ~zero ~stage_in ~stage_out =
+  (if zero then [ align 4; label zero_label ] @ zero_body () @ [ insn "ret" [] ]
+   else [])
+  @ subroutine read_label
+      (transfer ~n:63 ~fd:0 ~on_end:(refuse_label Refusal.End_of_input))
+  @ subroutine write_label (write_from_regs ())
+  @ (if stage_in || stage_out then
+       [ align 4; label "coral_copy" ] @ copy () @ [ insn "ret" [] ]
+     else [])
+  @ (if stage_in then
+       subroutine ~save:"s5" stage_in_label (staged_body l ~reading:true)
+     else [])
+  @
+  if stage_out then
+    subroutine ~save:"s5" stage_out_label (staged_body l ~reading:false)
+  else []
 
 (* [t0] compared with the 32-bit [expected]; a mismatch refuses for [k]. *)
 let expect_word ~at off expected k =
@@ -318,6 +414,19 @@ let items ?(vector = false) ?(matrix = false) (l : Coral_layout.t) ~abi ~entry
         Coral_layout.Placement.written s.slot.placement)
       l.slots
   in
+  let staged slots =
+    List.exists
+      (fun (s : Coral_layout.Placed_slot.t) -> not s.htif_reachable)
+      slots
+  in
+  let zeroed =
+    List.filter
+      (fun (s : Coral_layout.Placed_slot.t) ->
+        match s.slot.placement with
+        | Out | Scratch -> true
+        | In | In_out -> false)
+      l.slots
+  in
   let start =
     [ text; align 4; global entry_symbol; label entry_symbol ]
     @ addr "sp" l.stack_top
@@ -334,14 +443,9 @@ let items ?(vector = false) ?(matrix = false) (l : Coral_layout.t) ~abi ~entry
     @ [
         insn "csrs" [ imm mstatus; reg "t0" ]; insn "csrwi" [ imm fcsr; imm 0 ];
       ]
-    @ List.concat_map
-        (fun (s : Coral_layout.Placed_slot.t) ->
-          match s.slot.placement with
-          | Out | Scratch -> zero_fill ~at:s.address ~size:s.slot.size
-          | In | In_out -> [])
-        l.slots
+    @ zero_loop ~count:(List.length zeroed)
     (* The header: magic, version, digest, length. *)
-    @ read_into ~dst:l.staging ~len:20L
+    @ read_call ~dst:l.staging ~len:20L
     @ addr "s6" l.staging
     @ expect_word ~at:"s6" 0 (word magic_in 0) Magic
     @ expect_word ~at:"s6" 4 (word magic_in 4) Magic
@@ -350,8 +454,9 @@ let items ?(vector = false) ?(matrix = false) (l : Coral_layout.t) ~abi ~entry
     @ expect_word ~at:"s6" 16
         (size_of l.slots Coral_layout.Placement.read)
         Length
-    @ List.concat_map (slot_io l ~reading:true) ins
-    @ read_into ~dst:l.staging ~len:8L
+    @ slot_loop ~table:read_table ~count:(List.length ins) ~staged:(staged ins)
+        ~reading:true
+    @ read_call ~dst:l.staging ~len:8L
     @ addr "s6" l.staging
     @ expect_word ~at:"s6" 0 (word trailer 0) Trailer
     @ expect_word ~at:"s6" 4 (word trailer 4) Trailer
@@ -375,28 +480,37 @@ let items ?(vector = false) ?(matrix = false) (l : Coral_layout.t) ~abi ~entry
     @ store_const ~at:"s6" 12 (Int64.of_int32 l.digest)
     @ [ insn "sw" [ reg "s1"; mem "s6" 16 ] ]
     @ store_const ~at:"s6" 36 (size_of l.slots Coral_layout.Placement.written)
-    @ write_from ~src:l.staging ~len:40L
-    @ List.concat_map (slot_io l ~reading:false) outs
+    @ write_call ~src:l.staging ~len:40L
+    @ slot_loop ~table:write_table ~count:(List.length outs)
+        ~staged:(staged outs) ~reading:false
     @ addr "s6" l.staging
     @ store_string ~at:"s6" 0 trailer
-    @ write_from ~src:l.staging ~len:8L
-    @ [ insn "li" [ reg "a0"; imm 0 ] ]
+    @ write_call ~src:l.staging ~len:8L
+    @ [ insn "li" [ reg "a0"; imm 0 ]; label exit_label ]
     @ exit_with l
   in
+  (* the other exits set their code and join the one HTIF exit above *)
   let write_failed =
-    [ label "coral_write_failed"; insn "li" [ reg "a0"; imm 2 ] ] @ exit_with l
+    [
+      label "coral_write_failed";
+      insn "li" [ reg "a0"; imm 2 ];
+      insn "j" [ sym exit_label ];
+    ]
   in
+  (* each refusal sets its code and joins the shared tail, which falls
+     through into [report] *)
   let refusals =
     List.concat_map
       (fun k ->
-        [ label (refuse_label k) ]
-        @ addr "a4" (Int64.of_int32 refused)
-        @ [
-            insn "li" [ reg "a5"; imm (Refusal.code k) ];
-            insn "li" [ reg "a6"; imm 0 ];
-          ]
-        @ [ insn "j" [ sym report_label ] ])
+        [
+          label (refuse_label k);
+          insn "li" [ reg "a5"; imm (Refusal.code k) ];
+          insn "j" [ sym "coral_refuse" ];
+        ])
       Refusal.[ Magic; Version; Digest; Length; End_of_input; Trailer ]
+    @ [ label "coral_refuse" ]
+    @ addr "a4" (Int64.of_int32 refused)
+    @ [ insn "li" [ reg "a6"; imm 0 ] ]
   in
   (* [a4], [a5], [a6] as the trap frame's [mcause], [mepc], [mtval]; written
      from the trap scratch, then exit 1. Uses no stack. *)
@@ -412,9 +526,8 @@ let items ?(vector = false) ?(matrix = false) (l : Coral_layout.t) ~abi ~entry
       ]
     @ store_string ~at:"s6" 24 trailer
     @ [ insn "li" [ reg "s7"; imm 32 ] ]
-    @ write_from_regs ()
-    @ [ insn "li" [ reg "a0"; imm 1 ] ]
-    @ exit_with l
+    @ call write_label
+    @ [ insn "li" [ reg "a0"; imm 1 ]; insn "j" [ sym exit_label ] ]
   in
   let trap =
     [
@@ -439,7 +552,17 @@ let items ?(vector = false) ?(matrix = false) (l : Coral_layout.t) ~abi ~entry
                slots);
         ]
   in
-  start @ write_failed @ refusals @ report @ trap @ sys l @ table
+  let zero = zeroed <> [] in
+  let slot_table name slots ~staged =
+    if slots = [] then []
+    else [ data; align 4; label name; words (slot_words slots ~staged) ]
+  in
+  start @ write_failed @ refusals @ report @ trap
+  @ subroutines l ~zero ~stage_in:(staged ins) ~stage_out:(staged outs)
+  @ sys l @ table
+  @ slot_table read_table ins ~staged:true
+  @ slot_table write_table outs ~staged:true
+  @ slot_table zero_table zeroed ~staged:false
 
 (* {1 The subsystem's runtime}
 

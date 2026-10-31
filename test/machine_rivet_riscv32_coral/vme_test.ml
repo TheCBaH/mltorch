@@ -59,23 +59,23 @@ let%expect_test "matrix products on the matrix engine and the vector unit" =
     {|
     linear 9x32 k64, vector unit (1 invocations): bitwise
     linear 9x32 k64, matrix engine (1 invocations): bitwise
-      cycles 13694 -> 4870 (2.81x); 2.692 -> 7.570 ops/cycle
+      cycles 13694 -> 4895 (2.80x); 2.692 -> 7.531 ops/cycle
     linear 9x32 k64, contracted (vector unit) (1 invocations): bitwise
     linear 9x32 k64 bias, vector unit (1 invocations): bitwise
     linear 9x32 k64 bias, matrix engine (1 invocations): bitwise
-      cycles 14020 -> 5198 (2.70x); 2.629 -> 7.092 ops/cycle
+      cycles 14019 -> 5219 (2.69x); 2.630 -> 7.063 ops/cycle
     linear 9x32 k64 bias, contracted (vector unit) (1 invocations): bitwise
     linear 7x29 k63 bias, vector unit (1 invocations): bitwise
     linear 7x29 k63 bias, matrix engine (1 invocations): bitwise
-      cycles 12036 -> 6081 (1.98x); 2.125 -> 4.206 ops/cycle
+      cycles 12035 -> 6095 (1.97x); 2.125 -> 4.197 ops/cycle
     linear 7x29 k63 bias, contracted (vector unit) (1 invocations): bitwise
     bmm 1x9x32 k64, vector unit (1 invocations): bitwise
     bmm 1x9x32 k64, matrix engine (1 invocations): bitwise
-      cycles 8288 -> 3497 (2.37x); 4.448 -> 10.542 ops/cycle
+      cycles 8287 -> 3518 (2.36x); 4.448 -> 10.479 ops/cycle
     bmm 1x9x32 k64, contracted (vector unit) (1 invocations): bitwise
     bmm 3x7x29 k63, vector unit (1 invocations): bitwise
     bmm 3x7x29 k63, matrix engine (1 invocations): bitwise
-      cycles 35500 -> 16091 (2.21x); 2.162 -> 4.769 ops/cycle
+      cycles 35499 -> 16105 (2.20x); 2.162 -> 4.765 ops/cycle
     bmm 3x7x29 k63, contracted (vector unit) (1 invocations): bitwise
     full tn (1 invocations): DIFFERS
     swapped operands (1 invocations): DIFFERS |}]
@@ -113,11 +113,11 @@ let%expect_test "1x1 convolutions on the matrix engine" =
     conv1x1 3x5 c19 to 29, loops (1 invocations): bitwise
     conv1x1 3x5 c19 to 29, vector unit (1 invocations): bitwise
     conv1x1 3x5 c19 to 29, matrix engine (1 invocations): bitwise
-      cycles 238307 / 11663 / 7262; 0.069 / 1.417 / 2.276 ops/cycle
+      cycles 242297 / 11662 / 7276; 0.068 / 1.417 / 2.272 ops/cycle
     conv1x1 7x7 c32 to 48, loops (1 invocations): bitwise
     conv1x1 7x7 c32 to 48, vector unit (1 invocations): bitwise
     conv1x1 7x7 c32 to 48, matrix engine (1 invocations): bitwise
-      cycles 426616 / 65550 / 26195; 0.353 / 2.296 / 5.746 ops/cycle |}]
+      cycles 429465 / 65549 / 26256; 0.351 / 2.296 / 5.733 ops/cycle |}]
 
 (* bfloat16 products on the same core: the selection sends them to the
    vector unit (the engine's build multiplies no bfloat16), against the
@@ -162,16 +162,16 @@ let%expect_test "bfloat16 products on the vector unit" =
     {|
     bmm bf16 3x7x29 k63, ordered, loops (1 invocations): bitwise
     bmm bf16 3x7x29 k63, ordered, vector unit (1 invocations): bitwise
-      cycles 321662 -> 25971 (12.39x)
+      cycles 321686 -> 25970 (12.39x)
     bmm bf16 3x7x29 k63, contracted, loops (1 invocations): bitwise
     bmm bf16 3x7x29 k63, contracted, vector unit (1 invocations): bitwise
-      cycles 272711 -> 18354 (14.86x)
+      cycles 272777 -> 18353 (14.86x)
     linear bf16 9x32 k64, ordered, loops (1 invocations): bitwise
     linear bf16 9x32 k64, ordered, vector unit (1 invocations): bitwise
-      cycles 188190 -> 15466 (12.17x)
+      cycles 188189 -> 15466 (12.17x)
     linear bf16 9x32 k64, contracted, loops (1 invocations): bitwise
     linear bf16 9x32 k64, contracted, vector unit (1 invocations): bitwise
-      cycles 184078 -> 11130 (16.54x) |}]
+      cycles 184203 -> 11130 (16.55x) |}]
 
 (* Prepacked weights on the vector unit (the contracted policy, so the RVV
    function): B's rows contiguous instead of strided, against the unpacked
@@ -212,7 +212,7 @@ let%expect_test "prepacked weights on the vector unit" =
       cycles 9280 -> 4687 (1.98x)
     linear 7x29 k63 bias, strided (1 invocations): bitwise
     linear 7x29 k63 bias, packed (1 invocations, 1 packed): bitwise
-      cycles 10034 -> 6214 (1.61x)
+      cycles 10033 -> 6213 (1.61x)
     linear bf16 9x32 k64, strided (1 invocations): bitwise
     linear bf16 9x32 k64, packed (1 invocations, 1 packed): bitwise
       cycles 11130 -> 6351 (1.75x) |}]
@@ -312,16 +312,17 @@ let%expect_test "bfloat16 pairs from a model on the matrix engine" =
     linear bf16 64x64 k64, paired (1 invocations): bitwise
       cycles 37789
     bmm bf16 1x64x32 k64, paired (1 invocations): bitwise
-      cycles 16141
+      cycles 16140
     bmm bf16 3x7x29 k63, paired (1 invocations): bitwise
-      cycles 10418
+      cycles 10432
     linear bf16 9x32 k64, not granted (1 invocations): DIFFERS
       cycles 11130 |}]
 
-(* The generated [Sdpa] does not fit the core: its one large kernel alone
-   overflows the 8 KiB instruction memory, so the bfloat16 fixtures are
-   refused at placement. *)
-let%expect_test "bfloat16 Sdpa is refused at the instruction memory" =
+(* The generated (ungranted) [Sdpa] on the core: its kernel fits the 8 KiB
+   instruction memory beside the runtime, which runs each slot's transfer as
+   a call. 64 x 64 at d 64 is left out: generated, it runs past the
+   simulator's deadline; granted, it is in the fused-function test below. *)
+let%expect_test "bfloat16 Sdpa, generated, on the core" =
   List.iter
     (fun (name, g) ->
       T.check ~route:(C.route config) ~contractions:true
@@ -335,12 +336,13 @@ let%expect_test "bfloat16 Sdpa is refused at the instruction memory" =
         ~input:(fun ~salt id sg ->
           T.in_format sg (T.adversarial_input ~salt id sg))
         ~calls:1 name g)
-    T.sdpa_bf16_fixtures;
+    (List.filter
+       (fun (name, _) -> name <> "sdpa bf16 64x64 d64")
+       T.sdpa_bf16_fixtures);
   [%expect
     {|
-    sdpa bf16 32x32 d32: refused: invocation 0 (n0): itcm: 8300 bytes needed, 8192 available
-    sdpa bf16 64x64 d64: refused: invocation 0 (n0): itcm: 8300 bytes needed, 8192 available
-    sdpa bf16 9x29 d64 masked: refused: invocation 0 (n0): itcm: 8448 bytes needed, 8192 available |}]
+    sdpa bf16 32x32 d32 (1 invocations): bitwise
+    sdpa bf16 9x29 d64 masked (1 invocations): bitwise |}]
 
 (* The per-op composition of an [Sdpa] on the core: the scores product
    granted the engine's pair rounding, then the scale, a softmax and a
@@ -427,11 +429,11 @@ let%expect_test "the per-op composition of Sdpa" =
   [%expect
     {|
     sdpa composition 16x16 d16 (5 invocations): bitwise
-      cycles 266450 = 1414 + 915 + 261626 + 1130 + 1365
+      cycles 266464 = 1413 + 916 + 261626 + 1131 + 1378
     sdpa composition 32x32 d32 (5 invocations): bitwise
-      cycles 1055074 = 4202 + 2740 + 1038604 + 3498 + 6030
+      cycles 1055104 = 4201 + 2741 + 1038604 + 3499 + 6059
     sdpa composition 64x64 d64 (5 invocations): bitwise
-      cycles 4211209 = 30617 + 13333 + 4092795 + 16266 + 58198 |}]
+      cycles 4211318 = 30616 + 13334 + 4092795 + 16267 + 58306 |}]
 
 (* What the generated binary32 [exp] and softmax cost on the core, planned for
    the scalar unit or forced onto the vector one: cycles for the whole image
@@ -546,8 +548,8 @@ let%expect_test "a granted attention runs as the fused function" =
             name g;
           Fmt.pr "  cycles %Ld@." !cycles)
     T.sdpa_bf16_fixtures;
-  (* an f32 attention is not selected and stays refused at the instruction
-     memory; a granted flag with a non-bfloat16 operand falls back *)
+  (* an f32 attention is not selected and runs generated; a granted flag with
+     a non-bfloat16 operand falls back *)
   let f32 () =
     T.F.build "sdpa_f32"
       Graph_builder.(
@@ -579,4 +581,56 @@ let%expect_test "a granted attention runs as the fused function" =
     sdpa bf16 9x29 d64 masked (1 invocations): bitwise
       cycles 45247
     f32 32x32: not selected: the query is not bfloat16
-    f32 32x32, generated: refused: invocation 0 (n0): itcm: 8244 bytes needed, 8192 available |}]
+    f32 32x32, generated (1 invocations): bitwise |}]
+
+(* What a generated binary32 LayerNorm and RmsNorm over C cost on the core, at
+   the attention layer's 16 x 64 and with its affine operands: cycles for the
+   image and per element, the figure that decides whether a norm needs a hand
+   kernel (as the softmax did). *)
+let%expect_test "generated norm cycles per element" =
+  let h = 16 and w = 64 in
+  let module F = Native_test.Graph_fixtures in
+  let eps = Json_util.f32_to_f32 1e-5 in
+  let norm name f =
+    ( name,
+      fun () ->
+        F.build name
+          Graph_builder.(
+            let* x = input ~shape:(F.s 1 1 1 1 h w) () in
+            let* weight = input ~shape:(F.s 1 1 1 1 1 w) () in
+            let* bias = input ~shape:(F.s 1 1 1 1 1 w) () in
+            f x weight bias) )
+  in
+  List.iter
+    (fun (name, g) ->
+      let cycles = ref [] in
+      let on_run (o : C.Run.t) = cycles := o.C.Run.mcycle :: !cycles in
+      T.check ~route:(C.route ~on_run config)
+        ~pipeline:
+          (Ssa_backends.Pipeline.Planned
+             {
+               numerics = Ssa_ir.Ssa_numerics.Fp32_ordered;
+               target = Ssa_ir.Ssa_target.zve32f128;
+             })
+        ~oracle:T.Fp32 ~same:T.same_portable ~calls:1
+        (Fmt.str "%s %dx%d" name h w)
+        g;
+      let total = List.fold_left Int64.add 0L !cycles in
+      Fmt.pr "  cycles %Ld, %.1f per element@." total
+        (Int64.to_float total /. float_of_int (h * w)))
+    [
+      norm "layer norm over C" (fun x weight bias ->
+          Graph_builder.layer_norm
+            { Norm.LayerNorm.dims = [ Axis.C ]; eps }
+            ~x ~weight ~bias ());
+      norm "rms norm over C" (fun x weight _ ->
+          Graph_builder.rms_norm
+            { Norm.RmsNorm.dims = [ Axis.C ]; eps }
+            ~x ~weight ());
+    ];
+  [%expect
+    {|
+    layer norm over C 16x64 (1 invocations): bitwise
+      cycles 148915, 145.4 per element
+    rms norm over C 16x64 (1 invocations): bitwise
+      cycles 61083, 59.7 per element |}]

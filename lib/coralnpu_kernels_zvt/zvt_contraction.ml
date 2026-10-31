@@ -96,11 +96,19 @@ let items ?mutation (d : C.t) =
     else insn (Insn.Vlse { eew; dst; base = ptr; stride = stride_reg })
   in
   let slice base j = ok (Reg.Vreg.of_index (base + (slice_gap * j))) in
-  (* one block of C: rows [i0, i0 + tm), columns [j0, j0 + tn), batch [bb] *)
-  let block bb i0 tm j0 tn =
+  (* one block of C: rows [i0, i0 + tm), columns [j0, j0 + tn), batch [bb];
+     [relative]: B and C are addressed from [s3] and [s4], which a loop over
+     column tiles advances, instead of from their arguments *)
+  let block ?(relative = false) bb i0 tm j0 tn =
     let a_at = (bb * bytes ~size d.C.a.C.Operand.batch) + (i0 * a_outer) in
-    let b_at = (bb * bytes ~size d.C.b.C.Operand.batch) + (j0 * b_outer) in
-    let c_at = (bb * bytes d.C.c.C.Output.batch) + (i0 * c_row) + (j0 * 4) in
+    let b_base, b_at =
+      if relative then (Gpr.s3, 0)
+      else (Gpr.a1, (bb * bytes ~size d.C.b.C.Operand.batch) + (j0 * b_outer))
+    in
+    let c_base, c_at =
+      if relative then (Gpr.s4, 0)
+      else (Gpr.a2, (bb * bytes d.C.c.C.Output.batch) + (i0 * c_row) + (j0 * 4))
+    in
     let tn =
       if mutation = Some Mutation.Full_tn && tn < tile then tile else tn
     in
@@ -162,7 +170,7 @@ let items ?mutation (d : C.t) =
       else
         let full = k / tk and rest = k mod tk in
         add_from Gpr.t4 Gpr.a0 a_at
-        @ add_from Gpr.t5 Gpr.a1 b_at
+        @ add_from Gpr.t5 b_base b_at
         @ (if full = 0 then []
            else
              let l = fresh () in
@@ -186,7 +194,7 @@ let items ?mutation (d : C.t) =
       (if Option.is_some int8 || bf16 then set ~tk:1 ~widen:1 ~vtype:0xD2
        else [])
       @ msettn tn
-      @ add_from Gpr.t4 Gpr.a2 c_at
+      @ add_from Gpr.t4 c_base c_at
       @ List.concat
           (List.init tm (fun r ->
                li Gpr.t3 r
@@ -199,6 +207,9 @@ let items ?mutation (d : C.t) =
     in
     configure @ steps @ stores
   in
+  (* Per row of tiles, the full column tiles as one loop over [s5] (B and C
+     advanced in [s3], [s4]) when there are two or more, then the partial one:
+     the code grows with the rows of tiles, not with their product. *)
   let blocks =
     List.concat
       (List.init batch (fun bb ->
@@ -207,20 +218,42 @@ let items ?mutation (d : C.t) =
                 ((m + tile - 1) / tile)
                 (fun bi ->
                   let i0 = bi * tile in
-                  List.concat
-                    (List.init
-                       ((n + tile - 1) / tile)
-                       (fun bj ->
-                         let j0 = bj * tile in
-                         block bb i0 (min tile (m - i0)) j0 (min tile (n - j0))))))))
+                  let tm = min tile (m - i0) in
+                  let full = n / tile and rest = n mod tile in
+                  (if full >= 2 then
+                     let l = fresh () in
+                     add_from Gpr.s3 Gpr.a1
+                       (bb * bytes ~size d.C.b.C.Operand.batch)
+                     @ add_from Gpr.s4 Gpr.a2
+                         ((bb * bytes d.C.c.C.Output.batch) + (i0 * c_row))
+                     @ li Gpr.s5 full
+                     @ [ Item.label l ]
+                     @ block ~relative:true bb i0 tm 0 tile
+                     @ add_from Gpr.s3 Gpr.s3 (tile * b_outer)
+                     @ add_from Gpr.s4 Gpr.s4 (tile * 4)
+                     @ [
+                         insn
+                           (Insn.Addi
+                              {
+                                dst = Gpr.s5;
+                                src = Gpr.s5;
+                                imm = Imm.Imm12.of_int (-1);
+                              });
+                         insn (Insn.Bnez { src = Gpr.s5; target = l });
+                       ]
+                   else
+                     List.concat
+                       (List.init full (fun bj ->
+                            block bb i0 tm (bj * tile) tile)))
+                  @ if rest > 0 then block bb i0 tm (full * tile) rest else []))))
   in
   let name = C.symbol d in
   let entry = Label.named name in
-  let save = [ Gpr.s1; Gpr.s2 ] in
+  let save = [ Gpr.s1; Gpr.s2; Gpr.s3; Gpr.s4; Gpr.s5 ] in
   [ Item.text; Item.align 4; Item.export ~name entry; Item.label entry ]
   @ [
       insn
-        (Insn.Addi { dst = Gpr.sp; src = Gpr.sp; imm = Imm.Imm12.of_int (-16) });
+        (Insn.Addi { dst = Gpr.sp; src = Gpr.sp; imm = Imm.Imm12.of_int (-32) });
     ]
   @ List.mapi
       (fun j s ->
@@ -234,7 +267,7 @@ let items ?mutation (d : C.t) =
           (Insn.Lw { dst = s; base = Gpr.sp; offset = Imm.Imm12.of_int (4 * j) }))
       save
   @ [
-      insn (Insn.Addi { dst = Gpr.sp; src = Gpr.sp; imm = Imm.Imm12.of_int 16 });
+      insn (Insn.Addi { dst = Gpr.sp; src = Gpr.sp; imm = Imm.Imm12.of_int 32 });
       insn (Insn.Li { dst = Gpr.a0; imm = Imm.Li.of_int 0 });
       insn Insn.Ret;
     ]

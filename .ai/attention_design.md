@@ -619,18 +619,37 @@ site variant, so the binary32 expansion before the plan (`Ssa_expand_attend`,
 needs a plan contracting dots only, `F32_ordered` one that does not contract)
 are one code path. The bundle must be built granting the node
 (`Loop_bundle.build ~granted`). A granted layer equals `eval` bit for bit on
-the generic, AArch64 and x86-64 (soft-FMA) routes and natively on AArch64, and
+the generic, AArch64 and x86-64 (soft-FMA) routes, natively on AArch64 and as
+x86-64 processes (qemu-user off an x86-64 host), and
 is within 1e-4 of the node's binary64 reference (measured 1e-7 to 1e-6 on the
 small fixtures).
 
 **The bfloat16 layer and Coral.** At `Bf16_paired` `Layer_select` also needs
 the matrix engine, bfloat16 projection weights and the fused function's limits
 (an even head dimension at most 64, a block of at most 16 or 32 keys, at most
-twice the work padded). The SSA sequence lowers through the Coral route to
-RV32 code, but its image does not fit the 8 KiB instruction memory: on the
-VME core, resident, 9,964 to 11,240 bytes for the L 16, E 64, 2 x 32 fixtures;
-on the subsystem (matrix engine, DMA), with the route's kernel regions
-outlined as overlays, still 8,592 to 9,648 bytes, because the fused attention
-function (about 7.5 KiB) stays resident. Running the layer on Coral needs that
-helper loaded as an ITCM overlay too, or its size cut (the shared-`exp`
-attention), before any cycle can be measured.
+twice the work padded). On the Coral subsystem (matrix engine, DMA) the layer
+runs bitwise against `eval` at `Bf16_paired` for the L 16, E 64, 2 x 32
+fixtures, Pre LayerNorm, Post RmsNorm, RoPE and the full flags, in 370,918 to
+561,331 cycles, with every tensor in SRAM and the DTCM holding the attention
+function's panels. On the subsystem its image is past the 8 KiB ITCM
+resident, so the route loads the attention function and the kernel's other
+regions as overlays (see the Coral codegen record). The VME core has no DMA,
+so everything must be resident: since the runtime walks its slots from data
+tables and shares its transfer, copy and exit code, every fixture fits and
+runs bitwise there too — 260,314 cycles bare, 323,334 with every flag,
+373,465 Post RmsNorm, 436,619 Pre LayerNorm with RoPE — against 2,812,666 and
+2,821,597 for the bare and all-flags layers decomposed and generated node by
+node at binary32 (10.8x and 8.7x, nearly all of it the generated Sdpa's
+1.98 M). fastvit's shape runs there as well, its 2 MiB of bfloat16 weights in
+the testbench RAM: bitwise in 40,109,063 cycles. A generated norm needs no
+hand kernel, unlike the softmax (1,025 cycles an element): over C at the
+layer's 16 x 64 with its affine operands, LayerNorm costs 145 cycles an
+element and RmsNorm 60 on the VME core. The body keeps its code small without changing its
+arithmetic: one bias loop for Q, K and V that also rounds them to bfloat16
+when no rotation follows, and one rotation nest for Q and K that writes their
+bfloat16 copies. fastvit's own shape (L 49, E 512, 16 x 32: no norm, no
+query, key or value bias, an output bias and a layer scale) runs bitwise too,
+in 47,930,016 cycles, once the matrix engine's contraction function loops over
+its column tiles instead of unrolling them (it was 49,168 bytes of code for one
+49 x 512 x 512 product); its 100,352-byte output needs a read-back budget past
+the default.
