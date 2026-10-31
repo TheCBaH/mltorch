@@ -17,6 +17,10 @@ type ('op, 'err) t = {
     (Region_computation.synthetic_role * Tensor_id.t) list;
       (** One id per synthetic-default role, disjoint from every graph tensor.
       *)
+  granted_only : 'op -> Tensor_id.t list option;
+      (** [Some operands] for an operation no Loop body realizes: it is lowered
+          only for a caller that replaces its body under a grant (a Machine IR
+          site), as a placeholder over exactly [operands]. *)
   is_region_authored : 'op -> bool;
   node_program :
     limits:Kernel.Limits.t ->

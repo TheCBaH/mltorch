@@ -38,6 +38,23 @@ When in doubt: if the bridge arm needs `Graph_builder` to call more than one
 op-constructing function for a single ATen node, that is decomposition, and
 the target needs its own Native op instead.
 
+**The one sanctioned exception runs the other way: a rewrite-only node.**
+`Attention_layer` (`ops/attention_layer.ml`) is one node for a whole encoder
+attention layer — norm, projections, RoPE, Sdpa, output projection, layer
+scale, residual. No importer or bridge builds it; only a `Native_transform`
+rewrite that finds the decomposed subgraph does, so the graph an importer
+produces still carries one node per ATen op. Its meaning *is* that subgraph:
+`Attention_layer_decompose.decompose` builds it from existing ops, and
+`Eval_direct` evaluates the node by building and running it, so the node
+equals its decomposition bit for bit by construction and the rewrite is that
+function's inverse. It exists for the granted compute path (one node is one
+invocation and one selection site, with interiors no arena sees). Such a node
+has no `Eval_op.pixel` (it raises), a `Native4D` typed refusal, and a Loop
+bundle invocation only under a grant (`Loop_dialect.granted_only`): ungranted,
+`Loop_bundle.build` refuses it with `` `Ungranted ``; granted, the invocation
+declares every operand's buffer over a placeholder body that writes NaN, which
+the Machine IR site replaces.
+
 Worked example below: a pointwise binary op `Mul`. Structured ops
 (conv/pool/linear/norm) follow the same site list; only the per-op `Compute`
 functor and `output_shape` differ.

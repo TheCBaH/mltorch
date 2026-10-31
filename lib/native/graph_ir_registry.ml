@@ -65,6 +65,12 @@ let op_registry : (module OP) list =
       let project = function Argmax t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Attention_layer.Attention_layer
+
+      let inject t = Attention_layer t
+      let project = function Attention_layer t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Pool.AvgPool2d
 
       let inject t = Avg_pool2d t

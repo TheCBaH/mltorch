@@ -61,6 +61,10 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Argmax { Reduce.Argmax.params; x } ->
         let module C = Reduce.Argmax.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
+    | Attention_layer _ ->
+        invalid_arg
+          "Eval_op.pixel: Attention_layer is evaluated through its \
+           decomposition"
     | Avg_pool2d { Pool.AvgPool2d.params; x } ->
         let module C = Pool.AvgPool2d.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out

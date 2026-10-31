@@ -2,6 +2,7 @@ type ('op, 'err) t = {
   fresh_synthetic_ids :
     'op Graph_common.Graph.t ->
     (Region_computation.synthetic_role * Tensor_id.t) list;
+  granted_only : 'op -> Tensor_id.t list option;
   is_region_authored : 'op -> bool;
   node_program :
     limits:Kernel.Limits.t ->
@@ -32,6 +33,11 @@ type ('op, 'err) t = {
 let native : (Graph_ir.op, Eval_direct.error) t =
   {
     fresh_synthetic_ids = Eval_direct.fresh_synthetic_ids;
+    granted_only =
+      (function
+      | Graph_ir.Attention_layer l ->
+          Some (Attention_layer.Attention_layer.operands l)
+      | _ -> None);
     is_region_authored = Region_computation.is_region_authored;
     node_program =
       (fun ~limits g node -> Eval_symbolic.node_program ~limits g node);

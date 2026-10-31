@@ -22,6 +22,7 @@ type op =
   | Adaptive_max_pool2d_with_indices of Pool.AdaptiveMaxPool2dWithIndices.t
   | Amax of Reduce.Amax.t
   | Argmax of Reduce.Argmax.t
+  | Attention_layer of Attention_layer.Attention_layer.t
   | Avg_pool2d of Pool.AvgPool2d.t
   | Batch_norm of Norm.BatchNorm.t
   | Batch_norm_no_stats of Norm.BatchNormNoStats.t

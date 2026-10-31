@@ -613,8 +613,20 @@ and eval_node ~arenas ?on_format_mismatch ?region_counters ?region_executor
      region-authored multi-output op; single-output region-authored ops
      (`Rms_norm`/`Layer_norm`/`Sdpa`/`Softmax`) keep the exact existing path,
      unchanged. *)
-  match outs with
-  | _ :: _ :: _ when Region_computation.is_region_authored op ->
+  match (op, outs) with
+  (* The layer's meaning is its decomposition: build it over the operands'
+     signatures and evaluate it here, so the node equals that subgraph bit for
+     bit by construction. *)
+  | Attention_layer layer, [ (_, oid, _) ] ->
+      let* dst, backed = dst_for ~arenas g oid in
+      let* result =
+        decomposed ?on_format_mismatch ?region_executor ?region_group_executor
+          ~node_executor ~limits g ~operand_env layer
+      in
+      let* result = settle ~backed ~dst oid result in
+      check_format ?on_format_mismatch g node oid result;
+      Err.return (Tensor_id.Map.add oid result env)
+  | _, (_ :: _ :: _ as outs) when Region_computation.is_region_authored op ->
       let* backed_dsts =
         Err.List.map
           (fun (output, oid, _) ->
@@ -637,7 +649,7 @@ and eval_node ~arenas ?on_format_mismatch ?region_counters ?region_executor
           check_format ?on_format_mismatch g node oid result;
           Err.return (Tensor_id.Map.add oid result env))
         env backed_dsts
-  | _ ->
+  | _, outs ->
       Err.List.fold_left
         (fun env (output, oid, out_shape) ->
           let* dst, backed = dst_for ~arenas g oid in
@@ -660,6 +672,61 @@ and eval_node ~arenas ?on_format_mismatch ?region_counters ?region_executor
           check_format ?on_format_mismatch g node oid result;
           Err.return (Tensor_id.Map.add oid result env))
         env outs
+
+and decomposed ?on_format_mismatch ?region_executor ?region_group_executor
+    ~node_executor ~limits (g : graph) ~operand_env
+    (layer : Attention_layer.Attention_layer.t) =
+  let open Err.Syntax in
+  let module L = Attention_layer.Attention_layer in
+  let outer = List.sort_uniq Tensor_id.compare (L.operands layer) in
+  let* sigs =
+    Err.List.map
+      (fun r ->
+        Tensor_id.Map.find_opt r g.Graph.tensors
+        |> Err.of_option (`Missing_tensor_sig r))
+      outer
+  in
+  let program =
+    let open Graph_builder in
+    let rec inputs acc = function
+      | [] -> return (List.rev acc)
+      | (sg : Tensor_sig.t) :: rest ->
+          let* id =
+            input ~shape:sg.Tensor_sig.shape ~fmt:sg.Tensor_sig.fmt
+              ?quant:sg.Tensor_sig.quant ()
+          in
+          inputs ((sg.Tensor_sig.id, id) :: acc) rest
+    in
+    let* subst = inputs [] sigs in
+    let inner r = snd (List.find (fun (o, _) -> Tensor_id.equal o r) subst) in
+    Attention_layer_decompose.decompose (L.map_operands inner layer)
+  in
+  let* sub =
+    Graph_builder.build ~name:"attention_layer"
+      ~outputs:(fun y -> [ y ])
+      program
+    |> Err.map_error (function
+      | #Graph_shape.error as e -> e
+      | `Expected_single_output_shape { Graph_builder.count } ->
+          `Output_arity_mismatch { expected = 1; actual = count })
+  in
+  (* the builder allocated one input per operand first, in [outer]'s order: an
+     invariant of [program], so [List.combine] may raise *)
+  let* env =
+    Err.List.fold_left
+      (fun env (r, inner) ->
+        let+ t = find_tensor operand_env r ~context:Operand in
+        Tensor_id.Map.add inner t env)
+      Tensor_id.Map.empty
+      (List.combine outer sub.Graph.inputs)
+  in
+  let* out =
+    (* no region counters: they are keyed by the outer graph's edges, and the
+       subgraph numbers its own from zero *)
+    run_graph ~arenas:[] ?on_format_mismatch ?region_executor
+      ?region_group_executor ~node_executor ~limits ~constants:[] sub env
+  in
+  find_tensor out (List.hd sub.Graph.outputs) ~context:Operand
 
 let dry_run ?alignment ?(retain = Release_schedule.Retain.All) (g : graph) =
   let open Err.Syntax in

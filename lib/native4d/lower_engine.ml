@@ -887,9 +887,11 @@ let lower_node ~view acc (n : node) =
      counterparts. [Adaptive_max_pool2d_with_indices]/[Max_dim]/
      [Max_pool2d_with_indices]/[Repeat]/[RepeatInterleave]/[Select_scatter]/
      [Softmax]/[Batched_matmul]/[Sdpa]/[Index_tensor]/[Lstm]/[Meshgrid] no
-     longer join them: all twelve now have real conversion arms above. *)
-  | Argmax _ | Bitwise_and _ | Conv3d _ | Diff _ | Exp _ | Full_like _ | Log _
-  | Log1p _ | Min_other _ | Where_self _ | Weight_norm _ | Discard _
-  | Embedding _ | Ge_scalar _ | Index_pair _ | Le_tensor _ | Lt_scalar _
-  | New_ones _ | Tanh _ | Unfold _ | Where_scalar_other _ ->
+     longer join them: all twelve now have real conversion arms above.
+     [Attention_layer] is a rewrite-only node of the granted compute path;
+     the dialect has no counterpart for it. *)
+  | Argmax _ | Attention_layer _ | Bitwise_and _ | Conv3d _ | Diff _ | Exp _
+  | Full_like _ | Log _ | Log1p _ | Min_other _ | Where_self _ | Weight_norm _
+  | Discard _ | Embedding _ | Ge_scalar _ | Index_pair _ | Le_tensor _
+  | Lt_scalar _ | New_ones _ | Tanh _ | Unfold _ | Where_scalar_other _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))

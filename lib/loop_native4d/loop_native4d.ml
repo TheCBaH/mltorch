@@ -3,6 +3,7 @@ open Native4d
 let dialect : (Op.t, Eval_direct4.error) Loop_ir.Loop_dialect.t =
   {
     Loop_ir.Loop_dialect.fresh_synthetic_ids = Eval_direct4.fresh_synthetic_ids;
+    granted_only = (fun _ -> None);
     is_region_authored = Region_computation4.is_region_authored;
     node_program =
       (fun ~limits g node -> Eval_symbolic4.node_program ~limits g node);

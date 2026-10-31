@@ -8,7 +8,7 @@
 
 (library
  (name native4d_test)
- (libraries core err_trace fmt native native4d)
+ (libraries core err_trace fmt native native4d native_test)
  (inline_tests
   (modes best js))
  (preprocess

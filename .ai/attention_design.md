@@ -582,3 +582,26 @@ JavaScript at both binary32 precisions; `eval` itself equals its parts composed
 in another layout (a norm per row, a projection per sequence, an attention per
 head over copied dense operands). A bfloat16 layer has no SSA body yet: no
 store rounds to bfloat16.
+
+**The node** (`Graph_ir.Attention_layer`, `ops/attention_layer.ml`) carries
+the layer in the graph: `x` `[1,1,B,1,L,E]`, four `Projection`s (Linear's
+`[E,..,E]` weight, optional bias), an optional `Norm` (Layer or Rms, Pre or
+Post, eps, optional affine), optional `layer_scale`, optional `Rope` (`cos`,
+`sin` `[1,1,B|1,1,L,d]`, broadcast over heads), an optional additive mask in
+Sdpa's broadcast set, `heads` and Sdpa's scale. `output_shape` checks every
+operand against the shape `x` and `heads` fix (typed `Operand_shape` rows by
+role, `Heads`, `Rope_odd`) and runs `Sdpa.output_shape` on the head-split
+shapes for the mask and the total-work bound. Its reference is its
+decomposition (`Attention_layer_decompose`: Linear, reshape + permute for the
+heads, the rotation as two slices, `mul_scalar (-1)`, concat, two muls and an
+add, Sdpa, the merge, Linear, mul, add), evaluated by `Eval_direct`. The
+granted descriptor differs from that reference by design (one binary32 scale
+where the Native Sdpa splits its square root, streaming blocks, binary32
+everywhere), so the two are compared within tolerance, never bitwise.
+
+**Ungranted lowering (D8).** The Loop bundle lowers the node only for a caller
+that replaces its body (`Loop_bundle.build ~granted`): option (b) of the
+design, because sequencing the decomposition's per-node programs into one Loop
+program (option (a)) needs a composition of Region-lowered programs and their
+placed kernels that neither Loop IR nor `Fusion_plan` has. Ungranted, an
+attention layer runs on `Eval_direct` alone.

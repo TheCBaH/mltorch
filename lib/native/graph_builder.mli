@@ -51,6 +51,9 @@ val constant :
    identity (zeros bias / ones weight). *)
 (* Op constructors in global alphabetical order (see graph_ir.mli). *)
 val abs : ?name:string -> tensor_ref -> Tensor_id.t t
+
+(* The shape of an edge the builder already holds. *)
+val shape_of : tensor_ref -> Vec6.shape t
 val add : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 
 val addcmul :
@@ -85,6 +88,12 @@ val amax : ?name:string -> Reduce.Amax.params -> tensor_ref -> Tensor_id.t t
 (* `argmax.default` over one axis: the int64 index of the maximum, the first on
    a tie. *)
 val argmax : ?name:string -> Reduce.Argmax.params -> tensor_ref -> Tensor_id.t t
+
+(* A whole encoder attention layer as one node (the payload names every
+   operand). Rewrite-only: no importer builds it; its meaning is
+   [Attention_layer_decompose.decompose]. *)
+val attention_layer :
+  ?name:string -> Attention_layer.Attention_layer.t -> Tensor_id.t t
 
 val avg_pool2d :
   ?name:string -> Pool.AvgPool2d.params -> tensor_ref -> Tensor_id.t t
