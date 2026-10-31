@@ -54,8 +54,15 @@ let model (h : Mir_helper.t) =
               | Error _ ->
                   invalid_arg "Mir_attention_model: an unreadable element"
             in
-            Attention_block.eval d ~q:(read ~bytes:2L q) ~k:(read ~bytes:2L k)
-              ~v:(read ~bytes:2L v)
+            let eb =
+              match d.Attention_block.precision with
+              | Attention_block.Precision.Bf16_paired -> 2L
+              | Attention_block.Precision.F32_fused
+              | Attention_block.Precision.F32_ordered ->
+                  4L
+            in
+            Attention_block.eval d ~q:(read ~bytes:eb q) ~k:(read ~bytes:eb k)
+              ~v:(read ~bytes:eb v)
               ~mask:
                 (match mask with
                 | Some m -> read ~bytes:4L m

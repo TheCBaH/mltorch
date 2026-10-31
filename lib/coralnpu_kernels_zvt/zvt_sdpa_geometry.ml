@@ -51,6 +51,8 @@ module Geometry = struct
         refuse (name ^ " past 31 bits")
       else Int64.to_int x
     in
+    if t.A.precision <> A.Precision.Bf16_paired then
+      refuse "a precision other than bfloat16 with paired sums";
     let d = narrow "d" t.A.d and bk = narrow "block_keys" t.A.block_keys in
     let tq = narrow "tq" t.A.tq and tk = narrow "tk" t.A.tk in
     if d > 128 then refuse "d past 128";

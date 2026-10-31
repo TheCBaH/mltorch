@@ -238,10 +238,11 @@ let instr ctx scope ~live (i : Ssa_instr.t) =
       check_vector_access ctx scope buffer
         ~family:(Ssa_op.Encode.family encode)
         ~writes:true
-  | Ssa_op.Attend { q; k; v; mask; o; _ } ->
+  | Ssa_op.Attend { desc; q; k; v; mask; o } ->
       List.iter
         (fun id ->
-          check_vector_access ctx scope id ~family:Ssa_format.Family.Bf16
+          check_vector_access ctx scope id
+            ~family:(Ssa_op.attend_operands desc)
             ~writes:false)
         [ q; k; v ];
       Option.iter

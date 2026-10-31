@@ -608,6 +608,14 @@ let key op =
   in
   String.concat " " ((name op ^ "[" ^ attrs ^ "]") :: List.map id (operands op))
 
+(* The format family an attention's Q, K and V are read as; the mask and O are
+   binary32. *)
+let attend_operands (d : Attention_block.t) =
+  match Attention_block.Precision.format d.Attention_block.precision with
+  | Contraction.Element.Bf16 -> Ssa_format.Family.Bf16
+  | Contraction.Element.F32 -> Ssa_format.Family.F32
+  | Contraction.Element.I8 _ -> invalid_arg "Ssa_op.attend_operands: an integer"
+
 (* The format family a contraction's A and B are read as; C is binary32. *)
 let contract_operands (d : Contraction.t) =
   match d.Contraction.format with

@@ -158,11 +158,12 @@ let check_buffers ctx block (op : Ssa_op.t) =
       check_access ctx block buffer
         ~family:(Ssa_op.Encode.family encode)
         ~writes:true ~flat:false
-  | Ssa_op.Attend { q; k; v; mask; o; _ } ->
+  | Ssa_op.Attend { desc; q; k; v; mask; o } ->
       List.iter
         (fun id ->
-          check_access ctx block id ~family:Ssa_format.Family.Bf16 ~writes:false
-            ~flat:true)
+          check_access ctx block id
+            ~family:(Ssa_op.attend_operands desc)
+            ~writes:false ~flat:true)
         [ q; k; v ];
       Option.iter
         (fun m ->
