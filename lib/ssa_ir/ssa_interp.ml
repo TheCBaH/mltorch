@@ -541,9 +541,16 @@ let exec_op st (i : Ssa_instr.t) =
             | E | I _ | L _ | M _ | P _ | V _ ->
                 invalid_arg "Ssa_interp: an attention operand"
           in
-          let bf16 = read Ssa_op.Decode.Bf16_to_f32
-          and f32 = read Ssa_op.Decode.F32_exact in
-          Attention_block.eval desc ~q:(bf16 q) ~k:(bf16 k) ~v:(bf16 v)
+          let f32 = read Ssa_op.Decode.F32_exact in
+          let operand =
+            match desc.Attention_block.precision with
+            | Attention_block.Precision.Bf16_paired ->
+                read Ssa_op.Decode.Bf16_to_f32
+            | Attention_block.Precision.F32_fused
+            | Attention_block.Precision.F32_ordered ->
+                f32
+          in
+          Attention_block.eval desc ~q:(operand q) ~k:(operand k) ~v:(operand v)
             ~mask:(match mask with Some m -> f32 m | None -> fun _ -> 0.)
             ~write:(fun off x ->
               write_cell st o Ssa_op.Encode.F32_exact ~at:(Int64.to_int off)

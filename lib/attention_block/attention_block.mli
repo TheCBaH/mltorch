@@ -21,6 +21,20 @@ module Strides : sig
   type t = { batch : int64; head : int64; row : int64; col : int64 }
 end
 
+(** How the two matrix products and the probabilities are rounded. The bfloat16
+    form is the matrix engine's grant; the binary32 forms read binary32 Q, K and
+    V, keep the unnormalized probabilities in binary32 and run each context
+    product over the block's valid keys only, with {!Contraction}'s
+    [Fused_sequential] or [Ordered] numerics. Alphabetical. *)
+module Precision : sig
+  type t = Bf16_paired | F32_fused | F32_ordered
+
+  val all : t list
+  val name : t -> string
+  val format : t -> Contraction.Element.t
+  val numerics : t -> Contraction.Numerics.t
+end
+
 type t = private {
   batch : int64;
   heads : int64;
@@ -35,6 +49,7 @@ type t = private {
       (** the mask's rows are queries and its columns keys *)
   scale : float;  (** a binary32 value *)
   block_keys : int64;
+  precision : Precision.t;
 }
 
 (** Why a descriptor is refused. *)
@@ -59,6 +74,7 @@ val make :
   ?mask:Strides.t ->
   scale:float ->
   block_keys:int64 ->
+  ?precision:Precision.t ->
   unit ->
   (t, [> `Invalid_attention of Invalid.t ]) Err.t
 

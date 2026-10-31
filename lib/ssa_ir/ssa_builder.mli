@@ -174,6 +174,16 @@ val store_f64 :
 val store_i64 : t -> Ssa_id.Buffer.t -> access -> Ssa_type.i64 value -> unit
 val mark : t -> Ssa_mark.t -> unit
 
+val contract :
+  t ->
+  Contraction.t ->
+  a:Ssa_id.Buffer.t ->
+  b:Ssa_id.Buffer.t ->
+  c:Ssa_id.Buffer.t ->
+  unit
+(** The matrix product [desc] ({!Ssa_op.Contract}), reading A and B and writing
+    C, which must be disjoint from both. *)
+
 (** {1 Scratch locals and the scan meter} *)
 
 val local_alloc :

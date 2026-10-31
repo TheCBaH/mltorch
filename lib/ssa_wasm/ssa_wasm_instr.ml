@@ -235,6 +235,107 @@ let meter_check st ~limits (op : Ssa_op.t) =
       ]
   | _ -> invalid_arg "Ssa_wasm.meter_check"
 
+(* A binary32 contraction as its own loop nest over three buffers, in [i32]
+   element offsets: the sum rounded after each product, as [Ordered] says. A
+   fused step has no scalar form in WebAssembly. *)
+let contract st (d : Contraction.t) ~a ~b ~c =
+  (match d.Contraction.format with
+  | Contraction.Element.F32 -> ()
+  | Contraction.Element.Bf16 | Contraction.Element.I8 _ ->
+      refuse (`Unsupported_operation "a contraction over other than binary32"));
+  (match d.Contraction.numerics with
+  | Contraction.Numerics.Ordered -> ()
+  | Contraction.Numerics.Fused_sequential ->
+      refuse (`Unsupported_operation "a fused contraction")
+  | Contraction.Numerics.Paired ->
+      refuse (`Unsupported_operation "a paired contraction"));
+  let narrow what x =
+    if fits32_64 x then Int64.to_int x
+    else
+      refuse
+        (`Unsupported_operation ("a contraction " ^ what ^ " past 32 bits"))
+  in
+  let ao = d.Contraction.a and bo = d.Contraction.b in
+  let co = d.Contraction.c in
+  let ba = find_buffer st a
+  and bb = find_buffer st b
+  and bc = find_buffer st c in
+  let batch = fresh st Wasm_type.I32
+  and row = fresh st Wasm_type.I32
+  and col = fresh st Wasm_type.I32
+  and step = fresh st Wasm_type.I32
+  and acc = fresh st Wasm_type.F32 in
+  (* the sum of [local * stride] terms, a stride of zero dropped *)
+  let index terms =
+    match
+      List.filter (fun (_, stride) -> stride <> 0) terms
+      |> List.map (fun (l, stride) -> [ get l; i32 stride; n Wasm_op.I32_mul ])
+    with
+    | [] -> [ i32 0 ]
+    | t :: rest ->
+        List.fold_left (fun acc t -> acc @ t @ [ n Wasm_op.I32_add ]) t rest
+  in
+  let a_at =
+    index
+      [
+        (batch, narrow "stride" ao.Contraction.Operand.batch);
+        (row, narrow "stride" ao.Contraction.Operand.outer);
+        (step, narrow "stride" ao.Contraction.Operand.k);
+      ]
+  and b_at =
+    index
+      [
+        (batch, narrow "stride" bo.Contraction.Operand.batch);
+        (col, narrow "stride" bo.Contraction.Operand.outer);
+        (step, narrow "stride" bo.Contraction.Operand.k);
+      ]
+  and c_at =
+    index
+      [
+        (batch, narrow "stride" co.Contraction.Output.batch);
+        (row, narrow "stride" co.Contraction.Output.row);
+        (col, narrow "stride" co.Contraction.Output.col);
+      ]
+  in
+  let load buffer at =
+    cell_address st buffer at @ [ I.Load (Wasm.Load.F32_load, arg 2 0) ]
+  in
+  (* [for counter in 0 .. extent) body] *)
+  let loop counter extent body =
+    [
+      i32 0;
+      set counter;
+      I.Block
+        ( None,
+          [
+            I.Loop
+              ( None,
+                [
+                  get counter; i32 (narrow "extent" extent); n Wasm_op.I32_ge_s;
+                ]
+                @ [ I.Br_if 1 ] @ body
+                @ [ get counter; i32 1; n Wasm_op.I32_add; set counter; I.Br 0 ]
+              );
+          ] );
+    ]
+  in
+  let seed =
+    match d.Contraction.seed with
+    | Contraction.Seed.Zero -> [ f32 0. ]
+    | Contraction.Seed.Tensor -> load bc c_at
+  in
+  loop batch d.Contraction.batch
+    (loop row d.Contraction.m
+       (loop col d.Contraction.n
+          (seed
+          @ [ set acc ]
+          @ loop step d.Contraction.k
+              ([ get acc ]
+              @ load ba a_at @ load bb b_at
+              @ [ n Wasm_op.F32_mul; n Wasm_op.F32_add; set acc ])
+          @ cell_address st bc c_at
+          @ [ get acc; I.Store (Wasm.Store.F32_store, arg 2 0) ])))
+
 let instr st ~limits (i : Ssa_instr.t) : I.t list =
   let op = i.Ssa_instr.op in
   let r = read st in
@@ -242,7 +343,7 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
   match op with
   | Ssa_op.Mark _ | Ssa_op.Mark_lanes _ -> []
   | Ssa_op.Attend _ -> refuse (`Unsupported_operation "an attention")
-  | Ssa_op.Contract _ -> refuse (`Unsupported_operation "a contraction")
+  | Ssa_op.Contract { desc = d; a; b; c } -> contract st d ~a ~b ~c
   | Ssa_op.Check_access { buffer; at } -> (
       let b = find_buffer st buffer in
       match at with

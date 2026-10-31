@@ -651,3 +651,165 @@ let%expect_test "strides: batches, heads shared by K and V, a transposed K" =
     mask [tq, tk]: equal to the dense runs
     mask [1, tk]: equal to the dense runs
     mask [tq, 1]: equal to the dense runs |}]
+
+(* ---- binary32 precision ---------------------------------------------------- *)
+
+let f32_dense ~precision ?(mask = false) ~tq ~tk ~d ~bk () =
+  let i = Int64.of_int in
+  let s = strides 0L 0L (i d) 1L in
+  Result.get_ok
+    (Err.payload
+       (A.make ~batch:1L ~heads:1L ~tq:(i tq) ~tk:(i tk) ~d:(i d) ~q:s ~k:s ~v:s
+          ~o:s
+          ?mask:(if mask then Some (strides 0L 0L (i tk) 1L) else None)
+          ~scale:(A.Scale.default ~d:(i d))
+          ~block_keys:(i bk) ~precision ()))
+
+(* The ordered binary32 recurrence restated with each operation rounded on its
+   own; [no_rescale] drops the accumulator's scaling by the new maximum. *)
+let f32_statement ?(no_rescale = false) ~bk ~scale ~tq ~tk ~d ~q ~k ~v ?mask ()
+    =
+  let rn x = if Float.is_nan x then canonical_nan else r32 x in
+  let fmax = Float.max in
+  let exp x = if Float.is_nan x then x else F32_math.Value.exp x in
+  let out = Array.make (tq * d) 0. in
+  for i = 0 to tq - 1 do
+    let m = ref neg_inf and l = ref 0. and acc = Array.make d 0. in
+    let k0 = ref 0 in
+    while !k0 < tk do
+      let vk = min bk (tk - !k0) in
+      let z =
+        Array.init vk (fun r ->
+            let s = ref 0. in
+            for f = 0 to d - 1 do
+              s := rn (!s +. rn (k.(((!k0 + r) * d) + f) *. q.((i * d) + f)))
+            done;
+            let sc = rn (!s *. scale) in
+            match mask with
+            | None -> sc
+            | Some mk -> rn (sc +. mk.((i * tk) + !k0 + r)))
+      in
+      let m' = Array.fold_left fmax !m z in
+      let a = if m' = neg_inf then 1. else exp (rn (!m -. m')) in
+      let p =
+        Array.map (fun zr -> if zr = neg_inf then 0. else exp (rn (zr -. m'))) z
+      in
+      let sum = ref 0. in
+      Array.iter (fun pr -> sum := rn (!sum +. pr)) p;
+      m := m';
+      l := rn (rn (!l *. a) +. !sum);
+      for f = 0 to d - 1 do
+        let seed = ref (if no_rescale then acc.(f) else rn (a *. acc.(f))) in
+        for r = 0 to vk - 1 do
+          seed := rn (!seed +. rn (p.(r) *. v.(((!k0 + r) * d) + f)))
+        done;
+        acc.(f) <- !seed
+      done;
+      k0 := !k0 + bk
+    done;
+    for f = 0 to d - 1 do
+      out.((i * d) + f) <- (if !l = 0. then 0. else rn (acc.(f) /. !l))
+    done
+  done;
+  out
+
+let f32_value () =
+  let n = next () in
+  r32 (float_of_int ((n / 7 mod 4001) - 2000) /. 977.)
+
+let%expect_test "binary32 precision: names, the statement, and a mutant" =
+  let t =
+    f32_dense ~precision:A.Precision.F32_ordered ~tq:4 ~tk:8 ~d:4 ~bk:8 ()
+  in
+  Fmt.pr "%s@." (A.name t);
+  List.iter
+    (fun p ->
+      let t = f32_dense ~precision:p ~tq:4 ~tk:8 ~d:4 ~bk:8 () in
+      Fmt.pr "%s: round trip %b, name ends .p: %b@." (A.Precision.name p)
+        (A.of_name (A.name t) = Some t)
+        (String.ends_with ~suffix:("." ^ "p" ^ A.Precision.name p) (A.name t)))
+    [ A.Precision.F32_fused; A.Precision.F32_ordered ];
+  Fmt.pr "unknown precision: %b@."
+    (A.of_name
+       "attend.b1.h1.q4.k8.d4.sq0_0_4_1.sk0_0_4_1.sv0_0_4_1.so0_0_4_1.nomask.x3f000000.n8.pnone"
+    = None);
+  List.iter
+    (fun (tq, tk, d, bk, masked) ->
+      let q = Array.init (tq * d) (fun _ -> f32_value ())
+      and k = Array.init (tk * d) (fun _ -> f32_value ())
+      and v = Array.init (tk * d) (fun _ -> f32_value ())
+      and mask = Array.init (tq * tk) (fun _ -> mask_value ()) in
+      let scale = A.Scale.default ~d:(Int64.of_int d) in
+      let t =
+        f32_dense ~precision:A.Precision.F32_ordered ~mask:masked ~tq ~tk ~d ~bk
+          ()
+      in
+      let lib = eval t ~q ~k ~v ~mask in
+      let stmt ?no_rescale () =
+        f32_statement ?no_rescale ~bk ~scale ~tq ~tk ~d ~q ~k ~v
+          ?mask:(if masked then Some mask else None)
+          ()
+      in
+      let same a b = Array.for_all2 (fun a b -> bits a = bits b) a b in
+      Fmt.pr "%dx%d d%d bk%d%s: statement %s, no-rescale mutant %s@." tq tk d bk
+        (if masked then " masked" else "")
+        (if same lib (stmt ()) then "equal" else "DIFFERENT")
+        (if same lib (stmt ~no_rescale:true ()) then "EQUAL" else "differs"))
+    [ (9, 29, 16, 8, true); (5, 70, 8, 8, true); (16, 36, 32, 16, false) ];
+  [%expect
+    {|
+    attend.b1.h1.q4.k8.d4.sq0_0_4_1.sk0_0_4_1.sv0_0_4_1.so0_0_4_1.nomask.x3f000000.n8.pf32_ordered
+    f32_fused: round trip true, name ends .p: true
+    f32_ordered: round trip true, name ends .p: true
+    unknown precision: true
+    9x29 d16 bk8 masked: statement equal, no-rescale mutant differs
+    5x70 d8 bk8 masked: statement equal, no-rescale mutant differs
+    16x36 d32 bk16: statement equal, no-rescale mutant differs |}]
+
+let%expect_test "binary32 precision: close to the whole-row softmax" =
+  List.iter
+    (fun precision ->
+      let worst = ref 0. in
+      List.iter
+        (fun (tq, tk, d, bk) ->
+          let q = Array.init (tq * d) (fun _ -> f32_value ())
+          and k = Array.init (tk * d) (fun _ -> f32_value ())
+          and v = Array.init (tk * d) (fun _ -> f32_value ())
+          and mask = zeros (tq * tk) in
+          let scale = A.Scale.default ~d:(Int64.of_int d) in
+          let got =
+            eval (f32_dense ~precision ~tq ~tk ~d ~bk ()) ~q ~k ~v ~mask
+          in
+          for i = 0 to tq - 1 do
+            let s =
+              Array.init tk (fun j ->
+                  let a = ref 0. in
+                  for f = 0 to d - 1 do
+                    a := !a +. (q.((i * d) + f) *. k.((j * d) + f))
+                  done;
+                  !a *. scale)
+            in
+            let mx = Array.fold_left Float.max neg_inf s in
+            let e = Array.map (fun x -> Float.exp (x -. mx)) s in
+            let z = Array.fold_left ( +. ) 0. e in
+            for f = 0 to d - 1 do
+              let want = ref 0. in
+              Array.iteri
+                (fun j ej -> want := !want +. (ej *. v.((j * d) + f)))
+                e;
+              let want = !want /. z in
+              worst :=
+                Float.max !worst
+                  (Float.abs (got.((i * d) + f) -. want)
+                  /. Float.max 1. (Float.abs want))
+            done
+          done)
+        [ (9, 29, 16, 8); (5, 70, 8, 8); (16, 36, 32, 16) ];
+      Fmt.pr "%s: within 1e-4 of the f64 softmax: %b@."
+        (A.Precision.name precision)
+        (!worst < 1e-4))
+    [ A.Precision.F32_fused; A.Precision.F32_ordered ];
+  [%expect
+    {|
+    f32_fused: within 1e-4 of the f64 softmax: true
+    f32_ordered: within 1e-4 of the f64 softmax: true |}]

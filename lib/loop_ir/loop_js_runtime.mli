@@ -10,6 +10,7 @@ module Name : sig
     | Bf16_to_float
     | Coord_failure
     | Erf
+    | Exp_f32
     | F16_to_float
     | Float_max
     | I64_from_float_failure

@@ -22,7 +22,8 @@ let unary cx ~f32 (op : Expr.Value.unary_op) a =
     | Expr.Value.Cos -> math "cos" [ a ]
     | Expr.Value.Erf ->
         if f32 then refuse "a binary32 erf" else runtime R.Name.Erf [ a ]
-    | Expr.Value.Exp -> math "exp" [ a ]
+    | Expr.Value.Exp ->
+        if f32 then runtime R.Name.Exp_f32 [ a ] else math "exp" [ a ]
     | Expr.Value.Log -> math "log" [ a ]
     | Expr.Value.Sin -> math "sin" [ a ]
     | Expr.Value.Sqrt -> math "sqrt" [ a ]
@@ -45,6 +46,102 @@ let first_result (i : Ssa_instr.t) =
   | r :: _ -> r
   | [] -> invalid_arg "Ssa_js: an instruction without a result"
 
+(* A binary32 contraction as its own loop nest over three typed arrays: the sum
+   rounded after each product, as [Ordered] says. JavaScript has no fused
+   multiply-add, so the fused numerics are refused, as are the others. *)
+let contract cx (d : Contraction.t) ~a ~b ~c =
+  (match d.Contraction.format with
+  | Contraction.Element.F32 -> ()
+  | Contraction.Element.Bf16 | Contraction.Element.I8 _ ->
+      refuse "a contraction over other than binary32");
+  (match d.Contraction.numerics with
+  | Contraction.Numerics.Ordered -> ()
+  | Contraction.Numerics.Fused_sequential -> refuse "a fused contraction"
+  | Contraction.Numerics.Paired -> refuse "a paired contraction");
+  let stride what (x : int64) =
+    if Int64.compare x 0x7FFF_FFFFL > 0 then
+      refuse ("a contraction " ^ what ^ " past 31 bits")
+    else idx_lit x
+  in
+  let ao = d.Contraction.a and bo = d.Contraction.b in
+  let co = d.Contraction.c in
+  let tb = temp cx and ti = temp cx and tj = temp cx and tk = temp cx in
+  let acc = temp cx in
+  (* the sum of [counter * stride] terms, a stride of zero dropped *)
+  let index terms =
+    match
+      List.filter_map
+        (fun (t, (s : int64)) ->
+          if Int64.equal s 0L then None
+          else Some (bin A.Mul (A.Var t) (stride "stride" s)))
+        terms
+    with
+    | [] -> num 0.
+    | t :: rest -> List.fold_left (fun acc t -> bin A.Add acc t) t rest
+  in
+  let a_at =
+    index
+      [
+        (tb, ao.Contraction.Operand.batch);
+        (ti, ao.Contraction.Operand.outer);
+        (tk, ao.Contraction.Operand.k);
+      ]
+  and b_at =
+    index
+      [
+        (tb, bo.Contraction.Operand.batch);
+        (tj, bo.Contraction.Operand.outer);
+        (tk, bo.Contraction.Operand.k);
+      ]
+  and c_at =
+    index
+      [
+        (tb, co.Contraction.Output.batch);
+        (ti, co.Contraction.Output.row);
+        (tj, co.Contraction.Output.col);
+      ]
+  in
+  let cell buffer at = A.Index (buffer_var cx buffer, at) in
+  let loop counter extent body =
+    A.Stmt.For
+      {
+        var = counter;
+        init = num 0.;
+        test = bin A.Lt (A.Var counter) (stride "extent" extent);
+        body;
+      }
+  in
+  let seed =
+    match d.Contraction.seed with
+    | Contraction.Seed.Zero -> num 0.
+    | Contraction.Seed.Tensor -> cell c c_at
+  in
+  [
+    loop tb d.Contraction.batch
+      [
+        loop ti d.Contraction.m
+          [
+            loop tj d.Contraction.n
+              [
+                A.Stmt.Let (acc, seed);
+                loop tk d.Contraction.k
+                  [
+                    A.Stmt.Assign
+                      ( A.Lvar acc,
+                        A.Eq,
+                        math "fround"
+                          [
+                            bin A.Add (A.Var acc)
+                              (math "fround"
+                                 [ bin A.Mul (cell a a_at) (cell b b_at) ]);
+                          ] );
+                  ];
+                A.Stmt.Assign (A.Lindex (buffer_var cx c, c_at), A.Eq, A.Var acc);
+              ];
+          ];
+      ];
+  ]
+
 let instr cx ~(limits : Expr.Scan_limits.t) (i : Ssa_instr.t) : A.Stmt.t list =
   let v = var cx in
   let op = i.Ssa_instr.op in
@@ -52,7 +149,7 @@ let instr cx ~(limits : Expr.Scan_limits.t) (i : Ssa_instr.t) : A.Stmt.t list =
   match op with
   | Ssa_op.Mark _ | Ssa_op.Mark_lanes _ -> []
   | Ssa_op.Attend _ -> refuse "an attention"
-  | Ssa_op.Contract _ -> refuse "a contraction"
+  | Ssa_op.Contract { desc = d; a; b; c } -> contract cx d ~a ~b ~c
   | Ssa_op.Check_access { buffer; at } -> (
       let b = find_buffer cx buffer in
       match at with
@@ -483,6 +580,10 @@ let arguments (p : Ssa_program.t) =
         | Ssa_op.Vec_load { buffer; _ }
         | Ssa_op.Vec_store { buffer; _ } ->
             note buffer
+        | Ssa_op.Contract { a; b; c; _ } ->
+            note a;
+            note b;
+            note c
         | _ -> ())
     | Ssa_stmt.For { body; _ } | Ssa_stmt.Ordered_sum { body; _ } -> region body
     | Ssa_stmt.If { then_; else_; _ } ->

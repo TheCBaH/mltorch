@@ -108,6 +108,25 @@ its own name becomes its interface and hides its siblings (the lowering is
 
 ## Analyses and passes
 
+- **`Ssa_expand_attend`** replaces each `Attend` whose precision is binary32
+  (`Attention_block.Precision`) with the loops of `Attention_block.eval`: per
+  batch and head the keys in blocks, each block's scores and context as one
+  `Contract` over dense scratch copies of Q, K and V (a `Contract` addresses
+  whole buffers and has no base offset, so a block is staged), and the running
+  maximum, sum and accumulator updated per query between them. The expansion is
+  built once with `Ssa_builder` as a small program over the attention's buffers
+  plus eight declared scratch buffers, then cloned in place of the `Attend`.
+  The arithmetic is binary64 until `Ssa_precision.to_f32`; narrowed and
+  interpreted it equals `Attention_block.eval` bit for bit. A bfloat16 attention
+  is untouched: only the Machine IR route realizes it. No emitter needs an
+  `Attend` for binary32; each needs `Contract`.
+- **`Ssa_expand_contract`** replaces a `Contract` with its loop nest (an ordered
+  sum per output cell, seeded with +0 or the output's own cell) for a backend or
+  Machine IR route that realizes none of its own. Only `Ordered` over binary32 or
+  bfloat16; a fused, paired or integer contraction stays. Run after
+  `Ssa_expand_attend`, an f32 `F32_ordered` attention holds no `Contract` and no
+  `Attend`. The helpers both passes share (offsets, counted loops, cell access,
+  splicing the built body in place) are `Ssa_expand_util`.
 - `Ssa_uses` records definitions, uses and the region tree of one revision and
   answers lexical dominance; it is bound to its revision. `Ssa_range` derives
   integer ranges (a missing fact is the whole domain, `Empty` is an unreachable
@@ -350,7 +369,10 @@ GCC/Clang generic vectors of the logical width (a power of two) with masks as
 exact binary32 one) and any other stride goes lane by lane, and the operations C has no vector form for run lane by
 lane through the scalar helper. Checked operations are explicit `if` + record at
 their own site, with the operands the interpreter reports. Precision and
-contraction are never decided here. A buffer no operation touches is no
+contraction are never decided here. A `Contract` is the descriptor's own loop
+nest over its three buffers, binary32 only: `Ordered` is a rounded product then a
+rounded sum, `Fused_sequential` is `fmaf`, and any other format or `Paired`
+refuses (the host compiles with `-ffp-contract=off`, which `Ordered` relies on). A buffer no operation touches is no
 argument (the caller validates its binding).
 An `i8`/`i16` buffer is `int8_t`/`int16_t` and its dequantization the explicit
 operations (in binary32 with `float` literals); a contiguous binary32
@@ -364,6 +386,13 @@ hand-built control flow and every failure row, the vector surface, and mutations
 of addressing, checks, transfers, masks and fused operations.
 
 ## Direct JavaScript consumer
+
+A `Contract` is a loop nest over the typed arrays, binary32 `Ordered` only:
+JavaScript forms no fused multiply-add, so `Fused_sequential`, `Paired` and any
+other format are refused. A binary32 `exp` is the runtime's `exp_f32`, the
+`F32_math` sequence one `Math.fround` operation at a time, so it is bit-equal to
+the interpreter, C and WebAssembly; `Math.exp` serves only binary64. (The Loop
+IR's own JavaScript emitter still calls `Math.exp` for a binary32 `exp`.)
 
 `Ssa_js` (library `lib/ssa_js`) builds a `Js_ast.Program.t` straight from a
 structured program, with the argument convention (one typed array per buffer the
@@ -383,6 +412,10 @@ wrap, `-0`, binary32 rounding and a stride that does not divide its range, and
 mutations of each.
 
 ## Direct WebAssembly consumer
+
+A `Contract` is a loop nest over `i32` element offsets, binary32 `Ordered` only:
+WebAssembly has no scalar fused multiply-add, so `Fused_sequential`, `Paired`
+and any other format are refused rather than computed with other rounding.
 
 `Ssa_wasm` (library `lib/ssa_wasm`) emits one exported `loop_kernel` over linear
 memory straight from a structured program, producing the same `Loop_wasm.kernel`

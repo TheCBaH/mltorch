@@ -496,6 +496,17 @@ A column holding a NaN score outputs NaN in every feature. The engine never
 produces negative zero (its adder returns +0 for a zero sum, measured on the
 RTL), which `Contraction.Numerics.Paired` records.
 
+**Precision.** The descriptor carries a `precision`: `Bf16_paired` (the grant
+above, whose name and symbol are unchanged), `F32_fused` and `F32_ordered`.
+The binary32 forms read binary32 Q, K and V, keep the unnormalized `p` in
+binary32 and run each context product over the block's valid keys only (no
+padding contract), with `Contraction`'s `Fused_sequential` or `Ordered`
+numerics. They take `Float.max` (NaN propagates) where bfloat16 takes RISC-V
+`fmax`, and pin a NaN's presence, not its payload. The matrix-engine kernel
+refuses them; `Ssa_expand_attend` lowers them to `Contract` and ordinary
+operations, so every backend that realizes a `Contract` computes them. They are
+a streaming numerics, not the whole-row binary32 `Sdpa` of the sections above.
+
 Selection (`Sdpa_select`) takes a node only with the grant, a matrix engine,
 bfloat16 Q, K, V, a binary32 mask, `N = T = 1`, an even head dimension at most
 64, a supported block and a padded-work ratio (fixed 16-query by `block_keys`

@@ -2,6 +2,26 @@ module Strides = struct
   type t = { batch : int64; head : int64; row : int64; col : int64 }
 end
 
+module Precision = struct
+  type t = Bf16_paired | F32_fused | F32_ordered
+
+  let all = [ Bf16_paired; F32_fused; F32_ordered ]
+
+  let name = function
+    | Bf16_paired -> "bf16_paired"
+    | F32_fused -> "f32_fused"
+    | F32_ordered -> "f32_ordered"
+
+  let format = function
+    | Bf16_paired -> Contraction.Element.Bf16
+    | F32_fused | F32_ordered -> Contraction.Element.F32
+
+  let numerics = function
+    | Bf16_paired -> Contraction.Numerics.Paired
+    | F32_fused -> Contraction.Numerics.Fused_sequential
+    | F32_ordered -> Contraction.Numerics.Ordered
+end
+
 type t = {
   batch : int64;
   heads : int64;
@@ -15,6 +35,7 @@ type t = {
   mask : Strides.t option;
   scale : float;
   block_keys : int64;
+  precision : Precision.t;
 }
 
 module Invalid = struct
@@ -32,7 +53,8 @@ let round32 = F32_math.round32
 let nan32 = Int32.float_of_bits 0x7FC00000l
 let r32 x = if Float.is_nan x then nan32 else round32 x
 
-let make ~batch ~heads ~tq ~tk ~d ~q ~k ~v ~o ?mask ~scale ~block_keys () =
+let make ~batch ~heads ~tq ~tk ~d ~q ~k ~v ~o ?mask ~scale ~block_keys
+    ?(precision = Precision.Bf16_paired) () =
   let extent name value =
     if Int64.compare value 1L < 0 then
       Err.fail (`Invalid_attention (Invalid.Extent { name; value }))
@@ -77,7 +99,8 @@ let make ~batch ~heads ~tq ~tk ~d ~q ~k ~v ~o ?mask ~scale ~block_keys () =
       Err.fail (`Invalid_attention (Invalid.Block_keys block_keys))
     else Err.return ()
   in
-  Err.return { batch; heads; tq; tk; d; q; k; v; o; mask; scale; block_keys }
+  Err.return
+    { batch; heads; tq; tk; d; q; k; v; o; mask; scale; block_keys; precision }
 
 let pp_strides ppf (s : Strides.t) =
   Fmt.pf ppf "(%Ld,%Ld,%Ld,%Ld)" s.Strides.batch s.Strides.head s.Strides.row
@@ -86,11 +109,15 @@ let pp_strides ppf (s : Strides.t) =
 let pp ppf t =
   Fmt.pf ppf
     "@[<h>attend batch=%Ld heads=%Ld tq=%Ld tk=%Ld d=%Ld q=%a k=%a v=%a o=%a \
-     mask=%a scale=%h block_keys=%Ld@]"
+     mask=%a scale=%h block_keys=%Ld%a@]"
     t.batch t.heads t.tq t.tk t.d pp_strides t.q pp_strides t.k pp_strides t.v
     pp_strides t.o
     Fmt.(option ~none:(any "none") pp_strides)
     t.mask t.scale t.block_keys
+    (fun ppf -> function
+      | Precision.Bf16_paired -> ()
+      | p -> Fmt.pf ppf " precision=%s" (Precision.name p))
+    t.precision
 
 let pp_error ppf (`Invalid_attention i) =
   match i with
@@ -112,14 +139,19 @@ let strides_text (s : Strides.t) =
   Printf.sprintf "%Ld_%Ld_%Ld_%Ld" s.Strides.batch s.Strides.head s.Strides.row
     s.Strides.col
 
+(* The default precision adds no field, so a bfloat16 descriptor keeps the name,
+   and with it the symbol, it had before the precision existed. *)
 let name t =
   Printf.sprintf
-    "attend.b%Ld.h%Ld.q%Ld.k%Ld.d%Ld.sq%s.sk%s.sv%s.so%s.%s.x%lx.n%Ld" t.batch
+    "attend.b%Ld.h%Ld.q%Ld.k%Ld.d%Ld.sq%s.sk%s.sv%s.so%s.%s.x%lx.n%Ld%s" t.batch
     t.heads t.tq t.tk t.d (strides_text t.q) (strides_text t.k)
     (strides_text t.v) (strides_text t.o)
     (match t.mask with None -> "nomask" | Some m -> "m" ^ strides_text m)
     (Int32.bits_of_float t.scale)
     t.block_keys
+    (match t.precision with
+    | Precision.Bf16_paired -> ""
+    | p -> ".p" ^ Precision.name p)
 
 let of_name s =
   let tagged tag field =
@@ -138,8 +170,22 @@ let of_name s =
             Some { Strides.batch; head; row; col }
         | _ -> None)
   in
-  match String.split_on_char '.' s with
-  | [ "attend"; b; h; q; k; d; sq; sk; sv; so; mask; x; n ] -> (
+  let precision_of field =
+    Option.bind (tagged "p" field) (fun text ->
+        List.find_opt (fun p -> Precision.name p = text) Precision.all)
+  in
+  let fields =
+    match String.split_on_char '.' s with
+    | [ "attend"; b; h; q; k; d; sq; sk; sv; so; mask; x; n ] ->
+        Some
+          ( [ b; h; q; k; d; sq; sk; sv; so; mask; x; n ],
+            Some Precision.Bf16_paired )
+    | [ "attend"; b; h; q; k; d; sq; sk; sv; so; mask; x; n; p ] ->
+        Some ([ b; h; q; k; d; sq; sk; sv; so; mask; x; n ], precision_of p)
+    | _ -> None
+  in
+  match fields with
+  | Some ([ b; h; q; k; d; sq; sk; sv; so; mask; x; n ], Some precision) -> (
       let mask =
         if mask = "nomask" then Some None
         else Option.map Option.some (strides_of "m" mask)
@@ -174,7 +220,7 @@ let of_name s =
             (Err.payload
                (make ~batch ~heads ~tq ~tk ~d ~q ~k ~v ~o ?mask
                   ~scale:(Int32.float_of_bits scale)
-                  ~block_keys ()))
+                  ~block_keys ~precision ()))
       | _ -> None)
   | _ -> None
 
@@ -221,13 +267,15 @@ let eval t ~q ~k ~v ~mask ~write =
      [int64] and narrow here, after the allocation would have failed first *)
   let tq = int t.tq and d = int t.d and bk = int t.block_keys in
   let ( + ) = Int64.add and ( * ) = Int64.mul in
+  let bf16 = t.precision = Precision.Bf16_paired in
   let paired ~batch ~m ~n ~kk ~a ~b ~c ~seed =
     let desc =
       Result.get_ok
         (Err.payload
            (Contraction.make ~batch ~m ~n ~k:kk ~a ~b ~c
-              ~format:Contraction.Element.Bf16 ~seed
-              ~numerics:Contraction.Numerics.Paired))
+              ~format:(Precision.format t.precision)
+              ~seed
+              ~numerics:(Precision.numerics t.precision)))
     in
     Contraction.eval desc
   in
@@ -285,7 +333,9 @@ let eval t ~q ~k ~v ~mask ~write =
                                  + (Int64.of_int i * ms.Strides.row)
                                  + ((k0 + Int64.of_int r) * ms.Strides.col))))
                 in
-                let m' = Array.fold_left fmax m.(i) z in
+                let m' =
+                  Array.fold_left (if bf16 then fmax else Float.max) m.(i) z
+                in
                 let a =
                   if m' = Float.neg_infinity then 1.
                   else exp (r32 (m.(i) -. m'))
@@ -298,7 +348,7 @@ let eval t ~q ~k ~v ~mask ~write =
                       else exp (r32 (zr -. m'))
                     in
                     sum := r32 (!sum +. p);
-                    pb.(ix i bk r) <- bf16_round p)
+                    pb.(ix i bk r) <- (if bf16 then bf16_round p else p))
                   z;
                 m.(i) <- m';
                 l.(i) <- r32 (r32 (l.(i) *. a) +. !sum);
@@ -306,7 +356,8 @@ let eval t ~q ~k ~v ~mask ~write =
                   seed.(ix i d f) <- r32 (a *. acc.(ix i d f))
                 done
               done;
-              (* context: all [block_keys] keys, +0 past the valid ones *)
+              (* context: bfloat16 runs all [block_keys] keys, +0 past the valid
+                 ones; binary32 runs the valid keys only *)
               let vb = Array.make (ix bk d 0) 0. in
               for r = 0 to vk - 1 do
                 for f = 0 to d - 1 do
@@ -317,7 +368,8 @@ let eval t ~q ~k ~v ~mask ~write =
                       + (Int64.of_int f * t.v.Strides.col))
                 done
               done;
-              (paired ~batch:1L ~m:t.tq ~n:t.d ~kk:t.block_keys
+              (paired ~batch:1L ~m:t.tq ~n:t.d
+                 ~kk:(if bf16 then t.block_keys else Int64.of_int vk)
                  ~a:
                    {
                      Contraction.Operand.batch = 0L;

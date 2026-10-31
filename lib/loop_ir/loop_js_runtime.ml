@@ -5,6 +5,7 @@ module Name = struct
     | Bf16_to_float
     | Coord_failure
     | Erf
+    | Exp_f32
     | F16_to_float
     | Float_max
     | I64_from_float_failure
@@ -15,6 +16,7 @@ module Name = struct
       Bf16_to_float;
       Coord_failure;
       Erf;
+      Exp_f32;
       F16_to_float;
       Float_max;
       I64_from_float_failure;
@@ -25,6 +27,7 @@ module Name = struct
     | Bf16_to_float -> "bf16_to_float"
     | Coord_failure -> "coord_failure"
     | Erf -> "erf"
+    | Exp_f32 -> "exp_f32"
     | F16_to_float -> "f16_to_float"
     | Float_max -> "float_max"
     | I64_from_float_failure -> "i64_from_float_failure"
@@ -133,6 +136,37 @@ let erf_body =
       ];
   ]
 
+(* {!F32_math.Make}'s [exp], one binary32 operation per statement: each result
+   is rounded with [Math.fround] and bound to a constant, so no step is held in
+   binary64. A comparison with a NaN is false, as the select it implements
+   requires. *)
+let exp_f32_body =
+  let statements = ref [] and next = ref 0 in
+  let module O = struct
+    type t = Js_build.num Js_build.t
+
+    let bind e =
+      let v = id (Printf.sprintf "e%d" !next) in
+      incr next;
+      statements := Stmt.const_num v e :: !statements;
+      Num.var v
+
+    let const x = Num.const (Loop_numerics.round32 x)
+    let add a b = bind (Num.fround (Num.add a b))
+    let sub a b = bind (Num.fround (Num.sub a b))
+    let mul a b = bind (Num.fround (Num.mul a b))
+    let div a b = bind (Num.fround (Num.div a b))
+    let select_lt a b c d = bind (select (Num.lt a b) c d)
+    let select_eq a b c d = bind (select (Num.eq a b) c d)
+    let share x = x
+  end in
+  let module M = F32_math.Make (O) in
+  let result = M.exp (num_var "x") in
+  [
+    fn Name.Exp_f32 [ "x" ]
+      (List.rev !statements @ [ Stmt.return_ (expr result) ]);
+  ]
+
 (* [Half.Bf16.to_float]: bfloat16 is the high half of a binary32 pattern. The
    shared scratch pair reinterprets the 32 bits without allocating; [bits << 16]
    is negative when the sign bit is set, and a [Uint32Array] store wraps it back
@@ -225,6 +259,7 @@ let helper n =
       }
   | Name.Coord_failure -> one coord_failure_body
   | Name.Erf -> one erf_body
+  | Name.Exp_f32 -> one exp_f32_body
   | Name.F16_to_float -> one f16_body
   | Name.Float_max -> one float_max_body
   | Name.I64_from_float_failure -> one i64_from_float_failure_body
