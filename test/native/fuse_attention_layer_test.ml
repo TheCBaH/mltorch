@@ -127,3 +127,35 @@ let%expect_test "what the rewrite leaves alone" =
     an interior with a second consumer: 0 layer(s), 15 nodes kept of 15
     a norm over two axes: 0 layer(s), 1 nodes kept of 1
     the decomposition itself, for comparison: 1 layer(s), 1 nodes kept of 15 |}]
+
+(* The eager core of a Hugging Face encoder: one node too, with a fresh output
+   whose claim says how it relates, and within tolerance of the subgraph (the
+   Sdpa splits its scale's square root, and a divide becomes a multiply by the
+   rounded reciprocal). *)
+let%expect_test "the eager form becomes one node, within tolerance" =
+  List.iter
+    (fun (fname, core) ->
+      List.iter
+        (fun (name, c) ->
+          let dec = F.decomposed ~core c in
+          match rewritten dec with
+          | Error e -> Fmt.pr "%s, %s: %s@." fname name e
+          | Ok g ->
+              let worst =
+                List.fold_left2
+                  (fun m a b -> Float.max m (Float.abs (a -. b)))
+                  0. (output dec) (output g)
+              in
+              Fmt.pr "%s, %s: %d nodes -> %d (%d layer); within 1e-5: %b@."
+                fname name
+                (List.length dec.Graph_ir.Graph.nodes)
+                (List.length g.Graph_ir.Graph.nodes)
+                (layers g) (worst <= 1e-5))
+        [ List.nth configs 1; List.nth configs 3 ])
+    [ ("mul", F.Core_form.Eager_mul); ("div", F.Core_form.Eager_div) ];
+  [%expect
+    {|
+    mul, pre layer, all flags, masked: 21 nodes -> 1 (1 layer); within 1e-5: true
+    mul, pre rms, rope: 33 nodes -> 1 (1 layer); within 1e-5: true
+    div, pre layer, all flags, masked: 21 nodes -> 1 (1 layer); within 1e-5: true
+    div, pre rms, rope: 33 nodes -> 1 (1 layer); within 1e-5: true |}]

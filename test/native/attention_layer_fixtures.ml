@@ -12,6 +12,13 @@ module Rope_form = struct
   type t = Batched | No_rope | Shared
 end
 
+(* How the decomposition spells the attention: an Sdpa node, or the eager
+   [matmul] / scale / mask [add] / [softmax] / [matmul] of a Hugging Face
+   encoder, its scale a multiply or a divide. Alphabetical. *)
+module Core_form = struct
+  type t = Eager_div | Eager_mul | Sdpa
+end
+
 module Config = struct
   type t = {
     batch : int;
@@ -195,7 +202,7 @@ let node (c : Config.t) =
 let swap_hw = Axis.[ (N, N); (T, T); (D, D); (H, W); (W, H); (C, C) ]
 
 (* The decomposed layer as an importer spells it, written independently. *)
-let decomposed (c : Config.t) =
+let decomposed ?(core = Core_form.Sdpa) (c : Config.t) =
   build "attention_layer_decomposed"
     Graph_builder.(
       let* o = operands c in
@@ -259,9 +266,29 @@ let decomposed (c : Config.t) =
       let* v = linear_ ~weight:o.Operands.wv ?bias:o.Operands.bv u in
       let* v = heads v in
       let* a =
-        sdpa
-          { Attention.Sdpa.scale = c.Config.scale }
-          ~query:q ~key:k ~value:v ?mask:o.Operands.mask ()
+        match core with
+        | Core_form.Sdpa ->
+            sdpa
+              { Attention.Sdpa.scale = c.Config.scale }
+              ~query:q ~key:k ~value:v ?mask:o.Operands.mask ()
+        | Core_form.Eager_div | Core_form.Eager_mul ->
+            let swap_wc =
+              Axis.[ (N, N); (T, T); (D, D); (H, H); (W, C); (C, W) ]
+            in
+            let* kt = permute swap_wc k in
+            let* s = batched_matmul q kt in
+            let root = Float.sqrt (float_of_int d) in
+            let* s =
+              match core with
+              | Core_form.Eager_div -> div_scalar root s
+              | Core_form.Eager_mul | Core_form.Sdpa ->
+                  mul_scalar (1. /. root) s
+            in
+            let* s =
+              match o.Operands.mask with Some m -> add s m | None -> return s
+            in
+            let* p = softmax { Reduce.Softmax.axis = Axis.C } s in
+            batched_matmul p v
       in
       let* a = permute swap_hw a in
       let* a = reshape { Reshape.Reshape.shape = s 1 1 b 1 l e } a in

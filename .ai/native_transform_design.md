@@ -1610,12 +1610,19 @@ shape rule must accept the result. A sum read only by a norm over C is left to
 the match anchored on that norm, so a Post layer is taken whole. Anything else
 leaves the graph unchanged.
 
+The core may also be the Hugging Face eager spelling — `matmul(Q, K^T)` (K
+transposed by a W/C permute), a `mul_scalar c` or `div_scalar c`, an optional
+mask `add`, `softmax` over C, `matmul(P, V)`. It becomes the same node with an
+explicit scale (`c`, or `RN(1/c)` for a divide: one multiply by a binary32
+constant after the product), which is not that subgraph's arithmetic: the
+node's Sdpa splits the scale's square root and a reciprocal rounds. So the
+node defines a **fresh** output the consumers are rewired to, claimed
+`Equivalent` for a multiply (equal in exact arithmetic) and `Approximate` for
+a divide; the tests hold it within 1e-5.
+
 Not yet matched: fastvit's fused-qkv form (a constant weight sliced three
-ways, `unbind`, the `clone` and transposes of its NCHW frame) and the Hugging
-Face eager form (`matmul`, `mul`/`div` scale, `add` mask, `softmax`, `matmul`
-in place of Sdpa, whose scale forms D13 normalizes to one multiply by a
-binary32 constant, within tolerance rather than bitwise). Both are further
-patterns over the same builder of the node.
+ways, `unbind`, the `clone` and transposes of its NCHW frame) and esm2's
+pre-scaled Q.
 
 ## 13. Tests
 

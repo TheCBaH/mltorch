@@ -16,7 +16,32 @@
 open Graph_ir
 module L = Attention_layer.Attention_layer
 
-type match_ = { output : Tensor_id.t; layer : L.t; nodes : Node_id.t list }
+(* The attention at the layer's core: an Sdpa node, or the eager spelling of
+   it ([matmul], a scale, an optional mask [add], [softmax], [matmul]). *)
+module Core = struct
+  (* Alphabetical. *)
+  type form =
+    | Eager_div  (** [div c]: normalized to [* RN(1/c)], not bitwise (D13) *)
+    | Eager_mul  (** [mul c]: equal in exact arithmetic, rounding differs *)
+    | Fused  (** an Sdpa node: the node's own decomposition, bit for bit *)
+
+  type t = {
+    query : Tensor_id.t;
+    key : Tensor_id.t;
+    value : Tensor_id.t;
+    mask : Tensor_id.t option;
+    scale : Attention.Sdpa.Scale.t;
+    form : form;
+  }
+end
+
+type match_ = {
+  output : Tensor_id.t;
+  output_sig : Tensor_sig.t;
+  layer : L.t;
+  nodes : Node_id.t list;
+  form : Core.form;
+}
 
 let as_add = function Add (b : Pointwise.Bin.t) -> Some b | _ -> None
 let as_mul = function Mul (b : Pointwise.Bin.t) -> Some b | _ -> None
@@ -33,6 +58,16 @@ let as_permute = function
 let as_sdpa = function Sdpa (s : Attention.Sdpa.t) -> Some s | _ -> None
 let as_slice = function Slice (s : Split.Slice.t) -> Some s | _ -> None
 let as_concat = function Concat (c : Concat.Concat.t) -> Some c | _ -> None
+
+let as_bmm = function
+  | Batched_matmul (b : Matmul.Batched_matmul.t) -> Some b
+  | _ -> None
+
+let as_softmax = function Softmax (x : Reduce.Softmax.t) -> Some x | _ -> None
+
+let as_div_scalar = function
+  | Div_scalar (m : Pointwise.Scalar_bin.t) -> Some m
+  | _ -> None
 
 let as_mul_scalar = function
   | Mul_scalar (m : Pointwise.Scalar_bin.t) -> Some m
@@ -132,6 +167,68 @@ let rotation sum =
   let* () = guard (not o) in
   return (z, { L.Rope.cos; sin })
 
+let swaps_w_c perm =
+  List.for_all
+    (fun a ->
+      Axis.equal
+        (Permute.Permute.lookup perm a)
+        (match a with Axis.W -> Axis.C | Axis.C -> Axis.W | a -> a))
+    Axis.all
+
+let fused ctx =
+  let* (s : Attention.Sdpa.t), _ = inner ctx as_sdpa in
+  return
+    {
+      Core.query = s.Attention.Sdpa.query;
+      key = s.Attention.Sdpa.key;
+      value = s.Attention.Sdpa.value;
+      mask = s.Attention.Sdpa.mask;
+      scale = s.Attention.Sdpa.params.Attention.Sdpa.scale;
+      form = Core.Fused;
+    }
+
+(* [softmax((Q K^T) op c [+ mask]) V], op a [mul] or a [div] by a constant *)
+let eager ctx =
+  let* (pv : Matmul.Batched_matmul.t), _ = inner ctx as_bmm in
+  let* (sm : Reduce.Softmax.t), _ =
+    inner pv.Matmul.Batched_matmul.input as_softmax
+  in
+  let* () =
+    guard (Axis.equal sm.Reduce.Softmax.params.Reduce.Softmax.axis Axis.C)
+  in
+  let z = sm.Reduce.Softmax.x in
+  let* scaled, mask =
+    (let* (a : Pointwise.Bin.t), _ = inner z as_add in
+     return (a.a, Some a.b))
+    <|> return (z, None)
+  in
+  let* s, scale, form =
+    (let* (m : Pointwise.Scalar_bin.t), _ = inner scaled as_mul_scalar in
+     return
+       (m.Pointwise.Scalar_bin.x, m.Pointwise.Scalar_bin.scalar, Core.Eager_mul))
+    <|>
+    let* (m : Pointwise.Scalar_bin.t), _ = inner scaled as_div_scalar in
+    let c = m.Pointwise.Scalar_bin.scalar in
+    let* () = guard (c <> 0. && Float.is_finite c) in
+    return
+      (m.Pointwise.Scalar_bin.x, Json_util.f32_to_f32 (1. /. c), Core.Eager_div)
+  in
+  let* () = guard (Float.is_finite scale && scale > 0.) in
+  let* (qk : Matmul.Batched_matmul.t), _ = inner s as_bmm in
+  let* (kt : Permute.Permute.t), _ =
+    inner qk.Matmul.Batched_matmul.mat2 as_permute
+  in
+  let* () = guard (swaps_w_c kt.Permute.Permute.perm) in
+  return
+    {
+      Core.query = qk.Matmul.Batched_matmul.input;
+      key = kt.Permute.Permute.x;
+      value = pv.Matmul.Batched_matmul.mat2;
+      mask;
+      scale = Attention.Sdpa.Scale.Explicit scale;
+      form;
+    }
+
 let query_or_key edge =
   let* rope = optional (rotation edge) in
   let z = match rope with Some (z, _) -> z | None -> edge in
@@ -186,13 +283,15 @@ let pattern anchor =
   let* (mr : Reshape.Reshape.t), _ = inner lo.Linear.Linear.x as_reshape in
   let* (mp : Permute.Permute.t), _ = inner mr.Reshape.Reshape.x as_permute in
   let* () = guard (swaps_h_w mp.Permute.Permute.perm) in
-  let* (s : Attention.Sdpa.t), _ = inner mp.Permute.Permute.x as_sdpa in
-  let* () = interior s.Attention.Sdpa.query in
-  let* () = interior s.Attention.Sdpa.key in
-  let* () = interior s.Attention.Sdpa.value in
-  let* q, uq, hq, rq = query_or_key s.Attention.Sdpa.query in
-  let* k, uk, hk, rk = query_or_key s.Attention.Sdpa.key in
-  let* v, uv, hv = split_heads s.Attention.Sdpa.value in
+  let* (core : Core.t) =
+    fused mp.Permute.Permute.x <|> eager mp.Permute.Permute.x
+  in
+  let* () = interior core.Core.query in
+  let* () = interior core.Core.key in
+  let* () = interior core.Core.value in
+  let* q, uq, hq, rq = query_or_key core.Core.query in
+  let* k, uk, hk, rk = query_or_key core.Core.key in
+  let* v, uv, hv = split_heads core.Core.value in
   let* () =
     guard (Tensor_id.equal uq uk && Tensor_id.equal uq uv && hq = hk && hq = hv)
   in
@@ -208,7 +307,7 @@ let pattern anchor =
   in
   (* an additive binary32 mask only *)
   let* () =
-    match s.Attention.Sdpa.mask with
+    match core.Core.mask with
     | None -> return ()
     | Some m ->
         let* ms = sig_of m in
@@ -251,18 +350,14 @@ let pattern anchor =
     {
       L.k;
       layer_scale = gamma;
-      mask = s.Attention.Sdpa.mask;
+      mask = core.Core.mask;
       norm;
       o =
         {
           L.Projection.weight = lo.Linear.Linear.weight;
           bias = lo.Linear.Linear.bias;
         };
-      params =
-        {
-          L.heads = Op_config.Pos.of_int hq;
-          scale = s.Attention.Sdpa.params.Attention.Sdpa.scale;
-        };
+      params = { L.heads = Op_config.Pos.of_int hq; scale = core.Core.scale };
       q;
       rope;
       v;
@@ -283,22 +378,56 @@ let pattern anchor =
   let* () =
     guard (Result.is_ok (Err.payload (L.output_shape layer ~shape_of)))
   in
-  return { output = anchor; layer; nodes = Node_id.Set.elements claimed }
+  let* output_sig = sig_of anchor in
+  return
+    {
+      output = anchor;
+      output_sig;
+      layer;
+      nodes = Node_id.Set.elements claimed;
+      form = core.Core.form;
+    }
 
+(* The fused form is the node's own decomposition: the output keeps its id,
+   [Identical]. An eager form computes the same in exact arithmetic but rounds
+   differently ([Eager_mul]: [Equivalent]), or takes the scale's reciprocal
+   rounded ([Eager_div]: [Approximate], D13), so the node defines a fresh id
+   the consumers are rewired to. *)
 let build m _region =
   let open Recipe in
   let* out = existing m.output in
-  replace ~remove:m.nodes
-    ~insert:
-      [
+  let insert target =
+    [
+      {
+        Recipe.op = Attention_layer m.layer;
+        outputs = [ target ];
+        from = m.nodes;
+      };
+    ]
+  in
+  match m.form with
+  | Core.Fused ->
+      replace ~remove:m.nodes ~insert:(insert (Preserved out))
+        ~claims:[ (out, Preserved out, Correspondence.Identical) ]
+        ()
+  | Core.Eager_div | Core.Eager_mul ->
+      let* y =
+        fresh ~fmt:m.output_sig.Tensor_sig.fmt m.output_sig.Tensor_sig.shape
+      in
+      let relation =
+        match m.form with
+        | Core.Eager_mul -> Correspondence.Equivalent
+        | Core.Eager_div | Core.Fused ->
+            Correspondence.Approximate Correspondence.Precision.Set.empty
+      in
+      emit
         {
-          Recipe.op = Attention_layer m.layer;
-          outputs = [ Preserved out ];
-          from = m.nodes;
-        };
-      ]
-    ~claims:[ (out, Preserved out, Correspondence.Identical) ]
-    ()
+          empty_replacement with
+          remove = Node_id.Set.of_list m.nodes;
+          insert = insert (Fresh y);
+          subst = [ (Old out, New y) ];
+          value_claims = [ (out, Fresh y, relation) ];
+        }
 
 let pass =
   Pass.of_pattern ~name:"fuse_attention_layer" ~pattern ~build:{ Pass.build }
