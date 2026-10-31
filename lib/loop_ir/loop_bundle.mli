@@ -59,7 +59,8 @@ type error =
   | Eval_direct.error
   | Loop_node_program.error
   | `Plan_mismatch of Alloc_script.Position.t
-  | `Region_lower of Loop_region_program.error ]
+  | `Region_lower of Loop_region_program.error
+  | `Ungranted of Node_id.t ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
@@ -70,7 +71,8 @@ type 'err generic_error =
   | `Missing_signature of Tensor_id.t
   | `Plan_mismatch of Alloc_script.Position.t
   | `Region_construction of Region_computation.error
-  | `Region_lower of Loop_region_program.error ]
+  | `Region_lower of Loop_region_program.error
+  | `Ungranted of Node_id.t ]
 (** What {!build_with} reports for any dialect. [`Dialect] carries the dialect's
     own storage-script failure; the Region validation the builder runs on what a
     dialect returns, and the output-signature lookup, have shared arms. *)
@@ -107,6 +109,7 @@ val build_with :
   ?limits:Kernel.Limits.t ->
   ?config:Storage_script.Config.t ->
   ?plan:Storage_plan.t ->
+  ?granted:(Node_id.t -> bool) ->
   'op Graph.t ->
   (t, 'err generic_error) Err.t
 (** {!build} for any dialect. [~dialect] is mandatory so the function stays
@@ -117,12 +120,18 @@ val build :
   ?limits:Kernel.Limits.t ->
   ?config:Storage_script.Config.t ->
   ?plan:Storage_plan.t ->
+  ?granted:(Node_id.t -> bool) ->
   graph ->
   (t, error) Err.t
 (** [build_with ~dialect:Loop_dialect.native], with the error row it always had.
     [config] defaults to [Separate] layout with constants and inputs both
     [Copied] -- the simplest fully-owned corner of the storage contract (no
     caller lifetime obligations to track yet). *)
+
+(** [granted] (default: none) names the nodes whose body the caller replaces: a
+    node no Loop body realizes ({!Loop_dialect.field-granted_only}, an attention
+    layer) is lowered only when granted, as a placeholder over its operands that
+    writes NaN, and is [`Ungranted] otherwise. *)
 
 (** [plan]: a caller's already-witnessed plan, used instead of building one, but
     only if its script equals the one this graph and [config] produce (config,

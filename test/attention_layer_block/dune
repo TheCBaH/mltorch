@@ -1,0 +1,15 @@
+(library
+ (name attention_layer_block_test)
+ (libraries
+  attention_block
+  attention_layer_block
+  contraction
+  core
+  err_trace
+  f32_math
+  fmt
+  norm_block)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))

@@ -235,7 +235,7 @@ let rec result_types : Ssa_op.t -> (Ssa_type.t list, error) result = function
       let* () = steps_in_domain steps in
       match encode with
       | Ssa_op.Encode.I64 -> Error I64_vector
-      | Ssa_op.Encode.F32_exact ->
+      | Ssa_op.Encode.Bf16_round | Ssa_op.Encode.F32_exact ->
           let* () =
             expect (Position.of_int 6)
               (Ssa_type.Vec (Ssa_type.F32, lanes))

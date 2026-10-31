@@ -196,6 +196,10 @@ let check_node view (n : node) =
   (* The int32 cast carries its value in an int64 cell with a range check Direct
      owns; Native4D has neither. *)
   | To_copy { target = Pointwise.To_copy.Int; _ } -> unsupported ()
+  (* A rewrite-only node of the granted compute path (normalization,
+     projections, attention, residual in one): the dialect has no
+     counterpart, and its decomposition is what a Native4D graph carries. *)
+  | Attention_layer _ -> unsupported ()
   (* Direct counterparts, or legalizations that constrain nothing here: their
      tensors are covered by the shape rule above. [Adaptive_max_pool2d_with_indices]/
      [Max_pool2d_with_indices] join this bucket now that a real Native4D

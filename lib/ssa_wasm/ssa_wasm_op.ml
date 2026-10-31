@@ -237,6 +237,10 @@ let decode st (b : Ssa_buffer.t) (d : Ssa_op.Decode.t) ~address
 
 let encode_store (e : Ssa_op.Encode.t) =
   match e with
+  | Ssa_op.Encode.Bf16_round ->
+      (* no producer gives this backend one: a bfloat16 store is written only
+         by a granted attention layer, which the Machine IR route alone runs *)
+      invalid_arg "Ssa_wasm: a bfloat16 store is not emitted"
   | Ssa_op.Encode.Bool_nonzero ->
       [ f64 0.; n Wasm_op.F64_ne; I.Store (Wasm.Store.I32_store8, arg 0 0) ]
   | Ssa_op.Encode.F32_exact -> [ I.Store (Wasm.Store.F32_store, arg 2 0) ]

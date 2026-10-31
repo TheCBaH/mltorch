@@ -44,7 +44,8 @@ let slot_index slots region =
 (* A loaded image closes when nothing refers to its kernel any more. *)
 let close_with kernel = Gc.finalise (fun k -> I.close k.loaded) kernel
 
-let prepare ?check ?cpuinfo ?features ?(allocation = Rt.Allocation.Reference)
+let prepare ?check ?cpuinfo ?features ?attention ?layer
+    ?(allocation = Rt.Allocation.Reference)
     ?(runtime = Rivet_x64_runtime.Dependency_free) ~pipeline bundle =
   let refuse k (v : Mm.Kernel_view.t) reason =
     {
@@ -53,7 +54,7 @@ let prepare ?check ?cpuinfo ?features ?(allocation = Rt.Allocation.Reference)
       reason = Mm.Reason.Route reason;
     }
   in
-  match Mm.prepare ~pipeline bundle with
+  match Mm.prepare ?attention ?layer ~pipeline bundle with
   | Error refusals -> Error refusals
   | Ok model -> (
       let results =

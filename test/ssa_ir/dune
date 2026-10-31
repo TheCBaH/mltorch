@@ -4,7 +4,15 @@
 
 (library
  (name ssa_ir_test)
- (libraries attention_block core err_trace expr fmt ssa_ir)
+ (libraries
+  attention_block
+  attention_layer_block
+  core
+  err_trace
+  expr
+  fmt
+  norm_block
+  ssa_ir)
  (inline_tests
   (modes best js))
  (preprocess

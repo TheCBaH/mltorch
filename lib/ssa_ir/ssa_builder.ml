@@ -77,6 +77,7 @@ let f64_to_f32 b a = convert b Ssa_op.Convert.F64_to_f32 a
 let index_to_f64 b a = convert b Ssa_op.Convert.Index_to_f64 a
 let index_to_i64 b a = convert b Ssa_op.Convert.Index_to_i64 a
 let f64_binary b op x y = one b (Ssa_op.Float_binary (op, x, y))
+let f64_fma b x y z = one b (Ssa_op.Float_fma (x, y, z))
 let f64_max b x y = one b (Ssa_op.Float_max (x, y))
 let f64_unary b op x = one b (Ssa_op.Float_unary (op, x))
 let float_compare b c x y = one b (Ssa_op.Float_compare (c, x, y))
@@ -145,8 +146,12 @@ let store_f64 b buffer ~encode at value =
   | Ssa_op.Encode.Bool_nonzero | Ssa_op.Encode.F32_exact
   | Ssa_op.Encode.F32_round ->
       ()
-  | Ssa_op.Encode.I64 -> invalid_arg "Ssa_builder.store_f64: an i64 encode");
+  | Ssa_op.Encode.Bf16_round | Ssa_op.Encode.I64 ->
+      invalid_arg "Ssa_builder.store_f64: an encode that takes no f64");
   store b buffer ~encode at value
+
+let store_bf16 b buffer at value =
+  store b buffer ~encode:Ssa_op.Encode.Bf16_round at value
 
 let store_i64 b buffer at value =
   store b buffer ~encode:Ssa_op.Encode.I64 at value
@@ -156,6 +161,10 @@ let mark b m = ignore (instr b (Ssa_op.Mark m))
 let contract bld desc ~a ~b ~c =
   List.iter (declared bld) [ a; b; c ];
   ignore (instr bld (Ssa_op.Contract { desc; a; b; c }))
+
+let attend bld desc ~q ~k ~v ~mask ~o =
+  List.iter (declared bld) ([ q; k; v; o ] @ Option.to_list mask);
+  ignore (instr bld (Ssa_op.Attend { desc; q; k; v; mask; o }))
 
 let local_alloc ?var b ~slots = one b (Ssa_op.Local_alloc { slots; var })
 

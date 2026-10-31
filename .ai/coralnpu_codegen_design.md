@@ -844,3 +844,13 @@ DTCM is read in place. The matrix engine's bfloat16 multiply is generated for
 operands already in memory but not yet with the DMA schedules, which are the
 vector unit's, and no policy yet grants `Paired`. Integer operators wait for a
 quantized model to recognize.
+
+## A granted attention layer
+
+A granted bfloat16 `Attention_layer` is one invocation whose body holds paired
+products, one `attend.<descriptor>` call and generated loops (norm, bias,
+rotation, bfloat16 copies, epilogue). Its image is past the 8 KiB ITCM even
+with the kernel's regions outlined on the subsystem (8,592 to 9,648 bytes at
+L 16, E 64, two heads of 32), because the attention helper stays resident;
+the route refuses it with the `itcm` overrun. The open step is loading helper
+modules, not only kernel regions, as overlays.

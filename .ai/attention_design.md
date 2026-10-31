@@ -528,3 +528,109 @@ blocks) of at most 2; every other node keeps the generated path with a typed
 reason. The selection carries each role's tensor identity (`Attention_site`),
 because a bundle keeps neither the operation nor its operand order: roles are
 resolved through the invocation's edges, never by buffer position.
+
+## 14. The attention layer: a row normalization descriptor
+
+A full encoder attention layer (normalization, projections, attention, output
+projection, layer scale, residual) is granted as one descriptor whose parts are
+the existing ones plus one new arithmetic body, the row normalization
+(`Norm_block`): LayerNorm or RmsNorm over a row's `width` elements, `eps` a
+finite non-negative binary32, the weight and the bias each optional (no bias
+for RmsNorm), X and Y by row and column strides, the precision
+`Attention_block.Precision`. Its `eval` is Native's Region order, every step
+rounded: `s` summed from +0 in column order, `mean = s / n` (a division, never
+a multiply by `1 / n`), `t` the sum of the centred squares, `inv = 1 / sqrt
+(t / n + eps)`, `y = (dc * inv) * w + b`. The precision decides only the sum of
+squares, the one site a plan that contracts dots fuses: `F32_fused` makes each
+of its steps one `fmaf`, `F32_ordered` rounds the product and the sum;
+`Bf16_paired` computes as `F32_ordered` and rounds the output to bfloat16. The
+contraction site is pinned, not assumed: the ordered loops under the
+`Fp32_contracted` lowering equal the fused descriptor, and fusing any further
+site (`* w + b`) in the descriptor turns that test red.
+
+**The layer descriptor** (`Attention_layer_block`) is `y = x + gamma * (A(N(x))
+W_o^T + b_o)` (Pre), `N(x + gamma * (A(x) W_o^T + b_o))` (Post) or neither, with
+`A(u)` the attention over `R(u W_q^T + b_q)`, `R(u W_k^T + b_k)`, `u W_v^T +
+b_v`, and `R` the optional rotate-half RoPE over the full head dimension
+(`cat(-z[d/2:], z[:d/2])`, `cos` / `sin` shared by every head, by strides).
+`make` derives every part from the layer's extents (one `Contraction` per
+projection, dense row-major, Linear's weight convention; one `Attention_block`
+whose strides read head `h` at `h * d` of each `width`-wide row, so head split
+and merge are strides) and the norm over the layer's rows, so a caller cannot
+build inconsistent parts. Every bias and `gamma` is optional; the residual is
+not. One precision for the whole layer: the plan's contraction policy is
+program-wide. Rounding points of `eval`:
+
+| step | `F32_fused` / `F32_ordered` | `Bf16_paired` |
+|---|---|---|
+| norm output (Pre), or `x` with no Pre norm | binary32 | bfloat16 (a Paired operand) |
+| `q, k, v = RN(Contract + b)` | binary32 | Paired over bfloat16 weights, `+ b` binary32 |
+| rotation `RN(RN(z * cos) + RN(r * sin))`, `r = RN(z' * -1)` exact | binary32, no site fused under either plan | binary32, then q, k, v rounded to bfloat16 |
+| attention output | binary32 | bfloat16 |
+| `RN(RN(RN(Contract + b_o) * gamma) + x)` | binary32 | binary32 |
+| Post norm output | binary32 | binary32 (`F32_ordered`: it is the layer's output) |
+
+The SSA form (`Ssa_attention_layer`) is a sequence of existing operations, no
+operation of its own: norm loops, three `Contract`s each with a bias loop, the
+rotation (each pair of half-row features read before either is written, so no
+copy), one `Attend` over head-strided scratch, the output `Contract` with one
+epilogue loop, a Post norm. No backend realizes the layer whole (on Coral the
+weights are megabytes against the helper's DTCM allowance), so a dedicated
+operation would be expanded by every consumer at once. Narrowed, with its
+`Attend` expanded, it equals `eval` bit for bit on the interpreter, C, Wasm and
+JavaScript at both binary32 precisions; `eval` itself equals its parts composed
+in another layout (a norm per row, a projection per sequence, an attention per
+head over copied dense operands). A bfloat16 layer has no SSA body yet: no
+store rounds to bfloat16.
+
+**The node** (`Graph_ir.Attention_layer`, `ops/attention_layer.ml`) carries
+the layer in the graph: `x` `[1,1,B,1,L,E]`, four `Projection`s (Linear's
+`[E,..,E]` weight, optional bias), an optional `Norm` (Layer or Rms, Pre or
+Post, eps, optional affine), optional `layer_scale`, optional `Rope` (`cos`,
+`sin` `[1,1,B|1,1,L,d]`, broadcast over heads), an optional additive mask in
+Sdpa's broadcast set, `heads` and Sdpa's scale. `output_shape` checks every
+operand against the shape `x` and `heads` fix (typed `Operand_shape` rows by
+role, `Heads`, `Rope_odd`) and runs `Sdpa.output_shape` on the head-split
+shapes for the mask and the total-work bound. Its reference is its
+decomposition (`Attention_layer_decompose`: Linear, reshape + permute for the
+heads, the rotation as two slices, `mul_scalar (-1)`, concat, two muls and an
+add, Sdpa, the merge, Linear, mul, add), evaluated by `Eval_direct`. The
+granted descriptor differs from that reference by design (one binary32 scale
+where the Native Sdpa splits its square root, streaming blocks, binary32
+everywhere), so the two are compared within tolerance, never bitwise.
+
+**Ungranted lowering (D8).** The Loop bundle lowers the node only for a caller
+that replaces its body (`Loop_bundle.build ~granted`): option (b) of the
+design, because sequencing the decomposition's per-node programs into one Loop
+program (option (a)) needs a composition of Region-lowered programs and their
+placed kernels that neither Loop IR nor `Fusion_plan` has. Ungranted, an
+attention layer runs on `Eval_direct` alone.
+
+**Selection and the host routes.** `Layer_select.choose` takes the grant
+`Sdpa_select` takes (key block, precision), binary32 operands and a binary32
+precision, and derives the descriptor from the node's shapes; its reasons wrap
+`Sdpa_select.Reason` where they mean the same (`Attention r`), plus
+`Not_attention_layer` and `Precision` (a bfloat16 layer has no body yet).
+`Layer_site` carries each role's tensor id, resolved through the invocation's
+edges, and replaces the invocation's body with the layer's sequence over them.
+`Mir_model` takes it as `?layer` beside `?attention`; internally both are one
+site variant, so the binary32 expansion before the plan (`Ssa_expand_attend`,
+`Ssa_expand_contract`) and the plan checks (binary32 precision; `F32_fused`
+needs a plan contracting dots only, `F32_ordered` one that does not contract)
+are one code path. The bundle must be built granting the node
+(`Loop_bundle.build ~granted`). A granted layer equals `eval` bit for bit on
+the generic, AArch64 and x86-64 (soft-FMA) routes and natively on AArch64, and
+is within 1e-4 of the node's binary64 reference (measured 1e-7 to 1e-6 on the
+small fixtures).
+
+**The bfloat16 layer and Coral.** At `Bf16_paired` `Layer_select` also needs
+the matrix engine, bfloat16 projection weights and the fused function's limits
+(an even head dimension at most 64, a block of at most 16 or 32 keys, at most
+twice the work padded). The SSA sequence lowers through the Coral route to
+RV32 code, but its image does not fit the 8 KiB instruction memory: on the
+VME core, resident, 9,964 to 11,240 bytes for the L 16, E 64, 2 x 32 fixtures;
+on the subsystem (matrix engine, DMA), with the route's kernel regions
+outlined as overlays, still 8,592 to 9,648 bytes, because the fused attention
+function (about 7.5 KiB) stays resident. Running the layer on Coral needs that
+helper loaded as an ITCM overlay too, or its size cut (the shared-`exp`
+attention), before any cycle can be measured.

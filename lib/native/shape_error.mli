@@ -72,6 +72,27 @@ module Adaptive_pool : sig
   val pp : Format.formatter -> t -> unit
 end
 
+(** The attention layer's operands, by role. Alphabetical. *)
+module Attention_layer_role : sig
+  type t =
+    | Cos
+    | Gamma
+    | K_bias
+    | K_weight
+    | Norm_bias
+    | Norm_weight
+    | O_bias
+    | O_weight
+    | Q_bias
+    | Q_weight
+    | Sin
+    | V_bias
+    | V_weight
+    | X
+
+  val name : t -> string
+end
+
 (** An OPTIONAL operand whose shape disagrees with the one the op requires. One
     row rather than one per op: the fault is identical in every case and the
     [operand] tag says which slot. Every [output_shape] takes the REQUIRED
@@ -80,7 +101,8 @@ end
 module Operand_shape : sig
   type t = {
     operand :
-      [ `Bias
+      [ `Attention_layer of Attention_layer_role.t
+      | `Bias
       | `Batch_norm_no_stats_affine
       | `Group_norm_bias
       | `Group_norm_weight
@@ -446,6 +468,18 @@ end
 
 (* `group_norm.default`'s own precondition: [num_groups] must divide the
    channel count evenly. *)
+
+(** The attention layer's own rows beyond an operand's shape. *)
+module Attention_layer : sig
+  type error =
+    | Heads of { width : Dim.extent Dim.t; heads : Op_config.Pos.t }
+        (** a width the heads do not divide *)
+    | Rope_odd of { head_dim : Dim.extent Dim.t }
+        (** a rotary embedding over an odd head dimension *)
+
+  val pp_error : Format.formatter -> error -> unit
+end
+
 module Group_norm : sig
   type t = { channels : Dim.extent Dim.t; groups : Op_config.Pos.t }
 
@@ -550,6 +584,7 @@ end
 
 type t =
   [ `Adaptive_pool of Adaptive_pool.t
+  | `Attention_layer of Attention_layer.error
   | `Batched_matmul of Batched_matmul.error
   | `Bmm of Bmm.error
   | `Broadcast of Broadcast.t

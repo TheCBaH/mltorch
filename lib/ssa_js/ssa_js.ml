@@ -428,6 +428,11 @@ let instr cx ~(limits : Expr.Scan_limits.t) (i : Ssa_instr.t) : A.Stmt.t list =
       let b = find_buffer cx buffer in
       let e =
         match encode with
+        | Ssa_op.Encode.Bf16_round ->
+            (* no producer gives this backend one: a bfloat16 store is written
+               only by a granted attention layer, which the Machine IR route
+               alone runs *)
+            invalid_arg "Ssa_js: a bfloat16 store is not emitted"
         | Ssa_op.Encode.Bool_nonzero ->
             A.Cond (bin A.Ne_strict (v value) (num 0.), num 1., num 0.)
         | Ssa_op.Encode.F32_exact | Ssa_op.Encode.F32_round | Ssa_op.Encode.I64

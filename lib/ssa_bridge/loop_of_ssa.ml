@@ -459,6 +459,8 @@ let convert (p : Ssa_program.t) =
         let b = buffer id in
         let stored =
           match encode with
+          | Ssa_op.Encode.Bf16_round ->
+              invalid_arg "Loop_of_ssa: the Loop IR has no bfloat16 store"
           | Ssa_op.Encode.Bool_nonzero -> Loop_stored.Bool (fx value)
           | Ssa_op.Encode.F32_exact | Ssa_op.Encode.F32_round ->
               Loop_stored.F32 (fx value)

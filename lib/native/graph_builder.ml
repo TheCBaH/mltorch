@@ -43,6 +43,11 @@ let ( let+ ) m f s =
 let get s = (Ok s, s)
 let f32 = Payload.Fmt Payload.F32
 
+let shape_of r s =
+  match Tensor_id.Map.find_opt r s.tensors with
+  | Some sg -> (Ok sg.Tensor_sig.shape, s)
+  | None -> (Err.fail (`Missing_tensor_sig r), s)
+
 let source ~kind ~shape ?name ?fmt ?quant () s =
   let tid, next_tid = Tensor_id.Next.alloc s.next_tid in
   let fmt = Option.value fmt ~default:s.dtype in
@@ -264,6 +269,9 @@ let argmax ?name params x =
     ~fmt:Payload.(Fmt I64)
     ~kind:"argmax"
     (Argmax { Reduce.Argmax.params; x })
+
+let attention_layer ?name t =
+  op1 ?name ~kind:"attention_layer" (Attention_layer t)
 
 let avg_pool2d ?name params x =
   op1 ?name ~kind:"avg_pool2d" (Avg_pool2d { Pool.AvgPool2d.params; x })

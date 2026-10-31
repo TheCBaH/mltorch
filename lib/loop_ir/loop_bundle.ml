@@ -26,7 +26,8 @@ type error =
   | Eval_direct.error
   | Loop_node_program.error
   | `Plan_mismatch of Alloc_script.Position.t
-  | `Region_lower of Loop_region_program.error ]
+  | `Region_lower of Loop_region_program.error
+  | `Ungranted of Node_id.t ]
 
 (* The row [build_with] reports for any dialect. The builder owns the Region
    validation after a dialect hands back a group or program, and the output
@@ -39,7 +40,13 @@ type 'err generic_error =
   | `Missing_signature of Tensor_id.t
   | `Plan_mismatch of Alloc_script.Position.t
   | `Region_construction of Region_computation.error
-  | `Region_lower of Loop_region_program.error ]
+  | `Region_lower of Loop_region_program.error
+  | `Ungranted of Node_id.t ]
+
+let pp_ungranted ppf node =
+  Format.fprintf ppf
+    "%a is realized only under a grant, which this bundle was not given"
+    Node_id.pp node
 
 let pp_generic_error pp_dialect ppf : [< _ generic_error ] -> unit = function
   | #Arena_plan.error as e -> Arena_run.pp_error ppf (e :> Arena_run.error)
@@ -53,6 +60,7 @@ let pp_generic_error pp_dialect ppf : [< _ generic_error ] -> unit = function
         Alloc_script.Position.pp pos
   | `Region_construction e -> Region_computation.pp_error ppf e
   | `Region_lower e -> Loop_region_program.pp_error ppf e
+  | `Ungranted node -> pp_ungranted ppf node
 
 let pp_error ppf : [< error ] -> unit = function
   | #Arena_plan.error as e -> Arena_run.pp_error ppf (e :> Arena_run.error)
@@ -63,6 +71,7 @@ let pp_error ppf : [< error ] -> unit = function
         "the supplied storage plan's script differs from this graph's at %a"
         Alloc_script.Position.pp pos
   | `Region_lower e -> Loop_region_program.pp_error ppf e
+  | `Ungranted node -> pp_ungranted ppf node
 
 let default_config : S.Config.t =
   {
@@ -276,9 +285,68 @@ let region_program ~(dialect : (_, _) Loop_dialect.t) ~limits (g : _ Graph.t)
   in
   Err.return (plan, program, edges, synthetics)
 
+(* The placeholder of a node no Loop body realizes (an attention layer):
+   a kernel that reads one element of each operand, so the program declares a
+   buffer for every one of them (an unread input is never an argument), and
+   writes NaN to the output. Only a granted caller is given it, and that caller
+   replaces the body (a Machine IR site); no route is meant to run it as it
+   is, and one that did would see NaN, never a plausible value. *)
+let granted_stub ~limits (g : _ Graph.t) ~operands ~oid =
+  let open Err.Syntax in
+  let sig_of id =
+    match Tensor_id.Map.find_opt id g.Graph.tensors with
+    | Some sg -> Err.return sg
+    | None -> Err.fail (`Missing_signature id)
+  in
+  let* sigs = Err.List.map sig_of (List.sort_uniq Tensor_id.compare operands) in
+  let* out = sig_of oid in
+  let zero = Expr.Index.zero in
+  let origin =
+    Expr.Coord.make ~n:zero ~t:zero ~d:zero ~h:zero ~w:zero ~c:zero
+  in
+  let pixel =
+    List.fold_left
+      (fun acc sg -> Expr.Value.add acc (Region_context.load sg origin))
+      (Expr.Value.const Float.nan)
+      sigs
+  in
+  let inputs =
+    List.map
+      (fun (sg : Tensor_sig.t) ->
+        {
+          Kernel.Input.id = sg.Tensor_sig.id;
+          sg;
+          binding =
+            (match
+               Tensor_id.Map.find_opt sg.Tensor_sig.id g.Graph.input_kinds
+             with
+            | Some Graph_common.Input.Constant ->
+                Kernel.Binding.Captured_constant
+            | Some Graph_common.Input.Input | None -> Kernel.Binding.Caller);
+        })
+      sigs
+  in
+  let* kernel =
+    Kernel.create ~limits ~inputs
+      ~values:
+        [
+          {
+            Kernel.Value.id = oid;
+            sg = out;
+            computation = Region_group.Ref.Solo (Region_program.pixel pixel);
+            result = Kernel.Result_conversion.Round_f32;
+          };
+        ]
+      ~outputs:[ oid ] ()
+    |> Err.map_error (fun e -> `Adapt (e :> Kernel_adapt.error))
+  in
+  let plan = Fusion_plan.default kernel in
+  let+ program = Loop_lower.lower plan |> Err.map_error (fun e -> `Lower e) in
+  (plan, program)
+
 let build_with ~(dialect : (_, _) Loop_dialect.t)
     ?(limits = Kernel.Limits.default) ?(config = default_config) ?plan
-    (g : _ Graph.t) =
+    ?(granted = fun _ -> false) (g : _ Graph.t) =
   let open Err.Syntax in
   let* script =
     dialect.Loop_dialect.storage_script
@@ -331,10 +399,16 @@ let build_with ~(dialect : (_, _) Loop_dialect.t)
         else
           let ({ Output.oid; _ } : Output.t) = List.hd outputs in
           let+ plan, program =
-            Loop_node_program.lower_placed_of_program ~limits
-              (dialect.Loop_dialect.node_program ~limits g node)
-              ~oid
-            |> Err.map_error (fun e -> (e :> _ generic_error))
+            match dialect.Loop_dialect.granted_only node.Node.op with
+            | Some operands ->
+                if granted node.Node.id then
+                  granted_stub ~limits g ~operands ~oid
+                else Err.fail (`Ungranted node.Node.id)
+            | None ->
+                Loop_node_program.lower_placed_of_program ~limits
+                  (dialect.Loop_dialect.node_program ~limits g node)
+                  ~oid
+                |> Err.map_error (fun e -> (e :> _ generic_error))
           in
           {
             node = node.Node.id;
@@ -364,8 +438,8 @@ let build_with ~(dialect : (_, _) Loop_dialect.t)
 
 (* The Native public contract: [build]'s error row is unchanged, so the generic
    arms map back to the [Eval_direct.error] ones they replaced. *)
-let build ?limits ?config ?plan (g : graph) : (t, error) Err.t =
-  build_with ~dialect:Loop_dialect.native ?limits ?config ?plan g
+let build ?limits ?config ?plan ?granted (g : graph) : (t, error) Err.t =
+  build_with ~dialect:Loop_dialect.native ?limits ?config ?plan ?granted g
   |> Err.map_error ~pos:__POS__ (function
     | #Arena_plan.error as e -> (e :> error)
     | #Loop_node_program.error as e -> (e :> error)
@@ -374,4 +448,5 @@ let build ?limits ?config ?plan (g : graph) : (t, error) Err.t =
         `Missing_tensor { Eval_direct.context = Eval_direct.Sig_shape; id }
     | `Plan_mismatch _ as e -> e
     | `Region_construction _ as e -> e
-    | `Region_lower _ as e -> e)
+    | `Region_lower _ as e -> e
+    | `Ungranted _ as e -> e)

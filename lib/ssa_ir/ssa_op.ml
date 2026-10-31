@@ -127,24 +127,28 @@ module Decode = struct
 end
 
 module Encode = struct
-  (* A store's encode: a working value to a stored cell. [Bool_nonzero] writes
-     [v <> 0.] as a canonical 0/1 byte; [F32_round] rounds to binary32;
-     [F32_exact] stores a binary32 value as it is. *)
-  type t = Bool_nonzero | F32_exact | F32_round | I64
+  (* A store's encode: a working value to a stored cell. [Bf16_round] rounds a
+     binary32 value to bfloat16, to nearest even on the high half of its bit
+     pattern ([Attention_block.bf16_round]); [Bool_nonzero] writes [v <> 0.] as
+     a canonical 0/1 byte; [F32_round] rounds to binary32; [F32_exact] stores a
+     binary32 value as it is. *)
+  type t = Bf16_round | Bool_nonzero | F32_exact | F32_round | I64
 
   let name = function
+    | Bf16_round -> "bf16_round"
     | Bool_nonzero -> "bool_nonzero"
     | F32_exact -> "f32_exact"
     | F32_round -> "f32_round"
     | I64 -> "i64"
 
   let family = function
+    | Bf16_round -> Ssa_format.Family.Bf16
     | Bool_nonzero -> Ssa_format.Family.Bool
     | F32_exact | F32_round -> Ssa_format.Family.F32
     | I64 -> Ssa_format.Family.I64
 
   let operand = function
-    | F32_exact -> Ssa_type.Scalar Ssa_type.F32
+    | Bf16_round | F32_exact -> Ssa_type.Scalar Ssa_type.F32
     | Bool_nonzero | F32_round -> Ssa_type.Scalar Ssa_type.F64
     | I64 -> Ssa_type.Scalar Ssa_type.I64
 end

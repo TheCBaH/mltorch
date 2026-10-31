@@ -65,6 +65,14 @@ val f64_binary :
   Ssa_type.f64 value ->
   Ssa_type.f64 value
 
+val f64_fma :
+  t ->
+  Ssa_type.f64 value ->
+  Ssa_type.f64 value ->
+  Ssa_type.f64 value ->
+  Ssa_type.f64 value
+(** [f64_fma b x y z] is [x * y + z] rounded once. *)
+
 val float_to_i64 : t -> Ssa_type.f64 value -> Ssa_type.i64 value
 (** Checked: NaN, an infinity or a value from 2^63 up, or below -2^63, fails. *)
 
@@ -171,6 +179,9 @@ val store_f64 :
   Ssa_type.f64 value ->
   unit
 
+val store_bf16 : t -> Ssa_id.Buffer.t -> access -> Ssa_type.f32 value -> unit
+(** A binary32 value rounded to bfloat16 ({!Ssa_op.Encode.Bf16_round}). *)
+
 val store_i64 : t -> Ssa_id.Buffer.t -> access -> Ssa_type.i64 value -> unit
 val mark : t -> Ssa_mark.t -> unit
 
@@ -183,6 +194,18 @@ val contract :
   unit
 (** The matrix product [desc] ({!Ssa_op.Contract}), reading A and B and writing
     C, which must be disjoint from both. *)
+
+val attend :
+  t ->
+  Attention_block.t ->
+  q:Ssa_id.Buffer.t ->
+  k:Ssa_id.Buffer.t ->
+  v:Ssa_id.Buffer.t ->
+  mask:Ssa_id.Buffer.t option ->
+  o:Ssa_id.Buffer.t ->
+  unit
+(** The attention [desc] ({!Ssa_op.Attend}), reading Q, K, V and the mask and
+    writing O, which must be disjoint from all of them. *)
 
 (** {1 Scratch locals and the scan meter} *)
 

@@ -116,9 +116,11 @@ let decode_expansion = function
 let encode_slice = function
   | Ssa_op.Encode.F32_exact | Ssa_op.Encode.F32_round | Ssa_op.Encode.I64 ->
       Slice.First
-  | Ssa_op.Encode.Bool_nonzero -> Slice.Storage
+  | Ssa_op.Encode.Bf16_round | Ssa_op.Encode.Bool_nonzero -> Slice.Storage
 
 let encode_expansion = function
+  | Ssa_op.Encode.Bf16_round ->
+      "bitcast.i32; add 0x7fff + bit 16; lshr 16; store.i16"
   | Ssa_op.Encode.Bool_nonzero -> "fcmp.oeq 0.0; select 0 1; store.i8"
   | Ssa_op.Encode.F32_exact -> "bitcast.i32; store.i32"
   | Ssa_op.Encode.F32_round -> "fround.f64.f32; bitcast.i32; store.i32"

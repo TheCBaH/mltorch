@@ -7,6 +7,9 @@
 (library
  (name machine_model)
  (libraries
+  attention_block
+  attention_layer_block
+  contraction
   core
   err_trace
   fmt
@@ -20,5 +23,6 @@
   machine_target_riscv32
   machine_target_x86_64
   native
+  norm_block
   ssa_backends
   ssa_ir))

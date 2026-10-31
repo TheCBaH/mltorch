@@ -123,10 +123,47 @@ end
    only, so an optional one passed straight through to evaluation and raised
    from [Tensor.read]'s strict bounds check, uncaught, partway through the
    result. *)
+(* The attention layer's operands, by role: which one a shape check refused.
+   Alphabetical. *)
+module Attention_layer_role = struct
+  type t =
+    | Cos
+    | Gamma
+    | K_bias
+    | K_weight
+    | Norm_bias
+    | Norm_weight
+    | O_bias
+    | O_weight
+    | Q_bias
+    | Q_weight
+    | Sin
+    | V_bias
+    | V_weight
+    | X
+
+  let name = function
+    | Cos -> "cos"
+    | Gamma -> "layer scale"
+    | K_bias -> "key bias"
+    | K_weight -> "key weight"
+    | Norm_bias -> "norm bias"
+    | Norm_weight -> "norm weight"
+    | O_bias -> "output bias"
+    | O_weight -> "output weight"
+    | Q_bias -> "query bias"
+    | Q_weight -> "query weight"
+    | Sin -> "sin"
+    | V_bias -> "value bias"
+    | V_weight -> "value weight"
+    | X -> "input"
+end
+
 module Operand_shape = struct
   type t = {
     operand :
-      [ `Bias
+      [ `Attention_layer of Attention_layer_role.t
+      | `Bias
       | `Batch_norm_no_stats_affine
       | `Group_norm_bias
       | `Group_norm_weight
@@ -145,6 +182,8 @@ module Operand_shape = struct
   let pp ppf { operand; expected; actual } =
     Fmt.pf ppf "%s shape must be %a, got %a"
       (match operand with
+      | `Attention_layer role ->
+          "attention_layer " ^ Attention_layer_role.name role
       | `Bias -> "bias"
       | `Batch_norm_no_stats_affine -> "batch_norm_no_stats affine"
       | `Group_norm_bias -> "group_norm bias"
@@ -739,6 +778,25 @@ module Sdpa = struct
           limit pp_work_factor factor prefix extent
 end
 
+(* The attention layer's own rows, beyond an operand of the wrong shape: a
+   width the heads do not divide, and a rotary embedding over an odd head
+   dimension (rotate-half needs two equal halves). *)
+module Attention_layer = struct
+  type error =
+    | Heads of { width : Dim.extent Dim.t; heads : Op_config.Pos.t }
+    | Rope_odd of { head_dim : Dim.extent Dim.t }
+
+  let pp_error ppf = function
+    | Heads { width; heads } ->
+        Fmt.pf ppf "attention_layer: width %a is not a multiple of %a heads"
+          Dim.pp width Op_config.Pos.pp heads
+    | Rope_odd { head_dim } ->
+        Fmt.pf ppf
+          "attention_layer: a rotary embedding needs an even head dimension, \
+           got %a"
+          Dim.pp head_dim
+end
+
 (* `group_norm.default`'s own precondition: [num_groups] must divide the
    channel count evenly, ATen's own contract. Nothing upstream proves it --
    [num_groups] arrives as an ordinary int from a PT2 graph -- so it is
@@ -833,6 +891,7 @@ end
 
 type t =
   [ `Adaptive_pool of Adaptive_pool.t
+  | `Attention_layer of Attention_layer.error
   | `Batched_matmul of Batched_matmul.error
   | `Bmm of Bmm.error
   | `Broadcast of Broadcast.t
@@ -867,6 +926,7 @@ type t =
 
 let pp ppf = function
   | `Adaptive_pool e -> Adaptive_pool.pp ppf e
+  | `Attention_layer e -> Attention_layer.pp_error ppf e
   | `Batched_matmul e -> Batched_matmul.pp_error ppf e
   | `Bmm e -> Bmm.pp_error ppf e
   | `Broadcast e -> Broadcast.pp ppf e

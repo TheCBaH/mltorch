@@ -80,12 +80,20 @@ let same_portable a b =
         (Int64.float_of_bits y))
     (bits a) (bits b)
 
-let check ?route ?contractions ?bf16_pairs ?attention ?prepack
+let check ?route ?contractions ?bf16_pairs ?attention ?layer ?prepack
     ?(pipeline = Ssa_backends.Pipeline.Exact) ?(oracle = Reference_f64)
     ?(same = fun a b -> bits a = bits b) ?(calls = 2) ?constant
     ?(input = fun ~salt _ -> values ~salt) name g =
   let g = g () in
-  let b = bundle g in
+  let b =
+    match layer with
+    | None -> bundle g
+    | Some layer ->
+        Err.or_raise ~pp_error:Loop_ir.Loop_bundle.pp_error
+          (Loop_ir.Loop_bundle.build
+             ~granted:(fun id -> Option.is_some (layer id))
+             g)
+  in
   let constant = Option.value constant ~default:(values ~salt:3) in
   let constants =
     List.map
@@ -93,7 +101,8 @@ let check ?route ?contractions ?bf16_pairs ?attention ?prepack
       b.Loop_ir.Loop_bundle.constants
   in
   match
-    M.prepare ?route ?contractions ?bf16_pairs ?attention ?prepack ~pipeline b
+    M.prepare ?route ?contractions ?bf16_pairs ?attention ?layer ?prepack
+      ~pipeline b
   with
   | Error rs ->
       Fmt.pr "%s: refused: %a@." name Fmt.(list ~sep:(any "; ") M.Refusal.pp) rs
