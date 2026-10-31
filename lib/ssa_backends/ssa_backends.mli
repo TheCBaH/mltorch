@@ -36,12 +36,15 @@ val program :
 val plan :
   ?contractions:bool ->
   ?bf16_pairs:bool ->
+  ?rewrite:(Ssa_ir.Ssa_program.t -> (Ssa_ir.Ssa_program.t, string) result) ->
   numerics:Ssa_ir.Ssa_numerics.t ->
   target:Ssa_ir.Ssa_target.t ->
   Loop_ir.Loop_bundle.invocation ->
   (Ssa_ir.Ssa_plan.t, string) result
 (** The invocation's resolved plan under a numerical policy for a target: the
-    program {!program} returns for [Planned], with the plan's own record. *)
+    program {!program} returns for [Planned], with the plan's own record.
+    [rewrite] (default the identity) takes the lowered program before the plan
+    is made, for a rewrite that must run at the plan's own precision. *)
 
 val blocked :
   group:int ->

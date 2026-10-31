@@ -2,18 +2,27 @@
    own: the descriptor's loop nest over batch, row and column, an ordered sum over
    [k] seeded with positive zero or the output's own cell, and a store. Only the
    [Ordered] numerics over binary32 or bfloat16 operands, which are an ordered
-   sum of rounded products; a fused, paired or integer contraction stays a
-   [Contract]. The arithmetic is binary64 until {!Ssa_precision.to_f32}. *)
+   sum of rounded products, and [Fused_sequential] over binary32, whose sum is
+   the same loop with each step fused: the fusion is the plan's, a policy that
+   contracts dots ({!Ssa_numerics.Contraction.Dots}) fusing exactly an ordered
+   sum's single-product term in source order from the seed. A paired or integer
+   contraction stays a [Contract]. The arithmetic is binary64 until
+   {!Ssa_precision.to_f32}. *)
 
 module B = Ssa_builder
 open Ssa_expand_util
 
 let expandable (d : Contraction.t) =
-  d.Contraction.numerics = Contraction.Numerics.Ordered
-  &&
-  match d.Contraction.format with
-  | Contraction.Element.Bf16 | Contraction.Element.F32 -> true
-  | Contraction.Element.I8 _ -> false
+  match (d.Contraction.numerics, d.Contraction.format) with
+  | ( Contraction.Numerics.Ordered,
+      (Contraction.Element.Bf16 | Contraction.Element.F32) )
+  | Contraction.Numerics.Fused_sequential, Contraction.Element.F32 ->
+      true
+  | ( Contraction.Numerics.Fused_sequential,
+      (Contraction.Element.Bf16 | Contraction.Element.I8 _) )
+  | Contraction.Numerics.Ordered, Contraction.Element.I8 _
+  | Contraction.Numerics.Paired, _ ->
+      false
 
 let expansion (d : Contraction.t) ~a ~b ~c ~buffers =
   let decode =

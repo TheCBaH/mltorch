@@ -599,7 +599,9 @@ index times 1, 2, 4 or 8); legacy-SSE scalar arithmetic, conversions and SQRT
 merging the destination's upper bits; whole-register ANDP/ANDNP/ORP/XORP and
 MOVAP leaving them untracked (`undefined_upper`); CMPSD/CMPSS equal and
 unordered masks; ROUNDSD/SS only under SSE4.1 and VFMADD231SD/SS only under
-FMA, else a typed refusal — never a rounded multiply and add. Compares:
+FMA, else a typed refusal for a vector one — never a rounded multiply and add;
+a scalar binary32 `Ffma` without the feature is the exact sequence below.
+Compares:
 ordered equality is `e` and `np` combined; ordered less-than and
 less-or-equal compare reversed with `a`/`ae`; unordered is `p`. MAXSD returns
 its source operand for a NaN or two zeros, so IEEE maximum is a sequence:
@@ -1003,6 +1005,19 @@ and 125M (2281M, 863M and 139M) — every invocation equal to the reference.
 The source harness runs every scalar kernel with and without it, and an
 address missing a varying term (`Dropped_term`) reads the wrong elements
 there.
+
+**Soft fused multiply-add** (`Mir_soft_fma`, generic to generic, in the x86-64
+selector when the FMA feature is absent). A scalar binary32 `Ffma` becomes
+`F32_math.fma32` step for step: the product in binary64 is exact, TwoSum splits
+its sum with the addend into `s + e`, and when `e` is nonzero `s` is replaced by
+the binary64 neighbour whose last mantissa bit is odd (a bitcast and an integer
+nudge toward or away from zero) so the one rounding to binary32 sees a sticky
+bit; an `e` that is zero or NaN takes `s`, as the nonfinite fallback does. Every
+step is evaluated and the result selected, so no branch is added. It is
+bit-equal to the instruction, which a rounded multiply and add is not: a product
+exactly halfway between two binary32 values with a tiny addend of either sign
+(`(1 + 2^-12)^2` plus `+-2^-60`) separates them, and the evidence suite uses it.
+A vector or binary64 `Ffma` is left for the target to refuse.
 
 **32-bit index arithmetic** (`Mir_narrow`, generic to generic, in both
 selectors after address hoisting, which reads through the extensions it

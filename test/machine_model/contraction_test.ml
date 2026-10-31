@@ -149,37 +149,37 @@ let%expect_test "matrix products: the contracted policy is its oracle" =
     {|
     linear 9x32 k64, scalar, generic (1 invocations): bitwise, bitwise
     linear 9x32 k64, scalar, aarch64 (1 invocations): bitwise, bitwise
-    linear 9x32 k64, scalar, x86_64: refused: invocation 0 (n0): needs fma, which the program's features do not include
+    linear 9x32 k64, scalar, x86_64 (1 invocations): bitwise, bitwise
     linear 9x32 k64, neon128, generic (1 invocations): bitwise, bitwise
     linear 9x32 k64, neon128, aarch64 (1 invocations): bitwise, bitwise
     linear 9x32 k64, neon128, x86_64: refused: invocation 0 (n0): needs fma, which the program's features do not include
     linear 9x32 k64 bias, scalar, generic (1 invocations): bitwise, bitwise
     linear 9x32 k64 bias, scalar, aarch64 (1 invocations): bitwise, bitwise
-    linear 9x32 k64 bias, scalar, x86_64: refused: invocation 0 (n0): needs fma, which the program's features do not include
+    linear 9x32 k64 bias, scalar, x86_64 (1 invocations): bitwise, bitwise
     linear 9x32 k64 bias, neon128, generic (1 invocations): bitwise, bitwise
     linear 9x32 k64 bias, neon128, aarch64 (1 invocations): bitwise, bitwise
     linear 9x32 k64 bias, neon128, x86_64: refused: invocation 0 (n0): needs fma, which the program's features do not include
     linear 7x29 k63 bias, scalar, generic (1 invocations): bitwise, bitwise
     linear 7x29 k63 bias, scalar, aarch64 (1 invocations): bitwise, bitwise
-    linear 7x29 k63 bias, scalar, x86_64: refused: invocation 0 (n0): needs fma, which the program's features do not include
+    linear 7x29 k63 bias, scalar, x86_64 (1 invocations): bitwise, bitwise
     linear 7x29 k63 bias, neon128, generic (1 invocations): bitwise, bitwise
     linear 7x29 k63 bias, neon128, aarch64 (1 invocations): bitwise, bitwise
     linear 7x29 k63 bias, neon128, x86_64: refused: invocation 0 (n0): needs fma, which the program's features do not include
     bmm 1x9x32 k64, scalar, generic (1 invocations): bitwise, bitwise
     bmm 1x9x32 k64, scalar, aarch64 (1 invocations): bitwise, bitwise
-    bmm 1x9x32 k64, scalar, x86_64: refused: invocation 0 (n0): needs fma, which the program's features do not include
+    bmm 1x9x32 k64, scalar, x86_64 (1 invocations): bitwise, bitwise
     bmm 1x9x32 k64, neon128, generic (1 invocations): bitwise, bitwise
     bmm 1x9x32 k64, neon128, aarch64 (1 invocations): bitwise, bitwise
     bmm 1x9x32 k64, neon128, x86_64: refused: invocation 0 (n0): needs fma, which the program's features do not include
     bmm 3x7x29 k63, scalar, generic (1 invocations): bitwise, bitwise
     bmm 3x7x29 k63, scalar, aarch64 (1 invocations): bitwise, bitwise
-    bmm 3x7x29 k63, scalar, x86_64: refused: invocation 0 (n0): needs fma, which the program's features do not include
+    bmm 3x7x29 k63, scalar, x86_64 (1 invocations): bitwise, bitwise
     bmm 3x7x29 k63, neon128, generic (1 invocations): bitwise, bitwise
     bmm 3x7x29 k63, neon128, aarch64 (1 invocations): bitwise, bitwise
     bmm 3x7x29 k63, neon128, x86_64: refused: invocation 0 (n0): needs fma, which the program's features do not include
     conv, batch norm, relu to C=32, scalar, generic (3 invocations): bitwise, bitwise
     conv, batch norm, relu to C=32, scalar, aarch64 (3 invocations): bitwise, bitwise
-    conv, batch norm, relu to C=32, scalar, x86_64: refused: invocation 0 (n0): needs fma, which the program's features do not include
+    conv, batch norm, relu to C=32, scalar, x86_64 (3 invocations): bitwise, bitwise
     conv, batch norm, relu to C=32, neon128, generic (3 invocations): bitwise, bitwise
     conv, batch norm, relu to C=32, neon128, aarch64 (3 invocations): bitwise, bitwise
     conv, batch norm, relu to C=32, neon128, x86_64: refused: invocation 0 (n0): needs fma, which the program's features do not include |}]
@@ -374,8 +374,9 @@ let%expect_test "the contraction rewrite preserves results" =
     bmm 1x9x32 k64: 1 contraction(s), verifies; ordered bitwise, cfg bitwise; fused is the contracted oracle; A transposed refused; K one short DIFFERS; fused DIFFERS
     bmm 3x7x29 k63: 1 contraction(s), verifies; ordered bitwise, cfg bitwise; fused is the contracted oracle; A transposed refused; K one short DIFFERS; fused DIFFERS |}]
 
-(* Only the Machine IR route realizes a contraction (as a helper call): the
-   C, Wasm and JavaScript emitters each refuse it with a reason. *)
+(* The Machine IR route realizes a contraction as a helper call; C, Wasm and
+   JavaScript emit an ordered binary32 one as its loop nest, and each refuses a
+   fused one with a reason where it has no fused multiply-add. *)
 let%expect_test "a contraction is refused where it has no form" =
   let g = List.assoc "linear 9x32 k64" contraction_fixtures in
   let inv = List.hd (bundle (g ())).Loop_ir.Loop_bundle.invocations in
@@ -385,9 +386,18 @@ let%expect_test "a contraction is refused where it has no form" =
          (Result.get_ok (Ssa_backends.program Ssa_backends.Pipeline.Exact inv)))
   in
   let says pp = function Ok _ -> "accepted" | Error e -> Fmt.str "%a" pp e in
-  Fmt.pr "c: %s@." (says Ssa_c.pp_error (Ssa_c.kernel ~name:"k" q));
-  Fmt.pr "wasm: %s@." (says Ssa_wasm.pp_error (Ssa_wasm.lower q));
-  Fmt.pr "js: %s@." (says Ssa_js.pp_error (Ssa_js.program q));
+  let fused =
+    map_contracts (remake ~numerics:Contraction.Numerics.Fused_sequential) q
+  in
+  Fmt.pr "c: %s; fused %s@."
+    (says Ssa_c.pp_error (Ssa_c.kernel ~name:"k" q))
+    (says Ssa_c.pp_error (Ssa_c.kernel ~name:"k" fused));
+  Fmt.pr "wasm: %s; fused %s@."
+    (says Ssa_wasm.pp_error (Ssa_wasm.lower q))
+    (says Ssa_wasm.pp_error (Ssa_wasm.lower fused));
+  Fmt.pr "js: %s; fused %s@."
+    (says Ssa_js.pp_error (Ssa_js.program q))
+    (says Ssa_js.pp_error (Ssa_js.program fused));
   Fmt.pr "machine: %s@."
     (says Machine_lower.Mir_lower.Refusal.pp
        (Err.payload
@@ -403,9 +413,9 @@ let%expect_test "a contraction is refused where it has no form" =
              q)));
   [%expect
     {|
-    c: C has no form for a contraction
-    wasm: a contraction has no WebAssembly form
-    js: a contraction has no JavaScript form
+    c: accepted; fused accepted
+    wasm: accepted; fused accepted
+    js: accepted; fused accepted
     machine: accepted |}]
 
 (* With contractions, each matrix product of a binary32 plan is one helper

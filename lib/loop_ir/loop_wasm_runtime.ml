@@ -17,6 +17,7 @@ module Callee = struct
     | Fail_set
     | Fill_f32
     | Floor_div
+    | Fma_f32
     | I64_div
     | Log
     | Log_f32
@@ -42,6 +43,7 @@ module Callee = struct
       Fail_set;
       Fill_f32;
       Floor_div;
+      Fma_f32;
       I64_div;
       Log;
       Log_f32;
@@ -76,6 +78,7 @@ module Callee = struct
     | Fail_set -> "fail_set"
     | Fill_f32 -> "fill_f32"
     | Floor_div -> "floor_div"
+    | Fma_f32 -> "fma_f32"
     | I64_div -> "i64_div"
     | Log -> "log"
     | Log_f32 -> "log_f32"
@@ -93,14 +96,15 @@ module Callee = struct
     | Sin -> Some "sin"
     | Ceil_div | Cos_f32 | Cos_f32x4 | Erf | Erf_f32 | Erf_f32x4 | Exp_f32
     | Exp_f32x4 | F16_to_f32 | F16_to_float | Fail_set | Fill_f32 | Floor_div
-    | I64_div | Log_f32 | Log_f32x4 | Sin_f32 | Sin_f32x4 ->
+    | Fma_f32 | I64_div | Log_f32 | Log_f32x4 | Sin_f32 | Sin_f32x4 ->
         None
 
   let deps = function
     | Erf -> [ Exp ]
     | Ceil_div | Cos | Cos_f32 | Cos_f32x4 | Erf_f32 | Erf_f32x4 | Exp | Exp_f32
     | Exp_f32x4 | F16_to_f32 | F16_to_float | Fail_set | Fill_f32 | Floor_div
-    | I64_div | Log | Log_f32 | Log_f32x4 | Sin | Sin_f32 | Sin_f32x4 ->
+    | Fma_f32 | I64_div | Log | Log_f32 | Log_f32x4 | Sin | Sin_f32 | Sin_f32x4
+      ->
         []
 end
 
@@ -492,6 +496,44 @@ let fill_f32 =
       ];
   }
 
+(* [F32_math.fma32], every step evaluated and the result selected, so the body
+   has no branch: [a * b] is exact in binary64, TwoSum splits [p + c] into
+   [s + e], and a nonzero [e] makes [s] odd (round to odd) before the one
+   rounding to binary32. A nonfinite operand makes [e] a NaN, and the rounded
+   [s] is then the answer, as it is in [fma32]. *)
+let fma_f32 =
+  let a = 0 and b = 1 and c = 2 in
+  let p = 3 and c64 = 4 and s = 5 and bb = 6 and e = 7 in
+  let bits = 8 and odd_bits = 9 and chosen = 10 in
+  let widen x = [ get x; n Wasm_op.F64_promote_f32 ] in
+  {
+    Wasm.Func.type_ = ft [ wt_f32; wt_f32; wt_f32 ] [ wt_f32 ];
+    locals = [ wt_f64; wt_f64; wt_f64; wt_f64; wt_f64; wt_i64; wt_i64; wt_f32 ];
+    body =
+      widen a @ widen b
+      @ [ n Wasm_op.F64_mul; set p ]
+      @ widen c
+      @ [ set c64; get p; get c64; n Wasm_op.F64_add; set s ]
+      @ [ get s; get p; n Wasm_op.F64_sub; set bb ]
+      @ [ get p; get s; get bb; n Wasm_op.F64_sub; n Wasm_op.F64_sub ]
+      @ [ get c64; get bb; n Wasm_op.F64_sub; n Wasm_op.F64_add; set e ]
+      @ [ get s; n Wasm_op.I64_reinterpret_f64; set bits ]
+      (* the bits when already odd, else one step toward [e]'s side *)
+      @ [ get bits; get bits ]
+      @ [ I.I64_const 1L; I.I64_const (-1L) ]
+      @ [ get e; f64 0.; n Wasm_op.F64_gt; get s; f64 0.; n Wasm_op.F64_gt ]
+      @ [ n Wasm_op.I32_eq; I.Select; n Wasm_op.I64_add ]
+      @ [ get bits; I.I64_const 1L; n Wasm_op.I64_and ]
+      @ [ I.I64_const 1L; n Wasm_op.I64_eq; I.Select; set odd_bits ]
+      (* exact: the rounded sum; else the rounded odd neighbour *)
+      @ [ get s; n Wasm_op.F32_demote_f64 ]
+      @ [ get odd_bits; n Wasm_op.F64_reinterpret_i64 ]
+      @ [ n Wasm_op.F32_demote_f64 ]
+      @ [ get e; f64 0.; n Wasm_op.F64_eq; I.Select; set chosen ]
+      @ [ get s; n Wasm_op.F32_demote_f64; get chosen ]
+      @ [ get e; get e; n Wasm_op.F64_ne; I.Select ];
+  }
+
 let body : Callee.t -> Wasm.Func.t option = function
   | Callee.Ceil_div -> Some (rounded_div ~floor:false)
   | Callee.Erf -> Some erf
@@ -510,6 +552,7 @@ let body : Callee.t -> Wasm.Func.t option = function
   | Callee.Fail_set -> Some fail_set
   | Callee.Fill_f32 -> Some fill_f32
   | Callee.Floor_div -> Some (rounded_div ~floor:true)
+  | Callee.Fma_f32 -> Some fma_f32
   | Callee.I64_div -> Some i64_div
   | Callee.Cos | Callee.Exp | Callee.Log | Callee.Sin -> None
 
@@ -527,4 +570,5 @@ let signature : Callee.t -> Wasm.Func_type.t = function
   | Callee.F16_to_float -> ft [ wt_i32 ] [ wt_f64 ]
   | Callee.Fail_set -> ft [ wt_i32 ] []
   | Callee.Fill_f32 -> ft [ wt_i32; wt_i32; wt_f32 ] []
+  | Callee.Fma_f32 -> ft [ wt_f32; wt_f32; wt_f32 ] [ wt_f32 ]
   | Callee.I64_div -> ft [ wt_i64; wt_i64 ] [ wt_i64 ]

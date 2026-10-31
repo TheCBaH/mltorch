@@ -166,7 +166,7 @@ let%expect_test "every reason a node keeps the generated path" =
   show "odd head dimension" (bf16 ~tq:32 ~tk:32 ~d:31);
   show "head dimension 128" (bf16 ~tq:32 ~tk:32 ~d:128);
   show "block of 24"
-    ~grant:(Some { Sdpa_select.Grant.block_keys = 24 })
+    ~grant:(Some { Sdpa_select.Grant.default with block_keys = 24 })
     (bf16 ~tq:32 ~tk:32 ~d:32);
   show "1x1" (bf16 ~tq:1 ~tk:1 ~d:32);
   show "9x29 masked" (bf16 ~mask:(9, 29) ~tq:9 ~tk:29 ~d:64);

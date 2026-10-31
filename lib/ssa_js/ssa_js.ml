@@ -47,16 +47,16 @@ let first_result (i : Ssa_instr.t) =
   | [] -> invalid_arg "Ssa_js: an instruction without a result"
 
 (* A binary32 contraction as its own loop nest over three typed arrays: the sum
-   rounded after each product, as [Ordered] says. JavaScript has no fused
-   multiply-add, so the fused numerics are refused, as are the others. *)
+   rounded after each product, as [Ordered] says, or each step one exact fused
+   multiply-add, as [Fused_sequential] says: JavaScript has none, so the
+   runtime's [fma_f32] does it. The paired numerics are refused. *)
 let contract cx (d : Contraction.t) ~a ~b ~c =
   (match d.Contraction.format with
   | Contraction.Element.F32 -> ()
   | Contraction.Element.Bf16 | Contraction.Element.I8 _ ->
       refuse "a contraction over other than binary32");
   (match d.Contraction.numerics with
-  | Contraction.Numerics.Ordered -> ()
-  | Contraction.Numerics.Fused_sequential -> refuse "a fused contraction"
+  | Contraction.Numerics.Ordered | Contraction.Numerics.Fused_sequential -> ()
   | Contraction.Numerics.Paired -> refuse "a paired contraction");
   let stride what (x : int64) =
     if Int64.compare x 0x7FFF_FFFFL > 0 then
@@ -129,12 +129,18 @@ let contract cx (d : Contraction.t) ~a ~b ~c =
                     A.Stmt.Assign
                       ( A.Lvar acc,
                         A.Eq,
-                        math "fround"
-                          [
-                            bin A.Add (A.Var acc)
-                              (math "fround"
-                                 [ bin A.Mul (cell a a_at) (cell b b_at) ]);
-                          ] );
+                        match d.Contraction.numerics with
+                        | Contraction.Numerics.Fused_sequential ->
+                            runtime R.Name.Fma_f32
+                              [ cell a a_at; cell b b_at; A.Var acc ]
+                        | Contraction.Numerics.Ordered
+                        | Contraction.Numerics.Paired ->
+                            math "fround"
+                              [
+                                bin A.Add (A.Var acc)
+                                  (math "fround"
+                                     [ bin A.Mul (cell a a_at) (cell b b_at) ]);
+                              ] );
                   ];
                 A.Stmt.Assign (A.Lindex (buffer_var cx c, c_at), A.Eq, A.Var acc);
               ];
@@ -251,7 +257,10 @@ let instr cx ~(limits : Expr.Scan_limits.t) (i : Ssa_instr.t) : A.Stmt.t list =
       let r = bin (binary_op o) (v a) (v b) in
       set (if is_f32 (first_result i) then math "fround" [ r ] else r)
   | Ssa_op.Float_compare (c, a, b) -> set (bin (cmp c) (v a) (v b))
-  | Ssa_op.Float_fma _ -> refuse "a fused multiply-add"
+  | Ssa_op.Float_fma (a, b, c) ->
+      if is_f32 (first_result i) then
+        set (runtime R.Name.Fma_f32 [ v a; v b; v c ])
+      else refuse "a binary64 fused multiply-add"
   | Ssa_op.Float_max (a, b) -> set (math "max" [ v a; v b ])
   | Ssa_op.Float_to_i64 a ->
       let x = v a in

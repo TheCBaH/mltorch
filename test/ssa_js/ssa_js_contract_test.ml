@@ -24,7 +24,7 @@ let desc ~batch ~m ~n ~k ~a ~b ~c ~seed ~numerics =
           ~format:Contraction.Element.F32 ~seed ~numerics))
 
 (* [passes] contractions into C, the second on seeing the first's cells *)
-let run ~name ~na ~nb ~nc descs =
+let run ?inputs ~name ~na ~nb ~nc descs =
   let buffers =
     [
       Fx.buffer 0 ~h:1L ~w:(Int64.of_int na) Ssa_format.F32 Ssa_buffer.Input;
@@ -40,8 +40,13 @@ let run ~name ~na ~nb ~nc descs =
                B.contract bld d ~a:(Fx.buf 0) ~b:(Fx.buf 1) ~c:(Fx.buf 2))
              descs))
   in
-  let a = Array.init na (fun _ -> value ())
-  and b = Array.init nb (fun _ -> value ()) in
+  let a, b =
+    match inputs with
+    | Some (a, b) -> (a, b)
+    | None ->
+        let a = Array.init na (fun _ -> value ()) in
+        (a, Array.init nb (fun _ -> value ()))
+  in
   let want = Array.make nc 0. in
   let memory =
     Fx.memory [ (0, Fx.floats a); (1, Fx.floats b); (2, Fx.floats want) ]
@@ -125,15 +130,56 @@ let%expect_test "a contraction through JavaScript equals the interpreter" =
     (go ~batch:2 ~transposed:true ~m:3 ~n:5 ~k:8 Contraction.Numerics.Ordered);
   ignore (go ~m:1 ~n:1 ~k:1 Contraction.Numerics.Ordered);
   ignore ordered;
+  ignore (go ~m:5 ~n:7 ~k:11 Contraction.Numerics.Fused_sequential);
+  ignore (go ~batch:3 ~m:4 ~n:6 ~k:9 Contraction.Numerics.Fused_sequential);
+  ignore
+    (go ~batch:2 ~transposed:true ~m:3 ~n:5 ~k:8
+       Contraction.Numerics.Fused_sequential);
+  ignore (go ~m:1 ~n:1 ~k:1 Contraction.Numerics.Fused_sequential);
   [%expect
     {|
     ordered 5x7x11 b1: JS equals the interpreter: true
     ordered 4x6x9 b3: JS equals the interpreter: true
     ordered 3x5x8 b2 Bt: JS equals the interpreter: true
-    ordered 1x1x1 b1: JS equals the interpreter: true |}]
+    ordered 1x1x1 b1: JS equals the interpreter: true
+    fused_sequential 5x7x11 b1: JS equals the interpreter: true
+    fused_sequential 4x6x9 b3: JS equals the interpreter: true
+    fused_sequential 3x5x8 b2 Bt: JS equals the interpreter: true
+    fused_sequential 1x1x1 b1: JS equals the interpreter: true |}]
 
-(* JavaScript has no scalar fused multiply-add, so the fused numerics, and
-   every other format, are refused rather than computed differently. *)
+(* The case that separates a fused step from a product and an add: [m * m] with
+   [m = 1 + 2^-12] is exactly halfway between two binary32 neighbours, and a
+   tiny addend of either sign decides which way the one rounding goes. The
+   addend is the first step's accumulator, so the second step is the fused one
+   and carries the tie. *)
+let%expect_test "the fused step is a single rounding in JavaScript" =
+  let m = 1. +. ldexp 1. (-12) and tiny = ldexp 1. (-30) in
+  List.iter
+    (fun (name, a, b) ->
+      let d =
+        desc ~batch:1L ~m:1L ~n:1L ~k:2L
+          ~a:(operand ~batch:0L ~outer:2L ~k:1L)
+          ~b:(operand ~batch:0L ~outer:1L ~k:1L)
+          ~c:{ Contraction.Output.batch = 0L; row = 1L; col = 1L }
+          ~seed:Contraction.Seed.Zero
+          ~numerics:Contraction.Numerics.Fused_sequential
+      in
+      ignore (run ~inputs:(a, b) ~name ~na:2 ~nb:2 ~nc:1 [ d ]))
+    [
+      ("tiny addend above", [| tiny; m |], [| tiny; m |]);
+      ("tiny addend below", [| tiny; m |], [| -.tiny; m |]);
+      ("negated, above", [| tiny; -.m |], [| -.tiny; m |]);
+      ("negated, below", [| tiny; -.m |], [| tiny; m |]);
+    ];
+  [%expect
+    {|
+    tiny addend above: JS equals the interpreter: true
+    tiny addend below: JS equals the interpreter: true
+    negated, above: JS equals the interpreter: true
+    negated, below: JS equals the interpreter: true |}]
+
+(* The paired numerics and every other format are refused rather than computed
+   differently. *)
 let%expect_test "what a contraction in JavaScript refuses" =
   let refuse ~format ~numerics =
     let d =
@@ -172,7 +218,7 @@ let%expect_test "what a contraction in JavaScript refuses" =
   refuse ~format:Contraction.Element.Bf16 ~numerics:Contraction.Numerics.Ordered;
   [%expect
     {|
-    a fused contraction has no JavaScript form
+    lowered
     lowered
     a contraction over other than binary32 has no JavaScript form
     a contraction over other than binary32 has no JavaScript form |}]

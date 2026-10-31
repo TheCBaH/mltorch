@@ -86,9 +86,12 @@ let%expect_test "an expanded attention through Wasm equals the reference" =
       List.iter
         (fun (tq, tk, d, bk, mask) -> case ~precision ~mask ~tq ~tk ~d ~bk)
         [ (5, 7, 4, 4, false); (3, 8, 6, 4, true); (9, 29, 8, 8, true) ])
-    [ A.Precision.F32_ordered ];
+    [ A.Precision.F32_ordered; A.Precision.F32_fused ];
   [%expect
     {|
     f32_ordered 5x7 d4 bk4: Wasm equals the reference: true
     f32_ordered 3x8 d6 bk4 masked: Wasm equals the reference: true
-    f32_ordered 9x29 d8 bk8 masked: Wasm equals the reference: true |}]
+    f32_ordered 9x29 d8 bk8 masked: Wasm equals the reference: true
+    f32_fused 5x7 d4 bk4: Wasm equals the reference: true
+    f32_fused 3x8 d6 bk4 masked: Wasm equals the reference: true
+    f32_fused 9x29 d8 bk8 masked: Wasm equals the reference: true |}]

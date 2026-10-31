@@ -13,6 +13,7 @@ module Name : sig
     | Exp_f32
     | F16_to_float
     | Float_max
+    | Fma_f32
     | I64_from_float_failure
     | Pool_better
 
@@ -55,6 +56,13 @@ val f16_to_float : Js_build.bits16 Js_build.t -> Js_build.num Js_build.t
 
 val float_max :
   Js_build.num Js_build.t -> Js_build.num Js_build.t -> Js_build.num Js_build.t
+
+val fma_f32 :
+  Js_build.num Js_build.t ->
+  Js_build.num Js_build.t ->
+  Js_build.num Js_build.t ->
+  Js_build.num Js_build.t
+(** [F32_math.fma32]: [a * b + c] rounded once to binary32, as [fmaf] does *)
 
 val i64_from_float_failure : Js_build.num Js_build.t -> Js_ast.expr
 

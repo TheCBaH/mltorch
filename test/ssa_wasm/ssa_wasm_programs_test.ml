@@ -431,6 +431,29 @@ let%expect_test "rounding, conversion and order are part of the value" =
     ok | 1 -2 0 0 0 0 0 0 0 0 0 0 | same row and cells as the interpreter: true
     ok | nan 0 0 3 3 0 0 0 0 0 0 0 | same row and cells as the interpreter: true |}]
 
+(* a binary32 fused multiply-add rounds once: [m * m] with [m = 1 + 2^-12] is
+   exactly halfway between two binary32 neighbours, and an addend of either sign
+   far below it decides which way the rounding goes *)
+let%expect_test "a binary32 fused multiply-add is one rounding in WebAssembly" =
+  let m = 1. +. ldexp 1. (-12) in
+  let fuse p =
+    fst
+      (Ssa_opt_contract.pass ~scalar:true (Ssa_precision.to_f32 ~exact:true p))
+  in
+  List.iter
+    (fun z ->
+      attempt ~prepare:fuse (fun bld ->
+          let x = B.f64 bld m and y = B.f64 bld m and z = B.f64 bld z in
+          store_at bld 1 (idx bld 0)
+            (B.f64_binary bld Expr.Value.Add z
+               (B.f64_binary bld Expr.Value.Mul x y))))
+    [ ldexp 1. (-60); -.ldexp 1. (-60); 0. ];
+  [%expect
+    {|
+    ok | 1.00049 0 0 0 0 0 0 0 0 0 0 0 | same row and cells as the interpreter: true
+    ok | 1.00049 0 0 0 0 0 0 0 0 0 0 0 | same row and cells as the interpreter: true
+    ok | 1.00049 0 0 0 0 0 0 0 0 0 0 0 | same row and cells as the interpreter: true |}]
+
 (* what the narrow cases of each representation would get wrong *)
 let%expect_test "integer wrap, negative zero, binary32 rounding and strides" =
   (* int64 arithmetic wraps *)

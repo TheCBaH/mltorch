@@ -71,18 +71,22 @@ let program pipeline inv = Result.map fst (prepare pipeline inv)
 (* The resolved plan of an invocation under a policy and a target: what a
    consumer that needs the plan's own record (its numerics, precision and the
    target it was made for) takes instead of only the program. *)
-let plan ?contractions ?bf16_pairs ~numerics ~target inv =
+let plan ?contractions ?bf16_pairs ?(rewrite = Result.ok) ~numerics ~target inv
+    =
   match
     Err.payload (Ssa_lower.Ssa_lower_plan.lower inv.Loop_ir.Loop_bundle.placed)
   with
   | Error (`Unsupported u) ->
       Error (Fmt.str "%a" Ssa_lower.Ssa_unsupported.pp u)
-  | Ok p ->
-      Result.map_error
-        (fun r -> Fmt.str "%a" Ssa_numerics.Refusal.pp r)
-        (Ssa_plan.admitted
-           (Ssa_plan.resolve ~target ~alias ?contractions ?bf16_pairs ~numerics
-              p))
+  | Ok p -> (
+      match rewrite p with
+      | Error _ as e -> e
+      | Ok p ->
+          Result.map_error
+            (fun r -> Fmt.str "%a" Ssa_numerics.Refusal.pp r)
+            (Ssa_plan.admitted
+               (Ssa_plan.resolve ~target ~alias ?contractions ?bf16_pairs
+                  ~numerics p)))
 
 let blocked ~group inv =
   Result.map

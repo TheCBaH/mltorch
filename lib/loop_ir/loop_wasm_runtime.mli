@@ -24,6 +24,7 @@ module Callee : sig
     | Fail_set
     | Fill_f32
     | Floor_div
+    | Fma_f32  (** [F32_math.fma32]: [a * b + c] rounded once, as [fmaf] does *)
     | I64_div
     | Log
     | Log_f32  (** {!F32_math.Value.log}'s sequence, one [f32] operation each *)

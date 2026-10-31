@@ -507,6 +507,20 @@ refuses them; `Ssa_expand_attend` lowers them to `Contract` and ordinary
 operations, so every backend that realizes a `Contract` computes them. They are
 a streaming numerics, not the whole-row binary32 `Sdpa` of the sections above.
 
+A binary32 attention is selected by a grant whose `precision` is `F32_fused` or
+`F32_ordered` (`Sdpa_select`): it needs no matrix engine and none of the
+kernel's limits on the head dimension, the block or the padded work, only
+binary32 Q, K, V and mask and a block of a multiple of four keys. The machine
+model expands it before the plan is made (`Ssa_backends.plan`'s `rewrite`), so
+the plan narrows the loops with everything else: `Ssa_expand_attend`, then
+`Ssa_expand_contract`. It is refused on a pipeline that computes in binary64,
+where the expansion would be another arithmetic, and the plan's contraction must
+match the descriptor: `F32_fused` needs a plan that contracts dots only
+(`Fp32_contracted`), `F32_ordered` one that does not contract. A fused attention
+is bitwise on the generic, AArch64 and x86-64 routes; x86-64 without the FMA
+feature runs each fused step as the exact `Mir_soft_fma` sequence. The result equals
+`Attention_block.eval` on the generic, AArch64 and x86-64 routes.
+
 Selection (`Sdpa_select`) takes a node only with the grant, a matrix engine,
 bfloat16 Q, K, V, a binary32 mask, `N = T = 1`, an even head dimension at most
 64, a supported block and a padded-work ratio (fixed 16-query by `block_keys`
