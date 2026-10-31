@@ -399,6 +399,10 @@ mutations of each.
 
 ## Direct WebAssembly consumer
 
+A `Contract` is a loop nest over `i32` element offsets, binary32 `Ordered` only:
+WebAssembly has no scalar fused multiply-add, so `Fused_sequential`, `Paired`
+and any other format are refused rather than computed with other rounding.
+
 `Ssa_wasm` (library `lib/ssa_wasm`) emits one exported `loop_kernel` over linear
 memory straight from a structured program, producing the same `Loop_wasm.kernel`
 and `Loop_wasm.t` records as the Loop emitter (`Loop_wasm.lower_with` takes any
