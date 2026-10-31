@@ -77,6 +77,7 @@ let f64_to_f32 b a = convert b Ssa_op.Convert.F64_to_f32 a
 let index_to_f64 b a = convert b Ssa_op.Convert.Index_to_f64 a
 let index_to_i64 b a = convert b Ssa_op.Convert.Index_to_i64 a
 let f64_binary b op x y = one b (Ssa_op.Float_binary (op, x, y))
+let f64_fma b x y z = one b (Ssa_op.Float_fma (x, y, z))
 let f64_max b x y = one b (Ssa_op.Float_max (x, y))
 let f64_unary b op x = one b (Ssa_op.Float_unary (op, x))
 let float_compare b c x y = one b (Ssa_op.Float_compare (c, x, y))

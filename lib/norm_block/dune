@@ -1,0 +1,10 @@
+; A row normalization (LayerNorm or RmsNorm over a row's last axis) as data:
+; rows, width, eps, which affine operands are present, strides and the
+; precision, with the binary32 reference its generated loops are checked
+; against. Pure: no SSA, no tensor type, so the SSA builder, the attention
+; layer's descriptor and its tests share one definition. js_of_ocaml-safe:
+; every extent and stride is an [int64].
+
+(library
+ (name norm_block)
+ (libraries attention_block err_trace f32_math fmt))

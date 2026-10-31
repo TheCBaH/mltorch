@@ -129,6 +129,16 @@ its own name becomes its interface and hides its siblings (the lowering is
   contraction stays. Run after `Ssa_expand_attend`, an f32 attention holds no
   `Contract` and no `Attend`. The helpers both passes share (offsets, counted loops, cell access,
   splicing the built body in place) are `Ssa_expand_util`.
+- **`Ssa_norm`** builds a row normalization's loops from its descriptor
+  (`Norm_block`), not from the Native norm's lowered Region program, so the
+  descriptor defines the arithmetic: per row the mean and the sum of squares,
+  the inverse root, the affine output. An `F32_ordered` descriptor's sums are
+  `Ordered_sum`s, the sum of squares one product a term, which is exactly the
+  site the `Fp32_contracted` plan fuses when it is lowered; an `F32_fused` one
+  carries that sum through explicit `Float_fma`s, so C, Wasm and JavaScript
+  compute it too. No other site is fused: the plan contracts dots only, so
+  `* w + b` stays two roundings. A bfloat16 descriptor has no loops (no store
+  rounds to bfloat16).
 - `Ssa_uses` records definitions, uses and the region tree of one revision and
   answers lexical dominance; it is bound to its revision. `Ssa_range` derives
   integer ranges (a missing fact is the whole domain, `Empty` is an unreachable

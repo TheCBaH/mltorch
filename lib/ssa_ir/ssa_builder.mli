@@ -65,6 +65,14 @@ val f64_binary :
   Ssa_type.f64 value ->
   Ssa_type.f64 value
 
+val f64_fma :
+  t ->
+  Ssa_type.f64 value ->
+  Ssa_type.f64 value ->
+  Ssa_type.f64 value ->
+  Ssa_type.f64 value
+(** [f64_fma b x y z] is [x * y + z] rounded once. *)
+
 val float_to_i64 : t -> Ssa_type.f64 value -> Ssa_type.i64 value
 (** Checked: NaN, an infinity or a value from 2^63 up, or below -2^63, fails. *)
 

@@ -528,3 +528,22 @@ blocks) of at most 2; every other node keeps the generated path with a typed
 reason. The selection carries each role's tensor identity (`Attention_site`),
 because a bundle keeps neither the operation nor its operand order: roles are
 resolved through the invocation's edges, never by buffer position.
+
+## 14. The attention layer: a row normalization descriptor
+
+A full encoder attention layer (normalization, projections, attention, output
+projection, layer scale, residual) is granted as one descriptor whose parts are
+the existing ones plus one new arithmetic body, the row normalization
+(`Norm_block`): LayerNorm or RmsNorm over a row's `width` elements, `eps` a
+finite non-negative binary32, the weight and the bias each optional (no bias
+for RmsNorm), X and Y by row and column strides, the precision
+`Attention_block.Precision`. Its `eval` is Native's Region order, every step
+rounded: `s` summed from +0 in column order, `mean = s / n` (a division, never
+a multiply by `1 / n`), `t` the sum of the centred squares, `inv = 1 / sqrt
+(t / n + eps)`, `y = (dc * inv) * w + b`. The precision decides only the sum of
+squares, the one site a plan that contracts dots fuses: `F32_fused` makes each
+of its steps one `fmaf`, `F32_ordered` rounds the product and the sum;
+`Bf16_paired` computes as `F32_ordered` and rounds the output to bfloat16. The
+contraction site is pinned, not assumed: the ordered loops under the
+`Fp32_contracted` lowering equal the fused descriptor, and fusing any further
+site (`* w + b`) in the descriptor turns that test red.
