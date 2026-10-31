@@ -7,11 +7,14 @@
 (** The grant. Like the pair rounding it is a flag beside the numerics policy,
     never a silent substitute. *)
 module Grant : sig
-  type t = { block_keys : int }
-  (** The keys per block: part of the arithmetic. *)
+  type t = { block_keys : int; precision : Attention_block.Precision.t }
+  (** The keys per block, part of the arithmetic, and the precision: the
+      bfloat16 kernel's, or a binary32 form that is expanded into ordinary
+      operations and so needs no engine and none of the kernel's shape limits.
+  *)
 
   val default : t
-  (** 32 keys. *)
+  (** 32 keys, the bfloat16 kernel's. *)
 end
 
 (** Why a node is not selected. Alphabetical. *)
@@ -24,6 +27,7 @@ module Reason : sig
     | Feature_extent of int  (** a head dimension that is odd or past 64 *)
     | Mask_not_f32
     | Not_bf16 of string  (** the role whose format is not bfloat16 *)
+    | Not_f32 of string  (** the role whose format is not binary32 *)
     | Not_sdpa
     | Outer_axes  (** an operand extent past 1 on the N or T axis *)
     | Padded_work of { padded : int64; actual : int64 }

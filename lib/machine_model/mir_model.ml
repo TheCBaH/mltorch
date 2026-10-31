@@ -100,7 +100,15 @@ let source ?contractions ?bf16_pairs ?attention ?(constant = fun _ -> false)
   let ( let* ) = Result.bind in
   (* the invocation's program with its body one attention, where the node is
      selected as one *)
-  let attend p =
+  let binary32_attention =
+    match attention with
+    | Some (site : Attention_site.t) ->
+        site.Attention_site.block.Attention_block.precision
+        <> Attention_block.Precision.Bf16_paired
+    | None -> false
+  in
+  (* the program with its body one [Attend] over the site's buffers *)
+  let attend_site p =
     match attention with
     | None -> Ok p
     | Some (site : Attention_site.t) ->
@@ -113,6 +121,15 @@ let source ?contractions ?bf16_pairs ?attention ?(constant = fun _ -> false)
         Result.map_error
           (fun s -> Reason.Attention s)
           (Attention_site.program site b p)
+  in
+  (* a binary32 attention is expanded before the plan, at its precision, so
+     only a planned binary32 pipeline takes one *)
+  let attend p =
+    if binary32_attention then
+      Error
+        (Reason.Attention
+           "a binary32 attention needs a planned binary32 pipeline")
+    else attend_site p
   in
   let lower ~group p =
     Result.map_error
@@ -129,6 +146,18 @@ let source ?contractions ?bf16_pairs ?attention ?(constant = fun _ -> false)
       (fun s -> Reason.Source s)
       (Ssa_backends.blocked ~group:g inv)
   in
+  (* a binary32 attention is the loops of its reference, built on the lowered
+     program so the plan narrows them with everything else *)
+  let expand_attention p =
+    if not binary32_attention then Ok p
+    else
+      match attend_site p with
+      | Ok p ->
+          Ok
+            (Ssa_ir.Ssa_expand_contract.program
+               (Ssa_ir.Ssa_expand_attend.program p))
+      | Error r -> Error (Fmt.str "%a" Reason.pp r)
+  in
   match (pipeline, blocking) with
   | ( Ssa_backends.Pipeline.Planned { numerics; target },
       Mir_blocking.Policy.Unblocked ) ->
@@ -137,9 +166,24 @@ let source ?contractions ?bf16_pairs ?attention ?(constant = fun _ -> false)
       let* plan =
         Result.map_error
           (fun s -> Reason.Source s)
-          (Ssa_backends.plan ?contractions ?bf16_pairs ~numerics ~target inv)
+          (Ssa_backends.plan ?contractions ?bf16_pairs ~rewrite:expand_attention
+             ~numerics ~target inv)
       in
-      let* attended = attend plan.Ssa_ir.Ssa_plan.program in
+      let* () =
+        if
+          binary32_attention
+          && plan.Ssa_ir.Ssa_plan.precision <> Ssa_ir.Ssa_numerics.Precision.F32
+        then
+          Error
+            (Reason.Attention
+               "a binary32 attention needs a binary32 plan; the plan computes \
+                in binary64")
+        else Ok ()
+      in
+      let* attended =
+        if binary32_attention then Ok plan.Ssa_ir.Ssa_plan.program
+        else attend plan.Ssa_ir.Ssa_plan.program
+      in
       let program, packs = Ssa_ir.Ssa_prepack.program ~constant attended in
       let plan = { plan with Ssa_ir.Ssa_plan.program } in
       let* l =

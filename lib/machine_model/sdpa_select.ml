@@ -2,9 +2,9 @@ open Graph_ir
 module A = Attention_block
 
 module Grant = struct
-  type t = { block_keys : int }
+  type t = { block_keys : int; precision : A.Precision.t }
 
-  let default = { block_keys = 32 }
+  let default = { block_keys = 32; precision = A.Precision.Bf16_paired }
 end
 
 module Reason = struct
@@ -15,6 +15,7 @@ module Reason = struct
     | Feature_extent of int
     | Mask_not_f32
     | Not_bf16 of string
+    | Not_f32 of string
     | Not_sdpa
     | Outer_axes
     | Padded_work of { padded : int64; actual : int64 }
@@ -29,6 +30,7 @@ module Reason = struct
     | Feature_extent d -> Fmt.pf ppf "a head dimension of %d, odd or past 64" d
     | Mask_not_f32 -> Fmt.string ppf "a mask that is not binary32"
     | Not_bf16 role -> Fmt.pf ppf "the %s is not bfloat16" role
+    | Not_f32 role -> Fmt.pf ppf "the %s is not binary32" role
     | Not_sdpa -> Fmt.string ppf "not an attention"
     | Outer_axes -> Fmt.string ppf "an extent past 1 on the N or T axis"
     | Padded_work { padded; actual } ->
@@ -66,11 +68,18 @@ let is_bf16 (sg : Tensor_sig.t) =
 let is_f32 (sg : Tensor_sig.t) =
   match sg.Tensor_sig.fmt with Payload.Fmt Payload.F32 -> true | _ -> false
 
+(* The matrix-engine kernel is the bfloat16 grant; a binary32 attention is
+   expanded into ordinary operations and needs no engine, and none of the
+   kernel's shape limits. *)
+let bf16_grant (grant : Grant.t) =
+  grant.Grant.precision = A.Precision.Bf16_paired
+
 let choose ~grant (caps : Contraction.Select.Capabilities.t) (g : graph) id =
   let ( let* ) = Result.bind in
   let* grant = Option.to_result ~none:Reason.Ungranted grant in
+  let bf16 = bf16_grant grant in
   let* () =
-    if caps.Contraction.Select.Capabilities.matrix then Ok ()
+    if (not bf16) || caps.Contraction.Select.Capabilities.matrix then Ok ()
     else Error Reason.Engine_absent
   in
   let* node =
@@ -84,9 +93,14 @@ let choose ~grant (caps : Contraction.Select.Capabilities.t) (g : graph) id =
   let q = sig_of s.Attention.Sdpa.query
   and k = sig_of s.Attention.Sdpa.key
   and v = sig_of s.Attention.Sdpa.value in
-  let* () = if is_bf16 q then Ok () else Error (Reason.Not_bf16 "query") in
-  let* () = if is_bf16 k then Ok () else Error (Reason.Not_bf16 "key") in
-  let* () = if is_bf16 v then Ok () else Error (Reason.Not_bf16 "value") in
+  let operand role sg =
+    if bf16 then if is_bf16 sg then Ok () else Error (Reason.Not_bf16 role)
+    else if is_f32 sg then Ok ()
+    else Error (Reason.Not_f32 role)
+  in
+  let* () = operand "query" q in
+  let* () = operand "key" k in
+  let* () = operand "value" v in
   let mask = Option.map sig_of s.Attention.Sdpa.mask in
   let* () =
     match mask with
@@ -115,11 +129,12 @@ let choose ~grant (caps : Contraction.Select.Capabilities.t) (g : graph) id =
   let os = o.Tensor_sig.shape in
   let d = extent qs Axis.C in
   let* () =
-    if d mod 2 = 0 && d <= 64 then Ok () else Error (Reason.Feature_extent d)
+    if (not bf16) || (d mod 2 = 0 && d <= 64) then Ok ()
+    else Error (Reason.Feature_extent d)
   in
   let bk = grant.Grant.block_keys in
   let* () =
-    if bk > 0 && bk mod 4 = 0 && (bk <= 16 || bk = 32) then Ok ()
+    if bk > 0 && bk mod 4 = 0 && ((not bf16) || bk <= 16 || bk = 32) then Ok ()
     else Error (Reason.Block_keys bk)
   in
   let tq = extent qs Axis.W and tk = extent ks Axis.W in
@@ -128,7 +143,7 @@ let choose ~grant (caps : Contraction.Select.Capabilities.t) (g : graph) id =
     Int64.mul (Int64.of_int (up tq 16)) (Int64.of_int (up tk bk))
   and actual = Int64.mul (Int64.of_int tq) (Int64.of_int tk) in
   let* () =
-    if Int64.compare padded (Int64.mul 2L actual) <= 0 then Ok ()
+    if (not bf16) || Int64.compare padded (Int64.mul 2L actual) <= 0 then Ok ()
     else Error (Reason.Padded_work { padded; actual })
   in
   let scale =
@@ -154,7 +169,7 @@ let choose ~grant (caps : Contraction.Select.Capabilities.t) (g : graph) id =
                  (fun (m : Tensor_sig.t) ->
                    strides m.Tensor_sig.shape ~row:Axis.W ~col:Axis.C)
                  mask)
-            ~scale ~block_keys:(i64 bk) ()))
+            ~scale ~block_keys:(i64 bk) ~precision:grant.Grant.precision ()))
   in
   Ok
     {
