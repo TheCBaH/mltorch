@@ -90,14 +90,8 @@ let buffers (t : t) (inv : Loop_ir.Loop_bundle.invocation) =
   | _ -> Error (U.Not_an_output r.Roles.output)
 
 let program (t : t) (b : Ssa_attention_layer.Buffers.t) (p : Ssa_program.t) =
-  match
-    ( p.Ssa_program.entry.Ssa_region.params,
-      t.block.Attention_layer_block.precision )
-  with
-  | _, Attention_block.Precision.Bf16_paired ->
-      Error "a bfloat16 attention layer has no body yet"
-  | [ effect ], (Attention_block.Precision.F32_fused | F32_ordered)
-    when effect.Ssa_value.ty = Ssa_type.Effect ->
+  match p.Ssa_program.entry.Ssa_region.params with
+  | [ effect ] when effect.Ssa_value.ty = Ssa_type.Effect ->
       let q =
         Ssa_attention_layer.program t.block b ~buffers:p.Ssa_program.buffers
       in

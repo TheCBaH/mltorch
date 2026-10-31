@@ -134,6 +134,11 @@ let decode_cell ?channel cx (b : Ssa_buffer.t) (d : Ssa_op.Decode.t) cell =
 
 let encode_value (e : Ssa_op.Encode.t) v =
   match e with
+  | Ssa_op.Encode.Bf16_round ->
+      (* binary32 first, then to nearest even on the high half *)
+      "({ float f_ = (float)(" ^ v
+      ^ "); uint32_t u_; memcpy(&u_, &f_, 4); u_ += 0x7FFFu + ((u_ >> 16) & \
+         1u); (uint16_t)(u_ >> 16); })"
   | Ssa_op.Encode.Bool_nonzero -> "(" ^ v ^ " != 0.0 ? 1 : 0)"
   | Ssa_op.Encode.F32_exact -> v
   | Ssa_op.Encode.F32_round -> "(float)" ^ v

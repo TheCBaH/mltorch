@@ -9,9 +9,11 @@ module P = Attention_block.Precision
 open Ssa_expand_util
 
 let body b (d : N.t) ~x ~weight ~bias ~y =
-  (match d.N.precision with
-  | P.Bf16_paired -> invalid_arg "Ssa_norm: a bfloat16 norm has no store"
-  | P.F32_fused | P.F32_ordered -> ());
+  let store =
+    match d.N.precision with
+    | P.Bf16_paired -> store_bf16
+    | P.F32_fused | P.F32_ordered -> store
+  in
   let operand present buffer name =
     match (present, buffer) with
     | false, _ -> None

@@ -39,6 +39,10 @@ let load ?(decode = Ssa_op.Decode.F32_to_f64) b buffer at =
 let store b buffer at x =
   B.store_f64 b buffer ~encode:Ssa_op.Encode.F32_round (B.Flat at) x
 
+(* A cell rounded to binary32, then to bfloat16. *)
+let store_bf16 b buffer at x =
+  B.store_bf16 b buffer (B.Flat at) (B.f64_to_f32 b x)
+
 let id (x : Ssa_buffer.t) = x.Ssa_buffer.id
 
 (* The program [build] makes over [buffers]; a defect in the expansion, not a

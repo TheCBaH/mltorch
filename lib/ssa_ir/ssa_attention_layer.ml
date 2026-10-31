@@ -30,7 +30,7 @@ module Buffers = struct
   }
 end
 
-let flat id n =
+let flat ?(format = Ssa_format.F32) id n =
   {
     Ssa_buffer.id = Ssa_id.Buffer.of_int id;
     extents =
@@ -40,32 +40,41 @@ let flat id n =
           | Expr.Axis.D | Expr.Axis.H | Expr.Axis.N | Expr.Axis.T | Expr.Axis.W
             ->
               1L);
-    format = Ssa_format.F32;
+    format;
     role = Ssa_buffer.Scratch;
   }
 
 let placement (t : L.t) =
   Option.map (fun (n : L.Norm.t) -> n.L.Norm.placement) t.L.norm
 
-(* The scratch, in a fixed order: u (Pre only), q, k, v, a, o, r (Post only). *)
+let bf16 (t : L.t) = t.L.precision = P.Bf16_paired
+
+(* The scratch, in a fixed order: u (Pre, or every bfloat16 layer: the paired
+   products' bfloat16 operand), q, k, v, a, o, r (Post only), then for a
+   bfloat16 layer the bfloat16 copies of q, k, v and a the attention and the
+   output product read. *)
 let scratch (t : L.t) ~first =
   let cells = Int64.mul (Int64.mul t.L.batch t.L.tokens) t.L.width in
-  let pre = placement t = Some L.Placement.Pre
+  let pre = placement t = Some L.Placement.Pre || bf16 t
   and post = placement t = Some L.Placement.Post in
-  let count = 5 + Bool.to_int pre + Bool.to_int post in
-  List.init count (fun i -> flat ((first : Ssa_id.Buffer.t :> int) + i) cells)
+  let first = (first : Ssa_id.Buffer.t :> int) in
+  let u_format = if bf16 t then Ssa_format.Bf16 else Ssa_format.F32 in
+  let f32 = 5 + Bool.to_int post in
+  (if pre then [ flat ~format:u_format first cells ] else [])
+  @ List.init f32 (fun i -> flat (first + Bool.to_int pre + i) cells)
+  @
+  if bf16 t then
+    List.init 4 (fun i ->
+        flat ~format:Ssa_format.Bf16 (first + Bool.to_int pre + f32 + i) cells)
+  else []
 
 let need name = function
   | Some b -> b
   | None -> invalid_arg ("Ssa_attention_layer: no " ^ name ^ " buffer")
 
 let body b (t : L.t) (bf : Buffers.t) ~scratch =
-  (match t.L.precision with
-  | P.Bf16_paired ->
-      invalid_arg "Ssa_attention_layer: a bfloat16 layer has no store"
-  | P.F32_fused | P.F32_ordered -> ());
   let ids = List.map id scratch in
-  let pre = placement t = Some L.Placement.Pre
+  let pre = placement t = Some L.Placement.Pre || bf16 t
   and post = placement t = Some L.Placement.Post in
   let take = ref ids in
   let next () =
@@ -82,6 +91,15 @@ let body b (t : L.t) (bf : Buffers.t) ~scratch =
   let a = next () in
   let o = next () in
   let r = if post then Some (next ()) else None in
+  let qb, kb, vb, ab =
+    if bf16 t then
+      let qb = next () in
+      let kb = next () in
+      let vb = next () in
+      let ab = next () in
+      (qb, kb, vb, ab)
+    else (q, k, v, a)
+  in
   let f = t.L.flags in
   let opt present name buffer =
     if present then Some (need name buffer) else None
@@ -97,13 +115,21 @@ let body b (t : L.t) (bf : Buffers.t) ~scratch =
     loop b rows (fun b i ->
         loop b e (fun b c -> body b (offset b [ (e, i); (1L, c) ]) c))
   in
+  (* a cell-for-cell copy rounded to bfloat16 *)
+  let to_bf16 ~src ~dst =
+    cells (fun b at _ -> store_bf16 b dst at (load b src at))
+  in
   let src =
     match (t.L.norm, u) with
     | Some n, Some u when n.L.Norm.placement = L.Placement.Pre ->
         let weight, bias = norm_operands n.L.Norm.block in
         Ssa_norm.body b n.L.Norm.block ~x:bf.Buffers.x ~weight ~bias ~y:u;
         u
-    | _ -> bf.Buffers.x
+    | _, Some u ->
+        (* a bfloat16 layer without a Pre norm: x itself is the operand *)
+        to_bf16 ~src:bf.Buffers.x ~dst:u;
+        u
+    | _, None -> bf.Buffers.x
   in
   let project desc ~a:src ~w ~c:out ~bias =
     B.contract b desc ~a:src ~b:w ~c:out;
@@ -171,8 +197,13 @@ let body b (t : L.t) (bf : Buffers.t) ~scratch =
       in
       rotate q;
       rotate k);
-  B.attend b t.L.attend ~q ~k ~v ~mask:bf.Buffers.mask ~o:a;
-  B.contract b t.L.o ~a ~b:bf.Buffers.wo ~c:o;
+  if bf16 t then (
+    to_bf16 ~src:q ~dst:qb;
+    to_bf16 ~src:k ~dst:kb;
+    to_bf16 ~src:v ~dst:vb);
+  B.attend b t.L.attend ~q:qb ~k:kb ~v:vb ~mask:bf.Buffers.mask ~o:a;
+  if bf16 t then to_bf16 ~src:a ~dst:ab;
+  B.contract b t.L.o ~a:ab ~b:bf.Buffers.wo ~c:o;
   let bo = opt f.L.Flags.o_bias "o bias" bf.Buffers.bo
   and gamma = opt f.L.Flags.layer_scale "gamma" bf.Buffers.gamma in
   let dst = match r with Some r -> r | None -> bf.Buffers.y in

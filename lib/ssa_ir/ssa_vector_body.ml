@@ -395,7 +395,8 @@ let load_op cx buffer steps decode =
 
 let store_op cx buffer steps encode =
   match encode with
-  | Ssa_op.Encode.Bool_nonzero -> Ssa_target.Op.Bool_store
+  | Ssa_op.Encode.Bf16_round | Ssa_op.Encode.Bool_nonzero ->
+      Ssa_target.Op.Bool_store
   | Ssa_op.Encode.F32_exact | Ssa_op.Encode.F32_round | Ssa_op.Encode.I64 -> (
       match access_class cx buffer steps with
       | `Contiguous -> Ssa_target.Op.Contiguous_store

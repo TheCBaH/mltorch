@@ -179,6 +179,9 @@ val store_f64 :
   Ssa_type.f64 value ->
   unit
 
+val store_bf16 : t -> Ssa_id.Buffer.t -> access -> Ssa_type.f32 value -> unit
+(** A binary32 value rounded to bfloat16 ({!Ssa_op.Encode.Bf16_round}). *)
+
 val store_i64 : t -> Ssa_id.Buffer.t -> access -> Ssa_type.i64 value -> unit
 val mark : t -> Ssa_mark.t -> unit
 

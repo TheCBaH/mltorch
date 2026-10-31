@@ -146,8 +146,12 @@ let store_f64 b buffer ~encode at value =
   | Ssa_op.Encode.Bool_nonzero | Ssa_op.Encode.F32_exact
   | Ssa_op.Encode.F32_round ->
       ()
-  | Ssa_op.Encode.I64 -> invalid_arg "Ssa_builder.store_f64: an i64 encode");
+  | Ssa_op.Encode.Bf16_round | Ssa_op.Encode.I64 ->
+      invalid_arg "Ssa_builder.store_f64: an encode that takes no f64");
   store b buffer ~encode at value
+
+let store_bf16 b buffer at value =
+  store b buffer ~encode:Ssa_op.Encode.Bf16_round at value
 
 let store_i64 b buffer at value =
   store b buffer ~encode:Ssa_op.Encode.I64 at value

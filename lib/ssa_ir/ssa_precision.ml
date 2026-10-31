@@ -173,6 +173,18 @@ and instr_ t (i : Ssa_instr.t) =
                    value = get t value;
                  });
           ]
+      | Ssa_op.Encode.Bf16_round ->
+          (* a binary32 operand already: stored as it is *)
+          [
+            instr ?token ~results:i.Ssa_instr.results
+              (Ssa_op.Store
+                 {
+                   buffer;
+                   at = Ssa_access.map (get t) at;
+                   encode;
+                   value = get t value;
+                 });
+          ]
       | Ssa_op.Encode.Bool_nonzero | Ssa_op.Encode.F32_exact
       | Ssa_op.Encode.F32_round ->
           let wide, wide_i = widened value in

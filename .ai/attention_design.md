@@ -622,3 +622,15 @@ are one code path. The bundle must be built granting the node
 the generic, AArch64 and x86-64 (soft-FMA) routes and natively on AArch64, and
 is within 1e-4 of the node's binary64 reference (measured 1e-7 to 1e-6 on the
 small fixtures).
+
+**The bfloat16 layer and Coral.** At `Bf16_paired` `Layer_select` also needs
+the matrix engine, bfloat16 projection weights and the fused function's limits
+(an even head dimension at most 64, a block of at most 16 or 32 keys, at most
+twice the work padded). The SSA sequence lowers through the Coral route to
+RV32 code, but its image does not fit the 8 KiB instruction memory: on the
+VME core, resident, 9,964 to 11,240 bytes for the L 16, E 64, 2 x 32 fixtures;
+on the subsystem (matrix engine, DMA), with the route's kernel regions
+outlined as overlays, still 8,592 to 9,648 bytes, because the fused attention
+function (about 7.5 KiB) stays resident. Running the layer on Coral needs that
+helper loaded as an ITCM overlay too, or its size cut (the shared-`exp`
+attention), before any cycle can be measured.

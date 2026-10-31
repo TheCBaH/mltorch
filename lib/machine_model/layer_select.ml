@@ -33,17 +33,20 @@ let stride shape axis =
 let is_f32 (sg : Tensor_sig.t) =
   match sg.Tensor_sig.fmt with Payload.Fmt Payload.F32 -> true | _ -> false
 
-let choose ~grant (_ : Contraction.Select.Capabilities.t) (g : graph) id =
+let is_bf16 (sg : Tensor_sig.t) =
+  match sg.Tensor_sig.fmt with Payload.Fmt Payload.BF16 -> true | _ -> false
+
+let choose ~grant (caps : Contraction.Select.Capabilities.t) (g : graph) id =
   let ( let* ) = Result.bind in
   let attention r = Error (Reason.Attention r) in
   let* (grant : Sdpa_select.Grant.t) =
     Option.to_result ~none:(Reason.Attention S.Ungranted) grant
   in
   let precision = grant.Sdpa_select.Grant.precision in
+  let bf16 = precision = A.Precision.Bf16_paired in
   let* () =
-    match precision with
-    | A.Precision.Bf16_paired -> Error (Reason.Precision precision)
-    | A.Precision.F32_fused | A.Precision.F32_ordered -> Ok ()
+    if (not bf16) || caps.Contraction.Select.Capabilities.matrix then Ok ()
+    else attention S.Engine_absent
   in
   let* node =
     Option.to_result ~none:(Reason.Attention S.Unknown_node)
@@ -99,11 +102,19 @@ let choose ~grant (_ : Contraction.Select.Capabilities.t) (g : graph) id =
       ("sin", r.Layer_site.Roles.sin);
     ]
   in
+  (* a bfloat16 layer's weights are the paired products' bfloat16 operands;
+     every other operand, and every operand of a binary32 layer, is binary32 *)
+  let weight role =
+    List.mem role
+      [ "query weight"; "key weight"; "value weight"; "output weight" ]
+  in
   let* () =
     List.fold_left
       (fun acc (role, t) ->
         let* () = acc in
         match t with
+        | Some t when bf16 && weight role ->
+            if is_bf16 (sig_of t) then Ok () else attention (S.Not_bf16 role)
         | Some t when not (is_f32 (sig_of t)) -> attention (S.Not_f32 role)
         | Some _ | None -> Ok ())
       (Ok ()) named
@@ -177,7 +188,21 @@ let choose ~grant (_ : Contraction.Select.Capabilities.t) (g : graph) id =
   in
   let bk = grant.Sdpa_select.Grant.block_keys in
   let* () =
-    if bk > 0 && bk mod 4 = 0 then Ok () else attention (S.Block_keys bk)
+    if bk > 0 && bk mod 4 = 0 && ((not bf16) || bk <= 16 || bk = 32) then Ok ()
+    else attention (S.Block_keys bk)
+  in
+  (* the fused attention function's own limits, as [Sdpa_select] states them *)
+  let* () =
+    if (not bf16) || (d mod 2 = 0 && d <= 64) then Ok ()
+    else attention (S.Feature_extent d)
+  in
+  let* () =
+    let up a b = (a + b - 1) / b * b in
+    let padded =
+      Int64.mul (Int64.of_int (up tokens 16)) (Int64.of_int (up tokens bk))
+    and actual = Int64.mul (Int64.of_int tokens) (Int64.of_int tokens) in
+    if (not bf16) || Int64.compare padded (Int64.mul 2L actual) <= 0 then Ok ()
+    else attention (S.Padded_work { padded; actual })
   in
   let* block =
     Result.map_error

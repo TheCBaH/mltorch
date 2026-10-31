@@ -210,9 +210,9 @@ let%expect_test "a granted layer is within tolerance of the node's reference" =
     f32_fused, post rms, rope: largest deviation 4.8e-07
     f32_fused, post rms, rope (1 invocations): bitwise |}]
 
-(* What keeps a layer off the granted path: a bfloat16 grant (no body yet), a
-   pipeline that computes in binary64, and a plan whose contraction is not the
-   descriptor's. *)
+(* What keeps a layer off the granted path: a bfloat16 grant on a core without
+   the matrix engine, no grant, a pipeline that computes in binary64, and a
+   plan whose contraction is not the descriptor's. *)
 let%expect_test "what keeps a layer off the granted path" =
   let g = LF.node LF.small in
   (match
@@ -240,7 +240,7 @@ let%expect_test "what keeps a layer off the granted path" =
     ];
   [%expect
     {|
-    bf16: an attention layer at bf16_paired has no body
+    bf16: the core has no matrix engine
     ungranted: bf16_attention is not granted
     exact pipeline: refused: invocation 0 (n0): a binary32 attention layer needs a planned binary32 pipeline
     fused on a plan that does not contract: refused: invocation 0 (n0): a fused binary32 attention layer needs a plan that contracts dots only

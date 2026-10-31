@@ -11,7 +11,10 @@
     before it writes either, so it needs no copy; the attention is one [Attend]
     over the head-strided scratch, which {!Ssa_expand_attend} expands for
     binary32. The arithmetic is binary64 until {!Ssa_precision.to_f32}. A
-    bfloat16 layer has no body yet: no store rounds to bfloat16. *)
+    bfloat16 layer rounds each paired product's and the attention's operands
+    into bfloat16 scratch (the norm's output, or X; Q, K and V; the attention's
+    output), and its projections are [Paired] [Contract]s over bfloat16 weights.
+*)
 
 (** The buffer of each operand the layer reads, and its output. An optional one
     is needed exactly when the descriptor reads it. *)
@@ -38,9 +41,11 @@ end
 
 val scratch :
   Attention_layer_block.t -> first:Ssa_id.Buffer.t -> Ssa_buffer.t list
-(** The binary32 scratch the body uses, ids from [first]: the norm's output when
-    a norm stands before the attention, Q, K, V, the attention's output, the
-    output projection's, and the residual when a norm follows it. *)
+(** The scratch the body uses, ids from [first]: the norm's output when a norm
+    stands before the attention (or, bfloat16, X's copy), Q, K, V, the
+    attention's output, the output projection's, the residual when a norm
+    follows it, and for a bfloat16 layer the bfloat16 copies of Q, K, V and the
+    attention's output. *)
 
 val body :
   Ssa_builder.t ->
@@ -49,7 +54,7 @@ val body :
   scratch:Ssa_buffer.t list ->
   unit
 (** The sequence, appended to the builder's current region, over {!scratch}'s
-    buffers. [Invalid_argument] for a bfloat16 layer or a missing buffer. *)
+    buffers. [Invalid_argument] for a missing buffer. *)
 
 val program :
   Attention_layer_block.t ->

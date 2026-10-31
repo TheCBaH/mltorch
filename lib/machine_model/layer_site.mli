@@ -42,4 +42,4 @@ val program :
 (** The program with its body replaced by the layer's sequence
     ({!Ssa_ir.Ssa_attention_layer}) over the buffers, its buffers kept and the
     sequence's scratch declared after them. A program that does not take and
-    return one effect, or a bfloat16 layer (no body yet), is refused. *)
+    return one effect is refused. *)

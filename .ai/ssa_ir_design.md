@@ -139,12 +139,26 @@ its own name becomes its interface and hides its siblings (the lowering is
   compute it too. No other site is fused: the plan contracts dots only, so
   `* w + b` stays two roundings. A bfloat16 descriptor has no loops (no store
   rounds to bfloat16).
+- **`Encode.Bf16_round`** stores a binary32 value rounded to bfloat16 (to
+  nearest even on the high half of its bits, `Attention_block.bf16_round`) into
+  a bfloat16 buffer: the only way a program produces bfloat16. Its operand is
+  binary32 (a binary64 working value is converted first, which narrowing makes
+  the identity), so it needs no binary64 register on RV32. The interpreter, C
+  and Machine IR realize it; Wasm and JavaScript refuse it as unreachable, and
+  a vector store of it is lane-expanded (`Bool_store`'s class).
 - **`Ssa_attention_layer`** builds a granted attention layer
   (`Attention_layer_block`) as a sequence of existing operations over its
   buffers and declared scratch (norm output, Q, K, V, attention output, output
   projection, residual): `Ssa_norm`'s loops, `Contract`s with bias loops, the
   rotation loops, one `Attend` (which `Ssa_expand_attend` then expands for
-  binary32), the epilogue loop and a Post norm. No new operation.
+  binary32), the epilogue loop and a Post norm. No new operation. A bfloat16
+  layer copies each paired product's and the attention's operands into
+  bfloat16 scratch through `Bf16_round` (the norm's output, or X; Q, K, V; the
+  attention's output) and its projections are `Paired` `Contract`s; on the
+  interpreter it equals `eval` at `Bf16_paired` bit for bit. `Mir_model` builds
+  a layer's body before the plan at every precision, so the plan narrows its
+  loops; the bfloat16 `Attend` and the `Paired` products stay for the
+  helpers.
 - `Ssa_uses` records definitions, uses and the region tree of one revision and
   answers lexical dominance; it is bound to its revision. `Ssa_range` derives
   integer ranges (a missing fact is the whole domain, `Empty` is an unreachable

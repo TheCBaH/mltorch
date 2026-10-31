@@ -130,10 +130,21 @@ let source ?contractions ?bf16_pairs ?site ?(constant = fun _ -> false) ~route
   let noun = match site with Some s -> Site.noun s | None -> "attention" in
   (* the invocation's program with its body one attention, where the node is
      selected as one *)
+  (* a site whose body is built before the plan, so the plan narrows it with
+     everything else: a binary32 attention, and an attention layer at any
+     precision (its bfloat16 [Attend] and [Paired] products are left for the
+     helpers, its own loops are arithmetic the plan must narrow) *)
   let binary32_attention =
     match site with
+    | Some (Site.Layer _) -> true
     | Some s -> Site.precision s <> Attention_block.Precision.Bf16_paired
     | None -> false
+  in
+  let kind =
+    match site with
+    | Some s when Site.precision s = Attention_block.Precision.Bf16_paired ->
+        "bfloat16"
+    | Some _ | None -> "binary32"
   in
   (* the program with its body the site's, over its roles' buffers *)
   let attend_site p =
@@ -148,7 +159,7 @@ let source ?contractions ?bf16_pairs ?site ?(constant = fun _ -> false) ~route
     if binary32_attention then
       Error
         (Reason.Attention
-           (Fmt.str "a binary32 %s needs a planned binary32 pipeline" noun))
+           (Fmt.str "a %s %s needs a planned binary32 pipeline" kind noun))
     else attend_site p
   in
   let lower ~group p =
@@ -202,9 +213,9 @@ let source ?contractions ?bf16_pairs ?site ?(constant = fun _ -> false) ~route
               Error
                 (Reason.Attention
                    (Fmt.str
-                      "a binary32 %s needs a binary32 plan; the plan computes \
-                       in binary64"
-                      noun))
+                      "a %s %s needs a binary32 plan; the plan computes in \
+                       binary64"
+                      kind noun))
             else if
               Ssa_ir.Ssa_numerics.contraction plan.Ssa_ir.Ssa_plan.numerics
               <>
@@ -219,9 +230,9 @@ let source ?contractions ?bf16_pairs ?site ?(constant = fun _ -> false) ~route
                          only"
                         noun
                     else
-                      Fmt.str
-                        "an ordered binary32 %s needs a plan that does not \
-                         contract"
+                      Fmt.str "%s %s needs a plan that does not contract"
+                        (if kind = "bfloat16" then "a bfloat16"
+                         else "an ordered binary32")
                         noun))
             else Ok ()
         | _ -> Ok ()

@@ -180,12 +180,44 @@ let%expect_test "the plan that contracts dots fuses the descriptor's sites" =
     rms wfalse bfalse: the two references differ true; ordered loops contracted = fused true; fused loops contracted = fused true; ordered loops uncontracted = ordered true
     rms wtrue bfalse: the two references differ true; ordered loops contracted = fused true; fused loops contracted = fused true; ordered loops uncontracted = ordered true |}]
 
-let%expect_test "a bfloat16 norm has no loops" =
-  (match
-     program
-       (desc ~kind:N.Kind.Layer ~precision:P.Bf16_paired ~weight:false
-          ~bias:false ~rows:1 ~width:2)
-   with
-  | _ -> Fmt.pr "built@."
-  | exception Invalid_argument m -> Fmt.pr "%s@." m);
-  [%expect {| Ssa_norm: a bfloat16 norm has no store |}]
+let%expect_test "a bfloat16 norm's loops store bfloat16" =
+  List.iter
+    (fun kind ->
+      let d =
+        desc ~kind ~precision:P.Bf16_paired ~weight:true ~bias:false ~rows:5
+          ~width:17
+      in
+      let rows = 5 and width = 17 in
+      let buffers =
+        [
+          f32 0 ~h:rows ~w:(width + pad) Ssa_buffer.Input;
+          f32 1 ~h:1 ~w:width Ssa_buffer.Input;
+          F.buffer 3 ~h:(i64 rows) ~w:(i64 width) Ssa_format.Bf16
+            Ssa_buffer.Output;
+        ]
+      in
+      let p =
+        Ssa_norm.program d ~x:(F.buf 0)
+          ~weight:(Some (F.buf 1))
+          ~bias:None ~y:(F.buf 3) ~buffers
+      in
+      let ((x, w, _) as cells) = inputs d in
+      let m =
+        F.memory
+          [
+            (0, F.floats (Array.copy x));
+            (1, F.floats w);
+            (3, Ssa_memory.Ints (Array.make (rows * width) 0));
+          ]
+      in
+      F.run (Ssa_precision.to_f32 ~exact:true p) ~memory:m;
+      let got =
+        match Ssa_id.Buffer.Map.find (F.buf 3) m with
+        | Ssa_memory.Ints a -> Array.map Ssa_half.bf16_to_float a
+        | _ -> assert false
+      in
+      Fmt.pr "%s: %b@." (N.Kind.name kind) (bitwise got (reference d cells)))
+    [ N.Kind.Layer; N.Kind.Rms ];
+  [%expect {|
+    layer: true
+    rms: true |}]

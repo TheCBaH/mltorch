@@ -178,7 +178,8 @@ let store st op (e : L.Entry.t) ~at ~steps ~lanes (enc : Ssa_op.Encode.t) v =
       let acc = vaccess st op e at steps lanes Mir_type.Elem.F32 in
       with_role st Mir_origin.Role.Encode;
       emit_unit st (Mir_op.Vstore (acc, v))
-  | Ssa_op.Encode.Bool_nonzero | Ssa_op.Encode.I64 -> unsupported st op
+  | Ssa_op.Encode.Bf16_round | Ssa_op.Encode.Bool_nonzero | Ssa_op.Encode.I64 ->
+      unsupported st op
 
 (* Lane [k] is binary64 [base + k * step]: [base] an index and [k * step]
    below 2^37, so both and their sum are exact in binary64. *)

@@ -244,6 +244,8 @@ let write_cell st id encode ~at (value : v) =
       F x ) ->
       a.(at) <- Ssa_const.round_f32 x
   | Ssa_memory.Int64s a, Ssa_op.Encode.I64, I x -> a.(at) <- x
+  | Ssa_memory.Ints a, Ssa_op.Encode.Bf16_round, F x ->
+      a.(at) <- Ssa_half.float_to_bf16 x
   | _ -> invalid_arg "Ssa_interp: encode does not match the cells"
 
 (* The coordinate lane [k] of a vector access names. *)

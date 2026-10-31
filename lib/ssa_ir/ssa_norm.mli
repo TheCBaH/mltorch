@@ -17,8 +17,9 @@ val body :
   unit
 (** The loops, appended to the builder's current region. X and Y are addressed
     by the descriptor's strides from offset 0, the weight and the bias densely;
-    each present affine operand needs its buffer. [Invalid_argument] for a
-    bfloat16 descriptor (no store rounds to bfloat16) or a missing buffer. *)
+    each present affine operand needs its buffer; a bfloat16 descriptor's Y is a
+    bfloat16 buffer, each output rounded to binary32 and then to bfloat16.
+    [Invalid_argument] for a missing buffer. *)
 
 val program :
   Norm_block.t ->

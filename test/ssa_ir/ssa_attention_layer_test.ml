@@ -149,6 +149,12 @@ let operands (t : L.t) (c : Case.t) =
     (h, w, Array.init (h * w) (fun _ -> uniform ~scale))
   in
   let weight_scale = 1. /. sqrt (float_of_int e) in
+  (* a bfloat16 layer's weights are bfloat16 values *)
+  let weight () =
+    let h, w, cells = fill ~h:e ~w:e ~scale:weight_scale in
+    if t.L.precision = P.Bf16_paired then (h, w, Array.map A.bf16_round cells)
+    else (h, w, cells)
+  in
   let f = t.L.flags in
   let norm_affine =
     match t.L.norm with
@@ -181,13 +187,13 @@ let operands (t : L.t) (c : Case.t) =
   in
   [ (Id.x, fill ~h:rows ~w:e ~scale:2.) ]
   @ norm_affine
-  @ [ (Id.wq, fill ~h:e ~w:e ~scale:weight_scale) ]
+  @ [ (Id.wq, weight ()) ]
   @ optional f.L.Flags.q_bias Id.bq ~scale:0.25
-  @ [ (Id.wk, fill ~h:e ~w:e ~scale:weight_scale) ]
+  @ [ (Id.wk, weight ()) ]
   @ optional f.L.Flags.k_bias Id.bk ~scale:0.25
-  @ [ (Id.wv, fill ~h:e ~w:e ~scale:weight_scale) ]
+  @ [ (Id.wv, weight ()) ]
   @ optional f.L.Flags.v_bias Id.bv ~scale:0.25
-  @ [ (Id.wo, fill ~h:e ~w:e ~scale:weight_scale) ]
+  @ [ (Id.wo, weight ()) ]
   @ optional f.L.Flags.o_bias Id.bo ~scale:0.25
   @ optional f.L.Flags.layer_scale Id.gamma ~scale:1.
   @ tables
@@ -204,9 +210,13 @@ let operands (t : L.t) (c : Case.t) =
 let buffers (t : L.t) operands =
   let rows = Int64.to_int (Int64.mul t.L.batch t.L.tokens)
   and e = Int64.to_int t.L.width in
+  let weight id = List.mem id [ Id.wq; Id.wk; Id.wv; Id.wo ] in
   List.map
     (fun (id, (h, w, _)) ->
-      F.buffer id ~h:(i64 h) ~w:(i64 w) Ssa_format.F32 Ssa_buffer.Input)
+      F.buffer id ~h:(i64 h) ~w:(i64 w)
+        (if t.L.precision = P.Bf16_paired && weight id then Ssa_format.Bf16
+         else Ssa_format.F32)
+        Ssa_buffer.Input)
     operands
   @ [ F.buffer Id.y ~h:(i64 rows) ~w:(i64 e) Ssa_format.F32 Ssa_buffer.Output ]
 
@@ -296,10 +306,21 @@ let bitwise a b =
   && Array.for_all2 Core.Float_bits.equal_portable a b
 
 let interpret (pr : Prepared.t) =
+  let format id =
+    match Ssa_program.find_buffer pr.Prepared.program (F.buf id) with
+    | Some b -> b.Ssa_buffer.format
+    | None -> Ssa_format.F32
+  in
+  (* a bfloat16 buffer holds its cells' bit patterns *)
+  let cells_of id a =
+    match format id with
+    | Ssa_format.Bf16 -> Ssa_memory.Ints (Array.map Ssa_half.float_to_bf16 a)
+    | _ -> F.floats (Array.copy a)
+  in
   let memory =
     F.memory
       (List.map
-         (fun (id, (_, _, cells)) -> (id, F.floats (Array.copy cells)))
+         (fun (id, (_, _, cells)) -> (id, cells_of id cells))
          pr.Prepared.inputs
       @ [ (Id.y, F.floats (Array.make pr.Prepared.cells 0.)) ])
   in
@@ -310,7 +331,9 @@ let interpret (pr : Prepared.t) =
         | Ssa_buffer.Scratch ->
             let n = Int64.to_int (Option.get (Ssa_buffer.elements b.extents)) in
             Ssa_id.Buffer.Map.add b.Ssa_buffer.id
-              (F.floats (Array.make n 0.))
+              (match b.Ssa_buffer.format with
+              | Ssa_format.Bf16 -> Ssa_memory.Ints (Array.make n 0)
+              | _ -> F.floats (Array.make n 0.))
               memory
         | Ssa_buffer.Input | Ssa_buffer.Output -> memory)
       memory pr.Prepared.program.Ssa_program.buffers
@@ -320,8 +343,8 @@ let interpret (pr : Prepared.t) =
   | Ssa_memory.Floats a -> a
   | _ -> assert false
 
-(* Every case at both binary32 precisions through [run], one line each. *)
-let sweep ~backend run =
+(* Every case at [precisions] through [run], one line each. *)
+let sweep ?(precisions = [ P.F32_ordered; P.F32_fused ]) ~backend run =
   List.iter
     (fun precision ->
       List.iter
@@ -339,7 +362,7 @@ let sweep ~backend run =
              else "DIFFERS from the reference")
             finite (Array.length want))
         cases)
-    [ P.F32_ordered; P.F32_fused ]
+    precisions
 
 let%expect_test "an attention layer's sequence equals the reference" =
   sweep ~backend:"the interpreter" interpret;
@@ -359,3 +382,18 @@ let%expect_test "an attention layer's sequence equals the reference" =
     f32_fused, pre layer w, all flags, batched rope: the interpreter equals the reference (80 of 80 nonzero finite)
     f32_fused, no norm, all flags, shared rope, masked, 7 tokens: the interpreter equals the reference (112 of 112 nonzero finite)
     f32_fused, post rms, one head of 12, 9 tokens: the interpreter equals the reference (216 of 216 nonzero finite) |}]
+
+(* A bfloat16 layer: the paired products, the bfloat16 attention and the
+   bfloat16 copies of their operands, on the interpreter (no host backend
+   realizes [Paired]). *)
+let%expect_test "a bfloat16 layer's sequence equals the reference" =
+  sweep ~precisions:[ P.Bf16_paired ] ~backend:"the interpreter" interpret;
+  [%expect
+    {|
+    bf16_paired, bare: the interpreter equals the reference (80 of 80 nonzero finite)
+    bf16_paired, pre layer, all flags, masked: the interpreter equals the reference (80 of 80 nonzero finite)
+    bf16_paired, post layer, all flags: the interpreter equals the reference (80 of 80 nonzero finite)
+    bf16_paired, pre rms, qkv biases, shared rope, masked: the interpreter equals the reference (80 of 80 nonzero finite)
+    bf16_paired, pre layer w, all flags, batched rope: the interpreter equals the reference (80 of 80 nonzero finite)
+    bf16_paired, no norm, all flags, shared rope, masked, 7 tokens: the interpreter equals the reference (112 of 112 nonzero finite)
+    bf16_paired, post rms, one head of 12, 9 tokens: the interpreter equals the reference (216 of 216 nonzero finite) |}]

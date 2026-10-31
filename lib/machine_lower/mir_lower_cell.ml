@@ -157,6 +157,22 @@ let encode st addr (enc : Ssa_op.Encode.t) v =
       let r = emit st (Mir_op.Fconvert (Mir_op.Fconvert.F64_to_f32, v)) in
       store Mir_width.W32 4L (emit st (Mir_op.Bitcast (Mir_type.i32, r)))
   | Ssa_op.Encode.I64 -> store Mir_width.W64 8L v
+  | Ssa_op.Encode.Bf16_round ->
+      (* to nearest even on the high half of the binary32's bits *)
+      let b = emit st (Mir_op.Bitcast (Mir_type.i32, v)) in
+      let ar op x y = emit st (Mir_op.Iarith (op, x, y)) in
+      let lsb =
+        ar Mir_op.Iarith.And
+          (ar Mir_op.Iarith.Shr_u b (i32k st 16L))
+          (i32k st 1L)
+      in
+      let rounded =
+        ar Mir_op.Iarith.Add b (ar Mir_op.Iarith.Add (i32k st 0x7FFFL) lsb)
+      in
+      store Mir_width.W16 2L
+        (emit st
+           (Mir_op.Itrunc
+              (Mir_width.W16, ar Mir_op.Iarith.Shr_u rounded (i32k st 16L))))
   | Ssa_op.Encode.Bool_nonzero ->
       (* [v <> 0.]: a NaN stores 1 *)
       let zero = emit st (Mir_op.Fcmp (Mir_op.Fcmp.Eq, v, f64k st 0.)) in

@@ -29,6 +29,8 @@ module Config = struct
     rope : Rope_form.t;
     mask : bool;
     scale : Attention.Sdpa.Scale.t;
+    bf16_weights : bool;
+        (** the four projection weights bfloat16 (a bfloat16 layer's) *)
   }
 end
 
@@ -49,6 +51,7 @@ let small =
     rope = Rope_form.No_rope;
     mask = false;
     scale = Attention.Sdpa.Scale.Default;
+    bf16_weights = false;
   }
 
 let all_flags (c : Config.t) =
@@ -105,18 +108,23 @@ let operands (c : Config.t) =
     else return None
   in
   let vector = s 1 1 1 1 1 e and weight = s e 1 1 1 1 e in
+  let weight_input () =
+    if c.Config.bf16_weights then
+      input ~shape:weight ~fmt:(Payload.Fmt Payload.BF16) ()
+    else input ~shape:weight ()
+  in
   let* x = input ~shape:(s 1 1 b 1 l e) () in
   let* norm_weight =
     opt (c.Config.norm <> None && c.Config.norm_weight) vector
   in
   let* norm_bias = opt (c.Config.norm <> None && c.Config.norm_bias) vector in
-  let* wq = input ~shape:weight () in
+  let* wq = weight_input () in
   let* bq = opt c.Config.q_bias vector in
-  let* wk = input ~shape:weight () in
+  let* wk = weight_input () in
   let* bk = opt c.Config.k_bias vector in
-  let* wv = input ~shape:weight () in
+  let* wv = weight_input () in
   let* bv = opt c.Config.v_bias vector in
-  let* wo = input ~shape:weight () in
+  let* wo = weight_input () in
   let* bo = opt c.Config.o_bias vector in
   let* gamma = opt c.Config.layer_scale vector in
   let table_batch =
