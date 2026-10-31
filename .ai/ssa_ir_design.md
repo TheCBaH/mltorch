@@ -380,6 +380,13 @@ of addressing, checks, transfers, masks and fused operations.
 
 ## Direct JavaScript consumer
 
+A `Contract` is a loop nest over the typed arrays, binary32 `Ordered` only:
+JavaScript forms no fused multiply-add, so `Fused_sequential`, `Paired` and any
+other format are refused. A binary32 `exp` is the runtime's `exp_f32`, the
+`F32_math` sequence one `Math.fround` operation at a time, so it is bit-equal to
+the interpreter, C and WebAssembly; `Math.exp` serves only binary64. (The Loop
+IR's own JavaScript emitter still calls `Math.exp` for a binary32 `exp`.)
+
 `Ssa_js` (library `lib/ssa_js`) builds a `Js_ast.Program.t` straight from a
 structured program, with the argument convention (one typed array per buffer the
 program names) and the failure-record shape of `Loop_js`, so the same in-process
