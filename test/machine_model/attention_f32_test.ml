@@ -23,11 +23,18 @@ let sdpa_f32 ~tq ~tk ~d ~masked () =
         sdpa params ~query:q ~key:k ~value:v ~mask:m ()
       else sdpa params ~query:q ~key:k ~value:v ())
 
+let fp32_contracted =
+  Ssa_backends.Pipeline.Planned
+    {
+      numerics = Ssa_ir.Ssa_numerics.Fp32_contracted;
+      target = Ssa_ir.Ssa_target.scalar;
+    }
+
 let grant precision = Some { Sdpa_select.Grant.block_keys = 8; precision }
 
 let%expect_test "a binary32 attention through every route is the reference" =
   List.iter
-    (fun precision ->
+    (fun (precision, pipeline) ->
       List.iter
         (fun (name, g) ->
           let graph = g () in
@@ -44,7 +51,7 @@ let%expect_test "a binary32 attention through every route is the reference" =
               in
               List.iter
                 (fun (rname, route) ->
-                  check ?route ~attention ~pipeline:fp32_ordered
+                  check ?route ~attention ~pipeline
                     ~oracle:(B.attention_oracle site) ~same:same_portable
                     ~calls:1
                     ~input:(fun ~salt i sg ->
@@ -70,7 +77,10 @@ let%expect_test "a binary32 attention through every route is the reference" =
           ( "5x20 d6 masked",
             fun () -> sdpa_f32 ~tq:5 ~tk:20 ~d:6 ~masked:true () );
         ])
-    [ A.Precision.F32_ordered ];
+    [
+      (A.Precision.F32_ordered, fp32_ordered);
+      (A.Precision.F32_fused, fp32_contracted);
+    ];
   [%expect
     {|
     f32_ordered, 9x29 d8, generic (1 invocations): bitwise
@@ -78,7 +88,13 @@ let%expect_test "a binary32 attention through every route is the reference" =
     f32_ordered, 9x29 d8, x86_64 (1 invocations): bitwise
     f32_ordered, 5x20 d6 masked, generic (1 invocations): bitwise
     f32_ordered, 5x20 d6 masked, aarch64 (1 invocations): bitwise
-    f32_ordered, 5x20 d6 masked, x86_64 (1 invocations): bitwise |}]
+    f32_ordered, 5x20 d6 masked, x86_64 (1 invocations): bitwise
+    f32_fused, 9x29 d8, generic (1 invocations): bitwise
+    f32_fused, 9x29 d8, aarch64 (1 invocations): bitwise
+    f32_fused, 9x29 d8, x86_64: refused: invocation 0 (n0): needs fma, which the program's features do not include
+    f32_fused, 5x20 d6 masked, generic (1 invocations): bitwise
+    f32_fused, 5x20 d6 masked, aarch64 (1 invocations): bitwise
+    f32_fused, 5x20 d6 masked, x86_64: refused: invocation 0 (n0): needs fma, which the program's features do not include |}]
 
 (* A binary32 grant over bfloat16 operands is not selected; a selected one is
    refused on a pipeline that computes in binary64, where its expansion would be
@@ -104,7 +120,30 @@ let%expect_test "what keeps a binary32 attention off the expansion" =
   in
   check ~attention ~oracle:(B.attention_oracle site) ~same:same_portable
     ~calls:1 "exact pipeline" (fun () -> graph);
+  (* the descriptor's sums and the plan's contraction must agree *)
+  List.iter
+    (fun (name, precision, pipeline) ->
+      let site =
+        Result.get_ok
+          (Sdpa_select.choose ~grant:(grant precision) B.engine graph
+             (B.sdpa_node graph))
+      in
+      let attention id =
+        if Node_id.equal id (B.sdpa_node graph) then Some site else None
+      in
+      check ~attention ~pipeline ~oracle:(B.attention_oracle site)
+        ~same:same_portable ~calls:1 name (fun () -> graph))
+    [
+      ( "fused on a plan that does not contract",
+        A.Precision.F32_fused,
+        fp32_ordered );
+      ( "ordered on a plan that contracts",
+        A.Precision.F32_ordered,
+        fp32_contracted );
+    ];
   [%expect
     {|
     bf16 operands: the query is not binary32
-    exact pipeline: refused: invocation 0 (n0): a binary32 attention needs a planned binary32 pipeline |}]
+    exact pipeline: refused: invocation 0 (n0): a binary32 attention needs a planned binary32 pipeline
+    fused on a plan that does not contract: refused: invocation 0 (n0): a fused binary32 attention needs a plan that contracts dots only
+    ordered on a plan that contracts: refused: invocation 0 (n0): an ordered binary32 attention needs a plan that does not contract |}]

@@ -170,15 +170,36 @@ let source ?contractions ?bf16_pairs ?attention ?(constant = fun _ -> false)
              ~numerics ~target inv)
       in
       let* () =
-        if
-          binary32_attention
-          && plan.Ssa_ir.Ssa_plan.precision <> Ssa_ir.Ssa_numerics.Precision.F32
-        then
-          Error
-            (Reason.Attention
-               "a binary32 attention needs a binary32 plan; the plan computes \
-                in binary64")
-        else Ok ()
+        match attention with
+        | Some site when binary32_attention ->
+            let fused =
+              site.Attention_site.block.Attention_block.precision
+              = Attention_block.Precision.F32_fused
+            in
+            if
+              plan.Ssa_ir.Ssa_plan.precision
+              <> Ssa_ir.Ssa_numerics.Precision.F32
+            then
+              Error
+                (Reason.Attention
+                   "a binary32 attention needs a binary32 plan; the plan \
+                    computes in binary64")
+            else if
+              Ssa_ir.Ssa_numerics.contraction plan.Ssa_ir.Ssa_plan.numerics
+              <>
+              if fused then Ssa_ir.Ssa_numerics.Contraction.Dots
+              else Ssa_ir.Ssa_numerics.Contraction.Forbidden
+            then
+              Error
+                (Reason.Attention
+                   (if fused then
+                      "a fused binary32 attention needs a plan that contracts \
+                       dots only"
+                    else
+                      "an ordered binary32 attention needs a plan that does \
+                       not contract"))
+            else Ok ()
+        | _ -> Ok ()
       in
       let* attended =
         if binary32_attention then Ok plan.Ssa_ir.Ssa_plan.program

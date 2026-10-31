@@ -514,7 +514,11 @@ binary32 Q, K, V and mask and a block of a multiple of four keys. The machine
 model expands it before the plan is made (`Ssa_backends.plan`'s `rewrite`), so
 the plan narrows the loops with everything else: `Ssa_expand_attend`, then
 `Ssa_expand_contract`. It is refused on a pipeline that computes in binary64,
-where the expansion would be another arithmetic. The result equals
+where the expansion would be another arithmetic, and the plan's contraction must
+match the descriptor: `F32_fused` needs a plan that contracts dots only
+(`Fp32_contracted`), `F32_ordered` one that does not contract. A fused attention
+is bitwise on the generic and AArch64 routes; x86-64 refuses it where its
+feature set has no FMA. The result equals
 `Attention_block.eval` on the generic, AArch64 and x86-64 routes.
 
 Selection (`Sdpa_select`) takes a node only with the grant, a matrix engine,

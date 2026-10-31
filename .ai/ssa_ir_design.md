@@ -122,10 +122,12 @@ its own name becomes its interface and hides its siblings (the lowering is
   `Attend` for binary32; each needs `Contract`.
 - **`Ssa_expand_contract`** replaces a `Contract` with its loop nest (an ordered
   sum per output cell, seeded with +0 or the output's own cell) for a backend or
-  Machine IR route that realizes none of its own. Only `Ordered` over binary32 or
-  bfloat16; a fused, paired or integer contraction stays. Run after
-  `Ssa_expand_attend`, an f32 `F32_ordered` attention holds no `Contract` and no
-  `Attend`. The helpers both passes share (offsets, counted loops, cell access,
+  Machine IR route that realizes none of its own. `Ordered` over binary32 or
+  bfloat16, and `Fused_sequential` over binary32: the fused form is the same
+  loop, fused by the plan's dot contraction (`Fp32_contracted`) when it is
+  lowered, so the caller must run it under that plan. A paired or integer
+  contraction stays. Run after `Ssa_expand_attend`, an f32 attention holds no
+  `Contract` and no `Attend`. The helpers both passes share (offsets, counted loops, cell access,
   splicing the built body in place) are `Ssa_expand_util`.
 - `Ssa_uses` records definitions, uses and the region tree of one revision and
   answers lexical dominance; it is bound to its revision. `Ssa_range` derives

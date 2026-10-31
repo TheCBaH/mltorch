@@ -104,18 +104,25 @@ let case ~name d =
     | _ -> F.floats (Array.init n (fun _ -> value ()))
   in
   let a_cells = cells na and b_cells = cells nb in
-  let want = run p ~a_cells ~b_cells ~nc in
   let expanded = Ssa_expand_contract.program p in
-  let got =
-    run (Ssa_precision.to_f32 ~exact:true expanded) ~a_cells ~b_cells ~nc
-  in
-  Fmt.pr "%s: %d contracts left; %s@." name (count_contracts expanded)
-    (if
-       Array.for_all2
-         (fun a b -> Int32.bits_of_float a = Int32.bits_of_float b)
-         want got
-     then "equals Contraction.eval"
-     else "DIFFERS from Contraction.eval")
+  match d.Contraction.numerics with
+  | Contraction.Numerics.Fused_sequential ->
+      (* the same loops; the plan's dot fusion makes them fused, which the
+         structured interpreter does not run (the machine model's tests do) *)
+      Fmt.pr "%s: %d contracts left; the plan fuses the sums@." name
+        (count_contracts expanded)
+  | Contraction.Numerics.Ordered | Contraction.Numerics.Paired ->
+      let want = run p ~a_cells ~b_cells ~nc in
+      let got =
+        run (Ssa_precision.to_f32 ~exact:true expanded) ~a_cells ~b_cells ~nc
+      in
+      Fmt.pr "%s: %d contracts left; %s@." name (count_contracts expanded)
+        (if
+           Array.for_all2
+             (fun a b -> Int32.bits_of_float a = Int32.bits_of_float b)
+             want got
+         then "equals Contraction.eval"
+         else "DIFFERS from Contraction.eval")
 
 let%expect_test "an expanded contraction equals the Contract" =
   let ordered = Contraction.Numerics.Ordered in
@@ -132,7 +139,7 @@ let%expect_test "an expanded contraction equals the Contract" =
   case ~name:"bf16 4x5x6"
     (desc ~format:Contraction.Element.Bf16 ~m:4 ~n:5 ~k:6 ~seed:zero
        ~numerics:ordered ());
-  case ~name:"f32 fused (left alone)"
+  case ~name:"f32 fused"
     (desc ~m:3 ~n:3 ~k:4 ~seed:zero
        ~numerics:Contraction.Numerics.Fused_sequential ());
   [%expect
@@ -142,7 +149,7 @@ let%expect_test "an expanded contraction equals the Contract" =
     f32 b3 4x6x9: 0 contracts left; equals Contraction.eval
     f32 b2 Bt 3x5x8: 0 contracts left; equals Contraction.eval
     bf16 4x5x6: 0 contracts left; equals Contraction.eval
-    f32 fused (left alone): 1 contracts left; equals Contraction.eval |}]
+    f32 fused: 0 contracts left; the plan fuses the sums |}]
 
 let%expect_test "an f32 attention with both passes holds no Contract" =
   List.iter
@@ -169,4 +176,4 @@ let%expect_test "an f32 attention with both passes holds no Contract" =
   [%expect
     {|
     f32_ordered: 0 contracts left
-    f32_fused: 4 contracts left |}]
+    f32_fused: 0 contracts left |}]
