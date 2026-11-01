@@ -124,8 +124,9 @@ end
 
 (* The lowered program of an invocation under a blocking policy, and the
    decision feedback made. *)
-let source ?contractions ?bf16_pairs ?site ?(constant = fun _ -> false) ~route
-    ~blocking ~pipeline (inv : Loop_ir.Loop_bundle.invocation) =
+let source ?contractions ?bf16_pairs ?site ?(constant = fun _ -> false)
+    ?(on_program = fun _ _ -> ()) ~route ~blocking ~pipeline
+    (inv : Loop_ir.Loop_bundle.invocation) =
   let ( let* ) = Result.bind in
   let noun = match site with Some s -> Site.noun s | None -> "attention" in
   (* the invocation's program with its body one attention, where the node is
@@ -242,6 +243,7 @@ let source ?contractions ?bf16_pairs ?site ?(constant = fun _ -> false) ~route
         else attend plan.Ssa_ir.Ssa_plan.program
       in
       let program, packs = Ssa_ir.Ssa_prepack.program ~constant attended in
+      on_program inv program;
       let plan = { plan with Ssa_ir.Ssa_plan.program } in
       let* l =
         Result.map_error
@@ -307,8 +309,9 @@ let source ?contractions ?bf16_pairs ?site ?(constant = fun _ -> false) ~route
       Ok (l, Some decision, [])
 
 let kernel ?contractions ?bf16_pairs ?attention ?layer ?(prepack = false)
-    ~constants ~route ~blocking ~pipeline (inv : Loop_ir.Loop_bundle.invocation)
-    =
+    ?(on_program = fun _ _ _ -> ()) ~constants ~route ~blocking ~pipeline
+    (inv : Loop_ir.Loop_bundle.invocation) =
+  let planned = ref None in
   (* the edge an SSA buffer binds: the Loop buffer of its id, positionally *)
   let edge_of (id : Ssa_ir.Ssa_id.Buffer.t) =
     List.find_map
@@ -336,8 +339,9 @@ let kernel ?contractions ?bf16_pairs ?attention ?layer ?(prepack = false)
             (fun l -> Site.Layer l)
             (Option.bind layer (fun f -> f node))
     in
-    source ?contractions ?bf16_pairs ?site ~constant ~route ~blocking ~pipeline
-      inv
+    source ?contractions ?bf16_pairs ?site ~constant
+      ~on_program:(fun _ p -> planned := Some p)
+      ~route ~blocking ~pipeline inv
   with
   | Error r -> Error r
   | Ok (lowered, decision, packs) -> (
@@ -346,6 +350,16 @@ let kernel ?contractions ?bf16_pairs ?attention ?layer ?(prepack = false)
       with
       | Error s -> Error (Reason.Route s)
       | Ok exec ->
+          (* after the route made it executable, so a route's own observer
+             of the same invocation has already run *)
+          Option.iter
+            (fun p ->
+              on_program inv p
+                (List.map
+                   (fun (e : L.Entry.t) ->
+                     (e.L.Entry.buffer.Ssa_ir.Ssa_buffer.id, e.L.Entry.region))
+                   lowered.Ml.layout))
+            !planned;
           (* the bundle's buffers positionally, by the SSA buffer each
                  one is *)
           let region (b : Loop_ir.Loop_buffer.t) =
@@ -402,7 +416,7 @@ let kernel ?contractions ?bf16_pairs ?attention ?layer ?(prepack = false)
                 packs ))
 
 let prepare ?(route = Route.Generic) ?(blocking = Mir_blocking.Policy.Unblocked)
-    ?contractions ?bf16_pairs ?attention ?layer ?prepack ~pipeline
+    ?contractions ?bf16_pairs ?attention ?layer ?prepack ?on_program ~pipeline
     (b : Loop_ir.Loop_bundle.t) =
   let constants = Tensor_id.Set.of_list b.Loop_ir.Loop_bundle.constants in
   let results =
@@ -416,7 +430,7 @@ let prepare ?(route = Route.Generic) ?(blocking = Mir_blocking.Policy.Unblocked)
               reason;
             })
           (kernel ?contractions ?bf16_pairs ?attention ?layer ?prepack
-             ~constants ~route ~blocking ~pipeline inv))
+             ?on_program ~constants ~route ~blocking ~pipeline inv))
       b.Loop_ir.Loop_bundle.invocations
   in
   match

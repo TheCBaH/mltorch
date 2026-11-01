@@ -428,7 +428,8 @@ let run_once ?(on_run = fun _ -> ()) ?route_mutation ?budget (c : Config.t)
   Ok status
 
 let exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
-    ?engine_mutation ?transfer ?itcm ?on_run ?home ?budget c ~sites g =
+    ?engine_mutation ?transfer ?itcm ?on_run ?(on_image = fun _ -> ()) ?home
+    ?budget c ~sites g =
   let* published =
     Q.publish ?registers ~allocation:Q.Allocation.Scanned ~sites g
   in
@@ -436,6 +437,23 @@ let exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
     image ?mutation ?kernel_mutation ?home ?engine ?engine_mutation ?transfer
       ?itcm c published
   in
+  (* where each table slot landed: its Machine IR region and the memory's
+     role (an image's slots are the table's, in its order) *)
+  on_image
+    (List.map2
+       (fun (s : Table.slot) (p : Coral_layout.Placed_slot.t) ->
+         ( s.Table.region,
+           match
+             List.find_opt
+               (fun (r : Coral_profile.Region.t) ->
+                 String.equal r.Coral_profile.Region.name
+                   p.Coral_layout.Placed_slot.region)
+               image.Coral_image.profile.Coral_profile.regions
+           with
+           | Some r -> r.Coral_profile.Region.role
+           | None -> Coral_profile.Role.Ram ))
+       (Machine_rivet_riscv32_mir.Rv32_mir_module.slots published.Q.artifact)
+       image.Coral_image.layout.Coral_layout.slots);
   let phys = Art.program published.Q.artifact in
   let run ?fuel:_ memory binding ~invocation:_ =
     match
@@ -461,18 +479,22 @@ let exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
       traffic = (fun () -> None);
     }
 
-(* [on_run] sees what every run measured. [home] places each slot (default
+(* [on_run] sees what every run measured; [on_image] each image's placement,
+   when it is built (before any run): every table slot's Machine IR region and
+   the role of the memory it landed in. [home] places each slot (default
    [Any]); [budget] bounds the subsystem's read-back bytes (default
    {!read_back_budget}); [itcm] caps the instruction memory the image may use,
    as on a smaller core (the subsystem then loads the kernel's overflow as
    overlays). *)
 let route ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
-    ?engine_mutation ?transfer ?itcm ?on_run ?home ?budget (c : Config.t) =
+    ?engine_mutation ?transfer ?itcm ?on_run ?on_image ?home ?budget
+    (c : Config.t) =
   Route.Route.Custom
     {
       Route.Custom.name = "riscv32 coral " ^ c.Config.configuration;
       exec =
         (fun ~sites g ->
           exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
-            ?engine_mutation ?transfer ?itcm ?on_run ?home ?budget c ~sites g);
+            ?engine_mutation ?transfer ?itcm ?on_run ?on_image ?home ?budget c
+            ~sites g);
     }

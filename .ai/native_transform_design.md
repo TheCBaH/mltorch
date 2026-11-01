@@ -1681,7 +1681,7 @@ tensor, which ATen promotes by casting the mask.
 With `FUSE_MODEL_CORAL` naming a Coral configuration the driver runs the
 granted model on that simulator instead (binary32 grant, tensors in RAM,
 contractions on the matrix engine). No HF model gets there yet, for reasons
-outside the layer: vit-base's exported all-true mask is an `arange`/`ge` chain
+outside the layer, and whole-model runs on Coral are left to that work: vit-base's exported all-true mask is an `arange`/`ge` chain
 in int64 (`Fold_const` leaves zero-operand nodes alone), and esm2's and
 bert-tiny's position and mask arithmetic is int64 too, which the RV32 route
 evaluates in binary64, a type the core has no register for; bert-tiny's

@@ -1723,6 +1723,18 @@ coralnpu.soc.rv32.runtest:
 # matrix products measured beside its prediction, and the plan chosen against
 # the measured best. About five hours; manual, in no CI job. Needs both
 # downloads.
+# The Coral cycle estimate's calibration data: the estimate's cases on the VME
+# core's RTL simulator, in parallel under the host CPU pool (about 7 minutes);
+# the golden is the dataset test/coral_estimate fits. Wall times go to
+# $(CORAL_ESTIMATE_WALL) when it is set. Needs the download.
+.PHONY: coral.estimate.calibrate
+coral.estimate.calibrate:
+	@test -f $(CORALNPU_DATA)/hardware-configurations.json || { \
+		echo "coral.estimate.calibrate: missing $(CORALNPU_DATA) -- run 'make coralnpu.download' first" >&2; \
+		exit 1; \
+	}
+	CORALNPU_DATA=$(CORALNPU_DATA) opam exec -- dune build @test/coral_estimate_rtl/runtest --force
+
 # fastvit_sa12's attention layer shape as one granted bfloat16 node on the VME
 # core and the subsystem: about three hours of RTL simulation, so manual and
 # in no runtest alias. Needs both downloads.

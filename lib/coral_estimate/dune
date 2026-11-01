@@ -1,0 +1,7 @@
+; A static cycle estimate for the Coral cores: an invocation's planned SSA
+; program counted by cost class (Coral_census), priced by rates fitted to the
+; RTL simulators (Coral_rates), and the simulators' own speed (Coral_emulator).
+
+(library
+ (name coral_estimate)
+ (libraries attention_block contraction expr fmt ssa_ir))

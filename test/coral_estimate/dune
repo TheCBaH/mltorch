@@ -1,0 +1,29 @@
+; The Coral cycle estimate, hermetic: censuses of planned programs, and the
+; fitted rates against the cycles the RTL suites recorded.
+
+(library
+ (name coral_estimate_test)
+ (libraries
+  attention_block
+  contraction
+  coral_estimate
+  coral_estimate_cases
+  coralnpu_kernels_zvt
+  fmt
+  loop_ir
+  machine_model
+  machine_model_test
+  native
+  native_test
+  ssa_backends
+  ssa_ir)
+ (inline_tests
+  (deps
+   ../coral_estimate_rtl/calibrate_test.ml
+   ../machine_rivet_riscv32_coral_fastvit/fastvit_test.ml))
+ (preprocess
+  (pps ppx_expect))
+ (enabled_if
+  (and
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

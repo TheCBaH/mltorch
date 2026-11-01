@@ -81,9 +81,9 @@ let same_portable a b =
     (bits a) (bits b)
 
 let check ?route ?contractions ?bf16_pairs ?attention ?layer ?prepack
-    ?(pipeline = Ssa_backends.Pipeline.Exact) ?(oracle = Reference_f64)
-    ?(same = fun a b -> bits a = bits b) ?(calls = 2) ?constant
-    ?(input = fun ~salt _ -> values ~salt) name g =
+    ?on_program ?(pipeline = Ssa_backends.Pipeline.Exact)
+    ?(oracle = Reference_f64) ?(same = fun a b -> bits a = bits b) ?(calls = 2)
+    ?constant ?(input = fun ~salt _ -> values ~salt) name g =
   let g = g () in
   let b =
     match layer with
@@ -102,7 +102,7 @@ let check ?route ?contractions ?bf16_pairs ?attention ?layer ?prepack
   in
   match
     M.prepare ?route ?contractions ?bf16_pairs ?attention ?layer ?prepack
-      ~pipeline b
+      ?on_program ~pipeline b
   with
   | Error rs ->
       Fmt.pr "%s: refused: %a@." name Fmt.(list ~sep:(any "; ") M.Refusal.pp) rs

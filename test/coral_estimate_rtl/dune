@@ -1,0 +1,35 @@
+; The Coral cycle estimate's calibration data: chosen kernels run on the VME
+; core's RTL simulator, each invocation's cycles, instructions retired and
+; simulator wall time beside the census of its planned program. The golden
+; is the data the rates are fitted to. Enabled by CORALNPU_DATA (make
+; coral.estimate.calibrate).
+
+(library
+ (name coral_estimate_rtl_test)
+ (libraries
+  coral_estimate_cases
+  coralnpu
+  coralnpu_rv32
+  fmt
+  machine_model
+  machine_model_test
+  machine_rivet_riscv32_coral
+  native
+  native_test
+  ssa_backends
+  ssa_ir
+  str
+  unix)
+ (inline_tests
+  (deps
+   (env_var CORALNPU_DATA)
+   (env_var CORAL_ESTIMATE_WALL)
+   (env_var CORAL_ESTIMATE_ONLY)
+   (env_var CORAL_ESTIMATE_FLAGS)))
+ (preprocess
+  (pps ppx_expect))
+ (enabled_if
+  (and
+   (<> %{env:CORALNPU_DATA=} "")
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

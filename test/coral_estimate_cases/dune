@@ -1,0 +1,15 @@
+; The cases the Coral cycle estimate is fitted to and checked against: graphs
+; and the route options they run under, shared by the RTL calibration suite
+; (which measures them) and the hermetic estimate suite (which counts them).
+
+(library
+ (name coral_estimate_cases)
+ (libraries
+  attention_block
+  fmt
+  machine_model
+  machine_model_test
+  native
+  native_test
+  ssa_backends
+  ssa_ir))
