@@ -764,7 +764,9 @@ check.whitespace:
 
 # Zanuda lint report (SARIF), run on the built .cmt files. Reports only; it
 # exits 0 on findings. .zanuda disables teaching-oriented lints, and
-# mutually_rec_types, which runs out of memory on this tree. Vendored and
+# mutually_rec_types, which runs out of memory on this tree. Findings accepted
+# per file are `ignore <lint> <paths>` lines in .zanuda (a new file is not
+# covered; zanuda reports no stale entry). Vendored and
 # scratch trees are dropped from the report, as is any file that is not tracked:
 # generated sources (menhir, schema and ATen codegen) and the copies the JS
 # mirrors make are fixed at their origin, not in the build tree. @check
@@ -785,9 +787,7 @@ lint.zanuda: build
 	opam exec -- $(ZANUDA) -dir . -osarif $(ZANUDA_SARIF).all >/dev/null 2>$(ZANUDA_SARIF:.sarif=.err) \
 	  || { cat $(ZANUDA_SARIF:.sarif=.err); exit 1; }
 	git ls-files | jq -R . > $(ZANUDA_SARIF:.sarif=.tracked)
-	grep -v '^#' .zanuda-allow | jq -R . > $(ZANUDA_SARIF:.sarif=.allow)
-	jq --slurpfile tracked $(ZANUDA_SARIF:.sarif=.tracked) --slurpfile allow $(ZANUDA_SARIF:.sarif=.allow) '.runs[0].results |= map(.ruleId as $$r | .locations[0].physicalLocation.artifactLocation.uri as $$u | select($$tracked | index($$u)) | select($$u | test("^(vendored|modules|experiments|ai|_ai_)/") | not) | select($$allow | index($$r + " " + $$u) | not))' $(ZANUDA_SARIF).all > $(ZANUDA_SARIF)
-	@jq -r --slurpfile allow $(ZANUDA_SARIF:.sarif=.allow) '([.runs[0].results[] | .ruleId + " " + .locations[0].physicalLocation.artifactLocation.uri]) as $$seen | $$allow[] | . as $$a | select($$seen | index($$a) | not) | "stale .zanuda-allow entry: " + .' $(ZANUDA_SARIF).all
+	jq --slurpfile tracked $(ZANUDA_SARIF:.sarif=.tracked) '.runs[0].results |= map(.ruleId as $$r | .locations[0].physicalLocation.artifactLocation.uri as $$u | select($$tracked | index($$u)) | select($$u | test("^(vendored|modules|experiments|ai|_ai_)/") | not))' $(ZANUDA_SARIF).all > $(ZANUDA_SARIF)
 	@jq -r '.runs[0].results | group_by(.ruleId) | .[] | "\(length)\t\(.[0].ruleId)"' $(ZANUDA_SARIF)
 
 # The same report as file:line: rule: message, one finding per line.
