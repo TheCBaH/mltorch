@@ -1,0 +1,10 @@
+; The transfer model's choices, hermetic: which products it sends to the DMA
+; engine and which it leaves in place. The measured side is
+; test/machine_rivet_riscv32_coral_transfer (manual).
+
+(library
+ (name coral_transfer_test)
+ (libraries contraction coral_transfer err_trace fmt)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

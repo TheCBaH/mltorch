@@ -36,6 +36,16 @@ module Config = struct
   }
 end
 
+(* Whether the generated functions may move their operands with the DMA
+   engine. [Forbidden] reads them where they lie (the default, and the only
+   choice on a core with no DMA: the standalone cores and MPACT). [Allowed]
+   takes, for each contraction, the plan {!Coral_transfer.Transfer_model.choose}
+   ranks cheapest, copying or streaming through the DTCM when that wins; the
+   configuration must have a DMA-reachable region. Alphabetical. *)
+module Dma = struct
+  type t = Allowed | Forbidden
+end
+
 (* Fault injection for the evidence suite: one deliberate route defect a run
    must detect. No consumer passes one. *)
 module Mutation = struct
@@ -72,7 +82,7 @@ let slots ?(home = fun _ -> Coral_layout.Home.Any) ?(slack = 0L) ~record
     (Machine_rivet_riscv32_mir.Rv32_mir_module.slots artifact)
 
 let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
-    ?transfer ?itcm (c : Config.t) ({ Q.artifact; record } : Q.published) =
+    ?transfer ?dma ?itcm (c : Config.t) ({ Q.artifact; record } : Q.published) =
   let render pp r = Result.map_error (Fmt.str "%a" pp) (Err.payload r) in
   let* profile =
     render Coral_profile.pp_error
@@ -100,6 +110,25 @@ let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
                 else r)
               profile.Coral_profile.regions;
         }
+  in
+  let* transfer =
+    match (transfer, dma) with
+    | Some _, Some _ -> Error "give ~transfer or ~dma, not both"
+    | transfer, (None | Some Dma.Forbidden) -> Ok transfer
+    | None, Some Dma.Allowed ->
+        if
+          List.exists
+            (fun (r : Coral_profile.Region.t) ->
+              r.Coral_profile.Region.dma_reachable)
+            profile.Coral_profile.regions
+        then
+          Ok
+            (Some
+               (fun ~budget d -> Coral_transfer.Transfer_model.choose ~budget d))
+        else
+          Error
+            (Fmt.str "configuration %s has no DMA engine (~dma Allowed)"
+               c.Config.configuration)
   in
   let rv32_profile = Q.profile artifact in
   let* () =
@@ -432,17 +461,21 @@ let run_once ?(on_run = fun _ -> ()) ?route_mutation ?budget ?label
   Ok status
 
 let exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
-    ?engine_mutation ?transfer ?itcm ?on_run ?(on_image = fun _ -> ()) ?home
-    ?budget ?label ?expect_cycles c ~sites g =
+    ?engine_mutation ?transfer ?dma ?itcm ?on_run ?(on_image = fun _ -> ())
+    ?home ?budget ?label ?expect_cycles c ~sites g =
   let* published =
     Q.publish ?registers ~allocation:Q.Allocation.Scanned ~sites g
   in
   let* image =
     image ?mutation ?kernel_mutation ?home ?engine ?engine_mutation ?transfer
-      ?itcm c published
+      ?dma ?itcm c published
   in
   (* where each table slot landed: its Machine IR region and the memory's
-     role (an image's slots are the table's, in its order) *)
+     role (an image's slots are the table's, in its order, then any the image
+     adds itself: the overlays' three) *)
+  let table_slots =
+    Machine_rivet_riscv32_mir.Rv32_mir_module.slots published.Q.artifact
+  in
   on_image
     (List.map2
        (fun (s : Table.slot) (p : Coral_layout.Placed_slot.t) ->
@@ -456,8 +489,10 @@ let exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
            with
            | Some r -> r.Coral_profile.Region.role
            | None -> Coral_profile.Role.Ram ))
-       (Machine_rivet_riscv32_mir.Rv32_mir_module.slots published.Q.artifact)
-       image.Coral_image.layout.Coral_layout.slots);
+       table_slots
+       (List.filteri
+          (fun i _ -> i < List.length table_slots)
+          image.Coral_image.layout.Coral_layout.slots));
   let phys = Art.program published.Q.artifact in
   let run ?fuel:_ memory binding ~invocation:_ =
     match
@@ -492,9 +527,11 @@ let exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
    directory and [expect_cycles] limits an RTL run to twice that (see
    {!Coral_run.run}); [itcm] caps the instruction memory the image may use,
    as on a smaller core (the subsystem then loads the kernel's overflow as
-   overlays). *)
+   overlays); [dma] says whether the functions may use the DMA engine
+   ({!Dma}; default [Forbidden]), where [transfer] is a rule of one's own,
+   which excludes it. *)
 let route ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
-    ?engine_mutation ?transfer ?itcm ?on_run ?on_image ?home ?budget ?label
+    ?engine_mutation ?transfer ?dma ?itcm ?on_run ?on_image ?home ?budget ?label
     ?expect_cycles (c : Config.t) =
   Route.Route.Custom
     {
@@ -502,6 +539,6 @@ let route ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
       exec =
         (fun ~sites g ->
           exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
-            ?engine_mutation ?transfer ?itcm ?on_run ?on_image ?home ?budget
-            ?label ?expect_cycles c ~sites g);
+            ?engine_mutation ?transfer ?dma ?itcm ?on_run ?on_image ?home
+            ?budget ?label ?expect_cycles c ~sites g);
     }

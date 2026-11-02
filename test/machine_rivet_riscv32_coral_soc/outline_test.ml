@@ -22,8 +22,12 @@ let run ?itcm label =
   let name, g = fixture in
   let cycles = ref 0L in
   let on_run (o : C.Run.t) = cycles := Int64.add !cycles o.C.Run.mcycle in
+  (* the image's overlays add slots of their own after the table's; only the
+     table's are reported *)
+  let placed = ref 0 in
+  let on_image slots = placed := List.length slots in
   T.check
-    ~route:(C.route ?itcm ~on_run config)
+    ~route:(C.route ?itcm ~on_run ~on_image config)
     ~contractions:true
     ~pipeline:
       (Ssa_backends.Pipeline.Planned
@@ -36,7 +40,7 @@ let run ?itcm label =
     ~calls:1
     (name ^ ", " ^ label)
     g;
-  Fmt.pr "  cycles %Ld@." !cycles
+  Fmt.pr "  cycles %Ld, %d slots placed@." !cycles !placed
 
 let%expect_test "the kernel runs from overlays on a smaller instruction memory"
     =

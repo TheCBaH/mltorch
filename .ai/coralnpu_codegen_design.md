@@ -502,6 +502,14 @@ refusal an error rather than a silent fallback. `candidates` offers every
 plan worth ranking (B in place or copied; A in place, copied, or streamed by
 the largest block the rest holds), the in-place one always among them.
 
+Whether the DMA may be used at all is the route's `dma` option
+(`Rv32_mir_coral.Dma.t`, `Allowed | Forbidden`, default `Forbidden`): the
+standalone cores and MPACT have no DMA engine, so their images read every
+operand in place, and an image built that way runs unchanged on MPACT (a fast
+functional gate) and the RTL (cycles). `Allowed` takes `Transfer_model.choose`
+for each function and is refused up front on a configuration with no
+DMA-reachable region; `transfer`, a rule of one's own, excludes it.
+
 `Transfer_model.predict` times a plan on the subsystem and `choose` takes the
 cheapest candidate, replacing the old staging rule. Each k step of a row
 group costs the longer of its vector work (per row, a fixed part and a part

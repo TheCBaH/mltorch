@@ -106,12 +106,11 @@ let%expect_test "contractions over SRAM, staged by DMA" =
     | Machine_model.Mir_artifact.Section.Bound -> Coral_layout.Home.Ram
     | _ -> Coral_layout.Home.Any
   in
-  let rule ~budget d = Coral_transfer.Transfer_model.choose ~budget d in
-  let run ?transfer ?kernel_mutation name g =
+  let run ?transfer ?dma ?kernel_mutation name g =
     let cycles = ref 0L in
     let on_run (o : C.Run.t) = cycles := Int64.add !cycles o.C.Run.mcycle in
     T.check
-      ~route:(C.route ?transfer ?kernel_mutation ~home ~on_run subsystem)
+      ~route:(C.route ?transfer ?dma ?kernel_mutation ~home ~on_run subsystem)
       ~contractions:true
       ~pipeline:
         (Ssa_backends.Pipeline.Planned
@@ -125,7 +124,7 @@ let%expect_test "contractions over SRAM, staged by DMA" =
   List.iter
     (fun (name, g) ->
       let direct = run (name ^ ", in SRAM") g in
-      let staged = run ~transfer:rule (name ^ ", staged") g in
+      let staged = run ~dma:C.Dma.Allowed (name ^ ", staged") g in
       Fmt.pr "  cycles %Ld -> %Ld (%.2fx)@." direct staged
         (Int64.to_float direct /. Int64.to_float staged))
     (List.filter

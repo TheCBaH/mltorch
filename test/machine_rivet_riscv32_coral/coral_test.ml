@@ -78,3 +78,36 @@ let%expect_test "register groups on MPACT" =
     mpact-m3, grouped, linear 7x29 k63 bias (1 invocations): bitwise
     mpact-m3, grouped, bmm 1x9x32 k64 (1 invocations): bitwise
     mpact-m3, grouped, bmm 3x7x29 k63 (1 invocations): bitwise |}]
+
+(* The DMA engine is the subsystem's: a core without one refuses [~dma:Allowed]
+   before running, and [Forbidden] is the in-place route it always was. *)
+let%expect_test "the DMA policy on a core with no DMA" =
+  List.iter
+    (fun (label, dma) ->
+      T.check
+        ~route:(C.route ~dma (config "mpact-m3"))
+        ~pipeline:(planned Ssa_ir.Ssa_target.zve32f128)
+        ~oracle:T.Fp32 ~constant:T.positive ~calls:1 label
+        (List.assoc "relu then add over C=32" T.vector_fixtures))
+    [ ("forbidden", C.Dma.Forbidden); ("allowed", C.Dma.Allowed) ];
+  [%expect
+    {|
+    forbidden (2 invocations): bitwise
+    allowed: refused: invocation 0 (n0): configuration mpact-m3 has no DMA engine (~dma Allowed); invocation 1 (n1): configuration mpact-m3 has no DMA engine (~dma Allowed) |}]
+
+(* A DMA plan forced onto MPACT, past the route's own refusal ([~transfer] is
+   a rule of one's own, which skips the check [~dma] makes): what does the
+   simulator do when the image touches an engine the core does not have? *)
+let%expect_test "a forced DMA plan on MPACT" =
+  let module P = Coral_transfer.Transfer_plan in
+  let forced ~budget:_ _ =
+    { P.a = P.A.In_place; b = P.B.Copied; out = P.Out.Core }
+  in
+  T.check
+    ~route:(C.route ~transfer:forced (config "mpact-m3"))
+    ~contractions:true
+    ~pipeline:(planned Ssa_ir.Ssa_target.zve32f128)
+    ~oracle:T.Fp32 ~constant:T.positive ~calls:1 "forced DMA"
+    (List.assoc "linear 9x32 k64" T.contraction_fixtures);
+  [%expect
+    {| forced DMA (1 invocations): invocation 0 (n0): unsupported(guest trap: mcause 7 mepc 0x0000066c mtval 0x40050008) |}]
