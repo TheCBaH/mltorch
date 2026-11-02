@@ -101,6 +101,17 @@ jobs:
         - {suite: wasm-ssa, submodules: true, models: true}
     runs-on: ${{ matrix.os }}
     steps:
+    # The native suites build the aten archive and the devcontainer image on
+    # one runner disk and have run it out ("No space left on device" in
+    # `build`). Drop the preinstalled toolchains nothing here uses, before
+    # anything is checked out or cached.
+    - name: free disk space
+      if: matrix.native
+      run: |
+        df -h /
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+          /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+        df -h /
     - name: git cache
       if: matrix.native
       uses: actions/cache@v6
