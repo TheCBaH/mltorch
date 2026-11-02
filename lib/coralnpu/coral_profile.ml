@@ -135,7 +135,7 @@ let threads options =
   in
   max 1 (go options)
 
-let of_manifest (m : Coral_manifest.t) name =
+let of_manifest ?(traced = false) (m : Coral_manifest.t) name =
   let* (c : Coral_manifest.Configuration.t) =
     List.find_opt
       (fun (c : Coral_manifest.Configuration.t) -> String.equal c.name name)
@@ -148,10 +148,10 @@ let of_manifest (m : Coral_manifest.t) name =
   in
   (* A configuration may ship two Verilator builds: one with waveform and
      instruction tracing, and one without ([*_fast_sim], from v0.0.7), which
-     every general-purpose run takes. Chosen by name, not by the manifest's
-     order. *)
-  let fast (a : Coral_manifest.Artifact.t) =
-    String.ends_with ~suffix:"_fast_sim" a.path
+     every general-purpose run takes; [traced] asks for the former. Chosen by
+     name, not by the manifest's order. *)
+  let wanted (a : Coral_manifest.Artifact.t) =
+    String.ends_with ~suffix:"_fast_sim" a.path <> traced
   in
   let* (a : Coral_manifest.Artifact.t) =
     match
@@ -161,7 +161,7 @@ let of_manifest (m : Coral_manifest.t) name =
     with
     | [] -> Err.fail (`No_artifact c.id)
     | own -> (
-        match List.find_opt fast own with
+        match List.find_opt wanted own with
         | Some a -> Err.return a
         | None -> Err.return (List.hd own))
   in
@@ -210,7 +210,7 @@ let verify ~dir p =
       (`Artifact_digest
          { Artifact_digest.actual; expected = p.artifact_sha256; path })
 
-let load ~dir name =
+let load ?traced ~dir name =
   let path = Filename.concat dir manifest_file in
   let* text =
     match In_channel.with_open_bin path In_channel.input_all with
@@ -218,7 +218,7 @@ let load ~dir name =
     | exception e -> read_failure path e
   in
   let* m = Coral_manifest.of_string text in
-  let* p = of_manifest m name in
+  let* p = of_manifest ?traced m name in
   let* () = verify ~dir p in
   Err.return p
 

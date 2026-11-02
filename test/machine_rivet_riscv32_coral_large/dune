@@ -1,0 +1,22 @@
+; The 64x64 cases of the VME core suite (the per-op Sdpa composition and the
+; generated exp and softmax cycles): about 4.2 million simulated cycles each, at
+; roughly 23k cycles a second, so minutes of simulation each. Outside every
+; runtest alias: enabled only by MLTORCH_CORAL_LARGE beside the emulators
+; archive (make coralnpu.large.run). The smaller cases are in
+; machine_rivet_riscv32_coral.
+
+(library
+ (name machine_rivet_riscv32_coral_large_test)
+ (libraries machine_rivet_riscv32_coral machine_rivet_riscv32_coral_vme_test)
+ (inline_tests
+  (deps
+   (env_var CORALNPU_DATA)
+   (env_var MLTORCH_CORAL_LARGE)))
+ (preprocess
+  (pps ppx_expect))
+ (enabled_if
+  (and
+   (<> %{env:MLTORCH_CORAL_LARGE=} "")
+   (<> %{env:CORALNPU_DATA=} "")
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

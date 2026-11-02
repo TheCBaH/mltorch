@@ -1,4 +1,4 @@
-.PHONY: machine.rivet.rv32.runtest rv32.pt2.runtest coralnpu.rv32.runtest compcert.rv32.install compcert.rv32.runtest model.compare.coverage js.compare.runtest rivet.compare.runtest transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open model.compare model.download model.compare.gate model.fetch.timm model.fetch.fixture transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.native4d.runtest c.pt2.native4d.ssa.runtest c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
+.PHONY: machine.rivet.rv32.runtest rv32.pt2.runtest coralnpu.rv32.runtest coralnpu.vme.runtest compcert.rv32.install compcert.rv32.runtest model.compare.coverage js.compare.runtest rivet.compare.runtest transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open model.compare model.download model.compare.gate model.fetch.timm model.fetch.fixture transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.native4d.runtest c.pt2.native4d.ssa.runtest c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
 	check.file-size check.int-signatures check.whitespace clean lint.zanuda lint.zanuda.list fp32.pt2.runtest fp32.pt2.census machine.a64.conformance machine.pt2.census ssa.vector.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
@@ -1711,6 +1711,16 @@ coralnpu.rv32.runtest:
 # The RV32 Machine IR route on the subsystem: the hermetic bundles bitwise on
 # subsystem-vector-normal and on the standalone rvv-core-mini-axi, cycles side
 # by side, and two route defects caught. A few minutes. Needs both downloads.
+# The VME core suite (vme-core-mini-axi), its own directory so CI can run it as a
+# job of its own: about a quarter of an hour on four cores. Needs the download.
+.PHONY: coralnpu.vme.runtest
+coralnpu.vme.runtest:
+	@test -f $(CORALNPU_DATA)/hardware-configurations.json || { \
+		echo "coralnpu.vme.runtest: missing $(CORALNPU_DATA) -- run 'make coralnpu.download' first" >&2; \
+		exit 1; \
+	}
+	CORALNPU_DATA=$(CORALNPU_DATA) opam exec -- dune build @test/machine_rivet_riscv32_coral_vme/runtest --force
+
 .PHONY: coralnpu.soc.rv32.runtest
 coralnpu.soc.rv32.runtest:
 	@test -f $(CORALNPU_SUBSYSTEM_DATA)/hardware-configurations.json || { \
@@ -1754,6 +1764,16 @@ coralnpu.fastvit.run:
 	}
 	MLTORCH_CORAL_FASTVIT=1 CORALNPU_DATA=$(CORALNPU_DATA) CORALNPU_SUBSYSTEM_DATA=$(CORALNPU_SUBSYSTEM_DATA) opam exec -- dune build @test/machine_rivet_riscv32_coral_fastvit/runtest --force
 
+# The 64x64 cases of the VME core suite (Sdpa composition, exp and softmax;
+# 4.2M simulated cycles each, minutes): manual, in no runtest alias. Needs the download.
+.PHONY: coralnpu.large.run
+coralnpu.large.run:
+	@test -f $(CORALNPU_DATA)/hardware-configurations.json || { \
+		echo "coralnpu.large.run: missing $(CORALNPU_DATA) -- run 'make coralnpu.download' first" >&2; \
+		exit 1; \
+	}
+	MLTORCH_CORAL_LARGE=1 CORALNPU_DATA=$(CORALNPU_DATA) opam exec -- dune build @test/machine_rivet_riscv32_coral_large/runtest --force
+
 .PHONY: coralnpu.transfer.runtest
 coralnpu.transfer.runtest:
 	@test -f $(CORALNPU_SUBSYSTEM_DATA)/hardware-configurations.json || { \
@@ -1790,6 +1810,10 @@ coralnpu.compcert.runtest: compcert.rv32.install
 # the download.
 .PHONY: coralnpu.peak.runtest
 coralnpu.peak.runtest:
+	@opam exec -- which coralview >/dev/null || { \
+		echo "coralnpu.peak.runtest: coralview is not installed (a devcontainer package); the test would be skipped, not run" >&2; \
+		exit 1; \
+	}
 	@test -f $(CORALNPU_DATA)/hardware-configurations.json || { \
 		echo "coralnpu.peak.runtest: missing $(CORALNPU_DATA) -- run 'make coralnpu.download' first" >&2; \
 		exit 1; \

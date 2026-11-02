@@ -79,14 +79,17 @@ val baseline : string list
 val manifest_file : string
 (** [hardware-configurations.json], at the archive root. *)
 
-val of_manifest : Coral_manifest.t -> string -> (t, [> error ]) Err.t
+val of_manifest :
+  ?traced:bool -> Coral_manifest.t -> string -> (t, [> error ]) Err.t
 (** The profile of the named configuration. Of several artifacts for it, the
-    Verilator build without tracing ([*_fast_sim]) when there is one. *)
+    Verilator build without tracing ([*_fast_sim]) when there is one, or, with
+    [~traced:true], the build that can write a waveform ([--trace_file],
+    [--trace_select]) or an instruction trace. *)
 
 val verify : dir:string -> t -> (unit, [> error ]) Err.t
 (** Checks the artifact under the archive root [dir] against its SHA-256. *)
 
-val load : dir:string -> string -> (t, [> error ]) Err.t
+val load : ?traced:bool -> dir:string -> string -> (t, [> error ]) Err.t
 (** Reads [dir]'s manifest, builds the named profile and verifies its artifact.
 *)
 

@@ -22,7 +22,7 @@ let run ?engine ?engine_mutation ?(contractions = true) numerics oracle name g =
   let cycles = ref 0L in
   let on_run (o : C.Run.t) = cycles := Int64.add !cycles o.C.Run.mcycle in
   T.check
-    ~route:(C.route ?engine ?engine_mutation ~on_run config)
+    ~route:(C.route ?engine ?engine_mutation ~on_run ~label:name config)
     ~contractions
     ~pipeline:
       (Ssa_backends.Pipeline.Planned
@@ -67,7 +67,7 @@ let%expect_test "matrix products on the matrix engine and the vector unit" =
     linear 9x32 k64 bias, contracted (vector unit) (1 invocations): bitwise
     linear 7x29 k63 bias, vector unit (1 invocations): bitwise
     linear 7x29 k63 bias, matrix engine (1 invocations): bitwise
-      cycles 12035 -> 6095 (1.97x); 2.125 -> 4.197 ops/cycle
+      cycles 12035 -> 6347 (1.90x); 2.125 -> 4.030 ops/cycle
     linear 7x29 k63 bias, contracted (vector unit) (1 invocations): bitwise
     bmm 1x9x32 k64, vector unit (1 invocations): bitwise
     bmm 1x9x32 k64, matrix engine (1 invocations): bitwise
@@ -75,7 +75,7 @@ let%expect_test "matrix products on the matrix engine and the vector unit" =
     bmm 1x9x32 k64, contracted (vector unit) (1 invocations): bitwise
     bmm 3x7x29 k63, vector unit (1 invocations): bitwise
     bmm 3x7x29 k63, matrix engine (1 invocations): bitwise
-      cycles 35499 -> 16105 (2.20x); 2.162 -> 4.765 ops/cycle
+      cycles 35499 -> 16861 (2.11x); 2.162 -> 4.551 ops/cycle
     bmm 3x7x29 k63, contracted (vector unit) (1 invocations): bitwise
     full tn (1 invocations): DIFFERS
     swapped operands (1 invocations): DIFFERS |}]
@@ -117,7 +117,7 @@ let%expect_test "1x1 convolutions on the matrix engine" =
     conv1x1 7x7 c32 to 48, loops (1 invocations): bitwise
     conv1x1 7x7 c32 to 48, vector unit (1 invocations): bitwise
     conv1x1 7x7 c32 to 48, matrix engine (1 invocations): bitwise
-      cycles 429465 / 65549 / 26256; 0.351 / 2.296 / 5.733 ops/cycle |}]
+      cycles 429465 / 65549 / 26544; 0.351 / 2.296 / 5.671 ops/cycle |}]
 
 (* bfloat16 products on the same core: the selection sends them to the
    vector unit (the engine's build multiplies no bfloat16), against the
@@ -126,7 +126,9 @@ let%expect_test "bfloat16 products on the vector unit" =
   let run ?(contractions = true) numerics oracle name g =
     let cycles = ref 0L in
     let on_run (o : C.Run.t) = cycles := Int64.add !cycles o.C.Run.mcycle in
-    T.check ~route:(C.route ~on_run config) ~contractions
+    T.check
+      ~route:(C.route ~on_run ~label:"bf16-products" config)
+      ~contractions
       ~pipeline:
         (Ssa_backends.Pipeline.Planned
            { numerics; target = Ssa_ir.Ssa_target.zve32f128 })
@@ -180,7 +182,9 @@ let%expect_test "prepacked weights on the vector unit" =
   let run ~prepack name g =
     let cycles = ref 0L in
     let on_run (o : C.Run.t) = cycles := Int64.add !cycles o.C.Run.mcycle in
-    T.check ~route:(C.route ~on_run config) ~contractions:true ~prepack
+    T.check
+      ~route:(C.route ~on_run ~label:"prepacked" config)
+      ~contractions:true ~prepack
       ~pipeline:
         (Ssa_backends.Pipeline.Planned
            {
@@ -262,7 +266,9 @@ let%expect_test "bfloat16 pairs from a model on the matrix engine" =
   let run ?(pairs = true) name g oracle =
     let cycles = ref 0L in
     let on_run (o : C.Run.t) = cycles := Int64.add !cycles o.C.Run.mcycle in
-    T.check ~route:(C.route ~on_run config) ~contractions:true ~bf16_pairs:pairs
+    T.check
+      ~route:(C.route ~on_run ~label:"bf16-pairs" config)
+      ~contractions:true ~bf16_pairs:pairs
       ~pipeline:
         (Ssa_backends.Pipeline.Planned
            {
@@ -314,7 +320,7 @@ let%expect_test "bfloat16 pairs from a model on the matrix engine" =
     bmm bf16 1x64x32 k64, paired (1 invocations): bitwise
       cycles 16140
     bmm bf16 3x7x29 k63, paired (1 invocations): bitwise
-      cycles 10432
+      cycles 10810
     linear bf16 9x32 k64, not granted (1 invocations): DIFFERS
       cycles 11130 |}]
 
@@ -325,7 +331,9 @@ let%expect_test "bfloat16 pairs from a model on the matrix engine" =
 let%expect_test "bfloat16 Sdpa, generated, on the core" =
   List.iter
     (fun (name, g) ->
-      T.check ~route:(C.route config) ~contractions:true
+      T.check
+        ~route:(C.route ~label:"sdpa-generated" config)
+        ~contractions:true
         ~pipeline:
           (Ssa_backends.Pipeline.Planned
              {
@@ -344,144 +352,20 @@ let%expect_test "bfloat16 Sdpa, generated, on the core" =
     sdpa bf16 32x32 d32 (1 invocations): bitwise
     sdpa bf16 9x29 d64 masked (1 invocations): bitwise |}]
 
-(* The per-op composition of an [Sdpa] on the core: the scores product
-   granted the engine's pair rounding, then the scale, a softmax and a
-   binary32 context product on the vector unit, bitwise against the
-   descriptor's [Paired] scores followed by the binary32 oracle of the rest.
-   The cycles are the bar the fused kernel must beat. *)
+(* The per-op composition of an [Sdpa] on the core, up to 32x32: see
+   {!Sdpa_composition}. *)
 let%expect_test "the per-op composition of Sdpa" =
-  let module K = Contraction in
-  let flat (Tensor.Tensor t as p) =
-    let a = Array.make (Vec6.numel t.Tensor.shape :> int) 0. in
-    Vec6.iter t.Tensor.shape (fun c ->
-        a.((Vec6.offset t.Tensor.shape c :> int)) <- Tensor.read p c);
-    a
-  in
-  let run ~tq ~tk ~d =
-    let name = Fmt.str "sdpa composition %dx%d d%d" tq tk d in
-    let tail = T.sdpa_composition_tail_fixture ~tq ~tk ~d in
-    let oracle =
-      T.Custom
-        (fun (g : Graph_ir.graph) _constants inputs ->
-          let q, kt, v =
-            match inputs with
-            | [ (_, q); (_, kt); (_, v) ] -> (flat q, flat kt, v)
-            | _ -> assert false
-          in
-          let desc =
-            Result.get_ok
-              (Err.payload
-                 (K.make ~batch:1L ~m:(Int64.of_int tq) ~n:(Int64.of_int tk)
-                    ~k:(Int64.of_int d)
-                    ~a:{ K.Operand.batch = 0L; outer = Int64.of_int d; k = 1L }
-                    ~b:{ K.Operand.batch = 0L; outer = 1L; k = Int64.of_int tk }
-                    ~c:{ K.Output.batch = 0L; row = Int64.of_int tk; col = 1L }
-                    ~format:K.Element.Bf16 ~seed:K.Seed.Zero
-                    ~numerics:K.Numerics.Paired))
-          in
-          let s = Array.make (tq * tk) 0. in
-          K.eval desc
-            ~a:(fun o -> q.(Int64.to_int o))
-            ~b:(fun o -> kt.(Int64.to_int o))
-            ~c:(fun _ -> 0.)
-            ~write:(fun o x -> s.(Int64.to_int o) <- x);
-          let tg = tail () in
-          let tb = T.bundle tg in
-          let s_id, v_id =
-            match tb.Loop_ir.Loop_bundle.inputs with
-            | [ a; b ] -> (a, b)
-            | _ -> assert false
-          in
-          let s_shape = (T.sig_of tg s_id).Tensor_sig.shape in
-          let s_t =
-            Tensor.materialize s_shape (fun c ->
-                s.((Vec6.offset s_shape c :> int)))
-          in
-          let out =
-            T.expected T.Fp32 tg tb ~constants:[]
-              ~inputs:[ (s_id, s_t); (v_id, v) ]
-          in
-          let tid = List.hd tg.Graph_ir.Graph.outputs
-          and gid = List.hd g.Graph_ir.Graph.outputs in
-          Tensor_id.Map.singleton gid (Tensor_id.Map.find tid out))
-    in
-    let cycles = ref [] in
-    let on_run (o : C.Run.t) = cycles := o.C.Run.mcycle :: !cycles in
-    T.check ~route:(C.route ~on_run config) ~contractions:true ~bf16_pairs:true
-      ~pipeline:
-        (Ssa_backends.Pipeline.Planned
-           {
-             numerics = Ssa_ir.Ssa_numerics.Fp32_ordered;
-             target = Ssa_ir.Ssa_target.zve32f128;
-           })
-      ~oracle ~same:T.same_portable
-      ~input:(fun ~salt id sg -> T.in_format sg (T.values ~salt:(salt + id) sg))
-      ~calls:1 name
-      (T.sdpa_composition_bf16_fixture ~tq ~tk ~d);
-    Fmt.pr "  cycles %Ld = %a@."
-      (List.fold_left Int64.add 0L !cycles)
-      Fmt.(list ~sep:(any " + ") int64)
-      (List.rev !cycles)
-  in
-  run ~tq:16 ~tk:16 ~d:16;
-  run ~tq:32 ~tk:32 ~d:32;
-  run ~tq:64 ~tk:64 ~d:64;
+  List.iter (fun d -> Sdpa_composition.run config ~tq:d ~tk:d ~d) [ 16; 32 ];
   [%expect
     {|
     sdpa composition 16x16 d16 (5 invocations): bitwise
       cycles 266464 = 1413 + 916 + 261626 + 1131 + 1378
     sdpa composition 32x32 d32 (5 invocations): bitwise
-      cycles 1055104 = 4201 + 2741 + 1038604 + 3499 + 6059
-    sdpa composition 64x64 d64 (5 invocations): bitwise
-      cycles 4211318 = 30616 + 13334 + 4092795 + 16267 + 58306 |}]
+      cycles 1055104 = 4201 + 2741 + 1038604 + 3499 + 6059 |}]
 
-(* What the generated binary32 [exp] and softmax cost on the core, planned for
-   the scalar unit or forced onto the vector one: cycles for the whole image
-   and per element. The softmax kernel of the fused attention is built from
-   the same [exp]. *)
+(* The generated binary32 [exp] and softmax at 16x16: see {!Exp_softmax}. *)
 let%expect_test "generated exp and softmax cycles per element" =
-  let fixture name f ~h ~w =
-    ( name,
-      fun () ->
-        Native_test.Graph_fixtures.build name
-          Graph_builder.(
-            let* x =
-              input ~shape:(Native_test.Graph_fixtures.s 1 1 1 1 h w) ()
-            in
-            f x) )
-  in
-  let fixtures ~h ~w =
-    [
-      fixture "exp" ~h ~w (fun x -> Graph_builder.exp x);
-      fixture "softmax over C" ~h ~w (fun x ->
-          Graph_builder.softmax { Reduce.Softmax.axis = Axis.C } x);
-      fixture "softmax over W" ~h ~w (fun x ->
-          Graph_builder.softmax { Reduce.Softmax.axis = Axis.W } x);
-    ]
-  in
-  List.iter
-    (fun (target_name, target) ->
-      List.iter
-        (fun (h, w) ->
-          List.iter
-            (fun (name, g) ->
-              let cycles = ref [] in
-              let on_run (o : C.Run.t) = cycles := o.C.Run.mcycle :: !cycles in
-              let label = Fmt.str "%s %dx%d, %s" name h w target_name in
-              T.check ~route:(C.route ~on_run config) ~contractions:true
-                ~pipeline:
-                  (Ssa_backends.Pipeline.Planned
-                     { numerics = Ssa_ir.Ssa_numerics.Fp32_ordered; target })
-                ~oracle:T.Fp32 ~same:T.same_portable ~calls:1 label g;
-              let total = List.fold_left Int64.add 0L !cycles in
-              Fmt.pr "  cycles %Ld, %.1f per element@." total
-                (Int64.to_float total /. float_of_int (h * w)))
-            (fixtures ~h ~w))
-        [ (16, 16); (64, 64) ])
-    [
-      ("planned", Ssa_ir.Ssa_target.zve32f128);
-      ("forced vector", Ssa_ir.Ssa_target.forced Ssa_ir.Ssa_target.zve32f128);
-    ];
+  Exp_softmax.run config ~sizes:[ (16, 16) ];
   [%expect
     {|
     exp 16x16, planned (1 invocations): bitwise
@@ -490,24 +374,12 @@ let%expect_test "generated exp and softmax cycles per element" =
       cycles 262426, 1025.1 per element
     softmax over W 16x16, planned (1 invocations): bitwise
       cycles 262426, 1025.1 per element
-    exp 64x64, planned (1 invocations): bitwise
-      cycles 607246, 148.3 per element
-    softmax over C 64x64, planned (1 invocations): bitwise
-      cycles 4190117, 1023.0 per element
-    softmax over W 64x64, planned (1 invocations): bitwise
-      cycles 4190117, 1023.0 per element
     exp 16x16, forced vector (1 invocations): bitwise
       cycles 38028, 148.5 per element
     softmax over C 16x16, forced vector (1 invocations): bitwise
       cycles 262426, 1025.1 per element
     softmax over W 16x16, forced vector (1 invocations): bitwise
-      cycles 262426, 1025.1 per element
-    exp 64x64, forced vector (1 invocations): bitwise
-      cycles 607246, 148.3 per element
-    softmax over C 64x64, forced vector (1 invocations): bitwise
-      cycles 4190117, 1023.0 per element
-    softmax over W 64x64, forced vector (1 invocations): bitwise
-      cycles 4190117, 1023.0 per element |}]
+      cycles 262426, 1025.1 per element |}]
 
 (* A granted [Sdpa] on the VME core: the node is one call of the fused
    function, bitwise against the granted streaming reference, with the cycles
@@ -527,7 +399,8 @@ let%expect_test "a granted attention runs as the fused function" =
       | Error r -> Fmt.pr "%s: not selected: %a@." name S.Reason.pp r
       | Ok site ->
           cycles := 0L;
-          T.check ~route:(C.route ~on_run config)
+          T.check
+            ~route:(C.route ~on_run ~label:"granted-attention" config)
             ~attention:(fun id ->
               if Graph_ir.Node_id.equal id node then Some site else None)
             ~pipeline:
@@ -564,7 +437,8 @@ let%expect_test "a granted attention runs as the fused function" =
   (match S.choose ~grant B.engine graph (B.sdpa_node graph) with
   | Error r -> Fmt.pr "f32 32x32: not selected: %a@." S.Reason.pp r
   | Ok _ -> Fmt.pr "f32 32x32: selected@.");
-  T.check ~route:(C.route config)
+  T.check
+    ~route:(C.route ~label:"fused-attention" config)
     ~pipeline:
       (Ssa_backends.Pipeline.Planned
          {
@@ -605,7 +479,8 @@ let%expect_test "generated norm cycles per element" =
     (fun (name, g) ->
       let cycles = ref [] in
       let on_run (o : C.Run.t) = cycles := o.C.Run.mcycle :: !cycles in
-      T.check ~route:(C.route ~on_run config)
+      T.check
+        ~route:(C.route ~on_run ~label:"norm" config)
         ~pipeline:
           (Ssa_backends.Pipeline.Planned
              {

@@ -47,7 +47,8 @@ let run name c =
       let cycles = ref 0L in
       let on_run (o : C.Run.t) = cycles := Int64.add !cycles o.C.Run.mcycle in
       let values = LF.inputs g in
-      T.check ~route:(C.route ~on_run config)
+      T.check
+        ~route:(C.route ~on_run ~label:name config)
         ~layer:(fun id ->
           if Graph_ir.Node_id.equal id node then Some site else None)
         ~pipeline:
@@ -87,7 +88,7 @@ let%expect_test "a granted bfloat16 layer on the VME core, resident" =
     pre layer, all flags, rope (1 invocations): bitwise
       cycles 436619
     post rms (1 invocations): bitwise
-      cycles 373465 |}]
+      cycles 373464 |}]
 
 (* The baseline the fused layer is measured against: the same layers
    decomposed, each node generated at binary32 on the core (no grant; the
@@ -98,7 +99,9 @@ let%expect_test "the decomposed layer, node by node, on the VME core" =
       let c = { c with LF.Config.bf16_weights = false } in
       let cycles = ref [] in
       let on_run (o : C.Run.t) = cycles := o.C.Run.mcycle :: !cycles in
-      T.check ~route:(C.route ~on_run config) ~contractions:true
+      T.check
+        ~route:(C.route ~on_run ~label:name config)
+        ~contractions:true
         ~pipeline:
           (Ssa_backends.Pipeline.Planned
              {

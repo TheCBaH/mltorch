@@ -119,7 +119,7 @@ let () =
   let k = kernel name args in
   let profile =
     or_exit Coral_profile.pp_error
-      (Err.payload (Coral_profile.load ~dir (configuration k)))
+      (Err.payload (Coral_profile.load ~traced:true ~dir (configuration k)))
   in
   let m = or_exit Fmt.string (K.build k K.rv32_profile) in
   let image =
@@ -140,7 +140,7 @@ let () =
   let outcome =
     or_exit Coral_run.Run_error.pp
       (Err.payload
-         (Coral_run.run
+         (Coral_run.run ~label:name
             ~flags:
               [
                 "--cycles=2000000";

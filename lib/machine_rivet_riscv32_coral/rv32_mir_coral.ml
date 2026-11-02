@@ -76,7 +76,10 @@ let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
   let render pp r = Result.map_error (Fmt.str "%a" pp) (Err.payload r) in
   let* profile =
     render Coral_profile.pp_error
-      (Coral_profile.load ~dir:c.Config.dir c.Config.configuration)
+      (Coral_profile.load
+         ~traced:
+           (List.exists (String.starts_with ~prefix:"--trace") c.Config.flags)
+         ~dir:c.Config.dir c.Config.configuration)
   in
   (* a core with less instruction memory than the configuration's *)
   let profile =
@@ -322,8 +325,8 @@ let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
 
 (* The run on the configuration's simulator: each written slot's bytes, by
    index, the status and what was measured. *)
-let simulate ?(budget = read_back_budget) (c : Config.t) (image : Coral_image.t)
-    ~bound =
+let simulate ?(budget = read_back_budget) ?label ?expect_cycles (c : Config.t)
+    (image : Coral_image.t) ~bound =
   match image.Coral_image.profile.Coral_profile.simulator with
   | Coral_profile.Simulator.Mpact | Coral_profile.Simulator.Rtl ->
       let* o =
@@ -331,7 +334,7 @@ let simulate ?(budget = read_back_budget) (c : Config.t) (image : Coral_image.t)
           (Fmt.str "%a" Coral_run.Run_error.pp)
           (Err.payload
              (Coral_run.run ~deadline:c.Config.deadline ~flags:c.Config.flags
-                ~dir:c.Config.dir image ~bound))
+                ?label ?expect_cycles ~dir:c.Config.dir image ~bound))
       in
       Ok
         ( o.Coral_run.outputs,
@@ -354,7 +357,7 @@ let simulate ?(budget = read_back_budget) (c : Config.t) (image : Coral_image.t)
         Result.map_error
           (Fmt.str "%a" Coral_soc_run.Run_error.pp)
           (Err.payload
-             (Coral_soc_run.run ~deadline:c.Config.deadline ~read_back
+             (Coral_soc_run.run ~deadline:c.Config.deadline ?label ~read_back
                 ~skip_unchanged:true ~budget ~dir:c.Config.dir image ~bound))
       in
       Ok
@@ -382,8 +385,9 @@ let misplace outputs =
       next 1)
     outputs
 
-let run_once ?(on_run = fun _ -> ()) ?route_mutation ?budget (c : Config.t)
-    image ~(published : Q.published) memory binding =
+let run_once ?(on_run = fun _ -> ()) ?route_mutation ?budget ?label
+    ?expect_cycles (c : Config.t) image ~(published : Q.published) memory
+    binding =
   let table =
     Machine_rivet_riscv32_mir.Rv32_mir_module.slots published.Q.artifact
   in
@@ -403,7 +407,7 @@ let run_once ?(on_run = fun _ -> ()) ?route_mutation ?budget (c : Config.t)
   in
   let bound = Array.of_list (List.rev bound) in
   let* outputs, status, measured =
-    simulate ?budget c image ~bound:(fun k ->
+    simulate ?budget ?label ?expect_cycles c image ~bound:(fun k ->
         (* the slots an image adds for its overlays are not the table's *)
         if k < Array.length bound then bound.(k) else None)
   in
@@ -429,7 +433,7 @@ let run_once ?(on_run = fun _ -> ()) ?route_mutation ?budget (c : Config.t)
 
 let exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
     ?engine_mutation ?transfer ?itcm ?on_run ?(on_image = fun _ -> ()) ?home
-    ?budget c ~sites g =
+    ?budget ?label ?expect_cycles c ~sites g =
   let* published =
     Q.publish ?registers ~allocation:Q.Allocation.Scanned ~sites g
   in
@@ -457,7 +461,8 @@ let exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
   let phys = Art.program published.Q.artifact in
   let run ?fuel:_ memory binding ~invocation:_ =
     match
-      run_once ?on_run ?route_mutation ?budget c image ~published memory binding
+      run_once ?on_run ?route_mutation ?budget ?label ?expect_cycles c image
+        ~published memory binding
     with
     | Error e -> Mir_observation.Status.Unsupported e
     | Ok status ->
@@ -483,18 +488,20 @@ let exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
    when it is built (before any run): every table slot's Machine IR region and
    the role of the memory it landed in. [home] places each slot (default
    [Any]); [budget] bounds the subsystem's read-back bytes (default
-   {!read_back_budget}); [itcm] caps the instruction memory the image may use,
+   {!read_back_budget}); [label] names each run in the simulator's work
+   directory and [expect_cycles] limits an RTL run to twice that (see
+   {!Coral_run.run}); [itcm] caps the instruction memory the image may use,
    as on a smaller core (the subsystem then loads the kernel's overflow as
    overlays). *)
 let route ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
-    ?engine_mutation ?transfer ?itcm ?on_run ?on_image ?home ?budget
-    (c : Config.t) =
+    ?engine_mutation ?transfer ?itcm ?on_run ?on_image ?home ?budget ?label
+    ?expect_cycles (c : Config.t) =
   Route.Route.Custom
     {
       Route.Custom.name = "riscv32 coral " ^ c.Config.configuration;
       exec =
         (fun ~sites g ->
           exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
-            ?engine_mutation ?transfer ?itcm ?on_run ?on_image ?home ?budget c
-            ~sites g);
+            ?engine_mutation ?transfer ?itcm ?on_run ?on_image ?home ?budget
+            ?label ?expect_cycles c ~sites g);
     }

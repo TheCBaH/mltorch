@@ -74,7 +74,9 @@ let run (c : Cases.t) =
     | Cases.Home.Ram -> Some (fun _ -> Coral_layout.Home.Ram)
   in
   T.check
-    ~route:(C.route ?home ~on_run ~on_image (config_for c.Cases.name))
+    ~route:
+      (C.route ?home ~on_run ~on_image ~label:c.Cases.name
+         (config_for c.Cases.name))
     ~on_program ~contractions:c.Cases.contractions
     ~bf16_pairs:c.Cases.bf16_pairs ?attention:c.Cases.attention
     ?layer:c.Cases.layer ~pipeline:(Cases.pipeline c) ~oracle:c.Cases.oracle

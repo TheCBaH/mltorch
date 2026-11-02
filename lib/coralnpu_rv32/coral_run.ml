@@ -2,6 +2,17 @@ module Trap = struct
   type t = { mcause : int32; mepc : int32; mtval : int32 }
 end
 
+module Expectation = struct
+  type kind = Cycles | Instructions
+
+  type t = {
+    expected : int64;
+    kind : kind;
+    label : string option;
+    limit : int64;
+  }
+end
+
 module Run_error = struct
   type t =
     | Cycle_limit
@@ -10,6 +21,7 @@ module Run_error = struct
     | Instruction_limit
     | Malformed_output of { malformed : Coral_wire.Malformed.t; tail : string }
     | Output_limit of int64
+    | Over_expectation of Expectation.t
     | Simulator_crashed of { status : string; tail : string }
     | Simulator_missing of string
     | Timeout
@@ -29,6 +41,14 @@ module Run_error = struct
           Coral_wire.Malformed.pp malformed tail
     | Output_limit n ->
         Fmt.pf ppf "the simulator wrote more than %Ld bytes; killed" n
+    | Over_expectation { expected; kind; label; limit } ->
+        Fmt.pf ppf "%a passed its limit of %Ld %s (%Ld expected)"
+          Fmt.(option ~none:(any "the run") string)
+          label limit
+          (match kind with
+          | Cycles -> "cycles"
+          | Instructions -> "instructions")
+          expected
     | Simulator_crashed { status; tail } ->
         Fmt.pf ppf "the simulator %s with no frame; it said: %S" status tail
     | Simulator_missing path -> Fmt.pf ppf "no simulator at %s" path
@@ -56,12 +76,26 @@ let describe = function
   | Unix.WSIGNALED n -> Printf.sprintf "was killed by signal %d" n
   | Unix.WSTOPPED n -> Printf.sprintf "stopped on signal %d" n
 
-(* the process id in the name: forked runners share their random state, so
-   two would otherwise draw the same name and race between its removal and the
-   [mkdir] *)
-let fresh_dir () =
+(* [label] names the run in the directory, so a process listing shows which case
+   a stuck simulator belongs to *)
+let safe_label l =
+  let l = if String.length l > 48 then String.sub l 0 48 else l in
+  String.map
+    (function
+      | ('a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '-' | '.') as c -> c | _ -> '_')
+    l
+
+let label_part = function None -> "" | Some l -> safe_label l ^ "_"
+
+let fresh_dir label =
+  (* the process id in the name: forked runners share their random state, so
+     two would otherwise draw the same name and race between its removal and
+     the [mkdir] *)
+  let label = label_part label in
   let d =
-    Filename.temp_file (Printf.sprintf "mltorch_coral_%d_" (Unix.getpid ())) ""
+    Filename.temp_file
+      (Printf.sprintf "mltorch_coral_%s%d_" label (Unix.getpid ()))
+      ""
   in
   Sys.remove d;
   Sys.mkdir d 0o700;
@@ -188,14 +222,47 @@ let contains s needle =
   in
   go 0
 
-let run ?(deadline = 120.) ?(flags = []) ~dir (image : Coral_image.t) ~bound =
+(* The error for a simulator limit: the expectation that set it, if one did. *)
+let limit_error budget plain =
+  match budget with
+  | Some (e, _) -> Run_error.Over_expectation e
+  | None -> plain
+
+(* A run may take twice what its model expects, plus what the runtime spends
+   before and after the kernel. A model more than 200% short is a finding. *)
+let fudge = 2L
+let startup_slack = 100_000L
+let limit_of expected = Int64.add (Int64.mul fudge expected) startup_slack
+
+(* The simulator's own limit for an expectation: cycles on the RTL testbench,
+   retired instructions on MPACT. An expectation of the other kind is ignored,
+   so one call site may carry both. *)
+let budget (profile : Coral_profile.t) ~label ~expect_cycles
+    ~expect_instructions =
+  let make kind expected flag =
+    if Int64.compare expected 0L <= 0 then
+      invalid_arg "Coral_run.run: an expectation must be positive";
+    let limit = limit_of expected in
+    Some (Expectation.{ expected; kind; label; limit }, flag limit)
+  in
+  match (profile.simulator, expect_cycles, expect_instructions) with
+  | Rtl, Some e, _ -> make Cycles e (Printf.sprintf "--cycles=%Ld")
+  | Mpact, _, Some e ->
+      make Instructions e (Printf.sprintf "--max_instructions=%Ld")
+  | _ -> None
+
+let run ?(deadline = 120.) ?(flags = []) ?label ?expect_cycles
+    ?expect_instructions ~dir (image : Coral_image.t) ~bound =
   (* The child runs in its own directory. *)
   let dir =
     if Filename.is_relative dir then Filename.concat (Sys.getcwd ()) dir
     else dir
   in
-  let work = fresh_dir () in
+  let work = fresh_dir label in
   let elf = Filename.concat work "guest.elf" in
+  let budget =
+    budget image.profile ~label ~expect_cycles ~expect_instructions
+  in
   let old = Sys.signal Sys.sigpipe Sys.Signal_ignore in
   Fun.protect
     ~finally:(fun () ->
@@ -206,7 +273,9 @@ let run ?(deadline = 120.) ?(flags = []) ~dir (image : Coral_image.t) ~bound =
       Out_channel.with_open_bin elf (fun oc -> output_string oc image.elf);
       let argv =
         match Coral_profile.argv ~dir ~elf image.profile with
-        | program :: args -> program :: (flags @ args)
+        | program :: args ->
+            (* the budget first: an explicit flag after it still wins *)
+            program :: (Option.to_list (Option.map snd budget) @ flags @ args)
         | [] -> []
       in
       let program = List.hd argv in
@@ -264,11 +333,11 @@ let run ?(deadline = 120.) ?(flags = []) ~dir (image : Coral_image.t) ~bound =
               | None ->
                   Err.fail (Run_error.Guest_trap { Trap.mcause; mepc; mtval }))
           | Error _ when contains out loop_limit || contains err loop_limit ->
-              Err.fail Run_error.Cycle_limit
+              Err.fail (limit_error budget Run_error.Cycle_limit)
           | Error _
             when contains out instruction_limit
                  || contains err instruction_limit ->
-              Err.fail Run_error.Instruction_limit
+              Err.fail (limit_error budget Run_error.Instruction_limit)
           | Error _ when timed_out -> Err.fail Run_error.Timeout
           | Error Coral_wire.Malformed.No_frame when status <> Unix.WEXITED 0 ->
               Err.fail

@@ -55,8 +55,11 @@ builds: one with waveform and instruction tracing (`*_sim`), and one without
 (`*_fast_sim`). A profile takes the build without tracing whenever the
 manifest lists one, by its name rather than the manifest's order, so every
 general-purpose run uses it; the tracing build is for runs that ask for a
-waveform or an instruction trace. The baseline profiles are `core-mini-axi`,
-`core-mini-highmem-axi` and `mpact-v2`; any configuration with a known
+waveform or an instruction trace, and `load ~traced:true` selects it (the peak
+suite, and `Rv32_mir_coral` when a `--trace*` flag is present). A waveform run
+should also pass `--trace_select` with the manifest `coralview plan` writes, so
+only the signals the measurement needs are recorded. The baseline profiles are
+`core-mini-axi`, `core-mini-highmem-axi` and `mpact-v2`; any configuration with a known
 backend and known region types decodes.
 
 Two facts per region decide where an image may put things:
@@ -370,6 +373,8 @@ checks each form against Coral's words (`matrix.elf` and the VME tests). The
 runtime sets `mstatus.MS` to Initial for such a kernel (`Coral_image.build
 ~matrix`), as it does `VS` for vector code.
 
+Since Zvt v0.4 (release v0.0.7) `msetmtype` has no `rd`: its encoding fixes it
+to x0, so the AST form takes `mtype` and `vtype` only.
 Each Zvt kernel repeats one tile multiply on the four independent 32-bit
 accumulator tiles `mt0`, `mt4`, `mt8`, `mt12` (16 x 16 elements, four tile
 registers each), with A and B in vector registers at the configuration the
@@ -765,3 +770,25 @@ every new run, cram or not, but split K's small RVV steps (+6%).
 not fit, and (unmeasured) at 512 x 64 x 1024 where it does, since the larger
 operand then arrives at the core's copy rate in the prologue; split K where
 neither operand fits.
+
+## Continuous integration
+
+The simulators run in GitHub Actions as three jobs of the `ci` matrix, each downloading the release pinned in `coralnpu.lock` (sha256
+checked) and caching it under the lock's hash, apart per job because a cache is
+immutable:
+
+- `coralnpu`: the manifest and configuration IDs, the matrix engine's rounding,
+  the peak suite (traced on the RTL and measured by coralview, a pinned
+  devcontainer package: `make coralnpu.peak.runtest` fails when it is missing,
+  because the test is otherwise disabled without a word) and the RV32 route
+  tests.
+- `coralnpu-vme`: the VME core suite (`machine_rivet_riscv32_coral_vme`), about
+  a quarter of an hour of RTL simulation, a job of its own so that it sets the
+  wall clock of nothing else.
+- `coralnpu-soc`: the subsystem archive's SoC, DMA, RV32-on-subsystem and
+  transfer suites.
+
+The fastvit attention layer (`make coralnpu.fastvit.run`, about three hours per
+architecture) and the 64x64 cases of the VME suite (`machine_rivet_riscv32_coral_large`, `make coralnpu.large.run`; minutes of
+simulation each, at about 23 thousand simulated cycles a second) are outside
+every job.
