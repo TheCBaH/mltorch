@@ -118,19 +118,19 @@ let%expect_test "DMA kernels encode to the pinned bytes" =
     rvv bf16 resident-b b-shared c-by-dma M=12 N=32 K=256: .text:588:5ac9afdaa4a10555aa91a48eea6361ff
     rvv f32 resident-b b-shared c-by-dma M=12 N=32 K=128: .text:568:6473902c495e3cfc005a8b2242a6f115
     rvv i8 resident-b b-shared c-by-dma M=8 N=64 K=256: .text:596:10fa5423f03383c538390e5968808180
-    zvt f32 resident-b b-by-dma c-by-dma M=128 N=128 K=256: .text:1904:e5c6f4942aa85d0635daa41231903ff7
-    zvt i8 resident-b b-shared c-by-core M=128 N=128 K=512: .text:1904:dbb507fa9936cdec417882cf1f191556
-    zvt i8 resident-b b-shared c-split-8 M=128 N=512 K=1024: .text:8452:fc64708209aaf5e989b2f7bdb2dce18f
+    zvt f32 resident-b b-by-dma c-by-dma M=128 N=128 K=256: .text:1904:5280cb1edeedebb5959375a59c134b82
+    zvt i8 resident-b b-shared c-by-core M=128 N=128 K=512: .text:1904:fd3a07d4751c73083e7ae33938e2f115
+    zvt i8 resident-b b-shared c-split-8 M=128 N=512 K=1024: .text:8452:8d2b1ad2b13cfb47a67922ec0b79ef97
     rvv bf16 resident-a/32 a-shared c-by-dma M=12 N=1024 K=128: .text:636:7254291c8f3dd9a06c254379204cd9aa
     rvv i8 resident-a/64 a-shared c-by-core M=8 N=512 K=128: .text:652:242ebbe6e3f45ff4ecb57aeb4a9d2576
-    zvt i8 resident-a/32 a-shared c-by-core M=128 N=1024 K=1024: .text:868:2bc6427349784694f3a1e8b44af79f86
-    zvt i8 resident-a/64 a-shared c-by-dma M=128 N=1024 K=1024: .text:1224:1cf562adcadd8ea74b6f902cba497d1c
+    zvt i8 resident-a/32 a-shared c-by-core M=128 N=1024 K=1024: .text:868:d1d4edddaf08da5c1fdcd9f21b6d1c5b
+    zvt i8 resident-a/64 a-shared c-by-dma M=128 N=1024 K=1024: .text:1224:5ca0b219ae3599c55fd7ca4a7fd28a74
     rvv f32 row-major-a b-by-dma c-by-core M=12 N=32 K=128: .text:648:82533843a4bd1113aec33219b8ad8fbb
     rvv i8 row-major-a b-shared c-by-dma M=8 N=64 K=256: .text:676:c4b5d93bc229d5824edb7f3013994273
-    zvt i8 row-major-a b-shared c-split-8 M=128 N=256 K=512: .text:4148:0c7b03a9437e93c9690de5fb26b9a845
+    zvt i8 row-major-a b-shared c-split-8 M=128 N=256 K=512: .text:4148:154b837e2580f83eea1ad88cb6602eb7
     rvv bf16 split-k/64 b-shared c-by-dma M=12 N=32 K=256: .text:660:48e8ff9383138b1519e52c382b4f1a30
     rvv i8 split-k/128 b-shared c-by-dma M=8 N=64 K=1024: .text:664:bdf06f3d249ff812747581ef89c105e3
-    zvt i8 split-k/128 b-shared c-by-dma M=128 N=64 K=512: .text:1544:1ed1c92757d2e507b9c92b3bad9f52f3 |}]
+    zvt i8 split-k/128 b-shared c-by-dma M=128 N=64 K=512: .text:1544:4de6bd26f5ceff3e51b0b2bf77f77c06 |}]
 
 let callee_saved = Gpr.[ s0; s1; s2; s3; s4; s5; s6; s7; s8; s9; s10; s11 ]
 

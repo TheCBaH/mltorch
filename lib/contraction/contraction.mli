@@ -53,11 +53,12 @@ module Numerics : sig
         (** bfloat16 operands only: k ascending two steps at a time,
             [acc <- acc + (a0 * b0 + a1 * b1)] where the pair's sum of exact
             products is rounded to odd in binary32 (truncated, its last bit set
-            when anything was cut off) and then added to nearest; a last odd
-            step adds one product. A sum that is zero is positive zero, so a
-            result is never negative zero: a seed of negative zero survives only
-            a sum it does not meet. The matrix engine's bfloat16 tile multiply,
-            as measured on its RTL *)
+            when anything was cut off) and then added to the accumulator, again
+            rounded to odd (as released from Coral NPU v0.0.8; v0.0.5 to v0.0.7
+            added to nearest); a last odd step adds one product. A sum that is
+            zero is positive zero, so a result is never negative zero: a seed of
+            negative zero survives only a sum it does not meet. The matrix
+            engine's bfloat16 tile multiply, as measured on its RTL *)
 
   val name : t -> string
 end

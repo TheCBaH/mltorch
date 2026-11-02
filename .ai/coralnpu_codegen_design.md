@@ -648,6 +648,18 @@ and 19x29 k61 with partial tiles. A result does not depend on its neighbours
 small product's depth and bits known: the added bit below the result's last
 set it however far down, and the bits above were truncated.
 
+**Release v0.0.8 changed the accumulate.** The pair sum is still
+rounded to odd, but it is now added to the accumulator **to odd** too:
+`acc <- RTO (acc + RTO (p0 + p1))`. Upstream, `zvt_pe_block.sv` forces the
+round-to-odd mode for a multiply whose source format is not binary32
+(commit "Sync backend updates", "zvt's accumulator use ROD when fp sew <= 16").
+On the RTL it is bitwise over random bfloat16 data of exponent spread 0 to 12,
+seeded and unseeded, at k = 4, 8 and 64 (12,288 cells), and none of the twelve
+alternative roundings of the three terms is; the v0.0.5 to v0.0.7 rule, nearest,
+matches 920 of 4096 at k = 64. A result's last bit is therefore sticky: it is
+odd whenever the exact sum was not representable. The v0.0.7 emulators still
+follow the older rule.
+
 `Contraction.Numerics.Paired` names it (bfloat16 operands only; a last odd
 step adds one product; a zero sum is +0, the engine's adder never gives -0,
 measured with seeds and products of both signs), `F32_math.add_odd32` computes the pair sum (checked

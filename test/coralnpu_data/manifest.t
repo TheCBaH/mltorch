@@ -3,23 +3,23 @@ manifest hash.
 
   $ ./coral_manifest_check.exe "$CORALNPU_DATA"
   10 configurations, every ID recomputed
-  core-mini-axi rtl coralnpu:core-mini-axi:e763f8851c1884192360
+  core-mini-axi rtl coralnpu:core-mini-axi:de71f1a8c5a77a797a84
   f,i,m,zbb,zfbfmin,zicsr,zifencei
   itcm           itcm 0x00000000     8192 loadable
   dtcm           dtcm 0x00010000    32768 writable loadable htif
   core-csr       csr  0x00030000     4096
   testbench-ram  ram  0x20000000  4194304 writable loadable htif
   testbench-uart mmio 0x54000000        4 writable
-  $DIR/bin/core_mini_axi_sim --binary=guest.elf
-  core-mini-highmem-axi rtl coralnpu:core-mini-highmem-axi:2881be15bf26633d7057
+  $DIR/bin/core_mini_axi_fast_sim --binary=guest.elf
+  core-mini-highmem-axi rtl coralnpu:core-mini-highmem-axi:667119042c774a1d54dd
   f,i,m,zbb,zfbfmin,zicsr,zifencei
   itcm           itcm 0x00000000  1048576 loadable
   dtcm           dtcm 0x00100000  1048576 writable loadable htif
   core-csr       csr  0x00200000     4096
   testbench-ram  ram  0x20000000  4194304 writable loadable htif
   testbench-uart mmio 0x54000000        4 writable
-  $DIR/bin/core_mini_highmem_axi_sim --binary=guest.elf
-  mpact-v2 mpact coralnpu:mpact-v2:0f60dbd1b1ea67f14b47
+  $DIR/bin/core_mini_highmem_axi_fast_sim --binary=guest.elf
+  mpact-v2 mpact coralnpu:mpact-v2:df88a590e42946080a70
   f,i,m,zbb,zicsr,zifencei,zve32x
   itcm           itcm 0x00000000     8192 loadable
   dtcm           dtcm 0x00010000    32768 writable loadable htif

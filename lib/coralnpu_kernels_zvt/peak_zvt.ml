@@ -80,7 +80,7 @@ module Tile = struct
   (* [mtype]: the tile's rows [tm], [tk] and [mtwiden]. *)
   let mtype ~tk ~mtwiden = (elements lsl 10) lor (tk lsl 5) lor mtwiden
 
-  (* [msetmtype zero, mtype, vtype], then [msettn] for 16 columns, through
+  (* [msetmtype mtype, vtype], then [msettn] for 16 columns, through
      [t1], [t2] and [t3]. *)
   let configure ~mtype ~vtype =
     let open Err.Syntax in
@@ -89,8 +89,7 @@ module Tile = struct
     Ok
       (List.map Item.insn (mt @ vt)
       @ [
-          Item.insn
-            (Msetmtype { dst = Gpr.zero; mtype = Gpr.t1; vtype = Gpr.t2 });
+          Item.insn (Msetmtype { mtype = Gpr.t1; vtype = Gpr.t2 });
           li Gpr.t3 elements;
           Item.insn (Msettn { dst = Gpr.zero; avl = Gpr.t3 });
         ])

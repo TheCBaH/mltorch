@@ -115,10 +115,7 @@ let items ?mutation (d : C.t) =
     let set ~tk ~widen ~vtype =
       li Gpr.t1 ((tm lsl 10) lor (tk lsl 5) lor widen)
       @ li Gpr.t2 vtype
-      @ [
-          insn
-            (Insn.Msetmtype { dst = Gpr.zero; mtype = Gpr.t1; vtype = Gpr.t2 });
-        ]
+      @ [ insn (Insn.Msetmtype { mtype = Gpr.t1; vtype = Gpr.t2 }) ]
     in
     let compute_config =
       match int8 with

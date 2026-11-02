@@ -64,15 +64,23 @@ module Mutant = struct
     in
     let exp x = if Float.is_nan x then x else F32_math.Value.exp x in
     let pairs ~seed ~n xs ys =
-      (* the engine's bfloat16 sum: two steps rounded to odd, added to nearest *)
+      (* the engine's bfloat16 sum (Coral NPU v0.0.8): two steps rounded to odd,
+         added to the accumulator, rounded to odd again, where an overflow
+         saturates *)
       let acc = ref seed in
       let kk = ref 0 in
       while !kk < n do
         let x1, y1 =
           if !kk + 1 < n then (xs (!kk + 1), ys (!kk + 1)) else (0., 0.)
         in
+        let pair = F32_math.add_odd32 (xs !kk *. ys !kk) (x1 *. y1) in
+        let sum = F32_math.add_odd32 !acc pair in
         let sum =
-          rn (!acc +. F32_math.add_odd32 (xs !kk *. ys !kk) (x1 *. y1))
+          if
+            Float.is_finite !acc && Float.is_finite pair
+            && not (Float.is_finite sum)
+          then Float.copy_sign (Int32.float_of_bits 0x7F7FFFFFl) sum
+          else sum
         in
         acc := if sum = 0. then 0. else sum;
         kk := !kk + 2
@@ -341,27 +349,28 @@ let%expect_test "bf16_round is Half.Bf16.of_float on [0, 1] and NaN" =
 
 let%expect_test "seeded accumulation: add-after-the-block differs" =
   (* Zero scores, 64 keys in two blocks of 32, d = 2; every p and a is 1.
-     Values 2^20 for the first 32 keys, 1 for the next four, 0 after. The
-     first block leaves 2^25; seeded, each pair of the second adds 2, a tie that
-     rounds back down at that magnitude (ulp 4), so the sum stays 2^25 and the
-     output is 2^25 / 64 = 2^19. From zero then added, the block's four ones
-     sum to 4 and the total is 2^25 + 4: 524288.0625. *)
+     Values 2^20 for the first 32 keys, 1 for the next ten, 0 after. The first
+     block leaves 2^25; seeded, each pair of the second adds 2, which rounds to
+     odd at that magnitude (ulp 4) to 2^25 + 4 and stays there (2^25 + 6 rounds
+     to the odd 2^25 + 4 too), so the output is (2^25 + 4) / 64 = 524288.0625.
+     From zero then added, the block's ten ones sum to 10 and the total rounds
+     to odd to 2^25 + 12: 524288.1875. *)
   let tk = 64 and d = 2 in
   let v =
     Array.init (tk * d) (fun i ->
         let key = i / d in
-        if key < 32 then ldexp 1. 20 else if key < 36 then 1. else 0.)
+        if key < 32 then ldexp 1. 20 else if key < 42 then 1. else 0.)
   in
   case "2^20 seeded" ~bk:32 ~scale:1. ~tq:1 ~tk ~d ~q:(zeros d)
     ~k:(zeros (tk * d))
     ~v
     ~mutants:[ ("add_after", Mutant.Add_after) ]
-    ~expect:[ ldexp 1. 19; ldexp 1. 19 ]
+    ~expect:[ ldexp 1. 19 +. ldexp 1. (-4); ldexp 1. 19 +. ldexp 1. (-4) ]
     ();
   [%expect
     {|
-    2^20 seeded: 49000000 49000000
-      mutant add_after: 49000001 49000001 |}]
+    2^20 seeded: 49000001 49000001
+      mutant add_after: 49000002 49000002 |}]
 
 let%expect_test "the rounded quantity is the unnormalized exponential" =
   (* Zero scores, three keys, unit values: p = 1 each, sum 3, 3 / 3 = 1. Rounding

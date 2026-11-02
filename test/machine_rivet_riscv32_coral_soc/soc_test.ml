@@ -49,16 +49,16 @@ let%expect_test "Zve32f bundles on the subsystem and standalone" =
     {|
     relu then add over C=32, subsystem (2 invocations): bitwise
     relu then add over C=32, standalone (2 invocations): bitwise
-      cycles 1916 on the subsystem, 1915 standalone (+1)
+      cycles 1916 on the subsystem, 1916 standalone (+0)
     softmax over H, W=32, subsystem (1 invocations): bitwise
     softmax over H, W=32, standalone (1 invocations): bitwise
       cycles 495832 on the subsystem, 495736 standalone (+96)
     layer_norm over H, W=32, subsystem (1 invocations): bitwise
     layer_norm over H, W=32, standalone (1 invocations): bitwise
-      cycles 84166 on the subsystem, 84070 standalone (+96)
+      cycles 84166 on the subsystem, 84166 standalone (+0)
     conv, batch norm, relu to C=32, subsystem (3 invocations): bitwise
     conv, batch norm, relu to C=32, standalone (3 invocations): bitwise
-      cycles 23825 on the subsystem, 23903 standalone (-78) |}]
+      cycles 23825 on the subsystem, 23801 standalone (+24) |}]
 
 (* Outputs stored under the wrong slot are caught by the oracle; a read-back
    larger than the budget is refused before any byte crosses the bridge. *)

@@ -138,7 +138,7 @@ type t =
   | Li of { dst : Gpr.t; imm : Imm.Li.t }
   | Lui of { dst : Gpr.t; imm : Imm.U20.t }
   | Lw of { dst : Gpr.t; base : Gpr.t; offset : Imm.Imm12.t }
-  | Msetmtype of { dst : Gpr.t; mtype : Gpr.t; vtype : Gpr.t }
+  | Msetmtype of { mtype : Gpr.t; vtype : Gpr.t }
       (** Zvt: [mtype] and, as [vsetvl] would, [vtype] from registers; [vl]
           becomes 0. *)
   | Msettn of { dst : Gpr.t; avl : Gpr.t }
@@ -278,8 +278,8 @@ let pp ppf i =
   | Lui { dst; imm } -> Fmt.pf ppf "%s %a, %a" m Gpr.pp dst Imm.U20.pp imm
   | Lw { dst; base; offset } ->
       Fmt.pf ppf "%s %a, %a" m Gpr.pp dst pp_mem (offset, base)
-  | Msetmtype { dst; mtype; vtype } ->
-      Fmt.pf ppf "%s %a, %a, %a" m Gpr.pp dst Gpr.pp mtype Gpr.pp vtype
+  | Msetmtype { mtype; vtype } ->
+      Fmt.pf ppf "%s %a, %a" m Gpr.pp mtype Gpr.pp vtype
   | Msettn { dst; avl } -> Fmt.pf ppf "%s %a, %a" m Gpr.pp dst Gpr.pp avl
   | Mv { dst; src } -> Fmt.pf ppf "%s %a, %a" m Gpr.pp dst Gpr.pp src
   | Ret -> Fmt.string ppf m
@@ -400,7 +400,7 @@ let reads i =
   | Flh { base; _ } | Flw { base; _ } | Lw { base; _ } | Vle { base; _ } ->
       gprs [ base ]
   | Li _ | Lui _ | Ret | Vmv_v_i _ | Vtzero _ -> []
-  | Msetmtype { mtype; vtype; _ } -> gprs [ mtype; vtype ]
+  | Msetmtype { mtype; vtype } -> gprs [ mtype; vtype ]
   | Msettn { avl; _ } -> gprs [ avl ]
   | Sw { src; base; _ } -> gprs [ src; base ]
   | Vfmacc_vf { acc; scalar; src } | Vfwmaccbf16_vf { acc; scalar; src } ->
@@ -437,7 +437,6 @@ let writes i =
   | Li { dst; _ }
   | Lui { dst; _ }
   | Lw { dst; _ }
-  | Msetmtype { dst; _ }
   | Msettn { dst; _ }
   | Mv { dst; _ }
   | Srli { dst; _ }
@@ -446,8 +445,8 @@ let writes i =
   | Call _ | Jalr _ -> gpr Gpr.ra
   | Flh { dst; _ } | Flw { dst; _ } -> [ Reg_ref.Fpr dst ]
   (* The tile [vtle] writes is chosen at run time, by [slice]. *)
-  | Beqz _ | Bnez _ | Fence | Fence_i | J _ | Ret | Sw _ | Vse _ | Vsse _
-  | Vtle _ | Vtse _ ->
+  | Beqz _ | Bnez _ | Fence | Fence_i | J _ | Msetmtype _ | Ret | Sw _ | Vse _
+  | Vsse _ | Vtle _ | Vtse _ ->
       []
   | Vtmm { acc = dst; _ } | Vtzero { dst } -> [ Reg_ref.Mtreg dst ]
   | Vfmacc_vf { acc; _ }

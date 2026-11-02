@@ -102,7 +102,7 @@ let operands ~spelling : Insn.t -> Operand.t list = function
   | Li { dst; imm = i } -> [ gpr dst; imm (Imm.Li.to_int i) ]
   | Lui { dst; imm = i } -> [ gpr dst; imm (Imm.U20.to_int i) ]
   | Lw { dst; base; offset } -> [ gpr dst; mem base (Imm.Imm12.to_int offset) ]
-  | Msetmtype { dst; mtype; vtype } -> [ gpr dst; gpr mtype; gpr vtype ]
+  | Msetmtype { mtype; vtype } -> [ gpr mtype; gpr vtype ]
   | Msettn { dst; avl } -> [ gpr dst; gpr avl ]
   | Mv { dst; src } -> [ gpr dst; gpr src ]
   | Ret -> []

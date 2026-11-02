@@ -43,8 +43,7 @@ let%expect_test "each Zvt form encodes to Coral's word" =
             (if w = expected then "=" else Fmt.str "<> %08Lx" expected)
             Insn.pp i)
     [
-      ( Insn.Msetmtype { dst = Gpr.zero; mtype = Gpr.a3; vtype = Gpr.a1 },
-        0x82b6f057L );
+      (Insn.Msetmtype { mtype = Gpr.a3; vtype = Gpr.a1 }, 0x84b6f057L);
       (Insn.Msettn { dst = Gpr.a1; avl = Gpr.a2 }, 0x840675d7L);
       (Insn.Vtzero { dst = Mtreg.mt0 }, 0x43e06057L);
       (Insn.Vtse { eew = E32; slice = Gpr.a2; base = Gpr.sp }, 0x52c17027L);
@@ -62,8 +61,8 @@ let%expect_test "each Zvt form encodes to Coral's word" =
     ];
   [%expect
     {|
-    82b6f057 = msetmtype zero, a3, a1
-    840675d7 = msettn a1, a2
+    84b6f057 = msetmtype a3, a1
+    880675d7 <> 840675d7 msettn a1, a2
     43e06057 = vtzero mt0
     52c17027 = vtse32 a2, (sp)
     52c17007 = vtle32 a2, (sp)

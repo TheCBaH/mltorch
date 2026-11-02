@@ -1,7 +1,7 @@
 (* The matrix engine's bfloat16 functions, called directly on the VME RTL: C's
    binary32 results bitwise against the descriptor's [Paired] reference (each
-   two k steps summed and rounded to odd, then added to the accumulator to
-   nearest), over operands whose exponents span enough to make that differ from
+   two k steps summed and rounded to odd, then added to the accumulator, rounded
+   to odd again: the v0.0.8 release; v0.0.5 to v0.0.7 added to nearest), over operands whose exponents span enough to make that differ from
    rounding every step, with the cycles each takes. The plain function loads
    its slices straight from the operands; the packed one packs them into
    panels of its own for the suite's double-buffered blocks, or reads an
@@ -243,8 +243,8 @@ let%expect_test "bfloat16 pairs on the matrix engine" =
     [ (32L, 32L, 64L); (19L, 29L, 61L); (16L, 16L, 1L) ];
   [%expect
     {|
-    32x32 k64 plain: bitwise (734 of 1024 differ from every step rounded to nearest), 6196 cycles, 21.2 ops/cycle
-    19x29 k61 plain: bitwise (398 of 551 differ from every step rounded to nearest), 4466 cycles, 15.1 ops/cycle
+    32x32 k64 plain: bitwise (892 of 1024 differ from every step rounded to nearest), 6196 cycles, 21.2 ops/cycle
+    19x29 k61 plain: bitwise (479 of 551 differ from every step rounded to nearest), 4532 cycles, 14.8 ops/cycle
     16x16 k1 plain: bitwise (0 of 256 differ from every step rounded to nearest), 211 cycles, 2.4 ops/cycle |}]
 
 (* The packed function over A row-major (packed by strided loads, the slow
@@ -279,18 +279,18 @@ let%expect_test "the packed function" =
     ];
   [%expect
     {|
-    32x32 k64 packed, A row-major: bitwise (734 of 1024 differ from every step rounded to nearest), 3008 cycles, 43.6 ops/cycle
-    19x29 k61 packed, A row-major: bitwise (398 of 551 differ from every step rounded to nearest), 4686 cycles, 14.3 ops/cycle
-    70x40 k33 packed, A row-major: bitwise (1853 of 2800 differ from every step rounded to nearest), 10376 cycles, 17.8 ops/cycle
-    40x32 k62 packed, A row-major: bitwise (925 of 1280 differ from every step rounded to nearest), 5243 cycles, 30.3 ops/cycle
-    32x32 k64 packed, A in place: bitwise (747 of 1024 differ from every step rounded to nearest), 1318 cycles, 99.4 ops/cycle
-    32x64 k64 packed, A in place: bitwise (1481 of 2048 differ from every step rounded to nearest), 2514 cycles, 104.3 ops/cycle
-    70x40 k32 packed, A in place: bitwise (1889 of 2800 differ from every step rounded to nearest), 3604 cycles, 49.7 ops/cycle
-    32x32 k64 packed, C transposed, A in place: bitwise (747 of 1024 differ from every step rounded to nearest), 1318 cycles, 99.4 ops/cycle
-    32x64 k64 packed, C transposed, A in place: bitwise (1481 of 2048 differ from every step rounded to nearest), 2514 cycles, 104.3 ops/cycle
-    70x40 k32 packed, C transposed, A in place: bitwise (1889 of 2800 differ from every step rounded to nearest), 3677 cycles, 48.7 ops/cycle
-    32x32 k64 packed, C transposed, A row-major: bitwise (734 of 1024 differ from every step rounded to nearest), 3009 cycles, 43.6 ops/cycle
-    19x29 k61 packed, C transposed, A in place: bitwise (410 of 551 differ from every step rounded to nearest), 3932 cycles, 17.1 ops/cycle |}]
+    32x32 k64 packed, A row-major: bitwise (892 of 1024 differ from every step rounded to nearest), 3008 cycles, 43.6 ops/cycle
+    19x29 k61 packed, A row-major: bitwise (479 of 551 differ from every step rounded to nearest), 4686 cycles, 14.3 ops/cycle
+    70x40 k33 packed, A row-major: bitwise (2310 of 2800 differ from every step rounded to nearest), 10376 cycles, 17.8 ops/cycle
+    40x32 k62 packed, A row-major: bitwise (1100 of 1280 differ from every step rounded to nearest), 5243 cycles, 30.3 ops/cycle
+    32x32 k64 packed, A in place: bitwise (873 of 1024 differ from every step rounded to nearest), 1318 cycles, 99.4 ops/cycle
+    32x64 k64 packed, A in place: bitwise (1752 of 2048 differ from every step rounded to nearest), 2514 cycles, 104.3 ops/cycle
+    70x40 k32 packed, A in place: bitwise (2266 of 2800 differ from every step rounded to nearest), 3604 cycles, 49.7 ops/cycle
+    32x32 k64 packed, C transposed, A in place: bitwise (873 of 1024 differ from every step rounded to nearest), 1318 cycles, 99.4 ops/cycle
+    32x64 k64 packed, C transposed, A in place: bitwise (1752 of 2048 differ from every step rounded to nearest), 2514 cycles, 104.3 ops/cycle
+    70x40 k32 packed, C transposed, A in place: bitwise (2266 of 2800 differ from every step rounded to nearest), 3677 cycles, 48.7 ops/cycle
+    32x32 k64 packed, C transposed, A row-major: bitwise (892 of 1024 differ from every step rounded to nearest), 3009 cycles, 43.6 ops/cycle
+    19x29 k61 packed, C transposed, A in place: bitwise (479 of 551 differ from every step rounded to nearest), 3932 cycles, 17.1 ops/cycle |}]
 
 (* Each mutant is a defect a run must detect: a partial last column tile
    written whole, A's slices where B's go, A's rows an element too far apart
@@ -337,12 +337,12 @@ let%expect_test "B staged into DTCM" =
     [ (32L, 32L, 64L); (192L, 32L, 128L); (192L, 64L, 128L) ];
   [%expect
     {|
-    32x32 k64 in SRAM, in place: bitwise (747 of 1024 differ from every step rounded to nearest), 3917 cycles, 33.5 ops/cycle
-    32x32 k64 in SRAM, B staged: bitwise (747 of 1024 differ from every step rounded to nearest), 4567 cycles, 28.7 ops/cycle
-    192x32 k128 in SRAM, in place: bitwise (4905 of 6144 differ from every step rounded to nearest), 36716 cycles, 42.8 ops/cycle
-    192x32 k128 in SRAM, B staged: bitwise (4905 of 6144 differ from every step rounded to nearest), 30273 cycles, 52.0 ops/cycle
-    192x64 k128 in SRAM, in place: bitwise (9757 of 12288 differ from every step rounded to nearest), 73310 cycles, 42.9 ops/cycle
-    192x64 k128 in SRAM, B staged: bitwise (9757 of 12288 differ from every step rounded to nearest), 60429 cycles, 52.1 ops/cycle |}]
+    32x32 k64 in SRAM, in place: bitwise (873 of 1024 differ from every step rounded to nearest), 3917 cycles, 33.5 ops/cycle
+    32x32 k64 in SRAM, B staged: bitwise (873 of 1024 differ from every step rounded to nearest), 4567 cycles, 28.7 ops/cycle
+    192x32 k128 in SRAM, in place: bitwise (5557 of 6144 differ from every step rounded to nearest), 36716 cycles, 42.8 ops/cycle
+    192x32 k128 in SRAM, B staged: bitwise (5557 of 6144 differ from every step rounded to nearest), 30273 cycles, 52.0 ops/cycle
+    192x64 k128 in SRAM, in place: bitwise (11014 of 12288 differ from every step rounded to nearest), 73310 cycles, 42.9 ops/cycle
+    192x64 k128 in SRAM, B staged: bitwise (11014 of 12288 differ from every step rounded to nearest), 60429 cycles, 52.1 ops/cycle |}]
 
 (* Staged only where B is outside the DTCM: in SRAM it is copied (the rate of
    the staged run), in the DTCM it is read where it is (the rate of the plain
@@ -355,10 +355,10 @@ let%expect_test "B staged where it is outside the DTCM" =
   show ~engine:Engine.Outside ~what:"in DTCM, staged outside" d;
   [%expect
     {|
-    96x32 k64 in SRAM, in place: bitwise (2261 of 3072 differ from every step rounded to nearest), 11507 cycles, 34.2 ops/cycle
-    96x32 k64 in SRAM, staged outside: bitwise (2261 of 3072 differ from every step rounded to nearest), 10588 cycles, 37.1 ops/cycle
-    96x32 k64 in DTCM, in place: bitwise (2261 of 3072 differ from every step rounded to nearest), 6776 cycles, 58.0 ops/cycle
-    96x32 k64 in DTCM, staged outside: bitwise (2261 of 3072 differ from every step rounded to nearest), 6781 cycles, 58.0 ops/cycle |}]
+    96x32 k64 in SRAM, in place: bitwise (2657 of 3072 differ from every step rounded to nearest), 11507 cycles, 34.2 ops/cycle
+    96x32 k64 in SRAM, staged outside: bitwise (2657 of 3072 differ from every step rounded to nearest), 10588 cycles, 37.1 ops/cycle
+    96x32 k64 in DTCM, in place: bitwise (2657 of 3072 differ from every step rounded to nearest), 6776 cycles, 58.0 ops/cycle
+    96x32 k64 in DTCM, staged outside: bitwise (2657 of 3072 differ from every step rounded to nearest), 6781 cycles, 58.0 ops/cycle |}]
 
 (* binary32 words of random sign, mantissa and an exponent within [spread] of 1 *)
 let f32_bytes seed count ~spread =
@@ -401,23 +401,29 @@ let%expect_test "the packed function seeded from C" =
     ];
   [%expect
     {|
-    32x32 k64 seeded, A row-major: bitwise (742 of 1024 differ from every step rounded to nearest), 3394 cycles, 38.6 ops/cycle
-    16x64 k32 seeded, the context shape, A in place: bitwise (677 of 1024 differ from every step rounded to nearest), 1600 cycles, 41.0 ops/cycle
-    19x29 k60 seeded, partial tiles: bitwise (411 of 551 differ from every step rounded to nearest), 3497 cycles, 18.9 ops/cycle
-    70x40 k63 seeded, a three-step tail: bitwise (2006 of 2800 differ from every step rounded to nearest), 19846 cycles, 17.8 ops/cycle
-    32x64 k64 seeded, C transposed, A in place: bitwise (1471 of 2048 differ from every step rounded to nearest), 3284 cycles, 79.8 ops/cycle
+    32x32 k64 seeded, A row-major: bitwise (882 of 1024 differ from every step rounded to nearest), 3394 cycles, 38.6 ops/cycle
+    16x64 k32 seeded, the context shape, A in place: bitwise (850 of 1024 differ from every step rounded to nearest), 1600 cycles, 41.0 ops/cycle
+    19x29 k60 seeded, partial tiles: bitwise (464 of 551 differ from every step rounded to nearest), 3497 cycles, 18.9 ops/cycle
+    70x40 k63 seeded, a three-step tail: bitwise (2414 of 2800 differ from every step rounded to nearest), 19846 cycles, 17.8 ops/cycle
+    32x64 k64 seeded, C transposed, A in place: bitwise (1757 of 2048 differ from every step rounded to nearest), 3284 cycles, 79.8 ops/cycle
     19x29 k61 seeded, k = 61: a seeded k that the depth padding changes
     19x29 k62 seeded, k = 62: a seeded k that the depth padding changes |}]
 
-(* The seed is not "compute the product, then add it": 2^25 plus two pairs of
-   two ones is 2^25 when each pair is added to the running sum (2^25 + 2 ties
-   to even), and 2^25 + 4 when the four ones are summed first. *)
+(* The seed is not "compute the product, then add it": 2^25 + 4 (an odd last
+   bit) plus two pairs of two minus ones is 2^25 + 4 when each pair is added to
+   the running sum (2^25 + 2 rounds to the odd neighbour, 2^25 + 4), and 2^25
+   when the four are summed first. *)
 let%expect_test "a seed is continued, not added after" =
-  let ones count = String.concat "" (List.init count (fun _ -> "\x80\x3f")) in
+  let ones sign =
+    String.concat ""
+      (List.init 64 (fun _ -> if sign then "\x80\xbf" else "\x80\x3f"))
+  in
   let d = descriptor ~a_transposed:true ~seeded:true ~m:16L ~n:16L ~k:4L () in
-  let seed = String.concat "" (List.init 256 (fun _ -> f32_word 33554432.)) in
+  let seed = String.concat "" (List.init 256 (fun _ -> f32_word 33554436.)) in
   (match
-     run ~engine:Engine.packed ~operands:(ones 64, ones 64) ~seed ~spread:0 d
+     run ~engine:Engine.packed
+       ~operands:(ones false, ones true)
+       ~seed ~spread:0 d
    with
   | Ok r ->
       Fmt.pr "%s: first word %ld, %d differ@."
@@ -432,7 +438,7 @@ let%expect_test "a seed is continued, not added after" =
      run
        ~engine:
          (Engine.Packed (Some Z.Zvt_packed_contraction.Mutation.Seed_ignored))
-       ~operands:(ones 64, ones 64)
+       ~operands:(ones false, ones true)
        ~seed ~spread:0 d
    with
   | Ok r ->
@@ -440,7 +446,7 @@ let%expect_test "a seed is continued, not added after" =
   | Error e -> Fmt.pr "%s@." e);
   [%expect
     {|
-    bitwise: first word 1275068416, 0 differ
+    bitwise: first word 1275068417, 0 differ
     2^25 = 1275068416, 2^25 + 4 = 1275068417
     seed ignored: DIFFERS |}]
 

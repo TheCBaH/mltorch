@@ -174,13 +174,13 @@ let%expect_test "shapes: whole blocks, ragged ones, both block sizes" =
     {|
     16x32 d32 bk32: bitwise, 43943 cycles
     32x32 d32 bk32: bitwise, 87641 cycles
-    64x64 d64 bk32: bitwise, 385994 cycles
-    9x29 d64 bk32: bitwise, 44771 cycles
+    64x64 d64 bk32: bitwise, 386473 cycles
+    9x29 d64 bk32: bitwise, 44832 cycles
     41x61 d64 bk32: bitwise, 275669 cycles
-    16x36 d32 bk32: bitwise, 52400 cycles
-    23x40 d16 bk16: bitwise, 108493 cycles
+    16x36 d32 bk32: bitwise, 52433 cycles
+    23x40 d16 bk16: bitwise, 108505 cycles
     5x7 d8 bk4: bitwise, 12338 cycles
-    41x61 d96 bk16: bitwise, 338555 cycles
+    41x61 d96 bk16: bitwise, 338735 cycles
     16x32 d96 bk16: bitwise, 64072 cycles
     9x29 d80 bk16: bitwise, 51977 cycles |}]
 
@@ -218,10 +218,10 @@ let%expect_test "masks: dense, per key, per query, a masked column" =
   [%expect
     {|
     9x29 d64 bk32 dense: bitwise, 45219 cycles
-    41x61 d64 bk32 dense: bitwise, 286030 cycles
-    41x61 d32 bk32 [1, Tk]: bitwise, 243920 cycles
-    41x61 d32 bk32 [Tq, 1]: bitwise, 241930 cycles
-    41x61 d96 bk16 dense: bitwise, 349278 cycles
+    41x61 d64 bk32 dense: bitwise, 286225 cycles
+    41x61 d32 bk32 [1, Tk]: bitwise, 244244 cycles
+    41x61 d32 bk32 [Tq, 1]: bitwise, 241992 cycles
+    41x61 d96 bk16 dense: bitwise, 349375 cycles
     masked columns: bitwise, 92357 cycles |}]
 
 let%expect_test "batches and heads, K and V shared by the heads" =
@@ -231,8 +231,8 @@ let%expect_test "batches and heads, K and V shared by the heads" =
     (make ~batch:2 ~heads:3 ~mask:Per_key ~tq:9 ~tk:29 ~d:32 ~bk:16 ());
   [%expect
     {|
-    2 batches x 3 heads, K/V per batch: bitwise, 235080 cycles
-    2 batches x 3 heads, masked, distinct K/V: bitwise, 253315 cycles |}]
+    2 batches x 3 heads, K/V per batch: bitwise, 235133 cycles
+    2 batches x 3 heads, masked, distinct K/V: bitwise, 253541 cycles |}]
 
 (* The key block is part of the grant: zero Q and K, 32 keys, d = 64, mask 0 on
    the first 16 keys and 1 on the last 16, V = 1 on the first 16 keys. *)
@@ -270,13 +270,13 @@ let%expect_test "V's neighbours" =
   [%expect
     {|
     tk 29, SRAM, after-bytes ff: bitwise, 48687 cycles
-    tk 29, SRAM, after-bytes 7f: bitwise, 48511 cycles
-    tk 29, DTCM, after-bytes ff: bitwise, 48163 cycles
-    tk 29, DTCM, after-bytes 7f: bitwise, 48236 cycles
-    tk 64, SRAM, after-bytes ff: bitwise, 96735 cycles
-    tk 64, SRAM, after-bytes 7f: bitwise, 96744 cycles
+    tk 29, SRAM, after-bytes 7f: bitwise, 48687 cycles
+    tk 29, DTCM, after-bytes ff: bitwise, 48303 cycles
+    tk 29, DTCM, after-bytes 7f: bitwise, 48303 cycles
+    tk 64, SRAM, after-bytes ff: bitwise, 96802 cycles
+    tk 64, SRAM, after-bytes 7f: bitwise, 96802 cycles
     tk 64, DTCM, after-bytes ff: bitwise, 96418 cycles
-    tk 64, DTCM, after-bytes 7f: bitwise, 96406 cycles |}]
+    tk 64, DTCM, after-bytes 7f: bitwise, 96418 cycles |}]
 
 (* Tq 16, Tk 34, d 64, zero Q and K, mask 0 on the first 32 keys and 200 on the
    last two, V feature 0 -1 then -0: the engine's zero sum is +0. *)
@@ -404,7 +404,7 @@ let%expect_test "each defect is detected" =
     V tail unzeroed: differs
     V tail d96, unmutated: bitwise, 58220 cycles
     V tail d96 unzeroed: differs
-    V in the DTCM, unmutated: bitwise, 38077 cycles
+    V in the DTCM, unmutated: bitwise, 38094 cycles
     V read in place in the DTCM: differs |}]
 
 (* Cycles by phase at 64x64 d64: the whole, then each phase left out in turn
@@ -441,11 +441,11 @@ let%expect_test "cycles by phase" =
       ];
   [%expect
     {|
-    whole: 386083
-    scores block: 31766
-    exp pass: 290730
-    context block: 29314
-    normalize: 17694 |}]
+    whole: 386473
+    scores block: 32156
+    exp pass: 291120
+    context block: 29704
+    normalize: 18084 |}]
 
 (* d 128 fits the instruction memory only because the exp is one shared
    routine, called from both places that need it *)
@@ -471,6 +471,6 @@ let%expect_test "d 128" =
     .text: 6580 bytes
     .data: 88 bytes
     .bss: 23296 bytes
-    41x61 d128 bk16 dense: bitwise, 386836 cycles
+    41x61 d128 bk16 dense: bitwise, 387087 cycles
     16x32 d128 bk16: bitwise, 72966 cycles
     9x29 d112 bk16: bitwise, 59535 cycles |}]

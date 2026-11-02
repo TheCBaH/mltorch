@@ -266,15 +266,32 @@ let eval t ~a ~b ~c ~write =
                        | Numerics.Paired ->
                            (* a bfloat16 product is exact in binary64; the pair's
                               sum is rounded to odd, then added to the
-                              accumulator to nearest; the last step of an odd
-                              [k] has one product *)
+                              accumulator, rounded to odd again (Coral NPU
+                              v0.0.8: the matrix engine's multiply-accumulate
+                              takes round-to-odd for 16-bit sources); the last
+                              step of an odd [k] has one product *)
                            let next = Int64.succ kk in
                            let pair =
                              F32_math.add_odd32 (x *. y)
                                (if Int64.compare next t.k < 0 then product next
                                 else 0.)
                            in
-                           let sum = round32 (!acc +. pair) in
+                           let sum = F32_math.add_odd32 !acc pair in
+                           (* rounding to odd does not overflow: finite
+                              operands whose sum passes the largest finite
+                              give it, signed (FLT_MAX + 2^104 on the RTL),
+                              where the pair's own sum and a product still
+                              overflow to infinity *)
+                           let sum =
+                             if
+                               Float.is_finite !acc && Float.is_finite pair
+                               && not (Float.is_finite sum)
+                             then
+                               Float.copy_sign
+                                 (Int32.float_of_bits 0x7F7FFFFFl)
+                                 sum
+                             else sum
+                           in
                            (* the engine's adder never gives negative zero:
                               a zero sum is positive (measured on the RTL
                               with seeds and products of both signs) *)
