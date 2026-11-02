@@ -24,7 +24,7 @@ let measured_in path =
                         (String.sub l i (String.length l - i))
                         "(%d invocations)" Fun.id);
                    true
-                 with _ -> false ->
+                 with Scanf.Scan_failure _ | Failure _ | End_of_file -> false ->
             let name = String.trim (String.sub l 0 i) in
             go
               (match current with Some c -> c :: acc | None -> acc)
@@ -78,13 +78,10 @@ let core =
   CM.Core.vme ~packed:(fun d ->
       d.Contraction.numerics = Contraction.Numerics.Paired
       &&
-        try
-          P.fast d
-          &&
-          match P.panel_bytes d with
-          | Ok b -> b <= 32768 * 5 / 8
-          | Error _ -> false
-        with _ -> false)
+      (* [panel_bytes] refuses first: [fast] raises on what it refuses *)
+      match P.panel_bytes d with
+      | Ok b -> b <= 32768 * 5 / 8 && P.fast d
+      | Error _ -> false)
 
 let features c =
   match Census_test.censuses ~ram:(ram c.Cases.name) c with

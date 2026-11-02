@@ -241,12 +241,15 @@ let bf16_round x =
 
 (* RISC-V [fmax]: a NaN operand is dropped unless both are NaN; +0 is above -0. *)
 let fmax a b =
-  if Float.is_nan a then if Float.is_nan b then nan32 else b
-  else if Float.is_nan b then a
-  else if a > b then a
-  else if b > a then b
-  else if Float.sign_bit a then b
-  else a
+  match (Float.is_nan a, Float.is_nan b) with
+  | true, true -> nan32
+  | true, false -> b
+  | false, true -> a
+  | false, false ->
+      if a > b then a
+      else if b > a then b
+      else if Float.sign_bit a then b
+      else a
 
 let exp x = if Float.is_nan x then nan32 else F32_math.Value.exp x
 

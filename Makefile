@@ -764,9 +764,12 @@ check.whitespace:
 
 # Zanuda lint report (SARIF), run on the built .cmt files. Reports only; it
 # exits 0 on findings. .zanuda disables teaching-oriented lints, and
-# mutually_rec_types, which runs out of memory on this tree. Findings accepted
+# mutually_rec_types, which runs out of memory on this tree. The filesystem
+# check (an .mli for every .ml) is off on the command line, as .zanuda cannot
+# disable it: an .mli is written where it hides helpers behind a narrow surface,
+# not for tests, executables or modules their siblings open. Findings accepted
 # per file are `ignore <lint> <paths>` lines in .zanuda (a new file is not
-# covered; zanuda reports no stale entry). Vendored and
+# covered; a stale entry is listed after the summary once zanuda reports it). Vendored and
 # scratch trees are dropped from the report, as is any file that is not tracked:
 # generated sources (menhir, schema and ATen codegen) and the copies the JS
 # mirrors make are fixed at their origin, not in the build tree. @check
@@ -784,11 +787,12 @@ ZANUDA_SARIF ?= _build/zanuda.sarif
 lint.zanuda: build
 	opam exec -- dune build @check
 	mkdir -p vendored/opickle/modules/serde-pickle/test/data
-	opam exec -- $(ZANUDA) -dir . -osarif $(ZANUDA_SARIF).all >/dev/null 2>$(ZANUDA_SARIF:.sarif=.err) \
+	opam exec -- $(ZANUDA) -no-check-filesystem -dir . -osarif $(ZANUDA_SARIF).all >/dev/null 2>$(ZANUDA_SARIF:.sarif=.err) \
 	  || { cat $(ZANUDA_SARIF:.sarif=.err); exit 1; }
 	git ls-files | jq -R . > $(ZANUDA_SARIF:.sarif=.tracked)
 	jq --slurpfile tracked $(ZANUDA_SARIF:.sarif=.tracked) '.runs[0].results |= map(.ruleId as $$r | .locations[0].physicalLocation.artifactLocation.uri as $$u | select($$tracked | index($$u)) | select($$u | test("^(vendored|modules|experiments|ai|_ai_)/") | not))' $(ZANUDA_SARIF).all > $(ZANUDA_SARIF)
 	@jq -r '.runs[0].results | group_by(.ruleId) | .[] | "\(length)\t\(.[0].ruleId)"' $(ZANUDA_SARIF)
+	@grep 'matched no finding' $(ZANUDA_SARIF:.sarif=.err) || true
 
 # The same report as file:line: rule: message, one finding per line.
 lint.zanuda.list: lint.zanuda

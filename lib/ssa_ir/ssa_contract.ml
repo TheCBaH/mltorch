@@ -111,12 +111,12 @@ let rec stored (stmts : Ssa_region.t Ssa_stmt.t list) =
 
 (* Row-major element strides of six extents. *)
 let strides (e : int64 Expr.Coord.t) =
-  let es = Expr.Coord.to_list e in
-  let rec go = function
-    | [] -> []
-    | _ :: rest -> List.fold_left Int64.mul 1L rest :: go rest
+  let _, strides =
+    List.fold_right
+      (fun extent (stride, acc) -> (Int64.mul stride extent, stride :: acc))
+      (Expr.Coord.to_list e) (1L, [])
   in
-  go es
+  strides
 
 let recognize ~numerics ?bf16 ~consts ~ranges ~buffer ~(loops : loop list)
     ~nest_stores (lo, hi, seed, results, (body : Ssa_region.t)) =
