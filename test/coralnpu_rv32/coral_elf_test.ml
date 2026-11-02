@@ -27,8 +27,13 @@ let guest =
           global "_start";
           label "_start";
           insn "j" [ sym "_start" ];
+          align 16;
+          global "kernel";
+          label "kernel";
+          insn "j" [ sym "kernel" ];
+          insn "j" [ sym "kernel" ];
         ]
-        @ [ data; align 8; label "table"; words [ 1; 2; 3 ] ]
+        @ [ data; align 8; global "table"; label "table"; words [ 1; 2; 3 ] ]
         @ [ bss; align 16; label "scratch"; zero 16 ])
   with
   | Ok m -> m
@@ -108,7 +113,9 @@ let%expect_test "an image per profile" =
     fromhost        0x00010080 size 8
     tohost_ready    0x000100c0 size 8
     fromhost_ready  0x00010100 size 8
-    _start          0x00000000 size 0
+    _start          0x00000000 size 16
+    kernel          0x00000010 size 16
+    table           0x00010000 size 16
     -- tiny-rtl
     entry 0x0 flags 0x2
     LOAD vaddr 0x00000000 filesz 256 memsz 256 flags 5
@@ -117,7 +124,9 @@ let%expect_test "an image per profile" =
     fromhost        0x00010080 size 8
     tohost_ready    0x000100c0 size 8
     fromhost_ready  0x00010100 size 8
-    _start          0x00000000 size 0 |}]
+    _start          0x00000000 size 16
+    kernel          0x00000010 size 16
+    table           0x00010000 size 16 |}]
 
 (* A layout that put data in RAM: refused on the RTL profile, whose manifest
    leaves its RAM's host_load unknown, and accepted on MPACT. *)

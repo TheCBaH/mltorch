@@ -11,9 +11,12 @@
     segment outside a [loadable] region is refused before any ELF is built.
 
     The HTIF block is a [.htif] section of zeros at the layout's address, with
-    the simulators' four symbols over it, plus [_start] at the entry. The ABI is
-    ILP32F on RV32IMF with Zicsr and Zifencei, with no compressed instructions.
-*)
+    the simulators' four symbols over it, plus [_start] at the entry. Every
+    other export of the image is a global symbol too (a function in an
+    executable segment, an object elsewhere), sized by its [.size] or else up to
+    the next export of its segment, so a trace reader can name the code. The ABI
+    is ILP32F on RV32IMF with Zicsr and Zifencei, with no compressed
+    instructions. *)
 
 val abi : Elf.Riscv.abi
 

@@ -84,6 +84,48 @@ let fill (r : Coral_profile.Region.t) sections =
       @ zeros ".fill." stop (Int64.sub hi stop)
   | _ -> sections
 
+(* The image's exports as global symbols: a function in an executable segment,
+   an object elsewhere. A size comes from the assembler's [.size] if the symbol
+   has one, else it runs to the next export of its segment, or the segment's
+   end. This is what lets a trace reader (coralview's [--around-symbol] and
+   [--profile-by=function]) name the code. The HTIF names are the layout's. *)
+let export_symbols (image : Image.t) =
+  let length (s : Image.segment) = Int64.of_int (String.length s.bytes) in
+  let holding a =
+    List.find_opt
+      (fun (s : Image.segment) ->
+        a >= s.address && a < Int64.add s.address (length s))
+      image.segments
+  in
+  let placed =
+    List.filter_map
+      (fun (name, a) ->
+        if List.mem name htif_names then None
+        else Option.map (fun s -> (name, a, s)) (holding a))
+      image.exports
+  in
+  List.map
+    (fun (name, a, (s : Image.segment)) ->
+      let next =
+        List.fold_left
+          (fun acc (_, b, (t : Image.segment)) ->
+            if t == s && b > a && b < acc then b else acc)
+          (Int64.add s.address (length s))
+          placed
+      in
+      {
+        Elf.Exec.name;
+        value = a;
+        size =
+          (match List.assoc_opt name image.symbol_sizes with
+          | Some n -> n
+          | None -> Int64.sub next a);
+        kind = (if s.perms.execute then `Func else `Object);
+        binding = `Global;
+        section = Some s.name;
+      })
+    placed
+
 let write ?(contents = []) (p : Coral_profile.t) (l : Coral_layout.t)
     (image : Image.t) =
   let* entry = Err.of_option `No_entry image.entry in
@@ -163,13 +205,18 @@ let write ?(contents = []) (p : Coral_profile.t) (l : Coral_layout.t)
   let symbol ?(kind = `Object) ?(size = 8L) ~section name value =
     { Elf.Exec.name; value; size; kind; binding = `Global; section }
   in
+  let exported = export_symbols image in
   let symbols =
     List.mapi
       (fun i name ->
         symbol ~section:(Some ".htif") name
           (Int64.add l.htif (Int64.of_int (64 * i))))
       htif_names
-    @ [ symbol ~kind:`Func ~size:0L ~section:entry_section "_start" entry ]
+    @ (if List.exists (fun (y : Elf.Exec.symbol) -> y.name = "_start") exported
+       then []
+       else
+         [ symbol ~kind:`Func ~size:0L ~section:entry_section "_start" entry ])
+    @ exported
   in
   Elf.Exec.build
     {

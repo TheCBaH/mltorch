@@ -146,7 +146,12 @@ suite's notes on run-to-run variation). A segment outside a `loadable` region
 is refused before anything is built.
 
 `.htif` is 256 zero bytes at the layout's address, under the four HTIF
-symbols; `_start` marks the entry. The ABI is ILP32F with arch
+symbols; `_start` marks the entry. Every other export of the image is a global
+symbol too (a function in an executable segment, an object elsewhere), sized by
+its `.size` or else up to the next export of its segment, so coralview's
+`--around-symbol` and `--profile-by=function` can name the code; markers
+exported inside a function split it, so a kernel exports one name per
+function. The ABI is ILP32F with arch
 `rv32i2p1_m2p0_f2p2_zicsr2p0_zifencei2p0`, without RVC. Both simulators load
 such an image; binutils' `readelf` reads its flags, symbols and attributes
 as written.
