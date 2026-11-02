@@ -43,6 +43,23 @@ kernels, and whether to run it on RTL is a computed answer.
   the cost the waveforms show (a prior row of weight two: loads 4 cycles from
   the TCM and 7 from the testbench RAM, stores 3 and 8, vector loads 4 and 7,
   vector stores 4 and 8, read with `coralview commits --profile`).
+- **Vector operations overlap external vector accesses.** The vector unit
+  runs an operation while earlier loads and stores are in flight, so in one
+  innermost loop body the shorter of the operations' cycles and the
+  RAM/SRAM accesses' cycles is partly hidden by the longer. The census keeps
+  each such body's counts (`Coral_census.t.bodies`, trips included, one entry
+  per distinct body); `Coral_model.features ~rates` adds `overlap`, minus
+  `sum_bodies min(compute, memory)` priced at those rates, and its rate is
+  the hidden fraction (0.72). Because the feature is made from rates the fit is
+  a fixed point (fit without it, make it from those rates, refit). Only
+  accesses outside the DTCM count: `coralview cost` on `div` against `add` of
+  the same kernel shows the divider's extra cycles taken out of the external
+  loads' stall by about three fifths and out of the DTCM loads' by about an
+  eighth, and a flat per-operation rate had left the vector divide 13% under
+  in DTCM and 13% over from RAM. The scalar divide shows no overlap (11.9
+  cycles an element at both sizes). The in-order scalar core is not modelled
+  this way, and only innermost bodies are paired, so work split across
+  loops of one nest is not.
 - **The fused attention stages its rows.** Q, K and V are copied into the
   DTCM before they are packed; from RAM that is strided vector loads of about
   140 cycles each (`vlse32.v` in the profile), so the attention's features
@@ -122,6 +139,7 @@ RAM 95. The installed `rivet` must stay pinned to `vendored/rivet`
 
 ## Open
 
+- Overlap on the subsystem cores and for other operations: only the vector divide and exp from RAM calibrate it so far.
 - Subsystem calibration (its own rates, DMA and overlay costs, its emulator
   speed with 4 threads).
 - Per-class comparison: the census's predicted cycles per class against the

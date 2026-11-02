@@ -63,6 +63,10 @@ type t = {
   counts : (Class.t * float) list;  (** by {!Class.compare}, none zero *)
   contracts : (Contract_call.t * float) list;  (** each call, how many times *)
   attends : (Attend_call.t * float) list;
+  bodies : (Class.t * float) list list;
+      (** the counts of each innermost loop body (a loop of instructions alone),
+          trips included and one entry per distinct body: what runs in one
+          pipeline, so what can overlap *)
   unknown : int;
       (** loops with a data-dependent bound counted once, and ifs with a
           data-dependent condition counted at half each branch *)

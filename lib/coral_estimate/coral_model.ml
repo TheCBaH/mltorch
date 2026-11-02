@@ -85,14 +85,53 @@ let merge l =
       else acc @ [ (k, v) ])
     [] l
 
-let features core (c : Coral_census.t) =
+(* The vector unit runs an operation while earlier loads and stores are still
+   in flight, so in one loop body the shorter of the operations' cycles and
+   the memory instructions' is partly hidden by the longer. *)
+let vector_compute = function
+  | Coral_census.Class.Vec_f32_div | Vec_f32_fma | Vec_f32_op | Vec_math _ ->
+      true
+  | _ -> false
+
+(* Only the accesses outside the DTCM: the waveforms show the external loads
+   absorbing about three fifths of a vector divide's cycles and the DTCM's
+   about an eighth. *)
+let vector_memory = function
+  | Coral_census.Class.Vec_load r
+  | Vec_load_strided r
+  | Vec_store r
+  | Vec_store_strided r ->
+      r <> Coral_census.Region.Dtcm
+  | _ -> false
+
+let hidden rates (c : Coral_census.t) =
+  let cycles pred body =
+    List.fold_left
+      (fun acc (cl, n) ->
+        if pred cl then
+          acc
+          +. n
+             *. Option.value
+                  (List.assoc_opt ("class." ^ Coral_census.Class.name cl) rates)
+                  ~default:0.
+        else acc)
+      0. body
+  in
+  List.fold_left
+    (fun acc body ->
+      acc +. Float.min (cycles vector_compute body) (cycles vector_memory body))
+    0. c.Coral_census.bodies
+
+let features ?(rates = []) core (c : Coral_census.t) =
+  let h = hidden rates c in
   merge
     (("invocation", 1.)
      :: List.map
           (fun (cl, v) -> ("class." ^ Coral_census.Class.name cl, v))
           c.Coral_census.counts
     @ List.concat_map (fun (d, w) -> contract core d w) c.Coral_census.contracts
-    @ List.concat_map (fun (a, w) -> attend a w) c.Coral_census.attends)
+    @ List.concat_map (fun (a, w) -> attend a w) c.Coral_census.attends
+    @ if h = 0. then [] else [ ("overlap", -.h) ])
 
 module Rates = struct
   type t = (string * float) list

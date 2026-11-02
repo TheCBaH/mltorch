@@ -275,6 +275,12 @@ let fit =
   @ [
       base ~home:Home.Ram "add 16x64, in RAM" (add ~h:16 ~w:64);
       base ~home:Home.Ram "add 32x128, in RAM" (add ~h:32 ~w:128);
+      (* a vector operation that takes longer than its loads, from RAM: the
+         loads and the operation overlap *)
+      base ~home:Home.Ram "div 16x64, in RAM" (div ~h:16 ~w:64);
+      base ~home:Home.Ram "div 32x128, in RAM" (div ~h:32 ~w:128);
+      base ~home:Home.Ram "exp 32x32, in RAM"
+        (unary ~h:32 ~w:32 "exp" (fun x -> Graph_builder.exp x));
       base ~home:Home.Ram ~target:scalar "add 16x64, scalar, in RAM"
         (add ~h:16 ~w:64);
       g "softmax over C 16x16" (softmax ~h:16 ~w:16);

@@ -255,6 +255,12 @@ let%expect_test "the fit set" =
       [0] cycles 5671 instret 2667 ram 0,1,2
     add 32x128, in RAM (1 invocations): bitwise
       [0] cycles 21751 instret 9883 ram 0,1,2
+    div 16x64, in RAM (1 invocations): bitwise
+      [0] cycles 6410 instret 2667 ram 0,1,2
+    div 32x128, in RAM (1 invocations): bitwise
+      [0] cycles 24712 instret 9883 ram 0,1,2
+    exp 32x32, in RAM (1 invocations): bitwise
+      [0] cycles 152238 instret 69105 ram 0,1
     add 16x64, scalar, in RAM (1 invocations): bitwise
       [0] cycles 24925 instret 11619 ram 0,1,2
     softmax over C 16x16 (1 invocations): bitwise
@@ -325,7 +331,7 @@ let%expect_test "the fit set" =
     linear bf16 32x128 k128 (1 invocations): bitwise
       [0] cycles 193518 instret 24266 ram 1,2,4
     linear bf16 49x512 k64 (1 invocations): bitwise
-      [0] cycles 787031 instret 117164 ram 1,2,4
+      [0] cycles 789079 instret 117164 ram 1,2,4
     linear bf16 16x256 k64, in RAM (1 invocations): bitwise
       [0] cycles 156412 instret 16334 ram 0,1,2,3,4
     linear bf16 16x64 k64, in RAM (1 invocations): bitwise
@@ -366,7 +372,7 @@ let%expect_test "the check set" =
     layer, pre layer norm, rope (1 invocations): bitwise
       [0] cycles 436619 instret 195124 ram 3,5,7,9,12,13,14,15,16,17,18,19,20,21,22,23,24
     layer, post rms (1 invocations): bitwise
-      [0] cycles 373465 instret 167100 ram 2,4,6,8,11,12,13,14,15,16,17,18,19,20,21,22
+      [0] cycles 373464 instret 167100 ram 2,4,6,8,11,12,13,14,15,16,17,18,19,20,21,22
     layer decomposed, bare (14 invocations): bitwise
       [0] cycles 14824 instret 5222 ram 5,20
       [1] cycles 173202 instret 108489

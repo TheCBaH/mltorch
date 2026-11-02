@@ -84,12 +84,14 @@ type t = {
   counts : (Class.t * float) list;
   contracts : (Contract_call.t * float) list;
   attends : (Attend_call.t * float) list;
+  bodies : (Class.t * float) list list;
   unknown : int;
 }
 
 (* The mutable accumulator of one walk. *)
 type acc = {
   mutable classes : float M.t;
+  mutable bodies : (Ssa_region.t * float M.t) list;
   mutable contracts : (Contract_call.t * float) list;
   mutable attends : (Attend_call.t * float) list;
   mutable unknown : int;
@@ -283,8 +285,22 @@ and loop ~region:reg acc w env ~lo ~hi ~step (body : Ssa_region.t) =
       in
       if flat body then (
         let w' = w *. Int64.to_float trips in
+        let outer = acc.classes in
+        acc.classes <- M.empty;
         bump acc Class.Iteration w';
-        ignore (walk ~region:reg acc w' env body))
+        ignore (walk ~region:reg acc w' env body);
+        let sub = acc.classes in
+        acc.classes <- M.union (fun _ a b -> Some (a +. b)) outer sub;
+        (* the same body run again (an outer loop's trips) is one body *)
+        acc.bodies <-
+          (if List.exists (fun (r, _) -> r == body) acc.bodies then
+             List.map
+               (fun (r, m) ->
+                 if r == body then
+                   (r, M.union (fun _ a b -> Some (a +. b)) m sub)
+                 else (r, m))
+               acc.bodies
+           else acc.bodies @ [ (body, sub) ]))
       else
         let rec go k =
           if k < hi then (
@@ -326,12 +342,21 @@ and stmt ~region:reg acc w env = function
           env)
 
 let program ?(region = fun _ -> Region.Dtcm) (p : Ssa_program.t) =
-  let acc = { classes = M.empty; contracts = []; attends = []; unknown = 0 } in
+  let acc =
+    {
+      classes = M.empty;
+      bodies = [];
+      contracts = [];
+      attends = [];
+      unknown = 0;
+    }
+  in
   ignore (walk ~region acc 1. Ssa_id.Value.Map.empty p.Ssa_program.entry);
   {
     counts = M.bindings acc.classes;
     contracts = acc.contracts;
     attends = acc.attends;
+    bodies = List.map (fun (_, m) -> M.bindings m) acc.bodies;
     unknown = acc.unknown;
   }
 
@@ -351,6 +376,7 @@ let add (a : t) (b : t) =
       List.fold_left (fun l (d, w) -> bump_assoc l d w) a.contracts b.contracts;
     attends =
       List.fold_left (fun l (d, w) -> bump_assoc l d w) a.attends b.attends;
+    bodies = a.bodies @ b.bodies;
     unknown = a.unknown + b.unknown;
   }
 

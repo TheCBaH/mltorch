@@ -94,6 +94,9 @@ let%expect_test "every case plans" =
     x+y+z 32x128, scalar: 2 invocation(s)
     add 16x64, in RAM: 1 invocation(s)
     add 32x128, in RAM: 1 invocation(s)
+    div 16x64, in RAM: 1 invocation(s)
+    div 32x128, in RAM: 1 invocation(s)
+    exp 32x32, in RAM: 1 invocation(s)
     add 16x64, scalar, in RAM: 1 invocation(s)
     softmax over C 16x16: 1 invocation(s)
     softmax over C 32x32: 1 invocation(s)
@@ -147,3 +150,31 @@ let%expect_test "every case plans" =
     layer, pre layer norm, rope: 1 invocation(s)
     layer, post rms: 1 invocation(s)
     layer decomposed, bare: 14 invocation(s), 1024 unknown |}]
+
+(* Each innermost loop body is counted apart, trips included: what the
+   overlap term pairs. The softmax's three row loops stay three bodies. *)
+let%expect_test "innermost loop bodies" =
+  List.iter
+    (fun name ->
+      let c = List.find (fun (c : Cases.t) -> c.Cases.name = name) Cases.all in
+      match censuses c with
+      | Error e -> print_endline e
+      | Ok cs ->
+          List.iter
+            (fun (x : CE.t) ->
+              List.iter
+                (fun b ->
+                  Fmt.pr "%s:%a@." name
+                    Fmt.(
+                      list ~sep:nop (fun ppf (cl, v) ->
+                          pf ppf " %s=%.0f" (CE.Class.name cl) v))
+                    b)
+                x.CE.bodies)
+            cs)
+    [ "div 32x128"; "softmax over C 16x16" ];
+  [%expect
+    {|
+    div 32x128: iteration=256 vec_f32_div=1024 vec_load_dtcm=2048 vec_store_dtcm=1024
+    softmax over C 16x16: f32_op=256 iteration=256 load_dtcm=256
+    softmax over C 16x16: f32_op=256 iteration=256 local=256 f32_exp=256 load_dtcm=256
+    softmax over C 16x16: f32_div=256 f32_op=256 iteration=256 local=512 f32_exp=256 load_dtcm=256 store_dtcm=256 |}]

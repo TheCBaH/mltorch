@@ -16,8 +16,18 @@ module Core : sig
   val vme : packed:(Contraction.t -> bool) -> t
 end
 
-val features : Core.t -> Coral_census.t -> (string * float) list
-(** Feature names: [class.<census class>], [invocation] (one per run),
+val features :
+  ?rates:(string * float) list ->
+  Core.t ->
+  Coral_census.t ->
+  (string * float) list
+(** With [rates] (cycles per unit, as {!Rates.t}), the feature [overlap]: minus
+    the cycles that vector operations and vector loads and stores of one loop
+    body share, at those rates, whichever side is shorter (its rate is the
+    fraction of them the core hides). The rates a prediction is made with must
+    be the ones the features were made with.
+
+    Feature names: [class.<census class>], [invocation] (one per run),
     [zvt.<format>[.packed].call | .tiles.<C's region> | .rows_k.<A's> |
      .cols_k.<B's>] for the matrix engine's contraction (tiles of 16 x 16
     outputs; the A rows and the B columns each tile loads, times k),
