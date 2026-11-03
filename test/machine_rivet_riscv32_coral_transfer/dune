@@ -13,7 +13,8 @@
   machine_rivet_common
   machine_rivet_riscv32_coral
   ssa_backends
-  ssa_ir)
+  ssa_ir
+  unix)
  (inline_tests
   (deps
    (env_var CORALNPU_DATA)

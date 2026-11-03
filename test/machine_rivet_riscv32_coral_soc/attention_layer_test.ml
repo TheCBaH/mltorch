@@ -68,7 +68,8 @@ let run name c =
         (fun () -> g);
       Fmt.pr "  cycles %Ld@." !cycles
 
-let%expect_test "a granted bfloat16 layer runs on the subsystem" =
+let%expect_test
+    ("a granted bfloat16 layer runs on the subsystem" [@tags "disabled"]) =
   run "no norm, all flags" base;
   run "pre layer, all flags"
     (LF.with_norm L.Norm.Kind.Layer L.Placement.Pre base);

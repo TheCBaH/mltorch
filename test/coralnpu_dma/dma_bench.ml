@@ -79,9 +79,15 @@ let params = { Coral_layout.Params.stack = 2048L; staging = 0L }
    several times over. *)
 let trace = Sys.getenv_opt "DMA_BENCH_TRACE"
 
-(* Wall-clock seconds a run may take: the largest multiplies are millions of
-   cycles, which the SoC simulator runs at a few thousand a second. *)
-let deadline = 3600.
+(* Wall-clock seconds a run may take. Ten minutes is the default, so a slower
+   run fails rather than stalls: 180 s was enough on an arm core but not on the
+   x86-64 CI runner. The largest multiplies are millions of cycles, which the
+   SoC simulator runs at a few thousand a second: `make
+   coralnpu.dma.long.runtest` raises it with DMA_BENCH_DEADLINE. *)
+let deadline =
+  match Sys.getenv_opt "DMA_BENCH_DEADLINE" with
+  | Some s -> float_of_string s
+  | None -> 600.
 
 (* Builds and runs one kernel: its timings slot's bytes, or exit 1. *)
 let execute ?(matrix = false) dir p ~name ~items ~slots ~inputs ~timings ~dst

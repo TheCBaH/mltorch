@@ -11,7 +11,7 @@ let config =
   {
     C.Config.dir = Sys.getenv "CORALNPU_DATA";
     configuration = "rvv-core-mini-highmem-axi";
-    deadline = 1200.;
+    deadline = Deadline.seconds;
     flags = [ "--cycles=500000000" ];
   }
 

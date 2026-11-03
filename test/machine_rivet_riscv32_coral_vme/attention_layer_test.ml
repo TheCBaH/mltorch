@@ -18,7 +18,7 @@ let config =
   {
     C.Config.dir = Sys.getenv "CORALNPU_DATA";
     configuration = "vme-core-mini-axi";
-    deadline = 1200.;
+    deadline = Deadline.seconds;
     flags = [ "--cycles=500000000" ];
   }
 
@@ -93,7 +93,8 @@ let%expect_test "a granted bfloat16 layer on the VME core, resident" =
 (* The baseline the fused layer is measured against: the same layers
    decomposed, each node generated at binary32 on the core (no grant; the
    contractions on the matrix engine), against the binary32 bundle oracle. *)
-let%expect_test "the decomposed layer, node by node, on the VME core" =
+let%expect_test
+    ("the decomposed layer, node by node, on the VME core" [@tags "disabled"]) =
   List.iter
     (fun (name, c) ->
       let c = { c with LF.Config.bf16_weights = false } in

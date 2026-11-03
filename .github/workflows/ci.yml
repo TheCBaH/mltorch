@@ -33,8 +33,11 @@ on:
 #   native-verify  whole-graph inference and transform verification against ATen
 #   compcert       the in-process host through an embedded CompCert
 #   coralnpu       the Coral NPU simulators (Verilator RTL, MPACT) and coralview
-#   coralnpu-vme   the VME core suite on the RTL testbench, a quarter of an hour
-#   coralnpu-soc   the full subsystem simulators: the SoC, DMA and transfer suites
+#   coralnpu-dma   the DMA engine and the matrix kernels it feeds, on the subsystem
+#   coralnpu-rv32  the RV32 Machine IR route on the subsystem simulators
+#   coralnpu-soc   the subsystem simulators: typed kernels through the mailbox runtime
+#   coralnpu-transfer  the transfer model against the subsystem, a reduced grid: its own job
+#   coralnpu-vme   the VME core suite on the RTL testbench
 #   jsoo           js_of_ocaml: differential, inline tests, Loop IR generated code
 #   jsoo-models    js_of_ocaml on real models (tier 2): downloads, inference, bundles
 #   wasm           the WebAssembly backend under node: fixtures, mutation check
@@ -75,7 +78,10 @@ jobs:
         - browser
         - compcert
         - coralnpu
+        - coralnpu-dma
+        - coralnpu-rv32
         - coralnpu-soc
+        - coralnpu-transfer
         - coralnpu-vme
         - jsoo
         - jsoo-models
@@ -95,7 +101,10 @@ jobs:
         - {suite: browser, submodules: true}
         - {suite: compcert, submodules: true, native: true}
         - {suite: coralnpu, submodules: true}
+        - {suite: coralnpu-dma, submodules: true}
+        - {suite: coralnpu-rv32, submodules: true}
         - {suite: coralnpu-soc, submodules: true}
+        - {suite: coralnpu-transfer, submodules: true}
         - {suite: coralnpu-vme, submodules: true}
         - {suite: jsoo, submodules: true}
         - {suite: jsoo-models, submodules: true}
@@ -565,8 +574,8 @@ jobs:
     # so a run downloads it only when the pin moves. coralview is a devcontainer
     # package pinned in devcontainer.json; its absence fails the peak step rather
     # than disabling the test. The subsystem
-    # archive (the Vchip simulators of the SoC, DMA and transfer suites) is fetched
-    # only by coralnpu-soc and cached apart: a cache is immutable, so one shared
+    # archive (the Vchip simulators of the SoC, DMA, RV32 and transfer suites) is fetched
+    # only by those and cached apart: a cache is immutable, so one shared
     # key would pin whichever suite saved first.
     - name: coralnpu cache
       if: startsWith(matrix.suite, 'coralnpu')
@@ -579,7 +588,7 @@ jobs:
       run: |
         ${{ env.EXEC }} make coralnpu.download
     - name: coralnpu subsystem download
-      if: matrix.suite == 'coralnpu-soc'
+      if: contains(fromJSON('["coralnpu-dma","coralnpu-rv32","coralnpu-soc","coralnpu-transfer"]'), matrix.suite)
       run: |
         ${{ env.EXEC }} make coralnpu.subsystem.download
     - name: coralnpu manifest and configuration IDs
@@ -601,34 +610,42 @@ jobs:
     # bfloat16 model, with cycles.
     - name: coralnpu RV32 route on the simulators
       if: matrix.suite == 'coralnpu'
+      timeout-minutes: 60
       run: |
         ${{ env.EXEC }} make coralnpu.rv32.runtest
 
-    # The VME core suite is a job of its own: a quarter of an hour of RTL simulation
+    # The VME core suite is a job of its own: minutes of RTL simulation
     # that would otherwise set the wall clock of the quick coralnpu checks. It runs
     # on every push, beside the longer suites.
     - name: coralnpu VME core suite
       if: matrix.suite == 'coralnpu-vme'
+      timeout-minutes: 60
       run: |
         ${{ env.EXEC }} make coralnpu.vme.runtest
 
-    # The full subsystem (Vchip) simulators: typed kernels through the mailbox
-    # runtime over the SPI bridge, raw transfer speed of the DMA engine against the
-    # core's own copies, the RV32 route on the subsystem, and the transfer route.
+    # The full subsystem (Vchip) simulators, a job each so that the long ones do not
+    # hold up the quick ones: typed kernels through the mailbox
+    # runtime over the SPI bridge (coralnpu-soc); raw transfer speed of the DMA engine against the
+    # core's own copies (coralnpu-dma); the RV32 route on the subsystem
+    # (coralnpu-rv32); and the transfer route on a reduced grid (coralnpu-transfer).
     - name: coralnpu SoC kernels
       if: matrix.suite == 'coralnpu-soc'
+      timeout-minutes: 60
       run: |
         ${{ env.EXEC }} make coralnpu.soc.runtest
     - name: coralnpu DMA
-      if: matrix.suite == 'coralnpu-soc'
+      if: matrix.suite == 'coralnpu-dma'
+      timeout-minutes: 60
       run: |
         ${{ env.EXEC }} make coralnpu.dma.runtest
     - name: coralnpu RV32 route on the subsystem
-      if: matrix.suite == 'coralnpu-soc'
+      if: matrix.suite == 'coralnpu-rv32'
+      timeout-minutes: 60
       run: |
         ${{ env.EXEC }} make coralnpu.soc.rv32.runtest
     - name: coralnpu transfer route
-      if: matrix.suite == 'coralnpu-soc'
+      if: matrix.suite == 'coralnpu-transfer'
+      timeout-minutes: 60
       run: |
         ${{ env.EXEC }} make coralnpu.transfer.runtest
 

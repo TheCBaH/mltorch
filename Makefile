@@ -1674,17 +1674,36 @@ coralnpu.soc.runtest:
 	}
 	CORALNPU_SUBSYSTEM_DATA=$(CORALNPU_SUBSYSTEM_DATA) opam exec -- dune build @test/coralnpu_soc/runtest --force
 
+# The cram tests of test/coralnpu_dma by how long each takes: the long ones
+# (the three sweeps each over three minutes on an arm core, the two binary32
+# variants of the RVV and Zvt multiplies at 2.5 and 3 minutes) are left out of
+# coralnpu.dma.runtest, which has to fit the 60-minute CI step on a runner four
+# times slower than a development core.
+CORALNPU_DMA_FAST = dma gemm_row_major_a gemm_rvv gemm_split_k gemm_zvt_normal overlay
+CORALNPU_DMA_LONG = gemm_resident_a gemm_rvv_float gemm_zvt_bf16 gemm_zvt_f32 gemm_zvt_i8
+
 # Raw transfer speed on the subsystem: the DMA engine against the core's own
 # RVV and scalar copies, the DMA beside the core's work, and matrix multiplies
-# fed from SRAM by DMA (RVV and Zvt). About ten minutes. Needs the subsystem
-# download.
-.PHONY: coralnpu.dma.runtest
+# fed from SRAM by DMA (RVV and Zvt), without the sweeps of
+# coralnpu.dma.long.runtest. About 8 minutes on an 8-core development arm core,
+# about 35 on a CI runner. Needs the subsystem download.
+.PHONY: coralnpu.dma.runtest coralnpu.dma.long.runtest
 coralnpu.dma.runtest:
 	@test -f $(CORALNPU_SUBSYSTEM_DATA)/hardware-configurations.json || { \
 		echo "coralnpu.dma.runtest: missing $(CORALNPU_SUBSYSTEM_DATA) -- run 'make coralnpu.subsystem.download' first" >&2; \
 		exit 1; \
 	}
-	CORALNPU_SUBSYSTEM_DATA=$(CORALNPU_SUBSYSTEM_DATA) opam exec -- dune build @test/coralnpu_dma/runtest --force
+	CORALNPU_SUBSYSTEM_DATA=$(CORALNPU_SUBSYSTEM_DATA) opam exec -- dune build $(addprefix @test/coralnpu_dma/,$(CORALNPU_DMA_FAST)) --force
+
+# The matrix-multiply sweeps that each take over three minutes (INT8 and BF16
+# Zvt, resident A) and the binary32 RVV and Zvt multiplies: manual, in no CI
+# job. About 25 minutes on an arm core.
+coralnpu.dma.long.runtest:
+	@test -f $(CORALNPU_SUBSYSTEM_DATA)/hardware-configurations.json || { \
+		echo "coralnpu.dma.long.runtest: missing $(CORALNPU_SUBSYSTEM_DATA) -- run 'make coralnpu.subsystem.download' first" >&2; \
+		exit 1; \
+	}
+	DMA_BENCH_DEADLINE=3600 CORALNPU_SUBSYSTEM_DATA=$(CORALNPU_SUBSYSTEM_DATA) opam exec -- dune build $(addprefix @test/coralnpu_dma/,$(CORALNPU_DMA_LONG)) --force
 
 coralnpu.runtest:
 	@test -f $(CORALNPU_DATA)/hardware-configurations.json || { \
@@ -1712,7 +1731,8 @@ coralnpu.rv32.runtest:
 # subsystem-vector-normal and on the standalone rvv-core-mini-axi, cycles side
 # by side, and two route defects caught. A few minutes. Needs both downloads.
 # The VME core suite (vme-core-mini-axi), its own directory so CI can run it as a
-# job of its own: about a quarter of an hour on four cores. Needs the download.
+# job of its own: about six minutes on an arm core, the tests over three minutes
+# left out (see coralnpu.vme.long.runtest). Needs the download.
 .PHONY: coralnpu.vme.runtest
 coralnpu.vme.runtest:
 	@test -f $(CORALNPU_DATA)/hardware-configurations.json || { \
@@ -1720,6 +1740,19 @@ coralnpu.vme.runtest:
 		exit 1; \
 	}
 	CORALNPU_DATA=$(CORALNPU_DATA) opam exec -- dune build @test/machine_rivet_riscv32_coral_vme/runtest --force
+
+# The tests of the VME suite tagged "disabled", each over three minutes on an arm
+# core, which coralnpu.vme.runtest leaves out: run here by the suite's own runner,
+# as dune runs it. Manual, in no CI job. Needs the download.
+VME_RUNNER = test/machine_rivet_riscv32_coral_vme/.machine_rivet_riscv32_coral_vme_test.inline-tests/inline-test-runner.exe
+.PHONY: coralnpu.vme.long.runtest
+coralnpu.vme.long.runtest:
+	@test -f $(CORALNPU_DATA)/hardware-configurations.json || { \
+		echo "coralnpu.vme.long.runtest: missing $(CORALNPU_DATA) -- run 'make coralnpu.download' first" >&2; \
+		exit 1; \
+	}
+	CORALNPU_DATA=$(CORALNPU_DATA) opam exec -- dune build $(VME_RUNNER)
+	cd _build/default/test/machine_rivet_riscv32_coral_vme && CORALNPU_RUN_DEADLINE=3600 CORALNPU_DATA=$(CORALNPU_DATA) $(CURDIR)/_build/default/$(VME_RUNNER) inline-test-runner machine_rivet_riscv32_coral_vme_test -source-tree-root ../.. -diff-cmd - -require-tag disabled -strict
 
 .PHONY: coralnpu.soc.rv32.runtest
 coralnpu.soc.rv32.runtest:
@@ -1733,10 +1766,23 @@ coralnpu.soc.rv32.runtest:
 	}
 	CORALNPU_DATA=$(CORALNPU_DATA) CORALNPU_SUBSYSTEM_DATA=$(CORALNPU_SUBSYSTEM_DATA) opam exec -- dune build @test/machine_rivet_riscv32_coral_soc/runtest --force
 
-# The transfer model against the subsystem: every candidate transfer plan of 16
-# matrix products measured beside its prediction, and the plan chosen against
-# the measured best. About five hours; manual, in no CI job. Needs both
-# downloads.
+# The tests of the same suite tagged "disabled", each over three minutes on an arm
+# core, which coralnpu.soc.rv32.runtest leaves out: run here by the suite's own
+# runner, as dune runs it. Manual, in no CI job. Needs both downloads.
+SOC_RV32_RUNNER = test/machine_rivet_riscv32_coral_soc/.machine_rivet_riscv32_coral_soc_test.inline-tests/inline-test-runner.exe
+.PHONY: coralnpu.soc.rv32.long.runtest
+coralnpu.soc.rv32.long.runtest:
+	@test -f $(CORALNPU_SUBSYSTEM_DATA)/hardware-configurations.json || { \
+		echo "coralnpu.soc.rv32.long.runtest: missing $(CORALNPU_SUBSYSTEM_DATA) -- run 'make coralnpu.subsystem.download' first" >&2; \
+		exit 1; \
+	}
+	@test -f $(CORALNPU_DATA)/hardware-configurations.json || { \
+		echo "coralnpu.soc.rv32.long.runtest: missing $(CORALNPU_DATA) -- run 'make coralnpu.download' first" >&2; \
+		exit 1; \
+	}
+	CORALNPU_DATA=$(CORALNPU_DATA) CORALNPU_SUBSYSTEM_DATA=$(CORALNPU_SUBSYSTEM_DATA) opam exec -- dune build $(SOC_RV32_RUNNER)
+	cd _build/default/test/machine_rivet_riscv32_coral_soc && CORALNPU_RUN_DEADLINE=3600 CORALNPU_DATA=$(CORALNPU_DATA) CORALNPU_SUBSYSTEM_DATA=$(CORALNPU_SUBSYSTEM_DATA) $(CURDIR)/_build/default/$(SOC_RV32_RUNNER) inline-test-runner machine_rivet_riscv32_coral_soc_test -source-tree-root ../.. -diff-cmd - -require-tag disabled -strict
+
 # The Coral cycle estimate's calibration data: the estimate's cases on the VME
 # core's RTL simulator, in parallel under the host CPU pool (about 7 minutes);
 # the golden is the dataset test/coral_estimate fits. Wall times go to
@@ -1774,6 +1820,10 @@ coralnpu.large.run:
 	}
 	MLTORCH_CORAL_LARGE=1 CORALNPU_DATA=$(CORALNPU_DATA) opam exec -- dune build @test/machine_rivet_riscv32_coral_large/runtest --force
 
+# The transfer model against the subsystem: every candidate transfer plan of
+# three of the 16 matrix products measured beside its prediction, and the plan
+# chosen against the measured best. The CI cut, under an hour; the full grid is
+# coralnpu.transfer.full.runtest. Needs both downloads.
 .PHONY: coralnpu.transfer.runtest
 coralnpu.transfer.runtest:
 	@test -f $(CORALNPU_SUBSYSTEM_DATA)/hardware-configurations.json || { \
@@ -1784,7 +1834,23 @@ coralnpu.transfer.runtest:
 		echo "coralnpu.transfer.runtest: missing $(CORALNPU_DATA) -- run 'make coralnpu.download' first" >&2; \
 		exit 1; \
 	}
-	CORALNPU_DATA=$(CORALNPU_DATA) CORALNPU_SUBSYSTEM_DATA=$(CORALNPU_SUBSYSTEM_DATA) opam exec -- dune build @test/machine_rivet_riscv32_coral_transfer/runtest --force
+	CORALNPU_DATA=$(CORALNPU_DATA) CORALNPU_SUBSYSTEM_DATA=$(CORALNPU_SUBSYSTEM_DATA) opam exec -- dune build --no-buffer @test/machine_rivet_riscv32_coral_transfer/runtest --force
+
+# The same for all 16 products, the tests tagged "disabled": about five hours,
+# run here by the suite's own runner. Manual, in no CI job. Needs both downloads.
+TRANSFER_RUNNER = test/machine_rivet_riscv32_coral_transfer/.machine_rivet_riscv32_coral_transfer_test.inline-tests/inline-test-runner.exe
+.PHONY: coralnpu.transfer.full.runtest
+coralnpu.transfer.full.runtest:
+	@test -f $(CORALNPU_SUBSYSTEM_DATA)/hardware-configurations.json || { \
+		echo "coralnpu.transfer.full.runtest: missing $(CORALNPU_SUBSYSTEM_DATA) -- run 'make coralnpu.subsystem.download' first" >&2; \
+		exit 1; \
+	}
+	@test -f $(CORALNPU_DATA)/hardware-configurations.json || { \
+		echo "coralnpu.transfer.full.runtest: missing $(CORALNPU_DATA) -- run 'make coralnpu.download' first" >&2; \
+		exit 1; \
+	}
+	CORALNPU_DATA=$(CORALNPU_DATA) CORALNPU_SUBSYSTEM_DATA=$(CORALNPU_SUBSYSTEM_DATA) opam exec -- dune build $(TRANSFER_RUNNER)
+	cd _build/default/test/machine_rivet_riscv32_coral_transfer && CORALNPU_DATA=$(CORALNPU_DATA) CORALNPU_SUBSYSTEM_DATA=$(CORALNPU_SUBSYSTEM_DATA) $(CURDIR)/_build/default/$(TRANSFER_RUNNER) inline-test-runner machine_rivet_riscv32_coral_transfer_test -source-tree-root ../.. -diff-cmd - -require-tag disabled -strict
 
 # How the matrix engine's binary32 tile multiply rounds (vtfmm, tk = 1), on the
 # VME core. Seconds.

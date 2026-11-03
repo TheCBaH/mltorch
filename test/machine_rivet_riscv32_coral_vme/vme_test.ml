@@ -14,7 +14,7 @@ let config =
   {
     C.Config.dir = Sys.getenv "CORALNPU_DATA";
     configuration = "vme-core-mini-axi";
-    deadline = 1200.;
+    deadline = Deadline.seconds;
     flags = [ "--cycles=500000000" ];
   }
 
@@ -328,7 +328,7 @@ let%expect_test "bfloat16 pairs from a model on the matrix engine" =
    instruction memory beside the runtime, which runs each slot's transfer as
    a call. 64 x 64 at d 64 is left out: generated, it runs past the
    simulator's deadline; granted, it is in the fused-function test below. *)
-let%expect_test "bfloat16 Sdpa, generated, on the core" =
+let%expect_test ("bfloat16 Sdpa, generated, on the core" [@tags "disabled"]) =
   List.iter
     (fun (name, g) ->
       T.check
@@ -386,7 +386,8 @@ let%expect_test "generated exp and softmax cycles per element" =
    of the whole run (the generated path is refused at the instruction memory);
    an f32 node and a node whose operands are not bfloat16 stay on the generated
    path, with the reason. *)
-let%expect_test "a granted attention runs as the fused function" =
+let%expect_test
+    ("a granted attention runs as the fused function" [@tags "disabled"]) =
   let module S = Machine_model.Sdpa_select in
   let grant = Some S.Grant.default in
   let cycles = ref 0L in

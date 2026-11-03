@@ -298,6 +298,11 @@ starting bytes is reported from those bytes, not read) and a byte budget
 the run fails with `Read_back_over_budget` before any byte is read. In
 practice only the outputs and the failure record cross the bridge. A slot's
 `Home` comes from the route's `home` argument (default `Any`, first fit).
+The suite's tests are meant to take under three minutes each: its runs have a
+180 s deadline (`CORALNPU_RUN_DEADLINE`), and the five that take longer
+(attention layer, the overlays, the DMA suite's shapes, DTCM staging and the
+DTCM ring) carry the `disabled` tag, which leaves them out of the default run;
+`make coralnpu.soc.rv32.long.runtest` runs them with the deadline raised.
 `make coralnpu.soc.rv32.runtest` (both archives): the bundles on
 `subsystem-vector-normal`, Zve32f, bitwise, beside the standalone
 `rvv-core-mini-axi`. The cycles differ by +1 (relu-then-add, 1916), -78 (conv
@@ -584,6 +589,19 @@ start clears. Descriptors are checked before loading: a length of one to 16 MiB
 manifest marks `dma`. The kernel DSL gained `andi`, `beqz`, `csrr mcycle`,
 `fence` and `sub` for it.
 
+`dma_bench` gives each simulator run a 600 s wall-clock deadline, so a slow or
+stuck run fails instead of stalling a CI job. 180 s was enough on an arm core
+but eight cram tests timed out on the x86-64 CI runner, which is slower. The
+three sweeps over three minutes on an arm core (INT8 and BF16 Zvt, resident A)
+and the binary32 RVV and Zvt multiplies are left out of `make
+coralnpu.dma.runtest` and run by `make coralnpu.dma.long.runtest`, which raises
+the deadline. The default set is sized for the 60-minute CI step: the full set
+took 51 minutes on an arm runner and over 60 on an x86-64 one, about four
+times the time of a development core (14 minutes sequentially, 8 for the
+reduced set). `--term-after-cycles`
+does not help here: with the SPI bridge attached a Vchip stalls at the limit
+rather than exiting, and prints no statistics.
+
 `make coralnpu.dma.runtest` times each transfer inside its kernel (mcycle
 around it; the DMA from the descriptor address written to `done` seen), the
 timings read back over the bridge (`Coral_soc_run.run ~read_back`) and the
@@ -783,8 +801,16 @@ immutable:
   because the test is otherwise disabled without a word) and the RV32 route
   tests.
 - `coralnpu-vme`: the VME core suite (`machine_rivet_riscv32_coral_vme`), about
-  a quarter of an hour of RTL simulation, a job of its own so that it sets the
-  wall clock of nothing else.
+  six minutes of RTL simulation on an arm core, a job of its own so that it sets
+  the wall clock of nothing else. Its three tests over three minutes (the
+  decomposed attention layer, the generated Sdpa, the fused attention) carry the
+  `disabled` tag and run under `make coralnpu.vme.long.runtest`.
+
+The `coralnpu` and `coralnpu-vme` suites follow the same rule: every simulator
+run has a 180 s deadline (`CORALNPU_RUN_DEADLINE` raises it), where it was 120 s
+for the Sdpa kernel harness and 600 s to 1200 s elsewhere, so that a slow arm
+runner shows up as a failed run, not a silent hour. Each coralnpu CI step also
+has a 60 minute `timeout-minutes`.
 - `coralnpu-soc`: the subsystem archive's SoC, DMA, RV32-on-subsystem and
   transfer suites.
 

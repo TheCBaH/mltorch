@@ -91,7 +91,7 @@ let run ?(sram = false) ?(pad = 0) ?(fill = '\000') ?args
     Result.map_error
       (Fmt.str "%a" Coral_run.Run_error.pp)
       (Err.payload
-         (Coral_run.run
+         (Coral_run.run ~deadline:Deadline.seconds
             ~flags:[ Printf.sprintf "--cycles=%d" cycles ]
             ~dir image
             ~bound:(fun i ->

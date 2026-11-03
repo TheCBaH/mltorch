@@ -23,6 +23,7 @@
  (inline_tests
   (deps
    (env_var CORALNPU_DATA)
+   (env_var CORALNPU_RUN_DEADLINE)
    (env_var CORALNPU_SUBSYSTEM_DATA)))
  (preprocess
   (pps ppx_expect))

@@ -22,7 +22,8 @@
   ssa_ir)
  (inline_tests
   (deps
-   (env_var CORALNPU_DATA)))
+   (env_var CORALNPU_DATA)
+   (env_var CORALNPU_RUN_DEADLINE)))
  (preprocess
   (pps ppx_expect))
  (enabled_if

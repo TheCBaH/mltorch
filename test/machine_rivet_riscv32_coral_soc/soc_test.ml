@@ -10,7 +10,7 @@ let subsystem =
   {
     C.Config.dir = Sys.getenv "CORALNPU_SUBSYSTEM_DATA";
     configuration = "subsystem-vector-normal";
-    deadline = 1200.;
+    deadline = Deadline.seconds;
     flags = [];
   }
 
@@ -18,7 +18,7 @@ let standalone =
   {
     C.Config.dir = Sys.getenv "CORALNPU_DATA";
     configuration = "rvv-core-mini-axi";
-    deadline = 1200.;
+    deadline = Deadline.seconds;
     flags = [ "--cycles=500000000" ];
   }
 
@@ -205,7 +205,7 @@ let%expect_test "prepacked weights over SRAM" =
    five eighths of the 32 KiB DTCM its functions share stages B and streams
    A through a ring of what is left; bitwise, against reading both in
    place. *)
-let%expect_test "staging within DTCM" =
+let%expect_test ("staging within DTCM" [@tags "disabled"]) =
   let home (s : Machine_rivet_common.Rivet_table.slot) =
     match s.Machine_rivet_common.Rivet_table.section with
     | Machine_model.Mir_artifact.Section.Bound -> Coral_layout.Home.Ram
@@ -246,7 +246,7 @@ let%expect_test "staging within DTCM" =
    product: a Linear of 192 rows over a packed weight (so B streams
    contiguous rows from SRAM and A gets the DTCM), against A in place;
    then the ring's two obligations, each defect caught. *)
-let%expect_test "A streamed through a DTCM ring" =
+let%expect_test ("A streamed through a DTCM ring" [@tags "disabled"]) =
   let home (s : Machine_rivet_common.Rivet_table.slot) =
     match s.Machine_rivet_common.Rivet_table.section with
     | Machine_model.Mir_artifact.Section.Bound -> Coral_layout.Home.Ram

@@ -152,7 +152,8 @@ let%expect_test "as overlays, both attentions run bitwise" =
   let outputs = List.mapi (fun j _ -> n_in + j) shapes in
   (match
      Err.payload
-       (Coral_soc_run.run ~deadline:3600. ~read_back:outputs ~dir image ~bound)
+       (Coral_soc_run.run ~deadline:Deadline.seconds ~read_back:outputs ~dir
+          image ~bound)
    with
   | Error e -> Fmt.pr "run: %a@." Coral_soc_run.Run_error.pp e
   | Ok o ->

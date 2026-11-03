@@ -129,7 +129,8 @@ let run ?mutation ~configuration d plan =
       List.assoc 2 o.Coral_soc_run.read_back = Bytes.to_string expected,
       o.Coral_soc_run.mcycle )
 
-let%expect_test "the generated function at the DMA suite's shapes" =
+let%expect_test
+    ("the generated function at the DMA suite's shapes" [@tags "disabled"]) =
   List.iter
     (fun (m, n, k) ->
       let d = descriptor ~m ~n ~k in

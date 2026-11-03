@@ -6,7 +6,7 @@ let config configuration =
   {
     C.Config.dir = Sys.getenv "CORALNPU_DATA";
     configuration;
-    deadline = 600.;
+    deadline = Deadline.seconds;
     flags = [];
   }
 

@@ -110,8 +110,8 @@ let run ~configuration ~engine d =
     Result.map_error
       (Fmt.str "%a" Coral_run.Run_error.pp)
       (Err.payload
-         (Coral_run.run ~flags:[ "--cycles=50000000" ] ~dir image
-            ~bound:(function
+         (Coral_run.run ~deadline:Deadline.seconds
+            ~flags:[ "--cycles=50000000" ] ~dir image ~bound:(function
            | 0 -> Some a
            | 1 -> Some b
            | _ -> None)))

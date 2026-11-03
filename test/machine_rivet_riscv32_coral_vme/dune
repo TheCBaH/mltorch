@@ -1,7 +1,7 @@
 ; The VME core (vme-core-mini-axi) suite on the RTL testbench: matrix products,
 ; convolutions, bfloat16 pairs from a model, Sdpa and the fused attention, the
 ; generated exp, softmax and norm, and the attention layers, each bitwise against
-; its reference with the cycles it takes. About a quarter of an hour of
+; its reference with the cycles it takes. About six minutes of
 ; simulation: its own library so CI runs it as its own job (make
 ; coralnpu.vme.runtest). Enabled by CORALNPU_DATA. The 64x64 cases are in
 ; machine_rivet_riscv32_coral_large.
@@ -24,7 +24,8 @@
   ssa_ir)
  (inline_tests
   (deps
-   (env_var CORALNPU_DATA)))
+   (env_var CORALNPU_DATA)
+   (env_var CORALNPU_RUN_DEADLINE)))
  (preprocess
   (pps ppx_expect))
  (enabled_if
