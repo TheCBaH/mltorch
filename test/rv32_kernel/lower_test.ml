@@ -179,7 +179,7 @@ let%expect_test "the error's detection origin is Rivet's, not the adapter's" =
         |> Option.map (Fmt.str "%a" Err.Source.pp)
       in
       Fmt.pr "%s@." (Option.value source ~default:"no source"));
-  [%expect {| targets/riscv_family/riscv_family_encode.ml:1532:25-32 |}]
+  [%expect {| targets/riscv_family/riscv_family_encode.ml:490:25-32 |}]
 
 let plan items =
   match lower items with

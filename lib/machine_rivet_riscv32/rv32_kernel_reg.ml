@@ -89,7 +89,7 @@ module Gpr = struct
         "t6";
       |]
 
-    let rivet n = Riscv32_encode.Reg.X n
+    let rivet n = Riscv32_encode.Reg.x n
   end)
 
   let zero = 0
@@ -166,7 +166,7 @@ module Fpr = struct
         "ft11";
       |]
 
-    let rivet n = Riscv32_encode.Reg.F n
+    let rivet n = Riscv32_encode.Reg.f n
   end)
 
   let ft0 = 0
@@ -243,7 +243,7 @@ module Vreg = struct
         "v31";
       |]
 
-    let rivet n = Riscv32_encode.Reg.V n
+    let rivet n = Riscv32_encode.Reg.v n
   end)
 
   let v0 = 0

@@ -185,18 +185,18 @@ module Extension = struct
         end)
     in
     let operand : Operand.t -> Z.Operand.t = function
-      | Fpr r -> Z.Operand.Reg (Z.Reg.F (Fpr.index r))
-      | Gpr r -> Z.Operand.Reg (Z.Reg.X (Gpr.index r))
+      | Fpr r -> Z.Operand.Reg (Z.Reg.f (Fpr.index r))
+      | Gpr r -> Z.Operand.Reg (Z.Reg.x (Gpr.index r))
       | Imm n -> Z.Operand.Imm (Foundation.Bigint.of_int n)
       | Mem { base; offset } ->
           Z.Operand.Mem
             {
               Z.Mem.offset =
                 Asm_core.Expr.Const (Foundation.Bigint.of_int offset);
-              base = Z.Reg.X (Gpr.index base);
+              base = Z.Reg.x (Gpr.index base);
             }
       | Sym name -> Z.Operand.Sym (Asm_core.Expr.Symbol name)
-      | Vreg r -> Z.Operand.Reg (Z.Reg.V (Vreg.index r))
+      | Vreg r -> Z.Operand.Reg (Z.Reg.v (Vreg.index r))
     in
     let render r =
       Result.map_error

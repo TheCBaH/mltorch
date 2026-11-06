@@ -103,7 +103,7 @@ record lock, released when its process dies.
 
 ## Waveforms
 
-`coralview` (devcontainer pin 7db47b80) reads the VME core's RTL traces:
+`coralview` (devcontainer pin 6bb60f61) reads the VME core's RTL traces:
 `coralview plan --platform vme-core-mini-axi --model commits --model stalls
 --model memory --model tiles --catalog <release>/catalogs/
 vme_core_mini_axi_sim.catalog.fst` selects 118 signals, and the calibration

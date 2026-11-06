@@ -52,7 +52,7 @@ let module_ =
         pre = true;
       }
   in
-  let shift16 k = A.Operand.Shift { A.Shift.kind = "lsl"; amount = k } in
+  let shift16 k = A.Operand.Shift { A.Shift.kind = Lsl; amount = k } in
   let b_cond c l = insn (F.ins (A.Opcode.Bcond c) [ target l ]) in
   let cond n =
     match A.Cond.of_name n with Some c -> c | None -> invalid_arg n

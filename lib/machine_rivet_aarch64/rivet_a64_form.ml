@@ -206,7 +206,7 @@ let access ?index env ~load (m : A.Msz.t) ~rt ~base ~offset =
               Aarch64_encode.Disp.Reg
                 {
                   index = gpr env ~width:32 (loc_view env index);
-                  extend = "sxtw";
+                  extend = Aarch64_encode.Extend.Sxtw;
                   amount;
                 };
             writeback = false;
@@ -276,9 +276,7 @@ let materialize reg value =
   let quarter k =
     Int64.logand (Int64.shift_right_logical value (16 * k)) 0xFFFFL
   in
-  let shift k =
-    O.Shift { Aarch64_encode.Shift.kind = "lsl"; amount = 16 * k }
-  in
+  let shift k = O.Shift { Aarch64_encode.Shift.kind = Lsl; amount = 16 * k } in
   ins Op.Movz [ O.Reg reg; imm (quarter 0) ]
   :: List.filter_map
        (fun k ->
@@ -471,7 +469,7 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
           [
             g env sz (d 0);
             imm_int v;
-            O.Shift { Aarch64_encode.Shift.kind = "lsl"; amount = sh };
+            O.Shift { Aarch64_encode.Shift.kind = Lsl; amount = sh };
           ];
       ]
   | A.Movn (sz, v, sh) ->
@@ -480,7 +478,7 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
           [
             g env sz (d 0);
             imm_int v;
-            O.Shift { Aarch64_encode.Shift.kind = "lsl"; amount = sh };
+            O.Shift { Aarch64_encode.Shift.kind = Lsl; amount = sh };
           ];
       ]
   | A.Movz (ty, v, sh) ->
@@ -494,7 +492,7 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
           [
             g env sz (d 0);
             imm_int v;
-            O.Shift { Aarch64_encode.Shift.kind = "lsl"; amount = sh };
+            O.Shift { Aarch64_encode.Shift.kind = Lsl; amount = sh };
           ];
       ]
   | A.Mrs_fpcr _ -> [ ins Op.Mrs [ g env A.Sz.X (d 0); sym "fpcr" ] ]
