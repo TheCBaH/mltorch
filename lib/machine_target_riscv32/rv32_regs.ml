@@ -16,6 +16,9 @@ let view bank ~bits k =
   | Mir_target.Bank.Vector, 512 ->
       Err.or_raise ~pp_error:Rv32_reg.pp_group_error
         (Rv32_reg.group Mir_target.Span.Four k)
+  | Mir_target.Bank.Vector, 1024 ->
+      Err.or_raise ~pp_error:Rv32_reg.pp_group_error
+        (Rv32_reg.group Mir_target.Span.Eight k)
   | Mir_target.Bank.Flags, _ -> Rv32_reg.flags
   | _ -> invalid_arg "Rv32_regs: no view of that shape"
 
@@ -97,5 +100,39 @@ module Grouped = struct
 
   let allocatable = function
     | Mir_target.Bank.Vector -> [ 0; 1; 2; 3; 4 ] @ Rv32_reg.range 7 23
+    | b -> allocatable b
+end
+
+(* The pool of the eight-register choice (LMUL 8): thirty-two-lane values in
+   the aligned groups v8-v15 and v16-v23, nothing else. A group's copy scratch
+   is v24-v31 and its cycle scratch v0-v7, which the forms also take for v0 in
+   passing (within one instruction, never across a transfer), so two groups
+   are allocatable: two live vectors without a spill, enough for an
+   elementwise add. A route on this pool admits no vector of another width,
+   whose single-register scratch would share v0-v7 with a transfer's cycle. *)
+module Grouped8 = struct
+  let view = view
+  let use_scratch = use_scratch
+  let result_scratch = result_scratch
+
+  let group k =
+    Err.or_raise ~pp_error:Rv32_reg.pp_group_error
+      (Rv32_reg.group Mir_target.Span.Eight k)
+
+  let copy_scratch bank ~bits =
+    match (bank, bits) with
+    | Mir_target.Bank.Vector, 1024 -> group 24
+    | _ -> copy_scratch bank ~bits
+
+  let cycle_scratch bank ~bits =
+    match (bank, bits) with
+    | Mir_target.Bank.Vector, 1024 -> group 0
+    | _ -> cycle_scratch bank ~bits
+
+  let args = args
+  let results = results
+
+  let allocatable = function
+    | Mir_target.Bank.Vector -> Rv32_reg.range 8 23
     | b -> allocatable b
 end

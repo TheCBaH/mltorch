@@ -390,7 +390,11 @@ census slice that will admit it.
   order), and extracts and inserts touch the slice holding the lane. A
   precision conversion changes how many lanes a slice holds, so a widening
   converts each half of a narrow slice (`vslice`) and a narrowing joins two
-  converted halves (`vconcat`). The split program runs on the generic
+  converted halves (`vconcat`). A narrow integer vector smaller than the unit
+  (sixteen 16-bit lanes under 64-byte register groups) is one fractional
+  slice when every value of its type is only widened to 32 bits (no other
+  use, no block parameter or edge): the widening fills whole units, so no
+  fractional value outlives it. The split program runs on the generic
   interpreter against the plan's oracle; swapped or stale slices are caught.
   A mask is split like the vector it was compared from: its lane width is
   that vector's elements', found by a fixpoint from the compares that make

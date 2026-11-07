@@ -84,11 +84,19 @@ let fp32_scalar ?contract ?bf16 ~alias ~vectorized scalar =
     contracted = 0;
   }
 
-let fp32_vector ?(alias = Ssa_effects.Conservative) ?contract ?bf16 ~target
-    (p : Ssa_program.t) =
+let fp32_vector ?(alias = Ssa_effects.Conservative) ?contract ?bf16
+    ?(ordered_sums = false) ~target (p : Ssa_program.t) =
   Result.map
     (fun (q, vectorized) ->
-      if count_vector_loops vectorized = 0 then
+      (* the strict sums in chunks, where the target reduces in order: the
+         same bits as the sequential fold; not under a contracting policy,
+         whose dots the lowering fuses *)
+      let q, sums =
+        if ordered_sums && contract = None then
+          Ssa_vector_sum.ordered_program ~target:(Ssa_target.f32 target) q
+        else (q, [])
+      in
+      if count_vector_loops vectorized = 0 && not (scheduled sums) then
         fp32_scalar ?contract ?bf16 ~alias ~vectorized
           (run ~alias (before ~alias ()) p)
       else
@@ -123,7 +131,7 @@ let fp32_vector ?(alias = Ssa_effects.Conservative) ?contract ?bf16 ~target
           program = q;
           refusal = None;
           vectorized;
-          sums = [];
+          sums;
           blocked;
           contracted = 0;
         })
@@ -257,7 +265,11 @@ let resolve ?target ?(alias = Ssa_effects.Conservative) ?(contractions = false)
             numerics;
           })
   | (Ssa_numerics.Fp32_contracted | Ssa_numerics.Fp32_ordered), Some target -> (
-      match fp32_vector ~alias ?contract ?bf16 ~target p with
+      match
+        fp32_vector ~alias ?contract ?bf16
+          ~ordered_sums:(numerics = Ssa_numerics.Fp32_ordered)
+          ~target p
+      with
       | Ok t -> { t with numerics }
       | Error r -> reference ~alias ~numerics ~refusal:(Some r) p)
 

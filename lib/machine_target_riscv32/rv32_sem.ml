@@ -166,19 +166,18 @@ let vexec env (op : Rv32_vop.t) =
   | V.Vcast (_, a) | V.Vmv a -> [ vec (lanes env a) ]
   | V.Vext { signed; from; first; src } ->
       let l = lanes env src in
+      let n = if Array.length l = 16 && from = Mir_width.W16 then 16 else 4 in
       [
         vec
-          (Array.init 4 (fun j ->
+          (Array.init n (fun j ->
                let x = Mir_width.normalize from l.(first + j) in
                if signed then m32 (Mir_width.signed from x) else x));
       ]
-  | V.Vle_int (w, base) ->
+  | V.Vle_int (w, n, base) ->
       let size = Mir_width.bytes w in
       [
         vec
-          (Array.init
-             (16 / Int64.to_int size)
-             (fun j ->
+          (Array.init n (fun j ->
                E.load env
                  (addr env base (Int64.mul (Int64.of_int j) size))
                  ~bytes:size ~align:1L));
@@ -192,6 +191,13 @@ let vexec env (op : Rv32_vop.t) =
             | Rv32_kind.Shift.Srl -> Int64.shift_right_logical (m32 x) k
             | Rv32_kind.Shift.Sra -> m32 (Int64.shift_right (s32 x) k))
           a;
+      ]
+  | V.Vfredosum (seed, a) ->
+      [
+        b
+          (Array.fold_left
+             (fun acc x -> fop Fop.Add (N.f32 acc) (N.f32 x))
+             (bits env seed) (lanes env a));
       ]
   | V.Vfbin (o, a, b) ->
       [ lanewise2 env (fun x y -> fop o (N.f32 x) (N.f32 y)) a b ]

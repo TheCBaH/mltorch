@@ -82,6 +82,16 @@ let vector st (i : Mir_op.t Mir_instr.t) =
         | t -> refuse st (Refusal.Width t)
       in
       def (V.Vext { signed = k = Mir_op.Iext.Sext; from; first; src = u src })
+  | Mir_op.Iext (k, Mir_width.W32, s) when Mir_type.equal (ty s) V.i16x16 ->
+      (* half a group of 16-bit lanes widened into a whole one *)
+      def
+        (V.Vext
+           {
+             signed = k = Mir_op.Iext.Sext;
+             from = Mir_width.W16;
+             first = 0;
+             src = u s;
+           })
   | Mir_op.Vsplat _ when Option.is_some (shift_count (r ())) ->
       (* the count of the shifts that read it *)
       ()
@@ -168,7 +178,7 @@ let vector st (i : Mir_op.t Mir_instr.t) =
   | Mir_op.Pnot a -> def (V.Vnot (u a))
   | Mir_op.Select (m, a, b) -> def (V.Vmerge (u b, u a, u m))
   | Mir_op.Vextract (lane, a) ->
-      if not (Mir_type.equal (ty a) f32x4) then refuse st (Refusal.Width (ty a));
+      if not (Rv32_vop.is_f32v (ty a)) then refuse st (Refusal.Width (ty a));
       def (V.Vfmv_f_s (Mir_type.Lane.to_int lane, u a))
   | Mir_op.Vinsert (lane, a, x) ->
       if not (Mir_type.equal (ty a) f32x4) then refuse st (Refusal.Width (ty a));
@@ -195,11 +205,18 @@ let vector st (i : Mir_op.t Mir_instr.t) =
           let w =
             match elem with Mir_type.Elem.Int w -> w | _ -> Mir_width.W8
           in
-          if not (Mir_type.equal t (V.int_register w)) then
-            refuse st (Refusal.Width t);
+          if
+            not
+              (Mir_type.equal t (V.int_register w) || Mir_type.equal t V.i16x16)
+          then refuse st (Refusal.Width t);
+          let n =
+            match t with
+            | Mir_type.Vec (_, n) -> Mir_type.Lanes.to_int n
+            | _ -> 0
+          in
           push st ?order
             [ r () ]
-            (Mir_sel.Op.Machine (Rv32_op.Vec (V.Vle_int (w, addr))))
+            (Mir_sel.Op.Machine (Rv32_op.Vec (V.Vle_int (w, n, addr))))
       | 4L, (Mir_type.Elem.F32 | Mir_type.Elem.Int Mir_width.W32) ->
           push st ?order
             [ r () ]

@@ -17,7 +17,7 @@ let vme : Coral_model.Rates.t =
     ("attend.stage_q.ram", 4.418);
     ("class.f32_cos", 276.879);
     ("class.f32_div", 17.081);
-    ("class.f32_exp", 451.507);
+    ("class.f32_exp", 453.662);
     ("class.f32_log", 417.333);
     ("class.f32_op", 5.444);
     ("class.f32_sin", 272.557);
@@ -30,14 +30,14 @@ let vme : Coral_model.Rates.t =
     ("class.store_dtcm", 3.100);
     ("class.store_ram", 7.286);
     ("class.vec_cos", 353.147);
-    ("class.vec_exp", 582.690);
+    ("class.vec_exp", 583.525);
     ("class.vec_f32_div", 9.180);
     ("class.vec_load_dtcm", 3.207);
     ("class.vec_load_ram", 6.438);
-    ("class.vec_load_strided_dtcm", 6.487);
+    ("class.vec_load_strided_dtcm", 6.480);
     ("class.vec_load_strided_ram", 19.324);
     ("class.vec_log", 427.897);
-    ("class.vec_other", 57.556);
+    ("class.vec_other", 58.430);
     ("class.vec_sin", 347.647);
     ("class.vec_sqrt", 12.112);
     ("class.vec_store_dtcm", 3.568);
@@ -45,7 +45,7 @@ let vme : Coral_model.Rates.t =
     ("invocation", 0.000);
     ("overlap", 0.621);
     ("zvt.bf16.cols_k.ram", 4.140);
-    ("zvt.bf16.packed.call", 3218.476);
+    ("zvt.bf16.packed.call", 3215.104);
     ("zvt.bf16.packed.cols_k.ram", 0.384);
     ("zvt.bf16.packed.rows_k.dtcm", 0.322);
     ("zvt.bf16.packed.rows_k.ram", 1.027);
@@ -53,10 +53,10 @@ let vme : Coral_model.Rates.t =
     ("zvt.bf16.rows_k.dtcm", 1.139);
     ("zvt.bf16.rows_k.ram", 4.156);
     ("zvt.bf16.tiles.ram", 269.836);
-    ("zvt.f32.cols_k.dtcm", 0.989);
+    ("zvt.f32.cols_k.dtcm", 0.985);
     ("zvt.f32.cols_k.ram", 4.009);
-    ("zvt.f32.rows_k.dtcm", 1.247);
+    ("zvt.f32.rows_k.dtcm", 1.249);
     ("zvt.f32.rows_k.ram", 4.268);
-    ("zvt.f32.tiles.dtcm", 267.387);
-    ("zvt.f32.tiles.ram", 378.847);
+    ("zvt.f32.tiles.dtcm", 267.910);
+    ("zvt.f32.tiles.ram", 350.773);
   ]

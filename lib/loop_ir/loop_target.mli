@@ -27,6 +27,9 @@ module Op : sig
     | Index_value
     | Logic  (** [Not], [Or] on masks *)
     | Neg_abs
+    | Ordered_reduce
+        (** a vector's lanes added into a scalar in lane order (the SSA
+            planner's strict sum schedule; the Loop planner never asks) *)
     | Round_f32
     | Select
     | Splat

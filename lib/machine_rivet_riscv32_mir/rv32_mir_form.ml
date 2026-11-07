@@ -155,7 +155,10 @@ let fmove rd s =
    (the tail-undisturbed slide of a lane insert) restores LMUL 1. *)
 
 module Vconfig = struct
-  type t = M1  (** LMUL 1, vl 4 *) | M4  (** LMUL 4, vl 16 *)
+  type t =
+    | M1  (** LMUL 1, vl 4 *)
+    | M4  (** LMUL 4, vl 16 *)
+    | M8  (** LMUL 8, vl 32: past [vsetivli]'s immediate *)
 end
 
 let vsetivli ?(config = Vconfig.M1) ?vl ?(tail = "ta") () =
@@ -163,28 +166,62 @@ let vsetivli ?(config = Vconfig.M1) ?vl ?(tail = "ta") () =
     match config with
     | Vconfig.M1 -> (Option.value vl ~default:4, "m1")
     | Vconfig.M4 -> (Option.value vl ~default:16, "m4")
+    | Vconfig.M8 -> (Option.value vl ~default:32, "m8")
   in
   i "vsetivli"
     [ A.reg "zero"; A.imm vl; A.sym "e32"; A.sym lmul; A.sym tail; A.sym "ma" ]
 
-(* The configuration a vector form runs under: LMUL 4 when any of its vector
-   values has sixteen lanes. *)
+(* A configuration's items: [vsetivli], or for vl 32 the count in the
+   reserved scratch and [vsetvli]. *)
+let vconfig (c : Vconfig.t) =
+  match c with
+  | Vconfig.M8 ->
+      let s = Rv32_reg.scratch.Mir_target.View.name in
+      [
+        i "addi" [ A.reg s; A.reg "zero"; A.imm 32 ];
+        i "vsetvli"
+          [
+            A.reg "zero";
+            A.reg s;
+            A.sym "e32";
+            A.sym "m8";
+            A.sym "ta";
+            A.sym "ma";
+          ];
+      ]
+  | Vconfig.M1 | Vconfig.M4 -> [ vsetivli ~config:c () ]
+
+(* The configuration a vector form runs under: LMUL 8 when any of its vector
+   values has thirty-two lanes, LMUL 4 when one has sixteen. *)
 let form_config (op : Rv32_vop.t) =
-  let sixteen (t : Mir_type.t) =
+  let has k (t : Mir_type.t) =
     match Rv32_vop.lanes_of t with
-    | Some n -> Mir_type.Lanes.to_int n = 16
+    | Some n -> Mir_type.Lanes.to_int n = k
     | None -> false
   in
+  let sixteen = has 16 and thirty_two = has 32 in
   let tys =
     List.map (fun (v : Mir_value.t) -> v.Mir_value.ty) (Rv32_vop.uses op)
     @ match Rv32_vop.typing op with Ok ts -> ts | Error _ -> []
   in
-  if List.exists sixteen tys then Vconfig.M4 else Vconfig.M1
+  if List.exists thirty_two tys then Vconfig.M8
+  else if List.exists sixteen tys then Vconfig.M4
+  else Vconfig.M1
 
 let v0 = Rv32_reg.vector_scratch.Mir_target.View.name
 
+(* the grouped choice's group copy scratch (v24-v27), free between moves *)
+let group_scratch =
+  (Machine_target_riscv32.Rv32_regs.Grouped.copy_scratch Mir_target.Bank.Vector
+     ~bits:512)
+    .Mir_target.View.name
+
 let vmove rd s =
   if String.equal rd s then [] else [ i "vmv.v.v" [ A.reg rd; A.reg s ] ]
+
+(* an eight-register group's copy: whole registers, under any configuration *)
+let gmove8 rd s =
+  if String.equal rd s then [] else [ i "vmv8r.v" [ A.reg rd; A.reg s ] ]
 
 (* a group's copy: whole registers, under any configuration *)
 let gmove4 env rd s =
@@ -204,6 +241,8 @@ let vitems env (op : Rv32_vop.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       match nth env "def" defs 0 with
       | Loc.Reg { Mir_target.View.span = Mir_target.Span.Four; _ } ->
           gmove4 env (d 0) (u 0)
+      | Loc.Reg { Mir_target.View.span = Mir_target.Span.Eight; _ } ->
+          gmove8 (d 0) (u 0)
       | _ -> vmove (d 0) (u 0))
   | V.Vext { signed; from; first; _ } ->
       let ext =
@@ -228,15 +267,16 @@ let vitems env (op : Rv32_vop.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
           vsetivli ();
           i ext [ rd 0; A.reg v0 ];
         ]
-  | V.Vle_int (w, _) ->
+  | V.Vle_int (w, n, _) ->
+      (* a register, or half a group at LMUL 2 *)
       let b = Mir_width.bits w in
       [
         i "vsetivli"
           [
             A.reg "zero";
-            A.imm (128 / b);
+            A.imm n;
             A.sym (Printf.sprintf "e%d" b);
-            A.sym "m1";
+            A.sym (if n * b > 128 then "m2" else "m1");
             A.sym "ta";
             A.sym "ma";
           ];
@@ -256,11 +296,27 @@ let vitems env (op : Rv32_vop.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
   | V.Vfcvt_f_x _ -> [ i "vfcvt.f.x.v" [ rd 0; ru 0 ] ]
   | V.Vfcvt_x_f _ -> [ i "vfcvt.rtz.x.f.v" [ rd 0; ru 0 ] ]
   | V.Vfmacc _ -> [ i "vfmacc.vv" [ rd 0; ru 1; ru 2 ] ]
-  | V.Vfmv_f_s (0, _) -> [ i "vfmv.f.s" [ rd 0; ru 0 ] ]
-  | V.Vfmv_f_s (k, _) ->
+  | V.Vfredosum _ ->
       [
-        i "vslidedown.vi" [ A.reg v0; ru 0; A.imm k ];
+        i "vfmv.s.f" [ A.reg v0; ru 0 ];
+        (* ordered by contract: qemu and Coral's RVV core reduce the
+           unordered form in element order too, so no executor here tells the
+           two apart *)
+        i "vfredosum.vs" [ A.reg v0; ru 1; A.reg v0 ];
         i "vfmv.f.s" [ rd 0; A.reg v0 ];
+      ]
+  | V.Vfmv_f_s (0, _) -> [ i "vfmv.f.s" [ rd 0; ru 0 ] ]
+  | V.Vfmv_f_s (k, a) ->
+      (* a register's lane slides into v0; a group's, at LMUL 4 and whatever
+         VLEN, into the group copy scratch, where nothing is allocated *)
+      let scratch =
+        match Rv32_vop.lanes_of a.Mir_value.ty with
+        | Some n when Mir_type.Lanes.to_int n >= 16 -> group_scratch
+        | _ -> v0
+      in
+      [
+        i "vslidedown.vi" [ A.reg scratch; ru 0; A.imm k ];
+        i "vfmv.f.s" [ rd 0; A.reg scratch ];
       ]
   | V.Vfmv_v_f _ -> [ i "vfmv.v.f" [ rd 0; ru 0 ] ]
   | V.Vfsqrt _ -> [ i "vfsqrt.v" [ rd 0; ru 0 ] ]
@@ -391,6 +447,17 @@ let transfer env ~(dst : Loc.t) ~(src : Loc.t) : Item.t list =
     when d.Mir_target.View.bank = Mir_target.Bank.Vector
          && d.Mir_target.View.span = Mir_target.Span.Four ->
       gmove4 env d.Mir_target.View.name s.Mir_target.View.name
+  | Loc.Reg d, Loc.Reg s
+    when d.Mir_target.View.bank = Mir_target.Bank.Vector
+         && d.Mir_target.View.span = Mir_target.Span.Eight ->
+      gmove8 d.Mir_target.View.name s.Mir_target.View.name
+  | Loc.Reg d, Loc.Mem { base; offset; bytes = 128L } ->
+      (* an eight-group's thirty-two lanes, under LMUL 8 *)
+      address ~base offset
+      @ [ i "vle32.v" [ A.reg d.Mir_target.View.name; A.mem scratch 0 ] ]
+  | Loc.Mem { base; offset; bytes = 128L }, Loc.Reg s ->
+      address ~base offset
+      @ [ i "vse32.v" [ A.reg s.Mir_target.View.name; A.mem scratch 0 ] ]
   | Loc.Reg d, Loc.Reg s when d.Mir_target.View.bank = Mir_target.Bank.Vector ->
       vmove d.Mir_target.View.name s.Mir_target.View.name
   | Loc.Reg d, Loc.Mem { base; offset; bytes = 64L } ->
@@ -468,10 +535,21 @@ let requirement (instr : Rv32_op.t Mir_phys.Instr.t) =
     | Loc.Reg v -> v.Mir_target.View.bank = Mir_target.Bank.Vector
     | _ -> false
   in
-  let group (l : Loc.t) =
+  let span (l : Loc.t) =
     match l with
-    | Loc.Reg v -> v.Mir_target.View.span = Mir_target.Span.Four
+    | Loc.Reg v when v.Mir_target.View.bank = Mir_target.Bank.Vector ->
+        Some v.Mir_target.View.span
+    | _ -> None
+  in
+  let group l =
+    match span l with
+    | Some (Mir_target.Span.Four | Mir_target.Span.Eight) -> true
     | _ -> false
+  in
+  let config_of l =
+    match span l with
+    | Some Mir_target.Span.Eight -> Vconfig.M8
+    | _ -> Vconfig.M4
   in
   match instr with
   | Mir_phys.Instr.Exec
@@ -480,12 +558,14 @@ let requirement (instr : Rv32_op.t Mir_phys.Instr.t) =
       { instr = { Mir_instr.op = Mir_sel.Op.Machine (O.Vec x); _ }; _ }
   | Mir_phys.Instr.Late { op = O.Vec x; _ } -> (
       match x with
-      | (Rv32_vop.Vcast _ | Rv32_vop.Vmv _) when form_config x = Vconfig.M4 ->
+      | (Rv32_vop.Vcast _ | Rv32_vop.Vmv _)
+        when form_config x = Vconfig.M4 || form_config x = Vconfig.M8 ->
           None
       | _ -> Some (form_config x))
   | Mir_phys.Instr.Move { dst; src; _ } | Mir_phys.Instr.Save { dst; src } ->
       if group dst && group src then None
-      else if group dst || group src then Some Vconfig.M4
+      else if group dst then Some (config_of dst)
+      else if group src then Some (config_of src)
       else if vreg dst || vreg src then Some Vconfig.M1
       else None
   | _ -> None

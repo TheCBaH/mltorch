@@ -222,7 +222,7 @@ let integer_lanes =
       (fun w ->
         inst ~memory:true
           (Fmt.str "vle%d.v" (Mir_width.bits w))
-          (Vo.Vle_int (w, ptr))
+          (Vo.Vle_int (w, 128 / Mir_width.bits w, ptr))
           [ base ]
           [ Vn (4, w) ]
           [ [] ])

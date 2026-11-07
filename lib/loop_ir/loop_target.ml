@@ -13,6 +13,7 @@ module Op = struct
     | Index_value
     | Logic
     | Neg_abs
+    | Ordered_reduce
     | Round_f32
     | Select
     | Splat
@@ -40,6 +41,7 @@ module Op = struct
       Index_value;
       Logic;
       Neg_abs;
+      Ordered_reduce;
       Round_f32;
       Select;
       Splat;
@@ -67,6 +69,7 @@ module Op = struct
     | Index_value -> "index_value"
     | Logic -> "logic"
     | Neg_abs -> "neg_abs"
+    | Ordered_reduce -> "ordered_reduce"
     | Round_f32 -> "round_f32"
     | Select -> "select"
     | Splat -> "splat"
@@ -112,6 +115,7 @@ let scalar_cost ~precision = function
   | Op.Add | Op.Sub | Op.Mul | Op.Neg_abs | Op.Logic | Op.Const | Op.Select
   | Op.Float_max | Op.Value_compare | Op.Splat | Op.Index_value ->
       1.
+  | Op.Ordered_reduce -> 1.
   | Op.Fma ->
       (* a multiply and an add when there is no fused instruction *)
       2.
@@ -191,7 +195,7 @@ let native_cost ~vector_bits ~precision ~lanes op =
   in
   match op with
   | Op.Add | Op.Sub | Op.Mul | Op.Neg_abs | Op.Logic | Op.Const | Op.Select
-  | Op.Float_max | Op.Value_compare | Op.Fma ->
+  | Op.Float_max | Op.Value_compare | Op.Fma | Op.Ordered_reduce ->
       regs
   | Op.Div | Op.Sqrt_trunc -> 2. *. regs
   | Op.Round_f32 -> (
@@ -209,7 +213,8 @@ let native_cost ~vector_bits ~precision ~lanes op =
       scalar_cost ~precision op
 
 let native = function
-  | Op.Bool_store | Op.Strided_load | Op.Strided_store | Op.Transcendental ->
+  | Op.Bool_store | Op.Ordered_reduce | Op.Strided_load | Op.Strided_store
+  | Op.Transcendental ->
       false
   | _ -> true
 

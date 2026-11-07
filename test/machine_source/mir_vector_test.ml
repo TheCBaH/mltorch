@@ -123,3 +123,20 @@ let%expect_test "16-byte slices: swapped or stale slices are caught" =
     {|
     ok (f32, 6 vector operations) DISAGREE oracle vs split: output t2[12]: -0x1.6ffcb8p+3:f32 vs -0x1.eaa644p+1:f32
     ok (f32, 6 vector operations) DISAGREE oracle vs split: output t2[0]: -0x1.eaa644p+1:f32 vs -0x1.55b3d2p+2:f32 |}]
+
+(* Thirty-two logical lanes ([neon128_x32]): eight 16-byte slices a vector;
+   the split mutations are caught there too. *)
+let%expect_test "32 lanes in 16-byte slices" =
+  let m, k, n = (3, 5, 37) in
+  let a = operand 3 (m * k) and b = operand 5 (k * n) in
+  let target = Ssa_ir.Ssa_target.forced Ssa_ir.Ssa_target.neon128_x32 in
+  show ~target (matmul_kernel ~m ~k ~n) ~bind:(matmul_bind ~m ~k ~n ~a ~b);
+  List.iter
+    (fun mutation ->
+      show ~target ~split_mutation:mutation (matmul_kernel ~m ~k ~n)
+        ~bind:(matmul_bind ~m ~k ~n ~a ~b))
+    Machine_ir.Mir_vsplit.Mutation.[ Stale_slice; Swapped_slices ];
+  [%expect {|
+    ok (f32, 6 vector operations)
+    ok (f32, 6 vector operations) DISAGREE oracle vs split: output t2[28]: -0x1.ad5184p+3:f32 vs 0x1.c9cb2ap+4:f32
+    ok (f32, 6 vector operations) DISAGREE oracle vs split: output t2[0]: 0x1.c9cb2ap+4:f32 vs 0x1.1a8fc4p+4:f32 |}]

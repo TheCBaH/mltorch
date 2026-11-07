@@ -155,6 +155,51 @@ let program ?mutation ~register_bytes (g : Mir_verify.Generic.t) =
       if !changed then propagate ()
     in
     propagate ();
+    (* A narrow integer vector smaller than a register unit (sixteen bfloat16
+       lanes under register groups) may stay one fractional slice when every
+       value of its type is only ever widened to 32 bits: the widening fills
+       whole registers again, so no fractional value lives past it. *)
+    let widened_only =
+      let bad = Hashtbl.create 4 in
+      let narrow (v : Mir_value.t) =
+        match v.Mir_value.ty with
+        | Mir_type.Vec (Mir_type.Elem.Int (Mir_width.W8 | Mir_width.W16), _) ->
+            true
+        | _ -> false
+      in
+      List.iter
+        (fun (b : (Mir_op.t, Mir_terminator.t) Mir_block.t) ->
+          List.iter
+            (fun v -> if narrow v then Hashtbl.replace bad v.Mir_value.ty ())
+            b.Mir_block.params;
+          List.iter
+            (fun (i : Mir_op.t Mir_instr.t) ->
+              match i.Mir_instr.op with
+              | Mir_op.Iext (_, Mir_width.W32, _) -> ()
+              | op ->
+                  List.iter
+                    (fun v ->
+                      if narrow v then Hashtbl.replace bad v.Mir_value.ty ())
+                    (Mir_op.operands op))
+            b.Mir_block.body;
+          List.iter
+            (fun (e : Mir_edge.t) ->
+              List.iter
+                (fun v ->
+                  if narrow v then Hashtbl.replace bad v.Mir_value.ty ())
+                e.Mir_edge.args)
+            (Mir_terminator.edges b.Mir_block.terminator))
+        f.Mir_func.blocks;
+      fun ty -> not (Hashtbl.mem bad ty)
+    in
+    let shape (ty : Mir_type.t) =
+      match ty with
+      | Mir_type.Vec ((Mir_type.Elem.Int (Mir_width.W8 | Mir_width.W16) as e), n)
+        when let k = per e and n = Mir_type.Lanes.to_int n in
+             n < k && k mod n = 0 && widened_only ty ->
+          (ty, 1, Mir_type.Lanes.to_int n)
+      | _ -> shape ty
+    in
     (* a value's slice type and count: a mask's is its compared elements' *)
     let shape_of (v : Mir_value.t) =
       match v.Mir_value.ty with

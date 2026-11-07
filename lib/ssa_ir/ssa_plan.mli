@@ -74,14 +74,18 @@ val fp32_vector :
   ?alias:Ssa_effects.policy ->
   ?contract:Contraction.Numerics.t ->
   ?bf16:Contraction.Numerics.t ->
+  ?ordered_sums:bool ->
   target:Ssa_target.t ->
   Ssa_program.t ->
   (t, Ssa_numerics.Refusal.t) result
 (** The [Fp32_ordered] vector plan: the exact binary32 form vectorized with only
-    binary32 vectors admitted, then the row blocking and the clean-up passes. A
-    kernel with no vector loop is the scalar [Fp32_ordered] plan. The plan holds
-    no binary64 vector ({!Ssa_numerics.wide_values}): [Invalid_argument] if it
-    would. [Error] when admission refuses. *)
+    binary32 vectors admitted, then the row blocking and the clean-up passes.
+    [ordered_sums] (default [false]; {!resolve} sets it under [Fp32_ordered])
+    also schedules the strict sums in chunks ({!Ssa_vector_sum.ordered_program})
+    where the target reduces in order. A kernel with no vector loop and no
+    scheduled sum is the scalar [Fp32_ordered] plan. The plan holds no binary64
+    vector ({!Ssa_numerics.wide_values}): [Invalid_argument] if it would.
+    [Error] when admission refuses. *)
 
 val binary32_scalar :
   ?alias:Ssa_effects.policy -> Ssa_program.t -> Ssa_program.t

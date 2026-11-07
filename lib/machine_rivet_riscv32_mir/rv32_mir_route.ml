@@ -16,6 +16,9 @@ module Ls = Machine_alloc.Mir_linear_scan.Make (Rv32) (Rv32_regs)
 module Ls_grouped =
   Machine_alloc.Mir_linear_scan.Make (Rv32) (Rv32_regs.Grouped)
 
+module Ls_grouped8 =
+  Machine_alloc.Mir_linear_scan.Make (Rv32) (Rv32_regs.Grouped8)
+
 module Sch = Machine_alloc.Mir_schedule.Make (Rv32)
 module Fr = Machine_alloc.Mir_frame.Make (Rv32) (Rv32_frame)
 module Pub = Machine_model.Mir_artifact.Make (Rv32)
@@ -40,10 +43,14 @@ end
    binary32 lanes, or an aligned group of four registers of sixteen (LMUL 4),
    which only the scanned allocator places. *)
 module Registers = struct
-  type t = Grouped | Single
+  type t = Grouped | Grouped8 | Single
 
-  let name = function Grouped -> "grouped" | Single -> "single"
-  let bytes = function Grouped -> 64L | Single -> 16L
+  let name = function
+    | Grouped -> "grouped"
+    | Grouped8 -> "grouped8"
+    | Single -> "single"
+
+  let bytes = function Grouped -> 64L | Grouped8 -> 128L | Single -> 16L
 end
 
 type published = {
@@ -68,7 +75,7 @@ let publish ?select_mutation ?scan_mutation ?(registers = Registers.Single)
   in
   let* v, phys =
     match (allocation, registers) with
-    | Allocation.Reference, Registers.Grouped ->
+    | Allocation.Reference, (Registers.Grouped | Registers.Grouped8) ->
         Error "the reference allocator does not allocate register groups"
     | Allocation.Reference, Registers.Single ->
         Ok (res.Rv32_select.selected, A.allocate res.Rv32_select.selected)
@@ -83,6 +90,8 @@ let publish ?select_mutation ?scan_mutation ?(registers = Registers.Single)
           ( s,
             match registers with
             | Registers.Grouped -> Ls_grouped.allocate ?mutation:scan_mutation s
+            | Registers.Grouped8 ->
+                Ls_grouped8.allocate ?mutation:scan_mutation s
             | Registers.Single -> Ls.allocate ?mutation:scan_mutation s )
   in
   let* real =
@@ -302,6 +311,7 @@ let route ?mutation ?kernel_mutation ?select_mutation ?scan_mutation ?registers
           (Allocation.name allocation)
           (match registers with
           | Some Registers.Grouped -> " grouped"
+          | Some Registers.Grouped8 -> " grouped8"
           | Some Registers.Single | None -> "");
       exec =
         (fun ~sites g ->

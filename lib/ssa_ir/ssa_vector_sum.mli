@@ -51,3 +51,13 @@ val program : target:Ssa_target.t -> Ssa_program.t -> Ssa_program.t * report
 (** Schedules every eligible sum that is not inside a vector loop. The result
     verifies. The caller decides whether the numerical policy permits it:
     {!Ssa_numerics.reassociation_permitted}. *)
+
+val ordered_program :
+  target:Ssa_target.t -> Ssa_program.t -> Ssa_program.t * report
+(** The strict schedule, under an ordered policy, on a target whose
+    [Ordered_reduce] is [Native]: a binary32 sum's terms in chunks of the
+    target's lanes, each chunk one vector of terms added into the carried sum
+    lane by lane in lane order, then the leftover terms in order. The same
+    additions in the same order as the sequential fold, so the same bits; a
+    backend turns each chunk's lane chain into one ordered reduction. A
+    scheduled sum's decision has [parts = 1]. *)

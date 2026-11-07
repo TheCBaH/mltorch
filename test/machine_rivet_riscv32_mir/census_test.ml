@@ -129,8 +129,8 @@ let%expect_test "forms of the matrix products" =
       instructions 133, configurations 0, spills 0, reloads 0, remats 0, frame 48 bytes, helper calls 0
       vector none
     linear 7x29 k63 bias, zve32f128:
-      instructions 229, configurations 4, spills 0, reloads 0, remats 0, frame 64 bytes, helper calls 0
-      vector vfadd.vv 8, vfmul.vv 4, vfmv.v.f 5, vle32.v 4, vlse32.v 4, vmv.v.v 4, vse32.v 4
+      instructions 219, configurations 5, spills 0, reloads 0, remats 0, frame 96 bytes, helper calls 0
+      vector vfadd.vv 8, vfmul.vv 8, vfmv.f.s 4, vfmv.s.f 4, vfmv.v.f 5, vfredosum.vs 4, vle32.v 12, vlse32.v 4, vmv.v.v 4, vse32.v 4
     bmm 1x9x32 k64, scalar:
       instructions 77, configurations 0, spills 0, reloads 0, remats 0, frame 32 bytes, helper calls 0
       vector none
@@ -141,8 +141,8 @@ let%expect_test "forms of the matrix products" =
       instructions 138, configurations 0, spills 0, reloads 0, remats 0, frame 64 bytes, helper calls 0
       vector none
     bmm 3x7x29 k63, zve32f128:
-      instructions 205, configurations 4, spills 0, reloads 0, remats 0, frame 80 bytes, helper calls 0
-      vector vfadd.vv 4, vfmul.vv 4, vfmv.v.f 5, vle32.v 4, vmv.v.v 4, vse32.v 4 |}]
+      instructions 216, configurations 5, spills 0, reloads 0, remats 0, frame 80 bytes, helper calls 0
+      vector vfadd.vv 4, vfmul.vv 8, vfmv.f.s 4, vfmv.s.f 4, vfmv.v.f 5, vfredosum.vs 4, vle32.v 8, vlse32.v 4, vmv.v.v 4, vse32.v 4 |}]
 
 (* The fused vector multiply-add under each binary32 policy, on the Zve32f
    plans of the matrix products: the ordered policy never fuses; the
@@ -210,14 +210,14 @@ let%expect_test "forms with register groups" =
       instructions 159, configurations 6 (m4 6), spills 1, reloads 1, remats 0, frame 128 bytes, helper calls 0
       vector vfadd.vv 6, vfmul.vv 3, vfmv.v.f 4, vle32.v 4, vlse32.v 3, vmv4r.v 4, vse32.v 4
     linear 7x29 k63 bias:
-      instructions 182, configurations 3 (m4 3), spills 0, reloads 0, remats 0, frame 64 bytes, helper calls 0
-      vector vfadd.vv 2, vfmul.vv 1, vfmv.v.f 2, vle32.v 1, vlse32.v 1, vmv4r.v 1, vse32.v 1
+      instructions 146, configurations 4 (m4 4), spills 0, reloads 0, remats 0, frame 64 bytes, helper calls 0
+      vector vfadd.vv 2, vfmul.vv 2, vfmv.f.s 1, vfmv.s.f 1, vfmv.v.f 2, vfredosum.vs 1, vle32.v 3, vlse32.v 1, vmv4r.v 1, vse32.v 1
     bmm 1x9x32 k64:
       instructions 138, configurations 6 (m4 6), spills 1, reloads 1, remats 0, frame 112 bytes, helper calls 0
       vector vfadd.vv 3, vfmul.vv 3, vfmv.v.f 4, vle32.v 4, vmv4r.v 4, vse32.v 4
     bmm 3x7x29 k63:
-      instructions 173, configurations 3 (m4 3), spills 0, reloads 0, remats 0, frame 80 bytes, helper calls 0
-      vector vfadd.vv 1, vfmul.vv 1, vfmv.v.f 2, vle32.v 1, vmv4r.v 1, vse32.v 1 |}]
+      instructions 151, configurations 4 (m4 4), spills 0, reloads 0, remats 0, frame 80 bytes, helper calls 0
+      vector vfadd.vv 1, vfmul.vv 2, vfmv.f.s 1, vfmv.s.f 1, vfmv.v.f 2, vfredosum.vs 1, vle32.v 2, vlse32.v 1, vmv4r.v 1, vse32.v 1 |}]
 
 (* Where a block's items get a configuration: before the first that needs
    one, wherever the need changes, and again after a call; under the stale
@@ -228,7 +228,11 @@ let%expect_test "configuration settings" =
     Fmt.pr "%s@."
       (String.concat " "
          (List.map
-            (function Some V.M1 -> "m1" | Some V.M4 -> "m4" | None -> "-")
+            (function
+              | Some V.M1 -> "m1"
+              | Some V.M4 -> "m4"
+              | Some V.M8 -> "m8"
+              | None -> "-")
             (Machine_rivet_riscv32_mir.Rv32_mir_module.configurations ?mutation
                items)))
   in

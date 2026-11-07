@@ -225,9 +225,7 @@ let func_items env relocations (f : (Rv32_op.t, Rv32_op.test) Mir_phys.Func.t) =
           List.concat
             (List.map2
                (fun i set ->
-                 (match set with
-                   | Some c -> [ F.vsetivli ~config:c () ]
-                   | None -> [])
+                 (match set with Some c -> F.vconfig c | None -> [])
                  @ of_instr i)
                body settings)
         in

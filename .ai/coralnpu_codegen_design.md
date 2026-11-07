@@ -954,10 +954,55 @@ against the reference's 350, 38 cycles per 32 elements with the memory port
 allocation and emission (load, load, load, add, load, store, add, store), so
 no Machine IR scheduler was needed. Four copies measured 478.
 
+The relaxed policy's scheduled sums run under register groups too: their
+horizontal combine extracts lanes of a sixteen-lane group, which selection
+accepted only from one register. A group's lane `k` slides down at LMUL 4 into
+the group copy scratch (v24-v27, never allocated) and moves from its element 0,
+so it holds at any VLEN; the first attempt, lane `k mod 4` of register
+`k / 4`, was right at VLEN 128 only and the qemu suite at VLEN 1024 caught it.
+Relaxed RMS norm at LMUL 4 on the RTL: 1,781 / 744 / 785 cycles (2x160, 1x67,
+1x33; the first two were refused before).
+
+The bfloat16 fixtures run under register groups too. Sixteen bfloat16 lanes
+are 32 bytes, half a group, which `Mir_vsplit` refused; a narrow integer
+vector smaller than the register unit now stays one fractional slice when
+every value of its type is only widened to 32 bits, so nothing fractional
+lives past the widening. RV32 holds it in a whole group, loads it with
+`vle16.v` at e16/m2 (`Vle_int` carries its lane count) and widens it with
+`vzext.vf2` at e32/m4 into a whole group, before the `vsll.vi` by 16. No
+`vfwcvtbf16` is used (m3 and m4 trap on it). Bitwise on qemu at VLEN 128 and
+1024, MPACT m3 and the RTL; residual add bf16 at LMUL 4: 691 / 287 / 177
+cycles (LMUL 1: 1,451 / 439 / 253), tanh GELU mul bf16 35,729 at 2x160.
+
+The strict sums reduce in order on the vector unit: `vfredosum.vs` measured
+3.2 cycles an element at LMUL 4 (3.75 at LMUL 1) against the scalar chain's
+15 (a hand-written probe, N against 2N trips). Strict RMS norm at LMUL 4:
+2,130 / 685 / 435 cycles (from 5,755 / 1,858 / 988), 3,250 over the three
+shapes against the reference's 1,464 and the relaxed policy's 3,310, bitwise.
+
+Thirty-two binary32 lanes a vector iteration (`Ssa_target.neon128_x32`,
+`zve32f128_x32`) plan and split generically: eight 16-byte slices a vector,
+bitwise on generic, aarch64, x86_64, RV32 and qemu at VLEN 128 and 1024, and
+the slice mutations caught at eight slices. On RV32 such a vector can live
+in one group of eight registers (LMUL 8, `Rv32_mir_route.Registers.Grouped8`,
+`Rv32_regs.Grouped8`): allocatable groups v8-v15 and v16-v23, copy scratch
+v24-v31, cycle scratch v0-v7 (also the forms' v0, within an instruction only),
+so the pool admits only thirty-two-lane vectors, whose transfers never meet a
+single-register scratch (decision Q4: the two-group pool; a third group
+would need a spill-slot cycle break or a scratch-free swap in the
+allocator). `vl` 32 is past `vsetivli`'s immediate, so the configuration is
+`vsetvli` from the reserved scratch; copies are `vmv8r.v`, spills 128-byte
+`vle32`/`vse32` under LMUL 8, a lane extract slides within the group into the
+copy scratch. Bitwise on qemu at VLEN 128 and 1024, MPACT m3 and the RTL for
+the kernels whose forms need at most two groups at once; the others are
+refused (an operand the allocator leaves in a slot, which the physical
+verifier rejects, or a frame past the code model). Residual add at LMUL 8:
+398 / 208 / 139 cycles, the 2x160 kernel window 343 against the reference's
+350, the memory port 73% busy; RMS norm 2,098 / 678 / 431.
+
 Register groups (LMUL 4) take binary32 residual add from 1,611 to 1,120
 cycles, RMS norm from 9,128 to 8,601, tanh GELU mul from 73,260 to
-48,746. The bfloat16 variants are refused under groups (a 16-lane bfloat16
-vector fills no whole number of registers).
+48,746.
 
 Where the residual add's cycles go (a `coralview commits` trace of the RTL run,
 2x160 at LMUL 4): 25 cycles a 16-lane trip, a serial chain of `vsetivli`, a

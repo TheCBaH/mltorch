@@ -139,7 +139,7 @@ let%expect_test "register groups on MPACT" =
         ~oracle:T.Fp32 ~constant:T.positive ~calls:1
         (Fmt.str "mpact-m3, grouped, %s" name)
         g)
-    (T.vector_fixtures @ T.contraction_fixtures);
+    (T.vector_fixtures @ T.contraction_fixtures @ T.transformer_bf16_fixtures);
   [%expect
     {|
     mpact-m3, grouped, relu then add over C=32 (2 invocations): bitwise
@@ -150,7 +150,16 @@ let%expect_test "register groups on MPACT" =
     mpact-m3, grouped, linear 9x32 k64 bias (1 invocations): bitwise
     mpact-m3, grouped, linear 7x29 k63 bias (1 invocations): bitwise
     mpact-m3, grouped, bmm 1x9x32 k64 (1 invocations): bitwise
-    mpact-m3, grouped, bmm 3x7x29 k63 (1 invocations): bitwise |}]
+    mpact-m3, grouped, bmm 3x7x29 k63 (1 invocations): bitwise
+    mpact-m3, grouped, residual add bf16 2x160 (1 invocations): bitwise
+    mpact-m3, grouped, residual add bf16 1x67 (1 invocations): bitwise
+    mpact-m3, grouped, residual add bf16 1x33 (1 invocations): bitwise
+    mpact-m3, grouped, rms norm bf16 2x160 (1 invocations): bitwise
+    mpact-m3, grouped, rms norm bf16 1x67 (1 invocations): bitwise
+    mpact-m3, grouped, rms norm bf16 1x33 (1 invocations): bitwise
+    mpact-m3, grouped, tanh gelu mul bf16 2x160 (2 invocations): bitwise
+    mpact-m3, grouped, tanh gelu mul bf16 1x67 (2 invocations): bitwise
+    mpact-m3, grouped, tanh gelu mul bf16 1x33 (2 invocations): bitwise |}]
 
 (* [on_elf] hands over the image each run loads, once per run: a two-node
    bundle runs twice. *)
@@ -202,6 +211,34 @@ let%expect_test "fast sequences on MPACT" =
     softmax over H, W=32, mpact-m3 zve32f128 (1 invocations): bitwise
     tanh gelu mul 1x67, mpact-m3 zve32f128 (2 invocations): bitwise
     tanh gelu mul bf16 1x33, mpact-m3 zve32f128 (2 invocations): bitwise |}]
+
+(* Thirty-two-lane plans in groups of eight registers (LMUL 8) on MPACT. *)
+let%expect_test "groups of eight on MPACT" =
+  List.iter
+    (fun (name, g) ->
+      if
+        String.starts_with ~prefix:"residual add" name
+        || String.starts_with ~prefix:"rms norm" name
+      then
+        T.check
+          ~route:
+            (C.route
+               ~registers:
+                 Machine_rivet_riscv32_mir.Rv32_mir_route.Registers.Grouped8
+               (config "mpact-m3"))
+          ~pipeline:(planned Ssa_ir.Ssa_target.zve32f128_x32)
+          ~oracle:T.Fp32 ~constant:T.positive ~calls:1
+          (Fmt.str "mpact-m3, m8, %s" name)
+          g)
+    T.transformer_fixtures;
+  [%expect
+    {|
+    mpact-m3, m8, residual add 2x160 (1 invocations): bitwise
+    mpact-m3, m8, residual add 1x67 (1 invocations): bitwise
+    mpact-m3, m8, residual add 1x33 (1 invocations): bitwise
+    mpact-m3, m8, rms norm 2x160 (1 invocations): bitwise
+    mpact-m3, m8, rms norm 1x67 (1 invocations): bitwise
+    mpact-m3, m8, rms norm 1x33 (1 invocations): bitwise |}]
 
 (* The DMA engine is the subsystem's: a core without one refuses [~dma:Allowed]
    before running, and [Forbidden] is the in-place route it always was. *)

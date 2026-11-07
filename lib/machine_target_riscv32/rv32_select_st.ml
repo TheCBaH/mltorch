@@ -59,7 +59,79 @@ type st = {
           the first lane and the register *)
   shift_counts : (int, int64) Hashtbl.t;
       (** an integer splat read only as a lane shift count: the count *)
+  reductions : (int, Mir_value.t * Mir_value.t) Hashtbl.t;
+      (** the last add of a chain [acc + lane k] over every lane of one vector
+          in lane order: its seed and the vector, one [vfredosum.vs] *)
+  reduced : (int, unit) Hashtbl.t;
+      (** the chains' other adds and their extracts: made by the reduction *)
 }
+
+(* The ordered lane chains of [f]: [acc = acc + vextract(k, v)] for k = 0 ..
+   n - 1 of one binary32 vector, each step's sum and extract read only by the
+   next step. A chain's last add, keyed by its result, gives the seed and the
+   vector; every other step and extract is listed as made by it. *)
+let ordered_chains (f : (Mir_op.t, Mir_terminator.t) Mir_func.t) =
+  let key (v : Mir_value.t) = Mir_id.Value.to_int v.Mir_value.id in
+  let readers = Hashtbl.create 64 and defs = Hashtbl.create 64 in
+  let read v =
+    Hashtbl.replace readers (key v)
+      (1 + Option.value ~default:0 (Hashtbl.find_opt readers (key v)))
+  in
+  List.iter
+    (fun (b : (Mir_op.t, Mir_terminator.t) Mir_block.t) ->
+      List.iter
+        (fun (i : Mir_op.t Mir_instr.t) ->
+          List.iter read (Mir_op.operands i.Mir_instr.op);
+          match i.Mir_instr.results with
+          | [ r ] -> Hashtbl.replace defs (key r) i.Mir_instr.op
+          | _ -> ())
+        b.Mir_block.body;
+      List.iter read (Mir_terminator.operands b.Mir_block.terminator))
+    f.Mir_func.blocks;
+  let once v = Hashtbl.find_opt readers (key v) = Some 1 in
+  let lanes (v : Mir_value.t) =
+    match v.Mir_value.ty with
+    | Mir_type.Vec (Mir_type.Elem.F32, n) -> Mir_type.Lanes.to_int n
+    | _ -> 0
+  in
+  let step (acc : Mir_value.t) =
+    match Hashtbl.find_opt defs (key acc) with
+    | Some (Mir_op.Fbinary (Mir_op.Fbinary.Add, a, x)) -> (
+        match Hashtbl.find_opt defs (key x) with
+        | Some (Mir_op.Vextract (lane, v)) when once x ->
+            Some (a, x, Mir_type.Lane.to_int lane, v)
+        | _ -> None)
+    | _ -> None
+  in
+  let finals = Hashtbl.create 8 and made = Hashtbl.create 32 in
+  Hashtbl.iter
+    (fun r _ ->
+      let r_value =
+        (* the result as a value: its key is all a lookup needs *)
+        { Mir_value.id = Mir_id.Value.of_int r; ty = Mir_type.F32 }
+      in
+      match step r_value with
+      | Some (_, _, k, v) when k = lanes v - 1 && k > 0 -> (
+          (* walk back to lane 0 *)
+          let rec back acc k inner =
+            match step acc with
+            | Some (a, x, k', v') when k' = k && Mir_value.equal v' v ->
+                if k = 0 then Some (a, acc :: x :: inner)
+                else if once a then back a (k - 1) (acc :: x :: inner)
+                else None
+            | _ -> None
+          in
+          match back r_value k [] with
+          | Some (seed, parts) ->
+              Hashtbl.replace finals r (seed, v);
+              List.iter
+                (fun (p : Mir_value.t) ->
+                  if key p <> r then Hashtbl.replace made (key p) ())
+                parts
+          | None -> ())
+      | _ -> ())
+    defs;
+  (finals, made)
 
 let key (v : Mir_value.t) = Mir_id.Value.to_int v.Mir_value.id
 let refuse st r = Err.Escape.throw st.esc r

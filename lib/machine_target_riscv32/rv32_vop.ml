@@ -36,6 +36,10 @@ type t =
   | Vfmacc of v * v * v
       (** [vfmacc.vv]: [acc + a * b] a lane, one rounding, tied to the
           accumulator *)
+  | Vfredosum of v * v
+      (** sequence: [vfmv.s.f] of the seed into v0, [vfredosum.vs] of the vector
+          into it, [vfmv.f.s]: the seed plus every lane in lane order, each
+          addition rounded *)
   | Vfmv_f_s of int * v
       (** sequence: [vslidedown.vi] into v0 then [vfmv.f.s]: a lane *)
   | Vfmv_v_f of Mir_type.t * v
@@ -45,9 +49,10 @@ type t =
       (** sequence: the vector with one lane replaced by the binary32, through
           [vfmv.s.f] into v0 and a tail-undisturbed [vslideup.vi] *)
   | Vle32 of Mir_type.t * v  (** [vle32.v]: four lanes from the address *)
-  | Vle_int of Mir_width.t * v
-      (** sequence: a whole register of i8 or i16 lanes ([vle8.v], [vle16.v])
-          under their own configuration, which is then restored *)
+  | Vle_int of Mir_width.t * int * v
+      (** sequence: [lanes] i8 or i16 lanes ([vle8.v], [vle16.v]), a whole
+          register or sixteen 16-bit lanes (half a group, at LMUL 2, only ever
+          widened), under their own configuration, which is then restored *)
   | Vlogic of Logic.t * v * v  (** on masks or int32 lanes *)
   | Vlse32 of Mir_type.t * v * v
       (** [vlse32.v]: lane [k] at the address plus [k] times the stride *)
@@ -69,7 +74,7 @@ let uses = function
       [ a; b ]
   | Vcast (_, a)
   | Vext { src = a; _ }
-  | Vle_int (_, a)
+  | Vle_int (_, _, a)
   | Vshift (_, _, a)
   | Vfcvt_f_x a
   | Vfcvt_x_f a
@@ -81,7 +86,8 @@ let uses = function
   | Vmv_v_x (_, a)
   | Vnot a ->
       [ a ]
-  | Vinsert (_, a, b) | Vlse32 (_, a, b) | Vse32 (a, b) -> [ a; b ]
+  | Vfredosum (a, b) | Vinsert (_, a, b) | Vlse32 (_, a, b) | Vse32 (a, b) ->
+      [ a; b ]
   | Vfmacc (a, b, c) | Vmerge (a, b, c) | Vsse32 (a, b, c) -> [ a; b; c ]
 
 let ordered = function
@@ -98,8 +104,13 @@ let f32x4 = Mir_type.Vec (Mir_type.Elem.F32, lanes4)
 let i32x4 = Mir_type.Vec (Mir_type.Elem.Int Mir_width.W32, lanes4)
 let mask4 = Mir_type.Mask lanes4
 
-(* The lane counts a form may have: one register, or a group of four. *)
-let lane_counts = [ 4; 16 ]
+(* sixteen 16-bit lanes: half a group, only ever widened *)
+let i16x16 =
+  Mir_type.Vec (Mir_type.Elem.Int Mir_width.W16, Mir_type.Lanes.of_int 16)
+
+(* The lane counts a form may have: one register, or a group of four or of
+   eight. *)
+let lane_counts = [ 4; 16; 32 ]
 let counted n = List.mem (Mir_type.Lanes.to_int n) lane_counts
 let f32v n = Mir_type.Vec (Mir_type.Elem.F32, n)
 let i32v n = Mir_type.Vec (Mir_type.Elem.Int Mir_width.W32, n)
@@ -152,14 +163,18 @@ let typing op =
   | Vext { from; first; src; _ } ->
       let* () =
         need
-          (narrow_int from
-          && is (ty src) (int_register from)
-          && first >= 0
-          && first mod 4 = 0
-          && first + 4 <= if from = Mir_width.W8 then 16 else 8)
+          ((narrow_int from
+           && is (ty src) (int_register from)
+           && first >= 0
+           && first mod 4 = 0
+           && first + 4 <= if from = Mir_width.W8 then 16 else 8)
+          || (from = Mir_width.W16 && is (ty src) i16x16 && first = 0))
           "extended lanes"
       in
-      Ok [ i32x4 ]
+      Ok
+        [
+          (if is (ty src) i16x16 then i32v (Mir_type.Lanes.of_int 16) else i32x4);
+        ]
   | Vfbin (_, a, b) | Vsgnj (_, a, b) ->
       let* () = need (fv a && same a b) "vector operands" in
       Ok [ ty a ]
@@ -175,8 +190,21 @@ let typing op =
   | Vfmacc (acc, a, b) ->
       let* () = need (fv acc && same acc a && same acc b) "vfmacc operands" in
       Ok [ ty acc ]
+  | Vfredosum (seed, a) ->
+      let* () =
+        need (is (ty seed) Mir_type.F32 && is_f32v (ty a)) "ordered reduction"
+      in
+      Ok [ Mir_type.F32 ]
   | Vfmv_f_s (k, a) ->
-      let* () = need (lane_ok k && is (ty a) f32x4) "lane extract" in
+      (* a lane of one register, or of a group of four (the lane's own
+         register, at LMUL 1) *)
+      let* () =
+        need
+          (is_f32v (ty a)
+          && k >= 0
+          && k < Mir_type.Lanes.to_int (Option.get (lanes_of (ty a))))
+          "lane extract"
+      in
       Ok [ Mir_type.F32 ]
   | Vfmv_v_f (t, a) ->
       let* () = need (is (ty a) Mir_type.F32 && is_f32v t) "splat source" in
@@ -195,10 +223,16 @@ let typing op =
       let* () = need (is (ty base) Mir_type.Ptr) "vle32 address" in
       let* () = need (is_f32v t || is_i32v t) "vle32 lanes" in
       Ok [ t ]
-  | Vle_int (w, base) ->
+  | Vle_int (w, n, base) ->
       let* () = need (is (ty base) Mir_type.Ptr) "vle address" in
       let* () = need (narrow_int w) "integer register width" in
-      Ok [ int_register w ]
+      let t = Mir_type.Vec (Mir_type.Elem.Int w, Mir_type.Lanes.of_int n) in
+      let* () =
+        need
+          (is t (int_register w) || (w = Mir_width.W16 && n = 16))
+          "integer register lanes"
+      in
+      Ok [ t ]
   | Vlogic (_, a, b) ->
       let* () =
         need
@@ -260,6 +294,7 @@ let pp pv fmt op =
         (if signed then 's' else 'z')
         (Mir_width.name from) first pv src
   | Vfbin (o, a, b) -> Fmt.pf fmt "%s %a" (Fop.vname o) vs [ a; b ]
+  | Vfredosum (s, a) -> Fmt.pf fmt "vfredosum.vs %a" vs [ s; a ]
   | Vfcmp (o, a, b) -> Fmt.pf fmt "%s.lanes %a" (Fcmp.vname o) vs [ a; b ]
   | Vfcvt_f_x a -> Fmt.pf fmt "vfcvt.f.x.v %a" pv a
   | Vfcvt_x_f a -> Fmt.pf fmt "vfcvt.rtz.x.f.v %a" pv a
@@ -269,7 +304,8 @@ let pp pv fmt op =
   | Vfsqrt a -> Fmt.pf fmt "vfsqrt.v %a" pv a
   | Vinsert (k, a, x) -> Fmt.pf fmt "vinsert %a[%d], %a" pv a k pv x
   | Vle32 (t, base) -> Fmt.pf fmt "vle32.v.%a (%a)" Mir_type.pp t pv base
-  | Vle_int (w, base) -> Fmt.pf fmt "vle%d.v (%a)" (Mir_width.bits w) pv base
+  | Vle_int (w, n, base) ->
+      Fmt.pf fmt "vle%d.v x%d (%a)" (Mir_width.bits w) n pv base
   | Vlogic (o, a, b) -> Fmt.pf fmt "%s %a" (Logic.name o) vs [ a; b ]
   | Vlse32 (t, base, s) ->
       Fmt.pf fmt "vlse32.v.%a (%a), %a" Mir_type.pp t pv base pv s

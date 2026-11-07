@@ -197,7 +197,8 @@ let ordered = function
 let vector_scratch (x : Rv32_vop.t) =
   match x with
   | Rv32_vop.Vext { first; _ } when first <> 0 -> [ Rv32_reg.vector_scratch ]
-  | Rv32_vop.Vfcmp _ | Rv32_vop.Vinsert _ | Rv32_vop.Vmerge _ ->
+  | Rv32_vop.Vfcmp _ | Rv32_vop.Vfredosum _ | Rv32_vop.Vinsert _
+  | Rv32_vop.Vmerge _ ->
       [ Rv32_reg.vector_scratch ]
   | Rv32_vop.Vfmv_f_s (k, _) when k <> 0 -> [ Rv32_reg.vector_scratch ]
   | Rv32_vop.Vcast _ | Rv32_vop.Vext _ | Rv32_vop.Vfbin _ | Rv32_vop.Vfcvt_f_x _

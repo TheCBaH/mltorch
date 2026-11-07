@@ -42,7 +42,8 @@ let%expect_test "unrolled vector loops are the binary32 oracle" =
       ("neon128", Ssa_ir.Ssa_target.neon128);
       ("zve32f128", Ssa_ir.Ssa_target.zve32f128);
     ];
-  [%expect {|
+  [%expect
+    {|
     relu then add over C=32, neon128 x2, generic (2 invocations): bitwise
     relu then add over C=32, neon128 x2, aarch64 scanned (2 invocations): bitwise
     relu then add over C=32, neon128 x2, x86_64 scanned (2 invocations): bitwise

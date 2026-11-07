@@ -27,6 +27,9 @@ module Op : sig
     | Index_value
     | Logic  (** [Not], [Or] on masks *)
     | Neg_abs
+    | Ordered_reduce
+        (** a vector's lanes added into a scalar in lane order, each addition
+            rounded: the strict reduction ([vfredosum]) *)
     | Round_f32
     | Select
     | Splat
@@ -108,6 +111,14 @@ val zve32f128 : t
     costs are unmeasured. Vector loops unroll twice: on Coral's RVV core a
     residual add at LMUL 4 measured 568, 448 and 478 cycles at one, two and four
     copies (LMUL 1: 909, 869, 879). *)
+
+val neon128_x32 : t
+(** {!neon128} planning thirty-two binary32 lanes (eight registers) a vector
+    iteration. *)
+
+val zve32f128_x32 : t
+(** {!zve32f128} planning thirty-two binary32 lanes: eight registers, or one
+    group of eight (LMUL 8) where a route allocates them; not unrolled. *)
 
 val scalar : t
 (** A target with no vector unit: every operation [Expanded] at the scalar cost,

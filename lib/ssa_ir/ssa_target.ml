@@ -18,6 +18,9 @@ module Op = struct
     | Index_value
     | Logic
     | Neg_abs
+    | Ordered_reduce
+        (** a vector's lanes added into a scalar in lane order, each addition
+            rounded: the strict reduction ([vfredosum]) *)
     | Round_f32
     | Select
     | Splat
@@ -45,6 +48,7 @@ module Op = struct
       Index_value;
       Logic;
       Neg_abs;
+      Ordered_reduce;
       Round_f32;
       Select;
       Splat;
@@ -72,6 +76,7 @@ module Op = struct
     | Index_value -> "index_value"
     | Logic -> "logic"
     | Neg_abs -> "neg_abs"
+    | Ordered_reduce -> "ordered_reduce"
     | Round_f32 -> "round_f32"
     | Select -> "select"
     | Splat -> "splat"
@@ -114,6 +119,9 @@ let reg_lanes ~precision bits =
 let scalar_cost ~precision = function
   | Op.Add | Op.Sub | Op.Mul | Op.Neg_abs | Op.Logic | Op.Const | Op.Select
   | Op.Float_max | Op.Value_compare | Op.Splat | Op.Index_value ->
+      1.
+  | Op.Ordered_reduce ->
+      (* one ordered add a lane *)
       1.
   | Op.Fma ->
       (* a multiply and an add when there is no fused instruction *)
@@ -195,7 +203,7 @@ let native_cost ~vector_bits ~precision ~lanes op =
   in
   match op with
   | Op.Add | Op.Sub | Op.Mul | Op.Neg_abs | Op.Logic | Op.Const | Op.Select
-  | Op.Float_max | Op.Value_compare | Op.Fma ->
+  | Op.Float_max | Op.Value_compare | Op.Fma | Op.Ordered_reduce ->
       regs
   | Op.Div | Op.Sqrt_trunc -> 2. *. regs
   | Op.Round_f32 -> (
@@ -212,8 +220,12 @@ let native_cost ~vector_bits ~precision ~lanes op =
       (* never native *)
       scalar_cost ~precision op
 
+(* An ordered reduction is a chain of lane extracts and adds unless the target
+   reduces in order itself: only Zve32f ([vfredosum.vs], measured on Coral's
+   RVV core at 3.2 cycles an element against the scalar chain's 15). *)
 let native = function
-  | Op.Bool_store | Op.Strided_load | Op.Strided_store | Op.Transcendental ->
+  | Op.Bool_store | Op.Ordered_reduce | Op.Strided_load | Op.Strided_store
+  | Op.Transcendental ->
       false
   | _ -> true
 
@@ -236,15 +248,14 @@ let wasm128_relaxed =
   in
   relaxed base
 
-let neon128 =
+let neon ~f32_lanes ~name =
   let vector_bits = 128 in
   (* Nested vector loops lose on native binary64 (measured) and win in
      binary32, where sixteen independent cells hide each sum's latency. *)
   make
     ~inner_loops:(function
       | Ssa_numerics.Precision.F32 -> true | Ssa_numerics.Precision.F64 -> false)
-    ~fma:true ~row_block:2 ~name:"neon128" ~vector_bits ~f64_lanes:4
-    ~f32_lanes:16 ~native
+    ~fma:true ~row_block:2 ~name ~vector_bits ~f64_lanes:4 ~f32_lanes ~native
     ~native_cost:(fun ~precision ~lanes op ->
       native_cost ~vector_bits ~precision ~lanes op)
     Ssa_numerics.Precision.F64
@@ -257,7 +268,7 @@ let neon128 =
    expanded and nothing vectorizes. Not measured: qemu's timing means nothing
    for an RV32 core, so the planning numbers are neon128's binary32 ones until
    the Coral NPU simulators measure them. *)
-let zve32f128 =
+let zve32f ~f32_lanes ~unroll ~name =
   let vector_bits = 128 in
   let native = function
     | Op.Bool_store | Op.Transcendental -> false
@@ -290,9 +301,13 @@ let zve32f128 =
        ~inner_loops:(function
          | Ssa_numerics.Precision.F32 -> true
          | Ssa_numerics.Precision.F64 -> false)
-       ~fma:true ~row_block:2 ~unroll:2 ~name:"zve32f128" ~vector_bits
-       ~f64_lanes:4 ~f32_lanes:16 ~native ~native_cost
-       Ssa_numerics.Precision.F64)
+       ~fma:true ~row_block:2 ~unroll ~name ~vector_bits ~f64_lanes:4 ~f32_lanes
+       ~native ~native_cost Ssa_numerics.Precision.F64)
+
+let neon128 = neon ~f32_lanes:16 ~name:"neon128"
+let neon128_x32 = neon ~f32_lanes:32 ~name:"neon128_x32"
+let zve32f128 = zve32f ~f32_lanes:16 ~unroll:2 ~name:"zve32f128"
+let zve32f128_x32 = zve32f ~f32_lanes:32 ~unroll:1 ~name:"zve32f128_x32"
 
 let rec scalar =
   {

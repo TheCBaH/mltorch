@@ -43,6 +43,14 @@ let shape (ty : Machine_ir.Mir_type.t) =
       (* a group of four registers: [Rv32_regs.Grouped] allocates them *)
       Some (Machine_ir.Mir_target.Bank.Vector, 512)
   | Machine_ir.Mir_type.Vec
+      ( ( Machine_ir.Mir_type.Elem.F32
+        | Machine_ir.Mir_type.Elem.Int Machine_ir.Mir_width.W32 ),
+        n )
+  | Machine_ir.Mir_type.Mask n
+    when Machine_ir.Mir_type.Lanes.to_int n = 32 ->
+      (* a group of eight registers: [Rv32_regs.Grouped8] allocates them *)
+      Some (Machine_ir.Mir_target.Bank.Vector, 1024)
+  | Machine_ir.Mir_type.Vec
       (Machine_ir.Mir_type.Elem.Int Machine_ir.Mir_width.W8, n)
     when Machine_ir.Mir_type.Lanes.to_int n = 16 ->
       Some (Machine_ir.Mir_target.Bank.Vector, 128)
@@ -50,6 +58,11 @@ let shape (ty : Machine_ir.Mir_type.t) =
       (Machine_ir.Mir_type.Elem.Int Machine_ir.Mir_width.W16, n)
     when Machine_ir.Mir_type.Lanes.to_int n = 8 ->
       Some (Machine_ir.Mir_target.Bank.Vector, 128)
+  | Machine_ir.Mir_type.Vec
+      (Machine_ir.Mir_type.Elem.Int Machine_ir.Mir_width.W16, n)
+    when Machine_ir.Mir_type.Lanes.to_int n = 16 ->
+      (* half a group, held in a whole one: loaded and widened at once *)
+      Some (Machine_ir.Mir_target.Bank.Vector, 512)
   | _ -> None
 
 (* A frame access: offsets up to 2047 encode; up to 4094 the emitter adds 2047

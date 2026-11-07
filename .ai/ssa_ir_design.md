@@ -349,6 +349,22 @@ its own name becomes its interface and hides its siblings (the lowering is
   (horizontal total plus the tail folded in order). The oracle evaluates exactly
   this definition scalar by scalar, so a regrouping error shows as a bitwise
   mismatch rather than a tolerance miss.
+- **Strict sums as ordered vector reductions** (`Ssa_vector_sum.ordered_program`,
+  `Fp32_ordered`, only where the target's `Ordered_reduce` is `Native`:
+  Zve32f). A binary32 sum's terms are taken in chunks of the target's lanes:
+  each chunk's terms as one vector (the body vectorized at the chunk's base,
+  lane by lane the scalar terms), then added into the carried sum one lane
+  at a time in lane order (an extract and an add a lane), then the leftover
+  terms as the original sum. The same additions in the same order as the
+  sequential fold, so no new operation and no new oracle: every engine runs
+  it bitwise as it is, and a target turns the lane chain into one ordered
+  reduction (RV32 selection: a chain over every lane of one register or
+  group, each step read only by the next, is `vfredosum.vs`). On targets
+  without it the chain would cost more than the scalar fold, hence the gate.
+  The plan's dedicated `Vec_sum_ordered` operation was not needed. Adding the
+  lanes in reverse order fails the matmul and RMS suites; the unordered
+  `vfredusum.vs` gives the same bits on qemu and Coral's RVV core, so no
+  executor distinguishes it and the ordered instruction is used by contract.
 - **Contraction** (`Ssa_opt_contract`, relaxed policy, targets with a fused
   operation). `a + x * y` becomes one `Float_fma` with the product on the right
   taken first; a scalar flag selects scalar contraction for targets whose fused

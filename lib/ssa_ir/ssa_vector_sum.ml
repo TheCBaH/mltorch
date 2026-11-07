@@ -295,6 +295,182 @@ let schedule ~(target : Ssa_target.t) info t (s : Ssa_region.t Ssa_stmt.t) =
   | Ssa_stmt.Instr _ | Ssa_stmt.For _ | Ssa_stmt.If _ ->
       invalid_arg "Ssa_vector_sum.schedule: not a sum"
 
+(* The strict schedule of an [Ordered_sum] of binary32 terms: chunks of [lanes]
+   iterations, each chunk's terms computed as one vector (the body vectorized
+   at the chunk's base, exactly the scalar terms lane by lane), then added into
+   the carried sum one lane at a time in lane order (an extract and an add a
+   lane: the same additions in the same order as the sequential fold, so the
+   same bits), then the leftover iterations as the original sum seeded with
+   it. Only on a target whose [Ordered_reduce] is [Native], where a backend
+   turns the lane chain into one ordered reduction ([vfredosum]). *)
+let ordered ~(target : Ssa_target.t) info t (s : Ssa_region.t Ssa_stmt.t) =
+  match s with
+  | Ssa_stmt.Ordered_sum f ->
+      (match f.seed.Ssa_value.ty with
+      | Ssa_type.Scalar Ssa_type.F32 -> ()
+      | _ -> keep Reason.Term_uniform);
+      if target.Ssa_target.support Ssa_target.Op.Ordered_reduce <> Native then
+        keep Reason.Lanes_declined;
+      let n =
+        match Ssa_range.trips info.ranges ~lo:f.lo ~hi:f.hi ~step:1L with
+        | Ssa_range.Exactly n -> n
+        | Ssa_range.Zero | Ssa_range.At_least_one | Ssa_range.Unknown ->
+            keep Reason.Non_constant_bounds
+      in
+      let lo_c =
+        match Ssa_range.range info.ranges f.lo with
+        | Ssa_range.Range r -> r.lo
+        | Ssa_range.Empty -> keep Reason.Non_constant_bounds
+      in
+      let lanes = target.Ssa_target.lanes in
+      let width = Ssa_type.Lanes.to_int lanes in
+      if width < 2 then keep Reason.Lanes_declined;
+      let full = Int64.to_int (Int64.div n (Int64.of_int width)) in
+      if full < 1 then keep (Reason.Too_short { trips = n; lanes });
+      if
+        List.exists
+          (function Ssa_stmt.Instr _ -> false | _ -> true)
+          f.body.Ssa_region.body
+      then keep Reason.Body_statement;
+      let iv, eff_param =
+        match f.body.Ssa_region.params with
+        | [ iv; e ] -> (iv, e)
+        | _ -> invalid_arg "Ssa_vector_sum: a sum's parameters"
+      in
+      let term, chain =
+        match f.body.Ssa_region.yields with
+        | [ term; chain ] -> (term, chain)
+        | _ -> invalid_arg "Ssa_vector_sum: a sum's yields"
+      in
+      let kinds = Hashtbl.create 32 in
+      let cx =
+        make_ctx ~t ~program:info.program ~kinds ~consts:info.consts ~lanes
+          ~trips:(fun _ -> 16)
+      in
+      let idx_ty = Ssa_type.Scalar Ssa_type.Index in
+      let elt = f.seed.Ssa_value.ty in
+      let const_stmt ty c =
+        let v = Ssa_rewrite.fresh t ty in
+        (v, instr ~results:[ v ] (Ssa_op.Const c))
+      in
+      let part ~base ~eff =
+        Hashtbl.replace kinds (base.Ssa_value.id :> int) (Aff 1L);
+        let cl = Ssa_clone.create t ~subst:[ (iv, base); (eff_param, eff) ] in
+        let stmts = Ssa_clone.stmts cl f.body.Ssa_region.body in
+        let term' = Ssa_clone.value cl term
+        and chain' = Ssa_clone.value cl chain in
+        (try List.iter (classify_stmt kinds) stmts
+         with Refuse r -> keep (Reason.Unsupported r));
+        if kind_of kinds term' <> Vec then keep Reason.Term_uniform;
+        let out, v =
+          try
+            in_region cx (fun () ->
+                List.iter (emit_stmt cx) stmts;
+                vec_of cx term')
+          with Refuse r -> keep (Reason.Unsupported r)
+        in
+        (out, v, chain')
+      in
+      let probe_base, _ = const_stmt idx_ty (Ssa_const.Index lo_c) in
+      ignore (part ~base:probe_base ~eff:eff_param);
+      if not (List.mem_assoc Ssa_target.Op.Contiguous_load cx.ops) then
+        keep Reason.Contiguous_load_missing;
+      cx.ops <- [];
+      let out = ref [] in
+      let emit s = out := s :: !out in
+      let zero_i, zero_s = const_stmt idx_ty (Ssa_const.Index 0L) in
+      let hi_i, hi_s =
+        const_stmt idx_ty (Ssa_const.Index (Int64.of_int full))
+      in
+      let lo_v, lo_s = const_stmt idx_ty (Ssa_const.Index lo_c) in
+      emit zero_s;
+      emit hi_s;
+      emit lo_s;
+      let c = Ssa_rewrite.fresh t idx_ty in
+      let acc_in = Ssa_rewrite.fresh t elt in
+      let eff_in = Ssa_rewrite.fresh t Ssa_type.Effect in
+      let saved = !out in
+      out := [];
+      let scaled = Ssa_rewrite.fresh t idx_ty in
+      emit
+        (instr ~results:[ scaled ]
+           (Ssa_op.Index_scale_in_domain (Int64.of_int width, c)));
+      let base = Ssa_rewrite.fresh t idx_ty in
+      emit (instr ~results:[ base ] (Ssa_op.Index_add_in_domain (lo_v, scaled)));
+      let body, vec, chain' = part ~base ~eff:eff_in in
+      List.iter emit body;
+      let acc =
+        List.fold_left
+          (fun acc k ->
+            let x = Ssa_rewrite.fresh t elt in
+            emit
+              (instr ~results:[ x ]
+                 (Ssa_op.Vec_extract
+                    { lane = Ssa_type.Lane.of_int k; vector = vec }));
+            let r = Ssa_rewrite.fresh t elt in
+            emit
+              (instr ~results:[ r ]
+                 (Ssa_op.Float_binary (Expr.Value.Add, acc, x)));
+            r)
+          acc_in (List.init width Fun.id)
+      in
+      let loop_body = List.rev !out in
+      out := saved;
+      let acc_out = Ssa_rewrite.fresh t elt in
+      let eff_out = Ssa_rewrite.fresh t Ssa_type.Effect in
+      emit
+        (Ssa_stmt.For
+           {
+             lo = zero_i;
+             hi = hi_i;
+             step = 1L;
+             inits = [ f.seed; f.token ];
+             results = [ acc_out; eff_out ];
+             body =
+               {
+                 Ssa_region.id =
+                   (let id, nx =
+                      Ssa_id.Region.Next.alloc t.Ssa_rewrite.next_region
+                    in
+                    t.Ssa_rewrite.next_region <- nx;
+                    id);
+                 params = [ c; acc_in; eff_in ];
+                 body = loop_body;
+                 yields = [ acc; chain' ];
+               };
+           });
+      let tail =
+        Int64.sub n (Int64.mul (Int64.of_int full) (Int64.of_int width))
+      in
+      let result, eff =
+        if Int64.equal tail 0L then (acc_out, eff_out)
+        else
+          let tlo, tlo_s =
+            const_stmt idx_ty
+              (Ssa_const.Index (Int64.add lo_c (Int64.of_int (full * width))))
+          in
+          emit tlo_s;
+          let cl = Ssa_clone.create t ~subst:[] in
+          let sum = Ssa_rewrite.fresh t elt in
+          let e = Ssa_rewrite.fresh t Ssa_type.Effect in
+          emit
+            (Ssa_stmt.Ordered_sum
+               {
+                 lo = tlo;
+                 hi = f.hi;
+                 seed = acc_out;
+                 token = eff_out;
+                 results = [ sum; e ];
+                 body = Ssa_clone.region cl f.body;
+               });
+          (sum, e)
+      in
+      Ssa_rewrite.alias t ~from:(List.hd f.results) ~to_:result;
+      Ssa_rewrite.alias t ~from:(List.nth f.results 1) ~to_:eff;
+      List.rev !out
+  | Ssa_stmt.Instr _ | Ssa_stmt.For _ | Ssa_stmt.If _ ->
+      invalid_arg "Ssa_vector_sum.ordered: not a sum"
+
 (* Whether a loop is itself a vector loop: its iterations step by more than
    one, and its own body (not a loop nested in it) holds a vector operation.
    The vectorizer makes exactly that shape; a scalar loop whose body only
@@ -358,6 +534,44 @@ let program ~target (p : Ssa_program.t) =
         | parts, stmts ->
             Ssa_rewrite.mark_changed t;
             decide (Decision.Scheduled { parts });
+            stmts
+        | exception Kept r ->
+            decide (Decision.Kept_sequential r);
+            [ s ])
+    | Ssa_stmt.Ordered_sum _ | Ssa_stmt.For _ | Ssa_stmt.If _ | Ssa_stmt.Instr _
+      ->
+        [ s ]
+  in
+  let q, _ = Ssa_rewrite.program rule p in
+  (match Err.payload (Ssa_verify.check q) with
+  | Ok () -> ()
+  | Error e ->
+      invalid_arg
+        (Fmt.str "Ssa_vector_sum returned a program that does not verify: %a"
+           Ssa_verify.pp_error e));
+  (q, List.rev !decisions)
+
+let ordered_program ~target (p : Ssa_program.t) =
+  let info = survey p in
+  let inside = under_vector_loops p in
+  let decisions = ref [] in
+  let rule t (s : Ssa_region.t Ssa_stmt.t) =
+    match s with
+    | Ssa_stmt.Ordered_sum { body; lo; hi; _ }
+      when not (Hashtbl.mem inside (body.Ssa_region.id :> int)) -> (
+        let trips =
+          match Ssa_range.trips info.ranges ~lo ~hi ~step:1L with
+          | Ssa_range.Exactly n -> n
+          | Ssa_range.Zero | Ssa_range.At_least_one | Ssa_range.Unknown -> 0L
+        in
+        let decide outcome =
+          decisions :=
+            { Decision.loop = body.Ssa_region.id; trips; outcome } :: !decisions
+        in
+        match ordered ~target info t s with
+        | stmts ->
+            Ssa_rewrite.mark_changed t;
+            decide (Decision.Scheduled { parts = 1 });
             stmts
         | exception Kept r ->
             decide (Decision.Kept_sequential r);
